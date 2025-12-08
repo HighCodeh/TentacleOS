@@ -24,6 +24,7 @@ idf_component_register(SRCS
   "spi/spi.c"
   "i2c_init/i2c_init.c"
   "tusb_desc/tusb_desc.c"
+  "buttons_gpio/buttons_gpio.c"
 
   INCLUDE_DIRS 
   "bq25896/include"
@@ -37,10 +38,12 @@ idf_component_register(SRCS
   "i2c_init/include"
   "backlight/include"
   "tusb_desc/include"
+  "buttons_gpio/include"
 
   REQUIRES 
   driver
   Service
-  PRIV_REQUIRES 
+  esp_lcd
+  PRIV_REQUIRES
   esp_tinyusb
   "espressif__led_strip")
