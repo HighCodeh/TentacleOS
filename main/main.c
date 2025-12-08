@@ -1,20 +1,14 @@
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "driver/gpio.h"
-#include "driver/spi_master.h"
-#include "led_strip.h"
-#include "led_strip_rmt.h"
-#include "st7789.h"
-#include "home.h"
-#include "buzzer.h"
-#include "menu.h"
 #include "kernel.h"
+#include "ui_manager.h"
 
 
 void app_main(void) {
 
-    kernel_init();
+  kernel_init();
 
-    xTaskCreate(menu_task, "menu_task", 4096, NULL, 5, NULL);
+  // this init the RTOS task
+  ui_init();
 }
