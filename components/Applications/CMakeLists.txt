@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+file(GLOB_RECURSE HOME_SRCS "ui/screens/home/*.c")
+
 
 idf_component_register(SRCS 
   "home/home.c"
@@ -38,6 +40,8 @@ idf_component_register(SRCS
   "bluetooth/bluetooth_scanner.c"
   "bluetooth/bluetooth_menu.c"
   "bluetooth/rssi_analyser.c"
+  "ui/ui_manager.c"
+  ${HOME_SRCS}
 
   INCLUDE_DIRS 
   "home/include"
@@ -55,6 +59,9 @@ idf_component_register(SRCS
   "battery_ui/include"
   "sd_browser/include"
   "bluetooth/include"
+  "ui/include"
+  "ui/screens/home/include"
+
 
   REQUIRES 
   driver
@@ -66,4 +73,3 @@ idf_component_register(SRCS
   bt
 )
 target_link_libraries(${COMPONENT_LIB} -Wl,-zmuldefs)
-
