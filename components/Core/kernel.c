@@ -20,7 +20,6 @@
 #include "buzzer.h"
 #include "spi.h"
 #include "i2c_init.h"
-#include "home.h"
 #include "led_control.h"
 #include "pin_def.h" 
 #include "st7789.h"
@@ -30,6 +29,8 @@
 #include "wifi_service.h" 
 #include "storage_init.h"
 #include "storage_assets.h"
+#include "lv_port_disp.h"
+#include "lv_port_indev.h"
 #include "ram_monitor.h"
 
 void kernel_init(void) {
@@ -54,8 +55,13 @@ void kernel_init(void) {
     led_rgb_init();
     buzzer_boot_sequence();
     bq25896_init();
-    
+   
+    // display and graphical api init
     st7789_init();
+    lv_init();
+    lv_port_indev_init();
+    lv_port_disp_init();
+
     ram_monitor();
     
     vTaskDelay(pdMS_TO_TICKS(1500));
