@@ -12,16 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/**
- * @file vfs_core.c
- * @brief Virtual File System implementation
- */
-
 #include "vfs_core.h"
 #include "esp_log.h"
 #include <string.h>
 #include <stdlib.h>
-#include <fcntl.h>
 
 static const char *TAG = "vfs_core";
 
@@ -99,26 +93,6 @@ static vfs_file_descriptor_t* get_fd(int fd)
     return &s_fd_table[fd];
 }
 
-static int vfs_flags_to_posix(int vfs_flags)
-{
-    int posix_flags = 0;
-    
-    if ((vfs_flags & VFS_O_RDWR) == VFS_O_RDWR) {
-        posix_flags |= O_RDWR;
-    } else if (vfs_flags & VFS_O_WRONLY) {
-        posix_flags |= O_WRONLY;
-    } else {
-        posix_flags |= O_RDONLY;
-    }
-    
-    if (vfs_flags & VFS_O_CREAT)  posix_flags |= O_CREAT;
-    if (vfs_flags & VFS_O_TRUNC)  posix_flags |= O_TRUNC;
-    if (vfs_flags & VFS_O_APPEND) posix_flags |= O_APPEND;
-    if (vfs_flags & VFS_O_EXCL)   posix_flags |= O_EXCL;
-    
-    return posix_flags;
-}
-
 /* ============================================================================
  * BACKEND MANAGEMENT
  * ============================================================================ */
@@ -189,7 +163,7 @@ size_t vfs_list_backends(const vfs_backend_config_t **backends, size_t max_count
 }
 
 /* ============================================================================
- * FILE OPERATIONS
+ * FILE OPERATIONS - SIMPLIFIED (NO FLAG CONVERSION)
  * ============================================================================ */
 
 vfs_fd_t vfs_open(const char *path, int flags, int mode)
@@ -211,11 +185,11 @@ vfs_fd_t vfs_open(const char *path, int flags, int mode)
         return VFS_INVALID_FD;
     }
     
-    int posix_flags = vfs_flags_to_posix(flags);
-    vfs_fd_t native_fd = backend->ops->open(path, posix_flags, mode);
+    // NO CONVERSION - pass flags directly as they are already POSIX
+    vfs_fd_t native_fd = backend->ops->open(path, flags, mode);
     
     if (native_fd == VFS_INVALID_FD) {
-        ESP_LOGE(TAG, "Failed to open: %s", path);
+        ESP_LOGE(TAG, "Backend open failed: %s", path);
         free_fd(fd);
         return VFS_INVALID_FD;
     }
@@ -595,36 +569,64 @@ esp_err_t vfs_read_file(const char *path, void *buf, size_t size, size_t *bytes_
 
 esp_err_t vfs_write_file(const char *path, const void *buf, size_t size)
 {
-    if (!path || !buf) {
+    if (!path) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    
+    if (size > 0 && !buf) {
         return ESP_ERR_INVALID_ARG;
     }
     
     vfs_fd_t fd = vfs_open(path, VFS_O_WRONLY | VFS_O_CREAT | VFS_O_TRUNC, 0644);
     if (fd == VFS_INVALID_FD) {
+        ESP_LOGE(TAG, "Failed to open for write: %s", path);
         return ESP_FAIL;
     }
     
-    ssize_t written = vfs_write(fd, buf, size);
-    vfs_close(fd);
+    esp_err_t result = ESP_OK;
     
-    return (written == (ssize_t)size) ? ESP_OK : ESP_FAIL;
+    if (size > 0) {
+        ssize_t written = vfs_write(fd, buf, size);
+        if (written != (ssize_t)size) {
+            ESP_LOGE(TAG, "Write incomplete: %d of %zu bytes", (int)written, size);
+            result = ESP_FAIL;
+        }
+    }
+    
+    vfs_fsync(fd);
+    vfs_close(fd);
+    return result;
 }
 
 esp_err_t vfs_append_file(const char *path, const void *buf, size_t size)
 {
-    if (!path || !buf) {
+    if (!path) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    
+    if (size > 0 && !buf) {
         return ESP_ERR_INVALID_ARG;
     }
     
     vfs_fd_t fd = vfs_open(path, VFS_O_WRONLY | VFS_O_CREAT | VFS_O_APPEND, 0644);
     if (fd == VFS_INVALID_FD) {
+        ESP_LOGE(TAG, "Failed to open for append: %s", path);
         return ESP_FAIL;
     }
     
-    ssize_t written = vfs_write(fd, buf, size);
-    vfs_close(fd);
+    esp_err_t result = ESP_OK;
     
-    return (written == (ssize_t)size) ? ESP_OK : ESP_FAIL;
+    if (size > 0) {
+        ssize_t written = vfs_write(fd, buf, size);
+        if (written != (ssize_t)size) {
+            ESP_LOGE(TAG, "Append incomplete: %d of %zu bytes", (int)written, size);
+            result = ESP_FAIL;
+        }
+    }
+    
+    vfs_fsync(fd);
+    vfs_close(fd);
+    return result;
 }
 
 esp_err_t vfs_copy_file(const char *src, const char *dst)
@@ -635,12 +637,14 @@ esp_err_t vfs_copy_file(const char *src, const char *dst)
     
     vfs_fd_t fd_src = vfs_open(src, VFS_O_RDONLY, 0);
     if (fd_src == VFS_INVALID_FD) {
+        ESP_LOGE(TAG, "Failed to open source: %s", src);
         return ESP_FAIL;
     }
     
     vfs_fd_t fd_dst = vfs_open(dst, VFS_O_WRONLY | VFS_O_CREAT | VFS_O_TRUNC, 0644);
     if (fd_dst == VFS_INVALID_FD) {
         vfs_close(fd_src);
+        ESP_LOGE(TAG, "Failed to open destination: %s", dst);
         return ESP_FAIL;
     }
     
@@ -649,10 +653,16 @@ esp_err_t vfs_copy_file(const char *src, const char *dst)
     esp_err_t ret = ESP_OK;
     
     while ((read_bytes = vfs_read(fd_src, buffer, sizeof(buffer))) > 0) {
-        if (vfs_write(fd_dst, buffer, read_bytes) != read_bytes) {
+        ssize_t written = vfs_write(fd_dst, buffer, read_bytes);
+        if (written != read_bytes) {
+            ESP_LOGE(TAG, "Copy write failed: %d of %d bytes", (int)written, (int)read_bytes);
             ret = ESP_FAIL;
             break;
         }
+    }
+    
+    if (ret == ESP_OK) {
+        vfs_fsync(fd_dst);
     }
     
     vfs_close(fd_src);
