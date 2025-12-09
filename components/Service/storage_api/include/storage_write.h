@@ -12,14 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/**
- * @file storage_write.h
- * @brief Write Operations - Backend Agnostic
- * @version 1.0
- * 
- * Works with any backend (SD Card, SPIFFS, LittleFS, RAMFS)
- */
-
 #ifndef STORAGE_WRITE_H
 #define STORAGE_WRITE_H
 
@@ -31,20 +23,14 @@
 extern "C" {
 #endif
 
-/* ============================================================================
- * STRING WRITE
- * ============================================================================ */
-
 esp_err_t storage_write_string(const char *path, const char *data);
 esp_err_t storage_append_string(const char *path, const char *data);
+
 esp_err_t storage_write_binary(const char *path, const void *data, size_t size);
 esp_err_t storage_append_binary(const char *path, const void *data, size_t size);
+
 esp_err_t storage_write_line(const char *path, const char *line);
 esp_err_t storage_append_line(const char *path, const char *line);
-
-/* ============================================================================
- * FORMATTED WRITE
- * ============================================================================ */
 
 esp_err_t storage_write_formatted(const char *path, const char *format, ...) 
     __attribute__((format(printf, 2, 3)));
@@ -64,4 +50,4 @@ esp_err_t storage_append_csv_row(const char *path, const char **columns, size_t 
 }
 #endif
 
-#endif // STORAGE_WRITE_H
+#endif
