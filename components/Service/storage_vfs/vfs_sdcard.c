@@ -12,11 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/**
- * @file vfs_sdcard.c
- * @brief VFS backend for SD card over SPI (integrated with SPI manager)
- */
-
 #include "vfs_core.h"
 #include "vfs_config.h"
 #include "pin_def.h"
@@ -33,29 +28,27 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <errno.h>
+#include <string.h>
 #include "vfs_sdcard.h"
 
 #ifdef VFS_USE_SD_CARD
 
 static const char *TAG = "vfs_sdcard";
 
-// Backend state
 static struct {
     bool mounted;
     sdmmc_card_t *card;
     bool we_initialized_bus;
 } s_sdcard = {0};
 
-/* ============================================================================
- * BACKEND OPERATIONS IMPLEMENTATION
- * ============================================================================ */
-
-// These functions use standard POSIX file APIs (open, read, write, etc.)
-// which ESP-IDF provides for the mounted FAT filesystem
-
 static vfs_fd_t sdcard_open(const char *path, int flags, int mode)
 {
-    return open(path, flags, mode);
+    int fd = open(path, flags, mode);
+    if (fd < 0) {
+        ESP_LOGE(TAG, "open failed: %s", path);
+    }
+    return fd;
 }
 
 static ssize_t sdcard_read(vfs_fd_t fd, void *buf, size_t size)
@@ -90,7 +83,6 @@ static esp_err_t sdcard_stat(const char *path, vfs_stat_t *st)
         return ESP_FAIL;
     }
     
-    // Convert native stat to vfs_stat_t
     const char *name = strrchr(path, '/');
     strncpy(st->name, name ? name + 1 : path, VFS_MAX_NAME - 1);
     st->name[VFS_MAX_NAME - 1] = '\0';
@@ -159,13 +151,13 @@ static esp_err_t sdcard_readdir(vfs_dir_t dir, vfs_stat_t *entry)
     struct dirent *ent = readdir(d);
     
     if (!ent) {
-        return ESP_ERR_NOT_FOUND;  // End of directory
+        return ESP_ERR_NOT_FOUND;
     }
     
     strncpy(entry->name, ent->d_name, VFS_MAX_NAME - 1);
     entry->name[VFS_MAX_NAME - 1] = '\0';
     entry->type = (ent->d_type == DT_DIR) ? VFS_TYPE_DIR : VFS_TYPE_FILE;
-    entry->size = 0;  // readdir does not provide size
+    entry->size = 0;
     
     return ESP_OK;
 }
@@ -182,18 +174,15 @@ static esp_err_t sdcard_statvfs(vfs_statvfs_t *stat)
         return ESP_ERR_INVALID_STATE;
     }
     
-    // Compute total SD card capacity
     uint64_t total = ((uint64_t)s_sdcard.card->csd.capacity) * s_sdcard.card->csd.sector_size;
     
     stat->total_bytes = total;
     stat->block_size = s_sdcard.card->csd.sector_size;
     stat->total_blocks = s_sdcard.card->csd.capacity;
     
-    // Get free space using FATFS API
     FATFS *fs;
     DWORD free_clusters;
     
-    // f_getfree uses a logical drive path (no mount point prefix)
     if (f_getfree("0:", &free_clusters, &fs) == FR_OK) {
         uint64_t free_sectors = free_clusters * fs->csize;
         stat->free_bytes = free_sectors * fs->ssize;
@@ -213,68 +202,47 @@ static bool sdcard_is_mounted(void)
     return s_sdcard.mounted;
 }
 
-// Backend operations table
 static const vfs_backend_ops_t s_sdcard_ops = {
-    .init = NULL,  // Not used (init is done in vfs_sdcard_init)
+    .init = NULL,
     .deinit = NULL,
     .is_mounted = sdcard_is_mounted,
-    
     .open = sdcard_open,
     .read = sdcard_read,
     .write = sdcard_write,
     .lseek = sdcard_lseek,
     .close = sdcard_close,
     .fsync = sdcard_fsync,
-    
     .stat = sdcard_stat,
     .fstat = sdcard_fstat,
     .rename = sdcard_rename,
     .unlink = sdcard_unlink,
     .truncate = sdcard_truncate,
-    
     .mkdir = sdcard_mkdir,
     .rmdir = sdcard_rmdir,
     .opendir = sdcard_opendir,
     .readdir = sdcard_readdir,
     .closedir = sdcard_closedir,
-    
     .statvfs = sdcard_statvfs,
 };
-
-/* ============================================================================
- * INITIALIZATION
- * ============================================================================ */
 
 esp_err_t vfs_sdcard_init(void)
 {
     if (s_sdcard.mounted) {
-        ESP_LOGW(TAG, "SD card already mounted");
         return ESP_OK;
     }
     
     ESP_LOGI(TAG, "Initializing SD card");
-    ESP_LOGI(TAG, "SPI pins:");
-    ESP_LOGI(TAG, "  MOSI: GPIO %d", SPI_MOSI_PIN);
-    ESP_LOGI(TAG, "  MISO: GPIO %d", SPI_MISO_PIN);
-    ESP_LOGI(TAG, "  SCLK: GPIO %d", SPI_SCLK_PIN);
-    ESP_LOGI(TAG, "  CS:   GPIO %d", SD_CARD_CS_PIN);
     
     esp_err_t ret;
     s_sdcard.we_initialized_bus = false;
     
-    // Try to initialize SPI bus using custom manager first
-    ESP_LOGI(TAG, "Trying SPI manager initialization");
     ret = spi_init();
     
     if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "SPI bus initialized by manager");
         s_sdcard.we_initialized_bus = false;
     } else if (ret == ESP_ERR_INVALID_STATE) {
-        ESP_LOGI(TAG, "SPI bus already initialized");
         s_sdcard.we_initialized_bus = false;
     } else {
-        ESP_LOGW(TAG, "SPI manager failed, initializing bus directly");
-        
         spi_bus_config_t bus_cfg = {
             .mosi_io_num = SPI_MOSI_PIN,
             .miso_io_num = SPI_MISO_PIN,
@@ -289,17 +257,14 @@ esp_err_t vfs_sdcard_init(void)
         
         if (ret == ESP_OK) {
             s_sdcard.we_initialized_bus = true;
-            ESP_LOGI(TAG, "SPI bus initialized directly");
         } else if (ret == ESP_ERR_INVALID_STATE) {
             s_sdcard.we_initialized_bus = false;
-            ESP_LOGI(TAG, "SPI bus already initialized by another module");
         } else {
-            ESP_LOGE(TAG, "Failed to initialize SPI bus: %s", esp_err_to_name(ret));
+            ESP_LOGE(TAG, "SPI init failed: %s", esp_err_to_name(ret));
             return ret;
         }
     }
     
-    ESP_LOGI(TAG, "Waiting SD card to stabilize");
     vTaskDelay(pdMS_TO_TICKS(200));
     
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
@@ -316,7 +281,6 @@ esp_err_t vfs_sdcard_init(void)
         .allocation_unit_size = 16 * 1024,
     };
     
-    ESP_LOGI(TAG, "Mounting FAT filesystem");
     ret = esp_vfs_fat_sdspi_mount(
         VFS_MOUNT_POINT,
         &host,
@@ -326,19 +290,16 @@ esp_err_t vfs_sdcard_init(void)
     );
     
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to mount SD card: %s (0x%x)", esp_err_to_name(ret), ret);
-        
+        ESP_LOGE(TAG, "Mount failed: %s", esp_err_to_name(ret));
         if (s_sdcard.we_initialized_bus) {
             spi_bus_free(SPI3_HOST);
             s_sdcard.we_initialized_bus = false;
         }
-        
         return ret;
     }
     
     s_sdcard.mounted = true;
     
-    // Register backend in VFS core
     vfs_backend_config_t backend_config = {
         .type = VFS_BACKEND_SD_FAT,
         .mount_point = VFS_MOUNT_POINT,
@@ -348,19 +309,14 @@ esp_err_t vfs_sdcard_init(void)
     
     ret = vfs_register_backend(&backend_config);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to register SD card backend in VFS core");
+        ESP_LOGE(TAG, "Register failed");
         vfs_sdcard_deinit();
         return ret;
     }
     
-    ESP_LOGI(TAG, "SD card mounted");
-    ESP_LOGI(TAG, "Name: %s", s_sdcard.card->cid.name);
-    ESP_LOGI(TAG, "Type: %s", 
-             s_sdcard.card->ocr & SD_OCR_SDHC_CAP ? "SDHC/SDXC" : "SDSC");
-    ESP_LOGI(TAG, "Capacity: %llu MB", 
+    ESP_LOGI(TAG, "SD mounted: %s, %llu MB", 
+             s_sdcard.card->cid.name,
              ((uint64_t)s_sdcard.card->csd.capacity) * s_sdcard.card->csd.sector_size / (1024 * 1024));
-    ESP_LOGI(TAG, "Frequency: %.2f MHz", 
-             s_sdcard.card->real_freq_khz / 1000.0f);
     
     return ESP_OK;
 }
@@ -368,13 +324,9 @@ esp_err_t vfs_sdcard_init(void)
 esp_err_t vfs_sdcard_deinit(void)
 {
     if (!s_sdcard.mounted) {
-        ESP_LOGW(TAG, "SD card is not mounted");
         return ESP_ERR_INVALID_STATE;
     }
     
-    ESP_LOGI(TAG, "Unmounting SD card");
-    
-    // Unregister from VFS core first
     vfs_unregister_backend(VFS_MOUNT_POINT);
     
     esp_err_t ret = esp_vfs_fat_sdcard_unmount(VFS_MOUNT_POINT, s_sdcard.card);
@@ -382,15 +334,11 @@ esp_err_t vfs_sdcard_deinit(void)
     if (ret == ESP_OK) {
         s_sdcard.mounted = false;
         s_sdcard.card = NULL;
-        ESP_LOGI(TAG, "SD card unmounted");
         
         if (s_sdcard.we_initialized_bus) {
             spi_bus_free(SPI3_HOST);
             s_sdcard.we_initialized_bus = false;
-            ESP_LOGI(TAG, "SPI bus released");
         }
-    } else {
-        ESP_LOGE(TAG, "Failed to unmount SD card: %s", esp_err_to_name(ret));
     }
     
     return ret;
@@ -401,40 +349,25 @@ bool vfs_sdcard_is_mounted(void)
     return s_sdcard.mounted;
 }
 
-/* ============================================================================
- * REGISTRATION HELPERS
- * ============================================================================ */
-
 esp_err_t vfs_register_sd_backend(void)
 {
-    ESP_LOGI(TAG, "Registering SD card backend");
     return vfs_sdcard_init();
 }
 
 esp_err_t vfs_unregister_sd_backend(void)
 {
-    ESP_LOGI(TAG, "Unregistering SD card backend");
     return vfs_sdcard_deinit();
 }
-
-/* ============================================================================
- * AUXILIARY FUNCTIONS
- * ============================================================================ */
 
 void vfs_sdcard_print_info(void)
 {
     if (!s_sdcard.mounted) {
-        ESP_LOGW(TAG, "SD card is not mounted");
         return;
     }
     
-    ESP_LOGI(TAG, "SD card info");
-    ESP_LOGI(TAG, "Mount point: %s", VFS_MOUNT_POINT);
-    ESP_LOGI(TAG, "Name: %s", s_sdcard.card->cid.name);
+    ESP_LOGI(TAG, "SD card: %s", s_sdcard.card->cid.name);
     ESP_LOGI(TAG, "Type: %s", 
              s_sdcard.card->ocr & SD_OCR_SDHC_CAP ? "SDHC/SDXC" : "SDSC");
-    ESP_LOGI(TAG, "Speed: %.2f MHz", 
-             s_sdcard.card->real_freq_khz / 1000.0f);
     ESP_LOGI(TAG, "Capacity: %llu MB", 
              ((uint64_t)s_sdcard.card->csd.capacity) * s_sdcard.card->csd.sector_size / (1024 * 1024));
     
@@ -444,7 +377,7 @@ void vfs_sdcard_print_info(void)
         stat.used_bytes = stat.total_bytes - stat.free_bytes;
         float percent = stat.total_bytes > 0 ? 
             ((float)stat.used_bytes / stat.total_bytes) * 100.0f : 0.0f;
-        ESP_LOGI(TAG, "Used: %llu MB / %llu MB (%.1f%%)", 
+        ESP_LOGI(TAG, "Used: %llu / %llu MB (%.1f%%)", 
                  stat.used_bytes / (1024 * 1024),
                  stat.total_bytes / (1024 * 1024),
                  percent);
@@ -457,20 +390,12 @@ esp_err_t vfs_sdcard_format(void)
         return ESP_ERR_INVALID_STATE;
     }
     
-    ESP_LOGW(TAG, "Formatting SD card");
-    
     esp_err_t ret = vfs_sdcard_deinit();
     if (ret != ESP_OK) {
         return ret;
     }
     
-    ret = vfs_sdcard_init();
-    
-    if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "SD card formatted successfully");
-    }
-    
-    return ret;
+    return vfs_sdcard_init();
 }
 
 #endif // VFS_USE_SD_CARD

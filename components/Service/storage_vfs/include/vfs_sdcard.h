@@ -26,62 +26,19 @@
 extern "C" {
 #endif
 
-/* ============================================================================
- * PUBLIC API
- * ============================================================================ */
-
-/**
- * @brief Initialize and mount SD card
- * @return ESP_OK on success, error code otherwise
- */
 esp_err_t vfs_sdcard_init(void);
-
-/**
- * @brief Unmount SD card
- * @return ESP_OK on success, error code otherwise
- */
 esp_err_t vfs_sdcard_deinit(void);
 
-/**
- * @brief Check if SD card is mounted
- * @return true if mounted, false otherwise
- */
-bool vfs_sdcard_is_mounted(void);
 
-/**
- * @brief Print SD card information
- */
+bool vfs_sdcard_is_mounted(void);
 void vfs_sdcard_print_info(void);
 
-/**
- * @brief Format SD card
- * @return ESP_OK on success, error code otherwise
- * @warning Erases all data
- */
 esp_err_t vfs_sdcard_format(void);
-
-/* ============================================================================
- * REGISTRATION FUNCTIONS (used by vfs_auto.c)
- * ============================================================================ */
-
-/**
- * @brief Register SD card backend in VFS
- * @return ESP_OK on success, error code otherwise
- *
- * This function is called automatically by vfs_init_auto().
- */
 esp_err_t vfs_register_sd_backend(void);
-
-/**
- * @brief Unregister SD card backend from VFS
- * @return ESP_OK on success, error code otherwise
- *
- * This function is called automatically by vfs_deinit_auto().
- */
 esp_err_t vfs_unregister_sd_backend(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // VFS_SDCARD_H
+#endif
