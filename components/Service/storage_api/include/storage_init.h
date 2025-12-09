@@ -46,4 +46,4 @@ void storage_print_info(void);
 }
 #endif
 
-#endif // STORAGE_INIT_H
+#endif

@@ -29,28 +29,18 @@
 extern "C" {
 #endif
 
-/**
- * @brief Directory listing callback
- * @param name Entry name
- * @param is_dir True if entry is a directory
- * @param user_data User-provided data
- */
 typedef void (*storage_dir_callback_t)(const char *name, bool is_dir, void *user_data);
 
-// Directory creation/removal
 esp_err_t storage_dir_create(const char *path);
 esp_err_t storage_dir_remove(const char *path);
 esp_err_t storage_dir_remove_recursive(const char *path);
 
-// Directory verification
 bool storage_dir_exists(const char *path);
 esp_err_t storage_dir_is_empty(const char *path, bool *empty);
 
-// Directory listing
 esp_err_t storage_dir_list(const char *path, storage_dir_callback_t callback, void *user_data);
 esp_err_t storage_dir_count(const char *path, uint32_t *file_count, uint32_t *dir_count);
 
-// Directory operations
 esp_err_t storage_dir_copy_recursive(const char *src, const char *dst);
 esp_err_t storage_dir_get_size(const char *path, uint64_t *total_size);
 
@@ -58,4 +48,4 @@ esp_err_t storage_dir_get_size(const char *path, uint64_t *total_size);
 }
 #endif
 
-#endif // STORAGE_DIR_H
+#endif

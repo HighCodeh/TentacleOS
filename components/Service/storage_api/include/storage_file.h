@@ -30,9 +30,6 @@
 extern "C" {
 #endif
 
-/**
- * @brief File information structure
- */
 typedef struct {
     char path[256];
     size_t size;
@@ -43,16 +40,13 @@ typedef struct {
     bool is_readonly;
 } storage_file_info_t;
 
-// File verification
 bool storage_file_exists(const char *path);
 esp_err_t storage_file_is_empty(const char *path, bool *empty);
 
-// File metadata
 esp_err_t storage_file_get_info(const char *path, storage_file_info_t *info);
 esp_err_t storage_file_get_size(const char *path, size_t *size);
 esp_err_t storage_file_get_extension(const char *path, char *ext, size_t size);
 
-// File operations
 esp_err_t storage_file_delete(const char *path);
 esp_err_t storage_file_rename(const char *old_path, const char *new_path);
 esp_err_t storage_file_copy(const char *src, const char *dst);
@@ -65,4 +59,4 @@ esp_err_t storage_file_compare(const char *path1, const char *path2, bool *equal
 }
 #endif
 
-#endif // STORAGE_FILE_H
+#endif
