@@ -6,8 +6,7 @@
 // Ponteiro para o dispositivo de entrada (Teclado)
 // Necessário para adicionar a um Grupo LVGL (lv_group_add_indev)
 extern lv_indev_t * indev_keypad;
-lv_indev_t * indev_keypad = NULL;
-lv_group_t * main_group = NULL;
+extern lv_group_t * main_group;
 
 
 // Inicializa a camada de input
