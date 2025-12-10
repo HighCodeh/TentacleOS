@@ -1,4 +1,5 @@
 #include "home_ui.h"
+#include "core/lv_group.h"
 #include "misc/lv_palette.h"
 #include "ui_manager.h"
 #include "lv_port_indev.h"
@@ -35,19 +36,17 @@ static void update_clock_cb(lv_timer_t * timer)
     }
 }
 
-// Evento de Tecla (Navegação)
 static void home_event_cb(lv_event_t * e)
 {
-    lv_event_code_t code = lv_event_get_code(e);
-    
-    if(code == LV_EVENT_KEY) {
-        uint32_t key = lv_event_get_key(e);
-        
-        if(key == LV_KEY_LEFT) {
-            ESP_LOGI(TAG, "Botão LEFT -> Ir para Menu");
-            // ui_menu_open(); // Descomente quando criar o menu
-        }
+  lv_event_code_t code = lv_event_get_code(e);
+
+  if(code == LV_EVENT_KEY) {
+    uint32_t key = lv_event_get_key(e);
+
+    if(key == LV_KEY_LEFT) {
+      ui_switch_screen(SCREEN_MENU);
     }
+  }
 }
 
 // --- CONSTUÇÃO DA UI ---

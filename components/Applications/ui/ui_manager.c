@@ -1,14 +1,21 @@
+#include "core/lv_group.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "ui_manager.h"
+#include "wifi_service.h"
 #include "esp_timer.h"
 #include "home_ui.h"
+#include "menu_ui.h"
+#include "wifi_ui.h"
+#include "wifi_scan_ui.h"
 #include "esp_log.h"
 
 #include "lvgl.h"
 #include "lv_port_disp.h"
 #include "lv_port_indev.h"
+
+
 
 // Inclua aqui a tela inicial
 
@@ -24,12 +31,16 @@ static SemaphoreHandle_t xGuiSemaphore = NULL;
 
 static void ui_task(void *pvParameter);
 static void lv_tick_task(void *arg);
+static void clear_current_screen(void);
+static bool is_wifi_screen(screen_id_t screen);
+
+screen_id_t current_screen_id = SCREEN_NONE;
 
 void ui_init(void)
 {
     ESP_LOGI(TAG, "Inicializando UI Manager...");
 
-    xGuiSemaphore = xSemaphoreCreateMutex();
+    xGuiSemaphore = xSemaphoreCreateRecursiveMutex();
     if (!xGuiSemaphore) {
         ESP_LOGE(TAG, "Falha ao criar Mutex da UI");
         return;
@@ -75,6 +86,55 @@ static void ui_task(void *pvParameter)
     }
 }
 
+static void clear_current_screen(void){
+  lv_group_remove_all_objs(main_group);
+}
+
+void ui_switch_screen(screen_id_t new_screen) {
+  if (ui_acquire()) {
+
+    bool old_is_wifi = is_wifi_screen(current_screen_id);
+    bool new_is_wifi = is_wifi_screen(new_screen);
+
+    // 1. Entrando no modo Wi-Fi (Vindo de fora)
+    if (!old_is_wifi && new_is_wifi) {
+        ESP_LOGI(TAG, "Entrando no módulo Wi-Fi -> Ligando Rádio");
+        wifi_start(); 
+    }
+
+    // 2. Saindo do modo Wi-Fi (Indo para fora)
+    else if (old_is_wifi && !new_is_wifi) {
+        ESP_LOGI(TAG, "Saindo do módulo Wi-Fi -> Desligando Rádio");
+        wifi_stop();
+    }
+
+    clear_current_screen();
+
+    switch (new_screen) {
+      case SCREEN_HOME:
+        ui_home_open();
+        break;
+
+      case SCREEN_MENU:
+        ui_menu_open();
+        break;
+
+      case SCREEN_WIFI_MENU:
+        ui_wifi_menu();
+        break;
+      
+      case SCREEN_WIFI_SCAN:
+        ui_wifi_scan_open();
+
+      default:
+        break;
+    }
+
+    current_screen_id = new_screen;
+    ui_release();
+  }
+}
+
 // Callback do Timer de Hardware (Interrupção)
 static void lv_tick_task(void *arg)
 {
@@ -86,16 +146,29 @@ static void lv_tick_task(void *arg)
 
 bool ui_acquire(void)
 {
-    if (xGuiSemaphore != NULL) {
-        // Espera indefinidamente até conseguir o mutex
-        return (xSemaphoreTake(xGuiSemaphore, portMAX_DELAY) == pdTRUE);
+  if (xGuiSemaphore != NULL) {
+        // MUDANÇA: xSemaphoreTake -> xSemaphoreTakeRecursive
+        return (xSemaphoreTakeRecursive(xGuiSemaphore, portMAX_DELAY) == pdTRUE);
     }
     return false;
 }
 
 void ui_release(void)
 {
-    if (xGuiSemaphore != NULL) {
-        xSemaphoreGive(xGuiSemaphore);
+  if (xGuiSemaphore != NULL) {
+        // MUDANÇA: xSemaphoreGive -> xSemaphoreGiveRecursive
+        xSemaphoreGiveRecursive(xGuiSemaphore);
+    }
+}
+
+static bool is_wifi_screen(screen_id_t screen) {
+    switch (screen) {
+        case SCREEN_WIFI_MENU:
+        case SCREEN_WIFI_SCAN:
+        // case SCREEN_WIFI_ATTACK: // (Futuro)
+        // case SCREEN_WIFI_EVIL_TWIN: // (Futuro)
+            return true;
+        default:
+            return false;
     }
 }
