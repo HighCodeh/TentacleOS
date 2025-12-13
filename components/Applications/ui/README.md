@@ -187,4 +187,4 @@ idf_component_register(SRCS
   - Adds objects to `main_group`.
   - Loads the screen.
 
-**Done! The new screen is fully integrated, safe and navigable.
+**Done! The new screen is fully integrated, safe and navigable.**
