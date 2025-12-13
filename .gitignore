@@ -27,8 +27,8 @@ $RECYCLE.BIN/
 *.msp
 
 # ESP_IDF COMPONENTS 
-managed_components/
-/managed_components/
+# managed_components/
+# /managed_components/
 
 # Windows shortcuts
 *.lnk
@@ -1039,3 +1039,7 @@ dependencies.lock
 !assets/
 !assets/**
 !assets/**/*
+
+
+!components/Applications/
+!components/Applications/**
