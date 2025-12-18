@@ -22,7 +22,7 @@
 static const char *TAG = "RAM_MONITOR";
 
 #define MONITOR_INTERVAL_MS 5000 
-#define STACK_SIZE_BYTES    4096 
+#define STACK_SIZE_BYTES    1024 
 
 static void ram_monitor_task(void *pvParameters) {
   ESP_LOGI(TAG, "Monitoramento de RAM iniciado.");
