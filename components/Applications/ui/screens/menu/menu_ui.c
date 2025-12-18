@@ -45,21 +45,24 @@ static void menu_update_ui(void)
 
 static void menu_event_cb(lv_event_t * e)
 {
-    if (lv_event_get_code(e) != LV_EVENT_KEY)
-        return;
+  if (lv_event_get_code(e) != LV_EVENT_KEY)
+    return;
 
-    uint32_t key = lv_event_get_key(e);
+  uint32_t key = lv_event_get_key(e);
 
-    if (key == LV_KEY_RIGHT) {
-        menu_index = (menu_index + 1) % MENU_ITEM_COUNT;
-        menu_update_ui();
-    }
-    else if (key == LV_KEY_LEFT) {
-        menu_index = (menu_index == 0)
-                     ? MENU_ITEM_COUNT - 1
-                     : menu_index - 1;
-        menu_update_ui();
-    }
+  if (key == LV_KEY_RIGHT) {
+    menu_index = (menu_index + 1) % MENU_ITEM_COUNT;
+    menu_update_ui();
+  }
+  else if (key == LV_KEY_LEFT) {
+    menu_index = (menu_index == 0)
+      ? MENU_ITEM_COUNT - 1
+      : menu_index - 1;
+    menu_update_ui();
+  }
+  else if (key == LV_KEY_ESC) {
+    ui_switch_screen(SCREEN_HOME);
+  }
 }
 
 void ui_menu_open(void)
