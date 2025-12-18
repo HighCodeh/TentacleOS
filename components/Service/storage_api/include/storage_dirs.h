@@ -29,6 +29,7 @@ extern "C" {
 #define STORAGE_DIR_BACKUP    VFS_MOUNT_POINT "/backup" 
 #define STORAGE_DIR_CERTS     VFS_MOUNT_POINT "/certs"
 #define STORAGE_DIR_SCRIPTS   VFS_MOUNT_POINT "/scripts"
+#define STORAGE_DIR_CAPTIVE   VFS_MOUNT_POINT "/captive_portal"
 
 #ifdef __cplusplus
 }
