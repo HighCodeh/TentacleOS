@@ -37,7 +37,6 @@ static SemaphoreHandle_t storage_mutex = NULL;
 
 static char* load_file_dynamic(const char* path);
 static void init_storage_mutex();
-static int password_count = 0;
 
 
 static esp_err_t submit_post_handler(httpd_req_t *req) {
