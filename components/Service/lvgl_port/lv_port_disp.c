@@ -6,7 +6,7 @@
 
 // Definições de Resolução e Buffer
 // Buffer de 1/10 da tela (ajuste conforme RAM disponível)
-#define LVGL_BUF_PIXELS (LCD_H_RES * 40)
+#define LVGL_BUF_PIXELS (LCD_H_RES * (LCD_V_RES / 5))
 
 
 static lv_display_t * disp_handle = NULL;
