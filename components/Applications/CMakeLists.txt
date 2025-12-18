@@ -15,8 +15,10 @@
 file(GLOB_RECURSE HOME_UI_SRCS "ui/screens/home/*.c")
 file(GLOB_RECURSE MENU_UI_SRCS "ui/screens/menu/*.c")
 file(GLOB_RECURSE WIFI_UI_SRCS "ui/screens/wifi/*.c")
+file(GLOB_RECURSE SUB_EXAMPLE_UI_SRCS "ui/screens/sub_example/*.c")
 file(GLOB_RECURSE HEADER_UI_SRCS "ui/components/header/*.c")
 file(GLOB_RECURSE FOOTER_UI_SRCS "ui/components/footer/*.c")
+
 
 
 idf_component_register(SRCS 
@@ -30,6 +32,7 @@ idf_component_register(SRCS
   ${HOME_UI_SRCS}
   ${MENU_UI_SRCS}
   ${WIFI_UI_SRCS}
+  ${SUB_EXAMPLE_UI_SRCS}
   ${HEADER_UI_SRCS}
   ${FOOTER_UI_SRCS}
 
@@ -42,8 +45,10 @@ idf_component_register(SRCS
   "ui/screens/home/include"
   "ui/screens/menu/include"
   "ui/screens/wifi/include"
+  "ui/screens/sub_example/include"
   "ui/components/header/include"
   "ui/components/footer/include"
+  
 
 
   REQUIRES 
