@@ -1,4 +1,4 @@
-// Copyright (c) 2025 HIGH CODE LLC
+/ Copyright (c) 2025 HIGH CODE LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,6 @@
 
 #include "esp_err.h" // Para esp_err_t
 void start_dns_server(void);
-
+void stop_dns_server(void);
 
 #endif // DNS_SERVER_H

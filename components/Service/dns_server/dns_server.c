@@ -22,6 +22,7 @@
 // TAG para logs
 static const char *TAG_DNS = "dns_server";
 
+static TaskHandle_t dns_task_handle = NULL;
 // IP do ESP32 AP (geralmente 192.168.4.1)
 // Certifique-se de que este é o IP real do seu AP!
 // Você pode obter isso dinamicamente usando esp_netif_get_ip_info()
@@ -174,8 +175,22 @@ void dns_server_task(void *pvParameters) {
     vTaskDelete(NULL);
 }
 
-// Função para iniciar o servidor DNS (chame depois de configurar o AP)
 void start_dns_server(void) {
-    // Aumentar o tamanho da pilha da tarefa se necessário, 2048 geralmente é suficiente para este tipo de tarefa
-    xTaskCreate(&dns_server_task, "dns_server", 3072, NULL, 5, NULL);
+  if (dns_task_handle != NULL) {
+    ESP_LOGW(TAG_DNS, "DNS server is already run");
+    return;
+  }
+
+  xTaskCreate(&dns_server_task, "dns_server", 3072, NULL, 5, &dns_task_handle);
+  ESP_LOGI(TAG_DNS, "DNS server started");
+}
+
+void stop_dns_server(void) {
+  if (dns_task_handle != NULL) {
+    vTaskDelete(dns_task_handle);
+    dns_task_handle = NULL;
+    ESP_LOGI(TAG_DNS, "DNS Server stopped and task removed");
+  } else {
+    ESP_LOGW(TAG_DNS, "DNS Server is already stoped");
+  }
 }
