@@ -13,6 +13,8 @@
 // limitations under the License.
 
 #include "storage_init.h"
+#include "storage_mkdir.h"
+#include "storage_dirs.h"
 #include "vfs_config.h"
 #include "vfs_core.h"
 #include "esp_log.h"
@@ -25,6 +27,40 @@ extern bool vfs_is_mounted_auto(void);
 extern void vfs_print_info(void);
 
 static bool s_initialized = false;
+
+const char* const STORAGE_DEFAULT_DIRS[] = {
+    STORAGE_DIR_CONFIG,
+    STORAGE_DIR_DATA,
+    STORAGE_DIR_LOGS,
+    STORAGE_DIR_CACHE,
+    STORAGE_DIR_TEMP,
+    STORAGE_DIR_BACKUP,
+    STORAGE_DIR_CERTS,
+    STORAGE_DIR_SCRIPTS,
+    NULL
+};
+
+static esp_err_t storage_create_default_dirs(void)
+{
+    ESP_LOGI(TAG, "Creating default directories");
+    
+    int count = 0;
+    for (int i = 0; STORAGE_DEFAULT_DIRS[i] != NULL; i++) {
+        ESP_LOGI(TAG, "Processing directory [%d]: %s", i, STORAGE_DEFAULT_DIRS[i]);
+        count++;
+        
+        esp_err_t ret = storage_mkdir_recursive(STORAGE_DEFAULT_DIRS[i]);
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to create directory: %s (error: %s)", 
+                     STORAGE_DEFAULT_DIRS[i], esp_err_to_name(ret));
+        } else {
+            ESP_LOGI(TAG, "Directory processed successfully: %s", STORAGE_DEFAULT_DIRS[i]);
+        }
+    }
+    
+    ESP_LOGI(TAG, "Processed %d directories", count);
+    return ESP_OK;
+}
 
 esp_err_t storage_init(void)
 {
@@ -39,6 +75,9 @@ esp_err_t storage_init(void)
     if (ret == ESP_OK) {
         s_initialized = true;
         ESP_LOGI(TAG, "Storage ready at %s", VFS_MOUNT_POINT);
+        
+        // Criar diretórios padrão
+        storage_create_default_dirs();
     } else {
         ESP_LOGE(TAG, "Initialization failed: %s", esp_err_to_name(ret));
     }
