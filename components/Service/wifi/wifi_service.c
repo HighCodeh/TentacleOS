@@ -27,7 +27,7 @@
 #include "freertos/task.h"
 #include "storage_write.h"
 #include "storage_read.h"
-#include "storage_file.h"
+#include "storage_impl.h"
 #include "cJSON.h"
 // #include "virtual_display_client.h" // Adicionar este include
 

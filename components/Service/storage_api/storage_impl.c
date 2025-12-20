@@ -17,9 +17,7 @@
  * @brief File, directory and info operations implementation
  */
 
-#include "storage_file.h"
-#include "storage_dir.h"
-#include "storage_info.h"
+#include "storage_impl.h"
 #include "storage_init.h"
 #include "vfs_config.h"
 #include "vfs_core.h"
