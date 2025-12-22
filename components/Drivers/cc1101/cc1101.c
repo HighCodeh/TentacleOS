@@ -19,175 +19,202 @@
 #include <string.h>
 #include <esp_log.h>
 #include <driver/gpio.h>
+#include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <rom/ets_sys.h>
 
-static const char *TAG = "CC1101";
-static spi_device_handle_t cc1101_spi;
+static const char *TAG = "CC1101_driver";
+static spi_device_handle_t cc1101_spi = NULL;
 
-// Função auxiliar: Envia um strobe (comando) ao CC1101 via SPI
-void cc1101_strobe(uint8_t cmd)
-{
-    spi_transaction_t t = {
-        .length = 8,
-        .flags = SPI_TRANS_USE_TXDATA
-    };
-    t.tx_data[0] = cmd;
-    spi_device_transmit(cc1101_spi, &t);
+float spectrum_data[SPECTRUM_SAMPLES]; 
+
+void cc1101_set_frequency(uint32_t freq_hz) {
+  uint64_t freq_reg = ((uint64_t)freq_hz * 65536) / 26000000;
+
+  cc1101_write_reg(CC1101_FREQ2, (freq_reg >> 16) & 0xFF);
+  cc1101_write_reg(CC1101_FREQ1, (freq_reg >> 8) & 0xFF);
+  cc1101_write_reg(CC1101_FREQ0, freq_reg & 0xFF);
 }
 
-// Função auxiliar: Escreve um valor em um registrador do CC1101
-void cc1101_write_reg(uint8_t reg, uint8_t val)
-{
-    uint8_t tx_data[2] = {reg, val};
-    spi_transaction_t t = {0};
-    t.length = 8 * 2;
-    t.tx_buffer = tx_data;
-    spi_device_transmit(cc1101_spi, &t);
+void cc1101_strobe(uint8_t cmd) {
+  // ... (código existente mantido)
+  if (cc1101_spi == NULL) return;
+  spi_transaction_t t;
+  memset(&t, 0, sizeof(t));
+  t.length = 8;
+  t.flags = SPI_TRANS_USE_TXDATA;
+  t.tx_data[0] = cmd;
+  spi_device_transmit(cc1101_spi, &t);
 }
 
-// Função auxiliar: Lê um valor de um registrador do CC1101
-uint8_t cc1101_read_reg(uint8_t reg)
-{
-    uint8_t tx_data[2] = {0x80 | reg, 0};
-    uint8_t rx_data[2] = {0};
-    spi_transaction_t t = {0};
-    t.length = 8 * 2;
-    t.tx_buffer = tx_data;
-    t.rx_buffer = rx_data;
-    spi_device_transmit(cc1101_spi, &t);
-    return rx_data[1];
+/**
+ * @brief Escreve um valor em um registrador de configuração.
+ */
+void cc1101_write_reg(uint8_t reg, uint8_t val) {
+  if (cc1101_spi == NULL) return;
+  uint8_t tx_data[2] = {reg, val};
+  spi_transaction_t t;
+  memset(&t, 0, sizeof(t));
+  t.length = 16;
+  t.tx_buffer = tx_data;
+  spi_device_transmit(cc1101_spi, &t);
 }
 
-// Função auxiliar: Escreve múltiplos bytes em modo burst
-void cc1101_write_burst(uint8_t reg, const uint8_t *buf, uint8_t len)
-{
-    uint8_t addr = 0x40 | reg; // Burst write flag = 0x40
-    spi_transaction_t t = {0};
-    t.length = 8 * (len + 1);
-    uint8_t *data = malloc(len + 1);
-    data[0] = addr;
-    memcpy(&data[1], buf, len);
-    t.tx_buffer = data;
-    spi_device_transmit(cc1101_spi, &t);
-    free(data);
+/**
+ * @brief Lê um valor de um registrador (Status ou Configuração).
+ */
+uint8_t cc1101_read_reg(uint8_t reg) {
+  if (cc1101_spi == NULL) return 0;
+  uint8_t tx_data[2] = {0x80 | reg, 0x00};
+  uint8_t rx_data[2] = {0x00, 0x00};
+  spi_transaction_t t;
+  memset(&t, 0, sizeof(t));
+  t.length = 16;
+  t.tx_buffer = tx_data;
+  t.rx_buffer = rx_data;
+  spi_device_transmit(cc1101_spi, &t);
+  return rx_data[1];
 }
 
-// Inicializa CC1101 usando o driver SPI centralizado
-void cc1101_init(void)
-{
-    // ========== ADICIONA CC1101 NO DRIVER SPI ==========
-    spi_device_config_t cc1101_cfg = {
-        .cs_pin = CC1101_CS_PIN,
-        .clock_speed_hz = 2 * 1000 * 1000,  // 2 MHz
-        .mode = 0,                           // SPI mode 0
-        .queue_size = 7,
-    };
-    
-    esp_err_t ret = spi_add_device(SPI_DEVICE_CC1101, &cc1101_cfg);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Falha ao adicionar CC1101 no SPI: %s", esp_err_to_name(ret));
-        return;
+/**
+ * @brief Converte o valor bruto do registrador RSSI para dBm.
+ */
+float cc1101_convert_rssi(uint8_t rssi_raw) {
+  float rssi_dbm;
+  if (rssi_raw >= 128) {
+    rssi_dbm = ((float)(rssi_raw - 256) / 2.0) - 74.0;
+  } else {
+    rssi_dbm = ((float)rssi_raw / 2.0) - 74.0;
+  }
+  return rssi_dbm;
+}
+
+/**
+ * @brief Inicializa o dispositivo CC1101 no barramento SPI.
+ */
+void cc1101_init(void) {
+  // Inicializa o array de espectro com "noise floor"
+  for(int i = 0; i < SPECTRUM_SAMPLES; i++) {
+    spectrum_data[i] = -110.0;
+  }
+
+  // Configuração para o driver SPI centralizado
+  spi_device_config_t devcfg = {
+    .clock_speed_hz = 4 * 1000 * 1000, // 4 MHz
+    .mode = 0,                         // Modo SPI 0
+    .cs_pin = GPIO_CS_PIN,           // Pino CS
+    .queue_size = 7
+  };
+
+  // Adiciona o dispositivo ao barramento SPI (Driver Centralizado)
+  esp_err_t ret = spi_add_device(SPI_DEVICE_CC1101, &devcfg);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "Falha ao adicionar dispositivo SPI: %s", esp_err_to_name(ret));
+    return;
+  }
+
+  // Obtém o handle do dispositivo
+  cc1101_spi = spi_get_handle(SPI_DEVICE_CC1101);
+
+  // Reset via comando SRES
+  cc1101_strobe(CC1101_SRES);
+  vTaskDelay(pdMS_TO_TICKS(50));
+
+  // --- CORREÇÃO DE CONFLITO DE PINS ---
+  // Configura GDO0 e GDO2 para High-Impedance (0x2E)
+  cc1101_write_reg(CC1101_IOCFG0, 0x2E); 
+  cc1101_write_reg(CC1101_IOCFG2, 0x2E);
+
+  // --- TESTE DE COMUNICAÇÃO ---
+  uint8_t version = cc1101_read_reg(CC1101_VERSION | 0x40);
+  if (version == 0x00 || version == 0xFF) {
+    ESP_LOGE(TAG, "CC1101 não detectado! Cheque MISO/MOSI/SCLK/CS");
+  } else {
+    ESP_LOGI(TAG, "CC1101 Detectado! Versão do Chip: 0x%02X", version);
+  }
+
+  // Configuração para modo Scanner
+  cc1101_write_reg(CC1101_FSCTRL1, 0x06);
+  cc1101_write_reg(CC1101_MDMCFG4, 0x85); // BW = 203kHz (Mais largo para capturar sinais instáveis)
+  cc1101_write_reg(CC1101_MDMCFG2, 0x30); 
+  cc1101_write_reg(CC1101_MCSM0, 0x18);   
+  cc1101_write_reg(CC1101_AGCCTRL2, 0x07); // AGC Max Gain
+  cc1101_write_reg(CC1101_AGCCTRL1, 0x00);
+  cc1101_write_reg(CC1101_AGCCTRL0, 0x91);
+
+  cc1101_set_frequency(433920000);
+
+  cc1101_strobe(CC1101_SRX);
+  ESP_LOGI(TAG, "Hardware pronto. Iniciando Scanner...");
+
+  // Inicia a task de varredura com prioridade BAIXA (1) para não travar a UI/IDLE
+  xTaskCreate(cc1101_spectrum_task, "cc1101_scan", 4096, NULL, 1, NULL);
+}
+
+/**
+     * @brief Task de varredura (Sweep) de frequência para o Analisador de Espectro.
+     */
+void cc1101_spectrum_task(void *pvParameters) {
+  int log_counter = 0;
+
+  // Focada em 433.92 MHz para maior sensibilidade
+  // Centro: 433.92 MHz
+  // Range: 600 kHz / 80 samples = 7.5 kHz por passo (Alta resolução)
+  const uint32_t CENTER_FREQ = 433920000;
+  const uint32_t SPAN_HZ = 600000; 
+  const uint32_t STEP_HZ = SPAN_HZ / SPECTRUM_SAMPLES;
+  const uint32_t START_FREQ = CENTER_FREQ - (SPAN_HZ / 2);
+
+  while (1) {
+    if (cc1101_spi == NULL) {
+      vTaskDelay(pdMS_TO_TICKS(100));
+      continue;
     }
-    
-    // Obtém o handle do device
-    cc1101_spi = spi_get_handle(SPI_DEVICE_CC1101);
-    if (!cc1101_spi) {
-        ESP_LOGE(TAG, "Falha ao obter handle do CC1101");
-        return;
+
+    float sweep_max_dbm = -130.0; // Rastreia o pico máximo desta varredura completa
+
+    // Loop de varredura (Core Loop)
+    // Executa 80 iterações com delay correto para calibração
+    for (int i = 0; i < SPECTRUM_SAMPLES; i++) {
+      uint32_t current_freq = START_FREQ + (i * STEP_HZ);
+
+      // 1. IDLE para preparar
+      cc1101_strobe(CC1101_SIDLE);
+
+      // 2. Define a nova frequência
+      cc1101_set_frequency(current_freq);
+
+      // 3. Ativa RX (Calibração automática na transição IDLE->RX)
+      cc1101_strobe(CC1101_SRX);
+
+      // Tempo de estabilização otimizado para pequenos saltos (800us)
+      ets_delay_us(800); 
+
+      // --- DETECÇÃO DE PICO (OOK MITIGATION) ---
+      // Lê o RSSI múltiplas vezes para pegar o sinal "ON" se estiver pulsando (controle remoto)
+      float local_max = -130.0;
+      for(int k=0; k<5; k++) {
+        uint8_t raw = cc1101_read_reg(CC1101_RSSI | 0x40);
+        float val = cc1101_convert_rssi(raw);
+        if(val > local_max) local_max = val;
+        ets_delay_us(50); // Breve intervalo entre amostras
+      }
+
+      spectrum_data[i] = local_max;
+
+      // Atualiza o máximo global da varredura
+      if(local_max > sweep_max_dbm) {
+        sweep_max_dbm = local_max;
+      }
+
+      if (i % 10 == 0) {
+        vTaskDelay(pdMS_TO_TICKS(1));
+      }
     }
-    // ===================================================
 
-    // Configura GDO0 como entrada
-    gpio_config_t io_conf = {
-        .pin_bit_mask = 1ULL << CC1101_GDO0_PIN,
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE
-    };
-    gpio_config(&io_conf);
-
-    // Reset do CC1101 via comando SRES
-    cc1101_strobe(CC1101_SRES);
-    esp_rom_delay_us(100);
-    ESP_LOGI(TAG, "CC1101 Reset via SRES");
-
-    // Configuração dos registradores (433MHz, 250kbps, MSK)
-    cc1101_write_reg(CC1101_FSCTRL1, 0x0B);
-    cc1101_write_reg(CC1101_FSCTRL0, 0x00);
-    cc1101_write_reg(CC1101_FREQ2,   0x10);
-    cc1101_write_reg(CC1101_FREQ1,   0xA7);
-    cc1101_write_reg(CC1101_FREQ0,   0x62);
-
-    cc1101_write_reg(CC1101_MDMCFG4, 0x2D);
-    cc1101_write_reg(CC1101_MDMCFG3, 0x3B);
-    cc1101_write_reg(CC1101_MDMCFG2, 0x73);
-    cc1101_write_reg(CC1101_MDMCFG1, 0x22);
-    cc1101_write_reg(CC1101_MDMCFG0, 0xF8);
-    cc1101_write_reg(CC1101_CHANNR,  0x00);
-
-    cc1101_write_reg(CC1101_MCSM0,   0x18);
-    cc1101_write_reg(CC1101_DEVIATN, 0x00);
-    cc1101_write_reg(CC1101_FREND1,  0xB6);
-    cc1101_write_reg(CC1101_FREND0,  0x10);
-
-    cc1101_write_reg(CC1101_FOCCFG,   0x1D);
-    cc1101_write_reg(CC1101_BSCFG,    0x1C);
-    cc1101_write_reg(CC1101_AGCCTRL2, 0xC7);
-    cc1101_write_reg(CC1101_AGCCTRL1, 0x00);
-    cc1101_write_reg(CC1101_AGCCTRL0, 0xB2);
-
-    cc1101_write_reg(CC1101_FSCAL3, 0xEA);
-    cc1101_write_reg(CC1101_FSCAL2, 0x0A);
-    cc1101_write_reg(CC1101_FSCAL1, 0x00);
-    cc1101_write_reg(CC1101_FSCAL0, 0x11);
-
-    cc1101_write_reg(CC1101_FSTEST, 0x59);
-    cc1101_write_reg(CC1101_TEST2,  0x88);
-    cc1101_write_reg(CC1101_TEST1,  0x31);
-    cc1101_write_reg(CC1101_TEST0,  0x0B);
-
-    cc1101_write_reg(CC1101_IOCFG2,   0x0B);
-    cc1101_write_reg(CC1101_IOCFG0,   0x06);
-    cc1101_write_reg(CC1101_PKTCTRL1, 0x04);
-    cc1101_write_reg(CC1101_PKTCTRL0, 0x05);
-    cc1101_write_reg(CC1101_ADDR,     0x00);
-    cc1101_write_reg(CC1101_PKTLEN,   0xFF);
-
-    cc1101_write_reg(CC1101_PATABLE, 0x50);
-
-    // Limpa FIFOs
-    cc1101_strobe(CC1101_SFRX);
-    cc1101_strobe(CC1101_SFTX);
-
-    ESP_LOGI(TAG, "CC1101 inicializado (433MHz, 250kbps, MSK)");
+    if (++log_counter >= 5) { 
+      log_counter = 0;
+    }        
+  }
 }
 
-// Envia um pacote de dados
-void cc1101_send_data(const uint8_t *data, size_t len)
-{
-    cc1101_write_reg(CC1101_TXFIFO, (uint8_t)len);
-    cc1101_write_burst(CC1101_TXFIFO, data, len);
-    cc1101_strobe(CC1101_STX);
-    ESP_LOGI(TAG, "STX enviado, aguardando GDO0...");
-
-    while (gpio_get_level(CC1101_GDO0_PIN) == 0) {
-        // Aguarda GDO0 subir
-    }
-    ESP_LOGI(TAG, "GDO0 subiu - TX iniciado");
-
-    while (gpio_get_level(CC1101_GDO0_PIN) == 1) {
-        // Aguarda GDO0 cair
-    }
-    ESP_LOGI(TAG, "GDO0 caiu - TX finalizado");
-
-    cc1101_strobe(CC1101_SFTX);
-}
-
-// Entra em modo de recepção contínua
-void cc1101_enter_receive(void)
-{
-    cc1101_strobe(CC1101_SRX);
-    ESP_LOGI(TAG, "CC1101 em modo RX");
-}
