@@ -26,6 +26,33 @@
 static const char *TAG = "CC1101_DRIVER";
 static spi_device_handle_t cc1101_spi = NULL;
 
+void cc1101_write_burst(uint8_t reg, const uint8_t *buf, uint8_t len) {
+    if (cc1101_spi == NULL) return;
+    
+    // SPI Transaction for Burst Write: [Address | Burst Bit] + [Data0] + [Data1] ...
+    // Note: SPI device handles buffer management. We need to allocate a buffer that includes the address byte.
+    
+    // Max burst len check could be added here, but for frequency setting (3 bytes) it's fine.
+    // Ideally we use the polling transaction for very short transfers or standard transmit for others.
+    
+    // We construct a temporary buffer: [CMD][DATA...]
+    uint8_t *tx_buf = heap_caps_malloc(len + 1, MALLOC_CAP_DMA);
+    if (!tx_buf) return;
+    
+    tx_buf[0] = (reg | 0x40); // Add Burst bit (0x40)
+    memcpy(&tx_buf[1], buf, len);
+    
+    spi_transaction_t t;
+    memset(&t, 0, sizeof(t));
+    t.length = (len + 1) * 8;
+    t.tx_buffer = tx_buf;
+    t.rx_buffer = NULL;
+    
+    spi_device_transmit(cc1101_spi, &t);
+    
+    free(tx_buf);
+}
+
 /**
  * @brief Define a frequência de operação do CC1101.
  * Fórmula: Freq = (fxosc / 2^16) * FREQ[23:0]
@@ -34,9 +61,13 @@ static spi_device_handle_t cc1101_spi = NULL;
 void cc1101_set_frequency(uint32_t freq_hz) {
     uint64_t freq_reg = ((uint64_t)freq_hz * 65536) / 26000000;
     
-    cc1101_write_reg(CC1101_FREQ2, (freq_reg >> 16) & 0xFF);
-    cc1101_write_reg(CC1101_FREQ1, (freq_reg >> 8) & 0xFF);
-    cc1101_write_reg(CC1101_FREQ0, freq_reg & 0xFF);
+    uint8_t freq_bytes[3];
+    freq_bytes[0] = (freq_reg >> 16) & 0xFF; // FREQ2
+    freq_bytes[1] = (freq_reg >> 8) & 0xFF;  // FREQ1
+    freq_bytes[2] = freq_reg & 0xFF;         // FREQ0
+    
+    // Use Burst Write starting from CC1101_FREQ2 (auto-increments to FREQ1, FREQ0)
+    cc1101_write_burst(CC1101_FREQ2, freq_bytes, 3);
 }
 
 /**

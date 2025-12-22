@@ -49,7 +49,7 @@ static void spectrum_event_cb(lv_event_t * e) {
     lv_event_code_t code = lv_event_get_code(e);
     if(code == LV_EVENT_KEY) {
         uint32_t key = lv_event_get_key(e);
-        if(key == LV_KEY_LEFT || key == LV_KEY_ESC) {
+        if(key == LV_KEY_ESC) {
             subghz_spectrum_stop();
             // Return to previous menu or main menu. 
             // Assuming Main Menu for now or SubGhz Menu if it existed.
