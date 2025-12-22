@@ -9,6 +9,7 @@
 #include "menu_ui.h"
 #include "wifi_ui.h"
 #include "wifi_scan_ui.h"
+#include "subghz_spectrum_ui.h"
 #include "esp_log.h"
 
 #include "lvgl.h"
@@ -109,6 +110,11 @@ void ui_switch_screen(screen_id_t new_screen) {
       
       case SCREEN_WIFI_SCAN:
         ui_wifi_scan_open();
+        break;
+
+      case SCREEN_SUBGHZ_SPECTRUM:
+        ui_subghz_spectrum_open();
+        break;
 
       default:
         break;
@@ -144,4 +150,5 @@ void ui_release(void)
         xSemaphoreGiveRecursive(xGuiSemaphore);
     }
 }
+
 
