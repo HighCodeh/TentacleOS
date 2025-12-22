@@ -15,6 +15,7 @@
 
 #include <stdio.h>
 #include "buttons_gpio.h"
+#include "cc1101.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
@@ -35,39 +36,37 @@
 #include "ram_monitor.h"
 
 void kernel_init(void) {
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK(ret);
-    
-    spi_init();
-    
-    init_i2c();
-    
-    
-    //Storage Init
-    storage_init();
-    storage_assets_init();
-    storage_assets_print_info();
+  esp_err_t ret = nvs_flash_init();
+  if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+    ESP_ERROR_CHECK(nvs_flash_erase());
+    ret = nvs_flash_init();
+  }
+  ESP_ERROR_CHECK(ret);
 
-    buzzer_init();
-    led_rgb_init();
-    buzzer_boot_sequence();
-    bq25896_init();
-  
-    buttons_init();
+  spi_init();
+  init_i2c();
+  //Storage Init
+  storage_init();
+  storage_assets_init();
+  storage_assets_print_info();
 
-    wifi_init();
+  buzzer_init();
+  led_rgb_init();
+  buzzer_boot_sequence();
+  bq25896_init();
+  cc1101_init();
 
-    // display and graphical api init
-    st7789_init();
-    lv_init();
-    lv_port_disp_init();
-    lv_port_indev_init();
+  buttons_init();
 
-    ram_monitor();
-    
-    vTaskDelay(pdMS_TO_TICKS(1500));
+  wifi_init();
+
+  // display and graphical api init
+  st7789_init();
+  lv_init();
+  lv_port_disp_init();
+  lv_port_indev_init();
+
+  ram_monitor();
+
+  vTaskDelay(pdMS_TO_TICKS(1500));
 }
