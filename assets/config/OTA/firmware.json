@@ -1,0 +1,7 @@
+{
+  "current_firmware_version": "1.0.0",
+  "hardware": "ESP32-S3",
+  "ota_repository_url": "https://repository.highboy.com.br/firmware/esp32-s3/update.json",
+  "last_update": "2023-10-27T10:00:00",
+  "changelog": "melhoria na estabilidade"
+}
