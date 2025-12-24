@@ -117,6 +117,7 @@ float cc1101_convert_rssi(uint8_t rssi_raw);
 void cc1101_spectrum_task(void *pvParameters);
 void cc1101_send_data(const uint8_t *data, size_t len);
 void cc1101_enter_receive(void);
+void cc1101_enable_async_mode(uint32_t freq_hz);
 
 #endif // CC1101_H
 
