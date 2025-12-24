@@ -47,6 +47,7 @@ idf_component_register(SRCS
   "bad_usb/include"
   "bluetooth/include"
   "SubGhz/include"
+  "SubGhz/protocols/include"
   "ui/include"
   "ui/screens/home/include"
   "ui/screens/menu/include"

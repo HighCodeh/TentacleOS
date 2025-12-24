@@ -155,7 +155,7 @@ void cc1101_init(void) {
   // --- CORREÇÃO DE CONFLITO DE PINS ---
   // Configura GDO0 e GDO2 para High-Impedance (0x2E)
   cc1101_write_reg(CC1101_IOCFG0, 0x2E); 
-  cc1101_write_reg(CC1101_IOCFG2, 0x2E);
+  cc1101_write_reg(CC1101_IOCFG2, 0x2E); // GDO2 em High-Impedance (Libera Pino 9)
 
   // --- TESTE DE COMUNICAÇÃO ---
   uint8_t version = cc1101_read_reg(CC1101_VERSION | 0x40);
@@ -193,10 +193,8 @@ void cc1101_enable_async_mode(uint32_t freq_hz) {
   cc1101_strobe(CC1101_SRES); // Reset para garantir estado limpo
   vTaskDelay(pdMS_TO_TICKS(5));
 
-  // 1. Configuração de Pinos (GDO0 e GDO2 como Serial Data Output)
-  // 0x0D = Serial Data Output.
+  // 1. Configuração de Pinos (GDO0 como Serial Data Output)
   // O ESP32 vai ler o GDO0 (GPIO 8/SDA) via RMT.
-  cc1101_write_reg(CC1101_IOCFG2, 0x0D); 
   cc1101_write_reg(CC1101_IOCFG0, 0x0D);            // 2. Configuração de Pacote (Async, Raw, Sem CRC/Manchester)
   cc1101_write_reg(CC1101_PKTCTRL0, 0x32); // Async mode, No whitening
   cc1101_write_reg(CC1101_PKTCTRL1, 0x04); // No addr check
@@ -250,8 +248,81 @@ void cc1101_enable_async_mode(uint32_t freq_hz) {
 
   ESP_LOGI(TAG, "CC1101 configurado em Async Mode (GDO0 Active High)");
 
-  // Entra em RX imediatamente
-  cc1101_strobe(CC1101_SRX);
-}
-
-
+      // Entra em RX imediatamente
+      cc1101_strobe(CC1101_SRX);
+  }
+  
+  void cc1101_enter_tx_mode(void) {
+      if (cc1101_spi == NULL) return;
+      cc1101_strobe(CC1101_SIDLE);
+      cc1101_strobe(CC1101_STX);
+  }
+  
+  void cc1101_enter_rx_mode(void) {
+      if (cc1101_spi == NULL) return;
+      cc1101_strobe(CC1101_SIDLE);
+      cc1101_strobe(CC1101_SRX);
+  }
+  
+  void cc1101_enable_fsk_mode(uint32_t freq_hz) {
+      if (cc1101_spi == NULL) return;
+  
+      ESP_LOGI(TAG, "Configurando CC1101 para modo FSK (Sniffer)...");
+  
+      cc1101_strobe(CC1101_SIDLE);
+      cc1101_strobe(CC1101_SRES);
+          vTaskDelay(pdMS_TO_TICKS(5));
+      
+          // 1. Configuração de Pinos (GDO0 como Serial Data Output)
+          cc1101_write_reg(CC1101_IOCFG0, 0x0D);
+      
+          // 2. Pacote (Igual Async)      cc1101_write_reg(CC1101_PKTCTRL0, 0x32);
+      cc1101_write_reg(CC1101_PKTCTRL1, 0x04);
+      cc1101_write_reg(CC1101_PKTLEN,   0x00);
+  
+      // 3. RF
+      cc1101_set_frequency(freq_hz);
+  
+      // 4. Modem (AQUI MUDA PARA FSK)
+      cc1101_write_reg(CC1101_FSCTRL1,  0x06);
+      
+      // MDMCFG4: 0x3B = BW 812kHz
+      cc1101_write_reg(CC1101_MDMCFG4, 0x3B);
+      cc1101_write_reg(CC1101_MDMCFG3, 0x93); // Data Rate
+  
+      // MDMCFG2: FSK (0x00)
+      cc1101_write_reg(CC1101_MDMCFG2, 0x00); // 2-FSK, No Sync/Preamble
+      
+      cc1101_write_reg(CC1101_MDMCFG1, 0x02); // FEC Off
+      cc1101_write_reg(CC1101_MDMCFG0, 0xF8); // Channel Spacing
+  
+      cc1101_write_reg(CC1101_DEVIATN,  0x47); // Deviation +/- 47kHz
+  
+      // 5. AGC (Igual)
+      cc1101_write_reg(CC1101_AGCCTRL2, 0xC7);
+      cc1101_write_reg(CC1101_AGCCTRL1, 0x00);
+      cc1101_write_reg(CC1101_AGCCTRL0, 0xB2);
+  
+      // 6. Front End (Igual)
+      cc1101_write_reg(CC1101_FREND1,   0x56);
+      cc1101_write_reg(CC1101_FREND0,   0x10);
+  
+      uint8_t pa_table[] = {0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+      cc1101_write_burst(CC1101_PATABLE, pa_table, 8);
+  
+      cc1101_write_reg(CC1101_FSCAL3,   0xE9);
+      cc1101_write_reg(CC1101_FSCAL2,   0x2A);
+      cc1101_write_reg(CC1101_FSCAL1,   0x00);
+      cc1101_write_reg(CC1101_FSCAL0,   0x1F);
+  
+      // 7. Test (Igual)
+      cc1101_write_reg(CC1101_FSTEST,   0x59);
+      cc1101_write_reg(CC1101_TEST2,    0x81);
+      cc1101_write_reg(CC1101_TEST1,    0x35);
+      cc1101_write_reg(CC1101_TEST0,    0x09);
+  
+      ESP_LOGI(TAG, "CC1101 configurado em FSK Mode (GDO0 Active High)");
+  
+      cc1101_strobe(CC1101_SRX);
+  }
+  

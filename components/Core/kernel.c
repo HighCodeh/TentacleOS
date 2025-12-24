@@ -33,6 +33,7 @@
 #include "storage_assets.h"
 #include "lv_port_disp.h"
 #include "lv_port_indev.h"
+#include "ui_manager.h"
 #include "ram_monitor.h"
 
 void kernel_init(void) {
@@ -67,6 +68,7 @@ void kernel_init(void) {
   lv_port_disp_init();
   lv_port_indev_init();
 
+  ui_init();
   // ram_monitor();
 
   vTaskDelay(pdMS_TO_TICKS(1500));

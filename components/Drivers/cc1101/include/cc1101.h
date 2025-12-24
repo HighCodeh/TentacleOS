@@ -116,8 +116,10 @@ void cc1101_write_burst(uint8_t reg, const uint8_t *buf, uint8_t len);
 float cc1101_convert_rssi(uint8_t rssi_raw);
 void cc1101_spectrum_task(void *pvParameters);
 void cc1101_send_data(const uint8_t *data, size_t len);
-void cc1101_enter_receive(void);
-void cc1101_enable_async_mode(uint32_t freq_hz);
+void cc1101_enter_rx_mode(void);
+void cc1101_enter_tx_mode(void);
+void cc1101_enable_async_mode(uint32_t freq_hz); // ASK (OOK) Default
+void cc1101_enable_fsk_mode(uint32_t freq_hz);   // FSK
 
 #endif // CC1101_H
 
