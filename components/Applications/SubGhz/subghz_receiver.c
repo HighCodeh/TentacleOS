@@ -16,10 +16,10 @@ static const char *TAG = "SUBGHZ_RX";
 #define RMT_RESOLUTION_HZ 1000000 // 1MHz -> 1us per tick
 
 // Configuration
-#define RX_BUFFER_SIZE    2048 // Number of symbols
+#define RX_BUFFER_SIZE    1024 // Number of symbols
 #define MIN_PULSE_NS      3000 // Hardware Filter limit (~3us)
 #define SOFTWARE_FILTER_US 15  // Software filter (15us) to clean up noise
-#define MAX_PULSE_NS      10000000 // 10ms idle timeout
+#define MAX_PULSE_NS      32767000 // 10ms idle timeout
 
 static TaskHandle_t rx_task_handle = NULL;
 static volatile bool s_is_running = false;
@@ -51,6 +51,7 @@ static void subghz_rx_task(void *pvParameters) {
         .mem_block_symbols = 64, // Default internal buffer
         .gpio_num = RMT_RX_GPIO,
         .flags.invert_in = false, // Disable inversion (Signal seems standard Active High)
+        .flags.with_dma = true,   // Enable DMA to prevent buffer overflows
     };
     
     ESP_ERROR_CHECK(rmt_new_rx_channel(&rx_channel_cfg, &rx_channel));
