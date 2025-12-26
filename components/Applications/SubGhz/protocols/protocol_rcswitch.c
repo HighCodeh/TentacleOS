@@ -37,6 +37,11 @@ static bool check_pulse(int32_t raw_len, uint16_t base_len, uint8_t multiplier) 
     return (raw_len >= target - tol) && (raw_len <= target + tol);
 }
 
+static bool check_polarity(int32_t raw_len, bool expect_high) {
+    if (expect_high) return raw_len > 0;
+    else return raw_len < 0;
+}
+
 static bool protocol_rcswitch_decode(const int32_t* raw_data, size_t count, subghz_data_t* out_data) {
     if (count < 20) return false;
 
@@ -44,9 +49,11 @@ static bool protocol_rcswitch_decode(const int32_t* raw_data, size_t count, subg
     for (int p = 0; p < RC_PROTO_COUNT; p++) {
         const rcswitch_proto_t* proto = &rc_protos[p];
         
-        // Pular protocolo 1 se já tivermos um decoder Princeton dedicado melhor
-        // Mas o RCSwitch 1 é bom para pegar variantes que o nosso Princeton estrito rejeitou.
-        
+        // Determina a polaridade esperada para o primeiro pulso do par (Pulse)
+        // Normal (inverted=false): Pulse=High (>0), Gap=Low (<0)
+        // Inverted (inverted=true): Pulse=Low (<0), Gap=High (>0)
+        bool expect_pulse_high = !proto->inverted;
+
         // RCSwitch geralmente procura Sync Bit primeiro.
         // Sync pode estar no começo ou no fim.
         // Vamos varrer o sinal procurando Sync.
@@ -56,15 +63,13 @@ static bool protocol_rcswitch_decode(const int32_t* raw_data, size_t count, subg
             int32_t p_sync = raw_data[i];
             int32_t g_sync = raw_data[i+1];
             
-            // Se invertido, o pulso é o GAP e o gap é o PULSO (logicamente),
-            // mas o raw_data já vem ajustado pelo RMT invert_in?
-            // O raw_data vem: P, G, P, G... onde P é High (ativo) e G é Low (pausa).
-            // O parametro "inverted" do RCSwitch muda o significado de High/Low.
-            // Se inverted=true, o sinal físico é invertido.
-            // Nosso receiver JÁ inverteu via hardware (invert_in=true).
-            // Então podemos tratar inverted=false como padrão?
-            // Vamos testar sem inversão extra primeiro.
-            
+            // 1. Verifica Polaridade do Sync
+            if (!check_polarity(p_sync, expect_pulse_high) || 
+                !check_polarity(g_sync, !expect_pulse_high)) {
+                continue;
+            }
+
+            // 2. Verifica Duração do Sync
             if (check_pulse(p_sync, proto->pulse_len, proto->sync.high) &&
                 check_pulse(g_sync, proto->pulse_len, proto->sync.low)) {
                 
@@ -78,6 +83,13 @@ static bool protocol_rcswitch_decode(const int32_t* raw_data, size_t count, subg
                 while (k < count - 1 && bits < 32) {
                     int32_t p0 = raw_data[k];
                     int32_t g0 = raw_data[k+1];
+
+                    // Verifica Polaridade dos Dados
+                    if (!check_polarity(p0, expect_pulse_high) || 
+                        !check_polarity(g0, !expect_pulse_high)) {
+                        fail = true;
+                        break;
+                    }
                     
                     // Test 0
                     if (check_pulse(p0, proto->pulse_len, proto->zero.high) && 
@@ -99,15 +111,9 @@ static bool protocol_rcswitch_decode(const int32_t* raw_data, size_t count, subg
                 
                 if (!fail && bits >= 8) {
                     // Sucesso!
-                    // Formatar nome "RCSwitch vX"
-                    static char proto_name[20];
-                    snprintf(proto_name, sizeof(proto_name), "RCSwitch v%d", p+1);
-                    
-                    out_data->protocol_name = strdup(proto_name); // Leak? Deveriamos usar const string
-                    // Como não podemos alocar, vamos usar uma lista estática de nomes ou hack.
-                    // Vamos usar "RCSwitch" genérico e colocar versão no serial ou log
-                    out_data->protocol_name = "RCSwitch"; // Simplificação
-                    // Podemos codificar o protocolo nos bits altos do raw se quiser
+                    static char proto_name[24];
+                    snprintf(proto_name, sizeof(proto_name), "RCSwitch(%d)", p + 1);
+                    out_data->protocol_name = proto_name;
                     
                     out_data->bit_count = bits;
                     out_data->raw_value = decoded_val;

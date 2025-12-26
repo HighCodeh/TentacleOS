@@ -15,7 +15,8 @@ extern subghz_protocol_t protocol_rcswitch;
 
 // Lista de protocolos ativos
 static subghz_protocol_t* registry[] = {
-    &protocol_rossi, // Check first (distinctive header)
+    &protocol_rcswitch, // Generic fallback
+    // &protocol_rossi, // Check first (distinctive header)
     &protocol_princeton,
     &protocol_came,
     &protocol_nice_flo,
@@ -24,7 +25,6 @@ static subghz_protocol_t* registry[] = {
     &protocol_holtek,
     &protocol_linear,
     &protocol_liftmaster,
-    &protocol_rcswitch, // Generic fallback
     NULL
 };
 
