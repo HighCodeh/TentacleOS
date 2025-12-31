@@ -28,15 +28,16 @@
 #include "storage_write.h"
 #include "storage_assets.h"
 #include "cJSON.h"
+#include "lwip/inet.h"
 // #include "virtual_display_client.h" // Adicionar este include
 
-#define WIFI_AP_CONFIG_FILE "config/wifi/wifi_ap.json"
+#define WIFI_AP_CONFIG_FILE "config/wifi/wifi_ap.conf"
 #define WIFI_AP_CONFIG_PATH "/assets/" WIFI_AP_CONFIG_FILE
 
 static wifi_ap_record_t stored_aps[WIFI_SCAN_LIST_SIZE];
 static uint16_t stored_ap_count = 0;
 static SemaphoreHandle_t wifi_mutex = NULL;
-static void wifi_load_ap_config(char* ssid, char* passwd, uint8_t* max_conn);
+static void wifi_load_ap_config(char* ssid, char* passwd, uint8_t* max_conn, char* ip_addr);
 
 static const char *TAG = "wifi_service";
 
@@ -46,7 +47,6 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         ESP_LOGI(TAG, "Estação conectada ao AP, MAC: " MACSTR, MAC2STR(event->mac));
         led_blink_green();
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STADISCONNECTED) {
-        wifi_event_ap_stadisconnected_t *event = (wifi_event_ap_stadisconnected_t *)event_data;
         led_blink_red();
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_AP_STAIPASSIGNED) {
         ESP_LOGI(TAG, "IP atribuído a estação conectada ao AP");
@@ -126,7 +126,7 @@ void wifi_init(void) {
         ESP_ERROR_CHECK(err);
     }
 
-    esp_netif_create_default_wifi_ap();
+    esp_netif_t *netif_ap = esp_netif_create_default_wifi_ap();
     esp_netif_create_default_wifi_sta();
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -145,8 +145,19 @@ void wifi_init(void) {
     char target_ssid[32] = "Darth Maul";
     char target_password[64] = "MyPassword123";
     uint8_t target_max_conn = 4;  
+    char target_ip[16] = "192.168.4.1";
 
-    wifi_load_ap_config(target_ssid, target_password, &target_max_conn);
+    wifi_load_ap_config(target_ssid, target_password, &target_max_conn, target_ip);
+
+    if (netif_ap) {
+        esp_netif_dhcps_stop(netif_ap);
+        esp_netif_ip_info_t ip_info;
+        esp_netif_str_to_ip4(target_ip, &ip_info.ip);
+        esp_netif_str_to_ip4(target_ip, &ip_info.gw);
+        IP4_ADDR(&ip_info.netmask, 255, 255, 255, 0);
+        esp_netif_set_ip_info(netif_ap, &ip_info);
+        esp_netif_dhcps_start(netif_ap);
+    }
 
     wifi_config_t ap_config = {
         .ap = {
@@ -344,7 +355,7 @@ void wifi_stop(void){
 
 }
 
-static void wifi_load_ap_config(char* ssid, char* passwd, uint8_t* max_conn){
+static void wifi_load_ap_config(char* ssid, char* passwd, uint8_t* max_conn, char* ip_addr){
   if (!storage_assets_is_mounted()) {
       storage_assets_init();
   }
@@ -358,6 +369,7 @@ static void wifi_load_ap_config(char* ssid, char* passwd, uint8_t* max_conn){
       cJSON *j_ssid = cJSON_GetObjectItem(root, "ssid");
       cJSON *j_pass = cJSON_GetObjectItem(root, "password");
       cJSON *j_conn = cJSON_GetObjectItem(root, "max_conn");
+      cJSON *j_ip = cJSON_GetObjectItem(root, "ip_addr");
 
       if (cJSON_IsString(j_ssid) && (strlen(j_ssid->valuestring) > 0)) {
         strncpy(ssid, j_ssid->valuestring, 31);
@@ -370,6 +382,10 @@ static void wifi_load_ap_config(char* ssid, char* passwd, uint8_t* max_conn){
       if (cJSON_IsNumber(j_conn)){
         *max_conn = (uint8_t)j_conn->valueint;
       }
+      if (cJSON_IsString(j_ip) && (strlen(j_ip->valuestring) > 0)) {
+          strncpy(ip_addr, j_ip->valuestring, 15);
+          ip_addr[15] = '\0';
+      }
 
       cJSON_Delete(root);
       ESP_LOGI(TAG, "Configurações carregadas do storage assets com sucesso.");
@@ -380,7 +396,7 @@ static void wifi_load_ap_config(char* ssid, char* passwd, uint8_t* max_conn){
   }
 }
 
-esp_err_t wifi_save_ap_config(const char *ssid, const char *password, uint8_t max_conn) {
+esp_err_t wifi_save_ap_config(const char *ssid, const char *password, uint8_t max_conn, const char *ip_addr) {
     if (ssid == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -395,6 +411,9 @@ esp_err_t wifi_save_ap_config(const char *ssid, const char *password, uint8_t ma
     cJSON_AddStringToObject(root, "ssid", ssid);
     cJSON_AddStringToObject(root, "password", (password != NULL) ? password : "");
     cJSON_AddNumberToObject(root, "max_conn", max_conn);
+    if (ip_addr != NULL && strlen(ip_addr) > 0) {
+        cJSON_AddStringToObject(root, "ip_addr", ip_addr);
+    }
 
     // 2. Converte o objeto JSON para String (sem formatação para economizar espaço)
     char *json_string = cJSON_PrintUnformatted(root);
