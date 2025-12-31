@@ -11,9 +11,16 @@
 #include "wifi_scan_ui.h"
 #include "ui_ble_menu.h"
 #include "ui_ble_spam.h"
+#include "ui_ble_spam_select.h"
+#include "ui_badusb_menu.h"
+#include "ui_badusb_browser.h"
+#include "ui_badusb_layout.h"
+#include "ui_badusb_connect.h"
+#include "ui_badusb_running.h"
 #include "subghz_spectrum_ui.h"
 #include "esp_log.h"
 #include "bluetooth_service.h"
+#include "bad_usb.h"
 
 #include "lvgl.h"
 #include "lv_port_disp.h"
@@ -38,7 +45,13 @@ static void lv_tick_task(void *arg);
 static void clear_current_screen(void);
 
 static bool is_ble_screen(screen_id_t screen) {
-    return (screen == SCREEN_BLE_MENU || screen == SCREEN_BLE_SPAM);
+    return (screen == SCREEN_BLE_MENU || screen == SCREEN_BLE_SPAM || screen == SCREEN_BLE_SPAM_SELECT);
+}
+
+static bool is_badusb_screen(screen_id_t screen) {
+    return (screen == SCREEN_BADUSB_MENU || screen == SCREEN_BADUSB_BROWSER || 
+            screen == SCREEN_BADUSB_LAYOUT || screen == SCREEN_BADUSB_CONNECT || 
+            screen == SCREEN_BADUSB_RUNNING);
 }
 
 screen_id_t current_screen_id = SCREEN_NONE;
@@ -112,6 +125,18 @@ void ui_switch_screen(screen_id_t new_screen) {
         bluetooth_service_stop();
     }
 
+    // Power Management for BadUSB
+    bool was_badusb = is_badusb_screen(current_screen_id);
+    bool is_badusb = is_badusb_screen(new_screen);
+
+    if (is_badusb && !was_badusb) {
+        ESP_LOGI(TAG, "Entering BadUSB Mode: Initializing Driver...");
+        bad_usb_init();
+    } else if (!is_badusb && was_badusb) {
+        ESP_LOGI(TAG, "Exiting BadUSB Mode: Stopping Driver...");
+        bad_usb_deinit();
+    }
+
     clear_current_screen();
 
     switch (new_screen) {
@@ -135,12 +160,36 @@ void ui_switch_screen(screen_id_t new_screen) {
         ui_ble_menu_open();
         break;
 
+      case SCREEN_BLE_SPAM_SELECT:
+        ui_ble_spam_select_open();
+        break;
+
       case SCREEN_BLE_SPAM:
         ui_ble_spam_open();
         break;
 
       case SCREEN_SUBGHZ_SPECTRUM:
         ui_subghz_spectrum_open();
+        break;
+
+      case SCREEN_BADUSB_MENU:
+        ui_badusb_menu_open();
+        break;
+
+      case SCREEN_BADUSB_BROWSER:
+        ui_badusb_browser_open();
+        break;
+
+      case SCREEN_BADUSB_LAYOUT:
+        ui_badusb_layout_open();
+        break;
+
+      case SCREEN_BADUSB_CONNECT:
+        ui_badusb_connect_open();
+        break;
+
+      case SCREEN_BADUSB_RUNNING:
+        ui_badusb_running_open();
         break;
 
       default:

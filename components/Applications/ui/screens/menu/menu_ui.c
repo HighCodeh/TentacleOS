@@ -36,6 +36,7 @@ typedef struct {
 
 static menu_item_t menu_data[] = {
   {"BLUETOOTH",     {"/assets/frames/bluetooth_frame_0.bin", "/assets/frames/bluetooth_frame_1.bin", "/assets/frames/bluetooth_frame_2.bin"}, {{39,39}, {39,50}, {39,50}}, {NULL, NULL, NULL}},
+  {"BAD USB",       {"/assets/frames/files_frame_0.bin", "/assets/frames/files_frame_1.bin", "/assets/frames/files_frame_2.bin"}, {{38,38}, {39,51}, {39,51}}, {NULL, NULL, NULL}},
   {"WIFI",          {"/assets/frames/wifi_frame_0.bin", "/assets/frames/wifi_frame_1.bin", "/assets/frames/wifi_frame_2.bin"}, {{38,38}, {39,49}, {39,49}}, {NULL, NULL, NULL}},
   {"INFRARED",      {"/assets/frames/ir_frame_0.bin", "/assets/frames/ir_frame_1.bin", "/assets/frames/ir_frame_2.bin"}, {{38,38}, {40,51}, {40,51}}, {NULL, NULL, NULL}},
   {"CONFIGURATION", {"/assets/frames/config_frame_0.bin", "/assets/frames/config_frame_1.bin", "/assets/frames/config_frame_2.bin"}, {{39,38}, {40,52}, {40,52}}, {NULL, NULL, NULL}},
@@ -200,12 +201,15 @@ static void menu_event_cb(lv_event_t * e) {
       case 0: // BLUETOOTH
         ui_switch_screen(SCREEN_BLE_MENU); 
         break;
-      case 1: // WIFI
+      case 1: // BAD USB
+        ui_switch_screen(SCREEN_BADUSB_MENU);
+        break;
+      case 2: // WIFI
         ui_switch_screen(SCREEN_WIFI_MENU);
         break;
-      case 2: // INFRARED
+      case 3: // INFRARED
         break;
-      case 5: // RADIO FREQUENCY
+      case 6: // RADIO FREQUENCY
         ui_switch_screen(SCREEN_SUBGHZ_SPECTRUM);
         break;
       // ADD OUTROS //** TODO

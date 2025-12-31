@@ -13,10 +13,12 @@
 // limitations under the License.
 
 
-#include "ui_ble_menu.h"
+#include "ui_ble_spam_select.h"
+#include "canned_spam.h"
 #include "header_ui.h"
 #include "footer_ui.h"
 #include "ui_manager.h"
+#include "ui_ble_spam.h"
 #include "lv_port_indev.h"
 #include "esp_log.h"
 #include "font/lv_symbol_def.h"
@@ -26,9 +28,9 @@
 #define COLOR_GRADIENT_TOP  0x000000
 #define COLOR_GRADIENT_BOT  0x2E0157
 
-static const char *TAG = "UI_BLE_MENU";
+static const char *TAG = "UI_BLE_SPAM_SELECT";
 
-static lv_obj_t * screen_ble_menu = NULL;
+static lv_obj_t * screen_ble_spam_select = NULL;
 static lv_style_t style_menu;
 static lv_style_t style_btn;
 static bool styles_initialized = false;
@@ -69,36 +71,31 @@ static void menu_item_event_cb(lv_event_t * e)
   }
 }
 
-static void ble_menu_event_cb(lv_event_t * e)
-{
-  if(lv_event_get_code(e) == LV_EVENT_KEY) {
-    if(lv_event_get_key(e) == LV_KEY_ESC || lv_event_get_key(e) == LV_KEY_LEFT) {
-      ESP_LOGI(TAG, "Returning to Main Menu");
-      ui_switch_screen(SCREEN_MENU);
-    }
-  }
-}
-
-static void option_select_event_cb(lv_event_t * e) {
+static void spam_toggle_event_cb(lv_event_t * e) {
   if (lv_event_get_code(e) != LV_EVENT_KEY) return;
 
   uint32_t key = lv_event_get_key(e);
   if (key == LV_KEY_ENTER) {
     int index = (int)(intptr_t)lv_event_get_user_data(e);
-    
-    switch(index) {
-        case 0: // Device Spam
-            ESP_LOGI(TAG, "Opening Device Spam List");
-            ui_switch_screen(SCREEN_BLE_SPAM_SELECT);
-            break;
-        case 1: // Detect Devices
-            ESP_LOGI(TAG, "Detect Devices (TODO)");
-            break;
-        case 2: // Beacon Spam
-            ESP_LOGI(TAG, "Beacon Spam (TODO)");
-            break;
-        default:
-            break;
+
+    const SpamType* type = spam_get_attack_type(index);
+    if (type) {
+      ui_ble_spam_set_name(type->name);
+    }
+
+    ESP_LOGI(TAG, "Starting Spam Index: %d", index);
+    spam_start(index);
+
+    ui_switch_screen(SCREEN_BLE_SPAM);
+  }
+}
+
+static void ble_spam_select_event_cb(lv_event_t * e)
+{
+  if(lv_event_get_code(e) == LV_EVENT_KEY) {
+    if(lv_event_get_key(e) == LV_KEY_ESC) {
+      ESP_LOGI(TAG, "Returning to BLE Options Menu");
+      ui_switch_screen(SCREEN_BLE_SPAM_SELECT);
     }
   }
 }
@@ -123,10 +120,12 @@ static void create_menu(lv_obj_t * parent)
   if(!ble_icon) ble_icon = LV_SYMBOL_BLUETOOTH; 
   if(!select_icon) select_icon = LV_SYMBOL_RIGHT;
 
-  const char * options[] = {"Device Spam", "Detect Devices", "Beacon Spam"};
-  int count = 3;
+  int count = spam_get_attack_count();
 
   for(int i = 0; i < count; i++) {
+    const SpamType* type = spam_get_attack_type(i);
+    if (!type) continue;
+
     lv_obj_t * btn = lv_btn_create(menu);
     lv_obj_set_size(btn, lv_pct(100), 40);
     lv_obj_add_style(btn, &style_btn, 0);
@@ -137,7 +136,7 @@ static void create_menu(lv_obj_t * parent)
     lv_obj_align(img_left, LV_ALIGN_LEFT_MID, 8, 0);
 
     lv_obj_t * lbl = lv_label_create(btn);
-    lv_label_set_text(lbl, options[i]);
+    lv_label_set_text(lbl, type->name);
     lv_obj_center(lbl);
 
     lv_obj_t * img_sel = lv_label_create(btn);
@@ -149,9 +148,9 @@ static void create_menu(lv_obj_t * parent)
     lv_obj_add_event_cb(btn, menu_item_event_cb, LV_EVENT_DEFOCUSED, img_sel);
 
     // Pass index as user data
-    lv_obj_add_event_cb(btn, option_select_event_cb, LV_EVENT_KEY, (void*)(intptr_t)i);
+    lv_obj_add_event_cb(btn, spam_toggle_event_cb, LV_EVENT_KEY, (void*)(intptr_t)i);
     // Add back handler to buttons too
-    lv_obj_add_event_cb(btn, ble_menu_event_cb, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(btn, ble_spam_select_event_cb, LV_EVENT_KEY, NULL);
 
     if(main_group) {
       lv_group_add_obj(main_group, btn);
@@ -159,22 +158,22 @@ static void create_menu(lv_obj_t * parent)
   }
 }
 
-void ui_ble_menu_open(void)
+void ui_ble_spam_select_open(void)
 {
-  if(screen_ble_menu) {
-    lv_obj_del(screen_ble_menu);
-    screen_ble_menu = NULL;
+  if(screen_ble_spam_select) {
+    lv_obj_del(screen_ble_spam_select);
+    screen_ble_spam_select = NULL;
   }
 
-  screen_ble_menu = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(screen_ble_menu, BG_COLOR, 0);
-  lv_obj_remove_flag(screen_ble_menu, LV_OBJ_FLAG_SCROLLABLE);
+  screen_ble_spam_select = lv_obj_create(NULL);
+  lv_obj_set_style_bg_color(screen_ble_spam_select, BG_COLOR, 0);
+  lv_obj_remove_flag(screen_ble_spam_select, LV_OBJ_FLAG_SCROLLABLE);
 
-  header_ui_create(screen_ble_menu);
-  footer_ui_create(screen_ble_menu);
-  create_menu(screen_ble_menu);
+  header_ui_create(screen_ble_spam_select);
+  footer_ui_create(screen_ble_spam_select);
+  create_menu(screen_ble_spam_select);
 
-  lv_obj_add_event_cb(screen_ble_menu, ble_menu_event_cb, LV_EVENT_KEY, NULL);
+  lv_obj_add_event_cb(screen_ble_spam_select, ble_spam_select_event_cb, LV_EVENT_KEY, NULL);
 
-  lv_screen_load(screen_ble_menu);
+  lv_screen_load(screen_ble_spam_select);
 }
