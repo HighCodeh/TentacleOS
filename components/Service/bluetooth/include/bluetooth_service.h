@@ -78,5 +78,41 @@ uint8_t bluetooth_service_get_own_addr_type(void);
  */
 esp_err_t bluetooth_service_set_max_power(void);
 
+/**
+ * @brief Salva a configuração de anúncio BLE.
+ * 
+ * @param name Nome do dispositivo.
+ * @param max_conn Número máximo de conexões (se aplicável/suportado).
+ * @return esp_err_t ESP_OK em sucesso.
+ */
+esp_err_t bluetooth_save_announce_config(const char *name, uint8_t max_conn);
+
+/**
+ * @brief Carrega a lista de beacons para spam.
+ * O chamador é responsável por liberar a memória retornada em list usando bluetooth_free_spam_list.
+ * 
+ * @param list Ponteiro para receber o array de strings.
+ * @param count Ponteiro para receber o número de itens.
+ * @return esp_err_t ESP_OK em sucesso.
+ */
+esp_err_t bluetooth_load_spam_list(char ***list, size_t *count);
+
+/**
+ * @brief Salva a lista de beacons para spam.
+ * 
+ * @param list Array de strings.
+ * @param count Número de itens.
+ * @return esp_err_t ESP_OK em sucesso.
+ */
+esp_err_t bluetooth_save_spam_list(const char * const *list, size_t count);
+
+/**
+ * @brief Libera a memória alocada por bluetooth_load_spam_list.
+ * 
+ * @param list Array de strings.
+ * @param count Número de itens.
+ */
+void bluetooth_free_spam_list(char **list, size_t count);
+
 #endif // BLUETOOTH_SERVICE_H
 

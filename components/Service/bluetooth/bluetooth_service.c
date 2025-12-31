@@ -32,6 +32,15 @@
 #include "services/gap/ble_svc_gap.h"
 #include "services/dis/ble_svc_dis.h"
 
+#include "storage_write.h"
+#include "storage_assets.h"
+#include "cJSON.h"
+
+#define BLE_ANNOUNCE_CONFIG_FILE "config/bluetooth/ble_announce.conf"
+#define BLE_ANNOUNCE_CONFIG_PATH "/assets/" BLE_ANNOUNCE_CONFIG_FILE
+#define BLE_SPAM_LIST_FILE "config/bluetooth/beacon_list.conf"
+#define BLE_SPAM_LIST_PATH "/assets/" BLE_SPAM_LIST_FILE
+
 static const char *TAG = "BLE_SERVICE";
 
 static uint8_t own_addr_type;
@@ -42,6 +51,7 @@ static void bluetooth_service_on_reset(int reason);
 static void bluetooth_service_on_sync(void);
 static void bluetooth_service_host_task(void *param);
 static int bluetooth_service_gap_event(struct ble_gap_event *event, void *arg);
+static void bluetooth_load_announce_config(char* name, uint8_t* max_conn);
 
 
 static int bluetooth_service_gap_event(struct ble_gap_event *event, void *arg) {
@@ -109,7 +119,6 @@ esp_err_t bluetooth_service_start_advertising(void) {
   return ESP_OK;
 }
 
-// Para o anúncio BLE
 esp_err_t bluetooth_service_stop_advertising(void) {
   if (!ble_initialized) {
     ESP_LOGE(TAG, "BLE não inicializado.");
@@ -166,7 +175,11 @@ esp_err_t bluetooth_service_init(void) {
   ble_hs_cfg.sync_cb = bluetooth_service_on_sync;
   ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
 
-  ret = ble_svc_gap_device_name_set("ESP32-NimBLE-Svc");
+  char device_name[32] = "Darth Maul";
+  uint8_t max_conn = 4; 
+  bluetooth_load_announce_config(device_name, &max_conn);
+
+  ret = ble_svc_gap_device_name_set(device_name);
   assert(ret == 0);
 
   ble_hs_synced_sem = xSemaphoreCreateBinary();
@@ -237,3 +250,141 @@ uint8_t bluetooth_service_get_own_addr_type(void) {
   return own_addr_type;
 }
 
+
+esp_err_t bluetooth_save_announce_config(const char *name, uint8_t max_conn) {
+  if (name == NULL) {
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  cJSON *root = cJSON_CreateObject();
+  if (root == NULL) {
+    return ESP_ERR_NO_MEM;
+  }
+
+  cJSON_AddStringToObject(root, "ssid", name);
+  cJSON_AddNumberToObject(root, "max_conn", max_conn);
+
+  char *json_string = cJSON_PrintUnformatted(root);
+  if (json_string == NULL) {
+    cJSON_Delete(root);
+    return ESP_ERR_NO_MEM;
+  }
+
+  esp_err_t err = storage_write_string(BLE_ANNOUNCE_CONFIG_PATH, json_string);
+  if (err == ESP_OK) {
+    ESP_LOGI(TAG, "Configuração BLE salva com sucesso em: %s", BLE_ANNOUNCE_CONFIG_PATH);
+  } else {
+    ESP_LOGE(TAG, "Erro ao gravar arquivo de configuração BLE: %s", esp_err_to_name(err));
+  }
+
+  free(json_string);
+  cJSON_Delete(root);
+  return err;
+}
+
+static void bluetooth_load_announce_config(char* name, uint8_t* max_conn) {
+  if (!storage_assets_is_mounted()) {
+    storage_assets_init();
+  }
+
+  size_t size = 0;
+  char *buffer = (char*)storage_assets_load_file(BLE_ANNOUNCE_CONFIG_FILE, &size);
+
+  if (buffer != NULL) {
+    cJSON *root = cJSON_Parse(buffer);
+    if (root) {
+      cJSON *j_name = cJSON_GetObjectItem(root, "ssid");
+      cJSON *j_conn = cJSON_GetObjectItem(root, "max_conn");
+
+      if (cJSON_IsString(j_name) && (strlen(j_name->valuestring) > 0)) {
+        strncpy(name, j_name->valuestring, 31);
+        name[31] = '\0';
+      }
+      if (cJSON_IsNumber(j_conn)){
+        *max_conn = (uint8_t)j_conn->valueint;
+      }
+
+      cJSON_Delete(root);
+      ESP_LOGI(TAG, "Configurações BLE carregadas com sucesso.");
+    }
+    free(buffer);
+  } else {
+    ESP_LOGW(TAG, "Arquivo de config BLE não encontrado. Usando padrões.");
+  }
+}
+
+esp_err_t bluetooth_load_spam_list(char ***list, size_t *count) {
+  if (!storage_assets_is_mounted()) {
+    storage_assets_init();
+  }
+
+  size_t size = 0;
+  char *buffer = (char*)storage_assets_load_file(BLE_SPAM_LIST_FILE, &size);
+
+  if (buffer == NULL) {
+    ESP_LOGE(TAG, "Falha ao carregar lista de spam.");
+    return ESP_FAIL;
+  }
+
+  cJSON *root = cJSON_Parse(buffer);
+  if (!root) {
+    free(buffer);
+    return ESP_FAIL;
+  }
+
+  cJSON *spam_array = cJSON_GetObjectItem(root, "spam_ble_announce");
+  if (!cJSON_IsArray(spam_array)) {
+    cJSON_Delete(root);
+    free(buffer);
+    return ESP_FAIL;
+  }
+
+  int array_size = cJSON_GetArraySize(spam_array);
+  *list = malloc(array_size * sizeof(char*));
+  if (*list == NULL) {
+    cJSON_Delete(root);
+    free(buffer);
+    return ESP_ERR_NO_MEM;
+  }
+
+  *count = 0;
+  cJSON *item = NULL;
+  cJSON_ArrayForEach(item, spam_array) {
+    if (cJSON_IsString(item)) {
+      (*list)[*count] = strdup(item->valuestring);
+      (*count)++;
+    }
+  }
+
+  cJSON_Delete(root);
+  free(buffer);
+  return ESP_OK;
+}
+
+esp_err_t bluetooth_save_spam_list(const char * const *list, size_t count) {
+  cJSON *root = cJSON_CreateObject();
+  cJSON *array = cJSON_CreateStringArray(list, count);
+
+  cJSON_AddItemToObject(root, "spam_ble_announce", array);
+
+  char *json_string = cJSON_PrintUnformatted(root);
+  if (json_string == NULL) {
+    cJSON_Delete(root);
+    return ESP_ERR_NO_MEM;
+  }
+
+  esp_err_t err = storage_write_string(BLE_SPAM_LIST_PATH, json_string);
+
+  free(json_string);
+  cJSON_Delete(root);
+  return err;
+}
+
+void bluetooth_free_spam_list(char **list, size_t count) {
+  if (list != NULL) {
+    for (size_t i = 0; i < count; i++) {
+      free(list[i]);
+    }
+    free(list);
+  }
+}
