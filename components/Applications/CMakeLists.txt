@@ -18,18 +18,19 @@ file(GLOB_RECURSE WIFI_UI_SRCS "ui/screens/wifi/*.c")
 file(GLOB_RECURSE BLE_UI_SRCS "ui/screens/bluetooth/*.c")
 file(GLOB_RECURSE SUBGHZ_UI_SRCS "ui/screens/SubGhz/*.c")
 file(GLOB_RECURSE SUB_EXAMPLE_UI_SRCS "ui/screens/sub_example/*.c")
+file(GLOB_RECURSE BADUSB_UI_SRCS "ui/screens/badusb/*.c")
 file(GLOB_RECURSE HEADER_UI_SRCS "ui/components/header/*.c")
 file(GLOB_RECURSE FOOTER_UI_SRCS "ui/components/footer/*.c")
 
 file(GLOB_RECURSE SUBGHZ_APP_SRCS "SubGhz/*.c")
 file(GLOB_RECURSE BLE_APP_SRCS "bluetooth/*.c")
-
+file(GLOB_RECURSE BADUSB_APP_SRCS "bad_usb/*.c")
 
 idf_component_register(SRCS 
   "play/play.c"
   "wifi/wifi_deauther.c"
   "wifi/evil_twin.c"
-  "bad_usb/bad_usb.c"
+  ${BADUSB_APP_SRCS}
   ${BLE_APP_SRCS}
   "ui/ui_manager.c"
   ${SUBGHZ_APP_SRCS}
@@ -39,6 +40,7 @@ idf_component_register(SRCS
   ${MENU_UI_SRCS}
   ${WIFI_UI_SRCS}
   ${SUB_EXAMPLE_UI_SRCS}
+  ${BADUSB_UI_SRCS}
   ${HEADER_UI_SRCS}
   ${FOOTER_UI_SRCS}
 
@@ -47,6 +49,7 @@ idf_component_register(SRCS
   "wifi/include"   
   "ui/screens/SubGhz/include"
   "ui/screens/bluetooth/include"
+  "ui/screens/badusb/include"
   "bad_usb/include"
   "bluetooth/include"
   "SubGhz/include"
