@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+file(GLOB_RECURSE BOOT_UI_SRCS "ui/screens/boot/*.c")
 file(GLOB_RECURSE HOME_UI_SRCS "ui/screens/home/*.c")
 file(GLOB_RECURSE MENU_UI_SRCS "ui/screens/menu/*.c")
 file(GLOB_RECURSE WIFI_UI_SRCS "ui/screens/wifi/*.c")
@@ -38,6 +39,7 @@ idf_component_register(SRCS
   ${SUBGHZ_APP_SRCS}
   ${SUBGHZ_UI_SRCS}
   ${BLE_UI_SRCS}
+  ${BOOT_UI_SRCS}
   ${HOME_UI_SRCS}
   ${MENU_UI_SRCS}
   ${WIFI_UI_SRCS}
@@ -59,6 +61,7 @@ idf_component_register(SRCS
   "SubGhz/protocols/include"
   "ui/include"
   "ui/screens/home/include"
+  "ui/screens/boot/include"
   "ui/screens/menu/include"
   "ui/screens/wifi/include"
   "ui/screens/sub_example/include"
