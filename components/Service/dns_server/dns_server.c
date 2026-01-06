@@ -149,13 +149,11 @@ static void send_dns_response(int sock, struct sockaddr_in *client_addr, socklen
   memcpy(response_buf, request_buf, sizeof(dns_header_t));
   dns_header_t *resp_hdr = (dns_header_t *)response_buf;
 
-  // DNS Flags for Evil Twin (Authoritative)
-  // 0x8500: QR=1, Opcode=0, AA=1 (Auth), TC=0, RD=1, RA=0, Rcode=0
-  resp_hdr->flags = htons(0x8500); 
-
-  resp_hdr->qr = 1;      
-  resp_hdr->ancount = htons(1);    
-  resp_hdr->nscount = 0;
+      // DNS Flags for Evil Twin (Authoritative)
+      // 0x8500: QR=1, Opcode=0, AA=1 (Auth), TC=0, RD=1, RA=0, Rcode=0
+      resp_hdr->flags = htons(0x8500); 
+      
+      resp_hdr->ancount = htons(1);  resp_hdr->nscount = 0;
   resp_hdr->arcount = 0;
 
   // Copy Question (Required in response)
