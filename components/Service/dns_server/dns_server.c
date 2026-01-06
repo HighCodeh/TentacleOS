@@ -14,183 +14,245 @@
 
 
 #include "esp_log.h"
-#include "lwip/sockets.h" // Para sockets UDP
+#include "lwip/sockets.h" 
 #include "dns_server.h"
-#include "lwip/netdb.h"   // Para struct sockaddr_in
-#include <string.h>       // Para memset, memcpy
+#include "lwip/netdb.h"   
+#include <string.h>       
+#include <ctype.h>
+#include "esp_netif.h"    
 
-// TAG para logs
 static const char *TAG_DNS = "dns_server";
 
 static TaskHandle_t dns_task_handle = NULL;
-// IP do ESP32 AP (geralmente 192.168.4.1)
-// Certifique-se de que este é o IP real do seu AP!
-// Você pode obter isso dinamicamente usando esp_netif_get_ip_info()
-#define ESP_AP_IP_ADDR "192.168.4.1"
 
-// Estrutura simplificada para um cabeçalho DNS
+// DNS Header Structure
 typedef struct __attribute__((packed)) {
-    uint16_t id;       // Identificador de transação
-    uint16_t flags;    // Flags
-    uint16_t qdcount;  // Número de perguntas
-    uint16_t ancount;  // Número de respostas
-    uint16_t nscount;  // Número de autoridades (não usado para nós)
-    uint16_t arcount;  // Número de recursos adicionais (não usado para nós)
+  uint16_t id;       
+  uint16_t flags;    
+  uint16_t qdcount;  // Questions count
+  uint16_t ancount;  // Answers count
+  uint16_t nscount;  // Authority records count
+  uint16_t arcount;  // Additional records count
 } dns_header_t;
 
-// Estrutura simplificada para uma pergunta DNS (apenas o tipo e classe para nós)
+// Question Tail Structure (Type and Class)
 typedef struct __attribute__((packed)) {
-    uint16_t qtype;  // Tipo da pergunta (A=1 para IPv4)
-    uint16_t qclass; // Classe da pergunta (IN=1 para Internet)
+  uint16_t qtype;  // QTYPE (A=1 for IPv4)
+  uint16_t qclass; // QCLASS (IN=1 for Internet)
 } dns_question_tail_t;
 
-// Estrutura simplificada para uma resposta DNS (para um registro A)
+// DNS Answer Structure (for A record)
 typedef struct __attribute__((packed)) {
-    uint16_t name;     // Ponteiro para o nome no cabeçalho (0xC00C para o primeiro nome na pergunta)
-    uint16_t type;     // Tipo do registro (A=1)
-    uint16_t class;    // Classe do registro (IN=1)
-    uint32_t ttl;      // Time to Live
-    uint16_t data_len; // Comprimento dos dados (4 para IPv4)
-    uint32_t ip_addr;  // Endereço IP (em network byte order)
+  uint16_t name;     // Compression pointer (0xC0xx)
+  uint16_t type;     // Resource Type (A=1)
+  uint16_t class;    // Class (IN=1)
+  uint32_t ttl;      // Time to Live
+  uint16_t data_len; // Data length (4 for IPv4)
+  uint32_t ip_addr;  // IP Address (network byte order)
 } dns_answer_t;
 
+// Helper to parse domain name from query
+// Returns linear size in bytes (including labels and terminator) or 0 on error
+static int parse_dns_name(uint8_t *buffer, int len, int offset, char *out_name, int out_len) {
+  int ptr = offset;
+  int out_ptr = 0;
+  int jumped = 0;
+  int count = 0; // Infinite loop protection
 
-// Função para criar e enviar uma resposta DNS
+  if (out_name) out_name[0] = '\0';
+
+  while (ptr < len) {
+    uint8_t c = buffer[ptr];
+
+    // End of name
+    if (c == 0) {
+      ptr++;
+      if (!jumped) return ptr - offset;
+      return -1; 
+    }
+
+    // Compression pointer (0xC0)
+    if ((c & 0xC0) == 0xC0) {
+      if (ptr + 1 >= len) return 0; // Buffer overflow
+      // Standard queries usually don't use compression in the initial QNAME.
+      // Treating as error/end of linear section for size calculation.
+      return 0; 
+    }
+
+    // Standard Label
+    int label_len = c;
+    ptr++;
+
+    if (ptr + label_len >= len) return 0; // Buffer overflow
+
+    if (out_name && out_ptr < out_len - 1) {
+      if (out_ptr > 0) out_name[out_ptr++] = '.';
+      for (int i = 0; i < label_len; i++) {
+        if (out_ptr < out_len - 1) {
+          char ch = buffer[ptr + i];
+          // Basic sanitization for logs
+          out_name[out_ptr++] = isprint(ch) ? ch : '?';
+        }
+      }
+      out_name[out_ptr] = '\0';
+    }
+    ptr += label_len;
+    count++;
+    if (count > 20) return 0; // Loop check
+  }
+  return 0; 
+}
+
 static void send_dns_response(int sock, struct sockaddr_in *client_addr, socklen_t addr_len,
                               uint8_t *request_buf, int request_len) {
 
-    uint8_t response_buf[512]; // Buffer para a resposta DNS
-    memset(response_buf, 0, sizeof(response_buf));
+  uint8_t response_buf[512];
+  if (request_len > sizeof(response_buf)) return; // Safety check
 
-    // 1. Copiar o cabeçalho da requisição para a resposta
-    // Isso garante que o ID da transação seja o mesmo
-    memcpy(response_buf, request_buf, sizeof(dns_header_t));
-    dns_header_t *resp_hdr = (dns_header_t *)response_buf;
+  memset(response_buf, 0, sizeof(response_buf));
 
-    // Ajustar flags para uma resposta:
-    // Bit 15 (QR): 1 para resposta
-    // Bit 11-8 (Opcode): 0 para consulta padrão
-    // Bit 7 (AA): 0 (não autoritativo)
-    // Bit 4 (RA): 1 (recursão disponível - embora não recursiva, é padrão para respostas)
-    resp_hdr->flags = htons(0x8180); // 0x8180 para uma resposta padrão
-    resp_hdr->ancount = htons(1);    // 1 registro de resposta
+  // 1. Validate Header and Size
+  if (request_len < sizeof(dns_header_t)) return;
 
-    // 2. Copiar a seção de pergunta da requisição para a resposta
-    // Isso é importante para que o cliente saiba qual pergunta estamos respondendo
-    // A seção de pergunta começa logo após o cabeçalho
-    uint8_t *question_start = request_buf + sizeof(dns_header_t);
-    int question_len_in_req = 0;
-    uint8_t *current_ptr = question_start;
+  // Get dynamic IP from AP Interface
+  esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+  esp_netif_ip_info_t ip_info;
 
-    // Calcular o comprimento da string do domínio na pergunta
-    while (*current_ptr != 0) {
-        question_len_in_req += (*current_ptr) + 1; // Comprimento do label + 1 (para o byte do comprimento)
-        current_ptr += (*current_ptr) + 1;
-    }
-    question_len_in_req += 1; // Para o byte 0 final
+  // Fallback IP
+  uint32_t target_ip = inet_addr("192.168.4.1");
 
-    // Adicionar o tamanho do tipo e da classe da pergunta (2+2 bytes)
-    question_len_in_req += sizeof(dns_question_tail_t);
+  if (netif) {
+    esp_netif_get_ip_info(netif, &ip_info);
+    target_ip = ip_info.ip.addr;
+  } else {
+    ESP_LOGW(TAG_DNS, "Could not get WIFI_AP_DEF handle, using default IP.");
+  }
 
-    // Copiar a pergunta para o buffer de resposta
-    memcpy(response_buf + sizeof(dns_header_t), question_start, question_len_in_req);
+  // 2. Parse Question for Log and validation
+  char domain_name[128] = {0};
+  int qname_len = parse_dns_name(request_buf, request_len, sizeof(dns_header_t), domain_name, sizeof(domain_name));
 
-    // 3. Adicionar a seção de resposta (Answer)
-    dns_answer_t *answer = (dns_answer_t *)(response_buf + sizeof(dns_header_t) + question_len_in_req);
+  if (qname_len <= 0) {
+    ESP_LOGE(TAG_DNS, "Malformed or invalid domain name.");
+    return; 
+  }
 
-    answer->name = htons(0xC00C); // Ponteiro para o nome na pergunta (0xC00C = 12 bytes do início + 0x0C)
-    answer->type = htons(1);      // Tipo A (IPv4)
-    answer->class = htons(1);     // Classe IN (Internet)
-    answer->ttl = htonl(60);      // TTL de 60 segundos
-    answer->data_len = htons(4);  // Comprimento dos dados (4 bytes para IPv4)
+  // Verify if question tail fits
+  if (sizeof(dns_header_t) + qname_len + sizeof(dns_question_tail_t) > request_len) {
+    ESP_LOGE(TAG_DNS, "Truncated packet in question section.");
+    return;
+  }
 
-    // Converter o IP do ESP32 para network byte order
-    inet_pton(AF_INET, ESP_AP_IP_ADDR, &(answer->ip_addr));
+  ESP_LOGI(TAG_DNS, "DNS Query for: %s", domain_name);
 
-    // 4. Enviar a resposta UDP de volta ao cliente
-    int response_len = sizeof(dns_header_t) + question_len_in_req + sizeof(dns_answer_t);
-    int err = sendto(sock, response_buf, response_len, 0, (struct sockaddr *)client_addr, addr_len);
-    if (err < 0) {
-        ESP_LOGE(TAG_DNS, "Erro ao enviar resposta DNS: errno %d", errno);
-    } else {
-        ESP_LOGD(TAG_DNS, "Resposta DNS enviada para %s:%d",
-                 inet_ntoa(client_addr->sin_addr), ntohs(client_addr->sin_port));
-    }
+  // 3. Build Response
+  memcpy(response_buf, request_buf, sizeof(dns_header_t));
+  dns_header_t *resp_hdr = (dns_header_t *)response_buf;
+
+  // DNS Flags for Evil Twin (Authoritative)
+  // 0x8500: QR=1, Opcode=0, AA=1 (Auth), TC=0, RD=1, RA=0, Rcode=0
+  resp_hdr->flags = htons(0x8500); 
+
+  resp_hdr->qr = 1;      
+  resp_hdr->ancount = htons(1);    
+  resp_hdr->nscount = 0;
+  resp_hdr->arcount = 0;
+
+  // Copy Question (Required in response)
+  int question_full_len = qname_len + sizeof(dns_question_tail_t);
+  memcpy(response_buf + sizeof(dns_header_t), request_buf + sizeof(dns_header_t), question_full_len);
+
+  // Add Answer
+  dns_answer_t *answer = (dns_answer_t *)(response_buf + sizeof(dns_header_t) + question_full_len);
+
+  // Pointer to name (0xC00C points to start of question in header offset 12)
+  answer->name = htons(0xC00C); 
+  answer->type = htons(1);      // A (IPv4)
+  answer->class = htons(1);     // IN
+  answer->ttl = htonl(60);      // 60s
+  answer->data_len = htons(4);  // IPv4 size
+  answer->ip_addr = target_ip;  
+
+  // Send
+  int response_total_len = sizeof(dns_header_t) + question_full_len + sizeof(dns_answer_t);
+
+  sendto(sock, response_buf, response_total_len, 0, (struct sockaddr *)client_addr, addr_len);
 }
 
-// Tarefa principal do servidor DNS
+// Main Task
 void dns_server_task(void *pvParameters) {
-    char rx_buffer[512]; // Buffer para dados recebidos
-    struct sockaddr_in server_addr;
-    struct sockaddr_in client_addr;
-    socklen_t addr_len = sizeof(client_addr);
-    int sock;
+  uint8_t rx_buffer[512];
+  struct sockaddr_in server_addr;
+  struct sockaddr_in client_addr;
+  socklen_t addr_len = sizeof(client_addr);
+  int sock;
 
-    // Configurar o endereço do servidor DNS (o ESP32 AP)
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(53); // Porta padrão DNS
-    server_addr.sin_addr.s_addr = htonl(INADDR_ANY); // Escutar em todas as interfaces
+  server_addr.sin_family = AF_INET;
+  server_addr.sin_port = htons(53);
+  server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    // Criar socket UDP
-    sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
-    if (sock < 0) {
-        ESP_LOGE(TAG_DNS, "Falha ao criar socket DNS: errno %d", errno);
-        vTaskDelete(NULL);
-        return;
-    }
-
-    // Ligar o socket ao endereço e porta
-    int err = bind(sock, (struct sockaddr *)&server_addr, sizeof(server_addr));
-    if (err < 0) {
-        ESP_LOGE(TAG_DNS, "Falha ao ligar socket DNS: errno %d", errno);
-        close(sock);
-        vTaskDelete(NULL);
-        return;
-    }
-
-    ESP_LOGI(TAG_DNS, "Servidor DNS iniciado na porta 53");
-
-    while (1) {
-        // Receber dados do cliente
-        int len = recvfrom(sock, rx_buffer, sizeof(rx_buffer) - 1, 0, (struct sockaddr *)&client_addr, &addr_len);
-        if (len < 0) {
-            ESP_LOGE(TAG_DNS, "Erro ao receber dados DNS: errno %d", errno);
-            break;
-        }
-
-        rx_buffer[len] = 0; // Terminar a string recebida (se for texto)
-
-        // Verificar se é uma consulta DNS válida
-        if (len >= sizeof(dns_header_t) && ((dns_header_t *)rx_buffer)->qdcount > 0) {
-            // Processar e enviar a resposta DNS
-            send_dns_response(sock, &client_addr, addr_len, (uint8_t *)rx_buffer, len);
-        } else {
-            ESP_LOGD(TAG_DNS, "Pacote UDP recebido não é uma consulta DNS válida ou muito pequeno.");
-        }
-    }
-
-    // Se o loop for quebrado, fechar o socket e deletar a tarefa
-    close(sock);
-    ESP_LOGE(TAG_DNS, "Tarefa do servidor DNS encerrada.");
+  sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+  if (sock < 0) {
+    ESP_LOGE(TAG_DNS, "Failed to create socket: %d", errno);
     vTaskDelete(NULL);
+    return;
+  }
+
+  struct timeval tv;
+  tv.tv_sec = 1; // Timeout for graceful shutdown check
+  tv.tv_usec = 0;
+  setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+  if (bind(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+    ESP_LOGE(TAG_DNS, "Failed to bind socket: %d", errno);
+    close(sock);
+    vTaskDelete(NULL);
+    return;
+  }
+
+  ESP_LOGI(TAG_DNS, "DNS Server started (Authoritative 0x8500) - IPv4");
+
+  while (1) {
+    int len = recvfrom(sock, rx_buffer, sizeof(rx_buffer), 0, (struct sockaddr *)&client_addr, &addr_len);
+
+    if (len > 0) {
+      // Basic malformation check
+      if (len < sizeof(dns_header_t)) {
+        ESP_LOGW(TAG_DNS, "Packet discarded (too small): %d bytes", len);
+        continue;
+      }
+
+      dns_header_t *header = (dns_header_t *)rx_buffer;
+      uint16_t qdcount = ntohs(header->qdcount);
+
+      // Ignore if not a query (QR bit 0) or no questions
+      if ((header->flags & 0x8000) || qdcount == 0) {
+        continue;
+      }
+
+      send_dns_response(sock, &client_addr, addr_len, rx_buffer, len);
+    }
+  }
+
+  close(sock);
+  vTaskDelete(NULL);
 }
 
 void start_dns_server(void) {
   if (dns_task_handle != NULL) {
-    ESP_LOGW(TAG_DNS, "DNS server is already run");
+    ESP_LOGW(TAG_DNS, "DNS server is already running");
     return;
   }
-
-  xTaskCreate(&dns_server_task, "dns_server", 3072, NULL, 5, &dns_task_handle);
-  ESP_LOGI(TAG_DNS, "DNS server started");
+  // Stack increased to 4096
+  xTaskCreate(&dns_server_task, "dns_server", 4096, NULL, 5, &dns_task_handle);
 }
 
 void stop_dns_server(void) {
   if (dns_task_handle != NULL) {
     vTaskDelete(dns_task_handle);
     dns_task_handle = NULL;
-    ESP_LOGI(TAG_DNS, "DNS Server stopped and task removed");
-  } else {
-    ESP_LOGW(TAG_DNS, "DNS Server is already stoped");
+    ESP_LOGI(TAG_DNS, "DNS Server stopped");
   }
 }
+
+
