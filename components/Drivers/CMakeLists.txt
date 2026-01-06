@@ -20,7 +20,6 @@ idf_component_register(SRCS
   "pn7150/pn7150.c" 
   "st7789/st7789.c"
   "led/led_control.c"
-  "backlight/backlight.c"
   "spi/spi.c"
   "i2c_init/i2c_init.c"
   "tusb_desc/tusb_desc.c"
@@ -36,7 +35,6 @@ idf_component_register(SRCS
   "pins/include"
   "spi/include"
   "i2c_init/include"
-  "backlight/include"
   "tusb_desc/include"
   "buttons_gpio/include"
 
