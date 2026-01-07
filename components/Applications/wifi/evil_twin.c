@@ -29,8 +29,8 @@
 
 static const char *TAG = "EVIL_TWIN_BACKEND";
 
-#define PATH_HTML_INDEX "/assets/html/captive_portal/evil_twin_index.html"
-#define PATH_HTML_THANKS "/assets/html/captive_portal/evil_twin_thank_you.html"
+#define PATH_HTML_INDEX "/assets/storage/captive_portal/html/evil_twin_index.html"
+#define PATH_HTML_THANKS "/assets/storage/captive_portal/html/evil_twin_thank_you.html"
 #define PATH_PASSWORDS_JSON "/storage/captive_portal/passwords.json"
 
 static SemaphoreHandle_t storage_mutex = NULL;
