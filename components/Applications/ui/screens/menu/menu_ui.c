@@ -23,6 +23,7 @@
 #include "esp_log.h"
 #include <stdio.h>
 #include <sys/stat.h>
+#include "settings_ui.h"
 
 extern lv_group_t * main_group;
 static const char *TAG = "UI_MENU";
@@ -208,6 +209,9 @@ static void menu_event_cb(lv_event_t * e) {
         ui_switch_screen(SCREEN_WIFI_MENU);
         break;
       case 3: // INFRARED
+        break;
+      case 4: //CONFIGS
+        ui_switch_screen(SCREEN_SETTINGS);
         break;
       case 6: // RADIO FREQUENCY
         ui_switch_screen(SCREEN_SUBGHZ_SPECTRUM);

@@ -10,6 +10,7 @@
 #include "wifi_ui.h"
 #include "wifi_scan_ui.h"
 #include "ui_ble_menu.h"
+#include "settings_ui.h"
 #include "ui_ble_spam.h"
 #include "ui_ble_spam_select.h"
 #include "ui_badusb_menu.h"
@@ -25,9 +26,6 @@
 #include "lvgl.h"
 #include "lv_port_disp.h"
 #include "lv_port_indev.h"
-
-
-
 
 #define TAG "UI_MANAGER"
 
@@ -88,10 +86,8 @@ void ui_init(void)
 
 static void ui_task(void *pvParameter)
 {
-    ESP_LOGI(TAG, "UI Task iniciada.");
-
     if (ui_acquire()) {
-        ui_boot_show();
+        ui_boot_show(); 
         ui_release();
     }
 
@@ -100,17 +96,14 @@ static void ui_task(void *pvParameter)
 
     while (1) {
         if (ui_acquire()) {
-
             if (!boot_screen_done && (xTaskGetTickCount() - start_tick >= pdMS_TO_TICKS(5000))) {
                 ui_home_open();
                 boot_screen_done = true;
             }
 
-
             lv_timer_handler();
             ui_release();
         }
-
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
@@ -143,6 +136,10 @@ void ui_switch_screen(screen_id_t new_screen) {
 
       case SCREEN_MENU:
         ui_menu_open();
+        break;
+
+      case SCREEN_SETTINGS:
+        ui_settings_open();
         break;
 
       case SCREEN_WIFI_MENU:
