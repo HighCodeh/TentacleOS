@@ -40,4 +40,4 @@ endif()
 
 # ==============================================================================
 
-littlefs_create_partition_image(assets assets FLASH_IN_PROJECT)
+littlefs_create_partition_image(assets temp FLASH_IN_PROJECT)
