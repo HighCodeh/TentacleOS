@@ -3,7 +3,8 @@
 #include <stdio.h>
 
 #define HEADER_HEIGHT 24
-#define COLOR_PURPLE_MAIN    0x1A053D
+#define COLOR_PURPLE_TOP     0x1B1764
+#define COLOR_PURPLE_BOTTOM  0x1A053D
 #define HEADER_BORDER_COLOR  0x5E12A0
 #define ICON_COLOR           0xFFFFFF
 
@@ -16,8 +17,13 @@ void header_ui_create(lv_obj_t * parent)
     lv_obj_align(header, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_remove_flag(header, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_set_style_bg_color(header, lv_color_hex(COLOR_PURPLE_MAIN), 0);
+    lv_obj_set_style_bg_color(header, lv_color_hex(COLOR_PURPLE_TOP), 0);
+    lv_obj_set_style_bg_grad_color(header, lv_color_hex(COLOR_PURPLE_BOTTOM), 0);
+    lv_obj_set_style_bg_grad_dir(header, LV_GRAD_DIR_VER, 0);
+    lv_obj_set_style_bg_main_stop(header, 128, 0);
+    lv_obj_set_style_bg_grad_stop(header, 128, 0);
     lv_obj_set_style_bg_opa(header, LV_OPA_COVER, 0);
+    
     lv_obj_set_style_border_side(header, LV_BORDER_SIDE_BOTTOM, 0);
     lv_obj_set_style_border_width(header, 2, 0);
     lv_obj_set_style_border_color(header, lv_color_hex(HEADER_BORDER_COLOR), 0);
