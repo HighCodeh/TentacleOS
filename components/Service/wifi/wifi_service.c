@@ -286,6 +286,54 @@ void wifi_init(void) {
   ESP_LOGI(TAG, "Wi-Fi AP started with SSID: %s", target_ssid);
 }
 
+void wifi_service_scan(void) {
+  if (wifi_mutex == NULL) {
+    wifi_mutex = xSemaphoreCreateMutex();
+  }
+
+  if (xSemaphoreTake(wifi_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+    ESP_LOGE(TAG, "Failed to obtain Wi-Fi mutex for scan");
+    return;
+  }
+
+  wifi_service_promiscuous_stop();
+  wifi_service_stop_channel_hopping();
+
+  wifi_scan_config_t scan_config = {
+    .ssid = NULL, 
+    .bssid = NULL, 
+    .channel = 0, 
+    .show_hidden = true,
+    .scan_type = WIFI_SCAN_TYPE_ACTIVE,
+    .scan_time.active.min = 100,
+    .scan_time.active.max = 300
+  };
+
+  ESP_LOGI(TAG, "Starting network scan (Service)...");
+
+  esp_err_t ret = esp_wifi_scan_start(&scan_config, true);
+
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to start scan: %s", esp_err_to_name(ret));
+    led_blink_red();
+    xSemaphoreGive(wifi_mutex);
+    return;
+  }
+
+  uint16_t ap_count = WIFI_SCAN_LIST_SIZE;
+  ret = esp_wifi_scan_get_ap_records(&ap_count, stored_aps);
+
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to get scan results: %s", esp_err_to_name(ret));
+    led_blink_red();
+  } else {
+    stored_ap_count = ap_count;
+    ESP_LOGI(TAG, "Found %d access points.", stored_ap_count);
+    led_blink_blue();
+  }
+
+  xSemaphoreGive(wifi_mutex);
+}
 
 uint16_t wifi_service_get_ap_count(void) {
   return stored_ap_count;
