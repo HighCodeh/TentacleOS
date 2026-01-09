@@ -149,23 +149,23 @@ void wifi_service_stop_channel_hopping(void) {
 static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
   if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STACONNECTED) {
     wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *)event_data;
-    ESP_LOGI(TAG, "Estação conectada ao AP, MAC: " MACSTR, MAC2STR(event->mac));
+    ESP_LOGI(TAG, "Station connected to AP, MAC: " MACSTR, MAC2STR(event->mac));
     led_blink_green();
   } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STADISCONNECTED) {
     led_blink_red();
   } else if (event_base == IP_EVENT && event_id == IP_EVENT_AP_STAIPASSIGNED) {
-    ESP_LOGI(TAG, "IP atribuído a estação conectada ao AP");
+    ESP_LOGI(TAG, "IP assigned to station connected to AP");
     led_blink_green();
   }
 }
 
 void wifi_change_to_hotspot(const char *new_ssid) {
-  ESP_LOGI(TAG, "Tentando mudar o SSID do AP para: %s (aberto)", new_ssid);
+  ESP_LOGI(TAG, "Attempting to change AP SSID to: %s (open)", new_ssid);
 
   esp_err_t err = esp_wifi_stop();
   vTaskDelay(100 / portTICK_PERIOD_MS);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Falha ao parar o Wi-Fi: %s", esp_err_to_name(err));
+    ESP_LOGE(TAG, "Failed to stop Wi-Fi: %s", esp_err_to_name(err));
     led_blink_red(); 
     return;
   }
@@ -188,19 +188,19 @@ void wifi_change_to_hotspot(const char *new_ssid) {
 
   err = esp_wifi_set_config(WIFI_IF_AP, &new_ap_config);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Falha ao definir a nova configuração do AP Wi-Fi: %s", esp_err_to_name(err));
+    ESP_LOGE(TAG, "Failed to set new Wi-Fi AP configuration: %s", esp_err_to_name(err));
     led_blink_red(); 
     return;
   }
 
   err = esp_wifi_start();
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Falha ao iniciar o Wi-Fi com a nova configuração: %s", esp_err_to_name(err));
+    ESP_LOGE(TAG, "Failed to start Wi-Fi with new configuration: %s", esp_err_to_name(err));
     led_blink_red(); 
     return;
   }
 
-  ESP_LOGI(TAG, "SSID do AP Wi-Fi alterado com sucesso para: %s (aberto)", new_ssid);
+  ESP_LOGI(TAG, "Wi-Fi AP SSID successfully changed to: %s (open)", new_ssid);
   led_blink_green();
 }
 
@@ -230,7 +230,7 @@ void wifi_init(void) {
   wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
   err = esp_wifi_init(&cfg);
   if (err == ESP_ERR_INVALID_STATE) {
-    ESP_LOGW(TAG, "Driver Wi-Fi já estava inicializado.");
+    ESP_LOGW(TAG, "Wi-Fi driver already initialized.");
   } else {
     ESP_ERROR_CHECK(err);
   }
@@ -283,7 +283,7 @@ void wifi_init(void) {
     wifi_mutex = xSemaphoreCreateMutex();
   }
 
-  ESP_LOGI(TAG, "Wi-Fi AP iniciado com SSID: %s", target_ssid);
+  ESP_LOGI(TAG, "Wi-Fi AP started with SSID: %s", target_ssid);
 }
 
 void wifi_service_scan(void) {
@@ -292,11 +292,11 @@ void wifi_service_scan(void) {
   }
 
   if (xSemaphoreTake(wifi_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
-    ESP_LOGE(TAG, "Falha ao obter mutex Wi-Fi para scan");
+    ESP_LOGE(TAG, "Failed to obtain Wi-Fi mutex for scan");
     return;
   }
 
-  // Configuração do scan
+  // Scan configuration
   wifi_scan_config_t scan_config = {
     .ssid = NULL, 
     .bssid = NULL, 
@@ -307,12 +307,12 @@ void wifi_service_scan(void) {
     .scan_time.active.max = 300
   };
 
-  ESP_LOGI(TAG, "Iniciando scan de redes (Service)...");
+  ESP_LOGI(TAG, "Starting network scan (Service)...");
 
   esp_err_t ret = esp_wifi_scan_start(&scan_config, true);
 
   if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Falha ao iniciar scan: %s", esp_err_to_name(ret));
+    ESP_LOGE(TAG, "Failed to start scan: %s", esp_err_to_name(ret));
     led_blink_red();
     xSemaphoreGive(wifi_mutex);
     return;
@@ -322,11 +322,11 @@ void wifi_service_scan(void) {
   ret = esp_wifi_scan_get_ap_records(&ap_count, stored_aps);
 
   if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Falha ao obter resultados do scan: %s", esp_err_to_name(ret));
+    ESP_LOGE(TAG, "Failed to get scan results: %s", esp_err_to_name(ret));
     led_blink_red();
   } else {
     stored_ap_count = ap_count;
-    ESP_LOGI(TAG, "Encontrados %d pontos de acesso.", stored_ap_count);
+    ESP_LOGI(TAG, "Found %d access points.", stored_ap_count);
     led_blink_blue();
   }
 
@@ -385,30 +385,30 @@ esp_err_t wifi_service_connect_to_ap(const char *ssid, const char *password) {
 }
 
 void wifi_deinit(void) {
-  ESP_LOGI(TAG, "Iniciando desativação do Wi-Fi...");
+  ESP_LOGI(TAG, "Starting Wi-Fi deactivation...");
   esp_err_t err;
 
   err = esp_wifi_stop();
   if (err == ESP_ERR_WIFI_NOT_INIT) {
-    ESP_LOGW(TAG, "Wi-Fi já estava desativado ou não inicializado. Abortando deinit.");
-    return; // Se não tá init, não tem nada pra limpar
+    ESP_LOGW(TAG, "Wi-Fi was already deactivated or not initialized. Aborting deinit.");
+    return; 
   } else if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Erro ao parar Wi-Fi: %s", esp_err_to_name(err));
+    ESP_LOGE(TAG, "Error stopping Wi-Fi: %s", esp_err_to_name(err));
   }
 
   err = esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler);
   if (err != ESP_OK) {
-    ESP_LOGW(TAG, "Aviso: Falha ao desregistrar handler WIFI_EVENT (pode já ter sido removido): %s", esp_err_to_name(err));
+    ESP_LOGW(TAG, "Warning: Failed to unregister handler WIFI_EVENT (may have already been removed): %s", esp_err_to_name(err));
   }
 
   err = esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_AP_STAIPASSIGNED, &wifi_event_handler);
   if (err != ESP_OK) {
-    ESP_LOGW(TAG, "Aviso: Falha ao desregistrar handler IP_EVENT (pode já ter sido removido): %s", esp_err_to_name(err));
+    ESP_LOGW(TAG, "Warning: Failed to unregister handler IP_EVENT (may have already been removed): %s", esp_err_to_name(err));
   }
 
   err = esp_wifi_deinit();
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Erro ao desinicializar driver Wi-Fi: %s", esp_err_to_name(err));
+    ESP_LOGE(TAG, "Error deinitializing Wi-Fi driver: %s", esp_err_to_name(err));
   }
 
   if (wifi_mutex != NULL) {
@@ -419,14 +419,14 @@ void wifi_deinit(void) {
   stored_ap_count = 0;
   memset(stored_aps, 0, sizeof(stored_aps));
 
-  ESP_LOGI(TAG, "Wi-Fi desativado e recursos liberados.");
+  ESP_LOGI(TAG, "Wi-Fi deactivated and resources released.");
 }
 
 void wifi_start(void){
   esp_err_t err;
   err = esp_wifi_start();
   if(err != ESP_OK){
-    ESP_LOGE(TAG, "Error to start wifi: %s", esp_err_to_name(err));
+    ESP_LOGE(TAG, "Error starting Wi-Fi: %s", esp_err_to_name(err));
   }
 }
 
@@ -434,12 +434,12 @@ void wifi_stop(void){
   esp_err_t err;
   err = esp_wifi_stop();
   if(err != ESP_OK){
-    ESP_LOGE(TAG, "Error to stop wifi: %s", esp_err_to_name(err));
+    ESP_LOGE(TAG, "Error stopping Wi-Fi: %s", esp_err_to_name(err));
   }
 
   stored_ap_count = 0;
   memset(stored_aps, 0, sizeof(stored_aps));
-  ESP_LOGI(TAG, "WiFi stopped and cleaned static data");
+  ESP_LOGI(TAG, "Wi-Fi stopped and cleaned static data");
 
 }
 
@@ -476,11 +476,11 @@ static void wifi_load_ap_config(char* ssid, char* passwd, uint8_t* max_conn, cha
       }
 
       cJSON_Delete(root);
-      ESP_LOGI(TAG, "Configurações carregadas do storage assets com sucesso.");
+      ESP_LOGI(TAG, "Configurations loaded from asset storage successfully.");
     }
     free(buffer);
   } else {
-    ESP_LOGW(TAG, "Arquivo de config não encontrado no assets. Usando padrões.");
+    ESP_LOGW(TAG, "Config file not found in assets. Using defaults.");
   }
 }
 
@@ -491,7 +491,7 @@ esp_err_t wifi_save_ap_config(const char *ssid, const char *password, uint8_t ma
 
   cJSON *root = cJSON_CreateObject();
   if (root == NULL) {
-    ESP_LOGE(TAG, "Falha ao alocar memória para o JSON");
+    ESP_LOGE(TAG, "Failed to allocate memory for JSON");
     return ESP_ERR_NO_MEM;
   }
 
@@ -511,9 +511,9 @@ esp_err_t wifi_save_ap_config(const char *ssid, const char *password, uint8_t ma
   esp_err_t err = storage_write_string(WIFI_AP_CONFIG_PATH, json_string);
 
   if (err == ESP_OK) {
-    ESP_LOGI(TAG, "Configuração salva com sucesso em: %s", WIFI_AP_CONFIG_PATH);
+    ESP_LOGI(TAG, "Configuration saved successfully to: %s", WIFI_AP_CONFIG_PATH);
   } else {
-    ESP_LOGE(TAG, "Erro ao gravar arquivo de configuração: %s", esp_err_to_name(err));
+    ESP_LOGE(TAG, "Error writing configuration file: %s", esp_err_to_name(err));
   }
 
   free(json_string);
