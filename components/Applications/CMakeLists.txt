@@ -28,11 +28,11 @@ file(GLOB_RECURSE SUBGHZ_APP_SRCS "SubGhz/*.c")
 file(GLOB_RECURSE BLE_APP_SRCS "bluetooth/*.c")
 file(GLOB_RECURSE BADUSB_APP_SRCS "bad_usb/*.c")
 file(GLOB_RECURSE ESPNOW_CHAT_APP_SRCS "espnow_chat/*.c")
+file(GLOB_RECURSE WIFI_APP_SRCS "wifi/*.c")
 
 idf_component_register(SRCS 
   "play/play.c"
-  "wifi/wifi_deauther.c"
-  "wifi/evil_twin.c"
+  ${WIFI_APP_SRCS}
   ${ESPNOW_CHAT_APP_SRCS}
   ${BADUSB_APP_SRCS}
   ${BLE_APP_SRCS}
