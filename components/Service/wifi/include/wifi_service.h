@@ -38,6 +38,11 @@ void wifi_service_scan(void);
 uint16_t wifi_service_get_ap_count(void);
 wifi_ap_record_t* wifi_service_get_ap_record(uint16_t index);
 
+// Manual Scan Control (for Applications managing their own memory)
+esp_err_t wifi_service_perform_full_scan(void);
+esp_err_t wifi_service_get_scan_count(uint16_t *count);
+esp_err_t wifi_service_copy_scan_results(wifi_ap_record_t *buffer, uint16_t count);
+
 // functions to load and save configs 
 esp_err_t wifi_save_ap_config(const char *ssid, const char *password, uint8_t max_conn, const char *ip_addr);
 
