@@ -15,6 +15,7 @@
 
 #include "signal_monitor.h"
 #include "wifi_service.h"
+#include "wifi_80211.h"
 #include "esp_wifi.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -36,16 +37,6 @@ static StackType_t *monitor_task_stack = NULL;
 static StaticTask_t *monitor_task_tcb = NULL;
 #define MONITOR_STACK_SIZE 4096
 #define SIGNAL_TIMEOUT_MS 5000 // Reset RSSI if no packet for 5s
-
-// Basic 802.11 MAC Header to find Source Address (Addr2)
-typedef struct {
-  uint16_t frame_control;
-  uint16_t duration;
-  uint8_t addr1[6]; // Receiver / Destination
-  uint8_t addr2[6]; // Transmitter / Source (This is usually the BSSID for APs)
-  uint8_t addr3[6];
-  uint16_t seq_ctrl;
-} __attribute__((packed)) wifi_mac_header_t;
 
 static void monitor_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
   if (!is_running) return;

@@ -15,6 +15,7 @@
 
 #include "deauther_detector.h"
 #include "wifi_service.h"
+#include "wifi_80211.h"
 #include "esp_wifi.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
@@ -25,21 +26,6 @@
 static const char *TAG = "DEAUTH_DETECTOR";
 
 static uint32_t *deauth_counter = NULL;
-
-// WiFi 802.11 Frame Control
-typedef struct {
-  uint16_t protocol:2;
-  uint16_t type:2;
-  uint16_t subtype:4;
-  uint16_t to_ds:1;
-  uint16_t from_ds:1;
-  uint16_t more_frag:1;
-  uint16_t retry:1;
-  uint16_t pwr_mgt:1;
-  uint16_t more_data:1;
-  uint16_t protected_frame:1;
-  uint16_t order:1;
-} __attribute__((packed)) wifi_frame_control_t;
 
 static void wifi_sniffer_packet_handler(void *buf, wifi_promiscuous_pkt_type_t type) {
   if (type != WIFI_PKT_MGMT) {
