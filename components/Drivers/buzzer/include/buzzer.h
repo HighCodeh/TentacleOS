@@ -19,14 +19,10 @@
 #include "driver/ledc.h"
 
 // Pino do buzzer (configurar conforme seu hardware)
-#define BUZZER_GPIO 41
+#define BUZZER_GPIO 46
 
-// ========================================
-// ⚠️ CORRIGIDO: Usa Timer 1 e Canal 1
-// para NÃO conflitar com o backlight
-// ========================================
-#define LEDC_CHANNEL         LEDC_CHANNEL_1      // ← Era 0, agora é 1
-#define LEDC_TIMER           LEDC_TIMER_1        // ← Era 0, agora é 1
+#define LEDC_CHANNEL         LEDC_CHANNEL_1
+#define LEDC_TIMER           LEDC_TIMER_1
 #define LEDC_MODE            LEDC_LOW_SPEED_MODE
 #define LEDC_DUTY_RESOLUTION LEDC_TIMER_13_BIT
 #define LEDC_FREQ            4000  // Frequência PWM inicial (Hz)
