@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+file(GLOB_RECURSE SD_CARD_SERVICE_SRCS "sd_card/*.c")
+
 
 idf_component_register(SRCS 
   "font/font.c"
@@ -46,7 +48,7 @@ idf_component_register(SRCS
   "lvgl_port/lv_port_indev.c"
   "lvgl_port/lv_port_disp.c"
   "esp_now/service_esp_now.c"
-
+  ${SD_CARD_SERVICE_SRCS}
   INCLUDE_DIRS 
   "font/include"
   "icons/include"
@@ -60,7 +62,7 @@ idf_component_register(SRCS
   "storage_assets/include"
   "lvgl_port/include"
   "esp_now/include"
-  
+  "sd_card/include"
 
   REQUIRES 
     sdmmc
