@@ -41,4 +41,12 @@ wifi_ap_record_t* wifi_service_get_ap_record(uint16_t index);
 // functions to load and save configs 
 esp_err_t wifi_save_ap_config(const char *ssid, const char *password, uint8_t max_conn, const char *ip_addr);
 
+// promiscuous mode management
+void wifi_service_promiscuous_start(wifi_promiscuous_cb_t cb, wifi_promiscuous_filter_t *filter);
+void wifi_service_promiscuous_stop(void);
+
+// channel hopping management
+void wifi_service_start_channel_hopping(void);
+void wifi_service_stop_channel_hopping(void);
+
 #endif // WIFI_SERVICE_H
