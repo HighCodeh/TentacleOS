@@ -4,6 +4,7 @@
 #include "core/lv_group.h"
 #include "ui_manager.h"
 #include "lv_port_indev.h"
+#include "buzzer.h"
 #include "esp_log.h"
 
 #define BG_COLOR            lv_color_black()
@@ -19,14 +20,15 @@ static bool styles_initialized = false;
 typedef struct {
     const char * name;
     const char * symbol;
+    int target_screen;
 } settings_item_t;
 
 static const settings_item_t settings_list[] = {
-    {"INTERFACE", LV_SYMBOL_KEYBOARD},
-    {"DISPLAY",   LV_SYMBOL_IMAGE},
-    {"SOUND",     LV_SYMBOL_AUDIO},
-    {"CONNECTION",LV_SYMBOL_WIFI},
-    {"ABOUT",      LV_SYMBOL_WARNING}
+    {"INTERFACE",  LV_SYMBOL_KEYBOARD, -1}, 
+    {"DISPLAY",    LV_SYMBOL_IMAGE,    SCREEN_DISPLAY_SETTINGS},
+    {"SOUND",      LV_SYMBOL_AUDIO,    -1},
+    {"CONNECTION", LV_SYMBOL_WIFI,     -1},
+    {"ABOUT",      LV_SYMBOL_WARNING,  -1}
 };
 
 #define SETTINGS_COUNT (sizeof(settings_list) / sizeof(settings_list[0]))
@@ -39,7 +41,7 @@ static void init_styles(void) {
     lv_style_set_border_width(&style_menu, 2);
     lv_style_set_border_color(&style_menu, lv_color_hex(COLOR_BORDER));
     lv_style_set_radius(&style_menu, 6);
-    lv_style_set_pad_all(&style_menu, 8);
+    lv_style_set_pad_all( &style_menu, 8);
     lv_style_set_pad_row(&style_menu, 8);
     
     lv_style_init(&style_btn);
@@ -54,15 +56,26 @@ static void init_styles(void) {
 }
 
 static void settings_item_event_cb(lv_event_t * e) {
+    lv_obj_t * btn = lv_event_get_target(e);
     lv_obj_t * label_sel = lv_event_get_user_data(e);
     lv_event_code_t code = lv_event_get_code(e);
+    int index = (int)lv_obj_get_user_data(btn);
 
     if(code == LV_EVENT_FOCUSED) {
+        buzzer_scroll_tick(); 
+        
         lv_obj_clear_flag(label_sel, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_scroll_to_view(lv_event_get_target(e), LV_ANIM_ON);
+        lv_obj_scroll_to_view(btn, LV_ANIM_ON);
     }
     else if(code == LV_EVENT_DEFOCUSED) {
         lv_obj_add_flag(label_sel, LV_OBJ_FLAG_HIDDEN);
+    }
+    else if(code == LV_EVENT_CLICKED || (code == LV_EVENT_KEY && lv_event_get_key(e) == LV_KEY_ENTER)) {
+        buzzer_hacker_confirm(); 
+        
+        if(settings_list[index].target_screen != -1) {
+            ui_switch_screen(settings_list[index].target_screen);
+        }
     }
 }
 
@@ -80,6 +93,7 @@ static void create_settings_menu(lv_obj_t * parent) {
         lv_obj_t * btn = lv_btn_create(menu);
         lv_obj_set_size(btn, lv_pct(100), 35);
         lv_obj_add_style(btn, &style_btn, 0);
+        lv_obj_set_user_data(btn, (void*)i);
 
         lv_obj_t * icon = lv_label_create(btn);
         lv_label_set_text(icon, settings_list[i].symbol);
@@ -97,8 +111,7 @@ static void create_settings_menu(lv_obj_t * parent) {
         lv_obj_align(label_sel, LV_ALIGN_RIGHT_MID, -5, 0);
         lv_obj_add_flag(label_sel, LV_OBJ_FLAG_HIDDEN);
 
-        lv_obj_add_event_cb(btn, settings_item_event_cb, LV_EVENT_FOCUSED, label_sel);
-        lv_obj_add_event_cb(btn, settings_item_event_cb, LV_EVENT_DEFOCUSED, label_sel);
+        lv_obj_add_event_cb(btn, settings_item_event_cb, LV_EVENT_ALL, label_sel);
 
         if(main_group) {
             lv_group_add_obj(main_group, btn);
