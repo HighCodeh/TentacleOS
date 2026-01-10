@@ -3,6 +3,7 @@
 #include "display_settings_ui.h"
 #include "sound_settings_ui.h"
 #include "battery_settings_ui.h"
+#include "connection_settings_ui.h"
 #include "header_ui.h"
 #include "footer_ui.h"
 #include "core/lv_group.h"
@@ -34,6 +35,7 @@ static const settings_item_t settings_list[] = {
     {"BATTERY",    LV_SYMBOL_BATTERY_FULL, SCREEN_BATTERY_SETTINGS},
     {"CONNECTION", LV_SYMBOL_WIFI,     -1},
     {"ABOUT",      LV_SYMBOL_WARNING,  -1}
+    {"CONNECTION", LV_SYMBOL_WIFI,         SCREEN_CONNECTION_SETTINGS},
 };
 
 #define SETTINGS_COUNT (sizeof(settings_list) / sizeof(settings_list[0]))
