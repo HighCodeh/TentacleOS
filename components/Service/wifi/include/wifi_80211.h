@@ -42,4 +42,15 @@ typedef struct {
     uint16_t seq_ctrl;
 } __attribute__((packed)) wifi_mac_header_t;
 
+// LLC/SNAP Header for Data Frames
+typedef struct {
+    uint8_t dsap;
+    uint8_t ssap;
+    uint8_t control;
+    uint8_t oui[3];
+    uint16_t type; // Big Endian
+} __attribute__((packed)) wifi_llc_snap_t;
+
+#define WIFI_ETHERTYPE_EAPOL 0x888E
+
 #endif // WIFI_80211_H
