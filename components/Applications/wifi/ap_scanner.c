@@ -28,7 +28,6 @@
 
 static const char *TAG = "AP_SCANNER";
 
-// Task Handles
 static TaskHandle_t scanner_task_handle = NULL;
 static StackType_t *scanner_task_stack = NULL;
 static StaticTask_t *scanner_task_tcb = NULL;
@@ -37,6 +36,20 @@ static StaticTask_t *scanner_task_tcb = NULL;
 static wifi_ap_record_t *scan_results = NULL;
 static uint16_t scan_count = 0;
 static bool is_scanning = false;
+
+static const char* get_auth_mode_name(wifi_auth_mode_t auth_mode) {
+  switch (auth_mode) {
+    case WIFI_AUTH_OPEN: return "OPEN";
+    case WIFI_AUTH_WEP: return "WEP";
+    case WIFI_AUTH_WPA_PSK: return "WPA-PSK";
+    case WIFI_AUTH_WPA2_PSK: return "WPA2-PSK";
+    case WIFI_AUTH_WPA_WPA2_PSK: return "WPA/WPA2-PSK";
+    case WIFI_AUTH_WPA2_ENTERPRISE: return "WPA2-ENT";
+    case WIFI_AUTH_WPA3_PSK: return "WPA3-PSK";
+    case WIFI_AUTH_WPA2_WPA3_PSK: return "WPA2/WPA3-PSK";
+    default: return "Unknown";
+  }
+}
 
 static bool save_results_to_path(const char *path, bool use_sd_driver) {
   if (scan_results == NULL || scan_count == 0) {
@@ -65,6 +78,8 @@ static bool save_results_to_path(const char *path, bool use_sd_driver) {
     cJSON_AddNumberToObject(entry, "rssi", ap->rssi);
     cJSON_AddNumberToObject(entry, "channel", ap->primary);
     cJSON_AddNumberToObject(entry, "authmode", ap->authmode);
+    cJSON_AddStringToObject(entry, "auth_str", get_auth_mode_name(ap->authmode));
+    cJSON_AddBoolToObject(entry, "wps", ap->wps);
 
     cJSON_AddItemToArray(root, entry);
   }
@@ -106,7 +121,7 @@ bool ap_scanner_save_results_to_internal_flash(void) {
 }
 
 bool ap_scanner_save_results_to_sd_card(void) {
-  return save_results_to_path("/scanned_aps.json", true); // Relative to SD root via sd_write_string handling
+  return save_results_to_path("/scanned_aps.json", true); 
 }
 
 static void ap_scanner_task(void *pvParameters) {
