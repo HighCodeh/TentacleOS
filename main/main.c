@@ -6,9 +6,5 @@
 
 
 void app_main(void) {
-
   kernel_init();
-
-  // this init the RTOS task
-  ui_init();
 }
