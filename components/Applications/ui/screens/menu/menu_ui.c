@@ -1,18 +1,3 @@
-// Copyright (c) 2025 HIGH CODE LLC
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
-
 #include "menu_ui.h"
 #include "home_ui.h"
 #include "header_ui.h"
@@ -24,6 +9,7 @@
 #include <stdio.h>
 #include <sys/stat.h>
 #include "settings_ui.h"
+#include "buzzer.h"
 
 extern lv_group_t * main_group;
 static const char *TAG = "UI_MENU";
@@ -104,23 +90,16 @@ static void start_float_animation(lv_obj_t * obj) {
 
 static int get_visual_position(int item_idx) {
   int diff = (item_idx - menu_index + MENU_ITEM_COUNT) % MENU_ITEM_COUNT;
-
-  if (diff > MENU_ITEM_COUNT / 2) {
-    diff -= MENU_ITEM_COUNT;
-  }
-
+  if (diff > MENU_ITEM_COUNT / 2) diff -= MENU_ITEM_COUNT;
   int visual_pos = 3 + diff;
-
   if (visual_pos < 0) visual_pos = 0;
   if (visual_pos > 6) visual_pos = 6;
-
   return visual_pos;
 }
 
 static void animate_item_to_position(int item_idx) {
   lv_obj_t * obj = item_imgs[item_idx];
   int pos_idx = get_visual_position(item_idx);
-
   int frame_type = (pos_idx < 3) ? 1 : (pos_idx > 3) ? 2 : 0;
 
   if(!menu_data[item_idx].dscs[frame_type]) {
@@ -148,15 +127,12 @@ static void animate_item_to_position(int item_idx) {
   lv_anim_set_var(&a, obj);
   lv_anim_set_duration(&a, 450);
   lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
-
   lv_anim_set_values(&a, lv_obj_get_x_aligned(obj), pos_x[pos_idx]);
   lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)lv_obj_set_x);
   lv_anim_start(&a);
-
   lv_anim_set_values(&a, lv_image_get_scale(obj), scales[pos_idx]);
   lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)lv_image_set_scale);
   lv_anim_start(&a);
-
   lv_anim_set_values(&a, lv_obj_get_style_opa(obj, 0), opas[pos_idx]);
   lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)lv_obj_set_style_opa);
   lv_anim_start(&a);
@@ -184,42 +160,30 @@ static void menu_update_ui(void) {
 
 static void menu_event_cb(lv_event_t * e) {
   if (lv_event_get_code(e) != LV_EVENT_KEY) return;
-
   uint32_t key = lv_event_get_key(e);
 
   if (key == LV_KEY_RIGHT) {
+    buzzer_scroll_tick();
     menu_index = (menu_index + 1) % MENU_ITEM_COUNT;
     menu_update_ui();
   } else if (key == LV_KEY_LEFT) {
+    buzzer_scroll_tick();
     menu_index = (menu_index == 0) ? MENU_ITEM_COUNT - 1 : menu_index - 1;
     menu_update_ui();
   } else if (key == LV_KEY_ESC) {
+    buzzer_click();
     ui_switch_screen(SCREEN_HOME);
   } else if (key == LV_KEY_ENTER) {
+    buzzer_hacker_confirm();
     ESP_LOGI(TAG, "ENTRANDO NO SISTEMA: %s", menu_data[menu_index].name);
-
     switch(menu_index) {
-      case 0: // BLUETOOTH
-        ui_switch_screen(SCREEN_BLE_MENU); 
-        break;
-      case 1: // BAD USB
-        ui_switch_screen(SCREEN_BADUSB_MENU);
-        break;
-      case 2: // WIFI
-        ui_switch_screen(SCREEN_WIFI_MENU);
-        break;
-      case 3: // INFRARED
-        break;
-      case 4: //CONFIGS
-        ui_switch_screen(SCREEN_SETTINGS);
-        break;
-      case 6: // RADIO FREQUENCY
-        ui_switch_screen(SCREEN_SUBGHZ_SPECTRUM);
-        break;
-      // ADD OUTROS //** TODO
-      default:
-        ESP_LOGW(TAG, "!!!Nenhuma tela definida!!!");
-        break;
+      case 0: ui_switch_screen(SCREEN_BLE_MENU); break;
+      case 1: ui_switch_screen(SCREEN_BADUSB_MENU); break;
+      case 2: ui_switch_screen(SCREEN_WIFI_MENU); break;
+      case 3: break;
+      case 4: ui_switch_screen(SCREEN_SETTINGS); break;
+      case 6: ui_switch_screen(SCREEN_SUBGHZ_SPECTRUM); break;
+      default: ESP_LOGW(TAG, "!!!Nenhuma tela definida!!!"); break;
     }
   }
 }
