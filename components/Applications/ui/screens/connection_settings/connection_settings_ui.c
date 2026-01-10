@@ -1,0 +1,176 @@
+#include "connection_settings_ui.h"
+#include "header_ui.h"
+#include "footer_ui.h"
+#include "core/lv_group.h"
+#include "ui_manager.h"
+#include "lv_port_indev.h"
+#include "buzzer.h"
+#include "esp_log.h"
+
+#define BG_COLOR            lv_color_black()
+#define COLOR_BORDER        0x834EC6
+#define COLOR_GRADIENT_TOP  0x000000
+#define COLOR_GRADIENT_BOT  0x2E0157
+
+static lv_obj_t * screen_conn = NULL;
+static lv_style_t style_menu;
+static lv_style_t style_item;
+static bool styles_initialized = false;
+
+static bool wifi_enabled = true;
+static bool bt_enabled = false;
+static bool airplane_mode = false;
+
+static void init_styles(void) {
+    if(styles_initialized) return;
+
+    lv_style_init(&style_menu);
+    lv_style_set_bg_opa(&style_menu, LV_OPA_TRANSP);
+    lv_style_set_border_width(&style_menu, 2);
+    lv_style_set_border_color(&style_menu, lv_color_hex(COLOR_BORDER));
+    lv_style_set_radius(&style_menu, 6);
+    lv_style_set_pad_all(&style_menu, 8);
+    lv_style_set_pad_row(&style_menu, 8);
+
+    lv_style_init(&style_item);
+    lv_style_set_bg_color(&style_item, lv_color_hex(COLOR_GRADIENT_BOT));
+    lv_style_set_bg_grad_color(&style_item, lv_color_hex(COLOR_GRADIENT_TOP));
+    lv_style_set_bg_grad_dir(&style_item, LV_GRAD_DIR_VER);
+    lv_style_set_border_width(&style_item, 1);
+    lv_style_set_border_color(&style_item, lv_color_hex(0x333333));
+    lv_style_set_radius(&style_item, 4);
+
+    styles_initialized = true;
+}
+
+static void update_switch_visual(lv_obj_t * cont, bool state) {
+    lv_obj_t * off_ind = lv_obj_get_child(cont, 0);
+    lv_obj_t * on_ind = lv_obj_get_child(cont, 1);
+    lv_obj_set_style_bg_opa(off_ind, !state ? LV_OPA_COVER : LV_OPA_20, 0);
+    lv_obj_set_style_bg_opa(on_ind, state ? LV_OPA_COVER : LV_OPA_20, 0);
+}
+
+static void conn_item_event_cb(lv_event_t * e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    lv_obj_t * item = lv_event_get_target(e);
+    int type = (int)lv_event_get_user_data(e);
+
+    if(code == LV_EVENT_FOCUSED) {
+        buzzer_scroll_tick();
+        lv_obj_set_style_border_color(item, lv_color_hex(COLOR_BORDER), 0);
+        lv_obj_set_style_border_width(item, 2, 0);
+        lv_obj_scroll_to_view(item, LV_ANIM_ON);
+    } 
+    else if(code == LV_EVENT_DEFOCUSED) {
+        lv_obj_set_style_border_color(item, lv_color_hex(0x333333), 0);
+        lv_obj_set_style_border_width(item, 1, 0);
+    }
+    else if(code == LV_EVENT_KEY) {
+        uint32_t key = lv_event_get_key(e);
+        lv_obj_t * input_obj = lv_obj_get_child(item, 2);
+
+        if(key == LV_KEY_ENTER || key == LV_KEY_RIGHT || key == LV_KEY_LEFT) {
+            if(type == 0) {
+                wifi_enabled = !wifi_enabled;
+                update_switch_visual(input_obj, wifi_enabled);
+            } else if(type == 1) {
+                bt_enabled = !bt_enabled;
+                update_switch_visual(input_obj, bt_enabled);
+            } else if(type == 2) {
+                airplane_mode = !airplane_mode;
+                update_switch_visual(input_obj, airplane_mode);
+            }
+            buzzer_hacker_confirm();
+        }
+    }
+}
+
+static void screen_back_event_cb(lv_event_t * e) {
+    uint32_t key = lv_event_get_key(e);
+    if(key == LV_KEY_ESC || key == LV_KEY_LEFT) {
+        ui_switch_screen(SCREEN_SETTINGS);
+    }
+}
+
+static lv_obj_t * create_menu_item(lv_obj_t * parent, const char * symbol, const char * name) {
+    lv_obj_t * item = lv_obj_create(parent);
+    lv_obj_set_size(item, lv_pct(100), 48);
+    lv_obj_add_style(item, &style_item, 0);
+    lv_obj_set_flex_flow(item, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(item, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_scrollbar_mode(item, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_clear_flag(item, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t * icon = lv_label_create(item);
+    lv_label_set_text(icon, symbol);
+    lv_obj_set_style_text_color(icon, lv_color_white(), 0);
+
+    lv_obj_t * label = lv_label_create(item);
+    lv_label_set_text(label, name);
+    lv_obj_set_style_text_color(label, lv_color_white(), 0);
+    lv_obj_set_flex_grow(label, 1);
+    lv_obj_set_style_margin_left(label, 10, 0);
+
+    return item;
+}
+
+static lv_obj_t * create_switch_input(lv_obj_t * parent, bool initial_state) {
+    lv_obj_t * sw_cont = lv_obj_create(parent);
+    lv_obj_set_size(sw_cont, 56, 30);
+    lv_obj_set_style_bg_opa(sw_cont, 0, 0);
+    lv_obj_set_style_border_width(sw_cont, 0, 0);
+    lv_obj_set_flex_flow(sw_cont, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(sw_cont, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_gap(sw_cont, 6, 0);
+    lv_obj_clear_flag(sw_cont, LV_OBJ_FLAG_SCROLLABLE);
+
+    for(int i = 0; i < 2; i++) {
+        lv_obj_t * b = lv_obj_create(sw_cont);
+        lv_obj_set_size(b, 20, 24);
+        lv_obj_set_style_bg_color(b, lv_color_white(), 0);
+        lv_obj_set_style_radius(b, 2, 0);
+        lv_obj_clear_flag(b, LV_OBJ_FLAG_SCROLLABLE);
+    }
+    update_switch_visual(sw_cont, initial_state);
+    return sw_cont;
+}
+
+void ui_connection_settings_open(void) {
+    init_styles();
+    if(screen_conn) lv_obj_del(screen_conn);
+
+    screen_conn = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(screen_conn, BG_COLOR, 0);
+    lv_obj_clear_flag(screen_conn, LV_OBJ_FLAG_SCROLLABLE);
+
+    header_ui_create(screen_conn);
+    footer_ui_create(screen_conn);
+
+    lv_obj_t * menu = lv_obj_create(screen_conn);
+    lv_obj_set_size(menu, 230, 180);
+    lv_obj_align(menu, LV_ALIGN_CENTER, 0, 5);
+    lv_obj_add_style(menu, &style_menu, 0);
+    lv_obj_set_flex_flow(menu, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_scrollbar_mode(menu, LV_SCROLLBAR_MODE_OFF);
+
+    lv_obj_t * item_wifi = create_menu_item(menu, LV_SYMBOL_WIFI, "WI-FI");
+    create_switch_input(item_wifi, wifi_enabled);
+    lv_obj_add_event_cb(item_wifi, conn_item_event_cb, LV_EVENT_ALL, (void*)0);
+
+    lv_obj_t * item_bt = create_menu_item(menu, LV_SYMBOL_BLUETOOTH, "BLUETOOTH");
+    create_switch_input(item_bt, bt_enabled);
+    lv_obj_add_event_cb(item_bt, conn_item_event_cb, LV_EVENT_ALL, (void*)1);
+
+    lv_obj_t * item_air = create_menu_item(menu, LV_SYMBOL_GPS, "AIRPLANE");
+    create_switch_input(item_air, airplane_mode);
+    lv_obj_add_event_cb(item_air, conn_item_event_cb, LV_EVENT_ALL, (void*)2);
+
+    if(main_group) {
+        lv_group_add_obj(main_group, item_wifi);
+        lv_group_add_obj(main_group, item_bt);
+        lv_group_add_obj(main_group, item_air);
+    }
+
+    lv_obj_add_event_cb(screen_conn, screen_back_event_cb, LV_EVENT_KEY, NULL);
+    lv_screen_load(screen_conn);
+}
