@@ -58,7 +58,7 @@ void ui_boot_show(void) {
     lv_obj_set_scrollbar_mode(boot_screen, LV_SCROLLBAR_MODE_OFF);
     lv_obj_remove_flag(boot_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_image_dsc_t * logo_dsc = boot_load_bin_to_psram("/assets/img/highcode_boot.bin", 92, 128);
+    lv_image_dsc_t * logo_dsc = boot_load_bin_to_psram("/assets/img/highcode_boot_new.bin", 240, 117);
     if(logo_dsc) {
         lv_obj_t * logo = lv_image_create(boot_screen);
         lv_image_set_src(logo, logo_dsc);
