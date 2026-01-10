@@ -2,6 +2,7 @@
 #include "interface_settings_ui.h"
 #include "display_settings_ui.h"
 #include "sound_settings_ui.h"
+#include "battery_settings_ui.h"
 #include "header_ui.h"
 #include "footer_ui.h"
 #include "core/lv_group.h"
@@ -30,6 +31,7 @@ static const settings_item_t settings_list[] = {
     {"INTERFACE",  LV_SYMBOL_KEYBOARD, SCREEN_INTERFACE_SETTINGS}, 
     {"DISPLAY",    LV_SYMBOL_IMAGE,    SCREEN_DISPLAY_SETTINGS},
     {"SOUND",      LV_SYMBOL_AUDIO,    SCREEN_SOUND_SETTINGS},
+    {"BATTERY",    LV_SYMBOL_BATTERY_FULL, SCREEN_BATTERY_SETTINGS},
     {"CONNECTION", LV_SYMBOL_WIFI,     -1},
     {"ABOUT",      LV_SYMBOL_WARNING,  -1}
 };

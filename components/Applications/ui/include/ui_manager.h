@@ -22,6 +22,7 @@ typedef enum {
     SCREEN_DISPLAY_SETTINGS,
     SCREEN_INTERFACE_SETTINGS,
     SCREEN_SOUND_SETTINGS,
+    SCREEN_BATTERY_SETTINGS
     // others screens
 } screen_id_t;
 
