@@ -103,8 +103,8 @@ static void inject_unicast_probe_req(const uint8_t *target_bssid) {
   memcpy(&packet[idx], rates, sizeof(rates)); idx += sizeof(rates);
 
   for (int i = 0; i < 3; i++) {
-      esp_wifi_80211_tx(WIFI_IF_AP, packet, idx, false);
-      vTaskDelay(pdMS_TO_TICKS(2)); 
+    esp_wifi_80211_tx(WIFI_IF_AP, packet, idx, false);
+    vTaskDelay(pdMS_TO_TICKS(2)); 
   }
   ESP_LOGI(TAG, "Injected Probe Request burst (3x) for SSID reveal");
 }
@@ -279,10 +279,10 @@ static void sniffer_stream_task(void *arg) {
 
   free(chunk_buf);
   stream_task_handle = NULL;
-  
+
   if (stream_task_stack) { heap_caps_free(stream_task_stack); stream_task_stack = NULL; }
   if (stream_task_tcb) { heap_caps_free(stream_task_tcb); stream_task_tcb = NULL; }
-  
+
   vTaskDelete(NULL);
 }
 
@@ -487,13 +487,13 @@ bool wifi_sniffer_start_stream_sd(sniff_type_t type, uint8_t channel, const char
 
   if (stream_task_stack && stream_task_tcb) {
     stream_task_handle = xTaskCreateStatic(
-        sniffer_stream_task, 
-        "sniff_stream", 
-        4096, 
-        NULL, 
-        5, 
-        stream_task_stack, 
-        stream_task_tcb
+      sniffer_stream_task, 
+      "sniff_stream", 
+      4096, 
+      NULL, 
+      5, 
+      stream_task_stack, 
+      stream_task_tcb
     );
   }
 

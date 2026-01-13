@@ -20,10 +20,10 @@
 #include "esp_wifi_types.h"
 
 typedef enum {
-    DEAUTH_INVALID_AUTH = 0,
-    DEAUTH_INACTIVITY,
-    DEAUTH_CLASS3,
-    DEAUTH_TYPE_COUNT
+  DEAUTH_INVALID_AUTH = 0,
+  DEAUTH_INACTIVITY,
+  DEAUTH_CLASS3,
+  DEAUTH_TYPE_COUNT
 } deauth_frame_type_t;
 
 void wifi_deauther_send_deauth_frame(const wifi_ap_record_t *ap_record, deauth_frame_type_t type);

@@ -70,7 +70,7 @@ void wifi_deauther_send_deauth_frame(const wifi_ap_record_t *ap_record, deauth_f
   const uint8_t *frame_template = get_deauth_frame_template(type);
   uint8_t deauth_frame[26];
   memcpy(deauth_frame, frame_template, 26);
-  
+
   memcpy(&deauth_frame[4], ap_record->bssid, 6);
   memcpy(&deauth_frame[10], ap_record->bssid, 6);
   memcpy(&deauth_frame[16], ap_record->bssid, 6);
@@ -147,9 +147,9 @@ static void deauth_task(void *pvParameters) {
   memcpy(frame, frame_template, 26);
 
   if (g_is_broadcast) {
-      memset(&frame[4], 0xFF, 6);
+    memset(&frame[4], 0xFF, 6);
   } else {
-      memcpy(&frame[4], g_target_ap.bssid, 6);
+    memcpy(&frame[4], g_target_ap.bssid, 6);
   }
   memcpy(&frame[10], g_target_ap.bssid, 6);
   memcpy(&frame[16], g_target_ap.bssid, 6);
@@ -161,7 +161,7 @@ static void deauth_task(void *pvParameters) {
     uint8_t current_channel;
     esp_wifi_get_channel(&current_channel, &second);
     if (current_channel != g_target_ap.primary) {
-        esp_wifi_set_channel(g_target_ap.primary, WIFI_SECOND_CHAN_NONE);
+      esp_wifi_set_channel(g_target_ap.primary, WIFI_SECOND_CHAN_NONE);
     }
 
     wifi_deauther_send_raw_frame(frame, 26);
