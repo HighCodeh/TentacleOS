@@ -13,13 +13,12 @@
 // limitations under the License.
 
 
-#ifndef BAD_USB_H
-#define BAD_USB_H
+#ifndef HID_LAYOUTS_H
+#define HID_LAYOUTS_H
 
-#include <stdint.h>
+#include <stddef.h>
 
-void bad_usb_init(void);
-void bad_usb_deinit(void);
-void bad_usb_wait_for_connection(void);
+void type_string_us(const char* str);
+void type_string_abnt2(const char* str);
 
 #endif

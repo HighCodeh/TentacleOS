@@ -1,0 +1,43 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+
+#include "hid_hal.h"
+#include <stddef.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+static hid_send_callback_t s_send_cb = NULL;
+static hid_wait_callback_t s_wait_cb = NULL;
+
+void hid_hal_register_callback(hid_send_callback_t send_cb, hid_wait_callback_t wait_cb) {
+  s_send_cb = send_cb;
+  s_wait_cb = wait_cb;
+}
+
+void hid_hal_press_key(uint8_t keycode, uint8_t modifiers) {
+  if (s_send_cb) {
+    s_send_cb(keycode, modifiers);
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    s_send_cb(0, 0);
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+}
+
+void hid_hal_wait_for_connection(void) {
+  if (s_wait_cb) {
+    s_wait_cb();
+  }
+}
