@@ -1,6 +1,6 @@
-# TinyUSB Descriptors (HID)
+# TinyUSB Descriptors (HID Composite)
 
-This component defines the USB descriptors required to enumerate the ESP32 as a USB HID Keyboard (BadUSB). It uses the TinyUSB stack provided by Espressif.
+This component defines the USB descriptors required to enumerate the ESP32 as a USB HID Composite Device (Keyboard + Mouse). It uses the TinyUSB stack provided by Espressif.
 
 ## Overview
 
@@ -22,8 +22,15 @@ This component defines the USB descriptors required to enumerate the ESP32 as a 
 - **Attributes:** Remote Wakeup enabled
 
 ### HID Report Descriptor
-- **Type:** Keyboard
-- **Report ID:** `1` (Must match the ID used in the application logic/parser).
+The device reports two functionalities within a single HID interface using Report IDs:
+
+1.  **Keyboard:**
+    - **Report ID:** `1`
+    - **Usage:** Generic Desktop Keyboard
+
+2.  **Mouse:**
+    - **Report ID:** `2`
+    - **Usage:** Generic Desktop Mouse (Buttons + XY Movement + Wheel)
 
 ### String Descriptors
 0.  Language ID (English)
@@ -39,7 +46,7 @@ void busb_init(void);
 ```
 Initializes the TinyUSB driver with the defined descriptors.
 - Installs the driver using `tinyusb_driver_install`.
-- **Note:** This function must be called before attempting to send any keystrokes.
+- **Note:** This function must be called before attempting to send any keystrokes or mouse movements.
 
 ## Callbacks (TinyUSB Hooks)
 The component implements standard TinyUSB callbacks to serve descriptors to the host:
