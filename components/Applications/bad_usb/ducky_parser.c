@@ -100,6 +100,24 @@ static void process_line(char* line) {
       if (s_layout == DUCKY_LAYOUT_ABNT2) type_string_abnt2(next_token);
       else type_string_us(next_token);
     }
+  } else if (strcmp(cmd, "MOUSE_MOVE") == 0) {
+    char* arg_x = strtok_r(NULL, " ", &saveptr);
+    char* arg_y = strtok_r(NULL, " ", &saveptr);
+    if (arg_x && arg_y) {
+        int x = atoi(arg_x);
+        int y = atoi(arg_y);
+        hid_hal_mouse_move((int8_t)x, (int8_t)y);
+    }
+  } else if (strcmp(cmd, "MOUSE_CLICK") == 0 || strcmp(cmd, "LCLICK") == 0) {
+      hid_hal_mouse_click(MOUSE_BUTTON_LEFT);
+  } else if (strcmp(cmd, "MOUSE_RIGHT_CLICK") == 0 || strcmp(cmd, "RCLICK") == 0) {
+      hid_hal_mouse_click(MOUSE_BUTTON_RIGHT);
+  } else if (strcmp(cmd, "MOUSE_SCROLL") == 0) {
+      char* arg_w = strtok_r(NULL, " ", &saveptr);
+      if (arg_w) {
+          int w = atoi(arg_w);
+          hid_hal_mouse_scroll((int8_t)w);
+      }
   } else {
     uint8_t modifiers = 0; uint8_t keycode = 0;
     if (is_modifier(cmd, &modifiers)) {
