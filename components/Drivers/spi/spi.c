@@ -36,7 +36,7 @@ esp_err_t spi_init(void) {
         .miso_io_num = SPI_MISO_PIN,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = 32768,
+        .max_transfer_sz = 4096,
     };
 
     esp_err_t ret = spi_bus_initialize(SPI3_HOST, &buscfg, SPI_DMA_CH_AUTO);
