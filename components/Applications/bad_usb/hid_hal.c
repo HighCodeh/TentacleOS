@@ -17,6 +17,7 @@
 #include <stddef.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <rom/ets_sys.h>
 
 static hid_send_callback_t s_send_cb = NULL;
 static hid_wait_callback_t s_wait_cb = NULL;
@@ -29,10 +30,12 @@ void hid_hal_register_callback(hid_send_callback_t send_cb, hid_wait_callback_t 
 void hid_hal_press_key(uint8_t keycode, uint8_t modifiers) {
   if (s_send_cb) {
     s_send_cb(keycode, modifiers);
-    vTaskDelay(pdMS_TO_TICKS(10));
+    ets_delay_us(3500); // 5ms delay
 
     s_send_cb(0, 0);
-    vTaskDelay(pdMS_TO_TICKS(10));
+    ets_delay_us(3500); // 5ms delay
+    
+    vTaskDelay(0); // Yield to prevent WDT starvation
   }
 }
 
