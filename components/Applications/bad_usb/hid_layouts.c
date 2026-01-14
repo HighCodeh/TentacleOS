@@ -22,6 +22,10 @@
 #define HID_KEY_INTERNATIONAL_1 0x87
 #endif
 
+#ifndef HID_KEY_NON_US_BACKSLASH
+#define HID_KEY_NON_US_BACKSLASH 0x64
+#endif
+
 void type_string_us(const char* str) {
   for (size_t i = 0; str[i] != '\0'; ++i) {
     char c = str[i];
@@ -129,8 +133,8 @@ void type_string_abnt2(const char* str) {
         case '{': modifier = KEYBOARD_MODIFIER_RIGHTALT; keycode = HID_KEY_BRACKET_LEFT; modifier |= KEYBOARD_MODIFIER_LEFTSHIFT; break;
         case ']': modifier = KEYBOARD_MODIFIER_RIGHTALT; keycode = HID_KEY_BRACKET_RIGHT; break;
         case '}': modifier = KEYBOARD_MODIFIER_RIGHTALT; keycode = HID_KEY_BRACKET_RIGHT; modifier |= KEYBOARD_MODIFIER_LEFTSHIFT; break;
-        case '\\': keycode = HID_KEY_BACKSLASH; break;
-        case '|': modifier = KEYBOARD_MODIFIER_LEFTSHIFT; keycode = HID_KEY_BACKSLASH; break;
+        case '\\': keycode = HID_KEY_NON_US_BACKSLASH; break;
+        case '|': modifier = KEYBOARD_MODIFIER_LEFTSHIFT; keycode = HID_KEY_NON_US_BACKSLASH; break;
       }
     }
     if (keycode != 0) { hid_hal_press_key(keycode, modifier); }
