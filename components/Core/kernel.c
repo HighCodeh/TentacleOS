@@ -59,14 +59,15 @@ void kernel_init(void) {
 
   buttons_init();
 
-  wifi_init();
-  wifi_stop();
 
   // display and graphical api init
   st7789_init();
   lv_init();
   lv_port_disp_init();
   lv_port_indev_init();
+
+  wifi_init();
+  wifi_stop();
 
   ui_init();
   // ram_monitor();
