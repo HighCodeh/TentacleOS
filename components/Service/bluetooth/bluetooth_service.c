@@ -129,7 +129,7 @@ static int bluetooth_service_gap_event(struct ble_gap_event *event, void *arg) {
             }
           }
           else if (fields.num_uuids128 > 0 && scan_results[i].uuids[0] == 0) {
-            uint8_t *u128 = fields.uuids128[0].value;
+            const uint8_t *u128 = fields.uuids128[0].value;
             snprintf(scan_results[i].uuids, sizeof(scan_results[i].uuids), 
                      "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
                      u128[15], u128[14], u128[13], u128[12], u128[11], u128[10], u128[9], u128[8],
@@ -156,7 +156,7 @@ static int bluetooth_service_gap_event(struct ble_gap_event *event, void *arg) {
             }
           }
         } else if (fields.num_uuids128 > 0) {
-          uint8_t *u128 = fields.uuids128[0].value;
+          const uint8_t *u128 = fields.uuids128[0].value;
           snprintf(scan_results[scan_count].uuids, sizeof(scan_results[scan_count].uuids), 
                    "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
                    u128[15], u128[14], u128[13], u128[12], u128[11], u128[10], u128[9], u128[8],
@@ -184,6 +184,38 @@ static int bluetooth_service_gap_event(struct ble_gap_event *event, void *arg) {
       break;
   }
   return 0;
+}
+
+esp_err_t bluetooth_service_connect(const uint8_t *addr, uint8_t addr_type, int (*cb)(struct ble_gap_event *event, void *arg)) {
+    if (!ble_running) {
+        ESP_LOGE(TAG, "BLE not running");
+        return ESP_FAIL;
+    }
+
+    bluetooth_service_stop_advertising();
+
+    ble_addr_t target_addr;
+    memcpy(target_addr.val, addr, 6);
+    target_addr.type = addr_type;
+
+    struct ble_gap_conn_params conn_params;
+    memset(&conn_params, 0, sizeof(conn_params));
+    conn_params.scan_itvl = 0x0010;
+    conn_params.scan_window = 0x0010;
+    conn_params.itvl_min = BLE_GAP_INITIAL_CONN_ITVL_MIN;
+    conn_params.itvl_max = BLE_GAP_INITIAL_CONN_ITVL_MAX;
+    conn_params.latency = 0;
+    conn_params.supervision_timeout = 0x0100;
+    conn_params.min_ce_len = 0x0010;
+    conn_params.max_ce_len = 0x0300;
+
+    int rc = ble_gap_connect(own_addr_type, &target_addr, 30000, &conn_params, cb, NULL);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "Error initiating connection: %d", rc);
+        return ESP_FAIL;
+    }
+
+    return ESP_OK;
 }
 
 esp_err_t bluetooth_service_start_advertising(void) {

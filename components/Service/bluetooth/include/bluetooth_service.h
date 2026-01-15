@@ -19,6 +19,8 @@
 #include "esp_err.h"
 #include "stdint.h"
 #include <stdbool.h>
+#include "nimble/ble.h"
+#include "host/ble_gap.h"
 
 #define BLE_SCAN_LIST_SIZE 50
 
@@ -29,6 +31,7 @@ typedef struct {
   uint8_t addr_type;
   int rssi;
 } ble_scan_result_t;
+
 esp_err_t bluetooth_service_init(void);
 esp_err_t bluetooth_service_deinit(void);
 esp_err_t bluetooth_service_start(void);
@@ -39,6 +42,7 @@ void bluetooth_service_disconnect_all(void);
 int bluetooth_service_get_connected_count(void);
 void bluetooth_service_get_mac(uint8_t *mac);
 esp_err_t bluetooth_service_set_random_mac(void);
+esp_err_t bluetooth_service_connect(const uint8_t *addr, uint8_t addr_type, int (*cb)(struct ble_gap_event *event, void *arg));
 esp_err_t bluetooth_service_start_advertising(void);
 esp_err_t bluetooth_service_stop_advertising(void);
 uint8_t bluetooth_service_get_own_addr_type(void);
@@ -52,4 +56,3 @@ uint16_t bluetooth_service_get_scan_count(void);
 ble_scan_result_t* bluetooth_service_get_scan_result(uint16_t index);
 
 #endif // BLUETOOTH_SERVICE_H
-
