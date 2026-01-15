@@ -21,6 +21,10 @@
 #include "host/ble_gatt.h"
 #include "cJSON.h"
 #include "storage_write.h"
+#include "esp_heap_caps.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
 #include <string.h>
 
 static const char *TAG = "GATT_EXPLORER";
@@ -42,19 +46,18 @@ static cJSON *svcs_json = NULL;
 static uint16_t conn_handle = 0;
 static bool busy = false;
 
+static TaskHandle_t explorer_task_handle = NULL;
+static StackType_t *explorer_task_stack = NULL;
+static StaticTask_t *explorer_task_tcb = NULL;
+#define EXPLORER_STACK_SIZE 6144
+
 static int explorer_on_disc_chr(uint16_t conn_handle, const struct ble_gatt_error *error,
                                 const struct ble_gatt_chr *chr, void *arg);
 
-static void save_and_cleanup(void) {
-  if (root_json) {
-    char *json_str = cJSON_Print(root_json);
-    storage_write_string("/assets/storage/ble/gatt_results.json", json_str);
-    free(json_str);
-    cJSON_Delete(root_json);
-    root_json = NULL;
+static void signal_save_and_exit(void) {
+  if (explorer_task_handle) {
+    xTaskNotify(explorer_task_handle, 1, eSetBits);
   }
-  busy = false;
-  ESP_LOGI(TAG, "Exploration finished and saved.");
 }
 
 static int explorer_on_disc_svc(uint16_t conn_h, const struct ble_gatt_error *error,
@@ -65,14 +68,14 @@ static int explorer_on_disc_svc(uint16_t conn_h, const struct ble_gatt_error *er
       ble_gattc_disc_all_chrs(conn_handle, svcs[current_svc_idx].start_handle,
                               svcs[current_svc_idx].end_handle, explorer_on_disc_chr, NULL);
     } else {
-      save_and_cleanup();
+      signal_save_and_exit();
     }
     return 0;
   }
 
   if (error->status != 0) {
     ESP_LOGE(TAG, "Service discovery error: %d", error->status);
-    save_and_cleanup();
+    signal_save_and_exit();
     return 0;
   }
 
@@ -103,7 +106,7 @@ static int explorer_on_disc_chr(uint16_t conn_h, const struct ble_gatt_error *er
       ble_gattc_disc_all_chrs(conn_handle, svcs[current_svc_idx].start_handle,
                               svcs[current_svc_idx].end_handle, explorer_on_disc_chr, NULL);
     } else {
-      save_and_cleanup();
+      signal_save_and_exit();
     }
     return 0;
   }
@@ -130,13 +133,46 @@ static int explorer_gap_event(struct ble_gap_event *event, void *arg) {
       ble_gattc_disc_all_svcs(conn_handle, explorer_on_disc_svc, NULL);
     } else {
       ESP_LOGE(TAG, "Connection failed: %d", event->connect.status);
-      busy = false;
+      signal_save_and_exit(); 
     }
   } else if (event->type == BLE_GAP_EVENT_DISCONNECT) {
     ESP_LOGI(TAG, "Disconnected.");
-    busy = false;
+    // If disconnected unexpectedly, save what we have
+    signal_save_and_exit();
   }
   return 0;
+}
+
+static void explorer_task(void *pvParameters) {
+  uint32_t notification_value = 0;
+
+  if (xTaskNotifyWait(0, 0, &notification_value, pdMS_TO_TICKS(60000)) == pdTRUE) {
+    if (notification_value & 1) {
+      if (root_json) {
+        ESP_LOGI(TAG, "Saving GATT results to storage...");
+        char *json_str = cJSON_Print(root_json);
+        if (json_str) {
+          storage_write_string("/assets/storage/ble/gatt_results.json", json_str);
+          free(json_str);
+        }
+        cJSON_Delete(root_json);
+        root_json = NULL;
+      }
+    }
+  } else {
+    ESP_LOGE(TAG, "GATT Exploration Timed Out.");
+    if (root_json) { cJSON_Delete(root_json); root_json = NULL; }
+  }
+
+  bluetooth_service_disconnect_all();
+
+  busy = false;
+
+  // Cleanup task memory
+  if (explorer_task_stack) { heap_caps_free(explorer_task_stack); explorer_task_stack = NULL; }
+  if (explorer_task_tcb) { heap_caps_free(explorer_task_tcb); explorer_task_tcb = NULL; }
+  explorer_task_handle = NULL;
+  vTaskDelete(NULL);
 }
 
 bool gatt_explorer_start(const uint8_t *addr, uint8_t addr_type) {
@@ -151,10 +187,23 @@ bool gatt_explorer_start(const uint8_t *addr, uint8_t addr_type) {
   cJSON_AddStringToObject(root_json, "target", addr_str);
   svcs_json = cJSON_AddArrayToObject(root_json, "services");
 
-  if (bluetooth_service_connect(addr, addr_type, explorer_gap_event) != ESP_OK) {
+  explorer_task_stack = (StackType_t *)heap_caps_malloc(EXPLORER_STACK_SIZE * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
+  explorer_task_tcb = (StaticTask_t *)heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_SPIRAM);
+
+  if (!explorer_task_stack || !explorer_task_tcb) {
+    ESP_LOGE(TAG, "Failed to allocate PSRAM for GATT Task");
+    if (explorer_task_stack) heap_caps_free(explorer_task_stack);
+    if (explorer_task_tcb) heap_caps_free(explorer_task_tcb);
     cJSON_Delete(root_json);
-    root_json = NULL;
     busy = false;
+    return false;
+  }
+
+  explorer_task_handle = xTaskCreateStatic(explorer_task, "gatt_task", EXPLORER_STACK_SIZE, NULL, 5, explorer_task_stack, explorer_task_tcb);
+
+  if (bluetooth_service_connect(addr, addr_type, explorer_gap_event) != ESP_OK) {
+    xTaskNotify(explorer_task_handle, 0, eNoAction); 
+    signal_save_and_exit(); 
     return false;
   }
   return true;
