@@ -24,6 +24,7 @@
 #include "sd_card_write.h"
 #include "sd_card_init.h"
 #include "sys/stat.h"
+#include "oui_lookup.h"
 
 static const char *TAG = "BLE_SCANNER";
 
@@ -67,8 +68,10 @@ static bool save_results_to_path(const char *path, bool use_sd_driver) {
     cJSON_AddNumberToObject(entry, "addr_type", dev->addr_type);
     cJSON_AddNumberToObject(entry, "rssi", dev->rssi);
 
-    if (strlen(dev->uuids) > 0) {
-      cJSON_AddStringToObject(entry, "uuids", dev->uuids);
+    const char *vendor = oui_get_vendor(dev->addr);
+    cJSON_AddStringToObject(entry, "vendor", vendor);
+
+    if (strlen(dev->uuids) > 0) {      cJSON_AddStringToObject(entry, "uuids", dev->uuids);
     } else {
       cJSON_AddStringToObject(entry, "uuids", "");
     }
