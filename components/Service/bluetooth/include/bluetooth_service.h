@@ -18,101 +18,37 @@
 
 #include "esp_err.h"
 #include "stdint.h"
+#include <stdbool.h>
 
-/**
- * @brief Inicializa todo o serviço Bluetooth, incluindo o controlador e a pilha NimBLE.
- * Esta função é síncrona e só retorna quando a pilha BLE está pronta para uso ou
- * se ocorrer um timeout.
- *
- * @return esp_err_t 
- * - ESP_OK: Sucesso
- * - ESP_FAIL: Falha genérica
- * - ESP_ERR_TIMEOUT: Timeout esperando a sincronização da pilha BLE
- * - Outros erros do ESP-IDF
- */
+#define BLE_SCAN_LIST_SIZE 50
+
+typedef struct {
+  char name[32]; 
+  uint8_t addr[6];
+  uint8_t addr_type;
+  int rssi;
+} ble_scan_result_t;
 esp_err_t bluetooth_service_init(void);
-
-/**
- * @brief Para completamente o serviço Bluetooth, desabilitando o controlador e liberando recursos.
- *
- * @return esp_err_t 
- * - ESP_OK: Sucesso
- * - Outros erros do ESP-IDF
- */
+esp_err_t bluetooth_service_deinit(void);
+esp_err_t bluetooth_service_start(void);
 esp_err_t bluetooth_service_stop(void);
-
-/**
- * @brief Inicia o anúncio (advertising) conectável padrão do dispositivo.
- * Deve ser chamado após bluetooth_service_init() ter retornado com sucesso.
- *
- * @return esp_err_t 
- * - ESP_OK: Sucesso
- * - ESP_FAIL: Se o serviço não estiver inicializado
- * - Outros erros da pilha NimBLE
- */
+bool bluetooth_service_is_initialized(void);
+bool bluetooth_service_is_running(void);
+void bluetooth_service_disconnect_all(void);
+int bluetooth_service_get_connected_count(void);
+void bluetooth_service_get_mac(uint8_t *mac);
+esp_err_t bluetooth_service_set_random_mac(void);
 esp_err_t bluetooth_service_start_advertising(void);
-
-/**
- * @brief Para o anúncio (advertising) do dispositivo.
- *
- * @return esp_err_t 
- * - ESP_OK: Sucesso
- * - Outros erros da pilha NimBLE
- */
 esp_err_t bluetooth_service_stop_advertising(void);
-
-/**
- * @brief Obtém o tipo de endereço próprio do dispositivo (ex: público, aleatório).
- * Este valor é determinado durante a sincronização da pilha BLE.
- * * @return uint8_t O tipo de endereço (conforme definido em ble_hs.h).
- */
 uint8_t bluetooth_service_get_own_addr_type(void);
-
-/**
- * @brief Define a potência de transmissão do Bluetooth para o nível máximo permitido.
- * Útil para aplicações que requerem maior alcance, como o spam.
- *
- * @return esp_err_t
- * - ESP_OK: Sucesso
- * - Outros erros da API esp_ble_tx_power_set
- */
 esp_err_t bluetooth_service_set_max_power(void);
-
-/**
- * @brief Salva a configuração de anúncio BLE.
- * 
- * @param name Nome do dispositivo.
- * @param max_conn Número máximo de conexões (se aplicável/suportado).
- * @return esp_err_t ESP_OK em sucesso.
- */
 esp_err_t bluetooth_save_announce_config(const char *name, uint8_t max_conn);
-
-/**
- * @brief Carrega a lista de beacons para spam.
- * O chamador é responsável por liberar a memória retornada em list usando bluetooth_free_spam_list.
- * 
- * @param list Ponteiro para receber o array de strings.
- * @param count Ponteiro para receber o número de itens.
- * @return esp_err_t ESP_OK em sucesso.
- */
 esp_err_t bluetooth_load_spam_list(char ***list, size_t *count);
-
-/**
- * @brief Salva a lista de beacons para spam.
- * 
- * @param list Array de strings.
- * @param count Número de itens.
- * @return esp_err_t ESP_OK em sucesso.
- */
 esp_err_t bluetooth_save_spam_list(const char * const *list, size_t count);
-
-/**
- * @brief Libera a memória alocada por bluetooth_load_spam_list.
- * 
- * @param list Array de strings.
- * @param count Número de itens.
- */
 void bluetooth_free_spam_list(char **list, size_t count);
+void bluetooth_service_scan(uint32_t duration_ms);
+uint16_t bluetooth_service_get_scan_count(void);
+ble_scan_result_t* bluetooth_service_get_scan_result(uint16_t index);
 
 #endif // BLUETOOTH_SERVICE_H
 

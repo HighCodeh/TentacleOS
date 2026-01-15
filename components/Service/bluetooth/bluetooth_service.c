@@ -21,6 +21,7 @@
 #include "freertos/semphr.h"
 #include "esp_log.h"
 #include "esp_bt.h"
+#include "esp_random.h"
 #include "nvs_flash.h"
 #include "assert.h"
 
@@ -45,7 +46,16 @@ static const char *TAG = "BLE_SERVICE";
 
 static uint8_t own_addr_type;
 static bool ble_initialized = false;
+static bool ble_running = false;
 static SemaphoreHandle_t ble_hs_synced_sem = NULL; 
+
+#define MAX_BLE_CONNECTIONS 8
+static uint16_t connection_handles[MAX_BLE_CONNECTIONS];
+static int connection_count = 0;
+
+static ble_scan_result_t scan_results[BLE_SCAN_LIST_SIZE];
+static uint16_t scan_count = 0;
+static SemaphoreHandle_t scan_sem = NULL;
 
 static void bluetooth_service_on_reset(int reason);
 static void bluetooth_service_on_sync(void);
@@ -57,20 +67,78 @@ static void bluetooth_load_announce_config(char* name, uint8_t* max_conn);
 static int bluetooth_service_gap_event(struct ble_gap_event *event, void *arg) {
   switch (event->type) {
     case BLE_GAP_EVENT_CONNECT:
-      ESP_LOGI(TAG, "Dispositivo conectado! status=%d conn_handle=%d",
+      ESP_LOGI(TAG, "Device connected! status=%d conn_handle=%d",
                event->connect.status, event->connect.conn_handle);
-      if (event->connect.status != 0) {
+      if (event->connect.status == 0) {
+        if (connection_count < MAX_BLE_CONNECTIONS) {
+          connection_handles[connection_count++] = event->connect.conn_handle;
+        }
+      } else {
         bluetooth_service_start_advertising();
       }
       break;
     case BLE_GAP_EVENT_DISCONNECT:
-      ESP_LOGI(TAG, "Dispositivo desconectado! reason=%d", event->disconnect.reason);
+      ESP_LOGI(TAG, "Device disconnected! reason=%d", event->disconnect.reason);
+      for (int i = 0; i < connection_count; i++) {
+        if (connection_handles[i] == event->disconnect.conn.conn_handle) {
+          for (int j = i; j < connection_count - 1; j++) {
+            connection_handles[j] = connection_handles[j+1];
+          }
+          connection_count--;
+          break;
+        }
+      }
       bluetooth_service_start_advertising();
       break;
     case BLE_GAP_EVENT_ADV_COMPLETE:
-      ESP_LOGI(TAG, "Anúncio concluído!");
+      ESP_LOGI(TAG, "Advertising complete!");
       bluetooth_service_start_advertising();
       break;
+    case BLE_GAP_EVENT_DISC: {
+      struct ble_hs_adv_fields fields;
+      int rc = ble_hs_adv_parse_fields(&fields, event->disc.data, event->disc.length_data);
+      if (rc != 0) {
+        return 0;
+      }
+
+      bool found = false;
+      for (int i = 0; i < scan_count; i++) {
+        if (memcmp(scan_results[i].addr, event->disc.addr.val, 6) == 0) {
+          found = true;
+          scan_results[i].rssi = event->disc.rssi;
+          if (fields.name != NULL && scan_results[i].name[0] == 0) {
+            int name_len = fields.name_len;
+            if (name_len > 31) name_len = 31;
+            memcpy(scan_results[i].name, fields.name, name_len);
+            scan_results[i].name[name_len] = '\0';
+          }
+          break;
+        }
+      }
+
+      if (!found && scan_count < BLE_SCAN_LIST_SIZE) {
+        memcpy(scan_results[scan_count].addr, event->disc.addr.val, 6);
+        scan_results[scan_count].addr_type = event->disc.addr.type;
+        scan_results[scan_count].rssi = event->disc.rssi;
+
+        if (fields.name != NULL) {
+          int name_len = fields.name_len;
+          if (name_len > 31) name_len = 31;
+          memcpy(scan_results[scan_count].name, fields.name, name_len);
+          scan_results[scan_count].name[name_len] = '\0';
+        } else {
+          scan_results[scan_count].name[0] = '\0';
+        }
+        scan_count++;
+      }
+      return 0;
+    }
+    case BLE_GAP_EVENT_DISC_COMPLETE:
+      ESP_LOGI(TAG, "Scan complete reason=%d", event->disc_complete.reason);
+      if (scan_sem) {
+        xSemaphoreGive(scan_sem);
+      }
+      return 0;
     default:
       break;
   }
@@ -79,7 +147,7 @@ static int bluetooth_service_gap_event(struct ble_gap_event *event, void *arg) {
 
 esp_err_t bluetooth_service_start_advertising(void) {
   if (!ble_initialized) {
-    ESP_LOGE(TAG, "BLE não inicializado. Não é possível anunciar.");
+    ESP_LOGE(TAG, "BLE not initialized. Cannot advertise.");
     return ESP_FAIL;
   }
 
@@ -102,7 +170,7 @@ esp_err_t bluetooth_service_start_advertising(void) {
 
   rc = ble_gap_adv_set_fields(&fields);
   if (rc != 0) {
-    ESP_LOGE(TAG, "Erro ao configurar campos de anúncio; rc=%d", rc);
+    ESP_LOGE(TAG, "Error setting advertisement fields; rc=%d", rc);
     return ESP_FAIL;
   }
 
@@ -112,16 +180,16 @@ esp_err_t bluetooth_service_start_advertising(void) {
 
   rc = ble_gap_adv_start(own_addr_type, NULL, BLE_HS_FOREVER, &adv_params, bluetooth_service_gap_event, NULL);
   if (rc != 0) {
-    ESP_LOGE(TAG, "Erro ao iniciar anúncio; rc=%d", rc);
+    ESP_LOGE(TAG, "Error starting advertisement; rc=%d", rc);
     return ESP_FAIL;
   }
-  ESP_LOGI(TAG, "Anúncio padrão iniciado com sucesso");
+  ESP_LOGI(TAG, "Default advertising started successfully");
   return ESP_OK;
 }
 
 esp_err_t bluetooth_service_stop_advertising(void) {
   if (!ble_initialized) {
-    ESP_LOGE(TAG, "BLE não inicializado.");
+    ESP_LOGE(TAG, "BLE not initialized.");
     return ESP_FAIL;
   }
   if (ble_gap_adv_active()) {
@@ -131,14 +199,14 @@ esp_err_t bluetooth_service_stop_advertising(void) {
 }
 
 void bluetooth_service_on_reset(int reason) {
-  ESP_LOGE(TAG, "Resetando estado; reason=%d", reason);
+  ESP_LOGE(TAG, "Resetting state; reason=%d", reason);
 }
 
 void bluetooth_service_on_sync(void) {
-  ESP_LOGI(TAG, "BLE sincronizado");
+  ESP_LOGI(TAG, "BLE synced");
   int rc = ble_hs_id_infer_auto(0, &own_addr_type);
   if (rc != 0) {
-    ESP_LOGE(TAG, "Erro ao inferir tipo de endereço: %d", rc);
+    ESP_LOGE(TAG, "Error inferring address type: %d", rc);
     return;
   }
   if (ble_hs_synced_sem != NULL) {
@@ -147,14 +215,14 @@ void bluetooth_service_on_sync(void) {
 }
 
 void bluetooth_service_host_task(void *param) {
-  ESP_LOGI(TAG, "BLE Host Task Iniciada");
+  ESP_LOGI(TAG, "BLE Host Task Started");
   nimble_port_run();
   nimble_port_freertos_deinit();
 }
 
 esp_err_t bluetooth_service_init(void) {
   if (ble_initialized) {
-    ESP_LOGW(TAG, "BLE já inicializado");
+    ESP_LOGW(TAG, "BLE already initialized");
     return ESP_OK;
   }
 
@@ -167,7 +235,7 @@ esp_err_t bluetooth_service_init(void) {
 
   ret = nimble_port_init();
   if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Falha ao inicializar NimBLE: %s", esp_err_to_name(ret));
+    ESP_LOGE(TAG, "Failed to initialize NimBLE: %s", esp_err_to_name(ret));
     return ret;
   }
 
@@ -184,34 +252,64 @@ esp_err_t bluetooth_service_init(void) {
 
   ble_hs_synced_sem = xSemaphoreCreateBinary();
   if (ble_hs_synced_sem == NULL) {
-    ESP_LOGE(TAG, "Falha ao criar semáforo");
+    ESP_LOGE(TAG, "Failed to create semaphore");
     return ESP_ERR_NO_MEM;
   }
 
-  nimble_port_freertos_init(bluetooth_service_host_task);
+  connection_count = 0;
+  ble_initialized = true;
+  ESP_LOGI(TAG, "BLE initialized (resources allocated). Call start to run.");
+  return ESP_OK;
+}
 
-  ESP_LOGI(TAG, "Aguardando sincronização do Host BLE...");
+esp_err_t bluetooth_service_start(void) {
+  if (!ble_initialized) {
+    ESP_LOGE(TAG, "BLE not initialized. Call init first.");
+    return ESP_FAIL;
+  }
+  if (ble_running) {
+    ESP_LOGW(TAG, "BLE already running.");
+    return ESP_OK;
+  }
+
+  nimble_port_freertos_init(bluetooth_service_host_task);
+  ble_running = true;
+
+  ESP_LOGI(TAG, "Waiting for BLE Host synchronization...");
   if (xSemaphoreTake(ble_hs_synced_sem, pdMS_TO_TICKS(10000)) == pdFALSE) {
-    ESP_LOGE(TAG, "Timeout na sincronização do Host BLE");
-    bluetooth_service_stop();
+    ESP_LOGE(TAG, "Timeout syncing BLE Host");
+    bluetooth_service_stop(); 
     return ESP_ERR_TIMEOUT;
   }
 
-  ble_initialized = true;
-  ESP_LOGI(TAG, "Inicialização do BLE concluída com sucesso");
+  ESP_LOGI(TAG, "BLE started successfully");
   return ESP_OK;
 }
 
 esp_err_t bluetooth_service_stop(void) {
-  if (!ble_initialized) {
-    ESP_LOGW(TAG, "BLE não inicializado ou já parado");
+  if (!ble_running) {
+    ESP_LOGW(TAG, "BLE not running");
     return ESP_OK;
   }
 
-  ESP_LOGI(TAG, "Parando serviço BLE");
+  ESP_LOGI(TAG, "Stopping BLE host task");
   int rc = nimble_port_stop();
   if (rc != 0) {
-    ESP_LOGE(TAG, "Falha ao parar a porta NimBLE: %d", rc);
+    ESP_LOGE(TAG, "Failed to stop NimBLE port: %d", rc);
+    return ESP_FAIL;
+  }
+
+  ble_running = false;
+  return ESP_OK;
+}
+
+esp_err_t bluetooth_service_deinit(void) {
+  if (ble_running) {
+    bluetooth_service_stop();
+  }
+  if (!ble_initialized) {
+    ESP_LOGW(TAG, "BLE not initialized");
+    return ESP_OK;
   }
 
   nimble_port_deinit();
@@ -222,7 +320,7 @@ esp_err_t bluetooth_service_stop(void) {
   }
 
   ble_initialized = false;
-  ESP_LOGI(TAG, "Serviço BLE parado");
+  ESP_LOGI(TAG, "BLE deinitialized");
   return ESP_OK;
 }
 
@@ -231,16 +329,16 @@ esp_err_t bluetooth_service_set_max_power(void) {
 
   err = esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, ESP_PWR_LVL_P9);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Falha ao definir potência TX para ADV: %s", esp_err_to_name(err));
+    ESP_LOGE(TAG, "Failed to set TX power for ADV: %s", esp_err_to_name(err));
   } else {
-    ESP_LOGI(TAG, "Potência TX para ADV definida para MAX (P9)");
+    ESP_LOGI(TAG, "ADV TX power set to MAX (P9)");
   }
 
   err = esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT, ESP_PWR_LVL_P9);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Falha ao definir potência TX Default: %s", esp_err_to_name(err));
+    ESP_LOGE(TAG, "Failed to set Default TX power: %s", esp_err_to_name(err));
   } else {
-    ESP_LOGI(TAG, "Potência TX Default definida para MAX (P9)");
+    ESP_LOGI(TAG, "Default TX power set to MAX (P9)");
   }
 
   return ESP_OK; 
@@ -272,9 +370,9 @@ esp_err_t bluetooth_save_announce_config(const char *name, uint8_t max_conn) {
 
   esp_err_t err = storage_write_string(BLE_ANNOUNCE_CONFIG_PATH, json_string);
   if (err == ESP_OK) {
-    ESP_LOGI(TAG, "Configuração BLE salva com sucesso em: %s", BLE_ANNOUNCE_CONFIG_PATH);
+    ESP_LOGI(TAG, "BLE config saved successfully to: %s", BLE_ANNOUNCE_CONFIG_PATH);
   } else {
-    ESP_LOGE(TAG, "Erro ao gravar arquivo de configuração BLE: %s", esp_err_to_name(err));
+    ESP_LOGE(TAG, "Error writing BLE config file: %s", esp_err_to_name(err));
   }
 
   free(json_string);
@@ -305,11 +403,11 @@ static void bluetooth_load_announce_config(char* name, uint8_t* max_conn) {
       }
 
       cJSON_Delete(root);
-      ESP_LOGI(TAG, "Configurações BLE carregadas com sucesso.");
+      ESP_LOGI(TAG, "BLE configs loaded successfully.");
     }
     free(buffer);
   } else {
-    ESP_LOGW(TAG, "Arquivo de config BLE não encontrado. Usando padrões.");
+    ESP_LOGW(TAG, "BLE config file not found. Using defaults.");
   }
 }
 
@@ -322,7 +420,7 @@ esp_err_t bluetooth_load_spam_list(char ***list, size_t *count) {
   char *buffer = (char*)storage_assets_load_file(BLE_SPAM_LIST_FILE, &size);
 
   if (buffer == NULL) {
-    ESP_LOGE(TAG, "Falha ao carregar lista de spam.");
+    ESP_LOGE(TAG, "Failed to load spam list.");
     return ESP_FAIL;
   }
 
@@ -387,4 +485,104 @@ void bluetooth_free_spam_list(char **list, size_t count) {
     }
     free(list);
   }
+}
+
+void bluetooth_service_scan(uint32_t duration_ms) {
+  if (!ble_initialized) {
+    ESP_LOGE(TAG, "BLE not initialized");
+    return;
+  }
+
+  if (scan_sem == NULL) {
+    scan_sem = xSemaphoreCreateBinary();
+  }
+
+  bluetooth_service_stop_advertising();
+
+  scan_count = 0;
+  memset(scan_results, 0, sizeof(scan_results));
+
+  struct ble_gap_disc_params disc_params;
+  memset(&disc_params, 0, sizeof(disc_params));
+  disc_params.filter_duplicates = 0;
+  disc_params.passive = 0; 
+  disc_params.itvl = 0; 
+  disc_params.window = 0; 
+  disc_params.filter_policy = 0;
+  disc_params.limited = 0;
+
+  ESP_LOGI(TAG, "Starting BLE scan for %lu ms...", duration_ms);
+
+  int rc = ble_gap_disc(own_addr_type, duration_ms, &disc_params, bluetooth_service_gap_event, NULL);
+  if (rc != 0) {
+    ESP_LOGE(TAG, "Error initiating GAP discovery: %d", rc);
+    return;
+  }
+
+  xSemaphoreTake(scan_sem, portMAX_DELAY); 
+
+  bluetooth_service_start_advertising();
+}
+
+uint16_t bluetooth_service_get_scan_count(void) {
+  return scan_count;
+}
+
+ble_scan_result_t* bluetooth_service_get_scan_result(uint16_t index) {
+  if (index < scan_count) {
+    return &scan_results[index];
+  }
+  return NULL;
+}
+
+bool bluetooth_service_is_initialized(void) {
+  return ble_initialized;
+}
+
+bool bluetooth_service_is_running(void) {
+  return ble_running;
+}
+
+void bluetooth_service_disconnect_all(void) {
+  if (!ble_running) return;
+  for (int i = 0; i < connection_count; i++) {
+    ble_gap_terminate(connection_handles[i], BLE_ERR_REM_USER_CONN_TERM);
+  }
+}
+
+int bluetooth_service_get_connected_count(void) {
+  return connection_count;
+}
+void bluetooth_service_get_mac(uint8_t *mac) {
+  if (ble_initialized) {
+    ble_hs_id_copy_addr(own_addr_type, mac, NULL);
+  } else {
+    memset(mac, 0, 6);
+  }
+}
+
+esp_err_t bluetooth_service_set_random_mac(void) {
+  if (!ble_initialized) {
+    ESP_LOGE(TAG, "BLE not initialized");
+    return ESP_FAIL;
+  }
+
+  bluetooth_service_stop_advertising();
+
+  uint8_t addr[6];
+  esp_fill_random(addr, 6);
+  // Random Static Address (MSB 11)
+  addr[5] |= 0xC0;
+
+  int rc = ble_hs_id_set_rnd(addr);
+  if (rc != 0) {
+    ESP_LOGE(TAG, "Failed to set random address: %d", rc);
+    return ESP_FAIL;
+  }
+
+  own_addr_type = BLE_OWN_ADDR_RANDOM;
+  ESP_LOGI(TAG, "Random MAC set: %02x:%02x:%02x:%02x:%02x:%02x",
+           addr[5], addr[4], addr[3], addr[2], addr[1], addr[0]);
+
+  return ESP_OK;
 }
