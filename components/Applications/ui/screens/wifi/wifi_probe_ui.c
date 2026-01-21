@@ -105,7 +105,7 @@ void ui_wifi_probe_open(void) {
     ta_log = lv_textarea_create(screen_probe);
     lv_obj_set_size(ta_log, 220, 100);
     lv_obj_align(ta_log, LV_ALIGN_CENTER, 0, -10);
-    lv_obj_set_style_text_font(ta_log, &lv_font_montserrat_10, 0); // Small font
+    lv_obj_set_style_text_font(ta_log, &lv_font_montserrat_14, 0); // Small font
     lv_obj_set_style_bg_color(ta_log, lv_color_black(), 0);
     lv_obj_set_style_text_color(ta_log, lv_color_hex(0x00FF00), 0);
     lv_textarea_set_text(ta_log, "Ready.");
