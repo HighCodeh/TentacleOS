@@ -53,7 +53,7 @@ void kernel_init(void) {
 
   buzzer_init();
   led_rgb_init();
-  buzzer_boot_sequence();
+  buzzer_play_sound_file("buzzer_boot_sequence");
   bq25896_init();
   cc1101_init();
 
