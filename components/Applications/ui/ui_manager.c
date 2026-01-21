@@ -28,6 +28,11 @@
 #include "ui_badusb_connect.h"
 #include "ui_badusb_running.h"
 #include "subghz_spectrum_ui.h"
+#include "wifi_ap_list_ui.h"
+#include "wifi_deauth_ui.h"
+#include "wifi_evil_twin_ui.h"
+#include "wifi_beacon_spam_ui.h"
+#include "wifi_probe_ui.h"
 #include "esp_log.h"
 #include "bluetooth_service.h"
 #include "bad_usb.h"
@@ -192,6 +197,26 @@ void ui_switch_screen(screen_id_t new_screen) {
 
       case SCREEN_WIFI_SCAN:
         ui_wifi_scan_open();
+        break;
+
+      case SCREEN_WIFI_AP_LIST:
+        ui_wifi_ap_list_open();
+        break;
+
+      case SCREEN_WIFI_DEAUTH:
+        ui_wifi_deauth_open();
+        break;
+
+      case SCREEN_WIFI_EVIL_TWIN:
+        ui_wifi_evil_twin_open();
+        break;
+
+      case SCREEN_WIFI_BEACON_SPAM:
+        ui_wifi_beacon_spam_open();
+        break;
+
+      case SCREEN_WIFI_PROBE:
+        ui_wifi_probe_open();
         break;
 
       case SCREEN_BLE_MENU:

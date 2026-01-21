@@ -4,7 +4,7 @@
 #include "esp_log.h"
 #include "lvgl.h"
 #include "freertos/FreeRTOS.h"
-#include "wifi_service.h"
+#include "ap_scanner.h"
 #include "freertos/task.h"
 
 static const char *TAG = "UI_SCAN";
@@ -15,10 +15,18 @@ static lv_obj_t * lbl_status = NULL;
 
 static void scan_worker_task(void *arg)
 {
-    ESP_LOGI(TAG, "Iniciando Scan em Background...");
+    ESP_LOGI(TAG, "Iniciando AP Scanner...");
 
-    wifi_service_scan();
+    ap_scanner_start();
     
+    // Wait for scan to complete
+    uint16_t count = 0;
+    int timeout = 100; // 10 seconds approx
+    while (ap_scanner_get_results(&count) == NULL && timeout > 0) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+        timeout--;
+    }
+
     if (ui_acquire()) {
         if (spinner) {
             lv_obj_del(spinner);
@@ -26,7 +34,7 @@ static void scan_worker_task(void *arg)
         }
 
         if (lbl_status) {
-            lv_label_set_text(lbl_status, "Scan Concluido!");
+            lv_label_set_text_fmt(lbl_status, "Found %d Networks!", count);
             lv_obj_set_style_text_color(lbl_status, current_theme.text_main, 0);
             lv_obj_align(lbl_status, LV_ALIGN_CENTER, 0, 0);
             
@@ -39,8 +47,8 @@ static void scan_worker_task(void *arg)
         ui_release();
     }
 
-    vTaskDelay(pdMS_TO_TICKS(1500));
-    ui_switch_screen(SCREEN_WIFI_MENU); 
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    ui_switch_screen(SCREEN_WIFI_AP_LIST); 
 
     vTaskDelete(NULL);
 }

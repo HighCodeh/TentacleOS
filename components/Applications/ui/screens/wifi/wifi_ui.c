@@ -62,6 +62,26 @@ static void menu_item_event_cb(lv_event_t * e)
     }
 }
 
+static void wifi_option_select_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    uint32_t key = lv_event_get_key(e);
+    
+    if (key == LV_KEY_ENTER) {
+        int index = (int)(intptr_t)lv_event_get_user_data(e);
+        buzzer_play_sound_file("buzzer_hacker_confirm");
+        
+        switch(index) {
+            case 0: ui_switch_screen(SCREEN_WIFI_SCAN); break;
+            case 1: ui_switch_screen(SCREEN_WIFI_DEAUTH); break;
+            case 2: ui_switch_screen(SCREEN_WIFI_EVIL_TWIN); break;
+            case 3: ui_switch_screen(SCREEN_WIFI_BEACON_SPAM); break;
+            case 4: ui_switch_screen(SCREEN_WIFI_PROBE); break;
+            case 5: /* Port Scan - TODO */ break;
+            default: break;
+        }
+    }
+}
+
 static void create_wifi_menu(lv_obj_t * parent)
 {
     init_styles();
@@ -76,9 +96,16 @@ static void create_wifi_menu(lv_obj_t * parent)
     lv_obj_set_scrollbar_mode(menu, LV_SCROLLBAR_MODE_OFF);
     lv_obj_set_flex_flow(menu, LV_FLEX_FLOW_COLUMN);
 
-    static const char * options[] = {"Scan Networks", "Deauth Packets","Evil-Twin", "Port Scan"};
+    static const char * options[] = {
+        "Scan Networks", 
+        "Deauth Packets",
+        "Evil-Twin", 
+        "Beacon Spam",
+        "Probe Monitor",
+        "Port Scan"
+    };
     
-    for(int i = 0; i < 4; i++) {
+    for(int i = 0; i < 6; i++) {
         lv_obj_t * btn = lv_btn_create(menu);
         lv_obj_set_size(btn, lv_pct(100), 44);
         lv_obj_add_style(btn, &style_btn, 0);
@@ -100,6 +127,8 @@ static void create_wifi_menu(lv_obj_t * parent)
         lv_obj_add_flag(img_sel, LV_OBJ_FLAG_HIDDEN);
 
         lv_obj_add_event_cb(btn, menu_item_event_cb, LV_EVENT_ALL, img_sel);
+        // Pass index as user_data
+        lv_obj_add_event_cb(btn, wifi_option_select_cb, LV_EVENT_KEY, (void*)(intptr_t)i);
         lv_obj_add_event_cb(btn, wifi_menu_event_cb, LV_EVENT_KEY, NULL);    
 
         if(main_group) {
