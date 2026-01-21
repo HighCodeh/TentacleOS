@@ -13,7 +13,8 @@
 // limitations under the License.
 
 #include "tracker_detector.h"
-#include "bluetooth_scanner.h"
+#include "bluetooth_service.h"
+#include "host/ble_hs.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
@@ -66,46 +67,51 @@ static const char* get_type_str(tracker_type_t type) {
   }
 }
 
-static void scanner_callback(const discovered_device_t *device) {
-  if (device->mfg_data_len < 2) return;
-  tracker_type_t type = identify_tracker(device->mfg_data, device->mfg_data_len);
+static void scanner_callback(const uint8_t *addr, uint8_t addr_type, int rssi, const uint8_t *data, uint16_t len) {
+  struct ble_hs_adv_fields fields;
+  if (ble_hs_adv_parse_fields(&fields, data, len) != 0) return;
 
-  if (type != TRACKER_TYPE_UNKNOWN) {
-    if (xSemaphoreTake(list_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-      bool found = false;
-      for (int i = 0; i < tracker_count; i++) {
-        if (memcmp(found_trackers[i].addr.val, device->addr.val, 6) == 0) {
-          found_trackers[i].rssi = device->rssi;
-          found_trackers[i].last_seen = (uint32_t)(esp_timer_get_time() / 1000);
-          if (found_trackers[i].type == TRACKER_TYPE_UNKNOWN && type != TRACKER_TYPE_UNKNOWN) {
-            found_trackers[i].type = type;
-            strncpy(found_trackers[i].type_str, get_type_str(type), 15);
+  if (fields.mfg_data != NULL && fields.mfg_data_len >= 2) {
+    tracker_type_t type = identify_tracker(fields.mfg_data, fields.mfg_data_len);
+
+    if (type != TRACKER_TYPE_UNKNOWN) {
+      if (xSemaphoreTake(list_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        bool found = false;
+        for (int i = 0; i < tracker_count; i++) {
+          if (memcmp(found_trackers[i].addr.val, addr, 6) == 0) {
+            found_trackers[i].rssi = rssi;
+            found_trackers[i].last_seen = (uint32_t)(esp_timer_get_time() / 1000);
+            if (found_trackers[i].type == TRACKER_TYPE_UNKNOWN && type != TRACKER_TYPE_UNKNOWN) {
+              found_trackers[i].type = type;
+              strncpy(found_trackers[i].type_str, get_type_str(type), 15);
+            }
+            found = true;
+            break;
           }
-          found = true;
-          break;
         }
-      }
 
-      if (!found && tracker_count < MAX_TRACKERS_FOUND) {
-        tracker_record_t *rec = &found_trackers[tracker_count];
-        memcpy(&rec->addr, &device->addr, sizeof(ble_addr_t));
-        rec->rssi = device->rssi;
-        rec->type = type;
-        strncpy(rec->type_str, get_type_str(type), 15);
-        rec->type_str[15] = '\0';
-        rec->last_seen = (uint32_t)(esp_timer_get_time() / 1000);
-        int copy_len = (device->mfg_data_len > 10) ? 10 : device->mfg_data_len;
-        memcpy(rec->payload_sample, device->mfg_data, copy_len);
-        tracker_count++;
-        ESP_LOGI(TAG, "Tracker Found: %s RSSI: %d", rec->type_str, rec->rssi);
+        if (!found && tracker_count < MAX_TRACKERS_FOUND) {
+          tracker_record_t *rec = &found_trackers[tracker_count];
+          memcpy(rec->addr.val, addr, 6);
+          rec->addr.type = addr_type;
+          rec->rssi = rssi;
+          rec->type = type;
+          strncpy(rec->type_str, get_type_str(type), 15);
+          rec->type_str[15] = '\0';
+          rec->last_seen = (uint32_t)(esp_timer_get_time() / 1000);
+          int copy_len = (fields.mfg_data_len > 10) ? 10 : fields.mfg_data_len;
+          memcpy(rec->payload_sample, fields.mfg_data, copy_len);
+          tracker_count++;
+          ESP_LOGI(TAG, "Tracker Found: %s RSSI: %d", rec->type_str, rec->rssi);
+        }
+        xSemaphoreGive(list_mutex);
       }
-      xSemaphoreGive(list_mutex);
     }
   }
 }
 
 static void tracker_monitor_task(void *pvParameters) {
-  bluetooth_scanner_start(BLE_HS_FOREVER, scanner_callback);
+  bluetooth_service_start_sniffer(scanner_callback);
   while (is_running) {
     if (xSemaphoreTake(list_mutex, pdMS_TO_TICKS(500)) == pdTRUE) {
       uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
@@ -123,7 +129,7 @@ static void tracker_monitor_task(void *pvParameters) {
     }
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
-  bluetooth_scanner_stop();
+  bluetooth_service_stop_sniffer();
   tracker_task_handle = NULL;
   if (tracker_task_stack) { heap_caps_free(tracker_task_stack); tracker_task_stack = NULL; }
   if (tracker_task_tcb) { heap_caps_free(tracker_task_tcb); tracker_task_tcb = NULL; }

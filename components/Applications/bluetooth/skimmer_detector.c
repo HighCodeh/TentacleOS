@@ -13,7 +13,8 @@
 // limitations under the License.
 
 #include "skimmer_detector.h"
-#include "bluetooth_scanner.h"
+#include "bluetooth_service.h"
+#include "host/ble_hs.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
@@ -69,16 +70,28 @@ static void is_suspicious_check(const char *device_name, char *reason_out) {
     reason_out[0] = '\0';
 }
 
-static void scanner_callback(const discovered_device_t *device) {
+static void scanner_callback(const uint8_t *addr, uint8_t addr_type, int rssi, const uint8_t *data, uint16_t len) {
+    struct ble_hs_adv_fields fields;
+    if (ble_hs_adv_parse_fields(&fields, data, len) != 0) return;
+
+    char name[32] = {0};
+    if (fields.name != NULL && fields.name_len > 0) {
+        size_t nlen = fields.name_len < 31 ? fields.name_len : 31;
+        memcpy(name, fields.name, nlen);
+        name[nlen] = '\0';
+    } else {
+        return; 
+    }
+
     char reason[32] = {0};
-    is_suspicious_check(device->name, reason);
+    is_suspicious_check(name, reason);
 
     if (strlen(reason) > 0) {
         if (xSemaphoreTake(list_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
             bool found = false;
             for (int i = 0; i < skimmer_count; i++) {
-                if (memcmp(found_skimmers[i].addr.val, device->addr.val, 6) == 0) {
-                    found_skimmers[i].rssi = device->rssi;
+                if (memcmp(found_skimmers[i].addr.val, addr, 6) == 0) {
+                    found_skimmers[i].rssi = rssi;
                     found_skimmers[i].last_seen = (uint32_t)(esp_timer_get_time() / 1000);
                     found = true;
                     break;
@@ -87,15 +100,16 @@ static void scanner_callback(const discovered_device_t *device) {
 
             if (!found && skimmer_count < MAX_SKIMMERS_FOUND) {
                 skimmer_record_t *rec = &found_skimmers[skimmer_count];
-                memcpy(&rec->addr, &device->addr, sizeof(ble_addr_t));
-                strncpy(rec->name, device->name, 31);
+                memcpy(rec->addr.val, addr, 6);
+                rec->addr.type = addr_type;
+                strncpy(rec->name, name, 31);
                 rec->name[31] = '\0';
-                rec->rssi = device->rssi;
+                rec->rssi = rssi;
                 strncpy(rec->detection_reason, reason, 31);
                 rec->last_seen = (uint32_t)(esp_timer_get_time() / 1000);
                 
                 skimmer_count++;
-                ESP_LOGW(TAG, "Potential Skimmer: %s (%s)", device->name, reason);
+                ESP_LOGW(TAG, "Potential Skimmer: %s (%s)", name, reason);
             }
             xSemaphoreGive(list_mutex);
         }
@@ -103,7 +117,7 @@ static void scanner_callback(const discovered_device_t *device) {
 }
 
 static void skimmer_monitor_task(void *pvParameters) {
-    bluetooth_scanner_start(BLE_HS_FOREVER, scanner_callback);
+    bluetooth_service_start_sniffer(scanner_callback);
 
     while (is_running) {
         if (xSemaphoreTake(list_mutex, pdMS_TO_TICKS(500)) == pdTRUE) {
@@ -123,7 +137,7 @@ static void skimmer_monitor_task(void *pvParameters) {
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
-    bluetooth_scanner_stop();
+    bluetooth_service_stop_sniffer();
     skimmer_task_handle = NULL;
     if (skimmer_task_stack) { heap_caps_free(skimmer_task_stack); skimmer_task_stack = NULL; }
     if (skimmer_task_tcb) { heap_caps_free(skimmer_task_tcb); skimmer_task_tcb = NULL; }
