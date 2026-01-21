@@ -189,13 +189,13 @@ static void interface_item_event_cb(lv_event_t * e) {
             return;
         }
 
-        if(type == 0) { // Theme selector
+        if(type == 0) {
             if(key == LV_KEY_RIGHT) { theme_idx = (theme_idx + 1) % 12; changed = true; }
             if(key == LV_KEY_LEFT) { theme_idx = (theme_idx - 1 + 12) % 12; changed = true; }
             if(changed) {
                 lv_label_set_text_fmt(input_obj, "< %s >", theme_options[theme_idx]);
                 lv_obj_set_style_text_color(input_obj, current_theme.text_main, 0);
-                ui_theme_load_idx(theme_idx); // Aplica as cores imediatamente
+                ui_theme_load_idx(theme_idx);
                 refresh_styles();
                 interface_save_config();
                 refresh_ui_layout();
@@ -203,6 +203,7 @@ static void interface_item_event_cb(lv_event_t * e) {
             }
         }
         else if(type == 1) { // Header selector
+        else if(type == 1) {
             if(key == LV_KEY_RIGHT) { header_idx = (header_idx + 1) % 4; changed = true; }
             if(key == LV_KEY_LEFT) { header_idx = (header_idx - 1 + 4) % 4; changed = true; }
             if(changed) {
@@ -212,7 +213,6 @@ static void interface_item_event_cb(lv_event_t * e) {
                 buzzer_play_sound_file("buzzer_scroll_tick");
             }
         }
-        else if(type == 2) { // Footer toggle
             if(key == LV_KEY_ENTER || key == LV_KEY_RIGHT || key == LV_KEY_LEFT) {
                 hide_footer = !hide_footer;
                 update_footer_switch(input_obj);
@@ -252,6 +252,7 @@ void ui_interface_settings_open(void) {
     if(screen_interface) lv_obj_del(screen_interface);
     screen_interface = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(screen_interface, current_theme.screen_base, 0);
+    lv_obj_clear_flag(screen_interface, LV_OBJ_FLAG_SCROLLABLE);
     
     header_ui_create(screen_interface);
     footer_ui_create(screen_interface);
@@ -261,34 +262,44 @@ void ui_interface_settings_open(void) {
     lv_obj_align(menu_container, LV_ALIGN_CENTER, 0, 5);
     lv_obj_add_style(menu_container, &style_menu, 0);
     lv_obj_set_flex_flow(menu_container, LV_FLEX_FLOW_COLUMN);
-    
+    lv_obj_set_scrollbar_mode(menu_container, LV_SCROLLBAR_MODE_OFF);
+
     lv_obj_t * item_theme = create_menu_item(menu_container, LV_SYMBOL_TINT, "THEME");
     lv_obj_t * theme_label = lv_label_create(item_theme);
     lv_label_set_text_fmt(theme_label, "< %s >", theme_options[theme_idx]);
-    lv_obj_set_style_text_color(theme_label, current_theme.text_main, 0); // Texto solicitado como BRANCO
+    lv_obj_set_style_text_color(theme_label, lv_color_white(), 0);
     lv_obj_add_event_cb(item_theme, interface_item_event_cb, LV_EVENT_ALL, (void*)0);
-    
+
     lv_obj_t * item_head = create_menu_item(menu_container, LV_SYMBOL_UP, "HEADER");
     lv_obj_t * head_label = lv_label_create(item_head);
     lv_label_set_text_fmt(head_label, "< %s >", header_options[header_idx]);
     lv_obj_set_style_text_color(head_label, current_theme.text_main, 0);
+    lv_obj_set_style_text_color(head_label, lv_color_white(), 0);
     lv_obj_add_event_cb(item_head, interface_item_event_cb, LV_EVENT_ALL, (void*)1);
     
     lv_obj_t * item_foot = create_menu_item(menu_container, LV_SYMBOL_DOWN, "FOOTER");
+    
     lv_obj_t * sw_cont = lv_obj_create(item_foot);
-    lv_obj_set_size(sw_cont, 56, 30);
+    lv_obj_set_size(sw_cont, 60, 32);
     lv_obj_set_style_bg_opa(sw_cont, 0, 0);
     lv_obj_set_style_border_width(sw_cont, 0, 0);
     lv_obj_set_flex_flow(sw_cont, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(sw_cont, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_gap(sw_cont, 6, 0);
+    lv_obj_set_style_pad_all(sw_cont, 0, 0);
+    lv_obj_set_style_pad_gap(sw_cont, 4, 0);
+    
+    lv_obj_clear_flag(sw_cont, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(sw_cont, LV_SCROLLBAR_MODE_OFF);
     
     for(int i = 0; i < 2; i++) {
         lv_obj_t * b = lv_obj_create(sw_cont);
-        lv_obj_set_size(b, 22, 26);
+        lv_obj_set_size(b, 24, 26);
         lv_obj_set_style_bg_color(b, current_theme.text_main, 0);
-        lv_obj_set_style_radius(b, 2, 0);
+        lv_obj_set_style_radius(b, 0, 0);
+        lv_obj_set_style_border_width(b, 0, 0);
+        lv_obj_clear_flag(b, LV_OBJ_FLAG_SCROLLABLE);
     }
+    
     update_footer_switch(sw_cont);
     lv_obj_add_event_cb(item_foot, interface_item_event_cb, LV_EVENT_ALL, (void*)2);
     
