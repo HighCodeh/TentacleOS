@@ -144,6 +144,12 @@ esp_err_t spam_start(int attack_index) {
   if (spam_running) {
     return ESP_ERR_INVALID_STATE;
   }
+
+  if (!bluetooth_service_is_running()) {
+    ESP_LOGE(TAG, "Bluetooth service is not running");
+    return ESP_FAIL;
+  }
+
   if (attack_index < 0 || attack_index >= CAT_COUNT) {
     return ESP_ERR_NOT_FOUND;
   }
