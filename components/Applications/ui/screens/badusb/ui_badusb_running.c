@@ -40,7 +40,7 @@ void ui_badusb_running_set_script(const char *name) {
 static void ducky_progress_callback(int current_line, int total_lines) {
   if (progress_bar && ui_acquire()) {
     int progress = (current_line * 100) / total_lines;
-    lv_bar_set_value(progress_bar, progress, LV_ANIM_ON);
+    lv_bar_set_value(progress_bar, progress, LV_ANIM_OFF);
     ui_release();
   }
 }
@@ -90,10 +90,12 @@ void ui_badusb_running_open(void) {
   char* dot = strrchr(script_name, '.');
   if (dot) {
     size_t len = dot - script_name;
+    if (len > sizeof(display_name) - 1) len = sizeof(display_name) - 1;
     strncpy(display_name, script_name, len);
     display_name[len] = '\0';
   } else {
     strncpy(display_name, script_name, sizeof(display_name) -1);
+    display_name[sizeof(display_name) - 1] = '\0';
   }
 
   lv_obj_t * lbl_title = lv_label_create(screen_running);

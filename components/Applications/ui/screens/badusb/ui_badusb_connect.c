@@ -89,5 +89,5 @@ void ui_badusb_connect_open(void) {
 
   lv_screen_load(screen_connect);
 
-  xTaskCreate(connection_waiter_task, "usb_waiter", 2048, NULL, 5, &waiter_task);
+  xTaskCreate(connection_waiter_task, "usb_waiter", 4096, NULL, 5, &waiter_task);
 }
