@@ -47,14 +47,31 @@ void bad_usb_wait_for_connection(void) {
   vTaskDelay(pdMS_TO_TICKS(2000));
 }
 
+static bool s_is_initialized = false;
+
 void bad_usb_init(void) {
+  if (s_is_initialized) {
+    ESP_LOGW(TAG, "BadUSB ja esta inicializado. Ignorando nova inicializacao.");
+    return;
+  }
   busb_init();
   hid_hal_register_callback(usb_hid_send_report, usb_hid_send_mouse, bad_usb_wait_for_connection);
+  s_is_initialized = true;
 }
 
 void bad_usb_deinit(void) {
+  if (!s_is_initialized) {
+    ESP_LOGW(TAG, "BadUSB nao esta inicializado. Ignorando desinstalacao.");
+    return;
+  }
   ESP_LOGI(TAG, "Finalizando o modo BadUSB e desinstalando o driver...");
   hid_hal_register_callback(NULL, NULL, NULL);
-  ESP_ERROR_CHECK(tinyusb_driver_uninstall());
-  ESP_LOGI(TAG, "Driver TinyUSB desinstalado com sucesso.");
+  
+  esp_err_t err = tinyusb_driver_uninstall();
+  if (err == ESP_OK) {
+    ESP_LOGI(TAG, "Driver TinyUSB desinstalado com sucesso.");
+  } else {
+    ESP_LOGE(TAG, "Falha ao desinstalar Driver TinyUSB: %d", err);
+  }
+  s_is_initialized = false;
 }
