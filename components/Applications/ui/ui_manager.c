@@ -139,6 +139,7 @@ void ui_switch_screen(screen_id_t new_screen) {
     if (is_ble && !was_ble) {
       ESP_LOGI(TAG, "Entering BLE Mode: Initializing Service...");
       bluetooth_service_init();
+      bluetooth_service_start();
     } else if (!is_ble && was_ble) {
       ESP_LOGI(TAG, "Exiting BLE Mode: Stopping Service...");
       bluetooth_service_stop();
