@@ -41,6 +41,7 @@
 #include "lvgl.h"
 #include "lv_port_disp.h"
 #include "lv_port_indev.h"
+#include "assets_manager.h"
 
 #define TAG "UI_MANAGER"
 
@@ -71,12 +72,15 @@ screen_id_t current_screen_id = SCREEN_NONE;
 
 void ui_init(void)
 {
-  ESP_LOGI(TAG, "Inicializando UI Manager...");
+  ESP_LOGI(TAG, "Initializing UI Manager...");
+
+  assets_manager_init();
+
   ui_theme_init();
 
   xGuiSemaphore = xSemaphoreCreateRecursiveMutex();
   if (!xGuiSemaphore) {
-    ESP_LOGE(TAG, "Falha ao criar Mutex da UI");
+    ESP_LOGE(TAG, "Failed to create UI Mutex");
     return;
   }
 
@@ -98,55 +102,55 @@ void ui_init(void)
     UI_TASK_CORE        
   );
 
-  ESP_LOGI(TAG, "UI Manager inicializado com sucesso.");
+  ESP_LOGI(TAG, "UI Manager initialized successfully.");
 }
 
 void ui_hard_restart(void) {
-    ESP_LOGW(TAG, "Executing UI Task Emergency Restart...");
-    is_emergency_restart = true;
-    xTaskCreatePinnedToCore(
-        ui_task,            
-        "UI Task",          
-        UI_TASK_STACK_SIZE, 
-        NULL,               
-        UI_TASK_PRIORITY,   
-        NULL,               
-        UI_TASK_CORE        
-    );
+  ESP_LOGW(TAG, "Executing UI Task Emergency Restart...");
+  is_emergency_restart = true;
+  xTaskCreatePinnedToCore(
+    ui_task,            
+    "UI Task",          
+    UI_TASK_STACK_SIZE, 
+    NULL,               
+    UI_TASK_PRIORITY,   
+    NULL,               
+    UI_TASK_CORE        
+  );
 }
 
 static void ui_task(void *pvParameter)
 {
-    ui_theme_init();
-    
-    bool is_recovery = is_emergency_restart; 
-    is_emergency_restart = false; 
+  ui_theme_init();
 
+  bool is_recovery = is_emergency_restart; 
+  is_emergency_restart = false; 
+
+  if (ui_acquire()) {
+    if (is_recovery) {
+      ui_home_open();
+      msgbox_open(LV_SYMBOL_WARNING, "UI Recovered!\nInterface task was restarted.", "OK", NULL, NULL);
+    } else {
+      ui_boot_show(); 
+    }
+    ui_release();
+  }
+
+  TickType_t start_tick = xTaskGetTickCount();
+  bool boot_screen_done = is_recovery; 
+
+  while (1) {
     if (ui_acquire()) {
-        if (is_recovery) {
-             ui_home_open();
-             msgbox_open(LV_SYMBOL_WARNING, "UI Recovered!\nInterface task was restarted.", "OK", NULL, NULL);
-        } else {
-             ui_boot_show(); 
-        }
-        ui_release();
+      if (!boot_screen_done && (xTaskGetTickCount() - start_tick >= pdMS_TO_TICKS(5000))) {
+        ui_home_open();
+        boot_screen_done = true;
+      }
+
+      lv_timer_handler();
+      ui_release();
     }
-
-    TickType_t start_tick = xTaskGetTickCount();
-    bool boot_screen_done = is_recovery; 
-
-    while (1) {
-        if (ui_acquire()) {
-            if (!boot_screen_done && (xTaskGetTickCount() - start_tick >= pdMS_TO_TICKS(5000))) {
-                ui_home_open();
-                boot_screen_done = true;
-            }
-
-            lv_timer_handler();
-            ui_release();
-        }
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
 }
 
 static void clear_current_screen(void){
