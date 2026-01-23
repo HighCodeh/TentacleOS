@@ -30,8 +30,8 @@
 
 static const char *TAG = "EVIL_TWIN_BACKEND";
 
-#define PATH_HTML_INDEX "storage/html/captive_portal/evil_twin_index.html"
-#define PATH_HTML_THANKS "storage/html/captive_portal/evil_twin_thank_you.html"
+#define PATH_HTML_INDEX "html/captive_portal/evil_twin_index.html"
+#define PATH_HTML_THANKS "html/captive_portal/evil_twin_thank_you.html"
 #define PATH_PASSWORDS_JSON "storage/captive_portal/passwords.json"
 
 static SemaphoreHandle_t storage_mutex = NULL;
@@ -176,6 +176,10 @@ static void register_evil_twin_handlers(void) {
 void evil_twin_start_attack(const char *ssid) {
   init_storage_mutex(); 
   ESP_LOGI(TAG, "Starting Evil Twin: %s", ssid);
+
+  if (!storage_assets_is_mounted()) {
+    storage_assets_init();
+  }
 
   wifi_change_to_hotspot(ssid);
   start_dns_server();
