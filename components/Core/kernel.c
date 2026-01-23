@@ -54,11 +54,14 @@ void kernel_init(void) {
   storage_assets_init();
   storage_assets_print_info();
 
+
+
   buzzer_init();
   led_rgb_init();
   buzzer_play_sound_file("buzzer_boot_sequence");
   bq25896_init();
   cc1101_init();
+
 
   buttons_init();
 
@@ -69,11 +72,13 @@ void kernel_init(void) {
   lv_port_disp_init();
   lv_port_indev_init();
 
-  wifi_init();
-  wifi_stop();
 
   ui_init();
   sys_monitor(false);
+
+  // wifi_init();
+  // wifi_stop();
+
 
   vTaskDelay(pdMS_TO_TICKS(1500));
 }
