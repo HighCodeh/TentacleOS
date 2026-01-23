@@ -76,8 +76,8 @@ void kernel_init(void) {
   ui_init();
   sys_monitor(false);
 
-  // wifi_init();
-  // wifi_stop();
+  wifi_init();
+  wifi_stop();
 
 
   vTaskDelay(pdMS_TO_TICKS(1500));
