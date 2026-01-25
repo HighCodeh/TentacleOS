@@ -41,7 +41,14 @@ uint16_t wifi_service_get_ap_count(void);
 wifi_ap_record_t* wifi_service_get_ap_record(uint16_t index);
 
 // functions to load and save configs 
-esp_err_t wifi_save_ap_config(const char *ssid, const char *password, uint8_t max_conn, const char *ip_addr);
+esp_err_t wifi_save_ap_config(const char *ssid, const char *password, uint8_t max_conn, const char *ip_addr, bool enabled);
+
+// individual setters
+esp_err_t wifi_set_wifi_enabled(bool enabled);
+esp_err_t wifi_set_ap_ssid(const char *ssid);
+esp_err_t wifi_set_ap_password(const char *password);
+esp_err_t wifi_set_ap_max_conn(uint8_t max_conn);
+esp_err_t wifi_set_ap_ip(const char *ip_addr);
 
 // promiscuous mode management
 void wifi_service_promiscuous_start(wifi_promiscuous_cb_t cb, wifi_promiscuous_filter_t *filter);

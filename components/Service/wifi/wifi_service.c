@@ -35,13 +35,72 @@
 
 #define WIFI_AP_CONFIG_FILE "config/wifi/wifi_ap.conf"
 #define WIFI_AP_CONFIG_PATH "/assets/" WIFI_AP_CONFIG_FILE
+#define WIFI_KNOWN_NETWORKS_FILE "storage/wifi/know_networks.json"
+#define WIFI_KNOWN_NETWORKS_PATH "/assets/" WIFI_KNOWN_NETWORKS_FILE
 
 static wifi_ap_record_t stored_aps[WIFI_SCAN_LIST_SIZE];
 static uint16_t stored_ap_count = 0;
 static SemaphoreHandle_t wifi_mutex = NULL;
 static bool wifi_active = false;
 static bool wifi_connected = false;
-static void wifi_load_ap_config(char* ssid, char* passwd, uint8_t* max_conn, char* ip_addr);
+static void wifi_load_ap_config(char* ssid, char* passwd, uint8_t* max_conn, char* ip_addr, bool* enabled);
+
+static void wifi_save_known_network(const char *ssid, const char *password) {
+  if (ssid == NULL) return;
+
+  if (!storage_assets_is_mounted()) {
+    storage_assets_init();
+  }
+
+  size_t size = 0;
+  char *buffer = (char*)storage_assets_load_file(WIFI_KNOWN_NETWORKS_FILE, &size);
+  cJSON *root = NULL;
+
+  if (buffer != NULL) {
+    root = cJSON_Parse(buffer);
+    free(buffer);
+  }
+
+  if (root == NULL) {
+    root = cJSON_CreateArray();
+  } else if (!cJSON_IsArray(root)) {
+    cJSON_Delete(root);
+    root = cJSON_CreateArray();
+  }
+
+  bool found = false;
+  cJSON *item = NULL;
+  cJSON_ArrayForEach(item, root) {
+    cJSON *j_ssid = cJSON_GetObjectItem(item, "ssid");
+    if (cJSON_IsString(j_ssid) && strcmp(j_ssid->valuestring, ssid) == 0) {
+      // Update existing
+      cJSON_ReplaceItemInObject(item, "password", cJSON_CreateString((password) ? password : ""));
+      found = true;
+      break;
+    }
+  }
+
+  if (!found) {
+    // Add new
+    cJSON *new_item = cJSON_CreateObject();
+    cJSON_AddStringToObject(new_item, "ssid", ssid);
+    cJSON_AddStringToObject(new_item, "password", (password) ? password : "");
+    cJSON_AddItemToArray(root, new_item);
+  }
+
+  char *json_string = cJSON_PrintUnformatted(root);
+  if (json_string != NULL) {
+    esp_err_t err = storage_write_string(WIFI_KNOWN_NETWORKS_PATH, json_string);
+    if (err == ESP_OK) {
+      ESP_LOGI(TAG, "Known network saved: %s", ssid);
+    } else {
+      ESP_LOGE(TAG, "Failed to save known network: %s", esp_err_to_name(err));
+    }
+    free(json_string);
+  }
+
+  cJSON_Delete(root);
+}
 
 static TaskHandle_t channel_hopper_task_handle = NULL;
 static StackType_t *hopper_task_stack = NULL;
@@ -253,8 +312,9 @@ void wifi_init(void) {
   char target_password[64] = "MyPassword123";
   uint8_t target_max_conn = 4;  
   char target_ip[16] = "192.168.4.1";
+  bool target_enabled = true;
 
-  wifi_load_ap_config(target_ssid, target_password, &target_max_conn, target_ip);
+  wifi_load_ap_config(target_ssid, target_password, &target_max_conn, target_ip, &target_enabled);
 
   if (netif_ap) {
     esp_netif_dhcps_stop(netif_ap);
@@ -286,15 +346,17 @@ void wifi_init(void) {
 
   ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_config));
 
-  ESP_ERROR_CHECK(esp_wifi_start());
-
-  wifi_active = true;
+  if (target_enabled) {
+      ESP_ERROR_CHECK(esp_wifi_start());
+      wifi_active = true;
+      ESP_LOGI(TAG, "Wi-Fi AP started with SSID: %s", target_ssid);
+  } else {
+      ESP_LOGI(TAG, "Wi-Fi AP initialized but disabled by config.");
+  }
 
   if (wifi_mutex == NULL) {
     wifi_mutex = xSemaphoreCreateMutex();
   }
-
-  ESP_LOGI(TAG, "Wi-Fi AP started with SSID: %s", target_ssid);
 }
 
 void wifi_service_scan(void) {
@@ -364,6 +426,9 @@ esp_err_t wifi_service_connect_to_ap(const char *ssid, const char *password) {
   }
 
   ESP_LOGI(TAG, "Configurating Wi-Fi connection to:: %s", ssid);
+
+  // Save the network to known networks
+  wifi_save_known_network(ssid, password);
 
   wifi_config_t wifi_config = {0};
 
@@ -472,7 +537,7 @@ void wifi_stop(void){
 
 }
 
-static void wifi_load_ap_config(char* ssid, char* passwd, uint8_t* max_conn, char* ip_addr){
+static void wifi_load_ap_config(char* ssid, char* passwd, uint8_t* max_conn, char* ip_addr, bool* enabled){
   if (!storage_assets_is_mounted()) {
     storage_assets_init();
   }
@@ -487,6 +552,7 @@ static void wifi_load_ap_config(char* ssid, char* passwd, uint8_t* max_conn, cha
       cJSON *j_pass = cJSON_GetObjectItem(root, "password");
       cJSON *j_conn = cJSON_GetObjectItem(root, "max_conn");
       cJSON *j_ip = cJSON_GetObjectItem(root, "ip_addr");
+      cJSON *j_enabled = cJSON_GetObjectItem(root, "enabled");
 
       if (cJSON_IsString(j_ssid) && (strlen(j_ssid->valuestring) > 0)) {
         strncpy(ssid, j_ssid->valuestring, 31);
@@ -503,6 +569,9 @@ static void wifi_load_ap_config(char* ssid, char* passwd, uint8_t* max_conn, cha
         strncpy(ip_addr, j_ip->valuestring, 15);
         ip_addr[15] = '\0';
       }
+      if (cJSON_IsBool(j_enabled)) {
+          *enabled = cJSON_IsTrue(j_enabled);
+      }
 
       cJSON_Delete(root);
       ESP_LOGI(TAG, "Configurations loaded from asset storage successfully.");
@@ -513,7 +582,7 @@ static void wifi_load_ap_config(char* ssid, char* passwd, uint8_t* max_conn, cha
   }
 }
 
-esp_err_t wifi_save_ap_config(const char *ssid, const char *password, uint8_t max_conn, const char *ip_addr) {
+esp_err_t wifi_save_ap_config(const char *ssid, const char *password, uint8_t max_conn, const char *ip_addr, bool enabled) {
   if (ssid == NULL) {
     return ESP_ERR_INVALID_ARG;
   }
@@ -530,6 +599,7 @@ esp_err_t wifi_save_ap_config(const char *ssid, const char *password, uint8_t ma
   if (ip_addr != NULL && strlen(ip_addr) > 0) {
     cJSON_AddStringToObject(root, "ip_addr", ip_addr);
   }
+  cJSON_AddBoolToObject(root, "enabled", enabled);
 
   char *json_string = cJSON_PrintUnformatted(root);
   if (json_string == NULL) {
@@ -541,6 +611,13 @@ esp_err_t wifi_save_ap_config(const char *ssid, const char *password, uint8_t ma
 
   if (err == ESP_OK) {
     ESP_LOGI(TAG, "Configuration saved successfully to: %s", WIFI_AP_CONFIG_PATH);
+    
+    // Apply state change based on enabled flag
+    if (enabled && !wifi_active) {
+        wifi_start();
+    } else if (!enabled && wifi_active) {
+        wifi_stop();
+    }
   } else {
     ESP_LOGE(TAG, "Error writing configuration file: %s", esp_err_to_name(err));
   }
@@ -549,4 +626,45 @@ esp_err_t wifi_save_ap_config(const char *ssid, const char *password, uint8_t ma
   cJSON_Delete(root);
 
   return err;
+}
+
+static void wifi_get_config_defaults(char *ssid, char *password, uint8_t *max_conn, char *ip_addr, bool *enabled) {
+    strncpy(ssid, "Darth Maul", 32);
+    strncpy(password, "MyPassword123", 64);
+    *max_conn = 4;
+    strncpy(ip_addr, "192.168.4.1", 16);
+    *enabled = true;
+    
+    // Override with file values if available
+    wifi_load_ap_config(ssid, password, max_conn, ip_addr, enabled);
+}
+
+esp_err_t wifi_set_wifi_enabled(bool enabled) {
+    char ssid[32]; char password[64]; uint8_t max_conn; char ip_addr[16]; bool curr_enabled;
+    wifi_get_config_defaults(ssid, password, &max_conn, ip_addr, &curr_enabled);
+    return wifi_save_ap_config(ssid, password, max_conn, ip_addr, enabled);
+}
+
+esp_err_t wifi_set_ap_ssid(const char *ssid) {
+    char curr_ssid[32]; char password[64]; uint8_t max_conn; char ip_addr[16]; bool enabled;
+    wifi_get_config_defaults(curr_ssid, password, &max_conn, ip_addr, &enabled);
+    return wifi_save_ap_config(ssid, password, max_conn, ip_addr, enabled);
+}
+
+esp_err_t wifi_set_ap_password(const char *password) {
+    char ssid[32]; char curr_password[64]; uint8_t max_conn; char ip_addr[16]; bool enabled;
+    wifi_get_config_defaults(ssid, curr_password, &max_conn, ip_addr, &enabled);
+    return wifi_save_ap_config(ssid, password, max_conn, ip_addr, enabled);
+}
+
+esp_err_t wifi_set_ap_max_conn(uint8_t max_conn) {
+    char ssid[32]; char password[64]; uint8_t curr_max_conn; char ip_addr[16]; bool enabled;
+    wifi_get_config_defaults(ssid, password, &curr_max_conn, ip_addr, &enabled);
+    return wifi_save_ap_config(ssid, password, max_conn, ip_addr, enabled);
+}
+
+esp_err_t wifi_set_ap_ip(const char *ip_addr) {
+    char ssid[32]; char password[64]; uint8_t max_conn; char curr_ip_addr[16]; bool enabled;
+    wifi_get_config_defaults(ssid, password, &max_conn, curr_ip_addr, &enabled);
+    return wifi_save_ap_config(ssid, password, max_conn, ip_addr, enabled);
 }
