@@ -28,11 +28,11 @@ typedef struct {
 } settings_item_t;
 
 static const settings_item_t settings_list[] = {
+    {"CONNECTION", LV_SYMBOL_WIFI,         SCREEN_CONNECTION_SETTINGS},
     {"INTERFACE",  LV_SYMBOL_KEYBOARD,     SCREEN_INTERFACE_SETTINGS}, 
     {"DISPLAY",    LV_SYMBOL_IMAGE,        SCREEN_DISPLAY_SETTINGS},
     {"SOUND",      LV_SYMBOL_AUDIO,        SCREEN_SOUND_SETTINGS},
     {"BATTERY",    LV_SYMBOL_BATTERY_FULL, SCREEN_BATTERY_SETTINGS},
-    {"CONNECTION", LV_SYMBOL_WIFI,         SCREEN_CONNECTION_SETTINGS},
     {"ABOUT",      LV_SYMBOL_WARNING,      SCREEN_ABOUT_SETTINGS}
 };
 
@@ -153,4 +153,4 @@ void ui_settings_open(void) {
     }
 
     lv_screen_load(screen_settings);
-}
+}}
