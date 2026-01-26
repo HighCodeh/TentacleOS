@@ -1,5 +1,6 @@
 #include "header_ui.h"
 #include "ui_theme.h"
+#include "wifi_service.h"
 #include "esp_log.h"
 #include <stdio.h>
 
@@ -7,6 +8,38 @@
 
 static const char *TAG = "HEADER_UI";
 extern int header_idx;
+
+static bool header_wifi_connected = false;
+static bool header_wifi_enabled = true;
+static lv_obj_t * wifi_icon_label = NULL;
+static lv_timer_t * wifi_status_timer = NULL;
+
+static void header_ui_update_wifi_icon(void)
+{
+    if (!wifi_icon_label) return;
+
+    if (!header_wifi_enabled) {
+        lv_label_set_text(wifi_icon_label, LV_SYMBOL_CLOSE);
+        lv_obj_set_style_opa(wifi_icon_label, LV_OPA_COVER, 0);
+    } else {
+        lv_label_set_text(wifi_icon_label, LV_SYMBOL_WIFI);
+        lv_obj_set_style_opa(wifi_icon_label, header_wifi_connected ? LV_OPA_COVER : LV_OPA_40, 0);
+    }
+}
+
+static void header_wifi_status_timer_cb(lv_timer_t * timer)
+{
+    if (!wifi_icon_label) return;
+
+    bool current_active = wifi_service_is_active();
+    bool current_connected = wifi_service_is_connected();
+
+    if (current_active != header_wifi_enabled || current_connected != header_wifi_connected) {
+        header_wifi_enabled = current_active;
+        header_wifi_connected = current_connected;
+        header_ui_update_wifi_icon();
+    }
+}
 
 void header_ui_create(lv_obj_t * parent)
 {
@@ -20,28 +53,20 @@ void header_ui_create(lv_obj_t * parent)
     lv_obj_set_style_border_color(header, current_theme.border_interface, 0);
     lv_obj_set_style_radius(header, 0, 0);
     lv_obj_set_style_pad_all(header, 0, 0);
-    
-    if (header_idx == 0) {
-        lv_obj_set_style_bg_opa(header, LV_OPA_COVER, 0);
-        lv_obj_set_style_bg_color(header, current_theme.bg_primary, 0);
-    } 
-    else if (header_idx == 1) {
-        lv_obj_set_style_bg_opa(header, LV_OPA_COVER, 0);
-        lv_obj_set_style_bg_color(header, current_theme.bg_secondary, 0);
-        lv_obj_set_style_bg_grad_color(header, current_theme.bg_primary, 0);
-        lv_obj_set_style_bg_grad_dir(header, LV_GRAD_DIR_VER, 0);
-    } 
-    else if (header_idx == 2) {
-        lv_obj_set_style_bg_opa(header, LV_OPA_COVER, 0);
-        lv_obj_set_style_bg_color(header, current_theme.bg_primary, 0);
-        lv_obj_set_style_bg_grad_color(header, current_theme.bg_secondary, 0);
-        lv_obj_set_style_bg_grad_dir(header, LV_GRAD_DIR_VER, 0);
-    }
-    else if (header_idx == 3) {
+
+    if (header_idx == 3) {
         lv_obj_set_style_bg_opa(header, LV_OPA_TRANSP, 0);
+    } else {
+        lv_obj_set_style_bg_opa(header, LV_OPA_COVER, 0);
+        lv_color_t bg_main = (header_idx == 1) ? current_theme.bg_secondary : current_theme.bg_primary;
+        lv_obj_set_style_bg_color(header, bg_main, 0);
+
+        if (header_idx > 0) { // Aplica gradiente para idx 1 e 2
+            lv_color_t bg_grad = (header_idx == 1) ? current_theme.bg_primary : current_theme.bg_secondary;
+            lv_obj_set_style_bg_grad_color(header, bg_grad, 0);
+            lv_obj_set_style_bg_grad_dir(header, LV_GRAD_DIR_VER, 0);
+        }
     }
-    
-    lv_obj_set_user_data(header, (void*)"HEADER");
     
     lv_obj_t * lbl_time = lv_label_create(header);
     lv_label_set_text(lbl_time, "12:00");
@@ -59,17 +84,20 @@ void header_ui_create(lv_obj_t * parent)
     lv_obj_set_style_pad_all(icon_cont, 0, 0);
     lv_obj_set_style_pad_column(icon_cont, 10, 0);
     
-    const char * symbols[] = {
-        LV_SYMBOL_SD_CARD,
-        LV_SYMBOL_AUDIO,
-        LV_SYMBOL_BLUETOOTH,
-        LV_SYMBOL_BATTERY_FULL
-    };
-    
-    for (int i = 0; i < 4; i++) {
-        lv_obj_t * icn = lv_label_create(icon_cont);
-        lv_label_set_text(icn, symbols[i]);
-        lv_obj_set_style_text_color(icn, current_theme.text_main, 0);
-        lv_obj_set_style_text_font(icn, &lv_font_montserrat_14, 0); 
+    wifi_icon_label = lv_label_create(icon_cont);
+    lv_obj_set_style_text_color(wifi_icon_label, current_theme.text_main, 0);
+    lv_obj_set_style_text_font(wifi_icon_label, &lv_font_montserrat_14, 0);
+
+    header_wifi_enabled = wifi_service_is_active();
+    header_wifi_connected = wifi_service_is_connected();
+    header_ui_update_wifi_icon();
+
+    lv_obj_t * icn_bat = lv_label_create(icon_cont);
+    lv_label_set_text(icn_bat, LV_SYMBOL_BATTERY_FULL);
+    lv_obj_set_style_text_color(icn_bat, current_theme.text_main, 0);
+    lv_obj_set_style_text_font(icn_bat, &lv_font_montserrat_14, 0); 
+
+    if (wifi_status_timer == NULL) {
+        wifi_status_timer = lv_timer_create(header_wifi_status_timer_cb, 500, NULL);
     }
 }
