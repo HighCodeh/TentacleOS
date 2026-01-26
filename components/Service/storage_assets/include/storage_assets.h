@@ -88,6 +88,8 @@ const char* storage_assets_get_mount_point(void);
  */
 void storage_assets_print_info(void);
 
+esp_err_t storage_assets_write_file(const char *filename, const char *data);
+
 #ifdef __cplusplus
 }
 #endif

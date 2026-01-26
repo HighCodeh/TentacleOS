@@ -288,3 +288,31 @@ void storage_assets_print_info(void)
     ESP_LOGI(TAG, "Free: %d bytes (%.2f KB)", total - used, (total - used) / 1024.0);
     ESP_LOGI(TAG, "Usage: %.1f%%", (used * 100.0) / total);
 }
+
+esp_err_t storage_assets_write_file(const char *filename, const char *data) {
+    if (!s_initialized) {
+        ESP_LOGE(TAG, "Assets not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    char filepath[128];
+    snprintf(filepath, sizeof(filepath), "%s/%s", ASSETS_MOUNT_POINT, filename);
+
+    FILE *f = fopen(filepath, "w");
+    if (f == NULL) {
+        ESP_LOGE(TAG, "Failed to open file for writing: %s", filepath);
+        return ESP_FAIL;
+    }
+
+    size_t len = strlen(data);
+    size_t written = fwrite(data, 1, len, f);
+    fclose(f);
+
+    if (written != len) {
+        ESP_LOGE(TAG, "Failed to write complete file");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "File %s updated in assets partition", filename);
+    return ESP_OK;
+}
