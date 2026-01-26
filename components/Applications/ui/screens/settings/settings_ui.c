@@ -153,4 +153,4 @@ void ui_settings_open(void) {
     }
 
     lv_screen_load(screen_settings);
-}}
+}
