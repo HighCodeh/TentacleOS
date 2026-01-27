@@ -32,9 +32,6 @@
 #include "esp_heap_caps.h"
 // #include "virtual_display_client.h" // Adicionar este include
 
-#define WIFI_AP_CONFIG_FILE "config/wifi/wifi_ap.conf"
-#define WIFI_KNOWN_NETWORKS_FILE "storage/wifi/know_networks.json"
-
 static const char *TAG = "wifi_service";
 
 static wifi_ap_record_t stored_aps[WIFI_SCAN_LIST_SIZE];

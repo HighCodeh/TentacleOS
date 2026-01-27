@@ -23,6 +23,9 @@
 
 #define WIFI_SCAN_LIST_SIZE 20
 
+#define WIFI_AP_CONFIG_FILE "config/wifi/wifi_ap.conf"
+#define WIFI_KNOWN_NETWORKS_FILE "storage/wifi/know_networks.json"
+
 // initialization
 void wifi_init(void);
 void wifi_deinit(void);
