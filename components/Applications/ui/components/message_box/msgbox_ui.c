@@ -1,6 +1,7 @@
 #include "msgbox_ui.h"
 #include "core/lv_group.h"
 #include "buzzer.h"
+#include "esp_timer.h"
 
 #define COLOR_BORDER        0x834EC6
 #define COLOR_GRADIENT_TOP  0x000000
@@ -11,6 +12,7 @@ static msgbox_cb_t current_cb = NULL;
 static lv_style_t style_box;
 static lv_style_t style_btn;
 static bool styles_init = false;
+static int64_t msgbox_open_time = 0;
 
 extern lv_group_t * main_group;
 
@@ -41,9 +43,22 @@ static void btn_event_cb(lv_event_t * e) {
     bool confirm = (bool)(uintptr_t)lv_event_get_user_data(e);
 
     if(code == LV_EVENT_CLICKED) {
+        if ((esp_timer_get_time() - msgbox_open_time) < 200000) {
+            return;
+        }
         buzzer_play_sound_file(confirm ? "buzzer_hacker_confirm" : "buzzer_scroll_tick");
         if(current_cb) current_cb(confirm);
         msgbox_close();
+    } else if(code == LV_EVENT_KEY) {
+        uint32_t key = lv_event_get_key(e);
+        if(key == LV_KEY_ENTER) {
+            if ((esp_timer_get_time() - msgbox_open_time) < 200000) {
+                return;
+            }
+            buzzer_play_sound_file(confirm ? "buzzer_hacker_confirm" : "buzzer_scroll_tick");
+            if(current_cb) current_cb(confirm);
+            msgbox_close();
+        }
     }
 }
 
@@ -52,6 +67,9 @@ static void msgbox_overlay_event_cb(lv_event_t * e) {
     if(code == LV_EVENT_KEY) {
         uint32_t key = lv_event_get_key(e);
         if(key == LV_KEY_ESC || key == LV_KEY_BACKSPACE) {
+            if ((esp_timer_get_time() - msgbox_open_time) < 200000) {
+                return;
+            }
             buzzer_play_sound_file("buzzer_scroll_tick");
             if(current_cb) current_cb(false);
             msgbox_close();
@@ -64,6 +82,7 @@ void msgbox_open(const char * icon, const char * msg, const char * btn_ok, const
     if(msgbox_overlay) msgbox_close();
 
     current_cb = cb;
+    msgbox_open_time = esp_timer_get_time();
 
     msgbox_overlay = lv_obj_create(lv_screen_active());
     lv_obj_set_size(msgbox_overlay, lv_pct(100), lv_pct(100));
@@ -107,38 +126,55 @@ void msgbox_open(const char * icon, const char * msg, const char * btn_ok, const
     lv_obj_set_style_pad_gap(btn_cont, 15, 0);
     lv_obj_clear_flag(btn_cont, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t * c_btn = lv_btn_create(btn_cont);
-    lv_obj_set_size(c_btn, 90, 32);
-    lv_obj_add_style(c_btn, &style_btn, 0);
-    lv_obj_set_style_border_color(c_btn, lv_color_hex(COLOR_BORDER), LV_STATE_FOCUS_KEY);
-    lv_obj_set_style_border_width(c_btn, 2, LV_STATE_FOCUS_KEY);
-    
-    lv_obj_t * c_lbl = lv_label_create(c_btn);
-    lv_label_set_text(c_lbl, btn_cancel);
-    lv_obj_center(c_lbl);
-    lv_obj_add_event_cb(c_btn, btn_event_cb, LV_EVENT_ALL, (void*)false);
+    bool has_ok = (btn_ok != NULL) && (btn_ok[0] != '\0');
+    bool has_cancel = (btn_cancel != NULL) && (btn_cancel[0] != '\0');
+    lv_obj_t * c_btn = NULL;
+    lv_obj_t * o_btn = NULL;
 
-    lv_obj_t * o_btn = lv_btn_create(btn_cont);
-    lv_obj_set_size(o_btn, 90, 32);
-    lv_obj_add_style(o_btn, &style_btn, 0);
-    lv_obj_set_style_border_color(o_btn, lv_color_hex(COLOR_BORDER), LV_STATE_FOCUS_KEY);
-    lv_obj_set_style_border_width(o_btn, 2, LV_STATE_FOCUS_KEY);
+    if(has_cancel) {
+        c_btn = lv_btn_create(btn_cont);
+        lv_obj_set_size(c_btn, 90, 32);
+        lv_obj_add_style(c_btn, &style_btn, 0);
+        lv_obj_set_style_border_color(c_btn, lv_color_hex(COLOR_BORDER), LV_STATE_FOCUS_KEY);
+        lv_obj_set_style_border_width(c_btn, 2, LV_STATE_FOCUS_KEY);
+        
+        lv_obj_t * c_lbl = lv_label_create(c_btn);
+        lv_label_set_text(c_lbl, btn_cancel);
+        lv_obj_center(c_lbl);
+        lv_obj_add_event_cb(c_btn, btn_event_cb, LV_EVENT_ALL, (void*)false);
+    }
 
-    lv_obj_t * o_lbl = lv_label_create(o_btn);
-    lv_label_set_text(o_lbl, btn_ok);
-    lv_obj_center(o_lbl);
-    lv_obj_add_event_cb(o_btn, btn_event_cb, LV_EVENT_ALL, (void*)true);
+    if(has_ok) {
+        o_btn = lv_btn_create(btn_cont);
+        lv_obj_set_size(o_btn, 90, 32);
+        lv_obj_add_style(o_btn, &style_btn, 0);
+        lv_obj_set_style_border_color(o_btn, lv_color_hex(COLOR_BORDER), LV_STATE_FOCUS_KEY);
+        lv_obj_set_style_border_width(o_btn, 2, LV_STATE_FOCUS_KEY);
+
+        lv_obj_t * o_lbl = lv_label_create(o_btn);
+        lv_label_set_text(o_lbl, btn_ok);
+        lv_obj_center(o_lbl);
+        lv_obj_add_event_cb(o_btn, btn_event_cb, LV_EVENT_ALL, (void*)true);
+    }
 
     if(main_group) {
-        lv_group_add_obj(main_group, c_btn);
-        lv_group_add_obj(main_group, o_btn);
-        lv_group_focus_obj(o_btn);
+        lv_group_remove_all_objs(main_group);
+        if(c_btn) lv_group_add_obj(main_group, c_btn);
+        if(o_btn) {
+            lv_group_add_obj(main_group, o_btn);
+            lv_group_focus_obj(o_btn);
+        }
+        lv_group_set_editing(main_group, true);
     }
 }
 
 void msgbox_close(void) {
     if(msgbox_overlay) {
-        lv_obj_del(msgbox_overlay);
+        if(main_group) {
+            lv_group_set_editing(main_group, false);
+            lv_group_remove_all_objs(main_group);
+        }
+        lv_obj_del_async(msgbox_overlay);
         msgbox_overlay = NULL;
         current_cb = NULL;
     }
