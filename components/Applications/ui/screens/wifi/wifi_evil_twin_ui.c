@@ -49,7 +49,7 @@ static void toggle_attack_handler(lv_event_t * e) {
 static void ta_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) == LV_EVENT_CLICKED || (lv_event_get_code(e) == LV_EVENT_KEY && lv_event_get_key(e) == LV_KEY_ENTER)) {
         if (!is_running) {
-            keyboard_open(ta_ssid);
+            keyboard_open(ta_ssid, NULL, NULL);
         }
     }
 }
