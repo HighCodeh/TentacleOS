@@ -11,5 +11,6 @@ extern lv_group_t * main_group;
 
 // Inicializa a camada de input
 void lv_port_indev_init(void);
+void lv_port_indev_set_keyboard_mode(bool enabled);
 
 #endif // LV_PORT_INDEV_H

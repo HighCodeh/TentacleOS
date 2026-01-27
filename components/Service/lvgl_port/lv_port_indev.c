@@ -10,6 +10,7 @@ static uint32_t keypad_get_key(void);
 
 lv_indev_t * indev_keypad = NULL;
 lv_group_t * main_group = NULL;
+static bool keyboard_mode = false;
 
 void lv_port_indev_init(void)
 {
@@ -36,6 +37,11 @@ void lv_port_indev_init(void)
     lv_indev_set_group(indev_keypad, main_group);
 }
 
+void lv_port_indev_set_keyboard_mode(bool enabled)
+{
+    keyboard_mode = enabled;
+}
+
 // Callback chamado periodicamente pelo LVGL para ler o estado dos botões
 static void keypad_read(lv_indev_t * indev, lv_indev_data_t * data)
 {
@@ -58,12 +64,13 @@ static void keypad_read(lv_indev_t * indev, lv_indev_data_t * data)
 // Função auxiliar para mapear seus botões físicos para teclas do LVGL
 static uint32_t keypad_get_key(void)
 {
+
     // AQUI entra a lógica dos seus botões do HighBoy
     // Exemplo (supondo que suas funções de botão retornem true se pressionado):
     
   //navegation
-  if(up_button_is_down()) return LV_KEY_PREV;
-  if(down_button_is_down()) return LV_KEY_NEXT;
+  if(up_button_is_down()) return keyboard_mode ? LV_KEY_UP : LV_KEY_PREV;
+  if(down_button_is_down()) return keyboard_mode ? LV_KEY_DOWN : LV_KEY_NEXT;
 
   if(ok_button_is_down()) return LV_KEY_ENTER;
   if(back_button_is_down()) return LV_KEY_ESC;
