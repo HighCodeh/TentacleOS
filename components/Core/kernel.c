@@ -35,9 +35,14 @@
 #include "lv_port_indev.h"
 #include "ui_manager.h"
 #include "sys_monitor.h"
+#include "console_service.h"
 
 static const char *TAG = "SAFEGUARD";
 
+static void console_task(void *pvParameters) {
+    console_service_init();
+    vTaskDelete(NULL);
+}
 
 void kernel_init(void) {
   esp_err_t ret = nvs_flash_init();
@@ -77,6 +82,8 @@ void kernel_init(void) {
   sys_monitor(false);
 
   wifi_init();
+
+  xTaskCreate(console_task, "console_task", 4096, NULL, 5, NULL);
 
   vTaskDelay(pdMS_TO_TICKS(1500));
 }
