@@ -73,7 +73,8 @@ idf_component_register(SRCS
     esp_wifi
     esp_common
     esp_netif
-    Drivers 
+    Drivers
+    Applications
     esp_http_server
     nvs_flash
     lvgl
