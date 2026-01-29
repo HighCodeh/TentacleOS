@@ -40,6 +40,8 @@ file(GLOB_RECURSE ABOUT_SETTINGS_UI_SRCS "ui/screens/about_settings/*.c")
 file(GLOB_RECURSE CONNECT_WIFI_UI_SRCS "ui/screens/connect_wifi/*.c")
 file(GLOB_RECURSE CONNECT_BLUETOOTH_UI_SRCS "ui/screens/connect_bluetooth/*.c")
 
+
+#APPLICATION
 file(GLOB_RECURSE SUBGHZ_APP_SRCS "SubGhz/*.c")
 file(GLOB_RECURSE BLE_APP_SRCS "bluetooth/*.c")
 file(GLOB_RECURSE BADUSB_APP_SRCS "bad_usb/*.c")
