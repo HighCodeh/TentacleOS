@@ -2,6 +2,7 @@ dependencies:
   espressif/led_strip: ^2.5.1
   espressif/tinyusb: '*'
   espressif/esp_tinyusb: '*'
-  joltwallet/littlefs: "^1.14.8"
-  lvgl/lvgl: "^9.4.0"
-  espressif/cjson: "^1.7.19"
+  joltwallet/littlefs: ^1.14.8
+  lvgl/lvgl: ^9.4.0
+  espressif/cjson: ^1.7.19
+  espressif/argtable3: ^3.3
