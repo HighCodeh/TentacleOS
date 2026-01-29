@@ -13,6 +13,8 @@
 # limitations under the License.
 
 file(GLOB_RECURSE SD_CARD_SERVICE_SRCS "sd_card/*.c")
+file(GLOB_RECURSE CONSOLE_SERVICE_SRCS "console/*.c")
+file(GLOB_RECURSE CONSOLE_COMMANDS_SRCS "console/commands/*.c")
 
 
 idf_component_register(SRCS 
@@ -49,6 +51,8 @@ idf_component_register(SRCS
   "lvgl_port/lv_port_disp.c"
   "esp_now/service_esp_now.c"
   ${SD_CARD_SERVICE_SRCS}
+  ${CONSOLE_SERVICE_SRCS}
+  ${CONSOLE_COMMANDS_SRCS}
   INCLUDE_DIRS 
   "font/include"
   "icons/include"
@@ -63,6 +67,10 @@ idf_component_register(SRCS
   "lvgl_port/include"
   "esp_now/include"
   "sd_card/include"
+  "console/include"
+
+
+
 
   REQUIRES 
     sdmmc
@@ -81,4 +89,6 @@ idf_component_register(SRCS
     bt
     littlefs
     cjson
+    console 
+    argtable3 
 )
