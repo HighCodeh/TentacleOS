@@ -9,6 +9,7 @@
 #include "home_ui.h"
 #include "menu_ui.h"
 #include "wifi_ui.h"
+#include "wifi_scan_menu_ui.h"
 #include "wifi_scan_ap_ui.h"
 #include "wifi_scan_stations_ui.h"
 #include "wifi_scan_target_ui.h"
@@ -227,6 +228,10 @@ void ui_switch_screen(screen_id_t new_screen) {
 
       case SCREEN_WIFI_MENU:
         ui_wifi_menu_open();
+        break;
+
+      case SCREEN_WIFI_SCAN_MENU:
+        ui_wifi_scan_menu_open();
         break;
 
       case SCREEN_WIFI_SCAN_AP:
