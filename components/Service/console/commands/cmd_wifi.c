@@ -227,47 +227,94 @@ static int subcmd_status(int argc, char **argv) {
 }
 
 
-static int cmd_wifi(int argc, char **argv) {
-  if (argc < 2) {
-    printf("Usage: wifi <command> [args]\n");
-    printf("Commands:\n");
-    printf("  scan              Scan networks\n");
-    printf("  connect           Connect to AP (-s SSID [-p PASS])\n");
-    printf("  ap                Config Hotspot (-s SSID [-p PASS])\n");
-    printf("  spam              Beacon Spam (-r random | -l list | -s stop)\n");
-    printf("  deauth            Deauth Attack (-t MAC [-c CH] | -s stop)\n");
-    printf("  status            Show status\n");
+// --- CONFIG ---
+static struct {
+    struct arg_int *enabled;
+    struct arg_str *ip;
+    struct arg_int *max_conn;
+    struct arg_end *end;
+} config_args;
+
+static int subcmd_config(int argc, char **argv) {
+    int nerrors = arg_parse(argc, argv, (void **)&config_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, config_args.end, "wifi config");
+        return 1;
+    }
+
+    if (config_args.enabled->count > 0) {
+        bool en = (config_args.enabled->ival[0] != 0);
+        printf("Setting Wi-Fi Enabled: %s\n", en ? "True" : "False");
+        wifi_set_wifi_enabled(en);
+    }
+
+    if (config_args.ip->count > 0) {
+        const char *ip = config_args.ip->sval[0];
+        printf("Setting AP IP: %s\n", ip);
+        wifi_set_ap_ip(ip);
+    }
+
+    if (config_args.max_conn->count > 0) {
+        int max = config_args.max_conn->ival[0];
+        printf("Setting Max Connections: %d\n", max);
+        wifi_set_ap_max_conn((uint8_t)max);
+    }
+
     return 0;
-  }
+}
 
-  const char *subcmd = argv[1];
-  int sub_argc = argc - 1;
-  char **sub_argv = &argv[1];
+// =============================================================================
+// MAIN WIFI COMMAND DISPATCHER
+// =============================================================================
 
-  if (strcmp(subcmd, "scan") == 0) return subcmd_scan(sub_argc, sub_argv);
-  if (strcmp(subcmd, "connect") == 0) return subcmd_connect(sub_argc, sub_argv);
-  if (strcmp(subcmd, "ap") == 0) return subcmd_ap(sub_argc, sub_argv);
-  if (strcmp(subcmd, "spam") == 0) return subcmd_spam(sub_argc, sub_argv);
-  if (strcmp(subcmd, "deauth") == 0) return subcmd_deauth(sub_argc, sub_argv);
-  if (strcmp(subcmd, "status") == 0) return subcmd_status(sub_argc, sub_argv);
+static int cmd_wifi(int argc, char **argv) {
+    if (argc < 2) {
+        printf("Usage: wifi <command> [args]\n");
+        printf("Commands:\n");
+        printf("  scan              Scan networks\n");
+        printf("  connect           Connect to AP (-s SSID [-p PASS])\n");
+        printf("  ap                Config Hotspot (-s SSID [-p PASS])\n");
+        printf("  config            Advanced Config (-e 0/1 | -i IP | -m MAX)\n");
+        printf("  spam              Beacon Spam (-r random | -l list | -s stop)\n");
+        printf("  deauth            Deauth Attack (-t MAC [-c CH] | -s stop)\n");
+        printf("  status            Show status\n");
+        return 0;
+    }
 
-  printf("Unknown wifi command: %s\n", subcmd);
-  return 1;
+    const char *subcmd = argv[1];
+    int sub_argc = argc - 1;
+    char **sub_argv = &argv[1];
+
+    if (strcmp(subcmd, "scan") == 0) return subcmd_scan(sub_argc, sub_argv);
+    if (strcmp(subcmd, "connect") == 0) return subcmd_connect(sub_argc, sub_argv);
+    if (strcmp(subcmd, "ap") == 0) return subcmd_ap(sub_argc, sub_argv);
+    if (strcmp(subcmd, "config") == 0) return subcmd_config(sub_argc, sub_argv);
+    if (strcmp(subcmd, "spam") == 0) return subcmd_spam(sub_argc, sub_argv);
+    if (strcmp(subcmd, "deauth") == 0) return subcmd_deauth(sub_argc, sub_argv);
+    if (strcmp(subcmd, "status") == 0) return subcmd_status(sub_argc, sub_argv);
+
+    printf("Unknown wifi command: %s\n", subcmd);
+    return 1;
 }
 
 void register_wifi_commands(void) {
-  // Initialize Arg Tables
-  scan_args.end = arg_end(1);
+    // Initialize Arg Tables
+    scan_args.end = arg_end(1);
+    
+    connect_args.ssid = arg_str1("s", "ssid", "<ssid>", "Network SSID");
+    connect_args.password = arg_str0("p", "pass", "<password>", "Password");
+    connect_args.end = arg_end(1);
 
-  connect_args.ssid = arg_str1("s", "ssid", "<ssid>", "Network SSID");
-  connect_args.password = arg_str0("p", "pass", "<password>", "Password");
-  connect_args.end = arg_end(1);
+    ap_args.ssid = arg_str1("s", "ssid", "<ssid>", "AP SSID");
+    ap_args.password = arg_str0("p", "pass", "<password>", "AP Password");
+    ap_args.end = arg_end(1);
 
-  ap_args.ssid = arg_str1("s", "ssid", "<ssid>", "AP SSID");
-  ap_args.password = arg_str0("p", "pass", "<password>", "AP Password");
-  ap_args.end = arg_end(1);
+    config_args.enabled = arg_int0("e", "enabled", "<0/1>", "Enable/Disable Wi-Fi");
+    config_args.ip = arg_str0("i", "ip", "<ip>", "Static IP");
+    config_args.max_conn = arg_int0("m", "max", "<val>", "Max Connections");
+    config_args.end = arg_end(1);
 
-  spam_args.random = arg_lit0("r", "random", "Random SSIDs");
+    spam_args.random = arg_lit0("r", "random", "Random SSIDs");
   spam_args.list = arg_lit0("l", "list", "Use beacon_list.json");
   spam_args.stop = arg_lit0("s", "stop", "Stop spam");
   spam_args.end = arg_end(1);
