@@ -1,3 +1,18 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+
 #include "console_service.h"
 #include "esp_console.h"
 #include "argtable3/argtable3.h"
@@ -61,10 +76,10 @@ static int cmd_pwd(int argc, char **argv) {
 static int cmd_cd(int argc, char **argv) {
   int nerrors = arg_parse(argc, argv, (void **)&cd_args);
   if (nerrors != 0) {
-    arg_print_errors(stderr, cd_args.end, argv[0]);
+    arg_print_errors(stderr, cd_args.end, "cd");
+    printf("Usage: cd <path>\n");
     return 1;
   }
-
   const char *target = cd_args.path->sval[0];
   char new_path[512];
 
@@ -105,10 +120,10 @@ static int cmd_cd(int argc, char **argv) {
 static int cmd_ls(int argc, char **argv) {
   int nerrors = arg_parse(argc, argv, (void **)&ls_args);
   if (nerrors != 0) {
-    arg_print_errors(stderr, ls_args.end, argv[0]);
+    arg_print_errors(stderr, ls_args.end, "ls");
+    printf("Usage: ls [-j] [path]\n");
     return 1;
   }
-
   char path[512];
   const char *input_path = (ls_args.path->count > 0) ? ls_args.path->sval[0] : NULL;
   resolve_path(input_path, path, sizeof(path));
@@ -158,10 +173,10 @@ static int cmd_ls(int argc, char **argv) {
 static int cmd_cat(int argc, char **argv) {
   int nerrors = arg_parse(argc, argv, (void **)&cat_args);
   if (nerrors != 0) {
-    arg_print_errors(stderr, cat_args.end, argv[0]);
+    arg_print_errors(stderr, cat_args.end, "cat");
+    printf("Usage: cat <file>\n");
     return 1;
   }
-
   char path[512];
   resolve_path(cat_args.path->sval[0], path, sizeof(path));
 
