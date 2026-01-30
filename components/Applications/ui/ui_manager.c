@@ -11,6 +11,7 @@
 #include "wifi_ui.h"
 #include "wifi_scan_ap_ui.h"
 #include "wifi_scan_stations_ui.h"
+#include "wifi_scan_target_ui.h"
 #include "wifi_scan_probe_ui.h"
 #include "wifi_scan_monitor_ui.h"
 #include "wifi_scan_ui.h"
@@ -234,6 +235,10 @@ void ui_switch_screen(screen_id_t new_screen) {
 
       case SCREEN_WIFI_SCAN_STATIONS:
         ui_wifi_scan_stations_open();
+        break;
+
+      case SCREEN_WIFI_SCAN_TARGET:
+        ui_wifi_scan_target_open();
         break;
 
       case SCREEN_WIFI_SCAN_PROBE:
