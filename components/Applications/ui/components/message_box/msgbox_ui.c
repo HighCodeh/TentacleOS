@@ -85,6 +85,8 @@ void msgbox_open(const char * icon, const char * msg, const char * btn_ok, const
     lv_obj_set_size(msgbox_overlay, lv_pct(100), lv_pct(100));
     lv_obj_set_style_bg_color(msgbox_overlay, current_theme.screen_base, 0);
     lv_obj_set_style_bg_opa(msgbox_overlay, LV_OPA_70, 0);
+    lv_obj_set_style_border_width(msgbox_overlay, 0, 0);
+    lv_obj_set_style_outline_width(msgbox_overlay, 0, 0);
     lv_obj_clear_flag(msgbox_overlay, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(msgbox_overlay, msgbox_overlay_event_cb, LV_EVENT_KEY, NULL);
 
