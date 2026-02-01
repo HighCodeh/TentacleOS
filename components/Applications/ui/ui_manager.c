@@ -9,6 +9,15 @@
 #include "home_ui.h"
 #include "menu_ui.h"
 #include "wifi_ui.h"
+#include "wifi_attack_menu_ui.h"
+#include "wifi_packets_menu_ui.h"
+#include "wifi_deauth_attack_ui.h"
+#include "wifi_beacon_spam_simple_ui.h"
+#include "wifi_probe_flood_ui.h"
+#include "wifi_auth_flood_ui.h"
+#include "wifi_sniffer_raw_ui.h"
+#include "wifi_sniffer_attack_ui.h"
+#include "wifi_sniffer_handshake_ui.h"
 #include "wifi_scan_menu_ui.h"
 #include "wifi_scan_ap_ui.h"
 #include "wifi_scan_stations_ui.h"
@@ -228,6 +237,40 @@ void ui_switch_screen(screen_id_t new_screen) {
 
       case SCREEN_WIFI_MENU:
         ui_wifi_menu_open();
+        break;
+
+      case SCREEN_WIFI_ATTACK_MENU:
+        ui_wifi_attack_menu_open();
+        break;
+
+      case SCREEN_WIFI_PACKETS_MENU:
+        ui_wifi_packets_menu_open();
+        break;
+
+      case SCREEN_WIFI_SNIFFER_RAW:
+        ui_wifi_sniffer_raw_open();
+        break;
+      case SCREEN_WIFI_SNIFFER_ATTACK:
+        ui_wifi_sniffer_attack_open();
+        break;
+      case SCREEN_WIFI_SNIFFER_HANDSHAKE:
+        ui_wifi_sniffer_handshake_open();
+        break;
+
+      case SCREEN_WIFI_DEAUTH_ATTACK:
+        ui_wifi_deauth_attack_open();
+        break;
+
+      case SCREEN_WIFI_BEACON_SPAM_SIMPLE:
+        ui_wifi_beacon_spam_simple_open();
+        break;
+
+      case SCREEN_WIFI_PROBE_FLOOD:
+        ui_wifi_probe_flood_open();
+        break;
+
+      case SCREEN_WIFI_AUTH_FLOOD:
+        ui_wifi_auth_flood_open();
         break;
 
       case SCREEN_WIFI_SCAN_MENU:
