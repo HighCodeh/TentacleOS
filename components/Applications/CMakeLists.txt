@@ -117,6 +117,7 @@ idf_component_register(SRCS
   "ui/components/footer/include"
   "ui/components/keyboard/include"
   "ui/components/message_box/include"
+  "ui/components/button/include"
   "ui/components/terminal/include"
   
 
