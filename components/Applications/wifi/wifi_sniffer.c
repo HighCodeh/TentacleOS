@@ -56,6 +56,10 @@ static bool is_sniffing = false;
 static bool is_verbose = false;
 static sniff_type_t current_type = SNIFF_TYPE_RAW;
 static uint16_t sniffer_snaplen = 65535;
+static bool pmkid_captured = false;
+static uint8_t pmkid_bssid[6];
+static bool handshake_captured = false;
+static uint8_t handshake_bssid[6];
 
 static handshake_session_t sessions[MAX_TRACKED_SESSIONS];
 static ap_info_t known_aps[MAX_KNOWN_APS];
@@ -158,6 +162,10 @@ static void track_handshake(const uint8_t *bssid, const uint8_t *station, uint16
         memcmp(sessions[i].station, station, 6) == 0) {
 
         ESP_LOGW(TAG, "VALID HANDSHAKE CAPTURED! (M1 + M2)");
+        if (!handshake_captured) {
+          memcpy(handshake_bssid, bssid, 6);
+          handshake_captured = true;
+        }
         sessions[i].has_m1 = false;
         return;
       }
@@ -217,6 +225,10 @@ static bool check_pmkid_presence(const uint8_t *payload, int len, const uint8_t 
       if (rsn_cursor + 2 <= rsn_len) {
         uint16_t pmkid_count = rsn_body[rsn_cursor] | (rsn_body[rsn_cursor+1] << 8);
         if (pmkid_count > 0) {
+          if (!pmkid_captured) {
+            memcpy(pmkid_bssid, bssid, 6);
+            pmkid_captured = true;
+          }
           if (!is_ap_ssid_known(bssid)) {
             inject_unicast_probe_req(bssid);
           }
@@ -430,6 +442,8 @@ bool wifi_sniffer_start(sniff_type_t type, uint8_t channel) {
   write_pcap_global_header();
   packet_count = 0;
   deauth_count = 0;
+  pmkid_captured = false;
+  handshake_captured = false;
   current_type = type;
 
   memset(sessions, 0, sizeof(sessions));
@@ -613,4 +627,32 @@ uint32_t wifi_sniffer_get_deauth_count(void) {
 
 uint32_t wifi_sniffer_get_buffer_usage(void) {
   return buffer_offset;
+}
+
+bool wifi_sniffer_pmkid_captured(void) {
+  return pmkid_captured;
+}
+
+void wifi_sniffer_clear_pmkid(void) {
+  pmkid_captured = false;
+  memset(pmkid_bssid, 0, sizeof(pmkid_bssid));
+}
+
+void wifi_sniffer_get_pmkid_bssid(uint8_t out_bssid[6]) {
+  if (!out_bssid) return;
+  memcpy(out_bssid, pmkid_bssid, 6);
+}
+
+bool wifi_sniffer_handshake_captured(void) {
+  return handshake_captured;
+}
+
+void wifi_sniffer_clear_handshake(void) {
+  handshake_captured = false;
+  memset(handshake_bssid, 0, sizeof(handshake_bssid));
+}
+
+void wifi_sniffer_get_handshake_bssid(uint8_t out_bssid[6]) {
+  if (!out_bssid) return;
+  memcpy(out_bssid, handshake_bssid, 6);
 }

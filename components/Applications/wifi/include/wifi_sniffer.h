@@ -36,5 +36,11 @@ uint32_t wifi_sniffer_get_buffer_usage(void);
 void wifi_sniffer_set_snaplen(uint16_t len);
 void wifi_sniffer_set_verbose(bool verbose);
 bool wifi_sniffer_start_stream_sd(sniff_type_t type, uint8_t channel, const char *filename);
+bool wifi_sniffer_pmkid_captured(void);
+void wifi_sniffer_clear_pmkid(void);
+void wifi_sniffer_get_pmkid_bssid(uint8_t out_bssid[6]);
+bool wifi_sniffer_handshake_captured(void);
+void wifi_sniffer_clear_handshake(void);
+void wifi_sniffer_get_handshake_bssid(uint8_t out_bssid[6]);
 
 #endif // WIFI_SNIFFER_H
