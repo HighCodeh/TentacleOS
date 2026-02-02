@@ -4,12 +4,10 @@
 #include "ui_theme.h"
 #include "ui_manager.h"
 #include "lv_port_indev.h"
-#include "ap_scanner.h"
+#include "wifi_service.h"
 #include "target_scanner.h"
 #include "buzzer.h"
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include "lvgl.h"
 
 typedef enum {
@@ -35,7 +33,6 @@ static wifi_ap_record_t selected_ap;
 
 extern lv_group_t * main_group;
 
-static void ap_scan_task(void *arg);
 static void client_scan_task(void *arg);
 static void go_back_or_ap_view(void);
 static void list_event_cb(lv_event_t * e);
@@ -235,25 +232,6 @@ static void populate_client_list(target_client_record_t * results, uint16_t coun
     }
 }
 
-static void ap_scan_task(void *arg) {
-    (void)arg;
-    ap_scanner_start();
-    uint16_t count = 0;
-    wifi_ap_record_t * results = NULL;
-    int timeout = 100;
-    while (timeout-- > 0) {
-        results = ap_scanner_get_results(&count);
-        if (results) break;
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
-    if (ui_acquire()) {
-        clear_loading();
-        populate_ap_list(results, count);
-        ui_release();
-    }
-    vTaskDelete(NULL);
-}
-
 static void client_scan_task(void *arg) {
     (void)arg;
     target_scanner_start(selected_ap.bssid, selected_ap.primary);
@@ -296,7 +274,15 @@ static void go_back_or_ap_view(void) {
         clear_loading();
         set_loading("SCANNING APS...");
         lv_refr_now(NULL);
-        xTaskCreate(ap_scan_task, "WifiStationsAps", 4096, NULL, 5, NULL);
+        if (!wifi_service_is_active()) {
+            set_loading("WIFI OFF");
+            return;
+        }
+        wifi_service_scan();
+        clear_loading();
+        uint16_t count = wifi_service_get_ap_count();
+        wifi_ap_record_t *results = (count > 0) ? wifi_service_get_ap_record(0) : NULL;
+        populate_ap_list(results, count);
     } else {
         buzzer_play_sound_file("buzzer_click");
         ui_switch_screen(SCREEN_WIFI_SCAN_MENU);
@@ -309,8 +295,15 @@ static void start_ap_scan(void) {
     clear_loading();
     set_loading("SCANNING APS...");
     lv_refr_now(NULL);
-
-    xTaskCreate(ap_scan_task, "WifiStationsAps", 4096, NULL, 5, NULL);
+    if (!wifi_service_is_active()) {
+        set_loading("WIFI OFF");
+        return;
+    }
+    wifi_service_scan();
+    clear_loading();
+    uint16_t count = wifi_service_get_ap_count();
+    wifi_ap_record_t *results = (count > 0) ? wifi_service_get_ap_record(0) : NULL;
+    populate_ap_list(results, count);
 }
 
 void ui_wifi_scan_stations_open(void) {
