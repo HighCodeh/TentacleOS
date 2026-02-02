@@ -4,11 +4,9 @@
 #include "ui_theme.h"
 #include "ui_manager.h"
 #include "lv_port_indev.h"
-#include "ap_scanner.h"
+#include "wifi_service.h"
 #include "buzzer.h"
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include "lvgl.h"
 
 static const char *TAG = "UI_WIFI_SCAN_AP";
@@ -169,28 +167,6 @@ static void populate_list(wifi_ap_record_t * results, uint16_t count) {
     }
 }
 
-static void scan_worker_task(void *arg) {
-    (void)arg;
-    ESP_LOGI(TAG, "Starting AP scan...");
-    ap_scanner_start();
-
-    uint16_t count = 0;
-    int timeout = 100;
-    wifi_ap_record_t * results = NULL;
-    while (timeout-- > 0) {
-        results = ap_scanner_get_results(&count);
-        if (results) break;
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
-
-    if (ui_acquire()) {
-        populate_list(results, count);
-        ui_release();
-    }
-
-    vTaskDelete(NULL);
-}
-
 void ui_wifi_scan_ap_open(void) {
     init_styles();
 
@@ -220,6 +196,12 @@ void ui_wifi_scan_ap_open(void) {
 
     lv_screen_load(screen_scan_ap);
     lv_refr_now(NULL);
-
-    xTaskCreate(scan_worker_task, "WifiScanAp", 4096, NULL, 5, NULL);
+    if (!wifi_service_is_active()) {
+        lv_label_set_text(loading_label, "WIFI OFF");
+        return;
+    }
+    wifi_service_scan();
+    uint16_t count = wifi_service_get_ap_count();
+    wifi_ap_record_t *results = (count > 0) ? wifi_service_get_ap_record(0) : NULL;
+    populate_list(results, count);
 }
