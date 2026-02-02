@@ -10,7 +10,7 @@ void button_ui_apply_style(lv_obj_t * btn)
     lv_obj_set_style_border_width(btn, 1, 0);
     lv_obj_set_style_border_color(btn, current_theme.border_inactive, 0);
     lv_obj_set_style_radius(btn, 4, 0);
-    lv_obj_set_style_text_color(btn, lv_color_white(), 0);
+    lv_obj_set_style_text_color(btn, current_theme.text_main, 0);
     lv_obj_set_style_border_color(btn, current_theme.border_accent, LV_STATE_FOCUS_KEY);
     lv_obj_set_style_border_width(btn, 2, LV_STATE_FOCUS_KEY);
 }
