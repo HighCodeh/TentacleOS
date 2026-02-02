@@ -87,7 +87,11 @@ void ui_wifi_scan_probe_open(void) {
     lv_obj_set_style_bg_color(ta_log, lv_color_black(), 0);
     lv_obj_set_style_text_color(ta_log, lv_color_hex(0x00FF00), 0);
     lv_obj_set_style_radius(ta_log, 0, 0);
-    lv_obj_set_style_border_width(ta_log, 0, 0);
+    lv_obj_set_style_border_width(ta_log, 1, 0);
+    lv_obj_set_style_border_color(ta_log, lv_color_hex(0x00FF00), 0);
+    lv_obj_set_style_border_width(ta_log, 1, LV_STATE_FOCUS_KEY);
+    lv_obj_set_style_border_color(ta_log, lv_color_hex(0x00FF00), LV_STATE_FOCUS_KEY);
+    lv_obj_set_style_outline_width(ta_log, 0, LV_STATE_FOCUS_KEY);
     lv_textarea_set_text(ta_log, "Listening...\n");
 
     lv_obj_add_event_cb(screen_probe_scan, screen_event_cb, LV_EVENT_KEY, NULL);
