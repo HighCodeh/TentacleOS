@@ -1026,7 +1026,6 @@ dkms.conf
 
 # esp-idf built binaries
 /build_*_*/
-sdkconfig
 
 # idf-ci build run output
 build_summary_*.xml
