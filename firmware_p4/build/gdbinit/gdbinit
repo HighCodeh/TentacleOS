@@ -1,0 +1,2 @@
+source /home/outsyder/Developer/TentacleOS/firmware_p4/build/gdbinit/symbols
+source /home/outsyder/Developer/TentacleOS/firmware_p4/build/gdbinit/connect

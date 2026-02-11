@@ -1,0 +1,5 @@
+--flash_mode dio --flash_freq 80m --flash_size 32MB
+0x2000 bootloader/bootloader.bin
+0x10000 highboy.bin
+0x8000 partition_table/partition-table.bin
+0x610000 assets.bin

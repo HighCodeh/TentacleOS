@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ESP32 File Manager</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config={darkMode:"class",theme:{extend:{fontFamily:{mono:["Roboto Mono","monospace"]}}}};
+</script>
+<style>
+body{font-family:'Roboto Mono',monospace;-webkit-font-smoothing:antialiased}
+.sidebar{transition:transform .3s ease}
+@media(max-width:1023px){.sidebar.hidden-sidebar{transform:translateX(-100%)}}
+pre{white-space:pre-wrap;word-wrap:break-word}
+button{font-family:'Roboto Mono',monospace}
+</style>
+</head>
+<body class="bg-zinc-900 text-gray-300">
+<div class="flex h-screen w-full relative">
+
+<aside class="w-64 flex-shrink-0 bg-zinc-950 border-r border-zinc-800 p-4 flex-col hidden lg:flex">
+<div class="mb-6">
+<div class="flex items-center gap-2 mb-1">
+<img src="highcode.png" alt="HighBoy" class="w-8 h-8">
+<h1 class="text-sm font-bold text-white">HighBoy ESP32</h1>
+</div>
+<div class="text-xs text-zinc-500">File System Manager</div>
+</div>
+<div class="flex-grow overflow-y-auto -mr-2 pr-2">
+<div class="text-xs text-zinc-500 mb-2">CURRENT PATH:</div>
+<div class="mb-4 px-2 py-1 bg-zinc-800 text-green-400 text-xs font-bold border border-zinc-700" id="current-path-display">ROOT</div>
+<div class="text-xs text-zinc-500 mb-2">QUICK ACCESS:</div>
+<nav class="flex flex-col space-y-0.5 text-xs">
+<button onclick="loadFolder('/')" class="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-transparent hover:border-zinc-700">→ ROOT</button>
+<button onclick="loadFolder('/IR')" class="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-transparent hover:border-zinc-700">→ IR</button>
+<button onclick="loadFolder('/SUBGHZ')" class="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-transparent hover:border-zinc-700">→ SUBGHZ</button>
+<button onclick="loadFolder('/BACKUPS')" class="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-transparent hover:border-zinc-700">→ BACKUPS</button>
+<button onclick="loadFolder('/UPLOADS')" class="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-transparent hover:border-zinc-700">→ UPLOADS</button>
+<button onclick="loadFolder('/CONFIG')" class="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-transparent hover:border-zinc-700">→ CONFIG</button>
+<button onclick="loadFolder('/secret')" class="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-transparent hover:border-zinc-700">→ SECRET</button>
+</nav>
+</div>
+<div class="mt-auto pt-4">
+<div class="p-3 bg-zinc-800 border border-zinc-700">
+<div class="flex items-center justify-between mb-2">
+<span class="text-xs font-bold text-zinc-400">STORAGE</span>
+<span class="text-xs font-bold text-green-400" id="storage-percent">0%</span>
+</div>
+<div class="w-full bg-zinc-700 h-1.5">
+<div class="bg-green-500 h-1.5 transition-all duration-500" id="storage-bar" style="width:0%"></div>
+</div>
+<p class="text-xs text-zinc-500 mt-2" id="storage-info">Loading...</p>
+</div>
+</div>
+</aside>
+
+<aside class="sidebar hidden-sidebar w-64 flex-shrink-0 bg-zinc-950 border-r border-zinc-800 p-4 flex-col flex lg:hidden absolute h-full z-20" id="mobile-sidebar">
+<div class="flex items-center justify-between mb-6">
+<div>
+<div class="flex items-center gap-2 mb-1">
+<img src="highcode.png" alt="HighBoy" class="w-8 h-8">
+<h1 class="text-sm font-bold text-white">HighBoy ESP32</h1>
+</div>
+<div class="text-xs text-zinc-500">File System Manager</div>
+</div>
+<button class="text-zinc-400 hover:text-white text-xl" id="close-sidebar">×</button>
+</div>
+<div class="flex-grow overflow-y-auto -mr-2 pr-2">
+<div class="text-xs text-zinc-500 mb-2">CURRENT PATH:</div>
+<div class="mb-4 px-2 py-1 bg-zinc-800 text-green-400 text-xs font-bold border border-zinc-700" id="current-path-display-mobile">ROOT</div>
+<div class="text-xs text-zinc-500 mb-2">QUICK ACCESS:</div>
+<nav class="flex flex-col space-y-0.5 text-xs">
+<button onclick="loadFolder('/')" class="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-transparent hover:border-zinc-700">→ ROOT</button>
+<button onclick="loadFolder('/IR')" class="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-transparent hover:border-zinc-700">→ IR</button>
+<button onclick="loadFolder('/SUBGHZ')" class="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-transparent hover:border-zinc-700">→ SUBGHZ</button>
+<button onclick="loadFolder('/BACKUPS')" class="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-transparent hover:border-zinc-700">→ BACKUPS</button>
+<button onclick="loadFolder('/UPLOADS')" class="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-transparent hover:border-zinc-700">→ UPLOADS</button>
+<button onclick="loadFolder('/CONFIG')" class="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-transparent hover:border-zinc-700">→ CONFIG</button>
+<button onclick="loadFolder('/secret')" class="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-transparent hover:border-zinc-700">→ SECRET</button>
+</nav>
+</div>
+</aside>
+
+<div class="fixed inset-0 bg-black/70 z-10 lg:hidden hidden" id="overlay"></div>
+
+<main class="flex-1 p-4 overflow-y-auto">
+<header class="flex items-center justify-between mb-4 pb-3 border-b border-zinc-800">
+<div class="flex items-center gap-3">
+<button class="lg:hidden px-2 py-1 text-zinc-400 hover:text-white border border-zinc-800 hover:border-zinc-600" id="open-sidebar">☰</button>
+<div>
+<h2 class="text-lg font-bold text-white">FILE MANAGER</h2>
+<div class="text-xs text-green-400">● CONNECTED</div>
+</div>
+</div>
+<div class="flex gap-2 text-xs">
+<button onclick="showCreateDialog()" class="px-3 py-1.5 bg-zinc-800 text-white font-bold border border-zinc-700 hover:bg-zinc-700">+ MKDIR</button>
+<button onclick="loadFolder(currentPath)" class="px-3 py-1.5 bg-zinc-800 text-white font-bold border border-zinc-700 hover:bg-zinc-700">↻ REFRESH</button>
+</div>
+</header>
+
+<div class="mb-3 text-xs bg-zinc-800 p-2 border border-zinc-700" id="breadcrumb">
+<button onclick="loadFolder('/')" class="text-green-400 hover:text-green-300">[ROOT]</button>
+</div>
+
+<div class="bg-zinc-900 border border-zinc-800">
+<table class="w-full text-left text-xs min-w-[600px]">
+<thead class="border-b border-zinc-800 bg-zinc-950">
+<tr>
+<th class="p-2 font-bold text-zinc-400">NAME</th>
+<th class="p-2 font-bold text-zinc-400">SIZE</th>
+<th class="p-2 font-bold text-zinc-400 hidden md:table-cell">TYPE</th>
+<th class="p-2 font-bold text-zinc-400 text-right">ACTIONS</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-zinc-800" id="file-list">
+<tr><td colspan="4" class="p-4 text-center text-zinc-500">Loading...</td></tr>
+</tbody>
+</table>
+</div>
+</main>
+</div>
+
+<div id="preview-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/80">
+<div class="bg-zinc-900 border-2 border-zinc-700 max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden">
+<div class="flex items-center justify-between p-3 border-b border-zinc-800 bg-zinc-950">
+<h3 class="text-sm font-bold text-white" id="preview-title">FILE PREVIEW</h3>
+<button onclick="closePreview()" class="px-2 py-1 hover:bg-zinc-800 text-zinc-400 hover:text-white">×</button>
+</div>
+<div class="p-3 overflow-y-auto max-h-[calc(90vh-150px)]">
+<pre id="preview-content" class="bg-zinc-950 p-3 text-xs text-green-400 border border-zinc-800"></pre>
+</div>
+<div class="flex gap-2 p-3 border-t border-zinc-800 bg-zinc-950 text-xs">
+<button onclick="enableEdit()" id="edit-btn" class="px-3 py-1.5 bg-zinc-800 text-white font-bold border border-zinc-700 hover:bg-zinc-700">EDIT</button>
+<button onclick="saveEdit()" id="save-btn" class="hidden px-3 py-1.5 bg-green-700 text-white font-bold border border-green-600 hover:bg-green-600">SAVE</button>
+<button onclick="cancelEdit()" id="cancel-btn" class="hidden px-3 py-1.5 bg-zinc-800 text-white font-bold border border-zinc-700 hover:bg-zinc-700">CANCEL</button>
+</div>
+</div>
+</div>
+
+<div id="rename-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/80">
+<div class="bg-zinc-900 border-2 border-zinc-700 max-w-md w-full mx-4">
+<div class="p-3 border-b border-zinc-800 bg-zinc-950">
+<h3 class="text-sm font-bold text-white">RENAME</h3>
+</div>
+<div class="p-3">
+<input type="text" id="rename-input" class="w-full px-3 py-2 bg-zinc-950 border border-zinc-700 text-white text-xs focus:border-zinc-500 focus:outline-none" placeholder="New name"/>
+</div>
+<div class="flex gap-2 p-3 border-t border-zinc-800 bg-zinc-950 text-xs">
+<button onclick="confirmRename()" class="flex-1 px-3 py-1.5 bg-zinc-800 text-white font-bold border border-zinc-700 hover:bg-zinc-700">OK</button>
+<button onclick="closeRename()" class="flex-1 px-3 py-1.5 bg-zinc-800 text-white font-bold border border-zinc-700 hover:bg-zinc-700">CANCEL</button>
+</div>
+</div>
+</div>
+
+<div id="create-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/80">
+<div class="bg-zinc-900 border-2 border-zinc-700 max-w-md w-full mx-4">
+<div class="p-3 border-b border-zinc-800 bg-zinc-950">
+<h3 class="text-sm font-bold text-white">CREATE DIRECTORY</h3>
+</div>
+<div class="p-3">
+<input type="text" id="create-input" class="w-full px-3 py-2 bg-zinc-950 border border-zinc-700 text-white text-xs focus:border-zinc-500 focus:outline-none" placeholder="Directory name"/>
+</div>
+<div class="flex gap-2 p-3 border-t border-zinc-800 bg-zinc-950 text-xs">
+<button onclick="confirmCreate()" class="flex-1 px-3 py-1.5 bg-zinc-800 text-white font-bold border border-zinc-700 hover:bg-zinc-700">CREATE</button>
+<button onclick="closeCreate()" class="flex-1 px-3 py-1.5 bg-zinc-800 text-white font-bold border border-zinc-700 hover:bg-zinc-700">CANCEL</button>
+</div>
+</div>
+</div>
+
+<script>
+let currentPath='/',currentFile=null,originalContent='',renameTarget=null;
+function loadStorageInfo(){
+fetch('/api/storage/info').then(r=>r.json()).then(d=>{
+const p=d.usage_percent||0;
+document.getElementById('storage-percent').textContent=p.toFixed(1)+'%';
+document.getElementById('storage-bar').style.width=p+'%';
+document.getElementById('storage-info').textContent=(d.used_mb||0).toFixed(2)+' MB / '+(d.total_mb||0).toFixed(2)+' MB';
+}).catch(e=>console.error('Storage error:',e));
+}
+function loadFolder(path){
+currentPath=path;
+const displayPath = path === '/' ? 'ROOT' : path.toUpperCase();
+document.getElementById('current-path-display').textContent=displayPath;
+const mobileDisplay = document.getElementById('current-path-display-mobile');
+if(mobileDisplay) mobileDisplay.textContent=displayPath;
+fetch('/api/files/list?path='+encodeURIComponent(path)).then(r=>r.json()).then(d=>{
+const list=document.getElementById('file-list');
+if(d.error){list.innerHTML='<tr><td colspan="4" class="p-4 text-center text-red-400">ERROR: '+d.error+'</td></tr>';return;}
+if(!d.files||d.files.length===0){list.innerHTML='<tr><td colspan="4" class="p-4 text-center text-zinc-500">EMPTY DIRECTORY</td></tr>';return;}
+list.innerHTML=d.files.map(f=>{
+const fullPath=path==='/'?'/'+f.name:path+'/'+f.name;
+const canPreview=!f.is_dir&&f.name.match(/\.(txt|log|json|xml|csv|html|js|css|c|h|py)$/i);
+let row='<tr class="hover:bg-zinc-800 group" ';
+if(f.is_dir)row+='onclick="loadFolder(\''+fullPath+'\')" style="cursor:pointer;"';
+row+='><td class="p-2 text-gray-200">';
+row+='<span class="text-zinc-500">'+(f.is_dir?'[DIR]':'[FIL]')+'</span> '+f.name+'</td>';
+row+='<td class="p-2 text-zinc-400">'+(f.is_dir?'--':formatSize(f.size))+'</td>';
+row+='<td class="p-2 text-zinc-400 hidden md:table-cell">'+(f.is_dir?'DIR':'FILE')+'</td>';
+row+='<td class="p-2 text-right" onclick="event.stopPropagation()"><div class="flex items-center justify-end gap-1">';
+if(canPreview)row+='<button class="px-2 py-1 hover:bg-zinc-700 text-zinc-400 hover:text-white border border-transparent hover:border-zinc-600" onclick="previewFile(\''+fullPath+'\')" title="View">VIEW</button>';
+if(!f.is_dir)row+='<button class="px-2 py-1 hover:bg-zinc-700 text-zinc-400 hover:text-white border border-transparent hover:border-zinc-600" onclick="downloadFile(\''+fullPath+'\')" title="Download">DL</button>';
+row+='<button class="px-2 py-1 hover:bg-zinc-700 text-zinc-400 hover:text-white border border-transparent hover:border-zinc-600" onclick="renameFile(\''+fullPath+'\',\''+f.name+'\')" title="Rename">REN</button>';
+row+='<button class="px-2 py-1 hover:bg-zinc-700 text-red-400 hover:text-red-300 border border-transparent hover:border-red-900" onclick="deleteFile(\''+fullPath+'\','+f.is_dir+')" title="Delete">DEL</button>';
+row+='</div></td></tr>';
+return row;
+}).join('');
+updateBreadcrumb(path);
+}).catch(e=>{console.error('Error:',e);document.getElementById('file-list').innerHTML='<tr><td colspan="4" class="p-4 text-center text-red-400">ERROR LOADING FILES</td></tr>';});
+}
+function updateBreadcrumb(path){
+const parts=path.split('/').filter(p=>p);
+let crumbs='<button onclick="loadFolder(\'/\')" class="text-green-400 hover:text-green-300">[ROOT]</button>';
+let buildPath='';
+parts.forEach(part=>{
+buildPath+='/'+part;
+crumbs+=' <span class="text-zinc-600">/</span> ';
+crumbs+='<button onclick="loadFolder(\''+buildPath+'\')" class="text-green-400 hover:text-green-300 px-1 hover:bg-zinc-800">['+part.toUpperCase()+']</button>';
+});
+document.getElementById('breadcrumb').innerHTML=crumbs;
+}
+function formatSize(bytes){
+if(bytes<1024)return bytes+' B';
+if(bytes<1048576)return(bytes/1024).toFixed(1)+' KB';
+return(bytes/1048576).toFixed(2)+' MB';
+}
+function downloadFile(path){window.open('/api/files/download?path='+encodeURIComponent(path));}
+function previewFile(path){
+currentFile=path;
+document.getElementById('preview-title').textContent='FILE: '+path.split('/').pop().toUpperCase();
+document.getElementById('preview-modal').classList.remove('hidden');
+fetch('/api/files/read?path='+encodeURIComponent(path)).then(r=>r.json()).then(d=>{
+if(d.success){originalContent=d.content;document.getElementById('preview-content').textContent=d.content;}
+else document.getElementById('preview-content').textContent='ERROR: '+d.error;
+}).catch(e=>document.getElementById('preview-content').textContent='ERROR LOADING FILE: '+e);
+}
+function closePreview(){document.getElementById('preview-modal').classList.add('hidden');cancelEdit();}
+function enableEdit(){
+const content=document.getElementById('preview-content');
+content.contentEditable='true';
+content.classList.add('outline-1','outline-green-600','outline');
+content.focus();
+document.getElementById('edit-btn').classList.add('hidden');
+document.getElementById('save-btn').classList.remove('hidden');
+document.getElementById('cancel-btn').classList.remove('hidden');
+}
+function cancelEdit(){
+const content=document.getElementById('preview-content');
+content.contentEditable='false';
+content.classList.remove('outline-1','outline-green-600','outline');
+content.textContent=originalContent;
+document.getElementById('edit-btn').classList.remove('hidden');
+document.getElementById('save-btn').classList.add('hidden');
+document.getElementById('cancel-btn').classList.add('hidden');
+}
+function saveEdit(){
+const content=document.getElementById('preview-content').textContent;
+fetch('/api/files/write',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:currentFile,content:content})})
+.then(r=>r.json()).then(d=>{
+if(d.success){originalContent=content;cancelEdit();alert('FILE SAVED');loadFolder(currentPath);}
+else alert('ERROR: '+d.error);
+}).catch(e=>alert('SAVE ERROR: '+e));
+}
+function renameFile(path,oldName){
+renameTarget=path;
+document.getElementById('rename-input').value=oldName;
+document.getElementById('rename-modal').classList.remove('hidden');
+document.getElementById('rename-input').focus();
+}
+function closeRename(){document.getElementById('rename-modal').classList.add('hidden');renameTarget=null;}
+function confirmRename(){
+const newName=document.getElementById('rename-input').value.trim();
+if(!newName){alert('ENTER A NAME');return;}
+const newPath=renameTarget.substring(0,renameTarget.lastIndexOf('/')+1)+newName;
+fetch('/api/files/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old_path:renameTarget,new_path:newPath})})
+.then(r=>r.json()).then(d=>{if(d.success){closeRename();loadFolder(currentPath);}else alert('ERROR: '+d.error);}).catch(e=>alert('RENAME ERROR: '+e));
+}
+function showCreateDialog(){
+document.getElementById('create-input').value='';
+document.getElementById('create-modal').classList.remove('hidden');
+document.getElementById('create-input').focus();
+}
+function closeCreate(){document.getElementById('create-modal').classList.add('hidden');}
+function confirmCreate(){
+const name=document.getElementById('create-input').value.trim();
+if(!name){alert('ENTER DIRECTORY NAME');return;}
+const newPath=currentPath==='/'?'/'+name:currentPath+'/'+name;
+fetch('/api/files/mkdir',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:newPath})})
+.then(r=>r.json()).then(d=>{if(d.success){closeCreate();loadFolder(currentPath);}else alert('ERROR: '+d.error);}).catch(e=>alert('CREATE ERROR: '+e));
+}
+function deleteFile(path,isDir){
+if(confirm('DELETE '+path+'?')){
+fetch('/api/files/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:path,is_dir:isDir?'true':'false'})})
+.then(r=>r.json()).then(d=>{if(d.success){loadFolder(currentPath);loadStorageInfo();}else alert('ERROR: '+(d.error||'UNKNOWN ERROR'));}).catch(e=>alert('DELETE ERROR: '+e));
+}}
+const openSidebar=document.getElementById('open-sidebar');
+const closeSidebar=document.getElementById('close-sidebar');
+const mobileSidebar=document.getElementById('mobile-sidebar');
+const overlay=document.getElementById('overlay');
+if(openSidebar)openSidebar.addEventListener('click',()=>{mobileSidebar.classList.remove('hidden-sidebar');overlay.classList.remove('hidden');});
+if(closeSidebar)closeSidebar.addEventListener('click',()=>{mobileSidebar.classList.add('hidden-sidebar');overlay.classList.add('hidden');});
+if(overlay)overlay.addEventListener('click',()=>{mobileSidebar.classList.add('hidden-sidebar');overlay.classList.add('hidden');});
+loadFolder('/');loadStorageInfo();setInterval(loadStorageInfo,10000);
+</script>
+</body>
+</html>

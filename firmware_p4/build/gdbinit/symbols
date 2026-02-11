@@ -1,0 +1,20 @@
+# Load esp32p4 ROM ELF symbols
+define target hookpost-remote
+set confirm off
+  # if $_streq((char *) 0x4fc1d1ac, "Aug 11 2023")
+  if (*(int*) 0x4fc1d1ac) == 0x20677541 && (*(int*) 0x4fc1d1b0) == 0x32203131 && (*(int*) 0x4fc1d1b4) == 0x333230
+    add-symbol-file /home/outsyder/.espressif/tools/esp-rom-elfs/20241011/esp32p4_rev0_rom.elf
+  else
+    echo Warning: Unknown esp32p4 ROM revision.\n
+  end
+set confirm on
+end
+
+
+# Load bootloader symbols
+set confirm off
+    add-symbol-file /home/outsyder/Developer/TentacleOS/firmware_p4/build/bootloader/bootloader.elf
+set confirm on
+
+# Load application symbols
+file /home/outsyder/Developer/TentacleOS/firmware_p4/build/highboy.elf

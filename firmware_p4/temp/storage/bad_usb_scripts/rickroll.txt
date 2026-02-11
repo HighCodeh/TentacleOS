@@ -1,0 +1,7 @@
+REM Rickroll DuckyScript
+CONTROL t
+DELAY 500
+STRING https://www.youtube.com/watch?v=dQw4w9WgXcQ
+ENTER
+DELAY 1000
+SPACE
