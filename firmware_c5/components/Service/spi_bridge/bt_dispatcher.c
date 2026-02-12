@@ -19,6 +19,8 @@ spi_status_t bt_dispatcher_execute(spi_id_t id, const uint8_t *payload, uint8_t 
             uint32_t duration = 5000;
             if (len >= 4) memcpy(&duration, payload, 4);
             bluetooth_service_scan(duration);
+            // Point bridge to BT result set
+            spi_bridge_provide_results(bluetooth_service_get_scan_result(0), bluetooth_service_get_scan_count(), sizeof(ble_scan_result_t));
             return SPI_STATUS_OK;
         }
 

@@ -18,6 +18,8 @@ typedef enum {
     SPI_ID_SYSTEM_PING          = 0x01,
     SPI_ID_SYSTEM_STATUS        = 0x02,
     SPI_ID_SYSTEM_REBOOT        = 0x03,
+    SPI_ID_SYSTEM_VERSION       = 0x04,
+    SPI_ID_SYSTEM_DATA          = 0x05,
 
     // WiFi Basic (0x10 - 0x1F)
     SPI_ID_WIFI_SCAN            = 0x10,
@@ -38,10 +40,6 @@ typedef enum {
     SPI_ID_WIFI_APP_PROBE_MON   = 0x28,
     SPI_ID_WIFI_APP_SIGNAL_MON  = 0x29,
     SPI_ID_WIFI_APP_ATTACK_STOP = 0x2A,
-
-    // Data Retrieval (0x40 - 0x4F)
-    SPI_ID_WIFI_GET_RESULTS_COUNT = 0x40,
-    SPI_ID_WIFI_GET_RESULTS_DATA  = 0x41,
 
     // Bluetooth Basic (0x50 - 0x5F)
     SPI_ID_BT_SCAN              = 0x50,
@@ -77,6 +75,15 @@ typedef struct {
     uint8_t type;   // spi_type_t
     uint8_t id;     // spi_id_t
     uint8_t length; // Payload length
-} __attribute__((packed)) spi_header_t;
+} spi_header_t;
+
+typedef struct {
+    uint32_t packets;
+    uint32_t deauths;
+    uint32_t buffer_usage;
+    int8_t signal_rssi;
+    bool handshake_captured;
+    bool pmkid_captured;
+} __attribute__((packed)) sniffer_stats_t;
 
 #endif // SPI_PROTOCOL_H

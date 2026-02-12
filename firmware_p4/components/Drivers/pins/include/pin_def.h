@@ -55,4 +55,10 @@
 #define BRIDGE_CS_PIN   23
 #define BRIDGE_IRQ_PIN  2
 
+// C5 Control & Update (UART + Boot)
+#define C5_UART_TX_PIN  46
+#define C5_UART_RX_PIN  47
+#define C5_RESET_PIN    48
+#define C5_BOOT_PIN     33
+
 #endif // !PIN_DEF_H

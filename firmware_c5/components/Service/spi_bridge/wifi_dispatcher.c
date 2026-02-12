@@ -22,6 +22,8 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id, const uint8_t *payload, uint8_
     switch (id) {
         case SPI_ID_WIFI_SCAN:
             wifi_service_scan();
+            // Point bridge to WiFi result set
+            spi_bridge_provide_results(wifi_service_get_ap_record(0), wifi_service_get_ap_count(), sizeof(wifi_ap_record_t));
             return SPI_STATUS_OK;
 
         case SPI_ID_WIFI_CONNECT: {
@@ -37,11 +39,31 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id, const uint8_t *payload, uint8_
             esp_wifi_disconnect();
             return SPI_STATUS_OK;
 
+        case SPI_ID_WIFI_GET_STA_INFO: {
+            const char* ssid = wifi_service_get_connected_ssid();
+            if (ssid) {
+                strncpy((char*)out_resp_payload, ssid, 32);
+                *out_resp_len = 32;
+                return SPI_STATUS_OK;
+            }
+            return SPI_STATUS_ERROR;
+        }
+
         case SPI_ID_WIFI_APP_SCAN_AP:
-            return ap_scanner_start() ? SPI_STATUS_OK : SPI_STATUS_BUSY;
+            if (ap_scanner_start()) {
+                uint16_t count;
+                spi_bridge_provide_results(ap_scanner_get_results(&count), count, sizeof(wifi_ap_record_t));
+                return SPI_STATUS_OK;
+            }
+            return SPI_STATUS_BUSY;
 
         case SPI_ID_WIFI_APP_SCAN_CLIENT:
-            return client_scanner_start() ? SPI_STATUS_OK : SPI_STATUS_BUSY;
+            if (client_scanner_start()) {
+                uint16_t count;
+                spi_bridge_provide_results(client_scanner_get_results(&count), count, sizeof(client_record_t));
+                return SPI_STATUS_OK;
+            }
+            return SPI_STATUS_BUSY;
 
         case SPI_ID_WIFI_APP_BEACON_SPAM: {
             if (len == 0) return beacon_spam_start_random() ? SPI_STATUS_OK : SPI_STATUS_ERROR;
@@ -81,7 +103,12 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id, const uint8_t *payload, uint8_
             return SPI_STATUS_OK;
 
         case SPI_ID_WIFI_APP_PROBE_MON:
-            return probe_monitor_start() ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+            if (probe_monitor_start()) {
+                uint16_t count;
+                spi_bridge_provide_results(probe_monitor_get_results(&count), count, sizeof(probe_record_t));
+                return SPI_STATUS_OK;
+            }
+            return SPI_STATUS_ERROR;
 
         case SPI_ID_WIFI_APP_SIGNAL_MON: {
             if (len < 7) return SPI_STATUS_ERROR;
@@ -99,14 +126,6 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id, const uint8_t *payload, uint8_
             signal_monitor_stop();
             beacon_spam_stop();
             return SPI_STATUS_OK;
-
-        case SPI_ID_WIFI_GET_RESULTS_COUNT: {
-            uint16_t count = 0;
-            ap_scanner_get_results(&count);
-            memcpy(out_resp_payload, &count, 2);
-            *out_resp_len = 2;
-            return SPI_STATUS_OK;
-        }
 
         default:
             return SPI_STATUS_ERROR;
