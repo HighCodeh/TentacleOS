@@ -29,6 +29,10 @@ esp_err_t spi_bus_init(spi_host_device_t host, int mosi, int miso, int sclk) {
     return ret;
 }
 
+esp_err_t spi_init(void) {
+    return spi_bus_init(SPI3_HOST, SPI_MOSI_PIN, SPI_MISO_PIN, SPI_SCLK_PIN);
+}
+
 esp_err_t spi_add_device(spi_host_device_t host, spi_device_id_t id, const spi_device_config_t *config) {
     if (id >= SPI_DEVICE_MAX || !bus_active[host]) return ESP_ERR_INVALID_STATE;
     if (device_handles[id] != NULL) return ESP_OK;

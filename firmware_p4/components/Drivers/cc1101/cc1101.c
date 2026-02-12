@@ -139,7 +139,7 @@ void cc1101_init(void) {
   };
 
   // Adiciona o dispositivo ao barramento SPI (Driver Centralizado)
-  esp_err_t ret = spi_add_device(SPI_DEVICE_CC1101, &devcfg);
+  esp_err_t ret = spi_add_device(SPI3_HOST, SPI_DEVICE_CC1101, &devcfg);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "Falha ao adicionar dispositivo SPI: %s", esp_err_to_name(ret));
     return;

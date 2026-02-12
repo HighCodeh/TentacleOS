@@ -44,7 +44,7 @@ esp_err_t sd_init_custom(uint8_t max_files, bool format_if_failed)
         .queue_size = 4,
     };
     
-    esp_err_t ret = spi_add_device(SPI_DEVICE_SD_CARD, &sd_cfg);
+    esp_err_t ret = spi_add_device(SPI3_HOST, SPI_DEVICE_SD_CARD, &sd_cfg);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Falha ao adicionar SD no SPI: %s", esp_err_to_name(ret));
         return ret;

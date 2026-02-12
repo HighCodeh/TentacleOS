@@ -20,6 +20,7 @@ typedef struct {
 } spi_device_config_t;
 
 esp_err_t spi_bus_init(spi_host_device_t host, int mosi, int miso, int sclk);
+esp_err_t spi_init(void);
 esp_err_t spi_add_device(spi_host_device_t host, spi_device_id_t id, const spi_device_config_t *config);
 spi_device_handle_t spi_get_handle(spi_device_id_t id);
 esp_err_t spi_transmit(spi_device_id_t id, const uint8_t *data, size_t len);

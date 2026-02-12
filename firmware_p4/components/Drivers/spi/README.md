@@ -27,9 +27,10 @@ Initializes the SPI bus (MOSI, MISO, SCLK) on `SPI3_HOST` using DMA Channel `Aut
 
 ### `spi_add_device`
 ```c
-esp_err_t spi_add_device(spi_device_id_t id, const spi_device_config_t *config);
+esp_err_t spi_add_device(spi_host_device_t host, spi_device_id_t id, const spi_device_config_t *config);
 ```
 Adds a specific device to the initialized bus.
+- **host:** SPI host device (SPI2_HOST, SPI3_HOST).
 - **id:** Device identifier enum.
 - **config:** Struct containing CS pin, clock speed, SPI mode, and queue size.
 
