@@ -48,4 +48,11 @@
 #define ST7789_PIN_RST  21
 #define ST7789_PIN_BL   38
 
+// P4-C5 Bridge SPI (Slave)
+#define BRIDGE_SCLK_PIN 6
+#define BRIDGE_MOSI_PIN 7
+#define BRIDGE_MISO_PIN 2
+#define BRIDGE_CS_PIN   10
+#define BRIDGE_IRQ_PIN  3
+
 #endif // !PIN_DEF_H

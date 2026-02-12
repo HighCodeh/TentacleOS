@@ -48,4 +48,11 @@
 #define ST7789_PIN_RST  21
 #define ST7789_PIN_BL   38
 
+// P4-C5 Bridge SPI (Master)
+#define BRIDGE_SCLK_PIN 20
+#define BRIDGE_MOSI_PIN 21
+#define BRIDGE_MISO_PIN 22
+#define BRIDGE_CS_PIN   23
+#define BRIDGE_IRQ_PIN  2
+
 #endif // !PIN_DEF_H
