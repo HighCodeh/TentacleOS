@@ -1,6 +1,10 @@
 #ifndef SPI_PROTOCOL_H
 #define SPI_PROTOCOL_H
 
+
+#include <stdbool.h>
+
+
 #include <stdint.h>
 
 #define SPI_SYNC_BYTE 0xAA

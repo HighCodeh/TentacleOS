@@ -22,10 +22,6 @@ file(GLOB_RECURSE BRIDGE_MANAGER_SRCS "bridge_manager/*.c")
 idf_component_register(SRCS 
   "font/font.c"
   "icons/icons.c"
-  "wifi/wifi_service.c"
-  "http_server/http_server_service.c"
-  "dns_server/dns_server.c"
-  "bluetooth/bluetooth_service.c"
 
   "storage_api/storage_impl.c"
   "storage_api/storage_init.c"
@@ -51,7 +47,6 @@ idf_component_register(SRCS
   "ir/ir_burst.c"
   "lvgl_port/lv_port_indev.c"
   "lvgl_port/lv_port_disp.c"
-  "esp_now/service_esp_now.c"
   ${SD_CARD_SERVICE_SRCS}
   ${CONSOLE_SERVICE_SRCS}
   ${CONSOLE_COMMANDS_SRCS}
@@ -62,16 +57,11 @@ idf_component_register(SRCS
   INCLUDE_DIRS 
   "font/include"
   "icons/include"
-  "wifi/include"
-  "http_server/include"
-  "dns_server/include"
-  "bluetooth/include"
   "ir/include"
   "storage_api/include"
   "storage_vfs/include"
   "storage_assets/include"
   "lvgl_port/include"
-  "esp_now/include"
   "sd_card/include"
   "console/include"
   "spi_bridge/include"
@@ -87,15 +77,12 @@ idf_component_register(SRCS
     vfs
     fatfs
     esp_timer
-    esp_wifi
     esp_common
-    esp_netif
     Drivers
     Applications
     esp_http_server
     nvs_flash
     lvgl
-    bt
     littlefs
     cjson
     console 
