@@ -24,6 +24,7 @@ idf_component_register(SRCS
   "i2c_init/i2c_init.c"
   "tusb_desc/tusb_desc.c"
   "buttons_gpio/buttons_gpio.c"
+  "spi_bridge_phy/spi_bridge_phy.c"
 
   INCLUDE_DIRS 
   "bq25896/include"
@@ -37,6 +38,7 @@ idf_component_register(SRCS
   "i2c_init/include"
   "tusb_desc/include"
   "buttons_gpio/include"
+  "spi_bridge_phy/include"
 
   REQUIRES 
   driver
