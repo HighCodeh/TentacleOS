@@ -27,7 +27,9 @@ static void disp_flush(lv_display_t * disp, const lv_area_t * area, uint8_t * px
 
   esp_lcd_panel_draw_bitmap(panel_handle, area->x1, area->y1, area->x2 + 1, area->y2 + 1, px_map);
 
-  ble_screen_server_send_partial((const uint16_t *)px_map, area->x1, area->y1, w, h);
+  if (ble_screen_server_is_active()) {
+    ble_screen_server_send_partial((const uint16_t *)px_map, area->x1, area->y1, w, h);
+  }
 }
 void lv_port_disp_init(void)
 {
