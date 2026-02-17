@@ -14,74 +14,30 @@
 
 
 #include "deauther_detector.h"
-#include "wifi_service.h"
-#include "wifi_80211.h"
-#include "esp_wifi.h"
+#include "spi_bridge.h"
 #include "esp_log.h"
-#include "esp_heap_caps.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include <string.h>
 
 static const char *TAG = "DEAUTH_DETECTOR";
-
-static uint32_t *deauth_counter = NULL;
-
-static void wifi_sniffer_packet_handler(void *buf, wifi_promiscuous_pkt_type_t type) {
-  if (type != WIFI_PKT_MGMT) {
-    return;
-  }
-
-  const wifi_promiscuous_pkt_t *ppkt = (wifi_promiscuous_pkt_t *)buf;
-  const wifi_frame_control_t *frame_control = (const wifi_frame_control_t *)ppkt->payload;
-
-  if (frame_control->type == 0 && frame_control->subtype == 0xC) {
-    if (deauth_counter) {
-      (*deauth_counter)++;
-      if ((*deauth_counter) % 10 == 0) {
-        ESP_LOGW(TAG, "Deauth detected! Total: %lu", *deauth_counter);
-      }
-    }
-  }
-}
-
 void deauther_detector_start(void) {
-  if (deauth_counter == NULL) {
-    deauth_counter = (uint32_t *)heap_caps_malloc(sizeof(uint32_t), MALLOC_CAP_SPIRAM);
-    if (deauth_counter == NULL) {
-      ESP_LOGE(TAG, "Failed to allocate deauth counter in PSRAM!");
-      return;
+    if (spi_bridge_send_command(SPI_ID_WIFI_APP_DEAUTH_DET, NULL, 0, NULL, NULL, 2000) == ESP_OK) {
+    } else {
+        ESP_LOGW(TAG, "Failed to start deauth detector over SPI.");
     }
-    *deauth_counter = 0;
-  }
-
-  ESP_LOGI(TAG, "Starting Deauth Detector...");
-
-  wifi_promiscuous_filter_t filter = {
-    .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT
-  };
-
-  wifi_service_promiscuous_start(wifi_sniffer_packet_handler, &filter);
-
-  wifi_service_start_channel_hopping();
 }
 
 void deauther_detector_stop(void) {
-  wifi_service_stop_channel_hopping();
-
-  wifi_service_promiscuous_stop();
-
-  if (deauth_counter) {
-    heap_caps_free(deauth_counter);
-    deauth_counter = NULL;
-  }
-
-  ESP_LOGI(TAG, "Deauth Detector Stopped.");
+    spi_bridge_send_command(SPI_ID_WIFI_APP_ATTACK_STOP, NULL, 0, NULL, NULL, 2000);
 }
 
 uint32_t deauther_detector_get_count(void) {
-  if (deauth_counter) {
-    return *deauth_counter;
-  }
-  return 0;
+    spi_header_t resp;
+    uint8_t payload[4];
+    uint16_t index = SPI_DATA_INDEX_DEAUTH_COUNT;
+    if (spi_bridge_send_command(SPI_ID_SYSTEM_DATA, (uint8_t*)&index, 2, &resp, payload, 1000) == ESP_OK) {
+        uint32_t count = 0;
+        memcpy(&count, payload, sizeof(count));
+        return count;
+    }
+    return 0;
 }
