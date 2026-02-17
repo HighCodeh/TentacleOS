@@ -27,6 +27,7 @@
 #include "sd_card_write.h"
 #include "sd_card_init.h"
 #include "storage_mkdir.h"
+#include "spi_bridge.h"
 #include <string.h>
 #include <arpa/inet.h> 
 
@@ -53,6 +54,7 @@ static uint32_t buffer_offset = 0;
 static uint32_t packet_count = 0;
 static uint32_t deauth_count = 0;
 static bool is_sniffing = false;
+static bool pcap_enabled = false;
 static bool is_verbose = false;
 static sniff_type_t current_type = SNIFF_TYPE_RAW;
 static uint16_t sniffer_snaplen = 65535;
@@ -302,9 +304,10 @@ static void sniffer_stream_task(void *arg) {
 }
 
 static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
-  if (!is_sniffing || pcap_buffer == NULL) return;
+  if (!is_sniffing) return;
 
-  if (!is_streaming_sd && buffer_offset >= SNIFFER_BUFFER_SIZE - 2048) {
+  const bool pcap_ok = (pcap_buffer != NULL);
+  if (pcap_ok && !is_streaming_sd && buffer_offset >= SNIFFER_BUFFER_SIZE - 2048) {
     return;
   }
 
@@ -379,7 +382,19 @@ static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
       break;
   }
 
-  if (save) {
+  if (save && spi_bridge_stream_is_enabled(SPI_ID_WIFI_APP_SNIFFER)) {
+    uint8_t stream_buf[SPI_MAX_PAYLOAD];
+    spi_wifi_sniffer_frame_t *stream = (spi_wifi_sniffer_frame_t *)stream_buf;
+    uint16_t raw_len = ppkt->rx_ctrl.sig_len;
+    if (raw_len > SPI_WIFI_SNIFFER_MAX_DATA) raw_len = SPI_WIFI_SNIFFER_MAX_DATA;
+    stream->rssi = ppkt->rx_ctrl.rssi;
+    stream->channel = ppkt->rx_ctrl.channel;
+    stream->len = (uint8_t)raw_len;
+    memcpy(stream->data, ppkt->payload, raw_len);
+    spi_bridge_stream_push(SPI_ID_WIFI_APP_SNIFFER, stream_buf, (uint8_t)(raw_len + 3));
+  }
+
+  if (save && pcap_ok) {
     pcap_packet_header_t pkt_hdr;
     int64_t now_us = esp_timer_get_time();
     pkt_hdr.ts_sec = (uint32_t)(now_us / 1000000);
@@ -434,12 +449,19 @@ bool wifi_sniffer_start(sniff_type_t type, uint8_t channel) {
     pcap_buffer = (uint8_t *)heap_caps_malloc(SNIFFER_BUFFER_SIZE, MALLOC_CAP_SPIRAM);
   }
 
-  if (pcap_buffer == NULL) {
-    ESP_LOGE(TAG, "Failed to allocate PSRAM buffer.");
-    return false;
+  const bool stream_only = spi_bridge_stream_is_enabled(SPI_ID_WIFI_APP_SNIFFER);
+  pcap_enabled = (pcap_buffer != NULL);
+  if (!pcap_enabled) {
+    if (!stream_only) {
+      ESP_LOGE(TAG, "Failed to allocate PSRAM buffer.");
+      return false;
+    }
+    ESP_LOGW(TAG, "PSRAM unavailable; running in streaming-only mode.");
   }
 
-  write_pcap_global_header();
+  if (pcap_enabled) {
+    write_pcap_global_header();
+  }
   packet_count = 0;
   deauth_count = 0;
   pmkid_captured = false;
