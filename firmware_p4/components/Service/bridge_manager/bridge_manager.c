@@ -6,7 +6,6 @@
 
 static const char *TAG = "BRIDGE_MGR";
 static const char *EMBEDDED_VERSION = "1.0.0";
-#define BRIDGE_SKIP_C5_UPDATE 1
 
 esp_err_t bridge_manager_init(void) {
     ESP_LOGI(TAG, "Initializing Bridge Manager...");
@@ -38,13 +37,6 @@ esp_err_t bridge_manager_init(void) {
     }
 
     // 3. Update if needed
-#if BRIDGE_SKIP_C5_UPDATE
-    if (needs_update) {
-        ESP_LOGW(TAG, "C5 update required, but auto-update is disabled.");
-    } else {
-        ESP_LOGI(TAG, "C5 is up to date.");
-    }
-#else
     if (needs_update) {
         ESP_LOGW(TAG, "C5 update required!");
         c5_flasher_init();
@@ -57,7 +49,6 @@ esp_err_t bridge_manager_init(void) {
     } else {
         ESP_LOGI(TAG, "C5 is up to date.");
     }
-#endif
 
     return ESP_OK;
 }
