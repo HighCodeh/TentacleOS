@@ -15,12 +15,14 @@
 file(GLOB_RECURSE SD_CARD_SERVICE_SRCS "sd_card/*.c")
 file(GLOB_RECURSE CONSOLE_SERVICE_SRCS "console/*.c")
 file(GLOB_RECURSE CONSOLE_COMMANDS_SRCS "console/commands/*.c")
+file(GLOB_RECURSE SPI_BRIDGE_SRCS "spi_bridge/*.c")
 
 
 idf_component_register(SRCS 
   "font/font.c"
   "icons/icons.c"
   "wifi/wifi_service.c"
+  "wifi/mac_vendor.c"
   "http_server/http_server_service.c"
   "dns_server/dns_server.c"
   "bluetooth/bluetooth_service.c"
@@ -48,6 +50,7 @@ idf_component_register(SRCS
   "ir/protocol_sony.c"
   "ir/ir_burst.c"
   "esp_now/service_esp_now.c"
+  ${SPI_BRIDGE_SRCS}
   ${SD_CARD_SERVICE_SRCS}
   ${CONSOLE_SERVICE_SRCS}
   ${CONSOLE_COMMANDS_SRCS}
@@ -63,6 +66,7 @@ idf_component_register(SRCS
   "storage_vfs/include"
   "storage_assets/include"
   "esp_now/include"
+  "spi_bridge/include"
   "sd_card/include"
   "console/include"
 
@@ -77,6 +81,7 @@ idf_component_register(SRCS
     esp_timer
     esp_common
     esp_netif
+    esp_app_format
     Drivers
     Applications
     esp_http_server
