@@ -244,6 +244,14 @@ target_client_record_t* target_scanner_get_live_results(uint16_t *count, bool *s
   return scan_results;
 }
 
+const uint16_t* target_scanner_get_count_ptr(void) {
+  return &scan_count;
+}
+
+bool target_scanner_is_scanning(void) {
+  return is_scanning;
+}
+
 void target_scanner_free_results(void) {
   if (scan_results) {
     heap_caps_free(scan_results);
