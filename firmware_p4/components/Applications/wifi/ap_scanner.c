@@ -14,207 +14,91 @@
 
 
 #include "ap_scanner.h"
-#include "wifi_service.h"
-#include "esp_wifi.h"
+#include "spi_bridge.h"
 #include "esp_log.h"
-#include "esp_heap_caps.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+#include <stdlib.h>
 #include <string.h>
-#include "cJSON.h"
-#include "storage_write.h"
-#include "sd_card_write.h"
-#include "sd_card_init.h"
 
 static const char *TAG = "AP_SCANNER";
+static wifi_ap_record_t *cached_results = NULL;
+static uint16_t cached_count = 0;
+static bool scan_ready = false;
+static wifi_ap_record_t empty_record;
 
-static TaskHandle_t scanner_task_handle = NULL;
-static StackType_t *scanner_task_stack = NULL;
-static StaticTask_t *scanner_task_tcb = NULL;
-#define SCANNER_STACK_SIZE 4096
+static bool ap_scanner_fetch_results(void) {
+    spi_header_t resp;
+    uint8_t payload[2];
+    uint16_t magic_count = SPI_DATA_INDEX_COUNT;
 
-static wifi_ap_record_t *scan_results = NULL;
-static uint16_t scan_count = 0;
-static bool is_scanning = false;
-
-static const char* get_auth_mode_name(wifi_auth_mode_t auth_mode) {
-  switch (auth_mode) {
-    case WIFI_AUTH_OPEN: return "OPEN";
-    case WIFI_AUTH_WEP: return "WEP";
-    case WIFI_AUTH_WPA_PSK: return "WPA-PSK";
-    case WIFI_AUTH_WPA2_PSK: return "WPA2-PSK";
-    case WIFI_AUTH_WPA_WPA2_PSK: return "WPA/WPA2-PSK";
-    case WIFI_AUTH_WPA2_ENTERPRISE: return "WPA2-ENT";
-    case WIFI_AUTH_WPA3_PSK: return "WPA3-PSK";
-    case WIFI_AUTH_WPA2_WPA3_PSK: return "WPA2/WPA3-PSK";
-    default: return "Unknown";
-  }
-}
-
-static bool save_results_to_path(const char *path, bool use_sd_driver) {
-  if (scan_results == NULL || scan_count == 0) {
-    ESP_LOGW(TAG, "No results to save.");
-    return false;
-  }
-
-  cJSON *root = cJSON_CreateArray();
-  if (root == NULL) {
-    ESP_LOGE(TAG, "Failed to create JSON array.");
-    return false;
-  }
-
-  for (int i = 0; i < scan_count; i++) {
-    wifi_ap_record_t *ap = &scan_results[i];
-    cJSON *entry = cJSON_CreateObject();
-
-    cJSON_AddStringToObject(entry, "ssid", (char *)ap->ssid);
-
-    char bssid_str[18];
-    snprintf(bssid_str, sizeof(bssid_str), "%02x:%02x:%02x:%02x:%02x:%02x",
-             ap->bssid[0], ap->bssid[1], ap->bssid[2],
-             ap->bssid[3], ap->bssid[4], ap->bssid[5]);
-    cJSON_AddStringToObject(entry, "bssid", bssid_str);
-
-    cJSON_AddNumberToObject(entry, "rssi", ap->rssi);
-    cJSON_AddNumberToObject(entry, "channel", ap->primary);
-    cJSON_AddNumberToObject(entry, "authmode", ap->authmode);
-    cJSON_AddStringToObject(entry, "auth_str", get_auth_mode_name(ap->authmode));
-    cJSON_AddBoolToObject(entry, "wps", ap->wps);
-
-    cJSON_AddItemToArray(root, entry);
-  }
-
-  char *json_string = cJSON_PrintUnformatted(root);
-  if (json_string == NULL) {
-    ESP_LOGE(TAG, "Failed to print JSON.");
-    cJSON_Delete(root);
-    return false;
-  }
-
-  esp_err_t err;
-  if (use_sd_driver) {
-    if (!sd_is_mounted()) {
-      ESP_LOGE(TAG, "SD Card not mounted.");
-      free(json_string);
-      cJSON_Delete(root);
-      return false;
+    if (spi_bridge_send_command(SPI_ID_SYSTEM_DATA, (uint8_t*)&magic_count, 2, &resp, payload, 1000) != ESP_OK) {
+        return false;
     }
-    err = sd_write_string(path, json_string);
-  } else {
-    err = storage_write_string(path, json_string);
-  }
 
-  free(json_string);
-  cJSON_Delete(root);
+    uint16_t count = 0;
+    memcpy(&count, payload, 2);
 
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to write results to %s: %s", path, esp_err_to_name(err));
-    return false;
-  }
+    if (cached_results) {
+        free(cached_results);
+        cached_results = NULL;
+    }
+    cached_count = 0;
 
-  ESP_LOGI(TAG, "Scan results saved to %s", path);
-  return true;
-}
+    if (count == 0) {
+        scan_ready = true;
+        return true;
+    }
 
-bool ap_scanner_save_results_to_internal_flash(void) {
-  return save_results_to_path("/assets/storage/wifi/scanned_aps.json", false);
-}
+    cached_results = (wifi_ap_record_t *)malloc(count * sizeof(wifi_ap_record_t));
+    if (!cached_results) {
+        ESP_LOGW(TAG, "Failed to allocate AP results buffer.");
+        return false;
+    }
 
-bool ap_scanner_save_results_to_sd_card(void) {
-  return save_results_to_path("/scanned_aps.json", true); 
-}
-
-static void ap_scanner_task(void *pvParameters) {
-  ESP_LOGI(TAG, "Starting Wi-Fi Scan Task (PSRAM)...");
-
-  wifi_service_scan();
-
-  uint16_t ap_num = wifi_service_get_ap_count();
-  ESP_LOGI(TAG, "Scan completed. Service found %d APs.", ap_num);
-
-  if (scan_results) {
-    heap_caps_free(scan_results);
-    scan_results = NULL;
-    scan_count = 0;
-  }
-
-  if (ap_num > 0) {
-    scan_results = (wifi_ap_record_t *)heap_caps_malloc(ap_num * sizeof(wifi_ap_record_t), MALLOC_CAP_SPIRAM);
-    if (scan_results) {
-      scan_count = ap_num;
-      for (int i = 0; i < ap_num; i++) {
-        wifi_ap_record_t *rec = wifi_service_get_ap_record(i);
-        if (rec) {
-          memcpy(&scan_results[i], rec, sizeof(wifi_ap_record_t));
-          ESP_LOGI(TAG, "[%d] SSID: %s | CH: %d | RSSI: %d | Auth: %d", 
-                   i, rec->ssid, rec->primary, rec->rssi, rec->authmode);
+    for (uint16_t i = 0; i < count; i++) {
+        if (spi_bridge_send_command(SPI_ID_SYSTEM_DATA, (uint8_t*)&i, 2, &resp, (uint8_t*)&cached_results[i], 1000) != ESP_OK) {
+            free(cached_results);
+            cached_results = NULL;
+            return false;
         }
-      }
-      ESP_LOGI(TAG, "Results copied to PSRAM.");
-
-      ap_scanner_save_results_to_internal_flash();
-
-    } else {
-      ESP_LOGE(TAG, "Failed to allocate memory for results in PSRAM!");
     }
-  }
 
-  is_scanning = false;
-  scanner_task_handle = NULL;
-  vTaskDelete(NULL);
+    cached_count = count;
+    scan_ready = true;
+    return true;
 }
 
 bool ap_scanner_start(void) {
-  if (is_scanning) {
-    ESP_LOGW(TAG, "Scan already in progress.");
-    return false;
-  }
-
-  if (scanner_task_stack == NULL) {
-    scanner_task_stack = (StackType_t *)heap_caps_malloc(SCANNER_STACK_SIZE * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
-  }
-  if (scanner_task_tcb == NULL) {
-    scanner_task_tcb = (StaticTask_t *)heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-  }
-
-  if (scanner_task_stack == NULL || scanner_task_tcb == NULL) {
-    ESP_LOGE(TAG, "Failed to allocate scanner task memory in PSRAM!");
-    if (scanner_task_stack) { heap_caps_free(scanner_task_stack); scanner_task_stack = NULL; }
-    if (scanner_task_tcb) { heap_caps_free(scanner_task_tcb); scanner_task_tcb = NULL; }
-    return false;
-  }
-
-  is_scanning = true;
-  scanner_task_handle = xTaskCreateStatic(
-    ap_scanner_task,
-    "ap_scan_task",
-    SCANNER_STACK_SIZE,
-    NULL,
-    5,
-    scanner_task_stack,
-    scanner_task_tcb
-  );
-
-  return (scanner_task_handle != NULL);
+    ap_scanner_free_results();
+    esp_err_t err = spi_bridge_send_command(SPI_ID_WIFI_APP_SCAN_AP, NULL, 0, NULL, NULL, 15000);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "AP scan failed over SPI.");
+        return false;
+    }
+    return ap_scanner_fetch_results();
 }
 
 wifi_ap_record_t* ap_scanner_get_results(uint16_t *count) {
-  if (is_scanning) {
-    return NULL;
-  }
-  *count = scan_count;
-  return scan_results;
+    if (!scan_ready) {
+        if (count) *count = 0;
+        return NULL;
+    }
+    if (count) *count = cached_count;
+    return cached_results ? cached_results : &empty_record;
 }
 
 void ap_scanner_free_results(void) {
-  if (scan_results) {
-    heap_caps_free(scan_results);
-    scan_results = NULL;
-  }
-  scan_count = 0;
+    if (cached_results) {
+        free(cached_results);
+        cached_results = NULL;
+    }
+    cached_count = 0;
+    scan_ready = false;
+}
 
-  if (!is_scanning) {
-    if (scanner_task_stack) { heap_caps_free(scanner_task_stack); scanner_task_stack = NULL; }
-    if (scanner_task_tcb) { heap_caps_free(scanner_task_tcb); scanner_task_tcb = NULL; }
-  }
+bool ap_scanner_save_results_to_internal_flash(void) {
+    return (spi_bridge_send_command(SPI_ID_WIFI_AP_SAVE_FLASH, NULL, 0, NULL, NULL, 5000) == ESP_OK);
+}
+
+bool ap_scanner_save_results_to_sd_card(void) {
+    return (spi_bridge_send_command(SPI_ID_WIFI_AP_SAVE_SD, NULL, 0, NULL, NULL, 5000) == ESP_OK);
 }
