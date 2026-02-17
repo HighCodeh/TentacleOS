@@ -43,10 +43,10 @@
 #define LED_COUNT    1
 
 // lcd st7789
-#define ST7789_PIN_CS   48
-#define ST7789_PIN_DC   47
-#define ST7789_PIN_RST  21
-#define ST7789_PIN_BL   38
+#define ST7789_PIN_CS   26
+#define ST7789_PIN_DC   27
+#define ST7789_PIN_RST  32
+#define ST7789_PIN_BL   54
 
 // P4-C5 Bridge SPI (Master)
 #define BRIDGE_SCLK_PIN 20
