@@ -31,6 +31,7 @@ static spi_device_handle_t cc1101_spi = NULL;
 static float s_current_freq_mhz = 433.92;
 static uint8_t s_current_modulation = 2; // Default ASK/OOK
 static int s_current_pa_dbm = 10; 
+static uint8_t s_active_preset_id = 0;
 
 static const uint8_t PA_TABLE_315[8] = {0x12, 0x0D, 0x1C, 0x34, 0x51, 0x85, 0xCB, 0xC2}; // 300 - 348 MHz
 static const uint8_t PA_TABLE_433[8] = {0x12, 0x0E, 0x1D, 0x34, 0x60, 0x84, 0xC8, 0xC0}; // 387 - 464 MHz
@@ -555,6 +556,54 @@ void cc1101_enable_fsk_mode(uint32_t freq_hz) {
 
     ESP_LOGI(TAG, "CC1101 configurado em FSK Mode");
     cc1101_strobe(CC1101_SRX);
+}
+
+void cc1101_set_preset(cc1101_preset_t preset, uint32_t freq_hz) {
+    s_active_preset_id = (uint8_t)preset;
+    
+    switch (preset) {
+        case CC1101_PRESET_IDLE:
+            cc1101_strobe(CC1101_SIDLE);
+            break;
+            
+        case CC1101_PRESET_OOK_270KHZ:
+            cc1101_enable_async_mode(freq_hz);
+            cc1101_set_rx_bandwidth(270.0);
+            break;
+            
+        case CC1101_PRESET_OOK_650KHZ:
+            cc1101_enable_async_mode(freq_hz);
+            cc1101_set_rx_bandwidth(650.0);
+            break;
+
+        case CC1101_PRESET_2FSK_2KHZ:
+            cc1101_enable_fsk_mode(freq_hz);
+            cc1101_set_rx_bandwidth(58.0);
+            cc1101_set_deviation(2.38);
+            break;
+
+        case CC1101_PRESET_2FSK_47KHZ:
+            cc1101_enable_fsk_mode(freq_hz);
+            cc1101_set_rx_bandwidth(270.0);
+            cc1101_set_deviation(47.6);
+            break;
+
+        case CC1101_PRESET_2FSK_95KHZ:
+            cc1101_enable_fsk_mode(freq_hz);
+            cc1101_set_rx_bandwidth(540.0);
+            cc1101_set_deviation(95.2);
+            break;
+            
+        case CC1101_PRESET_OOK_800KHZ:
+        default:
+            cc1101_enable_async_mode(freq_hz);
+            cc1101_set_rx_bandwidth(812.0); 
+            break;
+    }
+}
+
+uint8_t cc1101_get_active_preset_id(void) {
+    return s_active_preset_id;
 }
 
 void cc1101_enter_tx_mode(void) {

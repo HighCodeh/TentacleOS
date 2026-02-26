@@ -120,6 +120,20 @@ void cc1101_enter_tx_mode(void);
 void cc1101_enable_async_mode(uint32_t freq_hz); // ASK (OOK) Default
 void cc1101_enable_fsk_mode(uint32_t freq_hz);   // FSK
 
+// Preset Management
+typedef enum {
+    CC1101_PRESET_IDLE = 0,
+    CC1101_PRESET_OOK_270KHZ = 1,
+    CC1101_PRESET_OOK_650KHZ = 2,
+    CC1101_PRESET_2FSK_2KHZ = 3,
+    CC1101_PRESET_2FSK_47KHZ = 4,
+    CC1101_PRESET_2FSK_95KHZ = 5,
+    CC1101_PRESET_OOK_800KHZ = 6, 
+} cc1101_preset_t;
+
+void cc1101_set_preset(cc1101_preset_t preset, uint32_t freq_hz);
+uint8_t cc1101_get_active_preset_id(void);
+
 // New Tuning & Configuration Functions
 void cc1101_set_rx_bandwidth(float khz);
 void cc1101_set_data_rate(float baud);
