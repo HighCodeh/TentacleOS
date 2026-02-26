@@ -1,72 +1,68 @@
-#include "subghz_protocol_defs.h"
+#include "subghz_protocol_decoder.h"
+#include "subghz_protocol_utils.h"
 #include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+
+/**
+ * CAME 12bit / 24bit Protocol Implementation
+ */
 
 #define CAME_SHORT 320
 #define CAME_LONG  640
-#define CAME_TOL   150 // Tolerância
-
-static bool is_within(int32_t val, int32_t target) {
-    if (val < 0) val = -val; // Aceita magnitude
-    return (val >= target - CAME_TOL) && (val <= target + CAME_TOL);
-}
+#define CAME_TOL   60 // % Tolerance
 
 static bool protocol_came_decode(const int32_t* raw_data, size_t count, subghz_data_t* out_data) {
-    if (count < 24) return false; // CAME 12 bits precisa de 24 transições (12 pares High/Low)
+    if (count < 24) return false; 
 
-    uint32_t decoded_data = 0;
-    int bits_found = 0;
+    // CAME doesn't have a strict sync bit in the same way as RCSwitch, 
+    // it's usually preceded by a long gap (pilot).
+    // We try to find a sequence of bits.
 
-    // CAME geralmente começa com um Pilot bit (gap longo) e depois Start bit.
-    // Vamos varrer procurando uma sequência válida de bits.
-    
-    for (size_t i = 0; i < count - 1; i += 2) {
-        int32_t pulse = raw_data[i];     // Deveria ser High
-        int32_t gap   = raw_data[i+1];   // Deveria ser Low
+    for (size_t start_idx = 0; start_idx < count - 24; start_idx++) {
+        uint32_t decoded_data = 0;
+        int bits_found = 0;
+        size_t k = start_idx;
 
-        // Verifica polaridade (opcional se o sinal estiver muito ruidoso, mas idealmente P=+, G=-)
-        if (pulse < 0) { 
-            // Se começou com negativo, talvez estejamos desalinhados. Tenta pular 1.
-            if (i == 0) { i--; continue; } 
-            return false; 
-        }
+        while (k < count - 1 && bits_found < 24) {
+            int32_t pulse = raw_data[k];
+            int32_t gap   = raw_data[k+1];
 
-        int bit = -1;
-
-        // Bit 0: Short Pulse, Long Gap
-        if (is_within(pulse, CAME_SHORT) && is_within(gap, CAME_LONG)) {
-            bit = 0;
-        }
-        // Bit 1: Long Pulse, Short Gap
-        else if (is_within(pulse, CAME_LONG) && is_within(gap, CAME_SHORT)) {
-            bit = 1;
-        }
-        // Start/Pilot detection could be here
-        else {
-            // Se falhou, reseta
-            decoded_data = 0;
-            bits_found = 0;
-            continue;
-        }
-
-        if (bit != -1) {
-            decoded_data = (decoded_data << 1) | bit;
-            bits_found++;
-            
-            // CAME-12 (12 bits) ou CAME-24 (24 bits)
-            if (bits_found == 12) {
-                out_data->protocol_name = "CAME 12bit";
-                out_data->bit_count = 12;
-                out_data->raw_value = decoded_data;
-                out_data->serial = decoded_data; 
-                out_data->btn = 0; // CAME não separa botão fixo, varia
-                return true;
+            // CAME is Active High: Pulse=+, Gap=-
+            if (pulse <= 0 || gap >= 0) {
+                break;
             }
-             if (bits_found == 24) {
-                out_data->protocol_name = "CAME 24bit";
-                out_data->bit_count = 24;
-                out_data->raw_value = decoded_data;
-                out_data->serial = decoded_data;
-                return true;
+
+            // Bit 0: Short Pulse (1 Te), Long Gap (2 Te)
+            if (subghz_check_pulse(pulse, CAME_SHORT, CAME_TOL) && 
+                subghz_check_pulse(gap, CAME_LONG, CAME_TOL)) {
+                decoded_data = (decoded_data << 1) | 0;
+                bits_found++;
+            }
+            // Bit 1: Long Pulse (2 Te), Short Gap (1 Te)
+            else if (subghz_check_pulse(pulse, CAME_LONG, CAME_TOL) && 
+                     subghz_check_pulse(gap, CAME_SHORT, CAME_TOL)) {
+                decoded_data = (decoded_data << 1) | 1;
+                bits_found++;
+            } else {
+                break;
+            }
+            k += 2;
+
+            // Check if we reached a valid bit count
+            if (bits_found == 12 || bits_found == 24) {
+                // If the next pulses don't match, we might have a valid packet
+                // (CAME sends exactly 12 or 24)
+                if (k >= count - 1 || (!subghz_check_pulse(raw_data[k], CAME_SHORT, CAME_TOL) && 
+                                      !subghz_check_pulse(raw_data[k], CAME_LONG, CAME_TOL))) {
+                    
+                    out_data->protocol_name = (bits_found == 12) ? "CAME 12bit" : "CAME 24bit";
+                    out_data->bit_count = bits_found;
+                    out_data->raw_value = decoded_data;
+                    out_data->serial = decoded_data;
+                    out_data->btn = 0;
+                    return true;
+                }
             }
         }
     }
@@ -74,8 +70,32 @@ static bool protocol_came_decode(const int32_t* raw_data, size_t count, subghz_d
     return false;
 }
 
-static void protocol_came_encode(const subghz_data_t* in_data, int32_t** out_raw, size_t* out_count) {
-    // Implementar Encoder Futuramente
+static size_t protocol_came_encode(const subghz_data_t* data, int32_t* pulses, size_t max_count) {
+    if (data->bit_count != 12 && data->bit_count != 24) return 0;
+    if (max_count < (size_t)(data->bit_count * 2 + 1)) return 0;
+
+    size_t idx = 0;
+    
+    // Pilot pulse/gap is usually handled by the sender or can be added here
+    // For CAME, we'll just encode the bits.
+
+    for (int i = data->bit_count - 1; i >= 0; i--) {
+        bool bit = (data->raw_value >> i) & 1;
+        if (bit) {
+            // Bit 1: Long Pulse, Short Gap
+            pulses[idx++] = CAME_LONG;
+            pulses[idx++] = -CAME_SHORT;
+        } else {
+            // Bit 0: Short Pulse, Long Gap
+            pulses[idx++] = CAME_SHORT;
+            pulses[idx++] = -CAME_LONG;
+        }
+    }
+
+    // Stop bit / Final gap
+    pulses[idx++] = -CAME_SHORT * 20; // Long gap to separate packets
+
+    return idx;
 }
 
 subghz_protocol_t protocol_came = {

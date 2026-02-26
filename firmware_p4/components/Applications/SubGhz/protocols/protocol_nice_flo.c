@@ -1,60 +1,62 @@
-#include "subghz_protocol_defs.h"
+#include "subghz_protocol_decoder.h"
+#include "subghz_protocol_utils.h"
 #include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+
+/**
+ * Nice Flo 12bit Protocol Implementation
+ */
 
 #define NICE_SHORT 700
 #define NICE_LONG  1400
-#define NICE_TOL   250
-
-static bool is_within(int32_t val, int32_t target) {
-    if (val < 0) val = -val;
-    return (val >= target - NICE_TOL) && (val <= target + NICE_TOL);
-}
+#define NICE_TOL   60 // % Tolerance
 
 static bool protocol_nice_flo_decode(const int32_t* raw_data, size_t count, subghz_data_t* out_data) {
     if (count < 24) return false; 
 
-    uint32_t decoded_data = 0;
-    int bits_found = 0;
+    for (size_t start_idx = 0; start_idx < count - 24; start_idx++) {
+        uint32_t decoded_data = 0;
+        int bits_found = 0;
+        size_t k = start_idx;
+        bool fail = false;
 
-    for (size_t i = 0; i < count - 1; i += 2) {
-        int32_t pulse = raw_data[i];
-        int32_t gap   = raw_data[i+1];
+        while (k < count - 1 && bits_found < 12) {
+            int32_t pulse = raw_data[k];
+            int32_t gap   = raw_data[k+1];
 
-        // Sincronia inicial (se necessário)
-        // Nice Flo muitas vezes começa direto
-
-        if (pulse < 0) { if (i==0) {i--; continue;} return false; }
-
-        int bit = -1;
-
-        // Bit 0: Short Pulse, Long Gap (Duty 1/3)
-        if (is_within(pulse, NICE_SHORT) && is_within(gap, NICE_LONG)) {
-            bit = 0;
-        }
-        // Bit 1: Long Pulse, Short Gap (Duty 2/3)
-        else if (is_within(pulse, NICE_LONG) && is_within(gap, NICE_SHORT)) {
-            bit = 1;
-        }
-        else {
-            decoded_data = 0;
-            bits_found = 0;
-            continue;
-        }
-
-        if (bit != -1) {
-            decoded_data = (decoded_data << 1) | bit;
-            bits_found++;
-            
-            if (bits_found == 12) {
-                out_data->protocol_name = "Nice Flo 12bit";
-                out_data->bit_count = 12;
-                out_data->raw_value = decoded_data;
-                // Nice Flo: 9 bits DIP switch + 2 bits btn? Ou 10+2?
-                // Estrutura comum: 10 switches + 2 buttons
-                out_data->serial = decoded_data >> 2;
-                out_data->btn = decoded_data & 0x03;
-                return true;
+            // Nice Flo: Pulse=+, Gap=-
+            if (pulse <= 0 || gap >= 0) {
+                fail = true;
+                break;
             }
+
+            // Bit 0: Short Pulse, Long Gap
+            if (subghz_check_pulse(pulse, NICE_SHORT, NICE_TOL) && 
+                subghz_check_pulse(gap, NICE_LONG, NICE_TOL)) {
+                decoded_data = (decoded_data << 1) | 0;
+                bits_found++;
+            }
+            // Bit 1: Long Pulse, Short Gap
+            else if (subghz_check_pulse(pulse, NICE_LONG, NICE_TOL) && 
+                     subghz_check_pulse(gap, NICE_SHORT, NICE_TOL)) {
+                decoded_data = (decoded_data << 1) | 1;
+                bits_found++;
+            } else {
+                fail = true;
+                break;
+            }
+            k += 2;
+        }
+
+        if (!fail && bits_found == 12) {
+            out_data->protocol_name = "Nice Flo 12bit";
+            out_data->bit_count = 12;
+            out_data->raw_value = decoded_data;
+            // Common Nice Flo: 10 switches + 2 buttons
+            out_data->serial = decoded_data >> 2;
+            out_data->btn = decoded_data & 0x03;
+            return true;
         }
     }
 
@@ -64,5 +66,5 @@ static bool protocol_nice_flo_decode(const int32_t* raw_data, size_t count, subg
 subghz_protocol_t protocol_nice_flo = {
     .name = "Nice Flo",
     .decode = protocol_nice_flo_decode,
-    .encode = NULL // TODO
+    .encode = NULL
 };

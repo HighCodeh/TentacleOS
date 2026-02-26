@@ -1,14 +1,10 @@
-#include "subghz_protocol_defs.h"
+#include "subghz_protocol_decoder.h"
+#include "subghz_protocol_utils.h"
 #include <string.h>
 
 #define LIFT_SHORT 400
 #define LIFT_LONG  800
-#define LIFT_TOL   200
-
-static bool is_within(int32_t val, int32_t target) {
-    if (val < 0) val = -val;
-    return (val >= target - LIFT_TOL) && (val <= target + LIFT_TOL);
-}
+#define LIFT_TOL   40 // % Tolerance
 
 static bool protocol_liftmaster_decode(const int32_t* raw_data, size_t count, subghz_data_t* out_data) {
     if (count < 20) return false;
@@ -20,15 +16,24 @@ static bool protocol_liftmaster_decode(const int32_t* raw_data, size_t count, su
         int32_t pulse = raw_data[i];
         int32_t gap   = raw_data[i+1];
 
-        if (pulse < 0) { if(i==0){i--; continue;} return false; }
+        if (pulse < 0) { 
+            if (i == 0) {
+                i--; 
+                continue;
+            } 
+            return false; 
+        }
 
         int bit = -1;
 
-        if (is_within(pulse, LIFT_SHORT) && is_within(gap, LIFT_LONG)) {
+        if (subghz_check_pulse(pulse, LIFT_SHORT, LIFT_TOL) && 
+            subghz_check_pulse(gap, LIFT_LONG, LIFT_TOL)) {
             bit = 0;
-        } else if (is_within(pulse, LIFT_LONG) && is_within(gap, LIFT_SHORT)) {
+        } else if (subghz_check_pulse(pulse, LIFT_LONG, LIFT_TOL) && 
+                   subghz_check_pulse(gap, LIFT_SHORT, LIFT_TOL)) {
             bit = 1;
         } else {
+            if (bits_found >= 8) break;
             decoded_data = 0;
             bits_found = 0;
             continue;
@@ -38,15 +43,13 @@ static bool protocol_liftmaster_decode(const int32_t* raw_data, size_t count, su
             decoded_data = (decoded_data << 1) | bit;
             bits_found++;
             
-            if (bits_found > 10) {
-                 // Liftmaster detected
-                 if (bits_found == 12) { // Example
-                    out_data->protocol_name = "Liftmaster";
-                    out_data->bit_count = bits_found;
-                    out_data->raw_value = decoded_data;
-                    out_data->serial = decoded_data;
-                    return true;
-                 }
+            if (bits_found == 12) {
+                out_data->protocol_name = "Liftmaster";
+                out_data->bit_count = bits_found;
+                out_data->raw_value = decoded_data;
+                out_data->serial = decoded_data;
+                out_data->btn = 0;
+                return true;
             }
         }
     }
