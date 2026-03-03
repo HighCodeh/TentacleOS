@@ -2,7 +2,6 @@
   <img src="pics/Highboy_repo.png" alt="HighBoy Banner" width="1000"/>
 </p>
 
----
 
 # Firmware HighBoy (Beta)
 
@@ -46,7 +45,6 @@ Veja a arquitetura geral do projeto:
   <img src="pics/architecture.png" alt="Arquitetura do Firmware" width="40%"/>
 </p>
 
---- 
 
 ## Como utilizar este projeto
 
@@ -86,6 +84,12 @@ Contribuições são o que fazem a comunidade open-source um lugar incrível par
 5. Abra um Pull Request
 
 Por favor, leia nosso [**CONTRIBUTING.md**](CONTRIBUTING.md) para mais detalhes sobre o estilo de codificação e processo de build.
+
+---
+
+## Código de Conduta
+
+Estamos comprometidos em oferecer um ambiente amigável, seguro e acolhedor para todos. Por favor, leia nosso [**Código de Conduta**](CODE_OF_CONDUCT.md) para entender as expectativas ao participar deste projeto.
 
 ---
 

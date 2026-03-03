@@ -2,9 +2,8 @@
 
 Thank you for your interest in contributing to HighBoy! We welcome contributions from everyone. This document provides guidelines and instructions to help you get started.
 
----
 
-## 🚀 Getting Started
+## Getting Started
 
 ### 1. Cloning the Repository
 Clone the repository and its submodules recursively to ensure you have all dependencies:
@@ -44,7 +43,6 @@ idf.py build
 
 *(Note: In the `/tools` directory, there is a `.sh` file responsible for automatic building and flashing.)*
 
----
 
 ## Development Workflow
 
@@ -103,7 +101,6 @@ We use **GitHub Actions** to automatically build the project for all supported t
 5. **CI Validation:** Wait for GitHub Actions to complete the build verification.
 6. **Review:** At least one maintainer must review and approve your PR before merging.
 
----
 
 ## Code of Conduct
 By participating in this project, you agree to abide by our [Code of Conduct](CODE_OF_CONDUCT.md).
