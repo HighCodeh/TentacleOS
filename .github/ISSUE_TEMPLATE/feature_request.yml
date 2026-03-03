@@ -1,5 +1,5 @@
 name: Feature Request
-description: Suggest a new feature or improvement for HighBoy.
+description: Suggest a new feature or improvement for High Boy.
 labels: ["enhancement"]
 body:
   - type: textarea

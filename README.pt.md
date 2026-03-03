@@ -3,7 +3,7 @@
 </p>
 
 
-# Firmware HighBoy (Beta)
+# Firmware High Boy (Beta)
 
 [![License](https://img.shields.io/github/license/HighCodeh/TentacleOS)](LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/HighCodeh/TentacleOS)](https://github.com/HighCodeh/TentacleOS/stargazers)
@@ -12,7 +12,7 @@
 
 > **Idiomas**:  [🇺🇸 English](README.md) | [🇧🇷 Português](README.pt.md) 
 
-Este repositório contém um **firmware em desenvolvimento** para a plataforma **HighBoy**.  
+Este repositório contém um **firmware em desenvolvimento** para a plataforma **High Boy**.  
 **Atenção:** este firmware está em **fase beta** e **ainda está incompleto**.
 
 ---
