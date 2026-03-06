@@ -16,6 +16,7 @@
 #include "tusb_desc.h"
 #include "tinyusb.h"
 #include "esp_log.h"
+#include "driver/gpio.h"
 #include <string.h>
 
 static const char* TAG = "TUSB_DESC";
@@ -107,15 +108,33 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_
 }
 
 void busb_init(void){
-  ESP_LOGI(TAG, "Inicializando o driver TinyUSB para BadUSB...");
+  ESP_LOGI(TAG, "Initializing the TinyUSB driver...");
+
+  // in ESP32-P4 High Speed port, the ISR Service of GPIO is obrigatory
+  esp_err_t err = gpio_install_isr_service(0);
+  if (err == ESP_ERR_INVALID_STATE) {
+    ESP_LOGW(TAG, "GPIO ISR service already installed.");
+  } else {
+    ESP_ERROR_CHECK(err);
+  }
+
   const tinyusb_config_t tusb_cfg = {
-    .device_descriptor = &desc_device,
-    .string_descriptor = string_desc_arr,
-    .string_descriptor_count = sizeof(string_desc_arr) / sizeof(string_desc_arr[0]),
-    .external_phy = false,
-    .configuration_descriptor = desc_configuration,
+    .port = TINYUSB_PORT_HIGH_SPEED_0,
+    .descriptor = {
+        .device = &desc_device,
+        .string = string_desc_arr,
+        .string_count = sizeof(string_desc_arr) / sizeof(string_desc_arr[0]),
+        .full_speed_config = desc_configuration,
+        .high_speed_config = desc_configuration
+    },
+    .phy = {
+        .skip_setup = false,
+        .self_powered = false,
+        .vbus_monitor_io = -1
+    }
   };
 
   ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
-  ESP_LOGI(TAG, "Driver TinyUSB instalado com sucesso.");
+  ESP_LOGI(TAG, "Driver TinyUSB installed with success.");
 }
+
