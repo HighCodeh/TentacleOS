@@ -94,6 +94,13 @@ typedef enum {
     SPI_ID_WIFI_CLIENT_SAVE_SD             = 0x46,
     SPI_ID_WIFI_AP_SAVE_FLASH              = 0x47,
     SPI_ID_WIFI_AP_SAVE_SD                 = 0x48,
+    SPI_ID_WIFI_PORT_SCAN_TARGET_RANGE     = 0x49,
+    SPI_ID_WIFI_PORT_SCAN_TARGET_LIST      = 0x4A,
+    SPI_ID_WIFI_PORT_SCAN_NETWORK          = 0x4B,
+    SPI_ID_WIFI_PORT_SCAN_CIDR             = 0x4C,
+    SPI_ID_WIFI_PORT_SCAN_STOP             = 0x4D,
+    SPI_ID_WIFI_GET_MAC                    = 0x4E,
+    SPI_ID_WIFI_GET_IP_INFO                = 0x4F,
 
     // Bluetooth Basic (0x50 - 0x5F)
     SPI_ID_BT_SCAN              = 0x50,
@@ -216,5 +223,57 @@ typedef struct {
     uint8_t len;
     uint8_t data[31];
 } __attribute__((packed)) spi_ble_sniffer_frame_t;
+
+// WiFi MAC response: interface(1) + mac[6]
+// WiFi IP info response
+typedef struct {
+    uint8_t interface;  // 0 = STA, 1 = AP
+    uint8_t mac[6];
+    uint32_t ip;
+    uint32_t netmask;
+    uint32_t gw;
+} __attribute__((packed)) spi_wifi_ip_info_t;
+
+// Port scan request: target + port range (24 bytes)
+typedef struct {
+    char ip[16];
+    uint16_t start_port;
+    uint16_t end_port;
+    uint16_t max_results;
+    uint8_t reserved[2];
+} __attribute__((packed)) spi_port_scan_range_req_t;
+
+// Port scan request: target + port list (payload: ip[16] + count(2) + ports(2*N))
+// Sent as raw payload due to variable length
+
+// Port scan request: network range (28 bytes)
+typedef struct {
+    char start_ip[16];
+    char end_ip[16];
+    uint16_t start_port;
+    uint16_t end_port;
+    uint16_t max_results;
+    uint8_t scan_type;   // 0 = port range, 1 = port list
+    uint8_t reserved;
+} __attribute__((packed)) spi_port_scan_network_req_t;
+
+// Port scan request: CIDR (28 bytes)
+typedef struct {
+    char base_ip[16];
+    uint8_t cidr;
+    uint8_t scan_type;   // 0 = port range, 1 = port list
+    uint16_t start_port;
+    uint16_t end_port;
+    uint16_t max_results;
+} __attribute__((packed)) spi_port_scan_cidr_req_t;
+
+// Port scan result record (84 bytes)
+typedef struct {
+    char ip_str[16];
+    uint16_t port;
+    uint8_t protocol;    // 0 = TCP, 1 = UDP
+    uint8_t status;      // 0 = OPEN, 1 = OPEN_FILTERED
+    char banner[64];
+} __attribute__((packed)) spi_port_scan_result_t;
 
 #endif // SPI_PROTOCOL_H
