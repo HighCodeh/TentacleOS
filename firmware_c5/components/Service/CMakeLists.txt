@@ -12,15 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-file(GLOB_RECURSE SD_CARD_SERVICE_SRCS "sd_card/*.c")
 file(GLOB_RECURSE CONSOLE_SERVICE_SRCS "console/*.c")
 file(GLOB_RECURSE CONSOLE_COMMANDS_SRCS "console/commands/*.c")
 file(GLOB_RECURSE SPI_BRIDGE_SRCS "spi_bridge/*.c")
+file(GLOB_RECURSE SD_CARD_SRCS "sd_card/*.c")
 
 
 idf_component_register(SRCS 
-  "font/font.c"
-  "icons/icons.c"
   "wifi/wifi_service.c"
   "wifi/mac_vendor.c"
   "http_server/http_server_service.c"
@@ -38,37 +36,23 @@ idf_component_register(SRCS
   "storage_vfs/vfs_sdcard.c"
   "storage_assets/storage_assets.c"
 
-  "ir/ir_encoder.c"
-  "ir/ir_common.c"
-  "ir/ir_tx.c"
-  "ir/ir_rx.c"
-  "ir/ir_storage.c"
-  "ir/protocol_nec.c"
-  "ir/protocol_rc6.c"
-  "ir/protocol_rc5.c"
-  "ir/protocol_samsung32.c"
-  "ir/protocol_sony.c"
-  "ir/ir_burst.c"
   "esp_now/service_esp_now.c"
   ${SPI_BRIDGE_SRCS}
-  ${SD_CARD_SERVICE_SRCS}
   ${CONSOLE_SERVICE_SRCS}
   ${CONSOLE_COMMANDS_SRCS}
+  ${SD_CARD_SRCS}
   INCLUDE_DIRS 
-  "font/include"
-  "icons/include"
   "wifi/include"
   "http_server/include"
   "dns_server/include"
   "bluetooth/include"
-  "ir/include"
   "storage_api/include"
   "storage_vfs/include"
   "storage_assets/include"
   "esp_now/include"
   "spi_bridge/include"
-  "sd_card/include"
   "console/include"
+  "sd_card/include"
 
 
 
