@@ -60,14 +60,12 @@ file(GLOB_RECURSE CONNECT_BLUETOOTH_UI_SRCS "ui/screens/connect_bluetooth/*.c")
 file(GLOB_RECURSE SUBGHZ_APP_SRCS "SubGhz/*.c")
 file(GLOB_RECURSE BLE_APP_SRCS "bluetooth/*.c")
 file(GLOB_RECURSE BADUSB_APP_SRCS "bad_usb/*.c")
-file(GLOB_RECURSE ESPNOW_CHAT_APP_SRCS "espnow_chat/*.c")
 file(GLOB_RECURSE WIFI_APP_SRCS "wifi/*.c")
 
 idf_component_register(SRCS 
   "play/play.c"
   ${UI_SRCS}
   ${WIFI_APP_SRCS}
-  ${ESPNOW_CHAT_APP_SRCS}
   ${BADUSB_APP_SRCS}
   ${BLE_APP_SRCS}
   "ui/ui_manager.c"
@@ -98,7 +96,6 @@ idf_component_register(SRCS
   INCLUDE_DIRS 
   "play/include"
   "wifi/include"   
-  "espnow_chat/include"
   "ui/include"
   "ui/screens/SubGhz/include"
   "ui/screens/bluetooth/include"
