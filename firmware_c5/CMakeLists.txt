@@ -9,7 +9,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
-project(highboy)
+project(TentacleOS_C5)
 
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
     # Windows Detection
