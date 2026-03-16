@@ -17,8 +17,7 @@
 #define UUID_LOOKUP_H
 
 #include <stdint.h>
-#include "host/ble_uuid.h"
 
-const char* uuid_get_name(const ble_uuid_t *uuid);
+const char* uuid_get_name_by_u16(uint16_t uuid16);
 
 #endif // UUID_LOOKUP_H
