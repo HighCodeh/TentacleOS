@@ -15,7 +15,6 @@
 
 #include <stdio.h>
 #include "buttons_gpio.h"
-#include "cc1101.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
@@ -59,7 +58,6 @@ void kernel_init(void) {
 
   led_rgb_init();
   bq25896_init();
-  cc1101_init();
   spi_bridge_slave_init();
 
 
