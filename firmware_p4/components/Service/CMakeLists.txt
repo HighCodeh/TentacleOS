@@ -57,7 +57,9 @@ idf_component_register(SRCS
   ${BRIDGE_MANAGER_SRCS}
   ${BT_SERVICE_SRCS}
 
-  INCLUDE_DIRS 
+  "ota/ota_service.c"
+
+  INCLUDE_DIRS
   "font/include"
   "icons/include"
   "wifi/include"
@@ -72,6 +74,7 @@ idf_component_register(SRCS
   "c5_flasher/include"
   "bridge_manager/include"
   "bluetooth/include"
+  "ota/include"
 
 
 
@@ -92,6 +95,7 @@ idf_component_register(SRCS
     cjson
     console 
     argtable3
+    app_update
 )
 
 # Embed C5 Firmware Binary into Service component (used by c5_flasher)
