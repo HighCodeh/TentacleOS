@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/HighCodeh/TentacleOS/compare/v1.0.0...v1.0.1) (2026-03-17)
+
+
+### Bug Fixes
+
+* **release:** testing release .bin generatos ([299b3fd](https://github.com/HighCodeh/TentacleOS/commit/299b3fd9da00bbce1bc69fc148684a771a705ba6))
+
 # 1.0.0 (2026-03-17)
 
 
