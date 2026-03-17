@@ -6,6 +6,7 @@
 /temp/
 temp/
 temp
+**/temp/**
 **/temp/
 LVGLImage.py
 
