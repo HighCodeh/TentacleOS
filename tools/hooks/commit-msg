@@ -20,7 +20,7 @@ if echo "$COMMIT_MSG" | grep -qE '^Merge '; then
   exit 0
 fi
 
-PATTERN='^(feat|fix|docs|delete|remove|removed|style|refactor|perf|test|chore|ci|build|revert)(\(.+\))?(!)?: .{1,}'
+PATTERN='^(feat|fix|docs|delete|deleted|remove|removed|style|refactor|perf|test|chore|ci|build|revert)(\(.+\))?(!)?: .{1,}'
 
 if ! echo "$COMMIT_MSG" | grep -qE "$PATTERN"; then
   echo ""
@@ -28,7 +28,7 @@ if ! echo "$COMMIT_MSG" | grep -qE "$PATTERN"; then
   echo ""
   echo "Expected: <type>(<scope>): <description>"
   echo ""
-  echo "Types: feat, fix, docs, style, refactor, perf, test, chore, ci, build, revert"
+  echo "Types: feat, fix, docs, style, refactor, perf, test, chore, ci, build, revert, delete, remove"
   echo ""
   echo "Examples:"
   echo "  feat(ota): add OTA update service"

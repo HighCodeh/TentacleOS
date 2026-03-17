@@ -3,7 +3,9 @@ module.exports = {
   rules: {
     'type-enum': [2, 'always', [
       'feat', 'fix', 'docs', 'style', 'refactor',
-      'perf', 'test', 'chore', 'ci', 'build', 'revert'
+      'perf', 'test', 'chore', 'ci', 'build', 'revert',
+      'delete', 'deleted', 'remove', 'removed'
     ]],
+    'scope-case': [0],
   },
 };
