@@ -4,6 +4,8 @@
 /lvgl-env/
 **/lvgl-env/
 /temp/
+temp/
+temp
 **/temp/
 LVGLImage.py
 
