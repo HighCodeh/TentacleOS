@@ -60,7 +60,7 @@ esp_err_t sd_init_custom(uint8_t max_files, bool format_if_failed)
     
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
     host.max_freq_khz = SDMMC_FREQ_DEFAULT;
-    host.slot = SPI3_HOST;
+    host.slot = SPI2_HOST;
     
     sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
     slot_config.gpio_cs = SD_CARD_CS_PIN;

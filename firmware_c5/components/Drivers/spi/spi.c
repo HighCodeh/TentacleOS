@@ -20,7 +20,7 @@ esp_err_t spi_init(void) {
         .max_transfer_sz = 4096,
     };
 
-    esp_err_t ret = spi_bus_initialize(SPI3_HOST, &buscfg, SPI_DMA_CH_AUTO);
+    esp_err_t ret = spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO);
     if (ret == ESP_OK) {
         bus_initialized = true;
         ESP_LOGI(TAG, "Internal SPI Master initialized");
@@ -39,7 +39,7 @@ esp_err_t spi_add_device(spi_device_id_t id, const spi_device_config_t *config) 
         .queue_size = config->queue_size,
     };
 
-    return spi_bus_add_device(SPI3_HOST, &devcfg, &device_handles[id]);
+    return spi_bus_add_device(SPI2_HOST, &devcfg, &device_handles[id]);
 }
 
 spi_device_handle_t spi_get_handle(spi_device_id_t id) {
@@ -64,7 +64,7 @@ esp_err_t spi_deinit(void) {
         }
     }
     if (bus_initialized) {
-        spi_bus_free(SPI3_HOST);
+        spi_bus_free(SPI2_HOST);
         bus_initialized = false;
     }
     return ESP_OK;
