@@ -107,7 +107,7 @@ void safeguard_alert(const char* title, const char* message) {
 }
 
 void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {
-  ESP_LOGE(TAG, "!!! CRITICAL STACK OVERFLOW DETECTED !!!");
+  ESP_LOGE(TAG, "!!! CRITICAL STACKK OVERFLOW DETECTED !!!");
   ESP_LOGE(TAG, "Task Name: [%s]", pcTaskName);
   ESP_LOGE(TAG, "Task attempted to use more memory than was allocated.");
 }
