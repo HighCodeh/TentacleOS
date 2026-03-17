@@ -74,13 +74,54 @@ We follow the [ESP-IDF Style Guide](https://docs.espressif.com/projects/esp-idf/
 ---
 
 ### Commit Conventions
-We use [Conventional Commits](https://www.conventionalcommits.org/). This helps in generating changelogs and understanding the history.
+We use [Conventional Commits](https://www.conventionalcommits.org/). This is **enforced by a git hook** — commits that don't follow the format will be rejected.
 
 Format: `<type>(<scope>): <description>`
 
-Common types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`.
+| Type | Description | Version Impact |
+|---|---|---|
+| `feat` | New feature | Minor bump (0.**X**.0) |
+| `fix` | Bug fix | Patch bump (0.0.**X**) |
+| `perf` | Performance improvement | Patch bump (0.0.**X**) |
+| `docs` | Documentation only | No bump |
+| `style` | Code style (formatting, etc.) | No bump |
+| `refactor` | Code refactoring | No bump |
+| `test` | Adding or updating tests | No bump |
+| `chore` | Maintenance tasks | No bump |
+| `ci` | CI/CD changes | No bump |
+| `build` | Build system changes | No bump |
+| `revert` | Reverting a previous commit | No bump |
 
-Example: `feat(subghz): add waterfall visualization`
+**Breaking changes** (major version bump) are indicated by adding `!` before the colon:
+```
+feat(spi)!: redesigned bridge protocol
+fix!: changed public API return types
+```
+
+Examples:
+```
+feat(subghz): add waterfall visualization
+fix(spi): corrected timeout on bridge init
+feat(bt)!: redesigned BLE protocol
+chore: cleanup unused imports
+refactor(ota): simplified update flow
+```
+
+### Automatic Versioning
+This project uses **Semantic Versioning** with fully automated version bumps via [semantic-release](https://github.com/semantic-release/semantic-release).
+
+- Versioning is handled entirely by **GitHub Actions** — contributors do not need to manage versions manually.
+- When a PR is merged into `main`, the CI pipeline analyzes commit messages, determines the version bump, creates a git tag, generates a changelog, and publishes a GitHub Release with the firmware binaries.
+- Just write your commits following the Conventional Commits format and the rest is automatic.
+
+### Git Hooks Setup
+After cloning the repository, run the setup script to install the required git hooks:
+
+```bash
+./tools/setup.sh
+```
+
+This installs the `commit-msg` hook that validates your commit messages follow the Conventional Commits format. **Without this, your commits may be rejected during code review.**
 
 ---
 
