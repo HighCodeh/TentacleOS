@@ -35,7 +35,6 @@ idf_component_register(SRCS
   Service
   esp_common
   esp_wifi
-  esp_tinyusb
   bt
 )
 target_link_libraries(${COMPONENT_LIB} -Wl,-zmuldefs)

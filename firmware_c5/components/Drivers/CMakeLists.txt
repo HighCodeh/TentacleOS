@@ -16,7 +16,6 @@
 idf_component_register(SRCS 
   "bq25896/bq25896.c"
   "buzzer/buzzer.c"
-  "pn7150/pn7150.c" 
   "led/led_control.c"
   "spi/spi.c"
   "spi_slave/spi_slave_driver.c"
@@ -26,7 +25,6 @@ idf_component_register(SRCS
   INCLUDE_DIRS 
   "bq25896/include"
   "buzzer/include"
-  "pn7150/include"
   "led/include"
   "pins/include"
   "spi/include"
@@ -39,5 +37,4 @@ idf_component_register(SRCS
   Service
   esp_lcd
   PRIV_REQUIRES
-  esp_tinyusb
   "espressif__led_strip")
