@@ -17,18 +17,21 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     outputs:
-      new_release: ${{ steps.semrel.outputs.new_release }}
-      version: ${{ steps.semrel.outputs.version }}
+      new_release: ${{ steps.check.outputs.new_release }}
+      version: ${{ steps.check.outputs.version }}
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      - name: Get latest tag before release
+        id: before
+        run: echo "tag=$(git tag -l 'v*' --sort=-v:refname | head -1)" >> $GITHUB_OUTPUT
 
       - name: Install dependencies
         run: |
@@ -43,19 +46,21 @@ jobs:
             @semantic-release/github
 
       - name: Run semantic-release
-        id: semrel
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release
+
+      - name: Check if new release was created
+        id: check
         run: |
-          npx semantic-release 2>&1 | tee /tmp/semrel.log
-          VERSION=$(grep -oP 'Published release \K[0-9]+\.[0-9]+\.[0-9]+' /tmp/semrel.log || echo "")
-          if [ -z "$VERSION" ]; then
-            VERSION=$(grep -oP 'next release version is \K[0-9]+\.[0-9]+\.[0-9]+' /tmp/semrel.log || echo "")
-          fi
-          if [ -n "$VERSION" ]; then
+          git fetch --tags
+          LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1)
+          BEFORE_TAG="${{ steps.before.outputs.tag }}"
+          if [ "$LATEST_TAG" != "$BEFORE_TAG" ] && [ -n "$LATEST_TAG" ]; then
+            VERSION="${LATEST_TAG#v}"
             echo "new_release=true" >> $GITHUB_OUTPUT
             echo "version=$VERSION" >> $GITHUB_OUTPUT
-            echo "Release version: $VERSION"
+            echo "New release: $VERSION"
           else
             echo "new_release=false" >> $GITHUB_OUTPUT
             echo "No new release"
