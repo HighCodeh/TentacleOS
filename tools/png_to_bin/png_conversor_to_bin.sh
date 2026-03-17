@@ -26,12 +26,23 @@ echo -e "\n${YELLOW}>>> Starting LVGL Assets Automation (Linux/Mac)${NC}"
 
 if [ ! -f "$PYTHON_BIN" ]; then
   echo -e "${YELLOW}Virtual environment 'lvgl-env' not found in $SCRIPT_DIR. Creating...${NC}"
+  rm -rf "$VENV_DIR"
   python3 -m venv "$VENV_DIR"
 
   if [ $? -ne 0 ]; then
     echo -e "${RED}Critical Error: Failed to create Python virtual environment.${NC}"
     echo "Make sure python3-venv is installed (sudo apt install python3-venv)"
     exit 1
+  fi
+
+  # Resolve the actual python binary name inside the venv
+  if [ ! -f "$PYTHON_BIN" ]; then
+    if [ -f "$VENV_DIR/bin/python" ]; then
+      PYTHON_BIN="$VENV_DIR/bin/python"
+    else
+      echo -e "${RED}Critical Error: Python binary not found inside the virtual environment.${NC}"
+      exit 1
+    fi
   fi
 fi
 

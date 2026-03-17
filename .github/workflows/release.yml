@@ -1,0 +1,86 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  version:
+    name: Semantic Release
+    runs-on: ubuntu-latest
+    outputs:
+      new_release: ${{ steps.semrel.outputs.new_release }}
+      version: ${{ steps.semrel.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: |
+          npm install \
+            semantic-release \
+            conventional-changelog-conventionalcommits \
+            @semantic-release/commit-analyzer \
+            @semantic-release/release-notes-generator \
+            @semantic-release/changelog \
+            @semantic-release/exec \
+            @semantic-release/git \
+            @semantic-release/github
+
+      - name: Run semantic-release
+        id: semrel
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OUTPUT=$(npx semantic-release 2>&1) || true
+          echo "$OUTPUT"
+          VERSION=$(echo "$OUTPUT" | grep -oP 'Published release \K[0-9]+\.[0-9]+\.[0-9]+' || echo "")
+          if [ -n "$VERSION" ]; then
+            echo "new_release=true" >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "new_release=false" >> $GITHUB_OUTPUT
+          fi
+
+  build:
+    name: Build & Upload
+    needs: version
+    if: needs.version.outputs.new_release == 'true'
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:v5.5.1
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Pull latest (includes version commit)
+        run: git pull origin main
+
+      - name: Build
+        run: bash tools/build.sh
+        shell: bash
+
+      - name: Upload binary to Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          cp firmware_p4/build/TentacleOS_P4.bin "TentacleOS_v${VERSION}.bin"
+          gh release upload "v${VERSION}" \
+            "TentacleOS_v${VERSION}.bin" \
+            --clobber

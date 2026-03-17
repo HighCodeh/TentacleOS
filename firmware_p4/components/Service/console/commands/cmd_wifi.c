@@ -16,8 +16,8 @@
 #include "esp_console.h"
 #include "argtable3/argtable3.h"
 #include "esp_log.h"
-#include "esp_wifi.h"
-#include "esp_mac.h"
+#include "spi_bridge.h"
+#include "spi_protocol.h"
 #include <string.h>
 
 // Service Includes
@@ -487,12 +487,22 @@ static int subcmd_status(int argc, char **argv) {
   const char* conn_ssid = wifi_service_get_connected_ssid();
   printf("Connected STA:  %s\n", conn_ssid ? conn_ssid : "Disconnected");
 
-  uint8_t mac_sta[6], mac_ap[6];
-  esp_wifi_get_mac(WIFI_IF_STA, mac_sta);
-  esp_wifi_get_mac(WIFI_IF_AP, mac_ap);
+  spi_header_t resp_hdr;
+  uint8_t resp_buf[SPI_MAX_PAYLOAD];
 
-  printf("MAC STA:        " MACSTR "\n", MAC2STR(mac_sta));
-  printf("MAC AP:         " MACSTR "\n", MAC2STR(mac_ap));
+  uint8_t iface_sta = 0;
+  if (spi_bridge_send_command(SPI_ID_WIFI_GET_MAC, &iface_sta, 1,
+      &resp_hdr, resp_buf, 2000) == ESP_OK && resp_buf[0] == SPI_STATUS_OK) {
+    printf("MAC STA:        %02x:%02x:%02x:%02x:%02x:%02x\n",
+        resp_buf[1], resp_buf[2], resp_buf[3], resp_buf[4], resp_buf[5], resp_buf[6]);
+  }
+
+  uint8_t iface_ap = 1;
+  if (spi_bridge_send_command(SPI_ID_WIFI_GET_MAC, &iface_ap, 1,
+      &resp_hdr, resp_buf, 2000) == ESP_OK && resp_buf[0] == SPI_STATUS_OK) {
+    printf("MAC AP:         %02x:%02x:%02x:%02x:%02x:%02x\n",
+        resp_buf[1], resp_buf[2], resp_buf[3], resp_buf[4], resp_buf[5], resp_buf[6]);
+  }
 
   printf("--- Applications ---\n");
   printf("Beacon Spam:    %s\n", beacon_spam_is_running() ? "RUNNING" : "Stopped");

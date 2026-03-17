@@ -26,8 +26,16 @@
 #define GPIO_SDA_PIN    8  // GDO0
 #define GPIO_SCL_PIN    9  // GDO2
 
+// SDMMC (SDIO)
+#define SDMMC_CLK_PIN   43
+#define SDMMC_CMD_PIN   44
+#define SDMMC_D0_PIN    39
+#define SDMMC_D1_PIN    40
+#define SDMMC_D2_PIN    41
+#define SDMMC_D3_PIN    42
+
+
 // chip select
-#define SD_CARD_CS_PIN  14
 #define ST7789_CS_PIN   48
 
 // buttons

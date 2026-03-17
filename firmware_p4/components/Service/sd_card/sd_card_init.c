@@ -14,11 +14,11 @@
 
 
 #include "sd_card_init.h"
-#include "spi.h"
 #include "pin_def.h"
 #include "esp_log.h"
 #include "esp_vfs_fat.h"
-#include "driver/sdspi_host.h"
+#include "driver/sdmmc_host.h"
+#include "driver/sdmmc_defs.h"
 #include "sdmmc_cmd.h"
 
 static const char *TAG = "sd_init";
@@ -33,75 +33,68 @@ esp_err_t sd_init(void)
 esp_err_t sd_init_custom(uint8_t max_files, bool format_if_failed)
 {
     if (s_is_mounted) {
-        ESP_LOGW(TAG, "SD já montado");
+        ESP_LOGW(TAG, "SD already mounted");
         return ESP_OK;
     }
 
-    spi_device_config_t sd_cfg = {
-        .cs_pin = SD_CARD_CS_PIN,
-        .clock_speed_hz = SDMMC_FREQ_DEFAULT * 1000,
-        .mode = 0,
-        .queue_size = 4,
-    };
-    
-    esp_err_t ret = spi_add_device(SPI3_HOST, SPI_DEVICE_SD_CARD, &sd_cfg);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Falha ao adicionar SD no SPI: %s", esp_err_to_name(ret));
-        return ret;
-    }
+    ESP_LOGI(TAG, "Initializing SD (SDMMC 4-bit)...");
+
+    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+    host.max_freq_khz = SDMMC_FREQ_HIGHSPEED;
+
+    sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
+    slot_config.width = 4;
+    slot_config.clk = SDMMC_CLK_PIN;
+    slot_config.cmd = SDMMC_CMD_PIN;
+    slot_config.d0 = SDMMC_D0_PIN;
+    slot_config.d1 = SDMMC_D1_PIN;
+    slot_config.d2 = SDMMC_D2_PIN;
+    slot_config.d3 = SDMMC_D3_PIN;
+    slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
 
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
         .format_if_mount_failed = format_if_failed,
         .max_files = max_files,
-        .allocation_unit_size = SD_ALLOCATION_UNIT
+        .allocation_unit_size = SD_ALLOCATION_UNIT,
     };
-    
-    ESP_LOGI(TAG, "Inicializando SD...");
-    
-    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
-    host.max_freq_khz = SDMMC_FREQ_DEFAULT;
-    host.slot = SPI3_HOST;
-    
-    sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
-    slot_config.gpio_cs = SD_CARD_CS_PIN;
-    slot_config.host_id = host.slot;
-    
-    ret = esp_vfs_fat_sdspi_mount(SD_MOUNT_POINT, &host, &slot_config, 
-                                   &mount_config, &s_card);
+
+    esp_err_t ret = esp_vfs_fat_sdmmc_mount(
+        SD_MOUNT_POINT,
+        &host,
+        &slot_config,
+        &mount_config,
+        &s_card
+    );
+
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Erro mount: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Mount failed: %s", esp_err_to_name(ret));
         return ret;
     }
-    
-    s_is_mounted = true;
-    ESP_LOGI(TAG, "SD montado com sucesso!");
-    return ESP_OK;
-}
 
-esp_err_t sd_init_custom_pins(int mosi, int miso, int clk, int cs)
-{
-    ESP_LOGW(TAG, "Pinos customizados não suportados com driver SPI centralizado");
-    ESP_LOGW(TAG, "Usando pinos padrão definidos em pin_def.h");
-    return sd_init();
+    s_is_mounted = true;
+    ESP_LOGI(TAG, "SD mounted (SDMMC): %s, %llu MB",
+             s_card->cid.name,
+             ((uint64_t)s_card->csd.capacity) * s_card->csd.sector_size / (1024 * 1024));
+    return ESP_OK;
 }
 
 esp_err_t sd_deinit(void)
 {
     if (!s_is_mounted) {
-        ESP_LOGW(TAG, "SD não está montado");
+        ESP_LOGW(TAG, "SD not mounted");
         return ESP_ERR_INVALID_STATE;
     }
-    
+
     esp_err_t ret = esp_vfs_fat_sdcard_unmount(SD_MOUNT_POINT, s_card);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Erro unmount: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Unmount failed: %s", esp_err_to_name(ret));
         return ret;
     }
-    
+
     s_is_mounted = false;
     s_card = NULL;
-    
-    ESP_LOGI(TAG, "SD desmontado");
+
+    ESP_LOGI(TAG, "SD unmounted");
     return ESP_OK;
 }
 
@@ -119,24 +112,17 @@ esp_err_t sd_remount(void)
     return sd_init();
 }
 
-esp_err_t sd_reset_bus(void)
-{
-    ESP_LOGW(TAG, "Reset de barramento não suportado com driver SPI compartilhado");
-    ESP_LOGI(TAG, "Use sd_remount() para remontar o cartão");
-    return ESP_ERR_NOT_SUPPORTED;
-}
-
 esp_err_t sd_check_health(void)
 {
     if (!s_is_mounted) {
-        ESP_LOGE(TAG, "SD não montado");
+        ESP_LOGE(TAG, "SD not mounted");
         return ESP_ERR_INVALID_STATE;
     }
     if (s_card == NULL) {
-        ESP_LOGE(TAG, "Ponteiro do cartão nulo");
+        ESP_LOGE(TAG, "Card pointer is null");
         return ESP_FAIL;
     }
-    ESP_LOGI(TAG, "Cartão saudável");
+    ESP_LOGI(TAG, "Card healthy");
     return ESP_OK;
 }
 

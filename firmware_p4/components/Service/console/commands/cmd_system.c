@@ -18,12 +18,11 @@
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_heap_caps.h"
+#include "spi_bridge.h"
+#include "spi_protocol.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <stdio.h>
-#include "esp_wifi.h"
-#include "esp_netif.h"
-#include "esp_mac.h"
 
 static int cmd_free(int argc, char **argv) {
   printf("Internal RAM:\n");
@@ -42,35 +41,39 @@ static int cmd_restart(int argc, char **argv) {
   return 0;
 }
 
+static void print_interface_info(uint8_t iface, const char *name) {
+  spi_header_t resp_hdr;
+  uint8_t resp_buf[SPI_MAX_PAYLOAD];
+
+  esp_err_t ret = spi_bridge_send_command(SPI_ID_WIFI_GET_IP_INFO,
+      &iface, 1,
+      &resp_hdr, resp_buf, 2000);
+
+  if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
+    printf("%s Interface: unavailable\n", name);
+    return;
+  }
+
+  spi_wifi_ip_info_t *info = (spi_wifi_ip_info_t *)&resp_buf[1];
+
+  printf("%s Interface:\n", name);
+  printf("  IP: %u.%u.%u.%u\n",
+      (unsigned)(info->ip & 0xFF), (unsigned)((info->ip >> 8) & 0xFF),
+      (unsigned)((info->ip >> 16) & 0xFF), (unsigned)((info->ip >> 24) & 0xFF));
+  printf("  Mask: %u.%u.%u.%u\n",
+      (unsigned)(info->netmask & 0xFF), (unsigned)((info->netmask >> 8) & 0xFF),
+      (unsigned)((info->netmask >> 16) & 0xFF), (unsigned)((info->netmask >> 24) & 0xFF));
+  printf("  GW: %u.%u.%u.%u\n",
+      (unsigned)(info->gw & 0xFF), (unsigned)((info->gw >> 8) & 0xFF),
+      (unsigned)((info->gw >> 16) & 0xFF), (unsigned)((info->gw >> 24) & 0xFF));
+  printf("  MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
+      info->mac[0], info->mac[1], info->mac[2],
+      info->mac[3], info->mac[4], info->mac[5]);
+}
+
 static int cmd_ip(int argc, char **argv) {
-  esp_netif_t *netif_sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-  esp_netif_t *netif_ap = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
-
-  if (netif_sta) {
-    esp_netif_ip_info_t ip_info;
-    esp_netif_get_ip_info(netif_sta, &ip_info);
-    printf("STA Interface:\n");
-    printf("  IP: " IPSTR "\n", IP2STR(&ip_info.ip));
-    printf("  Mask: " IPSTR "\n", IP2STR(&ip_info.netmask));
-    printf("  GW: " IPSTR "\n", IP2STR(&ip_info.gw));
-
-    uint8_t mac[6];
-    esp_wifi_get_mac(WIFI_IF_STA, mac);
-    printf("  MAC: " MACSTR "\n", MAC2STR(mac));
-  }
-
-  if (netif_ap) {
-    esp_netif_ip_info_t ip_info;
-    esp_netif_get_ip_info(netif_ap, &ip_info);
-    printf("AP Interface:\n");
-    printf("  IP: " IPSTR "\n", IP2STR(&ip_info.ip));
-    printf("  Mask: " IPSTR "\n", IP2STR(&ip_info.netmask));
-    printf("  GW: " IPSTR "\n", IP2STR(&ip_info.gw));
-
-    uint8_t mac[6];
-    esp_wifi_get_mac(WIFI_IF_AP, mac);
-    printf("  MAC: " MACSTR "\n", MAC2STR(mac));
-  }
+  print_interface_info(0, "STA");
+  print_interface_info(1, "AP");
   return 0;
 }
 

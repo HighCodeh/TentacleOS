@@ -4,6 +4,9 @@
 /lvgl-env/
 **/lvgl-env/
 /temp/
+temp/
+temp
+**/temp/**
 **/temp/
 LVGLImage.py
 
@@ -533,7 +536,6 @@ object_script.*.Debug
 moc_*.cpp
 moc_*.h
 qrc_*.cpp
-ui_*.h
 *.qmlc
 *.jsc
 Makefile*

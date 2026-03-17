@@ -12,8 +12,8 @@ static const char *TAG = "C5_FLASHER";
 #define FLASH_BLOCK_SIZE 1024
 
 // Access to embedded binary symbols
-extern const uint8_t c5_firmware_bin_start[] asm("_binary_firmware_c5_bin_start");
-extern const uint8_t c5_firmware_bin_end[]   asm("_binary_firmware_c5_bin_end");
+extern const uint8_t c5_firmware_bin_start[] asm("_binary_TentacleOS_C5_bin_start");
+extern const uint8_t c5_firmware_bin_end[]   asm("_binary_TentacleOS_C5_bin_end");
 
 // ESP Serial Protocol Constants
 #define ESP_ROM_BAUD  115200

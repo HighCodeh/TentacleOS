@@ -14,26 +14,19 @@
 
 
 #APPLICATION
-file(GLOB_RECURSE SUBGHZ_APP_SRCS "SubGhz/*.c")
 file(GLOB_RECURSE BLE_APP_SRCS "bluetooth/*.c")
-file(GLOB_RECURSE BADUSB_APP_SRCS "bad_usb/*.c")
 file(GLOB_RECURSE ESPNOW_CHAT_APP_SRCS "espnow_chat/*.c")
 file(GLOB_RECURSE WIFI_APP_SRCS "wifi/*.c")
 
 idf_component_register(SRCS 
   ${WIFI_APP_SRCS}
   ${ESPNOW_CHAT_APP_SRCS}
-  ${BADUSB_APP_SRCS}
   ${BLE_APP_SRCS}
-  ${SUBGHZ_APP_SRCS}
 
   INCLUDE_DIRS 
   "wifi/include"   
   "espnow_chat/include"
-  "bad_usb/include"
   "bluetooth/include"
-  "SubGhz/include"
-  "SubGhz/protocols/include"
 
 
   REQUIRES 
@@ -42,7 +35,6 @@ idf_component_register(SRCS
   Service
   esp_common
   esp_wifi
-  esp_tinyusb
   bt
 )
 target_link_libraries(${COMPONENT_LIB} -Wl,-zmuldefs)

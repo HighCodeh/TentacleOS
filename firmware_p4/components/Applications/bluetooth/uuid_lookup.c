@@ -14,7 +14,6 @@
 
 
 #include "uuid_lookup.h"
-#include <stdio.h>
 
 typedef struct {
   uint16_t uuid16;
@@ -37,12 +36,9 @@ static const uuid_entry_t uuid_table[] = {
   {0x2A4D, "Report"},
 };
 
-const char* uuid_get_name(const ble_uuid_t *uuid) {
-  if (uuid->type == BLE_UUID_TYPE_16) {
-    uint16_t u16 = BLE_UUID16(uuid)->value;
-    for (int i = 0; i < sizeof(uuid_table)/sizeof(uuid_entry_t); i++) {
-      if (uuid_table[i].uuid16 == u16) return uuid_table[i].name;
-    }
+const char* uuid_get_name_by_u16(uint16_t uuid16) {
+  for (int i = 0; i < sizeof(uuid_table)/sizeof(uuid_entry_t); i++) {
+    if (uuid_table[i].uuid16 == uuid16) return uuid_table[i].name;
   }
   return "Unknown Service/Char";
 }

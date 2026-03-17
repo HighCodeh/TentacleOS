@@ -253,7 +253,7 @@ esp_err_t vfs_sdcard_init(void)
             .flags = SPICOMMON_BUSFLAG_MASTER,
         };
         
-        ret = spi_bus_initialize(SPI3_HOST, &bus_cfg, SPI_DMA_CH_AUTO);
+        ret = spi_bus_initialize(SPI2_HOST, &bus_cfg, SPI_DMA_CH_AUTO);
         
         if (ret == ESP_OK) {
             s_sdcard.we_initialized_bus = true;
@@ -268,12 +268,12 @@ esp_err_t vfs_sdcard_init(void)
     vTaskDelay(pdMS_TO_TICKS(200));
     
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
-    host.slot = SPI3_HOST;
+    host.slot = SPI2_HOST;
     host.max_freq_khz = SDMMC_FREQ_DEFAULT;
     
     sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
     slot_config.gpio_cs = SD_CARD_CS_PIN;
-    slot_config.host_id = SPI3_HOST;
+    slot_config.host_id = SPI2_HOST;
     
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
         .format_if_mount_failed = VFS_FORMAT_ON_FAIL,
@@ -292,7 +292,7 @@ esp_err_t vfs_sdcard_init(void)
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Mount failed: %s", esp_err_to_name(ret));
         if (s_sdcard.we_initialized_bus) {
-            spi_bus_free(SPI3_HOST);
+            spi_bus_free(SPI2_HOST);
             s_sdcard.we_initialized_bus = false;
         }
         return ret;
@@ -336,7 +336,7 @@ esp_err_t vfs_sdcard_deinit(void)
         s_sdcard.card = NULL;
         
         if (s_sdcard.we_initialized_bus) {
-            spi_bus_free(SPI3_HOST);
+            spi_bus_free(SPI2_HOST);
             s_sdcard.we_initialized_bus = false;
         }
     }

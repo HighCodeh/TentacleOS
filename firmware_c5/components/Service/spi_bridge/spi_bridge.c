@@ -8,12 +8,14 @@
 #include "bluetooth_service.h"
 #include "deauther_detector.h"
 #include "esp_log.h"
-#include "esp_app_desc.h"
 #include "esp_system.h"
+#include "storage_assets.h"
+#include "cJSON.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/portmacro.h"
 #include <string.h>
+#include <stdlib.h>
 
 static const char *TAG = "SPI_BRIDGE_C5";
 
@@ -37,6 +39,25 @@ static bool stream_wifi_sniffer_enabled = false;
 static bool stream_bt_sniffer_enabled = false;
 static portMUX_TYPE stream_mux = portMUX_INITIALIZER_UNLOCKED;
 static volatile bool restart_pending = false;
+static char s_firmware_version[32] = "unknown";
+
+static void load_firmware_version(void) {
+  size_t size;
+  uint8_t *json_data = storage_assets_load_file("config/OTA/firmware.json", &size);
+  if (json_data == NULL) return;
+
+  cJSON *root = cJSON_ParseWithLength((const char *)json_data, size);
+  free(json_data);
+  if (root == NULL) return;
+
+  cJSON *version = cJSON_GetObjectItem(root, "version");
+  if (cJSON_IsString(version) && version->valuestring != NULL) {
+    strncpy(s_firmware_version, version->valuestring, sizeof(s_firmware_version) - 1);
+    s_firmware_version[sizeof(s_firmware_version) - 1] = '\0';
+    ESP_LOGI(TAG, "Firmware version: %s", s_firmware_version);
+  }
+  cJSON_Delete(root);
+}
 
 void spi_bridge_provide_results(void* source, uint16_t count, uint8_t item_size) {
     current_data_source = source;
@@ -130,10 +151,10 @@ static void spi_bridge_task(void *pvParameters) {
             status = SPI_STATUS_OK;
             restart_pending = true;
         } else if (header->id == SPI_ID_SYSTEM_VERSION) {
-            const char *ver = esp_app_get_description()->version;
-            size_t ver_len = strlen(ver);
+            if (strcmp(s_firmware_version, "unknown") == 0) load_firmware_version();
+            size_t ver_len = strlen(s_firmware_version);
             if (ver_len > (SPI_MAX_PAYLOAD - SPI_RESP_STATUS_SIZE)) ver_len = (SPI_MAX_PAYLOAD - SPI_RESP_STATUS_SIZE);
-            memcpy(resp_payload, ver, ver_len);
+            memcpy(resp_payload, s_firmware_version, ver_len);
             resp_len = (uint8_t)ver_len;
             status = SPI_STATUS_OK;
         } else if (header->id == SPI_ID_SYSTEM_STATUS) {

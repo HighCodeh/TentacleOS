@@ -57,7 +57,9 @@ idf_component_register(SRCS
   ${BRIDGE_MANAGER_SRCS}
   ${BT_SERVICE_SRCS}
 
-  INCLUDE_DIRS 
+  "ota/ota_service.c"
+
+  INCLUDE_DIRS
   "font/include"
   "icons/include"
   "wifi/include"
@@ -72,6 +74,7 @@ idf_component_register(SRCS
   "c5_flasher/include"
   "bridge_manager/include"
   "bluetooth/include"
+  "ota/include"
 
 
 
@@ -91,5 +94,15 @@ idf_component_register(SRCS
     littlefs
     cjson
     console 
-    argtable3 
+    argtable3
+    app_update
 )
+
+# Embed C5 Firmware Binary into Service component (used by c5_flasher)
+set(C5_BIN_PATH "${CMAKE_SOURCE_DIR}/../firmware_c5/build/TentacleOS_C5.bin")
+if(EXISTS ${C5_BIN_PATH})
+    target_add_binary_data(${COMPONENT_LIB} "${C5_BIN_PATH}" BINARY)
+    message(STATUS "Embedding C5 Firmware: ${C5_BIN_PATH}")
+else()
+    message(WARNING "C5 Firmware binary not found at ${C5_BIN_PATH}. Firmware update feature will be disabled.")
+endif()
