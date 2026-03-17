@@ -1,0 +1,42 @@
+#!/bin/bash
+
+# ==============================================================================
+# Conventional Commits Validator (git commit-msg hook)
+# ==============================================================================
+#
+# Valid formats:
+#   type(scope): description
+#   type: description
+#   type(scope)!: description   (breaking change)
+#   type!: description          (breaking change)
+#
+# Valid types: feat, fix, docs, style, refactor, perf, test, chore, ci, build, revert
+
+COMMIT_MSG_FILE="$1"
+COMMIT_MSG=$(head -1 "$COMMIT_MSG_FILE")
+
+# Allow merge commits
+if echo "$COMMIT_MSG" | grep -qE '^Merge '; then
+  exit 0
+fi
+
+PATTERN='^(feat|fix|docs|delete|remove|removed|style|refactor|perf|test|chore|ci|build|revert)(\(.+\))?(!)?: .{1,}'
+
+if ! echo "$COMMIT_MSG" | grep -qE "$PATTERN"; then
+  echo ""
+  echo "ERROR: Commit message does not follow Conventional Commits format."
+  echo ""
+  echo "Expected: <type>(<scope>): <description>"
+  echo ""
+  echo "Types: feat, fix, docs, style, refactor, perf, test, chore, ci, build, revert"
+  echo ""
+  echo "Examples:"
+  echo "  feat(ota): add OTA update service"
+  echo "  fix(spi): corrected timeout on bridge init"
+  echo "  feat(bt)!: redesigned BLE protocol"
+  echo "  chore: cleanup unused imports"
+  echo ""
+  echo "Your message: \"$COMMIT_MSG\""
+  echo ""
+  exit 1
+fi
