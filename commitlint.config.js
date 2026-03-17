@@ -7,5 +7,6 @@ module.exports = {
       'delete', 'deleted', 'remove', 'removed'
     ]],
     'scope-case': [0],
+    'subject-case': [0],
   },
 };
