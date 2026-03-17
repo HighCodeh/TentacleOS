@@ -7,6 +7,11 @@
         { "type": "feat", "release": "minor" },
         { "type": "fix", "release": "patch" },
         { "type": "perf", "release": "patch" },
+        { "type": "refactor", "release": "patch" },
+        { "type": "delete", "release": "patch" },
+        { "type": "deleted", "release": "patch" },
+        { "type": "remove", "release": "patch" },
+        { "type": "removed", "release": "patch" },
         { "breaking": true, "release": "major" }
       ]
     }],
