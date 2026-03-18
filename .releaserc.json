@@ -20,13 +20,14 @@
       "changelogFile": "CHANGELOG.md"
     }],
     ["@semantic-release/exec", {
-      "prepareCmd": "sed -i 's/\"version\": *\"[^\"]*\"/\"version\": \"${nextRelease.version}\"/' firmware_p4/assets/config/OTA/firmware.json firmware_c5/assets/config/OTA/firmware.json"
+      "prepareCmd": "sed -i 's/\"version\": *\"[^\"]*\"/\"version\": \"${nextRelease.version}\"/' firmware_p4/assets/config/OTA/firmware.json firmware_c5/assets/config/OTA/firmware.json && sed -i 's/#define FIRMWARE_VERSION \"[^\"]*\"/#define FIRMWARE_VERSION \"${nextRelease.version}\"/' firmware_p4/components/Service/ota/include/ota_version.h"
     }],
     ["@semantic-release/git", {
       "assets": [
         "CHANGELOG.md",
         "firmware_p4/assets/config/OTA/firmware.json",
-        "firmware_c5/assets/config/OTA/firmware.json"
+        "firmware_c5/assets/config/OTA/firmware.json",
+        "firmware_p4/components/Service/ota/include/ota_version.h"
       ],
       "message": "chore(release): v${nextRelease.version}"
     }],
