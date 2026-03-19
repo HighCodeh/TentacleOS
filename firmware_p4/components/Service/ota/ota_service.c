@@ -18,7 +18,6 @@
 #include "storage_assets.h"
 #include "sd_card_init.h"
 #include "esp_ota_ops.h"
-#include "esp_app_format.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "cJSON.h"
@@ -233,9 +232,6 @@ esp_err_t ota_post_boot_check(void) {
 
   ESP_LOGI(TAG, "Running from partition: %s (addr=0x%lx)",
            running->label, (long)running->address);
-
-  // Load version info
-  load_version_from_assets();
 
   // Check if this is a pending OTA that needs confirmation
   esp_ota_img_states_t ota_state;
