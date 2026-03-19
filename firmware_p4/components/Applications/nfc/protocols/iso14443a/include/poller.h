@@ -1,8 +1,19 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 /**
  * @file poller.h
  * @brief ISO14443A Poller REQA/WUPA, anti-collision, SELECT.
- *
- * All functions are direct refactors of the working code.
  */
 #ifndef ISO14443A_POLLER_H
 #define ISO14443A_POLLER_H
@@ -15,20 +26,17 @@
 /**
  * Send REQA or WUPA and get ATQA.
  * Tries REQA first; if no response, waits 5ms and sends WUPA.
- * Exact logic from working code st25r_reqA_or_wupa().
  */
 hb_nfc_err_t iso14443a_poller_activate(uint8_t atqa[2]);
 
 /**
  * Full card activation: REQA anti-collision SELECT (all cascade levels).
  * Fills the nfc_iso14443a_data_t struct with UID, ATQA, SAK.
- * Exact logic from working code's app_main() card selection sequence.
  */
 hb_nfc_err_t iso14443a_poller_select(nfc_iso14443a_data_t* card);
 
 /**
  * Re-select a card (WUPA anticoll select).
- * From working code's reselect() macro.
  */
 hb_nfc_err_t iso14443a_poller_reselect(nfc_iso14443a_data_t* card);
 

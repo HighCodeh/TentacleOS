@@ -1,3 +1,16 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 /**
  * @file crypto1.h
  * @brief Crypto1 cipher for MIFARE Classic.
@@ -36,7 +49,6 @@ uint8_t crypto1_byte(crypto1_state_t *s, uint8_t in, int is_encrypted);
 
 /**
  * Clock one 32-bit word through the cipher.
- * Uses BEBIT byte-swapped bit ordering (proxmark3/Flipper compatible).
  * Returns keystream word in BEBIT order.
  */
 uint32_t crypto1_word(crypto1_state_t *s, uint32_t in, int is_encrypted);

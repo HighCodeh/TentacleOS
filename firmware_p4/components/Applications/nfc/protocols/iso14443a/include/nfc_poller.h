@@ -1,10 +1,19 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 /**
  * @file nfc_poller.h
  * @brief NFC Poller field control + transceive engine.
- *
- * The transceive function is the direct refactor of the working code's
- * st25r_transceive(). It handles: clear FIFO set bytes load FIFO
- *  send cmd wait TXE wait RX FIFO read result.
  */
 #ifndef NFC_POLLER_H
 #define NFC_POLLER_H
@@ -21,15 +30,7 @@ hb_nfc_err_t nfc_poller_start(void);
 void nfc_poller_stop(void);
 
 /**
- * Transceive direct refactor of working code st25r_transceive():
- *
- *  1. CMD_CLEAR_FIFO
- *  2. st25r_set_tx_bytes(tx_len, 0)
- *  3. st25r_fifo_load(tx, tx_len)
- *  4. CMD_TX_WITH_CRC or CMD_TX_WO_CRC
- *  5. Poll MAIN_INT for TXE (50us 400 = 20ms)
- *  6. Wait for rx_min bytes in FIFO
- *  7. Read FIFO
+ * Transmit a frame and read the response from FIFO.
  *
  * @param tx Data to transmit.
  * @param tx_len TX length in bytes.

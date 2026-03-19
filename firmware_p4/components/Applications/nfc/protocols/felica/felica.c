@@ -1,14 +1,27 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 /**
  * @file felica.c
  * @brief FeliCa (NFC-F) reader/writer for ST25R3916.
  *
- * Transport: nfc_poller_transceive() — same as every other protocol.
+ * Transport: nfc_poller_transceive() - same as every other protocol.
  *
  * Frame format (all commands):
  *   [LEN][CMD][payload][CRC-F]
  *   LEN includes itself (LEN=1+1+payload+2)
  *
- * CRC-F: CRC-16/CCITT (poly=0x1021, init=0x0000) — chip appends automatically
+ * CRC-F: CRC-16/CCITT (poly=0x1021, init=0x0000) - chip appends automatically
  * with CMD_TX_WITH_CRC in NFC-F mode.
  */
 #include "felica.h"
@@ -24,9 +37,7 @@
 #include "nfc_rf.h"
 
 #define TAG "felica"
-
-/* ─── Poller init ─────────────────────────────────────────────────────────── */
-
+/* Poller init */
 hb_nfc_err_t felica_poller_init(void)
 {
     nfc_rf_config_t cfg = {
@@ -46,9 +57,7 @@ hb_nfc_err_t felica_poller_init(void)
     ESP_LOGI(TAG, "FeliCa poller ready (NFC-F 212 kbps)");
     return HB_NFC_OK;
 }
-
-/* ─── SENSF_REQ ───────────────────────────────────────────────────────────── */
-
+/* SENSF_REQ */
 hb_nfc_err_t felica_sensf_req(uint16_t system_code, felica_tag_t* tag)
 {
     return felica_sensf_req_slots(system_code, 0, tag);
@@ -84,7 +93,7 @@ hb_nfc_err_t felica_sensf_req_slots(uint16_t system_code, uint8_t time_slots, fe
 
     nfc_log_hex("SENSF_RES:", rx, (size_t)len);
 
-    /* SENSF_RES: [LEN][0x05][IDm×8][PMm×8][RD×2 optional] */
+    /* SENSF_RES: [LEN][0x05][IDmx8][PMmx8][RDx2 optional] */
     if (rx[1] != FELICA_CMD_SENSF_RES) {
         ESP_LOGW(TAG, "Unexpected response code 0x%02X", rx[1]);
         return HB_NFC_ERR_PROTOCOL;
@@ -137,9 +146,7 @@ int felica_polling(uint16_t system_code, uint8_t time_slots,
 
     return count;
 }
-
-/* ─── READ WITHOUT ENCRYPTION ─────────────────────────────────────────────── */
-
+/* READ WITHOUT ENCRYPTION */
 hb_nfc_err_t felica_read_blocks(const felica_tag_t* tag,
                                   uint16_t            service_code,
                                   uint8_t             first_block,
@@ -150,7 +157,7 @@ hb_nfc_err_t felica_read_blocks(const felica_tag_t* tag,
 
     /*
      * Read Without Encryption request:
-     *   [LEN][0x06][IDm×8][SC_count=1][SC_L][SC_H]
+     *   [LEN][0x06][IDmx8][SC_count=1][SC_L][SC_H]
      *   [BLK_count][BLK0_desc][BLK1_desc]...
      *
      * Block descriptor (2 bytes): [0x80|len_flag][block_num]
@@ -180,7 +187,7 @@ hb_nfc_err_t felica_read_blocks(const felica_tag_t* tag,
         return HB_NFC_ERR_TIMEOUT;
     }
 
-    /* Response: [LEN][0x07][IDm×8][status1][status2][BLK_count][data] */
+    /* Response: [LEN][0x07][IDmx8][status1][status2][BLK_count][data] */
     if (rx[1] != FELICA_CMD_READ_RESP) {
         ESP_LOGW(TAG, "ReadBlocks: unexpected resp 0x%02X", rx[1]);
         return HB_NFC_ERR_PROTOCOL;
@@ -202,9 +209,7 @@ hb_nfc_err_t felica_read_blocks(const felica_tag_t* tag,
     memcpy(out, &rx[13], (size_t)blk_count * FELICA_BLOCK_SIZE);
     return HB_NFC_OK;
 }
-
-/* ─── WRITE WITHOUT ENCRYPTION ────────────────────────────────────────────── */
-
+/* WRITE WITHOUT ENCRYPTION */
 hb_nfc_err_t felica_write_blocks(const felica_tag_t* tag,
                                    uint16_t            service_code,
                                    uint8_t             first_block,
@@ -215,8 +220,8 @@ hb_nfc_err_t felica_write_blocks(const felica_tag_t* tag,
 
     /*
      * Write Without Encryption request:
-     *   [LEN][0x08][IDm×8][SC_count=1][SC_L][SC_H]
-     *   [BLK_count][BLK0_desc][data×16]
+     *   [LEN][0x08][IDmx8][SC_count=1][SC_L][SC_H]
+     *   [BLK_count][BLK0_desc][datax16]
      */
     uint8_t cmd[64];
     int pos = 0;
@@ -244,7 +249,7 @@ hb_nfc_err_t felica_write_blocks(const felica_tag_t* tag,
         return HB_NFC_ERR_TIMEOUT;
     }
 
-    /* Response: [LEN][0x09][IDm×8][status1][status2] */
+    /* Response: [LEN][0x09][IDmx8][status1][status2] */
     uint8_t status1 = rx[10];
     uint8_t status2 = rx[11];
     if (status1 != 0x00U) {
@@ -255,9 +260,7 @@ hb_nfc_err_t felica_write_blocks(const felica_tag_t* tag,
     ESP_LOGI(TAG, "WriteBlock[%u]: OK", first_block);
     return HB_NFC_OK;
 }
-
-/* ─── FULL DUMP ───────────────────────────────────────────────────────────── */
-
+/* FULL DUMP */
 void felica_dump_card(void)
 {
     ESP_LOGI(TAG, "");
@@ -286,7 +289,7 @@ void felica_dump_card(void)
 
     for (size_t si = 0; si < sizeof(services)/sizeof(services[0]); si++) {
         ESP_LOGI(TAG, "");
-        ESP_LOGI(TAG, "Service 0x%04X — %s:", services[si].sc, services[si].name);
+        ESP_LOGI(TAG, "Service 0x%04X - %s:", services[si].sc, services[si].name);
 
         int read_ok = 0;
         for (int b = 0; b < FELICA_MAX_BLOCKS; b++) {

@@ -1,4 +1,16 @@
-
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 /**
  * @file iso14443a.c
  * @brief ISO14443A CRC_A calculation.
@@ -31,10 +43,7 @@ bool iso14443a_check_crc(const uint8_t* data, size_t len)
 
 /**
  * @file poller.c
- * @brief ISO14443A Poller exact refactor of working code.
- *
- * Every function maps 1:1 to the working code. Comments show
- * the original function name and the exact byte values used.
+ * @brief ISO14443A poller helpers.
  */
 #include "poller.h"
 #include "iso14443a.h"
@@ -56,8 +65,7 @@ bool iso14443a_check_crc(const uint8_t* data, size_t len)
 static const char* TAG = "14443a";
 
 /**
- * Enable/disable anti-collision from working code st25r_set_antcl():
- *  Read REG_ISO14443A, set or clear bit 0.
+ * Enable or disable anti-collision.
  */
 static void set_antcl(bool enable)
 {
@@ -69,13 +77,7 @@ static void set_antcl(bool enable)
 }
 
 /**
- * Internal REQA/WUPA from working code st25r_req_cmd():
- *  1. set_antcl(false)
- *  2. CMD_CLEAR_FIFO
- *  3. Direct command (CMD_TX_REQA or CMD_TX_WUPA)
- *  4. Wait TXE (50us 400)
- *  5. Wait FIFO 2 bytes, timeout 10ms
- *  6. Read 2 bytes ATQA
+ * Send REQA or WUPA and read ATQA.
  */
 static int req_cmd(uint8_t cmd, uint8_t atqa[2])
 {
@@ -107,8 +109,7 @@ int iso14443a_poller_wupa(uint8_t atqa[2])
 }
 
 /**
- * Activate from working code st25r_reqA_or_wupa():
- *  Try REQA first. If no response, wait 5ms and try WUPA.
+ * Activate a card with REQA/WUPA.
  */
 hb_nfc_err_t iso14443a_poller_activate(uint8_t atqa[2])
 {
@@ -119,12 +120,7 @@ hb_nfc_err_t iso14443a_poller_activate(uint8_t atqa[2])
 }
 
 /**
- * Anti-collision from working code st25r_anticollision():
- *  cmd = { sel, 0x20 }
- *  set_antcl(true)
- *  transceive(cmd, 2, no_crc, rx, 5, 5, 20ms)
- *  set_antcl(false)
- *  Retry up to 3 times with 5ms delay.
+ * Run anti-collision for one cascade level.
  */
 int iso14443a_poller_anticoll(uint8_t sel, uint8_t uid_cl[5])
 {
@@ -142,10 +138,7 @@ int iso14443a_poller_anticoll(uint8_t sel, uint8_t uid_cl[5])
 }
 
 /**
- * SELECT from working code st25r_select():
- *  cmd = { sel, 0x70, uid[0..4] }
- *  transceive(cmd, 7, with_crc, rx, 4, 1, 10ms)
- *  sak = rx[0]
+ * Run SELECT for one cascade level.
  */
 int iso14443a_poller_sel(uint8_t sel, const uint8_t uid_cl[5], uint8_t* sak)
 {
@@ -202,18 +195,7 @@ static hb_nfc_err_t iso14443a_select_from_atqa(const uint8_t atqa[2], nfc_iso144
 }
 
 /**
- * Full SELECT exact logic from working code app_main() UID assembly:
- *
- *  CL1: anticoll(0x93) select(0x93)
- *  if uid_cl[0] == 0x88 cascade tag, uid = cl[1..3]
- *  else uid = cl[0..3]
- *  if SAK & 0x04 more levels
- *
- *  CL2: anticoll(0x95) select(0x95)
- *  same cascade check
- *
- *  CL3: anticoll(0x97) select(0x97)
- *  uid = cl[0..3] (always final)
+ * Perform full card selection across cascade levels.
  */
 hb_nfc_err_t iso14443a_poller_select(nfc_iso14443a_data_t* card)
 {
@@ -305,7 +287,7 @@ int iso14443a_poller_select_all(nfc_iso14443a_data_t* out, size_t max_cards)
 
 /**
  * @file nfc_poller.c
- * @brief NFC Poller transceive engine (exact copy of working code).
+ * @brief NFC poller transceive engine.
  */
 #include "nfc_poller.h"
 #include "nfc_common.h"
@@ -349,16 +331,7 @@ void nfc_poller_stop(void)
 }
 
 /**
- * Transceive line-by-line match with working code st25r_transceive().
- *
- * Working code:
- *  st25r_direct_cmd(CMD_CLEAR_FIFO);
- *  st25r_set_nbytes((uint16_t)tx_len, 0);
- *  st25r_fifo_load(tx, tx_len);
- *  st25r_direct_cmd(with_crc . CMD_TX_WITH_CRC : CMD_TX_WO_CRC);
- *  // poll TXE: 50us 400
- *  // wait FIFO min_bytes
- *  // read FIFO
+ * Transmit a frame and wait for the response in FIFO.
  */
 int nfc_poller_transceive(const uint8_t* tx, size_t tx_len, bool with_crc,
                            uint8_t* rx, size_t rx_max, size_t rx_min,

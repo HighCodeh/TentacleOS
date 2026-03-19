@@ -1,3 +1,16 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 /**
  * @file st25r3916_irq.h
  * @brief ST25R3916 IRQ read/clear/log interrupt status.
@@ -25,8 +38,7 @@ st25r_irq_status_t st25r_irq_read(void);
 void st25r_irq_log(const char* ctx, uint16_t fifo_count);
 
 /**
- * Wait for TX end (bit 3 of MAIN_INT) exact logic from working code:
- *  Poll every 50us, max 400 iterations = 20ms timeout.
+ * Wait for TX end with a bounded timeout.
  */
 bool st25r_irq_wait_txe(void);
 

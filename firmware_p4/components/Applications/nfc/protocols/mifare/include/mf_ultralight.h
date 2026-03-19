@@ -1,9 +1,19 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 /**
  * @file mf_ultralight.h
  * @brief MIFARE Ultralight / NTAG READ, WRITE, PWD_AUTH, GET_VERSION.
- *
- * These commands are proven in the working code (ntag_get_version,
- * ntag_pwd_auth, st25r_read_pages).
  */
 #ifndef MF_ULTRALIGHT_H
 #define MF_ULTRALIGHT_H
@@ -13,7 +23,6 @@
 
 /**
  * READ (cmd 0x30) reads 4 pages (16 bytes) starting at page.
- * From working code st25r_read_pages().
  * Returns bytes received (16 expected + 2 CRC = 18), 0 on fail.
  */
 int mful_read_pages(uint8_t page, uint8_t out[18]);
@@ -25,14 +34,12 @@ hb_nfc_err_t mful_write_page(uint8_t page, const uint8_t data[4]);
 
 /**
  * GET_VERSION (cmd 0x60) returns 8 bytes (NTAG).
- * From working code ntag_get_version().
  */
 int mful_get_version(uint8_t out[8]);
 
 /**
  * PWD_AUTH (cmd 0x1B) authenticate with 4-byte password.
  * Returns PACK (2 bytes) on success.
- * From working code ntag_pwd_auth().
  */
 int mful_pwd_auth(const uint8_t pwd[4], uint8_t pack[2]);
 

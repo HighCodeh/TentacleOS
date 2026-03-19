@@ -1,3 +1,16 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 #include <string.h>
 #include "nfc_listener.h"
 #include "nfc_device.h"
@@ -12,7 +25,7 @@ static const char* TAG = "nfc_emu";
 static TaskHandle_t  s_emu_task    = NULL;
 static volatile bool s_emu_running = false;
 
-/* Emulation loop — mfc_emu_run_step() handles every AUTH/READ/WRITE/VALUE
+/* Emulation loop - mfc_emu_run_step() handles every AUTH/READ/WRITE/VALUE
  * command from the reader. Hardware (PT memory) covers REQA/anticollision/SELECT.
  * taskYIELD() lets other tasks run without adding the ~10 ms latency that
  * vTaskDelay(1) would introduce at the default 100 Hz tick rate. */

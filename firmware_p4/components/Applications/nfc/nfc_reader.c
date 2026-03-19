@@ -1,3 +1,16 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 #include "nfc_reader.h"
 #include <stdio.h>
 #include <string.h>
@@ -823,7 +836,7 @@ void mf_classic_read_full(nfc_iso14443a_data_t* card)
 void mf_classic_write_all(nfc_iso14443a_data_t* target, bool write_trailers)
 {
     if (!s_emu_data_ready) {
-        ESP_LOGW(TAG, "[WRITE] no card dump — run read first");
+        ESP_LOGW(TAG, "[WRITE] no card dump - run read first");
         return;
     }
 
@@ -838,7 +851,7 @@ void mf_classic_write_all(nfc_iso14443a_data_t* target, bool write_trailers)
         bool have_b = s_emu_card.keys[sect].key_b_known;
 
         if (!have_a && !have_b) {
-            ESP_LOGW(TAG, "[WRITE] sector %02d: no key — skipping", sect);
+            ESP_LOGW(TAG, "[WRITE] sector %02d: no key - skipping", sect);
             sectors_skip++;
             continue;
         }
@@ -895,7 +908,7 @@ void mfp_probe_and_dump(nfc_iso14443a_data_t* card)
     mfp_session_t session = { 0 };
     hb_nfc_err_t err = mfp_poller_init(card, &session);
     if (err != HB_NFC_OK) {
-        ESP_LOGW(TAG, "RATS failed (%s) — not ISO-DEP or removed", hb_nfc_err_str(err));
+        ESP_LOGW(TAG, "RATS failed (%s) - not ISO-DEP or removed", hb_nfc_err_str(err));
         return;
     }
 
@@ -916,7 +929,7 @@ void mfp_probe_and_dump(nfc_iso14443a_data_t* card)
                  session.ses_enc[0], session.ses_enc[1],
                  session.ses_enc[2], session.ses_enc[3]);
     } else {
-        /* Key wrong or not MFP SL3 — still log the response code */
+        /* Key wrong or not MFP SL3 - still log the response code */
         ESP_LOGI(TAG, "MIFARE Plus SL3 probe: auth rejected (key wrong or not MFP SL3)");
         ESP_LOGI(TAG, "Card is likely DESFire, JCOP, or MFP with custom key");
     }

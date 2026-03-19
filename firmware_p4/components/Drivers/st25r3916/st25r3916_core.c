@@ -1,3 +1,16 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 /**
  * @file st25r3916_core.c
  * @brief ST25R3916 core: init, field control, mode, diagnostics.
@@ -43,7 +56,7 @@ hb_nfc_err_t st25r_init(const highboy_nfc_config_t* cfg)
     hb_spi_direct_cmd(CMD_SET_DEFAULT);
 
     /* Wait for oscillator ready (REG_MAIN_INT bit 7 = IRQ_MAIN_OSC).
-     * Datasheet §8.1: OSC stabilises in ~1ms typical, 5ms worst case.
+     * Datasheet Sec. 8.1: OSC stabilises in ~1ms typical, 5ms worst case.
      * Poll up to 10ms before giving up (blind wait is not reliable on cold PCBs). */
     {
         int osc_ok = 0;
@@ -54,7 +67,7 @@ hb_nfc_err_t st25r_init(const highboy_nfc_config_t* cfg)
             hb_delay_us(100);
         }
         if (!osc_ok) {
-            ESP_LOGW(TAG, "OSC ready timeout — continuing anyway");
+            ESP_LOGW(TAG, "OSC ready timeout - continuing anyway");
         }
     }
 
@@ -67,7 +80,7 @@ hb_nfc_err_t st25r_init(const highboy_nfc_config_t* cfg)
         return err;
     }
 
-    /* Calibrate internal regulator and TX driver (datasheet §8.1.3).
+    /* Calibrate internal regulator and TX driver (datasheet Sec. 8.1.3).
      * Must be done after oscillator is stable and before RF field is enabled. */
     hb_spi_direct_cmd(CMD_ADJUST_REGULATORS);
     hb_delay_ms(6);  /* 6ms for regulator settling */
@@ -102,7 +115,7 @@ hb_nfc_err_t st25r_check_id(uint8_t* id, uint8_t* type, uint8_t* rev)
     if (err != HB_NFC_OK) return HB_NFC_ERR_CHIP_ID;
 
     if (val == 0x00 || val == 0xFF) {
-        ESP_LOGE(TAG, "Bad IC ID 0x%02X — check SPI wiring!", val);
+        ESP_LOGE(TAG, "Bad IC ID 0x%02X - check SPI wiring!", val);
         return HB_NFC_ERR_CHIP_ID;
     }
 
@@ -110,9 +123,9 @@ hb_nfc_err_t st25r_check_id(uint8_t* id, uint8_t* type, uint8_t* rev)
     uint8_t ic_rev  = val & 0x07;
 
     if (ic_type != ST25R3916_IC_TYPE_EXP) {
-        /* ST25R3916B (or unknown variant) — command table may differ. */
+        /* ST25R3916B (or unknown variant) - command table may differ. */
         ESP_LOGW(TAG, "Unexpected IC type 0x%02X (expected 0x%02X): "
-                      "may be ST25R3916B — verify command codes",
+                      "may be ST25R3916B - verify command codes",
                  ic_type, ST25R3916_IC_TYPE_EXP);
     }
 
@@ -202,7 +215,7 @@ hb_nfc_err_t highboy_nfc_init(const highboy_nfc_config_t* config)
     (void)hb_spi_reg_write(REG_FIELD_THRESH_ACT,   FIELD_THRESH_ACT_TRG);
     (void)hb_spi_reg_write(REG_FIELD_THRESH_DEACT, FIELD_THRESH_DEACT_TRG);
 
-    /* Mask timer IRQs — poller never uses the NFC timer, so these would
+    /* Mask timer IRQs - poller never uses the NFC timer, so these would
      * only cause spurious GPIO wake-ups during st25r_irq_wait_txe. */
     (void)hb_spi_reg_write(REG_MASK_TIMER_NFC_INT, 0xFF);
 

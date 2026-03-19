@@ -1,3 +1,16 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 /**
  * @file st25r3916_irq.c
  * @brief ST25R3916 interrupt status read and TX-end wait.
@@ -47,12 +60,12 @@ bool st25r_irq_wait_txe(void)
      * If the IRQ was caused by something other than TXE (e.g. a field event),
      * keep waiting up to 20ms total.
      *
-     * 10 µs poll interval (not 1 ms): in MIFARE Classic emulation, the reader
-     * responds with {NR}{AR} starting ~87 µs after NT's last bit.  With 1 ms
+     * 10 us poll interval (not 1 ms): in MIFARE Classic emulation, the reader
+     * responds with {NR}{AR} starting ~87 us after NT's last bit.  With 1 ms
      * polls, TXE detection is delayed ~1 ms past the actual event; by then the
      * reader's {NR}{AR} has arrived, and by the time we read it the reader has
      * timed out waiting for AT and restarted the protocol, clearing the FIFO.
-     * 10 µs polls detect TXE within ~10 µs, leaving plenty of margin. */
+     * 10 us polls detect TXE within ~10 us, leaving plenty of margin. */
     for (int i = 0; i < 2000; i++) {
         if (hb_gpio_irq_level()) {
             st25r_irq_status_t s = st25r_irq_read();
@@ -61,7 +74,7 @@ bool st25r_irq_wait_txe(void)
                 ESP_LOGW(TAG, "TX error: ERR=0x%02X", s.error);
                 return false;
             }
-            /* Some other IRQ (field detect, etc.) — keep waiting. */
+            /* Some other IRQ (field detect, etc.) - keep waiting. */
         }
         hb_delay_us(10);
     }

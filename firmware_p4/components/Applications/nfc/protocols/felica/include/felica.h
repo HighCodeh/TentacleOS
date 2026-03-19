@@ -1,3 +1,16 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 /**
  * @file felica.h
  * @brief FeliCa (NFC-F / ISO 18092) reader/writer for ST25R3916.
@@ -18,7 +31,7 @@
 #include "highboy_nfc_types.h"
 #include "highboy_nfc_error.h"
 
-/* ─── Constants ────────────────────────────────────────────────────────────── */
+/* Constants */
 #define FELICA_IDM_LEN          8
 #define FELICA_PMM_LEN          8
 #define FELICA_BLOCK_SIZE       16
@@ -37,7 +50,7 @@
 #define FELICA_RCF_NONE         0x00U    /**< no system code in response       */
 #define FELICA_RCF_SYSTEM_CODE  0x01U    /**< include system code in response  */
 
-/* ─── Tag descriptor ───────────────────────────────────────────────────────── */
+/* Constants */
 typedef struct {
     uint8_t idm[FELICA_IDM_LEN];  /**< Manufacturer ID (8 bytes)           */
     uint8_t pmm[FELICA_PMM_LEN];  /**< Manufacturer Parameters (8 bytes)   */
@@ -45,9 +58,7 @@ typedef struct {
     bool    rd_valid;              /**< rd was included in SENSF_RES        */
 } felica_tag_t;
 
-/* ═══════════════════════════════════════════════════════════════════════════
- *  Poller API
- * ═══════════════════════════════════════════════════════════════════════════ */
+/* Poller API */
 
 /**
  * @brief Configure ST25R3916 for FeliCa polling (212 kbps).
@@ -84,7 +95,7 @@ int felica_polling(uint16_t system_code, uint8_t time_slots,
  * @param service_code  Service code (e.g. 0x000B for read-only, 0x0009 for R/W).
  * @param first_block   Starting block number (0-based).
  * @param count         Number of blocks to read (max 4 per command).
- * @param out           Output buffer (count × 16 bytes).
+ * @param out           Output buffer (count x 16 bytes).
  */
 hb_nfc_err_t felica_read_blocks(const felica_tag_t* tag,
                                   uint16_t            service_code,
@@ -99,7 +110,7 @@ hb_nfc_err_t felica_read_blocks(const felica_tag_t* tag,
  * @param service_code  Service code (e.g. 0x0009 for R/W).
  * @param first_block   Starting block number (0-based).
  * @param count         Number of blocks to write (max 1 per command).
- * @param data          Data to write (count × 16 bytes).
+ * @param data          Data to write (count x 16 bytes).
  */
 hb_nfc_err_t felica_write_blocks(const felica_tag_t* tag,
                                    uint16_t            service_code,

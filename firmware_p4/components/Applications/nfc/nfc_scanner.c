@@ -1,3 +1,16 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 #include "nfc_scanner.h"
 #include "poller.h"
 #include "nfc_card_info.h"
@@ -40,7 +53,7 @@ hb_nfc_err_t nfc_scanner_start(nfc_scanner_t* s, nfc_scanner_cb_t cb, void* ctx)
     nfc_scanner_event_t evt = { 0 };
     hb_nfc_err_t result = HB_NFC_ERR_NO_CARD;
 
-    /* ── Step 1: NFC-A (ISO 14443-3A) ───────────────────────────────────── */
+    /* Step 1: NFC-A (ISO 14443-3A) */
     nfc_iso14443a_data_t card_a = { 0 };
     if (iso14443a_poller_select(&card_a) == HB_NFC_OK) {
         ESP_LOGI(TAG, "NFC-A found UID len=%u SAK=0x%02X", card_a.uid_len, card_a.sak);
@@ -54,7 +67,7 @@ hb_nfc_err_t nfc_scanner_start(nfc_scanner_t* s, nfc_scanner_cb_t cb, void* ctx)
         goto done;
     }
 
-    /* ── Step 2: NFC-B (ISO 14443-3B) ───────────────────────────────────── */
+    /* Step 2: NFC-B (ISO 14443-3B) */
     iso14443b_poller_init();
     {
         nfc_iso14443b_data_t card_b = { 0 };
@@ -68,7 +81,7 @@ hb_nfc_err_t nfc_scanner_start(nfc_scanner_t* s, nfc_scanner_cb_t cb, void* ctx)
         }
     }
 
-    /* ── Step 3: NFC-F (FeliCa) ──────────────────────────────────────────── */
+    /* Step 3: NFC-F (FeliCa) */
     felica_poller_init();
     {
         felica_tag_t tag_f = { 0 };
@@ -81,7 +94,7 @@ hb_nfc_err_t nfc_scanner_start(nfc_scanner_t* s, nfc_scanner_cb_t cb, void* ctx)
         }
     }
 
-    /* ── Step 4: NFC-V (ISO 15693) ───────────────────────────────────────── */
+    /* Step 4: NFC-V (ISO 15693) */
     iso15693_poller_init();
     {
         iso15693_tag_t tag_v = { 0 };

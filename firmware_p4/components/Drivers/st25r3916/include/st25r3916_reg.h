@@ -1,10 +1,19 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 /**
  * @file st25r3916_reg.h
  * @brief ST25R3916 Register Map.
- *
- * All addresses verified against the working code that
- * successfully reads IC Identity = 0x15 and communicates
- * with ISO14443A cards.
  */
 #ifndef ST25R3916_REG_H
 #define ST25R3916_REG_H
@@ -101,7 +110,7 @@
 #define IC_TYPE_SHIFT           3
 #define IC_REV_MASK             0x07
 
-/* IC type observed on ST25R3916 hardware (IC_IDENTITY = 0x15 → type = 0x02).
+/* IC type observed on ST25R3916 hardware (IC_IDENTITY = 0x15 -> type = 0x02).
  * ST25R3916B returns a different type and uses a different command table. */
 #define ST25R3916_IC_TYPE_EXP   0x02
 

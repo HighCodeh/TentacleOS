@@ -1,4 +1,16 @@
-
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 #include "crypto1.h"
 
 #define SWAPENDIAN(x) \
@@ -95,13 +107,7 @@ uint8_t crypto1_byte(crypto1_state_t *s, uint8_t in, int is_encrypted)
 }
 
 /**
- * crypto1_word clock 32 bits in BEBIT order.
- *
- * BEBIT(x, i) = bit ((i) ^ 24) of x.
- * This processes bytes in MSB-first order but bits within each byte LSB-first.
- * Output uses the same byte-swapped convention (<< (24 ^ i)).
- *
- * This is identical to the Flipper Zero / proxmark3 implementation.
+ * Clock a 32-bit word in BEBIT order.
  */
 uint32_t crypto1_word(crypto1_state_t *s, uint32_t in, int is_encrypted)
 {
@@ -113,11 +119,7 @@ uint32_t crypto1_word(crypto1_state_t *s, uint32_t in, int is_encrypted)
 }
 
 /**
- * crypto1_filter_output read keystream bit WITHOUT advancing LFSR.
- *
- * Used for encrypted parity: after clocking 8 data bits with crypto1_byte,
- * call this to get the parity keystream bit without disturbing the LFSR state.
- * This matches how the Flipper Zero handles parity in crypto1_encrypt().
+ * Read the current keystream bit without advancing the LFSR.
  */
 uint8_t crypto1_filter_output(crypto1_state_t *s)
 {
@@ -125,12 +127,7 @@ uint8_t crypto1_filter_output(crypto1_state_t *s)
 }
 
 /**
- * prng_successor MIFARE Classic card PRNG.
- *
- * CRITICAL: SWAPENDIAN before and after computation!
- * The Flipper Zero does this and without it the ar/at values are wrong.
- *
- * Input/output are in big-endian (wire) byte order.
+ * MIFARE Classic card PRNG.
  */
 uint32_t crypto1_prng_successor(uint32_t x, uint32_t n)
 {
@@ -146,47 +143,6 @@ uint32_t crypto1_prng_successor(uint32_t x, uint32_t n)
 #undef LF_POLY_ODD
 #undef LF_POLY_EVEN
 
-/*
- * BUGS FIXED (compared to previous version):
- *
- * 1. CRYPTO1 LFSR REPRESENTATION
- *  Old: single uint64_t state custom filter using fa/fb with specific bit indices.
- *  New: split odd/even uint32_t compact proxmark3 filter lookup tables.
- *  (Both should produce the same keystream if correct, but the old implementation
- *  had subtle index mapping differences.)
- *
- * 2. crypto1_word BIT ORDERING
- *  Old: processed bits 0..31 linearly (plain LSB-first).
- *  New: uses BEBIT(x, i) = bit((i)^24) byte-swapped order matching proxmark3.
- *  Impact: priming step (uid XOR nt) fed bits in wrong order entire keystream wrong.
- *
- * 3. prng_successor MISSING SWAPENDIAN
- *  Old: no byte swap before/after PRNG computation.
- *  New: SWAPENDIAN(x) before and after, matching Flipper/proxmark3.
- *  Impact: ar and at values completely wrong card rejects authentication.
- *
- * 4. AUTH ar: LFSR FED PLAINTEXT INSTEAD OF 0
- *  Old: mf_classic_transceive_raw encrypted nr+ar together, feeding all plaintext bits.
- *  New: nr is fed as plaintext (correct), ar is encrypted with LFSR free-running (feed 0).
- *  Impact: LFSR desynced after nr ar ciphertext wrong card rejects auth.
- *
- * 5. AUTH at EXPECTED VALUE COMPUTED FROM nr
- *  Old: at_expected = prng_successor(nr, 64) WRONG!
- *  New: at_expected = prng_successor(nt, 96) correct per MF Classic protocol.
- *  Impact: valid card responses were flagged as auth failures.
- *
- * 6. PARITY BIT ADVANCED THE LFSR
- *  Old: crypto1_bit(st, parity, 0) clocked the LFSR 9 per byte.
- *  New: crypto1_filter_output() reads the 9th keystream bit WITHOUT advancing.
- *  LFSR clocks exactly 8 per byte (only for data bits).
- *  Impact: after the first byte, the keystream was off by 1 bit per byte,
- *  accumulating all subsequent data was garbage.
- *
- * 7. ENCRYPTED EXCHANGE FED PLAINTEXT INTO LFSR
- *  Old: RX decrypt used crypto1_bit(st, enc, 1) which feeds the ciphertext into LFSR.
- *  New: RX decrypt uses crypto1_byte(st, 0, 0) ciphertext free-running LFSR.
- *  Impact: data exchange LFSR state diverged from card all block reads failed.
- */
 #include "mf_classic.h"
 
 #include <string.h>
@@ -1173,7 +1129,7 @@ int mful_read_all(uint8_t* data, int max_pages)
 /*
  * MFKey32 - MIFARE Classic key recovery from two sniffed auth traces.
  *
- * Algorithm (proxmark3 / Flipper Zero compatible):
+ * Algorithm:
  *
  *   Parameters:
  *     uid       - Card UID (4 bytes, big-endian uint32)
@@ -1182,13 +1138,13 @@ int mful_read_all(uint8_t* data, int max_pages)
  *     ar0, ar1  - ENCRYPTED reader responses ({prng(nt,64)}^ks2, as seen on wire)
  *     key       - Output: 48-bit key (MSB in lower 48 bits of uint64)
  *
- *   Key insight: rollback_word(s, nr_enc, fb=1) ≡ rollback_word(s, nr_plain, fb=0)
+ *   Key insight: rollback_word(s, nr_enc, fb=1) == rollback_word(s, nr_plain, fb=0)
  *   because: ks_bit ^ nr_enc_bit = ks_bit ^ (nr_plain ^ ks_bit) = nr_plain.
  *   This allows rollback without knowing the plaintext reader nonce.
  *
  *   Complexity: O(2^24) candidate generation + O(2^16) cross-verification.
  *   Memory: ~32 KB for candidate lists (heap).
- *   Time: ~2–10 s on ESP32-P4.
+ *   Time: ~2-10 s on ESP32-P4.
  */
 #include "mfkey.h"
 #include "crypto1.h"
@@ -1270,8 +1226,8 @@ static uint32_t mk_simulate_ks(crypto1_state_t s)
  *   clock 1,3,5,...  (odd-indexed)  are driven by the EVEN half's evolution
  *
  * Approximation: ignore parity coupling between halves (treat shift as pure).
- * For the ODD half: clock 2k ≈ f(O << k)        (k=0..15)
- * For the EVEN half: clock 2k+1 ≈ f(E << (k+1)) (k=0..15)
+ * For the ODD half: clock 2k ~= f(O << k)        (k=0..15)
+ * For the EVEN half: clock 2k+1 ~= f(E << (k+1)) (k=0..15)
  *
  * With 16 approximate constraints on a 24-bit value: ~2^8 = 256 candidates.
  * We double the candidate set (flip each approx parity) to reduce false negatives.
@@ -1345,7 +1301,7 @@ bool mfkey32(uint32_t uid, uint32_t nt0, uint32_t nr0, uint32_t ar0,
             /*
              * Rollback to recover key:
              *   1. Undo 32 free-running clocks (ks2 generation, no input).
-             *   2. Undo nr loading: rollback_word(nr_enc, fb=1) ≡
+             *   2. Undo nr loading: rollback_word(nr_enc, fb=1) ==
              *      rollback_word(nr_plain, fb=0) because the filter output
              *      cancels the ks1 term algebraically.
              *   3. Undo uid^nt priming (plaintext, fb=0).
