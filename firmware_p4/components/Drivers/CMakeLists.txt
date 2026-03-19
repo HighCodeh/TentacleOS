@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+file(GLOB_RECURSE ST25R3916_SRCS "st25r3916/*.c")
+
 
 idf_component_register(SRCS 
   "bq25896/bq25896.c"
@@ -25,6 +27,7 @@ idf_component_register(SRCS
   "tusb_desc/tusb_desc.c"
   "buttons_gpio/buttons_gpio.c"
   "spi_bridge_phy/spi_bridge_phy.c"
+  ${ST25R3916_SRCS}
 
   INCLUDE_DIRS 
   "bq25896/include"
@@ -39,6 +42,8 @@ idf_component_register(SRCS
   "tusb_desc/include"
   "buttons_gpio/include"
   "spi_bridge_phy/include"
+  "st25r3916/include"
+  "st25r3916/hal/include"
 
   REQUIRES 
   driver
