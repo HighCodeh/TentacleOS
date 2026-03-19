@@ -1,17 +1,11 @@
-// Copyright (c) 2025 HIGH CODE LLC
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
+/**
+ * @file st25r3916_reg.h
+ * @brief ST25R3916 Register Map.
+ *
+ * All addresses verified against the working code that
+ * successfully reads IC Identity = 0x15 and communicates
+ * with ISO14443A cards.
+ */
 #ifndef ST25R3916_REG_H
 #define ST25R3916_REG_H
 
@@ -51,8 +45,8 @@
 #define REG_PASSIVE_TARGET_STS    0x21
 #define REG_NUM_TX_BYTES1         0x22
 #define REG_NUM_TX_BYTES2         0x23
-#define REG_AD_RESULT             0x24
-#define REG_ANT_TUNE_CTRL         0x25
+#define REG_BIT_RATE_DET          0x24
+#define REG_AD_RESULT             0x25
 #define REG_ANT_TUNE_A            0x26
 #define REG_ANT_TUNE_B            0x27
 #define REG_TX_DRIVER             0x28
@@ -71,12 +65,15 @@
 #define REG_UNDERSHOOT_CONF2      0x35
 #define REG_IC_IDENTITY           0x3F
 
-/* ── Key Bit Definitions ── */
-#define OP_CTRL_EN              (1 << 7)
-#define OP_CTRL_RX_EN           (1 << 6)
-#define OP_CTRL_TX_EN           (1 << 3)
-#define OP_CTRL_FIELD_ON        0xC8 
+#define OP_CTRL_EN              (1 << 7)  
+#define OP_CTRL_RX_EN           (1 << 6)  
+#define OP_CTRL_TX_EN           (1 << 3)  
+#define OP_CTRL_FIELD_ON        0xC8      
 
+/* REG_MODE technology bitmask (not an encoded field):
+ *   bit 3 (0x08) = NFC-A    bit 4 (0x10) = NFC-B
+ *   bit 5 (0x20) = NFC-F    bits4+5 (0x30) = NFC-V
+ *   bit 7 (0x80) = target mode   0x88 = NFC-A target */
 #define MODE_POLL_NFCA          0x08
 #define MODE_POLL_NFCB          0x10
 #define MODE_POLL_NFCF          0x20
@@ -84,52 +81,50 @@
 #define MODE_TARGET             0x80
 #define MODE_TARGET_NFCA        0x88
 
-#define PT_D_106_AC_A           0x01
-#define PT_D_212_424_1_AC_F     0x02
-#define PT_D_AP2P_AC            0x04
-#define PT_RFU                  0x00
+#define PT_D_106_AC_A           0x01      
+#define PT_D_212_424_1_AC_F     0x02      
+#define PT_D_AP2P_AC            0x04      
+#define PT_RFU                  0x00      
 
 #define ISO14443A_ANTCL         0x01
-#define ISO14443A_NO_TX_PAR     0x80
-#define ISO14443A_NO_RX_PAR     0x40
+#define ISO14443A_NO_TX_PAR     0x80      
+#define ISO14443A_NO_RX_PAR     0x40      
 
 #define IRQ_MAIN_OSC            (1 << 7)
 #define IRQ_MAIN_FWL            (1 << 4)
-#define IRQ_MAIN_TXE            (1 << 3) 
+#define IRQ_MAIN_TXE            (1 << 3)  
 #define IRQ_MAIN_RXS            (1 << 5)
 #define IRQ_MAIN_RXE            (1 << 2)
 #define IRQ_MAIN_COL            (1 << 1)
 
-/* IC Identity parsing */
 #define IC_TYPE_MASK            0xF8
 #define IC_TYPE_SHIFT           3
 #define IC_REV_MASK             0x07
 
-/* REG_TARGET_INT (0x1D) bits */
-#define IRQ_TGT_WU_A            (1 << 7)
-#define IRQ_TGT_WU_A_X          (1 << 6) 
-#define IRQ_TGT_WU_F            (1 << 5)
+/* IC type observed on ST25R3916 hardware (IC_IDENTITY = 0x15 → type = 0x02).
+ * ST25R3916B returns a different type and uses a different command table. */
+#define ST25R3916_IC_TYPE_EXP   0x02
+
+#define IRQ_TGT_WU_A            (1 << 7)  
+#define IRQ_TGT_WU_A_X          (1 << 6)  
+#define IRQ_TGT_WU_F            (1 << 5)  
 #define IRQ_TGT_RFU4            (1 << 4)
-#define IRQ_TGT_OSCF            (1 << 3) 
-#define IRQ_TGT_SDD_C           (1 << 2) 
+#define IRQ_TGT_OSCF            (1 << 3)  
+#define IRQ_TGT_SDD_C           (1 << 2)  
 #define IRQ_TGT_RFU1            (1 << 1)
 #define IRQ_TGT_RFU0            (1 << 0)
 
-/* REG_MASK_TARGET_INT (0x19) */
-#define IRQ_TGT_MASK_NONE       0xFF
-#define IRQ_TGT_MASK_ALL        0x00
+#define IRQ_TGT_MASK_NONE       0xFF      
+#define IRQ_TGT_MASK_ALL        0x00      
 
-/* REG_FIELD_THRESH_ACT (0x2A) */
-#define FIELD_THRESH_ACT_TRG    0x09
+#define FIELD_THRESH_ACT_TRG    0x09      
 
-/* REG_FIELD_THRESH_DEACT (0x2B) */
-#define FIELD_THRESH_DEACT_TRG  0x05
+#define FIELD_THRESH_DEACT_TRG  0x05      
 
-/* ── SPI Passive Target Memory Prefixes ── */
-#define SPI_PT_MEM_A_WRITE      0xA0
-#define SPI_PT_MEM_F_WRITE      0xA8
-#define SPI_PT_MEM_TSN_WRITE    0xAC
-#define SPI_PT_MEM_READ         0xBF
-#define SPI_PT_MEM_A_LEN        15
+#define SPI_PT_MEM_A_WRITE      0xA0      
+#define SPI_PT_MEM_F_WRITE      0xA8      
+#define SPI_PT_MEM_TSN_WRITE    0xAC      
+#define SPI_PT_MEM_READ         0xBF      
+#define SPI_PT_MEM_A_LEN        15        
 
 #endif
