@@ -61,11 +61,13 @@ file(GLOB_RECURSE SUBGHZ_APP_SRCS "SubGhz/*.c")
 file(GLOB_RECURSE BLE_APP_SRCS "bluetooth/*.c")
 file(GLOB_RECURSE BADUSB_APP_SRCS "bad_usb/*.c")
 file(GLOB_RECURSE WIFI_APP_SRCS "wifi/*.c")
+file(GLOB_RECURSE NFC_APP_SRCS "nfc/*.c")
 
 idf_component_register(SRCS 
   "play/play.c"
   ${UI_SRCS}
   ${WIFI_APP_SRCS}
+  ${NFC_APP_SRCS}
   ${BADUSB_APP_SRCS}
   ${BLE_APP_SRCS}
   "ui/ui_manager.c"
@@ -96,6 +98,17 @@ idf_component_register(SRCS
   INCLUDE_DIRS 
   "play/include"
   "wifi/include"   
+  "nfc/include"
+  "nfc/protocols/common/include"
+  "nfc/protocols/emv/include"
+  "nfc/protocols/felica/include"
+  "nfc/protocols/iso14443a/include"
+  "nfc/protocols/iso14443b/include"
+  "nfc/protocols/iso15693/include"
+  "nfc/protocols/llcp/include"
+  "nfc/protocols/mifare/include"
+  "nfc/protocols/t1t/include"
+  "nfc/protocols/t2t/include"
   "ui/include"
   "ui/screens/SubGhz/include"
   "ui/screens/bluetooth/include"
@@ -136,6 +149,7 @@ idf_component_register(SRCS
   esp_common
   esp_wifi
   esp_tinyusb
+  mbedtls
   bt
 )
 target_link_libraries(${COMPONENT_LIB} -Wl,-zmuldefs)

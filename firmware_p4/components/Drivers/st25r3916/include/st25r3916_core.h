@@ -11,7 +11,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
+/**
+ * @file st25r3916_core.h
+ * @brief ST25R3916 Core init, reset, field, mode.
+ */
 #ifndef ST25R3916_CORE_H
 #define ST25R3916_CORE_H
 
@@ -28,6 +31,7 @@ bool         st25r_field_is_on(void);
 hb_nfc_err_t st25r_field_cycle(void);
 hb_nfc_err_t st25r_set_mode_nfca(void);
 
+/** Dump all 64 registers to log. */
 void st25r_dump_regs(void);
 
 #endif

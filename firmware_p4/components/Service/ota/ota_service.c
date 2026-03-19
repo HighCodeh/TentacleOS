@@ -13,11 +13,11 @@
 // limitations under the License.
 
 #include "ota_service.h"
+#include "ota_version.h"
 #include "bridge_manager.h"
 #include "storage_assets.h"
 #include "sd_card_init.h"
 #include "esp_ota_ops.h"
-#include "esp_app_format.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "cJSON.h"
@@ -31,39 +31,32 @@ static const char *TAG = "OTA_SERVICE";
 #define VERSION_JSON_PATH "config/OTA/firmware.json"
 
 static ota_state_t s_state = OTA_STATE_IDLE;
-static char s_current_version[32] = "unknown";
 
-static void load_version_from_assets(void) {
+const char* ota_get_current_version(void) {
+  return FIRMWARE_VERSION;
+}
+
+static void sync_version_to_assets(void) {
   size_t size;
   uint8_t *json_data = storage_assets_load_file(VERSION_JSON_PATH, &size);
-  if (json_data == NULL) {
-    ESP_LOGW(TAG, "Could not read firmware.json from assets");
-    return;
-  }
+  if (json_data == NULL) return;
 
   cJSON *root = cJSON_ParseWithLength((const char *)json_data, size);
   free(json_data);
-
-  if (root == NULL) {
-    ESP_LOGE(TAG, "Failed to parse firmware.json");
-    return;
-  }
+  if (root == NULL) return;
 
   cJSON *version = cJSON_GetObjectItem(root, "version");
-  if (cJSON_IsString(version) && version->valuestring != NULL) {
-    strncpy(s_current_version, version->valuestring, sizeof(s_current_version) - 1);
-    s_current_version[sizeof(s_current_version) - 1] = '\0';
-    ESP_LOGI(TAG, "Current firmware version: %s", s_current_version);
+  if (cJSON_IsString(version) && strcmp(version->valuestring, FIRMWARE_VERSION) != 0) {
+    cJSON_SetValuestring(version, FIRMWARE_VERSION);
+    char *updated_json = cJSON_PrintUnformatted(root);
+    if (updated_json) {
+      storage_assets_write_file(VERSION_JSON_PATH, updated_json);
+      ESP_LOGI(TAG, "Updated firmware.json in assets to v%s", FIRMWARE_VERSION);
+      free(updated_json);
+    }
   }
 
   cJSON_Delete(root);
-}
-
-const char* ota_get_current_version(void) {
-  if (strcmp(s_current_version, "unknown") == 0) {
-    load_version_from_assets();
-  }
-  return s_current_version;
 }
 
 ota_state_t ota_get_state(void) {
@@ -240,9 +233,6 @@ esp_err_t ota_post_boot_check(void) {
   ESP_LOGI(TAG, "Running from partition: %s (addr=0x%lx)",
            running->label, (long)running->address);
 
-  // Load version info
-  load_version_from_assets();
-
   // Check if this is a pending OTA that needs confirmation
   esp_ota_img_states_t ota_state;
   esp_err_t ret = esp_ota_get_state_partition(running, &ota_state);
@@ -260,9 +250,14 @@ esp_err_t ota_post_boot_check(void) {
 
     // Everything OK — confirm the update
     esp_ota_mark_app_valid_cancel_rollback();
-    ESP_LOGI(TAG, "Firmware update confirmed. Version: %s", s_current_version);
+    ESP_LOGI(TAG, "Firmware update confirmed. Version: %s", FIRMWARE_VERSION);
+
+    // Update firmware.json in assets partition to match the new binary version
+    sync_version_to_assets();
   } else {
     ESP_LOGI(TAG, "Normal boot (no pending OTA verification)");
+    // Sync version on normal boot too (in case it was missed)
+    sync_version_to_assets();
   }
 
   return ESP_OK;

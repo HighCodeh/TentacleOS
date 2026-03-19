@@ -1,48 +1,15 @@
 #include "bridge_manager.h"
 #include "spi_bridge.h"
 #include "c5_flasher.h"
-#include "storage_assets.h"
+#include "ota_version.h"
 #include "esp_log.h"
-#include "cJSON.h"
 #include <string.h>
-#include <stdlib.h>
 
 static const char *TAG = "BRIDGE_MGR";
 
-#define VERSION_JSON_PATH "config/OTA/firmware.json"
-
-static char s_expected_version[32] = "unknown";
-
-static void load_expected_version(void) {
-  size_t size;
-  uint8_t *json_data = storage_assets_load_file(VERSION_JSON_PATH, &size);
-  if (json_data == NULL) {
-    ESP_LOGW(TAG, "Could not read firmware.json, using fallback version");
-    return;
-  }
-
-  cJSON *root = cJSON_ParseWithLength((const char *)json_data, size);
-  free(json_data);
-
-  if (root == NULL) {
-    ESP_LOGE(TAG, "Failed to parse firmware.json");
-    return;
-  }
-
-  cJSON *version = cJSON_GetObjectItem(root, "version");
-  if (cJSON_IsString(version) && version->valuestring != NULL) {
-    strncpy(s_expected_version, version->valuestring, sizeof(s_expected_version) - 1);
-    s_expected_version[sizeof(s_expected_version) - 1] = '\0';
-  }
-
-  cJSON_Delete(root);
-}
-
 esp_err_t bridge_manager_init(void) {
   ESP_LOGI(TAG, "Initializing Bridge Manager...");
-
-  load_expected_version();
-  ESP_LOGI(TAG, "Expected C5 version: %s", s_expected_version);
+  ESP_LOGI(TAG, "Expected C5 version: %s", FIRMWARE_VERSION);
 
   // 1. Init SPI Master
   if (spi_bridge_master_init() != ESP_OK) {
@@ -64,8 +31,8 @@ esp_err_t bridge_manager_init(void) {
     ESP_LOGW(TAG, "C5 not responding. Assuming recovery needed.");
     needs_update = true;
   } else {
-    ESP_LOGI(TAG, "C5 Version: %s (Expected: %s)", resp_ver, s_expected_version);
-    if (strcmp((char*)resp_ver, s_expected_version) != 0) {
+    ESP_LOGI(TAG, "C5 Version: %s (Expected: %s)", resp_ver, FIRMWARE_VERSION);
+    if (strcmp((char*)resp_ver, FIRMWARE_VERSION) != 0) {
       needs_update = true;
     }
   }

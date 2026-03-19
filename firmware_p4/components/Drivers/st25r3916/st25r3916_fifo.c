@@ -11,13 +11,22 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
- 
+/**
+ * @file st25r3916_fifo.c
+ * @brief ST25R3916 FIFO control and TX byte count setup.
+ */
 #include "st25r3916_fifo.h"
 #include "st25r3916_reg.h"
 #include "st25r3916_cmd.h"
 #include "hb_nfc_spi.h"
 #include "hb_nfc_timer.h"
 
+/**
+ * FIFO count:
+ *  lsb = REG_FIFO_STATUS1
+ *  msb = REG_FIFO_STATUS2
+ *  count = ((msb & 0xC0) << 2) | lsb   (10-bit value, max 512)
+ */
 uint16_t st25r_fifo_count(void)
 {
     uint8_t lsb, msb;
@@ -28,10 +37,7 @@ uint16_t st25r_fifo_count(void)
 
 void st25r_fifo_clear(void)
 {
-    /*
-     write 0x02
-     */
-    (void)0;
+    hb_spi_direct_cmd(CMD_CLEAR_FIFO);
 }
 
 hb_nfc_err_t st25r_fifo_load(const uint8_t* data, size_t len)
@@ -44,6 +50,11 @@ hb_nfc_err_t st25r_fifo_read(uint8_t* data, size_t len)
     return hb_spi_fifo_read(data, len);
 }
 
+/**
+ * Set TX byte count:
+ *  reg1 = (nbytes >> 5) & 0xFF
+ *  reg2 = ((nbytes & 0x1F) << 3) | (nbtx_bits & 0x07)
+ */
 void st25r_set_tx_bytes(uint16_t nbytes, uint8_t nbtx_bits)
 {
     uint8_t reg1 = (uint8_t)((nbytes >> 5) & 0xFF);
