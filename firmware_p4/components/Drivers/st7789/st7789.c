@@ -21,7 +21,7 @@
 #define BL_LEDC_MODE      LEDC_LOW_SPEED_MODE
 #define BL_LEDC_CH        LEDC_CHANNEL_0
 #define BL_LEDC_RES       LEDC_TIMER_13_BIT
-#define BL_LEDC_FREQ      5000
+#define BL_LEDC_FREQ      4000
 #define DISPLAY_CONFIG_PATH "/assets/config/screen/screen_config.conf"
 
 static const char *TAG = "ST7789_DRIVER";
