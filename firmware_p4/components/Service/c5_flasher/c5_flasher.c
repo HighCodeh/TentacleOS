@@ -12,8 +12,10 @@ static const char *TAG = "C5_FLASHER";
 #define FLASH_BLOCK_SIZE 1024
 
 // Access to embedded binary symbols
+#if C5_FIRMWARE_EMBEDDED
 extern const uint8_t c5_firmware_bin_start[] asm("_binary_TentacleOS_C5_bin_start");
 extern const uint8_t c5_firmware_bin_end[]   asm("_binary_TentacleOS_C5_bin_end");
+#endif
 
 // ESP Serial Protocol Constants
 #define ESP_ROM_BAUD  115200
@@ -104,8 +106,13 @@ void c5_flasher_reset_normal(void) {
 
 esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size) {
     if (!bin_data) {
+#if C5_FIRMWARE_EMBEDDED
         bin_data = c5_firmware_bin_start;
         bin_size = c5_firmware_bin_end - c5_firmware_bin_start;
+#else
+        ESP_LOGE(TAG, "Embedded C5 firmware is unavailable");
+        return ESP_ERR_NOT_FOUND;
+#endif
     }
 
     if (bin_size == 0) {

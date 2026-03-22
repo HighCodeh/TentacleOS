@@ -100,9 +100,13 @@ idf_component_register(SRCS
 
 # Embed C5 Firmware Binary into Service component (used by c5_flasher)
 set(C5_BIN_PATH "${CMAKE_SOURCE_DIR}/../firmware_c5/build/TentacleOS_C5.bin")
+set(C5_FIRMWARE_EMBEDDED 0)
 if(EXISTS ${C5_BIN_PATH})
     target_add_binary_data(${COMPONENT_LIB} "${C5_BIN_PATH}" BINARY)
+    set(C5_FIRMWARE_EMBEDDED 1)
     message(STATUS "Embedding C5 Firmware: ${C5_BIN_PATH}")
 else()
     message(WARNING "C5 Firmware binary not found at ${C5_BIN_PATH}. Firmware update feature will be disabled.")
 endif()
+
+target_compile_definitions(${COMPONENT_LIB} PRIVATE C5_FIRMWARE_EMBEDDED=${C5_FIRMWARE_EMBEDDED})
