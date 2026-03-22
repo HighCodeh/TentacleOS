@@ -1,6 +1,6 @@
-# Contributing to HighBoy Firmware
+# Contributing to High Boy Firmware
 
-Thank you for your interest in contributing to HighBoy! We welcome contributions from everyone. This document provides guidelines and instructions to help you get started.
+Thank you for your interest in contributing to High Boy! We welcome contributions from everyone. This document provides guidelines and instructions to help you get started.
 
 
 ## Getting Started
