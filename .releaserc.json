@@ -15,7 +15,12 @@
         { "breaking": true, "release": "major" }
       ]
     }],
-    "@semantic-release/release-notes-generator",
+    ["@semantic-release/release-notes-generator", {
+      "preset": "conventionalcommits",
+      "writerOpts": {
+        "commitPartial": "* {{#if scope}}**{{scope}}:** {{/if}}{{subject}} ({{hash}}) — @{{authorLogin}}\n"
+      }
+    }],
     ["@semantic-release/changelog", {
       "changelogFile": "CHANGELOG.md"
     }],
