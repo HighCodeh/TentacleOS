@@ -19,20 +19,34 @@
 #include "freertos/task.h"
 
 static const char *TAG = "PN7150";
+static i2c_master_dev_handle_t pn7150_dev_handle = NULL;
 
-// Inicializa I2C mestre do ESP32
+#define I2C_TIMEOUT_MS 1000
+
+static esp_err_t pn7150_ensure_device(void) {
+    if (pn7150_dev_handle != NULL) return ESP_OK;
+
+    i2c_master_bus_handle_t bus = i2c_get_bus_handle();
+    if (bus == NULL) {
+        ESP_LOGE(TAG, "I2C bus não inicializado.");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    i2c_device_config_t dev_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = PN7150_I2C_ADDRESS,
+        .scl_speed_hz = I2C_MASTER_FREQ_HZ,
+    };
+    return i2c_master_bus_add_device(bus, &dev_cfg, &pn7150_dev_handle);
+}
+
+// Inicializa I2C mestre do ESP32 (agora only registra o device no bus global)
 void pn7150_i2c_init(void)
 {
-    i2c_config_t conf = {
-        .mode = I2C_MODE_MASTER,
-        .sda_io_num = I2C_MASTER_SDA_IO,
-        .scl_io_num = I2C_MASTER_SCL_IO,
-        .sda_pullup_en = GPIO_PULLUP_ENABLE,
-        .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = I2C_MASTER_FREQ_HZ,
-    };
-    i2c_param_config(I2C_MASTER_NUM, &conf);
-    i2c_driver_install(I2C_MASTER_NUM, conf.mode, 0, 0, 0);
+    esp_err_t ret = pn7150_ensure_device();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Falha ao registrar PN7150 no bus I2C: %s", esp_err_to_name(ret));
+    }
 }
 
 // Configura GPIOs VEN (output) e IRQ (input) do PN7150
@@ -61,31 +75,22 @@ void pn7150_hw_init(void)
 // Envia um comando NCI via I2C
 esp_err_t pn7150_send_cmd(const uint8_t *data, size_t len)
 {
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    // Inicia e envia endereço+escrita
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (PN7150_I2C_ADDRESS<<1) | I2C_MASTER_WRITE, true);
-    // Envia o comando NCI completo
-    i2c_master_write(cmd, (uint8_t*)data, len, true);
-    i2c_master_stop(cmd);
-    esp_err_t err = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, pdMS_TO_TICKS(1000));
-    i2c_cmd_link_delete(cmd);
-    return err;
+    esp_err_t ret = pn7150_ensure_device();
+    if (ret != ESP_OK) return ret;
+
+    return i2c_master_transmit(pn7150_dev_handle, data, len, I2C_TIMEOUT_MS);
 }
 
 // Lê resposta NCI via I2C. Retorna em buffer e define *length.
 esp_err_t pn7150_read_rsp(uint8_t *buffer, size_t *length)
 {
+    esp_err_t ret = pn7150_ensure_device();
+    if (ret != ESP_OK) return ret;
+
     // Leitura de cabeçalho (3 bytes)
     uint8_t header[3] = {0};
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (PN7150_I2C_ADDRESS<<1) | I2C_MASTER_READ, true);
-    i2c_master_read(cmd, header, 3, I2C_MASTER_LAST_NACK);
-    i2c_master_stop(cmd);
-    esp_err_t err = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, pdMS_TO_TICKS(1000));
-    i2c_cmd_link_delete(cmd);
-    if (err != ESP_OK) return err;
+    ret = i2c_master_receive(pn7150_dev_handle, header, 3, I2C_TIMEOUT_MS);
+    if (ret != ESP_OK) return ret;
 
     // Calcula tamanho do payload
     uint8_t payload_len = header[2];
@@ -98,14 +103,8 @@ esp_err_t pn7150_read_rsp(uint8_t *buffer, size_t *length)
     if (payload_len == 0) return ESP_OK;
 
     // Leitura do payload restante
-    cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (PN7150_I2C_ADDRESS<<1) | I2C_MASTER_READ, true);
-    i2c_master_read(cmd, buffer+3, payload_len, I2C_MASTER_LAST_NACK);
-    i2c_master_stop(cmd);
-    err = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, pdMS_TO_TICKS(1000));
-    i2c_cmd_link_delete(cmd);
-    return err;
+    ret = i2c_master_receive(pn7150_dev_handle, buffer + 3, payload_len, I2C_TIMEOUT_MS);
+    return ret;
 }
 
 // Executa CORE_RESET_CMD (Reset Type = Keep Config = 0x01)
@@ -118,8 +117,6 @@ esp_err_t pn7150_core_reset(void)
         ESP_LOGE(TAG, "Erro I2C send CORE_RESET");
         return err;
     }
-    // Aguarda IRQ ou pode esperar fixo
-    //vTaskDelay(pdMS_TO_TICKS(50));
     uint8_t rsp[16] = {0};
     size_t len = 0;
     err = pn7150_read_rsp(rsp, &len);
@@ -143,8 +140,6 @@ esp_err_t pn7150_core_init(void)
         ESP_LOGE(TAG, "Erro I2C send CORE_INIT");
         return err;
     }
-    // Aguardar IRQ / resposta
-    //vTaskDelay(pdMS_TO_TICKS(50));
     uint8_t rsp[32] = {0};
     size_t len = 0;
     err = pn7150_read_rsp(rsp, &len);

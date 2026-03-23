@@ -13,32 +13,37 @@
 // limitations under the License.
 
 
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"
 #include "esp_log.h"
+#include "i2c_init.h"
 
 #define TAG "I2CInit"
 
+static i2c_master_bus_handle_t global_bus_handle = NULL;
+
 void init_i2c(void) {
-    i2c_config_t conf = {
-        .mode = I2C_MODE_MASTER,
+    if (global_bus_handle != NULL) {
+        ESP_LOGI(TAG, "I2C bus já está inicializado.");
+        return;
+    }
+
+    i2c_master_bus_config_t bus_config = {
+        .i2c_port = I2C_NUM_0,
         .sda_io_num = 8,
         .scl_io_num = 9,
-        .sda_pullup_en = GPIO_PULLUP_ENABLE,
-        .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = 400000, // 400 kHz
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+        .glitch_ignore_cnt = 7,
+        .flags.enable_internal_pullup = true,
     };
 
-    esp_err_t ret = i2c_param_config(I2C_NUM_0, &conf);
+    esp_err_t ret = i2c_new_master_bus(&bus_config, &global_bus_handle);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Erro em i2c_param_config: %s", esp_err_to_name(ret));
-        return;
+        ESP_LOGE(TAG, "Erro ao inicializar i2c_new_master_bus: %s", esp_err_to_name(ret));
+    } else {
+        ESP_LOGI(TAG, "I2C mestre inicializado com sucesso no I2C_NUM_0 usando o novo driver.");
     }
+}
 
-    ret = i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Erro em i2c_driver_install: %s", esp_err_to_name(ret));
-        return;
-    }
-
-    ESP_LOGI(TAG, "I2C mestre inicializado com sucesso no I2C_NUM_0.");
+i2c_master_bus_handle_t i2c_get_bus_handle(void) {
+    return global_bus_handle;
 }

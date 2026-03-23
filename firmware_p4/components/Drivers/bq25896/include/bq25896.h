@@ -16,7 +16,7 @@
 #ifndef BQ25896_H
 #define BQ25896_H
 
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"
 #include <stdint.h>
 #include <stdbool.h>
 

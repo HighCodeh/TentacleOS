@@ -16,7 +16,8 @@
 #ifndef PN7150_H
 #define PN7150_H
 
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"
+#include "i2c_init.h"
 #include "driver/gpio.h"
 
 // Configurações de hardware

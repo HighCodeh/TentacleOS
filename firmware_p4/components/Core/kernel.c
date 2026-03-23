@@ -26,7 +26,7 @@
 #include "pin_def.h" 
 #include "st7789.h"
 #include "bq25896.h"
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"
 #include "nvs_flash.h" 
 #include "wifi_service.h" 
 #include "storage_init.h"
