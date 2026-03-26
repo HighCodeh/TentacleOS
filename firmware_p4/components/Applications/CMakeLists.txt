@@ -151,5 +151,6 @@ idf_component_register(SRCS
   esp_tinyusb
   mbedtls
   bt
+  esp_lvgl_adapter
 )
 target_link_libraries(${COMPONENT_LIB} -Wl,-zmuldefs)

@@ -96,6 +96,7 @@ idf_component_register(SRCS
     console 
     argtable3
     app_update
+    esp_lvgl_adapter
 )
 
 # Embed C5 Firmware Binary into Service component (used by c5_flasher)

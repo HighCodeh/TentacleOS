@@ -7,6 +7,19 @@ cmake_minimum_required(VERSION 3.16)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+set(EXTRA_COMPONENT_DIRS
+    # Core
+    "${CMAKE_SOURCE_DIR}/components/Core/freetype"
+    # Drivers
+    "${CMAKE_SOURCE_DIR}/components/Drivers/button"
+    "${CMAKE_SOURCE_DIR}/components/Drivers/knob"
+    "${CMAKE_SOURCE_DIR}/components/Drivers/esp_lcd_touch"
+    # Service
+    "${CMAKE_SOURCE_DIR}/components/Service/esp_lvgl_adapter"
+    "${CMAKE_SOURCE_DIR}/components/Service/esp_lv_fs"
+    "${CMAKE_SOURCE_DIR}/components/Service/esp_lv_decoder"
+)
+
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 project(TentacleOS_P4)
