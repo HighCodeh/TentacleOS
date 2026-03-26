@@ -3,18 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "esp_err.h"
-
-#define SD_BASE_PATH "/sdcard"
-
-// Diretórios predefinidos do sistema
-#define SD_DIR_IR       "/ir"
-#define SD_DIR_BADUSB   "/badusb"
-#define SD_DIR_NFC      "/nfc"
-#define SD_DIR_RFID     "/rfid"
-#define SD_DIR_SUBGHZ   "/subghz"
-#define SD_DIR_CONFIG   "/config"
-#define SD_DIR_LOGS     "/logs"
-#define SD_DIR_BACKUP   "/backups"
+#include "vfs_config.h"
 
 typedef void (*sd_dir_callback_t)(const char *name, bool is_dir, void *user_data);
 

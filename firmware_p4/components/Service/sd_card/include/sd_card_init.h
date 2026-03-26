@@ -7,13 +7,12 @@
 #define SD_CARD_INIT_H
 
 #include "esp_err.h"
+#include "vfs_config.h"
 #include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#define SD_MOUNT_POINT          "/sdcard"
 #define SD_MAX_FILES            10
 #define SD_ALLOCATION_UNIT      (16 * 1024)
 
