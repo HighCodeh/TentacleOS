@@ -38,6 +38,9 @@
 #include "console_service.h"
 #include "bridge_manager.h"
 
+// esp_lvgl_adapter - 统一管理 LVGL 初始化、任务、锁和扩展功能
+#include "esp_lv_adapter.h"
+
 static const char *TAG = "SAFEGUARD";
 
 static void console_task(void *pvParameters) {
@@ -55,12 +58,10 @@ void kernel_init(void) {
 
   spi_init();
   init_i2c();
-  //Storage Init
+  // Storage Init
   storage_init();
   storage_assets_init();
   storage_assets_print_info();
-
-
 
   buzzer_init();
   led_rgb_init();
@@ -71,14 +72,33 @@ void kernel_init(void) {
 
   buttons_init();
 
-
-  // display and graphical api init
+  // -------------------------------------------------------------------------
+  // 显示和图形 API 初始化
+  // esp_lv_adapter_init() 内部调用 lv_init()，并创建 LVGL tick timer 和互斥锁。
+  // 因此这里不再手动调用 lv_init()。
+  // -------------------------------------------------------------------------
   st7789_init();
-  lv_init();
+
+  const esp_lv_adapter_config_t adapter_cfg = {
+    .task_stack_size   = 8 * 1024,
+    .task_priority     = 5,
+    .task_core_id      = 1,       // 绑定到 Core 1（与 UI Task 一致）
+    .tick_period_ms    = 2,
+    .task_min_delay_ms = 1,
+    .task_max_delay_ms = 10,
+    .stack_in_psram    = false,
+  };
+  ESP_ERROR_CHECK(esp_lv_adapter_init(&adapter_cfg));
+
+  // 使用现有的 lv_port_disp_init（含 BLE 屏幕图传钩子）注册显示器
   lv_port_disp_init();
+
+  // 使用现有的 lv_port_indev_init 注册物理按键输入
   lv_port_indev_init();
 
-
+  // -------------------------------------------------------------------------
+  // UI Manager 初始化，内部会调用 esp_lv_adapter_start() 启动 LVGL worker task
+  // -------------------------------------------------------------------------
   ui_init();
   sys_monitor(false);
 

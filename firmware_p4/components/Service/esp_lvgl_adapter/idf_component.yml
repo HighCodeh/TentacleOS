@@ -1,0 +1,16 @@
+# 注意：button、knob、esp_lcd_touch、esp_lv_decoder、esp_lv_fs、freetype
+# 均已作为本地组件放置于 components/ 目录，通过 EXTRA_COMPONENT_DIRS 发现，
+# 不在此声明（否则组件管理器会尝试从注册中心下载）。
+dependencies:
+  idf: '>=5.5'
+  lvgl/lvgl:
+    version: '>=8,<10'
+description: LVGL adapter with unified display management, tearing control, thread
+  safety, and optional filesystem/decoder/FreeType support.
+issues: https://github.com/espressif/esp-iot-solution/issues
+repository: git://github.com/espressif/esp-iot-solution.git
+repository_info:
+  commit_sha: 66cfc37bc71774d88d878a3a4f124d25ffc5afc6
+  path: components/display/tools/esp_lvgl_adapter
+url: https://github.com/espressif/esp-iot-solution/tree/master/components/display/tools/esp_lvgl_adapter
+version: 0.4.1

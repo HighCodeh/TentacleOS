@@ -1,0 +1,12 @@
+dependencies:
+  cmake_utilities: '*'
+  idf: '>=4.0'
+description: GPIO and ADC and Matrix button driver
+documentation: https://docs.espressif.com/projects/esp-iot-solution/en/latest/input_device/button.html
+issues: https://github.com/espressif/esp-iot-solution/issues
+repository: git://github.com/espressif/esp-iot-solution.git
+repository_info:
+  commit_sha: 25a38823765ee35808d4c69a19d81033d6f91049
+  path: components/button
+url: https://github.com/espressif/esp-iot-solution/tree/master/components/button
+version: 4.1.6

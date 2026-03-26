@@ -58,19 +58,15 @@
 #include "lv_port_indev.h"
 #include "assets_manager.h"
 
+// esp_lvgl_adapter - 接管 LVGL 任务管理和线程安全锁
+#include "esp_lv_adapter.h"
+
 #define TAG "UI_MANAGER"
 
-#define UI_TASK_STACK_SIZE      (4096 * 2) 
-#define UI_TASK_PRIORITY        (tskIDLE_PRIORITY + 2) 
-#define UI_TASK_CORE            1 
-
-#define LVGL_TICK_PERIOD_MS     5
-
-static SemaphoreHandle_t xGuiSemaphore = NULL;
+// LVGL worker task 配置（由 esp_lv_adapter_start() 创建，在 kernel.c 的 adapter_cfg 中定义）
+// 这里只保留 UI 逻辑相关的参数
 static bool is_emergency_restart = false;
 
-static void ui_task(void *pvParameter);
-static void lv_tick_task(void *arg);
 static void clear_current_screen(void);
 
 static bool is_ble_screen(screen_id_t screen) {
@@ -85,87 +81,76 @@ static bool is_badusb_screen(screen_id_t screen) {
 
 screen_id_t current_screen_id = SCREEN_NONE;
 
-void ui_init(void)
-{
-  ESP_LOGI(TAG, "Initializing UI Manager...");
-
-  assets_manager_init();
-
-  ui_theme_init();
-
-  xGuiSemaphore = xSemaphoreCreateRecursiveMutex();
-  if (!xGuiSemaphore) {
-    ESP_LOGE(TAG, "Failed to create UI Mutex");
-    return;
-  }
-
-  const esp_timer_create_args_t periodic_timer_args = {
-    .callback = &lv_tick_task,
-    .name = "lvgl_tick"
-  };
-  esp_timer_handle_t periodic_timer;
-  ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_timer));
-  ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, LVGL_TICK_PERIOD_MS * 1000));
-
-  xTaskCreatePinnedToCore(
-    ui_task,            
-    "UI Task",          
-    UI_TASK_STACK_SIZE, 
-    NULL,               
-    UI_TASK_PRIORITY,   
-    NULL,               
-    UI_TASK_CORE        
-  );
-
-  ESP_LOGI(TAG, "UI Manager initialized successfully.");
-}
-
-void ui_hard_restart(void) {
-  ESP_LOGW(TAG, "Executing UI Task Emergency Restart...");
-  is_emergency_restart = true;
-  xTaskCreatePinnedToCore(
-    ui_task,            
-    "UI Task",          
-    UI_TASK_STACK_SIZE, 
-    NULL,               
-    UI_TASK_PRIORITY,   
-    NULL,               
-    UI_TASK_CORE        
-  );
-}
-
-static void ui_task(void *pvParameter)
+// ---------------------------------------------------------------------------
+// Boot sequence task（在 LVGL worker task 之外单独执行）
+// ---------------------------------------------------------------------------
+static void ui_boot_task(void *pvParameter)
 {
   ui_theme_init();
 
-  bool is_recovery = is_emergency_restart; 
-  is_emergency_restart = false; 
+  bool is_recovery = is_emergency_restart;
+  is_emergency_restart = false;
 
   if (ui_acquire()) {
     if (is_recovery) {
       ui_home_open();
       msgbox_open(LV_SYMBOL_WARNING, "UI Recovered!\nInterface task was restarted.", "OK", NULL, NULL);
     } else {
-      ui_boot_show(); 
+      ui_boot_show();
     }
     ui_release();
   }
 
-  TickType_t start_tick = xTaskGetTickCount();
-  bool boot_screen_done = is_recovery; 
+  // 等待 5 秒后切换到主页
+  vTaskDelay(pdMS_TO_TICKS(5000));
 
-  while (1) {
-    if (ui_acquire()) {
-      if (!boot_screen_done && (xTaskGetTickCount() - start_tick >= pdMS_TO_TICKS(5000))) {
-        ui_home_open();
-        boot_screen_done = true;
-      }
-
-      lv_timer_handler();
-      ui_release();
+  if (ui_acquire()) {
+    if (!is_recovery) {
+      ui_home_open();
     }
-    vTaskDelay(pdMS_TO_TICKS(10));
+    ui_release();
   }
+
+  vTaskDelete(NULL);
+}
+
+void ui_init(void)
+{
+  ESP_LOGI(TAG, "Initializing UI Manager...");
+
+  assets_manager_init();
+  ui_theme_init();
+
+  // 启动 esp_lvgl_adapter 的 LVGL worker task（替代原来手动创建的 ui_task + lv_tick_task）
+  // adapter 自己管理 lv_timer_handler() 的调用和 tick 计时
+  ESP_ERROR_CHECK(esp_lv_adapter_start());
+
+  // 在单独的任务中处理启动画面（否则会阻塞 init 流程）
+  xTaskCreatePinnedToCore(
+    ui_boot_task,
+    "UI Boot",
+    4096 * 2,
+    NULL,
+    tskIDLE_PRIORITY + 2,
+    NULL,
+    1
+  );
+
+  ESP_LOGI(TAG, "UI Manager initialized successfully.");
+}
+
+void ui_hard_restart(void) {
+  ESP_LOGW(TAG, "Executing UI Emergency Restart...");
+  is_emergency_restart = true;
+  xTaskCreatePinnedToCore(
+    ui_boot_task,
+    "UI Boot",
+    4096 * 2,
+    NULL,
+    tskIDLE_PRIORITY + 2,
+    NULL,
+    1
+  );
 }
 
 static void clear_current_screen(void){
@@ -366,26 +351,17 @@ void ui_switch_screen(screen_id_t new_screen) {
   }
 }
 
-static void lv_tick_task(void *arg)
-{
-  (void) arg;
-  lv_tick_inc(LVGL_TICK_PERIOD_MS);
-}
-
+// ---------------------------------------------------------------------------
+// 线程安全 API（委托给 esp_lv_adapter 的递归互斥锁）
+// ---------------------------------------------------------------------------
 
 bool ui_acquire(void)
 {
-  if (xGuiSemaphore != NULL) {
-    return (xSemaphoreTakeRecursive(xGuiSemaphore, portMAX_DELAY) == pdTRUE);
-  }
-  return false;
+  // esp_lv_adapter_lock(-1) 表示无限等待，与原 portMAX_DELAY 行为一致
+  return (esp_lv_adapter_lock(-1) == ESP_OK);
 }
 
 void ui_release(void)
 {
-  if (xGuiSemaphore != NULL) {
-    xSemaphoreGiveRecursive(xGuiSemaphore);
-  }
+  esp_lv_adapter_unlock();
 }
-
-

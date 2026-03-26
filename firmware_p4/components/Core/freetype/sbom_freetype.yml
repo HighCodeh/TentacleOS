@@ -1,0 +1,7 @@
+name: freetype
+version: 2.14.2
+cpe: cpe:2.3:a:freetype:freetype:{}:*:*:*:*:*:*:*
+supplier: 'Organization: freetype <https://www.freetype.org>'
+description: FreeType is a software font engine
+url: https://github.com/freetype/freetype
+hash: f4205da14867c5387cd6a329b90ee10a6df6eeff
