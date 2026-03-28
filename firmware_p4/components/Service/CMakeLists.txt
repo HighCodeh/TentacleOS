@@ -19,22 +19,18 @@ file(GLOB_RECURSE C5_FLASHER_SRCS "c5_flasher/*.c")
 file(GLOB_RECURSE SPI_BRIDGE_SRCS "spi_bridge/*.c")
 file(GLOB_RECURSE BRIDGE_MANAGER_SRCS "bridge_manager/*.c")
 file(GLOB_RECURSE BT_SERVICE_SRCS "bluetooth/*.c")
+file(GLOB_RECURSE STORAGE_API_SRCS "storage_api/*.c")
+file(GLOB_RECURSE STORAGE_VFS_SRCS "storage_vfs/*.c")
+file(GLOB_RECURSE STORAGE_ASSETS_SRCS "storage_assets/*.c")
 
-idf_component_register(SRCS 
+idf_component_register(SRCS
   "font/font.c"
   "icons/icons.c"
   "wifi/wifi_service.c"
 
-  "storage_api/storage_impl.c"
-  "storage_api/storage_init.c"
-  "storage_api/storage_read.c"
-  "storage_api/storage_write.c"
-  "storage_api/storage_mkdir.c"
-  "storage_vfs/vfs_auto.c"
-  "storage_vfs/vfs_core.c"
-  "storage_vfs/vfs_littlefs.c"
-  "storage_vfs/vfs_sdcard.c"
-  "storage_assets/storage_assets.c"
+  ${STORAGE_API_SRCS}
+  ${STORAGE_VFS_SRCS}
+  ${STORAGE_ASSETS_SRCS}
 
   "ir/ir_encoder.c"
   "ir/ir_common.c"
