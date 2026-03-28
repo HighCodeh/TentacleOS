@@ -31,6 +31,8 @@
 #include "wifi_service.h" 
 #include "storage_init.h"
 #include "storage_assets.h"
+#include "tos_first_boot.h"
+#include "tos_config.h"
 #include "lv_port_disp.h"
 #include "lv_port_indev.h"
 #include "ui_manager.h"
@@ -41,8 +43,8 @@
 static const char *TAG = "SAFEGUARD";
 
 static void console_task(void *pvParameters) {
-    console_service_init();
-    vTaskDelete(NULL);
+  console_service_init();
+  vTaskDelete(NULL);
 }
 
 void kernel_init(void) {
@@ -60,7 +62,9 @@ void kernel_init(void) {
   storage_assets_init();
   storage_assets_print_info();
 
-
+  tos_first_boot_setup();
+  tos_config_load_all();
+  // tos_theme_load_from_sd(); // TODO: fase 6
 
   buzzer_init();
   led_rgb_init();
