@@ -17,6 +17,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 
 typedef enum {
     SNIFF_TYPE_BEACON,
@@ -29,15 +30,15 @@ typedef void (*wifi_sniffer_cb_t)(const uint8_t *frame, uint16_t len, int8_t rss
 bool wifi_sniffer_start(sniff_type_t type, uint8_t channel);
 bool wifi_sniffer_start_stream(sniff_type_t type, uint8_t channel, wifi_sniffer_cb_t cb);
 void wifi_sniffer_stop(void);
-bool wifi_sniffer_save_to_internal_flash(const char *filename);
-bool wifi_sniffer_save_to_sd_card(const char *filename);
+bool wifi_sniffer_start_capture(const char *path);
+bool wifi_sniffer_stop_capture(void);
+size_t wifi_sniffer_get_capture_size(void);
 void wifi_sniffer_free_buffer(void);
 uint32_t wifi_sniffer_get_packet_count(void);
 uint32_t wifi_sniffer_get_deauth_count(void);
 uint32_t wifi_sniffer_get_buffer_usage(void);
 void wifi_sniffer_set_snaplen(uint16_t len);
 void wifi_sniffer_set_verbose(bool verbose);
-bool wifi_sniffer_start_stream_sd(sniff_type_t type, uint8_t channel, const char *filename);
 bool wifi_sniffer_pmkid_captured(void);
 void wifi_sniffer_clear_pmkid(void);
 void wifi_sniffer_get_pmkid_bssid(uint8_t out_bssid[6]);

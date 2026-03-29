@@ -1,17 +1,30 @@
 #include "wifi_sniffer.h"
 #include "spi_bridge.h"
+#include "storage_stream.h"
+#include "esp_log.h"
 #include <string.h>
 
+static const char *TAG = "wifi_sniffer";
 static sniffer_stats_t cached_stats;
 static wifi_sniffer_cb_t stream_cb = NULL;
+static storage_stream_t capture_stream = NULL;
+
+bool wifi_sniffer_stop_capture(void);
 
 static void wifi_sniffer_stream_cb(spi_id_t id, const uint8_t *payload, uint8_t len) {
     (void)id;
-    if (!stream_cb || !payload || len < 3) return;
+    if (!payload || len < 3) return;
     const spi_wifi_sniffer_frame_t *frame = (const spi_wifi_sniffer_frame_t *)payload;
     uint16_t data_len = frame->len;
     if (data_len > (len - 3)) data_len = (len - 3);
-    stream_cb(frame->data, data_len, frame->rssi, frame->channel);
+
+    if (capture_stream) {
+        storage_stream_write(capture_stream, frame->data, data_len);
+    }
+
+    if (stream_cb) {
+        stream_cb(frame->data, data_len, frame->rssi, frame->channel);
+    }
 }
 
 static void update_stats(void) {
@@ -45,6 +58,7 @@ bool wifi_sniffer_start_stream(sniff_type_t type, uint8_t channel, wifi_sniffer_
 void wifi_sniffer_stop(void) {
     spi_bridge_send_command(SPI_ID_WIFI_APP_ATTACK_STOP, NULL, 0, NULL, NULL, 2000);
     spi_bridge_unregister_stream_cb(SPI_ID_WIFI_APP_SNIFFER);
+    wifi_sniffer_stop_capture();
     stream_cb = NULL;
 }
 
@@ -70,23 +84,32 @@ bool wifi_sniffer_pmkid_captured(void) {
     return cached_stats.pmkid_captured;
 }
 
-// Stubs for UI flow control
-bool wifi_sniffer_save_to_internal_flash(const char *filename) {
-    if (!filename || filename[0] == '\0') return false;
-    uint8_t payload[SPI_WIFI_SNIFFER_FILENAME_MAX];
-    size_t name_len = strnlen(filename, SPI_WIFI_SNIFFER_FILENAME_MAX - 1);
-    memset(payload, 0, sizeof(payload));
-    memcpy(payload, filename, name_len);
-    return (spi_bridge_send_command(SPI_ID_WIFI_SNIFFER_SAVE_FLASH, payload, (uint8_t)name_len, NULL, NULL, 10000) == ESP_OK);
+bool wifi_sniffer_start_capture(const char *path) {
+    if (!path) return false;
+    if (capture_stream) {
+        storage_stream_close(capture_stream);
+        capture_stream = NULL;
+    }
+    capture_stream = storage_stream_open(path, "wb");
+    if (!capture_stream) {
+        ESP_LOGE(TAG, "Failed to open capture file: %s", path);
+        return false;
+    }
+    ESP_LOGI(TAG, "Capture started: %s", path);
+    return true;
 }
 
-bool wifi_sniffer_save_to_sd_card(const char *filename) {
-    if (!filename || filename[0] == '\0') return false;
-    uint8_t payload[SPI_WIFI_SNIFFER_FILENAME_MAX];
-    size_t name_len = strnlen(filename, SPI_WIFI_SNIFFER_FILENAME_MAX - 1);
-    memset(payload, 0, sizeof(payload));
-    memcpy(payload, filename, name_len);
-    return (spi_bridge_send_command(SPI_ID_WIFI_SNIFFER_SAVE_SD, payload, (uint8_t)name_len, NULL, NULL, 10000) == ESP_OK);
+bool wifi_sniffer_stop_capture(void) {
+    if (!capture_stream) return false;
+    storage_stream_flush(capture_stream);
+    storage_stream_close(capture_stream);
+    capture_stream = NULL;
+    ESP_LOGI(TAG, "Capture stopped");
+    return true;
+}
+
+size_t wifi_sniffer_get_capture_size(void) {
+    return storage_stream_bytes_written(capture_stream);
 }
 
 void wifi_sniffer_free_buffer(void) {
@@ -105,16 +128,6 @@ void wifi_sniffer_set_verbose(bool verbose) {
     spi_bridge_send_command(SPI_ID_WIFI_SNIFFER_SET_VERBOSE, &payload, 1, NULL, NULL, 2000);
 }
 
-bool wifi_sniffer_start_stream_sd(sniff_type_t type, uint8_t channel, const char *filename) {
-    if (!filename || filename[0] == '\0') return false;
-    uint8_t payload[2 + SPI_WIFI_SNIFFER_FILENAME_MAX];
-    size_t name_len = strnlen(filename, SPI_WIFI_SNIFFER_FILENAME_MAX - 1);
-    payload[0] = (uint8_t)type;
-    payload[1] = channel;
-    memset(payload + 2, 0, SPI_WIFI_SNIFFER_FILENAME_MAX);
-    memcpy(payload + 2, filename, name_len);
-    return (spi_bridge_send_command(SPI_ID_WIFI_SNIFFER_STREAM_SD, payload, (uint8_t)(2 + name_len), NULL, NULL, 10000) == ESP_OK);
-}
 
 void wifi_sniffer_clear_pmkid(void) {
     spi_bridge_send_command(SPI_ID_WIFI_SNIFFER_CLEAR_PMKID, NULL, 0, NULL, NULL, 2000);

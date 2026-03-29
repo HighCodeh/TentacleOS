@@ -66,6 +66,7 @@ typedef enum {
     SPI_ID_WIFI_APP_ATTACK_STOP = 0x2A,
     SPI_ID_WIFI_SNIFFER_SET_SNAPLEN        = 0x2B,
     SPI_ID_WIFI_SNIFFER_SET_VERBOSE        = 0x2C,
+    // Unused on P4 — kept to stay in sync with C5 wifi_dispatcher.c
     SPI_ID_WIFI_SNIFFER_SAVE_FLASH         = 0x2D,
     SPI_ID_WIFI_SNIFFER_SAVE_SD            = 0x2E,
     SPI_ID_WIFI_SNIFFER_FREE_BUFFER        = 0x2F,
