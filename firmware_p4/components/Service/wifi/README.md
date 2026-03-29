@@ -12,8 +12,8 @@ The service handles:
 - **Hotspot Management:** Dynamic switching of AP configuration.
 - **Promiscuous Mode:** Low-level packet sniffing and environment monitoring.
 - **Channel Hopping:** Automated cycling through Wi-Fi channels for environment monitoring.
-- **Configuration Persistence:** Loading and saving AP settings to/from `assets/config/wifi/wifi_ap.conf`.
-- **Known Networks:** Automatically saves connected network credentials to `assets/storage/wifi/know_networks.json`.
+- **Configuration Persistence:** AP/client settings loaded via `tos_config_load_all()` from SD (`config/wifi.conf`) with flash fallback (`/assets/config/wifi/wifi_ap.conf`).
+- **Known Networks:** Automatically saves connected network credentials to `wifi/` on SD card.
 
 ## API Functions
 

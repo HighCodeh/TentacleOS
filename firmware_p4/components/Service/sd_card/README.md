@@ -16,21 +16,12 @@ Component for managing directories on SD card storage.
 - **Callback System:** Efficient iteration with custom callbacks
 - **Statistics:** Count files/directories, calculate storage usage
 
-## Predefined System Directories
+## Path Constants
 
-| Constant | Path | Purpose |
-|----------|------|---------|
-| `SD_BASE_PATH` | `/sdcard` | Root mount point |
-| `SD_DIR_IR` | `/ir` | Infrared signal files |
-| `SD_DIR_BADUSB` | `/badusb` | DuckyScript payloads |
-| `SD_DIR_NFC` | `/nfc` | NFC tag data |
-| `SD_DIR_RFID` | `/rfid` | RFID card data |
-| `SD_DIR_SUBGHZ` | `/subghz` | Sub-GHz captures |
-| `SD_DIR_CONFIG` | `/config` | Configuration files |
-| `SD_DIR_LOGS` | `/logs` | Application logs |
-| `SD_DIR_BACKUP` | `/backups` | System backups |
+All path constants have been centralized in `tos_storage_paths.h` using `TOS_PATH_*` macros.
+The sd_card component uses `VFS_MOUNT_POINT` (from `vfs_config.h`) as the mount point prefix.
 
-**Note:** Paths are relative to `SD_BASE_PATH`. Use `SD_BASE_PATH SD_DIR_BADUSB` → `/sdcard/badusb`
+See `storage_api/include/tos_storage_paths.h` for the full list of available paths.
 
 ## API Reference
 
@@ -119,21 +110,18 @@ Copies entire directory tree, preserving structure.
 
 ## Implementation Details
 
-- All functions require full paths including `SD_BASE_PATH`
+- All functions require full paths including `VFS_MOUNT_POINT`
 - Functions are not thread-safe - use mutexes for concurrent access
 - Recursive operations may fail on deeply nested directories
 
 ## Usage Example
 
 ```c
-void init_storage_structure(void) {
-    const char *dirs[] = {SD_DIR_IR, SD_DIR_BADUSB, SD_DIR_CONFIG, SD_DIR_LOGS};
-    
-    for (int i = 0; i < 4; i++) {
-        char path[64];
-        snprintf(path, sizeof(path), "%s%s", SD_BASE_PATH, dirs[i]);
-        sd_dir_create(path);
-    }
+#include "tos_storage_paths.h"
+
+void example(void) {
+    sd_dir_create(TOS_PATH_NFC);
+    sd_dir_create(TOS_PATH_BADUSB);
 }
 ```
 
@@ -339,10 +327,9 @@ Component for SD card initialization, mounting, and lifecycle management.
 ## Configuration
 
 ```c
-#define SD_MOUNT_POINT "/sdcard"           // VFS mount point
-#define SD_MAX_FILES 5                     // Max open files
+// VFS_MOUNT_POINT is defined in vfs_config.h (e.g. "/sdcard")
+#define SD_MAX_FILES 10                    // Max open files
 #define SD_ALLOCATION_UNIT 16 * 1024       // 16KB cluster size
-#define SDMMC_FREQ_DEFAULT 20000           // 20MHz speed
 ```
 
 ## API Reference

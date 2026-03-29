@@ -55,47 +55,48 @@ storage_deinit();
 
 ### Default Directory Structure
 
-The storage system automatically creates a standard directory tree on initialization:
+On first boot, `tos_first_boot_setup()` creates the full directory tree on the SD card:
 
 ```
-<mount_point>/  (e.g., /sdcard or /littlefs)
-├── config/     - Configuration files
-├── data/       - Application data
-├── logs/       - Log files
-├── cache/      - Temporary cache
-├── temp/       - Temporary files
-├── backup/     - Backup files
-├── certs/      - SSL/TLS certificates
-├── scripts/    - Script files
-└── captive_portal/ - Captive portal files
+<mount_point>/
+├── config/            - Modular .conf files (screen, wifi, ble, lora, system)
+├── nfc/assets/        - NFC card data + protocol databases
+├── rfid/assets/       - RFID key data + protocol databases
+├── subghz/assets/     - Sub-GHz captures + frequency lists
+├── ir/assets/         - IR remote files + universal remotes DB
+├── wifi/
+│   ├── assets/        - OUI DB, wordlists
+│   ├── loot/          - handshakes/, pcaps/, deauth_logs/
+│   └── captive_portal/templates/
+├── ble/
+│   ├── assets/        - Company ID DB
+│   └── loot/          - Scan results
+├── lora/
+│   ├── assets/        - Frequency plans
+│   ├── loot/          - Device scans
+│   └── messages/      - LoRa messages
+├── badusb/assets/     - DuckyScript payloads + keyboard layouts
+├── themes/            - Custom themes (*/theme.conf)
+├── ringtones/         - Custom sounds
+├── apps/              - External apps (.tap)
+├── apps_data/         - App persistence
+├── scripts/           - User scripts
+├── logs/              - System logs
+├── backup/            - Backups
+├── cache/             - Temporary cache
+└── update/            - Firmware update via SD
 ```
 
-These directories are defined in `storage_dirs.h` and can be accessed via macros:
+All paths are defined in `tos_storage_paths.h` and accessed via `TOS_PATH_*` macros:
 
 ```c
-#include "storage_dirs.h"
+#include "tos_storage_paths.h"
 
-// Macros automatically include the mount point
-// Example: STORAGE_DIR_CONFIG expands to "/sdcard/config" or "/littlefs/config"
-
-// Write to config directory
-storage_write_string(STORAGE_DIR_CONFIG "/settings.json", json_data);
-
-// Append to logs
-storage_append_formatted(STORAGE_DIR_LOGS "/system.log", "[%lu] Event\n", timestamp);
-
-// Save backup
-storage_file_copy(STORAGE_DIR_DATA "/important.dat", STORAGE_DIR_BACKUP "/important.dat");
+// Macros automatically include VFS_MOUNT_POINT
+storage_write_string(TOS_PATH_CONFIG_SCREEN, json_data);
+storage_append_formatted(TOS_PATH_LOGS "/system.log", "[%lu] Event\n", timestamp);
+storage_file_copy(TOS_PATH_WIFI_LOOT_HS "/capture.hccapx", TOS_PATH_BACKUP "/capture.hccapx");
 ```
-
-**Path Handling:**
-- All Storage API functions accept **relative paths** (e.g., `/config/file.txt`)
-- Mount point is automatically prepended internally
-- You can use either `"/config/file.txt"` or `STORAGE_DIR_CONFIG "/file.txt"`
-- Paths starting with `/` are treated as relative to mount point
-- Paths already containing the mount point are used as-is
-
-**Note**: Directory creation is non-critical. If any directory fails to create, initialization continues successfully, and you can create directories manually later as needed.
 
 ---
 
@@ -290,6 +291,52 @@ storage_append_csv_row("/data/sensors.csv", row, 3);
 
 ---
 
+## Stream I/O
+
+Header: `storage_stream.h`
+
+For high-throughput scenarios where the file must stay open across multiple writes (e.g., SPI bridge callbacks, packet capture, continuous logging).
+
+```c
+#include "storage_stream.h"
+
+// Open a stream (file stays open until explicitly closed)
+storage_stream_t stream = storage_stream_open(TOS_PATH_WIFI_LOOT_PCAPS "/capture.pcap", "wb");
+
+// Write chunks as they arrive (e.g., inside a SPI stream callback)
+storage_stream_write(stream, packet_data, packet_len);
+
+// Periodic flush to prevent data loss on crash
+storage_stream_flush(stream);
+
+// Check state
+if (storage_stream_is_open(stream)) {
+    size_t total = storage_stream_bytes_written(stream);
+}
+
+// Read mode works too
+storage_stream_t reader = storage_stream_open(TOS_PATH_LOGS "/system.log", "r");
+char buf[256];
+size_t read;
+storage_stream_read(reader, buf, sizeof(buf), &read);
+storage_stream_close(reader);
+
+// Close and free resources
+storage_stream_close(stream);
+```
+
+| Function | Description |
+|----------|-------------|
+| `storage_stream_open(path, mode)` | Opens file, returns opaque handle |
+| `storage_stream_write(stream, data, size)` | Writes chunk without closing |
+| `storage_stream_read(stream, buf, size, *read)` | Reads chunk without closing |
+| `storage_stream_flush(stream)` | Forces write to SD |
+| `storage_stream_close(stream)` | Closes file and frees handle |
+| `storage_stream_is_open(stream)` | Checks if handle is valid |
+| `storage_stream_bytes_written(stream)` | Total bytes written in session |
+
+---
+
 ## Directory Operations
 
 Header: `storage_impl.h`
@@ -372,45 +419,32 @@ This function creates all parent directories as needed. It's automatically calle
 #include "storage_impl.h"
 #include "storage_read.h"
 #include "storage_write.h"
-#include "storage_dirs.h"
+#include "storage_stream.h"
+#include "tos_storage_paths.h"
 
 void app_main() {
-    // Initialize storage (calls vfs_init_auto internally)
     if (storage_init() != ESP_OK) {
         printf("Storage init failed!\n");
         return;
     }
 
-    // Check for config file
-    if (storage_file_exists(STORAGE_DIR_CONFIG "/settings.json")) {
-        char config[1024];
-        storage_read_string(STORAGE_DIR_CONFIG "/settings.json", config, sizeof(config));
-        // Process config...
-    } else {
-        // Create default config
-        storage_write_string(STORAGE_DIR_CONFIG "/settings.json", "{ \"defaults\": true }");
-    }
+    // Read config
+    char config[1024];
+    storage_read_string(TOS_PATH_CONFIG_SCREEN, config, sizeof(config));
 
-    // Log startup event with timestamp
-    storage_append_formatted(STORAGE_DIR_LOGS "/boot.log", 
+    // Log startup
+    storage_append_formatted(TOS_PATH_LOGS "/boot.log",
                             "System started at %lu\n", xTaskGetTickCount());
-    
-    // Write sensor data to CSV
-    const char *header[] = {"Time", "Temp", "Humidity"};
-    storage_write_csv_row(STORAGE_DIR_DATA "/sensors.csv", header, 3);
-    
-    const char *data[] = {"12:00", "23.5", "65"};
-    storage_append_csv_row(STORAGE_DIR_DATA "/sensors.csv", data, 3);
-    
+
+    // Stream write (for high-throughput capture)
+    storage_stream_t stream = storage_stream_open(TOS_PATH_WIFI_LOOT_PCAPS "/capture.pcap", "wb");
+    storage_stream_write(stream, some_data, data_len);
+    storage_stream_close(stream);
+
     // Check storage health
     float usage;
     storage_get_usage_percent(&usage);
     printf("Storage usage: %.1f%%\n", usage);
-    
-    // List directory contents
-    uint32_t files, dirs;
-    storage_dir_count(STORAGE_DIR_DATA, &files, &dirs);
-    printf("Data directory: %lu files, %lu subdirectories\n", files, dirs);
 }
 ```
 
@@ -418,13 +452,13 @@ void app_main() {
 
 ## Best Practices
 
-1. **Always use relative paths** - Let the API handle mount points
-2. **Use directory macros** - `STORAGE_DIR_CONFIG` instead of hardcoded `"/config"`
-3. **Check return values** - All functions return `esp_err_t` for error handling
+1. **Use `TOS_PATH_*` macros** - Never hardcode `"/sdcard/"` or mount points
+2. **Check return values** - All functions return `esp_err_t` for error handling
+3. **Use stream for high-throughput** - SPI callbacks, packet capture, continuous logging
 4. **Monitor storage** - Use `storage_get_usage_percent()` to prevent full disk
 5. **Use appropriate read functions** - Line-by-line for logs, binary for images
 6. **Automatic directory creation** - Write functions create parent directories automatically
-7. **Path flexibility** - Relative paths (`/config/file.txt`) or full mount paths both work
+7. **Close streams** - Always call `storage_stream_close()` to prevent FAT32 corruption
 
 ---
 
