@@ -19,8 +19,6 @@
 #include <stdint.h>
 #include "bluetooth_service.h"
 
-bool ble_scanner_save_results_to_internal_flash(void);
-bool ble_scanner_save_results_to_sd_card(void);
 bool ble_scanner_start(void);
 ble_scan_result_t* ble_scanner_get_results(uint16_t *count);
 void ble_scanner_free_results(void);
