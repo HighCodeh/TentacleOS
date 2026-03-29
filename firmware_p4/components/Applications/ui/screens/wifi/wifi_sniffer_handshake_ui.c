@@ -6,6 +6,8 @@
 #include "lv_port_indev.h"
 #include "wifi_sniffer.h"
 #include "storage_impl.h"
+#include "tos_storage_paths.h"
+#include "tos_loot.h"
 #include "buzzer.h"
 #include "lvgl.h"
 #include <string.h>
@@ -16,23 +18,15 @@ static lv_obj_t * ta_term = NULL;
 static lv_timer_t * update_timer = NULL;
 static bool is_scanning = false;
 static bool capture_done = false;
-static char current_filename[32];
+static char current_filename[64];
+static char current_path[128];
 
 extern lv_group_t * main_group;
 
-#define PCAP_DIR "/assets/storage/wifi/pcap"
-
 static void generate_filename(void) {
-    int idx = 1;
-    char path[128];
-    while (idx < 100) {
-        snprintf(current_filename, sizeof(current_filename), "handshake_%02d.pcap", idx);
-        snprintf(path, sizeof(path), "%s/%s", PCAP_DIR, current_filename);
-        if (!storage_file_exists(path)) {
-            break;
-        }
-        idx++;
-    }
+    tos_loot_generate_path(TOS_PATH_WIFI_LOOT_HS, "handshake", "pcap",
+                           current_path, sizeof(current_path),
+                           current_filename, sizeof(current_filename));
 }
 
 static void update_terminal_text(void) {
@@ -70,7 +64,6 @@ static void update_timer_cb(lv_timer_t * t) {
         wifi_sniffer_stop();
         is_scanning = false;
         capture_done = true;
-        wifi_sniffer_save_to_internal_flash(current_filename);
         wifi_sniffer_free_buffer();
         update_terminal_text();
     }
@@ -117,10 +110,12 @@ void ui_wifi_sniffer_handshake_open(void) {
     wifi_sniffer_clear_handshake();
     capture_done = false;
 
-    if (wifi_sniffer_start(SNIFF_TYPE_EAPOL, 0)) {
+    wifi_sniffer_start_capture(current_path);
+    if (wifi_sniffer_start_stream(SNIFF_TYPE_EAPOL, 0, NULL)) {
         is_scanning = true;
     } else {
         is_scanning = false;
+        wifi_sniffer_stop_capture();
     }
 
     update_terminal_text();

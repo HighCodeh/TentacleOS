@@ -9,6 +9,7 @@
 #include "msgbox_ui.h"
 #include "storage_init.h"
 #include "storage_impl.h"
+#include "tos_loot.h"
 #include "esp_err.h"
 #include <string.h>
 #include <stdio.h>
@@ -18,11 +19,12 @@ static lv_obj_t * screen_sniffer = NULL;
 static lv_obj_t * ta_term = NULL;
 static lv_obj_t * btn_save = NULL;
 static lv_timer_t * update_timer = NULL;
-static char current_filename[32];
+static char current_filename[64];
+static char current_path[128];
 static bool is_running = false;
 static bool pending_restart = false;
 static uint8_t dot_tick = 0;
-#define PCAP_DIR "/assets/storage/wifi/pcap"
+#include "tos_storage_paths.h"
 
 extern lv_group_t * main_group;
 
@@ -63,23 +65,16 @@ static void update_terminal_text(uint32_t bytes) {
 }
 
 static void update_size_label(void) {
-    uint32_t bytes = wifi_sniffer_get_buffer_usage();
+    uint32_t bytes = (uint32_t)wifi_sniffer_get_capture_size();
     update_terminal_text(bytes);
 }
 
 
 static void generate_filename(void) {
-    int idx = 1;
-    char path[128];
-    while (idx < 100) {
-        snprintf(current_filename, sizeof(current_filename), "sniffer_%02d.pcap", idx);
-        snprintf(path, sizeof(path), "%s/%s", PCAP_DIR, current_filename);
-        if (!storage_file_exists(path)) {
-            break;
-        }
-        idx++;
-    }
-    update_terminal_text(wifi_sniffer_get_buffer_usage());
+    tos_loot_generate_path(TOS_PATH_WIFI_LOOT_PCAPS, "sniffer", "pcap",
+                           current_path, sizeof(current_path),
+                           current_filename, sizeof(current_filename));
+    update_terminal_text((uint32_t)wifi_sniffer_get_capture_size());
 }
 
 static void save_current_capture(void) {
@@ -88,27 +83,15 @@ static void save_current_capture(void) {
         is_running = false;
     }
 
-    esp_err_t err = wifi_sniffer_save_to_internal_flash(current_filename);
     wifi_sniffer_free_buffer();
     pending_restart = true;
-
-    if (err == ESP_OK) {
-        msgbox_open(LV_SYMBOL_OK, "PCAP SAVED", "OK", NULL, msgbox_closed_cb);
-    } else {
-        char msg[64];
-        const char *reason = esp_err_to_name(err);
-        if (err == ESP_ERR_INVALID_STATE) {
-            reason = "STORAGE NOT MOUNTED";
-        }
-        snprintf(msg, sizeof(msg), "SAVE FAILED\n%s", reason);
-        msgbox_open(LV_SYMBOL_CLOSE, msg, "OK", NULL, msgbox_closed_cb);
-    }
+    msgbox_open(LV_SYMBOL_OK, "PCAP SAVED", "OK", NULL, msgbox_closed_cb);
 }
 
 static void update_timer_cb(lv_timer_t * t) {
     (void)t;
     dot_tick++;
-    update_terminal_text(wifi_sniffer_get_buffer_usage());
+    update_terminal_text((uint32_t)wifi_sniffer_get_capture_size());
 }
 
 static void restore_focus(void) {
@@ -122,11 +105,13 @@ static void restore_focus(void) {
 
 static void restart_capture(void) {
     generate_filename();
+    wifi_sniffer_start_capture(current_path);
     update_size_label();
-    if (wifi_sniffer_start(SNIFF_TYPE_RAW, 0)) {
+    if (wifi_sniffer_start_stream(SNIFF_TYPE_RAW, 0, NULL)) {
         is_running = true;
     } else {
         is_running = false;
+        wifi_sniffer_stop_capture();
     }
 }
 
@@ -224,10 +209,13 @@ void ui_wifi_sniffer_raw_open(void) {
     generate_filename();
     update_size_label();
 
-    if (wifi_sniffer_start(SNIFF_TYPE_RAW, 0)) {
+    wifi_sniffer_start_capture(current_path);
+
+    if (wifi_sniffer_start_stream(SNIFF_TYPE_RAW, 0, NULL)) {
         is_running = true;
     } else {
         is_running = false;
+        wifi_sniffer_stop_capture();
     }
 
     update_timer = lv_timer_create(update_timer_cb, 500, NULL);

@@ -7,6 +7,8 @@
 #include "wifi_sniffer.h"
 #include "wifi_service.h"
 #include "storage_impl.h"
+#include "tos_storage_paths.h"
+#include "tos_loot.h"
 #include "msgbox_ui.h"
 #include "buzzer.h"
 #include "lvgl.h"
@@ -31,11 +33,10 @@ static wifi_ap_record_t selected_ap;
 static lv_timer_t * scan_timer = NULL;
 static bool is_scanning = false;
 static bool capture_done = false;
-static char current_filename[32];
+static char current_filename[64];
+static char current_path[128];
 
 extern lv_group_t * main_group;
-
-#define PCAP_DIR "/assets/storage/wifi/pcap"
 
 static void list_event_cb(lv_event_t * e);
 
@@ -117,16 +118,9 @@ static void item_focus_cb(lv_event_t * e) {
 }
 
 static void generate_filename(void) {
-    int idx = 1;
-    char path[128];
-    while (idx < 100) {
-        snprintf(current_filename, sizeof(current_filename), "pmkid_%02d.pcap", idx);
-        snprintf(path, sizeof(path), "%s/%s", PCAP_DIR, current_filename);
-        if (!storage_file_exists(path)) {
-            break;
-        }
-        idx++;
-    }
+    tos_loot_generate_path(TOS_PATH_WIFI_LOOT_PCAPS, "pmkid", "pcap",
+                           current_path, sizeof(current_path),
+                           current_filename, sizeof(current_filename));
     update_scan_terminal();
 }
 
@@ -150,17 +144,11 @@ static void scan_tick_cb(lv_timer_t * t) {
         wifi_sniffer_stop();
         is_scanning = false;
         capture_done = true;
-
-        esp_err_t err = wifi_sniffer_save_to_internal_flash(current_filename);
         wifi_sniffer_free_buffer();
 
-        if (err == ESP_OK) {
-            char msg[128];
-            snprintf(msg, sizeof(msg), "PMKID CAPTURED:\n%s", selected_ap.ssid);
-            msgbox_open(LV_SYMBOL_OK, msg, "OK", NULL, NULL);
-        } else {
-            msgbox_open(LV_SYMBOL_CLOSE, "PMKID CAPTURED\nSAVE FAILED", "OK", NULL, NULL);
-        }
+        char msg[128];
+        snprintf(msg, sizeof(msg), "PMKID CAPTURED:\n%s", selected_ap.ssid);
+        msgbox_open(LV_SYMBOL_OK, msg, "OK", NULL, NULL);
     }
 }
 
@@ -189,11 +177,13 @@ static void show_scan_view(void) {
     lv_textarea_set_text(ta_term, "Listening...\n");
 
     generate_filename();
+    wifi_sniffer_start_capture(current_path);
 
-    if (wifi_sniffer_start(SNIFF_TYPE_PMKID, selected_ap.primary)) {
+    if (wifi_sniffer_start_stream(SNIFF_TYPE_PMKID, selected_ap.primary, NULL)) {
         is_scanning = true;
     } else {
         is_scanning = false;
+        wifi_sniffer_stop_capture();
     }
 
     if (scan_timer) lv_timer_del(scan_timer);

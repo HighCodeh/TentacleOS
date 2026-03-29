@@ -290,14 +290,17 @@ static int subcmd_sniff(int argc, char **argv) {
   wifi_sniffer_set_verbose(sniff_args.verbose->count > 0);
 
   if (sniff_args.file->count > 0) {
-    // Start with streaming to SD if file provided
-    if (wifi_sniffer_start_stream_sd(type, ch, sniff_args.file->sval[0])) {
-      printf("Sniffer started (streaming to %s)\n", sniff_args.file->sval[0]);
+    if (wifi_sniffer_start_capture(sniff_args.file->sval[0])) {
+      if (wifi_sniffer_start_stream(type, ch, NULL)) {
+        printf("Sniffer started (streaming to %s)\n", sniff_args.file->sval[0]);
+      } else {
+        wifi_sniffer_stop_capture();
+        printf("Failed to start sniffer stream.\n");
+      }
     } else {
-      printf("Failed to start sniffer stream.\n");
+      printf("Failed to open capture file.\n");
     }
   } else {
-    // Normal sniff to RAM
     if (wifi_sniffer_start(type, ch)) {
       printf("Sniffer started (RAM buffer).\n");
     } else {
