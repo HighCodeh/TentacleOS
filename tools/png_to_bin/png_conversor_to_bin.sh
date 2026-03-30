@@ -56,9 +56,9 @@ if [ ! -f "$LVGL_IMAGE_PY" ]; then
   fi
 fi
 
-echo "Checking dependencies (Pillow, PyPNG, and LZ4)..."
+echo "Checking dependencies (Pillow, PyPNG, LZ4, and NumPy)..."
 "$PYTHON_BIN" -m pip install --upgrade pip -q
-"$PYTHON_BIN" -m pip install Pillow pypng lz4 -q
+"$PYTHON_BIN" -m pip install Pillow pypng lz4 numpy -q
 
 if [ -d "$TEMP_DIR" ]; then
   echo -e "${YELLOW}Removing existing temp directory...${NC}"
@@ -74,6 +74,17 @@ if [ ! -d "$ASSETS_DIR" ]; then
   exit 1
 fi
 cp -r "$ASSETS_DIR/." "$TEMP_DIR/"
+
+# Generate rotated frames (frame_1, frame_2) from frame_0 sources in temp
+ROTATE_SCRIPT="$SCRIPT_DIR/generate_rotated_frames.py"
+TEMP_FRAMES_DIR="$TEMP_DIR/frames"
+if [ -f "$ROTATE_SCRIPT" ] && [ -d "$TEMP_FRAMES_DIR" ]; then
+  echo -e "${YELLOW}Generating rotated frames...${NC}"
+  "$PYTHON_BIN" "$ROTATE_SCRIPT" "$TEMP_FRAMES_DIR"
+  if [ $? -ne 0 ]; then
+    echo -e "${RED}Warning: Frame rotation failed. Continuing...${NC}"
+  fi
+fi
 
 TARGET_DIRS=("UI" "frames" "icons" "img" "label")
 
