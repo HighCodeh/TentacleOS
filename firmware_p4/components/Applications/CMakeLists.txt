@@ -42,6 +42,8 @@ file(GLOB_RECURSE HEADER_UI_SRCS "ui/components/header/*.c")
 file(GLOB_RECURSE FOOTER_UI_SRCS "ui/components/footer/*.c")
 file(GLOB_RECURSE KEYBOARD_UI_SRCS "ui/components/keyboard/*.c")
 file(GLOB_RECURSE MSGBOX_UI_SRCS "ui/components/message_box/*.c")
+file(GLOB_RECURSE DROPDOWN_UI_SRCS "ui/components/dropdown/*.c")
+file(GLOB_RECURSE TOGGLE_UI_SRCS "ui/components/toggle/*.c")
 
 #SETINGS SCREENS
 file(GLOB_RECURSE SETTINGS_UI_SRCS "ui/screens/settings/*.c")
@@ -94,8 +96,10 @@ idf_component_register(SRCS
   ${CONNECT_WIFI_UI_SRCS}
   ${ABOUT_SETTINGS_UI_SRCS}
   ${MSGBOX_UI_SRCS}
+  ${DROPDOWN_UI_SRCS}
+  ${TOGGLE_UI_SRCS}
 
-  INCLUDE_DIRS 
+  INCLUDE_DIRS
   "play/include"
   "wifi/include"   
   "nfc/include"
@@ -131,14 +135,22 @@ idf_component_register(SRCS
   "ui/screens/boot/include"
   "ui/screens/menu/include"
   "ui/screens/wifi/include"
+  "ui/screens/nfc/include"
+  "ui/screens/files/include"
   "ui/screens/sub_example/include"
   "ui/components/header/include"
   "ui/components/footer/include"
   "ui/components/keyboard/include"
   "ui/components/message_box/include"
+  "ui/components/dropdown/include"
+  "ui/components/toggle/include"
   "ui/components/menu_component/include"
   "ui/components/button/include"
   "ui/components/terminal/include"
+  "ui/components/page_dots/include"
+  "ui/components/intensity_bar/include"
+  "ui/components/chart/include"
+  "ui/components/text_viewer/include"
   
 
 
