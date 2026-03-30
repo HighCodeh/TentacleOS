@@ -5,7 +5,6 @@
 #include "core/lv_group.h"
 #include "ui_manager.h"
 #include "lv_port_indev.h"
-#include "buzzer.h"
 #include "esp_log.h"
 
 static lv_obj_t * screen_about = NULL;
@@ -22,7 +21,7 @@ static void init_styles(void) {
     lv_style_set_bg_grad_color(&style_info_box, current_theme.bg_item_top);
     lv_style_set_bg_grad_dir(&style_info_box, LV_GRAD_DIR_VER);
     lv_style_set_border_width(&style_info_box, 2);
-    lv_style_set_border_color(&style_info_box, current_theme.border_accent);
+    lv_style_set_border_color(&style_info_box, ui_theme_get_accent());
     lv_style_set_radius(&style_info_box, 8);
     lv_style_set_pad_all(&style_info_box, 12);
 
@@ -32,7 +31,6 @@ static void init_styles(void) {
 static void screen_back_event_cb(lv_event_t * e) {
     uint32_t key = lv_event_get_key(e);
     if(key == LV_KEY_ESC || key == LV_KEY_LEFT || key == LV_KEY_ENTER) {
-        buzzer_play_sound_file("buzzer_scroll_tick");
         ui_switch_screen(SCREEN_SETTINGS);
     }
 }
