@@ -39,9 +39,9 @@ if (-not (Test-Path $PYTHON_SCRIPT)) {
     }
 }
 
-Write-Host "Checking dependencies (Pillow, PyPNG, and LZ4)..."
+Write-Host "Checking dependencies (Pillow, PyPNG, LZ4, and NumPy)..."
 & "$PYTHON_EXE" -m pip install --upgrade pip -q
-& "$PYTHON_EXE" -m pip install Pillow pypng lz4 -q
+& "$PYTHON_EXE" -m pip install Pillow pypng lz4 numpy -q
 
 if (Test-Path $TEMP_DIR) {
     Write-Host "${Yellow}Removing existing temp directory...${NC}"
@@ -54,6 +54,17 @@ if (-not (Test-Path $ASSETS_DIR)) {
     exit 1
 }
 Copy-Item -Path $ASSETS_DIR -Destination $TEMP_DIR -Recurse
+
+# Generate rotated frames (frame_1, frame_2) from frame_0 sources in temp
+$ROTATE_SCRIPT = Join-Path $SCRIPT_DIR "generate_rotated_frames.py"
+$TEMP_FRAMES_DIR = Join-Path $TEMP_DIR "frames"
+if ((Test-Path $ROTATE_SCRIPT) -and (Test-Path $TEMP_FRAMES_DIR)) {
+    Write-Host "${Yellow}Generating rotated frames...${NC}"
+    & "$PYTHON_EXE" "$ROTATE_SCRIPT" "$TEMP_FRAMES_DIR"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "${Red}Warning: Frame rotation failed. Continuing...${NC}"
+    }
+}
 
 $TARGET_DIRS = @("UI", "frames", "icons", "img", "label")
 foreach ($dir in $TARGET_DIRS) {
