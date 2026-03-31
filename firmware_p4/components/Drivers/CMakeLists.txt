@@ -18,7 +18,6 @@ file(GLOB_RECURSE ST25R3916_SRCS "st25r3916/*.c")
 idf_component_register(SRCS 
   "bq25896/bq25896.c"
   "cc1101/cc1101.c"
-  "pn7150/pn7150.c" 
   "st7789/st7789.c"
   "led/led_control.c"
   "spi/spi.c"
@@ -31,7 +30,6 @@ idf_component_register(SRCS
   INCLUDE_DIRS 
   "bq25896/include"
   "cc1101/include"
-  "pn7150/include"
   "st7789/include"
   "led/include"
   "pins/include"
