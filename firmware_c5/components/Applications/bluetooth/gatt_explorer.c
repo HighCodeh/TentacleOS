@@ -14,6 +14,7 @@
 
 
 #include "gatt_explorer.h"
+#include "tos_flash_paths.h"
 #include "bluetooth_service.h"
 #include "uuid_lookup.h"
 #include "esp_log.h"
@@ -152,7 +153,7 @@ static void explorer_task(void *pvParameters) {
         ESP_LOGI(TAG, "Saving GATT results to storage...");
         char *json_str = cJSON_Print(root_json);
         if (json_str) {
-          storage_write_string("/assets/storage/ble/gatt_results.json", json_str);
+          storage_write_string(FLASH_STORAGE_BLE_GATT, json_str);
           free(json_str);
         }
         cJSON_Delete(root_json);

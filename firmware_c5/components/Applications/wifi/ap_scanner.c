@@ -14,6 +14,7 @@
 
 
 #include "ap_scanner.h"
+#include "tos_flash_paths.h"
 #include "wifi_service.h"
 #include "esp_wifi.h"
 #include "esp_log.h"
@@ -117,7 +118,7 @@ static bool save_results_to_path(const char *path, bool use_sd_driver) {
 }
 
 bool ap_scanner_save_results_to_internal_flash(void) {
-  return save_results_to_path("/assets/storage/wifi/scanned_aps.json", false);
+  return save_results_to_path(FLASH_STORAGE_WIFI_APS, false);
 }
 
 bool ap_scanner_save_results_to_sd_card(void) {

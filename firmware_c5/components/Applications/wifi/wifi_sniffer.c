@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "wifi_sniffer.h"
+#include "tos_flash_paths.h"
 #include "pcap_serializer.h"
 #include "wifi_service.h"
 #include "wifi_80211.h"
@@ -597,7 +598,7 @@ static bool save_to_file(const char *path, bool use_sd) {
   if (pcap_buffer == NULL || buffer_offset == 0) return false;
 
   if (!use_sd) {
-    storage_mkdir_recursive("/assets/storage/wifi/pcap"); 
+    storage_mkdir_recursive(FLASH_STORAGE_WIFI_PCAP);
   }
 
   esp_err_t err;
@@ -619,7 +620,7 @@ static bool save_to_file(const char *path, bool use_sd) {
 
 bool wifi_sniffer_save_to_internal_flash(const char *filename) {
   char path[128];
-  snprintf(path, sizeof(path), "/assets/storage/wifi/pcap/%s", filename);
+  snprintf(path, sizeof(path), FLASH_STORAGE_WIFI_PCAP "/%s", filename);
   return save_to_file(path, false);
 }
 

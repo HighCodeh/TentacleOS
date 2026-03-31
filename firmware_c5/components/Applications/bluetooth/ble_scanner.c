@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "ble_scanner.h"
+#include "tos_flash_paths.h"
 #include "bluetooth_service.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
@@ -97,8 +98,8 @@ static bool save_results_to_path(const char *path, bool use_sd_driver) {
     err = sd_write_string(path, json_string);
   } else {
     struct stat st = {0};
-    if (stat("/assets/storage/ble", &st) == -1) {
-      mkdir("/assets/storage/ble", 0777);
+    if (stat(FLASH_STORAGE_BLE, &st) == -1) {
+      mkdir(FLASH_STORAGE_BLE, 0777);
     }
 
     err = storage_write_string(path, json_string);
@@ -117,7 +118,7 @@ static bool save_results_to_path(const char *path, bool use_sd_driver) {
 }
 
 bool ble_scanner_save_results_to_internal_flash(void) {
-  return save_results_to_path("/assets/storage/ble/scanned_devices.json", false);
+  return save_results_to_path(FLASH_STORAGE_BLE_DEVICES, false);
 }
 
 bool ble_scanner_save_results_to_sd_card(void) {

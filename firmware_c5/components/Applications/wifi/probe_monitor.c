@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "probe_monitor.h"
+#include "tos_flash_paths.h"
 #include "wifi_service.h"
 #include "wifi_80211.h"
 #include "esp_wifi.h"
@@ -205,7 +206,7 @@ void probe_monitor_free_results(void) {
 }
 
 bool probe_monitor_save_results_to_internal_flash(void) {
-  return save_results_to_path("/assets/storage/wifi/probe_monitor.json", false);
+  return save_results_to_path(FLASH_STORAGE_WIFI_PROBES, false);
 }
 
 bool probe_monitor_save_results_to_sd_card(void) {

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "client_scanner.h"
+#include "tos_flash_paths.h"
 #include "wifi_service.h"
 #include "wifi_80211.h"
 #include "esp_wifi.h"
@@ -178,7 +179,7 @@ static bool save_results_to_path(const char *path, bool use_sd_driver) {
 }
 
 bool client_scanner_save_results_to_internal_flash(void) {
-  return save_results_to_path("/assets/storage/wifi/scanned_clients.json", false);
+  return save_results_to_path(FLASH_STORAGE_WIFI_CLIENTS, false);
 }
 
 bool client_scanner_save_results_to_sd_card(void) {
