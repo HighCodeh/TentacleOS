@@ -51,7 +51,8 @@ typedef enum {
     SCREEN_CONNECT_BLUETOOTH,
     SCREEN_ABOUT_SETTINGS,
     SCREEN_NFC_MENU,
-    SCREEN_FILES
+    SCREEN_FILES,
+    SCREEN_THEME_SELECTOR
     // others screens
 } screen_id_t;
 
@@ -61,6 +62,8 @@ void ui_hard_restart(void);
 bool ui_acquire(void);
 void ui_release(void);
 void ui_switch_screen(screen_id_t new_screen);
+
+bool ui_input_is_locked(void);
 
 #endif
 
