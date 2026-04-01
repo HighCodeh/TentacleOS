@@ -50,6 +50,7 @@
 #include "wifi_evil_twin_ui.h"
 #include "wifi_beacon_spam_ui.h"
 #include "wifi_probe_ui.h"
+#include "theme_selector_ui.h"
 #include "esp_log.h"
 #include "bluetooth_service.h"
 #include "bad_usb.h"
@@ -70,6 +71,9 @@
 
 static SemaphoreHandle_t xGuiSemaphore = NULL;
 static bool is_emergency_restart = false;
+
+#define INPUT_LOCK_MS  500
+static uint32_t input_lock_until = 0;
 
 static void ui_task(void *pvParameter);
 static void lv_tick_task(void *arg);
@@ -174,7 +178,13 @@ static void clear_current_screen(void){
   lv_group_remove_all_objs(main_group);
 }
 
+bool ui_input_is_locked(void) {
+  return (lv_tick_get() < input_lock_until);
+}
+
 void ui_switch_screen(screen_id_t new_screen) {
+  input_lock_until = lv_tick_get() + INPUT_LOCK_MS;
+
   if (ui_acquire()) {
 
     // Power Management for BLE
@@ -365,6 +375,10 @@ void ui_switch_screen(screen_id_t new_screen) {
 
       case SCREEN_FILES:
         ui_files_open();
+        break;
+
+      case SCREEN_THEME_SELECTOR:
+        ui_theme_selector_open();
         break;
 
       default:
