@@ -27,14 +27,14 @@
 #include "pin_def.h"
 #include "spi.h"
 
-#define CC1101_SPI_CLOCK_HZ     (4 * 1000 * 1000)
-#define CC1101_SPI_QUEUE_SIZE   7
-#define CC1101_RESET_DELAY_MS   50
-#define CC1101_CAL_DELAY_MS     5
-#define CC1101_MAX_TX_FIFO      61
-#define CC1101_PA_TABLE_SIZE    8
-#define CC1101_RSSI_OFFSET      74
-#define CC1101_DEFAULT_FREQ_HZ  433920000
+#define CC1101_SPI_CLOCK_HZ    (4 * 1000 * 1000)
+#define CC1101_SPI_QUEUE_SIZE  7
+#define CC1101_RESET_DELAY_MS  50
+#define CC1101_CAL_DELAY_MS    5
+#define CC1101_MAX_TX_FIFO     61
+#define CC1101_PA_TABLE_SIZE   8
+#define CC1101_RSSI_OFFSET     74
+#define CC1101_DEFAULT_FREQ_HZ 433920000
 #define CC1101_XTAL_FREQ_HZ    26000000
 
 #define CC1101_MARCSTATE_TX     0x13
@@ -42,11 +42,11 @@
 #define CC1101_MARCSTATE_RXTX   0x15
 #define CC1101_MARCSTATE_MASK   0x1F
 
-#define CC1101_MOD_2FSK  0
-#define CC1101_MOD_GFSK  1
-#define CC1101_MOD_ASK   2
-#define CC1101_MOD_4FSK  3
-#define CC1101_MOD_MSK   4
+#define CC1101_MOD_2FSK 0
+#define CC1101_MOD_GFSK 1
+#define CC1101_MOD_ASK  2
+#define CC1101_MOD_4FSK 3
+#define CC1101_MOD_MSK  4
 
 static const char *TAG = "CC1101_DRIVER";
 static spi_device_handle_t s_cc1101_spi = NULL;
@@ -56,17 +56,22 @@ static uint8_t s_current_modulation = CC1101_MOD_ASK;
 static int s_current_pa_dbm = 10;
 static uint8_t s_active_preset_id = 0;
 
-static const uint8_t PA_TABLE_315[CC1101_PA_TABLE_SIZE] = {0x12, 0x0D, 0x1C, 0x34, 0x51, 0x85, 0xCB, 0xC2}; // 300 - 348 MHz
-static const uint8_t PA_TABLE_433[CC1101_PA_TABLE_SIZE] = {0x12, 0x0E, 0x1D, 0x34, 0x60, 0x84, 0xC8, 0xC0}; // 387 - 464 MHz
-static const uint8_t PA_TABLE_868[CC1101_PA_TABLE_SIZE] = {0x03, 0x17, 0x1D, 0x26, 0x37, 0x50, 0x86, 0xCD}; // 779 - 899 MHz
-static const uint8_t PA_TABLE_915[CC1101_PA_TABLE_SIZE] = {0x03, 0x0E, 0x1E, 0x27, 0x38, 0x8E, 0x84, 0xCC}; // 900 - 928 MHz
+static const uint8_t PA_TABLE_315[CC1101_PA_TABLE_SIZE] = {
+    0x12, 0x0D, 0x1C, 0x34, 0x51, 0x85, 0xCB, 0xC2}; // 300 - 348 MHz
+static const uint8_t PA_TABLE_433[CC1101_PA_TABLE_SIZE] = {
+    0x12, 0x0E, 0x1D, 0x34, 0x60, 0x84, 0xC8, 0xC0}; // 387 - 464 MHz
+static const uint8_t PA_TABLE_868[CC1101_PA_TABLE_SIZE] = {
+    0x03, 0x17, 0x1D, 0x26, 0x37, 0x50, 0x86, 0xCD}; // 779 - 899 MHz
+static const uint8_t PA_TABLE_915[CC1101_PA_TABLE_SIZE] = {
+    0x03, 0x0E, 0x1E, 0x27, 0x38, 0x8E, 0x84, 0xCC}; // 900 - 928 MHz
 
 static long linear_map(long x, long in_min, long in_max, long out_min, long out_max) {
   return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
 
 static void cc1101_enable_sniffer_mode(uint32_t freq_hz, uint8_t modulation) {
-  if (s_cc1101_spi == NULL) return;
+  if (s_cc1101_spi == NULL)
+    return;
 
   if (modulation == CC1101_MOD_ASK) {
     ESP_LOGI(TAG, "Configuring CC1101 for Async mode...");
@@ -78,9 +83,9 @@ static void cc1101_enable_sniffer_mode(uint32_t freq_hz, uint8_t modulation) {
   cc1101_strobe(CC1101_SRES);
   vTaskDelay(pdMS_TO_TICKS(CC1101_CAL_DELAY_MS));
 
-  cc1101_write_reg(CC1101_FSCTRL1,  0x06);
-  cc1101_write_reg(CC1101_IOCFG0,   0x0D); // Serial Data Output (RX via GDO0/GPIO8)
-  cc1101_write_reg(CC1101_IOCFG2,   0x2E); // High Impedance (GDO2 free for TX)
+  cc1101_write_reg(CC1101_FSCTRL1, 0x06);
+  cc1101_write_reg(CC1101_IOCFG0, 0x0D);   // Serial Data Output (RX via GDO0/GPIO8)
+  cc1101_write_reg(CC1101_IOCFG2, 0x2E);   // High Impedance (GDO2 free for TX)
   cc1101_write_reg(CC1101_PKTCTRL0, 0x32); // Async mode, Infinite packet length
   cc1101_write_reg(CC1101_PKTCTRL1, 0x04); // No addr check
 
@@ -93,31 +98,31 @@ static void cc1101_enable_sniffer_mode(uint32_t freq_hz, uint8_t modulation) {
   cc1101_write_reg(CC1101_MDMCFG3, 0x93);
   cc1101_set_modulation(modulation);
 
-  cc1101_write_reg(CC1101_MDMCFG1,  0x02); // 2 preamble bytes, no FEC
-  cc1101_write_reg(CC1101_MDMCFG0,  0xF8); // Channel spacing
+  cc1101_write_reg(CC1101_MDMCFG1, 0x02); // 2 preamble bytes, no FEC
+  cc1101_write_reg(CC1101_MDMCFG0, 0xF8); // Channel spacing
   cc1101_set_deviation(47.0);
 
-  cc1101_write_reg(CC1101_MCSM0,    0x18); // FS Autocalibrate
-  cc1101_write_reg(CC1101_FOCCFG,   0x16);
-  cc1101_write_reg(CC1101_BSCFG,    0x1C);
+  cc1101_write_reg(CC1101_MCSM0, 0x18); // FS Autocalibrate
+  cc1101_write_reg(CC1101_FOCCFG, 0x16);
+  cc1101_write_reg(CC1101_BSCFG, 0x1C);
 
   // AGC - Max Sensitivity
   cc1101_write_reg(CC1101_AGCCTRL2, 0xC7);
   cc1101_write_reg(CC1101_AGCCTRL1, 0x00);
   cc1101_write_reg(CC1101_AGCCTRL0, 0xB2);
 
-  cc1101_write_reg(CC1101_FREND1,   0x56);
+  cc1101_write_reg(CC1101_FREND1, 0x56);
   cc1101_set_pa(10); // Max power
 
   // Test Settings from SmartRC
-  cc1101_write_reg(CC1101_FSCAL3,   0xE9);
-  cc1101_write_reg(CC1101_FSCAL2,   0x2A);
-  cc1101_write_reg(CC1101_FSCAL1,   0x00);
-  cc1101_write_reg(CC1101_FSCAL0,   0x1F);
-  cc1101_write_reg(CC1101_FSTEST,   0x59);
-  cc1101_write_reg(CC1101_TEST2,    0x81);
-  cc1101_write_reg(CC1101_TEST1,    0x35);
-  cc1101_write_reg(CC1101_TEST0,    0x09);
+  cc1101_write_reg(CC1101_FSCAL3, 0xE9);
+  cc1101_write_reg(CC1101_FSCAL2, 0x2A);
+  cc1101_write_reg(CC1101_FSCAL1, 0x00);
+  cc1101_write_reg(CC1101_FSCAL0, 0x1F);
+  cc1101_write_reg(CC1101_FSTEST, 0x59);
+  cc1101_write_reg(CC1101_TEST2, 0x81);
+  cc1101_write_reg(CC1101_TEST1, 0x35);
+  cc1101_write_reg(CC1101_TEST0, 0x09);
 
   if (modulation == CC1101_MOD_ASK) {
     ESP_LOGI(TAG, "CC1101 configured in Async mode (GDO0 serial out)");
@@ -128,10 +133,12 @@ static void cc1101_enable_sniffer_mode(uint32_t freq_hz, uint8_t modulation) {
 }
 
 void cc1101_write_burst(uint8_t reg, const uint8_t *buf, uint8_t len) {
-  if (s_cc1101_spi == NULL) return;
+  if (s_cc1101_spi == NULL)
+    return;
 
   uint8_t *tx_buf = heap_caps_malloc(len + 1, MALLOC_CAP_DMA);
-  if (tx_buf == NULL) return;
+  if (tx_buf == NULL)
+    return;
 
   tx_buf[0] = (reg | 0x40); // Add Burst bit (0x40)
   memcpy(&tx_buf[1], buf, len);
@@ -148,7 +155,8 @@ void cc1101_write_burst(uint8_t reg, const uint8_t *buf, uint8_t len) {
 }
 
 void cc1101_write_reg(uint8_t reg, uint8_t val) {
-  if (s_cc1101_spi == NULL) return;
+  if (s_cc1101_spi == NULL)
+    return;
   spi_transaction_t t;
   memset(&t, 0, sizeof(t));
   t.length = 16;
@@ -159,7 +167,8 @@ void cc1101_write_reg(uint8_t reg, uint8_t val) {
 }
 
 uint8_t cc1101_read_reg(uint8_t reg) {
-  if (s_cc1101_spi == NULL) return 0;
+  if (s_cc1101_spi == NULL)
+    return 0;
   spi_transaction_t t;
   memset(&t, 0, sizeof(t));
   t.length = 16;
@@ -171,13 +180,16 @@ uint8_t cc1101_read_reg(uint8_t reg) {
 }
 
 void cc1101_read_burst(uint8_t reg, uint8_t *buf, uint8_t len) {
-  if (s_cc1101_spi == NULL || len == 0) return;
+  if (s_cc1101_spi == NULL || len == 0)
+    return;
 
   uint8_t *tx_buf = heap_caps_malloc(len + 1, MALLOC_CAP_DMA);
   uint8_t *rx_buf = heap_caps_malloc(len + 1, MALLOC_CAP_DMA);
   if (tx_buf == NULL || rx_buf == NULL) {
-    if (tx_buf != NULL) free(tx_buf);
-    if (rx_buf != NULL) free(rx_buf);
+    if (tx_buf != NULL)
+      free(tx_buf);
+    if (rx_buf != NULL)
+      free(rx_buf);
     return;
   }
 
@@ -199,7 +211,8 @@ void cc1101_read_burst(uint8_t reg, uint8_t *buf, uint8_t len) {
 }
 
 void cc1101_strobe(uint8_t cmd) {
-  if (s_cc1101_spi == NULL) return;
+  if (s_cc1101_spi == NULL)
+    return;
   spi_transaction_t t;
   memset(&t, 0, sizeof(t));
   t.length = 8;
@@ -215,16 +228,22 @@ void cc1101_calibrate(void) {
 
   if (s_current_freq_mhz >= 300 && s_current_freq_mhz <= 348) {
     fsctrl0 = (uint8_t)linear_map(s_current_freq_mhz * 1000, 300000, 348000, 24, 28);
-    if (s_current_freq_mhz < 322.88) test0 = 0x0B;
-    else needs_fscal2_adj = true;
+    if (s_current_freq_mhz < 322.88)
+      test0 = 0x0B;
+    else
+      needs_fscal2_adj = true;
   } else if (s_current_freq_mhz >= 378 && s_current_freq_mhz <= 464) {
     fsctrl0 = (uint8_t)linear_map(s_current_freq_mhz * 1000, 378000, 464000, 31, 38);
-    if (s_current_freq_mhz < 430.5) test0 = 0x0B;
-    else needs_fscal2_adj = true;
+    if (s_current_freq_mhz < 430.5)
+      test0 = 0x0B;
+    else
+      needs_fscal2_adj = true;
   } else if (s_current_freq_mhz >= 779 && s_current_freq_mhz <= 899.99) {
     fsctrl0 = (uint8_t)linear_map(s_current_freq_mhz * 1000, 779000, 899000, 65, 76);
-    if (s_current_freq_mhz < 861) test0 = 0x0B;
-    else needs_fscal2_adj = true;
+    if (s_current_freq_mhz < 861)
+      test0 = 0x0B;
+    else
+      needs_fscal2_adj = true;
   } else if (s_current_freq_mhz >= 900 && s_current_freq_mhz <= 928) {
     fsctrl0 = (uint8_t)linear_map(s_current_freq_mhz * 1000, 900000, 928000, 77, 79);
     needs_fscal2_adj = true;
@@ -241,7 +260,8 @@ void cc1101_calibrate(void) {
 
   if (needs_fscal2_adj) {
     uint8_t s = cc1101_read_reg(CC1101_FSCAL2 | 0x40);
-    if (s < 32) cc1101_write_reg(CC1101_FSCAL2, s + 32);
+    if (s < 32)
+      cc1101_write_reg(CC1101_FSCAL2, s + 32);
   }
 }
 
@@ -271,12 +291,20 @@ void cc1101_set_rx_bandwidth(float khz) {
   float f = khz;
 
   for (int i = 0; i < 3; i++) {
-    if (f > 101.5625) { f /= 2; s1--; }
-    else { break; }
+    if (f > 101.5625) {
+      f /= 2;
+      s1--;
+    } else {
+      break;
+    }
   }
   for (int i = 0; i < 3; i++) {
-    if (f > 58.1) { f /= 1.25; s2--; }
-    else { break; }
+    if (f > 58.1) {
+      f /= 1.25;
+      s2--;
+    } else {
+      break;
+    }
   }
 
   s1 *= 64;
@@ -294,8 +322,10 @@ void cc1101_set_data_rate(float baud) {
   uint8_t mdmcfg3 = 0;
   uint8_t drate_e = 0;
 
-  if (c > 1621.83) c = 1621.83;
-  if (c < 0.0247955) c = 0.0247955;
+  if (c > 1621.83)
+    c = 1621.83;
+  if (c < 0.0247955)
+    c = 0.0247955;
 
   for (int i = 0; i < 20; i++) {
     if (c <= 0.0494942) {
@@ -303,7 +333,8 @@ void cc1101_set_data_rate(float baud) {
       c = c / 0.00009685;
       mdmcfg3 = (uint8_t)c;
       float s1 = (c - mdmcfg3) * 10;
-      if (s1 >= 5) mdmcfg3++;
+      if (s1 >= 5)
+        mdmcfg3++;
       break;
     } else {
       drate_e++;
@@ -320,13 +351,22 @@ void cc1101_set_deviation(float dev) {
   float v = 0.19836425;
   int c = 0;
 
-  if (dev > 380.859375) dev = 380.859375;
-  if (dev < 1.586914) dev = 1.586914;
+  if (dev > 380.859375)
+    dev = 380.859375;
+  if (dev < 1.586914)
+    dev = 1.586914;
 
   for (int i = 0; i < 255; i++) {
     f += v;
-    if (c == 7) { v *= 2; c = -1; i += 8; }
-    if (f >= dev) { c = i; break; }
+    if (c == 7) {
+      v *= 2;
+      c = -1;
+      i += 8;
+    }
+    if (f >= dev) {
+      c = i;
+      break;
+    }
     c++;
   }
 
@@ -335,18 +375,34 @@ void cc1101_set_deviation(float dev) {
 
 void cc1101_set_modulation(uint8_t modulation) {
   // 0=2-FSK, 1=GFSK, 2=ASK/OOK, 3=4-FSK, 4=MSK
-  if (modulation > CC1101_MOD_MSK) modulation = CC1101_MOD_MSK;
+  if (modulation > CC1101_MOD_MSK)
+    modulation = CC1101_MOD_MSK;
   s_current_modulation = modulation;
 
   uint8_t m2modfm = 0;
   uint8_t frend0 = 0;
 
   switch (modulation) {
-    case CC1101_MOD_2FSK: m2modfm = 0x00; frend0 = 0x10; break;
-    case CC1101_MOD_GFSK: m2modfm = 0x10; frend0 = 0x10; break;
-    case CC1101_MOD_ASK:  m2modfm = 0x30; frend0 = 0x11; break;
-    case CC1101_MOD_4FSK: m2modfm = 0x40; frend0 = 0x10; break;
-    case CC1101_MOD_MSK:  m2modfm = 0x70; frend0 = 0x10; break;
+    case CC1101_MOD_2FSK:
+      m2modfm = 0x00;
+      frend0 = 0x10;
+      break;
+    case CC1101_MOD_GFSK:
+      m2modfm = 0x10;
+      frend0 = 0x10;
+      break;
+    case CC1101_MOD_ASK:
+      m2modfm = 0x30;
+      frend0 = 0x11;
+      break;
+    case CC1101_MOD_4FSK:
+      m2modfm = 0x40;
+      frend0 = 0x10;
+      break;
+    case CC1101_MOD_MSK:
+      m2modfm = 0x70;
+      frend0 = 0x10;
+      break;
   }
 
   uint8_t current_mdmcfg2 = cc1101_read_reg(CC1101_MDMCFG2);
@@ -367,18 +423,29 @@ void cc1101_set_pa(int dbm) {
 
   // Select based on frequency band and dbm
   const uint8_t *table = PA_TABLE_433; // Default
-  if (s_current_freq_mhz >= 300 && s_current_freq_mhz <= 348) table = PA_TABLE_315;
-  else if (s_current_freq_mhz >= 779 && s_current_freq_mhz <= 899.99) table = PA_TABLE_868;
-  else if (s_current_freq_mhz >= 900 && s_current_freq_mhz <= 928) table = PA_TABLE_915;
+  if (s_current_freq_mhz >= 300 && s_current_freq_mhz <= 348)
+    table = PA_TABLE_315;
+  else if (s_current_freq_mhz >= 779 && s_current_freq_mhz <= 899.99)
+    table = PA_TABLE_868;
+  else if (s_current_freq_mhz >= 900 && s_current_freq_mhz <= 928)
+    table = PA_TABLE_915;
 
-  if (dbm <= -30) pa_val = table[0];
-  else if (dbm <= -20) pa_val = table[1];
-  else if (dbm <= -15) pa_val = table[2];
-  else if (dbm <= -10) pa_val = table[3];
-  else if (dbm <= 0)   pa_val = table[4];
-  else if (dbm <= 5)   pa_val = table[5];
-  else if (dbm <= 7)   pa_val = table[6];
-  else pa_val = table[7];
+  if (dbm <= -30)
+    pa_val = table[0];
+  else if (dbm <= -20)
+    pa_val = table[1];
+  else if (dbm <= -15)
+    pa_val = table[2];
+  else if (dbm <= -10)
+    pa_val = table[3];
+  else if (dbm <= 0)
+    pa_val = table[4];
+  else if (dbm <= 5)
+    pa_val = table[5];
+  else if (dbm <= 7)
+    pa_val = table[6];
+  else
+    pa_val = table[7];
 
   uint8_t pa_table[CC1101_PA_TABLE_SIZE] = {0};
 
@@ -403,8 +470,10 @@ void cc1101_set_chsp(float khz) {
   uint8_t mdmcfg1 = cc1101_read_reg(CC1101_MDMCFG1) & 0xFC; // Clear CHSP (lower 2 bits)
   uint8_t chsp_e = 0;
 
-  if (f > 405.456543) f = 405.456543;
-  if (f < 25.390625) f = 25.390625;
+  if (f > 405.456543)
+    f = 405.456543;
+  if (f < 25.390625)
+    f = 25.390625;
 
   for (int i = 0; i < 5; i++) {
     if (f <= 50.682068) {
@@ -412,7 +481,8 @@ void cc1101_set_chsp(float khz) {
       f /= 0.0991825;
       mdmcfg0 = (uint8_t)f;
       float s1 = (f - mdmcfg0) * 10;
-      if (s1 >= 5) mdmcfg0++;
+      if (s1 >= 5)
+        mdmcfg0++;
       break;
     } else {
       chsp_e++;
@@ -425,7 +495,8 @@ void cc1101_set_chsp(float khz) {
 }
 
 void cc1101_set_sync_mode(uint8_t mode) {
-  if (mode > 7) mode = 7;
+  if (mode > 7)
+    mode = 7;
   uint8_t mdmcfg2 = cc1101_read_reg(CC1101_MDMCFG2);
   mdmcfg2 &= 0xF8; // Clear SYNC_MODE (lower 3 bits)
   mdmcfg2 |= mode;
@@ -434,22 +505,32 @@ void cc1101_set_sync_mode(uint8_t mode) {
 
 void cc1101_set_fec(bool enable) {
   uint8_t mdmcfg1 = cc1101_read_reg(CC1101_MDMCFG1);
-  if (enable) mdmcfg1 |= 0x80;
-  else mdmcfg1 &= 0x7F;
+  if (enable)
+    mdmcfg1 |= 0x80;
+  else
+    mdmcfg1 &= 0x7F;
   cc1101_write_reg(CC1101_MDMCFG1, mdmcfg1);
 }
 
 void cc1101_set_preamble(uint8_t preamble_bytes) {
   uint8_t val = 0;
   // Map bytes to register value (approximate)
-  if (preamble_bytes <= 2) val = 0;
-  else if (preamble_bytes <= 3) val = 1;
-  else if (preamble_bytes <= 4) val = 2;
-  else if (preamble_bytes <= 6) val = 3;
-  else if (preamble_bytes <= 8) val = 4;
-  else if (preamble_bytes <= 12) val = 5;
-  else if (preamble_bytes <= 16) val = 6;
-  else val = 7;
+  if (preamble_bytes <= 2)
+    val = 0;
+  else if (preamble_bytes <= 3)
+    val = 1;
+  else if (preamble_bytes <= 4)
+    val = 2;
+  else if (preamble_bytes <= 6)
+    val = 3;
+  else if (preamble_bytes <= 8)
+    val = 4;
+  else if (preamble_bytes <= 12)
+    val = 5;
+  else if (preamble_bytes <= 16)
+    val = 6;
+  else
+    val = 7;
 
   uint8_t mdmcfg1 = cc1101_read_reg(CC1101_MDMCFG1);
   mdmcfg1 &= 0x8F; // Clear NUM_PREAMBLE (bits 4-6)
@@ -459,21 +540,27 @@ void cc1101_set_preamble(uint8_t preamble_bytes) {
 
 void cc1101_set_dc_filter_off(bool disable) {
   uint8_t mdmcfg2 = cc1101_read_reg(CC1101_MDMCFG2);
-  if (disable) mdmcfg2 |= 0x80; // Disable DC blocking
-  else mdmcfg2 &= 0x7F; // Enable DC blocking
+  if (disable)
+    mdmcfg2 |= 0x80; // Disable DC blocking
+  else
+    mdmcfg2 &= 0x7F; // Enable DC blocking
   cc1101_write_reg(CC1101_MDMCFG2, mdmcfg2);
 }
 
 void cc1101_set_manchester(bool enable) {
   uint8_t mdmcfg2 = cc1101_read_reg(CC1101_MDMCFG2);
-  if (enable) mdmcfg2 |= 0x08;
-  else mdmcfg2 &= 0xF7;
+  if (enable)
+    mdmcfg2 |= 0x08;
+  else
+    mdmcfg2 &= 0xF7;
   cc1101_write_reg(CC1101_MDMCFG2, mdmcfg2);
 }
 
 void cc1101_send_data(const uint8_t *data, size_t len) {
-  if (s_cc1101_spi == NULL || len == 0) return;
-  if (len > CC1101_MAX_TX_FIFO) len = CC1101_MAX_TX_FIFO;
+  if (s_cc1101_spi == NULL || len == 0)
+    return;
+  if (len > CC1101_MAX_TX_FIFO)
+    len = CC1101_MAX_TX_FIFO;
 
   cc1101_strobe(CC1101_SIDLE);
   cc1101_strobe(CC1101_SFTX); // Flush TX FIFO
@@ -487,8 +574,7 @@ void cc1101_send_data(const uint8_t *data, size_t len) {
   uint8_t marcstate;
   do {
     marcstate = cc1101_read_reg(CC1101_MARCSTATE | 0x40) & CC1101_MARCSTATE_MASK;
-  } while (marcstate == CC1101_MARCSTATE_TX ||
-           marcstate == CC1101_MARCSTATE_TX_END ||
+  } while (marcstate == CC1101_MARCSTATE_TX || marcstate == CC1101_MARCSTATE_TX_END ||
            marcstate == CC1101_MARCSTATE_RXTX);
 }
 
@@ -503,12 +589,10 @@ float cc1101_convert_rssi(uint8_t rssi_raw) {
 }
 
 void cc1101_init(void) {
-  spi_device_config_t devcfg = {
-    .clock_speed_hz = CC1101_SPI_CLOCK_HZ,
-    .mode = 0,
-    .cs_pin = GPIO_CS_PIN,
-    .queue_size = CC1101_SPI_QUEUE_SIZE
-  };
+  spi_device_config_t devcfg = {.clock_speed_hz = CC1101_SPI_CLOCK_HZ,
+                                .mode = 0,
+                                .cs_pin = GPIO_CS_PIN,
+                                .queue_size = CC1101_SPI_QUEUE_SIZE};
 
   esp_err_t ret = spi_add_device(SPI3_HOST, SPI_DEVICE_CC1101, &devcfg);
   if (ret != ESP_OK) {
@@ -591,13 +675,15 @@ uint8_t cc1101_get_active_preset_id(void) {
 }
 
 void cc1101_enter_tx_mode(void) {
-  if (s_cc1101_spi == NULL) return;
+  if (s_cc1101_spi == NULL)
+    return;
   cc1101_strobe(CC1101_SIDLE);
   cc1101_strobe(CC1101_STX);
 }
 
 void cc1101_enter_rx_mode(void) {
-  if (s_cc1101_spi == NULL) return;
+  if (s_cc1101_spi == NULL)
+    return;
   cc1101_strobe(CC1101_SIDLE);
   cc1101_strobe(CC1101_SRX);
 }
