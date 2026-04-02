@@ -14,69 +14,70 @@
 
 #include "subghz_protocol_decoder.h"
 #include "subghz_protocol_utils.h"
-#include <string.h>
 
-#define CHAM_SHORT 430
-#define CHAM_LONG  870
-#define CHAM_TOL   40 // % Tolerance
+#define CHAMBERLAIN_SHORT_US        430
+#define CHAMBERLAIN_LONG_US         870
+#define CHAMBERLAIN_TOLERANCE_PCT   40
+#define CHAMBERLAIN_BIT_COUNT       9
+#define CHAMBERLAIN_MIN_RAW_COUNT   16
+#define CHAMBERLAIN_MIN_VALID_BITS  7
+#define CHAMBERLAIN_STEP_SIZE       2
+#define CHAMBERLAIN_BIT_INVALID     (-1)
 
-static bool protocol_chamberlain_decode(const int32_t* raw_data, size_t count, subghz_data_t* out_data) {
-    if (count < 16) return false;
-
-    uint32_t decoded_data = 0;
-    int bits_found = 0;
-
-    for (size_t i = 0; i < count - 1; i += 2) {
-        int32_t pulse = raw_data[i];
-        int32_t gap   = raw_data[i+1];
-
-        if (pulse < 0) { 
-            if (i == 0) {
-                i--; 
-                continue;
-            } 
-            return false; 
-        }
-
-        int bit = -1;
-
-        // Bit 0: Short Pulse, Long Gap
-        if (subghz_check_pulse(pulse, CHAM_SHORT, CHAM_TOL) && 
-            subghz_check_pulse(gap, CHAM_LONG, CHAM_TOL)) {
-            bit = 0;
-        }
-        // Bit 1: Long Pulse, Short Gap
-        else if (subghz_check_pulse(pulse, CHAM_LONG, CHAM_TOL) && 
-                 subghz_check_pulse(gap, CHAM_SHORT, CHAM_TOL)) {
-            bit = 1;
-        }
-        else {
-            if (bits_found >= 7) break;
-            decoded_data = 0;
-            bits_found = 0;
-            continue;
-        }
-
-        if (bit != -1) {
-            decoded_data = (decoded_data << 1) | bit;
-            bits_found++;
-            
-            // Chamberlain typically 7, 8 or 9 bits
-            if (bits_found == 9) {
-                out_data->protocol_name = "Chamberlain";
-                out_data->bit_count = bits_found;
-                out_data->raw_value = decoded_data;
-                out_data->serial = decoded_data;
-                out_data->btn = 0;
-                return true;
-            }
-        }
-    }
+static bool protocol_chamberlain_decode(const int32_t *raw_data, size_t count,
+                                        subghz_data_t *out_data) {
+  if (count < CHAMBERLAIN_MIN_RAW_COUNT) {
     return false;
+  }
+
+  size_t start = (raw_data[0] < 0) ? 1 : 0;
+  uint32_t decoded_data = 0;
+  int bits_found = 0;
+
+  for (size_t i = start; i < count - 1; i += CHAMBERLAIN_STEP_SIZE) {
+    int32_t pulse = raw_data[i];
+    int32_t gap = raw_data[i + 1];
+
+    if (pulse < 0) {
+      return false;
+    }
+
+    int bit = CHAMBERLAIN_BIT_INVALID;
+
+    if (subghz_check_pulse(pulse, CHAMBERLAIN_SHORT_US, CHAMBERLAIN_TOLERANCE_PCT) &&
+        subghz_check_pulse(gap, CHAMBERLAIN_LONG_US, CHAMBERLAIN_TOLERANCE_PCT)) {
+      bit = 0;
+    } else if (subghz_check_pulse(pulse, CHAMBERLAIN_LONG_US, CHAMBERLAIN_TOLERANCE_PCT) &&
+               subghz_check_pulse(gap, CHAMBERLAIN_SHORT_US, CHAMBERLAIN_TOLERANCE_PCT)) {
+      bit = 1;
+    } else {
+      if (bits_found >= CHAMBERLAIN_MIN_VALID_BITS) {
+        break;
+      }
+      decoded_data = 0;
+      bits_found = 0;
+      continue;
+    }
+
+    if (bit != CHAMBERLAIN_BIT_INVALID) {
+      decoded_data = (decoded_data << 1) | bit;
+      bits_found++;
+
+      if (bits_found == CHAMBERLAIN_BIT_COUNT) {
+        out_data->protocol_name = "Chamberlain";
+        out_data->bit_count = bits_found;
+        out_data->raw_value = decoded_data;
+        out_data->serial = decoded_data;
+        out_data->btn = 0;
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 subghz_protocol_t protocol_chamberlain = {
-    .name = "Chamberlain",
-    .decode = protocol_chamberlain_decode,
-    .encode = NULL
+  .name = "Chamberlain",
+  .decode = protocol_chamberlain_decode,
+  .encode = NULL
 };

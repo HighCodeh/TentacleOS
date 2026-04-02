@@ -15,24 +15,41 @@
 #ifndef SUBGHZ_PROTOCOL_UTILS_H
 #define SUBGHZ_PROTOCOL_UTILS_H
 
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdlib.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
- * @brief Calculate absolute difference between two values
+ * @brief Calculate the absolute difference between two unsigned values.
+ *
+ * @param a  First value.
+ * @param b  Second value.
+ * @return Absolute difference.
  */
 static inline uint32_t subghz_abs_diff(uint32_t a, uint32_t b) {
-    return (a > b) ? (a - b) : (b - a);
+  return (a > b) ? (a - b) : (b - a);
 }
 
 /**
- * @brief Check if a pulse matches a target length within a tolerance percentage
+ * @brief Check if a pulse matches a target length within a tolerance percentage.
+ *
+ * @param raw_len        Raw signed pulse duration in microseconds.
+ * @param target_len     Expected unsigned pulse length in microseconds.
+ * @param tolerance_pct  Tolerance as a percentage (0-100).
+ * @return true if the pulse is within tolerance, false otherwise.
  */
 static inline bool subghz_check_pulse(int32_t raw_len, uint32_t target_len, uint8_t tolerance_pct) {
-    uint32_t abs_len = abs(raw_len);
-    uint32_t tolerance = target_len * tolerance_pct / 100;
-    return (abs_len >= target_len - tolerance) && (abs_len <= target_len + tolerance);
+  uint32_t abs_len = abs(raw_len);
+  uint32_t tolerance = target_len * tolerance_pct / 100;
+  return (abs_len >= target_len - tolerance) && (abs_len <= target_len + tolerance);
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // SUBGHZ_PROTOCOL_UTILS_H

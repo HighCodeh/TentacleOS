@@ -15,23 +15,51 @@
 #ifndef SUBGHZ_RECEIVER_H
 #define SUBGHZ_RECEIVER_H
 
-#include <stdint.h>
-#include <stddef.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include "esp_err.h"
+
 #include "cc1101.h"
 
-typedef struct {
-    int32_t *items;
-    size_t count;
-} subghz_raw_signal_t;
-
+/**
+ * @brief Receiver operating mode.
+ */
 typedef enum {
-    SUBGHZ_MODE_SCAN, 
-    SUBGHZ_MODE_RAW   
+  SUBGHZ_MODE_SCAN,   /**< @brief Scan for known protocols. */
+  SUBGHZ_MODE_RAW,    /**< @brief Capture raw signal data. */
+  SUBGHZ_MODE_COUNT   /**< @brief Number of receiver modes (sentinel). */
 } subghz_mode_t;
 
-void subghz_receiver_start(subghz_mode_t mode, cc1101_preset_t preset, uint32_t freq);
+/**
+ * @brief Start the Sub-GHz receiver.
+ *
+ * @param mode    Operating mode (scan or raw).
+ * @param preset  CC1101 radio preset configuration.
+ * @param freq    Center frequency in Hz.
+ * @return esp_err_t ESP_OK on success, or an error code on failure.
+ */
+esp_err_t subghz_receiver_start(subghz_mode_t mode, cc1101_preset_t preset, uint32_t freq);
+
+/**
+ * @brief Stop the Sub-GHz receiver.
+ */
 void subghz_receiver_stop(void);
+
+/**
+ * @brief Check whether the receiver is currently running.
+ *
+ * @return true if the receiver is active, false otherwise.
+ */
 bool subghz_receiver_is_running(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // SUBGHZ_RECEIVER_H

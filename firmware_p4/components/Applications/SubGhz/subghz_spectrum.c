@@ -13,72 +13,98 @@
 // limitations under the License.
 
 #include "subghz_spectrum.h"
-#include "cc1101.h"
+
+#include <string.h>
+#include <rom/ets_sys.h>
+
+#include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
-#include "esp_log.h"
-#include "esp_timer.h"
-#include <rom/ets_sys.h>
-#include <string.h>
+
+#include "cc1101.h"
 
 static const char *TAG = "SUBGHZ_SPECTRUM";
-static TaskHandle_t spectrum_task_handle = NULL;
-static SemaphoreHandle_t spectrum_mutex = NULL;
+
+#define STABILIZATION_DELAY_US  400
+#define RSSI_SAMPLE_DELAY_US    20
+#define RSSI_SAMPLE_COUNT       3
+#define RSSI_MIN_DBM            (-130.0f)
+#define YIELD_INTERVAL          16
+#define SWEEP_DELAY_MS          5
+#define MUTEX_TIMEOUT_MS        10
+#define GET_LINE_TIMEOUT_MS     5
+#define SPECTRUM_TASK_STACK     4096
+#define SPECTRUM_TASK_PRIORITY  1
+#define SPECTRUM_TASK_CORE      1
+
+static TaskHandle_t s_spectrum_task_handle = NULL;
+static SemaphoreHandle_t s_spectrum_mutex = NULL;
 static volatile bool s_stop_requested = false;
 static volatile bool s_is_running = false;
 
 static subghz_spectrum_line_t s_latest_line = {0};
 
-void subghz_spectrum_task(void *pvParameters) {
+static void subghz_spectrum_task(void *pvParameters) {
   s_is_running = true;
 
-  uint32_t center = s_latest_line.center_freq;
-  uint32_t span = s_latest_line.span_hz;
+  uint32_t center = 0;
+  uint32_t span = 0;
+
+  if (xSemaphoreTake(s_spectrum_mutex, pdMS_TO_TICKS(MUTEX_TIMEOUT_MS)) == pdTRUE) {
+    center = s_latest_line.center_freq;
+    span = s_latest_line.span_hz;
+    xSemaphoreGive(s_spectrum_mutex);
+  }
+
   uint32_t step = span / SPECTRUM_SAMPLES;
   uint32_t start = center - (span / 2);
 
-  ESP_LOGI(TAG, "Spectrum Task Started: Center=%lu, Span=%lu, Step=%lu", 
+  ESP_LOGI(TAG, "Spectrum Task Started: Center=%lu, Span=%lu, Step=%lu",
            (unsigned long)center, (unsigned long)span, (unsigned long)step);
 
   while (!s_stop_requested) {
     float current_sweep[SPECTRUM_SAMPLES];
 
     for (int i = 0; i < SPECTRUM_SAMPLES; i++) {
-      if (s_stop_requested) break;
+      if (s_stop_requested) {
+        break;
+      }
 
-      uint32_t current_freq = start + (i * step);
+      uint32_t current_freq = start + ((uint32_t)i * step);
 
       cc1101_strobe(CC1101_SIDLE);
       cc1101_set_frequency(current_freq);
       cc1101_strobe(CC1101_SRX);
 
-      // Stabilization delay
-      ets_delay_us(400); 
+      ets_delay_us(STABILIZATION_DELAY_US);
 
-      // Peak detection (3 samples to mitigate OOK pulsing)
-      float local_max = -130.0;
-      for(int k=0; k<3; k++) {
+      float local_max = RSSI_MIN_DBM;
+      for (int k = 0; k < RSSI_SAMPLE_COUNT; k++) {
         uint8_t raw = cc1101_read_reg(CC1101_RSSI | 0x40);
         float val = cc1101_convert_rssi(raw);
-        if(val > local_max) local_max = val;
-        ets_delay_us(20);
+        if (val > local_max) {
+          local_max = val;
+        }
+        ets_delay_us(RSSI_SAMPLE_DELAY_US);
       }
       current_sweep[i] = local_max;
 
-      if (i % 16 == 0) vTaskDelay(1);
+      if (i % YIELD_INTERVAL == 0) {
+        vTaskDelay(1);
+      }
     }
 
-    // Update global state safely
-    if (xSemaphoreTake(spectrum_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+    if (xSemaphoreTake(s_spectrum_mutex, pdMS_TO_TICKS(MUTEX_TIMEOUT_MS)) == pdTRUE) {
       memcpy(s_latest_line.dbm_values, current_sweep, sizeof(current_sweep));
       s_latest_line.timestamp = esp_timer_get_time();
       s_latest_line.start_freq = start;
       s_latest_line.step_hz = step;
-      xSemaphoreGive(spectrum_mutex);
+      xSemaphoreGive(s_spectrum_mutex);
     }
 
-    vTaskDelay(pdMS_TO_TICKS(5));
+    vTaskDelay(pdMS_TO_TICKS(SWEEP_DELAY_MS));
   }
 
   cc1101_strobe(CC1101_SIDLE);
@@ -87,34 +113,42 @@ void subghz_spectrum_task(void *pvParameters) {
 }
 
 void subghz_spectrum_start(uint32_t center_freq, uint32_t span_hz) {
-  if (s_is_running) return;
-
-  if (spectrum_mutex == NULL) {
-    spectrum_mutex = xSemaphoreCreateMutex();
+  if (s_is_running) {
+    return;
   }
 
-  s_latest_line.center_freq = center_freq;
-  s_latest_line.span_hz = span_hz;
+  if (s_spectrum_mutex == NULL) {
+    s_spectrum_mutex = xSemaphoreCreateMutex();
+  }
+
+  if (xSemaphoreTake(s_spectrum_mutex, pdMS_TO_TICKS(MUTEX_TIMEOUT_MS)) == pdTRUE) {
+    s_latest_line.center_freq = center_freq;
+    s_latest_line.span_hz = span_hz;
+    xSemaphoreGive(s_spectrum_mutex);
+  }
+
   s_stop_requested = false;
 
-  xTaskCreatePinnedToCore(subghz_spectrum_task, "subghz_spectrum", 4096, NULL, 1, &spectrum_task_handle, 1);
+  xTaskCreatePinnedToCore(subghz_spectrum_task, "subghz_spectrum",
+                          SPECTRUM_TASK_STACK, NULL, SPECTRUM_TASK_PRIORITY,
+                          &s_spectrum_task_handle, SPECTRUM_TASK_CORE);
 }
 
 void subghz_spectrum_stop(void) {
   if (s_is_running) {
     s_stop_requested = true;
-    // Task will delete itself
   }
 }
 
-bool subghz_spectrum_get_line(subghz_spectrum_line_t* out_line) {
-  if (!out_line || !spectrum_mutex) return false;
+bool subghz_spectrum_get_line(subghz_spectrum_line_t *out_line) {
+  if (out_line == NULL || s_spectrum_mutex == NULL) {
+    return false;
+  }
 
-  if (xSemaphoreTake(spectrum_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+  if (xSemaphoreTake(s_spectrum_mutex, pdMS_TO_TICKS(GET_LINE_TIMEOUT_MS)) == pdTRUE) {
     memcpy(out_line, &s_latest_line, sizeof(subghz_spectrum_line_t));
-    xSemaphoreGive(spectrum_mutex);
+    xSemaphoreGive(s_spectrum_mutex);
     return true;
   }
   return false;
 }
-

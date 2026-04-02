@@ -17,12 +17,23 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * @brief Decoded Sub-GHz signal data.
+ */
 typedef struct {
-    const char* protocol_name;
-    uint32_t serial;
-    uint8_t btn;
-    uint8_t bit_count;
-    uint32_t raw_value;
+  const char *protocol_name;  /**< @brief Name of the decoded protocol. */
+  uint32_t serial;            /**< @brief Device serial number. */
+  uint8_t btn;                /**< @brief Button code. */
+  uint8_t bit_count;          /**< @brief Number of bits in the raw value. */
+  uint32_t raw_value;         /**< @brief Raw decoded value. */
 } subghz_data_t;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // SUBGHZ_TYPES_H

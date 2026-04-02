@@ -14,68 +14,70 @@
 
 #include "subghz_protocol_decoder.h"
 #include "subghz_protocol_utils.h"
-#include <string.h>
 
-#define LINEAR_SHORT 500
-#define LINEAR_LONG  1500
-#define LINEAR_TOL   40 // % Tolerance
+#define LINEAR_SHORT_US        500
+#define LINEAR_LONG_US         1500
+#define LINEAR_TOLERANCE_PCT   40
+#define LINEAR_BIT_COUNT       10
+#define LINEAR_MIN_RAW_COUNT   10
+#define LINEAR_MIN_VALID_BITS  8
+#define LINEAR_STEP_SIZE       2
+#define LINEAR_BIT_INVALID     (-1)
 
-static bool protocol_linear_decode(const int32_t* raw_data, size_t count, subghz_data_t* out_data) {
-    if (count < 10) return false;
-
-    uint32_t decoded_data = 0;
-    int bits_found = 0;
-
-    for (size_t i = 0; i < count - 1; i += 2) {
-        int32_t pulse = raw_data[i];
-        int32_t gap   = raw_data[i+1];
-
-        if (pulse < 0) { 
-            if (i == 0) {
-                i--; 
-                continue;
-            } 
-            return false; 
-        }
-
-        int bit = -1;
-
-        // Bit 0: Short, Long
-        if (subghz_check_pulse(pulse, LINEAR_SHORT, LINEAR_TOL) && 
-            subghz_check_pulse(gap, LINEAR_LONG, LINEAR_TOL)) {
-            bit = 0;
-        }
-        // Bit 1: Long, Short
-        else if (subghz_check_pulse(pulse, LINEAR_LONG, LINEAR_TOL) && 
-                 subghz_check_pulse(gap, LINEAR_SHORT, LINEAR_TOL)) {
-            bit = 1;
-        }
-        else {
-            if (bits_found >= 8) break;
-            decoded_data = 0;
-            bits_found = 0;
-            continue;
-        }
-
-        if (bit != -1) {
-            decoded_data = (decoded_data << 1) | bit;
-            bits_found++;
-            
-            if (bits_found == 10) {
-                out_data->protocol_name = "Linear";
-                out_data->bit_count = bits_found;
-                out_data->raw_value = decoded_data;
-                out_data->serial = decoded_data;
-                out_data->btn = 0;
-                return true;
-            }
-        }
-    }
+static bool protocol_linear_decode(const int32_t *raw_data, size_t count,
+                                   subghz_data_t *out_data) {
+  if (count < LINEAR_MIN_RAW_COUNT) {
     return false;
+  }
+
+  size_t start = (raw_data[0] < 0) ? 1 : 0;
+  uint32_t decoded_data = 0;
+  int bits_found = 0;
+
+  for (size_t i = start; i < count - 1; i += LINEAR_STEP_SIZE) {
+    int32_t pulse = raw_data[i];
+    int32_t gap = raw_data[i + 1];
+
+    if (pulse < 0) {
+      return false;
+    }
+
+    int bit = LINEAR_BIT_INVALID;
+
+    if (subghz_check_pulse(pulse, LINEAR_SHORT_US, LINEAR_TOLERANCE_PCT) &&
+        subghz_check_pulse(gap, LINEAR_LONG_US, LINEAR_TOLERANCE_PCT)) {
+      bit = 0;
+    } else if (subghz_check_pulse(pulse, LINEAR_LONG_US, LINEAR_TOLERANCE_PCT) &&
+               subghz_check_pulse(gap, LINEAR_SHORT_US, LINEAR_TOLERANCE_PCT)) {
+      bit = 1;
+    } else {
+      if (bits_found >= LINEAR_MIN_VALID_BITS) {
+        break;
+      }
+      decoded_data = 0;
+      bits_found = 0;
+      continue;
+    }
+
+    if (bit != LINEAR_BIT_INVALID) {
+      decoded_data = (decoded_data << 1) | bit;
+      bits_found++;
+
+      if (bits_found == LINEAR_BIT_COUNT) {
+        out_data->protocol_name = "Linear";
+        out_data->bit_count = bits_found;
+        out_data->raw_value = decoded_data;
+        out_data->serial = decoded_data;
+        out_data->btn = 0;
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 subghz_protocol_t protocol_linear = {
-    .name = "Linear",
-    .decode = protocol_linear_decode,
-    .encode = NULL
+  .name = "Linear",
+  .decode = protocol_linear_decode,
+  .encode = NULL
 };

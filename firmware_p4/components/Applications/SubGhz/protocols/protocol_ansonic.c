@@ -14,68 +14,70 @@
 
 #include "subghz_protocol_decoder.h"
 #include "subghz_protocol_utils.h"
-#include <string.h>
 
-#define ANSONIC_SHORT 555
-#define ANSONIC_LONG  1111
-#define ANSONIC_TOL   40 // % Tolerance
+#define ANSONIC_SHORT_US        555
+#define ANSONIC_LONG_US         1111
+#define ANSONIC_TOLERANCE_PCT   40
+#define ANSONIC_BIT_COUNT       12
+#define ANSONIC_MIN_RAW_COUNT   20
+#define ANSONIC_MIN_VALID_BITS  10
+#define ANSONIC_STEP_SIZE       2
+#define ANSONIC_BIT_INVALID     (-1)
 
-static bool protocol_ansonic_decode(const int32_t* raw_data, size_t count, subghz_data_t* out_data) {
-    if (count < 20) return false;
-
-    uint32_t decoded_data = 0;
-    int bits_found = 0;
-
-    for (size_t i = 0; i < count - 1; i += 2) {
-        int32_t pulse = raw_data[i];
-        int32_t gap   = raw_data[i+1];
-
-        if (pulse < 0) { 
-            if (i == 0) {
-                i--; 
-                continue;
-            } 
-            return false; 
-        }
-
-        int bit = -1;
-
-        // Bit 0: Pulse 555, Gap 1111 (Short, Long)
-        if (subghz_check_pulse(pulse, ANSONIC_SHORT, ANSONIC_TOL) && 
-            subghz_check_pulse(gap, ANSONIC_LONG, ANSONIC_TOL)) {
-            bit = 0;
-        }
-        // Bit 1: Pulse 1111, Gap 555 (Long, Short)
-        else if (subghz_check_pulse(pulse, ANSONIC_LONG, ANSONIC_TOL) && 
-                 subghz_check_pulse(gap, ANSONIC_SHORT, ANSONIC_TOL)) {
-            bit = 1;
-        }
-        else {
-            if (bits_found >= 10) break; // End of packet
-            decoded_data = 0;
-            bits_found = 0;
-            continue;
-        }
-
-        if (bit != -1) {
-            decoded_data = (decoded_data << 1) | bit;
-            bits_found++;
-            
-            if (bits_found == 12) {
-                out_data->protocol_name = "Ansonic";
-                out_data->bit_count = bits_found;
-                out_data->raw_value = decoded_data;
-                out_data->serial = decoded_data;
-                out_data->btn = 0;
-                return true;
-            }
-        }
-    }
+static bool protocol_ansonic_decode(const int32_t *raw_data, size_t count,
+                                    subghz_data_t *out_data) {
+  if (count < ANSONIC_MIN_RAW_COUNT) {
     return false;
+  }
+
+  size_t start = (raw_data[0] < 0) ? 1 : 0;
+  uint32_t decoded_data = 0;
+  int bits_found = 0;
+
+  for (size_t i = start; i < count - 1; i += ANSONIC_STEP_SIZE) {
+    int32_t pulse = raw_data[i];
+    int32_t gap = raw_data[i + 1];
+
+    if (pulse < 0) {
+      return false;
+    }
+
+    int bit = ANSONIC_BIT_INVALID;
+
+    if (subghz_check_pulse(pulse, ANSONIC_SHORT_US, ANSONIC_TOLERANCE_PCT) &&
+        subghz_check_pulse(gap, ANSONIC_LONG_US, ANSONIC_TOLERANCE_PCT)) {
+      bit = 0;
+    } else if (subghz_check_pulse(pulse, ANSONIC_LONG_US, ANSONIC_TOLERANCE_PCT) &&
+               subghz_check_pulse(gap, ANSONIC_SHORT_US, ANSONIC_TOLERANCE_PCT)) {
+      bit = 1;
+    } else {
+      if (bits_found >= ANSONIC_MIN_VALID_BITS) {
+        break;
+      }
+      decoded_data = 0;
+      bits_found = 0;
+      continue;
+    }
+
+    if (bit != ANSONIC_BIT_INVALID) {
+      decoded_data = (decoded_data << 1) | bit;
+      bits_found++;
+
+      if (bits_found == ANSONIC_BIT_COUNT) {
+        out_data->protocol_name = "Ansonic";
+        out_data->bit_count = bits_found;
+        out_data->raw_value = decoded_data;
+        out_data->serial = decoded_data;
+        out_data->btn = 0;
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 subghz_protocol_t protocol_ansonic = {
-    .name = "Ansonic",
-    .decode = protocol_ansonic_decode,
-    .encode = NULL
+  .name = "Ansonic",
+  .decode = protocol_ansonic_decode,
+  .encode = NULL
 };

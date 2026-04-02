@@ -14,65 +14,72 @@
 
 #include "subghz_protocol_decoder.h"
 #include "subghz_protocol_utils.h"
-#include <string.h>
 
-#define HOLTEK_SHORT 430
-#define HOLTEK_LONG  870
-#define HOLTEK_TOL   40 // % Tolerance
+#define HOLTEK_SHORT_US        430
+#define HOLTEK_LONG_US         870
+#define HOLTEK_TOLERANCE_PCT   40
+#define HOLTEK_BIT_COUNT       12
+#define HOLTEK_MIN_RAW_COUNT   24
+#define HOLTEK_MIN_VALID_BITS  8
+#define HOLTEK_STEP_SIZE       2
+#define HOLTEK_BIT_INVALID     (-1)
+#define HOLTEK_ADDR_SHIFT      4
+#define HOLTEK_DATA_MASK       0x0F
 
-static bool protocol_holtek_decode(const int32_t* raw_data, size_t count, subghz_data_t* out_data) {
-    if (count < 24) return false; // 12 bits = 24 transitions
-
-    uint32_t decoded_data = 0;
-    int bits_found = 0;
-
-    for (size_t i = 0; i < count - 1; i += 2) {
-        int32_t pulse = raw_data[i];
-        int32_t gap   = raw_data[i+1];
-
-        if (pulse < 0) { 
-            if (i == 0) {
-                i--; 
-                continue;
-            } 
-            return false; 
-        }
-
-        int bit = -1;
-
-        if (subghz_check_pulse(pulse, HOLTEK_SHORT, HOLTEK_TOL) && 
-            subghz_check_pulse(gap, HOLTEK_LONG, HOLTEK_TOL)) {
-            bit = 0;
-        } else if (subghz_check_pulse(pulse, HOLTEK_LONG, HOLTEK_TOL) && 
-                   subghz_check_pulse(gap, HOLTEK_SHORT, HOLTEK_TOL)) {
-            bit = 1;
-        } else {
-            if (bits_found >= 8) break;
-            decoded_data = 0;
-            bits_found = 0;
-            continue;
-        }
-
-        if (bit != -1) {
-            decoded_data = (decoded_data << 1) | bit;
-            bits_found++;
-            
-            if (bits_found == 12) { // HT12E standard
-                out_data->protocol_name = "Holtek";
-                out_data->bit_count = 12;
-                out_data->raw_value = decoded_data;
-                out_data->serial = decoded_data >> 4; // 8 addr + 4 data
-                out_data->btn = decoded_data & 0x0F;
-                return true;
-            }
-        }
-    }
+static bool protocol_holtek_decode(const int32_t *raw_data, size_t count,
+                                   subghz_data_t *out_data) {
+  if (count < HOLTEK_MIN_RAW_COUNT) {
     return false;
+  }
+
+  size_t start = (raw_data[0] < 0) ? 1 : 0;
+  uint32_t decoded_data = 0;
+  int bits_found = 0;
+
+  for (size_t i = start; i < count - 1; i += HOLTEK_STEP_SIZE) {
+    int32_t pulse = raw_data[i];
+    int32_t gap = raw_data[i + 1];
+
+    if (pulse < 0) {
+      return false;
+    }
+
+    int bit = HOLTEK_BIT_INVALID;
+
+    if (subghz_check_pulse(pulse, HOLTEK_SHORT_US, HOLTEK_TOLERANCE_PCT) &&
+        subghz_check_pulse(gap, HOLTEK_LONG_US, HOLTEK_TOLERANCE_PCT)) {
+      bit = 0;
+    } else if (subghz_check_pulse(pulse, HOLTEK_LONG_US, HOLTEK_TOLERANCE_PCT) &&
+               subghz_check_pulse(gap, HOLTEK_SHORT_US, HOLTEK_TOLERANCE_PCT)) {
+      bit = 1;
+    } else {
+      if (bits_found >= HOLTEK_MIN_VALID_BITS) {
+        break;
+      }
+      decoded_data = 0;
+      bits_found = 0;
+      continue;
+    }
+
+    if (bit != HOLTEK_BIT_INVALID) {
+      decoded_data = (decoded_data << 1) | bit;
+      bits_found++;
+
+      if (bits_found == HOLTEK_BIT_COUNT) {
+        out_data->protocol_name = "Holtek";
+        out_data->bit_count = HOLTEK_BIT_COUNT;
+        out_data->raw_value = decoded_data;
+        out_data->serial = decoded_data >> HOLTEK_ADDR_SHIFT;
+        out_data->btn = decoded_data & HOLTEK_DATA_MASK;
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 subghz_protocol_t protocol_holtek = {
-    .name = "Holtek",
-    .decode = protocol_holtek_decode,
-    .encode = NULL
+  .name = "Holtek",
+  .decode = protocol_holtek_decode,
+  .encode = NULL
 };
-
