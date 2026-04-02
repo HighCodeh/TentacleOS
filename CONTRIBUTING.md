@@ -14,14 +14,28 @@ cd TentacleOS
 ```
 
 ### 2. Prerequisites
-This project is built using the **Espressif IoT Development Framework (ESP-IDF)**.
 
-- **Required Version:** ESP-IDF v5.3 or later (Check the latest stable version).
-- **Setup Guide:** Follow the [Official ESP-IDF Installation Guide](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/index.html).
+| Tool | Version | Purpose |
+|------|---------|---------|
+| [ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/index.html) | v5.3+ | Build system and SDK |
+| [clang-format](https://clang.llvm.org/docs/ClangFormat.html) | any | Code formatting (enforced by pre-commit hook) |
+| Git | 2.9+ | Required for `core.hooksPath` support |
 
-Ensure your environment is set up:
+Install ESP-IDF and ensure your environment is set up:
 ```bash
 . $HOME/esp/esp-idf/export.sh
+```
+
+Install clang-format:
+```bash
+# Arch / Manjaro
+sudo pacman -S clang
+
+# Ubuntu / Debian
+sudo apt install clang-format
+
+# macOS
+brew install clang-format
 ```
 
 ### 3. Compiling
@@ -97,17 +111,15 @@ After cloning the repository, run the setup script to install the required git h
 ./tools/setup.sh
 ```
 
-This installs the `commit-msg` hook that validates your commit messages follow the Conventional Commits format. **Without this, your commits may be rejected during code review.**
-
----
+This configures git to use the project hooks (`.githooks/`). The hooks include:
+- **pre-commit** — checks code formatting with `clang-format`
+- **commit-msg** — validates Conventional Commits format
 
 ## Continuous Integration (CI)
 We use **GitHub Actions** to automatically build the project for all supported targets upon every push and Pull Request.
 
 - **Status Checks:** All CI builds must pass before a Pull Request can be merged.
 - **Blocked Merges:** If any build fails, the merge will be blocked until the issues are resolved.
-
----
 
 ## Pull Request Process
 

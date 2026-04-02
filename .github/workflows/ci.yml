@@ -8,6 +8,18 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  format:
+    name: Check Formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: sudo apt-get install -y clang-format
+
+      - name: Run format check
+        run: bash tools/format.sh --check
+
   commitlint:
     name: Validate Commits
     runs-on: ubuntu-latest
