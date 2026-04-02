@@ -129,9 +129,8 @@ All structs use `typedef` with `_t` suffix. Internal structs (file-scope) follow
 
 ## Functions
 
-- Maximum **60 lines** per function.
+- Each function does **one thing**. A long function that does one thing is fine. A short function that does three things is not.
 - Maximum **4 parameters**. Group into a config struct if you need more.
-- Each function does **one thing**. Don't mix init, processing and cleanup.
 - If two functions share more than 70% of their body, unify them with a parameter.
 
 
