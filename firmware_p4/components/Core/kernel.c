@@ -12,36 +12,40 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "kernel.h"
 
-#include <stdio.h>
-#include "buttons_gpio.h"
-#include "cc1101.h"
+#include "esp_log.h"
+#include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "driver/gpio.h"
+
 #include "spi.h"
 #include "i2c_init.h"
-#include "led_control.h"
-#include "pin_def.h" 
 #include "st7789.h"
+#include "cc1101.h"
 #include "bq25896.h"
-#include "driver/i2c.h"
-#include "nvs_flash.h" 
-#include "wifi_service.h" 
+#include "led_control.h"
+#include "buttons_gpio.h"
+#include "bridge_manager.h"
 #include "storage_init.h"
 #include "storage_assets.h"
 #include "tos_first_boot.h"
 #include "tos_config.h"
 #include "tos_theme.h"
 #include "tos_log.h"
+#include "wifi_service.h"
+#include "console_service.h"
 #include "lv_port_disp.h"
 #include "lv_port_indev.h"
 #include "ui_manager.h"
+#include "msgbox_ui.h"
 #include "sys_monitor.h"
-#include "console_service.h"
-#include "bridge_manager.h"
 
-static const char *TAG = "SAFEGUARD";
+static const char *TAG = "KERNEL";
+
+#define CONSOLE_TASK_STACK 4096
+#define CONSOLE_TASK_PRIO  5
+#define BOOT_SETTLE_MS     1500
 
 static void console_task(void *pvParameters) {
   console_service_init();
@@ -49,6 +53,7 @@ static void console_task(void *pvParameters) {
 }
 
 void kernel_init(void) {
+  // 1. NVS
   esp_err_t ret = nvs_flash_init();
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
     ESP_ERROR_CHECK(nvs_flash_erase());
@@ -56,53 +61,48 @@ void kernel_init(void) {
   }
   ESP_ERROR_CHECK(ret);
 
+  // 2. Buses
   spi_init();
   init_i2c();
-  //Storage Init
+
+  // 3. Storage
   storage_init();
   storage_assets_init();
   storage_assets_print_info();
 
+  // 4. Configuration, theme, logging
   tos_first_boot_setup();
   tos_config_load_all();
   tos_log_init();
   tos_theme_load_from_sd();
-  TOS_LOGI("kernel", "TentacleOS booted successfully");
+  ESP_LOGI(TAG, "TentacleOS booted successfully");
 
+  // 5. Peripherals
   led_rgb_init();
   bq25896_init();
   cc1101_init();
   bridge_manager_init();
-
   buttons_init();
 
-
-  // display and graphical api init
+  // 6. Display + LVGL + UI
   st7789_init();
   lv_init();
   lv_port_disp_init();
   lv_port_indev_init();
-
-
   ui_init();
-  sys_monitor(false);
 
+  // 7. Services
+  sys_monitor_start(false);
   wifi_init();
+  xTaskCreate(console_task, "console_task", CONSOLE_TASK_STACK, NULL, CONSOLE_TASK_PRIO, NULL);
 
-  xTaskCreate(console_task, "console_task", 4096, NULL, 5, NULL);
-
-  vTaskDelay(pdMS_TO_TICKS(1500));
+  vTaskDelay(pdMS_TO_TICKS(BOOT_SETTLE_MS));
 }
 
+// FreeRTOS Safeguards
 
-// SAFEGUARDS
-
-#include "msgbox_ui.h" 
-#include <esp_log.h>
-
-void safeguard_alert(const char* title, const char* message) {
+void safeguard_alert(const char *title, const char *message) {
   ESP_LOGE(TAG, "ALERT: %s - %s", title, message);
-
 
   if (ui_acquire()) {
     msgbox_open(LV_SYMBOL_WARNING, message, "OK", NULL, NULL);
@@ -111,11 +111,10 @@ void safeguard_alert(const char* title, const char* message) {
 }
 
 void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {
-  ESP_LOGE(TAG, "!!! CRITICAL STACKK OVERFLOW DETECTED !!!");
-  ESP_LOGE(TAG, "Task Name: [%s]", pcTaskName);
-  ESP_LOGE(TAG, "Task attempted to use more memory than was allocated.");
+  (void)xTask;
+  ESP_LOGE(TAG, "STACK OVERFLOW in task [%s]", pcTaskName);
 }
 
 void vApplicationMallocFailedHook(void) {
-  ESP_LOGE(TAG, "!!! OUT OF MEMORY (MALLOC FAILED) !!!");
+  ESP_LOGE(TAG, "MALLOC FAILED — out of memory");
 }
