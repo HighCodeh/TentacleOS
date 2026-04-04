@@ -1,3 +1,16 @@
 #!/bin/bash
 
-./tools/format.sh --check
+# Get staged .c and .h files (excluding managed_components and build)
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(c|h)$' | grep -v 'managed_components/' | grep -v 'build/')
+
+if [ -z "$STAGED_FILES" ]; then
+  exit 0
+fi
+
+# Auto-format staged files
+echo "$STAGED_FILES" | xargs clang-format -i
+
+# Re-stage the formatted files
+echo "$STAGED_FILES" | xargs git add
+
+echo "Pre-commit: formatted $(echo "$STAGED_FILES" | wc -l) file(s)"
