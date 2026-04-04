@@ -49,20 +49,7 @@ void page_dots_set(page_dots_t * pd, int index)
         if (dist <= 2) {
             lv_obj_remove_flag(pd->dots[i], LV_OBJ_FLAG_HIDDEN);
             int sz = DOT_PATTERN[2 + rel];
-
-            lv_anim_t a;
-            lv_anim_init(&a);
-            lv_anim_set_var(&a, pd->dots[i]);
-            lv_anim_set_duration(&a, ANIM_MS);
-            lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
-
-            lv_anim_set_values(&a, lv_obj_get_width(pd->dots[i]), sz);
-            lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)lv_obj_set_width);
-            lv_anim_start(&a);
-
-            lv_anim_set_values(&a, lv_obj_get_height(pd->dots[i]), sz);
-            lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)lv_obj_set_height);
-            lv_anim_start(&a);
+            lv_obj_set_size(pd->dots[i], sz, sz);
         } else {
             lv_obj_add_flag(pd->dots[i], LV_OBJ_FLAG_HIDDEN);
         }
