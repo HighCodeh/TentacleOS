@@ -64,6 +64,8 @@ static bool btn_down_last = false;
 static bool btn_ok_last   = false;
 static bool btn_back_last = false;
 
+static bool rebuilding = false;
+
 /* ── Helpers ─────────────────────────────────────────────────── */
 static uint32_t hex_str_to_u32(const char *s) {
   if (!s) return 0;
@@ -173,14 +175,18 @@ static void update_scroll_bar(void) {
   int32_t pos = track_y_start +
       (selected * (track_h - 20)) / (theme_count - 1);
 
-  lv_anim_t a;
-  lv_anim_init(&a);
-  lv_anim_set_var(&a, scroll_bar_obj);
-  lv_anim_set_values(&a, lv_obj_get_y(scroll_bar_obj), pos);
-  lv_anim_set_duration(&a, 200);
-  lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
-  lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)lv_obj_set_y);
-  lv_anim_start(&a);
+  if (rebuilding) {
+    lv_obj_set_y(scroll_bar_obj, pos);
+  } else {
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, scroll_bar_obj);
+    lv_anim_set_values(&a, lv_obj_get_y(scroll_bar_obj), pos);
+    lv_anim_set_duration(&a, 200);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+    lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)lv_obj_set_y);
+    lv_anim_start(&a);
+  }
 }
 
 /* ── Selection update ────────────────────────────────────────── */
@@ -209,7 +215,7 @@ static void update_selection(void) {
   }
 
   if (items[selected]) {
-    lv_obj_scroll_to_view(items[selected], LV_ANIM_ON);
+    lv_obj_scroll_to_view(items[selected], rebuilding ? LV_ANIM_OFF : LV_ANIM_ON);
   }
   update_scroll_bar();
 }
@@ -270,7 +276,7 @@ static void create_theme_item(lv_obj_t *parent, int idx) {
   lv_obj_set_style_border_width(dot, 0, 0);
   lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(dot, LV_OBJ_FLAG_FLOATING);
-  lv_obj_align(dot, LV_ALIGN_RIGHT_MID, -6, 0);
+  lv_obj_align(dot, LV_ALIGN_RIGHT_MID, -12, 0);
   active_icons[idx] = dot;
 
   /* Selection pointer (same as menu_component) */
@@ -301,7 +307,9 @@ static void apply_theme(int idx) {
   tos_config_save(TOS_PATH_CONFIG_SCREEN, "screen");
 
   /* Rebuild the screen so new colors are visible immediately */
+  rebuilding = true;
   ui_theme_selector_open();
+  rebuilding = false;
 }
 
 /* ── Navigation ──────────────────────────────────────────────── */
