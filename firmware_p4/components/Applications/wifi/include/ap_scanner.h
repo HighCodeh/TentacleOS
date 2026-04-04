@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #ifndef AP_SCANNER_H
 #define AP_SCANNER_H
 
@@ -20,7 +21,7 @@
 #include "esp_wifi_types.h"
 
 bool ap_scanner_start(void);
-wifi_ap_record_t *ap_scanner_get_results(uint16_t *count);
+wifi_ap_record_t* ap_scanner_get_results(uint16_t *count);
 void ap_scanner_free_results(void);
 bool ap_scanner_save_results_to_internal_flash(void);
 bool ap_scanner_save_results_to_sd_card(void);

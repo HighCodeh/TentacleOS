@@ -42,21 +42,18 @@ static int l2cap_gap_event(struct ble_gap_event *event, void *arg) {
       if (event->connect.status == 0) {
         ESP_LOGI(TAG, "Connected to target. Starting L2CAP flood...");
         conn_handle = event->connect.conn_handle;
-        if (l2cap_sem)
-          xSemaphoreGive(l2cap_sem);
+        if (l2cap_sem) xSemaphoreGive(l2cap_sem);
       } else {
         ESP_LOGW(TAG, "Connection failed status=%d", event->connect.status);
         conn_handle = BLE_HS_CONN_HANDLE_NONE;
-        if (l2cap_sem)
-          xSemaphoreGive(l2cap_sem);
+        if (l2cap_sem) xSemaphoreGive(l2cap_sem); 
       }
       break;
 
     case BLE_GAP_EVENT_DISCONNECT:
       ESP_LOGI(TAG, "Disconnected.");
       conn_handle = BLE_HS_CONN_HANDLE_NONE;
-      if (l2cap_sem)
-        xSemaphoreGive(l2cap_sem);
+      if (l2cap_sem) xSemaphoreGive(l2cap_sem);
       break;
 
     case BLE_GAP_EVENT_CONN_UPDATE:
@@ -97,8 +94,7 @@ static void l2cap_task(void *pvParameters) {
       xSemaphoreTake(l2cap_sem, 0);
 
       ESP_LOGD(TAG, "Connecting...");
-      int rc = ble_gap_connect(
-          bluetooth_service_get_own_addr_type(), &addr, 10000, &conn_params, l2cap_gap_event, NULL);
+      int rc = ble_gap_connect(bluetooth_service_get_own_addr_type(), &addr, 10000, &conn_params, l2cap_gap_event, NULL);
 
       if (rc == 0) {
         xSemaphoreTake(l2cap_sem, portMAX_DELAY);
@@ -110,7 +106,7 @@ static void l2cap_task(void *pvParameters) {
       }
     } else {
       struct ble_gap_upd_params params;
-      params.itvl_min = 6;    // 7.5ms
+      params.itvl_min = 6;  // 7.5ms
       params.itvl_max = 3200; // 4000ms
       params.latency = 0;
       params.supervision_timeout = 500; // 5s
@@ -124,10 +120,10 @@ static void l2cap_task(void *pvParameters) {
         conn_handle = BLE_HS_CONN_HANDLE_NONE;
       } else {
         // EBUSY or other, just wait a tiny bit
-        // vTaskDelay(1);
+        // vTaskDelay(1); 
       }
 
-      vTaskDelay(pdMS_TO_TICKS(10));
+      vTaskDelay(pdMS_TO_TICKS(10)); 
     }
   }
 
@@ -159,22 +155,26 @@ esp_err_t ble_l2cap_flood_start(const uint8_t *addr, uint8_t addr_type) {
 
   conn_handle = BLE_HS_CONN_HANDLE_NONE;
 
-  l2cap_task_stack =
-      (StackType_t *)heap_caps_malloc(L2CAP_STACK_SIZE * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
+  l2cap_task_stack = (StackType_t *)heap_caps_malloc(L2CAP_STACK_SIZE * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
   l2cap_task_tcb = (StaticTask_t *)heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_SPIRAM);
 
   if (!l2cap_task_stack || !l2cap_task_tcb) {
     ESP_LOGE(TAG, "Failed to allocate memory for l2cap task");
-    if (l2cap_task_stack)
-      heap_caps_free(l2cap_task_stack);
-    if (l2cap_task_tcb)
-      heap_caps_free(l2cap_task_tcb);
+    if (l2cap_task_stack) heap_caps_free(l2cap_task_stack);
+    if (l2cap_task_tcb) heap_caps_free(l2cap_task_tcb);
     return ESP_ERR_NO_MEM;
   }
 
   is_running = true;
   l2cap_task_handle = xTaskCreateStatic(
-      l2cap_task, "ble_l2cap_task", L2CAP_STACK_SIZE, NULL, 5, l2cap_task_stack, l2cap_task_tcb);
+    l2cap_task,
+    "ble_l2cap_task",
+    L2CAP_STACK_SIZE,
+    NULL,
+    5,
+    l2cap_task_stack,
+    l2cap_task_tcb
+  );
 
   if (l2cap_task_handle == NULL) {
     is_running = false;
@@ -185,8 +185,7 @@ esp_err_t ble_l2cap_flood_start(const uint8_t *addr, uint8_t addr_type) {
 }
 
 esp_err_t ble_l2cap_flood_stop(void) {
-  if (!is_running)
-    return ESP_OK;
+  if (!is_running) return ESP_OK;
 
   is_running = false;
 
@@ -200,14 +199,8 @@ esp_err_t ble_l2cap_flood_stop(void) {
     retry--;
   }
 
-  if (l2cap_task_stack) {
-    heap_caps_free(l2cap_task_stack);
-    l2cap_task_stack = NULL;
-  }
-  if (l2cap_task_tcb) {
-    heap_caps_free(l2cap_task_tcb);
-    l2cap_task_tcb = NULL;
-  }
+  if (l2cap_task_stack) { heap_caps_free(l2cap_task_stack); l2cap_task_stack = NULL; }
+  if (l2cap_task_tcb) { heap_caps_free(l2cap_task_tcb); l2cap_task_tcb = NULL; }
 
   if (l2cap_sem) {
     vSemaphoreDelete(l2cap_sem);

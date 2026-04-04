@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #include "ui_theme.h"
 #include "ui_badusb_layout.h"
 #include "ui_manager.h"
@@ -24,11 +25,11 @@
 
 static const char *TAG = "UI_BADUSB_LAYOUT";
 
-static lv_obj_t *screen_layout = NULL;
+static lv_obj_t * screen_layout = NULL;
 
-static void layout_event_handler(lv_event_t *e) {
+static void layout_event_handler(lv_event_t * e) {
   lv_event_code_t code = lv_event_get_code(e);
-  lv_obj_t *obj = lv_event_get_target(e);
+  lv_obj_t * obj = lv_event_get_target(e);
   ducky_layout_t layout = (ducky_layout_t)(intptr_t)lv_event_get_user_data(e);
 
   if (code == LV_EVENT_KEY) {
@@ -47,8 +48,7 @@ static void layout_event_handler(lv_event_t *e) {
 }
 
 void ui_badusb_layout_open(void) {
-  if (screen_layout)
-    lv_obj_del(screen_layout);
+  if (screen_layout) lv_obj_del(screen_layout);
 
   screen_layout = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(screen_layout, current_theme.screen_base, 0);
@@ -56,12 +56,12 @@ void ui_badusb_layout_open(void) {
 
   header_ui_create(screen_layout);
 
-  lv_obj_t *lbl = lv_label_create(screen_layout);
+  lv_obj_t * lbl = lv_label_create(screen_layout);
   lv_label_set_text(lbl, "Select Keyboard Layout:");
   lv_obj_set_style_text_color(lbl, current_theme.text_main, 0);
   lv_obj_align(lbl, LV_ALIGN_TOP_MID, 0, 40);
 
-  lv_obj_t *list = lv_list_create(screen_layout);
+  lv_obj_t * list = lv_list_create(screen_layout);
   lv_obj_set_size(list, 200, 120);
   lv_obj_center(list);
   lv_obj_set_style_bg_color(list, current_theme.screen_base, 0);
@@ -69,16 +69,15 @@ void ui_badusb_layout_open(void) {
   lv_obj_set_style_border_color(list, lv_palette_main(LV_PALETTE_DEEP_PURPLE), 0);
   lv_obj_set_style_border_width(list, 2, 0);
 
-  lv_obj_t *btn;
+  lv_obj_t * btn;
 
   btn = lv_list_add_button(list, LV_SYMBOL_KEYBOARD, "US (Standard)");
-  lv_obj_add_event_cb(btn, layout_event_handler, LV_EVENT_KEY, (void *)(intptr_t)DUCKY_LAYOUT_US);
+  lv_obj_add_event_cb(btn, layout_event_handler, LV_EVENT_KEY, (void*)(intptr_t)DUCKY_LAYOUT_US);
   lv_obj_set_style_bg_color(btn, current_theme.screen_base, 0);
   lv_obj_set_style_text_color(btn, current_theme.text_main, 0);
 
   btn = lv_list_add_button(list, LV_SYMBOL_KEYBOARD, "ABNT2 (Brazilian)");
-  lv_obj_add_event_cb(
-      btn, layout_event_handler, LV_EVENT_KEY, (void *)(intptr_t)DUCKY_LAYOUT_ABNT2);
+  lv_obj_add_event_cb(btn, layout_event_handler, LV_EVENT_KEY, (void*)(intptr_t)DUCKY_LAYOUT_ABNT2);
   lv_obj_set_style_bg_color(btn, current_theme.screen_base, 0);
   lv_obj_set_style_text_color(btn, current_theme.text_main, 0);
 

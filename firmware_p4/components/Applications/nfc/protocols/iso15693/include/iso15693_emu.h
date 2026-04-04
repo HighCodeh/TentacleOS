@@ -57,17 +57,17 @@
 #include "highboy_nfc_error.h"
 /* Memory limits */
 #define ISO15693_EMU_MAX_BLOCKS     256
-#define ISO15693_EMU_MAX_BLOCK_SIZE 4 /**< bytes per block (default)  */
+#define ISO15693_EMU_MAX_BLOCK_SIZE 4       /**< bytes per block (default)  */
 #define ISO15693_EMU_MEM_SIZE       (ISO15693_EMU_MAX_BLOCKS * ISO15693_EMU_MAX_BLOCK_SIZE)
 /* Card profile */
 typedef struct {
-  uint8_t uid[ISO15693_UID_LEN];      /**< 8-byte UID, LSB first              */
-  uint8_t dsfid;                      /**< Data Storage Format Identifier      */
-  uint8_t afi;                        /**< Application Family Identifier       */
-  uint8_t ic_ref;                     /**< IC reference byte                   */
-  uint16_t block_count;               /**< number of blocks  (<= MAX_BLOCKS)   */
-  uint8_t block_size;                 /**< bytes per block   (<= MAX_BLOCK_SIZE)*/
-  uint8_t mem[ISO15693_EMU_MEM_SIZE]; /**< tag memory flat array           */
+    uint8_t  uid[ISO15693_UID_LEN];  /**< 8-byte UID, LSB first              */
+    uint8_t  dsfid;                  /**< Data Storage Format Identifier      */
+    uint8_t  afi;                    /**< Application Family Identifier       */
+    uint8_t  ic_ref;                 /**< IC reference byte                   */
+    uint16_t block_count;            /**< number of blocks  (<= MAX_BLOCKS)   */
+    uint8_t  block_size;             /**< bytes per block   (<= MAX_BLOCK_SIZE)*/
+    uint8_t  mem[ISO15693_EMU_MEM_SIZE]; /**< tag memory flat array           */
 } iso15693_emu_card_t;
 /* API */
 /**
@@ -76,7 +76,7 @@ typedef struct {
  * Must be called before configure_target.
  * @param card  Card data (copied internally).
  */
-hb_nfc_err_t iso15693_emu_init(const iso15693_emu_card_t *card);
+hb_nfc_err_t iso15693_emu_init(const iso15693_emu_card_t* card);
 
 /**
  * @brief Populate a card from a previously read iso15693_tag_t + raw dump.
@@ -84,9 +84,9 @@ hb_nfc_err_t iso15693_emu_init(const iso15693_emu_card_t *card);
  * Convenience helper: fills uid/dsfid/afi/block_count/block_size from tag,
  *  * copies raw_mem (block_count x block_size bytes) into card->mem.
  */
-void iso15693_emu_card_from_tag(iso15693_emu_card_t *card,
-                                const iso15693_tag_t *tag,
-                                const uint8_t *raw_mem);
+void iso15693_emu_card_from_tag(iso15693_emu_card_t*   card,
+                                 const iso15693_tag_t*  tag,
+                                 const uint8_t*         raw_mem);
 
 /**
  * @brief Create a minimal writable NFC-V tag for testing.
@@ -94,7 +94,8 @@ void iso15693_emu_card_from_tag(iso15693_emu_card_t *card,
  * UID is fixed to the values passed in.
  *  * Initialises 8 blocks x 4 bytes = 32 bytes of zeroed memory.
  */
-void iso15693_emu_card_default(iso15693_emu_card_t *card, const uint8_t uid[ISO15693_UID_LEN]);
+void iso15693_emu_card_default(iso15693_emu_card_t* card,
+                                const uint8_t uid[ISO15693_UID_LEN]);
 
 /**
  * @brief Configure ST25R3916 as NFC-V target.
@@ -126,6 +127,6 @@ void iso15693_emu_run_step(void);
 /**
  * @brief Return pointer to internal tag memory (for live inspection).
  */
-uint8_t *iso15693_emu_get_mem(void);
+uint8_t* iso15693_emu_get_mem(void);
 
 #endif /* ISO15693_EMU_H */

@@ -23,20 +23,20 @@
 static const char *TAG = "storage_stream";
 
 struct storage_stream {
-  FILE *fp;
+  FILE  *fp;
   size_t bytes_written;
-  char path[256];
+  char   path[256];
 };
 
-storage_stream_t storage_stream_open(const char *path, const char *mode) {
+storage_stream_t storage_stream_open(const char *path, const char *mode)
+{
   if (!storage_is_mounted() || !path || !mode) {
     ESP_LOGE(TAG, "Cannot open stream: invalid args or storage not mounted");
     return NULL;
   }
 
   storage_stream_t stream = calloc(1, sizeof(struct storage_stream));
-  if (!stream)
-    return NULL;
+  if (!stream) return NULL;
 
   stream->fp = fopen(path, mode);
   if (!stream->fp) {
@@ -52,7 +52,8 @@ storage_stream_t storage_stream_open(const char *path, const char *mode) {
   return stream;
 }
 
-esp_err_t storage_stream_write(storage_stream_t stream, const void *data, size_t size) {
+esp_err_t storage_stream_write(storage_stream_t stream, const void *data, size_t size)
+{
   if (!stream || !stream->fp || !data || size == 0)
     return ESP_ERR_INVALID_ARG;
 
@@ -66,27 +67,28 @@ esp_err_t storage_stream_write(storage_stream_t stream, const void *data, size_t
   return ESP_OK;
 }
 
-esp_err_t storage_stream_read(storage_stream_t stream, void *buf, size_t size, size_t *bytes_read) {
+esp_err_t storage_stream_read(storage_stream_t stream, void *buf, size_t size, size_t *bytes_read)
+{
   if (!stream || !stream->fp || !buf || size == 0)
     return ESP_ERR_INVALID_ARG;
 
   size_t read = fread(buf, 1, size, stream->fp);
-  if (bytes_read)
-    *bytes_read = read;
+  if (bytes_read) *bytes_read = read;
 
   return (read > 0) ? ESP_OK : ESP_FAIL;
 }
 
-esp_err_t storage_stream_flush(storage_stream_t stream) {
+esp_err_t storage_stream_flush(storage_stream_t stream)
+{
   if (!stream || !stream->fp)
     return ESP_ERR_INVALID_ARG;
 
   return (fflush(stream->fp) == 0) ? ESP_OK : ESP_FAIL;
 }
 
-esp_err_t storage_stream_close(storage_stream_t stream) {
-  if (!stream)
-    return ESP_ERR_INVALID_ARG;
+esp_err_t storage_stream_close(storage_stream_t stream)
+{
+  if (!stream) return ESP_ERR_INVALID_ARG;
 
   esp_err_t ret = ESP_OK;
   if (stream->fp) {
@@ -99,10 +101,12 @@ esp_err_t storage_stream_close(storage_stream_t stream) {
   return ret;
 }
 
-bool storage_stream_is_open(storage_stream_t stream) {
+bool storage_stream_is_open(storage_stream_t stream)
+{
   return (stream && stream->fp);
 }
 
-size_t storage_stream_bytes_written(storage_stream_t stream) {
+size_t storage_stream_bytes_written(storage_stream_t stream)
+{
   return stream ? stream->bytes_written : 0;
 }

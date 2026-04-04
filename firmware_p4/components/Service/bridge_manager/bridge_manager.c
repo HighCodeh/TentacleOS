@@ -23,8 +23,7 @@ esp_err_t bridge_manager_init(void) {
   memset(resp_ver, 0, sizeof(resp_ver));
 
   ESP_LOGI(TAG, "Checking C5 version...");
-  esp_err_t ret =
-      spi_bridge_send_command(SPI_ID_SYSTEM_VERSION, NULL, 0, &resp_header, resp_ver, 1000);
+  esp_err_t ret = spi_bridge_send_command(SPI_ID_SYSTEM_VERSION, NULL, 0, &resp_header, resp_ver, 1000);
 
   bool needs_update = false;
 
@@ -33,7 +32,7 @@ esp_err_t bridge_manager_init(void) {
     needs_update = true;
   } else {
     ESP_LOGI(TAG, "C5 Version: %s (Expected: %s)", resp_ver, FIRMWARE_VERSION);
-    if (strcmp((char *)resp_ver, FIRMWARE_VERSION) != 0) {
+    if (strcmp((char*)resp_ver, FIRMWARE_VERSION) != 0) {
       needs_update = true;
     }
   }

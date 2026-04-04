@@ -38,12 +38,11 @@ static StaticTask_t *monitor_task_tcb = NULL;
 
 static probe_record_t *scan_results = NULL;
 static uint16_t scan_count = 0;
-static uint16_t max_scan_results = 300;
+static uint16_t max_scan_results = 300; 
 static bool is_running = false;
 
 static void add_or_update_probe(const uint8_t *mac, const char *ssid, int8_t rssi) {
-  if (scan_results == NULL)
-    return;
+  if (scan_results == NULL) return;
 
   for (int i = 0; i < scan_count; i++) {
     if (memcmp(scan_results[i].mac, mac, 6) == 0 && strcmp(scan_results[i].ssid, ssid) == 0) {
@@ -61,22 +60,13 @@ static void add_or_update_probe(const uint8_t *mac, const char *ssid, int8_t rss
     scan_results[scan_count].last_seen_timestamp = (uint32_t)(esp_timer_get_time() / 1000000);
     scan_count++;
 
-    ESP_LOGI(TAG,
-             "New Probe: [%02x:%02x:%02x:%02x:%02x:%02x] searching for '%s' (RSSI: %d)",
-             mac[0],
-             mac[1],
-             mac[2],
-             mac[3],
-             mac[4],
-             mac[5],
-             ssid,
-             rssi);
+    ESP_LOGI(TAG, "New Probe: [%02x:%02x:%02x:%02x:%02x:%02x] searching for '%s' (RSSI: %d)",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], ssid, rssi);
   }
 }
 
 static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
-  if (type != WIFI_PKT_MGMT)
-    return;
+  if (type != WIFI_PKT_MGMT) return;
 
   const wifi_promiscuous_pkt_t *ppkt = (wifi_promiscuous_pkt_t *)buf;
   const wifi_mac_header_t *mac_header = (const wifi_mac_header_t *)ppkt->payload;
@@ -86,8 +76,7 @@ static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
     const uint8_t *payload = ppkt->payload + 24;
     int payload_len = ppkt->rx_ctrl.sig_len - 24;
 
-    if (payload_len < 2)
-      return;
+    if (payload_len < 2) return;
 
     int offset = 0;
     char ssid[33] = {0};
@@ -97,15 +86,14 @@ static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
       uint8_t tag = payload[offset];
       uint8_t len = payload[offset + 1];
 
-      if (offset + 2 + len > payload_len)
-        break;
+      if (offset + 2 + len > payload_len) break;
 
-      if (tag == 0) {
+      if (tag == 0) { 
         int ssid_len = (len > 32) ? 32 : len;
         memcpy(ssid, &payload[offset + 2], ssid_len);
         ssid[ssid_len] = '\0';
         ssid_found = true;
-        break;
+        break; 
       }
       offset += 2 + len;
     }
@@ -131,15 +119,9 @@ static bool save_results_to_path(const char *path, bool use_sd_driver) {
     cJSON *entry = cJSON_CreateObject();
 
     char mac_str[18];
-    snprintf(mac_str,
-             sizeof(mac_str),
-             "%02x:%02x:%02x:%02x:%02x:%02x",
-             rec->mac[0],
-             rec->mac[1],
-             rec->mac[2],
-             rec->mac[3],
-             rec->mac[4],
-             rec->mac[5]);
+    snprintf(mac_str, sizeof(mac_str), "%02x:%02x:%02x:%02x:%02x:%02x",
+             rec->mac[0], rec->mac[1], rec->mac[2],
+             rec->mac[3], rec->mac[4], rec->mac[5]);
     cJSON_AddStringToObject(entry, "mac", mac_str);
     cJSON_AddStringToObject(entry, "vendor", get_vendor_name(rec->mac));
     cJSON_AddStringToObject(entry, "ssid", rec->ssid);
@@ -180,20 +162,16 @@ static bool save_results_to_path(const char *path, bool use_sd_driver) {
 }
 
 bool probe_monitor_start(void) {
-  if (is_running)
-    return false;
+  if (is_running) return false;
 
-  if (scan_results)
-    heap_caps_free(scan_results);
-  scan_results = (probe_record_t *)heap_caps_malloc(max_scan_results * sizeof(probe_record_t),
-                                                    MALLOC_CAP_SPIRAM);
-  if (scan_results == NULL)
-    return false;
+  if (scan_results) heap_caps_free(scan_results);
+  scan_results = (probe_record_t *)heap_caps_malloc(max_scan_results * sizeof(probe_record_t), MALLOC_CAP_SPIRAM);
+  if (scan_results == NULL) return false;
 
   scan_count = 0;
   is_running = true;
 
-  wifi_promiscuous_filter_t filter = {.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT};
+  wifi_promiscuous_filter_t filter = { .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT };
   wifi_service_promiscuous_start(sniffer_callback, &filter);
   wifi_service_start_channel_hopping();
 
@@ -202,20 +180,19 @@ bool probe_monitor_start(void) {
 }
 
 void probe_monitor_stop(void) {
-  if (!is_running)
-    return;
+  if (!is_running) return;
   wifi_service_promiscuous_stop();
   wifi_service_stop_channel_hopping();
   is_running = false;
   ESP_LOGI(TAG, "Probe Request Monitor stopped.");
 }
 
-probe_record_t *probe_monitor_get_results(uint16_t *count) {
+probe_record_t* probe_monitor_get_results(uint16_t *count) {
   *count = scan_count;
   return scan_results;
 }
 
-const uint16_t *probe_monitor_get_count_ptr(void) {
+const uint16_t* probe_monitor_get_count_ptr(void) {
   return &scan_count;
 }
 

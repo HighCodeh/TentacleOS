@@ -18,25 +18,25 @@
 // Simple lookup table for common OUIs
 // This is not exhaustive, just popular brands.
 typedef struct {
-  uint8_t oui[3];
-  const char *name;
+    uint8_t oui[3];
+    const char *name;
 } mac_oui_t;
 
 static const mac_oui_t common_vendors[] = {
     {{0x00, 0x1A, 0x11}, "Google"},
     {{0x3C, 0x5A, 0xB4}, "Google"},
     {{0x54, 0x60, 0x09}, "Google"},
-
+    
     {{0x00, 0x17, 0x88}, "Philips"}, // Hue
-
+    
     {{0x00, 0x1D, 0xA5}, "Cisco"},
     {{0x00, 0x24, 0x14}, "Cisco"},
-
+    
     {{0x00, 0x0C, 0x29}, "VMware"},
     {{0x00, 0x50, 0x56}, "VMware"},
 
     {{0x00, 0x1A, 0x2B}, "Ayecom"},
-
+    
     {{0x00, 0x1E, 0x52}, "Atheros"},
 
     {{0xDC, 0xA6, 0x32}, "Raspberry Pi"},
@@ -120,27 +120,26 @@ static const mac_oui_t common_vendors[] = {
     {{0x00, 0x12, 0x47}, "Samsung"},
     {{0x00, 0x15, 0x99}, "Samsung"},
     {{0x00, 0x16, 0x6B}, "Samsung"},
-
+    
     {{0x00, 0x13, 0xE8}, "Intel"},
     {{0x00, 0x1B, 0x21}, "Intel"},
 };
 
 #define VENDOR_COUNT (sizeof(common_vendors) / sizeof(mac_oui_t))
 
-const char *get_vendor_name(const uint8_t *mac) {
-  if (mac == NULL)
-    return "";
-
-  // Check for randomized MAC (Locally Administered Bit)
-  // 2nd hex digit is 2, 6, A, or E (e.g., x2:xx:xx...)
-  if (mac[0] & 0x02) {
-    return "Randomized";
-  }
-
-  for (int i = 0; i < VENDOR_COUNT; i++) {
-    if (memcmp(mac, common_vendors[i].oui, 3) == 0) {
-      return common_vendors[i].name;
+const char* get_vendor_name(const uint8_t *mac) {
+    if (mac == NULL) return "";
+    
+    // Check for randomized MAC (Locally Administered Bit)
+    // 2nd hex digit is 2, 6, A, or E (e.g., x2:xx:xx...)
+    if (mac[0] & 0x02) {
+        return "Randomized";
     }
-  }
-  return "";
+
+    for (int i = 0; i < VENDOR_COUNT; i++) {
+        if (memcmp(mac, common_vendors[i].oui, 3) == 0) {
+            return common_vendors[i].name;
+        }
+    }
+    return "";
 }

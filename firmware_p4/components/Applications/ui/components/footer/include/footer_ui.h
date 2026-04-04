@@ -3,6 +3,6 @@
 
 #include "lvgl.h"
 
-void footer_ui_create(lv_obj_t *parent);
+void footer_ui_create(lv_obj_t * parent);
 
 #endif

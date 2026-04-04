@@ -32,22 +32,24 @@ extern "C" {
  */
 
 typedef struct {
-  const char *name;
-  const char *hint;
-  uint8_t sak;
-  uint8_t atqa[2];
-  uint8_t uid_prefix[4];
-  uint8_t uid_prefix_len;        /* 0 = do not check UID prefix */
-  const uint8_t (*hint_keys)[6]; /* priority keys, may be NULL */
-  int hint_key_count;
+    const char*    name;
+    const char*    hint;
+    uint8_t        sak;
+    uint8_t        atqa[2];
+    uint8_t        uid_prefix[4];
+    uint8_t        uid_prefix_len;   /* 0 = do not check UID prefix */
+    const uint8_t (*hint_keys)[6];  /* priority keys, may be NULL */
+    int            hint_key_count;
 } mf_known_card_t;
 
 /*
  * Try to match a card against the database.
  * Returns a pointer to the matched entry, or NULL if unknown.
  */
-const mf_known_card_t *
-mf_known_cards_match(uint8_t sak, const uint8_t atqa[2], const uint8_t *uid, uint8_t uid_len);
+const mf_known_card_t* mf_known_cards_match(uint8_t        sak,
+                                              const uint8_t  atqa[2],
+                                              const uint8_t* uid,
+                                              uint8_t        uid_len);
 
 #ifdef __cplusplus
 }

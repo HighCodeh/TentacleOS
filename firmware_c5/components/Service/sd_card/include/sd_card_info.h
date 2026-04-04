@@ -18,22 +18,22 @@ extern "C" {
  * @brief Informações do cartão SD
  */
 typedef struct {
-  char name[16];
-  uint32_t capacity_mb;
-  uint32_t sector_size;
-  uint32_t num_sectors;
-  uint32_t speed_khz;
-  uint8_t card_type;
-  bool is_mounted;
+    char name[16];
+    uint32_t capacity_mb;
+    uint32_t sector_size;
+    uint32_t num_sectors;
+    uint32_t speed_khz;
+    uint8_t card_type;
+    bool is_mounted;
 } sd_card_info_t;
 
 /**
  * @brief Estatísticas do filesystem
  */
 typedef struct {
-  uint64_t total_bytes;
-  uint64_t used_bytes;
-  uint64_t free_bytes;
+    uint64_t total_bytes;
+    uint64_t used_bytes;
+    uint64_t free_bytes;
 } sd_fs_stats_t;
 
 /**

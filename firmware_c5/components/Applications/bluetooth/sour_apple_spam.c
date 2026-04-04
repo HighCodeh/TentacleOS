@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #include "sour_apple_spam.h"
 #include "esp_random.h"
 
 int generate_sour_apple_payload(uint8_t *buffer, size_t max_len) {
-  if (!buffer || max_len < 17)
-    return 0;
+  if (!buffer || max_len < 17) return 0;
 
   uint8_t i = 0;
   buffer[i++] = 16;   // Length

@@ -16,27 +16,27 @@
 #define TOS_FLASH_PATHS_H
 
 // LittleFS assets partition mount point
-#define FLASH_MOUNT "/assets"
+#define FLASH_MOUNT              "/assets"
 
 // Config fallback paths (read-only)
-#define FLASH_CONFIG_SCREEN     FLASH_MOUNT "/config/screen/screen_config.conf"
-#define FLASH_CONFIG_THEMES     FLASH_MOUNT "/config/screen/screen_themes.conf"
-#define FLASH_CONFIG_INTERFACE  FLASH_MOUNT "/config/screen/interface_config.conf"
-#define FLASH_CONFIG_BRIGHTNESS FLASH_MOUNT "/config/screen/brightness.conf"
-#define FLASH_CONFIG_WIFI_AP    FLASH_MOUNT "/config/wifi/wifi_ap.conf"
-#define FLASH_CONFIG_BLE        FLASH_MOUNT "/config/bluetooth/ble_announce.conf"
-#define FLASH_CONFIG_LORA       FLASH_MOUNT "/config/lora/lora.conf"
-#define FLASH_CONFIG_SYSTEM     FLASH_MOUNT "/config/system/system.conf"
-#define FLASH_CONFIG_BUZZER     FLASH_MOUNT "/config/buzzer/buzzer.conf"
-#define FLASH_CONFIG_BUZZER_DIR FLASH_MOUNT "/config/buzzer/sounds"
+#define FLASH_CONFIG_SCREEN      FLASH_MOUNT "/config/screen/screen_config.conf"
+#define FLASH_CONFIG_THEMES      FLASH_MOUNT "/config/screen/screen_themes.conf"
+#define FLASH_CONFIG_INTERFACE   FLASH_MOUNT "/config/screen/interface_config.conf"
+#define FLASH_CONFIG_BRIGHTNESS  FLASH_MOUNT "/config/screen/brightness.conf"
+#define FLASH_CONFIG_WIFI_AP     FLASH_MOUNT "/config/wifi/wifi_ap.conf"
+#define FLASH_CONFIG_BLE         FLASH_MOUNT "/config/bluetooth/ble_announce.conf"
+#define FLASH_CONFIG_LORA        FLASH_MOUNT "/config/lora/lora.conf"
+#define FLASH_CONFIG_SYSTEM      FLASH_MOUNT "/config/system/system.conf"
+#define FLASH_CONFIG_BUZZER      FLASH_MOUNT "/config/buzzer/buzzer.conf"
+#define FLASH_CONFIG_BUZZER_DIR  FLASH_MOUNT "/config/buzzer/sounds"
 
 // Storage paths (writable on flash)
-#define FLASH_STORAGE_WIFI         FLASH_MOUNT "/storage/wifi"
+#define FLASH_STORAGE_WIFI       FLASH_MOUNT "/storage/wifi"
 #define FLASH_STORAGE_WIFI_BEACONS FLASH_MOUNT "/storage/wifi/beacon_list.json"
-#define FLASH_STORAGE_BLE          FLASH_MOUNT "/storage/ble"
-#define FLASH_STORAGE_BADUSB       FLASH_MOUNT "/storage/bad_usb_scripts"
+#define FLASH_STORAGE_BLE        FLASH_MOUNT "/storage/ble"
+#define FLASH_STORAGE_BADUSB     FLASH_MOUNT "/storage/bad_usb_scripts"
 
 // Captive portal HTML templates (flash fallback)
-#define FLASH_CAPTIVE_TEMPLATES FLASH_MOUNT "/html/captive_portal"
+#define FLASH_CAPTIVE_TEMPLATES  FLASH_MOUNT "/html/captive_portal"
 
 #endif // TOS_FLASH_PATHS_H

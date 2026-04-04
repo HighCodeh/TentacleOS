@@ -17,15 +17,15 @@
 
 #include "ir_protocol.h"
 
-#define DENON_BIT_MARK   260
+#define DENON_BIT_MARK    260
 #define DENON_ONE_SPACE  1820
-#define DENON_ZERO_SPACE 780
+#define DENON_ZERO_SPACE  780
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-bool denon_decode(rmt_symbol_word_t *symbols, size_t count, ir_data_t *out);
+bool   denon_decode(rmt_symbol_word_t *symbols, size_t count, ir_data_t *out);
 size_t denon_encode(const ir_data_t *data, rmt_symbol_word_t *symbols, size_t max);
 
 #ifdef __cplusplus

@@ -6,7 +6,7 @@
 
 void assets_manager_init(void);
 
-lv_image_dsc_t *assets_get(const char *path);
+lv_image_dsc_t * assets_get(const char * path);
 
 void assets_manager_free_all(void);
 

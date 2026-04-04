@@ -17,18 +17,18 @@
 
 #include "ir_protocol.h"
 
-#define NEC_HEADER_MARK  9000
-#define NEC_HEADER_SPACE 4500
-#define NEC_BIT_MARK     560
-#define NEC_ONE_SPACE    1690
-#define NEC_ZERO_SPACE   560
-#define NEC_REPEAT_SPACE 2250
+#define NEC_HEADER_MARK   9000
+#define NEC_HEADER_SPACE  4500
+#define NEC_BIT_MARK       560
+#define NEC_ONE_SPACE     1690
+#define NEC_ZERO_SPACE     560
+#define NEC_REPEAT_SPACE  2250
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-bool nec_decode(rmt_symbol_word_t *symbols, size_t count, ir_data_t *out);
+bool   nec_decode(rmt_symbol_word_t *symbols, size_t count, ir_data_t *out);
 size_t nec_encode(const ir_data_t *data, rmt_symbol_word_t *symbols, size_t max);
 
 #ifdef __cplusplus

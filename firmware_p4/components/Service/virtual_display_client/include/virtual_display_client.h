@@ -7,10 +7,10 @@
 //  ↓↓↓  CONFIGURAÇÕES DO CLIENTE DE DISPLAY VIRTUAL  ↓↓↓
 //  Estas configurações são movidas para o cabeçalho para acesso global
 // =========================================================================
-#define WIFI_SSID_VIRTUAL_DISPLAY      "SathoshiN"    // SSID para o cliente conectar
-#define WIFI_PASS_VIRTUAL_DISPLAY      "2008bitc"     // Senha para o cliente conectar
+#define WIFI_SSID_VIRTUAL_DISPLAY      "SathoshiN" // SSID para o cliente conectar
+#define WIFI_PASS_VIRTUAL_DISPLAY      "2008bitc"  // Senha para o cliente conectar
 #define SERVER_IP_ADDR_VIRTUAL_DISPLAY "192.168.0.13" // Endereço IP do servidor do display virtual
-#define SERVER_PORT_VIRTUAL_DISPLAY    1337           // Porta do servidor do display virtual
+#define SERVER_PORT_VIRTUAL_DISPLAY    1337      // Porta do servidor do display virtual
 // =========================================================================
 
 #ifdef __cplusplus
@@ -38,10 +38,8 @@ void virtual_display_notify_frame_ready(void);
  * @param event_id ID do evento (ex: WIFI_EVENT_STA_START, IP_EVENT_STA_GOT_IP).
  * @param event_data Dados específicos do evento.
  */
-void virtual_display_wifi_event_handler(void *arg,
-                                        esp_event_base_t event_base,
-                                        int32_t event_id,
-                                        void *event_data);
+void virtual_display_wifi_event_handler(void* arg, esp_event_base_t event_base,
+                                        int32_t event_id, void* event_data);
 
 #ifdef __cplusplus
 }

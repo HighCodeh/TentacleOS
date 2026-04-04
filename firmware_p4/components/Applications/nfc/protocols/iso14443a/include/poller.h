@@ -33,12 +33,12 @@ hb_nfc_err_t iso14443a_poller_activate(uint8_t atqa[2]);
  * Full card activation: REQA anti-collision SELECT (all cascade levels).
  * Fills the nfc_iso14443a_data_t struct with UID, ATQA, SAK.
  */
-hb_nfc_err_t iso14443a_poller_select(nfc_iso14443a_data_t *card);
+hb_nfc_err_t iso14443a_poller_select(nfc_iso14443a_data_t* card);
 
 /**
  * Re-select a card (WUPA anticoll select).
  */
-hb_nfc_err_t iso14443a_poller_reselect(nfc_iso14443a_data_t *card);
+hb_nfc_err_t iso14443a_poller_reselect(nfc_iso14443a_data_t* card);
 
 /**
  * Send HLTA (halt). The tag should enter HALT state.
@@ -49,7 +49,7 @@ hb_nfc_err_t iso14443a_poller_halt(void);
  * Discover multiple NFC-A tags by iterating REQA + select + HLTA.
  * Returns number of cards found (up to max_cards).
  */
-int iso14443a_poller_select_all(nfc_iso14443a_data_t *out, size_t max_cards);
+int iso14443a_poller_select_all(nfc_iso14443a_data_t* out, size_t max_cards);
 
 /**
  * Send REQA only. Returns 2 on success (ATQA bytes).
@@ -74,6 +74,6 @@ int iso14443a_poller_anticoll(uint8_t sel, uint8_t uid_cl[5]);
  * @param uid_cl 5 bytes from anti-collision.
  * @param sak Output: SAK byte.
  */
-int iso14443a_poller_sel(uint8_t sel, const uint8_t uid_cl[5], uint8_t *sak);
+int iso14443a_poller_sel(uint8_t sel, const uint8_t uid_cl[5], uint8_t* sak);
 
 #endif

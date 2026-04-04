@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
+
 #include "bluetooth_service.h"
 
 #include "freertos/FreeRTOS.h"
@@ -37,15 +39,15 @@
 
 #define BLE_ANNOUNCE_CONFIG_FILE "config/bluetooth/ble_announce.conf"
 #define BLE_ANNOUNCE_CONFIG_PATH "/assets/" BLE_ANNOUNCE_CONFIG_FILE
-#define BLE_SPAM_LIST_FILE       "config/bluetooth/beacon_list.conf"
-#define BLE_SPAM_LIST_PATH       "/assets/" BLE_SPAM_LIST_FILE
+#define BLE_SPAM_LIST_FILE "config/bluetooth/beacon_list.conf"
+#define BLE_SPAM_LIST_PATH "/assets/" BLE_SPAM_LIST_FILE
 
 static const char *TAG = "BLE_SERVICE";
 
 static uint8_t own_addr_type;
 static bool ble_initialized = false;
 static bool ble_running = false;
-static SemaphoreHandle_t ble_hs_synced_sem = NULL;
+static SemaphoreHandle_t ble_hs_synced_sem = NULL; 
 
 #define MAX_BLE_CONNECTIONS 8
 static uint16_t connection_handles[MAX_BLE_CONNECTIONS];
@@ -64,15 +66,14 @@ static void bluetooth_service_on_reset(int reason);
 static void bluetooth_service_on_sync(void);
 static void bluetooth_service_host_task(void *param);
 static int bluetooth_service_gap_event(struct ble_gap_event *event, void *arg);
-static void bluetooth_load_announce_config(char *name, uint8_t *max_conn);
+static void bluetooth_load_announce_config(char* name, uint8_t* max_conn);
+
 
 static int bluetooth_service_gap_event(struct ble_gap_event *event, void *arg) {
   switch (event->type) {
     case BLE_GAP_EVENT_CONNECT:
-      ESP_LOGI(TAG,
-               "Device connected! status=%d conn_handle=%d",
-               event->connect.status,
-               event->connect.conn_handle);
+      ESP_LOGI(TAG, "Device connected! status=%d conn_handle=%d",
+               event->connect.status, event->connect.conn_handle);
       if (event->connect.status == 0) {
         if (connection_count < MAX_BLE_CONNECTIONS) {
           connection_handles[connection_count++] = event->connect.conn_handle;
@@ -86,7 +87,7 @@ static int bluetooth_service_gap_event(struct ble_gap_event *event, void *arg) {
       for (int i = 0; i < connection_count; i++) {
         if (connection_handles[i] == event->disconnect.conn.conn_handle) {
           for (int j = i; j < connection_count - 1; j++) {
-            connection_handles[j] = connection_handles[j + 1];
+            connection_handles[j] = connection_handles[j+1];
           }
           connection_count--;
           break;
@@ -100,11 +101,7 @@ static int bluetooth_service_gap_event(struct ble_gap_event *event, void *arg) {
       break;
     case BLE_GAP_EVENT_DISC: {
       if (sniffer_cb) {
-        sniffer_cb(event->disc.addr.val,
-                   event->disc.addr.type,
-                   event->disc.rssi,
-                   event->disc.data,
-                   event->disc.length_data);
+        sniffer_cb(event->disc.addr.val, event->disc.addr.type, event->disc.rssi, event->disc.data, event->disc.length_data);
         return 0;
       }
 
@@ -115,9 +112,7 @@ static int bluetooth_service_gap_event(struct ble_gap_event *event, void *arg) {
         return 0;
       }
 
-      struct ble_hs_adv_fields fields;
-      int rc = ble_hs_adv_parse_fields(&fields, event->disc.data, event->disc.length_data);
-      if (rc != 0) {
+      struct ble_hs_adv_fields fields;            int rc = ble_hs_adv_parse_fields(&fields, event->disc.data, event->disc.length_data);      if (rc != 0) {
         return 0;
       }
 
@@ -128,8 +123,7 @@ static int bluetooth_service_gap_event(struct ble_gap_event *event, void *arg) {
           scan_results[i].rssi = event->disc.rssi;
           if (fields.name != NULL && scan_results[i].name[0] == 0) {
             int name_len = fields.name_len;
-            if (name_len > 31)
-              name_len = 31;
+            if (name_len > 31) name_len = 31;
             memcpy(scan_results[i].name, fields.name, name_len);
             scan_results[i].name[name_len] = '\0';
           }
@@ -148,27 +142,13 @@ static int bluetooth_service_gap_event(struct ble_gap_event *event, void *arg) {
                 }
               }
             }
-          } else if (fields.num_uuids128 > 0 && scan_results[i].uuids[0] == 0) {
+          }
+          else if (fields.num_uuids128 > 0 && scan_results[i].uuids[0] == 0) {
             const uint8_t *u128 = fields.uuids128[0].value;
-            snprintf(scan_results[i].uuids,
-                     sizeof(scan_results[i].uuids),
+            snprintf(scan_results[i].uuids, sizeof(scan_results[i].uuids), 
                      "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
-                     u128[15],
-                     u128[14],
-                     u128[13],
-                     u128[12],
-                     u128[11],
-                     u128[10],
-                     u128[9],
-                     u128[8],
-                     u128[7],
-                     u128[6],
-                     u128[5],
-                     u128[4],
-                     u128[3],
-                     u128[2],
-                     u128[1],
-                     u128[0]);
+                     u128[15], u128[14], u128[13], u128[12], u128[11], u128[10], u128[9], u128[8],
+                     u128[7], u128[6], u128[5], u128[4], u128[3], u128[2], u128[1], u128[0]);
           }
           break;
         }
@@ -192,39 +172,22 @@ static int bluetooth_service_gap_event(struct ble_gap_event *event, void *arg) {
           }
         } else if (fields.num_uuids128 > 0) {
           const uint8_t *u128 = fields.uuids128[0].value;
-          snprintf(scan_results[scan_count].uuids,
-                   sizeof(scan_results[scan_count].uuids),
+          snprintf(scan_results[scan_count].uuids, sizeof(scan_results[scan_count].uuids), 
                    "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
-                   u128[15],
-                   u128[14],
-                   u128[13],
-                   u128[12],
-                   u128[11],
-                   u128[10],
-                   u128[9],
-                   u128[8],
-                   u128[7],
-                   u128[6],
-                   u128[5],
-                   u128[4],
-                   u128[3],
-                   u128[2],
-                   u128[1],
-                   u128[0]);
+                   u128[15], u128[14], u128[13], u128[12], u128[11], u128[10], u128[9], u128[8],
+                   u128[7], u128[6], u128[5], u128[4], u128[3], u128[2], u128[1], u128[0]);
         }
 
         if (fields.name != NULL) {
           int name_len = fields.name_len;
-          if (name_len > 31)
-            name_len = 31;
+          if (name_len > 31) name_len = 31;
           memcpy(scan_results[scan_count].name, fields.name, name_len);
           scan_results[scan_count].name[name_len] = '\0';
         } else {
           scan_results[scan_count].name[0] = '\0';
         }
         scan_count++;
-      }
-      return 0;
+      }      return 0;
     }
     case BLE_GAP_EVENT_DISC_COMPLETE:
       ESP_LOGI(TAG, "Scan complete reason=%d", event->disc_complete.reason);
@@ -238,9 +201,7 @@ static int bluetooth_service_gap_event(struct ble_gap_event *event, void *arg) {
   return 0;
 }
 
-esp_err_t bluetooth_service_connect(const uint8_t *addr,
-                                    uint8_t addr_type,
-                                    int (*cb)(struct ble_gap_event *event, void *arg)) {
+esp_err_t bluetooth_service_connect(const uint8_t *addr, uint8_t addr_type, int (*cb)(struct ble_gap_event *event, void *arg)) {
   if (!ble_running) {
     ESP_LOGE(TAG, "BLE not running");
     return ESP_FAIL;
@@ -286,11 +247,11 @@ esp_err_t bluetooth_service_start_advertising(void) {
   fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
   fields.tx_pwr_lvl_is_present = 1;
   fields.tx_pwr_lvl = BLE_HS_ADV_TX_PWR_LVL_AUTO;
-  fields.uuids16 = (ble_uuid16_t[]){BLE_UUID16_INIT(BLE_SVC_DIS_UUID16)};
+  fields.uuids16 = (ble_uuid16_t[]){ BLE_UUID16_INIT(BLE_SVC_DIS_UUID16) };
   fields.num_uuids16 = 1;
   fields.uuids16_is_complete = 1;
 
-  const char *device_name = ble_svc_gap_device_name();
+  const char* device_name = ble_svc_gap_device_name();
   fields.name = (uint8_t *)device_name;
   fields.name_len = strlen(device_name);
   fields.name_is_complete = 1;
@@ -305,8 +266,7 @@ esp_err_t bluetooth_service_start_advertising(void) {
   adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
   adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
 
-  rc = ble_gap_adv_start(
-      own_addr_type, NULL, BLE_HS_FOREVER, &adv_params, bluetooth_service_gap_event, NULL);
+  rc = ble_gap_adv_start(own_addr_type, NULL, BLE_HS_FOREVER, &adv_params, bluetooth_service_gap_event, NULL);
   if (rc != 0) {
     ESP_LOGE(TAG, "Error starting advertisement; rc=%d", rc);
     return ESP_FAIL;
@@ -372,7 +332,7 @@ esp_err_t bluetooth_service_init(void) {
   ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
 
   char device_name[32] = "Darth Maul";
-  uint8_t max_conn = 4;
+  uint8_t max_conn = 4; 
   bluetooth_load_announce_config(device_name, &max_conn);
 
   ret = ble_svc_gap_device_name_set(device_name);
@@ -406,7 +366,7 @@ esp_err_t bluetooth_service_start(void) {
   ESP_LOGI(TAG, "Waiting for BLE Host synchronization...");
   if (xSemaphoreTake(ble_hs_synced_sem, pdMS_TO_TICKS(10000)) == pdFALSE) {
     ESP_LOGE(TAG, "Timeout syncing BLE Host");
-    bluetooth_service_stop();
+    bluetooth_service_stop(); 
     return ESP_ERR_TIMEOUT;
   }
 
@@ -469,12 +429,13 @@ esp_err_t bluetooth_service_set_max_power(void) {
     ESP_LOGI(TAG, "Default TX power set to MAX (P9)");
   }
 
-  return ESP_OK;
+  return ESP_OK; 
 }
 
 uint8_t bluetooth_service_get_own_addr_type(void) {
   return own_addr_type;
 }
+
 
 esp_err_t bluetooth_save_announce_config(const char *name, uint8_t max_conn) {
   if (name == NULL) {
@@ -507,13 +468,13 @@ esp_err_t bluetooth_save_announce_config(const char *name, uint8_t max_conn) {
   return err;
 }
 
-static void bluetooth_load_announce_config(char *name, uint8_t *max_conn) {
+static void bluetooth_load_announce_config(char* name, uint8_t* max_conn) {
   if (!storage_assets_is_mounted()) {
     storage_assets_init();
   }
 
   size_t size = 0;
-  char *buffer = (char *)storage_assets_load_file(BLE_ANNOUNCE_CONFIG_FILE, &size);
+  char *buffer = (char*)storage_assets_load_file(BLE_ANNOUNCE_CONFIG_FILE, &size);
 
   if (buffer != NULL) {
     cJSON *root = cJSON_Parse(buffer);
@@ -525,7 +486,7 @@ static void bluetooth_load_announce_config(char *name, uint8_t *max_conn) {
         strncpy(name, j_name->valuestring, 31);
         name[31] = '\0';
       }
-      if (cJSON_IsNumber(j_conn)) {
+      if (cJSON_IsNumber(j_conn)){
         *max_conn = (uint8_t)j_conn->valueint;
       }
 
@@ -544,7 +505,7 @@ esp_err_t bluetooth_load_spam_list(char ***list, size_t *count) {
   }
 
   size_t size = 0;
-  char *buffer = (char *)storage_assets_load_file(BLE_SPAM_LIST_FILE, &size);
+  char *buffer = (char*)storage_assets_load_file(BLE_SPAM_LIST_FILE, &size);
 
   if (buffer == NULL) {
     ESP_LOGE(TAG, "Failed to load spam list.");
@@ -565,7 +526,7 @@ esp_err_t bluetooth_load_spam_list(char ***list, size_t *count) {
   }
 
   int array_size = cJSON_GetArraySize(spam_array);
-  *list = malloc(array_size * sizeof(char *));
+  *list = malloc(array_size * sizeof(char*));
   if (*list == NULL) {
     cJSON_Delete(root);
     free(buffer);
@@ -586,7 +547,7 @@ esp_err_t bluetooth_load_spam_list(char ***list, size_t *count) {
   return ESP_OK;
 }
 
-esp_err_t bluetooth_save_spam_list(const char *const *list, size_t count) {
+esp_err_t bluetooth_save_spam_list(const char * const *list, size_t count) {
   cJSON *root = cJSON_CreateObject();
   cJSON *array = cJSON_CreateStringArray(list, count);
 
@@ -632,29 +593,27 @@ void bluetooth_service_scan(uint32_t duration_ms) {
   struct ble_gap_disc_params disc_params;
   memset(&disc_params, 0, sizeof(disc_params));
   disc_params.filter_duplicates = 0;
-  disc_params.passive = 0;
-  disc_params.itvl = 0;
-  disc_params.window = 0;
+  disc_params.passive = 0; 
+  disc_params.itvl = 0; 
+  disc_params.window = 0; 
   disc_params.filter_policy = 0;
   disc_params.limited = 0;
 
   ESP_LOGI(TAG, "Starting BLE scan for %lu ms...", duration_ms);
 
-  int rc =
-      ble_gap_disc(own_addr_type, duration_ms, &disc_params, bluetooth_service_gap_event, NULL);
+  int rc = ble_gap_disc(own_addr_type, duration_ms, &disc_params, bluetooth_service_gap_event, NULL);
   if (rc != 0) {
     ESP_LOGE(TAG, "Error initiating GAP discovery: %d", rc);
     return;
   }
 
-  xSemaphoreTake(scan_sem, portMAX_DELAY);
+  xSemaphoreTake(scan_sem, portMAX_DELAY); 
 
   bluetooth_service_start_advertising();
 }
 
 esp_err_t bluetooth_service_start_sniffer(ble_sniffer_cb_t cb) {
-  if (!ble_initialized || !ble_running)
-    return ESP_FAIL;
+  if (!ble_initialized || !ble_running) return ESP_FAIL;
 
   bluetooth_service_stop_advertising();
   sniffer_cb = cb;
@@ -662,13 +621,12 @@ esp_err_t bluetooth_service_start_sniffer(ble_sniffer_cb_t cb) {
   struct ble_gap_disc_params disc_params;
   memset(&disc_params, 0, sizeof(disc_params));
   disc_params.filter_duplicates = 0; // Capture everything
-  disc_params.passive = 1;           // Passive scan (don't request more data, just listen)
-  disc_params.itvl = 0;
-  disc_params.window = 0;
+  disc_params.passive = 1; // Passive scan (don't request more data, just listen)
+  disc_params.itvl = 0; 
+  disc_params.window = 0; 
 
   ESP_LOGI(TAG, "Starting Raw Sniffer...");
-  int rc =
-      ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &disc_params, bluetooth_service_gap_event, NULL);
+  int rc = ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &disc_params, bluetooth_service_gap_event, NULL);
   if (rc != 0) {
     ESP_LOGE(TAG, "Sniffer start failed: %d", rc);
     sniffer_cb = NULL;
@@ -686,8 +644,7 @@ void bluetooth_service_stop_sniffer(void) {
 }
 
 esp_err_t bluetooth_service_start_tracker(const uint8_t *addr, ble_tracker_cb_t cb) {
-  if (!ble_initialized || !ble_running)
-    return ESP_FAIL;
+  if (!ble_initialized || !ble_running) return ESP_FAIL;
 
   bluetooth_service_stop_advertising();
   tracker_cb = cb;
@@ -701,8 +658,7 @@ esp_err_t bluetooth_service_start_tracker(const uint8_t *addr, ble_tracker_cb_t 
   disc_params.window = 0;
 
   ESP_LOGI(TAG, "Starting RSSI Tracker...");
-  int rc =
-      ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &disc_params, bluetooth_service_gap_event, NULL);
+  int rc = ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &disc_params, bluetooth_service_gap_event, NULL);
   if (rc != 0) {
     ESP_LOGE(TAG, "Tracker start failed: %d", rc);
     tracker_cb = NULL;
@@ -723,7 +679,7 @@ uint16_t bluetooth_service_get_scan_count(void) {
   return scan_count;
 }
 
-ble_scan_result_t *bluetooth_service_get_scan_result(uint16_t index) {
+ble_scan_result_t* bluetooth_service_get_scan_result(uint16_t index) {
   if (index < scan_count) {
     return &scan_results[index];
   }
@@ -739,8 +695,7 @@ bool bluetooth_service_is_running(void) {
 }
 
 void bluetooth_service_disconnect_all(void) {
-  if (!ble_running)
-    return;
+  if (!ble_running) return;
   for (int i = 0; i < connection_count; i++) {
     ble_gap_terminate(connection_handles[i], BLE_ERR_REM_USER_CONN_TERM);
   }
@@ -777,14 +732,8 @@ esp_err_t bluetooth_service_set_random_mac(void) {
   }
 
   own_addr_type = BLE_OWN_ADDR_RANDOM;
-  ESP_LOGI(TAG,
-           "Random MAC set: %02x:%02x:%02x:%02x:%02x:%02x",
-           addr[5],
-           addr[4],
-           addr[3],
-           addr[2],
-           addr[1],
-           addr[0]);
+  ESP_LOGI(TAG, "Random MAC set: %02x:%02x:%02x:%02x:%02x:%02x",
+           addr[5], addr[4], addr[3], addr[2], addr[1], addr[0]);
 
   return ESP_OK;
 }

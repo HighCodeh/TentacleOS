@@ -24,18 +24,18 @@
 
 /** IRQ status snapshot (all 5 registers for target mode support). */
 typedef struct {
-  uint8_t main;
-  uint8_t timer;
-  uint8_t error;
-  uint8_t target;
-  uint8_t collision;
+    uint8_t main;       
+    uint8_t timer;      
+    uint8_t error;      
+    uint8_t target;     
+    uint8_t collision;  
 } st25r_irq_status_t;
 
 /** Read all IRQ registers (reading clears the flags). */
 st25r_irq_status_t st25r_irq_read(void);
 
 /** Log IRQ status with context string. */
-void st25r_irq_log(const char *ctx, uint16_t fifo_count);
+void st25r_irq_log(const char* ctx, uint16_t fifo_count);
 
 /**
  * Wait for TX end with a bounded timeout.

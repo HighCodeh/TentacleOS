@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #ifndef UUID_LOOKUP_H
 #define UUID_LOOKUP_H
 
 #include <stdint.h>
 
-const char *uuid_get_name_by_u16(uint16_t uuid16);
+const char* uuid_get_name_by_u16(uint16_t uuid16);
 
 #endif // UUID_LOOKUP_H

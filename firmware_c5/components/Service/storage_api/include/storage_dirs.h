@@ -21,15 +21,15 @@
 extern "C" {
 #endif
 
-#define STORAGE_DIR_CONFIG  VFS_MOUNT_POINT "/config"
-#define STORAGE_DIR_DATA    VFS_MOUNT_POINT "/data"
-#define STORAGE_DIR_LOGS    VFS_MOUNT_POINT "/logs"
-#define STORAGE_DIR_CACHE   VFS_MOUNT_POINT "/cache"
-#define STORAGE_DIR_TEMP    VFS_MOUNT_POINT "/temp"
-#define STORAGE_DIR_BACKUP  VFS_MOUNT_POINT "/backup"
-#define STORAGE_DIR_CERTS   VFS_MOUNT_POINT "/certs"
-#define STORAGE_DIR_SCRIPTS VFS_MOUNT_POINT "/scripts"
-#define STORAGE_DIR_CAPTIVE VFS_MOUNT_POINT "/captive_portal"
+#define STORAGE_DIR_CONFIG    VFS_MOUNT_POINT "/config"
+#define STORAGE_DIR_DATA      VFS_MOUNT_POINT "/data"
+#define STORAGE_DIR_LOGS      VFS_MOUNT_POINT "/logs"
+#define STORAGE_DIR_CACHE     VFS_MOUNT_POINT "/cache"
+#define STORAGE_DIR_TEMP      VFS_MOUNT_POINT "/temp"
+#define STORAGE_DIR_BACKUP    VFS_MOUNT_POINT "/backup" 
+#define STORAGE_DIR_CERTS     VFS_MOUNT_POINT "/certs"
+#define STORAGE_DIR_SCRIPTS   VFS_MOUNT_POINT "/scripts"
+#define STORAGE_DIR_CAPTIVE   VFS_MOUNT_POINT "/captive_portal"
 
 #ifdef __cplusplus
 }

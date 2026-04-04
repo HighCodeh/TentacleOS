@@ -17,18 +17,18 @@
 
 #include "ir_protocol.h"
 
-#define LG_HEADER_MARK  8416
-#define LG_HEADER_SPACE 4208
-#define LG_BIT_MARK     526
-#define LG_ONE_SPACE    1578
-#define LG_ZERO_SPACE   550
-#define LG_REPEAT_SPACE 2104
+#define LG_HEADER_MARK   8416
+#define LG_HEADER_SPACE  4208
+#define LG_BIT_MARK       526
+#define LG_ONE_SPACE     1578
+#define LG_ZERO_SPACE     550
+#define LG_REPEAT_SPACE  2104
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-bool lg_decode(rmt_symbol_word_t *symbols, size_t count, ir_data_t *out);
+bool   lg_decode(rmt_symbol_word_t *symbols, size_t count, ir_data_t *out);
 size_t lg_encode(const ir_data_t *data, rmt_symbol_word_t *symbols, size_t max);
 
 #ifdef __cplusplus

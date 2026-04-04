@@ -36,252 +36,239 @@
 
 static const char *TAG = "IR_RX_UI";
 
-#define OUTER_BORDER  4
-#define TOP_BORDER_H  46
-#define RX_TIMEOUT_MS 15000
+#define OUTER_BORDER   4
+#define TOP_BORDER_H   46
+#define RX_TIMEOUT_MS  15000
 
-static lv_obj_t *s_screen = NULL;
-static lv_timer_t *s_nav_timer = NULL;
-static lv_obj_t *s_status_label = NULL;
-static lv_obj_t *s_detail_label = NULL;
-static spinner_ui_t s_spinner;
+static lv_obj_t     *s_screen       = NULL;
+static lv_timer_t   *s_nav_timer    = NULL;
+static lv_obj_t     *s_status_label = NULL;
+static lv_obj_t     *s_detail_label = NULL;
+static spinner_ui_t  s_spinner;
 
 static bool s_btn_back_last = false;
-static bool s_btn_ok_last = false;
+static bool s_btn_ok_last   = false;
 
-static TaskHandle_t s_rx_task_handle = NULL;
-static volatile bool s_is_rx_done = false;
-static volatile bool s_is_rx_success = false;
-static ir_data_t s_rx_result;
+static TaskHandle_t   s_rx_task_handle = NULL;
+static volatile bool  s_is_rx_done     = false;
+static volatile bool  s_is_rx_success  = false;
+static ir_data_t      s_rx_result;
 
 /* ── RX task ─────────────────────────────────────────────────── */
 static void rx_task(void *pvParameters) {
-  (void)pvParameters;
-  ir_rx_init();
-  bool ok = ir_receive(&s_rx_result, RX_TIMEOUT_MS);
-  s_is_rx_success = ok;
-  s_is_rx_done = true;
-  s_rx_task_handle = NULL;
-  vTaskDelete(NULL);
+    (void)pvParameters;
+    ir_rx_init();
+    bool ok = ir_receive(&s_rx_result, RX_TIMEOUT_MS);
+    s_is_rx_success = ok;
+    s_is_rx_done = true;
+    s_rx_task_handle = NULL;
+    vTaskDelete(NULL);
 }
 
 /* ── Post-save msgbox: Continue or Exit ──────────────────────── */
 static void on_save_result(bool is_confirm) {
-  if (is_confirm) {
-    if (s_status_label != NULL)
-      lv_label_set_text(s_status_label, "Press OK to start");
-    if (s_detail_label != NULL)
-      lv_label_set_text(s_detail_label, "");
-  } else {
-    ui_switch_screen(SCREEN_IR_MENU);
-  }
+    if (is_confirm) {
+        if (s_status_label != NULL) lv_label_set_text(s_status_label, "Press OK to start");
+        if (s_detail_label != NULL) lv_label_set_text(s_detail_label, "");
+    } else {
+        ui_switch_screen(SCREEN_IR_MENU);
+    }
 }
 
 /* ── Keyboard callback: save file after user types name ──────── */
 static void on_name_entered(const char *text, void *user_data) {
-  (void)user_data;
-  if (text == NULL || strlen(text) == 0)
-    return;
+    (void)user_data;
+    if (text == NULL || strlen(text) == 0) return;
 
-  bool is_saved = false;
+    bool is_saved = false;
 
-  ir_file_t file;
-  ir_file_init(&file);
-  ir_file_add_parsed(&file, text, &s_rx_result);
+    ir_file_t file;
+    ir_file_init(&file);
+    ir_file_add_parsed(&file, text, &s_rx_result);
 
-  char buf[512];
-  size_t len = ir_file_to_string(&file, buf, sizeof(buf));
+    char buf[512];
+    size_t len = ir_file_to_string(&file, buf, sizeof(buf));
 
-  if (len > 0) {
-    const char *proto = ir_protocol_name(s_rx_result.protocol);
+    if (len > 0) {
+        const char *proto = ir_protocol_name(s_rx_result.protocol);
 
-    char dir[300];
-    snprintf(dir, sizeof(dir), TOS_PATH_IR "/%.64s", proto);
-    storage_mkdir_recursive(dir);
+        char dir[300];
+        snprintf(dir, sizeof(dir), TOS_PATH_IR "/%.64s", proto);
+        storage_mkdir_recursive(dir);
 
-    char path[300];
-    snprintf(path, sizeof(path), TOS_PATH_IR "/%.64s/%.64s.ir", proto, text);
-    FILE *f = fopen(path, "w");
-    if (f != NULL) {
-      fwrite(buf, 1, len, f);
-      fclose(f);
-      is_saved = true;
-      ESP_LOGI(TAG, "Saved: %s", path);
+        char path[300];
+        snprintf(path, sizeof(path), TOS_PATH_IR "/%.64s/%.64s.ir", proto, text);
+        FILE *f = fopen(path, "w");
+        if (f != NULL) {
+            fwrite(buf, 1, len, f);
+            fclose(f);
+            is_saved = true;
+            ESP_LOGI(TAG, "Saved: %s", path);
+        }
     }
-  }
 
-  ir_file_free(&file);
+    ir_file_free(&file);
 
-  if (is_saved) {
-    msgbox_open(LV_SYMBOL_OK, "Signal saved!", "Continue", "Exit", on_save_result);
-  } else {
-    msgbox_open(LV_SYMBOL_WARNING, "Failed to save!", "Continue", "Exit", on_save_result);
-  }
+    if (is_saved) {
+        msgbox_open(LV_SYMBOL_OK, "Signal saved!", "Continue", "Exit", on_save_result);
+    } else {
+        msgbox_open(LV_SYMBOL_WARNING, "Failed to save!", "Continue", "Exit", on_save_result);
+    }
 }
 
 /* ── Deferred keyboard open ──────────────────────────────────── */
 static void deferred_kb_open(lv_timer_t *t) {
-  (void)t;
-  keyboard_open(NULL, on_name_entered, NULL);
+    (void)t;
+    keyboard_open(NULL, on_name_entered, NULL);
 }
 
 /* ── "Save?" msgbox callback ─────────────────────────────────── */
 static void on_ask_save(bool is_confirm) {
-  if (is_confirm) {
-    lv_timer_t *kb_timer = lv_timer_create(deferred_kb_open, 300, NULL);
-    lv_timer_set_repeat_count(kb_timer, 1);
-  } else {
-    if (s_status_label != NULL)
-      lv_label_set_text(s_status_label, "Press OK to start");
-    if (s_detail_label != NULL)
-      lv_label_set_text(s_detail_label, "");
-  }
+    if (is_confirm) {
+        lv_timer_t *kb_timer = lv_timer_create(deferred_kb_open, 300, NULL);
+        lv_timer_set_repeat_count(kb_timer, 1);
+    } else {
+        if (s_status_label != NULL) lv_label_set_text(s_status_label, "Press OK to start");
+        if (s_detail_label != NULL) lv_label_set_text(s_detail_label, "");
+    }
 }
 
 /* ── UI helpers ──────────────────────────────────────────────── */
 static void show_waiting(void) {
-  if (s_status_label != NULL)
-    lv_label_set_text(s_status_label, "Waiting for signal...");
-  if (s_detail_label != NULL)
-    lv_label_set_text(s_detail_label, "Point remote at device");
-  spinner_ui_show(&s_spinner);
+    if (s_status_label != NULL) lv_label_set_text(s_status_label, "Waiting for signal...");
+    if (s_detail_label != NULL) lv_label_set_text(s_detail_label, "Point remote at device");
+    spinner_ui_show(&s_spinner);
 }
 
 static void show_result(void) {
-  spinner_ui_hide(&s_spinner);
+    spinner_ui_hide(&s_spinner);
 
-  if (s_is_rx_success) {
-    lv_label_set_text(s_status_label, "Signal captured!");
-    char buf[128];
-    snprintf(buf,
-             sizeof(buf),
-             "Protocol: %s\nAddress: 0x%04X\nCommand: 0x%04X",
-             ir_protocol_name(s_rx_result.protocol),
-             s_rx_result.address,
-             s_rx_result.command);
-    lv_label_set_text(s_detail_label, buf);
+    if (s_is_rx_success) {
+        lv_label_set_text(s_status_label, "Signal captured!");
+        char buf[128];
+        snprintf(buf, sizeof(buf),
+                 "Protocol: %s\nAddress: 0x%04X\nCommand: 0x%04X",
+                 ir_protocol_name(s_rx_result.protocol),
+                 s_rx_result.address,
+                 s_rx_result.command);
+        lv_label_set_text(s_detail_label, buf);
 
-    msgbox_open(LV_SYMBOL_OK, "Save signal?", "Yes", "No", on_ask_save);
-  } else {
-    lv_label_set_text(s_status_label, "No signal detected");
-    lv_label_set_text(s_detail_label, "Press OK to try again");
-  }
+        msgbox_open(LV_SYMBOL_OK, "Save signal?", "Yes", "No", on_ask_save);
+    } else {
+        lv_label_set_text(s_status_label, "No signal detected");
+        lv_label_set_text(s_detail_label, "Press OK to try again");
+    }
 }
 
 /* ── Navigation ──────────────────────────────────────────────── */
 static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
-  if (ui_input_is_locked())
-    return;
-  if (msgbox_is_open())
-    return;
-
-  if (s_is_rx_done) {
-    s_is_rx_done = false;
-    show_result();
-  }
-
-  bool back = back_button_is_down();
-  bool ok = ok_button_is_down();
-
-  if (back && !s_btn_back_last) {
-    if (s_rx_task_handle != NULL) {
-      vTaskDelete(s_rx_task_handle);
-      s_rx_task_handle = NULL;
+    if (lv_screen_active() != s_screen) {
+        lv_timer_delete(t);
+        s_nav_timer = NULL;
+        return;
     }
-    ui_switch_screen(SCREEN_IR_MENU);
-  }
+    if (ui_input_is_locked()) return;
+    if (msgbox_is_open()) return;
 
-  if (ok && !s_btn_ok_last && s_rx_task_handle == NULL) {
-    s_is_rx_done = false;
-    s_is_rx_success = false;
-    show_waiting();
-    xTaskCreate(rx_task, "ir_rx", 4096, NULL, 5, &s_rx_task_handle);
-  }
+    if (s_is_rx_done) {
+        s_is_rx_done = false;
+        show_result();
+    }
 
-  s_btn_back_last = back;
-  s_btn_ok_last = ok;
+    bool back = back_button_is_down();
+    bool ok   = ok_button_is_down();
+
+    if (back && !s_btn_back_last) {
+        if (s_rx_task_handle != NULL) {
+            vTaskDelete(s_rx_task_handle);
+            s_rx_task_handle = NULL;
+        }
+        ui_switch_screen(SCREEN_IR_MENU);
+    }
+
+    if (ok && !s_btn_ok_last && s_rx_task_handle == NULL) {
+        s_is_rx_done = false;
+        s_is_rx_success = false;
+        show_waiting();
+        xTaskCreate(rx_task, "ir_rx", 4096, NULL, 5, &s_rx_task_handle);
+    }
+
+    s_btn_back_last = back;
+    s_btn_ok_last   = ok;
 }
 
 /* ── Screen open ─────────────────────────────────────────────── */
 void ui_ir_receive_open(void) {
-  if (s_screen != NULL) {
-    lv_obj_del(s_screen);
-    s_screen = NULL;
-  }
+    if (s_screen != NULL) { lv_obj_del(s_screen); s_screen = NULL; }
 
-  s_is_rx_done = false;
-  s_is_rx_success = false;
-  s_rx_task_handle = NULL;
+    s_is_rx_done = false;
+    s_is_rx_success = false;
+    s_rx_task_handle = NULL;
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, OUTER_BORDER, 0);
-  lv_obj_set_style_border_color(s_screen, current_theme.border_interface, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+    s_screen = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
+    lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_border_width(s_screen, OUTER_BORDER, 0);
+    lv_obj_set_style_border_color(s_screen, current_theme.border_interface, 0);
+    lv_obj_set_style_pad_all(s_screen, 0, 0);
 
-  /* Top area */
-  lv_obj_t *top_area = lv_obj_create(s_screen);
-  lv_obj_set_size(top_area, LCD_H_RES - OUTER_BORDER * 2, TOP_BORDER_H);
-  lv_obj_align(top_area, LV_ALIGN_TOP_MID, 0, 0);
-  lv_obj_remove_flag(top_area, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_opa(top_area, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(top_area, 3, 0);
-  lv_obj_set_style_border_color(top_area, current_theme.border_interface, 0);
-  lv_obj_set_style_border_side(top_area, LV_BORDER_SIDE_BOTTOM, 0);
-  lv_obj_set_style_radius(top_area, 0, 0);
-  lv_obj_set_style_pad_all(top_area, 0, 0);
+    /* Top area */
+    lv_obj_t *top_area = lv_obj_create(s_screen);
+    lv_obj_set_size(top_area, LCD_H_RES - OUTER_BORDER * 2, TOP_BORDER_H);
+    lv_obj_align(top_area, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_remove_flag(top_area, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_opa(top_area, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(top_area, 3, 0);
+    lv_obj_set_style_border_color(top_area, current_theme.border_interface, 0);
+    lv_obj_set_style_border_side(top_area, LV_BORDER_SIDE_BOTTOM, 0);
+    lv_obj_set_style_radius(top_area, 0, 0);
+    lv_obj_set_style_pad_all(top_area, 0, 0);
 
-  /* Title pill */
-  lv_obj_t *title_bar = lv_obj_create(top_area);
-  lv_obj_set_size(title_bar, 170, 30);
-  lv_obj_align(title_bar, LV_ALIGN_CENTER, 0, 0);
-  lv_obj_remove_flag(title_bar, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_radius(title_bar, 12, 0);
-  lv_obj_set_style_bg_opa(title_bar, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(title_bar, current_theme.bg_primary, 0);
-  lv_obj_set_style_bg_grad_color(title_bar, current_theme.bg_secondary, 0);
-  lv_obj_set_style_bg_grad_dir(title_bar, LV_GRAD_DIR_HOR, 0);
-  lv_obj_set_style_border_width(title_bar, 2, 0);
-  lv_obj_set_style_border_color(title_bar, current_theme.border_accent, 0);
+    /* Title pill */
+    lv_obj_t *title_bar = lv_obj_create(top_area);
+    lv_obj_set_size(title_bar, 170, 30);
+    lv_obj_align(title_bar, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_remove_flag(title_bar, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(title_bar, 12, 0);
+    lv_obj_set_style_bg_opa(title_bar, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(title_bar, current_theme.bg_primary, 0);
+    lv_obj_set_style_bg_grad_color(title_bar, current_theme.bg_secondary, 0);
+    lv_obj_set_style_bg_grad_dir(title_bar, LV_GRAD_DIR_HOR, 0);
+    lv_obj_set_style_border_width(title_bar, 2, 0);
+    lv_obj_set_style_border_color(title_bar, current_theme.border_accent, 0);
 
-  lv_obj_t *title_lbl = lv_label_create(title_bar);
-  lv_label_set_text(title_lbl, "IR LEARN");
-  lv_obj_set_style_text_color(title_lbl, current_theme.text_main, 0);
-  lv_obj_set_style_text_font(title_lbl, &lv_font_montserrat_14, 0);
-  lv_obj_center(title_lbl);
+    lv_obj_t *title_lbl = lv_label_create(title_bar);
+    lv_label_set_text(title_lbl, "IR LEARN");
+    lv_obj_set_style_text_color(title_lbl, current_theme.text_main, 0);
+    lv_obj_set_style_text_font(title_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_center(title_lbl);
 
-  /* Status label */
-  s_status_label = lv_label_create(s_screen);
-  lv_label_set_text(s_status_label, "Press OK to start");
-  lv_obj_set_style_text_color(s_status_label, current_theme.text_main, 0);
-  lv_obj_set_style_text_font(s_status_label, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_text_align(s_status_label, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_align(s_status_label, LV_ALIGN_TOP_MID, 0, TOP_BORDER_H + 12);
+    /* Status label */
+    s_status_label = lv_label_create(s_screen);
+    lv_label_set_text(s_status_label, "Press OK to start");
+    lv_obj_set_style_text_color(s_status_label, current_theme.text_main, 0);
+    lv_obj_set_style_text_font(s_status_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_align(s_status_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(s_status_label, LV_ALIGN_TOP_MID, 0, TOP_BORDER_H + 12);
 
-  /* Detail label */
-  s_detail_label = lv_label_create(s_screen);
-  lv_label_set_text(s_detail_label, "");
-  lv_obj_set_style_text_color(s_detail_label, current_theme.border_accent, 0);
-  lv_obj_set_style_text_font(s_detail_label, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_align(s_detail_label, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_set_width(s_detail_label, LCD_H_RES - OUTER_BORDER * 2 - 20);
-  lv_obj_align(s_detail_label, LV_ALIGN_TOP_MID, 0, TOP_BORDER_H + 35);
+    /* Detail label */
+    s_detail_label = lv_label_create(s_screen);
+    lv_label_set_text(s_detail_label, "");
+    lv_obj_set_style_text_color(s_detail_label, current_theme.border_accent, 0);
+    lv_obj_set_style_text_font(s_detail_label, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_align(s_detail_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(s_detail_label, LCD_H_RES - OUTER_BORDER * 2 - 20);
+    lv_obj_align(s_detail_label, LV_ALIGN_TOP_MID, 0, TOP_BORDER_H + 35);
 
-  /* Spinner */
-  s_spinner = spinner_ui_create(s_screen, 30);
-  lv_obj_align(s_spinner.obj, LV_ALIGN_BOTTOM_MID, 0, -20);
-  spinner_ui_hide(&s_spinner);
+    /* Spinner */
+    s_spinner = spinner_ui_create(s_screen, 30);
+    lv_obj_align(s_spinner.obj, LV_ALIGN_BOTTOM_MID, 0, -20);
+    spinner_ui_hide(&s_spinner);
 
-  if (s_nav_timer == NULL) {
-    s_nav_timer = lv_timer_create(nav_timer_cb, 50, NULL);
-  }
+    if (s_nav_timer == NULL) {
+        s_nav_timer = lv_timer_create(nav_timer_cb, 50, NULL);
+    }
 
-  lv_screen_load(s_screen);
+    lv_screen_load(s_screen);
 }

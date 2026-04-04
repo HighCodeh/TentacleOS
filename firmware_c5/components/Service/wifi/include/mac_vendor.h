@@ -17,6 +17,6 @@
 
 #include <stdint.h>
 
-const char *get_vendor_name(const uint8_t *mac);
+const char* get_vendor_name(const uint8_t *mac);
 
 #endif // MAC_VENDOR_H

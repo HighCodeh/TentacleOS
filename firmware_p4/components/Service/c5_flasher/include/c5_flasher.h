@@ -21,10 +21,10 @@ void c5_flasher_reset_normal(void);
 
 /**
  * @brief Performs the actual firmware update using the embedded binary
- *
+ * 
  * @param bin_data Pointer to the embedded C5 binary
  * @param bin_size Size of the binary
- * @return esp_err_t
+ * @return esp_err_t 
  */
 esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size);
 

@@ -13,8 +13,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-#define SD_MAX_FILES       10
-#define SD_ALLOCATION_UNIT (16 * 1024)
+#define SD_MAX_FILES            10
+#define SD_ALLOCATION_UNIT      (16 * 1024)
 
 /**
  * @brief Initialize SD card with default config (SDMMC 4-bit)

@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #ifndef UUID_LOOKUP_H
 #define UUID_LOOKUP_H
 
 #include <stdint.h>
 #include "host/ble_uuid.h"
 
-const char *uuid_get_name(const ble_uuid_t *uuid);
+const char* uuid_get_name(const ble_uuid_t *uuid);
 
 #endif // UUID_LOOKUP_H

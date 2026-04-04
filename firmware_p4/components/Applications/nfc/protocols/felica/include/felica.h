@@ -32,10 +32,10 @@
 #include "highboy_nfc_error.h"
 
 /* Constants */
-#define FELICA_IDM_LEN    8
-#define FELICA_PMM_LEN    8
-#define FELICA_BLOCK_SIZE 16
-#define FELICA_MAX_BLOCKS 32
+#define FELICA_IDM_LEN          8
+#define FELICA_PMM_LEN          8
+#define FELICA_BLOCK_SIZE       16
+#define FELICA_MAX_BLOCKS       32
 
 #define FELICA_CMD_SENSF_REQ    0x04U
 #define FELICA_CMD_SENSF_RES    0x05U
@@ -44,18 +44,18 @@
 #define FELICA_CMD_WRITE_WO_ENC 0x08U
 #define FELICA_CMD_WRITE_RESP   0x09U
 
-#define FELICA_SC_COMMON 0x88B4U /**< wildcard system code             */
-#define FELICA_SC_NDEF   0x0003U /**< NDEF system code                 */
+#define FELICA_SC_COMMON        0x88B4U  /**< wildcard system code             */
+#define FELICA_SC_NDEF          0x0003U  /**< NDEF system code                 */
 
-#define FELICA_RCF_NONE        0x00U /**< no system code in response       */
-#define FELICA_RCF_SYSTEM_CODE 0x01U /**< include system code in response  */
+#define FELICA_RCF_NONE         0x00U    /**< no system code in response       */
+#define FELICA_RCF_SYSTEM_CODE  0x01U    /**< include system code in response  */
 
 /* Constants */
 typedef struct {
-  uint8_t idm[FELICA_IDM_LEN]; /**< Manufacturer ID (8 bytes)           */
-  uint8_t pmm[FELICA_PMM_LEN]; /**< Manufacturer Parameters (8 bytes)   */
-  uint8_t rd[2];               /**< Request Data / System Code          */
-  bool rd_valid;               /**< rd was included in SENSF_RES        */
+    uint8_t idm[FELICA_IDM_LEN];  /**< Manufacturer ID (8 bytes)           */
+    uint8_t pmm[FELICA_PMM_LEN];  /**< Manufacturer Parameters (8 bytes)   */
+    uint8_t rd[2];                 /**< Request Data / System Code          */
+    bool    rd_valid;              /**< rd was included in SENSF_RES        */
 } felica_tag_t;
 
 /* Poller API */
@@ -71,21 +71,22 @@ hb_nfc_err_t felica_poller_init(void);
  * @param system_code  System code filter (FELICA_SC_COMMON = all tags).
  * @param tag          Output: populated with IDm, PMm, RD.
  */
-hb_nfc_err_t felica_sensf_req(uint16_t system_code, felica_tag_t *tag);
+hb_nfc_err_t felica_sensf_req(uint16_t system_code, felica_tag_t* tag);
 
 /**
  * @brief Send SENSF_REQ with time slots (best-effort).
  *
  * @param time_slots 0-15 (0 = 1 slot, 15 = 16 slots).
  */
-hb_nfc_err_t felica_sensf_req_slots(uint16_t system_code, uint8_t time_slots, felica_tag_t *tag);
+hb_nfc_err_t felica_sensf_req_slots(uint16_t system_code, uint8_t time_slots, felica_tag_t* tag);
 
 /**
  * @brief Poll multiple tags by repeating SENSF_REQ (best-effort).
  *
  * Returns number of unique tags found (by IDm).
  */
-int felica_polling(uint16_t system_code, uint8_t time_slots, felica_tag_t *out, size_t max_tags);
+int felica_polling(uint16_t system_code, uint8_t time_slots,
+                     felica_tag_t* out, size_t max_tags);
 
 /**
  * @brief Read blocks using Read Without Encryption (command 0x06).
@@ -96,11 +97,11 @@ int felica_polling(uint16_t system_code, uint8_t time_slots, felica_tag_t *out, 
  * @param count         Number of blocks to read (max 4 per command).
  * @param out           Output buffer (count x 16 bytes).
  */
-hb_nfc_err_t felica_read_blocks(const felica_tag_t *tag,
-                                uint16_t service_code,
-                                uint8_t first_block,
-                                uint8_t count,
-                                uint8_t *out);
+hb_nfc_err_t felica_read_blocks(const felica_tag_t* tag,
+                                  uint16_t            service_code,
+                                  uint8_t             first_block,
+                                  uint8_t             count,
+                                  uint8_t*            out);
 
 /**
  * @brief Write blocks using Write Without Encryption (command 0x08).
@@ -111,11 +112,11 @@ hb_nfc_err_t felica_read_blocks(const felica_tag_t *tag,
  * @param count         Number of blocks to write (max 1 per command).
  * @param data          Data to write (count x 16 bytes).
  */
-hb_nfc_err_t felica_write_blocks(const felica_tag_t *tag,
-                                 uint16_t service_code,
-                                 uint8_t first_block,
-                                 uint8_t count,
-                                 const uint8_t *data);
+hb_nfc_err_t felica_write_blocks(const felica_tag_t* tag,
+                                   uint16_t            service_code,
+                                   uint8_t             first_block,
+                                   uint8_t             count,
+                                   const uint8_t*      data);
 
 /**
  * @brief Full tag dump: SENSF_REQ + read blocks.

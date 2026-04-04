@@ -27,25 +27,23 @@
 
 static const char *TAG = "OTA_SERVICE";
 
-#define OTA_CHUNK_SIZE    4096
+#define OTA_CHUNK_SIZE  4096
 #define VERSION_JSON_PATH "config/OTA/firmware.json"
 
 static ota_state_t s_state = OTA_STATE_IDLE;
 
-const char *ota_get_current_version(void) {
+const char* ota_get_current_version(void) {
   return FIRMWARE_VERSION;
 }
 
 static void sync_version_to_assets(void) {
   size_t size;
   uint8_t *json_data = storage_assets_load_file(VERSION_JSON_PATH, &size);
-  if (json_data == NULL)
-    return;
+  if (json_data == NULL) return;
 
   cJSON *root = cJSON_ParseWithLength((const char *)json_data, size);
   free(json_data);
-  if (root == NULL)
-    return;
+  if (root == NULL) return;
 
   cJSON *version = cJSON_GetObjectItem(root, "version");
   if (cJSON_IsString(version) && strcmp(version->valuestring, FIRMWARE_VERSION) != 0) {
@@ -102,8 +100,7 @@ esp_err_t ota_start_update(ota_progress_cb_t progress_cb) {
 
   // Validate: check it fits in the OTA partition
   s_state = OTA_STATE_VALIDATING;
-  if (progress_cb)
-    progress_cb(0, "Validating update file...");
+  if (progress_cb) progress_cb(0, "Validating update file...");
 
   const esp_partition_t *update_partition = esp_ota_get_next_update_partition(NULL);
   if (update_partition == NULL) {
@@ -114,24 +111,19 @@ esp_err_t ota_start_update(ota_progress_cb_t progress_cb) {
   }
 
   if (file_size > update_partition->size) {
-    ESP_LOGE(TAG,
-             "Update file (%ld) exceeds partition size (%ld)",
-             file_size,
-             (long)update_partition->size);
+    ESP_LOGE(TAG, "Update file (%ld) exceeds partition size (%ld)",
+             file_size, (long)update_partition->size);
     fclose(f);
     s_state = OTA_STATE_ERROR;
     return ESP_ERR_INVALID_SIZE;
   }
 
-  ESP_LOGI(TAG,
-           "Writing to partition '%s' at offset 0x%lx",
-           update_partition->label,
-           (long)update_partition->address);
+  ESP_LOGI(TAG, "Writing to partition '%s' at offset 0x%lx",
+           update_partition->label, (long)update_partition->address);
 
   // Begin OTA
   s_state = OTA_STATE_WRITING;
-  if (progress_cb)
-    progress_cb(5, "Starting OTA write...");
+  if (progress_cb) progress_cb(5, "Starting OTA write...");
 
   esp_ota_handle_t ota_handle;
   esp_err_t ret = esp_ota_begin(update_partition, OTA_WITH_SEQUENTIAL_WRITES, &ota_handle);
@@ -157,8 +149,8 @@ esp_err_t ota_start_update(ota_progress_cb_t progress_cb) {
 
   while (bytes_written < file_size) {
     size_t to_read = (file_size - bytes_written > OTA_CHUNK_SIZE)
-                         ? OTA_CHUNK_SIZE
-                         : (size_t)(file_size - bytes_written);
+      ? OTA_CHUNK_SIZE
+      : (size_t)(file_size - bytes_written);
 
     size_t bytes_read = fread(buffer, 1, to_read, f);
     if (bytes_read == 0) {
@@ -200,8 +192,7 @@ esp_err_t ota_start_update(ota_progress_cb_t progress_cb) {
   ESP_LOGI(TAG, "OTA write complete (%ld bytes)", bytes_written);
 
   // Finalize OTA
-  if (progress_cb)
-    progress_cb(92, "Finalizing update...");
+  if (progress_cb) progress_cb(92, "Finalizing update...");
 
   ret = esp_ota_end(ota_handle);
   if (ret != ESP_OK) {
@@ -218,8 +209,7 @@ esp_err_t ota_start_update(ota_progress_cb_t progress_cb) {
     return ret;
   }
 
-  if (progress_cb)
-    progress_cb(95, "Update complete. Rebooting...");
+  if (progress_cb) progress_cb(95, "Update complete. Rebooting...");
 
   ESP_LOGI(TAG, "OTA successful. Rebooting into new firmware...");
   s_state = OTA_STATE_REBOOTING;
@@ -240,7 +230,8 @@ esp_err_t ota_post_boot_check(void) {
     return ESP_FAIL;
   }
 
-  ESP_LOGI(TAG, "Running from partition: %s (addr=0x%lx)", running->label, (long)running->address);
+  ESP_LOGI(TAG, "Running from partition: %s (addr=0x%lx)",
+           running->label, (long)running->address);
 
   // Check if this is a pending OTA that needs confirmation
   esp_ota_img_states_t ota_state;

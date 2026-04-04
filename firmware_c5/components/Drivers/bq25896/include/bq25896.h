@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #ifndef BQ25896_H
 #define BQ25896_H
 
@@ -24,18 +25,18 @@
 
 // Enum para o Status de Carregamento (conforme datasheet)
 typedef enum {
-  CHARGE_STATUS_NOT_CHARGING = 0,
-  CHARGE_STATUS_PRECHARGE = 1,
-  CHARGE_STATUS_FAST_CHARGE = 2,
-  CHARGE_STATUS_CHARGE_DONE = 3
+    CHARGE_STATUS_NOT_CHARGING = 0,
+    CHARGE_STATUS_PRECHARGE = 1,
+    CHARGE_STATUS_FAST_CHARGE = 2,
+    CHARGE_STATUS_CHARGE_DONE = 3
 } bq25896_charge_status_t;
 
 // Enum para o Status do VBUS (conforme datasheet)
 typedef enum {
-  VBUS_STATUS_UNKNOWN = 0,
-  VBUS_STATUS_USB_HOST = 1,
-  VBUS_STATUS_ADAPTER_PORT = 2,
-  VBUS_STATUS_OTG = 3
+    VBUS_STATUS_UNKNOWN = 0,
+    VBUS_STATUS_USB_HOST = 1,
+    VBUS_STATUS_ADAPTER_PORT = 2,
+    VBUS_STATUS_OTG = 3
 } bq25896_vbus_status_t;
 
 // --- Declaração das Funções Públicas ---

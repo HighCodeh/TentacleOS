@@ -26,7 +26,8 @@ extern void vfs_print_info(void);
 
 static bool s_initialized = false;
 
-esp_err_t storage_init(void) {
+esp_err_t storage_init(void)
+{
   if (s_initialized) {
     ESP_LOGW(TAG, "Already initialized");
     return ESP_OK;
@@ -45,12 +46,14 @@ esp_err_t storage_init(void) {
   return ret;
 }
 
-esp_err_t storage_init_custom(uint8_t max_files, bool format_if_failed) {
+esp_err_t storage_init_custom(uint8_t max_files, bool format_if_failed)
+{
   ESP_LOGW(TAG, "Custom initialization not yet implemented, using defaults");
   return storage_init();
 }
 
-esp_err_t storage_deinit(void) {
+esp_err_t storage_deinit(void)
+{
   if (!s_initialized) {
     return ESP_ERR_INVALID_STATE;
   }
@@ -65,11 +68,13 @@ esp_err_t storage_deinit(void) {
   return ret;
 }
 
-bool storage_is_mounted(void) {
+bool storage_is_mounted(void)
+{
   return s_initialized && vfs_is_mounted_auto();
 }
 
-esp_err_t storage_remount(void) {
+esp_err_t storage_remount(void)
+{
   ESP_LOGI(TAG, "Remounting storage");
 
   if (s_initialized) {
@@ -82,7 +87,8 @@ esp_err_t storage_remount(void) {
   return storage_init();
 }
 
-esp_err_t storage_check_health(void) {
+esp_err_t storage_check_health(void)
+{
   if (!storage_is_mounted()) {
     return ESP_ERR_INVALID_STATE;
   }
@@ -114,14 +120,17 @@ esp_err_t storage_check_health(void) {
   return ESP_OK;
 }
 
-const char *storage_get_mount_point(void) {
+const char* storage_get_mount_point(void)
+{
   return VFS_MOUNT_POINT;
 }
 
-const char *storage_get_backend_name(void) {
+const char* storage_get_backend_name(void)
+{
   return VFS_BACKEND_NAME;
 }
 
-void storage_print_info(void) {
+void storage_print_info(void)
+{
   vfs_print_info();
 }

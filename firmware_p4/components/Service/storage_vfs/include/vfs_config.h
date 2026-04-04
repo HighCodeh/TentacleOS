@@ -34,47 +34,50 @@ extern "C" {
  * ============================================================================ */
 
 #ifdef VFS_USE_SD_CARD
-#define VFS_MOUNT_POINT    "/sdcard"
-#define VFS_MAX_FILES      10
-#define VFS_FORMAT_ON_FAIL false
-#define VFS_BACKEND_NAME   "SD Card"
+    #define VFS_MOUNT_POINT     "/sdcard"
+    #define VFS_MAX_FILES       10
+    #define VFS_FORMAT_ON_FAIL  false
+    #define VFS_BACKEND_NAME    "SD Card"
 #endif
 
 #ifdef VFS_USE_SPIFFS
-#define VFS_MOUNT_POINT     "/spiffs"
-#define VFS_MAX_FILES       10
-#define VFS_FORMAT_ON_FAIL  true
-#define VFS_PARTITION_LABEL "storage"
-#define VFS_BACKEND_NAME    "SPIFFS"
+    #define VFS_MOUNT_POINT     "/spiffs"
+    #define VFS_MAX_FILES       10
+    #define VFS_FORMAT_ON_FAIL  true
+    #define VFS_PARTITION_LABEL "storage"
+    #define VFS_BACKEND_NAME    "SPIFFS"
 #endif
 
 #ifdef VFS_USE_LITTLEFS
-#define VFS_MOUNT_POINT     "/littlefs"
-#define VFS_MAX_FILES       10
-#define VFS_FORMAT_ON_FAIL  true
-#define VFS_PARTITION_LABEL "storage"
-#define VFS_BACKEND_NAME    "LittleFS"
+    #define VFS_MOUNT_POINT     "/littlefs"
+    #define VFS_MAX_FILES       10
+    #define VFS_FORMAT_ON_FAIL  true
+    #define VFS_PARTITION_LABEL "storage"
+    #define VFS_BACKEND_NAME    "LittleFS"
 #endif
 
 #ifdef VFS_USE_RAMFS
-#define VFS_MOUNT_POINT  "/ram"
-#define VFS_MAX_FILES    10
-#define VFS_RAMFS_SIZE   (512 * 1024) // 512KB
-#define VFS_BACKEND_NAME "RAM Disk"
+    #define VFS_MOUNT_POINT     "/ram"
+    #define VFS_MAX_FILES       10
+    #define VFS_RAMFS_SIZE      (512 * 1024)  // 512KB
+    #define VFS_BACKEND_NAME    "RAM Disk"
 #endif
 
 /* ============================================================================
  * VALIDATION
  * ============================================================================ */
 
-#define VFS_BACKEND_COUNT                                                   \
-  ((defined(VFS_USE_SD_CARD) ? 1 : 0) + (defined(VFS_USE_SPIFFS) ? 1 : 0) + \
-   (defined(VFS_USE_LITTLEFS) ? 1 : 0) + (defined(VFS_USE_RAMFS) ? 1 : 0))
+#define VFS_BACKEND_COUNT ( \
+    (defined(VFS_USE_SD_CARD) ? 1 : 0) + \
+    (defined(VFS_USE_SPIFFS) ? 1 : 0) + \
+    (defined(VFS_USE_LITTLEFS) ? 1 : 0) + \
+    (defined(VFS_USE_RAMFS) ? 1 : 0) \
+)
 
 #if VFS_BACKEND_COUNT == 0
-#error "No VFS backend selected! Uncomment one option in vfs_config.h"
+    #error "No VFS backend selected! Uncomment one option in vfs_config.h"
 #elif VFS_BACKEND_COUNT > 1
-#error "Multiple VFS backends selected! Only one must be active in vfs_config.h"
+    #error "Multiple VFS backends selected! Only one must be active in vfs_config.h"
 #endif
 
 #ifdef __cplusplus

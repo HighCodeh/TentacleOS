@@ -26,7 +26,7 @@ typedef struct {
 } client_record_t;
 
 bool client_scanner_start(void);
-client_record_t *client_scanner_get_results(uint16_t *count);
+client_record_t* client_scanner_get_results(uint16_t *count);
 void client_scanner_free_results(void);
 bool client_scanner_save_results_to_internal_flash(void);
 bool client_scanner_save_results_to_sd_card(void);

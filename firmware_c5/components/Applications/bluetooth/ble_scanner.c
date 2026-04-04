@@ -61,15 +61,9 @@ static bool save_results_to_path(const char *path, bool use_sd_driver) {
     }
 
     char addr_str[18];
-    snprintf(addr_str,
-             sizeof(addr_str),
-             "%02x:%02x:%02x:%02x:%02x:%02x",
-             dev->addr[5],
-             dev->addr[4],
-             dev->addr[3],
-             dev->addr[2],
-             dev->addr[1],
-             dev->addr[0]);
+    snprintf(addr_str, sizeof(addr_str), "%02x:%02x:%02x:%02x:%02x:%02x",
+             dev->addr[5], dev->addr[4], dev->addr[3],
+             dev->addr[2], dev->addr[1], dev->addr[0]); 
 
     cJSON_AddStringToObject(entry, "addr", addr_str);
     cJSON_AddNumberToObject(entry, "addr_type", dev->addr_type);
@@ -78,8 +72,7 @@ static bool save_results_to_path(const char *path, bool use_sd_driver) {
     const char *vendor = oui_get_vendor(dev->addr);
     cJSON_AddStringToObject(entry, "vendor", vendor);
 
-    if (strlen(dev->uuids) > 0) {
-      cJSON_AddStringToObject(entry, "uuids", dev->uuids);
+    if (strlen(dev->uuids) > 0) {      cJSON_AddStringToObject(entry, "uuids", dev->uuids);
     } else {
       cJSON_AddStringToObject(entry, "uuids", "");
     }
@@ -129,7 +122,7 @@ bool ble_scanner_save_results_to_internal_flash(void) {
 }
 
 bool ble_scanner_save_results_to_sd_card(void) {
-  return save_results_to_path("/scanned_devices.json", true);
+  return save_results_to_path("/scanned_devices.json", true); 
 }
 
 static void ble_scanner_task(void *pvParameters) {
@@ -148,8 +141,7 @@ static void ble_scanner_task(void *pvParameters) {
   }
 
   if (dev_num > 0) {
-    scan_results = (ble_scan_result_t *)heap_caps_malloc(dev_num * sizeof(ble_scan_result_t),
-                                                         MALLOC_CAP_SPIRAM);
+    scan_results = (ble_scan_result_t *)heap_caps_malloc(dev_num * sizeof(ble_scan_result_t), MALLOC_CAP_SPIRAM);
     if (scan_results) {
       scan_count = dev_num;
       for (int i = 0; i < dev_num; i++) {
@@ -180,8 +172,7 @@ bool ble_scanner_start(void) {
   }
 
   if (scanner_task_stack == NULL) {
-    scanner_task_stack = (StackType_t *)heap_caps_malloc(SCANNER_STACK_SIZE * sizeof(StackType_t),
-                                                         MALLOC_CAP_SPIRAM);
+    scanner_task_stack = (StackType_t *)heap_caps_malloc(SCANNER_STACK_SIZE * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
   }
   if (scanner_task_tcb == NULL) {
     scanner_task_tcb = (StaticTask_t *)heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_SPIRAM);
@@ -189,30 +180,26 @@ bool ble_scanner_start(void) {
 
   if (scanner_task_stack == NULL || scanner_task_tcb == NULL) {
     ESP_LOGE(TAG, "Failed to allocate scanner task memory in PSRAM!");
-    if (scanner_task_stack) {
-      heap_caps_free(scanner_task_stack);
-      scanner_task_stack = NULL;
-    }
-    if (scanner_task_tcb) {
-      heap_caps_free(scanner_task_tcb);
-      scanner_task_tcb = NULL;
-    }
+    if (scanner_task_stack) { heap_caps_free(scanner_task_stack); scanner_task_stack = NULL; }
+    if (scanner_task_tcb) { heap_caps_free(scanner_task_tcb); scanner_task_tcb = NULL; }
     return false;
   }
 
   is_scanning = true;
-  scanner_task_handle = xTaskCreateStatic(ble_scanner_task,
-                                          "ble_scan_task",
-                                          SCANNER_STACK_SIZE,
-                                          NULL,
-                                          5,
-                                          scanner_task_stack,
-                                          scanner_task_tcb);
+  scanner_task_handle = xTaskCreateStatic(
+    ble_scanner_task,
+    "ble_scan_task",
+    SCANNER_STACK_SIZE,
+    NULL,
+    5,
+    scanner_task_stack,
+    scanner_task_tcb
+  );
 
   return (scanner_task_handle != NULL);
 }
 
-ble_scan_result_t *ble_scanner_get_results(uint16_t *count) {
+ble_scan_result_t* ble_scanner_get_results(uint16_t *count) {
   if (is_scanning) {
     return NULL;
   }
@@ -228,13 +215,7 @@ void ble_scanner_free_results(void) {
   scan_count = 0;
 
   if (!is_scanning) {
-    if (scanner_task_stack) {
-      heap_caps_free(scanner_task_stack);
-      scanner_task_stack = NULL;
-    }
-    if (scanner_task_tcb) {
-      heap_caps_free(scanner_task_tcb);
-      scanner_task_tcb = NULL;
-    }
+    if (scanner_task_stack) { heap_caps_free(scanner_task_stack); scanner_task_stack = NULL; }
+    if (scanner_task_tcb) { heap_caps_free(scanner_task_tcb); scanner_task_tcb = NULL; }
   }
 }

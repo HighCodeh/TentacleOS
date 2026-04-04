@@ -40,19 +40,19 @@
 extern "C" {
 #endif
 
-#define NFC_DEVICE_MAX_PROFILES  8
-#define NFC_DEVICE_NAME_MAX_LEN  32
-#define NFC_DEVICE_NVS_NAMESPACE "nfc_cards"
+#define NFC_DEVICE_MAX_PROFILES     8
+#define NFC_DEVICE_NAME_MAX_LEN     32
+#define NFC_DEVICE_NVS_NAMESPACE    "nfc_cards"
 
 typedef struct {
-  char name[NFC_DEVICE_NAME_MAX_LEN];
-  uint8_t uid[10];
-  uint8_t uid_len;
-  uint8_t sak;
-  mf_classic_type_t type;
-  int sector_count;
-  int keys_known;
-  bool complete;
+    char    name[NFC_DEVICE_NAME_MAX_LEN];
+    uint8_t uid[10];
+    uint8_t uid_len;
+    uint8_t sak;
+    mf_classic_type_t type;
+    int     sector_count;
+    int     keys_known;    
+    bool    complete;      
 } nfc_device_profile_info_t;
 
 /**
@@ -67,7 +67,7 @@ hb_nfc_err_t nfc_device_init(void);
  * @param card Full card dump with keys
  * @return HB_NFC_OK on success
  */
-hb_nfc_err_t nfc_device_save(const char *name, const mfc_emu_card_data_t *card);
+hb_nfc_err_t nfc_device_save(const char* name, const mfc_emu_card_data_t* card);
 
 /**
  * Load a card profile from NVS by index.
@@ -75,12 +75,12 @@ hb_nfc_err_t nfc_device_save(const char *name, const mfc_emu_card_data_t *card);
  * @param card Output: card data
  * @return HB_NFC_OK on success
  */
-hb_nfc_err_t nfc_device_load(int index, mfc_emu_card_data_t *card);
+hb_nfc_err_t nfc_device_load(int index, mfc_emu_card_data_t* card);
 
 /**
  * Load a card profile from NVS by name.
  */
-hb_nfc_err_t nfc_device_load_by_name(const char *name, mfc_emu_card_data_t *card);
+hb_nfc_err_t nfc_device_load_by_name(const char* name, mfc_emu_card_data_t* card);
 
 /**
  * Delete a card profile from NVS.
@@ -95,38 +95,38 @@ int nfc_device_get_count(void);
 /**
  * Get profile info (lightweight, no block data).
  */
-hb_nfc_err_t nfc_device_get_info(int index, nfc_device_profile_info_t *info);
+hb_nfc_err_t nfc_device_get_info(int index, nfc_device_profile_info_t* info);
 
 /**
  * List all saved profiles.
  * @param infos Output array (must have space for NFC_DEVICE_MAX_PROFILES entries)
  * @return Number of profiles found
  */
-int nfc_device_list(nfc_device_profile_info_t *infos, int max_count);
+int nfc_device_list(nfc_device_profile_info_t* infos, int max_count);
 
 /**
  * Set/get the active profile index for emulation.
  */
 hb_nfc_err_t nfc_device_set_active(int index);
-int nfc_device_get_active(void);
+int           nfc_device_get_active(void);
 
 /**
  * Save generic card data to NVS (legacy wrapper).
  */
-hb_nfc_err_t nfc_device_save_generic(const char *name, const hb_nfc_card_data_t *card);
+hb_nfc_err_t nfc_device_save_generic(const char* name, const hb_nfc_card_data_t* card);
 
 /**
  * Load generic card data from NVS (legacy wrapper).
  */
-hb_nfc_err_t nfc_device_load_generic(const char *name, hb_nfc_card_data_t *card);
+hb_nfc_err_t nfc_device_load_generic(const char* name, hb_nfc_card_data_t* card);
 
 /**
  * Get protocol name string.
  */
-const char *nfc_device_protocol_name(hb_nfc_protocol_t proto);
+const char* nfc_device_protocol_name(hb_nfc_protocol_t proto);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif
+#endif 

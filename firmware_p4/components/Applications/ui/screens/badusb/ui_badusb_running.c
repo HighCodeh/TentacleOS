@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #include "ui_theme.h"
 #include "ui_badusb_running.h"
 #include "ui_manager.h"
@@ -26,8 +27,8 @@
 #include "bad_usb.h"
 
 static const char *TAG = "UI_BADUSB_RUNNING";
-static lv_obj_t *screen_running = NULL;
-static lv_obj_t *progress_bar = NULL;
+static lv_obj_t * screen_running = NULL;
+static lv_obj_t * progress_bar = NULL;
 static TaskHandle_t script_task_handle = NULL;
 static char script_name[64] = "rickroll.txt"; // Placeholder
 
@@ -65,7 +66,7 @@ static void script_runner_task(void *pvParameters) {
   vTaskDelete(NULL);
 }
 
-static void event_handler(lv_event_t *e) {
+static void event_handler(lv_event_t * e) {
   lv_event_code_t code = lv_event_get_code(e);
   if (code == LV_EVENT_KEY) {
     uint32_t key = lv_event_get_key(e);
@@ -78,8 +79,7 @@ static void event_handler(lv_event_t *e) {
 }
 
 void ui_badusb_running_open(void) {
-  if (screen_running)
-    lv_obj_del(screen_running);
+  if (screen_running) lv_obj_del(screen_running);
 
   screen_running = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(screen_running, current_theme.screen_base, 0);
@@ -89,19 +89,18 @@ void ui_badusb_running_open(void) {
   footer_ui_create(screen_running);
 
   char display_name[56];
-  char *dot = strrchr(script_name, '.');
+  char* dot = strrchr(script_name, '.');
   if (dot) {
     size_t len = dot - script_name;
-    if (len > sizeof(display_name) - 1)
-      len = sizeof(display_name) - 1;
+    if (len > sizeof(display_name) - 1) len = sizeof(display_name) - 1;
     strncpy(display_name, script_name, len);
     display_name[len] = '\0';
   } else {
-    strncpy(display_name, script_name, sizeof(display_name) - 1);
+    strncpy(display_name, script_name, sizeof(display_name) -1);
     display_name[sizeof(display_name) - 1] = '\0';
   }
 
-  lv_obj_t *lbl_title = lv_label_create(screen_running);
+  lv_obj_t * lbl_title = lv_label_create(screen_running);
   lv_label_set_text_fmt(lbl_title, "Running: %s", display_name);
   lv_obj_align(lbl_title, LV_ALIGN_CENTER, 0, -40);
 
@@ -114,12 +113,10 @@ void ui_badusb_running_open(void) {
   lv_obj_set_style_radius(progress_bar, 0, LV_PART_INDICATOR);
 
   lv_obj_set_style_border_width(progress_bar, 1, LV_PART_MAIN);
-  lv_obj_set_style_border_color(
-      progress_bar, lv_palette_main(LV_PALETTE_DEEP_PURPLE), LV_PART_MAIN);
-  lv_obj_set_style_bg_color(
-      progress_bar, lv_palette_main(LV_PALETTE_DEEP_PURPLE), LV_PART_INDICATOR);
+  lv_obj_set_style_border_color(progress_bar, lv_palette_main(LV_PALETTE_DEEP_PURPLE), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(progress_bar, lv_palette_main(LV_PALETTE_DEEP_PURPLE), LV_PART_INDICATOR);
 
-  lv_obj_t *lbl_info = lv_label_create(screen_running);
+  lv_obj_t * lbl_info = lv_label_create(screen_running);
   lv_label_set_text(lbl_info, "Press BACK to cancel");
   lv_obj_align(lbl_info, LV_ALIGN_CENTER, 0, 40);
 

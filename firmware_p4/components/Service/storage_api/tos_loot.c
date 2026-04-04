@@ -20,7 +20,8 @@
 #include <time.h>
 #include "esp_timer.h"
 
-static void get_date_prefix(char *buf, size_t size) {
+static void get_date_prefix(char *buf, size_t size)
+{
   time_t now = time(NULL);
   struct tm tm;
   localtime_r(&now, &tm);
@@ -35,13 +36,10 @@ static void get_date_prefix(char *buf, size_t size) {
   }
 }
 
-void tos_loot_generate_path(const char *dir,
-                            const char *prefix,
-                            const char *ext,
-                            char *out,
-                            size_t out_size,
-                            char *out_name,
-                            size_t name_size) {
+void tos_loot_generate_path(const char *dir, const char *prefix, const char *ext,
+                            char *out, size_t out_size,
+                            char *out_name, size_t name_size)
+{
   char date[20];
   get_date_prefix(date, sizeof(date));
 

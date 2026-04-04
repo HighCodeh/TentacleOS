@@ -18,11 +18,11 @@
 #include "esp_err.h"
 
 typedef struct {
-  const char *name;
+    const char *name;
 } SpamType;
 
 int spam_get_attack_count(void);
-const SpamType *spam_get_attack_type(int index);
+const SpamType* spam_get_attack_type(int index);
 esp_err_t spam_start(int attack_index);
 esp_err_t spam_stop(void);
 

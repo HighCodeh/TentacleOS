@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #ifndef OUI_LOOKUP_H
 #define OUI_LOOKUP_H
 
 #include <stdint.h>
 
-const char *oui_get_vendor(const uint8_t *mac);
+const char* oui_get_vendor(const uint8_t *mac);
 
 #endif // OUI_LOOKUP_H

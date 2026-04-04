@@ -36,7 +36,7 @@ bool ble_hid_is_connected(void);
 
 /**
  * @brief Envia uma tecla pressionada via Bluetooth.
- *
+ * 
  * @param keycode Código HID da tecla (ex: 0x04 para 'A')
  * @param modifier Modificador (Shift, Ctrl, Alt, GUI)
  */

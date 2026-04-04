@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #ifndef HTTP_SERVER_SERVICE_H
 #define HTTP_SERVER_SERVICE_H
 
@@ -38,16 +39,13 @@ esp_err_t stop_http_server(void);
 esp_err_t http_service_send_error(httpd_req_t *req, http_status_t status_code, const char *msg);
 
 // data receive
-esp_err_t http_service_req_recv(httpd_req_t *req, char *buffer, size_t buffer_size);
-esp_err_t http_service_query_key_value(const char *data_buffer,
-                                       const char *key,
-                                       char *out_val,
-                                       size_t out_size);
+esp_err_t  http_service_req_recv(httpd_req_t *req, char *buffer, size_t buffer_size);
+esp_err_t http_service_query_key_value(const char *data_buffer, const char *key, char *out_val, size_t out_size);
 
 // data send
 esp_err_t http_service_send_response(httpd_req_t *req, const char *buffer, ssize_t length);
 esp_err_t http_service_send_file_from_sd(httpd_req_t *req, const char *filepath);
 
-// misc
+// misc 
 const char *get_html_buffer(const char *path);
 #endif // !HTTP_SERVER_SERVICE_H

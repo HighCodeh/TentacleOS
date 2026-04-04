@@ -20,11 +20,11 @@
 #include <stddef.h>
 
 typedef enum {
-  SNIFF_TYPE_BEACON,
-  SNIFF_TYPE_PROBE,
-  SNIFF_TYPE_EAPOL,
-  SNIFF_TYPE_PMKID,
-  SNIFF_TYPE_RAW
+    SNIFF_TYPE_BEACON,
+    SNIFF_TYPE_PROBE,
+    SNIFF_TYPE_EAPOL,
+    SNIFF_TYPE_PMKID,
+    SNIFF_TYPE_RAW
 } sniff_type_t;
 typedef void (*wifi_sniffer_cb_t)(const uint8_t *frame, uint16_t len, int8_t rssi, uint8_t channel);
 bool wifi_sniffer_start(sniff_type_t type, uint8_t channel);

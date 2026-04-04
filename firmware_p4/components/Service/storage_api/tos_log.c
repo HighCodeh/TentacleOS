@@ -25,11 +25,11 @@
 
 static const char *TAG = "TOS_LOG";
 
-#define LOG_DIR       TOS_PATH_LOGS
-#define LOG_FILE_FMT  LOG_DIR "/sys.%d.log"
-#define LOG_MAX_FILES 5
-#define LOG_MAX_SIZE  (2 * 1024 * 1024) // 2 MB per file (total max = 10 MB)
-#define LOG_PATH_LEN  64
+#define LOG_DIR        TOS_PATH_LOGS
+#define LOG_FILE_FMT   LOG_DIR "/sys.%d.log"
+#define LOG_MAX_FILES  5
+#define LOG_MAX_SIZE   (2 * 1024 * 1024) // 2 MB per file (total max = 10 MB)
+#define LOG_PATH_LEN   64
 
 static FILE *s_log_file = NULL;
 static vprintf_like_t s_original_vprintf = NULL;
@@ -134,11 +134,8 @@ esp_err_t tos_log_init(void) {
   // Redirect all ESP_LOGx output through our handler
   s_original_vprintf = esp_log_set_vprintf(log_to_file);
 
-  ESP_LOGI(TAG,
-           "Log system initialized (file: %s, max: %d files x %d MB)",
-           path,
-           LOG_MAX_FILES,
-           LOG_MAX_SIZE / (1024 * 1024));
+  ESP_LOGI(TAG, "Log system initialized (file: %s, max: %d files x %d MB)",
+           path, LOG_MAX_FILES, LOG_MAX_SIZE / (1024 * 1024));
 
   return ESP_OK;
 }

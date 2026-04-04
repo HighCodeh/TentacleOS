@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #include "ui_ble_spam.h"
 #include "ui_theme.h"
 #include "canned_spam.h"
@@ -24,7 +25,7 @@
 
 #define BG_COLOR current_theme.screen_base
 
-static lv_obj_t *screen_spam = NULL;
+static lv_obj_t * screen_spam = NULL;
 static char current_spam_name[32] = "Unknown";
 
 void ui_ble_spam_set_name(const char *name) {
@@ -33,10 +34,10 @@ void ui_ble_spam_set_name(const char *name) {
   }
 }
 
-static void spam_event_cb(lv_event_t *e) {
-  if (lv_event_get_code(e) == LV_EVENT_KEY) {
+static void spam_event_cb(lv_event_t * e) {
+  if(lv_event_get_code(e) == LV_EVENT_KEY) {
     uint32_t key = lv_event_get_key(e);
-    if (key == LV_KEY_ESC || key == LV_KEY_LEFT) {
+    if(key == LV_KEY_ESC || key == LV_KEY_LEFT) {
       // Stop spam and go back to BLE Menu
       spam_stop();
       ui_switch_screen(SCREEN_BLE_MENU);
@@ -45,7 +46,7 @@ static void spam_event_cb(lv_event_t *e) {
 }
 
 void ui_ble_spam_open(void) {
-  if (screen_spam) {
+  if(screen_spam) {
     lv_obj_del(screen_spam);
     screen_spam = NULL;
   }
@@ -57,7 +58,7 @@ void ui_ble_spam_open(void) {
   header_ui_create(screen_spam);
   footer_ui_create(screen_spam);
 
-  lv_obj_t *lbl_title = lv_label_create(screen_spam);
+  lv_obj_t * lbl_title = lv_label_create(screen_spam);
   lv_label_set_text_fmt(lbl_title, "SPAM RUNNING:\n#FF0000 %s#", current_spam_name);
   lv_label_set_recolor(lbl_title, true);
   lv_obj_set_style_text_align(lbl_title, LV_TEXT_ALIGN_CENTER, 0);
@@ -65,12 +66,12 @@ void ui_ble_spam_open(void) {
   lv_obj_center(lbl_title);
   lv_obj_set_y(lbl_title, -20);
 
-  lv_obj_t *lbl_instr = lv_label_create(screen_spam);
+  lv_obj_t * lbl_instr = lv_label_create(screen_spam);
   lv_label_set_text(lbl_instr, "Press BACK to Stop");
   lv_obj_set_style_text_color(lbl_instr, current_theme.text_main, 0);
   lv_obj_align(lbl_instr, LV_ALIGN_CENTER, 0, 40);
 
-  lv_obj_t *spinner = lv_spinner_create(screen_spam);
+  lv_obj_t * spinner = lv_spinner_create(screen_spam);
   lv_obj_set_size(spinner, 15, 15);
   lv_obj_align(spinner, LV_ALIGN_BOTTOM_MID, 0, -40);
   lv_obj_set_style_arc_color(spinner, current_theme.border_accent, LV_PART_INDICATOR);

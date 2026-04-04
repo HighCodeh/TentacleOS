@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #include "console_service.h"
 #include "esp_console.h"
 #include "esp_log.h"
@@ -27,13 +28,11 @@
 static int cmd_free(int argc, char **argv) {
   printf("Internal RAM:\n");
   printf("  Free: %lu bytes\n", (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
-  printf("  Min Free: %lu bytes\n",
-         (unsigned long)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
+  printf("  Min Free: %lu bytes\n", (unsigned long)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
 
   printf("SPIRAM (PSRAM):\n");
   printf("  Free: %lu bytes\n", (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-  printf("  Min Free: %lu bytes\n",
-         (unsigned long)heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM));
+  printf("  Min Free: %lu bytes\n", (unsigned long)heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM));
   return 0;
 }
 
@@ -96,34 +95,32 @@ static int cmd_tasks(int argc, char **argv) {
 
 void register_system_commands(void) {
   const esp_console_cmd_t cmd_tasks_def = {
-      .command = "tasks",
-      .help = "List running FreeRTOS tasks",
-      .hint = NULL,
-      .func = &cmd_tasks,
+    .command = "tasks",
+    .help = "List running FreeRTOS tasks",
+    .hint = NULL,
+    .func = &cmd_tasks,
   };
   ESP_ERROR_CHECK(esp_console_cmd_register(&cmd_tasks_def));
 
-  const esp_console_cmd_t cmd_ip_def = {
-      .command = "ip",
-      .help = "Show network interfaces",
-      .hint = NULL,
-      .func = &cmd_ip,
+  const esp_console_cmd_t cmd_ip_def = {    .command = "ip",
+    .help = "Show network interfaces",
+    .hint = NULL,
+    .func = &cmd_ip,
   };
   ESP_ERROR_CHECK(esp_console_cmd_register(&cmd_ip_def));
 
-  const esp_console_cmd_t cmd_free_def = {
-      .command = "free",
-      .help = "Show remaining memory",
-      .hint = NULL,
-      .func = &cmd_free,
+  const esp_console_cmd_t cmd_free_def = {    .command = "free",
+    .help = "Show remaining memory",
+    .hint = NULL,
+    .func = &cmd_free,
   };
   ESP_ERROR_CHECK(esp_console_cmd_register(&cmd_free_def));
 
   const esp_console_cmd_t cmd_restart_def = {
-      .command = "restart",
-      .help = "Reboot the Highboy",
-      .hint = NULL,
-      .func = &cmd_restart,
+    .command = "restart",
+    .help = "Reboot the Highboy",
+    .hint = NULL,
+    .func = &cmd_restart,
   };
   ESP_ERROR_CHECK(esp_console_cmd_register(&cmd_restart_def));
 }

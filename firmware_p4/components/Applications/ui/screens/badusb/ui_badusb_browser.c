@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #include "ui_theme.h"
 #include "ui_badusb_browser.h"
 #include "ui_manager.h"
@@ -26,16 +27,16 @@
 #include <sys/types.h>
 
 static const char *TAG = "UI_BADUSB_BROWSER";
-static lv_obj_t *screen_browser = NULL;
+static lv_obj_t * screen_browser = NULL;
 
-static void file_select_event_handler(lv_event_t *e) {
+static void file_select_event_handler(lv_event_t * e) {
   lv_event_code_t code = lv_event_get_code(e);
-  lv_obj_t *obj = lv_event_get_target(e);
+  lv_obj_t * obj = lv_event_get_target(e);
 
   if (code == LV_EVENT_KEY) {
     uint32_t key = lv_event_get_key(e);
     if (key == LV_KEY_ENTER) {
-      const char *filename = lv_list_get_button_text(lv_obj_get_parent(obj), obj);
+      const char * filename = lv_list_get_button_text(lv_obj_get_parent(obj), obj);
       ESP_LOGI(TAG, "Selected script: %s", filename);
       ui_badusb_running_set_script(filename);
       ui_switch_screen(SCREEN_BADUSB_LAYOUT);
@@ -46,8 +47,7 @@ static void file_select_event_handler(lv_event_t *e) {
 }
 
 void ui_badusb_browser_open(void) {
-  if (screen_browser)
-    lv_obj_del(screen_browser);
+  if (screen_browser) lv_obj_del(screen_browser);
 
   screen_browser = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(screen_browser, current_theme.screen_base, 0);
@@ -55,7 +55,7 @@ void ui_badusb_browser_open(void) {
 
   header_ui_create(screen_browser);
 
-  lv_obj_t *list = lv_list_create(screen_browser);
+  lv_obj_t * list = lv_list_create(screen_browser);
   lv_obj_set_size(list, 220, 180);
   lv_obj_center(list);
   lv_obj_set_style_bg_color(list, current_theme.screen_base, 0);
@@ -64,12 +64,12 @@ void ui_badusb_browser_open(void) {
   lv_obj_set_style_border_width(list, 2, 0);
 
 #include "tos_flash_paths.h"
-  DIR *dir = opendir(FLASH_STORAGE_BADUSB);
+  DIR* dir = opendir(FLASH_STORAGE_BADUSB);
   if (dir) {
-    struct dirent *de;
+    struct dirent* de;
     while ((de = readdir(dir)) != NULL) {
       if (de->d_type == DT_REG) { // Only list files
-        lv_obj_t *btn = lv_list_add_button(list, LV_SYMBOL_FILE, de->d_name);
+        lv_obj_t* btn = lv_list_add_button(list, LV_SYMBOL_FILE, de->d_name);
         lv_obj_add_event_cb(btn, file_select_event_handler, LV_EVENT_KEY, NULL);
         lv_obj_set_style_bg_color(btn, current_theme.screen_base, 0);
         lv_obj_set_style_text_color(btn, current_theme.text_main, 0);
@@ -77,7 +77,7 @@ void ui_badusb_browser_open(void) {
     }
     closedir(dir);
   } else {
-    lv_obj_t *btn = lv_list_add_button(list, LV_SYMBOL_WARNING, "Directory not found");
+    lv_obj_t* btn = lv_list_add_button(list, LV_SYMBOL_WARNING, "Directory not found");
     lv_obj_set_style_bg_color(btn, current_theme.screen_base, 0);
     lv_obj_set_style_text_color(btn, current_theme.text_main, 0);
   }
@@ -93,3 +93,4 @@ void ui_badusb_browser_open(void) {
 
   lv_screen_load(screen_browser);
 }
+

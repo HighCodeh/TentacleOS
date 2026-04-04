@@ -25,7 +25,9 @@ esp_err_t ble_hid_init(void) {
   spi_header_t resp_hdr;
   uint8_t resp_buf[SPI_MAX_PAYLOAD];
 
-  esp_err_t ret = spi_bridge_send_command(SPI_ID_BT_HID_INIT, NULL, 0, &resp_hdr, resp_buf, 5000);
+  esp_err_t ret = spi_bridge_send_command(SPI_ID_BT_HID_INIT,
+      NULL, 0,
+      &resp_hdr, resp_buf, 5000);
 
   if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
     ESP_LOGE(TAG, "Failed to init HID on C5");
@@ -40,7 +42,9 @@ esp_err_t ble_hid_deinit(void) {
   spi_header_t resp_hdr;
   uint8_t resp_buf[SPI_MAX_PAYLOAD];
 
-  esp_err_t ret = spi_bridge_send_command(SPI_ID_BT_HID_DEINIT, NULL, 0, &resp_hdr, resp_buf, 2000);
+  esp_err_t ret = spi_bridge_send_command(SPI_ID_BT_HID_DEINIT,
+      NULL, 0,
+      &resp_hdr, resp_buf, 2000);
 
   if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
     ESP_LOGW(TAG, "Failed to deinit HID on C5");
@@ -54,8 +58,9 @@ bool ble_hid_is_connected(void) {
   spi_header_t resp_hdr;
   uint8_t resp_buf[SPI_MAX_PAYLOAD];
 
-  esp_err_t ret =
-      spi_bridge_send_command(SPI_ID_BT_HID_IS_CONNECTED, NULL, 0, &resp_hdr, resp_buf, 2000);
+  esp_err_t ret = spi_bridge_send_command(SPI_ID_BT_HID_IS_CONNECTED,
+      NULL, 0,
+      &resp_hdr, resp_buf, 2000);
 
   if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
     return false;
@@ -67,11 +72,12 @@ bool ble_hid_is_connected(void) {
 
 void ble_hid_send_key(uint8_t keycode, uint8_t modifier) {
   // Payload: modifier[1] + keycode[1]
-  uint8_t payload[2] = {modifier, keycode};
+  uint8_t payload[2] = { modifier, keycode };
 
   spi_header_t resp_hdr;
   uint8_t resp_buf[SPI_MAX_PAYLOAD];
 
-  spi_bridge_send_command(
-      SPI_ID_BT_HID_SEND_KEY, payload, sizeof(payload), &resp_hdr, resp_buf, 1000);
+  spi_bridge_send_command(SPI_ID_BT_HID_SEND_KEY,
+      payload, sizeof(payload),
+      &resp_hdr, resp_buf, 1000);
 }

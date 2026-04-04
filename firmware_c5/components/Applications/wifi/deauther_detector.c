@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #include "deauther_detector.h"
 #include "wifi_service.h"
 #include "wifi_80211.h"
@@ -56,7 +57,9 @@ void deauther_detector_start(void) {
 
   ESP_LOGI(TAG, "Starting Deauth Detector...");
 
-  wifi_promiscuous_filter_t filter = {.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT};
+  wifi_promiscuous_filter_t filter = {
+    .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT
+  };
 
   wifi_service_promiscuous_start(wifi_sniffer_packet_handler, &filter);
 

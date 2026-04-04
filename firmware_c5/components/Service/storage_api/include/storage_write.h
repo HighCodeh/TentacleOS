@@ -32,9 +32,9 @@ esp_err_t storage_append_binary(const char *path, const void *data, size_t size)
 esp_err_t storage_write_line(const char *path, const char *line);
 esp_err_t storage_append_line(const char *path, const char *line);
 
-esp_err_t storage_write_formatted(const char *path, const char *format, ...)
+esp_err_t storage_write_formatted(const char *path, const char *format, ...) 
     __attribute__((format(printf, 2, 3)));
-esp_err_t storage_append_formatted(const char *path, const char *format, ...)
+esp_err_t storage_append_formatted(const char *path, const char *format, ...) 
     __attribute__((format(printf, 2, 3)));
 
 esp_err_t storage_write_buffer(const char *path, const void *buffer, size_t size);

@@ -22,9 +22,9 @@
 #include "highboy_nfc_error.h"
 
 typedef struct {
-  uint8_t pupi[4];
-  uint8_t app_data[4];
-  uint8_t prot_info[3];
+    uint8_t pupi[4];
+    uint8_t app_data[4];
+    uint8_t prot_info[3];
 } iso14443b_emu_card_t;
 
 /** Initialize default ATQB + T4T NDEF. */

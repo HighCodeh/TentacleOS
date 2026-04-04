@@ -26,25 +26,25 @@ extern "C" {
 #endif
 
 typedef struct {
-  char path[256];
-  size_t size;
-  time_t modified_time;
-  time_t created_time;
-  bool is_directory;
-  bool is_hidden;
-  bool is_readonly;
+    char path[256];
+    size_t size;
+    time_t modified_time;
+    time_t created_time;
+    bool is_directory;
+    bool is_hidden;
+    bool is_readonly;
 } storage_file_info_t;
 
 typedef void (*storage_dir_callback_t)(const char *name, bool is_dir, void *user_data);
 
 typedef struct {
-  char backend_name[32];
-  char mount_point[64];
-  bool is_mounted;
-  uint64_t total_bytes;
-  uint64_t free_bytes;
-  uint64_t used_bytes;
-  uint32_t block_size;
+    char backend_name[32];
+    char mount_point[64];
+    bool is_mounted;
+    uint64_t total_bytes;
+    uint64_t free_bytes;
+    uint64_t used_bytes;
+    uint32_t block_size;
 } storage_info_t;
 
 bool storage_file_exists(const char *path);
@@ -74,8 +74,8 @@ esp_err_t storage_get_free_space(uint64_t *free_bytes);
 esp_err_t storage_get_total_space(uint64_t *total_bytes);
 esp_err_t storage_get_used_space(uint64_t *used_bytes);
 esp_err_t storage_get_usage_percent(float *percentage);
-const char *storage_get_backend_type(void);
-const char *storage_get_mount_point_str(void);
+const char* storage_get_backend_type(void);
+const char* storage_get_mount_point_str(void);
 
 #ifdef __cplusplus
 }

@@ -28,12 +28,8 @@
 // out_name: output buffer for filename only (can be NULL)
 // out_size: size of out buffer
 // name_size: size of out_name buffer
-void tos_loot_generate_path(const char *dir,
-                            const char *prefix,
-                            const char *ext,
-                            char *out,
-                            size_t out_size,
-                            char *out_name,
-                            size_t name_size);
+void tos_loot_generate_path(const char *dir, const char *prefix, const char *ext,
+                            char *out, size_t out_size,
+                            char *out_name, size_t name_size);
 
 #endif // TOS_LOOT_H

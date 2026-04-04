@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #include "esp_log.h"
-#include "lwip/sockets.h"
+#include "lwip/sockets.h" 
 #include "dns_server.h"
-#include "lwip/netdb.h"
-#include <string.h>
+#include "lwip/netdb.h"   
+#include <string.h>       
 #include <ctype.h>
-#include "esp_netif.h"
+#include "esp_netif.h"    
 
 static const char *TAG_DNS = "dns_server";
 
@@ -26,12 +27,12 @@ static TaskHandle_t dns_task_handle = NULL;
 
 // DNS Header Structure
 typedef struct __attribute__((packed)) {
-  uint16_t id;
-  uint16_t flags;
-  uint16_t qdcount; // Questions count
-  uint16_t ancount; // Answers count
-  uint16_t nscount; // Authority records count
-  uint16_t arcount; // Additional records count
+  uint16_t id;       
+  uint16_t flags;    
+  uint16_t qdcount;  // Questions count
+  uint16_t ancount;  // Answers count
+  uint16_t nscount;  // Authority records count
+  uint16_t arcount;  // Additional records count
 } dns_header_t;
 
 // Question Tail Structure (Type and Class)
@@ -58,8 +59,7 @@ static int parse_dns_name(uint8_t *buffer, int len, int offset, char *out_name, 
   int jumped = 0;
   int count = 0; // Infinite loop protection
 
-  if (out_name)
-    out_name[0] = '\0';
+  if (out_name) out_name[0] = '\0';
 
   while (ptr < len) {
     uint8_t c = buffer[ptr];
@@ -67,30 +67,26 @@ static int parse_dns_name(uint8_t *buffer, int len, int offset, char *out_name, 
     // End of name
     if (c == 0) {
       ptr++;
-      if (!jumped)
-        return ptr - offset;
-      return -1;
+      if (!jumped) return ptr - offset;
+      return -1; 
     }
 
     // Compression pointer (0xC0)
     if ((c & 0xC0) == 0xC0) {
-      if (ptr + 1 >= len)
-        return 0; // Buffer overflow
+      if (ptr + 1 >= len) return 0; // Buffer overflow
       // Standard queries usually don't use compression in the initial QNAME.
       // Treating as error/end of linear section for size calculation.
-      return 0;
+      return 0; 
     }
 
     // Standard Label
     int label_len = c;
     ptr++;
 
-    if (ptr + label_len >= len)
-      return 0; // Buffer overflow
+    if (ptr + label_len >= len) return 0; // Buffer overflow
 
     if (out_name && out_ptr < out_len - 1) {
-      if (out_ptr > 0)
-        out_name[out_ptr++] = '.';
+      if (out_ptr > 0) out_name[out_ptr++] = '.';
       for (int i = 0; i < label_len; i++) {
         if (out_ptr < out_len - 1) {
           char ch = buffer[ptr + i];
@@ -102,26 +98,21 @@ static int parse_dns_name(uint8_t *buffer, int len, int offset, char *out_name, 
     }
     ptr += label_len;
     count++;
-    if (count > 20)
-      return 0; // Loop check
+    if (count > 20) return 0; // Loop check
   }
-  return 0;
+  return 0; 
 }
 
-static void send_dns_response(int sock,
-                              struct sockaddr_in *client_addr,
-                              socklen_t addr_len,
-                              uint8_t *request_buf,
-                              int request_len) {
+static void send_dns_response(int sock, struct sockaddr_in *client_addr, socklen_t addr_len,
+                              uint8_t *request_buf, int request_len) {
+
   uint8_t response_buf[512];
-  if (request_len > sizeof(response_buf))
-    return; // Safety check
+  if (request_len > sizeof(response_buf)) return; // Safety check
 
   memset(response_buf, 0, sizeof(response_buf));
 
   // 1. Validate Header and Size
-  if (request_len < sizeof(dns_header_t))
-    return;
+  if (request_len < sizeof(dns_header_t)) return;
 
   // Get dynamic IP from AP Interface
   esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
@@ -139,12 +130,11 @@ static void send_dns_response(int sock,
 
   // 2. Parse Question for Log and validation
   char domain_name[128] = {0};
-  int qname_len = parse_dns_name(
-      request_buf, request_len, sizeof(dns_header_t), domain_name, sizeof(domain_name));
+  int qname_len = parse_dns_name(request_buf, request_len, sizeof(dns_header_t), domain_name, sizeof(domain_name));
 
   if (qname_len <= 0) {
     ESP_LOGE(TAG_DNS, "Malformed or invalid domain name.");
-    return;
+    return; 
   }
 
   // Verify if question tail fits
@@ -159,29 +149,27 @@ static void send_dns_response(int sock,
   memcpy(response_buf, request_buf, sizeof(dns_header_t));
   dns_header_t *resp_hdr = (dns_header_t *)response_buf;
 
-  // DNS Flags for Evil Twin (Authoritative)
-  // 0x8500: QR=1, Opcode=0, AA=1 (Auth), TC=0, RD=1, RA=0, Rcode=0
-  resp_hdr->flags = htons(0x8500);
-
-  resp_hdr->ancount = htons(1);
-  resp_hdr->nscount = 0;
+      // DNS Flags for Evil Twin (Authoritative)
+      // 0x8500: QR=1, Opcode=0, AA=1 (Auth), TC=0, RD=1, RA=0, Rcode=0
+      resp_hdr->flags = htons(0x8500); 
+      
+      resp_hdr->ancount = htons(1);  resp_hdr->nscount = 0;
   resp_hdr->arcount = 0;
 
   // Copy Question (Required in response)
   int question_full_len = qname_len + sizeof(dns_question_tail_t);
-  memcpy(
-      response_buf + sizeof(dns_header_t), request_buf + sizeof(dns_header_t), question_full_len);
+  memcpy(response_buf + sizeof(dns_header_t), request_buf + sizeof(dns_header_t), question_full_len);
 
   // Add Answer
   dns_answer_t *answer = (dns_answer_t *)(response_buf + sizeof(dns_header_t) + question_full_len);
 
   // Pointer to name (0xC00C points to start of question in header offset 12)
-  answer->name = htons(0xC00C);
-  answer->type = htons(1);     // A (IPv4)
-  answer->class = htons(1);    // IN
-  answer->ttl = htonl(60);     // 60s
-  answer->data_len = htons(4); // IPv4 size
-  answer->ip_addr = target_ip;
+  answer->name = htons(0xC00C); 
+  answer->type = htons(1);      // A (IPv4)
+  answer->class = htons(1);     // IN
+  answer->ttl = htonl(60);      // 60s
+  answer->data_len = htons(4);  // IPv4 size
+  answer->ip_addr = target_ip;  
 
   // Send
   int response_total_len = sizeof(dns_header_t) + question_full_len + sizeof(dns_answer_t);
@@ -223,8 +211,7 @@ void dns_server_task(void *pvParameters) {
   ESP_LOGI(TAG_DNS, "DNS Server started (Authoritative 0x8500) - IPv4");
 
   while (1) {
-    int len =
-        recvfrom(sock, rx_buffer, sizeof(rx_buffer), 0, (struct sockaddr *)&client_addr, &addr_len);
+    int len = recvfrom(sock, rx_buffer, sizeof(rx_buffer), 0, (struct sockaddr *)&client_addr, &addr_len);
 
     if (len > 0) {
       // Basic malformation check
@@ -265,3 +252,5 @@ void stop_dns_server(void) {
     ESP_LOGI(TAG_DNS, "DNS Server stopped");
   }
 }
+
+

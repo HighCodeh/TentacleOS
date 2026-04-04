@@ -41,8 +41,9 @@ esp_err_t ble_l2cap_flood_start(const uint8_t *addr, uint8_t addr_type) {
   spi_header_t resp_hdr;
   uint8_t resp_buf[SPI_MAX_PAYLOAD];
 
-  esp_err_t ret = spi_bridge_send_command(
-      SPI_ID_BT_APP_FLOOD, payload, sizeof(payload), &resp_hdr, resp_buf, 5000);
+  esp_err_t ret = spi_bridge_send_command(SPI_ID_BT_APP_FLOOD,
+      payload, sizeof(payload),
+      &resp_hdr, resp_buf, 5000);
 
   if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
     ESP_LOGE(TAG, "Failed to start L2CAP flood on C5");
@@ -55,13 +56,14 @@ esp_err_t ble_l2cap_flood_start(const uint8_t *addr, uint8_t addr_type) {
 }
 
 esp_err_t ble_l2cap_flood_stop(void) {
-  if (!is_running)
-    return ESP_OK;
+  if (!is_running) return ESP_OK;
 
   spi_header_t resp_hdr;
   uint8_t resp_buf[SPI_MAX_PAYLOAD];
 
-  esp_err_t ret = spi_bridge_send_command(SPI_ID_BT_APP_STOP, NULL, 0, &resp_hdr, resp_buf, 2000);
+  esp_err_t ret = spi_bridge_send_command(SPI_ID_BT_APP_STOP,
+      NULL, 0,
+      &resp_hdr, resp_buf, 2000);
 
   if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
     ESP_LOGW(TAG, "Failed to stop L2CAP flood on C5");

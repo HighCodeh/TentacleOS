@@ -27,29 +27,29 @@
 hb_nfc_err_t iso14443b_poller_init(void);
 
 /** Send REQB and parse ATQB (PUPI/AppData/ProtInfo). */
-hb_nfc_err_t iso14443b_reqb(uint8_t afi, uint8_t param, nfc_iso14443b_data_t *out);
+hb_nfc_err_t iso14443b_reqb(uint8_t afi, uint8_t param, nfc_iso14443b_data_t* out);
 
 /** Send ATTRIB with basic/default parameters (best-effort). */
-hb_nfc_err_t iso14443b_attrib(const nfc_iso14443b_data_t *card, uint8_t fsdi, uint8_t cid);
+hb_nfc_err_t iso14443b_attrib(const nfc_iso14443b_data_t* card, uint8_t fsdi, uint8_t cid);
 
 /** Convenience: REQB + ATTRIB. */
-hb_nfc_err_t iso14443b_select(nfc_iso14443b_data_t *out, uint8_t afi, uint8_t param);
+hb_nfc_err_t iso14443b_select(nfc_iso14443b_data_t* out, uint8_t afi, uint8_t param);
 
 /** Best-effort T4T NDEF read over ISO14443B. */
-hb_nfc_err_t
-iso14443b_read_ndef(uint8_t afi, uint8_t param, uint8_t *out, size_t out_max, size_t *out_len);
+hb_nfc_err_t iso14443b_read_ndef(uint8_t afi, uint8_t param,
+                                  uint8_t* out, size_t out_max, size_t* out_len);
 
 /** ISO-DEP (T=CL) transceive for NFC-B. */
-int iso14443b_tcl_transceive(const nfc_iso14443b_data_t *card,
-                             const uint8_t *tx,
-                             size_t tx_len,
-                             uint8_t *rx,
-                             size_t rx_max,
-                             int timeout_ms);
+int iso14443b_tcl_transceive(const nfc_iso14443b_data_t* card,
+                              const uint8_t*             tx,
+                              size_t                     tx_len,
+                              uint8_t*                   rx,
+                              size_t                     rx_max,
+                              int                        timeout_ms);
 
 typedef struct {
-  nfc_iso14443b_data_t card;
-  uint8_t slot;
+    nfc_iso14443b_data_t card;
+    uint8_t slot;
 } iso14443b_anticoll_entry_t;
 
 /**
@@ -60,6 +60,7 @@ typedef struct {
  * @param max_out Max entries.
  * @return number of cards found.
  */
-int iso14443b_anticoll(uint8_t afi, uint8_t slots, iso14443b_anticoll_entry_t *out, size_t max_out);
+int iso14443b_anticoll(uint8_t afi, uint8_t slots,
+                        iso14443b_anticoll_entry_t* out, size_t max_out);
 
 #endif /* ISO14443B_H */

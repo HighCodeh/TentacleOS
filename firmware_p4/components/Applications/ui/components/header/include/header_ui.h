@@ -3,6 +3,6 @@
 
 #include "lvgl.h"
 
-void header_ui_create(lv_obj_t *parent);
+void header_ui_create(lv_obj_t * parent);
 
 #endif

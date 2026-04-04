@@ -21,25 +21,22 @@ static const char *TAG = "BLE_FLOOD";
 static bool is_running = false;
 
 esp_err_t ble_connect_flood_start(const uint8_t *addr, uint8_t addr_type) {
-  if (!addr)
-    return ESP_ERR_INVALID_ARG;
-  uint8_t payload[7];
-  memcpy(payload, addr, 6);
-  payload[6] = addr_type;
-  esp_err_t err =
-      spi_bridge_send_command(SPI_ID_BT_APP_FLOOD, payload, sizeof(payload), NULL, NULL, 2000);
-  is_running = (err == ESP_OK);
-  if (!is_running)
-    ESP_LOGW(TAG, "BLE flood failed over SPI.");
-  return err;
+    if (!addr) return ESP_ERR_INVALID_ARG;
+    uint8_t payload[7];
+    memcpy(payload, addr, 6);
+    payload[6] = addr_type;
+    esp_err_t err = spi_bridge_send_command(SPI_ID_BT_APP_FLOOD, payload, sizeof(payload), NULL, NULL, 2000);
+    is_running = (err == ESP_OK);
+    if (!is_running) ESP_LOGW(TAG, "BLE flood failed over SPI.");
+    return err;
 }
 
 esp_err_t ble_connect_flood_stop(void) {
-  spi_bridge_send_command(SPI_ID_BT_APP_STOP, NULL, 0, NULL, NULL, 2000);
-  is_running = false;
-  return ESP_OK;
+    spi_bridge_send_command(SPI_ID_BT_APP_STOP, NULL, 0, NULL, NULL, 2000);
+    is_running = false;
+    return ESP_OK;
 }
 
 bool ble_connect_flood_is_running(void) {
-  return is_running;
+    return is_running;
 }

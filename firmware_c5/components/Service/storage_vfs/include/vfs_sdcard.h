@@ -29,6 +29,7 @@ extern "C" {
 esp_err_t vfs_sdcard_init(void);
 esp_err_t vfs_sdcard_deinit(void);
 
+
 bool vfs_sdcard_is_mounted(void);
 void vfs_sdcard_print_info(void);
 

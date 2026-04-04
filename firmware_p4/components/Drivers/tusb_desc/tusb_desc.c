@@ -32,7 +32,7 @@ static const char *TAG = "TUSB_DESC";
 #define USB_BCD_DEVICE 0x0100
 
 // USB Configuration
-#define USB_MAX_POWER_MA         100
+#define USB_MAX_POWER_MA     100
 #define USB_HID_POLL_INTERVAL_MS 1
 
 // String descriptor indices
@@ -45,19 +45,19 @@ static const char *TAG = "TUSB_DESC";
 
 // Device Descriptor — USB 2.0, class defined at interface level
 static const tusb_desc_device_t s_desc_device = {
-    .bLength = sizeof(tusb_desc_device_t),
-    .bDescriptorType = TUSB_DESC_DEVICE,
-    .bcdUSB = 0x0200,
-    .bDeviceClass = 0x00,
-    .bDeviceSubClass = 0x00,
-    .bDeviceProtocol = 0x00,
-    .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
-    .idVendor = USB_VENDOR_ID,
-    .idProduct = USB_PRODUCT_ID,
-    .bcdDevice = USB_BCD_DEVICE,
-    .iManufacturer = STR_IDX_MANUFACTURER,
-    .iProduct = STR_IDX_PRODUCT,
-    .iSerialNumber = STR_IDX_SERIAL,
+    .bLength            = sizeof(tusb_desc_device_t),
+    .bDescriptorType    = TUSB_DESC_DEVICE,
+    .bcdUSB             = 0x0200,
+    .bDeviceClass       = 0x00,
+    .bDeviceSubClass    = 0x00,
+    .bDeviceProtocol    = 0x00,
+    .bMaxPacketSize0    = CFG_TUD_ENDPOINT0_SIZE,
+    .idVendor           = USB_VENDOR_ID,
+    .idProduct          = USB_PRODUCT_ID,
+    .bcdDevice          = USB_BCD_DEVICE,
+    .iManufacturer      = STR_IDX_MANUFACTURER,
+    .iProduct           = STR_IDX_PRODUCT,
+    .iSerialNumber      = STR_IDX_SERIAL,
     .bNumConfigurations = 1,
 };
 
@@ -69,15 +69,19 @@ static const uint8_t s_desc_hid_report[] = {
 
 // Configuration Descriptor — 1 interface (HID), remote wakeup enabled
 static const uint8_t s_desc_configuration[] = {
-    TUD_CONFIG_DESCRIPTOR(
-        1, 1, 0, CONFIG_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, USB_MAX_POWER_MA),
+    TUD_CONFIG_DESCRIPTOR(1,
+                          1,
+                          0,
+                          CONFIG_TOTAL_LEN,
+                          TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP,
+                          USB_MAX_POWER_MA),
     TUD_HID_DESCRIPTOR(TUSB_DESC_ITF_NUM_HID,
-                       0,
-                       HID_ITF_PROTOCOL_KEYBOARD,
-                       sizeof(s_desc_hid_report),
-                       0x81,
-                       CFG_TUD_HID_EP_BUFSIZE,
-                       USB_HID_POLL_INTERVAL_MS),
+                        0,
+                        HID_ITF_PROTOCOL_KEYBOARD,
+                        sizeof(s_desc_hid_report),
+                        0x81,
+                        CFG_TUD_HID_EP_BUFSIZE,
+                        USB_HID_POLL_INTERVAL_MS),
 };
 
 // String Descriptors
@@ -131,10 +135,10 @@ const uint8_t *tud_hid_descriptor_report_cb(uint8_t instance) {
 }
 
 uint16_t tud_hid_get_report_cb(uint8_t instance,
-                               uint8_t report_id,
-                               hid_report_type_t report_type,
-                               uint8_t *buffer,
-                               uint16_t reqlen) {
+                                uint8_t report_id,
+                                hid_report_type_t report_type,
+                                uint8_t *buffer,
+                                uint16_t reqlen) {
   (void)instance;
   (void)report_id;
   (void)report_type;
@@ -144,10 +148,10 @@ uint16_t tud_hid_get_report_cb(uint8_t instance,
 }
 
 void tud_hid_set_report_cb(uint8_t instance,
-                           uint8_t report_id,
-                           hid_report_type_t report_type,
-                           uint8_t const *buffer,
-                           uint16_t bufsize) {
+                            uint8_t report_id,
+                            hid_report_type_t report_type,
+                            uint8_t const *buffer,
+                            uint16_t bufsize) {
   (void)instance;
   (void)report_id;
   (void)report_type;
@@ -172,16 +176,16 @@ esp_err_t busb_init(void) {
       .port = TINYUSB_PORT_HIGH_SPEED_0,
       .descriptor =
           {
-              .device = &s_desc_device,
-              .string = s_string_desc_arr,
-              .string_count = STRING_DESC_COUNT,
+              .device            = &s_desc_device,
+              .string            = s_string_desc_arr,
+              .string_count      = STRING_DESC_COUNT,
               .full_speed_config = s_desc_configuration,
               .high_speed_config = s_desc_configuration,
           },
       .phy =
           {
-              .skip_setup = false,
-              .self_powered = false,
+              .skip_setup     = false,
+              .self_powered   = false,
               .vbus_monitor_io = -1,
           },
   };

@@ -21,17 +21,17 @@
 #define MAX_SKIMMERS_FOUND 50
 
 typedef struct {
-  uint8_t addr[6];
-  uint8_t addr_type;
-  int8_t rssi;
-  char name[32];
-  uint32_t last_seen;
-  char detection_reason[32];
+    uint8_t addr[6];
+    uint8_t addr_type;
+    int8_t rssi;
+    char name[32];
+    uint32_t last_seen;
+    char detection_reason[32];
 } skimmer_record_t;
 
 bool skimmer_detector_start(void);
 void skimmer_detector_stop(void);
-skimmer_record_t *skimmer_detector_get_results(uint16_t *count);
+skimmer_record_t* skimmer_detector_get_results(uint16_t *count);
 void skimmer_detector_clear_results(void);
 
 #endif // SKIMMER_DETECTOR_H

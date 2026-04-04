@@ -30,13 +30,13 @@
 #include "storage_mkdir.h"
 #include "spi_bridge.h"
 #include <string.h>
-#include <arpa/inet.h>
+#include <arpa/inet.h> 
 
 static const char *TAG = "WIFI_SNIFFER";
 
-#define SNIFFER_BUFFER_SIZE  (200 * 1024)
+#define SNIFFER_BUFFER_SIZE (200 * 1024) 
 #define MAX_TRACKED_SESSIONS 16
-#define MAX_KNOWN_APS        32
+#define MAX_KNOWN_APS 32
 
 typedef struct {
   uint8_t bssid[6];
@@ -68,8 +68,7 @@ static handshake_session_t sessions[MAX_TRACKED_SESSIONS];
 static ap_info_t known_aps[MAX_KNOWN_APS];
 
 static bool write_pcap_global_header(void) {
-  if (pcap_buffer == NULL)
-    return false;
+  if (pcap_buffer == NULL) return false;
 
   pcap_global_header_t header;
   header.magic_number = PCAP_MAGIC_NUMBER;
@@ -89,36 +88,32 @@ static void inject_unicast_probe_req(const uint8_t *target_bssid) {
   uint8_t packet[128];
   uint8_t mac[6];
   esp_fill_random(mac, 6);
-  mac[0] &= 0xFC;
+  mac[0] &= 0xFC; 
 
   int idx = 0;
   packet[idx++] = 0x40; // Type: Probe Req
   packet[idx++] = 0x00;
-  packet[idx++] = 0x00;
+  packet[idx++] = 0x00; 
   packet[idx++] = 0x00;
 
-  memcpy(&packet[idx], target_bssid, 6);
-  idx += 6;
-  memcpy(&packet[idx], mac, 6);
-  idx += 6;
-  memcpy(&packet[idx], target_bssid, 6);
-  idx += 6;
+  memcpy(&packet[idx], target_bssid, 6); idx += 6;
+  memcpy(&packet[idx], mac, 6); idx += 6;
+  memcpy(&packet[idx], target_bssid, 6); idx += 6;
 
-  packet[idx++] = 0x00;
+  packet[idx++] = 0x00; 
   packet[idx++] = 0x00;
 
   packet[idx++] = 0x00;
-  packet[idx++] = 0x00;
+  packet[idx++] = 0x00; 
 
   uint8_t rates[] = {0x82, 0x84, 0x8b, 0x96};
   packet[idx++] = 0x01;
   packet[idx++] = sizeof(rates);
-  memcpy(&packet[idx], rates, sizeof(rates));
-  idx += sizeof(rates);
+  memcpy(&packet[idx], rates, sizeof(rates)); idx += sizeof(rates);
 
   for (int i = 0; i < 3; i++) {
     esp_wifi_80211_tx(WIFI_IF_AP, packet, idx, false);
-    vTaskDelay(pdMS_TO_TICKS(2));
+    vTaskDelay(pdMS_TO_TICKS(2)); 
   }
   ESP_LOGI(TAG, "Injected Probe Request burst (3x) for SSID reveal");
 }
@@ -150,8 +145,7 @@ static void track_handshake(const uint8_t *bssid, const uint8_t *station, uint16
 
   if (is_m1) {
     for (int i = 0; i < MAX_TRACKED_SESSIONS; i++) {
-      if (memcmp(sessions[i].bssid, bssid, 6) == 0 &&
-          memcmp(sessions[i].station, station, 6) == 0) {
+      if (memcmp(sessions[i].bssid, bssid, 6) == 0 && memcmp(sessions[i].station, station, 6) == 0) {
         sessions[i].has_m1 = true;
         sessions[i].m1_timestamp = esp_timer_get_time() / 1000;
         return;
@@ -163,10 +157,13 @@ static void track_handshake(const uint8_t *bssid, const uint8_t *station, uint16
     sessions[idx].has_m1 = true;
     sessions[idx].m1_timestamp = esp_timer_get_time() / 1000;
     ESP_LOGI(TAG, "Captured EAPOL M1 (Potential Handshake)");
-  } else if (is_m2) {
+  } 
+  else if (is_m2) {
     for (int i = 0; i < MAX_TRACKED_SESSIONS; i++) {
-      if (sessions[i].has_m1 && memcmp(sessions[i].bssid, bssid, 6) == 0 &&
-          memcmp(sessions[i].station, station, 6) == 0) {
+      if (sessions[i].has_m1 && 
+        memcmp(sessions[i].bssid, bssid, 6) == 0 && 
+        memcmp(sessions[i].station, station, 6) == 0) {
+
         ESP_LOGW(TAG, "VALID HANDSHAKE CAPTURED! (M1 + M2)");
         if (!handshake_captured) {
           memcpy(handshake_bssid, bssid, 6);
@@ -181,30 +178,24 @@ static void track_handshake(const uint8_t *bssid, const uint8_t *station, uint16
 }
 
 static bool check_pmkid_presence(const uint8_t *payload, int len, const uint8_t *bssid) {
-  if (len < 99)
-    return false;
+  if (len < 99) return false;
 
-  int eapol_offset = 8;
+  int eapol_offset = 8; 
 
-  if (len < eapol_offset + 4)
-    return false;
+  if (len < eapol_offset + 4) return false;
 
   const uint8_t *eapol = payload + eapol_offset;
-  if (eapol[1] != 3)
-    return false;
+  if (eapol[1] != 3) return false; 
 
   int key_desc_offset = eapol_offset + 4;
   int key_data_len_offset = key_desc_offset + 93;
 
-  if (len < key_data_len_offset + 2)
-    return false;
+  if (len < key_data_len_offset + 2) return false;
 
   uint16_t key_data_len = (payload[key_data_len_offset] << 8) | payload[key_data_len_offset + 1];
 
-  if (key_data_len == 0)
-    return false;
-  if (len < key_data_len_offset + 2 + key_data_len)
-    return false;
+  if (key_data_len == 0) return false;
+  if (len < key_data_len_offset + 2 + key_data_len) return false; 
 
   const uint8_t *key_data = payload + key_data_len_offset + 2;
   int offset = 0;
@@ -213,34 +204,29 @@ static bool check_pmkid_presence(const uint8_t *payload, int len, const uint8_t 
     uint8_t tag = key_data[offset];
     uint8_t tag_len = key_data[offset + 1];
 
-    if (offset + 2 + tag_len > key_data_len)
-      break;
+    if (offset + 2 + tag_len > key_data_len) break;
 
-    if (tag == 0x30) {
+    if (tag == 0x30) { 
       int rsn_cursor = 0;
       const uint8_t *rsn_body = key_data + offset + 2;
       int rsn_len = tag_len;
 
-      if (rsn_len < 2 + 4)
-        return false;
+      if (rsn_len < 2 + 4) return false; 
       rsn_cursor += 6;
 
-      if (rsn_cursor + 2 > rsn_len)
-        break;
-      uint16_t pairwise_count = rsn_body[rsn_cursor] | (rsn_body[rsn_cursor + 1] << 8);
+      if (rsn_cursor + 2 > rsn_len) break;
+      uint16_t pairwise_count = rsn_body[rsn_cursor] | (rsn_body[rsn_cursor+1] << 8);
       rsn_cursor += 2 + (4 * pairwise_count);
 
-      if (rsn_cursor + 2 > rsn_len)
-        break;
-      uint16_t akm_count = rsn_body[rsn_cursor] | (rsn_body[rsn_cursor + 1] << 8);
+      if (rsn_cursor + 2 > rsn_len) break;
+      uint16_t akm_count = rsn_body[rsn_cursor] | (rsn_body[rsn_cursor+1] << 8);
       rsn_cursor += 2 + (4 * akm_count);
 
-      if (rsn_cursor + 2 > rsn_len)
-        break;
+      if (rsn_cursor + 2 > rsn_len) break;
       rsn_cursor += 2;
 
       if (rsn_cursor + 2 <= rsn_len) {
-        uint16_t pmkid_count = rsn_body[rsn_cursor] | (rsn_body[rsn_cursor + 1] << 8);
+        uint16_t pmkid_count = rsn_body[rsn_cursor] | (rsn_body[rsn_cursor+1] << 8);
         if (pmkid_count > 0) {
           if (!pmkid_captured) {
             memcpy(pmkid_bssid, bssid, 6);
@@ -252,7 +238,7 @@ static bool check_pmkid_presence(const uint8_t *payload, int len, const uint8_t 
           return true;
         }
       }
-      break;
+      break; 
     }
     offset += 2 + tag_len;
   }
@@ -265,7 +251,7 @@ void wifi_sniffer_set_snaplen(uint16_t len) {
 }
 
 void wifi_sniffer_set_verbose(bool verbose) {
-  is_verbose = verbose;
+    is_verbose = verbose;
 }
 
 static bool is_streaming_sd = false;
@@ -287,7 +273,7 @@ static void sniffer_stream_task(void *arg) {
   snprintf(path, sizeof(path), "/%s", stream_filename);
 
   while (is_streaming_sd && is_sniffing) {
-    uint32_t write_pos = buffer_offset;
+    uint32_t write_pos = buffer_offset; 
     uint32_t read_pos = rb_read_offset;
 
     if (write_pos != read_pos) {
@@ -298,8 +284,7 @@ static void sniffer_stream_task(void *arg) {
         len = SNIFFER_BUFFER_SIZE - read_pos;
       }
 
-      if (len > 4096)
-        len = 4096;
+      if (len > 4096) len = 4096;
 
       memcpy(chunk_buf, pcap_buffer + read_pos, len);
 
@@ -320,8 +305,7 @@ static void sniffer_stream_task(void *arg) {
 }
 
 static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
-  if (!is_sniffing)
-    return;
+  if (!is_sniffing) return;
 
   const bool pcap_ok = (pcap_buffer != NULL);
   if (pcap_ok && !is_streaming_sd && buffer_offset >= SNIFFER_BUFFER_SIZE - 2048) {
@@ -333,45 +317,35 @@ static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
   const wifi_frame_control_t *fc = (const wifi_frame_control_t *)&mac_header->frame_control;
 
   int header_len = 24;
-  if (fc->to_ds && fc->from_ds)
-    header_len = 30;
-  if (fc->subtype & 0x8)
-    header_len += 2;
+  if (fc->to_ds && fc->from_ds) header_len = 30; 
+  if (fc->subtype & 0x8) header_len += 2; 
 
   if (fc->type == 0 && (fc->subtype == 8 || fc->subtype == 5)) {
-    register_known_ap(mac_header->addr3);
+    register_known_ap(mac_header->addr3); 
   }
   if (fc->type == 0 && fc->subtype == 0xC) {
     deauth_count++;
-    if (is_verbose)
-      ESP_LOGW(TAG, "Deauth detected!");
+    if (is_verbose) ESP_LOGW(TAG, "Deauth detected!");
   }
 
   if (is_verbose) {
-    // Simple visualization
-    if (fc->type == 0 && fc->subtype == 8)
-      printf("B"); // Beacon
-    else if (fc->type == 0 && fc->subtype == 4)
-      printf("P"); // Probe
-    else if (fc->type == 2 && fc->subtype == 0)
-      printf("D"); // Data
-    else if (fc->type == 1)
-      printf("C"); // Control
-    else
-      printf(".");
-    fflush(stdout);
+      // Simple visualization
+      if (fc->type == 0 && fc->subtype == 8) printf("B"); // Beacon
+      else if (fc->type == 0 && fc->subtype == 4) printf("P"); // Probe
+      else if (fc->type == 2 && fc->subtype == 0) printf("D"); // Data
+      else if (fc->type == 1) printf("C"); // Control
+      else printf(".");
+      fflush(stdout);
   }
 
   bool save = false;
 
   switch (current_type) {
     case SNIFF_TYPE_BEACON:
-      if (fc->type == 0 && fc->subtype == 8)
-        save = true;
+      if (fc->type == 0 && fc->subtype == 8) save = true;
       break;
     case SNIFF_TYPE_PROBE:
-      if (fc->type == 0 && fc->subtype == 4)
-        save = true;
+      if (fc->type == 0 && fc->subtype == 4) save = true;
       break;
     case SNIFF_TYPE_EAPOL:
     case SNIFF_TYPE_PMKID:
@@ -379,9 +353,10 @@ static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
         if (ppkt->rx_ctrl.sig_len > header_len + sizeof(wifi_llc_snap_t)) {
           const wifi_llc_snap_t *llc = (const wifi_llc_snap_t *)(ppkt->payload + header_len);
           if (ntohs(llc->type) == WIFI_ETHERTYPE_EAPOL) {
+
             int eapol_offset = header_len + sizeof(wifi_llc_snap_t);
             if (ppkt->rx_ctrl.sig_len >= eapol_offset + 7) {
-              uint8_t *key_info_ptr = (uint8_t *)(ppkt->payload + eapol_offset + 5);
+              uint8_t *key_info_ptr = (uint8_t*)(ppkt->payload + eapol_offset + 5);
               uint16_t key_info = (key_info_ptr[0] << 8) | key_info_ptr[1];
 
               const uint8_t *bssid = (fc->from_ds) ? mac_header->addr2 : mac_header->addr1;
@@ -394,8 +369,7 @@ static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
               save = true;
             } else {
               const uint8_t *bssid = (fc->from_ds) ? mac_header->addr2 : mac_header->addr1;
-              if (check_pmkid_presence(
-                      ppkt->payload + header_len, ppkt->rx_ctrl.sig_len - header_len, bssid)) {
+              if (check_pmkid_presence(ppkt->payload + header_len, ppkt->rx_ctrl.sig_len - header_len, bssid)) {
                 save = true;
                 ESP_LOGI(TAG, "PMKID Found!");
               }
@@ -413,8 +387,7 @@ static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
     uint8_t stream_buf[SPI_MAX_PAYLOAD];
     spi_wifi_sniffer_frame_t *stream = (spi_wifi_sniffer_frame_t *)stream_buf;
     uint16_t raw_len = ppkt->rx_ctrl.sig_len;
-    if (raw_len > SPI_WIFI_SNIFFER_MAX_DATA)
-      raw_len = SPI_WIFI_SNIFFER_MAX_DATA;
+    if (raw_len > SPI_WIFI_SNIFFER_MAX_DATA) raw_len = SPI_WIFI_SNIFFER_MAX_DATA;
     stream->rssi = ppkt->rx_ctrl.rssi;
     stream->channel = ppkt->rx_ctrl.channel;
     stream->len = (uint8_t)raw_len;
@@ -429,8 +402,7 @@ static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
     pkt_hdr.ts_usec = (uint32_t)(now_us % 1000000);
     pkt_hdr.orig_len = ppkt->rx_ctrl.sig_len;
 
-    pkt_hdr.incl_len =
-        (ppkt->rx_ctrl.sig_len > sniffer_snaplen) ? sniffer_snaplen : ppkt->rx_ctrl.sig_len;
+    pkt_hdr.incl_len = (ppkt->rx_ctrl.sig_len > sniffer_snaplen) ? sniffer_snaplen : ppkt->rx_ctrl.sig_len;
 
     if (is_streaming_sd) {
       uint32_t next_write = buffer_offset;
@@ -441,7 +413,7 @@ static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
       } else {
         uint32_t p1 = SNIFFER_BUFFER_SIZE - next_write;
         memcpy(pcap_buffer + next_write, &pkt_hdr, p1);
-        memcpy(pcap_buffer, ((uint8_t *)&pkt_hdr) + p1, sizeof(pkt_hdr) - p1);
+        memcpy(pcap_buffer, ((uint8_t*)&pkt_hdr) + p1, sizeof(pkt_hdr) - p1);
         next_write = sizeof(pkt_hdr) - p1;
       }
 
@@ -455,7 +427,7 @@ static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
         next_write = pkt_hdr.incl_len - p1;
       }
 
-      buffer_offset = next_write;
+      buffer_offset = next_write; 
     } else {
       if (buffer_offset + sizeof(pkt_hdr) + pkt_hdr.incl_len <= SNIFFER_BUFFER_SIZE) {
         memcpy(pcap_buffer + buffer_offset, &pkt_hdr, sizeof(pkt_hdr));
@@ -506,8 +478,9 @@ bool wifi_sniffer_start(sniff_type_t type, uint8_t channel) {
     wifi_service_start_channel_hopping();
   }
 
-  wifi_promiscuous_filter_t filter = {.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT |
-                                                     WIFI_PROMIS_FILTER_MASK_DATA};
+  wifi_promiscuous_filter_t filter = {
+    .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA
+  };
   wifi_service_promiscuous_start(sniffer_callback, &filter);
 
   is_sniffing = true;
@@ -534,7 +507,7 @@ bool wifi_sniffer_start_stream_sd(sniff_type_t type, uint8_t channel, const char
     return false;
   }
 
-  strncpy(stream_filename, filename, sizeof(stream_filename) - 1);
+  strncpy(stream_filename, filename, sizeof(stream_filename)-1);
 
   pcap_global_header_t header;
   header.magic_number = PCAP_MAGIC_NUMBER;
@@ -553,8 +526,8 @@ bool wifi_sniffer_start_stream_sd(sniff_type_t type, uint8_t channel, const char
     return false;
   }
 
-  buffer_offset = 0;
-  rb_read_offset = 0;
+  buffer_offset = 0; 
+  rb_read_offset = 0; 
   packet_count = 0;
   current_type = type;
 
@@ -562,28 +535,27 @@ bool wifi_sniffer_start_stream_sd(sniff_type_t type, uint8_t channel, const char
   memset(known_aps, 0, sizeof(known_aps));
 
   is_streaming_sd = true;
-  is_sniffing = true;
+  is_sniffing = true; 
 
-  stream_task_stack =
-      (StackType_t *)heap_caps_malloc(4096 * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
-  stream_task_tcb =
-      (StaticTask_t *)heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  stream_task_stack = (StackType_t *)heap_caps_malloc(4096 * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
+  stream_task_tcb = (StaticTask_t *)heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 
   if (stream_task_stack && stream_task_tcb) {
     stream_task_handle = xTaskCreateStatic(
-        sniffer_stream_task, "sniff_stream", 4096, NULL, 5, stream_task_stack, stream_task_tcb);
+      sniffer_stream_task, 
+      "sniff_stream", 
+      4096, 
+      NULL, 
+      5, 
+      stream_task_stack, 
+      stream_task_tcb
+    );
   }
 
   if (stream_task_handle == NULL) {
     ESP_LOGE(TAG, "Failed to create stream task in PSRAM");
-    if (stream_task_stack) {
-      heap_caps_free(stream_task_stack);
-      stream_task_stack = NULL;
-    }
-    if (stream_task_tcb) {
-      heap_caps_free(stream_task_tcb);
-      stream_task_tcb = NULL;
-    }
+    if (stream_task_stack) { heap_caps_free(stream_task_stack); stream_task_stack = NULL; }
+    if (stream_task_tcb) { heap_caps_free(stream_task_tcb); stream_task_tcb = NULL; }
     is_streaming_sd = false;
     is_sniffing = false;
     return false;
@@ -595,8 +567,9 @@ bool wifi_sniffer_start_stream_sd(sniff_type_t type, uint8_t channel, const char
     wifi_service_start_channel_hopping();
   }
 
-  wifi_promiscuous_filter_t filter = {.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT |
-                                                     WIFI_PROMIS_FILTER_MASK_DATA};
+  wifi_promiscuous_filter_t filter = {
+    .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA
+  };
   wifi_service_promiscuous_start(sniffer_callback, &filter);
 
   ESP_LOGI(TAG, "Sniffer Stream started (Type: %d, Channel: %d) to %s", type, channel, filename);
@@ -604,8 +577,7 @@ bool wifi_sniffer_start_stream_sd(sniff_type_t type, uint8_t channel, const char
 }
 
 void wifi_sniffer_stop(void) {
-  if (!is_sniffing)
-    return;
+  if (!is_sniffing) return;
 
   wifi_service_promiscuous_stop();
   wifi_service_stop_channel_hopping();
@@ -613,27 +585,17 @@ void wifi_sniffer_stop(void) {
   is_streaming_sd = false;
 
   if (stream_task_handle) {
-    vTaskDelay(pdMS_TO_TICKS(200));
-  }
+    vTaskDelay(pdMS_TO_TICKS(200)); 
+  } 
+  
+  if (stream_task_stack) { heap_caps_free(stream_task_stack); stream_task_stack = NULL; }
+  if (stream_task_tcb) { heap_caps_free(stream_task_tcb); stream_task_tcb = NULL; }
 
-  if (stream_task_stack) {
-    heap_caps_free(stream_task_stack);
-    stream_task_stack = NULL;
-  }
-  if (stream_task_tcb) {
-    heap_caps_free(stream_task_tcb);
-    stream_task_tcb = NULL;
-  }
-
-  ESP_LOGI(TAG,
-           "Sniffer stopped. Captured %lu packets. Buffer usage: %lu bytes",
-           packet_count,
-           buffer_offset);
+  ESP_LOGI(TAG, "Sniffer stopped. Captured %lu packets. Buffer usage: %lu bytes", packet_count, buffer_offset);
 }
 
 static bool save_to_file(const char *path, bool use_sd) {
-  if (pcap_buffer == NULL || buffer_offset == 0)
-    return false;
+  if (pcap_buffer == NULL || buffer_offset == 0) return false;
 
   if (!use_sd) {
     storage_mkdir_recursive(FLASH_STORAGE_WIFI_PCAP);
@@ -641,8 +603,7 @@ static bool save_to_file(const char *path, bool use_sd) {
 
   esp_err_t err;
   if (use_sd) {
-    if (!sd_is_mounted())
-      return false;
+    if (!sd_is_mounted()) return false;
     err = sd_write_binary(path, pcap_buffer, buffer_offset);
   } else {
     err = storage_write_binary(path, pcap_buffer, buffer_offset);
@@ -701,8 +662,7 @@ void wifi_sniffer_clear_pmkid(void) {
 }
 
 void wifi_sniffer_get_pmkid_bssid(uint8_t out_bssid[6]) {
-  if (!out_bssid)
-    return;
+  if (!out_bssid) return;
   memcpy(out_bssid, pmkid_bssid, 6);
 }
 
@@ -716,7 +676,6 @@ void wifi_sniffer_clear_handshake(void) {
 }
 
 void wifi_sniffer_get_handshake_bssid(uint8_t out_bssid[6]) {
-  if (!out_bssid)
-    return;
+  if (!out_bssid) return;
   memcpy(out_bssid, handshake_bssid, 6);
 }

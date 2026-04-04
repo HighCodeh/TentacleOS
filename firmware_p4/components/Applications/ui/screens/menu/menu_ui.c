@@ -11,145 +11,62 @@
 #include "page_dots_ui.h"
 #include "st7789.h"
 
-extern lv_group_t *main_group;
+extern lv_group_t * main_group;
 static const char *TAG = "UI_MENU";
 
 typedef struct {
-  const char *name;
-  const char *icon_frames[3];
-  const char *base_frames[3];
-  lv_image_dsc_t *icon_dscs[3];
-  lv_image_dsc_t *base_dscs[3];
+  const char * name;
+  const char * icon_frames[3];
+  const char * base_frames[3];
+  lv_image_dsc_t * icon_dscs[3];
+  lv_image_dsc_t * base_dscs[3];
 } menu_item_t;
 
 static menu_item_t menu_data[] = {
-    {"WIFI",
-     {"/assets/frames/wifi_frame_0.bin",
-      "/assets/frames/wifi_frame_1.bin",
-      "/assets/frames/wifi_frame_2.bin"},
-     {"/assets/frames/base_frame_0.bin",
-      "/assets/frames/base_frame_1.bin",
-      "/assets/frames/base_frame_2.bin"},
-     {NULL},
-     {NULL}},
-    {"BLUETOOTH",
-     {"/assets/frames/ble_frame_0.bin",
-      "/assets/frames/ble_frame_1.bin",
-      "/assets/frames/ble_frame_2.bin"},
-     {"/assets/frames/base_frame_0.bin",
-      "/assets/frames/base_frame_1.bin",
-      "/assets/frames/base_frame_2.bin"},
-     {NULL},
-     {NULL}},
-    {"NFC",
-     {"/assets/frames/nfc_frame_0.bin",
-      "/assets/frames/nfc_frame_1.bin",
-      "/assets/frames/nfc_frame_2.bin"},
-     {"/assets/frames/base_frame_0.bin",
-      "/assets/frames/base_frame_1.bin",
-      "/assets/frames/base_frame_2.bin"},
-     {NULL},
-     {NULL}},
-    {"INFRARED",
-     {"/assets/frames/ir_frame_0.bin",
-      "/assets/frames/ir_frame_1.bin",
-      "/assets/frames/ir_frame_2.bin"},
-     {"/assets/frames/base_frame_0.bin",
-      "/assets/frames/base_frame_1.bin",
-      "/assets/frames/base_frame_2.bin"},
-     {NULL},
-     {NULL}},
-    {"SUB-GHZ",
-     {"/assets/frames/subghz_frame_0.bin",
-      "/assets/frames/subghz_frame_1.bin",
-      "/assets/frames/subghz_frame_2.bin"},
-     {"/assets/frames/base_frame_0.bin",
-      "/assets/frames/base_frame_1.bin",
-      "/assets/frames/base_frame_2.bin"},
-     {NULL},
-     {NULL}},
-    {"LORA",
-     {"/assets/frames/lora_frame_0.bin",
-      "/assets/frames/lora_frame_1.bin",
-      "/assets/frames/lora_frame_2.bin"},
-     {"/assets/frames/base_frame_0.bin",
-      "/assets/frames/base_frame_1.bin",
-      "/assets/frames/base_frame_2.bin"},
-     {NULL},
-     {NULL}},
-    {"GPIO",
-     {"/assets/frames/gpios_frame_0.bin",
-      "/assets/frames/gpios_frame_1.bin",
-      "/assets/frames/gpios_frame_2.bin"},
-     {"/assets/frames/base_frame_0.bin",
-      "/assets/frames/base_frame_1.bin",
-      "/assets/frames/base_frame_2.bin"},
-     {NULL},
-     {NULL}},
-    {"CONFIGURATION",
-     {"/assets/frames/config_frame_0.bin",
-      "/assets/frames/config_frame_1.bin",
-      "/assets/frames/config_frame_2.bin"},
-     {"/assets/frames/base_frame_0.bin",
-      "/assets/frames/base_frame_1.bin",
-      "/assets/frames/base_frame_2.bin"},
-     {NULL},
-     {NULL}},
-    {"FILES",
-     {"/assets/frames/file_frame_0.bin",
-      "/assets/frames/file_frame_1.bin",
-      "/assets/frames/file_frame_2.bin"},
-     {"/assets/frames/base_frame_0.bin",
-      "/assets/frames/base_frame_1.bin",
-      "/assets/frames/base_frame_2.bin"},
-     {NULL},
-     {NULL}},
-    {"APPS",
-     {"/assets/frames/apps_frame_0.bin",
-      "/assets/frames/apps_frame_1.bin",
-      "/assets/frames/apps_frame_2.bin"},
-     {"/assets/frames/base_frame_0.bin",
-      "/assets/frames/base_frame_1.bin",
-      "/assets/frames/base_frame_2.bin"},
-     {NULL},
-     {NULL}},
+  {"WIFI",          {"/assets/frames/wifi_frame_0.bin",   "/assets/frames/wifi_frame_1.bin",   "/assets/frames/wifi_frame_2.bin"},   {"/assets/frames/base_frame_0.bin", "/assets/frames/base_frame_1.bin", "/assets/frames/base_frame_2.bin"}, {NULL}, {NULL}},
+  {"BLUETOOTH",     {"/assets/frames/ble_frame_0.bin",    "/assets/frames/ble_frame_1.bin",    "/assets/frames/ble_frame_2.bin"},    {"/assets/frames/base_frame_0.bin", "/assets/frames/base_frame_1.bin", "/assets/frames/base_frame_2.bin"}, {NULL}, {NULL}},
+  {"NFC",           {"/assets/frames/nfc_frame_0.bin",    "/assets/frames/nfc_frame_1.bin",    "/assets/frames/nfc_frame_2.bin"},    {"/assets/frames/base_frame_0.bin", "/assets/frames/base_frame_1.bin", "/assets/frames/base_frame_2.bin"}, {NULL}, {NULL}},
+  {"INFRARED",      {"/assets/frames/ir_frame_0.bin",     "/assets/frames/ir_frame_1.bin",     "/assets/frames/ir_frame_2.bin"},     {"/assets/frames/base_frame_0.bin", "/assets/frames/base_frame_1.bin", "/assets/frames/base_frame_2.bin"}, {NULL}, {NULL}},
+  {"SUB-GHZ",       {"/assets/frames/subghz_frame_0.bin", "/assets/frames/subghz_frame_1.bin", "/assets/frames/subghz_frame_2.bin"}, {"/assets/frames/base_frame_0.bin", "/assets/frames/base_frame_1.bin", "/assets/frames/base_frame_2.bin"}, {NULL}, {NULL}},
+  {"LORA",          {"/assets/frames/lora_frame_0.bin",   "/assets/frames/lora_frame_1.bin",   "/assets/frames/lora_frame_2.bin"},   {"/assets/frames/base_frame_0.bin", "/assets/frames/base_frame_1.bin", "/assets/frames/base_frame_2.bin"}, {NULL}, {NULL}},
+  {"GPIO",          {"/assets/frames/gpios_frame_0.bin",  "/assets/frames/gpios_frame_1.bin",  "/assets/frames/gpios_frame_2.bin"},  {"/assets/frames/base_frame_0.bin", "/assets/frames/base_frame_1.bin", "/assets/frames/base_frame_2.bin"}, {NULL}, {NULL}},
+  {"CONFIGURATION", {"/assets/frames/config_frame_0.bin", "/assets/frames/config_frame_1.bin", "/assets/frames/config_frame_2.bin"}, {"/assets/frames/base_frame_0.bin", "/assets/frames/base_frame_1.bin", "/assets/frames/base_frame_2.bin"}, {NULL}, {NULL}},
+  {"FILES",         {"/assets/frames/file_frame_0.bin",   "/assets/frames/file_frame_1.bin",   "/assets/frames/file_frame_2.bin"},   {"/assets/frames/base_frame_0.bin", "/assets/frames/base_frame_1.bin", "/assets/frames/base_frame_2.bin"}, {NULL}, {NULL}},
+  {"APPS",          {"/assets/frames/apps_frame_0.bin",   "/assets/frames/apps_frame_1.bin",   "/assets/frames/apps_frame_2.bin"},   {"/assets/frames/base_frame_0.bin", "/assets/frames/base_frame_1.bin", "/assets/frames/base_frame_2.bin"}, {NULL}, {NULL}},
 };
 
-#define N       (sizeof(menu_data) / sizeof(menu_data[0]))
+#define N (sizeof(menu_data) / sizeof(menu_data[0]))
 #define ANIM_MS 400
 
-static lv_obj_t *scr = NULL;
-static lv_obj_t *lbl = NULL;
-static lv_obj_t *bi[N]; /* base images */
-static lv_obj_t *ii[N]; /* icon images */
+static lv_obj_t * scr = NULL;
+static lv_obj_t * lbl = NULL;
+static lv_obj_t * bi[N];   /* base images */
+static lv_obj_t * ii[N];   /* icon images */
 static page_dots_t pg_dots;
 static uint8_t sel = 0;
-static lv_font_t *fnt = NULL;
+static lv_font_t * fnt = NULL;
 static bool animating = false;
 
 /*              far-L   left  center  right  far-R  */
-static const int PX[] = {-120, -75, 0, 75, 120};
-static const int PY[] = {-25, -12, 0, -12, -25};
-static const int SC[] = {128, 184, 280, 184, 128};
+static const int PX[] = {-120, -75,    0,     75,   120};
+static const int PY[] = {-25,  -12,    0,    -12,   -25};
+static const int SC[] = {128,  184,   280,   184,   128};
 static const int OP[] = {LV_OPA_40, LV_OPA_70, LV_OPA_COVER, LV_OPA_70, LV_OPA_40};
 
 static int vis(int i) {
   int d = (i - sel + N) % N;
-  if (d > (int)N / 2)
-    d -= N;
+  if (d > (int)N / 2) d -= N;
   int v = 2 + d;
   return (v >= 0 && v <= 4) ? v : -1;
 }
 
-static void anim_done_cb(lv_anim_t *a) {
+static void anim_done_cb(lv_anim_t * a) {
   animating = false;
 }
 
 static void load(int i, int f) {
-  if (!menu_data[i].icon_dscs[f])
-    menu_data[i].icon_dscs[f] = assets_get(menu_data[i].icon_frames[f]);
-  if (!menu_data[i].base_dscs[f])
-    menu_data[i].base_dscs[f] = assets_get(menu_data[i].base_frames[f]);
+  if (!menu_data[i].icon_dscs[f]) menu_data[i].icon_dscs[f] = assets_get(menu_data[i].icon_frames[f]);
+  if (!menu_data[i].base_dscs[f]) menu_data[i].base_dscs[f] = assets_get(menu_data[i].base_frames[f]);
 }
 
 static void place(int i, bool anim) {
@@ -167,10 +84,8 @@ static void place(int i, bool anim) {
 
   int f = (vp < 2) ? 1 : (vp > 2) ? 2 : 0;
   load(i, f);
-  if (menu_data[i].base_dscs[f])
-    lv_image_set_src(bi[i], menu_data[i].base_dscs[f]);
-  if (menu_data[i].icon_dscs[f])
-    lv_image_set_src(ii[i], menu_data[i].icon_dscs[f]);
+  if (menu_data[i].base_dscs[f]) lv_image_set_src(bi[i], menu_data[i].base_dscs[f]);
+  if (menu_data[i].icon_dscs[f]) lv_image_set_src(ii[i], menu_data[i].icon_dscs[f]);
 
   int tx = PX[vp], ty = PY[vp], ts = SC[vp], to = OP[vp];
   bool is_center = (vp == 2);
@@ -194,8 +109,7 @@ static void place(int i, bool anim) {
     lv_anim_set_var(&a, bi[i]);
     lv_anim_set_values(&a, lv_obj_get_x_aligned(bi[i]), tx);
     lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)lv_obj_set_x);
-    if (is_center)
-      lv_anim_set_completed_cb(&a, anim_done_cb);
+    if (is_center) lv_anim_set_completed_cb(&a, anim_done_cb);
     lv_anim_start(&a);
     /* icon X */
     lv_anim_set_var(&a, ii[i]);
@@ -243,26 +157,15 @@ static void place(int i, bool anim) {
 
 static void zfix(void) {
   static const int zp[] = {0, 1, 2, 1, 0};
-  typedef struct {
-    int i, z;
-  } z_t;
-  z_t v[5];
-  int c = 0;
+  typedef struct { int i, z; } z_t;
+  z_t v[5]; int c = 0;
   for (int i = 0; i < (int)N; i++) {
     int vp = vis(i);
-    if (vp >= 0 && c < 5) {
-      v[c].i = i;
-      v[c].z = zp[vp];
-      c++;
-    }
+    if (vp >= 0 && c < 5) { v[c].i = i; v[c].z = zp[vp]; c++; }
   }
   for (int i = 0; i < c - 1; i++)
     for (int j = i + 1; j < c; j++)
-      if (v[i].z > v[j].z) {
-        z_t t = v[i];
-        v[i] = v[j];
-        v[j] = t;
-      }
+      if (v[i].z > v[j].z) { z_t t = v[i]; v[i] = v[j]; v[j] = t; }
   for (int i = 0; i < c; i++) {
     lv_obj_move_foreground(bi[v[i].i]);
     lv_obj_move_foreground(ii[v[i].i]);
@@ -283,18 +186,15 @@ static void update(bool anim) {
 
   page_dots_set(&pg_dots, sel);
 
-  for (int i = 0; i < (int)N; i++)
-    place(i, anim);
+  for (int i = 0; i < (int)N; i++) place(i, anim);
   zfix();
 }
 
-static void ev(lv_event_t *e) {
-  if (lv_event_get_code(e) != LV_EVENT_KEY)
-    return;
+static void ev(lv_event_t * e) {
+  if (lv_event_get_code(e) != LV_EVENT_KEY) return;
   uint32_t k = lv_event_get_key(e);
   if (k == LV_KEY_RIGHT || k == LV_KEY_LEFT) {
-    if (animating)
-      return;
+    if (animating) return;
     animating = true;
 
     if (k == LV_KEY_RIGHT)
@@ -306,36 +206,19 @@ static void ev(lv_event_t *e) {
     ui_switch_screen(SCREEN_HOME);
   } else if (k == LV_KEY_ENTER) {
     switch (sel) {
-      case 0:
-        ui_switch_screen(SCREEN_WIFI_MENU);
-        break;
-      case 1:
-        ui_switch_screen(SCREEN_BLE_MENU);
-        break;
-      case 2:
-        ui_switch_screen(SCREEN_NFC_MENU);
-        break;
-      case 3:
-        ui_switch_screen(SCREEN_IR_MENU);
-        break;
-      case 7:
-        ui_switch_screen(SCREEN_SETTINGS);
-        break;
-      case 8:
-        ui_switch_screen(SCREEN_FILES);
-        break;
-      default:
-        ESP_LOGW(TAG, "NOT DEFINED");
-        break;
+      case 0: ui_switch_screen(SCREEN_WIFI_MENU); break;
+      case 1: ui_switch_screen(SCREEN_BLE_MENU); break;
+      case 2: ui_switch_screen(SCREEN_NFC_MENU); break;
+      case 3: ui_switch_screen(SCREEN_IR_MENU); break;
+      case 7: ui_switch_screen(SCREEN_SETTINGS); break;
+      case 8: ui_switch_screen(SCREEN_FILES); break;
+      default: ESP_LOGW(TAG, "NOT DEFINED"); break;
     }
   }
 }
 
 void ui_menu_open(void) {
-  if (scr) {
-    lv_obj_del(scr);
-    scr = NULL;
-  }
+  if (scr) { lv_obj_del(scr); scr = NULL; }
   animating = false;
 
   /* Invalidate cached asset pointers — they may be stale after theme change */
@@ -350,8 +233,7 @@ void ui_menu_open(void) {
   lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
   lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
-  if (!fnt)
-    fnt = lv_binfont_create("A:assets/fonts/Inter.bin");
+  if (!fnt) fnt = lv_binfont_create("A:assets/fonts/Inter.bin");
 
   for (int i = 0; i < (int)N; i++) {
     bi[i] = lv_image_create(scr);

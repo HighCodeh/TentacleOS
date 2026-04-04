@@ -29,10 +29,10 @@ uint16_t st25r_fifo_count(void);
 void st25r_fifo_clear(void);
 
 /** Load data into FIFO for transmission. Max 512 bytes (full FIFO). */
-hb_nfc_err_t st25r_fifo_load(const uint8_t *data, size_t len);
+hb_nfc_err_t st25r_fifo_load(const uint8_t* data, size_t len);
 
 /** Read data from FIFO. Max 512 bytes (full FIFO). */
-hb_nfc_err_t st25r_fifo_read(uint8_t *data, size_t len);
+hb_nfc_err_t st25r_fifo_read(uint8_t* data, size_t len);
 
 /**
  * Set TX byte and bit count registers.
@@ -43,6 +43,6 @@ void st25r_set_tx_bytes(uint16_t nbytes, uint8_t nbtx_bits);
  * Wait for FIFO to reach min_bytes, polling every 1ms.
  * Returns actual count. Sets *final_count if non-NULL.
  */
-int st25r_fifo_wait(size_t min_bytes, int timeout_ms, uint16_t *final_count);
+int st25r_fifo_wait(size_t min_bytes, int timeout_ms, uint16_t* final_count);
 
 #endif

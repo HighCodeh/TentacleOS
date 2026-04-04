@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #ifndef EVIL_TWIN_H
 #define EVIL_TWIN_H
 
@@ -19,8 +20,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-void evil_twin_start_attack(const char *ssid);
-void evil_twin_start_attack_with_template(const char *ssid, const char *template_path);
+void evil_twin_start_attack(const char* ssid);
+void evil_twin_start_attack_with_template(const char* ssid, const char* template_path);
 
 void evil_twin_stop_attack(void);
 
@@ -31,3 +32,4 @@ void evil_twin_tmpl_begin(uint16_t total_size);
 void evil_twin_tmpl_chunk(const uint8_t *data, uint8_t len);
 
 #endif // EVIL_TWIN_H
+

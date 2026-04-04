@@ -25,6 +25,6 @@
 #include "highboy_nfc_types.h"
 
 /** Log a byte array as hex. */
-void nfc_log_hex(const char *label, const uint8_t *data, size_t len);
+void nfc_log_hex(const char* label, const uint8_t* data, size_t len);
 
 #endif

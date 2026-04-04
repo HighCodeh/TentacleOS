@@ -15,7 +15,7 @@
 /**
  * @file storage_init.h
  * @brief Storage initialization - Backend agnostic
- *
+ * 
  * Automatically initializes the backend selected in vfs_config.h
  * Supports: SD Card, SPIFFS, LittleFS, RAMFS
  */
@@ -38,8 +38,8 @@ bool storage_is_mounted(void);
 esp_err_t storage_remount(void);
 esp_err_t storage_check_health(void);
 
-const char *storage_get_mount_point(void);
-const char *storage_get_backend_name(void);
+const char* storage_get_mount_point(void);
+const char* storage_get_backend_name(void);
 void storage_print_info(void);
 
 #ifdef __cplusplus

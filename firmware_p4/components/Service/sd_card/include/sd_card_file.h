@@ -19,10 +19,10 @@ extern "C" {
  * @brief Informações de arquivo
  */
 typedef struct {
-  char path[256];
-  size_t size;
-  time_t modified_time;
-  bool is_directory;
+    char path[256];
+    size_t size;
+    time_t modified_time;
+    bool is_directory;
 } sd_file_info_t;
 
 /**

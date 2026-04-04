@@ -7,9 +7,9 @@
 extern "C" {
 #endif
 
-typedef void (*keyboard_submit_cb_t)(const char *text, void *user_data);
+typedef void (*keyboard_submit_cb_t)(const char * text, void * user_data);
 
-void keyboard_open(lv_obj_t *target_textarea, keyboard_submit_cb_t cb, void *user_data);
+void keyboard_open(lv_obj_t * target_textarea, keyboard_submit_cb_t cb, void * user_data);
 void keyboard_close(void);
 
 #ifdef __cplusplus

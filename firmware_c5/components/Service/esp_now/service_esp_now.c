@@ -27,12 +27,12 @@
 
 static const char *TAG = "ESP_NOW_SERVICE";
 
-#define CHAT_CONFIG_FILE      "config/chat/chat.conf"
-#define CHAT_CONFIG_PATH      "/assets/" CHAT_CONFIG_FILE
+#define CHAT_CONFIG_FILE "config/chat/chat.conf"
+#define CHAT_CONFIG_PATH "/assets/" CHAT_CONFIG_FILE
 #define ADDRESSES_CONFIG_FILE "config/chat/addresses.conf"
 #define ADDRESSES_CONFIG_PATH "/assets/" ADDRESSES_CONFIG_FILE
-#define MAX_SESSION_PEERS     32
-#define KEY_MAX_LEN           32
+#define MAX_SESSION_PEERS 32
+#define KEY_MAX_LEN 32
 
 typedef struct {
   uint8_t mac[6];
@@ -52,8 +52,7 @@ static service_esp_now_send_cb_t s_send_cb = NULL;
 
 // Vigenère Cipher for Printable ASCII (32-126)
 static void vigenere_process(char *text, const char *key, bool encrypt) {
-  if (text == NULL || key == NULL || strlen(key) == 0)
-    return;
+  if (text == NULL || key == NULL || strlen(key) == 0) return;
 
   int text_len = strlen(text);
   int key_len = strlen(key);
@@ -90,8 +89,7 @@ static void generate_random_key(char *out_key, size_t len) {
 
 static void update_session_peer(const uint8_t *mac, const char *nick, int8_t rssi) {
   if (s_session_peers == NULL) {
-    s_session_peers = heap_caps_malloc(sizeof(session_peer_t) * MAX_SESSION_PEERS,
-                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    s_session_peers = heap_caps_malloc(sizeof(session_peer_t) * MAX_SESSION_PEERS, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (s_session_peers == NULL) {
       s_session_peers = malloc(sizeof(session_peer_t) * MAX_SESSION_PEERS);
     }
@@ -121,14 +119,11 @@ static void update_session_peer(const uint8_t *mac, const char *nick, int8_t rss
 }
 
 static bool is_valid_nick(const char *nick) {
-  if (nick == NULL || strlen(nick) == 0)
-    return false;
+  if (nick == NULL || strlen(nick) == 0) return false;
   bool has_printable = false;
   for (int i = 0; nick[i] != '\0'; i++) {
-    if (!isprint((unsigned char)nick[i]))
-      return false;
-    if (!isspace((unsigned char)nick[i]))
-      has_printable = true;
+    if (!isprint((unsigned char)nick[i])) return false;
+    if (!isspace((unsigned char)nick[i])) has_printable = true;
   }
   return has_printable;
 }
@@ -136,8 +131,7 @@ static bool is_valid_nick(const char *nick) {
 static void load_peers_from_conf(void) {
   size_t length = 0;
   char *data = (char *)storage_assets_load_file(ADDRESSES_CONFIG_FILE, &length);
-  if (data == NULL)
-    return;
+  if (data == NULL) return;
 
   cJSON *json = cJSON_Parse(data);
   if (json && cJSON_IsArray(json)) {
@@ -147,16 +141,11 @@ static void load_peers_from_conf(void) {
       if (cJSON_IsString(j_mac)) {
         uint8_t mac[6];
         int values[6];
-        if (sscanf(j_mac->valuestring,
-                   "%x:%x:%x:%x:%x:%x",
-                   &values[0],
-                   &values[1],
-                   &values[2],
-                   &values[3],
-                   &values[4],
-                   &values[5]) == 6) {
-          for (int i = 0; i < 6; ++i)
-            mac[i] = (uint8_t)values[i];
+        if (sscanf(j_mac->valuestring, "%x:%x:%x:%x:%x:%x", 
+                   &values[0], &values[1], &values[2], 
+                   &values[3], &values[4], &values[5]) == 6) 
+        {
+          for(int i = 0; i < 6; ++i) mac[i] = (uint8_t)values[i];
           service_esp_now_add_peer(mac);
         }
       }
@@ -218,8 +207,7 @@ static esp_err_t save_chat_config(void) {
 }
 
 static void internal_on_data_sent(const wifi_tx_info_t *tx_info, esp_now_send_status_t status) {
-  if (!s_is_online)
-    return;
+  if (!s_is_online) return; 
 
   const uint8_t *mac_addr = tx_info->des_addr;
   ESP_LOGD(TAG, "Last Send Status: %s", status == ESP_NOW_SEND_SUCCESS ? "Success" : "Fail");
@@ -228,19 +216,14 @@ static void internal_on_data_sent(const wifi_tx_info_t *tx_info, esp_now_send_st
   }
 }
 
-static void
-internal_on_data_recv(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len) {
-  if (!s_is_online)
-    return;
+static void internal_on_data_recv(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len) {
+  if (!s_is_online) return;
 
   const uint8_t *mac_addr = recv_info->src_addr;
   int8_t rssi = recv_info->rx_ctrl->rssi;
 
   if (len != sizeof(service_esp_now_packet_t)) {
-    ESP_LOGW(TAG,
-             "Received packet with invalid length: %d (expected %d)",
-             len,
-             sizeof(service_esp_now_packet_t));
+    ESP_LOGW(TAG, "Received packet with invalid length: %d (expected %d)", len, sizeof(service_esp_now_packet_t));
     return;
   }
 
@@ -248,7 +231,7 @@ internal_on_data_recv(const esp_now_recv_info_t *recv_info, const uint8_t *data,
     ESP_LOGI(TAG, "Auto-pairing with new peer: " MACSTR, MAC2STR(mac_addr));
     esp_now_peer_info_t peer;
     memset(&peer, 0, sizeof(esp_now_peer_info_t));
-    peer.channel = 0;         // Use current channel
+    peer.channel = 0; // Use current channel
     peer.ifidx = WIFI_IF_STA; // Default to Station interface
     peer.encrypt = false;
     memcpy(peer.peer_addr, mac_addr, ESP_NOW_ETH_ALEN);
@@ -297,10 +280,8 @@ internal_on_data_recv(const esp_now_recv_info_t *recv_info, const uint8_t *data,
 }
 
 esp_err_t service_esp_now_secure_pair(const uint8_t *target_mac) {
-  if (!s_is_online)
-    return ESP_ERR_INVALID_STATE;
-  if (target_mac == NULL)
-    return ESP_ERR_INVALID_ARG;
+  if (!s_is_online) return ESP_ERR_INVALID_STATE;
+  if (target_mac == NULL) return ESP_ERR_INVALID_ARG;
 
   // Generate new key if we don't have one
   if (strlen(s_encryption_key) == 0) {
@@ -368,7 +349,7 @@ esp_err_t service_esp_now_set_nick(const char *nick) {
   return save_chat_config();
 }
 
-const char *service_esp_now_get_nick(void) {
+const char* service_esp_now_get_nick(void) {
   return s_current_nick;
 }
 
@@ -382,8 +363,7 @@ bool service_esp_now_is_online(void) {
 }
 
 esp_err_t service_esp_now_broadcast_hello(void) {
-  if (!s_is_online)
-    return ESP_ERR_INVALID_STATE;
+  if (!s_is_online) return ESP_ERR_INVALID_STATE;
 
   service_esp_now_packet_t packet;
   memset(&packet, 0, sizeof(packet));
@@ -407,10 +387,8 @@ esp_err_t service_esp_now_broadcast_hello(void) {
 }
 
 esp_err_t service_esp_now_send_msg(const uint8_t *target_mac, const char *text) {
-  if (!s_is_online)
-    return ESP_ERR_INVALID_STATE;
-  if (target_mac == NULL)
-    return ESP_ERR_INVALID_ARG;
+  if (!s_is_online) return ESP_ERR_INVALID_STATE;
+  if (target_mac == NULL) return ESP_ERR_INVALID_ARG;
 
   if (!esp_now_is_peer_exist(target_mac)) {
     esp_now_peer_info_t peer;
@@ -469,12 +447,10 @@ esp_err_t service_esp_now_add_peer(const uint8_t *mac_addr) {
 }
 
 esp_err_t service_esp_now_set_key(const char *key) {
-  if (key == NULL)
-    return ESP_ERR_INVALID_ARG;
+  if (key == NULL) return ESP_ERR_INVALID_ARG;
   // Check for printable characters only
   for (int i = 0; key[i] != '\0'; i++) {
-    if (key[i] < 32 || key[i] > 126)
-      return ESP_ERR_INVALID_ARG;
+    if (key[i] < 32 || key[i] > 126) return ESP_ERR_INVALID_ARG;
   }
 
   strncpy(s_encryption_key, key, KEY_MAX_LEN - 1);
@@ -483,13 +459,12 @@ esp_err_t service_esp_now_set_key(const char *key) {
   return save_chat_config();
 }
 
-const char *service_esp_now_get_key(void) {
+const char* service_esp_now_get_key(void) {
   return s_encryption_key;
 }
 
 int service_esp_now_get_session_peers(service_esp_now_peer_info_t *out_peers, int max_peers) {
-  if (s_session_peers == NULL || out_peers == NULL)
-    return 0;
+  if (s_session_peers == NULL || out_peers == NULL) return 0;
 
   int count = (s_session_peer_count < max_peers) ? s_session_peer_count : max_peers;
 
@@ -505,15 +480,9 @@ int service_esp_now_get_session_peers(service_esp_now_peer_info_t *out_peers, in
 
     if (root && cJSON_IsArray(root)) {
       char mac_str[18];
-      snprintf(mac_str,
-               sizeof(mac_str),
-               "%02X:%02X:%02X:%02X:%02X:%02X",
-               s_session_peers[i].mac[0],
-               s_session_peers[i].mac[1],
-               s_session_peers[i].mac[2],
-               s_session_peers[i].mac[3],
-               s_session_peers[i].mac[4],
-               s_session_peers[i].mac[5]);
+      snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X",
+               s_session_peers[i].mac[0], s_session_peers[i].mac[1], s_session_peers[i].mac[2],
+               s_session_peers[i].mac[3], s_session_peers[i].mac[4], s_session_peers[i].mac[5]);
 
       cJSON *item = NULL;
       cJSON_ArrayForEach(item, root) {
@@ -530,16 +499,13 @@ int service_esp_now_get_session_peers(service_esp_now_peer_info_t *out_peers, in
     }
   }
 
-  if (root)
-    cJSON_Delete(root);
-  if (data)
-    free(data);
+  if (root) cJSON_Delete(root);
+  if (data) free(data);
   return count;
 }
 
 esp_err_t service_esp_now_save_peer_to_conf(const uint8_t *mac_addr, const char *name) {
-  if (!is_valid_nick(name))
-    return ESP_ERR_INVALID_ARG;
+  if (!is_valid_nick(name)) return ESP_ERR_INVALID_ARG;
 
   size_t length = 0;
   char *data = (char *)storage_assets_load_file(ADDRESSES_CONFIG_FILE, &length);
@@ -551,15 +517,8 @@ esp_err_t service_esp_now_save_peer_to_conf(const uint8_t *mac_addr, const char 
 
   // Check for duplicate MAC and update name if found
   char mac_str[18];
-  snprintf(mac_str,
-           sizeof(mac_str),
-           "%02X:%02X:%02X:%02X:%02X:%02X",
-           mac_addr[0],
-           mac_addr[1],
-           mac_addr[2],
-           mac_addr[3],
-           mac_addr[4],
-           mac_addr[5]);
+  snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X",
+           mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
 
   bool found = false;
   cJSON *item = NULL;
@@ -586,8 +545,7 @@ esp_err_t service_esp_now_save_peer_to_conf(const uint8_t *mac_addr, const char 
   }
 
   free(out);
-  if (data)
-    free(data);
+  if (data) free(data);
   cJSON_Delete(root);
   return err;
 }

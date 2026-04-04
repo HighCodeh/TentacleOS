@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #include "wifi_service.h"
 #include "esp_err.h"
 #include "led_control.h"
@@ -38,19 +39,17 @@ static uint16_t stored_ap_count = 0;
 static SemaphoreHandle_t wifi_mutex = NULL;
 static bool wifi_active = false;
 static bool wifi_connected = false;
-static void
-wifi_load_ap_config(char *ssid, char *passwd, uint8_t *max_conn, char *ip_addr, bool *enabled);
+static void wifi_load_ap_config(char* ssid, char* passwd, uint8_t* max_conn, char* ip_addr, bool* enabled);
 
 static void wifi_save_known_network(const char *ssid, const char *password) {
-  if (ssid == NULL)
-    return;
+  if (ssid == NULL) return;
 
   if (!storage_assets_is_mounted()) {
     storage_assets_init();
   }
 
   size_t size = 0;
-  char *buffer = (char *)storage_assets_load_file(WIFI_KNOWN_NETWORKS_FILE, &size);
+  char *buffer = (char*)storage_assets_load_file(WIFI_KNOWN_NETWORKS_FILE, &size);
   cJSON *root = NULL;
 
   if (buffer != NULL) {
@@ -87,40 +86,36 @@ static void wifi_save_known_network(const char *ssid, const char *password) {
 
   char *json_string = cJSON_PrintUnformatted(root);
   if (json_string != NULL) {
-    esp_err_t err = storage_assets_write_file(WIFI_KNOWN_NETWORKS_FILE, json_string);
-
-    if (err == ESP_OK) {
-      ESP_LOGI(TAG, "Known network saved: %s", ssid);
-    } else {
-      ESP_LOGE(TAG, "Failed to save to assets: %s", esp_err_to_name(err));
-    }
-    free(json_string);
+      esp_err_t err = storage_assets_write_file(WIFI_KNOWN_NETWORKS_FILE, json_string);
+      
+      if (err == ESP_OK) {
+          ESP_LOGI(TAG, "Known network saved: %s", ssid);
+      } else {
+          ESP_LOGE(TAG, "Failed to save to assets: %s", esp_err_to_name(err));
+      }
+      free(json_string);
   }
 
   cJSON_Delete(root);
 }
 
-static bool
-wifi_get_known_network_password(const char *ssid, char *password_buffer, size_t buffer_size) {
-  if (ssid == NULL || password_buffer == NULL)
-    return false;
+static bool wifi_get_known_network_password(const char *ssid, char *password_buffer, size_t buffer_size) {
+  if (ssid == NULL || password_buffer == NULL) return false;
 
   if (!storage_assets_is_mounted()) {
     storage_assets_init();
   }
 
   size_t size = 0;
-  char *buffer = (char *)storage_assets_load_file(WIFI_KNOWN_NETWORKS_FILE, &size);
+  char *buffer = (char*)storage_assets_load_file(WIFI_KNOWN_NETWORKS_FILE, &size);
 
-  if (buffer == NULL)
-    return false;
+  if (buffer == NULL) return false;
 
   cJSON *root = cJSON_Parse(buffer);
   free(buffer);
 
   if (root == NULL || !cJSON_IsArray(root)) {
-    if (root)
-      cJSON_Delete(root);
+    if (root) cJSON_Delete(root);
     return false;
   }
 
@@ -156,7 +151,7 @@ static void channel_hopper_task(void *pvParameters) {
     if (channel > 13) {
       channel = 1;
     }
-    vTaskDelay(pdMS_TO_TICKS(250));
+    vTaskDelay(pdMS_TO_TICKS(250)); 
   }
 }
 
@@ -165,14 +160,12 @@ void wifi_service_promiscuous_start(wifi_promiscuous_cb_t cb, wifi_promiscuous_f
 
   if (filter) {
     err = esp_wifi_set_promiscuous_filter(filter);
-    if (err != ESP_OK)
-      ESP_LOGE(TAG, "Failed to set promiscuous filter: %s", esp_err_to_name(err));
+    if (err != ESP_OK) ESP_LOGE(TAG, "Failed to set promiscuous filter: %s", esp_err_to_name(err));
   }
 
   if (cb) {
     err = esp_wifi_set_promiscuous_rx_cb(cb);
-    if (err != ESP_OK)
-      ESP_LOGE(TAG, "Failed to set promiscuous callback: %s", esp_err_to_name(err));
+    if (err != ESP_OK) ESP_LOGE(TAG, "Failed to set promiscuous callback: %s", esp_err_to_name(err));
   }
 
   err = esp_wifi_set_promiscuous(true);
@@ -200,37 +193,29 @@ void wifi_service_start_channel_hopping(void) {
   }
 
   if (hopper_task_stack == NULL) {
-    hopper_task_stack =
-        (StackType_t *)heap_caps_malloc(HOPPER_STACK_SIZE * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
+    hopper_task_stack = (StackType_t *)heap_caps_malloc(HOPPER_STACK_SIZE * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
   }
   if (hopper_task_tcb == NULL) {
-    hopper_task_tcb = (StaticTask_t *)heap_caps_malloc(sizeof(StaticTask_t),
-                                                       MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    hopper_task_tcb = (StaticTask_t *)heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   }
 
   if (hopper_task_stack == NULL || hopper_task_tcb == NULL) {
-    ESP_LOGE(
-        TAG,
-        "Failed to allocate channel hopper task memory in PSRAM! Falling back to internal RAM.");
+    ESP_LOGE(TAG, "Failed to allocate channel hopper task memory in PSRAM! Falling back to internal RAM.");
 
-    if (hopper_task_stack) {
-      heap_caps_free(hopper_task_stack);
-      hopper_task_stack = NULL;
-    }
-    if (hopper_task_tcb) {
-      heap_caps_free(hopper_task_tcb);
-      hopper_task_tcb = NULL;
-    }
+    if (hopper_task_stack) { heap_caps_free(hopper_task_stack); hopper_task_stack = NULL; }
+    if (hopper_task_tcb) { heap_caps_free(hopper_task_tcb); hopper_task_tcb = NULL; }
 
     xTaskCreate(channel_hopper_task, "chan_hopper_srv", 4096, NULL, 5, &channel_hopper_task_handle);
   } else {
-    channel_hopper_task_handle = xTaskCreateStatic(channel_hopper_task,
-                                                   "chan_hopper_srv",
-                                                   HOPPER_STACK_SIZE,
-                                                   NULL,
-                                                   5,
-                                                   hopper_task_stack,
-                                                   hopper_task_tcb);
+    channel_hopper_task_handle = xTaskCreateStatic(
+      channel_hopper_task,
+      "chan_hopper_srv",
+      HOPPER_STACK_SIZE,
+      NULL,
+      5,
+      hopper_task_stack,
+      hopper_task_tcb
+    );
   }
 
   if (channel_hopper_task_handle) {
@@ -257,8 +242,7 @@ void wifi_service_stop_channel_hopping(void) {
   ESP_LOGI(TAG, "Channel hopping stopped.");
 }
 
-static void
-wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
+static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
   if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STACONNECTED) {
     wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *)event_data;
     ESP_LOGI(TAG, "Station connected to AP, MAC: " MACSTR, MAC2STR(event->mac));
@@ -284,38 +268,37 @@ void wifi_change_to_hotspot(const char *new_ssid) {
   vTaskDelay(100 / portTICK_PERIOD_MS);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to stop Wi-Fi: %s", esp_err_to_name(err));
-    led_blink_red();
+    led_blink_red(); 
     return;
   }
 
   wifi_config_t new_ap_config = {
-      .ap =
-          {
-              .ssid_len = strlen(new_ssid),
-              .channel = 1,
-              .authmode = WIFI_AUTH_OPEN,
-              .max_connection = 4,
-          },
+    .ap = {
+      .ssid_len = strlen(new_ssid),
+      .channel = 1, 
+      .authmode = WIFI_AUTH_OPEN,
+      .max_connection = 4, 
+    },
   };
 
   esp_wifi_set_mode(WIFI_MODE_AP);
 
   strncpy((char *)new_ap_config.ap.ssid, new_ssid, sizeof(new_ap_config.ap.ssid) - 1);
-  new_ap_config.ap.ssid[sizeof(new_ap_config.ap.ssid) - 1] = '\0';
+  new_ap_config.ap.ssid[sizeof(new_ap_config.ap.ssid) - 1] = '\0'; 
 
   new_ap_config.ap.password[0] = '\0';
 
   err = esp_wifi_set_config(WIFI_IF_AP, &new_ap_config);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to set new Wi-Fi AP configuration: %s", esp_err_to_name(err));
-    led_blink_red();
+    led_blink_red(); 
     return;
   }
 
   err = esp_wifi_start();
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to start Wi-Fi with new configuration: %s", esp_err_to_name(err));
-    led_blink_red();
+    led_blink_red(); 
     return;
   }
 
@@ -354,15 +337,14 @@ void wifi_init(void) {
     ESP_ERROR_CHECK(err);
   }
 
-  esp_event_handler_instance_register(
-      WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, NULL);
+  esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, NULL);
   esp_event_handler_instance_register(IP_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, NULL);
 
   ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
 
   char target_ssid[32] = "Darth Maul";
   char target_password[64] = "MyPassword123";
-  uint8_t target_max_conn = 4;
+  uint8_t target_max_conn = 4;  
   char target_ip[16] = "192.168.4.1";
   bool target_enabled = true;
 
@@ -379,12 +361,11 @@ void wifi_init(void) {
   }
 
   wifi_config_t ap_config = {
-      .ap =
-          {
-              .channel = 1,
-              .max_connection = target_max_conn,
-              .beacon_interval = 100,
-          },
+    .ap = {
+      .channel = 1,
+      .max_connection = target_max_conn,
+      .beacon_interval = 100,
+    },
   };
 
   strncpy((char *)ap_config.ap.ssid, target_ssid, sizeof(ap_config.ap.ssid));
@@ -425,13 +406,15 @@ void wifi_service_scan(void) {
   wifi_service_promiscuous_stop();
   wifi_service_stop_channel_hopping();
 
-  wifi_scan_config_t scan_config = {.ssid = NULL,
-                                    .bssid = NULL,
-                                    .channel = 0,
-                                    .show_hidden = true,
-                                    .scan_type = WIFI_SCAN_TYPE_ACTIVE,
-                                    .scan_time.active.min = 100,
-                                    .scan_time.active.max = 300};
+  wifi_scan_config_t scan_config = {
+    .ssid = NULL, 
+    .bssid = NULL, 
+    .channel = 0, 
+    .show_hidden = true,
+    .scan_type = WIFI_SCAN_TYPE_ACTIVE,
+    .scan_time.active.min = 100,
+    .scan_time.active.max = 300
+  };
 
   ESP_LOGI(TAG, "Starting network scan (Service)...");
 
@@ -463,7 +446,7 @@ uint16_t wifi_service_get_ap_count(void) {
   return stored_ap_count;
 }
 
-wifi_ap_record_t *wifi_service_get_ap_record(uint16_t index) {
+wifi_ap_record_t* wifi_service_get_ap_record(uint16_t index) {
   if (index < stored_ap_count) {
     return &stored_aps[index];
   }
@@ -509,7 +492,7 @@ esp_err_t wifi_service_connect_to_ap(const char *ssid, const char *password) {
   wifi_config.sta.pmf_cfg.capable = true;
   wifi_config.sta.pmf_cfg.required = false;
 
-  esp_wifi_disconnect();
+  esp_wifi_disconnect(); 
 
   esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
   if (err != ESP_OK) {
@@ -532,32 +515,31 @@ bool wifi_service_is_connected(void) {
 }
 
 bool wifi_service_is_active(void) {
-  return wifi_active;
+    return wifi_active;
 }
 
-const char *wifi_service_get_connected_ssid(void) {
-  static char connected_ssid[33];
-  if (!wifi_connected) {
+const char* wifi_service_get_connected_ssid(void) {
+    static char connected_ssid[33];
+    if (!wifi_connected) {
+        return NULL;
+    }
+
+    wifi_config_t config;
+    if (esp_wifi_get_config(WIFI_IF_STA, &config) == ESP_OK) {
+        strncpy(connected_ssid, (char*)config.sta.ssid, 32);
+        connected_ssid[32] = '\0';
+        return connected_ssid;
+    }
     return NULL;
-  }
-
-  wifi_config_t config;
-  if (esp_wifi_get_config(WIFI_IF_STA, &config) == ESP_OK) {
-    strncpy(connected_ssid, (char *)config.sta.ssid, 32);
-    connected_ssid[32] = '\0';
-    return connected_ssid;
-  }
-  return NULL;
 }
 
-void wifi_deinit(void) {
-  ESP_LOGI(TAG, "Starting Wi-Fi deactivation...");
+void wifi_deinit(void) {  ESP_LOGI(TAG, "Starting Wi-Fi deactivation...");
   esp_err_t err;
 
   err = esp_wifi_stop();
   if (err == ESP_ERR_WIFI_NOT_INIT) {
     ESP_LOGW(TAG, "Wi-Fi was already deactivated or not initialized. Aborting deinit.");
-    return;
+    return; 
   } else if (err != ESP_OK) {
     ESP_LOGE(TAG, "Error stopping Wi-Fi: %s", esp_err_to_name(err));
   }
@@ -567,17 +549,12 @@ void wifi_deinit(void) {
 
   err = esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler);
   if (err != ESP_OK) {
-    ESP_LOGW(TAG,
-             "Warning: Failed to unregister handler WIFI_EVENT (may have already been removed): %s",
-             esp_err_to_name(err));
+    ESP_LOGW(TAG, "Warning: Failed to unregister handler WIFI_EVENT (may have already been removed): %s", esp_err_to_name(err));
   }
 
-  err = esp_event_handler_instance_unregister(
-      IP_EVENT, IP_EVENT_AP_STAIPASSIGNED, &wifi_event_handler);
+  err = esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_AP_STAIPASSIGNED, &wifi_event_handler);
   if (err != ESP_OK) {
-    ESP_LOGW(TAG,
-             "Warning: Failed to unregister handler IP_EVENT (may have already been removed): %s",
-             esp_err_to_name(err));
+    ESP_LOGW(TAG, "Warning: Failed to unregister handler IP_EVENT (may have already been removed): %s", esp_err_to_name(err));
   }
 
   err = esp_wifi_deinit();
@@ -596,20 +573,20 @@ void wifi_deinit(void) {
   ESP_LOGI(TAG, "Wi-Fi deactivated and resources released.");
 }
 
-void wifi_start(void) {
+void wifi_start(void){
   esp_err_t err;
   err = esp_wifi_start();
-  if (err == ESP_OK) {
+  if(err == ESP_OK){
     wifi_active = true;
   } else {
     ESP_LOGE(TAG, "Error starting Wi-Fi: %s", esp_err_to_name(err));
   }
 }
 
-void wifi_stop(void) {
+void wifi_stop(void){
   esp_err_t err;
   err = esp_wifi_stop();
-  if (err == ESP_OK) {
+  if(err == ESP_OK){
     wifi_active = false;
     wifi_connected = false;
   } else {
@@ -619,16 +596,16 @@ void wifi_stop(void) {
   stored_ap_count = 0;
   memset(stored_aps, 0, sizeof(stored_aps));
   ESP_LOGI(TAG, "Wi-Fi stopped and cleaned static data");
+
 }
 
-static void
-wifi_load_ap_config(char *ssid, char *passwd, uint8_t *max_conn, char *ip_addr, bool *enabled) {
+static void wifi_load_ap_config(char* ssid, char* passwd, uint8_t* max_conn, char* ip_addr, bool* enabled){
   if (!storage_assets_is_mounted()) {
     storage_assets_init();
   }
 
   size_t size = 0;
-  char *buffer = (char *)storage_assets_load_file(WIFI_AP_CONFIG_FILE, &size);
+  char *buffer = (char*)storage_assets_load_file(WIFI_AP_CONFIG_FILE, &size);
 
   if (buffer != NULL) {
     cJSON *root = cJSON_Parse(buffer);
@@ -647,7 +624,7 @@ wifi_load_ap_config(char *ssid, char *passwd, uint8_t *max_conn, char *ip_addr, 
         strncpy(passwd, j_pass->valuestring, 63);
         passwd[63] = '\0';
       }
-      if (cJSON_IsNumber(j_conn)) {
+      if (cJSON_IsNumber(j_conn)){
         *max_conn = (uint8_t)j_conn->valueint;
       }
       if (cJSON_IsString(j_ip) && (strlen(j_ip->valuestring) > 0)) {
@@ -667,8 +644,7 @@ wifi_load_ap_config(char *ssid, char *passwd, uint8_t *max_conn, char *ip_addr, 
   }
 }
 
-esp_err_t wifi_save_ap_config(
-    const char *ssid, const char *password, uint8_t max_conn, const char *ip_addr, bool enabled) {
+esp_err_t wifi_save_ap_config(const char *ssid, const char *password, uint8_t max_conn, const char *ip_addr, bool enabled) {
   if (ssid == NULL) {
     return ESP_ERR_INVALID_ARG;
   }
@@ -714,8 +690,7 @@ esp_err_t wifi_save_ap_config(
   return err;
 }
 
-static void wifi_get_config_defaults(
-    char *ssid, char *password, uint8_t *max_conn, char *ip_addr, bool *enabled) {
+static void wifi_get_config_defaults(char *ssid, char *password, uint8_t *max_conn, char *ip_addr, bool *enabled) {
   strncpy(ssid, "Darth Maul", 32);
   strncpy(password, "MyPassword123", 64);
   *max_conn = 4;
@@ -727,51 +702,31 @@ static void wifi_get_config_defaults(
 }
 
 esp_err_t wifi_set_wifi_enabled(bool enabled) {
-  char ssid[32];
-  char password[64];
-  uint8_t max_conn;
-  char ip_addr[16];
-  bool curr_enabled;
+  char ssid[32]; char password[64]; uint8_t max_conn; char ip_addr[16]; bool curr_enabled;
   wifi_get_config_defaults(ssid, password, &max_conn, ip_addr, &curr_enabled);
   return wifi_save_ap_config(ssid, password, max_conn, ip_addr, enabled);
 }
 
 esp_err_t wifi_set_ap_ssid(const char *ssid) {
-  char curr_ssid[32];
-  char password[64];
-  uint8_t max_conn;
-  char ip_addr[16];
-  bool enabled;
+  char curr_ssid[32]; char password[64]; uint8_t max_conn; char ip_addr[16]; bool enabled;
   wifi_get_config_defaults(curr_ssid, password, &max_conn, ip_addr, &enabled);
   return wifi_save_ap_config(ssid, password, max_conn, ip_addr, enabled);
 }
 
 esp_err_t wifi_set_ap_password(const char *password) {
-  char ssid[32];
-  char curr_password[64];
-  uint8_t max_conn;
-  char ip_addr[16];
-  bool enabled;
+  char ssid[32]; char curr_password[64]; uint8_t max_conn; char ip_addr[16]; bool enabled;
   wifi_get_config_defaults(ssid, curr_password, &max_conn, ip_addr, &enabled);
   return wifi_save_ap_config(ssid, password, max_conn, ip_addr, enabled);
 }
 
 esp_err_t wifi_set_ap_max_conn(uint8_t max_conn) {
-  char ssid[32];
-  char password[64];
-  uint8_t curr_max_conn;
-  char ip_addr[16];
-  bool enabled;
+  char ssid[32]; char password[64]; uint8_t curr_max_conn; char ip_addr[16]; bool enabled;
   wifi_get_config_defaults(ssid, password, &curr_max_conn, ip_addr, &enabled);
   return wifi_save_ap_config(ssid, password, max_conn, ip_addr, enabled);
 }
 
 esp_err_t wifi_set_ap_ip(const char *ip_addr) {
-  char ssid[32];
-  char password[64];
-  uint8_t max_conn;
-  char curr_ip_addr[16];
-  bool enabled;
+  char ssid[32]; char password[64]; uint8_t max_conn; char curr_ip_addr[16]; bool enabled;
   wifi_get_config_defaults(ssid, password, &max_conn, curr_ip_addr, &enabled);
   return wifi_save_ap_config(ssid, password, max_conn, ip_addr, enabled);
 }

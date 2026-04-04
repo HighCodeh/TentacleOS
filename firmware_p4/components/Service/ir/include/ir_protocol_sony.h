@@ -18,16 +18,16 @@
 #include "ir_protocol.h"
 
 #define SONY_HEADER_MARK  2400
-#define SONY_HEADER_SPACE 600
+#define SONY_HEADER_SPACE  600
 #define SONY_ONE_MARK     1200
-#define SONY_ZERO_MARK    600
-#define SONY_BIT_SPACE    600
+#define SONY_ZERO_MARK     600
+#define SONY_BIT_SPACE     600
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-bool sony_decode(rmt_symbol_word_t *symbols, size_t count, ir_data_t *out);
+bool   sony_decode(rmt_symbol_word_t *symbols, size_t count, ir_data_t *out);
 size_t sony_encode(const ir_data_t *data, rmt_symbol_word_t *symbols, size_t max);
 
 #ifdef __cplusplus

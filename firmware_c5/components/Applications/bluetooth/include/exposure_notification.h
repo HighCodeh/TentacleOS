@@ -20,14 +20,14 @@
 #include <stdbool.h>
 
 typedef struct {
-  uint8_t addr[6];
-  int8_t rssi;
-  uint32_t last_seen; // Timestamp in seconds
+    uint8_t addr[6];
+    int8_t rssi;
+    uint32_t last_seen; // Timestamp in seconds
 } exposure_device_t;
 
 esp_err_t exposure_notification_start(void);
 void exposure_notification_stop(void);
-exposure_device_t *exposure_notification_get_list(uint16_t *count);
+exposure_device_t* exposure_notification_get_list(uint16_t *count);
 uint16_t exposure_notification_get_count(void);
 void exposure_notification_reset(void);
 

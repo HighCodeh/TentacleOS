@@ -44,9 +44,9 @@ extern "C" {
 
 /* Result from one nested auth probe. */
 typedef struct {
-  uint32_t nt;     /* decrypted target nonce (plaintext) */
-  uint32_t nr_enc; /* encrypted reader nonce (as sent on wire) */
-  uint32_t ar_enc; /* encrypted reader response (as sent on wire) */
+    uint32_t nt;      /* decrypted target nonce (plaintext) */
+    uint32_t nr_enc;  /* encrypted reader nonce (as sent on wire) */
+    uint32_t ar_enc;  /* encrypted reader response (as sent on wire) */
 } mf_nested_sample_t;
 
 /*
@@ -56,10 +56,10 @@ typedef struct {
  *
  * Returns HB_NFC_OK and fills *sample on success.
  */
-hb_nfc_err_t mf_nested_collect_sample(uint8_t target_block,
-                                      const uint8_t uid[4],
-                                      uint32_t nr_chosen,
-                                      mf_nested_sample_t *sample);
+hb_nfc_err_t mf_nested_collect_sample(uint8_t      target_block,
+                                        const uint8_t uid[4],
+                                        uint32_t      nr_chosen,
+                                        mf_nested_sample_t* sample);
 
 /*
  * Full nested attack:
@@ -70,16 +70,16 @@ hb_nfc_err_t mf_nested_collect_sample(uint8_t target_block,
  *
  * Returns HB_NFC_OK and fills found_key on success.
  */
-#define MF_NESTED_SAMPLE_COUNT 8
-#define MF_NESTED_MAX_ATTEMPTS 32
+#define MF_NESTED_SAMPLE_COUNT   8
+#define MF_NESTED_MAX_ATTEMPTS  32
 
-hb_nfc_err_t mf_nested_attack(nfc_iso14443a_data_t *card,
-                              uint8_t src_sector,
-                              const mf_classic_key_t *src_key,
-                              mf_key_type_t src_key_type,
-                              uint8_t target_sector,
-                              mf_classic_key_t *found_key_out,
-                              mf_key_type_t *found_key_type_out);
+hb_nfc_err_t mf_nested_attack(nfc_iso14443a_data_t* card,
+                                uint8_t               src_sector,
+                                const mf_classic_key_t* src_key,
+                                mf_key_type_t           src_key_type,
+                                uint8_t               target_sector,
+                                mf_classic_key_t*     found_key_out,
+                                mf_key_type_t*        found_key_type_out);
 
 #ifdef __cplusplus
 }

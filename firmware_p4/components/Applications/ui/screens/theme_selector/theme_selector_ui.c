@@ -19,76 +19,68 @@
 static const char *TAG = "theme_sel";
 
 /* ── Colors from current_theme (dynamic) ─────────────────────── */
-#define T_BORDER()   current_theme.border_interface
-#define T_ACCENT()   current_theme.border_accent
-#define T_BG_PRI()   current_theme.bg_primary
-#define T_BG_SEC()   current_theme.bg_secondary
-#define T_TEXT()     current_theme.text_main
-#define T_SCREEN()   current_theme.screen_base
-#define T_INACTIVE() current_theme.border_inactive
+#define T_BORDER()       current_theme.border_interface
+#define T_ACCENT()       current_theme.border_accent
+#define T_BG_PRI()       current_theme.bg_primary
+#define T_BG_SEC()       current_theme.bg_secondary
+#define T_TEXT()          current_theme.text_main
+#define T_SCREEN()       current_theme.screen_base
+#define T_INACTIVE()     current_theme.border_inactive
 
-#define TITLE_W      170
-#define TITLE_H      30
-#define ITEM_W       210
-#define ITEM_H       47
-#define OUTER_BORDER 4
-#define TOP_BORDER_H (TITLE_H + 16)
-#define SWATCH_SIZE  12
-#define SWATCH_GAP   3
-#define MAX_THEMES   24
+#define TITLE_W          170
+#define TITLE_H          30
+#define ITEM_W           210
+#define ITEM_H           47
+#define OUTER_BORDER     4
+#define TOP_BORDER_H     (TITLE_H + 16)
+#define SWATCH_SIZE      12
+#define SWATCH_GAP       3
+#define MAX_THEMES       24
 
 /* ── Theme entry ─────────────────────────────────────────────── */
 typedef struct {
-  char name[32];
+  char     name[32];
   uint32_t colors[5]; /* bg_primary, bg_secondary, border_accent, text_main, screen_base */
 } theme_entry_t;
 
 /* ── Static state ────────────────────────────────────────────── */
-static lv_obj_t *screen_ts = NULL;
-static lv_obj_t *items_cont = NULL;
-static lv_obj_t *items[MAX_THEMES];
-static lv_obj_t *sel_dots[MAX_THEMES];
-static lv_obj_t *active_icons[MAX_THEMES];
-static lv_obj_t *scroll_bar_obj = NULL;
-static lv_timer_t *nav_timer = NULL;
+static lv_obj_t   *screen_ts      = NULL;
+static lv_obj_t   *items_cont     = NULL;
+static lv_obj_t   *items[MAX_THEMES];
+static lv_obj_t   *sel_dots[MAX_THEMES];
+static lv_obj_t   *active_icons[MAX_THEMES];
+static lv_obj_t   *scroll_bar_obj = NULL;
+static lv_timer_t *nav_timer      = NULL;
 
 static theme_entry_t themes[MAX_THEMES];
-static int theme_count = 0;
-static int selected = 0;
+static int theme_count  = 0;
+static int selected     = 0;
 
 static int track_y_start = 0;
-static int track_h = 0;
+static int track_h       = 0;
 
-static bool btn_up_last = false;
+static bool btn_up_last   = false;
 static bool btn_down_last = false;
-static bool btn_ok_last = false;
+static bool btn_ok_last   = false;
 static bool btn_back_last = false;
 
 static bool rebuilding = false;
 
 /* ── Helpers ─────────────────────────────────────────────────── */
 static uint32_t hex_str_to_u32(const char *s) {
-  if (!s)
-    return 0;
+  if (!s) return 0;
   return (uint32_t)strtol(s, NULL, 16);
 }
 
 static char *read_file_alloc(const char *path) {
   FILE *f = fopen(path, "r");
-  if (!f)
-    return NULL;
+  if (!f) return NULL;
   fseek(f, 0, SEEK_END);
   long sz = ftell(f);
   fseek(f, 0, SEEK_SET);
-  if (sz <= 0) {
-    fclose(f);
-    return NULL;
-  }
+  if (sz <= 0) { fclose(f); return NULL; }
   char *buf = malloc(sz + 1);
-  if (!buf) {
-    fclose(f);
-    return NULL;
-  }
+  if (!buf) { fclose(f); return NULL; }
   fread(buf, 1, sz, f);
   buf[sz] = '\0';
   fclose(f);
@@ -100,14 +92,11 @@ static bool parse_conf_colors(const char *data, uint32_t out[5]) {
   int found = 0;
   for (int k = 0; k < 5; k++) {
     const char *p = strstr(data, keys[k]);
-    if (!p)
-      continue;
+    if (!p) continue;
     const char *eq = strchr(p, '=');
-    if (!eq)
-      continue;
+    if (!eq) continue;
     eq++;
-    while (*eq == ' ')
-      eq++;
+    while (*eq == ' ') eq++;
     out[k] = hex_str_to_u32(eq);
     found++;
   }
@@ -116,13 +105,9 @@ static bool parse_conf_colors(const char *data, uint32_t out[5]) {
 
 static bool parse_json_colors(const char *data, const char *name, uint32_t out[5]) {
   cJSON *root = cJSON_Parse(data);
-  if (!root)
-    return false;
+  if (!root) return false;
   cJSON *theme = cJSON_GetObjectItem(root, name);
-  if (!theme) {
-    cJSON_Delete(root);
-    return false;
-  }
+  if (!theme) { cJSON_Delete(root); return false; }
   const char *keys[] = {"bg_primary", "bg_secondary", "border_accent", "text_main", "screen_base"};
   for (int k = 0; k < 5; k++) {
     cJSON *v = cJSON_GetObjectItem(theme, keys[k]);
@@ -141,21 +126,17 @@ static void scan_themes(void) {
   if (d) {
     struct dirent *ent;
     while ((ent = readdir(d)) != NULL && theme_count < MAX_THEMES) {
-      if (ent->d_type != DT_DIR || ent->d_name[0] == '.')
-        continue;
-      if (strlen(ent->d_name) > 30)
-        continue;
+      if (ent->d_type != DT_DIR || ent->d_name[0] == '.') continue;
+      if (strlen(ent->d_name) > 30) continue;
 
       char path[96];
       snprintf(path, sizeof(path), TOS_PATH_THEMES "/%.30s/theme.conf", ent->d_name);
       char *data = read_file_alloc(path);
-      if (!data)
-        continue;
+      if (!data) continue;
 
       theme_entry_t *t = &themes[theme_count];
       strncpy(t->name, ent->d_name, sizeof(t->name) - 1);
-      if (parse_conf_colors(data, t->colors))
-        theme_count++;
+      if (parse_conf_colors(data, t->colors)) theme_count++;
       free(data);
     }
     closedir(d);
@@ -165,23 +146,14 @@ static void scan_themes(void) {
   if (theme_count == 0) {
     char *data = read_file_alloc(FLASH_CONFIG_THEMES);
     if (data) {
-      const char *builtin[] = {"default",
-                               "matrix",
-                               "cyber_blue",
-                               "blood",
-                               "toxic",
-                               "ghost",
-                               "neon_pink",
-                               "amber",
-                               "terminal",
-                               "ice",
-                               "deep_purple",
-                               "midnight"};
+      const char *builtin[] = {
+        "default","matrix","cyber_blue","blood","toxic","ghost",
+        "neon_pink","amber","terminal","ice","deep_purple","midnight"
+      };
       for (int i = 0; i < 12 && theme_count < MAX_THEMES; i++) {
         theme_entry_t *t = &themes[theme_count];
         strncpy(t->name, builtin[i], sizeof(t->name) - 1);
-        if (parse_json_colors(data, builtin[i], t->colors))
-          theme_count++;
+        if (parse_json_colors(data, builtin[i], t->colors)) theme_count++;
       }
       free(data);
     }
@@ -199,9 +171,9 @@ static void scan_themes(void) {
 
 /* ── Scrollbar animation ─────────────────────────────────────── */
 static void update_scroll_bar(void) {
-  if (!scroll_bar_obj || theme_count <= 1)
-    return;
-  int32_t pos = track_y_start + (selected * (track_h - 20)) / (theme_count - 1);
+  if (!scroll_bar_obj || theme_count <= 1) return;
+  int32_t pos = track_y_start +
+      (selected * (track_h - 20)) / (theme_count - 1);
 
   if (rebuilding) {
     lv_obj_set_y(scroll_bar_obj, pos);
@@ -226,13 +198,11 @@ static void update_selection(void) {
     if (i == selected) {
       lv_obj_set_style_border_color(items[i], T_ACCENT(), 0);
       lv_obj_set_style_border_width(items[i], 3, 0);
-      if (sel_dots[i])
-        lv_obj_remove_flag(sel_dots[i], LV_OBJ_FLAG_HIDDEN);
+      if (sel_dots[i]) lv_obj_remove_flag(sel_dots[i], LV_OBJ_FLAG_HIDDEN);
     } else {
       lv_obj_set_style_border_color(items[i], T_BORDER(), 0);
       lv_obj_set_style_border_width(items[i], 1, 0);
-      if (sel_dots[i])
-        lv_obj_add_flag(sel_dots[i], LV_OBJ_FLAG_HIDDEN);
+      if (sel_dots[i]) lv_obj_add_flag(sel_dots[i], LV_OBJ_FLAG_HIDDEN);
     }
 
     /* Active theme checkmark */
@@ -288,8 +258,7 @@ static void create_theme_item(lv_obj_t *parent, int idx) {
   strncpy(upper, t->name, sizeof(upper) - 1);
   upper[sizeof(upper) - 1] = '\0';
   for (int c = 0; upper[c]; c++) {
-    if (upper[c] >= 'a' && upper[c] <= 'z')
-      upper[c] -= 32;
+    if (upper[c] >= 'a' && upper[c] <= 'z') upper[c] -= 32;
   }
 
   lv_obj_t *lbl = lv_label_create(item);
@@ -313,8 +282,7 @@ static void create_theme_item(lv_obj_t *parent, int idx) {
   /* Selection pointer (same as menu_component) */
   lv_image_dsc_t *pointer_dsc = assets_get("/assets/icons/pointer.bin");
   lv_obj_t *ptr = lv_image_create(item);
-  if (pointer_dsc)
-    lv_image_set_src(ptr, pointer_dsc);
+  if (pointer_dsc) lv_image_set_src(ptr, pointer_dsc);
   lv_obj_add_flag(ptr, LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_FLOATING);
   lv_obj_align(ptr, LV_ALIGN_RIGHT_MID, -6, 0);
   sel_dots[idx] = ptr;
@@ -331,8 +299,7 @@ static void create_theme_item(lv_obj_t *parent, int idx) {
 
 /* ── Apply theme ─────────────────────────────────────────────── */
 static void apply_theme(int idx) {
-  if (idx < 0 || idx >= theme_count)
-    return;
+  if (idx < 0 || idx >= theme_count) return;
   ESP_LOGI(TAG, "Applying theme: %s", themes[idx].name);
 
   ui_theme_load_from_name(themes[idx].name);
@@ -352,12 +319,11 @@ static void nav_timer_cb(lv_timer_t *t) {
     nav_timer = NULL;
     return;
   }
-  if (ui_input_is_locked())
-    return;
+  if (ui_input_is_locked()) return;
 
-  bool up = up_button_is_down();
+  bool up   = up_button_is_down();
   bool down = down_button_is_down();
-  bool ok = ok_button_is_down();
+  bool ok   = ok_button_is_down();
   bool back = back_button_is_down();
 
   if (up && !btn_up_last && theme_count > 0) {
@@ -377,18 +343,15 @@ static void nav_timer_cb(lv_timer_t *t) {
     return;
   }
 
-  btn_up_last = up;
+  btn_up_last   = up;
   btn_down_last = down;
-  btn_ok_last = ok;
+  btn_ok_last   = ok;
   btn_back_last = back;
 }
 
 /* ── Screen open ─────────────────────────────────────────────── */
 void ui_theme_selector_open(void) {
-  if (screen_ts) {
-    lv_obj_del(screen_ts);
-    screen_ts = NULL;
-  }
+  if (screen_ts) { lv_obj_del(screen_ts); screen_ts = NULL; }
 
   memset(items, 0, sizeof(items));
   memset(sel_dots, 0, sizeof(sel_dots));
@@ -461,10 +424,8 @@ void ui_theme_selector_open(void) {
   track_h = items_h - 20;
 
   static lv_point_precise_t track_pts[2];
-  track_pts[0].x = 0;
-  track_pts[0].y = 0;
-  track_pts[1].x = 0;
-  track_pts[1].y = track_h;
+  track_pts[0].x = 0; track_pts[0].y = 0;
+  track_pts[1].x = 0; track_pts[1].y = track_h;
 
   lv_obj_t *track = lv_line_create(screen_ts);
   lv_line_set_points(track, track_pts, 2);
@@ -477,8 +438,7 @@ void ui_theme_selector_open(void) {
 
   lv_image_dsc_t *slide_dsc = assets_get("/assets/icons/slide_bar_v.bin");
   scroll_bar_obj = lv_image_create(screen_ts);
-  if (slide_dsc)
-    lv_image_set_src(scroll_bar_obj, slide_dsc);
+  if (slide_dsc) lv_image_set_src(scroll_bar_obj, slide_dsc);
   lv_obj_set_pos(scroll_bar_obj, track_x - 4, track_y_start);
   lv_obj_move_foreground(scroll_bar_obj);
 

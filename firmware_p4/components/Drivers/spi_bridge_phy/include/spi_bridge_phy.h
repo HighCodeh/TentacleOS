@@ -7,7 +7,7 @@
 #include <stddef.h>
 
 // Available GPSPI hosts on P4: SPI2_HOST, SPI3_HOST
-#define BRIDGE_SPI_HOST SPI2_HOST
+#define BRIDGE_SPI_HOST  SPI2_HOST
 
 esp_err_t spi_bridge_phy_init(void);
 esp_err_t spi_bridge_phy_transmit(const uint8_t *tx_data, uint8_t *rx_data, size_t len);

@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #include "uuid_lookup.h"
 
 typedef struct {
@@ -20,25 +21,24 @@ typedef struct {
 } uuid_entry_t;
 
 static const uuid_entry_t uuid_table[] = {
-    {0x1800, "Generic Access"},
-    {0x1801, "Generic Attribute"},
-    {0x180A, "Device Information"},
-    {0x180D, "Heart Rate"},
-    {0x180F, "Battery Service"},
-    {0x1812, "Human Interface Device"},
-    {0x181A, "Environmental Sensing"},
-    {0x2A00, "Device Name"},
-    {0x2A01, "Appearance"},
-    {0x2A19, "Battery Level"},
-    {0x2A29, "Manufacturer Name"},
-    {0x2A37, "Heart Rate Measurement"},
-    {0x2A4D, "Report"},
+  {0x1800, "Generic Access"},
+  {0x1801, "Generic Attribute"},
+  {0x180A, "Device Information"},
+  {0x180D, "Heart Rate"},
+  {0x180F, "Battery Service"},
+  {0x1812, "Human Interface Device"},
+  {0x181A, "Environmental Sensing"},
+  {0x2A00, "Device Name"},
+  {0x2A01, "Appearance"},
+  {0x2A19, "Battery Level"},
+  {0x2A29, "Manufacturer Name"},
+  {0x2A37, "Heart Rate Measurement"},
+  {0x2A4D, "Report"},
 };
 
-const char *uuid_get_name_by_u16(uint16_t uuid16) {
-  for (int i = 0; i < sizeof(uuid_table) / sizeof(uuid_entry_t); i++) {
-    if (uuid_table[i].uuid16 == uuid16)
-      return uuid_table[i].name;
+const char* uuid_get_name_by_u16(uint16_t uuid16) {
+  for (int i = 0; i < sizeof(uuid_table)/sizeof(uuid_entry_t); i++) {
+    if (uuid_table[i].uuid16 == uuid16) return uuid_table[i].name;
   }
   return "Unknown Service/Char";
 }

@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #include "console_service.h"
 #include "esp_console.h"
 #include "argtable3/argtable3.h"
@@ -40,7 +41,7 @@ static void resolve_path(const char *input, char *output, size_t max_len) {
     snprintf(output, max_len, "%s/%s", cwd, input);
   }
 
-  // Basic normalization could be added here (handling ..),
+  // Basic normalization could be added here (handling ..), 
   // but standard VFS might not support complex normalization automatically.
   // For now, let's keep it simple or implement manual .. handling if needed.
   // Simple manual .. handling:
@@ -91,9 +92,11 @@ static int cmd_cd(int argc, char **argv) {
     } else if (last_slash == new_path) {
       new_path[1] = '\0'; // Root /
     }
-  } else if (strcmp(target, ".") == 0) {
-    return 0;
-  } else {
+  } 
+  else if (strcmp(target, ".") == 0) {
+    return 0; 
+  }
+  else {
     resolve_path(target, new_path, sizeof(new_path));
   }
 
@@ -103,8 +106,8 @@ static int cmd_cd(int argc, char **argv) {
     strncpy(cwd, new_path, sizeof(cwd));
     // Remove trailing slash if present and not root, purely cosmetic
     size_t len = strlen(cwd);
-    if (len > 1 && cwd[len - 1] == '/') {
-      cwd[len - 1] = '\0';
+    if (len > 1 && cwd[len-1] == '/') {
+      cwd[len-1] = '\0';
     }
     // printf("CWD changed to: %s\n", cwd);
   } else {
@@ -136,8 +139,7 @@ static int cmd_ls(int argc, char **argv) {
   struct dirent *entry;
   cJSON *root = use_json ? cJSON_CreateArray() : NULL;
 
-  if (!use_json)
-    printf("Directory: %s\n", path);
+  if (!use_json) printf("Directory: %s\n", path);
 
   while ((entry = readdir(dir)) != NULL) {
     char full_path[1024]; // Increased buffer
@@ -153,10 +155,7 @@ static int cmd_ls(int argc, char **argv) {
       cJSON_AddNumberToObject(item, "size", (double)st.st_size);
       cJSON_AddItemToArray(root, item);
     } else {
-      printf("%-20s %s (%ld bytes)\n",
-             entry->d_name,
-             (entry->d_type == DT_DIR) ? "[DIR]" : "",
-             (long)st.st_size);
+      printf("%-20s %s (%ld bytes)\n", entry->d_name, (entry->d_type == DT_DIR) ? "[DIR]" : "", (long)st.st_size);
     }
   }
   closedir(dir);
@@ -201,26 +200,22 @@ void register_fs_commands(void) {
   ls_args.path = arg_str0(NULL, NULL, "<path>", "Directory path");
   ls_args.json = arg_lit0("j", "json", "Output in JSON format");
   ls_args.end = arg_end(1);
-  const esp_console_cmd_t ls_cmd = {
-      .command = "ls", .help = "List directory", .func = &cmd_ls, .argtable = &ls_args};
+  const esp_console_cmd_t ls_cmd = { .command = "ls", .help = "List directory", .func = &cmd_ls, .argtable = &ls_args };
   ESP_ERROR_CHECK(esp_console_cmd_register(&ls_cmd));
 
   // CD
   cd_args.path = arg_str1(NULL, NULL, "<path>", "Target directory");
   cd_args.end = arg_end(1);
-  const esp_console_cmd_t cd_cmd = {
-      .command = "cd", .help = "Change directory", .func = &cmd_cd, .argtable = &cd_args};
+  const esp_console_cmd_t cd_cmd = { .command = "cd", .help = "Change directory", .func = &cmd_cd, .argtable = &cd_args };
   ESP_ERROR_CHECK(esp_console_cmd_register(&cd_cmd));
 
   // PWD
-  const esp_console_cmd_t pwd_cmd = {
-      .command = "pwd", .help = "Print working directory", .func = &cmd_pwd};
+  const esp_console_cmd_t pwd_cmd = { .command = "pwd", .help = "Print working directory", .func = &cmd_pwd };
   ESP_ERROR_CHECK(esp_console_cmd_register(&pwd_cmd));
 
   // CAT
   cat_args.path = arg_str1(NULL, NULL, "<file>", "File path");
   cat_args.end = arg_end(1);
-  const esp_console_cmd_t cat_cmd = {
-      .command = "cat", .help = "Print file content", .func = &cmd_cat, .argtable = &cat_args};
+  const esp_console_cmd_t cat_cmd = { .command = "cat", .help = "Print file content", .func = &cmd_cat, .argtable = &cat_args };
   ESP_ERROR_CHECK(esp_console_cmd_register(&cat_cmd));
 }

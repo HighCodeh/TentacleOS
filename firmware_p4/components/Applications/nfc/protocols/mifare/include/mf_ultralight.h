@@ -56,6 +56,6 @@ hb_nfc_err_t mful_ulc_auth(const uint8_t key[16]);
  * @param max_pages Maximum number of pages to read.
  * @return Number of pages read.
  */
-int mful_read_all(uint8_t *data, int max_pages);
+int mful_read_all(uint8_t* data, int max_pages);
 
 #endif

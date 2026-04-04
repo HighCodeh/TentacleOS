@@ -22,8 +22,8 @@ extern "C" {
 #include "lvgl.h"
 
 typedef struct {
-  lv_obj_t *obj;
-  lv_timer_t *timer;
+    lv_obj_t  *obj;
+    lv_timer_t *timer;
 } spinner_ui_t;
 
 /**

@@ -9,8 +9,7 @@ extern "C" {
 
 typedef void (*msgbox_cb_t)(bool confirm);
 
-void msgbox_open(
-    const char *icon, const char *msg, const char *btn_ok, const char *btn_cancel, msgbox_cb_t cb);
+void msgbox_open(const char * icon, const char * msg, const char * btn_ok, const char * btn_cancel, msgbox_cb_t cb);
 
 void msgbox_close(void);
 bool msgbox_is_open(void);

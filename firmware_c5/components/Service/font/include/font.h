@@ -12,16 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #pragma once
 #include <stdint.h>
 
 typedef struct {
-  const uint8_t *bitmap; // Dados dos glifos (bitmap contíguo)
-  uint16_t first_char;   // Primeiro caractere
-  uint16_t last_char;    // Último caractere
-  uint8_t width;         // Largura do glifo
-  uint8_t height;        // Altura do glifo
-  uint8_t spacing;       // Espaçamento entre caracteres
+    const uint8_t *bitmap;     // Dados dos glifos (bitmap contíguo)
+    uint16_t first_char;       // Primeiro caractere
+    uint16_t last_char;        // Último caractere
+    uint8_t width;             // Largura do glifo
+    uint8_t height;            // Altura do glifo
+    uint8_t spacing;           // Espaçamento entre caracteres
 } font_t;
 
 // Fontes disponíveis

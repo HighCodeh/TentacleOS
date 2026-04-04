@@ -24,17 +24,17 @@ static const char *TAG = "BLE_SCREEN";
 static uint8_t *compression_buffer = NULL;
 static bool is_initialized = false;
 
-#define MAX_CHUNK_SIZE 240 // SPI_MAX_PAYLOAD - header overhead
+#define MAX_CHUNK_SIZE 240  // SPI_MAX_PAYLOAD - header overhead
 
 esp_err_t ble_screen_server_init(void) {
-  if (is_initialized)
-    return ESP_OK;
+  if (is_initialized) return ESP_OK;
 
   spi_header_t resp_hdr;
   uint8_t resp_buf[SPI_MAX_PAYLOAD];
 
-  esp_err_t ret =
-      spi_bridge_send_command(SPI_ID_BT_SCREEN_INIT, NULL, 0, &resp_hdr, resp_buf, 5000);
+  esp_err_t ret = spi_bridge_send_command(SPI_ID_BT_SCREEN_INIT,
+      NULL, 0,
+      &resp_hdr, resp_buf, 5000);
 
   if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
     ESP_LOGE(TAG, "Failed to init screen server on C5");
@@ -42,8 +42,7 @@ esp_err_t ble_screen_server_init(void) {
   }
 
   compression_buffer = heap_caps_malloc(32 * 1024, MALLOC_CAP_SPIRAM);
-  if (!compression_buffer)
-    return ESP_ERR_NO_MEM;
+  if (!compression_buffer) return ESP_ERR_NO_MEM;
 
   is_initialized = true;
   ESP_LOGI(TAG, "Screen Stream Service initialized");
@@ -54,7 +53,9 @@ void ble_screen_server_deinit(void) {
   spi_header_t resp_hdr;
   uint8_t resp_buf[SPI_MAX_PAYLOAD];
 
-  spi_bridge_send_command(SPI_ID_BT_SCREEN_DEINIT, NULL, 0, &resp_hdr, resp_buf, 2000);
+  spi_bridge_send_command(SPI_ID_BT_SCREEN_DEINIT,
+      NULL, 0,
+      &resp_hdr, resp_buf, 2000);
 
   if (compression_buffer) {
     heap_caps_free(compression_buffer);
@@ -64,21 +65,16 @@ void ble_screen_server_deinit(void) {
 }
 
 void ble_screen_server_send_partial(const uint16_t *px_map, int x, int y, int w, int h) {
-  if (!is_initialized || !compression_buffer || px_map == NULL)
-    return;
+  if (!is_initialized || !compression_buffer || px_map == NULL) return;
 
   size_t comp_idx = 0;
 
   // Header: [Magic: 0xFE] [X:2] [Y:2] [W:2] [H:2]
   compression_buffer[comp_idx++] = 0xFE;
-  compression_buffer[comp_idx++] = x & 0xFF;
-  compression_buffer[comp_idx++] = (x >> 8) & 0xFF;
-  compression_buffer[comp_idx++] = y & 0xFF;
-  compression_buffer[comp_idx++] = (y >> 8) & 0xFF;
-  compression_buffer[comp_idx++] = w & 0xFF;
-  compression_buffer[comp_idx++] = (w >> 8) & 0xFF;
-  compression_buffer[comp_idx++] = h & 0xFF;
-  compression_buffer[comp_idx++] = (h >> 8) & 0xFF;
+  compression_buffer[comp_idx++] = x & 0xFF; compression_buffer[comp_idx++] = (x >> 8) & 0xFF;
+  compression_buffer[comp_idx++] = y & 0xFF; compression_buffer[comp_idx++] = (y >> 8) & 0xFF;
+  compression_buffer[comp_idx++] = w & 0xFF; compression_buffer[comp_idx++] = (w >> 8) & 0xFF;
+  compression_buffer[comp_idx++] = h & 0xFF; compression_buffer[comp_idx++] = (h >> 8) & 0xFF;
 
   // RLE Compression
   uint16_t current_pixel = px_map[0];
@@ -99,8 +95,7 @@ void ble_screen_server_send_partial(const uint16_t *px_map, int x, int y, int w,
       run_count = 1;
     }
 
-    if (comp_idx > 32000)
-      break;
+    if (comp_idx > 32000) break;
   }
 
   if (run_count > 0 && comp_idx < 32765) {
@@ -118,15 +113,11 @@ void ble_screen_server_send_partial(const uint16_t *px_map, int x, int y, int w,
 
   while (sent < total_len) {
     size_t chunk_len = total_len - sent;
-    if (chunk_len > MAX_CHUNK_SIZE)
-      chunk_len = MAX_CHUNK_SIZE;
+    if (chunk_len > MAX_CHUNK_SIZE) chunk_len = MAX_CHUNK_SIZE;
 
     spi_bridge_send_command(SPI_ID_BT_SCREEN_SEND_PARTIAL,
-                            compression_buffer + sent,
-                            chunk_len,
-                            &resp_hdr,
-                            resp_buf,
-                            1000);
+        compression_buffer + sent, chunk_len,
+        &resp_hdr, resp_buf, 1000);
 
     sent += chunk_len;
   }
@@ -136,8 +127,9 @@ bool ble_screen_server_is_active(void) {
   spi_header_t resp_hdr;
   uint8_t resp_buf[SPI_MAX_PAYLOAD];
 
-  esp_err_t ret =
-      spi_bridge_send_command(SPI_ID_BT_SCREEN_IS_ACTIVE, NULL, 0, &resp_hdr, resp_buf, 2000);
+  esp_err_t ret = spi_bridge_send_command(SPI_ID_BT_SCREEN_IS_ACTIVE,
+      NULL, 0,
+      &resp_hdr, resp_buf, 2000);
 
   if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
     return false;

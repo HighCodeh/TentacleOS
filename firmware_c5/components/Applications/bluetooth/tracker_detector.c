@@ -26,7 +26,7 @@
 static const char *TAG = "TRACKER_DETECTOR";
 
 #define TRACKER_TASK_STACK_SIZE 4096
-#define TRACKER_TIMEOUT_MS      30000
+#define TRACKER_TIMEOUT_MS 30000
 
 #define MFG_ID_APPLE   0x004C
 #define MFG_ID_SAMSUNG 0x0075
@@ -42,44 +42,34 @@ static StaticTask_t *tracker_task_tcb = NULL;
 static SemaphoreHandle_t list_mutex = NULL;
 
 static tracker_type_t identify_tracker(const uint8_t *mfg_data, uint8_t len) {
-  if (len < 2)
-    return TRACKER_TYPE_UNKNOWN;
+  if (len < 2) return TRACKER_TYPE_UNKNOWN;
   uint16_t mfg_id = (uint16_t)mfg_data[0] | ((uint16_t)mfg_data[1] << 8);
 
   if (mfg_id == MFG_ID_APPLE) {
     if (len > 2) {
       uint8_t type = mfg_data[2];
-      if (type == 0x12 || type == 0x10 || type == 0x07 || type == 0x05)
-        return TRACKER_TYPE_AIRTAG;
+      if (type == 0x12 || type == 0x10 || type == 0x07 || type == 0x05) return TRACKER_TYPE_AIRTAG;
     }
-    return TRACKER_TYPE_AIRTAG;
+    return TRACKER_TYPE_AIRTAG; 
   }
-  if (mfg_id == MFG_ID_SAMSUNG)
-    return TRACKER_TYPE_SMARTTAG;
-  if (mfg_id == MFG_ID_TILE)
-    return TRACKER_TYPE_TILE;
+  if (mfg_id == MFG_ID_SAMSUNG) return TRACKER_TYPE_SMARTTAG;
+  if (mfg_id == MFG_ID_TILE) return TRACKER_TYPE_TILE;
 
   return TRACKER_TYPE_UNKNOWN;
 }
 
-static const char *get_type_str(tracker_type_t type) {
-  switch (type) {
-    case TRACKER_TYPE_AIRTAG:
-      return "AirTag (Apple)";
-    case TRACKER_TYPE_SMARTTAG:
-      return "SmartTag (Samsung)";
-    case TRACKER_TYPE_TILE:
-      return "Tile";
-    default:
-      return "Unknown";
+static const char* get_type_str(tracker_type_t type) {
+  switch(type) {
+    case TRACKER_TYPE_AIRTAG: return "AirTag (Apple)";
+    case TRACKER_TYPE_SMARTTAG: return "SmartTag (Samsung)";
+    case TRACKER_TYPE_TILE: return "Tile";
+    default: return "Unknown";
   }
 }
 
-static void scanner_callback(
-    const uint8_t *addr, uint8_t addr_type, int rssi, const uint8_t *data, uint16_t len) {
+static void scanner_callback(const uint8_t *addr, uint8_t addr_type, int rssi, const uint8_t *data, uint16_t len) {
   struct ble_hs_adv_fields fields;
-  if (ble_hs_adv_parse_fields(&fields, data, len) != 0)
-    return;
+  if (ble_hs_adv_parse_fields(&fields, data, len) != 0) return;
 
   if (fields.mfg_data != NULL && fields.mfg_data_len >= 2) {
     tracker_type_t type = identify_tracker(fields.mfg_data, fields.mfg_data_len);
@@ -125,12 +115,10 @@ static void tracker_monitor_task(void *pvParameters) {
   while (is_running) {
     if (xSemaphoreTake(list_mutex, pdMS_TO_TICKS(500)) == pdTRUE) {
       uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
-      for (int i = 0; i < tracker_count;) {
+      for (int i = 0; i < tracker_count; ) {
         if ((now - found_trackers[i].last_seen) > TRACKER_TIMEOUT_MS) {
           if (i < tracker_count - 1) {
-            memmove(&found_trackers[i],
-                    &found_trackers[i + 1],
-                    sizeof(tracker_record_t) * (tracker_count - 1 - i));
+            memmove(&found_trackers[i], &found_trackers[i+1], sizeof(tracker_record_t) * (tracker_count - 1 - i));
           }
           tracker_count--;
         } else {
@@ -143,47 +131,28 @@ static void tracker_monitor_task(void *pvParameters) {
   }
   bluetooth_service_stop_sniffer();
   tracker_task_handle = NULL;
-  if (tracker_task_stack) {
-    heap_caps_free(tracker_task_stack);
-    tracker_task_stack = NULL;
-  }
-  if (tracker_task_tcb) {
-    heap_caps_free(tracker_task_tcb);
-    tracker_task_tcb = NULL;
-  }
+  if (tracker_task_stack) { heap_caps_free(tracker_task_stack); tracker_task_stack = NULL; }
+  if (tracker_task_tcb) { heap_caps_free(tracker_task_tcb); tracker_task_tcb = NULL; }
   vTaskDelete(NULL);
 }
 
 bool tracker_detector_start(void) {
-  if (is_running)
-    return false;
-  if (list_mutex == NULL)
-    list_mutex = xSemaphoreCreateMutex();
+  if (is_running) return false;
+  if (list_mutex == NULL) list_mutex = xSemaphoreCreateMutex();
   if (found_trackers == NULL) {
-    found_trackers = (tracker_record_t *)heap_caps_malloc(
-        MAX_TRACKERS_FOUND * sizeof(tracker_record_t), MALLOC_CAP_SPIRAM);
-    if (!found_trackers)
-      return false;
+    found_trackers = (tracker_record_t *)heap_caps_malloc(MAX_TRACKERS_FOUND * sizeof(tracker_record_t), MALLOC_CAP_SPIRAM);
+    if (!found_trackers) return false;
   }
   is_running = true;
-  tracker_task_stack = (StackType_t *)heap_caps_malloc(
-      TRACKER_TASK_STACK_SIZE * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
+  tracker_task_stack = (StackType_t *)heap_caps_malloc(TRACKER_TASK_STACK_SIZE * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
   tracker_task_tcb = (StaticTask_t *)heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_SPIRAM);
   if (!tracker_task_stack || !tracker_task_tcb) {
-    if (tracker_task_stack)
-      heap_caps_free(tracker_task_stack);
-    if (tracker_task_tcb)
-      heap_caps_free(tracker_task_tcb);
+    if (tracker_task_stack) heap_caps_free(tracker_task_stack);
+    if (tracker_task_tcb) heap_caps_free(tracker_task_tcb);
     is_running = false;
     return false;
   }
-  tracker_task_handle = xTaskCreateStatic(tracker_monitor_task,
-                                          "tracker_task",
-                                          TRACKER_TASK_STACK_SIZE,
-                                          NULL,
-                                          5,
-                                          tracker_task_stack,
-                                          tracker_task_tcb);
+  tracker_task_handle = xTaskCreateStatic(tracker_monitor_task, "tracker_task", TRACKER_TASK_STACK_SIZE, NULL, 5, tracker_task_stack, tracker_task_tcb);
   return (tracker_task_handle != NULL);
 }
 
@@ -191,7 +160,7 @@ void tracker_detector_stop(void) {
   is_running = false;
 }
 
-tracker_record_t *tracker_detector_get_results(uint16_t *count) {
+tracker_record_t* tracker_detector_get_results(uint16_t *count) {
   *count = tracker_count;
   return found_trackers;
 }

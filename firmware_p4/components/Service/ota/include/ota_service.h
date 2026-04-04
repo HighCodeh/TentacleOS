@@ -21,11 +21,11 @@
 #define OTA_UPDATE_PATH "/sdcard/update/tentacleos.bin"
 
 typedef enum {
-  OTA_STATE_IDLE,
-  OTA_STATE_VALIDATING,
-  OTA_STATE_WRITING,
-  OTA_STATE_REBOOTING,
-  OTA_STATE_ERROR,
+    OTA_STATE_IDLE,
+    OTA_STATE_VALIDATING,
+    OTA_STATE_WRITING,
+    OTA_STATE_REBOOTING,
+    OTA_STATE_ERROR,
 } ota_state_t;
 
 typedef void (*ota_progress_cb_t)(int percent, const char *message);
@@ -33,7 +33,7 @@ typedef void (*ota_progress_cb_t)(int percent, const char *message);
 bool ota_update_available(void);
 esp_err_t ota_start_update(ota_progress_cb_t progress_cb);
 esp_err_t ota_post_boot_check(void);
-const char *ota_get_current_version(void);
+const char* ota_get_current_version(void);
 ota_state_t ota_get_state(void);
 
 #endif // OTA_SERVICE_H

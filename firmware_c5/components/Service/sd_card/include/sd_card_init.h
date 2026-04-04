@@ -14,15 +14,15 @@ extern "C" {
 #endif
 
 /* Configurações de pinos */
-#define SD_PIN_MOSI 11
-#define SD_PIN_MISO 13
-#define SD_PIN_CLK  12
-#define SD_PIN_CS   14
+#define SD_PIN_MOSI             11
+#define SD_PIN_MISO             13
+#define SD_PIN_CLK              12
+#define SD_PIN_CS               14
 
 /* Configurações gerais */
-#define SD_MOUNT_POINT     "/sdcard"
-#define SD_MAX_FILES       10
-#define SD_ALLOCATION_UNIT (16 * 1024)
+#define SD_MOUNT_POINT          "/sdcard"
+#define SD_MAX_FILES            10
+#define SD_ALLOCATION_UNIT      (16 * 1024)
 
 /**
  * @brief Inicializa o cartão SD com configuração padrão

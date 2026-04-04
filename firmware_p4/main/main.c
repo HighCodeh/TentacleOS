@@ -5,6 +5,7 @@
 #include "ota_service.h"
 #include "ui_manager.h"
 
+
 void app_main(void) {
   ota_post_boot_check();
   kernel_init();

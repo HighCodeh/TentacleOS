@@ -45,34 +45,34 @@
 #include "highboy_nfc_error.h"
 
 /* ─── Card profile ─────────────────────────────────────────────────────────── */
-#define FELICA_EMU_MAX_BLOCKS 32
-#define FELICA_EMU_MEM_SIZE   (FELICA_EMU_MAX_BLOCKS * FELICA_BLOCK_SIZE)
+#define FELICA_EMU_MAX_BLOCKS   32
+#define FELICA_EMU_MEM_SIZE     (FELICA_EMU_MAX_BLOCKS * FELICA_BLOCK_SIZE)
 
 typedef struct {
-  uint8_t idm[FELICA_IDM_LEN];
-  uint8_t pmm[FELICA_PMM_LEN];
-  uint16_t system_code;
-  uint16_t service_code; /**< service code served for R/W       */
-  uint8_t block_count;   /**< number of blocks available        */
-  uint8_t mem[FELICA_EMU_MEM_SIZE];
+    uint8_t  idm[FELICA_IDM_LEN];
+    uint8_t  pmm[FELICA_PMM_LEN];
+    uint16_t system_code;
+    uint16_t service_code;            /**< service code served for R/W       */
+    uint8_t  block_count;             /**< number of blocks available        */
+    uint8_t  mem[FELICA_EMU_MEM_SIZE];
 } felica_emu_card_t;
 
 /* ─── API ──────────────────────────────────────────────────────────────────── */
 
 /** Load card profile (call before configure_target). */
-hb_nfc_err_t felica_emu_init(const felica_emu_card_t *card);
+hb_nfc_err_t felica_emu_init(const felica_emu_card_t* card);
 
 /** Populate from a prior poller read. raw_mem = block_count × 16 bytes. */
-void felica_emu_card_from_tag(felica_emu_card_t *card,
-                              const felica_tag_t *tag,
-                              uint16_t service_code,
-                              uint8_t block_count,
-                              const uint8_t *raw_mem);
+void felica_emu_card_from_tag(felica_emu_card_t*  card,
+                               const felica_tag_t* tag,
+                               uint16_t            service_code,
+                               uint8_t             block_count,
+                               const uint8_t*      raw_mem);
 
 /** Default blank card (IDm/PMm provided, 16 zeroed blocks). */
-void felica_emu_card_default(felica_emu_card_t *card,
-                             const uint8_t idm[FELICA_IDM_LEN],
-                             const uint8_t pmm[FELICA_PMM_LEN]);
+void felica_emu_card_default(felica_emu_card_t*   card,
+                              const uint8_t idm[FELICA_IDM_LEN],
+                              const uint8_t pmm[FELICA_PMM_LEN]);
 
 /** Configure ST25R3916 as NFC-F target and write PT Memory F. */
 hb_nfc_err_t felica_emu_configure_target(void);

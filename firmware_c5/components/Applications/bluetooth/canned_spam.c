@@ -49,11 +49,18 @@ typedef enum {
 } SpamCategory;
 
 static const SpamType category_info[] = {
-    {"AppleJuice"}, {"SourApple"}, {"SwiftPair"}, {"Samsung"}, {"Android"}, {"Tutti-Frutti"}};
+  {"AppleJuice"},
+  {"SourApple"},
+  {"SwiftPair"},
+  {"Samsung"},
+  {"Android"},
+  {"Tutti-Frutti"}
+};
 
 static bool spam_running = false;
 static int current_category = -1;
 static TaskHandle_t spam_task_handle = NULL;
+
 
 static void spam_task(void *pvParameters) {
   ESP_LOGI(TAG, "Spam Task Started for category %d", current_category);
@@ -120,11 +127,13 @@ static void spam_task(void *pvParameters) {
   vTaskDelete(NULL);
 }
 
+
+
 int spam_get_attack_count(void) {
   return CAT_COUNT;
 }
 
-const SpamType *spam_get_attack_type(int index) {
+const SpamType* spam_get_attack_type(int index) {
   if (index < 0 || index >= CAT_COUNT) {
     return NULL;
   }

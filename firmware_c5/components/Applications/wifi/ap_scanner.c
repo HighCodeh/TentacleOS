@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #include "ap_scanner.h"
 #include "tos_flash_paths.h"
 #include "wifi_service.h"
@@ -37,26 +38,17 @@ static wifi_ap_record_t *scan_results = NULL;
 static uint16_t scan_count = 0;
 static bool is_scanning = false;
 
-static const char *get_auth_mode_name(wifi_auth_mode_t auth_mode) {
+static const char* get_auth_mode_name(wifi_auth_mode_t auth_mode) {
   switch (auth_mode) {
-    case WIFI_AUTH_OPEN:
-      return "OPEN";
-    case WIFI_AUTH_WEP:
-      return "WEP";
-    case WIFI_AUTH_WPA_PSK:
-      return "WPA-PSK";
-    case WIFI_AUTH_WPA2_PSK:
-      return "WPA2-PSK";
-    case WIFI_AUTH_WPA_WPA2_PSK:
-      return "WPA/WPA2-PSK";
-    case WIFI_AUTH_WPA2_ENTERPRISE:
-      return "WPA2-ENT";
-    case WIFI_AUTH_WPA3_PSK:
-      return "WPA3-PSK";
-    case WIFI_AUTH_WPA2_WPA3_PSK:
-      return "WPA2/WPA3-PSK";
-    default:
-      return "Unknown";
+    case WIFI_AUTH_OPEN: return "OPEN";
+    case WIFI_AUTH_WEP: return "WEP";
+    case WIFI_AUTH_WPA_PSK: return "WPA-PSK";
+    case WIFI_AUTH_WPA2_PSK: return "WPA2-PSK";
+    case WIFI_AUTH_WPA_WPA2_PSK: return "WPA/WPA2-PSK";
+    case WIFI_AUTH_WPA2_ENTERPRISE: return "WPA2-ENT";
+    case WIFI_AUTH_WPA3_PSK: return "WPA3-PSK";
+    case WIFI_AUTH_WPA2_WPA3_PSK: return "WPA2/WPA3-PSK";
+    default: return "Unknown";
   }
 }
 
@@ -79,15 +71,9 @@ static bool save_results_to_path(const char *path, bool use_sd_driver) {
     cJSON_AddStringToObject(entry, "ssid", (char *)ap->ssid);
 
     char bssid_str[18];
-    snprintf(bssid_str,
-             sizeof(bssid_str),
-             "%02x:%02x:%02x:%02x:%02x:%02x",
-             ap->bssid[0],
-             ap->bssid[1],
-             ap->bssid[2],
-             ap->bssid[3],
-             ap->bssid[4],
-             ap->bssid[5]);
+    snprintf(bssid_str, sizeof(bssid_str), "%02x:%02x:%02x:%02x:%02x:%02x",
+             ap->bssid[0], ap->bssid[1], ap->bssid[2],
+             ap->bssid[3], ap->bssid[4], ap->bssid[5]);
     cJSON_AddStringToObject(entry, "bssid", bssid_str);
 
     cJSON_AddNumberToObject(entry, "rssi", ap->rssi);
@@ -136,7 +122,7 @@ bool ap_scanner_save_results_to_internal_flash(void) {
 }
 
 bool ap_scanner_save_results_to_sd_card(void) {
-  return save_results_to_path("/scanned_aps.json", true);
+  return save_results_to_path("/scanned_aps.json", true); 
 }
 
 static void ap_scanner_task(void *pvParameters) {
@@ -154,21 +140,15 @@ static void ap_scanner_task(void *pvParameters) {
   }
 
   if (ap_num > 0) {
-    scan_results =
-        (wifi_ap_record_t *)heap_caps_malloc(ap_num * sizeof(wifi_ap_record_t), MALLOC_CAP_SPIRAM);
+    scan_results = (wifi_ap_record_t *)heap_caps_malloc(ap_num * sizeof(wifi_ap_record_t), MALLOC_CAP_SPIRAM);
     if (scan_results) {
       scan_count = ap_num;
       for (int i = 0; i < ap_num; i++) {
         wifi_ap_record_t *rec = wifi_service_get_ap_record(i);
         if (rec) {
           memcpy(&scan_results[i], rec, sizeof(wifi_ap_record_t));
-          ESP_LOGI(TAG,
-                   "[%d] SSID: %s | CH: %d | RSSI: %d | Auth: %d",
-                   i,
-                   rec->ssid,
-                   rec->primary,
-                   rec->rssi,
-                   rec->authmode);
+          ESP_LOGI(TAG, "[%d] SSID: %s | CH: %d | RSSI: %d | Auth: %d", 
+                   i, rec->ssid, rec->primary, rec->rssi, rec->authmode);
         }
       }
       ESP_LOGI(TAG, "Results copied to PSRAM.");
@@ -192,40 +172,34 @@ bool ap_scanner_start(void) {
   }
 
   if (scanner_task_stack == NULL) {
-    scanner_task_stack = (StackType_t *)heap_caps_malloc(SCANNER_STACK_SIZE * sizeof(StackType_t),
-                                                         MALLOC_CAP_SPIRAM);
+    scanner_task_stack = (StackType_t *)heap_caps_malloc(SCANNER_STACK_SIZE * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
   }
   if (scanner_task_tcb == NULL) {
-    scanner_task_tcb = (StaticTask_t *)heap_caps_malloc(sizeof(StaticTask_t),
-                                                        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    scanner_task_tcb = (StaticTask_t *)heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   }
 
   if (scanner_task_stack == NULL || scanner_task_tcb == NULL) {
     ESP_LOGE(TAG, "Failed to allocate scanner task memory in PSRAM!");
-    if (scanner_task_stack) {
-      heap_caps_free(scanner_task_stack);
-      scanner_task_stack = NULL;
-    }
-    if (scanner_task_tcb) {
-      heap_caps_free(scanner_task_tcb);
-      scanner_task_tcb = NULL;
-    }
+    if (scanner_task_stack) { heap_caps_free(scanner_task_stack); scanner_task_stack = NULL; }
+    if (scanner_task_tcb) { heap_caps_free(scanner_task_tcb); scanner_task_tcb = NULL; }
     return false;
   }
 
   is_scanning = true;
-  scanner_task_handle = xTaskCreateStatic(ap_scanner_task,
-                                          "ap_scan_task",
-                                          SCANNER_STACK_SIZE,
-                                          NULL,
-                                          5,
-                                          scanner_task_stack,
-                                          scanner_task_tcb);
+  scanner_task_handle = xTaskCreateStatic(
+    ap_scanner_task,
+    "ap_scan_task",
+    SCANNER_STACK_SIZE,
+    NULL,
+    5,
+    scanner_task_stack,
+    scanner_task_tcb
+  );
 
   return (scanner_task_handle != NULL);
 }
 
-wifi_ap_record_t *ap_scanner_get_results(uint16_t *count) {
+wifi_ap_record_t* ap_scanner_get_results(uint16_t *count) {
   if (is_scanning) {
     return NULL;
   }
@@ -241,13 +215,7 @@ void ap_scanner_free_results(void) {
   scan_count = 0;
 
   if (!is_scanning) {
-    if (scanner_task_stack) {
-      heap_caps_free(scanner_task_stack);
-      scanner_task_stack = NULL;
-    }
-    if (scanner_task_tcb) {
-      heap_caps_free(scanner_task_tcb);
-      scanner_task_tcb = NULL;
-    }
+    if (scanner_task_stack) { heap_caps_free(scanner_task_stack); scanner_task_stack = NULL; }
+    if (scanner_task_tcb) { heap_caps_free(scanner_task_tcb); scanner_task_tcb = NULL; }
   }
 }

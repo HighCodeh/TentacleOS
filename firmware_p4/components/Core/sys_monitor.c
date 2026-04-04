@@ -27,12 +27,12 @@
 
 static const char *TAG = "SYS_MONITOR";
 
-#define MONITOR_INTERVAL_MS      2000
-#define MONITOR_STACK_SIZE       4096
-#define MONITOR_PRIORITY         1
-#define MONITOR_CORE             1
-#define CRITICAL_STACK_THRESHOLD 256
-#define ALERT_MSG_SIZE           128
+#define MONITOR_INTERVAL_MS       2000
+#define MONITOR_STACK_SIZE        4096
+#define MONITOR_PRIORITY          1
+#define MONITOR_CORE              1
+#define CRITICAL_STACK_THRESHOLD  256
+#define ALERT_MSG_SIZE            128
 
 typedef struct {
   bool is_verbose;
@@ -46,10 +46,8 @@ static void check_task_stacks(TaskStatus_t *tasks, uint32_t count) {
       continue;
     }
 
-    ESP_LOGE(TAG,
-             "CRITICAL STACK in task [%s]: %lu bytes free",
-             tasks[i].pcTaskName,
-             (unsigned long)watermark);
+    ESP_LOGE(TAG, "CRITICAL STACK in task [%s]: %lu bytes free",
+             tasks[i].pcTaskName, (unsigned long)watermark);
 
     // UI Task requires special recovery
     if (strcmp(tasks[i].pcTaskName, "UI Task") == 0) {
@@ -62,11 +60,9 @@ static void check_task_stacks(TaskStatus_t *tasks, uint32_t count) {
     ui_switch_screen(SCREEN_HOME);
 
     char msg_buf[ALERT_MSG_SIZE];
-    snprintf(msg_buf,
-             sizeof(msg_buf),
+    snprintf(msg_buf, sizeof(msg_buf),
              "Process '%s' Terminated!\nLow Stack (%lu B).",
-             tasks[i].pcTaskName,
-             (unsigned long)watermark);
+             tasks[i].pcTaskName, (unsigned long)watermark);
 
     safeguard_alert("SYSTEM PROTECTED", msg_buf);
 
@@ -81,7 +77,8 @@ static void sys_monitor_task(void *pvParameters) {
   bool is_verbose = params->is_verbose;
   vPortFree(params);
 
-  ESP_LOGI(TAG, "System monitor started (verbose: %s)", is_verbose ? "enabled" : "disabled");
+  ESP_LOGI(TAG, "System monitor started (verbose: %s)",
+           is_verbose ? "enabled" : "disabled");
 
   while (1) {
     if (is_verbose) {
@@ -89,8 +86,7 @@ static void sys_monitor_task(void *pvParameters) {
       uint32_t internal_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
       uint32_t spiram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
 
-      ESP_LOGI(TAG,
-               "RAM — Free: %lu, Internal: %lu, PSRAM: %lu",
+      ESP_LOGI(TAG, "RAM — Free: %lu, Internal: %lu, PSRAM: %lu",
                (unsigned long)free_heap,
                (unsigned long)internal_free,
                (unsigned long)spiram_free);

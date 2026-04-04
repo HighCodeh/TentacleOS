@@ -43,15 +43,13 @@ static int flood_gap_event(struct ble_gap_event *event, void *arg) {
         ble_gap_terminate(event->connect.conn_handle, BLE_ERR_REM_USER_CONN_TERM);
       } else {
         ESP_LOGW(TAG, "Connection failed status=%d", event->connect.status);
-        if (flood_sem)
-          xSemaphoreGive(flood_sem);
+        if (flood_sem) xSemaphoreGive(flood_sem);
       }
       break;
 
     case BLE_GAP_EVENT_DISCONNECT:
       ESP_LOGD(TAG, "Disconnected.");
-      if (flood_sem)
-        xSemaphoreGive(flood_sem);
+      if (flood_sem) xSemaphoreGive(flood_sem);
       break;
 
     default:
@@ -80,8 +78,7 @@ static void flood_task(void *pvParameters) {
   while (is_running) {
     bluetooth_service_stop_advertising();
 
-    int rc = ble_gap_connect(
-        bluetooth_service_get_own_addr_type(), &addr, 5000, &conn_params, flood_gap_event, NULL);
+    int rc = ble_gap_connect(bluetooth_service_get_own_addr_type(), &addr, 5000, &conn_params, flood_gap_event, NULL);
 
     if (rc == 0) {
       xSemaphoreTake(flood_sem, portMAX_DELAY);
@@ -119,22 +116,26 @@ esp_err_t ble_connect_flood_start(const uint8_t *addr, uint8_t addr_type) {
 
   xSemaphoreTake(flood_sem, 0);
 
-  flood_task_stack =
-      (StackType_t *)heap_caps_malloc(FLOOD_STACK_SIZE * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
+  flood_task_stack = (StackType_t *)heap_caps_malloc(FLOOD_STACK_SIZE * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
   flood_task_tcb = (StaticTask_t *)heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_SPIRAM);
 
   if (!flood_task_stack || !flood_task_tcb) {
     ESP_LOGE(TAG, "Failed to allocate memory for flood task");
-    if (flood_task_stack)
-      heap_caps_free(flood_task_stack);
-    if (flood_task_tcb)
-      heap_caps_free(flood_task_tcb);
+    if (flood_task_stack) heap_caps_free(flood_task_stack);
+    if (flood_task_tcb) heap_caps_free(flood_task_tcb);
     return ESP_ERR_NO_MEM;
   }
 
   is_running = true;
   flood_task_handle = xTaskCreateStatic(
-      flood_task, "ble_flood_task", FLOOD_STACK_SIZE, NULL, 5, flood_task_stack, flood_task_tcb);
+    flood_task,
+    "ble_flood_task",
+    FLOOD_STACK_SIZE,
+    NULL,
+    5,
+    flood_task_stack,
+    flood_task_tcb
+  );
 
   if (flood_task_handle == NULL) {
     is_running = false;
@@ -145,15 +146,14 @@ esp_err_t ble_connect_flood_start(const uint8_t *addr, uint8_t addr_type) {
 }
 
 esp_err_t ble_connect_flood_stop(void) {
-  if (!is_running)
-    return ESP_OK;
+  if (!is_running) return ESP_OK;
 
   is_running = false;
 
   ble_gap_terminate(BLE_HS_CONN_HANDLE_NONE, BLE_ERR_REM_USER_CONN_TERM);
 
   if (flood_sem) {
-    xSemaphoreGive(flood_sem);
+    xSemaphoreGive(flood_sem); 
   }
 
   int retry = 20;
@@ -162,14 +162,8 @@ esp_err_t ble_connect_flood_stop(void) {
     retry--;
   }
 
-  if (flood_task_stack) {
-    heap_caps_free(flood_task_stack);
-    flood_task_stack = NULL;
-  }
-  if (flood_task_tcb) {
-    heap_caps_free(flood_task_tcb);
-    flood_task_tcb = NULL;
-  }
+  if (flood_task_stack) { heap_caps_free(flood_task_stack); flood_task_stack = NULL; }
+  if (flood_task_tcb) { heap_caps_free(flood_task_tcb); flood_task_tcb = NULL; }
 
   if (flood_sem) {
     vSemaphoreDelete(flood_sem);

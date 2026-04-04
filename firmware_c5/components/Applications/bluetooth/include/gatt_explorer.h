@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #ifndef GATT_EXPLORER_H
 #define GATT_EXPLORER_H
 

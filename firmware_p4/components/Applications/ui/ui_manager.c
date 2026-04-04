@@ -69,16 +69,16 @@
 
 #define TAG "UI_MANAGER"
 
-#define UI_TASK_STACK_SIZE (4096 * 4)
-#define UI_TASK_PRIORITY   (tskIDLE_PRIORITY + 2)
-#define UI_TASK_CORE       1
+#define UI_TASK_STACK_SIZE      (4096 * 4)
+#define UI_TASK_PRIORITY        (tskIDLE_PRIORITY + 2) 
+#define UI_TASK_CORE            1 
 
-#define LVGL_TICK_PERIOD_MS 5
+#define LVGL_TICK_PERIOD_MS     5
 
 static SemaphoreHandle_t xGuiSemaphore = NULL;
 static bool is_emergency_restart = false;
 
-#define INPUT_LOCK_MS 500
+#define INPUT_LOCK_MS  500
 static uint32_t input_lock_until = 0;
 
 static void ui_task(void *pvParameter);
@@ -86,19 +86,19 @@ static void lv_tick_task(void *arg);
 static void clear_current_screen(void);
 
 static bool is_ble_screen(screen_id_t screen) {
-  return (screen == SCREEN_BLE_MENU || screen == SCREEN_BLE_SPAM ||
-          screen == SCREEN_BLE_SPAM_SELECT);
+  return (screen == SCREEN_BLE_MENU || screen == SCREEN_BLE_SPAM || screen == SCREEN_BLE_SPAM_SELECT);
 }
 
 static bool is_badusb_screen(screen_id_t screen) {
-  return (screen == SCREEN_BADUSB_MENU || screen == SCREEN_BADUSB_BROWSER ||
-          screen == SCREEN_BADUSB_LAYOUT || screen == SCREEN_BADUSB_CONNECT ||
-          screen == SCREEN_BADUSB_RUNNING);
+  return (screen == SCREEN_BADUSB_MENU || screen == SCREEN_BADUSB_BROWSER || 
+  screen == SCREEN_BADUSB_LAYOUT || screen == SCREEN_BADUSB_CONNECT || 
+  screen == SCREEN_BADUSB_RUNNING);
 }
 
 screen_id_t current_screen_id = SCREEN_NONE;
 
-void ui_init(void) {
+void ui_init(void)
+{
   ESP_LOGI(TAG, "Initializing UI Manager...");
 
   assets_manager_init();
@@ -111,14 +111,23 @@ void ui_init(void) {
     return;
   }
 
-  const esp_timer_create_args_t periodic_timer_args = {.callback = &lv_tick_task,
-                                                       .name = "lvgl_tick"};
+  const esp_timer_create_args_t periodic_timer_args = {
+    .callback = &lv_tick_task,
+    .name = "lvgl_tick"
+  };
   esp_timer_handle_t periodic_timer;
   ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_timer));
   ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, LVGL_TICK_PERIOD_MS * 1000));
 
   xTaskCreatePinnedToCore(
-      ui_task, "UI Task", UI_TASK_STACK_SIZE, NULL, UI_TASK_PRIORITY, NULL, UI_TASK_CORE);
+    ui_task,            
+    "UI Task",          
+    UI_TASK_STACK_SIZE, 
+    NULL,               
+    UI_TASK_PRIORITY,   
+    NULL,               
+    UI_TASK_CORE        
+  );
 
   ESP_LOGI(TAG, "UI Manager initialized successfully.");
 }
@@ -127,28 +136,35 @@ void ui_hard_restart(void) {
   ESP_LOGW(TAG, "Executing UI Task Emergency Restart...");
   is_emergency_restart = true;
   xTaskCreatePinnedToCore(
-      ui_task, "UI Task", UI_TASK_STACK_SIZE, NULL, UI_TASK_PRIORITY, NULL, UI_TASK_CORE);
+    ui_task,            
+    "UI Task",          
+    UI_TASK_STACK_SIZE, 
+    NULL,               
+    UI_TASK_PRIORITY,   
+    NULL,               
+    UI_TASK_CORE        
+  );
 }
 
-static void ui_task(void *pvParameter) {
+static void ui_task(void *pvParameter)
+{
   ui_theme_init();
 
-  bool is_recovery = is_emergency_restart;
-  is_emergency_restart = false;
+  bool is_recovery = is_emergency_restart; 
+  is_emergency_restart = false; 
 
   if (ui_acquire()) {
     if (is_recovery) {
       ui_home_open();
-      msgbox_open(
-          LV_SYMBOL_WARNING, "UI Recovered!\nInterface task was restarted.", "OK", NULL, NULL);
+      msgbox_open(LV_SYMBOL_WARNING, "UI Recovered!\nInterface task was restarted.", "OK", NULL, NULL);
     } else {
-      ui_boot_show();
+      ui_boot_show(); 
     }
     ui_release();
   }
 
   TickType_t start_tick = xTaskGetTickCount();
-  bool boot_screen_done = is_recovery;
+  bool boot_screen_done = is_recovery; 
 
   while (1) {
     if (ui_acquire()) {
@@ -164,7 +180,7 @@ static void ui_task(void *pvParameter) {
   }
 }
 
-static void clear_current_screen(void) {
+static void clear_current_screen(void){
   lv_group_remove_all_objs(main_group);
 }
 
@@ -176,6 +192,7 @@ void ui_switch_screen(screen_id_t new_screen) {
   input_lock_until = lv_tick_get() + INPUT_LOCK_MS;
 
   if (ui_acquire()) {
+
     // Power Management for BLE
     bool was_ble = is_ble_screen(current_screen_id);
     bool is_ble = is_ble_screen(new_screen);
@@ -403,20 +420,26 @@ void ui_switch_screen(screen_id_t new_screen) {
   }
 }
 
-static void lv_tick_task(void *arg) {
-  (void)arg;
+static void lv_tick_task(void *arg)
+{
+  (void) arg;
   lv_tick_inc(LVGL_TICK_PERIOD_MS);
 }
 
-bool ui_acquire(void) {
+
+bool ui_acquire(void)
+{
   if (xGuiSemaphore != NULL) {
     return (xSemaphoreTakeRecursive(xGuiSemaphore, portMAX_DELAY) == pdTRUE);
   }
   return false;
 }
 
-void ui_release(void) {
+void ui_release(void)
+{
   if (xGuiSemaphore != NULL) {
     xSemaphoreGiveRecursive(xGuiSemaphore);
   }
 }
+
+

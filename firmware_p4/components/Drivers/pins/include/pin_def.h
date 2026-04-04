@@ -12,47 +12,49 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #ifndef PIN_DEF_H
 #define PIN_DEF_H
 
 // SPI
-#define SPI_MOSI_PIN 11
-#define SPI_SCLK_PIN 12
-#define SPI_MISO_PIN 13
+#define SPI_MOSI_PIN    11
+#define SPI_SCLK_PIN    12
+#define SPI_MISO_PIN    13
 
 // extra gpios
-#define GPIO_CS_PIN  3
-#define GPIO_SDA_PIN 8 // GDO0
-#define GPIO_SCL_PIN 9 // GDO2
+#define GPIO_CS_PIN     3
+#define GPIO_SDA_PIN    8  // GDO0
+#define GPIO_SCL_PIN    9  // GDO2
 
 // SDMMC (SDIO)
-#define SDMMC_CLK_PIN 43
-#define SDMMC_CMD_PIN 44
-#define SDMMC_D0_PIN  39
-#define SDMMC_D1_PIN  40
-#define SDMMC_D2_PIN  41
-#define SDMMC_D3_PIN  42
+#define SDMMC_CLK_PIN   43
+#define SDMMC_CMD_PIN   44
+#define SDMMC_D0_PIN    39
+#define SDMMC_D1_PIN    40
+#define SDMMC_D2_PIN    41
+#define SDMMC_D3_PIN    42
+
 
 // chip select
-#define ST7789_CS_PIN 48
+#define ST7789_CS_PIN   48
 
 // buttons
-#define BTN_LEFT  5
-#define BTN_BACK  7
-#define BTN_UP    15
-#define BTN_DOWN  6
-#define BTN_OK    4
+#define BTN_LEFT     5
+#define BTN_BACK     7
+#define BTN_UP     15
+#define BTN_DOWN   6
+#define BTN_OK     4
 #define BTN_RIGHT 16
 
 // led
-#define LED_GPIO  45
-#define LED_COUNT 1
+#define LED_GPIO     45
+#define LED_COUNT    1
 
 // lcd st7789
-#define ST7789_PIN_CS  26
-#define ST7789_PIN_DC  27
-#define ST7789_PIN_RST 32
-#define ST7789_PIN_BL  54
+#define ST7789_PIN_CS   26
+#define ST7789_PIN_DC   27
+#define ST7789_PIN_RST  32
+#define ST7789_PIN_BL   54
 
 // P4-C5 Bridge SPI (Master)
 #define BRIDGE_SCLK_PIN 20
@@ -62,9 +64,9 @@
 #define BRIDGE_IRQ_PIN  2
 
 // C5 Control & Update (UART + Boot)
-#define C5_UART_TX_PIN 46
-#define C5_UART_RX_PIN 47
-#define C5_RESET_PIN   48
-#define C5_BOOT_PIN    33
+#define C5_UART_TX_PIN  46
+#define C5_UART_RX_PIN  47
+#define C5_RESET_PIN    48
+#define C5_BOOT_PIN     33
 
 #endif // !PIN_DEF_H

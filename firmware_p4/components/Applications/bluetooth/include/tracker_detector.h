@@ -21,26 +21,26 @@
 #define MAX_TRACKERS_FOUND 50
 
 typedef enum {
-  TRACKER_TYPE_UNKNOWN = 0,
-  TRACKER_TYPE_AIRTAG,
-  TRACKER_TYPE_SMARTTAG,
-  TRACKER_TYPE_TILE,
-  TRACKER_TYPE_CHIPOLO
+    TRACKER_TYPE_UNKNOWN = 0,
+    TRACKER_TYPE_AIRTAG,
+    TRACKER_TYPE_SMARTTAG,
+    TRACKER_TYPE_TILE,
+    TRACKER_TYPE_CHIPOLO
 } tracker_type_t;
 
 typedef struct {
-  uint8_t addr[6];
-  uint8_t addr_type;
-  int8_t rssi;
-  tracker_type_t type;
-  char type_str[16];
-  uint32_t last_seen;
-  uint8_t payload_sample[10];
+    uint8_t addr[6];
+    uint8_t addr_type;
+    int8_t rssi;
+    tracker_type_t type;
+    char type_str[16];
+    uint32_t last_seen;
+    uint8_t payload_sample[10];
 } tracker_record_t;
 
 bool tracker_detector_start(void);
 void tracker_detector_stop(void);
-tracker_record_t *tracker_detector_get_results(uint16_t *count);
+tracker_record_t* tracker_detector_get_results(uint16_t *count);
 void tracker_detector_clear_results(void);
 
 #endif // TRACKER_DETECTOR_H

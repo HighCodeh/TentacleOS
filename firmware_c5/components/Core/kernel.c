@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #include <stdio.h>
 #include "buttons_gpio.h"
 #include "freertos/FreeRTOS.h"
@@ -20,11 +21,11 @@
 #include "spi.h"
 #include "i2c_init.h"
 #include "led_control.h"
-#include "pin_def.h"
+#include "pin_def.h" 
 #include "bq25896.h"
 #include "driver/i2c.h"
-#include "nvs_flash.h"
-#include "wifi_service.h"
+#include "nvs_flash.h" 
+#include "wifi_service.h" 
 #include "storage_init.h"
 #include "storage_assets.h"
 #include "sys_monitor.h"
@@ -34,8 +35,8 @@
 static const char *TAG = "SAFEGUARD";
 
 static void console_task(void *pvParameters) {
-  console_service_init();
-  vTaskDelete(NULL);
+    console_service_init();
+    vTaskDelete(NULL);
 }
 
 void kernel_init(void) {
@@ -48,14 +49,17 @@ void kernel_init(void) {
 
   spi_init();
   init_i2c();
-  // Storage Init
+  //Storage Init
   storage_init();
   storage_assets_init();
   storage_assets_print_info();
 
+
+
   led_rgb_init();
   bq25896_init();
   spi_bridge_slave_init();
+
 
   sys_monitor(false);
 
@@ -66,11 +70,12 @@ void kernel_init(void) {
   vTaskDelay(pdMS_TO_TICKS(1500));
 }
 
+
 // SAFEGUARDS
 
 #include <esp_log.h>
 
-void safeguard_alert(const char *title, const char *message) {
+void safeguard_alert(const char* title, const char* message) {
   ESP_LOGE(TAG, "ALERT: %s - %s", title, message);
 }
 

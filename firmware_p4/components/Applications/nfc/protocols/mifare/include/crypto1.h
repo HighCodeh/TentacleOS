@@ -24,15 +24,15 @@ extern "C" {
 #endif
 
 typedef struct {
-  uint32_t odd;
-  uint32_t even;
+    uint32_t odd;
+    uint32_t even;
 } crypto1_state_t;
 
 /** Initialise the LFSR with a 48-bit key. */
-void crypto1_init(crypto1_state_t *s, uint64_t key);
+void    crypto1_init(crypto1_state_t *s, uint64_t key);
 
 /** Reset LFSR state to zero. */
-void crypto1_reset(crypto1_state_t *s);
+void    crypto1_reset(crypto1_state_t *s);
 
 /**
  * Clock one bit through the cipher.

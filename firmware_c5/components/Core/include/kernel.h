@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #ifndef KERNEL_H
 #define KERNEL_H
 
 void kernel_init(void);
-void safeguard_alert(const char *title, const char *message);
+void safeguard_alert(const char* title, const char* message);
 
 #endif

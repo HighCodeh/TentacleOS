@@ -12,14 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 #ifndef EVIL_TWIN_H
 #define EVIL_TWIN_H
 
 #include <stdbool.h>
 #include <stddef.h>
 
-void evil_twin_start_attack(const char *ssid);
-void evil_twin_start_attack_with_template(const char *ssid, const char *template_path);
+void evil_twin_start_attack(const char* ssid);
+void evil_twin_start_attack_with_template(const char* ssid, const char* template_path);
 
 void evil_twin_stop_attack(void);
 
@@ -30,3 +31,4 @@ bool evil_twin_upload_template(const char *path);
 void evil_twin_save_password(const char *password);
 
 #endif // EVIL_TWIN_H
+

@@ -23,8 +23,8 @@ typedef struct {
   int8_t rssi;
 } target_client_record_t;
 bool target_scanner_start(const uint8_t *target_bssid, uint8_t channel);
-target_client_record_t *target_scanner_get_results(uint16_t *count);
-target_client_record_t *target_scanner_get_live_results(uint16_t *count, bool *scanning);
+target_client_record_t* target_scanner_get_results(uint16_t *count);
+target_client_record_t* target_scanner_get_live_results(uint16_t *count, bool *scanning);
 void target_scanner_free_results(void);
 bool target_scanner_save_results_to_internal_flash(void);
 bool target_scanner_save_results_to_sd_card(void);

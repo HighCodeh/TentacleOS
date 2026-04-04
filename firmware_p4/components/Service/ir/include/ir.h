@@ -17,8 +17,8 @@
 
 #include "ir_protocol.h"
 
-#define IR_RX_GPIO 6
-#define IR_TX_GPIO 5
+#define IR_RX_GPIO  6
+#define IR_TX_GPIO  5
 
 #ifdef __cplusplus
 extern "C" {

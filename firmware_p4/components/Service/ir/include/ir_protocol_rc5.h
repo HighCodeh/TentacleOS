@@ -17,13 +17,13 @@
 
 #include "ir_protocol.h"
 
-#define RC5_UNIT 889
+#define RC5_UNIT  889
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-bool rc5_decode(rmt_symbol_word_t *symbols, size_t count, ir_data_t *out);
+bool   rc5_decode(rmt_symbol_word_t *symbols, size_t count, ir_data_t *out);
 size_t rc5_encode(const ir_data_t *data, rmt_symbol_word_t *symbols, size_t max);
 
 #ifdef __cplusplus

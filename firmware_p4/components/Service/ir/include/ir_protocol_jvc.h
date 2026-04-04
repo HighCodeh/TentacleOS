@@ -17,17 +17,17 @@
 
 #include "ir_protocol.h"
 
-#define JVC_HEADER_MARK  8400
-#define JVC_HEADER_SPACE 4200
-#define JVC_BIT_MARK     526
-#define JVC_ONE_SPACE    1578
-#define JVC_ZERO_SPACE   526
+#define JVC_HEADER_MARK   8400
+#define JVC_HEADER_SPACE  4200
+#define JVC_BIT_MARK       526
+#define JVC_ONE_SPACE     1578
+#define JVC_ZERO_SPACE     526
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-bool jvc_decode(rmt_symbol_word_t *symbols, size_t count, ir_data_t *out);
+bool   jvc_decode(rmt_symbol_word_t *symbols, size_t count, ir_data_t *out);
 size_t jvc_encode(const ir_data_t *data, rmt_symbol_word_t *symbols, size_t max);
 
 #ifdef __cplusplus

@@ -23,7 +23,8 @@ static const char *TAG = "sd_read";
 #define MAX_PATH_LEN 256
 #define MAX_LINE_LEN 512
 
-static esp_err_t format_path(const char *path, char *full_path, size_t size) {
+static esp_err_t format_path(const char *path, char *full_path, size_t size)
+{
   if (path[0] == '/') {
     snprintf(full_path, size, "%s%s", VFS_MOUNT_POINT, path);
   } else {
@@ -32,7 +33,8 @@ static esp_err_t format_path(const char *path, char *full_path, size_t size) {
   return ESP_OK;
 }
 
-esp_err_t sd_read_string(const char *path, char *buffer, size_t buffer_size) {
+esp_err_t sd_read_string(const char *path, char *buffer, size_t buffer_size)
+{
   if (!sd_is_mounted() || path == NULL || buffer == NULL) {
     return ESP_ERR_INVALID_ARG;
   }
@@ -54,7 +56,8 @@ esp_err_t sd_read_string(const char *path, char *buffer, size_t buffer_size) {
   return ESP_OK;
 }
 
-esp_err_t sd_read_binary(const char *path, void *buffer, size_t size, size_t *bytes_read) {
+esp_err_t sd_read_binary(const char *path, void *buffer, size_t size, size_t *bytes_read)
+{
   if (!sd_is_mounted() || path == NULL || buffer == NULL) {
     return ESP_ERR_INVALID_ARG;
   }
@@ -79,7 +82,8 @@ esp_err_t sd_read_binary(const char *path, void *buffer, size_t size, size_t *by
   return ESP_OK;
 }
 
-esp_err_t sd_read_line(const char *path, char *buffer, size_t buffer_size, uint32_t line_number) {
+esp_err_t sd_read_line(const char *path, char *buffer, size_t buffer_size, uint32_t line_number)
+{
   if (!sd_is_mounted() || path == NULL || buffer == NULL || line_number == 0) {
     return ESP_ERR_INVALID_ARG;
   }
@@ -98,8 +102,7 @@ esp_err_t sd_read_line(const char *path, char *buffer, size_t buffer_size, uint3
     current_line++;
     if (current_line == line_number) {
       char *pos = strchr(buffer, '\n');
-      if (pos)
-        *pos = '\0';
+      if (pos) *pos = '\0';
       fclose(f);
       ESP_LOGD(TAG, "Linha %lu lida", line_number);
       return ESP_OK;
@@ -111,7 +114,8 @@ esp_err_t sd_read_line(const char *path, char *buffer, size_t buffer_size, uint3
   return ESP_ERR_NOT_FOUND;
 }
 
-esp_err_t sd_read_lines(const char *path, sd_line_callback_t callback, void *user_data) {
+esp_err_t sd_read_lines(const char *path, sd_line_callback_t callback, void *user_data)
+{
   if (!sd_is_mounted() || path == NULL || callback == NULL) {
     return ESP_ERR_INVALID_ARG;
   }
@@ -128,8 +132,7 @@ esp_err_t sd_read_lines(const char *path, sd_line_callback_t callback, void *use
   char line[MAX_LINE_LEN];
   while (fgets(line, sizeof(line), f) != NULL) {
     char *pos = strchr(line, '\n');
-    if (pos)
-      *pos = '\0';
+    if (pos) *pos = '\0';
     callback(line, user_data);
   }
 
@@ -138,7 +141,8 @@ esp_err_t sd_read_lines(const char *path, sd_line_callback_t callback, void *use
   return ESP_OK;
 }
 
-esp_err_t sd_count_lines(const char *path, uint32_t *line_count) {
+esp_err_t sd_count_lines(const char *path, uint32_t *line_count)
+{
   if (!sd_is_mounted() || path == NULL || line_count == NULL) {
     return ESP_ERR_INVALID_ARG;
   }
@@ -163,8 +167,8 @@ esp_err_t sd_count_lines(const char *path, uint32_t *line_count) {
   return ESP_OK;
 }
 
-esp_err_t
-sd_read_chunk(const char *path, size_t offset, void *buffer, size_t size, size_t *bytes_read) {
+esp_err_t sd_read_chunk(const char *path, size_t offset, void *buffer, size_t size, size_t *bytes_read)
+{
   if (!sd_is_mounted() || path == NULL || buffer == NULL) {
     return ESP_ERR_INVALID_ARG;
   }
@@ -195,11 +199,13 @@ sd_read_chunk(const char *path, size_t offset, void *buffer, size_t size, size_t
   return ESP_OK;
 }
 
-esp_err_t sd_read_first_line(const char *path, char *buffer, size_t buffer_size) {
+esp_err_t sd_read_first_line(const char *path, char *buffer, size_t buffer_size)
+{
   return sd_read_line(path, buffer, buffer_size, 1);
 }
 
-esp_err_t sd_read_last_line(const char *path, char *buffer, size_t buffer_size) {
+esp_err_t sd_read_last_line(const char *path, char *buffer, size_t buffer_size)
+{
   if (!sd_is_mounted() || path == NULL || buffer == NULL) {
     return ESP_ERR_INVALID_ARG;
   }
@@ -227,8 +233,7 @@ esp_err_t sd_read_last_line(const char *path, char *buffer, size_t buffer_size) 
   }
 
   char *pos = strchr(last_line, '\n');
-  if (pos)
-    *pos = '\0';
+  if (pos) *pos = '\0';
 
   strncpy(buffer, last_line, buffer_size - 1);
   buffer[buffer_size - 1] = '\0';
@@ -237,7 +242,8 @@ esp_err_t sd_read_last_line(const char *path, char *buffer, size_t buffer_size) 
   return ESP_OK;
 }
 
-esp_err_t sd_read_int(const char *path, int32_t *value) {
+esp_err_t sd_read_int(const char *path, int32_t *value)
+{
   if (!sd_is_mounted() || path == NULL || value == NULL) {
     return ESP_ERR_INVALID_ARG;
   }
@@ -250,7 +256,8 @@ esp_err_t sd_read_int(const char *path, int32_t *value) {
   return ret;
 }
 
-esp_err_t sd_read_float(const char *path, float *value) {
+esp_err_t sd_read_float(const char *path, float *value)
+{
   if (!sd_is_mounted() || path == NULL || value == NULL) {
     return ESP_ERR_INVALID_ARG;
   }
@@ -263,11 +270,13 @@ esp_err_t sd_read_float(const char *path, float *value) {
   return ret;
 }
 
-esp_err_t sd_read_bytes(const char *path, uint8_t *bytes, size_t max_count, size_t *count) {
+esp_err_t sd_read_bytes(const char *path, uint8_t *bytes, size_t max_count, size_t *count)
+{
   return sd_read_binary(path, bytes, max_count, count);
 }
 
-esp_err_t sd_read_byte(const char *path, uint8_t *byte) {
+esp_err_t sd_read_byte(const char *path, uint8_t *byte)
+{
   if (byte == NULL) {
     return ESP_ERR_INVALID_ARG;
   }
@@ -276,7 +285,8 @@ esp_err_t sd_read_byte(const char *path, uint8_t *byte) {
   return sd_read_binary(path, byte, 1, &read);
 }
 
-esp_err_t sd_file_contains(const char *path, const char *search, bool *found) {
+esp_err_t sd_file_contains(const char *path, const char *search, bool *found)
+{
   if (!sd_is_mounted() || path == NULL || search == NULL || found == NULL) {
     return ESP_ERR_INVALID_ARG;
   }
@@ -305,7 +315,8 @@ esp_err_t sd_file_contains(const char *path, const char *search, bool *found) {
   return ESP_OK;
 }
 
-esp_err_t sd_count_occurrences(const char *path, const char *search, uint32_t *count) {
+esp_err_t sd_count_occurrences(const char *path, const char *search, uint32_t *count)
+{
   if (!sd_is_mounted() || path == NULL || search == NULL || count == NULL) {
     return ESP_ERR_INVALID_ARG;
   }

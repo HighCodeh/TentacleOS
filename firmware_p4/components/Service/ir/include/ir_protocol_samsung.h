@@ -17,17 +17,17 @@
 
 #include "ir_protocol.h"
 
-#define SAMSUNG_HEADER_MARK  4500
-#define SAMSUNG_HEADER_SPACE 4500
-#define SAMSUNG_BIT_MARK     560
-#define SAMSUNG_ONE_SPACE    1690
-#define SAMSUNG_ZERO_SPACE   560
+#define SAMSUNG_HEADER_MARK   4500
+#define SAMSUNG_HEADER_SPACE  4500
+#define SAMSUNG_BIT_MARK       560
+#define SAMSUNG_ONE_SPACE     1690
+#define SAMSUNG_ZERO_SPACE     560
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-bool samsung_decode(rmt_symbol_word_t *symbols, size_t count, ir_data_t *out);
+bool   samsung_decode(rmt_symbol_word_t *symbols, size_t count, ir_data_t *out);
 size_t samsung_encode(const ir_data_t *data, rmt_symbol_word_t *symbols, size_t max);
 
 #ifdef __cplusplus

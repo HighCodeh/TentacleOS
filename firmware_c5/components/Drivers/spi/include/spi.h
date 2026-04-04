@@ -5,17 +5,17 @@
 #include "esp_err.h"
 
 typedef enum {
-  SPI_DEVICE_ST7789,
-  SPI_DEVICE_CC1101,
-  SPI_DEVICE_SD_CARD,
-  SPI_DEVICE_MAX
+    SPI_DEVICE_ST7789,
+    SPI_DEVICE_CC1101,
+    SPI_DEVICE_SD_CARD,
+    SPI_DEVICE_MAX
 } spi_device_id_t;
 
 typedef struct {
-  int cs_pin;
-  int clock_speed_hz;
-  int mode;
-  int queue_size;
+    int cs_pin;
+    int clock_speed_hz;
+    int mode;
+    int queue_size;
 } spi_device_config_t;
 
 esp_err_t spi_init(void);

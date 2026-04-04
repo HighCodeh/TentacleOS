@@ -24,18 +24,18 @@ extern "C" {
 #endif
 
 typedef struct {
-  char name[IR_FILE_NAME_MAX];
-  bool is_raw;
-  ir_data_t data;
-  uint32_t frequency;
-  uint32_t *raw; // malloc'd: alternating mark/space durations in us
-  size_t raw_count;
+    char name[IR_FILE_NAME_MAX];
+    bool is_raw;
+    ir_data_t data;
+    uint32_t  frequency;
+    uint32_t *raw;          // malloc'd: alternating mark/space durations in us
+    size_t    raw_count;
 } ir_signal_t;
 
 typedef struct {
-  ir_signal_t *signals; // malloc'd array
-  size_t count;
-  size_t capacity;
+    ir_signal_t *signals;   // malloc'd array
+    size_t count;
+    size_t capacity;
 } ir_file_t;
 
 void ir_file_init(ir_file_t *file);
@@ -46,11 +46,8 @@ size_t ir_file_to_string(const ir_file_t *file, char *buf, size_t buf_size);
 ir_signal_t *ir_file_find(const ir_file_t *file, const char *name);
 void ir_file_send(const ir_signal_t *signal);
 void ir_file_add_parsed(ir_file_t *file, const char *name, const ir_data_t *data);
-void ir_file_add_raw(ir_file_t *file,
-                     const char *name,
-                     const rmt_symbol_word_t *symbols,
-                     size_t count,
-                     uint32_t freq);
+void ir_file_add_raw(ir_file_t *file, const char *name,
+                     const rmt_symbol_word_t *symbols, size_t count, uint32_t freq);
 
 #ifdef __cplusplus
 }

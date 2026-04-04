@@ -27,8 +27,8 @@ typedef struct {
 
 bool probe_monitor_start(void);
 void probe_monitor_stop(void);
-probe_record_t *probe_monitor_get_results(uint16_t *count);
-const uint16_t *probe_monitor_get_count_ptr(void);
+probe_record_t* probe_monitor_get_results(uint16_t *count);
+const uint16_t* probe_monitor_get_count_ptr(void);
 void probe_monitor_free_results(void);
 bool probe_monitor_save_results_to_internal_flash(void);
 bool probe_monitor_save_results_to_sd_card(void);

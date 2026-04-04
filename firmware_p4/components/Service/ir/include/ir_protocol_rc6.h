@@ -17,17 +17,17 @@
 
 #include "ir_protocol.h"
 
-#define RC6_UNIT         444
-#define RC6_HEADER_MARK  2666
-#define RC6_HEADER_SPACE 889
-#define RC6_TOGGLE_INDEX 4
-#define RC6_TOTAL_BITS   21
+#define RC6_UNIT           444
+#define RC6_HEADER_MARK   2666
+#define RC6_HEADER_SPACE   889
+#define RC6_TOGGLE_INDEX     4
+#define RC6_TOTAL_BITS      21
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-bool rc6_decode(rmt_symbol_word_t *symbols, size_t count, ir_data_t *out);
+bool   rc6_decode(rmt_symbol_word_t *symbols, size_t count, ir_data_t *out);
 size_t rc6_encode(const ir_data_t *data, rmt_symbol_word_t *symbols, size_t max);
 
 #ifdef __cplusplus

@@ -73,8 +73,7 @@ esp_err_t sd_count_lines(const char *path, uint32_t *line_count);
  * @param bytes_read Ponteiro para receber bytes lidos
  * @return ESP_OK em sucesso
  */
-esp_err_t
-sd_read_chunk(const char *path, size_t offset, void *buffer, size_t size, size_t *bytes_read);
+esp_err_t sd_read_chunk(const char *path, size_t offset, void *buffer, size_t size, size_t *bytes_read);
 
 /**
  * @brief Lê primeira linha

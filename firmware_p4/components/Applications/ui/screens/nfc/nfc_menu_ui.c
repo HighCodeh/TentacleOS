@@ -5,9 +5,9 @@
 #include "buttons_gpio.h"
 #include "esp_log.h"
 
-static lv_obj_t *screen_nfc = NULL;
+static lv_obj_t * screen_nfc = NULL;
 static menu_component_t menu;
-static lv_timer_t *nav_timer = NULL;
+static lv_timer_t * nav_timer = NULL;
 
 static bool btn_up_last = false;
 static bool btn_down_last = false;
@@ -17,70 +17,66 @@ static bool btn_ok_last = false;
 static bool btn_back_last = false;
 
 static const struct {
-  const char *name;
-  const char *icon;
-  int target;
+    const char * name;
+    const char * icon;
+    int target;
 } items[] = {
-    {"READ TAG", NULL, -1},
-    {"WRITE TAG", NULL, -1},
-    {"EMULATE", NULL, -1},
-    {"SAVED TAGS", NULL, -1},
+    {"READ TAG",    NULL, -1},
+    {"WRITE TAG",   NULL, -1},
+    {"EMULATE",     NULL, -1},
+    {"SAVED TAGS",  NULL, -1},
 };
 
 #define ITEM_COUNT (sizeof(items) / sizeof(items[0]))
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != screen_nfc) {
-    lv_timer_delete(t);
-    nav_timer = NULL;
-    return;
-  }
-  if (ui_input_is_locked())
-    return;
-  bool up = up_button_is_down();
-  bool down = down_button_is_down();
-  bool left = left_button_is_down();
-  bool right = right_button_is_down();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-
-  if ((back && !btn_back_last) || (left && !btn_left_last)) {
-    ui_switch_screen(SCREEN_MENU);
-    return;
-  }
-  if ((ok && !btn_ok_last) || (right && !btn_right_last)) {
-    int sel = menu_component_get_selected(&menu);
-    if (sel >= 0 && sel < (int)ITEM_COUNT && items[sel].target >= 0) {
-      ui_switch_screen(items[sel].target);
+static void nav_timer_cb(lv_timer_t * t) {
+    if (lv_screen_active() != screen_nfc) {
+        lv_timer_delete(t);
+        nav_timer = NULL;
+        return;
     }
-  }
+    if (ui_input_is_locked()) return;
+    bool up    = up_button_is_down();
+    bool down  = down_button_is_down();
+    bool left  = left_button_is_down();
+    bool right = right_button_is_down();
+    bool ok    = ok_button_is_down();
+    bool back  = back_button_is_down();
 
-  btn_up_last = up;
-  btn_down_last = down;
-  btn_left_last = left;
-  btn_right_last = right;
-  btn_ok_last = ok;
-  btn_back_last = back;
+    if ((back && !btn_back_last) || (left && !btn_left_last)) {
+        ui_switch_screen(SCREEN_MENU);
+        return;
+    }
+    if ((ok && !btn_ok_last) || (right && !btn_right_last)) {
+        int sel = menu_component_get_selected(&menu);
+        if (sel >= 0 && sel < (int)ITEM_COUNT && items[sel].target >= 0) {
+            ui_switch_screen(items[sel].target);
+        }
+    }
+
+    btn_up_last    = up;
+    btn_down_last  = down;
+    btn_left_last  = left;
+    btn_right_last = right;
+    btn_ok_last    = ok;
+    btn_back_last  = back;
 }
 
 void ui_nfc_menu_open(void) {
-  if (screen_nfc) {
-    lv_obj_del(screen_nfc);
-    screen_nfc = NULL;
-  }
-  screen_nfc = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(screen_nfc, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(screen_nfc, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(screen_nfc, LV_OBJ_FLAG_SCROLLABLE);
+    if (screen_nfc) { lv_obj_del(screen_nfc); screen_nfc = NULL; }
+    screen_nfc = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(screen_nfc, current_theme.screen_base, 0);
+    lv_obj_set_style_bg_opa(screen_nfc, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(screen_nfc, LV_OBJ_FLAG_SCROLLABLE);
 
-  menu = menu_component_create(screen_nfc, "NFC", NULL);
+    menu = menu_component_create(screen_nfc, "NFC", NULL);
 
-  for (int i = 0; i < (int)ITEM_COUNT; i++) {
-    menu_component_add_item(&menu, items[i].icon, items[i].name);
-  }
+    for (int i = 0; i < (int)ITEM_COUNT; i++) {
+        menu_component_add_item(&menu, items[i].icon, items[i].name);
+    }
 
-  if (nav_timer == NULL)
-    nav_timer = lv_timer_create(nav_timer_cb, 50, NULL);
+    if (nav_timer == NULL)
+        nav_timer = lv_timer_create(nav_timer_cb, 50, NULL);
 
-  lv_screen_load(screen_nfc);
+    lv_screen_load(screen_nfc);
 }

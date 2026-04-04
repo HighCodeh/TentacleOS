@@ -32,11 +32,11 @@
  * @return number of bytes received, 0 on failure.
  */
 int nfc_tcl_transceive(hb_nfc_protocol_t proto,
-                       const void *ctx,
-                       const uint8_t *tx,
-                       size_t tx_len,
-                       uint8_t *rx,
-                       size_t rx_max,
-                       int timeout_ms);
+                        const void*        ctx,
+                        const uint8_t*     tx,
+                        size_t             tx_len,
+                        uint8_t*           rx,
+                        size_t             rx_max,
+                        int                timeout_ms);
 
 #endif
