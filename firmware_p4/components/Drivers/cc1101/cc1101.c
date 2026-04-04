@@ -591,7 +591,7 @@ float cc1101_convert_rssi(uint8_t rssi_raw) {
 void cc1101_init(void) {
   spi_device_config_t devcfg = {.clock_speed_hz = CC1101_SPI_CLOCK_HZ,
                                 .mode = 0,
-                                .cs_pin = GPIO_CS_PIN,
+                                .cs_pin = GPIO_CC1101_CS_PIN,
                                 .queue_size = CC1101_SPI_QUEUE_SIZE};
 
   esp_err_t ret = spi_add_device(SPI3_HOST, SPI_DEVICE_CC1101, &devcfg);
