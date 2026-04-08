@@ -29,7 +29,6 @@
 
 static const char *TAG = "SUBGHZ_TX";
 
-#define RMT_TX_GPIO           GPIO_SCL_PIN
 #define RMT_RESOLUTION_HZ     1000000
 #define TX_QUEUE_SIZE         10
 #define TX_QUEUE_RECV_MS      200
@@ -145,7 +144,7 @@ esp_err_t subghz_tx_init(void) {
       .resolution_hz = RMT_RESOLUTION_HZ,
       .mem_block_symbols = RMT_MEM_BLOCK_SYMBOLS,
       .trans_queue_depth = RMT_TRANS_QUEUE_DEPTH,
-      .gpio_num = RMT_TX_GPIO,
+      .gpio_num = GPIO_CC1101_GDO2_PIN,
       .flags.invert_out = false,
   };
   ESP_ERROR_CHECK(rmt_new_tx_channel(&tx_channel_cfg, &s_tx_channel));

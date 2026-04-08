@@ -30,7 +30,6 @@
 
 static const char *TAG = "SUBGHZ_RX";
 
-#define RMT_RX_GPIO           ((gpio_num_t)GPIO_SDA_PIN)
 #define RMT_RESOLUTION_HZ     1000000
 #define RX_BUFFER_SIZE        1024
 #define DECODE_BUFFER_FACTOR  2
@@ -219,7 +218,7 @@ static void subghz_rx_task(void *pvParameters) {
       .clk_src = RMT_CLK_SRC_DEFAULT,
       .resolution_hz = RMT_RESOLUTION_HZ,
       .mem_block_symbols = RMT_MEM_BLOCK_SYMBOLS,
-      .gpio_num = RMT_RX_GPIO,
+      .gpio_num = GPIO_CC1101_GDO0_PIN,
       .flags.invert_in = false,
       .flags.with_dma = true,
   };
