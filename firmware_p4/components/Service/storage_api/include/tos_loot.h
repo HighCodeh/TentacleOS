@@ -12,24 +12,46 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/**
+ * @file tos_loot.h
+ * @brief Unique loot filename generator with date prefix.
+ */
+
 #ifndef TOS_LOOT_H
 #define TOS_LOOT_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stddef.h>
 
-// Generates a unique loot filename with date prefix.
-// Uses YYYY-MM-DD if RTC/NTP is set, otherwise uptime-based.
-// Example: "2026-03-29_handshake_01.pcap" or "boot0142_handshake_01.pcap"
-//
-// dir:    target directory (e.g. TOS_PATH_WIFI_LOOT_HS)
-// prefix: file prefix (e.g. "handshake")
-// ext:    extension (e.g. "pcap")
-// out:    output buffer for full path
-// out_name: output buffer for filename only (can be NULL)
-// out_size: size of out buffer
-// name_size: size of out_name buffer
-void tos_loot_generate_path(const char *dir, const char *prefix, const char *ext,
-                            char *out, size_t out_size,
-                            char *out_name, size_t name_size);
+/**
+ * @brief Generate a unique loot file path with date prefix.
+ *
+ * Uses YYYY-MM-DD if RTC/NTP is set, otherwise uptime-based.
+ * Example: "2026-03-29_handshake_01.pcap" or "boot0142_handshake_01.pcap"
+ *
+ * Increments the index until a non-existing filename is found (max 99).
+ *
+ * @param dir        Target directory (e.g. TOS_PATH_WIFI_LOOT_HS).
+ * @param prefix     File prefix (e.g. "handshake").
+ * @param ext        Extension without dot (e.g. "pcap").
+ * @param out        Output buffer for the full path.
+ * @param out_size   Size of the out buffer.
+ * @param out_name   Output buffer for filename only (can be NULL).
+ * @param name_size  Size of the out_name buffer.
+ */
+void tos_loot_generate_path(const char *dir,
+                            const char *prefix,
+                            const char *ext,
+                            char *out,
+                            size_t out_size,
+                            char *out_name,
+                            size_t name_size);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // TOS_LOOT_H

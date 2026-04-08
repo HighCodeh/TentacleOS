@@ -14,37 +14,34 @@
 
 /**
  * @file storage_read.h
- * @brief Read Operations - Backend Agnostic
- * @version 1.0
+ * @brief Read operations — backend agnostic.
  */
 
 #ifndef STORAGE_READ_H
 #define STORAGE_READ_H
 
-#include <stdint.h>
-#include <stdbool.h>
-#include <stddef.h>
-#include "esp_err.h"
-
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* ============================================================================
- * STRING READ
- * ============================================================================ */
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include "esp_err.h"
 
 esp_err_t storage_read_string(const char *path, char *buffer, size_t buffer_size);
 esp_err_t storage_read_binary(const char *path, void *buffer, size_t size, size_t *bytes_read);
 
-
 typedef void (*storage_line_callback_t)(const char *line, void *user_data);
-esp_err_t storage_read_line(const char *path, char *buffer, size_t buffer_size, uint32_t line_number);
+esp_err_t
+storage_read_line(const char *path, char *buffer, size_t buffer_size, uint32_t line_number);
 esp_err_t storage_read_first_line(const char *path, char *buffer, size_t buffer_size);
 esp_err_t storage_read_last_line(const char *path, char *buffer, size_t buffer_size);
 esp_err_t storage_read_lines(const char *path, storage_line_callback_t callback, void *user_data);
 esp_err_t storage_count_lines(const char *path, uint32_t *line_count);
-esp_err_t storage_read_chunk(const char *path, size_t offset, void *buffer, size_t size, size_t *bytes_read);
+esp_err_t
+storage_read_chunk(const char *path, size_t offset, void *buffer, size_t size, size_t *bytes_read);
 esp_err_t storage_read_int(const char *path, int32_t *value);
 esp_err_t storage_read_float(const char *path, float *value);
 esp_err_t storage_read_bytes(const char *path, uint8_t *bytes, size_t max_count, size_t *count);

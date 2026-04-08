@@ -13,37 +13,30 @@
 // limitations under the License.
 
 #include "storage_write.h"
-#include "storage_init.h"
-#include "storage_mkdir.h"
-#include "vfs_config.h"
-#include "vfs_core.h"
-#include "esp_log.h"
-#include <string.h>
+
+#include <inttypes.h>
 #include <stdarg.h>
 #include <stdio.h>
-#include <inttypes.h>
+#include <string.h>
 
-static const char *TAG = "storage_write";
+#include "esp_log.h"
 
-static void resolve_path(const char *path, char *full_path, size_t size)
-{
-  if (strncmp(path, VFS_MOUNT_POINT, strlen(VFS_MOUNT_POINT)) == 0) {
-    snprintf(full_path, size, "%s", path);
-  } else if (path[0] == '/') {
-    snprintf(full_path, size, "%s%s", VFS_MOUNT_POINT, path);
-  } else {
-    snprintf(full_path, size, "%s/%s", VFS_MOUNT_POINT, path);
-  }
-}
+#include "storage_init.h"
+#include "storage_internal.h"
+#include "storage_mkdir.h"
+#include "vfs_core.h"
 
-esp_err_t storage_write_string(const char *path, const char *data)
-{
-  if (!storage_is_mounted() || !path || !data) {
+static const char *TAG = "STORAGE_WRITE";
+
+#define FORMAT_BUF_SIZE 512
+
+esp_err_t storage_write_string(const char *path, const char *data) {
+  if (!storage_is_mounted() || path == NULL || data == NULL) {
     return !storage_is_mounted() ? ESP_ERR_INVALID_STATE : ESP_ERR_INVALID_ARG;
   }
 
-  char full_path[256];
-  resolve_path(path, full_path, sizeof(full_path));
+  char full_path[VFS_MAX_PATH];
+  storage_resolve_path(path, full_path, sizeof(full_path));
 
   esp_err_t ret = storage_mkdir_recursive(full_path);
   if (ret != ESP_OK) {
@@ -58,14 +51,13 @@ esp_err_t storage_write_string(const char *path, const char *data)
   return ret;
 }
 
-esp_err_t storage_append_string(const char *path, const char *data)
-{
-  if (!storage_is_mounted() || !path || !data) {
+esp_err_t storage_append_string(const char *path, const char *data) {
+  if (!storage_is_mounted() || path == NULL || data == NULL) {
     return !storage_is_mounted() ? ESP_ERR_INVALID_STATE : ESP_ERR_INVALID_ARG;
   }
 
-  char full_path[256];
-  resolve_path(path, full_path, sizeof(full_path));
+  char full_path[VFS_MAX_PATH];
+  storage_resolve_path(path, full_path, sizeof(full_path));
 
   esp_err_t ret = storage_mkdir_recursive(full_path);
   if (ret != ESP_OK) {
@@ -80,14 +72,13 @@ esp_err_t storage_append_string(const char *path, const char *data)
   return ret;
 }
 
-esp_err_t storage_write_binary(const char *path, const void *data, size_t size)
-{
-  if (!storage_is_mounted() || !path || !data) {
+esp_err_t storage_write_binary(const char *path, const void *data, size_t size) {
+  if (!storage_is_mounted() || path == NULL || data == NULL) {
     return !storage_is_mounted() ? ESP_ERR_INVALID_STATE : ESP_ERR_INVALID_ARG;
   }
 
-  char full_path[256];
-  resolve_path(path, full_path, sizeof(full_path));
+  char full_path[VFS_MAX_PATH];
+  storage_resolve_path(path, full_path, sizeof(full_path));
 
   esp_err_t ret = storage_mkdir_recursive(full_path);
   if (ret != ESP_OK) {
@@ -102,14 +93,13 @@ esp_err_t storage_write_binary(const char *path, const void *data, size_t size)
   return ret;
 }
 
-esp_err_t storage_append_binary(const char *path, const void *data, size_t size)
-{
-  if (!storage_is_mounted() || !path || !data) {
+esp_err_t storage_append_binary(const char *path, const void *data, size_t size) {
+  if (!storage_is_mounted() || path == NULL || data == NULL) {
     return !storage_is_mounted() ? ESP_ERR_INVALID_STATE : ESP_ERR_INVALID_ARG;
   }
 
-  char full_path[256];
-  resolve_path(path, full_path, sizeof(full_path));
+  char full_path[VFS_MAX_PATH];
+  storage_resolve_path(path, full_path, sizeof(full_path));
 
   esp_err_t ret = storage_mkdir_recursive(full_path);
   if (ret != ESP_OK) {
@@ -124,36 +114,33 @@ esp_err_t storage_append_binary(const char *path, const void *data, size_t size)
   return ret;
 }
 
-esp_err_t storage_write_line(const char *path, const char *line)
-{
-  if (!path || !line) {
+esp_err_t storage_write_line(const char *path, const char *line) {
+  if (path == NULL || line == NULL) {
     return ESP_ERR_INVALID_ARG;
   }
 
-  char buffer[512];
+  char buffer[FORMAT_BUF_SIZE];
   snprintf(buffer, sizeof(buffer), "%s\n", line);
   return storage_write_string(path, buffer);
 }
 
-esp_err_t storage_append_line(const char *path, const char *line)
-{
-  if (!path || !line) {
+esp_err_t storage_append_line(const char *path, const char *line) {
+  if (path == NULL || line == NULL) {
     return ESP_ERR_INVALID_ARG;
   }
 
-  char buffer[512];
+  char buffer[FORMAT_BUF_SIZE];
   snprintf(buffer, sizeof(buffer), "%s\n", line);
   return storage_append_string(path, buffer);
 }
 
-esp_err_t storage_write_formatted(const char *path, const char *format, ...)
-{
-  if (!storage_is_mounted() || !path || !format) {
+esp_err_t storage_write_formatted(const char *path, const char *format, ...) {
+  if (!storage_is_mounted() || path == NULL || format == NULL) {
     return !storage_is_mounted() ? ESP_ERR_INVALID_STATE : ESP_ERR_INVALID_ARG;
   }
 
-  char full_path[256];
-  resolve_path(path, full_path, sizeof(full_path));
+  char full_path[VFS_MAX_PATH];
+  storage_resolve_path(path, full_path, sizeof(full_path));
 
   esp_err_t ret = storage_mkdir_recursive(full_path);
   if (ret != ESP_OK) {
@@ -166,7 +153,7 @@ esp_err_t storage_write_formatted(const char *path, const char *format, ...)
     return ESP_FAIL;
   }
 
-  char buffer[512];
+  char buffer[FORMAT_BUF_SIZE];
   va_list args;
   va_start(args, format);
   int len = vsnprintf(buffer, sizeof(buffer), format, args);
@@ -183,14 +170,13 @@ esp_err_t storage_write_formatted(const char *path, const char *format, ...)
   return ESP_OK;
 }
 
-esp_err_t storage_append_formatted(const char *path, const char *format, ...)
-{
-  if (!storage_is_mounted() || !path || !format) {
+esp_err_t storage_append_formatted(const char *path, const char *format, ...) {
+  if (!storage_is_mounted() || path == NULL || format == NULL) {
     return !storage_is_mounted() ? ESP_ERR_INVALID_STATE : ESP_ERR_INVALID_ARG;
   }
 
-  char full_path[256];
-  resolve_path(path, full_path, sizeof(full_path));
+  char full_path[VFS_MAX_PATH];
+  storage_resolve_path(path, full_path, sizeof(full_path));
 
   esp_err_t ret = storage_mkdir_recursive(full_path);
   if (ret != ESP_OK) {
@@ -203,7 +189,7 @@ esp_err_t storage_append_formatted(const char *path, const char *format, ...)
     return ESP_FAIL;
   }
 
-  char buffer[512];
+  char buffer[FORMAT_BUF_SIZE];
   va_list args;
   va_start(args, format);
   int len = vsnprintf(buffer, sizeof(buffer), format, args);
@@ -220,39 +206,33 @@ esp_err_t storage_append_formatted(const char *path, const char *format, ...)
   return ESP_OK;
 }
 
-esp_err_t storage_write_buffer(const char *path, const void *buffer, size_t size)
-{
+esp_err_t storage_write_buffer(const char *path, const void *buffer, size_t size) {
   return storage_write_binary(path, buffer, size);
 }
 
-esp_err_t storage_write_bytes(const char *path, const uint8_t *bytes, size_t count)
-{
+esp_err_t storage_write_bytes(const char *path, const uint8_t *bytes, size_t count) {
   return storage_write_binary(path, bytes, count);
 }
 
-esp_err_t storage_write_byte(const char *path, uint8_t byte)
-{
+esp_err_t storage_write_byte(const char *path, uint8_t byte) {
   return storage_write_binary(path, &byte, 1);
 }
 
-esp_err_t storage_write_int(const char *path, int32_t value)
-{
+esp_err_t storage_write_int(const char *path, int32_t value) {
   return storage_write_formatted(path, "%" PRId32, value);
 }
 
-esp_err_t storage_write_float(const char *path, float value)
-{
+esp_err_t storage_write_float(const char *path, float value) {
   return storage_write_formatted(path, "%.6f", value);
 }
 
-esp_err_t storage_write_csv_row(const char *path, const char **columns, size_t num_columns)
-{
-  if (!storage_is_mounted() || !path || !columns || num_columns == 0) {
+esp_err_t storage_write_csv_row(const char *path, const char **columns, size_t num_columns) {
+  if (!storage_is_mounted() || path == NULL || columns == NULL || num_columns == 0) {
     return !storage_is_mounted() ? ESP_ERR_INVALID_STATE : ESP_ERR_INVALID_ARG;
   }
 
-  char full_path[256];
-  resolve_path(path, full_path, sizeof(full_path));
+  char full_path[VFS_MAX_PATH];
+  storage_resolve_path(path, full_path, sizeof(full_path));
 
   esp_err_t ret = storage_mkdir_recursive(full_path);
   if (ret != ESP_OK) {
@@ -276,14 +256,13 @@ esp_err_t storage_write_csv_row(const char *path, const char **columns, size_t n
   return ESP_OK;
 }
 
-esp_err_t storage_append_csv_row(const char *path, const char **columns, size_t num_columns)
-{
-  if (!storage_is_mounted() || !path || !columns || num_columns == 0) {
+esp_err_t storage_append_csv_row(const char *path, const char **columns, size_t num_columns) {
+  if (!storage_is_mounted() || path == NULL || columns == NULL || num_columns == 0) {
     return !storage_is_mounted() ? ESP_ERR_INVALID_STATE : ESP_ERR_INVALID_ARG;
   }
 
-  char full_path[256];
-  resolve_path(path, full_path, sizeof(full_path));
+  char full_path[VFS_MAX_PATH];
+  storage_resolve_path(path, full_path, sizeof(full_path));
 
   esp_err_t ret = storage_mkdir_recursive(full_path);
   if (ret != ESP_OK) {

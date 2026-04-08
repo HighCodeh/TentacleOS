@@ -15,8 +15,26 @@
 #ifndef STORAGE_MKDIR_H
 #define STORAGE_MKDIR_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "esp_err.h"
 
+/**
+ * @brief Create a directory path recursively (like mkdir -p).
+ *
+ * Creates each component of the path that does not already exist.
+ * Existing directories are silently skipped. Fails if any path
+ * component exists but is not a directory.
+ *
+ * @param path  Absolute path to create.
+ * @return ESP_OK on success, ESP_ERR_INVALID_ARG if path is NULL.
+ */
 esp_err_t storage_mkdir_recursive(const char *path);
 
+#ifdef __cplusplus
+}
 #endif
+
+#endif // STORAGE_MKDIR_H
