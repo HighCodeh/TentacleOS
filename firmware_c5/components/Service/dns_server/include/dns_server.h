@@ -12,12 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 #ifndef DNS_SERVER_H
 #define DNS_SERVER_H
 
-#include "esp_err.h" // Para esp_err_t
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * @brief Start the captive-portal DNS server task.
+ *
+ * Listens on UDP port 53 and responds to all A-record queries with
+ * the AP interface IP address. Used for evil twin captive portal.
+ */
 void start_dns_server(void);
+
+/**
+ * @brief Stop the DNS server task.
+ */
 void stop_dns_server(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // DNS_SERVER_H
