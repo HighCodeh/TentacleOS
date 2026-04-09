@@ -15,28 +15,42 @@
 #ifndef PCAP_SERIALIZER_H
 #define PCAP_SERIALIZER_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 
-#define PCAP_MAGIC_NUMBER 0xa1b2c3d4
-#define PCAP_VERSION_MAJOR 2
-#define PCAP_VERSION_MINOR 4
+#define PCAP_MAGIC_NUMBER     0xa1b2c3d4
+#define PCAP_VERSION_MAJOR    2
+#define PCAP_VERSION_MINOR    4
 #define PCAP_LINK_TYPE_802_11 105
 
+/**
+ * @brief PCAP global file header.
+ */
 typedef struct {
-    uint32_t magic_number;
-    uint16_t version_major;
-    uint16_t version_minor;
-    int32_t  thiszone;
-    uint32_t sigfigs;
-    uint32_t snaplen;
-    uint32_t network;
+  uint32_t magic_number;
+  uint16_t version_major;
+  uint16_t version_minor;
+  int32_t thiszone;
+  uint32_t sigfigs;
+  uint32_t snaplen;
+  uint32_t network;
 } __attribute__((packed)) pcap_global_header_t;
 
+/**
+ * @brief PCAP per-packet header.
+ */
 typedef struct {
-    uint32_t ts_sec;
-    uint32_t ts_usec;
-    uint32_t incl_len;
-    uint32_t orig_len;
+  uint32_t ts_sec;
+  uint32_t ts_usec;
+  uint32_t incl_len;
+  uint32_t orig_len;
 } __attribute__((packed)) pcap_packet_header_t;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // PCAP_SERIALIZER_H

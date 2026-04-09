@@ -15,11 +15,41 @@
 #ifndef BEACON_SPAM_H
 #define BEACON_SPAM_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdbool.h>
 
+/**
+ * @brief Start beacon spam using a custom SSID list from a JSON file.
+ *
+ * @param json_path  Path to the beacon list JSON file.
+ * @return true on success, false on failure.
+ */
 bool beacon_spam_start_custom(const char *json_path);
+
+/**
+ * @brief Start beacon spam with randomly generated SSIDs.
+ *
+ * @return true on success, false on failure.
+ */
 bool beacon_spam_start_random(void);
+
+/**
+ * @brief Stop the beacon spam attack.
+ */
 void beacon_spam_stop(void);
+
+/**
+ * @brief Check if beacon spam is currently running.
+ *
+ * @return true if running, false otherwise.
+ */
 bool beacon_spam_is_running(void);
 
+#ifdef __cplusplus
+}
 #endif
+
+#endif // BEACON_SPAM_H

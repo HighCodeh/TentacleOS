@@ -12,14 +12,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 #ifndef DEAUTHER_DETECTOR_H
 #define DEAUTHER_DETECTOR_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 
+/**
+ * @brief Start the deauth detector over SPI.
+ */
 void deauther_detector_start(void);
+
+/**
+ * @brief Stop the deauth detector.
+ */
 void deauther_detector_stop(void);
+
+/**
+ * @brief Get the number of deauth frames detected.
+ *
+ * @return Deauth frame count.
+ */
 uint32_t deauther_detector_get_count(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // DEAUTHER_DETECTOR_H
