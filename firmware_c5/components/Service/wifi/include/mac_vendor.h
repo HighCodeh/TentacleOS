@@ -15,8 +15,25 @@
 #ifndef MAC_VENDOR_H
 #define MAC_VENDOR_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 
-const char* get_vendor_name(const uint8_t *mac);
+/**
+ * @brief Look up the vendor name for a MAC address.
+ *
+ * Returns "Randomized" for locally administered MACs (bit 1 of first octet
+ * set), or an empty string if the OUI is not in the lookup table.
+ *
+ * @param mac  Pointer to the 6-byte MAC address.
+ * @return Vendor name string. Valid for the lifetime of the program.
+ */
+const char *mac_vendor_get_name(const uint8_t *mac);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // MAC_VENDOR_H
