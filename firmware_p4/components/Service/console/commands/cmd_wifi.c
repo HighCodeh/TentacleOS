@@ -13,41 +13,40 @@
 // limitations under the License.
 
 #include "console_service.h"
-#include "esp_console.h"
-#include "argtable3/argtable3.h"
-#include "esp_log.h"
-#include "spi_bridge.h"
-#include "spi_protocol.h"
+
 #include <string.h>
 
-// Service Includes
-#include "wifi_service.h"
+#include "argtable3/argtable3.h"
+#include "esp_console.h"
+#include "esp_log.h"
 
-// Application Includes
 #include "ap_scanner.h"
-#include "wifi_deauther.h"
 #include "beacon_spam.h"
-#include "wifi_sniffer.h"
-#include "probe_monitor.h"
 #include "client_scanner.h"
-#include "target_scanner.h"
-#include "signal_monitor.h"
 #include "deauther_detector.h"
 #include "evil_twin.h"
 #include "port_scan.h"
+#include "probe_monitor.h"
+#include "signal_monitor.h"
+#include "spi_bridge.h"
+#include "spi_protocol.h"
+#include "target_scanner.h"
 #include "tos_flash_paths.h"
+#include "wifi_deauther.h"
+#include "wifi_service.h"
+#include "wifi_sniffer.h"
 
 static const char *TAG = "CMD_WIFI";
 
 // --- SCAN ---
 static struct {
   struct arg_end *end;
-} scan_args;
+} s_scan_args;
 
 static int subcmd_scan(int argc, char **argv) {
-  int nerrors = arg_parse(argc, argv, (void **)&scan_args);
+  int nerrors = arg_parse(argc, argv, (void **)&s_scan_args);
   if (nerrors != 0) {
-    arg_print_errors(stderr, scan_args.end, "wifi scan");
+    arg_print_errors(stderr, s_scan_args.end, "wifi scan");
     return 1;
   }
 
@@ -83,17 +82,17 @@ static struct {
   struct arg_str *ssid;
   struct arg_str *password;
   struct arg_end *end;
-} connect_args;
+} s_connect_args;
 
 static int subcmd_connect(int argc, char **argv) {
-  int nerrors = arg_parse(argc, argv, (void **)&connect_args);
+  int nerrors = arg_parse(argc, argv, (void **)&s_connect_args);
   if (nerrors != 0) {
-    arg_print_errors(stderr, connect_args.end, "wifi connect");
+    arg_print_errors(stderr, s_connect_args.end, "wifi connect");
     return 1;
   }
 
-  const char *ssid = connect_args.ssid->sval[0];
-  const char *pass = (connect_args.password->count > 0) ? connect_args.password->sval[0] : NULL;
+  const char *ssid = s_connect_args.ssid->sval[0];
+  const char *pass = (s_connect_args.password->count > 0) ? s_connect_args.password->sval[0] : NULL;
 
   printf("Connecting to '%s'...\n", ssid);
   esp_err_t err = wifi_service_connect_to_ap(ssid, pass);
@@ -110,17 +109,17 @@ static struct {
   struct arg_str *ssid;
   struct arg_str *password;
   struct arg_end *end;
-} ap_args;
+} s_ap_args;
 
 static int subcmd_ap(int argc, char **argv) {
-  int nerrors = arg_parse(argc, argv, (void **)&ap_args);
+  int nerrors = arg_parse(argc, argv, (void **)&s_ap_args);
   if (nerrors != 0) {
-    arg_print_errors(stderr, ap_args.end, "wifi ap");
+    arg_print_errors(stderr, s_ap_args.end, "wifi ap");
     return 1;
   }
 
-  const char *ssid = ap_args.ssid->sval[0];
-  const char *pass = (ap_args.password->count > 0) ? ap_args.password->sval[0] : "";
+  const char *ssid = s_ap_args.ssid->sval[0];
+  const char *pass = (s_ap_args.password->count > 0) ? s_ap_args.password->sval[0] : "";
 
   printf("Configuring AP: SSID='%s', Pass='%s'\n", ssid, pass);
   wifi_service_set_ap_ssid(ssid);
@@ -135,29 +134,29 @@ static struct {
   struct arg_str *ip;
   struct arg_int *max_conn;
   struct arg_end *end;
-} config_args;
+} s_config_args;
 
 static int subcmd_config(int argc, char **argv) {
-  int nerrors = arg_parse(argc, argv, (void **)&config_args);
+  int nerrors = arg_parse(argc, argv, (void **)&s_config_args);
   if (nerrors != 0) {
-    arg_print_errors(stderr, config_args.end, "wifi config");
+    arg_print_errors(stderr, s_config_args.end, "wifi config");
     return 1;
   }
 
-  if (config_args.enabled->count > 0) {
-    bool en = (config_args.enabled->ival[0] != 0);
+  if (s_config_args.enabled->count > 0) {
+    bool en = (s_config_args.enabled->ival[0] != 0);
     printf("Setting Wi-Fi Enabled: %s\n", en ? "True" : "False");
     wifi_service_set_enabled(en);
   }
 
-  if (config_args.ip->count > 0) {
-    const char *ip = config_args.ip->sval[0];
+  if (s_config_args.ip->count > 0) {
+    const char *ip = s_config_args.ip->sval[0];
     printf("Setting AP IP: %s\n", ip);
     wifi_service_set_ap_ip(ip);
   }
 
-  if (config_args.max_conn->count > 0) {
-    int max = config_args.max_conn->ival[0];
+  if (s_config_args.max_conn->count > 0) {
+    int max = s_config_args.max_conn->ival[0];
     printf("Setting Max Connections: %d\n", max);
     wifi_service_set_ap_max_conn((uint8_t)max);
   }
@@ -171,22 +170,22 @@ static struct {
   struct arg_lit *list;
   struct arg_lit *stop;
   struct arg_end *end;
-} spam_args;
+} s_spam_args;
 
 static int subcmd_spam(int argc, char **argv) {
-  int nerrors = arg_parse(argc, argv, (void **)&spam_args);
+  int nerrors = arg_parse(argc, argv, (void **)&s_spam_args);
   if (nerrors != 0) {
-    arg_print_errors(stderr, spam_args.end, "wifi spam");
+    arg_print_errors(stderr, s_spam_args.end, "wifi spam");
     return 1;
   }
 
-  if (spam_args.stop->count > 0) {
+  if (s_spam_args.stop->count > 0) {
     beacon_spam_stop();
     printf("Beacon spam stopped.\n");
     return 0;
   }
 
-  if (spam_args.random->count > 0) {
+  if (s_spam_args.random->count > 0) {
     if (beacon_spam_start_random()) {
       printf("Random Beacon Spam started.\n");
     } else {
@@ -195,7 +194,7 @@ static int subcmd_spam(int argc, char **argv) {
     return 0;
   }
 
-  if (spam_args.list->count > 0) {
+  if (s_spam_args.list->count > 0) {
     if (beacon_spam_start_custom(FLASH_STORAGE_WIFI_BEACONS)) {
       printf("Custom List Beacon Spam started.\n");
     } else {
@@ -214,27 +213,27 @@ static struct {
   struct arg_int *channel;
   struct arg_lit *stop;
   struct arg_end *end;
-} deauth_args;
+} s_deauth_args;
 
 static int subcmd_deauth(int argc, char **argv) {
-  int nerrors = arg_parse(argc, argv, (void **)&deauth_args);
+  int nerrors = arg_parse(argc, argv, (void **)&s_deauth_args);
   if (nerrors != 0) {
-    arg_print_errors(stderr, deauth_args.end, "wifi deauth");
+    arg_print_errors(stderr, s_deauth_args.end, "wifi deauth");
     return 1;
   }
 
-  if (deauth_args.stop->count > 0) {
+  if (s_deauth_args.stop->count > 0) {
     wifi_deauther_stop();
     printf("Deauther stopped.\n");
     return 0;
   }
 
-  if (deauth_args.mac->count == 0) {
+  if (s_deauth_args.mac->count == 0) {
     printf("Error: Target MAC required.\n");
     return 1;
   }
 
-  const char *mac_str = deauth_args.mac->sval[0];
+  const char *mac_str = s_deauth_args.mac->sval[0];
   uint8_t mac[6];
   int parsed = sscanf(mac_str,
                       "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
@@ -250,7 +249,7 @@ static int subcmd_deauth(int argc, char **argv) {
     return 1;
   }
 
-  int channel = (deauth_args.channel->count > 0) ? deauth_args.channel->ival[0] : 1;
+  int channel = (s_deauth_args.channel->count > 0) ? s_deauth_args.channel->ival[0] : 1;
 
   wifi_ap_record_t target_ap;
   memset(&target_ap, 0, sizeof(wifi_ap_record_t));
@@ -274,24 +273,24 @@ static struct {
   struct arg_lit *verbose; // Print to console
   struct arg_lit *stop;
   struct arg_end *end;
-} sniff_args;
+} s_sniff_args;
 
 static int subcmd_sniff(int argc, char **argv) {
-  int nerrors = arg_parse(argc, argv, (void **)&sniff_args);
+  int nerrors = arg_parse(argc, argv, (void **)&s_sniff_args);
   if (nerrors != 0) {
-    arg_print_errors(stderr, sniff_args.end, "wifi sniff");
+    arg_print_errors(stderr, s_sniff_args.end, "wifi sniff");
     return 1;
   }
 
-  if (sniff_args.stop->count > 0) {
+  if (s_sniff_args.stop->count > 0) {
     wifi_sniffer_stop();
     printf("Sniffer stopped.\n");
     return 0;
   }
 
   wifi_sniffer_type_t type = WIFI_SNIFFER_TYPE_RAW;
-  if (sniff_args.type->count > 0) {
-    const char *t = sniff_args.type->sval[0];
+  if (s_sniff_args.type->count > 0) {
+    const char *t = s_sniff_args.type->sval[0];
     if (strcmp(t, "beacon") == 0)
       type = WIFI_SNIFFER_TYPE_BEACON;
     else if (strcmp(t, "probe") == 0)
@@ -301,14 +300,14 @@ static int subcmd_sniff(int argc, char **argv) {
   }
 
   uint8_t ch =
-      (sniff_args.channel->count > 0) ? (uint8_t)sniff_args.channel->ival[0] : 0; // 0 = Hopping
+      (s_sniff_args.channel->count > 0) ? (uint8_t)s_sniff_args.channel->ival[0] : 0; // 0 = Hopping
 
-  wifi_sniffer_set_verbose(sniff_args.verbose->count > 0);
+  wifi_sniffer_set_verbose(s_sniff_args.verbose->count > 0);
 
-  if (sniff_args.file->count > 0) {
-    if (wifi_sniffer_start_capture(sniff_args.file->sval[0])) {
+  if (s_sniff_args.file->count > 0) {
+    if (wifi_sniffer_start_capture(s_sniff_args.file->sval[0])) {
       if (wifi_sniffer_start_stream(type, ch, NULL)) {
-        printf("Sniffer started (streaming to %s)\n", sniff_args.file->sval[0]);
+        printf("Sniffer started (streaming to %s)\n", s_sniff_args.file->sval[0]);
       } else {
         wifi_sniffer_stop_capture();
         printf("Failed to start sniffer stream.\n");
@@ -331,16 +330,16 @@ static struct {
   struct arg_lit *start;
   struct arg_lit *stop;
   struct arg_end *end;
-} probe_args;
+} s_probe_args;
 
 static int subcmd_probe(int argc, char **argv) {
-  int nerrors = arg_parse(argc, argv, (void **)&probe_args);
+  int nerrors = arg_parse(argc, argv, (void **)&s_probe_args);
   if (nerrors != 0) {
-    arg_print_errors(stderr, probe_args.end, "wifi probe");
+    arg_print_errors(stderr, s_probe_args.end, "wifi probe");
     return 1;
   }
 
-  if (probe_args.stop->count > 0) {
+  if (s_probe_args.stop->count > 0) {
     probe_monitor_stop();
     printf("Probe monitor stopped.\n");
     return 0;
@@ -359,16 +358,16 @@ static struct {
   struct arg_lit *start;
   struct arg_lit *stop;
   struct arg_end *end;
-} clients_args;
+} s_clients_args;
 
 static int subcmd_clients(int argc, char **argv) {
-  int nerrors = arg_parse(argc, argv, (void **)&clients_args);
+  int nerrors = arg_parse(argc, argv, (void **)&s_clients_args);
   if (nerrors != 0) {
-    arg_print_errors(stderr, clients_args.end, "wifi clients");
+    arg_print_errors(stderr, s_clients_args.end, "wifi clients");
     return 1;
   }
 
-  if (clients_args.stop->count > 0) {
+  if (s_clients_args.stop->count > 0) {
     // client scanner stops automatically usually, but we can force it by stopping global sniffer
     wifi_service_promiscuous_stop();
     printf("Client scanner stopped.\n");
@@ -389,16 +388,16 @@ static struct {
   struct arg_int *channel;
   struct arg_lit *stop;
   struct arg_end *end;
-} target_args;
+} s_target_args;
 
 static int subcmd_target(int argc, char **argv) {
-  int nerrors = arg_parse(argc, argv, (void **)&target_args);
+  int nerrors = arg_parse(argc, argv, (void **)&s_target_args);
   if (nerrors != 0) {
-    arg_print_errors(stderr, target_args.end, "wifi target");
+    arg_print_errors(stderr, s_target_args.end, "wifi target");
     return 1;
   }
 
-  if (target_args.stop->count > 0) {
+  if (s_target_args.stop->count > 0) {
     // No explicit stop function in public API except destroying task?
     // Usually stops itself. Force stop sniff.
     wifi_service_promiscuous_stop();
@@ -406,12 +405,12 @@ static int subcmd_target(int argc, char **argv) {
     return 0;
   }
 
-  if (target_args.mac->count == 0 || target_args.channel->count == 0) {
+  if (s_target_args.mac->count == 0 || s_target_args.channel->count == 0) {
     printf("Error: Target MAC and Channel required.\n");
     return 1;
   }
 
-  const char *mac_str = target_args.mac->sval[0];
+  const char *mac_str = s_target_args.mac->sval[0];
   uint8_t mac[6];
   sscanf(mac_str,
          "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
@@ -421,7 +420,7 @@ static int subcmd_target(int argc, char **argv) {
          &mac[3],
          &mac[4],
          &mac[5]);
-  uint8_t ch = (uint8_t)target_args.channel->ival[0];
+  uint8_t ch = (uint8_t)s_target_args.channel->ival[0];
 
   if (target_scanner_start(mac, ch)) {
     printf("Target scanner started for %s on Ch %d.\n", mac_str, ch);
@@ -436,23 +435,23 @@ static struct {
   struct arg_str *ssid;
   struct arg_lit *stop;
   struct arg_end *end;
-} evil_args;
+} s_evil_args;
 
 static int subcmd_evil(int argc, char **argv) {
-  int nerrors = arg_parse(argc, argv, (void **)&evil_args);
+  int nerrors = arg_parse(argc, argv, (void **)&s_evil_args);
   if (nerrors != 0) {
-    arg_print_errors(stderr, evil_args.end, "wifi evil");
+    arg_print_errors(stderr, s_evil_args.end, "wifi evil");
     return 1;
   }
 
-  if (evil_args.stop->count > 0) {
+  if (s_evil_args.stop->count > 0) {
     evil_twin_stop_attack();
     printf("Evil Twin stopped.\n");
     return 0;
   }
 
-  if (evil_args.ssid->count > 0) {
-    const char *ssid = evil_args.ssid->sval[0];
+  if (s_evil_args.ssid->count > 0) {
+    const char *ssid = s_evil_args.ssid->sval[0];
     evil_twin_start_attack(ssid);
     printf("Evil Twin started with SSID: %s\n", ssid);
     return 0;
@@ -468,23 +467,23 @@ static struct {
   struct arg_int *min;
   struct arg_int *max;
   struct arg_end *end;
-} port_args;
+} s_port_args;
 
 static int subcmd_portscan(int argc, char **argv) {
-  int nerrors = arg_parse(argc, argv, (void **)&port_args);
+  int nerrors = arg_parse(argc, argv, (void **)&s_port_args);
   if (nerrors != 0) {
-    arg_print_errors(stderr, port_args.end, "wifi portscan");
+    arg_print_errors(stderr, s_port_args.end, "wifi portscan");
     return 1;
   }
 
-  if (port_args.ip->count == 0) {
+  if (s_port_args.ip->count == 0) {
     printf("Error: IP required.\n");
     return 1;
   }
 
-  const char *ip = port_args.ip->sval[0];
-  int min = (port_args.min->count > 0) ? port_args.min->ival[0] : 1;
-  int max = (port_args.max->count > 0) ? port_args.max->ival[0] : 1024;
+  const char *ip = s_port_args.ip->sval[0];
+  int min = (s_port_args.min->count > 0) ? s_port_args.min->ival[0] : 1;
+  int max = (s_port_args.max->count > 0) ? s_port_args.max->ival[0] : 1024;
 
   printf("Starting Port Scan on %s (%d-%d). This block the console...\n", ip, min, max);
 
@@ -627,59 +626,59 @@ static int cmd_wifi(int argc, char **argv) {
 
 void register_wifi_commands(void) {
   // Initialize Arg Tables
-  scan_args.end = arg_end(1);
+  s_scan_args.end = arg_end(1);
 
-  connect_args.ssid = arg_str1("s", "ssid", "<ssid>", "Network SSID");
-  connect_args.password = arg_str0("p", "pass", "<password>", "Password");
-  connect_args.end = arg_end(1);
+  s_connect_args.ssid = arg_str1("s", "ssid", "<ssid>", "Network SSID");
+  s_connect_args.password = arg_str0("p", "pass", "<password>", "Password");
+  s_connect_args.end = arg_end(1);
 
-  ap_args.ssid = arg_str1("s", "ssid", "<ssid>", "AP SSID");
-  ap_args.password = arg_str0("p", "pass", "<password>", "AP Password");
-  ap_args.end = arg_end(1);
+  s_ap_args.ssid = arg_str1("s", "ssid", "<ssid>", "AP SSID");
+  s_ap_args.password = arg_str0("p", "pass", "<password>", "AP Password");
+  s_ap_args.end = arg_end(1);
 
-  config_args.enabled = arg_int0("e", "enabled", "<0/1>", "Enable/Disable Wi-Fi");
-  config_args.ip = arg_str0("i", "ip", "<ip>", "Static IP");
-  config_args.max_conn = arg_int0("m", "max", "<val>", "Max Connections");
-  config_args.end = arg_end(1);
+  s_config_args.enabled = arg_int0("e", "enabled", "<0/1>", "Enable/Disable Wi-Fi");
+  s_config_args.ip = arg_str0("i", "ip", "<ip>", "Static IP");
+  s_config_args.max_conn = arg_int0("m", "max", "<val>", "Max Connections");
+  s_config_args.end = arg_end(1);
 
-  spam_args.random = arg_lit0("r", "random", "Random SSIDs");
-  spam_args.list = arg_lit0("l", "list", "Use beacon_list.json");
-  spam_args.stop = arg_lit0("s", "stop", "Stop spam");
-  spam_args.end = arg_end(1);
+  s_spam_args.random = arg_lit0("r", "random", "Random SSIDs");
+  s_spam_args.list = arg_lit0("l", "list", "Use beacon_list.json");
+  s_spam_args.stop = arg_lit0("s", "stop", "Stop spam");
+  s_spam_args.end = arg_end(1);
 
-  deauth_args.mac = arg_str0("t", "target", "<mac>", "Target BSSID");
-  deauth_args.channel = arg_int0("c", "channel", "<ch>", "Channel");
-  deauth_args.stop = arg_lit0("s", "stop", "Stop attack");
-  deauth_args.end = arg_end(1);
+  s_deauth_args.mac = arg_str0("t", "target", "<mac>", "Target BSSID");
+  s_deauth_args.channel = arg_int0("c", "channel", "<ch>", "Channel");
+  s_deauth_args.stop = arg_lit0("s", "stop", "Stop attack");
+  s_deauth_args.end = arg_end(1);
 
-  sniff_args.type = arg_str0("t", "type", "<beacon|probe|pwn|raw>", "Sniff Type");
-  sniff_args.channel = arg_int0("c", "channel", "<ch>", "Channel (0=Hop)");
-  sniff_args.file = arg_str0("f", "file", "<path>", "Save to .pcap");
-  sniff_args.verbose = arg_lit0("v", "verbose", "Print packets");
-  sniff_args.stop = arg_lit0("s", "stop", "Stop sniffer");
-  sniff_args.end = arg_end(1);
+  s_sniff_args.type = arg_str0("t", "type", "<beacon|probe|pwn|raw>", "Sniff Type");
+  s_sniff_args.channel = arg_int0("c", "channel", "<ch>", "Channel (0=Hop)");
+  s_sniff_args.file = arg_str0("f", "file", "<path>", "Save to .pcap");
+  s_sniff_args.verbose = arg_lit0("v", "verbose", "Print packets");
+  s_sniff_args.stop = arg_lit0("s", "stop", "Stop sniffer");
+  s_sniff_args.end = arg_end(1);
 
-  probe_args.start = arg_lit0(NULL, "start", "Start monitor");
-  probe_args.stop = arg_lit0("s", "stop", "Stop monitor");
-  probe_args.end = arg_end(1);
+  s_probe_args.start = arg_lit0(NULL, "start", "Start monitor");
+  s_probe_args.stop = arg_lit0("s", "stop", "Stop monitor");
+  s_probe_args.end = arg_end(1);
 
-  clients_args.start = arg_lit0(NULL, "start", "Start scan");
-  clients_args.stop = arg_lit0("s", "stop", "Stop scan");
-  clients_args.end = arg_end(1);
+  s_clients_args.start = arg_lit0(NULL, "start", "Start scan");
+  s_clients_args.stop = arg_lit0("s", "stop", "Stop scan");
+  s_clients_args.end = arg_end(1);
 
-  target_args.mac = arg_str0("t", "target", "<mac>", "BSSID");
-  target_args.channel = arg_int0("c", "channel", "<ch>", "Channel");
-  target_args.stop = arg_lit0("s", "stop", "Stop scan");
-  target_args.end = arg_end(1);
+  s_target_args.mac = arg_str0("t", "target", "<mac>", "BSSID");
+  s_target_args.channel = arg_int0("c", "channel", "<ch>", "Channel");
+  s_target_args.stop = arg_lit0("s", "stop", "Stop scan");
+  s_target_args.end = arg_end(1);
 
-  evil_args.ssid = arg_str0("s", "ssid", "<ssid>", "Fake AP Name");
-  evil_args.stop = arg_lit0(NULL, "stop", "Stop attack"); // arg_lit0 name fixed to match flag
-  evil_args.end = arg_end(1);
+  s_evil_args.ssid = arg_str0("s", "ssid", "<ssid>", "Fake AP Name");
+  s_evil_args.stop = arg_lit0(NULL, "stop", "Stop attack"); // arg_lit0 name fixed to match flag
+  s_evil_args.end = arg_end(1);
 
-  port_args.ip = arg_str1("i", "ip", "<ip>", "Target IP");
-  port_args.min = arg_int0(NULL, "min", "<port>", "Start Port");
-  port_args.max = arg_int0(NULL, "max", "<port>", "End Port");
-  port_args.end = arg_end(1);
+  s_port_args.ip = arg_str1("i", "ip", "<ip>", "Target IP");
+  s_port_args.min = arg_int0(NULL, "min", "<port>", "Start Port");
+  s_port_args.max = arg_int0(NULL, "max", "<port>", "End Port");
+  s_port_args.end = arg_end(1);
 
   const esp_console_cmd_t wifi_cmd = {.command = "wifi",
                                       .help = "Wi-Fi Management & Attacks",
