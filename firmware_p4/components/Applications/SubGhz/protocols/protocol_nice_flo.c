@@ -14,7 +14,11 @@
 
 #include "subghz_protocol_decoder.h"
 
+#include "esp_log.h"
+
 #include "subghz_protocol_utils.h"
+
+static const char *TAG = "PROTOCOL_NICE_FLO";
 
 // Nice Flo 12bit Protocol Implementation
 
@@ -69,6 +73,7 @@ protocol_nice_flo_decode(const int32_t *raw_data, size_t count, subghz_data_t *o
       out_data->raw_value = decoded_data;
       out_data->serial = decoded_data >> NICE_FLO_SERIAL_SHIFT;
       out_data->btn = decoded_data & NICE_FLO_BTN_MASK;
+      ESP_LOGD(TAG, "Decoded %s", out_data->protocol_name);
       return true;
     }
   }

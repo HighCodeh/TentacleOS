@@ -17,6 +17,10 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "esp_log.h"
+
+static const char *TAG = "PROTOCOL_REGISTRY";
+
 extern subghz_protocol_t protocol_rcswitch;
 extern subghz_protocol_t protocol_came;
 extern subghz_protocol_t protocol_nice_flo;
@@ -51,6 +55,7 @@ bool subghz_protocol_registry_decode_all(const int32_t *pulses,
   for (size_t i = 0; i < REGISTERED_PROTOCOLS_COUNT; i++) {
     if (REGISTERED_PROTOCOLS[i]->decode != NULL &&
         REGISTERED_PROTOCOLS[i]->decode(pulses, count, out_data)) {
+      ESP_LOGD(TAG, "Decoded protocol: %s", REGISTERED_PROTOCOLS[i]->name);
       return true;
     }
   }

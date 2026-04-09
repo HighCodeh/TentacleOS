@@ -14,7 +14,11 @@
 
 #include "subghz_protocol_decoder.h"
 
+#include "esp_log.h"
+
 #include "subghz_protocol_utils.h"
+
+static const char *TAG = "PROTOCOL_PRINCETON";
 
 // Princeton / PT2262 Protocol Implementation (Alternate)
 
@@ -69,6 +73,7 @@ protocol_princeton_decode(const int32_t *raw_data, size_t count, subghz_data_t *
       out_data->raw_value = decoded_data;
       out_data->serial = decoded_data >> PRINCETON_BTN_SHIFT;
       out_data->btn = decoded_data & PRINCETON_BTN_MASK;
+      ESP_LOGD(TAG, "Decoded %s", out_data->protocol_name);
       return true;
     }
   }

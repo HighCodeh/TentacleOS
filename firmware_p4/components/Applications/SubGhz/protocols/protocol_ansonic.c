@@ -14,7 +14,11 @@
 
 #include "subghz_protocol_decoder.h"
 
+#include "esp_log.h"
+
 #include "subghz_protocol_utils.h"
+
+static const char *TAG = "PROTOCOL_ANSONIC";
 
 #define ANSONIC_SHORT_US       555
 #define ANSONIC_LONG_US        1111
@@ -70,6 +74,7 @@ protocol_ansonic_decode(const int32_t *raw_data, size_t count, subghz_data_t *ou
         out_data->raw_value = decoded_data;
         out_data->serial = decoded_data;
         out_data->btn = 0;
+        ESP_LOGD(TAG, "Decoded %s", out_data->protocol_name);
         return true;
       }
     }

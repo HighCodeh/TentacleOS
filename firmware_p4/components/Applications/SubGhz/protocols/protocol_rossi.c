@@ -16,7 +16,11 @@
 
 #include <stdlib.h>
 
+#include "esp_log.h"
+
 #include "subghz_protocol_utils.h"
+
+static const char *TAG = "PROTOCOL_ROSSI";
 
 // Rossi (HCS301) Protocol Implementation
 //
@@ -83,6 +87,7 @@ static bool protocol_rossi_decode(const int32_t *raw_data, size_t count, subghz_
     out_data->btn = 0;
     out_data->raw_value = 0;
 
+    ESP_LOGD(TAG, "Decoded %s", out_data->protocol_name);
     return true;
   }
 

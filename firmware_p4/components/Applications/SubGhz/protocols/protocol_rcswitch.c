@@ -17,7 +17,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "esp_log.h"
+
 #include "subghz_protocol_utils.h"
+
+static const char *TAG = "PROTOCOL_RCSWITCH";
 
 // RCSwitch Original Protocol Implementation
 // Ported to TentacleOS for improved accuracy using derived timings.
@@ -155,6 +159,7 @@ protocol_rcswitch_decode(const int32_t *raw_data, size_t count, subghz_data_t *o
         out_data->raw_value = code;
         out_data->serial = code;
         out_data->btn = 0;
+        ESP_LOGD(TAG, "Decoded %s", out_data->protocol_name);
         return true;
       }
     }
