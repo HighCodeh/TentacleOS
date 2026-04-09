@@ -23,6 +23,10 @@
 #include <stdbool.h>
 #include "highboy_nfc_error.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Initialize poller: set NFC-A mode + field on. */
 hb_nfc_err_t nfc_poller_start(void);
 
@@ -41,9 +45,13 @@ void nfc_poller_stop(void);
  * @param timeout_ms RX FIFO wait timeout.
  * @return Number of bytes received, 0 on failure.
  */
-int nfc_poller_transceive(const uint8_t* tx, size_t tx_len, bool with_crc,
-                           uint8_t* rx, size_t rx_max, size_t rx_min,
-                           int timeout_ms);
+int nfc_poller_transceive(const uint8_t *tx,
+                          size_t tx_len,
+                          bool with_crc,
+                          uint8_t *rx,
+                          size_t rx_max,
+                          size_t rx_min,
+                          int timeout_ms);
 
 /** Configure guard time and FDT validation (best-effort). */
 void nfc_poller_set_timing(uint32_t guard_time_us, uint32_t fdt_min_us, bool validate_fdt);
@@ -51,4 +59,8 @@ void nfc_poller_set_timing(uint32_t guard_time_us, uint32_t fdt_min_us, bool val
 /** Get last measured FDT in microseconds. */
 uint32_t nfc_poller_get_last_fdt_us(void);
 
+#ifdef __cplusplus
+}
 #endif
+
+#endif /* NFC_POLLER_H */

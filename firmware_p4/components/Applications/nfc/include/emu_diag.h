@@ -18,18 +18,29 @@
 #ifndef EMU_DIAG_H
 #define EMU_DIAG_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "highboy_nfc_error.h"
 
 /**
- * Full target mode diagnostic.
+ * @brief Run full target mode diagnostic.
+ *
  * Tests field detection, multiple configs, PT Memory, oscillator.
  * Takes ~60 seconds. Share the FULL serial output!
  */
 hb_nfc_err_t emu_diag_full(void);
 
 /**
- * Monitor target interrupts for N seconds.
+ * @brief Monitor target interrupts for N seconds.
+ *
+ * @param seconds Number of seconds to monitor.
  */
 void emu_diag_monitor(int seconds);
 
+#ifdef __cplusplus
+}
 #endif
+
+#endif /* EMU_DIAG_H */

@@ -21,10 +21,14 @@
 #include <stdint.h>
 #include "highboy_nfc_error.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
-    uint8_t pupi[4];
-    uint8_t app_data[4];
-    uint8_t prot_info[3];
+  uint8_t pupi[4];
+  uint8_t app_data[4];
+  uint8_t prot_info[3];
 } iso14443b_emu_card_t;
 
 /** Initialize default ATQB + T4T NDEF. */
@@ -41,5 +45,9 @@ void iso14443b_emu_stop(void);
 
 /** Run one emulation step (call in tight loop). */
 void iso14443b_emu_run_step(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* ISO14443B_EMU_H */

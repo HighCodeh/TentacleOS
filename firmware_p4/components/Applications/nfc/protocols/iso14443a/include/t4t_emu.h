@@ -20,6 +20,10 @@
 
 #include "highboy_nfc_error.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Initialize default NDEF + CC. */
 hb_nfc_err_t t4t_emu_init_default(void);
 
@@ -34,5 +38,9 @@ void t4t_emu_stop(void);
 
 /** Run one emulation step (call in tight loop). */
 void t4t_emu_run_step(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* T4T_EMU_H */

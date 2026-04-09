@@ -18,25 +18,59 @@
 #ifndef NFC_READER_H
 #define NFC_READER_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "highboy_nfc_types.h"
 #include "mf_classic_emu.h"
 
 extern mfc_emu_card_data_t s_emu_card;
-extern bool s_emu_data_ready;
-
-void mf_classic_read_full(nfc_iso14443a_data_t* card);
+extern bool s_is_emu_data_ready;
 
 /**
- * Write all sectors from s_emu_card back to a target card.
- * Requires s_emu_data_ready == true (i.e. mf_classic_read_full completed).
- * Uses the keys stored in s_emu_card for authentication.
- * Data blocks only - trailer write is skipped unless write_trailers is true.
- * WARNING: writing trailers with wrong access bits can permanently lock sectors.
+ * @brief Read all sectors of a MIFARE Classic card.
+ *
+ * @param card Card data with UID/SAK/ATQA.
  */
-void mf_classic_write_all(nfc_iso14443a_data_t* target, bool write_trailers);
+void mf_classic_read_full(nfc_iso14443a_data_t *card);
 
-void mfp_probe_and_dump(nfc_iso14443a_data_t* card);
-void mful_dump_card(nfc_iso14443a_data_t* card);
-void t4t_dump_ndef(nfc_iso14443a_data_t* card);
+/**
+ * @brief Write all sectors from s_emu_card back to a target card.
+ *
+ * Requires s_is_emu_data_ready == true (i.e. mf_classic_read_full completed).
+ * Uses the keys stored in s_emu_card for authentication.
+ * Data blocks only - trailer write is skipped unless is_write_trailers is true.
+ * WARNING: writing trailers with wrong access bits can permanently lock sectors.
+ *
+ * @param target            Target card data.
+ * @param is_write_trailers Whether to write trailer blocks.
+ */
+void mf_classic_write_all(nfc_iso14443a_data_t *target, bool is_write_trailers);
 
+/**
+ * @brief Probe and dump MIFARE Plus card.
+ *
+ * @param card Card data.
+ */
+void mfp_probe_and_dump(nfc_iso14443a_data_t *card);
+
+/**
+ * @brief Dump MIFARE Ultralight card.
+ *
+ * @param card Card data.
+ */
+void mful_dump_card(nfc_iso14443a_data_t *card);
+
+/**
+ * @brief Dump NDEF data from a T4T card.
+ *
+ * @param card Card data.
+ */
+void t4t_dump_ndef(nfc_iso14443a_data_t *card);
+
+#ifdef __cplusplus
+}
 #endif
+
+#endif /* NFC_READER_H */

@@ -21,6 +21,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Reset DESFire emu session state. */
 void mf_desfire_emu_reset(void);
 
@@ -33,7 +37,10 @@ void mf_desfire_emu_reset(void);
  * @param out_len  output length
  * @return true if handled, false if not a DESFire APDU
  */
-bool mf_desfire_emu_handle_apdu(const uint8_t* apdu, int apdu_len,
-                                uint8_t* out, int* out_len);
+bool mf_desfire_emu_handle_apdu(const uint8_t *apdu, int apdu_len, uint8_t *out, int *out_len);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* MF_DESFIRE_EMU_H */

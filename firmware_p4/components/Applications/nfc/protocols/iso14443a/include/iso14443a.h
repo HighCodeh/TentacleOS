@@ -22,10 +22,18 @@
 #include <stddef.h>
 #include "highboy_nfc_types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Calculate CRC_A. Initial value 0x6363. */
-void iso14443a_crc(const uint8_t* data, size_t len, uint8_t crc[2]);
+void iso14443a_crc(const uint8_t *data, size_t len, uint8_t crc[2]);
 
 /** Verify CRC_A on received data (last 2 bytes are CRC). */
-bool iso14443a_check_crc(const uint8_t* data, size_t len);
+bool iso14443a_check_crc(const uint8_t *data, size_t len);
 
+#ifdef __cplusplus
+}
 #endif
+
+#endif /* ISO14443A_H */

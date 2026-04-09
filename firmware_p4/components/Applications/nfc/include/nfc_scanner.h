@@ -21,23 +21,66 @@
 #ifndef NFC_SCANNER_H
 #define NFC_SCANNER_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "highboy_nfc_types.h"
 #include "highboy_nfc_error.h"
 
-#define NFC_SCANNER_MAX_PROTOCOLS  4
+#define NFC_SCANNER_MAX_PROTOCOLS 4
 
+/**
+ * @brief Scanner event containing detected protocols.
+ */
 typedef struct {
-    hb_nfc_protocol_t protocols[NFC_SCANNER_MAX_PROTOCOLS];
-    uint8_t           count;
+  hb_nfc_protocol_t protocols[NFC_SCANNER_MAX_PROTOCOLS];
+  uint8_t count;
 } nfc_scanner_event_t;
 
-typedef void (*nfc_scanner_cb_t)(nfc_scanner_event_t event, void* ctx);
+/**
+ * @brief Callback invoked when scanner detects protocols.
+ *
+ * @param event Detected protocols.
+ * @param ctx   User context.
+ */
+typedef void (*nfc_scanner_cb_t)(nfc_scanner_event_t event, void *ctx);
 
 typedef struct nfc_scanner nfc_scanner_t;
 
-nfc_scanner_t* nfc_scanner_alloc(void);
-void           nfc_scanner_free(nfc_scanner_t* s);
-hb_nfc_err_t   nfc_scanner_start(nfc_scanner_t* s, nfc_scanner_cb_t cb, void* ctx);
-void           nfc_scanner_stop(nfc_scanner_t* s);
+/**
+ * @brief Allocate a new scanner instance.
+ *
+ * @return Pointer to scanner, or NULL on failure.
+ */
+nfc_scanner_t *nfc_scanner_alloc(void);
 
+/**
+ * @brief Free a scanner instance.
+ *
+ * @param s Scanner to free. NULL is safe.
+ */
+void nfc_scanner_free(nfc_scanner_t *s);
+
+/**
+ * @brief Start scanning for NFC cards.
+ *
+ * @param s   Scanner instance.
+ * @param cb  Callback for detected protocols.
+ * @param ctx User context.
+ * @return HB_NFC_OK on success.
+ */
+hb_nfc_err_t nfc_scanner_start(nfc_scanner_t *s, nfc_scanner_cb_t cb, void *ctx);
+
+/**
+ * @brief Stop scanner.
+ *
+ * @param s Scanner instance.
+ */
+void nfc_scanner_stop(nfc_scanner_t *s);
+
+#ifdef __cplusplus
+}
 #endif
+
+#endif /* NFC_SCANNER_H */

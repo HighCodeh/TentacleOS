@@ -33,18 +33,22 @@
 #include "highboy_nfc_error.h"
 #include "mf_classic.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum {
-    MF_WRITE_OK           = 0,
-    MF_WRITE_ERR_RESELECT,   
-    MF_WRITE_ERR_AUTH,       
-    MF_WRITE_ERR_CMD_NACK,   
-    MF_WRITE_ERR_DATA_NACK,  
-    MF_WRITE_ERR_VERIFY,     
-    MF_WRITE_ERR_PROTECTED,  
-    MF_WRITE_ERR_PARAM,      
+  MF_WRITE_OK = 0,
+  MF_WRITE_ERR_RESELECT,
+  MF_WRITE_ERR_AUTH,
+  MF_WRITE_ERR_CMD_NACK,
+  MF_WRITE_ERR_DATA_NACK,
+  MF_WRITE_ERR_VERIFY,
+  MF_WRITE_ERR_PROTECTED,
+  MF_WRITE_ERR_PARAM,
 } mf_write_result_t;
 
-const char* mf_write_result_str(mf_write_result_t r);
+const char *mf_write_result_str(mf_write_result_t r);
 
 /**
  * @brief Access bits (C1/C2/C3) for groups 0..3.
@@ -55,9 +59,9 @@ const char* mf_write_result_str(mf_write_result_t r);
  *    group 3 is the trailer (block 15).
  */
 typedef struct {
-    uint8_t c1[4];
-    uint8_t c2[4];
-    uint8_t c3[4];
+  uint8_t c1[4];
+  uint8_t c2[4];
+  uint8_t c3[4];
 } mf_classic_access_bits_t;
 
 /**
@@ -70,8 +74,7 @@ typedef struct {
  * @param data 16 bytes to write.
  * @return MF_WRITE_OK or error code.
  */
-mf_write_result_t mf_classic_write_block_raw(uint8_t block,
-                                               const uint8_t data[16]);
+mf_write_result_t mf_classic_write_block_raw(uint8_t block, const uint8_t data[16]);
 
 /**
  * @brief Authenticate and write a data block (full flow).
@@ -88,13 +91,13 @@ mf_write_result_t mf_classic_write_block_raw(uint8_t block,
  * @param allow_special If true, allows writing trailers (dangerous!).
  * @return mf_write_result_t
  */
-mf_write_result_t mf_classic_write(nfc_iso14443a_data_t* card,
-                                    uint8_t               block,
-                                    const uint8_t         data[16],
-                                    const uint8_t         key[6],
-                                    mf_key_type_t         key_type,
-                                    bool                  verify,
-                                    bool                  allow_special);
+mf_write_result_t mf_classic_write(nfc_iso14443a_data_t *card,
+                                   uint8_t block,
+                                   const uint8_t data[16],
+                                   const uint8_t key[6],
+                                   mf_key_type_t key_type,
+                                   bool verify,
+                                   bool allow_special);
 
 /**
  * @brief Write a full sector (data blocks only, excludes trailer).
@@ -112,12 +115,12 @@ mf_write_result_t mf_classic_write(nfc_iso14443a_data_t* card,
  * @param verify Verifies each block after write.
  * @return Number of blocks written successfully, or negative on fatal error.
  */
-int mf_classic_write_sector(nfc_iso14443a_data_t* card,
-                             uint8_t               sector,
-                             const uint8_t*        data,
-                             const uint8_t         key[6],
-                             mf_key_type_t         key_type,
-                             bool                  verify);
+int mf_classic_write_sector(nfc_iso14443a_data_t *card,
+                            uint8_t sector,
+                            const uint8_t *data,
+                            const uint8_t key[6],
+                            mf_key_type_t key_type,
+                            bool verify);
 
 /**
  * @brief Encode access bits (C1/C2/C3) into the 3 trailer bytes.
@@ -125,8 +128,7 @@ int mf_classic_write_sector(nfc_iso14443a_data_t* card,
  * Generates bytes 6-8 with the correct inversions/parity.
  * Returns false if any bit is not 0/1.
  */
-bool mf_classic_access_bits_encode(const mf_classic_access_bits_t* ac,
-                                    uint8_t                         out_access_bits[3]);
+bool mf_classic_access_bits_encode(const mf_classic_access_bits_t *ac, uint8_t out_access_bits[3]);
 
 /**
  * @brief Validate parity/inversions of the 3 access bits bytes.
@@ -148,11 +150,11 @@ bool mf_classic_access_bits_valid(const uint8_t access_bits[3]);
  * @param out_trailer Output buffer of 16 bytes.
  * @return true if the trailer was built successfully.
  */
-bool mf_classic_build_trailer_safe(const uint8_t              key_a[6],
-                                    const uint8_t              key_b[6],
-                                    const mf_classic_access_bits_t* ac,
-                                    uint8_t                    gpb,
-                                    uint8_t                    out_trailer[16]);
+bool mf_classic_build_trailer_safe(const uint8_t key_a[6],
+                                   const uint8_t key_b[6],
+                                   const mf_classic_access_bits_t *ac,
+                                   uint8_t gpb,
+                                   uint8_t out_trailer[16]);
 
 /**
  * @brief Build a trailer from keys and access bits (bytes 6-8).
@@ -166,13 +168,17 @@ bool mf_classic_build_trailer_safe(const uint8_t              key_a[6],
  *  Pass NULL to use safe default bits.
  * @param out_trailer Output buffer of 16 bytes.
  */
-void mf_classic_build_trailer(const uint8_t  key_a[6],
-                               const uint8_t  key_b[6],
-                               const uint8_t  access_bits[3],
-                               uint8_t        out_trailer[16]);
+void mf_classic_build_trailer(const uint8_t key_a[6],
+                              const uint8_t key_b[6],
+                              const uint8_t access_bits[3],
+                              uint8_t out_trailer[16]);
 
 extern const uint8_t MF_ACCESS_BITS_DEFAULT[3];
 
 extern const uint8_t MF_ACCESS_BITS_READ_ONLY[3];
 
-#endif 
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* MF_CLASSIC_WRITER_H */

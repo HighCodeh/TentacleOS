@@ -18,18 +18,43 @@
 #ifndef NFC_CARD_INFO_H
 #define NFC_CARD_INFO_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 #include <stdbool.h>
 
+/**
+ * @brief Card type identification result.
+ */
 typedef struct {
-    const char* name;
-    const char* full_name;
-    bool        is_mf_classic;
-    bool        is_mf_ultralight;
-    bool        is_iso_dep;
-} card_type_info_t;
+  const char *name;
+  const char *full_name;
+  bool is_mf_classic;
+  bool is_mf_ultralight;
+  bool is_iso_dep;
+} nfc_card_type_info_t;
 
-const char* get_manufacturer_name(uint8_t uid0);
-card_type_info_t identify_card(uint8_t sak, const uint8_t atqa[2]);
+/**
+ * @brief Get manufacturer name from first UID byte.
+ *
+ * @param uid0 First byte of the UID.
+ * @return Manufacturer name string, or NULL if unknown.
+ */
+const char *nfc_card_info_get_manufacturer(uint8_t uid0);
 
+/**
+ * @brief Identify card type from SAK and ATQA.
+ *
+ * @param sak  SAK byte.
+ * @param atqa ATQA bytes (2 bytes).
+ * @return Card type information.
+ */
+nfc_card_type_info_t nfc_card_info_identify(uint8_t sak, const uint8_t atqa[2]);
+
+#ifdef __cplusplus
+}
 #endif
+
+#endif /* NFC_CARD_INFO_H */

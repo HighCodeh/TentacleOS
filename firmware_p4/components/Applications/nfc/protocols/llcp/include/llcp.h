@@ -23,6 +23,10 @@
 #include <stdbool.h>
 #include "highboy_nfc_error.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define LLCP_MAGIC_0 0x46U
 #define LLCP_MAGIC_1 0x66U
 #define LLCP_MAGIC_2 0x6DU
@@ -52,67 +56,85 @@
 #define LLCP_TLV_OPT     0x07U
 
 typedef struct {
-    uint8_t  version_major;
-    uint8_t  version_minor;
-    uint16_t miu;       /* Maximum Information Unit */
-    uint16_t wks;       /* Well-Known Services bitmap */
-    uint16_t lto_ms;    /* Link Timeout in ms */
-    uint8_t  rw;        /* Receive window */
+  uint8_t version_major;
+  uint8_t version_minor;
+  uint16_t miu;    /* Maximum Information Unit */
+  uint16_t wks;    /* Well-Known Services bitmap */
+  uint16_t lto_ms; /* Link Timeout in ms */
+  uint8_t rw;      /* Receive window */
 } llcp_params_t;
 
 typedef struct {
-    uint8_t  nfcid3[10];
-    uint8_t  did;
-    uint8_t  bs;
-    uint8_t  br;
-    uint8_t  pp;
-    uint8_t  to;
-    uint16_t lr;
-    uint16_t rwt_ms;
-    uint8_t  pni;
-    llcp_params_t local;
-    llcp_params_t remote;
-    llcp_params_t negotiated;
-    bool     llcp_active;
+  uint8_t nfcid3[10];
+  uint8_t did;
+  uint8_t bs;
+  uint8_t br;
+  uint8_t pp;
+  uint8_t to;
+  uint16_t lr;
+  uint16_t rwt_ms;
+  uint8_t pni;
+  llcp_params_t local;
+  llcp_params_t remote;
+  llcp_params_t negotiated;
+  bool llcp_active;
 } llcp_link_t;
 
-void   llcp_params_default(llcp_params_t* params);
-void   llcp_link_init(llcp_link_t* link);
-size_t llcp_build_gt(const llcp_params_t* params, uint8_t* out, size_t max);
-bool   llcp_parse_gt(const uint8_t* gt, size_t gt_len, llcp_params_t* out);
+void llcp_params_default(llcp_params_t *params);
+void llcp_link_init(llcp_link_t *link);
+size_t llcp_build_gt(const llcp_params_t *params, uint8_t *out, size_t max);
+bool llcp_parse_gt(const uint8_t *gt, size_t gt_len, llcp_params_t *out);
 
-hb_nfc_err_t llcp_initiator_activate(llcp_link_t* link);
-int          llcp_exchange_pdu(llcp_link_t* link,
-                               const uint8_t* tx_pdu, size_t tx_len,
-                               uint8_t* rx_pdu, size_t rx_max,
-                               int timeout_ms);
+hb_nfc_err_t llcp_initiator_activate(llcp_link_t *link);
+int llcp_exchange_pdu(llcp_link_t *link,
+                      const uint8_t *tx_pdu,
+                      size_t tx_len,
+                      uint8_t *rx_pdu,
+                      size_t rx_max,
+                      int timeout_ms);
 
-size_t llcp_build_header(uint8_t dsap, uint8_t ptype, uint8_t ssap, uint8_t* out, size_t max);
-bool   llcp_parse_header(const uint8_t* pdu, size_t len,
-                         uint8_t* dsap, uint8_t* ptype, uint8_t* ssap,
-                         uint8_t* ns, uint8_t* nr);
+size_t llcp_build_header(uint8_t dsap, uint8_t ptype, uint8_t ssap, uint8_t *out, size_t max);
+bool llcp_parse_header(const uint8_t *pdu,
+                       size_t len,
+                       uint8_t *dsap,
+                       uint8_t *ptype,
+                       uint8_t *ssap,
+                       uint8_t *ns,
+                       uint8_t *nr);
 
-size_t llcp_build_symm(uint8_t* out, size_t max);
-size_t llcp_build_ui(uint8_t dsap, uint8_t ssap,
-                     const uint8_t* info, size_t info_len,
-                     uint8_t* out, size_t max);
-size_t llcp_build_connect(uint8_t dsap, uint8_t ssap, const char* service_name,
-                          const llcp_params_t* params, uint8_t* out, size_t max);
-size_t llcp_build_cc(uint8_t dsap, uint8_t ssap,
-                     const llcp_params_t* params, uint8_t* out, size_t max);
-size_t llcp_build_disc(uint8_t dsap, uint8_t ssap, uint8_t* out, size_t max);
-size_t llcp_build_dm(uint8_t dsap, uint8_t ssap, uint8_t reason, uint8_t* out, size_t max);
-size_t llcp_build_i(uint8_t dsap, uint8_t ssap, uint8_t ns, uint8_t nr,
-                    const uint8_t* info, size_t info_len,
-                    uint8_t* out, size_t max);
-size_t llcp_build_rr(uint8_t dsap, uint8_t ssap, uint8_t nr, uint8_t* out, size_t max);
-size_t llcp_build_rnr(uint8_t dsap, uint8_t ssap, uint8_t nr, uint8_t* out, size_t max);
+size_t llcp_build_symm(uint8_t *out, size_t max);
+size_t llcp_build_ui(
+    uint8_t dsap, uint8_t ssap, const uint8_t *info, size_t info_len, uint8_t *out, size_t max);
+size_t llcp_build_connect(uint8_t dsap,
+                          uint8_t ssap,
+                          const char *service_name,
+                          const llcp_params_t *params,
+                          uint8_t *out,
+                          size_t max);
+size_t
+llcp_build_cc(uint8_t dsap, uint8_t ssap, const llcp_params_t *params, uint8_t *out, size_t max);
+size_t llcp_build_disc(uint8_t dsap, uint8_t ssap, uint8_t *out, size_t max);
+size_t llcp_build_dm(uint8_t dsap, uint8_t ssap, uint8_t reason, uint8_t *out, size_t max);
+size_t llcp_build_i(uint8_t dsap,
+                    uint8_t ssap,
+                    uint8_t ns,
+                    uint8_t nr,
+                    const uint8_t *info,
+                    size_t info_len,
+                    uint8_t *out,
+                    size_t max);
+size_t llcp_build_rr(uint8_t dsap, uint8_t ssap, uint8_t nr, uint8_t *out, size_t max);
+size_t llcp_build_rnr(uint8_t dsap, uint8_t ssap, uint8_t nr, uint8_t *out, size_t max);
 
-size_t llcp_tlv_version(uint8_t* out, size_t max, uint8_t version);
-size_t llcp_tlv_miux(uint8_t* out, size_t max, uint16_t miux);
-size_t llcp_tlv_wks(uint8_t* out, size_t max, uint16_t wks);
-size_t llcp_tlv_lto(uint8_t* out, size_t max, uint8_t lto);
-size_t llcp_tlv_rw(uint8_t* out, size_t max, uint8_t rw);
-size_t llcp_tlv_sn(uint8_t* out, size_t max, const char* sn);
+size_t llcp_tlv_version(uint8_t *out, size_t max, uint8_t version);
+size_t llcp_tlv_miux(uint8_t *out, size_t max, uint16_t miux);
+size_t llcp_tlv_wks(uint8_t *out, size_t max, uint16_t wks);
+size_t llcp_tlv_lto(uint8_t *out, size_t max, uint8_t lto);
+size_t llcp_tlv_rw(uint8_t *out, size_t max, uint8_t rw);
+size_t llcp_tlv_sn(uint8_t *out, size_t max, const char *sn);
 
+#ifdef __cplusplus
+}
 #endif
+
+#endif /* LLCP_H */

@@ -18,11 +18,34 @@
 #ifndef NFC_DEBUG_H
 #define NFC_DEBUG_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "highboy_nfc_error.h"
 
+/**
+ * @brief Enable continuous wave (CW) output.
+ */
 hb_nfc_err_t nfc_debug_cw_on(void);
-void         nfc_debug_cw_off(void);
-void         nfc_debug_dump_regs(void);
+
+/**
+ * @brief Disable continuous wave (CW) output.
+ */
+void nfc_debug_cw_off(void);
+
+/**
+ * @brief Dump all ST25R3916 registers to log.
+ */
+void nfc_debug_dump_regs(void);
+
+/**
+ * @brief Run AAT (Automatic Antenna Tuning) sweep.
+ */
 hb_nfc_err_t nfc_debug_aat_sweep(void);
 
+#ifdef __cplusplus
+}
 #endif
+
+#endif /* NFC_DEBUG_H */

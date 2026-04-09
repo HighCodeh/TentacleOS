@@ -18,13 +18,22 @@
 #ifndef NFC_COMMON_H
 #define NFC_COMMON_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+
 #include "highboy_nfc_error.h"
 #include "highboy_nfc_types.h"
 
-/** Log a byte array as hex. */
-void nfc_log_hex(const char* label, const uint8_t* data, size_t len);
+/** @brief Log a byte array as hex. */
+void nfc_log_hex(const char *label, const uint8_t *data, size_t len);
 
+#ifdef __cplusplus
+}
 #endif
+
+#endif /* NFC_COMMON_H */

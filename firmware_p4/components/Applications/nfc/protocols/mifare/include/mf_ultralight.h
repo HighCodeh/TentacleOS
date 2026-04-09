@@ -21,6 +21,10 @@
 #include <stdint.h>
 #include "highboy_nfc_error.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * READ (cmd 0x30) reads 4 pages (16 bytes) starting at page.
  * Returns bytes received (16 expected + 2 CRC = 18), 0 on fail.
@@ -56,6 +60,10 @@ hb_nfc_err_t mful_ulc_auth(const uint8_t key[16]);
  * @param max_pages Maximum number of pages to read.
  * @return Number of pages read.
  */
-int mful_read_all(uint8_t* data, int max_pages);
+int mful_read_all(uint8_t *data, int max_pages);
 
+#ifdef __cplusplus
+}
 #endif
+
+#endif /* MF_ULTRALIGHT_H */

@@ -25,10 +25,15 @@
 #include "highboy_nfc_error.h"
 #include "crypto1.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Authenticate a sector with key A or B. */
-hb_nfc_err_t mf_classic_auth(uint8_t block, mf_key_type_t key_type,
-                               const mf_classic_key_t* key,
-                               const uint8_t uid[4]);
+hb_nfc_err_t mf_classic_auth(uint8_t block,
+                             mf_key_type_t key_type,
+                             const mf_classic_key_t *key,
+                             const uint8_t uid[4]);
 
 /** Read a single block (16 bytes). Must be authenticated first. */
 hb_nfc_err_t mf_classic_read_block(uint8_t block, uint8_t data[16]);
@@ -38,9 +43,9 @@ hb_nfc_err_t mf_classic_write_block(uint8_t block, const uint8_t data[16]);
 
 /** Write phase (for debugging NACKs). */
 typedef enum {
-    MF_WRITE_PHASE_NONE = 0,
-    MF_WRITE_PHASE_CMD,
-    MF_WRITE_PHASE_DATA,
+  MF_WRITE_PHASE_NONE = 0,
+  MF_WRITE_PHASE_CMD,
+  MF_WRITE_PHASE_DATA,
 } mf_write_phase_t;
 
 /** Get last write phase reached (CMD or DATA). */
@@ -66,6 +71,10 @@ uint32_t mf_classic_get_last_nt(void);
  *
  * @param out  Destination state struct; must not be NULL.
  */
-void mf_classic_get_crypto_state(crypto1_state_t* out);
+void mf_classic_get_crypto_state(crypto1_state_t *out);
 
+#ifdef __cplusplus
+}
 #endif
+
+#endif /* MF_CLASSIC_H */

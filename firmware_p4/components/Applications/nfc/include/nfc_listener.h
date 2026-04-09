@@ -18,18 +18,39 @@
 #ifndef NFC_LISTENER_H
 #define NFC_LISTENER_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "highboy_nfc_error.h"
 #include "highboy_nfc_types.h"
 #include "mf_classic_emu.h"
 
-hb_nfc_err_t nfc_listener_start(const hb_nfc_card_data_t* card);
+/**
+ * @brief Start card emulation from generic card data.
+ *
+ * @param card Card data to emulate.
+ * @return HB_NFC_OK on success.
+ */
+hb_nfc_err_t nfc_listener_start(const hb_nfc_card_data_t *card);
 
 /**
- * Start emulation from a pre-loaded dump (blocks + keys already filled).
+ * @brief Start emulation from a pre-loaded dump (blocks + keys already filled).
+ *
  * Use this after mf_classic_read_full() has populated the mfc_emu_card_data_t.
+ *
+ * @param emu Emulation card data.
+ * @return HB_NFC_OK on success.
  */
-hb_nfc_err_t nfc_listener_start_emu(const mfc_emu_card_data_t* emu);
+hb_nfc_err_t nfc_listener_start_emu(const mfc_emu_card_data_t *emu);
 
+/**
+ * @brief Stop card emulation.
+ */
 void nfc_listener_stop(void);
 
+#ifdef __cplusplus
+}
 #endif
+
+#endif /* NFC_LISTENER_H */
