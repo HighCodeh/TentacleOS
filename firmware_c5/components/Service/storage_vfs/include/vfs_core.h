@@ -121,42 +121,100 @@ typedef struct {
   void *private_data;
 } vfs_backend_config_t;
 
+/** @brief Register a VFS backend. */
 esp_err_t vfs_register_backend(const vfs_backend_config_t *config);
+
+/** @brief Unregister a VFS backend by mount point. */
 esp_err_t vfs_unregister_backend(const char *mount_point);
+
+/** @brief Get the backend configuration for a given path. */
 const vfs_backend_config_t *vfs_get_backend(const char *path);
+
+/** @brief List registered backends, up to max_count entries. */
 size_t vfs_list_backends(const vfs_backend_config_t **backends, size_t max_count);
 
+/** @brief Open a file. Returns a VFS file descriptor or VFS_INVALID_FD. */
 vfs_fd_t vfs_open(const char *path, int flags, int mode);
+
+/** @brief Read from an open file descriptor. */
 ssize_t vfs_read(vfs_fd_t fd, void *buf, size_t size);
+
+/** @brief Write to an open file descriptor. */
 ssize_t vfs_write(vfs_fd_t fd, const void *buf, size_t size);
+
+/** @brief Seek within an open file descriptor. */
 off_t vfs_lseek(vfs_fd_t fd, off_t offset, int whence);
+
+/** @brief Close a file descriptor. */
 esp_err_t vfs_close(vfs_fd_t fd);
+
+/** @brief Flush a file descriptor to storage. */
 esp_err_t vfs_fsync(vfs_fd_t fd);
 
+/** @brief Get file metadata by path. */
 esp_err_t vfs_stat(const char *path, vfs_stat_t *st);
+
+/** @brief Get file metadata by open file descriptor. */
 esp_err_t vfs_fstat(vfs_fd_t fd, vfs_stat_t *st);
+
+/** @brief Rename a file or directory. */
 esp_err_t vfs_rename(const char *old_path, const char *new_path);
+
+/** @brief Delete a file. */
 esp_err_t vfs_unlink(const char *path);
+
+/** @brief Truncate a file to a given length. */
 esp_err_t vfs_truncate(const char *path, off_t length);
+
+/** @brief Check if a file or directory exists. */
 bool vfs_exists(const char *path);
 
+/** @brief Create a directory. */
 esp_err_t vfs_mkdir(const char *path, int mode);
+
+/** @brief Remove an empty directory. */
 esp_err_t vfs_rmdir(const char *path);
+
+/** @brief Remove a directory and all contents recursively. */
 esp_err_t vfs_rmdir_recursive(const char *path);
+
+/** @brief Open a directory for iteration. */
 vfs_dir_t vfs_opendir(const char *path);
+
+/** @brief Read the next directory entry. */
 esp_err_t vfs_readdir(vfs_dir_t dir, vfs_stat_t *entry);
+
+/** @brief Close a directory handle. */
 esp_err_t vfs_closedir(vfs_dir_t dir);
+
+/** @brief List directory entries via a callback. */
 esp_err_t vfs_list_dir(const char *path, vfs_dir_callback_t callback, void *user_data);
 
+/** @brief Get filesystem statistics for a mount point. */
 esp_err_t vfs_statvfs(const char *path, vfs_statvfs_t *stat);
+
+/** @brief Get free space for a mount point. */
 esp_err_t vfs_get_free_space(const char *path, uint64_t *free_bytes);
+
+/** @brief Get total space for a mount point. */
 esp_err_t vfs_get_total_space(const char *path, uint64_t *total_bytes);
+
+/** @brief Get usage percentage for a mount point. */
 esp_err_t vfs_get_usage_percent(const char *path, float *percentage);
 
+/** @brief Read an entire file into a buffer. */
 esp_err_t vfs_read_file(const char *path, void *buf, size_t size, size_t *bytes_read);
+
+/** @brief Write a buffer to a file (overwrite). */
 esp_err_t vfs_write_file(const char *path, const void *buf, size_t size);
+
+/** @brief Append a buffer to a file. */
 esp_err_t vfs_append_file(const char *path, const void *buf, size_t size);
+
+/** @brief Copy a file from src to dst. */
 esp_err_t vfs_copy_file(const char *src, const char *dst);
+
+/** @brief Get the size of a file. */
 esp_err_t vfs_get_size(const char *path, size_t *size);
 
 #ifdef __cplusplus

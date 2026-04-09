@@ -26,15 +26,25 @@
 extern "C" {
 #endif
 
+/** @brief Initialize the SD card backend. */
 esp_err_t vfs_sdcard_init(void);
+
+/** @brief Deinitialize the SD card backend. */
 esp_err_t vfs_sdcard_deinit(void);
 
-
+/** @brief Check if the SD card is currently mounted. */
 bool vfs_sdcard_is_mounted(void);
+
+/** @brief Print SD card info to the log. */
 void vfs_sdcard_print_info(void);
 
+/** @brief Format the SD card and remount. */
 esp_err_t vfs_sdcard_format(void);
+
+/** @brief Register the SD card backend with the VFS layer. */
 esp_err_t vfs_register_sd_backend(void);
+
+/** @brief Unregister the SD card backend from the VFS layer. */
 esp_err_t vfs_unregister_sd_backend(void);
 
 #ifdef __cplusplus

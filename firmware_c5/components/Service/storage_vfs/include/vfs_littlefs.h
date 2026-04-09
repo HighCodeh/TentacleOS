@@ -26,14 +26,25 @@
 extern "C" {
 #endif
 
+/** @brief Initialize the LittleFS backend. */
 esp_err_t vfs_littlefs_init(void);
+
+/** @brief Deinitialize the LittleFS backend. */
 esp_err_t vfs_littlefs_deinit(void);
 
+/** @brief Check if LittleFS is currently mounted. */
 bool vfs_littlefs_is_mounted(void);
+
+/** @brief Print LittleFS partition info to the log. */
 void vfs_littlefs_print_info(void);
 
+/** @brief Format the LittleFS partition and remount. */
 esp_err_t vfs_littlefs_format(void);
+
+/** @brief Register the LittleFS backend with the VFS layer. */
 esp_err_t vfs_register_littlefs_backend(void);
+
+/** @brief Unregister the LittleFS backend from the VFS layer. */
 esp_err_t vfs_unregister_littlefs_backend(void);
 
 #ifdef __cplusplus

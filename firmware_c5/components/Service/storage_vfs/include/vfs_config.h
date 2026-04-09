@@ -29,9 +29,7 @@ extern "C" {
 // #define VFS_USE_LITTLEFS
 // #define VFS_USE_RAMFS
 
-/* ============================================================================
- * BACKEND CONFIGURATION
- * ============================================================================ */
+// Backend Configuration
 
 #ifdef VFS_USE_SD_CARD
 #define VFS_MOUNT_POINT    "/sdcard"
@@ -63,9 +61,7 @@ extern "C" {
 #define VFS_BACKEND_NAME "RAM Disk"
 #endif
 
-/* ============================================================================
- * VALIDATION
- * ============================================================================ */
+// Validation
 
 #if !defined(VFS_USE_SD_CARD) && !defined(VFS_USE_SPIFFS) && !defined(VFS_USE_LITTLEFS) && \
     !defined(VFS_USE_RAMFS)
