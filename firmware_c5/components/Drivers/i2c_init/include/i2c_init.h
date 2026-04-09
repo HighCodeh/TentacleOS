@@ -12,6 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#ifndef I2C_INIT_H
+#define I2C_INIT_H
 
-#pragma once
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * @brief Initialize the I2C master bus on I2C_NUM_0.
+ */
 void init_i2c(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // I2C_INIT_H

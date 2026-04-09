@@ -54,6 +54,10 @@ extern "C" {
 #define GPIO_BTN_OK_PIN    4
 #define GPIO_BTN_RIGHT_PIN 16
 
+// I2C Bus
+#define GPIO_I2C_SDA_PIN 8
+#define GPIO_I2C_SCL_PIN 9
+
 // RGB LED (WS2812 / SK6812)
 #define GPIO_LED_RGB_PIN 45
 #define LED_COUNT        1
