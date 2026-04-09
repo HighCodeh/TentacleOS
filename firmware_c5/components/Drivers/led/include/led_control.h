@@ -12,15 +12,40 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
-
 #ifndef LED_CONTROL_H
 #define LED_CONTROL_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * @brief Initialize the RGB LED.
+ */
 void led_rgb_init(void);
+
+/**
+ * @brief Blink the LED red (error indication).
+ */
 void led_blink_red(void);
+
+/**
+ * @brief Blink the LED green (success indication).
+ */
 void led_blink_green(void);
+
+/**
+ * @brief Blink the LED blue (info indication).
+ */
 void led_blink_blue(void);
+
+/**
+ * @brief Blink the LED purple (info indication).
+ */
 void led_blink_purple(void);
 
+#ifdef __cplusplus
+}
 #endif
+
+#endif // LED_CONTROL_H
