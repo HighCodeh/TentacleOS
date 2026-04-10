@@ -28,6 +28,8 @@
 #include "st25r3916_fifo.h"
 #include "st25r3916_irq.h"
 #include "hb_nfc_spi.h"
+#include "hb_nfc_timer.h"
+#include "nfc_rf.h"
 
 static const char *TAG = "nfc_poller";
 
