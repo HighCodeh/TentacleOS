@@ -13,168 +13,185 @@
 // limitations under the License.
 
 #include "subghz_spectrum_ui.h"
+
+#include <stdio.h>
+
+#include "esp_log.h"
+#include "core/lv_group.h"
+#include "lv_conf_internal.h"
+
 #include "ui_theme.h"
 #include "header_ui.h"
 #include "footer_ui.h"
-#include "subghz_spectrum.h"
-#include "lv_conf_internal.h"
 #include "ui_manager.h"
-#include "esp_log.h"
-#include "core/lv_group.h"
 #include "lv_port_indev.h"
-#include <stdio.h>
+#include "subghz_spectrum.h"
 
-static const char *TAG = "SUBGHZ_UI";
-static lv_obj_t *screen_spectrum = NULL;
-static lv_obj_t *chart = NULL;
-static lv_chart_series_t *ser_rssi = NULL;
-static lv_timer_t *update_timer = NULL;
-static lv_obj_t *lbl_rssi_info = NULL;
-static lv_obj_t *lbl_freq_info = NULL;
-static int32_t s_chart_points[SPECTRUM_SAMPLES];
+static const char *TAG = "SUBGHZ_SPECTRUM_UI";
 
 #define SPECTRUM_CENTER_FREQ 433920000
 #define SPECTRUM_SPAN_HZ     2000000
 
+#define CHART_W           220
+#define CHART_H           120
+#define CHART_OFFSET_Y    (-10)
+#define CHART_BORDER_W    1
+#define CHART_LINE_W      2
+#define CHART_RANGE_MIN   0
+#define CHART_RANGE_MAX   100
+#define CHART_ITEM_BG_OPA 80
+
+#define RSSI_CLAMP_MIN          0
+#define RSSI_CLAMP_MAX          100
+#define RSSI_FLOOR_DBM          (-130.0f)
+#define RSSI_PEAK_THRESHOLD_DBM (-60.0f)
+
+#define LABEL_OFFSET_Y         (-35)
+#define UPDATE_TIMER_PERIOD_MS 50
+
+#define PEAK_LABEL_DEFAULT  "Peak: --- dBm"
+#define FREQ_LABEL_DEFAULT  "433.92 MHz"
+#define PEAK_LABEL_FMT      "Peak: %.1f dBm"
+#define FREQ_LABEL_FMT      "%.2f MHz"
+#define PEAK_LABEL_BUF_SIZE 32
+#define FREQ_LABEL_BUF_SIZE 32
+
+static lv_obj_t *s_screen = NULL;
+static lv_obj_t *s_chart = NULL;
+static lv_chart_series_t *s_ser_rssi = NULL;
+static lv_timer_t *s_update_timer = NULL;
+static lv_obj_t *s_lbl_rssi = NULL;
+static lv_obj_t *s_lbl_freq = NULL;
+
+static int32_t s_chart_points[SPECTRUM_SAMPLES];
+
+static void update_spectrum_cb(lv_timer_t *t);
+static void on_screen_key_event(lv_event_t *e);
+
 static void update_spectrum_cb(lv_timer_t *t) {
-  if (!chart || !ser_rssi)
+  if (s_chart == NULL || s_ser_rssi == NULL)
     return;
 
   subghz_spectrum_line_t line;
   if (!subghz_spectrum_get_line(&line))
     return;
 
-  float max_dbm = -130.0;
+  float max_dbm = RSSI_FLOOR_DBM;
   uint32_t peak_freq = line.start_freq;
 
   for (int i = 0; i < SPECTRUM_SAMPLES; i++) {
-    int32_t val = (int32_t)(line.dbm_values[i] + 130);
-    if (val < 0)
-      val = 0;
-    if (val > 100)
-      val = 100;
+    int32_t val = (int32_t)(line.dbm_values[i] + (-RSSI_FLOOR_DBM));
+    if (val < RSSI_CLAMP_MIN)
+      val = RSSI_CLAMP_MIN;
+    if (val > RSSI_CLAMP_MAX)
+      val = RSSI_CLAMP_MAX;
     s_chart_points[i] = val;
 
     if (line.dbm_values[i] > max_dbm) {
       max_dbm = line.dbm_values[i];
-      peak_freq = line.start_freq + (i * line.step_hz);
+      peak_freq = line.start_freq + (uint32_t)(i * line.step_hz);
     }
   }
 
-  lv_chart_set_ext_y_array(chart, ser_rssi, s_chart_points);
-  lv_chart_refresh(chart);
+  lv_chart_set_ext_y_array(s_chart, s_ser_rssi, s_chart_points);
+  lv_chart_refresh(s_chart);
 
-  if (lbl_rssi_info) {
-    char buf[32];
-    snprintf(buf, sizeof(buf), "Peak: %.1f dBm", max_dbm);
-    lv_label_set_text(lbl_rssi_info, buf);
-
-    if (max_dbm > -60) {
-      lv_obj_set_style_text_color(lbl_rssi_info, current_theme.border_accent, 0);
-    } else {
-      lv_obj_set_style_text_color(lbl_rssi_info, current_theme.border_accent, 0);
-    }
+  if (s_lbl_rssi != NULL) {
+    char buf[PEAK_LABEL_BUF_SIZE];
+    snprintf(buf, sizeof(buf), PEAK_LABEL_FMT, max_dbm);
+    lv_label_set_text(s_lbl_rssi, buf);
   }
 
-  if (lbl_freq_info) {
-    char buf[32];
-    snprintf(buf, sizeof(buf), "%.2f MHz", peak_freq / 1000000.0f);
-    lv_label_set_text(lbl_freq_info, buf);
+  if (s_lbl_freq != NULL) {
+    char buf[FREQ_LABEL_BUF_SIZE];
+    snprintf(buf, sizeof(buf), FREQ_LABEL_FMT, (double)(peak_freq / 1000000.0f));
+    lv_label_set_text(s_lbl_freq, buf);
   }
 }
 
-static void spectrum_event_cb(lv_event_t *e) {
-  lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_KEY) {
-    uint32_t key = lv_event_get_key(e);
-    if (key == LV_KEY_ESC) {
-      if (update_timer) {
-        lv_timer_del(update_timer);
-        update_timer = NULL;
-      }
+static void on_screen_key_event(lv_event_t *e) {
+  if (lv_event_get_code(e) != LV_EVENT_KEY)
+    return;
 
-      chart = NULL;
-      ser_rssi = NULL;
-      lbl_rssi_info = NULL;
-      lbl_freq_info = NULL;
+  if (lv_event_get_key(e) != LV_KEY_ESC)
+    return;
 
-      subghz_spectrum_stop();
-
-      ui_switch_screen(SCREEN_MENU);
-    }
+  if (s_update_timer != NULL) {
+    lv_timer_del(s_update_timer);
+    s_update_timer = NULL;
   }
+
+  s_chart = NULL;
+  s_ser_rssi = NULL;
+  s_lbl_rssi = NULL;
+  s_lbl_freq = NULL;
+
+  subghz_spectrum_stop();
+  ui_switch_screen(SCREEN_MENU);
 }
 
 void ui_subghz_spectrum_open(void) {
   subghz_spectrum_start(SPECTRUM_CENTER_FREQ, SPECTRUM_SPAN_HZ);
 
-  if (screen_spectrum) {
-    lv_obj_del(screen_spectrum);
-    screen_spectrum = NULL;
+  if (s_screen != NULL) {
+    lv_obj_del(s_screen);
+    s_screen = NULL;
   }
 
-  if (update_timer) {
-    lv_timer_del(update_timer);
-    update_timer = NULL;
+  if (s_update_timer != NULL) {
+    lv_timer_del(s_update_timer);
+    s_update_timer = NULL;
   }
 
-  screen_spectrum = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(screen_spectrum, current_theme.screen_base, 0);
-  lv_obj_remove_flag(screen_spectrum, LV_OBJ_FLAG_SCROLLABLE);
+  s_screen = lv_obj_create(NULL);
+  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
+  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  /* Chart */
-  chart = lv_chart_create(screen_spectrum);
-  lv_obj_set_size(chart, 220, 120);
-  lv_obj_align(chart, LV_ALIGN_CENTER, 0, -10);
+  s_chart = lv_chart_create(s_screen);
+  lv_obj_set_size(s_chart, CHART_W, CHART_H);
+  lv_obj_align(s_chart, LV_ALIGN_CENTER, 0, CHART_OFFSET_Y);
+  lv_chart_set_type(s_chart, LV_CHART_TYPE_LINE);
+  lv_chart_set_point_count(s_chart, SPECTRUM_SAMPLES);
+  lv_chart_set_range(s_chart, LV_CHART_AXIS_PRIMARY_Y, CHART_RANGE_MIN, CHART_RANGE_MAX);
+  lv_chart_set_update_mode(s_chart, LV_CHART_UPDATE_MODE_CIRCULAR);
+  lv_obj_set_style_width(s_chart, 0, LV_PART_INDICATOR);
+  lv_obj_set_style_height(s_chart, 0, LV_PART_INDICATOR);
+  lv_obj_set_style_line_width(s_chart, CHART_LINE_W, LV_PART_ITEMS);
+  lv_obj_set_style_bg_color(s_chart, current_theme.bg_primary, 0);
+  lv_obj_set_style_border_color(s_chart, current_theme.border_interface, 0);
+  lv_obj_set_style_border_width(s_chart, CHART_BORDER_W, 0);
+  lv_obj_set_style_bg_opa(s_chart, CHART_ITEM_BG_OPA, LV_PART_ITEMS);
+  lv_obj_set_style_bg_color(s_chart, current_theme.border_accent, LV_PART_ITEMS);
+  lv_obj_set_style_bg_grad_color(s_chart, current_theme.bg_secondary, LV_PART_ITEMS);
+  lv_obj_set_style_bg_grad_dir(s_chart, LV_GRAD_DIR_VER, LV_PART_ITEMS);
+  lv_obj_set_style_line_dash_width(s_chart, 0, LV_PART_MAIN);
+  lv_obj_set_style_line_color(s_chart, current_theme.border_inactive, LV_PART_MAIN);
 
-  lv_chart_set_type(chart, LV_CHART_TYPE_LINE);
-  lv_chart_set_point_count(chart, SPECTRUM_SAMPLES);
-  lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_Y, 0, 100);
-  lv_chart_set_update_mode(chart, LV_CHART_UPDATE_MODE_CIRCULAR);
+  s_ser_rssi = lv_chart_add_series(s_chart, current_theme.border_accent, LV_CHART_AXIS_PRIMARY_Y);
 
-  lv_obj_set_style_width(chart, 0, LV_PART_INDICATOR);
-  lv_obj_set_style_height(chart, 0, LV_PART_INDICATOR);
-  lv_obj_set_style_line_width(chart, 2, LV_PART_ITEMS);
+  s_lbl_freq = lv_label_create(s_screen);
+  lv_label_set_text(s_lbl_freq, FREQ_LABEL_DEFAULT);
+  lv_obj_set_style_text_font(s_lbl_freq, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(s_lbl_freq, current_theme.text_main, 0);
+  lv_obj_align(s_lbl_freq, LV_ALIGN_BOTTOM_LEFT, 0, LABEL_OFFSET_Y);
 
-  lv_obj_set_style_bg_color(chart, current_theme.bg_primary, 0);
-  lv_obj_set_style_border_color(chart, current_theme.border_interface, 0);
-  lv_obj_set_style_border_width(chart, 1, 0);
+  s_lbl_rssi = lv_label_create(s_screen);
+  lv_label_set_text(s_lbl_rssi, PEAK_LABEL_DEFAULT);
+  lv_obj_set_style_text_font(s_lbl_rssi, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(s_lbl_rssi, current_theme.border_accent, 0);
+  lv_obj_align(s_lbl_rssi, LV_ALIGN_BOTTOM_RIGHT, 0, LABEL_OFFSET_Y);
 
-  ser_rssi = lv_chart_add_series(chart, current_theme.border_accent, LV_CHART_AXIS_PRIMARY_Y);
+  header_ui_create(s_screen);
+  footer_ui_create(s_screen);
 
-  lv_obj_set_style_bg_opa(chart, 80, LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(chart, current_theme.border_accent, LV_PART_ITEMS);
-  lv_obj_set_style_bg_grad_color(chart, current_theme.bg_secondary, LV_PART_ITEMS);
-  lv_obj_set_style_bg_grad_dir(chart, LV_GRAD_DIR_VER, LV_PART_ITEMS);
+  s_update_timer = lv_timer_create(update_spectrum_cb, UPDATE_TIMER_PERIOD_MS, NULL);
 
-  lv_obj_set_style_line_dash_width(chart, 0, LV_PART_MAIN);
-  lv_obj_set_style_line_color(chart, current_theme.border_inactive, LV_PART_MAIN);
+  lv_obj_add_event_cb(s_screen, on_screen_key_event, LV_EVENT_KEY, NULL);
 
-  /* Info labels */
-  lbl_freq_info = lv_label_create(screen_spectrum);
-  lv_label_set_text(lbl_freq_info, "433.92 MHz");
-  lv_obj_set_style_text_font(lbl_freq_info, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(lbl_freq_info, current_theme.text_main, 0);
-  lv_obj_align(lbl_freq_info, LV_ALIGN_BOTTOM_LEFT, 0, -35);
-
-  lbl_rssi_info = lv_label_create(screen_spectrum);
-  lv_label_set_text(lbl_rssi_info, "Peak: --- dBm");
-  lv_obj_set_style_text_font(lbl_rssi_info, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(lbl_rssi_info, current_theme.border_accent, 0);
-  lv_obj_align(lbl_rssi_info, LV_ALIGN_BOTTOM_RIGHT, 0, -35);
-
-  /* Common UI */
-  header_ui_create(screen_spectrum);
-  footer_ui_create(screen_spectrum);
-
-  update_timer = lv_timer_create(update_spectrum_cb, 50, NULL);
-
-  lv_obj_add_event_cb(screen_spectrum, spectrum_event_cb, LV_EVENT_KEY, NULL);
-
-  if (main_group) {
-    lv_group_add_obj(main_group, screen_spectrum);
-    lv_group_focus_obj(screen_spectrum);
+  if (main_group != NULL) {
+    lv_group_add_obj(main_group, s_screen);
+    lv_group_focus_obj(s_screen);
   }
 
-  lv_screen_load(screen_spectrum);
+  lv_screen_load(s_screen);
 }
