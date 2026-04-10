@@ -11,23 +11,12 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-/**
- * @file felica.c
- * @brief FeliCa (NFC-F) reader/writer for ST25R3916.
- *
- * Transport: nfc_poller_transceive() - same as every other protocol.
- *
- * Frame format (all commands):
- *   [LEN][CMD][payload][CRC-F]
- *   LEN includes itself (LEN=1+1+payload+2)
- *
- * CRC-F: CRC-16/CCITT (poly=0x1021, init=0x0000) - chip appends automatically
- * with CMD_TX_WITH_CRC in NFC-F mode.
- */
+
 #include "felica.h"
 
 #include <string.h>
 #include <stdio.h>
+
 #include "esp_log.h"
 
 #include "nfc_poller.h"
@@ -36,14 +25,14 @@
 #include "hb_nfc_spi.h"
 #include "nfc_rf.h"
 
-#define TAG "felica"
-/* Poller init */
+static const char *TAG = "NFC_FELICA";
+
 hb_nfc_err_t felica_poller_init(void) {
   nfc_rf_config_t cfg = {
       .tech = NFC_RF_TECH_F,
       .tx_rate = NFC_RF_BR_212,
       .rx_rate = NFC_RF_BR_212,
-      .am_mod_percent = 10, /* FeliCa uses ASK */
+      .am_mod_percent = FELICA_AM_MOD_PERCENT,
       .tx_parity = true,
       .rx_raw_parity = false,
       .guard_time_us = 0,
@@ -57,35 +46,29 @@ hb_nfc_err_t felica_poller_init(void) {
   ESP_LOGI(TAG, "FeliCa poller ready (NFC-F 212 kbps)");
   return HB_NFC_OK;
 }
-/* SENSF_REQ */
+
 hb_nfc_err_t felica_sensf_req(uint16_t system_code, felica_tag_t *tag) {
   return felica_sensf_req_slots(system_code, 0, tag);
 }
 
 hb_nfc_err_t felica_sensf_req_slots(uint16_t system_code, uint8_t time_slots, felica_tag_t *tag) {
-  if (!tag)
+  if (tag == NULL)
     return HB_NFC_ERR_PARAM;
   memset(tag, 0, sizeof(*tag));
 
-  /*
-   * SENSF_REQ (6 bytes before CRC):
-   *   [06][04][TSN=00][RCF=01 (return SC)][SC_H][SC_L][time_slots=00]
-   *
-   * Simplified: no time slot, request system code in response.
-   */
-  uint8_t cmd[7];
-  cmd[0] = 0x07U;                  /* LEN (incl. itself, excl. CRC) */
-  cmd[1] = FELICA_CMD_SENSF_REQ;   /* 0x04 */
-  cmd[2] = 0x00U;                  /* TSN (Time Slot Number request) */
-  cmd[3] = FELICA_RCF_SYSTEM_CODE; /* include SC in response */
+  uint8_t cmd[FELICA_SENSF_REQ_LENGTH + 1];
+  cmd[0] = FELICA_SENSF_REQ_LENGTH;
+  cmd[1] = FELICA_CMD_SENSF_REQ;
+  cmd[2] = 0x00U;
+  cmd[3] = FELICA_RCF_SYSTEM_CODE;
   cmd[4] = (uint8_t)((system_code >> 8) & 0xFFU);
   cmd[5] = (uint8_t)(system_code & 0xFFU);
-  cmd[6] = (uint8_t)(time_slots & 0x0FU); /* number of slots */
+  cmd[6] = (uint8_t)(time_slots & FELICA_SENSF_TIME_SLOT_MASK);
 
-  uint8_t rx[32] = {0};
-  int len = nfc_poller_transceive(
-      cmd, sizeof(cmd), /*with_crc=*/true, rx, sizeof(rx), /*rx_min=*/1, /*timeout_ms=*/20);
-  if (len < 17) {
+  uint8_t rx[FELICA_SENSF_RES_BUFFER_SIZE] = {0};
+  int len =
+      nfc_poller_transceive(cmd, sizeof(cmd), true, rx, sizeof(rx), 1, FELICA_SENSF_TIMEOUT_MS);
+  if (len < FELICA_SENSF_RES_MIN_LEN) {
     if (len > 0)
       nfc_log_hex("SENSF partial:", rx, (size_t)len);
     return HB_NFC_ERR_NO_CARD;
@@ -93,21 +76,20 @@ hb_nfc_err_t felica_sensf_req_slots(uint16_t system_code, uint8_t time_slots, fe
 
   nfc_log_hex("SENSF_RES:", rx, (size_t)len);
 
-  /* SENSF_RES: [LEN][0x05][IDmx8][PMmx8][RDx2 optional] */
   if (rx[1] != FELICA_CMD_SENSF_RES) {
     ESP_LOGW(TAG, "Unexpected response code 0x%02X", rx[1]);
     return HB_NFC_ERR_PROTOCOL;
   }
 
-  memcpy(tag->idm, &rx[2], FELICA_IDM_LEN);
-  memcpy(tag->pmm, &rx[10], FELICA_PMM_LEN);
-  if (len >= 20) {
-    tag->rd[0] = rx[18];
-    tag->rd[1] = rx[19];
+  memcpy(tag->idm, &rx[FELICA_SENSF_RES_IDM_OFFSET], FELICA_IDM_LEN);
+  memcpy(tag->pmm, &rx[FELICA_SENSF_RES_PMM_OFFSET], FELICA_PMM_LEN);
+  if (len >= FELICA_SENSF_RES_WITH_RD_LEN) {
+    tag->rd[0] = rx[FELICA_SENSF_RES_RD0_OFFSET];
+    tag->rd[1] = rx[FELICA_SENSF_RES_RD1_OFFSET];
     tag->rd_valid = true;
   }
 
-  char idm_str[24];
+  char idm_str[FELICA_IDM_STR_BUFFER_SIZE];
   snprintf(idm_str,
            sizeof(idm_str),
            "%02X%02X%02X%02X%02X%02X%02X%02X",
@@ -127,7 +109,7 @@ hb_nfc_err_t felica_sensf_req_slots(uint16_t system_code, uint8_t time_slots, fe
 }
 
 int felica_polling(uint16_t system_code, uint8_t time_slots, felica_tag_t *out, size_t max_tags) {
-  if (!out || max_tags == 0)
+  if (out == NULL || max_tags == 0)
     return 0;
 
   int count = 0;
@@ -153,85 +135,71 @@ int felica_polling(uint16_t system_code, uint8_t time_slots, felica_tag_t *out, 
 
   return count;
 }
-/* READ WITHOUT ENCRYPTION */
+
 hb_nfc_err_t felica_read_blocks(const felica_tag_t *tag,
                                 uint16_t service_code,
                                 uint8_t first_block,
                                 uint8_t count,
                                 uint8_t *out) {
-  if (!tag || !out || count == 0 || count > 4)
+  if (tag == NULL || out == NULL || count == 0 || count > FELICA_READ_MAX_BLOCKS)
     return HB_NFC_ERR_PARAM;
 
-  /*
-   * Read Without Encryption request:
-   *   [LEN][0x06][IDmx8][SC_count=1][SC_L][SC_H]
-   *   [BLK_count][BLK0_desc][BLK1_desc]...
-   *
-   * Block descriptor (2 bytes): [0x80|len_flag][block_num]
-   *   0x80 = 2-byte block descriptor, block_num fits in 1 byte
-   */
-  uint8_t cmd[32];
+  uint8_t cmd[FELICA_READ_CMD_BUFFER_SIZE];
   int pos = 0;
 
-  cmd[pos++] = 0x00U; /* LEN placeholder, filled below */
+  cmd[pos++] = 0x00U;
   cmd[pos++] = FELICA_CMD_READ_WO_ENC;
   memcpy(&cmd[pos], tag->idm, FELICA_IDM_LEN);
   pos += FELICA_IDM_LEN;
-  cmd[pos++] = 0x01U;                           /* 1 service */
-  cmd[pos++] = (uint8_t)(service_code & 0xFFU); /* SC LSB first */
+  cmd[pos++] = 0x01U;
+  cmd[pos++] = (uint8_t)(service_code & 0xFFU);
   cmd[pos++] = (uint8_t)(service_code >> 8);
   cmd[pos++] = count;
   for (int i = 0; i < count; i++) {
-    cmd[pos++] = 0x80U; /* 2-byte block descriptor */
+    cmd[pos++] = FELICA_BLOCK_DESC_BYTE;
     cmd[pos++] = (uint8_t)(first_block + i);
   }
-  cmd[0] = (uint8_t)pos; /* LEN = total frame length including LEN byte */
+  cmd[0] = (uint8_t)pos;
 
-  uint8_t rx[256] = {0};
-  int len = nfc_poller_transceive(
-      cmd, (size_t)pos, /*with_crc=*/true, rx, sizeof(rx), /*rx_min=*/1, /*timeout_ms=*/30);
-  if (len < 12) {
+  uint8_t rx[FELICA_READ_RES_BUFFER_SIZE] = {0};
+  int len =
+      nfc_poller_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 1, FELICA_READ_TIMEOUT_MS);
+  if (len < FELICA_READ_RES_MIN_LEN) {
     ESP_LOGW(TAG, "ReadBlocks: timeout (len=%d)", len);
     return HB_NFC_ERR_TIMEOUT;
   }
 
-  /* Response: [LEN][0x07][IDmx8][status1][status2][BLK_count][data] */
   if (rx[1] != FELICA_CMD_READ_RESP) {
     ESP_LOGW(TAG, "ReadBlocks: unexpected resp 0x%02X", rx[1]);
     return HB_NFC_ERR_PROTOCOL;
   }
 
-  uint8_t status1 = rx[10];
-  uint8_t status2 = rx[11];
+  uint8_t status1 = rx[FELICA_READ_RES_STATUS1_POS];
+  uint8_t status2 = rx[FELICA_READ_RES_STATUS2_POS];
   if (status1 != 0x00U) {
     ESP_LOGW(TAG, "ReadBlocks: status1=0x%02X status2=0x%02X", status1, status2);
     return HB_NFC_ERR_PROTOCOL;
   }
 
-  uint8_t blk_count = rx[12];
-  if (len < 13 + blk_count * FELICA_BLOCK_SIZE) {
+  uint8_t blk_count = rx[FELICA_READ_RES_COUNT_POS];
+  if (len < FELICA_READ_RES_DATA_POS + blk_count * FELICA_BLOCK_SIZE) {
     ESP_LOGW(TAG, "ReadBlocks: response too short");
     return HB_NFC_ERR_PROTOCOL;
   }
 
-  memcpy(out, &rx[13], (size_t)blk_count * FELICA_BLOCK_SIZE);
+  memcpy(out, &rx[FELICA_READ_RES_DATA_POS], (size_t)blk_count * FELICA_BLOCK_SIZE);
   return HB_NFC_OK;
 }
-/* WRITE WITHOUT ENCRYPTION */
+
 hb_nfc_err_t felica_write_blocks(const felica_tag_t *tag,
                                  uint16_t service_code,
                                  uint8_t first_block,
                                  uint8_t count,
                                  const uint8_t *data) {
-  if (!tag || !data || count == 0 || count > 1)
+  if (tag == NULL || data == NULL || count == 0 || count > 1)
     return HB_NFC_ERR_PARAM;
 
-  /*
-   * Write Without Encryption request:
-   *   [LEN][0x08][IDmx8][SC_count=1][SC_L][SC_H]
-   *   [BLK_count][BLK0_desc][datax16]
-   */
-  uint8_t cmd[64];
+  uint8_t cmd[FELICA_WRITE_CMD_BUFFER_SIZE];
   int pos = 0;
 
   cmd[pos++] = 0x00U;
@@ -243,24 +211,23 @@ hb_nfc_err_t felica_write_blocks(const felica_tag_t *tag,
   cmd[pos++] = (uint8_t)(service_code >> 8);
   cmd[pos++] = count;
   for (int i = 0; i < count; i++) {
-    cmd[pos++] = 0x80U;
+    cmd[pos++] = FELICA_BLOCK_DESC_BYTE;
     cmd[pos++] = (uint8_t)(first_block + i);
     memcpy(&cmd[pos], data + i * FELICA_BLOCK_SIZE, FELICA_BLOCK_SIZE);
     pos += FELICA_BLOCK_SIZE;
   }
   cmd[0] = (uint8_t)pos;
 
-  uint8_t rx[32] = {0};
-  int len = nfc_poller_transceive(
-      cmd, (size_t)pos, /*with_crc=*/true, rx, sizeof(rx), /*rx_min=*/1, /*timeout_ms=*/50);
-  if (len < 11) {
+  uint8_t rx[FELICA_WRITE_RES_BUFFER_SIZE] = {0};
+  int len =
+      nfc_poller_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 1, FELICA_WRITE_TIMEOUT_MS);
+  if (len < FELICA_WRITE_RES_MIN_LEN) {
     ESP_LOGW(TAG, "WriteBlocks: timeout (len=%d)", len);
     return HB_NFC_ERR_TIMEOUT;
   }
 
-  /* Response: [LEN][0x09][IDmx8][status1][status2] */
-  uint8_t status1 = rx[10];
-  uint8_t status2 = rx[11];
+  uint8_t status1 = rx[FELICA_WRITE_RES_STATUS1_POS];
+  uint8_t status2 = rx[FELICA_WRITE_RES_STATUS2_POS];
   if (status1 != 0x00U) {
     ESP_LOGW(TAG, "WriteBlocks: status1=0x%02X status2=0x%02X", status1, status2);
     return HB_NFC_ERR_NACK;
@@ -269,7 +236,7 @@ hb_nfc_err_t felica_write_blocks(const felica_tag_t *tag,
   ESP_LOGI(TAG, "WriteBlock[%u]: OK", first_block);
   return HB_NFC_OK;
 }
-/* FULL DUMP */
+
 void felica_dump_card(void) {
   ESP_LOGI(TAG, "");
   ESP_LOGI(TAG, "");
@@ -285,17 +252,16 @@ void felica_dump_card(void) {
     return;
   }
 
-  /* Try reading common service codes */
   static const struct {
     uint16_t sc;
     const char *name;
   } services[] = {
-      {0x000BU, "Common Area (RO)"},
-      {0x0009U, "Common Area (RW)"},
-      {0x100BU, "NDEF service"},
+      {FELICA_SERVICE_COMMON_RO, "Common Area (RO)"},
+      {FELICA_SERVICE_COMMON_RW, "Common Area (RW)"},
+      {FELICA_SERVICE_NDEF, "NDEF service"},
   };
 
-  char hex[48], asc[20];
+  char hex[FELICA_HEX_DUMP_BUFFER_SIZE], asc[FELICA_ASCII_DUMP_BUFFER_SIZE];
   uint8_t block[FELICA_BLOCK_SIZE];
 
   for (size_t si = 0; si < sizeof(services) / sizeof(services[0]); si++) {
@@ -308,14 +274,15 @@ void felica_dump_card(void) {
       if (err != HB_NFC_OK)
         break;
 
-      /* Hex */
       size_t p = 0;
       for (int i = 0; i < FELICA_BLOCK_SIZE; i++) {
         p += (size_t)snprintf(hex + p, sizeof(hex) - p, "%02X ", block[i]);
       }
-      /* ASCII */
+
       for (int i = 0; i < FELICA_BLOCK_SIZE; i++) {
-        asc[i] = (block[i] >= 0x20 && block[i] <= 0x7E) ? (char)block[i] : '.';
+        asc[i] = (block[i] >= ASCII_PRINTABLE_START && block[i] <= ASCII_PRINTABLE_END)
+                     ? (char)block[i]
+                     : '.';
       }
       asc[FELICA_BLOCK_SIZE] = '\0';
 
