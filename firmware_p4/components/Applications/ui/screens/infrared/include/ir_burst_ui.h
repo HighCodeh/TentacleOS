@@ -19,6 +19,9 @@
 extern "C" {
 #endif
 
+/**
+ * @brief Open the infrared burst attack screen.
+ */
 void ui_ir_burst_open(void);
 
 #ifdef __cplusplus

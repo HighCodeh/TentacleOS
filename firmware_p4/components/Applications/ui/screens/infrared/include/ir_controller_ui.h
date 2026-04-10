@@ -19,6 +19,9 @@
 extern "C" {
 #endif
 
+/**
+ * @brief Open the infrared remote controller screen.
+ */
 void ui_ir_controller_open(void);
 
 #ifdef __cplusplus

@@ -19,6 +19,9 @@
 extern "C" {
 #endif
 
+/**
+ * @brief Open the infrared saved signals screen.
+ */
 void ui_ir_saved_open(void);
 
 #ifdef __cplusplus

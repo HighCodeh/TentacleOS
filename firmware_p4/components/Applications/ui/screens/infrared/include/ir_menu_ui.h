@@ -19,6 +19,9 @@
 extern "C" {
 #endif
 
+/**
+ * @brief Open the infrared menu screen.
+ */
 void ui_ir_menu_open(void);
 
 #ifdef __cplusplus

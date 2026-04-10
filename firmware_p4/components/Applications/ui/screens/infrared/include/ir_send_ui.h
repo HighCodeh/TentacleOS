@@ -19,6 +19,9 @@
 extern "C" {
 #endif
 
+/**
+ * @brief Open the infrared send screen.
+ */
 void ui_ir_send_open(void);
 
 #ifdef __cplusplus
