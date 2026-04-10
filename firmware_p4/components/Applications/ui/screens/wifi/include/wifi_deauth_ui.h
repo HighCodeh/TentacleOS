@@ -15,16 +15,22 @@
 #ifndef WIFI_DEAUTH_UI_H
 #define WIFI_DEAUTH_UI_H
 
+#include "esp_wifi_types.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#include "esp_wifi_types.h"
-
-/** @brief Set the target AP for deauth. */
+/**
+ * @brief Set the target AP for deauth attack.
+ *
+ * @param ap  Pointer to the target AP record. Must not be NULL.
+ */
 void ui_wifi_deauth_set_target(wifi_ap_record_t *ap);
 
-/** @brief Open the Wi-Fi deauth screen. */
+/**
+ * @brief Open the Wi-Fi deauth screen.
+ */
 void ui_wifi_deauth_open(void);
 
 #ifdef __cplusplus

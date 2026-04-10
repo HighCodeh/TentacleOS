@@ -15,13 +15,15 @@
 #ifndef WIFI_AP_LIST_UI_H
 #define WIFI_AP_LIST_UI_H
 
+#include "esp_wifi_types.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#include "esp_wifi_types.h"
-
-/** @brief Open the Wi-Fi AP list screen. */
+/**
+ * @brief Open the Wi-Fi AP list screen.
+ */
 void ui_wifi_ap_list_open(void);
 
 #ifdef __cplusplus

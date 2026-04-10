@@ -13,19 +13,29 @@
 // limitations under the License.
 
 #include "wifi_beacon_spam_simple_ui.h"
-#include "header_ui.h"
-#include "footer_ui.h"
-#include "ui_theme.h"
-#include "ui_manager.h"
-#include "lv_port_indev.h"
-#include "beacon_spam.h"
+
+#include "esp_log.h"
 #include "lvgl.h"
 
-static lv_obj_t *screen_spam = NULL;
-static lv_obj_t *lbl_status = NULL;
-static lv_obj_t *lbl_count = NULL;
-static lv_timer_t *update_timer = NULL;
-static uint32_t spam_count = 0;
+#include "beacon_spam.h"
+#include "footer_ui.h"
+#include "header_ui.h"
+#include "lv_port_indev.h"
+#include "ui_manager.h"
+#include "ui_theme.h"
+
+static const char *TAG = "UI_BEACON_SPAM_SIMPLE";
+
+#define STATUS_OFFSET_Y (-10)
+#define COUNT_OFFSET_Y  20
+#define COUNT_INCREMENT 10
+#define TIMER_PERIOD_MS 1000
+
+static lv_obj_t *s_screen = NULL;
+static lv_obj_t *s_lbl_status = NULL;
+static lv_obj_t *s_lbl_count = NULL;
+static lv_timer_t *s_update_timer = NULL;
+static uint32_t s_spam_count = 0;
 
 extern lv_group_t *main_group;
 
@@ -33,9 +43,9 @@ static void update_count_cb(lv_timer_t *t) {
   (void)t;
   if (!beacon_spam_is_running())
     return;
-  spam_count += 10;
-  if (lbl_count) {
-    lv_label_set_text_fmt(lbl_count, "Created: %lu", (unsigned long)spam_count);
+  s_spam_count += COUNT_INCREMENT;
+  if (s_lbl_count != NULL) {
+    lv_label_set_text_fmt(s_lbl_count, "Created: %lu", (unsigned long)s_spam_count);
   }
 }
 
@@ -44,9 +54,9 @@ static void screen_event_cb(lv_event_t *e) {
     return;
   uint32_t key = lv_event_get_key(e);
   if (key == LV_KEY_ESC || key == LV_KEY_LEFT) {
-    if (update_timer) {
-      lv_timer_del(update_timer);
-      update_timer = NULL;
+    if (s_update_timer != NULL) {
+      lv_timer_del(s_update_timer);
+      s_update_timer = NULL;
     }
     beacon_spam_stop();
     ui_switch_screen(SCREEN_WIFI_ATTACK_MENU);
@@ -54,39 +64,39 @@ static void screen_event_cb(lv_event_t *e) {
 }
 
 void ui_wifi_beacon_spam_simple_open(void) {
-  if (screen_spam)
-    lv_obj_del(screen_spam);
+  if (s_screen != NULL)
+    lv_obj_del(s_screen);
 
-  screen_spam = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(screen_spam, current_theme.screen_base, 0);
-  lv_obj_remove_flag(screen_spam, LV_OBJ_FLAG_SCROLLABLE);
+  s_screen = lv_obj_create(NULL);
+  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
+  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  header_ui_create(screen_spam);
-  footer_ui_create(screen_spam);
+  header_ui_create(s_screen);
+  footer_ui_create(s_screen);
 
-  lbl_status = lv_label_create(screen_spam);
-  lv_label_set_text(lbl_status, "Spamming Random SSIDs...");
-  lv_obj_set_style_text_color(lbl_status, current_theme.text_main, 0);
-  lv_obj_align(lbl_status, LV_ALIGN_CENTER, 0, -10);
+  s_lbl_status = lv_label_create(s_screen);
+  lv_label_set_text(s_lbl_status, "Spamming Random SSIDs...");
+  lv_obj_set_style_text_color(s_lbl_status, current_theme.text_main, 0);
+  lv_obj_align(s_lbl_status, LV_ALIGN_CENTER, 0, STATUS_OFFSET_Y);
 
-  lbl_count = lv_label_create(screen_spam);
-  lv_label_set_text(lbl_count, "Created: 0");
-  lv_obj_set_style_text_color(lbl_count, current_theme.text_main, 0);
-  lv_obj_align(lbl_count, LV_ALIGN_CENTER, 0, 20);
+  s_lbl_count = lv_label_create(s_screen);
+  lv_label_set_text(s_lbl_count, "Created: 0");
+  lv_obj_set_style_text_color(s_lbl_count, current_theme.text_main, 0);
+  lv_obj_align(s_lbl_count, LV_ALIGN_CENTER, 0, COUNT_OFFSET_Y);
 
-  spam_count = 0;
+  s_spam_count = 0;
   beacon_spam_start_random();
 
-  if (update_timer)
-    lv_timer_del(update_timer);
-  update_timer = lv_timer_create(update_count_cb, 1000, NULL);
+  if (s_update_timer != NULL)
+    lv_timer_del(s_update_timer);
+  s_update_timer = lv_timer_create(update_count_cb, TIMER_PERIOD_MS, NULL);
 
-  lv_obj_add_event_cb(screen_spam, screen_event_cb, LV_EVENT_KEY, NULL);
+  lv_obj_add_event_cb(s_screen, screen_event_cb, LV_EVENT_KEY, NULL);
 
-  if (main_group) {
-    lv_group_add_obj(main_group, screen_spam);
-    lv_group_focus_obj(screen_spam);
+  if (main_group != NULL) {
+    lv_group_add_obj(main_group, s_screen);
+    lv_group_focus_obj(s_screen);
   }
 
-  lv_screen_load(screen_spam);
+  lv_screen_load(s_screen);
 }

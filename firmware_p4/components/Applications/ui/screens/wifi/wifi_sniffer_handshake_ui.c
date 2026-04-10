@@ -13,27 +13,40 @@
 // limitations under the License.
 
 #include "wifi_sniffer_handshake_ui.h"
-#include "ui_theme.h"
-#include "header_ui.h"
-#include "footer_ui.h"
-#include "ui_theme.h"
-#include "ui_manager.h"
-#include "lv_port_indev.h"
-#include "wifi_sniffer.h"
-#include "storage_impl.h"
-#include "tos_storage_paths.h"
-#include "tos_loot.h"
-#include "lvgl.h"
-#include <string.h>
-#include <stdio.h>
 
-static lv_obj_t *screen_hs = NULL;
-static lv_obj_t *ta_term = NULL;
-static lv_timer_t *update_timer = NULL;
-static bool is_scanning = false;
-static bool capture_done = false;
-static char current_filename[64];
-static char current_path[128];
+#include <stdio.h>
+#include <string.h>
+
+#include "esp_log.h"
+#include "lvgl.h"
+
+#include "footer_ui.h"
+#include "header_ui.h"
+#include "lv_port_indev.h"
+#include "storage_impl.h"
+#include "tos_loot.h"
+#include "tos_storage_paths.h"
+#include "ui_manager.h"
+#include "ui_theme.h"
+#include "wifi_sniffer.h"
+
+static const char *TAG = "UI_SNIFFER_HS";
+
+#define TERMINAL_W        230
+#define TERMINAL_H        125
+#define TERMINAL_BORDER_W 1
+#define UPDATE_TIMER_MS   500
+#define FILENAME_MAX      64
+#define FILEPATH_MAX      128
+#define TERMINAL_TEXT_MAX 192
+
+static lv_obj_t *s_screen = NULL;
+static lv_obj_t *s_ta_term = NULL;
+static lv_timer_t *s_update_timer = NULL;
+static bool s_is_scanning = false;
+static bool s_is_capture_done = false;
+static char s_current_filename[FILENAME_MAX];
+static char s_current_path[FILEPATH_MAX];
 
 extern lv_group_t *main_group;
 
@@ -41,37 +54,38 @@ static void generate_filename(void) {
   tos_loot_generate_path(TOS_PATH_WIFI_LOOT_HS,
                          "handshake",
                          "pcap",
-                         current_path,
-                         sizeof(current_path),
-                         current_filename,
-                         sizeof(current_filename));
+                         s_current_path,
+                         sizeof(s_current_path),
+                         s_current_filename,
+                         sizeof(s_current_filename));
 }
 
 static void update_terminal_text(void) {
-  if (!ta_term)
+  if (s_ta_term == NULL)
     return;
-  const char *state = capture_done ? "HANDSHAKE VALIDADO! (M1+M2)" : "Waiting for connection...";
-  char text[192];
+  const char *state =
+      s_is_capture_done ? "HANDSHAKE CAPTURED (M1+M2)" : "Waiting for connection...";
+  char text[TERMINAL_TEXT_MAX];
   snprintf(text,
            sizeof(text),
            "Mode: EAPOL Monitor\n"
            "File: %s\n"
            "%s\n"
            "Pkts: %lu\n",
-           current_filename,
+           s_current_filename,
            state,
            (unsigned long)wifi_sniffer_get_packet_count());
-  lv_textarea_set_text(ta_term, text);
+  lv_textarea_set_text(s_ta_term, text);
 }
 
 static void stop_sniffer(void) {
-  if (update_timer) {
-    lv_timer_del(update_timer);
-    update_timer = NULL;
+  if (s_update_timer != NULL) {
+    lv_timer_del(s_update_timer);
+    s_update_timer = NULL;
   }
-  if (is_scanning) {
+  if (s_is_scanning) {
     wifi_sniffer_stop();
-    is_scanning = false;
+    s_is_scanning = false;
   }
   wifi_sniffer_free_buffer();
 }
@@ -80,10 +94,10 @@ static void update_timer_cb(lv_timer_t *t) {
   (void)t;
   update_terminal_text();
 
-  if (!capture_done && wifi_sniffer_handshake_captured()) {
+  if (!s_is_capture_done && wifi_sniffer_handshake_captured()) {
     wifi_sniffer_stop();
-    is_scanning = false;
-    capture_done = true;
+    s_is_scanning = false;
+    s_is_capture_done = true;
     wifi_sniffer_free_buffer();
     update_terminal_text();
   }
@@ -100,56 +114,56 @@ static void screen_event_cb(lv_event_t *e) {
 }
 
 void ui_wifi_sniffer_handshake_open(void) {
-  if (screen_hs)
-    lv_obj_del(screen_hs);
-  if (update_timer) {
-    lv_timer_del(update_timer);
-    update_timer = NULL;
+  if (s_screen != NULL)
+    lv_obj_del(s_screen);
+  if (s_update_timer != NULL) {
+    lv_timer_del(s_update_timer);
+    s_update_timer = NULL;
   }
 
-  screen_hs = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(screen_hs, current_theme.screen_base, 0);
-  lv_obj_clear_flag(screen_hs, LV_OBJ_FLAG_SCROLLABLE);
+  s_screen = lv_obj_create(NULL);
+  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
+  lv_obj_clear_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  header_ui_create(screen_hs);
-  footer_ui_create(screen_hs);
+  header_ui_create(s_screen);
+  footer_ui_create(s_screen);
 
-  ta_term = lv_textarea_create(screen_hs);
-  lv_obj_set_size(ta_term, 230, 125);
-  lv_obj_align(ta_term, LV_ALIGN_CENTER, 0, 0);
-  lv_obj_set_style_text_font(ta_term, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_bg_color(ta_term, current_theme.screen_base, 0);
-  lv_obj_set_style_text_color(ta_term, current_theme.border_accent, 0);
-  lv_obj_set_style_radius(ta_term, 0, 0);
-  lv_obj_set_style_border_width(ta_term, 1, 0);
-  lv_obj_set_style_border_color(ta_term, current_theme.border_accent, 0);
-  lv_obj_set_style_border_width(ta_term, 1, LV_STATE_FOCUS_KEY);
-  lv_obj_set_style_border_color(ta_term, current_theme.border_accent, LV_STATE_FOCUS_KEY);
-  lv_obj_set_style_outline_width(ta_term, 0, LV_STATE_FOCUS_KEY);
+  s_ta_term = lv_textarea_create(s_screen);
+  lv_obj_set_size(s_ta_term, TERMINAL_W, TERMINAL_H);
+  lv_obj_align(s_ta_term, LV_ALIGN_CENTER, 0, 0);
+  lv_obj_set_style_text_font(s_ta_term, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_bg_color(s_ta_term, current_theme.screen_base, 0);
+  lv_obj_set_style_text_color(s_ta_term, current_theme.border_accent, 0);
+  lv_obj_set_style_radius(s_ta_term, 0, 0);
+  lv_obj_set_style_border_width(s_ta_term, TERMINAL_BORDER_W, 0);
+  lv_obj_set_style_border_color(s_ta_term, current_theme.border_accent, 0);
+  lv_obj_set_style_border_width(s_ta_term, TERMINAL_BORDER_W, LV_STATE_FOCUS_KEY);
+  lv_obj_set_style_border_color(s_ta_term, current_theme.border_accent, LV_STATE_FOCUS_KEY);
+  lv_obj_set_style_outline_width(s_ta_term, 0, LV_STATE_FOCUS_KEY);
 
   generate_filename();
   wifi_sniffer_clear_handshake();
-  capture_done = false;
+  s_is_capture_done = false;
 
-  wifi_sniffer_start_capture(current_path);
+  wifi_sniffer_start_capture(s_current_path);
   if (wifi_sniffer_start_stream(WIFI_SNIFFER_TYPE_EAPOL, 0, NULL)) {
-    is_scanning = true;
+    s_is_scanning = true;
   } else {
-    is_scanning = false;
+    s_is_scanning = false;
     wifi_sniffer_stop_capture();
   }
 
   update_terminal_text();
-  update_timer = lv_timer_create(update_timer_cb, 500, NULL);
+  s_update_timer = lv_timer_create(update_timer_cb, UPDATE_TIMER_MS, NULL);
 
-  lv_obj_add_event_cb(ta_term, screen_event_cb, LV_EVENT_KEY, NULL);
-  lv_obj_add_event_cb(screen_hs, screen_event_cb, LV_EVENT_KEY, NULL);
+  lv_obj_add_event_cb(s_ta_term, screen_event_cb, LV_EVENT_KEY, NULL);
+  lv_obj_add_event_cb(s_screen, screen_event_cb, LV_EVENT_KEY, NULL);
 
-  if (main_group) {
+  if (main_group != NULL) {
     lv_group_remove_all_objs(main_group);
-    lv_group_add_obj(main_group, ta_term);
-    lv_group_focus_obj(ta_term);
+    lv_group_add_obj(main_group, s_ta_term);
+    lv_group_focus_obj(s_ta_term);
   }
 
-  lv_screen_load(screen_hs);
+  lv_screen_load(s_screen);
 }

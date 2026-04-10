@@ -13,32 +13,58 @@
 // limitations under the License.
 
 #include "wifi_sniffer_raw_ui.h"
-#include "ui_theme.h"
-#include "header_ui.h"
-#include "footer_ui.h"
-#include "ui_theme.h"
-#include "ui_manager.h"
-#include "lv_port_indev.h"
-#include "wifi_sniffer.h"
-#include "msgbox_ui.h"
-#include "storage_init.h"
-#include "storage_impl.h"
-#include "tos_loot.h"
-#include "esp_err.h"
-#include <string.h>
+
 #include <stdio.h>
+#include <string.h>
+
+#include "esp_err.h"
+#include "esp_log.h"
 #include "lvgl.h"
 
-static lv_obj_t *screen_sniffer = NULL;
-static lv_obj_t *ta_term = NULL;
-static lv_obj_t *btn_save = NULL;
-static lv_timer_t *update_timer = NULL;
-static char current_filename[64];
-static char current_path[128];
-static bool is_running = false;
-static bool pending_restart = false;
-static uint8_t dot_tick = 0;
+#include "footer_ui.h"
+#include "header_ui.h"
+#include "lv_port_indev.h"
+#include "msgbox_ui.h"
+#include "storage_impl.h"
+#include "storage_init.h"
+#include "tos_loot.h"
 #include "tos_storage_paths.h"
+#include "ui_manager.h"
+#include "ui_theme.h"
+#include "wifi_sniffer.h"
+
+static const char *TAG = "UI_SNIFFER_RAW";
+
+/* ---- Layout constants ---- */
+#define TERMINAL_W        230
+#define TERMINAL_H        125
+#define TERMINAL_Y        30
+#define TERMINAL_BORDER_W 1
+#define BTN_SAVE_W        120
+#define BTN_SAVE_H        28
+#define BTN_SAVE_Y        (-32)
+#define BTN_SAVE_BORDER_W 1
+#define BTN_SAVE_FOCUS_BW 2
+#define BTN_SAVE_RADIUS   4
+
+/* ---- Timer / sizing ---- */
+#define UPDATE_TIMER_MS   500
+#define FILENAME_MAX      64
+#define FILEPATH_MAX      128
+#define TERMINAL_TEXT_MAX 192
+#define BYTES_PER_KB      1024
+#define DOT_ANIM_COUNT    4
+#define MB_FRAC_SCALE     100
+
+static lv_obj_t *s_screen = NULL;
+static lv_obj_t *s_ta_term = NULL;
+static lv_obj_t *s_btn_save = NULL;
+static lv_timer_t *s_update_timer = NULL;
+static char s_current_filename[FILENAME_MAX];
+static char s_current_path[FILEPATH_MAX];
+static bool s_is_running = false;
+static bool s_is_pending_restart = false;
+static uint8_t s_dot_tick = 0;
 
 extern lv_group_t *main_group;
 
@@ -46,15 +72,15 @@ static void msgbox_closed_cb(bool confirm);
 static void msgbox_after_close_cb(void *user_data);
 
 static void update_terminal_text(uint32_t bytes) {
-  if (!ta_term)
+  if (s_ta_term == NULL)
     return;
-  uint32_t kb = bytes / 1024;
-  uint32_t mb = kb / 1024;
-  uint32_t mb_frac = (kb % 1024) * 100 / 1024;
+  uint32_t kb = bytes / BYTES_PER_KB;
+  uint32_t mb = kb / BYTES_PER_KB;
+  uint32_t mb_frac = (kb % BYTES_PER_KB) * MB_FRAC_SCALE / BYTES_PER_KB;
   uint32_t packets = wifi_sniffer_get_packet_count();
-  const char *state = is_running ? "CAPTURING" : "STOPPED";
+  const char *state = s_is_running ? "CAPTURING" : "STOPPED";
   const char *dots[] = {"", ".", "..", "..."};
-  char text[192];
+  char text[TERMINAL_TEXT_MAX];
 
   if (mb > 0) {
     snprintf(text,
@@ -62,11 +88,11 @@ static void update_terminal_text(uint32_t bytes) {
              "File: %s\n"
              "Size: %lu.%02lu MB\n"
              "%s%s  Pkts: %lu\n",
-             current_filename,
+             s_current_filename,
              (unsigned long)mb,
              (unsigned long)mb_frac,
              state,
-             dots[dot_tick % 4],
+             dots[s_dot_tick % DOT_ANIM_COUNT],
              (unsigned long)packets);
   } else {
     snprintf(text,
@@ -74,14 +100,14 @@ static void update_terminal_text(uint32_t bytes) {
              "File: %s\n"
              "Size: %lu KB\n"
              "%s%s  Pkts: %lu\n",
-             current_filename,
+             s_current_filename,
              (unsigned long)kb,
              state,
-             dots[dot_tick % 4],
+             dots[s_dot_tick % DOT_ANIM_COUNT],
              (unsigned long)packets);
   }
 
-  lv_textarea_set_text(ta_term, text);
+  lv_textarea_set_text(s_ta_term, text);
 }
 
 static void update_size_label(void) {
@@ -93,63 +119,63 @@ static void generate_filename(void) {
   tos_loot_generate_path(TOS_PATH_WIFI_LOOT_PCAPS,
                          "sniffer",
                          "pcap",
-                         current_path,
-                         sizeof(current_path),
-                         current_filename,
-                         sizeof(current_filename));
+                         s_current_path,
+                         sizeof(s_current_path),
+                         s_current_filename,
+                         sizeof(s_current_filename));
   update_terminal_text((uint32_t)wifi_sniffer_get_capture_size());
 }
 
 static void save_current_capture(void) {
-  if (is_running) {
+  if (s_is_running) {
     wifi_sniffer_stop();
-    is_running = false;
+    s_is_running = false;
   }
 
   wifi_sniffer_free_buffer();
-  pending_restart = true;
+  s_is_pending_restart = true;
   msgbox_open(LV_SYMBOL_OK, "PCAP SAVED", "OK", NULL, msgbox_closed_cb);
 }
 
 static void update_timer_cb(lv_timer_t *t) {
   (void)t;
-  dot_tick++;
+  s_dot_tick++;
   update_terminal_text((uint32_t)wifi_sniffer_get_capture_size());
 }
 
 static void restore_focus(void) {
-  if (main_group && btn_save) {
+  if (main_group != NULL && s_btn_save != NULL) {
     lv_group_remove_all_objs(main_group);
-    lv_group_add_obj(main_group, btn_save);
-    lv_group_focus_obj(btn_save);
+    lv_group_add_obj(main_group, s_btn_save);
+    lv_group_focus_obj(s_btn_save);
     lv_group_set_editing(main_group, false);
   }
 }
 
 static void restart_capture(void) {
   generate_filename();
-  wifi_sniffer_start_capture(current_path);
+  wifi_sniffer_start_capture(s_current_path);
   update_size_label();
   if (wifi_sniffer_start_stream(WIFI_SNIFFER_TYPE_RAW, 0, NULL)) {
-    is_running = true;
+    s_is_running = true;
   } else {
-    is_running = false;
+    s_is_running = false;
     wifi_sniffer_stop_capture();
   }
 }
 
 static void msgbox_closed_cb(bool confirm) {
   (void)confirm;
-  if (pending_restart) {
+  if (s_is_pending_restart) {
     lv_async_call(msgbox_after_close_cb, NULL);
   }
 }
 
 static void msgbox_after_close_cb(void *user_data) {
   (void)user_data;
-  if (!pending_restart)
+  if (!s_is_pending_restart)
     return;
-  pending_restart = false;
+  s_is_pending_restart = false;
   restart_capture();
   restore_focus();
 }
@@ -159,13 +185,13 @@ static void screen_event_cb(lv_event_t *e) {
     return;
   uint32_t key = lv_event_get_key(e);
   if (key == LV_KEY_ESC || key == LV_KEY_LEFT) {
-    if (update_timer) {
-      lv_timer_del(update_timer);
-      update_timer = NULL;
+    if (s_update_timer != NULL) {
+      lv_timer_del(s_update_timer);
+      s_update_timer = NULL;
     }
-    if (is_running) {
+    if (s_is_running) {
       wifi_sniffer_stop();
-      is_running = false;
+      s_is_running = false;
     }
     wifi_sniffer_free_buffer();
     ui_switch_screen(SCREEN_WIFI_PACKETS_MENU);
@@ -181,76 +207,76 @@ static void save_button_cb(lv_event_t *e) {
 }
 
 void ui_wifi_sniffer_raw_open(void) {
-  if (screen_sniffer)
-    lv_obj_del(screen_sniffer);
-  if (update_timer) {
-    lv_timer_del(update_timer);
-    update_timer = NULL;
+  if (s_screen != NULL)
+    lv_obj_del(s_screen);
+  if (s_update_timer != NULL) {
+    lv_timer_del(s_update_timer);
+    s_update_timer = NULL;
   }
 
-  screen_sniffer = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(screen_sniffer, current_theme.screen_base, 0);
-  lv_obj_remove_flag(screen_sniffer, LV_OBJ_FLAG_SCROLLABLE);
+  s_screen = lv_obj_create(NULL);
+  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
+  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  header_ui_create(screen_sniffer);
-  footer_ui_create(screen_sniffer);
+  header_ui_create(s_screen);
+  footer_ui_create(s_screen);
 
-  ta_term = lv_textarea_create(screen_sniffer);
-  lv_obj_set_size(ta_term, 230, 125);
-  lv_obj_align(ta_term, LV_ALIGN_TOP_MID, 0, 30);
-  lv_obj_set_style_text_font(ta_term, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_bg_color(ta_term, current_theme.screen_base, 0);
-  lv_obj_set_style_text_color(ta_term, current_theme.border_accent, 0);
-  lv_obj_set_style_radius(ta_term, 0, 0);
-  lv_obj_set_style_border_width(ta_term, 1, 0);
-  lv_obj_set_style_border_color(ta_term, current_theme.border_accent, 0);
-  lv_obj_set_style_border_width(ta_term, 1, LV_STATE_FOCUS_KEY);
-  lv_obj_set_style_border_color(ta_term, current_theme.border_accent, LV_STATE_FOCUS_KEY);
-  lv_obj_set_style_outline_width(ta_term, 0, LV_STATE_FOCUS_KEY);
-  lv_textarea_set_text(ta_term, "Listening...\n");
+  s_ta_term = lv_textarea_create(s_screen);
+  lv_obj_set_size(s_ta_term, TERMINAL_W, TERMINAL_H);
+  lv_obj_align(s_ta_term, LV_ALIGN_TOP_MID, 0, TERMINAL_Y);
+  lv_obj_set_style_text_font(s_ta_term, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_bg_color(s_ta_term, current_theme.screen_base, 0);
+  lv_obj_set_style_text_color(s_ta_term, current_theme.border_accent, 0);
+  lv_obj_set_style_radius(s_ta_term, 0, 0);
+  lv_obj_set_style_border_width(s_ta_term, TERMINAL_BORDER_W, 0);
+  lv_obj_set_style_border_color(s_ta_term, current_theme.border_accent, 0);
+  lv_obj_set_style_border_width(s_ta_term, TERMINAL_BORDER_W, LV_STATE_FOCUS_KEY);
+  lv_obj_set_style_border_color(s_ta_term, current_theme.border_accent, LV_STATE_FOCUS_KEY);
+  lv_obj_set_style_outline_width(s_ta_term, 0, LV_STATE_FOCUS_KEY);
+  lv_textarea_set_text(s_ta_term, "Listening...\n");
 
-  btn_save = lv_btn_create(screen_sniffer);
-  lv_obj_set_size(btn_save, 120, 28);
-  lv_obj_align(btn_save, LV_ALIGN_BOTTOM_MID, 0, -32);
-  lv_obj_set_style_bg_color(btn_save, current_theme.bg_item_bot, 0);
-  lv_obj_set_style_bg_grad_color(btn_save, current_theme.bg_item_top, 0);
-  lv_obj_set_style_bg_grad_dir(btn_save, LV_GRAD_DIR_VER, 0);
-  lv_obj_set_style_border_width(btn_save, 1, 0);
-  lv_obj_set_style_border_color(btn_save, current_theme.border_inactive, 0);
-  lv_obj_set_style_radius(btn_save, 4, 0);
-  lv_obj_set_style_text_color(btn_save, current_theme.text_main, 0);
-  lv_obj_set_style_border_color(btn_save, current_theme.border_accent, LV_STATE_FOCUS_KEY);
-  lv_obj_set_style_border_width(btn_save, 2, LV_STATE_FOCUS_KEY);
+  s_btn_save = lv_btn_create(s_screen);
+  lv_obj_set_size(s_btn_save, BTN_SAVE_W, BTN_SAVE_H);
+  lv_obj_align(s_btn_save, LV_ALIGN_BOTTOM_MID, 0, BTN_SAVE_Y);
+  lv_obj_set_style_bg_color(s_btn_save, current_theme.bg_item_bot, 0);
+  lv_obj_set_style_bg_grad_color(s_btn_save, current_theme.bg_item_top, 0);
+  lv_obj_set_style_bg_grad_dir(s_btn_save, LV_GRAD_DIR_VER, 0);
+  lv_obj_set_style_border_width(s_btn_save, BTN_SAVE_BORDER_W, 0);
+  lv_obj_set_style_border_color(s_btn_save, current_theme.border_inactive, 0);
+  lv_obj_set_style_radius(s_btn_save, BTN_SAVE_RADIUS, 0);
+  lv_obj_set_style_text_color(s_btn_save, current_theme.text_main, 0);
+  lv_obj_set_style_border_color(s_btn_save, current_theme.border_accent, LV_STATE_FOCUS_KEY);
+  lv_obj_set_style_border_width(s_btn_save, BTN_SAVE_FOCUS_BW, LV_STATE_FOCUS_KEY);
 
-  lv_obj_t *lbl_btn = lv_label_create(btn_save);
+  lv_obj_t *lbl_btn = lv_label_create(s_btn_save);
   lv_label_set_text(lbl_btn, "STOP & SAVE");
   lv_obj_center(lbl_btn);
 
-  lv_obj_add_event_cb(btn_save, save_button_cb, LV_EVENT_KEY, NULL);
-  lv_obj_add_event_cb(btn_save, screen_event_cb, LV_EVENT_KEY, NULL);
-  lv_obj_add_event_cb(ta_term, screen_event_cb, LV_EVENT_KEY, NULL);
-  lv_obj_add_event_cb(screen_sniffer, screen_event_cb, LV_EVENT_KEY, NULL);
+  lv_obj_add_event_cb(s_btn_save, save_button_cb, LV_EVENT_KEY, NULL);
+  lv_obj_add_event_cb(s_btn_save, screen_event_cb, LV_EVENT_KEY, NULL);
+  lv_obj_add_event_cb(s_ta_term, screen_event_cb, LV_EVENT_KEY, NULL);
+  lv_obj_add_event_cb(s_screen, screen_event_cb, LV_EVENT_KEY, NULL);
 
   generate_filename();
   update_size_label();
 
-  wifi_sniffer_start_capture(current_path);
+  wifi_sniffer_start_capture(s_current_path);
 
   if (wifi_sniffer_start_stream(WIFI_SNIFFER_TYPE_RAW, 0, NULL)) {
-    is_running = true;
+    s_is_running = true;
   } else {
-    is_running = false;
+    s_is_running = false;
     wifi_sniffer_stop_capture();
   }
 
-  update_timer = lv_timer_create(update_timer_cb, 500, NULL);
+  s_update_timer = lv_timer_create(update_timer_cb, UPDATE_TIMER_MS, NULL);
 
-  if (main_group) {
+  if (main_group != NULL) {
     lv_group_remove_all_objs(main_group);
-    lv_group_add_obj(main_group, ta_term);
-    lv_group_add_obj(main_group, btn_save);
-    lv_group_focus_obj(ta_term);
+    lv_group_add_obj(main_group, s_ta_term);
+    lv_group_add_obj(main_group, s_btn_save);
+    lv_group_focus_obj(s_ta_term);
   }
 
-  lv_screen_load(screen_sniffer);
+  lv_screen_load(s_screen);
 }

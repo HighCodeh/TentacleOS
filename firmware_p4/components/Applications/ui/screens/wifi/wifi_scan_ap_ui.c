@@ -13,33 +13,64 @@
 // limitations under the License.
 
 #include "wifi_scan_ap_ui.h"
-#include "ui_theme.h"
-#include "header_ui.h"
-#include "footer_ui.h"
-#include "ui_theme.h"
-#include "ui_manager.h"
-#include "lv_port_indev.h"
-#include "wifi_service.h"
-#include "esp_log.h"
-#include "lvgl.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+
 #include <stdlib.h>
 
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "lvgl.h"
+
+#include "footer_ui.h"
+#include "header_ui.h"
+#include "lv_port_indev.h"
+#include "ui_manager.h"
+#include "ui_theme.h"
+#include "wifi_service.h"
+
 static const char *TAG = "UI_WIFI_SCAN_AP";
-static lv_obj_t *screen_scan_ap = NULL;
-static lv_obj_t *list_cont = NULL;
-static lv_obj_t *loading_label = NULL;
-static lv_style_t style_menu;
-static lv_style_t style_item;
-static bool styles_initialized = false;
+
+/* ---- Layout constants ---- */
+#define LIST_W            236
+#define LIST_H            160
+#define LIST_Y            10
+#define ITEM_H            64
+#define ICON_MARGIN_RIGHT 6
+#define COL_PAD_GAP       2
+
+/* ---- Style constants ---- */
+#define STYLE_BORDER_W      2
+#define STYLE_BORDER_W_ITEM 1
+#define STYLE_PAD           4
+
+/* ---- RSSI thresholds ---- */
+#define RSSI_EXCELLENT (-50)
+#define RSSI_GOOD      (-60)
+#define RSSI_FAIR      (-70)
+#define RSSI_WEAK      (-80)
+
+/* ---- Populate batching ---- */
+#define POPULATE_BATCH_SIZE 3
+#define POPULATE_TIMER_MS   20
+
+/* ---- Scan task ---- */
+#define SCAN_TASK_NAME     "WifiScanAP"
+#define SCAN_TASK_STACK    4096
+#define SCAN_TASK_PRIORITY 5
+
+static lv_obj_t *s_screen = NULL;
+static lv_obj_t *s_list_cont = NULL;
+static lv_obj_t *s_loading_label = NULL;
+static lv_style_t s_style_menu;
+static lv_style_t s_style_item;
+static bool s_is_styles_init = false;
 
 extern lv_group_t *main_group;
 
-static wifi_ap_record_t *scan_results = NULL;
-static uint16_t scan_count = 0;
-static uint16_t populate_index = 0;
-static lv_timer_t *populate_timer = NULL;
+static wifi_ap_record_t *s_scan_results = NULL;
+static uint16_t s_scan_count = 0;
+static uint16_t s_populate_index = 0;
+static lv_timer_t *s_populate_timer = NULL;
 
 static const char *authmode_to_str(wifi_auth_mode_t mode) {
   switch (mode) {
@@ -65,38 +96,38 @@ static const char *authmode_to_str(wifi_auth_mode_t mode) {
 }
 
 static lv_opa_t rssi_opa(int8_t rssi) {
-  if (rssi >= -50)
+  if (rssi >= RSSI_EXCELLENT)
     return LV_OPA_COVER;
-  if (rssi >= -60)
+  if (rssi >= RSSI_GOOD)
     return LV_OPA_90;
-  if (rssi >= -70)
+  if (rssi >= RSSI_FAIR)
     return LV_OPA_70;
-  if (rssi >= -80)
+  if (rssi >= RSSI_WEAK)
     return LV_OPA_50;
   return LV_OPA_30;
 }
 
 static void init_styles(void) {
-  if (styles_initialized)
+  if (s_is_styles_init)
     return;
 
-  lv_style_init(&style_menu);
-  lv_style_set_bg_color(&style_menu, current_theme.screen_base);
-  lv_style_set_bg_opa(&style_menu, LV_OPA_COVER);
-  lv_style_set_border_width(&style_menu, 2);
-  lv_style_set_border_color(&style_menu, current_theme.border_interface);
-  lv_style_set_radius(&style_menu, 0);
-  lv_style_set_pad_all(&style_menu, 4);
+  lv_style_init(&s_style_menu);
+  lv_style_set_bg_color(&s_style_menu, current_theme.screen_base);
+  lv_style_set_bg_opa(&s_style_menu, LV_OPA_COVER);
+  lv_style_set_border_width(&s_style_menu, STYLE_BORDER_W);
+  lv_style_set_border_color(&s_style_menu, current_theme.border_interface);
+  lv_style_set_radius(&s_style_menu, 0);
+  lv_style_set_pad_all(&s_style_menu, STYLE_PAD);
 
-  lv_style_init(&style_item);
-  lv_style_set_bg_color(&style_item, current_theme.bg_item_bot);
-  lv_style_set_bg_grad_color(&style_item, current_theme.bg_item_top);
-  lv_style_set_bg_grad_dir(&style_item, LV_GRAD_DIR_VER);
-  lv_style_set_border_width(&style_item, 1);
-  lv_style_set_border_color(&style_item, current_theme.border_inactive);
-  lv_style_set_radius(&style_item, 0);
+  lv_style_init(&s_style_item);
+  lv_style_set_bg_color(&s_style_item, current_theme.bg_item_bot);
+  lv_style_set_bg_grad_color(&s_style_item, current_theme.bg_item_top);
+  lv_style_set_bg_grad_dir(&s_style_item, LV_GRAD_DIR_VER);
+  lv_style_set_border_width(&s_style_item, STYLE_BORDER_W_ITEM);
+  lv_style_set_border_color(&s_style_item, current_theme.border_inactive);
+  lv_style_set_radius(&s_style_item, 0);
 
-  styles_initialized = true;
+  s_is_styles_init = true;
 }
 
 static void item_focus_cb(lv_event_t *e) {
@@ -104,11 +135,11 @@ static void item_focus_cb(lv_event_t *e) {
   lv_obj_t *item = lv_event_get_target(e);
   if (code == LV_EVENT_FOCUSED) {
     lv_obj_set_style_border_color(item, ui_theme_get_accent(), 0);
-    lv_obj_set_style_border_width(item, 2, 0);
+    lv_obj_set_style_border_width(item, STYLE_BORDER_W, 0);
     lv_obj_scroll_to_view(item, LV_ANIM_ON);
   } else if (code == LV_EVENT_DEFOCUSED) {
     lv_obj_set_style_border_color(item, current_theme.border_inactive, 0);
-    lv_obj_set_style_border_width(item, 1, 0);
+    lv_obj_set_style_border_width(item, STYLE_BORDER_W_ITEM, 0);
   } else if (code == LV_EVENT_KEY) {
     uint32_t key = lv_event_get_key(e);
     if (key == LV_KEY_ESC || key == LV_KEY_LEFT) {
@@ -122,24 +153,24 @@ static void screen_event_cb(lv_event_t *e) {
     return;
   uint32_t key = lv_event_get_key(e);
   if (key == LV_KEY_ESC || key == LV_KEY_LEFT) {
-    if (populate_timer) {
-      lv_timer_del(populate_timer);
-      populate_timer = NULL;
+    if (s_populate_timer != NULL) {
+      lv_timer_del(s_populate_timer);
+      s_populate_timer = NULL;
     }
-    if (scan_results) {
-      free(scan_results);
-      scan_results = NULL;
+    if (s_scan_results != NULL) {
+      free(s_scan_results);
+      s_scan_results = NULL;
     }
-    scan_count = 0;
-    populate_index = 0;
+    s_scan_count = 0;
+    s_populate_index = 0;
     ui_switch_screen(SCREEN_WIFI_SCAN_MENU);
   }
 }
 
 static void add_ap_item(const wifi_ap_record_t *ap) {
-  lv_obj_t *item = lv_obj_create(list_cont);
-  lv_obj_set_size(item, lv_pct(100), 64);
-  lv_obj_add_style(item, &style_item, 0);
+  lv_obj_t *item = lv_obj_create(s_list_cont);
+  lv_obj_set_size(item, lv_pct(100), ITEM_H);
+  lv_obj_add_style(item, &s_style_item, 0);
   lv_obj_set_flex_flow(item, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(item, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_clear_flag(item, LV_OBJ_FLAG_SCROLLABLE);
@@ -148,7 +179,7 @@ static void add_ap_item(const wifi_ap_record_t *ap) {
   lv_label_set_text(icon, LV_SYMBOL_WIFI);
   lv_obj_set_style_text_color(icon, current_theme.text_main, 0);
   lv_obj_set_style_text_opa(icon, rssi_opa(ap->rssi), 0);
-  lv_obj_set_style_margin_right(icon, 6, 0);
+  lv_obj_set_style_margin_right(icon, ICON_MARGIN_RIGHT, 0);
 
   lv_obj_t *col = lv_obj_create(item);
   lv_obj_set_size(col, lv_pct(100), lv_pct(100));
@@ -156,7 +187,7 @@ static void add_ap_item(const wifi_ap_record_t *ap) {
   lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(col, 0, 0);
   lv_obj_set_style_pad_all(col, 0, 0);
-  lv_obj_set_style_pad_gap(col, 2, 0);
+  lv_obj_set_style_pad_gap(col, COL_PAD_GAP, 0);
   lv_obj_clear_flag(col, LV_OBJ_FLAG_SCROLLABLE);
 
   lv_obj_t *line1 = lv_label_create(col);
@@ -185,39 +216,39 @@ static void add_ap_item(const wifi_ap_record_t *ap) {
   }
 
   lv_obj_add_event_cb(item, item_focus_cb, LV_EVENT_ALL, NULL);
-  if (main_group)
+  if (main_group != NULL)
     lv_group_add_obj(main_group, item);
 }
 
 static void populate_timer_cb(lv_timer_t *t) {
   (void)t;
-  if (!list_cont)
+  if (s_list_cont == NULL)
     return;
 
-  if (!scan_results || scan_count == 0) {
-    if (populate_timer) {
-      lv_timer_del(populate_timer);
-      populate_timer = NULL;
+  if (s_scan_results == NULL || s_scan_count == 0) {
+    if (s_populate_timer != NULL) {
+      lv_timer_del(s_populate_timer);
+      s_populate_timer = NULL;
     }
     return;
   }
 
-  uint16_t remaining = scan_count - populate_index;
-  uint16_t batch = (remaining > 3) ? 3 : remaining;
+  uint16_t remaining = s_scan_count - s_populate_index;
+  uint16_t batch = (remaining > POPULATE_BATCH_SIZE) ? POPULATE_BATCH_SIZE : remaining;
   for (uint16_t i = 0; i < batch; i++) {
-    add_ap_item(&scan_results[populate_index]);
-    populate_index++;
+    add_ap_item(&s_scan_results[s_populate_index]);
+    s_populate_index++;
   }
 
-  if (populate_index >= scan_count) {
-    if (main_group) {
-      lv_obj_t *first = lv_obj_get_child(list_cont, 0);
-      if (first)
+  if (s_populate_index >= s_scan_count) {
+    if (main_group != NULL) {
+      lv_obj_t *first = lv_obj_get_child(s_list_cont, 0);
+      if (first != NULL)
         lv_group_focus_obj(first);
     }
-    if (populate_timer) {
-      lv_timer_del(populate_timer);
-      populate_timer = NULL;
+    if (s_populate_timer != NULL) {
+      lv_timer_del(s_populate_timer);
+      s_populate_timer = NULL;
     }
   }
 }
@@ -233,52 +264,53 @@ static void scan_worker_task(void *arg) {
   wifi_ap_record_t *results = NULL;
   if (count > 0) {
     results = (wifi_ap_record_t *)calloc(count, sizeof(wifi_ap_record_t));
-    if (results) {
+    if (results != NULL) {
       for (uint16_t i = 0; i < count; i++) {
         wifi_ap_record_t *rec = wifi_service_get_ap_record(i);
-        if (rec) {
+        if (rec != NULL) {
           results[i] = *rec;
         }
       }
     } else {
+      ESP_LOGE(TAG, "Failed to allocate scan results");
       count = 0;
     }
   }
 
   if (ui_acquire()) {
-    if (loading_label) {
-      lv_obj_del(loading_label);
-      loading_label = NULL;
+    if (s_loading_label != NULL) {
+      lv_obj_del(s_loading_label);
+      s_loading_label = NULL;
     }
 
-    if (main_group)
+    if (main_group != NULL)
       lv_group_remove_all_objs(main_group);
-    if (list_cont)
-      lv_obj_clean(list_cont);
+    if (s_list_cont != NULL)
+      lv_obj_clean(s_list_cont);
 
-    if (!results || count == 0) {
-      lv_obj_t *empty = lv_label_create(list_cont);
+    if (results == NULL || count == 0) {
+      lv_obj_t *empty = lv_label_create(s_list_cont);
       lv_label_set_text(empty, "NO NETWORKS FOUND");
       lv_obj_set_style_text_color(empty, current_theme.text_main, 0);
-      if (main_group)
+      if (main_group != NULL)
         lv_group_add_obj(main_group, empty);
-      if (results)
+      if (results != NULL)
         free(results);
     } else {
-      if (scan_results)
-        free(scan_results);
-      scan_results = results;
-      scan_count = count;
-      populate_index = 0;
-      if (populate_timer) {
-        lv_timer_del(populate_timer);
-        populate_timer = NULL;
+      if (s_scan_results != NULL)
+        free(s_scan_results);
+      s_scan_results = results;
+      s_scan_count = count;
+      s_populate_index = 0;
+      if (s_populate_timer != NULL) {
+        lv_timer_del(s_populate_timer);
+        s_populate_timer = NULL;
       }
-      populate_timer = lv_timer_create(populate_timer_cb, 20, NULL);
+      s_populate_timer = lv_timer_create(populate_timer_cb, POPULATE_TIMER_MS, NULL);
     }
     ui_release();
   } else {
-    if (results)
+    if (results != NULL)
       free(results);
   }
 
@@ -288,47 +320,47 @@ static void scan_worker_task(void *arg) {
 void ui_wifi_scan_ap_open(void) {
   init_styles();
 
-  if (screen_scan_ap)
-    lv_obj_del(screen_scan_ap);
-  if (populate_timer) {
-    lv_timer_del(populate_timer);
-    populate_timer = NULL;
+  if (s_screen != NULL)
+    lv_obj_del(s_screen);
+  if (s_populate_timer != NULL) {
+    lv_timer_del(s_populate_timer);
+    s_populate_timer = NULL;
   }
-  if (scan_results) {
-    free(scan_results);
-    scan_results = NULL;
+  if (s_scan_results != NULL) {
+    free(s_scan_results);
+    s_scan_results = NULL;
   }
-  scan_count = 0;
-  populate_index = 0;
+  s_scan_count = 0;
+  s_populate_index = 0;
 
-  screen_scan_ap = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(screen_scan_ap, current_theme.screen_base, 0);
-  lv_obj_clear_flag(screen_scan_ap, LV_OBJ_FLAG_SCROLLABLE);
+  s_screen = lv_obj_create(NULL);
+  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
+  lv_obj_clear_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  header_ui_create(screen_scan_ap);
-  footer_ui_create(screen_scan_ap);
+  header_ui_create(s_screen);
+  footer_ui_create(s_screen);
 
-  list_cont = lv_obj_create(screen_scan_ap);
-  lv_obj_set_size(list_cont, 236, 160);
-  lv_obj_align(list_cont, LV_ALIGN_CENTER, 0, 10);
-  lv_obj_add_style(list_cont, &style_menu, 0);
-  lv_obj_set_flex_flow(list_cont, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_scrollbar_mode(list_cont, LV_SCROLLBAR_MODE_OFF);
-  lv_obj_add_flag(list_cont, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_scroll_dir(list_cont, LV_DIR_VER);
+  s_list_cont = lv_obj_create(s_screen);
+  lv_obj_set_size(s_list_cont, LIST_W, LIST_H);
+  lv_obj_align(s_list_cont, LV_ALIGN_CENTER, 0, LIST_Y);
+  lv_obj_add_style(s_list_cont, &s_style_menu, 0);
+  lv_obj_set_flex_flow(s_list_cont, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_scrollbar_mode(s_list_cont, LV_SCROLLBAR_MODE_OFF);
+  lv_obj_add_flag(s_list_cont, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(s_list_cont, LV_DIR_VER);
 
-  loading_label = lv_label_create(screen_scan_ap);
-  lv_label_set_text(loading_label, "SCANNING...");
-  lv_obj_set_style_text_color(loading_label, current_theme.text_main, 0);
-  lv_obj_center(loading_label);
+  s_loading_label = lv_label_create(s_screen);
+  lv_label_set_text(s_loading_label, "SCANNING...");
+  lv_obj_set_style_text_color(s_loading_label, current_theme.text_main, 0);
+  lv_obj_center(s_loading_label);
 
-  lv_obj_add_event_cb(screen_scan_ap, screen_event_cb, LV_EVENT_KEY, NULL);
+  lv_obj_add_event_cb(s_screen, screen_event_cb, LV_EVENT_KEY, NULL);
 
-  lv_screen_load(screen_scan_ap);
+  lv_screen_load(s_screen);
   lv_refr_now(NULL);
   if (!wifi_service_is_active()) {
-    lv_label_set_text(loading_label, "WIFI OFF");
+    lv_label_set_text(s_loading_label, "WIFI OFF");
     return;
   }
-  xTaskCreate(scan_worker_task, "WifiScanAP", 4096, NULL, 5, NULL);
+  xTaskCreate(scan_worker_task, SCAN_TASK_NAME, SCAN_TASK_STACK, NULL, SCAN_TASK_PRIORITY, NULL);
 }
