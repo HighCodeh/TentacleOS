@@ -11,32 +11,26 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-/**
- * @file mf_key_cache.c
- * @brief MIFARE UID-keyed sector key cache - in-memory + NVS-backed persistence.
- */
 
-#include <string.h>
-#include "esp_log.h"
-#include "nvs.h"
-#include "highboy_nfc_error.h"
 #include "mf_key_cache.h"
 
-static const char *TAG = "mf_key_cache";
+#include <string.h>
 
-#define NVS_NS        "nfc_kcache"
-#define NVS_KEY_COUNT "count"
-#define NVS_ENTRY_PFX "e_"
+#include "esp_log.h"
+#include "nvs.h"
 
-/* -------------------------------------------------------------------------
- * In-memory state
- * ------------------------------------------------------------------------- */
+#include "highboy_nfc_error.h"
+
+static const char *TAG = "NFC_MF_KEY_CACHE";
+
+#define NVS_NS              "nfc_kcache"
+#define NVS_KEY_COUNT       "count"
+#define NVS_ENTRY_PFX       "e_"
+#define NVS_ENTRY_NAME_SIZE 16
+#define MF_KEY_SIZE         6
+
 static mf_key_cache_entry_t s_cache[MF_KEY_CACHE_MAX_CARDS];
 static int s_count = 0;
-
-/* -------------------------------------------------------------------------
- * Internal helpers
- * ------------------------------------------------------------------------- */
 
 static int find_entry(const uint8_t *uid, uint8_t uid_len) {
   for (int i = 0; i < s_count; i++) {
@@ -46,10 +40,6 @@ static int find_entry(const uint8_t *uid, uint8_t uid_len) {
   }
   return -1;
 }
-
-/* -------------------------------------------------------------------------
- * Public API
- * ------------------------------------------------------------------------- */
 
 void mf_key_cache_init(void) {
   s_count = 0;
@@ -74,7 +64,7 @@ void mf_key_cache_init(void) {
   }
 
   for (uint8_t i = 0; i < count; i++) {
-    char entry_name[16];
+    char entry_name[NVS_ENTRY_NAME_SIZE];
     snprintf(entry_name, sizeof(entry_name), NVS_ENTRY_PFX "%u", (unsigned)i);
 
     size_t len = sizeof(mf_key_cache_entry_t);
@@ -92,7 +82,7 @@ void mf_key_cache_init(void) {
 
 bool mf_key_cache_lookup(
     const uint8_t *uid, uint8_t uid_len, int sector, mf_key_type_t type, uint8_t key_out[6]) {
-  if (!uid || sector < 0 || sector >= MF_KEY_CACHE_MAX_SECTORS) {
+  if (uid == NULL || sector < 0 || sector >= MF_KEY_CACHE_MAX_SECTORS) {
     return false;
   }
 
@@ -104,35 +94,30 @@ bool mf_key_cache_lookup(
   const mf_key_cache_entry_t *entry = &s_cache[idx];
 
   if (type == MF_KEY_A) {
-    if (!entry->key_a_known[sector]) {
+    if (entry->key_a_known[sector] == NULL) {
       return false;
     }
-    memcpy(key_out, entry->key_a[sector], 6);
+    memcpy(key_out, entry->key_a[sector], MF_KEY_SIZE);
     return true;
   } else {
-    if (!entry->key_b_known[sector]) {
+    if (entry->key_b_known[sector] == NULL) {
       return false;
     }
-    memcpy(key_out, entry->key_b[sector], 6);
+    memcpy(key_out, entry->key_b[sector], MF_KEY_SIZE);
     return true;
   }
 }
 
-void mf_key_cache_store(const uint8_t *uid,
-                        uint8_t uid_len,
-                        int sector,
-                        int sector_count,
-                        mf_key_type_t type,
-                        const uint8_t key[6]) {
-  if (!uid || !key || sector < 0 || sector >= MF_KEY_CACHE_MAX_SECTORS) {
+void mf_key_cache_store(const mf_key_cache_store_params_t *params) {
+  if (params == NULL || params->uid == NULL || params->key == NULL || params->sector < 0 ||
+      params->sector >= MF_KEY_CACHE_MAX_SECTORS) {
     return;
   }
 
-  int idx = find_entry(uid, uid_len);
+  int idx = find_entry(params->uid, params->uid_len);
 
   if (idx < 0) {
     if (s_count >= MF_KEY_CACHE_MAX_CARDS) {
-      /* Evict oldest entry (index 0), shift everything down. */
       ESP_LOGW(TAG, "Cache full, evicting oldest entry");
       memmove(
           &s_cache[0], &s_cache[1], (MF_KEY_CACHE_MAX_CARDS - 1) * sizeof(mf_key_cache_entry_t));
@@ -141,20 +126,20 @@ void mf_key_cache_store(const uint8_t *uid,
 
     idx = s_count;
     memset(&s_cache[idx], 0, sizeof(mf_key_cache_entry_t));
-    memcpy(s_cache[idx].uid, uid, uid_len);
-    s_cache[idx].uid_len = uid_len;
-    s_cache[idx].sector_count = sector_count;
+    memcpy(s_cache[idx].uid, params->uid, params->uid_len);
+    s_cache[idx].uid_len = params->uid_len;
+    s_cache[idx].sector_count = params->sector_count;
     s_count++;
-  } else if (sector_count > s_cache[idx].sector_count) {
-    s_cache[idx].sector_count = sector_count;
+  } else if (params->sector_count > s_cache[idx].sector_count) {
+    s_cache[idx].sector_count = params->sector_count;
   }
 
-  if (type == MF_KEY_A) {
-    memcpy(s_cache[idx].key_a[sector], key, 6);
-    s_cache[idx].key_a_known[sector] = true;
+  if (params->type == MF_KEY_A) {
+    memcpy(s_cache[idx].key_a[params->sector], params->key, MF_KEY_SIZE);
+    s_cache[idx].key_a_known[params->sector] = true;
   } else {
-    memcpy(s_cache[idx].key_b[sector], key, 6);
-    s_cache[idx].key_b_known[sector] = true;
+    memcpy(s_cache[idx].key_b[params->sector], params->key, MF_KEY_SIZE);
+    s_cache[idx].key_b_known[params->sector] = true;
   }
 }
 
@@ -167,7 +152,7 @@ void mf_key_cache_save(void) {
   }
 
   for (int i = 0; i < s_count; i++) {
-    char entry_name[16];
+    char entry_name[NVS_ENTRY_NAME_SIZE];
     snprintf(entry_name, sizeof(entry_name), NVS_ENTRY_PFX "%d", i);
 
     err = nvs_set_blob(handle, entry_name, &s_cache[i], sizeof(mf_key_cache_entry_t));
@@ -188,7 +173,7 @@ void mf_key_cache_save(void) {
 }
 
 void mf_key_cache_clear_uid(const uint8_t *uid, uint8_t uid_len) {
-  if (!uid) {
+  if (uid == NULL) {
     return;
   }
 
@@ -197,14 +182,12 @@ void mf_key_cache_clear_uid(const uint8_t *uid, uint8_t uid_len) {
     return;
   }
 
-  /* Shift remaining entries down to fill the gap. */
   if (idx < s_count - 1) {
     memmove(&s_cache[idx], &s_cache[idx + 1], (s_count - idx - 1) * sizeof(mf_key_cache_entry_t));
   }
   memset(&s_cache[s_count - 1], 0, sizeof(mf_key_cache_entry_t));
   s_count--;
 
-  /* Persist the updated cache to NVS. */
   nvs_handle_t handle;
   esp_err_t err = nvs_open(NVS_NS, NVS_READWRITE, &handle);
   if (err != ESP_OK) {
@@ -212,10 +195,8 @@ void mf_key_cache_clear_uid(const uint8_t *uid, uint8_t uid_len) {
     return;
   }
 
-  /* Rewrite all live entries and update count. Stale entries beyond
-   * the new count are ignored on next load (count guards the loop). */
   for (int i = 0; i < s_count; i++) {
-    char entry_name[16];
+    char entry_name[NVS_ENTRY_NAME_SIZE];
     snprintf(entry_name, sizeof(entry_name), NVS_ENTRY_PFX "%d", i);
     err = nvs_set_blob(handle, entry_name, &s_cache[i], sizeof(mf_key_cache_entry_t));
     if (err != ESP_OK) {
@@ -235,7 +216,7 @@ void mf_key_cache_clear_uid(const uint8_t *uid, uint8_t uid_len) {
 }
 
 int mf_key_cache_get_known_count(const uint8_t *uid, uint8_t uid_len) {
-  if (!uid) {
+  if (uid == NULL) {
     return 0;
   }
 

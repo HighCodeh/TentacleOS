@@ -1,14 +1,24 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 #include "mf_known_cards.h"
+
 #include <string.h>
 #include <stddef.h>
 
-/* -------------------------------------------------------------------------
- * Priority key pools (publicly known / documented keys from Proxmark/MFOC
- * databases — same sources as our main dictionary, just pre-filtered by
- * card type so we hit them on the first pass instead of scanning all 83).
- * ------------------------------------------------------------------------- */
+static const char *TAG = "NFC_MF_KNOW_CARDS";
 
-/* Keys found on virtually every fresh/factory MIFARE card */
 static const uint8_t s_default_keys[][6] = {
     {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
     {0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
@@ -17,7 +27,6 @@ static const uint8_t s_default_keys[][6] = {
     {0xD3, 0xF7, 0xD3, 0xF7, 0xD3, 0xF7}, /* NDEF */
 };
 
-/* Infineon MIFARE Classic — ships with a different default set */
 static const uint8_t s_infineon_keys[][6] = {
     {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
     {0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
@@ -25,7 +34,6 @@ static const uint8_t s_infineon_keys[][6] = {
     {0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5},
 };
 
-/* NXP SmartMX / P60 — ISO14443-4 + Classic combo */
 static const uint8_t s_smartmx_keys[][6] = {
     {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
     {0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
@@ -34,7 +42,6 @@ static const uint8_t s_smartmx_keys[][6] = {
     {0x4D, 0x3A, 0x99, 0xC3, 0x51, 0xDD},
 };
 
-/* Common transit / ticketing keys (public Proxmark/MFOC database) */
 static const uint8_t s_transit_keys[][6] = {
     {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
     {0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
@@ -50,7 +57,6 @@ static const uint8_t s_transit_keys[][6] = {
     {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF},
 };
 
-/* Access-control / building management keys (Proxmark public DB) */
 static const uint8_t s_access_keys[][6] = {
     {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
     {0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
@@ -63,7 +69,6 @@ static const uint8_t s_access_keys[][6] = {
     {0x8F, 0xD0, 0xA4, 0xF2, 0x56, 0xE9},
 };
 
-/* Magic/writable clone cards almost always respond to FF...FF or 00...00 */
 static const uint8_t s_clone_keys[][6] = {
     {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
     {0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
@@ -73,17 +78,7 @@ static const uint8_t s_clone_keys[][6] = {
 
 #define NKEYS(arr) ((int)(sizeof(arr) / sizeof(arr[0])))
 
-/* -------------------------------------------------------------------------
- * Known card database
- *
- * Match order matters — more specific entries (UID prefix) must come before
- * generic ones with the same SAK/ATQA.
- * ------------------------------------------------------------------------- */
 static const mf_known_card_t s_db[] = {
-
-    /* ---- UID-prefix-specific entries (most specific, checked first) ---- */
-
-    /* NXP manufactured: UID[0] == 0x04 */
     {
         .name = "NXP MIFARE Classic 1K",
         .hint = "Genuine NXP (cascade byte 0x04)",
@@ -105,9 +100,6 @@ static const mf_known_card_t s_db[] = {
         .hint_key_count = NKEYS(s_default_keys),
     },
 
-    /* ---- Clone / magic cards ---- */
-
-    /* SAK=0x08, ATQA=00 44 — Gen2 / CUID / direct-write clones */
     {
         .name = "MIFARE Classic 1K Clone (Gen2/CUID)",
         .hint = "UID changeable, writable block 0",
@@ -117,7 +109,6 @@ static const mf_known_card_t s_db[] = {
         .hint_keys = s_clone_keys,
         .hint_key_count = NKEYS(s_clone_keys),
     },
-    /* SAK=0x18, ATQA=00 42 — 4K clone */
     {
         .name = "MIFARE Classic 4K Clone",
         .hint = "UID changeable clone",
@@ -127,7 +118,6 @@ static const mf_known_card_t s_db[] = {
         .hint_keys = s_clone_keys,
         .hint_key_count = NKEYS(s_clone_keys),
     },
-    /* SAK=0x88 — Infineon SLE66R35 */
     {
         .name = "Infineon MIFARE Classic 1K",
         .hint = "SLE66R35, used in older access/transit systems",
@@ -138,9 +128,6 @@ static const mf_known_card_t s_db[] = {
         .hint_key_count = NKEYS(s_infineon_keys),
     },
 
-    /* ---- ISO14443-4 combo chips ---- */
-
-    /* SAK=0x28 — NXP SmartMX / P60 MIFARE Classic 1K + ISO14443-4 */
     {
         .name = "NXP SmartMX MIFARE Classic 1K",
         .hint = "P60/P40 combo chip, SAK=0x28",
@@ -150,7 +137,6 @@ static const mf_known_card_t s_db[] = {
         .hint_keys = s_smartmx_keys,
         .hint_key_count = NKEYS(s_smartmx_keys),
     },
-    /* SAK=0x38 — NXP SmartMX 4K */
     {
         .name = "NXP SmartMX MIFARE Classic 4K",
         .hint = "P60/P40 combo chip, SAK=0x38",
@@ -161,9 +147,6 @@ static const mf_known_card_t s_db[] = {
         .hint_key_count = NKEYS(s_smartmx_keys),
     },
 
-    /* ---- Transit / ticketing (no specific UID prefix, known by ATQA) ---- */
-
-    /* Many Brazilian transit cards: SAK=0x08, ATQA=00 04 — generic 1K */
     {
         .name = "Transit/Ticketing Card (1K)",
         .hint = "Common for metro/bus access systems",
@@ -173,7 +156,6 @@ static const mf_known_card_t s_db[] = {
         .hint_keys = s_transit_keys,
         .hint_key_count = NKEYS(s_transit_keys),
     },
-    /* 4K transit cards */
     {
         .name = "Transit/Ticketing Card (4K)",
         .hint = "Large-memory transit card",
@@ -184,9 +166,6 @@ static const mf_known_card_t s_db[] = {
         .hint_key_count = NKEYS(s_transit_keys),
     },
 
-    /* ---- Access control ---- */
-
-    /* SAK=0x08, ATQA=00 04 with common access-control key patterns */
     {
         .name = "Access Control Card (1K)",
         .hint = "Building/door access system",
@@ -197,7 +176,6 @@ static const mf_known_card_t s_db[] = {
         .hint_key_count = NKEYS(s_access_keys),
     },
 
-    /* ---- MIFARE Mini ---- */
     {
         .name = "MIFARE Mini",
         .hint = "320 bytes / 5 sectors",
@@ -211,9 +189,6 @@ static const mf_known_card_t s_db[] = {
 
 #define DB_SIZE ((int)(sizeof(s_db) / sizeof(s_db[0])))
 
-/* -------------------------------------------------------------------------
- * Matching logic
- * ------------------------------------------------------------------------- */
 const mf_known_card_t *
 mf_known_cards_match(uint8_t sak, const uint8_t atqa[2], const uint8_t *uid, uint8_t uid_len) {
   const mf_known_card_t *generic_match = NULL;

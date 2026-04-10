@@ -19,18 +19,30 @@
 
 #include <string.h>
 
-#include "nfc_crypto.h"
 #include "esp_log.h"
 #include "esp_random.h"
 
-#define TAG "mf_plus"
+#include "nfc_crypto.h"
+
+static const char *TAG = "NFC_MF_PLUS";
 
 #define MFP_CLA     0x90
 #define MFP_SW_OK   0x9100
 #define MFP_SW_MORE 0x91AF
 
+#define MFP_INS_AUTH_FIRST    0x70
+#define MFP_INS_AUTH_NONFIRST 0x76
+#define MFP_INS_AF            0xAF
+#define MFP_APDU_LC_AUTH      0x03
+#define MFP_APDU_LC_AUTH2     0x20
+#define MFP_CMD2_SIZE         38
+#define MFP_AES_KEY_SIZE      16
+#define MFP_AES_BLOCK_SIZE    16
+#define MFP_MAC_SIZE          8
+#define MFP_RATS_FSDI         8
+
 static void rand_bytes(uint8_t *out, size_t len) {
-  if (!out || len == 0)
+  if (out == NULL || len == 0)
     return;
   for (size_t i = 0; i < len; i += 4) {
     uint32_t r = esp_random();
@@ -41,7 +53,7 @@ static void rand_bytes(uint8_t *out, size_t len) {
 }
 
 static void rotate_left_1(uint8_t *out, const uint8_t *in, size_t len) {
-  if (!out || !in || len == 0)
+  if (out == NULL || in == NULL || len == 0)
     return;
   for (size_t i = 0; i < len - 1; i++)
     out[i] = in[i + 1];
@@ -49,10 +61,10 @@ static void rotate_left_1(uint8_t *out, const uint8_t *in, size_t len) {
 }
 
 hb_nfc_err_t mfp_poller_init(const nfc_iso14443a_data_t *card, mfp_session_t *session) {
-  if (!card || !session)
+  if (card == NULL || session == NULL)
     return HB_NFC_ERR_PARAM;
   memset(session, 0, sizeof(*session));
-  hb_nfc_err_t err = iso_dep_rats(8, 0, &session->dep);
+  hb_nfc_err_t err = iso_dep_rats(MFP_RATS_FSDI, 0, &session->dep);
   if (err == HB_NFC_OK)
     session->dep_ready = true;
   return err;
@@ -64,7 +76,7 @@ int mfp_apdu_transceive(mfp_session_t *session,
                         uint8_t *rx,
                         size_t rx_max,
                         int timeout_ms) {
-  if (!session || !session->dep_ready)
+  if (session == NULL || !session->dep_ready)
     return 0;
   return iso_dep_apdu_transceive(&session->dep, apdu, apdu_len, rx, rx_max, timeout_ms);
 }
@@ -77,7 +89,7 @@ void mfp_sl3_derive_session_keys(const uint8_t *rnd_a,
                                  const uint8_t *rnd_b,
                                  uint8_t *ses_enc,
                                  uint8_t *ses_auth) {
-  if (!rnd_a || !rnd_b || !ses_enc || !ses_auth)
+  if (rnd_a == NULL || rnd_b == NULL || ses_enc == NULL || ses_auth == NULL)
     return;
   memcpy(ses_enc + 0, rnd_a + 0, 4);
   memcpy(ses_enc + 4, rnd_b + 0, 4);
@@ -92,7 +104,7 @@ void mfp_sl3_derive_session_keys(const uint8_t *rnd_a,
 
 static hb_nfc_err_t
 mfp_sl3_auth(uint8_t ins, mfp_session_t *session, uint16_t block_addr, const uint8_t key[16]) {
-  if (!session || !session->dep_ready || !key)
+  if (session == NULL || !session->dep_ready || !key)
     return HB_NFC_ERR_PARAM;
   session->authenticated = false;
 
@@ -100,7 +112,7 @@ mfp_sl3_auth(uint8_t ins, mfp_session_t *session, uint16_t block_addr, const uin
                      ins,
                      0x00,
                      0x00,
-                     0x03,
+                     MFP_APDU_LC_AUTH,
                      (uint8_t)(block_addr >> 8),
                      (uint8_t)(block_addr & 0xFF),
                      0x00,
@@ -112,30 +124,32 @@ mfp_sl3_auth(uint8_t ins, mfp_session_t *session, uint16_t block_addr, const uin
     return HB_NFC_ERR_PROTOCOL;
   uint16_t sw = (uint16_t)((resp[rlen - 2] << 8) | resp[rlen - 1]);
   int data_len = rlen - 2;
-  if (data_len != 16 || sw != MFP_SW_MORE)
+  if (data_len != MFP_AES_BLOCK_SIZE || sw != MFP_SW_MORE)
     return HB_NFC_ERR_PROTOCOL;
 
-  uint8_t rndB[16];
-  uint8_t iv0[16] = {0};
-  if (!nfc_aes_cbc_crypt(false, key, iv0, resp, 16, rndB, NULL)) {
+  uint8_t rndB[MFP_AES_BLOCK_SIZE];
+  uint8_t iv0[MFP_AES_BLOCK_SIZE] = {0};
+  nfc_cbc_params_t cbc = {.encrypt = false, .key = key, .iv_in = iv0, .iv_out = NULL};
+  if (!nfc_aes_cbc_crypt(&cbc, resp, MFP_AES_BLOCK_SIZE, rndB)) {
     return HB_NFC_ERR_INTERNAL;
   }
 
-  uint8_t rndA[16];
+  uint8_t rndA[MFP_AES_BLOCK_SIZE];
   rand_bytes(rndA, sizeof(rndA));
-  uint8_t rndB_rot[16];
+  uint8_t rndB_rot[MFP_AES_BLOCK_SIZE];
   rotate_left_1(rndB_rot, rndB, sizeof(rndB));
 
   uint8_t plain[32];
-  memcpy(plain, rndA, 16);
-  memcpy(&plain[16], rndB_rot, 16);
+  memcpy(plain, rndA, MFP_AES_BLOCK_SIZE);
+  memcpy(&plain[MFP_AES_BLOCK_SIZE], rndB_rot, MFP_AES_BLOCK_SIZE);
 
   uint8_t enc2[32];
-  if (!nfc_aes_cbc_crypt(true, key, iv0, plain, sizeof(plain), enc2, NULL)) {
+  cbc.encrypt = true;
+  if (!nfc_aes_cbc_crypt(&cbc, plain, sizeof(plain), enc2)) {
     return HB_NFC_ERR_INTERNAL;
   }
 
-  uint8_t cmd2[38] = {MFP_CLA, 0xAF, 0x00, 0x00, 0x20};
+  uint8_t cmd2[MFP_CMD2_SIZE] = {MFP_CLA, MFP_INS_AF, 0x00, 0x00, MFP_APDU_LC_AUTH2};
   memcpy(cmd2 + 5, enc2, 32);
   cmd2[37] = 0x00;
 
@@ -144,17 +158,18 @@ mfp_sl3_auth(uint8_t ins, mfp_session_t *session, uint16_t block_addr, const uin
     return HB_NFC_ERR_PROTOCOL;
   sw = (uint16_t)((resp[rlen - 2] << 8) | resp[rlen - 1]);
   data_len = rlen - 2;
-  if (data_len != 16 || sw != MFP_SW_OK)
+  if (data_len != MFP_AES_BLOCK_SIZE || sw != MFP_SW_OK)
     return HB_NFC_ERR_PROTOCOL;
 
-  uint8_t rndA_prime[16];
-  if (!nfc_aes_cbc_crypt(false, key, iv0, resp, 16, rndA_prime, NULL)) {
+  uint8_t rndA_prime[MFP_AES_BLOCK_SIZE];
+  cbc.encrypt = false;
+  if (!nfc_aes_cbc_crypt(&cbc, resp, MFP_AES_BLOCK_SIZE, rndA_prime)) {
     return HB_NFC_ERR_INTERNAL;
   }
 
-  uint8_t rndA_rot[16];
+  uint8_t rndA_rot[MFP_AES_BLOCK_SIZE];
   rotate_left_1(rndA_rot, rndA, sizeof(rndA));
-  if (nfc_memcmp_ct(rndA_rot, rndA_prime, 16) != 0)
+  if (nfc_memcmp_ct(rndA_rot, rndA_prime, MFP_AES_BLOCK_SIZE) != 0)
     return HB_NFC_ERR_AUTH;
 
   mfp_sl3_derive_session_keys(rndA, rndB, session->ses_enc, session->ses_auth);
@@ -166,38 +181,40 @@ mfp_sl3_auth(uint8_t ins, mfp_session_t *session, uint16_t block_addr, const uin
 
 hb_nfc_err_t
 mfp_sl3_auth_first(mfp_session_t *session, uint16_t block_addr, const uint8_t key[16]) {
-  return mfp_sl3_auth(0x70, session, block_addr, key);
+  return mfp_sl3_auth(MFP_INS_AUTH_FIRST, session, block_addr, key);
 }
 
 hb_nfc_err_t
 mfp_sl3_auth_nonfirst(mfp_session_t *session, uint16_t block_addr, const uint8_t key[16]) {
-  return mfp_sl3_auth(0x76, session, block_addr, key);
+  return mfp_sl3_auth(MFP_INS_AUTH_NONFIRST, session, block_addr, key);
 }
 
 int mfp_sl3_compute_mac(const mfp_session_t *session,
                         const uint8_t *data,
                         size_t data_len,
                         uint8_t mac8[8]) {
-  if (!session || !session->authenticated || !mac8)
+  if (session == NULL || !session->authenticated || !mac8)
     return -1;
-  uint8_t full[16];
-  if (nfc_aes_cmac(session->ses_auth, 16, data, data_len, full) != 0)
+  uint8_t full[MFP_AES_BLOCK_SIZE];
+  if (nfc_aes_cmac(session->ses_auth, MFP_AES_KEY_SIZE, data, data_len, full) != 0)
     return -1;
-  memcpy(mac8, full, 8);
+  memcpy(mac8, full, MFP_MAC_SIZE);
   return 0;
 }
 
 size_t mfp_sl3_encrypt(
     mfp_session_t *session, const uint8_t *plain, size_t plain_len, uint8_t *out, size_t out_max) {
-  if (!session || !session->authenticated || !out)
+  if (session == NULL || !session->authenticated || out == NULL)
     return 0;
   size_t padded_len = nfc_iso9797_pad_method1(plain, plain_len, out, out_max);
   if (padded_len == 0)
     return 0;
 
-  uint8_t iv_in[16];
-  memcpy(iv_in, session->iv_enc, 16);
-  if (!nfc_aes_cbc_crypt(true, session->ses_enc, iv_in, out, padded_len, out, session->iv_enc)) {
+  uint8_t iv_in[MFP_AES_BLOCK_SIZE];
+  memcpy(iv_in, session->iv_enc, MFP_AES_BLOCK_SIZE);
+  nfc_cbc_params_t cbc = {
+      .encrypt = true, .key = session->ses_enc, .iv_in = iv_in, .iv_out = session->iv_enc};
+  if (!nfc_aes_cbc_crypt(&cbc, out, padded_len, out)) {
     return 0;
   }
   return padded_len;
@@ -205,14 +222,16 @@ size_t mfp_sl3_encrypt(
 
 size_t mfp_sl3_decrypt(
     mfp_session_t *session, const uint8_t *enc, size_t enc_len, uint8_t *out, size_t out_max) {
-  if (!session || !session->authenticated || !enc || !out)
+  if (session == NULL || session->authenticated == NULL || enc == NULL || out == NULL)
     return 0;
-  if ((enc_len % 16) != 0 || enc_len > out_max)
+  if ((enc_len % MFP_AES_BLOCK_SIZE) != 0 || enc_len > out_max)
     return 0;
 
-  uint8_t iv_in[16];
-  memcpy(iv_in, session->iv_enc, 16);
-  if (!nfc_aes_cbc_crypt(false, session->ses_enc, iv_in, enc, enc_len, out, session->iv_enc)) {
+  uint8_t iv_in[MFP_AES_BLOCK_SIZE];
+  memcpy(iv_in, session->iv_enc, MFP_AES_BLOCK_SIZE);
+  nfc_cbc_params_t cbc = {
+      .encrypt = false, .key = session->ses_enc, .iv_in = iv_in, .iv_out = session->iv_enc};
+  if (!nfc_aes_cbc_crypt(&cbc, enc, enc_len, out)) {
     return 0;
   }
   return enc_len;

@@ -25,17 +25,19 @@
 extern "C" {
 #endif
 
-/** Reset DESFire emu session state. */
+/**
+ * @brief Reset DESFire emulation session state.
+ */
 void mf_desfire_emu_reset(void);
 
 /**
- * Handle a DESFire native APDU (CLA=0x90).
+ * @brief Handle a DESFire native APDU (CLA=0x90).
  *
- * @param apdu     input APDU buffer
- * @param apdu_len input length
- * @param out      output buffer (data + SW1 SW2)
- * @param out_len  output length
- * @return true if handled, false if not a DESFire APDU
+ * @param apdu      Input APDU buffer.
+ * @param apdu_len  Input APDU length.
+ * @param[out] out      Output buffer (data + SW1 SW2).
+ * @param[out] out_len  Output length.
+ * @return true if handled, false if not a DESFire APDU.
  */
 bool mf_desfire_emu_handle_apdu(const uint8_t *apdu, int apdu_len, uint8_t *out, int *out_len);
 

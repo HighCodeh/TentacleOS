@@ -11,23 +11,22 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-/**
- * @file mf_key_dict.c
- * @brief MIFARE key dictionary - built-in keys + NVS-backed user key storage.
- */
 
-#include <string.h>
-#include "esp_log.h"
-#include "nvs.h"
-#include "highboy_nfc_error.h"
 #include "mf_key_dict.h"
 
-static const char *TAG = "mf_key_dict";
+#include <string.h>
 
-/* -------------------------------------------------------------------------
- * Built-in key table
- * ------------------------------------------------------------------------- */
-static const uint8_t s_builtin_keys[][6] = {
+#include "esp_log.h"
+#include "nvs.h"
+
+#include "highboy_nfc_error.h"
+
+static const char *TAG = "NFC_MF_KEY_DICT";
+
+#define MF_KEY_SIZE       6
+#define NVS_KEY_NAME_SIZE 16
+
+static const uint8_t s_builtin_keys[][MF_KEY_SIZE] = {
     {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
     {0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5}, {0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5},
     {0xD3, 0xF7, 0xD3, 0xF7, 0xD3, 0xF7}, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
@@ -74,19 +73,12 @@ static const uint8_t s_builtin_keys[][6] = {
 
 const int MF_KEY_DICT_BUILTIN_COUNT = (int)(sizeof(s_builtin_keys) / sizeof(s_builtin_keys[0]));
 
-/* -------------------------------------------------------------------------
- * Extra keys loaded from NVS
- * ------------------------------------------------------------------------- */
-static uint8_t s_extra_keys[MF_KEY_DICT_MAX_EXTRA][6];
+static uint8_t s_extra_keys[MF_KEY_DICT_MAX_EXTRA][MF_KEY_SIZE];
 static int s_extra_count = 0;
 
 #define NVS_NS         "nfc_dict"
 #define NVS_KEY_COUNT  "extra_count"
 #define NVS_KEY_PREFIX "k_"
-
-/* -------------------------------------------------------------------------
- * Public API
- * ------------------------------------------------------------------------- */
 
 void mf_key_dict_init(void) {
   s_extra_count = 0;
@@ -110,12 +102,12 @@ void mf_key_dict_init(void) {
   }
 
   for (uint8_t i = 0; i < count; i++) {
-    char key_name[16];
+    char key_name[NVS_KEY_NAME_SIZE];
     snprintf(key_name, sizeof(key_name), NVS_KEY_PREFIX "%u", (unsigned)i);
 
-    size_t len = 6;
+    size_t len = MF_KEY_SIZE;
     err = nvs_get_blob(handle, key_name, s_extra_keys[s_extra_count], &len);
-    if (err == ESP_OK && len == 6) {
+    if (err == ESP_OK && len == MF_KEY_SIZE) {
       s_extra_count++;
     } else {
       ESP_LOGW(TAG, "Failed to load key %s (err 0x%x)", key_name, err);
@@ -136,25 +128,25 @@ void mf_key_dict_get(int idx, uint8_t key_out[6]) {
   }
 
   if (idx < MF_KEY_DICT_BUILTIN_COUNT) {
-    memcpy(key_out, s_builtin_keys[idx], 6);
+    memcpy(key_out, s_builtin_keys[idx], MF_KEY_SIZE);
     return;
   }
 
   int extra_idx = idx - MF_KEY_DICT_BUILTIN_COUNT;
   if (extra_idx < s_extra_count) {
-    memcpy(key_out, s_extra_keys[extra_idx], 6);
+    memcpy(key_out, s_extra_keys[extra_idx], MF_KEY_SIZE);
   }
 }
 
 bool mf_key_dict_contains(const uint8_t key[6]) {
   for (int i = 0; i < MF_KEY_DICT_BUILTIN_COUNT; i++) {
-    if (memcmp(s_builtin_keys[i], key, 6) == 0) {
+    if (memcmp(s_builtin_keys[i], key, MF_KEY_SIZE) == 0) {
       return true;
     }
   }
 
   for (int i = 0; i < s_extra_count; i++) {
-    if (memcmp(s_extra_keys[i], key, 6) == 0) {
+    if (memcmp(s_extra_keys[i], key, MF_KEY_SIZE) == 0) {
       return true;
     }
   }
@@ -173,7 +165,7 @@ hb_nfc_err_t mf_key_dict_add(const uint8_t key[6]) {
     return HB_NFC_OK;
   }
 
-  memcpy(s_extra_keys[s_extra_count], key, 6);
+  memcpy(s_extra_keys[s_extra_count], key, MF_KEY_SIZE);
   s_extra_count++;
 
   nvs_handle_t handle;
@@ -187,7 +179,7 @@ hb_nfc_err_t mf_key_dict_add(const uint8_t key[6]) {
   char key_name[16];
   snprintf(key_name, sizeof(key_name), NVS_KEY_PREFIX "%d", s_extra_count - 1);
 
-  err = nvs_set_blob(handle, key_name, key, 6);
+  err = nvs_set_blob(handle, key_name, key, MF_KEY_SIZE);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "NVS set_blob failed (0x%x)", err);
     s_extra_count--;

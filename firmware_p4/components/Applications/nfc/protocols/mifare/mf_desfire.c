@@ -14,20 +14,31 @@
 #include "mf_desfire.h"
 
 #include <string.h>
+
 #include "esp_log.h"
 #include "esp_random.h"
-
-#include "iso_dep.h"
-#include "nfc_crypto.h"
 #include "mbedtls/aes.h"
 #include "mbedtls/des.h"
 
-#define TAG "mf_desfire"
+#include "iso_dep.h"
+#include "nfc_crypto.h"
+
+static const char *TAG = "NFC_MF_DESFIRE";
+
+#define DES_BLOCK_SIZE               8
+#define AES_BLOCK_SIZE               16
+#define AES_KEY_SIZE_BITS            128
+#define DESFIRE_APDU_HEADER_SIZE     5
+#define DESFIRE_APDU_BUF_SIZE        300
+#define DESFIRE_RATS_FSDI            8
+#define DESFIRE_VERSION_SEGMENT_SIZE 7
+#define DESFIRE_MAX_SINGLE_FRAME     256
+#define DESFIRE_RW_PARAM_HDR_SIZE    7
 
 static int build_native_apdu(
     uint8_t cmd, const uint8_t *data, size_t data_len, uint8_t *apdu, size_t apdu_max) {
-  size_t need = 5 + data_len + 1;
-  if (!apdu || apdu_max < need)
+  size_t need = DESFIRE_APDU_HEADER_SIZE + data_len + 1;
+  if (apdu == NULL || apdu_max < need)
     return 0;
   apdu[0] = MF_DESFIRE_CLA;
   apdu[1] = cmd;
@@ -35,14 +46,14 @@ static int build_native_apdu(
   apdu[3] = 0x00;
   apdu[4] = (uint8_t)data_len;
   if (data_len > 0 && data) {
-    memcpy(&apdu[5], data, data_len);
+    memcpy(&apdu[DESFIRE_APDU_HEADER_SIZE], data, data_len);
   }
-  apdu[5 + data_len] = 0x00; /* Le */
+  apdu[DESFIRE_APDU_HEADER_SIZE + data_len] = 0x00;
   return (int)need;
 }
 
 static void rand_bytes(uint8_t *out, size_t len) {
-  if (!out || len == 0)
+  if (out == NULL || len == 0)
     return;
   for (size_t i = 0; i < len; i += 4) {
     uint32_t r = esp_random();
@@ -53,37 +64,41 @@ static void rand_bytes(uint8_t *out, size_t len) {
 }
 
 static void rotate_left_1(uint8_t *out, const uint8_t *in, size_t len) {
-  if (!out || !in || len == 0)
+  if (out == NULL || in == NULL || len == 0)
     return;
   for (size_t i = 0; i < len - 1; i++)
     out[i] = in[i + 1];
   out[len - 1] = in[0];
 }
 
-static bool des3_cbc_crypt(bool encrypt,
-                           const uint8_t key[16],
-                           const uint8_t iv_in[8],
-                           const uint8_t *in,
-                           size_t len,
-                           uint8_t *out,
-                           uint8_t iv_out[8]) {
-  if (!key || !iv_in || !in || !out || (len % 8) != 0)
+typedef struct {
+  bool encrypt;
+  const uint8_t *key;
+  const uint8_t *iv_in;
+  uint8_t *iv_out;
+} des3_cbc_params_t;
+
+static bool
+des3_cbc_crypt(const des3_cbc_params_t *p, const uint8_t *in, size_t len, uint8_t *out) {
+  if (p == NULL || p->key == NULL || p->iv_in == NULL || in == NULL || out == NULL ||
+      (len % DES_BLOCK_SIZE) != 0)
     return false;
 
   mbedtls_des3_context ctx;
   mbedtls_des3_init(&ctx);
-  int rc = encrypt ? mbedtls_des3_set2key_enc(&ctx, key) : mbedtls_des3_set2key_dec(&ctx, key);
+  int rc =
+      p->encrypt ? mbedtls_des3_set2key_enc(&ctx, p->key) : mbedtls_des3_set2key_dec(&ctx, p->key);
   if (rc != 0) {
     mbedtls_des3_free(&ctx);
     return false;
   }
 
-  uint8_t iv[8];
-  memcpy(iv, iv_in, 8);
+  uint8_t iv[DES_BLOCK_SIZE];
+  memcpy(iv, p->iv_in, DES_BLOCK_SIZE);
   rc = mbedtls_des3_crypt_cbc(
-      &ctx, encrypt ? MBEDTLS_DES_ENCRYPT : MBEDTLS_DES_DECRYPT, len, iv, in, out);
-  if (iv_out)
-    memcpy(iv_out, iv, 8);
+      &ctx, p->encrypt ? MBEDTLS_DES_ENCRYPT : MBEDTLS_DES_DECRYPT, len, iv, in, out);
+  if (p->iv_out)
+    memcpy(p->iv_out, iv, DES_BLOCK_SIZE);
   mbedtls_des3_free(&ctx);
   return rc == 0;
 }
@@ -95,24 +110,24 @@ static bool aes_cbc_crypt(bool encrypt,
                           size_t len,
                           uint8_t *out,
                           uint8_t iv_out[16]) {
-  if (!key || !iv_in || !in || !out || (len % 16) != 0)
+  if (key == NULL || iv_in == NULL || in == NULL || out == NULL || (len % AES_BLOCK_SIZE) != 0)
     return false;
 
   mbedtls_aes_context ctx;
   mbedtls_aes_init(&ctx);
-  int rc =
-      encrypt ? mbedtls_aes_setkey_enc(&ctx, key, 128) : mbedtls_aes_setkey_dec(&ctx, key, 128);
+  int rc = encrypt ? mbedtls_aes_setkey_enc(&ctx, key, AES_KEY_SIZE_BITS)
+                   : mbedtls_aes_setkey_dec(&ctx, key, AES_KEY_SIZE_BITS);
   if (rc != 0) {
     mbedtls_aes_free(&ctx);
     return false;
   }
 
-  uint8_t iv[16];
-  memcpy(iv, iv_in, 16);
+  uint8_t iv[AES_BLOCK_SIZE];
+  memcpy(iv, iv_in, AES_BLOCK_SIZE);
   rc = mbedtls_aes_crypt_cbc(
       &ctx, encrypt ? MBEDTLS_AES_ENCRYPT : MBEDTLS_AES_DECRYPT, len, iv, in, out);
   if (iv_out)
-    memcpy(iv_out, iv, 16);
+    memcpy(iv_out, iv, AES_BLOCK_SIZE);
   mbedtls_aes_free(&ctx);
   return rc == 0;
 }
@@ -124,10 +139,10 @@ static int desfire_send_native_once(mf_desfire_session_t *session,
                                     uint8_t *out,
                                     size_t out_max,
                                     uint16_t *sw) {
-  if (!session || !session->dep_ready || !out)
+  if (session == NULL || session->dep_ready == NULL || out == NULL)
     return 0;
 
-  uint8_t apdu[300];
+  uint8_t apdu[DESFIRE_APDU_BUF_SIZE];
   int apdu_len = build_native_apdu(cmd, data, data_len, apdu, sizeof(apdu));
   if (apdu_len <= 0)
     return 0;
@@ -143,11 +158,11 @@ static int desfire_send_native_once(mf_desfire_session_t *session,
 
 hb_nfc_err_t mf_desfire_poller_init(const nfc_iso14443a_data_t *card,
                                     mf_desfire_session_t *session) {
-  if (!card || !session)
+  if (card == NULL || session == NULL)
     return HB_NFC_ERR_PARAM;
   memset(session, 0, sizeof(*session));
 
-  hb_nfc_err_t err = iso_dep_rats(8, 0, &session->dep);
+  hb_nfc_err_t err = iso_dep_rats(DESFIRE_RATS_FSDI, 0, &session->dep);
   if (err == HB_NFC_OK) {
     session->dep_ready = true;
   }
@@ -160,7 +175,7 @@ int mf_desfire_apdu_transceive(mf_desfire_session_t *session,
                                uint8_t *rx,
                                size_t rx_max,
                                int timeout_ms) {
-  if (!session || !session->dep_ready)
+  if (session == NULL || session->dep_ready == NULL)
     return 0;
   return iso_dep_apdu_transceive(&session->dep, apdu, apdu_len, rx, rx_max, timeout_ms);
 }
@@ -173,19 +188,19 @@ hb_nfc_err_t mf_desfire_transceive_native(mf_desfire_session_t *session,
                                           size_t out_max,
                                           size_t *out_len,
                                           uint16_t *sw) {
-  if (!session || !session->dep_ready || !out || !out_len)
+  if (session == NULL || session->dep_ready == NULL || out == NULL || out_len == NULL)
     return HB_NFC_ERR_PARAM;
 
   *out_len = 0;
   if (sw)
     *sw = 0;
 
-  uint8_t apdu[300];
+  uint8_t apdu[DESFIRE_APDU_BUF_SIZE];
   int apdu_len = build_native_apdu(cmd, data, data_len, apdu, sizeof(apdu));
   if (apdu_len <= 0)
     return HB_NFC_ERR_PARAM;
 
-  uint8_t rx[300];
+  uint8_t rx[DESFIRE_APDU_BUF_SIZE];
   int rlen = mf_desfire_apdu_transceive(session, apdu, (size_t)apdu_len, rx, sizeof(rx), 0);
   if (rlen < 2)
     return HB_NFC_ERR_PROTOCOL;
@@ -221,7 +236,7 @@ hb_nfc_err_t mf_desfire_transceive_native(mf_desfire_session_t *session,
 }
 
 hb_nfc_err_t mf_desfire_get_version(mf_desfire_session_t *session, mf_desfire_version_t *out) {
-  if (!session || !out)
+  if (session == NULL || out == NULL)
     return HB_NFC_ERR_PARAM;
 
   uint8_t buf[64];
@@ -233,19 +248,19 @@ hb_nfc_err_t mf_desfire_get_version(mf_desfire_session_t *session, mf_desfire_ve
     return err;
   if (sw != MF_DESFIRE_SW_OK)
     return HB_NFC_ERR_PROTOCOL;
-  if (len < (7 + 7 + 7 + 7))
+  if (len < (DESFIRE_VERSION_SEGMENT_SIZE * 4))
     return HB_NFC_ERR_PROTOCOL;
 
-  memcpy(out->hw, &buf[0], 7);
-  memcpy(out->sw, &buf[7], 7);
-  memcpy(out->uid, &buf[14], 7);
-  memcpy(out->batch, &buf[21], 7);
+  memcpy(out->hw, &buf[0], DESFIRE_VERSION_SEGMENT_SIZE);
+  memcpy(out->sw, &buf[DESFIRE_VERSION_SEGMENT_SIZE], DESFIRE_VERSION_SEGMENT_SIZE);
+  memcpy(out->uid, &buf[DESFIRE_VERSION_SEGMENT_SIZE * 2], DESFIRE_VERSION_SEGMENT_SIZE);
+  memcpy(out->batch, &buf[DESFIRE_VERSION_SEGMENT_SIZE * 3], DESFIRE_VERSION_SEGMENT_SIZE);
   return HB_NFC_OK;
 }
 
 hb_nfc_err_t mf_desfire_select_application(mf_desfire_session_t *session,
                                            const mf_desfire_aid_t *aid) {
-  if (!session || !aid)
+  if (session == NULL || aid == NULL)
     return HB_NFC_ERR_PARAM;
   uint8_t buf[16];
   size_t len = 0;
@@ -260,7 +275,7 @@ hb_nfc_err_t mf_desfire_select_application(mf_desfire_session_t *session,
 hb_nfc_err_t mf_desfire_authenticate_ev1_3des(mf_desfire_session_t *session,
                                               uint8_t key_no,
                                               const uint8_t key[16]) {
-  if (!session || !session->dep_ready || !key)
+  if (session == NULL || session->dep_ready == NULL || key == NULL)
     return HB_NFC_ERR_PARAM;
   session->authenticated = false;
 
@@ -273,7 +288,11 @@ hb_nfc_err_t mf_desfire_authenticate_ev1_3des(mf_desfire_session_t *session,
 
   uint8_t iv0[8] = {0};
   uint8_t rndB[8];
-  if (!des3_cbc_crypt(false, key, iv0, data_in, 8, rndB, NULL)) {
+  if (!des3_cbc_crypt(
+          &(des3_cbc_params_t){.encrypt = false, .key = key, .iv_in = iv0, .iv_out = NULL},
+          data_in,
+          8,
+          rndB)) {
     return HB_NFC_ERR_INTERNAL;
   }
 
@@ -288,7 +307,11 @@ hb_nfc_err_t mf_desfire_authenticate_ev1_3des(mf_desfire_session_t *session,
 
   uint8_t enc2[16];
   uint8_t iv2[8];
-  if (!des3_cbc_crypt(true, key, data_in, plain, sizeof(plain), enc2, iv2)) {
+  if (!des3_cbc_crypt(
+          &(des3_cbc_params_t){.encrypt = true, .key = key, .iv_in = data_in, .iv_out = iv2},
+          plain,
+          sizeof(plain),
+          enc2)) {
     return HB_NFC_ERR_INTERNAL;
   }
 
@@ -299,7 +322,11 @@ hb_nfc_err_t mf_desfire_authenticate_ev1_3des(mf_desfire_session_t *session,
     return HB_NFC_ERR_PROTOCOL;
 
   uint8_t rndA_rot[8];
-  if (!des3_cbc_crypt(false, key, iv2, data_out, 8, rndA_rot, NULL)) {
+  if (!des3_cbc_crypt(
+          &(des3_cbc_params_t){.encrypt = false, .key = key, .iv_in = iv2, .iv_out = NULL},
+          data_out,
+          8,
+          rndA_rot)) {
     return HB_NFC_ERR_INTERNAL;
   }
 
@@ -308,7 +335,6 @@ hb_nfc_err_t mf_desfire_authenticate_ev1_3des(mf_desfire_session_t *session,
   if (nfc_memcmp_ct(rndA_rot, rndA_rot_exp, 8) != 0)
     return HB_NFC_ERR_AUTH;
 
-  /* Session key: A0..3 || B0..3 || A4..7 || B4..7 */
   session->session_key[0] = rndA[0];
   session->session_key[1] = rndA[1];
   session->session_key[2] = rndA[2];
@@ -326,8 +352,8 @@ hb_nfc_err_t mf_desfire_authenticate_ev1_3des(mf_desfire_session_t *session,
   session->session_key[14] = rndB[6];
   session->session_key[15] = rndB[7];
 
-  memcpy(session->iv, iv2, 8);
-  memset(&session->iv[8], 0, 8);
+  memcpy(session->iv, iv2, DES_BLOCK_SIZE);
+  memset(&session->iv[DES_BLOCK_SIZE], 0, DES_BLOCK_SIZE);
   session->authenticated = true;
   session->key_type = MF_DESFIRE_KEY_2K3DES;
   session->key_no = key_no;
@@ -337,7 +363,7 @@ hb_nfc_err_t mf_desfire_authenticate_ev1_3des(mf_desfire_session_t *session,
 hb_nfc_err_t mf_desfire_authenticate_ev1_aes(mf_desfire_session_t *session,
                                              uint8_t key_no,
                                              const uint8_t key[16]) {
-  if (!session || !session->dep_ready || !key)
+  if (session == NULL || session->dep_ready == NULL || key == NULL)
     return HB_NFC_ERR_PARAM;
   session->authenticated = false;
 
@@ -385,7 +411,6 @@ hb_nfc_err_t mf_desfire_authenticate_ev1_aes(mf_desfire_session_t *session,
   if (nfc_memcmp_ct(rndA_rot, rndA_rot_exp, 16) != 0)
     return HB_NFC_ERR_AUTH;
 
-  /* Session key: A0..3 || B0..3 || A12..15 || B12..15 */
   session->session_key[0] = rndA[0];
   session->session_key[1] = rndA[1];
   session->session_key[2] = rndA[2];
@@ -403,7 +428,7 @@ hb_nfc_err_t mf_desfire_authenticate_ev1_aes(mf_desfire_session_t *session,
   session->session_key[14] = rndB[14];
   session->session_key[15] = rndB[15];
 
-  memcpy(session->iv, iv2, 16);
+  memcpy(session->iv, iv2, AES_BLOCK_SIZE);
   session->authenticated = true;
   session->key_type = MF_DESFIRE_KEY_AES;
   session->key_no = key_no;
@@ -413,7 +438,7 @@ hb_nfc_err_t mf_desfire_authenticate_ev1_aes(mf_desfire_session_t *session,
 hb_nfc_err_t mf_desfire_authenticate_ev2_first(mf_desfire_session_t *session,
                                                uint8_t key_no,
                                                const uint8_t key[16]) {
-  if (!session || !session->dep_ready || !key)
+  if (session == NULL || session->dep_ready == NULL || key == NULL)
     return HB_NFC_ERR_PARAM;
   session->authenticated = false;
   session->ev2_authenticated = false;
@@ -484,9 +509,9 @@ hb_nfc_err_t mf_desfire_authenticate_ev2_first(mf_desfire_session_t *session,
 hb_nfc_err_t mf_desfire_authenticate_ev2_nonfirst(mf_desfire_session_t *session,
                                                   uint8_t key_no,
                                                   const uint8_t key[16]) {
-  if (!session || !session->dep_ready || !key)
+  if (session == NULL || !session->dep_ready || key == NULL)
     return HB_NFC_ERR_PARAM;
-  if (!session->ev2_authenticated)
+  if (session->ev2_authenticated == NULL)
     return HB_NFC_ERR_AUTH;
 
   uint8_t data_in[64];
@@ -547,7 +572,7 @@ hb_nfc_err_t mf_desfire_get_application_ids(mf_desfire_session_t *session,
                                             uint8_t *out,
                                             size_t out_max,
                                             size_t *out_len) {
-  if (!session || !out || !out_len)
+  if (session == NULL || out == NULL || out_len == NULL)
     return HB_NFC_ERR_PARAM;
   uint16_t sw = 0;
   hb_nfc_err_t err = mf_desfire_transceive_native(
@@ -561,7 +586,7 @@ hb_nfc_err_t mf_desfire_get_file_ids(mf_desfire_session_t *session,
                                      uint8_t *out,
                                      size_t out_max,
                                      size_t *out_len) {
-  if (!session || !out || !out_len)
+  if (session == NULL || out == NULL || out_len == NULL)
     return HB_NFC_ERR_PARAM;
   uint16_t sw = 0;
   hb_nfc_err_t err = mf_desfire_transceive_native(
@@ -574,7 +599,7 @@ hb_nfc_err_t mf_desfire_get_file_ids(mf_desfire_session_t *session,
 hb_nfc_err_t mf_desfire_get_key_settings(mf_desfire_session_t *session,
                                          uint8_t *key_settings,
                                          uint8_t *max_keys) {
-  if (!session || !key_settings || !max_keys)
+  if (session == NULL || key_settings == NULL || max_keys == NULL)
     return HB_NFC_ERR_PARAM;
   uint8_t buf[8];
   size_t len = 0;
@@ -597,7 +622,7 @@ hb_nfc_err_t mf_desfire_read_data(mf_desfire_session_t *session,
                                   uint8_t *out,
                                   size_t out_max,
                                   size_t *out_len) {
-  if (!session || !out || !out_len)
+  if (session == NULL || out == NULL || out_len == NULL)
     return HB_NFC_ERR_PARAM;
   uint8_t params[7];
   params[0] = file_id;
@@ -620,12 +645,11 @@ hb_nfc_err_t mf_desfire_write_data(mf_desfire_session_t *session,
                                    uint32_t offset,
                                    const uint8_t *data,
                                    size_t data_len) {
-  if (!session || !data)
+  if (session == NULL || data == NULL)
     return HB_NFC_ERR_PARAM;
-  /* Single-frame limit: 7-byte header + data must fit in the 294-byte APDU payload. */
-  if (data_len > 256)
+  if (data_len > DESFIRE_MAX_SINGLE_FRAME)
     return HB_NFC_ERR_PARAM;
-  uint8_t params[7 + 256];
+  uint8_t params[DESFIRE_RW_PARAM_HDR_SIZE + DESFIRE_MAX_SINGLE_FRAME];
   params[0] = file_id;
   params[1] = (uint8_t)(offset & 0xFF);
   params[2] = (uint8_t)((offset >> 8) & 0xFF);
@@ -633,19 +657,25 @@ hb_nfc_err_t mf_desfire_write_data(mf_desfire_session_t *session,
   params[4] = (uint8_t)(data_len & 0xFF);
   params[5] = (uint8_t)((data_len >> 8) & 0xFF);
   params[6] = (uint8_t)((data_len >> 16) & 0xFF);
-  memcpy(&params[7], data, data_len);
+  memcpy(&params[DESFIRE_RW_PARAM_HDR_SIZE], data, data_len);
   uint8_t rx[8];
   size_t rx_len = 0;
   uint16_t sw = 0;
-  hb_nfc_err_t err = mf_desfire_transceive_native(
-      session, MF_DESFIRE_CMD_WRITE_DATA, params, 7 + data_len, rx, sizeof(rx), &rx_len, &sw);
+  hb_nfc_err_t err = mf_desfire_transceive_native(session,
+                                                  MF_DESFIRE_CMD_WRITE_DATA,
+                                                  params,
+                                                  DESFIRE_RW_PARAM_HDR_SIZE + data_len,
+                                                  rx,
+                                                  sizeof(rx),
+                                                  &rx_len,
+                                                  &sw);
   if (err != HB_NFC_OK)
     return err;
   return (sw == MF_DESFIRE_SW_OK) ? HB_NFC_OK : HB_NFC_ERR_PROTOCOL;
 }
 
 hb_nfc_err_t mf_desfire_commit_transaction(mf_desfire_session_t *session) {
-  if (!session)
+  if (session == NULL)
     return HB_NFC_ERR_PARAM;
   uint8_t rx[8];
   size_t rx_len = 0;
@@ -658,7 +688,7 @@ hb_nfc_err_t mf_desfire_commit_transaction(mf_desfire_session_t *session) {
 }
 
 hb_nfc_err_t mf_desfire_abort_transaction(mf_desfire_session_t *session) {
-  if (!session)
+  if (session == NULL)
     return HB_NFC_ERR_PARAM;
   uint8_t rx[8];
   size_t rx_len = 0;

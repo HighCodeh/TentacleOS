@@ -13,6 +13,7 @@
 // limitations under the License.
 /**
  * @file mf_classic_emu.h
+ * @brief MIFARE Classic card emulation.
  */
 #ifndef MF_CLASSIC_EMU_H
 #define MF_CLASSIC_EMU_H
@@ -47,6 +48,9 @@ extern "C" {
 #define MFC_CMD_TRANSFER   0xB0
 #define MFC_CMD_HALT       0x50
 
+/**
+ * @brief Data block access condition levels.
+ */
 typedef enum {
   MFC_AC_DATA_RD_AB = 0,
   MFC_AC_DATA_RD_AB_W_NONE = 2,
@@ -54,6 +58,9 @@ typedef enum {
   MFC_AC_DATA_NEVER = 7,
 } mfc_ac_data_t;
 
+/**
+ * @brief Card data for MIFARE Classic emulation.
+ */
 typedef struct {
   uint8_t uid[10];
   uint8_t uid_len;
@@ -74,6 +81,9 @@ typedef struct {
   int sector_count;
 } mfc_emu_card_data_t;
 
+/**
+ * @brief Emulator state machine states.
+ */
 typedef enum {
   MFC_EMU_STATE_IDLE = 0,
   MFC_EMU_STATE_LISTEN,
@@ -86,6 +96,9 @@ typedef enum {
   MFC_EMU_STATE_ERROR,
 } mfc_emu_state_t;
 
+/**
+ * @brief Emulation statistics counters.
+ */
 typedef struct {
   int total_auths;
   int successful_auths;
@@ -102,6 +115,9 @@ typedef struct {
   int parity_errors;
 } mfc_emu_stats_t;
 
+/**
+ * @brief Emulation event types.
+ */
 typedef enum {
   MFC_EMU_EVT_ACTIVATED,
   MFC_EMU_EVT_AUTH_SUCCESS,
@@ -115,6 +131,9 @@ typedef enum {
   MFC_EMU_EVT_ERROR,
 } mfc_emu_event_type_t;
 
+/**
+ * @brief Emulation event data.
+ */
 typedef struct {
   mfc_emu_event_type_t type;
   union {
@@ -136,121 +155,212 @@ typedef struct {
   };
 } mfc_emu_event_t;
 
+/**
+ * @brief Emulation event callback type.
+ */
 typedef void (*mfc_emu_event_cb_t)(const mfc_emu_event_t *evt, void *ctx);
 
 /**
- * Initialize emulator with card data.
+ * @brief Initialize emulator with card data.
+ *
  * Copies the card dump into internal storage.
+ *
+ * @param card  Card data to emulate.
+ * @return
+ *   - HB_NFC_OK on success
+ *   - Error code on failure
  */
 hb_nfc_err_t mfc_emu_init(const mfc_emu_card_data_t *card);
 
 /**
- * Set event callback for UI notifications.
+ * @brief Set event callback for UI notifications.
+ *
+ * @param cb   Callback function.
+ * @param ctx  User context passed to callback.
  */
 void mfc_emu_set_callback(mfc_emu_event_cb_t cb, void *ctx);
 
 /**
- * Configure ST25R3916 hardware for target mode.
- * Loads PT memory, sets mode, unmasks interrupts.
+ * @brief Configure ST25R3916 hardware for target mode.
+ *
+ * Loads PT memory, sets mode, and unmasks interrupts.
+ *
+ * @return
+ *   - HB_NFC_OK on success
+ *   - Error code on failure
  */
 hb_nfc_err_t mfc_emu_configure_target(void);
 
 /**
- * Load PT Memory public wrapper for diagnostics.
+ * @brief Load PT Memory for diagnostics.
+ *
  * Writes ATQA/UID/BCC/SAK to chip's passive target memory.
+ *
+ * @return
+ *   - HB_NFC_OK on success
+ *   - Error code on failure
  */
 hb_nfc_err_t mfc_emu_load_pt_memory(void);
 
 /**
- * Start emulation enters listen state.
- * ST25R3916_CMD_GOTO_SENSE to start listening for reader.
+ * @brief Start emulation and enter listen state.
+ *
+ * Issues ST25R3916_CMD_GOTO_SENSE to start listening for a reader.
+ *
+ * @return
+ *   - HB_NFC_OK on success
+ *   - Error code on failure
  */
 hb_nfc_err_t mfc_emu_start(void);
 
 /**
- * Run one cycle of the emulation loop.
- * Call this repeatedly from main loop.
- * Returns current state.
+ * @brief Run one cycle of the emulation loop.
+ *
+ * Call this repeatedly from the main loop.
+ *
+ * @return Current emulator state.
  */
 mfc_emu_state_t mfc_emu_run_step(void);
 
 /**
- * Stop emulation return to idle.
+ * @brief Stop emulation and return to idle.
  */
 void mfc_emu_stop(void);
 
 /**
- * Update card data while emulator is running (hot swap).
+ * @brief Update card data while emulator is running (hot swap).
+ *
  * Used for switching profiles without restarting.
+ *
+ * @param card  New card data.
+ * @return
+ *   - HB_NFC_OK on success
+ *   - Error code on failure
  */
 hb_nfc_err_t mfc_emu_update_card(const mfc_emu_card_data_t *card);
 
 /**
- * Get emulation statistics.
+ * @brief Get emulation statistics.
+ *
+ * @return Current statistics counters.
  */
 mfc_emu_stats_t mfc_emu_get_stats(void);
 
 /**
- * Get current state.
+ * @brief Get current emulator state.
+ *
+ * @return Current state.
  */
 mfc_emu_state_t mfc_emu_get_state(void);
 
 /**
- * Get state name string.
+ * @brief Get human-readable state name string.
+ *
+ * @param state  Emulator state.
+ * @return State name string.
  */
 const char *mfc_emu_state_str(mfc_emu_state_t state);
 
 /**
- * Helper: fill card data from a successful read.
+ * @brief Fill card data from a successful read.
+ *
+ * @param[out] cd    Card data structure to populate.
+ * @param card       ISO 14443A card data from read.
+ * @param type       MIFARE Classic card type.
  */
 void mfc_emu_card_data_init(mfc_emu_card_data_t *cd,
                             const nfc_iso14443a_data_t *card,
                             mf_classic_type_t type);
 
-/** Initialize Type 2 emulation with a default UID + NDEF text payload. */
+/**
+ * @brief Initialize Type 2 emulation with a default UID and NDEF text payload.
+ *
+ * @return
+ *   - HB_NFC_OK on success
+ *   - Error code on failure
+ */
 hb_nfc_err_t t2t_emu_init_default(void);
 
-/** Configure ST25R3916 target mode for Type 2 emulation. */
+/**
+ * @brief Configure ST25R3916 target mode for Type 2 emulation.
+ *
+ * @return
+ *   - HB_NFC_OK on success
+ *   - Error code on failure
+ */
 hb_nfc_err_t t2t_emu_configure_target(void);
 
-/** Start Type 2 emulation (enter listen state). */
+/**
+ * @brief Start Type 2 emulation (enter listen state).
+ *
+ * @return
+ *   - HB_NFC_OK on success
+ *   - Error code on failure
+ */
 hb_nfc_err_t t2t_emu_start(void);
 
-/** Run one step of Type 2 emulation loop (non-blocking). */
+/**
+ * @brief Run one step of Type 2 emulation loop (non-blocking).
+ */
 void t2t_emu_run_step(void);
 
-/** Stop Type 2 emulation. */
+/**
+ * @brief Stop Type 2 emulation.
+ */
 void t2t_emu_stop(void);
 
 /**
- * Extract access condition bits (C1, C2, C3) for a block within a sector.
- * @param trailer 16-byte sector trailer data
- * @param block_in_sector Block index within sector (0-3 for 4-block, 0-15 for 16-block)
- * @param c1, c2, c3 Output access condition bits
- * @return true if access bits parity is valid
+ * @brief Extract access condition bits (C1, C2, C3) for a block within a sector.
+ *
+ * @param trailer          16-byte sector trailer data.
+ * @param block_in_sector  Block index within sector (0-3 for 4-block, 0-15 for 16-block).
+ * @param[out] c1          Access condition bit C1.
+ * @param[out] c2          Access condition bit C2.
+ * @param[out] c3          Access condition bit C3.
+ * @return true if access bits parity is valid.
  */
 bool mfc_emu_get_access_bits(
     const uint8_t trailer[16], int block_in_sector, uint8_t *c1, uint8_t *c2, uint8_t *c3);
 
 /**
- * Check if a READ is permitted.
+ * @brief Check if a READ is permitted.
+ *
+ * @param trailer          16-byte sector trailer data.
+ * @param block_in_sector  Block index within sector.
+ * @param auth_key_type    Key type used for authentication.
+ * @return true if read is permitted.
  */
 bool mfc_emu_can_read(const uint8_t trailer[16], int block_in_sector, mf_key_type_t auth_key_type);
 
 /**
- * Check if a WRITE is permitted.
+ * @brief Check if a WRITE is permitted.
+ *
+ * @param trailer          16-byte sector trailer data.
+ * @param block_in_sector  Block index within sector.
+ * @param auth_key_type    Key type used for authentication.
+ * @return true if write is permitted.
  */
 bool mfc_emu_can_write(const uint8_t trailer[16], int block_in_sector, mf_key_type_t auth_key_type);
 
 /**
- * Check if INCREMENT is permitted (data blocks only).
+ * @brief Check if INCREMENT is permitted (data blocks only).
+ *
+ * @param trailer          16-byte sector trailer data.
+ * @param block_in_sector  Block index within sector.
+ * @param auth_key_type    Key type used for authentication.
+ * @return true if increment is permitted.
  */
 bool mfc_emu_can_increment(const uint8_t trailer[16],
                            int block_in_sector,
                            mf_key_type_t auth_key_type);
 
 /**
- * Check if DECREMENT/RESTORE/TRANSFER is permitted (data blocks only).
+ * @brief Check if DECREMENT/RESTORE/TRANSFER is permitted (data blocks only).
+ *
+ * @param trailer          16-byte sector trailer data.
+ * @param block_in_sector  Block index within sector.
+ * @param auth_key_type    Key type used for authentication.
+ * @return true if decrement/restore/transfer is permitted.
  */
 bool mfc_emu_can_decrement(const uint8_t trailer[16],
                            int block_in_sector,

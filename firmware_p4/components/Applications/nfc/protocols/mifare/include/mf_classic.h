@@ -30,47 +30,101 @@
 extern "C" {
 #endif
 
-/** Authenticate a sector with key A or B. */
+/**
+ * @brief Authenticate a sector with key A or B.
+ *
+ * @param block     Block number within the sector.
+ * @param key_type  Key type (A or B).
+ * @param key       Pointer to the 6-byte key.
+ * @param uid       4-byte card UID.
+ * @return
+ *   - HB_NFC_OK on success
+ *   - Error code on authentication failure
+ */
 hb_nfc_err_t mf_classic_auth(uint8_t block,
                              mf_key_type_t key_type,
                              const mf_classic_key_t *key,
                              const uint8_t uid[4]);
 
-/** Read a single block (16 bytes). Must be authenticated first. */
+/**
+ * @brief Read a single block (16 bytes).
+ *
+ * Must be authenticated first.
+ *
+ * @param block  Absolute block number.
+ * @param[out] data  Buffer to receive 16 bytes of block data.
+ * @return
+ *   - HB_NFC_OK on success
+ *   - Error code on failure
+ */
 hb_nfc_err_t mf_classic_read_block(uint8_t block, uint8_t data[16]);
 
-/** Write a single block (16 bytes). Must be authenticated first. */
+/**
+ * @brief Write a single block (16 bytes).
+ *
+ * Must be authenticated first.
+ *
+ * @param block  Absolute block number.
+ * @param data   16 bytes to write.
+ * @return
+ *   - HB_NFC_OK on success
+ *   - Error code on failure
+ */
 hb_nfc_err_t mf_classic_write_block(uint8_t block, const uint8_t data[16]);
 
-/** Write phase (for debugging NACKs). */
+/**
+ * @brief Write phase (for debugging NACKs).
+ */
 typedef enum {
   MF_WRITE_PHASE_NONE = 0,
   MF_WRITE_PHASE_CMD,
   MF_WRITE_PHASE_DATA,
 } mf_write_phase_t;
 
-/** Get last write phase reached (CMD or DATA). */
+/**
+ * @brief Get last write phase reached (CMD or DATA).
+ *
+ * @return Last write phase.
+ */
 mf_write_phase_t mf_classic_get_last_write_phase(void);
 
-/** Get card type from SAK. */
+/**
+ * @brief Get card type from SAK byte.
+ *
+ * @param sak  SAK byte from card selection.
+ * @return MIFARE Classic card type.
+ */
 mf_classic_type_t mf_classic_get_type(uint8_t sak);
 
-/** Get number of sectors for a given type. */
+/**
+ * @brief Get number of sectors for a given card type.
+ *
+ * @param type  MIFARE Classic card type.
+ * @return Number of sectors.
+ */
 int mf_classic_get_sector_count(mf_classic_type_t type);
 
-/** Reset auth state (call before re-select). */
+/**
+ * @brief Reset auth state (call before re-select).
+ */
 void mf_classic_reset_auth(void);
 
-/** Get the last nonce (nt) received from card during auth.
- *  Used for PRNG analysis / clone detection. */
+/**
+ * @brief Get the last nonce (nt) received from card during auth.
+ *
+ * Used for PRNG analysis and clone detection.
+ *
+ * @return Last card nonce value.
+ */
 uint32_t mf_classic_get_last_nt(void);
 
 /**
- * Copy the current Crypto1 cipher state (after a successful mf_classic_auth).
- * Used by the nested attack module to drive its own keystream without
- * touching the static s_crypto that mf_classic_read/write_block use.
+ * @brief Copy the current Crypto1 cipher state after a successful auth.
  *
- * @param out  Destination state struct; must not be NULL.
+ * Used by the nested attack module to drive its own keystream without
+ * touching the static state that mf_classic_read/write_block use.
+ *
+ * @param[out] out  Destination state struct; must not be NULL.
  */
 void mf_classic_get_crypto_state(crypto1_state_t *out);
 

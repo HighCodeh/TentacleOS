@@ -13,6 +13,8 @@
 // limitations under the License.
 #include "crypto1.h"
 
+static const char *TAG = "NFC_MIFARE";
+
 #define SWAPENDIAN(x) \
   ((x) = ((x) >> 8 & 0xff00ffU) | ((x)&0xff00ffU) << 8, (x) = (x) >> 16 | (x) << 16)
 
@@ -127,7 +129,8 @@ uint32_t crypto1_prng_successor(uint32_t x, uint32_t n) {
 
 #include <string.h>
 
-#include "crypto1.h"
+#include "esp_log.h"
+
 #include "iso14443a.h"
 #include "nfc_poller.h"
 #include "nfc_common.h"
@@ -137,13 +140,42 @@ uint32_t crypto1_prng_successor(uint32_t x, uint32_t n) {
 #include "st25r3916_reg.h"
 #include "hb_nfc_spi.h"
 
-#include "esp_log.h"
-
-#define TAG TAG_MF_CLASSIC
-static const char *TAG = "mf_cl";
+#define TAG "NFC_MIFARE"
 
 #define ISOA_NO_TX_PAR (1U << 7)
 #define ISOA_NO_RX_PAR (1U << 6)
+
+#define MF_CMD_READ        0x30
+#define MF_CMD_WRITE       0xA0
+#define MF_BLOCK_SIZE      16
+#define MF_KEY_LEN         6
+#define MF_MAX_FRAME_SIZE  32
+#define MF_ACK_NIBBLE_MASK 0x0F
+#define MF_ACK_VALUE       0x0A
+
+#define MF_SAK_MINI   0x09
+#define MF_SAK_1K     0x08
+#define MF_SAK_1K_INF 0x88
+#define MF_SAK_4K     0x18
+
+#define MF_SECTORS_MINI 5
+#define MF_SECTORS_1K   16
+#define MF_SECTORS_4K   40
+#define MF_BLOCKS_MINI  20
+#define MF_BLOCKS_1K    64
+#define MF_BLOCKS_4K    256
+
+#define MF_SMALL_BLOCK_COUNT   4
+#define MF_4K_BIG_SECTOR_START 32
+#define MF_4K_BIG_BLOCK_COUNT  16
+#define MF_4K_BIG_BLOCK_BASE   128
+
+#define MF_TRAILER_GPB_OFFSET 9
+
+#define MF_AUTH_TIMEOUT_MS  20
+#define MF_READ_TIMEOUT_MS  30
+#define MF_WRITE_TIMEOUT_MS 20
+#define MF_PRNG_NT_ADVANCE  32
 
 static crypto1_state_t s_crypto;
 static bool s_auth = false;
@@ -200,14 +232,14 @@ static hb_nfc_err_t mf_classic_transceive_encrypted(crypto1_state_t *st,
                                                     uint8_t *rx,
                                                     size_t rx_len,
                                                     int timeout_ms) {
-  if (!st || !tx || tx_len == 0 || !rx || rx_len == 0)
+  if (st == NULL || tx == NULL || tx_len == 0 || rx == NULL || rx_len == 0)
     return HB_NFC_ERR_PARAM;
 
   const size_t tx_bits = tx_len * 9;
   const size_t rx_bits = rx_len * 9;
   const size_t tx_bytes = (tx_bits + 7U) / 8U;
   const size_t rx_bytes = (rx_bits + 7U) / 8U;
-  if (tx_bytes > 32 || rx_bytes > 32)
+  if (tx_bytes > MF_MAX_FRAME_SIZE || rx_bytes > MF_MAX_FRAME_SIZE)
     return HB_NFC_ERR_PARAM;
 
   uint8_t tx_buf[32] = {0};
@@ -287,12 +319,12 @@ static hb_nfc_err_t mf_classic_transceive_encrypted(crypto1_state_t *st,
 
 static hb_nfc_err_t mf_classic_tx_encrypted_with_ack(
     crypto1_state_t *st, const uint8_t *tx, size_t tx_len, uint8_t *ack_nibble, int timeout_ms) {
-  if (!st || !tx || tx_len == 0)
+  if (st == NULL || tx == NULL || tx_len == 0)
     return HB_NFC_ERR_PARAM;
 
   const size_t tx_bits = tx_len * 9;
   const size_t tx_bytes = (tx_bits + 7U) / 8U;
-  if (tx_bytes > 32)
+  if (tx_bytes > MF_MAX_FRAME_SIZE)
     return HB_NFC_ERR_PARAM;
 
   uint8_t tx_buf[32] = {0};
@@ -353,13 +385,13 @@ hb_nfc_err_t mf_classic_auth(uint8_t block,
                              mf_key_type_t key_type,
                              const mf_classic_key_t *key,
                              const uint8_t uid[4]) {
-  if (!key || !uid)
+  if (key == NULL || uid == NULL)
     return HB_NFC_ERR_PARAM;
   s_auth = false;
 
   uint8_t cmd[2] = {(uint8_t)key_type, block};
   uint8_t nt_raw[4] = {0};
-  int len = nfc_poller_transceive(cmd, 2, true, nt_raw, sizeof(nt_raw), 4, 20);
+  int len = nfc_poller_transceive(cmd, 2, true, nt_raw, sizeof(nt_raw), 4, MF_AUTH_TIMEOUT_MS);
   if (len < 4) {
     ESP_LOGW(TAG, "Auth: no nonce (len=%d)", len);
     return HB_NFC_ERR_AUTH;
@@ -397,7 +429,7 @@ hb_nfc_err_t mf_classic_auth(uint8_t block,
     bit_set(tx_buf, bitpos++, par);
   }
 
-  uint32_t nt_succ = crypto1_prng_successor(nt_be, 32);
+  uint32_t nt_succ = crypto1_prng_successor(nt_be, MF_PRNG_NT_ADVANCE);
   for (int i = 0; i < 4; i++) {
     nt_succ = crypto1_prng_successor(nt_succ, 8);
     uint8_t ar_byte = (uint8_t)(nt_succ & 0xFF);
@@ -437,7 +469,7 @@ hb_nfc_err_t mf_classic_auth(uint8_t block,
   }
 
   uint16_t count = 0;
-  (void)st25r3916_fifo_wait(rx_total_bytes, 20, &count);
+  (void)st25r3916_fifo_wait(rx_total_bytes, MF_AUTH_TIMEOUT_MS, &count);
   if (count < rx_total_bytes) {
     hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
     ESP_LOGW(TAG, "Auth: RX timeout (got %u need %u)", count, (unsigned)rx_total_bytes);
@@ -467,17 +499,17 @@ hb_nfc_err_t mf_classic_auth(uint8_t block,
 }
 
 hb_nfc_err_t mf_classic_read_block(uint8_t block, uint8_t data[16]) {
-  if (!data)
+  if (data == NULL)
     return HB_NFC_ERR_PARAM;
   if (!s_auth)
     return HB_NFC_ERR_AUTH;
 
-  uint8_t cmd[4] = {0x30, block, 0, 0};
+  uint8_t cmd[4] = {MF_CMD_READ, block, 0, 0};
   iso14443a_crc(cmd, 2, &cmd[2]);
 
   uint8_t rx[18] = {0};
-  hb_nfc_err_t err =
-      mf_classic_transceive_encrypted(&s_crypto, cmd, sizeof(cmd), rx, sizeof(rx), 30);
+  hb_nfc_err_t err = mf_classic_transceive_encrypted(
+      &s_crypto, cmd, sizeof(cmd), rx, sizeof(rx), MF_READ_TIMEOUT_MS);
   if (err != HB_NFC_OK) {
     ESP_LOGW(TAG, "Read block %d: transceive failed (%s)", block, hb_nfc_err_str(err));
     s_auth = false;
@@ -491,43 +523,45 @@ hb_nfc_err_t mf_classic_read_block(uint8_t block, uint8_t data[16]) {
     return HB_NFC_ERR_CRC;
   }
 
-  memcpy(data, rx, 16);
+  memcpy(data, rx, MF_BLOCK_SIZE);
   return HB_NFC_OK;
 }
 
 hb_nfc_err_t mf_classic_write_block(uint8_t block, const uint8_t data[16]) {
-  if (!data)
+  if (data == NULL)
     return HB_NFC_ERR_PARAM;
   if (!s_auth)
     return HB_NFC_ERR_AUTH;
 
-  uint8_t cmd[4] = {0xA0, block, 0, 0};
+  uint8_t cmd[4] = {MF_CMD_WRITE, block, 0, 0};
   iso14443a_crc(cmd, 2, &cmd[2]);
 
   uint8_t ack = 0;
   s_last_write_phase = MF_WRITE_PHASE_CMD;
-  hb_nfc_err_t err = mf_classic_tx_encrypted_with_ack(&s_crypto, cmd, sizeof(cmd), &ack, 20);
+  hb_nfc_err_t err =
+      mf_classic_tx_encrypted_with_ack(&s_crypto, cmd, sizeof(cmd), &ack, MF_WRITE_TIMEOUT_MS);
   if (err != HB_NFC_OK) {
     s_auth = false;
     return err;
   }
-  if ((ack & 0x0F) != 0x0A) {
+  if ((ack & MF_ACK_NIBBLE_MASK) != MF_ACK_VALUE) {
     ESP_LOGW(TAG, "Write cmd NACK (block %d): 0x%02X", block, ack);
     s_auth = false;
     return HB_NFC_ERR_NACK;
   }
 
   uint8_t frame[18];
-  memcpy(frame, data, 16);
-  iso14443a_crc(frame, 16, &frame[16]);
+  memcpy(frame, data, MF_BLOCK_SIZE);
+  iso14443a_crc(frame, MF_BLOCK_SIZE, &frame[MF_BLOCK_SIZE]);
 
   s_last_write_phase = MF_WRITE_PHASE_DATA;
-  err = mf_classic_tx_encrypted_with_ack(&s_crypto, frame, sizeof(frame), &ack, 20);
+  err =
+      mf_classic_tx_encrypted_with_ack(&s_crypto, frame, sizeof(frame), &ack, MF_WRITE_TIMEOUT_MS);
   if (err != HB_NFC_OK) {
     s_auth = false;
     return err;
   }
-  if ((ack & 0x0F) != 0x0A) {
+  if ((ack & MF_ACK_NIBBLE_MASK) != MF_ACK_VALUE) {
     ESP_LOGW(TAG, "Write data NACK (block %d): 0x%02X", block, ack);
     s_auth = false;
     return HB_NFC_ERR_NACK;
@@ -538,13 +572,13 @@ hb_nfc_err_t mf_classic_write_block(uint8_t block, const uint8_t data[16]) {
 
 mf_classic_type_t mf_classic_get_type(uint8_t sak) {
   switch (sak) {
-    case 0x09:
+    case MF_SAK_MINI:
       return MF_CLASSIC_MINI;
-    case 0x08:
+    case MF_SAK_1K:
       return MF_CLASSIC_1K;
-    case 0x88:
+    case MF_SAK_1K_INF:
       return MF_CLASSIC_1K;
-    case 0x18:
+    case MF_SAK_4K:
       return MF_CLASSIC_4K;
     default:
       return MF_CLASSIC_1K;
@@ -554,13 +588,13 @@ mf_classic_type_t mf_classic_get_type(uint8_t sak) {
 int mf_classic_get_sector_count(mf_classic_type_t type) {
   switch (type) {
     case MF_CLASSIC_MINI:
-      return 5;
+      return MF_SECTORS_MINI;
     case MF_CLASSIC_1K:
-      return 16;
+      return MF_SECTORS_1K;
     case MF_CLASSIC_4K:
-      return 40;
+      return MF_SECTORS_4K;
     default:
-      return 16;
+      return MF_SECTORS_1K;
   }
 }
 
@@ -573,7 +607,7 @@ mf_write_phase_t mf_classic_get_last_write_phase(void) {
 }
 
 void mf_classic_get_crypto_state(crypto1_state_t *out) {
-  if (!out)
+  if (out == NULL)
     return;
   memcpy(out, &s_crypto, sizeof(*out));
 }
@@ -583,14 +617,14 @@ void mf_classic_get_crypto_state(crypto1_state_t *out) {
 #include "mf_classic_writer.h"
 
 #include <string.h>
+
 #include "esp_log.h"
 
 #include "poller.h"
 #include "mf_classic.h"
 #include "nfc_poller.h"
 
-#define TAG TAG_MF_WRITE
-static const char *TAG = "mf_write";
+#define TAG "MF_WRITE"
 
 const uint8_t MF_ACCESS_BITS_DEFAULT[3] = {0xFF, 0x07, 0x80};
 const uint8_t MF_ACCESS_BITS_READ_ONLY[3] = {0x78, 0x77, 0x88};
@@ -623,7 +657,7 @@ static bool mf_classic_access_bit_is_valid(uint8_t v) {
 }
 
 bool mf_classic_access_bits_encode(const mf_classic_access_bits_t *ac, uint8_t out_access_bits[3]) {
-  if (!ac || !out_access_bits)
+  if (ac == NULL || out_access_bits == NULL)
     return false;
 
   uint8_t b6 = 0;
@@ -663,7 +697,7 @@ bool mf_classic_access_bits_encode(const mf_classic_access_bits_t *ac, uint8_t o
 }
 
 bool mf_classic_access_bits_valid(const uint8_t access_bits[3]) {
-  if (!access_bits)
+  if (access_bits == NULL)
     return false;
 
   uint8_t b6 = access_bits[0];
@@ -687,26 +721,26 @@ bool mf_classic_access_bits_valid(const uint8_t access_bits[3]) {
 static inline int mf_classic_total_blocks(mf_classic_type_t type) {
   switch (type) {
     case MF_CLASSIC_MINI:
-      return 20;
+      return MF_BLOCKS_MINI;
     case MF_CLASSIC_1K:
-      return 64;
+      return MF_BLOCKS_1K;
     case MF_CLASSIC_4K:
-      return 256;
+      return MF_BLOCKS_4K;
     default:
-      return 64;
+      return MF_BLOCKS_1K;
   }
 }
 
 static inline int mf_classic_sector_block_count(mf_classic_type_t type, int sector) {
-  if (type == MF_CLASSIC_4K && sector >= 32)
-    return 16;
-  return 4;
+  if (type == MF_CLASSIC_4K && sector >= MF_4K_BIG_SECTOR_START)
+    return MF_4K_BIG_BLOCK_COUNT;
+  return MF_SMALL_BLOCK_COUNT;
 }
 
 static inline int mf_classic_sector_first_block(mf_classic_type_t type, int sector) {
-  if (type == MF_CLASSIC_4K && sector >= 32)
-    return 128 + (sector - 32) * 16;
-  return sector * 4;
+  if (type == MF_CLASSIC_4K && sector >= MF_4K_BIG_SECTOR_START)
+    return MF_4K_BIG_BLOCK_BASE + (sector - MF_4K_BIG_SECTOR_START) * MF_4K_BIG_BLOCK_COUNT;
+  return sector * MF_SMALL_BLOCK_COUNT;
 }
 
 static inline int mf_classic_sector_trailer_block(mf_classic_type_t type, int sector) {
@@ -715,9 +749,9 @@ static inline int mf_classic_sector_trailer_block(mf_classic_type_t type, int se
 }
 
 static inline int mf_classic_block_to_sector(mf_classic_type_t type, int block) {
-  if (type == MF_CLASSIC_4K && block >= 128)
-    return 32 + (block - 128) / 16;
-  return block / 4;
+  if (type == MF_CLASSIC_4K && block >= MF_4K_BIG_BLOCK_BASE)
+    return MF_4K_BIG_SECTOR_START + (block - MF_4K_BIG_BLOCK_BASE) / MF_4K_BIG_BLOCK_COUNT;
+  return block / MF_SMALL_BLOCK_COUNT;
 }
 
 static inline bool mf_classic_is_trailer_block(mf_classic_type_t type, int block) {
@@ -745,7 +779,7 @@ mf_write_result_t mf_classic_write(nfc_iso14443a_data_t *card,
                                    mf_key_type_t key_type,
                                    bool verify,
                                    bool allow_special) {
-  if (!card || !data || !key)
+  if (card == NULL || data == NULL || key == NULL)
     return MF_WRITE_ERR_PARAM;
 
   mf_classic_type_t type = mf_classic_get_type(card->sak);
@@ -769,7 +803,7 @@ mf_write_result_t mf_classic_write(nfc_iso14443a_data_t *card,
   }
 
   mf_classic_key_t k;
-  memcpy(k.data, key, 6);
+  memcpy(k.data, key, MF_KEY_LEN);
 
   err = mf_classic_auth(block, key_type, &k, card->uid);
   if (err != HB_NFC_OK) {
@@ -792,10 +826,10 @@ mf_write_result_t mf_classic_write(nfc_iso14443a_data_t *card,
       ESP_LOGW(TAG, "Verify: read failed (block %d)", block);
       return MF_WRITE_ERR_VERIFY;
     }
-    if (memcmp(data, readback, 16) != 0) {
+    if (memcmp(data, readback, MF_BLOCK_SIZE) != 0) {
       ESP_LOGE(TAG, "Verify: read data mismatch (block %d)!", block);
-      ESP_LOG_BUFFER_HEX("expected", data, 16);
-      ESP_LOG_BUFFER_HEX("readback", readback, 16);
+      ESP_LOG_BUFFER_HEX("expected", data, MF_BLOCK_SIZE);
+      ESP_LOG_BUFFER_HEX("readback", readback, MF_BLOCK_SIZE);
       return MF_WRITE_ERR_VERIFY;
     }
     ESP_LOGI(TAG, "Block %d verified", block);
@@ -810,7 +844,7 @@ int mf_classic_write_sector(nfc_iso14443a_data_t *card,
                             const uint8_t key[6],
                             mf_key_type_t key_type,
                             bool verify) {
-  if (!card || !data || !key)
+  if (card == NULL || data == NULL || key == NULL)
     return -1;
 
   mf_classic_type_t type = mf_classic_get_type(card->sak);
@@ -833,7 +867,7 @@ int mf_classic_write_sector(nfc_iso14443a_data_t *card,
   }
 
   mf_classic_key_t k;
-  memcpy(k.data, key, 6);
+  memcpy(k.data, key, MF_KEY_LEN);
 
   err = mf_classic_auth(fb, key_type, &k, card->uid);
   if (err != HB_NFC_OK) {
@@ -844,7 +878,7 @@ int mf_classic_write_sector(nfc_iso14443a_data_t *card,
   int written = 0;
   for (int b = 0; b < data_blocks; b++) {
     uint8_t block = (uint8_t)(fb + b);
-    const uint8_t *block_data = data + (b * 16);
+    const uint8_t *block_data = data + (b * MF_BLOCK_SIZE);
 
     mf_write_result_t wres = mf_classic_write_block_raw(block, block_data);
     if (wres != MF_WRITE_OK) {
@@ -870,7 +904,7 @@ int mf_classic_write_sector(nfc_iso14443a_data_t *card,
 
       uint8_t readback[16] = {0};
       err = mf_classic_read_block(block, readback);
-      if (err != HB_NFC_OK || memcmp(block_data, readback, 16) != 0) {
+      if (err != HB_NFC_OK || memcmp(block_data, readback, MF_BLOCK_SIZE) != 0) {
         ESP_LOGE(TAG, "Verify failed on block %d!", block);
         return written;
       }
@@ -907,16 +941,16 @@ void mf_classic_build_trailer(const uint8_t key_a[6],
                               const uint8_t key_b[6],
                               const uint8_t access_bits[3],
                               uint8_t out_trailer[16]) {
-  memcpy(out_trailer, key_a, 6);
+  memcpy(out_trailer, key_a, MF_KEY_LEN);
 
   const uint8_t *ac = access_bits ? access_bits : MF_ACCESS_BITS_DEFAULT;
   out_trailer[6] = ac[0];
   out_trailer[7] = ac[1];
   out_trailer[8] = ac[2];
 
-  out_trailer[9] = 0x00;
+  out_trailer[MF_TRAILER_GPB_OFFSET] = 0x00;
 
-  memcpy(&out_trailer[10], key_b, 6);
+  memcpy(&out_trailer[MF_TRAILER_GPB_OFFSET + 1], key_b, MF_KEY_LEN);
 }
 
 bool mf_classic_build_trailer_safe(const uint8_t key_a[6],
@@ -924,7 +958,7 @@ bool mf_classic_build_trailer_safe(const uint8_t key_a[6],
                                    const mf_classic_access_bits_t *ac,
                                    uint8_t gpb,
                                    uint8_t out_trailer[16]) {
-  if (!key_a || !key_b || !ac || !out_trailer)
+  if (key_a == NULL || key_b == NULL || ac == NULL || !out_trailer)
     return false;
 
   uint8_t access_bits[3];
@@ -933,28 +967,37 @@ bool mf_classic_build_trailer_safe(const uint8_t key_a[6],
   if (!mf_classic_access_bits_valid(access_bits))
     return false;
 
-  memcpy(out_trailer, key_a, 6);
+  memcpy(out_trailer, key_a, MF_KEY_LEN);
   out_trailer[6] = access_bits[0];
   out_trailer[7] = access_bits[1];
   out_trailer[8] = access_bits[2];
-  out_trailer[9] = gpb;
-  memcpy(&out_trailer[10], key_b, 6);
+  out_trailer[MF_TRAILER_GPB_OFFSET] = gpb;
+  memcpy(&out_trailer[MF_TRAILER_GPB_OFFSET + 1], key_b, MF_KEY_LEN);
   return true;
 }
 
 #undef TAG
 
 #include "mf_ultralight.h"
-#include "nfc_poller.h"
-#include "nfc_common.h"
-#include "hb_nfc_timer.h"
 
 #include "esp_log.h"
 #include "esp_random.h"
 #include "mbedtls/des.h"
 
-#define TAG TAG_MF_UL
-static const char *TAG = "mful";
+#include "nfc_poller.h"
+#include "nfc_common.h"
+#include "hb_nfc_timer.h"
+
+#define TAG "MF_UL"
+
+#define MFUL_CMD_READ         0x30
+#define MFUL_CMD_WRITE        0xA2
+#define MFUL_CMD_GET_VERSION  0x60
+#define MFUL_CMD_PWD_AUTH     0x1B
+#define MFUL_CMD_ULC_AUTH     0x1A
+#define MFUL_TIMEOUT_MS       30
+#define MFUL_WRITE_TIMEOUT_MS 20
+#define MFUL_AUTH_DELAY_US    500
 
 static void ulc_random(uint8_t *out, size_t len) {
   for (size_t i = 0; i < len; i += 4) {
@@ -976,62 +1019,68 @@ static void rotate_left_8(uint8_t *out, const uint8_t *in) {
   out[7] = in[0];
 }
 
-static bool des3_cbc_crypt(bool encrypt,
-                           const uint8_t key[16],
-                           const uint8_t iv_in[8],
-                           const uint8_t *in,
-                           size_t len,
-                           uint8_t *out,
-                           uint8_t iv_out[8]) {
-  if ((len % 8) != 0 || !key || !iv_in || !in || !out)
+/**
+ * @brief Parameters for des3_cbc_crypt().
+ */
+typedef struct {
+  bool encrypt;         /**< @brief true for encrypt, false for decrypt. */
+  const uint8_t *key;   /**< @brief 16-byte 2-key 3DES key. */
+  const uint8_t *iv_in; /**< @brief 8-byte input IV. */
+  uint8_t *iv_out;      /**< @brief 8-byte output IV (NULL to discard). */
+} des3_cbc_params_t;
+
+static bool
+des3_cbc_crypt(const des3_cbc_params_t *p, const uint8_t *in, size_t len, uint8_t *out) {
+  if (p == NULL || (len % 8) != 0 || !p->key || p->iv_in == NULL || in == NULL || out == NULL)
     return false;
 
   mbedtls_des3_context ctx;
   mbedtls_des3_init(&ctx);
-  int rc = encrypt ? mbedtls_des3_set2key_enc(&ctx, key) : mbedtls_des3_set2key_dec(&ctx, key);
+  int rc =
+      p->encrypt ? mbedtls_des3_set2key_enc(&ctx, p->key) : mbedtls_des3_set2key_dec(&ctx, p->key);
   if (rc != 0) {
     mbedtls_des3_free(&ctx);
     return false;
   }
 
   uint8_t iv[8];
-  memcpy(iv, iv_in, 8);
+  memcpy(iv, p->iv_in, 8);
   rc = mbedtls_des3_crypt_cbc(
-      &ctx, encrypt ? MBEDTLS_DES_ENCRYPT : MBEDTLS_DES_DECRYPT, len, iv, in, out);
-  if (iv_out)
-    memcpy(iv_out, iv, 8);
+      &ctx, p->encrypt ? MBEDTLS_DES_ENCRYPT : MBEDTLS_DES_DECRYPT, len, iv, in, out);
+  if (p->iv_out)
+    memcpy(p->iv_out, iv, 8);
   mbedtls_des3_free(&ctx);
   return rc == 0;
 }
 
 int mful_read_pages(uint8_t page, uint8_t out[18]) {
-  uint8_t cmd[2] = {0x30, page};
-  return nfc_poller_transceive(cmd, 2, true, out, 18, 1, 30);
+  uint8_t cmd[2] = {MFUL_CMD_READ, page};
+  return nfc_poller_transceive(cmd, 2, true, out, 18, 1, MFUL_TIMEOUT_MS);
 }
 
 hb_nfc_err_t mful_write_page(uint8_t page, const uint8_t data[4]) {
-  uint8_t cmd[6] = {0xA2, page, data[0], data[1], data[2], data[3]};
+  uint8_t cmd[6] = {MFUL_CMD_WRITE, page, data[0], data[1], data[2], data[3]};
   uint8_t rx[4] = {0};
-  int len = nfc_poller_transceive(cmd, 6, true, rx, 4, 1, 20);
+  int len = nfc_poller_transceive(cmd, 6, true, rx, 4, 1, MFUL_WRITE_TIMEOUT_MS);
 
-  if (len >= 1 && (rx[0] & 0x0F) == 0x0A)
+  if (len >= 1 && (rx[0] & MF_ACK_NIBBLE_MASK) == MF_ACK_VALUE)
     return HB_NFC_OK;
   return HB_NFC_ERR_NACK;
 }
 
 int mful_get_version(uint8_t out[8]) {
-  uint8_t cmd[1] = {0x60};
-  return nfc_poller_transceive(cmd, 1, true, out, 8, 1, 20);
+  uint8_t cmd[1] = {MFUL_CMD_GET_VERSION};
+  return nfc_poller_transceive(cmd, 1, true, out, 8, 1, MFUL_WRITE_TIMEOUT_MS);
 }
 
 int mful_pwd_auth(const uint8_t pwd[4], uint8_t pack[2]) {
-  uint8_t cmd[5] = {0x1B, pwd[0], pwd[1], pwd[2], pwd[3]};
+  uint8_t cmd[5] = {MFUL_CMD_PWD_AUTH, pwd[0], pwd[1], pwd[2], pwd[3]};
   uint8_t rx[4] = {0};
-  int len = nfc_poller_transceive(cmd, 5, true, rx, 4, 2, 20);
+  int len = nfc_poller_transceive(cmd, 5, true, rx, 4, 2, MFUL_WRITE_TIMEOUT_MS);
   if (len >= 2) {
     pack[0] = rx[0];
     pack[1] = rx[1];
-    hb_nfc_timer_delay_us(500);
+    hb_nfc_timer_delay_us(MFUL_AUTH_DELAY_US);
   }
   return len;
 }
@@ -1040,9 +1089,9 @@ hb_nfc_err_t mful_ulc_auth(const uint8_t key[16]) {
   if (!key)
     return HB_NFC_ERR_PARAM;
 
-  uint8_t cmd = 0x1A;
+  uint8_t cmd = MFUL_CMD_ULC_AUTH;
   uint8_t rx[16] = {0};
-  int len = nfc_poller_transceive(&cmd, 1, true, rx, sizeof(rx), 1, 30);
+  int len = nfc_poller_transceive(&cmd, 1, true, rx, sizeof(rx), 1, MFUL_TIMEOUT_MS);
   if (len < 8)
     return HB_NFC_ERR_PROTOCOL;
 
@@ -1052,7 +1101,11 @@ hb_nfc_err_t mful_ulc_auth(const uint8_t key[16]) {
   uint8_t rndb[8];
   uint8_t iv0[8] = {0};
   uint8_t iv1[8] = {0};
-  if (!des3_cbc_crypt(false, key, iv0, enc_rndb, 8, rndb, iv1)) {
+  if (!des3_cbc_crypt(
+          &(des3_cbc_params_t){.encrypt = false, .key = key, .iv_in = iv0, .iv_out = iv1},
+          enc_rndb,
+          8,
+          rndb)) {
     return HB_NFC_ERR_INTERNAL;
   }
 
@@ -1067,7 +1120,11 @@ hb_nfc_err_t mful_ulc_auth(const uint8_t key[16]) {
   memcpy(&plain[8], rndb_rot, 8);
 
   uint8_t enc2[16];
-  if (!des3_cbc_crypt(true, key, iv1, plain, sizeof(plain), enc2, NULL)) {
+  if (!des3_cbc_crypt(
+          &(des3_cbc_params_t){.encrypt = true, .key = key, .iv_in = iv1, .iv_out = NULL},
+          plain,
+          sizeof(plain),
+          enc2)) {
     return HB_NFC_ERR_INTERNAL;
   }
 
@@ -1083,7 +1140,11 @@ hb_nfc_err_t mful_ulc_auth(const uint8_t key[16]) {
   memcpy(iv2, &enc2[8], 8);
 
   uint8_t rnda_rot_dec[8];
-  if (!des3_cbc_crypt(false, key, iv2, enc_rnda_rot, 8, rnda_rot_dec, NULL)) {
+  if (!des3_cbc_crypt(
+          &(des3_cbc_params_t){.encrypt = false, .key = key, .iv_in = iv2, .iv_out = NULL},
+          enc_rnda_rot,
+          8,
+          rnda_rot_dec)) {
     return HB_NFC_ERR_INTERNAL;
   }
 
@@ -1139,9 +1200,11 @@ int mful_read_all(uint8_t *data, int max_pages) {
  *   Time: ~2-10 s on ESP32-P4.
  */
 #include "mfkey.h"
-#include "crypto1.h"
+
 #include <stdlib.h>
 #include <string.h>
+
+#include "crypto1.h"
 
 /* ---- local macros (crypto1 section #undef's these) ---- */
 #define MK_BIT(x, n)   (((x) >> (n)) & 1U)
@@ -1266,17 +1329,15 @@ bool mfkey32(uint32_t uid,
              uint32_t nr1,
              uint32_t ar1,
              uint64_t *key) {
-  if (!key)
+  if (key == NULL)
     return false;
 
-  /* Known 32-bit keystream at position 64 for each session. */
   uint32_t ks2_0 = ar0 ^ crypto1_prng_successor(nt0, 64);
   uint32_t ks2_1 = ar1 ^ crypto1_prng_successor(nt1, 64);
 
-  /* Allocate candidate lists. */
   uint32_t *odd_cands = malloc(sizeof(uint32_t) * MFKEY_MAX_CANDS);
   uint32_t *even_cands = malloc(sizeof(uint32_t) * MFKEY_MAX_CANDS);
-  if (!odd_cands || !even_cands) {
+  if (odd_cands == NULL || even_cands == NULL) {
     free(odd_cands);
     free(even_cands);
     return false;

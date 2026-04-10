@@ -27,38 +27,57 @@ extern "C" {
 #endif
 
 /**
- * READ (cmd 0x30) reads 4 pages (16 bytes) starting at page.
- * Returns bytes received (16 expected + 2 CRC = 18), 0 on fail.
+ * @brief Read 4 pages (16 bytes) starting at the given page (cmd 0x30).
+ *
+ * @param page     Starting page number.
+ * @param[out] out Buffer for 18 bytes (16 data + 2 CRC).
+ * @return Number of bytes received (18 expected), or 0 on failure.
  */
 int mful_read_pages(uint8_t page, uint8_t out[18]);
 
 /**
- * WRITE (cmd 0xA2) writes 4 bytes to one page.
+ * @brief Write 4 bytes to one page (cmd 0xA2).
+ *
+ * @param page  Page number to write.
+ * @param data  4 bytes to write.
+ * @return
+ *   - HB_NFC_OK on success
+ *   - Error code on failure
  */
 hb_nfc_err_t mful_write_page(uint8_t page, const uint8_t data[4]);
 
 /**
- * GET_VERSION (cmd 0x60) returns 8 bytes (NTAG).
+ * @brief Get version information (cmd 0x60, NTAG only).
+ *
+ * @param[out] out  Buffer for 8 bytes of version data.
+ * @return Number of bytes received (8 expected), or 0 on failure.
  */
 int mful_get_version(uint8_t out[8]);
 
 /**
- * PWD_AUTH (cmd 0x1B) authenticate with 4-byte password.
- * Returns PACK (2 bytes) on success.
+ * @brief Authenticate with a 4-byte password (cmd 0x1B).
+ *
+ * @param pwd       4-byte password.
+ * @param[out] pack 2-byte PACK on success.
+ * @return Number of bytes received (2 expected), or 0 on failure.
  */
 int mful_pwd_auth(const uint8_t pwd[4], uint8_t pack[2]);
 
 /**
- * AUTH (cmd 0x1A) MIFARE Ultralight C 3DES mutual authentication.
- * @param key 16-byte (2-key) 3DES key.
- * @return HB_NFC_OK on success.
+ * @brief Perform MIFARE Ultralight C 3DES mutual authentication (cmd 0x1A).
+ *
+ * @param key  16-byte (2-key) 3DES key.
+ * @return
+ *   - HB_NFC_OK on success
+ *   - Error code on failure
  */
 hb_nfc_err_t mful_ulc_auth(const uint8_t key[16]);
 
 /**
- * READ all pages of an Ultralight/NTAG card.
- * @param data Output buffer (must be large enough).
- * @param max_pages Maximum number of pages to read.
+ * @brief Read all pages of an Ultralight/NTAG card.
+ *
+ * @param[out] data  Output buffer (must be large enough for max_pages * 4 bytes).
+ * @param max_pages  Maximum number of pages to read.
  * @return Number of pages read.
  */
 int mful_read_all(uint8_t *data, int max_pages);
