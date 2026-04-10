@@ -26,25 +26,50 @@
 extern "C" {
 #endif
 
+/**
+ * @brief NFC-B emulation card profile.
+ */
 typedef struct {
-  uint8_t pupi[4];
-  uint8_t app_data[4];
-  uint8_t prot_info[3];
+  uint8_t pupi[4];      /**< Pseudo-Unique PICC Identifier. */
+  uint8_t app_data[4];  /**< Application Data from ATQB. */
+  uint8_t prot_info[3]; /**< Protocol Info from ATQB. */
 } iso14443b_emu_card_t;
 
-/** Initialize default ATQB + T4T NDEF. */
+/**
+ * @brief Initialize default ATQB and T4T NDEF payload.
+ *
+ * @return
+ *   - HB_NFC_OK on success
+ *   - HB_NFC_ERR_IO on communication failure
+ */
 hb_nfc_err_t iso14443b_emu_init_default(void);
 
-/** Configure ST25R3916 as NFC-B target (ISO14443-3B). */
+/**
+ * @brief Configure ST25R3916 as NFC-B target (ISO14443-3B).
+ *
+ * @return
+ *   - HB_NFC_OK on success
+ *   - HB_NFC_ERR_IO on communication failure
+ */
 hb_nfc_err_t iso14443b_emu_configure_target(void);
 
-/** Start emulation (enter SLEEP). */
+/**
+ * @brief Start emulation (enter SLEEP state).
+ *
+ * @return
+ *   - HB_NFC_OK on success
+ *   - HB_NFC_ERR_IO on communication failure
+ */
 hb_nfc_err_t iso14443b_emu_start(void);
 
-/** Stop emulation. */
+/**
+ * @brief Stop emulation and power down.
+ */
 void iso14443b_emu_stop(void);
 
-/** Run one emulation step (call in tight loop). */
+/**
+ * @brief Run one emulation step (call in tight loop).
+ */
 void iso14443b_emu_run_step(void);
 
 #ifdef __cplusplus
