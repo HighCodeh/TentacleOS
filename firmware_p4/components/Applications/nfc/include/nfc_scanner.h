@@ -11,13 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-/**
- * @file nfc_scanner.h
- * @brief NFC Scanner auto-detect card technology (Phase 8).
- *
- * Probes NFC-A NFC-B NFC-F NFC-V in sequence.
- * Reports detected protocol(s) via callback.
- */
+
 #ifndef NFC_SCANNER_H
 #define NFC_SCANNER_H
 
@@ -35,8 +29,8 @@ extern "C" {
  * @brief Scanner event containing detected protocols.
  */
 typedef struct {
-  hb_nfc_protocol_t protocols[NFC_SCANNER_MAX_PROTOCOLS];
-  uint8_t count;
+  hb_nfc_protocol_t protocols[NFC_SCANNER_MAX_PROTOCOLS]; /**< @brief Detected protocol list. */
+  uint8_t count; /**< @brief Number of detected protocols. */
 } nfc_scanner_event_t;
 
 /**
@@ -69,7 +63,10 @@ void nfc_scanner_free(nfc_scanner_t *s);
  * @param s   Scanner instance.
  * @param cb  Callback for detected protocols.
  * @param ctx User context.
- * @return HB_NFC_OK on success.
+ * @return
+ *   - HB_NFC_OK on success
+ *   - HB_NFC_ERR_INVALID_ARG if s or cb is NULL
+ *   - HB_NFC_ERR_INTERNAL on hardware failure
  */
 hb_nfc_err_t nfc_scanner_start(nfc_scanner_t *s, nfc_scanner_cb_t cb, void *ctx);
 

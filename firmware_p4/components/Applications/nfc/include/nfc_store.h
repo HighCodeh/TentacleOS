@@ -11,23 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-/**
- * @file nfc_store.h
- * @brief Generic NFC card dump storage (protocol-agnostic NVS persistence).
- *
- * NVS namespace: "nfc_store"
- *   "cnt"   u8     -- number of stored entries
- *   "n_N"   string -- entry N name
- *   "p_N"   u8     -- entry N protocol (hb_nfc_protocol_t)
- *   "u_N"   blob   -- entry N UID (uid_len bytes)
- *   "a_N"   blob   -- entry N ATQA (2 bytes) + SAK (1 byte)
- *   "d_N"   blob   -- entry N payload (protocol-specific dump)
- *
- * Payload formats:
- *   HB_PROTO_MF_ULTRALIGHT: [version:8][page_count:2LE][pages: page_count*4]
- *   HB_PROTO_ISO15693:      [dsfid:1][block_size:1][block_count:2LE][blocks...]
- *   Others:                 raw blob (e.g., ATS, or just uid/atqa for reference)
- */
+
 #ifndef NFC_STORE_H
 #define NFC_STORE_H
 
@@ -48,27 +32,60 @@ extern "C" {
 #define NFC_STORE_PAYLOAD_MAX 2048
 
 /**
+ * @brief Card parameters for nfc_store_save().
+ */
+typedef struct {
+  const char *name;           /**< @brief Entry name. */
+  hb_nfc_protocol_t protocol; /**< @brief NFC protocol type. */
+  const uint8_t *uid;         /**< @brief Card UID bytes. */
+  uint8_t uid_len;            /**< @brief UID length in bytes. */
+  const uint8_t atqa[2];      /**< @brief ATQA bytes. */
+  uint8_t sak;                /**< @brief SAK byte. */
+  const uint8_t *payload;     /**< @brief Protocol-specific payload. */
+  size_t payload_len;         /**< @brief Payload length in bytes. */
+} nfc_store_card_t;
+
+/**
+ * @brief Input parameters for nfc_store_pack_mful().
+ */
+typedef struct {
+  const uint8_t *version; /**< @brief Version bytes (8 bytes). */
+  const uint8_t *pages;   /**< @brief Page data. */
+  uint16_t page_count;    /**< @brief Number of pages. */
+} nfc_mful_pack_t;
+
+/**
+ * @brief Output parameters for nfc_store_unpack_mful().
+ */
+typedef struct {
+  uint8_t *version;     /**< @brief Version bytes output (8 bytes). */
+  uint8_t *pages;       /**< @brief Page data output buffer. */
+  uint16_t *page_count; /**< @brief Number of pages unpacked. */
+  uint16_t pages_max;   /**< @brief Maximum pages output buffer size. */
+} nfc_mful_unpack_t;
+
+/**
  * @brief Full store entry with payload data.
  */
 typedef struct {
-  char name[NFC_STORE_NAME_MAX];
-  hb_nfc_protocol_t protocol;
-  uint8_t uid[10];
-  uint8_t uid_len;
-  uint8_t atqa[2];
-  uint8_t sak;
-  size_t payload_len;
-  uint8_t payload[NFC_STORE_PAYLOAD_MAX];
+  char name[NFC_STORE_NAME_MAX];          /**< @brief Entry name. */
+  hb_nfc_protocol_t protocol;             /**< @brief NFC protocol type. */
+  uint8_t uid[10];                        /**< @brief Card UID bytes. */
+  uint8_t uid_len;                        /**< @brief UID length in bytes. */
+  uint8_t atqa[2];                        /**< @brief ATQA bytes. */
+  uint8_t sak;                            /**< @brief SAK byte. */
+  size_t payload_len;                     /**< @brief Payload length in bytes. */
+  uint8_t payload[NFC_STORE_PAYLOAD_MAX]; /**< @brief Protocol-specific payload. */
 } nfc_store_entry_t;
 
 /**
  * @brief Light info struct (no payload, for listing).
  */
 typedef struct {
-  char name[NFC_STORE_NAME_MAX];
-  hb_nfc_protocol_t protocol;
-  uint8_t uid[10];
-  uint8_t uid_len;
+  char name[NFC_STORE_NAME_MAX]; /**< @brief Entry name. */
+  hb_nfc_protocol_t protocol;    /**< @brief NFC protocol type. */
+  uint8_t uid[10];               /**< @brief Card UID bytes. */
+  uint8_t uid_len;               /**< @brief UID length in bytes. */
 } nfc_store_info_t;
 
 /**
@@ -86,48 +103,44 @@ int nfc_store_count(void);
 /**
  * @brief Save an NFC card entry to storage.
  *
- * @param name        Entry name.
- * @param protocol    Protocol type.
- * @param uid         UID bytes.
- * @param uid_len     UID length.
- * @param atqa        ATQA bytes (2 bytes).
- * @param sak         SAK byte.
- * @param payload     Protocol-specific payload.
- * @param payload_len Payload length.
- * @return HB_NFC_OK on success.
+ * @param card  Card parameters to save.
+ * @return
+ *   - HB_NFC_OK on success
+ *   - HB_NFC_ERR_INVALID_ARG if card, name, or uid is NULL
+ *   - HB_NFC_ERR_NO_MEM if storage is full
+ *   - HB_NFC_ERR_INTERNAL on NVS write failure
  */
-hb_nfc_err_t nfc_store_save(const char *name,
-                            hb_nfc_protocol_t protocol,
-                            const uint8_t *uid,
-                            uint8_t uid_len,
-                            const uint8_t atqa[2],
-                            uint8_t sak,
-                            const uint8_t *payload,
-                            size_t payload_len);
+hb_nfc_err_t nfc_store_save(const nfc_store_card_t *card);
 
 /**
  * @brief Load a full entry by index.
  *
- * @param index Entry index.
- * @param out   Output entry.
- * @return HB_NFC_OK on success.
+ * @param      index Entry index.
+ * @param[out] out   Loaded entry data.
+ * @return
+ *   - HB_NFC_OK on success
+ *   - HB_NFC_ERR_INVALID_ARG if out is NULL or index is out of range
+ *   - HB_NFC_ERR_NOT_FOUND if entry does not exist
  */
 hb_nfc_err_t nfc_store_load(int index, nfc_store_entry_t *out);
 
 /**
  * @brief Get lightweight info for an entry.
  *
- * @param index Entry index.
- * @param out   Output info.
- * @return HB_NFC_OK on success.
+ * @param      index Entry index.
+ * @param[out] out   Lightweight entry info.
+ * @return
+ *   - HB_NFC_OK on success
+ *   - HB_NFC_ERR_INVALID_ARG if out is NULL or index is out of range
+ *   - HB_NFC_ERR_NOT_FOUND if entry does not exist
  */
 hb_nfc_err_t nfc_store_get_info(int index, nfc_store_info_t *out);
 
 /**
  * @brief List all stored entry infos.
  *
- * @param infos Output array.
- * @param max   Maximum entries.
+ * @param[out] infos Output array.
+ * @param      max   Maximum entries to fill.
  * @return Number of entries listed.
  */
 int nfc_store_list(nfc_store_info_t *infos, int max);
@@ -136,53 +149,47 @@ int nfc_store_list(nfc_store_info_t *infos, int max);
  * @brief Delete an entry by index.
  *
  * @param index Entry index.
- * @return HB_NFC_OK on success.
+ * @return
+ *   - HB_NFC_OK on success
+ *   - HB_NFC_ERR_INVALID_ARG if index is out of range
+ *   - HB_NFC_ERR_NOT_FOUND if entry does not exist
  */
 hb_nfc_err_t nfc_store_delete(int index);
 
 /**
  * @brief Find an entry by UID.
  *
- * @param uid       UID bytes.
- * @param uid_len   UID length.
- * @param index_out Output: matching index.
- * @return HB_NFC_OK on success.
+ * @param      uid       UID bytes.
+ * @param      uid_len   UID length.
+ * @param[out] index_out Matching entry index.
+ * @return
+ *   - HB_NFC_OK on success
+ *   - HB_NFC_ERR_INVALID_ARG if uid or index_out is NULL
+ *   - HB_NFC_ERR_NOT_FOUND if no matching entry exists
  */
 hb_nfc_err_t nfc_store_find_by_uid(const uint8_t *uid, uint8_t uid_len, int *index_out);
 
 /**
  * @brief Build NTAG/Ultralight payload from version + pages.
  *
- * @param version    Version bytes (8 bytes).
- * @param pages      Page data.
- * @param page_count Number of pages.
- * @param out        Output buffer.
- * @param out_max    Output buffer size.
- * @return Packed payload size.
+ * @param      in      Input pack parameters (version, pages, page_count).
+ * @param[out] out     Output buffer for packed payload.
+ * @param      out_max Output buffer size.
+ * @return Packed payload size in bytes, or 0 on failure.
  */
-size_t nfc_store_pack_mful(const uint8_t version[8],
-                           const uint8_t *pages,
-                           uint16_t page_count,
-                           uint8_t *out,
-                           size_t out_max);
+size_t nfc_store_pack_mful(const nfc_mful_pack_t *in, uint8_t *out, size_t out_max);
 
 /**
  * @brief Unpack NTAG/Ultralight payload.
  *
- * @param payload        Packed payload.
- * @param payload_len    Payload length.
- * @param version_out    Output: version bytes (8 bytes).
- * @param pages_out      Output: page data.
- * @param page_count_out Output: number of pages.
- * @param pages_out_max  Maximum pages output buffer.
- * @return true on success.
+ * @param      payload     Packed payload.
+ * @param      payload_len Payload length.
+ * @param[out] out         Output parameters (version, pages, page_count, pages_max).
+ * @return
+ *   - true on success
+ *   - false if payload is malformed or buffer too small
  */
-bool nfc_store_unpack_mful(const uint8_t *payload,
-                           size_t payload_len,
-                           uint8_t version_out[8],
-                           uint8_t *pages_out,
-                           uint16_t *page_count_out,
-                           uint16_t pages_out_max);
+bool nfc_store_unpack_mful(const uint8_t *payload, size_t payload_len, nfc_mful_unpack_t *out);
 
 #ifdef __cplusplus
 }

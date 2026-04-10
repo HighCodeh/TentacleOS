@@ -11,10 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-/**
- * @file emu_diag.h
- * @brief Emulation Diagnostics Debug helper for ST25R3916 target mode.
- */
+
 #ifndef EMU_DIAG_H
 #define EMU_DIAG_H
 
@@ -30,6 +27,11 @@ extern "C" {
  *
  * Tests field detection, multiple configs, PT Memory, oscillator.
  * Takes ~60 seconds. Share the FULL serial output!
+ *
+ * @return
+ *   - HB_NFC_OK on success
+ *   - HB_NFC_ERR_COMM on communication failure
+ *   - HB_NFC_ERR_INTERNAL on hardware error
  */
 hb_nfc_err_t emu_diag_full(void);
 

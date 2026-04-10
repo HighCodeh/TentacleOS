@@ -11,10 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-/**
- * @file nfc_reader.h
- * @brief MIFARE Classic/Ultralight read helpers.
- */
+
 #ifndef NFC_READER_H
 #define NFC_READER_H
 
@@ -26,7 +23,10 @@ extern "C" {
 #include "highboy_nfc_compat.h"
 #include "mf_classic_emu.h"
 
+/** @brief Global emulation card data populated by mf_classic_read_full(). */
 extern mfc_emu_card_data_t s_emu_card;
+
+/** @brief true when s_emu_card contains valid data from a completed read. */
 extern bool s_is_emu_data_ready;
 
 /**

@@ -11,32 +11,20 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-/*
- * Serialization format (binary blob):
- *  [0] uid_len (1 byte)
- *  [1..10] uid (10 bytes, padded)
- *  [11..12] atqa (2 bytes)
- *  [13] sak (1 byte)
- *  [14] type (1 byte)
- *  [15..16] sector_count (2 bytes LE)
- *  [17..18] total_blocks (2 bytes LE)
- *  [19..] keys: for each sector (sector_count):
- *  key_a[6] + key_b[6] + key_a_known(1) + key_b_known(1) = 14 bytes
- *  [...] blocks: total_blocks 16 bytes
- *
- * Total for MFC 1K: 19 + 16*14 + 64*16 = 19 + 224 + 1024 = 1267 bytes
- * Total for MFC 4K: 19 + 40*14 + 256*16 = 19 + 560 + 4096 = 4675 bytes
- */
-#include "nfc_device.h"
-#include "nfc_store.h"
-#include <string.h>
-#include "esp_log.h"
-#include "nvs_flash.h"
-#include "nvs.h"
-#include "mf_key_dict.h"
-#include "mf_key_cache.h"
 
-static const char *TAG = "nfc_dev";
+#include "nfc_device.h"
+
+#include <string.h>
+
+#include "esp_log.h"
+#include "nvs.h"
+#include "nvs_flash.h"
+
+#include "mf_key_cache.h"
+#include "mf_key_dict.h"
+#include "nfc_store.h"
+
+static const char *TAG = "NFC_DEVICE";
 
 #define SERIALIZE_HEADER_SIZE 19
 #define SERIALIZE_KEY_SIZE    14
@@ -471,13 +459,13 @@ int nfc_device_get_active(void) {
 hb_nfc_err_t nfc_device_save_generic(const char *name, const hb_nfc_card_data_t *card) {
   (void)name;
   (void)card;
-  return HB_NFC_ERR_INTERNAL; /* deferred - nfc_store not yet implemented */
+  return HB_NFC_ERR_INTERNAL;
 }
 
 hb_nfc_err_t nfc_device_load_generic(const char *name, hb_nfc_card_data_t *card) {
   (void)name;
   (void)card;
-  return HB_NFC_ERR_NOT_FOUND; /* deferred - nfc_store not yet implemented */
+  return HB_NFC_ERR_NOT_FOUND;
 }
 
 const char *nfc_device_protocol_name(hb_nfc_protocol_t proto) {

@@ -11,10 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-/**
- * @file nfc_listener.h
- * @brief NFC Listener card emulation control (Phase 9).
- */
+
 #ifndef NFC_LISTENER_H
 #define NFC_LISTENER_H
 
@@ -31,7 +28,10 @@ extern "C" {
  * @brief Start card emulation from generic card data.
  *
  * @param card Card data to emulate.
- * @return HB_NFC_OK on success.
+ * @return
+ *   - HB_NFC_OK on success
+ *   - HB_NFC_ERR_INVALID_ARG if card is NULL
+ *   - HB_NFC_ERR_INTERNAL on hardware failure
  */
 hb_nfc_err_t nfc_listener_start(const hb_nfc_card_data_t *card);
 
@@ -41,7 +41,10 @@ hb_nfc_err_t nfc_listener_start(const hb_nfc_card_data_t *card);
  * Use this after mf_classic_read_full() has populated the mfc_emu_card_data_t.
  *
  * @param emu Emulation card data.
- * @return HB_NFC_OK on success.
+ * @return
+ *   - HB_NFC_OK on success
+ *   - HB_NFC_ERR_INVALID_ARG if emu is NULL
+ *   - HB_NFC_ERR_INTERNAL on hardware failure
  */
 hb_nfc_err_t nfc_listener_start_emu(const mfc_emu_card_data_t *emu);
 

@@ -12,16 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include "nfc_scanner.h"
-#include "poller.h"
-#include "nfc_card_info.h"
-#include "iso14443b.h"
-#include "felica.h"
-#include "iso15693.h"
-#include "nfc_poller.h"
+
 #include <stdlib.h>
+
 #include "esp_log.h"
 
-static const char *TAG = "nfc_scan";
+#include "felica.h"
+#include "iso14443b.h"
+#include "iso15693.h"
+#include "nfc_card_info.h"
+#include "nfc_poller.h"
+#include "poller.h"
+
+static const char *TAG = "NFC_SCANNER";
 
 struct nfc_scanner {
   nfc_scanner_cb_t cb;
@@ -31,6 +34,10 @@ struct nfc_scanner {
 
 nfc_scanner_t *nfc_scanner_alloc(void) {
   nfc_scanner_t *s = calloc(1, sizeof(nfc_scanner_t));
+  if (s == NULL) {
+    ESP_LOGE(TAG, "Failed to allocate nfc_scanner_t");
+    return NULL;
+  }
   return s;
 }
 
@@ -61,7 +68,7 @@ hb_nfc_err_t nfc_scanner_start(nfc_scanner_t *s, nfc_scanner_cb_t cb, void *ctx)
       evt.protocols[evt.count++] = HB_PROTO_MF_CLASSIC;
     else if (info.is_mf_ultralight)
       evt.protocols[evt.count++] = HB_PROTO_MF_ULTRALIGHT;
-    else if (card_a.sak == 0x20)
+    else if (card_a.sak == NFC_SAK_ISO_DEP)
       evt.protocols[evt.count++] = HB_PROTO_MF_PLUS;
     else if (info.is_iso_dep)
       evt.protocols[evt.count++] = HB_PROTO_ISO14443_4A;
@@ -73,7 +80,7 @@ hb_nfc_err_t nfc_scanner_start(nfc_scanner_t *s, nfc_scanner_cb_t cb, void *ctx)
   iso14443b_poller_init();
   {
     nfc_iso14443b_data_t card_b = {0};
-    if (iso14443b_reqb(0x00, 0x00, &card_b) == HB_NFC_OK) {
+    if (iso14443b_reqb(NFC_REQB_AFI_ALL, NFC_REQB_PARAM_DEFAULT, &card_b) == HB_NFC_OK) {
       ESP_LOGI(TAG,
                "NFC-B found PUPI=%02X%02X%02X%02X",
                card_b.pupi[0],

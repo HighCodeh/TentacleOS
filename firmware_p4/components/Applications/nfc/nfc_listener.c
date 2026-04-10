@@ -23,15 +23,11 @@
 #include "mf_classic.h"
 #include "mf_classic_emu.h"
 
-static const char *TAG = "nfc_emu";
+static const char *TAG = "NFC_LISTENER";
 
 static TaskHandle_t s_emu_task = NULL;
 static volatile bool s_is_emu_running = false;
 
-/* Emulation loop - mfc_emu_run_step() handles every AUTH/READ/WRITE/VALUE
- * command from the reader. Hardware (PT memory) covers REQA/anticollision/SELECT.
- * taskYIELD() lets other tasks run without adding the ~10 ms latency that
- * vTaskDelay(1) would introduce at the default 100 Hz tick rate. */
 static void nfc_listener_task(void *arg) {
   (void)arg;
   ESP_LOGI(TAG, "emulation loop started");

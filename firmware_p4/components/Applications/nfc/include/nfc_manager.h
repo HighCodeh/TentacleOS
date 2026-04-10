@@ -11,12 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-/**
- * @file nfc_manager.h
- * @brief NFC Manager high-level FSM + FreeRTOS task.
- *
- * Coordinates scan detect read action pipeline.
- */
+
 #ifndef NFC_MANAGER_H
 #define NFC_MANAGER_H
 
@@ -55,7 +50,10 @@ typedef void (*nfc_manager_card_found_cb_t)(const hb_nfc_card_data_t *card, void
  *
  * @param cb  Card found callback.
  * @param ctx User context.
- * @return HB_NFC_OK on success.
+ * @return
+ *   - HB_NFC_OK on success
+ *   - HB_NFC_ERR_INVALID_ARG if cb is NULL
+ *   - HB_NFC_ERR_INTERNAL on task creation failure
  */
 hb_nfc_err_t nfc_manager_start(nfc_manager_card_found_cb_t cb, void *ctx);
 

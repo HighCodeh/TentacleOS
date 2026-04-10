@@ -13,13 +13,19 @@
 // limitations under the License.
 
 #include "nfc_manager.h"
-#include "nfc_reader.h"
-#include "st25r3916_core.h"
-#include "nfc_poller.h"
-#include "poller.h"
-#include "hb_nfc_timer.h"
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+
+#include "hb_nfc_timer.h"
+#include "nfc_card_info.h"
+#include "nfc_poller.h"
+#include "nfc_reader.h"
+#include "poller.h"
+#include "st25r3916_core.h"
+
+static const char *TAG = "NFC_MANAGER";
+
 static struct {
   nfc_manager_state_t state;
   nfc_manager_card_found_cb_t cb;
@@ -65,18 +71,16 @@ static void nfc_manager_task(void *arg) {
       full.protocol = HB_PROTO_ISO14443_3A;
       full.iso14443a = card;
 
-      if (card.sak == 0x00) {
+      if (card.sak == NFC_SAK_ULTRALIGHT) {
         full.protocol = HB_PROTO_MF_ULTRALIGHT;
-      } else if (card.sak == 0x08 || card.sak == 0x18 || card.sak == 0x09 || card.sak == 0x88) {
+      } else if (card.sak == NFC_SAK_CLASSIC_1K || card.sak == NFC_SAK_CLASSIC_4K ||
+                 card.sak == NFC_SAK_CLASSIC_MINI || card.sak == NFC_SAK_CLASSIC_1K_INF) {
         full.protocol = HB_PROTO_MF_CLASSIC;
-      } else if (card.sak == 0x10 || card.sak == 0x11) {
-        /* MIFARE Plus SL2 — backward-compatible with MIFARE Classic */
+      } else if (card.sak == NFC_SAK_PLUS_2K_SL2 || card.sak == NFC_SAK_PLUS_4K_SL2) {
         full.protocol = HB_PROTO_MF_CLASSIC;
-      } else if (card.sak == 0x20) {
-        /* ISO-DEP: could be DESFire, MIFARE Plus SL3, JCOP, etc.
-         * Route to MFP probe — it falls through to T4T if not MFP. */
+      } else if (card.sak == NFC_SAK_ISO_DEP) {
         full.protocol = HB_PROTO_MF_PLUS;
-      } else if (card.sak & 0x20) {
+      } else if (card.sak & NFC_SAK_ISO_DEP_BIT) {
         full.protocol = HB_PROTO_ISO14443_4A;
       }
 
@@ -98,8 +102,6 @@ static void nfc_manager_task(void *arg) {
 }
 
 hb_nfc_err_t nfc_manager_start(nfc_manager_card_found_cb_t cb, void *ctx) {
-  /* Hardware must already be initialized via highboy_nfc_init().
-   * This function only applies the RF config and starts the scan task. */
   hb_nfc_err_t err = nfc_poller_start();
   if (err != HB_NFC_OK)
     return err;
@@ -117,7 +119,6 @@ void nfc_manager_stop(void) {
   while (s_mgr.task != NULL) {
     vTaskDelay(pdMS_TO_TICKS(10));
   }
-  /* Turn off field but keep SPI/GPIO alive so emulation can start next. */
   nfc_poller_stop();
 }
 

@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include "nfc_card_info.h"
+
 #include <stddef.h>
+
+static const char *TAG = "NFC_CARD_INFO";
 
 const char *nfc_card_info_get_manufacturer(uint8_t uid0) {
   switch (uid0) {
@@ -124,11 +127,11 @@ const char *nfc_card_info_get_manufacturer(uint8_t uid0) {
 nfc_card_type_info_t nfc_card_info_identify(uint8_t sak, const uint8_t atqa[2]) {
   nfc_card_type_info_t info = {"Unknown", "Unknown NFC-A Tag", false, false, false};
 
-  if (sak == 0x00) {
+  if (sak == NFC_SAK_ULTRALIGHT) {
     info.name = "NTAG/Ultralight";
     info.full_name = "MIFARE Ultralight / NTAG";
     info.is_mf_ultralight = true;
-  } else if (sak == 0x08) {
+  } else if (sak == NFC_SAK_CLASSIC_1K) {
     info.name = "Classic 1K";
     info.is_mf_classic = true;
     if (atqa[0] == 0x44 && atqa[1] == 0x00) {
@@ -140,44 +143,44 @@ nfc_card_type_info_t nfc_card_info_identify(uint8_t sak, const uint8_t atqa[2]) 
     } else {
       info.full_name = "MIFARE Classic 1K";
     }
-  } else if (sak == 0x88) {
+  } else if (sak == NFC_SAK_CLASSIC_1K_INF) {
     info.name = "Classic 1K";
     info.full_name = "MIFARE Classic (SAK 0x88)";
     info.is_mf_classic = true;
-  } else if (sak == 0x09) {
+  } else if (sak == NFC_SAK_CLASSIC_MINI) {
     info.name = "Classic Mini";
     info.full_name = "MIFARE Classic Mini 0.3K (320 bytes)";
     info.is_mf_classic = true;
-  } else if (sak == 0x10) {
+  } else if (sak == NFC_SAK_PLUS_2K_SL2) {
     info.name = "Plus 2K SL2";
     info.full_name = "MIFARE Plus 2K (SL2)";
     info.is_mf_classic = true;
-  } else if (sak == 0x11) {
+  } else if (sak == NFC_SAK_PLUS_4K_SL2) {
     info.name = "Plus 4K SL2";
     info.full_name = "MIFARE Plus 4K (SL2)";
     info.is_mf_classic = true;
-  } else if (sak == 0x18) {
+  } else if (sak == NFC_SAK_CLASSIC_4K) {
     info.name = "Classic 4K";
     info.full_name = "MIFARE Classic 4K";
     info.is_mf_classic = true;
-  } else if (sak == 0x01) {
+  } else if (sak == NFC_SAK_CLASSIC_1K_TNP) {
     info.name = "Classic 1K TNP";
     info.full_name = "TNP3XXX (Classic 1K protocol)";
     info.is_mf_classic = true;
-  } else if (sak == 0x28) {
+  } else if (sak == NFC_SAK_CLASSIC_1K_EV1) {
     info.name = "Classic 1K-EV1";
     info.full_name = "MIFARE Classic 1K (emulated / EV1)";
     info.is_mf_classic = true;
-  } else if (sak == 0x38) {
+  } else if (sak == NFC_SAK_CLASSIC_4K_EV1) {
     info.name = "Classic 4K-EV1";
     info.full_name = "MIFARE Classic 4K (emulated / EV1)";
     info.is_mf_classic = true;
-  } else if (sak & 0x20) {
+  } else if (sak & NFC_SAK_ISO_DEP_BIT) {
     info.name = "ISO-DEP";
     info.is_iso_dep = true;
-    if (sak == 0x20)
+    if (sak == NFC_SAK_ISO_DEP)
       info.full_name = "ISO 14443-4 (DESFire / Plus SL3 / JCOP)";
-    else if (sak == 0x60)
+    else if (sak == NFC_SAK_CL3_CASCADE)
       info.full_name = "ISO 14443-4 (CL3 cascade)";
     else
       info.full_name = "ISO 14443-4 Compatible";

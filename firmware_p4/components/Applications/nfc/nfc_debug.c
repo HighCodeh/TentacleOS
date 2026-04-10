@@ -12,10 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include "nfc_debug.h"
+
+#include "hb_nfc_spi.h"
+#include "st25r3916_aat.h"
 #include "st25r3916_core.h"
 #include "st25r3916_reg.h"
-#include "st25r3916_aat.h"
-#include "hb_nfc_spi.h"
+
+static const char *TAG = "NFC_DEBUG";
 
 hb_nfc_err_t nfc_debug_cw_on(void) {
   return st25r3916_core_field_on();
