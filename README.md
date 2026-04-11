@@ -15,7 +15,6 @@
 This repository contains a **firmware in development** for the **High Boy** platform.
 **Warning:** this firmware is in its **beta phase** and is **still incomplete**.
 
----
 
 ## Officially Supported Targets
 
@@ -27,7 +26,6 @@ We are expanding support for the latest Espressif chips:
 | **ESP32-P4** | Experimental (firmware_p4) |
 | **ESP32-C5** | Experimental (firmware_c5) |
 
----
 
 ## Firmware Structure
 
@@ -71,7 +69,6 @@ Example layout:
 └── README.md
 ```
 
----
 
 ## How to Contribute
 
@@ -85,13 +82,11 @@ Contributions are what make the open-source community such an amazing place to l
 
 Please read our [**CONTRIBUTING.md**](CONTRIBUTING.md) for more details on the coding style and build process.
 
----
 
 ## Code of Conduct
 
 We are committed to providing a friendly, safe, and welcoming environment for all. Please read our [**Code of Conduct**](CODE_OF_CONDUCT.md) to understand the expectations for participating in this project.
 
----
 
 ## Our Supporters
 
@@ -99,7 +94,6 @@ Special thanks to the partners supporting this project:
 
 [![PCBWay](pics/PCBway.png)](https://www.pcbway.com)
 
----
 
 ## License
 This project is licensed under the **Apache License, Version 2.0**. See the [LICENSE](LICENSE) file for details.
