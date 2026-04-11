@@ -1,3 +1,9 @@
+## [1.2.4](https://github.com/HighCodeh/TentacleOS/compare/v1.2.3...v1.2.4) (2026-04-11)
+
+### Bug Fixes
+
+* **subghz:** proposital typo to test github releases (1bd6d2f80f29bbb83a25f4f0ac2df0c5ade94ad1) - [@anarchyysm](https://github.com/anarchyysm)
+
 ## [1.2.3](https://github.com/HighCodeh/TentacleOS/compare/v1.2.2...v1.2.3) (2026-04-11)
 
 ## [1.2.2](https://github.com/HighCodeh/TentacleOS/compare/v1.2.1...v1.2.2) (2026-04-11)
