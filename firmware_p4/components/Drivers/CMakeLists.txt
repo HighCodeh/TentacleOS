@@ -14,6 +14,7 @@
 
 file(GLOB_RECURSE ST25R3916_SRCS "st25r3916/*.c")
 file(GLOB_RECURSE YS_RFID2_SRCS "ys_rfid2/*.c")
+file(GLOB_RECURSE SX1262_SRCS "sx1262/*.c")
 
 
 idf_component_register(SRCS
@@ -28,6 +29,7 @@ idf_component_register(SRCS
   "spi_bridge_phy/spi_bridge_phy.c"
   ${ST25R3916_SRCS}
   ${YS_RFID2_SRCS}
+  ${SX1262_SRCS}
 
   INCLUDE_DIRS
   "bq25896/include"
@@ -44,6 +46,7 @@ idf_component_register(SRCS
   "st25r3916/hal/include"
   "ys_rfid2/include"
   "ys_rfid2/hal/include"
+  "sx1262/include"
 
   REQUIRES
   driver
