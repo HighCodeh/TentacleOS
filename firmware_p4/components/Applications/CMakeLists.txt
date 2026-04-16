@@ -67,11 +67,13 @@ file(GLOB_RECURSE BLE_APP_SRCS "bluetooth/*.c")
 file(GLOB_RECURSE BADUSB_APP_SRCS "bad_usb/*.c")
 file(GLOB_RECURSE WIFI_APP_SRCS "wifi/*.c")
 file(GLOB_RECURSE NFC_APP_SRCS "nfc/*.c")
+file(GLOB_RECURSE RFID_APP_SRCS "rfid/*.c")
 
 idf_component_register(SRCS 
   ${UI_SRCS}
   ${WIFI_APP_SRCS}
   ${NFC_APP_SRCS}
+  ${RFID_APP_SRCS}
   ${BADUSB_APP_SRCS}
   ${BLE_APP_SRCS}
   "ui/ui_manager.c"
@@ -136,6 +138,8 @@ idf_component_register(SRCS
   "bluetooth/include"
   "SubGhz/include"
   "SubGhz/protocols/include"
+  "rfid/include"
+  "rfid/protocols/include"
   "ui/include"
   "ui/screens/home/include"
   "ui/screens/boot/include"
