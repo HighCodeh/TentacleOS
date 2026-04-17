@@ -44,7 +44,7 @@ if [ "$1" = "--check" ]; then
   echo "Checking $COUNT files..."
   echo "$FILES" | xargs clang-format --dry-run --Werror 2>&1
   if [ $? -ne 0 ]; then
-    echo "Formatting errors found. Run ./scripts/format.sh to fix."
+    echo "Formatting errors found. Run ./tools/format.sh to fix."
     exit 1
   fi
   echo "All files formatted correctly."
