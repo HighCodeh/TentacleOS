@@ -25,6 +25,7 @@
 #include "meshtastic_channels.h"
 #include "meshtastic_mesh.h"
 #include "meshtastic_nodedb.h"
+#include "meshtastic_pki.h"
 
 static const char *TAG = "MESHTASTIC_PHONEAPI";
 
@@ -206,8 +207,6 @@ static uint16_t build_metadata(uint8_t *out, uint32_t rid)
 
 static uint16_t build_own_nodeinfo(uint8_t *out, uint32_t rid)
 {
-    static const uint8_t PUBKEY_ZERO[32] = {0};
-
     uint8_t user[128];
     uint16_t u_len = 0;
     char id_str[16];
@@ -218,7 +217,7 @@ static uint16_t build_own_nodeinfo(uint8_t *out, uint32_t rid)
     u_len += enc_field_bytes(&user[u_len], 3, (const uint8_t *)"HBS3", 4);
     u_len += enc_field_varint(&user[u_len], 5, PA_HW_MODEL_PRIVATE);
     u_len += enc_field_varint(&user[u_len], 7, 0);
-    u_len += enc_field_bytes(&user[u_len], 8, PUBKEY_ZERO, 32);
+    u_len += enc_field_bytes(&user[u_len], 8, mt_pki_get_pubkey(), MT_PKI_KEY_LEN);
 
     uint8_t dm[32];
     uint16_t dm_len = 0;
@@ -243,7 +242,7 @@ static uint16_t build_own_nodeinfo(uint8_t *out, uint32_t rid)
 
 static uint16_t build_config_empty(uint8_t *out, uint32_t rid, uint8_t cfg_type)
 {
-    uint8_t cfg[8];
+    uint8_t cfg[96];
     uint16_t cfg_len = 0;
 
     if (cfg_type == 6) {
@@ -259,6 +258,15 @@ static uint16_t build_config_empty(uint8_t *out, uint32_t rid, uint8_t cfg_type)
         cfg_len += enc_varint(&cfg[cfg_len], ll);
         memcpy(&cfg[cfg_len], lora, ll);
         cfg_len += ll;
+    } else if (cfg_type == 8) {
+        uint8_t sec[80];
+        uint16_t sl = 0;
+        sl += enc_field_bytes(&sec[sl], 1, mt_pki_get_pubkey(), MT_PKI_KEY_LEN);
+        sl += enc_field_bytes(&sec[sl], 2, mt_pki_get_privkey(), MT_PKI_KEY_LEN);
+        cfg[cfg_len++] = (cfg_type << 3) | 2;
+        cfg_len += enc_varint(&cfg[cfg_len], sl);
+        memcpy(&cfg[cfg_len], sec, sl);
+        cfg_len += sl;
     } else {
         cfg[cfg_len++] = (cfg_type << 3) | 2;
         cfg[cfg_len++] = 0;
@@ -299,8 +307,9 @@ static uint16_t build_channel(uint8_t *out, uint32_t rid, uint8_t idx)
         if (nlen > 0) {
             sl += enc_field_bytes(&settings[sl], 3, (const uint8_t *)ch->name, (uint16_t)nlen);
         }
-        uint32_t channel_id = ((uint32_t)idx << 24) | ((uint32_t)ch->hash << 16) | 0xC0DE;
-        sl += enc_field_fixed32(&settings[sl], 4, channel_id);
+        if (ch->id != 0) {
+            sl += enc_field_fixed32(&settings[sl], 4, ch->id);
+        }
 
         cl += enc_field_bytes(&channel[cl], 2, settings, sl);
         cl += enc_field_varint(&channel[cl], 3, (uint64_t)ch->role);
@@ -394,12 +403,27 @@ static uint16_t build_deviceui_config(uint8_t *out, uint32_t rid)
     return pos;
 }
 
-static uint16_t build_filemanifest_empty(uint8_t *out, uint32_t rid)
+static const struct {
+    const char *name;
+    uint32_t size_bytes;
+} PA_FILE_ENTRIES[] = {
+    { "/nvs/channels",     384 },
+    { "/nvs/nodedb",      5400 },
+    { "/nvs/x25519_pub",    32 },
+    { "/nvs/x25519_priv",   32 },
+};
+#define PA_NUM_FILE_ENTRIES  (sizeof(PA_FILE_ENTRIES) / sizeof(PA_FILE_ENTRIES[0]))
+
+static uint16_t build_filemanifest_entry(uint8_t *out, uint32_t rid, uint8_t idx)
 {
-    uint8_t fi[4];
+    if (idx >= PA_NUM_FILE_ENTRIES) return 0;
+    uint8_t fi[64];
     uint16_t fi_len = 0;
-    fi_len += enc_field_bytes(&fi[fi_len], 1, (const uint8_t *)"", 0);
-    fi_len += enc_field_varint(&fi[fi_len], 2, 0);
+    size_t nl = strlen(PA_FILE_ENTRIES[idx].name);
+    fi_len += enc_field_bytes(&fi[fi_len], 1,
+                               (const uint8_t *)PA_FILE_ENTRIES[idx].name,
+                               (uint16_t)nl);
+    fi_len += enc_field_varint(&fi[fi_len], 2, PA_FILE_ENTRIES[idx].size_bytes);
 
     uint16_t pos = 0;
     pos += enc_field_varint(&out[pos], 1, rid);
@@ -409,8 +433,6 @@ static uint16_t build_filemanifest_empty(uint8_t *out, uint32_t rid)
 
 static uint16_t build_peer_nodeinfo(uint8_t *out, uint32_t rid, const mt_node_entry_t *e)
 {
-    static const uint8_t PUBKEY_ZERO[32] = {0};
-
     uint8_t user[128];
     uint16_t u_len = 0;
     u_len += enc_field_bytes(&user[u_len], 1, (const uint8_t *)e->id, strlen(e->id));
@@ -418,7 +440,9 @@ static uint16_t build_peer_nodeinfo(uint8_t *out, uint32_t rid, const mt_node_en
     u_len += enc_field_bytes(&user[u_len], 3, (const uint8_t *)e->short_name, strlen(e->short_name));
     u_len += enc_field_varint(&user[u_len], 5, e->hw_model ? e->hw_model : PA_HW_MODEL_PRIVATE);
     u_len += enc_field_varint(&user[u_len], 7, e->role);
-    u_len += enc_field_bytes(&user[u_len], 8, PUBKEY_ZERO, 32);
+    if (e->has_public_key) {
+        u_len += enc_field_bytes(&user[u_len], 8, e->public_key, MT_NODEDB_PUBKEY_LEN);
+    }
 
     uint8_t ni[160];
     uint16_t ni_len = 0;
@@ -496,12 +520,16 @@ static void advance_fsm(void)
             s_config_iter++;
             if (s_config_iter > PA_NUM_MODULECONFIGS) {
                 s_state = PA_STATE_SEND_FILEMANIFEST;
+                s_config_iter = 0;
             }
             break;
 
         case PA_STATE_SEND_FILEMANIFEST:
-            len = build_filemanifest_empty(frame, s_radio_id++);
-            s_state = PA_STATE_SEND_COMPLETE_ID;
+            len = build_filemanifest_entry(frame, s_radio_id++, s_config_iter);
+            s_config_iter++;
+            if (s_config_iter >= PA_NUM_FILE_ENTRIES) {
+                s_state = PA_STATE_SEND_COMPLETE_ID;
+            }
             break;
 
         case PA_STATE_SEND_OWN_NODEINFO:
