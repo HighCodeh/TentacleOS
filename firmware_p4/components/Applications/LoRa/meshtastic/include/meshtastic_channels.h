@@ -46,6 +46,7 @@ typedef struct {
     uint8_t            psk[MT_PSK_SIZE];
     uint8_t            hash;
     char               name[32];
+    uint32_t           id;
 } mt_channel_t;
 
 /**
@@ -74,6 +75,11 @@ const mt_channel_t *mt_channel_get(uint8_t idx);
  */
 void mt_channel_set(uint8_t idx, const char *name, const uint8_t *psk,
                      mt_channel_role_t role);
+
+/**
+ * @brief Set the user-assigned channel id (fixed32 from app) and persist.
+ */
+void mt_channel_set_id(uint8_t idx, uint32_t id);
 
 /**
  * @brief Disable a channel slot and persist to NVS.

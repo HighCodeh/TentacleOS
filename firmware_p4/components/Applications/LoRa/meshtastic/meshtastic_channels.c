@@ -115,6 +115,13 @@ void mt_channel_disable(uint8_t idx)
     persist();
 }
 
+void mt_channel_set_id(uint8_t idx, uint32_t id)
+{
+    if (idx >= MT_MAX_CHANNELS) return;
+    s_channels[idx].id = id;
+    persist();
+}
+
 bool mt_channel_lookup_by_hash(uint8_t hash, uint8_t *out_idx,
                                 const uint8_t **out_psk)
 {

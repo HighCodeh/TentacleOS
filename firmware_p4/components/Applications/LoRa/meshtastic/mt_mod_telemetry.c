@@ -114,7 +114,7 @@ void mt_mod_telemetry_on_received(const mt_packet_meta_t *meta,
     uint8_t frame[64];
     uint16_t flen = build_telemetry_frame(frame, compute_uptime_seconds());
     meshtastic_mesh_send_data(meta->from, meta->channel, MT_TELEM_HOP_LIMIT,
-                               MT_PORT_TELEMETRY, frame, flen, meta->id, false);
+                               MT_PORT_TELEMETRY, frame, flen, meta->id, false, false);
 }
 
 void mt_mod_telemetry_tick(uint32_t now_s)
@@ -130,5 +130,5 @@ void mt_mod_telemetry_tick(uint32_t now_s)
              (unsigned long)compute_uptime_seconds(),
              (unsigned long)esp_get_free_heap_size());
     meshtastic_mesh_send_data(MT_TELEM_BCAST_ADDR, 0, MT_TELEM_HOP_LIMIT,
-                               MT_PORT_TELEMETRY, frame, flen, 0, false);
+                               MT_PORT_TELEMETRY, frame, flen, 0, false, false);
 }

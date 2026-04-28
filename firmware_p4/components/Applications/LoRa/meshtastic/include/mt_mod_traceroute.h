@@ -36,8 +36,7 @@ void mt_mod_traceroute_init(uint32_t node_num);
  * by relying on the mesh core's flood rebroadcast.
  */
 void mt_mod_traceroute_on_received(const mt_packet_meta_t *meta,
-                                   const uint8_t *payload,
-                                   uint16_t len);
+                                    const uint8_t *payload, uint16_t len);
 
 #ifdef __cplusplus
 }

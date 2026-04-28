@@ -28,29 +28,29 @@ extern "C" {
  * protobuf definition (config.proto).
  */
 typedef enum {
-  MT_PRESET_LONG_FAST = 0,
-  MT_PRESET_LONG_SLOW = 1,
-  MT_PRESET_VERY_LONG_SLOW = 2,
-  MT_PRESET_MEDIUM_SLOW = 3,
-  MT_PRESET_MEDIUM_FAST = 4,
-  MT_PRESET_SHORT_SLOW = 5,
-  MT_PRESET_SHORT_FAST = 6,
-  MT_PRESET_LONG_MODERATE = 7,
-  MT_PRESET_SHORT_TURBO = 8,
-  MT_PRESET_LONG_TURBO = 9,
-  MT_PRESET_COUNT
+    MT_PRESET_LONG_FAST      = 0,
+    MT_PRESET_LONG_SLOW      = 1,
+    MT_PRESET_VERY_LONG_SLOW = 2,
+    MT_PRESET_MEDIUM_SLOW    = 3,
+    MT_PRESET_MEDIUM_FAST    = 4,
+    MT_PRESET_SHORT_SLOW     = 5,
+    MT_PRESET_SHORT_FAST     = 6,
+    MT_PRESET_LONG_MODERATE  = 7,
+    MT_PRESET_SHORT_TURBO    = 8,
+    MT_PRESET_LONG_TURBO     = 9,
+    MT_PRESET_COUNT
 } mt_preset_t;
 
 /**
  * @brief Static information about a modem preset.
  */
 typedef struct {
-  mt_preset_t id;
-  const char *name;
-  uint8_t sf;
-  uint32_t bw_hz;
-  uint8_t cr;
-  const char *description;
+    mt_preset_t  id;
+    const char  *name;
+    uint8_t      sf;
+    uint32_t     bw_hz;
+    uint8_t      cr;
+    const char  *description;
 } mt_preset_info_t;
 
 /**

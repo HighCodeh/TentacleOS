@@ -100,7 +100,7 @@ void mt_mod_position_on_received(const mt_packet_meta_t *meta,
     uint8_t pos[48];
     uint16_t plen = build_position(pos);
     meshtastic_mesh_send_data(meta->from, meta->channel, MT_POSITION_HOP_LIMIT,
-                               MT_PORT_POSITION, pos, plen, meta->id, false);
+                               MT_PORT_POSITION, pos, plen, meta->id, false, false);
 }
 
 void mt_mod_position_tick(uint32_t now_s)
@@ -116,7 +116,7 @@ void mt_mod_position_tick(uint32_t now_s)
     ESP_LOGI(TAG, "Broadcast Position - lat=%.6f lon=%.6f",
              s_lat_e7 / 1.0e7, s_lon_e7 / 1.0e7);
     meshtastic_mesh_send_data(MT_POSITION_BCAST_ADDR, 0, MT_POSITION_HOP_LIMIT,
-                               MT_PORT_POSITION, pos, plen, 0, false);
+                               MT_PORT_POSITION, pos, plen, 0, false, false);
 }
 
 void mt_mod_position_set_fixed(int32_t lat_e7, int32_t lon_e7, int32_t alt_m)

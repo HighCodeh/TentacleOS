@@ -29,47 +29,47 @@ extern "C" {
  * protobuf definition (config.proto).
  */
 typedef enum {
-  MT_REGION_UNSET = 0,
-  MT_REGION_US = 1,
-  MT_REGION_EU_433 = 2,
-  MT_REGION_EU_868 = 3,
-  MT_REGION_CN = 4,
-  MT_REGION_JP = 5,
-  MT_REGION_ANZ = 6,
-  MT_REGION_KR = 7,
-  MT_REGION_TW = 8,
-  MT_REGION_RU = 9,
-  MT_REGION_IN = 10,
-  MT_REGION_NZ_865 = 11,
-  MT_REGION_TH = 12,
-  MT_REGION_LORA_24 = 13,
-  MT_REGION_UA_433 = 14,
-  MT_REGION_UA_868 = 15,
-  MT_REGION_MY_433 = 16,
-  MT_REGION_MY_919 = 17,
-  MT_REGION_SG_923 = 18,
-  MT_REGION_PH_433 = 19,
-  MT_REGION_PH_868 = 20,
-  MT_REGION_PH_915 = 21,
-  MT_REGION_ANZ_433 = 22,
-  MT_REGION_KZ_433 = 23,
-  MT_REGION_KZ_863 = 24,
-  MT_REGION_NP_865 = 25,
-  MT_REGION_BR_902 = 26,
-  MT_REGION_COUNT
+    MT_REGION_UNSET    = 0,
+    MT_REGION_US       = 1,
+    MT_REGION_EU_433   = 2,
+    MT_REGION_EU_868   = 3,
+    MT_REGION_CN       = 4,
+    MT_REGION_JP       = 5,
+    MT_REGION_ANZ      = 6,
+    MT_REGION_KR       = 7,
+    MT_REGION_TW       = 8,
+    MT_REGION_RU       = 9,
+    MT_REGION_IN       = 10,
+    MT_REGION_NZ_865   = 11,
+    MT_REGION_TH       = 12,
+    MT_REGION_LORA_24  = 13,
+    MT_REGION_UA_433   = 14,
+    MT_REGION_UA_868   = 15,
+    MT_REGION_MY_433   = 16,
+    MT_REGION_MY_919   = 17,
+    MT_REGION_SG_923   = 18,
+    MT_REGION_PH_433   = 19,
+    MT_REGION_PH_868   = 20,
+    MT_REGION_PH_915   = 21,
+    MT_REGION_ANZ_433  = 22,
+    MT_REGION_KZ_433   = 23,
+    MT_REGION_KZ_863   = 24,
+    MT_REGION_NP_865   = 25,
+    MT_REGION_BR_902   = 26,
+    MT_REGION_COUNT
 } mt_region_t;
 
 /**
  * @brief Static information about a regulatory region.
  */
 typedef struct {
-  mt_region_t id;
-  const char *name;
-  uint32_t freq_start_hz;
-  uint32_t freq_stop_hz;
-  uint8_t duty_pct;
-  int8_t tx_pwr_max_dbm;
-  bool is_wide_lora_ok;
+    mt_region_t  id;
+    const char  *name;
+    uint32_t     freq_start_hz;
+    uint32_t     freq_stop_hz;
+    uint8_t      duty_pct;
+    int8_t       tx_pwr_max_dbm;
+    bool         is_wide_lora_ok;
 } mt_region_info_t;
 
 /**

@@ -22,8 +22,8 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 
-#define MT_PKT_HISTORY_MAX 128
-#define MT_NUM_RELAYERS    6
+#define MT_PKT_HISTORY_MAX   128
+#define MT_NUM_RELAYERS      6
 
 /**
  * @brief Initialize the ring buffer. Idempotent.
@@ -42,10 +42,11 @@ void mt_pkt_history_init(void);
  * @param relayer_id         Last byte of relay_node (0 if unknown).
  * @param[out] out_upgraded  Set to true when hop_limit exceeds the highest
  *                           previously seen value. May be NULL.
- * @return true if already seen (possibly with lower hop_limit — pure dedup).
+ * @return true if already seen (possibly with lower hop_limit - pure dedup).
  */
-bool mt_pkt_history_check_add(
-    uint32_t sender, uint32_t id, uint8_t hop_limit, uint8_t relayer_id, bool *out_upgraded);
+bool mt_pkt_history_check_add(uint32_t sender, uint32_t id,
+                               uint8_t hop_limit, uint8_t relayer_id,
+                               bool *out_upgraded);
 
 /**
  * @brief Check whether a specific node has already relayed a packet.
