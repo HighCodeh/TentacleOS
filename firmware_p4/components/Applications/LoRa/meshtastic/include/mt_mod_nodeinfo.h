@@ -38,8 +38,7 @@ void mt_mod_nodeinfo_init(uint32_t node_num);
  * a 12h throttle to avoid broadcast storms).
  */
 void mt_mod_nodeinfo_on_received(const mt_packet_meta_t *meta,
-                                 const uint8_t *payload,
-                                 uint16_t len);
+                                  const uint8_t *payload, uint16_t len);
 
 /**
  * @brief Periodic tick (call once per second).
@@ -67,6 +66,17 @@ const char *mt_mod_nodeinfo_get_long(void);
  * @brief Return the current short name.
  */
 const char *mt_mod_nodeinfo_get_short(void);
+
+/**
+ * @brief Send a unicast NodeInfo request to an unknown peer.
+ *
+ * Transmits our own User proto to `to` with want_response=true, asking
+ * the peer to reply with its NodeInfo. Internally rate-limited per peer
+ * so repeated calls for the same `to` within the throttle window are
+ * dropped silently. This is the official discovery mechanism used when
+ * a packet arrives from a node not yet present in the NodeDB.
+ */
+void mt_mod_nodeinfo_request(uint32_t to);
 
 #ifdef __cplusplus
 }
