@@ -15,10 +15,13 @@
 #include "buttons_gpio.h"
 
 #include "driver/gpio.h"
+#include "esp_log.h"
 
 static const char *TAG = "BUTTONS_GPIO";
 
 #define BUTTON_PRESSED_LEVEL 0
+
+static const char *const s_button_names[] = {"UP", "DOWN", "LEFT", "RIGHT", "OK", "BACK"};
 
 static button_t s_buttons[] = {
     {GPIO_BTN_UP_PIN, true, false},
@@ -31,8 +34,19 @@ static button_t s_buttons[] = {
 
 #define NUM_BUTTONS (sizeof(s_buttons) / sizeof(s_buttons[0]))
 
+static bool s_last_down[6] = {false};
+
 static bool get_raw_level(uint32_t gpio) {
   return gpio_get_level(gpio) == BUTTON_PRESSED_LEVEL;
+}
+
+static bool check_and_log(int idx, uint32_t gpio) {
+  bool now = gpio_get_level(gpio) == BUTTON_PRESSED_LEVEL;
+  if (now && !s_last_down[idx]) {
+    ESP_LOGI(TAG, "Pressed: %s (GPIO %lu)", s_button_names[idx], (unsigned long)gpio);
+  }
+  s_last_down[idx] = now;
+  return now;
 }
 
 bool up_button_pressed(void) {
@@ -61,22 +75,22 @@ bool back_button_pressed(void) {
 }
 
 bool up_button_is_down(void) {
-  return get_raw_level(GPIO_BTN_UP_PIN);
+  return check_and_log(0, GPIO_BTN_UP_PIN);
 }
 bool down_button_is_down(void) {
-  return get_raw_level(GPIO_BTN_DOWN_PIN);
+  return check_and_log(1, GPIO_BTN_DOWN_PIN);
 }
 bool left_button_is_down(void) {
-  return get_raw_level(GPIO_BTN_LEFT_PIN);
+  return check_and_log(2, GPIO_BTN_LEFT_PIN);
 }
 bool right_button_is_down(void) {
-  return get_raw_level(GPIO_BTN_RIGHT_PIN);
+  return check_and_log(3, GPIO_BTN_RIGHT_PIN);
 }
 bool ok_button_is_down(void) {
-  return get_raw_level(GPIO_BTN_OK_PIN);
+  return check_and_log(4, GPIO_BTN_OK_PIN);
 }
 bool back_button_is_down(void) {
-  return get_raw_level(GPIO_BTN_BACK_PIN);
+  return check_and_log(5, GPIO_BTN_BACK_PIN);
 }
 
 void buttons_task(void) {
@@ -85,6 +99,7 @@ void buttons_task(void) {
 
     if (s_buttons[i].last_state == true && current == false) {
       s_buttons[i].pressed_flag = true;
+      ESP_LOGI(TAG, "Pressed: %s (GPIO %lu)", s_button_names[i], (unsigned long)s_buttons[i].gpio);
     }
 
     s_buttons[i].last_state = current;
