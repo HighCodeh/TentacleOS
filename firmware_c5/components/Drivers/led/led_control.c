@@ -63,6 +63,9 @@ void led_rgb_init(void) {
 }
 
 static void led_blink_color(uint8_t r, uint8_t g, uint8_t b, int duration_ms) {
+  if (s_led_strip == NULL) {
+    return;
+  }
   ESP_ERROR_CHECK(led_strip_set_pixel(s_led_strip, 0, r, g, b));
   ESP_ERROR_CHECK(led_strip_refresh(s_led_strip));
   vTaskDelay(duration_ms / portTICK_PERIOD_MS);
