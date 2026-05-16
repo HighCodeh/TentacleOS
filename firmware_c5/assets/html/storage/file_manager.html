@@ -170,9 +170,11 @@ button{font-family:'Roboto Mono',monospace}
 </div>
 
 <script>
+function authFetch(u,o){o=o||{};o.credentials='include';o.headers=Object.assign({'X-Auth-Token':localStorage.getItem('auth_token')||''},o.headers||{});return fetch(u,o);}
+if(!localStorage.getItem('auth_token')){window.location.href='/login.html';}
 let currentPath='/',currentFile=null,originalContent='',renameTarget=null;
 function loadStorageInfo(){
-fetch('/api/storage/info').then(r=>r.json()).then(d=>{
+authFetch('/api/storage/info').then(r=>r.json()).then(d=>{
 const p=d.usage_percent||0;
 document.getElementById('storage-percent').textContent=p.toFixed(1)+'%';
 document.getElementById('storage-bar').style.width=p+'%';
@@ -185,7 +187,7 @@ const displayPath = path === '/' ? 'ROOT' : path.toUpperCase();
 document.getElementById('current-path-display').textContent=displayPath;
 const mobileDisplay = document.getElementById('current-path-display-mobile');
 if(mobileDisplay) mobileDisplay.textContent=displayPath;
-fetch('/api/files/list?path='+encodeURIComponent(path)).then(r=>r.json()).then(d=>{
+authFetch('/api/files/list?path='+encodeURIComponent(path)).then(r=>r.json()).then(d=>{
 const list=document.getElementById('file-list');
 if(d.error){list.innerHTML='<tr><td colspan="4" class="p-4 text-center text-red-400">ERROR: '+d.error+'</td></tr>';return;}
 if(!d.files||d.files.length===0){list.innerHTML='<tr><td colspan="4" class="p-4 text-center text-zinc-500">EMPTY DIRECTORY</td></tr>';return;}
@@ -230,7 +232,7 @@ function previewFile(path){
 currentFile=path;
 document.getElementById('preview-title').textContent='FILE: '+path.split('/').pop().toUpperCase();
 document.getElementById('preview-modal').classList.remove('hidden');
-fetch('/api/files/read?path='+encodeURIComponent(path)).then(r=>r.json()).then(d=>{
+authFetch('/api/files/read?path='+encodeURIComponent(path)).then(r=>r.json()).then(d=>{
 if(d.success){originalContent=d.content;document.getElementById('preview-content').textContent=d.content;}
 else document.getElementById('preview-content').textContent='ERROR: '+d.error;
 }).catch(e=>document.getElementById('preview-content').textContent='ERROR LOADING FILE: '+e);
@@ -256,7 +258,7 @@ document.getElementById('cancel-btn').classList.add('hidden');
 }
 function saveEdit(){
 const content=document.getElementById('preview-content').textContent;
-fetch('/api/files/write',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:currentFile,content:content})})
+authFetch('/api/files/write',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:currentFile,content:content})})
 .then(r=>r.json()).then(d=>{
 if(d.success){originalContent=content;cancelEdit();alert('FILE SAVED');loadFolder(currentPath);}
 else alert('ERROR: '+d.error);
