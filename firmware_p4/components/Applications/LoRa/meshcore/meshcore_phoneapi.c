@@ -23,6 +23,7 @@
 #include "esp_random.h"
 
 #include "meshcore.h"
+#include "meshcore_internal.h"
 #include "meshcore_nvs.h"
 
 static const char *TAG = "MC_PHONEAPI";
@@ -52,8 +53,12 @@ static const char *TAG = "MC_PHONEAPI";
 #define CMD_GET_CONTACT_BY_KEY   0x1E
 #define CMD_GET_CHANNEL          0x1F
 #define CMD_SET_CHANNEL          0x20
+#define CMD_GET_CUSTOM_VARS      0x28
+#define CMD_SET_CUSTOM_VAR       0x29
 #define CMD_GET_ADVERT_PATH      0x2A
 #define CMD_SET_FLOOD_SCOPE      0x36
+#define CMD_SET_AUTOADD_CONFIG   0x3A
+#define CMD_GET_AUTOADD_CONFIG   0x3B
 
 #define RESP_CODE_OK                  0x00
 #define RESP_CODE_ERR                 0x01
@@ -72,7 +77,9 @@ static const char *TAG = "MC_PHONEAPI";
 #define RESP_CODE_CONTACT_MSG_RECV_V3 0x10
 #define RESP_CODE_CHANNEL_MSG_RECV_V3 0x11
 #define RESP_CODE_CHANNEL_INFO        0x12
+#define RESP_CODE_CUSTOM_VARS         0x15
 #define RESP_CODE_ADVERT_PATH         0x16
+#define RESP_CODE_AUTOADD_CONFIG      0x19
 
 #define PUSH_CODE_ADVERT         0x80
 #define PUSH_CODE_PATH_UPDATED   0x81
@@ -99,16 +106,21 @@ static const char *TAG = "MC_PHONEAPI";
 #define MC_OFFLINE_FRAME_MAX  240
 
 #define MC_NVS_KEY_BLE_PIN "ble_pin"
+#define MC_NVS_KEY_AUTOADD "autoadd"
 
 #define MC_BLE_PIN_MIN 100000U
 #define MC_BLE_PIN_MAX 999999U
 
-#define MESHCORE_PUBKEY_PREFIX_LEN    6
-#define MESHCORE_CHANNEL_SECRET_LEN   16
-#define SEND_TXT_DEFAULT_TIMEOUT_MS   10000
-#define BATT_STORAGE_DEFAULT_MV       4100
-#define BATT_STORAGE_DEFAULT_USED_KB  8
-#define BATT_STORAGE_DEFAULT_TOTAL_KB 1024
+#define MESHCORE_PUBKEY_PREFIX_LEN     6
+#define MESHCORE_CHANNEL_SECRET_LEN    16
+#define SEND_TXT_DEFAULT_TIMEOUT_MS    10000
+#define BATT_STORAGE_DEFAULT_MV        4100
+#define BATT_STORAGE_DEFAULT_USED_KB   8
+#define BATT_STORAGE_DEFAULT_TOTAL_KB  1024
+
+#define MC_AUTOADD_DEFAULT_CONFIG      0
+#define MC_AUTOADD_DEFAULT_MAX_HOPS    3
+#define MC_AUTOADD_MAX_HOPS_CLAMP      64
 
 typedef struct {
   uint16_t len;
@@ -118,6 +130,8 @@ typedef struct {
 static bool s_is_initialized = false;
 static uint8_t s_app_target_ver = 0;
 static uint32_t s_ble_pin = 0;
+static uint8_t s_autoadd_config = MC_AUTOADD_DEFAULT_CONFIG;
+static uint8_t s_autoadd_max_hops = MC_AUTOADD_DEFAULT_MAX_HOPS;
 static meshcore_phoneapi_outbound_cb_t s_outbound_cb = NULL;
 static void *s_outbound_ctx = NULL;
 
@@ -161,12 +175,19 @@ static void handle_send_channel_txt(const uint8_t *p, uint16_t len);
 static void handle_send_txt_msg(const uint8_t *p, uint16_t len);
 static void handle_set_radio_params(const uint8_t *p, uint16_t len);
 static void handle_set_radio_tx_power(const uint8_t *p, uint16_t len);
+static void handle_get_autoadd_config(const uint8_t *p, uint16_t len);
+static void handle_set_autoadd_config(const uint8_t *p, uint16_t len);
+static void handle_get_custom_vars(const uint8_t *p, uint16_t len);
+static void handle_set_custom_var(const uint8_t *p, uint16_t len);
+static void autoadd_load(void);
+static void autoadd_persist(void);
 
 esp_err_t meshcore_phoneapi_init(void) {
   if (s_is_initialized) {
     return ESP_ERR_INVALID_STATE;
   }
   s_ble_pin = load_or_generate_ble_pin();
+  autoadd_load();
   s_app_target_ver = 0;
   s_offline_queue_len = 0;
   s_outbound_cb = NULL;
@@ -269,6 +290,18 @@ void meshcore_phoneapi_on_inbound(const uint8_t *buf, uint16_t len) {
       break;
     case CMD_SET_RADIO_TX_POWER:
       handle_set_radio_tx_power(buf, len);
+      break;
+    case CMD_GET_AUTOADD_CONFIG:
+      handle_get_autoadd_config(buf, len);
+      break;
+    case CMD_SET_AUTOADD_CONFIG:
+      handle_set_autoadd_config(buf, len);
+      break;
+    case CMD_GET_CUSTOM_VARS:
+      handle_get_custom_vars(buf, len);
+      break;
+    case CMD_SET_CUSTOM_VAR:
+      handle_set_custom_var(buf, len);
       break;
 
     case CMD_SET_TUNING_PARAMS:
@@ -774,7 +807,20 @@ static void handle_share_contact(const uint8_t *p, uint16_t len) {
 
 static void handle_export_contact(const uint8_t *p, uint16_t len) {
   if (len < 1 + 32) {
-    send_err(ERR_CODE_ILLEGAL_ARG);
+    uint8_t resp[1 + MESHCORE_MAX_RAW];
+    resp[0] = RESP_CODE_EXPORT_CONTACT;
+    int32_t lat = 0, lon = 0;
+    bool has_latlon = false;
+    mc_get_advert_latlon_internal(&lat, &lon, &has_latlon);
+    uint16_t n = meshcore_packet_build_advert(mc_get_identity(),
+                                                lat, lon, has_latlon,
+                                                meshcore_get_unix_time(),
+                                                &resp[1], sizeof(resp) - 1);
+    if (n == 0) {
+      send_err(ERR_CODE_TABLE_FULL);
+      return;
+    }
+    send_resp(resp, 1 + n);
     return;
   }
   const meshcore_contact_t *c = meshcore_contact_find(&p[1]);
@@ -937,12 +983,7 @@ static void handle_send_txt_msg(const uint8_t *p, uint16_t len) {
   if (contact == NULL) {
     ESP_LOGW(TAG,
              "DM TX: contact with prefix %02X%02X%02X%02X%02X%02X not found",
-             prefix[0],
-             prefix[1],
-             prefix[2],
-             prefix[3],
-             prefix[4],
-             prefix[5]);
+             prefix[0], prefix[1], prefix[2], prefix[3], prefix[4], prefix[5]);
     send_err(ERR_CODE_NOT_FOUND);
     return;
   }
@@ -1005,4 +1046,60 @@ static void handle_set_radio_tx_power(const uint8_t *p, uint16_t len) {
     return;
   }
   send_ok();
+}
+
+static void handle_get_autoadd_config(const uint8_t *p, uint16_t len) {
+  (void)p;
+  (void)len;
+  uint8_t resp[3];
+  resp[0] = RESP_CODE_AUTOADD_CONFIG;
+  resp[1] = s_autoadd_config;
+  resp[2] = s_autoadd_max_hops;
+  send_resp(resp, sizeof(resp));
+}
+
+static void handle_set_autoadd_config(const uint8_t *p, uint16_t len) {
+  if (len < 2) {
+    send_err(ERR_CODE_ILLEGAL_ARG);
+    return;
+  }
+  s_autoadd_config = p[1];
+  if (len >= 3) {
+    uint8_t hops = p[2];
+    if (hops > MC_AUTOADD_MAX_HOPS_CLAMP) {
+      hops = MC_AUTOADD_MAX_HOPS_CLAMP;
+    }
+    s_autoadd_max_hops = hops;
+  }
+  autoadd_persist();
+  send_ok();
+}
+
+static void handle_get_custom_vars(const uint8_t *p, uint16_t len) {
+  (void)p;
+  (void)len;
+  uint8_t resp[1] = {RESP_CODE_CUSTOM_VARS};
+  send_resp(resp, sizeof(resp));
+}
+
+static void handle_set_custom_var(const uint8_t *p, uint16_t len) {
+  (void)p;
+  (void)len;
+  send_err(ERR_CODE_ILLEGAL_ARG);
+}
+
+static void autoadd_load(void) {
+  uint32_t packed = 0;
+  if (mc_nvs_get_u32(MC_NVS_KEY_AUTOADD, &packed) == ESP_OK) {
+    s_autoadd_config = (uint8_t)(packed & 0xFF);
+    s_autoadd_max_hops = (uint8_t)((packed >> 8) & 0xFF);
+    if (s_autoadd_max_hops > MC_AUTOADD_MAX_HOPS_CLAMP) {
+      s_autoadd_max_hops = MC_AUTOADD_MAX_HOPS_CLAMP;
+    }
+  }
+}
+
+static void autoadd_persist(void) {
+  uint32_t packed = (uint32_t)s_autoadd_config | ((uint32_t)s_autoadd_max_hops << 8);
+  mc_nvs_set_u32(MC_NVS_KEY_AUTOADD, packed);
 }
