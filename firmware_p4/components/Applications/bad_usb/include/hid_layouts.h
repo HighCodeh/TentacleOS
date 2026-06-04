@@ -22,25 +22,22 @@ extern "C" {
 
 #include <stddef.h>
 
-/**
- * @brief Type a string using the US keyboard layout.
- *
- * Translates each character to the corresponding HID keycode + modifier
- * and sends it through the HAL.
- *
- * @param str  Null-terminated string to type.
- */
-void hid_layouts_type_string_us(const char *str);
+#include "ducky_parser.h"
 
 /**
- * @brief Type a string using the Brazilian ABNT2 keyboard layout.
+ * @brief Type a string using the given keyboard layout.
  *
- * Handles dead-key sequences for accented characters (e.g. a, e, c)
- * and remapped punctuation keys specific to the ABNT2 layout.
+ * Each layout is a data table that maps characters to HID keycodes and
+ * modifiers (see hid_layouts.c). ASCII bytes are looked up by direct index;
+ * UTF-8 two-byte sequences (e.g. accented characters) are resolved through a
+ * per-layout supplemental table. Dead-key sequences are expressed as an
+ * optional prefix press in the table entry, so they need no special-case
+ * code here.
  *
- * @param str  Null-terminated UTF-8 string to type.
+ * @param layout  Keyboard layout to use. Out-of-range values fall back to US.
+ * @param str     Null-terminated UTF-8 string to type.
  */
-void hid_layouts_type_string_abnt2(const char *str);
+void hid_layouts_type_string(ducky_layout_t layout, const char *str);
 
 #ifdef __cplusplus
 }

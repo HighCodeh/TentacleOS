@@ -1,0 +1,403 @@
+// ===========================================================================
+// FROZEN REFERENCE — DO NOT EDIT.
+//
+// Verbatim copy of firmware_p4/components/Applications/bad_usb/hid_layouts.c as
+// it existed BEFORE the table-driven refactor (origin/main @ 7a530b52). It is
+// the oracle for the equivalence test: equiv_test.c drives both these legacy
+// functions and the new hid_layouts_type_string() with identical input and
+// asserts the emitted hid_hal_press_key() sequences match exactly.
+//
+// If the pre-refactor behavior ever needs to change, this file should be
+// regenerated from history, not hand-edited.
+// ===========================================================================
+
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
+#include "hid_layouts.h"
+
+#include <stdbool.h>
+
+#include "esp_log.h"
+#include "class/hid/hid_device.h"
+
+#include "hid_hal.h"
+
+static const char *TAG = "HID_LAYOUTS";
+
+#ifndef HID_KEY_INTERNATIONAL_1
+#define HID_KEY_INTERNATIONAL_1 0x87
+#endif
+
+#ifndef HID_KEY_NON_US_BACKSLASH
+#define HID_KEY_NON_US_BACKSLASH 0x64
+#endif
+
+// ABNT2 UTF-8 byte pairs for accented characters
+#define UTF8_LOWER_C_CEDILLA_B2 0xA7 // c = 0xC3 0xA7
+#define UTF8_UPPER_C_CEDILLA_B2 0x87 // C = 0xC3 0x87
+#define UTF8_LOWER_A_ACUTE_B2   0xA1 // a = 0xC3 0xA1
+#define UTF8_LOWER_E_ACUTE_B2   0xA9 // e = 0xC3 0xA9
+#define UTF8_LOWER_I_ACUTE_B2   0xAD // i = 0xC3 0xAD
+#define UTF8_LOWER_O_ACUTE_B2   0xB3 // o = 0xC3 0xB3
+#define UTF8_LOWER_U_ACUTE_B2   0xBA // u = 0xC3 0xBA
+#define UTF8_LOWER_A_CIRCUM_B2  0xA2 // a = 0xC3 0xA2
+#define UTF8_LOWER_E_CIRCUM_B2  0xAA // e = 0xC3 0xAA
+#define UTF8_LOWER_O_CIRCUM_B2  0xB4 // o = 0xC3 0xB4
+#define UTF8_LOWER_A_TILDE_B2   0xA3 // a = 0xC3 0xA3
+#define UTF8_LOWER_O_TILDE_B2   0xB5 // o = 0xC3 0xB5
+#define UTF8_LOWER_A_GRAVE_B2   0xA0 // a = 0xC3 0xA0
+#define UTF8_2BYTE_LEAD         0xC3
+
+static bool try_decode_abnt2_utf8(uint8_t c1, uint8_t c2);
+
+void hid_layouts_type_string_us(const char *str) {
+  for (size_t i = 0; str[i] != '\0'; ++i) {
+    char c = str[i];
+    uint8_t keycode = 0;
+    uint8_t modifier = 0;
+
+    if (c >= 'a' && c <= 'z') {
+      keycode = HID_KEY_A + (c - 'a');
+    } else if (c >= 'A' && c <= 'Z') {
+      keycode = HID_KEY_A + (c - 'A');
+      modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+    } else if (c >= '1' && c <= '9') {
+      keycode = HID_KEY_1 + (c - '1');
+    } else if (c == '0') {
+      keycode = HID_KEY_0;
+    } else {
+      switch (c) {
+        case ' ':
+          keycode = HID_KEY_SPACE;
+          break;
+        case '!':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_1;
+          break;
+        case '@':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_2;
+          break;
+        case '#':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_3;
+          break;
+        case '$':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_4;
+          break;
+        case '%':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_5;
+          break;
+        case '^':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_6;
+          break;
+        case '&':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_7;
+          break;
+        case '*':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_8;
+          break;
+        case '(':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_9;
+          break;
+        case ')':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_0;
+          break;
+        case '-':
+          keycode = HID_KEY_MINUS;
+          break;
+        case '_':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_MINUS;
+          break;
+        case '=':
+          keycode = HID_KEY_EQUAL;
+          break;
+        case '+':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_EQUAL;
+          break;
+        case '.':
+          keycode = HID_KEY_PERIOD;
+          break;
+        case ',':
+          keycode = HID_KEY_COMMA;
+          break;
+        case '/':
+          keycode = HID_KEY_SLASH;
+          break;
+        case '?':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_SLASH;
+          break;
+        case ':':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_SEMICOLON;
+          break;
+        case ';':
+          keycode = HID_KEY_SEMICOLON;
+          break;
+        default:
+          break;
+      }
+    }
+
+    if (keycode != 0) {
+      hid_hal_press_key(keycode, modifier);
+    }
+  }
+}
+
+void hid_layouts_type_string_abnt2(const char *str) {
+  for (size_t i = 0; str[i] != '\0'; ++i) {
+    uint8_t c1 = (uint8_t)str[i];
+    uint8_t c2 = (uint8_t)str[i + 1];
+
+    // Single quote -> dead key acute + space
+    if (c1 == '\'') {
+      hid_hal_press_key(HID_KEY_BRACKET_LEFT, 0);
+      hid_hal_press_key(HID_KEY_SPACE, 0);
+      continue;
+    }
+
+    // Double quote -> dead key acute + shift
+    if (c1 == '"') {
+      hid_hal_press_key(HID_KEY_BRACKET_LEFT, KEYBOARD_MODIFIER_LEFTSHIFT);
+      continue;
+    }
+
+    // Try UTF-8 two-byte sequences (accented characters)
+    if ((c1 & 0xE0) == 0xC0 && c2 != '\0') {
+      if (try_decode_abnt2_utf8(c1, c2)) {
+        i++; // Skip second byte
+        continue;
+      }
+    }
+
+    uint8_t keycode = 0;
+    uint8_t modifier = 0;
+
+    if (c1 >= 'a' && c1 <= 'z') {
+      keycode = HID_KEY_A + (c1 - 'a');
+    } else if (c1 >= 'A' && c1 <= 'Z') {
+      modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+      keycode = HID_KEY_A + (c1 - 'A');
+    } else if (c1 >= '1' && c1 <= '9') {
+      keycode = HID_KEY_1 + (c1 - '1');
+    } else if (c1 == '0') {
+      keycode = HID_KEY_0;
+    } else {
+      switch (c1) {
+        case '!':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_1;
+          break;
+        case '@':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_2;
+          break;
+        case '#':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_3;
+          break;
+        case '$':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_4;
+          break;
+        case '%':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_5;
+          break;
+        case '&':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_7;
+          break;
+        case '*':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_8;
+          break;
+        case '(':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_9;
+          break;
+        case ')':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_0;
+          break;
+        case ' ':
+          keycode = HID_KEY_SPACE;
+          break;
+        case '\n':
+          keycode = HID_KEY_ENTER;
+          break;
+        case '\t':
+          keycode = HID_KEY_TAB;
+          break;
+        case '-':
+          keycode = HID_KEY_MINUS;
+          break;
+        case '=':
+          keycode = HID_KEY_EQUAL;
+          break;
+        case '_':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_MINUS;
+          break;
+        case '+':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_EQUAL;
+          break;
+        case '.':
+          keycode = HID_KEY_PERIOD;
+          break;
+        case ',':
+          keycode = HID_KEY_COMMA;
+          break;
+        case ';':
+          keycode = HID_KEY_SLASH;
+          break;
+        case ':':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_SLASH;
+          break;
+        case '/':
+          keycode = HID_KEY_INTERNATIONAL_1;
+          break;
+        case '?':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_INTERNATIONAL_1;
+          break;
+        case '[':
+          modifier = KEYBOARD_MODIFIER_RIGHTALT;
+          keycode = HID_KEY_BRACKET_LEFT;
+          break;
+        case '{':
+          modifier = KEYBOARD_MODIFIER_RIGHTALT | KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_BRACKET_LEFT;
+          break;
+        case ']':
+          modifier = KEYBOARD_MODIFIER_RIGHTALT;
+          keycode = HID_KEY_BRACKET_RIGHT;
+          break;
+        case '}':
+          modifier = KEYBOARD_MODIFIER_RIGHTALT | KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_BRACKET_RIGHT;
+          break;
+        case '\\':
+          keycode = HID_KEY_NON_US_BACKSLASH;
+          break;
+        case '|':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_NON_US_BACKSLASH;
+          break;
+        default:
+          break;
+      }
+    }
+
+    if (keycode != 0) {
+      hid_hal_press_key(keycode, modifier);
+    }
+  }
+}
+
+static bool try_decode_abnt2_utf8(uint8_t c1, uint8_t c2) {
+  if (c1 != UTF8_2BYTE_LEAD) {
+    return false;
+  }
+
+  // Cedilla
+  if (c2 == UTF8_LOWER_C_CEDILLA_B2) {
+    hid_hal_press_key(HID_KEY_SEMICOLON, 0);
+    return true;
+  }
+  if (c2 == UTF8_UPPER_C_CEDILLA_B2) {
+    hid_hal_press_key(HID_KEY_SEMICOLON, KEYBOARD_MODIFIER_LEFTSHIFT);
+    return true;
+  }
+
+  // Acute accent (dead key = BRACKET_LEFT)
+  if (c2 == UTF8_LOWER_A_ACUTE_B2) {
+    hid_hal_press_key(HID_KEY_BRACKET_LEFT, 0);
+    hid_hal_press_key(HID_KEY_A, 0);
+    return true;
+  }
+  if (c2 == UTF8_LOWER_E_ACUTE_B2) {
+    hid_hal_press_key(HID_KEY_BRACKET_LEFT, 0);
+    hid_hal_press_key(HID_KEY_E, 0);
+    return true;
+  }
+  if (c2 == UTF8_LOWER_I_ACUTE_B2) {
+    hid_hal_press_key(HID_KEY_BRACKET_LEFT, 0);
+    hid_hal_press_key(HID_KEY_I, 0);
+    return true;
+  }
+  if (c2 == UTF8_LOWER_O_ACUTE_B2) {
+    hid_hal_press_key(HID_KEY_BRACKET_LEFT, 0);
+    hid_hal_press_key(HID_KEY_O, 0);
+    return true;
+  }
+  if (c2 == UTF8_LOWER_U_ACUTE_B2) {
+    hid_hal_press_key(HID_KEY_BRACKET_LEFT, 0);
+    hid_hal_press_key(HID_KEY_U, 0);
+    return true;
+  }
+
+  // Circumflex accent (dead key = APOSTROPHE + SHIFT)
+  if (c2 == UTF8_LOWER_A_CIRCUM_B2) {
+    hid_hal_press_key(HID_KEY_APOSTROPHE, KEYBOARD_MODIFIER_LEFTSHIFT);
+    hid_hal_press_key(HID_KEY_A, 0);
+    return true;
+  }
+  if (c2 == UTF8_LOWER_E_CIRCUM_B2) {
+    hid_hal_press_key(HID_KEY_APOSTROPHE, KEYBOARD_MODIFIER_LEFTSHIFT);
+    hid_hal_press_key(HID_KEY_E, 0);
+    return true;
+  }
+  if (c2 == UTF8_LOWER_O_CIRCUM_B2) {
+    hid_hal_press_key(HID_KEY_APOSTROPHE, KEYBOARD_MODIFIER_LEFTSHIFT);
+    hid_hal_press_key(HID_KEY_O, 0);
+    return true;
+  }
+
+  // Tilde (dead key = APOSTROPHE)
+  if (c2 == UTF8_LOWER_A_TILDE_B2) {
+    hid_hal_press_key(HID_KEY_APOSTROPHE, 0);
+    hid_hal_press_key(HID_KEY_A, 0);
+    return true;
+  }
+  if (c2 == UTF8_LOWER_O_TILDE_B2) {
+    hid_hal_press_key(HID_KEY_APOSTROPHE, 0);
+    hid_hal_press_key(HID_KEY_O, 0);
+    return true;
+  }
+
+  // Grave accent (dead key = BRACKET_LEFT + SHIFT)
+  if (c2 == UTF8_LOWER_A_GRAVE_B2) {
+    hid_hal_press_key(HID_KEY_BRACKET_LEFT, KEYBOARD_MODIFIER_LEFTSHIFT);
+    hid_hal_press_key(HID_KEY_A, 0);
+    return true;
+  }
+
+  return false;
+}
