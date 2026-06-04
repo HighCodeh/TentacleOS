@@ -75,11 +75,19 @@ void hid_hal_wait_for_connection(void);
 ### Keyboard Layouts (`hid_layouts.h`)
 
 ```c
-void hid_layouts_type_string_us(const char *str);
-void hid_layouts_type_string_abnt2(const char *str);
+void hid_layouts_type_string(ducky_layout_t layout, const char *str);
 ```
-- `hid_layouts_type_string_us` maps ASCII characters to US keyboard HID keycodes.
-- `hid_layouts_type_string_abnt2` handles Brazilian Portuguese layout including UTF-8 dead-key sequences for accented characters (e.g. a, e, c, a, o).
+- Types `str` with the given layout, emitting one or more `hid_hal_press_key`
+  calls per character. Out-of-range `layout` values fall back to `DUCKY_LAYOUT_US`.
+- Layouts are **pure data** (defined in `hid_layouts.c`): each is a 128-entry
+  table indexed directly by the ASCII byte — `{keycode, modifier, dead_keycode,
+  dead_modifier}` — plus an optional supplemental table for UTF-8 two-byte
+  sequences (accented characters). A single generic walker drives every layout,
+  so adding a layout adds no new code path.
+- **Dead keys** (e.g. ABNT2 accents, `'`, `"`) are encoded as an optional prefix
+  press in the entry: `dead_keycode` is pressed before the base `keycode`. An
+  all-zero entry (or no table match) is an unmapped character and produces no
+  output.
 
 ### DuckyScript Parser (`ducky_parser.h`)
 
@@ -131,3 +139,15 @@ Modifier keys can be combined: `CTRL SHIFT ESC`, `GUI r`, `ALT F4`.
 |--------|------|-------|
 | US (QWERTY) | `DUCKY_LAYOUT_US` | Default. Standard ASCII mapping. |
 | ABNT2 (Brazil) | `DUCKY_LAYOUT_ABNT2` | Dead-key accent support, remapped punctuation. |
+
+### Registering a new layout
+
+Adding a layout is pure data — no changes to the parser or dispatch:
+
+1. Add the enum value to `ducky_layout_t` in `ducky_parser.h` (before
+   `DUCKY_LAYOUT_COUNT`).
+2. Declare a `static const hid_key_entry_t s_ascii_<name>[128]` table in
+   `hid_layouts.c` (and an optional `s_utf8_<name>[]` for accented characters).
+3. Add one row to the `s_layouts[]` registry, indexed by the new enum value.
+4. (Optional) add a selectable entry in the BadUSB layout UI
+   (`ui/screens/badusb/ui_badusb_layout.c`).
