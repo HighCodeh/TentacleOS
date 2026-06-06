@@ -280,11 +280,7 @@ static void process_line(char *line) {
   } else if (strcmp(cmd, "STRING") == 0) {
     char *text = strtok_r(NULL, "", &saveptr);
     if (text != NULL) {
-      if (s_layout == DUCKY_LAYOUT_ABNT2) {
-        hid_layouts_type_string_abnt2(text);
-      } else {
-        hid_layouts_type_string_us(text);
-      }
+      hid_layouts_type_string(s_layout, text);
     }
   } else if (strcmp(cmd, "MOUSE_MOVE") == 0) {
     char *arg_x = strtok_r(NULL, " ", &saveptr);
