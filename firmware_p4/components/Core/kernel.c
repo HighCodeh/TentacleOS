@@ -91,12 +91,14 @@ void kernel_init(void) {
   buttons_init();
   ys_rfid2_init(NULL);
 
-  // 6. Display + LVGL + UI
-  st7789_init();
-  lv_init();
-  lv_port_disp_init();
-  lv_port_indev_init();
-  ui_init();
+  // 6. Display + LVGL + UI - disabled for the headless V2 bring-up (no ST7789/
+  // LVGL). Re-enable all of these together (lv_init must run before any other
+  // lv_* call, or lv_malloc dereferences a NULL heap and panics).
+  // st7789_init();
+  // lv_init();
+  // lv_port_disp_init();
+  // lv_port_indev_init();
+  // ui_init();
 
   // 7. Services
   sys_monitor_start(false);
