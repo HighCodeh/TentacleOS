@@ -193,6 +193,10 @@ void spi_bridge_set_alive(bool alive) {
   s_bridge_alive = alive;
 }
 
+bool spi_bridge_is_alive(void) {
+  return s_bridge_alive;
+}
+
 uint32_t spi_bridge_get_timeout(spi_id_t id) {
   if (id >= SPI_ID_WIFI_SCAN && id <= SPI_ID_WIFI_APP_PROBE_MON) {
     return SPI_TIMEOUT_WIFI_MS;

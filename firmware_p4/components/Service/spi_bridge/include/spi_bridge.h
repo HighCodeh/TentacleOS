@@ -80,6 +80,14 @@ uint32_t spi_bridge_get_timeout(spi_id_t id);
 void spi_bridge_set_alive(bool alive);
 
 /**
+ * @brief Whether the bridge is currently marked alive.
+ *
+ * @return true if send_command will attempt transmission, false if it
+ * short-circuits (C5 not detected yet). Used by the link monitor.
+ */
+bool spi_bridge_is_alive(void);
+
+/**
  * @brief Send a command to the SPI slave and receive the response.
  *
  * @param id          Command identifier.

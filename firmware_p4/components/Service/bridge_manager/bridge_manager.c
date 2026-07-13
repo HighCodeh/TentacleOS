@@ -18,6 +18,8 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "c5_flasher.h"
 #include "ota_version.h"
@@ -27,6 +29,37 @@ static const char *TAG = "BRIDGE_MGR";
 
 #define VERSION_BUF_SIZE   32
 #define VERSION_TIMEOUT_MS 1000
+
+// Link monitor: how often to re-probe the C5 while the bridge is marked dead,
+// and the per-probe timeout. Lets the P4 pick up a C5 that booted late (or
+// rebooted, e.g. after an OTA) instead of latching "no C5" forever.
+#define C5_MONITOR_PERIOD_MS 1500
+#define C5_PROBE_TIMEOUT_MS  500
+
+// Background task: while the bridge is dead, keep probing; revive it the moment
+// the C5 answers. Idle (no bus traffic) once the link is up, so it never
+// competes with real commands.
+static void c5_link_monitor(void *arg) {
+  (void)arg;
+  spi_header_t hdr;
+  uint8_t ver[VERSION_BUF_SIZE];
+  for (;;) {
+    vTaskDelay(pdMS_TO_TICKS(C5_MONITOR_PERIOD_MS));
+    if (spi_bridge_is_alive()) {
+      continue; // link already up - don't poke the bus
+    }
+    // Optimistically allow one probe (nothing else touches the bus while dead).
+    spi_bridge_set_alive(true);
+    memset(ver, 0, sizeof(ver));
+    esp_err_t r =
+        spi_bridge_send_command(SPI_ID_SYSTEM_VERSION, NULL, 0, &hdr, ver, C5_PROBE_TIMEOUT_MS);
+    if (r == ESP_OK) {
+      ESP_LOGI(TAG, "C5 link established (detected after boot), version: %s", ver);
+    } else {
+      spi_bridge_set_alive(false); // still absent - stay dead, try again later
+    }
+  }
+}
 
 esp_err_t bridge_manager_init(void) {
   ESP_LOGI(TAG, "Initializing bridge manager");
@@ -38,6 +71,11 @@ esp_err_t bridge_manager_init(void) {
     ESP_LOGE(TAG, "Failed to init SPI bridge");
     return ESP_FAIL;
   }
+
+  // Background link monitor: idles while the bridge is alive, and re-detects the
+  // C5 whenever it appears if the boot-time check marks the bridge dead (late
+  // C5 boot, or a C5 reboot after an OTA). Started once here.
+  xTaskCreate(c5_link_monitor, "c5_link_mon", 3072, NULL, 4, NULL);
 
   spi_header_t resp_header;
   uint8_t resp_ver[VERSION_BUF_SIZE];
