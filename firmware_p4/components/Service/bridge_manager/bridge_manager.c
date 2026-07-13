@@ -32,7 +32,9 @@ esp_err_t bridge_manager_init(void) {
   ESP_LOGI(TAG, "Initializing bridge manager");
   ESP_LOGI(TAG, "Expected C5 version: %s", FIRMWARE_VERSION);
 
-  if (spi_bridge_master_init() != ESP_OK) {
+  // The HighBoy V2 PCB has no bridge IRQ trace (GPIO_BRIDGE_IRQ_PIN = -1), so
+  // the master polls the bus instead of waiting on an IRQ. Must match the C5.
+  if (spi_bridge_master_init_mode(SPI_BRIDGE_MODE_POLL) != ESP_OK) {
     ESP_LOGE(TAG, "Failed to init SPI bridge");
     return ESP_FAIL;
   }
