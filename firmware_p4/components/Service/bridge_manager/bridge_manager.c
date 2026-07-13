@@ -75,7 +75,9 @@ esp_err_t bridge_manager_init(void) {
   // Background link monitor: idles while the bridge is alive, and re-detects the
   // C5 whenever it appears if the boot-time check marks the bridge dead (late
   // C5 boot, or a C5 reboot after an OTA). Started once here.
-  xTaskCreate(c5_link_monitor, "c5_link_mon", 3072, NULL, 4, NULL);
+  // 6 KB: the probe calls spi_bridge_send_command (which puts two SPI_FRAME_SIZE
+  // buffers on the stack) and logs via vfprintf on timeout - 3 KB overflowed.
+  xTaskCreate(c5_link_monitor, "c5_link_mon", 6144, NULL, 4, NULL);
 
   spi_header_t resp_header;
   uint8_t resp_ver[VERSION_BUF_SIZE];
