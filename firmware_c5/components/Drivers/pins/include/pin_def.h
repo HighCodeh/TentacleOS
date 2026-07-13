@@ -60,14 +60,14 @@ extern "C" {
 #define GPIO_I2C_SCL_PIN 9
 
 // RGB LED (WS2812 / SK6812)
-#define GPIO_LED_RGB_PIN 45
+#define GPIO_LED_RGB_PIN 27
 #define LED_COUNT        1
 
 // P4-C5 Bridge SPI (Slave)
-#define GPIO_BRIDGE_SCLK_PIN 6
-#define GPIO_BRIDGE_MOSI_PIN 7
-#define GPIO_BRIDGE_MISO_PIN 2
-#define GPIO_BRIDGE_CS_PIN   10
+#define GPIO_BRIDGE_SCLK_PIN 26
+#define GPIO_BRIDGE_MOSI_PIN 25
+#define GPIO_BRIDGE_MISO_PIN 24
+#define GPIO_BRIDGE_CS_PIN   23
 #define GPIO_BRIDGE_IRQ_PIN  3
 
 #ifdef __cplusplus
