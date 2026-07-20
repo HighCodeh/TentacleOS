@@ -20,8 +20,16 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
+
 #include "lvgl.h"
 
+/**
+ * @brief Callback invoked when the on-screen keyboard submits its text.
+ *
+ * @param text       The submitted text. Valid only during the callback scope.
+ * @param user_data  User context passed to keyboard_open().
+ */
 typedef void (*keyboard_submit_cb_t)(const char *text, void *user_data);
 
 /** @brief Open the on-screen keyboard. */
@@ -29,6 +37,9 @@ void keyboard_open(lv_obj_t *target_textarea, keyboard_submit_cb_t cb, void *use
 
 /** @brief Close the on-screen keyboard. */
 void keyboard_close(void);
+
+/** @brief Whether the on-screen keyboard overlay is currently shown. */
+bool keyboard_is_open(void);
 
 #ifdef __cplusplus
 }
