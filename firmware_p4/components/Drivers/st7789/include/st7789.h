@@ -26,16 +26,27 @@ extern "C" {
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_vendor.h"
 
-#define LCD_PIXEL_CLOCK_HZ (40 * 1000 * 1000)
+/**
+ * @brief SPI pixel clock. 20 MHz to match firmware_p4_prototype; the shared
+ *        FFC / prototype hardware shows signal-integrity corruption
+ *        (garbled/white images) above 20 MHz.
+ */
+#define LCD_PIXEL_CLOCK_HZ (20 * 1000 * 1000)
 #define LCD_H_RES          240
 #define LCD_V_RES          320
-#define LCD_CMD_BITS       8
-#define LCD_PARAM_BITS     8
+/**
+ * @brief Physical panel dimensions (used by lvgl_glue / esp_lvgl_port). Same
+ *        values as LCD_H/V_RES here since the panel runs in fixed portrait.
+ */
+#define LCD_PANEL_W    240
+#define LCD_PANEL_H    320
+#define LCD_CMD_BITS   8
+#define LCD_PARAM_BITS 8
 
-/** LCD panel handle (used by LVGL display driver). */
+/** @brief LCD panel handle (used by LVGL display driver). */
 extern esp_lcd_panel_handle_t panel_handle;
 
-/** LCD IO handle (used by LVGL display driver). */
+/** @brief LCD IO handle (used by LVGL display driver). */
 extern esp_lcd_panel_io_handle_t io_handle;
 
 /**
