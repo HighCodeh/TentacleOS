@@ -13,18 +13,22 @@
 // You should have received a copy of the GNU General Public License
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-#ifndef WIFI_SCAN_STATIONS_UI_H
-#define WIFI_SCAN_STATIONS_UI_H
+#ifndef WIFI_CLIENT_UI_H
+#define WIFI_CLIENT_UI_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/** @brief Open the Wi-Fi stations scan screen. */
-void ui_wifi_scan_stations_open(void);
+/**
+ * @brief Open the Wi-Fi client/station scan screen. The C5 sweeps channels in
+ *        promiscuous mode and reports the MACs of nearby client devices
+ *        (probe-request transmitters).
+ */
+void ui_wifi_client_open(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // WIFI_SCAN_STATIONS_UI_H
+#endif // WIFI_CLIENT_UI_H
