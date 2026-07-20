@@ -13,21 +13,18 @@
 // You should have received a copy of the GNU General Public License
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-#ifndef UI_BADUSB_RUNNING_H
-#define UI_BADUSB_RUNNING_H
+#ifndef BADUSB_MENU_UI_H
+#define BADUSB_MENU_UI_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/** @brief Open the BadUSB running screen. */
-void ui_badusb_running_open(void);
-
-/** @brief Set the script name displayed on the running screen. */
-void ui_badusb_running_set_script(const char *name);
+/** @brief Open the BadUSB menu screen. */
+void ui_badusb_menu_open(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // UI_BADUSB_RUNNING_H
+#endif // BADUSB_MENU_UI_H
