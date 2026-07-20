@@ -13,18 +13,25 @@
 // You should have received a copy of the GNU General Public License
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-#ifndef SUBGHZ_SPECTRUM_UI_H
-#define SUBGHZ_SPECTRUM_UI_H
+#ifndef UI_SUBGHZ_MENU_H
+#define UI_SUBGHZ_MENU_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/** @brief Open the SubGHz spectrum analyzer screen. */
-void ui_subghz_spectrum_open(void);
+/** @brief Open the Sub-GHz menu screen (MOCK): Read / Read RAW / Analyzer / Brute / Saved. No
+ * radio. */
+void ui_subghz_menu_open(void);
+
+/**
+ * @brief Open the Sub-GHz "Read" capture screen (MOCK): scanning waves -> canned
+ *        captured signal -> save prompt. No radio.
+ */
+void ui_subghz_read_open(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // SUBGHZ_SPECTRUM_UI_H
+#endif // UI_SUBGHZ_MENU_H
