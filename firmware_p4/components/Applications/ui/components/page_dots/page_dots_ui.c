@@ -19,7 +19,32 @@
 
 static const int DOT_PATTERN[] = {4, 7, 12, 7, 4};
 #define PATTERN_LEN 5
-#define ANIM_MS     250
+#define ANIM_MS     450
+
+static void dot_size_cb(void *var, int32_t v) {
+  lv_obj_set_width((lv_obj_t *)var, v);
+  lv_obj_set_height((lv_obj_t *)var, v);
+}
+
+static void dot_opa_cb(void *var, int32_t v) {
+  lv_obj_set_style_bg_opa((lv_obj_t *)var, (lv_opa_t)v, 0);
+}
+
+static void dot_animate_to(lv_obj_t *dot, int size, lv_opa_t opa) {
+  lv_anim_t a;
+  lv_anim_init(&a);
+  lv_anim_set_var(&a, dot);
+  lv_anim_set_duration(&a, ANIM_MS);
+  lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+
+  lv_anim_set_exec_cb(&a, dot_size_cb);
+  lv_anim_set_values(&a, lv_obj_get_width(dot), size);
+  lv_anim_start(&a);
+
+  lv_anim_set_exec_cb(&a, dot_opa_cb);
+  lv_anim_set_values(&a, lv_obj_get_style_bg_opa(dot, 0), opa);
+  lv_anim_start(&a);
+}
 
 page_dots_t page_dots_create(lv_obj_t *parent, int total, lv_align_t align, int x_ofs, int y_ofs) {
   page_dots_t pd = {0};
@@ -62,10 +87,24 @@ void page_dots_set(page_dots_t *pd, int index) {
     int rel = i - index;
     int dist = rel < 0 ? -rel : rel;
 
+    lv_anim_delete(pd->dots[i], dot_size_cb);
+    lv_anim_delete(pd->dots[i], dot_opa_cb);
+
     if (dist <= 2) {
+      bool was_hidden = lv_obj_has_flag(pd->dots[i], LV_OBJ_FLAG_HIDDEN);
       lv_obj_remove_flag(pd->dots[i], LV_OBJ_FLAG_HIDDEN);
+
       int sz = DOT_PATTERN[2 + rel];
-      lv_obj_set_size(pd->dots[i], sz, sz);
+      lv_opa_t opa = (dist == 0) ? LV_OPA_COVER : (dist == 1) ? LV_OPA_40 : LV_OPA_20;
+      lv_color_t col = (dist == 0) ? current_theme.border_accent : current_theme.text_main;
+      lv_obj_set_style_bg_color(pd->dots[i], col, 0);
+
+      if (was_hidden) {
+        lv_obj_set_size(pd->dots[i], sz, sz);
+        lv_obj_set_style_bg_opa(pd->dots[i], opa, 0);
+      } else {
+        dot_animate_to(pd->dots[i], sz, opa);
+      }
     } else {
       lv_obj_add_flag(pd->dots[i], LV_OBJ_FLAG_HIDDEN);
     }
