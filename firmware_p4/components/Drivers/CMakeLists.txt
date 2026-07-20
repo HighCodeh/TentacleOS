@@ -20,6 +20,7 @@ file(GLOB_RECURSE SX1262_SRCS "sx1262/*.c")
 
 idf_component_register(SRCS
   "bq25896/bq25896.c"
+  "bq25896/bq25896_ext.c"
   "cc1101/cc1101.c"
   "st7789/st7789.c"
   "led/led_control.c"
@@ -28,6 +29,8 @@ idf_component_register(SRCS
   "tusb_desc/tusb_desc.c"
   "buttons_gpio/buttons_gpio.c"
   "spi_bridge_phy/spi_bridge_phy.c"
+  "audio_i2s/audio_i2s.c"
+  "drv2605l/drv2605l.c"
   ${ST25R3916_SRCS}
   ${YS_RFID2_SRCS}
   ${SX1262_SRCS}
@@ -43,6 +46,8 @@ idf_component_register(SRCS
   "tusb_desc/include"
   "buttons_gpio/include"
   "spi_bridge_phy/include"
+  "audio_i2s/include"
+  "drv2605l/include"
   "st25r3916/include"
   "st25r3916/hal/include"
   "ys_rfid2/include"
@@ -51,6 +56,7 @@ idf_component_register(SRCS
 
   REQUIRES
   driver
+  esp_driver_i2s
   Service
   esp_lcd
   PRIV_REQUIRES
