@@ -13,18 +13,20 @@
 // You should have received a copy of the GNU General Public License
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-#ifndef WIFI_SNIFFER_ATTACK_UI_H
-#define WIFI_SNIFFER_ATTACK_UI_H
+#ifndef WIFI_ATTACK_UI_H
+#define WIFI_ATTACK_UI_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/** @brief Open the Wi-Fi sniffer attack screen. */
-void ui_wifi_sniffer_attack_open(void);
+/**
+ * @brief Open the Wi-Fi attacks submenu (mock / demo only).
+ */
+void ui_wifi_attack_open(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // WIFI_SNIFFER_ATTACK_UI_H
+#endif // WIFI_ATTACK_UI_H
