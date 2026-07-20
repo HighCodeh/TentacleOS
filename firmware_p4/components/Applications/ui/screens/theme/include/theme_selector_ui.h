@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-/** @brief Open the theme selector screen. */
+/** @brief Open the theme selector screen (live-applies the chosen palette). */
 void ui_theme_selector_open(void);
 
 #ifdef __cplusplus
