@@ -16,13 +16,11 @@
 #include "ble_scan_ui.h"
 
 #include <stdio.h>
-#include <string.h>
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include "bridge.h"
 #include "buttons_gpio.h"
 #include "menu_component_ui.h"
 #include "ui_manager.h"
@@ -34,15 +32,28 @@ static const char *TAG = "BLE_SCAN_UI";
 #define NAV_TIMER_MS          50
 #define SCAN_RESULT_COLOR_HEX 0x00E676
 #define BLE_MAX_DEVS          12
-#define SCAN_SETTLE_MS        150
-#define SCAN_POLL_TRIES       20
-#define SCAN_POLL_DELAY_MS    400
+#define SCAN_SIM_STEPS        4
+#define SCAN_SIM_STEP_MS      220
 #define BLE_DEV_ICON          "/assets/icons/radar_icon.bin"
 #define BLE_DEV_LABEL_LEN     32
 #define BLE_SCAN_TASK_STACK   4096
 #define BLE_SCAN_TASK_PRIO    4
 
 typedef enum { SCAN_RUNNING, SCAN_DONE, SCAN_FAIL } scan_state_t;
+
+typedef struct {
+  char name[20];
+  int8_t rssi;
+} mock_ble_dev_t;
+
+static const mock_ble_dev_t MOCK_BLE_DEVS[] = {
+    {"Galaxy Buds", -51},
+    {"Mi Band 7", -60},
+    {"JBL Flip 6", -44},
+    {"AirPods", -66},
+    {"Tile Tracker", -73},
+};
+#define MOCK_BLE_DEV_COUNT (sizeof(MOCK_BLE_DEVS) / sizeof(MOCK_BLE_DEVS[0]))
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
@@ -106,67 +117,22 @@ static void scan_done_cb(void *unused) {
 
 static void ble_scan_task(void *arg) {
   (void)arg;
-  scan_state_t result = SCAN_FAIL;
   int count = 0;
 
-  if (bridge_master_init() == ESP_OK) {
-    bridge_frame_t req = {.cmd = BRIDGE_CMD_BLE_SCAN_START};
-    bridge_frame_t resp = {0};
-    if (bridge_request(&req, &resp, SCAN_SETTLE_MS) == ESP_OK && resp.status == BRIDGE_STATUS_OK) {
-      uint8_t n = 0;
-      for (int i = 0; i < SCAN_POLL_TRIES; i++) {
-        vTaskDelay(pdMS_TO_TICKS(SCAN_POLL_DELAY_MS));
-        req.cmd = BRIDGE_CMD_BLE_SCAN_COUNT;
-        if (bridge_request(&req, &resp, SCAN_SETTLE_MS) == ESP_OK &&
-            resp.status == BRIDGE_STATUS_OK && resp.payload[0] > 0) {
-          n = resp.payload[0];
-          break;
-        }
-      }
-      result = SCAN_DONE;
+  for (int i = 0; i < SCAN_SIM_STEPS; i++)
+    vTaskDelay(pdMS_TO_TICKS(SCAN_SIM_STEP_MS));
 
-      int to_fetch = (n > BLE_MAX_DEVS) ? BLE_MAX_DEVS : n;
-      for (int i = 0; i < to_fetch; i++) {
-        req.cmd = BRIDGE_CMD_BLE_SCAN_GET;
-        req.len = 1;
-        req.payload[0] = (uint8_t)i;
-        if (bridge_request(&req, &resp, SCAN_SETTLE_MS) == ESP_OK &&
-            resp.status == BRIDGE_STATUS_OK) {
-          bridge_ble_dev_t dev;
-          memcpy(&dev, resp.payload, sizeof(dev));
-          if (!dev.valid)
-            continue;
-
-          if (dev.name[0] != '\0') {
-            snprintf(s_dev_labels[count],
-                     sizeof(s_dev_labels[count]),
-                     "%.20s (%d)",
-                     dev.name,
-                     (int8_t)dev.rssi);
-          } else {
-            snprintf(s_dev_labels[count],
-                     sizeof(s_dev_labels[count]),
-                     "%02X:%02X:%02X:%02X:%02X:%02X (%d)",
-                     dev.addr[0],
-                     dev.addr[1],
-                     dev.addr[2],
-                     dev.addr[3],
-                     dev.addr[4],
-                     dev.addr[5],
-                     (int8_t)dev.rssi);
-          }
-          count++;
-        }
-      }
-    } else {
-      ESP_LOGE(TAG, "BLE_SCAN_START failed (bridge/C5 not responding)");
-    }
-  } else {
-    ESP_LOGE(TAG, "bridge_master_init failed");
+  for (size_t i = 0; i < MOCK_BLE_DEV_COUNT && count < BLE_MAX_DEVS; i++) {
+    snprintf(s_dev_labels[count],
+             sizeof(s_dev_labels[count]),
+             "%.20s (%d)",
+             MOCK_BLE_DEVS[i].name,
+             MOCK_BLE_DEVS[i].rssi);
+    count++;
   }
 
   s_dev_count = count;
-  s_scan_state = result;
+  s_scan_state = SCAN_DONE;
   s_scanning = false;
   lv_async_call(scan_done_cb, NULL);
   vTaskDelete(NULL);
@@ -226,5 +192,5 @@ void ui_ble_scan_open(void) {
     }
   }
 
-  ESP_LOGI(TAG, "BLE scan screen opened — real C5 scan started");
+  ESP_LOGI(TAG, "BLE scan screen opened (mock scan)");
 }

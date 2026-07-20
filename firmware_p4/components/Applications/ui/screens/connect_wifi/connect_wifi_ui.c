@@ -21,7 +21,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include "bridge.h"
 #include "buttons_gpio.h"
 #include "keyboard_ui.h"
 #include "menu_component_ui.h"
@@ -35,17 +34,33 @@ static const char *TAG = "CONNECT_WIFI_UI";
 
 #define SCAN_RESULT_COLOR_HEX 0x00E676
 
-#define WIFI_MAX_APS       12
-#define SCAN_SETTLE_MS     150
-#define SCAN_POLL_TRIES    30
-#define SCAN_POLL_DELAY_MS 400
+#define WIFI_MAX_APS     12
+#define SCAN_SIM_STEPS   4
+#define SCAN_SIM_STEP_MS 220
 
-#define WIFI_TASK_STACK_SIZE  4096
-#define WIFI_TASK_PRIORITY    4
-#define CONNECT_POLL_TRIES    30
-#define CONNECT_POLL_DELAY_MS 500
+#define WIFI_TASK_STACK_SIZE 4096
+#define WIFI_TASK_PRIORITY   4
+#define CONNECT_SIM_STEPS    4
+#define CONNECT_SIM_STEP_MS  300
+
+#define CONNECT_STATE_FAILED    0
+#define CONNECT_STATE_CONNECTED 1
 
 typedef enum { SCAN_RUNNING, SCAN_DONE, SCAN_FAIL } scan_state_t;
+
+typedef struct {
+  const char *ssid;
+  int8_t rssi;
+} mock_ap_t;
+
+static const mock_ap_t MOCK_APS[] = {
+    {"TentacleNet", -38},
+    {"HighCode-Guest", -52},
+    {"Familia Souza", -60},
+    {"iPhone de Ana", -67},
+    {"NET_2G_A1B2", -74},
+};
+#define MOCK_AP_COUNT (sizeof(MOCK_APS) / sizeof(MOCK_APS[0]))
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
@@ -84,24 +99,11 @@ static const char *icon_for_rssi(int8_t rssi) {
   return "/assets/icons/wifi_icon_0.bin";
 }
 
-static esp_err_t bridge_send_str(uint8_t cmd, const char *s) {
-  bridge_frame_t req = {.cmd = cmd};
-  bridge_frame_t resp = {0};
-  size_t len = strlen(s);
-  if (len > BRIDGE_PAYLOAD_MAX)
-    len = BRIDGE_PAYLOAD_MAX;
-  memcpy(req.payload, s, len);
-  req.len = (uint8_t)len;
-  if (bridge_request(&req, &resp, SCAN_SETTLE_MS) != ESP_OK || resp.status != BRIDGE_STATUS_OK)
-    return ESP_FAIL;
-  return ESP_OK;
-}
-
 static void connect_done_cb(void *unused) {
   (void)unused;
   if (ui_current_screen() != SCREEN_CONNECT_WIFI)
     return;
-  if (s_connect_state == BRIDGE_WIFI_STA_CONNECTED) {
+  if (s_connect_state == CONNECT_STATE_CONNECTED) {
     char msg[48];
     snprintf(msg,
              sizeof(msg),
@@ -118,40 +120,15 @@ static void connect_done_cb(void *unused) {
 
 static void wifi_connect_task(void *arg) {
   (void)arg;
-  uint8_t state = BRIDGE_WIFI_STA_FAILED;
-  uint8_t ip[4] = {0};
 
-  if (bridge_master_init() == ESP_OK &&
-      bridge_send_str(BRIDGE_CMD_WIFI_STA_SSID, s_connect_ssid) == ESP_OK &&
-      bridge_send_str(BRIDGE_CMD_WIFI_STA_PASS, s_connect_pass) == ESP_OK) {
-    bridge_frame_t req = {.cmd = BRIDGE_CMD_WIFI_STA_CONNECT};
-    bridge_frame_t resp = {0};
-    if (bridge_request(&req, &resp, SCAN_SETTLE_MS) == ESP_OK && resp.status == BRIDGE_STATUS_OK) {
-      for (int i = 0; i < CONNECT_POLL_TRIES; i++) {
-        vTaskDelay(pdMS_TO_TICKS(CONNECT_POLL_DELAY_MS));
-        req.cmd = BRIDGE_CMD_WIFI_STA_STATUS;
-        if (bridge_request(&req, &resp, SCAN_SETTLE_MS) == ESP_OK &&
-            resp.status == BRIDGE_STATUS_OK) {
-          bridge_wifi_sta_status_t st;
-          memcpy(&st, resp.payload, sizeof(st));
-          if (st.state == BRIDGE_WIFI_STA_CONNECTED) {
-            state = st.state;
-            memcpy(ip, st.ip, 4);
-            break;
-          }
-          if (st.state == BRIDGE_WIFI_STA_FAILED) {
-            state = st.state;
-            break;
-          }
-        }
-      }
-    }
-  } else {
-    ESP_LOGE(TAG, "staging SSID/pass to C5 failed");
-  }
+  for (int i = 0; i < CONNECT_SIM_STEPS; i++)
+    vTaskDelay(pdMS_TO_TICKS(CONNECT_SIM_STEP_MS));
 
-  s_connect_state = state;
-  memcpy(s_connect_ip, ip, 4);
+  s_connect_state = CONNECT_STATE_CONNECTED;
+  s_connect_ip[0] = 192;
+  s_connect_ip[1] = 168;
+  s_connect_ip[2] = 1;
+  s_connect_ip[3] = 42;
   s_connecting = false;
   lv_async_call(connect_done_cb, NULL);
   vTaskDelete(NULL);
@@ -213,53 +190,20 @@ static void scan_done_cb(void *unused) {
 
 static void wifi_scan_task(void *arg) {
   (void)arg;
-  scan_state_t result = SCAN_FAIL;
   int count = 0;
 
-  if (bridge_master_init() == ESP_OK) {
-    bridge_frame_t req = {.cmd = BRIDGE_CMD_WIFI_SCAN_START};
-    bridge_frame_t resp = {0};
-    if (bridge_request(&req, &resp, SCAN_SETTLE_MS) == ESP_OK && resp.status == BRIDGE_STATUS_OK) {
-      uint8_t n = 0;
-      for (int i = 0; i < SCAN_POLL_TRIES; i++) {
-        vTaskDelay(pdMS_TO_TICKS(SCAN_POLL_DELAY_MS));
-        req.cmd = BRIDGE_CMD_WIFI_SCAN_COUNT;
-        if (bridge_request(&req, &resp, SCAN_SETTLE_MS) == ESP_OK &&
-            resp.status == BRIDGE_STATUS_OK && resp.payload[0] > 0) {
-          n = resp.payload[0];
-          break;
-        }
-      }
-      result = SCAN_DONE;
+  for (int i = 0; i < SCAN_SIM_STEPS; i++)
+    vTaskDelay(pdMS_TO_TICKS(SCAN_SIM_STEP_MS));
 
-      int to_fetch = (n > WIFI_MAX_APS) ? WIFI_MAX_APS : n;
-      for (int i = 0; i < to_fetch; i++) {
-        req.cmd = BRIDGE_CMD_WIFI_SCAN_GET;
-        req.len = 1;
-        req.payload[0] = (uint8_t)i;
-        if (bridge_request(&req, &resp, SCAN_SETTLE_MS) == ESP_OK &&
-            resp.status == BRIDGE_STATUS_OK) {
-          bridge_wifi_ap_t ap;
-          memcpy(&ap, resp.payload, sizeof(ap));
-          if (!ap.valid)
-            continue;
-          strncpy(s_aps[count].ssid, ap.ssid, sizeof(s_aps[count].ssid) - 1);
-          s_aps[count].ssid[sizeof(s_aps[count].ssid) - 1] = '\0';
-          if (s_aps[count].ssid[0] == '\0')
-            strcpy(s_aps[count].ssid, "(hidden)");
-          s_aps[count].rssi = (int8_t)ap.rssi;
-          count++;
-        }
-      }
-    } else {
-      ESP_LOGE(TAG, "WIFI_SCAN_START failed (bridge/C5 not responding)");
-    }
-  } else {
-    ESP_LOGE(TAG, "bridge_master_init failed");
+  for (size_t i = 0; i < MOCK_AP_COUNT && count < WIFI_MAX_APS; i++) {
+    strncpy(s_aps[count].ssid, MOCK_APS[i].ssid, sizeof(s_aps[count].ssid) - 1);
+    s_aps[count].ssid[sizeof(s_aps[count].ssid) - 1] = '\0';
+    s_aps[count].rssi = MOCK_APS[i].rssi;
+    count++;
   }
 
   s_ap_count = count;
-  s_scan_state = result;
+  s_scan_state = SCAN_DONE;
   s_scanning = false;
   lv_async_call(scan_done_cb, NULL);
   vTaskDelete(NULL);
@@ -332,5 +276,5 @@ void ui_connect_wifi_open(void) {
     }
   }
 
-  ESP_LOGI(TAG, "Networks screen opened — real C5 scan started");
+  ESP_LOGI(TAG, "Networks screen opened (mock scan)");
 }

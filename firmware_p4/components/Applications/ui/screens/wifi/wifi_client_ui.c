@@ -16,13 +16,11 @@
 #include "wifi_client_ui.h"
 
 #include <stdio.h>
-#include <string.h>
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include "bridge.h"
 #include "buttons_gpio.h"
 #include "menu_component_ui.h"
 #include "ui_manager.h"
@@ -34,13 +32,26 @@ static const char *TAG = "WIFI_CLI_UI";
 #define SCAN_RESULT_COLOR_HEX 0x00E676
 #define CLI_ICON              "/assets/icons/radar_icon.bin"
 #define CLI_MAX               12
-#define SCAN_SETTLE_MS        150
-#define SCAN_POLL_TRIES       24
-#define SCAN_POLL_DELAY_MS    400
+#define SCAN_SIM_STEPS        4
+#define SCAN_SIM_STEP_MS      220
 #define TASK_STACK_SIZE       4096
 #define TASK_PRIORITY         4
 
 typedef enum { SCAN_RUNNING, SCAN_DONE, SCAN_FAIL } scan_state_t;
+
+typedef struct {
+  uint8_t addr[6];
+  uint8_t channel;
+  int8_t rssi;
+} mock_client_t;
+
+static const mock_client_t MOCK_CLIENTS[] = {
+    {{0x3C, 0x5A, 0xB4, 0x11, 0x22, 0x33}, 6, -47},
+    {{0xA4, 0x77, 0x33, 0xDE, 0xAD, 0xBE}, 1, -58},
+    {{0x08, 0x00, 0x27, 0x0A, 0x1B, 0x2C}, 11, -63},
+    {{0xF0, 0x9F, 0xC2, 0x44, 0x55, 0x66}, 6, -71},
+};
+#define MOCK_CLIENT_COUNT (sizeof(MOCK_CLIENTS) / sizeof(MOCK_CLIENTS[0]))
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
@@ -102,61 +113,28 @@ static void scan_done_cb(void *unused) {
 
 static void wifi_client_task(void *arg) {
   (void)arg;
-  scan_state_t result = SCAN_FAIL;
   int count = 0;
 
-  if (bridge_master_init() == ESP_OK) {
-    bridge_frame_t req = {.cmd = BRIDGE_CMD_WIFI_CLIENT_SCAN_START};
-    bridge_frame_t resp = {0};
-    if (bridge_request(&req, &resp, SCAN_SETTLE_MS) == ESP_OK && resp.status == BRIDGE_STATUS_OK) {
-      uint8_t n = 0;
-      for (int i = 0; i < SCAN_POLL_TRIES; i++) {
-        vTaskDelay(pdMS_TO_TICKS(SCAN_POLL_DELAY_MS));
-        req.cmd = BRIDGE_CMD_WIFI_CLIENT_COUNT;
-        if (bridge_request(&req, &resp, SCAN_SETTLE_MS) == ESP_OK &&
-            resp.status == BRIDGE_STATUS_OK && resp.payload[0] > 0) {
-          n = resp.payload[0];
+  for (int i = 0; i < SCAN_SIM_STEPS; i++)
+    vTaskDelay(pdMS_TO_TICKS(SCAN_SIM_STEP_MS));
 
-          if (i >= SCAN_POLL_TRIES - 1)
-            break;
-        }
-      }
-      result = SCAN_DONE;
-
-      int to_fetch = (n > CLI_MAX) ? CLI_MAX : n;
-      for (int i = 0; i < to_fetch; i++) {
-        req.cmd = BRIDGE_CMD_WIFI_CLIENT_GET;
-        req.len = 1;
-        req.payload[0] = (uint8_t)i;
-        if (bridge_request(&req, &resp, SCAN_SETTLE_MS) == ESP_OK &&
-            resp.status == BRIDGE_STATUS_OK) {
-          bridge_wifi_client_t cli;
-          memcpy(&cli, resp.payload, sizeof(cli));
-          if (!cli.valid)
-            continue;
-          snprintf(s_cli_labels[count],
-                   sizeof(s_cli_labels[count]),
-                   "%02X:%02X:%02X:%02X:%02X:%02X c%d %d",
-                   cli.addr[0],
-                   cli.addr[1],
-                   cli.addr[2],
-                   cli.addr[3],
-                   cli.addr[4],
-                   cli.addr[5],
-                   cli.channel,
-                   (int8_t)cli.rssi);
-          count++;
-        }
-      }
-    } else {
-      ESP_LOGE(TAG, "WIFI_CLIENT_SCAN_START failed (bridge/C5 not responding)");
-    }
-  } else {
-    ESP_LOGE(TAG, "bridge_master_init failed");
+  for (size_t i = 0; i < MOCK_CLIENT_COUNT && count < CLI_MAX; i++) {
+    snprintf(s_cli_labels[count],
+             sizeof(s_cli_labels[count]),
+             "%02X:%02X:%02X:%02X:%02X:%02X c%d %d",
+             MOCK_CLIENTS[i].addr[0],
+             MOCK_CLIENTS[i].addr[1],
+             MOCK_CLIENTS[i].addr[2],
+             MOCK_CLIENTS[i].addr[3],
+             MOCK_CLIENTS[i].addr[4],
+             MOCK_CLIENTS[i].addr[5],
+             MOCK_CLIENTS[i].channel,
+             MOCK_CLIENTS[i].rssi);
+    count++;
   }
 
   s_cli_count = count;
-  s_scan_state = result;
+  s_scan_state = SCAN_DONE;
   s_scanning = false;
   lv_async_call(scan_done_cb, NULL);
   vTaskDelete(NULL);
@@ -215,5 +193,5 @@ void ui_wifi_client_open(void) {
     }
   }
 
-  ESP_LOGI(TAG, "Client scan screen opened — real C5 promiscuous sweep started");
+  ESP_LOGI(TAG, "Client scan screen opened (mock scan)");
 }

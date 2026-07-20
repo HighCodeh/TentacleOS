@@ -16,13 +16,11 @@
 #include "wifi_channel_ui.h"
 
 #include <stdio.h>
-#include <string.h>
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include "bridge.h"
 #include "buttons_gpio.h"
 #include "menu_component_ui.h"
 #include "ui_manager.h"
@@ -30,21 +28,34 @@
 
 static const char *TAG = "WIFI_CHAN_UI";
 
-#define NAV_TIMER_MS       50
-#define CHAN_ICON          "/assets/icons/wifi_menu_icon.bin"
-#define MAX_CHANNELS       14
-#define MAX_ROWS           12
-#define SCAN_SETTLE_MS     150
-#define SCAN_POLL_TRIES    30
-#define SCAN_POLL_DELAY_MS 400
-#define TASK_STACK_SIZE    4096
-#define TASK_PRIORITY      4
+#define NAV_TIMER_MS     50
+#define CHAN_ICON        "/assets/icons/wifi_menu_icon.bin"
+#define MAX_ROWS         12
+#define SCAN_SIM_STEPS   4
+#define SCAN_SIM_STEP_MS 220
+#define TASK_STACK_SIZE  4096
+#define TASK_PRIORITY    4
 
 #define COLOR_QUIET_HEX   0x00E676
 #define COLOR_BUSY_HEX    0xFFC107
 #define COLOR_CROWDED_HEX 0xF44336
 
 typedef enum { SCAN_RUNNING, SCAN_DONE, SCAN_FAIL } scan_state_t;
+
+typedef struct {
+  uint8_t channel;
+  uint8_t ap_count;
+  int8_t best_rssi;
+} mock_channel_t;
+
+static const mock_channel_t MOCK_CHANNELS[] = {
+    {1, 5, -42},
+    {6, 3, -55},
+    {11, 4, -49},
+    {3, 1, -71},
+    {9, 2, -63},
+};
+#define MOCK_CHANNEL_COUNT (sizeof(MOCK_CHANNELS) / sizeof(MOCK_CHANNELS[0]))
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
@@ -116,71 +127,24 @@ static void scan_done_cb(void *unused) {
 
 static void wifi_channel_task(void *arg) {
   (void)arg;
-  scan_state_t result = SCAN_FAIL;
   int rows = 0;
 
-  int ch_count[MAX_CHANNELS + 1] = {0};
-  int8_t ch_best[MAX_CHANNELS + 1];
-  for (int i = 0; i <= MAX_CHANNELS; i++)
-    ch_best[i] = -128;
+  for (int i = 0; i < SCAN_SIM_STEPS; i++)
+    vTaskDelay(pdMS_TO_TICKS(SCAN_SIM_STEP_MS));
 
-  if (bridge_master_init() == ESP_OK) {
-    bridge_frame_t req = {.cmd = BRIDGE_CMD_WIFI_SCAN_START};
-    bridge_frame_t resp = {0};
-    if (bridge_request(&req, &resp, SCAN_SETTLE_MS) == ESP_OK && resp.status == BRIDGE_STATUS_OK) {
-      uint8_t n = 0;
-      for (int i = 0; i < SCAN_POLL_TRIES; i++) {
-        vTaskDelay(pdMS_TO_TICKS(SCAN_POLL_DELAY_MS));
-        req.cmd = BRIDGE_CMD_WIFI_SCAN_COUNT;
-        if (bridge_request(&req, &resp, SCAN_SETTLE_MS) == ESP_OK &&
-            resp.status == BRIDGE_STATUS_OK && resp.payload[0] > 0) {
-          n = resp.payload[0];
-          break;
-        }
-      }
-      result = SCAN_DONE;
-
-      for (int i = 0; i < n; i++) {
-        req.cmd = BRIDGE_CMD_WIFI_SCAN_GET;
-        req.len = 1;
-        req.payload[0] = (uint8_t)i;
-        if (bridge_request(&req, &resp, SCAN_SETTLE_MS) == ESP_OK &&
-            resp.status == BRIDGE_STATUS_OK) {
-          bridge_wifi_ap_t ap;
-          memcpy(&ap, resp.payload, sizeof(ap));
-          if (!ap.valid)
-            continue;
-          int ch = ap.channel;
-          if (ch < 1 || ch > MAX_CHANNELS)
-            continue;
-          ch_count[ch]++;
-          int8_t rssi = (int8_t)ap.rssi;
-          if (rssi > ch_best[ch])
-            ch_best[ch] = rssi;
-        }
-      }
-
-      for (int ch = 1; ch <= MAX_CHANNELS && rows < MAX_ROWS; ch++) {
-        if (ch_count[ch] == 0)
-          continue;
-        snprintf(s_rows[rows],
-                 sizeof(s_rows[rows]),
-                 "Ch%2d   %d AP   %d dBm",
-                 ch,
-                 ch_count[ch],
-                 ch_best[ch]);
-        s_row_color[rows] = color_for_count(ch_count[ch]);
-        rows++;
-      }
-    } else {
-      ESP_LOGE(TAG, "WIFI_SCAN_START failed (bridge/C5 not responding)");
-    }
-  } else {
-    ESP_LOGE(TAG, "bridge_master_init failed");
+  for (size_t i = 0; i < MOCK_CHANNEL_COUNT && rows < MAX_ROWS; i++) {
+    snprintf(s_rows[rows],
+             sizeof(s_rows[rows]),
+             "Ch%2d   %d AP   %d dBm",
+             MOCK_CHANNELS[i].channel,
+             MOCK_CHANNELS[i].ap_count,
+             MOCK_CHANNELS[i].best_rssi);
+    s_row_color[rows] = color_for_count(MOCK_CHANNELS[i].ap_count);
+    rows++;
   }
 
   s_row_count = rows;
-  s_scan_state = result;
+  s_scan_state = SCAN_DONE;
   s_scanning = false;
   lv_async_call(scan_done_cb, NULL);
   vTaskDelete(NULL);
@@ -239,5 +203,5 @@ void ui_wifi_channel_open(void) {
     }
   }
 
-  ESP_LOGI(TAG, "Channel analysis screen opened — real C5 scan started");
+  ESP_LOGI(TAG, "Channel analysis screen opened (mock scan)");
 }
