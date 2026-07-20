@@ -34,10 +34,11 @@ typedef struct {
 } ui_ble_menu_item_t;
 
 static const ui_ble_menu_item_t MENU_ITEMS[] = {
-    {"Companion App", NULL, SCREEN_COMPANION_PAIRING},
-    {"Device Spam", NULL, SCREEN_BLE_SPAM_SELECT},
-    {"Detect Devices", NULL, -1},
-    {"Beacon Spam", NULL, -1},
+    {"Companion App", "/assets/icons/app_icon.bin", SCREEN_COMPANION_PAIRING},
+    {"MouseAir", "/assets/icons/mouse_icon.bin", SCREEN_BLE_MOUSE_PAIRING},
+    {"Device Spam", "/assets/icons/burst_menu_icon.bin", SCREEN_BLE_SPAM_SELECT},
+    {"Detect Devices", "/assets/icons/radar_icon.bin", SCREEN_BLE_SCAN},
+    {"Beacon Spam", "/assets/icons/spam_icon.bin", -1},
 };
 #define MENU_ITEMS_COUNT (sizeof(MENU_ITEMS) / sizeof(MENU_ITEMS[0]))
 
@@ -64,7 +65,7 @@ void ui_ble_menu_open(void) {
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  s_menu = menu_component_create(s_screen, "BLUETOOTH", NULL);
+  s_menu = menu_component_create(s_screen, "BLUETOOTH", "/assets/icons/bluetooth_icon.bin");
   for (int i = 0; i < (int)MENU_ITEMS_COUNT; i++) {
     menu_component_add_item(&s_menu, MENU_ITEMS[i].icon, MENU_ITEMS[i].name);
   }
@@ -73,7 +74,7 @@ void ui_ble_menu_open(void) {
     s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
   }
 
-  lv_screen_load(s_screen);
+  ui_screen_load(s_screen);
 }
 
 static void nav_timer_cb(lv_timer_t *t) {
@@ -87,10 +88,10 @@ static void nav_timer_cb(lv_timer_t *t) {
     return;
   }
 
-  bool up = up_button_is_down();
-  bool down = down_button_is_down();
-  bool left = left_button_is_down();
-  bool right = right_button_is_down();
+  bool up = ui_btn_up();
+  bool down = ui_btn_down();
+  bool left = ui_btn_left();
+  bool right = ui_btn_right();
   bool ok = ok_button_is_down();
   bool back = back_button_is_down();
 
