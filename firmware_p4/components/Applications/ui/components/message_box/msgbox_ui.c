@@ -21,13 +21,14 @@
 #include "buttons_gpio.h"
 #include "ui_theme.h"
 
-#define MSGBOX_H     ((LCD_V_RES * 45) / 100)
-#define ANIM_TIME    300
-#define BORDER_COLOR current_theme.border_accent
-#define GRAD_TOP     current_theme.border_interface
-#define GRAD_BOT     current_theme.bg_secondary
-#define BTN_W        80
-#define BTN_H        28
+#define MSGBOX_H       ((LCD_V_RES * 45) / 100)
+#define ANIM_TIME      300
+#define BORDER_COLOR   current_theme.border_accent
+#define GRAD_TOP       current_theme.border_interface
+#define GRAD_BOT       current_theme.bg_secondary
+#define BTN_W          80
+#define BTN_H          28
+#define MSGBOX_POLL_MS 50
 
 static lv_obj_t *panel = NULL;
 static lv_obj_t *btn_objs[2] = {NULL};
@@ -61,37 +62,67 @@ static void slide_anim_cb(void *var, int32_t val) {
   lv_obj_set_y((lv_obj_t *)var, val);
 }
 
-static void close_anim_done(lv_anim_t *a) {
-  if (panel) {
-    lv_obj_del(panel);
-    panel = NULL;
-  }
+static void close_anim_del_cb(lv_anim_t *a) {
+  lv_obj_del((lv_obj_t *)a->var);
+}
+
+static void panel_deleted_cb(lv_event_t *e) {
+  (void)e;
+  panel = NULL;
   btn_objs[0] = btn_objs[1] = NULL;
   btn_count = 0;
+  current_cb = NULL;
+  if (msgbox_timer) {
+    lv_timer_delete(msgbox_timer);
+    msgbox_timer = NULL;
+  }
 }
 
 static void do_close(bool confirm) {
   if (!panel)
     return;
 
-  if (current_cb)
-    current_cb(confirm);
+  lv_obj_t *closing = panel;
+  msgbox_cb_t cb = current_cb;
+  panel = NULL;
   current_cb = NULL;
-
+  btn_objs[0] = btn_objs[1] = NULL;
+  btn_count = 0;
   if (msgbox_timer) {
     lv_timer_delete(msgbox_timer);
     msgbox_timer = NULL;
   }
+  lv_obj_remove_event_cb(closing, panel_deleted_cb);
 
   lv_anim_t a;
   lv_anim_init(&a);
-  lv_anim_set_var(&a, panel);
-  lv_anim_set_values(&a, lv_obj_get_y(panel), LCD_V_RES);
+  lv_anim_set_var(&a, closing);
+  lv_anim_set_values(&a, lv_obj_get_y(closing), LCD_V_RES);
   lv_anim_set_duration(&a, ANIM_TIME);
   lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
   lv_anim_set_exec_cb(&a, slide_anim_cb);
-  lv_anim_set_completed_cb(&a, close_anim_done);
+  lv_anim_set_completed_cb(&a, close_anim_del_cb);
   lv_anim_start(&a);
+
+  if (cb)
+    cb(confirm);
+}
+
+static void discard_panel_silent(void) {
+  if (!panel)
+    return;
+  lv_obj_t *p = panel;
+  panel = NULL;
+  current_cb = NULL;
+  btn_objs[0] = btn_objs[1] = NULL;
+  btn_count = 0;
+  if (msgbox_timer) {
+    lv_timer_delete(msgbox_timer);
+    msgbox_timer = NULL;
+  }
+  lv_obj_remove_event_cb(p, panel_deleted_cb);
+  lv_anim_delete(p, NULL);
+  lv_obj_del(p);
 }
 
 static void msgbox_timer_cb(lv_timer_t *t) {
@@ -162,7 +193,7 @@ static lv_obj_t *create_btn(lv_obj_t *parent, const char *text) {
 void msgbox_open(
     const char *icon, const char *msg, const char *btn_ok, const char *btn_cancel, msgbox_cb_t cb) {
   if (panel)
-    msgbox_close();
+    discard_panel_silent();
 
   current_cb = cb;
   input_locked = true;
@@ -174,6 +205,7 @@ void msgbox_open(
   lv_obj_set_size(panel, LCD_H_RES, MSGBOX_H);
   lv_obj_set_pos(panel, 0, LCD_V_RES);
   lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_event_cb(panel, panel_deleted_cb, LV_EVENT_DELETE, NULL);
 
   lv_obj_set_style_radius(panel, 12, 0);
   lv_obj_set_style_border_side(
@@ -252,7 +284,7 @@ void msgbox_open(
   lv_anim_start(&a);
 
   if (!msgbox_timer)
-    msgbox_timer = lv_timer_create(msgbox_timer_cb, 50, NULL);
+    msgbox_timer = lv_timer_create(msgbox_timer_cb, MSGBOX_POLL_MS, NULL);
 }
 
 void msgbox_close(void) {
