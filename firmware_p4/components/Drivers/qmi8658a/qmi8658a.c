@@ -49,14 +49,17 @@ static const char *TAG = "QMI8658A";
 
 #define QMI8658A_SPI_FREQ_HZ (4 * 1000 * 1000)
 
+#define QMI8658A_MAX_READ_LEN           16
+#define QMI8658A_BUS_ACQUIRE_TIMEOUT_MS 5000
+
 static spi_device_handle_t s_spi = NULL;
 
 static esp_err_t read_regs(uint8_t reg, uint8_t *buf, size_t n) {
-  if (s_spi == NULL || buf == NULL || n == 0 || n > 16) {
+  if (s_spi == NULL || buf == NULL || n == 0 || n > QMI8658A_MAX_READ_LEN) {
     return ESP_ERR_INVALID_ARG;
   }
-  uint8_t tx[1 + 16] = {0};
-  uint8_t rx[1 + 16] = {0};
+  uint8_t tx[1 + QMI8658A_MAX_READ_LEN] = {0};
+  uint8_t rx[1 + QMI8658A_MAX_READ_LEN] = {0};
   tx[0] = reg | 0x80;
   spi_transaction_t t = {
       .length = 8 * (1 + n),
@@ -133,7 +136,8 @@ static esp_err_t write_verify(uint8_t reg, uint8_t val) {
 esp_err_t qmi8658a_configure(void) {
   if (s_spi == NULL)
     return ESP_ERR_INVALID_STATE;
-  bool acq = (spi_device_acquire_bus(s_spi, pdMS_TO_TICKS(5000)) == ESP_OK);
+  bool acq =
+      (spi_device_acquire_bus(s_spi, pdMS_TO_TICKS(QMI8658A_BUS_ACQUIRE_TIMEOUT_MS)) == ESP_OK);
   if (!acq) {
     ESP_LOGW(TAG, "configure: acquire_bus timeout — proceeding unlocked");
   }

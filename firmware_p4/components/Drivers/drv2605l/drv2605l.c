@@ -51,6 +51,9 @@ static const char *TAG = "DRV2605L";
 
 #define I2C_TIMEOUT pdMS_TO_TICKS(50)
 
+#define AUTOCAL_POLL_INTERVAL_MS 10
+#define AUTOCAL_POLL_MAX         150
+
 static uint8_t s_device_id = 0;
 static bool s_ready = false;
 static bool s_rtp_mode = false;
@@ -153,8 +156,8 @@ esp_err_t drv2605l_autocal(void) {
     return ret;
   }
   uint8_t go = 1;
-  for (int i = 0; i < 150 && (go & 0x01); i++) {
-    vTaskDelay(pdMS_TO_TICKS(10));
+  for (int i = 0; i < AUTOCAL_POLL_MAX && (go & 0x01); i++) {
+    vTaskDelay(pdMS_TO_TICKS(AUTOCAL_POLL_INTERVAL_MS));
     if (read_reg(REG_GO, &go) != ESP_OK)
       break;
   }

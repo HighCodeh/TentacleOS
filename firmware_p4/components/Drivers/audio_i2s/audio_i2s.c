@@ -38,6 +38,10 @@ static const char *TAG = "AUDIO_I2S";
 #define MAX_TONES_PER_FX 4
 #define QUEUE_DEPTH      4
 
+#define AUDIO_TASK_STACK_SIZE 3072
+#define AUDIO_TASK_PRIORITY   4
+#define AUDIO_TASK_CORE       1
+
 typedef struct {
   float freq_hz;
   uint16_t dur_ms;
@@ -162,7 +166,13 @@ esp_err_t audio_i2s_init(void) {
     return ESP_ERR_NO_MEM;
   }
 
-  if (xTaskCreatePinnedToCore(audio_task, "audio_i2s", 3072, NULL, 4, NULL, 1) != pdPASS) {
+  if (xTaskCreatePinnedToCore(audio_task,
+                              "audio_i2s",
+                              AUDIO_TASK_STACK_SIZE,
+                              NULL,
+                              AUDIO_TASK_PRIORITY,
+                              NULL,
+                              AUDIO_TASK_CORE) != pdPASS) {
     vQueueDelete(s_fx_q);
     s_fx_q = NULL;
     free(s_chunk_buf);

@@ -39,10 +39,12 @@ esp_err_t audio_i2s_init(void);
  */
 void audio_i2s_set_volume(uint8_t pct);
 
-/** One note for audio_i2s_play_song(). freq_hz == 0 means a rest (silence). */
+/**
+ * @brief One note for audio_i2s_play_song(). freq_hz == 0 means a rest (silence).
+ */
 typedef struct {
-  uint16_t freq_hz;
-  uint16_t dur_ms;
+  uint16_t freq_hz; ///< Tone frequency in Hz (0 = rest/silence).
+  uint16_t dur_ms;  ///< Note duration in milliseconds.
 } audio_note_t;
 
 /**
@@ -75,10 +77,24 @@ typedef bool (*audio_song_progress_cb_t)(int note_index,
 esp_err_t audio_i2s_play_song_cb(
     const audio_note_t *notes, int count, float amp, audio_song_progress_cb_t cb, void *ctx);
 
-/** Play a single sine tone (blocking) at 44.1 kHz mono. amp in [0..1]. */
+/**
+ * @brief Play a single sine tone (blocking) at 44.1 kHz mono.
+ *
+ * @param freq_hz  Tone frequency in Hz.
+ * @param dur_ms   Duration in milliseconds.
+ * @param amp      Amplitude in [0..1].
+ * @return ESP_OK on success, otherwise an esp_err_t error code.
+ */
 esp_err_t audio_i2s_play_tone(float freq_hz, int dur_ms, float amp);
 
-/** Play a raw 16-bit mono PCM buffer (blocking) at @p sample_rate. */
+/**
+ * @brief Play a raw 16-bit mono PCM buffer (blocking) at @p sample_rate.
+ *
+ * @param pcm          Pointer to the 16-bit mono PCM samples.
+ * @param n_samples    Number of samples in @p pcm.
+ * @param sample_rate  Playback sample rate in Hz.
+ * @return ESP_OK on success, otherwise an esp_err_t error code.
+ */
 esp_err_t audio_i2s_play_pcm(const int16_t *pcm, size_t n_samples, uint32_t sample_rate);
 
 /**
@@ -102,7 +118,12 @@ esp_err_t audio_i2s_mic_record(int16_t *out,
                                audio_mic_level_cb_t cb,
                                void *ctx);
 
-/** Open a continuous PDM-RX stream at @p sample_rate. Idempotent. */
+/**
+ * @brief Open a continuous PDM-RX stream at @p sample_rate. Idempotent.
+ *
+ * @param sample_rate  Capture sample rate in Hz.
+ * @return ESP_OK on success, otherwise an esp_err_t error code.
+ */
 esp_err_t audio_i2s_mic_stream_start(uint32_t sample_rate);
 
 /**
@@ -111,7 +132,9 @@ esp_err_t audio_i2s_mic_stream_start(uint32_t sample_rate);
  */
 int audio_i2s_mic_stream_read(int16_t *buf, int max_samples);
 
-/** Stop and free the streaming mic channel. Safe to call when not started. */
+/**
+ * @brief Stop and free the streaming mic channel. Safe to call when not started.
+ */
 void audio_i2s_mic_stream_stop(void);
 
 /**
