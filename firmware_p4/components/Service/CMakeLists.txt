@@ -58,6 +58,7 @@ idf_component_register(SRCS
   "ir/ir_protocol_sony.c"
   "lvgl_port/lv_port_indev.c"
   "lvgl_port/lv_port_disp.c"
+  "lvgl_glue/lvgl_glue.c"
   ${SD_CARD_SERVICE_SRCS}
   ${CONSOLE_SERVICE_SRCS}
   ${CONSOLE_COMMANDS_SRCS}
@@ -78,6 +79,7 @@ idf_component_register(SRCS
   "storage_vfs/include"
   "storage_assets/include"
   "lvgl_port/include"
+  "lvgl_glue/include"
   "sd_card/include"
   "console/include"
   "spi_bridge/include"
@@ -102,6 +104,8 @@ idf_component_register(SRCS
     esp_http_server
     nvs_flash
     lvgl
+    esp_lvgl_port
+    esp_lcd
     littlefs
     cjson
     console
