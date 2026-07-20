@@ -25,7 +25,7 @@
 
 static const char *TAG = "LV_PORT_DISP";
 
-#define LVGL_BUF_LINES  (LCD_V_RES / 2)
+#define LVGL_BUF_LINES  20
 #define LVGL_BUF_PIXELS (LCD_H_RES * LVGL_BUF_LINES)
 #define LVGL_BUF_ALLOC  (MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL)
 
