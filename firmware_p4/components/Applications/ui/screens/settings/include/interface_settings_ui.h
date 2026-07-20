@@ -13,18 +13,18 @@
 // You should have received a copy of the GNU General Public License
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-#ifndef ABOUT_SETTINGS_UI_H
-#define ABOUT_SETTINGS_UI_H
+#ifndef INTERFACE_SETTINGS_UI_H
+#define INTERFACE_SETTINGS_UI_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/** @brief Open the about settings screen. */
-void ui_about_settings_open(void);
+/** @brief Open the interface settings screen (mock). */
+void ui_interface_settings_open(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // ABOUT_SETTINGS_UI_H
+#endif // INTERFACE_SETTINGS_UI_H

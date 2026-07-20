@@ -13,18 +13,18 @@
 // You should have received a copy of the GNU General Public License
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-#ifndef SOUND_SETTINGS_UI_H
-#define SOUND_SETTINGS_UI_H
+#ifndef BATTERY_SETTINGS_UI_H
+#define BATTERY_SETTINGS_UI_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/** @brief Open the sound settings screen. */
-void ui_sound_settings_open(void);
+/** @brief Open the battery info screen (mock). */
+void ui_battery_settings_open(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // SOUND_SETTINGS_UI_H
+#endif // BATTERY_SETTINGS_UI_H

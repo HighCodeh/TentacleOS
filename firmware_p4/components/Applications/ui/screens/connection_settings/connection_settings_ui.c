@@ -22,6 +22,7 @@
 #include "lv_port_indev.h"
 #include "menu_component_ui.h"
 #include "msgbox_ui.h"
+#include "notify_ui.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 #include "wifi_service.h"
@@ -61,21 +62,21 @@ void ui_connection_settings_open(void) {
     s_screen_conn = NULL;
   }
 
-  bool is_wifi_active = wifi_service_is_active();
+  bool is_wifi_active = true;
 
   s_screen_conn = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen_conn, current_theme.screen_base, 0);
   lv_obj_set_style_bg_opa(s_screen_conn, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen_conn, LV_OBJ_FLAG_SCROLLABLE);
 
-  s_menu = menu_component_create(s_screen_conn, "CONNECTION", NULL);
+  s_menu = menu_component_create(s_screen_conn, "CONNECTION", "/assets/icons/header_menu_icon.bin");
   menu_component_add_toggle(&s_menu, "/assets/icons/wifi_menu_icon.bin", "WI-FI", is_wifi_active);
   menu_component_add_item(&s_menu, "/assets/icons/search_menu_icon.bin", "NETWORKS");
 
   if (s_nav_timer == NULL)
     s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
 
-  lv_screen_load(s_screen_conn);
+  ui_screen_load(s_screen_conn);
 }
 
 static void wifi_loading_timer_cb(lv_timer_t *timer) {
@@ -88,6 +89,7 @@ static void wifi_loading_timer_cb(lv_timer_t *timer) {
   lv_timer_del(timer);
   s_wifi_loading_timer = NULL;
   msgbox_close();
+  notify(NOTIFY_INFO, "Wi-Fi on");
 }
 
 static void show_wifi_loading(void) {
@@ -115,10 +117,10 @@ static void nav_timer_cb(lv_timer_t *timer) {
   if (ui_input_is_locked())
     return;
 
-  bool is_up = up_button_is_down();
-  bool is_down = down_button_is_down();
-  bool is_left = left_button_is_down();
-  bool is_right = right_button_is_down();
+  bool is_up = ui_btn_up();
+  bool is_down = ui_btn_down();
+  bool is_left = ui_btn_left();
+  bool is_right = ui_btn_right();
   bool is_ok = ok_button_is_down();
   bool is_back = back_button_is_down();
 
@@ -139,25 +141,18 @@ static void nav_timer_cb(lv_timer_t *timer) {
       bool is_new_state = menu_component_get_toggle(&s_menu, IDX_WIFI);
       wifi_service_set_enabled(is_new_state);
 
-      if (is_new_state)
+      if (is_new_state) {
         show_wifi_loading();
-      else
+      } else {
         msgbox_close();
+        notify(NOTIFY_INFO, "Wi-Fi off");
+      }
     }
   }
 
   if ((is_ok && !s_btn_ok_last) || (is_right && !s_btn_right_last)) {
-    if (sel == IDX_NETWORKS) {
-      if (!wifi_service_is_active()) {
-        int64_t now = esp_timer_get_time();
-        if (now - s_msgbox_open_time >= MSGBOX_DEBOUNCE_US) {
-          s_msgbox_open_time = now;
-          msgbox_open(LV_SYMBOL_CLOSE, "WIFI OFF", "OK", NULL, NULL);
-        }
-      } else {
-        ui_switch_screen(SCREEN_CONNECT_WIFI);
-      }
-    }
+    if (sel == IDX_NETWORKS)
+      ui_switch_screen(SCREEN_CONNECT_WIFI);
   }
 
   s_btn_up_last = is_up;
