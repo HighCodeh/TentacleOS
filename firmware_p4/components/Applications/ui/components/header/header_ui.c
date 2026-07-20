@@ -19,10 +19,44 @@
 #include "st7789.h"
 
 #include "assets_manager.h"
+#include "bq25896.h"
+#include "sd_card_init.h"
 #include "ui_theme.h"
 #include "wifi_service.h"
 
 #define HEADER_HEIGHT ((LCD_V_RES * 9) / 100)
+
+#define HEADER_ACTIVE_TINT_HEX 0x00E676
+
+#define STATUS_TINT_POLL_MS 500
+#define WIFI_STATUS_POLL_MS 500
+#define WIFI_ANIM_MS        800
+
+static lv_obj_t *bt_img_ref = NULL;
+static lv_obj_t *card_img_ref = NULL;
+static bool s_ble_active = false;
+static lv_timer_t *status_tint_timer = NULL;
+
+static void apply_active_tint(lv_obj_t *img, bool active) {
+  if (!img || !lv_obj_is_valid(img))
+    return;
+  if (active) {
+    lv_obj_set_style_image_recolor(img, lv_color_hex(HEADER_ACTIVE_TINT_HEX), 0);
+    lv_obj_set_style_image_recolor_opa(img, LV_OPA_COVER, 0);
+  } else {
+    lv_obj_set_style_image_recolor_opa(img, LV_OPA_TRANSP, 0);
+  }
+}
+
+void header_ui_set_ble_active(bool active) {
+  s_ble_active = active;
+}
+
+static void status_tint_timer_cb(lv_timer_t *timer) {
+  (void)timer;
+  apply_active_tint(card_img_ref, sd_is_mounted());
+  apply_active_tint(bt_img_ref, s_ble_active);
+}
 
 static lv_font_t *inter_font = NULL;
 
@@ -140,8 +174,7 @@ void header_ui_create(lv_obj_t *parent) {
 
   lv_obj_set_style_bg_opa(header, LV_OPA_COVER, 0);
   lv_obj_set_style_bg_color(header, current_theme.bg_primary, 0);
-  lv_obj_set_style_bg_grad_color(header, current_theme.bg_secondary, 0);
-  lv_obj_set_style_bg_grad_dir(header, LV_GRAD_DIR_HOR, 0);
+  lv_obj_set_style_bg_grad_dir(header, LV_GRAD_DIR_NONE, 0);
 
   if (!inter_font) {
     inter_font = lv_binfont_create("A:assets/fonts/Inter.bin");
@@ -183,10 +216,19 @@ void header_ui_create(lv_obj_t *parent) {
   lv_obj_t *bt_img = lv_image_create(icon_cont);
   if (bt_icon_dsc)
     lv_image_set_src(bt_img, bt_icon_dsc);
+  bt_img_ref = bt_img;
 
   lv_obj_t *card_img = lv_image_create(icon_cont);
   if (card_icon_dsc)
     lv_image_set_src(card_img, card_icon_dsc);
+  card_img_ref = card_img;
+
+  apply_active_tint(card_img_ref, sd_is_mounted());
+  apply_active_tint(bt_img_ref, s_ble_active);
+
+  if (status_tint_timer == NULL) {
+    status_tint_timer = lv_timer_create(status_tint_timer_cb, STATUS_TINT_POLL_MS, NULL);
+  }
 
   for (int i = 0; i < 4; i++) {
     if (!battery_dscs[i])
@@ -202,27 +244,29 @@ void header_ui_create(lv_obj_t *parent) {
   lv_obj_set_style_border_width(bat_cont, 0, 0);
 
   battery_img = lv_image_create(bat_cont);
-  if (battery_dscs[0])
-    lv_image_set_src(battery_img, battery_dscs[0]);
+  if (battery_dscs[2])
+    lv_image_set_src(battery_img, battery_dscs[2]);
   lv_obj_center(battery_img);
 
   power_img = lv_image_create(bat_cont);
   if (power_icon_dsc)
     lv_image_set_src(power_img, power_icon_dsc);
   lv_obj_center(power_img);
+  lv_obj_add_flag(power_img, LV_OBJ_FLAG_HIDDEN);
 
   if (wifi_anim_timer == NULL) {
-    wifi_anim_timer = lv_timer_create(wifi_anim_timer_cb, 800, NULL);
+    wifi_anim_timer = lv_timer_create(wifi_anim_timer_cb, WIFI_ANIM_MS, NULL);
   }
 
-  if (battery_anim_timer == NULL) {
-    battery_anim_timer = lv_timer_create(battery_anim_timer_cb, 800, NULL);
-  }
+  (void)battery_anim_timer_cb;
+  (void)battery_anim_timer;
+  (void)battery_frame;
+  (void)battery_dir;
 
   header_wifi_enabled = wifi_service_is_active();
   header_wifi_connected = wifi_service_is_connected();
 
   if (wifi_status_timer == NULL) {
-    wifi_status_timer = lv_timer_create(header_wifi_status_timer_cb, 500, NULL);
+    wifi_status_timer = lv_timer_create(header_wifi_status_timer_cb, WIFI_STATUS_POLL_MS, NULL);
   }
 }
