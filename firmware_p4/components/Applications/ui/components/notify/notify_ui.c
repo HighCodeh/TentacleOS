@@ -20,14 +20,13 @@
 #include "ui_feedback.h"
 #include "ui_theme.h"
 
-#define NOTIFY_MS  3200 // how long the pill stays before auto-dismissing
+#define NOTIFY_MS  3200
 #define SLIDE_MS   220
-#define TOP_Y      6 // resting offset from the very top (top layer)
+#define TOP_Y      6
 #define PILL_MAX_W 224
 #define TEXT_MAX_W 170
 #define COL_RAISE  0x170A28
 
-// One pill at a time; a new notify() replaces whatever is showing.
 static lv_obj_t *s_pill = NULL;
 static lv_timer_t *s_timer = NULL;
 
@@ -42,14 +41,14 @@ static lv_color_t type_color(notify_type_t t) {
     case NOTIFY_WARNING:
       return lv_color_hex(0xFFC400);
     default:
-      return current_theme.border_accent; // NOTIFY_INFO
+      return current_theme.border_accent;
   }
 }
 
 static const char *type_sym(notify_type_t t) {
   switch (t) {
     case NOTIFY_SAVED:
-      return LV_SYMBOL_OK; // the check mark
+      return LV_SYMBOL_OK;
     case NOTIFY_UPDATE:
       return LV_SYMBOL_DOWNLOAD;
     case NOTIFY_LORA:
@@ -70,8 +69,6 @@ static void opa_cb(void *var, int32_t v) {
 
 static void gone_cb(lv_anim_t *a) {
   (void)a;
-  // Only fires for a natural dismiss of the current pill (a replaced pill has
-  // its animations deleted before this could run).
   if (s_pill != NULL) {
     lv_obj_del(s_pill);
     s_pill = NULL;
@@ -84,7 +81,7 @@ static void clear_now(void) {
     s_timer = NULL;
   }
   if (s_pill != NULL) {
-    lv_anim_delete(s_pill, NULL); // drop any in-flight slide/fade (no gone_cb)
+    lv_anim_delete(s_pill, NULL);
     lv_obj_del(s_pill);
     s_pill = NULL;
   }
@@ -115,13 +112,13 @@ static void dismiss_cb(lv_timer_t *t) {
 }
 
 void notify(notify_type_t type, const char *text) {
-  clear_now(); // replace any current pill
+  clear_now();
 
   lv_color_t c = type_color(type);
   lv_obj_t *pill = lv_obj_create(lv_layer_top());
   s_pill = pill;
   lv_obj_remove_flag(pill, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(pill, LV_OBJ_FLAG_CLICKABLE); // never steals input
+  lv_obj_remove_flag(pill, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(pill, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
   lv_obj_set_style_max_width(pill, PILL_MAX_W, 0);
   lv_obj_set_style_radius(pill, LV_RADIUS_CIRCLE, 0);
@@ -152,7 +149,6 @@ void notify(notify_type_t type, const char *text) {
   lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(lbl, current_theme.text_main, 0);
 
-  // Slide down + fade in.
   lv_obj_set_style_opa(pill, LV_OPA_TRANSP, 0);
   lv_anim_t a;
   lv_anim_init(&a);
@@ -171,7 +167,7 @@ void notify(notify_type_t type, const char *text) {
   lv_anim_set_duration(&f, SLIDE_MS);
   lv_anim_start(&f);
 
-  ui_feedback(UI_FB_SELECT); // soft blip
+  ui_feedback(UI_FB_SELECT);
 
   s_timer = lv_timer_create(dismiss_cb, NOTIFY_MS, NULL);
   lv_timer_set_repeat_count(s_timer, 1);

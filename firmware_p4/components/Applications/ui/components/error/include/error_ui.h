@@ -20,11 +20,18 @@
 extern "C" {
 #endif
 
-// Global error banner: a red toast on the LVGL TOP LAYER, so it floats above
-// ANY screen (it can never be overlapped) and survives screen switches. Shows
-// a short title + a one-line detail, buzzes, and auto-dismisses after a few
-// seconds. Non-blocking (never steals input). A new call replaces the current
-// one. For soft warnings prefer notify(NOTIFY_WARNING, ...).
+/**
+ * @brief Show a global error banner: a red toast on the LVGL TOP LAYER, so it
+ *        floats above ANY screen (it can never be overlapped) and survives
+ *        screen switches.
+ *
+ * Shows a short title + a one-line detail, buzzes, and auto-dismisses after a
+ * few seconds. Non-blocking (never steals input). A new call replaces the
+ * current one. For soft warnings prefer notify(NOTIFY_WARNING, ...).
+ *
+ * @param title  Short banner title (NULL falls back to "Error").
+ * @param msg    One-line detail shown under the title (NULL for none).
+ */
 void error_show(const char *title, const char *msg);
 
 #ifdef __cplusplus

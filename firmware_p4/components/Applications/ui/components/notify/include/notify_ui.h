@@ -20,20 +20,33 @@
 extern "C" {
 #endif
 
-// Global toast notification: a small pill that appears at the top of the
-// screen on the LVGL TOP LAYER, so it floats above ANY screen (it can never be
-// overlapped) and survives screen switches. It auto-dismisses after a few
-// seconds and does not steal input from the active screen. A new call replaces
-// the one currently showing. Keep the text short (it's a one-liner).
+/**
+ * @brief Global toast notification: a small pill that appears at the top of the
+ *        screen on the LVGL TOP LAYER, so it floats above ANY screen (it can
+ *        never be overlapped) and survives screen switches.
+ *
+ * It auto-dismisses after a few seconds and does not steal input from the
+ * active screen. A new call replaces the one currently showing. Keep the text
+ * short (it's a one-liner).
+ */
+
+/**
+ * @brief Notification kind, selecting the pill's colour and icon.
+ */
 typedef enum {
-  NOTIFY_INFO = 0, // purple — generic (paired, connected, ...)
-  NOTIFY_SAVED,    // green check — saved / applied confirmation
-  NOTIFY_UPDATE,   // green  — firmware / update available
-  NOTIFY_LORA,     // cyan   — LoRa / incoming message
-  NOTIFY_WARNING,  // amber  — battery low, C5 dropped, ...
+  NOTIFY_INFO = 0, ///< purple — generic (paired, connected, ...)
+  NOTIFY_SAVED,    ///< green check — saved / applied confirmation
+  NOTIFY_UPDATE,   ///< green — firmware / update available
+  NOTIFY_LORA,     ///< cyan — LoRa / incoming message
+  NOTIFY_WARNING,  ///< amber — battery low, C5 dropped, ...
 } notify_type_t;
 
-/** Show a short notification pill. Safe to call from any UI callback. */
+/**
+ * @brief Show a short notification pill. Safe to call from any UI callback.
+ *
+ * @param type  Notification kind (selects colour + icon).
+ * @param text  One-line message shown in the pill (NULL for none).
+ */
 void notify(notify_type_t type, const char *text);
 
 #ifdef __cplusplus

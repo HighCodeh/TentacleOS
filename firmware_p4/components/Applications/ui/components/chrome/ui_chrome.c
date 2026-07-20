@@ -20,8 +20,6 @@
 #include "assets_manager.h"
 #include "ui_theme.h"
 
-// Kept in lock-step with menu_component_ui.c so the chrome on an activity
-// screen is pixel-identical to the chrome on a list submenu.
 #define ICON_CELL 26
 
 static lv_font_t *chrome_font = NULL;
@@ -35,7 +33,7 @@ static lv_obj_t *make_icon(lv_obj_t *parent, const char *icon_path) {
   lv_obj_t *img = lv_image_create(parent);
   lv_image_set_src(img, dsc);
   lv_obj_set_size(img, ICON_CELL, ICON_CELL);
-  lv_image_set_inner_align(img, LV_IMAGE_ALIGN_CONTAIN); // normalize to a constant box
+  lv_image_set_inner_align(img, LV_IMAGE_ALIGN_CONTAIN);
   return img;
 }
 

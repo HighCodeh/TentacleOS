@@ -19,7 +19,7 @@
 
 #include "ui_feedback.h"
 
-#define ERROR_MS  5000 // errors linger a bit longer than notifications
+#define ERROR_MS  5000
 #define SLIDE_MS  220
 #define TOP_Y     8
 #define BANNER_W  224
@@ -81,13 +81,13 @@ static void dismiss_cb(lv_timer_t *t) {
 }
 
 void error_show(const char *title, const char *msg) {
-  clear_now(); // replace any current error banner
+  clear_now();
 
   lv_color_t err = lv_color_hex(COL_ERR);
   lv_obj_t *b = lv_obj_create(lv_layer_top());
   s_banner = b;
   lv_obj_remove_flag(b, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(b, LV_OBJ_FLAG_CLICKABLE); // never steals input
+  lv_obj_remove_flag(b, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_width(b, BANNER_W);
   lv_obj_set_height(b, LV_SIZE_CONTENT);
   lv_obj_set_style_radius(b, 14, 0);
@@ -121,7 +121,6 @@ void error_show(const char *title, const char *msg) {
   lv_obj_set_style_text_font(x, &lv_font_montserrat_16, 0);
   lv_obj_center(x);
 
-  // Fixed-width text column so the title dots and the message wraps cleanly.
   lv_obj_t *col = lv_obj_create(b);
   lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_width(col, COL_TXT_W);
@@ -142,13 +141,12 @@ void error_show(const char *title, const char *msg) {
   if (msg != NULL) {
     lv_obj_t *m = lv_label_create(col);
     lv_obj_set_width(m, lv_pct(100));
-    lv_label_set_long_mode(m, LV_LABEL_LONG_WRAP); // detail may wrap to 2 lines
+    lv_label_set_long_mode(m, LV_LABEL_LONG_WRAP);
     lv_label_set_text(m, msg);
     lv_obj_set_style_text_font(m, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(m, lv_color_hex(0xE7B7BB), 0);
   }
 
-  // Slide down + fade in.
   lv_obj_set_style_opa(b, LV_OPA_TRANSP, 0);
   lv_anim_t a;
   lv_anim_init(&a);
@@ -167,7 +165,7 @@ void error_show(const char *title, const char *msg) {
   lv_anim_set_duration(&f, SLIDE_MS);
   lv_anim_start(&f);
 
-  ui_feedback(UI_FB_WRITE); // firmer cue (tone + vibration) for an error
+  ui_feedback(UI_FB_WRITE);
 
   s_timer = lv_timer_create(dismiss_cb, ERROR_MS, NULL);
   lv_timer_set_repeat_count(s_timer, 1);
