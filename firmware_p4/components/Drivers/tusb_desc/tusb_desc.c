@@ -46,6 +46,14 @@ static const char *TAG = "TUSB_DESC";
 
 #define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + TUD_CDC_DESC_LEN)
 
+// CDC data (bulk) endpoint max packet size is speed-dependent: USB requires it
+// to be EXACTLY 512 at High Speed and 8/16/32/64 at Full Speed. The P4 USB is
+// High Speed, so a 64-byte value here makes tu_edpt_validate reject the config
+// (cdcd_open -> SET_CONFIGURATION fails), which also takes the HID keyboard
+// down. We build one descriptor per speed and serve the right one below.
+#define CDC_EP_SIZE_HS 512
+#define CDC_EP_SIZE_FS 64
+
 // Device Descriptor — USB 2.0 composite (HID + CDC). The CDC IAD requires the
 // Miscellaneous device class so the host groups the CDC interfaces correctly.
 static const tusb_desc_device_t s_desc_device = {
@@ -71,29 +79,32 @@ static const uint8_t s_desc_hid_report[] = {
     TUD_HID_REPORT_DESC_MOUSE(HID_REPORT_ID(HID_REPORT_ID_MOUSE)),
 };
 
-// Configuration Descriptor — composite: HID (BadUSB) + CDC-ACM (companion link)
-static const uint8_t s_desc_configuration[] = {
-    TUD_CONFIG_DESCRIPTOR(1,
-                          TUSB_DESC_ITF_NUM_TOTAL,
-                          0,
-                          CONFIG_TOTAL_LEN,
-                          TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP,
-                          USB_MAX_POWER_MA),
-    TUD_HID_DESCRIPTOR(TUSB_DESC_ITF_NUM_HID,
-                       0,
-                       HID_ITF_PROTOCOL_KEYBOARD,
-                       sizeof(s_desc_hid_report),
-                       TUSB_DESC_EP_HID_IN,
-                       CFG_TUD_HID_EP_BUFSIZE,
-                       USB_HID_POLL_INTERVAL_MS),
-    TUD_CDC_DESCRIPTOR(TUSB_DESC_ITF_NUM_CDC,
-                       STR_IDX_CDC,
-                       TUSB_DESC_EP_CDC_NOTIF,
-                       8,
-                       TUSB_DESC_EP_CDC_OUT,
-                       TUSB_DESC_EP_CDC_IN,
-                       64),
-};
+// Configuration Descriptor — composite: HID (BadUSB) + CDC-ACM (companion link).
+// Identical for both speeds except the CDC bulk endpoint size (see above).
+#define CONFIG_DESCRIPTOR(cdc_ep_size)                                                             \
+  TUD_CONFIG_DESCRIPTOR(1,                                                                          \
+                        TUSB_DESC_ITF_NUM_TOTAL,                                                    \
+                        0,                                                                          \
+                        CONFIG_TOTAL_LEN,                                                           \
+                        TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP,                                         \
+                        USB_MAX_POWER_MA),                                                          \
+      TUD_HID_DESCRIPTOR(TUSB_DESC_ITF_NUM_HID,                                                     \
+                         0,                                                                         \
+                         HID_ITF_PROTOCOL_KEYBOARD,                                                 \
+                         sizeof(s_desc_hid_report),                                                 \
+                         TUSB_DESC_EP_HID_IN,                                                        \
+                         CFG_TUD_HID_EP_BUFSIZE,                                                     \
+                         USB_HID_POLL_INTERVAL_MS),                                                 \
+      TUD_CDC_DESCRIPTOR(TUSB_DESC_ITF_NUM_CDC,                                                     \
+                         STR_IDX_CDC,                                                               \
+                         TUSB_DESC_EP_CDC_NOTIF,                                                     \
+                         8,                                                                         \
+                         TUSB_DESC_EP_CDC_OUT,                                                       \
+                         TUSB_DESC_EP_CDC_IN,                                                        \
+                         (cdc_ep_size))
+
+static const uint8_t s_desc_configuration_hs[] = {CONFIG_DESCRIPTOR(CDC_EP_SIZE_HS)};
+static const uint8_t s_desc_configuration_fs[] = {CONFIG_DESCRIPTOR(CDC_EP_SIZE_FS)};
 
 // String Descriptors
 static const char *s_string_desc_arr[] = {
@@ -116,7 +127,9 @@ const uint8_t *tud_descriptor_device_cb(void) {
 
 const uint8_t *tud_descriptor_configuration_cb(uint8_t index) {
   (void)index;
-  return s_desc_configuration;
+  // Serve the descriptor whose CDC bulk endpoint size matches the negotiated
+  // link speed (512 at HS, 64 at FS), so tu_edpt_validate accepts the config.
+  return (tud_speed_get() == TUSB_SPEED_HIGH) ? s_desc_configuration_hs : s_desc_configuration_fs;
 }
 
 const uint16_t *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
@@ -210,8 +223,8 @@ esp_err_t busb_init(void) {
               .device = &s_desc_device,
               .string = s_string_desc_arr,
               .string_count = STRING_DESC_COUNT,
-              .full_speed_config = s_desc_configuration,
-              .high_speed_config = s_desc_configuration,
+              .full_speed_config = s_desc_configuration_fs,
+              .high_speed_config = s_desc_configuration_hs,
           },
       .phy =
           {
