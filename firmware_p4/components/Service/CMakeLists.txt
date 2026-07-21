@@ -18,6 +18,7 @@ file(GLOB_RECURSE CONSOLE_SERVICE_SRCS "console/*.c")
 file(GLOB_RECURSE CONSOLE_COMMANDS_SRCS "console/commands/*.c")
 file(GLOB_RECURSE C5_FLASHER_SRCS "c5_flasher/*.c")
 file(GLOB_RECURSE C5_LEGACY_SRCS "c5_legacy/*.c")
+file(GLOB_RECURSE LVGL_SRCS "lvgl/*.c")
 file(GLOB_RECURSE SPI_BRIDGE_SRCS "spi_bridge/*.c")
 file(GLOB_RECURSE BRIDGE_MANAGER_SRCS "bridge_manager/*.c")
 file(GLOB_RECURSE BT_SERVICE_SRCS "bluetooth/*.c")
@@ -57,9 +58,7 @@ idf_component_register(SRCS
   "ir/ir_protocol_rc6.c"
   "ir/ir_protocol_rc5.c"
   "ir/ir_protocol_sony.c"
-  "lvgl_port/lv_port_indev.c"
-  "lvgl_port/lv_port_disp.c"
-  "lvgl_glue/lvgl_glue.c"
+  ${LVGL_SRCS}
   ${SD_CARD_SERVICE_SRCS}
   ${CONSOLE_SERVICE_SRCS}
   ${CONSOLE_COMMANDS_SRCS}
@@ -80,8 +79,7 @@ idf_component_register(SRCS
   "storage_api/include"
   "storage_vfs/include"
   "storage_assets/include"
-  "lvgl_port/include"
-  "lvgl_glue/include"
+  "lvgl/include"
   "sd_card/include"
   "console/include"
   "spi_bridge/include"
