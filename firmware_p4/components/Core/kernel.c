@@ -42,6 +42,7 @@
 #include "host_link_ble.h"
 #include "host_link_state.h"
 #include "host_link_stream.h"
+#include "lvgl_glue.h"
 #include "lv_port_indev.h"
 #include "ui_manager.h"
 #include "msgbox_ui.h"
@@ -97,14 +98,13 @@ void kernel_init(void) {
   buttons_init();
   ys_rfid2_init(NULL);
 
-  // 6. Display + LVGL + UI (headless for now). Enable path: st7789_init sets up
-  // the panel handles, lvgl_glue_init brings LVGL up over esp_lvgl_port (it calls
-  // lv_init and registers the display), then the keypad indev and UI lock against
-  // the glue. Re-enable these together and add lvgl_glue.h to the includes.
-  // st7789_init();
-  // lvgl_glue_init();
-  // lv_port_indev_init();
-  // ui_init();
+  // 6. Display + LVGL + UI. st7789_init sets up the panel handles; lvgl_glue_init
+  // brings LVGL up over esp_lvgl_port (it calls lv_init and registers the
+  // display); then the keypad indev and UI lock against the glue.
+  st7789_init();
+  lvgl_glue_init();
+  lv_port_indev_init();
+  ui_init();
 
   // 7. Services
   sys_monitor_start(false);
