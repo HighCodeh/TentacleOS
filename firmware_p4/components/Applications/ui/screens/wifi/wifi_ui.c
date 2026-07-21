@@ -44,6 +44,9 @@ static const struct {
   int target;
 } MENU_ITEMS[] = {
     {"SCAN NETWORKS", NULL, SCREEN_WIFI_SCAN_MENU},
+    {"EDIT NETWORKS", NULL, SCREEN_WIFI_NAMES},
+    {"CHANNEL ANALYSIS", NULL, SCREEN_WIFI_CHANNELS},
+    {"SCAN CLIENTS", NULL, SCREEN_WIFI_CLIENTS},
     {"ATTACKS", NULL, SCREEN_WIFI_ATTACK_MENU},
     {"PACKETS CAPTURE", NULL, SCREEN_WIFI_PACKETS_MENU},
     {"EVIL-TWIN", NULL, SCREEN_WIFI_EVIL_TWIN},
@@ -60,10 +63,10 @@ static void nav_timer_cb(lv_timer_t *t) {
   if (ui_input_is_locked())
     return;
 
-  bool is_up = up_button_is_down();
-  bool is_down = down_button_is_down();
-  bool is_left = left_button_is_down();
-  bool is_right = right_button_is_down();
+  bool is_up = ui_btn_up();
+  bool is_down = ui_btn_down();
+  bool is_left = ui_btn_left();
+  bool is_right = ui_btn_right();
   bool is_ok = ok_button_is_down();
   bool is_back = back_button_is_down();
 
@@ -112,5 +115,5 @@ void ui_wifi_menu_open(void) {
     s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
   }
 
-  lv_screen_load(s_screen);
+  ui_screen_load(s_screen);
 }

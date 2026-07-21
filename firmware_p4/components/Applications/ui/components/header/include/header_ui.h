@@ -20,10 +20,20 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
+
 #include "lvgl.h"
 
 /** @brief Create the header bar on the given parent. */
 void header_ui_create(lv_obj_t *parent);
+
+/**
+ * @brief Tell the header whether BLE is currently active/connected.
+ *        Call from the BLE service when the link state changes; the
+ *        header will tint the BT icon green when true. Default is false
+ *        (icon stays in its default white tone).
+ */
+void header_ui_set_ble_active(bool active);
 
 #ifdef __cplusplus
 }

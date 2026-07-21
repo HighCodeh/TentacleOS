@@ -22,6 +22,8 @@ extern "C" {
 
 #include <stdbool.h>
 
+#include "lvgl.h"
+
 /** @brief Screen identifiers for the UI navigation system. */
 typedef enum {
   SCREEN_NONE,
@@ -80,6 +82,37 @@ typedef enum {
   SCREEN_IR_CONTROLLER,
   SCREEN_IR_SAVED,
   SCREEN_IR_BURST,
+  SCREEN_OCTOBIT_STATUS,
+  SCREEN_DEV_MENU,
+  SCREEN_GAMES_MENU,
+  SCREEN_GAME_FLAPPY,
+  SCREEN_GAME_SNAKE,
+  SCREEN_GAME_BREAKOUT,
+  SCREEN_GAME_OCTOPET,
+  SCREEN_GPIO,
+  SCREEN_HAPTIC,
+  SCREEN_SPEAKER,
+  SCREEN_MIC_REC,
+  SCREEN_SUBGHZ_MENU,
+  SCREEN_SUBGHZ_READ,
+  SCREEN_NFC_READ,
+  SCREEN_NFC_SAVED,
+  SCREEN_NFC_WRITE,
+  SCREEN_NFC_EMULATE,
+  SCREEN_NFC_CONFIG,
+  SCREEN_CARD_EMU,
+  SCREEN_RFID_MENU,
+  SCREEN_LORA_CHAT,
+  SCREEN_POWER,
+  SCREEN_SPECTRUM,
+  SCREEN_IR_REMOTE_TYPE,
+  SCREEN_BLE_SCAN,
+  SCREEN_BLE_MOUSE_PAIRING,
+  SCREEN_BLE_MOUSE,
+  SCREEN_WIFI_CHANNELS,
+  SCREEN_WIFI_CLIENTS,
+  SCREEN_WIFI_NAMES,
+  SCREEN_APPS,
   SCREEN_COUNT
 } screen_id_t;
 
@@ -97,6 +130,26 @@ void ui_release(void);
 
 /** @brief Switch to a new screen by identifier. */
 void ui_switch_screen(screen_id_t new_screen);
+
+/**
+ * @brief Load a screen. Drop-in replacement for lv_screen_load used by the
+ *        ported screens.
+ *
+ * @param scr  Screen object to load.
+ */
+void ui_screen_load(lv_obj_t *scr);
+
+/** @brief Returns the currently active screen id. */
+screen_id_t ui_current_screen(void);
+
+/** @brief Re-open the active screen (no-op here: no runtime rotation). */
+void ui_manager_relayout_current(void);
+
+/** @brief Rotation-aware button polling (portrait pass-through on this build). */
+bool ui_btn_up(void);
+bool ui_btn_down(void);
+bool ui_btn_left(void);
+bool ui_btn_right(void);
 
 /** @brief Check if user input is temporarily locked. */
 bool ui_input_is_locked(void);

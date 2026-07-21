@@ -20,24 +20,28 @@
 extern "C" {
 #endif
 
-#include "driver/i2c.h"
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "driver/i2c.h"
+#include "esp_err.h"
+
 #define BQ25896_I2C_ADDR 0x6B
 
+/** @brief Battery charge state reported by the charger. */
 typedef enum {
-  CHARGE_STATUS_NOT_CHARGING = 0,
-  CHARGE_STATUS_PRECHARGE = 1,
-  CHARGE_STATUS_FAST_CHARGE = 2,
-  CHARGE_STATUS_CHARGE_DONE = 3
+  CHARGE_STATUS_NOT_CHARGING = 0, ///< Not charging.
+  CHARGE_STATUS_PRECHARGE = 1,    ///< Pre-charge phase.
+  CHARGE_STATUS_FAST_CHARGE = 2,  ///< Fast-charge phase.
+  CHARGE_STATUS_CHARGE_DONE = 3   ///< Charge complete.
 } bq25896_charge_status_t;
 
+/** @brief VBUS (charger input) connection state. */
 typedef enum {
-  VBUS_STATUS_UNKNOWN = 0,
-  VBUS_STATUS_USB_HOST = 1,
-  VBUS_STATUS_ADAPTER_PORT = 2,
-  VBUS_STATUS_OTG = 3
+  VBUS_STATUS_UNKNOWN = 0,      ///< No/unknown VBUS source.
+  VBUS_STATUS_USB_HOST = 1,     ///< USB host (SDP) input.
+  VBUS_STATUS_ADAPTER_PORT = 2, ///< Dedicated adapter input.
+  VBUS_STATUS_OTG = 3           ///< OTG (boost) output.
 } bq25896_vbus_status_t;
 
 /**
@@ -82,6 +86,62 @@ bool bq25896_is_charging(void);
  * @return Estimated percentage (0-100).
  */
 int bq25896_get_battery_percentage(uint16_t voltage_mv);
+
+// --- Extended telemetry + control ------------------------------------------
+// Additive layer used by the power screen. Implemented in bq25896_ext.c on top
+// of the public base API above: battery voltage/percent/charge/vbus are real;
+// the diagnostic fields (VSYS/VBUS mV, currents, raw regs, fault) and the
+// charge-enable / ship-mode controls are mocked for this stub build (no charger
+// register writes — power_off must never actually ship-mode a demo unit).
+
+/** @brief Whether battery charging is currently enabled (mocked: always true). */
+bool bq25896_get_charge_enable(void);
+
+/**
+ * @brief Enable/disable battery charging (mocked no-op).
+ *
+ * @param enable  true to enable charging, false to disable.
+ * @return ESP_OK on success, otherwise an esp_err_t error code.
+ */
+esp_err_t bq25896_set_charge_enable(bool enable);
+
+/**
+ * @brief Power the system OFF via BATFET_DIS / ship mode (mocked no-op).
+ *
+ * @return ESP_OK on success, otherwise an esp_err_t error code.
+ */
+esp_err_t bq25896_power_off(void);
+
+/** @brief One-shot snapshot of the charger/battery state for a UI. */
+typedef struct {
+  uint16_t vbat_mv;            ///< Battery voltage in mV.
+  uint16_t vsys_mv;            ///< System voltage in mV.
+  uint16_t vbus_mv;            ///< VBUS voltage in mV.
+  uint16_t ichg_ma;            ///< Charge current in mA.
+  uint16_t iinlim_ma;          ///< Input current limit in mA.
+  uint8_t fault;               ///< Raw fault register value.
+  int soc;                     ///< Estimated state of charge (0-100).
+  bq25896_charge_status_t chg; ///< Current charge status.
+  bq25896_vbus_status_t vbus;  ///< Current VBUS status.
+  bool charging;               ///< True while pre/fast charging.
+  bool power_good;             ///< True when a valid VBUS source is present.
+} bq25896_telem_t;
+
+/**
+ * @brief Fill @p out with a telemetry snapshot (real battery data, mocked diags).
+ *
+ * @param[out] out  Destination snapshot. Must not be NULL.
+ * @return ESP_OK on success, ESP_ERR_INVALID_ARG if @p out is NULL.
+ */
+esp_err_t bq25896_read_telemetry(bq25896_telem_t *out);
+
+/**
+ * @brief Raw read of any register (mocked: returns 0).
+ *
+ * @param reg  Register address to read.
+ * @return Register value, or 0 in this mocked build.
+ */
+uint8_t bq25896_reg_raw(uint8_t reg);
 
 #ifdef __cplusplus
 }

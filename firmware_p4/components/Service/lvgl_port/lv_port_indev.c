@@ -15,71 +15,71 @@
 
 #include "lv_port_indev.h"
 
-#include "esp_log.h"
+#include "lvgl.h"
 #include "core/lv_group.h"
+#include "esp_log.h"
 
 #include "buttons_gpio.h"
+#include "lvgl_glue.h"
 
 static const char *TAG = "LV_PORT_INDEV";
 
 lv_indev_t *indev_keypad = NULL;
 lv_group_t *main_group = NULL;
 
-static bool s_is_keyboard_mode = false;
+static void keypad_read(lv_indev_t *indev, lv_indev_data_t *data) {
+  (void)indev;
+  static uint32_t last_key = 0;
+  uint32_t key = 0;
 
-static void keypad_read(lv_indev_t *indev, lv_indev_data_t *data);
-static uint32_t keypad_get_key(void);
+  const bool landscape = lvgl_glue_is_landscape();
+
+  if (up_button_is_down()) {
+    key = landscape ? LV_KEY_LEFT : LV_KEY_UP;
+  } else if (down_button_is_down()) {
+    key = landscape ? LV_KEY_RIGHT : LV_KEY_DOWN;
+  } else if (left_button_is_down()) {
+    key = landscape ? LV_KEY_DOWN : LV_KEY_LEFT;
+  } else if (right_button_is_down()) {
+    key = landscape ? LV_KEY_UP : LV_KEY_RIGHT;
+  } else if (ok_button_is_down()) {
+    key = LV_KEY_ENTER;
+  } else if (back_button_is_down()) {
+    key = LV_KEY_ESC;
+  }
+
+  if (key != 0) {
+    last_key = key;
+    data->key = key;
+    data->state = LV_INDEV_STATE_PRESSED;
+  } else {
+    data->key = last_key;
+    data->state = LV_INDEV_STATE_RELEASED;
+  }
+}
 
 void lv_port_indev_init(void) {
-  indev_keypad = lv_indev_create();
-  lv_indev_set_type(indev_keypad, LV_INDEV_TYPE_KEYPAD);
-  lv_indev_set_read_cb(indev_keypad, keypad_read);
+  if (main_group != NULL) {
+    return;
+  }
+
+  if (!lvgl_glue_lock(-1)) {
+    ESP_LOGE(TAG, "could not lock LVGL to create the input group");
+    return;
+  }
 
   main_group = lv_group_create();
   lv_group_set_default(main_group);
+
+  indev_keypad = lv_indev_create();
+  lv_indev_set_type(indev_keypad, LV_INDEV_TYPE_KEYPAD);
+  lv_indev_set_read_cb(indev_keypad, keypad_read);
   lv_indev_set_group(indev_keypad, main_group);
 
-  ESP_LOGI(TAG, "Input device initialized (keypad + navigation group)");
+  lvgl_glue_unlock();
+  ESP_LOGI(TAG, "main_group + keypad indev ready");
 }
 
-void lv_port_indev_set_keyboard_mode(bool is_enabled) {
-  s_is_keyboard_mode = is_enabled;
-}
-
-static void keypad_read(lv_indev_t *indev, lv_indev_data_t *data) {
-  static uint32_t s_last_key = 0;
-
-  uint32_t key = keypad_get_key();
-
-  if (key != 0) {
-    data->state = LV_INDEV_STATE_PRESSED;
-    s_last_key = key;
-  } else {
-    data->state = LV_INDEV_STATE_RELEASED;
-  }
-
-  data->key = s_last_key;
-}
-
-static uint32_t keypad_get_key(void) {
-  if (up_button_is_down()) {
-    return s_is_keyboard_mode ? LV_KEY_UP : LV_KEY_PREV;
-  }
-  if (down_button_is_down()) {
-    return s_is_keyboard_mode ? LV_KEY_DOWN : LV_KEY_NEXT;
-  }
-  if (ok_button_is_down()) {
-    return LV_KEY_ENTER;
-  }
-  if (back_button_is_down()) {
-    return LV_KEY_ESC;
-  }
-  if (left_button_is_down()) {
-    return LV_KEY_LEFT;
-  }
-  if (right_button_is_down()) {
-    return LV_KEY_RIGHT;
-  }
-
-  return 0;
+void lv_port_indev_set_keyboard_mode(bool enable) {
+  (void)enable;
 }

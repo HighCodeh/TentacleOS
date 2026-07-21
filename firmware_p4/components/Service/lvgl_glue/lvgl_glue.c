@@ -1,0 +1,119 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+
+#include "lvgl_glue.h"
+
+#include "esp_heap_caps.h"
+#include "esp_lvgl_port.h"
+#include "esp_log.h"
+
+#include "st7789.h"
+
+static const char *TAG = "LVGL_GLUE";
+
+#define LVGL_PORT_TASK_PRIORITY   4
+#define LVGL_PORT_TASK_STACK      (8 * 1024)
+#define LVGL_PORT_TASK_CORE_ANY   -1
+#define LVGL_PORT_MAX_SLEEP_MS    500
+#define LVGL_PORT_TIMER_PERIOD_MS 5
+#define LVGL_BUF_LINES            20
+#define ROTATION_LOCK_TIMEOUT_MS  2000
+
+static bool s_ready = false;
+static bool s_landscape = false;
+static lv_display_t *s_disp = NULL;
+
+esp_err_t lvgl_glue_init(void) {
+  if (s_ready) {
+    return ESP_OK;
+  }
+  if (io_handle == NULL || panel_handle == NULL) {
+    ESP_LOGE(TAG, "panel handles not ready — call st7789_init() first");
+    return ESP_ERR_INVALID_STATE;
+  }
+
+  const lvgl_port_cfg_t port_cfg = {
+      .task_priority = LVGL_PORT_TASK_PRIORITY,
+      .task_stack = LVGL_PORT_TASK_STACK,
+      .task_affinity = LVGL_PORT_TASK_CORE_ANY,
+      .task_max_sleep_ms = LVGL_PORT_MAX_SLEEP_MS,
+      .timer_period_ms = LVGL_PORT_TIMER_PERIOD_MS,
+  };
+  esp_err_t err = lvgl_port_init(&port_cfg);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "lvgl_port_init: %s", esp_err_to_name(err));
+    return err;
+  }
+
+  const lvgl_port_display_cfg_t disp_cfg = {
+      .io_handle = io_handle,
+      .panel_handle = panel_handle,
+      .buffer_size = LCD_PANEL_W * LVGL_BUF_LINES,
+      .double_buffer = true,
+      .hres = LCD_PANEL_W,
+      .vres = LCD_PANEL_H,
+      .monochrome = false,
+      .rotation =
+          {
+              .swap_xy = false,
+              .mirror_x = false,
+              .mirror_y = false,
+          },
+      .flags =
+          {
+              .buff_dma = true,
+              .buff_spiram = false,
+              .swap_bytes = true,
+          },
+  };
+  s_disp = lvgl_port_add_disp(&disp_cfg);
+  if (s_disp == NULL) {
+    ESP_LOGE(TAG, "lvgl_port_add_disp returned NULL");
+    return ESP_FAIL;
+  }
+
+  ESP_LOGI(
+      TAG, "LVGL up — %dx%d, %d-line buffers in PSRAM", LCD_PANEL_W, LCD_PANEL_H, LVGL_BUF_LINES);
+  s_ready = true;
+  return ESP_OK;
+}
+
+bool lvgl_glue_is_ready(void) {
+  return s_ready;
+}
+
+bool lvgl_glue_lock(int timeout_ms) {
+  return lvgl_port_lock(timeout_ms);
+}
+
+void lvgl_glue_unlock(void) {
+  lvgl_port_unlock();
+}
+
+bool lvgl_glue_toggle_rotation(void) {
+  if (!s_ready || s_disp == NULL) {
+    return s_landscape;
+  }
+  if (!lvgl_glue_lock(ROTATION_LOCK_TIMEOUT_MS)) {
+    ESP_LOGW(TAG, "toggle_rotation: could not acquire LVGL lock");
+    return s_landscape;
+  }
+
+  s_landscape = !s_landscape;
+  lv_display_rotation_t r = s_landscape ? LV_DISPLAY_ROTATION_270 : LV_DISPLAY_ROTATION_0;
+  lv_display_set_rotation(s_disp, r);
+  lv_obj_invalidate(lv_screen_active());
+
+  lvgl_glue_unlock();
+  ESP_LOGI(TAG, "rotation: %s", s_landscape ? "landscape" : "portrait");
+  return s_landscape;
+}
+
+bool lvgl_glue_is_landscape(void) {
+  return s_landscape;
+}

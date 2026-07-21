@@ -24,10 +24,11 @@ extern "C" {
 #include <stdint.h>
 #include "pin_def.h"
 
+/** @brief Debounce/edge state tracked for a single GPIO push-button. */
 typedef struct {
-  uint32_t gpio;
-  bool last_state;
-  bool pressed_flag;
+  uint32_t gpio;     ///< GPIO number the button is wired to.
+  bool last_state;   ///< Last raw level sampled by buttons_task().
+  bool pressed_flag; ///< Latched "fresh press" flag, drained by the read paths.
 } button_t;
 
 /**

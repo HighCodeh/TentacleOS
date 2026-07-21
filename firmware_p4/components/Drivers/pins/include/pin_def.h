@@ -18,7 +18,7 @@
  * @brief Central GPIO pin assignments for the ESP32-P4 board.
  *
  * All hardware pin numbers are defined here. No driver should
- * hardcode GPIO numbers — use these defines instead.
+ * hardcode GPIO numbers - use these defines instead.
  */
 
 #ifndef PIN_DEF_H
@@ -28,17 +28,17 @@
 extern "C" {
 #endif
 
-// SPI Bus (shared: display, radio, SD card)
+/** @brief SPI bus (shared: display, radio, SD card). */
 #define GPIO_SPI_MOSI_PIN 22
 #define GPIO_SPI_SCLK_PIN 21
 #define GPIO_SPI_MISO_PIN 23
 
-// CC1101 Sub-GHz Radio
+/** @brief CC1101 Sub-GHz radio. */
 #define GPIO_CC1101_CS_PIN   20
 #define GPIO_CC1101_GDO0_PIN 8
 #define GPIO_CC1101_GDO2_PIN 9
 
-// SDMMC (4-bit SDIO)
+/** @brief SDMMC (4-bit SDIO). */
 #define GPIO_SDMMC_CLK_PIN 43
 #define GPIO_SDMMC_CMD_PIN 44
 #define GPIO_SDMMC_D0_PIN  32
@@ -46,13 +46,13 @@ extern "C" {
 #define GPIO_SDMMC_D2_PIN  41
 #define GPIO_SDMMC_D3_PIN  42
 
-// ST7789 Display
+/** @brief ST7789 display. */
 #define GPIO_ST7789_CS_PIN  34
 #define GPIO_ST7789_DC_PIN  35
 #define GPIO_ST7789_RST_PIN 36
 #define GPIO_ST7789_BL_PIN  14
 
-// Buttons
+/** @brief Buttons. */
 #define GPIO_BTN_LEFT_PIN  6
 #define GPIO_BTN_BACK_PIN  54
 #define GPIO_BTN_UP_PIN    3
@@ -60,28 +60,28 @@ extern "C" {
 #define GPIO_BTN_OK_PIN    29
 #define GPIO_BTN_RIGHT_PIN 13
 
-// I2C Bus
+/** @brief I2C bus. */
 #define GPIO_I2C_SDA_PIN 31
 #define GPIO_I2C_SCL_PIN 30
 
-// RGB LED (WS2812 / SK6812)
+/** @brief RGB LED (WS2812 / SK6812). */
 #define GPIO_LED_RGB_PIN 45
 #define LED_COUNT        1
 
-// P4-C5 Bridge SPI (Master)
+/** @brief P4-C5 bridge SPI (master). */
 #define GPIO_BRIDGE_SCLK_PIN 45
 #define GPIO_BRIDGE_MOSI_PIN 46
 #define GPIO_BRIDGE_MISO_PIN 47
 #define GPIO_BRIDGE_CS_PIN   48
 #define GPIO_BRIDGE_IRQ_PIN  (-1)
 
-// C5 Control & Update (UART + Boot)
+/** @brief C5 control and update (UART + boot). */
 #define GPIO_C5_UART_TX_PIN 38
 #define GPIO_C5_UART_RX_PIN 39
 #define GPIO_C5_RESET_PIN   (-1)
 #define GPIO_C5_BOOT_PIN    (-1)
 
-// SX1262 LoRa (SPI3_HOST, separate from C5 bridge)
+/** @brief SX1262 LoRa (SPI3_HOST, separate from C5 bridge). */
 #define GPIO_LORA_SCLK_PIN  18
 #define GPIO_LORA_MOSI_PIN  19
 #define GPIO_LORA_MISO_PIN  14
@@ -92,10 +92,25 @@ extern "C" {
 #define GPIO_LORA_TXEN_PIN  (-1)
 #define GPIO_LORA_RXEN_PIN  (-1)
 
-// YS-RFID2 125kHz RFID Reader (UART)
-// TODO: placeholder pins — definir com base no schematic do board
+/**
+ * @brief YS-RFID2 125kHz RFID reader (UART).
+ * @todo Placeholder pins - define based on the board schematic.
+ */
 #define GPIO_RFID_UART_TX_PIN 24
 #define GPIO_RFID_UART_RX_PIN 25
+
+/** @brief Audio amplifier (I2S, MAX98357). */
+#define GPIO_AUDIO_BCLK_PIN  50
+#define GPIO_AUDIO_DIN_PIN   51
+#define GPIO_AUDIO_LRCLK_PIN 52
+
+/** @brief Microphone (PDM). */
+#define GPIO_MIC_PDM_DATA_PIN 27
+#define GPIO_MIC_PDM_CLK_PIN  28
+#define GPIO_MIC_PDM_SEL_PIN  49
+
+/** @brief Haptic driver enable (DRV2605L, shared I2C). */
+#define GPIO_HAPTIC_EN_PIN 37
 
 #ifdef __cplusplus
 }

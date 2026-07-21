@@ -15,317 +15,266 @@
 
 #include "connect_wifi_ui.h"
 
-#include <stdlib.h>
 #include <string.h>
 
-#include "cJSON.h"
-#include "esp_err.h"
-#include "esp_wifi.h"
-#include "lvgl.h"
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
-#include "footer_ui.h"
-#include "header_ui.h"
+#include "buttons_gpio.h"
 #include "keyboard_ui.h"
+#include "menu_component_ui.h"
 #include "msgbox_ui.h"
-#include "storage_assets.h"
-#include "core/lv_group.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
-#include "wifi_service.h"
 
-#define WIFI_MENU_WIDTH              230
-#define WIFI_MENU_HEIGHT             160
-#define WIFI_MENU_OFFSET_Y           10
-#define WIFI_MENU_BORDER_WIDTH       2
-#define WIFI_MENU_PAD                4
-#define WIFI_ITEM_HEIGHT             40
-#define WIFI_ITEM_BORDER_WIDTH       1
-#define WIFI_ITEM_ICON_MARGIN        8
-#define WIFI_STATUS_POLL_MAX         20
-#define WIFI_STATUS_POLL_INTERVAL_MS 500
-#define WIFI_RESTORE_GROUP_DELAY_MS  10
-#define WIFI_SSID_MAX_LEN            33
-#define WIFI_PASS_MAX_LEN            65
+static const char *TAG = "CONNECT_WIFI_UI";
 
-extern lv_group_t *main_group;
+#define NAV_TIMER_MS 50
 
-static lv_obj_t *s_screen_wifi_list = NULL;
-static lv_obj_t *s_wifi_list_cont = NULL;
-static lv_style_t s_style_menu;
-static lv_style_t s_style_item;
-static bool s_is_styles_initialized = false;
+#define SCAN_RESULT_COLOR_HEX 0x00E676
 
-static char s_selected_ssid[WIFI_SSID_MAX_LEN];
-static char s_selected_pass[WIFI_PASS_MAX_LEN];
-static char s_known_pass[WIFI_PASS_MAX_LEN];
+#define WIFI_MAX_APS     12
+#define SCAN_SIM_STEPS   4
+#define SCAN_SIM_STEP_MS 220
 
-static lv_timer_t *s_restore_group_timer = NULL;
-static lv_timer_t *s_wifi_status_timer = NULL;
-static uint32_t s_wifi_status_poll_count = 0;
-static bool s_is_awaiting_connect = false;
-static bool s_is_pending_connected = false;
+#define WIFI_TASK_STACK_SIZE 4096
+#define WIFI_TASK_PRIORITY   4
+#define CONNECT_SIM_STEPS    4
+#define CONNECT_SIM_STEP_MS  300
 
-static void init_styles(void);
-static bool local_get_known_password(const char *ssid, char *out_password, size_t buffer_size);
-static void restore_wifi_group(lv_timer_t *timer);
-static void on_msgbox_closed(bool confirm);
-static void on_wifi_status_async(void *user_data);
-static void wifi_status_timer_cb(lv_timer_t *timer);
-static void on_keyboard_submit(const char *text, void *user_data);
-static void wifi_item_event_cb(lv_event_t *e);
+#define CONNECT_STATE_FAILED    0
+#define CONNECT_STATE_CONNECTED 1
 
-void ui_connect_wifi_open(void) {
-  init_styles();
+typedef enum { SCAN_RUNNING, SCAN_DONE, SCAN_FAIL } scan_state_t;
 
-  if (s_screen_wifi_list != NULL)
-    lv_obj_del(s_screen_wifi_list);
+typedef struct {
+  const char *ssid;
+  int8_t rssi;
+} mock_ap_t;
 
-  s_screen_wifi_list = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen_wifi_list, current_theme.screen_base, 0);
-  lv_obj_clear_flag(s_screen_wifi_list, LV_OBJ_FLAG_SCROLLABLE);
+static const mock_ap_t MOCK_APS[] = {
+    {"TentacleNet", -38},
+    {"HighCode-Guest", -52},
+    {"Familia Souza", -60},
+    {"iPhone de Ana", -67},
+    {"NET_2G_A1B2", -74},
+};
+#define MOCK_AP_COUNT (sizeof(MOCK_APS) / sizeof(MOCK_APS[0]))
 
-  header_ui_create(s_screen_wifi_list);
-  footer_ui_create(s_screen_wifi_list);
+static lv_obj_t *s_screen = NULL;
+static menu_component_t s_menu;
+static lv_timer_t *s_nav_timer = NULL;
 
-  s_wifi_list_cont = lv_obj_create(s_screen_wifi_list);
-  lv_obj_set_size(s_wifi_list_cont, WIFI_MENU_WIDTH, WIFI_MENU_HEIGHT);
-  lv_obj_align(s_wifi_list_cont, LV_ALIGN_CENTER, 0, WIFI_MENU_OFFSET_Y);
-  lv_obj_add_style(s_wifi_list_cont, &s_style_menu, 0);
-  lv_obj_set_flex_flow(s_wifi_list_cont, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_scrollbar_mode(s_wifi_list_cont, LV_SCROLLBAR_MODE_OFF);
-  lv_obj_add_flag(s_wifi_list_cont, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_scroll_dir(s_wifi_list_cont, LV_DIR_VER);
+static scan_state_t s_scan_state = SCAN_RUNNING;
+static bool s_scanning = false;
+static int s_ap_count = 0;
+static struct {
+  char ssid[25];
+  int8_t rssi;
+} s_aps[WIFI_MAX_APS];
 
-  lv_obj_t *loading = lv_label_create(s_screen_wifi_list);
-  lv_label_set_text(loading, "SCANNING...");
-  lv_obj_set_style_text_color(loading, current_theme.text_main, 0);
-  lv_obj_center(loading);
+static char s_connect_ssid[33];
+static char s_connect_pass[64];
+static bool s_connecting = false;
+static uint8_t s_connect_state = 0;
+static uint8_t s_connect_ip[4] = {0};
 
-  lv_screen_load(s_screen_wifi_list);
-  lv_refr_now(NULL);
+static bool s_btn_up_last = false;
+static bool s_btn_down_last = false;
+static bool s_btn_left_last = false;
+static bool s_btn_right_last = false;
+static bool s_btn_ok_last = false;
+static bool s_btn_back_last = false;
 
-  if (!wifi_service_is_active()) {
-    lv_label_set_text(loading, "WIFI OFF");
+static void nav_timer_cb(lv_timer_t *t);
+
+static const char *icon_for_rssi(int8_t rssi) {
+  if (rssi >= -55)
+    return "/assets/icons/wifi_icon_3.bin";
+  if (rssi >= -65)
+    return "/assets/icons/wifi_icon_2.bin";
+  if (rssi >= -75)
+    return "/assets/icons/wifi_icon_1.bin";
+  return "/assets/icons/wifi_icon_0.bin";
+}
+
+static void connect_done_cb(void *unused) {
+  (void)unused;
+  if (ui_current_screen() != SCREEN_CONNECT_WIFI)
     return;
-  }
-
-  wifi_service_scan();
-  uint16_t ap_count = wifi_service_get_ap_count();
-  lv_obj_del(loading);
-
-  if (main_group != NULL)
-    lv_group_remove_all_objs(main_group);
-
-  for (uint16_t i = 0; i < ap_count; i++) {
-    wifi_ap_record_t *ap = wifi_service_get_ap_record(i);
-    if (ap == NULL)
-      continue;
-
-    lv_obj_t *item = lv_obj_create(s_wifi_list_cont);
-    lv_obj_set_size(item, lv_pct(100), WIFI_ITEM_HEIGHT);
-    lv_obj_add_style(item, &s_style_item, 0);
-    lv_obj_set_flex_flow(item, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(item, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_clear_flag(item, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t *icon = lv_label_create(item);
-    lv_label_set_text(icon, LV_SYMBOL_WIFI);
-    lv_obj_set_style_text_color(icon, current_theme.text_main, 0);
-
-    lv_obj_t *lbl_ssid = lv_label_create(item);
-    lv_label_set_text(lbl_ssid, (char *)ap->ssid);
-    lv_obj_set_style_text_color(lbl_ssid, current_theme.text_main, 0);
-    lv_obj_set_flex_grow(lbl_ssid, 1);
-    lv_obj_set_style_margin_left(lbl_ssid, WIFI_ITEM_ICON_MARGIN, 0);
-
-    if (ap->authmode != WIFI_AUTH_OPEN) {
-      lv_obj_t *lock = lv_label_create(item);
-      lv_label_set_text(lock, "KEY");
-      lv_obj_set_style_text_color(lock, current_theme.text_main, 0);
-    }
-
-    lv_obj_set_user_data(item, (void *)ap);
-    lv_obj_add_event_cb(item, wifi_item_event_cb, LV_EVENT_ALL, NULL);
-
-    if (main_group != NULL)
-      lv_group_add_obj(main_group, item);
-  }
-
-  if (main_group != NULL) {
-    lv_obj_t *first = lv_obj_get_child(s_wifi_list_cont, 0);
-    if (first != NULL)
-      lv_group_focus_obj(first);
+  if (s_connect_state == CONNECT_STATE_CONNECTED) {
+    char msg[48];
+    snprintf(msg,
+             sizeof(msg),
+             "CONNECTED\n%u.%u.%u.%u",
+             s_connect_ip[0],
+             s_connect_ip[1],
+             s_connect_ip[2],
+             s_connect_ip[3]);
+    msgbox_open(LV_SYMBOL_OK, msg, "OK", NULL, NULL);
+  } else {
+    msgbox_open(LV_SYMBOL_CLOSE, "CONNECT FAILED\nwrong pass / range?", "OK", NULL, NULL);
   }
 }
 
-static void init_styles(void) {
-  if (s_is_styles_initialized)
-    return;
+static void wifi_connect_task(void *arg) {
+  (void)arg;
 
-  lv_style_init(&s_style_menu);
-  lv_style_set_bg_color(&s_style_menu, current_theme.screen_base);
-  lv_style_set_bg_opa(&s_style_menu, LV_OPA_COVER);
-  lv_style_set_border_width(&s_style_menu, WIFI_MENU_BORDER_WIDTH);
-  lv_style_set_border_color(&s_style_menu, current_theme.border_interface);
-  lv_style_set_radius(&s_style_menu, 0);
-  lv_style_set_pad_all(&s_style_menu, WIFI_MENU_PAD);
+  for (int i = 0; i < CONNECT_SIM_STEPS; i++)
+    vTaskDelay(pdMS_TO_TICKS(CONNECT_SIM_STEP_MS));
 
-  lv_style_init(&s_style_item);
-  lv_style_set_bg_color(&s_style_item, current_theme.bg_item_bot);
-  lv_style_set_bg_grad_color(&s_style_item, current_theme.bg_item_top);
-  lv_style_set_bg_grad_dir(&s_style_item, LV_GRAD_DIR_VER);
-  lv_style_set_border_width(&s_style_item, WIFI_ITEM_BORDER_WIDTH);
-  lv_style_set_border_color(&s_style_item, current_theme.border_inactive);
-  lv_style_set_radius(&s_style_item, 0);
-
-  s_is_styles_initialized = true;
-}
-
-static bool local_get_known_password(const char *ssid, char *out_password, size_t buffer_size) {
-  if (ssid == NULL || out_password == NULL)
-    return false;
-
-  size_t size = 0;
-  char *buffer = (char *)storage_assets_load_file(WIFI_KNOWN_NETWORKS_FILE, &size);
-  if (buffer == NULL)
-    return false;
-
-  cJSON *root = cJSON_Parse(buffer);
-  free(buffer);
-  if (root == NULL)
-    return false;
-
-  bool found = false;
-  cJSON *item = NULL;
-  cJSON_ArrayForEach(item, root) {
-    cJSON *j_ssid = cJSON_GetObjectItem(item, "ssid");
-    if (!cJSON_IsString(j_ssid) || strcmp(j_ssid->valuestring, ssid) != 0)
-      continue;
-
-    cJSON *j_pass = cJSON_GetObjectItem(item, "password");
-    if (cJSON_IsString(j_pass)) {
-      strncpy(out_password, j_pass->valuestring, buffer_size - 1);
-      out_password[buffer_size - 1] = '\0';
-      found = true;
-    }
-    break;
-  }
-
-  cJSON_Delete(root);
-  return found;
-}
-
-static void restore_wifi_group(lv_timer_t *timer) {
-  (void)timer;
-  s_restore_group_timer = NULL;
-
-  if (main_group == NULL || s_wifi_list_cont == NULL)
-    return;
-
-  lv_group_remove_all_objs(main_group);
-  uint32_t child_count = lv_obj_get_child_cnt(s_wifi_list_cont);
-  for (uint32_t i = 0; i < child_count; i++) {
-    lv_obj_t *child = lv_obj_get_child(s_wifi_list_cont, i);
-    if (child != NULL)
-      lv_group_add_obj(main_group, child);
-  }
-
-  lv_obj_t *first = lv_obj_get_child(s_wifi_list_cont, 0);
-  if (first != NULL)
-    lv_group_focus_obj(first);
-}
-
-static void on_msgbox_closed(bool confirm) {
-  (void)confirm;
-  if (s_restore_group_timer != NULL)
-    lv_timer_del(s_restore_group_timer);
-
-  s_restore_group_timer = lv_timer_create(restore_wifi_group, WIFI_RESTORE_GROUP_DELAY_MS, NULL);
-  lv_timer_set_repeat_count(s_restore_group_timer, 1);
-}
-
-static void on_wifi_status_async(void *user_data) {
-  (void)user_data;
-  if (!s_is_awaiting_connect)
-    return;
-
-  s_is_awaiting_connect = false;
-  msgbox_close();
-
-  if (s_is_pending_connected)
-    msgbox_open(LV_SYMBOL_OK, "CONECTADO COM SUCESSO", "OK", NULL, on_msgbox_closed);
-  else
-    msgbox_open(LV_SYMBOL_CLOSE, "FALHA NA CONEXAO", "OK", NULL, on_msgbox_closed);
-}
-
-static void wifi_status_timer_cb(lv_timer_t *timer) {
-  if (!s_is_awaiting_connect) {
-    lv_timer_del(timer);
-    s_wifi_status_timer = NULL;
-    return;
-  }
-
-  if (wifi_service_is_connected()) {
-    s_is_pending_connected = true;
-    lv_async_call(on_wifi_status_async, NULL);
-    lv_timer_del(timer);
-    s_wifi_status_timer = NULL;
-    return;
-  }
-
-  if (++s_wifi_status_poll_count >= WIFI_STATUS_POLL_MAX) {
-    s_is_pending_connected = false;
-    lv_async_call(on_wifi_status_async, NULL);
-    lv_timer_del(timer);
-    s_wifi_status_timer = NULL;
-  }
+  s_connect_state = CONNECT_STATE_CONNECTED;
+  s_connect_ip[0] = 192;
+  s_connect_ip[1] = 168;
+  s_connect_ip[2] = 1;
+  s_connect_ip[3] = 42;
+  s_connecting = false;
+  lv_async_call(connect_done_cb, NULL);
+  vTaskDelete(NULL);
 }
 
 static void on_keyboard_submit(const char *text, void *user_data) {
   (void)user_data;
-  strncpy(s_selected_pass, text != NULL ? text : "", sizeof(s_selected_pass) - 1);
-  s_selected_pass[sizeof(s_selected_pass) - 1] = '\0';
-
-  if (wifi_service_connect_to_ap(s_selected_ssid, s_selected_pass) == ESP_OK) {
-    s_is_awaiting_connect = true;
-    s_wifi_status_poll_count = 0;
-    msgbox_open(LV_SYMBOL_WIFI, "CONECTANDO...", NULL, NULL, NULL);
-    s_wifi_status_timer = lv_timer_create(wifi_status_timer_cb, WIFI_STATUS_POLL_INTERVAL_MS, NULL);
-  } else {
-    msgbox_open(LV_SYMBOL_CLOSE, "FALHA NA CONEXAO", "OK", NULL, on_msgbox_closed);
-  }
+  if (s_connecting || s_scanning)
+    return;
+  strncpy(s_connect_pass, text ? text : "", sizeof(s_connect_pass) - 1);
+  s_connect_pass[sizeof(s_connect_pass) - 1] = '\0';
+  s_connecting = true;
+  ESP_LOGI(TAG, "connecting to '%s'...", s_connect_ssid);
+  if (xTaskCreate(
+          wifi_connect_task, "wifi_conn", WIFI_TASK_STACK_SIZE, NULL, WIFI_TASK_PRIORITY, NULL) !=
+      pdPASS)
+    s_connecting = false;
 }
 
-static void wifi_item_event_cb(lv_event_t *e) {
-  lv_event_code_t code = lv_event_get_code(e);
-  lv_obj_t *item = lv_event_get_target(e);
+static void build_screen(void) {
+  if (s_screen != NULL) {
+    lv_obj_del(s_screen);
+    s_screen = NULL;
+  }
 
-  if (code == LV_EVENT_FOCUSED) {
-    lv_obj_set_style_border_color(item, ui_theme_get_accent(), 0);
-    lv_obj_set_style_border_width(item, WIFI_MENU_BORDER_WIDTH, 0);
-    lv_obj_scroll_to_view(item, LV_ANIM_ON);
-  } else if (code == LV_EVENT_DEFOCUSED) {
-    lv_obj_set_style_border_color(item, current_theme.border_inactive, 0);
-    lv_obj_set_style_border_width(item, WIFI_ITEM_BORDER_WIDTH, 0);
-  } else if (code == LV_EVENT_KEY) {
-    uint32_t key = lv_event_get_key(e);
-    if (key == LV_KEY_ESC || key == LV_KEY_LEFT) {
-      ui_switch_screen(SCREEN_CONNECTION_SETTINGS);
-    } else if (key == LV_KEY_ENTER || key == LV_KEY_RIGHT) {
-      wifi_ap_record_t *ap = (wifi_ap_record_t *)lv_obj_get_user_data(item);
-      if (ap == NULL)
-        return;
+  s_screen = lv_obj_create(NULL);
+  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
+  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
+  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-      strncpy(s_selected_ssid, (const char *)ap->ssid, sizeof(s_selected_ssid) - 1);
-      s_selected_ssid[sizeof(s_selected_ssid) - 1] = '\0';
+  s_menu = menu_component_create(s_screen, "Networks", "/assets/icons/wifi_menu_icon.bin");
 
-      if (ap->authmode == WIFI_AUTH_OPEN) {
-        on_keyboard_submit("", NULL);
-      } else if (local_get_known_password(s_selected_ssid, s_known_pass, sizeof(s_known_pass))) {
-        on_keyboard_submit(s_known_pass, NULL);
-      } else {
+  if (s_scan_state == SCAN_RUNNING) {
+    menu_component_add_item(&s_menu, "/assets/icons/wifi_menu_icon.bin", "Scanning...");
+  } else if (s_scan_state == SCAN_FAIL) {
+    menu_component_add_item(&s_menu, "/assets/icons/wifi_menu_icon.bin", "Scan failed (C5?)");
+  } else if (s_ap_count == 0) {
+    menu_component_add_item(&s_menu, "/assets/icons/wifi_menu_icon.bin", "No networks found");
+  } else {
+    for (int i = 0; i < s_ap_count; i++) {
+      menu_component_add_item(&s_menu, icon_for_rssi(s_aps[i].rssi), s_aps[i].ssid);
+      menu_component_set_item_label_color(&s_menu, i, lv_color_hex(SCAN_RESULT_COLOR_HEX));
+    }
+  }
+
+  if (s_nav_timer == NULL)
+    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+
+  ui_screen_load(s_screen);
+}
+
+static void scan_done_cb(void *unused) {
+  (void)unused;
+  if (ui_current_screen() != SCREEN_CONNECT_WIFI)
+    return;
+  build_screen();
+  ESP_LOGI(TAG, "scan finished: state=%d, %d AP(s)", (int)s_scan_state, s_ap_count);
+}
+
+static void wifi_scan_task(void *arg) {
+  (void)arg;
+  int count = 0;
+
+  for (int i = 0; i < SCAN_SIM_STEPS; i++)
+    vTaskDelay(pdMS_TO_TICKS(SCAN_SIM_STEP_MS));
+
+  for (size_t i = 0; i < MOCK_AP_COUNT && count < WIFI_MAX_APS; i++) {
+    strncpy(s_aps[count].ssid, MOCK_APS[i].ssid, sizeof(s_aps[count].ssid) - 1);
+    s_aps[count].ssid[sizeof(s_aps[count].ssid) - 1] = '\0';
+    s_aps[count].rssi = MOCK_APS[i].rssi;
+    count++;
+  }
+
+  s_ap_count = count;
+  s_scan_state = SCAN_DONE;
+  s_scanning = false;
+  lv_async_call(scan_done_cb, NULL);
+  vTaskDelete(NULL);
+}
+
+static void nav_timer_cb(lv_timer_t *t) {
+  if (lv_screen_active() != s_screen) {
+    lv_timer_delete(t);
+    s_nav_timer = NULL;
+    return;
+  }
+
+  bool is_up = ui_btn_up();
+  bool is_down = ui_btn_down();
+  bool is_left = ui_btn_left();
+  bool is_right = ui_btn_right();
+  bool is_ok = ok_button_is_down();
+  bool is_back = back_button_is_down();
+
+  if (keyboard_is_open() || msgbox_is_open() || ui_input_is_locked()) {
+    s_btn_up_last = is_up;
+    s_btn_down_last = is_down;
+    s_btn_left_last = is_left;
+    s_btn_right_last = is_right;
+    s_btn_ok_last = is_ok;
+    s_btn_back_last = is_back;
+    return;
+  }
+
+  if (is_down && !s_btn_down_last)
+    menu_component_next(&s_menu);
+  if (is_up && !s_btn_up_last)
+    menu_component_prev(&s_menu);
+
+  if ((is_back && !s_btn_back_last) || (is_left && !s_btn_left_last))
+    ui_switch_screen(SCREEN_CONNECTION_SETTINGS);
+
+  if ((is_ok && !s_btn_ok_last) || (is_right && !s_btn_right_last)) {
+    if (s_scan_state == SCAN_DONE && s_ap_count > 0) {
+      int sel = menu_component_get_selected(&s_menu);
+      if (sel >= 0 && sel < s_ap_count) {
+        strncpy(s_connect_ssid, s_aps[sel].ssid, sizeof(s_connect_ssid) - 1);
+        s_connect_ssid[sizeof(s_connect_ssid) - 1] = '\0';
         keyboard_open(NULL, on_keyboard_submit, NULL);
       }
     }
   }
+
+  s_btn_up_last = is_up;
+  s_btn_down_last = is_down;
+  s_btn_left_last = is_left;
+  s_btn_right_last = is_right;
+  s_btn_ok_last = is_ok;
+  s_btn_back_last = is_back;
+}
+
+void ui_connect_wifi_open(void) {
+  s_scan_state = SCAN_RUNNING;
+  s_ap_count = 0;
+  build_screen();
+
+  if (!s_scanning) {
+    s_scanning = true;
+    if (xTaskCreate(
+            wifi_scan_task, "wifi_scan", WIFI_TASK_STACK_SIZE, NULL, WIFI_TASK_PRIORITY, NULL) !=
+        pdPASS) {
+      s_scanning = false;
+      s_scan_state = SCAN_FAIL;
+      build_screen();
+    }
+  }
+
+  ESP_LOGI(TAG, "Networks screen opened (mock scan)");
 }

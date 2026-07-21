@@ -13,18 +13,23 @@
 // You should have received a copy of the GNU General Public License
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-#ifndef FILES_UI_H
-#define FILES_UI_H
+#ifndef UI_FILES_H
+#define UI_FILES_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/** @brief Open the file browser screen. */
+/**
+ * @brief Open the file browser screen (mock).
+ *
+ * Two-level navigation (folders -> files) from a canned table. No filesystem
+ * is touched.
+ */
 void ui_files_open(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // FILES_UI_H
+#endif // UI_FILES_H

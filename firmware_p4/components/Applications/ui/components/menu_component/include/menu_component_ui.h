@@ -25,15 +25,25 @@ extern "C" {
 #include "toggle_ui.h"
 #include "intensity_bar_ui.h"
 
-#define MENU_COMP_MAX_ITEMS 12
+/** @brief Maximum number of items a menu can hold. */
+#define MENU_COMP_MAX_ITEMS 20
 
+/** @brief Height in px of the persistent action/hint footer drawn at the bottom of every menu. */
+#define MENU_COMP_FOOTER_H 22
+
+/**
+ * @brief State and widget handles for a full menu screen.
+ */
 typedef struct {
   lv_obj_t *screen;
   lv_obj_t *title_bar;
   lv_obj_t *title_label;
   lv_obj_t *items_cont;
   lv_obj_t *items[MENU_COMP_MAX_ITEMS];
+  lv_obj_t *scroll_track;
   lv_obj_t *scroll_bar;
+  lv_obj_t *footer;     ///< persistent action/hint bar at the bottom
+  lv_obj_t *hint_label; ///< centered text inside the footer
   lv_obj_t *sel_dots[MENU_COMP_MAX_ITEMS];
   lv_obj_t *val_labels[MENU_COMP_MAX_ITEMS];
   toggle_ui_t toggles[MENU_COMP_MAX_ITEMS];
@@ -52,6 +62,13 @@ menu_component_create(lv_obj_t *parent, const char *title, const char *title_ico
 
 /** @brief Add a menu item. Returns the item object for customization. */
 lv_obj_t *menu_component_add_item(menu_component_t *menu, const char *icon_path, const char *label);
+
+/**
+ * @brief Add a centered, non-selectable group header (e.g. "Sound & Vibration")
+ *        into the list. Navigation skips it; it just visually groups the items
+ *        added after it. Call it before the items that belong to the group.
+ */
+void menu_component_add_section(menu_component_t *menu, const char *title);
 
 /** @brief Add a selector item with left/right value navigation. */
 lv_obj_t *menu_component_add_selector(menu_component_t *menu,
@@ -103,6 +120,19 @@ void menu_component_prev(menu_component_t *menu);
 
 /** @brief Get the currently selected menu item index. */
 int menu_component_get_selected(menu_component_t *menu);
+
+/**
+ * @brief Recolour the label text of a specific menu item. Used by the
+ *        Wi-Fi scan screen to render scanned SSIDs in green so they
+ *        read as "captured" rather than just menu rows.
+ */
+void menu_component_set_item_label_color(menu_component_t *menu, int index, lv_color_t color);
+
+/**
+ * @brief Override the footer hint text (e.g. "LEFT/RIGHT change   OK toggle").
+ *        The component shows a sensible default; call this to specialize it.
+ */
+void menu_component_set_hint(menu_component_t *menu, const char *text);
 
 #ifdef __cplusplus
 }

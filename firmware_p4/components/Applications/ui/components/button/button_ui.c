@@ -37,8 +37,7 @@ button_ui_t button_ui_create(lv_obj_t *parent,
   lv_obj_set_style_radius(b.obj, height / 2, 0);
   lv_obj_set_style_bg_opa(b.obj, LV_OPA_COVER, 0);
   lv_obj_set_style_bg_color(b.obj, BTN_BG, 0);
-  lv_obj_set_style_bg_grad_color(b.obj, BTN_GRAD, 0);
-  lv_obj_set_style_bg_grad_dir(b.obj, LV_GRAD_DIR_HOR, 0);
+  lv_obj_set_style_bg_grad_dir(b.obj, LV_GRAD_DIR_NONE, 0);
   lv_obj_set_style_border_width(b.obj, 1, 0);
   lv_obj_set_style_border_color(b.obj, BTN_BORDER, 0);
   lv_obj_set_style_pad_left(b.obj, 10, 0);
