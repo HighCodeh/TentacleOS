@@ -49,6 +49,16 @@ void lv_port_indev_init(void);
  */
 void lv_port_indev_set_keyboard_mode(bool is_enabled);
 
+/**
+ * @brief Inject a remote key press (companion app screen-share control).
+ *
+ * Plays out one PRESS + one RELEASE of the given LVGL key on the keypad indev,
+ * as if a physical button were tapped. Physical buttons take priority.
+ *
+ * @param lv_key  LVGL key code (LV_KEY_UP/DOWN/LEFT/RIGHT/ENTER/ESC).
+ */
+void lv_port_indev_inject(uint32_t lv_key);
+
 #ifdef __cplusplus
 }
 #endif

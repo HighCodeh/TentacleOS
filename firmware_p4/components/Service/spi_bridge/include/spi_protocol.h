@@ -62,7 +62,8 @@ typedef enum {
   SPI_CAT_LORA = 0x03,
   SPI_CAT_MESH = 0x04,  // Meshtastic phone bridge
   SPI_CAT_MCORE = 0x05, // MeshCore phone bridge
-  SPI_CAT_HOST = 0x06,  // Companion host-link BLE relay
+  SPI_CAT_HOST = 0x06,   // Companion host-link BLE relay
+  SPI_CAT_SCREEN = 0x07, // P4-native screen sharing over the host link (USB)
   SPI_CAT_SESSION = 0xFF
 } spi_cat_t;
 
@@ -245,10 +246,42 @@ typedef enum {
   SPI_ID_HOST_STATUS = SPI_CMD(SPI_CAT_HOST, 0xA4),   // poll BLE connection state
 
   // Session lifecycle (long-running operations)
+  // Screen sharing (P4-native, over the USB host link — handled locally, never
+  // relayed to the C5). START/STOP/KEY are app->device commands; FRAME is a
+  // device->app STREAM carrying RGB565 row-strips of the live screen.
+  SPI_ID_SCREEN_START = SPI_CMD(SPI_CAT_SCREEN, 0x01),
+  SPI_ID_SCREEN_STOP = SPI_CMD(SPI_CAT_SCREEN, 0x02),
+  SPI_ID_SCREEN_KEY = SPI_CMD(SPI_CAT_SCREEN, 0x03),
+  SPI_ID_SCREEN_FRAME = SPI_CMD(SPI_CAT_SCREEN, 0x04),
+
   SPI_ID_SESSION_HEARTBEAT = SPI_CMD(SPI_CAT_SESSION, 0xF0),
   SPI_ID_SESSION_LOST = SPI_CMD(SPI_CAT_SESSION, 0xF1),
   SPI_ID_SESSION_STOP = SPI_CMD(SPI_CAT_SESSION, 0xF2)
 } spi_id_t;
+
+/**
+ * @brief Screen-share control keys (payload byte 0 of SPI_ID_SCREEN_KEY).
+ * The device maps these to the LVGL keypad (up/down/ok/back/left/right).
+ */
+typedef enum {
+  SPI_SCREEN_KEY_UP = 0,
+  SPI_SCREEN_KEY_DOWN = 1,
+  SPI_SCREEN_KEY_LEFT = 2,
+  SPI_SCREEN_KEY_RIGHT = 3,
+  SPI_SCREEN_KEY_OK = 4,
+  SPI_SCREEN_KEY_BACK = 5
+} spi_screen_key_t;
+
+/**
+ * @brief Header of a SPI_ID_SCREEN_FRAME STREAM payload, followed by
+ * (rows * width) RGB565 little-endian pixels. The screen is streamed as
+ * horizontal row-strips; y==0 marks the first strip of a new frame.
+ */
+typedef struct __attribute__((packed)) {
+  uint16_t y;     // row offset of this strip within the frame
+  uint16_t rows;  // number of rows in this strip
+  uint16_t width; // pixels per row (full screen width)
+} spi_screen_strip_t;
 
 /**
  * @brief SPI response status codes (payload byte 0 for RESP type).

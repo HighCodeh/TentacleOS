@@ -27,6 +27,12 @@ static const char *TAG = "LV_PORT_INDEV";
 lv_indev_t *indev_keypad = NULL;
 lv_group_t *main_group = NULL;
 
+// Remote key injected by the screen-share module (companion app control buttons).
+// Played out as one PRESS then one RELEASE across two reads so LVGL registers a
+// single tap. Physical buttons take priority. phase: 0 idle, 1 press, 2 release.
+static volatile uint32_t s_remote_key = 0;
+static volatile int s_remote_phase = 0;
+
 static void keypad_read(lv_indev_t *indev, lv_indev_data_t *data) {
   (void)indev;
   static uint32_t last_key = 0;
@@ -48,6 +54,20 @@ static void keypad_read(lv_indev_t *indev, lv_indev_data_t *data) {
     key = LV_KEY_ESC;
   }
 
+  // No physical button: play out an injected remote key, if any.
+  if (key == 0 && s_remote_phase != 0) {
+    last_key = s_remote_key;
+    data->key = s_remote_key;
+    if (s_remote_phase == 1) {
+      data->state = LV_INDEV_STATE_PRESSED;
+      s_remote_phase = 2;
+    } else {
+      data->state = LV_INDEV_STATE_RELEASED;
+      s_remote_phase = 0;
+    }
+    return;
+  }
+
   if (key != 0) {
     last_key = key;
     data->key = key;
@@ -56,6 +76,11 @@ static void keypad_read(lv_indev_t *indev, lv_indev_data_t *data) {
     data->key = last_key;
     data->state = LV_INDEV_STATE_RELEASED;
   }
+}
+
+void lv_port_indev_inject(uint32_t lv_key) {
+  s_remote_key = lv_key;
+  s_remote_phase = 1;
 }
 
 void lv_port_indev_init(void) {

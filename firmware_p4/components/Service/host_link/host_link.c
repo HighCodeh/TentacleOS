@@ -25,6 +25,7 @@
 #include "host_link_sec.h"
 #include "host_link_state.h"
 #include "host_link_stream.h"
+#include "lvgl_screen_share.h"
 #include "spi_bridge.h"
 #include "spi_protocol.h"
 #include "spi_timeouts.h"
@@ -93,8 +94,9 @@ void host_link_session_release(host_link_writer_t writer) {
   }
   xSemaphoreGive(s_lock);
   if (owned) {
-    host_stream_teardown();  // stop any live stream so the C5 session is reaped
-    host_link_sec_reset();   // force re-handshake on the next session
+    host_stream_teardown();     // stop any live stream so the C5 session is reaped
+    lvgl_screen_share_stop();   // safeguard: never keep capturing into a dead link
+    host_link_sec_reset();      // force re-handshake on the next session
   }
 }
 
@@ -249,6 +251,15 @@ static void process_frame(const uint8_t *frame, size_t total) {
     uint8_t sdata[8];
     uint16_t slen = 0;
     uint8_t status = host_stream_start(cmd, payload, plen16, sdata, sizeof(sdata), &slen);
+    send_resp(category, op, status, sdata, slen);
+    return;
+  }
+
+  // Screen sharing is P4-native (snapshot + USB stream), handled locally.
+  if (lvgl_screen_share_is_host_op(cmd)) {
+    uint8_t sdata[8];
+    uint16_t slen = 0;
+    uint8_t status = lvgl_screen_share_handle(cmd, payload, plen16, sdata, sizeof(sdata), &slen);
     send_resp(category, op, status, sdata, slen);
     return;
   }
