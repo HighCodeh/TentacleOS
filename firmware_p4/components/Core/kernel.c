@@ -29,6 +29,7 @@
 #include "buttons_gpio.h"
 #include "ys_rfid2.h"
 #include "bridge_manager.h"
+#include "spi_bridge.h"
 #include "storage_init.h"
 #include "storage_assets.h"
 #include "tos_first_boot.h"
@@ -87,7 +88,13 @@ void kernel_init(void) {
   led_rgb_init();
   bq25896_init();
   cc1101_init();
-  bridge_manager_init();
+  // C5 radio coprocessor disabled: the C5 on this board is unresponsive, so the
+  // P4 runs standalone (terminal only). Skip the bridge entirely (no SPI init,
+  // no link monitor, no version probe) and mark it permanently dead so any
+  // stray send_command short-circuits instead of spamming timeouts. Re-enable
+  // bridge_manager_init() (and the host_link C5 pieces below) with a working C5.
+  // bridge_manager_init();
+  spi_bridge_set_alive(false);
   buttons_init();
   ys_rfid2_init(NULL);
 
@@ -111,8 +118,10 @@ void kernel_init(void) {
   host_link_init();
   host_link_cdc_init();
   host_link_log_init();
-  host_link_c5log_init(); // relay C5 logs (SPI_ID_SYSTEM_LOG) as source=C5 LOG frames
-  host_link_ble_init();   // BLE relay infra; advertising starts on demand
+  // C5-dependent host-link pieces disabled with the bridge: the C5 log relay and
+  // the BLE relay status poller (SPI_ID_HOST_STATUS) both talk to the C5.
+  // host_link_c5log_init(); // relay C5 logs (SPI_ID_SYSTEM_LOG) as source=C5 LOG frames
+  // host_link_ble_init();   // BLE relay infra; advertising starts on demand
 
   vTaskDelay(pdMS_TO_TICKS(BOOT_SETTLE_MS));
 }
