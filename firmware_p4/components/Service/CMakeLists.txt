@@ -17,6 +17,7 @@ file(GLOB_RECURSE SD_CARD_SERVICE_SRCS "sd_card/*.c")
 file(GLOB_RECURSE CONSOLE_SERVICE_SRCS "console/*.c")
 file(GLOB_RECURSE CONSOLE_COMMANDS_SRCS "console/commands/*.c")
 file(GLOB_RECURSE C5_FLASHER_SRCS "c5_flasher/*.c")
+file(GLOB_RECURSE C5_LEGACY_SRCS "c5_legacy/*.c")
 file(GLOB_RECURSE SPI_BRIDGE_SRCS "spi_bridge/*.c")
 file(GLOB_RECURSE BRIDGE_MANAGER_SRCS "bridge_manager/*.c")
 file(GLOB_RECURSE BT_SERVICE_SRCS "bluetooth/*.c")
@@ -62,6 +63,7 @@ idf_component_register(SRCS
   ${CONSOLE_SERVICE_SRCS}
   ${CONSOLE_COMMANDS_SRCS}
   ${C5_FLASHER_SRCS}
+  ${C5_LEGACY_SRCS}
   ${SPI_BRIDGE_SRCS}
   ${BRIDGE_MANAGER_SRCS}
   ${BT_SERVICE_SRCS}
@@ -83,6 +85,7 @@ idf_component_register(SRCS
   "spi_bridge/include"
   "host_link/include"
   "c5_flasher/include"
+  "c5_legacy/include"
   "bridge_manager/include"
   "bluetooth/include"
   "ota/include"

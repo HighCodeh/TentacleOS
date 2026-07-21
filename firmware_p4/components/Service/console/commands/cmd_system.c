@@ -26,6 +26,7 @@
 #include "freertos/task.h"
 
 #include "c5_flasher.h"
+#include "c5_legacy.h"
 #include "spi_bridge.h"
 #include "spi_protocol.h"
 
@@ -33,13 +34,38 @@ static const char *TAG = "CMD_SYSTEM";
 
 static int cmd_c5(int argc, char **argv) {
   if (argc < 2) {
-    printf("usage: c5 <ota|rom|download|passthrough|release>\n");
+    printf("usage: c5 <ota|rom|download|passthrough|release|legacy>\n");
     printf("  ota          push embedded C5 image over UART (C5 must run its app)\n");
     printf("  download     ask the running C5 to enter ROM download mode (SPI)\n");
     printf("  rom          serial-flash a C5 already in download mode (recovery)\n");
     printf("  passthrough  bridge host esptool <-> C5 (never returns; BACK reboots)\n");
     printf("  release      tri-state the C5 UART lines for an external programmer\n");
+    printf("  legacy <ping|info|download>  talk to a C5 still running InkTest (old SPI)\n");
     return 1;
+  }
+  if (strcmp(argv[1], "legacy") == 0) {
+    if (argc < 3) {
+      printf("usage: c5 legacy <ping|info|download>\n");
+      printf("  ping      check a C5 running InkTest answers the old SPI protocol\n");
+      printf("  info      read the InkTest C5 chip info (model/rev/MACs/heap)\n");
+      printf("  download  command the InkTest C5 into ROM download, then run 'c5 rom'\n");
+      return 1;
+    }
+    esp_err_t r;
+    if (strcmp(argv[2], "ping") == 0) {
+      r = c5_legacy_ping();
+      printf("C5 legacy ping: %s\n", esp_err_to_name(r));
+    } else if (strcmp(argv[2], "info") == 0) {
+      r = c5_legacy_get_info();
+      printf("C5 legacy info: %s\n", esp_err_to_name(r));
+    } else if (strcmp(argv[2], "download") == 0) {
+      r = c5_legacy_enter_download();
+      printf("C5 legacy download: %s\n", esp_err_to_name(r));
+    } else {
+      printf("unknown legacy subcommand '%s'\n", argv[2]);
+      return 1;
+    }
+    return r == ESP_OK ? 0 : 1;
   }
   if (strcmp(argv[1], "ota") == 0) {
     c5_flasher_init();

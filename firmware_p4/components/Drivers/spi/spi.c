@@ -84,6 +84,20 @@ spi_device_handle_t spi_get_handle(spi_device_id_t id) {
   return s_device_handles[id];
 }
 
+esp_err_t spi_remove_device(spi_device_id_t id) {
+  if (id >= SPI_DEVICE_MAX) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  if (s_device_handles[id] == NULL) {
+    return ESP_OK;
+  }
+  esp_err_t ret = spi_bus_remove_device(s_device_handles[id]);
+  if (ret == ESP_OK) {
+    s_device_handles[id] = NULL;
+  }
+  return ret;
+}
+
 esp_err_t spi_transmit(spi_device_id_t id, const uint8_t *data, size_t len) {
   if (id >= SPI_DEVICE_MAX || s_device_handles[id] == NULL) {
     return ESP_ERR_INVALID_ARG;

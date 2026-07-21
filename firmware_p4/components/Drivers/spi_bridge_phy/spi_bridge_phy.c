@@ -31,7 +31,13 @@ static const char *TAG = "SPI_BRIDGE_PHY";
 #define BRIDGE_SPI_MODE   0
 #define BRIDGE_QUEUE_SIZE 7
 
+// Legacy (InkTest) bridge speed. The InkTest C5 master ran the bus at 4 MHz;
+// matching it maximizes the odds the InkTest slave answers cleanly during the
+// one-shot recovery that flashes TentacleOS onto a C5 still running InkTest.
+#define LEGACY_CLOCK_HZ (4 * 1000 * 1000)
+
 static SemaphoreHandle_t s_irq_semaphore = NULL;
+static spi_device_handle_t s_legacy_handle = NULL;
 
 static void IRAM_ATTR irq_handler(void *arg) {
   xSemaphoreGiveFromISR(s_irq_semaphore, NULL);
@@ -92,6 +98,63 @@ esp_err_t spi_bridge_phy_transmit(const uint8_t *tx_data, uint8_t *rx_data, size
       .rx_buffer = rx_data,
   };
   return spi_device_polling_transmit(handle, &t);
+}
+
+esp_err_t spi_bridge_phy_legacy_begin(void) {
+  if (s_legacy_handle != NULL) {
+    return ESP_OK; // already in a legacy session
+  }
+  // Free the normal 10 MHz bridge device so its CS pin is available, then add a
+  // 4 MHz mode-0 device that mirrors the InkTest master. The caller must have
+  // quiesced the normal bridge (spi_bridge_suspend) before calling this.
+  esp_err_t ret = spi_remove_device(SPI_DEVICE_BRIDGE);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "legacy begin: could not remove bridge device: %s", esp_err_to_name(ret));
+    return ret;
+  }
+  spi_device_interface_config_t devcfg = {
+      .clock_speed_hz = LEGACY_CLOCK_HZ,
+      .mode = 0,
+      .spics_io_num = GPIO_BRIDGE_CS_PIN,
+      .queue_size = 4,
+  };
+  ret = spi_bus_add_device(BRIDGE_SPI_HOST, &devcfg, &s_legacy_handle);
+  if (ret != ESP_OK) {
+    s_legacy_handle = NULL;
+    ESP_LOGE(TAG, "legacy begin: add 4 MHz device failed: %s", esp_err_to_name(ret));
+    // Best effort: restore the normal device so the bridge is not left dead.
+    spi_bridge_phy_legacy_end();
+    return ret;
+  }
+  ESP_LOGW(TAG, "legacy SPI session active (InkTest protocol, %d Hz)", LEGACY_CLOCK_HZ);
+  return ESP_OK;
+}
+
+esp_err_t spi_bridge_phy_legacy_transmit(const uint8_t *tx_data, uint8_t *rx_data, size_t len) {
+  if (s_legacy_handle == NULL) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  spi_transaction_t t = {
+      .length = len * 8,
+      .tx_buffer = tx_data,
+      .rx_buffer = rx_data,
+  };
+  return spi_device_polling_transmit(s_legacy_handle, &t);
+}
+
+esp_err_t spi_bridge_phy_legacy_end(void) {
+  if (s_legacy_handle != NULL) {
+    spi_bus_remove_device(s_legacy_handle);
+    s_legacy_handle = NULL;
+  }
+  // Restore the normal 10 MHz TentacleOS bridge device.
+  spi_device_config_t devcfg = {
+      .cs_pin = GPIO_BRIDGE_CS_PIN,
+      .clock_speed_hz = BRIDGE_CLOCK_HZ,
+      .mode = BRIDGE_SPI_MODE,
+      .queue_size = BRIDGE_QUEUE_SIZE,
+  };
+  return spi_add_device(BRIDGE_SPI_HOST, SPI_DEVICE_BRIDGE, &devcfg);
 }
 
 esp_err_t spi_bridge_phy_wait_irq(uint32_t timeout_ms) {
