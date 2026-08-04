@@ -341,7 +341,7 @@ void ui_subghz_read_open(void) {
   lv_obj_set_style_border_width(s_screen, 0, 0);
   lv_obj_set_style_pad_all(s_screen, 0, 0);
 
-  ui_chrome_header(s_screen, "READ", "/assets/icons/radar_icon.bin");
+  ui_chrome_header(s_screen, "READ", "/assets/icons/sensors.bin");
 
   s_status = lv_label_create(s_screen);
   lv_label_set_text(s_status, STATUS_SCAN);
@@ -479,7 +479,7 @@ static void show_options(void) {
 
   capture_result_cfg_t cfg = {
       .accent = current_theme.border_accent,
-      .card_icon = "/assets/icons/radar_icon.bin",
+      .card_icon = "/assets/icons/graphic_eq.bin",
       .card_title = "Signal captured",
       .card_sub = SIG_PROTO " (OOK)",
       .card_value = SIG_LOCK_FREQ,
