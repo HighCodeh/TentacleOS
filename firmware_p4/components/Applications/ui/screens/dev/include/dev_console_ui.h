@@ -13,19 +13,21 @@
 // You should have received a copy of the GNU General Public License
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-#ifndef DEV_MENU_UI_H
-#define DEV_MENU_UI_H
+#ifndef DEV_CONSOLE_UI_H
+#define DEV_CONSOLE_UI_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/** @brief Open the developer submenu (reached from the "dev" coverflow entry).
- *  Holds a single entry that opens Settings > Developer (SCREEN_SETTINGS_DEV). */
-void ui_dev_menu_open(void);
+/** @brief Open the mock companion console screen (reached from the Developer
+ *  submenu). Read-only, auto-scrolling green terminal that streams device log
+ *  lines (no input); UP/DOWN scroll, BACK returns to SCREEN_DEV_MENU. Mock
+ *  only, no real serial backend. */
+void ui_dev_console_open(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // DEV_MENU_UI_H
+#endif // DEV_CONSOLE_UI_H

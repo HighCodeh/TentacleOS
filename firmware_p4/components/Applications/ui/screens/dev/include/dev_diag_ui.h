@@ -13,19 +13,21 @@
 // You should have received a copy of the GNU General Public License
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-#ifndef DEV_MENU_UI_H
-#define DEV_MENU_UI_H
+#ifndef DEV_DIAG_UI_H
+#define DEV_DIAG_UI_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/** @brief Open the developer submenu (reached from the "dev" coverflow entry).
- *  Holds a single entry that opens Settings > Developer (SCREEN_SETTINGS_DEV). */
-void ui_dev_menu_open(void);
+/** @brief Open the mock diagnostics / self-test screen (reached from the
+ *  Developer submenu). Shows a lit card of "label ... value" rows with
+ *  green OK / dim / danger values; BACK returns to SCREEN_DEV_MENU.
+ *  Mock values only, no real probing. */
+void ui_dev_diag_open(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // DEV_MENU_UI_H
+#endif // DEV_DIAG_UI_H

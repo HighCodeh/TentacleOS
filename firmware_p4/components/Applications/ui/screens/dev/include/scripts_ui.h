@@ -13,19 +13,23 @@
 // You should have received a copy of the GNU General Public License
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-#ifndef DEV_MENU_UI_H
-#define DEV_MENU_UI_H
+#ifndef SCRIPTS_UI_H
+#define SCRIPTS_UI_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/** @brief Open the developer submenu (reached from the "dev" coverflow entry).
- *  Holds a single entry that opens Settings > Developer (SCREEN_SETTINGS_DEV). */
-void ui_dev_menu_open(void);
+/** @brief Open the Scripts app: a mock JS-script runner.
+ *
+ * Browse a static list of mock scripts (each with capability badges and a
+ * green terminal preview), grant permission for dangerous capabilities, then
+ * watch a mock streaming run finish in a success or error state. All data is
+ * mock; no real script engine or backend is involved. */
+void ui_scripts_open(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // DEV_MENU_UI_H
+#endif // SCRIPTS_UI_H
