@@ -33,11 +33,20 @@ typedef struct {
 } nfc_menu_item_t;
 
 static const nfc_menu_item_t ITEMS[] = {
-    {"READ TAGS", "/assets/icons/nfc_icon.bin", SCREEN_NFC_READ},
-    {"EMULATE", "/assets/icons/emulate_icon.bin", SCREEN_CARD_EMU},
-    {"WRITE", "/assets/icons/write_icon.bin", SCREEN_NFC_WRITE},
-    {"CONFIGURATIONS", "/assets/icons/config_icon.bin", SCREEN_NFC_CONFIG},
-    {"SAVED", "/assets/icons/card_icon.bin", SCREEN_NFC_SAVED},
+    {"READ TAGS", "/assets/icons/contactless.bin", SCREEN_NFC_READ},
+    {"SCAN / IDENTIFY", "/assets/icons/sensors.bin", SCREEN_NFC_SCAN},
+    {"EMULATE", "/assets/icons/contactless.bin", SCREEN_CARD_EMU},
+    {"WRITE", "/assets/icons/edit.bin", SCREEN_NFC_WRITE},
+    {"CONFIGURATIONS", "/assets/icons/settings.bin", SCREEN_NFC_CONFIG},
+    {"SAVED", "/assets/icons/bookmarks.bin", SCREEN_NFC_SAVED},
+    {"BANK CARD", "/assets/icons/contactless.bin", SCREEN_NFC_BANKCARD},
+    {"DESFIRE", "/assets/icons/sensors.bin", SCREEN_NFC_DESFIRE},
+    {"NFC-V / 15693", "/assets/icons/contactless.bin", SCREEN_NFC_ISO15693},
+    {"ULTRALIGHT/NTAG", "/assets/icons/contactless.bin", SCREEN_NFC_ULTRALIGHT},
+    {"NDEF", "/assets/icons/description.bin", SCREEN_NFC_NDEF},
+    {"FELICA", "/assets/icons/contactless.bin", SCREEN_NFC_FELICA},
+    {"SHARE (P2P)", "/assets/icons/podcasts.bin", SCREEN_NFC_P2P},
+    {"KEY DICTIONARY", "/assets/icons/settings.bin", SCREEN_NFC_KEYDICT},
 };
 #define ITEM_COUNT (sizeof(ITEMS) / sizeof(ITEMS[0]))
 
@@ -106,7 +115,7 @@ void ui_nfc_menu_open(void) {
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  s_menu = menu_component_create(s_screen, "NFC", "/assets/icons/nfc_icon.bin");
+  s_menu = menu_component_create(s_screen, "NFC", "/assets/icons/nfc.bin");
 
   for (size_t i = 0; i < ITEM_COUNT; i++) {
     menu_component_add_item(&s_menu, ITEMS[i].icon, ITEMS[i].name);
