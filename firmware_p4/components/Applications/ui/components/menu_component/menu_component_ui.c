@@ -216,7 +216,7 @@ menu_component_create(lv_obj_t *parent, const char *title, const char *title_ico
 
   static lv_image_dsc_t *slide_bar_v_dsc = NULL;
   if (!slide_bar_v_dsc)
-    slide_bar_v_dsc = assets_get("/assets/icons/slide_bar_v.bin");
+    slide_bar_v_dsc = assets_get("/assets/icons/drag_indicator.bin");
 
   m.scroll_bar = lv_image_create(m.screen);
   if (slide_bar_v_dsc)
@@ -283,7 +283,7 @@ menu_component_add_item(menu_component_t *menu, const char *icon_path, const cha
 
   static lv_image_dsc_t *pointer_dsc = NULL;
   if (!pointer_dsc)
-    pointer_dsc = assets_get("/assets/icons/pointer.bin");
+    pointer_dsc = assets_get("/assets/icons/chevron_right.bin");
 
   lv_obj_t *ptr = lv_image_create(item);
   if (pointer_dsc)

@@ -134,7 +134,7 @@ text_viewer_t text_viewer_create(lv_obj_t *parent, const char *filename) {
 
   static lv_image_dsc_t *sb_dsc = NULL;
   if (!sb_dsc)
-    sb_dsc = assets_get("/assets/icons/slide_bar_v.bin");
+    sb_dsc = assets_get("/assets/icons/drag_indicator.bin");
   tv.scroll_bar = lv_image_create(tv.screen);
   if (sb_dsc)
     lv_image_set_src(tv.scroll_bar, sb_dsc);
