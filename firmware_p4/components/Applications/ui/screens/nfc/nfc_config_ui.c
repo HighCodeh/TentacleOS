@@ -115,11 +115,13 @@ void ui_nfc_config_open(void) {
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  s_menu = menu_component_create(s_screen, "NFC Config", "/assets/icons/config_icon.bin");
-  menu_component_add_toggle(&s_menu, NULL, "Field on boot", false);
-  menu_component_add_selector(&s_menu, NULL, "Poll rate", POLL_NAMES[s_poll]);
-  menu_component_add_item(&s_menu, NULL, "Antenna Tune");
-  menu_component_add_item(&s_menu, NULL, "Bus Diagnostic");
+  s_menu = menu_component_create(s_screen, "NFC Config", "/assets/icons/settings.bin");
+  menu_component_add_toggle(
+      &s_menu, "/assets/icons/power_settings_new.bin", "Field on boot", false);
+  menu_component_add_selector(
+      &s_menu, "/assets/icons/autorenew.bin", "Poll rate", POLL_NAMES[s_poll]);
+  menu_component_add_item(&s_menu, "/assets/icons/settings_input_antenna.bin", "Antenna Tune");
+  menu_component_add_item(&s_menu, "/assets/icons/troubleshoot.bin", "Bus Diagnostic");
 
   if (s_nav_timer == NULL)
     s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);

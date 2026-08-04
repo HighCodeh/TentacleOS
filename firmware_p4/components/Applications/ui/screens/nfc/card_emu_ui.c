@@ -22,6 +22,7 @@
 #include "buttons_gpio.h"
 #include "nfc_sim.h"
 #include "nfc_ui_common.h"
+#include "page_dots_ui.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
@@ -29,6 +30,7 @@
 #define NAV_TIMER_MS 33
 #define FIELD_GREEN  0x00E676
 #define SCALE_FWD    285
+#define DOTS_Y_OFS   (-28)
 
 enum { CE_BROWSE, CE_EDIT, CE_EMULATE };
 
@@ -37,6 +39,8 @@ static lv_obj_t *s_panel = NULL;
 static lv_obj_t *s_status = NULL;
 static lv_obj_t *s_hint = NULL;
 static lv_timer_t *s_timer = NULL;
+static page_dots_t s_dots;
+static bool s_has_dots = false;
 
 static lv_obj_t *s_ov = NULL;
 static lv_obj_t *s_field_box = NULL;
@@ -103,6 +107,17 @@ static void refresh_text(void) {
   }
 }
 
+static void dots_rebuild(void) {
+  if (s_has_dots) {
+    lv_obj_del(s_dots.container);
+    s_has_dots = false;
+  }
+  int slots = nfc_sim_saved_count() + 1;
+  s_dots = page_dots_create(s_screen, slots, LV_ALIGN_BOTTOM_MID, 0, DOTS_Y_OFS);
+  s_has_dots = true;
+  page_dots_set(&s_dots, s_idx);
+}
+
 static void anim_img_y_cb(void *var, int32_t v) {
   lv_obj_set_y((lv_obj_t *)var, v);
 }
@@ -128,6 +143,8 @@ static void do_flip(int new_idx, int dir) {
   s_idx = new_idx;
   rebuild_panel();
   refresh_text();
+  if (s_has_dots)
+    page_dots_set(&s_dots, s_idx);
   lv_obj_set_style_shadow_width(s_panel, 0, 0);
   lv_obj_set_style_opa(s_panel, LV_OPA_TRANSP, 0);
   lv_obj_align(s_panel, LV_ALIGN_CENTER, dir * 60, 8);
@@ -214,6 +231,7 @@ static void emulate_close(void) {
   s_state = CE_BROWSE;
   rebuild_panel();
   refresh_text();
+  dots_rebuild();
 }
 
 static void emulate_start(const nfc_sim_card_t *card) {
@@ -243,6 +261,8 @@ static void emulate_start(const nfc_sim_card_t *card) {
     lv_obj_add_flag(s_status, LV_OBJ_FLAG_HIDDEN);
   if (s_hint)
     lv_obj_add_flag(s_hint, LV_OBJ_FLAG_HIDDEN);
+  if (s_has_dots)
+    page_dots_hide(&s_dots);
 
   s_glow = lv_obj_create(s_screen);
   lv_obj_remove_flag(s_glow, LV_OBJ_FLAG_SCROLLABLE);
@@ -331,6 +351,8 @@ static void emulate_start(const nfc_sim_card_t *card) {
 }
 
 static void enter_edit(void) {
+  if (s_has_dots)
+    page_dots_hide(&s_dots);
   s_state = CE_EDIT;
   s_edit_type = 0;
   nfc_sim_make_card(s_edit_type, &s_edit);
@@ -364,6 +386,7 @@ static void tick_cb(lv_timer_t *t) {
       s_state = CE_BROWSE;
       rebuild_panel();
       refresh_text();
+      dots_rebuild();
     } else {
       ui_switch_screen(SCREEN_NFC_MENU);
       return;
@@ -434,6 +457,7 @@ void ui_card_emu_open(void) {
   s_glow = NULL;
   s_snap = NULL;
   s_field_ready = false;
+  s_has_dots = false;
   for (int i = 0; i < 3; i++)
     s_field.ring[i] = NULL;
   s_state = CE_BROWSE;
@@ -445,7 +469,7 @@ void ui_card_emu_open(void) {
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  ui_chrome_header(s_screen, "CARD EMU", "/assets/icons/emulate_icon.bin");
+  ui_chrome_header(s_screen, "CARD EMU", "/assets/icons/contactless.bin");
 
   s_status = lv_label_create(s_screen);
   lv_obj_set_style_text_color(s_status, current_theme.text_main, 0);
@@ -455,6 +479,7 @@ void ui_card_emu_open(void) {
 
   rebuild_panel();
   refresh_text();
+  dots_rebuild();
 
   if (s_timer == NULL)
     s_timer = lv_timer_create(tick_cb, NAV_TIMER_MS, NULL);

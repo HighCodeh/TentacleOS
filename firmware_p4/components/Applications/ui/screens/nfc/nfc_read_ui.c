@@ -35,12 +35,25 @@
 #define NAV_TIMER_MS 33
 #define REVEAL_MS    3000
 
+#define COL_DIM      0x8A8594
+#define DUMP_W       214
+#define DUMP_Y       102
+#define DUMP_ROW_GAP 2
+
 enum { ST_SCAN, ST_FOUND, ST_OPTIONS };
+
+static const char *const DUMP_LINES[] = {
+    "Sector 0  KeyA FFFFFFFFFFFF  ok",
+    "Sector 1  KeyB A0A1A2A3A4A5  ok",
+    "Sectors 16/16   Keys 32/32",
+};
+#define DUMP_LINE_COUNT ((int)(sizeof(DUMP_LINES) / sizeof(DUMP_LINES[0])))
 
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_status = NULL;
 static lv_obj_t *s_hint = NULL;
 static lv_obj_t *s_card_panel = NULL;
+static lv_obj_t *s_dump = NULL;
 static nfc_ui_field_t s_field;
 static lv_timer_t *s_timer = NULL;
 static capture_result_t s_cr = {0};
@@ -72,12 +85,35 @@ static void begin_scan(void) {
     lv_obj_del(s_card_panel);
     s_card_panel = NULL;
   }
+  if (s_dump) {
+    lv_obj_del(s_dump);
+    s_dump = NULL;
+  }
   capture_result_destroy(&s_cr);
   show_rings(true);
   lv_obj_remove_flag(s_status, LV_OBJ_FLAG_HIDDEN);
   lv_obj_set_style_text_color(s_status, current_theme.text_main, 0);
   lv_label_set_text(s_status, "Searching");
   ui_chrome_footer_set_text(s_hint, "BACK  Exit");
+}
+
+static void build_dump(void) {
+  s_dump = lv_obj_create(s_screen);
+  lv_obj_remove_flag(s_dump, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_width(s_dump, DUMP_W);
+  lv_obj_set_height(s_dump, LV_SIZE_CONTENT);
+  lv_obj_align(s_dump, LV_ALIGN_CENTER, 0, DUMP_Y);
+  lv_obj_set_style_bg_opa(s_dump, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(s_dump, 0, 0);
+  lv_obj_set_style_pad_all(s_dump, 0, 0);
+  lv_obj_set_flex_flow(s_dump, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(s_dump, DUMP_ROW_GAP, 0);
+  for (int i = 0; i < DUMP_LINE_COUNT; i++) {
+    lv_obj_t *ln = lv_label_create(s_dump);
+    lv_label_set_text(ln, DUMP_LINES[i]);
+    lv_obj_set_style_text_color(ln, lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_font(ln, &lv_font_montserrat_12, 0);
+  }
 }
 
 static void reveal(void) {
@@ -88,6 +124,8 @@ static void reveal(void) {
   s_card_panel = nfc_ui_card_panel(s_screen, &s_card);
   lv_obj_align(s_card_panel, LV_ALIGN_CENTER, 0, 10);
   lv_obj_fade_in(s_card_panel, 280, 0);
+  build_dump();
+  lv_obj_fade_in(s_dump, 280, 120);
   lv_obj_set_style_text_color(s_status, lv_color_hex(0x00E676), 0);
   lv_label_set_text(s_status, "Tag found!");
   nfc_ui_play_sound(NFC_SND_FOUND);
@@ -99,6 +137,10 @@ static void show_options(void) {
     lv_obj_del(s_card_panel);
     s_card_panel = NULL;
   }
+  if (s_dump) {
+    lv_obj_del(s_dump);
+    s_dump = NULL;
+  }
   if (s_status)
     lv_obj_add_flag(s_status, LV_OBJ_FLAG_HIDDEN);
 
@@ -109,7 +151,7 @@ static void show_options(void) {
 
   capture_result_cfg_t cfg = {
       .accent = current_theme.border_accent,
-      .card_icon = "/assets/icons/nfc_icon.bin",
+      .card_icon = "/assets/icons/nfc.bin",
       .card_title = "Tag captured",
       .card_sub = s_card.type,
       .card_value = uidbuf,
@@ -221,6 +263,7 @@ void ui_nfc_read_open(void) {
     s_screen = NULL;
   }
   s_card_panel = NULL;
+  s_dump = NULL;
   s_cr = (capture_result_t){0};
   s_found_at = 0;
   s_ok_last = s_back_last = s_right_last = s_up_last = s_down_last = false;
@@ -230,7 +273,7 @@ void ui_nfc_read_open(void) {
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  ui_chrome_header(s_screen, "READ TAG", "/assets/icons/nfc_icon.bin");
+  ui_chrome_header(s_screen, "READ TAG", "/assets/icons/contactless.bin");
   nfc_ui_field_create(&s_field, s_screen, ui_theme_get_accent());
 
   s_status = lv_label_create(s_screen);
