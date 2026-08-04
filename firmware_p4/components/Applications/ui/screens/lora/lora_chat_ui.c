@@ -24,8 +24,10 @@
 #include "buttons_gpio.h"
 #include "keyboard_ui.h"
 #include "menu_component_ui.h"
+#include "notify_ui.h"
 #include "st7789.h"
 #include "ui_chrome.h"
+#include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
@@ -35,46 +37,11 @@ static const char *TAG = "LORA_MESH";
 #define NAV_TIMER_MS 50
 #define CONNECT_MS   5000
 #define SIG_GREEN    0x00E676
-#define ENTRY_MS     200
-
-#define ICON_BT      "/assets/icons/bluetooth_icon.bin"
-#define ICON_RADAR   "/assets/icons/radar_icon.bin"
-#define ICON_CONFIG  "/assets/icons/config_icon.bin"
-#define ICON_CONNECT "/assets/icons/bluetooth_icon.bin"
-#define ICON_NODES   "/assets/icons/node_icon.bin"
-#define ART_LORA     "/assets/frames/lora_frame_0.bin"
-
-#define HDR_TITLE_Y    10
-#define HDR_TAG_Y      30
-#define HDR_RULE_Y     48
-#define HDR_RULE_W_PCT 70
-#define HDR_RULE_H     2
+#define COL_DIM      0x8A8594
+#define ENTRY_MS     220
 
 #define BADGE_SIZE    28
 #define BADGE_ICON_PX 18
-
-#define PROTO_CARD_W      210
-#define PROTO_CARD_H      66
-#define PROTO_CARD_RADIUS 12
-#define PROTO_CARD_PAD    10
-#define PROTO_CARD_GAP    12
-#define PROTO_CARD0_Y     64
-#define PROTO_CARD1_Y     138
-#define CARD_SHADOW_W     10
-
-#define HOME_ROW_W      210
-#define HOME_ROW_H      42
-#define HOME_ROW_RADIUS 10
-#define HOME_ROW_PAD    9
-#define HOME_ROW_GAP    8
-#define HOME_ROW0_Y     98
-#define HOME_INFO_Y     70
-
-#define RSSI_BAR_GAP 5
-
-#define TOP_BORDER_H 46
-#define STATUS_Y_OFS (TOP_BORDER_H + 12)
-#define CARD_Y_OFS   86
 
 #define PHASE_STEP_MS 1650
 #define PHASE_COUNT   3
@@ -82,26 +49,46 @@ static const char *TAG = "LORA_MESH";
 #define DOTS_MAX      3
 
 #define PULSE_DOT_SIZE     7
-#define PULSE_DOT_GAP      12
-#define PULSE_DOT_COUNT    3
 #define PULSE_DOT_MS       320
 #define PULSE_DOT_STAGGER  220
+#define PULSE_DOT_COUNT    3
 #define TYPING_LIFETIME_MS 1200
-#define TYPING_PAD         7
-#define TYPING_RADIUS      9
-#define TYPING_MAX_WIDTH   184
+#define BUBBLE_MAX_W       184
+
+#define LORA_AMBER     0xF5B13D
+#define MAP_CENTER_X   120
+#define MAP_CENTER_Y   150
+#define YOU_PIN_SZ     32
+#define MESH_CAP_Y     46
+#define MESH_INFO_W    210
+#define MESH_INFO_H    36
+#define MESH_INFO_BOT  26
+#define MESH_GLOW_W    16
+#define SNR_RSSI_FLOOR -100
+#define SNR_RSSI_SPAN  70
+#define RSSI_STRONG    -55
+#define RSSI_GOOD      -70
+
+#define OK_HOLD_MS 600
+
+#define LIST_ROW_H       44
+#define LIST_ROW_RADIUS  10
+#define LIST_ROW_PAD_H   10
+#define LIST_ROW_COL_GAP 10
+#define LIST_PAD_SIDE    8
+#define LIST_ROW_GAP     6
+#define LIST_SB_W        4
+#define LIST_SB_RADIUS   2
+#define LIST_ROW_GLOW_W  14
+#define LIST_SLOT_W      28
+#define LIST_DOT_SIZE    12
+#define LIST_DOT_GLOW_W  8
 
 static const char *PROTOS[] = {"MeshCore", "Meshtastic"};
 #define PROTO_COUNT ((int)(sizeof(PROTOS) / sizeof(PROTOS[0])))
 
-static const char *PROTO_TAGS[] = {"Encrypted mesh chat", "Long-range telemetry"};
-static const char *PROTO_ICONS[] = {ICON_RADAR, ICON_BT};
-
-static const char *HOME_ITEMS[] = {"Connect App", "Nodes", "Configs"};
-#define HOME_COUNT ((int)(sizeof(HOME_ITEMS) / sizeof(HOME_ITEMS[0])))
-
-static const char *HOME_TAGS[] = {"Pair companion app", "Mesh peers nearby", "Radio parameters"};
-static const char *HOME_ICONS[] = {ICON_CONNECT, ICON_NODES, ICON_CONFIG};
+static const char *PROTO_ICONS[] = {"/assets/icons/hub.bin", "/assets/icons/lan.bin"};
+static const char *PROTO_BANDS[] = {"868 MHz", "915 MHz"};
 
 static const char *PHASES[] = {"Scanning mesh", "Handshake", "Authenticating"};
 
@@ -117,6 +104,17 @@ static const struct {
     {"Trekker", -91, false},
 };
 #define NODE_COUNT ((int)(sizeof(NODES) / sizeof(NODES[0])))
+
+static const struct {
+  int x;
+  int y;
+} NODE_POS[NODE_COUNT] = {
+    {62, 90},
+    {178, 94},
+    {56, 206},
+    {186, 198},
+    {120, 234},
+};
 
 static const char *OPT_REGION[] = {"US", "EU868", "CN", "ANZ"};
 static const char *OPT_CHAN[] = {"0", "1", "2", "3", "4", "5", "6", "7"};
@@ -137,6 +135,7 @@ static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
 static lv_obj_t *s_chat_list = NULL;
 static lv_obj_t *s_status_label = NULL;
+static lv_obj_t *s_hint = NULL;
 static lv_obj_t *s_typing_row = NULL;
 static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_connect_timer = NULL;
@@ -144,10 +143,7 @@ static lv_timer_t *s_reply_timer = NULL;
 static lv_timer_t *s_phase_timer = NULL;
 static view_t s_view = VIEW_PROTO;
 static int s_proto = 0;
-static int s_proto_sel = 0;
 static int s_home_sel = 0;
-static lv_obj_t *s_proto_cards[PROTO_COUNT];
-static lv_obj_t *s_home_rows[HOME_COUNT];
 static int s_node = 0;
 static int s_reply_i = 0;
 static int s_phase = 0;
@@ -156,6 +152,22 @@ static int s_cfg_region = 0, s_cfg_chan = 3, s_cfg_preset = 0;
 static int s_msg_clock = 0;
 
 static bool s_up_last, s_down_last, s_left_last, s_right_last, s_ok_last, s_back_last;
+
+static lv_obj_t *s_node_pins[NODE_COUNT];
+static lv_obj_t *s_node_names[NODE_COUNT];
+static lv_obj_t *s_info_name = NULL;
+static lv_obj_t *s_info_meta = NULL;
+static lv_obj_t *s_info_bar = NULL;
+static lv_point_precise_t s_link_pts[NODE_COUNT][2];
+
+static lv_obj_t *s_node_rows[NODE_COUNT];
+static lv_obj_t *s_list_name[NODE_COUNT];
+static lv_obj_t *s_list_val[NODE_COUNT];
+static lv_obj_t *s_node_list = NULL;
+static bool s_nodes_list = false;
+static int s_nodes_ok_ms = 0;
+static bool s_nodes_ok_fired = false;
+static bool s_nodes_ok_active = false;
 
 static const char *REPLIES[] = {
     "Roger that.", "Copy.", "On my way.", "Stay safe out there.", "10-4, over."};
@@ -180,80 +192,52 @@ static void stop_timers(void) {
   }
 }
 
-static void anim_opa_cb(void *var, int32_t v) {
+static void opa_cb(void *var, int32_t v) {
   lv_obj_set_style_opa((lv_obj_t *)var, (lv_opa_t)v, 0);
 }
 
-static lv_obj_t *make_icon(lv_obj_t *parent, const char *path, uint32_t scale) {
-  lv_image_dsc_t *dsc = assets_get(path);
-  if (dsc == NULL)
-    return NULL;
-  lv_obj_t *img = lv_image_create(parent);
-  lv_image_set_src(img, dsc);
-  if (scale != 256)
-    lv_image_set_scale(img, scale);
-  return img;
+static void transy_cb(void *var, int32_t v) {
+  lv_obj_set_style_translate_y((lv_obj_t *)var, v, 0);
 }
 
-static lv_obj_t *make_status_pill(lv_obj_t *parent, bool linked) {
-  lv_obj_t *pill = lv_obj_create(parent);
-  lv_obj_remove_flag(pill, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(pill, LV_SIZE_CONTENT, 20);
-  lv_obj_set_style_radius(pill, 10, 0);
-  lv_obj_set_style_pad_hor(pill, 9, 0);
-  lv_obj_set_style_pad_ver(pill, 0, 0);
-  lv_obj_set_style_border_width(pill, 1, 0);
-  lv_obj_set_style_bg_opa(pill, LV_OPA_COVER, 0);
-  if (linked) {
-    lv_obj_set_style_bg_color(pill, lv_color_hex(0x0A3A2E), 0);
-    lv_obj_set_style_border_color(pill, lv_color_hex(SIG_GREEN), 0);
-  } else {
-    lv_obj_set_style_bg_color(pill, current_theme.bg_secondary, 0);
-    lv_obj_set_style_border_color(pill, current_theme.border_inactive, 0);
-  }
-  lv_obj_t *l = lv_label_create(pill);
-  lv_label_set_text(l, linked ? LV_SYMBOL_OK "  Linked" : LV_SYMBOL_CLOSE "  Offline");
-  lv_obj_set_style_text_color(
-      l, linked ? lv_color_hex(SIG_GREEN) : current_theme.border_inactive, 0);
-  lv_obj_set_style_text_font(l, &lv_font_montserrat_12, 0);
-  lv_obj_center(l);
-  return pill;
+static void card_rise(lv_obj_t *o) {
+  lv_anim_t a;
+  lv_anim_init(&a);
+  lv_anim_set_var(&a, o);
+  lv_anim_set_exec_cb(&a, transy_cb);
+  lv_anim_set_values(&a, 26, 0);
+  lv_anim_set_duration(&a, 300);
+  lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+  lv_anim_start(&a);
 }
 
-static void lora_accent_header(const char *title, const char *tagline) {
-  lv_obj_t *t = lv_label_create(s_screen);
-  lv_label_set_text(t, title);
-  lv_obj_set_style_text_color(t, current_theme.border_accent, 0);
-  lv_obj_set_style_text_font(t, &lv_font_montserrat_14, 0);
-  lv_obj_align(t, LV_ALIGN_TOP_MID, 0, HDR_TITLE_Y);
-
-  lv_obj_t *tag = lv_label_create(s_screen);
-  lv_label_set_text(tag, tagline);
-  lv_obj_set_style_text_color(tag, current_theme.border_inactive, 0);
-  lv_obj_set_style_text_font(tag, &lv_font_montserrat_12, 0);
-  lv_obj_align(tag, LV_ALIGN_TOP_MID, 0, HDR_TAG_Y);
-
-  lv_obj_t *rule = lv_obj_create(s_screen);
-  lv_obj_remove_flag(rule, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(rule, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(rule, lv_pct(HDR_RULE_W_PCT), HDR_RULE_H);
-  lv_obj_align(rule, LV_ALIGN_TOP_MID, 0, HDR_RULE_Y);
-  lv_obj_set_style_border_width(rule, 0, 0);
-  lv_obj_set_style_radius(rule, 1, 0);
-  lv_obj_set_style_bg_color(rule, current_theme.border_accent, 0);
-  lv_obj_set_style_bg_opa(rule, LV_OPA_40, 0);
+static lv_obj_t *lit_panel(lv_obj_t *parent, int w, int h, lv_color_t accent) {
+  lv_obj_t *p = lv_obj_create(parent);
+  lv_obj_remove_flag(p, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(p, w, h);
+  lv_obj_set_style_radius(p, 13, 0);
+  lv_obj_set_style_bg_color(p, current_theme.bg_secondary, 0);
+  lv_obj_set_style_bg_opa(p, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_grad_dir(p, LV_GRAD_DIR_NONE, 0);
+  lv_obj_set_style_border_width(p, 1, 0);
+  lv_obj_set_style_border_color(p, accent, 0);
+  lv_obj_set_style_shadow_color(p, accent, 0);
+  lv_obj_set_style_shadow_width(p, 14, 0);
+  lv_obj_set_style_shadow_opa(p, LV_OPA_40, 0);
+  lv_obj_set_style_shadow_spread(p, -3, 0);
+  return p;
 }
 
-static lv_obj_t *make_badge_icon(lv_obj_t *parent, const char *path) {
+static lv_obj_t *make_badge(lv_obj_t *parent, const char *path, lv_color_t accent) {
   lv_obj_t *badge = lv_obj_create(parent);
   lv_obj_remove_flag(badge, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(badge, BADGE_SIZE, BADGE_SIZE);
   lv_obj_set_style_radius(badge, 8, 0);
   lv_obj_set_style_pad_all(badge, 0, 0);
-  lv_obj_set_style_bg_color(badge, current_theme.bg_secondary, 0);
+  lv_obj_set_style_bg_color(badge, current_theme.bg_primary, 0);
   lv_obj_set_style_bg_opa(badge, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(badge, 1, 0);
-  lv_obj_set_style_border_color(badge, current_theme.border_accent, 0);
+  lv_obj_set_style_border_color(badge, accent, 0);
 
   lv_image_dsc_t *dsc = assets_get(path);
   if (dsc != NULL) {
@@ -269,36 +253,398 @@ static lv_obj_t *make_badge_icon(lv_obj_t *parent, const char *path) {
   return badge;
 }
 
-static void style_proto_card(lv_obj_t *card, bool selected) {
-  if (selected) {
-    lv_obj_set_style_border_width(card, 2, 0);
-    lv_obj_set_style_border_color(card, current_theme.border_accent, 0);
-    lv_obj_set_style_shadow_color(card, current_theme.border_accent, 0);
-    lv_obj_set_style_shadow_width(card, CARD_SHADOW_W, 0);
-    lv_obj_set_style_shadow_opa(card, LV_OPA_30, 0);
+static void build_proto_view(void) {
+  s_menu = menu_component_create(s_screen, "SELECT NETWORK", "/assets/icons/lan.bin");
+  menu_component_add_section(&s_menu, "MESH PROTOCOL");
+  for (int i = 0; i < PROTO_COUNT; i++) {
+    char label[48];
+    snprintf(label, sizeof(label), "%s   %s", PROTOS[i], PROTO_BANDS[i]);
+    menu_component_add_item(&s_menu, PROTO_ICONS[i], label);
+  }
+  menu_component_select(&s_menu, s_proto);
+  menu_component_set_hint(&s_menu, LV_SYMBOL_UP LV_SYMBOL_DOWN "  choose   OK enter   BACK exit");
+}
+
+static void build_home_view(void) {
+  s_menu = menu_component_create(s_screen, PROTOS[s_proto], "/assets/icons/hub.bin");
+
+  char band[48];
+  snprintf(band,
+           sizeof(band),
+           "CH%s  %s  %s",
+           OPT_CHAN[s_cfg_chan],
+           OPT_REGION[s_cfg_region],
+           OPT_PRESET[s_cfg_preset]);
+  menu_component_add_section(&s_menu, band);
+  menu_component_add_section(&s_menu, s_linked ? "[ MESH ONLINE ]" : "[ STANDALONE ]");
+
+  menu_component_add_item(&s_menu, "/assets/icons/bluetooth.bin", "Connect App");
+  menu_component_add_item(&s_menu, "/assets/icons/hub.bin", "Nodes");
+  menu_component_add_item(&s_menu, "/assets/icons/tune.bin", "Configs");
+  menu_component_add_item(&s_menu, "/assets/icons/swap_horiz.bin", "Channels");
+  menu_component_add_item(&s_menu, "/assets/icons/sensors.bin", "Position");
+  menu_component_add_item(&s_menu, "/assets/icons/monitoring.bin", "Telemetry");
+  menu_component_add_item(&s_menu, "/assets/icons/vpn_key.bin", "Secure DM");
+
+  if (s_linked)
+    menu_component_set_item_label_color(&s_menu, 0, lv_color_hex(SIG_GREEN));
+
+  menu_component_select(&s_menu, s_home_sel);
+  menu_component_set_hint(&s_menu,
+                          LV_SYMBOL_UP LV_SYMBOL_DOWN "  open   OK enter   BACK protocols");
+}
+
+static void link_style(int i, lv_color_t *col, int *w, bool *dashed) {
+  if (!NODES[i].strong) {
+    *col = lv_color_hex(COL_DIM);
+    *w = 1;
+    *dashed = true;
+  } else if (NODES[i].rssi >= RSSI_STRONG) {
+    *col = lv_color_hex(SIG_GREEN);
+    *w = 3;
+    *dashed = false;
+  } else if (NODES[i].rssi >= RSSI_GOOD) {
+    *col = lv_color_hex(SIG_GREEN);
+    *w = 2;
+    *dashed = false;
   } else {
-    lv_obj_set_style_border_width(card, 1, 0);
-    lv_obj_set_style_border_color(card, current_theme.border_inactive, 0);
-    lv_obj_set_style_shadow_width(card, 0, 0);
-    lv_obj_set_style_shadow_opa(card, LV_OPA_TRANSP, 0);
+    *col = lv_color_hex(LORA_AMBER);
+    *w = 1;
+    *dashed = false;
   }
 }
 
-static lv_obj_t *make_proto_card(int idx) {
-  lv_obj_t *card = lv_obj_create(s_screen);
-  lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(card, PROTO_CARD_W, PROTO_CARD_H);
-  lv_obj_set_style_radius(card, PROTO_CARD_RADIUS, 0);
-  lv_obj_set_style_bg_color(card, current_theme.bg_primary, 0);
-  lv_obj_set_style_bg_grad_color(card, current_theme.bg_secondary, 0);
-  lv_obj_set_style_bg_grad_dir(card, LV_GRAD_DIR_VER, 0);
-  lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-  lv_obj_set_style_pad_all(card, PROTO_CARD_PAD, 0);
+static void node_style_pin(int i, bool selected) {
+  lv_obj_t *pin = s_node_pins[i];
+  if (pin == NULL)
+    return;
+  bool online = NODES[i].strong;
+  lv_color_t edge = selected ? current_theme.border_accent
+                             : (online ? lv_color_hex(SIG_GREEN) : lv_color_hex(COL_DIM));
+  lv_obj_set_style_border_color(pin, edge, 0);
+  lv_obj_set_style_border_width(pin, selected ? 2 : 1, 0);
+  lv_obj_set_style_opa(pin, (online || selected) ? LV_OPA_COVER : LV_OPA_50, 0);
+  if (selected) {
+    lv_obj_set_style_shadow_color(pin, edge, 0);
+    lv_obj_set_style_shadow_width(pin, MESH_GLOW_W, 0);
+    lv_obj_set_style_shadow_opa(pin, LV_OPA_40, 0);
+    lv_obj_set_style_shadow_spread(pin, -2, 0);
+  } else {
+    lv_obj_set_style_shadow_width(pin, 0, 0);
+    lv_obj_set_style_shadow_opa(pin, LV_OPA_TRANSP, 0);
+  }
+  if (s_node_names[i] != NULL)
+    lv_obj_set_style_text_color(s_node_names[i],
+                                selected
+                                    ? current_theme.border_accent
+                                    : (online ? current_theme.text_main : lv_color_hex(COL_DIM)),
+                                0);
+}
+
+static void node_update_info(int i) {
+  bool online = NODES[i].strong;
+  if (s_info_name != NULL) {
+    lv_label_set_text(s_info_name, NODES[i].name);
+    lv_obj_set_style_text_color(
+        s_info_name, online ? current_theme.text_main : lv_color_hex(COL_DIM), 0);
+  }
+  if (s_info_meta != NULL) {
+    char meta[40];
+    snprintf(
+        meta, sizeof(meta), "%d dBm \xC2\xB7 %s", NODES[i].rssi, online ? "ONLINE" : "OFFLINE");
+    lv_label_set_text(s_info_meta, meta);
+    lv_obj_set_style_text_color(
+        s_info_meta, online ? lv_color_hex(SIG_GREEN) : lv_color_hex(COL_DIM), 0);
+  }
+  if (s_info_bar != NULL) {
+    int pct = (NODES[i].rssi - SNR_RSSI_FLOOR) * 100 / SNR_RSSI_SPAN;
+    if (pct < 5)
+      pct = 5;
+    if (pct > 100)
+      pct = 100;
+    lv_bar_set_value(s_info_bar, pct, LV_ANIM_OFF);
+    lv_color_t col;
+    int w;
+    bool dashed;
+    link_style(i, &col, &w, &dashed);
+    (void)w;
+    (void)dashed;
+    lv_obj_set_style_bg_color(s_info_bar, col, LV_PART_INDICATOR);
+  }
+}
+
+static void node_style_row(int i, bool selected) {
+  lv_obj_t *row = s_node_rows[i];
+  if (row == NULL)
+    return;
+  lv_obj_set_style_bg_color(
+      row, selected ? current_theme.bg_secondary : current_theme.bg_primary, 0);
+  lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(row, 1, 0);
+  lv_obj_set_style_border_color(
+      row, selected ? current_theme.border_accent : current_theme.border_inactive, 0);
+  if (selected) {
+    lv_obj_set_style_shadow_color(row, current_theme.border_accent, 0);
+    lv_obj_set_style_shadow_width(row, LIST_ROW_GLOW_W, 0);
+    lv_obj_set_style_shadow_opa(row, LV_OPA_40, 0);
+    lv_obj_set_style_shadow_spread(row, -2, 0);
+  } else {
+    lv_obj_set_style_shadow_width(row, 0, 0);
+    lv_obj_set_style_shadow_opa(row, LV_OPA_TRANSP, 0);
+  }
+  if (s_list_name[i] != NULL)
+    lv_obj_set_style_text_color(
+        s_list_name[i], selected ? current_theme.text_main : lv_color_hex(COL_DIM), 0);
+  if (s_list_val[i] != NULL)
+    lv_obj_set_style_text_color(
+        s_list_val[i], selected ? current_theme.border_accent : lv_color_hex(COL_DIM), 0);
+}
+
+static void node_select(int sel) {
+  if (s_nodes_list) {
+    for (int i = 0; i < NODE_COUNT; i++)
+      node_style_row(i, i == sel);
+    if (s_node_list != NULL && s_node_rows[sel] != NULL) {
+      lv_obj_update_layout(s_node_list);
+      lv_obj_scroll_to_view(s_node_rows[sel], LV_ANIM_ON);
+    }
+    return;
+  }
+  for (int i = 0; i < NODE_COUNT; i++)
+    node_style_pin(i, i == sel);
+  node_update_info(sel);
+}
+
+static void build_nodes_list(void) {
+  int online = 0;
+  for (int i = 0; i < NODE_COUNT; i++)
+    if (NODES[i].strong)
+      online++;
+
+  s_node_list = lv_obj_create(s_screen);
+  lv_obj_set_size(s_node_list, lv_pct(100), LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_align(s_node_list, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
+  lv_obj_set_style_bg_opa(s_node_list, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(s_node_list, 0, 0);
+  lv_obj_set_style_pad_all(s_node_list, 0, 0);
+  lv_obj_set_style_pad_left(s_node_list, LIST_PAD_SIDE, 0);
+  lv_obj_set_style_pad_right(s_node_list, LIST_PAD_SIDE, 0);
+  lv_obj_set_style_pad_row(s_node_list, LIST_ROW_GAP, 0);
+  lv_obj_set_flex_flow(s_node_list, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_scroll_dir(s_node_list, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(s_node_list, LV_SCROLLBAR_MODE_ON);
+  lv_obj_remove_flag(s_node_list, LV_OBJ_FLAG_SCROLL_ELASTIC);
+  lv_obj_remove_flag(s_node_list, LV_OBJ_FLAG_SCROLL_MOMENTUM);
+  lv_obj_set_style_bg_color(s_node_list, current_theme.border_accent, LV_PART_SCROLLBAR);
+  lv_obj_set_style_bg_opa(s_node_list, LV_OPA_COVER, LV_PART_SCROLLBAR);
+  lv_obj_set_style_width(s_node_list, LIST_SB_W, LV_PART_SCROLLBAR);
+  lv_obj_set_style_radius(s_node_list, LIST_SB_RADIUS, LV_PART_SCROLLBAR);
+
+  lv_obj_t *cap = lv_label_create(s_node_list);
+  lv_label_set_text_fmt(cap, "%d / %d NODES ONLINE", online, NODE_COUNT);
+  lv_obj_set_style_text_color(cap, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_font(cap, &lv_font_montserrat_12, 0);
+
+  for (int i = 0; i < NODE_COUNT; i++) {
+    bool node_online = NODES[i].strong;
+
+    lv_obj_t *row = lv_obj_create(s_node_list);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_width(row, lv_pct(100));
+    lv_obj_set_height(row, LIST_ROW_H);
+    lv_obj_set_style_radius(row, LIST_ROW_RADIUS, 0);
+    lv_obj_set_style_pad_hor(row, LIST_ROW_PAD_H, 0);
+    lv_obj_set_style_pad_ver(row, 0, 0);
+    lv_obj_set_style_pad_column(row, LIST_ROW_COL_GAP, 0);
+    lv_obj_set_style_bg_grad_dir(row, LV_GRAD_DIR_NONE, 0);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+    lv_obj_t *slot = lv_obj_create(row);
+    lv_obj_remove_flag(slot, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(slot, LIST_SLOT_W, LIST_SLOT_W);
+    lv_obj_set_style_bg_opa(slot, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(slot, 0, 0);
+    lv_obj_set_style_pad_all(slot, 0, 0);
+
+    lv_obj_t *dot = lv_obj_create(slot);
+    lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(dot, LIST_DOT_SIZE, LIST_DOT_SIZE);
+    lv_obj_center(dot);
+    lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_border_width(dot, 0, 0);
+    lv_obj_set_style_bg_color(
+        dot, node_online ? lv_color_hex(SIG_GREEN) : lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
+    if (node_online) {
+      lv_obj_set_style_shadow_color(dot, lv_color_hex(SIG_GREEN), 0);
+      lv_obj_set_style_shadow_width(dot, LIST_DOT_GLOW_W, 0);
+      lv_obj_set_style_shadow_opa(dot, LV_OPA_50, 0);
+    }
+
+    lv_obj_t *nm = lv_label_create(row);
+    lv_obj_set_flex_grow(nm, 1);
+    lv_label_set_long_mode(nm, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_label_set_text(nm, NODES[i].name);
+    lv_obj_set_style_text_font(nm, &lv_font_montserrat_14, 0);
+    s_list_name[i] = nm;
+
+    char val[16];
+    snprintf(val, sizeof(val), "%d dBm", NODES[i].rssi);
+    lv_obj_t *rssi = lv_label_create(row);
+    lv_label_set_text(rssi, val);
+    lv_obj_set_style_text_font(rssi, &lv_font_montserrat_12, 0);
+    s_list_val[i] = rssi;
+
+    s_node_rows[i] = row;
+  }
+
+  node_select(s_node);
+}
+
+static void build_nodes_view(void) {
+  lv_color_t accent = ui_theme_get_accent();
+  ui_chrome_header(s_screen, "NODES", "/assets/icons/hub.bin");
+
+  if (s_node < 0)
+    s_node = 0;
+  if (s_node >= NODE_COUNT)
+    s_node = NODE_COUNT - 1;
+
+  s_nodes_ok_ms = 0;
+  s_nodes_ok_fired = false;
+  s_nodes_ok_active = false;
+
+  if (s_nodes_list) {
+    build_nodes_list();
+    ui_chrome_footer(s_screen, LV_SYMBOL_UP LV_SYMBOL_DOWN " hop  OK chat  HOLD map");
+    return;
+  }
+
+  int online = 0;
+  for (int i = 0; i < NODE_COUNT; i++)
+    if (NODES[i].strong)
+      online++;
+  lv_obj_t *cap = lv_label_create(s_screen);
+  lv_label_set_text_fmt(cap, "%d / %d NODES ONLINE", online, NODE_COUNT);
+  lv_obj_set_style_text_color(cap, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_font(cap, &lv_font_montserrat_12, 0);
+  lv_obj_align(cap, LV_ALIGN_TOP_MID, 0, MESH_CAP_Y);
+
+  for (int i = 0; i < NODE_COUNT; i++) {
+    lv_color_t col;
+    int w;
+    bool dashed;
+    link_style(i, &col, &w, &dashed);
+    s_link_pts[i][0].x = MAP_CENTER_X;
+    s_link_pts[i][0].y = MAP_CENTER_Y;
+    s_link_pts[i][1].x = NODE_POS[i].x;
+    s_link_pts[i][1].y = NODE_POS[i].y;
+    lv_obj_t *ln = lv_line_create(s_screen);
+    lv_obj_align(ln, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_line_set_points(ln, s_link_pts[i], 2);
+    lv_obj_set_style_line_width(ln, w, 0);
+    lv_obj_set_style_line_color(ln, col, 0);
+    lv_obj_set_style_line_opa(ln, dashed ? LV_OPA_40 : LV_OPA_COVER, 0);
+    lv_obj_set_style_line_rounded(ln, true, 0);
+  }
+
+  for (int i = 0; i < NODE_COUNT; i++) {
+    lv_obj_t *wrap = lv_obj_create(s_screen);
+    lv_obj_remove_flag(wrap, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(wrap, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(wrap, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(wrap, 0, 0);
+    lv_obj_set_style_pad_all(wrap, 0, 0);
+    lv_obj_set_style_pad_row(wrap, 1, 0);
+    lv_obj_set_flex_flow(wrap, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(wrap, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_align(
+        wrap, LV_ALIGN_CENTER, NODE_POS[i].x - LCD_H_RES / 2, NODE_POS[i].y - LCD_V_RES / 2);
+
+    s_node_pins[i] = make_badge(wrap, "/assets/icons/settings_input_antenna.bin", accent);
+
+    lv_obj_t *nm = lv_label_create(wrap);
+    lv_label_set_text(nm, NODES[i].name);
+    lv_obj_set_style_text_font(nm, &lv_font_montserrat_12, 0);
+    s_node_names[i] = nm;
+
+    node_style_pin(i, i == s_node);
+  }
+
+  lv_obj_t *you_wrap = lv_obj_create(s_screen);
+  lv_obj_remove_flag(you_wrap, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(you_wrap, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_style_bg_opa(you_wrap, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(you_wrap, 0, 0);
+  lv_obj_set_style_pad_all(you_wrap, 0, 0);
+  lv_obj_set_style_pad_row(you_wrap, 1, 0);
+  lv_obj_set_flex_flow(you_wrap, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(you_wrap, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_align(
+      you_wrap, LV_ALIGN_CENTER, MAP_CENTER_X - LCD_H_RES / 2, MAP_CENTER_Y - LCD_V_RES / 2);
+
+  lv_obj_t *you_pin = make_badge(you_wrap, "/assets/icons/hub.bin", accent);
+  lv_obj_set_size(you_pin, YOU_PIN_SZ, YOU_PIN_SZ);
+  lv_obj_set_style_bg_color(you_pin, accent, 0);
+  lv_obj_set_style_border_width(you_pin, 2, 0);
+
+  lv_obj_t *you_lbl = lv_label_create(you_wrap);
+  lv_label_set_text(you_lbl, "YOU");
+  lv_obj_set_style_text_color(you_lbl, current_theme.text_main, 0);
+  lv_obj_set_style_text_font(you_lbl, &lv_font_montserrat_12, 0);
+
+  lv_obj_t *info = lit_panel(s_screen, MESH_INFO_W, MESH_INFO_H, accent);
+  lv_obj_align(info, LV_ALIGN_BOTTOM_MID, 0, -MESH_INFO_BOT);
+  lv_obj_set_style_pad_all(info, 6, 0);
+
+  s_info_name = lv_label_create(info);
+  lv_obj_set_style_text_font(s_info_name, &lv_font_montserrat_12, 0);
+  lv_obj_align(s_info_name, LV_ALIGN_TOP_LEFT, 0, 0);
+
+  s_info_meta = lv_label_create(info);
+  lv_obj_set_style_text_font(s_info_meta, &lv_font_montserrat_12, 0);
+  lv_obj_align(s_info_meta, LV_ALIGN_TOP_RIGHT, 0, 0);
+
+  s_info_bar = lv_bar_create(info);
+  lv_obj_set_size(s_info_bar, MESH_INFO_W - 20, 5);
+  lv_obj_align(s_info_bar, LV_ALIGN_BOTTOM_MID, 0, 0);
+  lv_bar_set_range(s_info_bar, 0, 100);
+  lv_obj_set_style_bg_color(s_info_bar, current_theme.bg_primary, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(s_info_bar, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_radius(s_info_bar, 2, LV_PART_MAIN);
+  lv_obj_set_style_radius(s_info_bar, 2, LV_PART_INDICATOR);
+  lv_obj_set_style_bg_opa(s_info_bar, LV_OPA_COVER, LV_PART_INDICATOR);
+
+  node_update_info(s_node);
+
+  ui_chrome_footer(s_screen, LV_SYMBOL_UP LV_SYMBOL_DOWN " hop  OK chat  HOLD list");
+}
+
+static void build_configs_view(void) {
+  s_menu = menu_component_create(s_screen, "CONFIGS", "/assets/icons/tune.bin");
+  menu_component_add_section(&s_menu, "RADIO PARAMETERS");
+  menu_component_add_selector(
+      &s_menu, "/assets/icons/public.bin", "Region", OPT_REGION[s_cfg_region]);
+  menu_component_add_selector(&s_menu, "/assets/icons/tune.bin", "Channel", OPT_CHAN[s_cfg_chan]);
+  menu_component_add_selector(
+      &s_menu, "/assets/icons/speed.bin", "Preset", OPT_PRESET[s_cfg_preset]);
+  menu_component_add_intensity(&s_menu, "/assets/icons/wifi_tethering.bin", "TX Power", 4);
+  menu_component_add_toggle(&s_menu, "/assets/icons/router.bin", "Router mode", false);
+  menu_component_set_hint(&s_menu,
+                          LV_SYMBOL_LEFT LV_SYMBOL_RIGHT "  change   OK toggle   BACK home");
+}
+
+static lv_obj_t *make_companion_card(lv_obj_t *parent, bool linked, lv_color_t accent) {
+  lv_color_t edge = linked ? lv_color_hex(SIG_GREEN) : accent;
+  lv_obj_t *card = lit_panel(parent, 200, 60, edge);
+  lv_obj_set_style_pad_all(card, 8, 0);
   lv_obj_set_flex_flow(card, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_style_pad_column(card, PROTO_CARD_PAD, 0);
+  lv_obj_set_style_pad_column(card, 8, 0);
 
-  make_badge_icon(card, PROTO_ICONS[idx]);
+  make_badge(card, "/assets/icons/bluetooth.bin", edge);
 
   lv_obj_t *txt = lv_obj_create(card);
   lv_obj_remove_flag(txt, LV_OBJ_FLAG_SCROLLABLE);
@@ -310,257 +656,22 @@ static lv_obj_t *make_proto_card(int idx) {
   lv_obj_set_flex_grow(txt, 1);
 
   lv_obj_t *nm = lv_label_create(txt);
-  lv_label_set_text(nm, PROTOS[idx]);
+  lv_label_set_text(nm, "HighBoy Companion");
   lv_obj_set_style_text_color(nm, current_theme.text_main, 0);
   lv_obj_set_style_text_font(nm, &lv_font_montserrat_14, 0);
 
   lv_obj_t *sub = lv_label_create(txt);
-  lv_label_set_text(sub, PROTO_TAGS[idx]);
-  lv_obj_set_style_text_color(sub, current_theme.border_inactive, 0);
+  lv_label_set_text(sub, linked ? "Linked  \xC2\xB7  BLE" : "v1.2  \xC2\xB7  BLE");
+  lv_obj_set_style_text_color(sub, linked ? lv_color_hex(SIG_GREEN) : lv_color_hex(COL_DIM), 0);
   lv_obj_set_style_text_font(sub, &lv_font_montserrat_12, 0);
 
-  style_proto_card(card, idx == s_proto_sel);
-  return card;
-}
-
-static void style_home_row(lv_obj_t *row, int idx, bool selected) {
-  bool linked_row = (idx == 0 && s_linked);
-  lv_color_t accent = linked_row ? lv_color_hex(SIG_GREEN) : current_theme.border_accent;
-  if (selected) {
-    lv_obj_set_style_border_width(row, 2, 0);
-    lv_obj_set_style_border_color(row, accent, 0);
-    lv_obj_set_style_shadow_color(row, accent, 0);
-    lv_obj_set_style_shadow_width(row, CARD_SHADOW_W, 0);
-    lv_obj_set_style_shadow_opa(row, LV_OPA_30, 0);
-  } else {
-    lv_obj_set_style_border_width(row, 1, 0);
-    lv_obj_set_style_border_color(
-        row, linked_row ? lv_color_hex(SIG_GREEN) : current_theme.border_inactive, 0);
-    lv_obj_set_style_shadow_width(row, 0, 0);
-    lv_obj_set_style_shadow_opa(row, LV_OPA_TRANSP, 0);
-  }
-}
-
-static lv_obj_t *make_home_row(int idx) {
-  bool linked_row = (idx == 0 && s_linked);
-  lv_obj_t *row = lv_obj_create(s_screen);
-  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(row, HOME_ROW_W, HOME_ROW_H);
-  lv_obj_set_style_radius(row, HOME_ROW_RADIUS, 0);
-  lv_obj_set_style_bg_color(row, current_theme.bg_primary, 0);
-  lv_obj_set_style_bg_grad_color(row, current_theme.bg_secondary, 0);
-  lv_obj_set_style_bg_grad_dir(row, LV_GRAD_DIR_VER, 0);
-  lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
-  lv_obj_set_style_pad_all(row, HOME_ROW_PAD, 0);
-  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_style_pad_column(row, HOME_ROW_PAD, 0);
-
-  make_badge_icon(row, HOME_ICONS[idx]);
-
-  lv_obj_t *txt = lv_obj_create(row);
-  lv_obj_remove_flag(txt, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(txt, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-  lv_obj_set_style_bg_opa(txt, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(txt, 0, 0);
-  lv_obj_set_style_pad_all(txt, 0, 0);
-  lv_obj_set_flex_flow(txt, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_grow(txt, 1);
-
-  lv_obj_t *nm = lv_label_create(txt);
-  lv_label_set_text(nm, HOME_ITEMS[idx]);
-  lv_obj_set_style_text_color(
-      nm, linked_row ? lv_color_hex(SIG_GREEN) : current_theme.text_main, 0);
-  lv_obj_set_style_text_font(nm, &lv_font_montserrat_14, 0);
-
-  lv_obj_t *sub = lv_label_create(txt);
-  lv_label_set_text(sub, linked_row ? "Companion linked" : HOME_TAGS[idx]);
-  lv_obj_set_style_text_color(
-      sub, linked_row ? lv_color_hex(SIG_GREEN) : current_theme.border_inactive, 0);
-  lv_obj_set_style_text_opa(sub, linked_row ? LV_OPA_70 : LV_OPA_COVER, 0);
-  lv_obj_set_style_text_font(sub, &lv_font_montserrat_12, 0);
-
-  if (idx == 0 && s_linked) {
-    lv_obj_t *chk = lv_label_create(row);
+  if (linked) {
+    lv_obj_t *chk = lv_label_create(card);
     lv_label_set_text(chk, LV_SYMBOL_OK);
     lv_obj_set_style_text_color(chk, lv_color_hex(SIG_GREEN), 0);
     lv_obj_set_style_text_font(chk, &lv_font_montserrat_14, 0);
   }
-
-  style_home_row(row, idx, idx == s_home_sel);
-  return row;
-}
-
-static void rssi_bars(char *out, size_t n, int rssi) {
-  int lvl = 0;
-  if (rssi >= -55)
-    lvl = 4;
-  else if (rssi >= -70)
-    lvl = 3;
-  else if (rssi >= -85)
-    lvl = 2;
-  else
-    lvl = 1;
-  char buf[5] = "....";
-  for (int i = 0; i < lvl && i < 4; i++)
-    buf[i] = '|';
-  buf[4] = '\0';
-  snprintf(out, n, "%s", buf);
-}
-
-static void build_title(const char *text) {
-  lv_obj_t *t = lv_label_create(s_screen);
-  lv_label_set_text(t, text);
-  lv_obj_set_style_text_color(t, current_theme.border_accent, 0);
-  lv_obj_set_style_text_font(t, &lv_font_montserrat_14, 0);
-  lv_obj_align(t, LV_ALIGN_TOP_MID, 0, 12);
-}
-
-static void offset_items_below_strip(int strip_h) {
-  const int items_y0 = 50;
-  int new_y = items_y0 + strip_h;
-  int new_h = LCD_V_RES - new_y - 8 - MENU_COMP_FOOTER_H;
-  if (new_h < 40)
-    new_h = 40;
-  lv_obj_set_align(s_menu.items_cont, LV_ALIGN_TOP_LEFT);
-  lv_obj_set_y(s_menu.items_cont, new_y);
-  lv_obj_set_height(s_menu.items_cont, new_h);
-}
-
-static void add_bubble(bool outgoing, const char *who, const char *text) {
-  if (s_chat_list == NULL)
-    return;
-  lv_obj_t *row = lv_obj_create(s_chat_list);
-  lv_obj_set_width(row, LV_PCT(100));
-  lv_obj_set_height(row, LV_SIZE_CONTENT);
-  lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(row, 0, 0);
-  lv_obj_set_style_pad_all(row, 2, 0);
-  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_align(row,
-                        LV_FLEX_ALIGN_START,
-                        outgoing ? LV_FLEX_ALIGN_END : LV_FLEX_ALIGN_START,
-                        LV_FLEX_ALIGN_START);
-
-  lv_obj_t *b = lv_label_create(row);
-  lv_label_set_long_mode(b, LV_LABEL_LONG_WRAP);
-  lv_obj_set_style_max_width(b, 184, 0);
-  lv_obj_set_style_pad_all(b, 7, 0);
-  lv_obj_set_style_radius(b, 9, 0);
-  lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(b, outgoing ? lv_color_hex(0x0A6B57) : current_theme.bg_secondary, 0);
-  lv_obj_set_style_border_width(b, 1, 0);
-  lv_obj_set_style_border_color(
-      b, outgoing ? lv_color_hex(SIG_GREEN) : current_theme.border_interface, 0);
-  if (outgoing)
-    lv_obj_set_style_radius(b, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_text_color(b, current_theme.text_main, 0);
-  lv_obj_set_style_text_font(b, &lv_font_montserrat_12, 0);
-
-  if (outgoing) {
-    lv_label_set_text(b, text);
-  } else {
-    char line[160];
-    snprintf(line, sizeof(line), "%s\n%s", who, text);
-    lv_label_set_text(b, line);
-  }
-
-  lv_obj_t *ts = lv_label_create(row);
-  lv_label_set_text_fmt(ts, "12:0%d", s_msg_clock % 10);
-  s_msg_clock++;
-  lv_obj_set_style_text_color(ts, current_theme.border_inactive, 0);
-  lv_obj_set_style_text_font(ts, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_pad_hor(ts, 4, 0);
-
-  lv_obj_scroll_to_view(b, LV_ANIM_ON);
-}
-
-static lv_obj_t *add_typing_bubble(const char *who) {
-  if (s_chat_list == NULL)
-    return NULL;
-  lv_obj_t *row = lv_obj_create(s_chat_list);
-  lv_obj_set_width(row, LV_PCT(100));
-  lv_obj_set_height(row, LV_SIZE_CONTENT);
-  lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(row, 0, 0);
-  lv_obj_set_style_pad_all(row, 2, 0);
-  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-
-  lv_obj_t *bubble = lv_obj_create(row);
-  lv_obj_remove_flag(bubble, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(bubble, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-  lv_obj_set_style_max_width(bubble, TYPING_MAX_WIDTH, 0);
-  lv_obj_set_style_pad_all(bubble, TYPING_PAD, 0);
-  lv_obj_set_style_radius(bubble, TYPING_RADIUS, 0);
-  lv_obj_set_style_bg_opa(bubble, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(bubble, current_theme.bg_secondary, 0);
-  lv_obj_set_style_border_width(bubble, 1, 0);
-  lv_obj_set_style_border_color(bubble, current_theme.border_interface, 0);
-  lv_obj_set_flex_flow(bubble, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(bubble, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_style_pad_column(bubble, RSSI_BAR_GAP, 0);
-
-  lv_obj_t *tag = lv_label_create(bubble);
-  lv_label_set_text(tag, who);
-  lv_obj_set_style_text_color(tag, current_theme.border_inactive, 0);
-  lv_obj_set_style_text_font(tag, &lv_font_montserrat_12, 0);
-
-  for (int i = 0; i < PULSE_DOT_COUNT; i++) {
-    lv_obj_t *dot = lv_obj_create(bubble);
-    lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(dot, PULSE_DOT_SIZE, PULSE_DOT_SIZE);
-    lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_border_width(dot, 0, 0);
-    lv_obj_set_style_bg_color(dot, current_theme.border_accent, 0);
-    lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
-    lv_anim_t a;
-    lv_anim_init(&a);
-    lv_anim_set_var(&a, dot);
-    lv_anim_set_values(&a, LV_OPA_20, LV_OPA_COVER);
-    lv_anim_set_duration(&a, PULSE_DOT_MS);
-    lv_anim_set_playback_duration(&a, PULSE_DOT_MS);
-    lv_anim_set_delay(&a, i * PULSE_DOT_STAGGER);
-    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
-    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
-    lv_anim_set_exec_cb(&a, anim_opa_cb);
-    lv_anim_start(&a);
-  }
-
-  lv_obj_scroll_to_view(bubble, LV_ANIM_ON);
-  return row;
-}
-
-static void reply_cb(lv_timer_t *t) {
-  (void)t;
-  s_reply_timer = NULL;
-  if (lv_screen_active() != s_screen || s_view != VIEW_CHAT)
-    return;
-  if (s_typing_row != NULL) {
-    lv_obj_del(s_typing_row);
-    s_typing_row = NULL;
-    s_msg_clock--;
-  }
-  add_bubble(false, NODES[s_node].name, REPLIES[s_reply_i % REPLY_COUNT]);
-  s_reply_i++;
-}
-
-static void on_kb_submit(const char *text, void *user_data) {
-  (void)user_data;
-  if (text == NULL || text[0] == '\0' || s_view != VIEW_CHAT)
-    return;
-  add_bubble(true, NULL, text);
-  if (s_reply_timer != NULL)
-    lv_timer_delete(s_reply_timer);
-  if (s_typing_row != NULL) {
-    lv_obj_del(s_typing_row);
-    s_msg_clock--;
-  }
-  s_typing_row = add_typing_bubble(NODES[s_node].name);
-  s_reply_timer = lv_timer_create(reply_cb, TYPING_LIFETIME_MS, NULL);
-  lv_timer_set_repeat_count(s_reply_timer, 1);
+  return card;
 }
 
 static void status_dots_cb(void *var, int32_t v) {
@@ -599,55 +710,14 @@ static void connect_done_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen || s_view != VIEW_CONNECT)
     return;
   s_linked = true;
+  ui_feedback(UI_FB_EMULATE);
+  notify(NOTIFY_LORA, "Companion linked");
   build_screen();
 }
 
-static lv_obj_t *make_device_card(lv_obj_t *parent, bool linked) {
-  lv_obj_t *card = lv_obj_create(parent);
-  lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(card, 196, 60);
-  lv_obj_set_style_radius(card, 12, 0);
-  lv_obj_set_style_bg_color(card, current_theme.bg_primary, 0);
-  lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_width(card, 1, 0);
-  lv_obj_set_style_border_color(
-      card, linked ? lv_color_hex(SIG_GREEN) : current_theme.border_interface, 0);
-  lv_obj_set_style_pad_all(card, 8, 0);
-  lv_obj_set_flex_flow(card, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_style_pad_column(card, 8, 0);
-
-  lv_obj_t *ic = make_icon(card, ICON_BT, 256);
-  if (ic == NULL) {
-    lv_obj_t *g = lv_label_create(card);
-    lv_label_set_text(g, LV_SYMBOL_BLUETOOTH);
-    lv_obj_set_style_text_color(g, current_theme.border_accent, 0);
-    lv_obj_set_style_text_font(g, &lv_font_montserrat_16, 0);
-  }
-
-  lv_obj_t *txt = lv_obj_create(card);
-  lv_obj_remove_flag(txt, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(txt, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-  lv_obj_set_style_bg_opa(txt, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(txt, 0, 0);
-  lv_obj_set_style_pad_all(txt, 0, 0);
-  lv_obj_set_flex_flow(txt, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_grow(txt, 1);
-
-  lv_obj_t *nm = lv_label_create(txt);
-  lv_label_set_text(nm, "HighBoy Companion");
-  lv_obj_set_style_text_color(nm, current_theme.text_main, 0);
-  lv_obj_set_style_text_font(nm, &lv_font_montserrat_14, 0);
-
-  lv_obj_t *sub = lv_label_create(txt);
-  lv_label_set_text(sub, "v1.2  ·  BLE");
-  lv_obj_set_style_text_color(sub, current_theme.border_inactive, 0);
-  lv_obj_set_style_text_font(sub, &lv_font_montserrat_12, 0);
-  return card;
-}
-
 static void build_connect(void) {
-  ui_chrome_header(s_screen, PROTOS[s_proto], ICON_RADAR);
+  lv_color_t accent = ui_theme_get_accent();
+  ui_chrome_header(s_screen, PROTOS[s_proto], "/assets/icons/bluetooth.bin");
 
   if (!s_linked) {
     s_phase = 0;
@@ -655,7 +725,7 @@ static void build_connect(void) {
     lv_label_set_text(s_status_label, PHASES[s_phase]);
     lv_obj_set_style_text_color(s_status_label, current_theme.text_main, 0);
     lv_obj_set_style_text_font(s_status_label, &lv_font_montserrat_14, 0);
-    lv_obj_align(s_status_label, LV_ALIGN_TOP_MID, 0, STATUS_Y_OFS);
+    lv_obj_align(s_status_label, LV_ALIGN_TOP_MID, 0, 52);
 
     lv_anim_t ad;
     lv_anim_init(&ad);
@@ -666,141 +736,224 @@ static void build_connect(void) {
     lv_anim_set_repeat_count(&ad, LV_ANIM_REPEAT_INFINITE);
     lv_anim_start(&ad);
 
-    waves_create(s_screen, LV_ALIGN_CENTER, 0, -4, LV_SYMBOL_BLUETOOTH, ICON_BT);
+    waves_create(
+        s_screen, LV_ALIGN_CENTER, 0, -18, LV_SYMBOL_BLUETOOTH, "/assets/icons/bluetooth.bin");
 
-    lv_obj_t *card = make_device_card(s_screen, false);
-    lv_obj_align(card, LV_ALIGN_CENTER, 0, CARD_Y_OFS);
+    lv_obj_t *card = make_companion_card(s_screen, false, accent);
+    lv_obj_align(card, LV_ALIGN_CENTER, 0, 86);
 
     s_phase_timer = lv_timer_create(phase_step_cb, PHASE_STEP_MS, NULL);
-
     s_connect_timer = lv_timer_create(connect_done_cb, CONNECT_MS, NULL);
     lv_timer_set_repeat_count(s_connect_timer, 1);
-  } else {
-    lv_obj_t *node = lv_obj_create(s_screen);
-    lv_obj_remove_flag(node, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(node, 64, 64);
-    lv_obj_align(node, LV_ALIGN_CENTER, 0, -40);
-    lv_obj_set_style_radius(node, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(node, lv_color_hex(SIG_GREEN), 0);
-    lv_obj_set_style_bg_opa(node, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(node, 0, 0);
-    lv_obj_t *chk = lv_label_create(node);
-    lv_label_set_text(chk, LV_SYMBOL_OK);
-    lv_obj_set_style_text_color(chk, lv_color_hex(0x05130E), 0);
-    lv_obj_set_style_text_font(chk, &lv_font_montserrat_16, 0);
-    lv_obj_center(chk);
 
+    ui_chrome_footer(s_screen, "BACK to cancel");
+  } else {
     lv_obj_t *st = lv_label_create(s_screen);
     lv_label_set_text(st, "Companion linked!");
     lv_obj_set_style_text_color(st, lv_color_hex(SIG_GREEN), 0);
     lv_obj_set_style_text_font(st, &lv_font_montserrat_14, 0);
-    lv_obj_align(st, LV_ALIGN_CENTER, 0, 8);
+    lv_obj_align(st, LV_ALIGN_TOP_MID, 0, 52);
+    lv_obj_fade_in(st, ENTRY_MS, 0);
 
-    lv_obj_t *card = make_device_card(s_screen, true);
-    lv_obj_align(card, LV_ALIGN_CENTER, 0, 56);
+    lv_obj_t *card = make_companion_card(s_screen, true, accent);
+    lv_obj_align(card, LV_ALIGN_CENTER, 0, 6);
+    lv_obj_fade_in(card, ENTRY_MS, 0);
+    card_rise(card);
+
+    ui_chrome_footer(s_screen, "BACK = Exit");
+  }
+}
+
+static void add_bubble(bool outgoing, const char *who, const char *text) {
+  if (s_chat_list == NULL)
+    return;
+  lv_color_t accent = ui_theme_get_accent();
+
+  lv_obj_t *row = lv_obj_create(s_chat_list);
+  lv_obj_set_width(row, LV_PCT(100));
+  lv_obj_set_height(row, LV_SIZE_CONTENT);
+  lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(row, 0, 0);
+  lv_obj_set_style_pad_all(row, 0, 0);
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(row,
+                        outgoing ? LV_FLEX_ALIGN_END : LV_FLEX_ALIGN_START,
+                        LV_FLEX_ALIGN_START,
+                        LV_FLEX_ALIGN_START);
+
+  lv_obj_t *group = lv_obj_create(row);
+  lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(group, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_style_bg_opa(group, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(group, 0, 0);
+  lv_obj_set_style_pad_all(group, 2, 0);
+  lv_obj_set_style_pad_row(group, 2, 0);
+  lv_obj_set_flex_flow(group, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(group,
+                        LV_FLEX_ALIGN_START,
+                        outgoing ? LV_FLEX_ALIGN_END : LV_FLEX_ALIGN_START,
+                        LV_FLEX_ALIGN_START);
+
+  lv_obj_t *bubble = lv_obj_create(group);
+  lv_obj_remove_flag(bubble, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(bubble, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_style_max_width(bubble, BUBBLE_MAX_W, 0);
+  lv_obj_set_style_pad_all(bubble, 7, 0);
+  lv_obj_set_style_radius(bubble, 9, 0);
+  lv_obj_set_style_bg_opa(bubble, outgoing ? LV_OPA_20 : LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(bubble, outgoing ? accent : current_theme.bg_secondary, 0);
+  lv_obj_set_style_bg_grad_dir(bubble, LV_GRAD_DIR_NONE, 0);
+  lv_obj_set_style_border_width(bubble, 1, 0);
+  lv_obj_set_style_border_color(bubble, outgoing ? accent : current_theme.border_inactive, 0);
+  lv_obj_set_flex_flow(bubble, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(bubble, 2, 0);
+
+  if (!outgoing && who != NULL) {
+    lv_obj_t *nm = lv_label_create(bubble);
+    char sender[48];
+    snprintf(sender, sizeof(sender), "> %s", who);
+    lv_label_set_text(nm, sender);
+    lv_obj_set_style_text_color(nm, accent, 0);
+    lv_obj_set_style_text_font(nm, &lv_font_montserrat_12, 0);
   }
 
-  ui_chrome_footer(s_screen, "BACK to exit");
+  lv_obj_t *body = lv_label_create(bubble);
+  lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
+  lv_obj_set_style_max_width(body, BUBBLE_MAX_W - 16, 0);
+  lv_label_set_text(body, text);
+  lv_obj_set_style_text_color(body, current_theme.text_main, 0);
+  lv_obj_set_style_text_font(body, &lv_font_montserrat_12, 0);
+
+  lv_obj_t *ts = lv_label_create(group);
+  lv_label_set_text_fmt(ts, "12:0%d", s_msg_clock % 10);
+  s_msg_clock++;
+  lv_obj_set_style_text_color(ts, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_font(ts, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_pad_hor(ts, 4, 0);
+
+  lv_obj_scroll_to_view(bubble, LV_ANIM_ON);
+}
+
+static lv_obj_t *add_typing_bubble(const char *who) {
+  if (s_chat_list == NULL)
+    return NULL;
+  lv_color_t accent = ui_theme_get_accent();
+
+  lv_obj_t *row = lv_obj_create(s_chat_list);
+  lv_obj_set_width(row, LV_PCT(100));
+  lv_obj_set_height(row, LV_SIZE_CONTENT);
+  lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(row, 0, 0);
+  lv_obj_set_style_pad_all(row, 2, 0);
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+
+  lv_obj_t *bubble = lv_obj_create(row);
+  lv_obj_remove_flag(bubble, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(bubble, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_style_max_width(bubble, BUBBLE_MAX_W, 0);
+  lv_obj_set_style_pad_all(bubble, 7, 0);
+  lv_obj_set_style_radius(bubble, 9, 0);
+  lv_obj_set_style_bg_opa(bubble, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(bubble, current_theme.bg_secondary, 0);
+  lv_obj_set_style_bg_grad_dir(bubble, LV_GRAD_DIR_NONE, 0);
+  lv_obj_set_style_border_width(bubble, 1, 0);
+  lv_obj_set_style_border_color(bubble, accent, 0);
+  lv_obj_set_flex_flow(bubble, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(bubble, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(bubble, 5, 0);
+
+  lv_obj_t *tag = lv_label_create(bubble);
+  char sender[48];
+  snprintf(sender, sizeof(sender), "> %s", who ? who : "");
+  lv_label_set_text(tag, sender);
+  lv_obj_set_style_text_color(tag, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_font(tag, &lv_font_montserrat_12, 0);
+
+  for (int i = 0; i < PULSE_DOT_COUNT; i++) {
+    lv_obj_t *dot = lv_obj_create(bubble);
+    lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(dot, PULSE_DOT_SIZE, PULSE_DOT_SIZE);
+    lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_border_width(dot, 0, 0);
+    lv_obj_set_style_bg_color(dot, accent, 0);
+    lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, dot);
+    lv_anim_set_values(&a, LV_OPA_20, LV_OPA_COVER);
+    lv_anim_set_duration(&a, PULSE_DOT_MS);
+    lv_anim_set_playback_duration(&a, PULSE_DOT_MS);
+    lv_anim_set_delay(&a, i * PULSE_DOT_STAGGER);
+    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+    lv_anim_set_exec_cb(&a, opa_cb);
+    lv_anim_start(&a);
+  }
+
+  lv_obj_scroll_to_view(bubble, LV_ANIM_ON);
+  return row;
+}
+
+static void reply_cb(lv_timer_t *t) {
+  (void)t;
+  s_reply_timer = NULL;
+  if (lv_screen_active() != s_screen || s_view != VIEW_CHAT)
+    return;
+  if (s_typing_row != NULL) {
+    lv_obj_del(s_typing_row);
+    s_typing_row = NULL;
+    s_msg_clock--;
+  }
+  add_bubble(false, NODES[s_node].name, REPLIES[s_reply_i % REPLY_COUNT]);
+  s_reply_i++;
+}
+
+static void on_kb_submit(const char *text, void *user_data) {
+  (void)user_data;
+  if (text == NULL || text[0] == '\0' || s_view != VIEW_CHAT)
+    return;
+  add_bubble(true, NULL, text);
+  ui_feedback(UI_FB_WRITE);
+  if (s_reply_timer != NULL)
+    lv_timer_delete(s_reply_timer);
+  if (s_typing_row != NULL) {
+    lv_obj_del(s_typing_row);
+    s_msg_clock--;
+  }
+  s_typing_row = add_typing_bubble(NODES[s_node].name);
+  s_reply_timer = lv_timer_create(reply_cb, TYPING_LIFETIME_MS, NULL);
+  lv_timer_set_repeat_count(s_reply_timer, 1);
 }
 
 static void build_chat(void) {
   s_msg_clock = 0;
 
-  lv_obj_t *hdr = lv_obj_create(s_screen);
-  lv_obj_remove_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(hdr, LV_PCT(100), 28);
-  lv_obj_align(hdr, LV_ALIGN_TOP_MID, 0, 0);
-  lv_obj_set_style_bg_color(hdr, current_theme.bg_primary, 0);
-  lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_width(hdr, 1, 0);
-  lv_obj_set_style_border_color(hdr, current_theme.border_interface, 0);
-  lv_obj_set_style_border_side(hdr, LV_BORDER_SIDE_BOTTOM, 0);
-  lv_obj_set_style_radius(hdr, 0, 0);
-
-  lv_obj_t *dot = lv_obj_create(hdr);
-  lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(dot, 8, 8);
-  lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_border_width(dot, 0, 0);
-  lv_obj_set_style_bg_color(dot, lv_color_hex(SIG_GREEN), 0);
-  lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
-  lv_obj_align(dot, LV_ALIGN_LEFT_MID, 8, 0);
-
-  lv_obj_t *nm = lv_label_create(hdr);
-  lv_label_set_text_fmt(nm, LV_SYMBOL_LEFT "  %s", NODES[s_node].name);
-  lv_obj_set_style_text_color(nm, current_theme.text_main, 0);
-  lv_obj_set_style_text_font(nm, &lv_font_montserrat_14, 0);
-  lv_obj_align(nm, LV_ALIGN_LEFT_MID, 22, 0);
-
-  lv_obj_t *sig = lv_label_create(hdr);
-  lv_label_set_text_fmt(sig, "%ddBm", NODES[s_node].rssi);
-  lv_obj_set_style_text_color(
-      sig, NODES[s_node].strong ? lv_color_hex(SIG_GREEN) : current_theme.border_inactive, 0);
-  lv_obj_set_style_text_font(sig, &lv_font_montserrat_12, 0);
-  lv_obj_align(sig, LV_ALIGN_RIGHT_MID, -8, 0);
+  ui_chrome_header(s_screen, NODES[s_node].name, "/assets/icons/hub.bin");
+  s_hint = ui_chrome_footer(s_screen, LV_SYMBOL_KEYBOARD " OK write   BACK nodes");
 
   s_chat_list = lv_obj_create(s_screen);
-  lv_obj_set_size(s_chat_list, LV_PCT(100), LV_PCT(70));
-  lv_obj_align(s_chat_list, LV_ALIGN_TOP_MID, 0, 32);
+  lv_obj_set_size(s_chat_list, LCD_H_RES, LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_align(s_chat_list, LV_ALIGN_TOP_LEFT, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(s_chat_list, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(s_chat_list, 0, 0);
-  lv_obj_set_style_pad_all(s_chat_list, 4, 0);
+  lv_obj_set_style_pad_all(s_chat_list, 6, 0);
+  lv_obj_set_style_pad_row(s_chat_list, 6, 0);
   lv_obj_set_flex_flow(s_chat_list, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_scroll_dir(s_chat_list, LV_DIR_VER);
+  lv_obj_remove_flag(s_chat_list, LV_OBJ_FLAG_SCROLL_ELASTIC);
+  lv_obj_remove_flag(s_chat_list, LV_OBJ_FLAG_SCROLL_MOMENTUM);
+  lv_obj_set_scrollbar_mode(s_chat_list, LV_SCROLLBAR_MODE_AUTO);
+
+  char link[24];
+  snprintf(link, sizeof(link), "Link %ddBm", NODES[s_node].rssi);
+  notify(NOTIFY_LORA, link);
 
   add_bubble(false, NODES[s_node].name, "Hey, you on the mesh?");
   add_bubble(true, NULL, "Yep, reading you 5/5.");
   add_bubble(false, NODES[s_node].name, "Signal's solid here.");
-
-  lv_obj_t *hint = lv_label_create(s_screen);
-  lv_label_set_text(hint, LV_SYMBOL_KEYBOARD " OK write   BACK nodes");
-  lv_obj_set_style_text_color(hint, current_theme.border_inactive, 0);
-  lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
-  lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -4);
-}
-
-static void build_proto_view(void) {
-  s_proto_sel = s_proto;
-  lora_accent_header("LORA MESH", "Select a network");
-  for (int i = 0; i < PROTO_COUNT; i++) {
-    s_proto_cards[i] = make_proto_card(i);
-    lv_obj_align(s_proto_cards[i], LV_ALIGN_TOP_MID, 0, i == 0 ? PROTO_CARD0_Y : PROTO_CARD1_Y);
-  }
-
-  lv_obj_t *hint = lv_label_create(s_screen);
-  lv_label_set_text(hint, LV_SYMBOL_UP LV_SYMBOL_DOWN " choose   OK enter   BACK exit");
-  lv_obj_set_style_text_color(hint, current_theme.border_inactive, 0);
-  lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
-  lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -6);
-}
-
-static void build_home_view(void) {
-  lora_accent_header(PROTOS[s_proto], s_linked ? "Mesh online" : "Standalone");
-
-  lv_obj_t *pill = make_status_pill(s_screen, s_linked);
-  lv_obj_align(pill, LV_ALIGN_TOP_RIGHT, -10, 8);
-
-  lv_obj_t *info = lv_label_create(s_screen);
-  lv_label_set_text_fmt(info,
-                        LV_SYMBOL_GPS "  CH %s  ·  %s  ·  %s",
-                        OPT_CHAN[s_cfg_chan],
-                        OPT_REGION[s_cfg_region],
-                        OPT_PRESET[s_cfg_preset]);
-  lv_obj_set_style_text_color(info, current_theme.text_main, 0);
-  lv_obj_set_style_text_opa(info, LV_OPA_70, 0);
-  lv_obj_set_style_text_font(info, &lv_font_montserrat_12, 0);
-  lv_obj_align(info, LV_ALIGN_TOP_MID, 0, HOME_INFO_Y);
-
-  for (int i = 0; i < HOME_COUNT; i++) {
-    s_home_rows[i] = make_home_row(i);
-    lv_obj_align(
-        s_home_rows[i], LV_ALIGN_TOP_MID, 0, HOME_ROW0_Y + i * (HOME_ROW_H + HOME_ROW_GAP));
-  }
-
-  lv_obj_t *hint = lv_label_create(s_screen);
-  lv_label_set_text(hint, LV_SYMBOL_UP LV_SYMBOL_DOWN " move   OK open   BACK protocols");
-  lv_obj_set_style_text_color(hint, current_theme.border_inactive, 0);
-  lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
-  lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -6);
 }
 
 static void build_screen(void) {
@@ -811,62 +964,40 @@ static void build_screen(void) {
   }
   s_chat_list = NULL;
   s_status_label = NULL;
+  s_hint = NULL;
   s_typing_row = NULL;
-  for (int i = 0; i < PROTO_COUNT; i++)
-    s_proto_cards[i] = NULL;
-  for (int i = 0; i < HOME_COUNT; i++)
-    s_home_rows[i] = NULL;
+  s_info_name = NULL;
+  s_info_meta = NULL;
+  s_info_bar = NULL;
+  s_node_list = NULL;
+  for (int i = 0; i < NODE_COUNT; i++) {
+    s_node_pins[i] = NULL;
+    s_node_names[i] = NULL;
+    s_node_rows[i] = NULL;
+    s_list_name[i] = NULL;
+    s_list_val[i] = NULL;
+  }
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_border_width(s_screen, 0, 0);
+  lv_obj_set_style_pad_all(s_screen, 0, 0);
 
   lv_obj_t *fade_target = NULL;
 
   if (s_view == VIEW_PROTO) {
     build_proto_view();
-    fade_target = s_screen;
+    fade_target = s_menu.items_cont;
   } else if (s_view == VIEW_HOME) {
     build_home_view();
-    fade_target = s_screen;
-  } else if (s_view == VIEW_NODES) {
-    s_menu = menu_component_create(s_screen, "NODES", "/assets/icons/node_icon.bin");
-    for (int i = 0; i < NODE_COUNT; i++) {
-      char bars[8];
-      char row[48];
-      rssi_bars(bars, sizeof(bars), NODES[i].rssi);
-      snprintf(row, sizeof(row), "%s   %s %ddBm", NODES[i].name, bars, NODES[i].rssi);
-      menu_component_add_item(&s_menu, ICON_NODES, row);
-      if (NODES[i].strong)
-        menu_component_set_item_label_color(&s_menu, i, lv_color_hex(SIG_GREEN));
-    }
-    int online = 0;
-    for (int i = 0; i < NODE_COUNT; i++)
-      if (NODES[i].strong)
-        online++;
-    lv_obj_t *note = lv_label_create(s_screen);
-    lv_label_set_text_fmt(note, LV_SYMBOL_GPS "  %d / %d nodes online", online, NODE_COUNT);
-    lv_obj_set_style_text_color(note, current_theme.border_inactive, 0);
-    lv_obj_set_style_text_font(note, &lv_font_montserrat_12, 0);
-    lv_obj_set_align(note, LV_ALIGN_TOP_LEFT);
-    lv_obj_set_pos(note, 12, 52);
-    offset_items_below_strip(24);
     fade_target = s_menu.items_cont;
+  } else if (s_view == VIEW_NODES) {
+    build_nodes_view();
+    fade_target = s_screen;
   } else if (s_view == VIEW_CONFIGS) {
-    s_menu = menu_component_create(s_screen, "CONFIGS", "/assets/icons/config_icon.bin");
-    menu_component_add_selector(&s_menu, ICON_CONFIG, "Region", OPT_REGION[s_cfg_region]);
-    menu_component_add_selector(&s_menu, ICON_CONFIG, "Channel", OPT_CHAN[s_cfg_chan]);
-    menu_component_add_selector(&s_menu, ICON_CONFIG, "Preset", OPT_PRESET[s_cfg_preset]);
-    menu_component_add_intensity(&s_menu, ICON_CONFIG, "TX Power", 4);
-    menu_component_add_toggle(&s_menu, ICON_CONFIG, "Router mode", false);
-    lv_obj_t *note = lv_label_create(s_screen);
-    lv_label_set_text(note, LV_SYMBOL_SETTINGS "  Radio settings");
-    lv_obj_set_style_text_color(note, current_theme.border_inactive, 0);
-    lv_obj_set_style_text_font(note, &lv_font_montserrat_12, 0);
-    lv_obj_set_align(note, LV_ALIGN_TOP_LEFT);
-    lv_obj_set_pos(note, 12, 52);
-    offset_items_below_strip(24);
+    build_configs_view();
     fade_target = s_menu.items_cont;
   } else if (s_view == VIEW_CONNECT) {
     build_connect();
@@ -903,6 +1034,11 @@ static void cycle_config(int sel, int dir) {
   }
 }
 
+static void exit_to_menu(void) {
+  ui_theme_set_protocol(PROTOCOL_NONE);
+  ui_switch_screen(SCREEN_MENU);
+}
+
 static void nav_timer_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen) {
     lv_timer_delete(t);
@@ -910,48 +1046,62 @@ static void nav_timer_cb(lv_timer_t *t) {
     stop_timers();
     return;
   }
-  if (ui_input_is_locked() || keyboard_is_open())
-    return;
 
   bool up = ui_btn_up(), down = ui_btn_down();
   bool left = ui_btn_left(), right = ui_btn_right();
   bool ok = ok_button_is_down(), back = back_button_is_down();
 
+  if (ui_input_is_locked() || keyboard_is_open()) {
+    s_up_last = up;
+    s_down_last = down;
+    s_left_last = left;
+    s_right_last = right;
+    s_ok_last = ok;
+    s_back_last = back;
+    return;
+  }
+
   switch (s_view) {
     case VIEW_PROTO:
-      if (down && !s_down_last && s_proto_sel < PROTO_COUNT - 1) {
-        s_proto_sel++;
-        style_proto_card(s_proto_cards[s_proto_sel - 1], false);
-        style_proto_card(s_proto_cards[s_proto_sel], true);
-      }
-      if (up && !s_up_last && s_proto_sel > 0) {
-        s_proto_sel--;
-        style_proto_card(s_proto_cards[s_proto_sel + 1], false);
-        style_proto_card(s_proto_cards[s_proto_sel], true);
-      }
+      if (down && !s_down_last)
+        menu_component_next(&s_menu);
+      if (up && !s_up_last)
+        menu_component_prev(&s_menu);
       if (ok && !s_ok_last) {
-        s_proto = s_proto_sel;
+        s_proto = menu_component_get_selected(&s_menu);
+        ui_feedback(UI_FB_SELECT);
         s_view = VIEW_HOME;
         s_home_sel = 0;
         build_screen();
         goto edges;
       }
-      if (back && !s_back_last)
-        ui_switch_screen(SCREEN_MENU);
+      if (back && !s_back_last) {
+        exit_to_menu();
+        return;
+      }
       break;
 
     case VIEW_HOME:
-      if (down && !s_down_last && s_home_sel < HOME_COUNT - 1) {
-        s_home_sel++;
-        style_home_row(s_home_rows[s_home_sel - 1], s_home_sel - 1, false);
-        style_home_row(s_home_rows[s_home_sel], s_home_sel, true);
-      }
-      if (up && !s_up_last && s_home_sel > 0) {
-        s_home_sel--;
-        style_home_row(s_home_rows[s_home_sel + 1], s_home_sel + 1, false);
-        style_home_row(s_home_rows[s_home_sel], s_home_sel, true);
-      }
+      if (down && !s_down_last)
+        menu_component_next(&s_menu);
+      if (up && !s_up_last)
+        menu_component_prev(&s_menu);
       if (ok && !s_ok_last) {
+        s_home_sel = menu_component_get_selected(&s_menu);
+        ui_feedback(UI_FB_SELECT);
+        if (s_home_sel == 3) {
+          ui_switch_screen(SCREEN_LORA_CHANNELS);
+          goto edges;
+        } else if (s_home_sel == 4) {
+          ui_switch_screen(SCREEN_LORA_POSITION);
+          goto edges;
+        } else if (s_home_sel == 5) {
+          ui_switch_screen(SCREEN_LORA_TELEMETRY);
+          goto edges;
+        } else if (s_home_sel == 6) {
+          ui_switch_screen(SCREEN_LORA_SECURE_DM);
+          goto edges;
+        }
         s_view = (s_home_sel == 0) ? VIEW_CONNECT : (s_home_sel == 1) ? VIEW_NODES : VIEW_CONFIGS;
         build_screen();
         goto edges;
@@ -972,15 +1122,40 @@ static void nav_timer_cb(lv_timer_t *t) {
       break;
 
     case VIEW_NODES:
-      if (down && !s_down_last)
-        menu_component_next(&s_menu);
-      if (up && !s_up_last)
-        menu_component_prev(&s_menu);
+      if (down && !s_down_last) {
+        s_node = (s_node + 1) % NODE_COUNT;
+        node_select(s_node);
+      }
+      if (up && !s_up_last) {
+        s_node = (s_node - 1 + NODE_COUNT) % NODE_COUNT;
+        node_select(s_node);
+      }
       if (ok && !s_ok_last) {
-        s_node = menu_component_get_selected(&s_menu);
-        s_view = VIEW_CHAT;
-        build_screen();
-        goto edges;
+        s_nodes_ok_ms = 0;
+        s_nodes_ok_fired = false;
+        s_nodes_ok_active = true;
+      }
+      if (ok && s_nodes_ok_active) {
+        s_nodes_ok_ms += NAV_TIMER_MS;
+        if (!s_nodes_ok_fired && s_nodes_ok_ms >= OK_HOLD_MS) {
+          s_nodes_ok_fired = true;
+          s_nodes_list = !s_nodes_list;
+          ui_feedback(UI_FB_SELECT);
+          build_screen();
+          goto edges;
+        }
+      }
+      if (!ok && s_ok_last) {
+        bool short_press = s_nodes_ok_active && !s_nodes_ok_fired;
+        s_nodes_ok_active = false;
+        s_nodes_ok_ms = 0;
+        s_nodes_ok_fired = false;
+        if (short_press) {
+          ui_feedback(UI_FB_SELECT);
+          s_view = VIEW_CHAT;
+          build_screen();
+          goto edges;
+        }
       }
       if (back && !s_back_last) {
         s_view = VIEW_HOME;
@@ -1010,10 +1185,17 @@ static void nav_timer_cb(lv_timer_t *t) {
     }
 
     case VIEW_CHAT:
-      if (down && !s_down_last && s_chat_list)
-        lv_obj_scroll_by(s_chat_list, 0, -36, LV_ANIM_ON);
-      if (up && !s_up_last && s_chat_list)
-        lv_obj_scroll_by(s_chat_list, 0, 36, LV_ANIM_ON);
+
+      if (down && !s_down_last && s_chat_list) {
+        int32_t sb = lv_obj_get_scroll_bottom(s_chat_list);
+        if (sb > 0)
+          lv_obj_scroll_by(s_chat_list, 0, -(sb < 36 ? sb : 36), LV_ANIM_OFF);
+      }
+      if (up && !s_up_last && s_chat_list) {
+        int32_t st = lv_obj_get_scroll_top(s_chat_list);
+        if (st > 0)
+          lv_obj_scroll_by(s_chat_list, 0, (st < 36 ? st : 36), LV_ANIM_OFF);
+      }
       if (ok && !s_ok_last)
         keyboard_open(NULL, on_kb_submit, NULL);
       if (back && !s_back_last) {
@@ -1034,11 +1216,15 @@ edges:
 }
 
 void ui_lora_chat_open(void) {
+  ui_theme_set_protocol(PROTOCOL_LORA);
   s_view = VIEW_PROTO;
   s_proto = 0;
+  s_home_sel = 0;
   s_node = 0;
+  s_nodes_list = false;
   s_linked = false;
   s_phase = 0;
+  s_reply_i = 0;
   s_connect_timer = NULL;
   s_reply_timer = NULL;
   s_phase_timer = NULL;
@@ -1048,11 +1234,15 @@ void ui_lora_chat_open(void) {
 }
 
 void ui_lora_chat_open_chat(void) {
+  ui_theme_set_protocol(PROTOCOL_LORA);
   s_view = VIEW_CHAT;
   s_proto = 0;
+  s_home_sel = 0;
   s_node = 0;
+  s_nodes_list = false;
   s_linked = true;
   s_phase = 0;
+  s_reply_i = 0;
   s_connect_timer = NULL;
   s_reply_timer = NULL;
   s_phase_timer = NULL;
