@@ -125,6 +125,19 @@ bool ok_button_is_down(void);
  */
 bool back_button_is_down(void);
 
+/**
+ * @brief Inject a simulated button press for @p ms milliseconds.
+ *
+ * Makes the button at @p idx read as "down" until the deadline so the LVGL
+ * keypad indev and screen nav timers observe an injected press. Index order:
+ * 0=UP, 1=DOWN, 2=LEFT, 3=RIGHT, 4=OK, 5=BACK. Used by the console `key`
+ * command for headless UI navigation and screen capture.
+ *
+ * @param idx  Button index (0-5).
+ * @param ms   Duration to hold the simulated press, in milliseconds.
+ */
+void buttons_sim_press(int idx, uint32_t ms);
+
 #ifdef __cplusplus
 }
 #endif

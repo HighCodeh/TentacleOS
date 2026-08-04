@@ -16,6 +16,7 @@
 
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 
 static const char *TAG = "BUTTONS_GPIO";
 
@@ -36,12 +37,24 @@ static button_t s_buttons[] = {
 
 static bool s_last_down[NUM_BUTTONS] = {false};
 
+static volatile int64_t s_sim_until_us[NUM_BUTTONS] = {0};
+
+static inline bool sim_active(int idx) {
+  return (idx >= 0 && idx < NUM_BUTTONS) && (esp_timer_get_time() < s_sim_until_us[idx]);
+}
+
+void buttons_sim_press(int idx, uint32_t ms) {
+  if (idx < 0 || idx >= NUM_BUTTONS)
+    return;
+  s_sim_until_us[idx] = esp_timer_get_time() + (int64_t)ms * 1000;
+}
+
 static bool get_raw_level(uint32_t gpio) {
   return gpio_get_level(gpio) == BUTTON_PRESSED_LEVEL;
 }
 
 static bool check_and_log(int idx, uint32_t gpio) {
-  bool now = gpio_get_level(gpio) == BUTTON_PRESSED_LEVEL;
+  bool now = (gpio_get_level(gpio) == BUTTON_PRESSED_LEVEL) || sim_active(idx);
   if (now && !s_last_down[idx]) {
     ESP_LOGI(TAG, "Pressed: %s (GPIO %lu)", s_button_names[idx], (unsigned long)gpio);
   }
@@ -52,7 +65,7 @@ static bool check_and_log(int idx, uint32_t gpio) {
 static bool s_last_press_sample[NUM_BUTTONS] = {false};
 
 static inline bool edge_pressed(int idx, uint32_t gpio) {
-  bool now = gpio_get_level(gpio) == BUTTON_PRESSED_LEVEL;
+  bool now = (gpio_get_level(gpio) == BUTTON_PRESSED_LEVEL) || sim_active(idx);
   bool edge = now && !s_last_press_sample[idx];
   s_last_press_sample[idx] = now;
   bool flagged = __atomic_exchange_n(&s_buttons[idx].pressed_flag, false, __ATOMIC_RELAXED);
