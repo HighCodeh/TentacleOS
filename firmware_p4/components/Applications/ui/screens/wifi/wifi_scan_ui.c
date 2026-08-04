@@ -26,12 +26,14 @@
 #include "buttons_gpio.h"
 #include "menu_component_ui.h"
 #include "msgbox_ui.h"
+#include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
+#include "waves_ui.h"
 #include "wifi_names.h"
 
-static const char *TAG_ICON = "/assets/icons/wifi_menu_icon.bin";
+static const char *TAG_ICON = "/assets/icons/wifi_find.bin";
 
 #define NAV_TIMER_MS    50
 #define SCAN_MS         1500
@@ -40,6 +42,9 @@ static const char *TAG_ICON = "/assets/icons/wifi_menu_icon.bin";
 #define COLOR_OPEN      0xFFC107
 #define TASK_STACK_SIZE 4096
 #define TASK_PRIORITY   4
+
+#define SCAN_WAVES_Y_OFS   -6
+#define SCAN_CAPTION_Y_OFS 78
 
 typedef enum { SCAN_RUNNING, SCAN_DONE } scan_state_t;
 
@@ -95,12 +100,12 @@ static void nav_timer_cb(lv_timer_t *t);
 
 static const char *icon_for_rssi(int8_t rssi) {
   if (rssi >= -55)
-    return "/assets/icons/wifi_icon_3.bin";
+    return "/assets/icons/network_wifi_3_bar.bin";
   if (rssi >= -65)
-    return "/assets/icons/wifi_icon_2.bin";
+    return "/assets/icons/network_wifi_2_bar.bin";
   if (rssi >= -75)
-    return "/assets/icons/wifi_icon_1.bin";
-  return "/assets/icons/wifi_icon_0.bin";
+    return "/assets/icons/network_wifi_1_bar.bin";
+  return "/assets/icons/signal_wifi_0_bar.bin";
 }
 
 #define SRC_MAX 32
@@ -165,17 +170,28 @@ static void build_screen(void) {
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  s_menu = menu_component_create(s_screen, "Scan", TAG_ICON);
+  s_menu = (menu_component_t){0};
 
   if (s_scan_state == SCAN_RUNNING) {
-    menu_component_add_item(&s_menu, TAG_ICON, "Scanning channels...");
-  } else if (s_ap_count == 0) {
-    menu_component_add_item(&s_menu, TAG_ICON, "No networks found");
+    ui_chrome_header(s_screen, "Scan", TAG_ICON);
+    waves_create(s_screen, LV_ALIGN_CENTER, 0, SCAN_WAVES_Y_OFS, LV_SYMBOL_WIFI, TAG_ICON);
+    lv_obj_t *caption = lv_label_create(s_screen);
+    lv_label_set_text(caption, "Scanning...");
+    lv_obj_set_style_text_color(caption, current_theme.text_main, 0);
+    lv_obj_set_style_text_font(caption, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(caption, LV_ALIGN_CENTER, 0, SCAN_CAPTION_Y_OFS);
+    ui_chrome_footer(s_screen, LV_SYMBOL_LEFT "  Back");
   } else {
-    for (int i = 0; i < s_ap_count; i++) {
-      menu_component_add_item(&s_menu, icon_for_rssi(s_aps[i].rssi), s_aps[i].ssid);
-      uint32_t col = (strcmp(s_aps[i].enc, "OPEN") == 0) ? COLOR_OPEN : COLOR_SECURE;
-      menu_component_set_item_label_color(&s_menu, i, lv_color_hex(col));
+    s_menu = menu_component_create(s_screen, "Scan", TAG_ICON);
+    if (s_ap_count == 0) {
+      menu_component_add_item(&s_menu, TAG_ICON, "No networks found");
+    } else {
+      for (int i = 0; i < s_ap_count; i++) {
+        menu_component_add_item(&s_menu, icon_for_rssi(s_aps[i].rssi), s_aps[i].ssid);
+        uint32_t col = (strcmp(s_aps[i].enc, "OPEN") == 0) ? COLOR_OPEN : COLOR_SECURE;
+        menu_component_set_item_label_color(&s_menu, i, lv_color_hex(col));
+      }
     }
   }
 
