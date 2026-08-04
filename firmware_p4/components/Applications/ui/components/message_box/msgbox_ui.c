@@ -30,6 +30,12 @@
 #define BTN_H          28
 #define MSGBOX_POLL_MS 50
 
+#define SD_MODAL_W     200
+#define SD_MODAL_H     200
+#define SD_MODAL_BTN_W 150
+#define SD_ICON_PX     34
+#define SD_BTN_RADIUS  14
+
 static lv_obj_t *panel = NULL;
 static lv_obj_t *btn_objs[2] = {NULL};
 static int btn_count = 0;
@@ -232,7 +238,7 @@ void msgbox_open(
 
   static lv_image_dsc_t *warn_dsc = NULL;
   if (!warn_dsc)
-    warn_dsc = assets_get("/assets/icons/warning_icon.bin");
+    warn_dsc = assets_get("/assets/icons/warning.bin");
   if (warn_dsc) {
     lv_obj_t *icon_img = lv_image_create(content);
     lv_image_set_src(icon_img, warn_dsc);
@@ -274,6 +280,210 @@ void msgbox_open(
   update_btn_selection();
 
   int target_y = LCD_V_RES - MSGBOX_H;
+  lv_anim_t a;
+  lv_anim_init(&a);
+  lv_anim_set_var(&a, panel);
+  lv_anim_set_values(&a, LCD_V_RES, target_y);
+  lv_anim_set_duration(&a, ANIM_TIME);
+  lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+  lv_anim_set_exec_cb(&a, slide_anim_cb);
+  lv_anim_start(&a);
+
+  if (!msgbox_timer)
+    msgbox_timer = lv_timer_create(msgbox_timer_cb, MSGBOX_POLL_MS, NULL);
+}
+
+static void sd_add_info_row(lv_obj_t *parent, const char *k, const char *v) {
+  lv_obj_t *row = lv_obj_create(parent);
+  lv_obj_set_size(row, lv_pct(100), LV_SIZE_CONTENT);
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(row, 0, 0);
+  lv_obj_set_style_pad_all(row, 0, 0);
+  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(
+      row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+  lv_obj_t *kl = lv_label_create(row);
+  lv_label_set_text(kl, k);
+  lv_obj_set_style_text_color(kl, current_theme.text_main, 0);
+  lv_obj_set_style_text_opa(kl, LV_OPA_60, 0);
+  lv_obj_set_style_text_font(kl, &lv_font_montserrat_12, 0);
+
+  lv_obj_t *vl = lv_label_create(row);
+  lv_label_set_text(vl, v);
+  lv_obj_set_style_text_color(vl, current_theme.text_main, 0);
+  lv_obj_set_style_text_font(vl, &lv_font_montserrat_12, 0);
+}
+
+void msgbox_open_sd_info(const char *name, const char *size, const char *free, const char *fmt) {
+  if (panel)
+    discard_panel_silent();
+
+  current_cb = NULL;
+  input_locked = true;
+  btn_count = 0;
+  btn_sel = 0;
+
+  lv_obj_t *scr = lv_screen_active();
+  panel = lv_obj_create(scr);
+  lv_obj_set_size(panel, SD_MODAL_W, SD_MODAL_H);
+  lv_obj_set_pos(panel, (LCD_H_RES - SD_MODAL_W) / 2, LCD_V_RES);
+  lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_event_cb(panel, panel_deleted_cb, LV_EVENT_DELETE, NULL);
+
+  lv_obj_set_style_radius(panel, 14, 0);
+  lv_obj_set_style_border_width(panel, 2, 0);
+  lv_obj_set_style_border_color(panel, BORDER_COLOR, 0);
+  lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(panel, current_theme.bg_primary, 0);
+  lv_obj_set_style_bg_grad_color(panel, current_theme.bg_secondary, 0);
+  lv_obj_set_style_bg_grad_dir(panel, LV_GRAD_DIR_VER, 0);
+  lv_obj_set_style_pad_top(panel, 14, 0);
+  lv_obj_set_style_pad_bottom(panel, 14, 0);
+  lv_obj_set_style_pad_left(panel, 12, 0);
+  lv_obj_set_style_pad_right(panel, 12, 0);
+  lv_obj_set_style_pad_row(panel, 6, 0);
+  lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(panel, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_move_foreground(panel);
+
+  static lv_image_dsc_t *card_dsc = NULL;
+  if (!card_dsc)
+    card_dsc = assets_get("/assets/icons/sd_card.bin");
+  if (card_dsc) {
+    lv_obj_t *ci = lv_image_create(panel);
+    lv_image_set_src(ci, card_dsc);
+    lv_obj_set_size(ci, SD_ICON_PX, SD_ICON_PX);
+    lv_image_set_inner_align(ci, LV_IMAGE_ALIGN_CONTAIN);
+  }
+
+  lv_obj_t *title = lv_label_create(panel);
+  lv_label_set_text(title, "SD Card Connected");
+  lv_obj_set_style_text_color(title, current_theme.border_accent, 0);
+  lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
+
+  if (name && name[0]) {
+    lv_obj_t *sub = lv_label_create(panel);
+    lv_label_set_text(sub, name);
+    lv_obj_set_style_text_color(sub, current_theme.text_main, 0);
+    lv_obj_set_style_text_opa(sub, LV_OPA_50, 0);
+    lv_obj_set_style_text_font(sub, &lv_font_montserrat_12, 0);
+  }
+
+  lv_obj_t *info = lv_obj_create(panel);
+  lv_obj_set_size(info, lv_pct(100), LV_SIZE_CONTENT);
+  lv_obj_remove_flag(info, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_opa(info, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(info, 0, 0);
+  lv_obj_set_style_pad_all(info, 0, 0);
+  lv_obj_set_style_pad_row(info, 3, 0);
+  lv_obj_set_flex_flow(info, LV_FLEX_FLOW_COLUMN);
+  sd_add_info_row(info, "Capacity", size ? size : "-");
+  sd_add_info_row(info, "Free", free ? free : "-");
+  sd_add_info_row(info, "Format", fmt ? fmt : "-");
+
+  lv_obj_t *btn = create_btn(panel, "OK");
+  lv_obj_set_width(btn, SD_MODAL_BTN_W);
+  lv_obj_set_style_radius(btn, SD_BTN_RADIUS, 0);
+  btn_objs[0] = btn;
+  btn_confirms[0] = true;
+  btn_count = 1;
+  btn_sel = 0;
+  update_btn_selection();
+
+  int target_y = (LCD_V_RES - SD_MODAL_H) / 2;
+  lv_anim_t a;
+  lv_anim_init(&a);
+  lv_anim_set_var(&a, panel);
+  lv_anim_set_values(&a, LCD_V_RES, target_y);
+  lv_anim_set_duration(&a, ANIM_TIME);
+  lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+  lv_anim_set_exec_cb(&a, slide_anim_cb);
+  lv_anim_start(&a);
+
+  if (!msgbox_timer)
+    msgbox_timer = lv_timer_create(msgbox_timer_cb, MSGBOX_POLL_MS, NULL);
+}
+
+void msgbox_open_info(const char *icon_path,
+                      const char *title,
+                      const char *msg,
+                      lv_color_t accent) {
+  if (panel)
+    discard_panel_silent();
+
+  current_cb = NULL;
+  input_locked = true;
+  btn_count = 0;
+  btn_sel = 0;
+
+  lv_obj_t *scr = lv_screen_active();
+  panel = lv_obj_create(scr);
+  lv_obj_set_size(panel, SD_MODAL_W, SD_MODAL_H);
+  lv_obj_set_pos(panel, (LCD_H_RES - SD_MODAL_W) / 2, LCD_V_RES);
+  lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_event_cb(panel, panel_deleted_cb, LV_EVENT_DELETE, NULL);
+
+  lv_obj_set_style_radius(panel, 14, 0);
+  lv_obj_set_style_border_width(panel, 2, 0);
+  lv_obj_set_style_border_color(panel, accent, 0);
+  lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(panel, current_theme.bg_primary, 0);
+  lv_obj_set_style_bg_grad_color(panel, current_theme.bg_secondary, 0);
+  lv_obj_set_style_bg_grad_dir(panel, LV_GRAD_DIR_VER, 0);
+  lv_obj_set_style_shadow_width(panel, 26, 0);
+  lv_obj_set_style_shadow_color(panel, accent, 0);
+  lv_obj_set_style_shadow_opa(panel, LV_OPA_40, 0);
+  lv_obj_set_style_pad_all(panel, 14, 0);
+  lv_obj_set_style_pad_row(panel, 8, 0);
+  lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(panel, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_move_foreground(panel);
+
+  if (icon_path) {
+    lv_image_dsc_t *dsc = assets_get(icon_path);
+    if (dsc) {
+      lv_obj_t *badge = lv_obj_create(panel);
+      lv_obj_set_size(badge, 48, 48);
+      lv_obj_remove_flag(badge, LV_OBJ_FLAG_SCROLLABLE);
+      lv_obj_set_style_radius(badge, LV_RADIUS_CIRCLE, 0);
+      lv_obj_set_style_bg_color(badge, accent, 0);
+      lv_obj_set_style_bg_opa(badge, LV_OPA_20, 0);
+      lv_obj_set_style_border_width(badge, 2, 0);
+      lv_obj_set_style_border_color(badge, accent, 0);
+      lv_obj_set_style_pad_all(badge, 0, 0);
+      lv_obj_t *ci = lv_image_create(badge);
+      lv_image_set_src(ci, dsc);
+      lv_obj_set_size(ci, SD_ICON_PX, SD_ICON_PX);
+      lv_image_set_inner_align(ci, LV_IMAGE_ALIGN_CONTAIN);
+      lv_obj_center(ci);
+    }
+  }
+
+  lv_obj_t *title_lbl = lv_label_create(panel);
+  lv_label_set_text(title_lbl, title ? title : "");
+  lv_obj_set_style_text_color(title_lbl, accent, 0);
+  lv_obj_set_style_text_font(title_lbl, &lv_font_montserrat_14, 0);
+
+  lv_obj_t *msg_lbl = lv_label_create(panel);
+  lv_label_set_text(msg_lbl, msg ? msg : "");
+  lv_obj_set_style_text_color(msg_lbl, current_theme.text_main, 0);
+  lv_obj_set_style_text_font(msg_lbl, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_align(msg_lbl, LV_TEXT_ALIGN_CENTER, 0);
+  lv_label_set_long_mode(msg_lbl, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(msg_lbl, SD_MODAL_W - 32);
+
+  lv_obj_t *btn = create_btn(panel, "OK");
+  lv_obj_set_width(btn, SD_MODAL_BTN_W);
+  lv_obj_set_style_radius(btn, SD_BTN_RADIUS, 0);
+  btn_objs[0] = btn;
+  btn_confirms[0] = true;
+  btn_count = 1;
+  btn_sel = 0;
+  update_btn_selection();
+
+  int target_y = (LCD_V_RES - SD_MODAL_H) / 2;
   lv_anim_t a;
   lv_anim_init(&a);
   lv_anim_set_var(&a, panel);
