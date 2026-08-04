@@ -111,10 +111,12 @@ idf_component_register(SRCS
   "ui/components/octobit/include"
   "ui/components/page_dots/include"
   "ui/components/sigwave/include"
+  "ui/components/subghz_scope/include"
   "ui/components/spinner/include"
   "ui/components/terminal/include"
   "ui/components/text_viewer/include"
   "ui/components/toggle/include"
+  "ui/components/tutorial/include"
   "ui/components/waves/include"
 
   REQUIRES
