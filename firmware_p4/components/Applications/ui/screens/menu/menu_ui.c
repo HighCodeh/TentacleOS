@@ -43,7 +43,7 @@ static const char *TAG = "UI_MENU";
 
 static const int32_t CAROUSEL_PX[] = {-120, -75, 0, 75, 120};
 static const int32_t CAROUSEL_PY[] = {-25, -12, 0, -12, -25};
-static const int32_t CAROUSEL_SC[] = {128, 184, 280, 184, 128};
+static const int32_t CAROUSEL_SC[] = {128, 184, 256, 184, 128};
 static const int32_t CAROUSEL_OP[] = {LV_OPA_40, LV_OPA_70, LV_OPA_COVER, LV_OPA_70, LV_OPA_40};
 static const int32_t CAROUSEL_Z[] = {0, 1, 2, 1, 0};
 #define CAROUSEL_SLOTS  5
@@ -160,13 +160,25 @@ static menu_ui_item_t s_menu_data[] = {
      {NULL},
      {NULL},
      SCREEN_GAMES_MENU},
-    {"dev", {NULL, NULL, NULL}, BASE_FRAMES, {NULL}, {NULL}, SCREEN_DEV_MENU},
+    {"PLAYER",
+     {"/assets/frames/player_glyph.bin",
+      "/assets/frames/player_glyph.bin",
+      "/assets/frames/player_glyph.bin"},
+     BASE_FRAMES,
+     {NULL},
+     {NULL},
+     SCREEN_PLAYER},
+    {"DEV",
+     {"/assets/frames/dev_glyph.bin",
+      "/assets/frames/dev_glyph.bin",
+      "/assets/frames/dev_glyph.bin"},
+     BASE_FRAMES,
+     {NULL},
+     {NULL},
+     SCREEN_DEV_MENU},
 };
 
 extern lv_group_t *main_group;
-
-#define BOB_AMP_PX 4
-#define BOB_MS     1200
 
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_label = NULL;
@@ -176,7 +188,6 @@ static page_dots_t s_page_dots;
 static uint8_t s_selected = 0;
 static lv_font_t *s_font = NULL;
 static bool s_is_animating = false;
-static int s_bob_item = -1;
 
 static int32_t carousel_slot(size_t item_idx);
 static void load_item_frame(size_t item_idx, int frame);
@@ -195,41 +206,9 @@ static int32_t carousel_slot(size_t item_idx) {
   return (slot >= 0 && slot < CAROUSEL_SLOTS) ? slot : -1;
 }
 
-static void bob_exec_cb(void *var, int32_t v) {
-  lv_obj_set_style_translate_y((lv_obj_t *)var, v, 0);
-}
-
-static void stop_bob(void) {
-  if (s_bob_item < 0)
-    return;
-  lv_anim_delete(s_base_imgs[s_bob_item], bob_exec_cb);
-  lv_anim_delete(s_icon_imgs[s_bob_item], bob_exec_cb);
-  lv_obj_set_style_translate_y(s_base_imgs[s_bob_item], 0, 0);
-  lv_obj_set_style_translate_y(s_icon_imgs[s_bob_item], 0, 0);
-  s_bob_item = -1;
-}
-
-static void start_bob(size_t item_idx) {
-  stop_bob();
-  lv_anim_t a;
-  lv_anim_init(&a);
-  lv_anim_set_exec_cb(&a, bob_exec_cb);
-  lv_anim_set_values(&a, -BOB_AMP_PX, BOB_AMP_PX);
-  lv_anim_set_duration(&a, BOB_MS);
-  lv_anim_set_playback_duration(&a, BOB_MS);
-  lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
-  lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
-  lv_anim_set_var(&a, s_base_imgs[item_idx]);
-  lv_anim_start(&a);
-  lv_anim_set_var(&a, s_icon_imgs[item_idx]);
-  lv_anim_start(&a);
-  s_bob_item = (int)item_idx;
-}
-
 static void on_anim_done(lv_anim_t *a) {
+  (void)a;
   s_is_animating = false;
-
-  start_bob(s_selected);
 }
 
 static void load_item_frame(size_t item_idx, int frame) {
@@ -397,8 +376,6 @@ static void on_key_event(lv_event_t *e) {
       return;
     s_is_animating = true;
 
-    stop_bob();
-
     if (k == LV_KEY_RIGHT)
       s_selected = (s_selected + 1) % n;
     else
@@ -427,8 +404,6 @@ void ui_menu_open(void) {
 
   s_is_animating = false;
 
-  s_bob_item = -1;
-
   for (size_t i = 0; i < MENU_ITEM_COUNT; i++) {
     for (int f = 0; f < MENU_ITEM_FRAME_COUNT; f++) {
       s_menu_data[i].icon_dscs[f] = NULL;
@@ -448,9 +423,11 @@ void ui_menu_open(void) {
   for (size_t i = 0; i < MENU_ITEM_COUNT; i++) {
     s_base_imgs[i] = lv_image_create(s_screen);
     lv_obj_align(s_base_imgs[i], LV_ALIGN_CENTER, 0, ICON_CENTER_OFFSET_Y);
+    lv_image_set_antialias(s_base_imgs[i], false);
 
     s_icon_imgs[i] = lv_image_create(s_screen);
     lv_obj_align(s_icon_imgs[i], LV_ALIGN_CENTER, 0, ICON_CENTER_OFFSET_Y);
+    lv_image_set_antialias(s_icon_imgs[i], false);
   }
 
   header_ui_create(s_screen);
@@ -464,8 +441,6 @@ void ui_menu_open(void) {
   s_page_dots = page_dots_create(s_screen, MENU_ITEM_COUNT, LV_ALIGN_BOTTOM_MID, 0, DOTS_OFFSET_Y);
 
   update_view(false);
-
-  start_bob(s_selected);
 
   lv_obj_add_event_cb(s_screen, on_key_event, LV_EVENT_KEY, NULL);
 
