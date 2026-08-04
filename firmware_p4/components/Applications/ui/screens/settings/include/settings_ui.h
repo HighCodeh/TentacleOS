@@ -23,6 +23,9 @@ extern "C" {
 /** @brief Open the settings screen. */
 void ui_settings_open(void);
 
+/** @brief Open the settings screen directly on the Developer sub-view. */
+void ui_settings_open_dev(void);
+
 #ifdef __cplusplus
 }
 #endif
