@@ -27,6 +27,21 @@ static const char *TAG = "LVGL_GLUE";
 static bool s_ready = false;
 static bool s_landscape = false;
 static lv_display_t *s_disp = NULL;
+static volatile lvgl_glue_strip_cb_t s_capture_cb = NULL;
+
+static void capture_flush_start_cb(lv_event_t *e) {
+  lvgl_glue_strip_cb_t cb = s_capture_cb;
+  if (cb == NULL) {
+    return;
+  }
+  lv_display_t *disp = (lv_display_t *)lv_event_get_target(e);
+  const lv_area_t *area = (const lv_area_t *)lv_event_get_param(e);
+  lv_draw_buf_t *buf = lv_display_get_buf_active(disp);
+  if (area == NULL || buf == NULL || buf->data == NULL) {
+    return;
+  }
+  cb(area->x1, area->y1, area->x2, area->y2, buf->data, (int32_t)buf->header.stride);
+}
 
 esp_err_t lvgl_glue_init(void) {
   if (s_ready) {
@@ -76,6 +91,7 @@ esp_err_t lvgl_glue_init(void) {
     ESP_LOGE(TAG, "lvgl_port_add_disp returned NULL");
     return ESP_FAIL;
   }
+  lv_display_add_event_cb(s_disp, capture_flush_start_cb, LV_EVENT_FLUSH_START, NULL);
 
   ESP_LOGI(
       TAG, "LVGL up — %dx%d, %d-line buffers in PSRAM", LCD_PANEL_W, LCD_PANEL_H, LVGL_BUF_LINES);
@@ -85,6 +101,14 @@ esp_err_t lvgl_glue_init(void) {
 
 bool lvgl_glue_is_ready(void) {
   return s_ready;
+}
+
+void lvgl_glue_capture_begin(lvgl_glue_strip_cb_t cb) {
+  s_capture_cb = cb;
+}
+
+void lvgl_glue_capture_end(void) {
+  s_capture_cb = NULL;
 }
 
 bool lvgl_glue_lock(int timeout_ms) {

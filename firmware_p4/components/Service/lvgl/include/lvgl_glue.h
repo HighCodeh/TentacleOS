@@ -80,6 +80,27 @@ bool lvgl_glue_toggle_rotation(void);
  */
 bool lvgl_glue_is_landscape(void);
 
+/**
+ * @brief Per-strip framebuffer callback used to stream screenshots.
+ *
+ * Invoked from the LVGL flush path for each rendered strip, with the
+ * strip's area and the active buffer in native RGB565 (pre byte-swap).
+ */
+typedef void (*lvgl_glue_strip_cb_t)(
+    int32_t x1, int32_t y1, int32_t x2, int32_t y2, const uint8_t *data, int32_t stride);
+
+/**
+ * @brief Start teeing rendered strips to @p cb (screenshot capture).
+ *
+ * @param cb  Callback invoked per strip; NULL to disable.
+ */
+void lvgl_glue_capture_begin(lvgl_glue_strip_cb_t cb);
+
+/**
+ * @brief Stop the screenshot strip tee started with lvgl_glue_capture_begin().
+ */
+void lvgl_glue_capture_end(void);
+
 #ifdef __cplusplus
 }
 #endif
