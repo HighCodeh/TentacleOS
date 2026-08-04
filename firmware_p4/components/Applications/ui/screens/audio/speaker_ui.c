@@ -25,6 +25,7 @@
 
 #include "buttons_gpio.h"
 #include "menu_component_ui.h"
+#include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
@@ -350,12 +351,8 @@ static void nowplaying_open(const speaker_song_t *song) {
   lv_obj_set_style_bg_opa(s_nowplaying, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_nowplaying, LV_OBJ_FLAG_SCROLLABLE);
 
-  lv_obj_t *now = lv_label_create(s_nowplaying);
-  lv_label_set_text(now, "NOW PLAYING");
-  lv_obj_set_style_text_color(now, current_theme.text_main, 0);
-  lv_obj_set_style_text_opa(now, LV_OPA_50, 0);
-  lv_obj_set_style_text_font(now, &lv_font_montserrat_12, 0);
-  lv_obj_align(now, LV_ALIGN_TOP_MID, 0, 10);
+  ui_chrome_header(s_nowplaying, "NOW PLAYING", "/assets/icons/music_note.bin");
+  ui_chrome_footer(s_nowplaying, "OK / BACK = stop");
 
   s_np_title = lv_label_create(s_nowplaying);
   lv_obj_set_width(s_np_title, lv_pct(86));
@@ -364,7 +361,7 @@ static void nowplaying_open(const speaker_song_t *song) {
   lv_obj_set_style_text_color(s_np_title, ui_theme_get_accent(), 0);
   lv_obj_set_style_text_font(s_np_title, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_align(s_np_title, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_align(s_np_title, LV_ALIGN_TOP_MID, 0, 32);
+  lv_obj_align(s_np_title, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H + 8);
 
   lv_obj_t *eqc = lv_obj_create(s_nowplaying);
   lv_obj_remove_flag(eqc, LV_OBJ_FLAG_SCROLLABLE);
@@ -391,13 +388,6 @@ static void nowplaying_open(const speaker_song_t *song) {
   lv_obj_set_style_text_opa(s_np_count, LV_OPA_70, 0);
   lv_obj_set_style_text_font(s_np_count, &lv_font_montserrat_12, 0);
   lv_obj_align(s_np_count, LV_ALIGN_CENTER, 0, 80);
-
-  lv_obj_t *hint = lv_label_create(s_nowplaying);
-  lv_label_set_text(hint, "OK / BACK = stop");
-  lv_obj_set_style_text_color(hint, current_theme.text_main, 0);
-  lv_obj_set_style_text_opa(hint, LV_OPA_60, 0);
-  lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
-  lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -8);
 
   s_np_timer = lv_timer_create(np_timer_cb, NP_TIMER_MS, NULL);
   ui_screen_load(s_nowplaying);
@@ -564,14 +554,15 @@ void ui_speaker_open(void) {
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  s_menu = menu_component_create(s_screen, "Speaker", "/assets/icons/volume_icon.bin");
-  menu_component_add_intensity(&s_menu, NULL, "Volume", 3);
+  s_menu = menu_component_create(s_screen, "Speaker", "/assets/icons/speaker.bin");
+  menu_component_add_intensity(&s_menu, "/assets/icons/volume_up.bin", "Volume", 3);
   apply_volume(3);
-  menu_component_add_selector(&s_menu, NULL, "Category", CATS[s_category].name);
+  menu_component_add_selector(
+      &s_menu, "/assets/icons/category.bin", "Category", CATS[s_category].name);
   const speaker_cat_t *c = &CATS[s_category];
   int n = c->count > MAX_SONG_ROWS ? MAX_SONG_ROWS : c->count;
   for (int i = 0; i < n; i++)
-    menu_component_add_item(&s_menu, NULL, c->songs[i].name);
+    menu_component_add_item(&s_menu, "/assets/icons/music_note.bin", c->songs[i].name);
 
   s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
   ui_screen_load(s_screen);

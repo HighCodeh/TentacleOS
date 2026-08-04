@@ -23,9 +23,11 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lvgl.h"
+#include "st7789.h"
 
 #include "audio_i2s.h"
 #include "buttons_gpio.h"
+#include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
@@ -50,6 +52,15 @@ static const char *TAG = "SPECTRUM_UI";
 #define SPECTRUM_TASK_STACK    4096
 #define SPECTRUM_TASK_PRIORITY 4
 #define SPECTRUM_TASK_CORE     1
+
+#define SPECTRUM_ICON      "/assets/icons/graphic_eq.bin"
+#define SPECTRUM_TITLE     "SPECTRUM"
+#define SPECTRUM_FOOTER    "BACK to exit"
+#define STATUS_ROW_TOP_OFS 4
+#define PLOT_TOP_OFS       24
+#define AXIS_H             16
+#define PLOT_BOTTOM_PAD    4
+#define PLOT_MIN_H         40
 
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_plot = NULL;
@@ -257,21 +268,27 @@ void ui_spectrum_open(void) {
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  lv_obj_t *title = lv_label_create(s_screen);
-  lv_label_set_text(title, "SPECTRUM");
-  lv_obj_set_style_text_color(title, ui_theme_get_accent(), 0);
-  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 8, 8);
+  ui_chrome_header(s_screen, SPECTRUM_TITLE, SPECTRUM_ICON);
+  ui_chrome_footer(s_screen, SPECTRUM_FOOTER);
+
+  int band_top = UI_CHROME_HEADER_H;
+  int plot_top = band_top + PLOT_TOP_OFS;
+  int plot_h = LCD_V_RES - UI_CHROME_FOOTER_H - AXIS_H - PLOT_BOTTOM_PAD - plot_top;
+  if (plot_h < PLOT_MIN_H)
+    plot_h = PLOT_MIN_H;
 
   s_db_label = lv_label_create(s_screen);
   lv_label_set_text(s_db_label, "-60 dBFS");
   lv_obj_set_style_text_color(s_db_label, current_theme.text_main, 0);
   lv_obj_set_style_text_opa(s_db_label, LV_OPA_70, 0);
-  lv_obj_align(s_db_label, LV_ALIGN_TOP_RIGHT, -8, 8);
+  lv_obj_set_style_text_font(s_db_label, &lv_font_montserrat_12, 0);
+  lv_obj_align(s_db_label, LV_ALIGN_TOP_RIGHT, -8, band_top + STATUS_ROW_TOP_OFS);
 
   s_clip_label = lv_label_create(s_screen);
   lv_label_set_text(s_clip_label, "CLIP");
   lv_obj_set_style_text_color(s_clip_label, lv_color_hex(0xFF5252), 0);
-  lv_obj_align(s_clip_label, LV_ALIGN_TOP_MID, 0, 8);
+  lv_obj_set_style_text_font(s_clip_label, &lv_font_montserrat_12, 0);
+  lv_obj_align(s_clip_label, LV_ALIGN_TOP_LEFT, 8, band_top + STATUS_ROW_TOP_OFS);
   lv_obj_add_flag(s_clip_label, LV_OBJ_FLAG_HIDDEN);
 
   s_plot = lv_obj_create(s_screen);
@@ -280,8 +297,8 @@ void ui_spectrum_open(void) {
   lv_obj_set_style_border_width(s_plot, 0, 0);
   lv_obj_set_style_pad_all(s_plot, 4, 0);
   lv_obj_set_style_pad_column(s_plot, 3, 0);
-  lv_obj_set_size(s_plot, lv_pct(94), lv_pct(64));
-  lv_obj_align(s_plot, LV_ALIGN_CENTER, 0, 6);
+  lv_obj_set_size(s_plot, lv_pct(94), plot_h);
+  lv_obj_align(s_plot, LV_ALIGN_TOP_MID, 0, plot_top);
   lv_obj_set_flex_flow(s_plot, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(s_plot, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
 
@@ -343,12 +360,6 @@ void ui_spectrum_open(void) {
     lv_obj_set_style_text_color(l, current_theme.text_main, 0);
     lv_obj_set_style_text_opa(l, LV_OPA_50, 0);
   }
-
-  lv_obj_t *hint = lv_label_create(s_screen);
-  lv_label_set_text(hint, "BACK to exit");
-  lv_obj_set_style_text_color(hint, current_theme.text_main, 0);
-  lv_obj_set_style_text_opa(hint, LV_OPA_60, 0);
-  lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -6);
 
   lv_obj_update_layout(s_screen);
   s_plot_h = lv_obj_get_content_height(s_plot);

@@ -454,11 +454,11 @@ void ui_micrec_open(void) {
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  s_menu = menu_component_create(s_screen, "Mic -> Speaker", "/assets/icons/volume_icon.bin");
-  menu_component_add_intensity(&s_menu, NULL, "Rec Level", 3);
-  menu_component_add_item(&s_menu, NULL, "Record");
-  menu_component_add_item(&s_menu, NULL, "Play");
-  menu_component_add_toggle(&s_menu, NULL, "Loop", false);
+  s_menu = menu_component_create(s_screen, "Mic -> Speaker", "/assets/icons/mic.bin");
+  menu_component_add_intensity(&s_menu, "/assets/icons/graphic_eq.bin", "Rec Level", 3);
+  menu_component_add_item(&s_menu, "/assets/icons/fiber_manual_record.bin", "Record");
+  menu_component_add_item(&s_menu, "/assets/icons/play_arrow.bin", "Play");
+  menu_component_add_toggle(&s_menu, "/assets/icons/repeat.bin", "Loop", false);
 
   s_status_lbl = lv_label_create(s_screen);
   lv_label_set_text(s_status_lbl, "IDLE   (no recording)");
