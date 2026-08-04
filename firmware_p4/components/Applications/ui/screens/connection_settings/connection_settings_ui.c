@@ -69,9 +69,9 @@ void ui_connection_settings_open(void) {
   lv_obj_set_style_bg_opa(s_screen_conn, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen_conn, LV_OBJ_FLAG_SCROLLABLE);
 
-  s_menu = menu_component_create(s_screen_conn, "CONNECTION", "/assets/icons/header_menu_icon.bin");
-  menu_component_add_toggle(&s_menu, "/assets/icons/wifi_menu_icon.bin", "WI-FI", is_wifi_active);
-  menu_component_add_item(&s_menu, "/assets/icons/search_menu_icon.bin", "NETWORKS");
+  s_menu = menu_component_create(s_screen_conn, "CONNECTION", "/assets/icons/hub.bin");
+  menu_component_add_toggle(&s_menu, "/assets/icons/wifi.bin", "WI-FI", is_wifi_active);
+  menu_component_add_item(&s_menu, "/assets/icons/wifi_find.bin", "NETWORKS");
 
   if (s_nav_timer == NULL)
     s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);

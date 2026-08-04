@@ -149,12 +149,14 @@ void ui_display_settings_open(void) {
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  s_menu = menu_component_create(s_screen, "DISPLAY", "/assets/icons/display_menu_icon.bin");
-  menu_component_add_intensity(&s_menu, "/assets/icons/bright_icon.bin", "Brightness", 4);
-  menu_component_add_selector(&s_menu, NULL, "Rotation", ROTATION_OPTS[s_rotation_idx]);
-  menu_component_add_selector(&s_menu, NULL, "Timeout", TIMEOUT_OPTS[s_timeout_idx]);
-  menu_component_add_toggle(&s_menu, NULL, "Auto-dim", true);
-  menu_component_add_toggle(&s_menu, NULL, "Invert", false);
+  s_menu = menu_component_create(s_screen, "DISPLAY", "/assets/icons/display_settings.bin");
+  menu_component_add_intensity(&s_menu, "/assets/icons/brightness_6.bin", "Brightness", 4);
+  menu_component_add_selector(
+      &s_menu, "/assets/icons/screen_rotation.bin", "Rotation", ROTATION_OPTS[s_rotation_idx]);
+  menu_component_add_selector(
+      &s_menu, "/assets/icons/timer.bin", "Timeout", TIMEOUT_OPTS[s_timeout_idx]);
+  menu_component_add_toggle(&s_menu, "/assets/icons/brightness_auto.bin", "Auto-dim", true);
+  menu_component_add_toggle(&s_menu, "/assets/icons/invert_colors.bin", "Invert", false);
 
   if (s_menu.items_cont != NULL)
     lv_obj_fade_in(s_menu.items_cont, ENTRY_FADE_MS, 0);

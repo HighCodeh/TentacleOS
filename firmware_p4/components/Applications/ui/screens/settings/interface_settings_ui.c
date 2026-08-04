@@ -33,6 +33,7 @@ static const char *TAG = "INTERFACE_SETTINGS_UI";
 #define ROW_SOUNDFX    2
 #define ROW_THEME      3
 #define ROW_LANGUAGE   4
+#define ROW_LED        5
 
 static const char *const LANGUAGE_OPTS[] = {"EN", "PT", "ES"};
 #define LANGUAGE_COUNT ((int)(sizeof(LANGUAGE_OPTS) / sizeof(LANGUAGE_OPTS[0])))
@@ -84,6 +85,10 @@ static void nav_timer_cb(lv_timer_t *t) {
     int sel = menu_component_get_selected(&s_menu);
     if (sel == ROW_THEME) {
       ui_switch_screen(SCREEN_THEME_SELECTOR);
+      return;
+    }
+    if (sel == ROW_LED) {
+      ui_switch_screen(SCREEN_LED_CTRL);
       return;
     }
     if (sel >= 0 && s_menu.has_toggle[sel]) {
@@ -140,12 +145,14 @@ void ui_interface_settings_open(void) {
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  s_menu = menu_component_create(s_screen, "INTERFACE", "/assets/icons/interface_menu_icon.bin");
-  menu_component_add_toggle(&s_menu, NULL, "Animations", true);
-  menu_component_add_toggle(&s_menu, NULL, "Haptics", true);
-  menu_component_add_toggle(&s_menu, NULL, "Sound FX", true);
-  menu_component_add_item(&s_menu, "/assets/icons/theme_menu_icon.bin", "Theme");
-  menu_component_add_selector(&s_menu, NULL, "Language", LANGUAGE_OPTS[s_language_idx]);
+  s_menu = menu_component_create(s_screen, "INTERFACE", "/assets/icons/tune.bin");
+  menu_component_add_toggle(&s_menu, "/assets/icons/animation.bin", "Animations", true);
+  menu_component_add_toggle(&s_menu, "/assets/icons/vibration.bin", "Haptics", true);
+  menu_component_add_toggle(&s_menu, "/assets/icons/volume_up.bin", "Sound FX", true);
+  menu_component_add_item(&s_menu, "/assets/icons/palette.bin", "Theme");
+  menu_component_add_selector(
+      &s_menu, "/assets/icons/language.bin", "Language", LANGUAGE_OPTS[s_language_idx]);
+  menu_component_add_item(&s_menu, "/assets/icons/sensors.bin", "LED / Notify");
 
   if (s_menu.items_cont != NULL)
     lv_obj_fade_in(s_menu.items_cont, ENTRY_FADE_MS, 0);

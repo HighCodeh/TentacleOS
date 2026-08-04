@@ -139,11 +139,12 @@ void ui_sound_settings_open(void) {
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  s_menu = menu_component_create(s_screen, "SOUND", "/assets/icons/volume_icon.bin");
-  menu_component_add_intensity(&s_menu, "/assets/icons/volume_icon.bin", "Volume", 4);
-  menu_component_add_selector(&s_menu, NULL, "Alert tone", ALERT_OPTS[s_alert_idx]);
-  menu_component_add_toggle(&s_menu, NULL, "Key beeps", true);
-  menu_component_add_toggle(&s_menu, NULL, "Startup sound", false);
+  s_menu = menu_component_create(s_screen, "SOUND", "/assets/icons/volume_up.bin");
+  menu_component_add_intensity(&s_menu, "/assets/icons/volume_up.bin", "Volume", 4);
+  menu_component_add_selector(
+      &s_menu, "/assets/icons/notifications_active.bin", "Alert tone", ALERT_OPTS[s_alert_idx]);
+  menu_component_add_toggle(&s_menu, "/assets/icons/keyboard.bin", "Key beeps", true);
+  menu_component_add_toggle(&s_menu, "/assets/icons/music_note.bin", "Startup sound", false);
 
   if (s_menu.items_cont != NULL)
     lv_obj_fade_in(s_menu.items_cont, ENTRY_FADE_MS, 0);
