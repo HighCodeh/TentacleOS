@@ -24,6 +24,7 @@
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "nvs.h"
 
 #include "c5_flasher.h"
 #include "c5_legacy.h"
@@ -86,7 +87,7 @@ static int cmd_c5(int argc, char **argv) {
   }
   if (strcmp(argv[1], "passthrough") == 0) {
     printf("Entering C5 passthrough. Reboot (or BACK) to exit.\n");
-    c5_passthrough_run(); // never returns
+    c5_passthrough_run();
     return 0;
   }
   if (strcmp(argv[1], "release") == 0) {
@@ -112,6 +113,45 @@ static int cmd_free(int argc, char **argv) {
 
 static int cmd_restart(int argc, char **argv) {
   printf("Restarting system...\n");
+  esp_restart();
+  return 0;
+}
+
+static int cmd_firstboot(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
+  nvs_handle_t h;
+  if (nvs_open("tutorial", NVS_READWRITE, &h) == ESP_OK) {
+    nvs_erase_key(h, "done");
+    nvs_commit(h);
+    nvs_close(h);
+  }
+  if (nvs_open("scrtips", NVS_READWRITE, &h) == ESP_OK) {
+    nvs_erase_key(h, "seen");
+    nvs_erase_key(h, "skip");
+    nvs_commit(h);
+    nvs_close(h);
+  }
+  printf("First-boot wizard + screen tips cleared. Restarting...\n");
+  esp_restart();
+  return 0;
+}
+
+static int cmd_capprep(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
+  nvs_handle_t h;
+  if (nvs_open("tutorial", NVS_READWRITE, &h) == ESP_OK) {
+    nvs_set_u8(h, "done", 1);
+    nvs_commit(h);
+    nvs_close(h);
+  }
+  if (nvs_open("scrtips", NVS_READWRITE, &h) == ESP_OK) {
+    nvs_set_u8(h, "skip", 1);
+    nvs_commit(h);
+    nvs_close(h);
+  }
+  printf("Onboarding skipped (wizard + tips). Restarting clean for capture...\n");
   esp_restart();
   return 0;
 }
@@ -162,7 +202,7 @@ static int cmd_ip(int argc, char **argv) {
 }
 
 static int cmd_tasks(int argc, char **argv) {
-  const size_t bytes_per_task = 40; /* See vTaskList description */
+  const size_t bytes_per_task = 40;
   char *task_list_buffer = malloc(uxTaskGetNumberOfTasks() * bytes_per_task);
 
   if (task_list_buffer == NULL) {
@@ -212,6 +252,22 @@ void register_system_commands(void) {
       .func = &cmd_restart,
   };
   ESP_ERROR_CHECK(esp_console_cmd_register(&cmd_restart_def));
+
+  const esp_console_cmd_t cmd_firstboot_def = {
+      .command = "firstboot",
+      .help = "Clear the first-boot onboarding flag and restart to run it again",
+      .hint = NULL,
+      .func = &cmd_firstboot,
+  };
+  ESP_ERROR_CHECK(esp_console_cmd_register(&cmd_firstboot_def));
+
+  const esp_console_cmd_t cmd_capprep_def = {
+      .command = "capprep",
+      .help = "Skip onboarding (wizard + tips) and restart clean, for screen capture",
+      .hint = NULL,
+      .func = &cmd_capprep,
+  };
+  ESP_ERROR_CHECK(esp_console_cmd_register(&cmd_capprep_def));
 
   const esp_console_cmd_t cmd_c5_def = {
       .command = "c5",
