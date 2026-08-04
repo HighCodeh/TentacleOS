@@ -40,18 +40,17 @@ static const char *TAG = "HOME_UI";
 #define HOME_ROTATION_RIGHT    900
 
 #define HOME_ART_ASSET "/assets/img/image.bin"
-#define HOME_FLOAT_AMP 7
-#define HOME_FLOAT_MS  1300
 
 static lv_obj_t *s_screen_home = NULL;
 
 static void home_event_cb(lv_event_t *e);
 
-static void home_float_cb(void *var, int32_t v) {
-  lv_obj_set_style_translate_y((lv_obj_t *)var, v, 0);
-}
-
 void ui_home_open(void) {
+  ESP_LOGI(TAG,
+           "home open: free=%u largest=%u",
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+
   if (s_screen_home != NULL) {
     lv_obj_del(s_screen_home);
     s_screen_home = NULL;
@@ -125,21 +124,7 @@ void ui_home_open(void) {
   if (s_art_dsc != NULL) {
     lv_obj_t *art = lv_image_create(s_screen_home);
     lv_image_set_src(art, s_art_dsc);
-
-    lv_image_set_pivot(art, s_art_dsc->header.w / 2, s_art_dsc->header.h / 2);
-    lv_image_set_scale(art, 373);
     lv_obj_align(art, LV_ALIGN_CENTER, 0, 0);
-
-    lv_anim_t a;
-    lv_anim_init(&a);
-    lv_anim_set_var(&a, art);
-    lv_anim_set_exec_cb(&a, home_float_cb);
-    lv_anim_set_values(&a, -HOME_FLOAT_AMP, HOME_FLOAT_AMP);
-    lv_anim_set_duration(&a, HOME_FLOAT_MS);
-    lv_anim_set_playback_duration(&a, HOME_FLOAT_MS);
-    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
-    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
-    lv_anim_start(&a);
   }
 
   lv_obj_add_event_cb(s_screen_home, home_event_cb, LV_EVENT_KEY, NULL);
