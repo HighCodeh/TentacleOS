@@ -15,11 +15,15 @@
 
 #include "dropdown_ui.h"
 
+#include <stdio.h>
+
 #include "st7789.h"
 
 #include "assets_manager.h"
 #include "buttons_gpio.h"
+#include "header_ui.h"
 #include "ui_theme.h"
+#include "vfs_sdcard.h"
 
 #define GREEN    0x00E676
 #define CHIP_BG  current_theme.screen_base
@@ -37,12 +41,16 @@
 static int focus_row = ROW_BADGES;
 
 #define BADGE_COUNT 4
+#define BADGE_SD    2
 static const bool BADGE_TOGGLEABLE[BADGE_COUNT] = {true, true, false, false};
 static lv_obj_t *badge_dot[BADGE_COUNT] = {NULL};
 static lv_obj_t *badge_ic[BADGE_COUNT] = {NULL};
 static lv_obj_t *badge_lbl[BADGE_COUNT] = {NULL};
 static bool badge_on[BADGE_COUNT] = {true, true, true, true};
 static int badge_sel = 0;
+
+static lv_obj_t *sd_chip_val = NULL;
+static lv_obj_t *sd_chip_fill = NULL;
 
 #define SLIDER_COUNT 2
 static lv_obj_t *sl_track[SLIDER_COUNT] = {NULL};
@@ -62,6 +70,8 @@ static int hide_objs_count = 0;
 
 static bool btn_up_last, btn_down_last, btn_left_last, btn_right_last, btn_ok_last, btn_back_last;
 static lv_timer_t *slide_btn_timer = NULL;
+
+static void refresh_sd_status(void);
 
 static void refresh_focus(void) {
   for (int i = 0; i < BADGE_COUNT; i++) {
@@ -134,6 +144,7 @@ static void dropdown_open(void) {
 
   focus_row = ROW_BADGES;
   badge_sel = 0;
+  refresh_sd_status();
   refresh_focus();
 
   lv_obj_remove_flag(slide_panel, LV_OBJ_FLAG_HIDDEN);
@@ -333,7 +344,13 @@ static void make_slider(lv_obj_t *parent, int idx, const char *icon_path) {
   set_slider(idx, sl_value[idx]);
 }
 
-static void make_mini(lv_obj_t *row, const char *label, const char *value, int pct, bool battery) {
+static void make_mini(lv_obj_t *row,
+                      const char *label,
+                      const char *value,
+                      int pct,
+                      bool battery,
+                      lv_obj_t **val_out,
+                      lv_obj_t **fill_out) {
   (void)label;
   lv_color_t c1 = battery ? lv_color_hex(0x00E676) : lv_color_hex(0x00BCD4);
   lv_color_t c2 = battery ? lv_color_hex(0x00A651) : lv_color_hex(0x0091A7);
@@ -396,6 +413,32 @@ static void make_mini(lv_obj_t *row, const char *label, const char *value, int p
   lv_obj_set_style_bg_opa(fill, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(fill, 0, 0);
   lv_obj_align(fill, LV_ALIGN_LEFT_MID, 0, 0);
+
+  if (val_out) {
+    *val_out = v;
+  }
+  if (fill_out) {
+    *fill_out = fill;
+  }
+}
+
+static void refresh_sd_status(void) {
+  int used_pct = 0;
+  bool present = header_ui_sd_usage(&used_pct);
+  badge_on[BADGE_SD] = present;
+
+  char buf[16];
+  const char *val = "No SD";
+  if (present) {
+    snprintf(buf, sizeof(buf), "%d%%", used_pct);
+    val = buf;
+  }
+  if (sd_chip_val) {
+    lv_label_set_text(sd_chip_val, val);
+  }
+  if (sd_chip_fill) {
+    lv_obj_set_width(sd_chip_fill, lv_pct(used_pct < 1 ? 1 : used_pct));
+  }
 }
 
 void dropdown_ui_create(lv_obj_t *parent) {
@@ -442,10 +485,10 @@ void dropdown_ui_create(lv_obj_t *parent) {
   make_badge(badges, 0, LV_SYMBOL_WIFI, "Wi-Fi");
   make_badge(badges, 1, LV_SYMBOL_BLUETOOTH, "BLE");
   make_badge(badges, 2, LV_SYMBOL_SD_CARD, "SD");
-  make_badge(badges, 3, LV_SYMBOL_GPS, "C5");
+  make_badge(badges, 3, LV_SYMBOL_CHARGE, "ECO");
 
-  make_slider(slide_panel, 0, "/assets/icons/bright_icon.bin");
-  make_slider(slide_panel, 1, "/assets/icons/volume_icon.bin");
+  make_slider(slide_panel, 0, "/assets/icons/brightness_6.bin");
+  make_slider(slide_panel, 1, "/assets/icons/volume_up.bin");
 
   lv_obj_t *mini = lv_obj_create(slide_panel);
   lv_obj_set_size(mini, lv_pct(100), LV_SIZE_CONTENT);
@@ -457,8 +500,8 @@ void dropdown_ui_create(lv_obj_t *parent) {
   lv_obj_set_flex_align(
       mini, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_set_style_pad_column(mini, 14, 0);
-  make_mini(mini, "Battery", "87%", 87, true);
-  make_mini(mini, "Storage", "65%", 65, false);
+  make_mini(mini, "Battery", "87%", 87, true, NULL, NULL);
+  make_mini(mini, "Storage", "--", 1, false, &sd_chip_val, &sd_chip_fill);
 
   lv_obj_t *hint = lv_label_create(slide_panel);
   lv_label_set_text(hint,
@@ -470,6 +513,7 @@ void dropdown_ui_create(lv_obj_t *parent) {
 
   focus_row = ROW_BADGES;
   badge_sel = 0;
+  badge_on[BADGE_SD] = vfs_sdcard_is_mounted();
   refresh_focus();
 
   lv_obj_update_layout(slide_panel);

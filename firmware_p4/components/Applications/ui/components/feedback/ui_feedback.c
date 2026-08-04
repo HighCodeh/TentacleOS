@@ -24,7 +24,7 @@
 #include "audio_i2s.h"
 #include "drv2605l.h"
 
-#define FB_TASK_STACK_SIZE 4096
+#define FB_TASK_STACK_SIZE 6144
 #define FB_TASK_PRIORITY   4
 
 #define DRV_EFFECT_STRONG_CLICK 1
@@ -44,6 +44,8 @@ static const audio_note_t SND_READ[] = {{1318, 60}, {1976, 95}};
 static const audio_note_t SND_WRITE[] = {{1568, 45}, {2093, 80}};
 static const audio_note_t SND_EMULATE[] = {{1046, 70}, {1568, 95}};
 static const audio_note_t SND_BOOT[] = {{523, 120}, {659, 120}, {784, 175}};
+static const audio_note_t SND_SD_IN[] = {{1046, 45}, {1568, 55}, {2093, 80}};
+static const audio_note_t SND_SD_OUT[] = {{2093, 45}, {1568, 55}, {1046, 80}};
 
 static const fb_def_t DEFS[UI_FB_COUNT] = {
     [UI_FB_NAV] = {SND_NAV, 1, 0.30f, 0},
@@ -52,6 +54,8 @@ static const fb_def_t DEFS[UI_FB_COUNT] = {
     [UI_FB_WRITE] = {SND_WRITE, 2, 0.40f, DRV_EFFECT_DOUBLE_CLICK},
     [UI_FB_EMULATE] = {SND_EMULATE, 2, 0.40f, DRV_EFFECT_SHARP_CLICK},
     [UI_FB_BOOT] = {SND_BOOT, 3, 0.35f, 0},
+    [UI_FB_SD_CONNECT] = {SND_SD_IN, 3, 0.40f, DRV_EFFECT_STRONG_CLICK},
+    [UI_FB_SD_DISCONNECT] = {SND_SD_OUT, 3, 0.35f, 0},
 };
 
 static volatile bool s_busy = false;

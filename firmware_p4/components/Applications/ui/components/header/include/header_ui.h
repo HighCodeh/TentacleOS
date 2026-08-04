@@ -35,6 +35,17 @@ void header_ui_create(lv_obj_t *parent);
  */
 void header_ui_set_ble_active(bool active);
 
+/**
+ * @brief Report the cached SD card usage, computed off the LVGL task.
+ *
+ * Reads a value cached by the header's mount worker, so callers (e.g. the
+ * home dropdown) avoid a blocking filesystem query on the LVGL task.
+ *
+ * @param[out] out_used_pct  Used space percentage (0-100); may be NULL.
+ * @return true if a card is currently mounted/recognized.
+ */
+bool header_ui_sd_usage(int *out_used_pct);
+
 #ifdef __cplusplus
 }
 #endif

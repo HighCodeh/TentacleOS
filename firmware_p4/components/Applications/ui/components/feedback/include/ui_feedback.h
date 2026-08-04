@@ -29,13 +29,15 @@ extern "C" {
  * never block, and overlapping cues are dropped while one is still playing.
  */
 typedef enum {
-  UI_FB_NAV = 0, ///< Menu item changed: short tick, no vibration.
-  UI_FB_SELECT,  ///< Open/confirm: soft blip, no vibration.
-  UI_FB_READ,    ///< Function READ succeeded: rising tone + vibration.
-  UI_FB_WRITE,   ///< Function WRITE/SAVE succeeded: two-tone + vibration.
-  UI_FB_EMULATE, ///< Function is EMULATING: pulse + vibration.
-  UI_FB_BOOT,    ///< Startup chime, no vibration.
-  UI_FB_COUNT    ///< Sentinel; number of cue kinds.
+  UI_FB_NAV = 0,       ///< Menu item changed: short tick, no vibration.
+  UI_FB_SELECT,        ///< Open/confirm: soft blip, no vibration.
+  UI_FB_READ,          ///< Function READ succeeded: rising tone + vibration.
+  UI_FB_WRITE,         ///< Function WRITE/SAVE succeeded: two-tone + vibration.
+  UI_FB_EMULATE,       ///< Function is EMULATING: pulse + vibration.
+  UI_FB_BOOT,          ///< Startup chime, no vibration.
+  UI_FB_SD_CONNECT,    ///< SD card inserted: ascending chime + click.
+  UI_FB_SD_DISCONNECT, ///< SD card removed: descending chime.
+  UI_FB_COUNT          ///< Sentinel; number of cue kinds.
 } ui_feedback_kind_t;
 
 /**
