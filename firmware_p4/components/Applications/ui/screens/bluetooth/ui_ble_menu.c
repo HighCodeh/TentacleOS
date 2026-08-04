@@ -34,11 +34,14 @@ typedef struct {
 } ui_ble_menu_item_t;
 
 static const ui_ble_menu_item_t MENU_ITEMS[] = {
-    {"Companion App", "/assets/icons/app_icon.bin", SCREEN_COMPANION_PAIRING},
-    {"MouseAir", "/assets/icons/mouse_icon.bin", SCREEN_BLE_MOUSE_PAIRING},
-    {"Device Spam", "/assets/icons/burst_menu_icon.bin", SCREEN_BLE_SPAM_SELECT},
-    {"Detect Devices", "/assets/icons/radar_icon.bin", SCREEN_BLE_SCAN},
-    {"Beacon Spam", "/assets/icons/spam_icon.bin", -1},
+    {"Companion App", "/assets/icons/app_shortcut.bin", SCREEN_COMPANION_PAIRING},
+    {"MouseAir", "/assets/icons/mouse.bin", SCREEN_BLE_MOUSE_PAIRING},
+    {"Device Spam", "/assets/icons/broadcast_on_personal.bin", SCREEN_BLE_SPAM_SELECT},
+    {"Beacon Spam", "/assets/icons/sensors.bin", SCREEN_BLE_BEACON_SPAM},
+    {"Detect Devices", "/assets/icons/bluetooth_searching.bin", SCREEN_BLE_DETECT_MENU},
+    {"HID Keyboard", "/assets/icons/keyboard.bin", SCREEN_BLE_KEYBOARD},
+    {"BLE Flood", "/assets/icons/bolt.bin", SCREEN_BLE_FLOOD},
+    {"Radio / Identity", "/assets/icons/settings.bin", SCREEN_BLE_RADIO},
 };
 #define MENU_ITEMS_COUNT (sizeof(MENU_ITEMS) / sizeof(MENU_ITEMS[0]))
 
@@ -65,7 +68,7 @@ void ui_ble_menu_open(void) {
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  s_menu = menu_component_create(s_screen, "BLUETOOTH", "/assets/icons/bluetooth_icon.bin");
+  s_menu = menu_component_create(s_screen, "BLUETOOTH", "/assets/icons/bluetooth.bin");
   for (int i = 0; i < (int)MENU_ITEMS_COUNT; i++) {
     menu_component_add_item(&s_menu, MENU_ITEMS[i].icon, MENU_ITEMS[i].name);
   }
