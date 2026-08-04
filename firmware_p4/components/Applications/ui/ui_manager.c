@@ -27,6 +27,8 @@
 #include "lvgl_glue.h"
 #include "lv_port_indev.h"
 #include "msgbox_ui.h"
+#include "screen_tips.h"
+#include "tutorial_ui.h"
 #include "ui_feedback.h"
 #include "ui_theme.h"
 
@@ -63,6 +65,8 @@
 #include "haptic_ui.h"
 #include "speaker_ui.h"
 #include "micrec_ui.h"
+#include "wav_player_ui.h"
+#include "wav_library_ui.h"
 #include "spectrum_ui.h"
 #include "lora_chat_ui.h"
 #include "games_menu_ui.h"
@@ -73,7 +77,56 @@
 #include "octobit_status_ui.h"
 #include "dev_menu_ui.h"
 #include "subghz_menu_ui.h"
+#include "subghz_brute_ui.h"
 #include "rfid_menu_ui.h"
+#include "ble_beacon_ui.h"
+#include "ble_detect_ui.h"
+#include "ble_sniffer_ui.h"
+#include "ble_tracker_ui.h"
+#include "ble_skimmer_ui.h"
+#include "ble_exposure_ui.h"
+#include "gatt_explorer_ui.h"
+#include "ble_keyboard_ui.h"
+#include "ble_flood_ui.h"
+#include "ble_radio_ui.h"
+#include "ble_track_device_ui.h"
+#include "ble_spam_names_ui.h"
+#include "wifi_port_scan_ui.h"
+#include "wifi_probe_mon_ui.h"
+#include "wifi_target_clients_ui.h"
+#include "wifi_deauth_detector_ui.h"
+#include "wifi_signal_locator_ui.h"
+#include "nfc_scan_ui.h"
+#include "subghz_send_ui.h"
+#include "system_update_ui.h"
+#include "c5_status_ui.h"
+#include "led_ctrl_ui.h"
+#include "motion_ui.h"
+#include "lora_traceroute_ui.h"
+#include "lora_rnode_ui.h"
+#include "lora_mqtt_ui.h"
+#include "scripts_ui.h"
+#include "dev_console_ui.h"
+#include "dev_diag_ui.h"
+#include "nfc_bankcard_ui.h"
+#include "nfc_desfire_ui.h"
+#include "nfc_iso15693_ui.h"
+#include "nfc_ultralight_ui.h"
+#include "nfc_ndef_ui.h"
+#include "nfc_felica_ui.h"
+#include "nfc_p2p_ui.h"
+#include "nfc_keydict_ui.h"
+#include "subghz_config_ui.h"
+#include "ir_raw_ui.h"
+#include "lora_channels_ui.h"
+#include "lora_position_ui.h"
+#include "lora_telemetry_ui.h"
+#include "lora_securedm_ui.h"
+#include "wifi_handshake_ui.h"
+#include "wifi_hotspot_ui.h"
+#include "imu_monitor_ui.h"
+#include "sd_health_ui.h"
+#include "usb_mouse_ui.h"
 #include "badusb_menu_ui.h"
 #include "gpio_ui.h"
 #include "files_ui.h"
@@ -87,6 +140,7 @@
 #include "sound_settings_ui.h"
 #include "battery_settings_ui.h"
 #include "about_settings_ui.h"
+#include "storage_settings_ui.h"
 #include "theme_selector_ui.h"
 
 static const char *TAG = "UI_MANAGER";
@@ -149,6 +203,10 @@ static void ui_task(void *pvParameter) {
     vTaskDelay(pdMS_TO_TICKS(BOOT_SPLASH_DURATION_MS));
     if (ui_acquire()) {
       ui_home_open();
+      if (tutorial_should_run())
+        tutorial_start();
+      else
+        screen_tips_hook(SCREEN_HOME);
       ui_release();
     }
   }
@@ -216,6 +274,8 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_power_open;
     case SCREEN_SETTINGS:
       return ui_settings_open;
+    case SCREEN_SETTINGS_DEV:
+      return ui_settings_open_dev;
     case SCREEN_CONNECTION_SETTINGS:
       return ui_connection_settings_open;
     case SCREEN_IR_MENU:
@@ -238,6 +298,10 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_speaker_open;
     case SCREEN_MIC_REC:
       return ui_micrec_open;
+    case SCREEN_WAV_PLAYER:
+      return ui_wav_player_open;
+    case SCREEN_PLAYER:
+      return ui_wav_library_open;
     case SCREEN_SPECTRUM:
       return ui_spectrum_open;
     case SCREEN_LORA_CHAT:
@@ -260,6 +324,10 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_subghz_menu_open;
     case SCREEN_SUBGHZ_READ:
       return ui_subghz_read_open;
+    case SCREEN_SUBGHZ_BRUTE:
+      return ui_subghz_brute_open;
+    case SCREEN_BLE_BEACON_SPAM:
+      return ui_beacon_spam_open;
     case SCREEN_RFID_MENU:
       return ui_rfid_menu_open;
     case SCREEN_BADUSB_MENU:
@@ -290,8 +358,104 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_battery_settings_open;
     case SCREEN_ABOUT_SETTINGS:
       return ui_about_settings_open;
+    case SCREEN_STORAGE:
+      return ui_storage_settings_open;
     case SCREEN_THEME_SELECTOR:
       return ui_theme_selector_open;
+    case SCREEN_BLE_DETECT_MENU:
+      return ui_ble_detect_open;
+    case SCREEN_BLE_SNIFFER:
+      return ui_ble_sniffer_open;
+    case SCREEN_BLE_TRACKER:
+      return ui_ble_tracker_open;
+    case SCREEN_BLE_SKIMMER:
+      return ui_ble_skimmer_open;
+    case SCREEN_BLE_EXPOSURE:
+      return ui_ble_exposure_open;
+    case SCREEN_GATT_EXPLORER:
+      return ui_gatt_explorer_open;
+    case SCREEN_BLE_KEYBOARD:
+      return ui_ble_keyboard_open;
+    case SCREEN_BLE_FLOOD:
+      return ui_ble_flood_open;
+    case SCREEN_BLE_RADIO:
+      return ui_ble_radio_open;
+    case SCREEN_BLE_TRACK_DEVICE:
+      return ui_ble_track_device_open;
+    case SCREEN_BLE_SPAM_NAMES:
+      return ui_ble_spam_names_open;
+    case SCREEN_WIFI_PORT_SCAN:
+      return ui_wifi_port_scan_open;
+    case SCREEN_WIFI_PROBE_MON:
+      return ui_wifi_probe_mon_open;
+    case SCREEN_WIFI_TARGET_CLIENTS:
+      return ui_wifi_target_clients_open;
+    case SCREEN_WIFI_DEAUTH_DETECTOR:
+      return ui_wifi_deauth_detector_open;
+    case SCREEN_WIFI_SIGNAL_LOCATOR:
+      return ui_wifi_signal_locator_open;
+    case SCREEN_NFC_SCAN:
+      return ui_nfc_scan_open;
+    case SCREEN_SUBGHZ_SEND:
+      return ui_subghz_send_open;
+    case SCREEN_SYSTEM_UPDATE:
+      return ui_system_update_open;
+    case SCREEN_C5_STATUS:
+      return ui_c5_status_open;
+    case SCREEN_LED_CTRL:
+      return ui_led_ctrl_open;
+    case SCREEN_MOTION:
+      return ui_motion_open;
+    case SCREEN_LORA_TRACEROUTE:
+      return ui_lora_traceroute_open;
+    case SCREEN_LORA_RNODE:
+      return ui_lora_rnode_open;
+    case SCREEN_LORA_MQTT:
+      return ui_lora_mqtt_open;
+    case SCREEN_SCRIPTS:
+      return ui_scripts_open;
+    case SCREEN_DEV_CONSOLE:
+      return ui_dev_console_open;
+    case SCREEN_DEV_DIAG:
+      return ui_dev_diag_open;
+    case SCREEN_NFC_BANKCARD:
+      return ui_nfc_bankcard_open;
+    case SCREEN_NFC_DESFIRE:
+      return ui_nfc_desfire_open;
+    case SCREEN_NFC_ISO15693:
+      return ui_nfc_iso15693_open;
+    case SCREEN_NFC_ULTRALIGHT:
+      return ui_nfc_ultralight_open;
+    case SCREEN_NFC_NDEF:
+      return ui_nfc_ndef_open;
+    case SCREEN_NFC_FELICA:
+      return ui_nfc_felica_open;
+    case SCREEN_NFC_P2P:
+      return ui_nfc_p2p_open;
+    case SCREEN_NFC_KEYDICT:
+      return ui_nfc_keydict_open;
+    case SCREEN_SUBGHZ_CONFIG:
+      return ui_subghz_config_open;
+    case SCREEN_IR_RAW:
+      return ui_ir_raw_open;
+    case SCREEN_LORA_CHANNELS:
+      return ui_lora_channels_open;
+    case SCREEN_LORA_POSITION:
+      return ui_lora_position_open;
+    case SCREEN_LORA_TELEMETRY:
+      return ui_lora_telemetry_open;
+    case SCREEN_LORA_SECURE_DM:
+      return ui_lora_securedm_open;
+    case SCREEN_WIFI_HANDSHAKE:
+      return ui_wifi_handshake_open;
+    case SCREEN_WIFI_HOTSPOT:
+      return ui_wifi_hotspot_open;
+    case SCREEN_IMU_MONITOR:
+      return ui_imu_monitor_open;
+    case SCREEN_SD_HEALTH:
+      return ui_sd_health_open;
+    case SCREEN_USB_MOUSE:
+      return ui_usb_mouse_open;
     default:
       return NULL;
   }
@@ -310,6 +474,7 @@ void ui_switch_screen(screen_id_t new_screen) {
     clear_current_screen();
     open_fn();
     current_screen_id = new_screen;
+    screen_tips_hook(new_screen);
     ui_release();
   }
 }
