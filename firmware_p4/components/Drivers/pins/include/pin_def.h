@@ -45,6 +45,7 @@ extern "C" {
 #define GPIO_SDMMC_D1_PIN  40
 #define GPIO_SDMMC_D2_PIN  41
 #define GPIO_SDMMC_D3_PIN  42
+#define GPIO_SD_CD_PIN     53
 
 /** @brief ST7789 display. */
 #define GPIO_ST7789_CS_PIN  34

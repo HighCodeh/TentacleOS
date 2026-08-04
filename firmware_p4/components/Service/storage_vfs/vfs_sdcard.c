@@ -169,7 +169,7 @@ static esp_err_t sdcard_statvfs(vfs_statvfs_t *stat) {
 
   if (f_getfree("0:", &free_clusters, &fs) == FR_OK) {
     uint64_t free_sectors = free_clusters * fs->csize;
-    stat->free_bytes = free_sectors * fs->ssize;
+    stat->free_bytes = free_sectors * s_sdcard.card->csd.sector_size;
     stat->free_blocks = free_sectors;
   } else {
     stat->free_bytes = 0;
@@ -217,11 +217,9 @@ esp_err_t vfs_sdcard_init(void) {
 
   esp_err_t ret;
 
-  // SDMMC Host configuration
   sdmmc_host_t host = SDMMC_HOST_DEFAULT();
-  host.max_freq_khz = SDMMC_FREQ_HIGHSPEED; // 40MHz
+  host.max_freq_khz = SDMMC_FREQ_HIGHSPEED;
 
-  // SDMMC Slot configuration for ESP32-P4
   sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
   slot_config.width = 4;
   slot_config.clk = GPIO_SDMMC_CLK_PIN;
@@ -232,14 +230,12 @@ esp_err_t vfs_sdcard_init(void) {
   slot_config.d3 = GPIO_SDMMC_D3_PIN;
   slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
 
-  // Mount configuration
   esp_vfs_fat_sdmmc_mount_config_t mount_config = {
       .format_if_mount_failed = VFS_FORMAT_ON_FAIL,
       .max_files = VFS_MAX_FILES,
       .allocation_unit_size = 16 * 1024,
   };
 
-  // Mount FATFS via SDMMC
   ret =
       esp_vfs_fat_sdmmc_mount(VFS_MOUNT_POINT, &host, &slot_config, &mount_config, &s_sdcard.card);
 
@@ -294,6 +290,15 @@ bool vfs_sdcard_is_mounted(void) {
   return s_sdcard.mounted;
 }
 
+bool vfs_sdcard_get_name(char *out, size_t n) {
+  if (out == NULL || n == 0 || !s_sdcard.mounted || s_sdcard.card == NULL) {
+    return false;
+  }
+  strncpy(out, s_sdcard.card->cid.name, n - 1);
+  out[n - 1] = '\0';
+  return true;
+}
+
 esp_err_t vfs_register_sd_backend(void) {
   return vfs_sdcard_init();
 }
@@ -339,4 +344,4 @@ esp_err_t vfs_sdcard_format(void) {
   return vfs_sdcard_init();
 }
 
-#endif // VFS_USE_SD_CARD
+#endif
