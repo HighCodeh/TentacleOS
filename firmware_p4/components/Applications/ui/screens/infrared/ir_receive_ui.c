@@ -55,7 +55,7 @@ static const char *TAG = "IR_RX_UI";
 #define CARD_RISE_PX 70
 #define CARD_RISE_MS 450
 
-#define IR_ICON "/assets/icons/ir_icon.bin"
+#define IR_ICON "/assets/icons/settings_input_antenna.bin"
 
 #define STATUS_IDLE     "Press OK to start"
 #define STATUS_BUSY     "Waiting for signal"
@@ -71,6 +71,8 @@ static const char *TAG = "IR_RX_UI";
 #define HINT_CAPTURED "UP/DOWN choose   OK do   BACK exit"
 
 #define REVEAL_MS 3000
+
+#define WAVES_IDLE_OPA LV_OPA_40
 
 typedef enum {
   ST_IDLE = 0,
@@ -147,8 +149,10 @@ static void start_capture(void) {
   set_status(STATUS_BUSY, false);
   if (s_detail_label)
     lv_label_set_text(s_detail_label, DETAIL_AIM);
-  if (s_waves)
+  if (s_waves) {
     lv_obj_remove_flag(s_waves, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_opa(s_waves, LV_OPA_COVER, 0);
+  }
   if (s_sig)
     lv_obj_remove_flag(s_sig, LV_OBJ_FLAG_HIDDEN);
   set_hint(HINT_BUSY);
@@ -255,7 +259,7 @@ void ui_ir_receive_open(void) {
   lv_obj_set_style_border_width(s_screen, 0, 0);
   lv_obj_set_style_pad_all(s_screen, 0, 0);
 
-  ui_chrome_header(s_screen, "Learn", "/assets/icons/learn_icon.bin");
+  ui_chrome_header(s_screen, "Learn", "/assets/icons/settings_input_antenna.bin");
 
   s_status_label = lv_label_create(s_screen);
   lv_label_set_text(s_status_label, STATUS_IDLE);
@@ -272,7 +276,7 @@ void ui_ir_receive_open(void) {
   lv_obj_align(s_detail_label, LV_ALIGN_TOP_MID, 0, DETAIL_Y);
 
   s_waves = waves_create(s_screen, LV_ALIGN_CENTER, 0, 12, NULL, IR_ICON);
-  lv_obj_add_flag(s_waves, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_set_style_opa(s_waves, WAVES_IDLE_OPA, 0);
   s_sig = sigwave_create(s_screen, LV_ALIGN_BOTTOM_MID, 0, -28);
   lv_obj_add_flag(s_sig, LV_OBJ_FLAG_HIDDEN);
 
