@@ -58,6 +58,9 @@ static QueueHandle_t s_fx_q = NULL;
 static int16_t *s_chunk_buf = NULL;
 static bool s_ready = false;
 static i2s_chan_handle_t s_rx_stream = NULL;
+static i2s_chan_handle_t s_stream_tx = NULL;
+static volatile bool s_streaming = false;
+static int16_t *s_stream_buf = NULL;
 
 static float s_play_vol = 1.0f;
 
@@ -100,6 +103,8 @@ static void audio_task(void *arg) {
   fx_t fx;
   while (true) {
     if (xQueueReceive(s_fx_q, &fx, portMAX_DELAY) != pdTRUE)
+      continue;
+    if (s_streaming)
       continue;
     for (int i = 0; i < fx.count; i++) {
       play_tone(fx.tones[i].freq_hz, fx.tones[i].dur_ms, fx.tones[i].amp);
@@ -300,6 +305,8 @@ static void render_note(i2s_chan_handle_t tx, int16_t *buf, float freq_hz, int d
 }
 
 esp_err_t audio_i2s_play_tone(float freq_hz, int dur_ms, float amp) {
+  if (s_streaming)
+    return ESP_OK;
   i2s_chan_handle_t tx = NULL;
   esp_err_t err = open_tx(&tx, SAMPLE_RATE_HZ);
   if (err != ESP_OK)
@@ -323,6 +330,8 @@ esp_err_t audio_i2s_play_song_cb(
     const audio_note_t *notes, int count, float amp, audio_song_progress_cb_t cb, void *ctx) {
   if (notes == NULL || count <= 0)
     return ESP_ERR_INVALID_ARG;
+  if (s_streaming)
+    return ESP_OK;
   i2s_chan_handle_t tx = NULL;
   esp_err_t err = open_tx(&tx, SAMPLE_RATE_HZ);
   if (err != ESP_OK)
@@ -353,6 +362,8 @@ esp_err_t audio_i2s_play_song(const audio_note_t *notes, int count, float amp) {
 esp_err_t audio_i2s_play_pcm(const int16_t *pcm, size_t n_samples, uint32_t sample_rate) {
   if (pcm == NULL || n_samples == 0)
     return ESP_ERR_INVALID_ARG;
+  if (s_streaming)
+    return ESP_OK;
   i2s_chan_handle_t tx = NULL;
   esp_err_t err = open_tx(&tx, (int)sample_rate);
   if (err != ESP_OK)
@@ -381,6 +392,78 @@ esp_err_t audio_i2s_play_pcm(const int16_t *pcm, size_t n_samples, uint32_t samp
   i2s_channel_disable(tx);
   i2s_del_channel(tx);
   return err;
+}
+
+#define STREAM_OPEN_RETRIES  12
+#define STREAM_OPEN_RETRY_MS 30
+
+esp_err_t audio_i2s_stream_start(uint32_t sample_rate) {
+  if (s_stream_tx != NULL)
+    audio_i2s_stream_stop();
+  if (s_stream_buf == NULL) {
+    s_stream_buf = heap_caps_malloc(CHUNK_SAMPLES * sizeof(int16_t), MALLOC_CAP_DMA);
+    if (s_stream_buf == NULL)
+      return ESP_ERR_NO_MEM;
+  }
+
+  s_streaming = true;
+
+  esp_err_t err = ESP_FAIL;
+  for (int attempt = 0; attempt < STREAM_OPEN_RETRIES; attempt++) {
+    err = open_tx(&s_stream_tx, (int)sample_rate);
+    if (err == ESP_OK)
+      break;
+    s_stream_tx = NULL;
+    vTaskDelay(pdMS_TO_TICKS(STREAM_OPEN_RETRY_MS));
+  }
+  if (err != ESP_OK) {
+    s_streaming = false;
+    s_stream_tx = NULL;
+    ESP_LOGE(TAG, "stream_start: open_tx %s", esp_err_to_name(err));
+  }
+  return err;
+}
+
+int audio_i2s_stream_write(const int16_t *pcm, int n_samples) {
+  if (s_stream_tx == NULL || s_stream_buf == NULL || pcm == NULL || n_samples <= 0)
+    return -1;
+  int done = 0;
+  while (done < n_samples) {
+    int n = (n_samples - done > CHUNK_SAMPLES) ? CHUNK_SAMPLES : (n_samples - done);
+    for (int i = 0; i < n; i++) {
+      int v = (int)(pcm[done + i] * s_play_vol);
+      if (v > 32767)
+        v = 32767;
+      else if (v < -32768)
+        v = -32768;
+      s_stream_buf[i] = (int16_t)v;
+    }
+    size_t w = 0;
+    if (i2s_channel_write(s_stream_tx, s_stream_buf, n * sizeof(int16_t), &w, pdMS_TO_TICKS(500)) !=
+        ESP_OK)
+      return done;
+    done += n;
+  }
+  return done;
+}
+
+void audio_i2s_stream_stop(void) {
+  if (s_stream_tx == NULL) {
+    s_streaming = false;
+    return;
+  }
+
+  if (s_stream_buf != NULL) {
+    memset(s_stream_buf, 0, CHUNK_SAMPLES * sizeof(int16_t));
+    size_t w = 0;
+    for (int k = 0; k < 3; k++)
+      i2s_channel_write(
+          s_stream_tx, s_stream_buf, CHUNK_SAMPLES * sizeof(int16_t), &w, pdMS_TO_TICKS(100));
+  }
+  i2s_channel_disable(s_stream_tx);
+  i2s_del_channel(s_stream_tx);
+  s_stream_tx = NULL;
+  s_streaming = false;
 }
 
 esp_err_t audio_i2s_mic_record(int16_t *out,

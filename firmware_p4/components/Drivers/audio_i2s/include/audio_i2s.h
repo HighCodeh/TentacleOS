@@ -138,6 +138,34 @@ int audio_i2s_mic_stream_read(int16_t *buf, int max_samples);
 void audio_i2s_mic_stream_stop(void);
 
 /**
+ * @brief Begin a continuous 16-bit mono TX stream at @p sample_rate (e.g. WAV
+ *        playback). Reuses the shared TX channel (reconfigures its clock) and
+ *        suppresses UI chimes/clicks for the duration so they don't fight the
+ *        stream. Follow with audio_i2s_stream_write() then audio_i2s_stream_stop().
+ *
+ * @param sample_rate  Stream sample rate in Hz.
+ * @return ESP_OK on success, otherwise an esp_err_t error code.
+ */
+esp_err_t audio_i2s_stream_start(uint32_t sample_rate);
+
+/**
+ * @brief Write 16-bit mono samples to the open TX stream (blocking; paces to
+ *        real time via the I2S DMA). Global volume is applied. No-op if the
+ *        stream is not started.
+ *
+ * @param pcm        16-bit mono samples.
+ * @param n_samples  Number of samples.
+ * @return Samples written, or -1 if the stream is not active.
+ */
+int audio_i2s_stream_write(const int16_t *pcm, int n_samples);
+
+/**
+ * @brief Stop the TX stream, restore the default clock and re-enable UI sounds.
+ *        Safe to call when not started.
+ */
+void audio_i2s_stream_stop(void);
+
+/**
  * @brief Queue a 3-note "boot chime" (C5 -> E5 -> G5, ~200 ms each).
  *        Non-blocking; dropped if the queue is full.
  */
