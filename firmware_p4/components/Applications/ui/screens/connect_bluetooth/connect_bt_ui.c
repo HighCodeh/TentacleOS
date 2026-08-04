@@ -42,6 +42,13 @@ static const bt_device_t MOCK_DEVICES[] = {
 };
 #define MOCK_DEVICES_COUNT ((int)(sizeof(MOCK_DEVICES) / sizeof(MOCK_DEVICES[0])))
 
+static const char *const DEVICE_ICONS[] = {
+    "/assets/icons/earbuds.bin",
+    "/assets/icons/keyboard.bin",
+    "/assets/icons/smartphone.bin",
+    "/assets/icons/watch.bin",
+};
+
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
 static lv_timer_t *s_nav_timer = NULL;
@@ -97,10 +104,10 @@ void ui_connect_bt_open(void) {
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  s_menu = menu_component_create(s_screen, "DEVICES", "/assets/icons/bluetooth_icon.bin");
+  s_menu = menu_component_create(s_screen, "DEVICES", "/assets/icons/bluetooth.bin");
 
   for (int i = 0; i < MOCK_DEVICES_COUNT; i++) {
-    menu_component_add_item(&s_menu, NULL, MOCK_DEVICES[i].name);
+    menu_component_add_item(&s_menu, DEVICE_ICONS[i], MOCK_DEVICES[i].name);
 
     if (MOCK_DEVICES[i].is_paired)
       menu_component_set_item_label_color(&s_menu, i, lv_color_hex(PAIRED_DEVICE_COLOR_HEX));
