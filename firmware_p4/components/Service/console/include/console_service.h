@@ -64,6 +64,11 @@ void register_badusb_commands(void);
  */
 void register_hostlink_commands(void);
 
+/**
+ * @brief Register screen capture/navigation commands (goto, screenshot, key).
+ */
+void register_screen_commands(void);
+
 #ifdef __cplusplus
 }
 #endif
