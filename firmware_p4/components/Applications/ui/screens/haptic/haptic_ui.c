@@ -358,12 +358,12 @@ void ui_haptic_open(void) {
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  s_menu = menu_component_create(s_screen, "Vibration", "/assets/icons/phone_icon.bin");
-  menu_component_add_intensity(&s_menu, NULL, "Live Intensity", 3);
-  menu_component_add_selector(&s_menu, NULL, "Category", CATS[0].name);
-  menu_component_add_selector(&s_menu, NULL, "Effect", CATS[0].fx[0].name);
-  menu_component_add_selector(&s_menu, NULL, "Pattern", PAT_NAMES[0]);
-  menu_component_add_item(&s_menu, NULL, "Calibrate ERM");
+  s_menu = menu_component_create(s_screen, "Vibration", "/assets/icons/vibration.bin");
+  menu_component_add_intensity(&s_menu, "/assets/icons/graphic_eq.bin", "Live Intensity", 3);
+  menu_component_add_selector(&s_menu, "/assets/icons/category.bin", "Category", CATS[0].name);
+  menu_component_add_selector(&s_menu, "/assets/icons/waves.bin", "Effect", CATS[0].fx[0].name);
+  menu_component_add_selector(&s_menu, "/assets/icons/pattern.bin", "Pattern", PAT_NAMES[0]);
+  menu_component_add_item(&s_menu, "/assets/icons/tune.bin", "Calibrate ERM");
 
   if (s_nav_timer == NULL)
     s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
