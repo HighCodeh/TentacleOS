@@ -30,8 +30,6 @@ static const char *TAG = "GPIO_UI";
 #define HINT_TEXT    "OK = Toggle   BACK = Exit"
 
 #define ON_COLOR   0x00E676
-#define ON_DARK    0x0A6B45
-#define OFF_DARK   0x171326
 #define HOLE_COLOR 0x05030C
 
 #define BODY_W      202
@@ -39,7 +37,7 @@ static const char *TAG = "GPIO_UI";
 #define ROW_GAP     6
 #define BODY_PAD    12
 #define BODY_RADIUS 12
-#define BODY_Y      8
+#define BODY_Y      (-2)
 
 #define PAD_SIZE  18
 #define PAD_HOLE  7
@@ -52,17 +50,7 @@ static const char *TAG = "GPIO_UI";
 #define RAIL_W   2
 #define RAIL_OPA LV_OPA_20
 
-#define HEADER_LABEL_Y 10
-#define RULE_W_PCT     70
-#define RULE_H         2
-#define RULE_Y         32
-#define RULE_RADIUS    1
-
-#define STRIP_LABEL "EXPANSION HEADER"
-#define STRIP_Y     40
-
 #define STATUS_GAP   12
-#define HINT_Y       (-6)
 #define BODY_FADE_MS 220
 #define PULSE_MS     150
 
@@ -116,12 +104,8 @@ static void apply_pin_state(int i) {
   bool on = s_on[i];
   lv_color_t on_color = lv_color_hex(ON_COLOR);
 
-  lv_obj_set_style_bg_color(s_pad[i], on ? on_color : current_theme.border_inactive, 0);
-  lv_obj_set_style_bg_grad_color(s_pad[i], on ? lv_color_hex(ON_DARK) : lv_color_hex(OFF_DARK), 0);
-  lv_obj_set_style_bg_grad_dir(s_pad[i], LV_GRAD_DIR_VER, 0);
-  lv_obj_set_style_shadow_color(s_pad[i], on_color, 0);
-  lv_obj_set_style_shadow_width(s_pad[i], on ? 12 : 0, 0);
-  lv_obj_set_style_shadow_opa(s_pad[i], on ? LV_OPA_60 : LV_OPA_TRANSP, 0);
+  lv_obj_set_style_bg_color(s_pad[i], on ? on_color : current_theme.bg_primary, 0);
+  lv_obj_set_style_bg_opa(s_pad[i], LV_OPA_COVER, 0);
 
   lv_obj_set_style_text_color(s_label[i], on ? on_color : current_theme.text_main, 0);
   lv_obj_set_style_text_opa(s_label[i], on ? LV_OPA_COVER : LV_OPA_80, 0);
@@ -130,9 +114,25 @@ static void apply_pin_state(int i) {
 static void apply_selection(void) {
   for (int i = 0; i < PIN_COUNT; i++) {
     bool sel = (i == s_sel);
+    bool on = s_on[i];
     lv_obj_set_style_border_width(s_pad[i], sel ? SEL_BORDER : 0, 0);
     lv_obj_set_style_border_color(s_pad[i], current_theme.border_accent, 0);
     lv_obj_set_style_border_opa(s_pad[i], sel ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+
+    if (on) {
+      lv_obj_set_style_shadow_color(s_pad[i], lv_color_hex(ON_COLOR), 0);
+      lv_obj_set_style_shadow_width(s_pad[i], 12, 0);
+      lv_obj_set_style_shadow_opa(s_pad[i], LV_OPA_60, 0);
+      lv_obj_set_style_shadow_spread(s_pad[i], 0, 0);
+    } else if (sel) {
+      lv_obj_set_style_shadow_color(s_pad[i], current_theme.border_accent, 0);
+      lv_obj_set_style_shadow_width(s_pad[i], 10, 0);
+      lv_obj_set_style_shadow_opa(s_pad[i], LV_OPA_50, 0);
+      lv_obj_set_style_shadow_spread(s_pad[i], -2, 0);
+    } else {
+      lv_obj_set_style_shadow_width(s_pad[i], 0, 0);
+      lv_obj_set_style_shadow_opa(s_pad[i], LV_OPA_TRANSP, 0);
+    }
   }
 }
 
@@ -208,14 +208,14 @@ static void build_connector(void) {
   lv_obj_align(s_body, LV_ALIGN_CENTER, 0, BODY_Y);
   lv_obj_set_style_pad_all(s_body, BODY_PAD, 0);
   lv_obj_set_style_radius(s_body, BODY_RADIUS, 0);
-  lv_obj_set_style_bg_color(s_body, current_theme.bg_primary, 0);
-  lv_obj_set_style_bg_grad_color(s_body, current_theme.bg_secondary, 0);
-  lv_obj_set_style_bg_grad_dir(s_body, LV_GRAD_DIR_VER, 0);
+  lv_obj_set_style_bg_color(s_body, current_theme.bg_secondary, 0);
+  lv_obj_set_style_bg_opa(s_body, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(s_body, 1, 0);
   lv_obj_set_style_border_color(s_body, current_theme.border_accent, 0);
   lv_obj_set_style_shadow_color(s_body, current_theme.border_accent, 0);
   lv_obj_set_style_shadow_width(s_body, 14, 0);
   lv_obj_set_style_shadow_opa(s_body, LV_OPA_30, 0);
+  lv_obj_set_style_shadow_spread(s_body, -4, 0);
 
   lv_obj_t *rail = lv_obj_create(s_body);
   lv_obj_remove_flag(rail, LV_OBJ_FLAG_SCROLLABLE);
@@ -228,30 +228,6 @@ static void build_connector(void) {
 
   for (int i = 0; i < PIN_COUNT; i++)
     make_pin_row(i);
-}
-
-static void build_header(void) {
-  lv_obj_t *title = lv_label_create(s_screen);
-  lv_label_set_text(title, HEADER_TITLE);
-  lv_obj_set_style_text_color(title, current_theme.border_accent, 0);
-  lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
-  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, HEADER_LABEL_Y);
-
-  lv_obj_t *rule = lv_obj_create(s_screen);
-  lv_obj_remove_flag(rule, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(rule, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(rule, lv_pct(RULE_W_PCT), RULE_H);
-  lv_obj_align(rule, LV_ALIGN_TOP_MID, 0, RULE_Y);
-  lv_obj_set_style_border_width(rule, 0, 0);
-  lv_obj_set_style_radius(rule, RULE_RADIUS, 0);
-  lv_obj_set_style_bg_color(rule, current_theme.border_accent, 0);
-  lv_obj_set_style_bg_opa(rule, LV_OPA_40, 0);
-
-  lv_obj_t *strip = lv_label_create(s_screen);
-  lv_label_set_text(strip, STRIP_LABEL);
-  lv_obj_set_style_text_color(strip, current_theme.border_inactive, 0);
-  lv_obj_set_style_text_font(strip, &lv_font_montserrat_12, 0);
-  lv_obj_align(strip, LV_ALIGN_TOP_MID, 0, STRIP_Y);
 }
 
 static void toggle_selected(void) {
@@ -314,7 +290,7 @@ void ui_gpio_open(void) {
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  ui_chrome_header(s_screen, HEADER_TITLE, "/assets/icons/config_icon.bin");
+  ui_chrome_header(s_screen, HEADER_TITLE, "/assets/icons/developer_board.bin");
   build_connector();
 
   for (int i = 0; i < PIN_COUNT; i++)
