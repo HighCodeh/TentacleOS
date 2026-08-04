@@ -30,15 +30,55 @@
 #define NAV_TIMER_MS 60
 #define REFRESH_MS   700
 
+#define HEADER_ICON "/assets/icons/power_settings_new.bin"
+
+#define HERO_Y        46
+#define HERO_H        74
+#define HERO_W_PCT    92
+#define HERO_RADIUS   12
+#define HERO_BORDER_W 1
+#define GLOW_W        14
+#define GLOW_SPREAD   -3
+#define CHIP_PAD_H    9
+#define CHIP_PAD_V    2
+#define CHIP_BORDER_W 1
+
+#define PCT_X   16
+#define PCT_Y   -11
+#define VOLT_Y  13
+#define STATE_X -12
+#define STATE_Y -11
+#define SRC_X   -12
+#define SRC_Y   13
+
+#define LIST_Y       128
+#define LIST_W_PCT   92
+#define ROW_H        34
+#define ROW_GAP      5
+#define ROW_RADIUS   9
+#define ROW_BORDER_W 2
+#define ROW_PAD_H    10
+#define ICON_W       20
+#define NAME_PAD_L   9
+
+#define SUCCESS_COLOR 0x00E676
+#define COL_DIM       0x8A8594
+#define COL_RAISE     0x170A28
+
 enum { ACT_CHARGE, ACT_SCAN, ACT_REGS, ACT_OFF, ACT_COUNT };
-static const char *const ACT_NAMES[ACT_COUNT] = {
-    "Charging: --", "I2C Scan", "Registers", "Power Off"};
+
+static const char *const ACT_ICON[ACT_COUNT] = {
+    LV_SYMBOL_CHARGE, LV_SYMBOL_LIST, LV_SYMBOL_SETTINGS, LV_SYMBOL_POWER};
+static const char *const ACT_NAMES[ACT_COUNT] = {"Charging", "I2C Scan", "Registers", "Power Off"};
 
 static lv_obj_t *s_screen = NULL;
-static lv_obj_t *s_telem = NULL;
-static lv_obj_t *s_chart = NULL;
-static lv_chart_series_t *s_series = NULL;
-static lv_obj_t *s_acts[ACT_COUNT];
+static lv_obj_t *s_pct = NULL;
+static lv_obj_t *s_volt = NULL;
+static lv_obj_t *s_state = NULL;
+static lv_obj_t *s_src = NULL;
+static lv_obj_t *s_row[ACT_COUNT];
+static lv_obj_t *s_row_icon[ACT_COUNT];
+static lv_obj_t *s_row_val[ACT_COUNT];
 static lv_timer_t *s_timer = NULL;
 static int s_sel = 0;
 static uint32_t s_last_refresh = 0;
@@ -70,22 +110,32 @@ static const char *vbus_name(bq25896_vbus_status_t s) {
   }
 }
 
+static void style_state_chip(bool charging) {
+  if (charging) {
+    lv_obj_set_style_text_color(s_state, lv_color_hex(SUCCESS_COLOR), 0);
+    lv_obj_set_style_bg_color(s_state, lv_color_hex(SUCCESS_COLOR), 0);
+    lv_obj_set_style_bg_opa(s_state, LV_OPA_20, 0);
+    lv_obj_set_style_border_width(s_state, 0, 0);
+  } else {
+    lv_obj_set_style_text_color(s_state, lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_bg_color(s_state, current_theme.bg_secondary, 0);
+    lv_obj_set_style_bg_opa(s_state, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(s_state, CHIP_BORDER_W, 0);
+    lv_obj_set_style_border_color(s_state, current_theme.border_inactive, 0);
+  }
+}
+
 static void refresh_telem(void) {
   bq25896_telem_t t;
   if (bq25896_read_telemetry(&t) != ESP_OK) {
-    lv_label_set_text(s_telem, "BQ25896 not responding\n(check I2C / 0x6B)");
+    lv_label_set_text(s_pct, "--");
+    lv_label_set_text(s_volt, "-- V");
+    lv_label_set_text(s_src, "no charger IC");
+    lv_label_set_text(s_state, "Offline");
+    style_state_chip(false);
+    lv_label_set_text(s_row_val[ACT_CHARGE], "--");
     return;
   }
-  char vb[16];
-  if (t.power_good)
-    snprintf(vb,
-             sizeof(vb),
-             "%u.%02uV %s",
-             t.vbus_mv / 1000,
-             (t.vbus_mv % 1000) / 10,
-             vbus_name(t.vbus));
-  else
-    snprintf(vb, sizeof(vb), "none");
 
   const char *status;
   if (t.charging) {
@@ -117,38 +167,135 @@ static void refresh_telem(void) {
       status = "Idle (full?)";
   }
 
-  char buf[160];
-  snprintf(buf,
-           sizeof(buf),
-           "Batt %u.%02u V   %d%%   %s\n"
-           "Sys %u.%02u V    VBUS %s\n"
-           "Chg %u mA   In %u mA   F:%02X",
-           t.vbat_mv / 1000,
-           (t.vbat_mv % 1000) / 10,
-           t.soc,
-           status,
-           t.vsys_mv / 1000,
-           (t.vsys_mv % 1000) / 10,
-           vb,
-           t.ichg_ma,
-           t.iinlim_ma,
-           t.fault);
-  lv_label_set_text(s_telem, buf);
+  lv_label_set_text_fmt(s_pct, "%d%%", t.soc);
+  lv_label_set_text_fmt(s_volt, "%u.%02u V", t.vbat_mv / 1000, (t.vbat_mv % 1000) / 10);
 
-  if (s_chart && s_series)
-    lv_chart_set_next_value(s_chart, s_series, t.soc);
+  if (t.power_good)
+    lv_label_set_text_fmt(
+        s_src, "%s %u.%02u V", vbus_name(t.vbus), t.vbus_mv / 1000, (t.vbus_mv % 1000) / 10);
+  else
+    lv_label_set_text(s_src, "on battery");
 
-  lv_label_set_text_fmt(
-      s_acts[ACT_CHARGE], "Charging: %s", bq25896_get_charge_enable() ? "ON" : "OFF");
+  lv_label_set_text(s_state, status);
+  style_state_chip(t.charging);
+
+  lv_label_set_text(s_row_val[ACT_CHARGE], bq25896_get_charge_enable() ? "ON" : "OFF");
 }
 
-static void draw_selection(void) {
+static void refresh_selection(void) {
+  const lv_color_t accent = current_theme.border_accent;
+  const lv_color_t dim = lv_color_hex(COL_DIM);
   for (int i = 0; i < ACT_COUNT; i++) {
     bool sel = (i == s_sel);
-    lv_obj_set_style_text_color(
-        s_acts[i], sel ? ui_theme_get_accent() : current_theme.text_main, 0);
-    lv_obj_set_style_text_opa(s_acts[i], sel ? LV_OPA_COVER : LV_OPA_70, 0);
+    lv_obj_set_style_border_color(s_row[i], sel ? accent : current_theme.border_inactive, 0);
+    lv_obj_set_style_border_opa(s_row[i], sel ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_color(
+        s_row[i], sel ? lv_color_hex(COL_RAISE) : current_theme.bg_secondary, 0);
+    lv_obj_set_style_shadow_width(s_row[i], sel ? GLOW_W : 0, 0);
+    lv_obj_set_style_shadow_spread(s_row[i], sel ? GLOW_SPREAD : 0, 0);
+    lv_obj_set_style_text_color(s_row_icon[i], sel ? accent : dim, 0);
+    lv_obj_set_style_text_color(s_row_val[i], sel ? accent : dim, 0);
   }
+}
+
+static void build_hero(void) {
+  lv_obj_t *card = lv_obj_create(s_screen);
+  lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(card, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_width(card, lv_pct(HERO_W_PCT));
+  lv_obj_set_height(card, HERO_H);
+  lv_obj_align(card, LV_ALIGN_TOP_MID, 0, HERO_Y);
+  lv_obj_set_style_radius(card, HERO_RADIUS, 0);
+  lv_obj_set_style_bg_color(card, current_theme.bg_secondary, 0);
+  lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(card, HERO_BORDER_W, 0);
+  lv_obj_set_style_border_color(card, current_theme.border_accent, 0);
+  lv_obj_set_style_shadow_width(card, GLOW_W, 0);
+  lv_obj_set_style_shadow_color(card, current_theme.border_accent, 0);
+  lv_obj_set_style_shadow_spread(card, GLOW_SPREAD, 0);
+  lv_obj_set_style_pad_all(card, 0, 0);
+
+  s_pct = lv_label_create(card);
+  lv_label_set_text(s_pct, "--");
+  lv_obj_set_style_text_font(s_pct, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(s_pct, current_theme.border_accent, 0);
+  lv_obj_align(s_pct, LV_ALIGN_LEFT_MID, PCT_X, PCT_Y);
+
+  s_volt = lv_label_create(card);
+  lv_label_set_text(s_volt, "-- V");
+  lv_obj_set_style_text_font(s_volt, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(s_volt, current_theme.text_main, 0);
+  lv_obj_align(s_volt, LV_ALIGN_LEFT_MID, PCT_X, VOLT_Y);
+
+  s_state = lv_label_create(card);
+  lv_label_set_text(s_state, "--");
+  lv_obj_set_style_text_font(s_state, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_radius(s_state, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_pad_hor(s_state, CHIP_PAD_H, 0);
+  lv_obj_set_style_pad_ver(s_state, CHIP_PAD_V, 0);
+  lv_obj_align(s_state, LV_ALIGN_RIGHT_MID, STATE_X, STATE_Y);
+  style_state_chip(false);
+
+  s_src = lv_label_create(card);
+  lv_label_set_text(s_src, "");
+  lv_obj_set_style_text_font(s_src, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(s_src, lv_color_hex(COL_DIM), 0);
+  lv_obj_align(s_src, LV_ALIGN_RIGHT_MID, SRC_X, SRC_Y);
+}
+
+static lv_obj_t *make_row(lv_obj_t *parent, int i) {
+  lv_obj_t *row = lv_obj_create(parent);
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(row, lv_pct(100), ROW_H);
+  lv_obj_set_style_radius(row, ROW_RADIUS, 0);
+  lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(row, ROW_BORDER_W, 0);
+  lv_obj_set_style_pad_left(row, ROW_PAD_H, 0);
+  lv_obj_set_style_pad_right(row, ROW_PAD_H, 0);
+  lv_obj_set_style_pad_top(row, 0, 0);
+  lv_obj_set_style_pad_bottom(row, 0, 0);
+  lv_obj_set_style_shadow_color(row, current_theme.border_accent, 0);
+  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+  lv_obj_t *ic = lv_label_create(row);
+  lv_label_set_text(ic, ACT_ICON[i]);
+  lv_obj_set_style_text_font(ic, &lv_font_montserrat_14, 0);
+  lv_obj_set_width(ic, ICON_W);
+  lv_obj_set_style_text_align(ic, LV_TEXT_ALIGN_CENTER, 0);
+
+  lv_obj_t *name = lv_label_create(row);
+  lv_label_set_text(name, ACT_NAMES[i]);
+  lv_obj_set_style_text_font(name, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(name, current_theme.text_main, 0);
+  lv_obj_set_style_pad_left(name, NAME_PAD_L, 0);
+  lv_obj_set_flex_grow(name, 1);
+
+  lv_obj_t *val = lv_label_create(row);
+  lv_label_set_text(val, i == ACT_CHARGE ? "--" : LV_SYMBOL_RIGHT);
+  lv_obj_set_style_text_font(val, &lv_font_montserrat_14, 0);
+
+  s_row_icon[i] = ic;
+  s_row_val[i] = val;
+  return row;
+}
+
+static void build_actions(void) {
+  lv_obj_t *list = lv_obj_create(s_screen);
+  lv_obj_remove_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(list, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_width(list, lv_pct(LIST_W_PCT));
+  lv_obj_set_height(list, LV_SIZE_CONTENT);
+  lv_obj_align(list, LV_ALIGN_TOP_MID, 0, LIST_Y);
+  lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(list, 0, 0);
+  lv_obj_set_style_pad_all(list, 0, 0);
+  lv_obj_set_style_pad_row(list, ROW_GAP, 0);
+  lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+
+  for (int i = 0; i < ACT_COUNT; i++)
+    s_row[i] = make_row(list, i);
 }
 
 static void i2c_scan_fill(void) {
@@ -176,6 +323,7 @@ static void poweroff_cb(bool confirm) {
 static void do_action(int act) {
   if (act == ACT_CHARGE) {
     bq25896_set_charge_enable(!bq25896_get_charge_enable());
+    refresh_telem();
   } else if (act == ACT_SCAN) {
     i2c_scan_fill();
     msgbox_open(LV_SYMBOL_LIST, s_scan_msg, NULL, NULL, NULL);
@@ -234,11 +382,11 @@ static void tick_cb(lv_timer_t *t) {
   }
   if (down && !s_down_last) {
     s_sel = (s_sel + 1) % ACT_COUNT;
-    draw_selection();
+    refresh_selection();
   }
   if (up && !s_up_last) {
     s_sel = (s_sel - 1 + ACT_COUNT) % ACT_COUNT;
-    draw_selection();
+    refresh_selection();
   }
   if ((ok && !s_ok_last) || (right && !s_right_last))
     do_action(s_sel);
@@ -264,8 +412,6 @@ void ui_power_open(void) {
   }
   s_sel = 0;
   s_last_refresh = 0;
-  s_chart = NULL;
-  s_series = NULL;
   s_up_last = s_down_last = s_ok_last = s_back_last = s_left_last = s_right_last = false;
 
   s_screen = lv_obj_create(NULL);
@@ -273,46 +419,12 @@ void ui_power_open(void) {
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  ui_chrome_header(s_screen, "Power", "/assets/icons/power_icon.bin");
+  ui_chrome_header(s_screen, "Power", HEADER_ICON);
 
-  s_telem = lv_label_create(s_screen);
-  lv_label_set_text(s_telem, "Reading...");
-  lv_obj_set_style_text_color(s_telem, current_theme.text_main, 0);
-  lv_obj_set_style_text_font(s_telem, &lv_font_montserrat_12, 0);
-  lv_obj_align(s_telem, LV_ALIGN_TOP_LEFT, 10, 48);
+  build_hero();
+  build_actions();
 
-  s_chart = lv_chart_create(s_screen);
-  lv_obj_set_size(s_chart, lv_pct(92), 72);
-  lv_obj_align(s_chart, LV_ALIGN_TOP_MID, 0, 106);
-  lv_obj_set_style_bg_color(s_chart, current_theme.bg_secondary, 0);
-  lv_obj_set_style_bg_opa(s_chart, LV_OPA_40, 0);
-  lv_obj_set_style_border_width(s_chart, 1, 0);
-  lv_obj_set_style_border_color(s_chart, current_theme.border_interface, 0);
-  lv_obj_set_style_radius(s_chart, 6, 0);
-  lv_obj_set_style_width(s_chart, 0, LV_PART_INDICATOR);
-  lv_obj_set_style_height(s_chart, 0, LV_PART_INDICATOR);
-  lv_chart_set_type(s_chart, LV_CHART_TYPE_LINE);
-  lv_chart_set_update_mode(s_chart, LV_CHART_UPDATE_MODE_SHIFT);
-  lv_chart_set_point_count(s_chart, 40);
-  lv_chart_set_range(s_chart, LV_CHART_AXIS_PRIMARY_Y, 0, 100);
-  lv_chart_set_div_line_count(s_chart, 3, 0);
-  s_series = lv_chart_add_series(s_chart, ui_theme_get_accent(), LV_CHART_AXIS_PRIMARY_Y);
-
-  lv_obj_t *gl = lv_label_create(s_screen);
-  lv_label_set_text(gl, "Battery %");
-  lv_obj_set_style_text_color(gl, current_theme.text_main, 0);
-  lv_obj_set_style_text_opa(gl, LV_OPA_50, 0);
-  lv_obj_set_style_text_font(gl, &lv_font_montserrat_12, 0);
-  lv_obj_align(gl, LV_ALIGN_TOP_MID, 0, 94);
-
-  for (int i = 0; i < ACT_COUNT; i++) {
-    s_acts[i] = lv_label_create(s_screen);
-    lv_label_set_text(s_acts[i], ACT_NAMES[i]);
-    lv_obj_set_style_text_color(s_acts[i], current_theme.text_main, 0);
-    lv_obj_set_style_text_font(s_acts[i], &lv_font_montserrat_14, 0);
-    lv_obj_align(s_acts[i], LV_ALIGN_BOTTOM_LEFT, 12, -100 + i * 22);
-  }
-  draw_selection();
+  refresh_selection();
   refresh_telem();
 
   ui_chrome_footer(s_screen, "UP/DOWN select   OK do   BACK exit");
