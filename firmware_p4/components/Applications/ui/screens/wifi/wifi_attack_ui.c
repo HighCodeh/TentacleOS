@@ -56,6 +56,14 @@ static const attack_def_t ATTACKS[] = {
 };
 #define ATTACKS_COUNT (sizeof(ATTACKS) / sizeof(ATTACKS[0]))
 
+static const char *const ATTACK_ICONS[] = {
+    "/assets/icons/wifi_off.bin",
+    "/assets/icons/wifi_tethering.bin",
+    "/assets/icons/wifi_find.bin",
+    "/assets/icons/bolt.bin",
+    "/assets/icons/wifi_tethering.bin",
+};
+
 typedef enum {
   VIEW_LIST,
   VIEW_RUNNING,
@@ -145,9 +153,9 @@ static void build_list_view(void) {
   lv_obj_set_style_border_width(s_screen, 0, 0);
   lv_obj_set_style_pad_all(s_screen, 0, 0);
 
-  s_menu = menu_component_create(s_screen, "ATTACKS", "/assets/icons/spam_icon.bin");
+  s_menu = menu_component_create(s_screen, "ATTACKS", "/assets/icons/bolt.bin");
   for (size_t i = 0; i < ATTACKS_COUNT; i++)
-    menu_component_add_item(&s_menu, NULL, ATTACKS[i].name);
+    menu_component_add_item(&s_menu, ATTACK_ICONS[i], ATTACKS[i].name);
 
   fade_in(s_menu.title_bar, 200);
   fade_in(s_menu.items_cont, 200);
@@ -167,7 +175,7 @@ static void build_running_view(int idx) {
   lv_obj_set_style_border_width(s_screen, 0, 0);
   lv_obj_set_style_pad_all(s_screen, 0, 0);
 
-  lv_obj_t *header = ui_chrome_header(s_screen, ATTACKS[idx].name, "/assets/icons/spam_icon.bin");
+  lv_obj_t *header = ui_chrome_header(s_screen, ATTACKS[idx].name, "/assets/icons/bolt.bin");
 
   lv_obj_t *status_label = lv_label_create(s_screen);
   lv_label_set_text(status_label, "Running...");

@@ -55,6 +55,13 @@ static const capture_def_t MODES[] = {
 };
 #define MODES_COUNT (sizeof(MODES) / sizeof(MODES[0]))
 
+static const char *const MODE_ICONS[] = {
+    "/assets/icons/monitoring.bin",
+    "/assets/icons/key.bin",
+    "/assets/icons/cell_tower.bin",
+    "/assets/icons/vpn_key.bin",
+};
+
 typedef enum {
   VIEW_LIST,
   VIEW_CAPTURING,
@@ -147,9 +154,9 @@ static void build_list_view(void) {
   lv_obj_set_style_border_width(s_screen, 0, 0);
   lv_obj_set_style_pad_all(s_screen, 0, 0);
 
-  s_menu = menu_component_create(s_screen, "PACKETS", "/assets/icons/search_menu_icon.bin");
+  s_menu = menu_component_create(s_screen, "PACKETS", "/assets/icons/download.bin");
   for (size_t i = 0; i < MODES_COUNT; i++)
-    menu_component_add_item(&s_menu, NULL, MODES[i].name);
+    menu_component_add_item(&s_menu, MODE_ICONS[i], MODES[i].name);
 
   fade_in(s_menu.title_bar, 200);
   fade_in(s_menu.items_cont, 200);
@@ -170,8 +177,7 @@ static void build_capturing_view(int idx) {
   lv_obj_set_style_border_width(s_screen, 0, 0);
   lv_obj_set_style_pad_all(s_screen, 0, 0);
 
-  lv_obj_t *header =
-      ui_chrome_header(s_screen, MODES[idx].name, "/assets/icons/search_menu_icon.bin");
+  lv_obj_t *header = ui_chrome_header(s_screen, MODES[idx].name, "/assets/icons/download.bin");
 
   lv_obj_t *status_label = lv_label_create(s_screen);
   lv_label_set_text(status_label, "Capturing...");

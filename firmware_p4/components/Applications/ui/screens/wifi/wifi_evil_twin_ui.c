@@ -102,7 +102,7 @@ void ui_wifi_evil_twin_open(void) {
   lv_obj_set_style_border_width(s_screen, 0, 0);
   lv_obj_set_style_pad_all(s_screen, 0, 0);
 
-  ui_chrome_header(s_screen, "EVIL TWIN", "/assets/icons/wifi_menu_icon.bin");
+  ui_chrome_header(s_screen, "EVIL TWIN", "/assets/icons/wifi_tethering.bin");
 
   s_status_label = lv_label_create(s_screen);
   lv_label_set_text(s_status_label, "Broadcasting...");

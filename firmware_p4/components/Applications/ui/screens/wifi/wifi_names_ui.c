@@ -25,7 +25,6 @@
 #include "wifi_names.h"
 
 #define NAV_TIMER_MS 50
-#define NAME_ICON    "/assets/icons/wifi_menu_icon.bin"
 #define COLOR_NAME   0x00E676
 #define COLOR_ADD    0xCC00FF
 
@@ -50,16 +49,16 @@ static void build_screen(void) {
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  s_menu = menu_component_create(s_screen, "Networks", NAME_ICON);
+  s_menu = menu_component_create(s_screen, "Networks", "/assets/icons/edit_note.bin");
 
   int count = wifi_names_count();
   for (int i = 0; i < count; i++) {
-    menu_component_add_item(&s_menu, NAME_ICON, wifi_names_get(i));
+    menu_component_add_item(&s_menu, "/assets/icons/wifi.bin", wifi_names_get(i));
     menu_component_set_item_label_color(&s_menu, i, lv_color_hex(COLOR_NAME));
   }
 
   if (count < WIFI_NAMES_MAX) {
-    menu_component_add_item(&s_menu, NAME_ICON, "+ Add network");
+    menu_component_add_item(&s_menu, "/assets/icons/add.bin", "+ Add network");
     menu_component_set_item_label_color(&s_menu, count, lv_color_hex(COLOR_ADD));
   }
 
