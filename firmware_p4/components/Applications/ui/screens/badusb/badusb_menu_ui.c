@@ -111,21 +111,41 @@ static const char *TAG = "BADUSB_UI";
 #define LAYOUT_ACTIVE_DEFAULT 4
 #define SIG_GREEN             0x00E676
 
-#define INFO_PANEL_W      200
-#define INFO_PANEL_H      120
-#define INFO_PANEL_RADIUS 10
-#define INFO_ROW_GAP      24
-#define INFO_FIRST_ROW_Y  14
-#define INFO_LABEL_X      12
+#define INFO_PANEL_W       200
+#define INFO_PANEL_H       120
+#define INFO_PANEL_RADIUS  10
+#define INFO_ROW_GAP       24
+#define INFO_FIRST_ROW_Y   14
+#define INFO_LABEL_X       12
+#define STATUS_FOOTER_HINT "BACK exit"
+
+#define PAY_LIST_TOP      46
+#define PAY_LIST_W        216
+#define PAY_LIST_H        150
+#define PAY_ROW_H         26
+#define PAY_ROW_GAP       4
+#define PAY_KEY_SZ        20
+#define PAY_KEY_RADIUS    6
+#define PAY_ROW_RADIUS    8
+#define PAY_GLOW_W        14
+#define PAY_PREVIEW_W     216
+#define PAY_PREVIEW_H     92
+#define PAY_PREVIEW_BOT   26
+#define PAY_PREVIEW_RAD   8
+#define PAY_PREVIEW_PAD   8
+#define PAY_KEY_TINT_OPA  LV_OPA_20
+#define PAY_BODY_BUF_LEN  160
+#define PREVIEW_MAX_LINES 4
 
 static const struct {
   const char *name;
   const char *icon;
 } MENU_ITEMS[] = {
-    {"Run Payload", "/assets/icons/package_delivery_icon.bin"},
-    {"Payloads", "/assets/icons/file_icon.bin"},
-    {"Keyboard Layout", "/assets/icons/keyboard_icon.bin"},
-    {"USB Status", "/assets/icons/config_icon.bin"},
+    {"Run Payload", "/assets/icons/play_arrow.bin"},
+    {"Payloads", "/assets/icons/description.bin"},
+    {"Keyboard Layout", "/assets/icons/keyboard.bin"},
+    {"USB Status", "/assets/icons/usb.bin"},
+    {"HID Mouse", "/assets/icons/usb.bin"},
 };
 #define MENU_ITEM_COUNT ((int)(sizeof(MENU_ITEMS) / sizeof(MENU_ITEMS[0])))
 
@@ -133,6 +153,7 @@ static const struct {
 #define IDX_PAYLOADS    1
 #define IDX_LAYOUT      2
 #define IDX_STATUS      3
+#define IDX_MOUSE       4
 
 static const char *PAYLOADS[] = {
     "rickroll.duck",
@@ -152,6 +173,22 @@ static const char *SCRIPT_LINES[] = {
     "$ done.",
 };
 #define SCRIPT_LINE_COUNT ((int)(sizeof(SCRIPT_LINES) / sizeof(SCRIPT_LINES[0])))
+
+static const struct {
+  const char *base;
+  const char *size;
+  const char *lines[PREVIEW_MAX_LINES];
+  int line_count;
+} PAYLOAD_PREVIEW[PAYLOAD_COUNT] = {
+    {"rickroll", "1.2 KB", {"GUI r", "STRING chrome youtu.be/dQw4", "ENTER"}, 3},
+    {"wifi_grab", "0.8 KB", {"GUI r", "STRING cmd /k netsh wlan export", "ENTER"}, 3},
+    {"lock_pc", "0.3 KB", {"DELAY 200", "GUI l"}, 2},
+    {"hello_world", "0.2 KB", {"STRING Hello, World!", "ENTER"}, 2},
+    {"reverse_shell",
+     "2.1 KB",
+     {"GUI r", "STRING powershell -nop -w hidden", "DELAY 300", "ENTER"},
+     4},
+};
 
 static const char *LAYOUTS[] = {"US", "UK", "DE", "FR", "BR"};
 #define LAYOUT_COUNT ((int)(sizeof(LAYOUTS) / sizeof(LAYOUTS[0])))
@@ -191,6 +228,10 @@ static lv_timer_t *s_type_timer = NULL;
 
 static int s_payload_sel = 0;
 static int s_layout_active = LAYOUT_ACTIVE_DEFAULT;
+
+static lv_obj_t *s_pay_rows[PAYLOAD_COUNT];
+static lv_obj_t *s_pay_prev_title = NULL;
+static lv_obj_t *s_pay_prev_body = NULL;
 
 static run_stage_t s_run_stage = RUN_STAGE_DETECTING;
 static lv_obj_t *s_status_lbl = NULL;
@@ -329,7 +370,7 @@ static void build_detecting(void) {
   lv_obj_set_style_border_width(s_detect_group, 0, 0);
   lv_obj_set_style_pad_all(s_detect_group, 0, 0);
 
-  waves_create(s_detect_group, LV_ALIGN_CENTER, 0, 0, NULL, "/assets/icons/usb_icon.bin");
+  waves_create(s_detect_group, LV_ALIGN_CENTER, 0, 0, NULL, "/assets/icons/usb.bin");
 
   int total_w = DOT_COUNT * DOT_SIZE + (DOT_COUNT - 1) * DOT_GAP;
   int x0 = -(total_w / 2) + DOT_SIZE / 2;
@@ -610,7 +651,7 @@ static void stage_advance_cb(lv_timer_t *t) {
 }
 
 static void build_running(void) {
-  ui_chrome_header(s_screen, "BADUSB", "/assets/icons/usb_icon.bin");
+  ui_chrome_header(s_screen, "BADUSB", "/assets/icons/usb.bin");
 
   s_run_stage = RUN_STAGE_DETECTING;
   build_detecting();
@@ -619,20 +660,150 @@ static void build_running(void) {
   lv_timer_set_repeat_count(s_stage_timer, 1);
 }
 
-static void build_payloads(void) {
-  s_menu = menu_component_create(s_screen, "PAYLOADS", "/assets/icons/file_icon.bin");
+static void pay_style_row(lv_obj_t *row, bool selected) {
+  lv_obj_set_style_border_width(row, 1, 0);
+  lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+  if (selected) {
+    lv_obj_set_style_bg_color(row, current_theme.bg_secondary, 0);
+    lv_obj_set_style_border_color(row, current_theme.border_accent, 0);
+    lv_obj_set_style_border_opa(row, LV_OPA_COVER, 0);
+    lv_obj_set_style_shadow_color(row, current_theme.border_accent, 0);
+    lv_obj_set_style_shadow_width(row, PAY_GLOW_W, 0);
+    lv_obj_set_style_shadow_opa(row, LV_OPA_40, 0);
+    lv_obj_set_style_shadow_spread(row, -2, 0);
+  } else {
+    lv_obj_set_style_bg_color(row, current_theme.bg_primary, 0);
+    lv_obj_set_style_border_color(row, current_theme.border_inactive, 0);
+    lv_obj_set_style_border_opa(row, LV_OPA_COVER, 0);
+    lv_obj_set_style_shadow_width(row, 0, 0);
+    lv_obj_set_style_shadow_opa(row, LV_OPA_TRANSP, 0);
+  }
+}
+
+static void pay_update_preview(int idx) {
+  if (s_pay_prev_title != NULL) {
+    char title[48];
+    snprintf(title, sizeof(title), "// %s", PAYLOADS[idx]);
+    lv_label_set_text(s_pay_prev_title, title);
+  }
+  if (s_pay_prev_body != NULL) {
+    char body[PAY_BODY_BUF_LEN];
+    int pos = 0;
+    for (int i = 0; i < PAYLOAD_PREVIEW[idx].line_count && pos < PAY_BODY_BUF_LEN - 1; i++)
+      pos += snprintf(body + pos,
+                      PAY_BODY_BUF_LEN - pos,
+                      "%s%s",
+                      i == 0 ? "" : "\n",
+                      PAYLOAD_PREVIEW[idx].lines[i]);
+    lv_label_set_text(s_pay_prev_body, body);
+  }
+}
+
+static void pay_apply_sel(int idx) {
   for (int i = 0; i < PAYLOAD_COUNT; i++)
-    menu_component_add_item(&s_menu, "/assets/icons/file_icon.bin", PAYLOADS[i]);
-  if (s_payload_sel > 0 && s_payload_sel < PAYLOAD_COUNT)
-    menu_component_select(&s_menu, s_payload_sel);
-  fade_in(s_menu.items_cont, FADE_MS);
-  fade_in(s_menu.title_bar, FADE_MS);
+    if (s_pay_rows[i] != NULL)
+      pay_style_row(s_pay_rows[i], i == idx);
+  pay_update_preview(idx);
+}
+
+static void build_payloads(void) {
+  ui_chrome_header(s_screen, "PAYLOADS", "/assets/icons/description.bin");
+  ui_chrome_footer(s_screen, "UP/DOWN pick   OK run   BACK back");
+
+  if (s_payload_sel < 0)
+    s_payload_sel = 0;
+  if (s_payload_sel >= PAYLOAD_COUNT)
+    s_payload_sel = PAYLOAD_COUNT - 1;
+
+  lv_obj_t *list = lv_obj_create(s_screen);
+  lv_obj_remove_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(list, PAY_LIST_W, PAY_LIST_H);
+  lv_obj_align(list, LV_ALIGN_TOP_MID, 0, PAY_LIST_TOP);
+  lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(list, 0, 0);
+  lv_obj_set_style_pad_all(list, 0, 0);
+  lv_obj_set_style_pad_row(list, PAY_ROW_GAP, 0);
+  lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
+
+  for (int i = 0; i < PAYLOAD_COUNT; i++) {
+    lv_obj_t *row = lv_obj_create(list);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(row, lv_pct(100), PAY_ROW_H);
+    lv_obj_set_style_radius(row, PAY_ROW_RADIUS, 0);
+    lv_obj_set_style_pad_hor(row, 8, 0);
+    lv_obj_set_style_pad_ver(row, 0, 0);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(row, 8, 0);
+
+    lv_obj_t *key = lv_obj_create(row);
+    lv_obj_remove_flag(key, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(key, PAY_KEY_SZ, PAY_KEY_SZ);
+    lv_obj_set_style_radius(key, PAY_KEY_RADIUS, 0);
+    lv_obj_set_style_pad_all(key, 0, 0);
+    lv_obj_set_style_border_width(key, 0, 0);
+    lv_obj_set_style_bg_color(key, current_theme.border_accent, 0);
+    lv_obj_set_style_bg_opa(key, PAY_KEY_TINT_OPA, 0);
+    lv_obj_t *kico = lv_label_create(key);
+    lv_label_set_text(kico, LV_SYMBOL_FILE);
+    lv_obj_set_style_text_color(kico, current_theme.border_accent, 0);
+    lv_obj_set_style_text_font(kico, &lv_font_montserrat_12, 0);
+    lv_obj_center(kico);
+
+    lv_obj_t *name = lv_label_create(row);
+    lv_label_set_text(name, PAYLOAD_PREVIEW[i].base);
+    lv_obj_set_style_text_color(name, current_theme.text_main, 0);
+    lv_obj_set_style_text_font(name, &lv_font_montserrat_12, 0);
+    lv_obj_set_flex_grow(name, 1);
+
+    lv_obj_t *meta = lv_label_create(row);
+    char metatxt[32];
+    snprintf(metatxt, sizeof(metatxt), ".duck \xC2\xB7 %s", PAYLOAD_PREVIEW[i].size);
+    lv_label_set_text(meta, metatxt);
+    lv_obj_set_style_text_color(meta, current_theme.border_inactive, 0);
+    lv_obj_set_style_text_font(meta, &lv_font_montserrat_12, 0);
+
+    s_pay_rows[i] = row;
+  }
+
+  lv_obj_t *prev = lv_obj_create(s_screen);
+  lv_obj_remove_flag(prev, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(prev, PAY_PREVIEW_W, PAY_PREVIEW_H);
+  lv_obj_align(prev, LV_ALIGN_BOTTOM_MID, 0, -PAY_PREVIEW_BOT);
+  lv_obj_set_style_radius(prev, PAY_PREVIEW_RAD, 0);
+  lv_obj_set_style_bg_color(prev, lv_color_hex(DARK_PANEL_COLOR), 0);
+  lv_obj_set_style_bg_opa(prev, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(prev, TERMINAL_BORDER, 0);
+  lv_obj_set_style_border_color(prev, lv_color_hex(TERM_GREEN), 0);
+  lv_obj_set_style_border_opa(prev, LV_OPA_70, 0);
+  lv_obj_set_style_shadow_color(prev, lv_color_hex(TERM_GREEN), 0);
+  lv_obj_set_style_shadow_width(prev, 12, 0);
+  lv_obj_set_style_shadow_opa(prev, LV_OPA_20, 0);
+  lv_obj_set_style_pad_all(prev, PAY_PREVIEW_PAD, 0);
+
+  s_pay_prev_title = lv_label_create(prev);
+  lv_obj_set_style_text_color(s_pay_prev_title, lv_color_hex(TERM_DIM_GREEN), 0);
+  lv_obj_set_style_text_font(s_pay_prev_title, &lv_font_montserrat_12, 0);
+  lv_obj_align(s_pay_prev_title, LV_ALIGN_TOP_LEFT, 0, 0);
+
+  s_pay_prev_body = lv_label_create(prev);
+  lv_obj_set_width(s_pay_prev_body, PAY_PREVIEW_W - PAY_PREVIEW_PAD * 2);
+  lv_label_set_long_mode(s_pay_prev_body, LV_LABEL_LONG_WRAP);
+  lv_obj_set_style_text_color(s_pay_prev_body, lv_color_hex(TERM_GREEN), 0);
+  lv_obj_set_style_text_font(s_pay_prev_body, &lv_font_montserrat_12, 0);
+  lv_obj_align(s_pay_prev_body, LV_ALIGN_TOP_LEFT, 0, 18);
+
+  pay_apply_sel(s_payload_sel);
+
+  fade_in(list, FADE_MS);
+  fade_in(prev, FADE_MS);
 }
 
 static void build_layout(void) {
-  s_menu = menu_component_create(s_screen, "LAYOUT", "/assets/icons/keyboard_icon.bin");
+  s_menu = menu_component_create(s_screen, "LAYOUT", "/assets/icons/keyboard.bin");
   for (int i = 0; i < LAYOUT_COUNT; i++) {
-    menu_component_add_item(&s_menu, NULL, LAYOUTS[i]);
+    menu_component_add_item(&s_menu, "/assets/icons/keyboard.bin", LAYOUTS[i]);
     if (i == s_layout_active)
       menu_component_set_item_label_color(&s_menu, i, lv_color_hex(SIG_GREEN));
   }
@@ -642,12 +813,13 @@ static void build_layout(void) {
 }
 
 static void build_status(void) {
-  ui_chrome_header(s_screen, "USB STATUS", "/assets/icons/config_icon.bin");
+  ui_chrome_header(s_screen, "USB STATUS", "/assets/icons/usb.bin");
+  ui_chrome_footer(s_screen, STATUS_FOOTER_HINT);
 
   lv_obj_t *panel = lv_obj_create(s_screen);
   lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(panel, INFO_PANEL_W, INFO_PANEL_H);
-  lv_obj_align(panel, LV_ALIGN_CENTER, 0, 0);
+  lv_obj_align(panel, LV_ALIGN_CENTER, 0, (UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H) / 2);
   lv_obj_set_style_radius(panel, INFO_PANEL_RADIUS, 0);
   lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0);
   lv_obj_set_style_bg_color(panel, current_theme.bg_primary, 0);
@@ -689,6 +861,10 @@ static void build_screen(void) {
   s_term_lbl = NULL;
   s_progress = NULL;
   s_pct_lbl = NULL;
+  s_pay_prev_title = NULL;
+  s_pay_prev_body = NULL;
+  for (int i = 0; i < PAYLOAD_COUNT; i++)
+    s_pay_rows[i] = NULL;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -712,7 +888,7 @@ static void build_screen(void) {
       break;
     case VIEW_LIST:
     default:
-      s_menu = menu_component_create(s_screen, "BADUSB", "/assets/icons/usb_icon.bin");
+      s_menu = menu_component_create(s_screen, "BADUSB", "/assets/icons/usb.bin");
       for (int i = 0; i < MENU_ITEM_COUNT; i++)
         menu_component_add_item(&s_menu, MENU_ITEMS[i].icon, MENU_ITEMS[i].name);
       fade_in(s_menu.items_cont, FADE_MS);
@@ -767,6 +943,9 @@ static void nav_timer_cb(lv_timer_t *t) {
           s_view = VIEW_STATUS;
           build_screen();
           goto latch;
+        } else if (sel == IDX_MOUSE) {
+          ui_switch_screen(SCREEN_USB_MOUSE);
+          goto latch;
         }
       }
       if (back && !s_back_last)
@@ -774,12 +953,15 @@ static void nav_timer_cb(lv_timer_t *t) {
       break;
 
     case VIEW_PAYLOADS:
-      if (down && !s_down_last)
-        menu_component_next(&s_menu);
-      if (up && !s_up_last)
-        menu_component_prev(&s_menu);
+      if (down && !s_down_last && s_payload_sel < PAYLOAD_COUNT - 1) {
+        s_payload_sel++;
+        pay_apply_sel(s_payload_sel);
+      }
+      if (up && !s_up_last && s_payload_sel > 0) {
+        s_payload_sel--;
+        pay_apply_sel(s_payload_sel);
+      }
       if (ok && !s_ok_last) {
-        s_payload_sel = menu_component_get_selected(&s_menu);
         s_view = VIEW_RUNNING;
         build_screen();
         goto latch;
