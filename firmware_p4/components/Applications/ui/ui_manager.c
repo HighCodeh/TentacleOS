@@ -69,11 +69,6 @@
 #include "wav_library_ui.h"
 #include "spectrum_ui.h"
 #include "lora_chat_ui.h"
-#include "games_menu_ui.h"
-#include "flappy_ui.h"
-#include "snake_ui.h"
-#include "breakout_ui.h"
-#include "octopet_ui.h"
 #include "octobit_status_ui.h"
 #include "dev_menu_ui.h"
 #include "subghz_menu_ui.h"
@@ -101,7 +96,6 @@
 #include "system_update_ui.h"
 #include "c5_status_ui.h"
 #include "led_ctrl_ui.h"
-#include "motion_ui.h"
 #include "lora_traceroute_ui.h"
 #include "lora_rnode_ui.h"
 #include "lora_mqtt_ui.h"
@@ -306,16 +300,6 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_spectrum_open;
     case SCREEN_LORA_CHAT:
       return ui_lora_chat_open;
-    case SCREEN_GAMES_MENU:
-      return ui_games_menu_open;
-    case SCREEN_GAME_FLAPPY:
-      return ui_flappy_open;
-    case SCREEN_GAME_SNAKE:
-      return ui_snake_open;
-    case SCREEN_GAME_BREAKOUT:
-      return ui_breakout_open;
-    case SCREEN_GAME_OCTOPET:
-      return ui_octopet_open;
     case SCREEN_OCTOBIT_STATUS:
       return ui_octobit_status_open;
     case SCREEN_DEV_MENU:
@@ -404,8 +388,6 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_c5_status_open;
     case SCREEN_LED_CTRL:
       return ui_led_ctrl_open;
-    case SCREEN_MOTION:
-      return ui_motion_open;
     case SCREEN_LORA_TRACEROUTE:
       return ui_lora_traceroute_open;
     case SCREEN_LORA_RNODE:

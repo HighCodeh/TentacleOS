@@ -256,10 +256,6 @@ static const tip_entry_t TIPS[] = {
      "MIC TO SPEAKER",
      "Capture up to 5s from the mic and play it back on the speaker, watching the live VU and "
      "waveform."},
-    {SCREEN_GAME_OCTOPET,
-     "OCTO PET",
-     "Octo Pet is my virtual buddy: feed, play and clean, or the stats drop and it faints until "
-     "you revive it."},
 
     {SCREEN_SETTINGS,
      "SETTINGS",
