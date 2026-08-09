@@ -34,8 +34,9 @@ esp_err_t c5_flasher_init(void);
 // and no BOOT/RESET pins are involved - the C5 keeps running its app until the
 // final reboot, so a failed transfer is harmless (the old slot still boots).
 //
-// If bin_data is NULL and C5_FIRMWARE_EMBEDDED is set, the embedded C5 app image
-// is used. Returns ESP_OK only after the C5 ACKs a verified image.
+// If bin_data is NULL, the C5 app image is streamed from the micro-SD at
+// /sdcard/c5/TentacleOS_C5.bin (SD must be mounted). Returns ESP_OK only after
+// the C5 ACKs a verified image.
 esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size);
 
 // Live OTA progress for the UI progress bar. *sent / *total are bytes; total is
