@@ -1,5 +1,5 @@
-# Flash - 16MB, DIO, 20MHz (conservative clock for marginal V1.x/FFC hardware)
-CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+# Flash — 8MB, DIO, 20MHz (conservative clock for marginal V1.x/FFC hardware)
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 CONFIG_ESPTOOLPY_FLASHFREQ_20M=y
 CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
 
@@ -48,11 +48,17 @@ CONFIG_LV_FONT_MONTSERRAT_16=y
 # LVGL no-PSRAM tuning (mirrors firmware_p4_prototype)
 # CONFIG_LV_USE_BUILTIN_MALLOC is not set
 CONFIG_LV_USE_CLIB_MALLOC=y
-CONFIG_LV_CACHE_DEF_SIZE=262144
+CONFIG_LV_CACHE_DEF_SIZE=204800
 CONFIG_LV_USE_FS_POSIX=y
 CONFIG_LV_FS_POSIX_LETTER=65
 CONFIG_LV_FS_POSIX_PATH="/"
 CONFIG_FREERTOS_HZ=1000
+
+# SD is native 512-byte sectors; 4096 wastes ~40KB of internal heap on FATFS buffers
+CONFIG_FATFS_SECTOR_512=y
+CONFIG_WL_SECTOR_SIZE_512=y
+# Long filenames on SD (TOS folder tree uses names >8.3, e.g. captive_portal, screen.conf)
+CONFIG_FATFS_LFN_HEAP=y
 
 # Default log level INFO
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
