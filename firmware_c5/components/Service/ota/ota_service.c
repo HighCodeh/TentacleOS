@@ -150,6 +150,8 @@ static void do_ota(void) {
     if ((written % (256 * 1024)) < OTA_BLOCK) {
       ESP_LOGI(TAG, "  received %lu/%lu", (unsigned long)written, (unsigned long)size);
     }
+
+    vTaskDelay(1); // yield each block so the idle task runs and feeds the task WDT
   }
   ESP_LOGI(TAG, "all %lu bytes received, validating image...", (unsigned long)size);
 

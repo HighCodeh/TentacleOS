@@ -19,6 +19,9 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 #include "esp_log.h"
 #include "esp_ota_ops.h"
 #include "esp_system.h"
@@ -49,7 +52,7 @@ ota_state_t ota_get_state(void) {
   return s_state;
 }
 
-static void sync_version_to_assets(void) {
+void ota_sync_version_to_assets(void) {
   size_t size;
   uint8_t *json_data = storage_assets_load_file(VERSION_JSON_PATH, &size);
   if (json_data == NULL) {
@@ -193,6 +196,8 @@ esp_err_t ota_start_update(ota_progress_cb_t progress_cb) {
       snprintf(msg, sizeof(msg), "Writing: %ld / %ld bytes", bytes_written, file_size);
       progress_cb(percent, msg);
     }
+
+    vTaskDelay(1); // yield each chunk so the idle task runs and feeds the task WDT
   }
 
   ESP_LOGI(TAG, "OTA write complete (%ld bytes)", bytes_written);
@@ -268,6 +273,9 @@ esp_err_t ota_post_boot_check(void) {
     ESP_LOGI(TAG, "Normal boot (no pending OTA verification)");
   }
 
-  sync_version_to_assets();
+  // The version sync is NOT done here: this runs from app_main before
+  // storage_assets_init(), so the assets partition is not mounted yet and every
+  // attempt failed with "Assets not initialized". kernel_init calls
+  // ota_sync_version_to_assets() once the partition is up.
   return ESP_OK;
 }
