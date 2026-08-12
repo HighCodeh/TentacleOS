@@ -18,8 +18,7 @@
  * @brief Central GPIO pin assignments for the ESP32-P4 (HighBoy V2 board).
  *
  * All hardware pin numbers are defined here. No driver should hardcode GPIO
- * numbers - use these defines instead. Mapped from the HighBoy V2 schematic
- * (2026-07-05). See the sheet reference in each group's comment.
+ * numbers - use these defines instead.
  */
 
 #ifndef PIN_DEF_H
@@ -29,10 +28,10 @@
 extern "C" {
 #endif
 
-/** @brief Shared SPI bus (display, CC1101, NFC, IMU, LoRa) - each has its own CS. */
-#define GPIO_SPI_MOSI_PIN 22 // GPIO22 SI
-#define GPIO_SPI_SCLK_PIN 21 // GPIO21 CLK
-#define GPIO_SPI_MISO_PIN 23 // GPIO23 SO
+/** @brief Shared SPI bus (display, CC1101, NFC, IMU, LoRa). */
+#define GPIO_SPI_MOSI_PIN 22
+#define GPIO_SPI_SCLK_PIN 21
+#define GPIO_SPI_MISO_PIN 23
 
 /** @brief I2C bus (charger, fuel gauge, LED driver, haptic). */
 #define GPIO_I2C_SDA_PIN 31
@@ -42,47 +41,50 @@ extern "C" {
 #define GPIO_CC1101_CS_PIN   20
 #define GPIO_CC1101_GDO0_PIN 8
 #define GPIO_CC1101_GDO2_PIN 9
-#define GPIO_RF_SW_V1_PIN    17 // PE613050 control
+#define GPIO_RF_SW_V1_PIN    17
 #define GPIO_RF_SW_V2_PIN    18
 
-/** @brief ST7789 display (SPI shared). Backlight is a PWM to the LED driver. */
+/** @brief ST7789 display (SPI shared). */
 #define GPIO_ST7789_CS_PIN  51
 #define GPIO_ST7789_DC_PIN  50
 #define GPIO_ST7789_RST_PIN 52
-#define GPIO_ST7789_BL_PIN  14 // DSP_LED_CAT driver
+#define GPIO_ST7789_BL_PIN  14
 
-/**
- * @brief Buttons (active-low, 10k pull-up). Physical B1..B6 = {6,25,13,7,35,3}.
- */
-#define GPIO_BTN_LEFT_PIN  6  // B1 (also part of the P4 reset OR-gate)
-#define GPIO_BTN_RIGHT_PIN 13 // B3
-#define GPIO_BTN_UP_PIN    3  // B6
-#define GPIO_BTN_DOWN_PIN  7  // B4
-#define GPIO_BTN_OK_PIN    25 // B2
-#define GPIO_BTN_BACK_PIN  35 // B5 (also the P4 BOOT strap)
+/** @brief Buttons (active-low). */
+#define GPIO_BTN_LEFT_PIN  6
+#define GPIO_BTN_RIGHT_PIN 13
+#define GPIO_BTN_UP_PIN    3
+#define GPIO_BTN_DOWN_PIN  7
+#define GPIO_BTN_OK_PIN    25
+#define GPIO_BTN_BACK_PIN  35
 
 /** @brief IMU QMI8658 (SPI shared). */
-#define GPIO_IMU_CS_PIN  36
-#define GPIO_IMU_INT_PIN (-1)
+#define GPIO_QMI8658A_CS_PIN 36
 
 /** @brief NFC ST25R3916 (SPI shared). */
 #define GPIO_NFC_CS_PIN  24
 #define GPIO_NFC_IRQ_PIN 10
 
-/** @brief 125 kHz LF RFID analog frontend. */
-#define GPIO_RFID_LF_CARRIER_PIN 15 // 125KHz CL
-#define GPIO_RFID_LF_DATA_PIN    16 // 125KHz DA
-#define GPIO_RFID_LF_MOD_PIN     11 // OOK drive (T2)
+/** @brief 125 kHz LF RFID. */
+#define GPIO_RFID_LF_CARRIER_PIN 15
+#define GPIO_RFID_LF_DATA_PIN    16
+#define GPIO_RFID_LF_MOD_PIN     11
 #define GPIO_RFID_LF_COIL_PIN    2
 
+/** @brief IR (TSOP receiver + LED). */
+#define GPIO_IR_TX_PIN 0
+#define GPIO_IR_RX_PIN 1
+
 /** @brief SX1262 LoRa (SPI shared). */
-#define GPIO_LORA_SCLK_PIN  21 // shared
-#define GPIO_LORA_MOSI_PIN  22 // shared
-#define GPIO_LORA_MISO_PIN  23 // shared
+#define GPIO_LORA_SCLK_PIN  21
+#define GPIO_LORA_MOSI_PIN  22
+#define GPIO_LORA_MISO_PIN  23
 #define GPIO_LORA_CS_PIN    26
 #define GPIO_LORA_BUSY_PIN  4
 #define GPIO_LORA_DIO1_PIN  5
-#define GPIO_LORA_RESET_PIN (-1) // @todo NRESET (pin 15) not confirmed
+#define GPIO_LORA_RESET_PIN (-1)
+#define GPIO_LORA_TXEN_PIN  (-1)
+#define GPIO_LORA_RXEN_PIN  (-1)
 
 /** @brief SDMMC (4-bit SDIO). */
 #define GPIO_SDMMC_CLK_PIN 43
@@ -100,20 +102,17 @@ extern "C" {
 #define GPIO_BRIDGE_CS_PIN   48
 #define GPIO_BRIDGE_IRQ_PIN  (-1)
 
-/**
- * @brief C5 reset/boot are driven by the CP2105 (C5_EN / C5_GPIO28), not the P4.
- * Flash the C5 over the CP2105 (COM9). No P4-C5 UART in V2 (link is the SPI bridge).
- */
+/** @brief C5 reset/boot (driven by the CP2105, not the P4). */
 #define GPIO_C5_RESET_PIN (-1)
 #define GPIO_C5_BOOT_PIN  (-1)
 
 /** @brief Audio amplifier (I2S, NS4168). */
-#define GPIO_AUDIO_EN_PIN    49 // CTRL / shutdown
+#define GPIO_AUDIO_EN_PIN    49
 #define GPIO_AUDIO_LRCLK_PIN 29
 #define GPIO_AUDIO_BCLK_PIN  28
 #define GPIO_AUDIO_DIN_PIN   27
 
-/** @brief Microphone (PDM, MSM261). L/R selected by strap, no SEL GPIO. */
+/** @brief Microphone (PDM, MSM261). */
 #define GPIO_MIC_PDM_CLK_PIN  54
 #define GPIO_MIC_PDM_DATA_PIN 53
 
@@ -123,19 +122,27 @@ extern "C" {
 /** @brief Battery charger (BQ25896, I2C) OTG/CE control. */
 #define GPIO_CHARGER_CE_PIN 33
 
-/** @brief USB D+/D- mux (TS3USB221: 0 = CP2105 bridge, 1 = P4 native USB). */
+/** @brief USB D+/D- mux (TS3USB221). */
 #define GPIO_USB_MUX_SEL_PIN 19
 
-/** @brief P4 console UART0 (to CP2105 SCI / Standard port). */
+/** @brief P4 console UART0 (to CP2105 SCI). */
 #define GPIO_P4_UART0_RX_PIN 37
 #define GPIO_P4_UART0_TX_PIN 38
 
-/** @brief P4 boot strap: GPIO35 (= button B5) LOW at reset -> download mode. */
+/** @brief P4 boot strap (GPIO35 = button B5). */
 #define GPIO_P4_BOOT_PIN 35
 
-/** @brief RGB LED - driven by the LP5816 I2C driver in V2 (no dedicated data pin). */
+/** @brief RGB LED (LP5816 I2C driver in V2, no data pin). */
 #define GPIO_LED_RGB_PIN (-1)
 #define LED_COUNT        1
+
+/** @brief Legacy V1 pins - drivers not yet ported to V2 (c5_flasher UART push,
+ *  ys_rfid2 UART reader). Kept so those V1 drivers still build. @todo port/exclude. */
+#define GPIO_C5_UART_TX_PIN   38
+#define GPIO_C5_UART_RX_PIN   39
+#define GPIO_RFID_UART_TX_PIN 24
+#define GPIO_RFID_UART_RX_PIN 25
+#define GPIO_MIC_PDM_SEL_PIN  49
 
 #ifdef __cplusplus
 }
