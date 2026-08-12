@@ -117,6 +117,17 @@ esp_err_t audio_i2s_init(void) {
   if (s_ready)
     return ESP_OK;
 
+  // Take the NS4168 amplifier out of shutdown (CTRL/EN high) before streaming.
+  gpio_config_t en_cfg = {
+      .mode = GPIO_MODE_OUTPUT,
+      .pin_bit_mask = 1ULL << GPIO_AUDIO_EN_PIN,
+      .intr_type = GPIO_INTR_DISABLE,
+      .pull_up_en = GPIO_PULLUP_DISABLE,
+      .pull_down_en = GPIO_PULLDOWN_DISABLE,
+  };
+  gpio_config(&en_cfg);
+  gpio_set_level(GPIO_AUDIO_EN_PIN, 1);
+
   i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
   esp_err_t err = i2s_new_channel(&chan_cfg, &s_tx, NULL);
   if (err != ESP_OK) {
@@ -477,16 +488,6 @@ esp_err_t audio_i2s_mic_record(int16_t *out,
   if (out_captured)
     *out_captured = 0;
 
-  gpio_config_t sel = {
-      .mode = GPIO_MODE_OUTPUT,
-      .pin_bit_mask = 1ULL << GPIO_MIC_PDM_SEL_PIN,
-      .intr_type = GPIO_INTR_DISABLE,
-      .pull_up_en = GPIO_PULLUP_DISABLE,
-      .pull_down_en = GPIO_PULLDOWN_DISABLE,
-  };
-  gpio_config(&sel);
-  gpio_set_level(GPIO_MIC_PDM_SEL_PIN, 0);
-
   i2s_chan_handle_t rx = NULL;
   i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
   esp_err_t err = i2s_new_channel(&chan_cfg, NULL, &rx);
@@ -562,16 +563,6 @@ esp_err_t audio_i2s_mic_record(int16_t *out,
 esp_err_t audio_i2s_mic_stream_start(uint32_t sample_rate) {
   if (s_rx_stream)
     return ESP_OK;
-
-  gpio_config_t sel = {
-      .mode = GPIO_MODE_OUTPUT,
-      .pin_bit_mask = 1ULL << GPIO_MIC_PDM_SEL_PIN,
-      .intr_type = GPIO_INTR_DISABLE,
-      .pull_up_en = GPIO_PULLUP_DISABLE,
-      .pull_down_en = GPIO_PULLDOWN_DISABLE,
-  };
-  gpio_config(&sel);
-  gpio_set_level(GPIO_MIC_PDM_SEL_PIN, 0);
 
   i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
   esp_err_t err = i2s_new_channel(&chan_cfg, NULL, &s_rx_stream);

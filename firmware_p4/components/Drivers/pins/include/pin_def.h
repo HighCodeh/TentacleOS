@@ -142,7 +142,6 @@ extern "C" {
 #define GPIO_C5_UART_RX_PIN   39
 #define GPIO_RFID_UART_TX_PIN 24
 #define GPIO_RFID_UART_RX_PIN 25
-#define GPIO_MIC_PDM_SEL_PIN  49
 
 #ifdef __cplusplus
 }
