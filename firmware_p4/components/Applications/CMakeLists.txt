@@ -20,6 +20,16 @@
 # include/ dir there when a new screen area is introduced.
 file(GLOB_RECURSE UI_SRCS "ui/*.c")
 
+list(REMOVE_ITEM UI_SRCS
+  "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/games_menu_ui.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/flappy_ui.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/snake_ui.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/breakout_ui.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/octopet_ui.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/motion_ui.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/game_fx.c"
+)
+
 # Application (non-UI) sources — the real drivers/services stay in the build.
 file(GLOB_RECURSE SUBGHZ_APP_SRCS "SubGhz/*.c")
 file(GLOB_RECURSE BLE_APP_SRCS "bluetooth/*.c")
