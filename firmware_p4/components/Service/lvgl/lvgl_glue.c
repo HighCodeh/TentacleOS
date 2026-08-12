@@ -21,7 +21,7 @@ static const char *TAG = "LVGL_GLUE";
 #define LVGL_PORT_TASK_CORE_ANY   -1
 #define LVGL_PORT_MAX_SLEEP_MS    500
 #define LVGL_PORT_TIMER_PERIOD_MS 5
-#define LVGL_BUF_LINES            20
+#define LVGL_BUF_LINES            LCD_PANEL_H
 #define ROTATION_LOCK_TIMEOUT_MS  2000
 
 static bool s_ready = false;
@@ -69,7 +69,7 @@ esp_err_t lvgl_glue_init(void) {
       .io_handle = io_handle,
       .panel_handle = panel_handle,
       .buffer_size = LCD_PANEL_W * LVGL_BUF_LINES,
-      .double_buffer = true,
+      .double_buffer = false,
       .hres = LCD_PANEL_W,
       .vres = LCD_PANEL_H,
       .monochrome = false,
@@ -93,8 +93,10 @@ esp_err_t lvgl_glue_init(void) {
   }
   lv_display_add_event_cb(s_disp, capture_flush_start_cb, LV_EVENT_FLUSH_START, NULL);
 
-  ESP_LOGI(
-      TAG, "LVGL up — %dx%d, %d-line buffers in PSRAM", LCD_PANEL_W, LCD_PANEL_H, LVGL_BUF_LINES);
+  ESP_LOGI(TAG,
+           "LVGL up — %dx%d, full-frame single buffer in internal DMA RAM",
+           LCD_PANEL_W,
+           LCD_PANEL_H);
   s_ready = true;
   return ESP_OK;
 }

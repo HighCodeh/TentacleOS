@@ -104,7 +104,7 @@ static void ss_task(void *arg) {
 
   s_stride = lv_draw_buf_width_to_stride(SS_WIDTH, LV_COLOR_FORMAT_RGB565);
   size_t data_size = (size_t)s_stride * SS_HEIGHT;
-  s_snap_data = heap_caps_malloc(data_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  s_snap_data = heap_caps_malloc(data_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (s_snap_data == NULL) {
     ESP_LOGE(TAG, "no memory for %u-byte snapshot buffer - screen share off", (unsigned)data_size);
     s_active = false;
