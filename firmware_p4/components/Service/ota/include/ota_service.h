@@ -89,6 +89,15 @@ esp_err_t ota_start_update(ota_progress_cb_t progress_cb);
 esp_err_t ota_post_boot_check(void);
 
 /**
+ * @brief Rewrite the version field of the assets firmware.json to the running
+ *        firmware version, if they differ.
+ *
+ * Requires the assets partition to be mounted, so it must be called after
+ * storage_assets_init() — not from ota_post_boot_check(), which runs before it.
+ */
+void ota_sync_version_to_assets(void);
+
+/**
  * @brief Get the current firmware version string.
  *
  * @return Null-terminated version string (e.g. "1.2.3").
