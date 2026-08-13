@@ -28,6 +28,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 #include "host/ble_gap.h"
 #include "host/ble_hs.h"
 #include "host/ble_hs_id.h"
@@ -43,7 +44,7 @@
 static const char *TAG = "CANNED_SPAM";
 
 #define SPAM_TASK_STACK_SIZE  4096
-#define SPAM_TASK_PRIORITY    5
+#define SPAM_TASK_PRIORITY SYS_PRIO_SERVICE_HI
 #define SPAM_ADV_ITVL_MIN     32
 #define SPAM_ADV_ITVL_MAX     48
 #define SPAM_PAYLOAD_BUF_SIZE 32

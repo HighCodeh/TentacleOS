@@ -22,7 +22,8 @@ idf_component_register(SRCS
   "i2c_init/i2c_init.c"
   "buttons_gpio/buttons_gpio.c"
 
-  INCLUDE_DIRS 
+  INCLUDE_DIRS
+  "sys_prio/include"
   "bq25896/include"
   "led/include"
   "pins/include"

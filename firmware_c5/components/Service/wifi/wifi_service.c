@@ -28,6 +28,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 #include "lwip/inet.h"
 #include "nvs_flash.h"
 
@@ -38,7 +39,7 @@
 static const char *TAG = "WIFI_SERVICE";
 
 #define HOPPER_STACK_SIZE       4096
-#define HOPPER_TASK_PRIORITY    5
+#define HOPPER_TASK_PRIORITY SYS_PRIO_SERVICE_HI
 #define HOPPER_DELAY_MS         250
 #define MAX_WIFI_CHANNEL        13
 #define SCAN_MUTEX_TIMEOUT_MS   1000

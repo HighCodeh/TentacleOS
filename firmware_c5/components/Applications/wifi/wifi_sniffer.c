@@ -25,6 +25,7 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "pcap_serializer.h"
 #include "sd_card_init.h"
@@ -45,7 +46,7 @@ static const char *TAG = "WIFI_SNIFFER";
 #define SNIFFER_STREAM_DELAY_MS   50
 #define SNIFFER_STOP_DELAY_MS     200
 #define SNIFFER_TASK_STACK_SIZE   4096
-#define SNIFFER_TASK_PRIORITY     5
+#define SNIFFER_TASK_PRIORITY SYS_PRIO_SERVICE_HI
 #define MAX_TRACKED_SESSIONS      16
 #define MAX_KNOWN_APS             128
 #define DEFAULT_SNAPLEN           65535

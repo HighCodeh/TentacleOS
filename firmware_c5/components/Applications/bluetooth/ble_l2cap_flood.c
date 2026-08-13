@@ -22,6 +22,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 #include "host/ble_gap.h"
 
 #include "bluetooth_service.h"
@@ -29,7 +30,7 @@
 static const char *TAG = "BLE_L2CAP_FLOOD";
 
 #define L2CAP_STACK_SIZE          4096
-#define L2CAP_TASK_PRIORITY       5
+#define L2CAP_TASK_PRIORITY SYS_PRIO_SERVICE_HI
 #define L2CAP_CONNECT_TIMEOUT     10000
 #define L2CAP_RETRY_DELAY_MS      100
 #define L2CAP_RECONNECT_DELAY_MS  1000

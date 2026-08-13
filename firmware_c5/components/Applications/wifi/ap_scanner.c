@@ -22,6 +22,7 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "cJSON.h"
 #include "sd_card_init.h"
@@ -33,7 +34,7 @@
 static const char *TAG = "AP_SCANNER";
 
 #define SCANNER_STACK_SIZE    4096
-#define SCANNER_TASK_PRIORITY 5
+#define SCANNER_TASK_PRIORITY SYS_PRIO_SERVICE_HI
 
 static TaskHandle_t s_scanner_task_handle = NULL;
 static StackType_t *s_scanner_task_stack = NULL;

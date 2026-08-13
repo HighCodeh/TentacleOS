@@ -25,6 +25,7 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "cJSON.h"
 #include "storage_impl.h"
@@ -35,7 +36,7 @@ static const char *TAG = "BEACON_SPAM";
 #define BEACON_SPAM_MAX_SSIDS       100
 #define BEACON_SPAM_INTERVAL_MS     100
 #define BEACON_SPAM_STACK_SIZE      4096
-#define BEACON_SPAM_TASK_PRIORITY   5
+#define BEACON_SPAM_TASK_PRIORITY SYS_PRIO_SERVICE_HI
 #define BEACON_SPAM_TX_DELAY_MS     10
 #define BEACON_SPAM_MAX_SSID_LEN    32
 #define BEACON_SPAM_CHANNEL_COUNT   11

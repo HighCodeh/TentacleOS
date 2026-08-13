@@ -22,13 +22,14 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "led_control.h"
 
 static const char *TAG = "WIFI_DEAUTHER";
 
 #define DEAUTHER_STACK_SIZE     4096
-#define DEAUTHER_TASK_PRIORITY  5
+#define DEAUTHER_TASK_PRIORITY SYS_PRIO_SERVICE_HI
 #define DEAUTHER_DELAY_MS       100
 #define DEAUTHER_STOP_MARGIN_MS 50
 #define DEAUTH_FRAME_LEN        26

@@ -23,6 +23,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/stream_buffer.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 static const char *TAG = "OTA_SVC";
 
@@ -165,7 +166,7 @@ static void ota_writer_task(void *arg) {
   if (uart && uart_is_driver_installed(OTA_UART)) {
     uart_driver_delete(OTA_UART);
   }
-  xTaskCreate(ota_reboot_task, "ota_reboot", 2048, NULL, 5, NULL);
+  xTaskCreate(ota_reboot_task, "ota_reboot", 2048, NULL, SYS_PRIO_SERVICE_HI, NULL);
   vTaskDelete(NULL);
   return;
 
@@ -208,7 +209,7 @@ esp_err_t ota_service_begin(uint32_t size, uint8_t transport) {
   s_transport = transport;
   s_state = SPI_OTA_STATE_ERASING; // visible to the P4's first status poll
 
-  if (xTaskCreate(ota_writer_task, "ota_wr", 6144, NULL, 5, NULL) != pdPASS) {
+  if (xTaskCreate(ota_writer_task, "ota_wr", 6144, NULL, SYS_PRIO_SERVICE_HI, NULL) != pdPASS) {
     ESP_LOGE(TAG, "failed to create writer task");
     s_state = SPI_OTA_STATE_ERROR;
     return ESP_ERR_NO_MEM;
