@@ -21,6 +21,7 @@
 #include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 #include "lvgl.h"
 
 #include "buttons_gpio.h"
@@ -39,7 +40,7 @@ static const char *SCAN_ICON = "/assets/icons/devices.bin";
 #define TARGET_AP       "HOME-5G  CH6"
 #define COLOR_CLIENT    0x00E676
 #define TASK_STACK_SIZE 4096
-#define TASK_PRIORITY   4
+#define TASK_PRIORITY SYS_PRIO_SERVICE_LO
 #define CLIENT_MAX      8
 #define CAPTION_Y_OFS   78
 #define WAVES_Y_OFS     -6
@@ -222,7 +223,7 @@ void ui_wifi_target_clients_open(void) {
   build_screen();
   if (!s_scanning) {
     s_scanning = true;
-    if (xTaskCreate(scan_task, "tgt_clients_sim", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL) !=
+    if (xTaskCreatePinnedToCore(scan_task, "tgt_clients_sim", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL, SYS_CORE_UI) !=
         pdPASS) {
       s_scanning = false;
       s_state = SCAN_DONE;

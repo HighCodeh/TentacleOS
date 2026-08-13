@@ -22,6 +22,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 #include "lvgl.h"
 #include "st7789.h"
 
@@ -50,8 +51,8 @@ static const char *TAG = "SPECTRUM_UI";
 #define TASK_STOP_DELAY_MS     10
 #define ANIM_TIMER_MS          33
 #define SPECTRUM_TASK_STACK    4096
-#define SPECTRUM_TASK_PRIORITY 4
-#define SPECTRUM_TASK_CORE     1
+#define SPECTRUM_TASK_PRIORITY SYS_PRIO_SERVICE_LO
+#define SPECTRUM_TASK_CORE SYS_CORE_UI
 
 #define SPECTRUM_ICON      "/assets/icons/graphic_eq.bin"
 #define SPECTRUM_TITLE     "SPECTRUM"

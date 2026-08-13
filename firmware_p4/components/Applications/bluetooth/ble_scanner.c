@@ -22,6 +22,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "bluetooth_service.h"
 #include "oui_lookup.h"
@@ -32,7 +33,7 @@
 static const char *TAG = "BLE_SCANNER";
 
 #define SCANNER_STACK_SIZE    4096
-#define SCANNER_TASK_PRIORITY 5
+#define SCANNER_TASK_PRIORITY SYS_PRIO_SERVICE_HI
 #define SCAN_DURATION_MS      10000
 
 static TaskHandle_t s_scanner_task_handle = NULL;
@@ -70,13 +71,14 @@ bool ble_scanner_start(void) {
   }
 
   s_is_scanning = true;
-  s_scanner_task_handle = xTaskCreateStatic(scanner_task,
-                                            "ble_scan_task",
-                                            SCANNER_STACK_SIZE,
-                                            NULL,
-                                            SCANNER_TASK_PRIORITY,
-                                            s_scanner_task_stack,
-                                            s_scanner_task_tcb);
+  s_scanner_task_handle = xTaskCreateStaticPinnedToCore(scanner_task,
+                                                        "ble_scan_task",
+                                                        SCANNER_STACK_SIZE,
+                                                        NULL,
+                                                        SCANNER_TASK_PRIORITY,
+                                                        s_scanner_task_stack,
+                                                        s_scanner_task_tcb,
+                                                        SYS_CORE_RADIO);
 
   return (s_scanner_task_handle != NULL);
 }

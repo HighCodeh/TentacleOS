@@ -26,6 +26,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "ir_protocol.h"
 #include "storage_mkdir.h"
@@ -37,7 +38,7 @@ static const char *TAG = "IR_STORE";
 #define IR_STORE_FILE_MAX  (512 * 1024)
 #define IR_SERIALIZE_MAX   16384
 #define IR_CAP_TASK_STACK  4096
-#define IR_CAP_TASK_PRIO   5
+#define IR_CAP_TASK_PRIO SYS_PRIO_SERVICE_HI
 
 // ----------------------------------------------------------------------------
 // Path helpers
@@ -375,12 +376,13 @@ esp_err_t ir_capture_start(uint32_t timeout_ms) {
 
   s_cap_state = IR_CAP_BUSY;
   s_cap_running = true;
-  if (xTaskCreate(capture_task,
-                  "ir_capture",
-                  IR_CAP_TASK_STACK,
-                  (void *)(uintptr_t)timeout_ms,
-                  IR_CAP_TASK_PRIO,
-                  NULL) != pdPASS) {
+  if (xTaskCreatePinnedToCore(capture_task,
+                              "ir_capture",
+                              IR_CAP_TASK_STACK,
+                              (void *)(uintptr_t)timeout_ms,
+                              IR_CAP_TASK_PRIO,
+                              NULL,
+                              SYS_CORE_RADIO) != pdPASS) {
     s_cap_running = false;
     s_cap_state = IR_CAP_ERROR;
     return ESP_FAIL;

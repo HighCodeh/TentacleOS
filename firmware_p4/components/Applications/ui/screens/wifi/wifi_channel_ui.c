@@ -20,6 +20,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "st7789.h"
 
@@ -37,7 +38,7 @@ static const char *TAG = "WIFI_CHAN_UI";
 #define SCAN_SIM_STEPS   4
 #define SCAN_SIM_STEP_MS 220
 #define TASK_STACK_SIZE  4096
-#define TASK_PRIORITY    4
+#define TASK_PRIORITY SYS_PRIO_SERVICE_LO
 
 #define COLOR_QUIET_HEX   0x00E676
 #define COLOR_BUSY_HEX    0xFFC107
@@ -369,7 +370,7 @@ void ui_wifi_channel_open(void) {
 
   if (!s_scanning) {
     s_scanning = true;
-    if (xTaskCreate(wifi_channel_task, "wifi_chan", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL) !=
+    if (xTaskCreatePinnedToCore(wifi_channel_task, "wifi_chan", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL, SYS_CORE_UI) !=
         pdPASS) {
       s_scanning = false;
       s_scan_state = SCAN_FAIL;

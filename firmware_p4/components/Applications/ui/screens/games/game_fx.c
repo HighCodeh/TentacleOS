@@ -19,13 +19,14 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "audio_i2s.h"
 #include "drv2605l.h"
 
 #define FX_AMP            0.42f
 #define SND_TASK_STACK    4096
-#define SND_TASK_PRIORITY 4
+#define SND_TASK_PRIORITY SYS_PRIO_SERVICE_LO
 
 static const audio_note_t SND_FLAP[] = {{780, 28}};
 static const audio_note_t SND_SCORE[] = {{1568, 45}, {2093, 70}};
@@ -80,6 +81,6 @@ void game_fx(game_fx_t kind) {
   s_snd_busy = true;
   s_snd_notes = c.notes;
   s_snd_count = c.count;
-  if (xTaskCreate(snd_task, "game_snd", SND_TASK_STACK, NULL, SND_TASK_PRIORITY, NULL) != pdPASS)
+  if (xTaskCreatePinnedToCore(snd_task, "game_snd", SND_TASK_STACK, NULL, SND_TASK_PRIORITY, NULL, SYS_CORE_UI) != pdPASS)
     s_snd_busy = false;
 }

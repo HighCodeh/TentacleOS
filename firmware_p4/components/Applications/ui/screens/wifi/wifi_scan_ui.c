@@ -21,6 +21,7 @@
 #include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 #include "lvgl.h"
 
 #include "buttons_gpio.h"
@@ -41,7 +42,7 @@ static const char *TAG_ICON = "/assets/icons/wifi_find.bin";
 #define COLOR_SECURE    0x00E676
 #define COLOR_OPEN      0xFFC107
 #define TASK_STACK_SIZE 4096
-#define TASK_PRIORITY   4
+#define TASK_PRIORITY SYS_PRIO_SERVICE_LO
 
 #define SCAN_WAVES_Y_OFS   -6
 #define SCAN_CAPTION_Y_OFS 78
@@ -299,7 +300,7 @@ void ui_wifi_scan_open(void) {
 
   if (!s_scanning) {
     s_scanning = true;
-    if (xTaskCreate(wifi_scan_task, "wifi_sim_scan", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL) !=
+    if (xTaskCreatePinnedToCore(wifi_scan_task, "wifi_sim_scan", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL, SYS_CORE_UI) !=
         pdPASS) {
       s_scanning = false;
       s_scan_state = SCAN_DONE;

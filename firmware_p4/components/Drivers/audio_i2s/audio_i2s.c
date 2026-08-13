@@ -28,6 +28,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "pin_def.h"
 
@@ -39,8 +40,8 @@ static const char *TAG = "AUDIO_I2S";
 #define QUEUE_DEPTH      4
 
 #define AUDIO_TASK_STACK_SIZE 3072
-#define AUDIO_TASK_PRIORITY   4
-#define AUDIO_TASK_CORE       1
+#define AUDIO_TASK_PRIORITY SYS_PRIO_SERVICE_LO
+#define AUDIO_TASK_CORE SYS_CORE_UI
 
 typedef struct {
   float freq_hz;

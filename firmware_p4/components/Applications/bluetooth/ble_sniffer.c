@@ -23,6 +23,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "bluetooth_service.h"
 
@@ -97,13 +98,14 @@ esp_err_t ble_sniffer_start(void) {
                                        s_sniffer_queue_storage,
                                        s_sniffer_queue_struct);
 
-  s_sniffer_task_handle = xTaskCreateStatic(sniffer_task,
-                                            "sniffer_task",
-                                            SNIFFER_TASK_STACK_SIZE,
-                                            NULL,
-                                            tskIDLE_PRIORITY + 1,
-                                            s_sniffer_task_stack,
-                                            s_sniffer_task_tcb);
+  s_sniffer_task_handle = xTaskCreateStaticPinnedToCore(sniffer_task,
+                                                        "sniffer_task",
+                                                        SNIFFER_TASK_STACK_SIZE,
+                                                        NULL,
+                                                        SYS_PRIO_BACKGROUND_LO,
+                                                        s_sniffer_task_stack,
+                                                        s_sniffer_task_tcb,
+                                                        SYS_CORE_RADIO);
 
   return bluetooth_service_start_sniffer(packet_handler);
 }

@@ -18,6 +18,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "esp_log.h"
 
@@ -26,7 +27,7 @@ static const char *TAG = "BATTERY_SVC";
 #define POLL_INTERVAL_MS 1000
 #define CHG_OFF_DEBOUNCE 3    // not-charging polls (while still plugged) before dropping the flag
 #define TASK_STACK       6144 // deep console/printf path (ESP_LOGI) needs headroom
-#define TASK_PRIO        3
+#define TASK_PRIO SYS_PRIO_BACKGROUND
 #define SOC_STEP_MAX     3  // max SoC delta applied per poll (smoothing)
 #define LOW_ENTER_PCT    15 // latch "low" at/below this SoC
 #define LOW_EXIT_PCT     20 // release "low" at/above this SoC (hysteresis)
@@ -156,7 +157,7 @@ void battery_service_init(void) {
     s_snap.valid = true;
   }
 
-  if (xTaskCreate(battery_task, "battery_svc", TASK_STACK, NULL, TASK_PRIO, NULL) != pdPASS) {
+  if (xTaskCreatePinnedToCore(battery_task, "battery_svc", TASK_STACK, NULL, TASK_PRIO, NULL, SYS_CORE_RADIO) != pdPASS) {
     ESP_LOGE(TAG, "task create failed");
     vSemaphoreDelete(s_mtx);
     s_mtx = NULL;

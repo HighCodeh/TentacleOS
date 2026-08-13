@@ -24,6 +24,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "storage_init.h"
 #include "tos_storage_paths.h"
@@ -48,7 +49,7 @@ static const char *TAG = "TOS_LOG";
 #define LOG_HIGH_WATER     (LOG_BUF_SIZE * 3 / 4) // early-drain threshold for bursts
 #define LOG_LOCK_WAIT_MS   50                // append gives up rather than block
 #define LOG_TASK_STACK     4096
-#define LOG_TASK_PRIO      3
+#define LOG_TASK_PRIO SYS_PRIO_BACKGROUND
 #define LOG_STOP_WAIT_MS   2000
 
 static FILE *s_log_file = NULL;
@@ -244,7 +245,7 @@ esp_err_t tos_log_init(void) {
   s_dropped = 0;
   s_stop = false;
 
-  if (xTaskCreate(flush_task, "tos_log", LOG_TASK_STACK, NULL, LOG_TASK_PRIO, &s_flush_task) !=
+  if (xTaskCreatePinnedToCore(flush_task, "tos_log", LOG_TASK_STACK, NULL, LOG_TASK_PRIO, &s_flush_task, SYS_CORE_RADIO) !=
       pdPASS) {
     ESP_LOGE(TAG, "Failed to create log flush task");
     err = ESP_FAIL;

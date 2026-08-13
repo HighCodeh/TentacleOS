@@ -33,6 +33,7 @@
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 static const char *TAG = "SETTINGS_UI";
 
@@ -42,11 +43,11 @@ static const char *TAG = "SETTINGS_UI";
 #define C5_PROGRESS_TICK_MS       200
 #define C5_DISMISS_DELAY_MS       2000
 #define C5_FLASH_TASK_STACK       4096
-#define C5_FLASH_TASK_PRIO        5
+#define C5_FLASH_TASK_PRIO SYS_PRIO_SERVICE_HI
 #define C5_ROM_FLASH_TASK_STACK   8192
-#define C5_ROM_FLASH_TASK_PRIO    5
+#define C5_ROM_FLASH_TASK_PRIO SYS_PRIO_SERVICE_HI
 #define C5_PASSTHROUGH_TASK_STACK 4096
-#define C5_PASSTHROUGH_TASK_PRIO  6
+#define C5_PASSTHROUGH_TASK_PRIO SYS_PRIO_SERVICE_HI
 #define REBOOT_DELAY_MS           80
 
 #define ACTION_TOGGLE_ROTATION (-1)
@@ -302,7 +303,7 @@ static void start_c5_flash(void) {
   if (s_c5_prog_timer == NULL)
     s_c5_prog_timer = lv_timer_create(c5_progress_tick, C5_PROGRESS_TICK_MS, NULL);
 
-  xTaskCreate(c5_flash_task, "c5_flash", C5_FLASH_TASK_STACK, NULL, C5_FLASH_TASK_PRIO, NULL);
+  xTaskCreatePinnedToCore(c5_flash_task, "c5_flash", C5_FLASH_TASK_STACK, NULL, C5_FLASH_TASK_PRIO, NULL, SYS_CORE_RADIO);
 }
 
 static void c5_rom_flash_task(void *arg) {
@@ -319,12 +320,13 @@ static void start_c5_rom_flash(void) {
   s_c5_in_progress = true;
   show_c5_progress(
       "ROM flash (blank C5).\nC5 must be in download\nmode. ~2-3 min. Don't\npower off.");
-  xTaskCreate(c5_rom_flash_task,
-              "c5_rom_flash",
-              C5_ROM_FLASH_TASK_STACK,
-              NULL,
-              C5_ROM_FLASH_TASK_PRIO,
-              NULL);
+  xTaskCreatePinnedToCore(c5_rom_flash_task,
+                          "c5_rom_flash",
+                          C5_ROM_FLASH_TASK_STACK,
+                          NULL,
+                          C5_ROM_FLASH_TASK_PRIO,
+                          NULL,
+                          SYS_CORE_RADIO);
 }
 
 static void c5_passthrough_task(void *arg) {
@@ -339,12 +341,13 @@ static void start_c5_passthrough(void) {
                    "Bridge active. Strap C5 GPIO28 to GND, power-cycle, then flash from "
                    "your PC with esptool (chip esp32c5).",
                    current_theme.border_accent);
-  xTaskCreate(c5_passthrough_task,
-              "c5_passthru",
-              C5_PASSTHROUGH_TASK_STACK,
-              NULL,
-              C5_PASSTHROUGH_TASK_PRIO,
-              NULL);
+  xTaskCreatePinnedToCore(c5_passthrough_task,
+                          "c5_passthru",
+                          C5_PASSTHROUGH_TASK_STACK,
+                          NULL,
+                          C5_PASSTHROUGH_TASK_PRIO,
+                          NULL,
+                          SYS_CORE_RADIO);
 }
 
 #define REBOOT_BLACK_MS 400

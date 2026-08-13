@@ -21,6 +21,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "meshcore_phoneapi.h"
 #include "spi_bridge.h"
@@ -28,7 +29,7 @@
 static const char *TAG = "MC_BRIDGE";
 
 #define BRIDGE_TASK_STACK         4096
-#define BRIDGE_TASK_PRIO          5
+#define BRIDGE_TASK_PRIO SYS_PRIO_SERVICE_HI
 #define BRIDGE_STATUS_TICK_MS     200
 #define BRIDGE_SPI_TIMEOUT_MS     1000
 #define BRIDGE_RX_FRAME_MAX       512
@@ -106,8 +107,9 @@ esp_err_t meshcore_phone_bridge_init(const char *name_prefix) {
   meshcore_phoneapi_set_outbound(on_phoneapi_outbound, NULL);
 
   s_is_running = true;
-  BaseType_t ok = xTaskCreate(
-      status_task, "mc_bridge", BRIDGE_TASK_STACK, NULL, BRIDGE_TASK_PRIO, &s_status_task);
+  BaseType_t ok = xTaskCreatePinnedToCore(
+      status_task, "mc_bridge", BRIDGE_TASK_STACK, NULL, BRIDGE_TASK_PRIO, &s_status_task,
+      SYS_CORE_RADIO);
   if (ok != pdPASS) {
     s_is_running = false;
     meshcore_phoneapi_set_outbound(NULL, NULL);

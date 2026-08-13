@@ -21,6 +21,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 #include "lvgl.h"
 
 #include "buttons_gpio.h"
@@ -39,7 +40,7 @@ static const char *TAG = "SPEAKER_UI";
 #define MAX_SEQ           64
 #define N_EQ              10
 #define SPK_TASK_STACK    4096
-#define SPK_TASK_PRIORITY 4
+#define SPK_TASK_PRIORITY SYS_PRIO_SERVICE_LO
 #define NP_TIMER_MS       33
 #define MAX_SONG_ROWS     10
 #define COUNT(a)          ((int)(sizeof(a) / sizeof((a)[0])))
@@ -461,7 +462,7 @@ static void play_song_now(const speaker_song_t *song) {
   s_cur_freq = 0;
   s_note_count = song->count > 0 ? song->count : 1;
   nowplaying_open(song);
-  if (xTaskCreate(speaker_task, "spk_play", SPK_TASK_STACK, NULL, SPK_TASK_PRIORITY, NULL) !=
+  if (xTaskCreatePinnedToCore(speaker_task, "spk_play", SPK_TASK_STACK, NULL, SPK_TASK_PRIORITY, NULL, SYS_CORE_UI) !=
       pdPASS) {
     s_busy = false;
     s_playing = false;

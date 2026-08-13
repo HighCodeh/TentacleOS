@@ -23,6 +23,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "buttons_gpio.h"
 #include "menu_component_ui.h"
@@ -43,7 +44,7 @@ static const char *TAG = "MICREC_UI";
 #define OVERLAY_TICK_MS    60
 #define OVERLAY_HIDE_MS    700
 #define MIC_TASK_STACK     4096
-#define MIC_TASK_PRIORITY  4
+#define MIC_TASK_PRIORITY SYS_PRIO_SERVICE_LO
 #define REC_TARGET_DEFAULT 26000
 #define REC_TARGET_MIN     16000
 #define REC_TARGET_STEP    3400
@@ -338,7 +339,7 @@ static void activate(int idx) {
     uint32_t dur_ms = (uint32_t)(s_rec_capacity / REC_RATE) * 1000 + 250;
     overlay_show("RECORDING...", dur_ms, OV_VU);
     s_busy = true;
-    if (xTaskCreate(record_task, "mic_rec", MIC_TASK_STACK, NULL, MIC_TASK_PRIORITY, NULL) !=
+    if (xTaskCreatePinnedToCore(record_task, "mic_rec", MIC_TASK_STACK, NULL, MIC_TASK_PRIORITY, NULL, SYS_CORE_UI) !=
         pdPASS) {
       s_busy = false;
       s_state = ST_IDLE;
@@ -356,7 +357,7 @@ static void activate(int idx) {
     uint32_t dur_ms = (uint32_t)(s_rec_samples / REC_RATE) * 1000 + 150;
     overlay_show(s_loop ? "PLAYING (loop)" : "PLAYING...", dur_ms, OV_TIME);
     s_busy = true;
-    if (xTaskCreate(play_task, "mic_play", MIC_TASK_STACK, NULL, MIC_TASK_PRIORITY, NULL) !=
+    if (xTaskCreatePinnedToCore(play_task, "mic_play", MIC_TASK_STACK, NULL, MIC_TASK_PRIORITY, NULL, SYS_CORE_UI) !=
         pdPASS) {
       s_busy = false;
       s_state = ST_IDLE;

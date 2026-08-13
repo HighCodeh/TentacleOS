@@ -20,6 +20,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "buttons_gpio.h"
 #include "drv2605l.h"
@@ -37,7 +38,7 @@ static const char *TAG = "HAPTIC_UI";
 #define CAL_ROW      4
 
 #define HAPTIC_TASK_STACK_SIZE 2816
-#define HAPTIC_TASK_PRIORITY   5
+#define HAPTIC_TASK_PRIORITY SYS_PRIO_SERVICE_HI
 
 typedef struct {
   uint8_t id;
@@ -238,7 +239,7 @@ static void start_worker(TaskFunction_t fn, const char *name) {
     return;
   s_busy = true;
   s_pat_cancel = false;
-  if (xTaskCreate(fn, name, HAPTIC_TASK_STACK_SIZE, NULL, HAPTIC_TASK_PRIORITY, NULL) != pdPASS)
+  if (xTaskCreatePinnedToCore(fn, name, HAPTIC_TASK_STACK_SIZE, NULL, HAPTIC_TASK_PRIORITY, NULL, SYS_CORE_UI) != pdPASS)
     s_busy = false;
 }
 

@@ -24,6 +24,7 @@
 #include "freertos/portmacro.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "meshtastic_phoneapi.h"
 #include "spi_bridge.h"
@@ -31,7 +32,7 @@
 static const char *TAG = "MESH_BRIDGE";
 
 #define BRIDGE_NOTIFY_TASK_STACK  4096
-#define BRIDGE_NOTIFY_TASK_PRIO   5
+#define BRIDGE_NOTIFY_TASK_PRIO SYS_PRIO_SERVICE_HI
 #define BRIDGE_NOTIFY_TICK_MS     100
 #define BRIDGE_SPI_TIMEOUT_MS     1000
 #define BRIDGE_FROMRADIO_BUF_SIZE 512
@@ -113,12 +114,13 @@ esp_err_t meshtastic_phone_bridge_init(uint32_t node_num) {
   spi_bridge_register_stream_cb(SPI_ID_MESH_TORADIO_STREAM, on_toradio_stream);
 
   s_is_running = true;
-  BaseType_t ok = xTaskCreate(notify_task,
-                              "mesh_bridge",
-                              BRIDGE_NOTIFY_TASK_STACK,
-                              NULL,
-                              BRIDGE_NOTIFY_TASK_PRIO,
-                              &s_notify_task);
+  BaseType_t ok = xTaskCreatePinnedToCore(notify_task,
+                                          "mesh_bridge",
+                                          BRIDGE_NOTIFY_TASK_STACK,
+                                          NULL,
+                                          BRIDGE_NOTIFY_TASK_PRIO,
+                                          &s_notify_task,
+                                          SYS_CORE_RADIO);
   if (ok != pdPASS) {
     s_is_running = false;
     spi_bridge_unregister_stream_cb(SPI_ID_MESH_TORADIO_STREAM);

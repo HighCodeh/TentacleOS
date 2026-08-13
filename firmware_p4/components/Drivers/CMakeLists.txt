@@ -29,6 +29,7 @@ idf_component_register(SRCS
   "i2c_init/i2c_init.c"
   "tusb_desc/tusb_desc.c"
   "buttons_gpio/buttons_gpio.c"
+  "input_manager/input_manager.c"
   "spi_bridge_phy/spi_bridge_phy.c"
   "audio_i2s/audio_i2s.c"
   "drv2605l/drv2605l.c"
@@ -37,6 +38,8 @@ idf_component_register(SRCS
   ${SX1262_SRCS}
 
   INCLUDE_DIRS
+  "sys_prio/include"
+  "input_manager/include"
   "bq25896/include"
   "cc1101/include"
   "st7789/include"

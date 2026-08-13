@@ -19,6 +19,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "nfc_device.h"
 #include "mf_classic.h"
@@ -43,7 +44,7 @@ static void nfc_listener_task(void *arg) {
 
 static hb_nfc_err_t start_emu_task(void) {
   s_is_emu_running = true;
-  BaseType_t rc = xTaskCreate(nfc_listener_task, "nfc_emu", 4096, NULL, 6, &s_emu_task);
+  BaseType_t rc = xTaskCreatePinnedToCore(nfc_listener_task, "nfc_emu", 4096, NULL, SYS_PRIO_SERVICE_HI, &s_emu_task, SYS_CORE_RADIO);
   return (rc == pdPASS) ? HB_NFC_OK : HB_NFC_ERR_INTERNAL;
 }
 

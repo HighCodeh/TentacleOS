@@ -20,6 +20,7 @@
 #include "esp_littlefs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "assets_manager.h"
 #include "buttons_gpio.h"
@@ -50,7 +51,7 @@ static const char *TAG = "STORAGE_UI";
 #define ACT_HEALTH     2
 #define ACT_COUNT      3
 #define FMT_TASK_STACK 4096
-#define FMT_TASK_PRIO  5
+#define FMT_TASK_PRIO SYS_PRIO_SERVICE_HI
 
 #define LIST_LEFT     6
 #define LIST_TOP_Y    46
@@ -319,7 +320,7 @@ static void fmt_confirm_cb(bool confirm) {
     return;
   s_formatting = true;
   show_fmt_overlay();
-  xTaskCreate(format_task, "sd_format", FMT_TASK_STACK, NULL, FMT_TASK_PRIO, NULL);
+  xTaskCreatePinnedToCore(format_task, "sd_format", FMT_TASK_STACK, NULL, FMT_TASK_PRIO, NULL, SYS_CORE_RADIO);
 }
 
 static void fire_action(int idx) {

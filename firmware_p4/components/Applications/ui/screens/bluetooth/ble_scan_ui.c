@@ -22,6 +22,7 @@
 #include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 #include "lvgl.h"
 
 #include "assets_manager.h"
@@ -46,7 +47,7 @@ static const char *TAG = "BLE_SCAN_UI";
 #define BLE_DEV_ICON          "/assets/icons/bluetooth.bin"
 #define BLE_SEARCH_ICON       "/assets/icons/bluetooth_searching.bin"
 #define BLE_SCAN_TASK_STACK   4096
-#define BLE_SCAN_TASK_PRIO    4
+#define BLE_SCAN_TASK_PRIO SYS_PRIO_SERVICE_LO
 #define HERO_CARD_W           200
 #define HERO_CARD_H           108
 
@@ -565,9 +566,13 @@ void ui_ble_scan_open(void) {
 
   if (!s_scanning) {
     s_scanning = true;
-    if (xTaskCreate(
-            ble_scan_task, "ble_scan", BLE_SCAN_TASK_STACK, NULL, BLE_SCAN_TASK_PRIO, NULL) !=
-        pdPASS) {
+    if (xTaskCreatePinnedToCore(ble_scan_task,
+                                "ble_scan",
+                                BLE_SCAN_TASK_STACK,
+                                NULL,
+                                BLE_SCAN_TASK_PRIO,
+                                NULL,
+                                SYS_CORE_RADIO) != pdPASS) {
       s_scanning = false;
       s_scan_state = SCAN_FAIL;
       build_screen();

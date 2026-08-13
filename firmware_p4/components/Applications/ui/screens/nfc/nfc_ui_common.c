@@ -21,6 +21,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "audio_i2s.h"
 #include "drv2605l.h"
@@ -33,7 +34,7 @@
 #define NFC_SND_AMP 0.40f
 
 #define NFC_SND_TASK_STACK_SIZE      4096
-#define NFC_SND_TASK_PRIORITY        4
+#define NFC_SND_TASK_PRIORITY SYS_PRIO_SERVICE_LO
 #define DRV2605L_EFFECT_DOUBLE_CLICK 10
 
 static const audio_note_t SND_FOUND_NOTES[] = {
@@ -64,12 +65,13 @@ void nfc_ui_play_sound(nfc_ui_sound_t kind) {
   if (s_snd_busy)
     return;
   s_snd_busy = true;
-  if (xTaskCreate(nfc_snd_task,
-                  "nfc_snd",
-                  NFC_SND_TASK_STACK_SIZE,
-                  (void *)(intptr_t)kind,
-                  NFC_SND_TASK_PRIORITY,
-                  NULL) != pdPASS)
+  if (xTaskCreatePinnedToCore(nfc_snd_task,
+                              "nfc_snd",
+                              NFC_SND_TASK_STACK_SIZE,
+                              (void *)(intptr_t)kind,
+                              NFC_SND_TASK_PRIORITY,
+                              NULL,
+                              SYS_CORE_UI) != pdPASS)
     s_snd_busy = false;
 }
 

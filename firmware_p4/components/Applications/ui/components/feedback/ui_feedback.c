@@ -20,12 +20,13 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "audio_i2s.h"
 #include "drv2605l.h"
 
 #define FB_TASK_STACK_SIZE 6144
-#define FB_TASK_PRIORITY   4
+#define FB_TASK_PRIORITY SYS_PRIO_SERVICE_LO
 
 #define DRV_EFFECT_STRONG_CLICK 1
 #define DRV_EFFECT_SHARP_CLICK  4
@@ -70,9 +71,13 @@ void ui_feedback(ui_feedback_kind_t kind) {
   if (s_busy)
     return;
   s_busy = true;
-  if (xTaskCreate(
-          fb_task, "ui_fb", FB_TASK_STACK_SIZE, (void *)(intptr_t)kind, FB_TASK_PRIORITY, NULL) !=
-      pdPASS)
+  if (xTaskCreatePinnedToCore(fb_task,
+                              "ui_fb",
+                              FB_TASK_STACK_SIZE,
+                              (void *)(intptr_t)kind,
+                              FB_TASK_PRIORITY,
+                              NULL,
+                              SYS_CORE_UI) != pdPASS)
     s_busy = false;
 }
 

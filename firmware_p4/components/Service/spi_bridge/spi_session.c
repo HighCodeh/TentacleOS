@@ -21,6 +21,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "spi_bridge.h"
 #include "spi_timeouts.h"
@@ -31,7 +32,7 @@ static const char *TAG = "SPI_SESSION";
 #define HEARTBEAT_FAIL_LIMIT  3
 #define HEARTBEAT_TIMEOUT_MS  1000
 #define HEARTBEAT_STACK_SIZE  3072
-#define HEARTBEAT_PRIO        5
+#define HEARTBEAT_PRIO SYS_PRIO_SERVICE_HI
 
 typedef struct {
   uint32_t session_id;
@@ -203,12 +204,13 @@ uint32_t spi_session_start(spi_id_t op_id,
   s_state.on_lost = on_lost;
   s_state.stop_requested = false;
   spi_bridge_register_stream_cb(op_id, on_session_stream);
-  BaseType_t ok = xTaskCreate(heartbeat_task,
-                              "spi_session_hb",
-                              HEARTBEAT_STACK_SIZE,
-                              (void *)(uintptr_t)resp.session_id,
-                              HEARTBEAT_PRIO,
-                              &s_state.heartbeat_task);
+  BaseType_t ok = xTaskCreatePinnedToCore(heartbeat_task,
+                                          "spi_session_hb",
+                                          HEARTBEAT_STACK_SIZE,
+                                          (void *)(uintptr_t)resp.session_id,
+                                          HEARTBEAT_PRIO,
+                                          &s_state.heartbeat_task,
+                                          SYS_CORE_RADIO);
   uint32_t session_id = s_state.session_id;
   xSemaphoreGive(s_mutex);
 

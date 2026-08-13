@@ -23,6 +23,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 #include "freertos/queue.h"
 
 #include "cc1101.h"
@@ -36,8 +37,8 @@ static const char *TAG = "SUBGHZ_TX";
 #define TX_QUEUE_SEND_MS      100
 #define TX_WAIT_TIMEOUT_MS    2000
 #define TX_TASK_STACK_SIZE    4096
-#define TX_TASK_PRIORITY      5
-#define TX_TASK_CORE          1
+#define TX_TASK_PRIORITY SYS_PRIO_SERVICE_HI
+#define TX_TASK_CORE SYS_CORE_RADIO
 #define TX_STOP_DELAY_MS      100
 #define RMT_MEM_BLOCK_SYMBOLS 64
 #define RMT_TRANS_QUEUE_DEPTH 4

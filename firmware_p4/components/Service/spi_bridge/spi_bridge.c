@@ -23,6 +23,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "spi_bridge_phy.h"
 #include "spi_timeouts.h"
@@ -30,7 +31,7 @@
 static const char *TAG = "SPI_BRIDGE_P4";
 
 #define SPI_STREAM_TASK_STACK 16384
-#define SPI_STREAM_TASK_PRIO  5
+#define SPI_STREAM_TASK_PRIO SYS_PRIO_SERVICE_HI
 #define SPI_MUTEX_TIMEOUT_MS  50
 #define SPI_STREAM_POLL_MS    10
 #define SPI_STREAM_IDLE_MS    20
@@ -174,12 +175,13 @@ void spi_bridge_register_stream_cb(spi_id_t id, spi_stream_cb_t cb) {
     if (s_spi_mutex == NULL) {
       s_spi_mutex = xSemaphoreCreateMutex();
     }
-    BaseType_t created = xTaskCreate(stream_task,
-                                     "spi_stream",
-                                     SPI_STREAM_TASK_STACK,
-                                     NULL,
-                                     SPI_STREAM_TASK_PRIO,
-                                     &s_stream_task_handle);
+    BaseType_t created = xTaskCreatePinnedToCore(stream_task,
+                                                 "spi_stream",
+                                                 SPI_STREAM_TASK_STACK,
+                                                 NULL,
+                                                 SPI_STREAM_TASK_PRIO,
+                                                 &s_stream_task_handle,
+                                                 SYS_CORE_RADIO);
     if (created != pdPASS) {
       s_stream_task_handle = NULL;
       ESP_LOGE(TAG, "Failed to create SPI stream task");

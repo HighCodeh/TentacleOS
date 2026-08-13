@@ -13,12 +13,12 @@
 #include "esp_log.h"
 
 #include "st7789.h"
+#include "sys_prio.h"
 
 static const char *TAG = "LVGL_GLUE";
 
-#define LVGL_PORT_TASK_PRIORITY   4
+#define LVGL_PORT_TASK_PRIORITY   SYS_PRIO_RENDER
 #define LVGL_PORT_TASK_STACK      (8 * 1024)
-#define LVGL_PORT_TASK_CORE_ANY   -1
 #define LVGL_PORT_MAX_SLEEP_MS    500
 #define LVGL_PORT_TIMER_PERIOD_MS 5
 #define LVGL_BUF_LINES            LCD_PANEL_H
@@ -55,7 +55,7 @@ esp_err_t lvgl_glue_init(void) {
   const lvgl_port_cfg_t port_cfg = {
       .task_priority = LVGL_PORT_TASK_PRIORITY,
       .task_stack = LVGL_PORT_TASK_STACK,
-      .task_affinity = LVGL_PORT_TASK_CORE_ANY,
+      .task_affinity = SYS_CORE_UI,
       .task_max_sleep_ms = LVGL_PORT_MAX_SLEEP_MS,
       .timer_period_ms = LVGL_PORT_TIMER_PERIOD_MS,
   };

@@ -25,6 +25,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/stream_buffer.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "tinyusb.h"
 #include "tinyusb_cdc_acm.h"
@@ -36,7 +37,7 @@ static const char *TAG = "HOST_LINK_CDC";
 #define HOST_LINK_CDC_RX_CHUNK   64
 #define HOST_LINK_CDC_STREAM     1024
 #define HOST_LINK_CDC_TASK_STK   4096
-#define HOST_LINK_CDC_TASK_PRIO  5
+#define HOST_LINK_CDC_TASK_PRIO SYS_PRIO_SERVICE_HI
 #define HOST_LINK_CDC_FLUSH_MS   50
 #define HOST_LINK_CDC_MAX_STALLS 4 // give up a write after this many full-buffer stalls
 
@@ -129,8 +130,8 @@ esp_err_t host_link_cdc_init(void) {
 
   // The session is claimed on DTR (port open) in cdc_line_state_cb, not here.
 
-  if (xTaskCreate(host_link_worker, "host_link", HOST_LINK_CDC_TASK_STK, NULL,
-                  HOST_LINK_CDC_TASK_PRIO, &s_worker) != pdPASS) {
+  if (xTaskCreatePinnedToCore(host_link_worker, "host_link", HOST_LINK_CDC_TASK_STK, NULL,
+                              HOST_LINK_CDC_TASK_PRIO, &s_worker, SYS_CORE_RADIO) != pdPASS) {
     ESP_LOGE(TAG, "Failed to create host_link worker task");
     return ESP_FAIL;
   }

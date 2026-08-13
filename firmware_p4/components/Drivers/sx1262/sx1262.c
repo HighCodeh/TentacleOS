@@ -20,6 +20,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "sx1262_regs.h"
 #include "sx1262_cmd.h"
@@ -37,8 +38,8 @@ static TaskHandle_t s_irq_task_handle = NULL;
 static TaskHandle_t s_stop_caller_handle = NULL;
 
 #define SX1262_IRQ_TASK_STACK 4096
-#define SX1262_IRQ_TASK_PRIO  10
-#define SX1262_IRQ_TASK_CORE  0
+#define SX1262_IRQ_TASK_PRIO SYS_PRIO_REALTIME
+#define SX1262_IRQ_TASK_CORE SYS_CORE_RADIO
 
 static esp_err_t validate_hal(const sx1262_hal_t *hal);
 static esp_err_t validate_config(const sx1262_config_t *config);

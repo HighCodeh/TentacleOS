@@ -21,6 +21,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "lvgl.h"
 
@@ -39,7 +40,7 @@ static const char *TAG = "SCREEN_SHARE";
 #define SS_STRIP_ROWS      8           // 240*8*2 = 3840 B + header < 4067 host cap
 #define SS_LOCK_TIMEOUT_MS 200
 #define SS_TASK_STACK      8192
-#define SS_TASK_PRIO       4
+#define SS_TASK_PRIO SYS_PRIO_SERVICE_LO
 
 // Master enable. While false, START is rejected so the capture task never runs
 // and no snapshot RAM is used.
@@ -163,7 +164,7 @@ uint8_t lvgl_screen_share_handle(uint16_t cmd, const uint8_t *payload, uint16_t 
       }
       s_active = true;
       if (s_task == NULL) {
-        if (xTaskCreate(ss_task, "screen_share", SS_TASK_STACK, NULL, SS_TASK_PRIO, &s_task) !=
+        if (xTaskCreatePinnedToCore(ss_task, "screen_share", SS_TASK_STACK, NULL, SS_TASK_PRIO, &s_task, SYS_CORE_RADIO) !=
             pdPASS) {
           s_active = false;
           s_task = NULL;

@@ -17,6 +17,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "hb_nfc_timer.h"
 #include "nfc_card_info.h"
@@ -111,7 +112,7 @@ hb_nfc_err_t nfc_manager_start(nfc_manager_card_found_cb_t cb, void *ctx) {
   s_mgr.ctx = ctx;
   s_mgr.running = true;
 
-  xTaskCreate(nfc_manager_task, "nfc_mgr", 8192, NULL, 5, &s_mgr.task);
+  xTaskCreatePinnedToCore(nfc_manager_task, "nfc_mgr", 8192, NULL, SYS_PRIO_SERVICE_HI, &s_mgr.task, SYS_CORE_RADIO);
   return HB_NFC_OK;
 }
 

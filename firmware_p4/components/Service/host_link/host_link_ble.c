@@ -27,6 +27,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "host_link.h"
 #include "spi_bridge.h"
@@ -35,7 +36,7 @@
 static const char *TAG = "HOST_LINK_BLE";
 
 #define BLE_TASK_STACK         4096
-#define BLE_TASK_PRIO          5
+#define BLE_TASK_PRIO SYS_PRIO_SERVICE_HI
 #define BLE_STATUS_TICK_MS     200
 #define BLE_SPI_TIMEOUT_MS     1000
 #define BLE_RX_FRAME_MAX       512 // one C5 BLE-write worth; host_link_feed reframes
@@ -94,7 +95,7 @@ esp_err_t host_link_ble_init(void) {
   host_link_mark_ble_writer(ble_write); // lets the log-over-BLE toggle gate BLE only
 
   s_is_running = true;
-  if (xTaskCreate(status_task, "hl_ble", BLE_TASK_STACK, NULL, BLE_TASK_PRIO, &s_status_task) !=
+  if (xTaskCreatePinnedToCore(status_task, "hl_ble", BLE_TASK_STACK, NULL, BLE_TASK_PRIO, &s_status_task, SYS_CORE_RADIO) !=
       pdPASS) {
     s_is_running = false;
     spi_bridge_unregister_stream_cb(SPI_ID_HOST_RX);

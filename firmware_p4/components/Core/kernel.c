@@ -19,6 +19,7 @@
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "spi.h"
 #include "i2c_init.h"
@@ -51,7 +52,7 @@
 static const char *TAG = "KERNEL";
 
 #define CONSOLE_TASK_STACK 4096
-#define CONSOLE_TASK_PRIO  5
+#define CONSOLE_TASK_PRIO SYS_PRIO_SERVICE_HI
 #define BOOT_SETTLE_MS     1500
 
 static void console_task(void *pvParameters) {
@@ -107,7 +108,7 @@ void kernel_init(void) {
   // 7. Services
   sys_monitor_start(false);
   wifi_service_init();
-  xTaskCreate(console_task, "console_task", CONSOLE_TASK_STACK, NULL, CONSOLE_TASK_PRIO, NULL);
+  xTaskCreatePinnedToCore(console_task, "console_task", CONSOLE_TASK_STACK, NULL, CONSOLE_TASK_PRIO, NULL, SYS_CORE_RADIO);
 
   // Companion host link (USB CDC). Bridge must be up first (commands relay to C5).
   host_link_state_init();  // load toggle settings before the link comes up

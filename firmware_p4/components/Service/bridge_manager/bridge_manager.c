@@ -20,6 +20,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "c5_flasher.h"
 #include "ota_version.h"
@@ -77,7 +78,7 @@ esp_err_t bridge_manager_init(void) {
   // C5 boot, or a C5 reboot after an OTA). Started once here.
   // 6 KB: the probe calls spi_bridge_send_command (which puts two SPI_FRAME_SIZE
   // buffers on the stack) and logs via vfprintf on timeout - 3 KB overflowed.
-  xTaskCreate(c5_link_monitor, "c5_link_mon", 6144, NULL, 4, NULL);
+  xTaskCreatePinnedToCore(c5_link_monitor, "c5_link_mon", 6144, NULL, SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_RADIO);
 
   spi_header_t resp_header;
   uint8_t resp_ver[VERSION_BUF_SIZE];

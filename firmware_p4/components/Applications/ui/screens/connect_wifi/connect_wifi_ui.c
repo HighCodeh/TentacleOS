@@ -21,6 +21,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "st7789.h"
 
@@ -42,7 +43,7 @@ static const char *TAG = "CONNECT_WIFI_UI";
 #define SCAN_SIM_STEP_MS 220
 
 #define WIFI_TASK_STACK_SIZE 4096
-#define WIFI_TASK_PRIORITY   4
+#define WIFI_TASK_PRIORITY SYS_PRIO_SERVICE_LO
 #define CONNECT_SIM_STEPS    4
 #define CONNECT_SIM_STEP_MS  300
 
@@ -181,9 +182,13 @@ static void on_keyboard_submit(const char *text, void *user_data) {
   s_connect_pass[sizeof(s_connect_pass) - 1] = '\0';
   s_connecting = true;
   ESP_LOGI(TAG, "connecting to '%s'...", s_connect_ssid);
-  if (xTaskCreate(
-          wifi_connect_task, "wifi_conn", WIFI_TASK_STACK_SIZE, NULL, WIFI_TASK_PRIORITY, NULL) !=
-      pdPASS)
+  if (xTaskCreatePinnedToCore(wifi_connect_task,
+                              "wifi_conn",
+                              WIFI_TASK_STACK_SIZE,
+                              NULL,
+                              WIFI_TASK_PRIORITY,
+                              NULL,
+                              SYS_CORE_RADIO) != pdPASS)
     s_connecting = false;
 }
 
@@ -453,9 +458,13 @@ void ui_connect_wifi_open(void) {
 
   if (!s_scanning) {
     s_scanning = true;
-    if (xTaskCreate(
-            wifi_scan_task, "wifi_scan", WIFI_TASK_STACK_SIZE, NULL, WIFI_TASK_PRIORITY, NULL) !=
-        pdPASS) {
+    if (xTaskCreatePinnedToCore(wifi_scan_task,
+                                "wifi_scan",
+                                WIFI_TASK_STACK_SIZE,
+                                NULL,
+                                WIFI_TASK_PRIORITY,
+                                NULL,
+                                SYS_CORE_RADIO) != pdPASS) {
       s_scanning = false;
       s_scan_state = SCAN_FAIL;
       build_screen();

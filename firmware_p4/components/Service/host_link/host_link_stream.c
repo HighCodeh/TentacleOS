@@ -30,6 +30,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "host_link.h"
 #include "spi_protocol.h"
@@ -40,7 +41,7 @@ static const char *TAG = "HOST_LINK_STREAM";
 #define STREAM_APP_TIMEOUT_MS  6000 // tear down if no app heartbeat within this
 #define STREAM_WATCHDOG_TICK_MS 1000
 #define STREAM_WD_TASK_STK     3072
-#define STREAM_WD_TASK_PRIO    4
+#define STREAM_WD_TASK_PRIO SYS_PRIO_SERVICE_LO
 
 // Ops the proxy owns (start via spi_session and push records to the app).
 static const uint16_t SESSION_OPS[] = {SPI_ID_WIFI_APP_SNIFFER};
@@ -116,8 +117,8 @@ uint8_t host_stream_start(uint16_t cmd, const uint8_t *payload, uint16_t plen, u
   xSemaphoreGive(s_lock);
 
   if (s_watchdog == NULL) {
-    xTaskCreate(watchdog_task, "hl_stream_wd", STREAM_WD_TASK_STK, NULL, STREAM_WD_TASK_PRIO,
-                &s_watchdog);
+    xTaskCreatePinnedToCore(watchdog_task, "hl_stream_wd", STREAM_WD_TASK_STK, NULL,
+                            STREAM_WD_TASK_PRIO, &s_watchdog, SYS_CORE_RADIO);
   }
 
   memcpy(out_data, &sid, sizeof(sid));

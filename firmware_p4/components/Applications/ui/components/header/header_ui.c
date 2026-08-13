@@ -20,6 +20,7 @@
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 #include "lvgl.h"
 #include "st7789.h"
 
@@ -170,7 +171,7 @@ static void start_sd_mount_task(bool boot) {
   }
   s_boot_pending = boot;
   s_mount_task_running = true;
-  if (xTaskCreate(sd_mount_task, "sd_mnt", SD_TASK_STACK, NULL, 4, NULL) != pdPASS) {
+  if (xTaskCreatePinnedToCore(sd_mount_task, "sd_mnt", SD_TASK_STACK, NULL, SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_RADIO) != pdPASS) {
     s_mount_task_running = false;
     s_boot_pending = false;
   }
@@ -203,7 +204,7 @@ static void status_tint_timer_cb(lv_timer_t *timer) {
         ui_feedback(UI_FB_SD_DISCONNECT);
         notify(NOTIFY_WARNING, "SD card removed");
       }
-      xTaskCreate(sd_unmount_task, "sd_umnt", SD_TASK_STACK, NULL, 4, NULL);
+      xTaskCreatePinnedToCore(sd_unmount_task, "sd_umnt", SD_TASK_STACK, NULL, SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_RADIO);
     }
   }
   s_cd_prev = present;
@@ -221,7 +222,7 @@ static void status_tint_timer_cb(lv_timer_t *timer) {
     } else {
       s_sd_mounted = false;
       if (vfs_sdcard_is_mounted()) {
-        xTaskCreate(sd_unmount_task, "sd_umnt", SD_TASK_STACK, NULL, 4, NULL);
+        xTaskCreatePinnedToCore(sd_unmount_task, "sd_umnt", SD_TASK_STACK, NULL, SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_RADIO);
       }
     }
   }
