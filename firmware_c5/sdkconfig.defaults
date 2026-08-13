@@ -40,3 +40,7 @@ CONFIG_BOOTLOADER_LOG_VERSION_1=y
 # Required for sys_monitor (uxTaskGetSystemState / vTaskList)
 CONFIG_FREERTOS_USE_TRACE_FACILITY=y
 CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS=y
+
+# Task WDT reboots (panics) instead of only warning when a task starves the core
+# or the sys_monitor heartbeat stops feeding it. Same policy as the P4.
+CONFIG_ESP_TASK_WDT_PANIC=y
