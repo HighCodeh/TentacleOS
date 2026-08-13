@@ -28,6 +28,34 @@ typedef void (*msgbox_cb_t)(bool confirm);
 void msgbox_open(
     const char *icon, const char *msg, const char *btn_ok, const char *btn_cancel, msgbox_cb_t cb);
 
+/**
+ * @brief Open the "SD card connected" info modal (badge + card details + OK).
+ *
+ * A centered card showing the SD icon in an accent badge with a check mark,
+ * a title, and a Size/Free/Type list. Dismisses on OK or Back. Reuses the
+ * message-box input machinery, so msgbox_is_open() reports it too.
+ *
+ * @param name  Card label/name (may be NULL).
+ * @param size  Total capacity string, e.g. "32 GB".
+ * @param free  Free space string, e.g. "29.7 GB".
+ * @param fmt   Filesystem label, e.g. "FAT32".
+ */
+void msgbox_open_sd_info(const char *name, const char *size, const char *free, const char *fmt);
+
+/**
+ * @brief Open a centered info/result modal (icon badge + title + message + OK).
+ *
+ * Same look and input handling as the SD info modal: a centered card that
+ * slides up, an accent-tinted icon badge, an accent title, a wrapped body
+ * message and a single OK button. Dismisses on OK or Back.
+ *
+ * @param icon_path  ".bin" asset path for the badge icon (NULL to omit).
+ * @param title      Accent title text.
+ * @param msg        Body message (may wrap over several lines).
+ * @param accent     Accent color for the badge/title/border.
+ */
+void msgbox_open_info(const char *icon_path, const char *title, const char *msg, lv_color_t accent);
+
 /** @brief Close the currently open message box. */
 void msgbox_close(void);
 

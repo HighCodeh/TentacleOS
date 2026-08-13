@@ -88,6 +88,18 @@ void spi_bridge_set_alive(bool alive);
 bool spi_bridge_is_alive(void);
 
 /**
+ * @brief Suspend or resume the normal TentacleOS bridge traffic.
+ *
+ * When suspended, spi_bridge_send_command and the stream poller return
+ * ESP_ERR_INVALID_STATE without touching the bus, and any in-flight
+ * transaction is drained. Used to hand the SPI bus to the legacy
+ * (InkTest-protocol) recovery client without the two protocols colliding.
+ *
+ * @param suspended true to quiesce the bridge, false to resume.
+ */
+void spi_bridge_suspend(bool suspended);
+
+/**
  * @brief Send a command to the SPI slave and receive the response.
  *
  * @param id          Command identifier.

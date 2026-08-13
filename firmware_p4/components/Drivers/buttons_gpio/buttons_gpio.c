@@ -1,22 +1,22 @@
 // Copyright (c) 2025 HIGH CODE LLC
 //
-// TentacleOS is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// TentacleOS is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU General Public License
-// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 #include "buttons_gpio.h"
 
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 
 static const char *TAG = "BUTTONS_GPIO";
 
@@ -35,14 +35,26 @@ static button_t s_buttons[] = {
 
 #define NUM_BUTTONS (sizeof(s_buttons) / sizeof(s_buttons[0]))
 
-static bool s_last_down[6] = {false};
+static bool s_last_down[NUM_BUTTONS] = {false};
+
+static volatile int64_t s_sim_until_us[NUM_BUTTONS] = {0};
+
+static inline bool sim_active(int idx) {
+  return (idx >= 0 && idx < NUM_BUTTONS) && (esp_timer_get_time() < s_sim_until_us[idx]);
+}
+
+void buttons_sim_press(int idx, uint32_t ms) {
+  if (idx < 0 || idx >= NUM_BUTTONS)
+    return;
+  s_sim_until_us[idx] = esp_timer_get_time() + (int64_t)ms * 1000;
+}
 
 static bool get_raw_level(uint32_t gpio) {
   return gpio_get_level(gpio) == BUTTON_PRESSED_LEVEL;
 }
 
 static bool check_and_log(int idx, uint32_t gpio) {
-  bool now = gpio_get_level(gpio) == BUTTON_PRESSED_LEVEL;
+  bool now = (gpio_get_level(gpio) == BUTTON_PRESSED_LEVEL) || sim_active(idx);
   if (now && !s_last_down[idx]) {
     ESP_LOGI(TAG, "Pressed: %s (GPIO %lu)", s_button_names[idx], (unsigned long)gpio);
   }
@@ -50,29 +62,33 @@ static bool check_and_log(int idx, uint32_t gpio) {
   return now;
 }
 
+static bool s_last_press_sample[NUM_BUTTONS] = {false};
+
+static inline bool edge_pressed(int idx, uint32_t gpio) {
+  bool now = (gpio_get_level(gpio) == BUTTON_PRESSED_LEVEL) || sim_active(idx);
+  bool edge = now && !s_last_press_sample[idx];
+  s_last_press_sample[idx] = now;
+  bool flagged = __atomic_exchange_n(&s_buttons[idx].pressed_flag, false, __ATOMIC_RELAXED);
+  return edge || flagged;
+}
+
 bool up_button_pressed(void) {
-  return s_buttons[0].pressed_flag &&
-         (__atomic_test_and_set(&s_buttons[0].pressed_flag, __ATOMIC_RELAXED), false);
+  return edge_pressed(0, GPIO_BTN_UP_PIN);
 }
 bool down_button_pressed(void) {
-  return s_buttons[1].pressed_flag &&
-         (__atomic_test_and_set(&s_buttons[1].pressed_flag, __ATOMIC_RELAXED), false);
+  return edge_pressed(1, GPIO_BTN_DOWN_PIN);
 }
 bool left_button_pressed(void) {
-  return s_buttons[2].pressed_flag &&
-         (__atomic_test_and_set(&s_buttons[2].pressed_flag, __ATOMIC_RELAXED), false);
+  return edge_pressed(2, GPIO_BTN_LEFT_PIN);
 }
 bool right_button_pressed(void) {
-  return s_buttons[3].pressed_flag &&
-         (__atomic_test_and_set(&s_buttons[3].pressed_flag, __ATOMIC_RELAXED), false);
+  return edge_pressed(3, GPIO_BTN_RIGHT_PIN);
 }
 bool ok_button_pressed(void) {
-  return s_buttons[4].pressed_flag &&
-         (__atomic_test_and_set(&s_buttons[4].pressed_flag, __ATOMIC_RELAXED), false);
+  return edge_pressed(4, GPIO_BTN_OK_PIN);
 }
 bool back_button_pressed(void) {
-  return s_buttons[5].pressed_flag &&
-         (__atomic_test_and_set(&s_buttons[5].pressed_flag, __ATOMIC_RELAXED), false);
+  return edge_pressed(5, GPIO_BTN_BACK_PIN);
 }
 
 bool up_button_is_down(void) {

@@ -21,6 +21,22 @@ extern "C" {
 #endif
 
 /**
+ * @brief Appliance layout the remote controller renders.
+ */
+typedef enum {
+  IR_DEV_TV,    ///< Television remote layout
+  IR_DEV_SOUND, ///< Sound system remote layout
+  IR_DEV_AC,    ///< Air conditioner remote layout
+} ir_device_t;
+
+/**
+ * @brief Choose which appliance layout the next ui_ir_controller_open() shows.
+ *
+ * @param dev  Appliance layout to render on the next open.
+ */
+void ui_ir_controller_set_device(ir_device_t dev);
+
+/**
  * @brief Open the infrared remote controller screen.
  */
 void ui_ir_controller_open(void);

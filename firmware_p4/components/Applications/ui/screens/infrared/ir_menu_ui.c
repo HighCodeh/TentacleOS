@@ -33,10 +33,12 @@ typedef struct {
 } ir_menu_item_t;
 
 static const ir_menu_item_t MENU_ITEMS[] = {
-    {"Learn", "/assets/icons/ir_receive_menu_icon.bin", SCREEN_IR_RECEIVE},
-    {"Send", "/assets/icons/ir_send_menu_icon.bin", SCREEN_IR_SEND},
-    {"Browse Signals", "/assets/icons/search_menu_icon.bin", SCREEN_IR_SAVED},
-    {"Burst", "/assets/icons/burst_menu_icon.bin", SCREEN_IR_BURST},
+    {"Learn", "/assets/icons/settings_input_antenna.bin", SCREEN_IR_RECEIVE},
+    {"Send", "/assets/icons/podcasts.bin", SCREEN_IR_SEND},
+    {"Remote Control", "/assets/icons/settings_remote.bin", SCREEN_IR_REMOTE_TYPE},
+    {"Browse Signals", "/assets/icons/folder_open.bin", SCREEN_IR_SAVED},
+    {"Burst", "/assets/icons/bolt.bin", SCREEN_IR_BURST},
+    {"RAW Signal", "/assets/icons/graphic_eq.bin", SCREEN_IR_RAW},
 };
 #define MENU_ITEMS_COUNT (sizeof(MENU_ITEMS) / sizeof(MENU_ITEMS[0]))
 
@@ -62,14 +64,14 @@ void ui_ir_menu_open(void) {
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  s_menu = menu_component_create(s_screen, "INFRARED", NULL);
+  s_menu = menu_component_create(s_screen, "INFRARED", "/assets/icons/settings_remote.bin");
   for (size_t i = 0; i < MENU_ITEMS_COUNT; i++)
     menu_component_add_item(&s_menu, MENU_ITEMS[i].icon, MENU_ITEMS[i].name);
 
   if (s_nav_timer == NULL)
     s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
 
-  lv_screen_load(s_screen);
+  ui_screen_load(s_screen);
 }
 
 static void nav_timer_cb(lv_timer_t *timer) {
@@ -82,8 +84,8 @@ static void nav_timer_cb(lv_timer_t *timer) {
   if (ui_input_is_locked())
     return;
 
-  bool is_up = up_button_is_down();
-  bool is_down = down_button_is_down();
+  bool is_up = ui_btn_up();
+  bool is_down = ui_btn_down();
   bool is_ok = ok_button_is_down();
   bool is_back = back_button_is_down();
 

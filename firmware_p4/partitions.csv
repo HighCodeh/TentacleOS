@@ -1,8 +1,7 @@
 # Name,     Type, SubType,  Offset,   Size,     Flags
 nvs,        data,       nvs,            0x9000,     24K,
-otadata,    data,       ota,            ,           8K,
-phy_init,   data,       phy,            ,           4K,
-ota_0,      app,        ota_0,          0x20000,    4M,
-ota_1,      app,        ota_1,          ,           4M,
-storage,    data,       fat,            ,           6M,
-assets,     data,       littlefs,       ,           16M,
+otadata,    data,       ota,            0xf000,     8K,
+phy_init,   data,       phy,            0x11000,    4K,
+ota_0,      app,        ota_0,          0x20000,    0x280000,
+ota_1,      app,        ota_1,          0x2A0000,   0x280000,
+assets,     data,       littlefs,       0x520000,   0x2E0000,

@@ -22,6 +22,7 @@
 
 #include "home_ui.h"
 #include "header_ui.h"
+#include "ui_feedback.h"
 #include "ui_theme.h"
 #include "ui_manager.h"
 #include "lv_port_indev.h"
@@ -40,10 +41,9 @@ static const char *TAG = "UI_MENU";
 #define LABEL_OFFSET_Y        (-40)
 #define DOTS_OFFSET_Y         (-20)
 
-// Carousel position table: far-left, left, center, right, far-right
 static const int32_t CAROUSEL_PX[] = {-120, -75, 0, 75, 120};
 static const int32_t CAROUSEL_PY[] = {-25, -12, 0, -12, -25};
-static const int32_t CAROUSEL_SC[] = {128, 184, 280, 184, 128};
+static const int32_t CAROUSEL_SC[] = {128, 184, 256, 184, 128};
 static const int32_t CAROUSEL_OP[] = {LV_OPA_40, LV_OPA_70, LV_OPA_COVER, LV_OPA_70, LV_OPA_40};
 static const int32_t CAROUSEL_Z[] = {0, 1, 2, 1, 0};
 #define CAROUSEL_SLOTS  5
@@ -55,99 +55,119 @@ typedef struct {
   const char *base_frames[MENU_ITEM_FRAME_COUNT];
   lv_image_dsc_t *icon_dscs[MENU_ITEM_FRAME_COUNT];
   lv_image_dsc_t *base_dscs[MENU_ITEM_FRAME_COUNT];
+  screen_id_t target;
 } menu_ui_item_t;
+
+#define BASE_FRAMES                   \
+  {"/assets/frames/base_frame_0.bin", \
+   "/assets/frames/base_frame_1.bin", \
+   "/assets/frames/base_frame_2.bin"}
 
 static menu_ui_item_t s_menu_data[] = {
     {"WIFI",
      {"/assets/frames/wifi_frame_0.bin",
       "/assets/frames/wifi_frame_1.bin",
       "/assets/frames/wifi_frame_2.bin"},
-     {"/assets/frames/base_frame_0.bin",
-      "/assets/frames/base_frame_1.bin",
-      "/assets/frames/base_frame_2.bin"},
+     BASE_FRAMES,
      {NULL},
-     {NULL}},
+     {NULL},
+     SCREEN_WIFI_MENU},
     {"BLUETOOTH",
      {"/assets/frames/ble_frame_0.bin",
       "/assets/frames/ble_frame_1.bin",
       "/assets/frames/ble_frame_2.bin"},
-     {"/assets/frames/base_frame_0.bin",
-      "/assets/frames/base_frame_1.bin",
-      "/assets/frames/base_frame_2.bin"},
+     BASE_FRAMES,
      {NULL},
-     {NULL}},
+     {NULL},
+     SCREEN_BLE_MENU},
     {"NFC",
      {"/assets/frames/nfc_frame_0.bin",
       "/assets/frames/nfc_frame_1.bin",
       "/assets/frames/nfc_frame_2.bin"},
-     {"/assets/frames/base_frame_0.bin",
-      "/assets/frames/base_frame_1.bin",
-      "/assets/frames/base_frame_2.bin"},
+     BASE_FRAMES,
      {NULL},
-     {NULL}},
+     {NULL},
+     SCREEN_NFC_MENU},
+    {"RFID",
+     {"/assets/frames/rfid_frame_0.bin",
+      "/assets/frames/rfid_frame_1.bin",
+      "/assets/frames/rfid_frame_2.bin"},
+     BASE_FRAMES,
+     {NULL},
+     {NULL},
+     SCREEN_RFID_MENU},
     {"INFRARED",
      {"/assets/frames/ir_frame_0.bin",
       "/assets/frames/ir_frame_1.bin",
       "/assets/frames/ir_frame_2.bin"},
-     {"/assets/frames/base_frame_0.bin",
-      "/assets/frames/base_frame_1.bin",
-      "/assets/frames/base_frame_2.bin"},
+     BASE_FRAMES,
      {NULL},
-     {NULL}},
+     {NULL},
+     SCREEN_IR_MENU},
     {"SUB-GHZ",
      {"/assets/frames/subghz_frame_0.bin",
       "/assets/frames/subghz_frame_1.bin",
       "/assets/frames/subghz_frame_2.bin"},
-     {"/assets/frames/base_frame_0.bin",
-      "/assets/frames/base_frame_1.bin",
-      "/assets/frames/base_frame_2.bin"},
+     BASE_FRAMES,
      {NULL},
-     {NULL}},
+     {NULL},
+     SCREEN_SUBGHZ_MENU},
     {"LORA",
      {"/assets/frames/lora_frame_0.bin",
       "/assets/frames/lora_frame_1.bin",
       "/assets/frames/lora_frame_2.bin"},
-     {"/assets/frames/base_frame_0.bin",
-      "/assets/frames/base_frame_1.bin",
-      "/assets/frames/base_frame_2.bin"},
+     BASE_FRAMES,
      {NULL},
-     {NULL}},
+     {NULL},
+     SCREEN_LORA_CHAT},
+    {"BADUSB",
+     {"/assets/frames/usb_frame_0.bin",
+      "/assets/frames/usb_frame_1.bin",
+      "/assets/frames/usb_frame_2.bin"},
+     BASE_FRAMES,
+     {NULL},
+     {NULL},
+     SCREEN_BADUSB_MENU},
     {"GPIO",
      {"/assets/frames/gpios_frame_0.bin",
       "/assets/frames/gpios_frame_1.bin",
       "/assets/frames/gpios_frame_2.bin"},
-     {"/assets/frames/base_frame_0.bin",
-      "/assets/frames/base_frame_1.bin",
-      "/assets/frames/base_frame_2.bin"},
+     BASE_FRAMES,
      {NULL},
-     {NULL}},
+     {NULL},
+     SCREEN_GPIO},
     {"CONFIGURATION",
      {"/assets/frames/config_frame_0.bin",
       "/assets/frames/config_frame_1.bin",
       "/assets/frames/config_frame_2.bin"},
-     {"/assets/frames/base_frame_0.bin",
-      "/assets/frames/base_frame_1.bin",
-      "/assets/frames/base_frame_2.bin"},
+     BASE_FRAMES,
      {NULL},
-     {NULL}},
+     {NULL},
+     SCREEN_SETTINGS},
     {"FILES",
      {"/assets/frames/file_frame_0.bin",
       "/assets/frames/file_frame_1.bin",
       "/assets/frames/file_frame_2.bin"},
-     {"/assets/frames/base_frame_0.bin",
-      "/assets/frames/base_frame_1.bin",
-      "/assets/frames/base_frame_2.bin"},
+     BASE_FRAMES,
      {NULL},
-     {NULL}},
-    {"APPS",
-     {"/assets/frames/apps_frame_0.bin",
-      "/assets/frames/apps_frame_1.bin",
-      "/assets/frames/apps_frame_2.bin"},
-     {"/assets/frames/base_frame_0.bin",
-      "/assets/frames/base_frame_1.bin",
-      "/assets/frames/base_frame_2.bin"},
      {NULL},
-     {NULL}},
+     SCREEN_FILES},
+    {"PLAYER",
+     {"/assets/frames/player_glyph.bin",
+      "/assets/frames/player_glyph.bin",
+      "/assets/frames/player_glyph.bin"},
+     BASE_FRAMES,
+     {NULL},
+     {NULL},
+     SCREEN_PLAYER},
+    {"DEV",
+     {"/assets/frames/dev_glyph.bin",
+      "/assets/frames/dev_glyph.bin",
+      "/assets/frames/dev_glyph.bin"},
+     BASE_FRAMES,
+     {NULL},
+     {NULL},
+     SCREEN_DEV_MENU},
 };
 
 extern lv_group_t *main_group;
@@ -179,13 +199,16 @@ static int32_t carousel_slot(size_t item_idx) {
 }
 
 static void on_anim_done(lv_anim_t *a) {
+  (void)a;
   s_is_animating = false;
 }
 
 static void load_item_frame(size_t item_idx, int frame) {
-  if (s_menu_data[item_idx].icon_dscs[frame] == NULL)
+  if (s_menu_data[item_idx].icon_frames[frame] != NULL &&
+      s_menu_data[item_idx].icon_dscs[frame] == NULL)
     s_menu_data[item_idx].icon_dscs[frame] = assets_get(s_menu_data[item_idx].icon_frames[frame]);
-  if (s_menu_data[item_idx].base_dscs[frame] == NULL)
+  if (s_menu_data[item_idx].base_frames[frame] != NULL &&
+      s_menu_data[item_idx].base_dscs[frame] == NULL)
     s_menu_data[item_idx].base_dscs[frame] = assets_get(s_menu_data[item_idx].base_frames[frame]);
 }
 
@@ -295,7 +318,6 @@ static void fix_z_order(void) {
     }
   }
 
-  // Insertion sort by z ascending
   for (size_t i = 0; i < count - 1; i++) {
     for (size_t j = i + 1; j < count; j++) {
       if (visible[i].z > visible[j].z) {
@@ -351,6 +373,7 @@ static void on_key_event(lv_event_t *e) {
     else
       s_selected = (s_selected == 0) ? (uint8_t)(n - 1) : s_selected - 1;
 
+    ui_feedback(UI_FB_NAV);
     update_view(true);
     return;
   }
@@ -361,29 +384,7 @@ static void on_key_event(lv_event_t *e) {
   }
 
   if (k == LV_KEY_ENTER) {
-    switch (s_selected) {
-      case 0:
-        ui_switch_screen(SCREEN_WIFI_MENU);
-        break;
-      case 1:
-        ui_switch_screen(SCREEN_BLE_MENU);
-        break;
-      case 2:
-        ui_switch_screen(SCREEN_NFC_MENU);
-        break;
-      case 3:
-        ui_switch_screen(SCREEN_IR_MENU);
-        break;
-      case 7:
-        ui_switch_screen(SCREEN_SETTINGS);
-        break;
-      case 8:
-        ui_switch_screen(SCREEN_FILES);
-        break;
-      default:
-        ESP_LOGW(TAG, "No screen mapped for menu item %u", (unsigned)s_selected);
-        break;
-    }
+    ui_switch_screen(s_menu_data[s_selected].target);
   }
 }
 
@@ -395,7 +396,6 @@ void ui_menu_open(void) {
 
   s_is_animating = false;
 
-  // Invalidate cached asset pointers — may be stale after a theme change
   for (size_t i = 0; i < MENU_ITEM_COUNT; i++) {
     for (int f = 0; f < MENU_ITEM_FRAME_COUNT; f++) {
       s_menu_data[i].icon_dscs[f] = NULL;
@@ -404,7 +404,8 @@ void ui_menu_open(void) {
   }
 
   s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
+
+  lv_obj_set_style_bg_color(s_screen, lv_color_hex(0x000000), 0);
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -414,17 +415,20 @@ void ui_menu_open(void) {
   for (size_t i = 0; i < MENU_ITEM_COUNT; i++) {
     s_base_imgs[i] = lv_image_create(s_screen);
     lv_obj_align(s_base_imgs[i], LV_ALIGN_CENTER, 0, ICON_CENTER_OFFSET_Y);
+    lv_image_set_antialias(s_base_imgs[i], false);
 
     s_icon_imgs[i] = lv_image_create(s_screen);
     lv_obj_align(s_icon_imgs[i], LV_ALIGN_CENTER, 0, ICON_CENTER_OFFSET_Y);
+    lv_image_set_antialias(s_icon_imgs[i], false);
   }
 
   header_ui_create(s_screen);
 
   s_label = lv_label_create(s_screen);
   lv_obj_align(s_label, LV_ALIGN_BOTTOM_MID, 0, LABEL_OFFSET_Y);
+
   lv_obj_set_style_text_color(s_label, current_theme.text_main, 0);
-  lv_obj_set_style_text_font(s_label, s_font != NULL ? s_font : &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_font(s_label, &lv_font_montserrat_14, 0);
 
   s_page_dots = page_dots_create(s_screen, MENU_ITEM_COUNT, LV_ALIGN_BOTTOM_MID, 0, DOTS_OFFSET_Y);
 
@@ -437,5 +441,5 @@ void ui_menu_open(void) {
     lv_group_focus_obj(s_screen);
   }
 
-  lv_screen_load(s_screen);
+  ui_screen_load(s_screen);
 }

@@ -24,8 +24,10 @@
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "nvs.h"
 
 #include "c5_flasher.h"
+#include "spi_protocol.h"
 #include "spi_bridge.h"
 #include "spi_protocol.h"
 
@@ -33,18 +35,48 @@ static const char *TAG = "CMD_SYSTEM";
 
 static int cmd_c5(int argc, char **argv) {
   if (argc < 2) {
-    printf("usage: c5 <ota|rom|download|passthrough|release>\n");
-    printf("  ota          push embedded C5 image over UART (C5 must run its app)\n");
-    printf("  download     ask the running C5 to enter ROM download mode (SPI)\n");
-    printf("  rom          serial-flash a C5 already in download mode (recovery)\n");
-    printf("  passthrough  bridge host esptool <-> C5 (never returns; BACK reboots)\n");
-    printf("  release      tri-state the C5 UART lines for an external programmer\n");
+    printf("usage: c5 <ota|ping|info|sync|download|rom|passthrough|release>\n");
+    printf("  ota <spi|uart>  push the C5 image; control on SPI, bytes over spi or uart\n");
+    printf("  ping            ping the running C5 over the SPI bridge\n");
+    printf("  info            read the C5 chip info over the SPI bridge\n");
+    printf("  sync            re-probe and reconnect the bridge (e.g. after a C5 reboot)\n");
+    printf("  download        ask the running C5 to enter ROM download mode (SPI)\n");
+    printf("  rom             serial-flash a C5 already in download mode (recovery)\n");
+    printf("  passthrough     bridge host esptool <-> C5 (never returns; BACK reboots)\n");
+    printf("  release         tri-state the C5 UART lines for an external programmer\n");
     return 1;
   }
   if (strcmp(argv[1], "ota") == 0) {
-    c5_flasher_init();
-    esp_err_t r = c5_flasher_update(NULL, 0);
-    printf("C5 OTA: %s\n", esp_err_to_name(r));
+    uint8_t transport = SPI_OTA_TRANSPORT_SPI;
+    if (argc >= 3 && strcmp(argv[2], "uart") == 0) {
+      transport = SPI_OTA_TRANSPORT_UART;
+    } else if (argc >= 3 && strcmp(argv[2], "spi") != 0) {
+      printf("usage: c5 ota <spi|uart>\n");
+      return 1;
+    }
+    if (transport == SPI_OTA_TRANSPORT_UART) {
+      c5_flasher_init(); // UART1 is only needed when the bytes travel over UART
+    }
+    esp_err_t r = c5_flasher_update(NULL, 0, transport);
+    printf("C5 OTA (%s): %s\n", (transport == SPI_OTA_TRANSPORT_UART) ? "uart" : "spi",
+           esp_err_to_name(r));
+    return r == ESP_OK ? 0 : 1;
+  }
+  if (strcmp(argv[1], "ping") == 0) {
+    esp_err_t r = c5_flasher_ping();
+    printf("C5 ping: %s\n", esp_err_to_name(r));
+    return r == ESP_OK ? 0 : 1;
+  }
+  if (strcmp(argv[1], "info") == 0) {
+    esp_err_t r = c5_flasher_info();
+    if (r != ESP_OK) {
+      printf("C5 info: %s\n", esp_err_to_name(r));
+    }
+    return r == ESP_OK ? 0 : 1;
+  }
+  if (strcmp(argv[1], "sync") == 0) {
+    esp_err_t r = c5_flasher_sync();
+    printf("C5 sync: %s\n", esp_err_to_name(r));
     return r == ESP_OK ? 0 : 1;
   }
   if (strcmp(argv[1], "download") == 0) {
@@ -60,7 +92,7 @@ static int cmd_c5(int argc, char **argv) {
   }
   if (strcmp(argv[1], "passthrough") == 0) {
     printf("Entering C5 passthrough. Reboot (or BACK) to exit.\n");
-    c5_passthrough_run(); // never returns
+    c5_passthrough_run();
     return 0;
   }
   if (strcmp(argv[1], "release") == 0) {
@@ -86,6 +118,45 @@ static int cmd_free(int argc, char **argv) {
 
 static int cmd_restart(int argc, char **argv) {
   printf("Restarting system...\n");
+  esp_restart();
+  return 0;
+}
+
+static int cmd_firstboot(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
+  nvs_handle_t h;
+  if (nvs_open("tutorial", NVS_READWRITE, &h) == ESP_OK) {
+    nvs_erase_key(h, "done");
+    nvs_commit(h);
+    nvs_close(h);
+  }
+  if (nvs_open("scrtips", NVS_READWRITE, &h) == ESP_OK) {
+    nvs_erase_key(h, "seen");
+    nvs_erase_key(h, "skip");
+    nvs_commit(h);
+    nvs_close(h);
+  }
+  printf("First-boot wizard + screen tips cleared. Restarting...\n");
+  esp_restart();
+  return 0;
+}
+
+static int cmd_capprep(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
+  nvs_handle_t h;
+  if (nvs_open("tutorial", NVS_READWRITE, &h) == ESP_OK) {
+    nvs_set_u8(h, "done", 1);
+    nvs_commit(h);
+    nvs_close(h);
+  }
+  if (nvs_open("scrtips", NVS_READWRITE, &h) == ESP_OK) {
+    nvs_set_u8(h, "skip", 1);
+    nvs_commit(h);
+    nvs_close(h);
+  }
+  printf("Onboarding skipped (wizard + tips). Restarting clean for capture...\n");
   esp_restart();
   return 0;
 }
@@ -136,7 +207,7 @@ static int cmd_ip(int argc, char **argv) {
 }
 
 static int cmd_tasks(int argc, char **argv) {
-  const size_t bytes_per_task = 40; /* See vTaskList description */
+  const size_t bytes_per_task = 40;
   char *task_list_buffer = malloc(uxTaskGetNumberOfTasks() * bytes_per_task);
 
   if (task_list_buffer == NULL) {
@@ -186,6 +257,22 @@ void register_system_commands(void) {
       .func = &cmd_restart,
   };
   ESP_ERROR_CHECK(esp_console_cmd_register(&cmd_restart_def));
+
+  const esp_console_cmd_t cmd_firstboot_def = {
+      .command = "firstboot",
+      .help = "Clear the first-boot onboarding flag and restart to run it again",
+      .hint = NULL,
+      .func = &cmd_firstboot,
+  };
+  ESP_ERROR_CHECK(esp_console_cmd_register(&cmd_firstboot_def));
+
+  const esp_console_cmd_t cmd_capprep_def = {
+      .command = "capprep",
+      .help = "Skip onboarding (wizard + tips) and restart clean, for screen capture",
+      .hint = NULL,
+      .func = &cmd_capprep,
+  };
+  ESP_ERROR_CHECK(esp_console_cmd_register(&cmd_capprep_def));
 
   const esp_console_cmd_t cmd_c5_def = {
       .command = "c5",

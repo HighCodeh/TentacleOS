@@ -17,9 +17,12 @@
 
 #include <string.h>
 
+#include "driver/gpio.h"
 #include "driver/i2c.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+
+#include "pin_def.h"
 
 #define I2C_PORT       I2C_NUM_0
 #define I2C_TIMEOUT_MS 100
@@ -69,6 +72,8 @@
 
 static const char *TAG = "BQ25896";
 
+static bool s_present = false; // true once the charger has answered on I2C
+
 static esp_err_t bq25896_read_reg(uint8_t reg, uint8_t *data) {
   i2c_cmd_handle_t cmd = i2c_cmd_link_create();
   i2c_master_start(cmd);
@@ -99,10 +104,51 @@ esp_err_t bq25896_init(void) {
   uint8_t data;
   esp_err_t ret = bq25896_read_reg(REG_CTRL_3, &data);
   if (ret != ESP_OK) {
+    s_present = false;
     ESP_LOGE(TAG, "Falha ao comunicar com o BQ25896.");
     return ret;
   }
+  s_present = true;
 
+  // Drive CE (active-low, GPIO33) LOW to ENABLE battery charging. Left undriven,
+  // the charger reports "not charging" even with VBUS present.
+  gpio_config_t ce_cfg = {
+      .mode = GPIO_MODE_OUTPUT,
+      .pin_bit_mask = 1ULL << GPIO_CHARGER_CE_PIN,
+      .pull_up_en = GPIO_PULLUP_DISABLE,
+      .pull_down_en = GPIO_PULLDOWN_DISABLE,
+      .intr_type = GPIO_INTR_DISABLE,
+  };
+  gpio_config(&ce_cfg);
+  gpio_set_level(GPIO_CHARGER_CE_PIN, 0);
+
+  // REG07: (a) disable the charge watchdog ([5:4]=00) so it doesn't periodically
+  // reset our ADC/charge settings back to POR defaults (which would stop the ADC);
+  // (b) JEITA_ISET=0 (bit 0) so the cool-region (T1..T2) fast-charge current is
+  // 50% of ICHG instead of the default 20% — faster charge while the TS reads
+  // "cool" (NTC_FAULT=0b011). Note: this affects FAST charge, not the pre-charge
+  // phase, which stays at the gentle IPRECHG rate for deeply-discharged cells.
+  if (bq25896_read_reg(REG_CHG_CTRL_1, &data) == ESP_OK) {
+    data &= ~0x30; // WATCHDOG = 00 (disabled)
+    data &= ~0x01; // JEITA_ISET = 0 (cool-region current 50% of ICHG)
+    bq25896_write_reg(REG_CHG_CTRL_1, data);
+  }
+
+  // REG03 SYS_MIN[3:1]: drop the minimum-system-voltage floor from the POR
+  // default 3.5V (101) to 3.0V (000). In battery-only mode (no VBUS) the BQ's
+  // battery-monitor ADC is only active while VBAT > SYS_MIN (datasheet p.24), so
+  // at the 3.5V default the fuel gauge FREEZES once the pack drops below 3.5V
+  // (never reaching low-batt/critical-shutdown). 3.0V keeps the ADC converting
+  // down to the 3.0V knee. Only touches the SYS floor + ADC gate — not charge
+  // current/voltage/speed. Safe here: the 3.3V P4 rail is a TPS63020 buck-boost
+  // off VSYS. (For a bit more VSYS headroom, use `data |= 0x04` => 010 = 3.2V,
+  // which lines up with BATTERY_MIN_MV=3200.)
+  if (bq25896_read_reg(REG_CHG_CTRL_0, &data) == ESP_OK) {
+    data &= ~0x0E; // SYS_MIN = 000 (3.0V)
+    bq25896_write_reg(REG_CHG_CTRL_0, data);
+  }
+
+  // Continuous ADC (CONV_RATE=1) so battery voltage / status stay fresh.
   ret = bq25896_read_reg(REG_ADC_CTRL, &data);
   if (ret != ESP_OK)
     return ret;
@@ -117,6 +163,10 @@ esp_err_t bq25896_init(void) {
   }
 
   return ret;
+}
+
+bool bq25896_is_present(void) {
+  return s_present;
 }
 
 bq25896_charge_status_t bq25896_get_charge_status(void) {
@@ -159,4 +209,10 @@ uint16_t bq25896_get_battery_voltage(void) {
     return voltage;
   }
   return 0;
+}
+
+uint8_t bq25896_get_fault(void) {
+  uint8_t data = 0;
+  bq25896_read_reg(REG_FAULT, &data);
+  return data;
 }

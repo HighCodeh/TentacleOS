@@ -1,6 +1,6 @@
-# Flash — 32MB, 80MHz, DIO
-CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y
-CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+# Flash — 8MB, DIO, 20MHz (conservative clock for marginal V1.x/FFC hardware)
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_ESPTOOLPY_FLASHFREQ_20M=y
 CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
 
 # Custom partition table (with OTA)
@@ -18,7 +18,7 @@ CONFIG_ESP32P4_REV_MIN_100=y
 # CPU 360MHz (P4 maximum)
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_360=y
 
-# PSRAM hex-octal mode, 200MHz — P4 specific
+# PSRAM hex-octal mode, 200MHz - P4 specific (V3 prototype has PSRAM populated)
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_HEX=y
 CONFIG_SPIRAM_SPEED_200M=y
@@ -48,6 +48,23 @@ CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS=y
 # LVGL fonts used by UI components
 CONFIG_LV_FONT_MONTSERRAT_12=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_FONT_MONTSERRAT_16=y
+
+# LVGL tuning: clib malloc routes large blocks to PSRAM (SPIRAM_USE_MALLOC,
+# >16KB threshold), so the image cache can be generous now that PSRAM is back.
+# CONFIG_LV_USE_BUILTIN_MALLOC is not set
+CONFIG_LV_USE_CLIB_MALLOC=y
+CONFIG_LV_CACHE_DEF_SIZE=1048576
+CONFIG_LV_USE_FS_POSIX=y
+CONFIG_LV_FS_POSIX_LETTER=65
+CONFIG_LV_FS_POSIX_PATH="/"
+CONFIG_FREERTOS_HZ=1000
+
+# SD is native 512-byte sectors; 4096 wastes ~40KB of internal heap on FATFS buffers
+CONFIG_FATFS_SECTOR_512=y
+CONFIG_WL_SECTOR_SIZE_512=y
+# Long filenames on SD (TOS folder tree uses names >8.3, e.g. captive_portal, screen.conf)
+CONFIG_FATFS_LFN_HEAP=y
 
 # Default log level INFO
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
@@ -57,3 +74,6 @@ CONFIG_MBEDTLS_HKDF_C=y
 
 # LVGL QR code widget — companion pairing screen renders the PSK as a QR
 CONFIG_LV_USE_QRCODE=y
+
+# LVGL snapshot — NFC card-emulation screen snapshots a panel to animate it
+CONFIG_LV_USE_SNAPSHOT=y

@@ -12,33 +12,6 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 project(TentacleOS_C5)
 
-if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
-    # Windows Detection
-    message(STATUS "Host System: Windows. Using PowerShell script.")
-    set(CONVERT_SCRIPT "${CMAKE_SOURCE_DIR}/../tools/png_to_bin/png_conversor_to_bin.ps1")
-    set(CONVERT_COMMAND powershell.exe -ExecutionPolicy Bypass -File "${CONVERT_SCRIPT}")
-    
-elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
-    # Linux or macOS Detection
-    message(STATUS "Host System: ${CMAKE_HOST_SYSTEM_NAME}. Using Bash script.")
-    set(CONVERT_SCRIPT "${CMAKE_SOURCE_DIR}/../tools/png_to_bin/png_conversor_to_bin.sh")
-    set(CONVERT_COMMAND bash "${CONVERT_SCRIPT}")
-    
-else()
-    message(FATAL_ERROR "Unsupported Operating System: ${CMAKE_HOST_SYSTEM_NAME}")
-endif()
-
-# Execute the conversion process
-execute_process(
-    COMMAND ${CONVERT_COMMAND}
-    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    RESULT_VARIABLE convert_result
-)
-
-if(NOT convert_result EQUAL 0)
-    message(FATAL_ERROR "Failed to convert assets. Check the logs above for details.")
-endif()
-
-# ==============================================================================
-
-littlefs_create_partition_image(assets temp FLASH_IN_PROJECT)
+# dev-v1 variant: no `assets`/`storage` partitions (lean OTA layout), so the
+# asset conversion + littlefs image generation are dropped. Evil Twin / Beacon
+# Spam and scan-saving degrade gracefully (their partitions are absent).

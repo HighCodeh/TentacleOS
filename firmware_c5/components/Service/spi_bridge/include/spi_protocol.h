@@ -89,6 +89,16 @@ typedef enum {
   SPI_ID_SYSTEM_LOG = SPI_CMD(SPI_CAT_SYSTEM, 0x07), // C5→P4 stream: log lines [level u8][utf-8]
   SPI_ID_SYSTEM_ENTER_DOWNLOAD =
       SPI_CMD(SPI_CAT_SYSTEM, 0x08), // P4→C5: reboot into ROM download mode (serial-flash recovery)
+  SPI_ID_SYSTEM_OTA_BEGIN = SPI_CMD(
+      SPI_CAT_SYSTEM, 0x09), // P4→C5: begin app OTA. Payload = spi_ota_begin_t (u32 size + u8
+                             // transport). C5 erases; bytes then arrive over SPI (OTA_DATA) or UART.
+  SPI_ID_SYSTEM_OTA_STATUS = SPI_CMD(
+      SPI_CAT_SYSTEM, 0x0A), // P4→C5: poll OTA progress. Response payload = spi_ota_status_t.
+  SPI_ID_SYSTEM_OTA_DATA = SPI_CMD(
+      SPI_CAT_SYSTEM, 0x0B), // P4→C5: one firmware chunk (SPI transport). Written sequentially; the
+                             // C5 finalizes and reboots once bytes_written reaches the image size.
+  SPI_ID_SYSTEM_INFO = SPI_CMD(
+      SPI_CAT_SYSTEM, 0x0C), // P4→C5: read chip info. Response payload = spi_sys_info_t.
 
   // Companion file ops. P4-local host-link commands (the P4 owns flash + SD);
   // listed here only so the app and P4 share one id space. Never relayed to C5.
@@ -253,6 +263,46 @@ typedef enum {
   SPI_STATUS_UNSUPPORTED = 0x03,
   SPI_STATUS_INVALID_ARG = 0x04
 } spi_status_t;
+
+/**
+ * @brief App-OTA state, reported by SPI_ID_SYSTEM_OTA_STATUS.
+ */
+typedef enum {
+  SPI_OTA_STATE_IDLE = 0,      ///< No OTA in progress.
+  SPI_OTA_STATE_ERASING = 1,   ///< esp_ota_begin erasing the target partition.
+  SPI_OTA_STATE_READY = 2,     ///< Erased; ready to receive the .bin over UART0.
+  SPI_OTA_STATE_RECEIVING = 3, ///< Receiving/writing the image.
+  SPI_OTA_STATE_DONE = 4,      ///< Image validated and set to boot; C5 about to reboot.
+  SPI_OTA_STATE_ERROR = 5      ///< Aborted (bad size, timeout, write/verify failure).
+} spi_ota_state_t;
+
+/**
+ * @brief OTA progress snapshot (SPI_ID_SYSTEM_OTA_STATUS response payload).
+ */
+typedef struct __attribute__((packed)) {
+  uint8_t state;          ///< spi_ota_state_t
+  uint32_t bytes_written; ///< Bytes committed to flash so far (the per-block ACK).
+} spi_ota_status_t;
+
+/** @brief Where the C5 receives the firmware image after an OTA begin. */
+typedef enum {
+  SPI_OTA_TRANSPORT_SPI = 0,  ///< Image bytes arrive as SPI_ID_SYSTEM_OTA_DATA chunks.
+  SPI_OTA_TRANSPORT_UART = 1  ///< Image bytes arrive raw on UART0; control stays on SPI.
+} spi_ota_transport_t;
+
+/** @brief SPI_ID_SYSTEM_OTA_BEGIN request payload. */
+typedef struct __attribute__((packed)) {
+  uint32_t size;   ///< Image size in bytes.
+  uint8_t transport; ///< spi_ota_transport_t
+} spi_ota_begin_t;
+
+/** @brief SPI_ID_SYSTEM_INFO response payload: C5 chip identity. */
+typedef struct __attribute__((packed)) {
+  uint8_t chip_model;    ///< esp_chip_model_t
+  uint16_t chip_revision; ///< major*100 + minor
+  uint8_t mac[6];        ///< base MAC
+  uint32_t free_heap;    ///< current free heap in bytes
+} spi_sys_info_t;
 
 /**
  * @brief SPI frame header (5 bytes).

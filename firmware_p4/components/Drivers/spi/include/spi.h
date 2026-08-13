@@ -89,6 +89,19 @@ spi_add_device(spi_host_device_t host, spi_device_id_t id, const spi_device_conf
 spi_device_handle_t spi_get_handle(spi_device_id_t id);
 
 /**
+ * @brief Remove a registered device from its bus.
+ *
+ * Frees the ESP-IDF device handle and clears the registry slot so the device
+ * (and its CS pin) can be re-added with a different configuration.
+ *
+ * @param id  Device identifier.
+ * @return
+ *   - ESP_OK on success or if the device was not registered
+ *   - ESP_ERR_INVALID_ARG if id is out of range
+ */
+esp_err_t spi_remove_device(spi_device_id_t id);
+
+/**
  * @brief Perform a blocking SPI transmission.
  *
  * @param id    Device identifier.

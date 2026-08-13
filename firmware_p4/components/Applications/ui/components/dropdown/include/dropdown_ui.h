@@ -25,6 +25,16 @@ extern "C" {
 /** @brief Create the dropdown panel on the given parent. */
 void dropdown_ui_create(lv_obj_t *parent);
 
+/**
+ * @brief Create the single global dropdown on the top layer (call once at init).
+ *
+ * The panel then rides above every screen and is opened from any browse screen
+ * with a long-press of UP (gated by ui_screen_shows_chrome), closed with BACK or
+ * another long-press. While open it holds exclusive input (keypad suppressed +
+ * polling screens input-locked).
+ */
+void dropdown_ui_global_init(void);
+
 /** @brief Register objects to hide when the dropdown opens. */
 void dropdown_ui_register_hide_objs(lv_obj_t **objs, int count);
 

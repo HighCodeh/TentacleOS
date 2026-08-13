@@ -13,57 +13,24 @@
 # You should have received a copy of the GNU General Public License
 # along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
+# The UI is a mirror of firmware_p4_prototype's screens (stubbed). One recursive
+# glob picks up every screen, component and support file under ui/ (plus
+# ui_manager.c and assets_manager.c at the ui/ root) — new screens compile
+# automatically. INCLUDE_DIRS is the only hand-maintained part; add a screen's
+# include/ dir there when a new screen area is introduced.
 file(GLOB_RECURSE UI_SRCS "ui/*.c")
-file(GLOB_RECURSE BOOT_UI_SRCS "ui/screens/boot/*.c")
-file(GLOB_RECURSE HOME_UI_SRCS "ui/screens/home/*.c")
-file(GLOB_RECURSE MENU_UI_SRCS "ui/screens/menu/*.c")
-file(GLOB_RECURSE WIFI_UI_SRCS "ui/screens/wifi/*.c")
-list(APPEND WIFI_UI_SRCS "ui/screens/wifi/wifi_scan_menu_ui.c")
-list(APPEND WIFI_UI_SRCS "ui/screens/wifi/wifi_attack_menu_ui.c")
-list(APPEND WIFI_UI_SRCS "ui/screens/wifi/wifi_packets_menu_ui.c")
-list(APPEND WIFI_UI_SRCS "ui/screens/wifi/wifi_sniffer_raw_ui.c")
-list(APPEND WIFI_UI_SRCS "ui/screens/wifi/wifi_sniffer_attack_ui.c")
-list(APPEND WIFI_UI_SRCS "ui/screens/wifi/wifi_sniffer_handshake_ui.c")
-list(APPEND WIFI_UI_SRCS "ui/screens/wifi/wifi_deauth_attack_ui.c")
-list(APPEND WIFI_UI_SRCS "ui/screens/wifi/wifi_beacon_spam_simple_ui.c")
-list(APPEND WIFI_UI_SRCS "ui/screens/wifi/wifi_probe_flood_ui.c")
-list(APPEND WIFI_UI_SRCS "ui/screens/wifi/wifi_auth_flood_ui.c")
-list(APPEND WIFI_UI_SRCS "ui/screens/wifi/wifi_scan_ap_ui.c")
-list(APPEND WIFI_UI_SRCS "ui/screens/wifi/wifi_scan_stations_ui.c")
-list(APPEND WIFI_UI_SRCS "ui/screens/wifi/wifi_scan_target_ui.c")
-list(APPEND WIFI_UI_SRCS "ui/screens/wifi/wifi_scan_probe_ui.c")
-list(APPEND WIFI_UI_SRCS "ui/screens/wifi/wifi_scan_monitor_ui.c")
-file(GLOB_RECURSE BLE_UI_SRCS "ui/screens/bluetooth/*.c")
-file(GLOB_RECURSE SUBGHZ_UI_SRCS "ui/screens/SubGhz/*.c")
-file(GLOB_RECURSE SUB_EXAMPLE_UI_SRCS "ui/screens/sub_example/*.c")
-file(GLOB_RECURSE BADUSB_UI_SRCS "ui/screens/badusb/*.c")
-file(GLOB_RECURSE IR_UI_SRCS "ui/screens/infrared/*.c")
 
-#COMPONENTS
-file(GLOB_RECURSE HEADER_UI_SRCS "ui/components/header/*.c")
-file(GLOB_RECURSE FOOTER_UI_SRCS "ui/components/footer/*.c")
-file(GLOB_RECURSE KEYBOARD_UI_SRCS "ui/components/keyboard/*.c")
-file(GLOB_RECURSE MSGBOX_UI_SRCS "ui/components/message_box/*.c")
-file(GLOB_RECURSE DROPDOWN_UI_SRCS "ui/components/dropdown/*.c")
-file(GLOB_RECURSE TOGGLE_UI_SRCS "ui/components/toggle/*.c")
-file(GLOB_RECURSE SPINNER_UI_SRCS "ui/components/spinner/*.c")
+list(REMOVE_ITEM UI_SRCS
+  "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/games_menu_ui.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/flappy_ui.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/snake_ui.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/breakout_ui.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/octopet_ui.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/motion_ui.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/game_fx.c"
+)
 
-#SETINGS SCREENS
-file(GLOB_RECURSE SETTINGS_UI_SRCS "ui/screens/settings/*.c")
-file(GLOB_RECURSE DISPLAY_SETTINGS_UI_SRCS "ui/screens/display_settings/*.c")
-file(GLOB_RECURSE SOUND_SETTINGS_UI_SRCS "ui/screens/sound_settings/*.c")
-file(GLOB_RECURSE INTERFACE_SETTINGS_UI_SRCS "ui/screens/interface_settings/*.c")
-file(GLOB_RECURSE BATTERY_SETTINGS_UI_SRCS "ui/screens/battery_settings/*.c")
-file(GLOB_RECURSE CONNECTION_SETTINGS_UI_SRCS "ui/screens/connection_settings/*.c")
-file(GLOB_RECURSE ABOUT_SETTINGS_UI_SRCS "ui/screens/about_settings/*.c")
-file(GLOB_RECURSE COMPANION_PAIRING_UI_SRCS "ui/screens/companion_pairing/*.c")
-file(GLOB_RECURSE THEME_SELECTOR_UI_SRCS "ui/screens/theme_selector/*.c")
-
-file(GLOB_RECURSE CONNECT_WIFI_UI_SRCS "ui/screens/connect_wifi/*.c")
-file(GLOB_RECURSE CONNECT_BLUETOOTH_UI_SRCS "ui/screens/connect_bluetooth/*.c")
-
-
-#APPLICATION
+# Application (non-UI) sources — the real drivers/services stay in the build.
 file(GLOB_RECURSE SUBGHZ_APP_SRCS "SubGhz/*.c")
 file(GLOB_RECURSE BLE_APP_SRCS "bluetooth/*.c")
 file(GLOB_RECURSE BADUSB_APP_SRCS "bad_usb/*.c")
@@ -74,7 +41,7 @@ file(GLOB_RECURSE RNODE_APP_SRCS "LoRa/rnode/*.c")
 file(GLOB MESHCORE_APP_SRCS "LoRa/meshcore/*.c")
 file(GLOB MESHTASTIC_APP_SRCS "LoRa/meshtastic/*.c")
 
-idf_component_register(SRCS 
+idf_component_register(SRCS
   ${UI_SRCS}
   ${WIFI_APP_SRCS}
   ${NFC_APP_SRCS}
@@ -84,39 +51,11 @@ idf_component_register(SRCS
   ${MESHTASTIC_APP_SRCS}
   ${BADUSB_APP_SRCS}
   ${BLE_APP_SRCS}
-  "ui/ui_manager.c"
-  "ui/assets_manager.c"
   ${SUBGHZ_APP_SRCS}
-  ${SUBGHZ_UI_SRCS}
-  ${BLE_UI_SRCS}
-  ${BOOT_UI_SRCS}
-  ${HOME_UI_SRCS}
-  ${MENU_UI_SRCS}
-  ${WIFI_UI_SRCS}
-  ${SUB_EXAMPLE_UI_SRCS}
-  ${BADUSB_UI_SRCS}
-  ${IR_UI_SRCS}
-  ${HEADER_UI_SRCS}
-  ${FOOTER_UI_SRCS}
-  ${KEYBOARD_UI_SRCS}
-  ${SETTINGS_UI_SRCS}
-  ${DISPLAY_SETTINGS_UI_SRCS}
-  ${INTERFACE_SETTINGS_UI_SRCS}
-  ${SOUND_SETTINGS_UI_SRCS}
-  ${BATTERY_SETTINGS_UI_SRCS}
-  ${CONNECTION_SETTINGS_UI_SRCS}
-  ${CONNECT_BLUETOOTH_UI_SRCS}
-  ${CONNECT_WIFI_UI_SRCS}
-  ${ABOUT_SETTINGS_UI_SRCS}
-  ${COMPANION_PAIRING_UI_SRCS}
-  ${THEME_SELECTOR_UI_SRCS}
-  ${MSGBOX_UI_SRCS}
-  ${DROPDOWN_UI_SRCS}
-  ${TOGGLE_UI_SRCS}
-  ${SPINNER_UI_SRCS}
 
   INCLUDE_DIRS
-  "wifi/include"   
+  # --- application (non-ui) ---
+  "wifi/include"
   "nfc/include"
   "nfc/protocols/common/include"
   "nfc/protocols/emv/include"
@@ -128,22 +67,6 @@ idf_component_register(SRCS
   "nfc/protocols/mifare/include"
   "nfc/protocols/t1t/include"
   "nfc/protocols/t2t/include"
-  "ui/include"
-  "ui/screens/SubGhz/include"
-  "ui/screens/bluetooth/include"
-  "ui/screens/settings/include"
-  "ui/screens/display_settings/include"
-  "ui/screens/sound_settings/include"
-  "ui/screens/interface_settings/include"
-  "ui/screens/battery_settings/include"
-  "ui/screens/connection_settings/include"
-  "ui/screens/connect_wifi/include"
-  "ui/screens/connect_bluetooth/include"
-  "ui/screens/about_settings/include"
-  "ui/screens/companion_pairing/include"
-  "ui/screens/theme_selector/include"
-  "ui/screens/badusb/include"
-  "ui/screens/infrared/include"
   "bad_usb/include"
   "bluetooth/include"
   "SubGhz/include"
@@ -153,30 +76,59 @@ idf_component_register(SRCS
   "LoRa/rnode/include"
   "LoRa/meshcore/include"
   "LoRa/meshtastic/include"
+  # --- ui core ---
   "ui/include"
-  "ui/screens/home/include"
+  # --- ui screens (mirrors firmware_p4_prototype) ---
+  "ui/screens/audio/include"
+  "ui/screens/badusb/include"
+  "ui/screens/bluetooth/include"
   "ui/screens/boot/include"
-  "ui/screens/menu/include"
-  "ui/screens/wifi/include"
-  "ui/screens/nfc/include"
+  "ui/screens/connect_bluetooth/include"
+  "ui/screens/connect_wifi/include"
+  "ui/screens/connection_settings/include"
+  "ui/screens/dev/include"
   "ui/screens/files/include"
-  "ui/screens/sub_example/include"
-  "ui/components/header/include"
-  "ui/components/footer/include"
-  "ui/components/keyboard/include"
-  "ui/components/message_box/include"
-  "ui/components/dropdown/include"
-  "ui/components/toggle/include"
-  "ui/components/menu_component/include"
+  "ui/screens/games/include"
+  "ui/screens/gpio/include"
+  "ui/screens/haptic/include"
+  "ui/screens/home/include"
+  "ui/screens/infrared/include"
+  "ui/screens/lora/include"
+  "ui/screens/menu/include"
+  "ui/screens/nfc/include"
+  "ui/screens/octobit/include"
+  "ui/screens/power/include"
+  "ui/screens/rfid/include"
+  "ui/screens/settings/include"
+  "ui/screens/subghz/include"
+  "ui/screens/theme/include"
+  "ui/screens/wifi/include"
+  # --- ui components ---
   "ui/components/button/include"
-  "ui/components/terminal/include"
-  "ui/components/page_dots/include"
-  "ui/components/intensity_bar/include"
+  "ui/components/capture_result/include"
   "ui/components/chart/include"
-  "ui/components/text_viewer/include"
+  "ui/components/chrome/include"
+  "ui/components/dropdown/include"
+  "ui/components/error/include"
+  "ui/components/feedback/include"
+  "ui/components/footer/include"
+  "ui/components/header/include"
+  "ui/components/intensity_bar/include"
+  "ui/components/keyboard/include"
+  "ui/components/menu_component/include"
+  "ui/components/message_box/include"
+  "ui/components/notify/include"
+  "ui/components/octobit/include"
+  "ui/components/power_policy/include"
+  "ui/components/page_dots/include"
+  "ui/components/sigwave/include"
+  "ui/components/subghz_scope/include"
   "ui/components/spinner/include"
-
-
+  "ui/components/terminal/include"
+  "ui/components/text_viewer/include"
+  "ui/components/toggle/include"
+  "ui/components/tutorial/include"
+  "ui/components/waves/include"
 
   REQUIRES
   driver
@@ -189,6 +141,13 @@ idf_component_register(SRCS
   bt
   libsodium
   mqtt
+  joltwallet__littlefs
+  nvs_flash
+  espressif__esp-dsp
 )
 target_link_libraries(${COMPONENT_LIB} -Wl,-zmuldefs)
 target_compile_definitions(${COMPONENT_LIB} PRIVATE MESH_HEADLESS=0)
+# Ported screens/components use the LVGL idiom of casting a style setter to
+# lv_anim_exec_xcb_t for animations; GCC14/IDF5 flags this under
+# -Wcast-function-type. Downgrade it from error for this component.
+target_compile_options(${COMPONENT_LIB} PRIVATE -Wno-error=cast-function-type)

@@ -20,6 +20,8 @@
 
 #include "esp_log.h"
 #include "esp_rom_sys.h"
+#include "esp_chip_info.h"
+#include "esp_mac.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
@@ -30,6 +32,7 @@
 #include "bt_dispatcher.h"
 #include "bluetooth_service.h"
 #include "deauther_detector.h"
+#include "ota_service.h"
 #include "session_manager.h"
 #include "signal_monitor.h"
 #include "spi_slave_driver.h"
@@ -282,6 +285,43 @@ static void bridge_task(void *pvParameters) {
           // transfer completes (deferred, like reboot) so the P4 sees the OK.
           status = SPI_STATUS_OK;
           s_is_download_pending = true;
+        } else if (cmd == SPI_ID_SYSTEM_OTA_BEGIN) {
+          // Read {size, transport} and spawn the receiver task. Non-blocking: the
+          // P4 polls OTA_STATUS for READY, then sends the image over SPI (OTA_DATA)
+          // or UART depending on transport.
+          if (header->length >= sizeof(spi_ota_begin_t)) {
+            spi_ota_begin_t req;
+            memcpy(&req, cmd_payload, sizeof(req));
+            status = (ota_service_begin(req.size, req.transport) == ESP_OK) ? SPI_STATUS_OK
+                                                                            : SPI_STATUS_ERROR;
+          } else {
+            status = SPI_STATUS_INVALID_ARG;
+          }
+        } else if (cmd == SPI_ID_SYSTEM_INFO) {
+          esp_chip_info_t ci;
+          esp_chip_info(&ci);
+          spi_sys_info_t info = {0};
+          info.chip_model = (uint8_t)ci.model;
+          info.chip_revision = (uint16_t)ci.revision;
+          esp_read_mac(info.mac, ESP_MAC_WIFI_STA);
+          info.free_heap = esp_get_free_heap_size();
+          memcpy(resp_payload, &info, sizeof(info));
+          resp_len = sizeof(info);
+          status = SPI_STATUS_OK;
+        } else if (cmd == SPI_ID_SYSTEM_OTA_DATA) {
+          // One firmware chunk. Buffered (fast) and acked at once; the writer
+          // task drains it to flash. BUSY means the writer is behind - the P4
+          // retries the same chunk.
+          esp_err_t wr = ota_service_write(cmd_payload, header->length);
+          status = (wr == ESP_OK)              ? SPI_STATUS_OK
+                   : (wr == ESP_ERR_NO_MEM)    ? SPI_STATUS_BUSY
+                                               : SPI_STATUS_ERROR;
+        } else if (cmd == SPI_ID_SYSTEM_OTA_STATUS) {
+          spi_ota_status_t ota_st;
+          ota_service_get_status(&ota_st);
+          memcpy(resp_payload, &ota_st, sizeof(ota_st));
+          resp_len = sizeof(ota_st);
+          status = SPI_STATUS_OK;
         } else if (cmd == SPI_ID_SYSTEM_VERSION) {
           if (strcmp(s_firmware_version, "unknown") == 0)
             load_firmware_version();

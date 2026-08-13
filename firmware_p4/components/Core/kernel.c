@@ -29,6 +29,7 @@
 #include "buttons_gpio.h"
 #include "ys_rfid2.h"
 #include "bridge_manager.h"
+#include "spi_bridge.h"
 #include "storage_init.h"
 #include "storage_assets.h"
 #include "tos_first_boot.h"
@@ -41,7 +42,7 @@
 #include "host_link_ble.h"
 #include "host_link_state.h"
 #include "host_link_stream.h"
-#include "lv_port_disp.h"
+#include "lvgl_glue.h"
 #include "lv_port_indev.h"
 #include "ui_manager.h"
 #include "msgbox_ui.h"
@@ -87,14 +88,19 @@ void kernel_init(void) {
   led_rgb_init();
   bq25896_init();
   cc1101_init();
+  // C5 radio coprocessor bridge (SPI2, POLL mode to match the C5 slave). Inits
+  // the bridge bus, starts the link monitor, and probes the C5 version. If the
+  // C5 is absent this marks the bridge down and the monitor re-probes until it
+  // appears, so a late-booting C5 is still picked up. Never blocks the boot.
   bridge_manager_init();
   buttons_init();
   ys_rfid2_init(NULL);
 
-  // 6. Display + LVGL + UI
+  // 6. Display + LVGL + UI. st7789_init sets up the panel handles; lvgl_glue_init
+  // brings LVGL up over esp_lvgl_port (it calls lv_init and registers the
+  // display); then the keypad indev and UI lock against the glue.
   st7789_init();
-  lv_init();
-  lv_port_disp_init();
+  lvgl_glue_init();
   lv_port_indev_init();
   ui_init();
 
@@ -109,8 +115,10 @@ void kernel_init(void) {
   host_link_init();
   host_link_cdc_init();
   host_link_log_init();
-  host_link_c5log_init(); // relay C5 logs (SPI_ID_SYSTEM_LOG) as source=C5 LOG frames
-  host_link_ble_init();   // BLE relay infra; advertising starts on demand
+  // C5-dependent host-link pieces disabled with the bridge: the C5 log relay and
+  // the BLE relay status poller (SPI_ID_HOST_STATUS) both talk to the C5.
+  // host_link_c5log_init(); // relay C5 logs (SPI_ID_SYSTEM_LOG) as source=C5 LOG frames
+  // host_link_ble_init();   // BLE relay infra; advertising starts on demand
 
   vTaskDelay(pdMS_TO_TICKS(BOOT_SETTLE_MS));
 }

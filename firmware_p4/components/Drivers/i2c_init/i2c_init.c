@@ -22,7 +22,10 @@
 
 static const char *TAG = "I2C_INIT";
 
-#define I2C_MASTER_FREQ_HZ 400000
+// 100 kHz standard-mode. The V2 board pulls SDA/SCL up with 10k (R12/R13/R14 to
+// 3.3VF) plus 22R series (R9/R10) — too weak for 400 kHz fast-mode (rise time
+// can't reach VIH in a bit period), which is why the BQ25896 NACKs at 400 kHz.
+#define I2C_MASTER_FREQ_HZ 100000
 
 void init_i2c(void) {
   i2c_config_t conf = {

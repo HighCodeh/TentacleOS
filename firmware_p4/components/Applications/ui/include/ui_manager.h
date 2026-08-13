@@ -22,6 +22,8 @@ extern "C" {
 
 #include <stdbool.h>
 
+#include "lvgl.h"
+
 /** @brief Screen identifiers for the UI navigation system. */
 typedef enum {
   SCREEN_NONE,
@@ -71,6 +73,7 @@ typedef enum {
   SCREEN_CONNECT_BLUETOOTH,
   SCREEN_COMPANION_PAIRING,
   SCREEN_ABOUT_SETTINGS,
+  SCREEN_STORAGE,
   SCREEN_NFC_MENU,
   SCREEN_FILES,
   SCREEN_THEME_SELECTOR,
@@ -80,6 +83,83 @@ typedef enum {
   SCREEN_IR_CONTROLLER,
   SCREEN_IR_SAVED,
   SCREEN_IR_BURST,
+  SCREEN_OCTOBIT_STATUS,
+  SCREEN_DEV_MENU,
+  SCREEN_GPIO,
+  SCREEN_HAPTIC,
+  SCREEN_SPEAKER,
+  SCREEN_MIC_REC,
+  SCREEN_WAV_PLAYER,
+  SCREEN_PLAYER,
+  SCREEN_SUBGHZ_MENU,
+  SCREEN_SUBGHZ_READ,
+  SCREEN_NFC_READ,
+  SCREEN_NFC_SAVED,
+  SCREEN_NFC_WRITE,
+  SCREEN_NFC_EMULATE,
+  SCREEN_NFC_CONFIG,
+  SCREEN_CARD_EMU,
+  SCREEN_RFID_MENU,
+  SCREEN_LORA_CHAT,
+  SCREEN_POWER,
+  SCREEN_SPECTRUM,
+  SCREEN_IR_REMOTE_TYPE,
+  SCREEN_BLE_SCAN,
+  SCREEN_BLE_MOUSE_PAIRING,
+  SCREEN_BLE_MOUSE,
+  SCREEN_WIFI_CHANNELS,
+  SCREEN_WIFI_CLIENTS,
+  SCREEN_WIFI_NAMES,
+  SCREEN_APPS,
+  SCREEN_SETTINGS_DEV,
+  SCREEN_SUBGHZ_BRUTE,
+  SCREEN_BLE_BEACON_SPAM,
+  SCREEN_BLE_DETECT_MENU,
+  SCREEN_BLE_SNIFFER,
+  SCREEN_BLE_TRACKER,
+  SCREEN_BLE_SKIMMER,
+  SCREEN_BLE_EXPOSURE,
+  SCREEN_GATT_EXPLORER,
+  SCREEN_BLE_KEYBOARD,
+  SCREEN_BLE_FLOOD,
+  SCREEN_BLE_RADIO,
+  SCREEN_BLE_TRACK_DEVICE,
+  SCREEN_BLE_SPAM_NAMES,
+  SCREEN_WIFI_PORT_SCAN,
+  SCREEN_WIFI_PROBE_MON,
+  SCREEN_WIFI_TARGET_CLIENTS,
+  SCREEN_WIFI_DEAUTH_DETECTOR,
+  SCREEN_WIFI_SIGNAL_LOCATOR,
+  SCREEN_NFC_SCAN,
+  SCREEN_SUBGHZ_SEND,
+  SCREEN_SYSTEM_UPDATE,
+  SCREEN_C5_STATUS,
+  SCREEN_LED_CTRL,
+  SCREEN_LORA_TRACEROUTE,
+  SCREEN_LORA_RNODE,
+  SCREEN_LORA_MQTT,
+  SCREEN_SCRIPTS,
+  SCREEN_DEV_CONSOLE,
+  SCREEN_DEV_DIAG,
+  SCREEN_NFC_BANKCARD,
+  SCREEN_NFC_DESFIRE,
+  SCREEN_NFC_ISO15693,
+  SCREEN_NFC_ULTRALIGHT,
+  SCREEN_NFC_NDEF,
+  SCREEN_NFC_FELICA,
+  SCREEN_NFC_P2P,
+  SCREEN_NFC_KEYDICT,
+  SCREEN_SUBGHZ_CONFIG,
+  SCREEN_IR_RAW,
+  SCREEN_LORA_CHANNELS,
+  SCREEN_LORA_POSITION,
+  SCREEN_LORA_TELEMETRY,
+  SCREEN_LORA_SECURE_DM,
+  SCREEN_WIFI_HANDSHAKE,
+  SCREEN_WIFI_HOTSPOT,
+  SCREEN_IMU_MONITOR,
+  SCREEN_SD_HEALTH,
+  SCREEN_USB_MOUSE,
   SCREEN_COUNT
 } screen_id_t;
 
@@ -98,8 +178,48 @@ void ui_release(void);
 /** @brief Switch to a new screen by identifier. */
 void ui_switch_screen(screen_id_t new_screen);
 
+/**
+ * @brief Load a screen. Drop-in replacement for lv_screen_load used by the
+ *        ported screens.
+ *
+ * @param scr  Screen object to load.
+ */
+void ui_screen_load(lv_obj_t *scr);
+
+/** @brief Returns the currently active screen id. */
+screen_id_t ui_current_screen(void);
+
+/**
+ * @brief Whether a screen shows the global chrome (status bar + dropdown).
+ *
+ * false for active "operation" screens — reading/sending/scanning/emulating/
+ * recording/playing/running — where the status bar and the quick-settings
+ * dropdown are hidden; true for browse screens (menus, lists, settings). Used
+ * both to gate the chrome header's status cluster and to gate the global
+ * dropdown's long-press-to-open.
+ */
+bool ui_screen_shows_chrome(screen_id_t s);
+
+/** @brief Re-open the active screen (no-op here: no runtime rotation). */
+void ui_manager_relayout_current(void);
+
+/** @brief Rotation-aware button polling (portrait pass-through on this build). */
+bool ui_btn_up(void);
+bool ui_btn_down(void);
+bool ui_btn_left(void);
+bool ui_btn_right(void);
+
 /** @brief Check if user input is temporarily locked. */
 bool ui_input_is_locked(void);
+
+/**
+ * @brief Temporarily lock user input for @p ms milliseconds.
+ *
+ * Screens that poll buttons gate on ui_input_is_locked(), so this swallows
+ * stray presses — e.g. the button that wakes the display from sleep should not
+ * also navigate. Extends (never shortens) any lock already in effect.
+ */
+void ui_input_lock(uint32_t ms);
 
 #ifdef __cplusplus
 }

@@ -15,73 +15,151 @@
 
 #include "wifi_scan_ui.h"
 
-#include "esp_log.h"
+#include <stdio.h>
+#include <string.h>
+
+#include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lvgl.h"
 
-#include "ap_scanner.h"
+#include "buttons_gpio.h"
+#include "menu_component_ui.h"
+#include "msgbox_ui.h"
+#include "ui_chrome.h"
+#include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
+#include "waves_ui.h"
+#include "wifi_names.h"
 
-static const char *TAG = "UI_SCAN";
+static const char *TAG_ICON = "/assets/icons/wifi_find.bin";
 
-#define SPINNER_SIZE      80
-#define SPINNER_OFFSET_Y  (-20)
-#define ARC_WIDTH         4
-#define STATUS_OFFSET_Y   40
-#define ICON_OFFSET_Y     (-30)
-#define SCAN_POLL_MS      100
-#define SCAN_TIMEOUT      100
-#define RESULT_DISPLAY_MS 1000
-#define SCAN_TASK_NAME    "WifiScanWorker"
-#define SCAN_TASK_STACK   4096
-#define SCAN_TASK_PRIO    5
+#define NAV_TIMER_MS    50
+#define SCAN_MS         1500
+#define AP_MAX          12
+#define COLOR_SECURE    0x00E676
+#define COLOR_OPEN      0xFFC107
+#define TASK_STACK_SIZE 4096
+#define TASK_PRIORITY   4
+
+#define SCAN_WAVES_Y_OFS   -6
+#define SCAN_CAPTION_Y_OFS 78
+
+typedef enum { SCAN_RUNNING, SCAN_DONE } scan_state_t;
+
+typedef struct {
+  char ssid[25];
+  uint8_t bssid[6];
+  uint8_t channel;
+  int8_t rssi;
+  const char *enc;
+} fake_ap_t;
+
+static const char *SSID_POOL[] = {
+    "NET_VIVO_2.4G",
+    "VIVOFIBRA-5521",
+    "CLARO_WIFI_3A",
+    "GVT-A1B2",
+    "TP-Link_4F2A",
+    "iPhone de Ana",
+    "AndroidAP_77",
+    "NETVIRTUA_9988",
+    "Linksys",
+    "Office-Guest",
+    "martin_cabo",
+    "MOVISTAR_2EF1",
+    "PORTAL_WIFI",
+    "Familia Souza",
+    "ALHN-2A40",
+    "DIRECT-PC-Setup",
+};
+#define SSID_POOL_N ((int)(sizeof(SSID_POOL) / sizeof(SSID_POOL[0])))
+
+static const char *ENC_POOL[] = {"WPA2", "WPA3", "WPA/WPA2", "WPA2", "OPEN"};
+#define ENC_POOL_N ((int)(sizeof(ENC_POOL) / sizeof(ENC_POOL[0])))
 
 static lv_obj_t *s_screen = NULL;
-static lv_obj_t *s_spinner = NULL;
-static lv_obj_t *s_lbl_status = NULL;
+static menu_component_t s_menu;
+static lv_timer_t *s_nav_timer = NULL;
 
-static void scan_worker_task(void *arg) {
-  (void)arg;
-  ESP_LOGI(TAG, "Starting AP Scanner...");
+static scan_state_t s_scan_state = SCAN_RUNNING;
+static bool s_scanning = false;
+static bool s_scan_cued = false;
+static int s_ap_count = 0;
+static fake_ap_t s_aps[AP_MAX];
 
-  ap_scanner_start();
+static bool s_btn_up_last = false;
+static bool s_btn_down_last = false;
+static bool s_btn_left_last = false;
+static bool s_btn_right_last = false;
+static bool s_btn_ok_last = false;
+static bool s_btn_back_last = false;
 
-  uint16_t count = 0;
-  int timeout = SCAN_TIMEOUT;
-  while (ap_scanner_get_results(&count) == NULL && timeout > 0) {
-    vTaskDelay(pdMS_TO_TICKS(SCAN_POLL_MS));
-    timeout--;
-  }
+static void nav_timer_cb(lv_timer_t *t);
 
-  if (ui_acquire()) {
-    if (s_spinner != NULL) {
-      lv_obj_del(s_spinner);
-      s_spinner = NULL;
-    }
-
-    if (s_lbl_status != NULL) {
-      lv_label_set_text_fmt(s_lbl_status, "Found %d Networks!", count);
-      lv_obj_set_style_text_color(s_lbl_status, current_theme.text_main, 0);
-      lv_obj_align(s_lbl_status, LV_ALIGN_CENTER, 0, 0);
-
-      lv_obj_t *icon = lv_label_create(s_screen);
-      lv_label_set_text(icon, LV_SYMBOL_OK);
-      lv_obj_set_style_text_color(icon, current_theme.text_main, 0);
-      lv_obj_align(icon, LV_ALIGN_CENTER, 0, ICON_OFFSET_Y);
-    }
-
-    ui_release();
-  }
-
-  vTaskDelay(pdMS_TO_TICKS(RESULT_DISPLAY_MS));
-  ui_switch_screen(SCREEN_WIFI_AP_LIST);
-
-  vTaskDelete(NULL);
+static const char *icon_for_rssi(int8_t rssi) {
+  if (rssi >= -55)
+    return "/assets/icons/network_wifi_3_bar.bin";
+  if (rssi >= -65)
+    return "/assets/icons/network_wifi_2_bar.bin";
+  if (rssi >= -75)
+    return "/assets/icons/network_wifi_1_bar.bin";
+  return "/assets/icons/signal_wifi_0_bar.bin";
 }
 
-void ui_wifi_scan_open(void) {
+#define SRC_MAX 32
+
+static int src_count(void) {
+  int n = wifi_names_count();
+  int c = n > 0 ? n : SSID_POOL_N;
+  return c > SRC_MAX ? SRC_MAX : c;
+}
+static const char *src_ssid(int i) {
+  return wifi_names_count() > 0 ? wifi_names_get(i) : SSID_POOL[i];
+}
+
+static void generate_aps(void) {
+  const int pool = src_count();
+  int want = 6 + (int)(esp_random() % 7);
+  if (want > pool)
+    want = pool;
+  bool ssid_used[SRC_MAX] = {false};
+  int n = 0;
+  for (int i = 0; i < want && n < AP_MAX; i++) {
+    int s;
+    int guard = 0;
+    do {
+      s = (int)(esp_random() % pool);
+    } while (ssid_used[s] && ++guard < 32);
+    if (ssid_used[s])
+      continue;
+    ssid_used[s] = true;
+
+    fake_ap_t *ap = &s_aps[n++];
+    const char *name = src_ssid(s);
+    strncpy(ap->ssid, name ? name : "(unknown)", sizeof(ap->ssid) - 1);
+    ap->ssid[sizeof(ap->ssid) - 1] = '\0';
+    for (int b = 0; b < 6; b++)
+      ap->bssid[b] = (uint8_t)(esp_random() & 0xFF);
+    ap->channel = (uint8_t)(1 + esp_random() % 11);
+    ap->rssi = (int8_t)(-35 - (int)(esp_random() % 55));
+    ap->enc = ENC_POOL[esp_random() % ENC_POOL_N];
+  }
+
+  for (int i = 1; i < n; i++) {
+    fake_ap_t key = s_aps[i];
+    int j = i - 1;
+    while (j >= 0 && s_aps[j].rssi < key.rssi) {
+      s_aps[j + 1] = s_aps[j];
+      j--;
+    }
+    s_aps[j + 1] = key;
+  }
+  s_ap_count = n;
+}
+
+static void build_screen(void) {
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
@@ -89,22 +167,144 @@ void ui_wifi_scan_open(void) {
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
+  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
+  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  s_spinner = lv_spinner_create(s_screen);
-  lv_obj_set_size(s_spinner, SPINNER_SIZE, SPINNER_SIZE);
-  lv_obj_align(s_spinner, LV_ALIGN_CENTER, 0, SPINNER_OFFSET_Y);
+  s_menu = (menu_component_t){0};
 
-  lv_obj_set_style_arc_color(s_spinner, ui_theme_get_accent(), LV_PART_INDICATOR);
-  lv_obj_set_style_arc_color(s_spinner, current_theme.border_inactive, LV_PART_MAIN);
-  lv_obj_set_style_arc_width(s_spinner, ARC_WIDTH, LV_PART_MAIN);
-  lv_obj_set_style_arc_width(s_spinner, ARC_WIDTH, LV_PART_INDICATOR);
+  if (s_scan_state == SCAN_RUNNING) {
+    ui_chrome_header(s_screen, "Scan", TAG_ICON);
+    waves_create(s_screen, LV_ALIGN_CENTER, 0, SCAN_WAVES_Y_OFS, LV_SYMBOL_WIFI, TAG_ICON);
+    lv_obj_t *caption = lv_label_create(s_screen);
+    lv_label_set_text(caption, "Scanning...");
+    lv_obj_set_style_text_color(caption, current_theme.text_main, 0);
+    lv_obj_set_style_text_font(caption, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(caption, LV_ALIGN_CENTER, 0, SCAN_CAPTION_Y_OFS);
+    ui_chrome_footer(s_screen, LV_SYMBOL_LEFT "  Back");
+  } else {
+    s_menu = menu_component_create(s_screen, "Scan", TAG_ICON);
+    if (s_ap_count == 0) {
+      menu_component_add_item(&s_menu, TAG_ICON, "No networks found");
+    } else {
+      for (int i = 0; i < s_ap_count; i++) {
+        menu_component_add_item(&s_menu, icon_for_rssi(s_aps[i].rssi), s_aps[i].ssid);
+        uint32_t col = (strcmp(s_aps[i].enc, "OPEN") == 0) ? COLOR_OPEN : COLOR_SECURE;
+        menu_component_set_item_label_color(&s_menu, i, lv_color_hex(col));
+      }
+    }
+  }
 
-  s_lbl_status = lv_label_create(s_screen);
-  lv_label_set_text(s_lbl_status, "Scanning...");
-  lv_obj_set_style_text_color(s_lbl_status, current_theme.text_main, 0);
-  lv_obj_align(s_lbl_status, LV_ALIGN_CENTER, 0, STATUS_OFFSET_Y);
+  if (s_nav_timer == NULL)
+    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
 
-  lv_screen_load(s_screen);
+  ui_screen_load(s_screen);
+}
 
-  xTaskCreate(scan_worker_task, SCAN_TASK_NAME, SCAN_TASK_STACK, NULL, SCAN_TASK_PRIO, NULL);
+static void scan_done_cb(void *unused) {
+  (void)unused;
+  if (ui_current_screen() != SCREEN_WIFI_SCAN_MENU)
+    return;
+  build_screen();
+  if (s_ap_count > 0 && !s_scan_cued) {
+    s_scan_cued = true;
+    ui_feedback(UI_FB_READ);
+  }
+}
+
+static void wifi_scan_task(void *arg) {
+  (void)arg;
+  vTaskDelay(pdMS_TO_TICKS(SCAN_MS));
+  generate_aps();
+  s_scan_state = SCAN_DONE;
+  s_scanning = false;
+  lv_async_call(scan_done_cb, NULL);
+  vTaskDelete(NULL);
+}
+
+static void show_ap_details(int idx) {
+  if (idx < 0 || idx >= s_ap_count)
+    return;
+  const fake_ap_t *ap = &s_aps[idx];
+  char msg[96];
+  snprintf(msg,
+           sizeof(msg),
+           "%s\n%02X:%02X:%02X:%02X:%02X:%02X\nCH %d   %s\nRSSI %d dBm",
+           ap->ssid,
+           ap->bssid[0],
+           ap->bssid[1],
+           ap->bssid[2],
+           ap->bssid[3],
+           ap->bssid[4],
+           ap->bssid[5],
+           ap->channel,
+           ap->enc,
+           ap->rssi);
+  msgbox_open(LV_SYMBOL_WIFI, msg, "OK", NULL, NULL);
+}
+
+static void nav_timer_cb(lv_timer_t *t) {
+  if (lv_screen_active() != s_screen) {
+    lv_timer_delete(t);
+    s_nav_timer = NULL;
+    return;
+  }
+
+  bool up = ui_btn_up();
+  bool down = ui_btn_down();
+  bool left = ui_btn_left();
+  bool right = ui_btn_right();
+  bool ok = ok_button_is_down();
+  bool back = back_button_is_down();
+
+  if (msgbox_is_open() || ui_input_is_locked()) {
+    s_btn_up_last = up;
+    s_btn_down_last = down;
+    s_btn_left_last = left;
+    s_btn_right_last = right;
+    s_btn_ok_last = ok;
+    s_btn_back_last = back;
+    return;
+  }
+
+  if (down && !s_btn_down_last)
+    menu_component_next(&s_menu);
+  if (up && !s_btn_up_last)
+    menu_component_prev(&s_menu);
+
+  if ((back && !s_btn_back_last) || (left && !s_btn_left_last))
+    ui_switch_screen(SCREEN_WIFI_MENU);
+
+  if (((ok && !s_btn_ok_last) || (right && !s_btn_right_last)) && !s_scanning) {
+    if (s_scan_state == SCAN_DONE && s_ap_count > 0) {
+      int sel = menu_component_get_selected(&s_menu);
+      if (sel >= 0 && sel < s_ap_count)
+        show_ap_details(sel);
+    }
+  }
+
+  s_btn_up_last = up;
+  s_btn_down_last = down;
+  s_btn_left_last = left;
+  s_btn_right_last = right;
+  s_btn_ok_last = ok;
+  s_btn_back_last = back;
+}
+
+void ui_wifi_scan_open(void) {
+  s_scan_state = SCAN_RUNNING;
+  s_ap_count = 0;
+  s_scan_cued = false;
+  build_screen();
+
+  if (!s_scanning) {
+    s_scanning = true;
+    if (xTaskCreate(wifi_scan_task, "wifi_sim_scan", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL) !=
+        pdPASS) {
+      s_scanning = false;
+      s_scan_state = SCAN_DONE;
+      generate_aps();
+      build_screen();
+    }
+  }
 }

@@ -15,135 +15,143 @@
 
 #include "dropdown_ui.h"
 
+#include <stdio.h>
+
 #include "st7789.h"
 
 #include "assets_manager.h"
+#include "battery_service.h"
 #include "buttons_gpio.h"
-#include "page_dots_ui.h"
-#include "toggle_ui.h"
+#include "header_ui.h"
+#include "lv_port_indev.h"
+#include "tutorial_ui.h"
+#include "ui_manager.h"
 #include "ui_theme.h"
+#include "vfs_sdcard.h"
 
-#define DROPDOWN_HEIGHT_P0 ((LCD_V_RES * 85) / 100)
-#define DROPDOWN_HEIGHT_P1 ((LCD_V_RES * 50) / 100)
-#define DROPDOWN_HEIGHT    DROPDOWN_HEIGHT_P0
-#define SEL_ITEMS          5
-#define BORDER_SEL_COLOR   current_theme.border_accent
+#define GREEN    0x00E676
+#define CHIP_BG  current_theme.screen_base
+#define PANEL_BG current_theme.bg_secondary
+#define SL_STEP  10
 
-static const int page_heights[] = {DROPDOWN_HEIGHT_P0, DROPDOWN_HEIGHT_P1};
+#define SLIDE_ANIM_MS       300
+#define SLIDE_BTN_POLL_MS   50
+#define SLIDER_MIN_FILL_PCT 3
+#define BAT_ANIM_MS         350
+#define LONGPRESS_MS        450 // hold UP this long to toggle the dropdown
+
+#define ROW_BADGES 0
+#define ROW_BRIGHT 1
+#define ROW_SOUND  2
+#define ROW_COUNT  3
+static int focus_row = ROW_BADGES;
+
+#define BADGE_COUNT 4
+#define BADGE_SD    2
+static const bool BADGE_TOGGLEABLE[BADGE_COUNT] = {true, true, false, false};
+static lv_obj_t *badge_dot[BADGE_COUNT] = {NULL};
+static lv_obj_t *badge_ic[BADGE_COUNT] = {NULL};
+static lv_obj_t *badge_lbl[BADGE_COUNT] = {NULL};
+static bool badge_on[BADGE_COUNT] = {true, true, true, true};
+static int badge_sel = 0;
+
+static lv_obj_t *sd_chip_val = NULL;
+static lv_obj_t *sd_chip_fill = NULL;
+
+static lv_obj_t *bat_chip_val = NULL;
+static lv_obj_t *bat_chip_fill = NULL;
+static int bat_anim_pct = 0;
+static uint32_t bat_last_anim = 0;
+
+#define SLIDER_COUNT 2
+static lv_obj_t *sl_track[SLIDER_COUNT] = {NULL};
+static lv_obj_t *sl_fill[SLIDER_COUNT] = {NULL};
+static lv_obj_t *sl_knob[SLIDER_COUNT] = {NULL};
+static lv_obj_t *sl_icon[SLIDER_COUNT] = {NULL};
+static lv_obj_t *sl_val[SLIDER_COUNT] = {NULL};
+static int sl_value[SLIDER_COUNT] = {80, 45};
 
 static lv_obj_t *slide_panel = NULL;
-static lv_obj_t *slide_bar_obj = NULL;
-static page_dots_t pg_dots;
-static int current_page = 0;
-#define DROPDOWN_PAGES 2
-static lv_obj_t *page_containers[DROPDOWN_PAGES] = {NULL};
+static int s_panel_h = 0;
 static bool slide_open = false;
 static bool slide_animating = false;
 
 static lv_obj_t **hide_objs_ref = NULL;
 static int hide_objs_count = 0;
 
-static lv_obj_t *sel_items[SEL_ITEMS] = {NULL};
-static int selected_idx = 0;
-
-static toggle_ui_t toggles[2];
-static lv_obj_t *circles[2] = {NULL};
-static lv_obj_t *circle_icons_obj[2] = {NULL};
-
-#define SLIDER_STEPS 10
-#define SLIDER_MAX_W 100
-static lv_obj_t *slider_bars[3] = {NULL};
-static int slider_vals[3] = {5, 5, 5};
-
-static bool btn_up_last = false;
-static bool btn_down_last = false;
-static bool btn_left_last = false;
-static bool btn_right_last = false;
-static bool btn_ok_last = false;
-static bool btn_back_last = false;
+static bool btn_up_last, btn_down_last, btn_left_last, btn_right_last, btn_ok_last, btn_back_last;
 static lv_timer_t *slide_btn_timer = NULL;
 
-static void update_slider(int idx) {
-  if (idx < 0 || idx >= 3 || !slider_bars[idx])
-    return;
-  int32_t pct = (100 * slider_vals[idx]) / SLIDER_STEPS;
-  if (pct < 1)
-    pct = 1;
-  lv_obj_set_size(slider_bars[idx], lv_pct(pct), 33);
-}
+static uint32_t up_hold_start = 0;   // tick when UP was pressed (long-press timing)
+static bool up_hold_consumed = false; // long-press already toggled for this hold
 
-static void update_selection(void) {
-  for (int i = 0; i < SEL_ITEMS; i++) {
-    if (!sel_items[i])
+static void refresh_sd_status(void);
+static void battery_tick(void);
+
+static void refresh_focus(void) {
+  for (int i = 0; i < BADGE_COUNT; i++) {
+    if (!badge_dot[i])
       continue;
-    if (i == selected_idx) {
-      lv_obj_set_style_border_width(sel_items[i], 2, 0);
-      lv_obj_set_style_border_color(sel_items[i], BORDER_SEL_COLOR, 0);
-    } else {
-      lv_obj_set_style_border_width(sel_items[i], 0, 0);
-    }
+    bool on = badge_on[i];
+    bool sel = (focus_row == ROW_BADGES && i == badge_sel);
+    lv_color_t conn = on ? lv_color_hex(GREEN) : current_theme.border_inactive;
+    lv_obj_set_style_border_color(badge_dot[i], sel ? current_theme.border_accent : conn, 0);
+    lv_obj_set_style_border_width(badge_dot[i], sel ? 3 : 2, 0);
+    lv_obj_set_style_bg_color(badge_dot[i], on ? lv_color_hex(0x04160C) : CHIP_BG, 0);
+    lv_obj_set_style_shadow_width(badge_dot[i], on ? 12 : 0, 0);
+    lv_obj_set_style_shadow_color(badge_dot[i], lv_color_hex(GREEN), 0);
+    lv_obj_set_style_shadow_opa(badge_dot[i], on ? LV_OPA_40 : LV_OPA_TRANSP, 0);
+    if (badge_ic[i])
+      lv_obj_set_style_text_color(
+          badge_ic[i], on ? lv_color_hex(GREEN) : current_theme.border_inactive, 0);
+    if (badge_lbl[i])
+      lv_obj_set_style_text_color(badge_lbl[i], sel ? current_theme.border_accent : conn, 0);
+  }
+  for (int s = 0; s < SLIDER_COUNT; s++) {
+    if (!sl_track[s])
+      continue;
+    bool foc = (focus_row == ROW_BRIGHT + s);
+    lv_obj_set_style_border_width(sl_track[s], foc ? 2 : 1, 0);
+    lv_obj_set_style_border_color(
+        sl_track[s], foc ? current_theme.border_accent : current_theme.border_inactive, 0);
+    if (sl_icon[s])
+      lv_obj_set_style_image_recolor_opa(sl_icon[s], foc ? LV_OPA_TRANSP : LV_OPA_50, 0);
+    if (sl_val[s])
+      lv_obj_set_style_text_color(
+          sl_val[s], foc ? current_theme.border_accent : current_theme.border_inactive, 0);
   }
 }
 
-static void update_circle(int idx) {
-  bool on = toggle_ui_get(&toggles[idx]);
-
-  if (circles[idx]) {
-    if (on) {
-      lv_obj_set_style_bg_color(circles[idx], current_theme.border_accent, 0);
-      lv_obj_set_style_bg_grad_color(circles[idx], current_theme.border_accent, 0);
-    } else {
-      lv_obj_set_style_bg_color(circles[idx], current_theme.bg_item_top, 0);
-      lv_obj_set_style_bg_grad_color(circles[idx], current_theme.bg_secondary, 0);
-    }
-  }
-
-  if (circle_icons_obj[idx]) {
-    if (on) {
-      lv_obj_set_style_image_recolor(circle_icons_obj[idx], current_theme.screen_base, 0);
-      lv_obj_set_style_image_recolor_opa(circle_icons_obj[idx], LV_OPA_COVER, 0);
-    } else {
-      lv_obj_set_style_image_recolor_opa(circle_icons_obj[idx], LV_OPA_TRANSP, 0);
-    }
-  }
+static void set_slider(int s, int v) {
+  if (s < 0 || s >= SLIDER_COUNT || !sl_fill[s])
+    return;
+  if (v < 0)
+    v = 0;
+  if (v > 100)
+    v = 100;
+  sl_value[s] = v;
+  int w = v < SLIDER_MIN_FILL_PCT ? SLIDER_MIN_FILL_PCT : v;
+  lv_obj_set_width(sl_fill[s], lv_pct(w));
+  if (sl_val[s])
+    lv_label_set_text_fmt(sl_val[s], "%d%%", v);
 }
 
-static void animate_to_page_height(int page) {
-  int h = page_heights[page];
-  lv_anim_t a;
-  lv_anim_init(&a);
-  lv_anim_set_var(&a, slide_panel);
-  lv_anim_set_values(&a, lv_obj_get_height(slide_panel), h);
-  lv_anim_set_duration(&a, 250);
-  lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
-  lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)lv_obj_set_height);
-  lv_anim_start(&a);
-
-  if (slide_bar_obj) {
-    lv_anim_set_var(&a, slide_bar_obj);
-    lv_anim_set_values(&a, lv_obj_get_y(slide_bar_obj), h - 6);
-    lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)lv_obj_set_y);
-    lv_anim_start(&a);
-  }
+static void slide_anim_cb(void *var, int32_t v) {
+  lv_obj_set_y((lv_obj_t *)var, v);
 }
 
-static void slide_anim_cb(void *var, int32_t val) {
-  lv_obj_set_y((lv_obj_t *)var, val);
-  if (slide_bar_obj) {
-    lv_obj_set_y(slide_bar_obj, val + DROPDOWN_HEIGHT - 6);
-  }
-}
-
-static void slide_anim_done_cb(lv_anim_t *a) {
+static void slide_done_cb(lv_anim_t *a) {
+  (void)a;
   slide_animating = false;
   if (!slide_open) {
-    page_dots_hide(&pg_dots);
-    if (slide_bar_obj)
-      lv_obj_add_flag(slide_bar_obj, LV_OBJ_FLAG_HIDDEN);
-    for (int i = 0; i < hide_objs_count; i++) {
+    lv_obj_add_flag(slide_panel, LV_OBJ_FLAG_HIDDEN);
+    for (int i = 0; i < hide_objs_count; i++)
       if (hide_objs_ref[i])
         lv_obj_remove_flag(hide_objs_ref[i], LV_OBJ_FLAG_HIDDEN);
-    }
+    // Fully closed: hand input back to the screen underneath, but swallow the
+    // press that closed us so it doesn't also act on that screen.
+    lv_port_indev_set_suppressed(false);
+    ui_input_lock(250);
   }
 }
 
@@ -151,58 +159,50 @@ static void dropdown_open(void) {
   if (!slide_panel || slide_animating || slide_open)
     return;
   slide_animating = true;
+  slide_open = true;
 
-  selected_idx = 0;
-  update_selection();
+  // Take exclusive input: swallow keypad keys so the screen underneath (menus/
+  // lists via the LVGL group) stops navigating while the panel is up.
+  lv_port_indev_set_suppressed(true);
 
-  for (int p = 0; p < DROPDOWN_PAGES; p++) {
-    if (page_containers[p]) {
-      if (p == 0)
-        lv_obj_remove_flag(page_containers[p], LV_OBJ_FLAG_HIDDEN);
-      else
-        lv_obj_add_flag(page_containers[p], LV_OBJ_FLAG_HIDDEN);
-    }
-  }
-  current_page = 0;
-  lv_obj_set_height(slide_panel, page_heights[0]);
+  focus_row = ROW_BADGES;
+  badge_sel = 0;
+  refresh_sd_status();
+  battery_tick();
+  refresh_focus();
 
   lv_obj_remove_flag(slide_panel, LV_OBJ_FLAG_HIDDEN);
-  if (slide_bar_obj)
-    lv_obj_remove_flag(slide_bar_obj, LV_OBJ_FLAG_HIDDEN);
-  page_dots_show(&pg_dots);
-  page_dots_set(&pg_dots, 0);
-  for (int i = 0; i < hide_objs_count; i++) {
+  lv_obj_move_foreground(slide_panel);
+  for (int i = 0; i < hide_objs_count; i++)
     if (hide_objs_ref[i])
       lv_obj_add_flag(hide_objs_ref[i], LV_OBJ_FLAG_HIDDEN);
-  }
 
   lv_anim_t a;
   lv_anim_init(&a);
   lv_anim_set_var(&a, slide_panel);
   lv_anim_set_exec_cb(&a, slide_anim_cb);
-  lv_anim_set_time(&a, 300);
+  lv_anim_set_values(&a, -s_panel_h, 0);
+  lv_anim_set_duration(&a, SLIDE_ANIM_MS);
   lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
-  lv_anim_set_completed_cb(&a, slide_anim_done_cb);
-  lv_anim_set_values(&a, -DROPDOWN_HEIGHT, 0);
+  lv_anim_set_completed_cb(&a, slide_done_cb);
   lv_anim_start(&a);
-  slide_open = true;
 }
 
 static void dropdown_close(void) {
   if (!slide_panel || slide_animating || !slide_open)
     return;
   slide_animating = true;
+  slide_open = false;
 
   lv_anim_t a;
   lv_anim_init(&a);
   lv_anim_set_var(&a, slide_panel);
   lv_anim_set_exec_cb(&a, slide_anim_cb);
-  lv_anim_set_time(&a, 300);
+  lv_anim_set_values(&a, 0, -s_panel_h);
+  lv_anim_set_duration(&a, SLIDE_ANIM_MS);
   lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
-  lv_anim_set_completed_cb(&a, slide_anim_done_cb);
-  lv_anim_set_values(&a, 0, -DROPDOWN_HEIGHT);
+  lv_anim_set_completed_cb(&a, slide_done_cb);
   lv_anim_start(&a);
-  slide_open = false;
 }
 
 static void slide_btn_timer_cb(lv_timer_t *timer) {
@@ -211,314 +211,415 @@ static void slide_btn_timer_cb(lv_timer_t *timer) {
     slide_btn_timer = NULL;
     return;
   }
-  bool up_pressed = up_button_is_down();
-  bool down_pressed = down_button_is_down();
-  bool left_pressed = left_button_is_down();
-  bool right_pressed = right_button_is_down();
-  bool ok_pressed = ok_button_is_down();
-  bool back_pressed = back_button_is_down();
+  bool up = up_button_is_down(), down = down_button_is_down();
+  bool left = left_button_is_down(), right = right_button_is_down();
+  bool ok = ok_button_is_down(), back = back_button_is_down();
 
-  if (up_pressed && !btn_up_last) {
-    if (!slide_open) {
+  uint32_t nowt = lv_tick_get();
+
+  // Long-press UP toggles the panel: open from a browse screen (never while input
+  // is locked or on an active operation screen), or close if already open. One
+  // toggle per hold. Short taps of UP fall through to the focused screen (closed)
+  // or to the in-panel row nav below (open).
+  if (up && !btn_up_last) {
+    up_hold_start = nowt;
+    up_hold_consumed = false;
+  }
+  if (up && !up_hold_consumed && (uint32_t)(nowt - up_hold_start) >= LONGPRESS_MS) {
+    up_hold_consumed = true;
+    if (slide_open) {
+      dropdown_close();
+    } else if (!ui_input_is_locked() && !tutorial_is_active() &&
+               ui_screen_shows_chrome(ui_current_screen())) {
       dropdown_open();
-    } else if (selected_idx > 0) {
-      selected_idx--;
-      update_selection();
+    }
+  }
+  if (!up) {
+    up_hold_consumed = false;
+  }
+
+  if (slide_open) {
+    if (up && !btn_up_last && focus_row > 0) {
+      focus_row--;
+      refresh_focus();
+    }
+    if (down && !btn_down_last && focus_row < ROW_COUNT - 1) {
+      focus_row++;
+      refresh_focus();
+    }
+    if (left && !btn_left_last) {
+      if (focus_row == ROW_BADGES) {
+        badge_sel = (badge_sel == 0) ? BADGE_COUNT - 1 : badge_sel - 1;
+        refresh_focus();
+      } else {
+        int s = focus_row - ROW_BRIGHT;
+        set_slider(s, sl_value[s] - SL_STEP);
+      }
+    }
+    if (right && !btn_right_last) {
+      if (focus_row == ROW_BADGES) {
+        badge_sel = (badge_sel + 1) % BADGE_COUNT;
+        refresh_focus();
+      } else {
+        int s = focus_row - ROW_BRIGHT;
+        set_slider(s, sl_value[s] + SL_STEP);
+      }
+    }
+    if (ok && !btn_ok_last && focus_row == ROW_BADGES && BADGE_TOGGLEABLE[badge_sel]) {
+      badge_on[badge_sel] = !badge_on[badge_sel];
+      refresh_focus();
+    }
+    if (back && !btn_back_last) {
+      dropdown_close();
     }
   }
 
-  if (down_pressed && !btn_down_last && slide_open) {
-    if (selected_idx < SEL_ITEMS - 1) {
-      selected_idx++;
-      update_selection();
+  // Freeze screens that poll the buttons directly while the panel is up or
+  // animating (the keypad group is already frozen via indev suppression).
+  if (slide_open || slide_animating) {
+    ui_input_lock(SLIDE_BTN_POLL_MS * 3);
+  }
+
+  if (slide_open) {
+    if ((uint32_t)(nowt - bat_last_anim) >= BAT_ANIM_MS) {
+      bat_last_anim = nowt;
+      battery_tick();
+      refresh_sd_status(); // reflect SD insert/remove while the panel is open
     }
   }
 
-  if (left_pressed && !btn_left_last && slide_open) {
-    if (current_page > 0) {
-      if (page_containers[current_page])
-        lv_obj_add_flag(page_containers[current_page], LV_OBJ_FLAG_HIDDEN);
-      current_page--;
-      if (page_containers[current_page])
-        lv_obj_remove_flag(page_containers[current_page], LV_OBJ_FLAG_HIDDEN);
-      page_dots_set(&pg_dots, current_page);
-      animate_to_page_height(current_page);
-      selected_idx = 0;
-      update_selection();
-    }
-  }
-  if (right_pressed && !btn_right_last && slide_open) {
-    if (current_page < DROPDOWN_PAGES - 1) {
-      if (page_containers[current_page])
-        lv_obj_add_flag(page_containers[current_page], LV_OBJ_FLAG_HIDDEN);
-      current_page++;
-      if (page_containers[current_page])
-        lv_obj_remove_flag(page_containers[current_page], LV_OBJ_FLAG_HIDDEN);
-      page_dots_set(&pg_dots, current_page);
-      animate_to_page_height(current_page);
-      selected_idx = 0;
-      update_selection();
-    }
+  btn_up_last = up;
+  btn_down_last = down;
+  btn_left_last = left;
+  btn_right_last = right;
+  btn_ok_last = ok;
+  btn_back_last = back;
+}
+
+static void make_badge(lv_obj_t *row, int idx, const char *sym, const char *caption) {
+  lv_obj_t *cell = lv_obj_create(row);
+  lv_obj_set_size(cell, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_remove_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(cell, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+  lv_obj_set_style_bg_opa(cell, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(cell, 0, 0);
+  lv_obj_set_style_pad_all(cell, 0, 0);
+  lv_obj_set_flex_flow(cell, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(cell, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_row(cell, 6, 0);
+
+  lv_obj_t *dot = lv_obj_create(cell);
+  lv_obj_set_size(dot, 46, 46);
+  lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(dot, 2, 0);
+  lv_obj_set_style_pad_all(dot, 0, 0);
+
+  lv_obj_t *ic = lv_label_create(dot);
+  lv_label_set_text(ic, sym);
+  lv_obj_set_style_text_font(ic, &lv_font_montserrat_14, 0);
+  lv_obj_center(ic);
+
+  lv_obj_t *cap = lv_label_create(cell);
+  lv_label_set_text(cap, caption);
+  lv_obj_set_style_text_font(cap, &lv_font_montserrat_12, 0);
+
+  badge_dot[idx] = dot;
+  badge_ic[idx] = ic;
+  badge_lbl[idx] = cap;
+}
+
+static void make_slider(lv_obj_t *parent, int idx, const char *icon_path) {
+  lv_obj_t *row = lv_obj_create(parent);
+  lv_obj_set_size(row, lv_pct(100), 24);
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(row, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+  lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(row, 0, 0);
+  lv_obj_set_style_pad_all(row, 0, 0);
+  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(row, 10, 0);
+
+  lv_image_dsc_t *dsc = icon_path ? assets_get(icon_path) : NULL;
+  if (dsc) {
+    lv_obj_t *img = lv_image_create(row);
+    lv_image_set_src(img, dsc);
+    lv_obj_set_size(img, 22, 22);
+    lv_image_set_inner_align(img, LV_IMAGE_ALIGN_CONTAIN);
+    lv_obj_set_style_image_recolor(img, current_theme.text_main, 0);
+    sl_icon[idx] = img;
   }
 
-  if (ok_pressed && !btn_ok_last && slide_open) {
-    if (selected_idx < 2) {
-      toggle_ui_toggle(&toggles[selected_idx]);
-      update_circle(selected_idx);
+  lv_obj_t *track = lv_obj_create(row);
+  lv_obj_set_size(track, lv_pct(100), 14);
+  lv_obj_set_flex_grow(track, 1);
+  lv_obj_remove_flag(track, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(track, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+  lv_obj_set_style_radius(track, 7, 0);
+  lv_obj_set_style_bg_color(track, CHIP_BG, 0);
+  lv_obj_set_style_bg_opa(track, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(track, 1, 0);
+  lv_obj_set_style_border_color(track, current_theme.border_inactive, 0);
+  lv_obj_set_style_pad_all(track, 0, 0);
+
+  lv_obj_t *fill = lv_obj_create(track);
+  lv_obj_set_size(fill, lv_pct(50), lv_pct(100));
+  lv_obj_remove_flag(fill, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(fill, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+  lv_obj_set_style_radius(fill, 7, 0);
+  lv_obj_set_style_bg_color(fill, current_theme.border_interface, 0);
+  lv_obj_set_style_bg_grad_color(fill, current_theme.border_accent, 0);
+  lv_obj_set_style_bg_grad_dir(fill, LV_GRAD_DIR_HOR, 0);
+  lv_obj_set_style_bg_opa(fill, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(fill, 0, 0);
+  lv_obj_set_style_pad_all(fill, 0, 0);
+  lv_obj_align(fill, LV_ALIGN_LEFT_MID, 0, 0);
+
+  lv_obj_t *knob = lv_obj_create(fill);
+  lv_obj_set_size(knob, 14, 14);
+  lv_obj_remove_flag(knob, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_radius(knob, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_color(knob, current_theme.text_main, 0);
+  lv_obj_set_style_bg_opa(knob, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(knob, 2, 0);
+  lv_obj_set_style_border_color(knob, current_theme.border_accent, 0);
+  lv_obj_set_style_shadow_width(knob, 8, 0);
+  lv_obj_set_style_shadow_color(knob, current_theme.border_accent, 0);
+  lv_obj_align(knob, LV_ALIGN_RIGHT_MID, 7, 0);
+  lv_obj_move_foreground(knob);
+
+  lv_obj_t *val = lv_label_create(row);
+  lv_obj_set_width(val, 38);
+  lv_obj_set_style_text_align(val, LV_TEXT_ALIGN_RIGHT, 0);
+  lv_obj_set_style_text_color(val, current_theme.border_inactive, 0);
+  lv_obj_set_style_text_font(val, &lv_font_montserrat_12, 0);
+
+  sl_track[idx] = track;
+  sl_fill[idx] = fill;
+  sl_knob[idx] = knob;
+  sl_val[idx] = val;
+  set_slider(idx, sl_value[idx]);
+}
+
+static void make_mini(lv_obj_t *row,
+                      const char *label,
+                      const char *value,
+                      int pct,
+                      bool battery,
+                      lv_obj_t **val_out,
+                      lv_obj_t **fill_out) {
+  (void)label;
+  lv_color_t c1 = battery ? lv_color_hex(0x00E676) : lv_color_hex(0x00BCD4);
+  lv_color_t c2 = battery ? lv_color_hex(0x00A651) : lv_color_hex(0x0091A7);
+  const char *sym = battery ? LV_SYMBOL_BATTERY_FULL : LV_SYMBOL_SD_CARD;
+
+  lv_obj_t *chip = lv_obj_create(row);
+  lv_obj_set_size(chip, lv_pct(100), LV_SIZE_CONTENT);
+  lv_obj_set_flex_grow(chip, 1);
+  lv_obj_remove_flag(chip, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_radius(chip, 10, 0);
+  lv_obj_set_style_bg_color(chip, CHIP_BG, 0);
+  lv_obj_set_style_bg_opa(chip, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(chip, 1, 0);
+  lv_obj_set_style_border_color(chip, current_theme.border_inactive, 0);
+  lv_obj_set_style_pad_all(chip, 8, 0);
+  lv_obj_set_flex_flow(chip, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(chip, 6, 0);
+
+  lv_obj_t *head = lv_obj_create(chip);
+  lv_obj_set_size(head, lv_pct(100), LV_SIZE_CONTENT);
+  lv_obj_remove_flag(head, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_opa(head, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(head, 0, 0);
+  lv_obj_set_style_pad_all(head, 0, 0);
+  lv_obj_set_flex_flow(head, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(head, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(head, 7, 0);
+
+  lv_obj_t *ic = lv_label_create(head);
+  lv_label_set_text(ic, sym);
+  lv_obj_set_style_text_color(ic, c1, 0);
+  lv_obj_set_style_text_font(ic, &lv_font_montserrat_14, 0);
+
+  lv_obj_t *v = lv_label_create(head);
+  lv_label_set_text(v, value);
+  lv_obj_set_style_text_color(v, c1, 0);
+  lv_obj_set_style_text_font(v, &lv_font_montserrat_14, 0);
+
+  lv_obj_t *track = lv_obj_create(chip);
+  lv_obj_set_size(track, lv_pct(100), 7);
+  lv_obj_remove_flag(track, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_radius(track, 4, 0);
+  lv_obj_set_style_bg_color(track, current_theme.text_main, 0);
+  lv_obj_set_style_bg_opa(track, LV_OPA_10, 0);
+  lv_obj_set_style_border_width(track, 0, 0);
+  lv_obj_set_style_pad_all(track, 0, 0);
+  lv_obj_set_style_clip_corner(track, true, 0);
+
+  if (pct < 1)
+    pct = 1;
+  if (pct > 100)
+    pct = 100;
+  lv_obj_t *fill = lv_obj_create(track);
+  lv_obj_set_size(fill, lv_pct(pct), lv_pct(100));
+  lv_obj_remove_flag(fill, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_radius(fill, 4, 0);
+  lv_obj_set_style_bg_color(fill, c2, 0);
+  lv_obj_set_style_bg_grad_color(fill, c1, 0);
+  lv_obj_set_style_bg_grad_dir(fill, LV_GRAD_DIR_HOR, 0);
+  lv_obj_set_style_bg_opa(fill, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(fill, 0, 0);
+  lv_obj_align(fill, LV_ALIGN_LEFT_MID, 0, 0);
+
+  if (val_out) {
+    *val_out = v;
+  }
+  if (fill_out) {
+    *fill_out = fill;
+  }
+}
+
+static void refresh_sd_status(void) {
+  int used_pct = 0;
+  bool present = header_ui_sd_usage(&used_pct);
+  bool changed = (badge_on[BADGE_SD] != present);
+  badge_on[BADGE_SD] = present;
+
+  char buf[16];
+  const char *val = "No SD";
+  if (present) {
+    snprintf(buf, sizeof(buf), "%d%%", used_pct);
+    val = buf;
+  }
+  if (sd_chip_val) {
+    lv_label_set_text(sd_chip_val, val);
+  }
+  if (sd_chip_fill) {
+    lv_obj_set_width(sd_chip_fill, lv_pct(used_pct < 1 ? 1 : used_pct));
+  }
+  if (changed) {
+    refresh_focus(); // restyle the SD badge when the card is inserted/removed
+  }
+}
+
+// Real battery in the dropdown mini: "--" when no charger answers, else the SoC.
+// Only while actually charging: bolt prefix + fill sweeps upward (charging cue).
+static void battery_tick(void) {
+  if (!bat_chip_val) {
+    return;
+  }
+  battery_snapshot_t bs;
+  if (!battery_service_get(&bs) || !bs.present) {
+    lv_label_set_text(bat_chip_val, "--");
+    if (bat_chip_fill) {
+      lv_obj_set_width(bat_chip_fill, lv_pct(1));
+    }
+    return;
+  }
+  if (bs.charging) {
+    // Charging: bolt prefix + fill sweeps the full range (filling animation).
+    lv_label_set_text_fmt(bat_chip_val, LV_SYMBOL_CHARGE " %d%%", bs.soc);
+    bat_anim_pct += 15;
+    if (bat_anim_pct > 100) {
+      bat_anim_pct = 0;
+    }
+    if (bat_chip_fill) {
+      lv_obj_set_width(bat_chip_fill, lv_pct(bat_anim_pct < 1 ? 1 : bat_anim_pct));
+    }
+  } else {
+    // Not charging (on battery or plugged-idle): just the level, no bolt.
+    lv_label_set_text_fmt(bat_chip_val, "%d%%", bs.soc);
+    if (bat_chip_fill) {
+      lv_obj_set_width(bat_chip_fill, lv_pct(bs.soc < 1 ? 1 : bs.soc));
     }
   }
-
-  if (back_pressed && !btn_back_last && slide_open) {
-    dropdown_close();
-  }
-
-  btn_up_last = up_pressed;
-  btn_down_last = down_pressed;
-  btn_left_last = left_pressed;
-  btn_right_last = right_pressed;
-  btn_ok_last = ok_pressed;
-  btn_back_last = back_pressed;
 }
 
 void dropdown_ui_create(lv_obj_t *parent) {
   slide_panel = lv_obj_create(parent);
-  lv_obj_set_size(slide_panel, lv_pct(100), DROPDOWN_HEIGHT);
-  lv_obj_set_pos(slide_panel, 0, -DROPDOWN_HEIGHT);
+  lv_obj_set_size(slide_panel, lv_pct(100), LV_SIZE_CONTENT);
+  lv_obj_set_pos(slide_panel, 0, 0);
   lv_obj_remove_flag(slide_panel, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(slide_panel, LV_OBJ_FLAG_HIDDEN);
-
   lv_obj_move_foreground(slide_panel);
 
-  lv_obj_set_style_radius(slide_panel, 12, 0);
-  lv_obj_set_style_border_side(
-      slide_panel, LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_LEFT | LV_BORDER_SIDE_RIGHT, 0);
+  lv_obj_set_style_radius(slide_panel, 14, 0);
+  lv_obj_set_style_border_side(slide_panel, LV_BORDER_SIDE_BOTTOM, 0);
   lv_obj_set_style_border_width(slide_panel, 2, 0);
   lv_obj_set_style_border_color(slide_panel, current_theme.border_accent, 0);
-  lv_obj_set_style_pad_all(slide_panel, 0, 0);
   lv_obj_set_style_bg_opa(slide_panel, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(slide_panel, current_theme.bg_secondary, 0);
-  lv_obj_set_style_bg_grad_color(slide_panel, current_theme.border_interface, 0);
-  lv_obj_set_style_bg_grad_dir(slide_panel, LV_GRAD_DIR_VER, 0);
-
-  page_containers[0] = lv_obj_create(slide_panel);
-  lv_obj_t *content = page_containers[0];
-  lv_obj_set_size(content, lv_pct(100), LV_SIZE_CONTENT);
-  lv_obj_align(content, LV_ALIGN_TOP_MID, 0, 30);
-  lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(content, 0, 0);
-  lv_obj_set_style_pad_all(content, 0, 0);
-  lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_style_pad_row(content, 10, 0);
-
-  lv_obj_t *row_circles = lv_obj_create(content);
-  lv_obj_set_size(row_circles, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-  lv_obj_remove_flag(row_circles, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_opa(row_circles, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(row_circles, 0, 0);
-  lv_obj_set_style_pad_all(row_circles, 0, 0);
-  lv_obj_set_style_pad_column(row_circles, 20, 0);
-  lv_obj_set_flex_flow(row_circles, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_bg_color(slide_panel, PANEL_BG, 0);
+  lv_obj_set_style_bg_grad_dir(slide_panel, LV_GRAD_DIR_NONE, 0);
+  lv_obj_set_style_pad_hor(slide_panel, 16, 0);
+  lv_obj_set_style_pad_top(slide_panel, 12, 0);
+  lv_obj_set_style_pad_bottom(slide_panel, 16, 0);
+  lv_obj_set_flex_flow(slide_panel, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(
-      row_circles, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+      slide_panel, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
+  lv_obj_set_style_pad_row(slide_panel, 13, 0);
 
-  static lv_image_dsc_t *bt_sel_dsc = NULL;
-  static lv_image_dsc_t *wifi_sel_dsc = NULL;
-  if (!bt_sel_dsc)
-    bt_sel_dsc = assets_get("/assets/icons/bluetooth_sel.bin");
-  if (!wifi_sel_dsc)
-    wifi_sel_dsc = assets_get("/assets/icons/wifi_sel.bin");
-  lv_image_dsc_t *circle_icon_dscs[] = {bt_sel_dsc, wifi_sel_dsc};
+  lv_obj_t *grab = lv_obj_create(slide_panel);
+  lv_obj_set_size(grab, 46, 5);
+  lv_obj_remove_flag(grab, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_radius(grab, 3, 0);
+  lv_obj_set_style_bg_color(grab, current_theme.border_inactive, 0);
+  lv_obj_set_style_bg_opa(grab, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(grab, 0, 0);
 
-  for (int i = 0; i < 2; i++) {
-    lv_obj_t *circle = lv_obj_create(row_circles);
-    lv_obj_set_size(circle, 67, 67);
-    lv_obj_remove_flag(circle, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_radius(circle, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_opa(circle, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(circle, current_theme.bg_item_top, 0);
-    lv_obj_set_style_bg_grad_color(circle, current_theme.bg_secondary, 0);
-    lv_obj_set_style_bg_grad_dir(circle, LV_GRAD_DIR_VER, 0);
-    lv_obj_set_style_border_width(circle, 0, 0);
-    circles[i] = circle;
-
-    if (circle_icon_dscs[i]) {
-      lv_obj_t *icon = lv_image_create(circle);
-      lv_image_set_src(icon, circle_icon_dscs[i]);
-      lv_obj_center(icon);
-      circle_icons_obj[i] = icon;
-    }
-  }
-
-  lv_obj_t *row_toggles = lv_obj_create(content);
-  lv_obj_set_size(row_toggles, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-  lv_obj_remove_flag(row_toggles, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_opa(row_toggles, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(row_toggles, 0, 0);
-  lv_obj_set_style_pad_all(row_toggles, 0, 0);
-  lv_obj_set_style_pad_column(row_toggles, 20, 0);
-  lv_obj_set_flex_flow(row_toggles, LV_FLEX_FLOW_ROW);
+  lv_obj_t *badges = lv_obj_create(slide_panel);
+  lv_obj_set_size(badges, lv_pct(100), LV_SIZE_CONTENT);
+  lv_obj_remove_flag(badges, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(badges, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+  lv_obj_set_style_bg_opa(badges, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(badges, 0, 0);
+  lv_obj_set_style_pad_all(badges, 0, 0);
+  lv_obj_set_flex_flow(badges, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(
-      row_toggles, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+      badges, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  make_badge(badges, 0, LV_SYMBOL_WIFI, "Wi-Fi");
+  make_badge(badges, 1, LV_SYMBOL_BLUETOOTH, "BLE");
+  make_badge(badges, 2, LV_SYMBOL_SD_CARD, "SD");
+  make_badge(badges, 3, LV_SYMBOL_CHARGE, "ECO");
 
-  for (int i = 0; i < 2; i++) {
-    toggle_ui_create(&toggles[i], row_toggles);
-    sel_items[i] = toggles[i].obj;
-  }
+  make_slider(slide_panel, 0, "/assets/icons/brightness_6.bin");
+  make_slider(slide_panel, 1, "/assets/icons/volume_up.bin");
 
-  static lv_image_dsc_t *phone_dsc = NULL;
-  static lv_image_dsc_t *volume_dsc = NULL;
-  static lv_image_dsc_t *bright_dsc = NULL;
-
-  if (!phone_dsc)
-    phone_dsc = assets_get("/assets/icons/phone_icon.bin");
-  if (!volume_dsc)
-    volume_dsc = assets_get("/assets/icons/volume_icon.bin");
-  if (!bright_dsc)
-    bright_dsc = assets_get("/assets/icons/bright_icon.bin");
-
-  lv_image_dsc_t *big_icons[] = {phone_dsc, volume_dsc, bright_dsc};
-
-  for (int i = 0; i < 3; i++) {
-    lv_obj_t *big_rect = lv_obj_create(content);
-    lv_obj_set_size(big_rect, lv_pct(80), 33);
-    lv_obj_remove_flag(big_rect, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_radius(big_rect, 12, 0);
-    lv_obj_set_style_bg_opa(big_rect, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(big_rect, current_theme.bg_item_top, 0);
-    lv_obj_set_style_bg_grad_color(big_rect, current_theme.bg_secondary, 0);
-    lv_obj_set_style_bg_grad_dir(big_rect, LV_GRAD_DIR_VER, 0);
-    lv_obj_set_style_border_width(big_rect, 0, 0);
-    lv_obj_set_style_pad_all(big_rect, 0, 0);
-
-    int32_t pct = (100 * slider_vals[i]) / SLIDER_STEPS;
-    if (pct < 1)
-      pct = 1;
-    lv_obj_t *bar = lv_obj_create(big_rect);
-    lv_obj_set_size(bar, lv_pct(pct), 33);
-    lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_radius(bar, 12, 0);
-    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(bar, current_theme.border_accent, 0);
-    lv_obj_set_style_bg_grad_color(bar, current_theme.border_accent, 0);
-    lv_obj_set_style_bg_grad_dir(bar, LV_GRAD_DIR_HOR, 0);
-    lv_obj_set_style_border_width(bar, 0, 0);
-    lv_obj_set_style_pad_all(bar, 0, 0);
-    lv_obj_set_pos(bar, 0, 0);
-    slider_bars[i] = bar;
-
-    if (big_icons[i]) {
-      lv_obj_t *icon = lv_image_create(big_rect);
-      lv_image_set_src(icon, big_icons[i]);
-      lv_obj_align(icon, LV_ALIGN_LEFT_MID, 8, 0);
-    }
-
-    sel_items[2 + i] = big_rect;
-  }
-
-  static lv_image_dsc_t *slide_bar_dsc = NULL;
-  if (!slide_bar_dsc)
-    slide_bar_dsc = assets_get("/assets/icons/slide_bar.bin");
-
-  slide_bar_obj = lv_image_create(parent);
-  if (slide_bar_dsc)
-    lv_image_set_src(slide_bar_obj, slide_bar_dsc);
-  lv_obj_align(slide_bar_obj, LV_ALIGN_TOP_MID, 0, 0);
-  lv_obj_set_y(slide_bar_obj, -DROPDOWN_HEIGHT);
-  lv_obj_add_flag(slide_bar_obj, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_move_foreground(slide_bar_obj);
-
-  page_containers[1] = lv_obj_create(slide_panel);
-  lv_obj_set_size(page_containers[1], lv_pct(95), LV_SIZE_CONTENT);
-  lv_obj_align(page_containers[1], LV_ALIGN_TOP_MID, 0, 20);
-  lv_obj_remove_flag(page_containers[1], LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_opa(page_containers[1], LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(page_containers[1], 0, 0);
-  lv_obj_set_style_pad_all(page_containers[1], 0, 0);
-  lv_obj_set_flex_flow(page_containers[1], LV_FLEX_FLOW_ROW);
+  lv_obj_t *mini = lv_obj_create(slide_panel);
+  lv_obj_set_size(mini, lv_pct(100), LV_SIZE_CONTENT);
+  lv_obj_remove_flag(mini, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_opa(mini, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(mini, 0, 0);
+  lv_obj_set_style_pad_all(mini, 0, 0);
+  lv_obj_set_flex_flow(mini, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(
-      page_containers[1], LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_style_pad_column(page_containers[1], 10, 0);
-  lv_obj_add_flag(page_containers[1], LV_OBJ_FLAG_HIDDEN);
+      mini, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+  lv_obj_set_style_pad_column(mini, 14, 0);
+  make_mini(mini, "Battery", "--", 1, true, &bat_chip_val, &bat_chip_fill);
+  make_mini(mini, "Storage", "--", 1, false, &sd_chip_val, &sd_chip_fill);
 
-  lv_obj_t *avatar = lv_obj_create(page_containers[1]);
-  lv_obj_set_size(avatar, 80, 80);
-  lv_obj_remove_flag(avatar, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_radius(avatar, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_bg_opa(avatar, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(avatar, current_theme.screen_base, 0);
-  lv_obj_set_style_border_width(avatar, 2, 0);
-  lv_obj_set_style_border_color(avatar, current_theme.border_accent, 0);
-  lv_obj_set_style_pad_all(avatar, 0, 0);
+  lv_obj_t *hint = lv_label_create(slide_panel);
+  lv_label_set_text(hint,
+                    LV_SYMBOL_UP LV_SYMBOL_DOWN " Row   " LV_SYMBOL_LEFT LV_SYMBOL_RIGHT
+                                                " Adjust   BACK Close");
+  lv_obj_set_style_text_color(hint, current_theme.text_main, 0);
+  lv_obj_set_style_text_opa(hint, LV_OPA_50, 0);
+  lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
 
-  static lv_image_dsc_t *portrait_dsc = NULL;
-  if (!portrait_dsc)
-    portrait_dsc = assets_get("/assets/img/octobit_portrait.bin");
-  if (portrait_dsc) {
-    lv_obj_t *portrait = lv_image_create(avatar);
-    lv_image_set_src(portrait, portrait_dsc);
-    lv_obj_center(portrait);
-  }
+  focus_row = ROW_BADGES;
+  badge_sel = 0;
+  badge_on[BADGE_SD] = header_ui_sd_usage(NULL);
+  refresh_focus();
 
-  lv_obj_t *tag = lv_obj_create(avatar);
-  lv_obj_set_size(tag, 45, 15);
-  lv_obj_remove_flag(tag, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_radius(tag, 7, 0);
-  lv_obj_set_style_bg_opa(tag, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(tag, current_theme.border_accent, 0);
-  lv_obj_set_style_border_width(tag, 0, 0);
-  lv_obj_set_style_pad_all(tag, 0, 0);
-  lv_obj_align(tag, LV_ALIGN_TOP_RIGHT, 2, -2);
-  lv_obj_move_foreground(tag);
+  lv_obj_update_layout(slide_panel);
+  s_panel_h = lv_obj_get_height(slide_panel);
+  if (s_panel_h < 40 || s_panel_h > LCD_V_RES)
+    s_panel_h = (LCD_V_RES * 85) / 100;
+  lv_obj_set_y(slide_panel, -s_panel_h);
 
-  lv_obj_t *tag_lbl = lv_label_create(tag);
-  lv_label_set_text(tag_lbl, "octo");
-  lv_obj_set_style_text_color(tag_lbl, current_theme.text_main, 0);
-  lv_obj_set_style_text_font(tag_lbl, &lv_font_montserrat_12, 0);
-  lv_obj_center(tag_lbl);
-
-  lv_obj_t *bars_col = lv_obj_create(page_containers[1]);
-  lv_obj_set_size(bars_col, 120, LV_SIZE_CONTENT);
-  lv_obj_remove_flag(bars_col, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_opa(bars_col, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(bars_col, 0, 0);
-  lv_obj_set_style_pad_all(bars_col, 0, 0);
-  lv_obj_set_style_pad_row(bars_col, 6, 0);
-  lv_obj_set_flex_flow(bars_col, LV_FLEX_FLOW_COLUMN);
-
-  static const int bar_pcts[] = {80, 55, 40, 65};
-  for (int i = 0; i < 4; i++) {
-    lv_obj_t *bar_bg = lv_obj_create(bars_col);
-    lv_obj_set_size(bar_bg, lv_pct(100), 11);
-    lv_obj_remove_flag(bar_bg, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_radius(bar_bg, 5, 0);
-    lv_obj_set_style_bg_opa(bar_bg, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(bar_bg, current_theme.bg_item_top, 0);
-    lv_obj_set_style_border_width(bar_bg, 0, 0);
-    lv_obj_set_style_pad_all(bar_bg, 0, 0);
-
-    lv_obj_t *bar_fill = lv_obj_create(bar_bg);
-    lv_obj_set_size(bar_fill, lv_pct(bar_pcts[i]), 11);
-    lv_obj_remove_flag(bar_fill, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_radius(bar_fill, 5, 0);
-    lv_obj_set_style_bg_opa(bar_fill, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(bar_fill, current_theme.border_accent, 0);
-    lv_obj_set_style_bg_grad_color(bar_fill, current_theme.border_accent, 0);
-    lv_obj_set_style_bg_grad_dir(bar_fill, LV_GRAD_DIR_HOR, 0);
-    lv_obj_set_style_border_width(bar_fill, 0, 0);
-    lv_obj_set_style_pad_all(bar_fill, 0, 0);
-    lv_obj_set_pos(bar_fill, 0, 0);
-  }
-
-  int dots_y = -(LCD_V_RES - DROPDOWN_HEIGHT - 20) / 2 - 5;
-  pg_dots = page_dots_create(parent, DROPDOWN_PAGES, LV_ALIGN_BOTTOM_MID, 0, dots_y);
-  page_dots_hide(&pg_dots);
-  lv_obj_move_foreground(pg_dots.container);
-
-  if (slide_btn_timer == NULL) {
-    slide_btn_timer = lv_timer_create(slide_btn_timer_cb, 50, NULL);
-  }
+  if (slide_btn_timer == NULL)
+    slide_btn_timer = lv_timer_create(slide_btn_timer_cb, SLIDE_BTN_POLL_MS, NULL);
 
   slide_open = false;
   slide_animating = false;
@@ -536,8 +637,12 @@ bool dropdown_ui_is_open(void) {
 void dropdown_ui_raise(void) {
   if (slide_panel)
     lv_obj_move_foreground(slide_panel);
-  if (slide_bar_obj)
-    lv_obj_move_foreground(slide_bar_obj);
-  if (pg_dots.container)
-    lv_obj_move_foreground(pg_dots.container);
+}
+
+void dropdown_ui_global_init(void) {
+  if (slide_panel) // already created
+    return;
+  // The top layer sits above every screen, so the single panel survives screen
+  // switches and always renders on top. The caller holds the LVGL lock.
+  dropdown_ui_create(lv_layer_top());
 }

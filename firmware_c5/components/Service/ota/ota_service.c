@@ -15,199 +15,227 @@
 
 #include "ota_service.h"
 
-#include <string.h>
-
 #include "driver/uart.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/stream_buffer.h"
 #include "freertos/task.h"
 
 static const char *TAG = "OTA_SVC";
 
-// UART0 is wired to the P4. On the ESP32-C5 the UART0 silicon pins are
-// U0RXD = GPIO12 and U0TXD = GPIO11 - the C5 receives on 12 and transmits on
-// 11. The console lives on USB-Serial/JTAG now, so UART0 is dedicated to the
-// firmware transfer.
-#define OTA_UART        UART_NUM_0
-#define OTA_UART_RX_PIN 12
-#define OTA_UART_TX_PIN 11
-// Conservative bring-up rate: 115200 carries cleanly over plain jumper wiring.
-// Corruption at higher rates makes esp_ota_end reject the image. Raise later.
-#define OTA_BAUD        115200
-#define OTA_RX_RINGBUF  (16 * 1024)
-// Per-block flow control: we ACK each block after writing it to flash and the
-// P4 only sends the next one then, so the RX ring buffer can never overflow
-// during a flash-write/scheduling stall.
-#define OTA_BLOCK       4096
-
-// Handshake: the P4 sends OTA_MAGIC and waits for us to reply OTA_READY before
-// it sends the 4-byte little-endian size + the raw app binary. The reply makes
-// the size/data alignment deterministic even if the first magic byte is lost on
-// the idle->active line transition (the P4 just retries the magic).
-static const uint8_t OTA_MAGIC[4] = {0xC5, 0xFA, 0x5E, 0x01};
-#define OTA_READY 0x52
-#define OTA_ACK   0x06
-#define OTA_NAK   0x15
-
-// Plausible C5 app image size bounds - guards against acting on a spurious
-// magic match. Min ~64 KB, max = the 2 MB OTA partition.
+// Plausible C5 app image size bounds - guards against acting on a bogus size.
 #define OTA_MIN_SIZE 0x10000
 #define OTA_MAX_SIZE 0x200000
 
-static void send_status(uint8_t s) {
-  uart_write_bytes(OTA_UART, (const char *)&s, 1);
-  uart_wait_tx_done(OTA_UART, pdMS_TO_TICKS(200));
-}
+// SPI transport: a RAM buffer decouples the OTA_DATA acks from the flash writes -
+// the bridge task only pushes chunks here (fast, no flash) and acks at once,
+// while the writer task drains this and does the slow esp_ota_write.
+#define OTA_STREAM_SIZE   (16 * 1024)
+#define OTA_WRITE_BUF     1024
+#define OTA_RECV_STALL_MS 5000 // writer gives up if the source stops feeding it
 
-static void wait_for_magic(void) {
-  size_t matched = 0;
-  uint8_t b;
-  while (matched < sizeof(OTA_MAGIC)) {
-    if (uart_read_bytes(OTA_UART, &b, 1, portMAX_DELAY) != 1) {
-      continue;
-    }
-    if (b == OTA_MAGIC[matched]) {
-      matched++;
-    } else {
-      matched = (b == OTA_MAGIC[0]) ? 1 : 0;
-    }
-  }
-}
+// UART transport: UART0 (U0RXD=GPIO12, U0TXD=GPIO11) carries the raw .bin from the
+// P4; control (begin/status) stays on SPI so the C5 never transmits on UART here.
+#define OTA_UART        UART_NUM_0
+#define OTA_UART_RX_PIN 12
+#define OTA_UART_TX_PIN 11
+#define OTA_UART_BAUD   115200
+#define OTA_UART_RINGBUF (16 * 1024)
 
-static esp_err_t read_exact(uint8_t *buf, uint32_t len, uint32_t timeout_ms) {
-  uint32_t got = 0;
-  while (got < len) {
-    int n = uart_read_bytes(OTA_UART, buf + got, len - got, pdMS_TO_TICKS(timeout_ms));
-    if (n <= 0) {
-      return ESP_ERR_TIMEOUT;
-    }
-    got += (uint32_t)n;
-  }
-  return ESP_OK;
-}
+static volatile uint8_t s_state = SPI_OTA_STATE_IDLE;
+static volatile uint32_t s_bytes_written = 0;
+static uint32_t s_ota_size = 0;
+static uint8_t s_transport = SPI_OTA_TRANSPORT_SPI;
+static StreamBufferHandle_t s_stream = NULL;
 
-static void do_ota(void) {
-  uint8_t size_buf[4];
-  if (read_exact(size_buf, sizeof(size_buf), 2000) != ESP_OK) {
-    ESP_LOGE(TAG, "size header timeout");
-    return;
-  }
-  uint32_t size = (uint32_t)size_buf[0] | ((uint32_t)size_buf[1] << 8) |
-                  ((uint32_t)size_buf[2] << 16) | ((uint32_t)size_buf[3] << 24);
-  ESP_LOGW(TAG, "OTA push: %lu bytes", (unsigned long)size);
-
-  if (size < OTA_MIN_SIZE || size > OTA_MAX_SIZE) {
-    ESP_LOGE(TAG, "implausible size %lu - ignoring (out of sync?)", (unsigned long)size);
-    send_status(OTA_NAK);
-    return;
-  }
-
-  const esp_partition_t *part = esp_ota_get_next_update_partition(NULL);
-  if (part == NULL) {
-    ESP_LOGE(TAG, "no OTA partition available");
-    send_status(OTA_NAK);
-    return;
-  }
-  ESP_LOGI(TAG, "target partition '%s' @ 0x%lx", part->label, (unsigned long)part->address);
-
-  esp_ota_handle_t handle = 0;
-  esp_err_t err = esp_ota_begin(part, size, &handle);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "esp_ota_begin: %s", esp_err_to_name(err));
-    send_status(OTA_NAK);
-    return;
-  }
-  // Partition is now erased. Only now tell the P4 to start sending blocks - if
-  // it sent during the (multi-second) erase above, those bytes would be lost
-  // while the flash cache is disabled.
-  ESP_LOGI(TAG, "partition erased - ready for data");
-  send_status(OTA_ACK);
-
-  static uint8_t buf[OTA_BLOCK];
-  uint32_t remaining = size;
-  while (remaining > 0) {
-    uint32_t chunk = remaining > OTA_BLOCK ? OTA_BLOCK : remaining;
-    if (read_exact(buf, chunk, 5000) != ESP_OK) {
-      ESP_LOGE(TAG, "data timeout @ %lu/%lu", (unsigned long)(size - remaining),
-               (unsigned long)size);
-      esp_ota_abort(handle);
-      send_status(OTA_NAK);
-      return;
-    }
-    err = esp_ota_write(handle, buf, chunk);
-    if (err != ESP_OK) {
-      ESP_LOGE(TAG, "esp_ota_write: %s", esp_err_to_name(err));
-      esp_ota_abort(handle);
-      send_status(OTA_NAK);
-      return;
-    }
-    remaining -= chunk;
-    // Block written - tell the P4 to send the next one (flow control).
-    send_status(OTA_ACK);
-    uint32_t written = size - remaining;
-    if ((written % (256 * 1024)) < OTA_BLOCK) {
-      ESP_LOGI(TAG, "  received %lu/%lu", (unsigned long)written, (unsigned long)size);
-    }
-  }
-  ESP_LOGI(TAG, "all %lu bytes received, validating image...", (unsigned long)size);
-
-  err = esp_ota_end(handle);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "esp_ota_end (image invalid?): %s", esp_err_to_name(err));
-    send_status(OTA_NAK);
-    return;
-  }
-  err = esp_ota_set_boot_partition(part);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "esp_ota_set_boot_partition: %s", esp_err_to_name(err));
-    send_status(OTA_NAK);
-    return;
-  }
-
-  ESP_LOGW(TAG, "OTA OK - booting '%s'", part->label);
-  send_status(OTA_ACK);
-  vTaskDelay(pdMS_TO_TICKS(200));
+static void ota_reboot_task(void *arg) {
+  (void)arg;
+  vTaskDelay(pdMS_TO_TICKS(500)); // let the P4 poll DONE before we drop the link
   esp_restart();
 }
 
-static void ota_task(void *arg) {
-  (void)arg;
-  const esp_partition_t *running = esp_ota_get_running_partition();
-  ESP_LOGI(TAG, "OTA receiver ready (running from '%s')", running ? running->label : "?");
-  while (true) {
-    wait_for_magic();
-    ESP_LOGW(TAG, "OTA sync received from P4");
-    // Discard anything trailing the magic, then tell the P4 we're aligned. The
-    // P4 only sends the size + image after seeing this, so the next bytes we
-    // read are guaranteed to be the size header.
-    uart_flush_input(OTA_UART);
-    send_status(OTA_READY);
-    do_ota();
-  }
-}
-
-esp_err_t ota_service_start(void) {
+// Bring UART0 up for RX. Console output on U0TXD (GPIO11) is untouched; the .bin
+// only comes in on U0RXD (GPIO12).
+static esp_err_t ota_uart_open(void) {
   const uart_config_t cfg = {
-      .baud_rate = OTA_BAUD,
+      .baud_rate = OTA_UART_BAUD,
       .data_bits = UART_DATA_8_BITS,
       .parity = UART_PARITY_DISABLE,
       .stop_bits = UART_STOP_BITS_1,
       .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
       .source_clk = UART_SCLK_DEFAULT,
   };
-  esp_err_t err = uart_driver_install(OTA_UART, OTA_RX_RINGBUF, 0, 0, NULL, 0);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "uart_driver_install: %s", esp_err_to_name(err));
-    return err;
+  if (!uart_is_driver_installed(OTA_UART)) {
+    esp_err_t err = uart_driver_install(OTA_UART, OTA_UART_RINGBUF, 0, 0, NULL, 0);
+    if (err != ESP_OK) {
+      return err;
+    }
   }
-  ESP_ERROR_CHECK(uart_param_config(OTA_UART, &cfg));
-  ESP_ERROR_CHECK(uart_set_pin(OTA_UART, OTA_UART_TX_PIN, OTA_UART_RX_PIN, UART_PIN_NO_CHANGE,
-                               UART_PIN_NO_CHANGE));
+  esp_err_t err = uart_param_config(OTA_UART, &cfg);
+  if (err == ESP_OK) {
+    err = uart_set_pin(
+        OTA_UART, OTA_UART_TX_PIN, OTA_UART_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+  }
+  return err;
+}
 
-  if (xTaskCreate(ota_task, "ota_task", 6144, NULL, 5, NULL) != pdPASS) {
+static void ota_writer_task(void *arg) {
+  (void)arg;
+
+  const esp_partition_t *part = esp_ota_get_next_update_partition(NULL);
+  if (part == NULL) {
+    ESP_LOGE(TAG, "no OTA partition available");
+    s_state = SPI_OTA_STATE_ERROR;
+    vTaskDelete(NULL);
+    return;
+  }
+
+  const bool uart = (s_transport == SPI_OTA_TRANSPORT_UART);
+  if (uart && ota_uart_open() != ESP_OK) {
+    ESP_LOGE(TAG, "failed to open UART0 for OTA");
+    s_state = SPI_OTA_STATE_ERROR;
+    vTaskDelete(NULL);
+    return;
+  }
+
+  ESP_LOGW(TAG, "OTA: %lu bytes -> '%s' via %s (erasing...)", (unsigned long)s_ota_size, part->label,
+           uart ? "UART" : "SPI");
+  esp_ota_handle_t handle = 0;
+  s_state = SPI_OTA_STATE_ERASING;
+  esp_err_t err = esp_ota_begin(part, s_ota_size, &handle); // erases (multi-second)
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "esp_ota_begin: %s", esp_err_to_name(err));
+    s_state = SPI_OTA_STATE_ERROR;
+    goto fail;
+  }
+
+  if (uart) {
+    uart_flush_input(OTA_UART);
+  }
+  s_state = SPI_OTA_STATE_READY; // the P4 polls for this before sending data
+  ESP_LOGI(TAG, "erased - ready for %lu bytes", (unsigned long)s_ota_size);
+
+  static uint8_t buf[OTA_WRITE_BUF];
+  while (s_bytes_written < s_ota_size) {
+    uint32_t remaining = s_ota_size - s_bytes_written;
+    size_t want = remaining < sizeof(buf) ? remaining : sizeof(buf);
+    size_t n;
+    if (uart) {
+      int r = uart_read_bytes(OTA_UART, buf, want, pdMS_TO_TICKS(OTA_RECV_STALL_MS));
+      n = (r > 0) ? (size_t)r : 0;
+    } else {
+      n = xStreamBufferReceive(s_stream, buf, want, pdMS_TO_TICKS(OTA_RECV_STALL_MS));
+    }
+    if (n == 0) {
+      ESP_LOGE(TAG, "stall @ %lu/%lu", (unsigned long)s_bytes_written, (unsigned long)s_ota_size);
+      esp_ota_abort(handle);
+      s_state = SPI_OTA_STATE_ERROR;
+      goto fail;
+    }
+    err = esp_ota_write(handle, buf, n);
+    if (err != ESP_OK) {
+      ESP_LOGE(TAG, "esp_ota_write @ %lu: %s", (unsigned long)s_bytes_written, esp_err_to_name(err));
+      esp_ota_abort(handle);
+      s_state = SPI_OTA_STATE_ERROR;
+      goto fail;
+    }
+    s_bytes_written += n;
+    s_state = SPI_OTA_STATE_RECEIVING;
+    if ((s_bytes_written % (256 * 1024)) < n) {
+      ESP_LOGI(TAG, "  written %lu/%lu", (unsigned long)s_bytes_written, (unsigned long)s_ota_size);
+    }
+  }
+
+  ESP_LOGI(TAG, "all %lu bytes written, validating...", (unsigned long)s_ota_size);
+  err = esp_ota_end(handle);
+  if (err == ESP_OK) {
+    err = esp_ota_set_boot_partition(part);
+  }
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "finalize failed: %s", esp_err_to_name(err));
+    s_state = SPI_OTA_STATE_ERROR;
+    goto fail;
+  }
+
+  ESP_LOGW(TAG, "OTA OK - booting '%s'", part->label);
+  s_state = SPI_OTA_STATE_DONE;
+  if (uart && uart_is_driver_installed(OTA_UART)) {
+    uart_driver_delete(OTA_UART);
+  }
+  xTaskCreate(ota_reboot_task, "ota_reboot", 2048, NULL, 5, NULL);
+  vTaskDelete(NULL);
+  return;
+
+fail:
+  if (uart && uart_is_driver_installed(OTA_UART)) {
+    uart_driver_delete(OTA_UART);
+  }
+  vTaskDelete(NULL);
+}
+
+esp_err_t ota_service_begin(uint32_t size, uint8_t transport) {
+  if (s_state == SPI_OTA_STATE_ERASING || s_state == SPI_OTA_STATE_READY ||
+      s_state == SPI_OTA_STATE_RECEIVING) {
+    return ESP_ERR_INVALID_STATE; // one already running
+  }
+  if (size < OTA_MIN_SIZE || size > OTA_MAX_SIZE) {
+    ESP_LOGE(TAG, "implausible OTA size %lu", (unsigned long)size);
+    s_state = SPI_OTA_STATE_ERROR;
+    return ESP_ERR_INVALID_SIZE;
+  }
+  if (transport != SPI_OTA_TRANSPORT_SPI && transport != SPI_OTA_TRANSPORT_UART) {
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  if (transport == SPI_OTA_TRANSPORT_SPI) {
+    if (s_stream == NULL) {
+      s_stream = xStreamBufferCreate(OTA_STREAM_SIZE, 1);
+      if (s_stream == NULL) {
+        ESP_LOGE(TAG, "failed to create OTA stream buffer");
+        s_state = SPI_OTA_STATE_ERROR;
+        return ESP_ERR_NO_MEM;
+      }
+    } else {
+      xStreamBufferReset(s_stream);
+    }
+  }
+
+  s_ota_size = size;
+  s_bytes_written = 0;
+  s_transport = transport;
+  s_state = SPI_OTA_STATE_ERASING; // visible to the P4's first status poll
+
+  if (xTaskCreate(ota_writer_task, "ota_wr", 6144, NULL, 5, NULL) != pdPASS) {
+    ESP_LOGE(TAG, "failed to create writer task");
+    s_state = SPI_OTA_STATE_ERROR;
     return ESP_ERR_NO_MEM;
   }
   return ESP_OK;
+}
+
+esp_err_t ota_service_write(const uint8_t *data, uint16_t len) {
+  if (s_transport != SPI_OTA_TRANSPORT_SPI || s_stream == NULL ||
+      (s_state != SPI_OTA_STATE_READY && s_state != SPI_OTA_STATE_RECEIVING &&
+       s_state != SPI_OTA_STATE_ERASING)) {
+    return ESP_ERR_INVALID_STATE; // -> SPI_STATUS_ERROR (fatal for the P4)
+  }
+  if (len == 0) {
+    return ESP_OK;
+  }
+  if (xStreamBufferSpacesAvailable(s_stream) < len) {
+    return ESP_ERR_NO_MEM; // -> SPI_STATUS_BUSY: writer is behind, P4 retries
+  }
+  xStreamBufferSend(s_stream, data, len, 0); // never blocks: space was checked
+  return ESP_OK;
+}
+
+void ota_service_get_status(spi_ota_status_t *out) {
+  if (out == NULL) {
+    return;
+  }
+  out->state = s_state;
+  out->bytes_written = s_bytes_written;
 }

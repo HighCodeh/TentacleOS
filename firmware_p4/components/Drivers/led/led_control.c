@@ -34,6 +34,11 @@ static const char *TAG = "LED_CONTROL";
 static led_strip_handle_t s_led_strip = NULL;
 
 esp_err_t led_rgb_init(void) {
+  if (GPIO_LED_RGB_PIN < 0) {
+    // V2 drives the RGB LED through the LP5816 I2C driver, not a WS2812 on a GPIO.
+    return ESP_OK;
+  }
+
   led_strip_config_t strip_config = {
       .strip_gpio_num = GPIO_LED_RGB_PIN,
       .max_leds = LED_COUNT,

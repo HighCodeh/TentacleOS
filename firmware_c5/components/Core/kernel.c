@@ -59,8 +59,9 @@ void kernel_init(void) {
   bq25896_init();
   // V2 PCB has no bridge IRQ trace: run the slave in POLL mode (matches the P4).
   spi_bridge_slave_init_mode(SPI_BRIDGE_MODE_POLL);
-  c5_log_init();       // tee C5 logs to the P4 over SPI for the companion console
-  ota_service_start(); // UART0 receiver for P4-pushed firmware (esp_ota)
+  c5_log_init(); // tee C5 logs to the P4 over SPI for the companion console
+  // OTA is triggered on demand over SPI (SPI_ID_SYSTEM_START_UART_OTA); UART0 is
+  // the console until then. No always-on UART receiver here anymore.
 
   sys_monitor(false);
 

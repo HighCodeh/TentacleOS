@@ -8,3 +8,5 @@ dependencies:
   espressif/argtable3: ^3.3
   espressif/libsodium: ^1.0.22
   espressif/esp-serial-flasher: ^2.0.0
+  espressif/esp_lvgl_port: ^2.0.0
+  espressif/esp-dsp: ^1.5.0

@@ -75,7 +75,9 @@ esp_err_t bridge_manager_init(void) {
   // Background link monitor: idles while the bridge is alive, and re-detects the
   // C5 whenever it appears if the boot-time check marks the bridge dead (late
   // C5 boot, or a C5 reboot after an OTA). Started once here.
-  xTaskCreate(c5_link_monitor, "c5_link_mon", 3072, NULL, 4, NULL);
+  // 6 KB: the probe calls spi_bridge_send_command (which puts two SPI_FRAME_SIZE
+  // buffers on the stack) and logs via vfprintf on timeout - 3 KB overflowed.
+  xTaskCreate(c5_link_monitor, "c5_link_mon", 6144, NULL, 4, NULL);
 
   spi_header_t resp_header;
   uint8_t resp_ver[VERSION_BUF_SIZE];
@@ -85,48 +87,24 @@ esp_err_t bridge_manager_init(void) {
   esp_err_t ret = spi_bridge_send_command(
       SPI_ID_SYSTEM_VERSION, NULL, 0, &resp_header, resp_ver, VERSION_TIMEOUT_MS);
 
-  bool is_update_needed = false;
-
+  // Detection only - never flash automatically. If the C5 is silent or on a
+  // different version, just report it; the user updates explicitly with the
+  // 'c5' console command. The link monitor keeps re-probing while it is down.
   if (ret != ESP_OK) {
-    ESP_LOGW(TAG, "C5 not responding, assuming recovery needed");
-    is_update_needed = true;
-  } else {
-    ESP_LOGI(TAG, "C5 version: %s (expected: %s)", resp_ver, FIRMWARE_VERSION);
-    if (strcmp((char *)resp_ver, FIRMWARE_VERSION) != 0) {
-      is_update_needed = true;
-    }
-  }
-
-  if (is_update_needed) {
-    ESP_LOGW(TAG, "C5 update required");
-    c5_flasher_init();
-    if (c5_flasher_update(NULL, 0) == ESP_OK) {
-      ESP_LOGI(TAG, "C5 firmware uploaded");
-    } else {
-      ESP_LOGE(TAG, "C5 synchronization failed");
-      spi_bridge_set_alive(false);
-      return ESP_FAIL;
-    }
-  } else {
-    ESP_LOGI(TAG, "C5 is up to date");
-  }
-
-  // Final probe: confirm the SPI bridge is actually responding before
-  // letting background tasks poll it
-  memset(resp_ver, 0, sizeof(resp_ver));
-  ret = spi_bridge_send_command(
-      SPI_ID_SYSTEM_VERSION, NULL, 0, &resp_header, resp_ver, VERSION_TIMEOUT_MS);
-  if (ret != ESP_OK) {
-    ESP_LOGW(TAG, "C5 SPI bridge not responding — disabling bridge polling");
+    ESP_LOGW(TAG, "C5 not responding - bridge marked down (run 'c5 ota' to flash the C5)");
     spi_bridge_set_alive(false);
     return ESP_OK;
   }
 
+  ESP_LOGI(TAG, "C5 version: %s (expected: %s)", resp_ver, FIRMWARE_VERSION);
+  if (strcmp((char *)resp_ver, FIRMWARE_VERSION) != 0) {
+    ESP_LOGW(TAG, "C5 version differs - update available (run 'c5 ota' to apply)");
+  }
   ESP_LOGI(TAG, "C5 bridge alive");
   return ESP_OK;
 }
 
 esp_err_t bridge_manager_force_update(void) {
   c5_flasher_init();
-  return c5_flasher_update(NULL, 0);
+  return c5_flasher_update(NULL, 0, SPI_OTA_TRANSPORT_SPI);
 }

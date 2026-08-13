@@ -44,6 +44,12 @@ static const char *TAG = "SPI_BRIDGE_P4";
 #define SPI_POLL_FAST_TRIES 32
 #define SPI_POLL_FAST_US    150
 #define SPI_POLL_SLOW_MS    2
+// Wait before the first response poll so the slave has time to finish processing
+// the command and arm its TX. Clocking the bus while the slave is still between
+// its RX and TX transactions (a longer window for payload-carrying commands like
+// OTA_DATA) desyncs it, and the response is then read as garbage for the whole
+// timeout - which was making the C5 OTA fall back to slow per-chunk resyncs.
+#define SPI_POLL_PREWAIT_US 400
 
 typedef struct {
   spi_id_t id;
@@ -54,6 +60,7 @@ static SemaphoreHandle_t s_spi_mutex = NULL;
 static TaskHandle_t s_stream_task_handle = NULL;
 static volatile bool s_is_command_in_flight = false;
 static volatile bool s_bridge_alive = true;
+static volatile bool s_suspended = false;
 static stream_cb_slot_t s_stream_cbs[SPI_STREAM_CB_SLOTS] = {0};
 static spi_bridge_mode_t s_bridge_mode = SPI_BRIDGE_MODE_IRQ;
 
@@ -115,6 +122,7 @@ static esp_err_t recv_frame(uint8_t *tx_buf, uint8_t *rx_buf, size_t frame_size,
   }
 
   // POLL mode.
+  esp_rom_delay_us(SPI_POLL_PREWAIT_US); // let the slave arm its response first
   int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * 1000;
   uint32_t tries = 0;
   do {
@@ -197,6 +205,17 @@ bool spi_bridge_is_alive(void) {
   return s_bridge_alive;
 }
 
+void spi_bridge_suspend(bool suspended) {
+  s_suspended = suspended;
+  if (suspended && s_spi_mutex != NULL) {
+    // Set the flag first (above) so no new command starts, then wait for any
+    // in-flight transaction to finish before the caller swaps the PHY device.
+    if (xSemaphoreTake(s_spi_mutex, pdMS_TO_TICKS(500)) == pdTRUE) {
+      xSemaphoreGive(s_spi_mutex);
+    }
+  }
+}
+
 uint32_t spi_bridge_get_timeout(spi_id_t id) {
   if (id >= SPI_ID_WIFI_SCAN && id <= SPI_ID_WIFI_APP_PROBE_MON) {
     return SPI_TIMEOUT_WIFI_MS;
@@ -210,7 +229,7 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
                                   spi_header_t *out_header,
                                   uint8_t *out_payload,
                                   uint32_t timeout_ms) {
-  if (!s_bridge_alive) {
+  if (s_suspended || !s_bridge_alive) {
     return ESP_ERR_INVALID_STATE;
   }
   if (s_spi_mutex == NULL) {
@@ -338,6 +357,9 @@ static bool has_any_stream_cb(void) {
 // *out_batch_len is its length in bytes (0 = no data pending). The returned
 // pointer is valid until the next fetch_stream call (single consumer task).
 static esp_err_t fetch_stream(const uint8_t **out_records, uint16_t *out_batch_len) {
+  if (s_suspended) {
+    return ESP_ERR_INVALID_STATE;
+  }
   static uint8_t s_stream_tx[SPI_STREAM_FRAME_SIZE]; // stays zero; master clocks zeros out
   static uint8_t s_stream_rx[SPI_STREAM_FRAME_SIZE];
 

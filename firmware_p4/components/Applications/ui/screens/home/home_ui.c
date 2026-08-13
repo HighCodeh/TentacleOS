@@ -39,11 +39,18 @@ static const char *TAG = "HOME_UI";
 #define HOME_ROTATION_LEFT     2700
 #define HOME_ROTATION_RIGHT    900
 
+#define HOME_ART_ASSET "/assets/img/image.bin"
+
 static lv_obj_t *s_screen_home = NULL;
 
 static void home_event_cb(lv_event_t *e);
 
 void ui_home_open(void) {
+  ESP_LOGI(TAG,
+           "home open: free=%u largest=%u",
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+
   if (s_screen_home != NULL) {
     lv_obj_del(s_screen_home);
     s_screen_home = NULL;
@@ -55,7 +62,9 @@ void ui_home_open(void) {
   lv_obj_remove_flag(s_screen_home, LV_OBJ_FLAG_SCROLLABLE);
 
   header_ui_create(s_screen_home);
-  dropdown_ui_create(s_screen_home);
+  // The quick-settings dropdown is global (created once on the top layer at
+  // init) and opens on a long-press of UP from any browse screen, so home no
+  // longer creates its own.
 
   static lv_image_dsc_t *s_push_dsc = NULL;
   if (s_push_dsc == NULL)
@@ -88,8 +97,35 @@ void ui_home_open(void) {
     lv_image_set_pivot(s_push_icons[3], w / 2, h / 2);
     lv_image_set_rotation(s_push_icons[3], HOME_ROTATION_RIGHT);
     lv_obj_align(s_push_icons[3], LV_ALIGN_RIGHT_MID, h / 2, 0);
+    (void)s_push_icons; // no longer registered with the (now global) dropdown
+  } else {
+    static const struct {
+      const char *sym;
+      int dx;
+      int dy;
+    } dirs[HOME_PUSH_ICON_COUNT] = {
+        {LV_SYMBOL_UP, 0, -64},
+        {LV_SYMBOL_DOWN, 0, 64},
+        {LV_SYMBOL_LEFT, -64, 0},
+        {LV_SYMBOL_RIGHT, 64, 0},
+    };
 
-    dropdown_ui_register_hide_objs(s_push_icons, HOME_PUSH_ICON_COUNT);
+    for (int i = 0; i < HOME_PUSH_ICON_COUNT; i++) {
+      lv_obj_t *arrow = lv_label_create(s_screen_home);
+      lv_label_set_text(arrow, dirs[i].sym);
+      lv_obj_set_style_text_color(arrow, current_theme.border_accent, 0);
+      lv_obj_set_style_text_font(arrow, &lv_font_montserrat_14, 0);
+      lv_obj_align(arrow, LV_ALIGN_CENTER, dirs[i].dx, dirs[i].dy);
+    }
+  }
+
+  static lv_image_dsc_t *s_art_dsc = NULL;
+  if (s_art_dsc == NULL)
+    s_art_dsc = assets_get(HOME_ART_ASSET);
+  if (s_art_dsc != NULL) {
+    lv_obj_t *art = lv_image_create(s_screen_home);
+    lv_image_set_src(art, s_art_dsc);
+    lv_obj_align(art, LV_ALIGN_CENTER, 0, 0);
   }
 
   lv_obj_add_event_cb(s_screen_home, home_event_cb, LV_EVENT_KEY, NULL);
@@ -99,7 +135,7 @@ void ui_home_open(void) {
     lv_group_focus_obj(s_screen_home);
   }
 
-  lv_screen_load(s_screen_home);
+  ui_screen_load(s_screen_home);
 }
 
 static void home_event_cb(lv_event_t *e) {
@@ -107,10 +143,19 @@ static void home_event_cb(lv_event_t *e) {
   if (dropdown_ui_is_open())
     return;
 
+  // Swallow the button that wakes the display from sleep (power_policy locks
+  // input briefly on wake) so it doesn't also navigate away from home.
+  if (ui_input_is_locked())
+    return;
+
   lv_event_code_t code = lv_event_get_code(e);
   if (code == LV_EVENT_KEY) {
     uint32_t key = lv_event_get_key(e);
     if (key == LV_KEY_RIGHT)
       ui_switch_screen(SCREEN_MENU);
+    else if (key == LV_KEY_DOWN)
+      ui_switch_screen(SCREEN_SETTINGS);
+    else if (key == LV_KEY_LEFT)
+      ui_switch_screen(SCREEN_OCTOBIT_STATUS);
   }
 }

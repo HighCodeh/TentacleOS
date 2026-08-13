@@ -34,9 +34,10 @@
 #define KB_BTN_FOCUS  current_theme.border_accent
 #define KB_TA_BG      current_theme.screen_base
 
-#define OUTER_BORDER 4
-#define TOP_BORDER_H 46
-#define KB_H         160
+#define OUTER_BORDER     4
+#define TOP_BORDER_H     46
+#define KB_H             184
+#define KB_TEXT_BUF_SIZE 65
 
 static lv_obj_t *kb_screen = NULL;
 static lv_obj_t *kb_obj = NULL;
@@ -56,7 +57,7 @@ static void kb_event_cb(lv_event_t *e) {
     const char *txt = lv_keyboard_get_btn_text(target_kb, btn_id);
 
     if (txt && (strcmp(txt, LV_SYMBOL_OK) == 0 || strcmp(txt, "Enter") == 0)) {
-      char text_buf[65];
+      char text_buf[KB_TEXT_BUF_SIZE];
       const char *input = lv_textarea_get_text(kb_ta);
       if (input) {
         strncpy(text_buf, input, sizeof(text_buf) - 1);
@@ -112,23 +113,22 @@ void keyboard_open(lv_obj_t *target_textarea, keyboard_submit_cb_t cb, void *use
   lv_obj_remove_flag(title_bar, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_radius(title_bar, 12, 0);
   lv_obj_set_style_bg_opa(title_bar, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(title_bar, current_theme.border_interface, 0);
-  lv_obj_set_style_bg_grad_color(title_bar, current_theme.bg_secondary, 0);
-  lv_obj_set_style_bg_grad_dir(title_bar, LV_GRAD_DIR_HOR, 0);
+  lv_obj_set_style_bg_color(title_bar, current_theme.bg_primary, 0);
+  lv_obj_set_style_bg_grad_dir(title_bar, LV_GRAD_DIR_NONE, 0);
   lv_obj_set_style_border_width(title_bar, 2, 0);
   lv_obj_set_style_border_color(title_bar, ITEM_BORDER, 0);
 
   lv_obj_t *title_lbl = lv_label_create(title_bar);
-  lv_label_set_text(title_lbl, "KEYBOARD");
-  lv_obj_set_style_text_color(title_lbl, current_theme.text_main, 0);
-  lv_obj_set_style_text_font(title_lbl, &lv_font_montserrat_12, 0);
+  lv_label_set_text(title_lbl, "[ KEYBOARD ]");
+  lv_obj_set_style_text_color(title_lbl, current_theme.border_accent, 0);
+  lv_obj_set_style_text_font(title_lbl, &lv_font_montserrat_14, 0);
   lv_obj_center(title_lbl);
 
   int ta_y = TOP_BORDER_H + 10;
   int ta_h = LCD_V_RES - TOP_BORDER_H - KB_H - OUTER_BORDER - 20;
 
   kb_ta = lv_textarea_create(kb_screen);
-  lv_obj_set_size(kb_ta, LCD_H_RES - OUTER_BORDER * 2 - 20, ta_h > 60 ? 40 : 30);
+  lv_obj_set_size(kb_ta, LCD_H_RES - OUTER_BORDER * 2 - 4, ta_h > 60 ? 40 : 30);
   lv_obj_align(kb_ta, LV_ALIGN_TOP_MID, 0, ta_y + (ta_h - 40) / 2);
   lv_textarea_set_password_mode(kb_ta, false);
   lv_textarea_set_placeholder_text(kb_ta, "TYPE HERE...");
@@ -149,30 +149,27 @@ void keyboard_open(lv_obj_t *target_textarea, keyboard_submit_cb_t cb, void *use
   lv_obj_align(kb_obj, LV_ALIGN_BOTTOM_MID, 0, -OUTER_BORDER - 2);
   lv_keyboard_set_mode(kb_obj, LV_KEYBOARD_MODE_TEXT_LOWER);
 
-  lv_obj_set_style_bg_color(kb_obj, KB_BG_TOP, 0);
-  lv_obj_set_style_bg_grad_color(kb_obj, KB_BG_BOT, 0);
-  lv_obj_set_style_bg_grad_dir(kb_obj, LV_GRAD_DIR_VER, 0);
+  lv_obj_set_style_bg_color(kb_obj, current_theme.bg_primary, 0);
+  lv_obj_set_style_bg_grad_dir(kb_obj, LV_GRAD_DIR_NONE, 0);
   lv_obj_set_style_bg_opa(kb_obj, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(kb_obj, 2, 0);
   lv_obj_set_style_border_color(kb_obj, BORDER_COLOR, 0);
   lv_obj_set_style_radius(kb_obj, 12, 0);
-  lv_obj_set_style_pad_all(kb_obj, 6, 0);
-  lv_obj_set_style_pad_gap(kb_obj, 4, 0);
+  lv_obj_set_style_pad_all(kb_obj, 5, 0);
+  lv_obj_set_style_pad_gap(kb_obj, 5, 0);
 
-  lv_obj_set_style_bg_color(kb_obj, KB_BTN_BG, LV_PART_ITEMS);
-  lv_obj_set_style_bg_grad_color(kb_obj, KB_BTN_GRAD, LV_PART_ITEMS);
-  lv_obj_set_style_bg_grad_dir(kb_obj, LV_GRAD_DIR_VER, LV_PART_ITEMS);
+  lv_obj_set_style_bg_color(kb_obj, current_theme.bg_secondary, LV_PART_ITEMS);
+  lv_obj_set_style_bg_grad_dir(kb_obj, LV_GRAD_DIR_NONE, LV_PART_ITEMS);
   lv_obj_set_style_bg_opa(kb_obj, LV_OPA_COVER, LV_PART_ITEMS);
   lv_obj_set_style_border_width(kb_obj, 1, LV_PART_ITEMS);
   lv_obj_set_style_border_color(kb_obj, KB_BTN_BORDER, LV_PART_ITEMS);
-  lv_obj_set_style_radius(kb_obj, 8, LV_PART_ITEMS);
+  lv_obj_set_style_radius(kb_obj, 6, LV_PART_ITEMS);
   lv_obj_set_style_text_color(kb_obj, current_theme.text_main, LV_PART_ITEMS);
-  lv_obj_set_style_text_font(kb_obj, &lv_font_montserrat_12, LV_PART_ITEMS);
+  lv_obj_set_style_text_font(kb_obj, &lv_font_montserrat_16, LV_PART_ITEMS);
 
-  lv_obj_set_style_bg_color(kb_obj, KB_BTN_FOCUS, LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
-  lv_obj_set_style_bg_grad_color(
+  lv_obj_set_style_bg_color(
       kb_obj, current_theme.border_accent, LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
-  lv_obj_set_style_bg_grad_dir(kb_obj, LV_GRAD_DIR_VER, LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
+  lv_obj_set_style_bg_grad_dir(kb_obj, LV_GRAD_DIR_NONE, LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
   lv_obj_set_style_border_color(
       kb_obj, current_theme.border_accent, LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
   lv_obj_set_style_border_width(kb_obj, 2, LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
@@ -190,6 +187,10 @@ void keyboard_open(lv_obj_t *target_textarea, keyboard_submit_cb_t cb, void *use
     lv_group_set_editing(main_group, true);
     lv_group_focus_obj(kb_obj);
   }
+}
+
+bool keyboard_is_open(void) {
+  return kb_screen != NULL;
 }
 
 void keyboard_close(void) {

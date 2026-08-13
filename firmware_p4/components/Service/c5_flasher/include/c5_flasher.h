@@ -28,15 +28,26 @@ extern "C" {
 // GPIO_C5_UART_TX/RX_PIN, wired to the C5's UART0).
 esp_err_t c5_flasher_init(void);
 
-// Push a new C5 app image to the C5 over UART using the OTA receiver running on
-// the C5. The image is streamed to the C5's inactive OTA partition; the C5
-// validates it, sets it as the boot partition and reboots. No ROM download mode
-// and no BOOT/RESET pins are involved - the C5 keeps running its app until the
-// final reboot, so a failed transfer is harmless (the old slot still boots).
+// Push a new C5 app image to the running C5 (its app OTA receiver, not ROM
+// download). The C5 erases its inactive slot, receives the image, validates it,
+// sets it to boot and reboots. A failed transfer is harmless (old slot boots).
 //
-// If bin_data is NULL and C5_FIRMWARE_EMBEDDED is set, the embedded C5 app image
-// is used. Returns ESP_OK only after the C5 ACKs a verified image.
-esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size);
+// The whole control plane (begin, status, per-chunk acks) is on the SPI bridge.
+// @p transport (spi_ota_transport_t) selects how the image bytes travel:
+//   SPI_OTA_TRANSPORT_SPI  - as SPI_ID_SYSTEM_OTA_DATA chunks (no UART wiring).
+//   SPI_OTA_TRANSPORT_UART - raw over UART1->C5 UART0 (needs c5_flasher_init()).
+// If @p bin_data is NULL the image is streamed from /sdcard/c5/TentacleOS_C5.bin.
+esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size, uint8_t transport);
+
+// Ping the C5 over the SPI bridge (SPI_ID_SYSTEM_PING). ESP_OK if it answers.
+esp_err_t c5_flasher_ping(void);
+
+// Read and print the C5 chip info over the SPI bridge (SPI_ID_SYSTEM_INFO).
+esp_err_t c5_flasher_info(void);
+
+// Re-probe the C5 and re-establish the bridge link (e.g. after the C5 rebooted
+// into new firmware). Marks the bridge alive iff the C5 answers a ping.
+esp_err_t c5_flasher_sync(void);
 
 // Live OTA progress for the UI progress bar. *sent / *total are bytes; total is
 // 0 until streaming begins (during handshake/erase). Safe to call from another

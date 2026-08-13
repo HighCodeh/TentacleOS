@@ -50,19 +50,19 @@ esp_err_t sd_get_card_info(sd_card_info_t *info) {
 
 void sd_print_card_info(void) {
   if (!sd_is_mounted()) {
-    ESP_LOGE(TAG, "SD não montado");
+    ESP_LOGE(TAG, "SD not mounted");
     return;
   }
 
   sd_card_info_t info;
   if (sd_get_card_info(&info) == ESP_OK) {
-    ESP_LOGI(TAG, "========== Info SD ==========");
-    ESP_LOGI(TAG, "Nome: %s", info.name);
-    ESP_LOGI(TAG, "Capacidade: %lu MB", info.capacity_mb);
-    ESP_LOGI(TAG, "Tamanho setor: %lu bytes", info.sector_size);
-    ESP_LOGI(TAG, "Num setores: %lu", info.num_sectors);
-    ESP_LOGI(TAG, "Velocidade: %lu kHz", info.speed_khz);
-    ESP_LOGI(TAG, "Status: %s", info.is_mounted ? "Montado" : "Desmontado");
+    ESP_LOGI(TAG, "========== SD Info ==========");
+    ESP_LOGI(TAG, "Name: %s", info.name);
+    ESP_LOGI(TAG, "Capacity: %lu MB", info.capacity_mb);
+    ESP_LOGI(TAG, "Sector size: %lu bytes", info.sector_size);
+    ESP_LOGI(TAG, "Sector count: %lu", info.num_sectors);
+    ESP_LOGI(TAG, "Speed: %lu kHz", info.speed_khz);
+    ESP_LOGI(TAG, "Status: %s", info.is_mounted ? "Mounted" : "Unmounted");
     ESP_LOGI(TAG, "============================");
   }
 
@@ -85,15 +85,15 @@ esp_err_t sd_get_fs_stats(sd_fs_stats_t *stats) {
   DWORD fre_clust;
 
   if (f_getfree("0:", &fre_clust, &fs) != FR_OK) {
-    ESP_LOGE(TAG, "Erro ao obter estatísticas do filesystem");
+    ESP_LOGE(TAG, "Failed to get filesystem stats");
     return ESP_FAIL;
   }
 
   uint64_t total_sectors = (fs->n_fatent - 2) * fs->csize;
   uint64_t free_sectors = fre_clust * fs->csize;
 
-  stats->total_bytes = total_sectors * fs->ssize;
-  stats->free_bytes = free_sectors * fs->ssize;
+  stats->total_bytes = total_sectors * FF_MAX_SS;
+  stats->free_bytes = free_sectors * FF_MAX_SS;
   stats->used_bytes = stats->total_bytes - stats->free_bytes;
 
   return ESP_OK;
@@ -216,7 +216,6 @@ esp_err_t sd_get_card_type_name(char *type_name, size_t size) {
   uint8_t type;
   esp_err_t ret = sd_get_card_type(&type);
   if (ret == ESP_OK) {
-    // Simplificado - você pode expandir isso
     snprintf(type_name, size, "SD Type %d", type);
   }
   return ret;

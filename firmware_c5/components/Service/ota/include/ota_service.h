@@ -20,13 +20,38 @@
 extern "C" {
 #endif
 
+#include <stdint.h>
+
 #include "esp_err.h"
 
-// Start the OTA receiver task. It listens on UART0 (wired to the P4) for a
-// firmware push from the P4, writes it to the inactive OTA partition with the
-// esp_ota APIs, and reboots into the new app. The C5 keeps running its normal
-// app the whole time - no ROM download mode involved.
-esp_err_t ota_service_start(void);
+#include "spi_protocol.h"
+
+// App OTA entirely over SPI - no UART involved.
+//
+// Flow:
+//   1. P4 sends SPI_ID_SYSTEM_OTA_BEGIN with the image size -> begin(): a task
+//      erases the target partition and sets state=READY (async so the bridge
+//      stays responsive during the multi-second erase).
+//   2. P4 polls SPI_ID_SYSTEM_OTA_STATUS -> get_status() until READY.
+//   3. P4 sends the image as SPI_ID_SYSTEM_OTA_DATA chunks -> write(); each is
+//      written sequentially and acked by the command response. bytes_written is
+//      also the resync point if a chunk's response is lost.
+//   4. When bytes_written reaches the size, write() finalizes, sets DONE, and
+//      reboots into the new app.
+
+// Begin an OTA of @p size bytes over @p transport (spi_ota_transport_t): validate,
+// spawn the receiver/writer task, return at once. For SPI the image arrives via
+// ota_service_write (OTA_DATA commands); for UART the task reads it from UART0.
+// Returns ESP_ERR_INVALID_STATE if one is already running.
+esp_err_t ota_service_begin(uint32_t size, uint8_t transport);
+
+// Write one firmware chunk (from an OTA_DATA command). Sequential; advances
+// bytes_written and finalizes+reboots on the last chunk. Returns the esp_ota
+// result so the bridge can ack/nak the chunk over SPI.
+esp_err_t ota_service_write(const uint8_t *data, uint16_t len);
+
+// Fill @p out with the current OTA state and byte count. Non-blocking.
+void ota_service_get_status(spi_ota_status_t *out);
 
 #ifdef __cplusplus
 }

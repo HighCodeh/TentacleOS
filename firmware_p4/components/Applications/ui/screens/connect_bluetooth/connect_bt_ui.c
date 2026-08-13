@@ -15,154 +15,107 @@
 
 #include "connect_bt_ui.h"
 
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+#include <stdio.h>
 
-#include "core/lv_group.h"
+#include "esp_log.h"
 
-#include "bluetooth_service.h"
-#include "footer_ui.h"
-#include "header_ui.h"
+#include "buttons_gpio.h"
+#include "menu_component_ui.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define BT_MENU_WIDTH         230
-#define BT_MENU_HEIGHT        160
-#define BT_MENU_OFFSET_Y      5
-#define BT_MENU_BORDER_WIDTH  2
-#define BT_MENU_PAD           4
-#define BT_ITEM_HEIGHT        40
-#define BT_ITEM_BORDER_WIDTH  1
-#define BT_ITEM_ICON_MARGIN   8
-#define BT_ITEM_PAIRED_MARGIN 5
-#define BT_SCAN_DELAY_MS      600
+static const char *TAG = "CONNECT_BT_UI";
 
-extern lv_group_t *main_group;
+#define NAV_TIMER_MS            50
+#define PAIRED_DEVICE_COLOR_HEX 0x00E676
 
 typedef struct {
   const char *name;
-  const char *symbol;
   bool is_paired;
 } bt_device_t;
 
 static const bt_device_t MOCK_DEVICES[] = {
-    {"PIXEL_BUDS_PRO", LV_SYMBOL_AUDIO, true},
-    {"MECHANICAL_KB", LV_SYMBOL_KEYBOARD, true},
-    {"UNKNOWN_PHONE", LV_SYMBOL_BLUETOOTH, false},
-    {"SMART_WATCH_X", LV_SYMBOL_IMAGE, false},
+    {"PIXEL_BUDS_PRO", true},
+    {"MECHANICAL_KB", true},
+    {"UNKNOWN_PHONE", false},
+    {"SMART_WATCH_X", false},
 };
-#define MOCK_DEVICES_COUNT (sizeof(MOCK_DEVICES) / sizeof(MOCK_DEVICES[0]))
+#define MOCK_DEVICES_COUNT ((int)(sizeof(MOCK_DEVICES) / sizeof(MOCK_DEVICES[0])))
 
-static lv_obj_t *s_screen_bt_list = NULL;
-static lv_style_t s_style_menu;
-static lv_style_t s_style_item;
-static bool s_is_styles_initialized = false;
+static const char *const DEVICE_ICONS[] = {
+    "/assets/icons/earbuds.bin",
+    "/assets/icons/keyboard.bin",
+    "/assets/icons/smartphone.bin",
+    "/assets/icons/watch.bin",
+};
 
-static void init_styles(void);
-static void bt_item_event_cb(lv_event_t *e);
+static lv_obj_t *s_screen = NULL;
+static menu_component_t s_menu;
+static lv_timer_t *s_nav_timer = NULL;
 
-void ui_connect_bt_open(void) {
-  init_styles();
+static bool s_btn_up_last = false;
+static bool s_btn_down_last = false;
+static bool s_btn_left_last = false;
+static bool s_btn_right_last = false;
+static bool s_btn_ok_last = false;
+static bool s_btn_back_last = false;
 
-  if (s_screen_bt_list != NULL)
-    lv_obj_del(s_screen_bt_list);
-
-  s_screen_bt_list = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen_bt_list, current_theme.screen_base, 0);
-  lv_obj_clear_flag(s_screen_bt_list, LV_OBJ_FLAG_SCROLLABLE);
-
-  header_ui_create(s_screen_bt_list);
-  footer_ui_create(s_screen_bt_list);
-
-  lv_obj_t *menu = lv_obj_create(s_screen_bt_list);
-  lv_obj_set_size(menu, BT_MENU_WIDTH, BT_MENU_HEIGHT);
-  lv_obj_align(menu, LV_ALIGN_CENTER, 0, BT_MENU_OFFSET_Y);
-  lv_obj_add_style(menu, &s_style_menu, 0);
-  lv_obj_set_flex_flow(menu, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_scrollbar_mode(menu, LV_SCROLLBAR_MODE_OFF);
-
-  lv_obj_t *loading_label = lv_label_create(menu);
-  lv_label_set_text(loading_label, "BUSCANDO DISPOSITIVOS...");
-  lv_obj_set_style_text_color(loading_label, current_theme.text_main, 0);
-  lv_obj_set_width(loading_label, lv_pct(100));
-  lv_obj_set_style_text_align(loading_label, LV_TEXT_ALIGN_CENTER, 0);
-
-  lv_screen_load(s_screen_bt_list);
-  lv_refr_now(NULL);
-
-  vTaskDelay(pdMS_TO_TICKS(BT_SCAN_DELAY_MS));
-
-  lv_obj_del(loading_label);
-
-  for (size_t i = 0; i < MOCK_DEVICES_COUNT; i++) {
-    lv_obj_t *item = lv_obj_create(menu);
-    lv_obj_set_size(item, lv_pct(100), BT_ITEM_HEIGHT);
-    lv_obj_add_style(item, &s_style_item, 0);
-    lv_obj_set_flex_flow(item, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(item, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_clear_flag(item, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t *icon = lv_label_create(item);
-    lv_label_set_text(icon, MOCK_DEVICES[i].symbol);
-    lv_obj_set_style_text_color(icon, current_theme.text_main, 0);
-
-    lv_obj_t *lbl_name = lv_label_create(item);
-    lv_label_set_text(lbl_name, MOCK_DEVICES[i].name);
-    lv_obj_set_style_text_color(lbl_name, current_theme.text_main, 0);
-    lv_obj_set_flex_grow(lbl_name, 1);
-    lv_obj_set_style_margin_left(lbl_name, BT_ITEM_ICON_MARGIN, 0);
-
-    if (MOCK_DEVICES[i].is_paired) {
-      lv_obj_t *paired_icon = lv_label_create(item);
-      lv_label_set_text(paired_icon, LV_SYMBOL_OK);
-      lv_obj_set_style_text_color(paired_icon, current_theme.text_main, 0);
-      lv_obj_set_style_margin_right(paired_icon, BT_ITEM_PAIRED_MARGIN, 0);
-    }
-
-    lv_obj_add_event_cb(item, bt_item_event_cb, LV_EVENT_ALL, NULL);
-
-    if (main_group != NULL)
-      lv_group_add_obj(main_group, item);
+static void nav_timer_cb(lv_timer_t *t) {
+  if (lv_screen_active() != s_screen) {
+    lv_timer_delete(t);
+    s_nav_timer = NULL;
+    return;
   }
-}
-
-static void init_styles(void) {
-  if (s_is_styles_initialized)
+  if (ui_input_is_locked())
     return;
 
-  lv_style_init(&s_style_menu);
-  lv_style_set_bg_opa(&s_style_menu, LV_OPA_TRANSP);
-  lv_style_set_border_width(&s_style_menu, BT_MENU_BORDER_WIDTH);
-  lv_style_set_border_color(&s_style_menu, ui_theme_get_accent());
-  lv_style_set_radius(&s_style_menu, 0);
-  lv_style_set_pad_all(&s_style_menu, BT_MENU_PAD);
-  lv_style_set_pad_row(&s_style_menu, BT_MENU_PAD);
+  bool up = ui_btn_up();
+  bool down = ui_btn_down();
+  bool left = ui_btn_left();
+  bool right = ui_btn_right();
+  bool ok = ok_button_is_down();
+  bool back = back_button_is_down();
 
-  lv_style_init(&s_style_item);
-  lv_style_set_bg_color(&s_style_item, current_theme.bg_item_bot);
-  lv_style_set_bg_grad_color(&s_style_item, current_theme.bg_item_top);
-  lv_style_set_bg_grad_dir(&s_style_item, LV_GRAD_DIR_VER);
-  lv_style_set_border_width(&s_style_item, BT_ITEM_BORDER_WIDTH);
-  lv_style_set_border_color(&s_style_item, current_theme.border_inactive);
-  lv_style_set_radius(&s_style_item, 0);
+  if (down && !s_btn_down_last)
+    menu_component_next(&s_menu);
+  if (up && !s_btn_up_last)
+    menu_component_prev(&s_menu);
 
-  s_is_styles_initialized = true;
+  if ((ok && !s_btn_ok_last) || (right && !s_btn_right_last) || (back && !s_btn_back_last) ||
+      (left && !s_btn_left_last))
+    ui_switch_screen(SCREEN_CONNECTION_SETTINGS);
+
+  s_btn_up_last = up;
+  s_btn_down_last = down;
+  s_btn_left_last = left;
+  s_btn_right_last = right;
+  s_btn_ok_last = ok;
+  s_btn_back_last = back;
 }
 
-static void bt_item_event_cb(lv_event_t *e) {
-  lv_event_code_t code = lv_event_get_code(e);
-  lv_obj_t *item = lv_event_get_target(e);
-
-  if (code == LV_EVENT_FOCUSED) {
-    lv_obj_set_style_border_color(item, ui_theme_get_accent(), 0);
-    lv_obj_set_style_border_width(item, BT_MENU_BORDER_WIDTH, 0);
-    lv_obj_scroll_to_view(item, LV_ANIM_ON);
-  } else if (code == LV_EVENT_DEFOCUSED) {
-    lv_obj_set_style_border_color(item, current_theme.border_inactive, 0);
-    lv_obj_set_style_border_width(item, BT_ITEM_BORDER_WIDTH, 0);
-  } else if (code == LV_EVENT_KEY) {
-    uint32_t key = lv_event_get_key(e);
-    if (key == LV_KEY_ESC || key == LV_KEY_LEFT || key == LV_KEY_ENTER || key == LV_KEY_RIGHT)
-      ui_switch_screen(SCREEN_CONNECTION_SETTINGS);
+void ui_connect_bt_open(void) {
+  if (s_screen != NULL) {
+    lv_obj_del(s_screen);
+    s_screen = NULL;
   }
+
+  s_screen = lv_obj_create(NULL);
+  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
+  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
+  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
+
+  s_menu = menu_component_create(s_screen, "DEVICES", "/assets/icons/bluetooth.bin");
+
+  for (int i = 0; i < MOCK_DEVICES_COUNT; i++) {
+    menu_component_add_item(&s_menu, DEVICE_ICONS[i], MOCK_DEVICES[i].name);
+
+    if (MOCK_DEVICES[i].is_paired)
+      menu_component_set_item_label_color(&s_menu, i, lv_color_hex(PAIRED_DEVICE_COLOR_HEX));
+  }
+
+  if (s_nav_timer == NULL)
+    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+
+  ui_screen_load(s_screen);
+  ESP_LOGI(TAG, "BT device list opened (%d device(s))", MOCK_DEVICES_COUNT);
 }

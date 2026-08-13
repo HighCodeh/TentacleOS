@@ -33,10 +33,20 @@ typedef struct {
 } nfc_menu_item_t;
 
 static const nfc_menu_item_t ITEMS[] = {
-    {"READ TAG", NULL, -1},
-    {"WRITE TAG", NULL, -1},
-    {"EMULATE", NULL, -1},
-    {"SAVED TAGS", NULL, -1},
+    {"READ TAGS", "/assets/icons/contactless.bin", SCREEN_NFC_READ},
+    {"SCAN / IDENTIFY", "/assets/icons/sensors.bin", SCREEN_NFC_SCAN},
+    {"EMULATE", "/assets/icons/contactless.bin", SCREEN_CARD_EMU},
+    {"WRITE", "/assets/icons/edit.bin", SCREEN_NFC_WRITE},
+    {"CONFIGURATIONS", "/assets/icons/settings.bin", SCREEN_NFC_CONFIG},
+    {"SAVED", "/assets/icons/bookmarks.bin", SCREEN_NFC_SAVED},
+    {"BANK CARD", "/assets/icons/contactless.bin", SCREEN_NFC_BANKCARD},
+    {"DESFIRE", "/assets/icons/sensors.bin", SCREEN_NFC_DESFIRE},
+    {"NFC-V / 15693", "/assets/icons/contactless.bin", SCREEN_NFC_ISO15693},
+    {"ULTRALIGHT/NTAG", "/assets/icons/contactless.bin", SCREEN_NFC_ULTRALIGHT},
+    {"NDEF", "/assets/icons/description.bin", SCREEN_NFC_NDEF},
+    {"FELICA", "/assets/icons/contactless.bin", SCREEN_NFC_FELICA},
+    {"SHARE (P2P)", "/assets/icons/podcasts.bin", SCREEN_NFC_P2P},
+    {"KEY DICTIONARY", "/assets/icons/settings.bin", SCREEN_NFC_KEYDICT},
 };
 #define ITEM_COUNT (sizeof(ITEMS) / sizeof(ITEMS[0]))
 
@@ -62,10 +72,10 @@ static void nav_timer_cb(lv_timer_t *t) {
   if (ui_input_is_locked())
     return;
 
-  bool up = up_button_is_down();
-  bool down = down_button_is_down();
-  bool left = left_button_is_down();
-  bool right = right_button_is_down();
+  bool up = ui_btn_up();
+  bool down = ui_btn_down();
+  bool left = ui_btn_left();
+  bool right = ui_btn_right();
   bool ok = ok_button_is_down();
   bool back = back_button_is_down();
 
@@ -105,7 +115,7 @@ void ui_nfc_menu_open(void) {
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  s_menu = menu_component_create(s_screen, "NFC", NULL);
+  s_menu = menu_component_create(s_screen, "NFC", "/assets/icons/nfc.bin");
 
   for (size_t i = 0; i < ITEM_COUNT; i++) {
     menu_component_add_item(&s_menu, ITEMS[i].icon, ITEMS[i].name);
@@ -114,5 +124,5 @@ void ui_nfc_menu_open(void) {
   if (s_nav_timer == NULL)
     s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_PERIOD_MS, NULL);
 
-  lv_screen_load(s_screen);
+  ui_screen_load(s_screen);
 }
