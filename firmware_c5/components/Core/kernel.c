@@ -65,7 +65,7 @@ void kernel_init(void) {
 
   sys_monitor(false);
 
-  // wifi_service_init();
+  wifi_service_init();
 
   vTaskDelay(pdMS_TO_TICKS(BOOT_SETTLE_MS));
 }
