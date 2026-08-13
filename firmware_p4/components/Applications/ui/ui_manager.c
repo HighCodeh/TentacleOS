@@ -21,10 +21,12 @@
 
 #include "esp_log.h"
 #include "lvgl.h"
+#include "sys_prio.h"
 
 #include "assets_manager.h"
 #include "buttons_gpio.h"
 #include "dropdown_ui.h"
+#include "keyboard_ui.h"
 #include "lvgl_glue.h"
 #include "lv_port_indev.h"
 #include "msgbox_ui.h"
@@ -34,6 +36,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_theme.h"
+#include "ui_liveness.h"
 
 #include "boot_ui.h"
 #include "home_ui.h"
@@ -142,20 +145,69 @@
 
 static const char *TAG = "UI_MANAGER";
 
-#define UI_TASK_STACK_SIZE      (4096 * 4)
-#define UI_TASK_PRIORITY        (tskIDLE_PRIORITY + 4)
-#define UI_TASK_CORE            1
+#define UI_BOOT_TASK_STACK_SIZE (4096 * 4)
+#define UI_BOOT_TASK_PRIORITY   SYS_PRIO_SERVICE_LO
+#define UI_BOOT_TASK_CORE       SYS_CORE_UI
 #define INPUT_LOCK_MS           500
 #define BOOT_SPLASH_DURATION_MS 5000
-#define UI_IDLE_LOOP_MS         1000
+#define RENDER_BEAT_MS          250
+#define UI_INPUT_PUMP_MS        20
+#define UI_LOCK_TIMEOUT_MS      1000
 
-static bool is_emergency_restart = false;
 static uint32_t input_lock_until = 0;
+static volatile uint32_t s_render_beat = 0;
 
-static void ui_task(void *pvParameter);
+static void ui_boot_task(void *pvParameter);
 static void clear_current_screen(void);
 
 screen_id_t current_screen_id = SCREEN_NONE;
+
+uint32_t ui_render_beat(void) {
+  return s_render_beat;
+}
+
+// Bumped by an lv_timer inside the LVGL port task, so it advances only while
+// that task is servicing timers. It stalls on a frozen renderer (lock deadlock,
+// runaway screen callback, or a dead/suspended task); sys_monitor polls it.
+static void render_beat_cb(lv_timer_t *t) {
+  (void)t;
+  s_render_beat++;
+}
+
+// Event-driven input. One pump (created in ui_init) drains input_manager events
+// and dispatches them to the active screen's handler, replacing the ~110
+// per-screen polling lv_timers. Input is swallowed while a transition lock is
+// active or a modal overlay (msgbox/keyboard) is up, matching the old per-screen
+// guards; the dropdown refreshes the transition lock while open, so it is covered
+// too.
+static ui_input_handler_t s_screen_handler = NULL;
+static void *s_screen_handler_ctx = NULL;
+
+void ui_input_set_screen_handler(ui_input_handler_t handler, void *ctx) {
+  s_screen_handler = handler;
+  s_screen_handler_ctx = ctx;
+}
+
+static bool input_dispatch_blocked(void) {
+  return ui_input_is_locked() || msgbox_is_open() || keyboard_is_open();
+}
+
+static void ui_input_pump(lv_timer_t *t) {
+  (void)t;
+  input_event_t ev;
+  while (input_get_event(&ev, 0)) {
+    if (s_screen_handler == NULL || input_dispatch_blocked()) {
+      continue;  // drain and discard so stale events do not fire once unblocked
+    }
+    ui_input_handler_t handler = s_screen_handler;
+    handler(&ev, s_screen_handler_ctx);
+    // If the handler switched screens, stop draining: remaining events belong to
+    // the transition (and are flushed by the input lock ui_switch_screen sets).
+    if (s_screen_handler != handler) {
+      break;
+    }
+  }
+}
 
 void ui_init(void) {
   ESP_LOGI(TAG, "Initializing UI Manager...");
@@ -173,59 +225,58 @@ void ui_init(void) {
   if (ui_acquire()) {
     power_policy_init();
     dropdown_ui_global_init();
+    // Render-progress heartbeat: this lv_timer runs inside the LVGL port task,
+    // so it advances only while that task is servicing timers. sys_monitor polls
+    // ui_render_beat() to detect a frozen renderer. See ui_liveness.h.
+    lv_timer_create(render_beat_cb, RENDER_BEAT_MS, NULL);
+    // Single input pump for all event-driven screens (replaces per-screen timers).
+    lv_timer_create(ui_input_pump, UI_INPUT_PUMP_MS, NULL);
     ui_release();
   }
 
-  xTaskCreatePinnedToCore(
-      ui_task, "UI Task", UI_TASK_STACK_SIZE, NULL, UI_TASK_PRIORITY, NULL, UI_TASK_CORE);
+  // Boot orchestration runs once in a transient task (it needs the 5 s splash
+  // delay and a deep stack for screen construction), then deletes itself. There
+  // is no perpetual UI task: rendering lives in the LVGL port task and each
+  // screen's lv_timers, and liveness is supervised by sys_monitor.
+  xTaskCreatePinnedToCore(ui_boot_task,
+                          "ui_boot",
+                          UI_BOOT_TASK_STACK_SIZE,
+                          NULL,
+                          UI_BOOT_TASK_PRIORITY,
+                          NULL,
+                          UI_BOOT_TASK_CORE);
 
   ESP_LOGI(TAG, "UI Manager initialized successfully.");
 }
 
-void ui_hard_restart(void) {
-  ESP_LOGW(TAG, "Executing UI Task Emergency Restart...");
-  is_emergency_restart = true;
-  xTaskCreatePinnedToCore(
-      ui_task, "UI Task", UI_TASK_STACK_SIZE, NULL, UI_TASK_PRIORITY, NULL, UI_TASK_CORE);
-}
-
-static void ui_task(void *pvParameter) {
+static void ui_boot_task(void *pvParameter) {
   (void)pvParameter;
 
-  bool is_recovery = is_emergency_restart;
-  is_emergency_restart = false;
-
   if (ui_acquire()) {
-    if (is_recovery) {
-      ui_home_open();
-      current_screen_id = SCREEN_HOME;
-      msgbox_open(
-          LV_SYMBOL_WARNING, "UI Recovered!\nInterface task was restarted.", "OK", NULL, NULL);
-    } else {
-      ui_boot_show();
-    }
+    ui_boot_show();
     ui_release();
   }
 
-  if (!is_recovery) {
-    vTaskDelay(pdMS_TO_TICKS(BOOT_SPLASH_DURATION_MS));
-    if (ui_acquire()) {
-      ui_home_open();
-      current_screen_id = SCREEN_HOME;
-      if (tutorial_should_run())
-        tutorial_start();
-      else
-        screen_tips_hook(SCREEN_HOME);
-      ui_release();
-    }
+  vTaskDelay(pdMS_TO_TICKS(BOOT_SPLASH_DURATION_MS));
+
+  if (ui_acquire()) {
+    ui_home_open();
+    current_screen_id = SCREEN_HOME;
+    if (tutorial_should_run())
+      tutorial_start();
+    else
+      screen_tips_hook(SCREEN_HOME);
+    ui_release();
   }
 
-  while (1) {
-    vTaskDelay(pdMS_TO_TICKS(UI_IDLE_LOOP_MS));
-  }
+  vTaskDelete(NULL);  // boot done; nothing to loop on
 }
 
 static void clear_current_screen(void) {
+  // Drop the outgoing screen's input handler; a migrated screen re-registers its
+  // own in its open function. Non-migrated screens leave it NULL and keep using
+  // their own polling timer.
+  ui_input_set_screen_handler(NULL, NULL);
   if (main_group != NULL) {
     lv_group_remove_all_objs(main_group);
   }
@@ -556,7 +607,13 @@ void ui_switch_screen(screen_id_t new_screen) {
 }
 
 bool ui_acquire(void) {
-  return lvgl_glue_lock(-1);
+  // Finite timeout so a task that never releases the lock can no longer freeze
+  // every other UI caller forever. Callers already treat false as "skip".
+  if (!lvgl_glue_lock(UI_LOCK_TIMEOUT_MS)) {
+    ESP_LOGW(TAG, "ui_acquire timed out after %d ms; UI lock held elsewhere", UI_LOCK_TIMEOUT_MS);
+    return false;
+  }
+  return true;
 }
 
 void ui_release(void) {

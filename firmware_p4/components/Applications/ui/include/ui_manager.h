@@ -23,6 +23,7 @@ extern "C" {
 #include <stdbool.h>
 
 #include "lvgl.h"
+#include "input_manager.h"
 
 /** @brief Screen identifiers for the UI navigation system. */
 typedef enum {
@@ -166,9 +167,6 @@ typedef enum {
 /** @brief Initialize the UI manager and start the UI task. */
 void ui_init(void);
 
-/** @brief Perform an emergency restart of the UI task. */
-void ui_hard_restart(void);
-
 /** @brief Acquire the UI mutex for thread-safe LVGL access. */
 bool ui_acquire(void);
 
@@ -208,6 +206,20 @@ bool ui_btn_up(void);
 bool ui_btn_down(void);
 bool ui_btn_left(void);
 bool ui_btn_right(void);
+
+/** @brief Handler a screen registers to receive input events. */
+typedef void (*ui_input_handler_t)(const input_event_t *ev, void *ctx);
+
+/**
+ * @brief Register the active screen's input handler (event-driven input).
+ *
+ * The UI manager runs one pump that drains input_manager events and dispatches
+ * them to this handler, but only while input is not locked and no modal overlay
+ * (msgbox/keyboard) is up. A screen sets its handler in its open function; it is
+ * cleared automatically on the next screen switch. This replaces the per-screen
+ * polling lv_timers. Pass NULL to clear.
+ */
+void ui_input_set_screen_handler(ui_input_handler_t handler, void *ctx);
 
 /** @brief Check if user input is temporarily locked. */
 bool ui_input_is_locked(void);

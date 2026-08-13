@@ -77,3 +77,8 @@ CONFIG_LV_USE_QRCODE=y
 
 # LVGL snapshot — NFC card-emulation screen snapshots a panel to animate it
 CONFIG_LV_USE_SNAPSHOT=y
+
+# Task WDT reboots (panics) instead of only warning when a task starves a core's
+# idle task or a subscribed task stops feeding it. Safe now that the OTA and C5
+# flash write loops yield per chunk and the UI task probes the LVGL lock.
+CONFIG_ESP_TASK_WDT_PANIC=y
