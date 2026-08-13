@@ -21,6 +21,7 @@ file(GLOB_RECURSE SX1262_SRCS "sx1262/*.c")
 idf_component_register(SRCS
   "bq25896/bq25896.c"
   "bq25896/bq25896_ext.c"
+  "bq25896/battery_service.c"
   "cc1101/cc1101.c"
   "st7789/st7789.c"
   "led/led_control.c"
