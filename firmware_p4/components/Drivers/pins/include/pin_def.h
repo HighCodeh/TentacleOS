@@ -137,7 +137,14 @@ extern "C" {
 #define LED_COUNT        1
 
 /** @brief Legacy V1 pins - drivers not yet ported to V2 (c5_flasher UART push,
- *  ys_rfid2 UART reader). Kept so those V1 drivers still build. @todo port/exclude. */
+ *  ys_rfid2 UART reader). Kept so those V1 drivers still build. @todo port/exclude.
+ *
+ *  WARNING: on the HighBoy V2 there is NO direct P4<->C5 UART. The schematic
+ *  routes the P4 UART0 (GPIO37/38 = RXD1/TXD1) and the C5 UART0 (GPIO11/12 =
+ *  RXD2/TXD2) to two SEPARATE channels of the CP2105 USB bridge - they never
+ *  meet. GPIO38 here is actually the P4's own console TX to the CP2105 (SCI),
+ *  not a wire to the C5. So 'c5 ota uart' cannot reach the C5 (it just writes to
+ *  the P4's USB serial); the only P4<->C5 data path is the SPI bridge. */
 #define GPIO_C5_UART_TX_PIN   38
 #define GPIO_C5_UART_RX_PIN   39
 #define GPIO_RFID_UART_TX_PIN 24

@@ -137,6 +137,12 @@ esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size, uint8_t 
   FILE *f = NULL;
   uint8_t *block = NULL;
   esp_err_t result = ESP_FAIL;
+  // NOTE: SPI_OTA_TRANSPORT_UART does NOT work on the HighBoy V2 - there is no
+  // direct P4<->C5 UART on this board. The schematic wires the P4 UART0 and the
+  // C5 UART0 to two separate CP2105 channels (they only meet over USB), so the
+  // bytes we write on GPIO38 go to the P4's own USB serial, never to the C5, and
+  // the C5's receiver stalls. It is kept for a future board that routes a real
+  // P4->C5 UART; on V2 use SPI_OTA_TRANSPORT_SPI. See GPIO_C5_UART_* in pin_def.h.
   const bool uart = (transport == SPI_OTA_TRANSPORT_UART);
 
   if (bin_data == NULL) {
