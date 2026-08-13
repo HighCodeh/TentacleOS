@@ -16,10 +16,12 @@
 #include "ir_controller_ui.h"
 
 #include <stdio.h>
+#include <strings.h>
 
 #include "esp_log.h"
 
 #include "buttons_gpio.h"
+#include "ir_store.h"
 #include "notify_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
@@ -63,6 +65,7 @@ static const char *TAG = "IR_CTRL_UI";
 typedef struct {
   const char *text;
   int dx, dy, w, h;
+  const char *sig; // universal-remote signal name in the .ir file, or NULL if none
 } rc_btn_t;
 
 typedef struct {
@@ -73,42 +76,43 @@ typedef struct {
 } rc_layout_t;
 
 static const rc_btn_t TV_BTNS[] = {
-    {LV_SYMBOL_POWER, -64, 8, 52, 32},
-    {LV_SYMBOL_MUTE, 64, 8, 52, 32},
-    {LV_SYMBOL_UP, 0, 50, 44, 30},
-    {LV_SYMBOL_LEFT, -54, 96, 42, 34},
-    {"OK", 0, 90, 54, 52},
-    {LV_SYMBOL_RIGHT, 54, 96, 42, 34},
-    {LV_SYMBOL_DOWN, 0, 148, 44, 30},
-    {"VOL +", -76, 186, 54, 28},
-    {"VOL -", -76, 218, 54, 28},
-    {LV_SYMBOL_LIST, 0, 186, 48, 28},
-    {LV_SYMBOL_HOME, 0, 218, 48, 28},
-    {"CH +", 76, 186, 54, 28},
-    {"CH -", 76, 218, 54, 28},
+    {LV_SYMBOL_POWER, -64, 8, 52, 32, "Power"},
+    {LV_SYMBOL_MUTE, 64, 8, 52, 32, "Mute"},
+    {LV_SYMBOL_UP, 0, 50, 44, 30, NULL},
+    {LV_SYMBOL_LEFT, -54, 96, 42, 34, NULL},
+    {"OK", 0, 90, 54, 52, NULL},
+    {LV_SYMBOL_RIGHT, 54, 96, 42, 34, NULL},
+    {LV_SYMBOL_DOWN, 0, 148, 44, 30, NULL},
+    {"VOL +", -76, 186, 54, 28, "Vol_up"},
+    {"VOL -", -76, 218, 54, 28, "Vol_dn"},
+    {LV_SYMBOL_LIST, 0, 186, 48, 28, NULL},
+    {LV_SYMBOL_HOME, 0, 218, 48, 28, NULL},
+    {"CH +", 76, 186, 54, 28, "Ch_next"},
+    {"CH -", 76, 218, 54, 28, "Ch_prev"},
 };
 
 static const rc_btn_t SOUND_BTNS[] = {
-    {LV_SYMBOL_POWER, -58, 16, 58, 34},
-    {"SRC", 58, 16, 58, 34},
-    {"VOL -", -58, 68, 58, 34},
-    {"VOL +", 58, 68, 58, 34},
-    {LV_SYMBOL_PREV, -70, 128, 50, 42},
-    {LV_SYMBOL_PLAY, 0, 124, 58, 50},
-    {LV_SYMBOL_NEXT, 70, 128, 50, 42},
-    {LV_SYMBOL_MUTE, -58, 194, 58, 34},
-    {"MODE", 58, 194, 58, 34},
+    {LV_SYMBOL_POWER, -58, 16, 58, 34, "Power"},
+    {"SRC", 58, 16, 58, 34, NULL},
+    {"VOL -", -58, 68, 58, 34, "Vol_dn"},
+    {"VOL +", 58, 68, 58, 34, "Vol_up"},
+    {LV_SYMBOL_PREV, -70, 128, 50, 42, "Prev"},
+    {LV_SYMBOL_PLAY, 0, 124, 58, 50, "Play"},
+    {LV_SYMBOL_NEXT, 70, 128, 50, 42, "Next"},
+    {LV_SYMBOL_MUTE, -58, 194, 58, 34, "Mute"},
+    {"MODE", 58, 194, 58, 34, NULL},
 };
 
+// AC uses the state panel (build_ac_panel), not these buttons — sig stays NULL.
 static const rc_btn_t AC_BTNS[] = {
-    {LV_SYMBOL_POWER, -58, 14, 58, 34},
-    {"MODE", 58, 14, 58, 34},
-    {"TEMP +", 0, 64, 80, 38},
-    {"TEMP -", 0, 110, 80, 38},
-    {"FAN", -58, 162, 58, 34},
-    {"SWING", 58, 162, 58, 34},
-    {"TIMER", -58, 206, 58, 34},
-    {"ECO", 58, 206, 58, 34},
+    {LV_SYMBOL_POWER, -58, 14, 58, 34, NULL},
+    {"MODE", 58, 14, 58, 34, NULL},
+    {"TEMP +", 0, 64, 80, 38, NULL},
+    {"TEMP -", 0, 110, 80, 38, NULL},
+    {"FAN", -58, 162, 58, 34, NULL},
+    {"SWING", 58, 162, 58, 34, NULL},
+    {"TIMER", -58, 206, 58, 34, NULL},
+    {"ECO", 58, 206, 58, 34, NULL},
 };
 
 static const rc_layout_t LAYOUTS[] = {
@@ -150,6 +154,99 @@ static bool s_btn_up_last, s_btn_down_last, s_btn_left_last;
 static bool s_btn_right_last, s_btn_ok_last, s_btn_back_last;
 
 static void nav_timer_cb(lv_timer_t *timer);
+
+// --- Universal remote: send codes sourced from Flipper .ir files on the SD ---
+
+static const char *const UNIVERSAL_FILE[] = {
+    [IR_DEV_TV] = "/sdcard/ir/tv.ir",
+    [IR_DEV_SOUND] = "/sdcard/ir/audio.ir",
+    [IR_DEV_AC] = "/sdcard/ir/ac.ir",
+};
+
+static ir_file_t s_uni = {0};
+static bool s_uni_loaded = false;
+static char s_send_name[24];
+static size_t s_send_idx = 0;
+static lv_timer_t *s_send_timer = NULL;
+
+static void load_universal(ir_device_t dev) {
+  if (s_send_timer != NULL) {
+    lv_timer_delete(s_send_timer);
+    s_send_timer = NULL;
+  }
+  // Free unconditionally: a prior ir_store_load() can partially allocate signals[]
+  // and then fail (leaving s_uni_loaded false but memory live). ir_file_free is safe
+  // on a zeroed file, so this covers both the loaded and partial-failure cases.
+  ir_file_free(&s_uni);
+  s_uni_loaded = false;
+  ir_file_init(&s_uni);
+  if ((int)dev >= 0 && (int)dev < LAYOUT_COUNT && UNIVERSAL_FILE[dev] != NULL) {
+    if (ir_store_load(UNIVERSAL_FILE[dev], &s_uni) == ESP_OK && s_uni.count > 0)
+      s_uni_loaded = true;
+  }
+}
+
+static int uni_count(const char *name) {
+  if (name == NULL)
+    return 0;
+  int c = 0;
+  for (size_t i = 0; i < s_uni.count; i++)
+    if (strcasecmp(s_uni.signals[i].name, name) == 0)
+      c++;
+  return c;
+}
+
+// Transmit one matching code per tick — a universal button can map to many
+// brand codes, and sending them all inline would stall the UI.
+static void uni_send_tick(lv_timer_t *t) {
+  if (lv_screen_active() != s_screen) {
+    lv_timer_delete(t);
+    s_send_timer = NULL;
+    return;
+  }
+  while (s_send_idx < s_uni.count) {
+    ir_signal_t *sig = &s_uni.signals[s_send_idx++];
+    if (strcasecmp(sig->name, s_send_name) == 0) {
+      ir_store_send_signal(sig);
+      return;
+    }
+  }
+  lv_timer_delete(t);
+  s_send_timer = NULL;
+}
+
+static void uni_send(const char *name) {
+  if (!s_uni_loaded) {
+    notify(NOTIFY_WARNING, "Add universal .ir to /sdcard/ir");
+    return;
+  }
+  if (name == NULL || uni_count(name) == 0) {
+    notify(NOTIFY_WARNING, "No code for this key");
+    return;
+  }
+  snprintf(s_send_name, sizeof(s_send_name), "%s", name);
+  s_send_idx = 0;
+  if (s_send_timer != NULL)
+    lv_timer_delete(s_send_timer);
+  s_send_timer = lv_timer_create(uni_send_tick, 90, NULL);
+}
+
+// Map the AC panel state onto the universal ac.ir signal names.
+static const char *ac_universal_name(void) {
+  if (!s_ac_power)
+    return "Off";
+  bool hi = s_ac_temp >= 24;
+  switch (s_ac_mode) {
+    case 0:
+      return hi ? "Cool_hi" : "Cool_lo"; // Cool
+    case 1:
+      return hi ? "Heat_hi" : "Heat_lo"; // Heat
+    case 2:
+      return "Dh"; // Fan / dehumidify
+    default:
+      return hi ? "Cool_hi" : "Cool_lo";
+  }
+}
 
 void ui_ir_controller_set_device(ir_device_t dev) {
   if ((int)dev >= 0 && (int)dev < LAYOUT_COUNT)
@@ -326,6 +423,7 @@ static void ac_set_sel(int idx) {
 static void ac_send(void) {
   ui_feedback(UI_FB_EMULATE);
   ac_flash();
+  uni_send(ac_universal_name());
   char buf[48];
   snprintf(buf,
            sizeof(buf),
@@ -445,6 +543,7 @@ void ui_ir_controller_open(void) {
   s_btn_right_last = s_btn_ok_last = s_btn_back_last = false;
 
   s_lay = &LAYOUTS[s_device];
+  load_universal(s_device);
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -553,13 +652,11 @@ static void nav_timer_cb(lv_timer_t *timer) {
   }
 
   if (ok && !s_btn_ok_last) {
-    const char *key = s_lay->btns[s_focus].text;
-    ESP_LOGI(TAG, "press [%s]: %s", s_lay->title, key);
+    const rc_btn_t *b = &s_lay->btns[s_focus];
+    ESP_LOGI(TAG, "press [%s]: %s", s_lay->title, b->text);
     ui_feedback(UI_FB_EMULATE);
     flash_focus();
-    char buf[48];
-    snprintf(buf, sizeof(buf), "%s sent", key);
-    notify(NOTIFY_INFO, buf);
+    uni_send(b->sig);
   }
 
   s_btn_up_last = up;

@@ -15,10 +15,13 @@
 
 #include "ir_burst_ui.h"
 
+#include <stdio.h>
+
 #include "esp_log.h"
 #include "lvgl.h"
 
 #include "buttons_gpio.h"
+#include "ir_store.h"
 #include "notify_ui.h"
 #include "sigwave_ui.h"
 #include "ui_chrome.h"
@@ -51,24 +54,12 @@ static const char *TAG = "IR_BURST_UI";
 
 #define NAV_TIMER_INTERVAL_MS 50
 #define BURST_TICK_MS         180
-#define BURST_TOTAL           24
 
-#define STATUS_BUSY "Bursting..."
-#define STATUS_DONE "Burst complete!"
-#define HINT_BUSY   "BACK to cancel"
-#define HINT_DONE   "BACK = Exit"
-
-static const char *MOCK_FILES[] = {
-    "> NEC/power       OK",
-    "> SAMSUNG/vol_up  OK",
-    "> SONY/mute       OK",
-    "> RC5/ch_up       OK",
-    "> NEC/source      OK",
-    "> LG/menu         OK",
-    "> SAMSUNG/power   OK",
-    "> SONY/vol_down   OK",
-};
-#define MOCK_FILES_N ((int)(sizeof(MOCK_FILES) / sizeof(MOCK_FILES[0])))
+#define STATUS_BUSY  "Bursting..."
+#define STATUS_DONE  "Burst complete!"
+#define STATUS_EMPTY "No saved signals"
+#define HINT_BUSY    "BACK to cancel"
+#define HINT_DONE    "BACK = Exit"
 
 static lv_obj_t *s_screen = NULL;
 static lv_timer_t *s_nav_timer = NULL;
@@ -82,6 +73,9 @@ static lv_obj_t *s_sig = NULL;
 static lv_obj_t *s_log_label = NULL;
 static lv_obj_t *s_footer = NULL;
 static int s_sent = 0;
+
+static ir_store_entry_t s_entries[IR_STORE_MAX_ENTRIES];
+static int s_total = 0;
 
 static bool s_btn_back_last = false;
 
@@ -147,6 +141,10 @@ void ui_ir_burst_open(void) {
   s_caption = NULL;
   s_btn_back_last = false;
 
+  s_total = ir_store_list(s_entries, IR_STORE_MAX_ENTRIES);
+  if (s_total < 0)
+    s_total = 0;
+
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
@@ -157,14 +155,14 @@ void ui_ir_burst_open(void) {
   ui_chrome_header(s_screen, "IR BURST", IR_BURST_ICON);
 
   s_status_label = lv_label_create(s_screen);
-  lv_label_set_text(s_status_label, STATUS_BUSY);
+  lv_label_set_text(s_status_label, s_total > 0 ? STATUS_BUSY : STATUS_EMPTY);
   lv_obj_set_style_text_color(s_status_label, current_theme.text_main, 0);
   lv_obj_set_style_text_font(s_status_label, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_align(s_status_label, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(s_status_label, LV_ALIGN_TOP_MID, 0, STATUS_Y);
 
   s_count_label = lv_label_create(s_screen);
-  lv_label_set_text_fmt(s_count_label, "0 / %d files", BURST_TOTAL);
+  lv_label_set_text_fmt(s_count_label, "0 / %d files", s_total);
   lv_obj_set_style_text_color(s_count_label, lv_color_hex(COL_DIM), 0);
   lv_obj_set_style_text_font(s_count_label, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_align(s_count_label, LV_TEXT_ALIGN_CENTER, 0);
@@ -181,7 +179,7 @@ void ui_ir_burst_open(void) {
   lv_obj_set_style_bg_color(s_bar, current_theme.border_accent, LV_PART_INDICATOR);
   lv_obj_set_style_bg_grad_dir(s_bar, LV_GRAD_DIR_NONE, LV_PART_INDICATOR);
   lv_obj_set_style_bg_opa(s_bar, LV_OPA_COVER, LV_PART_INDICATOR);
-  lv_bar_set_range(s_bar, 0, BURST_TOTAL);
+  lv_bar_set_range(s_bar, 0, s_total > 0 ? s_total : 1);
   lv_bar_set_value(s_bar, 0, LV_ANIM_OFF);
 
   s_card = lit_panel(s_screen, CARD_W, CARD_H);
@@ -196,19 +194,36 @@ void ui_ir_burst_open(void) {
   s_sig = sigwave_create(s_card, LV_ALIGN_BOTTOM_MID, 0, -2);
 
   s_log_label = lv_label_create(s_screen);
-  lv_label_set_text(s_log_label, MOCK_FILES[0]);
+  lv_label_set_text(s_log_label, s_total > 0 ? "" : "Capture signals in Learn first");
   lv_obj_set_style_text_color(s_log_label, lv_color_hex(COL_DIM), 0);
   lv_obj_set_style_text_font(s_log_label, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_align(s_log_label, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(s_log_label, LV_ALIGN_BOTTOM_MID, 0, LOG_Y);
 
-  s_footer = ui_chrome_footer(s_screen, HINT_BUSY);
+  s_footer = ui_chrome_footer(s_screen, s_total > 0 ? HINT_BUSY : HINT_DONE);
 
   if (s_nav_timer == NULL)
     s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
-  s_burst_timer = lv_timer_create(burst_tick_cb, BURST_TICK_MS, NULL);
+
+  if (s_total > 0)
+    s_burst_timer = lv_timer_create(burst_tick_cb, BURST_TICK_MS, NULL);
+  else
+    s_burst_timer = NULL;
 
   ui_screen_load(s_screen);
+}
+
+// Transmit the first signal of file s_entries[idx]; returns true on success.
+static bool burst_send_one(int idx) {
+  if (idx < 0 || idx >= s_total)
+    return false;
+  ir_file_t f;
+  ir_file_init(&f);
+  bool ok = false;
+  if (ir_store_load(s_entries[idx].path, &f) == ESP_OK && f.count > 0)
+    ok = (ir_store_send_signal(&f.signals[0]) == ESP_OK);
+  ir_file_free(&f);
+  return ok;
 }
 
 static void burst_tick_cb(lv_timer_t *timer) {
@@ -219,17 +234,18 @@ static void burst_tick_cb(lv_timer_t *timer) {
     return;
   }
 
+  bool ok = burst_send_one(s_sent);
   s_sent++;
-  lv_label_set_text_fmt(s_count_label, "%d / %d files", s_sent, BURST_TOTAL);
+  lv_label_set_text_fmt(s_count_label, "%d / %d files", s_sent, s_total);
   if (s_bar)
     lv_bar_set_value(s_bar, s_sent, LV_ANIM_OFF);
   if (s_log_label)
-    lv_label_set_text(s_log_label, MOCK_FILES[(s_sent - 1) % MOCK_FILES_N]);
+    lv_label_set_text_fmt(s_log_label, "> %-16s %s", s_entries[s_sent - 1].name, ok ? "OK" : "--");
 
-  if (s_sent >= BURST_TOTAL) {
+  if (s_sent >= s_total) {
     lv_label_set_text(s_status_label, STATUS_DONE);
     lv_obj_set_style_text_color(s_status_label, lv_color_hex(SIG_GREEN), 0);
-    lv_label_set_text_fmt(s_count_label, "%d / %d files", BURST_TOTAL, BURST_TOTAL);
+    lv_label_set_text_fmt(s_count_label, "%d / %d files", s_total, s_total);
     if (s_footer)
       ui_chrome_footer_set_text(s_footer, HINT_DONE);
     if (s_log_label)
@@ -240,14 +256,14 @@ static void burst_tick_cb(lv_timer_t *timer) {
       s_sig = sigwave_create_static(s_card, LV_ALIGN_BOTTOM_MID, 0, -2);
     }
     if (s_caption) {
-      lv_label_set_text_fmt(s_caption, "%d signals sent", BURST_TOTAL);
+      lv_label_set_text_fmt(s_caption, "%d signals sent", s_total);
       lv_obj_set_style_text_color(s_caption, current_theme.text_main, 0);
       lv_obj_set_style_text_font(s_caption, &lv_font_montserrat_14, 0);
     }
     if (s_card)
       card_rise(s_card);
 
-    ESP_LOGI(TAG, "mock burst complete: %d signals", BURST_TOTAL);
+    ESP_LOGI(TAG, "burst complete: %d signals", s_total);
     ui_feedback(UI_FB_WRITE);
     notify(NOTIFY_SAVED, "Burst sent");
 
@@ -271,7 +287,7 @@ static void nav_timer_cb(lv_timer_t *timer) {
       lv_timer_delete(s_burst_timer);
       s_burst_timer = NULL;
     }
-    ESP_LOGI(TAG, "mock burst cancelled");
+    ESP_LOGI(TAG, "burst cancelled");
     ui_switch_screen(SCREEN_IR_MENU);
   }
   s_btn_back_last = is_back;

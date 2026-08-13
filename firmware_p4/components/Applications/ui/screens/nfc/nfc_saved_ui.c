@@ -170,7 +170,9 @@ static void overlay_open(const nfc_sim_card_t *c, int idx) {
   lv_obj_set_style_border_width(s_ov, 0, 0);
   lv_obj_set_style_pad_all(s_ov, 0, 0);
 
-  ui_chrome_header(s_ov, "CARD", SAVED_ICON);
+  // Transient card-detail overlay: snapshot header (no rebind) so closing it never
+  // dangles the live saved-list's dynamic header underneath.
+  ui_chrome_header_overlay(s_ov, "CARD", SAVED_ICON);
   s_ov_footer = ui_chrome_footer(s_ov, "OK  Options    BACK  Back");
 
   s_ov_card = nfc_ui_card_panel(s_ov, &s_view_card);

@@ -22,6 +22,7 @@
 
 #include "buttons_gpio.h"
 #include "capture_result_ui.h"
+#include "ir_store.h"
 #include "notify_ui.h"
 #include "sigwave_ui.h"
 #include "ui_chrome.h"
@@ -43,9 +44,9 @@ static const char *TAG = "IR_RX_UI";
 #define STATUS_Y 48
 #define DETAIL_Y 66
 
-#define NAV_TIMER_MS 50
-#define CAPTURE_MS   2200
-#define DOT_CYCLE_MS 350
+#define NAV_TIMER_MS       50
+#define CAPTURE_WINDOW_MS  1500 // one ir_capture_start() window; re-armed while listening
+#define DOT_CYCLE_MS       350
 
 #define CARD_W       162
 #define CARD_H       82
@@ -63,7 +64,6 @@ static const char *TAG = "IR_RX_UI";
 #define STATUS_SAVED    "Signal saved!"
 
 #define DETAIL_AIM "Point remote at device"
-#define CARD_INFO  LV_SYMBOL_OK "  NEC   0x04 / 0x08"
 
 #define HINT_IDLE     "OK = Capture   BACK = Exit"
 #define HINT_BUSY     "BACK to cancel"
@@ -83,7 +83,6 @@ typedef enum {
 
 static lv_obj_t *s_screen = NULL;
 static lv_timer_t *s_nav_timer = NULL;
-static lv_timer_t *s_capture_timer = NULL;
 static lv_obj_t *s_status_label = NULL;
 static lv_obj_t *s_detail_label = NULL;
 static lv_obj_t *s_hint_label = NULL;
@@ -95,6 +94,10 @@ static rx_state_t s_state = ST_IDLE;
 static uint32_t s_capture_start = 0;
 static uint32_t s_captured_at = 0;
 static bool s_saved = false;
+static bool s_listening = false;
+static ir_data_t s_captured = {0};
+static char s_card_text[48];
+static rmt_symbol_word_t s_raw_buf[IR_MAX_SYMBOLS];
 
 static bool s_btn_back_last = false;
 static bool s_btn_ok_last = false;
@@ -103,14 +106,7 @@ static bool s_btn_up_last = false;
 static bool s_btn_down_last = false;
 
 static void nav_timer_cb(lv_timer_t *timer);
-static void capture_done_cb(lv_timer_t *timer);
-
-static void stop_capture_timer(void) {
-  if (s_capture_timer != NULL) {
-    lv_timer_delete(s_capture_timer);
-    s_capture_timer = NULL;
-  }
-}
+static void build_captured_card(void);
 
 static void clear_result(void) {
   if (s_card != NULL) {
@@ -137,6 +133,11 @@ static void set_hint(const char *text) {
     ui_chrome_footer_set_text(s_hint_label, text);
 }
 
+static void stop_listening(void) {
+  s_listening = false;
+  ir_capture_reset();
+}
+
 static void start_capture(void) {
   clear_result();
   s_state = ST_CAPTURING;
@@ -157,17 +158,15 @@ static void start_capture(void) {
     lv_obj_remove_flag(s_sig, LV_OBJ_FLAG_HIDDEN);
   set_hint(HINT_BUSY);
 
-  s_capture_timer = lv_timer_create(capture_done_cb, CAPTURE_MS, NULL);
-  lv_timer_set_repeat_count(s_capture_timer, 1);
+  ir_capture_reset();
+  ir_capture_start(CAPTURE_WINDOW_MS);
+  s_listening = true;
 }
 
-static void capture_done_cb(lv_timer_t *timer) {
-  (void)timer;
-  s_capture_timer = NULL;
-  if (lv_screen_active() != s_screen)
-    return;
-
+// Populate the captured card from the real decoded frame in s_captured.
+static void build_captured_card(void) {
   s_state = ST_CAPTURED;
+  s_listening = false;
   if (s_waves)
     lv_obj_add_flag(s_waves, LV_OBJ_FLAG_HIDDEN);
   if (s_sig)
@@ -190,7 +189,16 @@ static void capture_done_cb(lv_timer_t *timer) {
   lv_obj_set_style_pad_all(s_card, 6, 0);
 
   lv_obj_t *info = lv_label_create(s_card);
-  lv_label_set_text(info, CARD_INFO);
+  if (s_captured.protocol != IR_PROTO_UNKNOWN)
+    snprintf(s_card_text,
+             sizeof(s_card_text),
+             LV_SYMBOL_OK "  %s   0x%02lX / 0x%02lX",
+             ir_protocol_name(s_captured.protocol),
+             (unsigned long)s_captured.address,
+             (unsigned long)s_captured.command);
+  else
+    snprintf(s_card_text, sizeof(s_card_text), LV_SYMBOL_OK "  RAW signal");
+  lv_label_set_text(info, s_card_text);
   lv_obj_set_style_text_color(info, current_theme.text_main, 0);
   lv_obj_set_style_text_font(info, &lv_font_montserrat_12, 0);
   lv_obj_align(info, LV_ALIGN_TOP_MID, 0, 0);
@@ -208,8 +216,34 @@ static void capture_done_cb(lv_timer_t *timer) {
 
   s_captured_at = lv_tick_get();
   set_hint(HINT_SHOW);
-  ESP_LOGI(TAG, "mock capture done");
+  ESP_LOGI(TAG, "captured %s", ir_protocol_name(s_captured.protocol));
+  ir_print_data(&s_captured);
   ui_feedback(UI_FB_READ);
+}
+
+// Re-transmit the captured signal — decoded frame, or raw fallback.
+static void send_captured(void) {
+  if (s_captured.protocol != IR_PROTO_UNKNOWN) {
+    ir_store_send_data(&s_captured);
+    return;
+  }
+  size_t n = 0;
+  if (ir_get_last_raw(s_raw_buf, IR_MAX_SYMBOLS, &n) == ESP_OK && n > 0)
+    ir_store_send_raw(s_raw_buf, n, IR_CARRIER_HZ_DEFAULT);
+}
+
+// Persist the captured signal to /sdcard/ir as a Flipper .ir file.
+static bool save_captured(void) {
+  char name[IR_STORE_NAME_MAX];
+  if (s_captured.protocol != IR_PROTO_UNKNOWN) {
+    ir_store_name_for_data(&s_captured, name, sizeof(name));
+    return ir_store_save_data(name, &s_captured) == ESP_OK;
+  }
+  size_t n = 0;
+  if (ir_get_last_raw(s_raw_buf, IR_MAX_SYMBOLS, &n) != ESP_OK || n == 0)
+    return false;
+  ir_store_next_free("raw", name, sizeof(name));
+  return ir_store_save_raw(name, s_raw_buf, n, IR_CARRIER_HZ_DEFAULT) == ESP_OK;
 }
 
 static void show_options(void) {
@@ -222,12 +256,26 @@ static void show_options(void) {
   if (s_detail_label)
     lv_obj_add_flag(s_detail_label, LV_OBJ_FLAG_HIDDEN);
 
+  static char sub[24];
+  static char val[32];
+  if (s_captured.protocol != IR_PROTO_UNKNOWN) {
+    snprintf(sub, sizeof(sub), "%s protocol", ir_protocol_name(s_captured.protocol));
+    snprintf(val,
+             sizeof(val),
+             "cmd 0x%02lX / 0x%02lX",
+             (unsigned long)s_captured.address,
+             (unsigned long)s_captured.command);
+  } else {
+    snprintf(sub, sizeof(sub), "RAW capture");
+    snprintf(val, sizeof(val), "unknown protocol");
+  }
+
   capture_result_cfg_t cfg = {
       .accent = current_theme.border_accent,
       .card_icon = IR_ICON,
       .card_title = "Signal captured",
-      .card_sub = "NEC protocol",
-      .card_value = "cmd 0x04 / 0x08",
+      .card_sub = sub,
+      .card_value = val,
       .primary_label = "Send",
       .again_label = "Receive again",
   };
@@ -241,11 +289,12 @@ void ui_ir_receive_open(void) {
     lv_obj_del(s_screen);
     s_screen = NULL;
   }
-  stop_capture_timer();
+  stop_listening();
   s_card = NULL;
   s_cr = (capture_result_t){0};
   s_state = ST_IDLE;
   s_saved = false;
+  s_captured = (ir_data_t){0};
   s_btn_back_last = false;
   s_btn_ok_last = false;
   s_btn_right_last = false;
@@ -304,6 +353,40 @@ static void capturing_tick(void) {
   lv_label_set_text(s_status_label, buf);
 }
 
+// Return the screen to its idle "Press OK" state (used on capture error).
+static void back_to_idle(void) {
+  stop_listening();
+  s_state = ST_IDLE;
+  set_status(STATUS_IDLE, false);
+  if (s_detail_label)
+    lv_label_set_text(s_detail_label, "");
+  if (s_waves) {
+    lv_obj_remove_flag(s_waves, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_opa(s_waves, WAVES_IDLE_OPA, 0);
+  }
+  if (s_sig)
+    lv_obj_add_flag(s_sig, LV_OBJ_FLAG_HIDDEN);
+  set_hint(HINT_IDLE);
+}
+
+static void poll_capture(void) {
+  capturing_tick();
+  ir_data_t d;
+  ir_cap_status_t st = ir_capture_poll(&d);
+  if (st == IR_CAP_GOT) {
+    s_captured = d;
+    build_captured_card();
+  } else if (st == IR_CAP_TIMEOUT && s_listening) {
+    // Nothing yet — re-arm and keep listening until a signal or the user cancels.
+    ir_capture_reset();
+    ir_capture_start(CAPTURE_WINDOW_MS);
+  } else if (st == IR_CAP_ERROR) {
+    // RX channel couldn't be brought up — don't spin forever on "Waiting...".
+    back_to_idle();
+    notify(NOTIFY_WARNING, "IR receiver unavailable");
+  }
+}
+
 static void nav_timer_cb(lv_timer_t *timer) {
   if (lv_screen_active() != s_screen) {
     lv_timer_delete(timer);
@@ -314,7 +397,7 @@ static void nav_timer_cb(lv_timer_t *timer) {
     return;
 
   if (s_state == ST_CAPTURING)
-    capturing_tick();
+    poll_capture();
 
   bool is_back = back_button_is_down();
   bool is_ok = ok_button_is_down();
@@ -323,7 +406,7 @@ static void nav_timer_cb(lv_timer_t *timer) {
   bool is_down = ui_btn_down();
 
   if (is_back && !s_btn_back_last) {
-    stop_capture_timer();
+    stop_listening();
     ui_switch_screen(SCREEN_IR_MENU);
     return;
   }
@@ -346,22 +429,27 @@ static void nav_timer_cb(lv_timer_t *timer) {
     if (is_ok && !s_btn_ok_last) {
       switch (capture_result_selected(&s_cr)) {
         case CAP_ACT_PRIMARY:
-          ui_switch_screen(SCREEN_IR_SEND);
-          return;
+          send_captured();
+          ui_feedback(UI_FB_EMULATE);
+          notify(NOTIFY_INFO, "Signal sent");
+          break;
         case CAP_ACT_SAVE:
           if (!s_saved) {
-            s_saved = true;
-            capture_result_mark_saved(&s_cr);
-            ESP_LOGI(TAG, "mock signal saved");
-            ui_feedback(UI_FB_WRITE);
-            notify(NOTIFY_SAVED, "IR signal saved");
+            if (save_captured()) {
+              s_saved = true;
+              capture_result_mark_saved(&s_cr);
+              ui_feedback(UI_FB_WRITE);
+              notify(NOTIFY_SAVED, "IR signal saved");
+            } else {
+              notify(NOTIFY_WARNING, "Save failed");
+            }
           }
           break;
         case CAP_ACT_AGAIN:
           start_capture();
           break;
         case CAP_ACT_DISCARD:
-          stop_capture_timer();
+          stop_listening();
           ui_switch_screen(SCREEN_IR_MENU);
           return;
         default:

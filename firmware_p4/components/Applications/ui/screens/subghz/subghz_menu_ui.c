@@ -720,7 +720,9 @@ static void start_saved_send(void) {
   lv_obj_set_style_border_width(s_send_overlay, 0, 0);
   lv_obj_set_style_pad_all(s_send_overlay, 0, 0);
 
-  ui_chrome_header(s_send_overlay, "SEND", "/assets/icons/settings_input_antenna.bin");
+  // Transient transmit overlay: snapshot header (no rebind) so freeing it never
+  // dangles the live parent screen's dynamic header.
+  ui_chrome_header_overlay(s_send_overlay, "SEND", "/assets/icons/settings_input_antenna.bin");
 
   s_send_status = lv_label_create(s_send_overlay);
   lv_label_set_text(s_send_status, "Transmitting...");

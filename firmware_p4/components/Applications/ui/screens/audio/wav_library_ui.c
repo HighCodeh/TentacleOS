@@ -510,14 +510,11 @@ void ui_wav_library_open(void) {
     if (s_sel >= s_count)
       s_sel = s_count - 1;
 
-    lv_obj_t *hdr = ui_chrome_header(s_screen, "PLAYER", HDR_ICON);
-    char count[16];
-    snprintf(count, sizeof(count), "%d track%s", s_count, s_count == 1 ? "" : "s");
-    lv_obj_t *count_lbl = lv_label_create(hdr);
-    lv_label_set_text(count_lbl, count);
-    lv_obj_set_style_text_font(count_lbl, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(count_lbl, lv_color_hex(DIM_COLOR), 0);
-    lv_obj_align(count_lbl, LV_ALIGN_RIGHT_MID, -10, 0);
+    // Track count folded into the title: the header's right edge now belongs to
+    // the shared status cluster, so a separate right-aligned label would collide.
+    char title[24];
+    snprintf(title, sizeof(title), "PLAYER (%d)", s_count);
+    ui_chrome_header(s_screen, title, HDR_ICON);
 
     build_list();
     ui_chrome_footer(s_screen, HINT_TEXT);

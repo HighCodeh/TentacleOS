@@ -28,12 +28,20 @@ extern "C" {
 #include "driver/rmt_types.h"
 
 #include "ir_protocol.h"
+#include "pin_def.h" // GPIO_IR_TX_PIN / GPIO_IR_RX_PIN — board pin map (was hardcoded 5/6 here,
+                     // which fought the schematic remap in pin_def.h: TX=0, RX=1)
 
-#define GPIO_IR_RX_PIN        6
-#define GPIO_IR_TX_PIN        5
 #define IR_RMT_RESOLUTION_HZ  1000000
 #define IR_RMT_MEM_SYMBOLS    128
 #define IR_MAX_SYMBOLS        512
+// Non-DMA RX FIFO depth: 2x the P4's 48-word-per-channel block. Long frames
+// ping-pong into the IR_MAX_SYMBOLS user buffer. (DMA RX on this board failed at
+// rmt_receive() and the old error paths leaked the channel — see ir_rx_init.)
+#define IR_RX_MEM_BLOCK_SYMBOLS 96
+// TX channel FIFO: 64 symbols = 2 P4 channels (was 128 = 3, which nearly
+// exhausts the 4 TX channels alongside the WS2812 LED strip). rmt_transmit()
+// ping-pongs longer frames; the encode buffer stays IR_RMT_MEM_SYMBOLS.
+#define IR_TX_MEM_BLOCK_SYMBOLS 64
 #define IR_RX_MIN_NS          1250
 #define IR_RX_MAX_NS          12000000
 #define IR_TX_QUEUE_DEPTH     4
@@ -50,6 +58,16 @@ extern "C" {
  *   - Other ESP_ERR codes from the RMT driver
  */
 esp_err_t ir_rx_init(void);
+
+/**
+ * @brief Prepare the RX channel for a fresh capture: drop any stale/ambient frame
+ *        and re-arm the one-shot receive if a previous frame left it idle.
+ *
+ * Call this at the start of every capture. Without it, a frame arriving between
+ * captures (e.g. an NEC repeat frame) consumes the armed receive without re-arming,
+ * so the next ir_receive() would wait forever.
+ */
+void ir_rx_prime(void);
 
 /**
  * @brief Initialize the IR TX channel.

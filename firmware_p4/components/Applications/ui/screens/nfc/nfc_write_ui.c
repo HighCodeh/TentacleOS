@@ -243,7 +243,7 @@ static void overlay_start(const nfc_sim_card_t *card) {
   lv_obj_set_style_border_width(s_ov, 0, 0);
   lv_obj_set_style_pad_all(s_ov, 0, 0);
 
-  ui_chrome_header(s_ov, "WRITE TAG", WRITE_ICON);
+  ui_chrome_header_overlay(s_ov, "WRITE TAG", WRITE_ICON);
   s_ov_footer = ui_chrome_footer(s_ov, "BACK  Cancel");
 
   s_ov_status = lv_label_create(s_ov);

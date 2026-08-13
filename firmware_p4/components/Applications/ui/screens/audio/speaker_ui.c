@@ -351,7 +351,9 @@ static void nowplaying_open(const speaker_song_t *song) {
   lv_obj_set_style_bg_opa(s_nowplaying, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_nowplaying, LV_OBJ_FLAG_SCROLLABLE);
 
-  ui_chrome_header(s_nowplaying, "NOW PLAYING", "/assets/icons/music_note.bin");
+  // Transient playback screen: snapshot header (no rebind) so freeing it never
+  // dangles the live speaker menu's dynamic header underneath.
+  ui_chrome_header_overlay(s_nowplaying, "NOW PLAYING", "/assets/icons/music_note.bin");
   ui_chrome_footer(s_nowplaying, "OK / BACK = stop");
 
   s_np_title = lv_label_create(s_nowplaying);

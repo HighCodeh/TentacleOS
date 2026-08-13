@@ -24,11 +24,14 @@
 
 #include "assets_manager.h"
 #include "buttons_gpio.h"
+#include "dropdown_ui.h"
 #include "lvgl_glue.h"
 #include "lv_port_indev.h"
 #include "msgbox_ui.h"
+#include "power_policy.h"
 #include "screen_tips.h"
 #include "tutorial_ui.h"
+#include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_theme.h"
 
@@ -163,6 +166,16 @@ void ui_init(void) {
 
   ui_feedback_init();
 
+  // Global power policy (display sleep + low-battery) and the global quick-
+  // settings dropdown. Both live on the top layer so they survive screen
+  // switches; created under the LVGL lock. The display is already registered
+  // (lvgl_glue_init ran before ui_init), so lv_layer_top() is valid here.
+  if (ui_acquire()) {
+    power_policy_init();
+    dropdown_ui_global_init();
+    ui_release();
+  }
+
   xTaskCreatePinnedToCore(
       ui_task, "UI Task", UI_TASK_STACK_SIZE, NULL, UI_TASK_PRIORITY, NULL, UI_TASK_CORE);
 
@@ -185,6 +198,7 @@ static void ui_task(void *pvParameter) {
   if (ui_acquire()) {
     if (is_recovery) {
       ui_home_open();
+      current_screen_id = SCREEN_HOME;
       msgbox_open(
           LV_SYMBOL_WARNING, "UI Recovered!\nInterface task was restarted.", "OK", NULL, NULL);
     } else {
@@ -197,6 +211,7 @@ static void ui_task(void *pvParameter) {
     vTaskDelay(pdMS_TO_TICKS(BOOT_SPLASH_DURATION_MS));
     if (ui_acquire()) {
       ui_home_open();
+      current_screen_id = SCREEN_HOME;
       if (tutorial_should_run())
         tutorial_start();
       else
@@ -218,6 +233,12 @@ static void clear_current_screen(void) {
 
 bool ui_input_is_locked(void) {
   return (lv_tick_get() < input_lock_until);
+}
+
+void ui_input_lock(uint32_t ms) {
+  uint32_t until = lv_tick_get() + ms;
+  if (until > input_lock_until)
+    input_lock_until = until;
 }
 
 typedef void (*ui_open_fn_t)(void);
@@ -443,6 +464,72 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
   }
 }
 
+bool ui_screen_shows_chrome(screen_id_t s) {
+  if (s == SCREEN_NONE) // boot splash / no screen yet: no chrome, no dropdown
+    return false;
+  switch (s) {
+    // --- Wi-Fi: live scan / attack / capture / monitor ---
+    case SCREEN_WIFI_SCAN_MENU:
+    case SCREEN_WIFI_CHANNELS:
+    case SCREEN_WIFI_CLIENTS:
+    case SCREEN_WIFI_ATTACK_MENU:
+    case SCREEN_WIFI_PACKETS_MENU:
+    case SCREEN_WIFI_EVIL_TWIN:
+    case SCREEN_WIFI_PORT_SCAN:
+    case SCREEN_WIFI_PROBE_MON:
+    case SCREEN_WIFI_TARGET_CLIENTS:
+    case SCREEN_WIFI_DEAUTH_DETECTOR:
+    case SCREEN_WIFI_SIGNAL_LOCATOR:
+    case SCREEN_WIFI_HANDSHAKE:
+    case SCREEN_WIFI_HOTSPOT:
+    // --- BLE: live scan / spam / sniff / emulate ---
+    case SCREEN_BLE_SCAN:
+    case SCREEN_BLE_SPAM:
+    case SCREEN_BLE_BEACON_SPAM:
+    case SCREEN_BLE_SNIFFER:
+    case SCREEN_BLE_TRACKER:
+    case SCREEN_BLE_SKIMMER:
+    case SCREEN_BLE_EXPOSURE:
+    case SCREEN_BLE_FLOOD:
+    case SCREEN_BLE_TRACK_DEVICE:
+    case SCREEN_BLE_KEYBOARD:
+    case SCREEN_BLE_MOUSE:
+    // --- NFC: live read / write / emulate / scan ---
+    case SCREEN_NFC_READ:
+    case SCREEN_NFC_WRITE:
+    case SCREEN_NFC_EMULATE:
+    case SCREEN_CARD_EMU:
+    case SCREEN_NFC_SCAN:
+    case SCREEN_NFC_P2P:
+    // --- IR: transmit / capture ---
+    case SCREEN_IR_RECEIVE:
+    case SCREEN_IR_SEND:
+    case SCREEN_IR_BURST:
+    case SCREEN_IR_CONTROLLER:
+    case SCREEN_IR_RAW:
+    // --- SubGHz: read / send / brute ---
+    case SCREEN_SUBGHZ_READ:
+    case SCREEN_SUBGHZ_SEND:
+    case SCREEN_SUBGHZ_BRUTE:
+    // --- Audio / LoRa / sensors: play / record / live monitor ---
+    case SCREEN_WAV_PLAYER:
+    case SCREEN_SPECTRUM:
+    case SCREEN_MIC_REC:
+    case SCREEN_LORA_RNODE:
+    case SCREEN_LORA_TELEMETRY:
+    case SCREEN_USB_MOUSE:
+    case SCREEN_IMU_MONITOR:
+    // --- Dev / system: live terminal / running payload / update ---
+    case SCREEN_DEV_CONSOLE:
+    case SCREEN_DEV_DIAG:
+    case SCREEN_SYSTEM_UPDATE:
+    case SCREEN_SCRIPTS:
+      return false;
+    default:
+      return true;
+  }
+}
+
 void ui_switch_screen(screen_id_t new_screen) {
   ui_open_fn_t open_fn = screen_open_fn(new_screen);
   if (open_fn == NULL) {
@@ -454,6 +541,13 @@ void ui_switch_screen(screen_id_t new_screen) {
 
   if (ui_acquire()) {
     clear_current_screen();
+    // Returning to the top level clears the breadcrumb root so a stale category
+    // ("NFC") never prefixes a fresh navigation. Category menus re-set it on open.
+    if (new_screen == SCREEN_HOME || new_screen == SCREEN_MENU)
+      ui_chrome_set_breadcrumb_root("");
+    // Tell the chrome header whether to carry the shared status cluster before
+    // the screen builds it (current_screen_id only updates after open_fn()).
+    ui_chrome_set_status_enabled(ui_screen_shows_chrome(new_screen));
     open_fn();
     current_screen_id = new_screen;
     screen_tips_hook(new_screen);

@@ -42,6 +42,11 @@ static SemaphoreHandle_t s_mutex = NULL;
 
 static bool s_is_rx_inited = false;
 static bool s_is_tx_inited = false;
+// True while the RX channel is armed for a frame. A one-shot rmt_receive() is
+// consumed by every frame (including NEC repeat frames), so if a frame lands
+// while no one is in ir_receive(), the channel goes idle — ir_rx_prime() re-arms
+// it before the next capture. Set from the ISR, so volatile.
+static volatile bool s_rx_armed = false;
 
 static rmt_symbol_word_t s_last_raw[IR_MAX_SYMBOLS];
 static size_t s_last_raw_count = 0;
@@ -62,45 +67,79 @@ esp_err_t ir_rx_init(void) {
     }
   }
 
+  // Non-DMA RX: DMA-backed rmt_receive() failed on this board and every error
+  // path below used to `return` without deleting the channel, so the re-arm loop
+  // leaked one RX channel per attempt until "no free rx channels". Now the config
+  // is non-DMA and every failure jumps to `fail` to release the channel/queue.
   rmt_rx_channel_config_t cfg = {
       .clk_src = RMT_CLK_SRC_DEFAULT,
       .resolution_hz = IR_RMT_RESOLUTION_HZ,
-      .mem_block_symbols = IR_MAX_SYMBOLS,
+      .mem_block_symbols = IR_RX_MEM_BLOCK_SYMBOLS,
       .gpio_num = GPIO_IR_RX_PIN,
       .flags.invert_in = false,
-      .flags.with_dma = true,
+      .flags.with_dma = false,
   };
 
   esp_err_t ret = rmt_new_rx_channel(&cfg, &s_rx_chan);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "rmt_new_rx_channel failed: %s", esp_err_to_name(ret));
+    s_rx_chan = NULL;
     return ret;
   }
 
   s_rx_queue = xQueueCreate(1, sizeof(rmt_rx_done_event_data_t));
-  rmt_rx_event_callbacks_t cbs = {.on_recv_done = rx_callback};
+  if (s_rx_queue == NULL) {
+    ret = ESP_ERR_NO_MEM;
+    goto fail;
+  }
 
+  rmt_rx_event_callbacks_t cbs = {.on_recv_done = rx_callback};
   ret = rmt_rx_register_event_callbacks(s_rx_chan, &cbs, s_rx_queue);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "rmt_rx_register_event_callbacks failed: %s", esp_err_to_name(ret));
-    return ret;
+    goto fail;
   }
 
   ret = rmt_enable(s_rx_chan);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "rmt_enable (rx) failed: %s", esp_err_to_name(ret));
-    return ret;
+    goto fail;
   }
 
   ret = rmt_receive(s_rx_chan, s_rx_buffer, sizeof(s_rx_buffer), &s_rx_cfg);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "rmt_receive failed: %s", esp_err_to_name(ret));
-    return ret;
+    rmt_disable(s_rx_chan);
+    goto fail;
   }
+  s_rx_armed = true;
 
   s_is_rx_inited = true;
   ESP_LOGI(TAG, "IR RX on GPIO %d", GPIO_IR_RX_PIN);
   return ESP_OK;
+
+fail:
+  if (s_rx_chan != NULL) {
+    rmt_del_channel(s_rx_chan);
+    s_rx_chan = NULL;
+  }
+  if (s_rx_queue != NULL) {
+    vQueueDelete(s_rx_queue);
+    s_rx_queue = NULL;
+  }
+  return ret;
+}
+
+void ir_rx_prime(void) {
+  // Drop any stale/ambient frame, then re-arm the channel if a frame consumed the
+  // one-shot receive while nobody was in ir_receive(). Flush first so a frame that
+  // arrives after we re-arm isn't discarded.
+  if (s_rx_queue != NULL)
+    xQueueReset(s_rx_queue);
+  if (s_rx_chan != NULL && !s_rx_armed) {
+    if (rmt_receive(s_rx_chan, s_rx_buffer, sizeof(s_rx_buffer), &s_rx_cfg) == ESP_OK)
+      s_rx_armed = true;
+  }
 }
 
 esp_err_t ir_tx_init(void) {
@@ -118,7 +157,7 @@ esp_err_t ir_tx_init(void) {
   rmt_tx_channel_config_t cfg = {
       .clk_src = RMT_CLK_SRC_DEFAULT,
       .gpio_num = GPIO_IR_TX_PIN,
-      .mem_block_symbols = IR_RMT_MEM_SYMBOLS,
+      .mem_block_symbols = IR_TX_MEM_BLOCK_SYMBOLS,
       .resolution_hz = IR_RMT_RESOLUTION_HZ,
       .trans_queue_depth = IR_TX_QUEUE_DEPTH,
       .flags.invert_out = false,
@@ -128,6 +167,7 @@ esp_err_t ir_tx_init(void) {
   esp_err_t ret = rmt_new_tx_channel(&cfg, &s_tx_chan);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "rmt_new_tx_channel failed: %s", esp_err_to_name(ret));
+    s_tx_chan = NULL;
     return ret;
   }
 
@@ -135,18 +175,30 @@ esp_err_t ir_tx_init(void) {
   ret = rmt_new_copy_encoder(&enc_cfg, &s_tx_encoder);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "rmt_new_copy_encoder failed: %s", esp_err_to_name(ret));
-    return ret;
+    goto fail;
   }
 
   ret = rmt_enable(s_tx_chan);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "rmt_enable (tx) failed: %s", esp_err_to_name(ret));
-    return ret;
+    goto fail;
   }
 
   s_is_tx_inited = true;
   ESP_LOGI(TAG, "IR TX on GPIO %d", GPIO_IR_TX_PIN);
   return ESP_OK;
+
+fail:
+  // Release the channel/encoder so a failed init doesn't leak a TX channel.
+  if (s_tx_encoder != NULL) {
+    rmt_del_encoder(s_tx_encoder);
+    s_tx_encoder = NULL;
+  }
+  if (s_tx_chan != NULL) {
+    rmt_del_channel(s_tx_chan);
+    s_tx_chan = NULL;
+  }
+  return ret;
 }
 
 esp_err_t ir_receive(ir_data_t *out_data, uint32_t timeout_ms) {
@@ -176,6 +228,7 @@ esp_err_t ir_receive(ir_data_t *out_data, uint32_t timeout_ms) {
     ESP_LOGE(TAG, "rmt_receive re-arm failed: %s", esp_err_to_name(ret));
     return ret;
   }
+  s_rx_armed = true;
 
   return is_decoded ? ESP_OK : ESP_ERR_NOT_FOUND;
 }
@@ -241,6 +294,7 @@ void ir_print_data(const ir_data_t *data) {
 
 static bool rx_callback(rmt_channel_handle_t ch, const rmt_rx_done_event_data_t *data, void *ctx) {
   (void)ch;
+  s_rx_armed = false; // this frame consumed the one-shot receive
   BaseType_t wake = pdFALSE;
   xQueueSendFromISR((QueueHandle_t)ctx, data, &wake);
   return wake == pdTRUE;

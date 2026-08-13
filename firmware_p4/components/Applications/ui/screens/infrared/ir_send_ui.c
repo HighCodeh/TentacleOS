@@ -23,6 +23,7 @@
 #include "assets_manager.h"
 #include "buttons_gpio.h"
 #include "capture_result_ui.h"
+#include "ir_store.h"
 #include "menu_component_ui.h"
 #include "notify_ui.h"
 #include "sigwave_ui.h"
@@ -55,15 +56,7 @@ static const char *TAG = "IR_SEND_UI";
 #define HINT_SENT    "BACK = Exit"
 #define HINT_OPTIONS "UP/DOWN choose   OK do   BACK exit"
 
-static const char *MOCK_SIGNALS[] = {
-    "[NEC] TV Power",
-    "[NEC] TV Vol +",
-    "[NEC] TV Vol -",
-    "[SAMSUNG] Soundbar",
-    "[RC5] Set-top Box",
-    "[AC] Cool 22C",
-};
-#define MOCK_SIGNALS_COUNT ((int)(sizeof(MOCK_SIGNALS) / sizeof(MOCK_SIGNALS[0])))
+#define EMPTY_NAME "No signals — use Learn"
 
 typedef enum {
   VIEW_LIST = 0,
@@ -76,6 +69,9 @@ static menu_component_t s_menu;
 static send_view_t s_view = VIEW_LIST;
 static int s_sel = 0;
 
+static ir_store_entry_t s_entries[IR_STORE_MAX_ENTRIES];
+static int s_count = 0;
+
 static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_send_timer = NULL;
 
@@ -85,7 +81,6 @@ static lv_obj_t *s_card = NULL;
 static lv_obj_t *s_sig = NULL;
 static capture_result_t s_cr = {0};
 static bool s_options = false;
-static bool s_saved = false;
 static uint32_t s_send_start = 0;
 static uint32_t s_sent_at = 0;
 
@@ -100,6 +95,14 @@ static void nav_timer_cb(lv_timer_t *t);
 static void build_list(void);
 static void build_sending(void);
 static void send_done_cb(lv_timer_t *t);
+
+static const char *sel_name(void) {
+  return (s_count > 0 && s_sel >= 0 && s_sel < s_count) ? s_entries[s_sel].name : EMPTY_NAME;
+}
+
+static const char *sel_proto(void) {
+  return (s_count > 0 && s_sel >= 0 && s_sel < s_count) ? s_entries[s_sel].proto : "IR";
+}
 
 static void stop_send_timer(void) {
   if (s_send_timer != NULL) {
@@ -213,12 +216,12 @@ static lv_obj_t *build_cartridge(lv_obj_t *parent) {
   lv_obj_t *name = lv_label_create(col);
   lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
   lv_obj_set_width(name, lv_pct(100));
-  lv_label_set_text(name, MOCK_SIGNALS[s_sel]);
+  lv_label_set_text(name, sel_name());
   lv_obj_set_style_text_font(name, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(name, current_theme.text_main, 0);
 
   lv_obj_t *sub = lv_label_create(col);
-  lv_label_set_text(sub, "Transmitting 38kHz");
+  lv_label_set_text_fmt(sub, "Transmitting %s", sel_proto());
   lv_obj_set_style_text_font(sub, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(sub, current_theme.border_accent, 0);
 
@@ -237,16 +240,33 @@ static void build_list(void) {
   s_cr = (capture_result_t){0};
   s_options = false;
 
+  s_count = ir_store_list(s_entries, IR_STORE_MAX_ENTRIES);
+  if (s_count < 0)
+    s_count = 0;
+  if (s_count > MENU_COMP_MAX_ITEMS) {
+    // menu_component holds at most MENU_COMP_MAX_ITEMS rows — don't let extra
+    // files silently fall off the end (selection math would desync). Browse/Burst
+    // still reach the rest.
+    ESP_LOGW(TAG, "%d IR files; showing first %d", s_count, MENU_COMP_MAX_ITEMS);
+    s_count = MENU_COMP_MAX_ITEMS;
+  }
+  if (s_sel >= s_count)
+    s_sel = (s_count > 0) ? s_count - 1 : 0;
+
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
   s_menu = menu_component_create(s_screen, "IR SEND", IR_ICON);
-  for (int i = 0; i < MOCK_SIGNALS_COUNT; i++)
-    menu_component_add_item(&s_menu, "/assets/icons/graphic_eq.bin", MOCK_SIGNALS[i]);
-  if (s_sel > 0 && s_sel < MOCK_SIGNALS_COUNT)
-    menu_component_select(&s_menu, s_sel);
+  if (s_count == 0) {
+    menu_component_add_item(&s_menu, "/assets/icons/graphic_eq.bin", EMPTY_NAME);
+  } else {
+    for (int i = 0; i < s_count; i++)
+      menu_component_add_item(&s_menu, "/assets/icons/graphic_eq.bin", s_entries[i].name);
+    if (s_sel > 0 && s_sel < s_count)
+      menu_component_select(&s_menu, s_sel);
+  }
 
   ui_screen_load(s_screen);
 }
@@ -293,23 +313,39 @@ static void show_options(void) {
   capture_result_cfg_t cfg = {
       .accent = current_theme.border_accent,
       .card_icon = IR_ICON,
-      .card_title = MOCK_SIGNALS[s_sel],
-      .card_sub = "NEC",
+      .card_title = sel_name(),
+      .card_sub = sel_proto(),
       .card_value = "sent",
       .primary_label = "Send again",
       .again_label = "Pick another",
   };
   s_cr = capture_result_create(s_screen, &cfg);
   s_options = true;
-  s_saved = false;
   set_hint(HINT_OPTIONS);
+}
+
+// Actually transmit the selected file's first signal. Quick and blocking; the
+// on-screen "Sending" animation continues cosmetically.
+static void transmit_selected(void) {
+  if (s_count <= 0 || s_sel < 0 || s_sel >= s_count)
+    return;
+  ir_file_t f;
+  ir_file_init(&f);
+  esp_err_t r = ESP_FAIL;
+  if (ir_store_load(s_entries[s_sel].path, &f) == ESP_OK && f.count > 0)
+    r = ir_store_send_signal(&f.signals[0]);
+  else
+    ESP_LOGW(TAG, "load %s failed", s_entries[s_sel].path);
+  ir_file_free(&f);
+  if (r != ESP_OK)
+    notify(NOTIFY_WARNING, "Send failed");
 }
 
 static void start_send(void) {
   stop_send_timer();
   s_view = VIEW_SENDING;
   s_send_start = lv_tick_get();
-  ESP_LOGI(TAG, "mock send: %s", MOCK_SIGNALS[s_sel]);
+  transmit_selected();
   build_sending();
   ui_feedback(UI_FB_SELECT);
   s_send_timer = lv_timer_create(send_done_cb, SENDING_MS, NULL);
@@ -388,10 +424,14 @@ static void nav_timer_cb(lv_timer_t *t) {
         ui_feedback(UI_FB_NAV);
       }
       if ((ok && !s_btn_ok_last) || (right && !s_btn_right_last)) {
-        s_sel = menu_component_get_selected(&s_menu);
-        start_send();
-        reset_latch();
-        return;
+        if (s_count <= 0) {
+          notify(NOTIFY_INFO, "Capture a signal in Learn first");
+        } else {
+          s_sel = menu_component_get_selected(&s_menu);
+          start_send();
+          reset_latch();
+          return;
+        }
       }
       if ((back && !s_btn_back_last) || (left && !s_btn_left_last))
         ui_switch_screen(SCREEN_IR_MENU);
@@ -433,13 +473,9 @@ static void nav_timer_cb(lv_timer_t *t) {
               reset_latch();
               return;
             case CAP_ACT_SAVE:
-              if (!s_saved) {
-                s_saved = true;
-                capture_result_mark_saved(&s_cr);
-                ESP_LOGI(TAG, "mock signal saved: %s", MOCK_SIGNALS[s_sel]);
-                ui_feedback(UI_FB_WRITE);
-                notify(NOTIFY_SAVED, "IR signal saved");
-              }
+              // Already a stored file — nothing to write.
+              capture_result_mark_saved(&s_cr);
+              notify(NOTIFY_INFO, "Already saved");
               break;
             case CAP_ACT_AGAIN:
               s_view = VIEW_LIST;
@@ -484,7 +520,6 @@ void ui_ir_send_open(void) {
   s_sig = NULL;
   s_cr = (capture_result_t){0};
   s_options = false;
-  s_saved = false;
   s_view = VIEW_LIST;
   s_sel = 0;
   reset_latch();

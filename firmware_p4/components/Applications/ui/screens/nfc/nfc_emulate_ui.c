@@ -247,7 +247,7 @@ static void overlay_start(const nfc_sim_card_t *c) {
   lv_obj_set_style_border_width(s_ov, 0, 0);
   lv_obj_set_style_pad_all(s_ov, 0, 0);
 
-  ui_chrome_header(s_ov, "EMULATE", CARD_ICON);
+  ui_chrome_header_overlay(s_ov, "EMULATE", CARD_ICON);
   ui_chrome_footer(s_ov, "BACK  Stop");
 
   lv_obj_t *field_box = lv_obj_create(s_ov);

@@ -25,6 +25,7 @@
 #include "assets_manager.h"
 #include "buttons_gpio.h"
 #include "capture_result_ui.h"
+#include "ir_store.h"
 #include "keyboard_ui.h"
 #include "menu_component_ui.h"
 #include "msgbox_ui.h"
@@ -37,7 +38,8 @@
 static const char *TAG = "IR_SAVED_UI";
 
 #define NAV_TIMER_MS 50
-#define NAME_LEN     24
+#define MAX_PROTOS   16
+#define MAX_FILES    IR_STORE_MAX_ENTRIES
 
 #define IR_ICON        "/assets/icons/settings_input_antenna.bin"
 #define IR_SIGNAL_ICON "/assets/icons/settings_remote.bin"
@@ -59,13 +61,6 @@ static const char *TAG = "IR_SAVED_UI";
 #define IRC_THUMB_H     45
 #define IRC_THUMB_ICON  "/assets/icons/drag_indicator.bin"
 
-static const char *MOCK_PROTOCOLS[] = {"NEC", "SAMSUNG", "RC5", "SONY"};
-#define MOCK_PROTOCOLS_COUNT ((int)(sizeof(MOCK_PROTOCOLS) / sizeof(MOCK_PROTOCOLS[0])))
-
-static const char *MOCK_FILES[] = {
-    "power", "vol_up", "vol_down", "mute", "source", "ch_up", "ch_down", "menu", "ok", "back"};
-#define MOCK_FILES_COUNT ((int)(sizeof(MOCK_FILES) / sizeof(MOCK_FILES[0])))
-
 typedef enum {
   LEVEL_PROTOCOLS = 0,
   LEVEL_FILES,
@@ -82,13 +77,20 @@ static int s_proto = 0;
 static int s_file = 0;
 static bool s_saved = false;
 
-static char s_names[MOCK_FILES_COUNT][NAME_LEN];
+// Real data: every .ir under /sdcard/ir, the distinct protocols across them,
+// and the files filtered to the currently-open protocol.
+static ir_store_entry_t s_all[IR_STORE_MAX_ENTRIES];
+static int s_all_count = 0;
+static char s_protos[MAX_PROTOS][16];
+static int s_proto_count = 0;
+static char s_proto_name[16] = {0};
+static ir_store_entry_t s_files[MAX_FILES];
 static int s_file_count = 0;
 
 static lv_obj_t *s_file_list = NULL;
-static lv_obj_t *s_file_rows[MOCK_FILES_COUNT];
-static lv_obj_t *s_file_names[MOCK_FILES_COUNT];
-static lv_obj_t *s_file_values[MOCK_FILES_COUNT];
+static lv_obj_t *s_file_rows[MAX_FILES];
+static lv_obj_t *s_file_names[MAX_FILES];
+static lv_obj_t *s_file_values[MAX_FILES];
 static lv_obj_t *s_file_thumb = NULL;
 
 static bool s_btn_up_last = false;
@@ -100,11 +102,70 @@ static bool s_btn_back_last = false;
 static void build_screen(void);
 static void nav_timer_cb(lv_timer_t *t);
 
-static void reset_files(void) {
-  s_file_count = MOCK_FILES_COUNT;
-  for (int i = 0; i < s_file_count; i++)
-    snprintf(s_names[i], NAME_LEN, "%s", MOCK_FILES[i]);
-  s_file = 0;
+// Re-scan /sdcard/ir and rebuild the distinct-protocol bucket list.
+static void reload_all(void) {
+  s_all_count = ir_store_list(s_all, IR_STORE_MAX_ENTRIES);
+  if (s_all_count < 0)
+    s_all_count = 0;
+
+  s_proto_count = 0;
+  for (int i = 0; i < s_all_count; i++) {
+    bool found = false;
+    for (int j = 0; j < s_proto_count; j++) {
+      if (strcmp(s_protos[j], s_all[i].proto) == 0) {
+        found = true;
+        break;
+      }
+    }
+    if (!found && s_proto_count < MAX_PROTOS) {
+      snprintf(s_protos[s_proto_count], sizeof(s_protos[0]), "%s", s_all[i].proto);
+      s_proto_count++;
+    }
+  }
+}
+
+// Filter the flat file list down to the files of one protocol.
+static void filter_for_proto(const char *proto) {
+  s_file_count = 0;
+  for (int i = 0; i < s_all_count && s_file_count < MAX_FILES; i++) {
+    if (strcmp(s_all[i].proto, proto) == 0)
+      s_files[s_file_count++] = s_all[i];
+  }
+  if (s_file >= s_file_count)
+    s_file = s_file_count - 1;
+  if (s_file < 0)
+    s_file = 0;
+}
+
+// Load the selected file and format its first signal's command for display.
+static void selected_value(char *buf, size_t cap) {
+  buf[0] = '\0';
+  ir_file_t f;
+  ir_file_init(&f);
+  if (ir_store_load(s_files[s_file].path, &f) == ESP_OK && f.count > 0) {
+    ir_signal_t *s = &f.signals[0];
+    if (!s->is_raw && s->data.protocol != IR_PROTO_UNKNOWN)
+      snprintf(buf,
+               cap,
+               "cmd 0x%02lX / 0x%02lX",
+               (unsigned long)s->data.address,
+               (unsigned long)s->data.command);
+    else
+      snprintf(buf, cap, "raw signal");
+  } else {
+    snprintf(buf, cap, "--");
+  }
+  ir_file_free(&f);
+}
+
+static void send_selected(void) {
+  ir_file_t f;
+  ir_file_init(&f);
+  if (ir_store_load(s_files[s_file].path, &f) == ESP_OK && f.count > 0) {
+    ir_store_send_signal(&f.signals[0]);
+    ESP_LOGI(TAG, "sent %s (%s)", s_files[s_file].name, s_files[s_file].proto);
+  }
+  ir_file_free(&f);
 }
 
 static void rebuild_async(void *p) {
@@ -116,20 +177,27 @@ static void on_rename_submit(const char *text, void *ud) {
   (void)ud;
   if (text == NULL || text[0] == '\0')
     return;
-  snprintf(s_names[s_file], NAME_LEN, "%s", text);
-  ui_feedback(UI_FB_WRITE);
-  notify(NOTIFY_INFO, "Signal renamed");
+  if (ir_store_rename(s_files[s_file].name, text) == ESP_OK) {
+    ui_feedback(UI_FB_WRITE);
+    notify(NOTIFY_INFO, "Signal renamed");
+  } else {
+    notify(NOTIFY_WARNING, "Rename failed");
+  }
+  reload_all();
+  filter_for_proto(s_proto_name);
+  if (s_file_count == 0)
+    s_level = LEVEL_PROTOCOLS;
   lv_async_call(rebuild_async, NULL);
 }
 
 static void on_delete_confirm(bool confirm) {
   if (!confirm)
     return;
-  for (int i = s_file; i < s_file_count - 1; i++)
-    memmove(s_names[i], s_names[i + 1], NAME_LEN);
-  s_file_count--;
+  ir_store_delete(s_files[s_file].name);
   ui_feedback(UI_FB_WRITE);
   notify(NOTIFY_INFO, "Signal deleted");
+  reload_all();
+  filter_for_proto(s_proto_name);
   s_level = (s_file_count > 0) ? LEVEL_FILES : LEVEL_PROTOCOLS;
   lv_async_call(rebuild_async, NULL);
 }
@@ -184,7 +252,7 @@ static void build_files_list(void) {
   if (s_file < 0)
     s_file = 0;
 
-  ui_chrome_header(s_screen, MOCK_PROTOCOLS[s_proto], IR_ICON);
+  ui_chrome_header(s_screen, s_proto_name, IR_ICON);
 
   lv_obj_t *cont = lv_obj_create(s_screen);
   s_file_list = cont;
@@ -224,7 +292,7 @@ static void build_files_list(void) {
     s_file_names[i] = name;
     lv_obj_set_width(name, lv_pct(66));
     lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
-    lv_label_set_text(name, s_names[i]);
+    lv_label_set_text(name, s_files[i].name);
     lv_obj_set_style_text_font(name, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(name, current_theme.text_main, 0);
     lv_obj_align(name, LV_ALIGN_TOP_LEFT, 0, 0);
@@ -239,7 +307,7 @@ static void build_files_list(void) {
     lv_obj_t *proto = lv_label_create(card);
     lv_obj_set_width(proto, lv_pct(100));
     lv_label_set_long_mode(proto, LV_LABEL_LONG_DOT);
-    lv_label_set_text(proto, MOCK_PROTOCOLS[s_proto]);
+    lv_label_set_text(proto, s_files[i].proto);
     lv_obj_set_style_text_font(proto, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(proto, lv_color_hex(FILES_COL_DIM), 0);
     lv_obj_align(proto, LV_ALIGN_TOP_LEFT, 0, 20);
@@ -297,19 +365,25 @@ static void build_screen(void) {
 
   if (s_level == LEVEL_PROTOCOLS) {
     s_menu = menu_component_create(s_screen, "BROWSE SIGNALS", "/assets/icons/folder_open.bin");
-    for (int i = 0; i < MOCK_PROTOCOLS_COUNT; i++)
-      menu_component_add_item(&s_menu, "/assets/icons/folder.bin", MOCK_PROTOCOLS[i]);
+    if (s_proto_count == 0) {
+      menu_component_add_item(&s_menu, "/assets/icons/folder.bin", "No saved signals");
+    } else {
+      for (int i = 0; i < s_proto_count; i++)
+        menu_component_add_item(&s_menu, "/assets/icons/folder.bin", s_protos[i]);
+    }
     menu_component_set_hint(&s_menu, "OK Open   BACK Exit");
   } else if (s_level == LEVEL_FILES) {
     build_files_list();
   } else {
-    ui_chrome_header(s_screen, s_names[s_file], IR_ICON);
+    char value[32];
+    selected_value(value, sizeof(value));
+    ui_chrome_header(s_screen, s_files[s_file].name, IR_ICON);
     capture_result_cfg_t cfg = {
         .accent = current_theme.border_accent,
         .card_icon = IR_ICON,
-        .card_title = s_names[s_file],
-        .card_sub = MOCK_PROTOCOLS[s_proto],
-        .card_value = "cmd 0x04 / 0x08",
+        .card_title = s_files[s_file].name,
+        .card_sub = s_files[s_file].proto,
+        .card_value = value,
         .primary_label = "Send",
         .again_label = "Rename",
     };
@@ -371,16 +445,15 @@ static void nav_timer_cb(lv_timer_t *t) {
     if (ok_e) {
       switch (capture_result_selected(&s_cr)) {
         case CAP_ACT_PRIMARY:
-          ui_feedback(UI_FB_SELECT);
-          ESP_LOGI(TAG, "mock send: %s/%s", MOCK_PROTOCOLS[s_proto], s_names[s_file]);
-          ui_switch_screen(SCREEN_IR_SEND);
-          return;
+          ui_feedback(UI_FB_EMULATE);
+          send_selected();
+          notify(NOTIFY_INFO, "Signal sent");
+          break;
         case CAP_ACT_SAVE:
           if (!s_saved) {
             s_saved = true;
             capture_result_mark_saved(&s_cr);
-            ui_feedback(UI_FB_WRITE);
-            notify(NOTIFY_SAVED, "Signal saved");
+            notify(NOTIFY_INFO, "Already saved");
           }
           break;
         case CAP_ACT_AGAIN:
@@ -412,8 +485,16 @@ static void nav_timer_cb(lv_timer_t *t) {
       ui_feedback(UI_FB_NAV);
     }
     if (ok_e) {
+      if (s_proto_count == 0) {
+        notify(NOTIFY_INFO, "Capture a signal in Learn first");
+        return;
+      }
       s_proto = menu_component_get_selected(&s_menu);
-      reset_files();
+      if (s_proto < 0 || s_proto >= s_proto_count)
+        s_proto = 0;
+      snprintf(s_proto_name, sizeof(s_proto_name), "%s", s_protos[s_proto]);
+      s_file = 0;
+      filter_for_proto(s_proto_name);
       s_level = LEVEL_FILES;
       ui_feedback(UI_FB_SELECT);
       build_screen();
@@ -434,7 +515,7 @@ static void nav_timer_cb(lv_timer_t *t) {
     update_file_selection();
     ui_feedback(UI_FB_NAV);
   }
-  if (ok_e) {
+  if (ok_e && s_file_count > 0) {
     s_saved = false;
     s_level = LEVEL_ACTIONS;
     ui_feedback(UI_FB_SELECT);
@@ -453,7 +534,7 @@ void ui_ir_saved_open(void) {
   s_proto = 0;
   s_file = 0;
   s_saved = false;
-  reset_files();
+  reload_all();
   s_btn_up_last = false;
   s_btn_down_last = false;
   s_btn_left_last = false;
