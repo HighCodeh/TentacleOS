@@ -44,6 +44,12 @@ static const char *TAG = "SPI_BRIDGE_P4";
 #define SPI_POLL_FAST_TRIES 32
 #define SPI_POLL_FAST_US    150
 #define SPI_POLL_SLOW_MS    2
+// Wait before the first response poll so the slave has time to finish processing
+// the command and arm its TX. Clocking the bus while the slave is still between
+// its RX and TX transactions (a longer window for payload-carrying commands like
+// OTA_DATA) desyncs it, and the response is then read as garbage for the whole
+// timeout - which was making the C5 OTA fall back to slow per-chunk resyncs.
+#define SPI_POLL_PREWAIT_US 400
 
 typedef struct {
   spi_id_t id;
@@ -116,6 +122,7 @@ static esp_err_t recv_frame(uint8_t *tx_buf, uint8_t *rx_buf, size_t frame_size,
   }
 
   // POLL mode.
+  esp_rom_delay_us(SPI_POLL_PREWAIT_US); // let the slave arm its response first
   int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * 1000;
   uint32_t tries = 0;
   do {

@@ -47,23 +47,21 @@ void c5_flasher_progress(uint32_t *sent, uint32_t *total) {
 #define OTA_BAUD     115200
 #define OTA_UART_BUF 4096
 
-#define OTA_BLOCK            4096
-#define OTA_BLOCK_TIMEOUT_MS 5000
-
-#define OTA_BEGIN_TIMEOUT_MS 20000
+#define OTA_SPI_CHUNK         240  // firmware bytes per OTA_DATA command (fits the u8 length)
+#define OTA_DATA_TIMEOUT_MS   300  // per-chunk OTA_DATA timeout; short so a lost ack recovers fast
+#define OTA_CHUNK_DEADLINE_MS 5000 // total time to land one chunk (retries BUSY / lost acks)
+#define OTA_MAX_BLOCK         4096 // block buffer (UART writes; SPI uses OTA_SPI_CHUNK of it)
+#define OTA_UART_WINDOW       12288 // bytes the P4 may run ahead of the C5 (< its 16KB ring buffer)
 
 #define C5_SD_FW_PATH "/sdcard/c5/TentacleOS_C5.bin"
 
-#define OTA_READY 0x52
-#define OTA_ACK   0x06
-#define OTA_NAK   0x15
-
-#define OTA_SYNC_ATTEMPTS    10
-#define OTA_READY_TIMEOUT_MS 1000
-#define OTA_ACK_TIMEOUT_MS   30000
+#define OTA_SYNC_ATTEMPTS     10    // OTA_BEGIN command retries
+#define OTA_BEGIN_TIMEOUT_MS  1000  // OTA_BEGIN command timeout
+#define OTA_STATUS_TIMEOUT_MS 1000  // OTA_STATUS poll timeout
+#define OTA_ERASE_TIMEOUT_MS  20000 // wait for the C5 to erase and reach READY
+#define OTA_DONE_TIMEOUT_MS   30000 // final: wait for validate + DONE/ERROR
 
 #define ENTER_DOWNLOAD_TIMEOUT_MS 500
-#define START_UART_OTA_TIMEOUT_MS 1000
 
 esp_err_t c5_flasher_init(void) {
   const uart_config_t cfg = {
@@ -128,10 +126,18 @@ void c5_flasher_release_uart(void) {
   ESP_LOGW(TAG, "External USB-serial can now own the C5 UART. Reboot P4 to restore.");
 }
 
-esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size) {
+// Poll the C5's OTA progress over SPI. Fills @p st on success.
+static esp_err_t c5_ota_poll(spi_ota_status_t *st) {
+  spi_header_t resp = {0};
+  return spi_bridge_send_command(
+      SPI_ID_SYSTEM_OTA_STATUS, NULL, 0, &resp, (uint8_t *)st, OTA_STATUS_TIMEOUT_MS);
+}
+
+esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size, uint8_t transport) {
   FILE *f = NULL;
   uint8_t *block = NULL;
   esp_err_t result = ESP_FAIL;
+  const bool uart = (transport == SPI_OTA_TRANSPORT_UART);
 
   if (bin_data == NULL) {
     f = fopen(C5_SD_FW_PATH, "rb");
@@ -154,7 +160,7 @@ esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size) {
     return ESP_ERR_INVALID_ARG;
   }
 
-  block = malloc(OTA_BLOCK);
+  block = malloc(OTA_MAX_BLOCK);
   if (block == NULL) {
     ESP_LOGE(TAG, "no memory for OTA block buffer");
     if (f != NULL)
@@ -163,87 +169,80 @@ esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size) {
   }
 
   ESP_LOGI(TAG,
-           "C5 OTA: pushing %lu bytes (%s) over UART%d @ %d baud",
+           "C5 OTA: pushing %lu bytes (%s) over %s",
            (unsigned long)bin_size,
            (f != NULL) ? "SD image" : "caller image",
-           OTA_UART,
-           OTA_BAUD);
+           uart ? "UART (control on SPI)" : "SPI");
 
-  uart_flush(OTA_UART);
-
-  // Trigger the C5 to flip UART0 from console to raw OTA receive, over SPI. The
-  // UART carries only the binary now - no UART magic. After the trigger the C5
-  // silences its logging and replies OTA_READY on UART0, but a few console log
-  // bytes may still be in flight before it goes quiet, so drain until READY
-  // rather than reading a single byte.
-  bool synced = false;
-  for (int attempt = 1; attempt <= OTA_SYNC_ATTEMPTS && !synced; attempt++) {
+  // Control is on SPI regardless of transport. Tell the C5 to begin (size +
+  // transport); it erases the target partition, then receives the image over the
+  // chosen transport. The BEGIN ack is easily lost (it coincides with the C5's
+  // erase, which stalls the bridge), so confirm via STATUS that it actually
+  // started rather than trusting the ack; a redundant BEGIN is harmless.
+  const spi_ota_begin_t begin_req = {.size = bin_size, .transport = transport};
+  spi_ota_status_t st = {0};
+  bool started = false;
+  for (int attempt = 1; attempt <= OTA_SYNC_ATTEMPTS && !started; attempt++) {
     spi_header_t sresp = {0};
-    esp_err_t tr = spi_bridge_send_command(
-        SPI_ID_SYSTEM_START_UART_OTA, NULL, 0, &sresp, NULL, START_UART_OTA_TIMEOUT_MS);
-    if (tr != ESP_OK) {
-      ESP_LOGW(TAG,
-               "start-uart-ota %d/%d: SPI cmd failed (%s)",
-               attempt,
-               OTA_SYNC_ATTEMPTS,
-               esp_err_to_name(tr));
-      continue;
-    }
-    int64_t deadline = esp_timer_get_time() + (int64_t)OTA_READY_TIMEOUT_MS * 1000;
-    while (esp_timer_get_time() < deadline) {
-      uint8_t r = 0;
-      int n = uart_read_bytes(OTA_UART, &r, 1, pdMS_TO_TICKS(50));
-      if (n == 1 && r == OTA_READY) {
-        synced = true;
-        ESP_LOGI(TAG, "C5 in OTA mode, READY (attempt %d/%d)", attempt, OTA_SYNC_ATTEMPTS);
+    spi_bridge_send_command(SPI_ID_SYSTEM_OTA_BEGIN,
+                            (const uint8_t *)&begin_req,
+                            sizeof(begin_req),
+                            &sresp,
+                            NULL,
+                            OTA_BEGIN_TIMEOUT_MS);
+    if (c5_ota_poll(&st) == ESP_OK) {
+      if (st.state == SPI_OTA_STATE_ERASING || st.state == SPI_OTA_STATE_READY ||
+          st.state == SPI_OTA_STATE_RECEIVING) {
+        started = true;
         break;
       }
+      if (st.state == SPI_OTA_STATE_ERROR) {
+        ESP_LOGE(TAG, "C5 reported ERROR on OTA begin");
+        goto cleanup;
+      }
     }
-    if (!synced) {
-      ESP_LOGW(TAG,
-               "start-uart-ota %d/%d: no READY within %d ms",
-               attempt,
-               OTA_SYNC_ATTEMPTS,
-               OTA_READY_TIMEOUT_MS);
-    }
+    ESP_LOGW(TAG, "start-ota %d/%d: C5 not started yet, retrying", attempt, OTA_SYNC_ATTEMPTS);
+    vTaskDelay(pdMS_TO_TICKS(100));
   }
-  if (!synced) {
-    ESP_LOGE(TAG, "C5 OTA trigger failed after %d attempts", OTA_SYNC_ATTEMPTS);
-    ESP_LOGE(TAG, "  the C5 must be RUNNING ITS APP (SPI bridge up) to accept the trigger");
-    ESP_LOGE(TAG, "  a blank C5 will NOT respond -- use ROM flash or passthrough instead");
+  if (!started) {
+    ESP_LOGE(TAG, "C5 did not start the OTA after %d attempts", OTA_SYNC_ATTEMPTS);
+    ESP_LOGE(TAG, "  the C5 must be RUNNING ITS APP (SPI bridge up) to accept it");
     goto cleanup;
   }
-  ESP_LOGI(TAG, "C5 synced - sending image");
 
-  uint8_t size_hdr[4];
-  size_hdr[0] = (uint8_t)(bin_size & 0xFF);
-  size_hdr[1] = (uint8_t)((bin_size >> 8) & 0xFF);
-  size_hdr[2] = (uint8_t)((bin_size >> 16) & 0xFF);
-  size_hdr[3] = (uint8_t)((bin_size >> 24) & 0xFF);
-  uart_write_bytes(OTA_UART, (const char *)size_hdr, sizeof(size_hdr));
-  uart_wait_tx_done(OTA_UART, pdMS_TO_TICKS(2000));
-
-  uint8_t begin = 0;
-  int bn = uart_read_bytes(OTA_UART, &begin, 1, pdMS_TO_TICKS(OTA_BEGIN_TIMEOUT_MS));
-  if (bn != 1 || begin != OTA_ACK) {
-    if (bn != 1)
-      ESP_LOGE(TAG,
-               "C5 not ready after begin: no reply within %d ms (erase too slow, or C5 hung)",
-               OTA_BEGIN_TIMEOUT_MS);
-    else
-      ESP_LOGE(TAG, "C5 not ready after begin: got 0x%02X, want ACK 0x%02X", begin, OTA_ACK);
+  // Wait for the C5 to finish erasing and reach READY - all over SPI.
+  int64_t deadline = esp_timer_get_time() + (int64_t)OTA_ERASE_TIMEOUT_MS * 1000;
+  bool ready = false;
+  while (esp_timer_get_time() < deadline) {
+    if (c5_ota_poll(&st) == ESP_OK) {
+      if (st.state == SPI_OTA_STATE_READY) {
+        ready = true;
+        break;
+      }
+      if (st.state == SPI_OTA_STATE_ERROR) {
+        ESP_LOGE(TAG, "C5 reported ERROR before streaming");
+        goto cleanup;
+      }
+    }
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
+  if (!ready) {
+    ESP_LOGE(TAG, "C5 did not reach READY within %d ms (erase too slow or hung)",
+             OTA_ERASE_TIMEOUT_MS);
     goto cleanup;
   }
   ESP_LOGI(TAG,
-           "C5 erased its OTA slot - streaming %lu bytes (block=%d)...",
+           "C5 erased its OTA slot - streaming %lu bytes over %s...",
            (unsigned long)bin_size,
-           OTA_BLOCK);
+           uart ? "UART" : "SPI");
+
   uint32_t off = 0;
   uint32_t t_stream0 = xTaskGetTickCount();
   s_ota_total = bin_size;
   s_ota_sent = 0;
+  const uint32_t block_sz = uart ? OTA_MAX_BLOCK : OTA_SPI_CHUNK;
   while (off < bin_size) {
-    uint32_t chunk = (bin_size - off > OTA_BLOCK) ? OTA_BLOCK : bin_size - off;
+    uint32_t chunk = (bin_size - off > block_sz) ? block_sz : bin_size - off;
     const uint8_t *src;
     if (f != NULL) {
       size_t got = fread(block, 1, chunk, f);
@@ -259,27 +258,71 @@ esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size) {
     } else {
       src = bin_data + off;
     }
-    int w = uart_write_bytes(OTA_UART, (const char *)src, chunk);
-    if (w < 0) {
-      ESP_LOGE(TAG, "uart_write_bytes failed @ %lu", (unsigned long)off);
-      goto cleanup;
-    }
-    uart_wait_tx_done(OTA_UART, pdMS_TO_TICKS(2000));
 
-    uint8_t r = 0;
-    int n = uart_read_bytes(OTA_UART, &r, 1, pdMS_TO_TICKS(OTA_BLOCK_TIMEOUT_MS));
-    if (n != 1 || r != OTA_ACK) {
-      if (n == 1 && r == OTA_NAK) {
-        ESP_LOGE(TAG, "C5 NAK at block @ %lu", (unsigned long)off);
-      } else {
-        ESP_LOGE(TAG, "no block ACK @ %lu (n=%d r=0x%02X)", (unsigned long)off, n, r);
+    if (uart) {
+      // UART transport: write the block raw, then pace to the C5's committed
+      // count so we never run past its ring buffer, and catch a reported ERROR.
+      int w = uart_write_bytes(OTA_UART, (const char *)src, chunk);
+      if (w < 0) {
+        ESP_LOGE(TAG, "uart_write_bytes failed @ %lu", (unsigned long)off);
+        goto cleanup;
       }
-      goto cleanup;
+      uart_wait_tx_done(OTA_UART, pdMS_TO_TICKS(2000));
+      off += chunk;
+      int64_t bdl = esp_timer_get_time() + (int64_t)OTA_CHUNK_DEADLINE_MS * 1000;
+      while (esp_timer_get_time() < bdl) {
+        if (c5_ota_poll(&st) == ESP_OK) {
+          if (st.state == SPI_OTA_STATE_ERROR) {
+            ESP_LOGE(TAG, "C5 reported ERROR @ %lu", (unsigned long)off);
+            goto cleanup;
+          }
+          if (off - st.bytes_written <= OTA_UART_WINDOW) {
+            break; // enough headroom in the C5's ring buffer to keep going
+          }
+        }
+        vTaskDelay(pdMS_TO_TICKS(2));
+      }
+    } else {
+      // SPI transport: OTA_DATA chunk. The C5 buffers it and acks at once (a
+      // writer task does the flash). OK -> advance; BUSY -> writer behind, wait
+      // and resend; TIMEOUT -> ack lost, ask bytes_written (off or off+chunk,
+      // never partial/duplicate) and resend if needed; other -> fatal.
+      spi_header_t dresp = {0};
+      bool chunk_done = false;
+      int64_t cdl = esp_timer_get_time() + (int64_t)OTA_CHUNK_DEADLINE_MS * 1000;
+      while (!chunk_done && esp_timer_get_time() < cdl) {
+        esp_err_t dr = spi_bridge_send_command(
+            SPI_ID_SYSTEM_OTA_DATA, src, (uint8_t)chunk, &dresp, NULL, OTA_DATA_TIMEOUT_MS);
+        if (dr == ESP_OK) {
+          off += chunk;
+          chunk_done = true;
+        } else if (dr == ESP_ERR_INVALID_STATE) {
+          vTaskDelay(pdMS_TO_TICKS(5)); // BUSY: let the writer drain, then resend
+        } else if (dr == ESP_ERR_TIMEOUT) {
+          if (c5_ota_poll(&st) == ESP_OK) {
+            if (st.state == SPI_OTA_STATE_ERROR) {
+              ESP_LOGE(TAG, "C5 reported ERROR @ %lu", (unsigned long)off);
+              goto cleanup;
+            }
+            if (st.bytes_written >= off + chunk) {
+              off += chunk;
+              chunk_done = true;
+            }
+          }
+        } else {
+          ESP_LOGE(TAG, "C5 rejected chunk @ %lu (%s)", (unsigned long)off, esp_err_to_name(dr));
+          goto cleanup;
+        }
+      }
+      if (!chunk_done) {
+        ESP_LOGE(
+            TAG, "chunk @ %lu not acked within %d ms", (unsigned long)off, OTA_CHUNK_DEADLINE_MS);
+        goto cleanup;
+      }
     }
 
-    off += chunk;
     s_ota_sent = off;
-    if ((off & 0x3FFFF) < OTA_BLOCK || off == bin_size) {
+    if ((off & 0x3FFFF) < block_sz || off >= bin_size) {
       ESP_LOGI(TAG,
                "  sent %lu/%lu (%lu%%)",
                (unsigned long)off,
@@ -289,19 +332,36 @@ esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size) {
   }
   uint32_t stream_ms = pdTICKS_TO_MS(xTaskGetTickCount() - t_stream0);
   ESP_LOGI(TAG,
-           "Image sent in %lu ms (%lu B/s) - waiting for C5 to verify and ACK...",
+           "Image sent in %lu ms (%lu B/s) - waiting for C5 to verify...",
            (unsigned long)stream_ms,
            stream_ms ? (unsigned long)((uint64_t)bin_size * 1000 / stream_ms) : 0UL);
 
-  uint8_t resp = 0;
-  int rn = uart_read_bytes(OTA_UART, &resp, 1, pdMS_TO_TICKS(OTA_ACK_TIMEOUT_MS));
-  if (rn == 1 && resp == OTA_ACK) {
-    ESP_LOGI(TAG, "C5 ACK - OTA applied, C5 rebooting into new firmware");
-    result = ESP_OK;
-  } else if (rn == 1 && resp == OTA_NAK) {
-    ESP_LOGE(TAG, "C5 NAK - OTA rejected (image invalid or transfer error)");
-  } else {
-    ESP_LOGE(TAG, "no ACK from C5 (n=%d resp=0x%02X)", rn, resp);
+  // Final: wait for DONE (validated + set-boot) over SPI. The C5 reboots shortly
+  // after DONE, so once it goes unresponsive with everything acked, treat it as OK.
+  deadline = esp_timer_get_time() + (int64_t)OTA_DONE_TIMEOUT_MS * 1000;
+  while (esp_timer_get_time() < deadline) {
+    if (c5_ota_poll(&st) == ESP_OK) {
+      if (st.state == SPI_OTA_STATE_DONE) {
+        ESP_LOGI(TAG, "C5 DONE - OTA applied, C5 rebooting into new firmware");
+        result = ESP_OK;
+        break;
+      }
+      if (st.state == SPI_OTA_STATE_ERROR) {
+        ESP_LOGE(TAG, "C5 ERROR - OTA rejected (image invalid or write failure)");
+        break;
+      }
+    }
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
+  if (result != ESP_OK && st.state != SPI_OTA_STATE_ERROR) {
+    ESP_LOGE(TAG, "no DONE from C5 within %d ms (last state=%d)", OTA_DONE_TIMEOUT_MS, st.state);
+  }
+
+  if (result == ESP_OK) {
+    // The C5 is rebooting into the new firmware; the current bridge link is stale.
+    // Mark it down so the link monitor re-probes and reconnects the new C5.
+    spi_bridge_set_alive(false);
+    ESP_LOGI(TAG, "bridge marked down; run 'c5 sync' or wait for auto re-detect");
   }
 
 cleanup:
@@ -309,4 +369,41 @@ cleanup:
   if (f != NULL)
     fclose(f);
   return result;
+}
+
+esp_err_t c5_flasher_ping(void) {
+  spi_header_t resp = {0};
+  return spi_bridge_send_command(SPI_ID_SYSTEM_PING, NULL, 0, &resp, NULL, OTA_STATUS_TIMEOUT_MS);
+}
+
+esp_err_t c5_flasher_info(void) {
+  spi_sys_info_t info = {0};
+  spi_header_t resp = {0};
+  esp_err_t r = spi_bridge_send_command(
+      SPI_ID_SYSTEM_INFO, NULL, 0, &resp, (uint8_t *)&info, OTA_STATUS_TIMEOUT_MS);
+  if (r != ESP_OK) {
+    return r;
+  }
+  printf("C5 info:\n");
+  printf("  chip model : %u\n", info.chip_model);
+  printf("  chip rev   : %u.%u\n", info.chip_revision / 100, info.chip_revision % 100);
+  printf("  base MAC   : %02x:%02x:%02x:%02x:%02x:%02x\n",
+         info.mac[0],
+         info.mac[1],
+         info.mac[2],
+         info.mac[3],
+         info.mac[4],
+         info.mac[5]);
+  printf("  free heap  : %lu bytes\n", (unsigned long)info.free_heap);
+  return ESP_OK;
+}
+
+esp_err_t c5_flasher_sync(void) {
+  // Allow one probe even if the bridge is currently marked down, then keep it
+  // alive only if the C5 actually answers.
+  spi_bridge_set_alive(true);
+  esp_err_t r = c5_flasher_ping();
+  spi_bridge_set_alive(r == ESP_OK);
+  ESP_LOGI(TAG, "C5 sync: %s", (r == ESP_OK) ? "linked" : esp_err_to_name(r));
+  return r;
 }

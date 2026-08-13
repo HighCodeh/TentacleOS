@@ -29,6 +29,7 @@
 #include "lv_port_indev.h"
 #include "buttons_gpio.h"
 #include "c5_flasher.h"
+#include "spi_protocol.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -273,7 +274,7 @@ static void c5_flash_done_on_lvgl(void *data) {
 static void c5_flash_task(void *arg) {
   (void)arg;
   esp_err_t init_r = c5_flasher_init();
-  esp_err_t r = (init_r != ESP_OK) ? init_r : c5_flasher_update(NULL, 0);
+  esp_err_t r = (init_r != ESP_OK) ? init_r : c5_flasher_update(NULL, 0, SPI_OTA_TRANSPORT_SPI);
   ESP_LOGI(TAG, "c5_flasher result: %s", esp_err_to_name(r));
 
   lv_async_call(c5_flash_done_on_lvgl, (void *)(intptr_t)r);

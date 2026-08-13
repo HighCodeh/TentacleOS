@@ -106,5 +106,5 @@ esp_err_t bridge_manager_init(void) {
 
 esp_err_t bridge_manager_force_update(void) {
   c5_flasher_init();
-  return c5_flasher_update(NULL, 0);
+  return c5_flasher_update(NULL, 0, SPI_OTA_TRANSPORT_SPI);
 }
