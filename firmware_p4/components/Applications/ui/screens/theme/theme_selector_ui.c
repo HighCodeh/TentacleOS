@@ -33,6 +33,7 @@ static const char *TAG = "THEME_SELECTOR_UI";
 #define TITLE_ICON   "/assets/icons/palette.bin"
 #define BASE_FRAME   "/assets/frames/base_frame_0.bin"
 #define CARD_Y_BIAS  (-18)
+#define ANIM_MS      220
 
 extern int theme_idx;
 
@@ -73,10 +74,29 @@ static page_dots_t s_dots;
 static lv_image_dsc_t *s_base_dsc = NULL;
 static lv_timer_t *s_nav_timer = NULL;
 static int s_sel = 0;
+static bool s_animating = false;
 
 static bool s_up_last, s_down_last, s_left_last, s_right_last, s_ok_last, s_back_last;
 
 static void build_screen(void);
+
+// Animation exec wrappers (explicit, so we avoid the cast-function-type idiom).
+static void anim_set_x(void *o, int32_t v) {
+  lv_obj_set_x((lv_obj_t *)o, v);
+}
+static void anim_set_y(void *o, int32_t v) {
+  lv_obj_set_y((lv_obj_t *)o, v);
+}
+static void anim_set_scale(void *o, int32_t v) {
+  lv_image_set_scale((lv_obj_t *)o, (uint32_t)v);
+}
+static void anim_set_opa(void *o, int32_t v) {
+  lv_obj_set_style_opa((lv_obj_t *)o, (lv_opa_t)v, 0);
+}
+static void anim_done_cb(lv_anim_t *a) {
+  (void)a;
+  s_animating = false;
+}
 
 static int32_t carousel_slot(int item_idx) {
   int32_t n = THEME_COUNT;
@@ -98,21 +118,57 @@ static lv_obj_t *make_card(lv_obj_t *parent, int i) {
   return card;
 }
 
-static void place_card(int i) {
+static void place_card(int i, bool anim) {
   lv_obj_t *card = s_cards[i];
   if (card == NULL)
     return;
   int32_t slot = carousel_slot(i);
 
   if (slot < 0) {
+    lv_obj_set_style_opa(card, LV_OPA_TRANSP, 0);
     lv_obj_add_flag(card, LV_OBJ_FLAG_HIDDEN);
     return;
   }
   lv_obj_remove_flag(card, LV_OBJ_FLAG_HIDDEN);
 
-  lv_obj_align(card, LV_ALIGN_CENTER, CAR_PX[slot], CAR_PY[slot] + CARD_Y_BIAS);
-  lv_image_set_scale(card, CAR_SC[slot]);
-  lv_obj_set_style_opa(card, CAR_OP[slot], 0);
+  int32_t tx = CAR_PX[slot];
+  int32_t ty = CAR_PY[slot] + CARD_Y_BIAS;
+  int32_t ts = CAR_SC[slot];
+  int32_t to = CAR_OP[slot];
+
+  if (!anim) {
+    lv_obj_align(card, LV_ALIGN_CENTER, tx, ty);
+    lv_image_set_scale(card, ts);
+    lv_obj_set_style_opa(card, to, 0);
+    return;
+  }
+
+  // Slide/scale/fade toward the target slot (mirrors the shipped menu_ui pattern:
+  // decoded frames are cached, so this no longer re-decodes per navigation).
+  lv_anim_t a;
+  lv_anim_init(&a);
+  lv_anim_set_duration(&a, ANIM_MS);
+  lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+  lv_anim_set_var(&a, card);
+
+  lv_anim_set_values(&a, lv_obj_get_x_aligned(card), tx);
+  lv_anim_set_exec_cb(&a, anim_set_x);
+  if (slot == CAR_CENTER)
+    lv_anim_set_completed_cb(&a, anim_done_cb); // one card clears the guard
+  lv_anim_start(&a);
+  lv_anim_set_completed_cb(&a, NULL);
+
+  lv_anim_set_values(&a, lv_obj_get_y_aligned(card), ty);
+  lv_anim_set_exec_cb(&a, anim_set_y);
+  lv_anim_start(&a);
+
+  lv_anim_set_values(&a, lv_image_get_scale(card), ts);
+  lv_anim_set_exec_cb(&a, anim_set_scale);
+  lv_anim_start(&a);
+
+  lv_anim_set_values(&a, lv_obj_get_style_opa(card, 0), to);
+  lv_anim_set_exec_cb(&a, anim_set_opa);
+  lv_anim_start(&a);
 }
 
 static void fix_z_order(void) {
@@ -125,7 +181,7 @@ static void fix_z_order(void) {
   }
 }
 
-static void update_view(void) {
+static void update_view(bool anim) {
   lv_label_set_text_fmt(s_label, LV_SYMBOL_LEFT "  %s  " LV_SYMBOL_RIGHT, THEMES[s_sel].label);
   lv_label_set_text(s_active, s_sel == theme_idx ? LV_SYMBOL_OK " APPLIED" : "OK to apply");
   lv_obj_set_style_text_color(
@@ -134,7 +190,7 @@ static void update_view(void) {
 
   page_dots_set(&s_dots, s_sel);
   for (int i = 0; i < THEME_COUNT; i++)
-    place_card(i);
+    place_card(i, anim);
   fix_z_order();
 }
 
@@ -170,13 +226,14 @@ static void nav_timer_cb(lv_timer_t *t) {
       return;
     }
   }
-  if (next || prev) {
+  if ((next || prev) && !s_animating) {
     if (next)
       s_sel = (s_sel + 1) % THEME_COUNT;
     else
       s_sel = (s_sel == 0) ? THEME_COUNT - 1 : s_sel - 1;
+    s_animating = true;
     ui_feedback(UI_FB_NAV);
-    update_view();
+    update_view(true);
   }
 
   s_up_last = up;
@@ -189,6 +246,7 @@ static void nav_timer_cb(lv_timer_t *t) {
 
 static void build_screen(void) {
   lv_obj_t *prev = s_screen;
+  s_animating = false;
 
   if (s_base_dsc == NULL)
     s_base_dsc = assets_get(BASE_FRAME);
@@ -219,7 +277,7 @@ static void build_screen(void) {
     s_sel = 0;
   if (s_sel >= THEME_COUNT)
     s_sel = THEME_COUNT - 1;
-  update_view();
+  update_view(false);
 
   if (s_nav_timer == NULL)
     s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
