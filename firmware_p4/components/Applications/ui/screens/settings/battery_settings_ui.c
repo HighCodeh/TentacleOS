@@ -15,6 +15,9 @@
 
 #include "battery_settings_ui.h"
 
+#include <stdio.h>
+
+#include "battery_service.h"
 #include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
@@ -23,7 +26,6 @@
 static const char *TAG = "BATTERY_SETTINGS_UI";
 
 #define NAV_TIMER_MS  50
-#define MOCK_PERCENT  76
 #define ARC_SIZE      124
 #define ARC_WIDTH     13
 #define ARC_ROTATION  270
@@ -108,7 +110,13 @@ void ui_battery_settings_open(void) {
   if (s_big_font == NULL)
     s_big_font = lv_binfont_create(TITLE_FONT);
 
-  lv_color_t accent = level_color(MOCK_PERCENT);
+  battery_snapshot_t bs = {0};
+  bool have = battery_service_get(&bs);
+  int soc = have ? bs.soc : 0;
+  bool charging = have && bs.charging;
+  bool on_usb = have && bs.vbus_present;
+
+  lv_color_t accent = level_color(soc);
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -138,22 +146,35 @@ void ui_battery_settings_open(void) {
   lv_anim_init(&ga);
   lv_anim_set_var(&ga, s_arc);
   lv_anim_set_exec_cb(&ga, arc_anim_exec_cb);
-  lv_anim_set_values(&ga, 0, MOCK_PERCENT);
+  lv_anim_set_values(&ga, 0, soc);
   lv_anim_set_duration(&ga, GAUGE_ANIM_MS);
   lv_anim_set_path_cb(&ga, lv_anim_path_ease_out);
   lv_anim_start(&ga);
 
   lv_obj_t *pct = lv_label_create(s_screen);
-  lv_label_set_text(pct, "76%");
+  if (have)
+    lv_label_set_text_fmt(pct, "%d%%", soc);
+  else
+    lv_label_set_text(pct, "--");
   lv_obj_set_style_text_font(pct, s_big_font ? s_big_font : &lv_font_montserrat_16, 0);
   lv_obj_set_style_text_color(pct, current_theme.text_main, 0);
   lv_obj_align_to(pct, s_arc, LV_ALIGN_CENTER, 0, -10);
 
   lv_obj_t *chg = lv_label_create(s_screen);
-  lv_label_set_text(chg, LV_SYMBOL_CHARGE " CHARGING");
+  uint32_t chip_color;
+  if (charging) {
+    lv_label_set_text(chg, LV_SYMBOL_CHARGE " CHARGING");
+    chip_color = OK_COLOR;
+  } else if (on_usb) {
+    lv_label_set_text(chg, LV_SYMBOL_CHARGE " ON USB");
+    chip_color = MID_COLOR;
+  } else {
+    lv_label_set_text(chg, LV_SYMBOL_BATTERY_FULL " ON BATTERY");
+    chip_color = (soc < 25) ? LOW_COLOR : 0x8A8594;
+  }
   lv_obj_set_style_text_font(chg, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(chg, lv_color_hex(OK_COLOR), 0);
-  lv_obj_set_style_bg_color(chg, lv_color_hex(OK_COLOR), 0);
+  lv_obj_set_style_text_color(chg, lv_color_hex(chip_color), 0);
+  lv_obj_set_style_bg_color(chg, lv_color_hex(chip_color), 0);
   lv_obj_set_style_bg_opa(chg, LV_OPA_20, 0);
   lv_obj_set_style_radius(chg, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_pad_hor(chg, 9, 0);
@@ -169,12 +190,32 @@ void ui_battery_settings_open(void) {
   lv_obj_set_flex_align(stats, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_column(stats, 8, 0);
 
-  add_stat_card(stats, "4.01", "VBAT", current_theme.text_main);
-  add_stat_card(stats, "+540", "mA IN", lv_color_hex(OK_COLOR));
-  add_stat_card(stats, "32", "TEMP C", current_theme.border_accent);
+  char vbat_s[12];
+  snprintf(vbat_s, sizeof(vbat_s), "%u.%02u", bs.vbat_mv / 1000, (bs.vbat_mv % 1000) / 10);
+  add_stat_card(stats, have ? vbat_s : "--", "VBAT", current_theme.text_main);
+  add_stat_card(stats,
+                on_usb ? "USB" : "BATT",
+                "SOURCE",
+                on_usb ? lv_color_hex(OK_COLOR) : current_theme.text_main);
+
+  const char *st = "IDLE";
+  lv_color_t st_col = current_theme.border_accent;
+  if (charging) {
+    st = (bs.chg == CHARGE_STATUS_PRECHARGE) ? "PRE" : "FAST";
+    st_col = lv_color_hex(OK_COLOR);
+  } else if (bs.chg == CHARGE_STATUS_CHARGE_DONE) {
+    st = "FULL";
+    st_col = lv_color_hex(OK_COLOR);
+  }
+  add_stat_card(stats, st, "STATUS", st_col);
 
   lv_obj_t *eta = lv_label_create(s_screen);
-  lv_label_set_text(eta, LV_SYMBOL_CHARGE " full in ~30 min");
+  if (charging)
+    lv_label_set_text(eta, LV_SYMBOL_CHARGE " Charging");
+  else if (on_usb)
+    lv_label_set_text(eta, LV_SYMBOL_CHARGE " Fully charged / on USB");
+  else
+    lv_label_set_text_fmt(eta, LV_SYMBOL_BATTERY_FULL " %d%% remaining", soc);
   lv_obj_set_style_text_font(eta, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(eta, current_theme.border_accent, 0);
   lv_obj_set_style_bg_color(eta, current_theme.bg_secondary, 0);
