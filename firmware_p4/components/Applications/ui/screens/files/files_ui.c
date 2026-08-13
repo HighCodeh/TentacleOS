@@ -32,6 +32,7 @@
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "wav_player_ui.h"
+#include "text_viewer_ui.h"
 #include "ui_theme.h"
 #include "vfs_sdcard.h"
 
@@ -173,6 +174,7 @@ static lv_obj_t *s_tile_name[GRID_POOL];
 static lv_obj_t *s_pk_icon, *s_pk_name, *s_pk_tag, *s_pk_meta, *s_pk_snip;
 static lv_obj_t *s_gl_name, *s_gl_type;
 static lv_obj_t *s_vbody = NULL;
+static text_viewer_t s_tv;
 
 static bool s_up_last, s_down_last, s_left_last, s_right_last, s_ok_last, s_back_last;
 static uint32_t s_ok_down_since = 0;
@@ -806,41 +808,6 @@ static void build_footer(const char *hint) {
   lv_obj_center(lbl);
 }
 
-static void build_viewer_header(const entry_t *e, int lines) {
-  lv_obj_t *hdr = lv_obj_create(s_screen);
-  lv_obj_remove_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(hdr, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(hdr, LCD_H_RES, HEADER_H);
-  lv_obj_align(hdr, LV_ALIGN_TOP_LEFT, 0, 0);
-  lv_obj_set_style_radius(hdr, 0, 0);
-  lv_obj_set_style_bg_color(hdr, current_theme.bg_secondary, 0);
-  lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, 0);
-  lv_obj_set_style_pad_hor(hdr, 8, 0);
-  lv_obj_set_style_pad_ver(hdr, 0, 0);
-  lv_obj_set_style_border_width(hdr, 2, 0);
-  lv_obj_set_style_border_color(hdr, current_theme.border_accent, 0);
-  lv_obj_set_style_border_side(hdr, LV_BORDER_SIDE_BOTTOM, 0);
-  lv_obj_set_flex_flow(hdr, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(hdr, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-
-  type_icon(hdr, ICON_OF[e->type], 20);
-
-  lv_obj_t *name = lv_label_create(hdr);
-  lv_obj_set_width(name, 135);
-  lv_label_set_long_mode(name, LV_LABEL_LONG_SCROLL_CIRCULAR);
-  lv_label_set_text(name, e->name);
-  lv_obj_set_style_text_font(name, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_text_color(name, current_theme.border_accent, 0);
-  lv_obj_set_style_pad_left(name, 6, 0);
-
-  flex_spacer(hdr);
-
-  lv_obj_t *cnt = lv_label_create(hdr);
-  lv_label_set_text_fmt(cnt, "%d ln", lines);
-  lv_obj_set_style_text_font(cnt, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(cnt, lv_color_hex(COL_DIM), 0);
-}
-
 static void load_preview(const char *path) {
   s_vbuf[0] = '\0';
   FILE *f = fopen(path, "rb");
@@ -849,15 +816,60 @@ static void load_preview(const char *path) {
     return;
   }
   size_t n = fread(s_vbuf, 1, PREVIEW_MAX - 1, f);
+  fseek(f, 0, SEEK_END);
+  long total = ftell(f);
   fclose(f);
-  s_vbuf[n] = '\0';
+  if (total < 0) {
+    total = (long)n;
+  }
+
+  // Classify: a NUL byte or lots of non-printables means it's a binary file.
+  int nonprint = 0;
+  bool binary = false;
   for (size_t i = 0; i < n; i++) {
-    char c = s_vbuf[i];
-    if (c == '\n' || c == '\r' || c == '\t') {
-      continue;
+    unsigned char c = (unsigned char)s_vbuf[i];
+    if (c == 0) {
+      binary = true;
+      break;
     }
-    if (c < 32 || c > 126) {
-      s_vbuf[i] = '.';
+    if (c != '\n' && c != '\r' && c != '\t' && (c < 32 || c > 126)) {
+      nonprint++;
+    }
+  }
+  if (!binary && n > 0 && (nonprint * 100 / (int)n) > 12) {
+    binary = true;
+  }
+
+  if (!binary) {
+    // Text: keep it, replacing any stray control byte with a dot.
+    s_vbuf[n] = '\0';
+    for (size_t i = 0; i < n; i++) {
+      unsigned char c = (unsigned char)s_vbuf[i];
+      if (c == '\n' || c == '\r' || c == '\t') {
+        continue;
+      }
+      if (c < 32 || c > 126) {
+        s_vbuf[i] = '.';
+      }
+    }
+    return;
+  }
+
+  // Binary: give it a real hex preview (offset + bytes) so it still opens.
+  unsigned char raw[256];
+  size_t hn = n < sizeof(raw) ? n : sizeof(raw);
+  for (size_t i = 0; i < hn; i++) {
+    raw[i] = (unsigned char)s_vbuf[i];
+  }
+  int pos = snprintf(s_vbuf, PREVIEW_MAX, "Binary file\n%ld bytes\n\n", total);
+  for (size_t i = 0; i < hn && pos < (int)PREVIEW_MAX - 40; i += 8) {
+    pos += snprintf(s_vbuf + pos, PREVIEW_MAX - pos, "%04X ", (unsigned)i);
+    for (size_t j = 0; j < 8 && i + j < hn; j++) {
+      pos += snprintf(s_vbuf + pos, PREVIEW_MAX - pos, "%02X ", raw[i + j]);
+    }
+    if (pos < (int)PREVIEW_MAX - 2) {
+      s_vbuf[pos++] = '\n';
+      s_vbuf[pos] = '\0';
     }
   }
 }
@@ -868,64 +880,12 @@ static void build_viewer(void) {
   snprintf(full, sizeof(full), "%s/%s", s_cwd, e->name);
   load_preview(full);
 
-  int n = (int)strlen(s_vbuf);
-  while (n > 0 && (s_vbuf[n - 1] == '\n' || s_vbuf[n - 1] == '\r')) {
-    n--;
-  }
-  s_vbuf[n] = '\0';
-  int lines = 1;
-  for (int i = 0; i < n; i++) {
-    if (s_vbuf[i] == '\n') {
-      lines++;
-    }
-  }
-
-  int g = 0;
-  for (int i = 1; i <= lines && g < GUTTER_MAX - 16; i++) {
-    g += snprintf(s_gbuf + g, GUTTER_MAX - g, "%d\n", i);
-  }
-  if (g > 0 && s_gbuf[g - 1] == '\n') {
-    s_gbuf[g - 1] = '\0';
-  }
-
-  build_viewer_header(e, lines);
-
-  lv_obj_t *body = lv_obj_create(s_screen);
-  lv_obj_set_size(body, LCD_H_RES, LCD_V_RES - HEADER_H - FOOTER_H);
-  lv_obj_align(body, LV_ALIGN_TOP_LEFT, 0, HEADER_H);
-  lv_obj_set_style_radius(body, 0, 0);
-  lv_obj_set_style_bg_color(body, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(body, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_width(body, 0, 0);
-  lv_obj_set_style_pad_all(body, 8, 0);
-  lv_obj_set_style_pad_column(body, 10, 0);
-  lv_obj_set_flex_flow(body, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(body, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-  lv_obj_set_scroll_dir(body, LV_DIR_VER);
-  lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLL_ELASTIC);
-  lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLL_MOMENTUM);
-  lv_obj_set_scrollbar_mode(body, LV_SCROLLBAR_MODE_AUTO);
-  lv_obj_set_style_bg_color(body, current_theme.border_accent, LV_PART_SCROLLBAR);
-  lv_obj_set_style_bg_opa(body, LV_OPA_COVER, LV_PART_SCROLLBAR);
-  lv_obj_set_style_width(body, 4, LV_PART_SCROLLBAR);
-  lv_obj_set_style_radius(body, 2, LV_PART_SCROLLBAR);
-  s_vbody = body;
-
-  lv_obj_t *gut = lv_label_create(body);
-  lv_label_set_text(gut, s_gbuf);
-  lv_obj_set_width(gut, 24);
-  lv_obj_set_style_text_align(gut, LV_TEXT_ALIGN_RIGHT, 0);
-  lv_obj_set_style_text_font(gut, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(gut, lv_color_hex(COL_DIM), 0);
-
-  lv_obj_t *txt = lv_label_create(body);
-  lv_label_set_text(txt, s_vbuf);
-  lv_obj_set_style_text_font(txt, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(txt, current_theme.text_main, 0);
-
-  lv_obj_scroll_to_y(body, 0, LV_ANIM_OFF);
-
-  build_footer("UP/DOWN scroll    BACK close");
+  // Use the shared text_viewer component (wrapped text, line/byte meta, scroll
+  // bar). It builds a full-screen viewer under s_screen; keep its scroll area in
+  // s_vbody so the nav timer's UP/DOWN can scroll it.
+  s_tv = text_viewer_create(s_screen, e->name);
+  text_viewer_set_text(&s_tv, s_vbuf);
+  s_vbody = s_tv.text_area;
 }
 
 static void build_screen(void) {
@@ -1107,10 +1067,12 @@ static void nav_timer_cb(lv_timer_t *t) {
     goto latch;
 
   if (s_in_viewer) {
+    // _bounded clamps the scroll to the content — plain lv_obj_scroll_by() ignores
+    // the content bounds (and SCROLL_ELASTIC/MOMENTUM), which let it scroll forever.
     if (down && !s_down_last && s_vbody)
-      lv_obj_scroll_by(s_vbody, 0, -SCROLL_STEP, LV_ANIM_ON);
+      lv_obj_scroll_by_bounded(s_vbody, 0, -SCROLL_STEP, LV_ANIM_ON);
     if (up && !s_up_last && s_vbody)
-      lv_obj_scroll_by(s_vbody, 0, SCROLL_STEP, LV_ANIM_ON);
+      lv_obj_scroll_by_bounded(s_vbody, 0, SCROLL_STEP, LV_ANIM_ON);
     if ((back && !s_back_last) || (left && !s_left_last)) {
       do_back();
       goto latch;
