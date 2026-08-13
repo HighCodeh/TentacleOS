@@ -47,10 +47,11 @@ static void print_protocols(void) {
 
 static int cmd_ir(int argc, char **argv) {
   if (argc < 2) {
-    printf("usage: ir <rx|send|deinit>\n");
+    printf("usage: ir <rx|send|flash|deinit>\n");
     printf("  rx [timeout_ms]              wait for one frame and decode it (default %d ms)\n",
            IR_RX_DEFAULT_TIMEOUT_MS);
     printf("  send <proto> <addr> <cmd> [repeat]  transmit a code (addr/cmd accept 0x hex)\n");
+    printf("  flash <on|off>              drive the emitter at full power (torch) / off\n");
     printf("  deinit                       release the RX+TX RMT channels\n");
     print_protocols();
     return 1;
@@ -118,6 +119,29 @@ static int cmd_ir(int argc, char **argv) {
            ir_protocol_name(data.protocol),
            (unsigned long)data.address,
            (unsigned long)data.command);
+    return 0;
+  }
+
+  if (strcmp(argv[1], "flash") == 0) {
+    if (argc < 3 || (strcmp(argv[2], "on") != 0 && strcmp(argv[2], "off") != 0)) {
+      printf("usage: ir flash <on|off>\n");
+      return 1;
+    }
+    if (strcmp(argv[2], "on") == 0) {
+      esp_err_t r = ir_flash_on();
+      if (r != ESP_OK) {
+        printf("ir: flash on failed: %s\n", esp_err_to_name(r));
+        return 1;
+      }
+      printf("ir: flash ON - emitter at full power (infrared, check with a phone camera)\n");
+    } else {
+      esp_err_t r = ir_flash_off();
+      if (r != ESP_OK) {
+        printf("ir: flash off failed: %s\n", esp_err_to_name(r));
+        return 1;
+      }
+      printf("ir: flash OFF\n");
+    }
     return 0;
   }
 

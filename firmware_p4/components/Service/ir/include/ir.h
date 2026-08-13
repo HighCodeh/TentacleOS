@@ -97,6 +97,26 @@ esp_err_t ir_tx_init(void);
 void ir_tx_deinit(void);
 
 /**
+ * @brief Drive the IR emitter fully on (DC, no carrier) at maximum power.
+ *
+ * Torch mode: bypasses the RMT carrier and holds GPIO_IR_TX_PIN high so the LED
+ * stays continuously lit instead of pulsing at the 38 kHz carrier duty. Releases
+ * the RMT TX channel first (ir_tx_deinit) so it does not fight for the pin. The
+ * emitter is infrared, so it is invisible to the eye - verify with a phone camera.
+ * Continuous full-power drive: use for tests/short bursts, do not leave on for long.
+ *
+ * @return ESP_OK on success, or an ESP_ERR code from the GPIO driver.
+ */
+esp_err_t ir_flash_on(void);
+
+/**
+ * @brief Turn the IR emitter off after ir_flash_on() (drives GPIO_IR_TX_PIN low).
+ *
+ * @return ESP_OK on success, or an ESP_ERR code from the GPIO driver.
+ */
+esp_err_t ir_flash_off(void);
+
+/**
  * @brief Wait for and decode an incoming IR frame.
  *
  * @param[out] out_data    Destination for the decoded IR data. Must not be NULL.

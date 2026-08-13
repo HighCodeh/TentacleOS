@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "driver/gpio.h"
 #include "driver/rmt_rx.h"
 #include "driver/rmt_tx.h"
 #include "driver/rmt_encoder.h"
@@ -238,6 +239,57 @@ void ir_tx_deinit(void) {
   s_current_carrier = 0;
   s_is_tx_inited = false;
   ESP_LOGI(TAG, "IR TX released");
+}
+
+esp_err_t ir_flash_on(void) {
+  // Full-power DC drive: bypass the RMT carrier and hold the emitter gate high,
+  // so the LED stays lit instead of pulsing at the 38 kHz duty. Release the RMT
+  // TX channel first so it does not also own GPIO_IR_TX_PIN.
+  ir_tx_deinit();
+
+  gpio_config_t io = {
+      .pin_bit_mask = 1ULL << GPIO_IR_TX_PIN,
+      .mode = GPIO_MODE_OUTPUT,
+      .pull_up_en = GPIO_PULLUP_DISABLE,
+      .pull_down_en = GPIO_PULLDOWN_DISABLE,
+      .intr_type = GPIO_INTR_DISABLE,
+  };
+  esp_err_t ret = gpio_config(&io);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "gpio_config (flash) failed: %s", esp_err_to_name(ret));
+    return ret;
+  }
+  ret = gpio_set_level(GPIO_IR_TX_PIN, 1);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "gpio_set_level (flash on) failed: %s", esp_err_to_name(ret));
+    return ret;
+  }
+  ESP_LOGI(TAG, "IR flash ON (GPIO %d held high)", GPIO_IR_TX_PIN);
+  return ESP_OK;
+}
+
+esp_err_t ir_flash_off(void) {
+  // Keep the pin a plain output at low: matches the R90 pull-down resting state,
+  // and a later ir_tx_init() re-routes it to the RMT peripheral as needed.
+  gpio_config_t io = {
+      .pin_bit_mask = 1ULL << GPIO_IR_TX_PIN,
+      .mode = GPIO_MODE_OUTPUT,
+      .pull_up_en = GPIO_PULLUP_DISABLE,
+      .pull_down_en = GPIO_PULLDOWN_DISABLE,
+      .intr_type = GPIO_INTR_DISABLE,
+  };
+  esp_err_t ret = gpio_config(&io);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "gpio_config (flash off) failed: %s", esp_err_to_name(ret));
+    return ret;
+  }
+  ret = gpio_set_level(GPIO_IR_TX_PIN, 0);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "gpio_set_level (flash off) failed: %s", esp_err_to_name(ret));
+    return ret;
+  }
+  ESP_LOGI(TAG, "IR flash OFF");
+  return ESP_OK;
 }
 
 esp_err_t ir_receive(ir_data_t *out_data, uint32_t timeout_ms) {
