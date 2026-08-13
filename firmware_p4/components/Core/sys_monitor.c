@@ -38,7 +38,13 @@ static const char *TAG = "SYS_MONITOR";
 #define CRITICAL_STACK_THRESHOLD 256   // free stack (bytes); below this a task is at risk
 #define STACK_ESCALATE_CYCLES    5     // consecutive critical cycles before a controlled restart
 #define STACK_WATCH_MAX          8     // distinct critical tasks tracked for persistence
-#define UI_STALL_ESCALATE_CYCLES 2     // consecutive cycles with no render progress before restart
+// Consecutive cycles (2 s each) with no render progress before a controlled
+// restart. Must sit well above the longest legitimate renderer stall: blocking
+// console/app operations (e.g. `wifi scan`, which runs a multi-second blocking
+// scan while the home screen still queries Wi-Fi under the LVGL lock) freeze the
+// renderer for a few seconds without being deadlocked. Only a genuinely stuck UI
+// should reboot, so this is intentionally generous (~16 s).
+#define UI_STALL_ESCALATE_CYCLES 8
 #define REBOOT_GRACE_MS          1500  // let the UI alert render and logs flush before restart
 #define ALERT_MSG_SIZE           128
 
