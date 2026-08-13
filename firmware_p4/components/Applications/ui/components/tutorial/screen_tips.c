@@ -22,6 +22,7 @@
 
 #include "lvgl.h"
 
+#include "assets_manager.h"
 #include "ui_theme.h"
 
 #define TIP_NVS_NS       "scrtips"
@@ -29,11 +30,10 @@
 #define TIP_NVS_KEY_SKIP "skip"
 #define TIP_WORDS        ((SCREEN_COUNT + 31) / 32)
 
-#define TIP_SCRIM_OPA 185
-#define TIP_ARM_MS    320
-#define TIP_CARD_W    206
-#define TIP_TEXT_W    176
-#define TIP_RADIUS    2
+#define TIP_SCRIM_OPA 232              // how dark the screen behind gets
+#define TIP_ARM_MS    500              // ignore input while the intro plays
+#define TIP_TEXT_W    182
+#define TIP_ART       "/assets/img/image.bin"
 
 extern lv_group_t *main_group;
 
@@ -375,6 +375,44 @@ static void scrim_key_cb(lv_event_t *e) {
     dismiss();
 }
 
+static void tip_opa_cb(void *o, int32_t v) {
+  lv_obj_set_style_opa((lv_obj_t *)o, (lv_opa_t)v, 0);
+}
+static void tip_bgopa_cb(void *o, int32_t v) {
+  lv_obj_set_style_bg_opa((lv_obj_t *)o, (lv_opa_t)v, 0);
+}
+static void tip_ty_cb(void *o, int32_t v) {
+  lv_obj_set_style_translate_y((lv_obj_t *)o, v, 0);
+}
+
+// Fade an element in from transparent, after `delay` ms.
+static void tip_fade(lv_obj_t *o, uint32_t delay) {
+  lv_obj_set_style_opa(o, LV_OPA_TRANSP, 0);
+  lv_anim_t a;
+  lv_anim_init(&a);
+  lv_anim_set_var(&a, o);
+  lv_anim_set_exec_cb(&a, tip_opa_cb);
+  lv_anim_set_values(&a, LV_OPA_TRANSP, LV_OPA_COVER);
+  lv_anim_set_duration(&a, 280);
+  lv_anim_set_delay(&a, delay);
+  lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+  lv_anim_start(&a);
+}
+
+// Gentle continuous float for the mascot.
+static void tip_bob(lv_obj_t *o) {
+  lv_anim_t a;
+  lv_anim_init(&a);
+  lv_anim_set_var(&a, o);
+  lv_anim_set_exec_cb(&a, tip_ty_cb);
+  lv_anim_set_values(&a, -5, 5);
+  lv_anim_set_duration(&a, 1600);
+  lv_anim_set_reverse_duration(&a, 1600);
+  lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+  lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+  lv_anim_start(&a);
+}
+
 static void build_overlay(const tip_entry_t *entry) {
   lv_obj_t *scrim = lv_obj_create(lv_layer_top());
   lv_obj_set_size(scrim, LV_PCT(100), LV_PCT(100));
@@ -382,47 +420,64 @@ static void build_overlay(const tip_entry_t *entry) {
   lv_obj_remove_flag(scrim, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(scrim, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_style_bg_color(scrim, lv_color_black(), 0);
-  lv_obj_set_style_bg_opa(scrim, TIP_SCRIM_OPA, 0);
+  lv_obj_set_style_bg_opa(scrim, LV_OPA_TRANSP, 0); // fades in — the screen darkens
   lv_obj_set_style_border_width(scrim, 0, 0);
   lv_obj_set_style_radius(scrim, 0, 0);
   lv_obj_set_style_pad_all(scrim, 0, 0);
   lv_obj_add_event_cb(scrim, scrim_key_cb, LV_EVENT_KEY, NULL);
   s_scrim = scrim;
 
-  lv_obj_t *card = lv_obj_create(scrim);
-  lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_width(card, TIP_CARD_W);
-  lv_obj_set_height(card, LV_SIZE_CONTENT);
-  lv_obj_set_style_radius(card, TIP_RADIUS, 0);
-  lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(card, current_theme.bg_primary, 0);
-  lv_obj_set_style_bg_grad_color(card, current_theme.bg_secondary, 0);
-  lv_obj_set_style_bg_grad_dir(card, LV_GRAD_DIR_VER, 0);
-  lv_obj_set_style_border_width(card, 2, 0);
-  lv_obj_set_style_border_color(card, current_theme.border_accent, 0);
-  lv_obj_set_style_pad_all(card, 14, 0);
-  lv_obj_set_style_pad_row(card, 9, 0);
-  lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_align(card, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_center(card);
+  // The screen behind darkens first.
+  lv_anim_t a;
+  lv_anim_init(&a);
+  lv_anim_set_var(&a, scrim);
+  lv_anim_set_exec_cb(&a, tip_bgopa_cb);
+  lv_anim_set_values(&a, 0, TIP_SCRIM_OPA);
+  lv_anim_set_duration(&a, 240);
+  lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+  lv_anim_start(&a);
 
-  lv_obj_t *title = lv_label_create(card);
+  // No boxed window: octobit on top, the explanation below it, centered on the scrim.
+  lv_obj_t *col = lv_obj_create(scrim);
+  lv_obj_remove_style_all(col);
+  lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_width(col, LV_PCT(100));
+  lv_obj_set_height(col, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(col, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_row(col, 11, 0);
+  lv_obj_center(col);
+
+  lv_image_dsc_t *dsc = assets_get(TIP_ART);
+  if (dsc != NULL) {
+    lv_obj_t *img = lv_image_create(col);
+    lv_image_set_src(img, dsc);
+    lv_image_set_scale(img, 168); // ~66% so it leaves room for the text
+    tip_fade(img, 130);
+    tip_bob(img);
+  }
+
+  lv_obj_t *title = lv_label_create(col);
   lv_label_set_text(title, entry->title);
-  lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
   lv_obj_set_style_text_color(title, current_theme.border_accent, 0);
+  tip_fade(title, 300);
 
-  lv_obj_t *tip = lv_label_create(card);
+  lv_obj_t *tip = lv_label_create(col);
   lv_label_set_long_mode(tip, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(tip, TIP_TEXT_W);
   lv_label_set_text(tip, entry->tip);
   lv_obj_set_style_text_font(tip, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(tip, current_theme.text_main, 0);
   lv_obj_set_style_text_align(tip, LV_TEXT_ALIGN_CENTER, 0);
+  tip_fade(tip, 380);
 
-  lv_obj_t *hint = lv_label_create(card);
+  lv_obj_t *hint = lv_label_create(col);
   lv_label_set_text(hint, LV_SYMBOL_OK "  OK");
   lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(hint, current_theme.border_accent, 0);
+  lv_obj_set_style_text_opa(hint, 180, 0);
+  tip_fade(hint, 460);
 
   s_open_tick = lv_tick_get();
   s_active = true;

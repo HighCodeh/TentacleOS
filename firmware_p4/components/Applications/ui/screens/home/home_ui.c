@@ -62,7 +62,9 @@ void ui_home_open(void) {
   lv_obj_remove_flag(s_screen_home, LV_OBJ_FLAG_SCROLLABLE);
 
   header_ui_create(s_screen_home);
-  dropdown_ui_create(s_screen_home);
+  // The quick-settings dropdown is global (created once on the top layer at
+  // init) and opens on a long-press of UP from any browse screen, so home no
+  // longer creates its own.
 
   static lv_image_dsc_t *s_push_dsc = NULL;
   if (s_push_dsc == NULL)
@@ -95,8 +97,7 @@ void ui_home_open(void) {
     lv_image_set_pivot(s_push_icons[3], w / 2, h / 2);
     lv_image_set_rotation(s_push_icons[3], HOME_ROTATION_RIGHT);
     lv_obj_align(s_push_icons[3], LV_ALIGN_RIGHT_MID, h / 2, 0);
-
-    dropdown_ui_register_hide_objs(s_push_icons, HOME_PUSH_ICON_COUNT);
+    (void)s_push_icons; // no longer registered with the (now global) dropdown
   } else {
     static const struct {
       const char *sym;
@@ -140,6 +141,11 @@ void ui_home_open(void) {
 static void home_event_cb(lv_event_t *e) {
   (void)e;
   if (dropdown_ui_is_open())
+    return;
+
+  // Swallow the button that wakes the display from sleep (power_policy locks
+  // input briefly on wake) so it doesn't also navigate away from home.
+  if (ui_input_is_locked())
     return;
 
   lv_event_code_t code = lv_event_get_code(e);

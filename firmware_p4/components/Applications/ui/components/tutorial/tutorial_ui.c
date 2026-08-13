@@ -41,22 +41,85 @@ static const char *TAG = "TUTORIAL";
 #define WIZ_CONTENT_H 252
 #define WIZ_FOOT_Y    -8
 #define WIZ_GAP       9
-#define WIZ_TEXT_W    200
-#define WIZ_ARM_MS    300
+#define WIZ_TEXT_W    206
+#define WIZ_ARM_MS    260
 #define WIZ_DIM_OPA   150
-#define WIZ_SUB_OPA   175
+#define WIZ_SUB_OPA   180
 #define WIZ_SWATCH    24
+
+// Animation timing (slow + cinematic; affordable now that PSRAM keeps frames resident).
+#define FADE_OUT_MS  180
+#define FADE_IN_MS   320
+#define PROG_MS      460
+#define STAGGER_MS   110  // gap between elements fading in one after another
+#define MASCOT_FADE  420  // octobit fade-in
+#define MASCOT_ENTER 640  // when the text starts fading in (after octobit is established)
+#define BOB_MS       1800 // octobit float period (slow, gentle)
+#define BOB_PX       6
+#define WOBBLE_MS    560 // arrow idle horizontal swing period
+#define WOBBLE_PX    5
+
+// Vertical chooser geometry.
+#define CH_ROW_H    30
+#define CH_ARROW_W  22
+#define CH_LIST_W   190
+#define CH_MAX      6
 
 extern lv_group_t *main_group;
 
 static bool s_active = false;
+static bool s_busy = false; // mid page-transition: swallow input
 static int s_page = 0;
+static int s_pending = 0;
 static uint32_t s_open_tick = 0;
+
 static lv_obj_t *s_root = NULL;
 static lv_obj_t *s_content = NULL;
 static lv_obj_t *s_prog_fill = NULL;
 static lv_obj_t *s_step = NULL;
 static lv_obj_t *s_foot = NULL;
+static lv_obj_t *s_mascot = NULL; // octobit on the current page (NULL if none)
+
+// Active chooser (rebuilt per page; count==0 means the page is not a chooser).
+static lv_obj_t *s_ch_rows[CH_MAX] = {NULL};
+static lv_obj_t *s_ch_arrow = NULL;
+static int s_ch_count = 0;
+static int s_ch_sel = 0;
+static int *s_ch_selp = NULL;
+
+// Remembered choices (mock — persisted only for the session for now).
+static int s_lang_sel = 0;
+static int s_theme_sel = 0;
+
+// ---- small animation helpers ------------------------------------------------
+
+static void anim_opa_cb(void *obj, int32_t v) {
+  lv_obj_set_style_opa((lv_obj_t *)obj, (lv_opa_t)v, 0);
+}
+static void anim_ty_cb(void *obj, int32_t v) {
+  lv_obj_set_style_translate_y((lv_obj_t *)obj, v, 0);
+}
+static void anim_tx_cb(void *obj, int32_t v) {
+  lv_obj_set_style_translate_x((lv_obj_t *)obj, v, 0);
+}
+
+static void fade(lv_obj_t *o, int32_t from, int32_t to, uint32_t ms, uint32_t delay,
+                 lv_anim_path_cb_t path, lv_anim_completed_cb_t done) {
+  lv_obj_set_style_opa(o, (lv_opa_t)from, 0);
+  lv_anim_t a;
+  lv_anim_init(&a);
+  lv_anim_set_var(&a, o);
+  lv_anim_set_exec_cb(&a, anim_opa_cb);
+  lv_anim_set_values(&a, from, to);
+  lv_anim_set_duration(&a, ms);
+  lv_anim_set_delay(&a, delay);
+  lv_anim_set_path_cb(&a, path);
+  if (done)
+    lv_anim_set_completed_cb(&a, done);
+  lv_anim_start(&a);
+}
+
+// ---- reusable page widgets --------------------------------------------------
 
 static lv_obj_t *wiz_heading(lv_obj_t *p, const char *text) {
   lv_obj_t *l = lv_label_create(p);
@@ -79,11 +142,17 @@ static lv_obj_t *wiz_sub(lv_obj_t *p, const char *text) {
   return l;
 }
 
-static void wiz_mascot(lv_obj_t *p) {
-  lv_obj_t *img = lv_image_create(p);
-  lv_image_dsc_t *dsc = assets_get(WIZ_ART_ASSET);
-  if (dsc != NULL)
-    lv_image_set_src(img, dsc);
+static lv_obj_t *wiz_flow(lv_obj_t *p, lv_flex_flow_t flow, int gap) {
+  lv_obj_t *box = lv_obj_create(p);
+  lv_obj_remove_style_all(box);
+  lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_width(box, WIZ_TEXT_W);
+  lv_obj_set_height(box, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(box, flow);
+  lv_obj_set_flex_align(box, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_row(box, gap, 0);
+  lv_obj_set_style_pad_column(box, gap, 0);
+  return box;
 }
 
 static lv_obj_t *wiz_keycap(lv_obj_t *p, const char *text) {
@@ -115,40 +184,135 @@ static void wiz_chip(lv_obj_t *p, const char *text, lv_color_t accent) {
   lv_obj_set_style_pad_ver(k, 4, 0);
 }
 
-static lv_obj_t *wiz_flow(lv_obj_t *p, lv_flex_flow_t flow, int gap) {
-  lv_obj_t *box = lv_obj_create(p);
-  lv_obj_remove_style_all(box);
-  lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_width(box, WIZ_TEXT_W);
-  lv_obj_set_height(box, LV_SIZE_CONTENT);
-  lv_obj_set_flex_flow(box, flow);
-  lv_obj_set_flex_align(box, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_style_pad_row(box, gap, 0);
-  lv_obj_set_style_pad_column(box, gap, 0);
-  return box;
+// A small octobit that gently bobs, added to the top of a guide page's content.
+static void wiz_mascot(lv_obj_t *p, int zoom) {
+  lv_image_dsc_t *dsc = assets_get(WIZ_ART_ASSET);
+  if (dsc == NULL)
+    return;
+  lv_obj_t *img = lv_image_create(p);
+  lv_image_set_src(img, dsc);
+  if (zoom != 256)
+    lv_image_set_scale(img, zoom);
+  s_mascot = img; // build_page_now choreographs its entrance (fade + glide in)
+  // Gentle continuous float (translate-y; independent of the entrance translate-x).
+  lv_anim_t a;
+  lv_anim_init(&a);
+  lv_anim_set_var(&a, img);
+  lv_anim_set_exec_cb(&a, anim_ty_cb);
+  lv_anim_set_values(&a, -BOB_PX, BOB_PX);
+  lv_anim_set_duration(&a, BOB_MS);
+  lv_anim_set_reverse_duration(&a, BOB_MS);
+  lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+  lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+  lv_anim_start(&a);
 }
+
+// ---- animated vertical chooser (the "setinha" selector) ---------------------
+
+static void ch_restyle(void) {
+  for (int i = 0; i < s_ch_count; i++) {
+    lv_obj_t *row = s_ch_rows[i];
+    if (!row)
+      continue;
+    bool on = (i == s_ch_sel);
+    lv_obj_set_style_bg_opa(row, on ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_color(row, current_theme.border_accent, 0);
+    lv_obj_t *lbl = lv_obj_get_child(row, 0);
+    if (lbl) {
+      lv_obj_set_style_text_color(lbl, on ? current_theme.screen_base : current_theme.text_main, 0);
+      lv_obj_set_style_text_opa(lbl, on ? LV_OPA_COVER : WIZ_DIM_OPA, 0);
+    }
+  }
+}
+
+// Vertical alignment is INSTANT — the arrow snaps to the selected row; the only
+// motion it keeps is the idle horizontal swing (started in build_chooser).
+static void ch_arrow_to(int idx) {
+  if (!s_ch_arrow)
+    return;
+  lv_obj_set_y(s_ch_arrow, idx * CH_ROW_H + (CH_ROW_H - 16) / 2);
+}
+
+static void build_chooser(lv_obj_t *c, const char **items, const uint32_t *colors, int count,
+                          int *selp) {
+  if (count > CH_MAX)
+    count = CH_MAX;
+  s_ch_count = count;
+  s_ch_selp = selp;
+  s_ch_sel = (selp && *selp < count) ? *selp : 0;
+
+  lv_obj_t *list = lv_obj_create(c);
+  lv_obj_remove_style_all(list);
+  lv_obj_remove_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(list, CH_LIST_W, count * CH_ROW_H);
+
+  for (int i = 0; i < count; i++) {
+    lv_obj_t *row = lv_obj_create(list);
+    lv_obj_remove_style_all(row);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(row, CH_LIST_W - CH_ARROW_W, CH_ROW_H - 4);
+    lv_obj_set_pos(row, CH_ARROW_W, i * CH_ROW_H);
+    lv_obj_set_style_radius(row, 6, 0);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(
+        row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_hor(row, 10, 0);
+
+    lv_obj_t *lbl = lv_label_create(row);
+    lv_label_set_text(lbl, items[i]);
+    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
+
+    if (colors != NULL) {
+      lv_obj_t *dot = lv_obj_create(row);
+      lv_obj_remove_style_all(dot);
+      lv_obj_set_size(dot, 16, 16);
+      lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
+      lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
+      lv_obj_set_style_bg_color(dot, lv_color_hex(colors[i]), 0);
+    }
+    s_ch_rows[i] = row;
+  }
+
+  s_ch_arrow = lv_label_create(list);
+  lv_label_set_text(s_ch_arrow, LV_SYMBOL_RIGHT);
+  lv_obj_set_style_text_font(s_ch_arrow, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(s_ch_arrow, current_theme.border_accent, 0);
+  lv_obj_set_pos(s_ch_arrow, 2, 0);
+
+  ch_restyle();
+  ch_arrow_to(s_ch_sel);
+
+  // Idle swing so it reads as "point here, use UP/DOWN".
+  lv_anim_t a;
+  lv_anim_init(&a);
+  lv_anim_set_var(&a, s_ch_arrow);
+  lv_anim_set_exec_cb(&a, anim_tx_cb);
+  lv_anim_set_values(&a, 0, WOBBLE_PX);
+  lv_anim_set_duration(&a, WOBBLE_MS);
+  lv_anim_set_reverse_duration(&a, WOBBLE_MS);
+  lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+  lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+  lv_anim_start(&a);
+}
+
+static void chooser_move(int delta) {
+  int n = s_ch_sel + delta;
+  if (n < 0 || n >= s_ch_count)
+    return;
+  s_ch_sel = n;
+  if (s_ch_selp)
+    *s_ch_selp = n;
+  ch_restyle();
+  ch_arrow_to(n);
+}
+
+// ---- pages ------------------------------------------------------------------
 
 static void page_language(lv_obj_t *c) {
   wiz_heading(c, "Language");
+  wiz_sub(c, "Pick your language. UP / DOWN to choose.");
   static const char *langs[] = {"English", "Portugues", "Espanol", "Deutsch"};
-  lv_obj_t *list = wiz_flow(c, LV_FLEX_FLOW_COLUMN, 4);
-  for (int i = 0; i < 4; i++) {
-    lv_obj_t *row = lv_label_create(list);
-    lv_label_set_text(row, langs[i]);
-    lv_obj_set_width(row, WIZ_TEXT_W - 8);
-    lv_obj_set_style_text_font(row, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_align(row, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_radius(row, 5, 0);
-    lv_obj_set_style_pad_ver(row, 5, 0);
-    if (i == 0) {
-      lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
-      lv_obj_set_style_bg_color(row, current_theme.border_accent, 0);
-      lv_obj_set_style_text_color(row, current_theme.screen_base, 0);
-    } else {
-      lv_obj_set_style_text_color(row, current_theme.text_main, 0);
-      lv_obj_set_style_text_opa(row, WIZ_DIM_OPA, 0);
-    }
-  }
+  build_chooser(c, langs, NULL, 4, &s_lang_sel);
 }
 
 static void page_datetime(lv_obj_t *c) {
@@ -157,9 +321,9 @@ static void page_datetime(lv_obj_t *c) {
   lv_label_set_text(clk, "14:32");
   lv_obj_set_style_text_font(clk, &lv_font_montserrat_16, 0);
   lv_obj_set_style_text_color(clk, current_theme.border_accent, 0);
-  wiz_sub(c, "July 31, 2026");
+  wiz_sub(c, "High Boy timestamps every capture and log. Sync the clock from the companion app.");
   lv_obj_t *pill = lv_label_create(c);
-  lv_label_set_text(pill, LV_SYMBOL_REFRESH "  Sync from companion app");
+  lv_label_set_text(pill, LV_SYMBOL_REFRESH "  Sync from companion");
   lv_obj_set_style_text_font(pill, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(pill, current_theme.border_accent, 0);
   lv_obj_set_style_bg_opa(pill, LV_OPA_COVER, 0);
@@ -194,14 +358,14 @@ static void wiz_status_row(lv_obj_t *list, const char *name, const char *value) 
 static void page_storage(lv_obj_t *c) {
   wiz_heading(c, "Storage");
   lv_obj_t *list = wiz_flow(c, LV_FLEX_FLOW_COLUMN, 2);
-  wiz_status_row(list, LV_SYMBOL_SD_CARD "  SD Card", "Ready " LV_SYMBOL_OK);
+  wiz_status_row(list, LV_SYMBOL_SD_CARD "  microSD", "Ready " LV_SYMBOL_OK);
   wiz_status_row(list, LV_SYMBOL_DRIVE "  Internal", "OK " LV_SYMBOL_OK);
-  wiz_sub(c, "Storage mounted and ready.");
+  wiz_sub(c, "microSD keeps your captures, scripts and firmware; internal flash runs the OS.");
 }
 
 static void page_companion(lv_obj_t *c) {
   wiz_heading(c, "Companion App");
-  wiz_sub(c, "Enter this code in the phone app:");
+  wiz_sub(c, "Pair the phone app for time sync, file transfer and remote control.");
   lv_obj_t *box = lv_label_create(c);
   lv_label_set_text(box, "8 8 4 2");
   lv_obj_set_style_text_font(box, &lv_font_montserrat_16, 0);
@@ -213,14 +377,14 @@ static void page_companion(lv_obj_t *c) {
   lv_obj_set_style_radius(box, 8, 0);
   lv_obj_set_style_pad_hor(box, 14, 0);
   lv_obj_set_style_pad_ver(box, 8, 0);
-  wiz_sub(c, "...or press BACK to skip for now.");
+  wiz_sub(c, "Enter this code in the app, or press OK to skip.");
 }
 
 static void page_terms(lv_obj_t *c) {
   wiz_heading(c, "Responsible Use");
-  wiz_sub(
-      c,
-      "Use High Boy only where you are authorized. You are responsible for following local law.");
+  wiz_sub(c,
+          "High Boy is a security tool. Only test devices and networks you own or are explicitly "
+          "authorized to. You are responsible for following local law.");
   lv_obj_t *agree = lv_label_create(c);
   lv_label_set_text(agree, LV_SYMBOL_OK "  I understand and agree");
   lv_obj_set_style_text_font(agree, &lv_font_montserrat_14, 0);
@@ -228,21 +392,19 @@ static void page_terms(lv_obj_t *c) {
 }
 
 static void page_setupdone(lv_obj_t *c) {
-  lv_obj_t *chk = lv_label_create(c);
-  lv_label_set_text(chk, LV_SYMBOL_OK);
-  lv_obj_set_style_text_font(chk, &lv_font_montserrat_16, 0);
-  lv_obj_set_style_text_color(chk, current_theme.border_accent, 0);
+  wiz_mascot(c, 200);
   wiz_heading(c, "Setup complete");
   wiz_sub(c, "Now let's meet your guide.");
 }
 
 static void page_welcome(lv_obj_t *c) {
-  wiz_mascot(c);
+  wiz_mascot(c, 256);
   wiz_heading(c, "Hi, I'm Octobit!");
-  wiz_sub(c, "Welcome to your High Boy.");
+  wiz_sub(c, "I'll ride along and point things out as you explore your High Boy.");
 }
 
 static void page_controls(lv_obj_t *c) {
+  wiz_mascot(c, 150);
   wiz_heading(c, "Controls");
   lv_obj_t *r1 = wiz_flow(c, LV_FLEX_FLOW_ROW, 4);
   wiz_keycap(r1, LV_SYMBOL_UP);
@@ -256,18 +418,15 @@ static void page_controls(lv_obj_t *c) {
   lv_obj_t *r2 = wiz_flow(c, LV_FLEX_FLOW_ROW, 4);
   wiz_keycap(r2, "OK");
   lv_obj_t *s = lv_label_create(r2);
-  lv_label_set_text(s, "Select");
+  lv_label_set_text(s, "Select   -   hold UP anywhere for quick settings");
+  lv_obj_set_width(s, WIZ_TEXT_W - 40);
+  lv_label_set_long_mode(s, LV_LABEL_LONG_WRAP);
   lv_obj_set_style_text_font(s, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(s, current_theme.text_main, 0);
-  lv_obj_t *r3 = wiz_flow(c, LV_FLEX_FLOW_ROW, 4);
-  wiz_keycap(r3, "BACK");
-  lv_obj_t *b = lv_label_create(r3);
-  lv_label_set_text(b, "Return");
-  lv_obj_set_style_text_font(b, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_text_color(b, current_theme.text_main, 0);
 }
 
 static void page_toolkit(lv_obj_t *c) {
+  wiz_mascot(c, 150);
   wiz_heading(c, "Every signal, one device");
   lv_obj_t *g = wiz_flow(c, LV_FLEX_FLOW_ROW_WRAP, 6);
   wiz_chip(g, "WI-FI", current_theme.protocol_wifi);
@@ -281,37 +440,27 @@ static void page_toolkit(lv_obj_t *c) {
 }
 
 static void page_ethics(lv_obj_t *c) {
+  wiz_mascot(c, 150);
   lv_obj_t *w = lv_label_create(c);
   lv_label_set_text(w, LV_SYMBOL_WARNING);
   lv_obj_set_style_text_font(w, &lv_font_montserrat_16, 0);
   lv_obj_set_style_text_color(w, lv_color_hex(0xE0954A), 0);
   wiz_heading(c, "Play fair");
-  wiz_sub(c, "Only test devices you own or are allowed to.");
+  wiz_sub(c, "Only probe what's yours. Curiosity is great; consent comes first.");
 }
 
 static void page_theme(lv_obj_t *c) {
-  wiz_heading(c, "Pick a vibe");
-  static const uint32_t sw[] = {0x7A52D6, 0x2F9E6F, 0xC9761B, 0xD33F6F, 0x2E77C9};
-  lv_obj_t *row = wiz_flow(c, LV_FLEX_FLOW_ROW, 8);
-  for (int i = 0; i < 5; i++) {
-    lv_obj_t *s = lv_obj_create(row);
-    lv_obj_remove_style_all(s);
-    lv_obj_set_size(s, WIZ_SWATCH, WIZ_SWATCH);
-    lv_obj_set_style_radius(s, 6, 0);
-    lv_obj_set_style_bg_opa(s, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(s, lv_color_hex(sw[i]), 0);
-    if (i == 0) {
-      lv_obj_set_style_border_width(s, 2, 0);
-      lv_obj_set_style_border_color(s, current_theme.text_main, 0);
-    }
-  }
-  wiz_sub(c, "12 themes repaint the interface.");
+  wiz_heading(c, "Theme");
+  wiz_sub(c, "UP / DOWN to preview. More themes land later.");
+  static const char *names[] = {"Default", "Dark"};
+  static const uint32_t sw[] = {0x7A52D6, 0x1E1E24};
+  build_chooser(c, names, sw, 2, &s_theme_sel);
 }
 
 static void page_ready(lv_obj_t *c) {
-  wiz_mascot(c);
+  wiz_mascot(c, 256);
   wiz_heading(c, "You're all set!");
-  wiz_sub(c, "Tips will guide you as you explore.");
+  wiz_sub(c, "Tips will nudge you as you go. Let's dive in.");
 }
 
 typedef void (*wiz_build_fn)(lv_obj_t *);
@@ -319,33 +468,91 @@ typedef void (*wiz_build_fn)(lv_obj_t *);
 typedef struct {
   wiz_build_fn build;
   const char *foot;
+  bool mascot; // keep the persistent guide visible from here on
 } wiz_page_t;
 
 static const wiz_page_t PAGES[] = {
-    {page_language, "OK  Next"},
-    {page_datetime, "OK  Next      BACK  Back"},
-    {page_storage, "OK  Next      BACK  Back"},
-    {page_companion, "OK  Next      BACK  Back"},
-    {page_terms, "OK  Accept      BACK  Back"},
-    {page_setupdone, "OK  Continue      BACK  Back"},
-    {page_welcome, "OK  Next      BACK  Back"},
-    {page_controls, "OK  Next      BACK  Back"},
-    {page_toolkit, "OK  Next      BACK  Back"},
-    {page_ethics, "OK  Got it      BACK  Back"},
-    {page_theme, "OK  Next      BACK  Back"},
-    {page_ready, "OK  Enter      BACK  Back"},
+    {page_language, "UP/DOWN Pick    OK Next", false},
+    {page_datetime, "OK Next    BACK Back", false},
+    {page_storage, "OK Next    BACK Back", false},
+    {page_companion, "OK Next    BACK Back", false},
+    {page_terms, "OK Accept    BACK Back", false},
+    {page_setupdone, "OK Continue    BACK Back", true},
+    {page_welcome, "OK Next    BACK Back", true},
+    {page_controls, "OK Next    BACK Back", true},
+    {page_toolkit, "OK Next    BACK Back", true},
+    {page_ethics, "OK Got it    BACK Back", true},
+    {page_theme, "UP/DOWN Preview    OK Next", true},
+    {page_ready, "OK Enter    BACK Back", true},
 };
 
 #define PAGE_COUNT ((int)(sizeof(PAGES) / sizeof(PAGES[0])))
 
-static void show_page(int idx) {
+static void arm_done(lv_anim_t *a) {
+  (void)a;
+  s_busy = false;
+  s_open_tick = lv_tick_get();
+}
+
+static void build_page_now(int idx) {
+  s_busy = true; // cleared by arm_done() when the fade-in finishes
   s_page = idx;
+  s_ch_count = 0;
+  s_ch_arrow = NULL;
+  s_mascot = NULL; // set by wiz_mascot() during the build if this page has one
   lv_obj_clean(s_content);
   PAGES[idx].build(s_content);
   lv_label_set_text(s_foot, PAGES[idx].foot);
   lv_label_set_text_fmt(s_step, "%d / %d", idx + 1, PAGE_COUNT);
-  lv_obj_set_width(s_prog_fill, WIZ_PROG_W * (idx + 1) / PAGE_COUNT);
-  s_open_tick = lv_tick_get();
+
+  // Progress bar eases to the new fraction.
+  lv_anim_t a;
+  lv_anim_init(&a);
+  lv_anim_set_var(&a, s_prog_fill);
+  lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)lv_obj_set_width);
+  lv_anim_set_values(&a, lv_obj_get_width(s_prog_fill), WIZ_PROG_W * (idx + 1) / PAGE_COUNT);
+  lv_anim_set_duration(&a, PROG_MS);
+  lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+  lv_anim_start(&a);
+
+  // Compose the page in on the dark canvas: octobit fades in and glides from the
+  // side first, THEN the text fades in below it, element by element.
+  lv_obj_set_style_opa(s_content, LV_OPA_COVER, 0);
+
+  uint32_t base = 0;
+  if (s_mascot) {
+    // Octobit simply fades in and floats in place (no slide); the text waits for it.
+    fade(s_mascot, LV_OPA_TRANSP, LV_OPA_COVER, MASCOT_FADE, 0, lv_anim_path_ease_out, NULL);
+    base = MASCOT_ENTER;
+  }
+
+  uint32_t n = lv_obj_get_child_count(s_content);
+  int step = 0;
+  for (uint32_t i = 0; i < n; i++) {
+    lv_obj_t *ch = lv_obj_get_child(s_content, i);
+    if (ch == s_mascot)
+      continue;
+    fade(ch, LV_OPA_TRANSP, LV_OPA_COVER, FADE_IN_MS, base + (uint32_t)step * STAGGER_MS,
+         lv_anim_path_ease_out, NULL);
+    step++;
+  }
+
+  // Arm input once the whole sequence has settled (a no-op timing anim).
+  uint32_t settle = base + (step > 0 ? (uint32_t)(step - 1) * STAGGER_MS : 0) + FADE_IN_MS;
+  fade(s_content, LV_OPA_COVER, LV_OPA_COVER, settle, 0, lv_anim_path_linear, arm_done);
+}
+
+static void fade_out_done(lv_anim_t *a) {
+  (void)a;
+  build_page_now(s_pending);
+}
+
+static void go_page(int idx) {
+  if (idx < 0 || idx >= PAGE_COUNT)
+    return;
+  s_pending = idx;
+  s_busy = true;
+  fade(s_content, LV_OPA_COVER, LV_OPA_TRANSP, FADE_OUT_MS, 0, lv_anim_path_ease_in, fade_out_done);
 }
 
 static void mark_done(void) {
@@ -369,6 +576,9 @@ static void finish(void) {
   s_prog_fill = NULL;
   s_step = NULL;
   s_foot = NULL;
+  s_ch_arrow = NULL;
+  s_ch_count = 0;
+  s_mascot = NULL;
 
   ui_switch_screen(SCREEN_HOME);
   if (root != NULL)
@@ -378,17 +588,32 @@ static void finish(void) {
 static void key_cb(lv_event_t *e) {
   if (lv_event_get_code(e) != LV_EVENT_KEY)
     return;
+  if (s_busy)
+    return;
   if (lv_tick_get() - s_open_tick < WIZ_ARM_MS)
     return;
   uint32_t key = lv_event_get_key(e);
+
+  // On a chooser page UP/DOWN move the selection (arrow slides to it).
+  if (s_ch_count > 0) {
+    if (key == LV_KEY_UP) {
+      chooser_move(-1);
+      return;
+    }
+    if (key == LV_KEY_DOWN) {
+      chooser_move(1);
+      return;
+    }
+  }
+
   if (key == LV_KEY_ENTER || key == LV_KEY_RIGHT) {
     if (s_page + 1 < PAGE_COUNT)
-      show_page(s_page + 1);
+      go_page(s_page + 1);
     else
       finish();
   } else if (key == LV_KEY_LEFT || key == LV_KEY_ESC) {
     if (s_page > 0)
-      show_page(s_page - 1);
+      go_page(s_page - 1);
   }
 }
 
@@ -423,6 +648,7 @@ void tutorial_start(void) {
   s_prog_fill = lv_obj_create(track);
   lv_obj_remove_style_all(s_prog_fill);
   lv_obj_set_height(s_prog_fill, WIZ_PROG_H);
+  lv_obj_set_width(s_prog_fill, 0);
   lv_obj_set_style_bg_opa(s_prog_fill, LV_OPA_COVER, 0);
   lv_obj_set_style_bg_color(s_prog_fill, current_theme.border_accent, 0);
   lv_obj_set_style_radius(s_prog_fill, WIZ_PROG_H / 2, 0);
@@ -446,6 +672,7 @@ void tutorial_start(void) {
   lv_obj_align(s_foot, LV_ALIGN_BOTTOM_MID, 0, WIZ_FOOT_Y);
 
   s_active = true;
+  s_busy = false;
 
   if (main_group != NULL) {
     lv_group_remove_all_objs(main_group);
@@ -454,7 +681,7 @@ void tutorial_start(void) {
     lv_group_set_editing(main_group, false);
   }
 
-  show_page(0);
+  build_page_now(0);
   lv_screen_load(root);
 }
 
