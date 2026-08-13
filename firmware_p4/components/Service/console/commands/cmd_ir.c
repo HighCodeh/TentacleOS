@@ -24,9 +24,10 @@
 
 #include "ir.h"
 
-// IR is brought up lazily (no boot-time init). These commands init the RMT
-// channel on demand and 'ir deinit' releases it, so the channel is not held for
-// the rest of the session after a one-off capture/send from the console.
+// IR is brought up lazily (no boot-time init). The rx/send commands are one-shot:
+// they init the RMT channel on demand and release it again when the operation
+// finishes, so the channel is not held for the rest of the session. 'flash' is
+// the exception - it stays on until 'flash off' by design.
 
 #define IR_RX_DEFAULT_TIMEOUT_MS 5000
 
@@ -47,12 +48,11 @@ static void print_protocols(void) {
 
 static int cmd_ir(int argc, char **argv) {
   if (argc < 2) {
-    printf("usage: ir <rx|send|flash|deinit>\n");
+    printf("usage: ir <rx|send|flash>\n");
     printf("  rx [timeout_ms]              wait for one frame and decode it (default %d ms)\n",
            IR_RX_DEFAULT_TIMEOUT_MS);
     printf("  send <proto> <addr> <cmd> [repeat]  transmit a code (addr/cmd accept 0x hex)\n");
     printf("  flash <on|off>              drive the emitter at full power (torch) / off\n");
-    printf("  deinit                       release the RX+TX RMT channels\n");
     print_protocols();
     return 1;
   }
@@ -85,6 +85,7 @@ static int cmd_ir(int argc, char **argv) {
     } else {
       printf("ir: receive error: %s\n", esp_err_to_name(r));
     }
+    ir_rx_deinit(); // one-shot: release the RX channel now that the capture is done
     return 0;
   }
 
@@ -111,6 +112,7 @@ static int cmd_ir(int argc, char **argv) {
       return 1;
     }
     r = ir_send(&data);
+    ir_tx_deinit(); // one-shot: release the TX channel now that the send is done
     if (r != ESP_OK) {
       printf("ir: send failed: %s\n", esp_err_to_name(r));
       return 1;
@@ -145,13 +147,6 @@ static int cmd_ir(int argc, char **argv) {
     return 0;
   }
 
-  if (strcmp(argv[1], "deinit") == 0) {
-    ir_rx_deinit();
-    ir_tx_deinit();
-    printf("ir: rx+tx released\n");
-    return 0;
-  }
-
   printf("ir: unknown subcommand '%s'\n", argv[1]);
   return 1;
 }
@@ -159,7 +154,7 @@ static int cmd_ir(int argc, char **argv) {
 void register_ir_commands(void) {
   const esp_console_cmd_t cmd_ir_def = {
       .command = "ir",
-      .help = "Infrared receive/transmit: ir rx | send | deinit",
+      .help = "Infrared receive/transmit: ir rx | send | flash",
       .hint = NULL,
       .func = &cmd_ir,
   };
