@@ -59,6 +59,19 @@ void lv_port_indev_set_keyboard_mode(bool is_enabled);
  */
 void lv_port_indev_inject(uint32_t lv_key);
 
+/**
+ * @brief Suppress the keypad indev so LVGL widgets/groups receive no keys.
+ *
+ * While suppressed, keypad_read reports "no button", so focused list/menu
+ * screens driven by the LVGL group stop navigating. Used by the global
+ * dropdown to hold exclusive input while it is open (it polls the buttons
+ * directly, so it keeps working). Does not affect screens that poll the
+ * buttons themselves — those gate on ui_input_is_locked() instead.
+ *
+ * @param suppressed  true to swallow keys, false to resume.
+ */
+void lv_port_indev_set_suppressed(bool suppressed);
+
 #ifdef __cplusplus
 }
 #endif
