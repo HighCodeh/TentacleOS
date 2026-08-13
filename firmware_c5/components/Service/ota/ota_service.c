@@ -42,11 +42,10 @@ static const char *TAG = "OTA_SVC";
 // during a flash-write/scheduling stall.
 #define OTA_BLOCK       4096
 
-// Handshake: the P4 sends OTA_MAGIC and waits for us to reply OTA_READY before
-// it sends the 4-byte little-endian size + the raw app binary. The reply makes
-// the size/data alignment deterministic even if the first magic byte is lost on
-// the idle->active line transition (the P4 just retries the magic).
-static const uint8_t OTA_MAGIC[4] = {0xC5, 0xFA, 0x5E, 0x01};
+// Handshake: the P4 triggers the OTA over SPI (SPI_ID_SYSTEM_START_UART_OTA),
+// then we reply OTA_READY on UART0 so it knows we have flipped UART0 from console
+// to raw OTA receive and are aligned. The P4 then sends the 4-byte little-endian
+// size + the raw app binary.
 #define OTA_READY 0x52
 #define OTA_ACK   0x06
 #define OTA_NAK   0x15
@@ -59,21 +58,6 @@ static const uint8_t OTA_MAGIC[4] = {0xC5, 0xFA, 0x5E, 0x01};
 static void send_status(uint8_t s) {
   uart_write_bytes(OTA_UART, (const char *)&s, 1);
   uart_wait_tx_done(OTA_UART, pdMS_TO_TICKS(200));
-}
-
-static void wait_for_magic(void) {
-  size_t matched = 0;
-  uint8_t b;
-  while (matched < sizeof(OTA_MAGIC)) {
-    if (uart_read_bytes(OTA_UART, &b, 1, portMAX_DELAY) != 1) {
-      continue;
-    }
-    if (b == OTA_MAGIC[matched]) {
-      matched++;
-    } else {
-      matched = (b == OTA_MAGIC[0]) ? 1 : 0;
-    }
-  }
 }
 
 static esp_err_t read_exact(uint8_t *buf, uint32_t len, uint32_t timeout_ms) {
@@ -174,23 +158,7 @@ static void do_ota(void) {
   esp_restart();
 }
 
-static void ota_task(void *arg) {
-  (void)arg;
-  const esp_partition_t *running = esp_ota_get_running_partition();
-  ESP_LOGI(TAG, "OTA receiver ready (running from '%s')", running ? running->label : "?");
-  while (true) {
-    wait_for_magic();
-    ESP_LOGW(TAG, "OTA sync received from P4");
-    // Discard anything trailing the magic, then tell the P4 we're aligned. The
-    // P4 only sends the size + image after seeing this, so the next bytes we
-    // read are guaranteed to be the size header.
-    uart_flush_input(OTA_UART);
-    send_status(OTA_READY);
-    do_ota();
-  }
-}
-
-esp_err_t ota_service_start(void) {
+esp_err_t ota_service_run_uart(void) {
   const uart_config_t cfg = {
       .baud_rate = OTA_BAUD,
       .data_bits = UART_DATA_8_BITS,
@@ -199,17 +167,39 @@ esp_err_t ota_service_start(void) {
       .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
       .source_clk = UART_SCLK_DEFAULT,
   };
-  esp_err_t err = uart_driver_install(OTA_UART, OTA_RX_RINGBUF, 0, 0, NULL, 0);
+
+  // Take UART0 over from the console. With no REPL the console only does polled
+  // log output (no driver installed), so this normally installs fresh; guard
+  // anyway so a second trigger is idempotent.
+  if (!uart_is_driver_installed(OTA_UART)) {
+    esp_err_t err = uart_driver_install(OTA_UART, OTA_RX_RINGBUF, 0, 0, NULL, 0);
+    if (err != ESP_OK) {
+      ESP_LOGE(TAG, "uart_driver_install: %s", esp_err_to_name(err));
+      return err;
+    }
+  }
+  esp_err_t err = uart_param_config(OTA_UART, &cfg);
+  if (err == ESP_OK) {
+    err = uart_set_pin(
+        OTA_UART, OTA_UART_TX_PIN, OTA_UART_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+  }
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "uart_driver_install: %s", esp_err_to_name(err));
+    ESP_LOGE(TAG, "uart config: %s", esp_err_to_name(err));
+    uart_driver_delete(OTA_UART);
     return err;
   }
-  ESP_ERROR_CHECK(uart_param_config(OTA_UART, &cfg));
-  ESP_ERROR_CHECK(uart_set_pin(OTA_UART, OTA_UART_TX_PIN, OTA_UART_RX_PIN, UART_PIN_NO_CHANGE,
-                               UART_PIN_NO_CHANGE));
 
-  if (xTaskCreate(ota_task, "ota_task", 6144, NULL, 5, NULL) != pdPASS) {
-    return ESP_ERR_NO_MEM;
-  }
-  return ESP_OK;
+  // From here UART0 is the raw OTA channel: any log byte would corrupt the stream
+  // the P4 is reading. Silence all logging for the transfer. do_ota() reboots on
+  // success, so logging is only restored on the failure paths below.
+  esp_log_level_set("*", ESP_LOG_NONE);
+
+  uart_flush_input(OTA_UART);
+  send_status(OTA_READY);
+  do_ota(); // reboots into the new app on success
+
+  // Only reached on failure: restore logging and hand UART0 back to the console.
+  esp_log_level_set("*", ESP_LOG_INFO);
+  uart_driver_delete(OTA_UART);
+  return ESP_FAIL;
 }

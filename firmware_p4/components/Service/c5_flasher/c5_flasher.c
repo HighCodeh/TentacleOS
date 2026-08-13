@@ -22,6 +22,7 @@
 #include "driver/gpio.h"
 #include "driver/uart.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -51,8 +52,6 @@ void c5_flasher_progress(uint32_t *sent, uint32_t *total) {
 
 #define OTA_BEGIN_TIMEOUT_MS 20000
 
-static const uint8_t OTA_MAGIC[4] = {0xC5, 0xFA, 0x5E, 0x01};
-
 #define C5_SD_FW_PATH "/sdcard/c5/TentacleOS_C5.bin"
 
 #define OTA_READY 0x52
@@ -64,6 +63,7 @@ static const uint8_t OTA_MAGIC[4] = {0xC5, 0xFA, 0x5E, 0x01};
 #define OTA_ACK_TIMEOUT_MS   30000
 
 #define ENTER_DOWNLOAD_TIMEOUT_MS 500
+#define START_UART_OTA_TIMEOUT_MS 1000
 
 esp_err_t c5_flasher_init(void) {
   const uart_config_t cfg = {
@@ -171,40 +171,46 @@ esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size) {
 
   uart_flush(OTA_UART);
 
+  // Trigger the C5 to flip UART0 from console to raw OTA receive, over SPI. The
+  // UART carries only the binary now - no UART magic. After the trigger the C5
+  // silences its logging and replies OTA_READY on UART0, but a few console log
+  // bytes may still be in flight before it goes quiet, so drain until READY
+  // rather than reading a single byte.
   bool synced = false;
   for (int attempt = 1; attempt <= OTA_SYNC_ATTEMPTS && !synced; attempt++) {
-    uart_flush(OTA_UART);
-    uart_write_bytes(OTA_UART, (const char *)OTA_MAGIC, sizeof(OTA_MAGIC));
-    uart_wait_tx_done(OTA_UART, pdMS_TO_TICKS(200));
-    uint8_t r = 0;
-    int n = uart_read_bytes(OTA_UART, &r, 1, pdMS_TO_TICKS(OTA_READY_TIMEOUT_MS));
-    if (n == 1 && r == OTA_READY) {
-      synced = true;
-      ESP_LOGI(TAG, "C5 handshake OK (attempt %d/%d)", attempt, OTA_SYNC_ATTEMPTS);
-    } else if (n == 1) {
+    spi_header_t sresp = {0};
+    esp_err_t tr = spi_bridge_send_command(
+        SPI_ID_SYSTEM_START_UART_OTA, NULL, 0, &sresp, NULL, START_UART_OTA_TIMEOUT_MS);
+    if (tr != ESP_OK) {
       ESP_LOGW(TAG,
-               "handshake %d/%d: got 0x%02X, want READY 0x%02X (baud mismatch or line noise?)",
+               "start-uart-ota %d/%d: SPI cmd failed (%s)",
                attempt,
                OTA_SYNC_ATTEMPTS,
-               r,
-               OTA_READY);
-    } else {
+               esp_err_to_name(tr));
+      continue;
+    }
+    int64_t deadline = esp_timer_get_time() + (int64_t)OTA_READY_TIMEOUT_MS * 1000;
+    while (esp_timer_get_time() < deadline) {
+      uint8_t r = 0;
+      int n = uart_read_bytes(OTA_UART, &r, 1, pdMS_TO_TICKS(50));
+      if (n == 1 && r == OTA_READY) {
+        synced = true;
+        ESP_LOGI(TAG, "C5 in OTA mode, READY (attempt %d/%d)", attempt, OTA_SYNC_ATTEMPTS);
+        break;
+      }
+    }
+    if (!synced) {
       ESP_LOGW(TAG,
-               "handshake %d/%d: no reply within %d ms",
+               "start-uart-ota %d/%d: no READY within %d ms",
                attempt,
                OTA_SYNC_ATTEMPTS,
                OTA_READY_TIMEOUT_MS);
     }
   }
   if (!synced) {
-    ESP_LOGE(TAG, "C5 OTA handshake failed after %d attempts", OTA_SYNC_ATTEMPTS);
-    ESP_LOGE(TAG, "  the C5 must be RUNNING ITS APP (the OTA receiver on UART0) to answer");
-    ESP_LOGE(TAG, "  a blank C5 will NOT reply here -- use ROM flash or passthrough instead");
-    ESP_LOGE(TAG,
-             "  also verify wiring TX=GPIO%d/RX=GPIO%d and %d baud on both sides",
-             GPIO_C5_UART_TX_PIN,
-             GPIO_C5_UART_RX_PIN,
-             OTA_BAUD);
+    ESP_LOGE(TAG, "C5 OTA trigger failed after %d attempts", OTA_SYNC_ATTEMPTS);
+    ESP_LOGE(TAG, "  the C5 must be RUNNING ITS APP (SPI bridge up) to accept the trigger");
+    ESP_LOGE(TAG, "  a blank C5 will NOT respond -- use ROM flash or passthrough instead");
     goto cleanup;
   }
   ESP_LOGI(TAG, "C5 synced - sending image");

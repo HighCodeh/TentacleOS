@@ -22,11 +22,15 @@ extern "C" {
 
 #include "esp_err.h"
 
-// Start the OTA receiver task. It listens on UART0 (wired to the P4) for a
-// firmware push from the P4, writes it to the inactive OTA partition with the
-// esp_ota APIs, and reboots into the new app. The C5 keeps running its normal
-// app the whole time - no ROM download mode involved.
-esp_err_t ota_service_start(void);
+// Receive a firmware push from the P4 over UART0 and flash it, on demand.
+//
+// The OTA is triggered by the P4 over SPI (SPI_ID_SYSTEM_START_UART_OTA), not by
+// a UART magic: UART0 is the console the rest of the time. This call takes UART0
+// over from the console, silences logging (so no byte corrupts the raw transfer),
+// replies READY, receives the image into the inactive OTA partition with the
+// esp_ota APIs, and reboots into the new app on success. On failure it restores
+// logging, releases UART0, and returns an error. Call from the SPI bridge task.
+esp_err_t ota_service_run_uart(void);
 
 #ifdef __cplusplus
 }

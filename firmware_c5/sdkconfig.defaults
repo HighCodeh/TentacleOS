@@ -21,10 +21,12 @@ CONFIG_ESP_SYSTEM_SINGLE_CORE_MODE=y
 # Larger stack for kernel_init
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 
-# Console on USB-Serial-JTAG so UART0 is free for the C5 OTA receiver (see ota_service).
-# C5 logs are also teed to the P4 over SPI, so no observability is lost.
-CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
-CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+# Console primary on UART0 (visible on the CP2105), secondary on USB-JTAG.
+# UART0 is only borrowed for the OTA transfer, which is now triggered on demand
+# over SPI (SPI_ID_SYSTEM_START_UART_OTA) and silences logging while it runs, so
+# the console and the OTA no longer collide. Logs are also teed to the P4 over SPI.
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG=y
 
 # Bluetooth NimBLE
 CONFIG_BT_ENABLED=y
