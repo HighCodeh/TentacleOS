@@ -142,6 +142,26 @@ void ir_rx_prime(void) {
   }
 }
 
+void ir_rx_deinit(void) {
+  if (!s_is_rx_inited)
+    return;
+
+  // Disable before delete: rmt_del_channel rejects an enabled channel. The
+  // one-shot receive pending from init/re-arm is dropped by the disable.
+  if (s_rx_chan != NULL) {
+    rmt_disable(s_rx_chan);
+    rmt_del_channel(s_rx_chan);
+    s_rx_chan = NULL;
+  }
+  if (s_rx_queue != NULL) {
+    vQueueDelete(s_rx_queue);
+    s_rx_queue = NULL;
+  }
+  s_rx_armed = false;
+  s_is_rx_inited = false;
+  ESP_LOGI(TAG, "IR RX released");
+}
+
 esp_err_t ir_tx_init(void) {
   if (s_is_tx_inited)
     return ESP_OK;
@@ -199,6 +219,25 @@ fail:
     s_tx_chan = NULL;
   }
   return ret;
+}
+
+void ir_tx_deinit(void) {
+  if (!s_is_tx_inited)
+    return;
+
+  // Disable before delete: rmt_del_channel rejects an enabled channel.
+  if (s_tx_chan != NULL) {
+    rmt_disable(s_tx_chan);
+    rmt_del_channel(s_tx_chan);
+    s_tx_chan = NULL;
+  }
+  if (s_tx_encoder != NULL) {
+    rmt_del_encoder(s_tx_encoder);
+    s_tx_encoder = NULL;
+  }
+  s_current_carrier = 0;
+  s_is_tx_inited = false;
+  ESP_LOGI(TAG, "IR TX released");
 }
 
 esp_err_t ir_receive(ir_data_t *out_data, uint32_t timeout_ms) {

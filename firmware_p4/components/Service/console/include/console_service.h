@@ -69,6 +69,11 @@ void register_hostlink_commands(void);
  */
 void register_screen_commands(void);
 
+/**
+ * @brief Register infrared commands (rx, send, deinit).
+ */
+void register_ir_commands(void);
+
 #ifdef __cplusplus
 }
 #endif

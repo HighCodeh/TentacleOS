@@ -70,6 +70,15 @@ esp_err_t ir_rx_init(void);
 void ir_rx_prime(void);
 
 /**
+ * @brief Release the IR RX channel and its resources.
+ *
+ * Tears down what ir_rx_init() allocated (RMT channel + event queue) so the RMT
+ * channel is freed instead of staying held for the rest of the session. Safe to
+ * call when RX was never inited (no-op). ir_rx_init() re-initializes afterwards.
+ */
+void ir_rx_deinit(void);
+
+/**
  * @brief Initialize the IR TX channel.
  *
  * @return
@@ -77,6 +86,15 @@ void ir_rx_prime(void);
  *   - Other ESP_ERR codes from the RMT driver
  */
 esp_err_t ir_tx_init(void);
+
+/**
+ * @brief Release the IR TX channel and its resources.
+ *
+ * Tears down what ir_tx_init() allocated (RMT channel + copy encoder) so the RMT
+ * channel is freed instead of staying held for the rest of the session. Safe to
+ * call when TX was never inited (no-op). ir_tx_init() re-initializes afterwards.
+ */
+void ir_tx_deinit(void);
 
 /**
  * @brief Wait for and decode an incoming IR frame.
