@@ -20,6 +20,8 @@
 extern "C" {
 #endif
 
+#include <stddef.h>
+
 #include "lvgl.h"
 
 /**
@@ -45,6 +47,62 @@ extern "C" {
  * @return The header object.
  */
 lv_obj_t *ui_chrome_header(lv_obj_t *parent, const char *title, const char *icon_path);
+
+/**
+ * @brief Header for a TRANSIENT overlay drawn over a live screen.
+ *
+ * Same look as ui_chrome_header but with a STATIC snapshot status header (no
+ * global rebind, no timers) and never a letreiro — so tearing the overlay down
+ * cannot dangle the dynamic header of the screen underneath. Use for full-screen
+ * action overlays (transmit/emulate/now-playing/detail popups), NOT for regular
+ * navigable screens.
+ */
+lv_obj_t *ui_chrome_header_overlay(lv_obj_t *parent, const char *title, const char *icon_path);
+
+/**
+ * @brief Enable/disable the shared status cluster inside the next chrome headers.
+ *
+ * The UI manager sets this per screen before building it: browse screens enable
+ * it (so the header carries the global wifi/bt/sd/battery status bar), active
+ * "operation" screens (reading/sending/scanning/emulating) disable it so their
+ * chrome header stays a plain title bar. Default is enabled.
+ *
+ * @param enabled  true to attach status icons, false for a plain title bar.
+ */
+void ui_chrome_set_status_enabled(bool enabled);
+
+/** @brief Whether the next chrome header carries the shared status bar (browse). */
+bool ui_chrome_status_enabled(void);
+
+/**
+ * @brief Set the breadcrumb root (the category/menu name) for the light labels.
+ *
+ * Menus call this with their own title; subsequent leaf screens then render their
+ * title as "root / title" (e.g. "NFC / EMULATE"). Cleared on home/coverflow.
+ */
+void ui_chrome_set_breadcrumb_root(const char *root);
+
+/**
+ * @brief Compose a display title from the current breadcrumb root + @p title.
+ *
+ * Writes "root / title" when a root is set, else just "title", into @p dst.
+ */
+void ui_chrome_compose_title(char *dst, size_t n, const char *title);
+
+/**
+ * @brief Fill a top-area container with the EXACT home/coverflow status header
+ *        plus a light breadcrumb label naming the current submenu.
+ *
+ * Shared by ui_chrome_header() and the menu_component title area so every browse
+ * screen shows the identical status bar (12:00 + wifi/bt/sd/battery floating
+ * card) with a thin submenu label beneath it. @p container must sit at the top of
+ * the screen (its child card floats -12px and clips against the display edge).
+ *
+ * @param container  Transparent top-area object, height UI_CHROME_HEADER_H.
+ * @param title      Submenu name shown in the light label.
+ * @return The light label object.
+ */
+lv_obj_t *ui_chrome_light_title(lv_obj_t *container, const char *title);
 
 /**
  * @brief Full-width bottom bar: raised surface, top accent border, centered

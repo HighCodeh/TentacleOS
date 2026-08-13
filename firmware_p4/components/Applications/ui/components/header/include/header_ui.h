@@ -28,6 +28,37 @@ extern "C" {
 void header_ui_create(lv_obj_t *parent);
 
 /**
+ * @brief Attach the shared status cluster (wifi/bt/sd/battery) to @p parent.
+ *
+ * Builds the exact same icons + starts the exact same singleton status timers
+ * the home/menu header uses, right-aligned inside @p parent. Reused by the
+ * per-screen chrome header so every screen shows the identical status bar with
+ * identical behavior (charging animation, SD mount, BLE tint, ...).
+ *
+ * @param parent    Bar object to attach the cluster to.
+ * @param y_offset  Vertical nudge to the parent's visual center (home's bar is
+ *                  drawn with a negative top inset -> 6; the chrome bar -> 0).
+ */
+void header_ui_attach_status(lv_obj_t *parent, int y_offset);
+
+/**
+ * @brief Static one-shot version of the status cluster (no globals, no timers).
+ *
+ * Paints wifi/bt/sd/battery at the CURRENT state but does not bind the shared
+ * statics nor register the animation timers, so it never dangles when torn down.
+ * For transient overlays drawn over a live screen. See header_ui_create_snapshot.
+ */
+void header_ui_attach_status_snapshot(lv_obj_t *parent, int y_offset);
+
+/**
+ * @brief Full home-style status bar, but STATIC (snapshot cluster, no timers).
+ *
+ * Same visual as header_ui_create; use on a transient overlay so it does not
+ * rebind/dangle the dynamic header of the screen underneath.
+ */
+void header_ui_create_snapshot(lv_obj_t *parent);
+
+/**
  * @brief Tell the header whether BLE is currently active/connected.
  *        Call from the BLE service when the link state changes; the
  *        header will tint the BT icon green when true. Default is false

@@ -24,6 +24,7 @@
 #include "st7789.h"
 
 #include "assets_manager.h"
+#include "battery_service.h"
 #include "bq25896.h"
 #include "msgbox_ui.h"
 #include "notify_ui.h"
@@ -40,12 +41,14 @@
 #define HEADER_ACTIVE_TINT_HEX 0x00E676
 #define SD_CD_PRESENT_LEVEL    0
 
-#define STATUS_TINT_POLL_MS 500
+#define STATUS_TINT_POLL_MS 300
 #define WIFI_STATUS_POLL_MS 500
 #define WIFI_ANIM_MS        800
+#define BATTERY_ANIM_MS     350
 
 #define SD_MOUNT_RETRIES        3
 #define SD_MOUNT_RETRY_DELAY_MS 150
+#define SD_TASK_STACK           6144 // vfs mount/unmount logs via the deep console path
 
 static lv_obj_t *bt_img_ref = NULL;
 static lv_obj_t *card_img_ref = NULL;
@@ -54,6 +57,7 @@ static lv_timer_t *status_tint_timer = NULL;
 static bool s_cd_configured = false;
 static bool s_cd_init = false;
 static bool s_cd_last = false;
+static bool s_cd_prev = false;
 static bool s_sd_mounted = false;
 static bool s_boot_pending = false;
 static int s_sd_used_pct = 0;
@@ -166,7 +170,7 @@ static void start_sd_mount_task(bool boot) {
   }
   s_boot_pending = boot;
   s_mount_task_running = true;
-  if (xTaskCreate(sd_mount_task, "sd_mnt", 4096, NULL, 4, NULL) != pdPASS) {
+  if (xTaskCreate(sd_mount_task, "sd_mnt", SD_TASK_STACK, NULL, 4, NULL) != pdPASS) {
     s_mount_task_running = false;
     s_boot_pending = false;
   }
@@ -180,12 +184,15 @@ static void status_tint_timer_cb(lv_timer_t *timer) {
   if (!s_cd_init) {
     s_cd_init = true;
     s_cd_last = present;
+    s_cd_prev = present;
     if (vfs_sdcard_is_mounted()) {
       start_sd_mount_task(true);
     } else if (present) {
       start_sd_mount_task(false);
     }
-  } else if (present != s_cd_last) {
+  } else if (present == s_cd_prev && present != s_cd_last) {
+    // Commit only after the new card-detect state is stable for two ticks
+    // (debounce a glitchy CD switch so we never spuriously mount/unmount).
     s_cd_last = present;
     if (present) {
       start_sd_mount_task(false);
@@ -196,9 +203,10 @@ static void status_tint_timer_cb(lv_timer_t *timer) {
         ui_feedback(UI_FB_SD_DISCONNECT);
         notify(NOTIFY_WARNING, "SD card removed");
       }
-      xTaskCreate(sd_unmount_task, "sd_umnt", 3072, NULL, 4, NULL);
+      xTaskCreate(sd_unmount_task, "sd_umnt", SD_TASK_STACK, NULL, 4, NULL);
     }
   }
+  s_cd_prev = present;
 
   if (s_sd_mount_result_pending) {
     s_sd_mount_result_pending = false;
@@ -213,7 +221,7 @@ static void status_tint_timer_cb(lv_timer_t *timer) {
     } else {
       s_sd_mounted = false;
       if (vfs_sdcard_is_mounted()) {
-        xTaskCreate(sd_unmount_task, "sd_umnt", 3072, NULL, 4, NULL);
+        xTaskCreate(sd_unmount_task, "sd_umnt", SD_TASK_STACK, NULL, 4, NULL);
       }
     }
   }
@@ -248,11 +256,11 @@ static const char *wifi_paths[4] = {
     "/assets/icons/wifi_icon_3.bin",
 };
 
+static lv_obj_t *battery_cont = NULL;
 static lv_obj_t *battery_img = NULL;
 static lv_obj_t *power_img = NULL;
 static lv_image_dsc_t *battery_dscs[4] = {NULL};
 static int battery_frame = 0;
-static int battery_dir = 1;
 static lv_timer_t *battery_anim_timer = NULL;
 
 static const char *battery_paths[4] = {
@@ -300,65 +308,102 @@ static void wifi_anim_timer_cb(lv_timer_t *timer) {
   }
 }
 
+// Single status-bar battery updater: hide the whole cell when no charger answers
+// on I2C; while charging, sweep the fill frames (charging animation) + white bolt;
+// otherwise show the static SoC frame (red wash when critically low), no bolt.
+// Called both synchronously at header creation (so it never flashes an empty
+// battery) and from the poll timer.
+static void battery_apply(void) {
+  if (!battery_cont || !lv_obj_is_valid(battery_cont))
+    return;
+
+  battery_snapshot_t bs;
+  if (!battery_service_get(&bs))
+    return;
+
+  // No charger on I2C: drop the whole cell so the flex row leaves no empty slot.
+  if (!bs.present) {
+    lv_obj_add_flag(battery_cont, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+  lv_obj_remove_flag(battery_cont, LV_OBJ_FLAG_HIDDEN);
+
+  if (!battery_img || !lv_obj_is_valid(battery_img))
+    return;
+
+  int soc_idx;
+  if (bs.soc < 20)
+    soc_idx = 0;
+  else if (bs.soc < 45)
+    soc_idx = 1;
+  else if (bs.soc < 75)
+    soc_idx = 2;
+  else
+    soc_idx = 3;
+
+  if (bs.charging) {
+    // Charging: sweep the fill through the FULL range (0..3) on repeat so it is
+    // always visibly animating, even at a high SoC.
+    battery_frame = (battery_frame + 1) & 3;
+    if (battery_dscs[battery_frame])
+      lv_image_set_src(battery_img, battery_dscs[battery_frame]);
+    lv_obj_set_style_image_recolor_opa(battery_img, LV_OPA_TRANSP, 0);
+  } else {
+    if (battery_dscs[soc_idx])
+      lv_image_set_src(battery_img, battery_dscs[soc_idx]);
+    if (bs.low) {
+      lv_obj_set_style_image_recolor(battery_img, lv_color_hex(0xE53935), 0);
+      lv_obj_set_style_image_recolor_opa(battery_img, LV_OPA_70, 0);
+    } else {
+      lv_obj_set_style_image_recolor_opa(battery_img, LV_OPA_TRANSP, 0);
+    }
+  }
+
+  // Bolt shows ONLY while actually charging (standard status-bar behavior) — no
+  // bolt when merely plugged-and-idle, charge-done, or on battery.
+  if (power_img && lv_obj_is_valid(power_img)) {
+    if (bs.charging)
+      lv_obj_remove_flag(power_img, LV_OBJ_FLAG_HIDDEN);
+    else
+      lv_obj_add_flag(power_img, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
 static void battery_anim_timer_cb(lv_timer_t *timer) {
-  if (!battery_img || !lv_obj_is_valid(battery_img)) {
+  if (!battery_cont || !lv_obj_is_valid(battery_cont)) {
     lv_timer_delete(timer);
     battery_anim_timer = NULL;
+    battery_cont = NULL;
     battery_img = NULL;
     power_img = NULL;
     return;
   }
+  battery_apply();
+}
 
-  battery_frame += battery_dir;
-  if (battery_frame >= 3) {
-    battery_frame = 3;
-    battery_dir = -1;
-  }
-  if (battery_frame <= 0) {
-    battery_frame = 0;
-    battery_dir = 1;
-  }
-
-  if (battery_dscs[battery_frame]) {
-    lv_image_set_src(battery_img, battery_dscs[battery_frame]);
-  }
-
-  if (power_img) {
-    if (battery_dir == 1) {
-      lv_obj_remove_flag(power_img, LV_OBJ_FLAG_HIDDEN);
-    } else {
-      lv_obj_add_flag(power_img, LV_OBJ_FLAG_HIDDEN);
-    }
+// Safety net: when a status cluster is deleted (its screen/overlay is freed), null
+// any global pointer that still belongs to it so the singleton timers never touch
+// freed memory. A newer header may have already rebound the globals to a different
+// container — then the parent check fails and we correctly leave them intact.
+static void header_status_del_cb(lv_event_t *e) {
+  lv_obj_t *cont = lv_event_get_target(e);
+  if (wifi_img && lv_obj_get_parent(wifi_img) == cont)
+    wifi_img = NULL;
+  if (bt_img_ref && lv_obj_get_parent(bt_img_ref) == cont)
+    bt_img_ref = NULL;
+  if (card_img_ref && lv_obj_get_parent(card_img_ref) == cont)
+    card_img_ref = NULL;
+  if (battery_cont && lv_obj_get_parent(battery_cont) == cont) {
+    battery_cont = NULL;
+    battery_img = NULL;
+    power_img = NULL;
   }
 }
 
-void header_ui_create(lv_obj_t *parent) {
-  lv_obj_t *header = lv_obj_create(parent);
-  lv_obj_set_size(header, lv_pct(100), HEADER_HEIGHT + 12);
-  lv_obj_align(header, LV_ALIGN_TOP_MID, 0, -12);
-  lv_obj_remove_flag(header, LV_OBJ_FLAG_SCROLLABLE);
-
-  lv_obj_set_style_radius(header, 12, 0);
-  lv_obj_set_style_border_width(header, 0, 0);
-  lv_obj_set_style_pad_all(header, 0, 0);
-
-  lv_obj_set_style_bg_opa(header, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(header, current_theme.bg_primary, 0);
-  lv_obj_set_style_bg_grad_dir(header, LV_GRAD_DIR_NONE, 0);
-
-  if (!inter_font) {
-    inter_font = lv_binfont_create("A:assets/fonts/Inter.bin");
-  }
-
-  lv_obj_t *lbl_time = lv_label_create(header);
-  lv_label_set_text(lbl_time, "12:00");
-  lv_obj_set_style_text_color(lbl_time, current_theme.text_main, 0);
-  lv_obj_set_style_text_font(lbl_time, inter_font ? inter_font : &lv_font_montserrat_12, 0);
-  lv_obj_align(lbl_time, LV_ALIGN_LEFT_MID, 6, 6);
-
-  lv_obj_t *icon_cont = lv_obj_create(header);
+void header_ui_attach_status(lv_obj_t *parent, int y_offset) {
+  lv_obj_t *icon_cont = lv_obj_create(parent);
   lv_obj_set_size(icon_cont, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-  lv_obj_align(icon_cont, LV_ALIGN_RIGHT_MID, -6, 6);
+  lv_obj_align(icon_cont, LV_ALIGN_RIGHT_MID, -6, y_offset);
   lv_obj_set_flex_flow(icon_cont, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(
       icon_cont, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -366,6 +411,7 @@ void header_ui_create(lv_obj_t *parent) {
   lv_obj_set_style_pad_all(icon_cont, 0, 0);
   lv_obj_set_style_bg_opa(icon_cont, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(icon_cont, 0, 0);
+  lv_obj_add_event_cb(icon_cont, header_status_del_cb, LV_EVENT_DELETE, NULL);
 
   for (int i = 0; i < 4; i++) {
     if (!wifi_dscs[i])
@@ -406,6 +452,10 @@ void header_ui_create(lv_obj_t *parent) {
   lv_obj_set_style_pad_all(bat_cont, 0, 0);
   lv_obj_set_style_bg_opa(bat_cont, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(bat_cont, 0, 0);
+  battery_cont = bat_cont;
+  // Start hidden so it doesn't flash before the first battery poll; the timer
+  // reveals it only when the charger actually answers on I2C.
+  lv_obj_add_flag(bat_cont, LV_OBJ_FLAG_HIDDEN);
 
   battery_img = lv_image_create(bat_cont);
   if (battery_dscs[2])
@@ -415,7 +465,7 @@ void header_ui_create(lv_obj_t *parent) {
   power_img = lv_label_create(bat_cont);
   lv_label_set_text(power_img, LV_SYMBOL_CHARGE);
   lv_obj_set_style_text_font(power_img, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_text_color(power_img, lv_color_hex(HEADER_ACTIVE_TINT_HEX), 0);
+  lv_obj_set_style_text_color(power_img, lv_color_white(), 0);
   lv_obj_center(power_img);
   lv_obj_add_flag(power_img, LV_OBJ_FLAG_HIDDEN);
 
@@ -423,10 +473,12 @@ void header_ui_create(lv_obj_t *parent) {
     wifi_anim_timer = lv_timer_create(wifi_anim_timer_cb, WIFI_ANIM_MS, NULL);
   }
 
-  (void)battery_anim_timer_cb;
-  (void)battery_anim_timer;
-  (void)battery_frame;
-  (void)battery_dir;
+  if (battery_anim_timer == NULL) {
+    battery_anim_timer = lv_timer_create(battery_anim_timer_cb, BATTERY_ANIM_MS, NULL);
+  }
+  // Paint the real battery state now so the header never draws an empty cell that
+  // "pops in" a frame later.
+  battery_apply();
 
   header_wifi_enabled = wifi_service_is_active();
   header_wifi_connected = wifi_service_is_connected();
@@ -434,4 +486,129 @@ void header_ui_create(lv_obj_t *parent) {
   if (wifi_status_timer == NULL) {
     wifi_status_timer = lv_timer_create(header_wifi_status_timer_cb, WIFI_STATUS_POLL_MS, NULL);
   }
+}
+
+void header_ui_create(lv_obj_t *parent) {
+  lv_obj_t *header = lv_obj_create(parent);
+  lv_obj_set_size(header, lv_pct(100), HEADER_HEIGHT + 12);
+  lv_obj_align(header, LV_ALIGN_TOP_MID, 0, -12);
+  lv_obj_remove_flag(header, LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_set_style_radius(header, 12, 0);
+  lv_obj_set_style_border_width(header, 0, 0);
+  lv_obj_set_style_pad_all(header, 0, 0);
+
+  lv_obj_set_style_bg_opa(header, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(header, current_theme.bg_primary, 0);
+  lv_obj_set_style_bg_grad_dir(header, LV_GRAD_DIR_NONE, 0);
+
+  if (!inter_font) {
+    inter_font = lv_binfont_create("A:assets/fonts/Inter.bin");
+  }
+
+  lv_obj_t *lbl_time = lv_label_create(header);
+  lv_label_set_text(lbl_time, "12:00");
+  lv_obj_set_style_text_color(lbl_time, current_theme.text_main, 0);
+  lv_obj_set_style_text_font(lbl_time, inter_font ? inter_font : &lv_font_montserrat_12, 0);
+  lv_obj_align(lbl_time, LV_ALIGN_LEFT_MID, 6, 6);
+
+  // Home/menu full header: the status cluster is drawn 6px lower to sit on the
+  // bar's visual center (the bar is created with a -12 top inset).
+  header_ui_attach_status(header, 6);
+}
+
+// Static status snapshot: paints the icons at the CURRENT state, but binds NO
+// globals and registers NO timers. For transient overlays / temp screens drawn
+// over a live screen — they must not rebind the dynamic header (which would dangle
+// the globals when the overlay is freed and freeze the screen underneath). It just
+// doesn't animate, which is fine for a brief overlay.
+void header_ui_attach_status_snapshot(lv_obj_t *parent, int y_offset) {
+  lv_obj_t *icon_cont = lv_obj_create(parent);
+  lv_obj_set_size(icon_cont, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_align(icon_cont, LV_ALIGN_RIGHT_MID, -6, y_offset);
+  lv_obj_set_flex_flow(icon_cont, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(
+      icon_cont, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(icon_cont, 10, 0);
+  lv_obj_set_style_pad_all(icon_cont, 0, 0);
+  lv_obj_set_style_bg_opa(icon_cont, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(icon_cont, 0, 0);
+
+  for (int i = 0; i < 4; i++) {
+    if (!wifi_dscs[i])
+      wifi_dscs[i] = assets_get(wifi_paths[i]);
+  }
+  lv_obj_t *w = lv_image_create(icon_cont);
+  if (wifi_dscs[3])
+    lv_image_set_src(w, wifi_dscs[3]);
+
+  lv_obj_t *bt = lv_label_create(icon_cont);
+  lv_label_set_text(bt, LV_SYMBOL_BLUETOOTH);
+  lv_obj_set_style_text_font(bt, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(bt, current_theme.text_main, 0);
+  apply_active_tint(bt, s_ble_active);
+
+  lv_obj_t *sd = lv_label_create(icon_cont);
+  lv_label_set_text(sd, LV_SYMBOL_SD_CARD);
+  lv_obj_set_style_text_font(sd, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(sd, current_theme.text_main, 0);
+  if (!s_sd_mounted)
+    lv_obj_add_flag(sd, LV_OBJ_FLAG_HIDDEN);
+
+  for (int i = 0; i < 4; i++) {
+    if (!battery_dscs[i])
+      battery_dscs[i] = assets_get(battery_paths[i]);
+  }
+  battery_snapshot_t bs;
+  bool present = battery_service_get(&bs) && bs.present;
+
+  lv_obj_t *bcont = lv_obj_create(icon_cont);
+  lv_obj_set_size(bcont, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_style_pad_all(bcont, 0, 0);
+  lv_obj_set_style_bg_opa(bcont, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(bcont, 0, 0);
+  if (!present)
+    lv_obj_add_flag(bcont, LV_OBJ_FLAG_HIDDEN);
+
+  int soc_idx = present ? (bs.soc < 20 ? 0 : bs.soc < 45 ? 1 : bs.soc < 75 ? 2 : 3) : 2;
+  lv_obj_t *bimg = lv_image_create(bcont);
+  if (battery_dscs[soc_idx])
+    lv_image_set_src(bimg, battery_dscs[soc_idx]);
+  lv_obj_center(bimg);
+  if (present && bs.low && !bs.charging) {
+    lv_obj_set_style_image_recolor(bimg, lv_color_hex(0xE53935), 0);
+    lv_obj_set_style_image_recolor_opa(bimg, LV_OPA_70, 0);
+  }
+
+  lv_obj_t *pimg = lv_label_create(bcont);
+  lv_label_set_text(pimg, LV_SYMBOL_CHARGE);
+  lv_obj_set_style_text_font(pimg, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(pimg, lv_color_white(), 0);
+  lv_obj_center(pimg);
+  if (!(present && bs.charging))
+    lv_obj_add_flag(pimg, LV_OBJ_FLAG_HIDDEN);
+}
+
+void header_ui_create_snapshot(lv_obj_t *parent) {
+  lv_obj_t *header = lv_obj_create(parent);
+  lv_obj_set_size(header, lv_pct(100), HEADER_HEIGHT + 12);
+  lv_obj_align(header, LV_ALIGN_TOP_MID, 0, -12);
+  lv_obj_remove_flag(header, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_radius(header, 12, 0);
+  lv_obj_set_style_border_width(header, 0, 0);
+  lv_obj_set_style_pad_all(header, 0, 0);
+  lv_obj_set_style_bg_opa(header, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(header, current_theme.bg_primary, 0);
+  lv_obj_set_style_bg_grad_dir(header, LV_GRAD_DIR_NONE, 0);
+
+  if (!inter_font) {
+    inter_font = lv_binfont_create("A:assets/fonts/Inter.bin");
+  }
+  lv_obj_t *lbl_time = lv_label_create(header);
+  lv_label_set_text(lbl_time, "12:00");
+  lv_obj_set_style_text_color(lbl_time, current_theme.text_main, 0);
+  lv_obj_set_style_text_font(lbl_time, inter_font ? inter_font : &lv_font_montserrat_12, 0);
+  lv_obj_align(lbl_time, LV_ALIGN_LEFT_MID, 6, 6);
+
+  header_ui_attach_status_snapshot(header, 6);
 }

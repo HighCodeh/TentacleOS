@@ -20,8 +20,12 @@
 #include "st7789.h"
 
 #include "assets_manager.h"
+#include "battery_service.h"
 #include "buttons_gpio.h"
 #include "header_ui.h"
+#include "lv_port_indev.h"
+#include "tutorial_ui.h"
+#include "ui_manager.h"
 #include "ui_theme.h"
 #include "vfs_sdcard.h"
 
@@ -33,6 +37,8 @@
 #define SLIDE_ANIM_MS       300
 #define SLIDE_BTN_POLL_MS   50
 #define SLIDER_MIN_FILL_PCT 3
+#define BAT_ANIM_MS         350
+#define LONGPRESS_MS        450 // hold UP this long to toggle the dropdown
 
 #define ROW_BADGES 0
 #define ROW_BRIGHT 1
@@ -51,6 +57,11 @@ static int badge_sel = 0;
 
 static lv_obj_t *sd_chip_val = NULL;
 static lv_obj_t *sd_chip_fill = NULL;
+
+static lv_obj_t *bat_chip_val = NULL;
+static lv_obj_t *bat_chip_fill = NULL;
+static int bat_anim_pct = 0;
+static uint32_t bat_last_anim = 0;
 
 #define SLIDER_COUNT 2
 static lv_obj_t *sl_track[SLIDER_COUNT] = {NULL};
@@ -71,7 +82,11 @@ static int hide_objs_count = 0;
 static bool btn_up_last, btn_down_last, btn_left_last, btn_right_last, btn_ok_last, btn_back_last;
 static lv_timer_t *slide_btn_timer = NULL;
 
+static uint32_t up_hold_start = 0;   // tick when UP was pressed (long-press timing)
+static bool up_hold_consumed = false; // long-press already toggled for this hold
+
 static void refresh_sd_status(void);
+static void battery_tick(void);
 
 static void refresh_focus(void) {
   for (int i = 0; i < BADGE_COUNT; i++) {
@@ -133,6 +148,10 @@ static void slide_done_cb(lv_anim_t *a) {
     for (int i = 0; i < hide_objs_count; i++)
       if (hide_objs_ref[i])
         lv_obj_remove_flag(hide_objs_ref[i], LV_OBJ_FLAG_HIDDEN);
+    // Fully closed: hand input back to the screen underneath, but swallow the
+    // press that closed us so it doesn't also act on that screen.
+    lv_port_indev_set_suppressed(false);
+    ui_input_lock(250);
   }
 }
 
@@ -142,9 +161,14 @@ static void dropdown_open(void) {
   slide_animating = true;
   slide_open = true;
 
+  // Take exclusive input: swallow keypad keys so the screen underneath (menus/
+  // lists via the LVGL group) stops navigating while the panel is up.
+  lv_port_indev_set_suppressed(true);
+
   focus_row = ROW_BADGES;
   badge_sel = 0;
   refresh_sd_status();
+  battery_tick();
   refresh_focus();
 
   lv_obj_remove_flag(slide_panel, LV_OBJ_FLAG_HIDDEN);
@@ -191,9 +215,30 @@ static void slide_btn_timer_cb(lv_timer_t *timer) {
   bool left = left_button_is_down(), right = right_button_is_down();
   bool ok = ok_button_is_down(), back = back_button_is_down();
 
-  if (up && !btn_up_last && !slide_open) {
-    dropdown_open();
-  } else if (slide_open) {
+  uint32_t nowt = lv_tick_get();
+
+  // Long-press UP toggles the panel: open from a browse screen (never while input
+  // is locked or on an active operation screen), or close if already open. One
+  // toggle per hold. Short taps of UP fall through to the focused screen (closed)
+  // or to the in-panel row nav below (open).
+  if (up && !btn_up_last) {
+    up_hold_start = nowt;
+    up_hold_consumed = false;
+  }
+  if (up && !up_hold_consumed && (uint32_t)(nowt - up_hold_start) >= LONGPRESS_MS) {
+    up_hold_consumed = true;
+    if (slide_open) {
+      dropdown_close();
+    } else if (!ui_input_is_locked() && !tutorial_is_active() &&
+               ui_screen_shows_chrome(ui_current_screen())) {
+      dropdown_open();
+    }
+  }
+  if (!up) {
+    up_hold_consumed = false;
+  }
+
+  if (slide_open) {
     if (up && !btn_up_last && focus_row > 0) {
       focus_row--;
       refresh_focus();
@@ -226,6 +271,20 @@ static void slide_btn_timer_cb(lv_timer_t *timer) {
     }
     if (back && !btn_back_last) {
       dropdown_close();
+    }
+  }
+
+  // Freeze screens that poll the buttons directly while the panel is up or
+  // animating (the keypad group is already frozen via indev suppression).
+  if (slide_open || slide_animating) {
+    ui_input_lock(SLIDE_BTN_POLL_MS * 3);
+  }
+
+  if (slide_open) {
+    if ((uint32_t)(nowt - bat_last_anim) >= BAT_ANIM_MS) {
+      bat_last_anim = nowt;
+      battery_tick();
+      refresh_sd_status(); // reflect SD insert/remove while the panel is open
     }
   }
 
@@ -425,6 +484,7 @@ static void make_mini(lv_obj_t *row,
 static void refresh_sd_status(void) {
   int used_pct = 0;
   bool present = header_ui_sd_usage(&used_pct);
+  bool changed = (badge_on[BADGE_SD] != present);
   badge_on[BADGE_SD] = present;
 
   char buf[16];
@@ -438,6 +498,42 @@ static void refresh_sd_status(void) {
   }
   if (sd_chip_fill) {
     lv_obj_set_width(sd_chip_fill, lv_pct(used_pct < 1 ? 1 : used_pct));
+  }
+  if (changed) {
+    refresh_focus(); // restyle the SD badge when the card is inserted/removed
+  }
+}
+
+// Real battery in the dropdown mini: "--" when no charger answers, else the SoC.
+// Only while actually charging: bolt prefix + fill sweeps upward (charging cue).
+static void battery_tick(void) {
+  if (!bat_chip_val) {
+    return;
+  }
+  battery_snapshot_t bs;
+  if (!battery_service_get(&bs) || !bs.present) {
+    lv_label_set_text(bat_chip_val, "--");
+    if (bat_chip_fill) {
+      lv_obj_set_width(bat_chip_fill, lv_pct(1));
+    }
+    return;
+  }
+  if (bs.charging) {
+    // Charging: bolt prefix + fill sweeps the full range (filling animation).
+    lv_label_set_text_fmt(bat_chip_val, LV_SYMBOL_CHARGE " %d%%", bs.soc);
+    bat_anim_pct += 15;
+    if (bat_anim_pct > 100) {
+      bat_anim_pct = 0;
+    }
+    if (bat_chip_fill) {
+      lv_obj_set_width(bat_chip_fill, lv_pct(bat_anim_pct < 1 ? 1 : bat_anim_pct));
+    }
+  } else {
+    // Not charging (on battery or plugged-idle): just the level, no bolt.
+    lv_label_set_text_fmt(bat_chip_val, "%d%%", bs.soc);
+    if (bat_chip_fill) {
+      lv_obj_set_width(bat_chip_fill, lv_pct(bs.soc < 1 ? 1 : bs.soc));
+    }
   }
 }
 
@@ -500,7 +596,7 @@ void dropdown_ui_create(lv_obj_t *parent) {
   lv_obj_set_flex_align(
       mini, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_set_style_pad_column(mini, 14, 0);
-  make_mini(mini, "Battery", "87%", 87, true, NULL, NULL);
+  make_mini(mini, "Battery", "--", 1, true, &bat_chip_val, &bat_chip_fill);
   make_mini(mini, "Storage", "--", 1, false, &sd_chip_val, &sd_chip_fill);
 
   lv_obj_t *hint = lv_label_create(slide_panel);
@@ -513,7 +609,7 @@ void dropdown_ui_create(lv_obj_t *parent) {
 
   focus_row = ROW_BADGES;
   badge_sel = 0;
-  badge_on[BADGE_SD] = vfs_sdcard_is_mounted();
+  badge_on[BADGE_SD] = header_ui_sd_usage(NULL);
   refresh_focus();
 
   lv_obj_update_layout(slide_panel);
@@ -541,4 +637,12 @@ bool dropdown_ui_is_open(void) {
 void dropdown_ui_raise(void) {
   if (slide_panel)
     lv_obj_move_foreground(slide_panel);
+}
+
+void dropdown_ui_global_init(void) {
+  if (slide_panel) // already created
+    return;
+  // The top layer sits above every screen, so the single panel survives screen
+  // switches and always renders on top. The caller holds the LVGL lock.
+  dropdown_ui_create(lv_layer_top());
 }

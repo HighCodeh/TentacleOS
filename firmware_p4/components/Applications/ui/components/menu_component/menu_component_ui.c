@@ -19,6 +19,7 @@
 #include "st7789.h"
 
 #include "assets_manager.h"
+#include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_theme.h"
 
@@ -30,7 +31,7 @@
 #define ITEM_BORDER current_theme.border_inactive
 #define SEL_BORDER  current_theme.border_accent
 
-#define HEADER_H         42
+#define HEADER_H         46 // a touch taller so the submenu breadcrumb label has room below the header
 #define FOOTER_H         MENU_COMP_FOOTER_H
 #define ITEM_H           44
 #define ITEM_GAP         6
@@ -46,7 +47,6 @@
 #define DEFAULT_HINT \
   LV_SYMBOL_UP LV_SYMBOL_DOWN "  Nav    " LV_SYMBOL_OK "  OK    " LV_SYMBOL_LEFT "  Back"
 
-static lv_font_t *menu_font = NULL;
 
 static lv_obj_t *make_icon(lv_obj_t *parent, const char *icon_path) {
   if (!icon_path)
@@ -137,10 +137,7 @@ static void update_selection(menu_component_t *m) {
 menu_component_t
 menu_component_create(lv_obj_t *parent, const char *title, const char *title_icon_path) {
   menu_component_t m = {0};
-
-  if (!menu_font) {
-    menu_font = lv_binfont_create("A:assets/fonts/Inter.bin");
-  }
+  (void)title_icon_path; // the shared status header carries its own icons now
 
   m.screen = lv_obj_create(parent);
   lv_obj_set_size(m.screen, LCD_H_RES, LCD_V_RES);
@@ -152,31 +149,20 @@ menu_component_create(lv_obj_t *parent, const char *title, const char *title_ico
   lv_obj_set_style_border_width(m.screen, 0, 0);
   lv_obj_set_style_radius(m.screen, 0, 0);
 
+  // Every menu carries the dynamic home header; ui_chrome_light_title adds the
+  // breadcrumb letreiro only on browse screens (operation menus get the header
+  // alone). Kept in title_bar (transparent) so callers that fade_in(title_bar)
+  // still animate the whole area.
   m.title_bar = lv_obj_create(m.screen);
   lv_obj_set_size(m.title_bar, LCD_H_RES, HEADER_H);
   lv_obj_align(m.title_bar, LV_ALIGN_TOP_LEFT, 0, 0);
   lv_obj_remove_flag(m.title_bar, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(m.title_bar, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_style_bg_color(m.title_bar, HEADER_BG, 0);
-  lv_obj_set_style_bg_opa(m.title_bar, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_grad_dir(m.title_bar, LV_GRAD_DIR_NONE, 0);
-  lv_obj_set_style_radius(m.title_bar, 0, 0);
+  lv_obj_set_style_bg_opa(m.title_bar, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(m.title_bar, 0, 0);
   lv_obj_set_style_pad_all(m.title_bar, 0, 0);
-  lv_obj_set_style_border_width(m.title_bar, 2, 0);
-  lv_obj_set_style_border_color(m.title_bar, HEADER_LINE, 0);
-  lv_obj_set_style_border_side(m.title_bar, LV_BORDER_SIDE_BOTTOM, 0);
-
-  if (title_icon_path) {
-    lv_obj_t *ic = make_icon(m.title_bar, title_icon_path);
-    if (ic)
-      lv_obj_align(ic, LV_ALIGN_LEFT_MID, 8, 0);
-  }
-
-  m.title_label = lv_label_create(m.title_bar);
-  lv_label_set_text(m.title_label, title ? title : "");
-  lv_obj_set_style_text_color(m.title_label, TITLE_COLOR, 0);
-  lv_obj_set_style_text_font(m.title_label, menu_font ? menu_font : &lv_font_montserrat_14, 0);
-  lv_obj_align(m.title_label, LV_ALIGN_CENTER, 0, 0);
+  lv_obj_set_style_radius(m.title_bar, 0, 0);
+  m.title_label = ui_chrome_light_title(m.title_bar, title);
 
   int items_h = LCD_V_RES - ITEMS_Y - FOOTER_H - 4;
   if (items_h < ITEM_H)
@@ -247,6 +233,10 @@ menu_component_create(lv_obj_t *parent, const char *title, const char *title_ico
 
   m.item_count = 0;
   m.selected = 0;
+
+  // This list is a menu/category level: its title becomes the breadcrumb root, so
+  // leaf screens opened from it render their title as "title / leaf".
+  ui_chrome_set_breadcrumb_root(title);
 
   return m;
 }

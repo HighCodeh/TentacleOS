@@ -189,6 +189,17 @@ void ui_screen_load(lv_obj_t *scr);
 /** @brief Returns the currently active screen id. */
 screen_id_t ui_current_screen(void);
 
+/**
+ * @brief Whether a screen shows the global chrome (status bar + dropdown).
+ *
+ * false for active "operation" screens — reading/sending/scanning/emulating/
+ * recording/playing/running — where the status bar and the quick-settings
+ * dropdown are hidden; true for browse screens (menus, lists, settings). Used
+ * both to gate the chrome header's status cluster and to gate the global
+ * dropdown's long-press-to-open.
+ */
+bool ui_screen_shows_chrome(screen_id_t s);
+
 /** @brief Re-open the active screen (no-op here: no runtime rotation). */
 void ui_manager_relayout_current(void);
 
@@ -200,6 +211,15 @@ bool ui_btn_right(void);
 
 /** @brief Check if user input is temporarily locked. */
 bool ui_input_is_locked(void);
+
+/**
+ * @brief Temporarily lock user input for @p ms milliseconds.
+ *
+ * Screens that poll buttons gate on ui_input_is_locked(), so this swallows
+ * stray presses — e.g. the button that wakes the display from sleep should not
+ * also navigate. Extends (never shortens) any lock already in effect.
+ */
+void ui_input_lock(uint32_t ms);
 
 #ifdef __cplusplus
 }
