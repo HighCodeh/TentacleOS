@@ -16,7 +16,6 @@
 #include "games_menu_ui.h"
 
 #include "assets_manager.h"
-#include "buttons_gpio.h"
 #include "notify_ui.h"
 #include "page_dots_ui.h"
 #include "st7789.h"
@@ -27,7 +26,6 @@
 
 #define TARGET_STUB (-1)
 
-#define NAV_TIMER_MS  50
 #define TITLE_ICON    "/assets/icons/sports_esports.bin"
 #define BASE_FRAME    "/assets/frames/base_frame_0.bin"
 #define CARD_Y_BIAS   (-18)
@@ -66,10 +64,8 @@ static lv_obj_t *s_glyph[GAME_COUNT];
 static lv_obj_t *s_label = NULL;
 static page_dots_t s_dots;
 static lv_image_dsc_t *s_base_dsc = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static int s_sel = 0;
 
-static bool s_up_last, s_down_last, s_left_last, s_right_last, s_ok_last, s_back_last;
 
 static int32_t carousel_slot(int item_idx) {
   int32_t n = GAME_COUNT;
@@ -149,52 +145,42 @@ static void update_view(void) {
   fix_z_order();
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
+static void games_menu_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+      if (press)
+        ui_switch_screen(SCREEN_MENU);
+      break;
+    case INPUT_BTN_OK:
+      if (press) {
+        if (GAMES[s_sel].target == TARGET_STUB)
+          notify(NOTIFY_INFO, "More apps coming soon");
+        else
+          ui_switch_screen(GAMES[s_sel].target);
+      }
+      break;
+    case INPUT_BTN_RIGHT:
+    case INPUT_BTN_DOWN:
+      if (nav) {
+        s_sel = (s_sel + 1) % GAME_COUNT;
+        ui_feedback(UI_FB_NAV);
+        update_view();
+      }
+      break;
+    case INPUT_BTN_LEFT:
+    case INPUT_BTN_UP:
+      if (nav) {
+        s_sel = (s_sel == 0) ? GAME_COUNT - 1 : s_sel - 1;
+        ui_feedback(UI_FB_NAV);
+        update_view();
+      }
+      break;
+    default:
+      break;
   }
-  if (ui_input_is_locked())
-    return;
-
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool right = ui_btn_right();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-
-  bool next = (right && !s_right_last) || (down && !s_down_last);
-  bool prev = (left && !s_left_last) || (up && !s_up_last);
-
-  if (back && !s_back_last) {
-    ui_switch_screen(SCREEN_MENU);
-    return;
-  }
-  if (ok && !s_ok_last) {
-    if (GAMES[s_sel].target == TARGET_STUB)
-      notify(NOTIFY_INFO, "More apps coming soon");
-    else
-      ui_switch_screen(GAMES[s_sel].target);
-    if (GAMES[s_sel].target != TARGET_STUB)
-      return;
-  }
-  if (next || prev) {
-    if (next)
-      s_sel = (s_sel + 1) % GAME_COUNT;
-    else
-      s_sel = (s_sel == 0) ? GAME_COUNT - 1 : s_sel - 1;
-    ui_feedback(UI_FB_NAV);
-    update_view();
-  }
-
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_right_last = right;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 void ui_games_menu_open(void) {
@@ -203,7 +189,6 @@ void ui_games_menu_open(void) {
     s_screen = NULL;
   }
   s_sel = 0;
-  s_up_last = s_down_last = s_left_last = s_right_last = s_ok_last = s_back_last = false;
 
   if (s_base_dsc == NULL)
     s_base_dsc = assets_get(BASE_FRAME);
@@ -228,8 +213,7 @@ void ui_games_menu_open(void) {
 
   update_view();
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(games_menu_input, NULL);
 
   ui_screen_load(s_screen);
 }

@@ -20,11 +20,8 @@
 #include "ui_theme.h"
 #include "menu_component_ui.h"
 #include "ui_manager.h"
-#include "buttons_gpio.h"
 
 static const char *TAG = "NFC_MENU_UI";
-
-#define NAV_TIMER_PERIOD_MS 50
 
 typedef struct {
   const char *name;
@@ -52,56 +49,41 @@ static const nfc_menu_item_t ITEMS[] = {
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
-static lv_timer_t *s_nav_timer = NULL;
 
-static bool s_btn_up_last = false;
-static bool s_btn_down_last = false;
-static bool s_btn_left_last = false;
-static bool s_btn_right_last = false;
-static bool s_btn_ok_last = false;
-static bool s_btn_back_last = false;
+// Event-driven input (see ui_input_set_screen_handler). The central pump only
+// calls this while input is unlocked and no modal overlay is up, so the old
+// per-frame guards are gone. UP/DOWN also act on REPEAT for held auto-scroll.
+static void nfc_menu_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
-static void nav_timer_cb(lv_timer_t *t);
-
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_MENU);
+      break;
+    case INPUT_BTN_OK:
+    case INPUT_BTN_RIGHT:
+      if (press) {
+        int sel = menu_component_get_selected(&s_menu);
+        if (sel >= 0 && (size_t)sel < ITEM_COUNT && ITEMS[sel].target >= 0) {
+          ui_switch_screen(ITEMS[sel].target);
+        }
+      }
+      break;
+    case INPUT_BTN_DOWN:
+      if (nav)
+        menu_component_next(&s_menu);
+      break;
+    case INPUT_BTN_UP:
+      if (nav)
+        menu_component_prev(&s_menu);
+      break;
+    default:
+      break;
   }
-  if (ui_input_is_locked())
-    return;
-
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool right = ui_btn_right();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-
-  if ((back && !s_btn_back_last) || (left && !s_btn_left_last)) {
-    ui_switch_screen(SCREEN_MENU);
-    return;
-  }
-
-  if ((ok && !s_btn_ok_last) || (right && !s_btn_right_last)) {
-    int sel = menu_component_get_selected(&s_menu);
-    if (sel >= 0 && (size_t)sel < ITEM_COUNT && ITEMS[sel].target >= 0) {
-      ui_switch_screen(ITEMS[sel].target);
-    }
-  }
-
-  if (down && !s_btn_down_last)
-    menu_component_next(&s_menu);
-  if (up && !s_btn_up_last)
-    menu_component_prev(&s_menu);
-
-  s_btn_up_last = up;
-  s_btn_down_last = down;
-  s_btn_left_last = left;
-  s_btn_right_last = right;
-  s_btn_ok_last = ok;
-  s_btn_back_last = back;
 }
 
 void ui_nfc_menu_open(void) {
@@ -121,8 +103,7 @@ void ui_nfc_menu_open(void) {
     menu_component_add_item(&s_menu, ITEMS[i].icon, ITEMS[i].name);
   }
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_PERIOD_MS, NULL);
+  ui_input_set_screen_handler(nfc_menu_input, NULL);
 
   ui_screen_load(s_screen);
 }

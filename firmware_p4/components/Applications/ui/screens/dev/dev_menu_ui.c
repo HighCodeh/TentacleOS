@@ -17,13 +17,11 @@
 
 #include "lvgl.h"
 
-#include "buttons_gpio.h"
 #include "menu_component_ui.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define NAV_TIMER_MS 50
 #define FADE_MS      200
 
 #define TITLE       "DEVELOPER"
@@ -44,14 +42,8 @@ static const struct {
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
-static lv_timer_t *s_nav_timer = NULL;
 
-static bool s_up_last = false;
-static bool s_down_last = false;
-static bool s_ok_last = false;
-static bool s_back_last = false;
-
-static void nav_timer_cb(lv_timer_t *t);
+static void dev_menu_input(const input_event_t *ev, void *ctx);
 
 static void opa_anim_cb(void *var, int32_t v) {
   lv_obj_set_style_opa((lv_obj_t *)var, (lv_opa_t)v, 0);
@@ -90,51 +82,42 @@ static void build_screen(void) {
   fade_in(s_menu.items_cont, FADE_MS);
   fade_in(s_menu.title_bar, FADE_MS);
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(dev_menu_input, NULL);
 
   ui_screen_load(s_screen);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
+static void dev_menu_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+  switch (ev->button) {
+    case INPUT_BTN_DOWN:
+      if (nav)
+        menu_component_next(&s_menu);
+      break;
+    case INPUT_BTN_UP:
+      if (nav)
+        menu_component_prev(&s_menu);
+      break;
+    case INPUT_BTN_OK:
+      if (press) {
+        int sel = menu_component_get_selected(&s_menu);
+        if (sel >= 0 && sel < MENU_ITEM_COUNT) {
+          ui_feedback(UI_FB_SELECT);
+          ui_switch_screen(MENU_ITEMS[sel].screen);
+        }
+      }
+      break;
+    case INPUT_BTN_BACK:
+      if (press)
+        ui_switch_screen(SCREEN_MENU);
+      break;
+    default:
+      break;
   }
-  if (ui_input_is_locked())
-    return;
-
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-
-  if (down && !s_down_last)
-    menu_component_next(&s_menu);
-  if (up && !s_up_last)
-    menu_component_prev(&s_menu);
-  if (ok && !s_ok_last) {
-    int sel = menu_component_get_selected(&s_menu);
-    if (sel >= 0 && sel < MENU_ITEM_COUNT) {
-      ui_feedback(UI_FB_SELECT);
-      ui_switch_screen(MENU_ITEMS[sel].screen);
-      return;
-    }
-  }
-  if (back && !s_back_last) {
-    ui_switch_screen(SCREEN_MENU);
-    return;
-  }
-
-  s_up_last = up;
-  s_down_last = down;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 void ui_dev_menu_open(void) {
-  s_nav_timer = NULL;
-  s_up_last = s_down_last = s_ok_last = s_back_last = false;
   build_screen();
 }
