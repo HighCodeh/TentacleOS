@@ -51,7 +51,7 @@ esp_err_t bq25896_read_telemetry(bq25896_telem_t *out) {
   out->vbus_mv = 0;
   out->ichg_ma = 0;
   out->iinlim_ma = 0;
-  out->fault = 0;
+  out->fault = bq25896_get_fault();
 
   return ESP_OK;
 }

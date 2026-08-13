@@ -51,6 +51,12 @@ typedef enum {
  */
 esp_err_t bq25896_init(void);
 
+/** @brief Whether the charger answered on I2C at init (chip present on the bus). */
+bool bq25896_is_present(void);
+
+/** @brief Read the raw fault register (REG0C): CHRG_FAULT[5:4], BAT_FAULT[3], NTC_FAULT[2:0]. */
+uint8_t bq25896_get_fault(void);
+
 /**
  * @brief Get the current charge status.
  *
