@@ -51,12 +51,12 @@ extern "C" {
 #define GPIO_ST7789_BL_PIN  14
 
 /** @brief Buttons (active-low). */
-#define GPIO_BTN_LEFT_PIN  6
+#define GPIO_BTN_LEFT_PIN  35
 #define GPIO_BTN_RIGHT_PIN 13
 #define GPIO_BTN_UP_PIN    3
 #define GPIO_BTN_DOWN_PIN  7
 #define GPIO_BTN_OK_PIN    25
-#define GPIO_BTN_BACK_PIN  35
+#define GPIO_BTN_BACK_PIN  6
 
 /** @brief IMU QMI8658 (SPI shared). */
 #define GPIO_QMI8658A_CS_PIN 36
