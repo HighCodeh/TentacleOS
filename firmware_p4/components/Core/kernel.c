@@ -88,13 +88,11 @@ void kernel_init(void) {
   led_rgb_init();
   bq25896_init();
   cc1101_init();
-  // C5 radio coprocessor disabled: the C5 on this board is unresponsive, so the
-  // P4 runs standalone (terminal only). Skip the bridge entirely (no SPI init,
-  // no link monitor, no version probe) and mark it permanently dead so any
-  // stray send_command short-circuits instead of spamming timeouts. Re-enable
-  // bridge_manager_init() (and the host_link C5 pieces below) with a working C5.
-  // bridge_manager_init();
-  spi_bridge_set_alive(false);
+  // C5 radio coprocessor bridge (SPI2, POLL mode to match the C5 slave). Inits
+  // the bridge bus, starts the link monitor, and probes the C5 version. If the
+  // C5 is absent this marks the bridge down and the monitor re-probes until it
+  // appears, so a late-booting C5 is still picked up. Never blocks the boot.
+  bridge_manager_init();
   buttons_init();
   ys_rfid2_init(NULL);
 
