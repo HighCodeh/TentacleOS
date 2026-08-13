@@ -1,18 +1,28 @@
 # P4
 
-This component handles the physical input buttons of the Highboy device. It provides functions to initialize GPIOs and poll button states, supporting both "is pressed" (continuous) and "was pressed" (one-shot/flag) logic.
+> **Now a compatibility shim.** As of the input rework, `buttons_gpio` no longer
+> touches GPIO directly - it forwards to [`input_manager`](../input_manager/README.md),
+> which owns sampling, debounce, long-press/repeat, the event queue, activity
+> tracking and the wake source. These functions still work exactly as before, so
+> existing call sites need no changes. New code should consume `input_manager`
+> events instead.
+
+This component exposes the physical input buttons of the Highboy device: poll
+button states with both "is pressed" (continuous) and "was pressed" (one-shot)
+logic.
 
 ## Overview
 
 - **Location:** `components/Drivers/buttons_gpio/`
 - **Header:** `include/buttons_gpio.h`
-- **Dependencies:** `driver/gpio`, `pin_def.h`
+- **Backed by:** [`input_manager`](../input_manager/README.md)
 
 ## Configuration
 
-- **Input Mode:** `GPIO_MODE_INPUT` with internal Pull-Up enabled.
+- **Input Mode:** `GPIO_MODE_INPUT` with internal Pull-Up enabled (in `input_manager`).
 - **Active Level:** Low (`0`). Buttons connect to ground when pressed.
-- **Debounce/Polling:** Handled via `buttons_task` or direct atomic flag checks.
+- **Debounce:** Time-based (~20 ms), in `input_manager`. `buttons_task()` is now a
+  no-op: sampling runs in the `input_manager` timer.
 
 ## Key Mapping
 

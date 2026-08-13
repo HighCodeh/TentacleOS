@@ -17,6 +17,13 @@ The C5 firmware is embedded inside the P4 binary at build time. A single `.bin` 
 7. If everything is OK, the update is confirmed
 8. If anything fails, the bootloader rolls back automatically
 
+> **Watchdog:** the write loop (`fread` from LittleFS + `esp_ota_write`, both
+> cache-disabling) yields with `vTaskDelay(1)` per chunk so the idle task keeps
+> feeding the Task Watchdog. This is required because `CONFIG_ESP_TASK_WDT_PANIC=y`
+> is enabled: without the yield, writing a multi-MB image would starve the idle
+> task and reboot the device mid-write. The C5 UART flash loop in `c5_flasher`
+> yields the same way.
+
 ### Rollback
 
 The system uses two app partitions (`ota_0` / `ota_1`). After OTA, the new firmware must call `esp_ota_mark_app_valid_cancel_rollback()` to confirm. If it doesn't (crash, C5 flash failure, etc.), the bootloader reverts to the previous partition on the next reboot.

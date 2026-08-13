@@ -23,6 +23,11 @@ The service has two parts:
 > single display path. `esp_lvgl_port` owns the LVGL task, the tick source and
 > the thread-safety lock; we no longer manage those by hand.
 
+> **Scheduling:** the LVGL render task runs at `SYS_PRIO_RENDER` (6) pinned to
+> `SYS_CORE_UI` (core 1), set in `lvgl_glue_init` from
+> [`sys_prio.h`](../sys_prio/README.md). Radios and services live on core 0 so
+> they cannot stall rendering.
+
 ### Bring-up order
 
 ```c
@@ -59,6 +64,22 @@ void lvgl_glue_unlock(void);
 Any task that touches LVGL (UI, screen capture, etc.) must hold this lock. It is
 the `esp_lvgl_port` recursive mutex; `ui_manager`'s `ui_acquire`/`ui_release`
 wrap it.
+
+> **Do not pass `-1` from application code.** `ui_acquire()` uses a finite
+> 1000 ms timeout on purpose: a task that grabs the lock and never returns can no
+> longer freeze every other UI caller forever. `ui_acquire()` returns `false` on
+> timeout (and logs a warning); **every callsite must check the return** and skip
+> its work when it is `false`.
+
+> **Never hold the lock across long or blocking work, and never run a busy loop
+> on the UI thread.** A held lock stops the LVGL task from rendering, which
+> stalls the render-progress beat (`ui_render_beat()`) that `sys_monitor` polls;
+> a stalled beat triggers a controlled restart. A busy loop that spins a core
+> past 5 s also trips the Task Watchdog panic (`CONFIG_ESP_TASK_WDT_PANIC=y`).
+> Offload long work to its own task (the SubGhz receiver is the reference) and
+> push results back to the screen with an `lv_timer` or `lv_async_call`, which
+> run inside the LVGL task already under the lock. See
+> [ui: long-running work](../ui/README.md#long-running-work-and-the-watchdog).
 
 ### Rotation
 ```c

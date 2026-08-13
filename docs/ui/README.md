@@ -175,6 +175,59 @@ idf_component_register(SRCS
 
 ---
 
+## Long-running work and the watchdog
+
+Screens run on the UI thread under the LVGL lock (`ui_acquire` / `ui_release`).
+Two hard rules keep the device from freezing or rebooting:
+
+1. **Always check `ui_acquire()`.** It uses a finite 1000 ms timeout and returns
+   `false` if the lock is held elsewhere. The screen template already guards
+   every access with `if (ui_acquire()) { ... ui_release(); }` - keep it that
+   way. Never assume the lock was taken.
+
+2. **Never block, sleep or loop while holding the lock, and never run a busy
+   loop on the UI thread.** Rendering liveness is supervised by `sys_monitor`: a
+   lightweight `lv_timer` bumps a render-progress beat (`ui_render_beat()`), and
+   if the beat stalls - a lock held too long, a runaway callback, or a frozen
+   LVGL task - the monitor does a controlled restart. Separately, a task that
+   spins a core past 5 s trips the idle Task Watchdog and panics
+   (`CONFIG_ESP_TASK_WDT_PANIC=y`). Either way the board recovers instead of
+   freezing.
+
+**Pattern for scans / captures / anything that takes more than a frame:** run it
+in its own FreeRTOS task, not on the UI thread. The SubGhz receiver is the
+reference - `subghz_rx_task` blocks on a queue (so it yields the CPU), never
+touches the LVGL lock, and the screen (`subghz_read_ui`) only uses `lv_timer`
+callbacks to refresh. Push results from the worker task back to the screen with
+`lv_async_call` or an `lv_timer`; both run inside the LVGL task, already under
+the lock. Create the worker with `xTaskCreatePinnedToCore` using a priority and
+core from [`sys_prio.h`](../sys_prio/README.md) (radios / IO on core 0, UI-side
+helpers on core 1).
+
+## Input: event-driven handlers
+
+Screens no longer poll the buttons with their own `lv_timer`. Input comes from
+[`input_manager`](../input_manager/README.md) as debounced events, dispatched by
+a single central pump to the active screen's handler.
+
+To add input to a screen:
+
+1. Write a handler `static void my_input(const input_event_t *ev, void *ctx)`.
+   The event carries `ev->button` (`INPUT_BTN_UP..BACK`) and `ev->action`
+   (`PRESS` / `RELEASE` / `LONG_PRESS` / `REPEAT`). `PRESS` is the debounced edge,
+   so there is no `s_*_last` bookkeeping.
+2. Register it at the end of your `*_open()` with
+   `ui_input_set_screen_handler(my_input, NULL)`.
+
+That is all: no timer to create or delete, no `ui_input_is_locked()` /
+`msgbox_is_open()` guards (the pump handles them), and the handler is cleared for
+you on the next screen switch. Use `REPEAT` for held auto-scroll and
+`input_is_down(button)` when you need a continuous held state (games).
+
+See `nfc_menu_ui.c` for the reference migration, and
+[input-migration.md](input-migration.md) for the step-by-step guide to convert
+the remaining ~91 screens off their polling timers (with the gotchas).
+
 ## Execution Flow Sumamary
 1. User selects **Bluetooth** from the Main Menu.
 2. Menu callback calls `ui_switch_screen(SCREEN_BLE_MENU)`.
