@@ -18,10 +18,28 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_core_dump.h"
 #include "esp_log.h"
+#include "esp_timer.h"
+#include "nvs.h"
 
 static const char *TAG = "BOOT_REPORT";
+
+// Boot-loop counter in RTC_NOINIT memory: survives a reset but not a power
+// cycle, and never writes flash. A magic word tells a real count from the
+// garbage RTC RAM holds after power-on.
+#define BOOTLOOP_MAGIC     0x7005B007u
+#define STABLE_UPTIME_US   (20 * 1000 * 1000)  // clear the counter after 20 s up
+#define NVS_NAMESPACE      "boot_report"
+#define NVS_KEY_LAST_REASON "last_reason"
+#define NVS_KEY_PANIC_TOTAL "panic_total"
+
+static RTC_NOINIT_ATTR uint32_t s_rtc_magic;
+static RTC_NOINIT_ATTR uint32_t s_rtc_abnormal_count;
+
+static esp_timer_handle_t s_stable_timer = NULL;
+static uint32_t s_panic_total = 0;
 
 static boot_stage_t s_stages[BOOT_REPORT_MAX_STAGES];
 static int s_stage_count = 0;
@@ -90,6 +108,35 @@ const char *boot_report_reason_str(esp_reset_reason_t reason) {
   }
 }
 
+// An abnormal end that should feed boot-loop detection.
+static bool reason_is_abnormal(esp_reset_reason_t reason) {
+  return reason == ESP_RST_PANIC || reason == ESP_RST_TASK_WDT || reason == ESP_RST_INT_WDT ||
+         reason == ESP_RST_WDT || reason == ESP_RST_CPU_LOCKUP || reason == ESP_RST_BROWNOUT;
+}
+
+// Persist only the summary (last reason + running panic total). Called once per
+// boot from capture_crash, which runs after nvs_flash_init. Writes on abnormal
+// boots only, so flash wear is negligible.
+static void persist_summary(esp_reset_reason_t reason, bool abnormal) {
+  nvs_handle_t nvs;
+  if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs) != ESP_OK) {
+    return;
+  }
+
+  uint32_t total = 0;
+  nvs_get_u32(nvs, NVS_KEY_PANIC_TOTAL, &total);
+
+  if (abnormal) {
+    total++;
+    nvs_set_u32(nvs, NVS_KEY_PANIC_TOTAL, total);
+    nvs_set_u32(nvs, NVS_KEY_LAST_REASON, (uint32_t)reason);
+    nvs_commit(nvs);
+  }
+
+  s_panic_total = total;
+  nvs_close(nvs);
+}
+
 void boot_report_capture_crash(void) {
   if (s_crash_captured) {
     return;
@@ -117,10 +164,11 @@ void boot_report_capture_crash(void) {
   }
 #endif
 
-  s_crash.crash = s_crash.has_coredump || s_crash.reason == ESP_RST_PANIC ||
-                  s_crash.reason == ESP_RST_TASK_WDT || s_crash.reason == ESP_RST_INT_WDT ||
-                  s_crash.reason == ESP_RST_WDT || s_crash.reason == ESP_RST_CPU_LOCKUP ||
-                  s_crash.reason == ESP_RST_BROWNOUT;
+  s_crash.crash = s_crash.has_coredump || reason_is_abnormal(s_crash.reason);
+
+  // NVS is up by now (kernel_init ran nvs_flash_init before this): keep a
+  // persistent summary and cache the running panic total.
+  persist_summary(s_crash.reason, s_crash.crash);
 
   if (s_crash.crash) {
     ESP_LOGW(TAG, "Previous run ended abnormally: %s (coredump=%d, task=%s)",
@@ -145,4 +193,58 @@ esp_err_t boot_report_clear_crash(void) {
     ESP_LOGW(TAG, "Core dump erase failed: %s", esp_err_to_name(ret));
   }
   return ret;
+}
+
+static void stable_timer_cb(void *arg) {
+  (void)arg;
+  boot_report_mark_stable();
+}
+
+void boot_report_track_bootloop(void) {
+  esp_reset_reason_t reason = esp_reset_reason();
+
+  // RTC RAM is undefined after a power cycle: a wrong magic means "fresh start".
+  if (s_rtc_magic != BOOTLOOP_MAGIC) {
+    s_rtc_magic = BOOTLOOP_MAGIC;
+    s_rtc_abnormal_count = 0;
+  }
+
+  if (reason_is_abnormal(reason)) {
+    s_rtc_abnormal_count++;
+    ESP_LOGW(TAG, "Abnormal boot #%lu: %s", (unsigned long)s_rtc_abnormal_count,
+             boot_report_reason_str(reason));
+  } else {
+    s_rtc_abnormal_count = 0;  // a clean reset / power-on breaks the loop
+  }
+
+  // Clear the counter once we have stayed up long enough to call this boot
+  // stable, so a single crash does not accumulate toward the loop threshold.
+  const esp_timer_create_args_t args = {
+      .callback = stable_timer_cb,
+      .name = "boot_stable",
+  };
+  if (esp_timer_create(&args, &s_stable_timer) == ESP_OK) {
+    esp_timer_start_once(s_stable_timer, STABLE_UPTIME_US);
+  }
+}
+
+bool boot_report_in_bootloop(void) {
+  return s_rtc_magic == BOOTLOOP_MAGIC &&
+         s_rtc_abnormal_count >= BOOT_REPORT_BOOTLOOP_THRESHOLD;
+}
+
+uint32_t boot_report_abnormal_boots(void) {
+  return (s_rtc_magic == BOOTLOOP_MAGIC) ? s_rtc_abnormal_count : 0;
+}
+
+uint32_t boot_report_panic_total(void) {
+  return s_panic_total;
+}
+
+void boot_report_mark_stable(void) {
+  if (s_rtc_abnormal_count != 0) {
+    ESP_LOGI(TAG, "Boot stable: clearing abnormal-boot counter (was %lu)",
+             (unsigned long)s_rtc_abnormal_count);
+  }
+  s_rtc_abnormal_count = 0;
 }

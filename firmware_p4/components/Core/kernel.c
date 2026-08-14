@@ -128,12 +128,13 @@ esp_err_t kernel_init(void) {
   boot_report_record("assets", true, storage_assets_init());
   storage_assets_print_info();
 
-  // Safe-mode entry: a required subsystem already failed, or the OK + BACK combo
-  // is held. Checked before radios/themes/services so recovery comes up minimal.
-  // input_manager_init is idempotent; buttons_init below is a no-op re-init on
-  // the normal path.
+  // Safe-mode entry: a boot loop was detected, a required subsystem already
+  // failed, or the OK + BACK combo is held. Checked before radios/themes/services
+  // so recovery comes up minimal. input_manager_init is idempotent; buttons_init
+  // below is a no-op re-init on the normal path.
   input_manager_init();
-  bool safe_mode = !boot_report_all_required_ok() || detect_safe_mode_combo();
+  bool safe_mode =
+      boot_report_in_bootloop() || !boot_report_all_required_ok() || detect_safe_mode_combo();
 
   // 4. Configuration, theme, logging
   tos_first_boot_setup();

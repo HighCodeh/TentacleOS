@@ -73,6 +73,16 @@ static void build_screen(void) {
   snprintf(buf, sizeof(buf), "Reset: %s", boot_report_reason_str(c->reason));
   add_line(body, buf, 0xFFFFFF);
 
+  snprintf(buf, sizeof(buf), "Panics total: %lu", (unsigned long)boot_report_panic_total());
+  add_line(body, buf, 0xE0E0E0);
+
+  uint32_t abnormal = boot_report_abnormal_boots();
+  if (abnormal > 0) {
+    snprintf(buf, sizeof(buf), "Abnormal boots: %lu/%d", (unsigned long)abnormal,
+             BOOT_REPORT_BOOTLOOP_THRESHOLD);
+    add_line(body, buf, abnormal >= BOOT_REPORT_BOOTLOOP_THRESHOLD ? 0xFF5252 : 0xFFC23D);
+  }
+
   if (!c->crash) {
     add_line(body, "No crash recorded.", 0x00E676);
   } else {

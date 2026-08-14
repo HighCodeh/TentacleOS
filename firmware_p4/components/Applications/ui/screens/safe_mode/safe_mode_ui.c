@@ -16,6 +16,7 @@
 #include "safe_mode_ui.h"
 
 #include <stdint.h>
+#include <stdio.h>
 
 #include "lvgl.h"
 
@@ -25,6 +26,7 @@
 #include "freertos/task.h"
 
 #include "boot_map_ui.h"
+#include "boot_report.h"
 #include "crash_report_ui.h"
 #include "menu_component_ui.h"
 #include "sys_prio.h"
@@ -103,7 +105,17 @@ static void build_menu(void) {
   menu_component_add_item(&s_menu, "/assets/icons/troubleshoot.bin", "View last crash");
   menu_component_add_item(&s_menu, "/assets/icons/storage.bin", "View boot map");
   menu_component_add_item(&s_menu, "/assets/icons/restart_alt.bin", "Reboot");
-  menu_component_set_hint(&s_menu, MENU_HINT);
+
+  // When we landed here from a boot loop, show the reset reason so the user sees
+  // why the device came up degraded.
+  if (boot_report_in_bootloop()) {
+    static char loop_hint[64];
+    snprintf(loop_hint, sizeof(loop_hint), "Boot loop: %s",
+             boot_report_reason_str(boot_report_crash()->reason));
+    menu_component_set_hint(&s_menu, loop_hint);
+  } else {
+    menu_component_set_hint(&s_menu, MENU_HINT);
+  }
 
   ui_input_set_screen_handler(safe_mode_input, NULL);
   ui_screen_load(s_screen);

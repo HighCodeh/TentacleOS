@@ -89,6 +89,34 @@ esp_err_t boot_report_clear_crash(void);
 /** @brief Human-readable name for a reset reason. */
 const char *boot_report_reason_str(esp_reset_reason_t reason);
 
+// Boot-loop detection (item 4)
+
+/** @brief Number of consecutive abnormal boots that trips degraded mode. */
+#define BOOT_REPORT_BOOTLOOP_THRESHOLD 3
+
+/**
+ * @brief Update the consecutive-abnormal-boot counter. Call FIRST in app_main.
+ *
+ * Reads esp_reset_reason() and keeps a counter in RTC_NOINIT memory (survives a
+ * reset but not a power cycle, so it never touches flash). An abnormal reason
+ * (panic / watchdog / brownout / lockup) increments it; a clean reset or a
+ * fresh power-on clears it. Also arms a one-shot timer that clears the counter
+ * once the device has been up long enough to be considered stable.
+ */
+void boot_report_track_bootloop(void);
+
+/** @brief True when the abnormal-boot counter has reached the threshold. */
+bool boot_report_in_bootloop(void);
+
+/** @brief Current consecutive-abnormal-boot count. */
+uint32_t boot_report_abnormal_boots(void);
+
+/** @brief Total panics recorded across power cycles (persisted in NVS). */
+uint32_t boot_report_panic_total(void);
+
+/** @brief Clear the abnormal-boot counter now (a stable boot was reached). */
+void boot_report_mark_stable(void);
+
 #ifdef __cplusplus
 }
 #endif
