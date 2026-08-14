@@ -102,6 +102,7 @@ void boot_report_capture_crash(void) {
   // A valid image in the coredump partition means the previous run panicked.
   s_crash.has_coredump = (esp_core_dump_image_check() == ESP_OK);
 
+#if CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH && CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF
   if (s_crash.has_coredump) {
     esp_core_dump_summary_t *summary = malloc(sizeof(esp_core_dump_summary_t));
     if (summary != NULL && esp_core_dump_get_summary(summary) == ESP_OK) {
@@ -114,6 +115,7 @@ void boot_report_capture_crash(void) {
     }
     free(summary);
   }
+#endif
 
   s_crash.crash = s_crash.has_coredump || s_crash.reason == ESP_RST_PANIC ||
                   s_crash.reason == ESP_RST_TASK_WDT || s_crash.reason == ESP_RST_INT_WDT ||
