@@ -55,7 +55,7 @@
 
 static const char *TAG = "KERNEL";
 
-#define CONSOLE_TASK_STACK     4096
+#define CONSOLE_TASK_STACK     8192
 #define CONSOLE_TASK_PRIO      SYS_PRIO_SERVICE_HI
 #define BOOT_SETTLE_MS         1500
 #define DISPLAY_RETRY_DELAY_MS 100

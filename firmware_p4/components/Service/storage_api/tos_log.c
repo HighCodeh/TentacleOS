@@ -169,22 +169,25 @@ static int log_to_file(const char *fmt, va_list args) {
     return ret;
   }
 
-  // Format the line into a stack temp. vsnprintf returns the length it would
-  // have written; clamp to what actually fits (drops the trailing NUL and any
-  // overflow of an unusually long line).
-  char line[LOG_LINE_MAX];
+  // This is the global vprintf hook, so it runs on whatever task is logging -
+  // keep it off the caller's stack. Take the lock first, then format into a
+  // shared static buffer (guarded by the same lock) instead of a stack temp.
+  if (xSemaphoreTake(s_lock, pdMS_TO_TICKS(LOG_LOCK_WAIT_MS)) != pdTRUE) {
+    return ret; // contended: skip file copy, serial already has the line
+  }
+
+  // vsnprintf returns the length it would have written; clamp to what fits
+  // (drops the trailing NUL and any overflow of an unusually long line).
+  static char line[LOG_LINE_MAX];
   va_list ap;
   va_copy(ap, args);
   int n = vsnprintf(line, sizeof(line), fmt, ap);
   va_end(ap);
   if (n <= 0) {
+    xSemaphoreGive(s_lock);
     return ret;
   }
   size_t wlen = (n >= (int)sizeof(line)) ? (sizeof(line) - 1) : (size_t)n;
-
-  if (xSemaphoreTake(s_lock, pdMS_TO_TICKS(LOG_LOCK_WAIT_MS)) != pdTRUE) {
-    return ret; // contended: skip file copy, serial already has the line
-  }
 
   bool over_high_water = false;
   if (s_buf_len + wlen > LOG_BUF_SIZE) {
