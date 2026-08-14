@@ -262,8 +262,7 @@ static void status_tint_timer_cb(lv_timer_t *timer) {
   // the card-detect pin. It only refreshes the icon tints, all value-compared.
 
   // Only touch the objects when the state changed, so an idle header stops
-  // forcing redraws. (SD card-detect is still polled here; an interrupt-driven
-  // CD is item 20.)
+  // forcing redraws.
   if (s_sd_mounted != s_card_shown_last) {
     set_card_icon_shown(s_sd_mounted);
     s_card_shown_last = s_sd_mounted;
