@@ -51,6 +51,7 @@
 #include "ui_manager.h"
 #include "msgbox_ui.h"
 #include "sys_monitor.h"
+#include "sys_shutdown.h"
 
 static const char *TAG = "KERNEL";
 
@@ -118,6 +119,8 @@ esp_err_t kernel_init(void) {
 
   // Capture last-run crash forensics before anything can overwrite the reason.
   boot_report_capture_crash();
+
+  sys_shutdown_init();
 
   // Power management: DFS + light sleep (gated by the NO_LIGHT_SLEEP lock, which
   // power_policy holds while the screen is on). Set up before tasks come up.
