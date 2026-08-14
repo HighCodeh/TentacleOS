@@ -18,6 +18,7 @@
 #include <stdio.h>
 
 #include "driver/gpio.h"
+#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sys_prio.h"
@@ -50,6 +51,7 @@
 #define SD_MOUNT_RETRIES        3
 #define SD_MOUNT_RETRY_DELAY_MS 150
 #define SD_TASK_STACK           6144 // vfs mount/unmount logs via the deep console path
+#define SD_CD_DEBOUNCE_MS       150  // settle the card-detect switch after an edge
 
 static lv_obj_t *bt_img_ref = NULL;
 static lv_obj_t *card_img_ref = NULL;
@@ -66,15 +68,10 @@ static bool s_wifi_connected_last = false;
 
 static void header_sync_wifi_icon(void);
 static bool s_cd_configured = false;
-static bool s_cd_init = false;
-static bool s_cd_last = false;
-static bool s_cd_prev = false;
 static bool s_sd_mounted = false;
-static bool s_boot_pending = false;
 static int s_sd_used_pct = 0;
-static volatile bool s_mount_task_running = false;
-static volatile bool s_sd_mount_result_pending = false;
-static volatile bool s_sd_mount_ok = false;
+static TaskHandle_t s_cd_task = NULL;       // debounces the CD ISR + (un)mounts
+static bool s_sd_present_committed = false;  // last debounced CD state acted on
 static char s_sd_name[24];
 static char s_sd_size[16];
 static char s_sd_free[16];
@@ -92,17 +89,34 @@ void header_ui_set_ble_active(bool active) {
   s_ble_active = active;
 }
 
+static void sd_cd_isr(void *arg);
+static void sd_cd_task(void *arg);
+
 static void sd_cd_ensure_configured(void) {
   if (s_cd_configured)
     return;
+
   gpio_config_t cfg = {
       .pin_bit_mask = 1ULL << GPIO_SD_CD_PIN,
       .mode = GPIO_MODE_INPUT,
       .pull_up_en = GPIO_PULLUP_ENABLE,
       .pull_down_en = GPIO_PULLDOWN_DISABLE,
-      .intr_type = GPIO_INTR_DISABLE,
+      .intr_type = GPIO_INTR_ANYEDGE, // interrupt-driven hotplug (item 20)
   };
   gpio_config(&cfg);
+
+  // The debounce + (un)mount worker. The ISR only notifies it; blocking work
+  // (vfs mount/statvfs) runs here and UI updates hop to the LVGL thread via
+  // lv_async_call. Boot state is handled by the task's first pass.
+  if (s_cd_task == NULL) {
+    xTaskCreatePinnedToCore(sd_cd_task, "sd_cd", SD_TASK_STACK, NULL, SYS_PRIO_SERVICE_LO, &s_cd_task,
+                            SYS_CORE_RADIO);
+  }
+
+  esp_err_t isr_err = gpio_install_isr_service(0);
+  (void)isr_err; // ESP_ERR_INVALID_STATE just means another driver installed it
+  gpio_isr_handler_add(GPIO_SD_CD_PIN, sd_cd_isr, NULL);
+
   s_cd_configured = true;
 }
 
@@ -133,11 +147,37 @@ static void fmt_bytes(char *out, size_t n, uint64_t bytes) {
   }
 }
 
-static void sd_mount_task(void *arg) {
+// --- LVGL-thread UI updates (posted from the CD task via lv_async_call) ---
+
+static void sd_apply_mounted(void *arg) {
+  bool boot = (bool)(intptr_t)arg;
+  s_sd_mounted = true;
+  set_card_icon_shown(true);
+  s_card_shown_last = true;
+  if (!boot) {
+    ui_feedback(UI_FB_SD_CONNECT);
+    msgbox_open_sd_info(s_sd_name, s_sd_size, s_sd_free, s_sd_fmt);
+  }
+}
+
+static void sd_apply_removed(void *arg) {
   (void)arg;
+  bool was = s_sd_mounted;
+  s_sd_mounted = false;
+  s_sd_used_pct = 0;
+  set_card_icon_shown(false);
+  s_card_shown_last = false;
+  if (was) {
+    ui_feedback(UI_FB_SD_DISCONNECT);
+    notify(NOTIFY_WARNING, "SD card removed");
+  }
+}
+
+// Mount (with retries) and gather the info strings. Runs on the CD task.
+static bool sd_try_mount(void) {
   bool ok = vfs_sdcard_is_mounted();
   for (int i = 0; !ok && i < SD_MOUNT_RETRIES; i++) {
-    if (gpio_get_level(GPIO_SD_CD_PIN) != SD_CD_PRESENT_LEVEL) {
+    if (!sd_card_present()) {
       break;
     }
     ok = (vfs_sdcard_init() == ESP_OK);
@@ -145,97 +185,74 @@ static void sd_mount_task(void *arg) {
       vTaskDelay(pdMS_TO_TICKS(SD_MOUNT_RETRY_DELAY_MS));
     }
   }
-  if (ok) {
-    if (!vfs_sdcard_get_name(s_sd_name, sizeof(s_sd_name))) {
-      s_sd_name[0] = '\0';
-    }
-    vfs_statvfs_t st;
-    if (vfs_statvfs(VFS_MOUNT_POINT, &st) == ESP_OK) {
-      fmt_bytes(s_sd_size, sizeof(s_sd_size), st.total_bytes);
-      fmt_bytes(s_sd_free, sizeof(s_sd_free), st.free_bytes);
-      s_sd_used_pct = (st.total_bytes > 0) ? (int)((st.used_bytes * 100) / st.total_bytes) : 0;
-    } else {
-      snprintf(s_sd_size, sizeof(s_sd_size), "-");
-      snprintf(s_sd_free, sizeof(s_sd_free), "-");
-      s_sd_used_pct = 0;
-    }
-    snprintf(s_sd_fmt, sizeof(s_sd_fmt), "FAT32");
+  if (!ok) {
+    return false;
   }
-  s_sd_mount_ok = ok;
-  s_sd_mount_result_pending = true;
-  s_mount_task_running = false;
-  vTaskDelete(NULL);
+  if (!vfs_sdcard_get_name(s_sd_name, sizeof(s_sd_name))) {
+    s_sd_name[0] = '\0';
+  }
+  vfs_statvfs_t st;
+  if (vfs_statvfs(VFS_MOUNT_POINT, &st) == ESP_OK) {
+    fmt_bytes(s_sd_size, sizeof(s_sd_size), st.total_bytes);
+    fmt_bytes(s_sd_free, sizeof(s_sd_free), st.free_bytes);
+    s_sd_used_pct = (st.total_bytes > 0) ? (int)((st.used_bytes * 100) / st.total_bytes) : 0;
+  } else {
+    snprintf(s_sd_size, sizeof(s_sd_size), "-");
+    snprintf(s_sd_free, sizeof(s_sd_free), "-");
+    s_sd_used_pct = 0;
+  }
+  snprintf(s_sd_fmt, sizeof(s_sd_fmt), "FAT32");
+  return true;
 }
 
-static void sd_unmount_task(void *arg) {
+static void IRAM_ATTR sd_cd_isr(void *arg) {
   (void)arg;
-  if (vfs_sdcard_is_mounted()) {
-    vfs_sdcard_deinit();
+  BaseType_t hpw = pdFALSE;
+  if (s_cd_task != NULL) {
+    vTaskNotifyGiveFromISR(s_cd_task, &hpw);
   }
-  vTaskDelete(NULL);
+  portYIELD_FROM_ISR(hpw);
 }
 
-static void start_sd_mount_task(bool boot) {
-  if (s_mount_task_running) {
-    return;
-  }
-  s_boot_pending = boot;
-  s_mount_task_running = true;
-  if (xTaskCreatePinnedToCore(sd_mount_task, "sd_mnt", SD_TASK_STACK, NULL, SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_RADIO) != pdPASS) {
-    s_mount_task_running = false;
-    s_boot_pending = false;
+static void sd_cd_task(void *arg) {
+  (void)arg;
+  bool boot = true;
+  for (;;) {
+    if (!boot) {
+      ulTaskNotifyTake(pdTRUE, portMAX_DELAY);       // wait for a CD edge
+      vTaskDelay(pdMS_TO_TICKS(SD_CD_DEBOUNCE_MS));  // let the switch settle
+      ulTaskNotifyTake(pdTRUE, 0);                   // drain bounces during settle
+    }
+
+    bool present = sd_card_present();
+    if (!boot && present == s_sd_present_committed) {
+      continue;  // spurious edge, no real change
+    }
+    s_sd_present_committed = present;
+
+    if (present) {
+      if (sd_try_mount()) {
+        lv_async_call(sd_apply_mounted, (void *)(intptr_t)boot);
+      } else if (vfs_sdcard_is_mounted()) {
+        vfs_sdcard_deinit();
+      }
+    } else if (!boot) {
+      // Real removal (not a card-less boot): unmount and tell the UI.
+      if (vfs_sdcard_is_mounted()) {
+        vfs_sdcard_deinit();
+      }
+      lv_async_call(sd_apply_removed, NULL);
+    }
+
+    boot = false;
   }
 }
 
 static void status_tint_timer_cb(lv_timer_t *timer) {
   (void)timer;
 
-  bool present = sd_card_present();
-
-  if (!s_cd_init) {
-    s_cd_init = true;
-    s_cd_last = present;
-    s_cd_prev = present;
-    if (vfs_sdcard_is_mounted()) {
-      start_sd_mount_task(true);
-    } else if (present) {
-      start_sd_mount_task(false);
-    }
-  } else if (present == s_cd_prev && present != s_cd_last) {
-    // Commit only after the new card-detect state is stable for two ticks
-    // (debounce a glitchy CD switch so we never spuriously mount/unmount).
-    s_cd_last = present;
-    if (present) {
-      start_sd_mount_task(false);
-    } else {
-      if (s_sd_mounted) {
-        s_sd_mounted = false;
-        s_sd_used_pct = 0;
-        ui_feedback(UI_FB_SD_DISCONNECT);
-        notify(NOTIFY_WARNING, "SD card removed");
-      }
-      xTaskCreatePinnedToCore(sd_unmount_task, "sd_umnt", SD_TASK_STACK, NULL, SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_RADIO);
-    }
-  }
-  s_cd_prev = present;
-
-  if (s_sd_mount_result_pending) {
-    s_sd_mount_result_pending = false;
-    bool boot = s_boot_pending;
-    s_boot_pending = false;
-    if (s_sd_mount_ok) {
-      s_sd_mounted = true;
-      if (!boot) {
-        ui_feedback(UI_FB_SD_CONNECT);
-        msgbox_open_sd_info(s_sd_name, s_sd_size, s_sd_free, s_sd_fmt);
-      }
-    } else {
-      s_sd_mounted = false;
-      if (vfs_sdcard_is_mounted()) {
-        xTaskCreatePinnedToCore(sd_unmount_task, "sd_umnt", SD_TASK_STACK, NULL, SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_RADIO);
-      }
-    }
-  }
+  // SD hotplug is now interrupt-driven (sd_cd_task); this timer no longer polls
+  // the card-detect pin. It only refreshes the icon tints, all value-compared.
 
   // Only touch the objects when the state changed, so an idle header stops
   // forcing redraws. (SD card-detect is still polled here; an interrupt-driven
