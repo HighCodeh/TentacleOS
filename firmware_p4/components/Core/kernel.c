@@ -35,6 +35,7 @@
 #include "storage_init.h"
 #include "storage_assets.h"
 #include "boot_report.h"
+#include "power_manager.h"
 #include "tos_first_boot.h"
 #include "tos_config.h"
 #include "tos_theme.h"
@@ -117,6 +118,10 @@ esp_err_t kernel_init(void) {
 
   // Capture last-run crash forensics before anything can overwrite the reason.
   boot_report_capture_crash();
+
+  // Power management: DFS + light sleep (gated by the NO_LIGHT_SLEEP lock, which
+  // power_policy holds while the screen is on). Set up before tasks come up.
+  power_manager_init();
 
   // 2. Buses
   spi_init();

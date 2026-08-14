@@ -25,6 +25,7 @@
 #include "battery_service.h"
 #include "input_manager.h"
 #include "notify_ui.h"
+#include "power_manager.h"
 #include "spi_bridge.h"
 #include "spi_protocol.h"
 #include "st7789.h"
@@ -52,6 +53,7 @@ static uint32_t s_batt_accum_ms = 0;
 
 static power_state_t s_state = PS_AWAKE;
 static bool s_asleep = false;       // panel is off
+static bool s_no_sleep_held = false; // whether we hold the NO_LIGHT_SLEEP lock
 static int s_user_bright = 100;     // captured user level to restore on wake
 static int s_cur_bright = 100;      // currently applied level (fade cursor)
 static int s_target_bright = 100;   // fade destination
@@ -104,6 +106,19 @@ static void enter_state(power_state_t st) {
   }
   s_state = st;
   notify_c5_power_state(st);
+
+  // Light sleep gate: hold the CPU awake while the screen is on (awake or merely
+  // dimmed); release it only once the screen is fully off, so the system can
+  // light-sleep when the device is idle and a button wakes it.
+  if (st == PS_ASLEEP) {
+    if (s_no_sleep_held) {
+      power_manager_no_sleep_release();
+      s_no_sleep_held = false;
+    }
+  } else if (!s_no_sleep_held) {
+    power_manager_no_sleep_acquire();
+    s_no_sleep_held = true;
+  }
 }
 
 static void tick_cb(lv_timer_t *t) {
@@ -163,5 +178,13 @@ void power_policy_init(void) {
   s_user_bright = lcd_get_brightness();
   s_cur_bright = s_user_bright;
   s_target_bright = s_user_bright;
+
+  // Boot comes up awake: hold the CPU out of light sleep until the screen turns
+  // off. enter_state() releases/re-takes this as the screen sleeps and wakes.
+  if (!s_no_sleep_held) {
+    power_manager_no_sleep_acquire();
+    s_no_sleep_held = true;
+  }
+
   s_timer = lv_timer_create(tick_cb, IDLE_TICK_MS, NULL);
 }
