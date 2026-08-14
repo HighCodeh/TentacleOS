@@ -82,3 +82,11 @@ CONFIG_LV_USE_SNAPSHOT=y
 # idle task or a subscribed task stops feeding it. Safe now that the OTA and C5
 # flash write loops yield per chunk and the UI task probes the LVGL lock.
 CONFIG_ESP_TASK_WDT_PANIC=y
+
+# Core dump to the dedicated flash partition (ELF format) for field forensics.
+# On a panic the backtrace/registers/task stacks are saved; the boot report reads
+# and clears the image via esp_core_dump_* (see Service/boot_report).
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
+CONFIG_ESP_COREDUMP_STACK_SIZE=1792

@@ -34,6 +34,7 @@
 #include "spi_bridge.h"
 #include "storage_init.h"
 #include "storage_assets.h"
+#include "boot_report.h"
 #include "tos_first_boot.h"
 #include "tos_config.h"
 #include "tos_theme.h"
@@ -98,29 +99,37 @@ static void kernel_init_safe_mode(void) {
   vTaskDelay(pdMS_TO_TICKS(BOOT_SETTLE_MS));
 }
 
-void kernel_init(void) {
+esp_err_t kernel_init(void) {
+  boot_report_reset();
+
   // 1. NVS
   esp_err_t ret = nvs_flash_init();
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
     ESP_ERROR_CHECK(nvs_flash_erase());
     ret = nvs_flash_init();
   }
+  boot_report_record("nvs", true, ret);
   ESP_ERROR_CHECK(ret);
+
+  // Capture last-run crash forensics before anything can overwrite the reason.
+  boot_report_capture_crash();
 
   // 2. Buses
   spi_init();
   init_i2c();
 
-  // 3. Storage
-  storage_init();
-  storage_assets_init();
+  // 3. Storage. SD is optional (may be absent); the assets LittleFS is required
+  // for icons/config/fonts, so its failure drops us into safe mode below.
+  boot_report_record("sd-storage", false, storage_init());
+  boot_report_record("assets", true, storage_assets_init());
   storage_assets_print_info();
 
-  // Safe-mode entry check. Runs before radios, custom themes and services so
-  // the recovery mode truly comes up minimal. input_manager_init is idempotent;
-  // buttons_init below is a no-op re-init on the normal path.
+  // Safe-mode entry: a required subsystem already failed, or the OK + BACK combo
+  // is held. Checked before radios/themes/services so recovery comes up minimal.
+  // input_manager_init is idempotent; buttons_init below is a no-op re-init on
+  // the normal path.
   input_manager_init();
-  bool safe_mode = detect_safe_mode_combo();
+  bool safe_mode = !boot_report_all_required_ok() || detect_safe_mode_combo();
 
   // 4. Configuration, theme, logging
   tos_first_boot_setup();
@@ -129,7 +138,7 @@ void kernel_init(void) {
 
   if (safe_mode) {
     kernel_init_safe_mode();
-    return;
+    return boot_report_all_required_ok() ? ESP_OK : ESP_FAIL;
   }
 
   tos_theme_load_from_sd();
@@ -137,7 +146,7 @@ void kernel_init(void) {
 
   // 5. Peripherals
   led_rgb_init();
-  bq25896_init();
+  boot_report_record("battery", false, bq25896_init());
   cc1101_init();
   // C5 radio coprocessor bridge (SPI2, POLL mode to match the C5 slave). Inits
   // the bridge bus, starts the link monitor, and probes the C5 version. If the
@@ -151,7 +160,7 @@ void kernel_init(void) {
   // brings LVGL up over esp_lvgl_port (it calls lv_init and registers the
   // display); then the keypad indev and UI lock against the glue.
   st7789_init();
-  lvgl_glue_init();
+  boot_report_record("display", true, lvgl_glue_init());
   lv_port_indev_init();
   ui_init();
 
@@ -172,6 +181,7 @@ void kernel_init(void) {
   // host_link_ble_init();   // BLE relay infra; advertising starts on demand
 
   vTaskDelay(pdMS_TO_TICKS(BOOT_SETTLE_MS));
+  return boot_report_all_required_ok() ? ESP_OK : ESP_FAIL;
 }
 
 // FreeRTOS Safeguards

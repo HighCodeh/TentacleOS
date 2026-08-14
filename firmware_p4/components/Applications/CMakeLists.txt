@@ -83,6 +83,7 @@ idf_component_register(SRCS
   "ui/screens/badusb/include"
   "ui/screens/bluetooth/include"
   "ui/screens/boot/include"
+  "ui/screens/boot_report/include"
   "ui/screens/connect_bluetooth/include"
   "ui/screens/connect_wifi/include"
   "ui/screens/connection_settings/include"

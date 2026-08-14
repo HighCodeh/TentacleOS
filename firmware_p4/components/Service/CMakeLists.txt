@@ -30,6 +30,7 @@ idf_component_register(SRCS
   "font/font.c"
   "icons/icons.c"
   "wifi/wifi_service.c"
+  "boot_report/boot_report.c"
 
   ${STORAGE_API_SRCS}
   ${STORAGE_VFS_SRCS}
@@ -73,6 +74,7 @@ idf_component_register(SRCS
   "font/include"
   "icons/include"
   "wifi/include"
+  "boot_report/include"
   "ir/include"
   "storage_api/include"
   "storage_vfs/include"
@@ -113,6 +115,7 @@ idf_component_register(SRCS
     esp_tinyusb
     mbedtls
     esp_hw_support
+    espcoredump
 )
 
 # C5 firmware is NOT embedded in the P4 binary anymore. c5_flasher.c streams the

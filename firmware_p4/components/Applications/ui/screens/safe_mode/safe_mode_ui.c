@@ -24,6 +24,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "boot_map_ui.h"
+#include "crash_report_ui.h"
 #include "menu_component_ui.h"
 #include "sys_prio.h"
 #include "tos_factory_reset.h"
@@ -40,7 +42,9 @@ static const char *TAG = "SAFE_MODE_UI";
 
 #define ROW_RESET_CONFIG 0
 #define ROW_RESET_ALL    1
-#define ROW_REBOOT       2
+#define ROW_VIEW_CRASH   2
+#define ROW_VIEW_BOOTMAP 3
+#define ROW_REBOOT       4
 
 #define FACTORY_TASK_STACK 4096
 #define REBOOT_DELAY_MS    1200
@@ -96,6 +100,8 @@ static void build_menu(void) {
   s_menu = menu_component_create(s_screen, TITLE, TITLE_ICON);
   menu_component_add_item(&s_menu, "/assets/icons/settings.bin", "Reset config");
   menu_component_add_item(&s_menu, "/assets/icons/warning.bin", "Reset all");
+  menu_component_add_item(&s_menu, "/assets/icons/troubleshoot.bin", "View last crash");
+  menu_component_add_item(&s_menu, "/assets/icons/storage.bin", "View boot map");
   menu_component_add_item(&s_menu, "/assets/icons/restart_alt.bin", "Reboot");
   menu_component_set_hint(&s_menu, MENU_HINT);
 
@@ -182,6 +188,11 @@ static void safe_mode_input(const input_event_t *ev, void *ctx) {
               build_message("RESET ALL",
                             "Erase config, all captures/loot and NVS?\nThis cannot be undone.",
                             CONFIRM_HINT, lv_palette_main(LV_PALETTE_RED));
+            } else if (sel == ROW_VIEW_CRASH) {
+              // Viewer returns to this menu via ui_safe_mode_open (rebuilds it).
+              ui_crash_report_open_cb(ui_safe_mode_open);
+            } else if (sel == ROW_VIEW_BOOTMAP) {
+              ui_boot_map_open_cb(ui_safe_mode_open);
             } else if (sel == ROW_REBOOT) {
               esp_restart();
             }

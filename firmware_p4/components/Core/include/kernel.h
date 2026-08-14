@@ -16,6 +16,8 @@
 #ifndef KERNEL_H
 #define KERNEL_H
 
+#include "esp_err.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -31,8 +33,14 @@ extern "C" {
  *   5. Peripherals (LED, battery, CC1101, bridge)
  *   6. Display + LVGL + UI
  *   7. Wi-Fi, console, system monitor
+ *
+ * Each subsystem is recorded in the boot map (boot_report). If a required
+ * subsystem fails, the boot aborts to safe mode instead of continuing blind.
+ *
+ * @return ESP_OK on a normal boot, ESP_FAIL when a required subsystem failed
+ *         and the device fell back to safe mode.
  */
-void kernel_init(void);
+esp_err_t kernel_init(void);
 
 /**
  * @brief Display a safeguard alert on screen and log the error.

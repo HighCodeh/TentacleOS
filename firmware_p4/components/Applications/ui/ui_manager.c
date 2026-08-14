@@ -40,6 +40,8 @@
 
 #include "boot_ui.h"
 #include "safe_mode_ui.h"
+#include "boot_map_ui.h"
+#include "crash_report_ui.h"
 #include "home_ui.h"
 #include "menu_ui.h"
 #include "wifi_ui.h"
@@ -496,6 +498,10 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_dev_console_open;
     case SCREEN_DEV_DIAG:
       return ui_dev_diag_open;
+    case SCREEN_BOOT_MAP:
+      return ui_boot_map_open;
+    case SCREEN_CRASH_REPORT:
+      return ui_crash_report_open;
     case SCREEN_NFC_BANKCARD:
       return ui_nfc_bankcard_open;
     case SCREEN_NFC_DESFIRE:
@@ -597,6 +603,8 @@ bool ui_screen_shows_chrome(screen_id_t s) {
     // --- Dev / system: live terminal / running payload / update ---
     case SCREEN_DEV_CONSOLE:
     case SCREEN_DEV_DIAG:
+    case SCREEN_BOOT_MAP:
+    case SCREEN_CRASH_REPORT:
     case SCREEN_SYSTEM_UPDATE:
     case SCREEN_SCRIPTS:
       return false;

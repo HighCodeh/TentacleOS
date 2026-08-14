@@ -37,6 +37,8 @@ static const struct {
     {"Console", "/assets/icons/monitoring.bin", SCREEN_DEV_CONSOLE},
     {"P4 Update", "/assets/icons/system_update.bin", SCREEN_SYSTEM_UPDATE},
     {"Diagnostics", "/assets/icons/troubleshoot.bin", SCREEN_DEV_DIAG},
+    {"Boot map", "/assets/icons/storage.bin", SCREEN_BOOT_MAP},
+    {"Last crash", "/assets/icons/warning.bin", SCREEN_CRASH_REPORT},
 };
 #define MENU_ITEM_COUNT ((int)(sizeof(MENU_ITEMS) / sizeof(MENU_ITEMS[0])))
 
