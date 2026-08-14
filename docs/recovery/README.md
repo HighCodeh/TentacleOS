@@ -17,6 +17,11 @@ minimal:
 2. **Required-subsystem failure** - if a required boot stage failed (see
    [boot_report](../boot_report/README.md)), `kernel_init` drops into safe mode
    automatically instead of booting blind. This is the degraded-mode target.
+3. **Boot loop** - after 3 consecutive abnormal boots (panic / watchdog /
+   brownout), boot-loop detection (see
+   [boot_report](../boot_report/README.md#boot-loop-detection-item-4)) forces
+   safe mode and the footer shows the reset reason. This breaks the endless
+   reboot cycle from marginal hardware and gives a factory-reset path out.
 
 In safe mode the kernel brings up only LED, battery, display, LVGL and the
 recovery UI. Radios (CC1101, the C5 bridge, RFID), Wi-Fi, host link, console and

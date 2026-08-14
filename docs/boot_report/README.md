@@ -84,6 +84,39 @@ Viewer: **View last crash** in the developer menu (`SCREEN_CRASH_REPORT`) and in
 the safe-mode menu. Shows the reset reason and, when a dump exists, the fault
 context; **OK** clears the dump (`esp_core_dump_image_erase`).
 
+## Boot-loop detection (item 4)
+
+Directly addresses the "reboots by itself" symptom: a marginal-hardware panic
+(display FFC, bad SD, an I2C peripheral not ACKing) used to loop forever with no
+trace and no reduced-boot attempt.
+
+```c
+void boot_report_track_bootloop(void);   // FIRST thing in app_main
+bool boot_report_in_bootloop(void);
+uint32_t boot_report_abnormal_boots(void);
+uint32_t boot_report_panic_total(void);
+void boot_report_mark_stable(void);
+```
+
+- `boot_report_track_bootloop` runs **first in `app_main`** (before
+  `kernel_init`). It reads `esp_reset_reason()` and keeps a counter in
+  **`RTC_NOINIT_ATTR`** memory: it survives a reset but not a power cycle and
+  never writes flash - exactly the semantics for loop detection. A magic word
+  distinguishes a real count from the garbage RTC RAM holds after power-on. An
+  abnormal reason (panic / task-WDT / int-WDT / WDT / lockup / brownout)
+  increments it; a clean reset or power-on clears it.
+- It arms a one-shot `esp_timer` (20 s) that calls `boot_report_mark_stable` to
+  zero the counter once the device has been up long enough to be considered
+  stable, so a single crash never accumulates toward the threshold.
+- At **3 consecutive abnormal boots** (`BOOT_REPORT_BOOTLOOP_THRESHOLD`),
+  `boot_report_in_bootloop()` is true and `kernel_init` drops into
+  [safe mode](../recovery/README.md) - the degraded target (no radios, no SD
+  theme, minimal UI). The safe-mode footer shows the reset reason, and the crash
+  viewer shows `Panics total` and `Abnormal boots N/3`.
+- Only a **summary** is persisted to NVS (namespace `boot_report`: last reason +
+  running panic total), written on abnormal boots only, so flash wear is
+  negligible. The RTC counter carries the loop state itself.
+
 ## Follow-ups
 
 - Exposing the map and crash summary over `host_link` for the companion app is
