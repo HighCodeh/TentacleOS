@@ -108,5 +108,5 @@ void register_hostlink_commands(void) {
                                           .hint = "<psk|regen|status>",
                                           .func = &cmd_hostlink,
                                           .argtable = NULL};
-  ESP_ERROR_CHECK(esp_console_cmd_register(&hostlink_cmd));
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&hostlink_cmd));
 }

@@ -158,5 +158,5 @@ void register_ir_commands(void) {
       .hint = NULL,
       .func = &cmd_ir,
   };
-  ESP_ERROR_CHECK(esp_console_cmd_register(&cmd_ir_def));
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&cmd_ir_def));
 }

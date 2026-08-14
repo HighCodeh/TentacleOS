@@ -194,5 +194,5 @@ void register_badusb_commands(void) {
                                         .hint = "<run|type|layout|stop|status> ...",
                                         .func = &cmd_badusb,
                                         .argtable = NULL};
-  ESP_ERROR_CHECK(esp_console_cmd_register(&badusb_cmd));
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&badusb_cmd));
 }

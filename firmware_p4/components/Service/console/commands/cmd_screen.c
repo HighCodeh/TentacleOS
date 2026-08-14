@@ -170,7 +170,7 @@ void register_screen_commands(void) {
       .func = &cmd_goto,
       .argtable = &goto_args,
   };
-  ESP_ERROR_CHECK(esp_console_cmd_register(&goto_cmd));
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&goto_cmd));
 
   key_args.idx = arg_int1(NULL, NULL, "<idx>", "0=UP 1=DOWN 2=LEFT 3=RIGHT 4=OK 5=BACK");
   key_args.ms = arg_int0("t", "ms", "<ms>", "hold duration in ms (default 120)");
@@ -181,7 +181,7 @@ void register_screen_commands(void) {
       .func = &cmd_key,
       .argtable = &key_args,
   };
-  ESP_ERROR_CHECK(esp_console_cmd_register(&key_cmd));
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&key_cmd));
 
   shot_args.id = arg_int0(NULL, NULL, "<id>", "optional: switch to <id> before capturing");
   shot_args.end = arg_end(1);
@@ -191,5 +191,5 @@ void register_screen_commands(void) {
       .func = &cmd_screenshot,
       .argtable = &shot_args,
   };
-  ESP_ERROR_CHECK(esp_console_cmd_register(&shot_cmd));
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&shot_cmd));
 }

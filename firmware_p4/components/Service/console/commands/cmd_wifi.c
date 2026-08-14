@@ -686,5 +686,5 @@ void register_wifi_commands(void) {
                                       .hint = "<scan|connect|ap|spam|deauth|sniff|evil|...> ...",
                                       .func = &cmd_wifi,
                                       .argtable = NULL};
-  ESP_ERROR_CHECK(esp_console_cmd_register(&wifi_cmd));
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&wifi_cmd));
 }

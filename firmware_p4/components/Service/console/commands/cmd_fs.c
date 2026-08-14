@@ -205,24 +205,24 @@ void register_fs_commands(void) {
   s_ls_args.end = arg_end(1);
   const esp_console_cmd_t ls_cmd = {
       .command = "ls", .help = "List directory", .func = &cmd_ls, .argtable = &s_ls_args};
-  ESP_ERROR_CHECK(esp_console_cmd_register(&ls_cmd));
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&ls_cmd));
 
   // CD
   s_cd_args.path = arg_str1(NULL, NULL, "<path>", "Target directory");
   s_cd_args.end = arg_end(1);
   const esp_console_cmd_t cd_cmd = {
       .command = "cd", .help = "Change directory", .func = &cmd_cd, .argtable = &s_cd_args};
-  ESP_ERROR_CHECK(esp_console_cmd_register(&cd_cmd));
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&cd_cmd));
 
   // PWD
   const esp_console_cmd_t pwd_cmd = {
       .command = "pwd", .help = "Print working directory", .func = &cmd_pwd};
-  ESP_ERROR_CHECK(esp_console_cmd_register(&pwd_cmd));
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&pwd_cmd));
 
   // CAT
   s_cat_args.path = arg_str1(NULL, NULL, "<file>", "File path");
   s_cat_args.end = arg_end(1);
   const esp_console_cmd_t cat_cmd = {
       .command = "cat", .help = "Print file content", .func = &cmd_cat, .argtable = &s_cat_args};
-  ESP_ERROR_CHECK(esp_console_cmd_register(&cat_cmd));
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&cat_cmd));
 }

@@ -40,7 +40,11 @@ esp_err_t console_service_init(void) {
   repl_config.max_cmdline_length = CONSOLE_MAX_CMDLINE;
   repl_config.task_stack_size = CONSOLE_TASK_STACK_SIZE;
 
-  ESP_ERROR_CHECK(esp_console_register_help_command());
+  esp_err_t ret = esp_console_register_help_command();
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "register help command failed: %s", esp_err_to_name(ret));
+    return ret;
+  }
 
   register_system_commands();
   register_fs_commands();
@@ -54,20 +58,28 @@ esp_err_t console_service_init(void) {
   ESP_LOGI(TAG, "Initializing USB Serial/JTAG Console (Native S3)");
   esp_console_dev_usb_serial_jtag_config_t usbjtag_config =
       ESP_CONSOLE_DEV_USB_SERIAL_JTAG_CONFIG_DEFAULT();
-  ESP_ERROR_CHECK(esp_console_new_repl_usb_serial_jtag(&usbjtag_config, &repl_config, &repl));
+  ret = esp_console_new_repl_usb_serial_jtag(&usbjtag_config, &repl_config, &repl);
 
 #elif defined(CONFIG_ESP_CONSOLE_USB_CDC)
   ESP_LOGI(TAG, "Initializing USB CDC Console (TinyUSB)");
   esp_console_dev_usb_cdc_config_t cdc_config = ESP_CONSOLE_DEV_USB_CDC_CONFIG_DEFAULT();
-  ESP_ERROR_CHECK(esp_console_new_repl_usb_cdc(&cdc_config, &repl_config, &repl));
+  ret = esp_console_new_repl_usb_cdc(&cdc_config, &repl_config, &repl);
 
 #else
   ESP_LOGI(TAG, "Initializing UART Console");
   esp_console_dev_uart_config_t uart_config = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
-  ESP_ERROR_CHECK(esp_console_new_repl_uart(&uart_config, &repl_config, &repl));
+  ret = esp_console_new_repl_uart(&uart_config, &repl_config, &repl);
 #endif
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "console REPL create failed: %s", esp_err_to_name(ret));
+    return ret;
+  }
 
-  ESP_ERROR_CHECK(esp_console_start_repl(repl));
+  ret = esp_console_start_repl(repl);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "console REPL start failed: %s", esp_err_to_name(ret));
+    return ret;
+  }
   s_repl = repl;
 
   ESP_LOGI(TAG, "Console started. Type 'help' for commands.");

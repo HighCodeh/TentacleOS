@@ -232,7 +232,7 @@ void register_system_commands(void) {
       .hint = NULL,
       .func = &cmd_tasks,
   };
-  ESP_ERROR_CHECK(esp_console_cmd_register(&cmd_tasks_def));
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&cmd_tasks_def));
 
   const esp_console_cmd_t cmd_ip_def = {
       .command = "ip",
@@ -240,7 +240,7 @@ void register_system_commands(void) {
       .hint = NULL,
       .func = &cmd_ip,
   };
-  ESP_ERROR_CHECK(esp_console_cmd_register(&cmd_ip_def));
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&cmd_ip_def));
 
   const esp_console_cmd_t cmd_free_def = {
       .command = "free",
@@ -248,7 +248,7 @@ void register_system_commands(void) {
       .hint = NULL,
       .func = &cmd_free,
   };
-  ESP_ERROR_CHECK(esp_console_cmd_register(&cmd_free_def));
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&cmd_free_def));
 
   const esp_console_cmd_t cmd_restart_def = {
       .command = "restart",
@@ -256,7 +256,7 @@ void register_system_commands(void) {
       .hint = NULL,
       .func = &cmd_restart,
   };
-  ESP_ERROR_CHECK(esp_console_cmd_register(&cmd_restart_def));
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&cmd_restart_def));
 
   const esp_console_cmd_t cmd_firstboot_def = {
       .command = "firstboot",
@@ -264,7 +264,7 @@ void register_system_commands(void) {
       .hint = NULL,
       .func = &cmd_firstboot,
   };
-  ESP_ERROR_CHECK(esp_console_cmd_register(&cmd_firstboot_def));
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&cmd_firstboot_def));
 
   const esp_console_cmd_t cmd_capprep_def = {
       .command = "capprep",
@@ -272,7 +272,7 @@ void register_system_commands(void) {
       .hint = NULL,
       .func = &cmd_capprep,
   };
-  ESP_ERROR_CHECK(esp_console_cmd_register(&cmd_capprep_def));
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&cmd_capprep_def));
 
   const esp_console_cmd_t cmd_c5_def = {
       .command = "c5",
@@ -280,5 +280,5 @@ void register_system_commands(void) {
       .hint = NULL,
       .func = &cmd_c5,
   };
-  ESP_ERROR_CHECK(esp_console_cmd_register(&cmd_c5_def));
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&cmd_c5_def));
 }
