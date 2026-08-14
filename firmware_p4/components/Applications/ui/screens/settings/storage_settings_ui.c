@@ -50,7 +50,7 @@ static const char *TAG = "STORAGE_UI";
 #define ACT_FORMAT     1
 #define ACT_HEALTH     2
 #define ACT_COUNT      3
-#define FMT_TASK_STACK 4096
+#define FMT_TASK_STACK 8192
 #define FMT_TASK_PRIO SYS_PRIO_SERVICE_HI
 
 #define LIST_LEFT     6

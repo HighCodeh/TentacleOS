@@ -46,7 +46,7 @@ static const char *TAG = "BLE_SCAN_UI";
 #define SCAN_SIM_STEP_MS      220
 #define BLE_DEV_ICON          "/assets/icons/bluetooth.bin"
 #define BLE_SEARCH_ICON       "/assets/icons/bluetooth_searching.bin"
-#define BLE_SCAN_TASK_STACK   4096
+#define BLE_SCAN_TASK_STACK 8192
 #define BLE_SCAN_TASK_PRIO SYS_PRIO_SERVICE_LO
 #define HERO_CARD_W           200
 #define HERO_CARD_H           108

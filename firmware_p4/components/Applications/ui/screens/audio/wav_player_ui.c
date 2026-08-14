@@ -43,7 +43,7 @@
 #define VOL_STEP          10
 #define VOL_DEFAULT       80
 #define PATH_MAX_LEN      256
-#define PLAYER_TASK_STACK 4096
+#define PLAYER_TASK_STACK 8192
 #define PLAYER_TASK_PRIO SYS_PRIO_SERVICE_HI
 #define DBLCLICK_MS       350
 #define G1                0x7A52D6

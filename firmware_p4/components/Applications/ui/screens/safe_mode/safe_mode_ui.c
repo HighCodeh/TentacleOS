@@ -48,7 +48,7 @@ static const char *TAG = "SAFE_MODE_UI";
 #define ROW_VIEW_BOOTMAP 3
 #define ROW_REBOOT       4
 
-#define FACTORY_TASK_STACK 4096
+#define FACTORY_TASK_STACK 8192
 #define REBOOT_DELAY_MS    1200
 
 typedef enum {

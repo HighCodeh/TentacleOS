@@ -39,7 +39,7 @@ static const char *SCAN_ICON = "/assets/icons/devices.bin";
 #define SCAN_MS         1400
 #define TARGET_AP       "HOME-5G  CH6"
 #define COLOR_CLIENT    0x00E676
-#define TASK_STACK_SIZE 4096
+#define TASK_STACK_SIZE 8192
 #define TASK_PRIORITY SYS_PRIO_SERVICE_LO
 #define CLIENT_MAX      8
 #define CAPTION_Y_OFS   78

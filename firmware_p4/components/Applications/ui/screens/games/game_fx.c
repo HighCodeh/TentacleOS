@@ -25,7 +25,7 @@
 #include "drv2605l.h"
 
 #define FX_AMP            0.42f
-#define SND_TASK_STACK    4096
+#define SND_TASK_STACK 8192
 #define SND_TASK_PRIORITY SYS_PRIO_SERVICE_LO
 
 static const audio_note_t SND_FLAP[] = {{780, 28}};

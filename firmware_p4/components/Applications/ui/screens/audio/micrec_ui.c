@@ -43,7 +43,7 @@ static const char *TAG = "MICREC_UI";
 #define SCOPE_FULL         9000.0f
 #define OVERLAY_TICK_MS    60
 #define OVERLAY_HIDE_MS    700
-#define MIC_TASK_STACK     4096
+#define MIC_TASK_STACK 8192
 #define MIC_TASK_PRIORITY SYS_PRIO_SERVICE_LO
 #define REC_TARGET_DEFAULT 26000
 #define REC_TARGET_MIN     16000

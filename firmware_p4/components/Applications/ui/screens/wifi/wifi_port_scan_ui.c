@@ -39,7 +39,7 @@ static const char *SCAN_ICON = "/assets/icons/wifi_find.bin";
 #define SCAN_MS         1600
 #define TARGET_HOST     "192.168.1.10"
 #define COLOR_OPEN      0x00E676
-#define TASK_STACK_SIZE 4096
+#define TASK_STACK_SIZE 8192
 #define TASK_PRIORITY SYS_PRIO_SERVICE_LO
 #define CAPTION_Y_OFS   78
 #define WAVES_Y_OFS     -6

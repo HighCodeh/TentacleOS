@@ -37,7 +37,7 @@ static const char *TAG = "WIFI_CHAN_UI";
 #define MAX_ROWS         12
 #define SCAN_SIM_STEPS   4
 #define SCAN_SIM_STEP_MS 220
-#define TASK_STACK_SIZE  4096
+#define TASK_STACK_SIZE 8192
 #define TASK_PRIORITY SYS_PRIO_SERVICE_LO
 
 #define COLOR_QUIET_HEX   0x00E676

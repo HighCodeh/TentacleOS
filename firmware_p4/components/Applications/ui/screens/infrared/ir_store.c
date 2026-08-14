@@ -37,7 +37,7 @@ static const char *TAG = "IR_STORE";
 #define IR_DIR             TOS_PATH_IR // "/sdcard/ir"
 #define IR_STORE_FILE_MAX  (512 * 1024)
 #define IR_SERIALIZE_MAX   16384
-#define IR_CAP_TASK_STACK  4096
+#define IR_CAP_TASK_STACK 8192
 #define IR_CAP_TASK_PRIO SYS_PRIO_SERVICE_HI
 
 // ----------------------------------------------------------------------------

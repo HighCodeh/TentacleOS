@@ -41,7 +41,7 @@ static const char *TAG_ICON = "/assets/icons/wifi_find.bin";
 #define AP_MAX          12
 #define COLOR_SECURE    0x00E676
 #define COLOR_OPEN      0xFFC107
-#define TASK_STACK_SIZE 4096
+#define TASK_STACK_SIZE 8192
 #define TASK_PRIORITY SYS_PRIO_SERVICE_LO
 
 #define SCAN_WAVES_Y_OFS   -6

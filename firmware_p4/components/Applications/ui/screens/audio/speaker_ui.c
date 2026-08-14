@@ -39,7 +39,7 @@ static const char *TAG = "SPEAKER_UI";
 #define SND_AMP           0.75f
 #define MAX_SEQ           64
 #define N_EQ              10
-#define SPK_TASK_STACK    4096
+#define SPK_TASK_STACK 8192
 #define SPK_TASK_PRIORITY SYS_PRIO_SERVICE_LO
 #define NP_TIMER_MS       33
 #define MAX_SONG_ROWS     10
