@@ -54,9 +54,10 @@
 
 static const char *TAG = "KERNEL";
 
-#define CONSOLE_TASK_STACK 4096
-#define CONSOLE_TASK_PRIO SYS_PRIO_SERVICE_HI
-#define BOOT_SETTLE_MS     1500
+#define CONSOLE_TASK_STACK     4096
+#define CONSOLE_TASK_PRIO      SYS_PRIO_SERVICE_HI
+#define BOOT_SETTLE_MS         1500
+#define DISPLAY_RETRY_DELAY_MS 100
 
 // Safe-mode entry: OK + BACK must be held together at power-on. Wait for the
 // input sampler to debounce, then require the combo to stay held across the
@@ -106,11 +107,13 @@ esp_err_t kernel_init(void) {
   // 1. NVS
   esp_err_t ret = nvs_flash_init();
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    ESP_ERROR_CHECK(nvs_flash_erase());
+    esp_err_t erase_ret = nvs_flash_erase();
+    if (erase_ret != ESP_OK) {
+      ESP_LOGE(TAG, "nvs erase failed: %s", esp_err_to_name(erase_ret));
+    }
     ret = nvs_flash_init();
   }
   boot_report_record("nvs", true, ret);
-  ESP_ERROR_CHECK(ret);
 
   // Capture last-run crash forensics before anything can overwrite the reason.
   boot_report_capture_crash();
@@ -160,10 +163,20 @@ esp_err_t kernel_init(void) {
   // 6. Display + LVGL + UI. st7789_init sets up the panel handles; lvgl_glue_init
   // brings LVGL up over esp_lvgl_port (it calls lv_init and registers the
   // display); then the keypad indev and UI lock against the glue.
-  st7789_init();
-  boot_report_record("display", true, lvgl_glue_init());
-  lv_port_indev_init();
-  ui_init();
+  esp_err_t panel_ret = st7789_init();
+  if (panel_ret != ESP_OK) {
+    ESP_LOGE(TAG, "display panel init failed (%s); retrying once", esp_err_to_name(panel_ret));
+    vTaskDelay(pdMS_TO_TICKS(DISPLAY_RETRY_DELAY_MS));
+    panel_ret = st7789_init();
+  }
+  boot_report_record("display", true, panel_ret);
+  if (panel_ret == ESP_OK) {
+    boot_report_record("lvgl", true, lvgl_glue_init());
+    lv_port_indev_init();
+    ui_init();
+  } else {
+    ESP_LOGE(TAG, "display unavailable after retry; booting headless for diagnostics");
+  }
 
   // 7. Services
   sys_monitor_start(false);
