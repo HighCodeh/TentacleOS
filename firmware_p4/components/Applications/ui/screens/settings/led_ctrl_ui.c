@@ -82,7 +82,7 @@ static const preset_t PRESETS[] = {
     {"Yellow", 0xFFFF00},
     {"Green", 0x00FF00},
     {"Blue", 0x0000FF},
-    {"Purple", 0x8000FF},
+    {"Purple", 0xFF00FF},
 };
 #define PRESET_COUNT ((int)(sizeof(PRESETS) / sizeof(PRESETS[0])))
 
