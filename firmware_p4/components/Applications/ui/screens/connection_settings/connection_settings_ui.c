@@ -19,6 +19,7 @@
 #include "esp_timer.h"
 
 #include "buttons_gpio.h"
+#include "host_link.h"
 #include "lv_port_indev.h"
 #include "menu_component_ui.h"
 #include "msgbox_ui.h"
@@ -157,6 +158,11 @@ static void nav_timer_cb(lv_timer_t *timer) {
       menu_component_toggle_item(&s_menu, IDX_USB_NATIVE);
       bool native = menu_component_get_toggle(&s_menu, IDX_USB_NATIVE);
       usb_mux_set_native(native);
+      if (native) {
+        // Mux now routed to the native PHY: bring the companion CDC up (deferred
+        // at boot to keep the UART serial console clean). Idempotent.
+        host_link_cdc_init();
+      }
       // Native USB needs the CPU awake: hold the NO_LIGHT_SLEEP lock while it is
       // on, release it when switching back to the UART bridge. Tracked so repeated
       // toggles stay balanced.

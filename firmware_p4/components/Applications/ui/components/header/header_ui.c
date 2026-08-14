@@ -19,6 +19,7 @@
 
 #include "driver/gpio.h"
 #include "esp_attr.h"
+#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sys_prio.h"
@@ -113,7 +114,13 @@ static void sd_cd_ensure_configured(void) {
                             SYS_CORE_RADIO);
   }
 
+  // The service is usually already up (spi_bridge/tusb install it earlier), and
+  // the driver logs an ERROR before returning ESP_ERR_INVALID_STATE - harmless
+  // here, so silence the "gpio" tag around the call.
+  esp_log_level_t gpio_log_level = esp_log_level_get("gpio");
+  esp_log_level_set("gpio", ESP_LOG_NONE);
   esp_err_t isr_err = gpio_install_isr_service(0);
+  esp_log_level_set("gpio", gpio_log_level);
   (void)isr_err; // ESP_ERR_INVALID_STATE just means another driver installed it
   gpio_isr_handler_add(GPIO_SD_CD_PIN, sd_cd_isr, NULL);
 

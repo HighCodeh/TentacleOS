@@ -105,6 +105,21 @@ static void host_link_worker(void *arg) {
 }
 
 esp_err_t host_link_cdc_init(void) {
+  static bool s_cdc_up = false;
+  if (s_cdc_up) {
+    return ESP_OK; // already brought up (e.g. native-USB toggle re-invoked it)
+  }
+
+  // Defer the native P4 USB (TinyUSB) until the USB-C data mux is actually routed
+  // to it. At boot the mux is on the UART bridge (CP2105 serial console): bringing
+  // up the native PHY there enumerates a second device on the shared connector and
+  // fights the serial port (host has to replug). Install on demand instead, when
+  // the user switches to native USB.
+  if (!usb_mux_is_native()) {
+    ESP_LOGI(TAG, "CDC deferred: mux on UART bridge, native USB off");
+    return ESP_OK;
+  }
+
   s_rx_stream = xStreamBufferCreate(HOST_LINK_CDC_STREAM, 1);
   if (s_rx_stream == NULL) {
     ESP_LOGE(TAG, "Failed to create RX stream buffer");
@@ -136,6 +151,7 @@ esp_err_t host_link_cdc_init(void) {
     return ESP_FAIL;
   }
 
+  s_cdc_up = true;
   ESP_LOGI(TAG, "Host link CDC transport up");
   return ESP_OK;
 }
