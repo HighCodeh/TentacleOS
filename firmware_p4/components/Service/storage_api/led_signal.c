@@ -32,11 +32,19 @@ static void led_off_cb(void *arg) {
   led_clear();
 }
 
+static uint8_t scale_channel(uint8_t chan, int pct) {
+  if (pct < 0)
+    pct = 0;
+  if (pct > 100)
+    pct = 100;
+  return (uint8_t)((uint32_t)chan * (uint32_t)pct / 100);
+}
+
 static void blink(uint32_t hex) {
   int pct = g_config_led.brightness;
-  uint8_t r = (uint8_t)(((hex >> 16) & 0xFF) * (uint32_t)pct / 100);
-  uint8_t g = (uint8_t)(((hex >> 8) & 0xFF) * (uint32_t)pct / 100);
-  uint8_t b = (uint8_t)((hex & 0xFF) * (uint32_t)pct / 100);
+  uint8_t r = scale_channel((hex >> 16) & 0xFF, pct);
+  uint8_t g = scale_channel((hex >> 8) & 0xFF, pct);
+  uint8_t b = scale_channel(hex & 0xFF, pct);
   led_set_color(r, g, b);
 
   if (s_off_timer == NULL) {

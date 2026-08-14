@@ -68,12 +68,14 @@ typedef struct {
   uint32_t hex;
 } preset_t;
 
+// Saturated primaries: these drive a physical RGB LED, so pale/pastel values
+// (lots of all three channels) wash out to white. Keep the channels pure.
 static const preset_t PRESETS[] = {
-    {"Red", 0xFF3B30},
-    {"Green", 0x00E676},
-    {"Blue", 0x2F80FF},
-    {"Purple", 0xB89AFF},
-    {"White", 0xF5F5F5},
+    {"Red", 0xFF0000},
+    {"Green", 0x00FF00},
+    {"Blue", 0x0000FF},
+    {"Purple", 0x8000FF},
+    {"White", 0xFFFFFF},
 };
 #define PRESET_COUNT ((int)(sizeof(PRESETS) / sizeof(PRESETS[0])))
 
@@ -100,11 +102,20 @@ static bool s_right_last = false;
 static bool s_ok_last = false;
 static bool s_back_last = false;
 
+// Scale one 8-bit channel by a percentage, clamped to [0, 255] so an out-of-range
+// percentage can never overflow the byte and wrap the color to a wrong hue.
+static uint8_t scale_channel(uint8_t chan, int pct) {
+  if (pct < 0)
+    pct = 0;
+  uint32_t v = (uint32_t)chan * (uint32_t)pct / 100;
+  return (uint8_t)(v > 255 ? 255 : v);
+}
+
 static lv_color_t scaled_color(uint32_t hex, int pct) {
-  uint32_t r = ((hex >> 16) & 0xFF) * (uint32_t)pct / 100;
-  uint32_t g = ((hex >> 8) & 0xFF) * (uint32_t)pct / 100;
-  uint32_t b = (hex & 0xFF) * (uint32_t)pct / 100;
-  return lv_color_make((uint8_t)r, (uint8_t)g, (uint8_t)b);
+  uint8_t r = scale_channel((hex >> 16) & 0xFF, pct);
+  uint8_t g = scale_channel((hex >> 8) & 0xFF, pct);
+  uint8_t b = scale_channel(hex & 0xFF, pct);
+  return lv_color_make(r, g, b);
 }
 
 static void update_preview(void) {
@@ -129,10 +140,9 @@ static void update_preview(void) {
   // Drive the physical RGB LED (LP5816) to match the preview: preset color
   // scaled by the brightness percentage.
   uint32_t hex = PRESETS[s_color_idx].hex;
-  uint8_t r = (uint8_t)(((hex >> 16) & 0xFF) * (uint32_t)s_bright / 100);
-  uint8_t g = (uint8_t)(((hex >> 8) & 0xFF) * (uint32_t)s_bright / 100);
-  uint8_t b = (uint8_t)((hex & 0xFF) * (uint32_t)s_bright / 100);
-  led_set_color(r, g, b);
+  led_set_color(scale_channel((hex >> 16) & 0xFF, s_bright),
+                scale_channel((hex >> 8) & 0xFF, s_bright),
+                scale_channel(hex & 0xFF, s_bright));
 }
 
 static void update_swatches(void) {
@@ -370,8 +380,11 @@ static void nav_timer_cb(lv_timer_t *t) {
       update_swatches();
       update_preview();
     } else if (s_focus == FOCUS_BRIGHT) {
-      if (s_bright > BRIGHT_MIN) {
-        s_bright -= BRIGHT_STEP;
+      int nb = s_bright - BRIGHT_STEP;
+      if (nb < BRIGHT_MIN)
+        nb = BRIGHT_MIN;
+      if (nb != s_bright) {
+        s_bright = nb;
         s_changed = true;
         update_bright();
         update_preview();
@@ -387,8 +400,11 @@ static void nav_timer_cb(lv_timer_t *t) {
       update_swatches();
       update_preview();
     } else if (s_focus == FOCUS_BRIGHT) {
-      if (s_bright < BRIGHT_MAX) {
-        s_bright += BRIGHT_STEP;
+      int nb = s_bright + BRIGHT_STEP;
+      if (nb > BRIGHT_MAX)
+        nb = BRIGHT_MAX;
+      if (nb != s_bright) {
+        s_bright = nb;
         s_changed = true;
         update_bright();
         update_preview();
