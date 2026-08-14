@@ -18,19 +18,59 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "spi_bridge.h"
+#include "sys_prio.h"
 
 static const char *TAG = "WIFI_SERVICE_P4";
 
-#define SSID_MAX_LEN 33
+#define SSID_MAX_LEN   33
+#define STATUS_POLL_MS 1000
 
 static wifi_ap_record_t s_cached_record;
 static char s_connected_ssid[SSID_MAX_LEN] = {0};
 
+// Cached Wi-Fi status. The header polls is_active/is_connected from an lv_timer
+// on the LVGL thread; doing a blocking SPI RPC there froze the renderer whenever
+// the bridge was busy (e.g. during a scan, which holds the bridge mutex for
+// seconds). A background task refreshes this cache off the UI thread, and the
+// getters just read it, so the UI never blocks on the bridge.
+static volatile bool s_status_active = false;
+static volatile bool s_status_connected = false;
+static TaskHandle_t s_status_task = NULL;
+
+static void status_poll_task(void *arg) {
+  (void)arg;
+  while (1) {
+    spi_header_t resp;
+    spi_system_status_t sys = {0};
+    if (spi_bridge_send_command(SPI_ID_SYSTEM_STATUS,
+                                NULL,
+                                0,
+                                &resp,
+                                (uint8_t *)&sys,
+                                spi_bridge_get_timeout(SPI_ID_SYSTEM_STATUS)) == ESP_OK) {
+      s_status_active = sys.wifi_active != 0;
+      s_status_connected = sys.wifi_connected != 0;
+    }
+    vTaskDelay(pdMS_TO_TICKS(STATUS_POLL_MS));
+  }
+}
+
 void wifi_service_init(void) {
   spi_bridge_send_command(
       SPI_ID_WIFI_START, NULL, 0, NULL, NULL, spi_bridge_get_timeout(SPI_ID_WIFI_START));
+  if (s_status_task == NULL) {
+    xTaskCreatePinnedToCore(status_poll_task,
+                            "wifi_status",
+                            4096,
+                            NULL,
+                            SYS_PRIO_BACKGROUND,
+                            &s_status_task,
+                            SYS_CORE_RADIO);
+  }
 }
 
 void wifi_service_deinit(void) {
@@ -115,18 +155,7 @@ esp_err_t wifi_service_connect_to_ap(const char *ssid, const char *password) {
 }
 
 bool wifi_service_is_connected(void) {
-  spi_header_t resp;
-  spi_system_status_t sys = {0};
-
-  if (spi_bridge_send_command(SPI_ID_SYSTEM_STATUS,
-                              NULL,
-                              0,
-                              &resp,
-                              (uint8_t *)&sys,
-                              spi_bridge_get_timeout(SPI_ID_SYSTEM_STATUS)) == ESP_OK) {
-    return sys.wifi_connected != 0;
-  }
-  return (wifi_service_get_connected_ssid() != NULL);
+  return s_status_connected;
 }
 
 const char *wifi_service_get_connected_ssid(void) {
@@ -145,18 +174,7 @@ const char *wifi_service_get_connected_ssid(void) {
 }
 
 bool wifi_service_is_active(void) {
-  spi_header_t resp;
-  spi_system_status_t sys = {0};
-
-  if (spi_bridge_send_command(SPI_ID_SYSTEM_STATUS,
-                              NULL,
-                              0,
-                              &resp,
-                              (uint8_t *)&sys,
-                              spi_bridge_get_timeout(SPI_ID_SYSTEM_STATUS)) == ESP_OK) {
-    return sys.wifi_active != 0;
-  }
-  return false;
+  return s_status_active;
 }
 
 void wifi_service_change_to_hotspot(const char *new_ssid) {
