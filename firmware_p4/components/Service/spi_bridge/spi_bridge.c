@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "led_control.h"
 #include "esp_rom_sys.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -166,6 +167,7 @@ void spi_bridge_register_stream_cb(spi_id_t id, spi_stream_cb_t cb) {
   }
   if (free_slot < 0) {
     ESP_LOGE(TAG, "No free stream cb slot for id 0x%04X", id);
+    led_signal_error();
     return;
   }
   s_stream_cbs[free_slot].id = id;
@@ -185,6 +187,7 @@ void spi_bridge_register_stream_cb(spi_id_t id, spi_stream_cb_t cb) {
     if (created != pdPASS) {
       s_stream_task_handle = NULL;
       ESP_LOGE(TAG, "Failed to create SPI stream task");
+      led_signal_error();
     }
   }
 }
@@ -302,6 +305,7 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
   ret = recv_frame(tx_buf, rx_buf, SPI_FRAME_SIZE, id, true, timeout_ms);
   if (ret != ESP_OK) {
     ESP_LOGW(TAG, "Command 0x%04X timeout", id);
+    led_signal_warning();
     s_is_command_in_flight = false;
     xSemaphoreGive(s_spi_mutex);
     return ret;
@@ -311,6 +315,7 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
 
   if (resp->sync != SPI_SYNC_BYTE) {
     ESP_LOGE(TAG, "Sync error: 0x%02X", resp->sync);
+    led_signal_error();
     s_is_command_in_flight = false;
     xSemaphoreGive(s_spi_mutex);
     return ESP_ERR_INVALID_RESPONSE;
@@ -318,6 +323,7 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
 
   if (resp->type != SPI_TYPE_RESP) {
     ESP_LOGE(TAG, "Invalid response type: 0x%02X", resp->type);
+    led_signal_error();
     s_is_command_in_flight = false;
     xSemaphoreGive(s_spi_mutex);
     return ESP_ERR_INVALID_RESPONSE;
@@ -330,6 +336,7 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
     // resyncs on its own.
     ESP_LOGW(TAG, "Response ID mismatch (req 0x%04X, resp 0x%04X), dropping", id,
              spi_header_cmd(resp));
+    led_signal_warning();
     s_is_command_in_flight = false;
     xSemaphoreGive(s_spi_mutex);
     return ESP_ERR_INVALID_RESPONSE;
@@ -337,6 +344,7 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
 
   if (resp->length > SPI_MAX_PAYLOAD) {
     ESP_LOGE(TAG, "Invalid response length: %u", resp->length);
+    led_signal_error();
     s_is_command_in_flight = false;
     xSemaphoreGive(s_spi_mutex);
     return ESP_ERR_INVALID_RESPONSE;
