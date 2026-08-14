@@ -858,27 +858,9 @@ static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
 }
 
 static bool save_to_file(const char *path, bool use_sd) {
-  if (s_pcap_buffer == NULL || s_buffer_offset == 0)
-    return false;
-
-  if (!use_sd) {
-    storage_mkdir_recursive(FLASH_STORAGE_WIFI_PCAP);
-  }
-
-  esp_err_t err;
-  if (use_sd) {
-    if (!sd_is_mounted())
-      return false;
-    err = sd_write_binary(path, s_pcap_buffer, s_buffer_offset);
-  } else {
-    err = storage_write_binary(path, s_pcap_buffer, s_buffer_offset);
-  }
-
-  if (err == ESP_OK) {
-    ESP_LOGI(TAG, "Saved PCAP to %s (%lu bytes)", path, s_buffer_offset);
-    return true;
-  } else {
-    ESP_LOGE(TAG, "Failed to save PCAP: %s", esp_err_to_name(err));
-    return false;
-  }
+  (void)path;
+  (void)use_sd;
+  // Pcaps are heavy: the C5 never persists them. Frames stream to the P4 over SPI
+  // and the P4 writes the .pcap to its SD card. Without a card nothing is saved.
+  return false;
 }
