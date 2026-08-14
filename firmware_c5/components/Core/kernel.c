@@ -24,7 +24,6 @@
 #include "freertos/task.h"
 #include "nvs_flash.h"
 
-#include "bq25896.h"
 #include "buttons_gpio.h"
 #include "c5_log.h"
 #include "i2c_init.h"
@@ -55,8 +54,8 @@ void kernel_init(void) {
   storage_assets_init();
   storage_assets_print_info();
 
-  // led_rgb_init();
-  bq25896_init();
+  // The BQ25896 charger lives on the P4 and is managed there; the C5 must not
+  // touch it (its init just failed on the C5's I2C bus). led_rgb likewise.
   // V2 PCB has no bridge IRQ trace: run the slave in POLL mode (matches the P4).
   spi_bridge_slave_init_mode(SPI_BRIDGE_MODE_POLL);
   c5_log_init(); // tee C5 logs to the P4 over SPI for the companion console
