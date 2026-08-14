@@ -21,6 +21,7 @@
 #include "led_control.h"
 #include "notify_ui.h"
 #include "tos_config.h"
+#include "tos_storage_paths.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -54,12 +55,16 @@
 #define COL_TRACK 0x202028
 
 #define HDR_ICON  "/assets/icons/palette.bin"
-#define HDR_TITLE "LED CONTROL"
+#define HDR_TITLE "LED SIGNALS"
+
+// The three semantic signals whose color is being configured.
+enum { SIG_INFO = 0, SIG_WARNING, SIG_ERROR, SIG_COUNT };
+static const char *SIG_NAMES[SIG_COUNT] = {"INFO", "WARNING", "ERROR"};
 
 enum {
-  FOCUS_COLOR = 0,
-  FOCUS_BRIGHT,
-  FOCUS_STEALTH,
+  FOCUS_SIGNAL = 0, // which signal to edit (info / warning / error)
+  FOCUS_COLOR,      // color assigned to the selected signal
+  FOCUS_BRIGHT,     // global intensity (one value for all signals)
   FOCUS_COUNT,
 };
 
@@ -69,13 +74,15 @@ typedef struct {
 } preset_t;
 
 // Saturated primaries: these drive a physical RGB LED, so pale/pastel values
-// (lots of all three channels) wash out to white. Keep the channels pure.
+// (lots of all three channels) wash out to white. Keep the channels pure. The
+// three signal defaults (purple/yellow/red) are all present so they map back.
 static const preset_t PRESETS[] = {
     {"Red", 0xFF0000},
+    {"Orange", 0xFF6000},
+    {"Yellow", 0xFFFF00},
     {"Green", 0x00FF00},
     {"Blue", 0x0000FF},
     {"Purple", 0x8000FF},
-    {"White", 0xFFFFFF},
 };
 #define PRESET_COUNT ((int)(sizeof(PRESETS) / sizeof(PRESETS[0])))
 
@@ -85,14 +92,13 @@ static lv_obj_t *s_card[FOCUS_COUNT];
 static lv_obj_t *s_swatch[PRESET_COUNT];
 static lv_obj_t *s_bright_fill = NULL;
 static lv_obj_t *s_bright_val = NULL;
-static lv_obj_t *s_pill = NULL;
-static lv_obj_t *s_pill_lbl = NULL;
+static lv_obj_t *s_sig_val = NULL;
 static lv_timer_t *s_nav_timer = NULL;
 
-static int s_focus = FOCUS_COLOR;
-static int s_color_idx = 3;
+static int s_focus = FOCUS_SIGNAL;
+static int s_signal = SIG_INFO;
+static int s_color_idx[SIG_COUNT]; // selected preset index per signal
 static int s_bright = BRIGHT_DEFAULT;
-static bool s_stealth = false;
 static bool s_changed = false;
 
 static bool s_up_last = false;
@@ -118,28 +124,24 @@ static lv_color_t scaled_color(uint32_t hex, int pct) {
   return lv_color_make(r, g, b);
 }
 
+static uint32_t current_hex(void) {
+  return PRESETS[s_color_idx[s_signal]].hex;
+}
+
 static void update_preview(void) {
   if (s_preview == NULL)
     return;
-  if (s_stealth) {
-    lv_obj_set_style_bg_color(s_preview, lv_color_hex(COL_OFF), 0);
-    lv_obj_set_style_border_color(s_preview, lv_color_hex(COL_DIM), 0);
-    lv_obj_set_style_border_width(s_preview, 2, 0);
-    lv_obj_set_style_shadow_width(s_preview, 0, 0);
-    led_clear(); // stealth: physical LED off
-    return;
-  }
-  lv_color_t c = scaled_color(PRESETS[s_color_idx].hex, s_bright);
+  uint32_t hex = current_hex();
+  lv_color_t c = scaled_color(hex, s_bright);
   lv_obj_set_style_bg_color(s_preview, c, 0);
-  lv_obj_set_style_border_color(s_preview, lv_color_hex(PRESETS[s_color_idx].hex), 0);
+  lv_obj_set_style_border_color(s_preview, lv_color_hex(hex), 0);
   lv_obj_set_style_border_width(s_preview, 2, 0);
   lv_obj_set_style_shadow_width(s_preview, 8 + s_bright / 4, 0);
-  lv_obj_set_style_shadow_color(s_preview, lv_color_hex(PRESETS[s_color_idx].hex), 0);
+  lv_obj_set_style_shadow_color(s_preview, lv_color_hex(hex), 0);
   lv_obj_set_style_shadow_opa(s_preview, LV_OPA_60, 0);
 
-  // Drive the physical RGB LED (LP5816) to match the preview: preset color
-  // scaled by the brightness percentage.
-  uint32_t hex = PRESETS[s_color_idx].hex;
+  // Drive the physical RGB LED (LP5816) to match the preview: selected signal's
+  // color scaled by the brightness percentage.
   led_set_color(scale_channel((hex >> 16) & 0xFF, s_bright),
                 scale_channel((hex >> 8) & 0xFF, s_bright),
                 scale_channel(hex & 0xFF, s_bright));
@@ -147,7 +149,7 @@ static void update_preview(void) {
 
 static void update_swatches(void) {
   for (int i = 0; i < PRESET_COUNT; i++) {
-    bool sel = (i == s_color_idx);
+    bool sel = (i == s_color_idx[s_signal]);
     lv_obj_set_style_border_color(
         s_swatch[i], sel ? current_theme.border_accent : current_theme.border_inactive, 0);
     lv_obj_set_style_border_width(s_swatch[i], sel ? 3 : 1, 0);
@@ -164,14 +166,11 @@ static void update_bright(void) {
     lv_label_set_text_fmt(s_bright_val, "%d%%", s_bright);
 }
 
-static void update_stealth(void) {
-  if (s_pill == NULL)
+static void update_signal(void) {
+  if (s_sig_val == NULL)
     return;
-  lv_obj_set_style_bg_color(
-      s_pill, s_stealth ? current_theme.border_accent : lv_color_hex(COL_TRACK), 0);
-  lv_label_set_text(s_pill_lbl, s_stealth ? "ON" : "OFF");
-  lv_obj_set_style_text_color(
-      s_pill_lbl, s_stealth ? current_theme.screen_base : lv_color_hex(COL_DIM), 0);
+  lv_label_set_text(s_sig_val, SIG_NAMES[s_signal]);
+  lv_obj_set_style_text_color(s_sig_val, lv_color_hex(current_hex()), 0);
 }
 
 static void update_focus(void) {
@@ -287,31 +286,16 @@ static void build_bright_card(lv_obj_t *parent) {
   lv_obj_set_style_text_align(s_bright_val, LV_TEXT_ALIGN_RIGHT, 0);
 }
 
-static void build_stealth_card(lv_obj_t *parent) {
-  lv_obj_t *card = make_ctrl_card(parent, "STEALTH", STEALTH_CARD_H);
-  s_card[FOCUS_STEALTH] = card;
+static void build_signal_card(lv_obj_t *parent) {
+  lv_obj_t *card = make_ctrl_card(parent, "SIGNAL", STEALTH_CARD_H);
+  s_card[FOCUS_SIGNAL] = card;
 
-  lv_obj_t *desc = lv_label_create(card);
-  lv_label_set_text(desc, "LED off");
-  lv_obj_set_style_text_font(desc, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(desc, current_theme.text_main, 0);
-  lv_obj_set_flex_grow(desc, 1);
-
-  s_pill = lv_obj_create(card);
-  lv_obj_remove_flag(s_pill, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(s_pill, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(s_pill, PILL_W, PILL_H);
-  lv_obj_set_style_radius(s_pill, PILL_H / 2, 0);
-  lv_obj_set_style_border_width(s_pill, 0, 0);
-  lv_obj_set_style_bg_color(s_pill, lv_color_hex(COL_TRACK), 0);
-  lv_obj_set_style_bg_opa(s_pill, LV_OPA_COVER, 0);
-  lv_obj_set_style_pad_all(s_pill, 0, 0);
-
-  s_pill_lbl = lv_label_create(s_pill);
-  lv_label_set_text(s_pill_lbl, "OFF");
-  lv_obj_set_style_text_font(s_pill_lbl, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(s_pill_lbl, lv_color_hex(COL_DIM), 0);
-  lv_obj_center(s_pill_lbl);
+  s_sig_val = lv_label_create(card);
+  lv_label_set_text(s_sig_val, SIG_NAMES[s_signal]);
+  lv_obj_set_style_text_font(s_sig_val, &lv_font_montserrat_16, 0);
+  lv_obj_set_style_text_color(s_sig_val, current_theme.text_main, 0);
+  lv_obj_set_flex_grow(s_sig_val, 1);
+  lv_obj_set_style_text_align(s_sig_val, LV_TEXT_ALIGN_RIGHT, 0);
 }
 
 static void build_controls(void) {
@@ -327,16 +311,32 @@ static void build_controls(void) {
   lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(col, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
+  build_signal_card(col);
   build_color_card(col);
   build_bright_card(col);
-  build_stealth_card(col);
 }
 
-static void toggle_stealth(void) {
-  s_stealth = !s_stealth;
-  s_changed = true;
-  update_stealth();
-  update_preview();
+static int preset_index_of(uint32_t hex) {
+  for (int i = 0; i < PRESET_COUNT; i++) {
+    if (PRESETS[i].hex == (hex & 0xFFFFFF))
+      return i;
+  }
+  return 0; // custom/unknown color falls back to the first preset
+}
+
+static void save_config(void) {
+  g_config_led.brightness = s_bright;
+  g_config_led.info_color = PRESETS[s_color_idx[SIG_INFO]].hex;
+  g_config_led.warning_color = PRESETS[s_color_idx[SIG_WARNING]].hex;
+  g_config_led.error_color = PRESETS[s_color_idx[SIG_ERROR]].hex;
+
+  // Persist to SD only (matches the storage policy: no SD -> keep in RAM for this
+  // session but do not write anything).
+  if (tos_config_save(TOS_PATH_CONFIG_LED, "led") == ESP_OK) {
+    notify(NOTIFY_SAVED, "LED settings saved");
+  } else {
+    notify(NOTIFY_WARNING, "No SD: not saved");
+  }
 }
 
 static void nav_timer_cb(lv_timer_t *t) {
@@ -357,7 +357,7 @@ static void nav_timer_cb(lv_timer_t *t) {
 
   if (back && !s_back_last) {
     if (s_changed)
-      notify(NOTIFY_SAVED, "LED settings saved");
+      save_config();
     led_clear(); // status LED is normally off: don't leave the preview lit
     ui_switch_screen(SCREEN_INTERFACE_SETTINGS);
     return;
@@ -374,10 +374,16 @@ static void nav_timer_cb(lv_timer_t *t) {
   }
 
   if (left && !s_left_last) {
-    if (s_focus == FOCUS_COLOR) {
-      s_color_idx = (s_color_idx - 1 + PRESET_COUNT) % PRESET_COUNT;
+    if (s_focus == FOCUS_SIGNAL) {
+      s_signal = (s_signal - 1 + SIG_COUNT) % SIG_COUNT;
+      update_signal();
+      update_swatches();
+      update_preview();
+    } else if (s_focus == FOCUS_COLOR) {
+      s_color_idx[s_signal] = (s_color_idx[s_signal] - 1 + PRESET_COUNT) % PRESET_COUNT;
       s_changed = true;
       update_swatches();
+      update_signal();
       update_preview();
     } else if (s_focus == FOCUS_BRIGHT) {
       int nb = s_bright - BRIGHT_STEP;
@@ -389,15 +395,19 @@ static void nav_timer_cb(lv_timer_t *t) {
         update_bright();
         update_preview();
       }
-    } else if (s_focus == FOCUS_STEALTH) {
-      toggle_stealth();
     }
   }
   if (right && !s_right_last) {
-    if (s_focus == FOCUS_COLOR) {
-      s_color_idx = (s_color_idx + 1) % PRESET_COUNT;
+    if (s_focus == FOCUS_SIGNAL) {
+      s_signal = (s_signal + 1) % SIG_COUNT;
+      update_signal();
+      update_swatches();
+      update_preview();
+    } else if (s_focus == FOCUS_COLOR) {
+      s_color_idx[s_signal] = (s_color_idx[s_signal] + 1) % PRESET_COUNT;
       s_changed = true;
       update_swatches();
+      update_signal();
       update_preview();
     } else if (s_focus == FOCUS_BRIGHT) {
       int nb = s_bright + BRIGHT_STEP;
@@ -409,16 +419,11 @@ static void nav_timer_cb(lv_timer_t *t) {
         update_bright();
         update_preview();
       }
-    } else if (s_focus == FOCUS_STEALTH) {
-      toggle_stealth();
     }
   }
 
   if (ok && !s_ok_last) {
-    if (s_focus == FOCUS_STEALTH)
-      toggle_stealth();
-    else
-      ui_feedback(UI_FB_SELECT);
+    ui_feedback(UI_FB_SELECT);
   }
 
   s_up_last = up;
@@ -434,14 +439,16 @@ void ui_led_ctrl_open(void) {
     lv_obj_del(s_screen);
     s_screen = NULL;
   }
-  s_focus = FOCUS_COLOR;
-  s_color_idx = 3;
+  s_focus = FOCUS_SIGNAL;
+  s_signal = SIG_INFO;
+  s_color_idx[SIG_INFO] = preset_index_of(g_config_led.info_color);
+  s_color_idx[SIG_WARNING] = preset_index_of(g_config_led.warning_color);
+  s_color_idx[SIG_ERROR] = preset_index_of(g_config_led.error_color);
   s_bright = g_config_led.brightness;
   if (s_bright < BRIGHT_MIN)
     s_bright = BRIGHT_MIN;
   if (s_bright > BRIGHT_MAX)
     s_bright = BRIGHT_MAX;
-  s_stealth = false;
   s_changed = false;
   s_up_last = s_down_last = s_left_last = s_right_last = s_ok_last = s_back_last = false;
 
@@ -455,13 +462,13 @@ void ui_led_ctrl_open(void) {
   build_preview();
   build_controls();
 
+  update_signal();
   update_swatches();
   update_bright();
-  update_stealth();
   update_preview();
   update_focus();
 
-  ui_chrome_footer(s_screen, "UP/DOWN pick   L/R adjust   BACK exit");
+  ui_chrome_footer(s_screen, "UP/DOWN pick   L/R adjust   BACK save");
 
   if (s_nav_timer == NULL)
     s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
