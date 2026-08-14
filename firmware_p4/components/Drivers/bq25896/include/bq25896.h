@@ -95,16 +95,16 @@ int bq25896_get_battery_percentage(uint16_t voltage_mv);
 
 // --- Extended telemetry + control ------------------------------------------
 // Additive layer used by the power screen. Implemented in bq25896_ext.c on top
-// of the public base API above: battery voltage/percent/charge/vbus are real;
-// the diagnostic fields (VSYS/VBUS mV, currents, raw regs, fault) and the
-// charge-enable / ship-mode controls are mocked for this stub build (no charger
-// register writes — power_off must never actually ship-mode a demo unit).
+// of the public base API above: battery voltage/percent/charge/vbus are real,
+// and the charge-enable / ship-mode / raw-register controls are now real
+// register writes (bq25896.c). Only the aggregated telemetry's VSYS/VBUS mV and
+// currents remain approximate.
 
-/** @brief Whether battery charging is currently enabled (mocked: always true). */
+/** @brief Whether battery charging is currently enabled (REG03 CHG_CONFIG). */
 bool bq25896_get_charge_enable(void);
 
 /**
- * @brief Enable/disable battery charging (mocked no-op).
+ * @brief Enable/disable battery charging (CE pin + REG03 CHG_CONFIG).
  *
  * @param enable  true to enable charging, false to disable.
  * @return ESP_OK on success, otherwise an esp_err_t error code.
@@ -112,7 +112,10 @@ bool bq25896_get_charge_enable(void);
 esp_err_t bq25896_set_charge_enable(bool enable);
 
 /**
- * @brief Power the system OFF via BATFET_DIS / ship mode (mocked no-op).
+ * @brief Power the system OFF via BATFET_DIS / ship mode (REG09 bit5).
+ *
+ * Real power-off: disconnects the battery. Has no effect while VBUS (USB) is
+ * present - the part keeps the system powered from USB in that case.
  *
  * @return ESP_OK on success, otherwise an esp_err_t error code.
  */
@@ -142,7 +145,7 @@ typedef struct {
 esp_err_t bq25896_read_telemetry(bq25896_telem_t *out);
 
 /**
- * @brief Raw read of any register (mocked: returns 0).
+ * @brief Raw read of any register.
  *
  * @param reg  Register address to read.
  * @return Register value, or 0 in this mocked build.

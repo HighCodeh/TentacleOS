@@ -29,6 +29,7 @@ static const char *TAG = "BATTERY_SVC";
 #define TASK_STACK       6144 // deep console/printf path (ESP_LOGI) needs headroom
 #define TASK_PRIO SYS_PRIO_BACKGROUND
 #define SOC_STEP_MAX     3  // max SoC delta applied per poll (smoothing)
+#define SOC_EMA_DEN      4  // EMA: ema = (ema*3 + raw)/4 (rejects load sag)
 #define LOW_ENTER_PCT    15 // latch "low" at/below this SoC
 #define LOW_EXIT_PCT     20 // release "low" at/above this SoC (hysteresis)
 
@@ -56,6 +57,7 @@ static int step_toward(int prev, int target) {
 static void battery_task(void *arg) {
   (void)arg;
   int soc = s_snap.soc;
+  int ema = s_snap.soc; // EMA of the raw voltage-derived SoC
   bool low = s_snap.low;
   bool charging_disp = s_snap.charging; // debounced charging shown to the UI
   int chg_off = 0;
@@ -71,7 +73,18 @@ static void battery_task(void *arg) {
     if (bq25896_read_telemetry(&t) != ESP_OK)
       continue;
 
-    int target = clamp_pct(t.soc);
+    // Filter the raw (voltage-lookup) SoC: an EMA rejects the transient voltage
+    // sag when a radio transmits (which otherwise makes the % dip then recover).
+    int raw = clamp_pct(t.soc);
+    ema = (ema * (SOC_EMA_DEN - 1) + raw) / SOC_EMA_DEN;
+    int target = ema;
+
+    // On battery, SoC must never climb: after a load sag the voltage recovers,
+    // which would otherwise bounce the reading back up. It only rises while
+    // charging / on external power.
+    if (!t.charging && !t.power_good && target > soc)
+      target = soc;
+
     soc = step_toward(soc, target);
 
     // Low-battery hysteresis: never low while charging or on external power;

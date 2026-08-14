@@ -70,6 +70,17 @@
 // Máscara para tensão da bateria
 #define BATV_MASK 0b01111111
 
+// REG03 CHG_CONFIG (bit 4): 1 = charging enabled. Charging is ALSO gated by the
+// active-low CE pin (GPIO33) driven at init.
+#define CHG_CONFIG_MASK 0b00010000
+
+// REG09 (0x09) BATFET_DIS (bit 5): 1 = force BATFET off = ship mode / real power
+// off. Note: with VBUS (USB) present the BATFET stays on, so this only powers the
+// device down when running on battery. (The REG_BAT_COMP macro above mislabels
+// 0x09; this is the datasheet-correct use of that register.)
+#define REG_BATFET_CTRL 0x09
+#define BATFET_DIS_MASK 0b00100000
+
 static const char *TAG = "BQ25896";
 
 static bool s_present = false; // true once the charger has answered on I2C
@@ -215,4 +226,56 @@ uint8_t bq25896_get_fault(void) {
   uint8_t data = 0;
   bq25896_read_reg(REG_FAULT, &data);
   return data;
+}
+
+uint8_t bq25896_reg_raw(uint8_t reg) {
+  uint8_t data = 0;
+  bq25896_read_reg(reg, &data);
+  return data;
+}
+
+bool bq25896_get_charge_enable(void) {
+  uint8_t data = 0;
+  if (bq25896_read_reg(REG_CHG_CTRL_0, &data) == ESP_OK) {
+    return (data & CHG_CONFIG_MASK) != 0;
+  }
+  return false;
+}
+
+esp_err_t bq25896_set_charge_enable(bool enable) {
+  // Two gates: the active-low CE pin (GPIO33) and REG03 CHG_CONFIG. Drive both so
+  // the state is unambiguous.
+  gpio_set_level(GPIO_CHARGER_CE_PIN, enable ? 0 : 1);
+
+  uint8_t data = 0;
+  esp_err_t ret = bq25896_read_reg(REG_CHG_CTRL_0, &data);
+  if (ret != ESP_OK) {
+    return ret;
+  }
+  if (enable) {
+    data |= CHG_CONFIG_MASK;
+  } else {
+    data &= ~CHG_CONFIG_MASK;
+  }
+  return bq25896_write_reg(REG_CHG_CTRL_0, data);
+}
+
+esp_err_t bq25896_power_off(void) {
+  // Real ship mode: set BATFET_DIS (REG09 bit5) to disconnect the battery. With
+  // VBUS present the BATFET stays on (the part keeps the system powered from USB),
+  // so this only powers the device off when running on battery.
+  uint8_t data = 0;
+  esp_err_t ret = bq25896_read_reg(REG_BATFET_CTRL, &data);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "power_off: could not read BATFET reg: %s", esp_err_to_name(ret));
+    return ret;
+  }
+  data |= BATFET_DIS_MASK;
+  ret = bq25896_write_reg(REG_BATFET_CTRL, data);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "power_off: BATFET_DIS write failed: %s", esp_err_to_name(ret));
+  } else {
+    ESP_LOGW(TAG, "Ship mode: BATFET disabled (powering off if on battery)");
+  }
+  return ret;
 }

@@ -23,6 +23,7 @@
 #include "lvgl.h"
 
 #include "battery_service.h"
+#include "bq25896.h"
 #include "input_manager.h"
 #include "notify_ui.h"
 #include "power_manager.h"
@@ -45,10 +46,20 @@
 #define DIM_LEAD_MS  8000  // dim this long before sleeping, when auto_dim is on
 #define BATT_CHECK_MS 2000 // low-battery poll cadence
 
+// Battery thresholds (item 9e). On battery only (not charging / no VBUS):
+#define BATT_DIM_PCT      10 // at/below: cap brightness to save power
+#define BATT_DIM_CAP      30 // capped brightness % while battery is low
+#define BATT_CRIT_PCT     5  // at/below: stronger, repeated warning
+#define BATT_SHUTDOWN_PCT 2  // at/below (sustained): graceful power off
+#define BATT_SHUTDOWN_SAMPLES 3 // consecutive critical polls before shutdown
+
 typedef enum { PS_AWAKE, PS_DIM, PS_ASLEEP } power_state_t;
 
 static lv_timer_t *s_timer = NULL;
 static bool s_low_last = false;
+static bool s_crit_last = false;
+static bool s_batt_dim = false;     // cap brightness because the battery is low
+static int s_shutdown_count = 0;
 static uint32_t s_batt_accum_ms = 0;
 
 static power_state_t s_state = PS_AWAKE;
@@ -80,10 +91,36 @@ static void check_battery(void) {
   if (!battery_service_get(&bs)) {
     return;
   }
+
+  // Only run the discharge policy on battery (not charging, no external power).
+  bool on_battery = bs.present && !bs.charging && !bs.vbus_present;
+
+  // 15%: low warning (once per entry).
   if (bs.low && !s_low_last) {
     notify(NOTIFY_WARNING, "Battery low");
   }
   s_low_last = bs.low;
+
+  // 10%: cap brightness to stretch the remaining charge (applied in tick_cb).
+  s_batt_dim = on_battery && bs.soc <= BATT_DIM_PCT;
+
+  // 5%: stronger, repeated critical warning.
+  bool crit = on_battery && bs.soc <= BATT_CRIT_PCT;
+  if (crit && !s_crit_last) {
+    notify(NOTIFY_WARNING, "Battery critical - charge now");
+  }
+  s_crit_last = crit;
+
+  // ~2% sustained: graceful power off so the pack is not deep-discharged. Requires
+  // several consecutive critical polls to avoid a single bad reading shutting down.
+  if (on_battery && bs.soc <= BATT_SHUTDOWN_PCT) {
+    if (++s_shutdown_count >= BATT_SHUTDOWN_SAMPLES) {
+      notify(NOTIFY_WARNING, "Battery empty - shutting down");
+      bq25896_power_off();  // real ship mode (no effect while on USB)
+    }
+  } else {
+    s_shutdown_count = 0;
+  }
 }
 
 static void enter_state(power_state_t st) {
@@ -136,6 +173,12 @@ static void tick_cb(lv_timer_t *t) {
     }
   }
   enter_state(desired);
+
+  // Low-battery brightness cap: while awake on a low battery, don't let the
+  // backlight exceed BATT_DIM_CAP (dim/sleep targets already sit below it).
+  if (s_batt_dim && s_state == PS_AWAKE && s_target_bright > BATT_DIM_CAP) {
+    s_target_bright = BATT_DIM_CAP;
+  }
 
   // Fade the backlight toward the target; run the timer fast while fading.
   uint32_t period = IDLE_TICK_MS;

@@ -15,23 +15,10 @@
 
 #include "bq25896.h"
 
-bool bq25896_get_charge_enable(void) {
-  return true;
-}
-
-esp_err_t bq25896_set_charge_enable(bool enable) {
-  (void)enable;
-  return ESP_OK;
-}
-
-esp_err_t bq25896_power_off(void) {
-  return ESP_OK;
-}
-
-uint8_t bq25896_reg_raw(uint8_t reg) {
-  (void)reg;
-  return 0;
-}
+// charge-enable / ship-mode / raw-register controls are now real and live in
+// bq25896.c (which owns the I2C read/write helpers). This file keeps the
+// telemetry aggregator, whose diagnostic fields (vsys/vbus/ichg) are still
+// approximate.
 
 esp_err_t bq25896_read_telemetry(bq25896_telem_t *out) {
   if (out == NULL)
