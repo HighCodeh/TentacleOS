@@ -25,6 +25,7 @@
 #include "ui_feedback.h"
 #include "ui_theme.h"
 #include "menu_component_ui.h"
+#include "reboot_ui.h"
 #include "ui_manager.h"
 #include "lv_port_indev.h"
 #include "buttons_gpio.h"
@@ -350,7 +351,6 @@ static void start_c5_passthrough(void) {
                           SYS_CORE_RADIO);
 }
 
-#define REBOOT_BLACK_MS 400
 #define SHUT_TICK_MS    150
 #define SHUT_LOG_COLOR  0x00E676
 #define SHUT_BUF_LEN    360
@@ -379,11 +379,6 @@ static lv_obj_t *make_blank_screen(void) {
   return scr;
 }
 
-static void reboot_now_cb(lv_timer_t *t) {
-  lv_timer_delete(t);
-  esp_restart();
-}
-
 static void shut_tick_cb(lv_timer_t *t) {
   if (s_shut_i < SHUTDOWN_STEP_COUNT) {
     char buf[SHUT_BUF_LEN];
@@ -395,9 +390,7 @@ static void shut_tick_cb(lv_timer_t *t) {
   }
   lv_timer_delete(t);
   s_shut_log = NULL;
-  ui_screen_load(make_blank_screen());
-  lv_timer_t *rt = lv_timer_create(reboot_now_cb, REBOOT_BLACK_MS, NULL);
-  lv_timer_set_repeat_count(rt, 1);
+  reboot_ui_reboot();
 }
 
 static void start_reboot_p4(void) {
