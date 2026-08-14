@@ -17,10 +17,10 @@
 
 #include <stdio.h>
 
-#include "esp_system.h"
 #include "lvgl.h"
 
 #include "buttons_gpio.h"
+#include "reboot_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -32,7 +32,6 @@
 #define APPLY_TICK_MS   45
 #define APPLY_STEP      2
 #define PROG_MAX        100
-#define REBOOT_BLACK_MS 450
 
 #define CONTENT_Y_OFS ((UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H) / 2)
 
@@ -334,31 +333,6 @@ static void set_step_label(void) {
   }
 }
 
-static lv_obj_t *make_blank_screen(void) {
-  lv_obj_t *scr = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
-  lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
-
-  lv_obj_t *lbl = lv_label_create(scr);
-  lv_label_set_text(lbl, LV_SYMBOL_REFRESH "  Rebooting...");
-  lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_text_color(lbl, lv_color_hex(COL_DIM), 0);
-  lv_obj_center(lbl);
-  return scr;
-}
-
-static void reboot_now_cb(lv_timer_t *t) {
-  lv_timer_delete(t);
-  esp_restart();
-}
-
-static void start_reboot(void) {
-  ui_screen_load(make_blank_screen());
-  lv_timer_t *rt = lv_timer_create(reboot_now_cb, REBOOT_BLACK_MS, NULL);
-  lv_timer_set_repeat_count(rt, 1);
-}
-
 static void apply_tick_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen) {
     lv_timer_delete(t);
@@ -377,7 +351,7 @@ static void apply_tick_cb(lv_timer_t *t) {
   if (s_pct >= PROG_MAX) {
     lv_timer_delete(t);
     s_apply_timer = NULL;
-    start_reboot();
+    reboot_ui_reboot();
   }
 }
 
