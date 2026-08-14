@@ -15,6 +15,8 @@
 
 #include "ir.h"
 
+#include "led_control.h"
+
 #include <string.h>
 
 #include "esp_log.h"
@@ -298,6 +300,7 @@ esp_err_t ir_receive(ir_data_t *out_data, uint32_t timeout_ms) {
 
   rmt_rx_done_event_data_t rx_data;
   if (xQueueReceive(s_rx_queue, &rx_data, pdMS_TO_TICKS(timeout_ms)) != pdPASS) {
+    led_signal_warning(); // nothing captured in the window
     return ESP_ERR_TIMEOUT;
   }
 
@@ -321,6 +324,7 @@ esp_err_t ir_receive(ir_data_t *out_data, uint32_t timeout_ms) {
   }
   s_rx_armed = true;
 
+  is_decoded ? led_signal_info() : led_signal_warning();
   return is_decoded ? ESP_OK : ESP_ERR_NOT_FOUND;
 }
 
@@ -332,7 +336,9 @@ esp_err_t ir_send(const ir_data_t *data) {
   size_t count = ir_encode(data, symbols, IR_RMT_MEM_SYMBOLS);
   if (count == 0)
     return ESP_ERR_INVALID_ARG;
-  return transmit(symbols, count, ir_carrier_freq(data->protocol));
+  esp_err_t r = transmit(symbols, count, ir_carrier_freq(data->protocol));
+  r == ESP_OK ? led_signal_info() : led_signal_error();
+  return r;
 }
 
 esp_err_t ir_send_raw(const rmt_symbol_word_t *symbols, size_t count, uint32_t carrier_hz) {

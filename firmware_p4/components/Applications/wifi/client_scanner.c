@@ -22,6 +22,7 @@
 #include "esp_log.h"
 
 #include "cJSON.h"
+#include "led_control.h"
 #include "spi_bridge.h"
 #include "storage_write.h"
 #include "tos_storage_paths.h"
@@ -85,11 +86,16 @@ static bool fetch_results(void) {
 bool client_scanner_start(void) {
   client_scanner_free_results();
   esp_err_t err = spi_bridge_run_scan(SPI_ID_WIFI_APP_SCAN_CLIENT, SPI_ID_WIFI_SCAN_STATUS, NULL, 0);
-  if (err != ESP_OK)
+  if (err != ESP_OK) {
+    led_signal_error();
     return false;
+  }
   bool ok = fetch_results();
   if (ok) {
     client_scanner_save_results_to_sd_card();  // SD-only; no-op without a card
+    s_cached_count > 0 ? led_signal_info() : led_signal_warning();
+  } else {
+    led_signal_error();
   }
   return ok;
 }

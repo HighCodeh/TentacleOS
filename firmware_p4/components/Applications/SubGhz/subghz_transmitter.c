@@ -15,6 +15,8 @@
 
 #include "subghz_transmitter.h"
 
+#include "led_control.h"
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -246,6 +248,7 @@ esp_err_t subghz_tx_send_raw(const int32_t *timings, size_t count) {
   int32_t *timings_copy = malloc(count * sizeof(int32_t));
   if (timings_copy == NULL) {
     ESP_LOGE(TAG, "OOM: Failed to copy TX timings");
+    led_signal_error();
     return ESP_ERR_NO_MEM;
   }
 
@@ -259,6 +262,7 @@ esp_err_t subghz_tx_send_raw(const int32_t *timings, size_t count) {
   if (xQueueSend(s_tx_queue, &item, pdMS_TO_TICKS(TX_QUEUE_SEND_MS)) != pdPASS) {
     ESP_LOGE(TAG, "TX Queue Full - Dropping packet");
     free(timings_copy);
+    led_signal_error();
     return ESP_ERR_TIMEOUT;
   }
 

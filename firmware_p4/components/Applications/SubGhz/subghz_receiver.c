@@ -26,6 +26,7 @@
 
 #include "cc1101.h"
 #include "pin_def.h"
+#include "led_control.h"
 #include "subghz_protocol_registry.h"
 #include "subghz_analyzer.h"
 #include "subghz_storage.h"
@@ -164,6 +165,7 @@ static void handle_scan_mode(const int32_t *decode_buffer, size_t decode_idx) {
     subghz_analyzer_process(decode_buffer, decode_idx, &analysis);
     get_dynamic_filename(filename, sizeof(filename), "DEC");
     subghz_storage_save_decoded(filename, &decoded, s_rx_freq, analysis.estimated_te);
+    led_signal_info(); // decoded a known protocol
     return;
   }
 
@@ -179,6 +181,7 @@ static void handle_scan_mode(const int32_t *decode_buffer, size_t decode_idx) {
     get_dynamic_filename(filename, sizeof(filename), "UNK");
     subghz_storage_save_raw(filename, decode_buffer, decode_idx, s_rx_freq);
     log_recovered_bitstream(&analysis);
+    led_signal_warning(); // captured RF but no known protocol matched
   }
 
   size_t preview = decode_idx > RAW_PREVIEW_COUNT ? RAW_PREVIEW_COUNT : decode_idx;

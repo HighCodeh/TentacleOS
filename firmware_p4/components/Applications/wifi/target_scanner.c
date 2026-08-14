@@ -19,6 +19,7 @@
 
 #include "esp_log.h"
 
+#include "led_control.h"
 #include "spi_bridge.h"
 
 static const char *TAG = "TARGET_SCANNER";
@@ -62,6 +63,7 @@ bool target_scanner_start(const uint8_t *target_bssid, uint8_t channel) {
       SPI_ID_WIFI_TARGET_SCAN_START, payload, sizeof(payload), NULL, NULL, 2000);
   if (err != ESP_OK) {
     ESP_LOGW(TAG, "Target scan start failed over SPI");
+    led_signal_error();
     return false;
   }
   s_cached_count = 0;

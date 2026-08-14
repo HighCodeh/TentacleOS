@@ -20,6 +20,7 @@
 #include "sys_prio.h"
 
 #include "hb_nfc_timer.h"
+#include "led_control.h"
 #include "nfc_card_info.h"
 #include "nfc_poller.h"
 #include "nfc_reader.h"
@@ -85,6 +86,8 @@ static void nfc_manager_task(void *arg) {
       } else if (card.sak & NFC_SAK_ISO_DEP_BIT) {
         full.protocol = HB_PROTO_ISO14443_4A;
       }
+
+      led_signal_info(); // a card was detected and read
 
       if (s_mgr.cb) {
         s_mgr.cb(&full, s_mgr.ctx);

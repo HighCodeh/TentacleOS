@@ -26,6 +26,7 @@
 
 #include "hid_hal.h"
 #include "hid_layouts.h"
+#include "led_control.h"
 #include "storage_assets.h"
 #include "storage_read.h"
 
@@ -155,6 +156,9 @@ void ducky_parse_and_run(const char *script) {
   }
 
   free(script_copy);
+  // Single execution chokepoint: both console and UI script runs pass here, so
+  // the status LED fires regardless of trigger.
+  s_is_abort_requested ? led_signal_warning() : led_signal_info();
 }
 
 esp_err_t ducky_run_from_assets(const char *filename) {
@@ -162,6 +166,7 @@ esp_err_t ducky_run_from_assets(const char *filename) {
   char *buffer = (char *)storage_assets_load_file(filename, &size);
   if (buffer == NULL) {
     ESP_LOGE(TAG, "Asset not found: %s", filename);
+    led_signal_error();
     return ESP_ERR_NOT_FOUND;
   }
 
@@ -169,6 +174,7 @@ esp_err_t ducky_run_from_assets(const char *filename) {
   if (script_str == NULL) {
     free(buffer);
     ESP_LOGE(TAG, "Failed to allocate script buffer");
+    led_signal_error();
     return ESP_ERR_NO_MEM;
   }
 
@@ -190,6 +196,7 @@ esp_err_t ducky_run_from_sdcard(const char *path) {
   char *script_str = malloc(MAX_SCRIPT_SIZE);
   if (script_str == NULL) {
     ESP_LOGE(TAG, "Failed to allocate script buffer");
+    led_signal_error();
     return ESP_ERR_NO_MEM;
   }
 
@@ -197,6 +204,7 @@ esp_err_t ducky_run_from_sdcard(const char *path) {
   if (err != ESP_OK) {
     free(script_str);
     ESP_LOGE(TAG, "Failed to read script from SD: %s", path);
+    led_signal_error();
     return err;
   }
 
