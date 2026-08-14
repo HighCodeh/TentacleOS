@@ -166,6 +166,7 @@ void spi_session_init(void) {
   spi_bridge_register_stream_cb(SPI_ID_SESSION_LOST, on_session_lost_stream);
   s_initialized = true;
   ESP_LOGI(TAG, "Session client started");
+  led_signal_info();
 }
 
 uint32_t spi_session_start(spi_id_t op_id,
@@ -228,6 +229,7 @@ uint32_t spi_session_start(spi_id_t op_id,
   }
 
   ESP_LOGI(TAG, "Session 0x%08lx started for op 0x%04X", (unsigned long)session_id, op_id);
+  led_signal_info();
   return session_id;
 }
 
@@ -256,6 +258,7 @@ esp_err_t spi_session_stop(uint32_t session_id) {
   xSemaphoreGive(s_mutex);
 
   ESP_LOGI(TAG, "Session 0x%08lx stopped", (unsigned long)session_id);
+  led_signal_info();
   return ESP_OK;
 }
 
