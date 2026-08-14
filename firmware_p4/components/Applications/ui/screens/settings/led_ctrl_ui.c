@@ -18,6 +18,7 @@
 #include "st7789.h"
 
 #include "buttons_gpio.h"
+#include "led_control.h"
 #include "notify_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
@@ -113,6 +114,7 @@ static void update_preview(void) {
     lv_obj_set_style_border_color(s_preview, lv_color_hex(COL_DIM), 0);
     lv_obj_set_style_border_width(s_preview, 2, 0);
     lv_obj_set_style_shadow_width(s_preview, 0, 0);
+    led_clear(); // stealth: physical LED off
     return;
   }
   lv_color_t c = scaled_color(PRESETS[s_color_idx].hex, s_bright);
@@ -122,6 +124,14 @@ static void update_preview(void) {
   lv_obj_set_style_shadow_width(s_preview, 8 + s_bright / 4, 0);
   lv_obj_set_style_shadow_color(s_preview, lv_color_hex(PRESETS[s_color_idx].hex), 0);
   lv_obj_set_style_shadow_opa(s_preview, LV_OPA_60, 0);
+
+  // Drive the physical RGB LED (LP5816) to match the preview: preset color
+  // scaled by the brightness percentage.
+  uint32_t hex = PRESETS[s_color_idx].hex;
+  uint8_t r = (uint8_t)(((hex >> 16) & 0xFF) * (uint32_t)s_bright / 100);
+  uint8_t g = (uint8_t)(((hex >> 8) & 0xFF) * (uint32_t)s_bright / 100);
+  uint8_t b = (uint8_t)((hex & 0xFF) * (uint32_t)s_bright / 100);
+  led_set_color(r, g, b);
 }
 
 static void update_swatches(void) {
