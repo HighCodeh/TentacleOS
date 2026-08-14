@@ -162,8 +162,22 @@ static void flush_task(void *pvParameters) {
 }
 
 static int log_to_file(const char *fmt, va_list args) {
-  // Always print to serial first (unbuffered, unchanged behavior).
+  // Re-entrancy guard: this IS the global vprintf hook, so if anything in the
+  // serial-print path below logs (e.g. a UART/PM driver warning during a DFS
+  // frequency switch), it would re-enter here and recurse until the stack
+  // overflows. Break that: while we are inside our own s_original_vprintf on this
+  // core, drop any nested log line. Per-core (not global) so the two cores never
+  // clobber each other's guard; the recursion we care about is synchronous on
+  // one core.
+  static volatile bool s_in_vprintf[portNUM_PROCESSORS];
+  BaseType_t core = xPortGetCoreID();
+  if (s_in_vprintf[core]) {
+    return 0;  // nested log from within the print path: drop to stop recursion
+  }
+
+  s_in_vprintf[core] = true;
   int ret = s_original_vprintf(fmt, args);
+  s_in_vprintf[core] = false;
 
   if (!s_ready || !storage_is_mounted()) {
     return ret;
