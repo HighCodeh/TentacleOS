@@ -88,9 +88,34 @@ void wifi_service_stop(void) {
       SPI_ID_WIFI_STOP, NULL, 0, NULL, NULL, spi_bridge_get_timeout(SPI_ID_WIFI_STOP));
 }
 
+#define SCAN_POLL_MS   250
+#define SCAN_MAX_POLLS 40  // ~10 s ceiling
+
 void wifi_service_scan(void) {
-  spi_bridge_send_command(
-      SPI_ID_WIFI_SCAN, NULL, 0, NULL, NULL, spi_bridge_get_timeout(SPI_ID_WIFI_SCAN));
+  // The C5 runs the scan asynchronously and returns immediately, so this no
+  // longer holds the bridge for the whole scan. Fire it, then poll the status
+  // until it finishes; the bridge is free between polls, so the UI and other
+  // peripherals are not blocked.
+  if (spi_bridge_send_command(
+          SPI_ID_WIFI_SCAN, NULL, 0, NULL, NULL, spi_bridge_get_timeout(SPI_ID_WIFI_SCAN)) !=
+      ESP_OK) {
+    return;
+  }
+  for (int i = 0; i < SCAN_MAX_POLLS; i++) {
+    vTaskDelay(pdMS_TO_TICKS(SCAN_POLL_MS));
+    spi_header_t resp;
+    uint8_t busy = 1;
+    if (spi_bridge_send_command(SPI_ID_WIFI_SCAN_STATUS,
+                                NULL,
+                                0,
+                                &resp,
+                                &busy,
+                                spi_bridge_get_timeout(SPI_ID_WIFI_SCAN_STATUS)) == ESP_OK &&
+        busy == 0) {
+      return;
+    }
+  }
+  ESP_LOGW(TAG, "scan status poll timed out");
 }
 
 uint16_t wifi_service_get_ap_count(void) {

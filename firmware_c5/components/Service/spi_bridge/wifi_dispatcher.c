@@ -32,11 +32,29 @@
 #include "probe_monitor.h"
 #include "signal_monitor.h"
 #include "spi_bridge.h"
+#include "sys_prio.h"
 #include "target_scanner.h"
 #include "wifi_deauther.h"
 #include "wifi_flood.h"
 #include "wifi_service.h"
 #include "wifi_sniffer.h"
+
+// Async scan. The SCAN command kicks this runner and returns immediately, so the
+// blocking scan runs off the SPI handler and never holds the bridge for seconds.
+// The P4 fires the command then polls SPI_ID_WIFI_SCAN_STATUS until it clears.
+static volatile bool s_scan_busy = false;
+static TaskHandle_t s_scan_task = NULL;
+
+static void scan_runner_task(void *arg) {
+  (void)arg;
+  while (1) {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    wifi_service_scan();
+    spi_bridge_provide_results(
+        wifi_service_get_ap_record(0), wifi_service_get_ap_count(), sizeof(wifi_ap_record_t));
+    s_scan_busy = false;
+  }
+}
 
 static const char *TAG = "WIFI_DISPATCHER";
 
@@ -126,9 +144,19 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
 
   switch (id) {
     case SPI_ID_WIFI_SCAN:
-      wifi_service_scan();
-      spi_bridge_provide_results(
-          wifi_service_get_ap_record(0), wifi_service_get_ap_count(), sizeof(wifi_ap_record_t));
+      if (s_scan_busy)
+        return SPI_STATUS_BUSY;
+      if (s_scan_task == NULL) {
+        xTaskCreatePinnedToCore(
+            scan_runner_task, "wifi_scan", 4096, NULL, SYS_PRIO_SERVICE_HI, &s_scan_task, SYS_CORE_MAIN);
+      }
+      s_scan_busy = true;
+      xTaskNotifyGive(s_scan_task);
+      return SPI_STATUS_OK;
+
+    case SPI_ID_WIFI_SCAN_STATUS:
+      out_resp_payload[0] = s_scan_busy ? 1 : 0;
+      *out_resp_len = 1;
       return SPI_STATUS_OK;
 
     case SPI_ID_WIFI_CONNECT: {
