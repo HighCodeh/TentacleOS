@@ -76,7 +76,7 @@ tos_config_system_t g_config_system = {
 };
 
 tos_config_led_t g_config_led = {
-    .brightness = 50,
+    .brightness = 5,
     .info_color = 0xFF00FF,    // purple (pure magenta: R+B)
     .warning_color = 0xFFFF00, // yellow
     .error_color = 0xFF0000,   // red

@@ -137,11 +137,11 @@ void led_blink_purple(void) {
 // global brightness come from the LED config, pushed in by the Service layer via
 // led_set_signal_config(); the driver keeps sensible defaults until then, so it
 // never needs to reach up into the config itself.
-#define SIGNAL_BLINK_US (150 * 1000)
+#define SIGNAL_BLINK_US (500 * 1000)
 
 enum { SIG_INFO = 0, SIG_WARNING, SIG_ERROR };
 static uint32_t s_sig_color[3] = {0xFF00FF, 0xFFFF00, 0xFF0000}; // info, warning, error
-static int s_sig_brightness = 50;
+static int s_sig_brightness = 5;
 static esp_timer_handle_t s_sig_off_timer = NULL;
 
 static void sig_off_cb(void *arg) {
