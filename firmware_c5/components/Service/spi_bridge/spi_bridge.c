@@ -352,6 +352,32 @@ static void bridge_task(void *pvParameters) {
           memcpy(resp_payload, &info, sizeof(info));
           resp_len = sizeof(info);
           status = SPI_STATUS_OK;
+        } else if (cmd == SPI_ID_SYSTEM_POWER_STATE) {
+          // P4 tells us the device power state so we can drop the radio when it
+          // is idle/asleep. A running capture (promiscuous) is never interrupted.
+          if (header->length >= 1) {
+            switch (cmd_payload[0]) {
+              case SPI_POWER_ACTIVE:
+                if (!wifi_service_is_active()) {
+                  wifi_service_start();
+                }
+                wifi_service_set_power_save(false);
+                break;
+              case SPI_POWER_IDLE:
+                wifi_service_set_power_save(true);
+                break;
+              case SPI_POWER_SLEEP:
+                if (!wifi_service_is_busy() && wifi_service_is_active()) {
+                  wifi_service_stop();
+                }
+                break;
+              default:
+                break;
+            }
+            status = SPI_STATUS_OK;
+          } else {
+            status = SPI_STATUS_INVALID_ARG;
+          }
         } else if (cmd == SPI_ID_SYSTEM_OTA_DATA) {
           // One firmware chunk. Buffered (fast) and acked at once; the writer
           // task drains it to flash. BUSY means the writer is behind - the P4

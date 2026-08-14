@@ -15,13 +15,20 @@
 
 #include "power_policy.h"
 
+#include <stdint.h>
+
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "lvgl.h"
 
 #include "battery_service.h"
 #include "input_manager.h"
 #include "notify_ui.h"
+#include "spi_bridge.h"
+#include "spi_protocol.h"
 #include "st7789.h"
+#include "sys_prio.h"
 #include "tos_config.h"
 
 // Screen power policy. Watches the central input activity timestamp
@@ -48,6 +55,23 @@ static bool s_asleep = false;       // panel is off
 static int s_user_bright = 100;     // captured user level to restore on wake
 static int s_cur_bright = 100;      // currently applied level (fade cursor)
 static int s_target_bright = 100;   // fade destination
+
+// Tell the C5 our power state so it can drop its radio when we are idle/asleep.
+// Runs in a transient task: spi_bridge_send_command blocks on the bridge (and
+// the C5 may stop/start WiFi in response), which must never stall the LVGL task.
+static void power_notify_task(void *arg) {
+  uint8_t state = (uint8_t)(intptr_t)arg;
+  spi_bridge_send_command(SPI_ID_SYSTEM_POWER_STATE, &state, 1, NULL, NULL, 2000);
+  vTaskDelete(NULL);
+}
+
+static void notify_c5_power_state(power_state_t st) {
+  uint8_t spi_state = (st == PS_ASLEEP)  ? SPI_POWER_SLEEP
+                      : (st == PS_DIM)   ? SPI_POWER_IDLE
+                                         : SPI_POWER_ACTIVE;
+  xTaskCreatePinnedToCore(power_notify_task, "pwr_notify", 3072, (void *)(intptr_t)spi_state,
+                          SYS_PRIO_BACKGROUND, NULL, SYS_CORE_RADIO);
+}
 
 static void check_battery(void) {
   battery_snapshot_t bs;
@@ -79,6 +103,7 @@ static void enter_state(power_state_t st) {
     s_target_bright = s_user_bright;
   }
   s_state = st;
+  notify_c5_power_state(st);
 }
 
 static void tick_cb(lv_timer_t *t) {

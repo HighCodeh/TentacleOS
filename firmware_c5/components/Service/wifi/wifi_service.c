@@ -58,6 +58,7 @@ static uint16_t s_stored_ap_count = 0;
 static SemaphoreHandle_t s_mutex = NULL;
 static bool s_is_active = false;
 static bool s_is_connected = false;
+static bool s_promiscuous_active = false;
 static TaskHandle_t s_hopper_task_handle = NULL;
 static StackType_t *s_hopper_task_stack = NULL;
 static StaticTask_t *s_hopper_task_tcb = NULL;
@@ -544,6 +545,7 @@ void wifi_service_promiscuous_start(wifi_promiscuous_cb_t cb, wifi_promiscuous_f
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to enable promiscuous mode: %s", esp_err_to_name(err));
   } else {
+    s_promiscuous_active = true;
     ESP_LOGI(TAG, "Promiscuous mode enabled");
   }
 }
@@ -554,8 +556,21 @@ void wifi_service_promiscuous_stop(void) {
     ESP_LOGE(TAG, "Failed to disable promiscuous mode: %s", esp_err_to_name(err));
   }
 
+  s_promiscuous_active = false;
   esp_wifi_set_promiscuous_rx_cb(NULL);
   ESP_LOGI(TAG, "Promiscuous mode disabled");
+}
+
+bool wifi_service_is_busy(void) {
+  // A capture is in flight (sniffer / deauth detector / handshake). Do not drop
+  // the radio for power saving while this is true.
+  return s_promiscuous_active;
+}
+
+void wifi_service_set_power_save(bool deep) {
+  // deep = screen dimmed (MAX_MODEM, longer beacon skips); otherwise MIN_MODEM.
+  // Only meaningful for an idle connected STA; harmless otherwise.
+  esp_wifi_set_ps(deep ? WIFI_PS_MAX_MODEM : WIFI_PS_MIN_MODEM);
 }
 
 void wifi_service_start_channel_hopping(void) {

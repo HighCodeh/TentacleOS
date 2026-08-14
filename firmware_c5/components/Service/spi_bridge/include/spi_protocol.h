@@ -115,6 +115,9 @@ typedef enum {
   SPI_ID_SYSTEM_CONSOLE_EXEC = SPI_CMD(SPI_CAT_SYSTEM, 0x47),
   SPI_ID_SYSTEM_GET_SETTINGS = SPI_CMD(SPI_CAT_SYSTEM, 0x48),
   SPI_ID_SYSTEM_SET_SETTINGS = SPI_CMD(SPI_CAT_SYSTEM, 0x49),
+  // P4→C5: device power state (payload = spi_power_state_t). Lets the C5 drop its
+  // radio when the P4 is idle/asleep instead of running full RX all the time.
+  SPI_ID_SYSTEM_POWER_STATE = SPI_CMD(SPI_CAT_SYSTEM, 0x4A),
 
   // WiFi Basic
   SPI_ID_WIFI_SCAN = SPI_CMD(SPI_CAT_WIFI, 0x10),
@@ -254,6 +257,15 @@ typedef enum {
   SPI_ID_SESSION_LOST = SPI_CMD(SPI_CAT_SESSION, 0xF1),
   SPI_ID_SESSION_STOP = SPI_CMD(SPI_CAT_SESSION, 0xF2)
 } spi_id_t;
+
+/**
+ * @brief Device power state, sent P4→C5 as the SPI_ID_SYSTEM_POWER_STATE payload.
+ */
+typedef enum {
+  SPI_POWER_ACTIVE = 0, ///< Normal operation: full radio.
+  SPI_POWER_IDLE = 1,   ///< Screen dimmed: deeper modem sleep (MAX_MODEM).
+  SPI_POWER_SLEEP = 2,  ///< Device asleep: drop the radio (unless a capture is running).
+} spi_power_state_t;
 
 /**
  * @brief SPI response status codes (payload byte 0 for RESP type).
