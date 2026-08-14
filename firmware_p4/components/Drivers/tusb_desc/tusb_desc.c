@@ -195,22 +195,6 @@ esp_err_t busb_init(void) {
 
   ESP_LOGI(TAG, "Initializing TinyUSB driver...");
 
-  // Route the USB-C D+/D- mux (TS3USB221) to the P4 native USB PHY. The select
-  // line (GPIO19) has a 10k pulldown that defaults the Type-C to the CP2105
-  // USB-UART bridge, so the native USB never enumerates until we drive it high.
-  // Note: this is a shared single Type-C - switching to native USB takes the
-  // USB-serial console/flash path off that connector until the next reset (the
-  // ROM download mode runs before this, so flashing over USB-C still works).
-  gpio_config_t usb_mux_cfg = {
-      .pin_bit_mask = 1ULL << GPIO_USB_MUX_SEL_PIN,
-      .mode = GPIO_MODE_OUTPUT,
-      .pull_up_en = GPIO_PULLUP_DISABLE,
-      .pull_down_en = GPIO_PULLDOWN_DISABLE,
-      .intr_type = GPIO_INTR_DISABLE,
-  };
-  gpio_config(&usb_mux_cfg);
-  gpio_set_level(GPIO_USB_MUX_SEL_PIN, 1);
-
   // ESP32-P4 High Speed USB requires GPIO ISR service. It may already be up
   // (buttons_init installs it earlier at boot), in which case the driver logs
   // an ERROR before returning ESP_ERR_INVALID_STATE — harmless for us, so we
@@ -260,4 +244,54 @@ esp_err_t busb_init(void) {
   s_installed = true;
   ESP_LOGI(TAG, "TinyUSB driver installed");
   return ESP_OK;
+}
+
+// USB-C data mux (TS3USB221) on GPIO_USB_MUX_SEL_PIN. LOW routes the single
+// Type-C to the CP2105 USB-UART bridge (serial console / flashing); HIGH routes
+// it to the P4 native USB PHY (TinyUSB HID + CDC). The two share one connector,
+// so only one is live at a time. Switching is runtime and needs no reset.
+
+static bool s_mux_native = false;
+static bool s_mux_configured = false;
+
+static void usb_mux_configure_pin(void) {
+  if (s_mux_configured) {
+    return;
+  }
+  gpio_config_t cfg = {
+      .pin_bit_mask = 1ULL << GPIO_USB_MUX_SEL_PIN,
+      .mode = GPIO_MODE_OUTPUT,
+      .pull_up_en = GPIO_PULLUP_DISABLE,
+      .pull_down_en = GPIO_PULLDOWN_DISABLE,
+      .intr_type = GPIO_INTR_DISABLE,
+  };
+  gpio_config(&cfg);
+  s_mux_configured = true;
+}
+
+void usb_mux_init(void) {
+  usb_mux_configure_pin();
+  gpio_set_level(GPIO_USB_MUX_SEL_PIN, 0);  // default: USB-UART bridge
+  s_mux_native = false;
+  ESP_LOGI(TAG, "USB mux default: UART bridge");
+}
+
+esp_err_t usb_mux_set_native(bool native) {
+  usb_mux_configure_pin();
+  if (native) {
+    // Bring the TinyUSB composite up before switching the data lines to it, so
+    // the host sees a ready device the moment the mux connects.
+    esp_err_t err = busb_init();
+    if (err != ESP_OK) {
+      return err;
+    }
+  }
+  gpio_set_level(GPIO_USB_MUX_SEL_PIN, native ? 1 : 0);
+  s_mux_native = native;
+  ESP_LOGI(TAG, "USB mux -> %s", native ? "native P4 USB" : "UART bridge");
+  return ESP_OK;
+}
+
+bool usb_mux_is_native(void) {
+  return s_mux_native;
 }

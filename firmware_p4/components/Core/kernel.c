@@ -45,6 +45,7 @@
 #include "host_link_ble.h"
 #include "host_link_state.h"
 #include "host_link_stream.h"
+#include "tusb_desc.h"
 #include "lvgl_glue.h"
 #include "lv_port_indev.h"
 #include "ui_manager.h"
@@ -168,6 +169,10 @@ esp_err_t kernel_init(void) {
   sys_monitor_start(false);
   wifi_service_init();
   xTaskCreatePinnedToCore(console_task, "console_task", CONSOLE_TASK_STACK, NULL, CONSOLE_TASK_PRIO, NULL, SYS_CORE_RADIO);
+
+  // USB-C data mux defaults to the CP2105 UART bridge (serial console / flash).
+  // The user switches to native P4 USB at runtime from Connection settings.
+  usb_mux_init();
 
   // Companion host link (USB CDC). Bridge must be up first (commands relay to C5).
   host_link_state_init();  // load toggle settings before the link comes up

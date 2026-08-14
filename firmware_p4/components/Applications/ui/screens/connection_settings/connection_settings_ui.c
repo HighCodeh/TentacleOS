@@ -23,6 +23,7 @@
 #include "menu_component_ui.h"
 #include "msgbox_ui.h"
 #include "notify_ui.h"
+#include "tusb_desc.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 #include "wifi_service.h"
@@ -31,6 +32,7 @@ static const char *TAG = "CONN_UI";
 
 #define IDX_WIFI                       0
 #define IDX_NETWORKS                   1
+#define IDX_USB_NATIVE                 2
 #define NAV_TIMER_INTERVAL_MS          50
 #define WIFI_LOADING_TIMER_INTERVAL_MS 100
 #define WIFI_LOADING_MIN_US            1500000
@@ -72,6 +74,8 @@ void ui_connection_settings_open(void) {
   s_menu = menu_component_create(s_screen_conn, "CONNECTION", "/assets/icons/hub.bin");
   menu_component_add_toggle(&s_menu, "/assets/icons/wifi.bin", "WI-FI", is_wifi_active);
   menu_component_add_item(&s_menu, "/assets/icons/wifi_find.bin", "NETWORKS");
+  // USB-C data mux: OFF = UART bridge (serial/flash, default), ON = native P4 USB.
+  menu_component_add_toggle(&s_menu, "/assets/icons/usb.bin", "USB NATIVE", usb_mux_is_native());
 
   if (s_nav_timer == NULL)
     s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
@@ -147,6 +151,11 @@ static void nav_timer_cb(lv_timer_t *timer) {
         msgbox_close();
         notify(NOTIFY_INFO, "Wi-Fi off");
       }
+    } else if (sel == IDX_USB_NATIVE) {
+      menu_component_toggle_item(&s_menu, IDX_USB_NATIVE);
+      bool native = menu_component_get_toggle(&s_menu, IDX_USB_NATIVE);
+      usb_mux_set_native(native);
+      notify(NOTIFY_INFO, native ? "USB: native (serial off)" : "USB: UART bridge");
     }
   }
 
