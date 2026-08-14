@@ -67,6 +67,15 @@ void header_ui_create_snapshot(lv_obj_t *parent);
 void header_ui_set_ble_active(bool active);
 
 /**
+ * @brief Animate the WiFi icon while a connection is in progress.
+ *
+ * Call with true when a connect attempt starts and false when it finishes
+ * (connected or failed). While false the icon is static and reflects the real
+ * WiFi state; there is no perpetual animation. Safe to call from the UI thread.
+ */
+void header_ui_set_wifi_connecting(bool connecting);
+
+/**
  * @brief Report the cached SD card usage, computed off the LVGL task.
  *
  * Reads a value cached by the header's mount worker, so callers (e.g. the
