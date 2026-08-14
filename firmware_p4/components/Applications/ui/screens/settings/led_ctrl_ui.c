@@ -44,9 +44,9 @@
 #define PILL_W         52
 #define PILL_H         24
 
-#define BRIGHT_MIN     20
+#define BRIGHT_MIN     5   // lowest level the LED still lights at
 #define BRIGHT_MAX     100
-#define BRIGHT_STEP    20
+#define BRIGHT_STEP    5
 #define BRIGHT_DEFAULT 80
 
 #define COL_DIM   0x8A8594
