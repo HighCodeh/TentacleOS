@@ -83,14 +83,12 @@ CONFIG_LV_USE_SNAPSHOT=y
 # flash write loops yield per chunk and the UI task probes the LVGL lock.
 CONFIG_ESP_TASK_WDT_PANIC=y
 
-# Power management: DFS + tickless idle so the CPU drops clock / light-sleeps
-# when idle. Frequencies + light_sleep_enable are set at runtime via
-# esp_pm_configure (Service/power_manager). Light sleep is gated by a
-# NO_LIGHT_SLEEP lock so it only engages when the device is truly idle.
-CONFIG_PM_ENABLE=y
-CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
-CONFIG_PM_SLP_IRAM_OPT=y
-CONFIG_PM_RTOS_IDLE_OPT=y
+# Power management (DFS + light sleep) is OFF for now: it breaks the console UART
+# (APB-derived baud drifts under DFS) and USB (needs the CPU awake) until the
+# resource-lock discipline (item 13: USB/console/radios holding NO_LIGHT_SLEEP,
+# console UART on an XTAL clock) is in place. Re-enable with those in hand.
+# CONFIG_PM_ENABLE is not set
+# CONFIG_FREERTOS_USE_TICKLESS_IDLE is not set
 
 # Core dump to the dedicated flash partition (ELF format) for field forensics.
 # On a panic the backtrace/registers/task stacks are saved; the boot report reads

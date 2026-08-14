@@ -15,6 +15,10 @@
 
 #include "power_manager.h"
 
+#include "sdkconfig.h"
+
+#if CONFIG_PM_ENABLE
+
 #include "esp_log.h"
 #include "esp_pm.h"
 
@@ -64,3 +68,14 @@ esp_err_t power_manager_no_sleep_release(void) {
   }
   return esp_pm_lock_release(s_no_sleep_lock);
 }
+
+#else // !CONFIG_PM_ENABLE
+
+// PM disabled: light sleep breaks the console UART + USB until the resource-lock
+// discipline (item 13) lands. Everything is an inert no-op; the CPU stays at its
+// fixed frequency and never sleeps.
+void power_manager_init(void) {}
+esp_err_t power_manager_no_sleep_acquire(void) { return ESP_OK; }
+esp_err_t power_manager_no_sleep_release(void) { return ESP_OK; }
+
+#endif // CONFIG_PM_ENABLE
