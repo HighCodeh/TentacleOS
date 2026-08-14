@@ -82,8 +82,6 @@ static stack_watch_t *watch_find(const char *name) {
 // moment to render and the logs to flush, then restart. It does not return.
 static void controlled_restart(const char *title, const char *message) {
   safeguard_alert(title, message);
-  // TODO(item 31): call the graceful shutdown hook here once it exists so the
-  // filesystem and radios flush their state before the restart.
   vTaskDelay(pdMS_TO_TICKS(REBOOT_GRACE_MS));
   esp_restart();
 }
