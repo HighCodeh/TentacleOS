@@ -15,14 +15,21 @@
 
 #include "client_scanner.h"
 
-#include <string.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "esp_log.h"
 
+#include "cJSON.h"
 #include "spi_bridge.h"
+#include "storage_write.h"
+#include "tos_storage_paths.h"
 
 static const char *TAG = "CLIENT_SCANNER";
+
+// SD-only persistence (no flash fallback); latest scan overwrites.
+#define CLIENT_SCAN_SAVE_PATH TOS_PATH_WIFI "/scanned_clients.json"
 
 static client_scanner_record_t s_cached_client;
 static client_scanner_record_t *s_cached_results = NULL;
@@ -80,7 +87,11 @@ bool client_scanner_start(void) {
   esp_err_t err = spi_bridge_run_scan(SPI_ID_WIFI_APP_SCAN_CLIENT, SPI_ID_WIFI_SCAN_STATUS, NULL, 0);
   if (err != ESP_OK)
     return false;
-  return fetch_results();
+  bool ok = fetch_results();
+  if (ok) {
+    client_scanner_save_results_to_sd_card();  // SD-only; no-op without a card
+  }
+  return ok;
 }
 
 client_scanner_record_t *client_scanner_get_results(uint16_t *out_count) {
@@ -114,10 +125,51 @@ void client_scanner_free_results(void) {
 }
 
 bool client_scanner_save_results_to_internal_flash(void) {
-  return (spi_bridge_send_command(SPI_ID_WIFI_CLIENT_SAVE_FLASH, NULL, 0, NULL, NULL, 5000) ==
-          ESP_OK);
+  // Policy: files are saved to the micro-SD only, no internal-flash fallback.
+  ESP_LOGD(TAG, "Internal-flash save disabled (SD-only policy)");
+  return false;
 }
 
 bool client_scanner_save_results_to_sd_card(void) {
-  return (spi_bridge_send_command(SPI_ID_WIFI_CLIENT_SAVE_SD, NULL, 0, NULL, NULL, 5000) == ESP_OK);
+  if (s_cached_results == NULL || s_cached_count == 0) {
+    return false;
+  }
+
+  cJSON *root = cJSON_CreateArray();
+  if (root == NULL) {
+    return false;
+  }
+
+  for (uint16_t i = 0; i < s_cached_count; i++) {
+    const client_scanner_record_t *c = &s_cached_results[i];
+    cJSON *obj = cJSON_CreateObject();
+    if (obj == NULL) {
+      continue;
+    }
+    char bssid[18];
+    char client_mac[18];
+    snprintf(bssid, sizeof(bssid), "%02X:%02X:%02X:%02X:%02X:%02X", c->bssid[0], c->bssid[1],
+             c->bssid[2], c->bssid[3], c->bssid[4], c->bssid[5]);
+    snprintf(client_mac, sizeof(client_mac), "%02X:%02X:%02X:%02X:%02X:%02X", c->client_mac[0],
+             c->client_mac[1], c->client_mac[2], c->client_mac[3], c->client_mac[4],
+             c->client_mac[5]);
+    cJSON_AddStringToObject(obj, "bssid", bssid);
+    cJSON_AddStringToObject(obj, "client", client_mac);
+    cJSON_AddNumberToObject(obj, "rssi", c->rssi);
+    cJSON_AddNumberToObject(obj, "channel", c->channel);
+    cJSON_AddItemToArray(root, obj);
+  }
+
+  char *json = cJSON_PrintUnformatted(root);
+  cJSON_Delete(root);
+  if (json == NULL) {
+    return false;
+  }
+
+  esp_err_t err = storage_write_string(CLIENT_SCAN_SAVE_PATH, json);
+  free(json);
+  if (err == ESP_OK) {
+    ESP_LOGI(TAG, "Saved %u clients to %s", s_cached_count, CLIENT_SCAN_SAVE_PATH);
+  }
+  return err == ESP_OK;
 }
