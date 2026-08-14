@@ -19,7 +19,7 @@
 
 #include "battery_service.h"
 #include "bq25896.h"
-#include "led_signal.h"
+#include "led_control.h"
 #include "notify_ui.h"
 
 // Battery discharge policy only. The screen auto-dim / auto-sleep and the

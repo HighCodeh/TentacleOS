@@ -27,7 +27,7 @@
 #include "nvs.h"
 
 #include "c5_flasher.h"
-#include "led_signal.h"
+#include "led_control.h"
 #include "spi_protocol.h"
 #include "spi_bridge.h"
 #include "spi_protocol.h"

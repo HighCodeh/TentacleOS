@@ -17,6 +17,7 @@
 
 #include "driver/i2c.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -129,4 +130,64 @@ void led_blink_blue(void) {
 
 void led_blink_purple(void) {
   led_blink(200, 0, 220, 500);
+}
+
+// Semantic status signals: a single short flash in a configurable color, then
+// the LED goes dark again (the status LED is normally off). The colors and the
+// global brightness come from the LED config, pushed in by the Service layer via
+// led_set_signal_config(); the driver keeps sensible defaults until then, so it
+// never needs to reach up into the config itself.
+#define SIGNAL_BLINK_US (150 * 1000)
+
+enum { SIG_INFO = 0, SIG_WARNING, SIG_ERROR };
+static uint32_t s_sig_color[3] = {0xFF00FF, 0xFFFF00, 0xFF0000}; // info, warning, error
+static int s_sig_brightness = 50;
+static esp_timer_handle_t s_sig_off_timer = NULL;
+
+static void sig_off_cb(void *arg) {
+  (void)arg;
+  led_clear();
+}
+
+static uint8_t sig_scale(uint8_t chan) {
+  int pct = s_sig_brightness;
+  if (pct < 0)
+    pct = 0;
+  if (pct > 100)
+    pct = 100;
+  return (uint8_t)((uint32_t)chan * (uint32_t)pct / 100);
+}
+
+static void sig_blink(uint32_t hex) {
+  led_set_color(sig_scale((hex >> 16) & 0xFF), sig_scale((hex >> 8) & 0xFF), sig_scale(hex & 0xFF));
+
+  if (s_sig_off_timer == NULL) {
+    const esp_timer_create_args_t args = {.callback = sig_off_cb, .name = "led_sig_off"};
+    if (esp_timer_create(&args, &s_sig_off_timer) != ESP_OK) {
+      s_sig_off_timer = NULL;
+    }
+  }
+  if (s_sig_off_timer != NULL) {
+    esp_timer_stop(s_sig_off_timer); // re-arm if a previous flash is still pending
+    esp_timer_start_once(s_sig_off_timer, SIGNAL_BLINK_US);
+  }
+}
+
+void led_set_signal_config(uint32_t info, uint32_t warning, uint32_t error, int brightness) {
+  s_sig_color[SIG_INFO] = info & 0xFFFFFF;
+  s_sig_color[SIG_WARNING] = warning & 0xFFFFFF;
+  s_sig_color[SIG_ERROR] = error & 0xFFFFFF;
+  s_sig_brightness = brightness;
+}
+
+void led_signal_info(void) {
+  sig_blink(s_sig_color[SIG_INFO]);
+}
+
+void led_signal_warning(void) {
+  sig_blink(s_sig_color[SIG_WARNING]);
+}
+
+void led_signal_error(void) {
+  sig_blink(s_sig_color[SIG_ERROR]);
 }

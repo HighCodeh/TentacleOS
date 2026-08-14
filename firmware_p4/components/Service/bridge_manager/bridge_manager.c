@@ -23,7 +23,7 @@
 #include "sys_prio.h"
 
 #include "c5_flasher.h"
-#include "led_signal.h"
+#include "led_control.h"
 #include "ota_version.h"
 #include "spi_bridge.h"
 

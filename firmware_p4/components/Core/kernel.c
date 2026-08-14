@@ -27,7 +27,6 @@
 #include "cc1101.h"
 #include "bq25896.h"
 #include "led_control.h"
-#include "led_signal.h"
 #include "buttons_gpio.h"
 #include "ys_rfid2.h"
 #include "input_manager.h"
@@ -145,6 +144,11 @@ esp_err_t kernel_init(void) {
   // 4. Configuration, theme
   tos_first_boot_setup();
   tos_config_load_all();
+  // Push the LED signal colors + brightness into the driver. Service owns the
+  // config; the driver just stores the values, so it never depends on the config
+  // module (keeps the Drivers <- Service dependency direction).
+  led_set_signal_config(g_config_led.info_color, g_config_led.warning_color,
+                        g_config_led.error_color, g_config_led.brightness);
   // Custom SD log tee (tos_log) removed: its esp_log_set_vprintf hook put a
   // newlib vsnprintf (~1.5 KB) on every logging task's stack and overflowed the
   // small (4 KB) driver tasks. Crash forensics now come from the coredump

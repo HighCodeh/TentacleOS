@@ -34,7 +34,7 @@
 #include "target_scanner.h"
 #include "tos_flash_paths.h"
 #include "wifi_deauther.h"
-#include "led_signal.h"
+#include "led_control.h"
 #include "wifi_service.h"
 #include "wifi_sniffer.h"
 

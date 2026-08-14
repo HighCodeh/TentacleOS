@@ -330,6 +330,10 @@ static void save_config(void) {
   g_config_led.warning_color = PRESETS[s_color_idx[SIG_WARNING]].hex;
   g_config_led.error_color = PRESETS[s_color_idx[SIG_ERROR]].hex;
 
+  // Apply live so subsequent signals use the new colors/brightness immediately.
+  led_set_signal_config(g_config_led.info_color, g_config_led.warning_color,
+                        g_config_led.error_color, g_config_led.brightness);
+
   // Persist to SD only (matches the storage policy: no SD -> keep in RAM for this
   // session but do not write anything).
   if (tos_config_save(TOS_PATH_CONFIG_LED, "led") == ESP_OK) {

@@ -25,14 +25,14 @@ extern "C" {
 #include "esp_err.h"
 
 /**
- * @brief Initialize the addressable RGB LED (WS2812 / SK6812).
+ * @brief Initialize the RGB LED (LP5816 I2C current-sink driver).
  *
- * Configures the RMT peripheral to drive the LED on the GPIO
- * defined in pin_def.h (GPIO_LED_RGB_PIN). Clears the LED on startup.
+ * Assumes the shared I2C bus is already up. Resets the LP5816, enables the RGB
+ * channels in manual PWM mode and starts with the LED off.
  *
  * @return
  *   - ESP_OK on success
- *   - ESP_FAIL if RMT driver setup fails
+ *   - an esp_err_t if the LP5816 does not respond on I2C
  */
 esp_err_t led_rgb_init(void);
 
@@ -82,6 +82,22 @@ void led_blink_blue(void);
  * @brief Blink purple (info indicator, 500 ms).
  */
 void led_blink_purple(void);
+
+/**
+ * @brief Set the colors + global brightness used by the semantic signals.
+ *
+ * Pushed in from the Service layer (which owns the LED config) so the driver
+ * never depends on the config module. Colors are 0xRRGGBB, brightness 0-100.
+ */
+void led_set_signal_config(uint32_t info, uint32_t warning, uint32_t error, int brightness);
+
+/**
+ * @brief Flash the status LED once in the configured info / warning / error
+ *        color, then turn it off. Non-blocking (the off is on a one-shot timer).
+ */
+void led_signal_info(void);
+void led_signal_warning(void);
+void led_signal_error(void);
 
 #ifdef __cplusplus
 }
