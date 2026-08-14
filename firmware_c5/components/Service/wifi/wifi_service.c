@@ -161,6 +161,11 @@ void wifi_service_init(void) {
     if (band_err != ESP_OK) {
       ESP_LOGW(TAG, "Could not enable dual-band (5 GHz): %s", esp_err_to_name(band_err));
     }
+    // Enable modem sleep explicitly. It only takes effect for an idle, connected
+    // STA (radio wakes per DTIM); AP mode and promiscuous sniffing keep the radio
+    // in continuous RX regardless. The real idle savings need the P4 to signal
+    // low-power over the bridge so the C5 can drop the radio (see power state API).
+    esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
     ESP_LOGI(TAG, "Wi-Fi AP started with SSID: %s", target_ssid);
   } else {
     ESP_LOGI(TAG, "Wi-Fi AP initialized but disabled by config");
