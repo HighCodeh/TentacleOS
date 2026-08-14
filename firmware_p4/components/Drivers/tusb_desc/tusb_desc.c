@@ -19,6 +19,7 @@
 
 #include "esp_log.h"
 #include "driver/gpio.h"
+#include "pin_def.h"
 #include "tinyusb.h"
 #include "tinyusb_default_config.h"
 
@@ -193,6 +194,22 @@ esp_err_t busb_init(void) {
   }
 
   ESP_LOGI(TAG, "Initializing TinyUSB driver...");
+
+  // Route the USB-C D+/D- mux (TS3USB221) to the P4 native USB PHY. The select
+  // line (GPIO19) has a 10k pulldown that defaults the Type-C to the CP2105
+  // USB-UART bridge, so the native USB never enumerates until we drive it high.
+  // Note: this is a shared single Type-C - switching to native USB takes the
+  // USB-serial console/flash path off that connector until the next reset (the
+  // ROM download mode runs before this, so flashing over USB-C still works).
+  gpio_config_t usb_mux_cfg = {
+      .pin_bit_mask = 1ULL << GPIO_USB_MUX_SEL_PIN,
+      .mode = GPIO_MODE_OUTPUT,
+      .pull_up_en = GPIO_PULLUP_DISABLE,
+      .pull_down_en = GPIO_PULLDOWN_DISABLE,
+      .intr_type = GPIO_INTR_DISABLE,
+  };
+  gpio_config(&usb_mux_cfg);
+  gpio_set_level(GPIO_USB_MUX_SEL_PIN, 1);
 
   // ESP32-P4 High Speed USB requires GPIO ISR service. It may already be up
   // (buttons_init installs it earlier at boot), in which case the driver logs
