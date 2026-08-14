@@ -100,28 +100,6 @@ static bool s_right_last = false;
 static bool s_ok_last = false;
 static bool s_back_last = false;
 
-// Semantic status signals: drive the LED to a configured color (g_config_led)
-// scaled by the configured brightness. Usable from anywhere in the app layer.
-static void led_signal(uint32_t hex) {
-  int pct = g_config_led.brightness;
-  uint8_t r = (uint8_t)(((hex >> 16) & 0xFF) * (uint32_t)pct / 100);
-  uint8_t g = (uint8_t)(((hex >> 8) & 0xFF) * (uint32_t)pct / 100);
-  uint8_t b = (uint8_t)((hex & 0xFF) * (uint32_t)pct / 100);
-  led_set_color(r, g, b);
-}
-
-void led_signal_info(void) {
-  led_signal(g_config_led.info_color);
-}
-
-void led_signal_warning(void) {
-  led_signal(g_config_led.warning_color);
-}
-
-void led_signal_error(void) {
-  led_signal(g_config_led.error_color);
-}
-
 static lv_color_t scaled_color(uint32_t hex, int pct) {
   uint32_t r = ((hex >> 16) & 0xFF) * (uint32_t)pct / 100;
   uint32_t g = ((hex >> 8) & 0xFF) * (uint32_t)pct / 100;

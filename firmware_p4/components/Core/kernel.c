@@ -27,6 +27,7 @@
 #include "cc1101.h"
 #include "bq25896.h"
 #include "led_control.h"
+#include "led_signal.h"
 #include "buttons_gpio.h"
 #include "ys_rfid2.h"
 #include "input_manager.h"
@@ -90,6 +91,7 @@ static bool detect_safe_mode_combo(void) {
 
 static void kernel_init_safe_mode(void) {
   led_rgb_init();
+  led_signal_error(); // safe mode: fault indicator
   bq25896_init();
 
   st7789_init();
@@ -207,7 +209,15 @@ esp_err_t kernel_init(void) {
   // host_link_ble_init();   // BLE relay infra; advertising starts on demand
 
   vTaskDelay(pdMS_TO_TICKS(BOOT_SETTLE_MS));
-  return boot_report_all_required_ok() ? ESP_OK : ESP_FAIL;
+  bool required_ok = boot_report_all_required_ok();
+  if (!required_ok) {
+    led_signal_error(); // a required subsystem failed (running degraded)
+  } else if (!spi_bridge_is_alive()) {
+    led_signal_warning(); // C5 radio coprocessor absent: degraded but usable
+  } else {
+    led_signal_info(); // booted clean: idle / OK indicator
+  }
+  return required_ok ? ESP_OK : ESP_FAIL;
 }
 
 // FreeRTOS Safeguards

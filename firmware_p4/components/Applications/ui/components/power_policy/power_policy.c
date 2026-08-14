@@ -19,6 +19,7 @@
 
 #include "battery_service.h"
 #include "bq25896.h"
+#include "led_signal.h"
 #include "notify_ui.h"
 
 // Battery discharge policy only. The screen auto-dim / auto-sleep and the
@@ -50,6 +51,7 @@ static void check_battery(void) {
   // 15%: low warning (once per entry).
   if (bs.low && !s_low_last) {
     notify(NOTIFY_WARNING, "Battery low");
+    led_signal_warning();
   }
   s_low_last = bs.low;
 

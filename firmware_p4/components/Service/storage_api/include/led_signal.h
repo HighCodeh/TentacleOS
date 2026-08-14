@@ -13,18 +13,33 @@
 // You should have received a copy of the GNU General Public License
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-#ifndef LED_CTRL_UI_H
-#define LED_CTRL_UI_H
+/**
+ * @file led_signal.h
+ * @brief Semantic RGB status-LED signals driven by the LED config (g_config_led).
+ *
+ * Lives in Service so Service, Applications and Core can all raise a signal; it
+ * reads the configured color + brightness and drives the LP5816 (Drivers). The
+ * last signal wins (the LED holds that color until the next one).
+ */
+
+#ifndef LED_SIGNAL_H
+#define LED_SIGNAL_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/** @brief Open the RGB LED control screen (mock preview, presets, brightness). */
-void ui_led_ctrl_open(void);
+/** @brief Info / OK / idle (default purple). */
+void led_signal_info(void);
+
+/** @brief Attention: battery low, C5 link dropped, degraded mode (default yellow). */
+void led_signal_warning(void);
+
+/** @brief Fault: safe mode, required-subsystem failure (default red). */
+void led_signal_error(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // LED_CTRL_UI_H
+#endif // LED_SIGNAL_H

@@ -23,6 +23,7 @@
 #include "sys_prio.h"
 
 #include "c5_flasher.h"
+#include "led_signal.h"
 #include "ota_version.h"
 #include "spi_bridge.h"
 
@@ -56,6 +57,7 @@ static void c5_link_monitor(void *arg) {
         spi_bridge_send_command(SPI_ID_SYSTEM_VERSION, NULL, 0, &hdr, ver, C5_PROBE_TIMEOUT_MS);
     if (r == ESP_OK) {
       ESP_LOGI(TAG, "C5 link established (detected after boot), version: %s", ver);
+      led_signal_info(); // C5 back: clear the degraded (warning) indicator
     } else {
       spi_bridge_set_alive(false); // still absent - stay dead, try again later
     }

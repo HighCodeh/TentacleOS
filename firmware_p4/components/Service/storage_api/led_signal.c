@@ -13,18 +13,27 @@
 // You should have received a copy of the GNU General Public License
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-#ifndef LED_CTRL_UI_H
-#define LED_CTRL_UI_H
+#include "led_signal.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include "led_control.h"
+#include "tos_config.h"
 
-/** @brief Open the RGB LED control screen (mock preview, presets, brightness). */
-void ui_led_ctrl_open(void);
-
-#ifdef __cplusplus
+static void apply_color(uint32_t hex) {
+  int pct = g_config_led.brightness;
+  uint8_t r = (uint8_t)(((hex >> 16) & 0xFF) * (uint32_t)pct / 100);
+  uint8_t g = (uint8_t)(((hex >> 8) & 0xFF) * (uint32_t)pct / 100);
+  uint8_t b = (uint8_t)((hex & 0xFF) * (uint32_t)pct / 100);
+  led_set_color(r, g, b);
 }
-#endif
 
-#endif // LED_CTRL_UI_H
+void led_signal_info(void) {
+  apply_color(g_config_led.info_color);
+}
+
+void led_signal_warning(void) {
+  apply_color(g_config_led.warning_color);
+}
+
+void led_signal_error(void) {
+  apply_color(g_config_led.error_color);
+}
