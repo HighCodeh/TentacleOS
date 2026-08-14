@@ -39,6 +39,7 @@
 #include "ui_liveness.h"
 
 #include "boot_ui.h"
+#include "safe_mode_ui.h"
 #include "home_ui.h"
 #include "menu_ui.h"
 #include "wifi_ui.h"
@@ -250,6 +251,26 @@ void ui_init(void) {
                           UI_BOOT_TASK_CORE);
 
   ESP_LOGI(TAG, "UI Manager initialized successfully.");
+}
+
+void ui_init_safe_mode(void) {
+  ESP_LOGW(TAG, "Initializing UI in safe mode");
+
+  assets_manager_init();
+  ui_theme_init();
+  ui_feedback_init();
+
+  // Minimal LVGL infra: render heartbeat (so sys_monitor still sees liveness)
+  // and the shared input pump. No power policy (screen stays on), no dropdown,
+  // no boot animation, no home. Just the recovery screen.
+  if (ui_acquire()) {
+    lv_timer_create(render_beat_cb, RENDER_BEAT_MS, NULL);
+    lv_timer_create(ui_input_pump, UI_INPUT_PUMP_MS, NULL);
+    ui_safe_mode_open();
+    ui_release();
+  }
+
+  ESP_LOGW(TAG, "Safe mode UI ready");
 }
 
 static void ui_boot_task(void *pvParameter) {

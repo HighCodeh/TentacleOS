@@ -29,6 +29,7 @@
 #include "led_control.h"
 #include "buttons_gpio.h"
 #include "ys_rfid2.h"
+#include "input_manager.h"
 #include "bridge_manager.h"
 #include "spi_bridge.h"
 #include "storage_init.h"
@@ -55,9 +56,46 @@ static const char *TAG = "KERNEL";
 #define CONSOLE_TASK_PRIO SYS_PRIO_SERVICE_HI
 #define BOOT_SETTLE_MS     1500
 
+// Safe-mode entry: OK + BACK must be held together at power-on. Wait for the
+// input sampler to debounce, then require the combo to stay held across the
+// whole confirm window so a stray press never triggers it.
+#define SAFE_MODE_SETTLE_MS  250
+#define SAFE_MODE_CONFIRM_MS 500
+#define SAFE_MODE_POLL_MS    50
+
 static void console_task(void *pvParameters) {
   console_service_init();
   vTaskDelete(NULL);
+}
+
+static bool detect_safe_mode_combo(void) {
+  vTaskDelay(pdMS_TO_TICKS(SAFE_MODE_SETTLE_MS));
+  if (!input_is_down(INPUT_BTN_OK) || !input_is_down(INPUT_BTN_BACK)) {
+    return false;
+  }
+
+  for (uint32_t elapsed = 0; elapsed < SAFE_MODE_CONFIRM_MS; elapsed += SAFE_MODE_POLL_MS) {
+    vTaskDelay(pdMS_TO_TICKS(SAFE_MODE_POLL_MS));
+    if (!input_is_down(INPUT_BTN_OK) || !input_is_down(INPUT_BTN_BACK)) {
+      return false;
+    }
+  }
+
+  ESP_LOGW(TAG, "Safe-mode combo (OK + BACK) held: entering safe mode");
+  return true;
+}
+
+static void kernel_init_safe_mode(void) {
+  led_rgb_init();
+  bq25896_init();
+
+  st7789_init();
+  lvgl_glue_init();
+  lv_port_indev_init();
+  ui_init_safe_mode();
+
+  sys_monitor_start(false);
+  vTaskDelay(pdMS_TO_TICKS(BOOT_SETTLE_MS));
 }
 
 void kernel_init(void) {
@@ -78,10 +116,22 @@ void kernel_init(void) {
   storage_assets_init();
   storage_assets_print_info();
 
+  // Safe-mode entry check. Runs before radios, custom themes and services so
+  // the recovery mode truly comes up minimal. input_manager_init is idempotent;
+  // buttons_init below is a no-op re-init on the normal path.
+  input_manager_init();
+  bool safe_mode = detect_safe_mode_combo();
+
   // 4. Configuration, theme, logging
   tos_first_boot_setup();
   tos_config_load_all();
   tos_log_init();
+
+  if (safe_mode) {
+    kernel_init_safe_mode();
+    return;
+  }
+
   tos_theme_load_from_sd();
   ESP_LOGI(TAG, "TentacleOS booted successfully");
 

@@ -99,6 +99,7 @@ idf_component_register(SRCS
   "ui/screens/octobit/include"
   "ui/screens/power/include"
   "ui/screens/rfid/include"
+  "ui/screens/safe_mode/include"
   "ui/screens/settings/include"
   "ui/screens/subghz/include"
   "ui/screens/theme/include"

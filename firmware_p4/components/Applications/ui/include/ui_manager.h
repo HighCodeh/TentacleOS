@@ -167,6 +167,16 @@ typedef enum {
 /** @brief Initialize the UI manager and start the UI task. */
 void ui_init(void);
 
+/**
+ * @brief Bring up a minimal UI showing only the safe-mode recovery screen.
+ *
+ * Used when the OK + BACK boot combo is held. Sets up the LVGL infrastructure
+ * (theme, input pump, render heartbeat) but skips the normal boot animation,
+ * home screen and power policy. Radios, custom themes and SD assets are not
+ * initialized by the caller in this mode.
+ */
+void ui_init_safe_mode(void);
+
 /** @brief Acquire the UI mutex for thread-safe LVGL access. */
 bool ui_acquire(void);
 
