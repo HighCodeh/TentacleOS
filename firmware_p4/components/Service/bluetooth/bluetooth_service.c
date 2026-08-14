@@ -288,8 +288,7 @@ void bluetooth_service_free_spam_list(char **list, size_t count) {
 void bluetooth_service_scan(uint32_t duration_ms) {
   uint8_t payload[4];
   memcpy(payload, &duration_ms, sizeof(duration_ms));
-  spi_bridge_send_command(
-      SPI_ID_BT_SCAN, payload, sizeof(payload), NULL, NULL, SPI_SCAN_TIMEOUT_MS);
+  spi_bridge_run_scan(SPI_ID_BT_SCAN, SPI_ID_BT_SCAN_STATUS, payload, sizeof(payload));
 }
 
 uint16_t bluetooth_service_get_scan_count(void) {

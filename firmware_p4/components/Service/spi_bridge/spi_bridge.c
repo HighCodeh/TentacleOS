@@ -225,6 +225,34 @@ uint32_t spi_bridge_get_timeout(spi_id_t id) {
   return SPI_TIMEOUT_DEFAULT_MS;
 }
 
+#define SCAN_STATUS_POLL_MS   250
+#define SCAN_STATUS_MAX_POLLS 40  // ~10 s ceiling
+
+esp_err_t spi_bridge_run_scan(spi_id_t scan_id,
+                              spi_id_t status_id,
+                              const uint8_t *payload,
+                              uint8_t len) {
+  // Fire the async scan (the C5 returns immediately) then poll the status until
+  // it clears. The bridge is free between polls, so the UI and other peripherals
+  // are not blocked for the whole scan.
+  esp_err_t err =
+      spi_bridge_send_command(scan_id, payload, len, NULL, NULL, spi_bridge_get_timeout(scan_id));
+  if (err != ESP_OK) {
+    return err;
+  }
+  for (int i = 0; i < SCAN_STATUS_MAX_POLLS; i++) {
+    vTaskDelay(pdMS_TO_TICKS(SCAN_STATUS_POLL_MS));
+    spi_header_t resp;
+    uint8_t busy = 1;
+    if (spi_bridge_send_command(
+            status_id, NULL, 0, &resp, &busy, spi_bridge_get_timeout(status_id)) == ESP_OK &&
+        busy == 0) {
+      return ESP_OK;
+    }
+  }
+  return ESP_ERR_TIMEOUT;
+}
+
 esp_err_t spi_bridge_send_command(spi_id_t id,
                                   const uint8_t *payload,
                                   uint8_t len,

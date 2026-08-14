@@ -32,29 +32,11 @@
 #include "probe_monitor.h"
 #include "signal_monitor.h"
 #include "spi_bridge.h"
-#include "sys_prio.h"
 #include "target_scanner.h"
 #include "wifi_deauther.h"
 #include "wifi_flood.h"
 #include "wifi_service.h"
 #include "wifi_sniffer.h"
-
-// Async scan. The SCAN command kicks this runner and returns immediately, so the
-// blocking scan runs off the SPI handler and never holds the bridge for seconds.
-// The P4 fires the command then polls SPI_ID_WIFI_SCAN_STATUS until it clears.
-static volatile bool s_scan_busy = false;
-static TaskHandle_t s_scan_task = NULL;
-
-static void scan_runner_task(void *arg) {
-  (void)arg;
-  while (1) {
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    wifi_service_scan();
-    spi_bridge_provide_results(
-        wifi_service_get_ap_record(0), wifi_service_get_ap_count(), sizeof(wifi_ap_record_t));
-    s_scan_busy = false;
-  }
-}
 
 static const char *TAG = "WIFI_DISPATCHER";
 
@@ -134,6 +116,55 @@ static spi_status_t open_session(spi_id_t op_id,
   return SPI_STATUS_OK;
 }
 
+// Scan work functions run by the shared async runner (spi_bridge_async_scan_start).
+// Each does the blocking scan and provides the results; the SPI handler returns
+// immediately so the bridge stays free.
+static void scan_fn_wifi_scan(void) {
+  wifi_service_scan();
+  spi_bridge_provide_results(
+      wifi_service_get_ap_record(0), wifi_service_get_ap_count(), sizeof(wifi_ap_record_t));
+}
+
+static void scan_fn_app_ap(void) {
+  wifi_service_scan();
+  uint16_t count = wifi_service_get_ap_count();
+  if (count > WIFI_SCAN_LIST_SIZE)
+    count = WIFI_SCAN_LIST_SIZE;
+  for (uint16_t i = 0; i < count; i++) {
+    spi_wifi_scan_record_t *rec = &s_app_scan_records[i];
+    memset(rec, 0, sizeof(*rec));
+    const wifi_ap_record_t *ap = wifi_service_get_ap_record(i);
+    if (ap == NULL)
+      continue;
+    memcpy(rec->bssid, ap->bssid, sizeof(rec->bssid));
+    rec->rssi = ap->rssi;
+    rec->channel = ap->primary;
+    rec->authmode = (uint8_t)ap->authmode;
+    size_t j = 0;
+    for (; j < sizeof(rec->ssid) - 1 && ap->ssid[j] != '\0'; j++) {
+      uint8_t c = ap->ssid[j];
+      rec->ssid[j] = (c < 0x20 || c > 0x7E) ? '?' : c;
+    }
+    rec->ssid[j] = '\0';
+  }
+  spi_bridge_provide_results(s_app_scan_records, count, sizeof(spi_wifi_scan_record_t));
+}
+
+static void scan_fn_app_client(void) {
+  if (!client_scanner_start())
+    return;
+  const TickType_t start = xTaskGetTickCount();
+  const TickType_t timeout = pdMS_TO_TICKS(WIFI_CLIENT_SCAN_TIMEOUT);
+  uint16_t count = 0;
+  client_scanner_record_t *results = NULL;
+  while ((results = client_scanner_get_results(&count)) == NULL) {
+    if ((xTaskGetTickCount() - start) > timeout)
+      return;
+    vTaskDelay(pdMS_TO_TICKS(CLIENT_SCAN_POLL_DELAY_MS));
+  }
+  spi_bridge_provide_results(results, count, sizeof(client_scanner_record_t));
+}
+
 spi_status_t wifi_dispatcher_execute(spi_id_t id,
                                      const uint8_t *payload,
                                      uint8_t len,
@@ -144,18 +175,10 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
 
   switch (id) {
     case SPI_ID_WIFI_SCAN:
-      if (s_scan_busy)
-        return SPI_STATUS_BUSY;
-      if (s_scan_task == NULL) {
-        xTaskCreatePinnedToCore(
-            scan_runner_task, "wifi_scan", 4096, NULL, SYS_PRIO_SERVICE_HI, &s_scan_task, SYS_CORE_MAIN);
-      }
-      s_scan_busy = true;
-      xTaskNotifyGive(s_scan_task);
-      return SPI_STATUS_OK;
+      return spi_bridge_async_scan_start(scan_fn_wifi_scan) ? SPI_STATUS_OK : SPI_STATUS_BUSY;
 
     case SPI_ID_WIFI_SCAN_STATUS:
-      out_resp_payload[0] = s_scan_busy ? 1 : 0;
+      out_resp_payload[0] = spi_bridge_async_scan_busy() ? 1 : 0;
       *out_resp_len = 1;
       return SPI_STATUS_OK;
 
@@ -259,51 +282,11 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
       wifi_service_stop_channel_hopping();
       return SPI_STATUS_OK;
 
-    case SPI_ID_WIFI_APP_SCAN_AP: {
-      wifi_service_scan();
-      uint16_t count = wifi_service_get_ap_count();
-      if (count > WIFI_SCAN_LIST_SIZE)
-        count = WIFI_SCAN_LIST_SIZE;
-      for (uint16_t i = 0; i < count; i++) {
-        spi_wifi_scan_record_t *rec = &s_app_scan_records[i];
-        memset(rec, 0, sizeof(*rec));
-        const wifi_ap_record_t *ap = wifi_service_get_ap_record(i);
-        if (ap == NULL)
-          continue;
-        memcpy(rec->bssid, ap->bssid, sizeof(rec->bssid));
-        rec->rssi = ap->rssi;
-        rec->channel = ap->primary;
-        rec->authmode = (uint8_t)ap->authmode;
-        // Sanitize the SSID to printable ASCII so the app never has to deal with
-        // raw/invalid-UTF-8 bytes off the air. Empty stays empty (hidden network).
-        size_t j = 0;
-        for (; j < sizeof(rec->ssid) - 1 && ap->ssid[j] != '\0'; j++) {
-          uint8_t c = ap->ssid[j];
-          rec->ssid[j] = (c < 0x20 || c > 0x7E) ? '?' : c;
-        }
-        rec->ssid[j] = '\0';
-      }
-      spi_bridge_provide_results(s_app_scan_records, count, sizeof(spi_wifi_scan_record_t));
-      return SPI_STATUS_OK;
-    }
+    case SPI_ID_WIFI_APP_SCAN_AP:
+      return spi_bridge_async_scan_start(scan_fn_app_ap) ? SPI_STATUS_OK : SPI_STATUS_BUSY;
 
     case SPI_ID_WIFI_APP_SCAN_CLIENT:
-      if (!client_scanner_start())
-        return SPI_STATUS_BUSY;
-      {
-        const TickType_t start = xTaskGetTickCount();
-        const TickType_t timeout = pdMS_TO_TICKS(WIFI_CLIENT_SCAN_TIMEOUT);
-        uint16_t count = 0;
-        client_scanner_record_t *results = NULL;
-        while ((results = client_scanner_get_results(&count)) == NULL) {
-          if ((xTaskGetTickCount() - start) > timeout) {
-            return SPI_STATUS_BUSY;
-          }
-          vTaskDelay(pdMS_TO_TICKS(CLIENT_SCAN_POLL_DELAY_MS));
-        }
-        spi_bridge_provide_results(results, count, sizeof(client_scanner_record_t));
-        return SPI_STATUS_OK;
-      }
+      return spi_bridge_async_scan_start(scan_fn_app_client) ? SPI_STATUS_OK : SPI_STATUS_BUSY;
 
     case SPI_ID_WIFI_APP_BEACON_SPAM: {
       bool ok;

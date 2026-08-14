@@ -100,6 +100,49 @@ void spi_bridge_provide_results_dynamic(void *source,
   s_item_size = item_size;
 }
 
+// Async scan runner. A scan command posts its work function here and returns to
+// the SPI handler immediately, so the blocking scan runs off the bridge and does
+// not hold it for seconds. The P4 polls a *_SCAN_STATUS command until it clears.
+// Only one scan runs at a time (the shared busy flag rejects overlaps).
+static volatile bool s_scan_busy = false;
+static void (*s_scan_fn)(void) = NULL;
+static TaskHandle_t s_scan_runner = NULL;
+
+static void scan_runner_task(void *arg) {
+  (void)arg;
+  while (1) {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    void (*fn)(void) = s_scan_fn;
+    if (fn != NULL) {
+      fn();
+    }
+    s_scan_busy = false;
+  }
+}
+
+bool spi_bridge_async_scan_start(void (*fn)(void)) {
+  if (s_scan_busy) {
+    return false;
+  }
+  if (s_scan_runner == NULL) {
+    xTaskCreatePinnedToCore(scan_runner_task,
+                            "scan_runner",
+                            4096,
+                            NULL,
+                            SYS_PRIO_SERVICE_HI,
+                            &s_scan_runner,
+                            SYS_CORE_MAIN);
+  }
+  s_scan_fn = fn;
+  s_scan_busy = true;
+  xTaskNotifyGive(s_scan_runner);
+  return true;
+}
+
+bool spi_bridge_async_scan_busy(void) {
+  return s_scan_busy;
+}
+
 bool spi_bridge_stream_is_enabled(spi_id_t id) {
   if (id == SPI_ID_WIFI_APP_SNIFFER)
     return s_is_wifi_sniffer_streaming;

@@ -67,6 +67,17 @@ void spi_bridge_provide_results(void *source, uint16_t count, uint8_t item_size)
 void spi_bridge_provide_results_dynamic(void *source, const uint16_t *count_ptr, uint8_t item_size);
 
 /**
+ * @brief Run a scan asynchronously off the SPI handler.
+ *
+ * @p fn does the blocking scan and calls spi_bridge_provide_results when done.
+ * Returns false if a scan is already running (respond SPI_STATUS_BUSY). The P4
+ * polls a *_SCAN_STATUS command (which returns spi_bridge_async_scan_busy) until
+ * it clears, then fetches the results.
+ */
+bool spi_bridge_async_scan_start(void (*fn)(void));
+bool spi_bridge_async_scan_busy(void);
+
+/**
  * @brief Check whether streaming is enabled for a given SPI ID.
  *
  * @param id  SPI function identifier.

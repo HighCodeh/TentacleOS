@@ -181,6 +181,7 @@ typedef enum {
 
   // Bluetooth Basic
   SPI_ID_BT_SCAN = SPI_CMD(SPI_CAT_BT, 0x50),
+  SPI_ID_BT_SCAN_STATUS = SPI_CMD(SPI_CAT_BT, 0x7F), // P4 polls this: 1 = scan running
   SPI_ID_BT_CONNECT = SPI_CMD(SPI_CAT_BT, 0x51),
   SPI_ID_BT_DISCONNECT = SPI_CMD(SPI_CAT_BT, 0x52),
   SPI_ID_BT_GET_INFO = SPI_CMD(SPI_CAT_BT, 0x53),

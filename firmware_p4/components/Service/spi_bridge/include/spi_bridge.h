@@ -69,6 +69,19 @@ esp_err_t spi_bridge_master_init_mode(spi_bridge_mode_t mode);
 uint32_t spi_bridge_get_timeout(spi_id_t id);
 
 /**
+ * @brief Run an async scan on the C5 without holding the bridge for its duration.
+ *
+ * Fires @p scan_id (the C5 starts the scan and returns immediately), then polls
+ * @p status_id until it reports the scan finished. Results are fetched by the
+ * caller afterwards as before. Returns ESP_OK when done, ESP_ERR_TIMEOUT if the
+ * status never cleared.
+ */
+esp_err_t spi_bridge_run_scan(spi_id_t scan_id,
+                              spi_id_t status_id,
+                              const uint8_t *payload,
+                              uint8_t len);
+
+/**
  * @brief Mark the bridge as alive or dead.
  *
  * When dead, spi_bridge_send_command returns ESP_ERR_INVALID_STATE

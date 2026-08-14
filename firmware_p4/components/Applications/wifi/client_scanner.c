@@ -77,7 +77,7 @@ static bool fetch_results(void) {
 
 bool client_scanner_start(void) {
   client_scanner_free_results();
-  esp_err_t err = spi_bridge_send_command(SPI_ID_WIFI_APP_SCAN_CLIENT, NULL, 0, NULL, NULL, 20000);
+  esp_err_t err = spi_bridge_run_scan(SPI_ID_WIFI_APP_SCAN_CLIENT, SPI_ID_WIFI_SCAN_STATUS, NULL, 0);
   if (err != ESP_OK)
     return false;
   return fetch_results();

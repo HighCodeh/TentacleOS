@@ -71,6 +71,17 @@ static spi_status_t bt_open_session(spi_id_t op_id,
   return SPI_STATUS_OK;
 }
 
+// BLE scan work function run by the shared async runner. The duration is stashed
+// by the SPI handler before it kicks the runner (one scan at a time).
+static uint32_t s_bt_scan_duration = 0;
+
+static void scan_fn_bt(void) {
+  bluetooth_service_scan(s_bt_scan_duration);
+  spi_bridge_provide_results(bluetooth_service_get_scan_result(0),
+                             bluetooth_service_get_scan_count(),
+                             sizeof(bluetooth_service_scan_result_t));
+}
+
 spi_status_t bt_dispatcher_execute(spi_id_t id,
                                    const uint8_t *payload,
                                    uint8_t len,
@@ -84,12 +95,14 @@ spi_status_t bt_dispatcher_execute(spi_id_t id,
       uint32_t duration = BT_SCAN_DEFAULT_DURATION_MS;
       if (len >= sizeof(duration))
         memcpy(&duration, payload, sizeof(duration));
-      bluetooth_service_scan(duration);
-      spi_bridge_provide_results(bluetooth_service_get_scan_result(0),
-                                 bluetooth_service_get_scan_count(),
-                                 sizeof(bluetooth_service_scan_result_t));
-      return SPI_STATUS_OK;
+      s_bt_scan_duration = duration;
+      return spi_bridge_async_scan_start(scan_fn_bt) ? SPI_STATUS_OK : SPI_STATUS_BUSY;
     }
+
+    case SPI_ID_BT_SCAN_STATUS:
+      out_resp_payload[0] = spi_bridge_async_scan_busy() ? 1 : 0;
+      *out_resp_len = 1;
+      return SPI_STATUS_OK;
 
     case SPI_ID_BT_CONNECT: {
       if (len < BT_CONNECT_MIN_PAYLOAD)

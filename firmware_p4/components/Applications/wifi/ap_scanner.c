@@ -76,7 +76,7 @@ static bool fetch_results(void) {
 
 bool ap_scanner_start(void) {
   ap_scanner_free_results();
-  esp_err_t err = spi_bridge_send_command(SPI_ID_WIFI_APP_SCAN_AP, NULL, 0, NULL, NULL, 15000);
+  esp_err_t err = spi_bridge_run_scan(SPI_ID_WIFI_APP_SCAN_AP, SPI_ID_WIFI_SCAN_STATUS, NULL, 0);
   if (err != ESP_OK) {
     ESP_LOGW(TAG, "AP scan failed over SPI");
     return false;
