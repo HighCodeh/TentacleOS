@@ -109,8 +109,17 @@ static void subghz_tx_task(void *pvParameters) {
         .loop_count = 0,
     };
 
-    ESP_ERROR_CHECK(rmt_transmit(
-        s_tx_channel, s_copy_encoder, symbols, num_words * sizeof(rmt_symbol_word_t), &tx_config));
+    esp_err_t tx_err = rmt_transmit(
+        s_tx_channel, s_copy_encoder, symbols, num_words * sizeof(rmt_symbol_word_t), &tx_config);
+    if (tx_err != ESP_OK) {
+      ESP_LOGE(TAG, "rmt_transmit failed: %s", esp_err_to_name(tx_err));
+      free(symbols);
+      cc1101_strobe(CC1101_SIDLE);
+      if (item.timings != NULL) {
+        free(item.timings);
+      }
+      continue;
+    }
 
     esp_err_t wait_err = rmt_tx_wait_all_done(s_tx_channel, TX_WAIT_TIMEOUT_MS);
     if (wait_err != ESP_OK) {
@@ -148,12 +157,30 @@ esp_err_t subghz_tx_init(void) {
       .gpio_num = GPIO_CC1101_GDO2_PIN,
       .flags.invert_out = false,
   };
-  ESP_ERROR_CHECK(rmt_new_tx_channel(&tx_channel_cfg, &s_tx_channel));
+  esp_err_t err = rmt_new_tx_channel(&tx_channel_cfg, &s_tx_channel);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "rmt_new_tx_channel failed: %s", esp_err_to_name(err));
+    return err;
+  }
 
   rmt_copy_encoder_config_t copy_encoder_cfg = {};
-  ESP_ERROR_CHECK(rmt_new_copy_encoder(&copy_encoder_cfg, &s_copy_encoder));
+  err = rmt_new_copy_encoder(&copy_encoder_cfg, &s_copy_encoder);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "rmt_new_copy_encoder failed: %s", esp_err_to_name(err));
+    rmt_del_channel(s_tx_channel);
+    s_tx_channel = NULL;
+    return err;
+  }
 
-  ESP_ERROR_CHECK(rmt_enable(s_tx_channel));
+  err = rmt_enable(s_tx_channel);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "rmt_enable failed: %s", esp_err_to_name(err));
+    rmt_del_encoder(s_copy_encoder);
+    rmt_del_channel(s_tx_channel);
+    s_copy_encoder = NULL;
+    s_tx_channel = NULL;
+    return err;
+  }
 
   cc1101_enable_async_mode(TX_DEFAULT_FREQ);
   cc1101_strobe(CC1101_SIDLE);

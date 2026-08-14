@@ -216,6 +216,10 @@ static void subghz_rx_task(void *pvParameters) {
            (int)s_rx_preset,
            (unsigned long)s_rx_freq);
 
+  rmt_symbol_word_t *raw_symbols = NULL;
+  int32_t *decode_buffer = NULL;
+  esp_err_t err = ESP_OK;
+
   rmt_rx_channel_config_t rx_channel_cfg = {
       .clk_src = RMT_CLK_SRC_DEFAULT,
       .resolution_hz = RMT_RESOLUTION_HZ,
@@ -225,14 +229,26 @@ static void subghz_rx_task(void *pvParameters) {
       .flags.with_dma = true,
   };
 
-  ESP_ERROR_CHECK(rmt_new_rx_channel(&rx_channel_cfg, &s_rx_channel));
+  err = rmt_new_rx_channel(&rx_channel_cfg, &s_rx_channel);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "rmt_new_rx_channel failed: %s", esp_err_to_name(err));
+    goto cleanup;
+  }
 
   s_rx_queue = xQueueCreate(RX_QUEUE_DEPTH, sizeof(rmt_rx_done_event_data_t));
   rmt_rx_event_callbacks_t cbs = {
       .on_recv_done = subghz_rx_done_callback,
   };
-  ESP_ERROR_CHECK(rmt_rx_register_event_callbacks(s_rx_channel, &cbs, s_rx_queue));
-  ESP_ERROR_CHECK(rmt_enable(s_rx_channel));
+  err = rmt_rx_register_event_callbacks(s_rx_channel, &cbs, s_rx_queue);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "rmt_rx_register_event_callbacks failed: %s", esp_err_to_name(err));
+    goto cleanup;
+  }
+  err = rmt_enable(s_rx_channel);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "rmt_enable failed: %s", esp_err_to_name(err));
+    goto cleanup;
+  }
 
   cc1101_set_preset(s_rx_preset, s_rx_freq);
 
@@ -245,8 +261,6 @@ static void subghz_rx_task(void *pvParameters) {
   };
 
   rmt_rx_done_event_data_t rx_data;
-  rmt_symbol_word_t *raw_symbols = NULL;
-  int32_t *decode_buffer = NULL;
 
   size_t raw_symbols_size = sizeof(rmt_symbol_word_t) * RX_BUFFER_SIZE;
   raw_symbols = heap_caps_aligned_alloc(
@@ -262,7 +276,11 @@ static void subghz_rx_task(void *pvParameters) {
     goto cleanup;
   }
 
-  ESP_ERROR_CHECK(rmt_receive(s_rx_channel, raw_symbols, raw_symbols_size, &receive_config));
+  err = rmt_receive(s_rx_channel, raw_symbols, raw_symbols_size, &receive_config);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "rmt_receive failed: %s", esp_err_to_name(err));
+    goto cleanup;
+  }
 
   TickType_t last_hop_time = xTaskGetTickCount();
   const TickType_t hop_interval = pdMS_TO_TICKS(HOP_INTERVAL_MS);
@@ -275,8 +293,10 @@ static void subghz_rx_task(void *pvParameters) {
     }
 
     if (rx_data.num_symbols == 0) {
-      if (s_is_running) {
-        ESP_ERROR_CHECK(rmt_receive(s_rx_channel, raw_symbols, raw_symbols_size, &receive_config));
+      if (s_is_running &&
+          rmt_receive(s_rx_channel, raw_symbols, raw_symbols_size, &receive_config) != ESP_OK) {
+        ESP_LOGE(TAG, "rmt_receive failed; stopping RX");
+        break;
       }
       continue;
     }
@@ -294,8 +314,10 @@ static void subghz_rx_task(void *pvParameters) {
       }
     }
 
-    if (s_is_running) {
-      ESP_ERROR_CHECK(rmt_receive(s_rx_channel, raw_symbols, raw_symbols_size, &receive_config));
+    if (s_is_running &&
+        rmt_receive(s_rx_channel, raw_symbols, raw_symbols_size, &receive_config) != ESP_OK) {
+      ESP_LOGE(TAG, "rmt_receive failed; stopping RX");
+      break;
     }
   }
 
@@ -307,11 +329,17 @@ cleanup:
     free(decode_buffer);
   }
   cc1101_strobe(CC1101_SIDLE);
-  rmt_disable(s_rx_channel);
-  rmt_del_channel(s_rx_channel);
-  vQueueDelete(s_rx_queue);
-  s_rx_channel = NULL;
-  s_rx_queue = NULL;
+  if (s_rx_channel != NULL) {
+    rmt_disable(s_rx_channel);
+    rmt_del_channel(s_rx_channel);
+    s_rx_channel = NULL;
+  }
+  if (s_rx_queue != NULL) {
+    vQueueDelete(s_rx_queue);
+    s_rx_queue = NULL;
+  }
+  s_is_running = false;
+  s_rx_task_handle = NULL;
   vTaskDelete(NULL);
 }
 
