@@ -15,6 +15,8 @@
 
 #include "deauther_detector.h"
 
+#include "led_control.h"
+
 #include <string.h>
 
 #include "esp_log.h"
@@ -30,6 +32,9 @@ void deauther_detector_start(void) {
   s_session_id = spi_session_start(SPI_ID_WIFI_APP_DEAUTH_DET, NULL, 0, NULL, NULL);
   if (s_session_id == SPI_SESSION_INVALID_ID) {
     ESP_LOGW(TAG, "Failed to start deauth detector over SPI");
+    led_signal_error();
+  } else {
+    led_signal_info();
   }
 }
 

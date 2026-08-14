@@ -15,6 +15,8 @@
 
 #include "port_scan.h"
 
+#include "led_control.h"
+
 #include <string.h>
 
 #include "esp_log.h"
@@ -36,6 +38,7 @@ static int fetch_results(port_scan_result_t *results, int max_results) {
 
   if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
     ESP_LOGE(TAG, "Failed to fetch result count");
+    led_signal_error();
     return 0;
   }
 
@@ -65,6 +68,7 @@ static int fetch_results(port_scan_result_t *results, int max_results) {
     count++;
   }
 
+  count > 0 ? led_signal_info() : led_signal_warning();
   return count;
 }
 

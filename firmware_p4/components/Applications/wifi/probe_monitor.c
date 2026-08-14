@@ -15,6 +15,8 @@
 
 #include "probe_monitor.h"
 
+#include "led_control.h"
+
 #include <string.h>
 #include <stdlib.h>
 
@@ -37,7 +39,9 @@ static uint32_t s_session_id = SPI_SESSION_INVALID_ID;
 bool probe_monitor_start(void) {
   probe_monitor_free_results();
   s_session_id = spi_session_start(SPI_ID_WIFI_APP_PROBE_MON, NULL, 0, NULL, NULL);
-  return s_session_id != SPI_SESSION_INVALID_ID;
+  bool ok = s_session_id != SPI_SESSION_INVALID_ID;
+  ok ? led_signal_info() : led_signal_error();
+  return ok;
 }
 
 void probe_monitor_stop(void) {

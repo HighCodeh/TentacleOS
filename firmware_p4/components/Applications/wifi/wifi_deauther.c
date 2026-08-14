@@ -15,6 +15,8 @@
 
 #include "wifi_deauther.h"
 
+#include "led_control.h"
+
 #include <string.h>
 
 #include "esp_log.h"
@@ -36,7 +38,9 @@ bool wifi_deauther_start(const wifi_ap_record_t *ap_record,
   payload[12] = (uint8_t)type;
   payload[13] = ap_record->primary;
   s_session_id = spi_session_start(SPI_ID_WIFI_APP_DEAUTHER, payload, sizeof(payload), NULL, NULL);
-  return s_session_id != SPI_SESSION_INVALID_ID;
+  bool ok = s_session_id != SPI_SESSION_INVALID_ID;
+  ok ? led_signal_info() : led_signal_error();
+  return ok;
 }
 
 bool wifi_deauther_start_targeted(const wifi_ap_record_t *ap_record,
@@ -48,7 +52,9 @@ bool wifi_deauther_start_targeted(const wifi_ap_record_t *ap_record,
   payload[12] = (uint8_t)type;
   payload[13] = ap_record->primary;
   s_session_id = spi_session_start(SPI_ID_WIFI_APP_DEAUTHER, payload, sizeof(payload), NULL, NULL);
-  return s_session_id != SPI_SESSION_INVALID_ID;
+  bool ok = s_session_id != SPI_SESSION_INVALID_ID;
+  ok ? led_signal_info() : led_signal_error();
+  return ok;
 }
 
 void wifi_deauther_stop(void) {

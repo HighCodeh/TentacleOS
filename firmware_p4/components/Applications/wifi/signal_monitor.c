@@ -15,6 +15,8 @@
 
 #include "signal_monitor.h"
 
+#include "led_control.h"
+
 #include <string.h>
 
 #include "esp_log.h"
@@ -38,6 +40,7 @@ void signal_monitor_start(const uint8_t *bssid, uint8_t channel) {
   payload[6] = channel;
   s_session_id = spi_session_start(
       SPI_ID_WIFI_APP_SIGNAL_MON, payload, SIGNAL_MONITOR_PAYLOAD_SIZE, NULL, NULL);
+  s_session_id != SPI_SESSION_INVALID_ID ? led_signal_info() : led_signal_error();
 }
 
 void signal_monitor_stop(void) {

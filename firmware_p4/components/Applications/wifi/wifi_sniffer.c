@@ -15,6 +15,8 @@
 
 #include "wifi_sniffer.h"
 
+#include "led_control.h"
+
 #include <string.h>
 
 #include "esp_log.h"
@@ -79,8 +81,10 @@ start_internal(wifi_sniffer_type_t type, uint8_t channel, bool monitor_mode, wif
       SPI_ID_WIFI_APP_SNIFFER, payload, sizeof(payload), session_stream_cb, session_lost_cb);
   if (s_session_id == SPI_SESSION_INVALID_ID) {
     s_stream_cb = NULL;
+    led_signal_error();
     return false;
   }
+  led_signal_info(); // sniffer session up
   return true;
 }
 

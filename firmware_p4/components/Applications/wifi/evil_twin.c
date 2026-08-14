@@ -15,6 +15,8 @@
 
 #include "evil_twin.h"
 
+#include "led_control.h"
+
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -49,8 +51,10 @@ void evil_twin_start_attack(const char *ssid) {
       spi_session_start(SPI_ID_WIFI_APP_EVIL_TWIN, (uint8_t *)ssid, (uint8_t)len, NULL, NULL);
   if (s_session_id != SPI_SESSION_INVALID_ID) {
     s_has_password = false;
+    led_signal_info();
   } else {
     ESP_LOGW(TAG, "Failed to start Evil Twin over SPI");
+    led_signal_error();
   }
 }
 
@@ -78,8 +82,10 @@ void evil_twin_start_attack_with_template(const char *ssid, const char *template
                               NULL,
                               2000) == ESP_OK) {
     s_has_password = false;
+    led_signal_info();
   } else {
     ESP_LOGW(TAG, "Failed to start Evil Twin (template) over SPI");
+    led_signal_error();
   }
 }
 

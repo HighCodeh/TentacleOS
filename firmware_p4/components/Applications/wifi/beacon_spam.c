@@ -15,6 +15,8 @@
 
 #include "beacon_spam.h"
 
+#include "led_control.h"
+
 #include <string.h>
 
 #include "esp_log.h"
@@ -34,6 +36,7 @@ bool beacon_spam_start_custom(const char *json_path) {
   s_session_id = spi_session_start(
       SPI_ID_WIFI_APP_BEACON_SPAM, (uint8_t *)json_path, (uint8_t)len, NULL, NULL);
   s_is_running = (s_session_id != SPI_SESSION_INVALID_ID);
+  s_is_running ? led_signal_info() : led_signal_error();
   if (!s_is_running)
     ESP_LOGW(TAG, "Failed to start beacon spam (custom list) over SPI");
   return s_is_running;
@@ -42,6 +45,7 @@ bool beacon_spam_start_custom(const char *json_path) {
 bool beacon_spam_start_random(void) {
   s_session_id = spi_session_start(SPI_ID_WIFI_APP_BEACON_SPAM, NULL, 0, NULL, NULL);
   s_is_running = (s_session_id != SPI_SESSION_INVALID_ID);
+  s_is_running ? led_signal_info() : led_signal_error();
   if (!s_is_running)
     ESP_LOGW(TAG, "Failed to start beacon spam (random) over SPI");
   return s_is_running;
