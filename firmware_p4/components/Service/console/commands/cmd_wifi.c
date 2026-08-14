@@ -34,6 +34,7 @@
 #include "target_scanner.h"
 #include "tos_flash_paths.h"
 #include "wifi_deauther.h"
+#include "led_signal.h"
 #include "wifi_service.h"
 #include "wifi_sniffer.h"
 
@@ -52,9 +53,18 @@ static int subcmd_scan(int argc, char **argv) {
   }
 
   printf("Starting Wi-Fi Scan...\n");
-  wifi_service_scan();
+  esp_err_t scan_err = wifi_service_scan();
+  if (scan_err != ESP_OK) {
+    led_signal_error(); // scan failed on the ESP/bridge
+    printf("Scan failed: %s\n", esp_err_to_name(scan_err));
+    return 1;
+  }
 
   uint16_t count = wifi_service_get_ap_count();
+  if (count > 0)
+    led_signal_info(); // success with results
+  else
+    led_signal_warning(); // completed but found nothing
   printf("Found %d networks:\n", count);
   printf("%-32s | %-17s | %s | %s | %s\n", "SSID", "BSSID", "CH", "RSSI", "WPS");
   printf("--------------------------------------------------------------------------------\n");
@@ -98,8 +108,10 @@ static int subcmd_connect(int argc, char **argv) {
   printf("Connecting to '%s'...\n", ssid);
   esp_err_t err = wifi_service_connect_to_ap(ssid, pass);
   if (err == ESP_OK) {
+    led_signal_info();
     printf("Connection request sent.\n");
   } else {
+    led_signal_error();
     printf("Error initiating connection: %s\n", esp_err_to_name(err));
   }
   return 0;

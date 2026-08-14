@@ -22,6 +22,7 @@
 #include "esp_log.h"
 
 #include "cJSON.h"
+#include "led_signal.h"
 #include "spi_bridge.h"
 #include "storage_write.h"
 #include "tos_storage_paths.h"
@@ -87,12 +88,16 @@ bool ap_scanner_start(void) {
   esp_err_t err = spi_bridge_run_scan(SPI_ID_WIFI_APP_SCAN_AP, SPI_ID_WIFI_SCAN_STATUS, NULL, 0);
   if (err != ESP_OK) {
     ESP_LOGW(TAG, "AP scan failed over SPI");
+    led_signal_error();
     return false;
   }
   bool ok = fetch_results();
   if (ok) {
     // Auto-persist to SD when a card is present; a no-op otherwise (SD-only).
     ap_scanner_save_results_to_sd_card();
+    s_cached_count > 0 ? led_signal_info() : led_signal_warning();
+  } else {
+    led_signal_error();
   }
   return ok;
 }

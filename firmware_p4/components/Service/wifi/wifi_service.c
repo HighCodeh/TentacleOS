@@ -88,10 +88,10 @@ void wifi_service_stop(void) {
       SPI_ID_WIFI_STOP, NULL, 0, NULL, NULL, spi_bridge_get_timeout(SPI_ID_WIFI_STOP));
 }
 
-void wifi_service_scan(void) {
-  // Async: the C5 runs the scan and returns immediately; the helper polls the
-  // status without holding the bridge, so the UI and other peripherals are free.
-  spi_bridge_run_scan(SPI_ID_WIFI_SCAN, SPI_ID_WIFI_SCAN_STATUS, NULL, 0);
+esp_err_t wifi_service_scan(void) {
+  // The C5 runs the scan; the helper polls the status without holding the bridge
+  // (so the UI and other peripherals stay free) and returns once it completes.
+  return spi_bridge_run_scan(SPI_ID_WIFI_SCAN, SPI_ID_WIFI_SCAN_STATUS, NULL, 0);
 }
 
 uint16_t wifi_service_get_ap_count(void) {

@@ -27,6 +27,7 @@
 #include "nvs.h"
 
 #include "c5_flasher.h"
+#include "led_signal.h"
 #include "spi_protocol.h"
 #include "spi_bridge.h"
 #include "spi_protocol.h"
@@ -65,6 +66,7 @@ static int cmd_c5(int argc, char **argv) {
   if (strcmp(argv[1], "ping") == 0) {
     esp_err_t r = c5_flasher_ping();
     printf("C5 ping: %s\n", esp_err_to_name(r));
+    r == ESP_OK ? led_signal_info() : led_signal_error();
     return r == ESP_OK ? 0 : 1;
   }
   if (strcmp(argv[1], "info") == 0) {
@@ -72,11 +74,13 @@ static int cmd_c5(int argc, char **argv) {
     if (r != ESP_OK) {
       printf("C5 info: %s\n", esp_err_to_name(r));
     }
+    r == ESP_OK ? led_signal_info() : led_signal_error();
     return r == ESP_OK ? 0 : 1;
   }
   if (strcmp(argv[1], "sync") == 0) {
     esp_err_t r = c5_flasher_sync();
     printf("C5 sync: %s\n", esp_err_to_name(r));
+    r == ESP_OK ? led_signal_info() : led_signal_error();
     return r == ESP_OK ? 0 : 1;
   }
   if (strcmp(argv[1], "download") == 0) {
