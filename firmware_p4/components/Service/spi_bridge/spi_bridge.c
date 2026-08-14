@@ -226,7 +226,9 @@ uint32_t spi_bridge_get_timeout(spi_id_t id) {
 }
 
 #define SCAN_STATUS_POLL_MS   250
-#define SCAN_STATUS_MAX_POLLS 40  // ~10 s ceiling
+// ~40 s ceiling (matches SPI_TIMEOUT_WIFI_MS). This is only the upper bound: the
+// loop returns as soon as the scan reports done, so a fast scan is not delayed.
+#define SCAN_STATUS_MAX_POLLS 160
 
 esp_err_t spi_bridge_run_scan(spi_id_t scan_id,
                               spi_id_t status_id,
