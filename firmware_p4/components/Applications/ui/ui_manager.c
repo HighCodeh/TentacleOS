@@ -57,6 +57,8 @@
 #include "nfc_menu_ui.h"
 #include "nfc_emulate_ui.h"
 #include "nfc_read_ui.h"
+#include "nfc_manager.h"
+#include "subghz_receiver.h"
 #include "nfc_saved_ui.h"
 #include "nfc_write_ui.h"
 #include "nfc_config_ui.h"
@@ -319,6 +321,25 @@ void ui_input_lock(uint32_t ms) {
 }
 
 typedef void (*ui_open_fn_t)(void);
+typedef void (*ui_close_fn_t)(void);
+
+// Lifecycle contract (item 13): the close fn a screen registers to release the
+// hardware / stop the task it started. ui_switch_screen() calls it on the
+// outgoing screen before opening the next, so a radio/capture never keeps running
+// after the user leaves its screen. Only screens that own hardware or a task need
+// one; every other screen returns NULL (its widgets are freed by the screen
+// swap). New hardware screens: add a public *_stop and a case here.
+static ui_close_fn_t screen_close_fn(screen_id_t s) {
+  switch (s) {
+    case SCREEN_SUBGHZ_READ:
+      return subghz_receiver_stop;
+    case SCREEN_NFC_READ:
+    case SCREEN_NFC_EMULATE:
+      return nfc_manager_stop;
+    default:
+      return NULL;
+  }
+}
 
 static ui_open_fn_t screen_open_fn(screen_id_t s) {
   switch (s) {
@@ -623,6 +644,11 @@ void ui_switch_screen(screen_id_t new_screen) {
   input_lock_until = lv_tick_get() + INPUT_LOCK_MS;
 
   if (ui_acquire()) {
+    // Lifecycle: stop the outgoing screen's hardware/task before tearing it down.
+    ui_close_fn_t close_fn = screen_close_fn(current_screen_id);
+    if (close_fn != NULL) {
+      close_fn();
+    }
     clear_current_screen();
     // Returning to the top level clears the breadcrumb root so a stale category
     // ("NFC") never prefixes a fresh navigation. Category menus re-set it on open.
