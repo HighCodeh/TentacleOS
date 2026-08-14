@@ -32,7 +32,6 @@
 #include "pin_def.h"
 #include "spi_bridge.h"
 #include "storage_assets.h"
-#include "storage_init.h"
 #include "sys_monitor.h"
 #include "wifi_service.h"
 
@@ -49,8 +48,11 @@ void kernel_init(void) {
   ESP_ERROR_CHECK(ret);
 
   init_i2c();
-  // Storage Init
-  storage_init();
+  // Only the assets partition is mounted: it holds P4-editable config (AP name,
+  // password, captive-portal HTML, chat config, known networks). Captured data
+  // (passwords, pcaps, scans) is NOT persisted on the C5 - it streams to the P4
+  // over SPI, which owns storage. So there is no runtime `storage` partition and
+  // no storage_init() here.
   storage_assets_init();
   storage_assets_print_info();
 
