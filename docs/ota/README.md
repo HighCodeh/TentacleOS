@@ -12,10 +12,12 @@ The C5 firmware is embedded inside the P4 binary at build time. A single `.bin` 
 2. Trigger `ota_start_update()` from UI or console
 3. P4 validates the file and writes it to the inactive OTA partition
 4. P4 reboots into new firmware
-5. On boot, `ota_post_boot_check()` verifies the C5 is in sync
-6. If C5 version differs, `c5_flasher` updates it via UART
-7. If everything is OK, the update is confirmed
-8. If anything fails, the bootloader rolls back automatically
+5. After `kernel_init`, `ota_post_boot_check()` confirms the image using **local**
+   health: the assets LittleFS is mounted and the LVGL renderer is advancing
+6. If healthy, the update is confirmed (`esp_ota_mark_app_valid_cancel_rollback`)
+   and `firmware.json` is synced to the running version
+7. If the local check fails, the image is left unconfirmed and the bootloader
+   rolls back to the previous good image on the next reboot
 
 > **Watchdog:** the write loop (`fread` from LittleFS + `esp_ota_write`, both
 > cache-disabling) yields with `vTaskDelay(1)` per chunk so the idle task keeps
@@ -26,20 +28,33 @@ The C5 firmware is embedded inside the P4 binary at build time. A single `.bin` 
 
 ### Rollback
 
-The system uses two app partitions (`ota_0` / `ota_1`). After OTA, the new firmware must call `esp_ota_mark_app_valid_cancel_rollback()` to confirm. If it doesn't (crash, C5 flash failure, etc.), the bootloader reverts to the previous partition on the next reboot.
+The system uses two app partitions (`ota_0` / `ota_1`). After OTA, the new
+firmware must call `esp_ota_mark_app_valid_cancel_rollback()` to confirm.
+Confirmation is gated on **local, mandatory** criteria only (assets partition
+mounted + LVGL renderer alive), **never** on an optional peripheral.
+
+> Previously confirmation was gated on `bridge_manager_init()` (the C5 bridge),
+> which is disabled on purpose - so every update stayed in `PENDING_VERIFY` and
+> the device rolled back forever. The C5 sync is no longer part of validation. A
+> C5 version sync, if reintroduced, must be an optional step that only logs a
+> warning and never blocks confirmation.
 
 Scenarios:
 - **P4 crashes before confirmation** - automatic rollback to previous firmware
-- **C5 flash fails** - P4 does not confirm, rollback restores both chips
-- **C5 flash interrupted (power loss)** - C5 ROM bootloader is always accessible, P4 re-flashes on next boot
-- **Rollback after C5 was already updated** - rolled-back P4 contains old C5 binary, version mismatch triggers re-flash
+- **New image cannot mount assets or the renderer is frozen** - local check
+  fails, P4 does not confirm, bootloader rolls back
+- **Healthy new image** - confirmed within a few seconds of boot
 
 ### Partition Table
 
+See [boot_report](../boot_report/README.md) for the full current layout (the OTA
+slots were resized to `0x270000` to make room for a `coredump` partition).
+
 | Name | Type | Size |
 |---|---|---|
-| ota_0 | app | 4MB |
-| ota_1 | app | 4MB |
+| ota_0 | app | 0x270000 |
+| ota_1 | app | 0x270000 |
+| coredump | data | 64K |
 | otadata | data | 8K |
 
 ### Versioning
@@ -71,9 +86,11 @@ ota_start_update(on_progress);
 
 ### Post Boot Check
 
-Must be called early in `main.c` before `kernel_init()`:
+Must be called from `main.c` **after** `kernel_init()`, so the assets partition
+and LVGL are up for the local health check (it briefly waits on the render beat):
 
 ```c
+kernel_init();
 ota_post_boot_check();
 ```
 
@@ -87,7 +104,7 @@ CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 ## Dependencies
 
 - `app_update` (esp_ota_ops)
-- `bridge_manager` (C5 version check and flash)
-- `storage_assets` (firmware.json)
+- `storage_assets` (firmware.json + local health: assets mounted)
+- `ui_liveness` (local health: LVGL render beat)
 - `sd_card_init` (SD mount status)
 - `cJSON` (JSON parsing)
