@@ -20,6 +20,7 @@
 // never logs, so it can't stall or recurse on the logging path.
 
 #include "host_link.h"
+#include "host_link_sec.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -84,6 +85,33 @@ static uint16_t strip_ansi(const char *src, int src_len, char *dst, uint16_t dst
   return n;
 }
 
+// Render + strip + queue the relayed copy. Kept in its own non-inlined function
+// so its ~700 B of line buffers live only on THIS frame, allocated only when a
+// companion is actually listening. log_vprintf runs on every logging task's
+// stack (some driver tasks are only 4 KB), so it must stay tiny on the common
+// path or it overflows them just by being entered.
+static __attribute__((noinline)) void queue_relay_line(const char *fmt, va_list args) {
+  char raw[HOST_LOG_LINE_MAX * 2];
+  int raw_len = vsnprintf(raw, sizeof(raw), fmt, args);
+  if (raw_len <= 0)
+    return;
+  if (raw_len > (int)sizeof(raw) - 1)
+    raw_len = (int)sizeof(raw) - 1;
+
+  log_line_t line;
+  line.len = strip_ansi(raw, raw_len, line.text, sizeof(line.text));
+  if (line.len == 0)
+    return;
+  line.level = (uint8_t)level_from_letter(line.text[0]);
+
+  if (xQueueSend(s_log_queue, &line, 0) != pdTRUE) {
+    log_line_t discard;
+    if (xQueueReceive(s_log_queue, &discard, 0) == pdTRUE)
+      s_dropped++;
+    xQueueSend(s_log_queue, &line, 0);
+  }
+}
+
 static int log_vprintf(const char *fmt, va_list args) {
   // A frame is being forwarded right now: the forward runs blocking SPI that can
   // log (timeouts), which would re-enter this hook on the forwarder's stack
@@ -101,29 +129,14 @@ static int log_vprintf(const char *fmt, va_list args) {
     va_end(args_copy);
   }
 
-  if (s_log_queue == NULL)
+  // 2. Relay to the companion only when one is actually connected and
+  // authenticated. Skipping this keeps this frame tiny on the common path (no
+  // companion): the render buffers below would otherwise be reserved on entry
+  // and overflow small driver tasks (TinyUSB / wifi_status) just by logging.
+  if (s_log_queue == NULL || !host_link_sec_is_authenticated())
     return ret;
 
-  // 2. Render and queue a stripped copy for the app (non-blocking, drop-oldest).
-  char raw[HOST_LOG_LINE_MAX * 2];
-  int raw_len = vsnprintf(raw, sizeof(raw), fmt, args);
-  if (raw_len <= 0)
-    return ret;
-  if (raw_len > (int)sizeof(raw) - 1)
-    raw_len = (int)sizeof(raw) - 1;
-
-  log_line_t line;
-  line.len = strip_ansi(raw, raw_len, line.text, sizeof(line.text));
-  if (line.len == 0)
-    return ret;
-  line.level = (uint8_t)level_from_letter(line.text[0]);
-
-  if (xQueueSend(s_log_queue, &line, 0) != pdTRUE) {
-    log_line_t discard;
-    if (xQueueReceive(s_log_queue, &discard, 0) == pdTRUE)
-      s_dropped++;
-    xQueueSend(s_log_queue, &line, 0);
-  }
+  queue_relay_line(fmt, args);
   return ret;
 }
 

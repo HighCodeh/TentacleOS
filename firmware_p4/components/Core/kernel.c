@@ -39,7 +39,6 @@
 #include "tos_first_boot.h"
 #include "tos_config.h"
 #include "tos_theme.h"
-#include "tos_log.h"
 #include "wifi_service.h"
 #include "console_service.h"
 #include "host_link.h"
@@ -141,10 +140,13 @@ esp_err_t kernel_init(void) {
   bool safe_mode =
       boot_report_in_bootloop() || !boot_report_all_required_ok() || detect_safe_mode_combo();
 
-  // 4. Configuration, theme, logging
+  // 4. Configuration, theme
   tos_first_boot_setup();
   tos_config_load_all();
-  tos_log_init();
+  // Custom SD log tee (tos_log) removed: its esp_log_set_vprintf hook put a
+  // newlib vsnprintf (~1.5 KB) on every logging task's stack and overflowed the
+  // small (4 KB) driver tasks. Crash forensics now come from the coredump
+  // partition (see Service/boot_report) only.
 
   if (safe_mode) {
     kernel_init_safe_mode();
