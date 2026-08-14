@@ -79,7 +79,11 @@ esp_err_t c5_flasher_init(void) {
       return err;
     }
   }
-  ESP_ERROR_CHECK(uart_param_config(OTA_UART, &cfg));
+  esp_err_t cfg_err = uart_param_config(OTA_UART, &cfg);
+  if (cfg_err != ESP_OK) {
+    ESP_LOGE(TAG, "uart_param_config: %s", esp_err_to_name(cfg_err));
+    return cfg_err;
+  }
   esp_err_t pin_err = uart_set_pin(
       OTA_UART, GPIO_C5_UART_TX_PIN, GPIO_C5_UART_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
   if (pin_err != ESP_OK) {
