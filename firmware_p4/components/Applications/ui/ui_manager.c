@@ -189,7 +189,10 @@ void ui_input_set_screen_handler(ui_input_handler_t handler, void *ctx) {
 }
 
 static bool input_dispatch_blocked(void) {
-  return ui_input_is_locked() || msgbox_is_open() || keyboard_is_open();
+  // While the screen is asleep, swallow input: the press that wakes it (tracked
+  // by input_manager, which wakes the power policy) must not also act on the UI.
+  return ui_input_is_locked() || msgbox_is_open() || keyboard_is_open() ||
+         power_policy_is_asleep();
 }
 
 static void ui_input_pump(lv_timer_t *t) {

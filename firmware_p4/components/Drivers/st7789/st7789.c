@@ -154,19 +154,35 @@ static void save_display_config(display_config_t cfg) {
   cJSON_Delete(json);
 }
 
+void lcd_apply_brightness(uint8_t percent) {
+  if (percent > MAX_BRIGHTNESS) {
+    percent = MAX_BRIGHTNESS;
+  }
+  uint32_t duty = (BL_MAX_DUTY * percent) / MAX_BRIGHTNESS;
+  ledc_set_duty(BL_LEDC_MODE, BL_LEDC_CH, duty);
+  ledc_update_duty(BL_LEDC_MODE, BL_LEDC_CH);
+}
+
 void lcd_set_brightness(uint8_t percent) {
   if (percent > MAX_BRIGHTNESS) {
     percent = MAX_BRIGHTNESS;
   }
+  lcd_apply_brightness(percent);
 
+  // Persist the user-chosen level. Transient changes (auto-dim) use
+  // lcd_apply_brightness so they never overwrite this.
   display_config_t cfg = load_display_config();
   cfg.brightness = percent;
-
-  uint32_t duty = (BL_MAX_DUTY * percent) / MAX_BRIGHTNESS;
-  ledc_set_duty(BL_LEDC_MODE, BL_LEDC_CH, duty);
-  ledc_update_duty(BL_LEDC_MODE, BL_LEDC_CH);
-
   save_display_config(cfg);
+}
+
+void lcd_display_sleep(bool sleep) {
+  if (panel_handle == NULL) {
+    return;
+  }
+  // Turn the panel off (sleep) or on. Pair with backlight off/restore for a real
+  // screen-off; the panel command cuts the pixels, the backlight cuts the light.
+  esp_lcd_panel_disp_on_off(panel_handle, !sleep);
 }
 
 uint8_t lcd_get_brightness(void) {
@@ -253,7 +269,10 @@ void st7789_init(void) {
   init_backlight_pwm();
 
   display_config_t saved_cfg = load_display_config();
-  lcd_set_brightness(saved_cfg.brightness);
+  // Apply only (no re-save): the screen config file is owned/written by
+  // tos_config ("screen" module, full schema). Persisting here would drop the
+  // auto_lock_seconds / auto_dim / theme fields it does not know about.
+  lcd_apply_brightness(saved_cfg.brightness);
   lcd_set_rotation(saved_cfg.rotation);
   st7789_fill_screen(0x0000);
 

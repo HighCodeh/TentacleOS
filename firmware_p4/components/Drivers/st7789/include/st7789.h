@@ -20,6 +20,7 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "esp_lcd_panel_io.h"
@@ -75,11 +76,31 @@ void st7789_fill_screen(uint16_t color);
 void lcd_set_brightness(uint8_t percent);
 
 /**
+ * @brief Apply a backlight level WITHOUT persisting it.
+ *
+ * Used for transient changes (auto-dim / fade) so the user's saved brightness is
+ * preserved and can be restored exactly.
+ *
+ * @param percent  Brightness percentage (0-100).
+ */
+void lcd_apply_brightness(uint8_t percent);
+
+/**
  * @brief Get the current backlight brightness.
  *
  * @return Brightness percentage (0-100).
  */
 uint8_t lcd_get_brightness(void);
+
+/**
+ * @brief Put the display panel to sleep (pixels off) or wake it.
+ *
+ * Cuts the panel itself, not just the backlight. Pair with backlight off/restore
+ * for a real screen-off.
+ *
+ * @param sleep  true = panel off, false = panel on.
+ */
+void lcd_display_sleep(bool sleep);
 
 /**
  * @brief Set the display rotation.

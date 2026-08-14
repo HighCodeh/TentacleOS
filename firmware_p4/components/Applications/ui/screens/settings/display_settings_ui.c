@@ -15,15 +15,14 @@
 
 #include "display_settings_ui.h"
 
-#include "esp_log.h"
-
 #include "buttons_gpio.h"
 #include "menu_component_ui.h"
 #include "notify_ui.h"
+#include "st7789.h"
+#include "tos_config.h"
+#include "tos_flash_paths.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
-
-static const char *TAG = "DISPLAY_SETTINGS_UI";
 
 #define NAV_TIMER_MS  50
 #define ENTRY_FADE_MS 200
@@ -34,14 +33,29 @@ static const char *TAG = "DISPLAY_SETTINGS_UI";
 #define ROW_AUTODIM    3
 #define ROW_INVERT     4
 
+// Brightness maps the 5-step intensity bar to a percentage (level * 20).
+#define BRIGHTNESS_STEP_PCT 20
+
 static const char *const ROTATION_OPTS[] = {"Portrait", "Landscape"};
 #define ROTATION_COUNT ((int)(sizeof(ROTATION_OPTS) / sizeof(ROTATION_OPTS[0])))
 
-static const char *const TIMEOUT_OPTS[] = {"15s", "30s", "1m", "Off"};
+// Labels and their auto_lock_seconds values (0 = never sleep).
+static const char *const TIMEOUT_OPTS[] = {"15s", "30s", "1m", "5m", "Off"};
+static const int TIMEOUT_SECS[] = {15, 30, 60, 300, 0};
 #define TIMEOUT_COUNT ((int)(sizeof(TIMEOUT_OPTS) / sizeof(TIMEOUT_OPTS[0])))
 
 static int s_rotation_idx = 0;
 static int s_timeout_idx = 1;
+
+// Pick the timeout option index matching a saved auto_lock_seconds value.
+static int timeout_idx_for_seconds(int seconds) {
+  for (int i = 0; i < TIMEOUT_COUNT; i++) {
+    if (TIMEOUT_SECS[i] == seconds) {
+      return i;
+    }
+  }
+  return TIMEOUT_COUNT - 1;  // fall back to "Off"
+}
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
@@ -93,7 +107,6 @@ static void nav_timer_cb(lv_timer_t *t) {
     if (sel >= 0 && s_menu.has_toggle[sel]) {
       menu_component_toggle_item(&s_menu, sel);
       s_changed = true;
-      ESP_LOGI(TAG, "mock toggle row %d -> %d", sel, menu_component_get_toggle(&s_menu, sel));
     }
   }
 
@@ -102,6 +115,8 @@ static void nav_timer_cb(lv_timer_t *t) {
     if (sel >= 0) {
       if (s_menu.has_intensity[sel]) {
         menu_component_intensity_dec(&s_menu, sel);
+        if (sel == ROW_BRIGHTNESS)
+          lcd_apply_brightness(menu_component_get_intensity(&s_menu, sel) * BRIGHTNESS_STEP_PCT);
         s_changed = true;
       } else if (s_menu.val_labels[sel] != NULL) {
         cycle_selector(sel, -1);
@@ -113,6 +128,8 @@ static void nav_timer_cb(lv_timer_t *t) {
     if (sel >= 0) {
       if (s_menu.has_intensity[sel]) {
         menu_component_intensity_inc(&s_menu, sel);
+        if (sel == ROW_BRIGHTNESS)
+          lcd_apply_brightness(menu_component_get_intensity(&s_menu, sel) * BRIGHTNESS_STEP_PCT);
         s_changed = true;
       } else if (s_menu.val_labels[sel] != NULL) {
         cycle_selector(sel, +1);
@@ -121,8 +138,17 @@ static void nav_timer_cb(lv_timer_t *t) {
   }
 
   if (back && !s_back_last) {
-    if (s_changed)
+    if (s_changed) {
+      // Commit to the in-memory config and persist the full "screen" schema.
+      // tos_config is the sole writer of this file (st7789 only reads it), so
+      // brightness, auto-lock and auto-dim stay in one consistent file.
+      g_config_screen.brightness =
+          menu_component_get_intensity(&s_menu, ROW_BRIGHTNESS) * BRIGHTNESS_STEP_PCT;
+      g_config_screen.auto_lock_seconds = TIMEOUT_SECS[s_timeout_idx];
+      g_config_screen.auto_dim = menu_component_get_toggle(&s_menu, ROW_AUTODIM);
+      tos_config_save(FLASH_CONFIG_SCREEN, "screen");
       notify(NOTIFY_SAVED, "Display settings saved");
+    }
     ui_switch_screen(SCREEN_SETTINGS);
   }
 
@@ -141,8 +167,14 @@ void ui_display_settings_open(void) {
   }
 
   s_rotation_idx = 0;
-  s_timeout_idx = 1;
+  s_timeout_idx = timeout_idx_for_seconds(g_config_screen.auto_lock_seconds);
   s_changed = false;
+
+  int bright_level = lcd_get_brightness() / BRIGHTNESS_STEP_PCT;
+  if (bright_level < 0)
+    bright_level = 0;
+  if (bright_level > 5)
+    bright_level = 5;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -150,12 +182,13 @@ void ui_display_settings_open(void) {
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
   s_menu = menu_component_create(s_screen, "DISPLAY", "/assets/icons/display_settings.bin");
-  menu_component_add_intensity(&s_menu, "/assets/icons/brightness_6.bin", "Brightness", 4);
+  menu_component_add_intensity(&s_menu, "/assets/icons/brightness_6.bin", "Brightness", bright_level);
   menu_component_add_selector(
       &s_menu, "/assets/icons/screen_rotation.bin", "Rotation", ROTATION_OPTS[s_rotation_idx]);
   menu_component_add_selector(
       &s_menu, "/assets/icons/timer.bin", "Timeout", TIMEOUT_OPTS[s_timeout_idx]);
-  menu_component_add_toggle(&s_menu, "/assets/icons/brightness_auto.bin", "Auto-dim", true);
+  menu_component_add_toggle(
+      &s_menu, "/assets/icons/brightness_auto.bin", "Auto-dim", g_config_screen.auto_dim);
   menu_component_add_toggle(&s_menu, "/assets/icons/invert_colors.bin", "Invert", false);
 
   if (s_menu.items_cont != NULL)
