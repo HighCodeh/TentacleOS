@@ -29,6 +29,7 @@
 #include "boot_report.h"
 #include "crash_report_ui.h"
 #include "menu_component_ui.h"
+#include "reboot_ui.h"
 #include "sys_prio.h"
 #include "tos_factory_reset.h"
 #include "ui_feedback.h"
@@ -206,7 +207,7 @@ static void safe_mode_input(const input_event_t *ev, void *ctx) {
             } else if (sel == ROW_VIEW_BOOTMAP) {
               ui_boot_map_open_cb(ui_safe_mode_open);
             } else if (sel == ROW_REBOOT) {
-              esp_restart();
+              reboot_ui_reboot();
             }
           }
           break;
