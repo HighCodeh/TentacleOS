@@ -16,6 +16,7 @@ README.md, separated by `---`.
 |-----------|------|
 | `bad_usb` | [README.md](bad_usb/README.md)  |
 | `bluetooth` | [README.md](bluetooth/README.md)  |
+| `boot_report` | [README.md](boot_report/README.md)  |
 | `buttons_gpio` | [README.md](buttons_gpio/README.md)  |
 | `c5_flasher` | [README.md](c5_flasher/README.md)  |
 | `cc1101` | [README.md](cc1101/README.md)  |
@@ -28,6 +29,7 @@ README.md, separated by `---`.
 | `input_manager` | [README.md](input_manager/README.md)  |
 | `lvgl_port` | [README.md](lvgl_port/README.md)  |
 | `ota` | [README.md](ota/README.md)  |
+| `recovery` | [README.md](recovery/README.md)  |
 | `sd_card` | [README.md](sd_card/README.md)  |
 | `spi` | [README.md](spi/README.md)  |
 | `spi_bridge` | [README.md](spi_bridge/README.md)  |

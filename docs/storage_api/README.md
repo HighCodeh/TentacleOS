@@ -481,6 +481,31 @@ if (ret != ESP_OK) {
     ESP_LOGE(TAG, "Write failed: %s", esp_err_to_name(ret));
 }
 ```
+
+## Factory reset (`tos_factory_reset.h`)
+
+System-wide reset used by safe mode (see [recovery](../recovery/README.md)).
+Both functions delete only **file contents** and leave the directory skeleton
+intact, because `write_string_to_file` does not create parent directories: a
+config save right after a reset must still find its folder.
+
+```c
+esp_err_t tos_factory_reset_config(void); // config only
+esp_err_t tos_factory_reset_all(void);    // config + user data + NVS
+```
+
+- **`tos_factory_reset_config`** - deletes every file under the config
+  directories on both storages (`/assets/config` and `/sdcard/config`) and
+  removes the first-boot marker so `tos_first_boot_setup` re-seeds defaults on
+  the next boot. NVS, captures/loot and shipped assets are untouched.
+- **`tos_factory_reset_all`** - runs the config reset, then deletes user
+  captures/loot/themes/scripts on both storages and erases NVS
+  (`nvs_flash_erase`). It **never** formats the `assets` partition (shipped
+  icons/html/fonts survive) and **never** touches the on-SD C5 firmware image
+  (`/sdcard/c5`), so the device and its C5-recovery path stay bootable.
+
+Callers are expected to reboot afterwards.
+
 ---
 
 # C5

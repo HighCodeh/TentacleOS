@@ -228,6 +228,27 @@ See `nfc_menu_ui.c` for the reference migration, and
 [input-migration.md](input-migration.md) for the step-by-step guide to convert
 the remaining ~91 screens off their polling timers (with the gotchas).
 
+## Screen power policy (auto-dim / sleep)
+
+`components/ui/components/power_policy` owns the always-on display power
+behaviour in a single `lv_timer`, started once from `ui_init` under the LVGL
+lock. It reads `input_last_activity_ms()` (from `input_manager`) and the
+`screen` config (`g_config_screen.auto_lock_seconds`, `auto_dim`):
+
+- After `auto_lock_seconds` of no input it **fades** the backlight (a ramp, not
+  a step) and, when faded to zero, calls `lcd_display_sleep(true)` to cut the
+  panel. When `auto_dim` is set it first dims to a low level a few seconds
+  before sleeping.
+- The user's chosen brightness is captured before dimming and restored on the
+  next input, so auto-dim never overwrites it. Transient changes use
+  `lcd_apply_brightness` (no persist); see [st7789](../st7789/README.md).
+- Any input wakes the screen. `power_policy_is_asleep()` gates the central input
+  router so the wake press only wakes the display instead of also acting on the
+  underlying screen.
+
+The display settings screen writes `auto_lock_seconds` / `auto_dim` / brightness
+through `tos_config`, which is the sole writer of the `screen` config file.
+
 ## Execution Flow Sumamary
 1. User selects **Bluetooth** from the Main Menu.
 2. Menu callback calls `ui_switch_screen(SCREEN_BLE_MENU)`.
