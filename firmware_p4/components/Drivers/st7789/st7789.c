@@ -66,7 +66,7 @@ typedef struct {
   uint8_t rotation;
 } display_config_t;
 
-static void init_backlight_pwm(void) {
+static esp_err_t init_backlight_pwm(void) {
   ledc_timer_config_t ledc_timer = {
       .speed_mode = BL_LEDC_MODE,
       .timer_num = BL_LEDC_TIMER,
@@ -74,7 +74,11 @@ static void init_backlight_pwm(void) {
       .freq_hz = BL_LEDC_FREQ,
       .clk_cfg = LEDC_AUTO_CLK,
   };
-  ESP_ERROR_CHECK(ledc_timer_config(&ledc_timer));
+  esp_err_t ret = ledc_timer_config(&ledc_timer);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "backlight timer config failed: %s", esp_err_to_name(ret));
+    return ret;
+  }
 
   ledc_channel_config_t ledc_channel = {
       .speed_mode = BL_LEDC_MODE,
@@ -85,7 +89,12 @@ static void init_backlight_pwm(void) {
       .duty = 0,
       .hpoint = 0,
   };
-  ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel));
+  ret = ledc_channel_config(&ledc_channel);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "backlight channel config failed: %s", esp_err_to_name(ret));
+    return ret;
+  }
+  return ESP_OK;
 }
 
 static display_config_t load_display_config(void) {
@@ -242,7 +251,7 @@ void st7789_fill_screen(uint16_t color) {
   }
 }
 
-void st7789_init(void) {
+esp_err_t st7789_init(void) {
   esp_lcd_panel_io_spi_config_t io_config = {
       .dc_gpio_num = GPIO_ST7789_DC_PIN,
       .cs_gpio_num = GPIO_ST7789_CS_PIN,
@@ -252,21 +261,51 @@ void st7789_init(void) {
       .spi_mode = 0,
       .trans_queue_depth = SPI_IO_QUEUE_DEPTH,
   };
-  ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi(SPI3_HOST, &io_config, &io_handle));
+  esp_err_t ret = esp_lcd_new_panel_io_spi(SPI3_HOST, &io_config, &io_handle);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "panel IO create failed: %s", esp_err_to_name(ret));
+    return ret;
+  }
 
   esp_lcd_panel_dev_config_t panel_config = {
       .reset_gpio_num = GPIO_ST7789_RST_PIN,
       .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
       .bits_per_pixel = 16,
   };
-  ESP_ERROR_CHECK(esp_lcd_new_panel_st7789(io_handle, &panel_config, &panel_handle));
-  ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
-  ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
-  ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel_handle, true));
-  ESP_ERROR_CHECK(esp_lcd_panel_set_gap(panel_handle, 0, 0));
-  ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
+  ret = esp_lcd_new_panel_st7789(io_handle, &panel_config, &panel_handle);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "panel create failed: %s", esp_err_to_name(ret));
+    goto cleanup_io;
+  }
+  ret = esp_lcd_panel_reset(panel_handle);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "panel reset failed: %s", esp_err_to_name(ret));
+    goto cleanup_panel;
+  }
+  ret = esp_lcd_panel_init(panel_handle);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "panel init failed: %s", esp_err_to_name(ret));
+    goto cleanup_panel;
+  }
+  ret = esp_lcd_panel_invert_color(panel_handle, true);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "panel invert failed: %s", esp_err_to_name(ret));
+    goto cleanup_panel;
+  }
+  ret = esp_lcd_panel_set_gap(panel_handle, 0, 0);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "panel set gap failed: %s", esp_err_to_name(ret));
+    goto cleanup_panel;
+  }
+  ret = esp_lcd_panel_disp_on_off(panel_handle, true);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "panel display on failed: %s", esp_err_to_name(ret));
+    goto cleanup_panel;
+  }
 
-  init_backlight_pwm();
+  if (init_backlight_pwm() != ESP_OK) {
+    ESP_LOGW(TAG, "backlight PWM unavailable; brightness control disabled");
+  }
 
   display_config_t saved_cfg = load_display_config();
   // Apply only (no re-save): the screen config file is owned/written by
@@ -284,4 +323,13 @@ void st7789_init(void) {
            LCD_V_RES,
            saved_cfg.brightness,
            saved_cfg.rotation);
+  return ESP_OK;
+
+cleanup_panel:
+  esp_lcd_panel_del(panel_handle);
+  panel_handle = NULL;
+cleanup_io:
+  esp_lcd_panel_io_del(io_handle);
+  io_handle = NULL;
+  return ret;
 }

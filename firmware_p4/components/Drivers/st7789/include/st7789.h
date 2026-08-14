@@ -23,6 +23,7 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "esp_err.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_vendor.h"
@@ -56,8 +57,10 @@ extern esp_lcd_panel_io_handle_t io_handle;
  * Creates the SPI panel IO on SPI3_HOST, configures and resets the
  * ST7789 panel, inverts colors for IPS panels, initializes backlight
  * PWM, and applies saved brightness/rotation from config file.
+ *
+ * @return ESP_OK on success, or an esp_err_t from the panel IO/init on failure.
  */
-void st7789_init(void);
+esp_err_t st7789_init(void);
 
 /**
  * @brief Fill the entire screen with a single color.
