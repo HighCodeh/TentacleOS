@@ -24,18 +24,19 @@
 
 static const char *TAG = "POWER_MGR";
 
-// P4 max is 360 MHz; drop to the XTAL (40 MHz) when idle. Light sleep is enabled
-// but gated by the NO_LIGHT_SLEEP lock (held while the screen is on / a resource
-// is active), so it only engages when the device is genuinely idle.
-#define PM_MAX_FREQ_MHZ 360
-#define PM_MIN_FREQ_MHZ 40
+// Frequency is PINNED (min == max): no DFS. DFS would scale the APB and break the
+// console UART baud (the IDF UART driver excludes the console UART from PM). The
+// power win here is light sleep (CPU fully off when idle), not DFS. Light sleep
+// is gated by the NO_LIGHT_SLEEP lock, held while the screen is on or native USB
+// is connected, so it only engages when the device is truly idle on battery.
+#define PM_FREQ_MHZ 360
 
 static esp_pm_lock_handle_t s_no_sleep_lock = NULL;
 
 void power_manager_init(void) {
   esp_pm_config_t cfg = {
-      .max_freq_mhz = PM_MAX_FREQ_MHZ,
-      .min_freq_mhz = PM_MIN_FREQ_MHZ,
+      .max_freq_mhz = PM_FREQ_MHZ,
+      .min_freq_mhz = PM_FREQ_MHZ,  // == max: no DFS, keeps the console UART baud
       .light_sleep_enable = true,
   };
   esp_err_t err = esp_pm_configure(&cfg);
@@ -51,8 +52,7 @@ void power_manager_init(void) {
     return;
   }
 
-  ESP_LOGI(TAG, "Power manager: DFS %d-%d MHz, light sleep gated by NO_LIGHT_SLEEP lock",
-           PM_MIN_FREQ_MHZ, PM_MAX_FREQ_MHZ);
+  ESP_LOGI(TAG, "Power manager: light sleep on (no DFS, %d MHz pinned)", PM_FREQ_MHZ);
 }
 
 esp_err_t power_manager_no_sleep_acquire(void) {

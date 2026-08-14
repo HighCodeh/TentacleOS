@@ -23,6 +23,7 @@
 #include "menu_component_ui.h"
 #include "msgbox_ui.h"
 #include "notify_ui.h"
+#include "power_manager.h"
 #include "tusb_desc.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
@@ -52,6 +53,7 @@ static bool s_btn_left_last = false;
 static bool s_btn_right_last = false;
 static bool s_btn_ok_last = false;
 static bool s_btn_back_last = false;
+static bool s_usb_no_sleep_held = false; // NO_LIGHT_SLEEP held while native USB is on
 
 static void wifi_loading_timer_cb(lv_timer_t *timer);
 static void show_wifi_loading(void);
@@ -155,6 +157,16 @@ static void nav_timer_cb(lv_timer_t *timer) {
       menu_component_toggle_item(&s_menu, IDX_USB_NATIVE);
       bool native = menu_component_get_toggle(&s_menu, IDX_USB_NATIVE);
       usb_mux_set_native(native);
+      // Native USB needs the CPU awake: hold the NO_LIGHT_SLEEP lock while it is
+      // on, release it when switching back to the UART bridge. Tracked so repeated
+      // toggles stay balanced.
+      if (native && !s_usb_no_sleep_held) {
+        power_manager_no_sleep_acquire();
+        s_usb_no_sleep_held = true;
+      } else if (!native && s_usb_no_sleep_held) {
+        power_manager_no_sleep_release();
+        s_usb_no_sleep_held = false;
+      }
       notify(NOTIFY_INFO, native ? "USB: native (serial off)" : "USB: UART bridge");
     }
   }

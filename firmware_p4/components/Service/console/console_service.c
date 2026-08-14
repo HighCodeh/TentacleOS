@@ -23,7 +23,9 @@
 #include "driver/uart.h"
 #include "esp_console.h"
 #include "esp_log.h"
+#include "esp_sleep.h"
 #include "linenoise/linenoise.h"
+#include "sdkconfig.h"
 
 static const char *TAG = "CONSOLE";
 
@@ -81,6 +83,18 @@ esp_err_t console_service_init(void) {
     return ret;
   }
   s_repl = repl;
+
+#if CONFIG_PM_ENABLE && defined(CONFIG_ESP_CONSOLE_UART)
+  // With light sleep on, let UART RX wake the CPU so the serial console stays
+  // usable while the screen is off. Best-effort: log and continue if unsupported.
+  esp_err_t wake = uart_set_wakeup_threshold(CONFIG_ESP_CONSOLE_UART_NUM, 3);
+  if (wake == ESP_OK) {
+    wake = esp_sleep_enable_uart_wakeup(CONFIG_ESP_CONSOLE_UART_NUM);
+  }
+  if (wake != ESP_OK) {
+    ESP_LOGW(TAG, "UART light-sleep wakeup unavailable: %s", esp_err_to_name(wake));
+  }
+#endif
 
   ESP_LOGI(TAG, "Console started. Type 'help' for commands.");
   return ESP_OK;
