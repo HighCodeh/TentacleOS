@@ -26,11 +26,11 @@
 #include "esp_ota_ops.h"
 #include "esp_system.h"
 
-#include "bridge_manager.h"
 #include "cJSON.h"
 #include "ota_version.h"
 #include "sd_card_init.h"
 #include "storage_assets.h"
+#include "ui_liveness.h"
 
 static const char *TAG = "OTA_SERVICE";
 
@@ -41,6 +41,11 @@ static const char *TAG = "OTA_SERVICE";
 #define PROGRESS_WRITE_RANGE 85
 #define PROGRESS_FINALIZE    92
 #define PROGRESS_REBOOT      95
+
+// Local OTA validation: the LVGL render beat (250 ms period) must advance over
+// this window for the image to be confirmed. 3 s => ~12 ticks; require 4.
+#define OTA_VALIDATE_LVGL_MS        3000
+#define OTA_VALIDATE_LVGL_MIN_TICKS 4
 
 static ota_state_t s_state = OTA_STATE_IDLE;
 
@@ -246,6 +251,31 @@ cleanup:
   return ret;
 }
 
+// Local, mandatory health criteria for confirming a pending OTA image. Never
+// gate on an optional peripheral (the old code gated on the C5 bridge, which is
+// disabled on purpose, so every update rolled back forever). Must run AFTER
+// kernel_init so the display, LVGL and assets are already up.
+static bool ota_local_health_ok(void) {
+  // The assets LittleFS must be mounted (icons/config/fonts). A new image that
+  // cannot mount it is not healthy.
+  if (!storage_assets_is_mounted()) {
+    ESP_LOGE(TAG, "OTA validate: assets partition not mounted");
+    return false;
+  }
+
+  // The LVGL renderer must be alive: its render-progress beat has to advance
+  // over a window. A frozen renderer (deadlock, crash-on-draw) leaves it stuck.
+  uint32_t beat_start = ui_render_beat();
+  vTaskDelay(pdMS_TO_TICKS(OTA_VALIDATE_LVGL_MS));
+  uint32_t advanced = ui_render_beat() - beat_start;
+  if (advanced < OTA_VALIDATE_LVGL_MIN_TICKS) {
+    ESP_LOGE(TAG, "OTA validate: LVGL renderer not advancing (%lu ticks)", (unsigned long)advanced);
+    return false;
+  }
+
+  return true;
+}
+
 esp_err_t ota_post_boot_check(void) {
   const esp_partition_t *running = esp_ota_get_running_partition();
   if (running == NULL) {
@@ -258,24 +288,23 @@ esp_err_t ota_post_boot_check(void) {
   esp_ota_img_states_t ota_state;
   esp_err_t ret = esp_ota_get_state_partition(running, &ota_state);
 
-  if (ret == ESP_OK && ota_state == ESP_OTA_IMG_PENDING_VERIFY) {
-    ESP_LOGW(TAG, "New firmware pending verification...");
-
-    ret = bridge_manager_init();
-    if (ret != ESP_OK) {
-      ESP_LOGE(TAG, "C5 sync failed — rollback will occur on next reboot");
-      return ESP_FAIL;
-    }
-
-    esp_ota_mark_app_valid_cancel_rollback();
-    ESP_LOGI(TAG, "Firmware update confirmed: v%s", FIRMWARE_VERSION);
-  } else {
+  if (ret != ESP_OK || ota_state != ESP_OTA_IMG_PENDING_VERIFY) {
     ESP_LOGI(TAG, "Normal boot (no pending OTA verification)");
+    ota_sync_version_to_assets();  // assets is mounted now (runs after kernel_init)
+    return ESP_OK;
   }
 
-  // The version sync is NOT done here: this runs from app_main before
-  // storage_assets_init(), so the assets partition is not mounted yet and every
-  // attempt failed with "Assets not initialized". kernel_init calls
-  // ota_sync_version_to_assets() once the partition is up.
+  ESP_LOGW(TAG, "New firmware pending verification, checking local health...");
+
+  if (!ota_local_health_ok()) {
+    // Do NOT confirm: the bootloader rolls back to the previous good image on the
+    // next reboot. This is the safety net for a broken update.
+    ESP_LOGE(TAG, "Local health check failed — NOT confirming; rollback on next reboot");
+    return ESP_FAIL;
+  }
+
+  esp_ota_mark_app_valid_cancel_rollback();
+  ESP_LOGI(TAG, "Firmware update confirmed: v%s", FIRMWARE_VERSION);
+  ota_sync_version_to_assets();
   return ESP_OK;
 }

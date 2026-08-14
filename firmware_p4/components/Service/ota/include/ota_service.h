@@ -74,17 +74,16 @@ esp_err_t ota_start_update(ota_progress_cb_t progress_cb);
 /**
  * @brief Post-boot verification for newly flashed firmware.
  *
- * If the running partition is pending OTA verification, this function
- * syncs the C5 co-processor firmware via bridge_manager and confirms
- * the update. If C5 sync fails, the update is NOT confirmed and the
- * bootloader will rollback on next reboot.
- *
- * Also syncs firmware.json in the assets partition to match the
- * running firmware version.
+ * MUST be called AFTER kernel_init, so the display, LVGL and assets are up. If
+ * the running partition is pending OTA verification, it confirms the image using
+ * local, mandatory criteria only (assets LittleFS mounted + the LVGL renderer
+ * advancing over a window) - never an optional peripheral. If the check fails
+ * the image is left unconfirmed and the bootloader rolls back on the next
+ * reboot. On a normal (already-confirmed) boot it just syncs firmware.json.
  *
  * @return
- *   - ESP_OK on success
- *   - ESP_FAIL if C5 sync or partition check fails
+ *   - ESP_OK when confirmed or on a normal boot
+ *   - ESP_FAIL when the local health check failed (rollback pending)
  */
 esp_err_t ota_post_boot_check(void);
 
@@ -92,8 +91,8 @@ esp_err_t ota_post_boot_check(void);
  * @brief Rewrite the version field of the assets firmware.json to the running
  *        firmware version, if they differ.
  *
- * Requires the assets partition to be mounted, so it must be called after
- * storage_assets_init() — not from ota_post_boot_check(), which runs before it.
+ * Requires the assets partition to be mounted. Called from ota_post_boot_check()
+ * now that it runs after kernel_init (the assets partition is up by then).
  */
 void ota_sync_version_to_assets(void);
 
