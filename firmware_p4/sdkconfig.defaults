@@ -83,15 +83,14 @@ CONFIG_LV_USE_SNAPSHOT=y
 # flash write loops yield per chunk and the UI task probes the LVGL lock.
 CONFIG_ESP_TASK_WDT_PANIC=y
 
-# Power management: light sleep WITHOUT DFS. Frequency is pinned (min==max in
-# esp_pm_configure, Service/power_manager) so the APB never scales - that keeps
-# the console UART baud correct (the IDF UART driver excludes the console UART
-# from PM handling). Light sleep still engages when idle, gated by the
-# NO_LIGHT_SLEEP lock (screen on / native USB connected hold it).
-CONFIG_PM_ENABLE=y
-CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
-CONFIG_PM_SLP_IRAM_OPT=y
-CONFIG_PM_RTOS_IDLE_OPT=y
+# Power management (esp_pm light sleep) is OFF: on this board it breaks the
+# console UART RX even with DFS disabled (light sleep pauses the CPU and the IDF
+# console-UART wakeup path did not recover it on the P4). Re-enabling needs
+# on-bench iteration (UART wake source, per-resource NO_LIGHT_SLEEP locks). The
+# big power wins - C5 radio off when idle, screen dim/off, ship mode - do not
+# depend on this. Infra is kept (Service/power_manager, screen gate) for later.
+# CONFIG_PM_ENABLE is not set
+# CONFIG_FREERTOS_USE_TICKLESS_IDLE is not set
 
 # Core dump to the dedicated flash partition (ELF format) for field forensics.
 # On a panic the backtrace/registers/task stacks are saved; the boot report reads
