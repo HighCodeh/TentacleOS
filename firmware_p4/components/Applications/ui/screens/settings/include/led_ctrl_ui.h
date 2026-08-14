@@ -23,6 +23,15 @@ extern "C" {
 /** @brief Open the RGB LED control screen (mock preview, presets, brightness). */
 void ui_led_ctrl_open(void);
 
+/** @brief Drive the status LED to the configured info color (g_config_led). */
+void led_signal_info(void);
+
+/** @brief Drive the status LED to the configured warning color (g_config_led). */
+void led_signal_warning(void);
+
+/** @brief Drive the status LED to the configured error color (g_config_led). */
+void led_signal_error(void);
+
 #ifdef __cplusplus
 }
 #endif

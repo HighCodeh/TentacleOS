@@ -75,6 +75,13 @@ tos_config_system_t g_config_system = {
     .first_boot_done = false,
 };
 
+tos_config_led_t g_config_led = {
+    .brightness = 50,
+    .info_color = 0x8000FF,    // purple
+    .warning_color = 0xFFFF00, // yellow
+    .error_color = 0xFF0000,   // red
+};
+
 // Helpers
 
 static char *read_file_to_string(const char *path) {
@@ -129,6 +136,19 @@ static int json_get_int(cJSON *obj, const char *key, int fallback) {
 static bool json_get_bool(cJSON *obj, const char *key, bool fallback) {
   cJSON *item = cJSON_GetObjectItem(obj, key);
   return cJSON_IsBool(item) ? cJSON_IsTrue(item) : fallback;
+}
+
+// Colors are stored as "#RRGGBB" (or "RRGGBB") hex strings for readability.
+static uint32_t json_get_color(cJSON *obj, const char *key, uint32_t fallback) {
+  cJSON *item = cJSON_GetObjectItem(obj, key);
+  if (!cJSON_IsString(item) || item->valuestring == NULL) {
+    return fallback;
+  }
+  const char *s = item->valuestring;
+  if (*s == '#') {
+    s++;
+  }
+  return (uint32_t)(strtoul(s, NULL, 16) & 0xFFFFFF);
 }
 
 // Parse per module
@@ -188,7 +208,29 @@ static void parse_system(cJSON *root) {
       json_get_bool(root, "first_boot_done", g_config_system.first_boot_done);
 }
 
+static void parse_led(cJSON *root) {
+  g_config_led.brightness = json_get_int(root, "brightness", g_config_led.brightness);
+  g_config_led.info_color = json_get_color(root, "info_color", g_config_led.info_color);
+  g_config_led.warning_color = json_get_color(root, "warning_color", g_config_led.warning_color);
+  g_config_led.error_color = json_get_color(root, "error_color", g_config_led.error_color);
+}
+
 // Serialize per module
+
+static void json_add_color(cJSON *root, const char *key, uint32_t color) {
+  char hex[8];
+  snprintf(hex, sizeof(hex), "#%06lX", (unsigned long)(color & 0xFFFFFF));
+  cJSON_AddStringToObject(root, key, hex);
+}
+
+static cJSON *serialize_led(void) {
+  cJSON *root = cJSON_CreateObject();
+  cJSON_AddNumberToObject(root, "brightness", g_config_led.brightness);
+  json_add_color(root, "info_color", g_config_led.info_color);
+  json_add_color(root, "warning_color", g_config_led.warning_color);
+  json_add_color(root, "error_color", g_config_led.error_color);
+  return root;
+}
 
 static cJSON *serialize_screen(void) {
   cJSON *root = cJSON_CreateObject();
@@ -282,6 +324,8 @@ esp_err_t tos_config_load(const char *sd_path, const char *flash_path, const cha
     parse_lora(root);
   else if (strcmp(module, "system") == 0)
     parse_system(root);
+  else if (strcmp(module, "led") == 0)
+    parse_led(root);
 
   cJSON_Delete(root);
   ESP_LOGI(TAG, "[%s] Loaded from %s", module, source);
@@ -294,6 +338,7 @@ void tos_config_load_all(void) {
   tos_config_load(TOS_PATH_CONFIG_BLE, ASSETS_CONFIG_BLE, "ble");
   tos_config_load(TOS_PATH_CONFIG_LORA, ASSETS_CONFIG_LORA, "lora");
   tos_config_load(TOS_PATH_CONFIG_SYSTEM, ASSETS_CONFIG_SYSTEM, "system");
+  tos_config_load(TOS_PATH_CONFIG_LED, ASSETS_CONFIG_LED, "led");
 }
 
 esp_err_t tos_config_save(const char *sd_path, const char *module) {
@@ -309,6 +354,8 @@ esp_err_t tos_config_save(const char *sd_path, const char *module) {
     root = serialize_lora();
   else if (strcmp(module, "system") == 0)
     root = serialize_system();
+  else if (strcmp(module, "led") == 0)
+    root = serialize_led();
 
   if (root == NULL)
     return ESP_FAIL;

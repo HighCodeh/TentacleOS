@@ -20,6 +20,7 @@
 #include "buttons_gpio.h"
 #include "led_control.h"
 #include "notify_ui.h"
+#include "tos_config.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -98,6 +99,28 @@ static bool s_left_last = false;
 static bool s_right_last = false;
 static bool s_ok_last = false;
 static bool s_back_last = false;
+
+// Semantic status signals: drive the LED to a configured color (g_config_led)
+// scaled by the configured brightness. Usable from anywhere in the app layer.
+static void led_signal(uint32_t hex) {
+  int pct = g_config_led.brightness;
+  uint8_t r = (uint8_t)(((hex >> 16) & 0xFF) * (uint32_t)pct / 100);
+  uint8_t g = (uint8_t)(((hex >> 8) & 0xFF) * (uint32_t)pct / 100);
+  uint8_t b = (uint8_t)((hex & 0xFF) * (uint32_t)pct / 100);
+  led_set_color(r, g, b);
+}
+
+void led_signal_info(void) {
+  led_signal(g_config_led.info_color);
+}
+
+void led_signal_warning(void) {
+  led_signal(g_config_led.warning_color);
+}
+
+void led_signal_error(void) {
+  led_signal(g_config_led.error_color);
+}
 
 static lv_color_t scaled_color(uint32_t hex, int pct) {
   uint32_t r = ((hex >> 16) & 0xFF) * (uint32_t)pct / 100;
@@ -418,7 +441,11 @@ void ui_led_ctrl_open(void) {
   }
   s_focus = FOCUS_COLOR;
   s_color_idx = 3;
-  s_bright = BRIGHT_DEFAULT;
+  s_bright = g_config_led.brightness;
+  if (s_bright < BRIGHT_MIN)
+    s_bright = BRIGHT_MIN;
+  if (s_bright > BRIGHT_MAX)
+    s_bright = BRIGHT_MAX;
   s_stealth = false;
   s_changed = false;
   s_up_last = s_down_last = s_left_last = s_right_last = s_ok_last = s_back_last = false;
