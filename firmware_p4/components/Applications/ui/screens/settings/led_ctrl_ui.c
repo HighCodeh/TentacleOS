@@ -348,6 +348,7 @@ static void nav_timer_cb(lv_timer_t *t) {
   if (back && !s_back_last) {
     if (s_changed)
       notify(NOTIFY_SAVED, "LED settings saved");
+    led_clear(); // status LED is normally off: don't leave the preview lit
     ui_switch_screen(SCREEN_INTERFACE_SETTINGS);
     return;
   }

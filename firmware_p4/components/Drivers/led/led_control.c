@@ -45,8 +45,9 @@ static const char *TAG = "LED_CONTROL";
 
 // Enable OUT0..OUT2 (RGB). OUT3 (D11) is left disabled.
 #define OUT_ENABLE_RGB 0x07
-// Dot current ceiling per channel (~78% of 25.5mA ~= 20mA, near typical LED rating).
-#define LED_DC_LEVEL 0xC8
+// Dot current ceiling per channel: full scale (25.5mA) for vivid, saturated
+// color. The signals only flash briefly (~150ms), so peak current is fine.
+#define LED_DC_LEVEL 0xFF
 
 static bool s_present = false;
 
