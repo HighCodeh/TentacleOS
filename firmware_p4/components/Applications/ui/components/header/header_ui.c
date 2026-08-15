@@ -28,7 +28,9 @@
 
 #include "assets_manager.h"
 #include "battery_service.h"
+#include "bluetooth_service.h"
 #include "bq25896.h"
+#include "tos_config.h"
 #include "msgbox_ui.h"
 #include "notify_ui.h"
 #include "pin_def.h"
@@ -60,7 +62,7 @@ static lv_timer_t *header_poll_timer = NULL;
 
 static bool s_bt_tint_last = false;
 static bool s_card_shown_last = false;
-static bool s_wifi_active_last = false;
+static bool s_wifi_shown_last = false;
 static bool s_wifi_connected_last = false;
 
 static void header_sync_wifi_icon(void);
@@ -82,12 +84,21 @@ static void apply_active_tint(lv_obj_t *obj, bool active) {
   lv_obj_set_style_text_opa(obj, active ? LV_OPA_COVER : LV_OPA_50, 0);
 }
 
-void header_ui_set_ble_active(bool active) {
-  s_ble_active = active;
-  if (active != s_bt_tint_last) {
-    apply_active_tint(bt_img_ref, active);
-    s_bt_tint_last = active;
+static void header_sync_ble_icon(void) {
+  bool running = bluetooth_service_is_running_cached();
+  bool shown = g_config_ble.enabled || running;
+  if (shown == s_ble_active && running == s_bt_tint_last)
+    return;
+  s_ble_active = shown;
+  s_bt_tint_last = running;
+  if (!bt_img_ref || !lv_obj_is_valid(bt_img_ref))
+    return;
+  if (!shown) {
+    lv_obj_add_flag(bt_img_ref, LV_OBJ_FLAG_HIDDEN);
+    return;
   }
+  lv_obj_remove_flag(bt_img_ref, LV_OBJ_FLAG_HIDDEN);
+  apply_active_tint(bt_img_ref, running);
 }
 
 static void sd_cd_isr(void *arg);
@@ -252,6 +263,7 @@ static void battery_apply(void);
 static void header_poll_cb(lv_timer_t *timer) {
   (void)timer;
   header_sync_wifi_icon();
+  header_sync_ble_icon();
   battery_apply();
 }
 
@@ -304,10 +316,16 @@ static void update_wifi_icon_static(void) {
   if (!wifi_img || !lv_obj_is_valid(wifi_img)) {
     return;
   }
-  int frame = s_wifi_connected_last ? 3 : (s_wifi_active_last ? 2 : 0);
+  if (!s_wifi_shown_last) {
+    lv_obj_add_flag(wifi_img, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+  lv_obj_remove_flag(wifi_img, LV_OBJ_FLAG_HIDDEN);
+  int frame = s_wifi_connected_last ? 3 : 2;
   if (wifi_dscs[frame]) {
     lv_image_set_src(wifi_img, wifi_dscs[frame]);
   }
+  lv_obj_set_style_opa(wifi_img, s_wifi_connected_last ? LV_OPA_COVER : LV_OPA_50, 0);
 }
 
 // Called from the status timer: refresh the icon only when the WiFi state
@@ -316,12 +334,12 @@ static void update_wifi_icon_static(void) {
 // is not an SPI transaction. Replaces the old 2 Hz timer that wrote variables
 // nobody read.
 static void header_sync_wifi_icon(void) {
-  bool active = wifi_service_is_active();
+  bool shown = g_config_wifi.enabled || wifi_service_is_active();
   bool connected = wifi_service_is_connected();
-  if (active == s_wifi_active_last && connected == s_wifi_connected_last) {
+  if (shown == s_wifi_shown_last && connected == s_wifi_connected_last) {
     return;
   }
-  s_wifi_active_last = active;
+  s_wifi_shown_last = shown;
   s_wifi_connected_last = connected;
   if (wifi_anim_timer == NULL) {
     update_wifi_icon_static();
@@ -513,8 +531,14 @@ void header_ui_attach_status(lv_obj_t *parent, int y_offset) {
   sd_cd_ensure_configured();
   set_card_icon_shown(s_sd_mounted);
   s_card_shown_last = s_sd_mounted;
-  apply_active_tint(bt_img_ref, s_ble_active);
-  s_bt_tint_last = s_ble_active;
+  s_bt_tint_last = bluetooth_service_is_running_cached();
+  s_ble_active = g_config_ble.enabled || s_bt_tint_last;
+  if (s_ble_active) {
+    lv_obj_remove_flag(bt_img_ref, LV_OBJ_FLAG_HIDDEN);
+    apply_active_tint(bt_img_ref, s_bt_tint_last);
+  } else {
+    lv_obj_add_flag(bt_img_ref, LV_OBJ_FLAG_HIDDEN);
+  }
 
   if (header_poll_timer == NULL) {
     header_poll_timer = lv_timer_create(header_poll_cb, STATUS_POLL_MS, NULL);
@@ -547,7 +571,7 @@ void header_ui_attach_status(lv_obj_t *parent, int y_offset) {
   lv_obj_center(power_img);
   lv_obj_add_flag(power_img, LV_OBJ_FLAG_HIDDEN);
 
-  s_wifi_active_last = wifi_service_is_active();
+  s_wifi_shown_last = g_config_wifi.enabled || wifi_service_is_active();
   s_wifi_connected_last = wifi_service_is_connected();
   update_wifi_icon_static();
 
@@ -608,15 +632,24 @@ void header_ui_attach_status_snapshot(lv_obj_t *parent, int y_offset) {
     if (!wifi_dscs[i])
       wifi_dscs[i] = assets_get(wifi_paths[i]);
   }
+  bool wifi_on = g_config_wifi.enabled || wifi_service_is_active();
+  bool wifi_conn = wifi_service_is_connected();
   lv_obj_t *w = lv_image_create(icon_cont);
-  if (wifi_dscs[3])
-    lv_image_set_src(w, wifi_dscs[3]);
+  if (wifi_dscs[wifi_conn ? 3 : 2])
+    lv_image_set_src(w, wifi_dscs[wifi_conn ? 3 : 2]);
+  lv_obj_set_style_opa(w, wifi_conn ? LV_OPA_COVER : LV_OPA_50, 0);
+  if (!wifi_on)
+    lv_obj_add_flag(w, LV_OBJ_FLAG_HIDDEN);
 
   lv_obj_t *bt = lv_label_create(icon_cont);
   lv_label_set_text(bt, LV_SYMBOL_BLUETOOTH);
   lv_obj_set_style_text_font(bt, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(bt, current_theme.text_main, 0);
-  apply_active_tint(bt, s_ble_active);
+  bool ble_run = bluetooth_service_is_running_cached();
+  if (g_config_ble.enabled || ble_run)
+    apply_active_tint(bt, ble_run);
+  else
+    lv_obj_add_flag(bt, LV_OBJ_FLAG_HIDDEN);
 
   lv_obj_t *sd = lv_label_create(icon_cont);
   lv_label_set_text(sd, LV_SYMBOL_SD_CARD);

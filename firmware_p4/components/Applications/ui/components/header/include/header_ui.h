@@ -59,14 +59,6 @@ void header_ui_attach_status_snapshot(lv_obj_t *parent, int y_offset);
 void header_ui_create_snapshot(lv_obj_t *parent);
 
 /**
- * @brief Tell the header whether BLE is currently active/connected.
- *        Call from the BLE service when the link state changes; the
- *        header will tint the BT icon green when true. Default is false
- *        (icon stays in its default white tone).
- */
-void header_ui_set_ble_active(bool active);
-
-/**
  * @brief Animate the WiFi icon while a connection is in progress.
  *
  * Call with true when a connect attempt starts and false when it finishes
