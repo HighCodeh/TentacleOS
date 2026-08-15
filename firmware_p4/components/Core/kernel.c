@@ -26,9 +26,11 @@
 #include "st7789.h"
 #include "cc1101.h"
 #include "bq25896.h"
+#include "battery_service.h"
 #include "led_control.h"
 #include "buttons_gpio.h"
 #include "ys_rfid2.h"
+#include "audio_i2s.h"
 #include "input_manager.h"
 #include "bridge_manager.h"
 #include "spi_bridge.h"
@@ -168,6 +170,7 @@ esp_err_t kernel_init(void) {
   // 5. Peripherals
   led_rgb_init();
   boot_report_record("battery", false, bq25896_init());
+  battery_service_init();
   cc1101_init();
   // C5 radio coprocessor bridge (SPI2, POLL mode to match the C5 slave). Inits
   // the bridge bus, starts the link monitor, and probes the C5 version. If the
@@ -176,6 +179,11 @@ esp_err_t kernel_init(void) {
   bridge_manager_init();
   buttons_init();
   ys_rfid2_init(NULL);
+  // Creates the TX mutex that serializes access to the single I2S_NUM_0 TX
+  // channel, plus the UI-sound FX task. Playback still works without this (the
+  // amp enable and the channel open are both lazy), but with no serialization:
+  // concurrent play_* calls then fight over the channel and the loser fails.
+  boot_report_record("audio", false, audio_i2s_init());
 
   // 6. Display + LVGL + UI. st7789_init sets up the panel handles; lvgl_glue_init
   // brings LVGL up over esp_lvgl_port (it calls lv_init and registers the
