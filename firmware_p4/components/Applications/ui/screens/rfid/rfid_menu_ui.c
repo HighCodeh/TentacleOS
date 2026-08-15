@@ -1276,7 +1276,7 @@ static void build_screen(void) {
   if (s_tick_timer == NULL)
     s_tick_timer = lv_timer_create(rfid_tick_cb, TICK_MS, NULL);
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
 
 static void read_tick(void) {

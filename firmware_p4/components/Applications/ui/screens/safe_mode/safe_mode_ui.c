@@ -119,7 +119,7 @@ static void build_menu(void) {
   }
 
   ui_input_set_screen_handler(safe_mode_input, NULL);
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
 
 static void build_message(const char *title, const char *body, const char *hint,
@@ -152,7 +152,7 @@ static void build_message(const char *title, const char *body, const char *hint,
   }
 
   ui_input_set_screen_handler(safe_mode_input, NULL);
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
 
 static void start_reset(sm_action_t action) {

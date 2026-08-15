@@ -350,5 +350,5 @@ void ui_usb_mouse_open(void) {
     s_move_timer = lv_timer_create(move_tick_cb, MOVE_TICK_MS, NULL);
   ui_input_set_screen_handler(usb_mouse_input, NULL);
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }

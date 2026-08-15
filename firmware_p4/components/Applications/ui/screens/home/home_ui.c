@@ -135,7 +135,7 @@ void ui_home_open(void) {
     lv_group_focus_obj(s_screen_home);
   }
 
-  ui_screen_load(s_screen_home);
+  ui_screen_load_owned(&s_screen_home, s_screen_home);
 }
 
 static void home_event_cb(lv_event_t *e) {

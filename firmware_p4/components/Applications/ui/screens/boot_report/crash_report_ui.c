@@ -110,7 +110,7 @@ static void build_screen(void) {
   lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -12);
 
   ui_input_set_screen_handler(crash_report_input, NULL);
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
 
 static void crash_report_input(const input_event_t *ev, void *ctx) {

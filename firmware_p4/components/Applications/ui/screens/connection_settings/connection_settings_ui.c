@@ -72,7 +72,7 @@ void ui_connection_settings_open(void) {
 
   ui_input_set_screen_handler(connection_settings_input, NULL);
 
-  ui_screen_load(s_screen_conn);
+  ui_screen_load_owned(&s_screen_conn, s_screen_conn);
 }
 
 static void wifi_loading_timer_cb(lv_timer_t *timer) {

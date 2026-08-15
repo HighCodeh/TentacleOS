@@ -441,5 +441,5 @@ void ui_menu_open(void) {
     lv_group_focus_obj(s_screen);
   }
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }

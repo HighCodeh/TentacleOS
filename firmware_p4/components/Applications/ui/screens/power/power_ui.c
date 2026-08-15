@@ -422,5 +422,5 @@ void ui_power_open(void) {
 
   ui_input_set_screen_handler(power_input, NULL);
 
-  lv_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
