@@ -23,14 +23,12 @@
 #include "st7789.h"
 
 #include "assets_manager.h"
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 #include "wav_player_ui.h"
 
-#define NAV_TIMER_MS 50
 #define SDCARD_ROOT  "/sdcard"
 #define MAX_TRACKS   64
 #define PATH_LEN     192
@@ -81,7 +79,6 @@ static lv_obj_t *s_row_name[MAX_TRACKS];
 static lv_obj_t *s_row_val[MAX_TRACKS];
 static lv_obj_t *s_row_note[MAX_TRACKS];
 static lv_obj_t *s_row_eq[MAX_TRACKS];
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_eq_timer = NULL;
 static int s_eq_phase = 0;
 
@@ -93,8 +90,6 @@ static int s_count = 0;
 static int s_sel = 0;
 static bool s_resume = false;
 static bool s_empty = false;
-
-static bool s_up_last, s_down_last, s_ok_last, s_back_last;
 
 static bool is_wav(const char *name) {
   const char *dot = strrchr(name, '.');
@@ -435,41 +430,37 @@ static void play_selected(void) {
   ui_switch_screen(SCREEN_WAV_PLAYER);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
-  if (ui_input_is_locked())
-    return;
+static void wav_library_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
-  bool up = ui_btn_up(), down = ui_btn_down();
-  bool ok = ok_button_is_down(), back = back_button_is_down();
-
-  if (back && !s_back_last) {
-    ui_switch_screen(SCREEN_MENU);
-    return;
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+      if (press)
+        ui_switch_screen(SCREEN_MENU);
+      break;
+    case INPUT_BTN_DOWN:
+      if (nav && !s_empty && s_sel < s_count - 1) {
+        s_sel++;
+        update_selection();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_UP:
+      if (nav && !s_empty && s_sel > 0) {
+        s_sel--;
+        update_selection();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_OK:
+      if (press && !s_empty)
+        play_selected();
+      break;
+    default:
+      break;
   }
-  if (!s_empty) {
-    if (down && !s_down_last && s_sel < s_count - 1) {
-      s_sel++;
-      update_selection();
-      ui_feedback(UI_FB_NAV);
-    }
-    if (up && !s_up_last && s_sel > 0) {
-      s_sel--;
-      update_selection();
-      ui_feedback(UI_FB_NAV);
-    }
-    if (ok && !s_ok_last)
-      play_selected();
-  }
-
-  s_up_last = up;
-  s_down_last = down;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 void ui_wav_library_open(void) {
@@ -483,7 +474,6 @@ void ui_wav_library_open(void) {
     s_eq_timer = NULL;
   }
   s_eq_phase = 0;
-  s_up_last = s_down_last = s_ok_last = s_back_last = false;
 
   if (!s_resume) {
     scan_wavs();
@@ -520,8 +510,7 @@ void ui_wav_library_open(void) {
     ui_chrome_footer(s_screen, HINT_TEXT);
   }
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(wav_library_input, NULL);
 
   ui_screen_load(s_screen);
 }
