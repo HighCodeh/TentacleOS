@@ -241,7 +241,7 @@ void ui_lora_rnode_open(void) {
   if (s_data_timer == NULL)
     s_data_timer = lv_timer_create(data_tick_cb, DATA_TICK_MS, NULL);
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 
   ESP_LOGI(TAG, "LoRa RNode (mock) opened");
 }

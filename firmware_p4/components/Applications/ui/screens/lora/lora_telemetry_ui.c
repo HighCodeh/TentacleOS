@@ -394,5 +394,5 @@ void ui_lora_telemetry_open(void) {
   if (s_spark_timer == NULL)
     s_spark_timer = lv_timer_create(spark_tick_cb, SPARK_MS, NULL);
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
