@@ -171,7 +171,7 @@ void ui_beacon_spam_open(void) {
   ui_feedback(UI_FB_EMULATE);
   notify(NOTIFY_INFO, "Beacon spam started");
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
 
 static void spam_tick_cb(lv_timer_t *timer) {

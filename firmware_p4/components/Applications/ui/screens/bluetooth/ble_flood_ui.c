@@ -174,7 +174,7 @@ void ui_ble_flood_open(void) {
 
   ui_feedback(UI_FB_EMULATE);
   notify(NOTIFY_INFO, "Flood started");
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
 
 static void flood_tick_cb(lv_timer_t *timer) {

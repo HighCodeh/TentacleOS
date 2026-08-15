@@ -421,7 +421,7 @@ static void build_screen(void) {
 
   ui_input_set_screen_handler(ble_scan_input, NULL);
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
 
 static void open_detail(int idx) {

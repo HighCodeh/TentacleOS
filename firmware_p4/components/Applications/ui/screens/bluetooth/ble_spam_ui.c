@@ -197,7 +197,7 @@ void ui_ble_spam_select_open(void) {
 
   ui_input_set_screen_handler(ble_spam_select_input, NULL);
 
-  ui_screen_load(s_select_screen);
+  ui_screen_load_owned(&s_select_screen, s_select_screen);
   fade_in(grid, 240);
 }
 
@@ -361,7 +361,7 @@ void ui_ble_spam_open(void) {
   s_run_spam_timer = lv_timer_create(run_spam_tick_cb, SPAM_TICK_MS, NULL);
   s_run_target_timer = lv_timer_create(run_target_cycle_cb, TARGET_CYCLE_MS, NULL);
 
-  ui_screen_load(s_run_screen);
+  ui_screen_load_owned(&s_run_screen, s_run_screen);
 }
 
 static void run_spam_tick_cb(lv_timer_t *timer) {

@@ -158,7 +158,7 @@ void ui_ble_track_device_open(void) {
   ui_input_set_screen_handler(ble_track_device_input, NULL);
   s_drift_timer = lv_timer_create(drift_timer_cb, DRIFT_MS, NULL);
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
 
 static void drift_timer_cb(lv_timer_t *t) {

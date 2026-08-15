@@ -210,7 +210,7 @@ void ui_ble_exposure_open(void) {
   s_feed_timer = lv_timer_create(feed_tick_cb, FEED_TICK_MS, NULL);
 
   ui_feedback(UI_FB_SELECT);
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
   ESP_LOGI(TAG, "BLE exposure screen opened (mock GAEN)");
 }
 

@@ -198,7 +198,7 @@ void ui_ble_keyboard_open(void) {
   lv_timer_set_repeat_count(s_phase_timer, 1);
 
   ui_feedback(UI_FB_EMULATE);
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
 
 static void phase_timer_cb(lv_timer_t *timer) {

@@ -204,7 +204,7 @@ void ui_companion_pairing_open(void) {
   s_phase_timer = lv_timer_create(phase_timer_cb, PAIR_PHASE_MS, NULL);
   lv_timer_set_repeat_count(s_phase_timer, 1);
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
 
 static void phase_timer_cb(lv_timer_t *timer) {

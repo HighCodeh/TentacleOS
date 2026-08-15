@@ -150,7 +150,7 @@ void ui_ble_mouse_pairing_open(void) {
   if (s_pair_timer == NULL)
     s_pair_timer = lv_timer_create(pair_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
 
-  ui_screen_load(s_pair_screen);
+  ui_screen_load_owned(&s_pair_screen, s_pair_screen);
 }
 
 typedef struct {
@@ -353,5 +353,5 @@ void ui_ble_mouse_open(void) {
   if (s_mouse_timer == NULL)
     s_mouse_timer = lv_timer_create(mouse_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
 
-  ui_screen_load(s_mouse_screen);
+  ui_screen_load_owned(&s_mouse_screen, s_mouse_screen);
 }
