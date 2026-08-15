@@ -134,8 +134,29 @@ static esp_err_t recv_frame(uint8_t *tx_buf, uint8_t *rx_buf, size_t frame_size,
       return ret;
     }
     const spi_header_t *resp = (const spi_header_t *)rx_buf;
-    bool armed = (resp->sync == SPI_SYNC_BYTE) &&
-                 (resp->type == SPI_TYPE_RESP || resp->type == SPI_TYPE_STREAM);
+    bool armed = false;
+    if ((resp->sync == SPI_SYNC_BYTE) &&
+        (resp->type == SPI_TYPE_RESP || resp->type == SPI_TYPE_STREAM)) {
+      // sync + type is only 16 bits of recognition, so junk on the bus (while the
+      // slave has no TX armed) can clear it by chance and stop the poll on a false
+      // frame. Confirm with the CRC before accepting: a frame that fails it is not
+      // a real response, so keep re-clocking for one. data_len is the CRC-covered
+      // span - header.length for RESP, or the leading u16 batch_len plus its own 2
+      // bytes for STREAM - bounded to the buffer so a junk length cannot make the
+      // recompute read past rx_buf.
+      uint32_t data_len;
+      if (resp->type == SPI_TYPE_STREAM) {
+        uint16_t batch_len = (uint16_t)rx_buf[sizeof(spi_header_t)] |
+                             ((uint16_t)rx_buf[sizeof(spi_header_t) + 1] << 8);
+        data_len = (uint32_t)sizeof(uint16_t) + batch_len;
+      } else {
+        data_len = resp->length;
+      }
+      if (data_len <= (uint32_t)(frame_size - sizeof(spi_header_t)) &&
+          spi_frame_valid(resp, (uint16_t)data_len)) {
+        armed = true;
+      }
+    }
     if (armed && (!match_cmd || spi_header_cmd(resp) == expect_cmd)) {
       return ESP_OK;
     }
