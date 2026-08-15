@@ -19,7 +19,6 @@
 
 #include "esp_log.h"
 
-#include "buttons_gpio.h"
 #include "keyboard_ui.h"
 #include "menu_component_ui.h"
 #include "notify_ui.h"
@@ -28,8 +27,6 @@
 #include "ui_theme.h"
 
 static const char *TAG = "LORA_MQTT";
-
-#define NAV_TIMER_MS 50
 
 #define SIG_GREEN 0x00E676
 #define COL_DIM   0x8A8594
@@ -51,7 +48,6 @@ enum { ROW_BROKER = 0, ROW_USER, ROW_PASS, ROW_STATUS, ROW_ACTION, ROW_COUNT };
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
-static lv_timer_t *s_nav_timer = NULL;
 
 static char s_broker[FIELD_MAX];
 static char s_user[FIELD_MAX];
@@ -59,7 +55,7 @@ static char s_pass[FIELD_MAX];
 static bool s_connected = false;
 static int s_edit_field = ROW_BROKER;
 
-static bool s_up_last, s_down_last, s_ok_last, s_left_last, s_back_last;
+static void lora_mqtt_input(const input_event_t *ev, void *ctx);
 
 static const char *pass_display(void) {
   return (s_pass[0] == '\0') ? PASS_UNSET : PASS_MASK;
@@ -124,52 +120,40 @@ static void build_screen(void) {
   apply_status();
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
+static void lora_mqtt_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+
+  switch (ev->button) {
+    case INPUT_BTN_DOWN:
+      if (nav)
+        menu_component_next(&s_menu);
+      break;
+    case INPUT_BTN_UP:
+      if (nav)
+        menu_component_prev(&s_menu);
+      break;
+    case INPUT_BTN_OK:
+      if (press) {
+        int sel = menu_component_get_selected(&s_menu);
+        if (sel == ROW_BROKER || sel == ROW_USER || sel == ROW_PASS) {
+          s_edit_field = sel;
+          ui_feedback(UI_FB_SELECT);
+          keyboard_open(NULL, on_kb_submit, NULL);
+        } else if (sel == ROW_ACTION) {
+          toggle_connect();
+        }
+      }
+      break;
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_LORA_CHAT);
+      break;
+    default:
+      break;
   }
-
-  bool up = ui_btn_up(), down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool ok = ok_button_is_down(), back = back_button_is_down();
-
-  if (ui_input_is_locked() || keyboard_is_open()) {
-    s_up_last = up;
-    s_down_last = down;
-    s_left_last = left;
-    s_ok_last = ok;
-    s_back_last = back;
-    return;
-  }
-
-  if (down && !s_down_last)
-    menu_component_next(&s_menu);
-  if (up && !s_up_last)
-    menu_component_prev(&s_menu);
-
-  if (ok && !s_ok_last) {
-    int sel = menu_component_get_selected(&s_menu);
-    if (sel == ROW_BROKER || sel == ROW_USER || sel == ROW_PASS) {
-      s_edit_field = sel;
-      ui_feedback(UI_FB_SELECT);
-      keyboard_open(NULL, on_kb_submit, NULL);
-    } else if (sel == ROW_ACTION) {
-      toggle_connect();
-    }
-  }
-
-  if ((back && !s_back_last) || (left && !s_left_last)) {
-    ui_switch_screen(SCREEN_LORA_CHAT);
-    return;
-  }
-
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 void ui_lora_mqtt_open(void) {
@@ -184,7 +168,6 @@ void ui_lora_mqtt_open(void) {
   s_pass[0] = '\0';
   s_connected = false;
   s_edit_field = ROW_BROKER;
-  s_up_last = s_down_last = s_ok_last = s_left_last = s_back_last = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -195,8 +178,7 @@ void ui_lora_mqtt_open(void) {
 
   build_screen();
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(lora_mqtt_input, NULL);
 
   ui_screen_load(s_screen);
 
