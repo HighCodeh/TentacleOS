@@ -574,7 +574,7 @@ void ui_ir_controller_open(void) {
 
   ui_chrome_footer(s_screen, s_is_ac ? "U/D pick   L/R set   OK send" : "OK Send   BACK Back");
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
 
 static void ir_controller_input(const input_event_t *ev, void *ctx) {

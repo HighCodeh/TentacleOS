@@ -324,7 +324,7 @@ void ui_ir_receive_open(void) {
     s_tick_timer = lv_timer_create(ir_receive_tick_cb, POLL_TICK_MS, NULL);
   ui_input_set_screen_handler(ir_receive_input, NULL);
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
 
 static void capturing_tick(void) {

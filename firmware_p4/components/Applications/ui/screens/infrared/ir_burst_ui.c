@@ -203,7 +203,7 @@ void ui_ir_burst_open(void) {
   else
     s_burst_timer = NULL;
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
 
 // Transmit the first signal of file s_entries[idx]; returns true on success.

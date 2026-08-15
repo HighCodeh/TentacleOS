@@ -252,7 +252,7 @@ static void build_list(void) {
       menu_component_select(&s_menu, s_sel);
   }
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
 
 static void build_sending(void) {
@@ -278,7 +278,7 @@ static void build_sending(void) {
 
   s_hint_label = ui_chrome_footer(s_screen, HINT_SENDING);
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
 
 static void show_options(void) {
