@@ -18,14 +18,12 @@
 #include "esp_random.h"
 #include "lvgl.h"
 
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define NAV_TIMER_MS 50
-#define DRIFT_MS     420
+#define DRIFT_MS 420
 
 #define TRACK_ICON  "/assets/icons/bluetooth_searching.bin"
 #define TARGET_NAME "JBL-Speaker"
@@ -51,15 +49,11 @@ static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_arc = NULL;
 static lv_obj_t *s_dbm_label = NULL;
 static lv_obj_t *s_caption = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_drift_timer = NULL;
 
 static int s_rssi = RSSI_START;
 
-static bool s_back_last = false;
-static bool s_left_last = false;
-
-static void nav_timer_cb(lv_timer_t *t);
+static void ble_track_device_input(const input_event_t *ev, void *ctx);
 static void drift_timer_cb(lv_timer_t *t);
 
 static int rssi_to_pct(int rssi) {
@@ -110,8 +104,6 @@ void ui_ble_track_device_open(void) {
     s_arc = NULL;
   }
   s_rssi = RSSI_START;
-  s_back_last = false;
-  s_left_last = false;
   s_drift_timer = NULL;
 
   s_screen = lv_obj_create(NULL);
@@ -163,8 +155,7 @@ void ui_ble_track_device_open(void) {
   apply_reading(0);
   lv_obj_fade_in(s_screen, 240, 0);
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(ble_track_device_input, NULL);
   s_drift_timer = lv_timer_create(drift_timer_cb, DRIFT_MS, NULL);
 
   ui_screen_load(s_screen);
@@ -194,27 +185,21 @@ static void drift_timer_cb(lv_timer_t *t) {
   apply_reading(trend);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
+static void ble_track_device_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press) {
+        if (s_drift_timer != NULL) {
+          lv_timer_delete(s_drift_timer);
+          s_drift_timer = NULL;
+        }
+        ui_switch_screen(SCREEN_BLE_DETECT_MENU);
+      }
+      break;
+    default:
+      break;
   }
-  if (ui_input_is_locked()) {
-    s_back_last = back_button_is_down();
-    s_left_last = ui_btn_left();
-    return;
-  }
-
-  bool back = back_button_is_down();
-  bool left = ui_btn_left();
-  if ((back && !s_back_last) || (left && !s_left_last)) {
-    if (s_drift_timer != NULL) {
-      lv_timer_delete(s_drift_timer);
-      s_drift_timer = NULL;
-    }
-    ui_switch_screen(SCREEN_BLE_DETECT_MENU);
-  }
-  s_back_last = back;
-  s_left_last = left;
 }
