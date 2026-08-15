@@ -157,6 +157,15 @@ esp_err_t kernel_init(void) {
   // 3. Storage. SD is optional (may be absent); the assets LittleFS is required
   // for icons/config/fonts, so its failure drops us into safe mode below.
   boot_report_record("sd-storage", false, storage_init());
+  if (storage_is_mounted()) {
+    esp_err_t sd_health = storage_check_health();
+    if (sd_health != ESP_OK) {
+      ESP_LOGW(TAG, "SD health check failed; remounting");
+      storage_remount();
+      sd_health = storage_check_health();
+    }
+    boot_report_record("sd-health", false, sd_health);
+  }
   boot_report_record("assets", true, storage_assets_init());
   storage_assets_print_info();
 
