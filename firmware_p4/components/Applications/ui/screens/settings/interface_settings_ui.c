@@ -17,7 +17,6 @@
 
 #include "esp_log.h"
 
-#include "buttons_gpio.h"
 #include "menu_component_ui.h"
 #include "notify_ui.h"
 #include "ui_manager.h"
@@ -25,7 +24,6 @@
 
 static const char *TAG = "INTERFACE_SETTINGS_UI";
 
-#define NAV_TIMER_MS  50
 #define ENTRY_FADE_MS 200
 
 #define ROW_ANIMATIONS 0
@@ -42,14 +40,6 @@ static int s_language_idx = 0;
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
-static lv_timer_t *s_nav_timer = NULL;
-
-static bool s_up_last = false;
-static bool s_down_last = false;
-static bool s_left_last = false;
-static bool s_right_last = false;
-static bool s_ok_last = false;
-static bool s_back_last = false;
 static bool s_changed = false;
 
 static void cycle_selector(int sel, int dir) {
@@ -60,75 +50,66 @@ static void cycle_selector(int sel, int dir) {
   }
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
+static void interface_settings_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+
+  switch (ev->button) {
+    case INPUT_BTN_DOWN:
+      if (nav)
+        menu_component_next(&s_menu);
+      break;
+    case INPUT_BTN_UP:
+      if (nav)
+        menu_component_prev(&s_menu);
+      break;
+    case INPUT_BTN_OK:
+      if (press) {
+        int sel = menu_component_get_selected(&s_menu);
+        if (sel == ROW_THEME) {
+          ui_switch_screen(SCREEN_THEME_SELECTOR);
+        } else if (sel == ROW_LED) {
+          ui_switch_screen(SCREEN_LED_CTRL);
+        } else if (sel >= 0 && s_menu.has_toggle[sel]) {
+          menu_component_toggle_item(&s_menu, sel);
+          s_changed = true;
+          ESP_LOGI(TAG, "mock toggle row %d -> %d", sel, menu_component_get_toggle(&s_menu, sel));
+        }
+      }
+      break;
+    case INPUT_BTN_LEFT:
+      if (press) {
+        int sel = menu_component_get_selected(&s_menu);
+        if (sel >= 0) {
+          if (s_menu.has_intensity[sel])
+            menu_component_intensity_dec(&s_menu, sel);
+          else if (s_menu.val_labels[sel] != NULL)
+            cycle_selector(sel, -1);
+        }
+      }
+      break;
+    case INPUT_BTN_RIGHT:
+      if (press) {
+        int sel = menu_component_get_selected(&s_menu);
+        if (sel >= 0) {
+          if (s_menu.has_intensity[sel])
+            menu_component_intensity_inc(&s_menu, sel);
+          else if (s_menu.val_labels[sel] != NULL)
+            cycle_selector(sel, +1);
+        }
+      }
+      break;
+    case INPUT_BTN_BACK:
+      if (press) {
+        if (s_changed)
+          notify(NOTIFY_SAVED, "Interface settings saved");
+        ui_switch_screen(SCREEN_SETTINGS);
+      }
+      break;
+    default:
+      break;
   }
-  if (ui_input_is_locked())
-    return;
-
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool right = ui_btn_right();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-
-  if (down && !s_down_last)
-    menu_component_next(&s_menu);
-  if (up && !s_up_last)
-    menu_component_prev(&s_menu);
-
-  if (ok && !s_ok_last) {
-    int sel = menu_component_get_selected(&s_menu);
-    if (sel == ROW_THEME) {
-      ui_switch_screen(SCREEN_THEME_SELECTOR);
-      return;
-    }
-    if (sel == ROW_LED) {
-      ui_switch_screen(SCREEN_LED_CTRL);
-      return;
-    }
-    if (sel >= 0 && s_menu.has_toggle[sel]) {
-      menu_component_toggle_item(&s_menu, sel);
-      s_changed = true;
-      ESP_LOGI(TAG, "mock toggle row %d -> %d", sel, menu_component_get_toggle(&s_menu, sel));
-    }
-  }
-
-  if (left && !s_left_last) {
-    int sel = menu_component_get_selected(&s_menu);
-    if (sel >= 0) {
-      if (s_menu.has_intensity[sel])
-        menu_component_intensity_dec(&s_menu, sel);
-      else if (s_menu.val_labels[sel] != NULL)
-        cycle_selector(sel, -1);
-    }
-  }
-  if (right && !s_right_last) {
-    int sel = menu_component_get_selected(&s_menu);
-    if (sel >= 0) {
-      if (s_menu.has_intensity[sel])
-        menu_component_intensity_inc(&s_menu, sel);
-      else if (s_menu.val_labels[sel] != NULL)
-        cycle_selector(sel, +1);
-    }
-  }
-
-  if (back && !s_back_last) {
-    if (s_changed)
-      notify(NOTIFY_SAVED, "Interface settings saved");
-    ui_switch_screen(SCREEN_SETTINGS);
-  }
-
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_right_last = right;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 void ui_interface_settings_open(void) {
@@ -157,8 +138,7 @@ void ui_interface_settings_open(void) {
   if (s_menu.items_cont != NULL)
     lv_obj_fade_in(s_menu.items_cont, ENTRY_FADE_MS, 0);
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(interface_settings_input, NULL);
 
   ui_screen_load(s_screen);
 }
