@@ -20,14 +20,12 @@
 #include "esp_log.h"
 #include "esp_random.h"
 
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
 static const char *TAG = "LORA_RNODE";
 
-#define NAV_TIMER_MS 50
 #define DATA_TICK_MS 700
 #define ENTRY_MS     220
 
@@ -64,7 +62,6 @@ static const char *TAG = "LORA_RNODE";
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_counter_lbl = NULL;
 static lv_obj_t *s_last_lbl = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_data_timer = NULL;
 
 static unsigned long s_rx = 0;
@@ -73,17 +70,8 @@ static int s_tick = 0;
 static int s_last_rssi = RSSI_BASE;
 static int s_last_snr = SNR_BASE;
 
-static bool s_left_last, s_back_last;
-
 static void opa_cb(void *var, int32_t v) {
   lv_obj_set_style_opa((lv_obj_t *)var, (lv_opa_t)v, 0);
-}
-
-static void stop_data_timer(void) {
-  if (s_data_timer != NULL) {
-    lv_timer_delete(s_data_timer);
-    s_data_timer = NULL;
-  }
 }
 
 static lv_obj_t *lit_panel(lv_obj_t *parent, int w, int h, lv_color_t accent) {
@@ -217,28 +205,19 @@ static void build_screen(void) {
   lv_obj_fade_in(s_screen, ENTRY_MS, 0);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    stop_data_timer();
-    return;
+static void lora_rnode_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_LORA_CHAT);
+      break;
+    default:
+      break;
   }
-
-  bool left = ui_btn_left();
-  bool back = back_button_is_down();
-
-  if (ui_input_is_locked()) {
-    s_left_last = left;
-    s_back_last = back;
-    return;
-  }
-
-  if ((back && !s_back_last) || (left && !s_left_last))
-    ui_switch_screen(SCREEN_LORA_CHAT);
-
-  s_left_last = left;
-  s_back_last = back;
 }
 
 void ui_lora_rnode_open(void) {
@@ -255,13 +234,10 @@ void ui_lora_rnode_open(void) {
   s_tick = 0;
   s_last_rssi = RSSI_BASE;
   s_last_snr = SNR_BASE;
-  s_left_last = false;
-  s_back_last = false;
 
   build_screen();
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(lora_rnode_input, NULL);
   if (s_data_timer == NULL)
     s_data_timer = lv_timer_create(data_tick_cb, DATA_TICK_MS, NULL);
 
