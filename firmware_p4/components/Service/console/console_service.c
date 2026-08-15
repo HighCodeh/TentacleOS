@@ -23,6 +23,7 @@
 #include "driver/uart.h"
 #include "esp_console.h"
 #include "esp_log.h"
+#include "esp_rom_sys.h"
 #include "esp_sleep.h"
 #include "led_control.h"
 #include "linenoise/linenoise.h"
@@ -73,6 +74,10 @@ esp_err_t console_service_init(void) {
   esp_console_dev_uart_config_t uart_config = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
   led_set_color(40, 0, 40); // DIAG: purple = about to call new_repl_uart
   ret = esp_console_new_repl_uart(&uart_config, &repl_config, &repl);
+  // DIAG: esp_rom_printf writes straight to the ROM UART, bypassing the (now
+  // broken) driver/VFS, so this line is visible in the monitor even when stdout
+  // is dead.
+  esp_rom_printf("[CONSOLE] new_repl_uart ret=0x%x (%s)\n", ret, esp_err_to_name(ret));
   led_set_color(0, 0, 40); // DIAG: blue = new_repl_uart returned
 #endif
   if (ret != ESP_OK) {
