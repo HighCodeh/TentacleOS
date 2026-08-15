@@ -78,7 +78,6 @@ esp_err_t spi_bridge_phy_init_ex(bool setup_irq) {
         .pull_down_en = 1,
     };
     gpio_config(&io_conf);
-    gpio_install_isr_service(0);
     gpio_isr_handler_add(GPIO_BRIDGE_IRQ_PIN, irq_handler, NULL);
   }
 

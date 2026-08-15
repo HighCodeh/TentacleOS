@@ -195,22 +195,6 @@ esp_err_t busb_init(void) {
 
   ESP_LOGI(TAG, "Initializing TinyUSB driver...");
 
-  // ESP32-P4 High Speed USB requires GPIO ISR service. It may already be up
-  // (buttons_init installs it earlier at boot), in which case the driver logs
-  // an ERROR before returning ESP_ERR_INVALID_STATE — harmless for us, so we
-  // silence the "gpio" tag around the call and treat "already installed" as OK.
-  esp_log_level_t gpio_log_level = esp_log_level_get("gpio");
-  esp_log_level_set("gpio", ESP_LOG_NONE);
-  esp_err_t err = gpio_install_isr_service(0);
-  esp_log_level_set("gpio", gpio_log_level);
-  if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-    ESP_LOGE(TAG, "Failed to install GPIO ISR service: %s", esp_err_to_name(err));
-    return err;
-  }
-  if (err == ESP_ERR_INVALID_STATE) {
-    ESP_LOGD(TAG, "GPIO ISR service already installed");
-  }
-
   const tinyusb_config_t tusb_cfg = {
       .port = TINYUSB_PORT_HIGH_SPEED_0,
       .task =
@@ -241,7 +225,7 @@ esp_err_t busb_init(void) {
           },
   };
 
-  err = tinyusb_driver_install(&tusb_cfg);
+  esp_err_t err = tinyusb_driver_install(&tusb_cfg);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to install TinyUSB driver: %s", esp_err_to_name(err));
     return err;

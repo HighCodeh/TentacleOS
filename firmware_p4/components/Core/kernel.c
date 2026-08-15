@@ -15,6 +15,7 @@
 
 #include "kernel.h"
 
+#include "driver/gpio.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
@@ -130,6 +131,13 @@ esp_err_t kernel_init(void) {
   // is always on and cannot be controlled yet, so on battery the CPU may light
   // sleep with the panel lit. Set up before tasks come up.
   power_manager_init();
+
+  // Install the GPIO ISR service once here so the install order is deterministic
+  // instead of decided by whichever driver ran first. Drivers only add handlers.
+  esp_err_t isr_ret = gpio_install_isr_service(0);
+  if (isr_ret != ESP_OK && isr_ret != ESP_ERR_INVALID_STATE) {
+    ESP_LOGE(TAG, "gpio_install_isr_service failed: %s", esp_err_to_name(isr_ret));
+  }
 
   // 2. Buses
   spi_init();
