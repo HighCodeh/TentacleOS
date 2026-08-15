@@ -281,11 +281,8 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
                          .op = SPI_CMD_OP(id),
                          .length = len};
 
-  if (len > SPI_MAX_PAYLOAD) {
-    s_is_command_in_flight = false;
-    xSemaphoreGive(s_spi_mutex);
-    return ESP_ERR_INVALID_ARG;
-  }
+  // No `len > SPI_MAX_PAYLOAD` guard: len is a uint8_t, so it cannot exceed 255,
+  // which is exactly SPI_MAX_PAYLOAD. The payload always fits the frame buffer.
 
   uint8_t tx_buf[SPI_FRAME_SIZE];
   uint8_t rx_buf[SPI_FRAME_SIZE];
@@ -355,13 +352,9 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
     return ESP_ERR_INVALID_RESPONSE;
   }
 
-  if (resp->length > SPI_MAX_PAYLOAD) {
-    ESP_LOGE(TAG, "Invalid response length: %u", resp->length);
-    led_signal_error();
-    s_is_command_in_flight = false;
-    xSemaphoreGive(s_spi_mutex);
-    return ESP_ERR_INVALID_RESPONSE;
-  }
+  // No response-length guard: resp->length is a uint8_t (<= 255 == SPI_MAX_PAYLOAD)
+  // and, past the CRC check above, trustworthy; the data it describes always fits
+  // rx_buf. The old `resp->length > SPI_MAX_PAYLOAD` check could never fire.
 
   spi_status_t status = SPI_STATUS_ERROR;
   uint8_t data_len = 0;

@@ -35,14 +35,17 @@ extern "C" {
 #include "esp_rom_crc.h"
 
 #define SPI_SYNC_BYTE                 0xAA
-#define SPI_MAX_PAYLOAD               256
+// Capped at 255: the header's `length` field is a uint8_t, so 256 was never
+// representable ((uint8_t)256 == 0). For a RESPONSE, `length` also counts the
+// status byte, so its data maxes at 254 (SPI_MAX_PAYLOAD - SPI_RESP_STATUS_SIZE).
+#define SPI_MAX_PAYLOAD               255
 #define SPI_RESP_STATUS_SIZE          1
 
 // Wire-protocol version. Bump on ANY change to the contract below (an id, a
 // struct, or the header layout). The P4 reads the C5's value at bridge init via
 // SPI_ID_SYSTEM_PROTO_VERSION and flags a mismatch loudly, so two copies of this
 // header that drifted are caught at boot instead of silently misparsing frames.
-#define SPI_PROTOCOL_VERSION          1
+#define SPI_PROTOCOL_VERSION          2
 
 #define SPI_BT_SPAM_ITEM_LEN          32
 #define SPI_BT_SPAM_LIST_MAX          64
