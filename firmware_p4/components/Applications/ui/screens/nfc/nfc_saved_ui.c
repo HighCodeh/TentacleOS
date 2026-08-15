@@ -22,7 +22,6 @@
 #include "st7789.h"
 
 #include "assets_manager.h"
-#include "buttons_gpio.h"
 #include "capture_result_ui.h"
 #include "msgbox_ui.h"
 #include "nfc_sim.h"
@@ -34,7 +33,7 @@
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define NAV_TIMER_MS   50
+#define TICK_MS        50
 #define CARD_H         122
 #define PEEK           60
 #define COL_DIM        0x8A8594
@@ -48,7 +47,7 @@ enum { DV_CARD, DV_CHOICES };
 
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_cont = NULL;
-static lv_timer_t *s_nav_timer = NULL;
+static lv_timer_t *s_tick_timer = NULL;
 static lv_obj_t *s_cards[NFC_SIM_MAX_SAVED];
 static page_dots_t s_dots;
 static bool s_has_dots = false;
@@ -65,8 +64,6 @@ static int s_detail = DT_NONE;
 static int s_phase = DV_CARD;
 static int s_sel_idx = -1;
 static uint32_t s_reveal_start = 0;
-
-static bool s_up_last, s_down_last, s_ok_last, s_back_last, s_left_last, s_right_last;
 
 static void rebuild_async(void *p) {
   (void)p;
@@ -233,83 +230,103 @@ static void on_del_confirm(bool confirm) {
   lv_async_call(rebuild_async, NULL);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
+static void nfc_saved_tick_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen) {
     lv_timer_delete(t);
-    s_nav_timer = NULL;
+    s_tick_timer = NULL;
     return;
   }
-  bool up = ui_btn_up(), down = ui_btn_down();
-  bool left = ui_btn_left(), right = ui_btn_right();
-  bool ok = ok_button_is_down(), back = back_button_is_down();
+  if (s_detail == DT_VIEW && s_phase == DV_CARD &&
+      !(msgbox_is_open() || ui_input_is_locked()) &&
+      lv_tick_get() - s_reveal_start >= CARD_REVEAL_MS) {
+    present_choices();
+  }
+}
+
+static void nfc_saved_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
   if (s_detail == DT_VIEW) {
-    if (!(msgbox_is_open() || ui_input_is_locked())) {
-      if (back && !s_back_last) {
+    if (ev->button == INPUT_BTN_BACK) {
+      if (press)
         overlay_close();
-      } else if (s_phase == DV_CARD) {
-        if ((ok && !s_ok_last) || (lv_tick_get() - s_reveal_start >= CARD_REVEAL_MS))
-          present_choices();
-      } else {
-        if (down && !s_down_last) {
+      return;
+    }
+    if (s_phase == DV_CARD) {
+      if (ev->button == INPUT_BTN_OK && press)
+        present_choices();
+      return;
+    }
+    switch (ev->button) {
+      case INPUT_BTN_DOWN:
+        if (nav) {
           choices_step(true);
           ui_feedback(UI_FB_NAV);
-        } else if (up && !s_up_last) {
+        }
+        break;
+      case INPUT_BTN_UP:
+        if (nav) {
           choices_step(false);
           ui_feedback(UI_FB_NAV);
-        } else if (ok && !s_ok_last) {
+        }
+        break;
+      case INPUT_BTN_OK:
+        if (press) {
           if (capture_result_selected(&s_cr) == CAP_ACT_PRIMARY) {
             ui_feedback(UI_FB_EMULATE);
             ui_switch_screen(SCREEN_NFC_EMULATE);
-            return;
+          } else {
+            msgbox_open(
+                LV_SYMBOL_TRASH, "Delete this card?", "Delete", "Cancel", on_del_confirm);
           }
-          msgbox_open(LV_SYMBOL_TRASH, "Delete this card?", "Delete", "Cancel", on_del_confirm);
         }
-      }
+        break;
+      default:
+        break;
     }
-    goto save;
-  }
-
-  if (ui_input_is_locked() || msgbox_is_open())
-    goto save;
-
-  if ((back && !s_back_last) || (left && !s_left_last)) {
-    ui_switch_screen(SCREEN_NFC_MENU);
     return;
   }
 
-  if (!s_empty) {
-    if (down && !s_down_last && s_sel < s_count - 1) {
-      s_sel++;
-      relayout();
-      ui_feedback(UI_FB_NAV);
-    }
-    if (up && !s_up_last && s_sel > 0) {
-      s_sel--;
-      relayout();
-      ui_feedback(UI_FB_NAV);
-    }
-    if ((ok && !s_ok_last) || (right && !s_right_last)) {
-      const nfc_sim_card_t *c = nfc_sim_saved_get(s_sel);
-      if (c != NULL)
-        overlay_open(c, s_sel);
-    }
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_NFC_MENU);
+      break;
+    case INPUT_BTN_DOWN:
+      if (nav && !s_empty && s_sel < s_count - 1) {
+        s_sel++;
+        relayout();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_UP:
+      if (nav && !s_empty && s_sel > 0) {
+        s_sel--;
+        relayout();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_OK:
+    case INPUT_BTN_RIGHT:
+      if (press && !s_empty) {
+        const nfc_sim_card_t *c = nfc_sim_saved_get(s_sel);
+        if (c != NULL)
+          overlay_open(c, s_sel);
+      }
+      break;
+    default:
+      break;
   }
-
-save:
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_right_last = right;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 void ui_nfc_saved_open(void) {
   nfc_sim_init();
-  if (s_nav_timer != NULL) {
-    lv_timer_delete(s_nav_timer);
-    s_nav_timer = NULL;
+  if (s_tick_timer != NULL) {
+    lv_timer_delete(s_tick_timer);
+    s_tick_timer = NULL;
   }
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
@@ -324,7 +341,6 @@ void ui_nfc_saved_open(void) {
   s_phase = DV_CARD;
   s_sel_idx = -1;
   s_sel = 0;
-  s_up_last = s_down_last = s_ok_last = s_back_last = s_left_last = s_right_last = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -364,6 +380,7 @@ void ui_nfc_saved_open(void) {
     ui_chrome_footer(s_screen, LV_SYMBOL_UP LV_SYMBOL_DOWN " Browse   OK Open   BACK Exit");
   }
 
-  s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(nfc_saved_input, NULL);
+  s_tick_timer = lv_timer_create(nfc_saved_tick_cb, TICK_MS, NULL);
   lv_screen_load(s_screen);
 }
