@@ -24,7 +24,6 @@
 #include "sys_prio.h"
 #include "lvgl.h"
 
-#include "buttons_gpio.h"
 #include "menu_component_ui.h"
 #include "msgbox_ui.h"
 #include "ui_chrome.h"
@@ -36,7 +35,6 @@
 
 static const char *TAG_ICON = "/assets/icons/wifi_find.bin";
 
-#define NAV_TIMER_MS    50
 #define SCAN_MS         1500
 #define AP_MAX          12
 #define COLOR_SECURE    0x00E676
@@ -82,7 +80,6 @@ static const char *ENC_POOL[] = {"WPA2", "WPA3", "WPA/WPA2", "WPA2", "OPEN"};
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
-static lv_timer_t *s_nav_timer = NULL;
 
 static scan_state_t s_scan_state = SCAN_RUNNING;
 static bool s_scanning = false;
@@ -90,14 +87,7 @@ static bool s_scan_cued = false;
 static int s_ap_count = 0;
 static fake_ap_t s_aps[AP_MAX];
 
-static bool s_btn_up_last = false;
-static bool s_btn_down_last = false;
-static bool s_btn_left_last = false;
-static bool s_btn_right_last = false;
-static bool s_btn_ok_last = false;
-static bool s_btn_back_last = false;
-
-static void nav_timer_cb(lv_timer_t *t);
+static void wifi_scan_input(const input_event_t *ev, void *ctx);
 
 static const char *icon_for_rssi(int8_t rssi) {
   if (rssi >= -55)
@@ -196,8 +186,7 @@ static void build_screen(void) {
     }
   }
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(wifi_scan_input, NULL);
 
   ui_screen_load(s_screen);
 }
@@ -244,52 +233,37 @@ static void show_ap_details(int idx) {
   msgbox_open(LV_SYMBOL_WIFI, msg, "OK", NULL, NULL);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
+static void wifi_scan_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+  switch (ev->button) {
+    case INPUT_BTN_DOWN:
+      if (nav)
+        menu_component_next(&s_menu);
+      break;
+    case INPUT_BTN_UP:
+      if (nav)
+        menu_component_prev(&s_menu);
+      break;
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_WIFI_MENU);
+      break;
+    case INPUT_BTN_OK:
+    case INPUT_BTN_RIGHT:
+      if (press && !s_scanning) {
+        if (s_scan_state == SCAN_DONE && s_ap_count > 0) {
+          int sel = menu_component_get_selected(&s_menu);
+          if (sel >= 0 && sel < s_ap_count)
+            show_ap_details(sel);
+        }
+      }
+      break;
+    default:
+      break;
   }
-
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool right = ui_btn_right();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-
-  if (msgbox_is_open() || ui_input_is_locked()) {
-    s_btn_up_last = up;
-    s_btn_down_last = down;
-    s_btn_left_last = left;
-    s_btn_right_last = right;
-    s_btn_ok_last = ok;
-    s_btn_back_last = back;
-    return;
-  }
-
-  if (down && !s_btn_down_last)
-    menu_component_next(&s_menu);
-  if (up && !s_btn_up_last)
-    menu_component_prev(&s_menu);
-
-  if ((back && !s_btn_back_last) || (left && !s_btn_left_last))
-    ui_switch_screen(SCREEN_WIFI_MENU);
-
-  if (((ok && !s_btn_ok_last) || (right && !s_btn_right_last)) && !s_scanning) {
-    if (s_scan_state == SCAN_DONE && s_ap_count > 0) {
-      int sel = menu_component_get_selected(&s_menu);
-      if (sel >= 0 && sel < s_ap_count)
-        show_ap_details(sel);
-    }
-  }
-
-  s_btn_up_last = up;
-  s_btn_down_last = down;
-  s_btn_left_last = left;
-  s_btn_right_last = right;
-  s_btn_ok_last = ok;
-  s_btn_back_last = back;
 }
 
 void ui_wifi_scan_open(void) {
