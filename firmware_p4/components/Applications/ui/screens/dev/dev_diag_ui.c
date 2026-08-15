@@ -19,13 +19,11 @@
 
 #include "lvgl.h"
 
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define NAV_TIMER_MS 50
-#define TICK_MS      260
+#define TICK_MS 260
 
 #define TITLE       "DIAGNOSTICS"
 #define ICON        "/assets/icons/troubleshoot.bin"
@@ -50,7 +48,6 @@
 #define HEAP_KB_BASE 150
 
 static lv_obj_t *s_screen = NULL;
-static lv_timer_t *s_nav = NULL;
 static lv_timer_t *s_tick = NULL;
 
 static lv_obj_t *s_heap_chart = NULL;
@@ -62,7 +59,6 @@ static lv_obj_t *s_cpu_val = NULL;
 
 static uint32_t s_seed = 0x1234abcdu;
 static int s_phase = 0;
-static bool s_back_last = false;
 
 static lv_obj_t *make_panel(lv_obj_t *parent, int h) {
   lv_obj_t *p = lv_obj_create(parent);
@@ -181,19 +177,18 @@ static void tick_cb(lv_timer_t *t) {
   }
 }
 
-static void nav_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav = NULL;
-    return;
+static void dev_diag_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_DEV_MENU);
+      break;
+    default:
+      break;
   }
-  if (ui_input_is_locked())
-    return;
-  bool back = back_button_is_down();
-  bool left = ui_btn_left();
-  if ((back && !s_back_last) || left)
-    ui_switch_screen(SCREEN_DEV_MENU);
-  s_back_last = back;
 }
 
 static void build_screen(void) {
@@ -253,15 +248,14 @@ static void build_screen(void) {
             CYAN_COLOR);
   make_stat(stats, "C5", "OFF", WARN_COLOR);
 
+  ui_input_set_screen_handler(dev_diag_input, NULL);
+
   ui_screen_load(s_screen);
 }
 
 void ui_dev_diag_open(void) {
-  s_nav = NULL;
   s_tick = NULL;
   s_phase = 0;
-  s_back_last = false;
   build_screen();
-  s_nav = lv_timer_create(nav_cb, NAV_TIMER_MS, NULL);
   s_tick = lv_timer_create(tick_cb, TICK_MS, NULL);
 }
