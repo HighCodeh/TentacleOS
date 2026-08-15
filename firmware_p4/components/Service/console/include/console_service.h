@@ -79,6 +79,11 @@ void register_ir_commands(void);
  */
 void register_battery_commands(void);
 
+/**
+ * @brief Register I2C bus commands (i2cscan).
+ */
+void register_i2c_commands(void);
+
 #ifdef __cplusplus
 }
 #endif
