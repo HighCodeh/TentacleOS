@@ -24,7 +24,6 @@
 
 #include "assets_manager.h"
 #include "button_ui.h"
-#include "buttons_gpio.h"
 #include "capture_result_ui.h"
 #include "keyboard_ui.h"
 #include "menu_component_ui.h"
@@ -39,8 +38,8 @@
 
 static const char *TAG = "RFID_UI";
 
-#define NAV_TIMER_MS 50
-#define REVEAL_MS    3000
+#define TICK_MS   50
+#define REVEAL_MS 3000
 
 #define SIG_GREEN  0x00E676
 #define COL_DIM    0x8A8594
@@ -252,7 +251,7 @@ static rfid_view_t s_view = VIEW_LIST;
 static int s_saved_sel = 0;
 static int s_pending_view = -1;
 
-static lv_timer_t *s_nav_timer = NULL;
+static lv_timer_t *s_tick_timer = NULL;
 static lv_timer_t *s_scan_timer = NULL;
 
 static lv_obj_t *s_status_lbl = NULL;
@@ -261,7 +260,7 @@ static lv_obj_t *s_hex_lbl = NULL;
 static lv_obj_t *s_waves = NULL;
 static lv_obj_t *s_hint = NULL;
 static uint32_t s_scan_start = 0;
-static uint32_t s_hex_last = 0;
+static uint32_t s_hex_stamp = 0;
 static bool s_card_revealed = false;
 static bool s_saved = false;
 static capture_result_t s_cr = {0};
@@ -294,14 +293,8 @@ static int s_add_proto = 0;
 static int s_add_bits = 1;
 static char s_add_uid[24] = "";
 
-static bool s_up_last = false;
-static bool s_down_last = false;
-static bool s_left_last = false;
-static bool s_right_last = false;
-static bool s_ok_last = false;
-static bool s_back_last = false;
-
-static void nav_timer_cb(lv_timer_t *t);
+static void rfid_tick_cb(lv_timer_t *t);
+static void rfid_menu_input(const input_event_t *ev, void *ctx);
 static void build_screen(void);
 
 static void store_init(void) {
@@ -638,7 +631,7 @@ static void build_read(void) {
   s_card_revealed = false;
   s_saved = false;
   s_scan_start = lv_tick_get();
-  s_hex_last = s_scan_start;
+  s_hex_stamp = s_scan_start;
 
   s_status_lbl = lv_label_create(s_screen);
   lv_label_set_text(s_status_lbl, READ_STATUS_BUSY);
@@ -1003,7 +996,7 @@ static void build_clone(void) {
   s_clone_card = NULL;
   s_clone_bar = NULL;
   s_scan_start = lv_tick_get();
-  s_hex_last = s_scan_start;
+  s_hex_stamp = s_scan_start;
   s_clone_start = s_scan_start;
 
   s_status_lbl = lv_label_create(s_screen);
@@ -1068,8 +1061,8 @@ static void clone_tick(void) {
   if (s_clone_stage == CL_READ) {
     if (s_status_lbl != NULL)
       status_dots(s_status_lbl, "Reading source", now - s_scan_start);
-    if (s_hex_lbl != NULL && (now - s_hex_last) >= HEX_UPDATE_MS) {
-      s_hex_last = now;
+    if (s_hex_lbl != NULL && (now - s_hex_stamp) >= HEX_UPDATE_MS) {
+      s_hex_stamp = now;
       char hex[HEX_BUF_LEN];
       scramble_hex(hex, sizeof(hex), now);
       lv_label_set_text(s_hex_lbl, hex);
@@ -1279,8 +1272,9 @@ static void build_screen(void) {
       break;
   }
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(rfid_menu_input, NULL);
+  if (s_tick_timer == NULL)
+    s_tick_timer = lv_timer_create(rfid_tick_cb, TICK_MS, NULL);
 
   ui_screen_load(s_screen);
 }
@@ -1290,8 +1284,8 @@ static void read_tick(void) {
   if (!s_card_revealed) {
     if (s_status_lbl != NULL)
       status_dots(s_status_lbl, READ_STATUS_BUSY, now - s_scan_start);
-    if (s_hex_lbl != NULL && (now - s_hex_last) >= HEX_UPDATE_MS) {
-      s_hex_last = now;
+    if (s_hex_lbl != NULL && (now - s_hex_stamp) >= HEX_UPDATE_MS) {
+      s_hex_stamp = now;
       char hex[HEX_BUF_LEN];
       scramble_hex(hex, sizeof(hex), now);
       lv_label_set_text(s_hex_lbl, hex);
@@ -1299,19 +1293,12 @@ static void read_tick(void) {
   }
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
+static void rfid_tick_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen) {
     lv_timer_delete(t);
-    s_nav_timer = NULL;
+    s_tick_timer = NULL;
     return;
   }
-
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool right = ui_btn_right();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
 
   if (s_pending_view >= 0) {
     if (!msgbox_is_open()) {
@@ -1320,235 +1307,291 @@ static void nav_timer_cb(lv_timer_t *t) {
       s_view = v;
       build_screen();
     }
-    goto latch;
+    return;
   }
 
   if (msgbox_is_open() || keyboard_is_open() || ui_input_is_locked())
-    goto latch;
+    return;
 
-  if (s_view == VIEW_READ)
+  if (s_view == VIEW_READ) {
     read_tick();
-  else if (s_view == VIEW_EMULATE)
+    if (s_card_revealed && lv_tick_get() - s_revealed_at >= REVEAL_MS) {
+      s_view = VIEW_OPTIONS;
+      build_screen();
+    }
+  } else if (s_view == VIEW_EMULATE) {
     emu_tick();
-  else if (s_view == VIEW_CLONE) {
+  } else if (s_view == VIEW_CLONE) {
     clone_tick();
-    if (s_pending_view >= 0)
-      goto latch;
   }
+}
+
+static void rfid_menu_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+
+  if (s_pending_view >= 0)
+    return;
 
   switch (s_view) {
     case VIEW_LIST:
-      if (down && !s_down_last)
-        menu_component_next(&s_menu);
-      if (up && !s_up_last)
-        menu_component_prev(&s_menu);
-      if (ok && !s_ok_last) {
-        int sel = menu_component_get_selected(&s_menu);
-        if (sel == IDX_READ) {
-          s_view = VIEW_READ;
-          build_screen();
-          goto latch;
-        } else if (sel == IDX_SAVED) {
-          s_saved_sel = 0;
-          s_view = VIEW_SAVED;
-          build_screen();
-          goto latch;
-        } else if (sel == IDX_EMULATE) {
-          seed_emulate_default();
-          s_view = VIEW_EMULATE;
-          build_screen();
-          goto latch;
-        } else if (sel == IDX_CLONE) {
-          s_view = VIEW_CLONE;
-          build_screen();
-          goto latch;
-        } else if (sel == IDX_ADD) {
-          s_add_proto = 0;
-          s_add_bits = 1;
-          s_add_uid[0] = '\0';
-          s_view = VIEW_ADD;
-          build_screen();
-          goto latch;
-        }
+      switch (ev->button) {
+        case INPUT_BTN_DOWN:
+          if (nav)
+            menu_component_next(&s_menu);
+          break;
+        case INPUT_BTN_UP:
+          if (nav)
+            menu_component_prev(&s_menu);
+          break;
+        case INPUT_BTN_OK:
+          if (press) {
+            int sel = menu_component_get_selected(&s_menu);
+            if (sel == IDX_READ) {
+              s_view = VIEW_READ;
+              build_screen();
+            } else if (sel == IDX_SAVED) {
+              s_saved_sel = 0;
+              s_view = VIEW_SAVED;
+              build_screen();
+            } else if (sel == IDX_EMULATE) {
+              seed_emulate_default();
+              s_view = VIEW_EMULATE;
+              build_screen();
+            } else if (sel == IDX_CLONE) {
+              s_view = VIEW_CLONE;
+              build_screen();
+            } else if (sel == IDX_ADD) {
+              s_add_proto = 0;
+              s_add_bits = 1;
+              s_add_uid[0] = '\0';
+              s_view = VIEW_ADD;
+              build_screen();
+            }
+          }
+          break;
+        case INPUT_BTN_BACK:
+          if (press)
+            ui_switch_screen(SCREEN_MENU);
+          break;
+        default:
+          break;
       }
-      if (back && !s_back_last)
-        ui_switch_screen(SCREEN_MENU);
       break;
 
     case VIEW_READ:
-      if (s_card_revealed && lv_tick_get() - s_revealed_at >= REVEAL_MS) {
-        s_view = VIEW_OPTIONS;
-        build_screen();
-        goto latch;
-      }
-      if (back && !s_back_last) {
+      if (ev->button == INPUT_BTN_BACK && press) {
         s_view = VIEW_LIST;
         build_screen();
-        goto latch;
       }
       break;
 
     case VIEW_OPTIONS:
-      if (down && !s_down_last) {
-        capture_result_next(&s_cr);
-        ui_feedback(UI_FB_NAV);
-      }
-      if (up && !s_up_last) {
-        capture_result_prev(&s_cr);
-        ui_feedback(UI_FB_NAV);
-      }
-      if (ok && !s_ok_last) {
-        switch (capture_result_selected(&s_cr)) {
-          case CAP_ACT_PRIMARY:
-            seed_emulate_default();
-            s_view = VIEW_EMULATE;
-            build_screen();
-            goto latch;
-          case CAP_ACT_SAVE:
-            if (!s_saved) {
-              s_saved = true;
-              capture_result_mark_saved(&s_cr);
-              ESP_LOGI(TAG, "mock rfid saved: %s", CARD_TITLE);
-              ui_feedback(UI_FB_WRITE);
-              notify(NOTIFY_SAVED, "RFID tag saved");
+      switch (ev->button) {
+        case INPUT_BTN_DOWN:
+          if (nav) {
+            capture_result_next(&s_cr);
+            ui_feedback(UI_FB_NAV);
+          }
+          break;
+        case INPUT_BTN_UP:
+          if (nav) {
+            capture_result_prev(&s_cr);
+            ui_feedback(UI_FB_NAV);
+          }
+          break;
+        case INPUT_BTN_OK:
+          if (press) {
+            switch (capture_result_selected(&s_cr)) {
+              case CAP_ACT_PRIMARY:
+                seed_emulate_default();
+                s_view = VIEW_EMULATE;
+                build_screen();
+                break;
+              case CAP_ACT_SAVE:
+                if (!s_saved) {
+                  s_saved = true;
+                  capture_result_mark_saved(&s_cr);
+                  ESP_LOGI(TAG, "mock rfid saved: %s", CARD_TITLE);
+                  ui_feedback(UI_FB_WRITE);
+                  notify(NOTIFY_SAVED, "RFID tag saved");
+                }
+                break;
+              case CAP_ACT_AGAIN:
+                s_view = VIEW_READ;
+                build_screen();
+                break;
+              case CAP_ACT_DISCARD:
+                s_view = VIEW_LIST;
+                build_screen();
+                break;
+              default:
+                break;
             }
-            break;
-          case CAP_ACT_AGAIN:
-            s_view = VIEW_READ;
-            build_screen();
-            goto latch;
-          case CAP_ACT_DISCARD:
+          }
+          break;
+        case INPUT_BTN_BACK:
+          if (press) {
             s_view = VIEW_LIST;
             build_screen();
-            goto latch;
-          default:
-            break;
-        }
-      }
-      if (back && !s_back_last) {
-        s_view = VIEW_LIST;
-        build_screen();
-        goto latch;
+          }
+          break;
+        default:
+          break;
       }
       break;
 
     case VIEW_SAVED:
-      if (((down && !s_down_last) || (right && !s_right_last)) && s_saved_sel < s_card_count - 1) {
-        s_saved_sel++;
-        saved_apply_selection();
-        ui_feedback(UI_FB_NAV);
-      }
-      if (((up && !s_up_last) || (left && !s_left_last)) && s_saved_sel > 0) {
-        s_saved_sel--;
-        saved_apply_selection();
-        ui_feedback(UI_FB_NAV);
-      }
-      if (ok && !s_ok_last && s_card_count > 0) {
-        s_view = VIEW_SAVED_INFO;
-        build_screen();
-        goto latch;
-      }
-      if (back && !s_back_last) {
-        s_view = VIEW_LIST;
-        build_screen();
-        goto latch;
+      switch (ev->button) {
+        case INPUT_BTN_DOWN:
+        case INPUT_BTN_RIGHT:
+          if (nav && s_saved_sel < s_card_count - 1) {
+            s_saved_sel++;
+            saved_apply_selection();
+            ui_feedback(UI_FB_NAV);
+          }
+          break;
+        case INPUT_BTN_UP:
+        case INPUT_BTN_LEFT:
+          if (nav && s_saved_sel > 0) {
+            s_saved_sel--;
+            saved_apply_selection();
+            ui_feedback(UI_FB_NAV);
+          }
+          break;
+        case INPUT_BTN_OK:
+          if (press && s_card_count > 0) {
+            s_view = VIEW_SAVED_INFO;
+            build_screen();
+          }
+          break;
+        case INPUT_BTN_BACK:
+          if (press) {
+            s_view = VIEW_LIST;
+            build_screen();
+          }
+          break;
+        default:
+          break;
       }
       break;
 
     case VIEW_SAVED_INFO:
-      if (down && !s_down_last && s_info_sel < 1) {
-        s_info_sel++;
-        info_update_selection();
-        ui_feedback(UI_FB_NAV);
-      }
-      if (up && !s_up_last && s_info_sel > 0) {
-        s_info_sel--;
-        info_update_selection();
-        ui_feedback(UI_FB_NAV);
-      }
-      if (ok && !s_ok_last) {
-        ui_feedback(UI_FB_SELECT);
-        if (s_info_sel == 0) {
-          seed_emulate_from_card(&s_cards[s_saved_sel]);
-          s_view = VIEW_EMULATE;
-          build_screen();
-          goto latch;
-        } else {
-          char msg[40];
-          snprintf(msg, sizeof(msg), "Delete %s?", s_cards[s_saved_sel].name);
-          msgbox_open(LV_SYMBOL_TRASH, msg, "Delete", "Cancel", on_saved_delete_confirm);
-        }
-      }
-      if (back && !s_back_last) {
-        s_view = VIEW_SAVED;
-        build_screen();
-        goto latch;
+      switch (ev->button) {
+        case INPUT_BTN_DOWN:
+          if (nav && s_info_sel < 1) {
+            s_info_sel++;
+            info_update_selection();
+            ui_feedback(UI_FB_NAV);
+          }
+          break;
+        case INPUT_BTN_UP:
+          if (nav && s_info_sel > 0) {
+            s_info_sel--;
+            info_update_selection();
+            ui_feedback(UI_FB_NAV);
+          }
+          break;
+        case INPUT_BTN_OK:
+          if (press) {
+            ui_feedback(UI_FB_SELECT);
+            if (s_info_sel == 0) {
+              seed_emulate_from_card(&s_cards[s_saved_sel]);
+              s_view = VIEW_EMULATE;
+              build_screen();
+            } else {
+              char msg[40];
+              snprintf(msg, sizeof(msg), "Delete %s?", s_cards[s_saved_sel].name);
+              msgbox_open(LV_SYMBOL_TRASH, msg, "Delete", "Cancel", on_saved_delete_confirm);
+            }
+          }
+          break;
+        case INPUT_BTN_BACK:
+          if (press) {
+            s_view = VIEW_SAVED;
+            build_screen();
+          }
+          break;
+        default:
+          break;
       }
       break;
 
     case VIEW_EMULATE:
-      if (back && !s_back_last) {
+      if (ev->button == INPUT_BTN_BACK && press) {
         s_view = VIEW_LIST;
         build_screen();
-        goto latch;
       }
       break;
 
     case VIEW_CLONE:
-      if (back && !s_back_last) {
+      if (ev->button == INPUT_BTN_BACK && press) {
         s_view = VIEW_LIST;
         build_screen();
-        goto latch;
       }
       break;
 
     case VIEW_ADD: {
-      if (down && !s_down_last) {
-        menu_component_next(&s_menu);
-        ui_feedback(UI_FB_NAV);
-      }
-      if (up && !s_up_last) {
-        menu_component_prev(&s_menu);
-        ui_feedback(UI_FB_NAV);
-      }
       int sel = menu_component_get_selected(&s_menu);
-      if (right && !s_right_last) {
-        if (sel == 0) {
-          s_add_proto = (s_add_proto + 1) % ADD_PROTO_COUNT;
-          menu_component_set_selector_value(&s_menu, 0, ADD_PROTOS[s_add_proto]);
-          ui_feedback(UI_FB_NAV);
-        } else if (sel == 2) {
-          s_add_bits = (s_add_bits + 1) % ADD_BITS_COUNT;
-          menu_component_set_selector_value(&s_menu, 2, ADD_BITS[s_add_bits]);
-          ui_feedback(UI_FB_NAV);
-        }
-      }
-      if (left && !s_left_last) {
-        if (sel == 0) {
-          s_add_proto = (s_add_proto + ADD_PROTO_COUNT - 1) % ADD_PROTO_COUNT;
-          menu_component_set_selector_value(&s_menu, 0, ADD_PROTOS[s_add_proto]);
-          ui_feedback(UI_FB_NAV);
-        } else if (sel == 2) {
-          s_add_bits = (s_add_bits + ADD_BITS_COUNT - 1) % ADD_BITS_COUNT;
-          menu_component_set_selector_value(&s_menu, 2, ADD_BITS[s_add_bits]);
-          ui_feedback(UI_FB_NAV);
-        }
-      }
-      if (ok && !s_ok_last) {
-        if (sel == 1) {
-          ui_feedback(UI_FB_SELECT);
-          keyboard_open(NULL, add_uid_submit, NULL);
-        } else if (sel == 3) {
-          ui_feedback(UI_FB_SELECT);
-          add_manual_commit();
-          if (s_pending_view >= 0)
-            goto latch;
-        }
-      }
-      if (back && !s_back_last) {
-        s_view = VIEW_LIST;
-        build_screen();
-        goto latch;
+      switch (ev->button) {
+        case INPUT_BTN_DOWN:
+          if (nav) {
+            menu_component_next(&s_menu);
+            ui_feedback(UI_FB_NAV);
+          }
+          break;
+        case INPUT_BTN_UP:
+          if (nav) {
+            menu_component_prev(&s_menu);
+            ui_feedback(UI_FB_NAV);
+          }
+          break;
+        case INPUT_BTN_RIGHT:
+          if (nav) {
+            if (sel == 0) {
+              s_add_proto = (s_add_proto + 1) % ADD_PROTO_COUNT;
+              menu_component_set_selector_value(&s_menu, 0, ADD_PROTOS[s_add_proto]);
+              ui_feedback(UI_FB_NAV);
+            } else if (sel == 2) {
+              s_add_bits = (s_add_bits + 1) % ADD_BITS_COUNT;
+              menu_component_set_selector_value(&s_menu, 2, ADD_BITS[s_add_bits]);
+              ui_feedback(UI_FB_NAV);
+            }
+          }
+          break;
+        case INPUT_BTN_LEFT:
+          if (nav) {
+            if (sel == 0) {
+              s_add_proto = (s_add_proto + ADD_PROTO_COUNT - 1) % ADD_PROTO_COUNT;
+              menu_component_set_selector_value(&s_menu, 0, ADD_PROTOS[s_add_proto]);
+              ui_feedback(UI_FB_NAV);
+            } else if (sel == 2) {
+              s_add_bits = (s_add_bits + ADD_BITS_COUNT - 1) % ADD_BITS_COUNT;
+              menu_component_set_selector_value(&s_menu, 2, ADD_BITS[s_add_bits]);
+              ui_feedback(UI_FB_NAV);
+            }
+          }
+          break;
+        case INPUT_BTN_OK:
+          if (press) {
+            if (sel == 1) {
+              ui_feedback(UI_FB_SELECT);
+              keyboard_open(NULL, add_uid_submit, NULL);
+            } else if (sel == 3) {
+              ui_feedback(UI_FB_SELECT);
+              add_manual_commit();
+            }
+          }
+          break;
+        case INPUT_BTN_BACK:
+          if (press) {
+            s_view = VIEW_LIST;
+            build_screen();
+          }
+          break;
+        default:
+          break;
       }
       break;
     }
@@ -1556,14 +1599,6 @@ static void nav_timer_cb(lv_timer_t *t) {
     default:
       break;
   }
-
-latch:
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_right_last = right;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 void ui_rfid_menu_open(void) {
@@ -1574,6 +1609,5 @@ void ui_rfid_menu_open(void) {
   s_pending_view = -1;
   s_card_revealed = false;
   s_saved = false;
-  s_up_last = s_down_last = s_left_last = s_right_last = s_ok_last = s_back_last = false;
   build_screen();
 }
