@@ -1,3 +1,7 @@
+# Chip target (also set in CMakeLists.txt; kept here so a bare cmake/extension
+# configure can't fall back to the esp32 default)
+CONFIG_IDF_TARGET="esp32p4"
+
 # Flash — 8MB, DIO, 20MHz (conservative clock for marginal V1.x/FFC hardware)
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 CONFIG_ESPTOOLPY_FLASHFREQ_20M=y
