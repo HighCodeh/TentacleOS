@@ -19,7 +19,6 @@
 
 #include "lvgl.h"
 
-#include "buttons_gpio.h"
 #include "nfc_sim.h"
 #include "nfc_ui_common.h"
 #include "page_dots_ui.h"
@@ -27,7 +26,7 @@
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define NAV_TIMER_MS 33
+#define REFRESH_MS   33
 #define FIELD_GREEN  0x00E676
 #define SCALE_FWD    285
 #define DOTS_Y_OFS   (-28)
@@ -56,8 +55,6 @@ static int s_state = CE_BROWSE;
 static int s_idx = 0;
 static int s_edit_type = 0;
 static nfc_sim_card_t s_edit;
-
-static bool s_up_last, s_down_last, s_ok_last, s_back_last, s_left_last, s_right_last;
 
 static lv_obj_t *make_new_panel(lv_obj_t *parent) {
   lv_obj_t *p = lv_obj_create(parent);
@@ -360,88 +357,103 @@ static void enter_edit(void) {
   refresh_text();
 }
 
-static void tick_cb(lv_timer_t *t) {
+static void card_emu_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+
+  if (s_state == CE_EMULATE) {
+    if (ev->button == INPUT_BTN_BACK && press)
+      emulate_close();
+    return;
+  }
+
+  if (ev->button == INPUT_BTN_BACK) {
+    if (press) {
+      if (s_state == CE_EDIT) {
+        s_state = CE_BROWSE;
+        rebuild_panel();
+        refresh_text();
+        dots_rebuild();
+      } else {
+        ui_switch_screen(SCREEN_NFC_MENU);
+      }
+    }
+    return;
+  }
+
+  if (s_state == CE_BROWSE) {
+    int slots = nfc_sim_saved_count() + 1;
+    switch (ev->button) {
+      case INPUT_BTN_RIGHT:
+        if (nav)
+          do_flip((s_idx + 1) % slots, +1);
+        break;
+      case INPUT_BTN_LEFT:
+        if (nav)
+          do_flip((s_idx - 1 + slots) % slots, -1);
+        break;
+      case INPUT_BTN_OK:
+        if (press) {
+          int saved = nfc_sim_saved_count();
+          if (s_idx < saved)
+            emulate_start(nfc_sim_saved_get(s_idx));
+          else
+            enter_edit();
+        }
+        break;
+      default:
+        break;
+    }
+  } else {
+    int nt = nfc_sim_template_count();
+    switch (ev->button) {
+      case INPUT_BTN_RIGHT:
+        if (nav) {
+          s_edit_type = (s_edit_type + 1) % nt;
+          nfc_sim_make_card(s_edit_type, &s_edit);
+          rebuild_panel();
+          refresh_text();
+        }
+        break;
+      case INPUT_BTN_LEFT:
+        if (nav) {
+          s_edit_type = (s_edit_type - 1 + nt) % nt;
+          nfc_sim_make_card(s_edit_type, &s_edit);
+          rebuild_panel();
+          refresh_text();
+        }
+        break;
+      case INPUT_BTN_UP:
+        if (press) {
+          nfc_sim_make_card(s_edit_type, &s_edit);
+          rebuild_panel();
+        }
+        break;
+      case INPUT_BTN_OK:
+        if (press) {
+          if (nfc_sim_add(&s_edit))
+            nfc_ui_play_sound(NFC_SND_SAVE);
+          s_idx = nfc_sim_saved_count() - 1;
+          if (s_idx < 0)
+            s_idx = 0;
+          emulate_start(&s_edit);
+        }
+        break;
+      default:
+        break;
+    }
+  }
+}
+
+static void refresh_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen) {
     lv_timer_delete(t);
     s_timer = NULL;
     return;
   }
-  bool up = ui_btn_up(), down = ui_btn_down();
-  bool left = ui_btn_left(), right = ui_btn_right();
-  bool ok = ok_button_is_down(), back = back_button_is_down();
-
-  if (s_state == CE_EMULATE) {
-    if (s_field_ready)
-      nfc_ui_field_tick(&s_field, lv_tick_get());
-    if (back && !s_back_last)
-      emulate_close();
-    goto save_edges;
-  }
-
-  if (ui_input_is_locked())
-    goto save_edges;
-
-  if (back && !s_back_last) {
-    if (s_state == CE_EDIT) {
-      s_state = CE_BROWSE;
-      rebuild_panel();
-      refresh_text();
-      dots_rebuild();
-    } else {
-      ui_switch_screen(SCREEN_NFC_MENU);
-      return;
-    }
-    goto save_edges;
-  }
-
-  if (s_state == CE_BROWSE) {
-    int slots = nfc_sim_saved_count() + 1;
-    if (right && !s_right_last)
-      do_flip((s_idx + 1) % slots, +1);
-    if (left && !s_left_last)
-      do_flip((s_idx - 1 + slots) % slots, -1);
-    if (ok && !s_ok_last) {
-      int saved = nfc_sim_saved_count();
-      if (s_idx < saved)
-        emulate_start(nfc_sim_saved_get(s_idx));
-      else
-        enter_edit();
-    }
-  } else {
-    int nt = nfc_sim_template_count();
-    if (right && !s_right_last) {
-      s_edit_type = (s_edit_type + 1) % nt;
-      nfc_sim_make_card(s_edit_type, &s_edit);
-      rebuild_panel();
-      refresh_text();
-    }
-    if (left && !s_left_last) {
-      s_edit_type = (s_edit_type - 1 + nt) % nt;
-      nfc_sim_make_card(s_edit_type, &s_edit);
-      rebuild_panel();
-      refresh_text();
-    }
-    if (up && !s_up_last) {
-      nfc_sim_make_card(s_edit_type, &s_edit);
-      rebuild_panel();
-    }
-    if (ok && !s_ok_last) {
-      if (nfc_sim_add(&s_edit))
-        nfc_ui_play_sound(NFC_SND_SAVE);
-      s_idx = nfc_sim_saved_count() - 1;
-      if (s_idx < 0)
-        s_idx = 0;
-      emulate_start(&s_edit);
-    }
-  }
-
-save_edges:
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_right_last = right;
-  s_ok_last = ok;
-  s_back_last = back;
+  if (s_state == CE_EMULATE && s_field_ready)
+    nfc_ui_field_tick(&s_field, lv_tick_get());
 }
 
 void ui_card_emu_open(void) {
@@ -462,7 +474,6 @@ void ui_card_emu_open(void) {
     s_field.ring[i] = NULL;
   s_state = CE_BROWSE;
   s_idx = 0;
-  s_up_last = s_down_last = s_ok_last = s_back_last = s_left_last = s_right_last = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -482,7 +493,9 @@ void ui_card_emu_open(void) {
   dots_rebuild();
 
   if (s_timer == NULL)
-    s_timer = lv_timer_create(tick_cb, NAV_TIMER_MS, NULL);
+    s_timer = lv_timer_create(refresh_cb, REFRESH_MS, NULL);
+
+  ui_input_set_screen_handler(card_emu_input, NULL);
 
   ui_screen_load(s_screen);
 }
