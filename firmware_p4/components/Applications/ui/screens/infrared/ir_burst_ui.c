@@ -20,7 +20,6 @@
 #include "esp_log.h"
 #include "lvgl.h"
 
-#include "buttons_gpio.h"
 #include "ir_store.h"
 #include "notify_ui.h"
 #include "sigwave_ui.h"
@@ -52,8 +51,7 @@ static const char *TAG = "IR_BURST_UI";
 
 #define LOG_Y -30
 
-#define NAV_TIMER_INTERVAL_MS 50
-#define BURST_TICK_MS         180
+#define BURST_TICK_MS 180
 
 #define STATUS_BUSY  "Bursting..."
 #define STATUS_DONE  "Burst complete!"
@@ -62,7 +60,6 @@ static const char *TAG = "IR_BURST_UI";
 #define HINT_DONE    "BACK = Exit"
 
 static lv_obj_t *s_screen = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_burst_timer = NULL;
 static lv_obj_t *s_status_label = NULL;
 static lv_obj_t *s_count_label = NULL;
@@ -77,9 +74,7 @@ static int s_sent = 0;
 static ir_store_entry_t s_entries[IR_STORE_MAX_ENTRIES];
 static int s_total = 0;
 
-static bool s_btn_back_last = false;
-
-static void nav_timer_cb(lv_timer_t *timer);
+static void ir_burst_input(const input_event_t *ev, void *ctx);
 static void burst_tick_cb(lv_timer_t *timer);
 
 static void transy_cb(void *var, int32_t v) {
@@ -139,7 +134,6 @@ void ui_ir_burst_open(void) {
   s_card = NULL;
   s_sig = NULL;
   s_caption = NULL;
-  s_btn_back_last = false;
 
   s_total = ir_store_list(s_entries, IR_STORE_MAX_ENTRIES);
   if (s_total < 0)
@@ -202,8 +196,7 @@ void ui_ir_burst_open(void) {
 
   s_footer = ui_chrome_footer(s_screen, s_total > 0 ? HINT_BUSY : HINT_DONE);
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
+  ui_input_set_screen_handler(ir_burst_input, NULL);
 
   if (s_total > 0)
     s_burst_timer = lv_timer_create(burst_tick_cb, BURST_TICK_MS, NULL);
@@ -272,23 +265,22 @@ static void burst_tick_cb(lv_timer_t *timer) {
   }
 }
 
-static void nav_timer_cb(lv_timer_t *timer) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(timer);
-    s_nav_timer = NULL;
-    return;
-  }
-  if (ui_input_is_locked())
-    return;
+static void ir_burst_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
 
-  bool is_back = back_button_is_down();
-  if (is_back && !s_btn_back_last) {
-    if (s_burst_timer != NULL) {
-      lv_timer_delete(s_burst_timer);
-      s_burst_timer = NULL;
-    }
-    ESP_LOGI(TAG, "burst cancelled");
-    ui_switch_screen(SCREEN_IR_MENU);
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+      if (press) {
+        if (s_burst_timer != NULL) {
+          lv_timer_delete(s_burst_timer);
+          s_burst_timer = NULL;
+        }
+        ESP_LOGI(TAG, "burst cancelled");
+        ui_switch_screen(SCREEN_IR_MENU);
+      }
+      break;
+    default:
+      break;
   }
-  s_btn_back_last = is_back;
 }
