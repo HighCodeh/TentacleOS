@@ -27,7 +27,6 @@
 #include "st7789.h"
 
 #include "audio_i2s.h"
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
@@ -81,7 +80,6 @@ static float s_disp[N_BARS];
 static float s_peak[N_BARS];
 static uint8_t s_hold[N_BARS];
 static int s_plot_h = 100;
-static bool s_back_last = false;
 
 static void spectrum_task(void *arg) {
   (void)arg;
@@ -189,22 +187,20 @@ done:
   vTaskDelete(NULL);
 }
 
+static void spectrum_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  if (ev->button == INPUT_BTN_BACK && ev->action == INPUT_ACTION_PRESS) {
+    s_running = false;
+    ui_switch_screen(SCREEN_SETTINGS);
+  }
+}
+
 static void anim_timer_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen) {
     s_running = false;
     lv_timer_delete(t);
     s_anim_timer = NULL;
     return;
-  }
-  if (!ui_input_is_locked()) {
-    bool back = back_button_is_down();
-    if (back && !s_back_last) {
-      s_running = false;
-      s_back_last = back;
-      ui_switch_screen(SCREEN_SETTINGS);
-      return;
-    }
-    s_back_last = back;
   }
 
   for (int i = 0; i < N_BARS; i++) {
@@ -260,7 +256,6 @@ void ui_spectrum_open(void) {
     s_hold[i] = 0;
   }
   s_gmax = GMAX_FLOOR;
-  s_back_last = false;
   s_peak_db = PEAK_DB_FLOOR;
   s_clip = false;
 
@@ -388,6 +383,8 @@ void ui_spectrum_open(void) {
 
   if (s_anim_timer == NULL)
     s_anim_timer = lv_timer_create(anim_timer_cb, ANIM_TIMER_MS, NULL);
+
+  ui_input_set_screen_handler(spectrum_input, NULL);
 
   ui_screen_load(s_screen);
   ESP_LOGI(TAG, "spectrum analyzer opened");
