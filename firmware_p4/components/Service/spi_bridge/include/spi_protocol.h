@@ -16,6 +16,14 @@
 #ifndef SPI_PROTOCOL_H
 #define SPI_PROTOCOL_H
 
+// This file is the P4<->C5 wire contract and MUST stay byte-identical to its twin
+// in the other firmware (firmware_p4 and firmware_c5 each keep a copy at
+// components/Service/spi_bridge/include/spi_protocol.h). Both chips parse the same
+// bytes, so any id/struct edited on one side has to be copied to the other or the
+// two ends interpret the same frame differently. The P4 is the superset: ops it
+// owns but the C5 does not implement (screen share, port scan, ...) still reserve
+// their number here, so a given id never means two different things across the bus.
+
 #ifdef __cplusplus
 extern "C" {
 #endif

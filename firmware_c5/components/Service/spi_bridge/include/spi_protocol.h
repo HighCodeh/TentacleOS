@@ -16,6 +16,14 @@
 #ifndef SPI_PROTOCOL_H
 #define SPI_PROTOCOL_H
 
+// This file is the P4<->C5 wire contract and MUST stay byte-identical to its twin
+// in the other firmware (firmware_p4 and firmware_c5 each keep a copy at
+// components/Service/spi_bridge/include/spi_protocol.h). Both chips parse the same
+// bytes, so any id/struct edited on one side has to be copied to the other or the
+// two ends interpret the same frame differently. The P4 is the superset: ops it
+// owns but the C5 does not implement (screen share, port scan, ...) still reserve
+// their number here, so a given id never means two different things across the bus.
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -65,7 +73,8 @@ typedef enum {
   SPI_CAT_LORA = 0x03,
   SPI_CAT_MESH = 0x04,  // Meshtastic phone bridge
   SPI_CAT_MCORE = 0x05, // MeshCore phone bridge
-  SPI_CAT_HOST = 0x06,  // Companion host-link BLE relay
+  SPI_CAT_HOST = 0x06,   // Companion host-link BLE relay
+  SPI_CAT_SCREEN = 0x07, // P4-native screen sharing over the host link (USB)
   SPI_CAT_SESSION = 0xFF
 } spi_cat_t;
 
@@ -182,6 +191,13 @@ typedef enum {
   SPI_ID_WIFI_CLIENT_SAVE_SD = SPI_CMD(SPI_CAT_WIFI, 0x46),
   SPI_ID_WIFI_AP_SAVE_FLASH = SPI_CMD(SPI_CAT_WIFI, 0x47),
   SPI_ID_WIFI_AP_SAVE_SD = SPI_CMD(SPI_CAT_WIFI, 0x48),
+  SPI_ID_WIFI_PORT_SCAN_TARGET_RANGE = SPI_CMD(SPI_CAT_WIFI, 0x49),
+  SPI_ID_WIFI_PORT_SCAN_TARGET_LIST = SPI_CMD(SPI_CAT_WIFI, 0x4A),
+  SPI_ID_WIFI_PORT_SCAN_NETWORK = SPI_CMD(SPI_CAT_WIFI, 0x4B),
+  SPI_ID_WIFI_PORT_SCAN_CIDR = SPI_CMD(SPI_CAT_WIFI, 0x4C),
+  SPI_ID_WIFI_PORT_SCAN_STOP = SPI_CMD(SPI_CAT_WIFI, 0x4D),
+  SPI_ID_WIFI_GET_MAC = SPI_CMD(SPI_CAT_WIFI, 0x4E),
+  SPI_ID_WIFI_GET_IP_INFO = SPI_CMD(SPI_CAT_WIFI, 0x4F),
   SPI_ID_WIFI_EVIL_TWIN_TMPL_BEGIN = SPI_CMD(SPI_CAT_WIFI, 0xA0),
   SPI_ID_WIFI_EVIL_TWIN_TMPL_CHUNK = SPI_CMD(SPI_CAT_WIFI, 0xA1),
 
@@ -256,6 +272,14 @@ typedef enum {
   SPI_ID_HOST_STATUS = SPI_CMD(SPI_CAT_HOST, 0xA4),   // poll BLE connection state
 
   // Session lifecycle (long-running operations)
+  // Screen sharing (P4-native, over the USB host link — handled locally, never
+  // relayed to the C5). START/STOP/KEY are app->device commands; FRAME is a
+  // device->app STREAM carrying RGB565 row-strips of the live screen.
+  SPI_ID_SCREEN_START = SPI_CMD(SPI_CAT_SCREEN, 0x01),
+  SPI_ID_SCREEN_STOP = SPI_CMD(SPI_CAT_SCREEN, 0x02),
+  SPI_ID_SCREEN_KEY = SPI_CMD(SPI_CAT_SCREEN, 0x03),
+  SPI_ID_SCREEN_FRAME = SPI_CMD(SPI_CAT_SCREEN, 0x04),
+
   SPI_ID_SESSION_HEARTBEAT = SPI_CMD(SPI_CAT_SESSION, 0xF0),
   SPI_ID_SESSION_LOST = SPI_CMD(SPI_CAT_SESSION, 0xF1),
   SPI_ID_SESSION_STOP = SPI_CMD(SPI_CAT_SESSION, 0xF2)
@@ -269,6 +293,30 @@ typedef enum {
   SPI_POWER_IDLE = 1,   ///< Screen dimmed: deeper modem sleep (MAX_MODEM).
   SPI_POWER_SLEEP = 2,  ///< Device asleep: drop the radio (unless a capture is running).
 } spi_power_state_t;
+
+/**
+ * @brief Screen-share control keys (payload byte 0 of SPI_ID_SCREEN_KEY).
+ * The device maps these to the LVGL keypad (up/down/ok/back/left/right).
+ */
+typedef enum {
+  SPI_SCREEN_KEY_UP = 0,
+  SPI_SCREEN_KEY_DOWN = 1,
+  SPI_SCREEN_KEY_LEFT = 2,
+  SPI_SCREEN_KEY_RIGHT = 3,
+  SPI_SCREEN_KEY_OK = 4,
+  SPI_SCREEN_KEY_BACK = 5
+} spi_screen_key_t;
+
+/**
+ * @brief Header of a SPI_ID_SCREEN_FRAME STREAM payload, followed by
+ * (rows * width) RGB565 little-endian pixels. The screen is streamed as
+ * horizontal row-strips; y==0 marks the first strip of a new frame.
+ */
+typedef struct __attribute__((packed)) {
+  uint16_t y;     // row offset of this strip within the frame
+  uint16_t rows;  // number of rows in this strip
+  uint16_t width; // pixels per row (full screen width)
+} spi_screen_strip_t;
 
 /**
  * @brief SPI response status codes (payload byte 0 for RESP type).
@@ -376,18 +424,6 @@ static inline bool spi_frame_valid(const spi_header_t *h, uint16_t data_len) {
   return stored == spi_frame_crc(h, data_len);
 }
 
-// Rounded up to a multiple of 4 bytes: SPI DMA transfers must be word-aligned
-// in length, and the 7-byte header would otherwise make the frame size odd.
-#define SPI_FRAME_SIZE (((sizeof(spi_header_t) + SPI_MAX_PAYLOAD) + 3u) & ~3u)
-
-// Larger fixed transfer size used ONLY by the SYSTEM_STREAM response, which
-// batches many stream records into one transfer to amortize per-frame overhead.
-// The command/response path keeps using SPI_FRAME_SIZE. Must be a multiple of 4
-// for SPI DMA. Stream frame layout (after the 7-byte header, type = STREAM):
-//   [u16 batch_len][record]... where each record = [u16 op][u8 len][len bytes]
-// and `record` data is exactly what session_manager queued (meta + payload).
-#define SPI_STREAM_FRAME_SIZE 2048
-
 // Session protocol — see spi_bridge/README.md "Session Lifecycle"
 #define SPI_SESSION_INVALID_ID 0u
 #define SPI_SESSION_WINDOW     64u
@@ -401,12 +437,12 @@ typedef struct __attribute__((packed)) {
 /** Sent by P4 every ~2s to keep a session alive and ack streams received. */
 typedef struct __attribute__((packed)) {
   uint32_t session_id;
-  uint32_t last_acked_seq;
+  uint32_t last_acked_seq; // highest stream seq P4 has processed
 } spi_heartbeat_req_t;
 
 /** C5 reply to heartbeat. */
 typedef struct __attribute__((packed)) {
-  uint8_t alive;
+  uint8_t alive; // 1 if session still active, 0 if not found / different op
 } spi_heartbeat_resp_t;
 
 /** Prefixed to every stream payload from a session-managed operation. */
@@ -425,6 +461,18 @@ typedef struct __attribute__((packed)) {
   uint32_t session_id;
   uint16_t cmd; // spi_id_t of the lost operation
 } spi_session_lost_t;
+
+// Rounded up to a multiple of 4 bytes: SPI DMA transfers must be word-aligned
+// in length, and the 7-byte header would otherwise make the frame size odd.
+#define SPI_FRAME_SIZE (((sizeof(spi_header_t) + SPI_MAX_PAYLOAD) + 3u) & ~3u)
+
+// Larger fixed transfer size used ONLY by the SYSTEM_STREAM response, which
+// batches many stream records into one transfer to amortize per-frame overhead.
+// The command/response path keeps using SPI_FRAME_SIZE. Must be a multiple of 4
+// for SPI DMA. Stream frame layout (after the 7-byte header, type = STREAM):
+//   [u16 batch_len][record]... where each record = [u16 op][u8 len][len bytes]
+// and `record` data is exactly what session_manager queued (meta + payload).
+#define SPI_STREAM_FRAME_SIZE 2048
 
 /**
  * @brief WiFi connect request payload.
@@ -533,6 +581,64 @@ typedef struct {
   uint8_t len;
   uint8_t data[31];
 } __attribute__((packed)) spi_ble_sniffer_frame_t;
+
+/**
+ * @brief WiFi IP info response payload.
+ */
+typedef struct {
+  uint8_t interface; // 0 = STA, 1 = AP
+  uint8_t mac[6];
+  uint32_t ip;
+  uint32_t netmask;
+  uint32_t gw;
+} __attribute__((packed)) spi_wifi_ip_info_t;
+
+/**
+ * @brief Port scan request with target IP and port range.
+ */
+typedef struct {
+  char ip[16];
+  uint16_t start_port;
+  uint16_t end_port;
+  uint16_t max_results;
+  uint8_t reserved[2];
+} __attribute__((packed)) spi_port_scan_range_req_t;
+
+/**
+ * @brief Port scan request for a network IP range.
+ */
+typedef struct {
+  char start_ip[16];
+  char end_ip[16];
+  uint16_t start_port;
+  uint16_t end_port;
+  uint16_t max_results;
+  uint8_t scan_type; // 0 = port range, 1 = port list
+  uint8_t reserved;
+} __attribute__((packed)) spi_port_scan_network_req_t;
+
+/**
+ * @brief Port scan request using CIDR notation.
+ */
+typedef struct {
+  char base_ip[16];
+  uint8_t cidr;
+  uint8_t scan_type; // 0 = port range, 1 = port list
+  uint16_t start_port;
+  uint16_t end_port;
+  uint16_t max_results;
+} __attribute__((packed)) spi_port_scan_cidr_req_t;
+
+/**
+ * @brief Port scan result record.
+ */
+typedef struct {
+  char ip_str[16];
+  uint16_t port;
+  uint8_t protocol; // 0 = TCP, 1 = UDP
+  uint8_t status;   // 0 = OPEN, 1 = OPEN_FILTERED
+  char banner[64];
+} __attribute__((packed)) spi_port_scan_result_t;
 
 /**
  * @brief Meshtastic transport init payload.
