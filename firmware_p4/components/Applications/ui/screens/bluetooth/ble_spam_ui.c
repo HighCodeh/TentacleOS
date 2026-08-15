@@ -18,14 +18,12 @@
 #include "lvgl.h"
 #include "st7789.h"
 
-#include "buttons_gpio.h"
 #include "intensity_bar_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define NAV_TIMER_INTERVAL_MS 50
 #define SPAM_TICK_MS          120
 #define TARGET_CYCLE_MS       500
 #define COL_DIM               0x8A8594
@@ -114,15 +112,8 @@ static void fade_in(lv_obj_t *obj, uint32_t ms) {
 static lv_obj_t *s_select_screen = NULL;
 static lv_obj_t *s_spam_cards[SPAM_CARD_COUNT];
 static int s_sel_idx = 0;
-static lv_timer_t *s_select_nav_timer = NULL;
 
-static bool s_sel_up_last = false;
-static bool s_sel_down_last = false;
-static bool s_sel_ok_last = false;
-static bool s_sel_back_last = false;
-static bool s_sel_left_last = false;
-
-static void select_nav_timer_cb(lv_timer_t *timer);
+static void ble_spam_select_input(const input_event_t *ev, void *ctx);
 
 static lv_obj_t *build_spam_card(
     lv_obj_t *parent, const char *eco, uint32_t eco_hex, const char *title, const char *effect) {
@@ -204,68 +195,54 @@ void ui_ble_spam_select_open(void) {
   s_sel_idx = 0;
   select_card(0);
 
-  s_sel_up_last = false;
-  s_sel_down_last = false;
-  s_sel_ok_last = false;
-  s_sel_back_last = false;
-  s_sel_left_last = false;
-
-  if (s_select_nav_timer == NULL)
-    s_select_nav_timer = lv_timer_create(select_nav_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
+  ui_input_set_screen_handler(ble_spam_select_input, NULL);
 
   ui_screen_load(s_select_screen);
   fade_in(grid, 240);
 }
 
-static void select_nav_timer_cb(lv_timer_t *timer) {
-  if (lv_screen_active() != s_select_screen) {
-    lv_timer_delete(timer);
-    s_select_nav_timer = NULL;
-    return;
+static void ble_spam_select_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+  switch (ev->button) {
+    case INPUT_BTN_DOWN:
+      if (nav) {
+        select_card((s_sel_idx + 1) % (int)SPAM_CARD_COUNT);
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_UP:
+      if (nav) {
+        select_card((s_sel_idx - 1 + (int)SPAM_CARD_COUNT) % (int)SPAM_CARD_COUNT);
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_BLE_MENU);
+      break;
+    case INPUT_BTN_OK:
+      if (press) {
+        int sel = s_sel_idx;
+        ui_feedback(UI_FB_SELECT);
+        if (sel == (int)SPAM_CUSTOM_IDX) {
+          ui_switch_screen(SCREEN_BLE_SPAM_NAMES);
+        } else {
+          if (sel >= 0 && sel < (int)SPAM_ITEMS_COUNT)
+            s_spam_mode = sel;
+          ui_switch_screen(SCREEN_BLE_SPAM);
+        }
+      }
+      break;
+    default:
+      break;
   }
-  if (ui_input_is_locked())
-    return;
-
-  bool is_up = ui_btn_up();
-  bool is_down = ui_btn_down();
-  bool is_ok = ok_button_is_down();
-  bool is_back = back_button_is_down();
-  bool is_left = left_button_is_down();
-
-  if (is_down && !s_sel_down_last) {
-    select_card((s_sel_idx + 1) % (int)SPAM_CARD_COUNT);
-    ui_feedback(UI_FB_NAV);
-  }
-  if (is_up && !s_sel_up_last) {
-    select_card((s_sel_idx - 1 + (int)SPAM_CARD_COUNT) % (int)SPAM_CARD_COUNT);
-    ui_feedback(UI_FB_NAV);
-  }
-
-  if ((is_back && !s_sel_back_last) || (is_left && !s_sel_left_last))
-    ui_switch_screen(SCREEN_BLE_MENU);
-
-  if (is_ok && !s_sel_ok_last) {
-    int sel = s_sel_idx;
-    ui_feedback(UI_FB_SELECT);
-    if (sel == (int)SPAM_CUSTOM_IDX) {
-      ui_switch_screen(SCREEN_BLE_SPAM_NAMES);
-    } else {
-      if (sel >= 0 && sel < (int)SPAM_ITEMS_COUNT)
-        s_spam_mode = sel;
-      ui_switch_screen(SCREEN_BLE_SPAM);
-    }
-  }
-
-  s_sel_up_last = is_up;
-  s_sel_down_last = is_down;
-  s_sel_ok_last = is_ok;
-  s_sel_back_last = is_back;
-  s_sel_left_last = is_left;
 }
 
 static lv_obj_t *s_run_screen = NULL;
 static lv_obj_t *s_run_hint = NULL;
-static lv_timer_t *s_run_nav_timer = NULL;
 static lv_timer_t *s_run_spam_timer = NULL;
 static lv_timer_t *s_run_target_timer = NULL;
 static lv_obj_t *s_run_count_label = NULL;
@@ -277,9 +254,7 @@ static int s_run_sent_prev = 0;
 static int s_run_tick_accum = 0;
 static int s_run_target_idx = 0;
 
-static bool s_run_back_last = false;
-
-static void run_nav_timer_cb(lv_timer_t *timer);
+static void ble_spam_run_input(const input_event_t *ev, void *ctx);
 static void run_spam_tick_cb(lv_timer_t *timer);
 static void run_target_cycle_cb(lv_timer_t *timer);
 
@@ -319,7 +294,6 @@ void ui_ble_spam_open(void) {
   s_run_target_idx = 0;
   s_run_spam_timer = NULL;
   s_run_target_timer = NULL;
-  s_run_back_last = false;
 
   s_run_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_run_screen, current_theme.screen_base, 0);
@@ -383,8 +357,7 @@ void ui_ble_spam_open(void) {
 
   ui_feedback(UI_FB_EMULATE);
 
-  if (s_run_nav_timer == NULL)
-    s_run_nav_timer = lv_timer_create(run_nav_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
+  ui_input_set_screen_handler(ble_spam_run_input, NULL);
   s_run_spam_timer = lv_timer_create(run_spam_tick_cb, SPAM_TICK_MS, NULL);
   s_run_target_timer = lv_timer_create(run_target_cycle_cb, TARGET_CYCLE_MS, NULL);
 
@@ -427,19 +400,17 @@ static void run_target_cycle_cb(lv_timer_t *timer) {
   fade_in(s_run_target_label, 160);
 }
 
-static void run_nav_timer_cb(lv_timer_t *timer) {
-  if (lv_screen_active() != s_run_screen) {
-    lv_timer_delete(timer);
-    s_run_nav_timer = NULL;
-    return;
+static void ble_spam_run_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+      if (press) {
+        run_stop_timers();
+        ui_switch_screen(SCREEN_BLE_SPAM_SELECT);
+      }
+      break;
+    default:
+      break;
   }
-  if (ui_input_is_locked())
-    return;
-
-  bool is_back = back_button_is_down();
-  if (is_back && !s_run_back_last) {
-    run_stop_timers();
-    ui_switch_screen(SCREEN_BLE_SPAM_SELECT);
-  }
-  s_run_back_last = is_back;
 }
