@@ -22,6 +22,7 @@
 #include "input_manager.h"
 #include "led_control.h"
 #include "notify_ui.h"
+#include "power_manager.h"
 
 // Battery discharge policy only. The screen auto-dim / auto-sleep and the
 // low-battery brightness cap were removed on request: the panel stays at the
@@ -49,6 +50,10 @@ static void check_battery(void) {
   if (!battery_service_get(&bs)) {
     return;
   }
+
+  // Route the charger's VBUS truth into the power manager (item 41a): it holds
+  // the device out of light sleep while on external power.
+  power_manager_set_external_power(bs.vbus_present);
 
   // Only run the discharge policy on battery (not charging, no external power).
   bool on_battery = bs.present && !bs.charging && !bs.vbus_present;

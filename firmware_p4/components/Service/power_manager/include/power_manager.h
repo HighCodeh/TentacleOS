@@ -16,6 +16,8 @@
 #ifndef POWER_MANAGER_H
 #define POWER_MANAGER_H
 
+#include <stdbool.h>
+
 #include "esp_err.h"
 
 #ifdef __cplusplus
@@ -49,6 +51,25 @@ esp_err_t power_manager_no_sleep_acquire(void);
 
 /** @brief Release one NO_LIGHT_SLEEP hold taken with power_manager_no_sleep_acquire. */
 esp_err_t power_manager_no_sleep_release(void);
+
+// USB / external-power state input (item 41). Two independent sources feed it:
+//   - VBUS from the charger (battery service) -> power_manager_set_external_power
+//   - the TinyUSB bus lifecycle -> power_manager_set_usb_suspended
+// While external power is present AND the host has not suspended the bus, the
+// manager holds a single NO_LIGHT_SLEEP lock, so the device never light-sleeps
+// while plugged in or mid host-link / OTA session. All are no-ops (state is
+// still tracked) until CONFIG_PM_ENABLE is turned on.
+
+/** @brief Report external power (USB/charger VBUS) presence. Idempotent. */
+void power_manager_set_external_power(bool present);
+
+/** @brief Report USB bus suspend state from tud_suspend/tud_resume (and treated
+ *         as suspended on umount). A suspended host drops the plugged-in hold. */
+void power_manager_set_usb_suspended(bool suspended);
+
+/** @brief True while external power (VBUS) is present; for battery-vs-plugged
+ *         policy decisions. */
+bool power_manager_external_power(void);
 
 #ifdef __cplusplus
 }

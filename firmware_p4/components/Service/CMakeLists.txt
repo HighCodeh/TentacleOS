@@ -32,6 +32,7 @@ idf_component_register(SRCS
   "wifi/wifi_service.c"
   "boot_report/boot_report.c"
   "power_manager/power_manager.c"
+  "power_manager/power_manager_usb.c"
 
   ${STORAGE_API_SRCS}
   ${STORAGE_VFS_SRCS}

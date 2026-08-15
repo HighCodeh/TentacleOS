@@ -230,6 +230,12 @@ esp_err_t busb_init(void) {
       .phy =
           {
               .skip_setup = false,
+              // Item 41c: kept bus-powered. A battery device is "more correctly"
+              // self_powered = true, but esp_tinyusb self-powered mode needs a
+              // vbus_monitor_io GPIO to detect VBUS attach/detach, and no such
+              // pin is routed to the P4 on this board (the BQ25896 reports VBUS
+              // over I2C). The power manager gets VBUS truth from the charger
+              // (item 41a) instead, so this stays bus-powered.
               .self_powered = false,
               .vbus_monitor_io = -1,
           },
