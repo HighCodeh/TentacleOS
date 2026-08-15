@@ -44,10 +44,9 @@
 #define HEADER_ACTIVE_TINT_HEX 0x00E676
 #define SD_CD_PRESENT_LEVEL    0
 
-#define STATUS_TINT_POLL_MS 300
-#define WIFI_STATUS_POLL_MS 500
-#define WIFI_ANIM_MS        800
-#define BATTERY_ANIM_MS     350
+#define STATUS_POLL_MS       1000
+#define WIFI_ANIM_MS         800
+#define BATTERY_CHARGE_ANIM_MS 350
 
 #define SD_MOUNT_RETRIES        3
 #define SD_MOUNT_RETRY_DELAY_MS 150
@@ -57,11 +56,8 @@
 static lv_obj_t *bt_img_ref = NULL;
 static lv_obj_t *card_img_ref = NULL;
 static bool s_ble_active = false;
-static lv_timer_t *status_tint_timer = NULL;
+static lv_timer_t *header_poll_timer = NULL;
 
-// Last-applied UI state, so the status timer only writes styles (which force an
-// LVGL invalidate + SPI redraw) when something actually changed. Without this the
-// header repainted a few times a second forever, blocking any CPU idle.
 static bool s_bt_tint_last = false;
 static bool s_card_shown_last = false;
 static bool s_wifi_active_last = false;
@@ -88,6 +84,10 @@ static void apply_active_tint(lv_obj_t *obj, bool active) {
 
 void header_ui_set_ble_active(bool active) {
   s_ble_active = active;
+  if (active != s_bt_tint_last) {
+    apply_active_tint(bt_img_ref, active);
+    s_bt_tint_last = active;
+  }
 }
 
 static void sd_cd_isr(void *arg);
@@ -255,23 +255,12 @@ static void sd_cd_task(void *arg) {
   }
 }
 
-static void status_tint_timer_cb(lv_timer_t *timer) {
+static void battery_apply(void);
+
+static void header_poll_cb(lv_timer_t *timer) {
   (void)timer;
-
-  // SD hotplug is now interrupt-driven (sd_cd_task); this timer no longer polls
-  // the card-detect pin. It only refreshes the icon tints, all value-compared.
-
-  // Only touch the objects when the state changed, so an idle header stops
-  // forcing redraws.
-  if (s_sd_mounted != s_card_shown_last) {
-    set_card_icon_shown(s_sd_mounted);
-    s_card_shown_last = s_sd_mounted;
-  }
-  if (s_ble_active != s_bt_tint_last) {
-    apply_active_tint(bt_img_ref, s_ble_active);
-    s_bt_tint_last = s_ble_active;
-  }
   header_sync_wifi_icon();
+  battery_apply();
 }
 
 bool header_ui_sd_usage(int *out_used_pct) {
@@ -301,7 +290,7 @@ static lv_obj_t *battery_img = NULL;
 static lv_obj_t *power_img = NULL;
 static lv_image_dsc_t *battery_dscs[4] = {NULL};
 static int battery_frame = 0;
-static lv_timer_t *battery_anim_timer = NULL;
+static lv_timer_t *battery_charge_timer = NULL;
 
 // Last-shown battery state, so an on-battery (not charging) header only repaints
 // when the level/low/charging/present actually changes instead of every tick.
@@ -386,11 +375,8 @@ void header_ui_set_wifi_connecting(bool connecting) {
   }
 }
 
-// Single status-bar battery updater: hide the whole cell when no charger answers
-// on I2C; while charging, sweep the fill frames (charging animation) + white bolt;
-// otherwise show the static SoC frame (red wash when critically low), no bolt.
-// Called both synchronously at header creation (so it never flashes an empty
-// battery) and from the poll timer.
+static void battery_charge_anim_cb(lv_timer_t *timer);
+
 static void battery_apply(void) {
   if (!battery_cont || !lv_obj_is_valid(battery_cont))
     return;
@@ -428,15 +414,15 @@ static void battery_apply(void) {
   bool charging_changed = (bs.charging != s_batt_charging_last);
 
   if (bs.charging) {
-    // Charging: sweep the fill through the FULL range (0..3) on repeat so it is
-    // always visibly animating, even at a high SoC. (Animation is expected while
-    // on external power, so redrawing every tick here is fine.)
-    battery_frame = (battery_frame + 1) & 3;
-    if (battery_dscs[battery_frame])
-      lv_image_set_src(battery_img, battery_dscs[battery_frame]);
     if (charging_changed)
       lv_obj_set_style_image_recolor_opa(battery_img, LV_OPA_TRANSP, 0);
+    if (battery_charge_timer == NULL)
+      battery_charge_timer = lv_timer_create(battery_charge_anim_cb, BATTERY_CHARGE_ANIM_MS, NULL);
   } else {
+    if (battery_charge_timer != NULL) {
+      lv_timer_delete(battery_charge_timer);
+      battery_charge_timer = NULL;
+    }
     // On battery: static frame. Only write when the shown level/low changed (or
     // we just stopped charging), so an idle header stops forcing redraws.
     if (charging_changed || soc_idx != s_batt_soc_idx_last) {
@@ -468,16 +454,15 @@ static void battery_apply(void) {
   s_batt_charging_last = bs.charging;
 }
 
-static void battery_anim_timer_cb(lv_timer_t *timer) {
-  if (!battery_cont || !lv_obj_is_valid(battery_cont)) {
+static void battery_charge_anim_cb(lv_timer_t *timer) {
+  if (!battery_img || !lv_obj_is_valid(battery_img)) {
     lv_timer_delete(timer);
-    battery_anim_timer = NULL;
-    battery_cont = NULL;
-    battery_img = NULL;
-    power_img = NULL;
+    battery_charge_timer = NULL;
     return;
   }
-  battery_apply();
+  battery_frame = (battery_frame + 1) & 3;
+  if (battery_dscs[battery_frame])
+    lv_image_set_src(battery_img, battery_dscs[battery_frame]);
 }
 
 // Safety net: when a status cluster is deleted (its screen/overlay is freed), null
@@ -539,8 +524,8 @@ void header_ui_attach_status(lv_obj_t *parent, int y_offset) {
   apply_active_tint(bt_img_ref, s_ble_active);
   s_bt_tint_last = s_ble_active;
 
-  if (status_tint_timer == NULL) {
-    status_tint_timer = lv_timer_create(status_tint_timer_cb, STATUS_TINT_POLL_MS, NULL);
+  if (header_poll_timer == NULL) {
+    header_poll_timer = lv_timer_create(header_poll_cb, STATUS_POLL_MS, NULL);
   }
 
   for (int i = 0; i < 4; i++) {
@@ -570,17 +555,14 @@ void header_ui_attach_status(lv_obj_t *parent, int y_offset) {
   lv_obj_center(power_img);
   lv_obj_add_flag(power_img, LV_OBJ_FLAG_HIDDEN);
 
-  // WiFi icon is static and driven by state changes (from the status timer / the
-  // connecting hook), not a perpetual animation. Paint the current state now.
   s_wifi_active_last = wifi_service_is_active();
   s_wifi_connected_last = wifi_service_is_connected();
   update_wifi_icon_static();
 
-  if (battery_anim_timer == NULL) {
-    battery_anim_timer = lv_timer_create(battery_anim_timer_cb, BATTERY_ANIM_MS, NULL);
-  }
-  // Paint the real battery state now so the header never draws an empty cell that
-  // "pops in" a frame later.
+  s_batt_present_last = false;
+  s_batt_soc_idx_last = -1;
+  s_batt_low_last = false;
+  s_batt_charging_last = false;
   battery_apply();
 }
 
