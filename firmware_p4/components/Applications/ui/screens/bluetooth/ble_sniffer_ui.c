@@ -22,7 +22,6 @@
 #include "esp_random.h"
 #include "lvgl.h"
 
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -30,8 +29,7 @@
 
 static const char *TAG = "BLE_SNIFFER_UI";
 
-#define NAV_TIMER_INTERVAL_MS 50
-#define FEED_TICK_MS          420
+#define FEED_TICK_MS 420
 
 #define MAX_ROWS     7
 #define ROW_LEN      40
@@ -55,7 +53,6 @@ static const char *TAG = "BLE_SNIFFER_UI";
 #define HEX_PANEL_PAD 8
 
 static lv_obj_t *s_screen = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_feed_timer = NULL;
 static lv_obj_t *s_count_label = NULL;
 static lv_obj_t *s_hex_label = NULL;
@@ -64,10 +61,7 @@ static char s_rows[MAX_ROWS][ROW_LEN];
 static int s_row_count = 0;
 static uint32_t s_frames = 0;
 
-static bool s_back_last = false;
-static bool s_left_last = false;
-
-static void nav_timer_cb(lv_timer_t *timer);
+static void ble_sniffer_input(const input_event_t *ev, void *ctx);
 static void feed_tick_cb(lv_timer_t *timer);
 
 static void stop_feed_timer(void) {
@@ -194,10 +188,7 @@ void ui_ble_sniffer_open(void) {
   lv_obj_set_style_text_align(s_hex_label, LV_TEXT_ALIGN_LEFT, 0);
   lv_obj_align(s_hex_label, LV_ALIGN_TOP_LEFT, 0, 0);
 
-  s_back_last = false;
-  s_left_last = false;
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
+  ui_input_set_screen_handler(ble_sniffer_input, NULL);
   s_feed_timer = lv_timer_create(feed_tick_cb, FEED_TICK_MS, NULL);
 
   ui_feedback(UI_FB_SELECT);
@@ -221,24 +212,18 @@ static void feed_tick_cb(lv_timer_t *timer) {
     lv_label_set_text_fmt(s_count_label, "Frames: %lu", (unsigned long)s_frames);
 }
 
-static void nav_timer_cb(lv_timer_t *timer) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(timer);
-    s_nav_timer = NULL;
-    stop_feed_timer();
-    return;
+static void ble_sniffer_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press) {
+        stop_feed_timer();
+        ui_switch_screen(SCREEN_BLE_DETECT_MENU);
+      }
+      break;
+    default:
+      break;
   }
-  if (ui_input_is_locked())
-    return;
-
-  bool is_back = back_button_is_down();
-  bool is_left = left_button_is_down();
-
-  if ((is_back && !s_back_last) || (is_left && !s_left_last)) {
-    stop_feed_timer();
-    ui_switch_screen(SCREEN_BLE_DETECT_MENU);
-  }
-
-  s_back_last = is_back;
-  s_left_last = is_left;
 }
