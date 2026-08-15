@@ -17,13 +17,12 @@
 
 #include "lvgl.h"
 
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define NAV_TIMER_MS    50
+#define MOVE_TICK_MS    50
 #define JIGGLE_TICK_MS  70
 #define JIGGLE_STEP_DEG 18
 #define JIGGLE_RADIUS   16
@@ -69,7 +68,7 @@ static const lv_point_precise_t CURSOR_PTS[] = {
 #define CURSOR_PT_COUNT ((int)(sizeof(CURSOR_PTS) / sizeof(CURSOR_PTS[0])))
 
 static lv_obj_t *s_screen = NULL;
-static lv_timer_t *s_nav_timer = NULL;
+static lv_timer_t *s_move_timer = NULL;
 static lv_timer_t *s_jiggle_timer = NULL;
 
 static lv_obj_t *s_cursor = NULL;
@@ -80,13 +79,6 @@ static int s_cur_x = CUR_START_X;
 static int s_cur_y = CUR_START_Y;
 static int s_jig_ang = 0;
 static bool s_jiggle = true;
-
-static bool s_ok_last = false;
-static bool s_back_last = false;
-static bool s_up_last = false;
-static bool s_down_last = false;
-static bool s_left_last = false;
-static bool s_right_last = false;
 
 static int clamp(int v, int lo, int hi) {
   if (v < lo)
@@ -264,61 +256,59 @@ static void jiggle_tick_cb(lv_timer_t *t) {
   update_cursor();
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
+static void usb_mouse_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+      if (press)
+        ui_switch_screen(SCREEN_BADUSB_MENU);
+      break;
+    case INPUT_BTN_OK:
+      if (press) {
+        s_jiggle = !s_jiggle;
+        refresh_chip();
+        ui_feedback(UI_FB_SELECT);
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+static void move_tick_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen) {
     lv_timer_delete(t);
-    s_nav_timer = NULL;
+    s_move_timer = NULL;
     return;
   }
   if (ui_input_is_locked())
     return;
-
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool right = ui_btn_right();
-
-  if (back && !s_back_last) {
-    ui_switch_screen(SCREEN_BADUSB_MENU);
+  if (s_jiggle)
     return;
-  }
-  if (ok && !s_ok_last) {
-    s_jiggle = !s_jiggle;
-    refresh_chip();
-    ui_feedback(UI_FB_SELECT);
-  }
-  if (!s_jiggle) {
-    bool moved = false;
-    if (up && !s_up_last) {
-      s_cur_y -= MOVE_STEP;
-      moved = true;
-    }
-    if (down && !s_down_last) {
-      s_cur_y += MOVE_STEP;
-      moved = true;
-    }
-    if (left && !s_left_last) {
-      s_cur_x -= MOVE_STEP;
-      moved = true;
-    }
-    if (right && !s_right_last) {
-      s_cur_x += MOVE_STEP;
-      moved = true;
-    }
-    if (moved) {
-      update_cursor();
-      ui_feedback(UI_FB_NAV);
-    }
-  }
 
-  s_ok_last = ok;
-  s_back_last = back;
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_right_last = right;
+  bool moved = false;
+  if (input_is_down(INPUT_BTN_UP)) {
+    s_cur_y -= MOVE_STEP;
+    moved = true;
+  }
+  if (input_is_down(INPUT_BTN_DOWN)) {
+    s_cur_y += MOVE_STEP;
+    moved = true;
+  }
+  if (input_is_down(INPUT_BTN_LEFT)) {
+    s_cur_x -= MOVE_STEP;
+    moved = true;
+  }
+  if (input_is_down(INPUT_BTN_RIGHT)) {
+    s_cur_x += MOVE_STEP;
+    moved = true;
+  }
+  if (moved) {
+    update_cursor();
+    ui_feedback(UI_FB_NAV);
+  }
 }
 
 void ui_usb_mouse_open(void) {
@@ -337,8 +327,6 @@ void ui_usb_mouse_open(void) {
   s_cur_y = CUR_START_Y;
   s_jig_ang = 0;
   s_jiggle = true;
-  s_ok_last = s_back_last = false;
-  s_up_last = s_down_last = s_left_last = s_right_last = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -358,8 +346,9 @@ void ui_usb_mouse_open(void) {
   ui_chrome_footer(s_screen, FOOTER_TXT);
 
   s_jiggle_timer = lv_timer_create(jiggle_tick_cb, JIGGLE_TICK_MS, NULL);
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  if (s_move_timer == NULL)
+    s_move_timer = lv_timer_create(move_tick_cb, MOVE_TICK_MS, NULL);
+  ui_input_set_screen_handler(usb_mouse_input, NULL);
 
   ui_screen_load(s_screen);
 }
