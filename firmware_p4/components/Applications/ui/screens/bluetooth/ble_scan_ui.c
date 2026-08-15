@@ -26,7 +26,6 @@
 #include "lvgl.h"
 
 #include "assets_manager.h"
-#include "buttons_gpio.h"
 #include "msgbox_ui.h"
 #include "notify_ui.h"
 #include "ui_chrome.h"
@@ -37,7 +36,7 @@
 
 static const char *TAG = "BLE_SCAN_UI";
 
-#define NAV_TIMER_MS          50
+#define STATUS_TICK_MS        50
 #define DOT_CYCLE_MS          350
 #define SCAN_RESULT_COLOR_HEX 0x00E676
 #define COL_DIM               0x8A8594
@@ -99,7 +98,7 @@ static const mock_ble_dev_t MOCK_BLE_DEVS[] = {
 
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_status = NULL;
-static lv_timer_t *s_nav_timer = NULL;
+static lv_timer_t *s_status_timer = NULL;
 
 static scan_state_t s_scan_state = SCAN_RUNNING;
 static bool s_scanning = false;
@@ -116,14 +115,8 @@ static lv_obj_t *s_chip_name = NULL;
 static lv_obj_t *s_chip_meta = NULL;
 static lv_obj_t *s_chip_rssi = NULL;
 
-static bool s_btn_up_last = false;
-static bool s_btn_down_last = false;
-static bool s_btn_left_last = false;
-static bool s_btn_right_last = false;
-static bool s_btn_ok_last = false;
-static bool s_btn_back_last = false;
-
-static void nav_timer_cb(lv_timer_t *t);
+static void scan_status_tick_cb(lv_timer_t *t);
+static void ble_scan_input(const input_event_t *ev, void *ctx);
 
 static void gen_mac(char *out, size_t n) {
   snprintf(out,
@@ -423,8 +416,10 @@ static void build_screen(void) {
   else
     build_results();
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  if (s_status_timer == NULL)
+    s_status_timer = lv_timer_create(scan_status_tick_cb, STATUS_TICK_MS, NULL);
+
+  ui_input_set_screen_handler(ble_scan_input, NULL);
 
   ui_screen_load(s_screen);
 }
@@ -498,65 +493,67 @@ static void radar_step(int dir) {
   update_selection();
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
+static void scan_status_tick_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen) {
     lv_timer_delete(t);
-    s_nav_timer = NULL;
+    s_status_timer = NULL;
     return;
   }
+  if (s_scan_state == SCAN_RUNNING)
+    tick_scan_status();
+}
 
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool right = ui_btn_right();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
+static void ble_scan_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
-  if (msgbox_is_open() || ui_input_is_locked()) {
-    s_btn_up_last = up;
-    s_btn_down_last = down;
-    s_btn_left_last = left;
-    s_btn_right_last = right;
-    s_btn_ok_last = ok;
-    s_btn_back_last = back;
-    return;
-  }
-
-  if (back && !s_btn_back_last) {
-    ui_switch_screen(SCREEN_BLE_MENU);
+  if (ev->button == INPUT_BTN_BACK) {
+    if (press)
+      ui_switch_screen(SCREEN_BLE_MENU);
     return;
   }
 
   if (s_scan_state == SCAN_RUNNING) {
-    if (left && !s_btn_left_last) {
+    if (ev->button == INPUT_BTN_LEFT && press)
       ui_switch_screen(SCREEN_BLE_MENU);
-      return;
-    }
-    tick_scan_status();
-  } else if (s_showing_radar) {
-    if ((up && !s_btn_up_last) || (left && !s_btn_left_last))
-      radar_step(-1);
-    if ((down && !s_btn_down_last) || (right && !s_btn_right_last))
-      radar_step(1);
-    if (ok && !s_btn_ok_last)
-      open_detail(s_sel);
-  } else {
-    if (left && !s_btn_left_last) {
-      ui_switch_screen(SCREEN_BLE_MENU);
-      return;
-    }
-    if (right && !s_btn_right_last && !s_scanning) {
-      ui_ble_scan_open();
-      return;
-    }
+    return;
   }
 
-  s_btn_up_last = up;
-  s_btn_down_last = down;
-  s_btn_left_last = left;
-  s_btn_right_last = right;
-  s_btn_ok_last = ok;
-  s_btn_back_last = back;
+  if (s_showing_radar) {
+    switch (ev->button) {
+      case INPUT_BTN_UP:
+      case INPUT_BTN_LEFT:
+        if (nav)
+          radar_step(-1);
+        break;
+      case INPUT_BTN_DOWN:
+      case INPUT_BTN_RIGHT:
+        if (nav)
+          radar_step(1);
+        break;
+      case INPUT_BTN_OK:
+        if (press)
+          open_detail(s_sel);
+        break;
+      default:
+        break;
+    }
+    return;
+  }
+
+  switch (ev->button) {
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_BLE_MENU);
+      break;
+    case INPUT_BTN_RIGHT:
+      if (press && !s_scanning)
+        ui_ble_scan_open();
+      break;
+    default:
+      break;
+  }
 }
 
 void ui_ble_scan_open(void) {
