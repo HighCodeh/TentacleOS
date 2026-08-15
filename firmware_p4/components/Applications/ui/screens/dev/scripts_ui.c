@@ -24,7 +24,6 @@
 #include "st7789.h"
 
 #include "assets_manager.h"
-#include "buttons_gpio.h"
 #include "msgbox_ui.h"
 #include "notify_ui.h"
 #include "text_viewer_ui.h"
@@ -35,8 +34,8 @@
 
 static const char *TAG = "SCRIPTS_UI";
 
-#define NAV_TIMER_MS 50
-#define FADE_MS      200
+#define FADE_MS         200
+#define PENDING_POLL_MS 50
 
 #define TERM_GREEN       0x00E676
 #define TERM_DIM_GREEN   0x1F7A52
@@ -261,7 +260,7 @@ static view_t s_view = VIEW_BROWSER;
 static int s_sel = 0;
 static bool s_pending_run = false;
 
-static lv_timer_t *s_nav_timer = NULL;
+static lv_timer_t *s_pending_timer = NULL;
 static lv_timer_t *s_type_timer = NULL;
 static lv_timer_t *s_stage_timer = NULL;
 
@@ -287,14 +286,8 @@ static int s_total_chars = 0;
 static int s_cursor_ticks = 0;
 static bool s_cursor_on = true;
 
-static bool s_up_last = false;
-static bool s_down_last = false;
-static bool s_left_last = false;
-static bool s_right_last = false;
-static bool s_ok_last = false;
-static bool s_back_last = false;
-
-static void nav_timer_cb(lv_timer_t *t);
+static void scripts_pending_cb(lv_timer_t *t);
+static void scripts_input(const input_event_t *ev, void *ctx);
 static void build_screen(void);
 static void type_tick_cb(lv_timer_t *t);
 static void stage_advance_cb(lv_timer_t *t);
@@ -783,8 +776,9 @@ static void build_screen(void) {
       break;
   }
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  if (s_pending_timer == NULL)
+    s_pending_timer = lv_timer_create(scripts_pending_cb, PENDING_POLL_MS, NULL);
+  ui_input_set_screen_handler(scripts_input, NULL);
 
   ui_screen_load(s_screen);
 }
@@ -816,10 +810,10 @@ static void try_run_selected(void) {
   s_pending_run = true;
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
+static void scripts_pending_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen) {
     lv_timer_delete(t);
-    s_nav_timer = NULL;
+    s_pending_timer = NULL;
     return;
   }
   if (ui_input_is_locked())
@@ -829,99 +823,99 @@ static void nav_timer_cb(lv_timer_t *t) {
     s_pending_run = false;
     s_view = VIEW_RUNNING;
     build_screen();
-    return;
   }
+}
 
-  if (msgbox_is_open())
-    return;
-
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool right = ui_btn_right();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
+static void scripts_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
   switch (s_view) {
     case VIEW_BROWSER:
       if (SCRIPT_COUNT == 0) {
-        if (back && !s_back_last)
+        if (ev->button == INPUT_BTN_BACK && press)
           ui_switch_screen(SCREEN_DEV_MENU);
         break;
       }
-      if (down && !s_down_last && s_sel < SCRIPT_COUNT - 1) {
-        s_sel++;
-        apply_sel(s_sel);
+      switch (ev->button) {
+        case INPUT_BTN_DOWN:
+          if (nav && s_sel < SCRIPT_COUNT - 1) {
+            s_sel++;
+            apply_sel(s_sel);
+          }
+          break;
+        case INPUT_BTN_UP:
+          if (nav && s_sel > 0) {
+            s_sel--;
+            apply_sel(s_sel);
+          }
+          break;
+        case INPUT_BTN_OK:
+          if (press) {
+            s_view = VIEW_VIEWER;
+            build_screen();
+          }
+          break;
+        case INPUT_BTN_BACK:
+          if (press)
+            ui_switch_screen(SCREEN_DEV_MENU);
+          break;
+        default:
+          break;
       }
-      if (up && !s_up_last && s_sel > 0) {
-        s_sel--;
-        apply_sel(s_sel);
-      }
-      if (ok && !s_ok_last) {
-        s_view = VIEW_VIEWER;
-        build_screen();
-        goto latch;
-      }
-      if (back && !s_back_last)
-        ui_switch_screen(SCREEN_DEV_MENU);
       break;
 
     case VIEW_VIEWER:
-      if (down && !s_down_last && s_tv.text_area != NULL)
-        lv_obj_scroll_by(s_tv.text_area, 0, -VIEWER_SCROLL_STEP, LV_ANIM_ON);
-      if (up && !s_up_last && s_tv.text_area != NULL)
-        lv_obj_scroll_by(s_tv.text_area, 0, VIEWER_SCROLL_STEP, LV_ANIM_ON);
-      if (ok && !s_ok_last)
-        try_run_selected();
-      if (back && !s_back_last) {
-        s_view = VIEW_BROWSER;
-        build_screen();
-        goto latch;
+      switch (ev->button) {
+        case INPUT_BTN_DOWN:
+          if (nav && s_tv.text_area != NULL)
+            lv_obj_scroll_by(s_tv.text_area, 0, -VIEWER_SCROLL_STEP, LV_ANIM_ON);
+          break;
+        case INPUT_BTN_UP:
+          if (nav && s_tv.text_area != NULL)
+            lv_obj_scroll_by(s_tv.text_area, 0, VIEWER_SCROLL_STEP, LV_ANIM_ON);
+          break;
+        case INPUT_BTN_OK:
+          if (press)
+            try_run_selected();
+          break;
+        case INPUT_BTN_BACK:
+          if (press) {
+            s_view = VIEW_BROWSER;
+            build_screen();
+          }
+          break;
+        default:
+          break;
       }
       break;
 
     case VIEW_RUNNING:
-      if (s_run_stage == RUN_STAGE_DONE && right && !s_right_last) {
-        build_screen();
-        goto latch;
-      }
-      if (back && !s_back_last) {
-        s_view = VIEW_BROWSER;
-        build_screen();
-        goto latch;
+      switch (ev->button) {
+        case INPUT_BTN_RIGHT:
+          if (press && s_run_stage == RUN_STAGE_DONE)
+            build_screen();
+          break;
+        case INPUT_BTN_BACK:
+          if (press) {
+            s_view = VIEW_BROWSER;
+            build_screen();
+          }
+          break;
+        default:
+          break;
       }
       break;
   }
-
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_right_last = right;
-  s_ok_last = ok;
-  s_back_last = back;
-  return;
-
-latch:
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_right_last = right;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 void ui_scripts_open(void) {
-  s_nav_timer = NULL;
+  s_pending_timer = NULL;
   s_type_timer = NULL;
   s_stage_timer = NULL;
   s_view = VIEW_BROWSER;
   s_sel = 0;
   s_pending_run = false;
-  s_up_last = false;
-  s_down_last = false;
-  s_left_last = false;
-  s_right_last = false;
-  s_ok_last = false;
-  s_back_last = false;
   build_screen();
 }
