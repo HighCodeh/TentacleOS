@@ -111,6 +111,13 @@ void wifi_service_init(void) {
 
   ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
 
+  // Dual-band (2.4 + 5 GHz) BEFORE configuring the AP: a stale 5G-only band mode
+  // persisted in NVS otherwise rejects the 2.4 GHz AP channel and aborts set_config.
+  esp_err_t band_err = esp_wifi_set_band_mode(WIFI_BAND_MODE_AUTO);
+  if (band_err != ESP_OK) {
+    ESP_LOGW(TAG, "Could not enable dual-band: %s", esp_err_to_name(band_err));
+  }
+
   char target_ssid[SSID_MAX_LEN] = "Darth Maul";
   char target_password[PASSWORD_MAX_LEN] = "MyPassword123";
   uint8_t target_max_conn = DEFAULT_MAX_CONN;
@@ -148,17 +155,14 @@ void wifi_service_init(void) {
     ap_config.ap.authmode = WIFI_AUTH_WPA_WPA2_PSK;
   }
 
-  ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_config));
+  esp_err_t ap_cfg_err = esp_wifi_set_config(WIFI_IF_AP, &ap_config);
+  if (ap_cfg_err != ESP_OK) {
+    ESP_LOGE(TAG, "esp_wifi_set_config(AP) failed: %s", esp_err_to_name(ap_cfg_err));
+  }
 
   if (is_enabled) {
     ESP_ERROR_CHECK(esp_wifi_start());
     s_is_active = true;
-    // The C5 is dual-band: enable 2.4 GHz + 5 GHz so scans and the sniffer cover
-    // both bands. Soft-check - some builds/regions may not expose 5 GHz.
-    esp_err_t band_err = esp_wifi_set_band_mode(WIFI_BAND_MODE_AUTO);
-    if (band_err != ESP_OK) {
-      ESP_LOGW(TAG, "Could not enable dual-band (5 GHz): %s", esp_err_to_name(band_err));
-    }
     // Enable modem sleep explicitly. It only takes effect for an idle, connected
     // STA (radio wakes per DTIM); AP mode and promiscuous sniffing keep the radio
     // in continuous RX regardless. The real idle savings need the P4 to signal
