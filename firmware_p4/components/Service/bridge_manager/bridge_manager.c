@@ -38,6 +38,31 @@ static const char *TAG = "BRIDGE_MGR";
 #define C5_MONITOR_PERIOD_MS 1500
 #define C5_PROBE_TIMEOUT_MS  500
 
+// Verify the C5's wire-protocol version matches ours. A drifted spi_protocol.h
+// (an id or struct changed on one side only) is NOT caught by the CRC (SPI-1):
+// the bytes are intact, but the two ends assign them different meaning. Detection
+// only - log loudly + LED error, keep the bridge up. Call once the C5 is alive.
+static void check_c5_protocol(void) {
+  spi_header_t hdr;
+  uint16_t c5_ver = 0;
+  esp_err_t r = spi_bridge_send_command(
+      SPI_ID_SYSTEM_PROTO_VERSION, NULL, 0, &hdr, (uint8_t *)&c5_ver, C5_PROBE_TIMEOUT_MS);
+  if (r != ESP_OK) {
+    // An older C5 predates this op and answers UNSUPPORTED - itself a mismatch.
+    ESP_LOGE(TAG, "C5 SPI protocol version unavailable (P4=v%u) - headers out of sync, reflash both",
+             (unsigned)SPI_PROTOCOL_VERSION);
+    led_signal_error();
+    return;
+  }
+  if (c5_ver != SPI_PROTOCOL_VERSION) {
+    ESP_LOGE(TAG, "SPI protocol MISMATCH: P4=v%u C5=v%u - spi_protocol.h copies drifted, reflash both",
+             (unsigned)SPI_PROTOCOL_VERSION, (unsigned)c5_ver);
+    led_signal_error();
+    return;
+  }
+  ESP_LOGI(TAG, "SPI protocol v%u OK", (unsigned)SPI_PROTOCOL_VERSION);
+}
+
 // Background task: while the bridge is dead, keep probing; revive it the moment
 // the C5 answers. Idle (no bus traffic) once the link is up, so it never
 // competes with real commands.
@@ -58,6 +83,7 @@ static void c5_link_monitor(void *arg) {
     if (r == ESP_OK) {
       ESP_LOGI(TAG, "C5 link established (detected after boot), version: %s", ver);
       led_signal_info(); // C5 back: clear the degraded (warning) indicator
+      check_c5_protocol();
     } else {
       spi_bridge_set_alive(false); // still absent - stay dead, try again later
     }
@@ -103,6 +129,7 @@ esp_err_t bridge_manager_init(void) {
   if (strcmp((char *)resp_ver, FIRMWARE_VERSION) != 0) {
     ESP_LOGW(TAG, "C5 version differs - update available (run 'c5 ota' to apply)");
   }
+  check_c5_protocol();
   ESP_LOGI(TAG, "C5 bridge alive");
   return ESP_OK;
 }

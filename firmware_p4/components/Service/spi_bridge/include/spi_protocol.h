@@ -37,6 +37,13 @@ extern "C" {
 #define SPI_SYNC_BYTE                 0xAA
 #define SPI_MAX_PAYLOAD               256
 #define SPI_RESP_STATUS_SIZE          1
+
+// Wire-protocol version. Bump on ANY change to the contract below (an id, a
+// struct, or the header layout). The P4 reads the C5's value at bridge init via
+// SPI_ID_SYSTEM_PROTO_VERSION and flags a mismatch loudly, so two copies of this
+// header that drifted are caught at boot instead of silently misparsing frames.
+#define SPI_PROTOCOL_VERSION          1
+
 #define SPI_BT_SPAM_ITEM_LEN          32
 #define SPI_BT_SPAM_LIST_MAX          64
 #define SPI_WIFI_SNIFFER_FILENAME_MAX 96
@@ -111,6 +118,8 @@ typedef enum {
                              // C5 finalizes and reboots once bytes_written reaches the image size.
   SPI_ID_SYSTEM_INFO = SPI_CMD(
       SPI_CAT_SYSTEM, 0x0C), // P4→C5: read chip info. Response payload = spi_sys_info_t.
+  SPI_ID_SYSTEM_PROTO_VERSION = SPI_CMD(
+      SPI_CAT_SYSTEM, 0x0D), // P4→C5: read the C5's SPI_PROTOCOL_VERSION. Response payload = u16.
 
   // Companion file ops. P4-local host-link commands (the P4 owns flash + SD);
   // listed here only so the app and P4 share one id space. Never relayed to C5.

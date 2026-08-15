@@ -356,6 +356,13 @@ static void bridge_task(void *pvParameters) {
           memcpy(resp_payload, &info, sizeof(info));
           resp_len = sizeof(info);
           status = SPI_STATUS_OK;
+        } else if (cmd == SPI_ID_SYSTEM_PROTO_VERSION) {
+          // Report our wire-protocol version so the P4 can detect a drifted
+          // spi_protocol.h copy at boot (see bridge_manager check_c5_protocol).
+          uint16_t proto = SPI_PROTOCOL_VERSION;
+          memcpy(resp_payload, &proto, sizeof(proto));
+          resp_len = sizeof(proto);
+          status = SPI_STATUS_OK;
         } else if (cmd == SPI_ID_SYSTEM_POWER_STATE) {
           // P4 tells us the device power state so we can drop the radio when it
           // is idle/asleep. A running capture (promiscuous) is never interrupted.
