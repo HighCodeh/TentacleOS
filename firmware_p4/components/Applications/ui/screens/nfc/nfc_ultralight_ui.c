@@ -18,12 +18,9 @@
 #include "lvgl.h"
 #include "st7789.h"
 
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
-
-#define NAV_TIMER_MS 50
 
 #define MX        8
 #define BODY_H    (LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
@@ -68,10 +65,6 @@ static const char *const DUMP_LINES[] = {L0, L1, L2, L3, L4, L5, L6};
 #define DUMP_LINE_COUNT ((int)(sizeof(DUMP_LINES) / sizeof(DUMP_LINES[0])))
 
 static lv_obj_t *s_screen = NULL;
-static lv_timer_t *s_nav_timer = NULL;
-static bool s_ok_last = false;
-static bool s_back_last = false;
-static bool s_left_last = false;
 
 static void make_chip(lv_obj_t *parent, const char *txt, bool sel) {
   lv_obj_t *chip = lv_obj_create(parent);
@@ -131,27 +124,19 @@ static void build_body(lv_obj_t *parent) {
   }
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
+static void nfc_ultralight_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_NFC_MENU);
+      break;
+    default:
+      break;
   }
-  if (ui_input_is_locked())
-    return;
-
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-  bool left = ui_btn_left();
-
-  if ((back && !s_back_last) || (left && !s_left_last)) {
-    ui_switch_screen(SCREEN_NFC_MENU);
-    return;
-  }
-
-  s_ok_last = ok;
-  s_back_last = back;
-  s_left_last = left;
 }
 
 void ui_nfc_ultralight_open(void) {
@@ -159,7 +144,6 @@ void ui_nfc_ultralight_open(void) {
     lv_obj_del(s_screen);
     s_screen = NULL;
   }
-  s_ok_last = s_back_last = s_left_last = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -185,8 +169,7 @@ void ui_nfc_ultralight_open(void) {
 
   ui_chrome_footer(s_screen, FOOTER_HINT);
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(nfc_ultralight_input, NULL);
 
   ui_screen_load(s_screen);
 }
