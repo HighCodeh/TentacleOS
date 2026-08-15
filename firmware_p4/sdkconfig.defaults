@@ -35,7 +35,8 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 
 # Primary console UART0, secondary USB JTAG
 CONFIG_ESP_CONSOLE_UART_DEFAULT=y
-# CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG is not set (P4: USJ unreachable behind the mux)
+# CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG is not set (P4: USJ unreachable behind the mux, unused)
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 
 # TinyUSB HID — 2 interfaces (keyboard + mouse) for Bad USB
 CONFIG_TINYUSB_HID_COUNT=2
@@ -104,7 +105,3 @@ CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
 CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
 CONFIG_ESP_COREDUMP_STACK_SIZE=1792
 
-# Disable the secondary USB-Serial-JTAG console. On the P4 the USJ rides the
-# native USB, which the data mux keeps on the CP2105 UART bridge, so once the
-# UART REPL takes over, blocking writes to the unreachable USJ hang the console.
-CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
