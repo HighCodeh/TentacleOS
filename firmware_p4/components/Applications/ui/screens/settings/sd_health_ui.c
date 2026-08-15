@@ -17,14 +17,12 @@
 
 #include "lvgl.h"
 
-#include "buttons_gpio.h"
 #include "notify_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define NAV_TIMER_MS   50
 #define RETEST_TICK_MS 90
 #define RETEST_TICKS   16
 
@@ -73,7 +71,6 @@
 #define UNIT_TEST "MB/s ..."
 
 static lv_obj_t *s_screen = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_retest_timer = NULL;
 
 static lv_obj_t *s_read_val = NULL;
@@ -82,11 +79,6 @@ static lv_obj_t *s_read_sub = NULL;
 static lv_obj_t *s_write_sub = NULL;
 
 static int s_retest_left = 0;
-
-static bool s_ok_last = false;
-static bool s_back_last = false;
-static bool s_left_last = false;
-static bool s_right_last = false;
 
 static lv_obj_t *make_card(lv_obj_t *parent, int w, int h) {
   lv_obj_t *card = lv_obj_create(parent);
@@ -288,35 +280,29 @@ static void start_retest(void) {
   ui_feedback(UI_FB_SELECT);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
-  if (ui_input_is_locked())
-    return;
+static void sd_health_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
 
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-  bool left = ui_btn_left();
-  bool right = ui_btn_right();
-
-  if ((back && !s_back_last) || (left && !s_left_last)) {
-    ui_switch_screen(SCREEN_STORAGE);
-    return;
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_STORAGE);
+      break;
+    case INPUT_BTN_OK:
+      if (press) {
+        ui_feedback(UI_FB_SELECT);
+        notify(NOTIFY_INFO, "SD remounted");
+      }
+      break;
+    case INPUT_BTN_RIGHT:
+      if (press)
+        start_retest();
+      break;
+    default:
+      break;
   }
-  if (ok && !s_ok_last) {
-    ui_feedback(UI_FB_SELECT);
-    notify(NOTIFY_INFO, "SD remounted");
-  }
-  if (right && !s_right_last)
-    start_retest();
-
-  s_ok_last = ok;
-  s_back_last = back;
-  s_left_last = left;
-  s_right_last = right;
 }
 
 void ui_sd_health_open(void) {
@@ -330,7 +316,6 @@ void ui_sd_health_open(void) {
   }
   s_read_val = s_write_val = s_read_sub = s_write_sub = NULL;
   s_retest_left = 0;
-  s_ok_last = s_back_last = s_left_last = s_right_last = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -348,8 +333,7 @@ void ui_sd_health_open(void) {
 
   ui_chrome_footer(s_screen, FOOTER_TXT);
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(sd_health_input, NULL);
 
   ui_screen_load(s_screen);
 }
