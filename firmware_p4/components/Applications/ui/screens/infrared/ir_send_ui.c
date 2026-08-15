@@ -21,7 +21,6 @@
 #include "lvgl.h"
 
 #include "assets_manager.h"
-#include "buttons_gpio.h"
 #include "capture_result_ui.h"
 #include "ir_store.h"
 #include "menu_component_ui.h"
@@ -38,7 +37,7 @@ static const char *TAG = "IR_SEND_UI";
 #define COL_DIM   0x8A8594
 #define IR_ICON   "/assets/icons/podcasts.bin"
 
-#define NAV_TIMER_MS 50
+#define TICK_MS      50
 #define SENDING_MS   1600
 #define DOT_CYCLE_MS 350
 #define REVEAL_MS    2600
@@ -72,7 +71,7 @@ static int s_sel = 0;
 static ir_store_entry_t s_entries[IR_STORE_MAX_ENTRIES];
 static int s_count = 0;
 
-static lv_timer_t *s_nav_timer = NULL;
+static lv_timer_t *s_tick_timer = NULL;
 static lv_timer_t *s_send_timer = NULL;
 
 static lv_obj_t *s_status_label = NULL;
@@ -84,14 +83,8 @@ static bool s_options = false;
 static uint32_t s_send_start = 0;
 static uint32_t s_sent_at = 0;
 
-static bool s_btn_up_last = false;
-static bool s_btn_down_last = false;
-static bool s_btn_left_last = false;
-static bool s_btn_right_last = false;
-static bool s_btn_ok_last = false;
-static bool s_btn_back_last = false;
-
-static void nav_timer_cb(lv_timer_t *t);
+static void ir_send_tick_cb(lv_timer_t *t);
+static void ir_send_input(const input_event_t *ev, void *ctx);
 static void build_list(void);
 static void build_sending(void);
 static void send_done_cb(lv_timer_t *t);
@@ -109,15 +102,6 @@ static void stop_send_timer(void) {
     lv_timer_delete(s_send_timer);
     s_send_timer = NULL;
   }
-}
-
-static void reset_latch(void) {
-  s_btn_up_last = false;
-  s_btn_down_last = false;
-  s_btn_left_last = false;
-  s_btn_right_last = false;
-  s_btn_ok_last = false;
-  s_btn_back_last = false;
 }
 
 static lv_obj_t *new_screen(void) {
@@ -394,104 +378,118 @@ static void sending_tick(void) {
   lv_label_set_text(s_status_label, buf);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
+static void ir_send_tick_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen) {
     lv_timer_delete(t);
-    s_nav_timer = NULL;
+    s_tick_timer = NULL;
     return;
   }
-  if (ui_input_is_locked())
-    return;
 
-  if (s_view == VIEW_SENDING)
+  if (s_view == VIEW_SENDING) {
     sending_tick();
+  } else if (s_view == VIEW_SENT && !s_options &&
+             lv_tick_get() - s_sent_at >= REVEAL_MS) {
+    show_options();
+  }
+}
 
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool right = ui_btn_right();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
+static void ir_send_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
   switch (s_view) {
     case VIEW_LIST:
-      if (down && !s_btn_down_last) {
-        menu_component_next(&s_menu);
-        ui_feedback(UI_FB_NAV);
+      switch (ev->button) {
+        case INPUT_BTN_DOWN:
+          if (nav) {
+            menu_component_next(&s_menu);
+            ui_feedback(UI_FB_NAV);
+          }
+          break;
+        case INPUT_BTN_UP:
+          if (nav) {
+            menu_component_prev(&s_menu);
+            ui_feedback(UI_FB_NAV);
+          }
+          break;
+        case INPUT_BTN_OK:
+        case INPUT_BTN_RIGHT:
+          if (press) {
+            if (s_count <= 0) {
+              notify(NOTIFY_INFO, "Capture a signal in Learn first");
+            } else {
+              s_sel = menu_component_get_selected(&s_menu);
+              start_send();
+            }
+          }
+          break;
+        case INPUT_BTN_BACK:
+        case INPUT_BTN_LEFT:
+          if (press)
+            ui_switch_screen(SCREEN_IR_MENU);
+          break;
+        default:
+          break;
       }
-      if (up && !s_btn_up_last) {
-        menu_component_prev(&s_menu);
-        ui_feedback(UI_FB_NAV);
-      }
-      if ((ok && !s_btn_ok_last) || (right && !s_btn_right_last)) {
-        if (s_count <= 0) {
-          notify(NOTIFY_INFO, "Capture a signal in Learn first");
-        } else {
-          s_sel = menu_component_get_selected(&s_menu);
-          start_send();
-          reset_latch();
-          return;
-        }
-      }
-      if ((back && !s_btn_back_last) || (left && !s_btn_left_last))
-        ui_switch_screen(SCREEN_IR_MENU);
       break;
 
     case VIEW_SENDING:
-      if (back && !s_btn_back_last) {
+      if (ev->button == INPUT_BTN_BACK && press) {
         stop_send_timer();
         s_view = VIEW_LIST;
         build_list();
-        reset_latch();
-        return;
       }
       break;
 
     case VIEW_SENT:
       if (!s_options) {
-        if (back && !s_btn_back_last) {
+        if (ev->button == INPUT_BTN_BACK && press) {
           s_view = VIEW_LIST;
           build_list();
-          reset_latch();
-          return;
         }
-        if (lv_tick_get() - s_sent_at >= REVEAL_MS)
-          show_options();
       } else {
-        if (down && !s_btn_down_last) {
-          capture_result_next(&s_cr);
-          ui_feedback(UI_FB_NAV);
-        }
-        if (up && !s_btn_up_last) {
-          capture_result_prev(&s_cr);
-          ui_feedback(UI_FB_NAV);
-        }
-        if (ok && !s_btn_ok_last) {
-          switch (capture_result_selected(&s_cr)) {
-            case CAP_ACT_PRIMARY:
-              start_send();
-              reset_latch();
-              return;
-            case CAP_ACT_SAVE:
-              // Already a stored file — nothing to write.
-              capture_result_mark_saved(&s_cr);
-              notify(NOTIFY_INFO, "Already saved");
-              break;
-            case CAP_ACT_AGAIN:
-              s_view = VIEW_LIST;
-              build_list();
-              reset_latch();
-              return;
-            case CAP_ACT_DISCARD:
+        switch (ev->button) {
+          case INPUT_BTN_DOWN:
+            if (nav) {
+              capture_result_next(&s_cr);
+              ui_feedback(UI_FB_NAV);
+            }
+            break;
+          case INPUT_BTN_UP:
+            if (nav) {
+              capture_result_prev(&s_cr);
+              ui_feedback(UI_FB_NAV);
+            }
+            break;
+          case INPUT_BTN_OK:
+            if (press) {
+              switch (capture_result_selected(&s_cr)) {
+                case CAP_ACT_PRIMARY:
+                  start_send();
+                  break;
+                case CAP_ACT_SAVE:
+                  capture_result_mark_saved(&s_cr);
+                  notify(NOTIFY_INFO, "Already saved");
+                  break;
+                case CAP_ACT_AGAIN:
+                  s_view = VIEW_LIST;
+                  build_list();
+                  break;
+                case CAP_ACT_DISCARD:
+                  ui_switch_screen(SCREEN_IR_MENU);
+                  break;
+                default:
+                  break;
+              }
+            }
+            break;
+          case INPUT_BTN_BACK:
+            if (press)
               ui_switch_screen(SCREEN_IR_MENU);
-              return;
-            default:
-              break;
-          }
-        }
-        if (back && !s_btn_back_last) {
-          ui_switch_screen(SCREEN_IR_MENU);
-          return;
+            break;
+          default:
+            break;
         }
       }
       break;
@@ -499,13 +497,6 @@ static void nav_timer_cb(lv_timer_t *t) {
     default:
       break;
   }
-
-  s_btn_up_last = up;
-  s_btn_down_last = down;
-  s_btn_left_last = left;
-  s_btn_right_last = right;
-  s_btn_ok_last = ok;
-  s_btn_back_last = back;
 }
 
 void ui_ir_send_open(void) {
@@ -522,10 +513,10 @@ void ui_ir_send_open(void) {
   s_options = false;
   s_view = VIEW_LIST;
   s_sel = 0;
-  reset_latch();
 
   build_list();
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(ir_send_input, NULL);
+  if (s_tick_timer == NULL)
+    s_tick_timer = lv_timer_create(ir_send_tick_cb, TICK_MS, NULL);
 }
