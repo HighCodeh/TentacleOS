@@ -25,7 +25,6 @@
 
 #include "st7789.h"
 
-#include "buttons_gpio.h"
 #include "keyboard_ui.h"
 #include "menu_component_ui.h"
 #include "msgbox_ui.h"
@@ -35,8 +34,6 @@
 #include "waves_ui.h"
 
 static const char *TAG = "CONNECT_WIFI_UI";
-
-#define NAV_TIMER_MS 50
 
 #define WIFI_MAX_APS     12
 #define SCAN_SIM_STEPS   4
@@ -104,7 +101,6 @@ static const uint8_t MOCK_AP_CH[MOCK_AP_COUNT] = {36, 6, 1, 11, 44};
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
-static lv_timer_t *s_nav_timer = NULL;
 
 static scan_state_t s_scan_state = SCAN_RUNNING;
 static bool s_scanning = false;
@@ -120,14 +116,7 @@ static bool s_connecting = false;
 static uint8_t s_connect_state = 0;
 static uint8_t s_connect_ip[4] = {0};
 
-static bool s_btn_up_last = false;
-static bool s_btn_down_last = false;
-static bool s_btn_left_last = false;
-static bool s_btn_right_last = false;
-static bool s_btn_ok_last = false;
-static bool s_btn_back_last = false;
-
-static void nav_timer_cb(lv_timer_t *t);
+static void connect_wifi_input(const input_event_t *ev, void *ctx);
 
 static int signal_level(int8_t rssi) {
   if (rssi >= RSSI_L3_DBM)
@@ -343,8 +332,7 @@ static void build_screen(void) {
     build_join_list();
   }
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(connect_wifi_input, NULL);
 
   ui_screen_load(s_screen);
 }
@@ -388,66 +376,49 @@ static void wifi_scan_task(void *arg) {
   vTaskDelete(NULL);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
+static void connect_wifi_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+  const bool join = (s_scan_state == SCAN_DONE && s_ap_count > 0);
+
+  switch (ev->button) {
+    case INPUT_BTN_DOWN:
+      if (nav) {
+        if (join) {
+          s_sel = (s_sel + 1) % s_ap_count;
+          apply_net_selection();
+        } else {
+          menu_component_next(&s_menu);
+        }
+      }
+      break;
+    case INPUT_BTN_UP:
+      if (nav) {
+        if (join) {
+          s_sel = (s_sel - 1 + s_ap_count) % s_ap_count;
+          apply_net_selection();
+        } else {
+          menu_component_prev(&s_menu);
+        }
+      }
+      break;
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_CONNECTION_SETTINGS);
+      break;
+    case INPUT_BTN_OK:
+    case INPUT_BTN_RIGHT:
+      if (press && join && s_sel >= 0 && s_sel < s_ap_count) {
+        strncpy(s_connect_ssid, s_aps[s_sel].ssid, sizeof(s_connect_ssid) - 1);
+        s_connect_ssid[sizeof(s_connect_ssid) - 1] = '\0';
+        keyboard_open(NULL, on_keyboard_submit, NULL);
+      }
+      break;
+    default:
+      break;
   }
-
-  bool is_up = ui_btn_up();
-  bool is_down = ui_btn_down();
-  bool is_left = ui_btn_left();
-  bool is_right = ui_btn_right();
-  bool is_ok = ok_button_is_down();
-  bool is_back = back_button_is_down();
-
-  if (keyboard_is_open() || msgbox_is_open() || ui_input_is_locked()) {
-    s_btn_up_last = is_up;
-    s_btn_down_last = is_down;
-    s_btn_left_last = is_left;
-    s_btn_right_last = is_right;
-    s_btn_ok_last = is_ok;
-    s_btn_back_last = is_back;
-    return;
-  }
-
-  bool join = (s_scan_state == SCAN_DONE && s_ap_count > 0);
-
-  if (is_down && !s_btn_down_last) {
-    if (join) {
-      s_sel = (s_sel + 1) % s_ap_count;
-      apply_net_selection();
-    } else {
-      menu_component_next(&s_menu);
-    }
-  }
-  if (is_up && !s_btn_up_last) {
-    if (join) {
-      s_sel = (s_sel - 1 + s_ap_count) % s_ap_count;
-      apply_net_selection();
-    } else {
-      menu_component_prev(&s_menu);
-    }
-  }
-
-  if ((is_back && !s_btn_back_last) || (is_left && !s_btn_left_last))
-    ui_switch_screen(SCREEN_CONNECTION_SETTINGS);
-
-  if ((is_ok && !s_btn_ok_last) || (is_right && !s_btn_right_last)) {
-    if (join && s_sel >= 0 && s_sel < s_ap_count) {
-      strncpy(s_connect_ssid, s_aps[s_sel].ssid, sizeof(s_connect_ssid) - 1);
-      s_connect_ssid[sizeof(s_connect_ssid) - 1] = '\0';
-      keyboard_open(NULL, on_keyboard_submit, NULL);
-    }
-  }
-
-  s_btn_up_last = is_up;
-  s_btn_down_last = is_down;
-  s_btn_left_last = is_left;
-  s_btn_right_last = is_right;
-  s_btn_ok_last = is_ok;
-  s_btn_back_last = is_back;
 }
 
 void ui_connect_wifi_open(void) {
