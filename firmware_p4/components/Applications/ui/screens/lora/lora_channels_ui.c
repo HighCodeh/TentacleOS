@@ -18,13 +18,10 @@
 #include "lvgl.h"
 #include "st7789.h"
 
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
-
-#define NAV_TIMER_MS 50
 
 #define HDR_TITLE   "CHANNELS"
 #define HDR_ICON    NULL
@@ -93,14 +90,8 @@ static const uint8_t CH_BARS[FILLED_CNT][BAR_CNT] = {
 
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_tiles[TILE_CNT];
-static lv_timer_t *s_nav_timer = NULL;
 
 static int s_sel = 0;
-static bool s_up_last = false;
-static bool s_down_last = false;
-static bool s_left_last = false;
-static bool s_ok_last = false;
-static bool s_back_last = false;
 
 static lv_obj_t *bare_box(lv_obj_t *parent, int w, int h) {
   lv_obj_t *o = lv_obj_create(parent);
@@ -240,45 +231,40 @@ static void refresh_selection(void) {
   }
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
-  if (ui_input_is_locked())
-    return;
+static void lora_channels_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-
-  if ((back && !s_back_last) || (left && !s_left_last)) {
-    ui_switch_screen(SCREEN_LORA_CHAT);
-    return;
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_LORA_CHAT);
+      break;
+    case INPUT_BTN_DOWN:
+      if (nav) {
+        s_sel = (s_sel + 1) % TILE_CNT;
+        refresh_selection();
+        lv_obj_scroll_to_view(s_tiles[s_sel], LV_ANIM_ON);
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_UP:
+      if (nav) {
+        s_sel = (s_sel - 1 + TILE_CNT) % TILE_CNT;
+        refresh_selection();
+        lv_obj_scroll_to_view(s_tiles[s_sel], LV_ANIM_ON);
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_OK:
+      if (press)
+        ui_feedback(UI_FB_SELECT);
+      break;
+    default:
+      break;
   }
-  if (down && !s_down_last) {
-    s_sel = (s_sel + 1) % TILE_CNT;
-    refresh_selection();
-    lv_obj_scroll_to_view(s_tiles[s_sel], LV_ANIM_ON);
-    ui_feedback(UI_FB_NAV);
-  }
-  if (up && !s_up_last) {
-    s_sel = (s_sel - 1 + TILE_CNT) % TILE_CNT;
-    refresh_selection();
-    lv_obj_scroll_to_view(s_tiles[s_sel], LV_ANIM_ON);
-    ui_feedback(UI_FB_NAV);
-  }
-  if (ok && !s_ok_last)
-    ui_feedback(UI_FB_SELECT);
-
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 void ui_lora_channels_open(void) {
@@ -287,7 +273,6 @@ void ui_lora_channels_open(void) {
     s_screen = NULL;
   }
   s_sel = 0;
-  s_up_last = s_down_last = s_left_last = s_ok_last = s_back_last = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -323,8 +308,7 @@ void ui_lora_channels_open(void) {
 
   ui_chrome_footer(s_screen, FOOTER_HINT);
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(lora_channels_input, NULL);
 
   ui_screen_load(s_screen);
 }
