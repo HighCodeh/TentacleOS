@@ -18,14 +18,12 @@
 #include "esp_log.h"
 #include "esp_random.h"
 
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
 static const char *TAG = "WIFI_SIG_LOC_UI";
 
-#define NAV_TIMER_MS  50
 #define DRIFT_TICK_MS 320
 #define ARC_ANIM_MS   260
 #define ENTRY_FADE_MS 240
@@ -67,16 +65,12 @@ static lv_obj_t *s_arc = NULL;
 static lv_obj_t *s_dbm_label = NULL;
 static lv_obj_t *s_hint = NULL;
 static lv_obj_t *s_prox_label = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_drift_timer = NULL;
 static lv_font_t *s_big_font = NULL;
 
 static int s_rssi = RSSI_START;
 
-static bool s_back_last = false;
-static bool s_left_last = false;
-
-static void nav_timer_cb(lv_timer_t *timer);
+static void wifi_signal_locator_input(const input_event_t *ev, void *ctx);
 static void drift_tick_cb(lv_timer_t *timer);
 static void stop_drift_timer(void);
 
@@ -247,8 +241,7 @@ void ui_wifi_signal_locator_open(void) {
 
   ESP_LOGI(TAG, "signal locator open (mock target %s)", TARGET_SSID);
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(wifi_signal_locator_input, NULL);
   s_drift_timer = lv_timer_create(drift_tick_cb, DRIFT_TICK_MS, NULL);
 
   ui_screen_load(s_screen);
@@ -281,22 +274,16 @@ static void drift_tick_cb(lv_timer_t *timer) {
   apply_signal(prev);
 }
 
-static void nav_timer_cb(lv_timer_t *timer) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(timer);
-    s_nav_timer = NULL;
-    stop_drift_timer();
-    return;
+static void wifi_signal_locator_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_WIFI_MENU);
+      break;
+    default:
+      break;
   }
-  if (ui_input_is_locked())
-    return;
-
-  bool is_back = back_button_is_down();
-  bool is_left = ui_btn_left();
-
-  if ((is_back && !s_back_last) || (is_left && !s_left_last))
-    ui_switch_screen(SCREEN_WIFI_MENU);
-
-  s_back_last = is_back;
-  s_left_last = is_left;
 }
