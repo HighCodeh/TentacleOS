@@ -8,5 +8,9 @@ dependencies:
   espressif/argtable3: ^3.3
   espressif/libsodium: ^1.0.22
   espressif/esp-serial-flasher: ^2.0.0
-  espressif/esp_lvgl_port: ^2.0.0
+  # Cap below 2.9.0: it uses esp_lcd_dpi_panel_event_callbacks_t::on_frame_buf_complete
+  # behind an `ESP_IDF_VERSION >= 5.5.0` guard, but that DSI member only exists on IDF
+  # master/v6.0 — on 5.5.x the DPI struct still has on_refresh_done, so 2.9.0 fails to
+  # compile. Revisit when upstream fixes the guard or we move to IDF 6.
+  espressif/esp_lvgl_port: '>=2.0.0,<2.9.0'
   espressif/esp-dsp: ^1.5.0
