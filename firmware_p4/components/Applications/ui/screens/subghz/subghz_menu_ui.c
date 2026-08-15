@@ -22,7 +22,6 @@
 #include "st7789.h"
 
 #include "assets_manager.h"
-#include "buttons_gpio.h"
 #include "menu_component_ui.h"
 #include "msgbox_ui.h"
 #include "notify_ui.h"
@@ -36,8 +35,7 @@
 
 static const char *TAG = "SUBGHZ_UI";
 
-#define NAV_TIMER_MS 50
-#define FADE_MS      200
+#define FADE_MS 200
 
 #define OUTER_BORDER           4
 #define TOP_BORDER_H           46
@@ -170,7 +168,6 @@ typedef enum {
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_freq_timer = NULL;
 static view_t s_view = VIEW_LIST;
 static int s_saved_sel = 0;
@@ -194,12 +191,7 @@ static lv_obj_t *s_send_status = NULL;
 static lv_timer_t *s_send_t1 = NULL;
 static lv_timer_t *s_send_t2 = NULL;
 
-static bool s_up_last = false;
-static bool s_down_last = false;
-static bool s_ok_last = false;
-static bool s_back_last = false;
-
-static void nav_timer_cb(lv_timer_t *t);
+static void subghz_menu_input(const input_event_t *ev, void *ctx);
 static void build_screen(void);
 
 static void rebuild_async(void *p) {
@@ -675,8 +667,7 @@ static void build_screen(void) {
       break;
   }
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(subghz_menu_input, NULL);
 
   ui_screen_load(s_screen);
 }
@@ -744,126 +735,138 @@ static void start_saved_send(void) {
   lv_timer_set_repeat_count(s_send_t1, 1);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
-  if (ui_input_is_locked())
-    return;
-  if (msgbox_is_open())
-    return;
-
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
+static void subghz_menu_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
   if (s_send_overlay != NULL)
-    goto latch;
+    return;
 
   switch (s_view) {
     case VIEW_LIST:
-      if (down && !s_down_last)
-        menu_component_next(&s_menu);
-      if (up && !s_up_last)
-        menu_component_prev(&s_menu);
-      if (ok && !s_ok_last) {
-        int sel = menu_component_get_selected(&s_menu);
-        if (sel == IDX_ANALYZER) {
-          s_view = VIEW_ANALYZER;
-          build_screen();
-          goto latch;
-        } else if (sel == IDX_SAVED) {
-          s_saved_sel = 0;
-          s_view = VIEW_SAVED;
-          build_screen();
-          goto latch;
-        } else if (sel == IDX_BRUTE) {
-          ui_switch_screen(SCREEN_SUBGHZ_BRUTE);
-        } else if (sel == IDX_SEND) {
-          ui_switch_screen(SCREEN_SUBGHZ_SEND);
-        } else if (sel == IDX_CONFIG) {
-          ui_switch_screen(SCREEN_SUBGHZ_CONFIG);
-        } else if (sel >= 0 && sel < ITEM_COUNT && ITEMS[sel].capture) {
-          ui_switch_screen(SCREEN_SUBGHZ_READ);
-        }
+      switch (ev->button) {
+        case INPUT_BTN_DOWN:
+          if (nav)
+            menu_component_next(&s_menu);
+          break;
+        case INPUT_BTN_UP:
+          if (nav)
+            menu_component_prev(&s_menu);
+          break;
+        case INPUT_BTN_OK:
+          if (press) {
+            int sel = menu_component_get_selected(&s_menu);
+            if (sel == IDX_ANALYZER) {
+              s_view = VIEW_ANALYZER;
+              build_screen();
+            } else if (sel == IDX_SAVED) {
+              s_saved_sel = 0;
+              s_view = VIEW_SAVED;
+              build_screen();
+            } else if (sel == IDX_BRUTE) {
+              ui_switch_screen(SCREEN_SUBGHZ_BRUTE);
+            } else if (sel == IDX_SEND) {
+              ui_switch_screen(SCREEN_SUBGHZ_SEND);
+            } else if (sel == IDX_CONFIG) {
+              ui_switch_screen(SCREEN_SUBGHZ_CONFIG);
+            } else if (sel >= 0 && sel < ITEM_COUNT && ITEMS[sel].capture) {
+              ui_switch_screen(SCREEN_SUBGHZ_READ);
+            }
+          }
+          break;
+        case INPUT_BTN_BACK:
+          if (press)
+            ui_switch_screen(SCREEN_MENU);
+          break;
+        default:
+          break;
       }
-      if (back && !s_back_last)
-        ui_switch_screen(SCREEN_MENU);
       break;
 
     case VIEW_ANALYZER:
-      if (back && !s_back_last) {
-        s_view = VIEW_LIST;
-        build_screen();
-        goto latch;
+      switch (ev->button) {
+        case INPUT_BTN_BACK:
+          if (press) {
+            s_view = VIEW_LIST;
+            build_screen();
+          }
+          break;
+        default:
+          break;
       }
       break;
 
     case VIEW_SAVED:
-      if (down && !s_down_last && s_saved_sel < SAVED_COUNT - 1) {
-        s_saved_sel++;
-        update_sig_selection();
-        ui_feedback(UI_FB_NAV);
-      }
-      if (up && !s_up_last && s_saved_sel > 0) {
-        s_saved_sel--;
-        update_sig_selection();
-        ui_feedback(UI_FB_NAV);
-      }
-      if (ok && !s_ok_last) {
-        ESP_LOGI(TAG, "mock saved open: %s", SAVED_SIGS[s_saved_sel].name);
-        s_view = VIEW_SAVED_INFO;
-        build_screen();
-        goto latch;
-      }
-      if (back && !s_back_last) {
-        s_view = VIEW_LIST;
-        build_screen();
-        goto latch;
+      switch (ev->button) {
+        case INPUT_BTN_DOWN:
+          if (nav && s_saved_sel < SAVED_COUNT - 1) {
+            s_saved_sel++;
+            update_sig_selection();
+            ui_feedback(UI_FB_NAV);
+          }
+          break;
+        case INPUT_BTN_UP:
+          if (nav && s_saved_sel > 0) {
+            s_saved_sel--;
+            update_sig_selection();
+            ui_feedback(UI_FB_NAV);
+          }
+          break;
+        case INPUT_BTN_OK:
+          if (press) {
+            ESP_LOGI(TAG, "mock saved open: %s", SAVED_SIGS[s_saved_sel].name);
+            s_view = VIEW_SAVED_INFO;
+            build_screen();
+          }
+          break;
+        case INPUT_BTN_BACK:
+          if (press) {
+            s_view = VIEW_LIST;
+            build_screen();
+          }
+          break;
+        default:
+          break;
       }
       break;
 
     case VIEW_SAVED_INFO:
-      if (down && !s_down_last && s_info_sel < INFO_ACTION_COUNT - 1) {
-        s_info_sel++;
-        update_info_selection();
-        ui_feedback(UI_FB_NAV);
-      }
-      if (up && !s_up_last && s_info_sel > 0) {
-        s_info_sel--;
-        update_info_selection();
-        ui_feedback(UI_FB_NAV);
-      }
-      if (ok && !s_ok_last) {
-        if (s_info_sel == 0) {
-          start_saved_send();
-        } else {
-          msgbox_open(LV_SYMBOL_TRASH, "Delete signal?", "Delete", "Cancel", info_del_confirm);
-        }
-      }
-      if (back && !s_back_last) {
-        s_view = VIEW_SAVED;
-        build_screen();
-        goto latch;
+      switch (ev->button) {
+        case INPUT_BTN_DOWN:
+          if (nav && s_info_sel < INFO_ACTION_COUNT - 1) {
+            s_info_sel++;
+            update_info_selection();
+            ui_feedback(UI_FB_NAV);
+          }
+          break;
+        case INPUT_BTN_UP:
+          if (nav && s_info_sel > 0) {
+            s_info_sel--;
+            update_info_selection();
+            ui_feedback(UI_FB_NAV);
+          }
+          break;
+        case INPUT_BTN_OK:
+          if (press) {
+            if (s_info_sel == 0) {
+              start_saved_send();
+            } else {
+              msgbox_open(LV_SYMBOL_TRASH, "Delete signal?", "Delete", "Cancel", info_del_confirm);
+            }
+          }
+          break;
+        case INPUT_BTN_BACK:
+          if (press) {
+            s_view = VIEW_SAVED;
+            build_screen();
+          }
+          break;
+        default:
+          break;
       }
       break;
   }
-
-  s_up_last = up;
-  s_down_last = down;
-  s_ok_last = ok;
-  s_back_last = back;
-  return;
-
-latch:
-
-  s_up_last = up;
-  s_down_last = down;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 void ui_subghz_menu_open(void) {
