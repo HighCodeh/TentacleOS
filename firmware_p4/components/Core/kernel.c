@@ -230,15 +230,13 @@ esp_err_t kernel_init(void) {
 
   vTaskDelay(pdMS_TO_TICKS(BOOT_SETTLE_MS));
   bool required_ok = boot_report_all_required_ok();
-  // DIAG (temporary): boot-end LED signal disabled so it does not overwrite the
-  // console_service_init stage color used to locate the UART REPL hang.
-  // if (!required_ok) {
-  //   led_signal_error();
-  // } else if (!spi_bridge_is_alive()) {
-  //   led_signal_warning();
-  // } else {
-  //   led_signal_info();
-  // }
+  if (!required_ok) {
+    led_signal_error(); // a required subsystem failed (running degraded)
+  } else if (!spi_bridge_is_alive()) {
+    led_signal_warning(); // C5 radio coprocessor absent: degraded but usable
+  } else {
+    led_signal_info(); // booted clean: idle / OK indicator
+  }
   return required_ok ? ESP_OK : ESP_FAIL;
 }
 

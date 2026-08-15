@@ -23,9 +23,7 @@
 #include "driver/uart.h"
 #include "esp_console.h"
 #include "esp_log.h"
-#include "esp_rom_sys.h"
 #include "esp_sleep.h"
-#include "led_control.h"
 #include "linenoise/linenoise.h"
 #include "sdkconfig.h"
 
@@ -72,22 +70,20 @@ esp_err_t console_service_init(void) {
 #else
   ESP_LOGI(TAG, "Initializing UART Console");
   esp_console_dev_uart_config_t uart_config = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
-  led_set_color(40, 0, 40); // DIAG: purple = about to call new_repl_uart
+  // esp_console_new_repl_uart calls uart_driver_install internally, which returns
+  // ESP_FAIL if the driver is already installed on the console UART. Something
+  // installs it before us, so free it here and let the REPL install it fresh.
+  if (uart_is_driver_installed(CONFIG_ESP_CONSOLE_UART_NUM)) {
+    uart_driver_delete(CONFIG_ESP_CONSOLE_UART_NUM);
+  }
   ret = esp_console_new_repl_uart(&uart_config, &repl_config, &repl);
-  // DIAG: esp_rom_printf writes straight to the ROM UART, bypassing the (now
-  // broken) driver/VFS, so this line is visible in the monitor even when stdout
-  // is dead.
-  esp_rom_printf("[CONSOLE] new_repl_uart ret=0x%x (%s)\n", ret, esp_err_to_name(ret));
-  led_set_color(0, 0, 40); // DIAG: blue = new_repl_uart returned
 #endif
   if (ret != ESP_OK) {
-    led_set_color(40, 0, 0); // DIAG: red = create failed
     ESP_LOGE(TAG, "console REPL create failed: %s", esp_err_to_name(ret));
     return ret;
   }
 
   ret = esp_console_start_repl(repl);
-  led_set_color(0, 40, 0); // DIAG: green = start_repl returned
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "console REPL start failed: %s", esp_err_to_name(ret));
     return ret;
