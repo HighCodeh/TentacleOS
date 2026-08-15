@@ -23,17 +23,13 @@ extern "C" {
 #include <stdbool.h>
 
 /**
- * @brief Start the system monitor task.
+ * @brief Start the background system monitor task.
  *
- * Launches a background task pinned to Core 1 that periodically
- * checks all running tasks for critical stack usage. If a task's
- * stack high watermark drops below the threshold, the monitor
- * terminates it and displays a safeguard alert.
+ * Feeds the Task Watchdog, watches every task's stack high-watermark, and does a
+ * controlled restart (never a vTaskDelete) when a task stays critically low for
+ * several consecutive cycles. On the P4 it also watches LVGL render liveness.
  *
- * When verbose logging is enabled, RAM usage (internal + PSRAM)
- * is printed every monitoring cycle.
- *
- * @param is_verbose  Enable periodic RAM usage logging.
+ * @param is_verbose  Log RAM usage every cycle when true.
  */
 void sys_monitor_start(bool is_verbose);
 

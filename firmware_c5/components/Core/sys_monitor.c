@@ -31,7 +31,7 @@
 static const char *TAG = "SYS_MONITOR";
 
 #define MONITOR_INTERVAL_MS      2000
-#define STACK_SIZE_BYTES         4096
+#define MONITOR_STACK_SIZE       4096
 #define MONITOR_PRIORITY         SYS_PRIO_MONITOR
 #define MONITOR_CORE             SYS_CORE_MAIN
 #define CRITICAL_STACK_THRESHOLD 256   // free stack (bytes); below this a task is at risk
@@ -41,7 +41,7 @@ static const char *TAG = "SYS_MONITOR";
 #define ALERT_MSG_SIZE           128
 
 typedef struct {
-  bool verbose_logging;
+  bool is_verbose;
 } sys_monitor_params_t;
 
 // The monitor observes and reports; it never deletes tasks. Deleting a task
@@ -73,7 +73,15 @@ static stack_watch_t *watch_find(const char *name) {
   return NULL;
 }
 
-static void escalate_restart(const char *name, uint32_t watermark) {
+// TODO(item 31): flush the filesystem and radios via a graceful shutdown hook
+// here once it exists, before the restart.
+static void controlled_restart(const char *title, const char *message) {
+  safeguard_alert(title, message);
+  vTaskDelay(pdMS_TO_TICKS(REBOOT_GRACE_MS));
+  esp_restart();
+}
+
+static void escalate_stack_restart(const char *name, uint32_t watermark) {
   ESP_LOGE(TAG,
            "Task [%s] critically low on stack (%lu B) for %d cycles; controlled restart",
            name,
@@ -82,12 +90,7 @@ static void escalate_restart(const char *name, uint32_t watermark) {
 
   char msg_buf[ALERT_MSG_SIZE];
   snprintf(msg_buf, sizeof(msg_buf), "Low stack in '%s' persisted; restarting to recover", name);
-  safeguard_alert("SYSTEM RECOVERY", msg_buf);
-
-  // TODO(item 31): call the graceful shutdown hook here once it exists so the
-  // filesystem and radios flush their state before the restart.
-  vTaskDelay(pdMS_TO_TICKS(REBOOT_GRACE_MS));  // let the alert log flush
-  esp_restart();
+  controlled_restart("SYSTEM RECOVERY", msg_buf);
 }
 
 static void check_task_stacks(const TaskStatus_t *tasks, uint32_t count) {
@@ -133,7 +136,7 @@ static void check_task_stacks(const TaskStatus_t *tasks, uint32_t count) {
     }
 
     if (w->streak >= STACK_ESCALATE_CYCLES) {
-      escalate_restart(name, watermark);  // does not return
+      escalate_stack_restart(name, watermark);  // does not return
     }
   }
 
@@ -150,11 +153,10 @@ static void check_task_stacks(const TaskStatus_t *tasks, uint32_t count) {
 
 static void sys_monitor_task(void *pvParameters) {
   sys_monitor_params_t *params = (sys_monitor_params_t *)pvParameters;
-  bool verbose = params->verbose_logging;
+  bool is_verbose = params->is_verbose;
   vPortFree(params);
 
-  ESP_LOGI(
-      TAG, "System Monitor (RAM & Stack) started. Verbose: %s", verbose ? "ENABLED" : "DISABLED");
+  ESP_LOGI(TAG, "System monitor started (verbose: %s)", is_verbose ? "enabled" : "disabled");
 
   // The monitor loop is the system health heartbeat (mirrors the P4 UI task):
   // it subscribes to the Task Watchdog and feeds it each cycle. With
@@ -165,13 +167,13 @@ static void sys_monitor_task(void *pvParameters) {
   while (1) {
     esp_task_wdt_reset();
 
-    if (verbose) {
+    if (is_verbose) {
       uint32_t free_heap = esp_get_free_heap_size();
       uint32_t internal_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
       uint32_t spiram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
 
       ESP_LOGI(TAG,
-               "RAM Status - Total Free: %lu, Internal Free: %lu, PSRAM Free: %lu",
+               "RAM — Free: %lu, Internal: %lu, PSRAM: %lu",
                (unsigned long)free_heap,
                (unsigned long)internal_free,
                (unsigned long)spiram_free);
@@ -192,19 +194,20 @@ static void sys_monitor_task(void *pvParameters) {
   }
 }
 
-void sys_monitor(bool show_ram_logs) {
+void sys_monitor_start(bool is_verbose) {
   sys_monitor_params_t *params = pvPortMalloc(sizeof(sys_monitor_params_t));
-  if (params) {
-    params->verbose_logging = show_ram_logs;
-
-    xTaskCreatePinnedToCore(sys_monitor_task,
-                            "SysMonitor",
-                            STACK_SIZE_BYTES,
-                            (void *)params,
-                            MONITOR_PRIORITY,
-                            NULL,
-                            MONITOR_CORE);
-  } else {
-    ESP_LOGE(TAG, "Failed to allocate memory for SysMonitor parameters.");
+  if (params == NULL) {
+    ESP_LOGE(TAG, "Failed to allocate monitor parameters");
+    return;
   }
+
+  params->is_verbose = is_verbose;
+
+  xTaskCreatePinnedToCore(sys_monitor_task,
+                          "SysMonitor",
+                          MONITOR_STACK_SIZE,
+                          (void *)params,
+                          MONITOR_PRIORITY,
+                          NULL,
+                          MONITOR_CORE);
 }

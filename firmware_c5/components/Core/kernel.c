@@ -56,15 +56,15 @@ void kernel_init(void) {
   storage_assets_init();
   storage_assets_print_info();
 
-  // The BQ25896 charger lives on the P4 and is managed there; the C5 must not
-  // touch it (its init just failed on the C5's I2C bus). led_rgb likewise.
+  // The BQ25896 charger and RGB LED live on the P4 and are managed there; the C5
+  // has no battery/charger driver at all (it is not on the C5's I2C bus).
   // V2 PCB has no bridge IRQ trace: run the slave in POLL mode (matches the P4).
   spi_bridge_slave_init_mode(SPI_BRIDGE_MODE_POLL);
   c5_log_init(); // tee C5 logs to the P4 over SPI for the companion console
   // OTA is triggered on demand over SPI (SPI_ID_SYSTEM_START_UART_OTA); UART0 is
   // the console until then. No always-on UART receiver here anymore.
 
-  sys_monitor(false);
+  sys_monitor_start(false);
 
   wifi_service_init();
 

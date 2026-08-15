@@ -23,13 +23,15 @@ extern "C" {
 #include <stdbool.h>
 
 /**
- * @brief Start the system monitor task.
+ * @brief Start the background system monitor task.
  *
- * Monitors stack usage across all tasks and optionally logs RAM statistics.
+ * Feeds the Task Watchdog, watches every task's stack high-watermark, and does a
+ * controlled restart (never a vTaskDelete) when a task stays critically low for
+ * several consecutive cycles.
  *
- * @param show_ram_logs  Enable verbose RAM logging when true.
+ * @param is_verbose  Log RAM usage every cycle when true.
  */
-void sys_monitor(bool show_ram_logs);
+void sys_monitor_start(bool is_verbose);
 
 #ifdef __cplusplus
 }

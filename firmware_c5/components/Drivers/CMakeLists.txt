@@ -14,8 +14,7 @@
 # along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 
-idf_component_register(SRCS 
-  "bq25896/bq25896.c"
+idf_component_register(SRCS
   "led/led_control.c"
   "spi/spi.c"
   "spi_slave/spi_slave_driver.c"
@@ -24,7 +23,6 @@ idf_component_register(SRCS
 
   INCLUDE_DIRS
   "sys_prio/include"
-  "bq25896/include"
   "led/include"
   "pins/include"
   "spi/include"
