@@ -18,14 +18,12 @@
 #include "lvgl.h"
 #include "st7789.h"
 
-#include "buttons_gpio.h"
 #include "notify_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define NAV_TIMER_INTERVAL_MS 50
 #define SPAM_TICK_MS          120
 #define BEACON_CYCLE_MS       400
 
@@ -52,7 +50,6 @@ static const beacon_t BEACONS[] = {
 #define BEACONS_COUNT (sizeof(BEACONS) / sizeof(BEACONS[0]))
 
 static lv_obj_t *s_screen = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_spam_timer = NULL;
 static lv_timer_t *s_cycle_timer = NULL;
 
@@ -62,10 +59,7 @@ static lv_obj_t *s_uuid_label = NULL;
 static int s_beacons = 0;
 static int s_beacon_idx = 0;
 
-static bool s_back_last = false;
-static bool s_left_last = false;
-
-static void nav_timer_cb(lv_timer_t *timer);
+static void beacon_input(const input_event_t *ev, void *ctx);
 static void spam_tick_cb(lv_timer_t *timer);
 static void cycle_tick_cb(lv_timer_t *timer);
 
@@ -170,10 +164,7 @@ void ui_beacon_spam_open(void) {
   fade_in(card, 260);
   fade_in(s_uuid_label, 300);
 
-  s_back_last = false;
-  s_left_last = false;
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
+  ui_input_set_screen_handler(beacon_input, NULL);
   s_spam_timer = lv_timer_create(spam_tick_cb, SPAM_TICK_MS, NULL);
   s_cycle_timer = lv_timer_create(cycle_tick_cb, BEACON_CYCLE_MS, NULL);
 
@@ -210,23 +201,19 @@ static void cycle_tick_cb(lv_timer_t *timer) {
         s_uuid_label, "%s  %s", BEACONS[s_beacon_idx].kind, BEACONS[s_beacon_idx].uuid);
 }
 
-static void nav_timer_cb(lv_timer_t *timer) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(timer);
-    s_nav_timer = NULL;
-    return;
+static void beacon_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press) {
+        run_stop_timers();
+        ui_switch_screen(SCREEN_BLE_MENU);
+      }
+      break;
+    default:
+      break;
   }
-  if (ui_input_is_locked())
-    return;
-
-  bool is_back = back_button_is_down();
-  bool is_left = left_button_is_down();
-
-  if ((is_back && !s_back_last) || (is_left && !s_left_last)) {
-    run_stop_timers();
-    ui_switch_screen(SCREEN_BLE_MENU);
-  }
-
-  s_back_last = is_back;
-  s_left_last = is_left;
 }
