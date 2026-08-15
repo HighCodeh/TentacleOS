@@ -422,6 +422,10 @@ static void bridge_task(void *pvParameters) {
           status = SPI_STATUS_OK;
         } else if (cmd == SPI_ID_SYSTEM_DATA) {
           uint16_t index;
+          if (header->length < sizeof(index)) {
+            status = SPI_STATUS_INVALID_ARG; // truncated frame - do not read past it
+            break;
+          }
           memcpy(&index, cmd_payload, sizeof(index));
           uint16_t item_count = s_item_count_ptr != NULL ? *s_item_count_ptr : s_item_count;
 
@@ -475,6 +479,10 @@ static void bridge_task(void *pvParameters) {
       case SPI_CAT_SESSION:
         if (cmd == SPI_ID_SESSION_HEARTBEAT) {
           spi_heartbeat_req_t req = {0};
+          if (header->length < sizeof(req)) {
+            status = SPI_STATUS_INVALID_ARG; // truncated frame - do not read past it
+            break;
+          }
           memcpy(&req, cmd_payload, sizeof(req));
           bool alive = session_manager_heartbeat(req.session_id, req.last_acked_seq);
           spi_heartbeat_resp_t resp = {.alive = alive ? (uint8_t)1 : (uint8_t)0};
@@ -483,6 +491,10 @@ static void bridge_task(void *pvParameters) {
           status = SPI_STATUS_OK;
         } else if (cmd == SPI_ID_SESSION_STOP) {
           spi_session_stop_req_t req = {0};
+          if (header->length < sizeof(req)) {
+            status = SPI_STATUS_INVALID_ARG; // truncated frame - do not read past it
+            break;
+          }
           memcpy(&req, cmd_payload, sizeof(req));
           esp_err_t r = session_manager_stop(req.session_id);
           status = (r == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
