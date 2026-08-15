@@ -20,7 +20,6 @@
 #include "lvgl.h"
 #include "st7789.h"
 
-#include "buttons_gpio.h"
 #include "notify_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
@@ -28,7 +27,6 @@
 #include "ui_theme.h"
 #include "waves_ui.h"
 
-#define NAV_TIMER_INTERVAL_MS 50
 #define PAIR_PHASE_MS         2500
 #define CURSOR_BLINK_MS       500
 
@@ -47,7 +45,6 @@ static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_body = NULL;
 static lv_obj_t *s_footer = NULL;
 static lv_obj_t *s_term_label = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_phase_timer = NULL;
 static lv_timer_t *s_cursor_timer = NULL;
 
@@ -56,12 +53,7 @@ static int s_type_pos = 0;
 static bool s_connected = false;
 static bool s_cursor_on = true;
 
-static bool s_ok_last = false;
-static bool s_left_last = false;
-static bool s_right_last = false;
-static bool s_back_last = false;
-
-static void nav_timer_cb(lv_timer_t *timer);
+static void keyboard_input(const input_event_t *ev, void *ctx);
 static void phase_timer_cb(lv_timer_t *timer);
 static void cursor_timer_cb(lv_timer_t *timer);
 static void build_console(void);
@@ -184,10 +176,6 @@ void ui_ble_keyboard_open(void) {
   s_connected = false;
   s_cursor_on = true;
   s_typed[0] = '\0';
-  s_ok_last = false;
-  s_left_last = false;
-  s_right_last = false;
-  s_back_last = false;
   s_phase_timer = NULL;
   s_cursor_timer = NULL;
 
@@ -204,8 +192,7 @@ void ui_ble_keyboard_open(void) {
   s_body = make_body(s_screen);
   build_pairing();
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
+  ui_input_set_screen_handler(keyboard_input, NULL);
 
   s_phase_timer = lv_timer_create(phase_timer_cb, PAIR_PHASE_MS, NULL);
   lv_timer_set_repeat_count(s_phase_timer, 1);
@@ -242,58 +229,46 @@ static void stop_timers(void) {
   }
 }
 
-static void nav_timer_cb(lv_timer_t *timer) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(timer);
-    s_nav_timer = NULL;
-    return;
-  }
-  if (ui_input_is_locked()) {
-    s_ok_last = ok_button_is_down();
-    s_left_last = ui_btn_left();
-    s_right_last = ui_btn_right();
-    s_back_last = back_button_is_down();
-    return;
-  }
+static void keyboard_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
 
-  bool ok = ok_button_is_down();
-  bool left = ui_btn_left();
-  bool right = ui_btn_right();
-  bool back = back_button_is_down();
-
-  if (back && !s_back_last) {
-    stop_timers();
-    ui_switch_screen(SCREEN_BLE_MENU);
-    return;
-  }
-
-  if (s_connected) {
-    if (ok && !s_ok_last) {
-      if (CANNED_TEXT[s_type_pos] != '\0') {
-        append_char(CANNED_TEXT[s_type_pos]);
-        ui_feedback(UI_FB_NAV);
-      } else {
-        notify(NOTIFY_SAVED, "Payload typed");
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+      if (press) {
+        stop_timers();
+        ui_switch_screen(SCREEN_BLE_MENU);
       }
-    }
-    if (right && !s_right_last) {
-      append_char('\n');
-      ui_feedback(UI_FB_NAV);
-    }
-    if (left && !s_left_last) {
-      append_char('\n');
-      append_char('[');
-      append_char('G');
-      append_char('U');
-      append_char('I');
-      append_char(']');
-      append_char('\n');
-      ui_feedback(UI_FB_NAV);
-    }
+      break;
+    case INPUT_BTN_OK:
+      if (press && s_connected) {
+        if (CANNED_TEXT[s_type_pos] != '\0') {
+          append_char(CANNED_TEXT[s_type_pos]);
+          ui_feedback(UI_FB_NAV);
+        } else {
+          notify(NOTIFY_SAVED, "Payload typed");
+        }
+      }
+      break;
+    case INPUT_BTN_RIGHT:
+      if (press && s_connected) {
+        append_char('\n');
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_LEFT:
+      if (press && s_connected) {
+        append_char('\n');
+        append_char('[');
+        append_char('G');
+        append_char('U');
+        append_char('I');
+        append_char(']');
+        append_char('\n');
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    default:
+      break;
   }
-
-  s_ok_last = ok;
-  s_left_last = left;
-  s_right_last = right;
-  s_back_last = back;
 }
