@@ -386,7 +386,7 @@ static void nowplaying_open(const speaker_song_t *song) {
 
   s_np_timer = lv_timer_create(np_timer_cb, NP_TIMER_MS, NULL);
   ui_input_set_screen_handler(speaker_np_input, NULL);
-  ui_screen_load(s_nowplaying);
+  ui_screen_load_owned(&s_nowplaying, s_nowplaying);
 }
 
 static void speaker_np_input(const input_event_t *ev, void *ctx) {
@@ -422,7 +422,7 @@ static void np_timer_cb(lv_timer_t *t) {
       lv_obj_del(s_nowplaying);
       s_nowplaying = NULL;
     }
-    ui_screen_load(s_screen);
+    ui_screen_load_owned(&s_screen, s_screen);
     ui_input_set_screen_handler(speaker_input, NULL);
     return;
   }
@@ -562,6 +562,6 @@ void ui_speaker_open(void) {
     menu_component_add_item(&s_menu, "/assets/icons/music_note.bin", c->songs[i].name);
 
   ui_input_set_screen_handler(speaker_input, NULL);
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
   ESP_LOGI(TAG, "speaker menu opened (category=%s)", c->name);
 }

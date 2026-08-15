@@ -701,5 +701,5 @@ void ui_wav_player_open(void) {
     s_refresh_timer = lv_timer_create(refresh_timer_cb, REFRESH_TIMER_MS, NULL);
   ui_input_set_screen_handler(wav_player_input, NULL);
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
