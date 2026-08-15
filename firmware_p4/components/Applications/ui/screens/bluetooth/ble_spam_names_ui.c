@@ -20,7 +20,6 @@
 
 #include "lvgl.h"
 
-#include "buttons_gpio.h"
 #include "keyboard_ui.h"
 #include "menu_component_ui.h"
 #include "msgbox_ui.h"
@@ -29,7 +28,6 @@
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define NAV_TIMER_MS 50
 #define NAMES_MAX    10
 #define NAME_LEN     24
 
@@ -50,16 +48,13 @@ static const char *const SEED_NAMES[] = {
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
-static lv_timer_t *s_nav_timer = NULL;
 
 static char s_names[NAMES_MAX][NAME_LEN];
 static int s_count = 0;
 static bool s_seeded = false;
 static int s_del_index = -1;
 
-static bool s_up_last, s_down_last, s_left_last, s_ok_last, s_back_last;
-
-static void nav_timer_cb(lv_timer_t *t);
+static void ble_spam_names_input(const input_event_t *ev, void *ctx);
 
 static void seed_once(void) {
   if (s_seeded)
@@ -95,8 +90,7 @@ static void build_screen(void) {
 
   menu_component_set_hint(&s_menu, "OK add / delete   BACK back");
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(ble_spam_names_input, NULL);
 
   ui_screen_load(s_screen);
 }
@@ -130,60 +124,47 @@ static void on_delete_confirm(bool confirm) {
   lv_async_call(rebuild_async, NULL);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
+static void ble_spam_names_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_BLE_SPAM_SELECT);
+      break;
+    case INPUT_BTN_OK:
+      if (press) {
+        int sel = menu_component_get_selected(&s_menu);
+        if (sel >= 0 && sel < s_count) {
+          s_del_index = sel;
+          msgbox_open(LV_SYMBOL_TRASH, "Delete this name?", "Delete", "Cancel", on_delete_confirm);
+        } else if (sel == s_count && s_count < NAMES_MAX) {
+          keyboard_open(NULL, on_kb_submit, NULL);
+        }
+      }
+      break;
+    case INPUT_BTN_DOWN:
+      if (nav) {
+        menu_component_next(&s_menu);
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_UP:
+      if (nav) {
+        menu_component_prev(&s_menu);
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    default:
+      break;
   }
-
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-
-  if (keyboard_is_open() || msgbox_is_open() || ui_input_is_locked()) {
-    s_up_last = up;
-    s_down_last = down;
-    s_left_last = left;
-    s_ok_last = ok;
-    s_back_last = back;
-    return;
-  }
-
-  if (down && !s_down_last) {
-    menu_component_next(&s_menu);
-    ui_feedback(UI_FB_NAV);
-  }
-  if (up && !s_up_last) {
-    menu_component_prev(&s_menu);
-    ui_feedback(UI_FB_NAV);
-  }
-
-  if ((back && !s_back_last) || (left && !s_left_last))
-    ui_switch_screen(SCREEN_BLE_SPAM_SELECT);
-
-  if (ok && !s_ok_last) {
-    int sel = menu_component_get_selected(&s_menu);
-    if (sel >= 0 && sel < s_count) {
-      s_del_index = sel;
-      msgbox_open(LV_SYMBOL_TRASH, "Delete this name?", "Delete", "Cancel", on_delete_confirm);
-    } else if (sel == s_count && s_count < NAMES_MAX) {
-      keyboard_open(NULL, on_kb_submit, NULL);
-    }
-  }
-
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 void ui_ble_spam_names_open(void) {
   seed_once();
   s_del_index = -1;
-  s_up_last = s_down_last = s_left_last = s_ok_last = s_back_last = false;
   build_screen();
 }
