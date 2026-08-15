@@ -20,13 +20,10 @@
 #include "lvgl.h"
 #include "st7789.h"
 
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
-
-#define NAV_TIMER_MS 50
 
 #define MX        8
 #define BODY_H    (LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
@@ -78,14 +75,10 @@
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_put_mark = NULL;
 static lv_obj_t *s_put_pct = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_stream_timer = NULL;
 static lv_point_precise_t s_link_pts[2] = {{2, CONN_MID}, {CONN_W - 2, CONN_MID}};
 
 static int s_pct = STREAM_START;
-static bool s_ok_last = false;
-static bool s_back_last = false;
-static bool s_left_last = false;
 
 static lv_obj_t *make_device(lv_obj_t *parent, const char *glyph, const char *name, bool active) {
   lv_obj_t *col = lv_obj_create(parent);
@@ -275,29 +268,23 @@ static void build_body(lv_obj_t *parent) {
   set_pct_text();
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
+static void nfc_p2p_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_NFC_MENU);
+      break;
+    case INPUT_BTN_OK:
+      if (press)
+        ui_feedback(UI_FB_SELECT);
+      break;
+    default:
+      break;
   }
-  if (ui_input_is_locked())
-    return;
-
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-  bool left = ui_btn_left();
-
-  if ((back && !s_back_last) || (left && !s_left_last)) {
-    ui_switch_screen(SCREEN_NFC_MENU);
-    return;
-  }
-  if (ok && !s_ok_last)
-    ui_feedback(UI_FB_SELECT);
-
-  s_ok_last = ok;
-  s_back_last = back;
-  s_left_last = left;
 }
 
 void ui_nfc_p2p_open(void) {
@@ -310,7 +297,6 @@ void ui_nfc_p2p_open(void) {
     s_stream_timer = NULL;
   }
   s_pct = STREAM_START;
-  s_ok_last = s_back_last = s_left_last = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -336,8 +322,7 @@ void ui_nfc_p2p_open(void) {
 
   ui_chrome_footer(s_screen, FOOTER_HINT);
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(nfc_p2p_input, NULL);
   s_stream_timer = lv_timer_create(stream_cb, STREAM_MS, NULL);
 
   ui_screen_load(s_screen);
