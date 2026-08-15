@@ -124,8 +124,11 @@ esp_err_t kernel_init(void) {
 
   sys_shutdown_init();
 
-  // Power management: DFS + light sleep (gated by the NO_LIGHT_SLEEP lock, which
-  // power_policy holds while the screen is on). Set up before tasks come up.
+  // Power management: light sleep, no DFS (frequency pinned so the console UART
+  // baud survives). It is gated by the NO_LIGHT_SLEEP lock, held while on external
+  // power / native USB (item 41). The screen does NOT hold the lock: the backlight
+  // is always on and cannot be controlled yet, so on battery the CPU may light
+  // sleep with the panel lit. Set up before tasks come up.
   power_manager_init();
 
   // 2. Buses

@@ -94,8 +94,8 @@ CONFIG_ESP_TASK_WDT_PANIC=y
 # on-bench iteration (UART wake source, per-resource NO_LIGHT_SLEEP locks). The
 # big power wins - C5 radio off when idle, screen dim/off, ship mode - do not
 # depend on this. Infra is kept (Service/power_manager, screen gate) for later.
-# CONFIG_PM_ENABLE is not set
-# CONFIG_FREERTOS_USE_TICKLESS_IDLE is not set
+CONFIG_PM_ENABLE=y
+CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
 
 # Core dump to the dedicated flash partition (ELF format) for field forensics.
 # On a panic the backtrace/registers/task stacks are saved; the boot report reads
