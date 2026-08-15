@@ -28,7 +28,6 @@
 #include "reboot_ui.h"
 #include "ui_manager.h"
 #include "lv_port_indev.h"
-#include "buttons_gpio.h"
 #include "c5_flasher.h"
 #include "spi_protocol.h"
 #include "esp_system.h"
@@ -38,7 +37,6 @@
 
 static const char *TAG = "SETTINGS_UI";
 
-#define NAV_TIMER_PERIOD_MS 50
 #define ENTRY_FADE_MS       180
 
 #define C5_PROGRESS_TICK_MS       200
@@ -131,7 +129,6 @@ static const settings_item_t DEV_ITEMS[] = {
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
-static lv_timer_t *s_nav_timer = NULL;
 static settings_view_t s_view = VIEW_MAIN;
 
 static lv_obj_t *s_dev_tiles[DEV_COUNT];
@@ -142,13 +139,6 @@ static lv_obj_t *s_c5_status_label = NULL;
 static lv_obj_t *s_c5_bar = NULL;
 static lv_timer_t *s_c5_prog_timer = NULL;
 static bool s_c5_in_progress = false;
-
-static bool s_btn_up_last = false;
-static bool s_btn_down_last = false;
-static bool s_btn_left_last = false;
-static bool s_btn_right_last = false;
-static bool s_btn_ok_last = false;
-static bool s_btn_back_last = false;
 
 static void build_settings_view(settings_view_t view);
 
@@ -541,138 +531,107 @@ static void build_dev_grid(void) {
   lv_obj_fade_in(grid, ENTRY_FADE_MS, 0);
 }
 
-static void dev_grid_nav(void) {
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool right = ui_btn_right();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
+static void dev_grid_input(const input_event_t *ev) {
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
   if (s_c5_overlay != NULL) {
-    if (back && !s_btn_back_last)
+    if (press && ev->button == INPUT_BTN_BACK)
       hide_c5_progress();
-    s_btn_up_last = up;
-    s_btn_down_last = down;
-    s_btn_left_last = left;
-    s_btn_right_last = right;
-    s_btn_ok_last = ok;
-    s_btn_back_last = back;
     return;
   }
 
-  if (back && !s_btn_back_last) {
-    s_btn_back_last = back;
-    build_settings_view(VIEW_MAIN);
-    return;
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+      if (press)
+        build_settings_view(VIEW_MAIN);
+      break;
+    case INPUT_BTN_RIGHT:
+      if (nav) {
+        s_dev_sel = (s_dev_sel + 1) % DEV_COUNT;
+        update_dev_selection();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_LEFT:
+      if (nav) {
+        s_dev_sel = (s_dev_sel == 0) ? DEV_COUNT - 1 : s_dev_sel - 1;
+        update_dev_selection();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_DOWN:
+      if (nav && s_dev_sel + DEV_GRID_COLS < DEV_COUNT) {
+        s_dev_sel += DEV_GRID_COLS;
+        update_dev_selection();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_UP:
+      if (nav && s_dev_sel - DEV_GRID_COLS >= 0) {
+        s_dev_sel -= DEV_GRID_COLS;
+        update_dev_selection();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_OK:
+      if (press)
+        run_action(DEV_ITEMS[s_dev_sel].target);
+      break;
+    default:
+      break;
   }
-  if (right && !s_btn_right_last) {
-    s_dev_sel = (s_dev_sel + 1) % DEV_COUNT;
-    update_dev_selection();
-    ui_feedback(UI_FB_NAV);
-  }
-  if (left && !s_btn_left_last) {
-    s_dev_sel = (s_dev_sel == 0) ? DEV_COUNT - 1 : s_dev_sel - 1;
-    update_dev_selection();
-    ui_feedback(UI_FB_NAV);
-  }
-  if (down && !s_btn_down_last && s_dev_sel + DEV_GRID_COLS < DEV_COUNT) {
-    s_dev_sel += DEV_GRID_COLS;
-    update_dev_selection();
-    ui_feedback(UI_FB_NAV);
-  }
-  if (up && !s_btn_up_last && s_dev_sel - DEV_GRID_COLS >= 0) {
-    s_dev_sel -= DEV_GRID_COLS;
-    update_dev_selection();
-    ui_feedback(UI_FB_NAV);
-  }
-  if (ok && !s_btn_ok_last)
-    run_action(DEV_ITEMS[s_dev_sel].target);
-
-  s_btn_up_last = up;
-  s_btn_down_last = down;
-  s_btn_left_last = left;
-  s_btn_right_last = right;
-  s_btn_ok_last = ok;
-  s_btn_back_last = back;
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
-  if (ui_input_is_locked())
-    return;
-
-  if (msgbox_is_open())
-    return;
+static void settings_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
   if (s_view == VIEW_DEV) {
-    dev_grid_nav();
+    dev_grid_input(ev);
     return;
   }
 
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool right = ui_btn_right();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-
-  if (down && !s_btn_down_last)
-    menu_component_next(&s_menu);
-
-  if (up && !s_btn_up_last)
-    menu_component_prev(&s_menu);
-
-  if ((back && !s_btn_back_last) || (left && !s_btn_left_last)) {
-    if (s_view != VIEW_MAIN) {
-      build_settings_view(VIEW_MAIN);
-    } else {
-      ui_switch_screen(SCREEN_MENU);
-    }
-
-    s_btn_up_last = up;
-    s_btn_down_last = down;
-    s_btn_left_last = left;
-    s_btn_right_last = right;
-    s_btn_ok_last = ok;
-    s_btn_back_last = back;
-    return;
-  }
-
-  if ((ok && !s_btn_ok_last) || (right && !s_btn_right_last)) {
-    int count = 0;
-    const settings_item_t *items = view_table(s_view, &count, NULL, NULL);
-    int sel = menu_component_get_selected(&s_menu);
-    if (sel >= 0 && sel < count) {
-      int target = items[sel].target;
-      if (target == GOTO_LAB) {
-        build_settings_view(VIEW_LAB);
-      } else if (target == GOTO_DEV) {
-        build_settings_view(VIEW_DEV);
-      } else if (!run_action(target)) {
-        ui_switch_screen(target);
+  switch (ev->button) {
+    case INPUT_BTN_DOWN:
+      if (nav)
+        menu_component_next(&s_menu);
+      break;
+    case INPUT_BTN_UP:
+      if (nav)
+        menu_component_prev(&s_menu);
+      break;
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press) {
+        if (s_view != VIEW_MAIN)
+          build_settings_view(VIEW_MAIN);
+        else
+          ui_switch_screen(SCREEN_MENU);
       }
-
-      s_btn_up_last = up;
-      s_btn_down_last = down;
-      s_btn_left_last = left;
-      s_btn_right_last = right;
-      s_btn_ok_last = ok;
-      s_btn_back_last = back;
-      return;
-    }
+      break;
+    case INPUT_BTN_OK:
+    case INPUT_BTN_RIGHT:
+      if (press) {
+        int count = 0;
+        const settings_item_t *items = view_table(s_view, &count, NULL, NULL);
+        int sel = menu_component_get_selected(&s_menu);
+        if (sel >= 0 && sel < count) {
+          int target = items[sel].target;
+          if (target == GOTO_LAB) {
+            build_settings_view(VIEW_LAB);
+          } else if (target == GOTO_DEV) {
+            build_settings_view(VIEW_DEV);
+          } else if (!run_action(target)) {
+            ui_switch_screen(target);
+          }
+        }
+      }
+      break;
+    default:
+      break;
   }
-
-  s_btn_up_last = up;
-  s_btn_down_last = down;
-  s_btn_left_last = left;
-  s_btn_right_last = right;
-  s_btn_ok_last = ok;
-  s_btn_back_last = back;
 }
 
 static void build_settings_view(settings_view_t view) {
@@ -707,8 +666,7 @@ static void build_settings_view(settings_view_t view) {
       lv_obj_fade_in(s_menu.items_cont, ENTRY_FADE_MS, 0);
   }
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_PERIOD_MS, NULL);
+  ui_input_set_screen_handler(settings_input, NULL);
 
   ui_screen_load(s_screen);
   if (prev != NULL)
