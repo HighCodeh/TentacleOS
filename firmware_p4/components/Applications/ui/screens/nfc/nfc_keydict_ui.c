@@ -18,13 +18,10 @@
 #include "lvgl.h"
 #include "st7789.h"
 
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
-
-#define NAV_TIMER_MS 50
 
 #define MX        8
 #define BODY_H    (LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
@@ -70,13 +67,8 @@ static const key_def_t KEYS[KEY_COUNT] = {
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_row[KEY_COUNT];
 static lv_obj_t *s_hex[KEY_COUNT];
-static lv_timer_t *s_nav_timer = NULL;
 
 static int s_sel = 0;
-static bool s_ok_last = false;
-static bool s_back_last = false;
-static bool s_up_last = false;
-static bool s_down_last = false;
 
 static void make_chip(lv_obj_t *parent, const char *txt, bool sel) {
   lv_obj_t *chip = lv_obj_create(parent);
@@ -197,41 +189,37 @@ static void build_body(lv_obj_t *parent) {
   make_chip(actions, ACT_SD, false);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
-  if (ui_input_is_locked())
-    return;
+static void nfc_keydict_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-
-  if (back && !s_back_last) {
-    ui_switch_screen(SCREEN_NFC_MENU);
-    return;
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+      if (press)
+        ui_switch_screen(SCREEN_NFC_MENU);
+      break;
+    case INPUT_BTN_DOWN:
+      if (nav) {
+        s_sel = (s_sel + 1) % KEY_COUNT;
+        refresh_selection();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_UP:
+      if (nav) {
+        s_sel = (s_sel - 1 + KEY_COUNT) % KEY_COUNT;
+        refresh_selection();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_OK:
+      if (press)
+        ui_feedback(UI_FB_SELECT);
+      break;
+    default:
+      break;
   }
-  if (down && !s_down_last) {
-    s_sel = (s_sel + 1) % KEY_COUNT;
-    refresh_selection();
-    ui_feedback(UI_FB_NAV);
-  }
-  if (up && !s_up_last) {
-    s_sel = (s_sel - 1 + KEY_COUNT) % KEY_COUNT;
-    refresh_selection();
-    ui_feedback(UI_FB_NAV);
-  }
-  if (ok && !s_ok_last)
-    ui_feedback(UI_FB_SELECT);
-
-  s_ok_last = ok;
-  s_back_last = back;
-  s_up_last = up;
-  s_down_last = down;
 }
 
 void ui_nfc_keydict_open(void) {
@@ -240,7 +228,6 @@ void ui_nfc_keydict_open(void) {
     s_screen = NULL;
   }
   s_sel = 0;
-  s_ok_last = s_back_last = s_up_last = s_down_last = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -266,8 +253,7 @@ void ui_nfc_keydict_open(void) {
 
   ui_chrome_footer(s_screen, FOOTER_HINT);
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(nfc_keydict_input, NULL);
 
   ui_screen_load(s_screen);
 }
