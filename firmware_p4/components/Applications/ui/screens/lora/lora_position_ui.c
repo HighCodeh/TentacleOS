@@ -18,13 +18,10 @@
 #include "lvgl.h"
 #include "st7789.h"
 
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
-
-#define NAV_TIMER_MS 50
 
 #define HDR_TITLE   "POSITION"
 #define HDR_ICON    NULL
@@ -72,15 +69,9 @@ static lv_obj_t *s_tag[FIELD_CNT];
 static lv_obj_t *s_caret[FIELD_CNT];
 static lv_obj_t *s_bc_row = NULL;
 static lv_obj_t *s_bc_val = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 
 static int s_field = 1;
 static bool s_bcast = true;
-static bool s_up_last = false;
-static bool s_down_last = false;
-static bool s_left_last = false;
-static bool s_ok_last = false;
-static bool s_back_last = false;
 
 static void make_field(lv_obj_t *card, int i) {
   lv_obj_t *row = lv_obj_create(card);
@@ -153,46 +144,41 @@ static void refresh_broadcast(void) {
   }
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
-  if (ui_input_is_locked())
-    return;
+static void lora_position_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-
-  if ((back && !s_back_last) || (left && !s_left_last)) {
-    ui_switch_screen(SCREEN_LORA_CHAT);
-    return;
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_LORA_CHAT);
+      break;
+    case INPUT_BTN_DOWN:
+      if (nav) {
+        s_field = (s_field + 1) % FIELD_CNT;
+        refresh_fields();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_UP:
+      if (nav) {
+        s_field = (s_field - 1 + FIELD_CNT) % FIELD_CNT;
+        refresh_fields();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_OK:
+      if (press) {
+        s_bcast = !s_bcast;
+        refresh_broadcast();
+        ui_feedback(UI_FB_SELECT);
+      }
+      break;
+    default:
+      break;
   }
-  if (down && !s_down_last) {
-    s_field = (s_field + 1) % FIELD_CNT;
-    refresh_fields();
-    ui_feedback(UI_FB_NAV);
-  }
-  if (up && !s_up_last) {
-    s_field = (s_field - 1 + FIELD_CNT) % FIELD_CNT;
-    refresh_fields();
-    ui_feedback(UI_FB_NAV);
-  }
-  if (ok && !s_ok_last) {
-    s_bcast = !s_bcast;
-    refresh_broadcast();
-    ui_feedback(UI_FB_SELECT);
-  }
-
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 void ui_lora_position_open(void) {
@@ -202,7 +188,6 @@ void ui_lora_position_open(void) {
   }
   s_field = 1;
   s_bcast = true;
-  s_up_last = s_down_last = s_left_last = s_ok_last = s_back_last = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -285,8 +270,7 @@ void ui_lora_position_open(void) {
 
   ui_chrome_footer(s_screen, FOOTER_HINT);
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(lora_position_input, NULL);
 
   ui_screen_load(s_screen);
 }
