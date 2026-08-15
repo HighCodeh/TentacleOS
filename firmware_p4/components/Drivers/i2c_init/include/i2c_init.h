@@ -20,10 +20,18 @@
 extern "C" {
 #endif
 
+#include "esp_err.h"
+
 /**
  * @brief Initialize the I2C master bus on I2C_NUM_0.
+ *
+ * Runs a bus-recovery sequence first (clocks out a slave that is holding SDA low
+ * after a partial reset or power glitch) so a stuck bus does not leave the
+ * charger/haptic/LED unreachable for the whole session.
+ *
+ * @return ESP_OK on success, otherwise the failing esp_err_t.
  */
-void init_i2c(void);
+esp_err_t init_i2c(void);
 
 #ifdef __cplusplus
 }

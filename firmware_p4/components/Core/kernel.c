@@ -150,9 +150,10 @@ esp_err_t kernel_init(void) {
     ESP_LOGE(TAG, "gpio_install_isr_service failed: %s", esp_err_to_name(isr_ret));
   }
 
-  // 2. Buses
+  // 2. Buses. I2C failure degrades the charger/haptic/LED but not the whole boot,
+  // so it is reported (item 8) without forcing safe mode.
   spi_init();
-  init_i2c();
+  boot_report_record("i2c", false, init_i2c());
 
   // 3. Storage. SD is optional (may be absent); the assets LittleFS is required
   // for icons/config/fonts, so its failure drops us into safe mode below.
