@@ -19,6 +19,7 @@
 
 #include "battery_service.h"
 #include "bq25896.h"
+#include "input_manager.h"
 #include "led_control.h"
 #include "notify_ui.h"
 
@@ -28,7 +29,9 @@
 // battery safety net - low/critical warnings and a graceful power-off at ~2% so
 // the pack is not deep-discharged. It acts on battery only (no effect on USB).
 
-#define BATT_CHECK_MS 2000 // battery poll cadence
+#define POWER_POLL_MS    200  // tick cadence (fine enough to time a button hold)
+#define BATT_CHECK_MS    2000 // battery poll cadence (accumulated from POWER_POLL_MS)
+#define POWEROFF_HOLD_MS 3000 // OK + LEFT held this long powers the device off
 
 #define BATT_CRIT_PCT         5  // at/below: repeated critical warning
 #define BATT_SHUTDOWN_PCT     2  // at/below (sustained): graceful power off
@@ -38,6 +41,8 @@ static lv_timer_t *s_timer = NULL;
 static bool s_low_last = false;
 static bool s_crit_last = false;
 static int s_shutdown_count = 0;
+static uint32_t s_batt_accum_ms = 0;
+static uint32_t s_poweroff_held_ms = 0;
 
 static void check_battery(void) {
   battery_snapshot_t bs;
@@ -74,9 +79,32 @@ static void check_battery(void) {
   }
 }
 
+// Power-off combo: hold OK + LEFT for POWEROFF_HOLD_MS. This pair is deliberate -
+// BACK and LEFT are wired to the charger /QON and the P4 CHIP_PU (holding both
+// would reset the P4 in hardware before firmware could act), while OK is not in
+// that path, so the firmware stays alive to issue the ship-mode command.
+static void check_power_combo(void) {
+  if (input_is_down(INPUT_BTN_OK) && input_is_down(INPUT_BTN_LEFT)) {
+    s_poweroff_held_ms += POWER_POLL_MS;
+    if (s_poweroff_held_ms >= POWEROFF_HOLD_MS) {
+      s_poweroff_held_ms = 0;
+      notify(NOTIFY_WARNING, "Desligando...");
+      bq25896_power_off(); // ship mode (no effect while on USB / VBUS present)
+    }
+  } else {
+    s_poweroff_held_ms = 0;
+  }
+}
+
 static void tick_cb(lv_timer_t *t) {
   (void)t;
-  check_battery();
+  check_power_combo();
+
+  s_batt_accum_ms += POWER_POLL_MS;
+  if (s_batt_accum_ms >= BATT_CHECK_MS) {
+    s_batt_accum_ms = 0;
+    check_battery();
+  }
 }
 
 bool power_policy_is_asleep(void) {
@@ -87,5 +115,5 @@ void power_policy_init(void) {
   if (s_timer != NULL) {
     return;
   }
-  s_timer = lv_timer_create(tick_cb, BATT_CHECK_MS, NULL);
+  s_timer = lv_timer_create(tick_cb, POWER_POLL_MS, NULL);
 }
