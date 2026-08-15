@@ -23,7 +23,6 @@
 #include "st7789.h"
 
 #include "assets_manager.h"
-#include "buttons_gpio.h"
 #include "capture_result_ui.h"
 #include "ir_store.h"
 #include "keyboard_ui.h"
@@ -37,7 +36,6 @@
 
 static const char *TAG = "IR_SAVED_UI";
 
-#define NAV_TIMER_MS 50
 #define MAX_PROTOS   16
 #define MAX_FILES    IR_STORE_MAX_ENTRIES
 
@@ -70,7 +68,6 @@ typedef enum {
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
 static capture_result_t s_cr = {0};
-static lv_timer_t *s_nav_timer = NULL;
 
 static browse_level_t s_level = LEVEL_PROTOCOLS;
 static int s_proto = 0;
@@ -93,14 +90,8 @@ static lv_obj_t *s_file_names[MAX_FILES];
 static lv_obj_t *s_file_values[MAX_FILES];
 static lv_obj_t *s_file_thumb = NULL;
 
-static bool s_btn_up_last = false;
-static bool s_btn_down_last = false;
-static bool s_btn_left_last = false;
-static bool s_btn_ok_last = false;
-static bool s_btn_back_last = false;
-
 static void build_screen(void);
-static void nav_timer_cb(lv_timer_t *t);
+static void ir_saved_input(const input_event_t *ev, void *ctx);
 
 // Re-scan /sdcard/ir and rebuild the distinct-protocol bucket list.
 static void reload_all(void) {
@@ -393,139 +384,144 @@ static void build_screen(void) {
     ui_chrome_footer(s_screen, "UP/DOWN choose   OK do   BACK back");
   }
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(ir_saved_input, NULL);
 
   ui_screen_load(s_screen);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
-
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-
-  if (msgbox_is_open() || keyboard_is_open() || ui_input_is_locked()) {
-    s_btn_up_last = up;
-    s_btn_down_last = down;
-    s_btn_left_last = left;
-    s_btn_ok_last = ok;
-    s_btn_back_last = back;
-    return;
-  }
-
-  bool up_e = up && !s_btn_up_last;
-  bool down_e = down && !s_btn_down_last;
-  bool left_e = left && !s_btn_left_last;
-  bool ok_e = ok && !s_btn_ok_last;
-  bool back_e = back && !s_btn_back_last;
-
-  s_btn_up_last = up;
-  s_btn_down_last = down;
-  s_btn_left_last = left;
-  s_btn_ok_last = ok;
-  s_btn_back_last = back;
+static void ir_saved_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
   if (s_level == LEVEL_ACTIONS) {
-    if (down_e) {
-      capture_result_next(&s_cr);
-      ui_feedback(UI_FB_NAV);
-    }
-    if (up_e) {
-      capture_result_prev(&s_cr);
-      ui_feedback(UI_FB_NAV);
-    }
-    if (ok_e) {
-      switch (capture_result_selected(&s_cr)) {
-        case CAP_ACT_PRIMARY:
-          ui_feedback(UI_FB_EMULATE);
-          send_selected();
-          notify(NOTIFY_INFO, "Signal sent");
-          break;
-        case CAP_ACT_SAVE:
-          if (!s_saved) {
-            s_saved = true;
-            capture_result_mark_saved(&s_cr);
-            notify(NOTIFY_INFO, "Already saved");
+    switch (ev->button) {
+      case INPUT_BTN_DOWN:
+        if (nav) {
+          capture_result_next(&s_cr);
+          ui_feedback(UI_FB_NAV);
+        }
+        break;
+      case INPUT_BTN_UP:
+        if (nav) {
+          capture_result_prev(&s_cr);
+          ui_feedback(UI_FB_NAV);
+        }
+        break;
+      case INPUT_BTN_OK:
+        if (press) {
+          switch (capture_result_selected(&s_cr)) {
+            case CAP_ACT_PRIMARY:
+              ui_feedback(UI_FB_EMULATE);
+              send_selected();
+              notify(NOTIFY_INFO, "Signal sent");
+              break;
+            case CAP_ACT_SAVE:
+              if (!s_saved) {
+                s_saved = true;
+                capture_result_mark_saved(&s_cr);
+                notify(NOTIFY_INFO, "Already saved");
+              }
+              break;
+            case CAP_ACT_AGAIN:
+              keyboard_open(NULL, on_rename_submit, NULL);
+              break;
+            case CAP_ACT_DISCARD:
+              msgbox_open(
+                  LV_SYMBOL_TRASH, "Delete this signal?", "Delete", "Cancel", on_delete_confirm);
+              break;
+            default:
+              break;
           }
-          break;
-        case CAP_ACT_AGAIN:
-          keyboard_open(NULL, on_rename_submit, NULL);
-          break;
-        case CAP_ACT_DISCARD:
-          msgbox_open(
-              LV_SYMBOL_TRASH, "Delete this signal?", "Delete", "Cancel", on_delete_confirm);
-          break;
-        default:
-          break;
-      }
-    }
-    if (back_e || left_e) {
-      s_level = LEVEL_FILES;
-      build_screen();
-      return;
+        }
+        break;
+      case INPUT_BTN_BACK:
+      case INPUT_BTN_LEFT:
+        if (press) {
+          s_level = LEVEL_FILES;
+          build_screen();
+        }
+        break;
+      default:
+        break;
     }
     return;
   }
 
   if (s_level == LEVEL_PROTOCOLS) {
-    if (down_e) {
-      menu_component_next(&s_menu);
-      ui_feedback(UI_FB_NAV);
+    switch (ev->button) {
+      case INPUT_BTN_DOWN:
+        if (nav) {
+          menu_component_next(&s_menu);
+          ui_feedback(UI_FB_NAV);
+        }
+        break;
+      case INPUT_BTN_UP:
+        if (nav) {
+          menu_component_prev(&s_menu);
+          ui_feedback(UI_FB_NAV);
+        }
+        break;
+      case INPUT_BTN_OK:
+        if (press) {
+          if (s_proto_count == 0) {
+            notify(NOTIFY_INFO, "Capture a signal in Learn first");
+            return;
+          }
+          s_proto = menu_component_get_selected(&s_menu);
+          if (s_proto < 0 || s_proto >= s_proto_count)
+            s_proto = 0;
+          snprintf(s_proto_name, sizeof(s_proto_name), "%s", s_protos[s_proto]);
+          s_file = 0;
+          filter_for_proto(s_proto_name);
+          s_level = LEVEL_FILES;
+          ui_feedback(UI_FB_SELECT);
+          build_screen();
+        }
+        break;
+      case INPUT_BTN_BACK:
+      case INPUT_BTN_LEFT:
+        if (press)
+          ui_switch_screen(SCREEN_IR_MENU);
+        break;
+      default:
+        break;
     }
-    if (up_e) {
-      menu_component_prev(&s_menu);
-      ui_feedback(UI_FB_NAV);
-    }
-    if (ok_e) {
-      if (s_proto_count == 0) {
-        notify(NOTIFY_INFO, "Capture a signal in Learn first");
-        return;
-      }
-      s_proto = menu_component_get_selected(&s_menu);
-      if (s_proto < 0 || s_proto >= s_proto_count)
-        s_proto = 0;
-      snprintf(s_proto_name, sizeof(s_proto_name), "%s", s_protos[s_proto]);
-      s_file = 0;
-      filter_for_proto(s_proto_name);
-      s_level = LEVEL_FILES;
-      ui_feedback(UI_FB_SELECT);
-      build_screen();
-      return;
-    }
-    if (back_e || left_e)
-      ui_switch_screen(SCREEN_IR_MENU);
     return;
   }
 
-  if (down_e && s_file < s_file_count - 1) {
-    s_file++;
-    update_file_selection();
-    ui_feedback(UI_FB_NAV);
-  }
-  if (up_e && s_file > 0) {
-    s_file--;
-    update_file_selection();
-    ui_feedback(UI_FB_NAV);
-  }
-  if (ok_e && s_file_count > 0) {
-    s_saved = false;
-    s_level = LEVEL_ACTIONS;
-    ui_feedback(UI_FB_SELECT);
-    build_screen();
-    return;
-  }
-  if (back_e || left_e) {
-    s_level = LEVEL_PROTOCOLS;
-    build_screen();
-    return;
+  switch (ev->button) {
+    case INPUT_BTN_DOWN:
+      if (nav && s_file < s_file_count - 1) {
+        s_file++;
+        update_file_selection();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_UP:
+      if (nav && s_file > 0) {
+        s_file--;
+        update_file_selection();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_OK:
+      if (press && s_file_count > 0) {
+        s_saved = false;
+        s_level = LEVEL_ACTIONS;
+        ui_feedback(UI_FB_SELECT);
+        build_screen();
+      }
+      break;
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press) {
+        s_level = LEVEL_PROTOCOLS;
+        build_screen();
+      }
+      break;
+    default:
+      break;
   }
 }
 
@@ -535,10 +531,5 @@ void ui_ir_saved_open(void) {
   s_file = 0;
   s_saved = false;
   reload_all();
-  s_btn_up_last = false;
-  s_btn_down_last = false;
-  s_btn_left_last = false;
-  s_btn_ok_last = false;
-  s_btn_back_last = false;
   build_screen();
 }
