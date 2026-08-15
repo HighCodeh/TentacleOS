@@ -313,13 +313,15 @@ static void clear_current_screen(void) {
   }
 }
 
+// Tick-safe comparisons: lv_tick_get() is a uint32_t ms counter that wraps every
+// ~49.7 days, so compare signed deltas instead of the raw values.
 bool ui_input_is_locked(void) {
-  return (lv_tick_get() < input_lock_until);
+  return (int32_t)(lv_tick_get() - input_lock_until) < 0;
 }
 
 void ui_input_lock(uint32_t ms) {
   uint32_t until = lv_tick_get() + ms;
-  if (until > input_lock_until)
+  if ((int32_t)(until - input_lock_until) > 0)
     input_lock_until = until;
 }
 
