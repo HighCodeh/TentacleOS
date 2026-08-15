@@ -43,6 +43,7 @@
 #include "tos_config.h"
 #include "tos_theme.h"
 #include "wifi_service.h"
+#include "bluetooth_service.h"
 #include "console_service.h"
 #include "host_link.h"
 #include "host_link_ble.h"
@@ -216,7 +217,13 @@ esp_err_t kernel_init(void) {
 
   // 7. Services
   sys_monitor_start(false);
+  // Radio status poll always runs (feeds the header indicators); the radios
+  // themselves come up only if the saved config left them enabled.
   wifi_service_init();
+  if (g_config_wifi.enabled)
+    wifi_service_start();
+  if (g_config_ble.enabled)
+    bluetooth_service_start();
 
   // USB-C data mux defaults to the CP2105 UART bridge (serial console / flash).
   // The user switches to native P4 USB at runtime from Connection settings.
