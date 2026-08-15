@@ -206,7 +206,6 @@ esp_err_t kernel_init(void) {
   // 7. Services
   sys_monitor_start(false);
   wifi_service_init();
-  xTaskCreatePinnedToCore(console_task, "console_task", CONSOLE_TASK_STACK, NULL, CONSOLE_TASK_PRIO, NULL, SYS_CORE_RADIO);
 
   // USB-C data mux defaults to the CP2105 UART bridge (serial console / flash).
   // The user switches to native P4 USB at runtime from Connection settings.
@@ -218,6 +217,12 @@ esp_err_t kernel_init(void) {
   host_link_init();
   host_link_cdc_init();
   host_link_log_init();
+
+  // Console last: esp_console_new_repl_uart takes over UART0 (installs the driver
+  // + redirects stdout). Do it after all the boot logging above so the takeover
+  // does not race concurrent writes on UART0 (that race left UART0 dead: output
+  // died right at host_link_log_init and the REPL prompt never appeared).
+  xTaskCreatePinnedToCore(console_task, "console_task", CONSOLE_TASK_STACK, NULL, CONSOLE_TASK_PRIO, NULL, SYS_CORE_RADIO);
   // C5-dependent host-link pieces disabled with the bridge: the C5 log relay and
   // the BLE relay status poller (SPI_ID_HOST_STATUS) both talk to the C5.
   // host_link_c5log_init(); // relay C5 logs (SPI_ID_SYSTEM_LOG) as source=C5 LOG frames
