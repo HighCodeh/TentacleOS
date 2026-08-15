@@ -24,7 +24,6 @@
 #include "sys_prio.h"
 #include "lvgl.h"
 
-#include "buttons_gpio.h"
 #include "menu_component_ui.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
@@ -32,7 +31,6 @@
 
 static const char *TAG = "SPEAKER_UI";
 
-#define NAV_TIMER_MS      50
 #define VOLUME_ROW        0
 #define CATEGORY_ROW      1
 #define SONG_ROW_BASE     2
@@ -242,7 +240,6 @@ static const speaker_cat_t CATS[] = {
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
-static lv_timer_t *s_nav_timer = NULL;
 static int s_category = 0;
 
 static lv_obj_t *s_nowplaying = NULL;
@@ -260,10 +257,6 @@ static volatile bool s_cancel = false;
 static volatile int s_cur_idx = 0;
 static volatile int s_note_count = 1;
 static volatile uint16_t s_cur_freq = 0;
-
-static bool s_btn_up_last, s_btn_down_last, s_btn_left_last, s_btn_right_last;
-static bool s_btn_ok_last, s_btn_back_last;
-static bool s_np_ok_last, s_np_back_last;
 
 static void apply_volume(int level) {
   if (level < 0)
@@ -335,7 +328,8 @@ static lv_obj_t *make_eq_bar(lv_obj_t *parent) {
 }
 
 static void np_timer_cb(lv_timer_t *t);
-static void nav_timer_cb(lv_timer_t *t);
+static void speaker_input(const input_event_t *ev, void *ctx);
+static void speaker_np_input(const input_event_t *ev, void *ctx);
 
 static void nowplaying_open(const speaker_song_t *song) {
   if (s_nowplaying != NULL) {
@@ -344,8 +338,6 @@ static void nowplaying_open(const speaker_song_t *song) {
   }
   for (int i = 0; i < N_EQ; i++)
     s_eq_disp[i] = 0.0f;
-  s_np_ok_last = false;
-  s_np_back_last = false;
 
   s_nowplaying = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_nowplaying, current_theme.screen_base, 0);
@@ -393,7 +385,23 @@ static void nowplaying_open(const speaker_song_t *song) {
   lv_obj_align(s_np_count, LV_ALIGN_CENTER, 0, 80);
 
   s_np_timer = lv_timer_create(np_timer_cb, NP_TIMER_MS, NULL);
+  ui_input_set_screen_handler(speaker_np_input, NULL);
   ui_screen_load(s_nowplaying);
+}
+
+static void speaker_np_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+
+  switch (ev->button) {
+    case INPUT_BTN_OK:
+    case INPUT_BTN_BACK:
+      if (press)
+        s_cancel = true;
+      break;
+    default:
+      break;
+  }
 }
 
 static void np_timer_cb(lv_timer_t *t) {
@@ -406,14 +414,6 @@ static void np_timer_cb(lv_timer_t *t) {
     }
     return;
   }
-  if (!ui_input_is_locked()) {
-    bool ok = ok_button_is_down();
-    bool back = back_button_is_down();
-    if ((ok && !s_np_ok_last) || (back && !s_np_back_last))
-      s_cancel = true;
-    s_np_ok_last = ok;
-    s_np_back_last = back;
-  }
 
   if (!s_playing) {
     lv_timer_delete(t);
@@ -423,8 +423,7 @@ static void np_timer_cb(lv_timer_t *t) {
       s_nowplaying = NULL;
     }
     ui_screen_load(s_screen);
-    if (s_nav_timer == NULL)
-      s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+    ui_input_set_screen_handler(speaker_input, NULL);
     return;
   }
 
@@ -480,73 +479,68 @@ static void cycle_category(int dir) {
   lv_async_call(rebuild_async, NULL);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
-  if (ui_input_is_locked())
-    return;
-
-  bool up = ui_btn_up(), down = ui_btn_down();
-  bool left = ui_btn_left(), right = ui_btn_right();
-  bool ok = ok_button_is_down(), back = back_button_is_down();
-
+static void speaker_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
   int sel = menu_component_get_selected(&s_menu);
 
-  if (down && !s_btn_down_last)
-    menu_component_next(&s_menu);
-  if (up && !s_btn_up_last)
-    menu_component_prev(&s_menu);
-
-  if (right && !s_btn_right_last) {
-    if (sel == VOLUME_ROW) {
-      menu_component_intensity_inc(&s_menu, VOLUME_ROW);
-      apply_volume(menu_component_get_intensity(&s_menu, VOLUME_ROW));
-    } else if (sel == CATEGORY_ROW) {
-      cycle_category(+1);
-    } else {
-      const speaker_cat_t *c = &CATS[s_category];
-      int si = sel - SONG_ROW_BASE;
-      if (si >= 0 && si < c->count)
-        play_song_now(&c->songs[si]);
-    }
+  switch (ev->button) {
+    case INPUT_BTN_DOWN:
+      if (nav)
+        menu_component_next(&s_menu);
+      break;
+    case INPUT_BTN_UP:
+      if (nav)
+        menu_component_prev(&s_menu);
+      break;
+    case INPUT_BTN_RIGHT:
+      if (nav) {
+        if (sel == VOLUME_ROW) {
+          menu_component_intensity_inc(&s_menu, VOLUME_ROW);
+          apply_volume(menu_component_get_intensity(&s_menu, VOLUME_ROW));
+        } else if (sel == CATEGORY_ROW) {
+          cycle_category(+1);
+        } else {
+          const speaker_cat_t *c = &CATS[s_category];
+          int si = sel - SONG_ROW_BASE;
+          if (si >= 0 && si < c->count)
+            play_song_now(&c->songs[si]);
+        }
+      }
+      break;
+    case INPUT_BTN_LEFT:
+      if (nav) {
+        if (sel == VOLUME_ROW) {
+          menu_component_intensity_dec(&s_menu, VOLUME_ROW);
+          apply_volume(menu_component_get_intensity(&s_menu, VOLUME_ROW));
+        } else if (sel == CATEGORY_ROW) {
+          cycle_category(-1);
+        }
+      }
+      break;
+    case INPUT_BTN_OK:
+      if (press) {
+        if (sel == CATEGORY_ROW) {
+          cycle_category(+1);
+        } else if (sel >= SONG_ROW_BASE) {
+          const speaker_cat_t *c = &CATS[s_category];
+          int si = sel - SONG_ROW_BASE;
+          if (si >= 0 && si < c->count)
+            play_song_now(&c->songs[si]);
+        }
+      }
+      break;
+    case INPUT_BTN_BACK:
+      if (press)
+        ui_switch_screen(SCREEN_SETTINGS);
+      break;
+    default:
+      break;
   }
-  if (left && !s_btn_left_last) {
-    if (sel == VOLUME_ROW) {
-      menu_component_intensity_dec(&s_menu, VOLUME_ROW);
-      apply_volume(menu_component_get_intensity(&s_menu, VOLUME_ROW));
-    } else if (sel == CATEGORY_ROW) {
-      cycle_category(-1);
-    }
-  }
-  if (ok && !s_btn_ok_last) {
-    if (sel == CATEGORY_ROW) {
-      cycle_category(+1);
-    } else if (sel >= SONG_ROW_BASE) {
-      const speaker_cat_t *c = &CATS[s_category];
-      int si = sel - SONG_ROW_BASE;
-      if (si >= 0 && si < c->count)
-        play_song_now(&c->songs[si]);
-    }
-  }
-  if (back && !s_btn_back_last)
-    ui_switch_screen(SCREEN_SETTINGS);
-
-  s_btn_up_last = up;
-  s_btn_down_last = down;
-  s_btn_left_last = left;
-  s_btn_right_last = right;
-  s_btn_ok_last = ok;
-  s_btn_back_last = back;
 }
 
 void ui_speaker_open(void) {
-  if (s_nav_timer != NULL) {
-    lv_timer_delete(s_nav_timer);
-    s_nav_timer = NULL;
-  }
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
@@ -567,7 +561,7 @@ void ui_speaker_open(void) {
   for (int i = 0; i < n; i++)
     menu_component_add_item(&s_menu, "/assets/icons/music_note.bin", c->songs[i].name);
 
-  s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(speaker_input, NULL);
   ui_screen_load(s_screen);
   ESP_LOGI(TAG, "speaker menu opened (category=%s)", c->name);
 }
