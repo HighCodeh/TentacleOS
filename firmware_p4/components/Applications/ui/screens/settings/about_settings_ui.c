@@ -16,14 +16,12 @@
 #include "about_settings_ui.h"
 
 #include "assets_manager.h"
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
 static const char *TAG = "ABOUT_SETTINGS_UI";
 
-#define NAV_TIMER_MS   50
 #define ENTRY_FADE_MS  240
 #define HERO_RING      86
 #define CHIP_RADIUS    10
@@ -31,10 +29,7 @@ static const char *TAG = "ABOUT_SETTINGS_UI";
 #define CHIP_ROW_WIDTH 210
 
 static lv_obj_t *s_screen = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_font_t *s_title_font = NULL;
-
-static bool s_back_last = false;
 
 static void add_chip(lv_obj_t *parent, const char *text, bool accent) {
   lv_obj_t *chip = lv_label_create(parent);
@@ -51,19 +46,18 @@ static void add_chip(lv_obj_t *parent, const char *text, bool accent) {
   lv_obj_set_style_border_color(chip, current_theme.border_inactive, 0);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
-  if (ui_input_is_locked())
-    return;
+static void about_settings_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
 
-  bool back = back_button_is_down();
-  if (back && !s_back_last)
-    ui_switch_screen(SCREEN_SETTINGS);
-  s_back_last = back;
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+      if (press)
+        ui_switch_screen(SCREEN_SETTINGS);
+      break;
+    default:
+      break;
+  }
 }
 
 void ui_about_settings_open(void) {
@@ -140,8 +134,7 @@ void ui_about_settings_open(void) {
 
   lv_obj_fade_in(col, ENTRY_FADE_MS, 0);
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(about_settings_input, NULL);
 
   ui_screen_load(s_screen);
 }
