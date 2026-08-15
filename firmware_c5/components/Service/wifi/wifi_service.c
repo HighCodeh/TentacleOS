@@ -20,6 +20,7 @@
 #include <string.h>
 
 #include "esp_event.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_netif.h"
@@ -59,6 +60,8 @@ static bool s_is_active = false;
 static bool s_is_connected = false;
 static bool s_promiscuous_active = false;
 static TaskHandle_t s_hopper_task_handle = NULL;
+static StackType_t *s_hopper_task_stack = NULL;
+static StaticTask_t *s_hopper_task_tcb = NULL;
 
 static void
 event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
@@ -580,12 +583,38 @@ void wifi_service_start_channel_hopping(void) {
     return;
   }
 
-  xTaskCreate(channel_hopper_task,
-              "chan_hopper_srv",
-              HOPPER_STACK_SIZE,
-              NULL,
-              HOPPER_TASK_PRIORITY,
-              &s_hopper_task_handle);
+  if (s_hopper_task_stack == NULL) {
+    s_hopper_task_stack =
+        (StackType_t *)heap_caps_malloc(HOPPER_STACK_SIZE * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
+  }
+  if (s_hopper_task_tcb == NULL) {
+    s_hopper_task_tcb = (StaticTask_t *)heap_caps_malloc(sizeof(StaticTask_t),
+                                                         MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  }
+
+  if (s_hopper_task_stack == NULL || s_hopper_task_tcb == NULL) {
+    ESP_LOGE(TAG, "Failed to allocate channel hopper in PSRAM, using internal");
+
+    free(s_hopper_task_stack);
+    s_hopper_task_stack = NULL;
+    free(s_hopper_task_tcb);
+    s_hopper_task_tcb = NULL;
+
+    xTaskCreate(channel_hopper_task,
+                "chan_hopper_srv",
+                HOPPER_STACK_SIZE,
+                NULL,
+                HOPPER_TASK_PRIORITY,
+                &s_hopper_task_handle);
+  } else {
+    s_hopper_task_handle = xTaskCreateStatic(channel_hopper_task,
+                                             "chan_hopper_srv",
+                                             HOPPER_STACK_SIZE,
+                                             NULL,
+                                             HOPPER_TASK_PRIORITY,
+                                             s_hopper_task_stack,
+                                             s_hopper_task_tcb);
+  }
 
   if (s_hopper_task_handle != NULL) {
     ESP_LOGI(TAG, "Channel hopping started");
@@ -599,6 +628,13 @@ void wifi_service_stop_channel_hopping(void) {
     vTaskDelete(s_hopper_task_handle);
     s_hopper_task_handle = NULL;
   }
+
+  free(s_hopper_task_stack);
+  s_hopper_task_stack = NULL;
+
+  free(s_hopper_task_tcb);
+  s_hopper_task_tcb = NULL;
+
   ESP_LOGI(TAG, "Channel hopping stopped");
 }
 
