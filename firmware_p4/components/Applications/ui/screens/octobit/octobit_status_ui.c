@@ -27,7 +27,6 @@
 
 #include "assets_manager.h"
 #include "bq25896.h"
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -55,7 +54,6 @@
 #define COL_RAISE 0x170A28
 #define COL_DIM   0x8A8594
 
-#define NAV_TIMER_MS 60
 #define REFRESH_MS   1000
 
 enum {
@@ -95,8 +93,6 @@ static lv_obj_t *s_val_lbl[ST_COUNT];
 static lv_timer_t *s_timer = NULL;
 
 static int s_sel = 0;
-static uint32_t s_last_refresh = 0;
-static bool s_up_last, s_down_last, s_back_last, s_right_last;
 
 static uint32_t s_boots = 0;
 static bool s_boots_read = false;
@@ -369,48 +365,43 @@ static void build_selector(void) {
     s_row[i] = make_row(s_sellist, i);
 }
 
-static void tick_cb(lv_timer_t *t) {
+static void octobit_status_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_RIGHT:
+      if (press)
+        ui_switch_screen(SCREEN_HOME);
+      break;
+    case INPUT_BTN_DOWN:
+      if (nav) {
+        s_sel = (s_sel + 1) % ST_COUNT;
+        refresh_selection();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_UP:
+      if (nav) {
+        s_sel = (s_sel - 1 + ST_COUNT) % ST_COUNT;
+        refresh_selection();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+static void refresh_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen) {
     lv_timer_delete(t);
     s_timer = NULL;
     return;
   }
-
-  bool up = ui_btn_up(), down = ui_btn_down();
-  bool right = ui_btn_right(), back = back_button_is_down();
-
-  if (ui_input_is_locked()) {
-    s_up_last = up;
-    s_down_last = down;
-    s_right_last = right;
-    s_back_last = back;
-    return;
-  }
-
-  if ((back && !s_back_last) || (right && !s_right_last)) {
-    ui_switch_screen(SCREEN_HOME);
-    return;
-  }
-  if (down && !s_down_last) {
-    s_sel = (s_sel + 1) % ST_COUNT;
-    refresh_selection();
-    ui_feedback(UI_FB_NAV);
-  }
-  if (up && !s_up_last) {
-    s_sel = (s_sel - 1 + ST_COUNT) % ST_COUNT;
-    refresh_selection();
-    ui_feedback(UI_FB_NAV);
-  }
-
-  if (lv_tick_get() - s_last_refresh >= REFRESH_MS) {
-    s_last_refresh = lv_tick_get();
-    refresh_values();
-  }
-
-  s_up_last = up;
-  s_down_last = down;
-  s_right_last = right;
-  s_back_last = back;
+  refresh_values();
 }
 
 void ui_octobit_status_open(void) {
@@ -421,8 +412,6 @@ void ui_octobit_status_open(void) {
     s_screen = NULL;
   }
   s_sel = 0;
-  s_last_refresh = 0;
-  s_up_last = s_down_last = s_back_last = s_right_last = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -449,7 +438,9 @@ void ui_octobit_status_open(void) {
   refresh_selection();
 
   if (s_timer == NULL)
-    s_timer = lv_timer_create(tick_cb, NAV_TIMER_MS, NULL);
+    s_timer = lv_timer_create(refresh_cb, REFRESH_MS, NULL);
+
+  ui_input_set_screen_handler(octobit_status_input, NULL);
 
   lv_screen_load(s_screen);
 }
