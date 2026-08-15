@@ -8,6 +8,15 @@ CONFIG_ESPTOOLPY_NO_STUB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
+# Core dump to the dedicated flash partition (ELF format) for field forensics,
+# matching the P4. On a panic the backtrace/registers/task stacks are saved to
+# the coredump partition. The C5 is headless (no boot-report viewer like the P4),
+# so retrieve it over serial with `idf.py coredump-info` / `coredump-dbg`.
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
+CONFIG_ESP_COREDUMP_STACK_SIZE=1792
+
 # CPU 240MHz (C5 default is 160MHz)
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 
