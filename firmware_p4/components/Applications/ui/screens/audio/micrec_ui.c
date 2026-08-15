@@ -25,14 +25,13 @@
 #include "freertos/task.h"
 #include "sys_prio.h"
 
-#include "buttons_gpio.h"
 #include "menu_component_ui.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
 static const char *TAG = "MICREC_UI";
 
-#define NAV_TIMER_MS       50
+#define STATUS_TICK_MS     50
 #define REC_RATE           16000
 #define REC_MAX_SECONDS    5
 #define BUF_HEADROOM       (24 * 1024)
@@ -55,7 +54,7 @@ enum { ST_IDLE, ST_RECORDING, ST_PLAYING };
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
-static lv_timer_t *s_nav_timer = NULL;
+static lv_timer_t *s_status_timer = NULL;
 static lv_obj_t *s_status_lbl = NULL;
 
 static lv_obj_t *s_ov = NULL;
@@ -85,9 +84,6 @@ static volatile int s_state = ST_IDLE;
 static bool s_loop = false;
 static uint32_t s_last_ms = 0;
 static int s_rec_target = REC_TARGET_DEFAULT;
-
-static bool s_btn_up_last, s_btn_down_last, s_btn_left_last, s_btn_right_last;
-static bool s_btn_ok_last, s_btn_back_last;
 
 static bool ensure_buffer(void) {
   if (s_rec_buf != NULL)
@@ -385,57 +381,62 @@ static void refresh_status(void) {
   lv_label_set_text(s_status_lbl, buf);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
+static void micrec_tick_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen) {
     lv_timer_delete(t);
-    s_nav_timer = NULL;
+    s_status_timer = NULL;
     return;
   }
-  if (ui_input_is_locked())
+  if (s_ov != NULL)
     return;
-
-  bool up = ui_btn_up(), down = ui_btn_down();
-  bool left = ui_btn_left(), right = ui_btn_right();
-  bool ok = ok_button_is_down(), back = back_button_is_down();
-
-  if (s_ov != NULL) {
-    if (back && !s_btn_back_last && s_busy && s_state == ST_PLAYING)
-      s_stop_req = true;
-    s_btn_up_last = up;
-    s_btn_down_last = down;
-    s_btn_left_last = left;
-    s_btn_right_last = right;
-    s_btn_ok_last = ok;
-    s_btn_back_last = back;
-    return;
-  }
 
   refresh_status();
+}
+
+static void micrec_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+
+  if (s_ov != NULL) {
+    if (ev->button == INPUT_BTN_BACK && press && s_busy && s_state == ST_PLAYING)
+      s_stop_req = true;
+    return;
+  }
 
   int sel = menu_component_get_selected(&s_menu);
-  if (down && !s_btn_down_last)
-    menu_component_next(&s_menu);
-  if (up && !s_btn_up_last)
-    menu_component_prev(&s_menu);
-  if (right && !s_btn_right_last && sel == ROW_LEVEL)
-    menu_component_intensity_inc(&s_menu, ROW_LEVEL);
-  if (left && !s_btn_left_last && sel == ROW_LEVEL)
-    menu_component_intensity_dec(&s_menu, ROW_LEVEL);
-  if (ok && !s_btn_ok_last) {
-    if (sel == ROW_LOOP)
-      menu_component_toggle_item(&s_menu, ROW_LOOP);
-    else
-      activate(sel);
+  switch (ev->button) {
+    case INPUT_BTN_DOWN:
+      if (nav)
+        menu_component_next(&s_menu);
+      break;
+    case INPUT_BTN_UP:
+      if (nav)
+        menu_component_prev(&s_menu);
+      break;
+    case INPUT_BTN_RIGHT:
+      if (nav && sel == ROW_LEVEL)
+        menu_component_intensity_inc(&s_menu, ROW_LEVEL);
+      break;
+    case INPUT_BTN_LEFT:
+      if (nav && sel == ROW_LEVEL)
+        menu_component_intensity_dec(&s_menu, ROW_LEVEL);
+      break;
+    case INPUT_BTN_OK:
+      if (press) {
+        if (sel == ROW_LOOP)
+          menu_component_toggle_item(&s_menu, ROW_LOOP);
+        else
+          activate(sel);
+      }
+      break;
+    case INPUT_BTN_BACK:
+      if (press)
+        ui_switch_screen(SCREEN_SETTINGS);
+      break;
+    default:
+      break;
   }
-  if (back && !s_btn_back_last)
-    ui_switch_screen(SCREEN_SETTINGS);
-
-  s_btn_up_last = up;
-  s_btn_down_last = down;
-  s_btn_left_last = left;
-  s_btn_right_last = right;
-  s_btn_ok_last = ok;
-  s_btn_back_last = back;
 }
 
 void ui_micrec_open(void) {
@@ -469,8 +470,10 @@ void ui_micrec_open(void) {
   lv_obj_align(s_status_lbl, LV_ALIGN_BOTTOM_MID, 0, -4 - MENU_COMP_FOOTER_H);
   refresh_status();
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  if (s_status_timer == NULL)
+    s_status_timer = lv_timer_create(micrec_tick_cb, STATUS_TICK_MS, NULL);
+
+  ui_input_set_screen_handler(micrec_input, NULL);
 
   ui_screen_load(s_screen);
   ESP_LOGI(TAG, "mic-rec menu opened");
