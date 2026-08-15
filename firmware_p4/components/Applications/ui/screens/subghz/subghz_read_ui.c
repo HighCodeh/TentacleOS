@@ -20,7 +20,6 @@
 #include "esp_log.h"
 #include "lvgl.h"
 
-#include "buttons_gpio.h"
 #include "capture_result_ui.h"
 #include "msgbox_ui.h"
 #include "notify_ui.h"
@@ -31,7 +30,7 @@
 
 static const char *TAG = "SUBGHZ_RD";
 
-#define NAV_TIMER_MS  33
+#define TICK_MS       33
 #define REVEAL_MS     3000
 #define SCAN_MS       2600
 #define FREQ_CYCLE_MS 420
@@ -118,7 +117,7 @@ static const uint8_t OOK_BITS[] = {0, 0, 0, 1, 1, 0};
 #define OOK_BIT_COUNT ((int)(sizeof(OOK_BITS) / sizeof(OOK_BITS[0])))
 
 static lv_obj_t *s_screen = NULL;
-static lv_timer_t *s_nav_timer = NULL;
+static lv_timer_t *s_tick_timer = NULL;
 static lv_timer_t *s_scan_timer = NULL;
 static lv_timer_t *s_freq_timer = NULL;
 static lv_timer_t *s_scope_timer = NULL;
@@ -142,16 +141,11 @@ static uint32_t s_scan_start = 0;
 static bool s_locked = false;
 static bool s_saved = false;
 
-static bool s_right_last = false;
-static bool s_ok_last = false;
-static bool s_back_last = false;
-static bool s_up_last = false;
-static bool s_down_last = false;
-
-static void nav_timer_cb(lv_timer_t *t);
+static void read_tick_cb(lv_timer_t *t);
 static void scan_done_cb(lv_timer_t *t);
 static void freq_cycle_cb(lv_timer_t *t);
 static void scope_tick_cb(lv_timer_t *t);
+static void subghz_read_input(const input_event_t *ev, void *ctx);
 
 static void stop_timer(lv_timer_t **t) {
   if (*t != NULL) {
@@ -312,6 +306,7 @@ void ui_subghz_read_open(void) {
   stop_timer(&s_scan_timer);
   stop_timer(&s_freq_timer);
   stop_timer(&s_scope_timer);
+  stop_timer(&s_tick_timer);
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
@@ -328,11 +323,6 @@ void ui_subghz_read_open(void) {
   s_freq_idx = 0;
   s_locked = false;
   s_saved = false;
-  s_back_last = false;
-  s_ok_last = false;
-  s_right_last = false;
-  s_up_last = false;
-  s_down_last = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -364,9 +354,9 @@ void ui_subghz_read_open(void) {
   lv_timer_set_repeat_count(s_scan_timer, 1);
   s_freq_timer = lv_timer_create(freq_cycle_cb, FREQ_CYCLE_MS, NULL);
   s_scope_timer = lv_timer_create(scope_tick_cb, SCOPE_TICK_MS, NULL);
+  s_tick_timer = lv_timer_create(read_tick_cb, TICK_MS, NULL);
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(subghz_read_input, NULL);
 
   ui_screen_load(s_screen);
 }
@@ -492,24 +482,10 @@ static void show_options(void) {
     ui_chrome_footer_set_text(s_hint, HINT_MENU);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
+static void read_tick_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen) {
     lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
-  bool right = ui_btn_right();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-
-  if (msgbox_is_open() || ui_input_is_locked()) {
-    s_right_last = right;
-    s_ok_last = ok;
-    s_back_last = back;
-    s_up_last = up;
-    s_down_last = down;
+    s_tick_timer = NULL;
     return;
   }
 
@@ -527,53 +503,67 @@ static void nav_timer_cb(lv_timer_t *t) {
     lv_label_set_text(s_status, buf);
   }
 
-  if (back && !s_back_last) {
-    ui_switch_screen(SCREEN_SUBGHZ_MENU);
-    return;
-  }
-
   if (s_locked && !s_options) {
     if (lv_tick_get() - s_locked_at >= REVEAL_MS)
       show_options();
-  } else if (s_options) {
-    if (down && !s_down_last) {
-      capture_result_next(&s_cr);
-      ui_feedback(UI_FB_NAV);
-    }
-    if (up && !s_up_last) {
-      capture_result_prev(&s_cr);
-      ui_feedback(UI_FB_NAV);
-    }
-    if (ok && !s_ok_last) {
-      switch (capture_result_selected(&s_cr)) {
-        case CAP_ACT_PRIMARY:
-          ui_feedback(UI_FB_EMULATE);
-          notify(NOTIFY_INFO, SIG_LOCK_FREQ " sent");
-          break;
-        case CAP_ACT_SAVE:
-          if (!s_saved) {
-            s_saved = true;
-            capture_result_mark_saved(&s_cr);
-            ESP_LOGI(TAG, "mock subghz saved: %s", SIG_PROTO);
-            ui_feedback(UI_FB_WRITE);
-            notify(NOTIFY_SAVED, "Sub-GHz signal saved");
-          }
-          break;
-        case CAP_ACT_AGAIN:
-          ui_subghz_read_open();
-          return;
-        case CAP_ACT_DISCARD:
-          ui_switch_screen(SCREEN_SUBGHZ_MENU);
-          return;
-        default:
-          break;
-      }
-    }
+  }
+}
+
+static void subghz_read_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+
+  if (ev->button == INPUT_BTN_BACK) {
+    if (press)
+      ui_switch_screen(SCREEN_SUBGHZ_MENU);
+    return;
   }
 
-  s_right_last = right;
-  s_ok_last = ok;
-  s_back_last = back;
-  s_up_last = up;
-  s_down_last = down;
+  if (!s_options)
+    return;
+
+  switch (ev->button) {
+    case INPUT_BTN_DOWN:
+      if (nav) {
+        capture_result_next(&s_cr);
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_UP:
+      if (nav) {
+        capture_result_prev(&s_cr);
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_OK:
+      if (press) {
+        switch (capture_result_selected(&s_cr)) {
+          case CAP_ACT_PRIMARY:
+            ui_feedback(UI_FB_EMULATE);
+            notify(NOTIFY_INFO, SIG_LOCK_FREQ " sent");
+            break;
+          case CAP_ACT_SAVE:
+            if (!s_saved) {
+              s_saved = true;
+              capture_result_mark_saved(&s_cr);
+              ESP_LOGI(TAG, "mock subghz saved: %s", SIG_PROTO);
+              ui_feedback(UI_FB_WRITE);
+              notify(NOTIFY_SAVED, "Sub-GHz signal saved");
+            }
+            break;
+          case CAP_ACT_AGAIN:
+            ui_subghz_read_open();
+            return;
+          case CAP_ACT_DISCARD:
+            ui_switch_screen(SCREEN_SUBGHZ_MENU);
+            return;
+          default:
+            break;
+        }
+      }
+      break;
+    default:
+      break;
+  }
 }
