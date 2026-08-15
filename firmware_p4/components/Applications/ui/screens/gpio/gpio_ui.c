@@ -18,14 +18,12 @@
 #include "esp_log.h"
 #include "lvgl.h"
 
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
 static const char *TAG = "GPIO_UI";
 
-#define NAV_TIMER_MS 50
 #define HEADER_TITLE "GPIO"
 #define HINT_TEXT    "OK = Toggle   BACK = Exit"
 
@@ -80,15 +78,9 @@ static lv_obj_t *s_body = NULL;
 static lv_obj_t *s_pad[PIN_COUNT];
 static lv_obj_t *s_label[PIN_COUNT];
 static lv_obj_t *s_status = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 
 static bool s_on[PIN_COUNT];
 static int s_sel = 0;
-
-static bool s_up_last = false;
-static bool s_down_last = false;
-static bool s_ok_last = false;
-static bool s_back_last = false;
 
 static void opa_anim_cb(void *var, int32_t v) {
   lv_obj_set_style_opa((lv_obj_t *)var, (lv_opa_t)v, 0);
@@ -245,33 +237,30 @@ static void move_selection(int dir) {
   update_status();
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
+static void gpio_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+  switch (ev->button) {
+    case INPUT_BTN_DOWN:
+      if (nav)
+        move_selection(1);
+      break;
+    case INPUT_BTN_UP:
+      if (nav)
+        move_selection(-1);
+      break;
+    case INPUT_BTN_OK:
+      if (press)
+        toggle_selected();
+      break;
+    case INPUT_BTN_BACK:
+      if (press)
+        ui_switch_screen(SCREEN_MENU);
+      break;
+    default:
+      break;
   }
-  if (ui_input_is_locked())
-    return;
-
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-
-  if (down && !s_down_last)
-    move_selection(1);
-  if (up && !s_up_last)
-    move_selection(-1);
-  if (ok && !s_ok_last)
-    toggle_selected();
-  if (back && !s_back_last)
-    ui_switch_screen(SCREEN_MENU);
-
-  s_up_last = up;
-  s_down_last = down;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 void ui_gpio_open(void) {
@@ -281,7 +270,6 @@ void ui_gpio_open(void) {
   }
 
   s_sel = 0;
-  s_up_last = s_down_last = s_ok_last = s_back_last = false;
   for (int i = 0; i < PIN_COUNT; i++)
     s_on[i] = PINS[i].on;
 
@@ -314,8 +302,7 @@ void ui_gpio_open(void) {
   lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
   lv_anim_start(&a);
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(gpio_input, NULL);
 
   ui_screen_load(s_screen);
 }
