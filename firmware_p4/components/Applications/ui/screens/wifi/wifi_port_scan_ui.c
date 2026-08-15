@@ -24,7 +24,6 @@
 #include "sys_prio.h"
 #include "lvgl.h"
 
-#include "buttons_gpio.h"
 #include "menu_component_ui.h"
 #include "msgbox_ui.h"
 #include "ui_chrome.h"
@@ -35,7 +34,6 @@
 
 static const char *SCAN_ICON = "/assets/icons/wifi_find.bin";
 
-#define NAV_TIMER_MS    50
 #define SCAN_MS         1600
 #define TARGET_HOST     "192.168.1.10"
 #define COLOR_OPEN      0x00E676
@@ -69,16 +67,13 @@ static const open_port_t PORT_POOL[] = {
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
-static lv_timer_t *s_nav_timer = NULL;
 
 static scan_state_t s_state = SCAN_RUNNING;
 static bool s_scanning = false;
 static int s_count = 0;
 static open_port_t s_ports[PORT_MAX];
 
-static bool s_up_last, s_down_last, s_left_last, s_right_last, s_ok_last, s_back_last;
-
-static void nav_timer_cb(lv_timer_t *t);
+static void wifi_port_scan_input(const input_event_t *ev, void *ctx);
 
 static void generate_ports(void) {
   bool used[PORT_POOL_N] = {false};
@@ -145,8 +140,7 @@ static void build_screen(void) {
     menu_component_set_hint(&s_menu, "OK banner   BACK exit");
   }
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(wifi_port_scan_input, NULL);
 
   ui_screen_load(s_screen);
 }
@@ -186,45 +180,38 @@ static void show_port(int idx) {
   msgbox_open(LV_SYMBOL_WIFI, msg, "OK", NULL, NULL);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
-  bool up = ui_btn_up(), down = ui_btn_down(), left = ui_btn_left();
-  bool right = ui_btn_right(), ok = ok_button_is_down(), back = back_button_is_down();
+static void wifi_port_scan_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
-  if (msgbox_is_open() || ui_input_is_locked()) {
-    s_up_last = up;
-    s_down_last = down;
-    s_left_last = left;
-    s_right_last = right;
-    s_ok_last = ok;
-    s_back_last = back;
-    return;
+  switch (ev->button) {
+    case INPUT_BTN_DOWN:
+      if (nav)
+        menu_component_next(&s_menu);
+      break;
+    case INPUT_BTN_UP:
+      if (nav)
+        menu_component_prev(&s_menu);
+      break;
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_WIFI_MENU);
+      break;
+    case INPUT_BTN_OK:
+    case INPUT_BTN_RIGHT:
+      if (press && s_state == SCAN_DONE && s_count > 0)
+        show_port(menu_component_get_selected(&s_menu));
+      break;
+    default:
+      break;
   }
-  if (down && !s_down_last)
-    menu_component_next(&s_menu);
-  if (up && !s_up_last)
-    menu_component_prev(&s_menu);
-  if ((back && !s_back_last) || (left && !s_left_last))
-    ui_switch_screen(SCREEN_WIFI_MENU);
-  if (((ok && !s_ok_last) || (right && !s_right_last)) && s_state == SCAN_DONE && s_count > 0)
-    show_port(menu_component_get_selected(&s_menu));
-
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_right_last = right;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 void ui_wifi_port_scan_open(void) {
   s_state = SCAN_RUNNING;
   s_count = 0;
-  s_up_last = s_down_last = s_left_last = s_right_last = s_ok_last = s_back_last = false;
   build_screen();
   if (!s_scanning) {
     s_scanning = true;
