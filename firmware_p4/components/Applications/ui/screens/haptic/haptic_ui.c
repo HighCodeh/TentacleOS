@@ -22,7 +22,6 @@
 #include "freertos/task.h"
 #include "sys_prio.h"
 
-#include "buttons_gpio.h"
 #include "drv2605l.h"
 #include "menu_component_ui.h"
 #include "ui_manager.h"
@@ -30,7 +29,6 @@
 
 static const char *TAG = "HAPTIC_UI";
 
-#define NAV_TIMER_MS 50
 #define LIVE_ROW     0
 #define CAT_ROW      1
 #define FX_ROW       2
@@ -118,14 +116,10 @@ static const char *const PAT_NAMES[PAT_COUNT] = {"Heartbeat", "SOS", "Notify", "
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
-static lv_timer_t *s_nav_timer = NULL;
 static volatile bool s_busy = false;
 static volatile bool s_pat_cancel = false;
 static bool s_rtp_live = false;
 static int s_cat = 0, s_fx = 0, s_pat = 0;
-
-static bool s_btn_up_last, s_btn_down_last, s_btn_left_last, s_btn_right_last;
-static bool s_btn_ok_last, s_btn_back_last;
 
 static uint8_t rtp_for_level(int level) {
   if (level <= 0)
@@ -243,105 +237,93 @@ static void start_worker(TaskFunction_t fn, const char *name) {
     s_busy = false;
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
-  if (ui_input_is_locked())
-    return;
-
-  bool up = ui_btn_up(), down = ui_btn_down();
-  bool left = ui_btn_left(), right = ui_btn_right();
-  bool ok = ok_button_is_down(), back = back_button_is_down();
+static void haptic_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
   if (s_busy) {
-    if (back && !s_btn_back_last)
+    if (press && ev->button == INPUT_BTN_BACK)
       s_pat_cancel = true;
-    s_btn_up_last = up;
-    s_btn_down_last = down;
-    s_btn_left_last = left;
-    s_btn_right_last = right;
-    s_btn_ok_last = ok;
-    s_btn_back_last = back;
     return;
   }
 
   int sel = menu_component_get_selected(&s_menu);
 
-  if (down && !s_btn_down_last) {
-    stop_live_intensity();
-    menu_component_next(&s_menu);
+  switch (ev->button) {
+    case INPUT_BTN_DOWN:
+      if (nav) {
+        stop_live_intensity();
+        menu_component_next(&s_menu);
+      }
+      break;
+    case INPUT_BTN_UP:
+      if (nav) {
+        stop_live_intensity();
+        menu_component_prev(&s_menu);
+      }
+      break;
+    case INPUT_BTN_RIGHT:
+      if (press) {
+        if (sel == LIVE_ROW) {
+          menu_component_intensity_inc(&s_menu, LIVE_ROW);
+          apply_live_intensity();
+        } else if (sel == CAT_ROW) {
+          s_cat = (s_cat + 1) % NCAT;
+          s_fx = 0;
+          menu_component_set_selector_value(&s_menu, CAT_ROW, CATS[s_cat].name);
+          update_fx_label();
+        } else if (sel == FX_ROW) {
+          s_fx = (s_fx + 1) % CATS[s_cat].count;
+          update_fx_label();
+          play_current_fx();
+        } else if (sel == PAT_ROW) {
+          s_pat = (s_pat + 1) % PAT_COUNT;
+          menu_component_set_selector_value(&s_menu, PAT_ROW, PAT_NAMES[s_pat]);
+        }
+      }
+      break;
+    case INPUT_BTN_LEFT:
+      if (press) {
+        if (sel == LIVE_ROW) {
+          menu_component_intensity_dec(&s_menu, LIVE_ROW);
+          apply_live_intensity();
+        } else if (sel == CAT_ROW) {
+          s_cat = (s_cat - 1 + NCAT) % NCAT;
+          s_fx = 0;
+          menu_component_set_selector_value(&s_menu, CAT_ROW, CATS[s_cat].name);
+          update_fx_label();
+        } else if (sel == FX_ROW) {
+          s_fx = (s_fx - 1 + CATS[s_cat].count) % CATS[s_cat].count;
+          update_fx_label();
+          play_current_fx();
+        } else if (sel == PAT_ROW) {
+          s_pat = (s_pat - 1 + PAT_COUNT) % PAT_COUNT;
+          menu_component_set_selector_value(&s_menu, PAT_ROW, PAT_NAMES[s_pat]);
+        }
+      }
+      break;
+    case INPUT_BTN_OK:
+      if (press) {
+        if (sel == LIVE_ROW)
+          apply_live_intensity();
+        else if (sel == FX_ROW)
+          play_current_fx();
+        else if (sel == PAT_ROW)
+          start_worker(pattern_task, "haptic_pat");
+        else if (sel == CAL_ROW)
+          start_worker(autocal_task, "haptic_cal");
+      }
+      break;
+    case INPUT_BTN_BACK:
+      if (press) {
+        stop_live_intensity();
+        ui_switch_screen(SCREEN_SETTINGS);
+      }
+      break;
+    default:
+      break;
   }
-  if (up && !s_btn_up_last) {
-    stop_live_intensity();
-    menu_component_prev(&s_menu);
-  }
-
-  if (right && !s_btn_right_last) {
-    if (sel == LIVE_ROW) {
-      menu_component_intensity_inc(&s_menu, LIVE_ROW);
-      apply_live_intensity();
-    } else if (sel == CAT_ROW) {
-      s_cat = (s_cat + 1) % NCAT;
-      s_fx = 0;
-      menu_component_set_selector_value(&s_menu, CAT_ROW, CATS[s_cat].name);
-      update_fx_label();
-    } else if (sel == FX_ROW) {
-      s_fx = (s_fx + 1) % CATS[s_cat].count;
-      update_fx_label();
-      play_current_fx();
-    } else if (sel == PAT_ROW) {
-      s_pat = (s_pat + 1) % PAT_COUNT;
-      menu_component_set_selector_value(&s_menu, PAT_ROW, PAT_NAMES[s_pat]);
-    }
-  }
-  if (left && !s_btn_left_last) {
-    if (sel == LIVE_ROW) {
-      menu_component_intensity_dec(&s_menu, LIVE_ROW);
-      apply_live_intensity();
-    } else if (sel == CAT_ROW) {
-      s_cat = (s_cat - 1 + NCAT) % NCAT;
-      s_fx = 0;
-      menu_component_set_selector_value(&s_menu, CAT_ROW, CATS[s_cat].name);
-      update_fx_label();
-    } else if (sel == FX_ROW) {
-      s_fx = (s_fx - 1 + CATS[s_cat].count) % CATS[s_cat].count;
-      update_fx_label();
-      play_current_fx();
-    } else if (sel == PAT_ROW) {
-      s_pat = (s_pat - 1 + PAT_COUNT) % PAT_COUNT;
-      menu_component_set_selector_value(&s_menu, PAT_ROW, PAT_NAMES[s_pat]);
-    }
-  }
-
-  if (ok && !s_btn_ok_last) {
-    if (sel == LIVE_ROW)
-      apply_live_intensity();
-    else if (sel == FX_ROW)
-      play_current_fx();
-    else if (sel == PAT_ROW)
-      start_worker(pattern_task, "haptic_pat");
-    else if (sel == CAL_ROW)
-      start_worker(autocal_task, "haptic_cal");
-  }
-
-  if (back && !s_btn_back_last) {
-    if (s_busy) {
-      s_pat_cancel = true;
-    } else {
-      stop_live_intensity();
-      ui_switch_screen(SCREEN_SETTINGS);
-    }
-  }
-
-  s_btn_up_last = up;
-  s_btn_down_last = down;
-  s_btn_left_last = left;
-  s_btn_right_last = right;
-  s_btn_ok_last = ok;
-  s_btn_back_last = back;
 }
 
 void ui_haptic_open(void) {
@@ -366,8 +348,7 @@ void ui_haptic_open(void) {
   menu_component_add_selector(&s_menu, "/assets/icons/pattern.bin", "Pattern", PAT_NAMES[0]);
   menu_component_add_item(&s_menu, "/assets/icons/tune.bin", "Calibrate ERM");
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(haptic_input, NULL);
 
   ui_screen_load(s_screen);
   ESP_LOGI(TAG, "haptic menu opened");
