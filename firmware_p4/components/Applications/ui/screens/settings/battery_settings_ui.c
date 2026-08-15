@@ -18,14 +18,12 @@
 #include <stdio.h>
 
 #include "battery_service.h"
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
 static const char *TAG = "BATTERY_SETTINGS_UI";
 
-#define NAV_TIMER_MS  50
 #define ARC_SIZE      124
 #define ARC_WIDTH     13
 #define ARC_ROTATION  270
@@ -41,10 +39,7 @@ static const char *TAG = "BATTERY_SETTINGS_UI";
 
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_arc = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_font_t *s_big_font = NULL;
-
-static bool s_back_last = false;
 
 static lv_color_t level_color(int pct) {
   if (pct < 25)
@@ -84,19 +79,18 @@ static void add_stat_card(lv_obj_t *parent, const char *value, const char *unit,
   lv_obj_set_style_text_opa(u, LV_OPA_50, 0);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
-  if (ui_input_is_locked())
-    return;
+static void battery_settings_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
 
-  bool back = back_button_is_down();
-  if (back && !s_back_last)
-    ui_switch_screen(SCREEN_SETTINGS);
-  s_back_last = back;
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+      if (press)
+        ui_switch_screen(SCREEN_SETTINGS);
+      break;
+    default:
+      break;
+  }
 }
 
 void ui_battery_settings_open(void) {
@@ -229,8 +223,7 @@ void ui_battery_settings_open(void) {
 
   lv_obj_fade_in(s_screen, ENTRY_FADE_MS, 0);
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(battery_settings_input, NULL);
 
   ui_screen_load(s_screen);
 }
