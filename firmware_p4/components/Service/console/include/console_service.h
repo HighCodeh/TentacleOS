@@ -74,6 +74,11 @@ void register_screen_commands(void);
  */
 void register_ir_commands(void);
 
+/**
+ * @brief Register battery/charger status command (battery).
+ */
+void register_battery_commands(void);
+
 #ifdef __cplusplus
 }
 #endif
