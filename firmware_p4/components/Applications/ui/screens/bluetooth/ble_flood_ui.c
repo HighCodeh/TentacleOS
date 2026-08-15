@@ -21,16 +21,14 @@
 #include "lvgl.h"
 #include "st7789.h"
 
-#include "buttons_gpio.h"
 #include "notify_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define NAV_TIMER_INTERVAL_MS 50
-#define FLOOD_TICK_MS         100
-#define TICKS_PER_SEC         (1000 / FLOOD_TICK_MS)
+#define FLOOD_TICK_MS 100
+#define TICKS_PER_SEC (1000 / FLOOD_TICK_MS)
 
 #define FLOOD_ICON "/assets/icons/broadcast_on_personal.bin"
 
@@ -49,7 +47,6 @@ static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_mode_label = NULL;
 static lv_obj_t *s_count_label = NULL;
 static lv_obj_t *s_rate_label = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_flood_timer = NULL;
 
 static char s_target[40];
@@ -58,11 +55,7 @@ static int s_sent = 0;
 static int s_sent_prev = 0;
 static int s_tick_accum = 0;
 
-static bool s_left_last = false;
-static bool s_right_last = false;
-static bool s_back_last = false;
-
-static void nav_timer_cb(lv_timer_t *timer);
+static void ble_flood_input(const input_event_t *ev, void *ctx);
 static void flood_tick_cb(lv_timer_t *timer);
 
 static void fade_in(lv_obj_t *obj, uint32_t ms) {
@@ -111,9 +104,6 @@ void ui_ble_flood_open(void) {
   s_sent_prev = 0;
   s_tick_accum = 0;
   s_flood_timer = NULL;
-  s_left_last = false;
-  s_right_last = false;
-  s_back_last = false;
 
   snprintf(s_target,
            sizeof(s_target),
@@ -178,9 +168,9 @@ void ui_ble_flood_open(void) {
   fade_in(card, 320);
   fade_in(s_rate_label, 340);
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
   s_flood_timer = lv_timer_create(flood_tick_cb, FLOOD_TICK_MS, NULL);
+
+  ui_input_set_screen_handler(ble_flood_input, NULL);
 
   ui_feedback(UI_FB_EMULATE);
   notify(NOTIFY_INFO, "Flood started");
@@ -208,43 +198,35 @@ static void flood_tick_cb(lv_timer_t *timer) {
   }
 }
 
-static void nav_timer_cb(lv_timer_t *timer) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(timer);
-    s_nav_timer = NULL;
-    return;
-  }
-  if (ui_input_is_locked()) {
-    s_left_last = ui_btn_left();
-    s_right_last = ui_btn_right();
-    s_back_last = back_button_is_down();
-    return;
-  }
+static void ble_flood_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
-  bool left = ui_btn_left();
-  bool right = ui_btn_right();
-  bool back = back_button_is_down();
-
-  if (back && !s_back_last) {
-    stop_flood_timer();
-    ui_switch_screen(SCREEN_BLE_MENU);
-    return;
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+      if (press) {
+        stop_flood_timer();
+        ui_switch_screen(SCREEN_BLE_MENU);
+      }
+      break;
+    case INPUT_BTN_RIGHT:
+      if (nav) {
+        s_mode = (s_mode + 1) % FLOOD_MODES_COUNT;
+        set_mode_text();
+        fade_in(s_mode_label, 160);
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_LEFT:
+      if (nav) {
+        s_mode = (s_mode - 1 + FLOOD_MODES_COUNT) % FLOOD_MODES_COUNT;
+        set_mode_text();
+        fade_in(s_mode_label, 160);
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    default:
+      break;
   }
-
-  if (right && !s_right_last) {
-    s_mode = (s_mode + 1) % FLOOD_MODES_COUNT;
-    set_mode_text();
-    fade_in(s_mode_label, 160);
-    ui_feedback(UI_FB_NAV);
-  }
-  if (left && !s_left_last) {
-    s_mode = (s_mode - 1 + FLOOD_MODES_COUNT) % FLOOD_MODES_COUNT;
-    set_mode_text();
-    fade_in(s_mode_label, 160);
-    ui_feedback(UI_FB_NAV);
-  }
-
-  s_left_last = left;
-  s_right_last = right;
-  s_back_last = back;
 }
