@@ -18,14 +18,11 @@
 #include "lvgl.h"
 #include "st7789.h"
 
-#include "buttons_gpio.h"
 #include "notify_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
-
-#define NAV_TIMER_MS 50
 
 #define HDR_TITLE "RADIO CONFIG"
 #define HDR_ICON  "/assets/icons/tune.bin"
@@ -100,17 +97,9 @@ static const char *SCALE_LABELS[4] = {"300", "433", "700", "928"};
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_tile[FIELD_COUNT];
 static lv_obj_t *s_tile_num[FIELD_COUNT];
-static lv_timer_t *s_nav_timer = NULL;
 
 static int s_sel = 0;
 static int s_val_idx[FIELD_COUNT];
-
-static bool s_up_last = false;
-static bool s_down_last = false;
-static bool s_left_last = false;
-static bool s_right_last = false;
-static bool s_ok_last = false;
-static bool s_back_last = false;
 
 static void build_freq_card(void) {
   lv_obj_t *card = lv_obj_create(s_screen);
@@ -264,55 +253,51 @@ static void adjust_value(int dir) {
   lv_label_set_text(s_tile_num[s_sel], FIELDS[s_sel].values[s_val_idx[s_sel]]);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
-  if (ui_input_is_locked())
-    return;
+static void subghz_config_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool right = ui_btn_right();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-
-  if (back && !s_back_last) {
-    ui_switch_screen(SCREEN_SUBGHZ_MENU);
-    return;
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+      if (press)
+        ui_switch_screen(SCREEN_SUBGHZ_MENU);
+      break;
+    case INPUT_BTN_DOWN:
+      if (nav) {
+        s_sel = (s_sel + 1) % FIELD_COUNT;
+        refresh_selection();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_UP:
+      if (nav) {
+        s_sel = (s_sel - 1 + FIELD_COUNT) % FIELD_COUNT;
+        refresh_selection();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_RIGHT:
+      if (nav) {
+        adjust_value(1);
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_LEFT:
+      if (nav) {
+        adjust_value(-1);
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_OK:
+      if (press) {
+        notify(NOTIFY_SAVED, "Radio config applied");
+        ui_feedback(UI_FB_SELECT);
+      }
+      break;
+    default:
+      break;
   }
-  if (down && !s_down_last) {
-    s_sel = (s_sel + 1) % FIELD_COUNT;
-    refresh_selection();
-    ui_feedback(UI_FB_NAV);
-  }
-  if (up && !s_up_last) {
-    s_sel = (s_sel - 1 + FIELD_COUNT) % FIELD_COUNT;
-    refresh_selection();
-    ui_feedback(UI_FB_NAV);
-  }
-  if (right && !s_right_last) {
-    adjust_value(1);
-    ui_feedback(UI_FB_NAV);
-  }
-  if (left && !s_left_last) {
-    adjust_value(-1);
-    ui_feedback(UI_FB_NAV);
-  }
-  if (ok && !s_ok_last) {
-    notify(NOTIFY_SAVED, "Radio config applied");
-    ui_feedback(UI_FB_SELECT);
-  }
-
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_right_last = right;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 void ui_subghz_config_open(void) {
@@ -323,7 +308,6 @@ void ui_subghz_config_open(void) {
   s_sel = 0;
   for (int i = 0; i < FIELD_COUNT; i++)
     s_val_idx[i] = FIELDS[i].def;
-  s_up_last = s_down_last = s_left_last = s_right_last = s_ok_last = s_back_last = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -341,8 +325,7 @@ void ui_subghz_config_open(void) {
 
   ui_chrome_footer(s_screen, FOOTER);
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(subghz_config_input, NULL);
 
   ui_screen_load(s_screen);
 }
