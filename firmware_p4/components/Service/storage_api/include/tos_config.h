@@ -63,6 +63,7 @@ typedef struct {
 } tos_config_wifi_client_t;
 
 typedef struct {
+  bool enabled;
   tos_config_wifi_ap_t ap;
   tos_config_wifi_client_t client;
 } tos_config_wifi_t;

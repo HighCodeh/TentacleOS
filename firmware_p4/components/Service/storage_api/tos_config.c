@@ -36,6 +36,7 @@ tos_config_screen_t g_config_screen = {
 };
 
 tos_config_wifi_t g_config_wifi = {
+    .enabled = false,
     .ap =
         {
             .ssid = "TentacleOS",
@@ -54,7 +55,7 @@ tos_config_wifi_t g_config_wifi = {
 
 tos_config_ble_t g_config_ble = {
     .name = "TentacleOS",
-    .enabled = true,
+    .enabled = false,
 };
 
 tos_config_lora_t g_config_lora = {
@@ -181,6 +182,8 @@ static void parse_screen(cJSON *root) {
 }
 
 static void parse_wifi(cJSON *root) {
+  g_config_wifi.enabled = json_get_bool(root, "enabled", g_config_wifi.enabled);
+
   cJSON *ap = cJSON_GetObjectItem(root, "ap");
   if (ap) {
     json_get_str(ap, "ssid", g_config_wifi.ap.ssid, sizeof(g_config_wifi.ap.ssid));
@@ -262,6 +265,8 @@ static cJSON *serialize_screen(void) {
 
 static cJSON *serialize_wifi(void) {
   cJSON *root = cJSON_CreateObject();
+
+  cJSON_AddBoolToObject(root, "enabled", g_config_wifi.enabled);
 
   cJSON *ap = cJSON_AddObjectToObject(root, "ap");
   cJSON_AddStringToObject(ap, "ssid", g_config_wifi.ap.ssid);
