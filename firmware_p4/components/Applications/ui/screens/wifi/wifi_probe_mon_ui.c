@@ -21,7 +21,6 @@
 #include "esp_random.h"
 #include "lvgl.h"
 
-#include "buttons_gpio.h"
 #include "menu_component_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
@@ -30,8 +29,7 @@
 
 static const char *SCAN_ICON = "/assets/icons/wifi_find.bin";
 
-#define NAV_TIMER_MS 50
-#define ADD_TICK_MS  900
+#define ADD_TICK_MS 900
 #define PROBE_MAX    9
 #define COLOR_SSID   0xB89AFF
 
@@ -55,16 +53,13 @@ static const char *SSID_POOL[] = {
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_add_timer = NULL;
 
 static int s_count = 0;
 static int s_total = 0;
 static probe_row_t s_rows[PROBE_MAX];
 
-static bool s_up_last, s_down_last, s_left_last, s_right_last, s_ok_last, s_back_last;
-
-static void nav_timer_cb(lv_timer_t *t);
+static void wifi_probe_mon_input(const input_event_t *ev, void *ctx);
 
 static void make_row(probe_row_t *r) {
   const char *ssid = SSID_POOL[esp_random() % SSID_POOL_N];
@@ -99,8 +94,7 @@ static void build_screen(void) {
   }
   menu_component_set_hint(&s_menu, LV_SYMBOL_LEFT "  Back");
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(wifi_probe_mon_input, NULL);
   ui_screen_load(s_screen);
 }
 
@@ -122,44 +116,32 @@ static void add_tick_cb(lv_timer_t *t) {
   ui_feedback(UI_FB_NAV);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
+static void wifi_probe_mon_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+  switch (ev->button) {
+    case INPUT_BTN_DOWN:
+      if (nav)
+        menu_component_next(&s_menu);
+      break;
+    case INPUT_BTN_UP:
+      if (nav)
+        menu_component_prev(&s_menu);
+      break;
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_WIFI_MENU);
+      break;
+    default:
+      break;
   }
-  bool up = ui_btn_up(), down = ui_btn_down(), left = ui_btn_left();
-  bool right = ui_btn_right(), ok = ok_button_is_down(), back = back_button_is_down();
-  (void)right;
-  (void)ok;
-  if (ui_input_is_locked()) {
-    s_up_last = up;
-    s_down_last = down;
-    s_left_last = left;
-    s_right_last = right;
-    s_ok_last = ok;
-    s_back_last = back;
-    return;
-  }
-  if (down && !s_down_last)
-    menu_component_next(&s_menu);
-  if (up && !s_up_last)
-    menu_component_prev(&s_menu);
-  if ((back && !s_back_last) || (left && !s_left_last))
-    ui_switch_screen(SCREEN_WIFI_MENU);
-
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_right_last = right;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 void ui_wifi_probe_mon_open(void) {
   s_count = 0;
   s_total = 0;
-  s_up_last = s_down_last = s_left_last = s_right_last = s_ok_last = s_back_last = false;
   build_screen();
   if (s_add_timer == NULL)
     s_add_timer = lv_timer_create(add_tick_cb, ADD_TICK_MS, NULL);
