@@ -30,7 +30,6 @@
 #include "bq25896.h"
 #include "battery_service.h"
 #include "led_control.h"
-#include "drv2605l.h"
 #include "buttons_gpio.h"
 #include "ys_rfid2.h"
 #include "audio_i2s.h"
@@ -203,7 +202,9 @@ esp_err_t kernel_init(void) {
   led_rgb_init();
   boot_report_record("battery", false, bq25896_init());
   battery_service_init();
-  boot_report_record("haptic", false, drv2605l_init());
+  // Haptic not initialized: the board's chip is an AW8623 (schematic sheet 6 +
+  // pin_def), not the DRV2605L this driver targets, so its init NACKs. Left off
+  // until the AW8623 driver lands; play_effect() no-ops while uninitialized.
   cc1101_init();
   // C5 radio coprocessor bridge (SPI2, POLL mode to match the C5 slave). Inits
   // the bridge bus, starts the link monitor, and probes the C5 version. If the
