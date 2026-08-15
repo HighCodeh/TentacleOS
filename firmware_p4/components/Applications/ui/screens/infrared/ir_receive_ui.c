@@ -20,7 +20,6 @@
 #include "esp_log.h"
 #include "lvgl.h"
 
-#include "buttons_gpio.h"
 #include "capture_result_ui.h"
 #include "ir_store.h"
 #include "notify_ui.h"
@@ -44,7 +43,7 @@ static const char *TAG = "IR_RX_UI";
 #define STATUS_Y 48
 #define DETAIL_Y 66
 
-#define NAV_TIMER_MS       50
+#define POLL_TICK_MS       50
 #define CAPTURE_WINDOW_MS  1500 // one ir_capture_start() window; re-armed while listening
 #define DOT_CYCLE_MS       350
 
@@ -82,7 +81,7 @@ typedef enum {
 } rx_state_t;
 
 static lv_obj_t *s_screen = NULL;
-static lv_timer_t *s_nav_timer = NULL;
+static lv_timer_t *s_tick_timer = NULL;
 static lv_obj_t *s_status_label = NULL;
 static lv_obj_t *s_detail_label = NULL;
 static lv_obj_t *s_hint_label = NULL;
@@ -99,13 +98,8 @@ static ir_data_t s_captured = {0};
 static char s_card_text[48];
 static rmt_symbol_word_t s_raw_buf[IR_MAX_SYMBOLS];
 
-static bool s_btn_back_last = false;
-static bool s_btn_ok_last = false;
-static bool s_btn_right_last = false;
-static bool s_btn_up_last = false;
-static bool s_btn_down_last = false;
-
-static void nav_timer_cb(lv_timer_t *timer);
+static void ir_receive_tick_cb(lv_timer_t *timer);
+static void ir_receive_input(const input_event_t *ev, void *ctx);
 static void build_captured_card(void);
 
 static void clear_result(void) {
@@ -295,11 +289,6 @@ void ui_ir_receive_open(void) {
   s_state = ST_IDLE;
   s_saved = false;
   s_captured = (ir_data_t){0};
-  s_btn_back_last = false;
-  s_btn_ok_last = false;
-  s_btn_right_last = false;
-  s_btn_up_last = false;
-  s_btn_down_last = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -331,8 +320,9 @@ void ui_ir_receive_open(void) {
 
   s_hint_label = ui_chrome_footer(s_screen, HINT_IDLE);
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  if (s_tick_timer == NULL)
+    s_tick_timer = lv_timer_create(ir_receive_tick_cb, POLL_TICK_MS, NULL);
+  ui_input_set_screen_handler(ir_receive_input, NULL);
 
   ui_screen_load(s_screen);
 }
@@ -387,80 +377,85 @@ static void poll_capture(void) {
   }
 }
 
-static void nav_timer_cb(lv_timer_t *timer) {
+static void ir_receive_tick_cb(lv_timer_t *timer) {
   if (lv_screen_active() != s_screen) {
     lv_timer_delete(timer);
-    s_nav_timer = NULL;
+    s_tick_timer = NULL;
     return;
   }
-  if (ui_input_is_locked())
-    return;
 
-  if (s_state == ST_CAPTURING)
+  if (s_state == ST_CAPTURING) {
     poll_capture();
+  } else if (s_state == ST_CAPTURED) {
+    if (lv_tick_get() - s_captured_at >= REVEAL_MS)
+      show_options();
+  }
+}
 
-  bool is_back = back_button_is_down();
-  bool is_ok = ok_button_is_down();
-  bool is_right = ui_btn_right();
-  bool is_up = ui_btn_up();
-  bool is_down = ui_btn_down();
+static void ir_receive_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
-  if (is_back && !s_btn_back_last) {
-    stop_listening();
-    ui_switch_screen(SCREEN_IR_MENU);
+  if (ev->button == INPUT_BTN_BACK) {
+    if (press) {
+      stop_listening();
+      ui_switch_screen(SCREEN_IR_MENU);
+    }
     return;
   }
 
   if (s_state == ST_IDLE) {
-    if (is_ok && !s_btn_ok_last)
+    if (ev->button == INPUT_BTN_OK && press)
       start_capture();
-  } else if (s_state == ST_CAPTURED) {
-    if (lv_tick_get() - s_captured_at >= REVEAL_MS)
-      show_options();
   } else if (s_state == ST_OPTIONS) {
-    if (is_down && !s_btn_down_last) {
-      capture_result_next(&s_cr);
-      ui_feedback(UI_FB_NAV);
-    }
-    if (is_up && !s_btn_up_last) {
-      capture_result_prev(&s_cr);
-      ui_feedback(UI_FB_NAV);
-    }
-    if (is_ok && !s_btn_ok_last) {
-      switch (capture_result_selected(&s_cr)) {
-        case CAP_ACT_PRIMARY:
-          send_captured();
-          ui_feedback(UI_FB_EMULATE);
-          notify(NOTIFY_INFO, "Signal sent");
-          break;
-        case CAP_ACT_SAVE:
-          if (!s_saved) {
-            if (save_captured()) {
-              s_saved = true;
-              capture_result_mark_saved(&s_cr);
-              ui_feedback(UI_FB_WRITE);
-              notify(NOTIFY_SAVED, "IR signal saved");
-            } else {
-              notify(NOTIFY_WARNING, "Save failed");
-            }
+    switch (ev->button) {
+      case INPUT_BTN_DOWN:
+        if (nav) {
+          capture_result_next(&s_cr);
+          ui_feedback(UI_FB_NAV);
+        }
+        break;
+      case INPUT_BTN_UP:
+        if (nav) {
+          capture_result_prev(&s_cr);
+          ui_feedback(UI_FB_NAV);
+        }
+        break;
+      case INPUT_BTN_OK:
+        if (press) {
+          switch (capture_result_selected(&s_cr)) {
+            case CAP_ACT_PRIMARY:
+              send_captured();
+              ui_feedback(UI_FB_EMULATE);
+              notify(NOTIFY_INFO, "Signal sent");
+              break;
+            case CAP_ACT_SAVE:
+              if (!s_saved) {
+                if (save_captured()) {
+                  s_saved = true;
+                  capture_result_mark_saved(&s_cr);
+                  ui_feedback(UI_FB_WRITE);
+                  notify(NOTIFY_SAVED, "IR signal saved");
+                } else {
+                  notify(NOTIFY_WARNING, "Save failed");
+                }
+              }
+              break;
+            case CAP_ACT_AGAIN:
+              start_capture();
+              break;
+            case CAP_ACT_DISCARD:
+              stop_listening();
+              ui_switch_screen(SCREEN_IR_MENU);
+              return;
+            default:
+              break;
           }
-          break;
-        case CAP_ACT_AGAIN:
-          start_capture();
-          break;
-        case CAP_ACT_DISCARD:
-          stop_listening();
-          ui_switch_screen(SCREEN_IR_MENU);
-          return;
-        default:
-          break;
-      }
+        }
+        break;
+      default:
+        break;
     }
   }
-
-  s_btn_back_last = is_back;
-  s_btn_ok_last = is_ok;
-  s_btn_right_last = is_right;
-  s_btn_up_last = is_up;
-  s_btn_down_last = is_down;
 }
