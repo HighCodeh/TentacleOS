@@ -26,7 +26,7 @@ static const char *TAG = "BATTERY_SVC";
 
 #define POLL_INTERVAL_MS 1000
 #define CHG_OFF_DEBOUNCE 3    // not-charging polls (while still plugged) before dropping the flag
-#define TASK_STACK       6144 // deep console/printf path (ESP_LOGI) needs headroom
+#define TASK_STACK       4096
 #define TASK_PRIO SYS_PRIO_BACKGROUND
 #define SOC_STEP_MAX     3  // max SoC delta applied per poll (smoothing)
 #define SOC_EMA_DEN      4  // EMA: ema = (ema*3 + raw)/4 (rejects load sag)

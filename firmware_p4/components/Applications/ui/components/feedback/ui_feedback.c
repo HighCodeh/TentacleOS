@@ -27,7 +27,7 @@
 #include "audio_i2s.h"
 #include "drv2605l.h"
 
-#define FB_TASK_STACK_SIZE 6144
+#define FB_TASK_STACK_SIZE 3072
 #define FB_TASK_PRIORITY SYS_PRIO_SERVICE_LO
 
 /** @brief Single pending slot. Feedback is a reaction to an input that already
