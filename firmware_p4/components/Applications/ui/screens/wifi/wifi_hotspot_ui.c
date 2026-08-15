@@ -20,13 +20,11 @@
 #include "lvgl.h"
 #include "st7789.h"
 
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define NAV_TIMER_MS   50
 #define UPTIME_TICK_MS 1000
 
 #define HDR_TITLE   "HOTSPOT (AP)"
@@ -95,14 +93,10 @@ static lv_obj_t *s_dot = NULL;
 static lv_obj_t *s_toggle = NULL;
 static lv_obj_t *s_knob = NULL;
 static lv_obj_t *s_uptime = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_uptime_timer = NULL;
 
 static int s_secs = START_SECS;
 static bool s_online = true;
-static bool s_ok_last = false;
-static bool s_back_last = false;
-static bool s_left_last = false;
 
 static lv_obj_t *
 make_label(lv_obj_t *parent, const char *txt, const lv_font_t *font, lv_color_t color) {
@@ -325,33 +319,25 @@ static void build_traffic_row(lv_obj_t *parent) {
   lv_obj_set_flex_grow(rx, 1);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    stop_uptime_timer();
-    return;
+static void wifi_hotspot_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_WIFI_MENU);
+      break;
+    case INPUT_BTN_OK:
+      if (press) {
+        s_online = !s_online;
+        apply_online();
+        ui_feedback(UI_FB_SELECT);
+      }
+      break;
+    default:
+      break;
   }
-  if (ui_input_is_locked())
-    return;
-
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-  bool left = ui_btn_left();
-
-  if ((back && !s_back_last) || (left && !s_left_last)) {
-    ui_switch_screen(SCREEN_WIFI_MENU);
-    return;
-  }
-  if (ok && !s_ok_last) {
-    s_online = !s_online;
-    apply_online();
-    ui_feedback(UI_FB_SELECT);
-  }
-
-  s_ok_last = ok;
-  s_back_last = back;
-  s_left_last = left;
 }
 
 void ui_wifi_hotspot_open(void) {
@@ -366,7 +352,6 @@ void ui_wifi_hotspot_open(void) {
   s_uptime = NULL;
   s_secs = START_SECS;
   s_online = true;
-  s_ok_last = s_back_last = s_left_last = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -396,8 +381,7 @@ void ui_wifi_hotspot_open(void) {
 
   apply_online();
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(wifi_hotspot_input, NULL);
   s_uptime_timer = lv_timer_create(uptime_tick_cb, UPTIME_TICK_MS, NULL);
 
   ui_screen_load(s_screen);
