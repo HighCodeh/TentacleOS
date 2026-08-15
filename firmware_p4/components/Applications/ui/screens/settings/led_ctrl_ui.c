@@ -17,7 +17,6 @@
 
 #include "st7789.h"
 
-#include "buttons_gpio.h"
 #include "led_control.h"
 #include "notify_ui.h"
 #include "tos_config.h"
@@ -26,8 +25,6 @@
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
-
-#define NAV_TIMER_MS 50
 
 #define MX        8
 #define CONTENT_W (LCD_H_RES - 2 * MX)
@@ -93,20 +90,12 @@ static lv_obj_t *s_swatch[PRESET_COUNT];
 static lv_obj_t *s_bright_fill = NULL;
 static lv_obj_t *s_bright_val = NULL;
 static lv_obj_t *s_sig_val = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 
 static int s_focus = FOCUS_SIGNAL;
 static int s_signal = SIG_INFO;
 static int s_color_idx[SIG_COUNT]; // selected preset index per signal
 static int s_bright = BRIGHT_DEFAULT;
 static bool s_changed = false;
-
-static bool s_up_last = false;
-static bool s_down_last = false;
-static bool s_left_last = false;
-static bool s_right_last = false;
-static bool s_ok_last = false;
-static bool s_back_last = false;
 
 // Scale one 8-bit channel by a percentage, clamped to [0, 255] so an out-of-range
 // percentage can never overflow the byte and wrap the color to a wrong hue.
@@ -343,99 +332,93 @@ static void save_config(void) {
   }
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
-  if (ui_input_is_locked())
-    return;
+static void led_ctrl_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool right = ui_btn_right();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-
-  if (back && !s_back_last) {
-    if (s_changed)
-      save_config();
-    led_clear(); // status LED is normally off: don't leave the preview lit
-    ui_switch_screen(SCREEN_INTERFACE_SETTINGS);
-    return;
-  }
-  if (down && !s_down_last) {
-    s_focus = (s_focus + 1) % FOCUS_COUNT;
-    update_focus();
-    ui_feedback(UI_FB_NAV);
-  }
-  if (up && !s_up_last) {
-    s_focus = (s_focus - 1 + FOCUS_COUNT) % FOCUS_COUNT;
-    update_focus();
-    ui_feedback(UI_FB_NAV);
-  }
-
-  if (left && !s_left_last) {
-    if (s_focus == FOCUS_SIGNAL) {
-      s_signal = (s_signal - 1 + SIG_COUNT) % SIG_COUNT;
-      update_signal();
-      update_swatches();
-      update_preview();
-    } else if (s_focus == FOCUS_COLOR) {
-      s_color_idx[s_signal] = (s_color_idx[s_signal] - 1 + PRESET_COUNT) % PRESET_COUNT;
-      s_changed = true;
-      update_swatches();
-      update_signal();
-      update_preview();
-    } else if (s_focus == FOCUS_BRIGHT) {
-      int nb = s_bright - BRIGHT_STEP;
-      if (nb < BRIGHT_MIN)
-        nb = BRIGHT_MIN;
-      if (nb != s_bright) {
-        s_bright = nb;
-        s_changed = true;
-        update_bright();
-        update_preview();
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+      if (press) {
+        if (s_changed)
+          save_config();
+        led_clear();
+        ui_switch_screen(SCREEN_INTERFACE_SETTINGS);
       }
-    }
-  }
-  if (right && !s_right_last) {
-    if (s_focus == FOCUS_SIGNAL) {
-      s_signal = (s_signal + 1) % SIG_COUNT;
-      update_signal();
-      update_swatches();
-      update_preview();
-    } else if (s_focus == FOCUS_COLOR) {
-      s_color_idx[s_signal] = (s_color_idx[s_signal] + 1) % PRESET_COUNT;
-      s_changed = true;
-      update_swatches();
-      update_signal();
-      update_preview();
-    } else if (s_focus == FOCUS_BRIGHT) {
-      int nb = s_bright + BRIGHT_STEP;
-      if (nb > BRIGHT_MAX)
-        nb = BRIGHT_MAX;
-      if (nb != s_bright) {
-        s_bright = nb;
-        s_changed = true;
-        update_bright();
-        update_preview();
+      break;
+    case INPUT_BTN_DOWN:
+      if (nav) {
+        s_focus = (s_focus + 1) % FOCUS_COUNT;
+        update_focus();
+        ui_feedback(UI_FB_NAV);
       }
-    }
+      break;
+    case INPUT_BTN_UP:
+      if (nav) {
+        s_focus = (s_focus - 1 + FOCUS_COUNT) % FOCUS_COUNT;
+        update_focus();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_LEFT:
+      if (press) {
+        if (s_focus == FOCUS_SIGNAL) {
+          s_signal = (s_signal - 1 + SIG_COUNT) % SIG_COUNT;
+          update_signal();
+          update_swatches();
+          update_preview();
+        } else if (s_focus == FOCUS_COLOR) {
+          s_color_idx[s_signal] = (s_color_idx[s_signal] - 1 + PRESET_COUNT) % PRESET_COUNT;
+          s_changed = true;
+          update_swatches();
+          update_signal();
+          update_preview();
+        } else if (s_focus == FOCUS_BRIGHT) {
+          int nb = s_bright - BRIGHT_STEP;
+          if (nb < BRIGHT_MIN)
+            nb = BRIGHT_MIN;
+          if (nb != s_bright) {
+            s_bright = nb;
+            s_changed = true;
+            update_bright();
+            update_preview();
+          }
+        }
+      }
+      break;
+    case INPUT_BTN_RIGHT:
+      if (press) {
+        if (s_focus == FOCUS_SIGNAL) {
+          s_signal = (s_signal + 1) % SIG_COUNT;
+          update_signal();
+          update_swatches();
+          update_preview();
+        } else if (s_focus == FOCUS_COLOR) {
+          s_color_idx[s_signal] = (s_color_idx[s_signal] + 1) % PRESET_COUNT;
+          s_changed = true;
+          update_swatches();
+          update_signal();
+          update_preview();
+        } else if (s_focus == FOCUS_BRIGHT) {
+          int nb = s_bright + BRIGHT_STEP;
+          if (nb > BRIGHT_MAX)
+            nb = BRIGHT_MAX;
+          if (nb != s_bright) {
+            s_bright = nb;
+            s_changed = true;
+            update_bright();
+            update_preview();
+          }
+        }
+      }
+      break;
+    case INPUT_BTN_OK:
+      if (press)
+        ui_feedback(UI_FB_SELECT);
+      break;
+    default:
+      break;
   }
-
-  if (ok && !s_ok_last) {
-    ui_feedback(UI_FB_SELECT);
-  }
-
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_right_last = right;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 void ui_led_ctrl_open(void) {
@@ -454,7 +437,6 @@ void ui_led_ctrl_open(void) {
   if (s_bright > BRIGHT_MAX)
     s_bright = BRIGHT_MAX;
   s_changed = false;
-  s_up_last = s_down_last = s_left_last = s_right_last = s_ok_last = s_back_last = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -474,8 +456,7 @@ void ui_led_ctrl_open(void) {
 
   ui_chrome_footer(s_screen, "UP/DOWN pick   L/R adjust   BACK save");
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(led_ctrl_input, NULL);
 
   ui_screen_load(s_screen);
 }
