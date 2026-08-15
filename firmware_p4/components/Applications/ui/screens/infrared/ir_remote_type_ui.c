@@ -16,7 +16,6 @@
 #include "ir_remote_type_ui.h"
 
 #include "assets_manager.h"
-#include "buttons_gpio.h"
 #include "ir_controller_ui.h"
 #include "page_dots_ui.h"
 #include "ui_chrome.h"
@@ -24,7 +23,6 @@
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define NAV_TIMER_MS  50
 #define TITLE_ICON    "/assets/icons/settings_remote.bin"
 #define BASE_FRAME    "/assets/frames/base_frame_0.bin"
 #define CARD_Y_BIAS   (-18)
@@ -62,10 +60,7 @@ static lv_obj_t *s_glyph[DEVICE_COUNT];
 static lv_obj_t *s_label = NULL;
 static page_dots_t s_dots;
 static lv_image_dsc_t *s_base_dsc = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static int s_sel = 0;
-
-static bool s_up_last, s_down_last, s_left_last, s_right_last, s_ok_last, s_back_last;
 
 static int32_t carousel_slot(int item_idx) {
   int32_t n = DEVICE_COUNT;
@@ -145,50 +140,42 @@ static void update_view(void) {
   fix_z_order();
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
-  if (ui_input_is_locked())
-    return;
+static void ir_remote_type_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool right = ui_btn_right();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-
-  bool next = (right && !s_right_last) || (down && !s_down_last);
-  bool prev = (left && !s_left_last) || (up && !s_up_last);
-
-  if (back && !s_back_last) {
-    ui_switch_screen(SCREEN_IR_MENU);
-    return;
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+      if (press)
+        ui_switch_screen(SCREEN_IR_MENU);
+      break;
+    case INPUT_BTN_OK:
+      if (press) {
+        ui_feedback(UI_FB_SELECT);
+        ui_ir_controller_set_device(DEVICES[s_sel].dev);
+        ui_switch_screen(SCREEN_IR_CONTROLLER);
+      }
+      break;
+    case INPUT_BTN_DOWN:
+    case INPUT_BTN_RIGHT:
+      if (nav) {
+        s_sel = (s_sel + 1) % DEVICE_COUNT;
+        ui_feedback(UI_FB_NAV);
+        update_view();
+      }
+      break;
+    case INPUT_BTN_UP:
+    case INPUT_BTN_LEFT:
+      if (nav) {
+        s_sel = (s_sel == 0) ? DEVICE_COUNT - 1 : s_sel - 1;
+        ui_feedback(UI_FB_NAV);
+        update_view();
+      }
+      break;
+    default:
+      break;
   }
-  if (ok && !s_ok_last) {
-    ui_feedback(UI_FB_SELECT);
-    ui_ir_controller_set_device(DEVICES[s_sel].dev);
-    ui_switch_screen(SCREEN_IR_CONTROLLER);
-    return;
-  }
-  if (next || prev) {
-    if (next)
-      s_sel = (s_sel + 1) % DEVICE_COUNT;
-    else
-      s_sel = (s_sel == 0) ? DEVICE_COUNT - 1 : s_sel - 1;
-    ui_feedback(UI_FB_NAV);
-    update_view();
-  }
-
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_right_last = right;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 void ui_ir_remote_type_open(void) {
@@ -197,7 +184,6 @@ void ui_ir_remote_type_open(void) {
     s_screen = NULL;
   }
   s_sel = 0;
-  s_up_last = s_down_last = s_left_last = s_right_last = s_ok_last = s_back_last = false;
 
   if (s_base_dsc == NULL)
     s_base_dsc = assets_get(BASE_FRAME);
@@ -224,8 +210,7 @@ void ui_ir_remote_type_open(void) {
 
   update_view();
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(ir_remote_type_input, NULL);
 
   ui_screen_load(s_screen);
 }
