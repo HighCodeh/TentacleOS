@@ -18,7 +18,6 @@
 #include "esp_log.h"
 #include "st7789.h"
 
-#include "buttons_gpio.h"
 #include "menu_component_ui.h"
 #include "msgbox_ui.h"
 #include "ui_chrome.h"
@@ -28,8 +27,7 @@
 
 static const char *TAG = "WIFI_ATTACK_UI";
 
-#define NAV_TIMER_INTERVAL_MS 50
-#define ATTACK_TICK_MS        140
+#define ATTACK_TICK_MS 140
 
 #define OUTER_BORDER           4
 #define TOP_BORDER_H           46
@@ -71,7 +69,6 @@ typedef enum {
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_attack_timer = NULL;
 
 static view_t s_view = VIEW_LIST;
@@ -83,13 +80,7 @@ static lv_obj_t *s_rate_label = NULL;
 static lv_obj_t *s_waves = NULL;
 static int s_tick_accum = 0;
 
-static bool s_btn_up_last = false;
-static bool s_btn_down_last = false;
-static bool s_btn_left_last = false;
-static bool s_btn_ok_last = false;
-static bool s_btn_back_last = false;
-
-static void nav_timer_cb(lv_timer_t *timer);
+static void wifi_attack_input(const input_event_t *ev, void *ctx);
 static void attack_tick_cb(lv_timer_t *timer);
 static void build_list_view(void);
 static void build_running_view(int idx);
@@ -135,8 +126,7 @@ void ui_wifi_attack_open(void) {
 
   build_list_view();
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
+  ui_input_set_screen_handler(wifi_attack_input, NULL);
 
   ui_screen_load(s_screen);
 }
@@ -282,52 +272,50 @@ static void attack_tick_cb(lv_timer_t *timer) {
   }
 }
 
-static void nav_timer_cb(lv_timer_t *timer) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(timer);
-    s_nav_timer = NULL;
-    stop_attack_timer();
-    return;
-  }
-  if (ui_input_is_locked())
-    return;
-  if (msgbox_is_open())
-    return;
-
-  bool is_up = ui_btn_up();
-  bool is_down = ui_btn_down();
-  bool is_left = ui_btn_left();
-  bool is_ok = ok_button_is_down();
-  bool is_back = back_button_is_down();
+static void wifi_attack_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
   if (s_view == VIEW_LIST) {
-    if (is_down && !s_btn_down_last)
-      menu_component_next(&s_menu);
-
-    if (is_up && !s_btn_up_last)
-      menu_component_prev(&s_menu);
-
-    if ((is_back && !s_btn_back_last) || (is_left && !s_btn_left_last))
-      ui_switch_screen(SCREEN_WIFI_MENU);
-
-    if (is_ok && !s_btn_ok_last) {
-      int sel = menu_component_get_selected(&s_menu);
-      if (sel >= 0 && sel < (int)ATTACKS_COUNT) {
-        ESP_LOGI(TAG, "mock attack start: %s", ATTACKS[sel].name);
-        build_running_view(sel);
-      }
+    switch (ev->button) {
+      case INPUT_BTN_DOWN:
+        if (nav)
+          menu_component_next(&s_menu);
+        break;
+      case INPUT_BTN_UP:
+        if (nav)
+          menu_component_prev(&s_menu);
+        break;
+      case INPUT_BTN_BACK:
+      case INPUT_BTN_LEFT:
+        if (press)
+          ui_switch_screen(SCREEN_WIFI_MENU);
+        break;
+      case INPUT_BTN_OK:
+        if (press) {
+          int sel = menu_component_get_selected(&s_menu);
+          if (sel >= 0 && sel < (int)ATTACKS_COUNT) {
+            ESP_LOGI(TAG, "mock attack start: %s", ATTACKS[sel].name);
+            build_running_view(sel);
+          }
+        }
+        break;
+      default:
+        break;
     }
   } else {
-    if ((is_back && !s_btn_back_last) || (is_left && !s_btn_left_last)) {
-      stop_attack_timer();
-      ESP_LOGI(TAG, "mock attack stopped: %s", ATTACKS[s_attack_idx].name);
-      build_list_view();
+    switch (ev->button) {
+      case INPUT_BTN_BACK:
+      case INPUT_BTN_LEFT:
+        if (press) {
+          stop_attack_timer();
+          ESP_LOGI(TAG, "mock attack stopped: %s", ATTACKS[s_attack_idx].name);
+          build_list_view();
+        }
+        break;
+      default:
+        break;
     }
   }
-
-  s_btn_up_last = is_up;
-  s_btn_down_last = is_down;
-  s_btn_left_last = is_left;
-  s_btn_ok_last = is_ok;
-  s_btn_back_last = is_back;
 }
