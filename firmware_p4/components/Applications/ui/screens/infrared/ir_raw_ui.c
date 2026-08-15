@@ -21,15 +21,12 @@
 #include "lvgl.h"
 #include "st7789.h"
 
-#include "buttons_gpio.h"
 #include "ir_store.h"
 #include "notify_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
-
-#define NAV_TIMER_MS 50
 
 #define HDR_TITLE "RAW SIGNAL"
 #define HDR_ICON  "/assets/icons/graphic_eq.bin"
@@ -97,19 +94,11 @@ static const lv_point_precise_t PULSE_PTS[] = {
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_chip[CARRIER_COUNT];
 static lv_obj_t *s_chip_lbl[CARRIER_COUNT];
-static lv_timer_t *s_nav_timer = NULL;
 
 static int s_sel = 2;
 
 static rmt_symbol_word_t s_raw[IR_MAX_SYMBOLS];
 static size_t s_raw_count = 0;
-
-static bool s_up_last = false;
-static bool s_down_last = false;
-static bool s_left_last = false;
-static bool s_right_last = false;
-static bool s_ok_last = false;
-static bool s_back_last = false;
 
 // Pull the last frame the RMT RX captured and derive real scope stats from it.
 static void compute_stats(void) {
@@ -312,53 +301,47 @@ static void refresh_selection(void) {
     style_chip(i, i == s_sel);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
-  if (ui_input_is_locked())
-    return;
+static void ir_raw_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool right = ui_btn_right();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-
-  if (back && !s_back_last) {
-    ui_switch_screen(SCREEN_IR_MENU);
-    return;
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+      if (press)
+        ui_switch_screen(SCREEN_IR_MENU);
+      break;
+    case INPUT_BTN_DOWN:
+    case INPUT_BTN_RIGHT:
+      if (nav) {
+        s_sel = (s_sel + 1) % CARRIER_COUNT;
+        refresh_selection();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_UP:
+    case INPUT_BTN_LEFT:
+      if (nav) {
+        s_sel = (s_sel - 1 + CARRIER_COUNT) % CARRIER_COUNT;
+        refresh_selection();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_OK:
+      if (press) {
+        if (s_raw_count > 0) {
+          uint32_t hz = (uint32_t)atoi(CARRIERS[s_sel]) * 1000;
+          ir_store_send_raw(s_raw, s_raw_count, hz);
+          notify(NOTIFY_INFO, "Replaying RAW signal");
+          ui_feedback(UI_FB_EMULATE);
+        } else {
+          notify(NOTIFY_WARNING, "No RAW signal captured");
+        }
+      }
+      break;
+    default:
+      break;
   }
-  if ((right && !s_right_last) || (down && !s_down_last)) {
-    s_sel = (s_sel + 1) % CARRIER_COUNT;
-    refresh_selection();
-    ui_feedback(UI_FB_NAV);
-  }
-  if ((left && !s_left_last) || (up && !s_up_last)) {
-    s_sel = (s_sel - 1 + CARRIER_COUNT) % CARRIER_COUNT;
-    refresh_selection();
-    ui_feedback(UI_FB_NAV);
-  }
-  if (ok && !s_ok_last) {
-    if (s_raw_count > 0) {
-      uint32_t hz = (uint32_t)atoi(CARRIERS[s_sel]) * 1000;
-      ir_store_send_raw(s_raw, s_raw_count, hz);
-      notify(NOTIFY_INFO, "Replaying RAW signal");
-      ui_feedback(UI_FB_EMULATE);
-    } else {
-      notify(NOTIFY_WARNING, "No RAW signal captured");
-    }
-  }
-
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_right_last = right;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 void ui_ir_raw_open(void) {
@@ -367,7 +350,6 @@ void ui_ir_raw_open(void) {
     s_screen = NULL;
   }
   s_sel = 2;
-  s_up_last = s_down_last = s_left_last = s_right_last = s_ok_last = s_back_last = false;
 
   compute_stats();
 
@@ -388,8 +370,7 @@ void ui_ir_raw_open(void) {
 
   ui_chrome_footer(s_screen, FOOTER);
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(ir_raw_input, NULL);
 
   ui_screen_load(s_screen);
 }
