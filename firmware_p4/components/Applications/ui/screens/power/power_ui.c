@@ -17,7 +17,7 @@
 
 #include <stdio.h>
 
-#include "driver/i2c.h"
+#include "i2c_init.h"
 #include "lvgl.h"
 
 #include "bq25896.h"
@@ -298,12 +298,7 @@ static void i2c_scan_fill(void) {
   int n = 0;
   s_scan_msg[0] = '\0';
   for (uint8_t a = 0x08; a <= 0x77; a++) {
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (a << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_stop(cmd);
-    esp_err_t r = i2c_master_cmd_begin(I2C_NUM_0, cmd, 20 / portTICK_PERIOD_MS);
-    i2c_cmd_link_delete(cmd);
+    esp_err_t r = i2c_master_probe(i2c_get_bus(), a, 20);
     if (r == ESP_OK && n < (int)sizeof(s_scan_msg) - 7)
       n += snprintf(s_scan_msg + n, sizeof(s_scan_msg) - n, "0x%02X ", a);
   }

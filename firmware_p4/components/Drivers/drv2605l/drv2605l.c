@@ -16,11 +16,11 @@
 #include "drv2605l.h"
 
 #include "driver/gpio.h"
-#include "driver/i2c.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "i2c_init.h"
 #include "pin_def.h"
 
 static const char *TAG = "DRV2605L";
@@ -49,7 +49,7 @@ static const char *TAG = "DRV2605L";
 #define RATED_V_ERM  0x90
 #define OD_CLAMP_ERM 0xCC
 
-#define I2C_TIMEOUT pdMS_TO_TICKS(50)
+#define I2C_TIMEOUT_MS 50
 
 #define AUTOCAL_POLL_INTERVAL_MS 10
 #define AUTOCAL_POLL_MAX         150
@@ -58,15 +58,21 @@ static uint8_t s_device_id = 0;
 static bool s_ready = false;
 static bool s_rtp_mode = false;
 static uint8_t s_last_effect = 0xFF;
+static i2c_master_dev_handle_t s_dev = NULL;
 
 static esp_err_t write_reg(uint8_t reg, uint8_t val) {
+  if (s_dev == NULL) {
+    return ESP_ERR_INVALID_STATE;
+  }
   uint8_t buf[2] = {reg, val};
-  return i2c_master_write_to_device(I2C_NUM_0, DRV2605L_I2C_ADDR, buf, sizeof(buf), I2C_TIMEOUT);
+  return i2c_master_transmit(s_dev, buf, sizeof(buf), I2C_TIMEOUT_MS);
 }
 
 static esp_err_t read_reg(uint8_t reg, uint8_t *out_val) {
-  return i2c_master_write_read_device(
-      I2C_NUM_0, DRV2605L_I2C_ADDR, &reg, 1, out_val, 1, I2C_TIMEOUT);
+  if (s_dev == NULL) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  return i2c_master_transmit_receive(s_dev, &reg, 1, out_val, 1, I2C_TIMEOUT_MS);
 }
 
 uint8_t drv2605l_device_id(void) {
@@ -74,6 +80,19 @@ uint8_t drv2605l_device_id(void) {
 }
 
 esp_err_t drv2605l_init(void) {
+  if (s_dev == NULL) {
+    i2c_device_config_t dev_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = DRV2605L_I2C_ADDR,
+        .scl_speed_hz = I2C_MASTER_FREQ_HZ,
+    };
+    esp_err_t add = i2c_master_bus_add_device(i2c_get_bus(), &dev_cfg, &s_dev);
+    if (add != ESP_OK) {
+      ESP_LOGE(TAG, "drv2605l add_device failed: %s", esp_err_to_name(add));
+      return add;
+    }
+  }
+
   vTaskDelay(pdMS_TO_TICKS(2));
 
   uint8_t status = 0;

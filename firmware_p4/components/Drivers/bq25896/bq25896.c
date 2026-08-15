@@ -18,14 +18,15 @@
 #include <string.h>
 
 #include "driver/gpio.h"
-#include "driver/i2c.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 
+#include "i2c_init.h"
 #include "pin_def.h"
 
-#define I2C_PORT       I2C_NUM_0
 #define I2C_TIMEOUT_MS 100
+// Consecutive I2C failures before a bus recovery is attempted.
+#define I2C_FAIL_RECOVER 3
 #define BATV_BASE_MV   2304
 #define BATV_STEP_MV   20
 #define BATTERY_MIN_MV 3200
@@ -94,33 +95,57 @@ static const char *TAG = "BQ25896";
 
 static bool s_present = false; // true once the charger has answered on I2C
 
+static i2c_master_dev_handle_t s_dev = NULL;
+static uint32_t s_i2c_fail_streak = 0;
+
+// Reactive bus recovery: a run of failed transfers usually means a slave wedged
+// the bus (held SDA low). Reset it and start over so the charger does not stay
+// unreadable for the rest of the session.
+static void note_i2c_result(esp_err_t ret) {
+  if (ret == ESP_OK) {
+    s_i2c_fail_streak = 0;
+    return;
+  }
+  if (++s_i2c_fail_streak >= I2C_FAIL_RECOVER) {
+    s_i2c_fail_streak = 0;
+    i2c_bus_recover();
+  }
+}
+
 static esp_err_t bq25896_read_reg(uint8_t reg, uint8_t *data) {
-  i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-  i2c_master_start(cmd);
-  i2c_master_write_byte(cmd, (BQ25896_I2C_ADDR << 1) | I2C_MASTER_WRITE, true);
-  i2c_master_write_byte(cmd, reg, true);
-  i2c_master_start(cmd);
-  i2c_master_write_byte(cmd, (BQ25896_I2C_ADDR << 1) | I2C_MASTER_READ, true);
-  i2c_master_read_byte(cmd, data, I2C_MASTER_LAST_NACK);
-  i2c_master_stop(cmd);
-  esp_err_t ret = i2c_master_cmd_begin(I2C_PORT, cmd, I2C_TIMEOUT_MS / portTICK_PERIOD_MS);
-  i2c_cmd_link_delete(cmd);
+  if (s_dev == NULL) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  esp_err_t ret = i2c_master_transmit_receive(s_dev, &reg, 1, data, 1, I2C_TIMEOUT_MS);
+  note_i2c_result(ret);
   return ret;
 }
 
 static esp_err_t bq25896_write_reg(uint8_t reg, uint8_t data) {
-  i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-  i2c_master_start(cmd);
-  i2c_master_write_byte(cmd, (BQ25896_I2C_ADDR << 1) | I2C_MASTER_WRITE, true);
-  i2c_master_write_byte(cmd, reg, true);
-  i2c_master_write_byte(cmd, data, true);
-  i2c_master_stop(cmd);
-  esp_err_t ret = i2c_master_cmd_begin(I2C_PORT, cmd, I2C_TIMEOUT_MS / portTICK_PERIOD_MS);
-  i2c_cmd_link_delete(cmd);
+  if (s_dev == NULL) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  uint8_t buf[2] = {reg, data};
+  esp_err_t ret = i2c_master_transmit(s_dev, buf, sizeof(buf), I2C_TIMEOUT_MS);
+  note_i2c_result(ret);
   return ret;
 }
 
 esp_err_t bq25896_init(void) {
+  if (s_dev == NULL) {
+    i2c_device_config_t dev_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = BQ25896_I2C_ADDR,
+        .scl_speed_hz = I2C_MASTER_FREQ_HZ,
+    };
+    esp_err_t add = i2c_master_bus_add_device(i2c_get_bus(), &dev_cfg, &s_dev);
+    if (add != ESP_OK) {
+      s_present = false;
+      ESP_LOGE(TAG, "bq25896 add_device failed: %s", esp_err_to_name(add));
+      return add;
+    }
+  }
+
   uint8_t data;
   esp_err_t ret = bq25896_read_reg(REG_CTRL_3, &data);
   if (ret != ESP_OK) {

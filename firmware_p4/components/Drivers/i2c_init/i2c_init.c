@@ -16,7 +16,7 @@
 #include "i2c_init.h"
 
 #include "driver/gpio.h"
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"
 #include "esp_log.h"
 #include "esp_rom_sys.h"
 
@@ -24,10 +24,8 @@
 
 static const char *TAG = "I2C_INIT";
 
-// 100 kHz standard-mode. The V2 board pulls SDA/SCL up with 10k (R12/R13/R14 to
-// 3.3VF) plus 22R series (R9/R10) — too weak for 400 kHz fast-mode (rise time
-// can't reach VIH in a bit period), which is why the BQ25896 NACKs at 400 kHz.
-#define I2C_MASTER_FREQ_HZ 100000
+static i2c_master_bus_handle_t s_bus = NULL;
+static uint32_t s_recover_count = 0;
 
 #define I2C_RECOVER_CLOCKS 9  // enough SCL pulses to walk any slave past its ACK
 #define I2C_RECOVER_HALF_US 5 // ~100 kHz bit-bang half period
@@ -67,27 +65,38 @@ static void bus_recover(void) {
 esp_err_t init_i2c(void) {
   bus_recover();
 
-  i2c_config_t conf = {
-      .mode = I2C_MODE_MASTER,
+  i2c_master_bus_config_t conf = {
+      .i2c_port = I2C_NUM_0,
       .sda_io_num = GPIO_I2C_SDA_PIN,
       .scl_io_num = GPIO_I2C_SCL_PIN,
-      .sda_pullup_en = GPIO_PULLUP_ENABLE,
-      .scl_pullup_en = GPIO_PULLUP_ENABLE,
-      .master.clk_speed = I2C_MASTER_FREQ_HZ,
+      .clk_source = I2C_CLK_SRC_DEFAULT,
+      .glitch_ignore_cnt = 7,
+      .flags.enable_internal_pullup = true,
   };
 
-  esp_err_t ret = i2c_param_config(I2C_NUM_0, &conf);
+  esp_err_t ret = i2c_new_master_bus(&conf, &s_bus);
   if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to configure I2C: %s", esp_err_to_name(ret));
+    ESP_LOGE(TAG, "Failed to create I2C master bus: %s", esp_err_to_name(ret));
     return ret;
   }
 
-  ret = i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to install I2C driver: %s", esp_err_to_name(ret));
-    return ret;
-  }
-
-  ESP_LOGI(TAG, "I2C master initialized on I2C_NUM_0");
+  ESP_LOGI(TAG, "I2C master bus ready on I2C_NUM_0");
   return ESP_OK;
+}
+
+i2c_master_bus_handle_t i2c_get_bus(void) {
+  return s_bus;
+}
+
+esp_err_t i2c_bus_recover(void) {
+  if (s_bus == NULL) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  s_recover_count++;
+  ESP_LOGW(TAG, "I2C bus reset (recovery #%lu)", (unsigned long)s_recover_count);
+  return i2c_master_bus_reset(s_bus);
+}
+
+uint32_t i2c_recover_count(void) {
+  return s_recover_count;
 }

@@ -27,6 +27,7 @@
 #include "sys_prio.h"
 
 #include "assets_manager.h"
+#include "i2c_init.h"
 #include "kernel.h"
 #include "storage_init.h"
 #include "ui_liveness.h"
@@ -254,6 +255,15 @@ static void check_storage_health(void) {
   }
 }
 
+static void check_i2c_health(void) {
+  static uint32_t last_recover = 0;
+  uint32_t now = i2c_recover_count();
+  if (now != last_recover) {
+    ESP_LOGW(TAG, "I2C bus recovered (total %lu)", (unsigned long)now);
+    last_recover = now;
+  }
+}
+
 static void sys_monitor_task(void *pvParameters) {
   sys_monitor_params_t *params = (sys_monitor_params_t *)pvParameters;
   bool is_verbose = params->is_verbose;
@@ -296,6 +306,7 @@ static void sys_monitor_task(void *pvParameters) {
 
     check_ui_liveness();
     check_heap();
+    check_i2c_health();
 
     if (++storage_cycle >= STORAGE_CHECK_CYCLES) {
       storage_cycle = 0;

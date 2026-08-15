@@ -23,7 +23,6 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "driver/i2c.h"
 #include "esp_err.h"
 
 #define BQ25896_I2C_ADDR 0x6B

@@ -15,12 +15,13 @@
 
 #include "led_control.h"
 
-#include "driver/i2c.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sys_prio.h"
+
+#include "i2c_init.h"
 
 static const char *TAG = "LED_CONTROL";
 
@@ -29,7 +30,6 @@ static const char *TAG = "LED_CONTROL";
 // map from the schematic (sheet 6): OUT0 = RED (D10.1), OUT1 = GREEN (D10.2),
 // OUT2 = BLUE (D10.3), OUT3 = D11 (unused). I2C target address is 0x2C.
 #define LP5816_ADDR 0x2C
-#define I2C_PORT    I2C_NUM_0
 #define I2C_TIMEOUT_MS 50
 
 #define REG_CHIP_EN      0x00 // bit0 = device enable
@@ -53,21 +53,33 @@ static const char *TAG = "LED_CONTROL";
 
 static bool s_present = false;
 
+static i2c_master_dev_handle_t s_dev = NULL;
+
 static esp_err_t lp5816_write(uint8_t reg, uint8_t val) {
-  i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-  i2c_master_start(cmd);
-  i2c_master_write_byte(cmd, (LP5816_ADDR << 1) | I2C_MASTER_WRITE, true);
-  i2c_master_write_byte(cmd, reg, true);
-  i2c_master_write_byte(cmd, val, true);
-  i2c_master_stop(cmd);
-  esp_err_t ret = i2c_master_cmd_begin(I2C_PORT, cmd, pdMS_TO_TICKS(I2C_TIMEOUT_MS));
-  i2c_cmd_link_delete(cmd);
-  return ret;
+  if (s_dev == NULL) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  uint8_t buf[2] = {reg, val};
+  return i2c_master_transmit(s_dev, buf, sizeof(buf), I2C_TIMEOUT_MS);
 }
 
 esp_err_t led_rgb_init(void) {
   // Assumes the shared I2C bus (init_i2c) is already up. Reset to a known state,
   // then configure manual PWM mode with OUT0..OUT2 enabled.
+  if (s_dev == NULL) {
+    i2c_device_config_t dev_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = LP5816_ADDR,
+        .scl_speed_hz = I2C_MASTER_FREQ_HZ,
+    };
+    esp_err_t add = i2c_master_bus_add_device(i2c_get_bus(), &dev_cfg, &s_dev);
+    if (add != ESP_OK) {
+      s_present = false;
+      ESP_LOGE(TAG, "LP5816 add_device failed: %s", esp_err_to_name(add));
+      return add;
+    }
+  }
+
   esp_err_t err = lp5816_write(REG_RESET_CMD, CMD_RESET);
   if (err != ESP_OK) {
     s_present = false;
