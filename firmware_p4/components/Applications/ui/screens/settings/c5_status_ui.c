@@ -226,5 +226,5 @@ void ui_c5_status_open(void) {
 
   ui_input_set_screen_handler(c5_status_input, NULL);
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }

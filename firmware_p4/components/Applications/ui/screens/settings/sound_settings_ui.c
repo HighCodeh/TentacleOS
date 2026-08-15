@@ -136,5 +136,5 @@ void ui_sound_settings_open(void) {
 
   ui_input_set_screen_handler(sound_settings_input, NULL);
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }

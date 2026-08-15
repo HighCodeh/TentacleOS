@@ -474,7 +474,7 @@ static void build_screen(void) {
 
   ui_input_set_screen_handler(storage_settings_input, NULL);
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
   if (prev != NULL)
     lv_obj_del(prev);
 }
