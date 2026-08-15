@@ -20,12 +20,12 @@
 #include "esp_heap_caps.h"
 #include "esp_littlefs.h"
 #include "esp_timer.h"
-#include "nvs.h"
 
 #include "lvgl.h"
 #include "st7789.h"
 
 #include "assets_manager.h"
+#include "boot_report.h"
 #include "bq25896.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
@@ -101,18 +101,7 @@ static void read_boots_once(void) {
   if (s_boots_read)
     return;
   s_boots_read = true;
-  nvs_handle_t h;
-  if (nvs_open("octobit", NVS_READWRITE, &h) == ESP_OK) {
-    uint32_t v = 0;
-    nvs_get_u32(h, "boots", &v);
-    v++;
-    nvs_set_u32(h, "boots", v);
-    nvs_commit(h);
-    nvs_close(h);
-    s_boots = v;
-  } else {
-    s_boots = 1;
-  }
+  s_boots = boot_report_boot_count();
 }
 
 static void set_val(int i, const char *text) {

@@ -114,6 +114,9 @@ uint32_t boot_report_abnormal_boots(void);
 /** @brief Total panics recorded across power cycles (persisted in NVS). */
 uint32_t boot_report_panic_total(void);
 
+/** @brief Total boots recorded across power cycles (persisted in NVS). */
+uint32_t boot_report_boot_count(void);
+
 /** @brief Clear the abnormal-boot counter now (a stable boot was reached). */
 void boot_report_mark_stable(void);
 

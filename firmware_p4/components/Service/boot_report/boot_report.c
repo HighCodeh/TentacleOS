@@ -34,12 +34,14 @@ static const char *TAG = "BOOT_REPORT";
 #define NVS_NAMESPACE      "boot_report"
 #define NVS_KEY_LAST_REASON "last_reason"
 #define NVS_KEY_PANIC_TOTAL "panic_total"
+#define NVS_KEY_BOOT_TOTAL  "boot_total"
 
 static RTC_NOINIT_ATTR uint32_t s_rtc_magic;
 static RTC_NOINIT_ATTR uint32_t s_rtc_abnormal_count;
 
 static esp_timer_handle_t s_stable_timer = NULL;
 static uint32_t s_panic_total = 0;
+static uint32_t s_boot_total = 0;
 
 static boot_stage_t s_stages[BOOT_REPORT_MAX_STAGES];
 static int s_stage_count = 0;
@@ -114,26 +116,31 @@ static bool reason_is_abnormal(esp_reset_reason_t reason) {
          reason == ESP_RST_WDT || reason == ESP_RST_CPU_LOCKUP || reason == ESP_RST_BROWNOUT;
 }
 
-// Persist only the summary (last reason + running panic total). Called once per
-// boot from capture_crash, which runs after nvs_flash_init. Writes on abnormal
-// boots only, so flash wear is negligible.
+// Persist the boot summary. Called once per boot from capture_crash, which runs
+// after nvs_flash_init. The total boot counter is bumped every boot (one write);
+// the panic total + last reason are written only on abnormal boots.
 static void persist_summary(esp_reset_reason_t reason, bool abnormal) {
   nvs_handle_t nvs;
   if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs) != ESP_OK) {
     return;
   }
 
+  uint32_t boots = 0;
+  nvs_get_u32(nvs, NVS_KEY_BOOT_TOTAL, &boots);
+  boots++;
+  nvs_set_u32(nvs, NVS_KEY_BOOT_TOTAL, boots);
+  s_boot_total = boots;
+
   uint32_t total = 0;
   nvs_get_u32(nvs, NVS_KEY_PANIC_TOTAL, &total);
-
   if (abnormal) {
     total++;
     nvs_set_u32(nvs, NVS_KEY_PANIC_TOTAL, total);
     nvs_set_u32(nvs, NVS_KEY_LAST_REASON, (uint32_t)reason);
-    nvs_commit(nvs);
   }
-
   s_panic_total = total;
+
+  nvs_commit(nvs);
   nvs_close(nvs);
 }
 
@@ -239,6 +246,10 @@ uint32_t boot_report_abnormal_boots(void) {
 
 uint32_t boot_report_panic_total(void) {
   return s_panic_total;
+}
+
+uint32_t boot_report_boot_count(void) {
+  return s_boot_total;
 }
 
 void boot_report_mark_stable(void) {
