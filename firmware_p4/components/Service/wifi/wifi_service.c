@@ -21,6 +21,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "bluetooth_service.h"
 #include "spi_bridge.h"
 #include "sys_prio.h"
 
@@ -54,14 +55,13 @@ static void status_poll_task(void *arg) {
                                 spi_bridge_get_timeout(SPI_ID_SYSTEM_STATUS)) == ESP_OK) {
       s_status_active = sys.wifi_active != 0;
       s_status_connected = sys.wifi_connected != 0;
+      bluetooth_service_set_running_cached(sys.bt_running != 0);
     }
     vTaskDelay(pdMS_TO_TICKS(STATUS_POLL_MS));
   }
 }
 
 void wifi_service_init(void) {
-  spi_bridge_send_command(
-      SPI_ID_WIFI_START, NULL, 0, NULL, NULL, 0, spi_bridge_get_timeout(SPI_ID_WIFI_START));
   if (s_status_task == NULL) {
     xTaskCreatePinnedToCore(status_poll_task,
                             "wifi_status",
