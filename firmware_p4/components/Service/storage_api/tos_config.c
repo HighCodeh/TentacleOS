@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "tos_config.h"
+#include "storage_atomic.h"
 #include "tos_storage_paths.h"
 #include "esp_log.h"
 #include "cJSON.h"
@@ -111,13 +112,30 @@ static char *read_file_to_string(const char *path) {
 }
 
 static esp_err_t write_string_to_file(const char *path, const char *data) {
-  FILE *f = fopen(path, "w");
-  if (f == NULL)
-    return ESP_FAIL;
+  return storage_write_atomic(path, data, strlen(data));
+}
 
-  fputs(data, f);
-  fclose(f);
-  return ESP_OK;
+static char *recover_from_tmp(const char *path) {
+  char tmp[128];
+  int n = snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+  if (n <= 0 || (size_t)n >= sizeof(tmp))
+    return NULL;
+
+  char *content = read_file_to_string(tmp);
+  if (content == NULL)
+    return NULL;
+
+  cJSON *probe = cJSON_Parse(content);
+  if (probe == NULL) {
+    free(content);
+    remove(tmp);
+    return NULL;
+  }
+  cJSON_Delete(probe);
+
+  remove(path);
+  rename(tmp, path);
+  return content;
 }
 
 static void json_get_str(cJSON *obj, const char *key, char *dst, size_t max) {
@@ -295,6 +313,12 @@ static cJSON *serialize_system(void) {
 esp_err_t tos_config_load(const char *sd_path, const char *flash_path, const char *module) {
   char *json_str = read_file_to_string(sd_path);
   const char *source = "SD";
+
+  if (json_str == NULL) {
+    json_str = recover_from_tmp(sd_path);
+    if (json_str != NULL)
+      source = "SD (recovered)";
+  }
 
   if (json_str == NULL && flash_path != NULL) {
     json_str = read_file_to_string(flash_path);

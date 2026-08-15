@@ -27,6 +27,7 @@
 
 #include "pin_def.h"
 #include "storage_assets.h"
+#include "storage_atomic.h"
 #include "tos_flash_paths.h"
 #include "cJSON.h"
 
@@ -153,11 +154,8 @@ static void save_display_config(display_config_t cfg) {
   cJSON_AddNumberToObject(json, "rotation", cfg.rotation);
   char *data = cJSON_PrintUnformatted(json);
 
-  FILE *f = fopen(DISPLAY_CONFIG_PATH, "w");
-  if (f != NULL) {
-    fputs(data, f);
-    fclose(f);
-  }
+  if (data != NULL)
+    storage_write_atomic(DISPLAY_CONFIG_PATH, data, strlen(data));
 
   cJSON_free(data);
   cJSON_Delete(json);
