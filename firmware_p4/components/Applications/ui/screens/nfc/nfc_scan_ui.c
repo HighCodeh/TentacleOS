@@ -20,7 +20,6 @@
 #include "esp_random.h"
 #include "lvgl.h"
 
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -32,7 +31,6 @@
 #define COL_DIM   0x8A8594
 #define COL_RAISE 0x170A28
 
-#define NAV_TIMER_MS 33
 #define SCAN_STEP_MS 480
 
 #define STATUS_Y 50
@@ -91,7 +89,6 @@ static const struct {
 #define TECH_COUNT ((int)(sizeof(TECHS) / sizeof(TECHS[0])))
 
 static lv_obj_t *s_screen = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_scan_timer = NULL;
 
 static lv_obj_t *s_status = NULL;
@@ -104,10 +101,6 @@ static lv_obj_t *s_value[TECH_COUNT];
 static char s_present_value[VALUE_BUF];
 static int s_cursor = 0;
 
-static bool s_back_last = false;
-static bool s_left_last = false;
-
-static void nav_timer_cb(lv_timer_t *t);
 static void scan_tick_cb(lv_timer_t *t);
 
 static void stop_timer(lv_timer_t **t) {
@@ -115,11 +108,6 @@ static void stop_timer(lv_timer_t **t) {
     lv_timer_delete(*t);
     *t = NULL;
   }
-}
-
-static void reset_latch(void) {
-  s_back_last = false;
-  s_left_last = false;
 }
 
 static void build_uid(void) {
@@ -301,28 +289,19 @@ static void scan_tick_cb(lv_timer_t *t) {
   }
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
-  bool back = back_button_is_down();
-  bool left = ui_btn_left();
+static void nfc_scan_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
 
-  if (ui_input_is_locked()) {
-    s_back_last = back;
-    s_left_last = left;
-    return;
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_NFC_MENU);
+      break;
+    default:
+      break;
   }
-
-  if ((back && !s_back_last) || (left && !s_left_last)) {
-    ui_switch_screen(SCREEN_NFC_MENU);
-    return;
-  }
-
-  s_back_last = back;
-  s_left_last = left;
 }
 
 void ui_nfc_scan_open(void) {
@@ -340,7 +319,6 @@ void ui_nfc_scan_open(void) {
     s_value[i] = NULL;
   }
   s_cursor = 0;
-  reset_latch();
   build_uid();
 
   s_screen = lv_obj_create(NULL);
@@ -363,8 +341,7 @@ void ui_nfc_scan_open(void) {
   s_hint = ui_chrome_footer(s_screen, HINT_SCAN);
 
   s_scan_timer = lv_timer_create(scan_tick_cb, SCAN_STEP_MS, NULL);
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(nfc_scan_input, NULL);
 
   ui_screen_load(s_screen);
 }
