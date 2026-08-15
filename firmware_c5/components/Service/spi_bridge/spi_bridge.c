@@ -301,8 +301,12 @@ static void bridge_task(void *pvParameters) {
     }
 
     spi_header_t *header = (spi_header_t *)rx_buf;
+    // Drop framing-invalid or bus-corrupted commands: bad sync/type, or a CRC
+    // mismatch. Dropping (rather than acting) means the master gets no response
+    // and its command times out, so a corrupted op/payload is never executed.
+    // length is checked before the CRC so the recompute stays inside rx_buf.
     if (header->sync != SPI_SYNC_BYTE || header->type != SPI_TYPE_CMD ||
-        header->length > SPI_MAX_PAYLOAD) {
+        header->length > SPI_MAX_PAYLOAD || !spi_frame_valid(header, header->length)) {
       memset(rx_buf, 0, sizeof(rx_buf));
       spi_slave_driver_queue(&rx_trans, NULL, rx_buf, SPI_FRAME_SIZE);
       continue;
@@ -454,6 +458,7 @@ static void bridge_task(void *pvParameters) {
           memcpy(tx_buf, &stream_header, sizeof(stream_header));
           tx_buf[sizeof(spi_header_t)] = (uint8_t)(batch_len & 0xFF);
           tx_buf[sizeof(spi_header_t) + 1] = (uint8_t)((batch_len >> 8) & 0xFF);
+          spi_frame_seal((spi_header_t *)tx_buf, (uint16_t)(sizeof(uint16_t) + batch_len));
           tx_size = SPI_STREAM_FRAME_SIZE;
           tx_ready = true;
         } else {
@@ -518,6 +523,7 @@ static void bridge_task(void *pvParameters) {
       tx_buf[sizeof(resp_header)] = (uint8_t)status;
       if (resp_len > 0)
         memcpy(tx_buf + sizeof(resp_header) + SPI_RESP_STATUS_SIZE, resp_payload, resp_len);
+      spi_frame_seal((spi_header_t *)tx_buf, resp_header.length);
     }
 
     // Arm the response, signal the master, then immediately re-arm the next

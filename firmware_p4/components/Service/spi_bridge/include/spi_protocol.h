@@ -22,6 +22,9 @@ extern "C" {
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
+
+#include "esp_rom_crc.h"
 
 #define SPI_SYNC_BYTE                 0xAA
 #define SPI_MAX_PAYLOAD               256
@@ -359,14 +362,19 @@ typedef struct __attribute__((packed)) {
 } spi_sys_info_t;
 
 /**
- * @brief SPI frame header (5 bytes).
+ * @brief SPI frame header (7 bytes: 5-byte framing + a 2-byte CRC-16).
+ *
+ * Packed so the layout is identical byte-for-byte on the P4 and C5 (both
+ * little-endian). `crc` is validated on every received frame; a mismatch means
+ * the bus corrupted the frame and the receiver drops it (see spi_frame_valid).
  */
-typedef struct {
+typedef struct __attribute__((packed)) {
   uint8_t sync;
   uint8_t type;     // spi_type_t
   uint8_t category; // spi_cat_t
   uint8_t op;       // operation within the category
   uint8_t length;   // Payload length
+  uint16_t crc;     // CRC-16 over [type,category,op,length] + data
 } spi_header_t;
 
 /** Read the packed command identifier (spi_id_t) from a header. */
@@ -378,6 +386,34 @@ static inline uint16_t spi_header_cmd(const spi_header_t *h) {
 static inline void spi_header_set_cmd(spi_header_t *h, uint16_t cmd) {
   h->category = SPI_CMD_CAT(cmd);
   h->op = SPI_CMD_OP(cmd);
+}
+
+// Frame integrity (CRC-16/CCITT via the ROM implementation). The CRC covers the
+// header's [type,category,op,length] plus the `data_len` data bytes that follow
+// the header in the frame buffer; the sync byte (framing marker) and the crc
+// field itself are excluded. Header and data are always contiguous in a frame
+// buffer, so callers pass only the data length: header.length for CMD/RESP
+// frames, or (2 + batch_len) for STREAM frames (whose header.length is 0 and
+// whose real size lives in the leading u16 of the payload).
+static inline uint16_t spi_frame_crc(const spi_header_t *h, uint16_t data_len) {
+  uint16_t crc = esp_rom_crc16_le(0xFFFF, &h->type, 4);
+  if (data_len > 0) {
+    crc = esp_rom_crc16_le(crc, (const uint8_t *)h + sizeof(spi_header_t), data_len);
+  }
+  return crc;
+}
+
+/** Stamp the CRC into a freshly built frame (call after header + data are set). */
+static inline void spi_frame_seal(spi_header_t *h, uint16_t data_len) {
+  uint16_t c = spi_frame_crc(h, data_len);
+  memcpy(&h->crc, &c, sizeof(c)); // memcpy: crc is at an odd (packed) offset
+}
+
+/** True if the frame's stored CRC matches a recompute over `data_len` bytes. */
+static inline bool spi_frame_valid(const spi_header_t *h, uint16_t data_len) {
+  uint16_t stored;
+  memcpy(&stored, &h->crc, sizeof(stored));
+  return stored == spi_frame_crc(h, data_len);
 }
 
 // Session protocol — see spi_bridge/README.md "Session Lifecycle"
@@ -419,13 +455,13 @@ typedef struct __attribute__((packed)) {
 } spi_session_lost_t;
 
 // Rounded up to a multiple of 4 bytes: SPI DMA transfers must be word-aligned
-// in length, and the 5-byte header would otherwise make the frame size odd.
+// in length, and the 7-byte header would otherwise make the frame size odd.
 #define SPI_FRAME_SIZE (((sizeof(spi_header_t) + SPI_MAX_PAYLOAD) + 3u) & ~3u)
 
 // Larger fixed transfer size used ONLY by the SYSTEM_STREAM response, which
 // batches many stream records into one transfer to amortize per-frame overhead.
 // The command/response path keeps using SPI_FRAME_SIZE. Must be a multiple of 4
-// for SPI DMA. Stream frame layout (after the 5-byte header, type = STREAM):
+// for SPI DMA. Stream frame layout (after the 7-byte header, type = STREAM):
 //   [u16 batch_len][record]... where each record = [u16 op][u8 len][len bytes]
 // and `record` data is exactly what session_manager queued (meta + payload).
 #define SPI_STREAM_FRAME_SIZE 2048

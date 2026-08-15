@@ -294,6 +294,7 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
   if (payload != NULL && len > 0) {
     memcpy(tx_buf + sizeof(header), payload, len);
   }
+  spi_frame_seal((spi_header_t *)tx_buf, len);
 
   esp_err_t ret = spi_bridge_phy_transmit(tx_buf, NULL, SPI_FRAME_SIZE);
   if (ret != ESP_OK) {
@@ -319,6 +320,18 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
     s_is_command_in_flight = false;
     xSemaphoreGive(s_spi_mutex);
     return ESP_ERR_INVALID_RESPONSE;
+  }
+
+  // Integrity: reject a bus-corrupted frame instead of trusting its fields. The
+  // stored length is bounded (uint8_t), so the CRC recompute stays inside rx_buf
+  // even if length itself was flipped. Checked before the ID compare so a
+  // corrupted op/category is caught here as corruption, not as a stale response.
+  if (!spi_frame_valid(resp, resp->length)) {
+    ESP_LOGW(TAG, "CRC mismatch on response to 0x%04X, dropping", id);
+    led_signal_warning();
+    s_is_command_in_flight = false;
+    xSemaphoreGive(s_spi_mutex);
+    return ESP_ERR_INVALID_CRC;
   }
 
   if (resp->type != SPI_TYPE_RESP) {
@@ -412,6 +425,7 @@ static esp_err_t fetch_stream(const uint8_t **out_records, uint16_t *out_batch_l
   uint8_t cmd_tx[SPI_FRAME_SIZE];
   memset(cmd_tx, 0, sizeof(cmd_tx));
   memcpy(cmd_tx, &header, sizeof(header));
+  spi_frame_seal((spi_header_t *)cmd_tx, 0);
 
   esp_err_t ret = spi_bridge_phy_transmit(cmd_tx, NULL, SPI_FRAME_SIZE);
   if (ret != ESP_OK)
@@ -432,6 +446,11 @@ static esp_err_t fetch_stream(const uint8_t **out_records, uint16_t *out_batch_l
     uint16_t cap = SPI_STREAM_FRAME_SIZE - sizeof(spi_header_t) - sizeof(uint16_t);
     if (batch_len > cap)
       batch_len = cap;
+    // CRC covers the [u16 batch_len] + batch_len record bytes. Clamping first
+    // keeps the recompute inside s_stream_rx; a corrupted batch_len then fails
+    // the check (its CRC was computed over the real, unclamped value).
+    if (!spi_frame_valid(resp, (uint16_t)(sizeof(uint16_t) + batch_len)))
+      return ESP_ERR_INVALID_CRC;
     if (out_records != NULL)
       *out_records = s_stream_rx + sizeof(spi_header_t) + sizeof(uint16_t);
     if (out_batch_len != NULL)
@@ -440,6 +459,8 @@ static esp_err_t fetch_stream(const uint8_t **out_records, uint16_t *out_batch_l
   }
 
   if (resp->type == SPI_TYPE_RESP && resp->length >= SPI_RESP_STATUS_SIZE) {
+    if (!spi_frame_valid(resp, resp->length))
+      return ESP_ERR_INVALID_CRC;
     spi_status_t status = (spi_status_t)s_stream_rx[sizeof(spi_header_t)];
     return status_to_err(status);
   }
