@@ -21,7 +21,6 @@
 #include "esp_random.h"
 #include "lvgl.h"
 
-#include "buttons_gpio.h"
 #include "notify_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
@@ -31,8 +30,7 @@
 
 static const char *TAG = "BLE_SKIMMER_UI";
 
-#define NAV_TIMER_INTERVAL_MS 50
-#define SCAN_DURATION_MS      1200
+#define SCAN_DURATION_MS 1200
 
 #define MAC_LEN        18
 #define NAME_LEN       16
@@ -76,13 +74,9 @@ static const suspect_t SUSPECTS[] = {
 };
 
 static lv_obj_t *s_screen = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_scan_timer = NULL;
 
-static bool s_back_last = false;
-static bool s_left_last = false;
-
-static void nav_timer_cb(lv_timer_t *timer);
+static void ble_skimmer_input(const input_event_t *ev, void *ctx);
 static void scan_done_cb(lv_timer_t *timer);
 static void build_scanning_view(void);
 static void build_results_view(void);
@@ -253,10 +247,7 @@ void ui_ble_skimmer_open(void) {
 
   build_scanning_view();
 
-  s_back_last = false;
-  s_left_last = false;
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
+  ui_input_set_screen_handler(ble_skimmer_input, NULL);
 
   ui_screen_load(s_screen);
   ESP_LOGI(TAG, "BLE skimmer screen opened (mock)");
@@ -270,24 +261,19 @@ static void scan_done_cb(lv_timer_t *timer) {
   build_results_view();
 }
 
-static void nav_timer_cb(lv_timer_t *timer) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(timer);
-    s_nav_timer = NULL;
-    stop_scan_timer();
-    return;
+static void ble_skimmer_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press) {
+        stop_scan_timer();
+        ui_switch_screen(SCREEN_BLE_DETECT_MENU);
+      }
+      break;
+    default:
+      break;
   }
-  if (ui_input_is_locked())
-    return;
-
-  bool is_back = back_button_is_down();
-  bool is_left = left_button_is_down();
-
-  if ((is_back && !s_back_last) || (is_left && !s_left_last)) {
-    stop_scan_timer();
-    ui_switch_screen(SCREEN_BLE_DETECT_MENU);
-  }
-
-  s_back_last = is_back;
-  s_left_last = is_left;
 }
