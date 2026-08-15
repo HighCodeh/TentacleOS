@@ -25,7 +25,6 @@
 
 #include "st7789.h"
 
-#include "buttons_gpio.h"
 #include "menu_component_ui.h"
 #include "msgbox_ui.h"
 #include "ui_chrome.h"
@@ -35,7 +34,6 @@
 
 static const char *TAG = "WIFI_CLI_UI";
 
-#define NAV_TIMER_MS     50
 #define CLI_HEADER_ICON  "/assets/icons/devices.bin"
 #define CLI_STATUS_ICON  "/assets/icons/wifi_find.bin"
 #define CLI_MAX          12
@@ -85,7 +83,6 @@ static const mock_client_t MOCK_CLIENTS[] = {
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
-static lv_timer_t *s_nav_timer = NULL;
 
 static scan_state_t s_scan_state = SCAN_RUNNING;
 static bool s_scanning = false;
@@ -106,14 +103,7 @@ static lv_obj_t *s_ap_card[CLI_MAX];
 static lv_obj_t *s_link[CLI_MAX];
 static lv_point_precise_t s_link_pts[CLI_MAX][2];
 
-static bool s_btn_up_last = false;
-static bool s_btn_down_last = false;
-static bool s_btn_left_last = false;
-static bool s_btn_right_last = false;
-static bool s_btn_ok_last = false;
-static bool s_btn_back_last = false;
-
-static void nav_timer_cb(lv_timer_t *t);
+static void wifi_client_input(const input_event_t *ev, void *ctx);
 
 static uint32_t link_color(int8_t rssi) {
   return rssi >= RSSI_STRONG_DBM ? COLOR_STRONG_HEX : COLOR_WEAK_HEX;
@@ -307,8 +297,7 @@ static void build_screen(void) {
     build_map();
   }
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(wifi_client_input, NULL);
 
   ui_screen_load(s_screen);
 }
@@ -343,61 +332,46 @@ static void wifi_client_task(void *arg) {
   vTaskDelete(NULL);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
+static void wifi_client_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+  const bool map = (s_scan_state == SCAN_DONE && s_cli_count > 0);
+
+  switch (ev->button) {
+    case INPUT_BTN_DOWN:
+      if (nav) {
+        if (map) {
+          s_sel = (s_sel + 1) % s_cli_count;
+          apply_selection();
+        } else {
+          menu_component_next(&s_menu);
+        }
+      }
+      break;
+    case INPUT_BTN_UP:
+      if (nav) {
+        if (map) {
+          s_sel = (s_sel - 1 + s_cli_count) % s_cli_count;
+          apply_selection();
+        } else {
+          menu_component_prev(&s_menu);
+        }
+      }
+      break;
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_WIFI_MENU);
+      break;
+    case INPUT_BTN_OK:
+    case INPUT_BTN_RIGHT:
+      if (press && map)
+        open_detail();
+      break;
+    default:
+      break;
   }
-
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool right = ui_btn_right();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-
-  if (msgbox_is_open() || ui_input_is_locked()) {
-    s_btn_up_last = up;
-    s_btn_down_last = down;
-    s_btn_left_last = left;
-    s_btn_right_last = right;
-    s_btn_ok_last = ok;
-    s_btn_back_last = back;
-    return;
-  }
-
-  bool map = (s_scan_state == SCAN_DONE && s_cli_count > 0);
-
-  if (down && !s_btn_down_last) {
-    if (map) {
-      s_sel = (s_sel + 1) % s_cli_count;
-      apply_selection();
-    } else {
-      menu_component_next(&s_menu);
-    }
-  }
-  if (up && !s_btn_up_last) {
-    if (map) {
-      s_sel = (s_sel - 1 + s_cli_count) % s_cli_count;
-      apply_selection();
-    } else {
-      menu_component_prev(&s_menu);
-    }
-  }
-
-  if ((back && !s_btn_back_last) || (left && !s_btn_left_last))
-    ui_switch_screen(SCREEN_WIFI_MENU);
-
-  if (((ok && !s_btn_ok_last) || (right && !s_btn_right_last)) && map)
-    open_detail();
-
-  s_btn_up_last = up;
-  s_btn_down_last = down;
-  s_btn_left_last = left;
-  s_btn_right_last = right;
-  s_btn_ok_last = ok;
-  s_btn_back_last = back;
 }
 
 void ui_wifi_client_open(void) {
