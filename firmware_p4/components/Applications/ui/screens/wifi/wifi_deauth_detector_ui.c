@@ -18,14 +18,12 @@
 #include "esp_log.h"
 #include "esp_random.h"
 
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
 static const char *TAG = "WIFI_DEAUTH_DET_UI";
 
-#define NAV_TIMER_MS    50
 #define MONITOR_TICK_MS 140
 #define ENTRY_FADE_MS   240
 #define BANNER_BLINK_MS 450
@@ -60,7 +58,6 @@ static const char *TAG = "WIFI_DEAUTH_DET_UI";
 #define FRAME_STEP_SPAN  10
 
 static lv_obj_t *s_screen = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_monitor_timer = NULL;
 static lv_font_t *s_big_font = NULL;
 
@@ -73,10 +70,7 @@ static bool s_alert = false;
 static long s_frames = 0;
 static int s_burst_remaining = 0;
 
-static bool s_back_last = false;
-static bool s_left_last = false;
-
-static void nav_timer_cb(lv_timer_t *timer);
+static void wifi_deauth_detector_input(const input_event_t *ev, void *ctx);
 static void monitor_tick_cb(lv_timer_t *timer);
 static void stop_monitor_timer(void);
 
@@ -216,8 +210,7 @@ void ui_wifi_deauth_detector_open(void) {
 
   ESP_LOGI(TAG, "deauth detector open (mock)");
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(wifi_deauth_detector_input, NULL);
   s_monitor_timer = lv_timer_create(monitor_tick_cb, MONITOR_TICK_MS, NULL);
 
   ui_screen_load(s_screen);
@@ -259,22 +252,17 @@ static void monitor_tick_cb(lv_timer_t *timer) {
   }
 }
 
-static void nav_timer_cb(lv_timer_t *timer) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(timer);
-    s_nav_timer = NULL;
-    stop_monitor_timer();
-    return;
+static void wifi_deauth_detector_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_WIFI_MENU);
+      break;
+    default:
+      break;
   }
-  if (ui_input_is_locked())
-    return;
-
-  bool is_back = back_button_is_down();
-  bool is_left = ui_btn_left();
-
-  if ((is_back && !s_back_last) || (is_left && !s_left_last))
-    ui_switch_screen(SCREEN_WIFI_MENU);
-
-  s_back_last = is_back;
-  s_left_last = is_left;
 }
