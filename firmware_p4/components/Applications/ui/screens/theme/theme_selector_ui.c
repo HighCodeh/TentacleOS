@@ -18,7 +18,6 @@
 #include "esp_log.h"
 
 #include "assets_manager.h"
-#include "buttons_gpio.h"
 #include "notify_ui.h"
 #include "page_dots_ui.h"
 #include "st7789.h"
@@ -29,7 +28,6 @@
 
 static const char *TAG = "THEME_SELECTOR_UI";
 
-#define NAV_TIMER_MS 50
 #define TITLE_ICON   "/assets/icons/palette.bin"
 #define BASE_FRAME   "/assets/frames/base_frame_0.bin"
 #define CARD_Y_BIAS  (-18)
@@ -72,11 +70,8 @@ static lv_obj_t *s_label = NULL;
 static lv_obj_t *s_active = NULL;
 static page_dots_t s_dots;
 static lv_image_dsc_t *s_base_dsc = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static int s_sel = 0;
 static bool s_animating = false;
-
-static bool s_up_last, s_down_last, s_left_last, s_right_last, s_ok_last, s_back_last;
 
 static void build_screen(void);
 
@@ -194,54 +189,45 @@ static void update_view(bool anim) {
   fix_z_order();
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
-  if (ui_input_is_locked())
-    return;
+static void theme_selector_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool right = ui_btn_right();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-
-  bool next = (right && !s_right_last) || (down && !s_down_last);
-  bool prev = (left && !s_left_last) || (up && !s_up_last);
-
-  if (back && !s_back_last) {
-    ui_switch_screen(SCREEN_SETTINGS);
-    return;
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+      if (press)
+        ui_switch_screen(SCREEN_SETTINGS);
+      break;
+    case INPUT_BTN_OK:
+      if (press && s_sel != theme_idx) {
+        theme_idx = s_sel;
+        ui_theme_load_idx(s_sel);
+        ESP_LOGI(TAG, "applied theme %d (%s)", s_sel, THEMES[s_sel].label);
+        build_screen();
+      }
+      break;
+    case INPUT_BTN_RIGHT:
+    case INPUT_BTN_DOWN:
+      if (nav && !s_animating) {
+        s_sel = (s_sel + 1) % THEME_COUNT;
+        s_animating = true;
+        ui_feedback(UI_FB_NAV);
+        update_view(true);
+      }
+      break;
+    case INPUT_BTN_LEFT:
+    case INPUT_BTN_UP:
+      if (nav && !s_animating) {
+        s_sel = (s_sel == 0) ? THEME_COUNT - 1 : s_sel - 1;
+        s_animating = true;
+        ui_feedback(UI_FB_NAV);
+        update_view(true);
+      }
+      break;
+    default:
+      break;
   }
-  if (ok && !s_ok_last) {
-    if (s_sel != theme_idx) {
-      theme_idx = s_sel;
-      ui_theme_load_idx(s_sel);
-      ESP_LOGI(TAG, "applied theme %d (%s)", s_sel, THEMES[s_sel].label);
-      build_screen();
-      return;
-    }
-  }
-  if ((next || prev) && !s_animating) {
-    if (next)
-      s_sel = (s_sel + 1) % THEME_COUNT;
-    else
-      s_sel = (s_sel == 0) ? THEME_COUNT - 1 : s_sel - 1;
-    s_animating = true;
-    ui_feedback(UI_FB_NAV);
-    update_view(true);
-  }
-
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_right_last = right;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 static void build_screen(void) {
@@ -279,8 +265,7 @@ static void build_screen(void) {
     s_sel = THEME_COUNT - 1;
   update_view(false);
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(theme_selector_input, NULL);
 
   ui_screen_load(s_screen);
   if (prev != NULL)
@@ -289,7 +274,6 @@ static void build_screen(void) {
 
 void ui_theme_selector_open(void) {
   s_sel = (theme_idx >= 0 && theme_idx < THEME_COUNT) ? theme_idx : 0;
-  s_up_last = s_down_last = s_left_last = s_right_last = s_ok_last = s_back_last = false;
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
