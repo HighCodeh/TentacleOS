@@ -105,5 +105,5 @@ void ui_nfc_menu_open(void) {
 
   ui_input_set_screen_handler(nfc_menu_input, NULL);
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }

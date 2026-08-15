@@ -444,5 +444,5 @@ void ui_nfc_write_open(void) {
     s_wr_timer = lv_timer_create(write_tick_cb, WR_TICK_MS, NULL);
   ui_input_set_screen_handler(nfc_write_input, NULL);
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }

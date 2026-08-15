@@ -382,5 +382,5 @@ void ui_nfc_saved_open(void) {
 
   ui_input_set_screen_handler(nfc_saved_input, NULL);
   s_tick_timer = lv_timer_create(nfc_saved_tick_cb, TICK_MS, NULL);
-  lv_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }

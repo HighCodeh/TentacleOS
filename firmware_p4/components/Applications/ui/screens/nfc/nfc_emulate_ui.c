@@ -388,5 +388,5 @@ void ui_nfc_emulate_open(void) {
   if (s_tick_timer == NULL)
     s_tick_timer = lv_timer_create(field_tick_cb, TICK_MS, NULL);
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
