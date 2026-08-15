@@ -27,7 +27,6 @@
 #include "st7789.h"
 
 #include "assets_manager.h"
-#include "buttons_gpio.h"
 #include "storage_assets.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -56,7 +55,7 @@ static const char *TAG = "FILES_UI";
 #define ROW_NAME_W_FILE (ROW_CONTENT_W - ROW_NAME_X - 52)
 #define ROW_NAME_W_DIR  (ROW_CONTENT_W - ROW_NAME_X - 24)
 
-#define NAV_TIMER_MS 50
+#define HOLD_TICK_MS 50
 #define OK_LONG_MS   450
 #define SCROLL_STEP  36
 
@@ -176,7 +175,6 @@ static lv_obj_t *s_gl_name, *s_gl_type;
 static lv_obj_t *s_vbody = NULL;
 static text_viewer_t s_tv;
 
-static bool s_up_last, s_down_last, s_left_last, s_right_last, s_ok_last, s_back_last;
 static uint32_t s_ok_down_since = 0;
 static bool s_ok_long_fired = false;
 static bool s_ok_armed = false;
@@ -184,7 +182,8 @@ static bool s_ok_armed = false;
 static char *s_vbuf = NULL;
 static char *s_gbuf = NULL;
 
-static void nav_timer_cb(lv_timer_t *t);
+static void files_hold_tick_cb(lv_timer_t *t);
+static void files_input(const input_event_t *ev, void *ctx);
 static void build_screen(void);
 
 static bool files_alloc(void) {
@@ -926,8 +925,9 @@ static void build_screen(void) {
   }
 
   if (s_timer == NULL) {
-    s_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+    s_timer = lv_timer_create(files_hold_tick_cb, HOLD_TICK_MS, NULL);
   }
+  ui_input_set_screen_handler(files_input, NULL);
 
   ui_screen_load(s_screen);
 }
@@ -1050,90 +1050,115 @@ static void toggle_view(void) {
   build_screen();
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
+static void files_hold_tick_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen) {
     lv_timer_delete(t);
     s_timer = NULL;
     return;
   }
-
-  bool up = ui_btn_up(), down = ui_btn_down();
-  bool left = ui_btn_left(), right = ui_btn_right();
-  bool ok = ok_button_is_down(), back = back_button_is_down();
-  bool ok_short = false;
-  uint32_t now = lv_tick_get();
-
   if (ui_input_is_locked())
-    goto latch;
+    return;
+  if (s_in_viewer)
+    return;
+
+  uint32_t now = lv_tick_get();
+  bool ok = input_is_down(INPUT_BTN_OK);
+
+  if (ok) {
+    if (!s_ok_armed && !s_ok_long_fired) {
+      s_ok_down_since = now;
+      s_ok_armed = true;
+    }
+    if (s_ok_armed && !s_ok_long_fired && (now - s_ok_down_since) >= OK_LONG_MS) {
+      s_ok_long_fired = true;
+      s_ok_armed = false;
+      toggle_view();
+    }
+  } else {
+    if (s_ok_armed && !s_ok_long_fired) {
+      s_ok_armed = false;
+      do_enter();
+    }
+    s_ok_long_fired = false;
+  }
+}
+
+static void files_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
   if (s_in_viewer) {
     // _bounded clamps the scroll to the content — plain lv_obj_scroll_by() ignores
     // the content bounds (and SCROLL_ELASTIC/MOMENTUM), which let it scroll forever.
-    if (down && !s_down_last && s_vbody)
-      lv_obj_scroll_by_bounded(s_vbody, 0, -SCROLL_STEP, LV_ANIM_ON);
-    if (up && !s_up_last && s_vbody)
-      lv_obj_scroll_by_bounded(s_vbody, 0, SCROLL_STEP, LV_ANIM_ON);
-    if ((back && !s_back_last) || (left && !s_left_last)) {
-      do_back();
-      goto latch;
+    switch (ev->button) {
+      case INPUT_BTN_DOWN:
+        if (nav && s_vbody)
+          lv_obj_scroll_by_bounded(s_vbody, 0, -SCROLL_STEP, LV_ANIM_ON);
+        break;
+      case INPUT_BTN_UP:
+        if (nav && s_vbody)
+          lv_obj_scroll_by_bounded(s_vbody, 0, SCROLL_STEP, LV_ANIM_ON);
+        break;
+      case INPUT_BTN_BACK:
+      case INPUT_BTN_LEFT:
+        if (press)
+          do_back();
+        break;
+      default:
+        break;
     }
-    goto latch;
+    return;
   }
-
-  if (ok && !s_ok_last) {
-    s_ok_down_since = now;
-    s_ok_long_fired = false;
-    s_ok_armed = true;
-  }
-  if (ok && s_ok_last && s_ok_armed && !s_ok_long_fired && (now - s_ok_down_since) >= OK_LONG_MS) {
-    s_ok_long_fired = true;
-    s_ok_armed = false;
-    toggle_view();
-    goto latch;
-  }
-  ok_short = (!ok && s_ok_last && s_ok_armed && !s_ok_long_fired);
 
   if (s_view == VIEW_LIST) {
-    if (down && !s_down_last)
-      move_list(+1);
-    if (up && !s_up_last)
-      move_list(-1);
-    if (right && !s_right_last) {
-      do_enter();
-      goto latch;
-    }
-    if ((back && !s_back_last) || (left && !s_left_last)) {
-      do_back();
-      goto latch;
+    switch (ev->button) {
+      case INPUT_BTN_DOWN:
+        if (nav)
+          move_list(+1);
+        break;
+      case INPUT_BTN_UP:
+        if (nav)
+          move_list(-1);
+        break;
+      case INPUT_BTN_RIGHT:
+        if (press)
+          do_enter();
+        break;
+      case INPUT_BTN_BACK:
+      case INPUT_BTN_LEFT:
+        if (press)
+          do_back();
+        break;
+      default:
+        break;
     }
   } else {
-    if (down && !s_down_last)
-      move_grid(0, +1);
-    if (up && !s_up_last)
-      move_grid(0, -1);
-    if (right && !s_right_last)
-      move_grid(+1, 0);
-    if (left && !s_left_last)
-      move_grid(-1, 0);
-    if (back && !s_back_last) {
-      do_back();
-      goto latch;
+    switch (ev->button) {
+      case INPUT_BTN_DOWN:
+        if (nav)
+          move_grid(0, +1);
+        break;
+      case INPUT_BTN_UP:
+        if (nav)
+          move_grid(0, -1);
+        break;
+      case INPUT_BTN_RIGHT:
+        if (nav)
+          move_grid(+1, 0);
+        break;
+      case INPUT_BTN_LEFT:
+        if (nav)
+          move_grid(-1, 0);
+        break;
+      case INPUT_BTN_BACK:
+        if (press)
+          do_back();
+        break;
+      default:
+        break;
     }
   }
-
-  if (ok_short) {
-    s_ok_armed = false;
-    do_enter();
-    goto latch;
-  }
-
-latch:
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_right_last = right;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 void ui_files_open(void) {
@@ -1147,7 +1172,6 @@ void ui_files_open(void) {
   s_in_viewer = false;
   s_ok_long_fired = false;
   s_ok_armed = false;
-  s_up_last = s_down_last = s_left_last = s_right_last = s_ok_last = s_back_last = false;
 
   if (s_resume) {
     s_resume = false;
