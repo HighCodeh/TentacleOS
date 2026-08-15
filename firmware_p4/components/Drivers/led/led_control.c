@@ -20,6 +20,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 static const char *TAG = "LED_CONTROL";
 
@@ -142,11 +143,28 @@ void led_blink_purple(void) {
 enum { SIG_INFO = 0, SIG_WARNING, SIG_ERROR };
 static uint32_t s_sig_color[3] = {0xFF00FF, 0xFFFF00, 0xFF0000}; // info, warning, error
 static int s_sig_brightness = 10;
-static esp_timer_handle_t s_sig_off_timer = NULL;
 
-static void sig_off_cb(void *arg) {
+// Turning the LED off is a blocking I2C write, so it runs in a dedicated task
+// (created in led_rgb_init) rather than an esp_timer callback: the esp_timer task
+// has a small stack (~3.5 KB) that the I2C path overflows, and blocking there
+// stalls every other timer. sig_blink just sets the color and the off-deadline;
+// the task sleeps until the (possibly re-armed) deadline, then clears once.
+static volatile int64_t s_sig_off_us = 0;
+static TaskHandle_t s_sig_task = NULL;
+
+static void sig_off_task(void *arg) {
   (void)arg;
-  led_clear();
+  for (;;) {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    for (;;) {
+      int64_t remaining = s_sig_off_us - esp_timer_get_time();
+      if (remaining <= 0) {
+        break;
+      }
+      vTaskDelay(pdMS_TO_TICKS((uint32_t)(remaining / 1000) + 1));
+    }
+    led_clear();
+  }
 }
 
 static uint8_t sig_scale(uint8_t chan) {
@@ -160,16 +178,15 @@ static uint8_t sig_scale(uint8_t chan) {
 
 static void sig_blink(uint32_t hex) {
   led_set_color(sig_scale((hex >> 16) & 0xFF), sig_scale((hex >> 8) & 0xFF), sig_scale(hex & 0xFF));
+  s_sig_off_us = esp_timer_get_time() + SIGNAL_BLINK_US;
 
-  if (s_sig_off_timer == NULL) {
-    const esp_timer_create_args_t args = {.callback = sig_off_cb, .name = "led_sig_off"};
-    if (esp_timer_create(&args, &s_sig_off_timer) != ESP_OK) {
-      s_sig_off_timer = NULL;
-    }
+  if (s_sig_task == NULL) {
+    // Created lazily on the first signal (all defs are in scope here).
+    xTaskCreatePinnedToCore(sig_off_task, "led_sig", 3072, NULL, SYS_PRIO_BACKGROUND, &s_sig_task,
+                            SYS_CORE_RADIO);
   }
-  if (s_sig_off_timer != NULL) {
-    esp_timer_stop(s_sig_off_timer); // re-arm if a previous flash is still pending
-    esp_timer_start_once(s_sig_off_timer, SIGNAL_BLINK_US);
+  if (s_sig_task != NULL) {
+    xTaskNotifyGive(s_sig_task); // wake the off task to (re)schedule the clear
   }
 }
 
