@@ -33,6 +33,14 @@ lv_image_dsc_t *assets_get(const char *path);
 /** @brief Free all loaded assets and release memory. */
 void assets_manager_free_all(void);
 
+/**
+ * @brief Drop the LVGL image cache under memory pressure (safe mid-session).
+ *
+ * Frees the decoded-pixel pool; asset nodes and handed-out descriptors stay
+ * valid, so a later redraw re-decodes from flash. Used by the heap policy.
+ */
+void assets_manager_evict_cache(void);
+
 /** @brief Load assets from SD card directory, overriding flash assets. */
 int assets_load_from_sd(const char *sd_dir, const char *flash_prefix);
 

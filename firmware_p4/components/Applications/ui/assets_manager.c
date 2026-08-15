@@ -22,7 +22,10 @@
 #include "esp_littlefs.h"
 #include "esp_log.h"
 
+#include "lvgl_glue.h"
+
 #include "draw/lv_image_decoder_private.h"
+#include "misc/cache/instance/lv_image_cache.h"
 #include "misc/cache/lv_cache_private.h"
 
 static const char *TAG = "ASSETS_MANAGER";
@@ -45,10 +48,20 @@ typedef struct asset_node {
 static asset_node_t *s_assets_head = NULL;
 static bool s_decoder_registered = false;
 
+// Linear scan, but move a hit to the front so the assets a screen re-requests
+// every build (header icons, etc.) settle near the head. Relinking only reorders
+// the list; the nodes do not move, so every &node->dsc handed out stays valid.
 static asset_node_t *find_node_by_path(const char *path) {
-  for (asset_node_t *n = s_assets_head; n; n = n->next) {
-    if (strcmp(n->path, path) == 0)
+  asset_node_t *prev = NULL;
+  for (asset_node_t *n = s_assets_head; n; prev = n, n = n->next) {
+    if (strcmp(n->path, path) == 0) {
+      if (prev != NULL) {
+        prev->next = n->next;
+        n->next = s_assets_head;
+        s_assets_head = n;
+      }
       return n;
+    }
   }
   return NULL;
 }
@@ -239,6 +252,20 @@ void assets_manager_free_all(void) {
     curr = next;
   }
   s_assets_head = NULL;
+}
+
+// Drop the LVGL image cache (the decoded-pixel pool, up to CONFIG_LV_CACHE_DEF_SIZE)
+// under memory pressure. Safe to call mid-session, unlike free_all: the asset
+// nodes and the &node->dsc pointers the UI holds stay valid, so a redraw just
+// re-decodes from LittleFS. Takes the LVGL lock; skips if the UI is mid-render.
+#define ASSETS_EVICT_LOCK_MS 200
+void assets_manager_evict_cache(void) {
+  if (!lvgl_glue_lock(ASSETS_EVICT_LOCK_MS)) {
+    ESP_LOGW(TAG, "evict skipped: LVGL lock busy");
+    return;
+  }
+  lv_image_cache_drop(NULL);
+  lvgl_glue_unlock();
 }
 
 int assets_load_from_sd(const char *sd_dir, const char *flash_prefix) {

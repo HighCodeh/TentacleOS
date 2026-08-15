@@ -26,6 +26,7 @@
 
 #include "sys_prio.h"
 
+#include "assets_manager.h"
 #include "kernel.h"
 #include "ui_liveness.h"
 
@@ -217,6 +218,7 @@ static void check_heap(void) {
                (unsigned long)free_int,
                (unsigned long)largest,
                (unsigned long)esp_get_minimum_free_heap_size());
+      assets_manager_evict_cache();  // reclaim the image cache before alerting
       char msg[ALERT_MSG_SIZE];
       snprintf(msg,
                sizeof(msg),
