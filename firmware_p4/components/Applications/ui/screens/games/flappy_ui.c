@@ -364,5 +364,5 @@ void ui_flappy_open(void) {
   if (s_timer == NULL)
     s_timer = lv_timer_create(tick_cb, TICK_MS, NULL);
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }

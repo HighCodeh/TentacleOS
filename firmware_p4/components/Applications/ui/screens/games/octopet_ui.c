@@ -846,7 +846,7 @@ void ui_octopet_open(void) {
   if (s_life_timer == NULL)
     s_life_timer = lv_timer_create(life_tick_cb, LIFE_MS, NULL);
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
   ESP_LOGI(
       TAG, "octo-pet opened (H%d P%d E%d C%d Lv%d)", s_hunger, s_happy, s_energy, s_clean, s_level);
 }
