@@ -78,8 +78,17 @@
 // off. Note: with VBUS (USB) present the BATFET stays on, so this only powers the
 // device down when running on battery. (The REG_BAT_COMP macro above mislabels
 // 0x09; this is the datasheet-correct use of that register.)
-#define REG_BATFET_CTRL 0x09
-#define BATFET_DIS_MASK 0b00100000
+//
+// BATFET_RST_EN (bit 2): the "full system reset via /QON" feature. Default 1. When
+// set, a /QON pulse makes the part cycle BATFET off then back ON automatically (a
+// reset), so on this board (/QON = BACK button) ship mode would exit and cold-boot
+// a few seconds later. Cleared on power-off so BATFET_DIS stays a permanent off.
+// BATFET_DLY (bit 3): 1 = delay the BATFET turn-off so the MCU finishes the I2C
+// transaction cleanly before the rail collapses.
+#define REG_BATFET_CTRL     0x09
+#define BATFET_DIS_MASK     0b00100000
+#define BATFET_DLY_MASK     0b00001000
+#define BATFET_RST_EN_MASK  0b00000100
 
 static const char *TAG = "BQ25896";
 
@@ -270,7 +279,9 @@ esp_err_t bq25896_power_off(void) {
     ESP_LOGE(TAG, "power_off: could not read BATFET reg: %s", esp_err_to_name(ret));
     return ret;
   }
-  data |= BATFET_DIS_MASK;
+  data |= BATFET_DIS_MASK;    // force BATFET off (ship mode)
+  data |= BATFET_DLY_MASK;    // delayed turn-off: finish this I2C write first
+  data &= ~BATFET_RST_EN_MASK; // disarm the /QON auto-reset so it stays off
   ret = bq25896_write_reg(REG_BATFET_CTRL, data);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "power_off: BATFET_DIS write failed: %s", esp_err_to_name(ret));
