@@ -24,6 +24,7 @@
 #include "buttons_gpio.h"
 #include "header_ui.h"
 #include "lv_port_indev.h"
+#include "reboot_ui.h"
 #include "tutorial_ui.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
@@ -46,13 +47,14 @@
 #define ROW_COUNT  3
 static int focus_row = ROW_BADGES;
 
-#define BADGE_COUNT 4
-#define BADGE_SD    2
+#define BADGE_COUNT  4
+#define BADGE_ECO    2
+#define BADGE_REBOOT 3
 static const bool BADGE_TOGGLEABLE[BADGE_COUNT] = {true, true, false, false};
 static lv_obj_t *badge_dot[BADGE_COUNT] = {NULL};
 static lv_obj_t *badge_ic[BADGE_COUNT] = {NULL};
 static lv_obj_t *badge_lbl[BADGE_COUNT] = {NULL};
-static bool badge_on[BADGE_COUNT] = {true, true, true, true};
+static bool badge_on[BADGE_COUNT] = {true, true, true, false};
 static int badge_sel = 0;
 
 static lv_obj_t *sd_chip_val = NULL;
@@ -205,6 +207,20 @@ static void dropdown_close(void) {
   lv_anim_start(&a);
 }
 
+static void dropdown_reboot(void) {
+  if (slide_panel) {
+    lv_obj_add_flag(slide_panel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_y(slide_panel, -s_panel_h);
+  }
+  for (int i = 0; i < hide_objs_count; i++)
+    if (hide_objs_ref[i])
+      lv_obj_remove_flag(hide_objs_ref[i], LV_OBJ_FLAG_HIDDEN);
+  lv_port_indev_set_suppressed(false);
+  slide_open = false;
+  slide_animating = false;
+  reboot_ui_reboot();
+}
+
 static void slide_btn_timer_cb(lv_timer_t *timer) {
   if (!slide_panel || !lv_obj_is_valid(slide_panel)) {
     lv_timer_delete(timer);
@@ -265,9 +281,13 @@ static void slide_btn_timer_cb(lv_timer_t *timer) {
         set_slider(s, sl_value[s] + SL_STEP);
       }
     }
-    if (ok && !btn_ok_last && focus_row == ROW_BADGES && BADGE_TOGGLEABLE[badge_sel]) {
-      badge_on[badge_sel] = !badge_on[badge_sel];
-      refresh_focus();
+    if (ok && !btn_ok_last && focus_row == ROW_BADGES) {
+      if (badge_sel == BADGE_REBOOT) {
+        dropdown_reboot();
+      } else if (BADGE_TOGGLEABLE[badge_sel]) {
+        badge_on[badge_sel] = !badge_on[badge_sel];
+        refresh_focus();
+      }
     }
     if (back && !btn_back_last) {
       dropdown_close();
@@ -484,8 +504,6 @@ static void make_mini(lv_obj_t *row,
 static void refresh_sd_status(void) {
   int used_pct = 0;
   bool present = header_ui_sd_usage(&used_pct);
-  bool changed = (badge_on[BADGE_SD] != present);
-  badge_on[BADGE_SD] = present;
 
   char buf[16];
   const char *val = "No SD";
@@ -498,9 +516,6 @@ static void refresh_sd_status(void) {
   }
   if (sd_chip_fill) {
     lv_obj_set_width(sd_chip_fill, lv_pct(used_pct < 1 ? 1 : used_pct));
-  }
-  if (changed) {
-    refresh_focus(); // restyle the SD badge when the card is inserted/removed
   }
 }
 
@@ -580,8 +595,8 @@ void dropdown_ui_create(lv_obj_t *parent) {
       badges, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   make_badge(badges, 0, LV_SYMBOL_WIFI, "Wi-Fi");
   make_badge(badges, 1, LV_SYMBOL_BLUETOOTH, "BLE");
-  make_badge(badges, 2, LV_SYMBOL_SD_CARD, "SD");
-  make_badge(badges, 3, LV_SYMBOL_CHARGE, "ECO");
+  make_badge(badges, 2, LV_SYMBOL_CHARGE, "ECO");
+  make_badge(badges, 3, LV_SYMBOL_POWER, "Reboot");
 
   make_slider(slide_panel, 0, "/assets/icons/brightness_6.bin");
   make_slider(slide_panel, 1, "/assets/icons/volume_up.bin");
@@ -609,7 +624,6 @@ void dropdown_ui_create(lv_obj_t *parent) {
 
   focus_row = ROW_BADGES;
   badge_sel = 0;
-  badge_on[BADGE_SD] = header_ui_sd_usage(NULL);
   refresh_focus();
 
   lv_obj_update_layout(slide_panel);
