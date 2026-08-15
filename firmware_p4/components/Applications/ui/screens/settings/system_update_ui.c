@@ -19,7 +19,6 @@
 
 #include "lvgl.h"
 
-#include "buttons_gpio.h"
 #include "reboot_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
@@ -27,7 +26,6 @@
 #include "ui_theme.h"
 #include "waves_ui.h"
 
-#define NAV_TIMER_MS    50
 #define SEARCH_MS       2600
 #define APPLY_TICK_MS   45
 #define APPLY_STEP      2
@@ -112,17 +110,13 @@ typedef enum {
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_bar = NULL;
 static lv_obj_t *s_step_lbl = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_phase_timer = NULL;
 static lv_timer_t *s_apply_timer = NULL;
 
 static update_state_t s_state = ST_SEARCHING;
 static int s_pct = 0;
-static bool s_ok_last = false;
-static bool s_back_last = false;
-static bool s_left_last = false;
 
-static void nav_timer_cb(lv_timer_t *t);
+static void system_update_input(const input_event_t *ev, void *ctx);
 static void build_screen(void);
 
 static void stop_phase_timer(void) {
@@ -431,61 +425,42 @@ static void build_screen(void) {
       break;
   }
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(system_update_input, NULL);
 
   ui_screen_load(s_screen);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
+static void system_update_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  if (ev->action != INPUT_ACTION_PRESS)
     return;
+  if (s_state == ST_APPLYING)
+    return;
+
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      ui_switch_screen(SCREEN_DEV_MENU);
+      break;
+    case INPUT_BTN_OK:
+      if (s_state == ST_FOUND) {
+        ui_feedback(UI_FB_SELECT);
+        s_state = ST_APPLYING;
+        build_screen();
+      }
+      break;
+    default:
+      break;
   }
-  if (ui_input_is_locked())
-    return;
-
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-  bool left = ui_btn_left();
-
-  if (s_state == ST_APPLYING) {
-    s_ok_last = ok;
-    s_back_last = back;
-    s_left_last = left;
-    return;
-  }
-
-  if ((back && !s_back_last) || (left && !s_left_last)) {
-    ui_switch_screen(SCREEN_DEV_MENU);
-    return;
-  }
-
-  if (s_state == ST_FOUND && ok && !s_ok_last) {
-    ui_feedback(UI_FB_SELECT);
-    s_state = ST_APPLYING;
-    build_screen();
-    s_ok_last = ok;
-    s_back_last = back;
-    s_left_last = left;
-    return;
-  }
-
-  s_ok_last = ok;
-  s_back_last = back;
-  s_left_last = left;
 }
 
 void ui_system_update_open(void) {
-  s_nav_timer = NULL;
   s_phase_timer = NULL;
   s_apply_timer = NULL;
   s_bar = NULL;
   s_step_lbl = NULL;
   s_state = ST_SEARCHING;
   s_pct = 0;
-  s_ok_last = s_back_last = s_left_last = false;
 
   build_screen();
 }
