@@ -31,6 +31,7 @@ idf_component_register(SRCS
   "icons/icons.c"
   "wifi/wifi_service.c"
   "boot_report/boot_report.c"
+  "sys_time/sys_time.c"
   "power_manager/power_manager.c"
   "power_manager/power_manager_usb.c"
 
@@ -77,6 +78,7 @@ idf_component_register(SRCS
   "icons/include"
   "wifi/include"
   "boot_report/include"
+  "sys_time/include"
   "power_manager/include"
   "ir/include"
   "storage_api/include"

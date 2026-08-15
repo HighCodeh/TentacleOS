@@ -39,6 +39,7 @@
 #include "storage_init.h"
 #include "storage_assets.h"
 #include "boot_report.h"
+#include "sys_time.h"
 #include "power_manager.h"
 #include "tos_first_boot.h"
 #include "tos_config.h"
@@ -129,6 +130,8 @@ esp_err_t kernel_init(void) {
     ret = nvs_flash_init();
   }
   boot_report_record("nvs", true, ret);
+
+  sys_time_init();
 
   // Capture last-run crash forensics before anything can overwrite the reason.
   boot_report_capture_crash();
