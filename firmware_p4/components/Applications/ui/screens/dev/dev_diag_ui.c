@@ -250,7 +250,7 @@ static void build_screen(void) {
 
   ui_input_set_screen_handler(dev_diag_input, NULL);
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
 
 void ui_dev_diag_open(void) {
