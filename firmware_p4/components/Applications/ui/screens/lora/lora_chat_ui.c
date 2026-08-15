@@ -21,7 +21,6 @@
 #include "esp_log.h"
 
 #include "assets_manager.h"
-#include "buttons_gpio.h"
 #include "keyboard_ui.h"
 #include "menu_component_ui.h"
 #include "notify_ui.h"
@@ -34,7 +33,6 @@
 
 static const char *TAG = "LORA_MESH";
 
-#define NAV_TIMER_MS 50
 #define CONNECT_MS   5000
 #define SIG_GREEN    0x00E676
 #define COL_DIM      0x8A8594
@@ -68,8 +66,6 @@ static const char *TAG = "LORA_MESH";
 #define SNR_RSSI_SPAN  70
 #define RSSI_STRONG    -55
 #define RSSI_GOOD      -70
-
-#define OK_HOLD_MS 600
 
 #define LIST_ROW_H       44
 #define LIST_ROW_RADIUS  10
@@ -137,7 +133,6 @@ static lv_obj_t *s_chat_list = NULL;
 static lv_obj_t *s_status_label = NULL;
 static lv_obj_t *s_hint = NULL;
 static lv_obj_t *s_typing_row = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_connect_timer = NULL;
 static lv_timer_t *s_reply_timer = NULL;
 static lv_timer_t *s_phase_timer = NULL;
@@ -151,8 +146,6 @@ static bool s_linked = false;
 static int s_cfg_region = 0, s_cfg_chan = 3, s_cfg_preset = 0;
 static int s_msg_clock = 0;
 
-static bool s_up_last, s_down_last, s_left_last, s_right_last, s_ok_last, s_back_last;
-
 static lv_obj_t *s_node_pins[NODE_COUNT];
 static lv_obj_t *s_node_names[NODE_COUNT];
 static lv_obj_t *s_info_name = NULL;
@@ -165,7 +158,6 @@ static lv_obj_t *s_list_name[NODE_COUNT];
 static lv_obj_t *s_list_val[NODE_COUNT];
 static lv_obj_t *s_node_list = NULL;
 static bool s_nodes_list = false;
-static int s_nodes_ok_ms = 0;
 static bool s_nodes_ok_fired = false;
 static bool s_nodes_ok_active = false;
 
@@ -173,7 +165,7 @@ static const char *REPLIES[] = {
     "Roger that.", "Copy.", "On my way.", "Stay safe out there.", "10-4, over."};
 #define REPLY_COUNT ((int)(sizeof(REPLIES) / sizeof(REPLIES[0])))
 
-static void nav_timer_cb(lv_timer_t *t);
+static void lora_chat_input(const input_event_t *ev, void *ctx);
 static void build_screen(void);
 static void add_bubble(bool outgoing, const char *who, const char *text);
 
@@ -512,7 +504,6 @@ static void build_nodes_view(void) {
   if (s_node >= NODE_COUNT)
     s_node = NODE_COUNT - 1;
 
-  s_nodes_ok_ms = 0;
   s_nodes_ok_fired = false;
   s_nodes_ok_active = false;
 
@@ -1010,8 +1001,7 @@ static void build_screen(void) {
   if (fade_target)
     lv_obj_fade_in(fade_target, ENTRY_MS, 0);
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(lora_chat_input, NULL);
 
   ui_screen_load(s_screen);
 }
@@ -1039,180 +1029,204 @@ static void exit_to_menu(void) {
   ui_switch_screen(SCREEN_MENU);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    stop_timers();
-    return;
-  }
-
-  bool up = ui_btn_up(), down = ui_btn_down();
-  bool left = ui_btn_left(), right = ui_btn_right();
-  bool ok = ok_button_is_down(), back = back_button_is_down();
-
-  if (ui_input_is_locked() || keyboard_is_open()) {
-    s_up_last = up;
-    s_down_last = down;
-    s_left_last = left;
-    s_right_last = right;
-    s_ok_last = ok;
-    s_back_last = back;
-    return;
-  }
+static void lora_chat_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
   switch (s_view) {
     case VIEW_PROTO:
-      if (down && !s_down_last)
-        menu_component_next(&s_menu);
-      if (up && !s_up_last)
-        menu_component_prev(&s_menu);
-      if (ok && !s_ok_last) {
-        s_proto = menu_component_get_selected(&s_menu);
-        ui_feedback(UI_FB_SELECT);
-        s_view = VIEW_HOME;
-        s_home_sel = 0;
-        build_screen();
-        goto edges;
-      }
-      if (back && !s_back_last) {
-        exit_to_menu();
-        return;
+      switch (ev->button) {
+        case INPUT_BTN_DOWN:
+          if (nav)
+            menu_component_next(&s_menu);
+          break;
+        case INPUT_BTN_UP:
+          if (nav)
+            menu_component_prev(&s_menu);
+          break;
+        case INPUT_BTN_OK:
+          if (press) {
+            s_proto = menu_component_get_selected(&s_menu);
+            ui_feedback(UI_FB_SELECT);
+            s_view = VIEW_HOME;
+            s_home_sel = 0;
+            build_screen();
+          }
+          break;
+        case INPUT_BTN_BACK:
+          if (press)
+            exit_to_menu();
+          break;
+        default:
+          break;
       }
       break;
 
     case VIEW_HOME:
-      if (down && !s_down_last)
-        menu_component_next(&s_menu);
-      if (up && !s_up_last)
-        menu_component_prev(&s_menu);
-      if (ok && !s_ok_last) {
-        s_home_sel = menu_component_get_selected(&s_menu);
-        ui_feedback(UI_FB_SELECT);
-        if (s_home_sel == 3) {
-          ui_switch_screen(SCREEN_LORA_CHANNELS);
-          goto edges;
-        } else if (s_home_sel == 4) {
-          ui_switch_screen(SCREEN_LORA_POSITION);
-          goto edges;
-        } else if (s_home_sel == 5) {
-          ui_switch_screen(SCREEN_LORA_TELEMETRY);
-          goto edges;
-        } else if (s_home_sel == 6) {
-          ui_switch_screen(SCREEN_LORA_SECURE_DM);
-          goto edges;
-        }
-        s_view = (s_home_sel == 0) ? VIEW_CONNECT : (s_home_sel == 1) ? VIEW_NODES : VIEW_CONFIGS;
-        build_screen();
-        goto edges;
-      }
-      if (back && !s_back_last) {
-        s_view = VIEW_PROTO;
-        build_screen();
-        goto edges;
+      switch (ev->button) {
+        case INPUT_BTN_DOWN:
+          if (nav)
+            menu_component_next(&s_menu);
+          break;
+        case INPUT_BTN_UP:
+          if (nav)
+            menu_component_prev(&s_menu);
+          break;
+        case INPUT_BTN_OK:
+          if (press) {
+            s_home_sel = menu_component_get_selected(&s_menu);
+            ui_feedback(UI_FB_SELECT);
+            if (s_home_sel == 3) {
+              ui_switch_screen(SCREEN_LORA_CHANNELS);
+            } else if (s_home_sel == 4) {
+              ui_switch_screen(SCREEN_LORA_POSITION);
+            } else if (s_home_sel == 5) {
+              ui_switch_screen(SCREEN_LORA_TELEMETRY);
+            } else if (s_home_sel == 6) {
+              ui_switch_screen(SCREEN_LORA_SECURE_DM);
+            } else {
+              s_view = (s_home_sel == 0)   ? VIEW_CONNECT
+                       : (s_home_sel == 1) ? VIEW_NODES
+                                           : VIEW_CONFIGS;
+              build_screen();
+            }
+          }
+          break;
+        case INPUT_BTN_BACK:
+          if (press) {
+            s_view = VIEW_PROTO;
+            build_screen();
+          }
+          break;
+        default:
+          break;
       }
       break;
 
     case VIEW_CONNECT:
-      if (back && !s_back_last) {
+      if (ev->button == INPUT_BTN_BACK && press) {
         s_view = VIEW_HOME;
         build_screen();
-        goto edges;
       }
       break;
 
     case VIEW_NODES:
-      if (down && !s_down_last) {
-        s_node = (s_node + 1) % NODE_COUNT;
-        node_select(s_node);
-      }
-      if (up && !s_up_last) {
-        s_node = (s_node - 1 + NODE_COUNT) % NODE_COUNT;
-        node_select(s_node);
-      }
-      if (ok && !s_ok_last) {
-        s_nodes_ok_ms = 0;
-        s_nodes_ok_fired = false;
-        s_nodes_ok_active = true;
-      }
-      if (ok && s_nodes_ok_active) {
-        s_nodes_ok_ms += NAV_TIMER_MS;
-        if (!s_nodes_ok_fired && s_nodes_ok_ms >= OK_HOLD_MS) {
-          s_nodes_ok_fired = true;
-          s_nodes_list = !s_nodes_list;
-          ui_feedback(UI_FB_SELECT);
-          build_screen();
-          goto edges;
-        }
-      }
-      if (!ok && s_ok_last) {
-        bool short_press = s_nodes_ok_active && !s_nodes_ok_fired;
-        s_nodes_ok_active = false;
-        s_nodes_ok_ms = 0;
-        s_nodes_ok_fired = false;
-        if (short_press) {
-          ui_feedback(UI_FB_SELECT);
-          s_view = VIEW_CHAT;
-          build_screen();
-          goto edges;
-        }
-      }
-      if (back && !s_back_last) {
-        s_view = VIEW_HOME;
-        build_screen();
-        goto edges;
+      switch (ev->button) {
+        case INPUT_BTN_DOWN:
+          if (nav) {
+            s_node = (s_node + 1) % NODE_COUNT;
+            node_select(s_node);
+          }
+          break;
+        case INPUT_BTN_UP:
+          if (nav) {
+            s_node = (s_node - 1 + NODE_COUNT) % NODE_COUNT;
+            node_select(s_node);
+          }
+          break;
+        case INPUT_BTN_OK:
+          if (press) {
+            s_nodes_ok_active = true;
+            s_nodes_ok_fired = false;
+          } else if (ev->action == INPUT_ACTION_LONG_PRESS) {
+            if (s_nodes_ok_active && !s_nodes_ok_fired) {
+              s_nodes_ok_fired = true;
+              s_nodes_list = !s_nodes_list;
+              ui_feedback(UI_FB_SELECT);
+              build_screen();
+            }
+          } else if (ev->action == INPUT_ACTION_RELEASE) {
+            bool short_press = s_nodes_ok_active && !s_nodes_ok_fired;
+            s_nodes_ok_active = false;
+            s_nodes_ok_fired = false;
+            if (short_press) {
+              ui_feedback(UI_FB_SELECT);
+              s_view = VIEW_CHAT;
+              build_screen();
+            }
+          }
+          break;
+        case INPUT_BTN_BACK:
+          if (press) {
+            s_view = VIEW_HOME;
+            build_screen();
+          }
+          break;
+        default:
+          break;
       }
       break;
 
     case VIEW_CONFIGS: {
       int sel = menu_component_get_selected(&s_menu);
-      if (down && !s_down_last)
-        menu_component_next(&s_menu);
-      if (up && !s_up_last)
-        menu_component_prev(&s_menu);
-      if (left && !s_left_last)
-        cycle_config(sel, -1);
-      if (right && !s_right_last)
-        cycle_config(sel, +1);
-      if (ok && !s_ok_last && sel == CFG_ROLE)
-        menu_component_toggle_item(&s_menu, sel);
-      if (back && !s_back_last) {
-        s_view = VIEW_HOME;
-        build_screen();
-        goto edges;
+      switch (ev->button) {
+        case INPUT_BTN_DOWN:
+          if (nav)
+            menu_component_next(&s_menu);
+          break;
+        case INPUT_BTN_UP:
+          if (nav)
+            menu_component_prev(&s_menu);
+          break;
+        case INPUT_BTN_LEFT:
+          if (nav)
+            cycle_config(sel, -1);
+          break;
+        case INPUT_BTN_RIGHT:
+          if (nav)
+            cycle_config(sel, +1);
+          break;
+        case INPUT_BTN_OK:
+          if (press && sel == CFG_ROLE)
+            menu_component_toggle_item(&s_menu, sel);
+          break;
+        case INPUT_BTN_BACK:
+          if (press) {
+            s_view = VIEW_HOME;
+            build_screen();
+          }
+          break;
+        default:
+          break;
       }
       break;
     }
 
     case VIEW_CHAT:
-
-      if (down && !s_down_last && s_chat_list) {
-        int32_t sb = lv_obj_get_scroll_bottom(s_chat_list);
-        if (sb > 0)
-          lv_obj_scroll_by(s_chat_list, 0, -(sb < 36 ? sb : 36), LV_ANIM_OFF);
-      }
-      if (up && !s_up_last && s_chat_list) {
-        int32_t st = lv_obj_get_scroll_top(s_chat_list);
-        if (st > 0)
-          lv_obj_scroll_by(s_chat_list, 0, (st < 36 ? st : 36), LV_ANIM_OFF);
-      }
-      if (ok && !s_ok_last)
-        keyboard_open(NULL, on_kb_submit, NULL);
-      if (back && !s_back_last) {
-        s_view = VIEW_NODES;
-        build_screen();
-        goto edges;
+      switch (ev->button) {
+        case INPUT_BTN_DOWN:
+          if (nav && s_chat_list) {
+            int32_t sb = lv_obj_get_scroll_bottom(s_chat_list);
+            if (sb > 0)
+              lv_obj_scroll_by(s_chat_list, 0, -(sb < 36 ? sb : 36), LV_ANIM_OFF);
+          }
+          break;
+        case INPUT_BTN_UP:
+          if (nav && s_chat_list) {
+            int32_t st = lv_obj_get_scroll_top(s_chat_list);
+            if (st > 0)
+              lv_obj_scroll_by(s_chat_list, 0, (st < 36 ? st : 36), LV_ANIM_OFF);
+          }
+          break;
+        case INPUT_BTN_OK:
+          if (press)
+            keyboard_open(NULL, on_kb_submit, NULL);
+          break;
+        case INPUT_BTN_BACK:
+          if (press) {
+            s_view = VIEW_NODES;
+            build_screen();
+          }
+          break;
+        default:
+          break;
       }
       break;
-  }
 
-edges:
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_right_last = right;
-  s_ok_last = ok;
-  s_back_last = back;
+    default:
+      break;
+  }
 }
 
 void ui_lora_chat_open(void) {
@@ -1228,7 +1242,6 @@ void ui_lora_chat_open(void) {
   s_connect_timer = NULL;
   s_reply_timer = NULL;
   s_phase_timer = NULL;
-  s_up_last = s_down_last = s_left_last = s_right_last = s_ok_last = s_back_last = false;
   build_screen();
   ESP_LOGI(TAG, "LoRa mesh (mock) opened");
 }
@@ -1246,7 +1259,6 @@ void ui_lora_chat_open_chat(void) {
   s_connect_timer = NULL;
   s_reply_timer = NULL;
   s_phase_timer = NULL;
-  s_up_last = s_down_last = s_left_last = s_right_last = s_ok_last = s_back_last = false;
   build_screen();
   ESP_LOGI(TAG, "LoRa chat (mock) opened at chat view");
 }
