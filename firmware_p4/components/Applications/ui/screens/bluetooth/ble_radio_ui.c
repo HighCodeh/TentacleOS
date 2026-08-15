@@ -21,14 +21,11 @@
 #include "lvgl.h"
 #include "st7789.h"
 
-#include "buttons_gpio.h"
 #include "notify_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
-
-#define NAV_TIMER_MS 60
 
 #define RADIO_ICON "/assets/icons/bluetooth.bin"
 
@@ -72,20 +69,13 @@ static lv_obj_t *s_card_conn = NULL;
 static lv_obj_t *s_row[R_COUNT];
 static lv_obj_t *s_icon_lbl[R_COUNT];
 static lv_obj_t *s_val_lbl[R_COUNT];
-static lv_timer_t *s_nav_timer = NULL;
 
 static char s_mac[18];
 static int s_connected = INIT_CONNECTED;
 static int s_tx_dbm = TX_LOW_DBM;
 static int s_sel = 0;
 
-static bool s_up_last = false;
-static bool s_down_last = false;
-static bool s_left_last = false;
-static bool s_ok_last = false;
-static bool s_back_last = false;
-
-static void nav_timer_cb(lv_timer_t *t);
+static void radio_input(const input_event_t *ev, void *ctx);
 
 static void gen_mac(void) {
   snprintf(s_mac,
@@ -222,11 +212,6 @@ void ui_ble_radio_open(void) {
   s_connected = INIT_CONNECTED;
   s_tx_dbm = TX_LOW_DBM;
   s_sel = 0;
-  s_up_last = false;
-  s_down_last = false;
-  s_left_last = false;
-  s_ok_last = false;
-  s_back_last = false;
   gen_mac();
 
   s_screen = lv_obj_create(NULL);
@@ -256,54 +241,41 @@ void ui_ble_radio_open(void) {
   update_values();
   refresh_selection();
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(radio_input, NULL);
 
   ui_screen_load(s_screen);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
+static void radio_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-
-  if (ui_input_is_locked()) {
-    s_up_last = up;
-    s_down_last = down;
-    s_left_last = left;
-    s_ok_last = ok;
-    s_back_last = back;
-    return;
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_BLE_MENU);
+      break;
+    case INPUT_BTN_DOWN:
+      if (nav) {
+        s_sel = (s_sel + 1) % R_COUNT;
+        refresh_selection();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_UP:
+      if (nav) {
+        s_sel = (s_sel - 1 + R_COUNT) % R_COUNT;
+        refresh_selection();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_OK:
+      if (press)
+        do_action(s_sel);
+      break;
+    default:
+      break;
   }
-
-  if ((back && !s_back_last) || (left && !s_left_last)) {
-    ui_switch_screen(SCREEN_BLE_MENU);
-    return;
-  }
-  if (down && !s_down_last) {
-    s_sel = (s_sel + 1) % R_COUNT;
-    refresh_selection();
-    ui_feedback(UI_FB_NAV);
-  }
-  if (up && !s_up_last) {
-    s_sel = (s_sel - 1 + R_COUNT) % R_COUNT;
-    refresh_selection();
-    ui_feedback(UI_FB_NAV);
-  }
-  if (ok && !s_ok_last)
-    do_action(s_sel);
-
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_ok_last = ok;
-  s_back_last = back;
 }
