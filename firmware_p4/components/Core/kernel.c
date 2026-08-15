@@ -16,6 +16,7 @@
 #include "kernel.h"
 
 #include "driver/gpio.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
@@ -108,8 +109,16 @@ static void kernel_init_safe_mode(void) {
   vTaskDelay(pdMS_TO_TICKS(BOOT_SETTLE_MS));
 }
 
+// Fires on any heap_caps allocation failure with the size, caps and caller -
+// context the generic vApplicationMallocFailedHook lacks.
+static void heap_alloc_failed_cb(size_t size, uint32_t caps, const char *function_name) {
+  ESP_LOGE(TAG, "alloc failed: %u B, caps 0x%lx, in %s", (unsigned)size, (unsigned long)caps,
+           function_name ? function_name : "?");
+}
+
 esp_err_t kernel_init(void) {
   boot_report_reset();
+  heap_caps_register_failed_alloc_callback(heap_alloc_failed_cb);
 
   // 1. NVS
   esp_err_t ret = nvs_flash_init();

@@ -48,6 +48,14 @@ static const char *TAG = "SYS_MONITOR";
 #define REBOOT_GRACE_MS          1500  // let the UI alert render and logs flush before restart
 #define ALERT_MSG_SIZE           128
 
+// Internal-RAM heap policy. The largest contiguous block matters as much as the
+// total free: LVGL fragments the heap opening/closing screens, so a screen can
+// fail to allocate long before the total runs out.
+#define HEAP_WARN_FREE_B    24576  // total internal free below this -> warn once
+#define HEAP_WARN_LARGEST_B 12288  // largest contiguous block below this -> warn once
+#define HEAP_CRIT_FREE_B    8192   // sustained below this -> controlled restart
+#define HEAP_CRIT_CYCLES    3
+
 typedef struct {
   bool is_verbose;
 } sys_monitor_params_t;
@@ -194,6 +202,44 @@ static void check_ui_liveness(void) {
   }
 }
 
+static void check_heap(void) {
+  static bool warned = false;
+  static uint32_t crit_streak = 0;
+
+  uint32_t free_int = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+  uint32_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+
+  if (free_int < HEAP_WARN_FREE_B || largest < HEAP_WARN_LARGEST_B) {
+    if (!warned) {
+      warned = true;
+      ESP_LOGW(TAG,
+               "Low heap: %lu B free, largest block %lu B (min ever %lu B)",
+               (unsigned long)free_int,
+               (unsigned long)largest,
+               (unsigned long)esp_get_minimum_free_heap_size());
+      char msg[ALERT_MSG_SIZE];
+      snprintf(msg,
+               sizeof(msg),
+               "Low memory:\n%lu KB free,\n%lu KB block.",
+               (unsigned long)(free_int / 1024),
+               (unsigned long)(largest / 1024));
+      safeguard_alert("LOW MEMORY", msg);
+    }
+  } else {
+    warned = false;
+  }
+
+  if (free_int < HEAP_CRIT_FREE_B) {
+    if (++crit_streak >= HEAP_CRIT_CYCLES) {
+      ESP_LOGE(TAG, "Heap critically low (%lu B) for %d cycles; controlled restart",
+               (unsigned long)free_int, HEAP_CRIT_CYCLES);
+      controlled_restart("SYSTEM RECOVERY", "Out of memory.\nRestarting to recover.");
+    }
+  } else {
+    crit_streak = 0;
+  }
+}
+
 static void sys_monitor_task(void *pvParameters) {
   sys_monitor_params_t *params = (sys_monitor_params_t *)pvParameters;
   bool is_verbose = params->is_verbose;
@@ -233,6 +279,7 @@ static void sys_monitor_task(void *pvParameters) {
     }
 
     check_ui_liveness();
+    check_heap();
 
     vTaskDelay(pdMS_TO_TICKS(MONITOR_INTERVAL_MS));
   }

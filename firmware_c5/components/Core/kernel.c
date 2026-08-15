@@ -19,6 +19,7 @@
 
 #include "driver/gpio.h"
 #include "driver/i2c.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -39,7 +40,16 @@ static const char *TAG = "SAFEGUARD";
 
 #define BOOT_SETTLE_MS 1500
 
+// Fires on any heap_caps allocation failure with the size, caps and caller -
+// context the generic vApplicationMallocFailedHook lacks.
+static void heap_alloc_failed_cb(size_t size, uint32_t caps, const char *function_name) {
+  ESP_LOGE(TAG, "alloc failed: %u B, caps 0x%lx, in %s", (unsigned)size, (unsigned long)caps,
+           function_name ? function_name : "?");
+}
+
 void kernel_init(void) {
+  heap_caps_register_failed_alloc_callback(heap_alloc_failed_cb);
+
   esp_err_t ret = nvs_flash_init();
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
     ESP_ERROR_CHECK(nvs_flash_erase());
