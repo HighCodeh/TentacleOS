@@ -53,6 +53,12 @@ esp_err_t ota_service_write(const uint8_t *data, uint16_t len);
 // Fill @p out with the current OTA state and byte count. Non-blocking.
 void ota_service_get_status(spi_ota_status_t *out);
 
+// Validate a freshly booted OTA image: if the running partition is pending
+// verification, wait for the P4 to reach us over the bridge and mark the app
+// valid, otherwise roll back. No-op on a normal boot. Call after kernel_init so
+// the bridge slave is already listening. Blocks up to the validation window.
+esp_err_t ota_post_boot_check(void);
+
 #ifdef __cplusplus
 }
 #endif

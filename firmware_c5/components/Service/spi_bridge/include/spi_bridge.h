@@ -109,6 +109,14 @@ bool spi_bridge_stream_push(spi_id_t id, const uint8_t *data, uint8_t len);
  */
 void spi_bridge_notify_master(void);
 
+/**
+ * @brief Count of valid commands processed from the P4 since boot.
+ *
+ * A nonzero value means the P4 has reached the C5 over the bridge, which is the
+ * OTA boot-health signal (see ota_post_boot_check).
+ */
+uint32_t spi_bridge_commands_processed(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -70,6 +70,7 @@ static bool s_is_wifi_sniffer_streaming = false;
 static bool s_is_bt_sniffer_streaming = false;
 static bool s_is_mesh_toradio_streaming = false;
 static bool s_is_mcore_rx_streaming = false;
+static volatile uint32_t s_commands_processed = 0;
 static bool s_is_host_rx_streaming = false;
 static bool s_is_system_log_streaming = false;
 static bool s_use_irq = true; // false = POLL mode (no IRQ trace); master polls
@@ -209,6 +210,10 @@ void spi_bridge_notify_master(void) {
   spi_slave_driver_set_irq(0);
 }
 
+uint32_t spi_bridge_commands_processed(void) {
+  return s_commands_processed;
+}
+
 static void enter_download_mode(void) {
   ESP_LOGW(TAG, "Entering ROM serial download mode (force)");
   // On ESP32-C5 the force-download-boot selector lives in LP_AON_SYS_CFG_REG
@@ -308,6 +313,8 @@ static void bridge_task(void *pvParameters) {
       spi_slave_driver_queue(&rx_trans, NULL, rx_buf, SPI_FRAME_SIZE);
       continue;
     }
+
+    s_commands_processed++;
 
     spi_status_t status = SPI_STATUS_OK;
     uint8_t resp_payload[SPI_MAX_PAYLOAD];

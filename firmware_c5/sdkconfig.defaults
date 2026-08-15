@@ -17,6 +17,12 @@ CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
 CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
 CONFIG_ESP_COREDUMP_STACK_SIZE=1792
 
+# OTA rollback: a new image boots in PENDING_VERIFY. ota_post_boot_check() marks
+# it valid only once the P4 has used the bridge, else it rolls back to the last
+# good image. The bridge is the C5's only job and only recovery path, so bridge
+# health is the boot health criterion.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
 # CPU 240MHz (C5 default is 160MHz)
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 

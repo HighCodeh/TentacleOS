@@ -20,16 +20,22 @@
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/stream_buffer.h"
 #include "freertos/task.h"
 #include "sys_prio.h"
+
+#include "spi_bridge.h"
 
 static const char *TAG = "OTA_SVC";
 
 // Plausible C5 app image size bounds - guards against acting on a bogus size.
 #define OTA_MIN_SIZE 0x10000
 #define OTA_MAX_SIZE 0x200000
+
+#define OTA_VALIDATE_TIMEOUT_MS 15000
+#define OTA_VALIDATE_POLL_MS    100
 
 // SPI transport: a RAM buffer decouples the OTA_DATA acks from the flash writes -
 // the bridge task only pushes chunks here (fast, no flash) and acks at once,
@@ -239,4 +245,38 @@ void ota_service_get_status(spi_ota_status_t *out) {
   }
   out->state = s_state;
   out->bytes_written = s_bytes_written;
+}
+
+esp_err_t ota_post_boot_check(void) {
+  const esp_partition_t *running = esp_ota_get_running_partition();
+  if (running == NULL) {
+    ESP_LOGE(TAG, "Could not determine running partition");
+    return ESP_FAIL;
+  }
+
+  esp_ota_img_states_t ota_state;
+  if (esp_ota_get_state_partition(running, &ota_state) != ESP_OK ||
+      ota_state != ESP_OTA_IMG_PENDING_VERIFY) {
+    return ESP_OK;
+  }
+
+  ESP_LOGW(TAG, "New firmware pending verification; waiting for the P4 over the bridge");
+
+  // Health = the P4 reaches us over the bridge, the C5's only job and only
+  // recovery path. Confirm on the first command; if the P4 never talks within
+  // the window, actively roll back rather than strand a headless node that can
+  // no longer be recovered through the bridge.
+  int64_t deadline = esp_timer_get_time() + (int64_t)OTA_VALIDATE_TIMEOUT_MS * 1000;
+  while (esp_timer_get_time() < deadline) {
+    if (spi_bridge_commands_processed() > 0) {
+      esp_ota_mark_app_valid_cancel_rollback();
+      ESP_LOGI(TAG, "Bridge confirmed by P4; firmware update accepted");
+      return ESP_OK;
+    }
+    vTaskDelay(pdMS_TO_TICKS(OTA_VALIDATE_POLL_MS));
+  }
+
+  ESP_LOGE(TAG, "P4 did not use the bridge in %d ms; rolling back", OTA_VALIDATE_TIMEOUT_MS);
+  esp_ota_mark_app_invalid_rollback_and_reboot();
+  return ESP_FAIL;
 }
