@@ -20,14 +20,12 @@
 #include "lvgl.h"
 #include "st7789.h"
 
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define NAV_TIMER_MS 50
-#define SPARK_MS     420
+#define SPARK_MS 420
 
 #define HDR_TITLE   "TELEMETRY"
 #define HDR_ICON    NULL
@@ -91,7 +89,6 @@ static lv_obj_t *s_ch_val = NULL;
 static lv_obj_t *s_air_val = NULL;
 static lv_obj_t *s_chips[NB_CNT];
 static lv_obj_t *s_chip_name[NB_CNT];
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_spark_timer = NULL;
 
 static uint8_t s_ch_buf[SPARK_PTS];
@@ -101,11 +98,6 @@ static lv_point_precise_t s_air_pts[SPARK_PTS];
 static int s_src_idx = 0;
 
 static int s_nb = 0;
-static bool s_up_last = false;
-static bool s_down_last = false;
-static bool s_left_last = false;
-static bool s_ok_last = false;
-static bool s_back_last = false;
 
 static int spark_x(int i) {
   return i * SPARK_W / (SPARK_PTS - 1);
@@ -241,43 +233,38 @@ static void refresh_chips(void) {
   }
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
-  if (ui_input_is_locked())
-    return;
+static void lora_telemetry_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-
-  if ((back && !s_back_last) || (left && !s_left_last)) {
-    ui_switch_screen(SCREEN_LORA_CHAT);
-    return;
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_LORA_CHAT);
+      break;
+    case INPUT_BTN_DOWN:
+      if (nav) {
+        s_nb = (s_nb + 1) % NB_CNT;
+        refresh_chips();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_UP:
+      if (nav) {
+        s_nb = (s_nb - 1 + NB_CNT) % NB_CNT;
+        refresh_chips();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_OK:
+      if (press)
+        ui_feedback(UI_FB_SELECT);
+      break;
+    default:
+      break;
   }
-  if (down && !s_down_last) {
-    s_nb = (s_nb + 1) % NB_CNT;
-    refresh_chips();
-    ui_feedback(UI_FB_NAV);
-  }
-  if (up && !s_up_last) {
-    s_nb = (s_nb - 1 + NB_CNT) % NB_CNT;
-    refresh_chips();
-    ui_feedback(UI_FB_NAV);
-  }
-  if (ok && !s_ok_last)
-    ui_feedback(UI_FB_SELECT);
-
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 void ui_lora_telemetry_open(void) {
@@ -287,7 +274,6 @@ void ui_lora_telemetry_open(void) {
   }
   s_nb = 0;
   s_src_idx = 0;
-  s_up_last = s_down_last = s_left_last = s_ok_last = s_back_last = false;
   for (int i = 0; i < SPARK_PTS; i++) {
     s_ch_buf[i] = SRC[i % SRC_N];
     s_air_buf[i] = (uint8_t)(SRC[(i + 11) % SRC_N] / 2 + 25);
@@ -404,8 +390,7 @@ void ui_lora_telemetry_open(void) {
 
   ui_chrome_footer(s_screen, FOOTER_HINT);
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(lora_telemetry_input, NULL);
   if (s_spark_timer == NULL)
     s_spark_timer = lv_timer_create(spark_tick_cb, SPARK_MS, NULL);
 
