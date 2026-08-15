@@ -71,6 +71,7 @@ static bool s_sd_mounted = false;
 static int s_sd_used_pct = 0;
 static TaskHandle_t s_cd_task = NULL;       // debounces the CD ISR + (un)mounts
 static bool s_sd_present_committed = false;  // last debounced CD state acted on
+static volatile bool s_sd_remount_req = false;
 static char s_sd_name[24];
 static char s_sd_size[16];
 static char s_sd_free[16];
@@ -234,15 +235,22 @@ static void sd_cd_task(void *arg) {
       ulTaskNotifyTake(pdTRUE, 0);                   // drain bounces during settle
     }
 
+    bool force = s_sd_remount_req;
+    s_sd_remount_req = false;
+
     bool present = sd_card_present();
-    if (!boot && present == s_sd_present_committed) {
+    if (!boot && !force && present == s_sd_present_committed) {
       continue;  // spurious edge, no real change
+    }
+
+    if (force && vfs_sdcard_is_mounted()) {
+      vfs_sdcard_deinit();  // drop the unhealthy mount so it is rebuilt fresh
     }
     s_sd_present_committed = present;
 
     if (present) {
       if (sd_try_mount()) {
-        lv_async_call(sd_apply_mounted, (void *)(intptr_t)boot);
+        lv_async_call(sd_apply_mounted, (void *)(intptr_t)(boot || force));
       } else if (vfs_sdcard_is_mounted()) {
         vfs_sdcard_deinit();
       }
@@ -256,6 +264,12 @@ static void sd_cd_task(void *arg) {
 
     boot = false;
   }
+}
+
+void header_ui_request_sd_remount(void) {
+  s_sd_remount_req = true;
+  if (s_cd_task != NULL)
+    xTaskNotifyGive(s_cd_task);
 }
 
 static void battery_apply(void);

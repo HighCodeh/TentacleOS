@@ -78,6 +78,16 @@ void header_ui_set_wifi_connecting(bool connecting);
  */
 bool header_ui_sd_usage(int *out_used_pct);
 
+/**
+ * @brief Request the SD card mount owner (the card-detect worker) to remount.
+ *
+ * Routes a remount through the single task that owns the SD mount, so a health
+ * check failing elsewhere (e.g. the system monitor) never remounts concurrently
+ * with the hotplug worker. Safe to call from any task; no-op if the worker is
+ * not up yet.
+ */
+void header_ui_request_sd_remount(void);
+
 #ifdef __cplusplus
 }
 #endif
