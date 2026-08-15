@@ -20,7 +20,6 @@
 
 #include "esp_log.h"
 
-#include "buttons_gpio.h"
 #include "ir_store.h"
 #include "notify_ui.h"
 #include "ui_chrome.h"
@@ -32,8 +31,7 @@ static const char *TAG = "IR_CTRL_UI";
 
 #define COL_DIM 0x8A8594
 
-#define NAV_TIMER_INTERVAL_MS 50
-#define MAX_BTNS              16
+#define MAX_BTNS 16
 
 #define KEYPAD_W 232
 #define KEYPAD_H 250
@@ -137,7 +135,6 @@ static const rc_layout_t *s_lay = &LAYOUTS[IR_DEV_TV];
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_keypad = NULL;
 static lv_obj_t *s_btn_objs[MAX_BTNS];
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_flash_timer = NULL;
 static int s_focus = 0;
 
@@ -150,10 +147,7 @@ static int s_ac_mode = 0;
 static int s_ac_temp = AC_TEMP_DEFAULT;
 static int s_ac_fan = AC_FAN_DEFAULT;
 
-static bool s_btn_up_last, s_btn_down_last, s_btn_left_last;
-static bool s_btn_right_last, s_btn_ok_last, s_btn_back_last;
-
-static void nav_timer_cb(lv_timer_t *timer);
+static void ir_controller_input(const input_event_t *ev, void *ctx);
 
 // --- Universal remote: send codes sourced from Flipper .ir files on the SD ---
 
@@ -539,9 +533,6 @@ void ui_ir_controller_open(void) {
     lv_timer_delete(s_flash_timer);
     s_flash_timer = NULL;
   }
-  s_btn_up_last = s_btn_down_last = s_btn_left_last = false;
-  s_btn_right_last = s_btn_ok_last = s_btn_back_last = false;
-
   s_lay = &LAYOUTS[s_device];
   load_universal(s_device);
 
@@ -579,90 +570,91 @@ void ui_ir_controller_open(void) {
     apply_focus_style(s_btn_objs[s_focus], true);
   }
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
+  ui_input_set_screen_handler(ir_controller_input, NULL);
 
   ui_chrome_footer(s_screen, s_is_ac ? "U/D pick   L/R set   OK send" : "OK Send   BACK Back");
 
   ui_screen_load(s_screen);
 }
 
-static void nav_timer_cb(lv_timer_t *timer) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(timer);
-    s_nav_timer = NULL;
-    return;
-  }
+static void ir_controller_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
-  if (ui_input_is_locked())
-    return;
-
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool right = ui_btn_right();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-
-  if (back && !s_btn_back_last) {
-    ui_switch_screen(SCREEN_IR_REMOTE_TYPE);
+  if (ev->button == INPUT_BTN_BACK) {
+    if (press)
+      ui_switch_screen(SCREEN_IR_REMOTE_TYPE);
     return;
   }
 
   if (s_is_ac) {
-    if (up && !s_btn_up_last)
-      ac_set_sel((s_ac_sel + AC_FIELD_COUNT - 1) % AC_FIELD_COUNT);
-    if (down && !s_btn_down_last)
-      ac_set_sel((s_ac_sel + 1) % AC_FIELD_COUNT);
-    if (left && !s_btn_left_last)
-      ac_change(-1);
-    if (right && !s_btn_right_last)
-      ac_change(1);
-    if (ok && !s_btn_ok_last)
-      ac_change(1);
-
-    s_btn_up_last = up;
-    s_btn_down_last = down;
-    s_btn_left_last = left;
-    s_btn_right_last = right;
-    s_btn_ok_last = ok;
-    s_btn_back_last = back;
+    switch (ev->button) {
+      case INPUT_BTN_UP:
+        if (nav)
+          ac_set_sel((s_ac_sel + AC_FIELD_COUNT - 1) % AC_FIELD_COUNT);
+        break;
+      case INPUT_BTN_DOWN:
+        if (nav)
+          ac_set_sel((s_ac_sel + 1) % AC_FIELD_COUNT);
+        break;
+      case INPUT_BTN_LEFT:
+        if (nav)
+          ac_change(-1);
+        break;
+      case INPUT_BTN_RIGHT:
+        if (nav)
+          ac_change(1);
+        break;
+      case INPUT_BTN_OK:
+        if (press)
+          ac_change(1);
+        break;
+      default:
+        break;
+    }
     return;
   }
 
-  if (up && !s_btn_up_last) {
-    int n = neighbor(0);
-    if (n >= 0)
-      set_focus(n);
+  switch (ev->button) {
+    case INPUT_BTN_UP:
+      if (nav) {
+        int n = neighbor(0);
+        if (n >= 0)
+          set_focus(n);
+      }
+      break;
+    case INPUT_BTN_DOWN:
+      if (nav) {
+        int n = neighbor(1);
+        if (n >= 0)
+          set_focus(n);
+      }
+      break;
+    case INPUT_BTN_LEFT:
+      if (nav) {
+        int n = neighbor(2);
+        if (n >= 0)
+          set_focus(n);
+      }
+      break;
+    case INPUT_BTN_RIGHT:
+      if (nav) {
+        int n = neighbor(3);
+        if (n >= 0)
+          set_focus(n);
+      }
+      break;
+    case INPUT_BTN_OK:
+      if (press) {
+        const rc_btn_t *b = &s_lay->btns[s_focus];
+        ESP_LOGI(TAG, "press [%s]: %s", s_lay->title, b->text);
+        ui_feedback(UI_FB_EMULATE);
+        flash_focus();
+        uni_send(b->sig);
+      }
+      break;
+    default:
+      break;
   }
-  if (down && !s_btn_down_last) {
-    int n = neighbor(1);
-    if (n >= 0)
-      set_focus(n);
-  }
-  if (left && !s_btn_left_last) {
-    int n = neighbor(2);
-    if (n >= 0)
-      set_focus(n);
-  }
-  if (right && !s_btn_right_last) {
-    int n = neighbor(3);
-    if (n >= 0)
-      set_focus(n);
-  }
-
-  if (ok && !s_btn_ok_last) {
-    const rc_btn_t *b = &s_lay->btns[s_focus];
-    ESP_LOGI(TAG, "press [%s]: %s", s_lay->title, b->text);
-    ui_feedback(UI_FB_EMULATE);
-    flash_focus();
-    uni_send(b->sig);
-  }
-
-  s_btn_up_last = up;
-  s_btn_down_last = down;
-  s_btn_left_last = left;
-  s_btn_right_last = right;
-  s_btn_ok_last = ok;
-  s_btn_back_last = back;
 }
