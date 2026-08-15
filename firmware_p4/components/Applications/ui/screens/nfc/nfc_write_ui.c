@@ -22,7 +22,6 @@
 #include "st7789.h"
 
 #include "assets_manager.h"
-#include "buttons_gpio.h"
 #include "keyboard_ui.h"
 #include "msgbox_ui.h"
 #include "nfc_sim.h"
@@ -33,7 +32,7 @@
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define NAV_TIMER_MS 33
+#define WR_TICK_MS   33
 #define SIG_GREEN    0x00E676
 #define COL_DIM      0x8A8594
 #define WRITE_ICON   "/assets/icons/edit.bin"
@@ -57,7 +56,7 @@ static lv_obj_t *s_body = NULL;
 static page_dots_t s_dots;
 static int s_sel = 0;
 static int s_count = 0;
-static lv_timer_t *s_nav_timer = NULL;
+static lv_timer_t *s_wr_timer = NULL;
 static bool s_empty = false;
 
 static lv_obj_t *s_ov = NULL;
@@ -71,8 +70,6 @@ static nfc_ui_field_t s_ov_field;
 static nfc_sim_card_t s_card;
 static int s_wr = WR_NONE;
 static uint32_t s_wr_start = 0;
-
-static bool s_up_last, s_down_last, s_ok_last, s_back_last, s_left_last, s_right_last;
 
 static void transy_cb(void *var, int32_t v) {
   lv_obj_set_style_translate_y((lv_obj_t *)var, v, 0);
@@ -347,72 +344,60 @@ static void write_tick(void) {
   }
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
+static void write_tick_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen) {
     lv_timer_delete(t);
-    s_nav_timer = NULL;
+    s_wr_timer = NULL;
     return;
   }
-  bool up = ui_btn_up(), down = ui_btn_down();
-  bool left = ui_btn_left(), right = ui_btn_right();
-  bool ok = ok_button_is_down(), back = back_button_is_down();
+  if (s_wr != WR_NONE && !(msgbox_is_open() || keyboard_is_open() || ui_input_is_locked()))
+    write_tick();
+}
+
+static void nfc_write_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
   if (s_wr != WR_NONE) {
-    if (!(msgbox_is_open() || keyboard_is_open() || ui_input_is_locked())) {
-      write_tick();
-      if (s_wr != WR_NONE && s_wr != WR_DONE && back && !s_back_last)
-        overlay_close();
-    }
-    s_up_last = up;
-    s_down_last = down;
-    s_left_last = left;
-    s_right_last = right;
-    s_ok_last = ok;
-    s_back_last = back;
+    if (ev->button == INPUT_BTN_BACK && press && s_wr != WR_DONE)
+      overlay_close();
     return;
   }
 
-  if (ui_input_is_locked() || msgbox_is_open() || keyboard_is_open()) {
-    s_up_last = up;
-    s_down_last = down;
-    s_left_last = left;
-    s_right_last = right;
-    s_ok_last = ok;
-    s_back_last = back;
-    return;
-  }
-
-  if ((back && !s_back_last) || (left && !s_left_last)) {
-    ui_switch_screen(SCREEN_NFC_MENU);
-    return;
-  }
-
-  if (!s_empty) {
-    if (down && !s_down_last) {
-      s_sel = (s_sel + 1) % s_count;
-      bench_build();
-      ui_feedback(UI_FB_NAV);
-    }
-    if (up && !s_up_last) {
-      s_sel = (s_sel == 0) ? s_count - 1 : s_sel - 1;
-      bench_build();
-      ui_feedback(UI_FB_NAV);
-    }
-    if ((ok && !s_ok_last) || (right && !s_right_last)) {
-      const nfc_sim_card_t *c = nfc_sim_saved_get(s_sel);
-      if (c != NULL) {
-        ui_feedback(UI_FB_SELECT);
-        overlay_start(c);
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_NFC_MENU);
+      break;
+    case INPUT_BTN_DOWN:
+      if (nav && !s_empty) {
+        s_sel = (s_sel + 1) % s_count;
+        bench_build();
+        ui_feedback(UI_FB_NAV);
       }
-    }
+      break;
+    case INPUT_BTN_UP:
+      if (nav && !s_empty) {
+        s_sel = (s_sel == 0) ? s_count - 1 : s_sel - 1;
+        bench_build();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_OK:
+    case INPUT_BTN_RIGHT:
+      if (press && !s_empty) {
+        const nfc_sim_card_t *c = nfc_sim_saved_get(s_sel);
+        if (c != NULL) {
+          ui_feedback(UI_FB_SELECT);
+          overlay_start(c);
+        }
+      }
+      break;
+    default:
+      break;
   }
-
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_right_last = right;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 void ui_nfc_write_open(void) {
@@ -434,7 +419,6 @@ void ui_nfc_write_open(void) {
   for (int i = 0; i < 3; i++)
     s_ov_field.ring[i] = NULL;
   s_wr = WR_NONE;
-  s_up_last = s_down_last = s_ok_last = s_back_last = s_left_last = s_right_last = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -456,8 +440,9 @@ void ui_nfc_write_open(void) {
     bench_build();
   }
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  if (s_wr_timer == NULL)
+    s_wr_timer = lv_timer_create(write_tick_cb, WR_TICK_MS, NULL);
+  ui_input_set_screen_handler(nfc_write_input, NULL);
 
   ui_screen_load(s_screen);
 }
