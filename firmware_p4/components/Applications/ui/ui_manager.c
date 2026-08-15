@@ -288,8 +288,11 @@ static void ui_boot_task(void *pvParameter) {
   vTaskDelay(pdMS_TO_TICKS(BOOT_SPLASH_DURATION_MS));
 
   if (ui_acquire()) {
+    lv_obj_t *outgoing = lv_screen_active();
     ui_home_open();
     current_screen_id = SCREEN_HOME;
+    if (outgoing != NULL && outgoing != lv_screen_active())
+      lv_obj_del_async(outgoing);
     if (tutorial_should_run())
       tutorial_start();
     else
@@ -644,6 +647,7 @@ void ui_switch_screen(screen_id_t new_screen) {
   input_lock_until = lv_tick_get() + INPUT_LOCK_MS;
 
   if (ui_acquire()) {
+    lv_obj_t *outgoing = lv_screen_active();
     // Lifecycle: stop the outgoing screen's hardware/task before tearing it down.
     ui_close_fn_t close_fn = screen_close_fn(current_screen_id);
     if (close_fn != NULL) {
@@ -659,6 +663,8 @@ void ui_switch_screen(screen_id_t new_screen) {
     ui_chrome_set_status_enabled(ui_screen_shows_chrome(new_screen));
     open_fn();
     current_screen_id = new_screen;
+    if (outgoing != NULL && outgoing != lv_screen_active())
+      lv_obj_del_async(outgoing);
     screen_tips_hook(new_screen);
     ui_release();
   }
@@ -679,6 +685,19 @@ void ui_release(void) {
 }
 
 void ui_screen_load(lv_obj_t *scr) {
+  lv_screen_load(scr);
+}
+
+static void screen_slot_clear_cb(lv_event_t *e) {
+  lv_obj_t **slot = lv_event_get_user_data(e);
+  if (slot != NULL)
+    *slot = NULL;
+}
+
+void ui_screen_load_owned(lv_obj_t **slot, lv_obj_t *scr) {
+  if (slot != NULL)
+    *slot = scr;
+  lv_obj_add_event_cb(scr, screen_slot_clear_cb, LV_EVENT_DELETE, slot);
   lv_screen_load(scr);
 }
 

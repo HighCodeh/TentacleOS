@@ -196,6 +196,16 @@ void ui_switch_screen(screen_id_t new_screen);
  */
 void ui_screen_load(lv_obj_t *scr);
 
+/**
+ * @brief Load a screen and bind @p slot to it. When the screen object is later
+ *        deleted (freed on navigation), @p slot is set to NULL so the owning
+ *        screen never double-frees or dereferences a stale pointer.
+ *
+ * @param slot  Address of the screen's own object pointer (e.g. &s_screen).
+ * @param scr   Screen object to load.
+ */
+void ui_screen_load_owned(lv_obj_t **slot, lv_obj_t *scr);
+
 /** @brief Returns the currently active screen id. */
 screen_id_t ui_current_screen(void);
 
