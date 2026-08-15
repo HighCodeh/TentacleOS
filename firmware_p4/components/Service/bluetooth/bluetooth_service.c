@@ -34,6 +34,7 @@ static const char *TAG = "BT_SERVICE_P4";
 static bluetooth_service_sniffer_cb_t s_sniffer_cb = NULL;
 static uint32_t s_sniffer_session = SPI_SESSION_INVALID_ID;
 static bluetooth_service_scan_result_t s_cached_scan_record;
+static volatile bool s_running_cached = false;
 
 static bool get_info(spi_bt_info_t *out_info);
 
@@ -63,6 +64,14 @@ bool bluetooth_service_is_initialized(void) {
 bool bluetooth_service_is_running(void) {
   spi_bt_info_t info = {0};
   return get_info(&info) ? (info.running != 0) : false;
+}
+
+bool bluetooth_service_is_running_cached(void) {
+  return s_running_cached;
+}
+
+void bluetooth_service_set_running_cached(bool running) {
+  s_running_cached = running;
 }
 
 void bluetooth_service_disconnect_all(void) {
