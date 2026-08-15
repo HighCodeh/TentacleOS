@@ -21,13 +21,12 @@
 #include "st7789.h"
 
 #include "assets_manager.h"
-#include "buttons_gpio.h"
 #include "terminal_ui.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define NAV_TIMER_MS    50
+#define THUMB_TICK_MS   50
 #define STREAM_TIMER_MS 350
 
 #define TITLE       "CONSOLE"
@@ -75,16 +74,11 @@ static const char *const MOCK_LINES[] = {
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_term = NULL;
 static lv_obj_t *s_thumb = NULL;
-static lv_timer_t *s_nav = NULL;
+static lv_timer_t *s_thumb_timer = NULL;
 static lv_timer_t *s_stream = NULL;
 
 static int s_line_idx = 0;
 static bool s_follow = true;
-
-static bool s_up_last = false;
-static bool s_down_last = false;
-static bool s_left_last = false;
-static bool s_back_last = false;
 
 static char s_trim_buf[LOG_KEEP + 1];
 
@@ -165,41 +159,42 @@ static void stream_cb(lv_timer_t *t) {
   push_line();
 }
 
-static void nav_cb(lv_timer_t *t) {
+static void thumb_tick_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen) {
     lv_timer_delete(t);
-    s_nav = NULL;
+    s_thumb_timer = NULL;
     return;
   }
-  if (ui_input_is_locked())
-    return;
-
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool back = back_button_is_down();
-
-  if (up && !s_up_last) {
-    lv_obj_scroll_by(s_term, 0, LINE_STEP, LV_ANIM_ON);
-    s_follow = false;
-  }
-  if (down && !s_down_last) {
-    int32_t scroll_bottom = lv_obj_get_scroll_bottom(s_term);
-    lv_obj_scroll_by(s_term, 0, -LINE_STEP, LV_ANIM_ON);
-    if (scroll_bottom <= LINE_STEP + FOLLOW_SLOP)
-      s_follow = true;
-  }
-  if ((back && !s_back_last) || (left && !s_left_last)) {
-    ui_switch_screen(SCREEN_DEV_MENU);
-    return;
-  }
-
   update_thumb();
+}
 
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_back_last = back;
+static void dev_console_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+  switch (ev->button) {
+    case INPUT_BTN_UP:
+      if (nav) {
+        lv_obj_scroll_by(s_term, 0, LINE_STEP, LV_ANIM_ON);
+        s_follow = false;
+      }
+      break;
+    case INPUT_BTN_DOWN:
+      if (nav) {
+        int32_t scroll_bottom = lv_obj_get_scroll_bottom(s_term);
+        lv_obj_scroll_by(s_term, 0, -LINE_STEP, LV_ANIM_ON);
+        if (scroll_bottom <= LINE_STEP + FOLLOW_SLOP)
+          s_follow = true;
+      }
+      break;
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_DEV_MENU);
+      break;
+    default:
+      break;
+  }
 }
 
 static void build_screen(void) {
@@ -242,6 +237,7 @@ static void build_screen(void) {
     push_line();
 
   update_thumb();
+  ui_input_set_screen_handler(dev_console_input, NULL);
   ui_screen_load(s_screen);
 }
 
@@ -249,18 +245,14 @@ void ui_dev_console_open(void) {
   s_screen = NULL;
   s_term = NULL;
   s_thumb = NULL;
-  s_nav = NULL;
+  s_thumb_timer = NULL;
   s_stream = NULL;
   s_line_idx = 0;
   s_follow = true;
-  s_up_last = false;
-  s_down_last = false;
-  s_left_last = false;
-  s_back_last = false;
   s_trim_buf[0] = '\0';
 
   build_screen();
 
-  s_nav = lv_timer_create(nav_cb, NAV_TIMER_MS, NULL);
+  s_thumb_timer = lv_timer_create(thumb_tick_cb, THUMB_TICK_MS, NULL);
   s_stream = lv_timer_create(stream_cb, STREAM_TIMER_MS, NULL);
 }
