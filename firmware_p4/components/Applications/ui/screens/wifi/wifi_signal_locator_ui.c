@@ -244,7 +244,7 @@ void ui_wifi_signal_locator_open(void) {
   ui_input_set_screen_handler(wifi_signal_locator_input, NULL);
   s_drift_timer = lv_timer_create(drift_tick_cb, DRIFT_TICK_MS, NULL);
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
 
 static void stop_drift_timer(void) {

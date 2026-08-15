@@ -213,7 +213,7 @@ void ui_wifi_deauth_detector_open(void) {
   ui_input_set_screen_handler(wifi_deauth_detector_input, NULL);
   s_monitor_timer = lv_timer_create(monitor_tick_cb, MONITOR_TICK_MS, NULL);
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
 
 static void stop_monitor_timer(void) {

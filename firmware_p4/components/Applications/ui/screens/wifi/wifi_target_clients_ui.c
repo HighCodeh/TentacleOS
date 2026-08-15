@@ -133,7 +133,7 @@ static void build_screen(void) {
   }
 
   ui_input_set_screen_handler(wifi_target_clients_input, NULL);
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
 
 static void scan_done_cb(void *unused) {

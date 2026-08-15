@@ -141,7 +141,7 @@ void ui_wifi_evil_twin_open(void) {
   ui_input_set_screen_handler(wifi_evil_twin_input, NULL);
   s_victim_timer = lv_timer_create(victim_tick_cb, VICTIM_TICK_MS, NULL);
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
 
 static void log_push(const char *line) {

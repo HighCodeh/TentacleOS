@@ -95,7 +95,7 @@ static void build_screen(void) {
   menu_component_set_hint(&s_menu, LV_SYMBOL_LEFT "  Back");
 
   ui_input_set_screen_handler(wifi_probe_mon_input, NULL);
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
 
 static void add_tick_cb(lv_timer_t *t) {

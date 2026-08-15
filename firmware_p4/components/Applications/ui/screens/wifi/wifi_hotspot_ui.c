@@ -384,5 +384,5 @@ void ui_wifi_hotspot_open(void) {
   ui_input_set_screen_handler(wifi_hotspot_input, NULL);
   s_uptime_timer = lv_timer_create(uptime_tick_cb, UPTIME_TICK_MS, NULL);
 
-  ui_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
