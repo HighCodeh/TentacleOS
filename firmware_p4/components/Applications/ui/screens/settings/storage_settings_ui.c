@@ -23,7 +23,6 @@
 #include "sys_prio.h"
 
 #include "assets_manager.h"
-#include "buttons_gpio.h"
 #include "msgbox_ui.h"
 #include "notify_ui.h"
 #include "ui_chrome.h"
@@ -35,7 +34,6 @@
 
 static const char *TAG = "STORAGE_UI";
 
-#define NAV_TIMER_MS   50
 #define SD_PATH        "/sdcard"
 #define ASSETS_LABEL   "assets"
 #define DATA_LABEL     "storage"
@@ -68,11 +66,8 @@ static lv_obj_t *s_act[ACT_COUNT];
 static lv_obj_t *s_col = NULL;
 static lv_obj_t *s_thumb = NULL;
 static lv_obj_t *s_fmt_overlay = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static int s_sel = 0;
 static volatile bool s_formatting = false;
-
-static bool s_up_last, s_down_last, s_ok_last, s_back_last;
 
 static void build_screen(void);
 
@@ -347,41 +342,39 @@ static void fire_action(int idx) {
   }
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
+static void storage_settings_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  if (s_formatting)
     return;
-  }
-  if (ui_input_is_locked())
-    return;
-  if (s_formatting || msgbox_is_open())
-    return;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
-  bool up = ui_btn_up(), down = ui_btn_down();
-  bool ok = ok_button_is_down(), back = back_button_is_down();
-
-  if (back && !s_back_last) {
-    ui_switch_screen(SCREEN_SETTINGS);
-    return;
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+      if (press)
+        ui_switch_screen(SCREEN_SETTINGS);
+      break;
+    case INPUT_BTN_DOWN:
+      if (nav) {
+        s_sel = (s_sel + 1) % ACT_COUNT;
+        update_selection();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_UP:
+      if (nav) {
+        s_sel = (s_sel == 0) ? ACT_COUNT - 1 : s_sel - 1;
+        update_selection();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_OK:
+      if (press)
+        fire_action(s_sel);
+      break;
+    default:
+      break;
   }
-  if (down && !s_down_last) {
-    s_sel = (s_sel + 1) % ACT_COUNT;
-    update_selection();
-    ui_feedback(UI_FB_NAV);
-  }
-  if (up && !s_up_last) {
-    s_sel = (s_sel == 0) ? ACT_COUNT - 1 : s_sel - 1;
-    update_selection();
-    ui_feedback(UI_FB_NAV);
-  }
-  if (ok && !s_ok_last)
-    fire_action(s_sel);
-
-  s_up_last = up;
-  s_down_last = down;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 static void build_screen(void) {
@@ -479,8 +472,7 @@ static void build_screen(void) {
   lv_obj_update_layout(col);
   update_selection();
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(storage_settings_input, NULL);
 
   ui_screen_load(s_screen);
   if (prev != NULL)
@@ -493,7 +485,6 @@ void ui_storage_settings_open(void) {
   s_fmt_overlay = NULL;
   s_col = NULL;
   s_thumb = NULL;
-  s_up_last = s_down_last = s_ok_last = s_back_last = false;
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
