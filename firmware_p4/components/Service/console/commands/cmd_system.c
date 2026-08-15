@@ -16,6 +16,7 @@
 #include "console_service.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "esp_console.h"
@@ -229,6 +230,90 @@ static int cmd_tasks(int argc, char **argv) {
   return 0;
 }
 
+#define STACK_SNAPSHOT_MARGIN 5
+#define STACK_LOW_FREE_BYTES  512
+#define STACK_CUT_SLACK_PCT   60
+#define STACK_FULL_PCT        100
+
+typedef struct {
+  const char *name;
+  uint16_t alloc;
+} stack_alloc_t;
+
+static const stack_alloc_t STACK_ALLOC[] = {
+    {"spi_stream", 16384}, {"console_task", 8192}, {"host_link", 8192},
+    {"ui_fb", 6144},       {"sd_cd", 6144},        {"battery_svc", 6144},
+    {"c5_link_mon", 6144}, {"hl_log", 6144},       {"SysMonitor", 4096},
+    {"wifi_status", 4096}, {"tos_log", 4096},      {"hl_ble", 4096},
+};
+#define STACK_ALLOC_COUNT (sizeof(STACK_ALLOC) / sizeof(STACK_ALLOC[0]))
+
+static uint32_t stack_alloc_lookup(const char *name) {
+  for (size_t i = 0; i < STACK_ALLOC_COUNT; i++) {
+    if (strcmp(name, STACK_ALLOC[i].name) == 0)
+      return STACK_ALLOC[i].alloc;
+  }
+  return 0;
+}
+
+static int stack_cmp_watermark(const void *a, const void *b) {
+  const TaskStatus_t *ta = (const TaskStatus_t *)a;
+  const TaskStatus_t *tb = (const TaskStatus_t *)b;
+  if (ta->usStackHighWaterMark < tb->usStackHighWaterMark)
+    return -1;
+  if (ta->usStackHighWaterMark > tb->usStackHighWaterMark)
+    return 1;
+  return 0;
+}
+
+static int cmd_stack(int argc, char **argv) {
+  UBaseType_t cap = uxTaskGetNumberOfTasks() + STACK_SNAPSHOT_MARGIN;
+  TaskStatus_t *snap = malloc(cap * sizeof(TaskStatus_t));
+  if (snap == NULL) {
+    printf("Error: out of memory for task snapshot.\n");
+    return 1;
+  }
+
+  UBaseType_t count = uxTaskGetSystemState(snap, cap, NULL);
+  if (count == 0) {
+    printf("Error: uxTaskGetSystemState failed (trace facility off?).\n");
+    free(snap);
+    return 1;
+  }
+
+  qsort(snap, count, sizeof(TaskStatus_t), stack_cmp_watermark);
+
+  printf("Task              Alloc  MinFree  Slack  Flag\n");
+  printf("----------------------------------------------\n");
+  for (UBaseType_t i = 0; i < count; i++) {
+    uint32_t min_free = (uint32_t)snap[i].usStackHighWaterMark;
+    uint32_t alloc = stack_alloc_lookup(snap[i].pcTaskName);
+    uint32_t slack = alloc != 0 ? (min_free * STACK_FULL_PCT / alloc) : 0;
+    const char *flag = "";
+    if (min_free < STACK_LOW_FREE_BYTES)
+      flag = "LOW";
+    else if (alloc != 0 && slack > STACK_FULL_PCT)
+      flag = "chk";
+    else if (alloc != 0 && slack >= STACK_CUT_SLACK_PCT)
+      flag = "cut";
+
+    if (alloc == 0)
+      printf("%-16.16s     -  %6u B      -  %s\n", snap[i].pcTaskName,
+             (unsigned)min_free, flag);
+    else
+      printf("%-16.16s %5u  %6u B   %3u%%  %s\n", snap[i].pcTaskName,
+             (unsigned)alloc, (unsigned)min_free, (unsigned)slack, flag);
+  }
+  printf("----------------------------------------------\n");
+  printf("Tasks: %u   Heap free: %u B (min %u B)\n", (unsigned)count,
+         (unsigned)esp_get_free_heap_size(),
+         (unsigned)esp_get_minimum_free_heap_size());
+  printf("Flags: LOW=<512B free  cut=reclaim candidate  chk=alloc table stale\n");
+
+  free(snap);
+  return 0;
+}
+
 void register_system_commands(void) {
   const esp_console_cmd_t cmd_tasks_def = {
       .command = "tasks",
@@ -237,6 +322,14 @@ void register_system_commands(void) {
       .func = &cmd_tasks,
   };
   ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&cmd_tasks_def));
+
+  const esp_console_cmd_t cmd_stack_def = {
+      .command = "stack",
+      .help = "Stack budget report: allocated vs high-water free per task",
+      .hint = NULL,
+      .func = &cmd_stack,
+  };
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&cmd_stack_def));
 
   const esp_console_cmd_t cmd_ip_def = {
       .command = "ip",
