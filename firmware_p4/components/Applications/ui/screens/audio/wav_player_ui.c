@@ -27,14 +27,13 @@
 #include "st7789.h"
 
 #include "audio_i2s.h"
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 #include "wav_library_ui.h"
 
-#define NAV_TIMER_MS      60
+#define REFRESH_TIMER_MS  60
 #define N_BARS            12
 #define BAR_W             9
 #define SPEC_H            76
@@ -70,7 +69,7 @@ static lv_obj_t *s_fmt = NULL;
 static lv_obj_t *s_idx_lbl = NULL;
 static lv_obj_t *s_prev_lbl = NULL;
 static lv_obj_t *s_next_lbl = NULL;
-static lv_timer_t *s_nav_timer = NULL;
+static lv_timer_t *s_refresh_timer = NULL;
 
 static char s_path[PATH_MAX_LEN];
 static int s_index = -1;
@@ -93,8 +92,6 @@ static volatile int s_i_rate = 0;
 static volatile int s_i_ch = 0;
 static volatile int s_i_bits = 0;
 static int s_vol = VOL_DEFAULT;
-
-static bool s_up_last, s_down_last, s_left_last, s_right_last, s_ok_last, s_back_last;
 
 static uint32_t rd_u32(const uint8_t *p) {
   return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
@@ -373,10 +370,10 @@ static void fmt_time(char *out, size_t n, int sec) {
   snprintf(out, n, "%d:%02d", sec / 60, sec % 60);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
+static void refresh_timer_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen) {
     lv_timer_delete(t);
-    s_nav_timer = NULL;
+    s_refresh_timer = NULL;
     return;
   }
 
@@ -421,70 +418,77 @@ static void nav_timer_cb(lv_timer_t *t) {
                             s_i_ch == 2 ? "stereo" : "mono");
     }
   }
+}
 
-  if (ui_input_is_locked())
-    return;
+static void wav_player_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
-  bool up = ui_btn_up(), down = ui_btn_down(), left = ui_btn_left();
-  bool right = ui_btn_right(), ok = ok_button_is_down(), back = back_button_is_down();
-
-  if (back && !s_back_last) {
-    s_pending_play = false;
-    if (s_task_run) {
-      s_stop_req = true;
-      s_exit_req = true;
-    } else {
-      ui_switch_screen(s_return);
-    }
-    s_back_last = back;
-    return;
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+      if (press) {
+        s_pending_play = false;
+        if (s_task_run) {
+          s_stop_req = true;
+          s_exit_req = true;
+        } else {
+          ui_switch_screen(s_return);
+        }
+      }
+      break;
+    case INPUT_BTN_OK:
+      if (press) {
+        if (!s_task_run || s_finished)
+          start_playback();
+        else
+          s_playing = !s_playing;
+        ui_feedback(UI_FB_SELECT);
+      }
+      break;
+    case INPUT_BTN_RIGHT:
+      if (press) {
+        uint32_t now = lv_tick_get();
+        if (now - s_right_ms < DBLCLICK_MS) {
+          s_seek_req = 0;
+          go_relative(+1);
+        } else {
+          s_seek_req += SEEK_SEC;
+        }
+        s_right_ms = now;
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_LEFT:
+      if (press) {
+        uint32_t now = lv_tick_get();
+        if (now - s_left_ms < DBLCLICK_MS) {
+          s_seek_req = 0;
+          go_relative(-1);
+        } else {
+          s_seek_req -= SEEK_SEC;
+        }
+        s_left_ms = now;
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_DOWN:
+      if (nav) {
+        s_vol = (s_vol > VOL_STEP) ? s_vol - VOL_STEP : 0;
+        audio_i2s_set_volume((uint8_t)s_vol);
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_UP:
+      if (nav) {
+        s_vol = (s_vol + VOL_STEP < 100) ? s_vol + VOL_STEP : 100;
+        audio_i2s_set_volume((uint8_t)s_vol);
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    default:
+      break;
   }
-  if (ok && !s_ok_last) {
-    if (!s_task_run || s_finished)
-      start_playback();
-    else
-      s_playing = !s_playing;
-    ui_feedback(UI_FB_SELECT);
-  }
-  if (right && !s_right_last) {
-    uint32_t now = lv_tick_get();
-    if (now - s_right_ms < DBLCLICK_MS) {
-      s_seek_req = 0;
-      go_relative(+1);
-    } else {
-      s_seek_req += SEEK_SEC;
-    }
-    s_right_ms = now;
-    ui_feedback(UI_FB_NAV);
-  }
-  if (left && !s_left_last) {
-    uint32_t now = lv_tick_get();
-    if (now - s_left_ms < DBLCLICK_MS) {
-      s_seek_req = 0;
-      go_relative(-1);
-    } else {
-      s_seek_req -= SEEK_SEC;
-    }
-    s_left_ms = now;
-    ui_feedback(UI_FB_NAV);
-  }
-  if (down && !s_down_last) {
-    s_vol = (s_vol > VOL_STEP) ? s_vol - VOL_STEP : 0;
-    audio_i2s_set_volume((uint8_t)s_vol);
-    ui_feedback(UI_FB_NAV);
-  }
-  if (up && !s_up_last) {
-    s_vol = (s_vol + VOL_STEP < 100) ? s_vol + VOL_STEP : 100;
-    audio_i2s_set_volume((uint8_t)s_vol);
-    ui_feedback(UI_FB_NAV);
-  }
-
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_right_last = right;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 static lv_obj_t *transport_btn(lv_obj_t *parent, const char *sym, bool primary) {
@@ -536,7 +540,6 @@ void ui_wav_player_open(void) {
     lv_obj_del(s_screen);
     s_screen = NULL;
   }
-  s_up_last = s_down_last = s_left_last = s_right_last = s_ok_last = s_back_last = false;
   s_left_ms = s_right_ms = 0;
   s_pending_play = false;
 
@@ -694,8 +697,9 @@ void ui_wav_player_open(void) {
   audio_i2s_set_volume((uint8_t)s_vol);
   start_playback();
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  if (s_refresh_timer == NULL)
+    s_refresh_timer = lv_timer_create(refresh_timer_cb, REFRESH_TIMER_MS, NULL);
+  ui_input_set_screen_handler(wav_player_input, NULL);
 
   ui_screen_load(s_screen);
 }
