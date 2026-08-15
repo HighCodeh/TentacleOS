@@ -24,6 +24,7 @@
 #include "esp_console.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
+#include "led_control.h"
 #include "linenoise/linenoise.h"
 #include "sdkconfig.h"
 
@@ -70,14 +71,18 @@ esp_err_t console_service_init(void) {
 #else
   ESP_LOGI(TAG, "Initializing UART Console");
   esp_console_dev_uart_config_t uart_config = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
+  led_set_color(40, 0, 40); // DIAG: purple = about to call new_repl_uart
   ret = esp_console_new_repl_uart(&uart_config, &repl_config, &repl);
+  led_set_color(0, 0, 40); // DIAG: blue = new_repl_uart returned
 #endif
   if (ret != ESP_OK) {
+    led_set_color(40, 0, 0); // DIAG: red = create failed
     ESP_LOGE(TAG, "console REPL create failed: %s", esp_err_to_name(ret));
     return ret;
   }
 
   ret = esp_console_start_repl(repl);
+  led_set_color(0, 40, 0); // DIAG: green = start_repl returned
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "console REPL start failed: %s", esp_err_to_name(ret));
     return ret;
