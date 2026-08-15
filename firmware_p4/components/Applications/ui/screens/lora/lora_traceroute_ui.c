@@ -20,7 +20,6 @@
 #include "esp_log.h"
 #include "esp_random.h"
 
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -29,7 +28,6 @@
 
 static const char *TAG = "LORA_TRACERT";
 
-#define NAV_TIMER_MS   50
 #define TRACE_MS       1600
 #define ENTRY_MS       220
 #define ROW_STAGGER_MS 90
@@ -72,14 +70,11 @@ static const struct {
 #define HOP_COUNT ((int)(sizeof(HOPS) / sizeof(HOPS[0])))
 
 static lv_obj_t *s_screen = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_trace_timer = NULL;
 static bool s_tracing = true;
 static int s_snr[HOP_COUNT];
 
-static bool s_left_last, s_back_last;
-
-static void nav_timer_cb(lv_timer_t *t);
+static void lora_traceroute_input(const input_event_t *ev, void *ctx);
 static void build_screen(void);
 
 static void stop_trace_timer(void) {
@@ -279,42 +274,30 @@ static void build_screen(void) {
     build_result();
   }
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(lora_traceroute_input, NULL);
 
   ui_screen_load(s_screen);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    stop_trace_timer();
-    return;
+static void lora_traceroute_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_LORA_CHAT);
+      break;
+    default:
+      break;
   }
-
-  bool left = ui_btn_left();
-  bool back = back_button_is_down();
-
-  if (ui_input_is_locked()) {
-    s_left_last = left;
-    s_back_last = back;
-    return;
-  }
-
-  if ((back && !s_back_last) || (left && !s_left_last))
-    ui_switch_screen(SCREEN_LORA_CHAT);
-
-  s_left_last = left;
-  s_back_last = back;
 }
 
 void ui_lora_traceroute_open(void) {
   ui_theme_set_protocol(PROTOCOL_LORA);
   s_tracing = true;
   s_trace_timer = NULL;
-  s_left_last = false;
-  s_back_last = false;
 
   for (int i = 0; i < HOP_COUNT; i++) {
     int jitter = (int)(esp_random() % SNR_JITTER_SPAN) - SNR_JITTER_BIAS;
