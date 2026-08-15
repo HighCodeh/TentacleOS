@@ -105,3 +105,7 @@ CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
 CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
 CONFIG_ESP_COREDUMP_STACK_SIZE=1792
 
+# Hold the panic backtrace on the serial line for 2 s before rebooting, so field
+# debugging can read it instead of it scrolling past with the next boot.
+CONFIG_ESP_SYSTEM_PANIC_REBOOT_DELAY_SECONDS=2
+
