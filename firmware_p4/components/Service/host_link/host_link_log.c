@@ -113,12 +113,25 @@ static __attribute__((noinline)) void queue_relay_line(const char *fmt, va_list 
 }
 
 static int log_vprintf(const char *fmt, va_list args) {
+  // Re-entrancy guard. s_prev_vprintf writes to stdout, and the UART VFS on the
+  // far side of that write can itself ESP_LOGx - driver errors, and especially
+  // esp_console_new_repl_uart swapping stdout onto the driver-backed VFS while
+  // the console comes up. That re-enters this hook on the SAME task and recurses
+  // ~900 B per level until the stack is gone (seen as a stack protection fault
+  // in console_task whose depth scaled 1:1 with the task's stack size).
+  // Per-task via TLS, so a logging task never masks another task's logs.
+  static __thread bool in_hook = false;
+  if (in_hook)
+    return 0;
+
   // A frame is being forwarded right now: the forward runs blocking SPI that can
   // log (timeouts), which would re-enter this hook on the forwarder's stack
   // (overflow) and amplify (forwarded log -> more SPI -> more timeout logs).
   // Suppress entirely until the forward completes.
   if (host_link_is_emitting())
     return 0;
+
+  in_hook = true;
 
   // 1. Preserve the local dev console with an untouched copy of the args.
   int ret = 0;
@@ -133,10 +146,10 @@ static int log_vprintf(const char *fmt, va_list args) {
   // authenticated. Skipping this keeps this frame tiny on the common path (no
   // companion): the render buffers below would otherwise be reserved on entry
   // and overflow small driver tasks (TinyUSB / wifi_status) just by logging.
-  if (s_log_queue == NULL || !host_link_sec_is_authenticated())
-    return ret;
+  if (s_log_queue != NULL && host_link_sec_is_authenticated())
+    queue_relay_line(fmt, args);
 
-  queue_relay_line(fmt, args);
+  in_hook = false;
   return ret;
 }
 
