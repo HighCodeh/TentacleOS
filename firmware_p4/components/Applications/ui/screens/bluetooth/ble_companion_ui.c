@@ -18,14 +18,12 @@
 #include "lvgl.h"
 #include "st7789.h"
 
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
 
-#define NAV_TIMER_INTERVAL_MS 50
 #define PAIR_PHASE_MS         3000
 #define COMPANION_ICON        "/assets/icons/app_shortcut.bin"
 
@@ -35,12 +33,9 @@
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_body = NULL;
 static lv_obj_t *s_footer = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_phase_timer = NULL;
 
-static bool s_btn_back_last = false;
-
-static void nav_timer_cb(lv_timer_t *timer);
+static void companion_input(const input_event_t *ev, void *ctx);
 static void phase_timer_cb(lv_timer_t *timer);
 static void show_success(void);
 
@@ -204,9 +199,7 @@ void ui_companion_pairing_open(void) {
   s_body = make_body(s_screen);
   build_pairing();
 
-  s_btn_back_last = false;
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
+  ui_input_set_screen_handler(companion_input, NULL);
 
   s_phase_timer = lv_timer_create(phase_timer_cb, PAIR_PHASE_MS, NULL);
   lv_timer_set_repeat_count(s_phase_timer, 1);
@@ -221,24 +214,21 @@ static void phase_timer_cb(lv_timer_t *timer) {
   (void)timer;
 }
 
-static void nav_timer_cb(lv_timer_t *timer) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(timer);
-    s_nav_timer = NULL;
-    return;
-  }
-  if (ui_input_is_locked()) {
-    s_btn_back_last = back_button_is_down();
-    return;
-  }
+static void companion_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
 
-  bool is_back = back_button_is_down();
-  if (is_back && !s_btn_back_last) {
-    if (s_phase_timer != NULL) {
-      lv_timer_delete(s_phase_timer);
-      s_phase_timer = NULL;
-    }
-    ui_switch_screen(SCREEN_BLE_MENU);
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+      if (press) {
+        if (s_phase_timer != NULL) {
+          lv_timer_delete(s_phase_timer);
+          s_phase_timer = NULL;
+        }
+        ui_switch_screen(SCREEN_BLE_MENU);
+      }
+      break;
+    default:
+      break;
   }
-  s_btn_back_last = is_back;
 }
