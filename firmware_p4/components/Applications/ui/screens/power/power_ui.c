@@ -21,13 +21,11 @@
 #include "lvgl.h"
 
 #include "bq25896.h"
-#include "buttons_gpio.h"
 #include "msgbox_ui.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define NAV_TIMER_MS 60
 #define REFRESH_MS   700
 
 #define HEADER_ICON "/assets/icons/power_settings_new.bin"
@@ -81,9 +79,7 @@ static lv_obj_t *s_row_icon[ACT_COUNT];
 static lv_obj_t *s_row_val[ACT_COUNT];
 static lv_timer_t *s_timer = NULL;
 static int s_sel = 0;
-static uint32_t s_last_refresh = 0;
 static char s_scan_msg[96];
-static bool s_up_last, s_down_last, s_ok_last, s_back_last, s_left_last, s_right_last;
 
 static const char *chg_name(bq25896_charge_status_t s) {
   switch (s) {
@@ -356,52 +352,46 @@ static void do_action(int act) {
   }
 }
 
-static void tick_cb(lv_timer_t *t) {
+static void power_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_SETTINGS);
+      break;
+    case INPUT_BTN_DOWN:
+      if (nav) {
+        s_sel = (s_sel + 1) % ACT_COUNT;
+        refresh_selection();
+      }
+      break;
+    case INPUT_BTN_UP:
+      if (nav) {
+        s_sel = (s_sel - 1 + ACT_COUNT) % ACT_COUNT;
+        refresh_selection();
+      }
+      break;
+    case INPUT_BTN_OK:
+    case INPUT_BTN_RIGHT:
+      if (press)
+        do_action(s_sel);
+      break;
+    default:
+      break;
+  }
+}
+
+static void refresh_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen) {
     lv_timer_delete(t);
     s_timer = NULL;
     return;
   }
-  bool up = ui_btn_up(), down = ui_btn_down();
-  bool left = ui_btn_left(), right = ui_btn_right();
-  bool ok = ok_button_is_down(), back = back_button_is_down();
-
-  if (msgbox_is_open() || ui_input_is_locked()) {
-    s_up_last = up;
-    s_down_last = down;
-    s_left_last = left;
-    s_right_last = right;
-    s_ok_last = ok;
-    s_back_last = back;
-    return;
-  }
-
-  if ((back && !s_back_last) || (left && !s_left_last)) {
-    ui_switch_screen(SCREEN_SETTINGS);
-    return;
-  }
-  if (down && !s_down_last) {
-    s_sel = (s_sel + 1) % ACT_COUNT;
-    refresh_selection();
-  }
-  if (up && !s_up_last) {
-    s_sel = (s_sel - 1 + ACT_COUNT) % ACT_COUNT;
-    refresh_selection();
-  }
-  if ((ok && !s_ok_last) || (right && !s_right_last))
-    do_action(s_sel);
-
-  if (lv_tick_get() - s_last_refresh >= REFRESH_MS) {
-    s_last_refresh = lv_tick_get();
-    refresh_telem();
-  }
-
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_right_last = right;
-  s_ok_last = ok;
-  s_back_last = back;
+  refresh_telem();
 }
 
 void ui_power_open(void) {
@@ -411,8 +401,6 @@ void ui_power_open(void) {
     s_screen = NULL;
   }
   s_sel = 0;
-  s_last_refresh = 0;
-  s_up_last = s_down_last = s_ok_last = s_back_last = s_left_last = s_right_last = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -430,7 +418,9 @@ void ui_power_open(void) {
   ui_chrome_footer(s_screen, "UP/DOWN select   OK do   BACK exit");
 
   if (s_timer == NULL)
-    s_timer = lv_timer_create(tick_cb, NAV_TIMER_MS, NULL);
+    s_timer = lv_timer_create(refresh_cb, REFRESH_MS, NULL);
+
+  ui_input_set_screen_handler(power_input, NULL);
 
   lv_screen_load(s_screen);
 }
