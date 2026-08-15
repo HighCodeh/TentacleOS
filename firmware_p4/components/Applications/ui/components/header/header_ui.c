@@ -16,6 +16,7 @@
 #include "header_ui.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include "driver/gpio.h"
 #include "esp_attr.h"
@@ -34,6 +35,7 @@
 #include "msgbox_ui.h"
 #include "notify_ui.h"
 #include "pin_def.h"
+#include "sys_time.h"
 #include "ui_feedback.h"
 #include "ui_theme.h"
 #include "vfs_config.h"
@@ -59,6 +61,7 @@ static lv_obj_t *bt_img_ref = NULL;
 static lv_obj_t *card_img_ref = NULL;
 static bool s_ble_active = false;
 static lv_timer_t *header_poll_timer = NULL;
+static lv_obj_t *s_lbl_time = NULL;
 
 static bool s_bt_tint_last = false;
 static bool s_card_shown_last = false;
@@ -274,11 +277,35 @@ void header_ui_request_sd_remount(void) {
 
 static void battery_apply(void);
 
+static void header_set_clock_label(lv_obj_t *lbl) {
+  if (lbl == NULL) {
+    return;
+  }
+  char buf[8];
+  if (!sys_time_format(buf, sizeof(buf), "%H:%M")) {
+    snprintf(buf, sizeof(buf), "--:--");
+  }
+  const char *cur = lv_label_get_text(lbl);
+  if (cur != NULL && strcmp(cur, buf) == 0) {
+    return;
+  }
+  lv_label_set_text(lbl, buf);
+}
+
+static void header_time_del_cb(lv_event_t *e) {
+  if (lv_event_get_target(e) == s_lbl_time) {
+    s_lbl_time = NULL;
+  }
+}
+
 static void header_poll_cb(lv_timer_t *timer) {
   (void)timer;
   header_sync_wifi_icon();
   header_sync_ble_icon();
   battery_apply();
+  if (s_lbl_time != NULL && lv_obj_is_valid(s_lbl_time)) {
+    header_set_clock_label(s_lbl_time);
+  }
 }
 
 bool header_ui_sd_usage(int *out_used_pct) {
@@ -614,11 +641,12 @@ void header_ui_create(lv_obj_t *parent) {
     inter_font = lv_binfont_create("A:assets/fonts/Inter.bin");
   }
 
-  lv_obj_t *lbl_time = lv_label_create(header);
-  lv_label_set_text(lbl_time, "12:00");
-  lv_obj_set_style_text_color(lbl_time, current_theme.text_main, 0);
-  lv_obj_set_style_text_font(lbl_time, inter_font ? inter_font : &lv_font_montserrat_12, 0);
-  lv_obj_align(lbl_time, LV_ALIGN_LEFT_MID, 6, 6);
+  s_lbl_time = lv_label_create(header);
+  lv_obj_add_event_cb(s_lbl_time, header_time_del_cb, LV_EVENT_DELETE, NULL);
+  lv_obj_set_style_text_color(s_lbl_time, current_theme.text_main, 0);
+  lv_obj_set_style_text_font(s_lbl_time, inter_font ? inter_font : &lv_font_montserrat_12, 0);
+  lv_obj_align(s_lbl_time, LV_ALIGN_LEFT_MID, 6, 6);
+  header_set_clock_label(s_lbl_time);
 
   // Home/menu full header: the status cluster is drawn 6px lower to sit on the
   // bar's visual center (the bar is created with a -12 top inset).
@@ -722,10 +750,10 @@ void header_ui_create_snapshot(lv_obj_t *parent) {
     inter_font = lv_binfont_create("A:assets/fonts/Inter.bin");
   }
   lv_obj_t *lbl_time = lv_label_create(header);
-  lv_label_set_text(lbl_time, "12:00");
   lv_obj_set_style_text_color(lbl_time, current_theme.text_main, 0);
   lv_obj_set_style_text_font(lbl_time, inter_font ? inter_font : &lv_font_montserrat_12, 0);
   lv_obj_align(lbl_time, LV_ALIGN_LEFT_MID, 6, 6);
+  header_set_clock_label(lbl_time);
 
   header_ui_attach_status_snapshot(header, 6);
 }

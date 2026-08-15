@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "esp_console.h"
 #include "esp_heap_caps.h"
@@ -32,6 +33,7 @@
 #include "spi_protocol.h"
 #include "spi_bridge.h"
 #include "spi_protocol.h"
+#include "sys_time.h"
 
 static const char *TAG = "CMD_SYSTEM";
 
@@ -314,6 +316,60 @@ static int cmd_stack(int argc, char **argv) {
   return 0;
 }
 
+#define TM_YEAR_BASE 1900
+
+static const char *date_source_name(sys_time_source_t src) {
+  switch (src) {
+    case SYS_TIME_SOURCE_MANUAL:
+      return "manual";
+    case SYS_TIME_SOURCE_HOST:
+      return "host";
+    case SYS_TIME_SOURCE_SNTP:
+      return "sntp";
+    default:
+      return "none";
+  }
+}
+
+static int cmd_date(int argc, char **argv) {
+  if (argc == 1) {
+    char buf[32];
+    sys_time_format(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S");
+    const char *state =
+        (sys_time_state() == SYS_TIME_STATE_SYNCED) ? "synced" : "estimated";
+    printf("Clock: %s UTC (%s, source: %s)\n", buf, state,
+           date_source_name(sys_time_source()));
+    return 0;
+  }
+
+  if (argc == 3) {
+    int y, mo, d, h, mi, s;
+    if (sscanf(argv[1], "%d-%d-%d", &y, &mo, &d) != 3 ||
+        sscanf(argv[2], "%d:%d:%d", &h, &mi, &s) != 3) {
+      printf("usage: date <YYYY-MM-DD> <HH:MM:SS>  (UTC)\n");
+      return 1;
+    }
+    struct tm tm = {0};
+    tm.tm_year = y - TM_YEAR_BASE;
+    tm.tm_mon = mo - 1;
+    tm.tm_mday = d;
+    tm.tm_hour = h;
+    tm.tm_min = mi;
+    tm.tm_sec = s;
+
+    esp_err_t err = sys_time_set(mktime(&tm), SYS_TIME_SOURCE_MANUAL);
+    if (err != ESP_OK) {
+      printf("Error: could not set time (%s)\n", esp_err_to_name(err));
+      return 1;
+    }
+    printf("Clock set to %04d-%02d-%02d %02d:%02d:%02d UTC\n", y, mo, d, h, mi, s);
+    return 0;
+  }
+
+  printf("usage: date [<YYYY-MM-DD> <HH:MM:SS>]  (UTC)\n");
+  return 1;
+}
+
 void register_system_commands(void) {
   const esp_console_cmd_t cmd_tasks_def = {
       .command = "tasks",
@@ -330,6 +386,14 @@ void register_system_commands(void) {
       .func = &cmd_stack,
   };
   ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&cmd_stack_def));
+
+  const esp_console_cmd_t cmd_date_def = {
+      .command = "date",
+      .help = "Show or set the UTC wall-clock: date [<YYYY-MM-DD> <HH:MM:SS>]",
+      .hint = NULL,
+      .func = &cmd_date,
+  };
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&cmd_date_def));
 
   const esp_console_cmd_t cmd_ip_def = {
       .command = "ip",
