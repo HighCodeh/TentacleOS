@@ -21,7 +21,6 @@
 #include "lvgl.h"
 #include "st7789.h"
 
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
@@ -36,14 +35,12 @@ static const char *TAG = "WIFI_EVIL_TWIN_UI";
 #define TITLE_BAR_H            30
 #define TITLE_BAR_RADIUS       12
 #define TITLE_BAR_BORDER_WIDTH 2
-#define NAV_TIMER_INTERVAL_MS  50
 #define VICTIM_TICK_MS         700
 #define VICTIM_TOTAL           6
 #define LOG_ROWS               3
 #define ROGUE_CHANNEL          6
 
 static lv_obj_t *s_screen = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_victim_timer = NULL;
 static lv_obj_t *s_status_label = NULL;
 static lv_obj_t *s_ssid_label = NULL;
@@ -53,9 +50,7 @@ static lv_obj_t *s_log_rows[LOG_ROWS] = {NULL};
 static int s_clients = 0;
 static uint32_t s_mac_seed = 0x5A17C0DE;
 
-static bool s_btn_back_last = false;
-
-static void nav_timer_cb(lv_timer_t *timer);
+static void wifi_evil_twin_input(const input_event_t *ev, void *ctx);
 static void victim_tick_cb(lv_timer_t *timer);
 static void stop_victim_timer(void);
 
@@ -143,8 +138,7 @@ void ui_wifi_evil_twin_open(void) {
   fade_in(s_ssid_label, 200);
   fade_in(s_count_label, 200);
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
+  ui_input_set_screen_handler(wifi_evil_twin_input, NULL);
   s_victim_timer = lv_timer_create(victim_tick_cb, VICTIM_TICK_MS, NULL);
 
   ui_screen_load(s_screen);
@@ -210,21 +204,18 @@ static void victim_tick_cb(lv_timer_t *timer) {
   }
 }
 
-static void nav_timer_cb(lv_timer_t *timer) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(timer);
-    s_nav_timer = NULL;
-    stop_victim_timer();
-    return;
+static void wifi_evil_twin_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+      if (press) {
+        stop_victim_timer();
+        ESP_LOGI(TAG, "mock evil-twin cancelled");
+        ui_switch_screen(SCREEN_WIFI_MENU);
+      }
+      break;
+    default:
+      break;
   }
-  if (ui_input_is_locked())
-    return;
-
-  bool is_back = back_button_is_down();
-  if (is_back && !s_btn_back_last) {
-    stop_victim_timer();
-    ESP_LOGI(TAG, "mock evil-twin cancelled");
-    ui_switch_screen(SCREEN_WIFI_MENU);
-  }
-  s_btn_back_last = is_back;
 }
