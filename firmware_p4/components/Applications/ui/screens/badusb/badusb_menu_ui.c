@@ -22,7 +22,6 @@
 #include "lvgl.h"
 #include "st7789.h"
 
-#include "buttons_gpio.h"
 #include "menu_component_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
@@ -31,8 +30,6 @@
 #include "waves_ui.h"
 
 static const char *TAG = "BADUSB_UI";
-
-#define NAV_TIMER_MS 50
 
 #define OUTER_BORDER           4
 #define TOP_BORDER_H           46
@@ -222,7 +219,6 @@ static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
 static view_t s_view = VIEW_LIST;
 
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_stage_timer = NULL;
 static lv_timer_t *s_type_timer = NULL;
 
@@ -249,14 +245,7 @@ static int s_total_chars = 0;
 static int s_cursor_ticks = 0;
 static bool s_cursor_on = true;
 
-static bool s_up_last = false;
-static bool s_down_last = false;
-static bool s_left_last = false;
-static bool s_right_last = false;
-static bool s_ok_last = false;
-static bool s_back_last = false;
-
-static void nav_timer_cb(lv_timer_t *t);
+static void badusb_input(const input_event_t *ev, void *ctx);
 static void build_screen(void);
 static void stage_advance_cb(lv_timer_t *t);
 static void type_tick_cb(lv_timer_t *t);
@@ -896,144 +885,153 @@ static void build_screen(void) {
       break;
   }
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(badusb_input, NULL);
 
   ui_screen_load(s_screen);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
-  if (ui_input_is_locked())
-    return;
-
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool right = ui_btn_right();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
+static void badusb_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
   switch (s_view) {
     case VIEW_LIST:
-      if (down && !s_down_last)
-        menu_component_next(&s_menu);
-      if (up && !s_up_last)
-        menu_component_prev(&s_menu);
-      if (ok && !s_ok_last) {
-        int sel = menu_component_get_selected(&s_menu);
-        if (sel == IDX_RUN_PAYLOAD) {
-          s_payload_sel = 0;
-          s_view = VIEW_RUNNING;
-          build_screen();
-          goto latch;
-        } else if (sel == IDX_PAYLOADS) {
-          s_view = VIEW_PAYLOADS;
-          build_screen();
-          goto latch;
-        } else if (sel == IDX_LAYOUT) {
-          s_view = VIEW_LAYOUT;
-          build_screen();
-          goto latch;
-        } else if (sel == IDX_STATUS) {
-          s_view = VIEW_STATUS;
-          build_screen();
-          goto latch;
-        } else if (sel == IDX_MOUSE) {
-          ui_switch_screen(SCREEN_USB_MOUSE);
-          goto latch;
-        }
+      switch (ev->button) {
+        case INPUT_BTN_DOWN:
+          if (nav)
+            menu_component_next(&s_menu);
+          break;
+        case INPUT_BTN_UP:
+          if (nav)
+            menu_component_prev(&s_menu);
+          break;
+        case INPUT_BTN_OK:
+          if (press) {
+            int sel = menu_component_get_selected(&s_menu);
+            if (sel == IDX_RUN_PAYLOAD) {
+              s_payload_sel = 0;
+              s_view = VIEW_RUNNING;
+              build_screen();
+            } else if (sel == IDX_PAYLOADS) {
+              s_view = VIEW_PAYLOADS;
+              build_screen();
+            } else if (sel == IDX_LAYOUT) {
+              s_view = VIEW_LAYOUT;
+              build_screen();
+            } else if (sel == IDX_STATUS) {
+              s_view = VIEW_STATUS;
+              build_screen();
+            } else if (sel == IDX_MOUSE) {
+              ui_switch_screen(SCREEN_USB_MOUSE);
+            }
+          }
+          break;
+        case INPUT_BTN_BACK:
+          if (press)
+            ui_switch_screen(SCREEN_MENU);
+          break;
+        default:
+          break;
       }
-      if (back && !s_back_last)
-        ui_switch_screen(SCREEN_MENU);
       break;
 
     case VIEW_PAYLOADS:
-      if (down && !s_down_last && s_payload_sel < PAYLOAD_COUNT - 1) {
-        s_payload_sel++;
-        pay_apply_sel(s_payload_sel);
-      }
-      if (up && !s_up_last && s_payload_sel > 0) {
-        s_payload_sel--;
-        pay_apply_sel(s_payload_sel);
-      }
-      if (ok && !s_ok_last) {
-        s_view = VIEW_RUNNING;
-        build_screen();
-        goto latch;
-      }
-      if (back && !s_back_last) {
-        s_view = VIEW_LIST;
-        build_screen();
-        goto latch;
+      switch (ev->button) {
+        case INPUT_BTN_DOWN:
+          if (nav && s_payload_sel < PAYLOAD_COUNT - 1) {
+            s_payload_sel++;
+            pay_apply_sel(s_payload_sel);
+          }
+          break;
+        case INPUT_BTN_UP:
+          if (nav && s_payload_sel > 0) {
+            s_payload_sel--;
+            pay_apply_sel(s_payload_sel);
+          }
+          break;
+        case INPUT_BTN_OK:
+          if (press) {
+            s_view = VIEW_RUNNING;
+            build_screen();
+          }
+          break;
+        case INPUT_BTN_BACK:
+          if (press) {
+            s_view = VIEW_LIST;
+            build_screen();
+          }
+          break;
+        default:
+          break;
       }
       break;
 
     case VIEW_RUNNING:
-      if (s_run_stage == RUN_STAGE_DONE && right && !s_right_last) {
-        build_screen();
-        goto latch;
-      }
-      if (back && !s_back_last) {
-        s_view = VIEW_LIST;
-        build_screen();
-        goto latch;
+      switch (ev->button) {
+        case INPUT_BTN_RIGHT:
+          if (press && s_run_stage == RUN_STAGE_DONE)
+            build_screen();
+          break;
+        case INPUT_BTN_BACK:
+          if (press) {
+            s_view = VIEW_LIST;
+            build_screen();
+          }
+          break;
+        default:
+          break;
       }
       break;
 
     case VIEW_LAYOUT:
-      if (down && !s_down_last)
-        menu_component_next(&s_menu);
-      if (up && !s_up_last)
-        menu_component_prev(&s_menu);
-      if (ok && !s_ok_last) {
-        int sel = menu_component_get_selected(&s_menu);
-        if (sel >= 0 && sel < LAYOUT_COUNT && sel != s_layout_active) {
-          menu_component_set_item_label_color(&s_menu, s_layout_active, current_theme.text_main);
-          s_layout_active = sel;
-          menu_component_set_item_label_color(&s_menu, s_layout_active, lv_color_hex(SIG_GREEN));
-          ESP_LOGI(TAG, "mock layout set: %s", LAYOUTS[s_layout_active]);
-        }
-      }
-      if (back && !s_back_last) {
-        s_view = VIEW_LIST;
-        build_screen();
-        goto latch;
+      switch (ev->button) {
+        case INPUT_BTN_DOWN:
+          if (nav)
+            menu_component_next(&s_menu);
+          break;
+        case INPUT_BTN_UP:
+          if (nav)
+            menu_component_prev(&s_menu);
+          break;
+        case INPUT_BTN_OK:
+          if (press) {
+            int sel = menu_component_get_selected(&s_menu);
+            if (sel >= 0 && sel < LAYOUT_COUNT && sel != s_layout_active) {
+              menu_component_set_item_label_color(&s_menu, s_layout_active, current_theme.text_main);
+              s_layout_active = sel;
+              menu_component_set_item_label_color(&s_menu, s_layout_active, lv_color_hex(SIG_GREEN));
+              ESP_LOGI(TAG, "mock layout set: %s", LAYOUTS[s_layout_active]);
+            }
+          }
+          break;
+        case INPUT_BTN_BACK:
+          if (press) {
+            s_view = VIEW_LIST;
+            build_screen();
+          }
+          break;
+        default:
+          break;
       }
       break;
 
     case VIEW_STATUS:
-      if (back && !s_back_last) {
-        s_view = VIEW_LIST;
-        build_screen();
-        goto latch;
+      switch (ev->button) {
+        case INPUT_BTN_BACK:
+          if (press) {
+            s_view = VIEW_LIST;
+            build_screen();
+          }
+          break;
+        default:
+          break;
       }
       break;
   }
-
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_right_last = right;
-  s_ok_last = ok;
-  s_back_last = back;
-  return;
-
-latch:
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_right_last = right;
-  s_ok_last = ok;
-  s_back_last = back;
 }
 
 void ui_badusb_menu_open(void) {
-  s_nav_timer = NULL;
   s_stage_timer = NULL;
   s_type_timer = NULL;
   s_view = VIEW_LIST;
