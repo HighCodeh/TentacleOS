@@ -28,11 +28,14 @@
 
 #include "assets_manager.h"
 #include "kernel.h"
+#include "storage_init.h"
 #include "ui_liveness.h"
+#include "header_ui.h"
 
 static const char *TAG = "SYS_MONITOR";
 
 #define MONITOR_INTERVAL_MS      2000
+#define STORAGE_CHECK_CYCLES     30    // storage health probe cadence (cycles x interval = ~60 s)
 #define MONITOR_STACK_SIZE       4096
 #define MONITOR_PRIORITY SYS_PRIO_MONITOR
 #define MONITOR_CORE SYS_CORE_RADIO
@@ -242,6 +245,15 @@ static void check_heap(void) {
   }
 }
 
+static void check_storage_health(void) {
+  if (!storage_is_mounted())
+    return;
+  if (storage_check_health() != ESP_OK) {
+    ESP_LOGW(TAG, "SD health check failed; requesting remount");
+    header_ui_request_sd_remount();
+  }
+}
+
 static void sys_monitor_task(void *pvParameters) {
   sys_monitor_params_t *params = (sys_monitor_params_t *)pvParameters;
   bool is_verbose = params->is_verbose;
@@ -253,6 +265,8 @@ static void sys_monitor_task(void *pvParameters) {
   // monitor or a core-starving task panic-reboots), watches every task's stack,
   // and watches UI render liveness. Same role as on the C5, minus the UI check.
   esp_task_wdt_add(NULL);
+
+  uint32_t storage_cycle = 0;
 
   while (1) {
     esp_task_wdt_reset();
@@ -282,6 +296,11 @@ static void sys_monitor_task(void *pvParameters) {
 
     check_ui_liveness();
     check_heap();
+
+    if (++storage_cycle >= STORAGE_CHECK_CYCLES) {
+      storage_cycle = 0;
+      check_storage_health();
+    }
 
     vTaskDelay(pdMS_TO_TICKS(MONITOR_INTERVAL_MS));
   }
