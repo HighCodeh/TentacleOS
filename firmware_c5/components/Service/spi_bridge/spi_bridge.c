@@ -179,7 +179,6 @@ bool spi_bridge_stream_push(spi_id_t id, const uint8_t *data, uint8_t len) {
     return false;
   if (data == NULL || len == 0)
     return false;
-  // len is a uint8_t (<= 255 == SPI_MAX_PAYLOAD), so it always fits item->data.
 
   portENTER_CRITICAL(&s_stream_mux);
   if (s_stream_count >= SPI_STREAM_QUEUE_LEN) {
@@ -303,8 +302,6 @@ static void bridge_task(void *pvParameters) {
     // Drop framing-invalid or bus-corrupted commands: bad sync/type, or a CRC
     // mismatch. Dropping (rather than acting) means the master gets no response
     // and its command times out, so a corrupted op/payload is never executed.
-    // No length clause: header->length is a uint8_t (<= 255 == SPI_MAX_PAYLOAD),
-    // so it always fits rx_buf and the CRC recompute stays in bounds.
     if (header->sync != SPI_SYNC_BYTE || header->type != SPI_TYPE_CMD ||
         !spi_frame_valid(header, header->length)) {
       memset(rx_buf, 0, sizeof(rx_buf));
@@ -423,7 +420,7 @@ static void bridge_task(void *pvParameters) {
         } else if (cmd == SPI_ID_SYSTEM_DATA) {
           uint16_t index;
           if (header->length < sizeof(index)) {
-            status = SPI_STATUS_INVALID_ARG; // truncated frame - do not read past it
+            status = SPI_STATUS_INVALID_ARG;
             break;
           }
           memcpy(&index, cmd_payload, sizeof(index));
@@ -480,7 +477,7 @@ static void bridge_task(void *pvParameters) {
         if (cmd == SPI_ID_SESSION_HEARTBEAT) {
           spi_heartbeat_req_t req = {0};
           if (header->length < sizeof(req)) {
-            status = SPI_STATUS_INVALID_ARG; // truncated frame - do not read past it
+            status = SPI_STATUS_INVALID_ARG;
             break;
           }
           memcpy(&req, cmd_payload, sizeof(req));
@@ -492,7 +489,7 @@ static void bridge_task(void *pvParameters) {
         } else if (cmd == SPI_ID_SESSION_STOP) {
           spi_session_stop_req_t req = {0};
           if (header->length < sizeof(req)) {
-            status = SPI_STATUS_INVALID_ARG; // truncated frame - do not read past it
+            status = SPI_STATUS_INVALID_ARG;
             break;
           }
           memcpy(&req, cmd_payload, sizeof(req));
