@@ -20,14 +20,12 @@
 #include "esp_random.h"
 #include "lvgl.h"
 
-#include "buttons_gpio.h"
 #include "menu_component_ui.h"
 #include "notify_ui.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define NAV_TIMER_MS 50
 #define LABEL_LEN    40
 
 #define GATT_ICON    "/assets/icons/hub.bin"
@@ -108,19 +106,12 @@ typedef enum {
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
-static lv_timer_t *s_nav_timer = NULL;
 
 static gatt_level_t s_level = LEVEL_SERVICES;
 static int s_service = 0;
 
-static bool s_up_last = false;
-static bool s_down_last = false;
-static bool s_left_last = false;
-static bool s_ok_last = false;
-static bool s_back_last = false;
-
 static void build_screen(void);
-static void nav_timer_cb(lv_timer_t *t);
+static void gatt_explorer_input(const input_event_t *ev, void *ctx);
 
 static void build_screen(void) {
   if (s_screen != NULL) {
@@ -159,8 +150,7 @@ static void build_screen(void) {
     menu_component_set_hint(&s_menu, "OK Read   BACK Up");
   }
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_MS, NULL);
+  ui_input_set_screen_handler(gatt_explorer_input, NULL);
 
   ui_screen_load(s_screen);
 }
@@ -175,81 +165,57 @@ static void read_selected_char(int sel) {
   notify(NOTIFY_INFO, msg);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
+static void gatt_explorer_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
-  bool up = ui_btn_up();
-  bool down = ui_btn_down();
-  bool left = ui_btn_left();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-
-  if (ui_input_is_locked()) {
-    s_up_last = up;
-    s_down_last = down;
-    s_left_last = left;
-    s_ok_last = ok;
-    s_back_last = back;
-    return;
-  }
-
-  bool up_e = up && !s_up_last;
-  bool down_e = down && !s_down_last;
-  bool left_e = left && !s_left_last;
-  bool ok_e = ok && !s_ok_last;
-  bool back_e = back && !s_back_last;
-
-  s_up_last = up;
-  s_down_last = down;
-  s_left_last = left;
-  s_ok_last = ok;
-  s_back_last = back;
-
-  if (down_e) {
-    menu_component_next(&s_menu);
-    ui_feedback(UI_FB_NAV);
-  }
-  if (up_e) {
-    menu_component_prev(&s_menu);
-    ui_feedback(UI_FB_NAV);
-  }
-
-  if (ok_e) {
-    int sel = menu_component_get_selected(&s_menu);
-    if (s_level == LEVEL_SERVICES) {
-      if (sel >= 0 && sel < SERVICES_COUNT) {
-        s_service = sel;
-        s_level = LEVEL_CHARS;
-        ui_feedback(UI_FB_SELECT);
-        build_screen();
+  switch (ev->button) {
+    case INPUT_BTN_DOWN:
+      if (nav) {
+        menu_component_next(&s_menu);
+        ui_feedback(UI_FB_NAV);
       }
-      return;
-    }
-    read_selected_char(sel);
-    return;
-  }
-
-  if (back_e || left_e) {
-    if (s_level == LEVEL_CHARS) {
-      s_level = LEVEL_SERVICES;
-      build_screen();
-      return;
-    }
-    ui_switch_screen(SCREEN_BLE_DETECT_MENU);
+      break;
+    case INPUT_BTN_UP:
+      if (nav) {
+        menu_component_prev(&s_menu);
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_OK:
+      if (press) {
+        int sel = menu_component_get_selected(&s_menu);
+        if (s_level == LEVEL_SERVICES) {
+          if (sel >= 0 && sel < SERVICES_COUNT) {
+            s_service = sel;
+            s_level = LEVEL_CHARS;
+            ui_feedback(UI_FB_SELECT);
+            build_screen();
+          }
+        } else {
+          read_selected_char(sel);
+        }
+      }
+      break;
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press) {
+        if (s_level == LEVEL_CHARS) {
+          s_level = LEVEL_SERVICES;
+          build_screen();
+        } else {
+          ui_switch_screen(SCREEN_BLE_DETECT_MENU);
+        }
+      }
+      break;
+    default:
+      break;
   }
 }
 
 void ui_gatt_explorer_open(void) {
   s_level = LEVEL_SERVICES;
   s_service = 0;
-  s_up_last = false;
-  s_down_last = false;
-  s_left_last = false;
-  s_ok_last = false;
-  s_back_last = false;
   build_screen();
 }
