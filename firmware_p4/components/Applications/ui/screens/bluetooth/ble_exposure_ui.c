@@ -21,7 +21,6 @@
 #include "esp_random.h"
 #include "lvgl.h"
 
-#include "buttons_gpio.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -29,7 +28,6 @@
 
 static const char *TAG = "BLE_EXPOSURE_UI";
 
-#define NAV_TIMER_INTERVAL_MS 50
 #define FEED_TICK_MS          700
 
 #define MAX_ADV        6
@@ -65,17 +63,13 @@ typedef struct {
 } adv_t;
 
 static lv_obj_t *s_screen = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_feed_timer = NULL;
 static lv_obj_t *s_count_label = NULL;
 static lv_obj_t *s_list_label = NULL;
 
 static adv_t s_adv[MAX_ADV];
 
-static bool s_back_last = false;
-static bool s_left_last = false;
-
-static void nav_timer_cb(lv_timer_t *timer);
+static void exposure_input(const input_event_t *ev, void *ctx);
 static void feed_tick_cb(lv_timer_t *timer);
 
 static void stop_feed_timer(void) {
@@ -212,10 +206,7 @@ void ui_ble_exposure_open(void) {
 
   render_list();
 
-  s_back_last = false;
-  s_left_last = false;
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
+  ui_input_set_screen_handler(exposure_input, NULL);
   s_feed_timer = lv_timer_create(feed_tick_cb, FEED_TICK_MS, NULL);
 
   ui_feedback(UI_FB_SELECT);
@@ -245,24 +236,19 @@ static void feed_tick_cb(lv_timer_t *timer) {
   render_list();
 }
 
-static void nav_timer_cb(lv_timer_t *timer) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(timer);
-    s_nav_timer = NULL;
-    stop_feed_timer();
-    return;
+static void exposure_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press) {
+        stop_feed_timer();
+        ui_switch_screen(SCREEN_BLE_DETECT_MENU);
+      }
+      break;
+    default:
+      break;
   }
-  if (ui_input_is_locked())
-    return;
-
-  bool is_back = back_button_is_down();
-  bool is_left = left_button_is_down();
-
-  if ((is_back && !s_back_last) || (is_left && !s_left_last)) {
-    stop_feed_timer();
-    ui_switch_screen(SCREEN_BLE_DETECT_MENU);
-  }
-
-  s_back_last = is_back;
-  s_left_last = is_left;
 }
