@@ -18,7 +18,6 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 
-#include "buttons_gpio.h"
 #include "host_link.h"
 #include "lv_port_indev.h"
 #include "menu_component_ui.h"
@@ -35,7 +34,6 @@ static const char *TAG = "CONN_UI";
 #define IDX_WIFI                       0
 #define IDX_NETWORKS                   1
 #define IDX_USB_NATIVE                 2
-#define NAV_TIMER_INTERVAL_MS          50
 #define WIFI_LOADING_TIMER_INTERVAL_MS 100
 #define WIFI_LOADING_MIN_US            1500000
 #define WIFI_LOADING_MAX_US            5000000
@@ -43,23 +41,15 @@ static const char *TAG = "CONN_UI";
 
 static lv_obj_t *s_screen_conn = NULL;
 static menu_component_t s_menu;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_wifi_loading_timer = NULL;
 static int64_t s_wifi_loading_start_time = 0;
 static int64_t s_msgbox_open_time = 0;
-
-static bool s_btn_up_last = false;
-static bool s_btn_down_last = false;
-static bool s_btn_left_last = false;
-static bool s_btn_right_last = false;
-static bool s_btn_ok_last = false;
-static bool s_btn_back_last = false;
-static bool s_usb_no_sleep_held = false; // NO_LIGHT_SLEEP held while native USB is on
+static bool s_usb_no_sleep_held = false;
 
 static void wifi_loading_timer_cb(lv_timer_t *timer);
 static void show_wifi_loading(void);
 static void update_wifi_toggle(void);
-static void nav_timer_cb(lv_timer_t *timer);
+static void connection_settings_input(const input_event_t *ev, void *ctx);
 
 void ui_connection_settings_open(void) {
   if (s_screen_conn != NULL) {
@@ -80,8 +70,7 @@ void ui_connection_settings_open(void) {
   // USB-C data mux: OFF = UART bridge (serial/flash, default), ON = native P4 USB.
   menu_component_add_toggle(&s_menu, "/assets/icons/usb.bin", "USB NATIVE", usb_mux_is_native());
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
+  ui_input_set_screen_handler(connection_settings_input, NULL);
 
   ui_screen_load(s_screen_conn);
 }
@@ -114,78 +103,71 @@ static void update_wifi_toggle(void) {
   menu_component_set_toggle(&s_menu, IDX_WIFI, is_active);
 }
 
-static void nav_timer_cb(lv_timer_t *timer) {
-  if (lv_screen_active() != s_screen_conn) {
-    lv_timer_delete(timer);
-    s_nav_timer = NULL;
-    return;
+static void conn_toggle(int sel) {
+  if (sel == IDX_WIFI) {
+    menu_component_toggle_item(&s_menu, IDX_WIFI);
+    bool is_new_state = menu_component_get_toggle(&s_menu, IDX_WIFI);
+    wifi_service_set_enabled(is_new_state);
+
+    if (is_new_state) {
+      show_wifi_loading();
+    } else {
+      msgbox_close();
+      notify(NOTIFY_INFO, "Wi-Fi off");
+    }
+  } else if (sel == IDX_USB_NATIVE) {
+    menu_component_toggle_item(&s_menu, IDX_USB_NATIVE);
+    bool native = menu_component_get_toggle(&s_menu, IDX_USB_NATIVE);
+    usb_mux_set_native(native);
+    if (native) {
+      host_link_cdc_init();
+    }
+    if (native && !s_usb_no_sleep_held) {
+      power_manager_no_sleep_acquire();
+      s_usb_no_sleep_held = true;
+    } else if (!native && s_usb_no_sleep_held) {
+      power_manager_no_sleep_release();
+      s_usb_no_sleep_held = false;
+    }
+    notify(NOTIFY_INFO, native ? "USB: native (serial off)" : "USB: UART bridge");
   }
+}
 
-  if (ui_input_is_locked())
-    return;
-
-  bool is_up = ui_btn_up();
-  bool is_down = ui_btn_down();
-  bool is_left = ui_btn_left();
-  bool is_right = ui_btn_right();
-  bool is_ok = ok_button_is_down();
-  bool is_back = back_button_is_down();
-
+static void connection_settings_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
   int sel = menu_component_get_selected(&s_menu);
 
-  if (is_down && !s_btn_down_last)
-    menu_component_next(&s_menu);
-
-  if (is_up && !s_btn_up_last)
-    menu_component_prev(&s_menu);
-
-  if (is_back && !s_btn_back_last)
-    ui_switch_screen(SCREEN_SETTINGS);
-
-  if ((is_left && !s_btn_left_last) || (is_right && !s_btn_right_last)) {
-    if (sel == IDX_WIFI) {
-      menu_component_toggle_item(&s_menu, IDX_WIFI);
-      bool is_new_state = menu_component_get_toggle(&s_menu, IDX_WIFI);
-      wifi_service_set_enabled(is_new_state);
-
-      if (is_new_state) {
-        show_wifi_loading();
-      } else {
-        msgbox_close();
-        notify(NOTIFY_INFO, "Wi-Fi off");
+  switch (ev->button) {
+    case INPUT_BTN_DOWN:
+      if (nav)
+        menu_component_next(&s_menu);
+      break;
+    case INPUT_BTN_UP:
+      if (nav)
+        menu_component_prev(&s_menu);
+      break;
+    case INPUT_BTN_BACK:
+      if (press)
+        ui_switch_screen(SCREEN_SETTINGS);
+      break;
+    case INPUT_BTN_LEFT:
+      if (press)
+        conn_toggle(sel);
+      break;
+    case INPUT_BTN_RIGHT:
+      if (press) {
+        conn_toggle(sel);
+        if (sel == IDX_NETWORKS)
+          ui_switch_screen(SCREEN_CONNECT_WIFI);
       }
-    } else if (sel == IDX_USB_NATIVE) {
-      menu_component_toggle_item(&s_menu, IDX_USB_NATIVE);
-      bool native = menu_component_get_toggle(&s_menu, IDX_USB_NATIVE);
-      usb_mux_set_native(native);
-      if (native) {
-        // Mux now routed to the native PHY: bring the companion CDC up (deferred
-        // at boot to keep the UART serial console clean). Idempotent.
-        host_link_cdc_init();
-      }
-      // Native USB needs the CPU awake: hold the NO_LIGHT_SLEEP lock while it is
-      // on, release it when switching back to the UART bridge. Tracked so repeated
-      // toggles stay balanced.
-      if (native && !s_usb_no_sleep_held) {
-        power_manager_no_sleep_acquire();
-        s_usb_no_sleep_held = true;
-      } else if (!native && s_usb_no_sleep_held) {
-        power_manager_no_sleep_release();
-        s_usb_no_sleep_held = false;
-      }
-      notify(NOTIFY_INFO, native ? "USB: native (serial off)" : "USB: UART bridge");
-    }
+      break;
+    case INPUT_BTN_OK:
+      if (press && sel == IDX_NETWORKS)
+        ui_switch_screen(SCREEN_CONNECT_WIFI);
+      break;
+    default:
+      break;
   }
-
-  if ((is_ok && !s_btn_ok_last) || (is_right && !s_btn_right_last)) {
-    if (sel == IDX_NETWORKS)
-      ui_switch_screen(SCREEN_CONNECT_WIFI);
-  }
-
-  s_btn_up_last = is_up;
-  s_btn_down_last = is_down;
-  s_btn_left_last = is_left;
-  s_btn_right_last = is_right;
-  s_btn_ok_last = is_ok;
-  s_btn_back_last = is_back;
 }
