@@ -66,7 +66,7 @@ static void update_stats(void) {
   spi_header_t resp;
   uint16_t magic_stats = SPI_DATA_INDEX_STATS;
   spi_bridge_send_command(
-      SPI_ID_SYSTEM_DATA, (uint8_t *)&magic_stats, 2, &resp, (uint8_t *)&s_cached_stats, 1000);
+      SPI_ID_SYSTEM_DATA, (uint8_t *)&magic_stats, 2, &resp, (uint8_t *)&s_cached_stats, sizeof(s_cached_stats), 1000);
 }
 
 static bool
@@ -161,7 +161,7 @@ size_t wifi_sniffer_get_capture_size(void) {
 }
 
 void wifi_sniffer_free_buffer(void) {
-  spi_bridge_send_command(SPI_ID_WIFI_SNIFFER_FREE_BUFFER, NULL, 0, NULL, NULL, 2000);
+  spi_bridge_send_command(SPI_ID_WIFI_SNIFFER_FREE_BUFFER, NULL, 0, NULL, NULL, 0, 2000);
   s_cached_stats.buffer_usage = 0;
 }
 
@@ -169,16 +169,16 @@ void wifi_sniffer_set_snaplen(uint16_t len) {
   uint8_t payload[2];
   memcpy(payload, &len, sizeof(len));
   spi_bridge_send_command(
-      SPI_ID_WIFI_SNIFFER_SET_SNAPLEN, payload, sizeof(payload), NULL, NULL, 2000);
+      SPI_ID_WIFI_SNIFFER_SET_SNAPLEN, payload, sizeof(payload), NULL, NULL, 0, 2000);
 }
 
 void wifi_sniffer_set_verbose(bool is_verbose) {
   uint8_t payload = is_verbose ? 1 : 0;
-  spi_bridge_send_command(SPI_ID_WIFI_SNIFFER_SET_VERBOSE, &payload, 1, NULL, NULL, 2000);
+  spi_bridge_send_command(SPI_ID_WIFI_SNIFFER_SET_VERBOSE, &payload, 1, NULL, NULL, 0, 2000);
 }
 
 void wifi_sniffer_clear_pmkid(void) {
-  spi_bridge_send_command(SPI_ID_WIFI_SNIFFER_CLEAR_PMKID, NULL, 0, NULL, NULL, 2000);
+  spi_bridge_send_command(SPI_ID_WIFI_SNIFFER_CLEAR_PMKID, NULL, 0, NULL, NULL, 0, 2000);
   s_cached_stats.pmkid_captured = false;
 }
 
@@ -187,7 +187,7 @@ void wifi_sniffer_get_pmkid_bssid(uint8_t out_bssid[6]) {
     return;
   spi_header_t resp;
   uint8_t payload[6] = {0};
-  if (spi_bridge_send_command(SPI_ID_WIFI_SNIFFER_GET_PMKID_BSSID, NULL, 0, &resp, payload, 1000) ==
+  if (spi_bridge_send_command(SPI_ID_WIFI_SNIFFER_GET_PMKID_BSSID, NULL, 0, &resp, payload, sizeof(payload), 1000) ==
       ESP_OK) {
     memcpy(out_bssid, payload, 6);
   } else {
@@ -196,7 +196,7 @@ void wifi_sniffer_get_pmkid_bssid(uint8_t out_bssid[6]) {
 }
 
 void wifi_sniffer_clear_handshake(void) {
-  spi_bridge_send_command(SPI_ID_WIFI_SNIFFER_CLEAR_HANDSHAKE, NULL, 0, NULL, NULL, 2000);
+  spi_bridge_send_command(SPI_ID_WIFI_SNIFFER_CLEAR_HANDSHAKE, NULL, 0, NULL, NULL, 0, 2000);
   s_cached_stats.handshake_captured = false;
 }
 
@@ -206,7 +206,7 @@ void wifi_sniffer_get_handshake_bssid(uint8_t out_bssid[6]) {
   spi_header_t resp;
   uint8_t payload[6] = {0};
   if (spi_bridge_send_command(
-          SPI_ID_WIFI_SNIFFER_GET_HANDSHAKE_BSSID, NULL, 0, &resp, payload, 1000) == ESP_OK) {
+          SPI_ID_WIFI_SNIFFER_GET_HANDSHAKE_BSSID, NULL, 0, &resp, payload, sizeof(payload), 1000) == ESP_OK) {
     memcpy(out_bssid, payload, 6);
   } else {
     memset(out_bssid, 0, 6);

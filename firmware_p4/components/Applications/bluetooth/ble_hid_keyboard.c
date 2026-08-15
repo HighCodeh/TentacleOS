@@ -34,7 +34,7 @@ esp_err_t ble_hid_init(void) {
   uint8_t resp_buf[SPI_MAX_PAYLOAD];
 
   esp_err_t ret = spi_bridge_send_command(
-      SPI_ID_BT_HID_INIT, NULL, 0, &resp_hdr, resp_buf, HID_SPI_INIT_TIMEOUT_MS);
+      SPI_ID_BT_HID_INIT, NULL, 0, &resp_hdr, resp_buf, sizeof(resp_buf), HID_SPI_INIT_TIMEOUT_MS);
 
   if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
     ESP_LOGE(TAG, "Failed to init HID on C5");
@@ -50,7 +50,7 @@ esp_err_t ble_hid_deinit(void) {
   uint8_t resp_buf[SPI_MAX_PAYLOAD];
 
   esp_err_t ret = spi_bridge_send_command(
-      SPI_ID_BT_HID_DEINIT, NULL, 0, &resp_hdr, resp_buf, HID_SPI_DEINIT_TIMEOUT_MS);
+      SPI_ID_BT_HID_DEINIT, NULL, 0, &resp_hdr, resp_buf, sizeof(resp_buf), HID_SPI_DEINIT_TIMEOUT_MS);
 
   if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
     ESP_LOGW(TAG, "Failed to deinit HID on C5");
@@ -65,7 +65,7 @@ bool ble_hid_is_connected(void) {
   uint8_t resp_buf[SPI_MAX_PAYLOAD];
 
   esp_err_t ret = spi_bridge_send_command(
-      SPI_ID_BT_HID_IS_CONNECTED, NULL, 0, &resp_hdr, resp_buf, HID_SPI_QUERY_TIMEOUT_MS);
+      SPI_ID_BT_HID_IS_CONNECTED, NULL, 0, &resp_hdr, resp_buf, sizeof(resp_buf), HID_SPI_QUERY_TIMEOUT_MS);
 
   if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
     return false;
@@ -85,6 +85,6 @@ void ble_hid_send_key(uint8_t keycode, uint8_t modifier) {
                           payload,
                           sizeof(payload),
                           &resp_hdr,
-                          resp_buf,
+                          resp_buf, sizeof(resp_buf),
                           HID_SPI_SEND_KEY_TIMEOUT_MS);
 }

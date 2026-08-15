@@ -46,7 +46,7 @@ static void check_c5_protocol(void) {
   spi_header_t hdr;
   uint16_t c5_ver = 0;
   esp_err_t r = spi_bridge_send_command(
-      SPI_ID_SYSTEM_PROTO_VERSION, NULL, 0, &hdr, (uint8_t *)&c5_ver, C5_PROBE_TIMEOUT_MS);
+      SPI_ID_SYSTEM_PROTO_VERSION, NULL, 0, &hdr, (uint8_t *)&c5_ver, sizeof(c5_ver), C5_PROBE_TIMEOUT_MS);
   if (r != ESP_OK) {
     // An older C5 predates this op and answers UNSUPPORTED - itself a mismatch.
     ESP_LOGE(TAG, "C5 SPI protocol version unavailable (P4=v%u) - headers out of sync, reflash both",
@@ -79,7 +79,7 @@ static void c5_link_monitor(void *arg) {
     spi_bridge_set_alive(true);
     memset(ver, 0, sizeof(ver));
     esp_err_t r =
-        spi_bridge_send_command(SPI_ID_SYSTEM_VERSION, NULL, 0, &hdr, ver, C5_PROBE_TIMEOUT_MS);
+        spi_bridge_send_command(SPI_ID_SYSTEM_VERSION, NULL, 0, &hdr, ver, sizeof(ver), C5_PROBE_TIMEOUT_MS);
     if (r == ESP_OK) {
       ESP_LOGI(TAG, "C5 link established (detected after boot), version: %s", ver);
       led_signal_info(); // C5 back: clear the degraded (warning) indicator
@@ -114,7 +114,7 @@ esp_err_t bridge_manager_init(void) {
 
   ESP_LOGI(TAG, "Checking C5 version");
   esp_err_t ret = spi_bridge_send_command(
-      SPI_ID_SYSTEM_VERSION, NULL, 0, &resp_header, resp_ver, VERSION_TIMEOUT_MS);
+      SPI_ID_SYSTEM_VERSION, NULL, 0, &resp_header, resp_ver, sizeof(resp_ver), VERSION_TIMEOUT_MS);
 
   // Detection only - never flash automatically. If the C5 is silent or on a
   // different version, just report it; the user updates explicitly with the

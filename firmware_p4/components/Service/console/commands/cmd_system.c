@@ -170,7 +170,7 @@ static void print_interface_info(uint8_t iface, const char *name) {
   uint8_t resp_buf[SPI_MAX_PAYLOAD];
 
   esp_err_t ret =
-      spi_bridge_send_command(SPI_ID_WIFI_GET_IP_INFO, &iface, 1, &resp_hdr, resp_buf, 2000);
+      spi_bridge_send_command(SPI_ID_WIFI_GET_IP_INFO, &iface, 1, &resp_hdr, resp_buf, sizeof(resp_buf), 2000);
 
   if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
     printf("%s Interface: unavailable\n", name);

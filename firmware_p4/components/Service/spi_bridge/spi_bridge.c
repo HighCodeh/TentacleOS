@@ -241,7 +241,7 @@ esp_err_t spi_bridge_run_scan(spi_id_t scan_id,
   // it clears. The bridge is free between polls, so the UI and other peripherals
   // are not blocked for the whole scan.
   esp_err_t err =
-      spi_bridge_send_command(scan_id, payload, len, NULL, NULL, spi_bridge_get_timeout(scan_id));
+      spi_bridge_send_command(scan_id, payload, len, NULL, NULL, 0, spi_bridge_get_timeout(scan_id));
   if (err != ESP_OK) {
     return err;
   }
@@ -250,7 +250,7 @@ esp_err_t spi_bridge_run_scan(spi_id_t scan_id,
     spi_header_t resp;
     uint8_t busy = 1;
     if (spi_bridge_send_command(
-            status_id, NULL, 0, &resp, &busy, spi_bridge_get_timeout(status_id)) == ESP_OK &&
+            status_id, NULL, 0, &resp, &busy, sizeof(busy), spi_bridge_get_timeout(status_id)) == ESP_OK &&
         busy == 0) {
       return ESP_OK;
     }
@@ -263,6 +263,7 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
                                   uint8_t len,
                                   spi_header_t *out_header,
                                   uint8_t *out_payload,
+                                  size_t out_capacity,
                                   uint32_t timeout_ms) {
   if (s_suspended || !s_bridge_alive) {
     return ESP_ERR_INVALID_STATE;
@@ -361,6 +362,13 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
   if (resp->length >= SPI_RESP_STATUS_SIZE) {
     status = (spi_status_t)rx_buf[sizeof(spi_header_t)];
     data_len = (uint8_t)(resp->length - SPI_RESP_STATUS_SIZE);
+  }
+
+  // Never write past the caller's buffer: clamp the copy (and the length we
+  // report) to out_capacity. A slave that announces more bytes than expected -
+  // by bug or by a corrupted length - then truncates here instead of overflowing.
+  if (out_payload != NULL && data_len > out_capacity) {
+    data_len = (uint8_t)out_capacity;
   }
 
   if (out_header != NULL) {

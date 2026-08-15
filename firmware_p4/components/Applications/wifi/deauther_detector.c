@@ -49,7 +49,7 @@ uint32_t deauther_detector_get_count(void) {
   spi_header_t resp;
   uint8_t payload[4];
   uint16_t index = SPI_DATA_INDEX_DEAUTH_COUNT;
-  if (spi_bridge_send_command(SPI_ID_SYSTEM_DATA, (uint8_t *)&index, 2, &resp, payload, 1000) ==
+  if (spi_bridge_send_command(SPI_ID_SYSTEM_DATA, (uint8_t *)&index, 2, &resp, payload, sizeof(payload), 1000) ==
       ESP_OK) {
     uint32_t count = 0;
     memcpy(&count, payload, sizeof(count));

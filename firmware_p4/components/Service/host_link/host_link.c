@@ -300,7 +300,7 @@ static void dispatch_cmd(uint8_t category, uint8_t op, const uint8_t *payload, u
   uint8_t resp_buf[SPI_MAX_PAYLOAD];
 
   esp_err_t ret = spi_bridge_send_command(
-      cmd, payload, plen, &resp_hdr, resp_buf, spi_bridge_get_timeout(cmd));
+      cmd, payload, plen, &resp_hdr, resp_buf, sizeof(resp_buf), spi_bridge_get_timeout(cmd));
 
   uint8_t status = status_from_err(ret);
   uint8_t data_len = (ret == ESP_OK) ? resp_hdr.length : 0;

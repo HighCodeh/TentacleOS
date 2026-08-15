@@ -44,7 +44,7 @@ static bool fetch_results(uint16_t count) {
                                 (uint8_t *)&idx,
                                 2,
                                 &resp,
-                                (uint8_t *)&s_cached_results[i],
+                                (uint8_t *)&s_cached_results[i], sizeof(s_cached_results[i]),
                                 sizeof(target_scanner_record_t)) != ESP_OK) {
       return false;
     }
@@ -60,7 +60,7 @@ bool target_scanner_start(const uint8_t *target_bssid, uint8_t channel) {
   memcpy(payload, target_bssid, 6);
   payload[6] = channel;
   esp_err_t err = spi_bridge_send_command(
-      SPI_ID_WIFI_TARGET_SCAN_START, payload, sizeof(payload), NULL, NULL, 2000);
+      SPI_ID_WIFI_TARGET_SCAN_START, payload, sizeof(payload), NULL, NULL, 0, 2000);
   if (err != ESP_OK) {
     ESP_LOGW(TAG, "Target scan start failed over SPI");
     led_signal_error();
@@ -85,7 +85,7 @@ target_scanner_record_t *target_scanner_get_live_results(uint16_t *out_count, bo
   spi_header_t resp;
   uint8_t payload[3] = {0};
   if (spi_bridge_send_command(
-          SPI_ID_WIFI_TARGET_SCAN_STATUS, NULL, 0, &resp, payload, sizeof(payload)) != ESP_OK) {
+          SPI_ID_WIFI_TARGET_SCAN_STATUS, NULL, 0, &resp, payload, sizeof(payload), sizeof(payload)) != ESP_OK) {
     if (out_count != NULL)
       *out_count = 0;
     if (is_scanning != NULL)
@@ -110,16 +110,16 @@ target_scanner_record_t *target_scanner_get_live_results(uint16_t *out_count, bo
 }
 
 void target_scanner_free_results(void) {
-  spi_bridge_send_command(SPI_ID_WIFI_TARGET_FREE, NULL, 0, NULL, NULL, 2000);
+  spi_bridge_send_command(SPI_ID_WIFI_TARGET_FREE, NULL, 0, NULL, NULL, 0, 2000);
   s_cached_count = 0;
   memset(s_cached_results, 0, sizeof(s_cached_results));
 }
 
 bool target_scanner_save_results_to_internal_flash(void) {
-  return (spi_bridge_send_command(SPI_ID_WIFI_TARGET_SAVE_FLASH, NULL, 0, NULL, NULL, 5000) ==
+  return (spi_bridge_send_command(SPI_ID_WIFI_TARGET_SAVE_FLASH, NULL, 0, NULL, NULL, 0, 5000) ==
           ESP_OK);
 }
 
 bool target_scanner_save_results_to_sd_card(void) {
-  return (spi_bridge_send_command(SPI_ID_WIFI_TARGET_SAVE_SD, NULL, 0, NULL, NULL, 5000) == ESP_OK);
+  return (spi_bridge_send_command(SPI_ID_WIFI_TARGET_SAVE_SD, NULL, 0, NULL, NULL, 0, 5000) == ESP_OK);
 }

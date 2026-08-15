@@ -104,7 +104,7 @@ esp_err_t c5_flasher_enter_download(void) {
 
   spi_header_t resp = {0};
   esp_err_t ret = spi_bridge_send_command(
-      SPI_ID_SYSTEM_ENTER_DOWNLOAD, NULL, 0, &resp, NULL, ENTER_DOWNLOAD_TIMEOUT_MS);
+      SPI_ID_SYSTEM_ENTER_DOWNLOAD, NULL, 0, &resp, NULL, 0, ENTER_DOWNLOAD_TIMEOUT_MS);
   if (ret == ESP_OK || ret == ESP_ERR_TIMEOUT) {
     vTaskDelay(pdMS_TO_TICKS(300));
     return ESP_OK;
@@ -134,7 +134,7 @@ void c5_flasher_release_uart(void) {
 static esp_err_t c5_ota_poll(spi_ota_status_t *st) {
   spi_header_t resp = {0};
   return spi_bridge_send_command(
-      SPI_ID_SYSTEM_OTA_STATUS, NULL, 0, &resp, (uint8_t *)st, OTA_STATUS_TIMEOUT_MS);
+      SPI_ID_SYSTEM_OTA_STATUS, NULL, 0, &resp, (uint8_t *)st, sizeof(*st), OTA_STATUS_TIMEOUT_MS);
 }
 
 esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size, uint8_t transport) {
@@ -198,7 +198,7 @@ esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size, uint8_t 
                             (const uint8_t *)&begin_req,
                             sizeof(begin_req),
                             &sresp,
-                            NULL,
+                            NULL, 0,
                             OTA_BEGIN_TIMEOUT_MS);
     if (c5_ota_poll(&st) == ESP_OK) {
       if (st.state == SPI_OTA_STATE_ERASING || st.state == SPI_OTA_STATE_READY ||
@@ -302,7 +302,7 @@ esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size, uint8_t 
       int64_t cdl = esp_timer_get_time() + (int64_t)OTA_CHUNK_DEADLINE_MS * 1000;
       while (!chunk_done && esp_timer_get_time() < cdl) {
         esp_err_t dr = spi_bridge_send_command(
-            SPI_ID_SYSTEM_OTA_DATA, src, (uint8_t)chunk, &dresp, NULL, OTA_DATA_TIMEOUT_MS);
+            SPI_ID_SYSTEM_OTA_DATA, src, (uint8_t)chunk, &dresp, NULL, 0, OTA_DATA_TIMEOUT_MS);
         if (dr == ESP_OK) {
           off += chunk;
           chunk_done = true;
@@ -383,14 +383,14 @@ cleanup:
 
 esp_err_t c5_flasher_ping(void) {
   spi_header_t resp = {0};
-  return spi_bridge_send_command(SPI_ID_SYSTEM_PING, NULL, 0, &resp, NULL, OTA_STATUS_TIMEOUT_MS);
+  return spi_bridge_send_command(SPI_ID_SYSTEM_PING, NULL, 0, &resp, NULL, 0, OTA_STATUS_TIMEOUT_MS);
 }
 
 esp_err_t c5_flasher_info(void) {
   spi_sys_info_t info = {0};
   spi_header_t resp = {0};
   esp_err_t r = spi_bridge_send_command(
-      SPI_ID_SYSTEM_INFO, NULL, 0, &resp, (uint8_t *)&info, OTA_STATUS_TIMEOUT_MS);
+      SPI_ID_SYSTEM_INFO, NULL, 0, &resp, (uint8_t *)&info, sizeof(info), OTA_STATUS_TIMEOUT_MS);
   if (r != ESP_OK) {
     return r;
   }

@@ -131,7 +131,7 @@ static void heartbeat_task(void *arg) {
                                             (uint8_t *)&req,
                                             sizeof(req),
                                             &resp_header,
-                                            (uint8_t *)&resp,
+                                            (uint8_t *)&resp, sizeof(resp),
                                             HEARTBEAT_TIMEOUT_MS);
     bool ok = (ret == ESP_OK) && (resp.alive != 0);
     if (ok) {
@@ -191,7 +191,7 @@ uint32_t spi_session_start(spi_id_t op_id,
   spi_header_t resp_header = {0};
   spi_session_resp_t resp = {0};
   esp_err_t ret = spi_bridge_send_command(
-      op_id, params, params_len, &resp_header, (uint8_t *)&resp, spi_bridge_get_timeout(op_id));
+      op_id, params, params_len, &resp_header, (uint8_t *)&resp, sizeof(resp), spi_bridge_get_timeout(op_id));
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "START op 0x%04X bridge error: %s", op_id, esp_err_to_name(ret));
     led_signal_error();
@@ -247,7 +247,7 @@ esp_err_t spi_session_stop(uint32_t session_id) {
                           (uint8_t *)&req,
                           sizeof(req),
                           NULL,
-                          NULL,
+                          NULL, 0,
                           spi_bridge_get_timeout(SPI_ID_SESSION_STOP));
 
   xSemaphoreTake(s_mutex, portMAX_DELAY);

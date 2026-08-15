@@ -115,12 +115,17 @@ void spi_bridge_suspend(bool suspended);
 /**
  * @brief Send a command to the SPI slave and receive the response.
  *
- * @param id          Command identifier.
- * @param payload     Pointer to the command payload (may be NULL).
- * @param len         Payload length in bytes.
- * @param out_header  Pointer to store the response header (may be NULL).
- * @param out_payload Buffer to store the response payload (may be NULL).
- * @param timeout_ms  Maximum time to wait for the response in milliseconds.
+ * @param id           Command identifier.
+ * @param payload      Pointer to the command payload (may be NULL).
+ * @param len          Payload length in bytes.
+ * @param out_header   Pointer to store the response header (may be NULL). Its
+ *                     length field reports how many payload bytes were written.
+ * @param out_payload  Buffer to store the response payload (may be NULL).
+ * @param out_capacity Size of out_payload in bytes. The copy is clamped to this,
+ *                     so a slave that announces (or a corrupted length that
+ *                     inflates) more bytes than the buffer holds cannot overflow
+ *                     it. Ignored when out_payload is NULL; pass 0 there.
+ * @param timeout_ms   Maximum time to wait for the response in milliseconds.
  * @return
  *   - ESP_OK on success
  *   - ESP_ERR_TIMEOUT if the slave did not respond in time
@@ -132,6 +137,7 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
                                   uint8_t len,
                                   spi_header_t *out_header,
                                   uint8_t *out_payload,
+                                  size_t out_capacity,
                                   uint32_t timeout_ms);
 
 /**

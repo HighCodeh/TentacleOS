@@ -237,7 +237,7 @@ static esp_err_t push_frame(const uint8_t *frame, uint16_t len) {
 
     uint8_t cmd_len = (uint8_t)(sizeof(hdr) + this_chunk);
     esp_err_t ret = spi_bridge_send_command(
-        SPI_ID_MCORE_TX_PUSH, buf, cmd_len, NULL, NULL, BRIDGE_SPI_TIMEOUT_MS);
+        SPI_ID_MCORE_TX_PUSH, buf, cmd_len, NULL, NULL, 0, BRIDGE_SPI_TIMEOUT_MS);
     if (ret != ESP_OK) {
       return ret;
     }
@@ -298,7 +298,7 @@ static esp_err_t fetch_status(spi_mcore_status_t *out_status) {
   }
   spi_header_t resp;
   return spi_bridge_send_command(
-      SPI_ID_MCORE_STATUS, NULL, 0, &resp, (uint8_t *)out_status, BRIDGE_SPI_TIMEOUT_MS);
+      SPI_ID_MCORE_STATUS, NULL, 0, &resp, (uint8_t *)out_status, sizeof(*out_status), BRIDGE_SPI_TIMEOUT_MS);
 }
 
 static void store_status(const spi_mcore_status_t *status) {
@@ -316,7 +316,7 @@ static esp_err_t request_ble_init(void) {
   strncpy(req.name_prefix, s_name_prefix, sizeof(req.name_prefix) - 1);
   req.pin = meshcore_phoneapi_get_pin();
   esp_err_t ret = spi_bridge_send_command(
-      SPI_ID_MCORE_BLE_INIT, (uint8_t *)&req, sizeof(req), NULL, NULL, BRIDGE_SPI_TIMEOUT_MS);
+      SPI_ID_MCORE_BLE_INIT, (uint8_t *)&req, sizeof(req), NULL, NULL, 0, BRIDGE_SPI_TIMEOUT_MS);
   if (ret == ESP_OK) {
     s_ble_active_on_c5 = true;
   }
@@ -325,7 +325,7 @@ static esp_err_t request_ble_init(void) {
 
 static esp_err_t request_ble_stop(void) {
   esp_err_t ret =
-      spi_bridge_send_command(SPI_ID_MCORE_BLE_STOP, NULL, 0, NULL, NULL, BRIDGE_SPI_TIMEOUT_MS);
+      spi_bridge_send_command(SPI_ID_MCORE_BLE_STOP, NULL, 0, NULL, NULL, 0, BRIDGE_SPI_TIMEOUT_MS);
   if (ret == ESP_OK) {
     s_ble_active_on_c5 = false;
   }

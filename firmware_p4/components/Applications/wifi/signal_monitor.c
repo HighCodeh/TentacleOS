@@ -56,7 +56,7 @@ int8_t signal_monitor_get_rssi(void) {
   uint16_t magic_stats = SIGNAL_MONITOR_STATS_INDEX;
   spi_sniffer_stats_t stats;
   if (spi_bridge_send_command(
-          SPI_ID_SYSTEM_DATA, (uint8_t *)&magic_stats, 2, &resp, (uint8_t *)&stats, 1000) ==
+          SPI_ID_SYSTEM_DATA, (uint8_t *)&magic_stats, 2, &resp, (uint8_t *)&stats, sizeof(stats), 1000) ==
       ESP_OK) {
     s_last_rssi = stats.signal_rssi;
   }

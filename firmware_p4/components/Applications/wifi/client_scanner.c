@@ -44,7 +44,7 @@ static bool fetch_results(void) {
   uint16_t magic_count = SPI_DATA_INDEX_COUNT;
 
   if (spi_bridge_send_command(
-          SPI_ID_SYSTEM_DATA, (uint8_t *)&magic_count, 2, &resp, payload, 1000) != ESP_OK) {
+          SPI_ID_SYSTEM_DATA, (uint8_t *)&magic_count, 2, &resp, payload, sizeof(payload), 1000) != ESP_OK) {
     return false;
   }
 
@@ -70,7 +70,7 @@ static bool fetch_results(void) {
 
   for (uint16_t i = 0; i < count; i++) {
     if (spi_bridge_send_command(
-            SPI_ID_SYSTEM_DATA, (uint8_t *)&i, 2, &resp, (uint8_t *)&s_cached_results[i], 1000) !=
+            SPI_ID_SYSTEM_DATA, (uint8_t *)&i, 2, &resp, (uint8_t *)&s_cached_results[i], sizeof(s_cached_results[i]), 1000) !=
         ESP_OK) {
       free(s_cached_results);
       s_cached_results = NULL;
@@ -114,7 +114,7 @@ client_scanner_record_t *client_scanner_get_results(uint16_t *out_count) {
 client_scanner_record_t *client_scanner_get_result_by_index(uint16_t index) {
   spi_header_t resp;
   if (spi_bridge_send_command(
-          SPI_ID_SYSTEM_DATA, (uint8_t *)&index, 2, &resp, (uint8_t *)&s_cached_client, 1000) ==
+          SPI_ID_SYSTEM_DATA, (uint8_t *)&index, 2, &resp, (uint8_t *)&s_cached_client, sizeof(s_cached_client), 1000) ==
       ESP_OK) {
     return &s_cached_client;
   }

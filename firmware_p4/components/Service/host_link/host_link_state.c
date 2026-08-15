@@ -99,7 +99,7 @@ static uint8_t do_device_state(uint8_t *out, uint16_t cap, uint16_t *out_len) {
   uint8_t c5_len = 0;
   spi_header_t resp;
   uint8_t resp_buf[SPI_MAX_PAYLOAD];
-  if (spi_bridge_send_command(SPI_ID_SYSTEM_VERSION, NULL, 0, &resp, resp_buf, 1000) == ESP_OK) {
+  if (spi_bridge_send_command(SPI_ID_SYSTEM_VERSION, NULL, 0, &resp, resp_buf, sizeof(resp_buf), 1000) == ESP_OK) {
     c5_len = (resp.length < STATE_VERSION_MAX) ? resp.length : (STATE_VERSION_MAX - 1);
     memcpy(ver_c5, resp_buf, c5_len);
   }

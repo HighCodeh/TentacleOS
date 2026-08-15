@@ -50,7 +50,7 @@ static void status_poll_task(void *arg) {
                                 NULL,
                                 0,
                                 &resp,
-                                (uint8_t *)&sys,
+                                (uint8_t *)&sys, sizeof(sys),
                                 spi_bridge_get_timeout(SPI_ID_SYSTEM_STATUS)) == ESP_OK) {
       s_status_active = sys.wifi_active != 0;
       s_status_connected = sys.wifi_connected != 0;
@@ -61,7 +61,7 @@ static void status_poll_task(void *arg) {
 
 void wifi_service_init(void) {
   spi_bridge_send_command(
-      SPI_ID_WIFI_START, NULL, 0, NULL, NULL, spi_bridge_get_timeout(SPI_ID_WIFI_START));
+      SPI_ID_WIFI_START, NULL, 0, NULL, NULL, 0, spi_bridge_get_timeout(SPI_ID_WIFI_START));
   if (s_status_task == NULL) {
     xTaskCreatePinnedToCore(status_poll_task,
                             "wifi_status",
@@ -75,17 +75,17 @@ void wifi_service_init(void) {
 
 void wifi_service_deinit(void) {
   spi_bridge_send_command(
-      SPI_ID_WIFI_STOP, NULL, 0, NULL, NULL, spi_bridge_get_timeout(SPI_ID_WIFI_STOP));
+      SPI_ID_WIFI_STOP, NULL, 0, NULL, NULL, 0, spi_bridge_get_timeout(SPI_ID_WIFI_STOP));
 }
 
 void wifi_service_start(void) {
   spi_bridge_send_command(
-      SPI_ID_WIFI_START, NULL, 0, NULL, NULL, spi_bridge_get_timeout(SPI_ID_WIFI_START));
+      SPI_ID_WIFI_START, NULL, 0, NULL, NULL, 0, spi_bridge_get_timeout(SPI_ID_WIFI_START));
 }
 
 void wifi_service_stop(void) {
   spi_bridge_send_command(
-      SPI_ID_WIFI_STOP, NULL, 0, NULL, NULL, spi_bridge_get_timeout(SPI_ID_WIFI_STOP));
+      SPI_ID_WIFI_STOP, NULL, 0, NULL, NULL, 0, spi_bridge_get_timeout(SPI_ID_WIFI_STOP));
 }
 
 esp_err_t wifi_service_scan(void) {
@@ -103,7 +103,7 @@ uint16_t wifi_service_get_ap_count(void) {
                               (uint8_t *)&magic_count,
                               2,
                               &resp,
-                              payload,
+                              payload, sizeof(payload),
                               spi_bridge_get_timeout(SPI_ID_SYSTEM_DATA)) == ESP_OK) {
     uint16_t count;
     memcpy(&count, payload, 2);
@@ -119,7 +119,7 @@ wifi_ap_record_t *wifi_service_get_ap_record(uint16_t index) {
                               (uint8_t *)&index,
                               2,
                               &resp,
-                              (uint8_t *)&s_cached_record,
+                              (uint8_t *)&s_cached_record, sizeof(s_cached_record),
                               spi_bridge_get_timeout(SPI_ID_SYSTEM_DATA)) == ESP_OK) {
     // SSIDs are arbitrary bytes off the air. Non-printable / invalid-UTF-8 bytes
     // hang LVGL's text renderer (the font only has ASCII glyphs anyway), so
@@ -151,7 +151,7 @@ esp_err_t wifi_service_connect_to_ap(const char *ssid, const char *password) {
                                  (uint8_t *)&cfg,
                                  sizeof(cfg),
                                  NULL,
-                                 NULL,
+                                 NULL, 0,
                                  spi_bridge_get_timeout(SPI_ID_WIFI_CONNECT));
 }
 
@@ -166,7 +166,7 @@ const char *wifi_service_get_connected_ssid(void) {
                               NULL,
                               0,
                               &resp,
-                              (uint8_t *)s_connected_ssid,
+                              (uint8_t *)s_connected_ssid, sizeof(s_connected_ssid),
                               spi_bridge_get_timeout(SPI_ID_WIFI_GET_STA_INFO)) == ESP_OK) {
     s_connected_ssid[SSID_MAX_LEN - 1] = '\0';
     return s_connected_ssid;
@@ -204,7 +204,7 @@ esp_err_t wifi_service_save_ap_config(
                                  (uint8_t *)&cfg,
                                  sizeof(cfg),
                                  NULL,
-                                 NULL,
+                                 NULL, 0,
                                  spi_bridge_get_timeout(SPI_ID_WIFI_SAVE_AP_CONFIG));
 }
 
@@ -214,7 +214,7 @@ esp_err_t wifi_service_set_enabled(bool enabled) {
                                  &payload,
                                  1,
                                  NULL,
-                                 NULL,
+                                 NULL, 0,
                                  spi_bridge_get_timeout(SPI_ID_WIFI_SET_ENABLED));
 }
 
@@ -223,7 +223,7 @@ esp_err_t wifi_service_set_ap_ssid(const char *ssid) {
                                  (uint8_t *)ssid,
                                  strlen(ssid),
                                  NULL,
-                                 NULL,
+                                 NULL, 0,
                                  spi_bridge_get_timeout(SPI_ID_WIFI_SET_AP));
 }
 
@@ -235,7 +235,7 @@ esp_err_t wifi_service_set_ap_password(const char *password) {
                                  (uint8_t *)password,
                                  strlen(password),
                                  NULL,
-                                 NULL,
+                                 NULL, 0,
                                  spi_bridge_get_timeout(SPI_ID_WIFI_SET_AP_PASSWORD));
 }
 
@@ -245,7 +245,7 @@ esp_err_t wifi_service_set_ap_max_conn(uint8_t max_conn) {
                                  &payload,
                                  1,
                                  NULL,
-                                 NULL,
+                                 NULL, 0,
                                  spi_bridge_get_timeout(SPI_ID_WIFI_SET_AP_MAX_CONN));
 }
 
@@ -257,7 +257,7 @@ esp_err_t wifi_service_set_ap_ip(const char *ip_addr) {
                                  (uint8_t *)ip_addr,
                                  strlen(ip_addr),
                                  NULL,
-                                 NULL,
+                                 NULL, 0,
                                  spi_bridge_get_timeout(SPI_ID_WIFI_SET_AP_IP));
 }
 
@@ -268,7 +268,7 @@ void wifi_service_promiscuous_start(wifi_promiscuous_cb_t cb, wifi_promiscuous_f
                                           NULL,
                                           0,
                                           NULL,
-                                          NULL,
+                                          NULL, 0,
                                           spi_bridge_get_timeout(SPI_ID_WIFI_PROMISC_START));
   if (err == ESP_ERR_NOT_SUPPORTED) {
     ESP_LOGW(TAG, "Promiscuous start not supported over SPI");
@@ -280,7 +280,7 @@ void wifi_service_promiscuous_stop(void) {
                                           NULL,
                                           0,
                                           NULL,
-                                          NULL,
+                                          NULL, 0,
                                           spi_bridge_get_timeout(SPI_ID_WIFI_PROMISC_STOP));
   if (err == ESP_ERR_NOT_SUPPORTED) {
     ESP_LOGW(TAG, "Promiscuous stop not supported over SPI");
@@ -292,7 +292,7 @@ void wifi_service_start_channel_hopping(void) {
                           NULL,
                           0,
                           NULL,
-                          NULL,
+                          NULL, 0,
                           spi_bridge_get_timeout(SPI_ID_WIFI_CH_HOP_START));
 }
 
@@ -301,6 +301,6 @@ void wifi_service_stop_channel_hopping(void) {
                           NULL,
                           0,
                           NULL,
-                          NULL,
+                          NULL, 0,
                           spi_bridge_get_timeout(SPI_ID_WIFI_CH_HOP_STOP));
 }

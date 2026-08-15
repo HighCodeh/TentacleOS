@@ -264,7 +264,7 @@ static esp_err_t push_frame(spi_id_t id, uint8_t *seq_counter, const uint8_t *fr
     memcpy(buf + sizeof(hdr), frame + offset, this_chunk);
 
     uint8_t cmd_len = (uint8_t)(sizeof(hdr) + this_chunk);
-    esp_err_t ret = spi_bridge_send_command(id, buf, cmd_len, NULL, NULL, BRIDGE_SPI_TIMEOUT_MS);
+    esp_err_t ret = spi_bridge_send_command(id, buf, cmd_len, NULL, NULL, 0, BRIDGE_SPI_TIMEOUT_MS);
     if (ret != ESP_OK) {
       return ret;
     }
@@ -369,7 +369,7 @@ static esp_err_t fetch_status(spi_mesh_status_t *out_status) {
   }
   spi_header_t resp;
   return spi_bridge_send_command(
-      SPI_ID_MESH_STATUS, NULL, 0, &resp, (uint8_t *)out_status, BRIDGE_SPI_TIMEOUT_MS);
+      SPI_ID_MESH_STATUS, NULL, 0, &resp, (uint8_t *)out_status, sizeof(*out_status), BRIDGE_SPI_TIMEOUT_MS);
 }
 
 static void store_status(const spi_mesh_status_t *status) {
@@ -385,7 +385,7 @@ static void store_status(const spi_mesh_status_t *status) {
 static esp_err_t request_ble_init(void) {
   spi_mesh_init_t req = {.node_num = s_node_num};
   esp_err_t ret = spi_bridge_send_command(
-      SPI_ID_MESH_BLE_INIT, (uint8_t *)&req, sizeof(req), NULL, NULL, BRIDGE_SPI_TIMEOUT_MS);
+      SPI_ID_MESH_BLE_INIT, (uint8_t *)&req, sizeof(req), NULL, NULL, 0, BRIDGE_SPI_TIMEOUT_MS);
   if (ret == ESP_OK) {
     s_ble_active_on_c5 = true;
   }
@@ -394,7 +394,7 @@ static esp_err_t request_ble_init(void) {
 
 static esp_err_t request_ble_stop(void) {
   esp_err_t ret =
-      spi_bridge_send_command(SPI_ID_MESH_BLE_STOP, NULL, 0, NULL, NULL, BRIDGE_SPI_TIMEOUT_MS);
+      spi_bridge_send_command(SPI_ID_MESH_BLE_STOP, NULL, 0, NULL, NULL, 0, BRIDGE_SPI_TIMEOUT_MS);
   if (ret == ESP_OK) {
     s_ble_active_on_c5 = false;
   }
@@ -404,7 +404,7 @@ static esp_err_t request_ble_stop(void) {
 static esp_err_t request_wifi_init(void) {
   spi_mesh_init_t req = {.node_num = s_node_num};
   esp_err_t ret = spi_bridge_send_command(
-      SPI_ID_MESH_WIFI_INIT, (uint8_t *)&req, sizeof(req), NULL, NULL, BRIDGE_SPI_TIMEOUT_MS);
+      SPI_ID_MESH_WIFI_INIT, (uint8_t *)&req, sizeof(req), NULL, NULL, 0, BRIDGE_SPI_TIMEOUT_MS);
   if (ret == ESP_OK) {
     s_wifi_active_on_c5 = true;
   }
@@ -413,7 +413,7 @@ static esp_err_t request_wifi_init(void) {
 
 static esp_err_t request_wifi_stop(void) {
   esp_err_t ret =
-      spi_bridge_send_command(SPI_ID_MESH_WIFI_STOP, NULL, 0, NULL, NULL, BRIDGE_SPI_TIMEOUT_MS);
+      spi_bridge_send_command(SPI_ID_MESH_WIFI_STOP, NULL, 0, NULL, NULL, 0, BRIDGE_SPI_TIMEOUT_MS);
   if (ret == ESP_OK) {
     s_wifi_active_on_c5 = false;
   }

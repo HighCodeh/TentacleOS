@@ -199,7 +199,7 @@ static void ble_write(const uint8_t *frame, size_t len) {
     memcpy(buf + sizeof(hdr), frame + offset, this_chunk);
 
     uint8_t cmd_len = (uint8_t)(sizeof(hdr) + this_chunk);
-    if (spi_bridge_send_command(SPI_ID_HOST_TX, buf, cmd_len, NULL, NULL, BLE_SPI_TIMEOUT_MS) !=
+    if (spi_bridge_send_command(SPI_ID_HOST_TX, buf, cmd_len, NULL, NULL, 0, BLE_SPI_TIMEOUT_MS) !=
         ESP_OK) {
       return;
     }
@@ -267,14 +267,14 @@ static esp_err_t fetch_status(spi_host_status_t *out_status) {
   }
   spi_header_t resp;
   return spi_bridge_send_command(
-      SPI_ID_HOST_STATUS, NULL, 0, &resp, (uint8_t *)out_status, BLE_SPI_TIMEOUT_MS);
+      SPI_ID_HOST_STATUS, NULL, 0, &resp, (uint8_t *)out_status, sizeof(*out_status), BLE_SPI_TIMEOUT_MS);
 }
 
 static esp_err_t request_ble_init(void) {
   spi_host_init_t req = {0};
   strncpy(req.name_prefix, BLE_NAME_PREFIX, sizeof(req.name_prefix) - 1);
   esp_err_t ret = spi_bridge_send_command(
-      SPI_ID_HOST_BLE_INIT, (uint8_t *)&req, sizeof(req), NULL, NULL, BLE_SPI_TIMEOUT_MS);
+      SPI_ID_HOST_BLE_INIT, (uint8_t *)&req, sizeof(req), NULL, NULL, 0, BLE_SPI_TIMEOUT_MS);
   if (ret == ESP_OK) {
     s_ble_active_on_c5 = true;
   }
@@ -283,7 +283,7 @@ static esp_err_t request_ble_init(void) {
 
 static esp_err_t request_ble_stop(void) {
   esp_err_t ret =
-      spi_bridge_send_command(SPI_ID_HOST_BLE_STOP, NULL, 0, NULL, NULL, BLE_SPI_TIMEOUT_MS);
+      spi_bridge_send_command(SPI_ID_HOST_BLE_STOP, NULL, 0, NULL, NULL, 0, BLE_SPI_TIMEOUT_MS);
   if (ret == ESP_OK) {
     s_ble_active_on_c5 = false;
   }
