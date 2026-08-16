@@ -16,7 +16,9 @@
 #include "micrec_ui.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "audio_i2s.h"
 #include "esp_heap_caps.h"
@@ -36,10 +38,17 @@ static const char *TAG = "MICREC_UI";
 #define REC_MAX_SECONDS    5
 #define BUF_HEADROOM       (24 * 1024)
 #define ACCENT_GREEN       0x00E676
+#define ACCENT_RED         0xFF3B30
 #define NORM_MAX_GAIN_Q8   (64 * 256)
 #define VU_FULLSCALE_PEAK  7000
 #define SCOPE_W            80
 #define SCOPE_FULL         9000.0f
+#define OV_BOX_W           210
+#define OV_BOX_H           132
+#define WF_X0              12
+#define WF_X1              198
+#define WF_CY              60
+#define WF_AMP             22
 #define OVERLAY_TICK_MS    60
 #define OVERLAY_HIDE_MS    700
 #define MIC_TASK_STACK 8192
@@ -48,7 +57,16 @@ static const char *TAG = "MICREC_UI";
 #define REC_TARGET_MIN     16000
 #define REC_TARGET_STEP    3400
 
-enum { ROW_LEVEL, ROW_REC, ROW_PLAY, ROW_LOOP, ROW_COUNT };
+#define REC_DIR       "/sdcard/recordings"
+#define WAV_HDR_LEN   44
+#define WAV_FMT_CHUNK 16
+#define WAV_FMT_PCM   1
+#define WAV_CH_MONO   1
+#define WAV_BITS      16
+#define SAVE_MAX_IDX  999
+#define SAVE_OV_MS    1500
+
+enum { ROW_LEVEL, ROW_REC, ROW_PLAY, ROW_LOOP, ROW_SAVE, ROW_COUNT };
 enum { OV_TIME, OV_VU };
 enum { ST_IDLE, ST_RECORDING, ST_PLAYING };
 
@@ -58,9 +76,13 @@ static lv_timer_t *s_status_timer = NULL;
 static lv_obj_t *s_status_lbl = NULL;
 
 static lv_obj_t *s_ov = NULL;
-static lv_obj_t *s_ov_label = NULL;
+static lv_obj_t *s_ov_dot = NULL;
+static lv_obj_t *s_ov_state = NULL;
+static lv_obj_t *s_ov_time = NULL;
+static lv_obj_t *s_ov_db = NULL;
 static lv_obj_t *s_ov_bar = NULL;
 static lv_obj_t *s_scope_line = NULL;
+static lv_obj_t *s_scope_line2 = NULL;
 static lv_timer_t *s_ov_timer = NULL;
 static int s_ov_mode = OV_TIME;
 static uint32_t s_ov_start = 0;
@@ -74,6 +96,7 @@ static int s_vu_display = 0;
 static volatile int16_t s_scope[SCOPE_W];
 static volatile int s_scope_head = 0;
 static lv_point_precise_t s_scope_pts[SCOPE_W];
+static lv_point_precise_t s_scope_pts2[SCOPE_W];
 
 static int16_t *s_rec_buf = NULL;
 static size_t s_rec_capacity = 0;
@@ -150,10 +173,21 @@ static void scope_redraw(void) {
     float v = (float)s_scope[idx] / SCOPE_FULL;
     if (v > 1.0f)
       v = 1.0f;
-    s_scope_pts[j].x = 6 + j * 178 / (SCOPE_W - 1);
-    s_scope_pts[j].y = 40 - (int)(v * 34.0f);
+    int x = WF_X0 + j * (WF_X1 - WF_X0) / (SCOPE_W - 1);
+    int dy = (int)(v * (float)WF_AMP);
+    s_scope_pts[j].x = x;
+    s_scope_pts[j].y = WF_CY - dy;
+    s_scope_pts2[j].x = x;
+    s_scope_pts2[j].y = WF_CY + dy;
   }
   lv_obj_invalidate(s_scope_line);
+  if (s_scope_line2)
+    lv_obj_invalidate(s_scope_line2);
+}
+
+static void fmt_mmss(char *buf, size_t sz, uint32_t ms) {
+  uint32_t s = ms / 1000;
+  snprintf(buf, sz, "%u:%02u", (unsigned)(s / 60), (unsigned)(s % 60));
 }
 
 static void overlay_hide_cb(lv_timer_t *t) {
@@ -161,9 +195,13 @@ static void overlay_hide_cb(lv_timer_t *t) {
   if (s_ov) {
     lv_obj_del(s_ov);
     s_ov = NULL;
-    s_ov_label = NULL;
+    s_ov_dot = NULL;
+    s_ov_state = NULL;
+    s_ov_time = NULL;
+    s_ov_db = NULL;
     s_ov_bar = NULL;
     s_scope_line = NULL;
+    s_scope_line2 = NULL;
   }
 }
 
@@ -175,10 +213,16 @@ static void overlay_tick(lv_timer_t *t) {
   }
   if (s_op_done) {
     lv_bar_set_value(s_ov_bar, 100, LV_ANIM_OFF);
-    if (s_ov_label)
-      lv_label_set_text(s_ov_label, s_done_text);
+    if (s_ov_state)
+      lv_label_set_text(s_ov_state, s_done_text);
+    if (s_ov_dot)
+      lv_obj_set_style_bg_opa(s_ov_dot, LV_OPA_COVER, 0);
     if (s_scope_line)
       lv_obj_add_flag(s_scope_line, LV_OBJ_FLAG_HIDDEN);
+    if (s_scope_line2)
+      lv_obj_add_flag(s_scope_line2, LV_OBJ_FLAG_HIDDEN);
+    if (s_ov_db)
+      lv_obj_add_flag(s_ov_db, LV_OBJ_FLAG_HIDDEN);
     lv_timer_delete(t);
     s_ov_timer = NULL;
     lv_timer_t *h = lv_timer_create(overlay_hide_cb, OVERLAY_HIDE_MS, NULL);
@@ -186,7 +230,17 @@ static void overlay_tick(lv_timer_t *t) {
     return;
   }
   uint32_t elapsed = lv_tick_get() - s_ov_start;
+  char tbuf[12];
+  fmt_mmss(tbuf, sizeof(tbuf), elapsed);
+  if (s_ov_time)
+    lv_label_set_text(s_ov_time, tbuf);
+
   if (s_ov_mode == OV_VU) {
+    if (s_ov_dot) {
+      uint32_t ph = elapsed % 1000;
+      uint32_t tri = ph < 500 ? ph : 1000 - ph;
+      lv_obj_set_style_bg_opa(s_ov_dot, (lv_opa_t)(90 + tri * 165 / 500), 0);
+    }
     int pct = (int)((int64_t)s_live_peak * 100 / VU_FULLSCALE_PEAK);
     if (pct > 100)
       pct = 100;
@@ -196,13 +250,12 @@ static void overlay_tick(lv_timer_t *t) {
       s_vu_display = (s_vu_display * 7) / 10;
     lv_bar_set_value(s_ov_bar, s_vu_display, LV_ANIM_OFF);
     scope_redraw();
-    int remain = (int)((s_ov_total > elapsed) ? (s_ov_total - elapsed + 999) / 1000 : 0);
-    if (s_ov_label) {
+    if (s_ov_db) {
       int rms = s_live_rms < 1 ? 1 : s_live_rms;
       int db = (int)(20.0f * log10f((float)rms / 32768.0f));
-      char buf[40];
-      snprintf(buf, sizeof(buf), "RECORDING  %ds\n%d dBFS", remain, db);
-      lv_label_set_text(s_ov_label, buf);
+      char dbuf[16];
+      snprintf(dbuf, sizeof(dbuf), "%d dBFS", db);
+      lv_label_set_text(s_ov_db, dbuf);
     }
   } else {
     int pct = (int)((uint64_t)elapsed * 100 / s_ov_total);
@@ -213,59 +266,98 @@ static void overlay_tick(lv_timer_t *t) {
 }
 
 static void overlay_show(const char *title, uint32_t total_ms, int mode) {
+  uint32_t accent = (mode == OV_VU) ? ACCENT_RED : ACCENT_GREEN;
   if (s_ov == NULL) {
     s_ov = lv_obj_create(s_screen);
     lv_obj_set_size(s_ov, LV_PCT(100), LV_PCT(100));
     lv_obj_center(s_ov);
     lv_obj_remove_flag(s_ov, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(s_ov, lv_color_black(), 0);
-    lv_obj_set_style_bg_opa(s_ov, LV_OPA_90, 0);
+    lv_obj_set_style_bg_opa(s_ov, LV_OPA_80, 0);
     lv_obj_set_style_border_width(s_ov, 0, 0);
+    lv_obj_set_style_pad_all(s_ov, 0, 0);
 
     lv_obj_t *box = lv_obj_create(s_ov);
-    lv_obj_set_size(box, 210, 132);
+    lv_obj_set_size(box, OV_BOX_W, OV_BOX_H);
     lv_obj_center(box);
     lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(box, current_theme.bg_secondary, 0);
     lv_obj_set_style_bg_opa(box, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(box, lv_color_hex(ACCENT_GREEN), 0);
-    lv_obj_set_style_border_width(box, 2, 0);
-    lv_obj_set_style_radius(box, 10, 0);
-    lv_obj_set_style_pad_all(box, 10, 0);
+    lv_obj_set_style_border_color(box, current_theme.border_inactive, 0);
+    lv_obj_set_style_border_width(box, 1, 0);
+    lv_obj_set_style_radius(box, 14, 0);
+    lv_obj_set_style_pad_all(box, 0, 0);
 
-    s_ov_label = lv_label_create(box);
-    lv_obj_set_style_text_color(s_ov_label, current_theme.text_main, 0);
-    lv_obj_set_style_text_align(s_ov_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(s_ov_label, LV_ALIGN_TOP_MID, 0, 2);
+    s_ov_dot = lv_obj_create(box);
+    lv_obj_set_size(s_ov_dot, 11, 11);
+    lv_obj_set_pos(s_ov_dot, 14, 13);
+    lv_obj_remove_flag(s_ov_dot, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(s_ov_dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_border_width(s_ov_dot, 0, 0);
+    lv_obj_set_style_pad_all(s_ov_dot, 0, 0);
+
+    s_ov_state = lv_label_create(box);
+    lv_obj_set_style_text_font(s_ov_state, &lv_font_montserrat_12, 0);
+    lv_obj_set_pos(s_ov_state, 32, 13);
+
+    s_ov_time = lv_label_create(box);
+    lv_obj_set_style_text_font(s_ov_time, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(s_ov_time, current_theme.text_main, 0);
+    lv_obj_align(s_ov_time, LV_ALIGN_TOP_RIGHT, -14, 9);
 
     s_scope_line = lv_line_create(box);
-    lv_obj_set_style_line_color(s_scope_line, ui_theme_get_accent(), 0);
     lv_obj_set_style_line_width(s_scope_line, 2, 0);
     lv_obj_set_pos(s_scope_line, 0, 0);
+    s_scope_line2 = lv_line_create(box);
+    lv_obj_set_style_line_width(s_scope_line2, 2, 0);
+    lv_obj_set_pos(s_scope_line2, 0, 0);
     for (int j = 0; j < SCOPE_W; j++) {
-      s_scope_pts[j].x = 6 + j * 178 / (SCOPE_W - 1);
-      s_scope_pts[j].y = 40;
+      int x = WF_X0 + j * (WF_X1 - WF_X0) / (SCOPE_W - 1);
+      s_scope_pts[j].x = x;
+      s_scope_pts[j].y = WF_CY;
+      s_scope_pts2[j].x = x;
+      s_scope_pts2[j].y = WF_CY;
     }
     lv_line_set_points_mutable(s_scope_line, s_scope_pts, SCOPE_W);
+    lv_line_set_points_mutable(s_scope_line2, s_scope_pts2, SCOPE_W);
+
+    s_ov_db = lv_label_create(box);
+    lv_obj_set_style_text_font(s_ov_db, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(s_ov_db, current_theme.text_main, 0);
+    lv_obj_set_style_text_opa(s_ov_db, LV_OPA_70, 0);
+    lv_obj_align(s_ov_db, LV_ALIGN_BOTTOM_LEFT, 14, -26);
 
     s_ov_bar = lv_bar_create(box);
-    lv_obj_set_size(s_ov_bar, 180, 16);
-    lv_obj_align(s_ov_bar, LV_ALIGN_BOTTOM_MID, 0, -4);
+    lv_obj_set_size(s_ov_bar, OV_BOX_W - 28, 9);
+    lv_obj_align(s_ov_bar, LV_ALIGN_BOTTOM_MID, 0, -12);
     lv_bar_set_range(s_ov_bar, 0, 100);
     lv_obj_set_style_bg_color(s_ov_bar, lv_color_hex(0x202028), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_ov_bar, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_radius(s_ov_bar, 4, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(s_ov_bar, lv_color_hex(ACCENT_GREEN), LV_PART_INDICATOR);
-    lv_obj_set_style_radius(s_ov_bar, 4, LV_PART_INDICATOR);
+    lv_obj_set_style_radius(s_ov_bar, 5, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_ov_bar, 5, LV_PART_INDICATOR);
   }
-  lv_label_set_text(s_ov_label, title);
-  lv_bar_set_value(s_ov_bar, 0, LV_ANIM_OFF);
 
+  lv_obj_set_style_bg_color(s_ov_dot, lv_color_hex(accent), 0);
+  lv_obj_set_style_bg_opa(s_ov_dot, LV_OPA_COVER, 0);
+  lv_obj_set_style_text_color(s_ov_state, lv_color_hex(accent), 0);
+  lv_label_set_text(s_ov_state, title);
+  lv_obj_set_style_line_color(s_scope_line, lv_color_hex(accent), 0);
+  lv_obj_set_style_line_color(s_scope_line2, lv_color_hex(accent), 0);
+  lv_obj_set_style_bg_color(s_ov_bar, lv_color_hex(accent), LV_PART_INDICATOR);
+  lv_bar_set_value(s_ov_bar, 0, LV_ANIM_OFF);
+  lv_label_set_text(s_ov_time, "0:00");
+
+  bool wave = (mode == OV_VU);
   if (s_scope_line) {
-    if (mode == OV_VU)
+    if (wave) {
       lv_obj_remove_flag(s_scope_line, LV_OBJ_FLAG_HIDDEN);
-    else
+      lv_obj_remove_flag(s_scope_line2, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_remove_flag(s_ov_db, LV_OBJ_FLAG_HIDDEN);
+    } else {
       lv_obj_add_flag(s_scope_line, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(s_scope_line2, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(s_ov_db, LV_OBJ_FLAG_HIDDEN);
+    }
   }
   s_ov_mode = mode;
   s_ov_start = lv_tick_get();
@@ -317,6 +409,74 @@ static void play_task(void *arg) {
   vTaskDelete(NULL);
 }
 
+static void wav_u16(uint8_t *p, uint16_t v) {
+  p[0] = (uint8_t)v;
+  p[1] = (uint8_t)(v >> 8);
+}
+
+static void wav_u32(uint8_t *p, uint32_t v) {
+  p[0] = (uint8_t)v;
+  p[1] = (uint8_t)(v >> 8);
+  p[2] = (uint8_t)(v >> 16);
+  p[3] = (uint8_t)(v >> 24);
+}
+
+static bool write_wav(const char *path, const int16_t *pcm, size_t n, uint32_t rate) {
+  FILE *f = fopen(path, "wb");
+  if (f == NULL)
+    return false;
+  uint16_t block_align = WAV_CH_MONO * (WAV_BITS / 8);
+  uint32_t data_len = (uint32_t)(n * (WAV_BITS / 8));
+  uint8_t h[WAV_HDR_LEN];
+  memcpy(h, "RIFF", 4);
+  wav_u32(h + 4, (WAV_HDR_LEN - 8) + data_len);
+  memcpy(h + 8, "WAVE", 4);
+  memcpy(h + 12, "fmt ", 4);
+  wav_u32(h + 16, WAV_FMT_CHUNK);
+  wav_u16(h + 20, WAV_FMT_PCM);
+  wav_u16(h + 22, WAV_CH_MONO);
+  wav_u32(h + 24, rate);
+  wav_u32(h + 28, rate * block_align);
+  wav_u16(h + 32, block_align);
+  wav_u16(h + 34, WAV_BITS);
+  memcpy(h + 36, "data", 4);
+  wav_u32(h + 40, data_len);
+  bool ok = fwrite(h, 1, WAV_HDR_LEN, f) == WAV_HDR_LEN;
+  if (ok)
+    ok = fwrite(pcm, 1, data_len, f) == data_len;
+  fclose(f);
+  return ok;
+}
+
+static void next_wav_path(char *out, size_t out_sz) {
+  out[0] = '\0';
+  for (int i = 1; i <= SAVE_MAX_IDX; i++) {
+    snprintf(out, out_sz, "%s/rec_%03d.wav", REC_DIR, i);
+    FILE *t = fopen(out, "rb");
+    if (t == NULL)
+      return;
+    fclose(t);
+  }
+}
+
+static void save_task(void *arg) {
+  (void)arg;
+  mkdir(REC_DIR, 0777);
+  char path[80];
+  next_wav_path(path, sizeof(path));
+  bool ok = path[0] != '\0' && write_wav(path, s_rec_buf, s_rec_samples, REC_RATE);
+  if (ok) {
+    const char *base = strrchr(path, '/');
+    char msg[24];
+    snprintf(msg, sizeof(msg), "Saved %.17s", base ? base + 1 : path);
+    finish(msg);
+  } else {
+    finish("Save failed");
+  }
+  s_busy = false;
+  vTaskDelete(NULL);
+}
+
 static void activate(int idx) {
   if (s_busy)
     return;
@@ -333,7 +493,7 @@ static void activate(int idx) {
         REC_TARGET_MIN + menu_component_get_intensity(&s_menu, ROW_LEVEL) * REC_TARGET_STEP;
     s_state = ST_RECORDING;
     uint32_t dur_ms = (uint32_t)(s_rec_capacity / REC_RATE) * 1000 + 250;
-    overlay_show("RECORDING...", dur_ms, OV_VU);
+    overlay_show("RECORDING", dur_ms, OV_VU);
     s_busy = true;
     if (xTaskCreatePinnedToCore(record_task, "mic_rec", MIC_TASK_STACK, NULL, MIC_TASK_PRIORITY, NULL, SYS_CORE_UI) !=
         pdPASS) {
@@ -351,12 +511,27 @@ static void activate(int idx) {
     s_stop_req = false;
     s_state = ST_PLAYING;
     uint32_t dur_ms = (uint32_t)(s_rec_samples / REC_RATE) * 1000 + 150;
-    overlay_show(s_loop ? "PLAYING (loop)" : "PLAYING...", dur_ms, OV_TIME);
+    overlay_show(s_loop ? "PLAYING (loop)" : "PLAYING", dur_ms, OV_TIME);
     s_busy = true;
     if (xTaskCreatePinnedToCore(play_task, "mic_play", MIC_TASK_STACK, NULL, MIC_TASK_PRIORITY, NULL, SYS_CORE_UI) !=
         pdPASS) {
       s_busy = false;
       s_state = ST_IDLE;
+      finish("Task error");
+    }
+  } else if (idx == ROW_SAVE) {
+    if (s_rec_samples == 0) {
+      overlay_show("Record first", 1, OV_TIME);
+      finish("Record first");
+      return;
+    }
+    if (!ui_sd_ready())
+      return;
+    overlay_show("SAVING", SAVE_OV_MS, OV_TIME);
+    s_busy = true;
+    if (xTaskCreatePinnedToCore(save_task, "mic_save", MIC_TASK_STACK, NULL, MIC_TASK_PRIORITY,
+                                NULL, SYS_CORE_RADIO) != pdPASS) {
+      s_busy = false;
       finish("Task error");
     }
   }
@@ -445,9 +620,13 @@ void ui_micrec_open(void) {
     s_screen = NULL;
   }
   s_ov = NULL;
-  s_ov_label = NULL;
+  s_ov_dot = NULL;
+  s_ov_state = NULL;
+  s_ov_time = NULL;
+  s_ov_db = NULL;
   s_ov_bar = NULL;
   s_scope_line = NULL;
+  s_scope_line2 = NULL;
   s_ov_timer = NULL;
   s_state = ST_IDLE;
 
@@ -456,11 +635,12 @@ void ui_micrec_open(void) {
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  s_menu = menu_component_create(s_screen, "Mic -> Speaker", "/assets/icons/mic.bin");
+  s_menu = menu_component_create(s_screen, "Recorder", "/assets/icons/mic.bin");
   menu_component_add_intensity(&s_menu, "/assets/icons/graphic_eq.bin", "Rec Level", 3);
   menu_component_add_item(&s_menu, "/assets/icons/fiber_manual_record.bin", "Record");
   menu_component_add_item(&s_menu, "/assets/icons/play_arrow.bin", "Play");
   menu_component_add_toggle(&s_menu, "/assets/icons/repeat.bin", "Loop", false);
+  menu_component_add_item(&s_menu, "/assets/icons/sd_card.bin", "Save WAV");
 
   s_status_lbl = lv_label_create(s_screen);
   lv_label_set_text(s_status_lbl, "IDLE   (no recording)");

@@ -17,8 +17,12 @@
 
 #include "esp_log.h"
 
+#include "audio_i2s.h"
+#include "intensity_bar_ui.h"
 #include "menu_component_ui.h"
 #include "notify_ui.h"
+#include "tos_config.h"
+#include "tos_storage_paths.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
@@ -31,10 +35,30 @@ static const char *TAG = "SOUND_SETTINGS_UI";
 #define ROW_KEYBEEP 2
 #define ROW_STARTUP 3
 
+#define VOL_STEPS INTENSITY_BAR_STEPS
+
+static int vol_level_from_pct(int pct) {
+  int lvl = (pct * VOL_STEPS + 50) / 100;
+  if (lvl < 0)
+    lvl = 0;
+  if (lvl > VOL_STEPS)
+    lvl = VOL_STEPS;
+  return lvl;
+}
+
+static int vol_pct_from_level(int lvl) {
+  if (lvl < 0)
+    lvl = 0;
+  if (lvl > VOL_STEPS)
+    lvl = VOL_STEPS;
+  return lvl * 100 / VOL_STEPS;
+}
+
 static const char *const ALERT_OPTS[] = {"Beep", "Chirp", "Blip", "Off"};
 #define ALERT_COUNT ((int)(sizeof(ALERT_OPTS) / sizeof(ALERT_OPTS[0])))
 
 static int s_alert_idx = 0;
+static bool s_vol_changed = false;
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
@@ -68,7 +92,6 @@ static void sound_settings_input(const input_event_t *ev, void *ctx) {
         if (sel >= 0 && s_menu.has_toggle[sel]) {
           menu_component_toggle_item(&s_menu, sel);
           s_changed = true;
-          ESP_LOGI(TAG, "mock toggle row %d -> %d", sel, menu_component_get_toggle(&s_menu, sel));
         }
       }
       break;
@@ -79,6 +102,11 @@ static void sound_settings_input(const input_event_t *ev, void *ctx) {
           if (s_menu.has_intensity[sel]) {
             menu_component_intensity_dec(&s_menu, sel);
             s_changed = true;
+            if (sel == ROW_VOLUME) {
+              audio_i2s_set_volume(
+                  (uint8_t)vol_pct_from_level(menu_component_get_intensity(&s_menu, ROW_VOLUME)));
+              s_vol_changed = true;
+            }
           } else if (s_menu.val_labels[sel] != NULL) {
             cycle_selector(sel, -1);
           }
@@ -92,6 +120,11 @@ static void sound_settings_input(const input_event_t *ev, void *ctx) {
           if (s_menu.has_intensity[sel]) {
             menu_component_intensity_inc(&s_menu, sel);
             s_changed = true;
+            if (sel == ROW_VOLUME) {
+              audio_i2s_set_volume(
+                  (uint8_t)vol_pct_from_level(menu_component_get_intensity(&s_menu, ROW_VOLUME)));
+              s_vol_changed = true;
+            }
           } else if (s_menu.val_labels[sel] != NULL) {
             cycle_selector(sel, +1);
           }
@@ -100,8 +133,16 @@ static void sound_settings_input(const input_event_t *ev, void *ctx) {
       break;
     case INPUT_BTN_BACK:
       if (press) {
-        if (s_changed)
-          notify(NOTIFY_SAVED, "Sound settings saved");
+        if (s_vol_changed) {
+          g_config_system.volume =
+              vol_pct_from_level(menu_component_get_intensity(&s_menu, ROW_VOLUME));
+          if (tos_config_save(TOS_PATH_CONFIG_SYSTEM, "system") == ESP_OK)
+            notify(NOTIFY_SAVED, "Sound settings saved");
+          else
+            notify(NOTIFY_WARNING, "Save failed (no SD?)");
+        } else if (s_changed) {
+          notify(NOTIFY_INFO, "Sound settings applied");
+        }
         ui_switch_screen(SCREEN_SETTINGS);
       }
       break;
@@ -118,6 +159,7 @@ void ui_sound_settings_open(void) {
 
   s_alert_idx = 0;
   s_changed = false;
+  s_vol_changed = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -125,7 +167,8 @@ void ui_sound_settings_open(void) {
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
   s_menu = menu_component_create(s_screen, "SOUND", "/assets/icons/volume_up.bin");
-  menu_component_add_intensity(&s_menu, "/assets/icons/volume_up.bin", "Volume", 4);
+  menu_component_add_intensity(
+      &s_menu, "/assets/icons/volume_up.bin", "Volume", vol_level_from_pct(g_config_system.volume));
   menu_component_add_selector(
       &s_menu, "/assets/icons/notifications_active.bin", "Alert tone", ALERT_OPTS[s_alert_idx]);
   menu_component_add_toggle(&s_menu, "/assets/icons/keyboard.bin", "Key beeps", true);
