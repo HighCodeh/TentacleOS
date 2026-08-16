@@ -24,9 +24,14 @@
 static const char *TAG = "MT_MOD_TRACEROUTE";
 
 #define MT_TRACE_HOP_LIMIT 3
-#define MT_TRACE_MAX_HOPS  8
 
 static uint32_t s_node_num = 0;
+static bool s_pending = false;
+static uint32_t s_pending_target = 0;
+static bool s_result_ready = false;
+static uint32_t s_result_from = 0;
+static uint32_t s_result_hops[MT_TRACE_MAX_HOPS];
+static int s_result_count = 0;
 
 static uint16_t enc_varint(uint8_t *buf, uint64_t value) {
   uint16_t pos = 0;
@@ -122,6 +127,21 @@ void mt_mod_traceroute_on_received(const mt_packet_meta_t *meta,
            route_count,
            (unsigned long)meta->to);
 
+  if (s_pending && meta->to == s_node_num && !meta->want_response &&
+      meta->from == s_pending_target) {
+    s_result_count = 0;
+    for (int k = 0; k < route_count && s_result_count < MT_TRACE_MAX_HOPS; k++)
+      s_result_hops[s_result_count++] = route_hops[k];
+    s_result_from = meta->from;
+    s_result_ready = true;
+    s_pending = false;
+    ESP_LOGI(TAG,
+             "TraceRoute result from 0x%08lX (%d hops)",
+             (unsigned long)meta->from,
+             s_result_count);
+    return;
+  }
+
   if (meta->to != s_node_num || !meta->want_response)
     return;
 
@@ -145,4 +165,31 @@ void mt_mod_traceroute_on_received(const mt_packet_meta_t *meta,
                             meta->id,
                             false,
                             false);
+}
+
+void mt_mod_traceroute_start(uint32_t to) {
+  uint8_t req[1] = {0};
+  s_pending = true;
+  s_pending_target = to;
+  s_result_ready = false;
+  ESP_LOGI(TAG, "TraceRoute -> 0x%08lX", (unsigned long)to);
+  meshtastic_mesh_send_data(to, 0, MT_TRACE_HOP_LIMIT, MT_PORT_TRACEROUTE, req, 0, 0, false, true);
+}
+
+bool mt_mod_traceroute_is_pending(void) {
+  return s_pending;
+}
+
+bool mt_mod_traceroute_get_result(uint32_t *out_hops, int *out_count, uint32_t *out_target) {
+  if (!s_result_ready)
+    return false;
+  if (out_hops != NULL) {
+    for (int k = 0; k < s_result_count; k++)
+      out_hops[k] = s_result_hops[k];
+  }
+  if (out_count != NULL)
+    *out_count = s_result_count;
+  if (out_target != NULL)
+    *out_target = s_result_from;
+  return true;
 }
