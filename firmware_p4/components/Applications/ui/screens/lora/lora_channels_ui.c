@@ -15,9 +15,20 @@
 
 #include "lora_channels_ui.h"
 
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "esp_random.h"
+
 #include "lvgl.h"
 #include "st7789.h"
 
+#include "keyboard_ui.h"
+#include "lora_session.h"
+#include "meshcore.h"
+#include "meshtastic_channels.h"
+#include "notify_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -25,7 +36,7 @@
 
 #define HDR_TITLE   "CHANNELS"
 #define HDR_ICON    NULL
-#define FOOTER_HINT "UP/DOWN   OK EDIT   BACK"
+#define FOOTER_HINT "UP/DN  OK RENAME  RIGHT OFF  BACK"
 
 #define BODY_TOP UI_CHROME_HEADER_H
 #define BODY_H   (LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
@@ -51,47 +62,79 @@
 #define GLOW_W   12
 #define GLOW_SPR -2
 
-#define TILE_CNT   8
-#define FILLED_CNT 5
+#define TILE_CNT 8
+
+#define KEY_LEN  16
+#define BAR_BASE 35
+#define BAR_SPAN 66
 
 #define COL_ACC2 0xB89AFF
 #define COL_CYAN 0x37E0A8
 #define COL_DIM  0x8A8594
 #define COL_SLOT 0x4A4556
 
-static const char *CH_NAME[FILLED_CNT] = {
-    "LongFast",
-    "GhostNet",
-    "admin",
-    "telemetry",
-    "relay-ops",
-};
+typedef struct {
+  bool used;
+  bool primary;
+  char name[32];
+  char role[16];
+  uint8_t bars[BAR_CNT];
+} ch_slot_t;
 
-static const char *CH_STUB[FILLED_CNT] = {
-    "2B7E\xE2\x80\xA2\xE2\x80\xA2"
-    "1C",
-    "9F04\xE2\x80\xA2\xE2\x80\xA2"
-    "7A",
-    "C1D9\xE2\x80\xA2\xE2\x80\xA2"
-    "02",
-    "5A66\xE2\x80\xA2\xE2\x80\xA2"
-    "E1",
-    "08BC\xE2\x80\xA2\xE2\x80\xA2"
-    "44",
-};
-
-static const uint8_t CH_BARS[FILLED_CNT][BAR_CNT] = {
-    {60, 90, 40, 75, 55, 85, 50, 70},
-    {70, 45, 85, 55, 65, 40, 80, 50},
-    {55, 80, 45, 70, 90, 50, 65, 40},
-    {65, 50, 85, 45, 75, 60, 40, 80},
-    {75, 55, 40, 85, 50, 70, 60, 45},
-};
+static ch_slot_t s_slot[TILE_CNT];
 
 static lv_obj_t *s_screen = NULL;
+static lv_obj_t *s_grid = NULL;
 static lv_obj_t *s_tiles[TILE_CNT];
+static lv_obj_t *s_empty_msg = NULL;
 
+static lora_proto_t s_proto = LORA_PROTO_NONE;
 static int s_sel = 0;
+
+static void fill_bars(uint8_t *bars, const uint8_t *src, int len) {
+  for (int b = 0; b < BAR_CNT; b++) {
+    if (src == NULL || len <= 0) {
+      bars[b] = BAR_BASE;
+      continue;
+    }
+    uint8_t a = src[b % len];
+    uint8_t c = src[(len - 1 - b + len) % len];
+    bars[b] = (uint8_t)(BAR_BASE + ((a ^ c) % BAR_SPAN));
+  }
+}
+
+static void load_slots(void) {
+  memset(s_slot, 0, sizeof(s_slot));
+  s_proto = lora_session_active();
+
+  if (s_proto == LORA_PROTO_MESHTASTIC) {
+    for (int i = 0; i < TILE_CNT; i++) {
+      const mt_channel_t *ch = mt_channel_get((uint8_t)i);
+      if (ch == NULL || !ch->is_used || ch->role == MT_CH_DISABLED)
+        continue;
+      s_slot[i].used = true;
+      s_slot[i].primary = (ch->role == MT_CH_PRIMARY);
+      snprintf(s_slot[i].name, sizeof(s_slot[i].name), "%s",
+               (ch->name[0] != '\0') ? ch->name : "channel");
+      snprintf(s_slot[i].role, sizeof(s_slot[i].role), "%s",
+               (ch->role == MT_CH_PRIMARY) ? "PRIMARY" : "SECONDARY");
+      fill_bars(s_slot[i].bars, ch->psk, MT_PSK_SIZE);
+    }
+  } else if (s_proto == LORA_PROTO_MESHCORE) {
+    for (int i = 0; i < TILE_CNT; i++) {
+      const meshcore_channel_t *ch = meshcore_channel_get((uint8_t)i);
+      if (ch == NULL || !ch->is_used)
+        continue;
+      s_slot[i].used = true;
+      s_slot[i].primary = (i == MESHCORE_PUBLIC_CHANNEL);
+      snprintf(s_slot[i].name, sizeof(s_slot[i].name), "%s",
+               (ch->name[0] != '\0') ? ch->name : "channel");
+      snprintf(s_slot[i].role, sizeof(s_slot[i].role), "%s",
+               (i == MESHCORE_PUBLIC_CHANNEL) ? "PUBLIC" : "GROUP");
+      fill_bars(s_slot[i].bars, ch->secret, KEY_LEN);
+    }
+  }
+}
 
 static lv_obj_t *bare_box(lv_obj_t *parent, int w, int h) {
   lv_obj_t *o = lv_obj_create(parent);
@@ -106,8 +149,9 @@ static lv_obj_t *bare_box(lv_obj_t *parent, int w, int h) {
 }
 
 static void build_filled_tile(lv_obj_t *tile, int i) {
-  lv_color_t sig = (i == 0) ? current_theme.border_accent : lv_color_hex(COL_CYAN);
-  lv_color_t dot = (i == 0) ? lv_color_hex(COL_ACC2) : lv_color_hex(COL_CYAN);
+  bool primary = s_slot[i].primary;
+  lv_color_t sig = primary ? current_theme.border_accent : lv_color_hex(COL_CYAN);
+  lv_color_t dot = primary ? lv_color_hex(COL_ACC2) : lv_color_hex(COL_CYAN);
 
   lv_obj_t *head = bare_box(tile, lv_pct(100), LV_SIZE_CONTENT);
   lv_obj_set_flex_flow(head, LV_FLEX_FLOW_ROW);
@@ -118,7 +162,7 @@ static void build_filled_tile(lv_obj_t *tile, int i) {
   lv_label_set_text_fmt(idx, "%d", i);
   lv_obj_set_style_text_font(idx, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(
-      idx, (i == 0) ? current_theme.border_accent : lv_color_hex(COL_DIM), 0);
+      idx, primary ? current_theme.border_accent : lv_color_hex(COL_DIM), 0);
 
   lv_obj_t *d = lv_obj_create(head);
   lv_obj_remove_flag(d, LV_OBJ_FLAG_SCROLLABLE);
@@ -127,7 +171,7 @@ static void build_filled_tile(lv_obj_t *tile, int i) {
   lv_obj_set_style_border_width(d, 0, 0);
   lv_obj_set_style_bg_color(d, dot, 0);
   lv_obj_set_style_bg_opa(d, LV_OPA_COVER, 0);
-  if (i == 0) {
+  if (primary) {
     lv_obj_set_style_shadow_color(d, current_theme.border_accent, 0);
     lv_obj_set_style_shadow_width(d, 5, 0);
     lv_obj_set_style_shadow_opa(d, LV_OPA_COVER, 0);
@@ -142,15 +186,17 @@ static void build_filled_tile(lv_obj_t *tile, int i) {
   lv_obj_set_style_radius(key, KEY_RAD, 0);
   lv_obj_set_style_border_width(key, 0, 0);
   lv_obj_set_style_bg_color(key, current_theme.border_accent, 0);
-  lv_obj_set_style_bg_opa(key, (i == 0) ? LV_OPA_COVER : LV_OPA_40, 0);
+  lv_obj_set_style_bg_opa(key, primary ? LV_OPA_COVER : LV_OPA_40, 0);
 
   lv_obj_t *name = lv_label_create(tile);
-  lv_label_set_text(name, CH_NAME[i]);
+  lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+  lv_obj_set_width(name, lv_pct(100));
+  lv_label_set_text(name, s_slot[i].name);
   lv_obj_set_style_text_font(name, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(name, current_theme.text_main, 0);
 
   lv_obj_t *stub = lv_label_create(tile);
-  lv_label_set_text(stub, CH_STUB[i]);
+  lv_label_set_text(stub, s_slot[i].role);
   lv_obj_set_style_text_font(stub, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(stub, lv_color_hex(COL_DIM), 0);
 
@@ -159,7 +205,7 @@ static void build_filled_tile(lv_obj_t *tile, int i) {
   lv_obj_set_flex_align(bars, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
   lv_obj_set_style_pad_column(bars, BAR_GAP, 0);
   for (int b = 0; b < BAR_CNT; b++) {
-    int h = CH_BARS[i][b] * BAR_MAX_H / 100;
+    int h = s_slot[i].bars[b] * BAR_MAX_H / 100;
     if (h < 3)
       h = 3;
     lv_obj_t *bar = lv_obj_create(bars);
@@ -173,6 +219,7 @@ static void build_filled_tile(lv_obj_t *tile, int i) {
 }
 
 static void build_empty_tile(lv_obj_t *tile, int i) {
+  (void)i;
   lv_obj_set_flex_align(tile, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
   lv_obj_t *key = lv_obj_create(tile);
@@ -184,13 +231,13 @@ static void build_empty_tile(lv_obj_t *tile, int i) {
   lv_obj_set_style_bg_opa(key, LV_OPA_TRANSP, 0);
 
   lv_obj_t *lbl = lv_label_create(tile);
-  lv_label_set_text_fmt(lbl, "slot %d free", i);
+  lv_label_set_text(lbl, "(empty)");
   lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(lbl, lv_color_hex(COL_SLOT), 0);
 }
 
 static lv_obj_t *make_tile(lv_obj_t *grid, int i) {
-  bool filled = (i < FILLED_CNT);
+  bool filled = s_slot[i].used;
 
   lv_obj_t *tile = lv_obj_create(grid);
   lv_obj_remove_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
@@ -221,7 +268,8 @@ static void refresh_selection(void) {
     if (s_tiles[i] == NULL)
       continue;
     bool sel = (i == s_sel);
-    lv_color_t base = (i == 0) ? current_theme.border_accent : current_theme.border_inactive;
+    lv_color_t base =
+        s_slot[i].primary ? current_theme.border_accent : current_theme.border_inactive;
     lv_obj_set_style_border_color(s_tiles[i], sel ? current_theme.border_accent : base, 0);
     lv_obj_set_style_border_width(s_tiles[i], sel ? 2 : 1, 0);
     lv_obj_set_style_shadow_color(s_tiles[i], current_theme.border_accent, 0);
@@ -231,10 +279,92 @@ static void refresh_selection(void) {
   }
 }
 
+static void build_grid_content(void) {
+  for (int i = 0; i < TILE_CNT; i++)
+    s_tiles[i] = NULL;
+  s_empty_msg = NULL;
+  if (s_grid != NULL)
+    lv_obj_clean(s_grid);
+
+  if (s_proto == LORA_PROTO_NONE) {
+    s_empty_msg = lv_label_create(s_grid);
+    lv_obj_add_flag(s_empty_msg, LV_OBJ_FLAG_FLOATING);
+    lv_label_set_text(s_empty_msg, "Start a protocol first");
+    lv_obj_set_style_text_font(s_empty_msg, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(s_empty_msg, lv_color_hex(COL_DIM), 0);
+    lv_obj_center(s_empty_msg);
+    return;
+  }
+
+  for (int i = 0; i < TILE_CNT; i++)
+    s_tiles[i] = make_tile(s_grid, i);
+  refresh_selection();
+}
+
+static void on_kb_rename(const char *text, void *user_data) {
+  int idx = (int)(intptr_t)user_data;
+  if (text == NULL || text[0] == '\0')
+    return;
+  if (idx < 0 || idx >= TILE_CNT)
+    return;
+
+  lora_proto_t proto = lora_session_active();
+  if (proto == LORA_PROTO_MESHTASTIC) {
+    const mt_channel_t *ch = mt_channel_get((uint8_t)idx);
+    uint8_t psk[MT_PSK_SIZE];
+    mt_channel_role_t role;
+    if (ch != NULL && ch->is_used && ch->role != MT_CH_DISABLED) {
+      memcpy(psk, ch->psk, sizeof(psk));
+      role = ch->role;
+    } else {
+      esp_fill_random(psk, sizeof(psk));
+      role = MT_CH_SECONDARY;
+    }
+    mt_channel_set((uint8_t)idx, text, psk, role);
+  } else if (proto == LORA_PROTO_MESHCORE) {
+    const meshcore_channel_t *ch = meshcore_channel_get((uint8_t)idx);
+    uint8_t secret[KEY_LEN];
+    if (ch != NULL && ch->is_used) {
+      memcpy(secret, ch->secret, sizeof(secret));
+    } else {
+      esp_fill_random(secret, sizeof(secret));
+    }
+    meshcore_channel_set((uint8_t)idx, text, secret);
+  } else {
+    return;
+  }
+
+  ui_feedback(UI_FB_WRITE);
+  notify(NOTIFY_SAVED, "Channel saved");
+  load_slots();
+  build_grid_content();
+}
+
+static void disable_slot(int idx) {
+  if (idx < 0 || idx >= TILE_CNT)
+    return;
+  if (!s_slot[idx].used) {
+    ui_feedback(UI_FB_SELECT);
+    return;
+  }
+  if (s_proto == LORA_PROTO_MESHTASTIC)
+    mt_channel_disable((uint8_t)idx);
+  else if (s_proto == LORA_PROTO_MESHCORE)
+    meshcore_channel_set((uint8_t)idx, NULL, NULL);
+  else
+    return;
+
+  ui_feedback(UI_FB_WRITE);
+  notify(NOTIFY_SAVED, "Channel disabled");
+  load_slots();
+  build_grid_content();
+}
+
 static void lora_channels_input(const input_event_t *ev, void *ctx) {
   (void)ctx;
   const bool press = (ev->action == INPUT_ACTION_PRESS);
   const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+  const bool active = (s_proto != LORA_PROTO_NONE);
 
   switch (ev->button) {
     case INPUT_BTN_BACK:
@@ -243,24 +373,36 @@ static void lora_channels_input(const input_event_t *ev, void *ctx) {
         ui_switch_screen(SCREEN_LORA_CHAT);
       break;
     case INPUT_BTN_DOWN:
-      if (nav) {
+      if (nav && active) {
         s_sel = (s_sel + 1) % TILE_CNT;
         refresh_selection();
-        lv_obj_scroll_to_view(s_tiles[s_sel], LV_ANIM_ON);
+        if (s_tiles[s_sel] != NULL)
+          lv_obj_scroll_to_view(s_tiles[s_sel], LV_ANIM_ON);
         ui_feedback(UI_FB_NAV);
       }
       break;
     case INPUT_BTN_UP:
-      if (nav) {
+      if (nav && active) {
         s_sel = (s_sel - 1 + TILE_CNT) % TILE_CNT;
         refresh_selection();
-        lv_obj_scroll_to_view(s_tiles[s_sel], LV_ANIM_ON);
+        if (s_tiles[s_sel] != NULL)
+          lv_obj_scroll_to_view(s_tiles[s_sel], LV_ANIM_ON);
         ui_feedback(UI_FB_NAV);
       }
       break;
     case INPUT_BTN_OK:
-      if (press)
-        ui_feedback(UI_FB_SELECT);
+      if (press) {
+        if (active) {
+          ui_feedback(UI_FB_SELECT);
+          keyboard_open(NULL, on_kb_rename, (void *)(intptr_t)s_sel);
+        } else {
+          ui_feedback(UI_FB_SELECT);
+        }
+      }
+      break;
+    case INPUT_BTN_RIGHT:
+      if (press && active)
+        disable_slot(s_sel);
       break;
     default:
       break;
@@ -272,6 +414,10 @@ void ui_lora_channels_open(void) {
     lv_obj_del(s_screen);
     s_screen = NULL;
   }
+  s_grid = NULL;
+  s_empty_msg = NULL;
+  for (int i = 0; i < TILE_CNT; i++)
+    s_tiles[i] = NULL;
   s_sel = 0;
 
   s_screen = lv_obj_create(NULL);
@@ -301,10 +447,10 @@ void ui_lora_channels_open(void) {
   lv_obj_set_style_bg_opa(grid, LV_OPA_COVER, LV_PART_SCROLLBAR);
   lv_obj_set_style_width(grid, 4, LV_PART_SCROLLBAR);
   lv_obj_set_style_radius(grid, 2, LV_PART_SCROLLBAR);
+  s_grid = grid;
 
-  for (int i = 0; i < TILE_CNT; i++)
-    s_tiles[i] = make_tile(grid, i);
-  refresh_selection();
+  load_slots();
+  build_grid_content();
 
   ui_chrome_footer(s_screen, FOOTER_HINT);
 

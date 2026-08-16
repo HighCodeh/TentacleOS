@@ -15,9 +15,19 @@
 
 #include "lora_position_ui.h"
 
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+
 #include "lvgl.h"
 #include "st7789.h"
 
+#include "keyboard_ui.h"
+#include "lora_session.h"
+#include "meshcore.h"
+#include "mt_mod_position.h"
+#include "notify_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -25,7 +35,7 @@
 
 #define HDR_TITLE   "POSITION"
 #define HDR_ICON    NULL
-#define FOOTER_HINT "MOVE EDIT   OK BROADCAST   BACK"
+#define FOOTER_HINT "MOVE  " LV_SYMBOL_RIGHT " EDIT   OK BCAST   BACK"
 
 #define BODY_TOP UI_CHROME_HEADER_H
 #define BODY_H   (LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
@@ -50,28 +60,117 @@
 #define BC_RAD   8
 #define BC_PAD_H 9
 
-#define CAP_TEXT "shared with 4 peers \xE2\x80\xA2 manual fix (no GPS)"
-
 #define COL_DIM       0x8A8594
 #define COL_OK        0x00E676
 #define COL_BC_BORDER 0x234A3E
 
+#define LAT_E7_LIMIT 900000000
+#define LON_E7_LIMIT 1800000000
+#define ALT_M_MIN    (-1000)
+#define ALT_M_MAX    100000
+#define COORD_E7_SCALE 10000000
+#define COORD_FRAC_DIV 1000
+
 static const char *F_TAG[FIELD_CNT] = {"LAT", "LON", "ALT"};
-static const char *F_VAL[FIELD_CNT] = {
-    "-23.5614\xC2\xB0",
-    "-46.6558\xC2\xB0",
-    "812 m",
-};
 
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_row[FIELD_CNT];
 static lv_obj_t *s_tag[FIELD_CNT];
+static lv_obj_t *s_val[FIELD_CNT];
 static lv_obj_t *s_caret[FIELD_CNT];
 static lv_obj_t *s_bc_row = NULL;
 static lv_obj_t *s_bc_val = NULL;
 
-static int s_field = 1;
-static bool s_bcast = true;
+static lora_proto_t s_proto = LORA_PROTO_NONE;
+static int s_field = 0;
+static bool s_bcast = false;
+
+static int32_t s_lat_e7 = 0;
+static int32_t s_lon_e7 = 0;
+static int32_t s_alt_m = 0;
+
+static int32_t clamp_i32(int32_t v, int32_t lo, int32_t hi) {
+  if (v < lo)
+    return lo;
+  if (v > hi)
+    return hi;
+  return v;
+}
+
+static int32_t parse_e7(const char *s) {
+  bool neg = false;
+  long long ip = 0;
+  long long fp = 0;
+  int fdig = 0;
+  const char *p = s;
+  while (*p == ' ' || *p == '\t')
+    p++;
+  if (*p == '+') {
+    p++;
+  } else if (*p == '-') {
+    neg = true;
+    p++;
+  }
+  while (*p >= '0' && *p <= '9') {
+    if (ip < 100000)
+      ip = ip * 10 + (*p - '0');
+    p++;
+  }
+  if (*p == '.' || *p == ',') {
+    p++;
+    while (*p >= '0' && *p <= '9' && fdig < 7) {
+      fp = fp * 10 + (*p - '0');
+      fdig++;
+      p++;
+    }
+  }
+  while (fdig < 7) {
+    fp *= 10;
+    fdig++;
+  }
+  long long e7 = ip * (long long)COORD_E7_SCALE + fp;
+  if (neg)
+    e7 = -e7;
+  if (e7 > 2000000000LL)
+    e7 = 2000000000LL;
+  if (e7 < -2000000000LL)
+    e7 = -2000000000LL;
+  return (int32_t)e7;
+}
+
+static int32_t parse_int(const char *s) {
+  bool neg = false;
+  long long v = 0;
+  const char *p = s;
+  while (*p == ' ' || *p == '\t')
+    p++;
+  if (*p == '+') {
+    p++;
+  } else if (*p == '-') {
+    neg = true;
+    p++;
+  }
+  while (*p >= '0' && *p <= '9') {
+    if (v < 100000000LL)
+      v = v * 10 + (*p - '0');
+    p++;
+  }
+  if (neg)
+    v = -v;
+  return (int32_t)v;
+}
+
+static void fmt_latlon(int32_t e7, char *buf, size_t n) {
+  int32_t v = e7;
+  const char *sign = "";
+  if (v < 0) {
+    sign = "-";
+    v = -v;
+  }
+  int32_t deg = v / COORD_E7_SCALE;
+  int32_t frac = (v % COORD_E7_SCALE) / COORD_FRAC_DIV;
+  snprintf(buf, n, "%s%ld.%04ld\xC2\xB0", sign, (long)deg, (long)frac);
+}
 
 static void make_field(lv_obj_t *card, int i) {
   lv_obj_t *row = lv_obj_create(card);
@@ -93,7 +192,7 @@ static void make_field(lv_obj_t *card, int i) {
   lv_obj_set_width(tag, TAG_W);
 
   lv_obj_t *val = lv_label_create(row);
-  lv_label_set_text(val, F_VAL[i]);
+  lv_label_set_text(val, "--");
   lv_obj_set_style_text_font(val, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(val, current_theme.text_main, 0);
   lv_obj_set_style_text_align(val, LV_TEXT_ALIGN_RIGHT, 0);
@@ -109,11 +208,14 @@ static void make_field(lv_obj_t *card, int i) {
 
   s_row[i] = row;
   s_tag[i] = tag;
+  s_val[i] = val;
   s_caret[i] = caret;
 }
 
 static void refresh_fields(void) {
   for (int i = 0; i < FIELD_CNT; i++) {
+    if (s_row[i] == NULL)
+      continue;
     bool act = (i == s_field);
     lv_obj_set_style_bg_color(
         s_row[i], act ? current_theme.bg_secondary : current_theme.bg_primary, 0);
@@ -132,9 +234,27 @@ static void refresh_fields(void) {
   }
 }
 
+static void refresh_values(void) {
+  char buf[32];
+  if (s_val[0] != NULL) {
+    fmt_latlon(s_lat_e7, buf, sizeof(buf));
+    lv_label_set_text(s_val[0], buf);
+  }
+  if (s_val[1] != NULL) {
+    fmt_latlon(s_lon_e7, buf, sizeof(buf));
+    lv_label_set_text(s_val[1], buf);
+  }
+  if (s_val[2] != NULL) {
+    snprintf(buf, sizeof(buf), "%ld m", (long)s_alt_m);
+    lv_label_set_text(s_val[2], buf);
+  }
+}
+
 static void refresh_broadcast(void) {
+  if (s_bc_val == NULL || s_bc_row == NULL)
+    return;
   if (s_bcast) {
-    lv_label_set_text(s_bc_val, "ON \xE2\x80\xA2 30s");
+    lv_label_set_text(s_bc_val, "ON");
     lv_obj_set_style_text_color(s_bc_val, lv_color_hex(COL_OK), 0);
     lv_obj_set_style_border_color(s_bc_row, lv_color_hex(COL_BC_BORDER), 0);
   } else {
@@ -144,10 +264,51 @@ static void refresh_broadcast(void) {
   }
 }
 
+static void apply_position(void) {
+  if (s_proto == LORA_PROTO_MESHTASTIC) {
+    mt_mod_position_set_fixed(s_lat_e7, s_lon_e7, s_alt_m);
+  } else if (s_proto == LORA_PROTO_MESHCORE) {
+    meshcore_set_advert_latlon(s_lat_e7 / 10, s_lon_e7 / 10, true);
+  }
+}
+
+static void clear_position(void) {
+  if (s_proto == LORA_PROTO_MESHTASTIC) {
+    mt_mod_position_remove_fixed();
+  } else if (s_proto == LORA_PROTO_MESHCORE) {
+    meshcore_set_advert_latlon(0, 0, false);
+  }
+}
+
+static void on_kb_submit(const char *text, void *user_data) {
+  int field = (int)(intptr_t)user_data;
+  if (text == NULL || text[0] == '\0')
+    return;
+  if (field < 0 || field >= FIELD_CNT)
+    return;
+  if (field == 0) {
+    s_lat_e7 = clamp_i32(parse_e7(text), -LAT_E7_LIMIT, LAT_E7_LIMIT);
+  } else if (field == 1) {
+    s_lon_e7 = clamp_i32(parse_e7(text), -LON_E7_LIMIT, LON_E7_LIMIT);
+  } else {
+    s_alt_m = clamp_i32(parse_int(text), ALT_M_MIN, ALT_M_MAX);
+  }
+  refresh_values();
+  ui_feedback(UI_FB_WRITE);
+  if (s_bcast)
+    apply_position();
+}
+
 static void lora_position_input(const input_event_t *ev, void *ctx) {
   (void)ctx;
   const bool press = (ev->action == INPUT_ACTION_PRESS);
   const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+
+  if (s_proto == LORA_PROTO_NONE) {
+    if ((ev->button == INPUT_BTN_BACK || ev->button == INPUT_BTN_LEFT) && press)
+      ui_switch_screen(SCREEN_LORA_CHAT);
+    return;
+  }
 
   switch (ev->button) {
     case INPUT_BTN_BACK:
@@ -169,9 +330,24 @@ static void lora_position_input(const input_event_t *ev, void *ctx) {
         ui_feedback(UI_FB_NAV);
       }
       break;
+    case INPUT_BTN_RIGHT:
+      if (press) {
+        if (s_field < 0 || s_field >= FIELD_CNT)
+          s_field = 0;
+        keyboard_open(NULL, on_kb_submit, (void *)(intptr_t)s_field);
+        ui_feedback(UI_FB_SELECT);
+      }
+      break;
     case INPUT_BTN_OK:
       if (press) {
         s_bcast = !s_bcast;
+        if (s_bcast) {
+          apply_position();
+          notify(NOTIFY_LORA, "Position broadcasting");
+        } else {
+          clear_position();
+          notify(NOTIFY_LORA, "Position cleared");
+        }
         refresh_broadcast();
         ui_feedback(UI_FB_SELECT);
       }
@@ -181,13 +357,38 @@ static void lora_position_input(const input_event_t *ev, void *ctx) {
   }
 }
 
+static void build_placeholder(void) {
+  ui_chrome_header(s_screen, HDR_TITLE, HDR_ICON);
+
+  lv_obj_t *msg = lv_label_create(s_screen);
+  lv_label_set_long_mode(msg, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(msg, LCD_H_RES - 2 * ROOT_PAD);
+  lv_label_set_text(msg, "Start a protocol first");
+  lv_obj_set_style_text_font(msg, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(msg, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_align(msg, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_center(msg);
+
+  ui_chrome_footer(s_screen, "BACK");
+}
+
 void ui_lora_position_open(void) {
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
   }
-  s_field = 1;
-  s_bcast = true;
+  for (int i = 0; i < FIELD_CNT; i++) {
+    s_row[i] = NULL;
+    s_tag[i] = NULL;
+    s_val[i] = NULL;
+    s_caret[i] = NULL;
+  }
+  s_bc_row = NULL;
+  s_bc_val = NULL;
+
+  s_proto = lora_session_active();
+  s_field = 0;
+  s_bcast = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -195,6 +396,23 @@ void ui_lora_position_open(void) {
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_border_width(s_screen, 0, 0);
   lv_obj_set_style_pad_all(s_screen, 0, 0);
+
+  if (s_proto == LORA_PROTO_NONE) {
+    build_placeholder();
+    ui_input_set_screen_handler(lora_position_input, NULL);
+    ui_screen_load_owned(&s_screen, s_screen);
+    return;
+  }
+
+  if (s_proto == LORA_PROTO_MESHCORE) {
+    int32_t lat_e6 = 0;
+    int32_t lon_e6 = 0;
+    bool has = false;
+    meshcore_get_advert_latlon(&lat_e6, &lon_e6, &has);
+    s_lat_e7 = clamp_i32((int32_t)((int64_t)lat_e6 * 10), -LAT_E7_LIMIT, LAT_E7_LIMIT);
+    s_lon_e7 = clamp_i32((int32_t)((int64_t)lon_e6 * 10), -LON_E7_LIMIT, LON_E7_LIMIT);
+    s_bcast = has;
+  }
 
   ui_chrome_header(s_screen, HDR_TITLE, HDR_ICON);
 
@@ -260,12 +478,16 @@ void ui_lora_position_open(void) {
   lv_obj_t *cap2 = lv_label_create(root);
   lv_label_set_long_mode(cap2, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(cap2, lv_pct(100));
-  lv_label_set_text(cap2, CAP_TEXT);
+  lv_label_set_text(cap2,
+                    (s_proto == LORA_PROTO_MESHTASTIC)
+                        ? "manual fix (no GPS) \xE2\x80\xA2 rebroadcast every 15 min"
+                        : "manual fix (no GPS) \xE2\x80\xA2 sent in each advert");
   lv_obj_set_style_text_font(cap2, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(cap2, lv_color_hex(COL_DIM), 0);
   lv_obj_set_style_text_align(cap2, LV_TEXT_ALIGN_CENTER, 0);
 
   refresh_fields();
+  refresh_values();
   refresh_broadcast();
 
   ui_chrome_footer(s_screen, FOOTER_HINT);

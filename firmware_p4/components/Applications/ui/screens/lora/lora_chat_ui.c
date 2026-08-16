@@ -15,16 +15,24 @@
 
 #include "lora_chat_ui.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "assets_manager.h"
 #include "keyboard_ui.h"
+#include "lora_session.h"
 #include "menu_component_ui.h"
+#include "meshtastic_presets.h"
+#include "meshtastic_regions.h"
+#include "meshtastic_roles.h"
 #include "notify_ui.h"
 #include "st7789.h"
+#include "sys_prio.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -33,7 +41,10 @@
 
 static const char *TAG = "LORA_MESH";
 
-#define CONNECT_MS   5000
+#define CONNECT_POLL_MS 1000
+#define CHAT_POLL_MS    500
+#define CHAT_BATCH      8
+#define LORA_START_TASK_STACK 12288
 #define SIG_GREEN    0x00E676
 #define COL_DIM      0x8A8594
 #define ENTRY_MS     220
@@ -41,17 +52,10 @@ static const char *TAG = "LORA_MESH";
 #define BADGE_SIZE    28
 #define BADGE_ICON_PX 18
 
-#define PHASE_STEP_MS 1650
-#define PHASE_COUNT   3
 #define DOTS_STEP_MS  340
 #define DOTS_MAX      3
 
-#define PULSE_DOT_SIZE     7
-#define PULSE_DOT_MS       320
-#define PULSE_DOT_STAGGER  220
-#define PULSE_DOT_COUNT    3
-#define TYPING_LIFETIME_MS 1200
-#define BUBBLE_MAX_W       184
+#define BUBBLE_MAX_W  184
 
 #define LORA_AMBER     0xF5B13D
 #define MAP_CENTER_X   120
@@ -86,20 +90,16 @@ static const char *PROTOS[] = {"MeshCore", "Meshtastic"};
 static const char *PROTO_ICONS[] = {"/assets/icons/hub.bin", "/assets/icons/lan.bin"};
 static const char *PROTO_BANDS[] = {"868 MHz", "915 MHz"};
 
-static const char *PHASES[] = {"Scanning mesh", "Handshake", "Authenticating"};
+#define NODE_COUNT 5
 
-static const struct {
-  const char *name;
+typedef struct {
+  char name[32];
   int rssi;
   bool strong;
-} NODES[] = {
-    {"Base Camp", -42, true},
-    {"Gateway-1", -55, true},
-    {"Relay-7", -78, false},
-    {"Drone-A", -67, true},
-    {"Trekker", -91, false},
-};
-#define NODE_COUNT ((int)(sizeof(NODES) / sizeof(NODES[0])))
+} node_row_t;
+
+static node_row_t s_nodes[NODE_COUNT];
+static int s_rnode_count = 0;
 
 static const struct {
   int x;
@@ -112,11 +112,7 @@ static const struct {
     {120, 234},
 };
 
-static const char *OPT_REGION[] = {"US", "EU868", "CN", "ANZ"};
-static const char *OPT_CHAN[] = {"0", "1", "2", "3", "4", "5", "6", "7"};
-static const char *OPT_PRESET[] = {"LongFast", "MediumFast", "ShortFast", "LongSlow"};
-#define OPT_N(a) ((int)(sizeof(a) / sizeof((a)[0])))
-enum { CFG_REGION = 0, CFG_CHAN, CFG_PRESET, CFG_POWER, CFG_ROLE, CFG_COUNT };
+enum { CFG_REGION = 0, CFG_PRESET, CFG_ROUTER, CFG_COUNT };
 
 typedef enum {
   VIEW_PROTO = 0,
@@ -132,19 +128,16 @@ static menu_component_t s_menu;
 static lv_obj_t *s_chat_list = NULL;
 static lv_obj_t *s_status_label = NULL;
 static lv_obj_t *s_hint = NULL;
-static lv_obj_t *s_typing_row = NULL;
 static lv_timer_t *s_connect_timer = NULL;
-static lv_timer_t *s_reply_timer = NULL;
-static lv_timer_t *s_phase_timer = NULL;
+static lv_timer_t *s_chat_poll = NULL;
 static view_t s_view = VIEW_PROTO;
 static int s_proto = 0;
 static int s_home_sel = 0;
 static int s_node = 0;
-static int s_reply_i = 0;
-static int s_phase = 0;
 static bool s_linked = false;
-static int s_cfg_region = 0, s_cfg_chan = 3, s_cfg_preset = 0;
-static int s_msg_clock = 0;
+static bool s_starting = false;
+static int s_cfg_region = 0, s_cfg_preset = 0;
+static uint32_t s_chat_seq = 0;
 
 static lv_obj_t *s_node_pins[NODE_COUNT];
 static lv_obj_t *s_node_names[NODE_COUNT];
@@ -161,10 +154,6 @@ static bool s_nodes_list = false;
 static bool s_nodes_ok_fired = false;
 static bool s_nodes_ok_active = false;
 
-static const char *REPLIES[] = {
-    "Roger that.", "Copy.", "On my way.", "Stay safe out there.", "10-4, over."};
-#define REPLY_COUNT ((int)(sizeof(REPLIES) / sizeof(REPLIES[0])))
-
 static void lora_chat_input(const input_event_t *ev, void *ctx);
 static void build_screen(void);
 static void add_bubble(bool outgoing, const char *who, const char *text);
@@ -174,18 +163,64 @@ static void stop_timers(void) {
     lv_timer_delete(s_connect_timer);
     s_connect_timer = NULL;
   }
-  if (s_reply_timer != NULL) {
-    lv_timer_delete(s_reply_timer);
-    s_reply_timer = NULL;
-  }
-  if (s_phase_timer != NULL) {
-    lv_timer_delete(s_phase_timer);
-    s_phase_timer = NULL;
+  if (s_chat_poll != NULL) {
+    lv_timer_delete(s_chat_poll);
+    s_chat_poll = NULL;
   }
 }
 
-static void opa_cb(void *var, int32_t v) {
-  lv_obj_set_style_opa((lv_obj_t *)var, (lv_opa_t)v, 0);
+static lora_proto_t proto_for_sel(int sel) {
+  return (sel == 0) ? LORA_PROTO_MESHCORE : LORA_PROTO_MESHTASTIC;
+}
+
+static int sel_for_proto(lora_proto_t proto) {
+  return (proto == LORA_PROTO_MESHTASTIC) ? 1 : 0;
+}
+
+static void lora_start_task(void *pv) {
+  lora_proto_t proto = (lora_proto_t)(intptr_t)pv;
+  esp_err_t err = lora_session_start(proto);
+  if (err != ESP_OK)
+    ESP_LOGE(TAG, "start proto %d: %s", (int)proto, esp_err_to_name(err));
+  s_starting = false;
+  vTaskDelete(NULL);
+}
+
+static void start_active_proto(lora_proto_t proto) {
+  if (s_starting || lora_session_active() != LORA_PROTO_NONE)
+    return;
+  s_starting = true;
+  if (xTaskCreatePinnedToCore(lora_start_task, "lora_start", LORA_START_TASK_STACK,
+                              (void *)(intptr_t)proto, SYS_PRIO_BACKGROUND, NULL,
+                              SYS_CORE_RADIO) != pdPASS) {
+    s_starting = false;
+    ESP_LOGE(TAG, "failed to spawn start task");
+  }
+}
+
+static void refresh_nodes(void) {
+  uint16_t total = lora_session_node_count();
+  int n = 0;
+  for (uint16_t i = 0; i < total && n < NODE_COUNT; i++) {
+    lora_node_t nd;
+    if (!lora_session_node_get(i, &nd))
+      continue;
+    snprintf(s_nodes[n].name, sizeof(s_nodes[n].name), "%s",
+             (nd.name[0] != '\0') ? nd.name : "node");
+    s_nodes[n].rssi = nd.rssi;
+    s_nodes[n].strong = (nd.rssi == 0) || (nd.rssi >= RSSI_GOOD);
+    n++;
+  }
+  s_rnode_count = n;
+  if (s_node >= s_rnode_count)
+    s_node = (s_rnode_count > 0) ? s_rnode_count - 1 : 0;
+}
+
+static void fmt_rssi(int rssi, char *buf, size_t n) {
+  if (rssi == 0)
+    snprintf(buf, n, "-- dBm");
+  else
+    snprintf(buf, n, "%d dBm", rssi);
 }
 
 static void transy_cb(void *var, int32_t v) {
@@ -260,14 +295,14 @@ static void build_proto_view(void) {
 static void build_home_view(void) {
   s_menu = menu_component_create(s_screen, PROTOS[s_proto], "/assets/icons/hub.bin");
 
-  char band[48];
-  snprintf(band,
-           sizeof(band),
-           "CH%s  %s  %s",
-           OPT_CHAN[s_cfg_chan],
-           OPT_REGION[s_cfg_region],
-           OPT_PRESET[s_cfg_preset]);
-  menu_component_add_section(&s_menu, band);
+  if (lora_session_active() == LORA_PROTO_MESHTASTIC) {
+    const mt_region_info_t *rg = mt_region_info(mt_region_current());
+    const mt_preset_info_t *pr = mt_preset_info(mt_preset_current());
+    char band[64];
+    snprintf(band, sizeof(band), "%s  %s", (rg != NULL) ? rg->name : "?",
+             (pr != NULL) ? pr->name : "?");
+    menu_component_add_section(&s_menu, band);
+  }
   menu_component_add_section(&s_menu, s_linked ? "[ MESH ONLINE ]" : "[ STANDALONE ]");
 
   menu_component_add_item(&s_menu, "/assets/icons/bluetooth.bin", "Connect App");
@@ -277,6 +312,7 @@ static void build_home_view(void) {
   menu_component_add_item(&s_menu, "/assets/icons/sensors.bin", "Position");
   menu_component_add_item(&s_menu, "/assets/icons/monitoring.bin", "Telemetry");
   menu_component_add_item(&s_menu, "/assets/icons/vpn_key.bin", "Secure DM");
+  menu_component_add_item(&s_menu, "/assets/icons/lan.bin", "Traceroute");
 
   if (s_linked)
     menu_component_set_item_label_color(&s_menu, 0, lv_color_hex(SIG_GREEN));
@@ -287,15 +323,15 @@ static void build_home_view(void) {
 }
 
 static void link_style(int i, lv_color_t *col, int *w, bool *dashed) {
-  if (!NODES[i].strong) {
+  if (!s_nodes[i].strong) {
     *col = lv_color_hex(COL_DIM);
     *w = 1;
     *dashed = true;
-  } else if (NODES[i].rssi >= RSSI_STRONG) {
+  } else if (s_nodes[i].rssi >= RSSI_STRONG) {
     *col = lv_color_hex(SIG_GREEN);
     *w = 3;
     *dashed = false;
-  } else if (NODES[i].rssi >= RSSI_GOOD) {
+  } else if (s_nodes[i].rssi >= RSSI_GOOD) {
     *col = lv_color_hex(SIG_GREEN);
     *w = 2;
     *dashed = false;
@@ -310,7 +346,7 @@ static void node_style_pin(int i, bool selected) {
   lv_obj_t *pin = s_node_pins[i];
   if (pin == NULL)
     return;
-  bool online = NODES[i].strong;
+  bool online = s_nodes[i].strong;
   lv_color_t edge = selected ? current_theme.border_accent
                              : (online ? lv_color_hex(SIG_GREEN) : lv_color_hex(COL_DIM));
   lv_obj_set_style_border_color(pin, edge, 0);
@@ -334,22 +370,25 @@ static void node_style_pin(int i, bool selected) {
 }
 
 static void node_update_info(int i) {
-  bool online = NODES[i].strong;
+  if (i >= s_rnode_count)
+    return;
+  bool online = s_nodes[i].strong;
   if (s_info_name != NULL) {
-    lv_label_set_text(s_info_name, NODES[i].name);
+    lv_label_set_text(s_info_name, s_nodes[i].name);
     lv_obj_set_style_text_color(
         s_info_name, online ? current_theme.text_main : lv_color_hex(COL_DIM), 0);
   }
   if (s_info_meta != NULL) {
     char meta[40];
-    snprintf(
-        meta, sizeof(meta), "%d dBm \xC2\xB7 %s", NODES[i].rssi, online ? "ONLINE" : "OFFLINE");
+    char rssi_s[16];
+    fmt_rssi(s_nodes[i].rssi, rssi_s, sizeof(rssi_s));
+    snprintf(meta, sizeof(meta), "%s \xC2\xB7 %s", rssi_s, online ? "ONLINE" : "OFFLINE");
     lv_label_set_text(s_info_meta, meta);
     lv_obj_set_style_text_color(
         s_info_meta, online ? lv_color_hex(SIG_GREEN) : lv_color_hex(COL_DIM), 0);
   }
   if (s_info_bar != NULL) {
-    int pct = (NODES[i].rssi - SNR_RSSI_FLOOR) * 100 / SNR_RSSI_SPAN;
+    int pct = (s_nodes[i].rssi - SNR_RSSI_FLOOR) * 100 / SNR_RSSI_SPAN;
     if (pct < 5)
       pct = 5;
     if (pct > 100)
@@ -409,8 +448,8 @@ static void node_select(int sel) {
 
 static void build_nodes_list(void) {
   int online = 0;
-  for (int i = 0; i < NODE_COUNT; i++)
-    if (NODES[i].strong)
+  for (int i = 0; i < s_rnode_count; i++)
+    if (s_nodes[i].strong)
       online++;
 
   s_node_list = lv_obj_create(s_screen);
@@ -433,12 +472,19 @@ static void build_nodes_list(void) {
   lv_obj_set_style_radius(s_node_list, LIST_SB_RADIUS, LV_PART_SCROLLBAR);
 
   lv_obj_t *cap = lv_label_create(s_node_list);
-  lv_label_set_text_fmt(cap, "%d / %d NODES ONLINE", online, NODE_COUNT);
+  lv_label_set_text_fmt(cap, "%d / %d s_nodes ONLINE", online, s_rnode_count);
   lv_obj_set_style_text_color(cap, lv_color_hex(COL_DIM), 0);
   lv_obj_set_style_text_font(cap, &lv_font_montserrat_12, 0);
 
-  for (int i = 0; i < NODE_COUNT; i++) {
-    bool node_online = NODES[i].strong;
+  if (s_rnode_count == 0) {
+    lv_obj_t *empty = lv_label_create(s_node_list);
+    lv_label_set_text(empty, "Listening for nodes...");
+    lv_obj_set_style_text_color(empty, lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_font(empty, &lv_font_montserrat_14, 0);
+  }
+
+  for (int i = 0; i < s_rnode_count; i++) {
+    bool node_online = s_nodes[i].strong;
 
     lv_obj_t *row = lv_obj_create(s_node_list);
     lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
@@ -478,12 +524,12 @@ static void build_nodes_list(void) {
     lv_obj_t *nm = lv_label_create(row);
     lv_obj_set_flex_grow(nm, 1);
     lv_label_set_long_mode(nm, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_label_set_text(nm, NODES[i].name);
+    lv_label_set_text(nm, s_nodes[i].name);
     lv_obj_set_style_text_font(nm, &lv_font_montserrat_14, 0);
     s_list_name[i] = nm;
 
     char val[16];
-    snprintf(val, sizeof(val), "%d dBm", NODES[i].rssi);
+    fmt_rssi(s_nodes[i].rssi, val, sizeof(val));
     lv_obj_t *rssi = lv_label_create(row);
     lv_label_set_text(rssi, val);
     lv_obj_set_style_text_font(rssi, &lv_font_montserrat_12, 0);
@@ -497,12 +543,12 @@ static void build_nodes_list(void) {
 
 static void build_nodes_view(void) {
   lv_color_t accent = ui_theme_get_accent();
-  ui_chrome_header(s_screen, "NODES", "/assets/icons/hub.bin");
+  ui_chrome_header(s_screen, "s_nodes", "/assets/icons/hub.bin");
+
+  refresh_nodes();
 
   if (s_node < 0)
     s_node = 0;
-  if (s_node >= NODE_COUNT)
-    s_node = NODE_COUNT - 1;
 
   s_nodes_ok_fired = false;
   s_nodes_ok_active = false;
@@ -514,16 +560,16 @@ static void build_nodes_view(void) {
   }
 
   int online = 0;
-  for (int i = 0; i < NODE_COUNT; i++)
-    if (NODES[i].strong)
+  for (int i = 0; i < s_rnode_count; i++)
+    if (s_nodes[i].strong)
       online++;
   lv_obj_t *cap = lv_label_create(s_screen);
-  lv_label_set_text_fmt(cap, "%d / %d NODES ONLINE", online, NODE_COUNT);
+  lv_label_set_text_fmt(cap, "%d / %d s_nodes ONLINE", online, s_rnode_count);
   lv_obj_set_style_text_color(cap, lv_color_hex(COL_DIM), 0);
   lv_obj_set_style_text_font(cap, &lv_font_montserrat_12, 0);
   lv_obj_align(cap, LV_ALIGN_TOP_MID, 0, MESH_CAP_Y);
 
-  for (int i = 0; i < NODE_COUNT; i++) {
+  for (int i = 0; i < s_rnode_count; i++) {
     lv_color_t col;
     int w;
     bool dashed;
@@ -541,7 +587,7 @@ static void build_nodes_view(void) {
     lv_obj_set_style_line_rounded(ln, true, 0);
   }
 
-  for (int i = 0; i < NODE_COUNT; i++) {
+  for (int i = 0; i < s_rnode_count; i++) {
     lv_obj_t *wrap = lv_obj_create(s_screen);
     lv_obj_remove_flag(wrap, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(wrap, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
@@ -557,7 +603,7 @@ static void build_nodes_view(void) {
     s_node_pins[i] = make_badge(wrap, "/assets/icons/settings_input_antenna.bin", accent);
 
     lv_obj_t *nm = lv_label_create(wrap);
-    lv_label_set_text(nm, NODES[i].name);
+    lv_label_set_text(nm, s_nodes[i].name);
     lv_obj_set_style_text_font(nm, &lv_font_montserrat_12, 0);
     s_node_names[i] = nm;
 
@@ -608,21 +654,40 @@ static void build_nodes_view(void) {
   lv_obj_set_style_radius(s_info_bar, 2, LV_PART_INDICATOR);
   lv_obj_set_style_bg_opa(s_info_bar, LV_OPA_COVER, LV_PART_INDICATOR);
 
-  node_update_info(s_node);
+  if (s_rnode_count == 0) {
+    if (s_info_name != NULL)
+      lv_label_set_text(s_info_name, "Listening for nodes...");
+    if (s_info_meta != NULL)
+      lv_label_set_text(s_info_meta, "");
+  } else {
+    node_update_info(s_node);
+  }
 
   ui_chrome_footer(s_screen, LV_SYMBOL_UP LV_SYMBOL_DOWN " hop  OK chat  HOLD list");
 }
 
 static void build_configs_view(void) {
   s_menu = menu_component_create(s_screen, "CONFIGS", "/assets/icons/tune.bin");
-  menu_component_add_section(&s_menu, "RADIO PARAMETERS");
+
+  if (lora_session_active() != LORA_PROTO_MESHTASTIC) {
+    menu_component_add_section(&s_menu, "RADIO PARAMETERS");
+    menu_component_add_section(&s_menu, "Meshtastic only");
+    menu_component_set_hint(&s_menu, "BACK home");
+    return;
+  }
+
+  s_cfg_region = (int)mt_region_current();
+  s_cfg_preset = (int)mt_preset_current();
+  const mt_region_info_t *rg = mt_region_info((mt_region_t)s_cfg_region);
+  const mt_preset_info_t *pr = mt_preset_info((mt_preset_t)s_cfg_preset);
+  bool router = (mt_role_current() == MT_ROLE_ROUTER);
+
+  menu_component_add_section(&s_menu, "RADIO (applies on reboot)");
   menu_component_add_selector(
-      &s_menu, "/assets/icons/public.bin", "Region", OPT_REGION[s_cfg_region]);
-  menu_component_add_selector(&s_menu, "/assets/icons/tune.bin", "Channel", OPT_CHAN[s_cfg_chan]);
+      &s_menu, "/assets/icons/public.bin", "Region", (rg != NULL) ? rg->name : "?");
   menu_component_add_selector(
-      &s_menu, "/assets/icons/speed.bin", "Preset", OPT_PRESET[s_cfg_preset]);
-  menu_component_add_intensity(&s_menu, "/assets/icons/wifi_tethering.bin", "TX Power", 4);
-  menu_component_add_toggle(&s_menu, "/assets/icons/router.bin", "Router mode", false);
+      &s_menu, "/assets/icons/speed.bin", "Preset", (pr != NULL) ? pr->name : "?");
+  menu_component_add_toggle(&s_menu, "/assets/icons/router.bin", "Router mode", router);
   menu_component_set_hint(&s_menu,
                           LV_SYMBOL_LEFT LV_SYMBOL_RIGHT "  change   OK toggle   BACK home");
 }
@@ -665,7 +730,7 @@ static lv_obj_t *make_companion_card(lv_obj_t *parent, bool linked, lv_color_t a
   return card;
 }
 
-static void status_dots_cb(void *var, int32_t v) {
+static void conn_dots_cb(void *var, int32_t v) {
   lv_obj_t *label = (lv_obj_t *)var;
   static const char *DOTS[] = {"", ".", "..", "..."};
   int n = (int)v;
@@ -674,46 +739,38 @@ static void status_dots_cb(void *var, int32_t v) {
   if (n > DOTS_MAX)
     n = DOTS_MAX;
   char buf[40];
-  snprintf(buf, sizeof(buf), "%s%s", PHASES[s_phase], DOTS[n]);
+  snprintf(buf, sizeof(buf), "Waiting for app%s", DOTS[n]);
   lv_label_set_text(label, buf);
 }
 
-static void phase_step_cb(lv_timer_t *t) {
-  (void)t;
+static void connect_poll_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen || s_view != VIEW_CONNECT) {
-    if (s_phase_timer != NULL) {
-      lv_timer_delete(s_phase_timer);
-      s_phase_timer = NULL;
+    lv_timer_delete(t);
+    s_connect_timer = NULL;
+    return;
+  }
+  bool connected = lora_session_app_connected();
+  if (connected != s_linked) {
+    s_linked = connected;
+    if (connected) {
+      ui_feedback(UI_FB_EMULATE);
+      notify(NOTIFY_LORA, "Companion linked");
     }
-    return;
+    build_screen();
   }
-  if (s_phase < PHASE_COUNT - 1)
-    s_phase++;
-  if (s_phase >= PHASE_COUNT - 1 && s_phase_timer != NULL) {
-    lv_timer_delete(s_phase_timer);
-    s_phase_timer = NULL;
-  }
-}
-
-static void connect_done_cb(lv_timer_t *t) {
-  (void)t;
-  s_connect_timer = NULL;
-  if (lv_screen_active() != s_screen || s_view != VIEW_CONNECT)
-    return;
-  s_linked = true;
-  ui_feedback(UI_FB_EMULATE);
-  notify(NOTIFY_LORA, "Companion linked");
-  build_screen();
 }
 
 static void build_connect(void) {
   lv_color_t accent = ui_theme_get_accent();
   ui_chrome_header(s_screen, PROTOS[s_proto], "/assets/icons/bluetooth.bin");
 
+  s_linked = lora_session_app_connected();
+
   if (!s_linked) {
-    s_phase = 0;
+    lora_session_app_connect();
+
     s_status_label = lv_label_create(s_screen);
-    lv_label_set_text(s_status_label, PHASES[s_phase]);
+    lv_label_set_text(s_status_label, "Waiting for app");
     lv_obj_set_style_text_color(s_status_label, current_theme.text_main, 0);
     lv_obj_set_style_text_font(s_status_label, &lv_font_montserrat_14, 0);
     lv_obj_align(s_status_label, LV_ALIGN_TOP_MID, 0, 52);
@@ -721,7 +778,7 @@ static void build_connect(void) {
     lv_anim_t ad;
     lv_anim_init(&ad);
     lv_anim_set_var(&ad, s_status_label);
-    lv_anim_set_exec_cb(&ad, status_dots_cb);
+    lv_anim_set_exec_cb(&ad, conn_dots_cb);
     lv_anim_set_values(&ad, 0, DOTS_MAX);
     lv_anim_set_duration(&ad, DOTS_STEP_MS * DOTS_MAX);
     lv_anim_set_repeat_count(&ad, LV_ANIM_REPEAT_INFINITE);
@@ -733,9 +790,7 @@ static void build_connect(void) {
     lv_obj_t *card = make_companion_card(s_screen, false, accent);
     lv_obj_align(card, LV_ALIGN_CENTER, 0, 86);
 
-    s_phase_timer = lv_timer_create(phase_step_cb, PHASE_STEP_MS, NULL);
-    s_connect_timer = lv_timer_create(connect_done_cb, CONNECT_MS, NULL);
-    lv_timer_set_repeat_count(s_connect_timer, 1);
+    s_connect_timer = lv_timer_create(connect_poll_cb, CONNECT_POLL_MS, NULL);
 
     ui_chrome_footer(s_screen, "BACK to cancel");
   } else {
@@ -816,113 +871,46 @@ static void add_bubble(bool outgoing, const char *who, const char *text) {
   lv_obj_set_style_text_color(body, current_theme.text_main, 0);
   lv_obj_set_style_text_font(body, &lv_font_montserrat_12, 0);
 
-  lv_obj_t *ts = lv_label_create(group);
-  lv_label_set_text_fmt(ts, "12:0%d", s_msg_clock % 10);
-  s_msg_clock++;
-  lv_obj_set_style_text_color(ts, lv_color_hex(COL_DIM), 0);
-  lv_obj_set_style_text_font(ts, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_pad_hor(ts, 4, 0);
-
   lv_obj_scroll_to_view(bubble, LV_ANIM_ON);
 }
 
-static lv_obj_t *add_typing_bubble(const char *who) {
+static void chat_drain(void) {
   if (s_chat_list == NULL)
-    return NULL;
-  lv_color_t accent = ui_theme_get_accent();
-
-  lv_obj_t *row = lv_obj_create(s_chat_list);
-  lv_obj_set_width(row, LV_PCT(100));
-  lv_obj_set_height(row, LV_SIZE_CONTENT);
-  lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(row, 0, 0);
-  lv_obj_set_style_pad_all(row, 2, 0);
-  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-
-  lv_obj_t *bubble = lv_obj_create(row);
-  lv_obj_remove_flag(bubble, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(bubble, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-  lv_obj_set_style_max_width(bubble, BUBBLE_MAX_W, 0);
-  lv_obj_set_style_pad_all(bubble, 7, 0);
-  lv_obj_set_style_radius(bubble, 9, 0);
-  lv_obj_set_style_bg_opa(bubble, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(bubble, current_theme.bg_secondary, 0);
-  lv_obj_set_style_bg_grad_dir(bubble, LV_GRAD_DIR_NONE, 0);
-  lv_obj_set_style_border_width(bubble, 1, 0);
-  lv_obj_set_style_border_color(bubble, accent, 0);
-  lv_obj_set_flex_flow(bubble, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(bubble, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_style_pad_column(bubble, 5, 0);
-
-  lv_obj_t *tag = lv_label_create(bubble);
-  char sender[48];
-  snprintf(sender, sizeof(sender), "> %s", who ? who : "");
-  lv_label_set_text(tag, sender);
-  lv_obj_set_style_text_color(tag, lv_color_hex(COL_DIM), 0);
-  lv_obj_set_style_text_font(tag, &lv_font_montserrat_12, 0);
-
-  for (int i = 0; i < PULSE_DOT_COUNT; i++) {
-    lv_obj_t *dot = lv_obj_create(bubble);
-    lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(dot, PULSE_DOT_SIZE, PULSE_DOT_SIZE);
-    lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_border_width(dot, 0, 0);
-    lv_obj_set_style_bg_color(dot, accent, 0);
-    lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
-    lv_anim_t a;
-    lv_anim_init(&a);
-    lv_anim_set_var(&a, dot);
-    lv_anim_set_values(&a, LV_OPA_20, LV_OPA_COVER);
-    lv_anim_set_duration(&a, PULSE_DOT_MS);
-    lv_anim_set_playback_duration(&a, PULSE_DOT_MS);
-    lv_anim_set_delay(&a, i * PULSE_DOT_STAGGER);
-    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
-    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
-    lv_anim_set_exec_cb(&a, opa_cb);
-    lv_anim_start(&a);
+    return;
+  lora_msg_t batch[CHAT_BATCH];
+  uint16_t got;
+  while ((got = lora_session_msg_since(&s_chat_seq, batch, CHAT_BATCH)) > 0) {
+    for (uint16_t i = 0; i < got; i++)
+      add_bubble(batch[i].outgoing, batch[i].outgoing ? NULL : batch[i].who, batch[i].text);
   }
-
-  lv_obj_scroll_to_view(bubble, LV_ANIM_ON);
-  return row;
 }
 
-static void reply_cb(lv_timer_t *t) {
-  (void)t;
-  s_reply_timer = NULL;
-  if (lv_screen_active() != s_screen || s_view != VIEW_CHAT)
+static void chat_poll_cb(lv_timer_t *t) {
+  if (lv_screen_active() != s_screen || s_view != VIEW_CHAT) {
+    lv_timer_delete(t);
+    s_chat_poll = NULL;
     return;
-  if (s_typing_row != NULL) {
-    lv_obj_del(s_typing_row);
-    s_typing_row = NULL;
-    s_msg_clock--;
   }
-  add_bubble(false, NODES[s_node].name, REPLIES[s_reply_i % REPLY_COUNT]);
-  s_reply_i++;
+  chat_drain();
 }
 
 static void on_kb_submit(const char *text, void *user_data) {
   (void)user_data;
   if (text == NULL || text[0] == '\0' || s_view != VIEW_CHAT)
     return;
-  add_bubble(true, NULL, text);
-  ui_feedback(UI_FB_WRITE);
-  if (s_reply_timer != NULL)
-    lv_timer_delete(s_reply_timer);
-  if (s_typing_row != NULL) {
-    lv_obj_del(s_typing_row);
-    s_msg_clock--;
+  esp_err_t err = lora_session_send_text(text);
+  if (err == ESP_OK) {
+    ui_feedback(UI_FB_WRITE);
+    chat_drain();
+  } else {
+    notify(NOTIFY_LORA, "Send failed");
   }
-  s_typing_row = add_typing_bubble(NODES[s_node].name);
-  s_reply_timer = lv_timer_create(reply_cb, TYPING_LIFETIME_MS, NULL);
-  lv_timer_set_repeat_count(s_reply_timer, 1);
 }
 
 static void build_chat(void) {
-  s_msg_clock = 0;
-
-  ui_chrome_header(s_screen, NODES[s_node].name, "/assets/icons/hub.bin");
+  const char *title =
+      (lora_session_active() == LORA_PROTO_MESHTASTIC) ? "MESH BROADCAST" : "PUBLIC CHANNEL";
+  ui_chrome_header(s_screen, title, "/assets/icons/hub.bin");
   s_hint = ui_chrome_footer(s_screen, LV_SYMBOL_KEYBOARD " OK write   BACK nodes");
 
   s_chat_list = lv_obj_create(s_screen);
@@ -938,13 +926,10 @@ static void build_chat(void) {
   lv_obj_remove_flag(s_chat_list, LV_OBJ_FLAG_SCROLL_MOMENTUM);
   lv_obj_set_scrollbar_mode(s_chat_list, LV_SCROLLBAR_MODE_AUTO);
 
-  char link[24];
-  snprintf(link, sizeof(link), "Link %ddBm", NODES[s_node].rssi);
-  notify(NOTIFY_LORA, link);
+  s_chat_seq = 0;
+  chat_drain();
 
-  add_bubble(false, NODES[s_node].name, "Hey, you on the mesh?");
-  add_bubble(true, NULL, "Yep, reading you 5/5.");
-  add_bubble(false, NODES[s_node].name, "Signal's solid here.");
+  s_chat_poll = lv_timer_create(chat_poll_cb, CHAT_POLL_MS, NULL);
 }
 
 static void build_screen(void) {
@@ -956,7 +941,6 @@ static void build_screen(void) {
   s_chat_list = NULL;
   s_status_label = NULL;
   s_hint = NULL;
-  s_typing_row = NULL;
   s_info_name = NULL;
   s_info_meta = NULL;
   s_info_bar = NULL;
@@ -1008,19 +992,21 @@ static void build_screen(void) {
 
 static void cycle_config(int sel, int dir) {
   if (sel == CFG_REGION) {
-    s_cfg_region = (s_cfg_region + dir + OPT_N(OPT_REGION)) % OPT_N(OPT_REGION);
-    menu_component_set_selector_value(&s_menu, sel, OPT_REGION[s_cfg_region]);
-  } else if (sel == CFG_CHAN) {
-    s_cfg_chan = (s_cfg_chan + dir + OPT_N(OPT_CHAN)) % OPT_N(OPT_CHAN);
-    menu_component_set_selector_value(&s_menu, sel, OPT_CHAN[s_cfg_chan]);
+    int n = mt_region_count();
+    if (n <= 0)
+      return;
+    s_cfg_region = (s_cfg_region + dir + n) % n;
+    mt_region_set((mt_region_t)s_cfg_region);
+    const mt_region_info_t *rg = mt_region_info((mt_region_t)s_cfg_region);
+    menu_component_set_selector_value(&s_menu, sel, (rg != NULL) ? rg->name : "?");
   } else if (sel == CFG_PRESET) {
-    s_cfg_preset = (s_cfg_preset + dir + OPT_N(OPT_PRESET)) % OPT_N(OPT_PRESET);
-    menu_component_set_selector_value(&s_menu, sel, OPT_PRESET[s_cfg_preset]);
-  } else if (sel == CFG_POWER) {
-    if (dir > 0)
-      menu_component_intensity_inc(&s_menu, sel);
-    else
-      menu_component_intensity_dec(&s_menu, sel);
+    int n = mt_preset_count();
+    if (n <= 0)
+      return;
+    s_cfg_preset = (s_cfg_preset + dir + n) % n;
+    mt_preset_set((mt_preset_t)s_cfg_preset);
+    const mt_preset_info_t *pr = mt_preset_info((mt_preset_t)s_cfg_preset);
+    menu_component_set_selector_value(&s_menu, sel, (pr != NULL) ? pr->name : "?");
   }
 }
 
@@ -1049,6 +1035,14 @@ static void lora_chat_input(const input_event_t *ev, void *ctx) {
           if (press) {
             s_proto = menu_component_get_selected(&s_menu);
             ui_feedback(UI_FB_SELECT);
+            lora_proto_t want = proto_for_sel(s_proto);
+            lora_proto_t cur = lora_session_active();
+            if (cur != LORA_PROTO_NONE && cur != want) {
+              notify(NOTIFY_LORA, "Reboot to switch protocol");
+              s_proto = sel_for_proto(cur);
+            } else {
+              start_active_proto(want);
+            }
             s_view = VIEW_HOME;
             s_home_sel = 0;
             build_screen();
@@ -1085,6 +1079,8 @@ static void lora_chat_input(const input_event_t *ev, void *ctx) {
               ui_switch_screen(SCREEN_LORA_TELEMETRY);
             } else if (s_home_sel == 6) {
               ui_switch_screen(SCREEN_LORA_SECURE_DM);
+            } else if (s_home_sel == 7) {
+              ui_switch_screen(SCREEN_LORA_TRACEROUTE);
             } else {
               s_view = (s_home_sel == 0)   ? VIEW_CONNECT
                        : (s_home_sel == 1) ? VIEW_NODES
@@ -1114,14 +1110,14 @@ static void lora_chat_input(const input_event_t *ev, void *ctx) {
     case VIEW_NODES:
       switch (ev->button) {
         case INPUT_BTN_DOWN:
-          if (nav) {
-            s_node = (s_node + 1) % NODE_COUNT;
+          if (nav && s_rnode_count > 0) {
+            s_node = (s_node + 1) % s_rnode_count;
             node_select(s_node);
           }
           break;
         case INPUT_BTN_UP:
-          if (nav) {
-            s_node = (s_node - 1 + NODE_COUNT) % NODE_COUNT;
+          if (nav && s_rnode_count > 0) {
+            s_node = (s_node - 1 + s_rnode_count) % s_rnode_count;
             node_select(s_node);
           }
           break;
@@ -1170,16 +1166,19 @@ static void lora_chat_input(const input_event_t *ev, void *ctx) {
             menu_component_prev(&s_menu);
           break;
         case INPUT_BTN_LEFT:
-          if (nav)
+          if (nav && lora_session_active() == LORA_PROTO_MESHTASTIC)
             cycle_config(sel, -1);
           break;
         case INPUT_BTN_RIGHT:
-          if (nav)
+          if (nav && lora_session_active() == LORA_PROTO_MESHTASTIC)
             cycle_config(sel, +1);
           break;
         case INPUT_BTN_OK:
-          if (press && sel == CFG_ROLE)
+          if (press && sel == CFG_ROUTER) {
+            bool now = (mt_role_current() == MT_ROLE_ROUTER);
+            mt_role_set(now ? MT_ROLE_CLIENT : MT_ROLE_ROUTER);
             menu_component_toggle_item(&s_menu, sel);
+          }
           break;
         case INPUT_BTN_BACK:
           if (press) {
@@ -1231,34 +1230,34 @@ static void lora_chat_input(const input_event_t *ev, void *ctx) {
 
 void ui_lora_chat_open(void) {
   ui_theme_set_protocol(PROTOCOL_LORA);
+  lora_proto_t cur = lora_session_active();
   s_view = VIEW_PROTO;
-  s_proto = 0;
+  s_proto = (cur != LORA_PROTO_NONE) ? sel_for_proto(cur) : 0;
   s_home_sel = 0;
   s_node = 0;
+  s_rnode_count = 0;
   s_nodes_list = false;
   s_linked = false;
-  s_phase = 0;
-  s_reply_i = 0;
+  s_chat_seq = 0;
   s_connect_timer = NULL;
-  s_reply_timer = NULL;
-  s_phase_timer = NULL;
+  s_chat_poll = NULL;
   build_screen();
-  ESP_LOGI(TAG, "LoRa mesh (mock) opened");
+  ESP_LOGI(TAG, "LoRa mesh opened");
 }
 
 void ui_lora_chat_open_chat(void) {
   ui_theme_set_protocol(PROTOCOL_LORA);
+  lora_proto_t cur = lora_session_active();
   s_view = VIEW_CHAT;
-  s_proto = 0;
+  s_proto = (cur != LORA_PROTO_NONE) ? sel_for_proto(cur) : 0;
   s_home_sel = 0;
   s_node = 0;
+  s_rnode_count = 0;
   s_nodes_list = false;
-  s_linked = true;
-  s_phase = 0;
-  s_reply_i = 0;
+  s_linked = false;
+  s_chat_seq = 0;
   s_connect_timer = NULL;
-  s_reply_timer = NULL;
-  s_phase_timer = NULL;
+  s_chat_poll = NULL;
   build_screen();
-  ESP_LOGI(TAG, "LoRa chat (mock) opened at chat view");
+  ESP_LOGI(TAG, "LoRa chat opened");
 }
