@@ -27,7 +27,7 @@ CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_HEX=y
 CONFIG_SPIRAM_SPEED_200M=y
 CONFIG_SPIRAM_USE_MALLOC=y
-CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=2048
 CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768
 
 # Larger stack for kernel_init
@@ -55,8 +55,9 @@ CONFIG_LV_FONT_MONTSERRAT_12=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_MONTSERRAT_16=y
 
-# LVGL tuning: clib malloc routes large blocks to PSRAM (SPIRAM_USE_MALLOC,
-# >16KB threshold), so the image cache can be generous now that PSRAM is back.
+# LVGL tuning: clib malloc routes blocks above SPIRAM_MALLOC_ALWAYSINTERNAL (2 KB)
+# to PSRAM, so the decoded image cache (menu icons ~3 KB, frames ~150 KB) lands in
+# PSRAM instead of starving the internal DMA RAM the SPI bridge and LCD need.
 # CONFIG_LV_USE_BUILTIN_MALLOC is not set
 CONFIG_LV_USE_CLIB_MALLOC=y
 CONFIG_LV_CACHE_DEF_SIZE=1048576
