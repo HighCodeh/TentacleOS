@@ -37,6 +37,14 @@ void screen_tips_hook(screen_id_t screen);
 /** @brief True while a screen tip is on screen and holding the input. */
 bool screen_tips_active(void);
 
+/**
+ * @brief Feed one input event to an active tip. While a tip is up it owns all
+ *        input: OK/BACK/RIGHT dismisses it (after the intro settles) and every
+ *        other event is swallowed. The caller must NOT also dispatch the event
+ *        to the underlying screen. No-op if no tip is active.
+ */
+void screen_tips_handle_input(const input_event_t *ev);
+
 /** @brief Clear every seen flag so all first-view tips play again. */
 void screen_tips_reset(void);
 

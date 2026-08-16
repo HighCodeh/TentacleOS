@@ -23,6 +23,7 @@
 #include "sys_prio.h"
 
 #include "assets_manager.h"
+#include "header_ui.h"
 #include "msgbox_ui.h"
 #include "notify_ui.h"
 #include "ui_chrome.h"
@@ -329,7 +330,7 @@ static void fire_action(int idx) {
     return;
   }
   if (idx == ACT_EJECT) {
-    vfs_sdcard_deinit();
+    header_ui_sd_eject();
     ui_feedback(UI_FB_SELECT);
     notify(NOTIFY_INFO, "SD card ejected");
     build_screen();

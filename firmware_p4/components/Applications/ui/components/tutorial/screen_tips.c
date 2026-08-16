@@ -253,7 +253,7 @@ static const tip_entry_t TIPS[] = {
      "On the speaker I synth chiptunes note by note over I2S: Mario, Tetris and a live 10-band "
      "equalizer."},
     {SCREEN_MIC_REC,
-     "MIC TO SPEAKER",
+     "RECORDER",
      "Capture up to 5s from the mic and play it back on the speaker, watching the live VU and "
      "waveform."},
 
@@ -372,6 +372,18 @@ static void scrim_key_cb(lv_event_t *e) {
     return;
   uint32_t key = lv_event_get_key(e);
   if (key == LV_KEY_ENTER || key == LV_KEY_ESC || key == LV_KEY_RIGHT)
+    dismiss();
+}
+
+void screen_tips_handle_input(const input_event_t *ev) {
+  if (!s_active || ev == NULL)
+    return;
+  if (ev->action != INPUT_ACTION_PRESS)
+    return;
+  if (lv_tick_get() - s_open_tick < TIP_ARM_MS)
+    return;
+  if (ev->button == INPUT_BTN_OK || ev->button == INPUT_BTN_BACK ||
+      ev->button == INPUT_BTN_RIGHT)
     dismiss();
 }
 

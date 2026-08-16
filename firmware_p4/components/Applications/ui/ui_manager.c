@@ -30,6 +30,7 @@
 #include "lvgl_glue.h"
 #include "lv_port_indev.h"
 #include "msgbox_ui.h"
+#include "notify_ui.h"
 #include "power_policy.h"
 #include "screen_tips.h"
 #include "tutorial_ui.h"
@@ -37,6 +38,7 @@
 #include "ui_feedback.h"
 #include "ui_theme.h"
 #include "ui_liveness.h"
+#include "vfs_sdcard.h"
 
 #include "boot_ui.h"
 #include "safe_mode_ui.h"
@@ -147,6 +149,7 @@
 #include "about_settings_ui.h"
 #include "storage_settings_ui.h"
 #include "theme_selector_ui.h"
+#include "time_settings_ui.h"
 
 static const char *TAG = "UI_MANAGER";
 
@@ -193,6 +196,13 @@ void ui_input_set_screen_handler(ui_input_handler_t handler, void *ctx) {
   s_screen_handler_ctx = ctx;
 }
 
+bool ui_sd_ready(void) {
+  if (vfs_sdcard_is_mounted())
+    return true;
+  notify(NOTIFY_WARNING, "Insert SD card");
+  return false;
+}
+
 static bool input_dispatch_blocked(void) {
   // While the screen is asleep, swallow input: the press that wakes it (tracked
   // by input_manager, which wakes the power policy) must not also act on the UI.
@@ -204,6 +214,10 @@ static void ui_input_pump(lv_timer_t *t) {
   (void)t;
   input_event_t ev;
   while (input_get_event(&ev, 0)) {
+    if (screen_tips_active()) {
+      screen_tips_handle_input(&ev);
+      continue;
+    }
     if (s_screen_handler == NULL || input_dispatch_blocked()) {
       continue;  // drain and discard so stale events do not fire once unblocked
     }
@@ -468,6 +482,8 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_about_settings_open;
     case SCREEN_STORAGE:
       return ui_storage_settings_open;
+    case SCREEN_TIME:
+      return ui_time_open;
     case SCREEN_THEME_SELECTOR:
       return ui_theme_selector_open;
     case SCREEN_BLE_DETECT_MENU:
@@ -633,6 +649,7 @@ bool ui_screen_shows_chrome(screen_id_t s) {
     case SCREEN_CRASH_REPORT:
     case SCREEN_SYSTEM_UPDATE:
     case SCREEN_SCRIPTS:
+    case SCREEN_TIME:
       return false;
     default:
       return true;

@@ -163,6 +163,7 @@ typedef enum {
   SCREEN_IMU_MONITOR,
   SCREEN_SD_HEALTH,
   SCREEN_USB_MOUSE,
+  SCREEN_TIME,
   SCREEN_COUNT
 } screen_id_t;
 
@@ -245,6 +246,13 @@ void ui_input_set_screen_handler(ui_input_handler_t handler, void *ctx);
 
 /** @brief Check if user input is temporarily locked. */
 bool ui_input_is_locked(void);
+
+/**
+ * @brief Guard for actions that persist to the SD card. Returns true if the SD
+ *        is mounted; otherwise shows a warning toast ("Insert SD card") and
+ *        returns false, so a save can be skipped cleanly.
+ */
+bool ui_sd_ready(void);
 
 /**
  * @brief Temporarily lock user input for @p ms milliseconds.
