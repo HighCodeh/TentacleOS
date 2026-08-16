@@ -25,20 +25,20 @@
 
 #include "st7789.h"
 
+#include "client_scanner.h"
 #include "menu_component_ui.h"
 #include "msgbox_ui.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
+#include "wifi_service.h"
 
 static const char *TAG = "WIFI_CLI_UI";
 
 #define CLI_HEADER_ICON  "/assets/icons/devices.bin"
 #define CLI_STATUS_ICON  "/assets/icons/wifi_find.bin"
 #define CLI_MAX          12
-#define SCAN_SIM_STEPS   4
-#define SCAN_SIM_STEP_MS 220
 #define TASK_STACK_SIZE 8192
 #define TASK_PRIORITY SYS_PRIO_SERVICE_LO
 
@@ -67,20 +67,6 @@ static const char *TAG = "WIFI_CLI_UI";
 
 typedef enum { SCAN_RUNNING, SCAN_DONE, SCAN_FAIL } scan_state_t;
 
-typedef struct {
-  uint8_t addr[6];
-  uint8_t channel;
-  int8_t rssi;
-} mock_client_t;
-
-static const mock_client_t MOCK_CLIENTS[] = {
-    {{0x3C, 0x5A, 0xB4, 0x11, 0x22, 0x33}, 6, -47},
-    {{0xA4, 0x77, 0x33, 0xDE, 0xAD, 0xBE}, 1, -58},
-    {{0x08, 0x00, 0x27, 0x0A, 0x1B, 0x2C}, 11, -63},
-    {{0xF0, 0x9F, 0xC2, 0x44, 0x55, 0x66}, 6, -71},
-};
-#define MOCK_CLIENT_COUNT (sizeof(MOCK_CLIENTS) / sizeof(MOCK_CLIENTS[0]))
-
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
 
@@ -89,6 +75,7 @@ static bool s_scanning = false;
 
 static int s_cli_count = 0;
 static uint8_t s_cli_addr[CLI_MAX][6];
+static uint8_t s_cli_bssid[CLI_MAX][6];
 static uint8_t s_cli_channel[CLI_MAX];
 static int8_t s_cli_rssi[CLI_MAX];
 static int s_cli_ap[CLI_MAX];
@@ -245,21 +232,24 @@ static void build_map(void) {
 }
 
 static void open_detail(void) {
-  int ap = s_cli_ap[s_sel];
   char msg[96];
   snprintf(msg,
            sizeof(msg),
-           "%02X:%02X:%02X:%02X:%02X:%02X\nCH %d   %d dBm\nAP: CH %d (%d sta)",
+           "STA %02X:%02X:%02X:%02X:%02X:%02X\nAP  %02X:%02X:%02X:%02X:%02X:%02X\nCH %d   %d dBm",
            s_cli_addr[s_sel][0],
            s_cli_addr[s_sel][1],
            s_cli_addr[s_sel][2],
            s_cli_addr[s_sel][3],
            s_cli_addr[s_sel][4],
            s_cli_addr[s_sel][5],
+           s_cli_bssid[s_sel][0],
+           s_cli_bssid[s_sel][1],
+           s_cli_bssid[s_sel][2],
+           s_cli_bssid[s_sel][3],
+           s_cli_bssid[s_sel][4],
+           s_cli_bssid[s_sel][5],
            s_cli_channel[s_sel],
-           s_cli_rssi[s_sel],
-           s_ap_channel[ap],
-           s_ap_sta[ap]);
+           s_cli_rssi[s_sel]);
   msgbox_open_info(
       "/assets/icons/smartphone.bin", "Client", msg, lv_color_hex(link_color(s_cli_rssi[s_sel])));
 }
@@ -314,14 +304,20 @@ static void wifi_client_task(void *arg) {
   (void)arg;
   int count = 0;
 
-  for (int i = 0; i < SCAN_SIM_STEPS; i++)
-    vTaskDelay(pdMS_TO_TICKS(SCAN_SIM_STEP_MS));
-
-  for (size_t i = 0; i < MOCK_CLIENT_COUNT && count < CLI_MAX; i++) {
-    memcpy(s_cli_addr[count], MOCK_CLIENTS[i].addr, sizeof(s_cli_addr[count]));
-    s_cli_channel[count] = MOCK_CLIENTS[i].channel;
-    s_cli_rssi[count] = MOCK_CLIENTS[i].rssi;
-    count++;
+  wifi_service_start();
+  if (client_scanner_start()) {
+    uint16_t found = 0;
+    client_scanner_record_t *recs = client_scanner_get_results(&found);
+    if (recs != NULL) {
+      for (uint16_t i = 0; i < found && count < CLI_MAX; i++) {
+        memcpy(s_cli_addr[count], recs[i].client_mac, sizeof(s_cli_addr[count]));
+        memcpy(s_cli_bssid[count], recs[i].bssid, sizeof(s_cli_bssid[count]));
+        s_cli_channel[count] = recs[i].channel;
+        s_cli_rssi[count] = recs[i].rssi;
+        count++;
+      }
+    }
+    client_scanner_free_results();
   }
 
   s_cli_count = count;
@@ -383,7 +379,7 @@ void ui_wifi_client_open(void) {
 
   if (!s_scanning) {
     s_scanning = true;
-    if (xTaskCreatePinnedToCore(wifi_client_task, "wifi_cli", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL, SYS_CORE_UI) !=
+    if (xTaskCreatePinnedToCore(wifi_client_task, "wifi_cli", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL, SYS_CORE_RADIO) !=
         pdPASS) {
       s_scanning = false;
       s_scan_state = SCAN_FAIL;
@@ -391,5 +387,5 @@ void ui_wifi_client_open(void) {
     }
   }
 
-  ESP_LOGI(TAG, "Client scan screen opened (mock scan)");
+  ESP_LOGI(TAG, "Client scan screen opened");
 }

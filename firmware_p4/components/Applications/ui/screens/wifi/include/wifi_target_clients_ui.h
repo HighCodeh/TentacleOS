@@ -21,7 +21,7 @@ extern "C" {
 #endif
 
 /**
- * @brief Open the WiFi target-clients screen (mock): the stations associated to a
+ * @brief Open the WiFi target-clients screen: the stations associated to a
  *        chosen target access point, with their RSSI.
  */
 void ui_wifi_target_clients_open(void);

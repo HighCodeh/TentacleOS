@@ -23,7 +23,7 @@ extern "C" {
 /**
  * @brief Open the Wi-Fi hotspot (AP) dashboard screen — an online toggle pill,
  *        a client-count ring gauge, and metric tiles for channel, gateway and
- *        TX/RX throughput (mock / demo).
+ *        TX/RX throughput.
  */
 void ui_wifi_hotspot_open(void);
 

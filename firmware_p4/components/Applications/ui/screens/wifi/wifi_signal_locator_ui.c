@@ -15,22 +15,41 @@
 
 #include "wifi_signal_locator_ui.h"
 
-#include "esp_log.h"
-#include "esp_random.h"
+#include <stdio.h>
+#include <string.h>
 
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "sys_prio.h"
+#include "lvgl.h"
+
+#include "menu_component_ui.h"
 #include "ui_chrome.h"
+#include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
+#include "waves_ui.h"
+
+#include "ap_scanner.h"
+#include "signal_monitor.h"
+#include "wifi_service.h"
 
 static const char *TAG = "WIFI_SIG_LOC_UI";
 
-#define DRIFT_TICK_MS 320
 #define ARC_ANIM_MS   260
 #define ENTRY_FADE_MS 240
+#define SIGNAL_POLL_MS  300
 
 #define HEADER_ICON "/assets/icons/wifi_find.bin"
 #define DBM_FONT    "A:assets/fonts/Inter.bin"
-#define TARGET_SSID "HOME-5G"
+
+#define AP_PICK_MAX     MENU_COMP_MAX_ITEMS
+#define SSID_BUF_LEN    33
+#define TASK_STACK_SIZE 8192
+#define TASK_PRIORITY   SYS_PRIO_SERVICE_LO
+#define WAVES_Y_OFS     -6
+#define CAPTION_Y_OFS   78
 
 #define ARC_SIZE     118
 #define ARC_WIDTH    13
@@ -46,8 +65,6 @@ static const char *TAG = "WIFI_SIG_LOC_UI";
 #define RSSI_MIN   (-92)
 #define RSSI_MAX   (-28)
 #define RSSI_START (-70)
-#define DRIFT_BIAS 3
-#define DRIFT_SPAN 7
 
 #define PCT_FAR 34
 #define PCT_MID 67
@@ -60,22 +77,47 @@ static const char *TAG = "WIFI_SIG_LOC_UI";
 #define COLD_COLOR 0x29B6F6
 #define DIM_COLOR  0x8A8594
 
+typedef enum { SL_PICK_SCANNING, SL_PICK_LIST, SL_LOCATING } sl_state_t;
+
+typedef struct {
+  char ssid[SSID_BUF_LEN];
+  uint8_t bssid[6];
+  uint8_t channel;
+  int8_t rssi;
+} pick_ap_t;
+
 static lv_obj_t *s_screen = NULL;
+static menu_component_t s_menu;
 static lv_obj_t *s_arc = NULL;
 static lv_obj_t *s_dbm_label = NULL;
 static lv_obj_t *s_hint = NULL;
 static lv_obj_t *s_prox_label = NULL;
-static lv_timer_t *s_drift_timer = NULL;
 static lv_font_t *s_big_font = NULL;
 
+static sl_state_t s_state = SL_PICK_SCANNING;
+
+static int s_ap_count = 0;
+static pick_ap_t s_aps[AP_PICK_MAX];
+static bool s_pick_scanning = false;
+
+static uint8_t s_sel_bssid[6];
+static uint8_t s_sel_channel = 0;
+static char s_sel_ssid[SSID_BUF_LEN] = {0};
+
 static int s_rssi = RSSI_START;
+static volatile int8_t s_shared_rssi = RSSI_START;
+
+static volatile bool s_poll_run = false;
+static volatile bool s_worker_busy = false;
+static volatile bool s_restart_pending = false;
 
 static void wifi_signal_locator_input(const input_event_t *ev, void *ctx);
-static void drift_tick_cb(lv_timer_t *timer);
-static void stop_drift_timer(void);
 
-static int rand_range(int base, int span) {
-  return base + (int)(esp_random() % (uint32_t)span);
+static void ap_row_text(const pick_ap_t *ap, char *dst, size_t n) {
+  if (ap->ssid[0] != '\0')
+    snprintf(dst, n, "%s", ap->ssid);
+  else
+    snprintf(dst, n, "%02X:%02X:%02X CH%d", ap->bssid[3], ap->bssid[4], ap->bssid[5], ap->channel);
 }
 
 static int rssi_to_pct(int rssi) {
@@ -153,32 +195,79 @@ static void apply_signal(int prev_rssi) {
     lv_label_set_text(s_prox_label, proximity_text(pct));
 }
 
-void ui_wifi_signal_locator_open(void) {
+static void reset_screen(void) {
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
-    s_arc = NULL;
-    s_dbm_label = NULL;
-    s_hint = NULL;
-    s_prox_label = NULL;
   }
-  stop_drift_timer();
+  s_arc = NULL;
+  s_dbm_label = NULL;
+  s_hint = NULL;
+  s_prox_label = NULL;
+  s_menu = (menu_component_t){0};
+}
 
-  s_rssi = RSSI_START;
+static lv_obj_t *new_base_screen(void) {
+  lv_obj_t *scr = lv_obj_create(NULL);
+  lv_obj_set_style_bg_color(scr, current_theme.screen_base, 0);
+  lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+  lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+  return scr;
+}
+
+static void build_pick_scanning(void) {
+  reset_screen();
+  s_screen = new_base_screen();
+
+  ui_chrome_header(s_screen, "LOCATOR", HEADER_ICON);
+  waves_create(s_screen, LV_ALIGN_CENTER, 0, WAVES_Y_OFS, LV_SYMBOL_WIFI, HEADER_ICON);
+  lv_obj_t *cap = lv_label_create(s_screen);
+  lv_label_set_text(cap, "Scanning...");
+  lv_obj_set_style_text_color(cap, current_theme.text_main, 0);
+  lv_obj_set_style_text_font(cap, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_align(cap, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_align(cap, LV_ALIGN_CENTER, 0, CAPTION_Y_OFS);
+  ui_chrome_footer(s_screen, LV_SYMBOL_LEFT "  Back");
+
+  s_state = SL_PICK_SCANNING;
+  ui_input_set_screen_handler(wifi_signal_locator_input, NULL);
+  ui_screen_load_owned(&s_screen, s_screen);
+}
+
+static void build_pick_list(void) {
+  reset_screen();
+  s_screen = new_base_screen();
+
+  s_menu = menu_component_create(s_screen, "LOCATOR", HEADER_ICON);
+  if (s_ap_count == 0) {
+    menu_component_add_item(&s_menu, HEADER_ICON, "No networks found");
+  } else {
+    for (int i = 0; i < s_ap_count; i++) {
+      char row[SSID_BUF_LEN + 16];
+      ap_row_text(&s_aps[i], row, sizeof(row));
+      menu_component_add_item(&s_menu, HEADER_ICON, row);
+    }
+  }
+  menu_component_set_hint(&s_menu, "OK target   BACK exit");
+
+  s_state = SL_PICK_LIST;
+  ui_input_set_screen_handler(wifi_signal_locator_input, NULL);
+  ui_screen_load_owned(&s_screen, s_screen);
+}
+
+static void build_locator(void) {
+  reset_screen();
 
   if (s_big_font == NULL)
     s_big_font = lv_binfont_create(DBM_FONT);
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
+  s_screen = new_base_screen();
 
   ui_chrome_header(s_screen, "LOCATOR", HEADER_ICON);
   ui_chrome_footer(s_screen, "BACK: Exit");
 
   lv_obj_t *target = lv_label_create(s_screen);
-  lv_label_set_text(target, LV_SYMBOL_WIFI "  " TARGET_SSID);
+  lv_label_set_text_fmt(target, LV_SYMBOL_WIFI "  %s", s_sel_ssid);
   lv_obj_set_style_text_font(target, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(target, current_theme.border_accent, 0);
   lv_obj_set_style_bg_color(target, current_theme.bg_secondary, 0);
@@ -239,51 +328,180 @@ void ui_wifi_signal_locator_open(void) {
 
   lv_obj_fade_in(s_screen, ENTRY_FADE_MS, 0);
 
-  ESP_LOGI(TAG, "signal locator open (mock target %s)", TARGET_SSID);
-
+  s_state = SL_LOCATING;
   ui_input_set_screen_handler(wifi_signal_locator_input, NULL);
-  s_drift_timer = lv_timer_create(drift_tick_cb, DRIFT_TICK_MS, NULL);
-
   ui_screen_load_owned(&s_screen, s_screen);
 }
 
-static void stop_drift_timer(void) {
-  if (s_drift_timer != NULL) {
-    lv_timer_delete(s_drift_timer);
-    s_drift_timer = NULL;
+static void signal_update_cb(void *unused) {
+  (void)unused;
+  if (ui_current_screen() != SCREEN_WIFI_SIGNAL_LOCATOR || s_state != SL_LOCATING) {
+    s_poll_run = false;
+    return;
   }
+  int prev = s_rssi;
+  s_rssi = s_shared_rssi;
+  apply_signal(prev);
 }
 
-static void drift_tick_cb(lv_timer_t *timer) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(timer);
-    if (s_drift_timer == timer)
-      s_drift_timer = NULL;
-    return;
+static void signal_worker(void *arg) {
+  (void)arg;
+  for (;;) {
+    s_restart_pending = false;
+    uint8_t bssid[6];
+    uint8_t channel;
+    memcpy(bssid, s_sel_bssid, sizeof(bssid));
+    channel = s_sel_channel;
+
+    signal_monitor_start(bssid, channel);
+
+    while (s_poll_run && !s_restart_pending) {
+      s_shared_rssi = signal_monitor_get_rssi();
+      lv_async_call(signal_update_cb, NULL);
+      vTaskDelay(pdMS_TO_TICKS(SIGNAL_POLL_MS));
+    }
+
+    signal_monitor_stop();
+    if (!s_restart_pending)
+      break;
   }
-  if (s_arc == NULL)
+  s_worker_busy = false;
+  vTaskDelete(NULL);
+}
+
+static void start_locating(void) {
+  s_rssi = RSSI_START;
+  s_shared_rssi = RSSI_START;
+  build_locator();
+
+  s_poll_run = true;
+  if (!s_worker_busy) {
+    s_worker_busy = true;
+    s_restart_pending = false;
+    if (xTaskCreatePinnedToCore(signal_worker, "sig_mon", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL,
+                                SYS_CORE_RADIO) != pdPASS) {
+      s_worker_busy = false;
+    }
+  } else {
+    s_restart_pending = true;
+  }
+  ESP_LOGI(TAG, "signal locator target %s ch %d", s_sel_ssid, s_sel_channel);
+}
+
+static void ap_pick_done_cb(void *unused) {
+  (void)unused;
+  if (ui_current_screen() != SCREEN_WIFI_SIGNAL_LOCATOR || s_state != SL_PICK_SCANNING)
     return;
+  build_pick_list();
+  if (s_ap_count > 0)
+    ui_feedback(UI_FB_READ);
+}
 
-  int prev = s_rssi;
-  s_rssi += rand_range(-DRIFT_BIAS, DRIFT_SPAN);
-  if (s_rssi < RSSI_MIN)
-    s_rssi = RSSI_MIN;
-  if (s_rssi > RSSI_MAX)
-    s_rssi = RSSI_MAX;
+static void ap_pick_task(void *arg) {
+  (void)arg;
+  int n = 0;
 
-  apply_signal(prev);
+  wifi_service_start();
+  if (ap_scanner_start()) {
+    uint16_t count = 0;
+    wifi_ap_record_t *recs = ap_scanner_get_results(&count);
+    if (recs != NULL) {
+      for (uint16_t i = 0; i < count && n < AP_PICK_MAX; i++) {
+        pick_ap_t *ap = &s_aps[n++];
+        strncpy(ap->ssid, (const char *)recs[i].ssid, sizeof(ap->ssid) - 1);
+        ap->ssid[sizeof(ap->ssid) - 1] = '\0';
+        memcpy(ap->bssid, recs[i].bssid, sizeof(ap->bssid));
+        ap->channel = recs[i].primary;
+        ap->rssi = recs[i].rssi;
+      }
+    }
+    ap_scanner_free_results();
+  }
+
+  s_ap_count = n;
+  s_pick_scanning = false;
+  lv_async_call(ap_pick_done_cb, NULL);
+  vTaskDelete(NULL);
+}
+
+static void select_target(int idx) {
+  if (idx < 0 || idx >= s_ap_count)
+    return;
+  const pick_ap_t *ap = &s_aps[idx];
+  memcpy(s_sel_bssid, ap->bssid, sizeof(s_sel_bssid));
+  s_sel_channel = ap->channel;
+  strncpy(s_sel_ssid, ap->ssid, sizeof(s_sel_ssid) - 1);
+  s_sel_ssid[sizeof(s_sel_ssid) - 1] = '\0';
+  start_locating();
+}
+
+static void leave_screen(void) {
+  s_poll_run = false;
+  ui_switch_screen(SCREEN_WIFI_MENU);
 }
 
 static void wifi_signal_locator_input(const input_event_t *ev, void *ctx) {
   (void)ctx;
   const bool press = (ev->action == INPUT_ACTION_PRESS);
-  switch (ev->button) {
-    case INPUT_BTN_BACK:
-    case INPUT_BTN_LEFT:
-      if (press)
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+
+  switch (s_state) {
+    case SL_PICK_SCANNING:
+      if ((ev->button == INPUT_BTN_BACK || ev->button == INPUT_BTN_LEFT) && press)
         ui_switch_screen(SCREEN_WIFI_MENU);
       break;
+
+    case SL_PICK_LIST:
+      switch (ev->button) {
+        case INPUT_BTN_DOWN:
+          if (nav)
+            menu_component_next(&s_menu);
+          break;
+        case INPUT_BTN_UP:
+          if (nav)
+            menu_component_prev(&s_menu);
+          break;
+        case INPUT_BTN_BACK:
+        case INPUT_BTN_LEFT:
+          if (press)
+            ui_switch_screen(SCREEN_WIFI_MENU);
+          break;
+        case INPUT_BTN_OK:
+        case INPUT_BTN_RIGHT:
+          if (press && s_ap_count > 0)
+            select_target(menu_component_get_selected(&s_menu));
+          break;
+        default:
+          break;
+      }
+      break;
+
+    case SL_LOCATING:
+      if ((ev->button == INPUT_BTN_BACK || ev->button == INPUT_BTN_LEFT) && press)
+        leave_screen();
+      break;
+
     default:
       break;
+  }
+}
+
+void ui_wifi_signal_locator_open(void) {
+  s_poll_run = false;
+  s_state = SL_PICK_SCANNING;
+  s_ap_count = 0;
+  s_rssi = RSSI_START;
+  s_shared_rssi = RSSI_START;
+
+  build_pick_scanning();
+
+  if (!s_pick_scanning) {
+    s_pick_scanning = true;
+    if (xTaskCreatePinnedToCore(ap_pick_task, "sig_pick", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL,
+                                SYS_CORE_RADIO) != pdPASS) {
+      s_pick_scanning = false;
+      s_state = SL_PICK_LIST;
+      build_pick_list();
+    }
   }
 }

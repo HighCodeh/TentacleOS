@@ -15,7 +15,7 @@
 
 /**
  * @file wifi_names.h
- * @brief User-editable list of SSIDs the simulated Wi-Fi scan draws from.
+ * @brief User-editable list of SSIDs Wi-Fi lists draws from.
  *
  * Persisted in NVS so edits survive reboots. Seeded with a few realistic
  * defaults on first run. When the list is empty the scan falls back to its

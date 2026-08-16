@@ -18,56 +18,54 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "esp_random.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "sys_prio.h"
 #include "lvgl.h"
 
 #include "menu_component_ui.h"
+#include "probe_monitor.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
+#include "wifi_service.h"
 
 static const char *SCAN_ICON = "/assets/icons/wifi_find.bin";
+static const char *SSID_BROADCAST = "(broadcast)";
 
-#define ADD_TICK_MS 900
-#define PROBE_MAX    9
-#define COLOR_SSID   0xB89AFF
-
-typedef struct {
-  char line[40];
-} probe_row_t;
-
-static const char *SSID_POOL[] = {
-    "HOME-5G",
-    "Starbucks",
-    "iPhone de Ana",
-    "NETVIRTUA_9988",
-    "eduroam",
-    "AndroidAP_77",
-    "Free_WiFi",
-    "GVT-A1B2",
-    "Office-Guest",
-    "MOVISTAR_2EF1",
-};
-#define SSID_POOL_N ((int)(sizeof(SSID_POOL) / sizeof(SSID_POOL[0])))
+#define POLL_INTERVAL_MS 1000
+#define PROBE_UI_MAX     20
+#define PROBE_LINE_LEN   64
+#define COLOR_SSID       0xB89AFF
+#define TASK_STACK_SIZE  8192
+#define TASK_PRIORITY    SYS_PRIO_SERVICE_LO
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
-static lv_timer_t *s_add_timer = NULL;
 
-static int s_count = 0;
-static int s_total = 0;
-static probe_row_t s_rows[PROBE_MAX];
+static volatile bool s_poll_run = false;
+static volatile bool s_worker_busy = false;
+
+static uint16_t s_ui_count = 0;
+static uint16_t s_seen_total = 0;
+static uint16_t s_cued_total = 0;
+static probe_monitor_record_t s_ui_rows[PROBE_UI_MAX];
 
 static void wifi_probe_mon_input(const input_event_t *ev, void *ctx);
 
-static void make_row(probe_row_t *r) {
-  const char *ssid = SSID_POOL[esp_random() % SSID_POOL_N];
-  snprintf(r->line,
-           sizeof(r->line),
-           "%02X:%02X  %s",
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF),
+static void format_row(const probe_monitor_record_t *rec, char *out, size_t out_len) {
+  const char *ssid = (rec->ssid[0] != '\0') ? rec->ssid : SSID_BROADCAST;
+  snprintf(out,
+           out_len,
+           "%02X:%02X:%02X:%02X:%02X:%02X  %ddBm  %s",
+           rec->mac[0],
+           rec->mac[1],
+           rec->mac[2],
+           rec->mac[3],
+           rec->mac[4],
+           rec->mac[5],
+           rec->rssi,
            ssid);
 }
 
@@ -82,13 +80,15 @@ static void build_screen(void) {
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
   char title[24];
-  snprintf(title, sizeof(title), "PROBES  %d", s_total);
+  snprintf(title, sizeof(title), "PROBES  %u", (unsigned)s_seen_total);
   s_menu = menu_component_create(s_screen, title, SCAN_ICON);
-  if (s_count == 0) {
+  if (s_ui_count == 0) {
     menu_component_add_item(&s_menu, SCAN_ICON, "Listening...");
   } else {
-    for (int i = 0; i < s_count; i++) {
-      menu_component_add_item(&s_menu, SCAN_ICON, s_rows[i].line);
+    char line[PROBE_LINE_LEN];
+    for (int i = 0; i < (int)s_ui_count; i++) {
+      format_row(&s_ui_rows[i], line, sizeof(line));
+      menu_component_add_item(&s_menu, SCAN_ICON, line);
       menu_component_set_item_label_color(&s_menu, i, lv_color_hex(COLOR_SSID));
     }
   }
@@ -98,22 +98,50 @@ static void build_screen(void) {
   ui_screen_load_owned(&s_screen, s_screen);
 }
 
-static void add_tick_cb(lv_timer_t *t) {
+static void probe_refresh_cb(void *unused) {
+  (void)unused;
   if (ui_current_screen() != SCREEN_WIFI_PROBE_MON) {
-    lv_timer_delete(t);
-    s_add_timer = NULL;
+    s_poll_run = false;
     return;
   }
-  if (s_count < PROBE_MAX) {
-    make_row(&s_rows[s_count++]);
-  } else {
-    for (int i = 0; i < PROBE_MAX - 1; i++)
-      s_rows[i] = s_rows[i + 1];
-    make_row(&s_rows[PROBE_MAX - 1]);
-  }
-  s_total++;
   build_screen();
-  ui_feedback(UI_FB_NAV);
+  if (s_seen_total > s_cued_total) {
+    s_cued_total = s_seen_total;
+    ui_feedback(UI_FB_NAV);
+  }
+}
+
+static void probe_worker(void *arg) {
+  (void)arg;
+  wifi_service_start();
+  probe_monitor_start();
+
+  while (s_poll_run) {
+    uint16_t n = 0;
+    probe_monitor_record_t *res = probe_monitor_get_results(&n);
+    int copied = 0;
+    if (res != NULL) {
+      int cap = (n < PROBE_UI_MAX) ? (int)n : PROBE_UI_MAX;
+      for (int i = 0; i < cap; i++) {
+        s_ui_rows[i] = res[i];
+      }
+      copied = cap;
+    }
+    probe_monitor_free_results();
+    s_ui_count = (uint16_t)copied;
+    s_seen_total = n;
+    lv_async_call(probe_refresh_cb, NULL);
+    vTaskDelay(pdMS_TO_TICKS(POLL_INTERVAL_MS));
+  }
+
+  probe_monitor_stop();
+  s_worker_busy = false;
+  vTaskDelete(NULL);
+}
+
+static void leave_screen(void) {
+  s_poll_run = false;
+  ui_switch_screen(SCREEN_WIFI_MENU);
 }
 
 static void wifi_probe_mon_input(const input_event_t *ev, void *ctx) {
@@ -132,7 +160,7 @@ static void wifi_probe_mon_input(const input_event_t *ev, void *ctx) {
     case INPUT_BTN_BACK:
     case INPUT_BTN_LEFT:
       if (press)
-        ui_switch_screen(SCREEN_WIFI_MENU);
+        leave_screen();
       break;
     default:
       break;
@@ -140,9 +168,24 @@ static void wifi_probe_mon_input(const input_event_t *ev, void *ctx) {
 }
 
 void ui_wifi_probe_mon_open(void) {
-  s_count = 0;
-  s_total = 0;
+  s_ui_count = 0;
+  s_seen_total = 0;
+  s_cued_total = 0;
+
   build_screen();
-  if (s_add_timer == NULL)
-    s_add_timer = lv_timer_create(add_tick_cb, ADD_TICK_MS, NULL);
+
+  s_poll_run = true;
+  if (!s_worker_busy) {
+    s_worker_busy = true;
+    if (xTaskCreatePinnedToCore(probe_worker,
+                                "probe_mon",
+                                TASK_STACK_SIZE,
+                                NULL,
+                                TASK_PRIORITY,
+                                NULL,
+                                SYS_CORE_RADIO) != pdPASS) {
+      s_worker_busy = false;
+      s_poll_run = false;
+    }
+  }
 }

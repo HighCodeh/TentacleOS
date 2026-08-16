@@ -17,6 +17,9 @@
 
 #include <stdio.h>
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "sys_prio.h"
 #include "lvgl.h"
 #include "st7789.h"
 
@@ -24,6 +27,7 @@
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
+#include "wifi_service.h"
 
 #define UPTIME_TICK_MS 1000
 
@@ -56,7 +60,7 @@
 #define ARC_ROTATION 270
 #define ARC_MIN      0
 #define ARC_MAX      8
-#define ARC_VAL      3
+#define ARC_VAL      0
 #define ARC_TRACK    0x241F31
 
 #define TILE_H      43
@@ -72,20 +76,26 @@
 #define COL_ACC2 0xB89AFF
 
 #define AP_NAME           "HighBoy_AP"
+#define AP_PASSWORD       NULL
+#define AP_MAX_CONN       8
+#define AP_IP             "192.168.4.1"
 #define UPTIME_ONLINE_FMT "AP ONLINE - %02d:%02d"
 #define TXT_OFFLINE       "AP OFFLINE"
 #define UPTIME_BUF        40
-#define START_SECS        134
+#define START_SECS        0
+
+#define TASK_STACK_SIZE 4096
+#define TASK_PRIORITY   SYS_PRIO_SERVICE_LO
+
+#define VAL_PLACEHOLDER "--"
 
 #define LBL_CHANNEL "CHANNEL"
-#define VAL_CHANNEL "6"
+#define VAL_CHANNEL "-"
 #define LBL_GATEWAY "GATEWAY"
-#define VAL_GATEWAY "192.168.4.1"
+#define VAL_GATEWAY AP_IP
 #define LBL_TX      "TX"
-#define VAL_TX      "1.24 MB"
 #define LBL_RX      "RX"
-#define VAL_RX      "338 KB"
-#define ARC_CENTER  "3"
+#define ARC_CENTER  "-"
 #define ARC_SUB     "/ 8"
 
 static lv_obj_t *s_screen = NULL;
@@ -97,6 +107,39 @@ static lv_timer_t *s_uptime_timer = NULL;
 
 static int s_secs = START_SECS;
 static bool s_online = true;
+
+static volatile bool s_ap_busy = false;
+static volatile bool s_ap_desired = false;
+static volatile bool s_ap_dirty = false;
+
+static void ap_apply_task(void *arg) {
+  (void)arg;
+  do {
+    bool want = s_ap_desired;
+    s_ap_dirty = false;
+    if (want) {
+      wifi_service_save_ap_config(AP_NAME, AP_PASSWORD, AP_MAX_CONN, AP_IP, true);
+      wifi_service_start();
+    } else {
+      wifi_service_set_enabled(false);
+    }
+  } while (s_ap_dirty);
+  s_ap_busy = false;
+  vTaskDelete(NULL);
+}
+
+static void ap_request(bool enabled) {
+  s_ap_desired = enabled;
+  s_ap_dirty = true;
+  if (!s_ap_busy) {
+    s_ap_busy = true;
+    if (xTaskCreatePinnedToCore(
+            ap_apply_task, "ap_ctl", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL, SYS_CORE_RADIO) !=
+        pdPASS) {
+      s_ap_busy = false;
+    }
+  }
+}
 
 static lv_obj_t *
 make_label(lv_obj_t *parent, const char *txt, const lv_font_t *font, lv_color_t color) {
@@ -311,10 +354,12 @@ static void build_traffic_row(lv_obj_t *parent) {
   lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_set_style_pad_column(row, TILE_GAP, 0);
 
-  lv_obj_t *tx = make_tile(row, LBL_TX, VAL_TX, lv_color_hex(COL_CYAN), &lv_font_montserrat_14);
+  lv_obj_t *tx =
+      make_tile(row, LBL_TX, VAL_PLACEHOLDER, lv_color_hex(COL_CYAN), &lv_font_montserrat_14);
   lv_obj_set_height(tx, TILE_H);
   lv_obj_set_flex_grow(tx, 1);
-  lv_obj_t *rx = make_tile(row, LBL_RX, VAL_RX, lv_color_hex(COL_ACC2), &lv_font_montserrat_14);
+  lv_obj_t *rx =
+      make_tile(row, LBL_RX, VAL_PLACEHOLDER, lv_color_hex(COL_ACC2), &lv_font_montserrat_14);
   lv_obj_set_height(rx, TILE_H);
   lv_obj_set_flex_grow(rx, 1);
 }
@@ -325,13 +370,17 @@ static void wifi_hotspot_input(const input_event_t *ev, void *ctx) {
   switch (ev->button) {
     case INPUT_BTN_BACK:
     case INPUT_BTN_LEFT:
-      if (press)
+      if (press) {
+        stop_uptime_timer();
+        ap_request(false);
         ui_switch_screen(SCREEN_WIFI_MENU);
+      }
       break;
     case INPUT_BTN_OK:
       if (press) {
         s_online = !s_online;
         apply_online();
+        ap_request(s_online);
         ui_feedback(UI_FB_SELECT);
       }
       break;
@@ -380,6 +429,8 @@ void ui_wifi_hotspot_open(void) {
   build_traffic_row(stack);
 
   apply_online();
+
+  ap_request(true);
 
   ui_input_set_screen_handler(wifi_hotspot_input, NULL);
   s_uptime_timer = lv_timer_create(uptime_tick_cb, UPTIME_TICK_MS, NULL);

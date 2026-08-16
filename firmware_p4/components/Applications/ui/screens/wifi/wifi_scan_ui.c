@@ -18,7 +18,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sys_prio.h"
@@ -31,16 +30,15 @@
 #include "ui_manager.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
-#include "wifi_names.h"
+#include "wifi_service.h"
 
 static const char *TAG_ICON = "/assets/icons/wifi_find.bin";
 
-#define SCAN_MS         1500
-#define AP_MAX          12
+#define AP_MAX          20
 #define COLOR_SECURE    0x00E676
 #define COLOR_OPEN      0xFFC107
 #define TASK_STACK_SIZE 8192
-#define TASK_PRIORITY SYS_PRIO_SERVICE_LO
+#define TASK_PRIORITY   SYS_PRIO_SERVICE_LO
 
 #define SCAN_WAVES_Y_OFS   -6
 #define SCAN_CAPTION_Y_OFS 78
@@ -48,35 +46,12 @@ static const char *TAG_ICON = "/assets/icons/wifi_find.bin";
 typedef enum { SCAN_RUNNING, SCAN_DONE } scan_state_t;
 
 typedef struct {
-  char ssid[25];
+  char ssid[33];
   uint8_t bssid[6];
   uint8_t channel;
   int8_t rssi;
-  const char *enc;
-} fake_ap_t;
-
-static const char *SSID_POOL[] = {
-    "NET_VIVO_2.4G",
-    "VIVOFIBRA-5521",
-    "CLARO_WIFI_3A",
-    "GVT-A1B2",
-    "TP-Link_4F2A",
-    "iPhone de Ana",
-    "AndroidAP_77",
-    "NETVIRTUA_9988",
-    "Linksys",
-    "Office-Guest",
-    "martin_cabo",
-    "MOVISTAR_2EF1",
-    "PORTAL_WIFI",
-    "Familia Souza",
-    "ALHN-2A40",
-    "DIRECT-PC-Setup",
-};
-#define SSID_POOL_N ((int)(sizeof(SSID_POOL) / sizeof(SSID_POOL[0])))
-
-static const char *ENC_POOL[] = {"WPA2", "WPA3", "WPA/WPA2", "WPA2", "OPEN"};
-#define ENC_POOL_N ((int)(sizeof(ENC_POOL) / sizeof(ENC_POOL[0])))
+  uint8_t authmode;
+} scan_ap_t;
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
@@ -85,7 +60,7 @@ static scan_state_t s_scan_state = SCAN_RUNNING;
 static bool s_scanning = false;
 static bool s_scan_cued = false;
 static int s_ap_count = 0;
-static fake_ap_t s_aps[AP_MAX];
+static scan_ap_t s_aps[AP_MAX];
 
 static void wifi_scan_input(const input_event_t *ev, void *ctx);
 
@@ -99,55 +74,27 @@ static const char *icon_for_rssi(int8_t rssi) {
   return "/assets/icons/signal_wifi_0_bar.bin";
 }
 
-#define SRC_MAX 32
-
-static int src_count(void) {
-  int n = wifi_names_count();
-  int c = n > 0 ? n : SSID_POOL_N;
-  return c > SRC_MAX ? SRC_MAX : c;
-}
-static const char *src_ssid(int i) {
-  return wifi_names_count() > 0 ? wifi_names_get(i) : SSID_POOL[i];
-}
-
-static void generate_aps(void) {
-  const int pool = src_count();
-  int want = 6 + (int)(esp_random() % 7);
-  if (want > pool)
-    want = pool;
-  bool ssid_used[SRC_MAX] = {false};
-  int n = 0;
-  for (int i = 0; i < want && n < AP_MAX; i++) {
-    int s;
-    int guard = 0;
-    do {
-      s = (int)(esp_random() % pool);
-    } while (ssid_used[s] && ++guard < 32);
-    if (ssid_used[s])
-      continue;
-    ssid_used[s] = true;
-
-    fake_ap_t *ap = &s_aps[n++];
-    const char *name = src_ssid(s);
-    strncpy(ap->ssid, name ? name : "(unknown)", sizeof(ap->ssid) - 1);
-    ap->ssid[sizeof(ap->ssid) - 1] = '\0';
-    for (int b = 0; b < 6; b++)
-      ap->bssid[b] = (uint8_t)(esp_random() & 0xFF);
-    ap->channel = (uint8_t)(1 + esp_random() % 11);
-    ap->rssi = (int8_t)(-35 - (int)(esp_random() % 55));
-    ap->enc = ENC_POOL[esp_random() % ENC_POOL_N];
+static const char *enc_for_authmode(uint8_t mode) {
+  switch (mode) {
+    case WIFI_AUTH_OPEN:
+      return "OPEN";
+    case WIFI_AUTH_WEP:
+      return "WEP";
+    case WIFI_AUTH_WPA_PSK:
+      return "WPA";
+    case WIFI_AUTH_WPA2_PSK:
+      return "WPA2";
+    case WIFI_AUTH_WPA_WPA2_PSK:
+      return "WPA/WPA2";
+    case WIFI_AUTH_WPA3_PSK:
+      return "WPA3";
+    case WIFI_AUTH_WPA2_WPA3_PSK:
+      return "WPA2/WPA3";
+    case WIFI_AUTH_WPA2_ENTERPRISE:
+      return "WPA2-EAP";
+    default:
+      return "SEC";
   }
-
-  for (int i = 1; i < n; i++) {
-    fake_ap_t key = s_aps[i];
-    int j = i - 1;
-    while (j >= 0 && s_aps[j].rssi < key.rssi) {
-      s_aps[j + 1] = s_aps[j];
-      j--;
-    }
-    s_aps[j + 1] = key;
-  }
-  s_ap_count = n;
 }
 
 static void build_screen(void) {
@@ -180,7 +127,7 @@ static void build_screen(void) {
     } else {
       for (int i = 0; i < s_ap_count; i++) {
         menu_component_add_item(&s_menu, icon_for_rssi(s_aps[i].rssi), s_aps[i].ssid);
-        uint32_t col = (strcmp(s_aps[i].enc, "OPEN") == 0) ? COLOR_OPEN : COLOR_SECURE;
+        uint32_t col = (s_aps[i].authmode == WIFI_AUTH_OPEN) ? COLOR_OPEN : COLOR_SECURE;
         menu_component_set_item_label_color(&s_menu, i, lv_color_hex(col));
       }
     }
@@ -204,8 +151,28 @@ static void scan_done_cb(void *unused) {
 
 static void wifi_scan_task(void *arg) {
   (void)arg;
-  vTaskDelay(pdMS_TO_TICKS(SCAN_MS));
-  generate_aps();
+
+  wifi_service_start();
+  esp_err_t err = wifi_service_scan();
+
+  int n = 0;
+  if (err == ESP_OK) {
+    uint16_t count = wifi_service_get_ap_count();
+    for (uint16_t i = 0; i < count && n < AP_MAX; i++) {
+      wifi_ap_record_t *rec = wifi_service_get_ap_record(i);
+      if (rec == NULL)
+        continue;
+      scan_ap_t *ap = &s_aps[n++];
+      strncpy(ap->ssid, (const char *)rec->ssid, sizeof(ap->ssid) - 1);
+      ap->ssid[sizeof(ap->ssid) - 1] = '\0';
+      memcpy(ap->bssid, rec->bssid, sizeof(ap->bssid));
+      ap->channel = rec->primary;
+      ap->rssi = rec->rssi;
+      ap->authmode = (uint8_t)rec->authmode;
+    }
+  }
+
+  s_ap_count = n;
   s_scan_state = SCAN_DONE;
   s_scanning = false;
   lv_async_call(scan_done_cb, NULL);
@@ -215,7 +182,7 @@ static void wifi_scan_task(void *arg) {
 static void show_ap_details(int idx) {
   if (idx < 0 || idx >= s_ap_count)
     return;
-  const fake_ap_t *ap = &s_aps[idx];
+  const scan_ap_t *ap = &s_aps[idx];
   char msg[96];
   snprintf(msg,
            sizeof(msg),
@@ -228,7 +195,7 @@ static void show_ap_details(int idx) {
            ap->bssid[4],
            ap->bssid[5],
            ap->channel,
-           ap->enc,
+           enc_for_authmode(ap->authmode),
            ap->rssi);
   msgbox_open(LV_SYMBOL_WIFI, msg, "OK", NULL, NULL);
 }
@@ -274,11 +241,12 @@ void ui_wifi_scan_open(void) {
 
   if (!s_scanning) {
     s_scanning = true;
-    if (xTaskCreatePinnedToCore(wifi_scan_task, "wifi_sim_scan", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL, SYS_CORE_UI) !=
+    if (xTaskCreatePinnedToCore(
+            wifi_scan_task, "wifi_scan", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL, SYS_CORE_RADIO) !=
         pdPASS) {
       s_scanning = false;
       s_scan_state = SCAN_DONE;
-      generate_aps();
+      s_ap_count = 0;
       build_screen();
     }
   }

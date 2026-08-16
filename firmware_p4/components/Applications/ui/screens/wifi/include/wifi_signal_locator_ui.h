@@ -22,7 +22,7 @@ extern "C" {
 
 /**
  * @brief Open the Wi-Fi signal locator screen — a hot/cold RSSI meter that
- *        drifts with a warmer/colder hint to home in on a target (mock / demo).
+ *        drifts with a warmer/colder hint to home in on a target.
  */
 void ui_wifi_signal_locator_open(void);
 

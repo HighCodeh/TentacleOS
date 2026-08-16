@@ -29,12 +29,12 @@
 #include "ui_manager.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
+#include "wifi_service.h"
 
 static const char *TAG = "WIFI_CHAN_UI";
 
-#define MAX_ROWS         12
-#define SCAN_SIM_STEPS   4
-#define SCAN_SIM_STEP_MS 220
+#define MAX_ROWS        12
+#define CHAN_MAX        14
 #define TASK_STACK_SIZE 8192
 #define TASK_PRIORITY SYS_PRIO_SERVICE_LO
 
@@ -72,21 +72,6 @@ static const char *TAG = "WIFI_CHAN_UI";
 #define REC_CANDIDATE_SPAN 2
 
 typedef enum { SCAN_RUNNING, SCAN_DONE, SCAN_FAIL } scan_state_t;
-
-typedef struct {
-  uint8_t channel;
-  uint8_t ap_count;
-  int8_t best_rssi;
-} mock_channel_t;
-
-static const mock_channel_t MOCK_CHANNELS[] = {
-    {1, 5, -42},
-    {6, 3, -55},
-    {11, 4, -49},
-    {3, 1, -71},
-    {9, 2, -63},
-};
-#define MOCK_CHANNEL_COUNT (sizeof(MOCK_CHANNELS) / sizeof(MOCK_CHANNELS[0]))
 
 static const uint8_t REC_CANDIDATES[] = {1, 6, 11};
 #define REC_CANDIDATE_COUNT (sizeof(REC_CANDIDATES) / sizeof(REC_CANDIDATES[0]))
@@ -294,16 +279,45 @@ static void scan_done_cb(void *unused) {
 
 static void wifi_channel_task(void *arg) {
   (void)arg;
+
+  wifi_service_start();
+  esp_err_t err = wifi_service_scan();
+  if (err != ESP_OK) {
+    s_row_count = 0;
+    s_scan_state = SCAN_FAIL;
+    s_scanning = false;
+    lv_async_call(scan_done_cb, NULL);
+    vTaskDelete(NULL);
+    return;
+  }
+
+  uint8_t chan_ap_count[CHAN_MAX + 1] = {0};
+  int8_t chan_best_rssi[CHAN_MAX + 1];
+  for (int c = 0; c <= CHAN_MAX; c++)
+    chan_best_rssi[c] = -128;
+
+  uint16_t count = wifi_service_get_ap_count();
+  for (uint16_t i = 0; i < count; i++) {
+    wifi_ap_record_t *rec = wifi_service_get_ap_record(i);
+    if (rec == NULL)
+      continue;
+    uint8_t ch = rec->primary;
+    if (ch < 1 || ch > CHAN_MAX)
+      continue;
+    if (chan_ap_count[ch] < 255)
+      chan_ap_count[ch]++;
+    if (rec->rssi > chan_best_rssi[ch])
+      chan_best_rssi[ch] = rec->rssi;
+  }
+
   int rows = 0;
-
-  for (int i = 0; i < SCAN_SIM_STEPS; i++)
-    vTaskDelay(pdMS_TO_TICKS(SCAN_SIM_STEP_MS));
-
-  for (size_t i = 0; i < MOCK_CHANNEL_COUNT && rows < MAX_ROWS; i++) {
-    s_row_channel[rows] = MOCK_CHANNELS[i].channel;
-    s_row_ap_count[rows] = MOCK_CHANNELS[i].ap_count;
-    s_row_rssi[rows] = MOCK_CHANNELS[i].best_rssi;
-    s_row_color[rows] = color_for_count(MOCK_CHANNELS[i].ap_count);
+  for (int ch = 1; ch <= CHAN_MAX && rows < MAX_ROWS; ch++) {
+    if (chan_ap_count[ch] == 0)
+      continue;
+    s_row_channel[rows] = (uint8_t)ch;
+    s_row_ap_count[rows] = chan_ap_count[ch];
+    s_row_rssi[rows] = chan_best_rssi[ch];
+    s_row_color[rows] = color_for_count(chan_ap_count[ch]);
     rows++;
   }
 
@@ -350,7 +364,7 @@ void ui_wifi_channel_open(void) {
 
   if (!s_scanning) {
     s_scanning = true;
-    if (xTaskCreatePinnedToCore(wifi_channel_task, "wifi_chan", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL, SYS_CORE_UI) !=
+    if (xTaskCreatePinnedToCore(wifi_channel_task, "wifi_chan", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL, SYS_CORE_RADIO) !=
         pdPASS) {
       s_scanning = false;
       s_scan_state = SCAN_FAIL;
@@ -358,5 +372,5 @@ void ui_wifi_channel_open(void) {
     }
   }
 
-  ESP_LOGI(TAG, "Channel analysis screen opened (mock scan)");
+  ESP_LOGI(TAG, "Channel analysis screen opened (live scan)");
 }

@@ -21,7 +21,7 @@ extern "C" {
 #endif
 
 /**
- * @brief Open the Wi-Fi attacks submenu (mock / demo only).
+ * @brief Open the Wi-Fi attacks submenu.
  */
 void ui_wifi_attack_open(void);
 

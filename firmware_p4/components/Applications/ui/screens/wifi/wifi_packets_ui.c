@@ -16,40 +16,47 @@
 #include "wifi_packets_ui.h"
 
 #include "esp_log.h"
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "lvgl.h"
 #include "st7789.h"
+#include "sys_prio.h"
 
 #include "menu_component_ui.h"
-#include "msgbox_ui.h"
-#include "notify_ui.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
+#include "wifi_service.h"
+#include "wifi_sniffer.h"
 
 static const char *TAG = "WIFI_PACKETS_UI";
 
-#define CAPTURE_TICK_MS 120
+#define PACKETS_POLL_MS 500
+#define RATE_WINDOW_MS  1000
+#define TASK_STACK_SIZE 8192
+#define TASK_PRIORITY   SYS_PRIO_SERVICE_LO
 
-#define OUTER_BORDER           4
-#define TOP_BORDER_H           46
-#define TOP_AREA_BORDER_WIDTH  3
-#define TITLE_BAR_W            170
-#define TITLE_BAR_H            30
-#define TITLE_BAR_RADIUS       12
-#define TITLE_BAR_BORDER_WIDTH 2
+#define TOP_BORDER_H 46
+
+#define PACKET_Y_PLAIN (-56)
+#define PACKET_Y_EAPOL (-76)
+#define HANDSHAKE_Y    (-56)
+#define RATE_Y         (-42)
 
 typedef struct {
   const char *name;
-  int step;
+  wifi_sniffer_type_t type;
   bool eapol;
-  int channel;
+  uint8_t channel;
 } capture_def_t;
 
 static const capture_def_t MODES[] = {
-    {"Raw Sniffer", 9, false, 6},
-    {"EAPOL / Handshake", 4, true, 1},
-    {"Beacon Sniff", 6, false, 11},
-    {"PMKID", 3, false, 3},
+    {"Raw Sniffer", WIFI_SNIFFER_TYPE_RAW, false, 6},
+    {"EAPOL / Handshake", WIFI_SNIFFER_TYPE_EAPOL, true, 1},
+    {"Beacon Sniff", WIFI_SNIFFER_TYPE_BEACON, false, 11},
+    {"PMKID", WIFI_SNIFFER_TYPE_PMKID, false, 3},
 };
 #define MODES_COUNT (sizeof(MODES) / sizeof(MODES[0]))
 
@@ -67,55 +74,115 @@ typedef enum {
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
-static lv_timer_t *s_capture_timer = NULL;
 
 static view_t s_view = VIEW_LIST;
 static int s_mode_idx = 0;
-static long s_packets = 0;
-static long s_packets_prev = 0;
-static int s_tick_accum = 0;
-static int s_handshakes = 0;
-static int s_capture_seq = 0;
 static lv_obj_t *s_packet_label = NULL;
 static lv_obj_t *s_rate_label = NULL;
 static lv_obj_t *s_handshake_label = NULL;
-static lv_obj_t *s_hex_label = NULL;
 static lv_obj_t *s_waves = NULL;
-static uint32_t s_hex_seed = 0xC0FFEE11;
+
+static volatile bool s_poll_run = false;
+static volatile bool s_worker_busy = false;
+static volatile uint32_t s_pkt_count = 0;
+static volatile bool s_hs_captured = false;
+
+static uint32_t s_rate_prev_count = 0;
+static uint32_t s_rate_prev_ms = 0;
 
 static void wifi_packets_input(const input_event_t *ev, void *ctx);
-static void capture_tick_cb(lv_timer_t *timer);
 static void build_list_view(void);
 static void build_capturing_view(int idx);
-static void stop_capture_timer(void);
+static void start_capture(void);
+static void stop_capture(void);
 
 static void fade_in(lv_obj_t *obj, uint32_t ms) {
   if (obj != NULL)
     lv_obj_fade_in(obj, ms, 0);
 }
 
-static uint32_t next_rand(void) {
-  s_hex_seed = s_hex_seed * 1664525u + 1013904223u;
-  return s_hex_seed;
+static void packets_update_cb(void *unused) {
+  (void)unused;
+  if (ui_current_screen() != SCREEN_WIFI_PACKETS_MENU || s_view != VIEW_CAPTURING) {
+    s_poll_run = false;
+    return;
+  }
+  if (s_packet_label == NULL)
+    return;
+
+  uint32_t count = s_pkt_count;
+  lv_label_set_text_fmt(s_packet_label, "Packets: %lu", (unsigned long)count);
+
+  uint32_t now = lv_tick_get();
+  if (s_rate_prev_ms == 0) {
+    s_rate_prev_ms = now;
+    s_rate_prev_count = count;
+  } else if (s_rate_label != NULL) {
+    uint32_t dt = now - s_rate_prev_ms;
+    if (dt >= RATE_WINDOW_MS) {
+      unsigned long per_sec = (unsigned long)(count - s_rate_prev_count) * 1000UL / dt;
+      lv_label_set_text_fmt(s_rate_label, "%lu pkt/s", per_sec);
+      s_rate_prev_ms = now;
+      s_rate_prev_count = count;
+    }
+  }
+
+  if (MODES[s_mode_idx].eapol && s_handshake_label != NULL)
+    lv_label_set_text_fmt(s_handshake_label, "Handshakes: %d", s_hs_captured ? 1 : 0);
 }
 
-static void make_hex_line(char *buf, size_t buflen) {
-  size_t pos = 0;
-  for (int i = 0; i < 6 && pos + 3 < buflen; i++) {
-    int n = snprintf(
-        buf + pos, buflen - pos, (i == 0) ? "%02X" : " %02X", (unsigned)(next_rand() & 0xFF));
-    if (n < 0)
-      break;
-    pos += (size_t)n;
+static void packets_worker(void *arg) {
+  (void)arg;
+  int mode_idx = s_mode_idx;
+
+  wifi_service_start();
+  wifi_sniffer_start(MODES[mode_idx].type, MODES[mode_idx].channel);
+
+  while (s_poll_run) {
+    uint32_t count = wifi_sniffer_get_packet_count();
+    bool hs = false;
+    if (MODES[mode_idx].eapol)
+      hs = wifi_sniffer_handshake_captured();
+    s_pkt_count = count;
+    s_hs_captured = hs;
+    lv_async_call(packets_update_cb, NULL);
+    vTaskDelay(pdMS_TO_TICKS(PACKETS_POLL_MS));
+  }
+
+  wifi_sniffer_stop();
+  s_worker_busy = false;
+  vTaskDelete(NULL);
+}
+
+static void start_capture(void) {
+  s_pkt_count = 0;
+  s_hs_captured = false;
+  s_rate_prev_count = 0;
+  s_rate_prev_ms = 0;
+
+  s_poll_run = true;
+  if (!s_worker_busy) {
+    s_worker_busy = true;
+    if (xTaskCreatePinnedToCore(packets_worker, "pkts_worker", TASK_STACK_SIZE, NULL, TASK_PRIORITY,
+                                NULL, SYS_CORE_RADIO) != pdPASS) {
+      s_worker_busy = false;
+      s_poll_run = false;
+      ESP_LOGW(TAG, "failed to spawn packet capture worker");
+    }
   }
 }
 
+static void stop_capture(void) {
+  s_poll_run = false;
+}
+
 void ui_wifi_packets_open(void) {
+  stop_capture();
+
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
   }
-  s_capture_timer = NULL;
   s_view = VIEW_LIST;
 
   s_screen = lv_obj_create(NULL);
@@ -135,7 +202,6 @@ static void clear_screen_children(void) {
   s_packet_label = NULL;
   s_rate_label = NULL;
   s_handshake_label = NULL;
-  s_hex_label = NULL;
   s_waves = NULL;
 }
 
@@ -155,14 +221,10 @@ static void build_list_view(void) {
 }
 
 static void build_capturing_view(int idx) {
-  stop_capture_timer();
+  stop_capture();
   clear_screen_children();
 
   s_mode_idx = idx;
-  s_packets = 0;
-  s_packets_prev = 0;
-  s_tick_accum = 0;
-  s_handshakes = 0;
 
   lv_obj_set_style_border_width(s_screen, 0, 0);
   lv_obj_set_style_pad_all(s_screen, 0, 0);
@@ -185,19 +247,19 @@ static void build_capturing_view(int idx) {
 
   s_waves = waves_create(s_screen, LV_ALIGN_CENTER, 0, 12, LV_SYMBOL_DOWNLOAD, NULL);
 
-  int packet_y = -56;
+  int packet_y = PACKET_Y_PLAIN;
   if (MODES[idx].eapol) {
     s_handshake_label = lv_label_create(s_screen);
-    lv_label_set_text_fmt(s_handshake_label, "Handshakes: %d", s_handshakes);
+    lv_label_set_text(s_handshake_label, "Handshakes: 0");
     lv_obj_set_style_text_color(s_handshake_label, current_theme.border_accent, 0);
     lv_obj_set_style_text_font(s_handshake_label, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_align(s_handshake_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(s_handshake_label, LV_ALIGN_BOTTOM_MID, 0, -56);
-    packet_y = -76;
+    lv_obj_align(s_handshake_label, LV_ALIGN_BOTTOM_MID, 0, HANDSHAKE_Y);
+    packet_y = PACKET_Y_EAPOL;
   }
 
   s_packet_label = lv_label_create(s_screen);
-  lv_label_set_text_fmt(s_packet_label, "Packets: %ld", s_packets);
+  lv_label_set_text(s_packet_label, "Packets: 0");
   lv_obj_set_style_text_color(s_packet_label, current_theme.border_accent, 0);
   lv_obj_set_style_text_font(s_packet_label, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_align(s_packet_label, LV_TEXT_ALIGN_CENTER, 0);
@@ -208,16 +270,9 @@ static void build_capturing_view(int idx) {
   lv_obj_set_style_text_color(s_rate_label, current_theme.text_main, 0);
   lv_obj_set_style_text_font(s_rate_label, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_align(s_rate_label, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_align(s_rate_label, LV_ALIGN_BOTTOM_MID, 0, -42);
+  lv_obj_align(s_rate_label, LV_ALIGN_BOTTOM_MID, 0, RATE_Y);
 
-  s_hex_label = lv_label_create(s_screen);
-  lv_label_set_text(s_hex_label, "-- -- -- -- -- --");
-  lv_obj_set_style_text_color(s_hex_label, current_theme.border_inactive, 0);
-  lv_obj_set_style_text_font(s_hex_label, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_align(s_hex_label, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_align(s_hex_label, LV_ALIGN_BOTTOM_MID, 0, -28);
-
-  ui_chrome_footer(s_screen, "BACK to stop & save");
+  ui_chrome_footer(s_screen, "BACK to stop");
 
   fade_in(header, 200);
   fade_in(status_label, 200);
@@ -227,51 +282,7 @@ static void build_capturing_view(int idx) {
     fade_in(s_handshake_label, 200);
 
   s_view = VIEW_CAPTURING;
-  s_capture_timer = lv_timer_create(capture_tick_cb, CAPTURE_TICK_MS, NULL);
-}
-
-static void stop_capture_timer(void) {
-  if (s_capture_timer != NULL) {
-    lv_timer_delete(s_capture_timer);
-    s_capture_timer = NULL;
-  }
-}
-
-static void capture_tick_cb(lv_timer_t *timer) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(timer);
-    if (s_capture_timer == timer)
-      s_capture_timer = NULL;
-    return;
-  }
-  if (s_view != VIEW_CAPTURING || s_packet_label == NULL)
-    return;
-
-  s_packets += MODES[s_mode_idx].step;
-  lv_label_set_text_fmt(s_packet_label, "Packets: %ld", s_packets);
-
-  if (s_hex_label != NULL) {
-    char hex[24];
-    make_hex_line(hex, sizeof(hex));
-    lv_label_set_text(s_hex_label, hex);
-  }
-
-  s_tick_accum++;
-  int ticks_per_sec = (1000 + CAPTURE_TICK_MS - 1) / CAPTURE_TICK_MS;
-  if (s_tick_accum >= ticks_per_sec && s_rate_label != NULL) {
-    long delta = s_packets - s_packets_prev;
-    long per_sec = delta * 1000 / (s_tick_accum * CAPTURE_TICK_MS);
-    lv_label_set_text_fmt(s_rate_label, "%ld pkt/s", per_sec);
-    s_packets_prev = s_packets;
-    s_tick_accum = 0;
-  }
-
-  if (MODES[s_mode_idx].eapol && s_handshake_label != NULL) {
-    if ((s_packets / MODES[s_mode_idx].step) % 12 == 0) {
-      s_handshakes++;
-      lv_label_set_text_fmt(s_handshake_label, "Handshakes: %d", s_handshakes);
-    }
-  }
+  start_capture();
 }
 
 static void wifi_packets_input(const input_event_t *ev, void *ctx) {
@@ -298,7 +309,7 @@ static void wifi_packets_input(const input_event_t *ev, void *ctx) {
         if (press) {
           int sel = menu_component_get_selected(&s_menu);
           if (sel >= 0 && sel < (int)MODES_COUNT) {
-            ESP_LOGI(TAG, "mock capture start: %s", MODES[sel].name);
+            ESP_LOGI(TAG, "capture start: %s", MODES[sel].name);
             build_capturing_view(sel);
           }
         }
@@ -311,12 +322,8 @@ static void wifi_packets_input(const input_event_t *ev, void *ctx) {
       case INPUT_BTN_BACK:
       case INPUT_BTN_LEFT:
         if (press) {
-          stop_capture_timer();
-          s_capture_seq++;
-          ESP_LOGI(TAG, "mock capture stopped: %s (%ld pkts)", MODES[s_mode_idx].name, s_packets);
-          char msg[48];
-          snprintf(msg, sizeof(msg), "Saved capture_%02d.pcap", s_capture_seq);
-          notify(NOTIFY_SAVED, msg);
+          stop_capture();
+          ESP_LOGI(TAG, "capture stopped: %s", MODES[s_mode_idx].name);
           build_list_view();
         }
         break;

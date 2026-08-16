@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-/** @brief Open the editor for the simulated-scan network name list. */
+/** @brief Open the editor for the saved network name list. */
 void ui_wifi_names_open(void);
 
 #ifdef __cplusplus

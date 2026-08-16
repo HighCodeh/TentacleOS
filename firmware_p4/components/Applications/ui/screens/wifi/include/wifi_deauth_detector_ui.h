@@ -22,7 +22,7 @@ extern "C" {
 
 /**
  * @brief Open the Wi-Fi deauth detector screen — a defensive monitor that
- *        flips from a calm green idle to a red ALERT state (mock / demo only).
+ *        flips from a calm green idle to a red ALERT state.
  */
 void ui_wifi_deauth_detector_open(void);
 

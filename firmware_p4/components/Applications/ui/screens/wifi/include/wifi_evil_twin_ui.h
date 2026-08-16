@@ -21,7 +21,7 @@ extern "C" {
 #endif
 
 /**
- * @brief Open the Wi-Fi evil-twin running screen (mock / demo only).
+ * @brief Open the Wi-Fi evil-twin running screen.
  */
 void ui_wifi_evil_twin_open(void);
 

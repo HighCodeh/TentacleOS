@@ -21,7 +21,7 @@ extern "C" {
 #endif
 
 /**
- * @brief Open the WiFi probe-request monitor (mock): a live-growing list of the
+ * @brief Open the WiFi probe-request monitor: a live-growing list of the
  *        client MACs nearby and the SSIDs they are probing for.
  */
 void ui_wifi_probe_mon_open(void);

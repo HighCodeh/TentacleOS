@@ -21,7 +21,7 @@ extern "C" {
 #endif
 
 /**
- * @brief Open the Wi-Fi packet capture submenu (mock / demo only).
+ * @brief Open the Wi-Fi packet capture submenu.
  */
 void ui_wifi_packets_open(void);
 

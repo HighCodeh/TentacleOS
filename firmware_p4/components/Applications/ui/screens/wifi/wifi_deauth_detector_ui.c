@@ -15,16 +15,23 @@
 
 #include "wifi_deauth_detector_ui.h"
 
-#include "esp_log.h"
-#include "esp_random.h"
+#include <stdint.h>
 
+#include "esp_log.h"
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "lvgl.h"
+#include "sys_prio.h"
+
+#include "deauther_detector.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
+#include "wifi_service.h"
 
 static const char *TAG = "WIFI_DEAUTH_DET_UI";
 
-#define MONITOR_TICK_MS 140
 #define ENTRY_FADE_MS   240
 #define BANNER_BLINK_MS 450
 
@@ -50,15 +57,11 @@ static const char *TAG = "WIFI_DEAUTH_DET_UI";
 #define CALM_COLOR  0x00E676
 #define DIM_COLOR   0x8A8594
 
-#define ALERT_CHANCE_PCT 6
-#define PCT_MODULO       100
-#define BURST_TICKS_MIN  12
-#define BURST_TICKS_SPAN 20
-#define FRAME_STEP_MIN   3
-#define FRAME_STEP_SPAN  10
+#define POLL_INTERVAL_MS 1000
+#define TASK_STACK_SIZE  8192
+#define TASK_PRIORITY    SYS_PRIO_SERVICE_LO
 
 static lv_obj_t *s_screen = NULL;
-static lv_timer_t *s_monitor_timer = NULL;
 static lv_font_t *s_big_font = NULL;
 
 static lv_obj_t *s_card = NULL;
@@ -66,17 +69,13 @@ static lv_obj_t *s_count_label = NULL;
 static lv_obj_t *s_status_label = NULL;
 static lv_obj_t *s_banner = NULL;
 
-static bool s_alert = false;
-static long s_frames = 0;
-static int s_burst_remaining = 0;
+static bool s_is_baseline_set = false;
+static uint32_t s_last_count = 0;
+static volatile bool s_is_poll_running = false;
+static volatile bool s_is_worker_busy = false;
 
 static void wifi_deauth_detector_input(const input_event_t *ev, void *ctx);
-static void monitor_tick_cb(lv_timer_t *timer);
-static void stop_monitor_timer(void);
-
-static int rand_range(int base, int span) {
-  return base + (int)(esp_random() % (uint32_t)span);
-}
+static void stop_detection(void);
 
 static void banner_blink_cb(void *var, int32_t v) {
   lv_obj_set_style_opa((lv_obj_t *)var, (lv_opa_t)v, 0);
@@ -120,7 +119,69 @@ static void apply_state(bool alert) {
   }
 }
 
+static void count_ready_cb(void *param) {
+  if (ui_current_screen() != SCREEN_WIFI_DEAUTH_DETECTOR) {
+    s_is_poll_running = false;
+    return;
+  }
+
+  uint32_t count = (uint32_t)(uintptr_t)param;
+
+  if (s_count_label != NULL)
+    lv_label_set_text_fmt(s_count_label, "%lu", (unsigned long)count);
+
+  bool alert;
+  if (!s_is_baseline_set) {
+    s_is_baseline_set = true;
+    alert = false;
+  } else {
+    alert = (count > s_last_count);
+  }
+  s_last_count = count;
+
+  apply_state(alert);
+}
+
+static void detector_worker(void *arg) {
+  (void)arg;
+  wifi_service_start();
+  deauther_detector_start();
+
+  while (s_is_poll_running) {
+    uint32_t count = deauther_detector_get_count();
+    lv_async_call(count_ready_cb, (void *)(uintptr_t)count);
+    vTaskDelay(pdMS_TO_TICKS(POLL_INTERVAL_MS));
+  }
+
+  deauther_detector_stop();
+  s_is_worker_busy = false;
+  vTaskDelete(NULL);
+}
+
+static void start_detection(void) {
+  s_is_poll_running = true;
+  if (!s_is_worker_busy) {
+    s_is_worker_busy = true;
+    if (xTaskCreatePinnedToCore(detector_worker,
+                                "deauth_worker",
+                                TASK_STACK_SIZE,
+                                NULL,
+                                TASK_PRIORITY,
+                                NULL,
+                                SYS_CORE_RADIO) != pdPASS) {
+      s_is_worker_busy = false;
+      ESP_LOGW(TAG, "Failed to spawn deauth worker");
+    }
+  }
+}
+
+static void stop_detection(void) {
+  s_is_poll_running = false;
+}
+
 void ui_wifi_deauth_detector_open(void) {
+  stop_detection();
+
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
@@ -129,11 +190,9 @@ void ui_wifi_deauth_detector_open(void) {
     s_status_label = NULL;
     s_banner = NULL;
   }
-  stop_monitor_timer();
 
-  s_alert = false;
-  s_frames = 0;
-  s_burst_remaining = 0;
+  s_is_baseline_set = false;
+  s_last_count = 0;
 
   if (s_big_font == NULL)
     s_big_font = lv_binfont_create(COUNT_FONT);
@@ -208,48 +267,13 @@ void ui_wifi_deauth_detector_open(void) {
 
   lv_obj_fade_in(s_screen, ENTRY_FADE_MS, 0);
 
-  ESP_LOGI(TAG, "deauth detector open (mock)");
+  ESP_LOGI(TAG, "deauth detector open");
 
   ui_input_set_screen_handler(wifi_deauth_detector_input, NULL);
-  s_monitor_timer = lv_timer_create(monitor_tick_cb, MONITOR_TICK_MS, NULL);
+
+  start_detection();
 
   ui_screen_load_owned(&s_screen, s_screen);
-}
-
-static void stop_monitor_timer(void) {
-  if (s_monitor_timer != NULL) {
-    lv_timer_delete(s_monitor_timer);
-    s_monitor_timer = NULL;
-  }
-}
-
-static void monitor_tick_cb(lv_timer_t *timer) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(timer);
-    if (s_monitor_timer == timer)
-      s_monitor_timer = NULL;
-    return;
-  }
-  if (s_count_label == NULL)
-    return;
-
-  if (!s_alert) {
-    if ((esp_random() % PCT_MODULO) < ALERT_CHANCE_PCT) {
-      s_alert = true;
-      s_burst_remaining = rand_range(BURST_TICKS_MIN, BURST_TICKS_SPAN);
-      apply_state(true);
-    }
-    return;
-  }
-
-  s_frames += rand_range(FRAME_STEP_MIN, FRAME_STEP_SPAN);
-  lv_label_set_text_fmt(s_count_label, "%ld", s_frames);
-
-  s_burst_remaining--;
-  if (s_burst_remaining <= 0) {
-    s_alert = false;
-    apply_state(false);
-  }
 }
 
 static void wifi_deauth_detector_input(const input_event_t *ev, void *ctx) {
@@ -259,8 +283,10 @@ static void wifi_deauth_detector_input(const input_event_t *ev, void *ctx) {
   switch (ev->button) {
     case INPUT_BTN_BACK:
     case INPUT_BTN_LEFT:
-      if (press)
+      if (press) {
+        stop_detection();
         ui_switch_screen(SCREEN_WIFI_MENU);
+      }
       break;
     default:
       break;

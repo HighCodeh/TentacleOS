@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-/** @brief Open the simulated Wi-Fi scan screen (fake but realistic APs). */
+/** @brief Open the Wi-Fi scan screen (live scan via the C5 over the SPI bridge). */
 void ui_wifi_scan_open(void);
 
 #ifdef __cplusplus

@@ -23,7 +23,7 @@ extern "C" {
 /**
  * @brief Open the Wi-Fi handshake capture monitor screen — a target AP/STA
  *        card, an EAPOL pulse-train waveform, and M1-M4 frame badges that
- *        light green as the 4-way handshake completes (mock / demo).
+ *        light green as the 4-way handshake completes.
  */
 void ui_wifi_handshake_open(void);
 

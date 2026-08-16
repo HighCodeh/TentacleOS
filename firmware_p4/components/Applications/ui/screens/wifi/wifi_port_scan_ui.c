@@ -18,7 +18,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sys_prio.h"
@@ -26,82 +25,45 @@
 
 #include "menu_component_ui.h"
 #include "msgbox_ui.h"
+#include "port_scan.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
+#include "wifi_service.h"
 
 static const char *SCAN_ICON = "/assets/icons/wifi_find.bin";
 
-#define SCAN_MS         1600
-#define TARGET_HOST     "192.168.1.10"
-#define COLOR_OPEN      0x00E676
-#define TASK_STACK_SIZE 8192
-#define TASK_PRIORITY SYS_PRIO_SERVICE_LO
-#define CAPTION_Y_OFS   78
-#define WAVES_Y_OFS     -6
+#define DEFAULT_TARGET_IP "192.168.1.1"
+#define SCAN_START_PORT   1
+#define SCAN_END_PORT     1024
+#define COLOR_OPEN        0x00E676
+#define TASK_STACK_SIZE   8192
+#define TASK_PRIORITY     SYS_PRIO_SERVICE_LO
+#define CAPTION_Y_OFS     78
+#define WAVES_Y_OFS       -6
+#define PORT_MAX          32
 
 typedef enum { SCAN_RUNNING, SCAN_DONE } scan_state_t;
-
-typedef struct {
-  int port;
-  const char *proto;
-  const char *service;
-  const char *banner;
-} open_port_t;
-
-static const open_port_t PORT_POOL[] = {
-    {22, "TCP", "SSH", "OpenSSH 8.9p1"},
-    {53, "UDP", "DNS", "dnsmasq 2.85"},
-    {80, "TCP", "HTTP", "nginx 1.24.0"},
-    {139, "TCP", "NetBIOS", "Samba"},
-    {443, "TCP", "HTTPS", "nginx 1.24.0"},
-    {445, "TCP", "SMB", "Windows 10"},
-    {1883, "TCP", "MQTT", "Mosquitto 2.0"},
-    {8080, "TCP", "HTTP-ALT", "lighttpd"},
-    {8443, "TCP", "HTTPS-ALT", "openresty"},
-};
-#define PORT_POOL_N ((int)(sizeof(PORT_POOL) / sizeof(PORT_POOL[0])))
-#define PORT_MAX    8
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
 
 static scan_state_t s_state = SCAN_RUNNING;
 static bool s_scanning = false;
+static bool s_connected = false;
 static int s_count = 0;
-static open_port_t s_ports[PORT_MAX];
+static port_scan_result_t s_results[PORT_MAX];
 
 static void wifi_port_scan_input(const input_event_t *ev, void *ctx);
 
-static void generate_ports(void) {
-  bool used[PORT_POOL_N] = {false};
-  int want = 3 + (int)(esp_random() % 4);
-  if (want > PORT_POOL_N)
-    want = PORT_POOL_N;
-  int n = 0;
-  for (int i = 0; i < want && n < PORT_MAX; i++) {
-    int p;
-    int guard = 0;
-    do {
-      p = (int)(esp_random() % PORT_POOL_N);
-    } while (used[p] && ++guard < 32);
-    if (used[p])
-      continue;
-    used[p] = true;
-    s_ports[n++] = PORT_POOL[p];
-  }
-  for (int i = 1; i < n; i++) {
-    open_port_t key = s_ports[i];
-    int j = i - 1;
-    while (j >= 0 && s_ports[j].port > key.port) {
-      s_ports[j + 1] = s_ports[j];
-      j--;
-    }
-    s_ports[j + 1] = key;
-  }
-  s_count = n;
+static const char *proto_str(port_scan_protocol_t proto) {
+  return (proto == PORT_SCAN_PROTO_UDP) ? "UDP" : "TCP";
+}
+
+static const char *status_str(port_scan_status_t status) {
+  return (status == PORT_SCAN_STATUS_OPEN_FILTERED) ? "OPEN|FILTERED" : "OPEN";
 }
 
 static void build_screen(void) {
@@ -120,24 +82,29 @@ static void build_screen(void) {
     ui_chrome_header(s_screen, "PORT SCAN", SCAN_ICON);
     waves_create(s_screen, LV_ALIGN_CENTER, 0, WAVES_Y_OFS, LV_SYMBOL_WIFI, SCAN_ICON);
     lv_obj_t *cap = lv_label_create(s_screen);
-    lv_label_set_text(cap, "Scanning " TARGET_HOST);
+    lv_label_set_text(cap, "Scanning " DEFAULT_TARGET_IP);
     lv_obj_set_style_text_color(cap, current_theme.text_main, 0);
     lv_obj_set_style_text_font(cap, &lv_font_montserrat_14, 0);
     lv_obj_align(cap, LV_ALIGN_CENTER, 0, CAPTION_Y_OFS);
     ui_chrome_footer(s_screen, LV_SYMBOL_LEFT "  Back");
   } else {
-    s_menu = menu_component_create(s_screen, TARGET_HOST, SCAN_ICON);
-    if (s_count == 0) {
+    s_menu = menu_component_create(s_screen, DEFAULT_TARGET_IP, SCAN_ICON);
+    if (!s_connected) {
+      menu_component_add_item(&s_menu, SCAN_ICON, "Not connected");
+      menu_component_set_item_label_color(&s_menu, 0, current_theme.border_inactive);
+      menu_component_set_hint(&s_menu, "Connect to Wi-Fi first");
+    } else if (s_count == 0) {
       menu_component_add_item(&s_menu, SCAN_ICON, "No open ports");
+      menu_component_set_hint(&s_menu, "BACK exit");
     } else {
       for (int i = 0; i < s_count; i++) {
         char row[40];
-        snprintf(row, sizeof(row), "%d  %s", s_ports[i].port, s_ports[i].service);
+        snprintf(row, sizeof(row), "%d  %s", s_results[i].port, proto_str(s_results[i].protocol));
         menu_component_add_item(&s_menu, SCAN_ICON, row);
         menu_component_set_item_label_color(&s_menu, i, lv_color_hex(COLOR_OPEN));
       }
+      menu_component_set_hint(&s_menu, "OK details   BACK exit");
     }
-    menu_component_set_hint(&s_menu, "OK banner   BACK exit");
   }
 
   ui_input_set_screen_handler(wifi_port_scan_input, NULL);
@@ -150,14 +117,26 @@ static void scan_done_cb(void *unused) {
   if (ui_current_screen() != SCREEN_WIFI_PORT_SCAN)
     return;
   build_screen();
-  if (s_count > 0)
+  if (s_connected && s_count > 0)
     ui_feedback(UI_FB_READ);
 }
 
 static void scan_task(void *arg) {
   (void)arg;
-  vTaskDelay(pdMS_TO_TICKS(SCAN_MS));
-  generate_ports();
+
+  int n = 0;
+  bool connected = wifi_service_is_connected();
+  if (connected) {
+    n = port_scan_target_range(
+        DEFAULT_TARGET_IP, SCAN_START_PORT, SCAN_END_PORT, s_results, PORT_MAX);
+    if (n < 0)
+      n = 0;
+    if (n > PORT_MAX)
+      n = PORT_MAX;
+  }
+
+  s_connected = connected;
+  s_count = n;
   s_state = SCAN_DONE;
   s_scanning = false;
   lv_async_call(scan_done_cb, NULL);
@@ -167,16 +146,16 @@ static void scan_task(void *arg) {
 static void show_port(int idx) {
   if (idx < 0 || idx >= s_count)
     return;
-  const open_port_t *p = &s_ports[idx];
-  char msg[96];
+  const port_scan_result_t *p = &s_results[idx];
+  char msg[128];
   snprintf(msg,
            sizeof(msg),
            "%s : %d/%s\n%s\n%s",
-           TARGET_HOST,
+           p->ip_str,
            p->port,
-           p->proto,
-           p->service,
-           p->banner);
+           proto_str(p->protocol),
+           status_str(p->status),
+           (p->banner[0] != '\0') ? p->banner : "no banner");
   msgbox_open(LV_SYMBOL_WIFI, msg, "OK", NULL, NULL);
 }
 
@@ -201,7 +180,7 @@ static void wifi_port_scan_input(const input_event_t *ev, void *ctx) {
       break;
     case INPUT_BTN_OK:
     case INPUT_BTN_RIGHT:
-      if (press && s_state == SCAN_DONE && s_count > 0)
+      if (press && s_state == SCAN_DONE && s_connected && s_count > 0)
         show_port(menu_component_get_selected(&s_menu));
       break;
     default:
@@ -212,14 +191,19 @@ static void wifi_port_scan_input(const input_event_t *ev, void *ctx) {
 void ui_wifi_port_scan_open(void) {
   s_state = SCAN_RUNNING;
   s_count = 0;
+  s_connected = false;
   build_screen();
   if (!s_scanning) {
     s_scanning = true;
-    if (xTaskCreatePinnedToCore(scan_task, "port_scan_sim", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL, SYS_CORE_UI) !=
-        pdPASS) {
+    if (xTaskCreatePinnedToCore(scan_task,
+                                "port_scan",
+                                TASK_STACK_SIZE,
+                                NULL,
+                                TASK_PRIORITY,
+                                NULL,
+                                SYS_CORE_RADIO) != pdPASS) {
       s_scanning = false;
       s_state = SCAN_DONE;
-      generate_ports();
       build_screen();
     }
   }
