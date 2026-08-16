@@ -48,7 +48,6 @@ static bool s_usb_no_sleep_held = false;
 
 static void wifi_loading_timer_cb(lv_timer_t *timer);
 static void show_wifi_loading(void);
-static void update_wifi_toggle(void);
 static void connection_settings_input(const input_event_t *ev, void *ctx);
 
 void ui_connection_settings_open(void) {
@@ -57,7 +56,7 @@ void ui_connection_settings_open(void) {
     s_screen_conn = NULL;
   }
 
-  bool is_wifi_active = true;
+  bool is_wifi_active = wifi_service_is_active();
 
   s_screen_conn = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen_conn, current_theme.screen_base, 0);
@@ -96,11 +95,6 @@ static void show_wifi_loading(void) {
   msgbox_open(LV_SYMBOL_WIFI, "LIGANDO WIFI...", NULL, NULL, NULL);
   s_wifi_loading_timer =
       lv_timer_create(wifi_loading_timer_cb, WIFI_LOADING_TIMER_INTERVAL_MS, NULL);
-}
-
-static void update_wifi_toggle(void) {
-  bool is_active = wifi_service_is_active();
-  menu_component_set_toggle(&s_menu, IDX_WIFI, is_active);
 }
 
 static void conn_toggle(int sel) {

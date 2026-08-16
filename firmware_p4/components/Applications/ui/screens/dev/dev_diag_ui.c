@@ -17,8 +17,12 @@
 
 #include <stdio.h>
 
+#include "esp_heap_caps.h"
 #include "lvgl.h"
 
+#include "battery_service.h"
+#include "spi_bridge.h"
+#include "sys_metrics.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
@@ -41,24 +45,25 @@
 #define CHART_H      44
 #define STATS_H      40
 
-#define HEAP_BASE    56
-#define HEAP_SPAN    12
-#define CPU_MIN      18
-#define CPU_SPAN     62
-#define HEAP_KB_BASE 150
+#define INT_MAX_KB     256
+#define DMA_MAX_KB     64
+#define TEMP_MIN_C     10
+#define TEMP_MAX_C     80
+#define TEMP_INVALID_C (-300.0f)
+#define BATT_LOW_PCT   20
 
 static lv_obj_t *s_screen = NULL;
 static lv_timer_t *s_tick = NULL;
 
 static lv_obj_t *s_heap_chart = NULL;
 static lv_chart_series_t *s_heap_ser = NULL;
-static lv_obj_t *s_cpu_chart = NULL;
-static lv_chart_series_t *s_cpu_ser = NULL;
+static lv_obj_t *s_dma_chart = NULL;
+static lv_chart_series_t *s_dma_ser = NULL;
 static lv_obj_t *s_heap_val = NULL;
-static lv_obj_t *s_cpu_val = NULL;
-
-static uint32_t s_seed = 0x1234abcdu;
-static int s_phase = 0;
+static lv_obj_t *s_dma_val = NULL;
+static lv_obj_t *s_batt_val = NULL;
+static lv_obj_t *s_temp_val = NULL;
+static lv_obj_t *s_c5_val = NULL;
 
 static lv_obj_t *make_panel(lv_obj_t *parent, int h) {
   lv_obj_t *p = lv_obj_create(parent);
@@ -147,7 +152,15 @@ static lv_obj_t *make_stat(lv_obj_t *row, const char *key, const char *val, uint
   lv_label_set_text(v, val);
   lv_obj_set_style_text_color(v, lv_color_hex(color), 0);
   lv_obj_set_style_text_font(v, &lv_font_montserrat_14, 0);
-  return c;
+  return v;
+}
+
+static float read_die_temp(void) {
+  float celsius = TEMP_INVALID_C;
+  if (!sys_metrics_die_temp_c(&celsius)) {
+    return TEMP_INVALID_C;
+  }
+  return celsius;
 }
 
 static void tick_cb(lv_timer_t *t) {
@@ -156,24 +169,51 @@ static void tick_cb(lv_timer_t *t) {
     s_tick = NULL;
     return;
   }
-  s_phase = (s_phase + 11) % 360;
-  int heap = HEAP_BASE + (HEAP_SPAN * (lv_trigo_sin((int16_t)s_phase) + 32767)) / 65534;
-  s_seed = s_seed * 1103515245u + 12345u;
-  int cpu = CPU_MIN + (int)((s_seed >> 16) % (uint32_t)CPU_SPAN);
+
+  int int_kb = (int)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024);
+  int dma_kb = (int)(heap_caps_get_free_size(MALLOC_CAP_DMA) / 1024);
 
   if (s_heap_ser != NULL)
-    lv_chart_set_next_value(s_heap_chart, s_heap_ser, heap);
-  if (s_cpu_ser != NULL)
-    lv_chart_set_next_value(s_cpu_chart, s_cpu_ser, cpu);
+    lv_chart_set_next_value(s_heap_chart, s_heap_ser, int_kb);
+  if (s_dma_ser != NULL)
+    lv_chart_set_next_value(s_dma_chart, s_dma_ser, dma_kb);
 
-  char buf[16];
+  char buf[24];
   if (s_heap_val != NULL) {
-    snprintf(buf, sizeof(buf), "%d KB", HEAP_KB_BASE + heap);
+    snprintf(buf, sizeof(buf), "%d KB", int_kb);
     lv_label_set_text(s_heap_val, buf);
   }
-  if (s_cpu_val != NULL) {
-    snprintf(buf, sizeof(buf), "%d%%", cpu);
-    lv_label_set_text(s_cpu_val, buf);
+  if (s_dma_val != NULL) {
+    snprintf(buf, sizeof(buf), "%d KB", dma_kb);
+    lv_label_set_text(s_dma_val, buf);
+  }
+
+  if (s_batt_val != NULL) {
+    battery_snapshot_t b;
+    if (battery_service_get(&b) && b.valid) {
+      snprintf(buf, sizeof(buf), "%d%%", b.soc);
+      lv_obj_set_style_text_color(
+          s_batt_val, lv_color_hex(b.soc <= BATT_LOW_PCT ? WARN_COLOR : OK_COLOR), 0);
+    } else {
+      snprintf(buf, sizeof(buf), "--");
+    }
+    lv_label_set_text(s_batt_val, buf);
+  }
+
+  if (s_temp_val != NULL) {
+    float celsius = read_die_temp();
+    if (celsius > TEMP_INVALID_C) {
+      snprintf(buf, sizeof(buf), "%d\xC2\xB0" "C", (int)(celsius + 0.5f));
+    } else {
+      snprintf(buf, sizeof(buf), "--");
+    }
+    lv_label_set_text(s_temp_val, buf);
+  }
+
+  if (s_c5_val != NULL) {
+    bool alive = spi_bridge_is_alive();
+    lv_label_set_text(s_c5_val, alive ? "OK" : "OFF");
+    lv_obj_set_style_text_color(s_c5_val, lv_color_hex(alive ? OK_COLOR : WARN_COLOR), 0);
   }
 }
 
@@ -213,21 +253,26 @@ static void build_screen(void) {
   lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(col, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
 
+  int int_kb = (int)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024);
+  int dma_kb = (int)(heap_caps_get_free_size(MALLOC_CAP_DMA) / 1024);
+
   lv_obj_t *heap_panel = make_panel(col, CHART_H + 40);
-  s_heap_val = make_value_label(heap_panel, "Heap free", 0xB89AFF, "206 KB");
+  s_heap_val = make_value_label(heap_panel, "Internal free", 0xB89AFF, "-- KB");
   s_heap_chart = lv_chart_create(heap_panel);
   style_chart(s_heap_chart, 0xB89AFF, true);
+  lv_chart_set_range(s_heap_chart, LV_CHART_AXIS_PRIMARY_Y, 0, INT_MAX_KB);
   s_heap_ser = lv_chart_add_series(s_heap_chart, lv_color_hex(0xB89AFF), LV_CHART_AXIS_PRIMARY_Y);
 
-  lv_obj_t *cpu_panel = make_panel(col, CHART_H + 40);
-  s_cpu_val = make_value_label(cpu_panel, "CPU load", CYAN_COLOR, "41%");
-  s_cpu_chart = lv_chart_create(cpu_panel);
-  style_chart(s_cpu_chart, CYAN_COLOR, false);
-  s_cpu_ser = lv_chart_add_series(s_cpu_chart, lv_color_hex(CYAN_COLOR), LV_CHART_AXIS_PRIMARY_Y);
+  lv_obj_t *dma_panel = make_panel(col, CHART_H + 40);
+  s_dma_val = make_value_label(dma_panel, "DMA free", CYAN_COLOR, "-- KB");
+  s_dma_chart = lv_chart_create(dma_panel);
+  style_chart(s_dma_chart, CYAN_COLOR, false);
+  lv_chart_set_range(s_dma_chart, LV_CHART_AXIS_PRIMARY_Y, 0, DMA_MAX_KB);
+  s_dma_ser = lv_chart_add_series(s_dma_chart, lv_color_hex(CYAN_COLOR), LV_CHART_AXIS_PRIMARY_Y);
 
   for (int i = 0; i < CHART_POINTS; i++) {
-    lv_chart_set_next_value(s_heap_chart, s_heap_ser, HEAP_BASE);
-    lv_chart_set_next_value(s_cpu_chart, s_cpu_ser, CPU_MIN);
+    lv_chart_set_next_value(s_heap_chart, s_heap_ser, int_kb);
+    lv_chart_set_next_value(s_dma_chart, s_dma_ser, dma_kb);
   }
 
   lv_obj_t *stats = lv_obj_create(col);
@@ -240,13 +285,9 @@ static void build_screen(void) {
   lv_obj_set_flex_flow(stats, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(
       stats, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  make_stat(stats, "Batt", "84%", OK_COLOR);
-  make_stat(stats,
-            "Temp",
-            "41\xC2\xB0"
-            "C",
-            CYAN_COLOR);
-  make_stat(stats, "C5", "OFF", WARN_COLOR);
+  s_batt_val = make_stat(stats, "Batt", "--", OK_COLOR);
+  s_temp_val = make_stat(stats, "Temp", "--", CYAN_COLOR);
+  s_c5_val = make_stat(stats, "C5", "--", DIM_COLOR);
 
   ui_input_set_screen_handler(dev_diag_input, NULL);
 
@@ -255,7 +296,6 @@ static void build_screen(void) {
 
 void ui_dev_diag_open(void) {
   s_tick = NULL;
-  s_phase = 0;
   build_screen();
   s_tick = lv_timer_create(tick_cb, TICK_MS, NULL);
 }

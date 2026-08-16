@@ -15,9 +15,15 @@
 
 #include "c5_status_ui.h"
 
+#include <stdint.h>
+#include <string.h>
+
 #include "st7789.h"
 
 #include "notify_ui.h"
+#include "ota_version.h"
+#include "spi_bridge.h"
+#include "spi_protocol.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -40,8 +46,8 @@
 #define HDR_ICON  "/assets/icons/developer_board.bin"
 #define HDR_TITLE "C5 STATUS"
 
-#define C5_FW_VERSION       "v0.9.1"
-#define C5_EXPECTED_VERSION "v0.9.1"
+#define C5_VER_TIMEOUT_MS 500
+#define C5_VER_BUF_LEN    24
 
 enum {
   ACT_DOWNLOAD = 0,
@@ -63,25 +69,27 @@ static const action_def_t ACTIONS[ACT_COUNT] = {
     {LV_SYMBOL_LIST, "Get Info", NOTIFY_SAVED, "C5 v0.9.1  heap 41 KB free"},
 };
 
-typedef struct {
-  const char *tag;
-  const char *val;
-  bool val_success;
-} info_def_t;
-
-static const info_def_t INFO_ROWS[] = {
-    {"Link", "ALIVE", true},
-    {"C5 FW", C5_FW_VERSION, false},
-    {"Expected", C5_EXPECTED_VERSION, false},
-};
-#define INFO_COUNT ((int)(sizeof(INFO_ROWS) / sizeof(INFO_ROWS[0])))
-
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_act_row[ACT_COUNT];
 static lv_obj_t *s_act_icon[ACT_COUNT];
 static lv_obj_t *s_act_name[ACT_COUNT];
 
 static int s_sel = 0;
+
+static lv_obj_t *info_row(lv_obj_t *card, int index, const char *tag_txt, const char *val_txt) {
+  lv_obj_t *tag = lv_label_create(card);
+  lv_label_set_text(tag, tag_txt);
+  lv_obj_set_style_text_font(tag, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(tag, current_theme.text_main, 0);
+  lv_obj_align(tag, LV_ALIGN_TOP_LEFT, 0, index * INFO_ROW_GAP);
+
+  lv_obj_t *val = lv_label_create(card);
+  lv_label_set_text(val, val_txt);
+  lv_obj_set_style_text_font(val, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(val, lv_color_hex(COL_DIM), 0);
+  lv_obj_align(val, LV_ALIGN_TOP_RIGHT, 0, index * INFO_ROW_GAP);
+  return val;
+}
 
 static void build_info_card(void) {
   lv_obj_t *card = lv_obj_create(s_screen);
@@ -100,20 +108,22 @@ static void build_info_card(void) {
   lv_obj_set_style_shadow_color(card, current_theme.border_accent, 0);
   lv_obj_set_style_shadow_opa(card, LV_OPA_30, 0);
 
-  for (int i = 0; i < INFO_COUNT; i++) {
-    lv_obj_t *tag = lv_label_create(card);
-    lv_label_set_text(tag, INFO_ROWS[i].tag);
-    lv_obj_set_style_text_font(tag, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(tag, current_theme.text_main, 0);
-    lv_obj_align(tag, LV_ALIGN_TOP_LEFT, 0, i * INFO_ROW_GAP);
-
-    lv_obj_t *val = lv_label_create(card);
-    lv_label_set_text(val, INFO_ROWS[i].val);
-    lv_obj_set_style_text_font(val, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(
-        val, INFO_ROWS[i].val_success ? lv_color_hex(COL_SUCCESS) : lv_color_hex(COL_DIM), 0);
-    lv_obj_align(val, LV_ALIGN_TOP_RIGHT, 0, i * INFO_ROW_GAP);
+  bool alive = spi_bridge_is_alive();
+  char cver[C5_VER_BUF_LEN] = "?";
+  if (alive) {
+    spi_header_t hdr;
+    char ver[C5_VER_BUF_LEN] = {0};
+    if (spi_bridge_send_command(SPI_ID_SYSTEM_VERSION, NULL, 0, &hdr, (uint8_t *)ver, sizeof(ver),
+                                C5_VER_TIMEOUT_MS) == ESP_OK &&
+        ver[0] != '\0')
+      strlcpy(cver, ver, sizeof(cver));
   }
+
+  lv_obj_t *link_val = info_row(card, 0, "Link", alive ? "ALIVE" : "DOWN");
+  if (alive)
+    lv_obj_set_style_text_color(link_val, lv_color_hex(COL_SUCCESS), 0);
+  info_row(card, 1, "C5 FW", cver);
+  info_row(card, 2, "Expected", FIRMWARE_VERSION);
 }
 
 static lv_obj_t *make_action_row(lv_obj_t *parent, int i) {

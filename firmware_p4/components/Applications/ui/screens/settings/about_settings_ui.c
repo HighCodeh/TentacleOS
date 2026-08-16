@@ -15,7 +15,14 @@
 
 #include "about_settings_ui.h"
 
+#include <stdint.h>
+#include <stdio.h>
+
+#include "esp_mac.h"
+#include "esp_timer.h"
+
 #include "assets_manager.h"
+#include "ota_service.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
@@ -112,8 +119,10 @@ void ui_about_settings_open(void) {
   lv_obj_set_style_text_color(name, current_theme.text_main, 0);
   lv_obj_set_style_pad_top(name, 4, 0);
 
+  char fwbuf[32];
+  snprintf(fwbuf, sizeof(fwbuf), "FW %s", ota_get_current_version());
   lv_obj_t *fw = lv_label_create(col);
-  lv_label_set_text(fw, "FW 2.0.0  -  4180701");
+  lv_label_set_text(fw, fwbuf);
   lv_obj_set_style_text_font(fw, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(fw, current_theme.border_accent, 0);
   lv_obj_set_style_pad_bottom(fw, 4, 0);
@@ -127,9 +136,26 @@ void ui_about_settings_open(void) {
   lv_obj_set_style_pad_row(chips, 6, 0);
   lv_obj_set_style_pad_column(chips, 6, 0);
 
+  uint8_t mac[6] = {0};
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  char macbuf[32];
+  snprintf(macbuf,
+           sizeof(macbuf),
+           "MAC %02X:%02X:%02X:%02X:%02X:%02X",
+           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+  uint32_t up_s = (uint32_t)(esp_timer_get_time() / 1000000);
+  char upbuf[32];
+  snprintf(upbuf,
+           sizeof(upbuf),
+           "Uptime %u:%02u:%02u",
+           (unsigned)(up_s / 3600),
+           (unsigned)((up_s / 60) % 60),
+           (unsigned)(up_s % 60));
+
   add_chip(chips, "ESP32-P4", true);
-  add_chip(chips, "MAC A4:CF:12:9B", false);
-  add_chip(chips, "Uptime 00:12:43", false);
+  add_chip(chips, macbuf, false);
+  add_chip(chips, upbuf, false);
   add_chip(chips, LV_SYMBOL_COPY " 2025 HIGH CODE", true);
 
   lv_obj_fade_in(col, ENTRY_FADE_MS, 0);

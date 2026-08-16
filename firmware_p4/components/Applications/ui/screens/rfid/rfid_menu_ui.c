@@ -102,6 +102,18 @@ static const char *TAG = "RFID_UI";
 
 #define CARD_H_WIDE  162
 #define CARD_Y_READ  8
+
+#define CARD_TOP      0x3A1170
+#define CARD_BOT      0x140230
+#define CARD_EDGE     0xB060FF
+#define CARD_TXT      0xFFFFFF
+#define CHIP_W        30
+#define CHIP_H        22
+#define CHIP_RADIUS   5
+#define CHIP_LINE_W   26
+#define CHIP_GOLD_TOP 0xD9A521
+#define CHIP_GOLD_BOT 0xF4D36B
+#define CHIP_LINE_COL 0x7A5A10
 #define SAVED_CARD_Y (-28)
 #define SAVED_ACT_Y  (-24)
 
@@ -128,32 +140,16 @@ static const char *TAG = "RFID_UI";
 #define WIEGAND_CN_MASK  0xFFFF
 
 #define WIEGAND_ROWS 3
-#define WIEGAND_Y0   91
+#define WIEGAND_Y0   100
 #define WIEGAND_STEP 15
 
 #define FIELD_FADE_MS    220
 #define FIELD_STAGGER_MS 70
 
-#define BADGE_W       30
-#define BADGE_H       24
-#define BADGE_RADIUS  6
-#define BADGE_ICON_PX 16
-
-#define CARD_TITLE_X 38
-#define CARD_TITLE_Y 1
-#define CARD_SUB_X   38
-#define CARD_SUB_Y   21
-#define CARD_LINE_Y  52
-#define CARD_META_Y  74
-
-#define COIL_COUNT  3
-#define COIL_W      42
-#define COIL_H      2
-#define COIL_RADIUS 1
-#define COIL_GAP    5
-#define COIL_OPA    LV_OPA_40
-#define COIL_X_OFS  -6
-#define COIL_Y_OFS  -6
+#define CARD_TITLE_Y 30
+#define CARD_SUB_Y   49
+#define CARD_LINE_Y  66
+#define CARD_META_Y  83
 
 #define TX_DOT_SIZE     12
 #define TX_DOT_GAP      4
@@ -372,7 +368,8 @@ static lv_obj_t *build_data_card(lv_obj_t *parent,
                                  const char *meta_txt,
                                  bool assemble,
                                  bool wiegand) {
-  lv_color_t accent = current_theme.border_accent;
+  lv_color_t edge = lv_color_hex(CARD_EDGE);
+  lv_color_t text = lv_color_hex(CARD_TXT);
   uint32_t delay = assemble ? FIELD_STAGGER_MS : 0;
 
   lv_obj_t *card = lv_obj_create(parent);
@@ -380,54 +377,57 @@ static lv_obj_t *build_data_card(lv_obj_t *parent,
   lv_obj_set_size(card, CARD_W, wiegand ? CARD_H_WIDE : CARD_H);
   lv_obj_set_style_radius(card, CARD_RADIUS, 0);
   lv_obj_set_style_pad_all(card, CARD_PAD, 0);
-  lv_obj_set_style_bg_color(card, current_theme.bg_secondary, 0);
-  lv_obj_set_style_bg_grad_dir(card, LV_GRAD_DIR_NONE, 0);
+  lv_obj_set_style_bg_color(card, lv_color_hex(CARD_TOP), 0);
+  lv_obj_set_style_bg_grad_color(card, lv_color_hex(CARD_BOT), 0);
+  lv_obj_set_style_bg_grad_dir(card, LV_GRAD_DIR_VER, 0);
   lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(card, CARD_BORDER, 0);
-  lv_obj_set_style_border_color(card, accent, 0);
-  lv_obj_set_style_shadow_color(card, accent, 0);
+  lv_obj_set_style_border_color(card, edge, 0);
+  lv_obj_set_style_shadow_color(card, edge, 0);
   lv_obj_set_style_shadow_width(card, CARD_SHADOW_W, 0);
   lv_obj_set_style_shadow_opa(card, LV_OPA_30, 0);
 
-  lv_obj_t *badge = lv_obj_create(card);
-  lv_obj_remove_flag(badge, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(badge, BADGE_W, BADGE_H);
-  lv_obj_align(badge, LV_ALIGN_TOP_LEFT, 0, 0);
-  lv_obj_set_style_radius(badge, BADGE_RADIUS, 0);
-  lv_obj_set_style_pad_all(badge, 0, 0);
-  lv_obj_set_style_bg_color(badge, current_theme.bg_primary, 0);
-  lv_obj_set_style_bg_opa(badge, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_width(badge, 1, 0);
-  lv_obj_set_style_border_color(badge, accent, 0);
-
-  lv_image_dsc_t *icon = assets_get(CARD_ICON);
-  if (icon != NULL) {
-    lv_obj_t *img = lv_image_create(badge);
-    lv_image_set_src(img, icon);
-    int32_t longest = icon->header.w > icon->header.h ? icon->header.w : icon->header.h;
-    if (longest > 0)
-      lv_image_set_scale(img, BADGE_ICON_PX * 256 / longest);
-    lv_obj_set_style_image_recolor(img, current_theme.text_main, 0);
-    lv_obj_set_style_image_recolor_opa(img, LV_OPA_COVER, 0);
-    lv_obj_center(img);
+  lv_obj_t *chip = lv_obj_create(card);
+  lv_obj_remove_flag(chip, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(chip, CHIP_W, CHIP_H);
+  lv_obj_align(chip, LV_ALIGN_TOP_LEFT, 0, 0);
+  lv_obj_set_style_radius(chip, CHIP_RADIUS, 0);
+  lv_obj_set_style_pad_all(chip, 0, 0);
+  lv_obj_set_style_border_width(chip, 0, 0);
+  lv_obj_set_style_bg_color(chip, lv_color_hex(CHIP_GOLD_TOP), 0);
+  lv_obj_set_style_bg_grad_color(chip, lv_color_hex(CHIP_GOLD_BOT), 0);
+  lv_obj_set_style_bg_grad_dir(chip, LV_GRAD_DIR_VER, 0);
+  for (int i = 0; i < 2; i++) {
+    lv_obj_t *ln = lv_obj_create(chip);
+    lv_obj_remove_flag(ln, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(ln, CHIP_LINE_W, 1);
+    lv_obj_align(ln, LV_ALIGN_CENTER, 0, i == 0 ? -5 : 5);
+    lv_obj_set_style_border_width(ln, 0, 0);
+    lv_obj_set_style_radius(ln, 0, 0);
+    lv_obj_set_style_bg_color(ln, lv_color_hex(CHIP_LINE_COL), 0);
+    lv_obj_set_style_bg_opa(ln, LV_OPA_70, 0);
   }
   if (assemble)
-    fade_in(badge, FIELD_FADE_MS, 0);
+    fade_in(chip, FIELD_FADE_MS, 0);
 
   lv_obj_t *title = lv_label_create(card);
+  lv_obj_set_width(title, lv_pct(100));
+  lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
   lv_label_set_text(title, title_txt);
-  lv_obj_set_style_text_color(title, current_theme.text_main, 0);
+  lv_obj_set_style_text_color(title, text, 0);
   lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
-  lv_obj_align(title, LV_ALIGN_TOP_LEFT, CARD_TITLE_X, CARD_TITLE_Y);
+  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 0, CARD_TITLE_Y);
   if (assemble)
     fade_in(title, FIELD_FADE_MS, delay);
 
   lv_obj_t *sub = lv_label_create(card);
+  lv_obj_set_width(sub, lv_pct(100));
+  lv_label_set_long_mode(sub, LV_LABEL_LONG_DOT);
   lv_label_set_text(sub, sub_txt);
-  lv_obj_set_style_text_color(sub, current_theme.text_main, 0);
+  lv_obj_set_style_text_color(sub, text, 0);
   lv_obj_set_style_text_opa(sub, LV_OPA_60, 0);
   lv_obj_set_style_text_font(sub, &lv_font_montserrat_12, 0);
-  lv_obj_align(sub, LV_ALIGN_TOP_LEFT, CARD_SUB_X, CARD_SUB_Y);
+  lv_obj_align(sub, LV_ALIGN_TOP_LEFT, 0, CARD_SUB_Y);
   if (assemble)
     fade_in(sub, FIELD_FADE_MS, delay * 2);
 
@@ -435,7 +435,7 @@ static lv_obj_t *build_data_card(lv_obj_t *parent,
   lv_obj_set_width(line, lv_pct(100));
   lv_label_set_long_mode(line, LV_LABEL_LONG_DOT);
   lv_label_set_text(line, line_txt);
-  lv_obj_set_style_text_color(line, accent, 0);
+  lv_obj_set_style_text_color(line, edge, 0);
   lv_obj_set_style_text_font(line, &lv_font_montserrat_12, 0);
   lv_obj_align(line, LV_ALIGN_TOP_LEFT, 0, CARD_LINE_Y);
   if (assemble)
@@ -445,7 +445,7 @@ static lv_obj_t *build_data_card(lv_obj_t *parent,
   lv_obj_set_width(meta, lv_pct(100));
   lv_label_set_long_mode(meta, LV_LABEL_LONG_DOT);
   lv_label_set_text(meta, meta_txt);
-  lv_obj_set_style_text_color(meta, current_theme.text_main, 0);
+  lv_obj_set_style_text_color(meta, text, 0);
   lv_obj_set_style_text_opa(meta, LV_OPA_50, 0);
   lv_obj_set_style_text_font(meta, &lv_font_montserrat_12, 0);
   lv_obj_align(meta, LV_ALIGN_TOP_LEFT, 0, CARD_META_Y);
@@ -456,26 +456,13 @@ static lv_obj_t *build_data_card(lv_obj_t *parent,
     for (int i = 0; i < WIEGAND_ROWS; i++) {
       lv_obj_t *w = lv_label_create(card);
       lv_label_set_text(w, WIEGAND_LINES[i]);
-      lv_obj_set_style_text_color(w, lv_color_hex(COL_DIM), 0);
+      lv_obj_set_style_text_color(w, text, 0);
+      lv_obj_set_style_text_opa(w, LV_OPA_50, 0);
       lv_obj_set_style_text_font(w, &lv_font_montserrat_12, 0);
       lv_obj_align(w, LV_ALIGN_TOP_LEFT, 0, WIEGAND_Y0 + i * WIEGAND_STEP);
       if (assemble)
         fade_in(w, FIELD_FADE_MS, delay * (5 + i));
     }
-  }
-
-  for (int i = 0; i < COIL_COUNT; i++) {
-    lv_obj_t *coil = lv_obj_create(card);
-    lv_obj_remove_flag(coil, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_remove_flag(coil, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_size(coil, COIL_W - i * 8, COIL_H);
-    lv_obj_align(coil, LV_ALIGN_BOTTOM_RIGHT, COIL_X_OFS, COIL_Y_OFS - i * COIL_GAP);
-    lv_obj_set_style_radius(coil, COIL_RADIUS, 0);
-    lv_obj_set_style_border_width(coil, 0, 0);
-    lv_obj_set_style_bg_color(coil, accent, 0);
-    lv_obj_set_style_bg_opa(coil, COIL_OPA, 0);
-    if (assemble)
-      fade_in(coil, FIELD_FADE_MS, delay * 5);
   }
 
   return card;

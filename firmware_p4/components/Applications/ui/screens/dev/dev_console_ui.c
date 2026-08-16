@@ -15,16 +15,22 @@
 
 #include "dev_console_ui.h"
 
+#include <stdio.h>
 #include <string.h>
 
+#include "esp_heap_caps.h"
 #include "lvgl.h"
 #include "st7789.h"
 
 #include "assets_manager.h"
+#include "battery_service.h"
+#include "bluetooth_service.h"
+#include "spi_bridge.h"
 #include "terminal_ui.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
+#include "wifi_service.h"
 
 #define THUMB_TICK_MS   50
 #define STREAM_TIMER_MS 350
@@ -57,19 +63,43 @@
 #define LOG_KEEP     1000
 #define SEED_LINES   6
 
-static const char *const MOCK_LINES[] = {
-    "[boot] st7789 init ok",
-    "[lvgl] flush 240x320",
-    "[i2s] audio ready",
-    "[sd] card mounted",
-    "[ble] c5 link down",
-    "[wifi] c5 offline",
-    "[pmu] batt 84% 4.02V",
-    "[sys] heap 212KB free",
-    "[ui] screen=developer",
-    "[usb] cdc idle",
-};
-#define MOCK_LINE_COUNT ((int)(sizeof(MOCK_LINES) / sizeof(MOCK_LINES[0])))
+#define STATUS_KINDS 6
+#define STATUS_LINE_LEN 64
+
+static void format_status_line(int idx, char *buf, size_t n) {
+  switch (idx % STATUS_KINDS) {
+    case 0:
+      snprintf(buf, n, "[heap] int %uKB dma %uKB",
+               (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+               (unsigned)(heap_caps_get_free_size(MALLOC_CAP_DMA) / 1024));
+      break;
+    case 1:
+      snprintf(buf, n, "[psram] free %uKB",
+               (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
+      break;
+    case 2:
+      snprintf(buf, n, "[c5] bridge %s", spi_bridge_is_alive() ? "alive" : "down");
+      break;
+    case 3: {
+      battery_snapshot_t b;
+      if (battery_service_get(&b) && b.valid) {
+        snprintf(buf, n, "[batt] %d%% %umV %s", b.soc, (unsigned)b.vbat_mv,
+                 b.charging ? "chg" : (b.vbus_present ? "usb" : "bat"));
+      } else {
+        snprintf(buf, n, "[batt] --");
+      }
+      break;
+    }
+    case 4:
+      snprintf(buf, n, "[radio] wifi %s ble %s", wifi_service_is_active() ? "on" : "off",
+               bluetooth_service_is_running_cached() ? "on" : "off");
+      break;
+    default:
+      snprintf(buf, n, "[sys] up %lus scr %d", (unsigned long)(lv_tick_get() / 1000),
+               (int)ui_current_screen());
+      break;
+  }
+}
 
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_term = NULL;
@@ -117,11 +147,13 @@ static void push_line(void) {
   if (s_term == NULL)
     return;
 
-  lv_textarea_add_text(s_term, MOCK_LINES[s_line_idx]);
+  char line[STATUS_LINE_LEN];
+  format_status_line(s_line_idx, line, sizeof(line));
+  lv_textarea_add_text(s_term, line);
   lv_textarea_add_text(s_term, "\n");
 
   s_line_idx++;
-  if (s_line_idx >= MOCK_LINE_COUNT)
+  if (s_line_idx >= STATUS_KINDS)
     s_line_idx = 0;
 
   const char *txt = lv_textarea_get_text(s_term);

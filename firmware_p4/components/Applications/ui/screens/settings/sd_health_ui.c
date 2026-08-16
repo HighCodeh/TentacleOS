@@ -15,6 +15,10 @@
 
 #include "sd_health_ui.h"
 
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+
 #include "lvgl.h"
 
 #include "notify_ui.h"
@@ -22,6 +26,8 @@
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
+#include "vfs_core.h"
+#include "vfs_sdcard.h"
 
 #define RETEST_TICK_MS 90
 #define RETEST_TICKS   16
@@ -56,14 +62,9 @@
 #define BAR_H   10
 #define KV_Y    70
 
-#define USED_PCT 38
-
-#define CARD_MODEL "SanDisk Ultra"
-#define CARD_SPEC  "SDHC - Class 10 - 40 MHz"
-#define CARD_SIZE  "64GB"
-#define USED_TXT   "24.3 GB used"
-#define FREE_TXT   "39.7 GB free"
-#define CTA_TXT    "Remount & retest"
+#define SD_PATH "/sdcard"
+#define BYTES_PER_GB 1000000000ULL
+#define CTA_TXT "Remount & retest"
 
 #define READ_VAL  "21.4"
 #define WRITE_VAL "12.8"
@@ -119,6 +120,27 @@ static void build_glyph(lv_obj_t *card) {
 }
 
 static void build_hero(void) {
+  bool mounted = vfs_sdcard_is_mounted();
+  char namebuf[24] = "No SD card";
+  char sizebuf[16] = "--";
+  char usedbuf[24] = "Insert an SD card";
+  char freebuf[24] = "";
+  unsigned pct = 0;
+  if (mounted) {
+    if (!(vfs_sdcard_get_name(namebuf, sizeof(namebuf)) && namebuf[0]))
+      strlcpy(namebuf, "SD Card", sizeof(namebuf));
+    vfs_statvfs_t st = {0};
+    if (vfs_statvfs(SD_PATH, &st) == ESP_OK && st.total_bytes > 0) {
+      pct = (unsigned)((st.used_bytes * 100ULL) / st.total_bytes);
+      unsigned used_tenths = (unsigned)((st.used_bytes * 10ULL) / BYTES_PER_GB);
+      unsigned free_tenths = (unsigned)((st.free_bytes * 10ULL) / BYTES_PER_GB);
+      unsigned total_gb = (unsigned)((st.total_bytes + BYTES_PER_GB / 2) / BYTES_PER_GB);
+      snprintf(sizebuf, sizeof(sizebuf), "%uGB", total_gb);
+      snprintf(usedbuf, sizeof(usedbuf), "%u.%u GB used", used_tenths / 10, used_tenths % 10);
+      snprintf(freebuf, sizeof(freebuf), "%u.%u GB free", free_tenths / 10, free_tenths % 10);
+    }
+  }
+
   lv_obj_t *card = make_card(s_screen, CONTENT_W, HERO_H);
   lv_obj_align(card, LV_ALIGN_TOP_MID, 0, HERO_Y);
   lv_obj_set_style_pad_all(card, HERO_PAD, 0);
@@ -126,13 +148,13 @@ static void build_hero(void) {
   build_glyph(card);
 
   lv_obj_t *name = lv_label_create(card);
-  lv_label_set_text(name, CARD_MODEL);
+  lv_label_set_text(name, namebuf);
   lv_obj_set_style_text_font(name, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(name, current_theme.text_main, 0);
   lv_obj_align(name, LV_ALIGN_TOP_LEFT, INFO_X, 4);
 
   lv_obj_t *spec = lv_label_create(card);
-  lv_label_set_text(spec, CARD_SPEC);
+  lv_label_set_text(spec, mounted ? "FAT32" : "Not mounted");
   lv_obj_set_style_text_font(spec, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(spec, lv_color_hex(COL_DIM), 0);
   lv_obj_align(spec, LV_ALIGN_TOP_LEFT, INFO_X, 26);
@@ -147,7 +169,7 @@ static void build_hero(void) {
   lv_obj_set_style_bg_opa(chip, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(chip, 0, 0);
   lv_obj_t *chip_lbl = lv_label_create(chip);
-  lv_label_set_text(chip_lbl, CARD_SIZE);
+  lv_label_set_text(chip_lbl, sizebuf);
   lv_obj_set_style_text_font(chip_lbl, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(chip_lbl, current_theme.screen_base, 0);
   lv_obj_center(chip_lbl);
@@ -156,7 +178,7 @@ static void build_hero(void) {
   lv_obj_set_size(bar, HERO_INNER_W, BAR_H);
   lv_obj_align(bar, LV_ALIGN_TOP_LEFT, 0, BAR_Y);
   lv_bar_set_range(bar, 0, 100);
-  lv_bar_set_value(bar, USED_PCT, LV_ANIM_OFF);
+  lv_bar_set_value(bar, (int32_t)pct, LV_ANIM_OFF);
   lv_obj_set_style_radius(bar, 5, LV_PART_MAIN);
   lv_obj_set_style_bg_color(bar, current_theme.bg_primary, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN);
@@ -170,13 +192,13 @@ static void build_hero(void) {
   lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_INDICATOR);
 
   lv_obj_t *used = lv_label_create(card);
-  lv_label_set_text(used, USED_TXT);
+  lv_label_set_text(used, usedbuf);
   lv_obj_set_style_text_font(used, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(used, lv_color_hex(COL_DIM), 0);
   lv_obj_align(used, LV_ALIGN_TOP_LEFT, 0, KV_Y);
 
   lv_obj_t *free_lbl = lv_label_create(card);
-  lv_label_set_text(free_lbl, FREE_TXT);
+  lv_label_set_text(free_lbl, freebuf);
   lv_obj_set_style_text_font(free_lbl, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(free_lbl, current_theme.text_main, 0);
   lv_obj_align(free_lbl, LV_ALIGN_TOP_RIGHT, 0, KV_Y);
@@ -293,7 +315,12 @@ static void sd_health_input(const input_event_t *ev, void *ctx) {
     case INPUT_BTN_OK:
       if (press) {
         ui_feedback(UI_FB_SELECT);
-        notify(NOTIFY_INFO, "SD remounted");
+        if (vfs_sdcard_is_mounted())
+          vfs_sdcard_deinit();
+        esp_err_t r = vfs_sdcard_init();
+        notify(r == ESP_OK ? NOTIFY_SAVED : NOTIFY_WARNING,
+               r == ESP_OK ? "SD remounted" : "No SD card");
+        ui_sd_health_open();
       }
       break;
     case INPUT_BTN_RIGHT:

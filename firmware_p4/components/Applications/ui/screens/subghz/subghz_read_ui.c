@@ -21,14 +21,19 @@
 #include "lvgl.h"
 
 #include "capture_result_ui.h"
+#include "cc1101.h"
 #include "msgbox_ui.h"
 #include "notify_ui.h"
+#include "subghz_receiver.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
 static const char *TAG = "SUBGHZ_RD";
+
+#define RX_PRESET CC1101_PRESET_OOK_800KHZ
+#define RX_FREQ_HOPPING 0
 
 #define TICK_MS       33
 #define REVEAL_MS     3000
@@ -152,6 +157,11 @@ static void stop_timer(lv_timer_t **t) {
     lv_timer_delete(*t);
     *t = NULL;
   }
+}
+
+static void stop_rx(void) {
+  if (subghz_receiver_is_running())
+    subghz_receiver_stop();
 }
 
 static void opa_cb(void *var, int32_t v) {
@@ -303,6 +313,7 @@ static void build_scope(void) {
 }
 
 void ui_subghz_read_open(void) {
+  stop_rx();
   stop_timer(&s_scan_timer);
   stop_timer(&s_freq_timer);
   stop_timer(&s_scope_timer);
@@ -357,6 +368,10 @@ void ui_subghz_read_open(void) {
   s_tick_timer = lv_timer_create(read_tick_cb, TICK_MS, NULL);
 
   ui_input_set_screen_handler(subghz_read_input, NULL);
+
+  esp_err_t rx = subghz_receiver_start(SUBGHZ_MODE_SCAN, RX_PRESET, RX_FREQ_HOPPING);
+  if (rx != ESP_OK)
+    ESP_LOGE(TAG, "subghz_receiver_start failed: %s", esp_err_to_name(rx));
 
   ui_screen_load_owned(&s_screen, s_screen);
 }
@@ -427,6 +442,7 @@ static void scan_done_cb(lv_timer_t *t) {
   s_scan_timer = NULL;
   stop_timer(&s_freq_timer);
   stop_timer(&s_scope_timer);
+  stop_rx();
   if (lv_screen_active() != s_screen)
     return;
 
@@ -515,8 +531,10 @@ static void subghz_read_input(const input_event_t *ev, void *ctx) {
   const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
   if (ev->button == INPUT_BTN_BACK) {
-    if (press)
+    if (press) {
+      stop_rx();
       ui_switch_screen(SCREEN_SUBGHZ_MENU);
+    }
     return;
   }
 
@@ -556,6 +574,7 @@ static void subghz_read_input(const input_event_t *ev, void *ctx) {
             ui_subghz_read_open();
             return;
           case CAP_ACT_DISCARD:
+            stop_rx();
             ui_switch_screen(SCREEN_SUBGHZ_MENU);
             return;
           default:

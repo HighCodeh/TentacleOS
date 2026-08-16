@@ -20,10 +20,10 @@
 extern "C" {
 #endif
 
-/** @brief Open the mock companion console screen (reached from the Developer
- *  submenu). Read-only, auto-scrolling green terminal that streams device log
- *  lines (no input); UP/DOWN scroll, BACK returns to SCREEN_DEV_MENU. Mock
- *  only, no real serial backend. */
+/** @brief Open the live status console screen (reached from the Developer
+ *  submenu). Read-only, auto-scrolling green terminal that streams real device
+ *  status (heap, PSRAM, C5 bridge, battery, radios, uptime); UP/DOWN scroll,
+ *  BACK returns to SCREEN_DEV_MENU. */
 void ui_dev_console_open(void);
 
 #ifdef __cplusplus

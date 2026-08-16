@@ -13,21 +13,30 @@
 // You should have received a copy of the GNU General Public License
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-#ifndef DEV_DIAG_UI_H
-#define DEV_DIAG_UI_H
+#ifndef SYS_METRICS_H
+#define SYS_METRICS_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/** @brief Open the diagnostics / self-test screen (reached from the Developer
- *  submenu). Live charts of internal and DMA-capable heap plus battery, die
- *  temperature and C5 bridge status, refreshed on a timer; BACK returns to
- *  SCREEN_DEV_MENU. */
-void ui_dev_diag_open(void);
+#include <stdbool.h>
+
+/**
+ * @brief Read the P4 die temperature in Celsius.
+ *
+ * The chip has a single temperature-sensor peripheral, so this owns one shared
+ * handle installed on first use — any screen may call it without clashing over
+ * the driver. Returns false (and leaves @p out_celsius untouched) if the sensor
+ * is unavailable.
+ *
+ * @param[out] out_celsius  Receives the temperature on success.
+ * @return true on a valid reading, false otherwise.
+ */
+bool sys_metrics_die_temp_c(float *out_celsius);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // DEV_DIAG_UI_H
+#endif // SYS_METRICS_H
