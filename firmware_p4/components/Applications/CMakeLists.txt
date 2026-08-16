@@ -40,6 +40,7 @@ file(GLOB_RECURSE RFID_APP_SRCS "rfid/*.c")
 file(GLOB_RECURSE RNODE_APP_SRCS "LoRa/rnode/*.c")
 file(GLOB MESHCORE_APP_SRCS "LoRa/meshcore/*.c")
 file(GLOB MESHTASTIC_APP_SRCS "LoRa/meshtastic/*.c")
+file(GLOB LORA_SESSION_SRCS "LoRa/session/*.c")
 
 idf_component_register(SRCS
   ${UI_SRCS}
@@ -49,6 +50,7 @@ idf_component_register(SRCS
   ${RNODE_APP_SRCS}
   ${MESHCORE_APP_SRCS}
   ${MESHTASTIC_APP_SRCS}
+  ${LORA_SESSION_SRCS}
   ${BADUSB_APP_SRCS}
   ${BLE_APP_SRCS}
   ${SUBGHZ_APP_SRCS}
@@ -76,6 +78,7 @@ idf_component_register(SRCS
   "LoRa/rnode/include"
   "LoRa/meshcore/include"
   "LoRa/meshtastic/include"
+  "LoRa/session/include"
   # --- ui core ---
   "ui/include"
   # --- ui screens (mirrors firmware_p4_prototype) ---
@@ -135,6 +138,7 @@ idf_component_register(SRCS
 
   REQUIRES
   driver
+  esp_driver_tsens
   Drivers
   Service
   esp_common

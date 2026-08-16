@@ -15,16 +15,21 @@
 
 #include "mt_mod_text.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "esp_log.h"
 
 #include "unishox2.h"
 
+#include "lora_session.h"
+#include "meshtastic_nodedb.h"
+
 static const char *TAG = "MT_MOD_TEXT";
 
 #define MT_TEXT_DEDUP_RING 50
 #define MT_TEXT_MAX_LEN    220
+#define MT_WHO_NAME_LEN    24
 
 static uint32_t s_seen_ids[MT_TEXT_DEDUP_RING];
 static uint8_t s_seen_idx = 0;
@@ -100,4 +105,12 @@ void mt_mod_text_on_received(const mt_packet_meta_t *meta,
              text);
   }
   (void)text_len;
+
+  char who[MT_WHO_NAME_LEN];
+  const mt_node_entry_t *node = mt_nodedb_get(meta->from);
+  if (node != NULL && node->short_name[0] != '\0')
+    snprintf(who, sizeof(who), "%s", node->short_name);
+  else
+    snprintf(who, sizeof(who), "!%08lx", (unsigned long)meta->from);
+  lora_session_on_rx_text(who, text);
 }

@@ -14,6 +14,7 @@
 
 #include "meshcore_app.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "esp_log.h"
@@ -22,6 +23,7 @@
 #include "freertos/task.h"
 #include "sys_prio.h"
 
+#include "lora_session.h"
 #include "meshcore.h"
 #include "meshcore_nvs.h"
 #include "meshcore_phone_bridge.h"
@@ -184,6 +186,10 @@ static void on_grp_txt_cb(uint8_t channel_idx,
   (void)rssi_dbm;
   (void)ctx;
   meshcore_phoneapi_push_channel_msg(channel_idx, path_len, timestamp, snr_db, text);
+
+  char who[MESHCORE_NAME_MAX];
+  snprintf(who, sizeof(who), "ch%u", channel_idx);
+  lora_session_on_rx_text(who, text);
 }
 
 static void on_direct_msg_cb(const uint8_t peer_pub_key[32],
@@ -197,6 +203,14 @@ static void on_direct_msg_cb(const uint8_t peer_pub_key[32],
   (void)rssi_dbm;
   (void)ctx;
   meshcore_phoneapi_push_contact_msg(peer_pub_key, path_len, txt_type, timestamp, snr_db, text);
+
+  char who[MESHCORE_NAME_MAX];
+  const meshcore_contact_t *c = meshcore_contact_find(peer_pub_key);
+  if (c != NULL && c->name[0] != '\0')
+    snprintf(who, sizeof(who), "%s", c->name);
+  else
+    snprintf(who, sizeof(who), "dm");
+  lora_session_on_rx_text(who, text);
 }
 
 static void on_ack_cb(uint32_t ack_crc, const uint8_t peer_pub_key[32], void *ctx) {
