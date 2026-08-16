@@ -88,6 +88,15 @@ bool header_ui_sd_usage(int *out_used_pct);
  */
 void header_ui_request_sd_remount(void);
 
+/**
+ * @brief Software-eject the SD card: unmount it and hide the header indicator.
+ *
+ * Call from the LVGL thread. The card stays unmounted (the card-detect worker is
+ * edge-driven, so it will not auto-remount a still-inserted card) until it is
+ * physically reinserted or header_ui_request_sd_remount() is called.
+ */
+void header_ui_sd_eject(void);
+
 #ifdef __cplusplus
 }
 #endif

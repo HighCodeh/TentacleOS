@@ -92,6 +92,7 @@ static const settings_item_t MAIN_ITEMS[] = {
     {"STORAGE", "/assets/icons/storage.bin", SCREEN_STORAGE},
     {"FIRMWARE", "/assets/icons/developer_board.bin", GOTO_DEV},
     {"ABOUT", "/assets/icons/info.bin", SCREEN_ABOUT_SETTINGS},
+    {"TIME", "/assets/icons/timer.bin", SCREEN_TIME},
     {"RESTART P4", "/assets/icons/restart_alt.bin", ACTION_REBOOT_P4},
 };
 #define MAIN_COUNT ((int)(sizeof(MAIN_ITEMS) / sizeof(MAIN_ITEMS[0])))
@@ -112,7 +113,7 @@ static const settings_section_t MAIN_SECTIONS[] = {
 static const settings_item_t LAB_ITEMS[] = {
     {"VIBRATION", "/assets/icons/vibration.bin", SCREEN_HAPTIC},
     {"SPEAKER", "/assets/icons/speaker.bin", SCREEN_SPEAKER},
-    {"MIC -> SPEAKER", "/assets/icons/mic.bin", SCREEN_MIC_REC},
+    {"MIC", "/assets/icons/mic.bin", SCREEN_MIC_REC},
     {"SPECTRUM", "/assets/icons/graphic_eq.bin", SCREEN_SPECTRUM},
     {"MOTION / IMU", "/assets/icons/screen_rotation.bin", SCREEN_IMU_MONITOR},
 };

@@ -20,15 +20,25 @@
 #include "esp_log.h"
 #include "lvgl.h"
 
-#include "home_ui.h"
-#include "header_ui.h"
-#include "ui_feedback.h"
-#include "ui_theme.h"
-#include "ui_manager.h"
-#include "lv_port_indev.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 #include "assets_manager.h"
+#include "bluetooth_service.h"
+#include "favorites.h"
+#include "header_ui.h"
+#include "home_ui.h"
+#include "lv_port_indev.h"
+#include "notify_ui.h"
 #include "page_dots_ui.h"
 #include "st7789.h"
+#include "sys_prio.h"
+#include "tos_config.h"
+#include "tos_storage_paths.h"
+#include "ui_feedback.h"
+#include "ui_manager.h"
+#include "ui_theme.h"
+#include "wifi_service.h"
 
 static const char *TAG = "UI_MENU";
 
@@ -40,6 +50,9 @@ static const char *TAG = "UI_MENU";
 #define ICON_CENTER_OFFSET_Y  (-10)
 #define LABEL_OFFSET_Y        (-40)
 #define DOTS_OFFSET_Y         (-20)
+#define FAV_BADGE_Y           34
+#define FAV_ACCENT            0xF5B13D
+#define FAV_HINT_DIM          0x6D7A75
 
 static const int32_t CAROUSEL_PX[] = {-120, -75, 0, 75, 120};
 static const int32_t CAROUSEL_PY[] = {-25, -12, 0, -12, -25};
@@ -174,6 +187,7 @@ extern lv_group_t *main_group;
 
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_label = NULL;
+static lv_obj_t *s_fav_badge = NULL;
 static lv_obj_t *s_base_imgs[MENU_ITEM_COUNT];
 static lv_obj_t *s_icon_imgs[MENU_ITEM_COUNT];
 static page_dots_t s_page_dots;
@@ -338,6 +352,12 @@ static void update_view(bool anim) {
   lv_label_set_text_fmt(
       s_label, LV_SYMBOL_LEFT "   %s   " LV_SYMBOL_RIGHT, s_menu_data[s_selected].name);
 
+  if (s_fav_badge != NULL) {
+    bool fav = favorites_is(s_menu_data[s_selected].target);
+    lv_label_set_text(s_fav_badge, fav ? LV_SYMBOL_OK "  FAVORITED" : "");
+    lv_obj_set_style_text_color(s_fav_badge, lv_color_hex(FAV_ACCENT), 0);
+  }
+
   if (anim) {
     lv_anim_t a;
     lv_anim_init(&a);
@@ -354,6 +374,35 @@ static void update_view(bool anim) {
     place_item(i, anim);
 
   fix_z_order();
+}
+
+static void wifi_enable_task(void *arg) {
+  (void)arg;
+  wifi_service_start();
+  vTaskDelete(NULL);
+}
+
+static void ble_enable_task(void *arg) {
+  (void)arg;
+  bluetooth_service_init();
+  bluetooth_service_start();
+  vTaskDelete(NULL);
+}
+
+static void ensure_radio_on(screen_id_t target) {
+  if (target == SCREEN_WIFI_MENU && !wifi_service_is_active()) {
+    g_config_wifi.enabled = true;
+    tos_config_save(TOS_PATH_CONFIG_WIFI, "wifi");
+    xTaskCreatePinnedToCore(
+        wifi_enable_task, "wifi_on", 4096, NULL, SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_RADIO);
+    notify(NOTIFY_INFO, "Wi-Fi on");
+  } else if (target == SCREEN_BLE_MENU && !bluetooth_service_is_running_cached()) {
+    g_config_ble.enabled = true;
+    tos_config_save(TOS_PATH_CONFIG_BLE, "ble");
+    xTaskCreatePinnedToCore(
+        ble_enable_task, "ble_on", 4096, NULL, SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_RADIO);
+    notify(NOTIFY_INFO, "BLE on");
+  }
 }
 
 static void on_key_event(lv_event_t *e) {
@@ -378,14 +427,39 @@ static void on_key_event(lv_event_t *e) {
     return;
   }
 
+  if (k == LV_KEY_DOWN) {
+    favorites_toggle(s_menu_data[s_selected].target);
+    ui_feedback(UI_FB_SELECT);
+    update_view(false);
+    return;
+  }
+
   if (k == LV_KEY_ESC) {
     ui_switch_screen(SCREEN_HOME);
     return;
   }
 
   if (k == LV_KEY_ENTER) {
-    ui_switch_screen(s_menu_data[s_selected].target);
+    screen_id_t target = s_menu_data[s_selected].target;
+    ensure_radio_on(target);
+    ui_switch_screen(target);
   }
+}
+
+int menu_catalog_count(void) {
+  return (int)MENU_ITEM_COUNT;
+}
+
+const char *menu_catalog_name(int index) {
+  if (index < 0 || index >= (int)MENU_ITEM_COUNT)
+    return NULL;
+  return s_menu_data[index].name;
+}
+
+screen_id_t menu_catalog_target(int index) {
+  if (index < 0 || index >= (int)MENU_ITEM_COUNT)
+    return SCREEN_HOME;
+  return s_menu_data[index].target;
 }
 
 void ui_menu_open(void) {
@@ -429,6 +503,10 @@ void ui_menu_open(void) {
 
   lv_obj_set_style_text_color(s_label, current_theme.text_main, 0);
   lv_obj_set_style_text_font(s_label, &lv_font_montserrat_14, 0);
+
+  s_fav_badge = lv_label_create(s_screen);
+  lv_obj_align(s_fav_badge, LV_ALIGN_TOP_MID, 0, FAV_BADGE_Y);
+  lv_obj_set_style_text_font(s_fav_badge, &lv_font_montserrat_12, 0);
 
   s_page_dots = page_dots_create(s_screen, MENU_ITEM_COUNT, LV_ALIGN_BOTTOM_MID, 0, DOTS_OFFSET_Y);
 

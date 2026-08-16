@@ -20,8 +20,19 @@
 extern "C" {
 #endif
 
+#include "ui_manager.h"
+
 /** @brief Open the main menu screen. */
 void ui_menu_open(void);
+
+/** @brief Number of apps in the menu catalog. */
+int menu_catalog_count(void);
+
+/** @brief App name at @p index, or NULL if out of range. */
+const char *menu_catalog_name(int index);
+
+/** @brief Target screen of the app at @p index (SCREEN_HOME if out of range). */
+screen_id_t menu_catalog_target(int index);
 
 #ifdef __cplusplus
 }

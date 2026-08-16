@@ -25,11 +25,13 @@
 #include "sys_prio.h"
 
 #include "assets_manager.h"
+#include "audio_i2s.h"
 #include "battery_service.h"
 #include "bluetooth_service.h"
 #include "buttons_gpio.h"
 #include "header_ui.h"
 #include "lv_port_indev.h"
+#include "notify_ui.h"
 #include "reboot_ui.h"
 #include "tos_config.h"
 #include "tos_storage_paths.h"
@@ -56,16 +58,21 @@
 #define ROW_COUNT  3
 static int focus_row = ROW_BADGES;
 
-#define BADGE_COUNT  4
-#define BADGE_WIFI   0
-#define BADGE_BLE    1
-#define BADGE_ECO    2
-#define BADGE_REBOOT 3
+#define BADGE_COUNT   4
+#define BADGE_WIFI    0
+#define BADGE_BLE     1
+#define BADGE_SD      2
+#define BADGE_REBOOT  3
+#define ACTION_ACCENT 0xF5B13D
+#define ARMED_ACCENT  0xFF5252
 static lv_obj_t *badge_dot[BADGE_COUNT] = {NULL};
 static lv_obj_t *badge_ic[BADGE_COUNT] = {NULL};
 static lv_obj_t *badge_lbl[BADGE_COUNT] = {NULL};
-static bool badge_on[BADGE_COUNT] = {false, false, true, false};
+static bool badge_on[BADGE_COUNT] = {false, false, false, false};
+static const bool BADGE_ACTION[BADGE_COUNT] = {false, false, true, true};
 static int badge_sel = 0;
+static int s_sd_armed = 0;
+static bool s_sd_present_last = false;
 
 static lv_obj_t *sd_chip_val = NULL;
 static lv_obj_t *sd_chip_fill = NULL;
@@ -76,12 +83,14 @@ static int bat_anim_pct = 0;
 static uint32_t bat_last_anim = 0;
 
 #define SLIDER_COUNT 2
+#define SLIDER_SOUND 1
 static lv_obj_t *sl_track[SLIDER_COUNT] = {NULL};
 static lv_obj_t *sl_fill[SLIDER_COUNT] = {NULL};
 static lv_obj_t *sl_knob[SLIDER_COUNT] = {NULL};
 static lv_obj_t *sl_icon[SLIDER_COUNT] = {NULL};
 static lv_obj_t *sl_val[SLIDER_COUNT] = {NULL};
 static int sl_value[SLIDER_COUNT] = {80, 45};
+static bool s_vol_dirty = false;
 
 static lv_obj_t *slide_panel = NULL;
 static int s_panel_h = 0;
@@ -100,12 +109,56 @@ static bool up_hold_consumed = false; // long-press already toggled for this hol
 static void refresh_sd_status(void);
 static void battery_tick(void);
 
+static bool badge_is_enabled(int idx) {
+  if (idx == BADGE_SD)
+    return vfs_sdcard_is_mounted();
+  return true;
+}
+
+static void badge_step(int dir) {
+  int next = badge_sel;
+  for (int i = 0; i < BADGE_COUNT; i++) {
+    next = (next + dir + BADGE_COUNT) % BADGE_COUNT;
+    if (badge_is_enabled(next))
+      break;
+  }
+  badge_sel = next;
+}
+
 static void refresh_focus(void) {
   for (int i = 0; i < BADGE_COUNT; i++) {
     if (!badge_dot[i])
       continue;
-    bool on = badge_on[i];
     bool sel = (focus_row == ROW_BADGES && i == badge_sel);
+    if (BADGE_ACTION[i]) {
+      if (i == BADGE_SD && !badge_is_enabled(BADGE_SD)) {
+        lv_color_t dim = current_theme.border_inactive;
+        lv_obj_set_style_border_color(badge_dot[i], dim, 0);
+        lv_obj_set_style_border_width(badge_dot[i], 2, 0);
+        lv_obj_set_style_bg_color(badge_dot[i], CHIP_BG, 0);
+        lv_obj_set_style_shadow_width(badge_dot[i], 0, 0);
+        lv_obj_set_style_shadow_opa(badge_dot[i], LV_OPA_TRANSP, 0);
+        if (badge_ic[i])
+          lv_obj_set_style_text_color(badge_ic[i], dim, 0);
+        if (badge_lbl[i])
+          lv_obj_set_style_text_color(badge_lbl[i], dim, 0);
+        continue;
+      }
+      lv_color_t acc =
+          (i == BADGE_SD && s_sd_armed) ? lv_color_hex(ARMED_ACCENT) : lv_color_hex(ACTION_ACCENT);
+      lv_obj_set_style_border_color(badge_dot[i], sel ? current_theme.border_accent : acc, 0);
+      lv_obj_set_style_border_width(badge_dot[i], sel ? 3 : 2, 0);
+      lv_obj_set_style_bg_color(badge_dot[i], CHIP_BG, 0);
+      lv_obj_set_style_shadow_width(badge_dot[i], sel ? 10 : 0, 0);
+      lv_obj_set_style_shadow_color(badge_dot[i], acc, 0);
+      lv_obj_set_style_shadow_opa(badge_dot[i], sel ? LV_OPA_40 : LV_OPA_TRANSP, 0);
+      if (badge_ic[i])
+        lv_obj_set_style_text_color(badge_ic[i], acc, 0);
+      if (badge_lbl[i])
+        lv_obj_set_style_text_color(badge_lbl[i], sel ? current_theme.border_accent : acc, 0);
+      continue;
+    }
+    bool on = badge_on[i];
     lv_color_t conn = on ? lv_color_hex(GREEN) : current_theme.border_inactive;
     lv_obj_set_style_border_color(badge_dot[i], sel ? current_theme.border_accent : conn, 0);
     lv_obj_set_style_border_width(badge_dot[i], sel ? 3 : 2, 0);
@@ -134,6 +187,14 @@ static void refresh_focus(void) {
   }
 }
 
+static void sd_disarm(void) {
+  if (!s_sd_armed)
+    return;
+  s_sd_armed = 0;
+  if (badge_lbl[BADGE_SD])
+    lv_label_set_text(badge_lbl[BADGE_SD], "Eject");
+}
+
 static void set_slider(int s, int v) {
   if (s < 0 || s >= SLIDER_COUNT || !sl_fill[s])
     return;
@@ -146,6 +207,10 @@ static void set_slider(int s, int v) {
   lv_obj_set_width(sl_fill[s], lv_pct(w));
   if (sl_val[s])
     lv_label_set_text_fmt(sl_val[s], "%d%%", v);
+  if (s == SLIDER_SOUND) {
+    audio_i2s_set_volume((uint8_t)v);
+    g_config_system.volume = v;
+  }
 }
 
 static void slide_anim_cb(void *var, int32_t v) {
@@ -179,8 +244,11 @@ static void dropdown_open(void) {
 
   focus_row = ROW_BADGES;
   badge_sel = 0;
+  sd_disarm();
   badge_on[BADGE_WIFI] = g_config_wifi.enabled;
   badge_on[BADGE_BLE] = g_config_ble.enabled;
+  s_sd_present_last = badge_is_enabled(BADGE_SD);
+  set_slider(SLIDER_SOUND, g_config_system.volume);
   refresh_sd_status();
   battery_tick();
   refresh_focus();
@@ -205,6 +273,10 @@ static void dropdown_open(void) {
 static void dropdown_close(void) {
   if (!slide_panel || slide_animating || !slide_open)
     return;
+  if (s_vol_dirty) {
+    (void)tos_config_save(TOS_PATH_CONFIG_SYSTEM, "system");
+    s_vol_dirty = false;
+  }
   slide_animating = true;
   slide_open = false;
 
@@ -242,10 +314,12 @@ static void wifi_apply_task(void *arg) {
 }
 
 static void ble_apply_task(void *arg) {
-  if ((bool)(intptr_t)arg)
+  if ((bool)(intptr_t)arg) {
+    bluetooth_service_init();
     bluetooth_service_start();
-  else
+  } else {
     bluetooth_service_stop();
+  }
   vTaskDelete(NULL);
 }
 
@@ -254,6 +328,8 @@ static void conn_set_wifi(bool on) {
   tos_config_save(TOS_PATH_CONFIG_WIFI, "wifi");
   badge_on[BADGE_WIFI] = on;
   refresh_focus();
+  if (!on)
+    notify(NOTIFY_WARNING, "Wi-Fi off");
   xTaskCreatePinnedToCore(wifi_apply_task, "wifi_apply", 4096, (void *)(intptr_t)on,
                           SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_RADIO);
 }
@@ -263,6 +339,8 @@ static void conn_set_ble(bool on) {
   tos_config_save(TOS_PATH_CONFIG_BLE, "ble");
   badge_on[BADGE_BLE] = on;
   refresh_focus();
+  if (!on)
+    notify(NOTIFY_WARNING, "BLE off");
   xTaskCreatePinnedToCore(ble_apply_task, "ble_apply", 4096, (void *)(intptr_t)on,
                           SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_RADIO);
 }
@@ -302,38 +380,61 @@ static void slide_btn_timer_cb(lv_timer_t *timer) {
 
   if (slide_open) {
     if (up && !btn_up_last && focus_row > 0) {
+      sd_disarm();
       focus_row--;
       refresh_focus();
     }
     if (down && !btn_down_last && focus_row < ROW_COUNT - 1) {
+      sd_disarm();
       focus_row++;
       refresh_focus();
     }
     if (left && !btn_left_last) {
       if (focus_row == ROW_BADGES) {
-        badge_sel = (badge_sel == 0) ? BADGE_COUNT - 1 : badge_sel - 1;
+        sd_disarm();
+        badge_step(-1);
         refresh_focus();
       } else {
         int s = focus_row - ROW_BRIGHT;
         set_slider(s, sl_value[s] - SL_STEP);
+        if (s == SLIDER_SOUND)
+          s_vol_dirty = true;
       }
     }
     if (right && !btn_right_last) {
       if (focus_row == ROW_BADGES) {
-        badge_sel = (badge_sel + 1) % BADGE_COUNT;
+        sd_disarm();
+        badge_step(+1);
         refresh_focus();
       } else {
         int s = focus_row - ROW_BRIGHT;
         set_slider(s, sl_value[s] + SL_STEP);
+        if (s == SLIDER_SOUND)
+          s_vol_dirty = true;
       }
     }
     if (ok && !btn_ok_last && focus_row == ROW_BADGES) {
-      if (badge_sel == BADGE_REBOOT)
+      if (badge_sel == BADGE_SD) {
+        if (!vfs_sdcard_is_mounted()) {
+          notify(NOTIFY_WARNING, "No SD card");
+        } else if (s_sd_armed) {
+          sd_disarm();
+          header_ui_sd_eject();
+          notify(NOTIFY_WARNING, "SD card ejected");
+          refresh_focus();
+        } else {
+          s_sd_armed = 1;
+          if (badge_lbl[BADGE_SD])
+            lv_label_set_text(badge_lbl[BADGE_SD], "Confirm?");
+          refresh_focus();
+        }
+      } else if (badge_sel == BADGE_REBOOT) {
         dropdown_reboot();
-      else if (badge_sel == BADGE_WIFI)
+      } else if (badge_sel == BADGE_WIFI) {
         conn_set_wifi(!badge_on[BADGE_WIFI]);
-      else if (badge_sel == BADGE_BLE)
+      } else if (badge_sel == BADGE_BLE) {
         conn_set_ble(!badge_on[BADGE_BLE]);
+      }
     }
     if (back && !btn_back_last) {
       dropdown_close();
@@ -351,6 +452,15 @@ static void slide_btn_timer_cb(lv_timer_t *timer) {
       bat_last_anim = nowt;
       battery_tick();
       refresh_sd_status(); // reflect SD insert/remove while the panel is open
+      bool sd_now = badge_is_enabled(BADGE_SD);
+      if (sd_now != s_sd_present_last) {
+        s_sd_present_last = sd_now;
+        if (!sd_now && badge_sel == BADGE_SD) {
+          sd_disarm();
+          badge_step(-1);
+        }
+        refresh_focus();
+      }
     }
   }
 
@@ -641,9 +751,10 @@ void dropdown_ui_create(lv_obj_t *parent) {
       badges, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   make_badge(badges, 0, LV_SYMBOL_WIFI, "Wi-Fi");
   make_badge(badges, 1, LV_SYMBOL_BLUETOOTH, "BLE");
-  make_badge(badges, 2, LV_SYMBOL_CHARGE, "ECO");
+  make_badge(badges, 2, LV_SYMBOL_SD_CARD, "Eject");
   make_badge(badges, 3, LV_SYMBOL_POWER, "Reboot");
 
+  sl_value[SLIDER_SOUND] = g_config_system.volume;
   make_slider(slide_panel, 0, "/assets/icons/brightness_6.bin");
   make_slider(slide_panel, 1, "/assets/icons/volume_up.bin");
 

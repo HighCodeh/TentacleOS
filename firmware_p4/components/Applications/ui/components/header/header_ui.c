@@ -187,6 +187,15 @@ static void sd_apply_removed(void *arg) {
   }
 }
 
+void header_ui_sd_eject(void) {
+  if (vfs_sdcard_is_mounted())
+    vfs_sdcard_deinit();
+  s_sd_mounted = false;
+  s_sd_used_pct = 0;
+  set_card_icon_shown(false);
+  s_card_shown_last = false;
+}
+
 // Mount (with retries) and gather the info strings. Runs on the CD task.
 static bool sd_try_mount(void) {
   bool ok = vfs_sdcard_is_mounted();
