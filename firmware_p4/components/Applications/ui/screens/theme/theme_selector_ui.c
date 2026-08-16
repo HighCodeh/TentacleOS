@@ -15,12 +15,16 @@
 
 #include "theme_selector_ui.h"
 
+#include <string.h>
+
 #include "esp_log.h"
 
 #include "assets_manager.h"
 #include "notify_ui.h"
 #include "page_dots_ui.h"
 #include "st7789.h"
+#include "tos_config.h"
+#include "tos_storage_paths.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -34,6 +38,7 @@ static const char *TAG = "THEME_SELECTOR_UI";
 #define ANIM_MS      220
 
 extern int theme_idx;
+extern const char *theme_names[];
 
 typedef struct {
   const char *label;
@@ -42,17 +47,7 @@ typedef struct {
 
 static const theme_face_t THEMES[] = {
     {"Default", 0x834EC6},
-    {"Matrix", 0x00FF41},
     {"Cyber Blue", 0x00D9FF},
-    {"Blood", 0xFF0055},
-    {"Toxic", 0xCCFF00},
-    {"Ghost", 0xB8B8FF},
-    {"Neon Pink", 0xFF00AA},
-    {"Amber", 0xFFAA00},
-    {"Terminal", 0x00FF00},
-    {"Ice", 0x00FFFF},
-    {"Deep Purple", 0xAA00FF},
-    {"Midnight", 0x4488FF},
 };
 #define THEME_COUNT ((int)(sizeof(THEMES) / sizeof(THEMES[0])))
 
@@ -203,6 +198,11 @@ static void theme_selector_input(const input_event_t *ev, void *ctx) {
       if (press && s_sel != theme_idx) {
         theme_idx = s_sel;
         ui_theme_load_idx(s_sel);
+        strlcpy(g_config_screen.theme, theme_names[s_sel], sizeof(g_config_screen.theme));
+        if (ui_sd_ready()) {
+          tos_config_save(TOS_PATH_CONFIG_SCREEN, "screen");
+          notify(NOTIFY_SAVED, "Theme saved");
+        }
         ESP_LOGI(TAG, "applied theme %d (%s)", s_sel, THEMES[s_sel].label);
         build_screen();
       }

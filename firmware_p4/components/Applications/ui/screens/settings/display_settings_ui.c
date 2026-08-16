@@ -15,11 +15,12 @@
 
 #include "display_settings_ui.h"
 
+#include "lvgl_glue.h"
 #include "menu_component_ui.h"
 #include "notify_ui.h"
 #include "st7789.h"
 #include "tos_config.h"
-#include "tos_flash_paths.h"
+#include "tos_storage_paths.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
@@ -64,6 +65,9 @@ static void cycle_selector(int sel, int dir) {
   if (sel == ROW_ROTATION) {
     s_rotation_idx = (s_rotation_idx + dir + ROTATION_COUNT) % ROTATION_COUNT;
     menu_component_set_selector_value(&s_menu, sel, ROTATION_OPTS[s_rotation_idx]);
+    bool want_landscape = (s_rotation_idx == 1);
+    if (want_landscape != lvgl_glue_is_landscape())
+      lvgl_glue_toggle_rotation();
     s_changed = true;
   } else if (sel == ROW_TIMEOUT) {
     s_timeout_idx = (s_timeout_idx + dir + TIMEOUT_COUNT) % TIMEOUT_COUNT;
@@ -130,10 +134,13 @@ static void display_settings_input(const input_event_t *ev, void *ctx) {
         if (s_changed) {
           g_config_screen.brightness =
               menu_component_get_intensity(&s_menu, ROW_BRIGHTNESS) * BRIGHTNESS_STEP_PCT;
+          g_config_screen.rotation = (s_rotation_idx == 1) ? 2 : 1;
           g_config_screen.auto_lock_seconds = TIMEOUT_SECS[s_timeout_idx];
           g_config_screen.auto_dim = menu_component_get_toggle(&s_menu, ROW_AUTODIM);
-          tos_config_save(FLASH_CONFIG_SCREEN, "screen");
-          notify(NOTIFY_SAVED, "Display settings saved");
+          if (ui_sd_ready()) {
+            tos_config_save(TOS_PATH_CONFIG_SCREEN, "screen");
+            notify(NOTIFY_SAVED, "Display settings saved");
+          }
         }
         ui_switch_screen(SCREEN_SETTINGS);
       }
@@ -149,7 +156,7 @@ void ui_display_settings_open(void) {
     s_screen = NULL;
   }
 
-  s_rotation_idx = 0;
+  s_rotation_idx = lvgl_glue_is_landscape() ? 1 : 0;
   s_timeout_idx = timeout_idx_for_seconds(g_config_screen.auto_lock_seconds);
   s_changed = false;
 

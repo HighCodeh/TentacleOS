@@ -15,6 +15,9 @@
 
 #include "tutorial_ui.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #include "esp_log.h"
 #include "nvs.h"
 
@@ -22,10 +25,18 @@
 #include "st7789.h"
 
 #include "assets_manager.h"
+#include "host_link_sec.h"
+#include "storage_assets.h"
+#include "storage_init.h"
+#include "sys_time.h"
+#include "tos_config.h"
+#include "tos_storage_paths.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
 static const char *TAG = "TUTORIAL";
+
+static const char *const WIZ_THEME_NAMES[] = {"default", "cyber_blue"};
 
 #define TUT_NVS_NS  "tutorial"
 #define TUT_NVS_KEY "done"
@@ -87,7 +98,6 @@ static int s_ch_count = 0;
 static int s_ch_sel = 0;
 static int *s_ch_selp = NULL;
 
-// Remembered choices (mock — persisted only for the session for now).
 static int s_lang_sel = 0;
 static int s_theme_sel = 0;
 
@@ -318,7 +328,10 @@ static void page_language(lv_obj_t *c) {
 static void page_datetime(lv_obj_t *c) {
   wiz_heading(c, "Date & Time");
   lv_obj_t *clk = lv_label_create(c);
-  lv_label_set_text(clk, "14:32");
+  char clkbuf[16];
+  if (!sys_time_format(clkbuf, sizeof(clkbuf), "%H:%M"))
+    snprintf(clkbuf, sizeof(clkbuf), "--:--");
+  lv_label_set_text(clk, clkbuf);
   lv_obj_set_style_text_font(clk, &lv_font_montserrat_16, 0);
   lv_obj_set_style_text_color(clk, current_theme.border_accent, 0);
   wiz_sub(c, "High Boy timestamps every capture and log. Sync the clock from the companion app.");
@@ -358,8 +371,12 @@ static void wiz_status_row(lv_obj_t *list, const char *name, const char *value) 
 static void page_storage(lv_obj_t *c) {
   wiz_heading(c, "Storage");
   lv_obj_t *list = wiz_flow(c, LV_FLEX_FLOW_COLUMN, 2);
-  wiz_status_row(list, LV_SYMBOL_SD_CARD "  microSD", "Ready " LV_SYMBOL_OK);
-  wiz_status_row(list, LV_SYMBOL_DRIVE "  Internal", "OK " LV_SYMBOL_OK);
+  wiz_status_row(list,
+                 LV_SYMBOL_SD_CARD "  microSD",
+                 storage_is_mounted() ? "Ready " LV_SYMBOL_OK : "Missing " LV_SYMBOL_WARNING);
+  wiz_status_row(list,
+                 LV_SYMBOL_DRIVE "  Internal",
+                 storage_assets_is_mounted() ? "OK " LV_SYMBOL_OK : "Fault " LV_SYMBOL_WARNING);
   wiz_sub(c, "microSD keeps your captures, scripts and firmware; internal flash runs the OS.");
 }
 
@@ -367,8 +384,16 @@ static void page_companion(lv_obj_t *c) {
   wiz_heading(c, "Companion App");
   wiz_sub(c, "Pair the phone app for time sync, file transfer and remote control.");
   lv_obj_t *box = lv_label_create(c);
-  lv_label_set_text(box, "8 8 4 2");
-  lv_obj_set_style_text_font(box, &lv_font_montserrat_16, 0);
+  char psk[HOST_LINK_PSK_HEX_SIZE];
+  if (host_link_sec_get_psk_hex(psk, sizeof(psk)) == ESP_OK) {
+    lv_label_set_text(box, psk);
+    lv_label_set_long_mode(box, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(box, WIZ_TEXT_W);
+    lv_obj_set_style_text_align(box, LV_TEXT_ALIGN_CENTER, 0);
+  } else {
+    lv_label_set_text(box, "Pair from Settings");
+  }
+  lv_obj_set_style_text_font(box, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(box, current_theme.text_main, 0);
   lv_obj_set_style_bg_opa(box, LV_OPA_COVER, 0);
   lv_obj_set_style_bg_color(box, current_theme.bg_secondary, 0);
@@ -377,7 +402,7 @@ static void page_companion(lv_obj_t *c) {
   lv_obj_set_style_radius(box, 8, 0);
   lv_obj_set_style_pad_hor(box, 14, 0);
   lv_obj_set_style_pad_ver(box, 8, 0);
-  wiz_sub(c, "Enter this code in the app, or press OK to skip.");
+  wiz_sub(c, "Provision this key in the app, or press OK to skip.");
 }
 
 static void page_terms(lv_obj_t *c) {
@@ -451,9 +476,10 @@ static void page_ethics(lv_obj_t *c) {
 
 static void page_theme(lv_obj_t *c) {
   wiz_heading(c, "Theme");
-  wiz_sub(c, "UP / DOWN to preview. More themes land later.");
-  static const char *names[] = {"Default", "Dark"};
-  static const uint32_t sw[] = {0x7A52D6, 0x1E1E24};
+  wiz_sub(c, "UP / DOWN to choose. Applied when you finish.");
+  static const char *names[] = {"Default", "Cyber Blue"};
+  static const uint32_t sw[] = {0x834EC6, 0x00D9FF};
+  s_theme_sel = (strcmp(g_config_screen.theme, WIZ_THEME_NAMES[1]) == 0) ? 1 : 0;
   build_chooser(c, names, sw, 2, &s_theme_sel);
 }
 
@@ -569,6 +595,16 @@ static void finish(void) {
     return;
   s_active = false;
   mark_done();
+
+  if (s_theme_sel >= 0 && s_theme_sel < (int)(sizeof(WIZ_THEME_NAMES) / sizeof(WIZ_THEME_NAMES[0]))) {
+    const char *name = WIZ_THEME_NAMES[s_theme_sel];
+    if (strcmp(g_config_screen.theme, name) != 0) {
+      strncpy(g_config_screen.theme, name, sizeof(g_config_screen.theme) - 1);
+      g_config_screen.theme[sizeof(g_config_screen.theme) - 1] = '\0';
+      tos_config_save(TOS_PATH_CONFIG_SCREEN, "screen");
+    }
+    ui_theme_load_from_name(name);
+  }
 
   lv_obj_t *root = s_root;
   s_root = NULL;

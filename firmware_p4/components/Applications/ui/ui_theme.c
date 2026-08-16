@@ -30,7 +30,7 @@
 #define THEME_CONFIG_PATH     FLASH_CONFIG_THEMES
 #define INTERFACE_CONFIG_PATH FLASH_CONFIG_INTERFACE
 
-#define THEME_COUNT           12
+#define THEME_COUNT           2
 #define CONF_KV_BUF_SIZE      64
 #define THEME_PATH_MAX        128
 #define ASSET_DIR_PATH_MAX    160
@@ -44,18 +44,7 @@ ui_theme_t current_theme;
 int theme_idx = 0;
 static protocol_id_t active_protocol = PROTOCOL_NONE;
 
-const char *theme_names[] = {"default",
-                             "matrix",
-                             "cyber_blue",
-                             "blood",
-                             "toxic",
-                             "ghost",
-                             "neon_pink",
-                             "amber",
-                             "terminal",
-                             "ice",
-                             "deep_purple",
-                             "midnight"};
+const char *theme_names[] = {"default", "cyber_blue"};
 
 static uint32_t hex_to_int(const char *hex) {
   if (hex == NULL)
