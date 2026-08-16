@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include "driver/gpio.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -85,10 +86,17 @@ esp_err_t spi_bridge_phy_init_ex(bool setup_irq) {
   return ESP_OK;
 }
 
+#define SPI_BRIDGE_DMA_MARGIN 1024
+
 esp_err_t spi_bridge_phy_transmit(const uint8_t *tx_data, uint8_t *rx_data, size_t len) {
   spi_device_handle_t handle = spi_get_handle(SPI_DEVICE_BRIDGE);
   if (handle == NULL) {
     return ESP_ERR_INVALID_STATE;
+  }
+
+  size_t need = 2 * len + SPI_BRIDGE_DMA_MARGIN;
+  if (heap_caps_get_largest_free_block(MALLOC_CAP_DMA) < need) {
+    return ESP_ERR_NO_MEM;
   }
 
   spi_transaction_t t = {

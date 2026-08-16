@@ -66,7 +66,7 @@ static int hal_spi_transfer(void *ctx, const uint8_t *tx, uint8_t *rx, size_t le
       .rx_buffer = rx,
   };
 
-  esp_err_t ret = spi_device_transmit(c->spi, &t);
+  esp_err_t ret = spi_device_polling_transmit(c->spi, &t);
   return (ret == ESP_OK) ? 0 : -1;
 }
 
@@ -82,6 +82,9 @@ static void hal_cs_high(void *ctx) {
 
 static void hal_reset_write(void *ctx, uint8_t level) {
   (void)ctx;
+  if (PIN_NRST < 0) {
+    return;
+  }
   gpio_set_level(PIN_NRST, level ? 1 : 0);
 }
 
@@ -103,10 +106,12 @@ static uint32_t hal_get_tick_ms(void *ctx) {
 static void hal_lock(void *ctx) {
   hal_esp32_ctx_t *c = (hal_esp32_ctx_t *)ctx;
   xSemaphoreTake(c->spi_mutex, portMAX_DELAY);
+  spi_device_acquire_bus(c->spi, portMAX_DELAY);
 }
 
 static void hal_unlock(void *ctx) {
   hal_esp32_ctx_t *c = (hal_esp32_ctx_t *)ctx;
+  spi_device_release_bus(c->spi);
   xSemaphoreGive(c->spi_mutex);
 }
 
@@ -151,7 +156,10 @@ esp_err_t sx1262_hal_create(sx1262_hal_t *out_hal) {
     goto fill_hal;
   }
 
-  uint64_t out_mask = (1ULL << PIN_NSS) | (1ULL << PIN_NRST);
+  uint64_t out_mask = (1ULL << PIN_NSS);
+  if (PIN_NRST >= 0) {
+    out_mask |= (1ULL << PIN_NRST);
+  }
   if (PIN_TXEN >= 0) {
     out_mask |= (1ULL << PIN_TXEN);
   }

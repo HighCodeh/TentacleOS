@@ -341,7 +341,6 @@ esp_err_t tos_first_boot_setup(void) {
     }
   }
 
-  // Migrate 12 built-in themes to SD as individual theme.conf files
   migrate_themes_to_sd();
 
   // Copy flash assets to SD (templates, example scripts, etc.)

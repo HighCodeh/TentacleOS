@@ -221,6 +221,7 @@ esp_err_t kernel_init(void) {
   // amp enable and the channel open are both lazy), but with no serialization:
   // concurrent play_* calls then fight over the channel and the loser fails.
   boot_report_record("audio", false, audio_i2s_init());
+  audio_i2s_set_volume((uint8_t)g_config_system.volume);
 
   // 6. Display + LVGL + UI. st7789_init sets up the panel handles; lvgl_glue_init
   // brings LVGL up over esp_lvgl_port (it calls lv_init and registers the
@@ -236,19 +237,25 @@ esp_err_t kernel_init(void) {
     boot_report_record("lvgl", true, lvgl_glue_init());
     lv_port_indev_init();
     ui_init();
+    if (g_config_screen.rotation == 2 && !lvgl_glue_is_landscape())
+      lvgl_glue_toggle_rotation();
   } else {
     ESP_LOGE(TAG, "display unavailable after retry; booting headless for diagnostics");
   }
 
   // 7. Services
   sys_monitor_start(false);
-  // Radio status poll always runs (feeds the header indicators); the radios
-  // themselves come up only if the saved config left them enabled.
   wifi_service_init();
   if (g_config_wifi.enabled)
     wifi_service_start();
-  if (g_config_ble.enabled)
+  else
+    wifi_service_stop();
+  if (g_config_ble.enabled) {
+    bluetooth_service_init();
     bluetooth_service_start();
+  } else {
+    bluetooth_service_stop();
+  }
 
   // USB-C data mux defaults to the CP2105 UART bridge (serial console / flash).
   // The user switches to native P4 USB at runtime from Connection settings.
