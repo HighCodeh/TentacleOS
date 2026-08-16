@@ -93,6 +93,13 @@ bool session_manager_heartbeat(uint32_t session_id, uint32_t last_acked_seq);
  */
 esp_err_t session_manager_try_emit(uint32_t session_id, const uint8_t *data, uint8_t len);
 
+/**
+ * @brief True while a long-running app session is open (sniffer/spam/flood/etc.).
+ *
+ * Used by the BT arbiter to avoid tearing NimBLE out from under an active app.
+ */
+bool session_manager_is_active(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -224,12 +224,11 @@ void wifi_service_deinit(void) {
 
 void wifi_service_stop(void) {
   esp_err_t err = esp_wifi_stop();
-  if (err == ESP_OK) {
-    s_is_active = false;
-    s_is_connected = false;
-  } else {
+  if (err != ESP_OK) {
     ESP_LOGE(TAG, "Error stopping Wi-Fi: %s", esp_err_to_name(err));
   }
+  s_is_active = false;
+  s_is_connected = false;
 
   s_stored_ap_count = 0;
   memset(s_stored_aps, 0, sizeof(s_stored_aps));

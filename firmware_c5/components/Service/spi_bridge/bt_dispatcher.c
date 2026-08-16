@@ -22,6 +22,7 @@
 #include "ble_connect_flood.h"
 #include "ble_scanner.h"
 #include "ble_sniffer.h"
+#include "canned_spam.h"
 #include "session_manager.h"
 #include "bluetooth_service.h"
 #include "host_link_gatt.h"
@@ -52,6 +53,33 @@ static void killed_skimmer(spi_id_t id) {
 static void killed_tracker(spi_id_t id) {
   (void)id;
   tracker_detector_stop();
+}
+static void killed_spam(spi_id_t id) {
+  (void)id;
+  spam_stop();
+}
+
+static bool bt_ensure_service_ready(void) {
+  if (meshcore_gatt_is_running())
+    meshcore_gatt_stop();
+  if (host_link_gatt_is_running())
+    host_link_gatt_stop();
+  if (meshtastic_gatt_is_running())
+    meshtastic_gatt_stop();
+  if (!bluetooth_service_is_initialized() && bluetooth_service_init() != ESP_OK)
+    return false;
+  if (!bluetooth_service_is_running() && bluetooth_service_start() != ESP_OK)
+    return false;
+  bluetooth_service_stop_advertising();
+  return true;
+}
+
+static spi_status_t bt_release_service_for_gatt(void) {
+  if (!bluetooth_service_is_initialized())
+    return SPI_STATUS_OK;
+  if (spi_bridge_async_scan_busy() || session_manager_is_active())
+    return SPI_STATUS_BUSY;
+  return (bluetooth_service_deinit() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
 }
 
 static spi_status_t bt_open_session(spi_id_t op_id,
@@ -91,6 +119,24 @@ spi_status_t bt_dispatcher_execute(spi_id_t id,
   *out_resp_len = 0;
 
   switch (id) {
+    case SPI_ID_BT_INIT:
+      if (meshcore_gatt_is_running())
+        meshcore_gatt_stop();
+      if (host_link_gatt_is_running())
+        host_link_gatt_stop();
+      if (meshtastic_gatt_is_running())
+        meshtastic_gatt_stop();
+      return (bluetooth_service_init() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+
+    case SPI_ID_BT_DEINIT:
+      return (bluetooth_service_deinit() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+
+    case SPI_ID_BT_START:
+      return (bluetooth_service_start() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+
+    case SPI_ID_BT_STOP:
+      return (bluetooth_service_deinit() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+
     case SPI_ID_BT_SCAN: {
       uint32_t duration = BT_SCAN_DEFAULT_DURATION_MS;
       if (len >= sizeof(duration))
@@ -124,9 +170,13 @@ spi_status_t bt_dispatcher_execute(spi_id_t id,
     }
 
     case SPI_ID_BT_APP_SCANNER:
+      if (!bt_ensure_service_ready())
+        return SPI_STATUS_ERROR;
       return ble_scanner_start() ? SPI_STATUS_OK : SPI_STATUS_BUSY;
 
     case SPI_ID_BT_APP_SNIFFER: {
+      if (!bt_ensure_service_ready())
+        return SPI_STATUS_ERROR;
       if (ble_sniffer_start() != ESP_OK)
         return SPI_STATUS_ERROR;
       uint32_t sid = session_manager_start(SPI_ID_BT_APP_SNIFFER, ble_sniffer_session_killed);
@@ -141,8 +191,28 @@ spi_status_t bt_dispatcher_execute(spi_id_t id,
       return SPI_STATUS_OK;
     }
 
+    case SPI_ID_BT_APP_SPAM: {
+      if (len < 1)
+        return SPI_STATUS_INVALID_ARG;
+      if (!bt_ensure_service_ready())
+        return SPI_STATUS_ERROR;
+      if (spam_start((int)payload[0]) != ESP_OK)
+        return SPI_STATUS_ERROR;
+      uint32_t sid = session_manager_start(SPI_ID_BT_APP_SPAM, killed_spam);
+      if (sid == SPI_SESSION_INVALID_ID) {
+        spam_stop();
+        return SPI_STATUS_ERROR;
+      }
+      spi_session_resp_t resp = {.session_id = sid};
+      memcpy(out_resp_payload, &resp, sizeof(resp));
+      *out_resp_len = sizeof(resp);
+      return SPI_STATUS_OK;
+    }
+
     case SPI_ID_BT_APP_FLOOD: {
       if (len < BT_CONNECT_MIN_PAYLOAD)
+        return SPI_STATUS_ERROR;
+      if (!bt_ensure_service_ready())
         return SPI_STATUS_ERROR;
       if (ble_connect_flood_start(payload, payload[BT_MAC_LEN]) != ESP_OK)
         return SPI_STATUS_ERROR;
@@ -158,6 +228,8 @@ spi_status_t bt_dispatcher_execute(spi_id_t id,
     }
 
     case SPI_ID_BT_APP_SKIMMER:
+      if (!bt_ensure_service_ready())
+        return SPI_STATUS_ERROR;
       if (skimmer_detector_start() != ESP_OK)
         return SPI_STATUS_ERROR;
       return bt_open_session(SPI_ID_BT_APP_SKIMMER,
@@ -167,6 +239,8 @@ spi_status_t bt_dispatcher_execute(spi_id_t id,
                              skimmer_detector_stop);
 
     case SPI_ID_BT_APP_TRACKER:
+      if (!bt_ensure_service_ready())
+        return SPI_STATUS_ERROR;
       if (tracker_detector_start() != ESP_OK)
         return SPI_STATUS_ERROR;
       return bt_open_session(SPI_ID_BT_APP_TRACKER,
@@ -181,6 +255,14 @@ spi_status_t bt_dispatcher_execute(spi_id_t id,
       }
       spi_mesh_init_t req;
       memcpy(&req, payload, sizeof(req));
+      spi_status_t rel = bt_release_service_for_gatt();
+      if (rel != SPI_STATUS_OK) {
+        return rel;
+      }
+      if (meshcore_gatt_is_running())
+        meshcore_gatt_stop();
+      if (host_link_gatt_is_running())
+        host_link_gatt_stop();
       if (meshtastic_transport_init() != ESP_OK) {
         return SPI_STATUS_ERROR;
       }
@@ -218,6 +300,14 @@ spi_status_t bt_dispatcher_execute(spi_id_t id,
       spi_mcore_init_t req;
       memcpy(&req, payload, sizeof(req));
       req.name_prefix[sizeof(req.name_prefix) - 1] = '\0';
+      spi_status_t rel = bt_release_service_for_gatt();
+      if (rel != SPI_STATUS_OK) {
+        return rel;
+      }
+      if (meshtastic_gatt_is_running())
+        meshtastic_gatt_stop();
+      if (host_link_gatt_is_running())
+        host_link_gatt_stop();
       if (meshcore_transport_init() != ESP_OK) {
         return SPI_STATUS_ERROR;
       }
@@ -251,6 +341,14 @@ spi_status_t bt_dispatcher_execute(spi_id_t id,
       spi_host_init_t req;
       memcpy(&req, payload, sizeof(req));
       req.name_prefix[sizeof(req.name_prefix) - 1] = '\0';
+      spi_status_t rel = bt_release_service_for_gatt();
+      if (rel != SPI_STATUS_OK) {
+        return rel;
+      }
+      if (meshcore_gatt_is_running())
+        meshcore_gatt_stop();
+      if (meshtastic_gatt_is_running())
+        meshtastic_gatt_stop();
       if (host_transport_init() != ESP_OK) {
         return SPI_STATUS_ERROR;
       }

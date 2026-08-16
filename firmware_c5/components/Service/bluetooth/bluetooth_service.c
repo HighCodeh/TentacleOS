@@ -44,7 +44,7 @@ static const char *TAG = "BLE_SERVICE";
 #define BLE_SPAM_LIST_FILE       "config/bluetooth/beacon_list.conf"
 #define BLE_SPAM_LIST_PATH       "/assets/" BLE_SPAM_LIST_FILE
 #define MAX_BLE_CONNECTIONS      8
-#define BLE_SYNC_TIMEOUT_MS      10000
+#define BLE_SYNC_TIMEOUT_MS      2000
 #define BLE_CONNECT_TIMEOUT_MS   30000
 #define BLE_NAME_MAX_LEN         31
 #define BLE_MAC_LEN              6
@@ -177,6 +177,7 @@ esp_err_t bluetooth_service_deinit(void) {
   }
 
   s_is_initialized = false;
+  s_is_running = false;
   ESP_LOGI(TAG, "BLE deinitialized");
   return ESP_OK;
 }

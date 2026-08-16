@@ -178,7 +178,9 @@ void host_link_gatt_stop(void) {
   if (s_is_connected && s_conn_handle != BLE_HS_CONN_HANDLE_NONE) {
     ble_gap_terminate(s_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
   }
-  nimble_port_stop();
+  if (nimble_port_stop() == 0) {
+    nimble_port_deinit();
+  }
   s_is_running = false;
   s_is_connected = false;
   s_is_subscribed = false;

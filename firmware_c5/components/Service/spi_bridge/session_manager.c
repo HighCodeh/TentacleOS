@@ -151,6 +151,15 @@ esp_err_t session_manager_stop(uint32_t session_id) {
   return ESP_OK;
 }
 
+bool session_manager_is_active(void) {
+  if (s_mutex == NULL)
+    return false;
+  xSemaphoreTake(s_mutex, portMAX_DELAY);
+  bool active = (s_session.id != SPI_SESSION_INVALID_ID);
+  xSemaphoreGive(s_mutex);
+  return active;
+}
+
 bool session_manager_heartbeat(uint32_t session_id, uint32_t last_acked_seq) {
   xSemaphoreTake(s_mutex, portMAX_DELAY);
   bool match = (s_session.id == session_id && session_id != SPI_SESSION_INVALID_ID);
