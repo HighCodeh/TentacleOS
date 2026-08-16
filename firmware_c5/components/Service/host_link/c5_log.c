@@ -29,7 +29,7 @@
 #include "spi_protocol.h"
 
 #define C5_LOG_TEXT_MAX    240 // bytes of stripped text kept per line
-#define C5_LOG_QUEUE_DEPTH 24  // ring slots (drop-oldest beyond this)
+#define C5_LOG_QUEUE_DEPTH 12
 #define C5_LOG_TASK_STK    3072
 #define C5_LOG_TASK_PRIO SYS_PRIO_SERVICE_LO
 

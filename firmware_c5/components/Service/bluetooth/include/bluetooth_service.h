@@ -27,7 +27,7 @@ extern "C" {
 #include "nimble/ble.h"
 #include "host/ble_gap.h"
 
-#define BLE_SCAN_LIST_SIZE 50
+#define BLE_SCAN_LIST_SIZE 30
 
 /**
  * @brief BLE scan result entry.
