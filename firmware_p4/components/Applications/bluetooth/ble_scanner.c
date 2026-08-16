@@ -58,7 +58,8 @@ bool ble_scanner_start(void) {
                                                            MALLOC_CAP_SPIRAM);
   }
   if (s_scanner_task_tcb == NULL) {
-    s_scanner_task_tcb = (StaticTask_t *)heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_SPIRAM);
+    s_scanner_task_tcb = (StaticTask_t *)heap_caps_malloc(sizeof(StaticTask_t),
+                                                          MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   }
 
   if (s_scanner_task_stack == NULL || s_scanner_task_tcb == NULL) {
@@ -174,6 +175,14 @@ static bool save_results_to_loot(void) {
 
 static void scanner_task(void *pvParameters) {
   ESP_LOGI(TAG, "Starting BLE Scan Task (PSRAM)...");
+
+  if (bluetooth_service_init() != ESP_OK || bluetooth_service_start() != ESP_OK) {
+    ESP_LOGE(TAG, "BLE not available on C5; aborting scan");
+    s_is_scanning = false;
+    s_scanner_task_handle = NULL;
+    vTaskDelete(NULL);
+    return;
+  }
 
   bluetooth_service_scan(SCAN_DURATION_MS);
 

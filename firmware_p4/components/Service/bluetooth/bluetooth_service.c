@@ -25,11 +25,12 @@
 
 static const char *TAG = "BT_SERVICE_P4";
 
-#define SPI_TIMEOUT_MS         2000
-#define SPI_DATA_TIMEOUT_MS    1000
-#define SPI_CONNECT_TIMEOUT_MS 5000
-#define SPI_SCAN_TIMEOUT_MS    10000
-#define BLE_MAC_LEN            6
+#define SPI_TIMEOUT_MS          2000
+#define SPI_DATA_TIMEOUT_MS     1000
+#define SPI_CONNECT_TIMEOUT_MS  5000
+#define SPI_SCAN_TIMEOUT_MS     10000
+#define SPI_BT_START_TIMEOUT_MS 6000
+#define BLE_MAC_LEN             6
 
 static bluetooth_service_sniffer_cb_t s_sniffer_cb = NULL;
 static uint32_t s_sniffer_session = SPI_SESSION_INVALID_ID;
@@ -49,7 +50,7 @@ esp_err_t bluetooth_service_deinit(void) {
 }
 
 esp_err_t bluetooth_service_start(void) {
-  return spi_bridge_send_command(SPI_ID_BT_START, NULL, 0, NULL, NULL, 0, SPI_TIMEOUT_MS);
+  return spi_bridge_send_command(SPI_ID_BT_START, NULL, 0, NULL, NULL, 0, SPI_BT_START_TIMEOUT_MS);
 }
 
 esp_err_t bluetooth_service_stop(void) {
