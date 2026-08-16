@@ -20,6 +20,7 @@
 #include "esp_log.h"
 #include "driver/gpio.h"
 #include "pin_def.h"
+#include "soc/usb_dwc_struct.h"
 #include "tinyusb.h"
 #include "tinyusb_default_config.h"
 
@@ -185,6 +186,15 @@ void tud_hid_set_report_cb(uint8_t instance,
   (void)bufsize;
 }
 
+static void force_hs_otg_session_valid(void) {
+  usb_dwc_gotgctl_reg_t otg = USB_DWC_HS.gotgctl_reg;
+  otg.vbvalidoven = 1;
+  otg.vbvalidovval = 1;
+  otg.bvalidoven = 1;
+  otg.bvalidovval = 1;
+  USB_DWC_HS.gotgctl_reg = otg;
+}
+
 esp_err_t busb_init(void) {
   // HID (BadUSB) and CDC (companion) share one TinyUSB install — whoever calls
   // first brings the composite up; later calls are no-ops.
@@ -231,6 +241,8 @@ esp_err_t busb_init(void) {
     return err;
   }
 
+  force_hs_otg_session_valid();
+
   s_installed = true;
   ESP_LOGI(TAG, "TinyUSB driver installed");
   return ESP_OK;
@@ -268,16 +280,14 @@ void usb_mux_init(void) {
 
 esp_err_t usb_mux_set_native(bool native) {
   usb_mux_configure_pin();
+  gpio_set_level(GPIO_USB_MUX_SEL_PIN, native ? 1 : 0);
+  s_mux_native = native;
   if (native) {
-    // Bring the TinyUSB composite up before switching the data lines to it, so
-    // the host sees a ready device the moment the mux connects.
     esp_err_t err = busb_init();
     if (err != ESP_OK) {
       return err;
     }
   }
-  gpio_set_level(GPIO_USB_MUX_SEL_PIN, native ? 1 : 0);
-  s_mux_native = native;
   ESP_LOGI(TAG, "USB mux -> %s", native ? "native P4 USB" : "UART bridge");
   return ESP_OK;
 }

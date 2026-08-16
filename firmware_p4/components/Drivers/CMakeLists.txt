@@ -65,4 +65,5 @@ idf_component_register(SRCS
   esp_lcd
   PRIV_REQUIRES
   esp_tinyusb
+  soc
   "espressif__led_strip")
