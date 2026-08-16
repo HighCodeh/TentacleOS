@@ -17,10 +17,10 @@
 
 #include <stdio.h>
 
-#include "esp_random.h"
 #include "lvgl.h"
 #include "st7789.h"
 
+#include "bluetooth_service.h"
 #include "notify_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
@@ -28,6 +28,8 @@
 #include "ui_theme.h"
 
 #define RADIO_ICON "/assets/icons/bluetooth.bin"
+
+#define BLE_ADDR_LEN 6
 
 #define MX        10
 #define CONTENT_W (LCD_H_RES - 2 * MX)
@@ -37,10 +39,6 @@
 #define ROW_H     42
 #define ROW_GAP   8
 #define ROW_STEP  (ROW_H + ROW_GAP)
-
-#define TX_LOW_DBM     3
-#define TX_MAX_DBM     9
-#define INIT_CONNECTED 3
 
 #define COL_DIM   0x8A8594
 #define COL_RAISE 0x170A28
@@ -71,22 +69,19 @@ static lv_obj_t *s_icon_lbl[R_COUNT];
 static lv_obj_t *s_val_lbl[R_COUNT];
 
 static char s_mac[18];
-static int s_connected = INIT_CONNECTED;
-static int s_tx_dbm = TX_LOW_DBM;
+static int s_connected = 0;
+static bool s_is_tx_maxed = false;
 static int s_sel = 0;
 
 static void radio_input(const input_event_t *ev, void *ctx);
 
-static void gen_mac(void) {
+static void read_mac(void) {
+  uint8_t mac[BLE_ADDR_LEN] = {0};
+  bluetooth_service_get_mac(mac);
   snprintf(s_mac,
            sizeof(s_mac),
            "%02X:%02X:%02X:%02X:%02X:%02X",
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF));
+           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
 
 static void update_card(void) {
@@ -97,7 +92,7 @@ static void update_card(void) {
 }
 
 static void update_values(void) {
-  lv_label_set_text_fmt(s_val_lbl[R_TXPOWER], "+%d dBm", s_tx_dbm);
+  lv_label_set_text(s_val_lbl[R_TXPOWER], s_is_tx_maxed ? "MAX" : "");
   lv_label_set_text_fmt(s_val_lbl[R_DISCONNECT], "%d", s_connected);
   lv_label_set_text(s_val_lbl[R_RANDOMIZE], "");
 }
@@ -180,19 +175,28 @@ static lv_obj_t *make_row(lv_obj_t *parent, int i) {
 static void do_action(int idx) {
   switch (idx) {
     case R_RANDOMIZE:
-      gen_mac();
-      update_card();
-      ui_feedback(UI_FB_WRITE);
-      notify(NOTIFY_INFO, "MAC randomized");
+      if (bluetooth_service_set_random_mac() == ESP_OK) {
+        read_mac();
+        update_card();
+        ui_feedback(UI_FB_WRITE);
+        notify(NOTIFY_INFO, "MAC randomized");
+      } else {
+        notify(NOTIFY_WARNING, "Radio not running");
+      }
       break;
     case R_TXPOWER:
-      s_tx_dbm = TX_MAX_DBM;
-      update_values();
-      ui_feedback(UI_FB_WRITE);
-      notify(NOTIFY_SAVED, "TX power maxed");
+      if (bluetooth_service_set_max_power() == ESP_OK) {
+        s_is_tx_maxed = true;
+        update_values();
+        ui_feedback(UI_FB_WRITE);
+        notify(NOTIFY_SAVED, "TX power maxed");
+      } else {
+        notify(NOTIFY_WARNING, "Radio not running");
+      }
       break;
     case R_DISCONNECT:
-      s_connected = 0;
+      bluetooth_service_disconnect_all();
+      s_connected = bluetooth_service_get_connected_count();
       update_card();
       update_values();
       ui_feedback(UI_FB_WRITE);
@@ -209,10 +213,10 @@ void ui_ble_radio_open(void) {
     lv_obj_del(s_screen);
     s_screen = NULL;
   }
-  s_connected = INIT_CONNECTED;
-  s_tx_dbm = TX_LOW_DBM;
+  s_is_tx_maxed = false;
   s_sel = 0;
-  gen_mac();
+  read_mac();
+  s_connected = bluetooth_service_get_connected_count();
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);

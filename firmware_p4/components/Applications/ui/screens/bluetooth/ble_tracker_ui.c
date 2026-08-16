@@ -18,9 +18,9 @@
 #include <stdio.h>
 
 #include "esp_log.h"
-#include "esp_random.h"
 #include "lvgl.h"
 
+#include "tracker_detector.h"
 #include "notify_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
@@ -30,11 +30,10 @@
 
 static const char *TAG = "BLE_TRACKER_UI";
 
-#define SCAN_DURATION_MS 1300
-#define PERSIST_DELAY_MS 2400
+#define POLL_MS 800
 
 #define MAC_LEN        18
-#define DETAIL_LEN     40
+#define DETAIL_LEN     48
 #define TRACKERS_SHOWN 3
 
 #define COL_DIM   0x8A8594
@@ -55,56 +54,28 @@ static const char *TAG = "BLE_TRACKER_UI";
 #define STATUS_Y_OFS 64
 #define SUB_Y_OFS    88
 
-typedef struct {
-  const char *type;
-  int8_t rssi;
-} tracker_t;
-
-static const tracker_t TRACKERS[] = {
-    {"AirTag", -47},
-    {"Tile Pro", -63},
-    {"SmartTag", -78},
-    {"Chipolo", -55},
-};
-
 static lv_obj_t *s_screen = NULL;
-static lv_timer_t *s_scan_timer = NULL;
-static lv_timer_t *s_persist_timer = NULL;
+static lv_timer_t *s_poll_timer = NULL;
+static bool s_is_showing_results = false;
 
 static lv_obj_t *s_banner = NULL;
 
 static void ble_tracker_input(const input_event_t *ev, void *ctx);
-static void scan_done_cb(lv_timer_t *timer);
-static void persist_cb(lv_timer_t *timer);
+static void poll_cb(lv_timer_t *timer);
 static void build_scanning_view(void);
 static void build_results_view(void);
 
-static void stop_aux_timers(void) {
-  if (s_scan_timer != NULL) {
-    lv_timer_delete(s_scan_timer);
-    s_scan_timer = NULL;
+static void stop_detector(void) {
+  if (s_poll_timer != NULL) {
+    lv_timer_delete(s_poll_timer);
+    s_poll_timer = NULL;
   }
-  if (s_persist_timer != NULL) {
-    lv_timer_delete(s_persist_timer);
-    s_persist_timer = NULL;
-  }
+  tracker_detector_stop();
 }
 
 static void clear_screen_children(void) {
   lv_obj_clean(s_screen);
   s_banner = NULL;
-}
-
-static void gen_mac(char *out, size_t n) {
-  snprintf(out,
-           n,
-           "%02X:%02X:%02X:%02X:%02X:%02X",
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF));
 }
 
 static lv_obj_t *body_container(void) {
@@ -180,8 +151,6 @@ static void build_scanning_view(void) {
   lv_obj_set_style_text_font(sub, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_align(sub, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(sub, LV_ALIGN_CENTER, 0, SUB_Y_OFS);
-
-  s_scan_timer = lv_timer_create(scan_done_cb, SCAN_DURATION_MS, NULL);
 }
 
 static void build_results_view(void) {
@@ -200,26 +169,39 @@ static void build_results_view(void) {
   lv_obj_add_flag(s_banner, LV_OBJ_FLAG_HIDDEN);
 
   lv_obj_t *alert = lv_label_create(s_banner);
-  lv_label_set_text(alert, LV_SYMBOL_WARNING "  FOLLOWING YOU");
+  lv_label_set_text(alert, LV_SYMBOL_WARNING "  TRACKER NEARBY");
   lv_obj_set_style_text_color(alert, lv_color_hex(COL_ALERT), 0);
   lv_obj_set_style_text_font(alert, &lv_font_montserrat_14, 0);
   lv_obj_align(alert, LV_ALIGN_LEFT_MID, 0, -8);
 
   lv_obj_t *alert_sub = lv_label_create(s_banner);
-  lv_label_set_text_fmt(alert_sub, "%s moving with you", TRACKERS[0].type);
   lv_obj_set_style_text_color(alert_sub, current_theme.text_main, 0);
   lv_obj_set_style_text_font(alert_sub, &lv_font_montserrat_12, 0);
   lv_obj_align(alert_sub, LV_ALIGN_LEFT_MID, 0, 12);
 
-  for (int i = 0; i < TRACKERS_SHOWN; i++) {
+  uint16_t count = 0;
+  tracker_detector_record_t *rec = tracker_detector_get_results(&count);
+  int shown = 0;
+  for (uint16_t i = 0; i < count && shown < TRACKERS_SHOWN && rec != NULL; i++) {
     char mac[MAC_LEN];
-    gen_mac(mac, sizeof(mac));
-    make_tracker_card(body, TRACKERS[i].type, mac, TRACKERS[i].rssi);
+    const char *type = (rec[i].type_str[0] != '\0') ? rec[i].type_str : "Tracker";
+    snprintf(mac,
+             sizeof(mac),
+             "%02X:%02X:%02X:%02X:%02X:%02X",
+             rec[i].addr[5], rec[i].addr[4], rec[i].addr[3],
+             rec[i].addr[2], rec[i].addr[1], rec[i].addr[0]);
+    make_tracker_card(body, type, mac, rec[i].rssi);
+    if (shown == 0)
+      lv_label_set_text_fmt(alert_sub, "%s in range", type);
+    shown++;
+  }
+
+  if (shown > 0) {
+    lv_obj_remove_flag(s_banner, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_fade_in(s_banner, 200, 0);
   }
 
   lv_obj_fade_in(body, 220, 0);
-
-  s_persist_timer = lv_timer_create(persist_cb, PERSIST_DELAY_MS, NULL);
 }
 
 void ui_ble_tracker_open(void) {
@@ -227,9 +209,9 @@ void ui_ble_tracker_open(void) {
     lv_obj_del(s_screen);
     s_screen = NULL;
   }
-  s_scan_timer = NULL;
-  s_persist_timer = NULL;
+  s_poll_timer = NULL;
   s_banner = NULL;
+  s_is_showing_results = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -242,28 +224,37 @@ void ui_ble_tracker_open(void) {
 
   ui_input_set_screen_handler(ble_tracker_input, NULL);
 
+  if (!tracker_detector_start()) {
+    notify(NOTIFY_WARNING, "Radio unavailable");
+    ESP_LOGE(TAG, "tracker_detector_start failed");
+  } else {
+    s_poll_timer = lv_timer_create(poll_cb, POLL_MS, NULL);
+  }
+
   ui_screen_load_owned(&s_screen, s_screen);
-  ESP_LOGI(TAG, "BLE tracker screen opened (mock)");
+  ESP_LOGI(TAG, "BLE tracker screen opened");
 }
 
-static void scan_done_cb(lv_timer_t *timer) {
-  lv_timer_delete(timer);
-  s_scan_timer = NULL;
-  if (lv_screen_active() != s_screen)
+static void poll_cb(lv_timer_t *timer) {
+  if (lv_screen_active() != s_screen) {
+    stop_detector();
     return;
-  build_results_view();
-  ui_feedback(UI_FB_READ);
-}
+  }
 
-static void persist_cb(lv_timer_t *timer) {
-  lv_timer_delete(timer);
-  s_persist_timer = NULL;
-  if (lv_screen_active() != s_screen || s_banner == NULL)
+  uint16_t count = 0;
+  (void)tracker_detector_get_results(&count);
+  if (count == 0)
     return;
-  lv_obj_remove_flag(s_banner, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_fade_in(s_banner, 200, 0);
-  ui_feedback(UI_FB_EMULATE);
-  notify(NOTIFY_WARNING, "Tracker following you");
+
+  static uint16_t s_last_shown = 0;
+  if (!s_is_showing_results || count != s_last_shown) {
+    bool first = !s_is_showing_results;
+    s_is_showing_results = true;
+    s_last_shown = count;
+    build_results_view();
+    if (first)
+      ui_feedback(UI_FB_READ);
+  }
 }
 
 static void ble_tracker_input(const input_event_t *ev, void *ctx) {
@@ -274,7 +265,7 @@ static void ble_tracker_input(const input_event_t *ev, void *ctx) {
     case INPUT_BTN_BACK:
     case INPUT_BTN_LEFT:
       if (press) {
-        stop_aux_timers();
+        stop_detector();
         ui_switch_screen(SCREEN_BLE_DETECT_MENU);
       }
       break;

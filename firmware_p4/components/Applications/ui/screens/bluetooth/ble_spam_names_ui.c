@@ -20,6 +20,9 @@
 
 #include "lvgl.h"
 
+#include "esp_log.h"
+
+#include "bluetooth_service.h"
 #include "keyboard_ui.h"
 #include "menu_component_ui.h"
 #include "msgbox_ui.h"
@@ -27,6 +30,8 @@
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
+
+static const char *TAG = "BLE_SPAM_NAMES_UI";
 
 #define NAMES_MAX    10
 #define NAME_LEN     24
@@ -38,31 +43,37 @@
 #define COLOR_NAME 0x00E676
 #define COLOR_ADD  0xCC00FF
 
-static const char *const SEED_NAMES[] = {
-    "AirPods Pro",
-    "Nintendo Switch",
-    "TV Assistant",
-    "Ray-Ban Meta",
-};
-#define SEED_NAMES_COUNT ((int)(sizeof(SEED_NAMES) / sizeof(SEED_NAMES[0])))
-
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
 
 static char s_names[NAMES_MAX][NAME_LEN];
 static int s_count = 0;
-static bool s_seeded = false;
 static int s_del_index = -1;
 
 static void ble_spam_names_input(const input_event_t *ev, void *ctx);
 
-static void seed_once(void) {
-  if (s_seeded)
+static void load_names(void) {
+  s_count = 0;
+  char **list = NULL;
+  size_t count = 0;
+  if (bluetooth_service_load_spam_list(&list, &count) != ESP_OK || list == NULL)
     return;
-  s_seeded = true;
-  s_count = SEED_NAMES_COUNT;
+  for (size_t i = 0; i < count && s_count < NAMES_MAX; i++) {
+    if (list[i] != NULL) {
+      snprintf(s_names[s_count], NAME_LEN, "%s", list[i]);
+      s_count++;
+    }
+  }
+  bluetooth_service_free_spam_list(list, count);
+}
+
+static void save_names(void) {
+  const char *ptrs[NAMES_MAX];
   for (int i = 0; i < s_count; i++)
-    snprintf(s_names[i], NAME_LEN, "%s", SEED_NAMES[i]);
+    ptrs[i] = s_names[i];
+  esp_err_t err = bluetooth_service_save_spam_list(ptrs, (size_t)s_count);
+  if (err != ESP_OK)
+    ESP_LOGE(TAG, "save spam list failed: %s", esp_err_to_name(err));
 }
 
 static void build_screen(void) {
@@ -106,6 +117,7 @@ static void on_kb_submit(const char *text, void *ud) {
   if (text != NULL && text[0] != '\0' && s_count < NAMES_MAX) {
     snprintf(s_names[s_count], NAME_LEN, "%s", text);
     s_count++;
+    save_names();
     ui_feedback(UI_FB_WRITE);
     notify(NOTIFY_SAVED, "Name added");
   }
@@ -117,6 +129,7 @@ static void on_delete_confirm(bool confirm) {
     for (int i = s_del_index; i < s_count - 1; i++)
       memmove(s_names[i], s_names[i + 1], NAME_LEN);
     s_count--;
+    save_names();
     ui_feedback(UI_FB_WRITE);
     notify(NOTIFY_INFO, "Name deleted");
   }
@@ -164,7 +177,7 @@ static void ble_spam_names_input(const input_event_t *ev, void *ctx) {
 }
 
 void ui_ble_spam_names_open(void) {
-  seed_once();
+  load_names();
   s_del_index = -1;
   build_screen();
 }

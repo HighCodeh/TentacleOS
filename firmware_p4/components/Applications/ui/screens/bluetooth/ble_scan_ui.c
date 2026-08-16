@@ -19,15 +19,16 @@
 #include <string.h>
 
 #include "esp_log.h"
-#include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sys_prio.h"
 #include "lvgl.h"
 
 #include "assets_manager.h"
+#include "ble_scanner.h"
 #include "msgbox_ui.h"
 #include "notify_ui.h"
+#include "oui_lookup.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -41,8 +42,8 @@ static const char *TAG = "BLE_SCAN_UI";
 #define SCAN_RESULT_COLOR_HEX 0x00E676
 #define COL_DIM               0x8A8594
 #define BLE_MAX_DEVS          12
-#define SCAN_SIM_STEPS        4
-#define SCAN_SIM_STEP_MS      220
+#define SCAN_POLL_MS          150
+#define SCAN_TIMEOUT_MS       15000
 #define BLE_DEV_ICON          "/assets/icons/bluetooth.bin"
 #define BLE_SEARCH_ICON       "/assets/icons/bluetooth_searching.bin"
 #define BLE_SCAN_TASK_STACK 8192
@@ -60,7 +61,6 @@ static const char *TAG = "BLE_SCAN_UI";
 #define RADAR_BLIP_SZ   10
 #define RADAR_YOU_SZ    10
 #define RADAR_START_DEG 234
-#define RADAR_LBL_LEN   8
 #define TRIGO_MAX       32767
 
 #define RSSI_MAP_NEAR (-40)
@@ -80,21 +80,8 @@ typedef struct {
   char name[24];
   int8_t rssi;
   char mac[18];
+  char vendor[24];
 } ble_dev_t;
-
-typedef struct {
-  char name[20];
-  int8_t rssi;
-} mock_ble_dev_t;
-
-static const mock_ble_dev_t MOCK_BLE_DEVS[] = {
-    {"Galaxy Buds", -51},
-    {"Mi Band 7", -60},
-    {"JBL Flip 6", -44},
-    {"AirPods", -66},
-    {"Tile Tracker", -73},
-};
-#define MOCK_BLE_DEV_COUNT (sizeof(MOCK_BLE_DEVS) / sizeof(MOCK_BLE_DEVS[0]))
 
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_status = NULL;
@@ -109,7 +96,6 @@ static uint32_t s_scan_start = 0;
 
 static int s_sel = 0;
 static lv_obj_t *s_blip_dot[BLE_MAX_DEVS];
-static lv_obj_t *s_blip_lbl[BLE_MAX_DEVS];
 static lv_obj_t *s_chip = NULL;
 static lv_obj_t *s_chip_name = NULL;
 static lv_obj_t *s_chip_meta = NULL;
@@ -117,32 +103,6 @@ static lv_obj_t *s_chip_rssi = NULL;
 
 static void scan_status_tick_cb(lv_timer_t *t);
 static void ble_scan_input(const input_event_t *ev, void *ctx);
-
-static void gen_mac(char *out, size_t n) {
-  snprintf(out,
-           n,
-           "%02X:%02X:%02X:%02X:%02X:%02X",
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF));
-}
-
-static const char *ble_vendor(const char *name) {
-  if (strstr(name, "Galaxy") != NULL || strstr(name, "Samsung") != NULL)
-    return "Samsung";
-  if (strstr(name, "Mi ") != NULL || strstr(name, "Xiaomi") != NULL)
-    return "Xiaomi";
-  if (strstr(name, "JBL") != NULL)
-    return "Harman";
-  if (strstr(name, "AirPods") != NULL || strstr(name, "Apple") != NULL)
-    return "Apple";
-  if (strstr(name, "Tile") != NULL)
-    return "Tile";
-  return "Unknown";
-}
 
 static uint32_t blip_hex(int rssi) {
   if (rssi >= RSSI_NEAR_DBM)
@@ -287,9 +247,6 @@ static void update_selection(void) {
     lv_obj_set_style_shadow_width(s_blip_dot[i], on ? 12 : 0, 0);
     lv_obj_set_style_shadow_color(s_blip_dot[i], current_theme.border_accent, 0);
     lv_obj_set_style_shadow_opa(s_blip_dot[i], on ? LV_OPA_60 : LV_OPA_TRANSP, 0);
-    if (s_blip_lbl[i] != NULL)
-      lv_obj_set_style_text_color(
-          s_blip_lbl[i], on ? current_theme.text_main : lv_color_hex(COL_DIM), 0);
   }
 
   if (s_sel < 0 || s_sel >= s_dev_count)
@@ -298,7 +255,7 @@ static void update_selection(void) {
     lv_label_set_text(s_chip_name, s_devs[s_sel].name);
   if (s_chip_meta != NULL)
     lv_label_set_text_fmt(
-        s_chip_meta, "%s  %.8s", ble_vendor(s_devs[s_sel].name), s_devs[s_sel].mac);
+        s_chip_meta, "%s  %.8s", s_devs[s_sel].vendor, s_devs[s_sel].mac);
   if (s_chip_rssi != NULL) {
     lv_label_set_text_fmt(s_chip_rssi, "%d", s_devs[s_sel].rssi);
     lv_obj_set_style_text_color(s_chip_rssi, lv_color_hex(blip_hex(s_devs[s_sel].rssi)), 0);
@@ -344,12 +301,6 @@ static void build_radar(void) {
 
     s_blip_dot[i] = radar_dot(cont, RADAR_BLIP_SZ, lv_color_hex(blip_hex(s_devs[i].rssi)));
     lv_obj_align(s_blip_dot[i], LV_ALIGN_CENTER, dx, dy);
-
-    s_blip_lbl[i] = lv_label_create(cont);
-    lv_label_set_text_fmt(s_blip_lbl[i], "%.*s", RADAR_LBL_LEN, s_devs[i].name);
-    lv_obj_set_style_text_font(s_blip_lbl[i], &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(s_blip_lbl[i], lv_color_hex(COL_DIM), 0);
-    lv_obj_align(s_blip_lbl[i], LV_ALIGN_CENTER, dx, dy + RADAR_BLIP_SZ + 5);
   }
 
   s_chip = lit_panel(s_screen, CHIP_W, CHIP_H);
@@ -399,10 +350,8 @@ static void build_screen(void) {
   s_chip_name = NULL;
   s_chip_meta = NULL;
   s_chip_rssi = NULL;
-  for (int i = 0; i < BLE_MAX_DEVS; i++) {
+  for (int i = 0; i < BLE_MAX_DEVS; i++)
     s_blip_dot[i] = NULL;
-    s_blip_lbl[i] = NULL;
-  }
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -431,7 +380,7 @@ static void open_detail(int idx) {
   snprintf(body,
            sizeof(body),
            "Vendor %s\nRSSI %d dBm\nMAC %s",
-           ble_vendor(s_devs[idx].name),
+           s_devs[idx].vendor,
            s_devs[idx].rssi,
            s_devs[idx].mac);
   ui_feedback(UI_FB_SELECT);
@@ -448,22 +397,59 @@ static void scan_done_cb(void *unused) {
   ESP_LOGI(TAG, "scan finished: state=%d, %d device(s)", (int)s_scan_state, s_dev_count);
 }
 
+static void collect_results(void) {
+  uint16_t n = 0;
+  bluetooth_service_scan_result_t *res = ble_scanner_get_results(&n);
+  int count = 0;
+  if (res != NULL) {
+    for (uint16_t i = 0; i < n && count < BLE_MAX_DEVS; i++) {
+      const bluetooth_service_scan_result_t *d = &res[i];
+      snprintf(s_devs[count].name,
+               sizeof(s_devs[count].name),
+               "%.23s",
+               (d->name[0] != '\0') ? d->name : "(unknown)");
+      s_devs[count].rssi = (int8_t)d->rssi;
+      snprintf(s_devs[count].mac,
+               sizeof(s_devs[count].mac),
+               "%02X:%02X:%02X:%02X:%02X:%02X",
+               d->addr[5], d->addr[4], d->addr[3], d->addr[2], d->addr[1], d->addr[0]);
+      snprintf(s_devs[count].vendor, sizeof(s_devs[count].vendor), "%.23s",
+               oui_get_vendor(d->addr));
+      count++;
+    }
+  }
+  s_dev_count = count;
+  ble_scanner_free_results();
+}
+
 static void ble_scan_task(void *arg) {
   (void)arg;
-  int count = 0;
 
-  for (int i = 0; i < SCAN_SIM_STEPS; i++)
-    vTaskDelay(pdMS_TO_TICKS(SCAN_SIM_STEP_MS));
-
-  for (size_t i = 0; i < MOCK_BLE_DEV_COUNT && count < BLE_MAX_DEVS; i++) {
-    snprintf(s_devs[count].name, sizeof(s_devs[count].name), "%.20s", MOCK_BLE_DEVS[i].name);
-    s_devs[count].rssi = MOCK_BLE_DEVS[i].rssi;
-    gen_mac(s_devs[count].mac, sizeof(s_devs[count].mac));
-    count++;
+  if (!ble_scanner_start()) {
+    s_dev_count = 0;
+    s_scan_state = SCAN_FAIL;
+    s_scanning = false;
+    lv_async_call(scan_done_cb, NULL);
+    vTaskDelete(NULL);
+    return;
   }
 
-  s_dev_count = count;
-  s_scan_state = SCAN_DONE;
+  uint16_t dummy = 0;
+  uint32_t waited = 0;
+  while (ble_scanner_get_results(&dummy) == NULL && waited < SCAN_TIMEOUT_MS) {
+    vTaskDelay(pdMS_TO_TICKS(SCAN_POLL_MS));
+    waited += SCAN_POLL_MS;
+  }
+
+  if (waited >= SCAN_TIMEOUT_MS) {
+    ble_scanner_free_results();
+    s_dev_count = 0;
+    s_scan_state = SCAN_FAIL;
+  } else {
+    collect_results();
+    s_scan_state = SCAN_DONE;
+  }
+
   s_scanning = false;
   lv_async_call(scan_done_cb, NULL);
   vTaskDelete(NULL);
@@ -577,5 +563,5 @@ void ui_ble_scan_open(void) {
     }
   }
 
-  ESP_LOGI(TAG, "BLE scan screen opened (mock scan)");
+  ESP_LOGI(TAG, "BLE scan screen opened");
 }

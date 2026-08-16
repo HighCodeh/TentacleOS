@@ -15,16 +15,21 @@
 
 #include "ble_companion_ui.h"
 
+#include "esp_log.h"
 #include "lvgl.h"
 #include "st7789.h"
 
+#include "host_link_ble.h"
+#include "host_link_sec.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
 
-#define PAIR_PHASE_MS         3000
+static const char *TAG = "BLE_COMPANION_UI";
+
+#define CONN_POLL_MS          500
 #define COMPANION_ICON        "/assets/icons/app_shortcut.bin"
 
 #define SIG_GREEN 0x00E676
@@ -34,6 +39,7 @@ static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_body = NULL;
 static lv_obj_t *s_footer = NULL;
 static lv_timer_t *s_phase_timer = NULL;
+static bool s_is_linked = false;
 
 static void companion_input(const input_event_t *ev, void *ctx);
 static void phase_timer_cb(lv_timer_t *timer);
@@ -103,16 +109,29 @@ static void build_pairing(void) {
   lv_obj_set_style_text_color(status, current_theme.text_main, 0);
   lv_obj_set_style_text_font(status, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_align(status, LV_ALIGN_CENTER, 0, 58);
+  lv_obj_align(status, LV_ALIGN_CENTER, 0, 50);
 
-  lv_obj_t *card = lit_panel(s_body, 150, 40, 13, 16);
-  lv_obj_set_style_pad_all(card, 0, 0);
-  lv_obj_align(card, LV_ALIGN_CENTER, 0, 104);
+  lv_obj_t *caption = lv_label_create(s_body);
+  lv_label_set_text(caption, "Pairing key (PSK):");
+  lv_obj_set_style_text_color(caption, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_font(caption, &lv_font_montserrat_12, 0);
+  lv_obj_align(caption, LV_ALIGN_CENTER, 0, 78);
+
+  lv_obj_t *card = lit_panel(s_body, 224, 56, 13, 16);
+  lv_obj_set_style_pad_all(card, 6, 0);
+  lv_obj_align(card, LV_ALIGN_CENTER, 0, 116);
 
   lv_obj_t *code = lv_label_create(card);
-  lv_label_set_text(code, "CODE: 4821");
+  char psk[HOST_LINK_PSK_HEX_SIZE];
+  if (host_link_sec_get_psk_hex(psk, sizeof(psk)) == ESP_OK)
+    lv_label_set_text(code, psk);
+  else
+    lv_label_set_text(code, "PSK unavailable");
+  lv_label_set_long_mode(code, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(code, 224 - 12);
   lv_obj_set_style_text_color(code, current_theme.border_accent, 0);
-  lv_obj_set_style_text_font(code, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_font(code, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_align(code, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_center(code);
 
   fade_in(status, 200);
@@ -197,21 +216,34 @@ void ui_companion_pairing_open(void) {
   s_footer = ui_chrome_footer(s_screen, "BACK  Cancel");
 
   s_body = make_body(s_screen);
+  s_is_linked = false;
   build_pairing();
 
   ui_input_set_screen_handler(companion_input, NULL);
 
-  s_phase_timer = lv_timer_create(phase_timer_cb, PAIR_PHASE_MS, NULL);
-  lv_timer_set_repeat_count(s_phase_timer, 1);
+  if (host_link_ble_init() == ESP_OK)
+    host_link_ble_start();
+  else
+    ESP_LOGW(TAG, "host_link_ble_init failed; USB companion still works");
+
+  s_phase_timer = lv_timer_create(phase_timer_cb, CONN_POLL_MS, NULL);
 
   ui_screen_load_owned(&s_screen, s_screen);
 }
 
 static void phase_timer_cb(lv_timer_t *timer) {
-  if (lv_screen_active() == s_screen)
+  if (lv_screen_active() != s_screen) {
+    lv_timer_delete(timer);
+    if (s_phase_timer == timer)
+      s_phase_timer = NULL;
+    return;
+  }
+  if (!s_is_linked && host_link_sec_is_authenticated()) {
+    s_is_linked = true;
+    lv_timer_delete(timer);
+    s_phase_timer = NULL;
     show_success();
-  s_phase_timer = NULL;
-  (void)timer;
+  }
 }
 
 static void companion_input(const input_event_t *ev, void *ctx) {
@@ -225,6 +257,8 @@ static void companion_input(const input_event_t *ev, void *ctx) {
           lv_timer_delete(s_phase_timer);
           s_phase_timer = NULL;
         }
+        if (!s_is_linked)
+          host_link_ble_stop();
         ui_switch_screen(SCREEN_BLE_MENU);
       }
       break;

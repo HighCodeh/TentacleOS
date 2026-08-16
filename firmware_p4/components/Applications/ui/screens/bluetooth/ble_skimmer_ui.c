@@ -18,9 +18,9 @@
 #include <stdio.h>
 
 #include "esp_log.h"
-#include "esp_random.h"
 #include "lvgl.h"
 
+#include "skimmer_detector.h"
 #include "notify_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
@@ -30,11 +30,11 @@
 
 static const char *TAG = "BLE_SKIMMER_UI";
 
-#define SCAN_DURATION_MS 1200
+#define POLL_MS 800
 
 #define MAC_LEN        18
-#define NAME_LEN       16
-#define DETAIL_LEN     40
+#define NAME_LEN       24
+#define DETAIL_LEN     48
 #define SUSPECTS_SHOWN 3
 
 #define COL_DIM    0x8A8594
@@ -54,65 +54,22 @@ static const char *TAG = "BLE_SKIMMER_UI";
 #define DETAIL_Y     22
 #define STATUS_Y_OFS 64
 #define SUB_Y_OFS    88
-#define RNBT_ID_MASK 0xFFFF
-
-typedef enum {
-  SKIM_HC05,
-  SKIM_HC06,
-  SKIM_RNBT,
-} skimmer_kind_t;
-
-typedef struct {
-  skimmer_kind_t kind;
-  int8_t rssi;
-} suspect_t;
-
-static const suspect_t SUSPECTS[] = {
-    {SKIM_HC05, -52},
-    {SKIM_RNBT, -67},
-    {SKIM_HC06, -74},
-};
 
 static lv_obj_t *s_screen = NULL;
 static lv_timer_t *s_scan_timer = NULL;
+static bool s_is_showing_results = false;
 
 static void ble_skimmer_input(const input_event_t *ev, void *ctx);
-static void scan_done_cb(lv_timer_t *timer);
+static void poll_cb(lv_timer_t *timer);
 static void build_scanning_view(void);
 static void build_results_view(void);
 
-static void stop_scan_timer(void) {
+static void stop_detector(void) {
   if (s_scan_timer != NULL) {
     lv_timer_delete(s_scan_timer);
     s_scan_timer = NULL;
   }
-}
-
-static void gen_mac(char *out, size_t n) {
-  snprintf(out,
-           n,
-           "%02X:%02X:%02X:%02X:%02X:%02X",
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF));
-}
-
-static void suspect_name(skimmer_kind_t kind, char *out, size_t n) {
-  switch (kind) {
-    case SKIM_HC05:
-      snprintf(out, n, "HC-05");
-      break;
-    case SKIM_HC06:
-      snprintf(out, n, "HC-06");
-      break;
-    case SKIM_RNBT:
-    default:
-      snprintf(out, n, "RNBT-%04X", (unsigned)(esp_random() & RNBT_ID_MASK));
-      break;
-  }
+  skimmer_detector_stop();
 }
 
 static lv_obj_t *body_container(void) {
@@ -188,8 +145,6 @@ static void build_scanning_view(void) {
   lv_obj_set_style_text_font(sub, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_align(sub, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(sub, LV_ALIGN_CENTER, 0, SUB_Y_OFS);
-
-  s_scan_timer = lv_timer_create(scan_done_cb, SCAN_DURATION_MS, NULL);
 }
 
 static void build_results_view(void) {
@@ -218,12 +173,20 @@ static void build_results_view(void) {
   lv_obj_set_style_text_font(threat_sub, &lv_font_montserrat_12, 0);
   lv_obj_align(threat_sub, LV_ALIGN_LEFT_MID, 0, 12);
 
-  for (int i = 0; i < SUSPECTS_SHOWN; i++) {
+  uint16_t count = 0;
+  skimmer_detector_record_t *rec = skimmer_detector_get_results(&count);
+  int shown = 0;
+  for (uint16_t i = 0; i < count && shown < SUSPECTS_SHOWN && rec != NULL; i++) {
     char name[NAME_LEN];
     char mac[MAC_LEN];
-    suspect_name(SUSPECTS[i].kind, name, sizeof(name));
-    gen_mac(mac, sizeof(mac));
-    make_suspect_card(body, name, mac, SUSPECTS[i].rssi);
+    snprintf(name, sizeof(name), "%.23s", (rec[i].name[0] != '\0') ? rec[i].name : "(unknown)");
+    snprintf(mac,
+             sizeof(mac),
+             "%02X:%02X:%02X:%02X:%02X:%02X",
+             rec[i].addr[5], rec[i].addr[4], rec[i].addr[3],
+             rec[i].addr[2], rec[i].addr[1], rec[i].addr[0]);
+    make_suspect_card(body, name, mac, rec[i].rssi);
+    shown++;
   }
 
   lv_obj_fade_in(body, 220, 0);
@@ -245,20 +208,39 @@ void ui_ble_skimmer_open(void) {
   lv_obj_set_style_border_width(s_screen, 0, 0);
   lv_obj_set_style_pad_all(s_screen, 0, 0);
 
+  s_is_showing_results = false;
   build_scanning_view();
 
   ui_input_set_screen_handler(ble_skimmer_input, NULL);
 
+  if (!skimmer_detector_start()) {
+    notify(NOTIFY_WARNING, "Radio unavailable");
+    ESP_LOGE(TAG, "skimmer_detector_start failed");
+  } else {
+    s_scan_timer = lv_timer_create(poll_cb, POLL_MS, NULL);
+  }
+
   ui_screen_load_owned(&s_screen, s_screen);
-  ESP_LOGI(TAG, "BLE skimmer screen opened (mock)");
+  ESP_LOGI(TAG, "BLE skimmer screen opened");
 }
 
-static void scan_done_cb(lv_timer_t *timer) {
-  lv_timer_delete(timer);
-  s_scan_timer = NULL;
-  if (lv_screen_active() != s_screen)
+static void poll_cb(lv_timer_t *timer) {
+  if (lv_screen_active() != s_screen) {
+    stop_detector();
     return;
-  build_results_view();
+  }
+
+  uint16_t count = 0;
+  (void)skimmer_detector_get_results(&count);
+  if (count == 0)
+    return;
+
+  static uint16_t s_last_shown = 0;
+  if (!s_is_showing_results || count != s_last_shown) {
+    s_is_showing_results = true;
+    s_last_shown = count;
+    build_results_view();
+  }
 }
 
 static void ble_skimmer_input(const input_event_t *ev, void *ctx) {
@@ -269,7 +251,7 @@ static void ble_skimmer_input(const input_event_t *ev, void *ctx) {
     case INPUT_BTN_BACK:
     case INPUT_BTN_LEFT:
       if (press) {
-        stop_scan_timer();
+        stop_detector();
         ui_switch_screen(SCREEN_BLE_DETECT_MENU);
       }
       break;

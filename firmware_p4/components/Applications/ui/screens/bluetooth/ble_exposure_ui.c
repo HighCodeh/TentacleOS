@@ -18,9 +18,10 @@
 #include <stdio.h>
 
 #include "esp_log.h"
-#include "esp_random.h"
 #include "lvgl.h"
 
+#include "exposure_notification.h"
+#include "notify_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -28,19 +29,12 @@
 
 static const char *TAG = "BLE_EXPOSURE_UI";
 
-#define FEED_TICK_MS          700
+#define FEED_TICK_MS 700
 
-#define MAX_ADV        6
-#define MAC_LEN        18
-#define ROW_LEN        36
-#define LIST_BUF_LEN   (MAX_ADV * ROW_LEN)
-#define MAX_AGE_TICKS  11
-#define ADD_CHANCE_PCT 55
-#define SEED_COUNT     3
-
-#define RSSI_MIN  48
-#define RSSI_SPAN 48
-#define PCT_MOD   100
+#define MAX_ADV      8
+#define MAC_LEN      18
+#define ROW_LEN      36
+#define LIST_BUF_LEN (MAX_ADV * ROW_LEN)
 
 #define COL_DIM     0x8A8594
 #define COL_SUCCESS 0x00E676
@@ -55,77 +49,38 @@ static const char *TAG = "BLE_EXPOSURE_UI";
 #define LIST_PANEL_Y 94
 #define LIST_PAD     8
 
-typedef struct {
-  char mac[MAC_LEN];
-  int rssi;
-  uint16_t age;
-  bool used;
-} adv_t;
-
 static lv_obj_t *s_screen = NULL;
 static lv_timer_t *s_feed_timer = NULL;
 static lv_obj_t *s_count_label = NULL;
 static lv_obj_t *s_list_label = NULL;
 
-static adv_t s_adv[MAX_ADV];
-
 static void exposure_input(const input_event_t *ev, void *ctx);
 static void feed_tick_cb(lv_timer_t *timer);
 
-static void stop_feed_timer(void) {
+static void stop_scanning(void) {
   if (s_feed_timer != NULL) {
     lv_timer_delete(s_feed_timer);
     s_feed_timer = NULL;
   }
-}
-
-static void gen_mac(char *out, size_t n) {
-  snprintf(out,
-           n,
-           "%02X:%02X:%02X:%02X:%02X:%02X",
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF),
-           (unsigned)(esp_random() & 0xFF));
-}
-
-static void add_advertiser(void) {
-  for (int i = 0; i < MAX_ADV; i++) {
-    if (!s_adv[i].used) {
-      gen_mac(s_adv[i].mac, sizeof(s_adv[i].mac));
-      s_adv[i].rssi = -(int)(RSSI_MIN + (esp_random() % RSSI_SPAN));
-      s_adv[i].age = 0;
-      s_adv[i].used = true;
-      return;
-    }
-  }
-}
-
-static int active_count(void) {
-  int c = 0;
-  for (int i = 0; i < MAX_ADV; i++)
-    if (s_adv[i].used)
-      c++;
-  return c;
+  exposure_notification_stop();
 }
 
 static void render_list(void) {
+  uint16_t count = 0;
+  exposure_notification_device_t *list = exposure_notification_get_list(&count);
+
   if (s_list_label != NULL) {
     char buf[LIST_BUF_LEN];
     size_t pos = 0;
     bool first = true;
-    for (int i = 0; i < MAX_ADV && pos < sizeof(buf); i++) {
-      if (!s_adv[i].used)
-        continue;
-      int secs = (int)(s_adv[i].age * FEED_TICK_MS / 1000);
+    for (uint16_t i = 0; i < count && i < MAX_ADV && pos < sizeof(buf) && list != NULL; i++) {
       int m = snprintf(buf + pos,
                        sizeof(buf) - pos,
-                       first ? "%s  %d  %ds" : "\n%s  %d  %ds",
-                       s_adv[i].mac,
-                       s_adv[i].rssi,
-                       secs);
+                       first ? "%02X:%02X:%02X:%02X:%02X:%02X  %d"
+                             : "\n%02X:%02X:%02X:%02X:%02X:%02X  %d",
+                       list[i].addr[5], list[i].addr[4], list[i].addr[3],
+                       list[i].addr[2], list[i].addr[1], list[i].addr[0],
+                       list[i].rssi);
       if (m < 0)
         break;
       pos += (size_t)m;
@@ -137,7 +92,7 @@ static void render_list(void) {
   }
 
   if (s_count_label != NULL)
-    lv_label_set_text_fmt(s_count_label, "Advertisers: %d", active_count());
+    lv_label_set_text_fmt(s_count_label, "Advertisers: %u", (unsigned)count);
 }
 
 void ui_ble_exposure_open(void) {
@@ -148,11 +103,6 @@ void ui_ble_exposure_open(void) {
   s_feed_timer = NULL;
   s_count_label = NULL;
   s_list_label = NULL;
-
-  for (int i = 0; i < MAX_ADV; i++)
-    s_adv[i].used = false;
-  for (int i = 0; i < SEED_COUNT; i++)
-    add_advertiser();
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -204,35 +154,28 @@ void ui_ble_exposure_open(void) {
   lv_obj_set_style_text_align(s_list_label, LV_TEXT_ALIGN_LEFT, 0);
   lv_obj_align(s_list_label, LV_ALIGN_TOP_LEFT, 0, 0);
 
+  exposure_notification_reset();
+  if (exposure_notification_start() != ESP_OK) {
+    lv_label_set_text(s_list_label, "Radio unavailable");
+    notify(NOTIFY_WARNING, "Radio unavailable");
+    ESP_LOGE(TAG, "exposure_notification_start failed");
+  } else {
+    s_feed_timer = lv_timer_create(feed_tick_cb, FEED_TICK_MS, NULL);
+  }
   render_list();
 
   ui_input_set_screen_handler(exposure_input, NULL);
-  s_feed_timer = lv_timer_create(feed_tick_cb, FEED_TICK_MS, NULL);
 
   ui_feedback(UI_FB_SELECT);
   ui_screen_load_owned(&s_screen, s_screen);
-  ESP_LOGI(TAG, "BLE exposure screen opened (mock GAEN)");
+  ESP_LOGI(TAG, "BLE exposure screen opened");
 }
 
 static void feed_tick_cb(lv_timer_t *timer) {
   if (lv_screen_active() != s_screen) {
-    lv_timer_delete(timer);
-    if (s_feed_timer == timer)
-      s_feed_timer = NULL;
+    stop_scanning();
     return;
   }
-
-  for (int i = 0; i < MAX_ADV; i++) {
-    if (s_adv[i].used) {
-      s_adv[i].age++;
-      if (s_adv[i].age > MAX_AGE_TICKS)
-        s_adv[i].used = false;
-    }
-  }
-
-  if ((esp_random() % PCT_MOD) < ADD_CHANCE_PCT)
-    add_advertiser();
-
   render_list();
 }
 
@@ -244,7 +187,7 @@ static void exposure_input(const input_event_t *ev, void *ctx) {
     case INPUT_BTN_BACK:
     case INPUT_BTN_LEFT:
       if (press) {
-        stop_feed_timer();
+        stop_scanning();
         ui_switch_screen(SCREEN_BLE_DETECT_MENU);
       }
       break;

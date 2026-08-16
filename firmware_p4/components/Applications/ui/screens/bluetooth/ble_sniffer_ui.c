@@ -19,9 +19,10 @@
 #include <string.h>
 
 #include "esp_log.h"
-#include "esp_random.h"
+#include "freertos/FreeRTOS.h"
 #include "lvgl.h"
 
+#include "ble_sniffer.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -29,15 +30,11 @@
 
 static const char *TAG = "BLE_SNIFFER_UI";
 
-#define FEED_TICK_MS 420
+#define FEED_TICK_MS 200
 
 #define MAX_ROWS     7
 #define ROW_LEN      40
 #define FEED_BUF_LEN (MAX_ROWS * ROW_LEN)
-
-#define RSSI_MIN      40
-#define RSSI_SPAN     55
-#define ADV_BYTE_MASK 0xFF
 
 #define COL_DIM 0x8A8594
 
@@ -60,15 +57,42 @@ static lv_obj_t *s_hex_label = NULL;
 static char s_rows[MAX_ROWS][ROW_LEN];
 static int s_row_count = 0;
 static uint32_t s_frames = 0;
+static uint32_t s_rendered_frames = 0;
+static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static void ble_sniffer_input(const input_event_t *ev, void *ctx);
 static void feed_tick_cb(lv_timer_t *timer);
 
-static void stop_feed_timer(void) {
+static void stop_sniffing(void) {
+  ble_sniffer_set_observer(NULL);
+  ble_sniffer_stop();
   if (s_feed_timer != NULL) {
     lv_timer_delete(s_feed_timer);
     s_feed_timer = NULL;
   }
+}
+
+static void sniffer_observer(const ble_sniffer_adv_t *adv) {
+  const uint8_t *addr = adv->addr;
+  char row[ROW_LEN];
+  int n = snprintf(row,
+                   sizeof(row),
+                   "%02X:%02X:%02X:%02X:%02X:%02X %d",
+                   addr[5], addr[4], addr[3], addr[2], addr[1], addr[0], adv->rssi);
+  for (int i = 0; i < adv->len && n > 0 && n < (int)sizeof(row) - 3; i++)
+    n += snprintf(row + n, sizeof(row) - n, " %02X", adv->data[i]);
+
+  portENTER_CRITICAL(&s_lock);
+  if (s_row_count < MAX_ROWS) {
+    memcpy(s_rows[s_row_count], row, sizeof(row));
+    s_row_count++;
+  } else {
+    for (int i = 1; i < MAX_ROWS; i++)
+      memcpy(s_rows[i - 1], s_rows[i], ROW_LEN);
+    memcpy(s_rows[MAX_ROWS - 1], row, sizeof(row));
+  }
+  s_frames++;
+  portEXIT_CRITICAL(&s_lock);
 }
 
 static lv_obj_t *lit_card(lv_obj_t *parent, int w, int h) {
@@ -90,45 +114,26 @@ static lv_obj_t *lit_card(lv_obj_t *parent, int w, int h) {
   return card;
 }
 
-static void gen_adv_row(char *out, size_t n) {
-  int rssi = -(int)(RSSI_MIN + (esp_random() % RSSI_SPAN));
-  snprintf(out,
-           n,
-           "%02X:%02X:%02X:%02X:%02X:%02X %d  %02X %02X %02X",
-           (unsigned)(esp_random() & ADV_BYTE_MASK),
-           (unsigned)(esp_random() & ADV_BYTE_MASK),
-           (unsigned)(esp_random() & ADV_BYTE_MASK),
-           (unsigned)(esp_random() & ADV_BYTE_MASK),
-           (unsigned)(esp_random() & ADV_BYTE_MASK),
-           (unsigned)(esp_random() & ADV_BYTE_MASK),
-           rssi,
-           (unsigned)(esp_random() & ADV_BYTE_MASK),
-           (unsigned)(esp_random() & ADV_BYTE_MASK),
-           (unsigned)(esp_random() & ADV_BYTE_MASK));
-}
-
-static void push_row(void) {
-  if (s_row_count < MAX_ROWS) {
-    gen_adv_row(s_rows[s_row_count], ROW_LEN);
-    s_row_count++;
-  } else {
-    for (int i = 1; i < MAX_ROWS; i++)
-      memcpy(s_rows[i - 1], s_rows[i], ROW_LEN);
-    gen_adv_row(s_rows[MAX_ROWS - 1], ROW_LEN);
-  }
-}
-
 static void render_rows(void) {
   if (s_hex_label == NULL)
     return;
+  char rows[MAX_ROWS][ROW_LEN];
+  int count;
+  portENTER_CRITICAL(&s_lock);
+  count = s_row_count;
+  memcpy(rows, s_rows, sizeof(rows));
+  portEXIT_CRITICAL(&s_lock);
+
   char buf[FEED_BUF_LEN];
   size_t pos = 0;
-  for (int i = 0; i < s_row_count && pos < sizeof(buf); i++) {
-    int m = snprintf(buf + pos, sizeof(buf) - pos, (i == 0) ? "%s" : "\n%s", s_rows[i]);
+  for (int i = 0; i < count && pos < sizeof(buf); i++) {
+    int m = snprintf(buf + pos, sizeof(buf) - pos, (i == 0) ? "%s" : "\n%s", rows[i]);
     if (m < 0)
       break;
     pos += (size_t)m;
   }
+  if (count == 0)
+    snprintf(buf, sizeof(buf), "Waiting for frames...");
   lv_label_set_text(s_hex_label, buf);
 }
 
@@ -140,8 +145,11 @@ void ui_ble_sniffer_open(void) {
   s_feed_timer = NULL;
   s_count_label = NULL;
   s_hex_label = NULL;
+  portENTER_CRITICAL(&s_lock);
   s_row_count = 0;
   s_frames = 0;
+  portEXIT_CRITICAL(&s_lock);
+  s_rendered_frames = 0;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -189,27 +197,41 @@ void ui_ble_sniffer_open(void) {
   lv_obj_align(s_hex_label, LV_ALIGN_TOP_LEFT, 0, 0);
 
   ui_input_set_screen_handler(ble_sniffer_input, NULL);
-  s_feed_timer = lv_timer_create(feed_tick_cb, FEED_TICK_MS, NULL);
+
+  ble_sniffer_set_observer(sniffer_observer);
+  esp_err_t err = ble_sniffer_start();
+  if (err != ESP_OK) {
+    ble_sniffer_set_observer(NULL);
+    lv_label_set_text(status, "Radio unavailable");
+    lv_label_set_text(s_hex_label, "Could not start sniffer (C5?)");
+    ESP_LOGE(TAG, "ble_sniffer_start failed: %s", esp_err_to_name(err));
+  } else {
+    s_feed_timer = lv_timer_create(feed_tick_cb, FEED_TICK_MS, NULL);
+  }
 
   ui_feedback(UI_FB_SELECT);
   ui_screen_load_owned(&s_screen, s_screen);
-  ESP_LOGI(TAG, "BLE sniffer screen opened (mock)");
+  ESP_LOGI(TAG, "BLE sniffer screen opened");
 }
 
 static void feed_tick_cb(lv_timer_t *timer) {
   if (lv_screen_active() != s_screen) {
-    lv_timer_delete(timer);
-    if (s_feed_timer == timer)
-      s_feed_timer = NULL;
+    stop_sniffing();
     return;
   }
 
-  push_row();
-  render_rows();
+  uint32_t frames;
+  portENTER_CRITICAL(&s_lock);
+  frames = s_frames;
+  portEXIT_CRITICAL(&s_lock);
 
-  s_frames++;
+  if (frames == s_rendered_frames)
+    return;
+  s_rendered_frames = frames;
+
+  render_rows();
   if (s_count_label != NULL)
-    lv_label_set_text_fmt(s_count_label, "Frames: %lu", (unsigned long)s_frames);
+    lv_label_set_text_fmt(s_count_label, "Frames: %lu", (unsigned long)frames);
 }
 
 static void ble_sniffer_input(const input_event_t *ev, void *ctx) {
@@ -219,7 +241,7 @@ static void ble_sniffer_input(const input_event_t *ev, void *ctx) {
     case INPUT_BTN_BACK:
     case INPUT_BTN_LEFT:
       if (press) {
-        stop_feed_timer();
+        stop_sniffing();
         ui_switch_screen(SCREEN_BLE_DETECT_MENU);
       }
       break;

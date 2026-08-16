@@ -17,9 +17,11 @@
 
 #include <stdio.h>
 
+#include "esp_log.h"
 #include "lvgl.h"
 #include "st7789.h"
 
+#include "ble_hid_keyboard.h"
 #include "notify_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
@@ -27,8 +29,15 @@
 #include "ui_theme.h"
 #include "waves_ui.h"
 
-#define PAIR_PHASE_MS         2500
+static const char *TAG = "BLE_KEYBOARD_UI";
+
+#define CONN_POLL_MS          400
 #define CURSOR_BLINK_MS       500
+
+#define HID_KEY_ENTER 0x28
+#define HID_KEY_SPACE 0x2C
+#define HID_MOD_SHIFT 0x02
+#define HID_MOD_GUI   0x08
 
 #define KB_ICON "/assets/icons/keyboard.bin"
 
@@ -130,7 +139,7 @@ static void build_console(void) {
   s_connected = true;
 
   lv_obj_t *status = lv_label_create(s_body);
-  lv_label_set_text(status, LV_SYMBOL_OK "  Connected to Target-PC");
+  lv_label_set_text(status, LV_SYMBOL_OK "  Connected");
   lv_obj_set_style_text_color(status, lv_color_hex(SIG_GREEN), 0);
   lv_obj_set_style_text_font(status, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_CENTER, 0);
@@ -158,7 +167,42 @@ static void build_console(void) {
     s_cursor_timer = lv_timer_create(cursor_timer_cb, CURSOR_BLINK_MS, NULL);
 }
 
-static void append_char(char c) {
+static bool ascii_to_hid(char c, uint8_t *key, uint8_t *mod) {
+  *mod = 0;
+  if (c >= 'a' && c <= 'z') {
+    *key = 0x04 + (c - 'a');
+    return true;
+  }
+  if (c >= 'A' && c <= 'Z') {
+    *key = 0x04 + (c - 'A');
+    *mod = HID_MOD_SHIFT;
+    return true;
+  }
+  if (c >= '1' && c <= '9') {
+    *key = 0x1E + (c - '1');
+    return true;
+  }
+  switch (c) {
+    case '0': *key = 0x27; return true;
+    case '\n': *key = HID_KEY_ENTER; return true;
+    case ' ': *key = HID_KEY_SPACE; return true;
+    case '.': *key = 0x37; return true;
+    case ',': *key = 0x36; return true;
+    case '-': *key = 0x2D; return true;
+    case '_': *key = 0x2D; *mod = HID_MOD_SHIFT; return true;
+    case '/': *key = 0x38; return true;
+    case ':': *key = 0x33; *mod = HID_MOD_SHIFT; return true;
+    case ';': *key = 0x33; return true;
+    case '!': *key = 0x1E; *mod = HID_MOD_SHIFT; return true;
+    case '?': *key = 0x38; *mod = HID_MOD_SHIFT; return true;
+    default: return false;
+  }
+}
+
+static void type_char(char c) {
+  uint8_t key, mod;
+  if (ascii_to_hid(c, &key, &mod))
+    ble_hid_send_key(key, mod);
   if (s_type_pos >= TYPED_MAX - 2)
     return;
   s_typed[s_type_pos++] = c;
@@ -194,18 +238,32 @@ void ui_ble_keyboard_open(void) {
 
   ui_input_set_screen_handler(keyboard_input, NULL);
 
-  s_phase_timer = lv_timer_create(phase_timer_cb, PAIR_PHASE_MS, NULL);
-  lv_timer_set_repeat_count(s_phase_timer, 1);
+  if (ble_hid_init() != ESP_OK) {
+    lv_obj_t *err = lv_label_create(s_body);
+    lv_label_set_text(err, "HID init failed (C5?)");
+    lv_obj_set_style_text_color(err, current_theme.text_main, 0);
+    lv_obj_align(err, LV_ALIGN_CENTER, 0, 58);
+    ESP_LOGE(TAG, "ble_hid_init failed");
+  } else {
+    s_phase_timer = lv_timer_create(phase_timer_cb, CONN_POLL_MS, NULL);
+  }
 
   ui_feedback(UI_FB_EMULATE);
   ui_screen_load_owned(&s_screen, s_screen);
 }
 
 static void phase_timer_cb(lv_timer_t *timer) {
-  if (lv_screen_active() == s_screen)
+  if (lv_screen_active() != s_screen) {
+    lv_timer_delete(timer);
+    if (s_phase_timer == timer)
+      s_phase_timer = NULL;
+    return;
+  }
+  if (ble_hid_is_connected()) {
+    lv_timer_delete(timer);
+    s_phase_timer = NULL;
     build_console();
-  s_phase_timer = NULL;
-  (void)timer;
+  }
 }
 
 static void cursor_timer_cb(lv_timer_t *timer) {
@@ -237,13 +295,15 @@ static void keyboard_input(const input_event_t *ev, void *ctx) {
     case INPUT_BTN_BACK:
       if (press) {
         stop_timers();
+        ble_hid_deinit();
+        s_connected = false;
         ui_switch_screen(SCREEN_BLE_MENU);
       }
       break;
     case INPUT_BTN_OK:
       if (press && s_connected) {
         if (CANNED_TEXT[s_type_pos] != '\0') {
-          append_char(CANNED_TEXT[s_type_pos]);
+          type_char(CANNED_TEXT[s_type_pos]);
           ui_feedback(UI_FB_NAV);
         } else {
           notify(NOTIFY_SAVED, "Payload typed");
@@ -252,19 +312,13 @@ static void keyboard_input(const input_event_t *ev, void *ctx) {
       break;
     case INPUT_BTN_RIGHT:
       if (press && s_connected) {
-        append_char('\n');
+        type_char('\n');
         ui_feedback(UI_FB_NAV);
       }
       break;
     case INPUT_BTN_LEFT:
       if (press && s_connected) {
-        append_char('\n');
-        append_char('[');
-        append_char('G');
-        append_char('U');
-        append_char('I');
-        append_char(']');
-        append_char('\n');
+        ble_hid_send_key(0, HID_MOD_GUI);
         ui_feedback(UI_FB_NAV);
       }
       break;
