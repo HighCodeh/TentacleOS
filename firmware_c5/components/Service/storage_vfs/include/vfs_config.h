@@ -25,9 +25,9 @@
 extern "C" {
 #endif
 
-#define VFS_USE_SD_CARD // Active backend
+// #define VFS_USE_SD_CARD  // micro-SD lives on the P4; the C5 stores on flash
 // #define VFS_USE_SPIFFS
-// #define VFS_USE_LITTLEFS
+#define VFS_USE_LITTLEFS // Active backend
 // #define VFS_USE_RAMFS
 
 // Backend Configuration

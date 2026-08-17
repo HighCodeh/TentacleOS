@@ -20,10 +20,82 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
+
 #include "lvgl.h"
 
 /** @brief Create the header bar on the given parent. */
 void header_ui_create(lv_obj_t *parent);
+
+/**
+ * @brief Attach the shared status cluster (wifi/bt/sd/battery) to @p parent.
+ *
+ * Builds the exact same icons + starts the exact same singleton status timers
+ * the home/menu header uses, right-aligned inside @p parent. Reused by the
+ * per-screen chrome header so every screen shows the identical status bar with
+ * identical behavior (charging animation, SD mount, BLE tint, ...).
+ *
+ * @param parent    Bar object to attach the cluster to.
+ * @param y_offset  Vertical nudge to the parent's visual center (home's bar is
+ *                  drawn with a negative top inset -> 6; the chrome bar -> 0).
+ */
+void header_ui_attach_status(lv_obj_t *parent, int y_offset);
+
+/**
+ * @brief Static one-shot version of the status cluster (no globals, no timers).
+ *
+ * Paints wifi/bt/sd/battery at the CURRENT state but does not bind the shared
+ * statics nor register the animation timers, so it never dangles when torn down.
+ * For transient overlays drawn over a live screen. See header_ui_create_snapshot.
+ */
+void header_ui_attach_status_snapshot(lv_obj_t *parent, int y_offset);
+
+/**
+ * @brief Full home-style status bar, but STATIC (snapshot cluster, no timers).
+ *
+ * Same visual as header_ui_create; use on a transient overlay so it does not
+ * rebind/dangle the dynamic header of the screen underneath.
+ */
+void header_ui_create_snapshot(lv_obj_t *parent);
+
+/**
+ * @brief Animate the WiFi icon while a connection is in progress.
+ *
+ * Call with true when a connect attempt starts and false when it finishes
+ * (connected or failed). While false the icon is static and reflects the real
+ * WiFi state; there is no perpetual animation. Safe to call from the UI thread.
+ */
+void header_ui_set_wifi_connecting(bool connecting);
+
+/**
+ * @brief Report the cached SD card usage, computed off the LVGL task.
+ *
+ * Reads a value cached by the header's mount worker, so callers (e.g. the
+ * home dropdown) avoid a blocking filesystem query on the LVGL task.
+ *
+ * @param[out] out_used_pct  Used space percentage (0-100); may be NULL.
+ * @return true if a card is currently mounted/recognized.
+ */
+bool header_ui_sd_usage(int *out_used_pct);
+
+/**
+ * @brief Request the SD card mount owner (the card-detect worker) to remount.
+ *
+ * Routes a remount through the single task that owns the SD mount, so a health
+ * check failing elsewhere (e.g. the system monitor) never remounts concurrently
+ * with the hotplug worker. Safe to call from any task; no-op if the worker is
+ * not up yet.
+ */
+void header_ui_request_sd_remount(void);
+
+/**
+ * @brief Software-eject the SD card: unmount it and hide the header indicator.
+ *
+ * Call from the LVGL thread. The card stays unmounted (the card-detect worker is
+ * edge-driven, so it will not auto-remount a still-inserted card) until it is
+ * physically reinserted or header_ui_request_sd_remount() is called.
+ */
+void header_ui_sd_eject(void);
 
 #ifdef __cplusplus
 }

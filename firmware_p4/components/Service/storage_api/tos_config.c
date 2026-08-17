@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "tos_config.h"
+#include "storage_atomic.h"
 #include "tos_storage_paths.h"
 #include "esp_log.h"
 #include "cJSON.h"
@@ -35,6 +36,7 @@ tos_config_screen_t g_config_screen = {
 };
 
 tos_config_wifi_t g_config_wifi = {
+    .enabled = false,
     .ap =
         {
             .ssid = "TentacleOS",
@@ -53,7 +55,7 @@ tos_config_wifi_t g_config_wifi = {
 
 tos_config_ble_t g_config_ble = {
     .name = "TentacleOS",
-    .enabled = true,
+    .enabled = false,
 };
 
 tos_config_lora_t g_config_lora = {
@@ -73,6 +75,13 @@ tos_config_system_t g_config_system = {
     .vibration = true,
     .log_level = "info",
     .first_boot_done = false,
+};
+
+tos_config_led_t g_config_led = {
+    .brightness = 10,
+    .info_color = 0xFF00FF,    // purple (pure magenta: R+B)
+    .warning_color = 0xFFFF00, // yellow
+    .error_color = 0xFF0000,   // red
 };
 
 // Helpers
@@ -104,13 +113,30 @@ static char *read_file_to_string(const char *path) {
 }
 
 static esp_err_t write_string_to_file(const char *path, const char *data) {
-  FILE *f = fopen(path, "w");
-  if (f == NULL)
-    return ESP_FAIL;
+  return storage_write_atomic(path, data, strlen(data));
+}
 
-  fputs(data, f);
-  fclose(f);
-  return ESP_OK;
+static char *recover_from_tmp(const char *path) {
+  char tmp[128];
+  int n = snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+  if (n <= 0 || (size_t)n >= sizeof(tmp))
+    return NULL;
+
+  char *content = read_file_to_string(tmp);
+  if (content == NULL)
+    return NULL;
+
+  cJSON *probe = cJSON_Parse(content);
+  if (probe == NULL) {
+    free(content);
+    remove(tmp);
+    return NULL;
+  }
+  cJSON_Delete(probe);
+
+  remove(path);
+  rename(tmp, path);
+  return content;
 }
 
 static void json_get_str(cJSON *obj, const char *key, char *dst, size_t max) {
@@ -131,6 +157,19 @@ static bool json_get_bool(cJSON *obj, const char *key, bool fallback) {
   return cJSON_IsBool(item) ? cJSON_IsTrue(item) : fallback;
 }
 
+// Colors are stored as "#RRGGBB" (or "RRGGBB") hex strings for readability.
+static uint32_t json_get_color(cJSON *obj, const char *key, uint32_t fallback) {
+  cJSON *item = cJSON_GetObjectItem(obj, key);
+  if (!cJSON_IsString(item) || item->valuestring == NULL) {
+    return fallback;
+  }
+  const char *s = item->valuestring;
+  if (*s == '#') {
+    s++;
+  }
+  return (uint32_t)(strtoul(s, NULL, 16) & 0xFFFFFF);
+}
+
 // Parse per module
 
 static void parse_screen(cJSON *root) {
@@ -143,6 +182,8 @@ static void parse_screen(cJSON *root) {
 }
 
 static void parse_wifi(cJSON *root) {
+  g_config_wifi.enabled = json_get_bool(root, "enabled", g_config_wifi.enabled);
+
   cJSON *ap = cJSON_GetObjectItem(root, "ap");
   if (ap) {
     json_get_str(ap, "ssid", g_config_wifi.ap.ssid, sizeof(g_config_wifi.ap.ssid));
@@ -188,7 +229,29 @@ static void parse_system(cJSON *root) {
       json_get_bool(root, "first_boot_done", g_config_system.first_boot_done);
 }
 
+static void parse_led(cJSON *root) {
+  g_config_led.brightness = json_get_int(root, "brightness", g_config_led.brightness);
+  g_config_led.info_color = json_get_color(root, "info_color", g_config_led.info_color);
+  g_config_led.warning_color = json_get_color(root, "warning_color", g_config_led.warning_color);
+  g_config_led.error_color = json_get_color(root, "error_color", g_config_led.error_color);
+}
+
 // Serialize per module
+
+static void json_add_color(cJSON *root, const char *key, uint32_t color) {
+  char hex[8];
+  snprintf(hex, sizeof(hex), "#%06lX", (unsigned long)(color & 0xFFFFFF));
+  cJSON_AddStringToObject(root, key, hex);
+}
+
+static cJSON *serialize_led(void) {
+  cJSON *root = cJSON_CreateObject();
+  cJSON_AddNumberToObject(root, "brightness", g_config_led.brightness);
+  json_add_color(root, "info_color", g_config_led.info_color);
+  json_add_color(root, "warning_color", g_config_led.warning_color);
+  json_add_color(root, "error_color", g_config_led.error_color);
+  return root;
+}
 
 static cJSON *serialize_screen(void) {
   cJSON *root = cJSON_CreateObject();
@@ -202,6 +265,8 @@ static cJSON *serialize_screen(void) {
 
 static cJSON *serialize_wifi(void) {
   cJSON *root = cJSON_CreateObject();
+
+  cJSON_AddBoolToObject(root, "enabled", g_config_wifi.enabled);
 
   cJSON *ap = cJSON_AddObjectToObject(root, "ap");
   cJSON_AddStringToObject(ap, "ssid", g_config_wifi.ap.ssid);
@@ -254,6 +319,12 @@ esp_err_t tos_config_load(const char *sd_path, const char *flash_path, const cha
   char *json_str = read_file_to_string(sd_path);
   const char *source = "SD";
 
+  if (json_str == NULL) {
+    json_str = recover_from_tmp(sd_path);
+    if (json_str != NULL)
+      source = "SD (recovered)";
+  }
+
   if (json_str == NULL && flash_path != NULL) {
     json_str = read_file_to_string(flash_path);
     source = "flash";
@@ -282,6 +353,8 @@ esp_err_t tos_config_load(const char *sd_path, const char *flash_path, const cha
     parse_lora(root);
   else if (strcmp(module, "system") == 0)
     parse_system(root);
+  else if (strcmp(module, "led") == 0)
+    parse_led(root);
 
   cJSON_Delete(root);
   ESP_LOGI(TAG, "[%s] Loaded from %s", module, source);
@@ -294,6 +367,7 @@ void tos_config_load_all(void) {
   tos_config_load(TOS_PATH_CONFIG_BLE, ASSETS_CONFIG_BLE, "ble");
   tos_config_load(TOS_PATH_CONFIG_LORA, ASSETS_CONFIG_LORA, "lora");
   tos_config_load(TOS_PATH_CONFIG_SYSTEM, ASSETS_CONFIG_SYSTEM, "system");
+  tos_config_load(TOS_PATH_CONFIG_LED, ASSETS_CONFIG_LED, "led");
 }
 
 esp_err_t tos_config_save(const char *sd_path, const char *module) {
@@ -309,6 +383,8 @@ esp_err_t tos_config_save(const char *sd_path, const char *module) {
     root = serialize_lora();
   else if (strcmp(module, "system") == 0)
     root = serialize_system();
+  else if (strcmp(module, "led") == 0)
+    root = serialize_led();
 
   if (root == NULL)
     return ESP_FAIL;

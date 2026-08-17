@@ -44,10 +44,18 @@ bool ir_protocol_denon_decode(const rmt_symbol_word_t *symbols, size_t count, ir
   };
   uint32_t raw = (uint32_t)ir_decode_pulse_distance(symbols, 0, DENON_FRAME_BITS, &cfg);
 
+  uint8_t frame = (raw >> DENON_FRAME_SHIFT) & DENON_FRAME_MASK;
+  uint8_t cmd = (raw >> DENON_CMD_SHIFT) & 0xFF;
+
   out_data->protocol = IR_PROTO_DENON;
   out_data->address = raw & DENON_ADDR_MASK;
-  out_data->command = (raw >> DENON_CMD_SHIFT) & 0xFF;
-  out_data->repeat = false;
+  if (frame == DENON_FRAME_INVERTED) {
+    out_data->command = (uint8_t)~cmd;
+    out_data->repeat = true;
+  } else {
+    out_data->command = cmd;
+    out_data->repeat = false;
+  }
   return true;
 }
 
@@ -55,8 +63,9 @@ size_t ir_protocol_denon_encode(const ir_data_t *data, rmt_symbol_word_t *symbol
   if (data == NULL || symbols == NULL || max == 0)
     return 0;
 
-  uint16_t raw =
+  uint16_t frame1 =
       (data->address & DENON_ADDR_MASK) | ((uint16_t)(data->command & 0xFF) << DENON_CMD_SHIFT);
+  uint16_t frame2 = frame1 ^ DENON_INVERT_MASK;
 
   ir_encode_distance_cfg_t cfg = {
       .header_mark = 0,
@@ -68,5 +77,23 @@ size_t ir_protocol_denon_encode(const ir_data_t *data, rmt_symbol_word_t *symbol
       .msb_first = false,
       .stop_bit = true,
   };
-  return ir_encode_pulse_distance(symbols, raw, DENON_FRAME_BITS, &cfg);
+
+  size_t n1 = ir_encode_pulse_distance(symbols, frame1, DENON_FRAME_BITS, &cfg);
+  if (n1 == 0)
+    return 0;
+
+  if (n1 + 1 > max)
+    return 0;
+  symbols[n1].duration0 = DENON_REPEAT_GAP_US / 2;
+  symbols[n1].level0 = 0;
+  symbols[n1].duration1 = DENON_REPEAT_GAP_US / 2;
+  symbols[n1].level1 = 0;
+  size_t idx = n1 + 1;
+
+  cfg.max = max - idx;
+  size_t n2 = ir_encode_pulse_distance(symbols + idx, frame2, DENON_FRAME_BITS, &cfg);
+  if (n2 == 0)
+    return 0;
+
+  return idx + n2;
 }

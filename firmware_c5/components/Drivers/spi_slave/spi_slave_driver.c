@@ -20,6 +20,7 @@
 #include "driver/gpio.h"
 #include "driver/spi_slave.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
 
 #include "pin_def.h"
 
@@ -68,6 +69,22 @@ esp_err_t spi_slave_driver_transmit(const uint8_t *tx_data, uint8_t *rx_data, si
       .rx_buffer = rx_data,
   };
   return spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
+}
+
+esp_err_t spi_slave_driver_queue(spi_slave_transaction_t *trans,
+                                 const uint8_t *tx_data,
+                                 uint8_t *rx_data,
+                                 size_t len) {
+  memset(trans, 0, sizeof(*trans));
+  trans->length = len * 8;
+  trans->tx_buffer = tx_data;
+  trans->rx_buffer = rx_data;
+  return spi_slave_queue_trans(SPI2_HOST, trans, portMAX_DELAY);
+}
+
+esp_err_t spi_slave_driver_wait(void) {
+  spi_slave_transaction_t *result = NULL;
+  return spi_slave_get_trans_result(SPI2_HOST, &result, portMAX_DELAY);
 }
 
 void spi_slave_driver_set_irq(int level) {

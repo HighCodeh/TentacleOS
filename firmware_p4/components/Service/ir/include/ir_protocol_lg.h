@@ -73,6 +73,9 @@ extern "C" {
 /** @brief Bit mask for the 16-bit command field in the LG frame word. */
 #define LG_CMD_MASK 0xFFFF
 
+/** @brief Address byte that marks an LG air-conditioner frame, decoded by the AC layer. */
+#define LG_AC_SIGNATURE 0x88
+
 /**
  * @brief Decode an LG IR frame from RMT symbols.
  *

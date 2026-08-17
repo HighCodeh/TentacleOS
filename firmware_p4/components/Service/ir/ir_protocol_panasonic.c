@@ -41,8 +41,6 @@ bool ir_protocol_panasonic_decode(const rmt_symbol_word_t *symbols,
   uint64_t raw = ir_decode_pulse_distance(symbols, 1, PANASONIC_FRAME_BITS, &cfg);
 
   uint16_t vendor = raw & PANASONIC_VENDOR_MASK;
-  if (vendor != PANASONIC_VENDOR_ID)
-    return false;
 
   uint8_t byte0 = (raw >> PANASONIC_BYTE0_SHIFT) & 0xFF;
   uint8_t byte1 = (raw >> PANASONIC_BYTE1_SHIFT) & 0xFF;
@@ -52,9 +50,12 @@ bool ir_protocol_panasonic_decode(const rmt_symbol_word_t *symbols,
   if (byte3 != (uint8_t)(byte0 ^ byte1 ^ byte2))
     return false;
 
+  uint16_t device = (((byte0 >> PANASONIC_NIBBLE_SHIFT) & PANASONIC_NIBBLE_MASK) |
+                     ((uint16_t)byte1 << PANASONIC_NIBBLE_SHIFT)) &
+                    KASEIKYO_ADDR_MASK;
+
   out_data->protocol = IR_PROTO_PANASONIC;
-  out_data->address = ((byte0 >> PANASONIC_NIBBLE_SHIFT) & PANASONIC_NIBBLE_MASK) |
-                      ((uint16_t)byte1 << PANASONIC_NIBBLE_SHIFT);
+  out_data->address = ((uint32_t)device << KASEIKYO_ADDR_SHIFT) | vendor;
   out_data->command = byte2;
   out_data->repeat = false;
   return true;
@@ -64,13 +65,17 @@ size_t ir_protocol_panasonic_encode(const ir_data_t *data, rmt_symbol_word_t *sy
   if (data == NULL || symbols == NULL || max == 0)
     return 0;
 
-  uint16_t vendor = PANASONIC_VENDOR_ID;
+  uint16_t vendor = data->address & PANASONIC_VENDOR_MASK;
+  if (vendor == 0)
+    vendor = PANASONIC_VENDOR_ID;
+  uint16_t device = (data->address >> KASEIKYO_ADDR_SHIFT) & KASEIKYO_ADDR_MASK;
+
   uint8_t vp = vendor ^ (vendor >> PANASONIC_BYTE_SHIFT);
   vp = (vp ^ (vp >> PANASONIC_NIBBLE_SHIFT)) & PANASONIC_NIBBLE_MASK;
 
-  uint8_t byte0 = (vp & PANASONIC_NIBBLE_MASK) |
-                  ((data->address & PANASONIC_NIBBLE_MASK) << PANASONIC_NIBBLE_SHIFT);
-  uint8_t byte1 = (data->address >> PANASONIC_NIBBLE_SHIFT) & 0xFF;
+  uint8_t byte0 =
+      (vp & PANASONIC_NIBBLE_MASK) | ((device & PANASONIC_NIBBLE_MASK) << PANASONIC_NIBBLE_SHIFT);
+  uint8_t byte1 = (device >> PANASONIC_NIBBLE_SHIFT) & 0xFF;
   uint8_t byte2 = data->command & 0xFF;
   uint8_t byte3 = byte0 ^ byte1 ^ byte2;
 

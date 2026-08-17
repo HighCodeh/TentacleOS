@@ -23,6 +23,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 #include "host/ble_hs.h"
 
 #include "bluetooth_service.h"
@@ -30,7 +31,7 @@
 static const char *TAG = "TRACKER_DETECTOR";
 
 #define TRACKER_TASK_STACK_SIZE  4096
-#define TRACKER_TASK_PRIORITY    5
+#define TRACKER_TASK_PRIORITY    SYS_PRIO_SERVICE_HI
 #define TRACKER_TIMEOUT_MS       30000
 #define TRACKER_POLL_DELAY_MS    1000
 #define TRACKER_MUTEX_TIMEOUT_MS 100

@@ -22,18 +22,14 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
-#include "cJSON.h"
-#include "sd_card_init.h"
-#include "sd_card_write.h"
-#include "storage_write.h"
-#include "tos_flash_paths.h"
 #include "wifi_service.h"
 
 static const char *TAG = "AP_SCANNER";
 
 #define SCANNER_STACK_SIZE    4096
-#define SCANNER_TASK_PRIORITY 5
+#define SCANNER_TASK_PRIORITY SYS_PRIO_SERVICE_HI
 
 static TaskHandle_t s_scanner_task_handle = NULL;
 static StackType_t *s_scanner_task_stack = NULL;
@@ -43,8 +39,6 @@ static wifi_ap_record_t *s_scan_results = NULL;
 static uint16_t s_scan_count = 0;
 static bool s_is_scanning = false;
 
-static const char *get_auth_mode_name(wifi_auth_mode_t auth_mode);
-static bool save_results_to_path(const char *path, bool use_sd_driver);
 static void scanner_task(void *pvParameters);
 
 bool ap_scanner_start(void) {
@@ -114,106 +108,14 @@ void ap_scanner_free_results(void) {
   }
 }
 
+// Scan persistence lives on the P4 (it pulls results over SPI and writes the SD).
+// The C5 keeps results only in PSRAM for that pull, so these are no-ops.
 bool ap_scanner_save_results_to_internal_flash(void) {
-  return save_results_to_path(FLASH_STORAGE_WIFI_APS, false);
+  return false;
 }
 
 bool ap_scanner_save_results_to_sd_card(void) {
-  return save_results_to_path("/scanned_aps.json", true);
-}
-
-static const char *get_auth_mode_name(wifi_auth_mode_t auth_mode) {
-  switch (auth_mode) {
-    case WIFI_AUTH_OPEN:
-      return "OPEN";
-    case WIFI_AUTH_WEP:
-      return "WEP";
-    case WIFI_AUTH_WPA_PSK:
-      return "WPA-PSK";
-    case WIFI_AUTH_WPA2_PSK:
-      return "WPA2-PSK";
-    case WIFI_AUTH_WPA_WPA2_PSK:
-      return "WPA/WPA2-PSK";
-    case WIFI_AUTH_WPA2_ENTERPRISE:
-      return "WPA2-ENT";
-    case WIFI_AUTH_WPA3_PSK:
-      return "WPA3-PSK";
-    case WIFI_AUTH_WPA2_WPA3_PSK:
-      return "WPA2/WPA3-PSK";
-    default:
-      return "Unknown";
-  }
-}
-
-static bool save_results_to_path(const char *path, bool use_sd_driver) {
-  if (s_scan_results == NULL || s_scan_count == 0) {
-    ESP_LOGW(TAG, "No results to save.");
-    return false;
-  }
-
-  cJSON *root = cJSON_CreateArray();
-  if (root == NULL) {
-    ESP_LOGE(TAG, "Failed to create JSON array.");
-    return false;
-  }
-
-  for (int i = 0; i < s_scan_count; i++) {
-    wifi_ap_record_t *ap = &s_scan_results[i];
-    cJSON *entry = cJSON_CreateObject();
-
-    cJSON_AddStringToObject(entry, "ssid", (char *)ap->ssid);
-
-    char bssid_str[18];
-    snprintf(bssid_str,
-             sizeof(bssid_str),
-             "%02x:%02x:%02x:%02x:%02x:%02x",
-             ap->bssid[0],
-             ap->bssid[1],
-             ap->bssid[2],
-             ap->bssid[3],
-             ap->bssid[4],
-             ap->bssid[5]);
-    cJSON_AddStringToObject(entry, "bssid", bssid_str);
-
-    cJSON_AddNumberToObject(entry, "rssi", ap->rssi);
-    cJSON_AddNumberToObject(entry, "channel", ap->primary);
-    cJSON_AddNumberToObject(entry, "authmode", ap->authmode);
-    cJSON_AddStringToObject(entry, "auth_str", get_auth_mode_name(ap->authmode));
-    cJSON_AddBoolToObject(entry, "wps", ap->wps);
-
-    cJSON_AddItemToArray(root, entry);
-  }
-
-  char *json_string = cJSON_PrintUnformatted(root);
-  if (json_string == NULL) {
-    ESP_LOGE(TAG, "Failed to print JSON.");
-    cJSON_Delete(root);
-    return false;
-  }
-
-  esp_err_t err;
-  if (use_sd_driver) {
-    if (!sd_is_mounted()) {
-      ESP_LOGE(TAG, "SD Card not mounted.");
-      free(json_string);
-      cJSON_Delete(root);
-      return false;
-    }
-    err = sd_write_string(path, json_string);
-  } else {
-    err = storage_write_string(path, json_string);
-  }
-
-  free(json_string);
-  cJSON_Delete(root);
-
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to write results to %s: %s", path, esp_err_to_name(err));
-    return false;
-  }
-
-  ESP_LOGI(TAG, "Scan results saved to %s", path);
-  return true;
+  return false;
 }
 
 static void scanner_task(void *pvParameters) {
@@ -249,9 +151,8 @@ static void scanner_task(void *pvParameters) {
         }
       }
       ESP_LOGI(TAG, "Results copied to PSRAM.");
-
-      ap_scanner_save_results_to_internal_flash();
-
+      // Results are pulled by the P4 over SPI (SYSTEM_DATA) and persisted there.
+      // The C5 does not save scans locally.
     } else {
       ESP_LOGE(TAG, "Failed to allocate memory for results in PSRAM!");
     }

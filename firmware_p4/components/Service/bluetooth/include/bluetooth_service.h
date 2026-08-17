@@ -102,6 +102,25 @@ bool bluetooth_service_is_initialized(void);
 bool bluetooth_service_is_running(void);
 
 /**
+ * @brief Cheap, cached "BLE host running" state.
+ *
+ * Reads a flag refreshed by the background C5 status poll, so callers on the
+ * LVGL thread (e.g. the header indicator) never block on an SPI round-trip.
+ *
+ * @return true if the last poll saw the BLE host running.
+ */
+bool bluetooth_service_is_running_cached(void);
+
+/**
+ * @brief Update the cached "BLE host running" state.
+ *
+ * Called by the C5 status poll; not intended for UI code.
+ *
+ * @param running  Latest running state from the C5 system status.
+ */
+void bluetooth_service_set_running_cached(bool running);
+
+/**
  * @brief Terminate all active BLE connections.
  */
 void bluetooth_service_disconnect_all(void);

@@ -15,25 +15,22 @@
 
 #include "assets_manager.h"
 
-#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 
-#include "esp_heap_caps.h"
+#include "esp_littlefs.h"
 #include "esp_log.h"
+
+#include "lvgl_glue.h"
+
+#include "draw/lv_image_decoder_private.h"
+#include "misc/cache/instance/lv_image_cache.h"
+#include "misc/cache/lv_cache_private.h"
 
 static const char *TAG = "ASSETS_MANAGER";
 
-typedef struct asset_node {
-  char *path;
-  lv_image_dsc_t *dsc;
-  bool from_sd;
-  struct asset_node *next;
-} asset_node_t;
-
-static asset_node_t *s_assets_head = NULL;
+#define ARGB8888_BYTES_PER_PIXEL 4
 
 typedef struct __attribute__((packed)) {
   uint32_t magic_cf;
@@ -42,237 +39,239 @@ typedef struct __attribute__((packed)) {
   uint32_t stride;
 } bin_header_t;
 
-static lv_image_dsc_t *load_asset_from_file(const char *path) {
-  FILE *f = fopen(path, "rb");
-  if (f == NULL) {
-    ESP_LOGE(TAG, "Failed to open file: %s", path);
-    return NULL;
-  }
+typedef struct asset_node {
+  lv_image_dsc_t dsc;
+  char *path;
+  struct asset_node *next;
+} asset_node_t;
 
-  fseek(f, 0, SEEK_END);
-  long file_size = ftell(f);
-  fseek(f, 0, SEEK_SET);
+static asset_node_t *s_assets_head = NULL;
+static bool s_decoder_registered = false;
 
-  if (file_size < sizeof(bin_header_t)) {
-    ESP_LOGE(TAG, "File too small to contain header: %s", path);
-    fclose(f);
-    return NULL;
-  }
-
-  bin_header_t header;
-  if (fread(&header, 1, sizeof(bin_header_t), f) != sizeof(bin_header_t)) {
-    ESP_LOGE(TAG, "Error reading header: %s", path);
-    fclose(f);
-    return NULL;
-  }
-
-  long pixel_data_size = file_size - sizeof(bin_header_t);
-
-  lv_image_dsc_t *dsc = (lv_image_dsc_t *)heap_caps_malloc(sizeof(lv_image_dsc_t),
-                                                           MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  uint8_t *pixel_data =
-      (uint8_t *)heap_caps_malloc(pixel_data_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-
-  if (dsc == NULL || pixel_data == NULL) {
-    ESP_LOGE(TAG, "PSRAM allocation failed for %s. DSC: %p, Data: %p", path, dsc, pixel_data);
-    if (dsc)
-      free(dsc);
-    if (pixel_data)
-      free(pixel_data);
-    fclose(f);
-    return NULL;
-  }
-
-  if (fread(pixel_data, 1, pixel_data_size, f) != pixel_data_size) {
-    ESP_LOGE(TAG, "Error reading pixel data: %s", path);
-    free(dsc);
-    free(pixel_data);
-    fclose(f);
-    return NULL;
-  }
-
-  fclose(f);
-
-  dsc->header.magic = LV_IMAGE_HEADER_MAGIC;
-  dsc->header.cf = LV_COLOR_FORMAT_ARGB8888;
-  dsc->header.w = header.w;
-  dsc->header.h = header.h;
-  dsc->header.stride = header.stride;
-  dsc->header.flags = 0;
-  dsc->data_size = pixel_data_size;
-  dsc->data = pixel_data;
-
-  ESP_LOGI(TAG, "Loaded: %s (%dx%d)", path, header.w, header.h);
-  return dsc;
-}
-
-static void add_asset_to_list(const char *path, lv_image_dsc_t *dsc, bool from_sd) {
-  asset_node_t *node = malloc(sizeof(asset_node_t));
-  if (node == NULL) {
-    ESP_LOGE(TAG, "Error allocating list node for %s", path);
-    return;
-  }
-  node->path = strdup(path);
-  node->dsc = dsc;
-  node->from_sd = from_sd;
-  node->next = s_assets_head;
-  s_assets_head = node;
-}
-
-static void scan_and_load_recursive(const char *base_path) {
-  DIR *dir = opendir(base_path);
-  if (dir == NULL)
-    return;
-
-  struct dirent *ent;
-  char path[512];
-
-  while ((ent = readdir(dir)) != NULL) {
-    if (ent->d_type == DT_DIR) {
-      if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
-        continue;
-      snprintf(path, sizeof(path), "%s/%s", base_path, ent->d_name);
-      scan_and_load_recursive(path);
-    } else if (ent->d_type == DT_REG) {
-      size_t len = strlen(ent->d_name);
-      if (len > 4 && strcmp(ent->d_name + len - 4, ".bin") == 0) {
-        snprintf(path, sizeof(path), "%s/%s", base_path, ent->d_name);
-
-        if (assets_get(path) == NULL) {
-          lv_image_dsc_t *dsc = load_asset_from_file(path);
-          if (dsc) {
-            add_asset_to_list(path, dsc, false);
-          }
-        }
+// Linear scan, but move a hit to the front so the assets a screen re-requests
+// every build (header icons, etc.) settle near the head. Relinking only reorders
+// the list; the nodes do not move, so every &node->dsc handed out stays valid.
+static asset_node_t *find_node_by_path(const char *path) {
+  asset_node_t *prev = NULL;
+  for (asset_node_t *n = s_assets_head; n; prev = n, n = n->next) {
+    if (strcmp(n->path, path) == 0) {
+      if (prev != NULL) {
+        prev->next = n->next;
+        n->next = s_assets_head;
+        s_assets_head = n;
       }
+      return n;
     }
   }
-  closedir(dir);
+  return NULL;
+}
+
+static asset_node_t *find_node_by_dsc(const void *src) {
+  for (asset_node_t *n = s_assets_head; n; n = n->next) {
+    if ((const void *)&n->dsc == src)
+      return n;
+  }
+  return NULL;
+}
+
+static bool read_bin_header(const char *path, bin_header_t *out) {
+  FILE *f = fopen(path, "rb");
+  if (f == NULL)
+    return false;
+  bool ok = fread(out, 1, sizeof(*out), f) == sizeof(*out);
+  fclose(f);
+  return ok;
+}
+
+static lv_result_t asset_decoder_info(lv_image_decoder_t *decoder,
+                                      lv_image_decoder_dsc_t *dsc,
+                                      lv_image_header_t *header) {
+  (void)decoder;
+  if (dsc->src_type != LV_IMAGE_SRC_VARIABLE)
+    return LV_RESULT_INVALID;
+  asset_node_t *node = find_node_by_dsc(dsc->src);
+  if (node == NULL)
+    return LV_RESULT_INVALID;
+  *header = node->dsc.header;
+  return LV_RESULT_OK;
+}
+
+static lv_result_t asset_decoder_open(lv_image_decoder_t *decoder, lv_image_decoder_dsc_t *dsc) {
+  asset_node_t *node = find_node_by_dsc(dsc->src);
+  if (node == NULL)
+    return LV_RESULT_INVALID;
+
+  const uint32_t w = node->dsc.header.w;
+  const uint32_t h = node->dsc.header.h;
+
+  lv_draw_buf_t *buf = lv_draw_buf_create(w, h, LV_COLOR_FORMAT_ARGB8888, LV_STRIDE_AUTO);
+  if (buf == NULL) {
+    ESP_LOGE(TAG,
+             "draw buf alloc failed for %s (%lux%lu)",
+             node->path,
+             (unsigned long)w,
+             (unsigned long)h);
+    return LV_RESULT_INVALID;
+  }
+
+  FILE *f = fopen(node->path, "rb");
+  if (f == NULL || fseek(f, sizeof(bin_header_t), SEEK_SET) != 0) {
+    if (f)
+      fclose(f);
+    lv_draw_buf_destroy(buf);
+    return LV_RESULT_INVALID;
+  }
+
+  const uint32_t row_bytes = w * ARGB8888_BYTES_PER_PIXEL;
+  bool ok = true;
+  for (uint32_t y = 0; y < h && ok; y++) {
+    uint8_t *row = buf->data + (size_t)y * buf->header.stride;
+    ok = fread(row, 1, row_bytes, f) == row_bytes;
+  }
+  fclose(f);
+
+  if (!ok) {
+    ESP_LOGE(TAG, "pixel read failed for %s", node->path);
+    lv_draw_buf_destroy(buf);
+    return LV_RESULT_INVALID;
+  }
+
+  dsc->decoded = buf;
+
+  if (lv_image_cache_is_enabled()) {
+    lv_image_cache_data_t key;
+    key.src_type = dsc->src_type;
+    key.src = dsc->src;
+    key.slot.size = buf->data_size;
+    lv_cache_entry_t *entry = lv_image_decoder_add_to_cache(decoder, &key, buf, NULL);
+    if (entry == NULL) {
+      lv_draw_buf_destroy(buf);
+      dsc->decoded = NULL;
+      return LV_RESULT_INVALID;
+    }
+    dsc->cache_entry = entry;
+    dsc->user_data = NULL;
+  } else {
+    dsc->user_data = buf;
+  }
+
+  return LV_RESULT_OK;
+}
+
+static void asset_decoder_close(lv_image_decoder_t *decoder, lv_image_decoder_dsc_t *dsc) {
+  (void)decoder;
+  if (dsc->user_data) {
+    lv_draw_buf_destroy((lv_draw_buf_t *)dsc->user_data);
+    dsc->user_data = NULL;
+  }
+}
+
+static void register_decoder(void) {
+  if (s_decoder_registered)
+    return;
+  lv_image_decoder_t *dec = lv_image_decoder_create();
+  if (dec == NULL) {
+    ESP_LOGE(TAG, "Failed to create image decoder");
+    return;
+  }
+  lv_image_decoder_set_info_cb(dec, asset_decoder_info);
+  lv_image_decoder_set_open_cb(dec, asset_decoder_open);
+  lv_image_decoder_set_close_cb(dec, asset_decoder_close);
+  s_decoder_registered = true;
 }
 
 void assets_manager_init(void) {
-  ESP_LOGI(TAG, "Starting assets loading...");
+  ESP_LOGI(TAG, "Starting assets manager...");
 
-  struct stat st;
-  if (stat("/assets", &st) == 0) {
-    scan_and_load_recursive("/assets");
-  } else {
-    ESP_LOGE(TAG, "Directory /assets not found!");
+  if (!esp_littlefs_mounted("assets")) {
+    esp_vfs_littlefs_conf_t conf = {
+        .base_path = "/assets",
+        .partition_label = "assets",
+        .format_if_mount_failed = false,
+        .dont_mount = false,
+    };
+    esp_err_t err = esp_vfs_littlefs_register(&conf);
+    if (err != ESP_OK) {
+      ESP_LOGE(TAG, "Failed to mount /assets LittleFS (%s)", esp_err_to_name(err));
+    } else {
+      size_t total = 0, used = 0;
+      if (esp_littlefs_info("assets", &total, &used) == ESP_OK) {
+        ESP_LOGI(TAG, "/assets mounted: %u/%u bytes used", (unsigned)used, (unsigned)total);
+      }
+    }
   }
 
-  ESP_LOGI(TAG, "Assets loading finished.");
+  register_decoder();
+
+  ESP_LOGI(TAG, "Assets manager ready.");
 }
 
 lv_image_dsc_t *assets_get(const char *path) {
-  asset_node_t *curr = s_assets_head;
-  while (curr) {
-    if (strcmp(curr->path, path) == 0) {
-      return curr->dsc;
-    }
-    curr = curr->next;
+  if (path == NULL)
+    return NULL;
+
+  asset_node_t *node = find_node_by_path(path);
+  if (node != NULL)
+    return &node->dsc;
+
+  bin_header_t hdr;
+  if (!read_bin_header(path, &hdr)) {
+    ESP_LOGW(TAG, "asset not found: %s", path);
+    return NULL;
   }
-  return NULL;
+
+  node = calloc(1, sizeof(asset_node_t));
+  if (node == NULL)
+    return NULL;
+  node->path = strdup(path);
+  if (node->path == NULL) {
+    free(node);
+    return NULL;
+  }
+
+  node->dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
+  node->dsc.header.cf = LV_COLOR_FORMAT_ARGB8888;
+  node->dsc.header.w = hdr.w;
+  node->dsc.header.h = hdr.h;
+  node->dsc.header.stride = hdr.w * ARGB8888_BYTES_PER_PIXEL;
+  node->dsc.header.flags = 0;
+  node->dsc.data_size = (uint32_t)hdr.w * hdr.h * ARGB8888_BYTES_PER_PIXEL;
+  node->dsc.data = (const uint8_t *)node->path;
+
+  node->next = s_assets_head;
+  s_assets_head = node;
+  return &node->dsc;
 }
 
 void assets_manager_free_all(void) {
   asset_node_t *curr = s_assets_head;
   while (curr) {
     asset_node_t *next = curr->next;
-    if (curr->dsc) {
-      if (curr->dsc->data)
-        free((void *)curr->dsc->data);
-      free(curr->dsc);
-    }
-    if (curr->path)
-      free(curr->path);
+    free(curr->path);
     free(curr);
     curr = next;
   }
   s_assets_head = NULL;
 }
 
-static void free_node_dsc(asset_node_t *node) {
-  if (node->dsc) {
-    if (node->dsc->data)
-      free((void *)node->dsc->data);
-    free(node->dsc);
-    node->dsc = NULL;
+// Drop the LVGL image cache (the decoded-pixel pool, up to CONFIG_LV_CACHE_DEF_SIZE)
+// under memory pressure. Safe to call mid-session, unlike free_all: the asset
+// nodes and the &node->dsc pointers the UI holds stay valid, so a redraw just
+// re-decodes from LittleFS. Takes the LVGL lock; skips if the UI is mid-render.
+#define ASSETS_EVICT_LOCK_MS 200
+void assets_manager_evict_cache(void) {
+  if (!lvgl_glue_lock(ASSETS_EVICT_LOCK_MS)) {
+    ESP_LOGW(TAG, "evict skipped: LVGL lock busy");
+    return;
   }
-}
-
-static bool replace_asset_in_list(const char *key, lv_image_dsc_t *dsc) {
-  asset_node_t *curr = s_assets_head;
-  while (curr) {
-    if (strcmp(curr->path, key) == 0) {
-      free_node_dsc(curr);
-      curr->dsc = dsc;
-      curr->from_sd = true;
-      return true;
-    }
-    curr = curr->next;
-  }
-  return false;
+  lv_image_cache_drop(NULL);
+  lvgl_glue_unlock();
 }
 
 int assets_load_from_sd(const char *sd_dir, const char *flash_prefix) {
-  if (sd_dir == NULL || flash_prefix == NULL)
-    return 0;
-
-  DIR *dir = opendir(sd_dir);
-  if (dir == NULL) {
-    return 0;
-  }
-
-  int count = 0;
-  struct dirent *ent;
-  char sd_path[512];
-  char cache_key[512];
-
-  while ((ent = readdir(dir)) != NULL) {
-    if (ent->d_type != DT_REG)
-      continue;
-
-    size_t len = strlen(ent->d_name);
-    if (len <= 4 || strcmp(ent->d_name + len - 4, ".bin") != 0)
-      continue;
-
-    snprintf(sd_path, sizeof(sd_path), "%s/%s", sd_dir, ent->d_name);
-    snprintf(cache_key, sizeof(cache_key), "%s/%s", flash_prefix, ent->d_name);
-
-    lv_image_dsc_t *dsc = load_asset_from_file(sd_path);
-    if (dsc == NULL)
-      continue;
-
-    if (!replace_asset_in_list(cache_key, dsc)) {
-      add_asset_to_list(cache_key, dsc, true);
-    }
-
-    ESP_LOGI(TAG, "SD override: %s -> %s", sd_path, cache_key);
-    count++;
-  }
-
-  closedir(dir);
-  ESP_LOGI(TAG, "Loaded %d asset(s) from SD dir: %s", count, sd_dir);
-  return count;
+  (void)sd_dir;
+  (void)flash_prefix;
+  return 0;
 }
 
-void assets_unload_sd(void) {
-  asset_node_t **pp = &s_assets_head;
-  int removed = 0;
-
-  while (*pp) {
-    asset_node_t *node = *pp;
-    if (node->from_sd) {
-      *pp = node->next;
-      free_node_dsc(node);
-      if (node->path)
-        free(node->path);
-      free(node);
-      removed++;
-    } else {
-      pp = &node->next;
-    }
-  }
-
-  ESP_LOGI(TAG, "Unloaded %d SD asset(s) from cache", removed);
-}
+void assets_unload_sd(void) {}

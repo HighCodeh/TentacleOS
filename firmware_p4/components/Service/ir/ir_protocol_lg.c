@@ -57,6 +57,9 @@ bool ir_protocol_lg_decode(const rmt_symbol_word_t *symbols, size_t count, ir_da
   uint16_t cmd = (raw >> LG_CMD_SHIFT) & LG_CMD_MASK;
   uint8_t chk = raw & LG_NIBBLE_MASK;
 
+  if (addr == LG_AC_SIGNATURE)
+    return false;
+
   if (chk != checksum(cmd))
     return false;
 

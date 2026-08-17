@@ -132,6 +132,19 @@ typedef struct sx1262_hal {
  */
 esp_err_t sx1262_hal_create(sx1262_hal_t *out_hal);
 
+/**
+ * @brief Tear down the HAL so the next sx1262_hal_create() rebuilds it.
+ *
+ * Removes the SX1262 SPI device, deletes the SPI mutex, and clears the
+ * internal initialized flag. The SPI3 bus itself is left initialized
+ * because it is shared with the ST7789 display.
+ *
+ * Safe to call when the HAL is not initialized — returns ESP_OK as a no-op.
+ *
+ * @return ESP_OK.
+ */
+esp_err_t sx1262_hal_destroy(void);
+
 #ifdef __cplusplus
 }
 #endif

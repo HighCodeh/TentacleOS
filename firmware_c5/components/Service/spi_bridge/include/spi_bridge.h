@@ -37,6 +37,18 @@ extern "C" {
 esp_err_t spi_bridge_slave_init(void);
 
 /**
+ * @brief Initialize the SPI slave in a specific handshake mode.
+ *
+ * spi_bridge_slave_init() is the same as this with SPI_BRIDGE_MODE_IRQ. In
+ * SPI_BRIDGE_MODE_POLL the slave never pulses the IRQ line (the board has no
+ * IRQ trace); the P4 master must be initialized in the matching mode.
+ *
+ * @param mode  SPI_BRIDGE_MODE_IRQ (default) or SPI_BRIDGE_MODE_POLL.
+ * @return ESP_OK on success, or an error code from the SPI slave driver.
+ */
+esp_err_t spi_bridge_slave_init_mode(spi_bridge_mode_t mode);
+
+/**
  * @brief Point the bridge to a fixed-size result set in memory.
  *
  * @param source    Pointer to the result array.
@@ -53,6 +65,17 @@ void spi_bridge_provide_results(void *source, uint16_t count, uint8_t item_size)
  * @param item_size Size of each item in bytes.
  */
 void spi_bridge_provide_results_dynamic(void *source, const uint16_t *count_ptr, uint8_t item_size);
+
+/**
+ * @brief Run a scan asynchronously off the SPI handler.
+ *
+ * @p fn does the blocking scan and calls spi_bridge_provide_results when done.
+ * Returns false if a scan is already running (respond SPI_STATUS_BUSY). The P4
+ * polls a *_SCAN_STATUS command (which returns spi_bridge_async_scan_busy) until
+ * it clears, then fetches the results.
+ */
+bool spi_bridge_async_scan_start(void (*fn)(void));
+bool spi_bridge_async_scan_busy(void);
 
 /**
  * @brief Check whether streaming is enabled for a given SPI ID.
@@ -85,6 +108,14 @@ bool spi_bridge_stream_push(spi_id_t id, const uint8_t *data, uint8_t len);
  * @brief Pulse the IRQ pin to notify the master (P4) that data is ready.
  */
 void spi_bridge_notify_master(void);
+
+/**
+ * @brief Count of valid commands processed from the P4 since boot.
+ *
+ * A nonzero value means the P4 has reached the C5 over the bridge, which is the
+ * OTA boot-health signal (see ota_post_boot_check).
+ */
+uint32_t spi_bridge_commands_processed(void);
 
 #ifdef __cplusplus
 }

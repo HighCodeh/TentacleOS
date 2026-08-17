@@ -66,7 +66,7 @@ static int hal_spi_transfer(void *ctx, const uint8_t *tx, uint8_t *rx, size_t le
       .rx_buffer = rx,
   };
 
-  esp_err_t ret = spi_device_transmit(c->spi, &t);
+  esp_err_t ret = spi_device_polling_transmit(c->spi, &t);
   return (ret == ESP_OK) ? 0 : -1;
 }
 
@@ -82,6 +82,9 @@ static void hal_cs_high(void *ctx) {
 
 static void hal_reset_write(void *ctx, uint8_t level) {
   (void)ctx;
+  if (PIN_NRST < 0) {
+    return;
+  }
   gpio_set_level(PIN_NRST, level ? 1 : 0);
 }
 
@@ -103,10 +106,12 @@ static uint32_t hal_get_tick_ms(void *ctx) {
 static void hal_lock(void *ctx) {
   hal_esp32_ctx_t *c = (hal_esp32_ctx_t *)ctx;
   xSemaphoreTake(c->spi_mutex, portMAX_DELAY);
+  spi_device_acquire_bus(c->spi, portMAX_DELAY);
 }
 
 static void hal_unlock(void *ctx) {
   hal_esp32_ctx_t *c = (hal_esp32_ctx_t *)ctx;
+  spi_device_release_bus(c->spi);
   xSemaphoreGive(c->spi_mutex);
 }
 
@@ -151,7 +156,10 @@ esp_err_t sx1262_hal_create(sx1262_hal_t *out_hal) {
     goto fill_hal;
   }
 
-  uint64_t out_mask = (1ULL << PIN_NSS) | (1ULL << PIN_NRST);
+  uint64_t out_mask = (1ULL << PIN_NSS);
+  if (PIN_NRST >= 0) {
+    out_mask |= (1ULL << PIN_NRST);
+  }
   if (PIN_TXEN >= 0) {
     out_mask |= (1ULL << PIN_TXEN);
   }
@@ -202,6 +210,10 @@ esp_err_t sx1262_hal_create(sx1262_hal_t *out_hal) {
   };
 
   ret = spi_bus_initialize(SPI_HOST_ID, &bus_cfg, SPI_DMA_CH_AUTO);
+  if (ret == ESP_ERR_INVALID_STATE) {
+    /* Bus already initialized by another driver (e.g. ST7789 via kernel spi_init). */
+    ret = ESP_OK;
+  }
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "SPI bus init failed: %s", esp_err_to_name(ret));
     return ret;
@@ -217,7 +229,6 @@ esp_err_t sx1262_hal_create(sx1262_hal_t *out_hal) {
   ret = spi_bus_add_device(SPI_HOST_ID, &dev_cfg, &s_ctx.spi);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "SPI add device failed: %s", esp_err_to_name(ret));
-    spi_bus_free(SPI_HOST_ID);
     return ret;
   }
 
@@ -226,7 +237,7 @@ esp_err_t sx1262_hal_create(sx1262_hal_t *out_hal) {
   if (s_ctx.spi_mutex == NULL) {
     ESP_LOGE(TAG, "Failed to create SPI mutex");
     spi_bus_remove_device(s_ctx.spi);
-    spi_bus_free(SPI_HOST_ID);
+    s_ctx.spi = NULL;
     return ESP_ERR_NO_MEM;
   }
 
@@ -252,5 +263,26 @@ fill_hal:
   out_hal->set_antenna = hal_set_antenna;
   out_hal->ctx = &s_ctx;
 
+  return ESP_OK;
+}
+
+esp_err_t sx1262_hal_destroy(void) {
+  if (!s_ctx.is_initialized) {
+    return ESP_OK;
+  }
+
+  if (s_ctx.spi != NULL) {
+    spi_bus_remove_device(s_ctx.spi);
+    s_ctx.spi = NULL;
+  }
+  if (s_ctx.spi_mutex != NULL) {
+    vSemaphoreDelete(s_ctx.spi_mutex);
+    s_ctx.spi_mutex = NULL;
+  }
+
+  /* SPI3 bus is shared with ST7789 display; do not free it here. */
+
+  s_ctx.is_initialized = false;
+  ESP_LOGI(TAG, "HAL destroyed (SPI3 bus left intact for shared peripherals)");
   return ESP_OK;
 }

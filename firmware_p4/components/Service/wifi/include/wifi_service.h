@@ -92,7 +92,7 @@ const char *wifi_service_get_connected_ssid(void);
 /**
  * @brief Scan for nearby access points.
  */
-void wifi_service_scan(void);
+esp_err_t wifi_service_scan(void);
 
 /**
  * @brief Get the number of access points found in the last scan.

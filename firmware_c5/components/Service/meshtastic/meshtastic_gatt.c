@@ -44,7 +44,7 @@ static const char *TAG = "MESH_GATT";
 #define GATT_PREFERRED_MTU          512
 #define GATT_PASSKEY_MIN            100000
 #define GATT_PASSKEY_RANGE          900000
-#define GATT_FROMRADIO_QUEUE_SLOTS  64
+#define GATT_FROMRADIO_QUEUE_SLOTS  16
 #define GATT_FROMRADIO_FRAME_MAX    512
 #define GATT_BATTERY_STUB_PCT       87
 #define GATT_DEVICE_NAME_LEN        32
@@ -244,7 +244,9 @@ void meshtastic_gatt_stop(void) {
   if (s_is_connected && s_conn_handle != BLE_HS_CONN_HANDLE_NONE) {
     ble_gap_terminate(s_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
   }
-  nimble_port_stop();
+  if (nimble_port_stop() == 0) {
+    nimble_port_deinit();
+  }
   s_is_running = false;
   s_is_connected = false;
   s_fromnum_subscribed = false;

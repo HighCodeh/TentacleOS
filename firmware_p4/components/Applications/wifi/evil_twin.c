@@ -15,6 +15,8 @@
 
 #include "evil_twin.h"
 
+#include "led_control.h"
+
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -49,8 +51,10 @@ void evil_twin_start_attack(const char *ssid) {
       spi_session_start(SPI_ID_WIFI_APP_EVIL_TWIN, (uint8_t *)ssid, (uint8_t)len, NULL, NULL);
   if (s_session_id != SPI_SESSION_INVALID_ID) {
     s_has_password = false;
+    led_signal_info();
   } else {
     ESP_LOGW(TAG, "Failed to start Evil Twin over SPI");
+    led_signal_error();
   }
 }
 
@@ -76,10 +80,13 @@ void evil_twin_start_attack_with_template(const char *ssid, const char *template
                               (uint8_t)(1 + ssid_len + 1 + tmpl_len),
                               NULL,
                               NULL,
+                              0,
                               2000) == ESP_OK) {
     s_has_password = false;
+    led_signal_info();
   } else {
     ESP_LOGW(TAG, "Failed to start Evil Twin (template) over SPI");
+    led_signal_error();
   }
 }
 
@@ -91,14 +98,15 @@ void evil_twin_stop_attack(void) {
 }
 
 void evil_twin_reset_capture(void) {
-  spi_bridge_send_command(SPI_ID_WIFI_EVIL_TWIN_RESET_CAPTURE, NULL, 0, NULL, NULL, 2000);
+  spi_bridge_send_command(SPI_ID_WIFI_EVIL_TWIN_RESET_CAPTURE, NULL, 0, NULL, NULL, 0, 2000);
   s_has_password = false;
 }
 
 bool evil_twin_has_password(void) {
   spi_header_t resp;
   uint8_t payload[1] = {0};
-  if (spi_bridge_send_command(SPI_ID_WIFI_EVIL_TWIN_HAS_PASSWORD, NULL, 0, &resp, payload, 1000) ==
+  if (spi_bridge_send_command(
+          SPI_ID_WIFI_EVIL_TWIN_HAS_PASSWORD, NULL, 0, &resp, payload, sizeof(payload), 1000) ==
       ESP_OK) {
     s_has_password = (payload[0] != 0);
   }
@@ -110,8 +118,13 @@ void evil_twin_get_last_password(char *out_buf, size_t len) {
     return;
   spi_header_t resp;
   uint8_t payload[EVIL_TWIN_MAX_PASSWORD_LEN] = {0};
-  if (spi_bridge_send_command(
-          SPI_ID_WIFI_EVIL_TWIN_GET_PASSWORD, NULL, 0, &resp, payload, sizeof(payload)) == ESP_OK) {
+  if (spi_bridge_send_command(SPI_ID_WIFI_EVIL_TWIN_GET_PASSWORD,
+                              NULL,
+                              0,
+                              &resp,
+                              payload,
+                              sizeof(payload),
+                              sizeof(payload)) == ESP_OK) {
     payload[sizeof(payload) - 1] = '\0';
     strncpy(out_buf, (char *)payload, len - 1);
     out_buf[len - 1] = '\0';
@@ -156,7 +169,7 @@ bool evil_twin_upload_template(const char *path) {
   begin_payload[0] = (uint8_t)(size & 0xFF);
   begin_payload[1] = (uint8_t)((size >> 8) & 0xFF);
   if (spi_bridge_send_command(
-          SPI_ID_WIFI_EVIL_TWIN_TMPL_BEGIN, begin_payload, 2, NULL, NULL, 2000) != ESP_OK) {
+          SPI_ID_WIFI_EVIL_TWIN_TMPL_BEGIN, begin_payload, 2, NULL, NULL, 0, 2000) != ESP_OK) {
     free(html);
     ESP_LOGE(TAG, "Template BEGIN failed");
     return false;
@@ -173,6 +186,7 @@ bool evil_twin_upload_template(const char *path) {
                                 (uint8_t)chunk,
                                 NULL,
                                 NULL,
+                                0,
                                 2000) != ESP_OK) {
       free(html);
       ESP_LOGE(TAG, "Template CHUNK failed at offset %u", (unsigned)offset);

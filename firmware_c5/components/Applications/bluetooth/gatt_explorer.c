@@ -23,6 +23,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 #include "host/ble_gatt.h"
 #include "host/ble_hs.h"
 
@@ -35,7 +36,7 @@ static const char *TAG = "GATT_EXPLORER";
 
 #define MAX_DISCOVERED_SVCS    16
 #define EXPLORER_STACK_SIZE    6144
-#define EXPLORER_TASK_PRIORITY 5
+#define EXPLORER_TASK_PRIORITY SYS_PRIO_SERVICE_HI
 #define EXPLORER_TIMEOUT_MS    60000
 #define ADDR_STR_LEN           18
 #define SVC_NAME_MAX_LEN       64

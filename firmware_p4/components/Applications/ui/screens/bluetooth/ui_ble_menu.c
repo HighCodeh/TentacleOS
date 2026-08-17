@@ -17,15 +17,12 @@
 
 #include "esp_log.h"
 
-#include "buttons_gpio.h"
 #include "lv_port_indev.h"
 #include "menu_component_ui.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
 static const char *TAG = "UI_BLE_MENU";
-
-#define NAV_TIMER_INTERVAL_MS 50
 
 typedef struct {
   const char *name;
@@ -34,23 +31,21 @@ typedef struct {
 } ui_ble_menu_item_t;
 
 static const ui_ble_menu_item_t MENU_ITEMS[] = {
-    {"Device Spam", NULL, SCREEN_BLE_SPAM_SELECT},
-    {"Detect Devices", NULL, -1},
-    {"Beacon Spam", NULL, -1},
+    {"Companion App", "/assets/icons/app_shortcut.bin", SCREEN_COMPANION_PAIRING},
+    {"MouseAir", "/assets/icons/mouse.bin", SCREEN_BLE_MOUSE_PAIRING},
+    {"Device Spam", "/assets/icons/broadcast_on_personal.bin", SCREEN_BLE_SPAM_SELECT},
+    {"Beacon Spam", "/assets/icons/sensors.bin", SCREEN_BLE_BEACON_SPAM},
+    {"Detect Devices", "/assets/icons/bluetooth_searching.bin", SCREEN_BLE_DETECT_MENU},
+    {"HID Keyboard", "/assets/icons/keyboard.bin", SCREEN_BLE_KEYBOARD},
+    {"BLE Flood", "/assets/icons/bolt.bin", SCREEN_BLE_FLOOD},
+    {"Radio / Identity", "/assets/icons/settings.bin", SCREEN_BLE_RADIO},
 };
 #define MENU_ITEMS_COUNT (sizeof(MENU_ITEMS) / sizeof(MENU_ITEMS[0]))
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
-static lv_timer_t *s_nav_timer = NULL;
-static bool s_btn_up_last = false;
-static bool s_btn_down_last = false;
-static bool s_btn_left_last = false;
-static bool s_btn_right_last = false;
-static bool s_btn_ok_last = false;
-static bool s_btn_back_last = false;
 
-static void nav_timer_cb(lv_timer_t *t);
+static void ble_menu_input(const input_event_t *ev, void *ctx);
 
 void ui_ble_menu_open(void) {
   if (s_screen != NULL) {
@@ -63,59 +58,43 @@ void ui_ble_menu_open(void) {
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  s_menu = menu_component_create(s_screen, "BLUETOOTH", NULL);
+  s_menu = menu_component_create(s_screen, "BLUETOOTH", "/assets/icons/bluetooth.bin");
   for (int i = 0; i < (int)MENU_ITEMS_COUNT; i++) {
     menu_component_add_item(&s_menu, MENU_ITEMS[i].icon, MENU_ITEMS[i].name);
   }
 
-  if (s_nav_timer == NULL) {
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
-  }
+  ui_input_set_screen_handler(ble_menu_input, NULL);
 
-  lv_screen_load(s_screen);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
+static void ble_menu_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+  switch (ev->button) {
+    case INPUT_BTN_DOWN:
+      if (nav)
+        menu_component_next(&s_menu);
+      break;
+    case INPUT_BTN_UP:
+      if (nav)
+        menu_component_prev(&s_menu);
+      break;
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press)
+        ui_switch_screen(SCREEN_MENU);
+      break;
+    case INPUT_BTN_OK:
+    case INPUT_BTN_RIGHT:
+      if (press) {
+        int sel = menu_component_get_selected(&s_menu);
+        if (sel >= 0 && sel < (int)MENU_ITEMS_COUNT && MENU_ITEMS[sel].target >= 0)
+          ui_switch_screen(MENU_ITEMS[sel].target);
+      }
+      break;
+    default:
+      break;
   }
-
-  if (ui_input_is_locked()) {
-    return;
-  }
-
-  bool up = up_button_is_down();
-  bool down = down_button_is_down();
-  bool left = left_button_is_down();
-  bool right = right_button_is_down();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-
-  if (down && !s_btn_down_last) {
-    menu_component_next(&s_menu);
-  }
-
-  if (up && !s_btn_up_last) {
-    menu_component_prev(&s_menu);
-  }
-
-  if ((back && !s_btn_back_last) || (left && !s_btn_left_last)) {
-    ui_switch_screen(SCREEN_MENU);
-  }
-
-  if ((ok && !s_btn_ok_last) || (right && !s_btn_right_last)) {
-    int sel = menu_component_get_selected(&s_menu);
-    if (sel >= 0 && sel < (int)MENU_ITEMS_COUNT && MENU_ITEMS[sel].target >= 0) {
-      ui_switch_screen(MENU_ITEMS[sel].target);
-    }
-  }
-
-  s_btn_up_last = up;
-  s_btn_down_last = down;
-  s_btn_left_last = left;
-  s_btn_right_last = right;
-  s_btn_ok_last = ok;
-  s_btn_back_last = back;
 }

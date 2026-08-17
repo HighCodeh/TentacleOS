@@ -22,20 +22,15 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
-#include "cJSON.h"
-#include "mac_vendor.h"
-#include "sd_card_init.h"
-#include "sd_card_write.h"
-#include "storage_write.h"
-#include "tos_flash_paths.h"
 #include "wifi_80211.h"
 #include "wifi_service.h"
 
 static const char *TAG = "CLIENT_SCANNER";
 
 #define SCANNER_STACK_SIZE    4096
-#define SCANNER_TASK_PRIORITY 5
+#define SCANNER_TASK_PRIORITY SYS_PRIO_SERVICE_HI
 #define SCAN_DURATION_MS      15000
 #define MAX_SCAN_RESULTS      200
 #define BSSID_LEN             6
@@ -52,7 +47,6 @@ static bool s_is_scanning = false;
 static void
 add_or_update_client(const uint8_t *bssid, const uint8_t *client_mac, int8_t rssi, uint8_t channel);
 static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type);
-static bool save_results_to_path(const char *path, bool use_sd_driver);
 static void scanner_task(void *pvParameters);
 
 bool client_scanner_start(void) {
@@ -122,12 +116,14 @@ void client_scanner_free_results(void) {
   }
 }
 
+// Scan persistence lives on the P4 (it pulls results over SPI and writes the SD).
+// The C5 keeps results only in PSRAM for that pull, so these are no-ops.
 bool client_scanner_save_results_to_internal_flash(void) {
-  return save_results_to_path(FLASH_STORAGE_WIFI_CLIENTS, false);
+  return false;
 }
 
 bool client_scanner_save_results_to_sd_card(void) {
-  return save_results_to_path("/scanned_clients.json", true);
+  return false;
 }
 
 static void add_or_update_client(const uint8_t *bssid,
@@ -201,102 +197,6 @@ static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
   uint8_t channel = ppkt->rx_ctrl.channel;
 
   add_or_update_client(bssid, client, ppkt->rx_ctrl.rssi, channel);
-}
-
-static bool save_results_to_path(const char *path, bool use_sd_driver) {
-  if (s_scan_results == NULL || s_scan_count == 0) {
-    ESP_LOGW(TAG, "No results to save.");
-    return false;
-  }
-
-  cJSON *root = cJSON_CreateArray();
-  if (root == NULL) {
-    ESP_LOGE(TAG, "Failed to create JSON array.");
-    return false;
-  }
-
-  for (int i = 0; i < s_scan_count; i++) {
-    client_scanner_record_t *rec = &s_scan_results[i];
-
-    cJSON *ap_entry = NULL;
-    char bssid_str[18];
-    snprintf(bssid_str,
-             sizeof(bssid_str),
-             "%02x:%02x:%02x:%02x:%02x:%02x",
-             rec->bssid[0],
-             rec->bssid[1],
-             rec->bssid[2],
-             rec->bssid[3],
-             rec->bssid[4],
-             rec->bssid[5]);
-
-    int array_size = cJSON_GetArraySize(root);
-    for (int j = 0; j < array_size; j++) {
-      cJSON *item = cJSON_GetArrayItem(root, j);
-      cJSON *bssid_obj = cJSON_GetObjectItem(item, "bssid");
-      if (bssid_obj != NULL && strcmp(bssid_obj->valuestring, bssid_str) == 0) {
-        ap_entry = item;
-        break;
-      }
-    }
-
-    if (ap_entry == NULL) {
-      ap_entry = cJSON_CreateObject();
-      cJSON_AddStringToObject(ap_entry, "bssid", bssid_str);
-      cJSON_AddStringToObject(ap_entry, "ssid", "");
-      cJSON_AddNumberToObject(ap_entry, "channel", rec->channel);
-      cJSON_AddItemToObject(ap_entry, "clients", cJSON_CreateArray());
-      cJSON_AddItemToArray(root, ap_entry);
-    }
-
-    cJSON *clients_array = cJSON_GetObjectItem(ap_entry, "clients");
-    cJSON *client_obj = cJSON_CreateObject();
-    char client_mac_str[18];
-    snprintf(client_mac_str,
-             sizeof(client_mac_str),
-             "%02x:%02x:%02x:%02x:%02x:%02x",
-             rec->client_mac[0],
-             rec->client_mac[1],
-             rec->client_mac[2],
-             rec->client_mac[3],
-             rec->client_mac[4],
-             rec->client_mac[5]);
-    cJSON_AddStringToObject(client_obj, "mac", client_mac_str);
-    cJSON_AddStringToObject(client_obj, "vendor", mac_vendor_get_name(rec->client_mac));
-    cJSON_AddNumberToObject(client_obj, "rssi", rec->rssi);
-    cJSON_AddItemToArray(clients_array, client_obj);
-  }
-
-  char *json_string = cJSON_PrintUnformatted(root);
-  if (json_string == NULL) {
-    ESP_LOGE(TAG, "Failed to print JSON.");
-    cJSON_Delete(root);
-    return false;
-  }
-
-  esp_err_t err;
-  if (use_sd_driver) {
-    if (!sd_is_mounted()) {
-      ESP_LOGE(TAG, "SD Card not mounted.");
-      free(json_string);
-      cJSON_Delete(root);
-      return false;
-    }
-    err = sd_write_string(path, json_string);
-  } else {
-    err = storage_write_string(path, json_string);
-  }
-
-  free(json_string);
-  cJSON_Delete(root);
-
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to write results to %s: %s", path, esp_err_to_name(err));
-    return false;
-  }
-
-  ESP_LOGI(TAG, "Scan results saved to %s", path);
-  return true;
 }
 
 static void scanner_task(void *pvParameters) {

@@ -23,11 +23,12 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 static const char *TAG = "WIFI_FLOOD";
 
 #define FLOOD_STACK_SIZE    4096
-#define FLOOD_TASK_PRIORITY 5
+#define FLOOD_TASK_PRIORITY SYS_PRIO_SERVICE_HI
 #define FLOOD_DELAY_MS      10
 #define FLOOD_STOP_WAIT_MS  100
 #define BSSID_LEN           6

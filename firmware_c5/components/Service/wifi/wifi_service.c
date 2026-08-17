@@ -28,6 +28,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 #include "lwip/inet.h"
 #include "nvs_flash.h"
 
@@ -38,7 +39,7 @@
 static const char *TAG = "WIFI_SERVICE";
 
 #define HOPPER_STACK_SIZE       4096
-#define HOPPER_TASK_PRIORITY    5
+#define HOPPER_TASK_PRIORITY    SYS_PRIO_SERVICE_HI
 #define HOPPER_DELAY_MS         250
 #define MAX_WIFI_CHANNEL        13
 #define SCAN_MUTEX_TIMEOUT_MS   1000
@@ -57,6 +58,7 @@ static uint16_t s_stored_ap_count = 0;
 static SemaphoreHandle_t s_mutex = NULL;
 static bool s_is_active = false;
 static bool s_is_connected = false;
+static bool s_promiscuous_active = false;
 static TaskHandle_t s_hopper_task_handle = NULL;
 static StackType_t *s_hopper_task_stack = NULL;
 static StaticTask_t *s_hopper_task_tcb = NULL;
@@ -112,6 +114,13 @@ void wifi_service_init(void) {
 
   ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
 
+  // Dual-band (2.4 + 5 GHz) BEFORE configuring the AP: a stale 5G-only band mode
+  // persisted in NVS otherwise rejects the 2.4 GHz AP channel and aborts set_config.
+  esp_err_t band_err = esp_wifi_set_band_mode(WIFI_BAND_MODE_AUTO);
+  if (band_err != ESP_OK) {
+    ESP_LOGW(TAG, "Could not enable dual-band: %s", esp_err_to_name(band_err));
+  }
+
   char target_ssid[SSID_MAX_LEN] = "Darth Maul";
   char target_password[PASSWORD_MAX_LEN] = "MyPassword123";
   uint8_t target_max_conn = DEFAULT_MAX_CONN;
@@ -149,11 +158,19 @@ void wifi_service_init(void) {
     ap_config.ap.authmode = WIFI_AUTH_WPA_WPA2_PSK;
   }
 
-  ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_config));
+  esp_err_t ap_cfg_err = esp_wifi_set_config(WIFI_IF_AP, &ap_config);
+  if (ap_cfg_err != ESP_OK) {
+    ESP_LOGE(TAG, "esp_wifi_set_config(AP) failed: %s", esp_err_to_name(ap_cfg_err));
+  }
 
   if (is_enabled) {
     ESP_ERROR_CHECK(esp_wifi_start());
     s_is_active = true;
+    // Enable modem sleep explicitly. It only takes effect for an idle, connected
+    // STA (radio wakes per DTIM); AP mode and promiscuous sniffing keep the radio
+    // in continuous RX regardless. The real idle savings need the P4 to signal
+    // low-power over the bridge so the C5 can drop the radio (see power state API).
+    esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
     ESP_LOGI(TAG, "Wi-Fi AP started with SSID: %s", target_ssid);
   } else {
     ESP_LOGI(TAG, "Wi-Fi AP initialized but disabled by config");
@@ -207,12 +224,11 @@ void wifi_service_deinit(void) {
 
 void wifi_service_stop(void) {
   esp_err_t err = esp_wifi_stop();
-  if (err == ESP_OK) {
-    s_is_active = false;
-    s_is_connected = false;
-  } else {
+  if (err != ESP_OK) {
     ESP_LOGE(TAG, "Error stopping Wi-Fi: %s", esp_err_to_name(err));
   }
+  s_is_active = false;
+  s_is_connected = false;
 
   s_stored_ap_count = 0;
   memset(s_stored_aps, 0, sizeof(s_stored_aps));
@@ -532,6 +548,7 @@ void wifi_service_promiscuous_start(wifi_promiscuous_cb_t cb, wifi_promiscuous_f
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to enable promiscuous mode: %s", esp_err_to_name(err));
   } else {
+    s_promiscuous_active = true;
     ESP_LOGI(TAG, "Promiscuous mode enabled");
   }
 }
@@ -542,8 +559,21 @@ void wifi_service_promiscuous_stop(void) {
     ESP_LOGE(TAG, "Failed to disable promiscuous mode: %s", esp_err_to_name(err));
   }
 
+  s_promiscuous_active = false;
   esp_wifi_set_promiscuous_rx_cb(NULL);
   ESP_LOGI(TAG, "Promiscuous mode disabled");
+}
+
+bool wifi_service_is_busy(void) {
+  // A capture is in flight (sniffer / deauth detector / handshake). Do not drop
+  // the radio for power saving while this is true.
+  return s_promiscuous_active;
+}
+
+void wifi_service_set_power_save(bool deep) {
+  // deep = screen dimmed (MAX_MODEM, longer beacon skips); otherwise MIN_MODEM.
+  // Only meaningful for an idle connected STA; harmless otherwise.
+  esp_wifi_set_ps(deep ? WIFI_PS_MAX_MODEM : WIFI_PS_MIN_MODEM);
 }
 
 void wifi_service_start_channel_hopping(void) {
@@ -629,13 +659,20 @@ event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *ev
   }
 }
 
+// 2.4 GHz (1-13) plus the common non-DFS 5 GHz channels (UNII-1 + UNII-3). DFS
+// channels (52-144) need radar detection and aren't usable for passive hopping,
+// so they're left out. esp_wifi_set_channel picks the band from the number.
+static const uint8_t HOP_CHANNELS[] = {1,  2,  3,  4,  5,  6,  7,   8,   9,   10,  11,
+                                       12, 13, 36, 40, 44, 48, 149, 153, 157, 161, 165};
+#define HOP_CHANNEL_COUNT (sizeof(HOP_CHANNELS) / sizeof(HOP_CHANNELS[0]))
+
 static void channel_hopper_task(void *pvParameters) {
-  uint8_t channel = 1;
+  size_t idx = 0;
   while (1) {
-    esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
-    channel++;
-    if (channel > MAX_WIFI_CHANNEL) {
-      channel = 1;
+    esp_wifi_set_channel(HOP_CHANNELS[idx], WIFI_SECOND_CHAN_NONE);
+    idx++;
+    if (idx >= HOP_CHANNEL_COUNT) {
+      idx = 0;
     }
     vTaskDelay(pdMS_TO_TICKS(HOPPER_DELAY_MS));
   }

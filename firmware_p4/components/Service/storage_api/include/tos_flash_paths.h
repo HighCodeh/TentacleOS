@@ -30,6 +30,7 @@ extern "C" {
 #define FLASH_CONFIG_BLE        FLASH_MOUNT "/config/bluetooth/ble_announce.conf"
 #define FLASH_CONFIG_LORA       FLASH_MOUNT "/config/lora/lora.conf"
 #define FLASH_CONFIG_SYSTEM     FLASH_MOUNT "/config/system/system.conf"
+#define FLASH_CONFIG_LED        FLASH_MOUNT "/config/led/led.conf"
 #define FLASH_CONFIG_BUZZER     FLASH_MOUNT "/config/buzzer/buzzer.conf"
 #define FLASH_CONFIG_BUZZER_DIR FLASH_MOUNT "/config/buzzer/sounds"
 

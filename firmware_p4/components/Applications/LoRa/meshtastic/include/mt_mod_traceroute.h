@@ -20,9 +20,12 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "mt_modules.h"
+
+#define MT_TRACE_MAX_HOPS 8
 
 /**
  * @brief Initialize the TraceRouteModule.
@@ -39,6 +42,26 @@ void mt_mod_traceroute_init(uint32_t node_num);
 void mt_mod_traceroute_on_received(const mt_packet_meta_t *meta,
                                    const uint8_t *payload,
                                    uint16_t len);
+
+/**
+ * @brief Send a TraceRoute request toward @p to (want_response set).
+ *
+ * Records @p to as the pending target; the reply is captured for the UI.
+ */
+void mt_mod_traceroute_start(uint32_t to);
+
+/** @brief True while a traceroute we started is awaiting its reply. */
+bool mt_mod_traceroute_is_pending(void);
+
+/**
+ * @brief Fetch the most recent completed traceroute result.
+ *
+ * @param out_hops    Buffer of at least MT_TRACE_MAX_HOPS entries (route node nums).
+ * @param out_count   Receives the number of hops written.
+ * @param out_target  Receives the responding node number.
+ * @return true if a result is ready (and copies it); false otherwise.
+ */
+bool mt_mod_traceroute_get_result(uint32_t *out_hops, int *out_count, uint32_t *out_target);
 
 #ifdef __cplusplus
 }

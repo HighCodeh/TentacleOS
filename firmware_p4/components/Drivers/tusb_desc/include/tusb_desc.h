@@ -20,10 +20,22 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
+
 #include "esp_err.h"
 #include "tinyusb.h"
 
-#define TUSB_DESC_ITF_NUM_HID 0
+// Composite device interfaces: HID (BadUSB) + CDC-ACM (companion host link).
+// CDC uses two interfaces (comm + data), so the data interface is CDC+1.
+#define TUSB_DESC_ITF_NUM_HID   0
+#define TUSB_DESC_ITF_NUM_CDC   1 // comm; data interface = 2
+#define TUSB_DESC_ITF_NUM_TOTAL 3
+
+// Endpoint addresses
+#define TUSB_DESC_EP_HID_IN    0x81
+#define TUSB_DESC_EP_CDC_NOTIF 0x82
+#define TUSB_DESC_EP_CDC_OUT   0x03
+#define TUSB_DESC_EP_CDC_IN    0x83
 
 /**
  * @brief Initialize the TinyUSB driver with HID composite descriptors.
@@ -39,6 +51,29 @@ extern "C" {
  *   - ESP_FAIL if the TinyUSB driver installation fails
  */
 esp_err_t busb_init(void);
+
+/**
+ * @brief Configure the USB-C data mux (TS3USB221) and default it to the UART
+ *        bridge.
+ *
+ * The single Type-C connector is muxed between the CP2105 USB-UART bridge and
+ * the P4 native USB PHY. Call once at boot so the pin is owned and deterministic
+ * (serial console / flashing available by default).
+ */
+void usb_mux_init(void);
+
+/**
+ * @brief Switch the USB-C data lines at runtime (no reset needed).
+ *
+ * @param native  true = P4 native USB (TinyUSB HID + CDC); false = CP2105
+ *                USB-UART bridge. Selecting native brings the TinyUSB composite
+ *                up first. Only one path is live at a time (shared connector).
+ * @return ESP_OK, or the TinyUSB install error when switching to native.
+ */
+esp_err_t usb_mux_set_native(bool native);
+
+/** @brief Whether the mux currently routes to the P4 native USB. */
+bool usb_mux_is_native(void);
 
 #ifdef __cplusplus
 }

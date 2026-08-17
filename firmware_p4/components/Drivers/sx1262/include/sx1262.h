@@ -36,6 +36,19 @@ extern "C" {
 esp_err_t sx1262_init(const sx1262_config_t *config);
 
 /**
+ * @brief Tear down the SX1262 driver so the next sx1262_init() starts clean.
+ *
+ * Stops the IRQ task (if running), destroys the HAL (removes the SPI device
+ * and mutex; SPI3 bus is preserved for shared peripherals), and clears
+ * driver state.
+ *
+ * Safe to call when nothing is initialized — no-op.
+ *
+ * @return ESP_OK on success.
+ */
+esp_err_t sx1262_deinit(void);
+
+/**
  * @brief Start the IRQ processing task.
  *
  * Creates the ISR task and enables DIO1 interrupt.

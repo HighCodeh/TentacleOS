@@ -23,6 +23,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "spi_bridge.h"
 
@@ -31,7 +32,7 @@ static const char *TAG = "SESSION_MGR";
 #define SESSION_TIMEOUT_MS  5000
 #define WATCHDOG_PERIOD_MS  1000
 #define WATCHDOG_STACK_SIZE 3072
-#define WATCHDOG_PRIO       5
+#define WATCHDOG_PRIO       SYS_PRIO_SERVICE_HI
 #define DROP_LOG_INTERVAL   1000
 
 typedef struct {
@@ -61,7 +62,7 @@ static void close_active_locked(const char *reason) {
     return;
 
   ESP_LOGW(TAG,
-           "Closing session 0x%08lx (op 0x%02X): %s",
+           "Closing session 0x%08lx (op 0x%04X): %s",
            (unsigned long)s_session.id,
            s_session.op_id,
            reason);
@@ -81,7 +82,7 @@ static void close_active_locked(const char *reason) {
 }
 
 static void emit_session_lost(uint32_t session_id, spi_id_t op_id) {
-  spi_session_lost_t payload = {.session_id = session_id, .op_id = (uint8_t)op_id};
+  spi_session_lost_t payload = {.session_id = session_id, .cmd = (uint16_t)op_id};
   spi_bridge_stream_push(SPI_ID_SESSION_LOST, (const uint8_t *)&payload, sizeof(payload));
 }
 
@@ -135,7 +136,7 @@ uint32_t session_manager_start(spi_id_t op_id, session_kill_cb_t kill_cb) {
   uint32_t id = s_session.id;
   xSemaphoreGive(s_mutex);
 
-  ESP_LOGI(TAG, "Session 0x%08lx opened for op 0x%02X", (unsigned long)id, op_id);
+  ESP_LOGI(TAG, "Session 0x%08lx opened for op 0x%04X", (unsigned long)id, op_id);
   return id;
 }
 
@@ -148,6 +149,15 @@ esp_err_t session_manager_stop(uint32_t session_id) {
   close_active_locked("explicit stop");
   xSemaphoreGive(s_mutex);
   return ESP_OK;
+}
+
+bool session_manager_is_active(void) {
+  if (s_mutex == NULL)
+    return false;
+  xSemaphoreTake(s_mutex, portMAX_DELAY);
+  bool active = (s_session.id != SPI_SESSION_INVALID_ID);
+  xSemaphoreGive(s_mutex);
+  return active;
 }
 
 bool session_manager_heartbeat(uint32_t session_id, uint32_t last_acked_seq) {

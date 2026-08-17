@@ -59,6 +59,7 @@ skimmer_detector_record_t *skimmer_detector_get_results(uint16_t *out_count) {
                               sizeof(magic_count),
                               &resp,
                               payload,
+                              sizeof(payload),
                               SPI_DATA_TIMEOUT_MS) != ESP_OK) {
     if (out_count != NULL) {
       *out_count = s_cached_count;
@@ -96,6 +97,7 @@ skimmer_detector_record_t *skimmer_detector_get_results(uint16_t *out_count) {
                                 sizeof(i),
                                 &resp,
                                 (uint8_t *)&s_cached_results[i],
+                                sizeof(s_cached_results[i]),
                                 SPI_DATA_TIMEOUT_MS) != ESP_OK) {
       break;
     }

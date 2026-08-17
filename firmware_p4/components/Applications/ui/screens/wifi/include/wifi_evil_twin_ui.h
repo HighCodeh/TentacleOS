@@ -20,10 +20,9 @@
 extern "C" {
 #endif
 
-/** @brief Set the SSID for the evil twin attack. */
-void ui_wifi_evil_twin_set_ssid(const char *ssid);
-
-/** @brief Open the Wi-Fi evil twin screen. */
+/**
+ * @brief Open the Wi-Fi evil-twin running screen.
+ */
 void ui_wifi_evil_twin_open(void);
 
 #ifdef __cplusplus

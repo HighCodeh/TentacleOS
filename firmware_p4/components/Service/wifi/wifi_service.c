@@ -18,39 +18,81 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
+#include "bluetooth_service.h"
 #include "spi_bridge.h"
+#include "sys_prio.h"
 
 static const char *TAG = "WIFI_SERVICE_P4";
 
-#define SSID_MAX_LEN 33
+#define SSID_MAX_LEN   33
+#define STATUS_POLL_MS 1000
 
 static wifi_ap_record_t s_cached_record;
 static char s_connected_ssid[SSID_MAX_LEN] = {0};
 
+// Cached Wi-Fi status. The header polls is_active/is_connected from an lv_timer
+// on the LVGL thread; doing a blocking SPI RPC there froze the renderer whenever
+// the bridge was busy (e.g. during a scan, which holds the bridge mutex for
+// seconds). A background task refreshes this cache off the UI thread, and the
+// getters just read it, so the UI never blocks on the bridge.
+static volatile bool s_status_active = false;
+static volatile bool s_status_connected = false;
+static TaskHandle_t s_status_task = NULL;
+
+static void status_poll_task(void *arg) {
+  (void)arg;
+  while (1) {
+    spi_header_t resp;
+    spi_system_status_t sys = {0};
+    if (spi_bridge_send_command(SPI_ID_SYSTEM_STATUS,
+                                NULL,
+                                0,
+                                &resp,
+                                (uint8_t *)&sys,
+                                sizeof(sys),
+                                spi_bridge_get_timeout(SPI_ID_SYSTEM_STATUS)) == ESP_OK) {
+      s_status_active = sys.wifi_active != 0;
+      s_status_connected = sys.wifi_connected != 0;
+      bluetooth_service_set_running_cached(sys.bt_running != 0);
+    }
+    vTaskDelay(pdMS_TO_TICKS(STATUS_POLL_MS));
+  }
+}
+
 void wifi_service_init(void) {
-  spi_bridge_send_command(
-      SPI_ID_WIFI_START, NULL, 0, NULL, NULL, spi_bridge_get_timeout(SPI_ID_WIFI_START));
+  if (s_status_task == NULL) {
+    xTaskCreatePinnedToCore(status_poll_task,
+                            "wifi_status",
+                            4096,
+                            NULL,
+                            SYS_PRIO_BACKGROUND,
+                            &s_status_task,
+                            SYS_CORE_RADIO);
+  }
 }
 
 void wifi_service_deinit(void) {
   spi_bridge_send_command(
-      SPI_ID_WIFI_STOP, NULL, 0, NULL, NULL, spi_bridge_get_timeout(SPI_ID_WIFI_STOP));
+      SPI_ID_WIFI_STOP, NULL, 0, NULL, NULL, 0, spi_bridge_get_timeout(SPI_ID_WIFI_STOP));
 }
 
 void wifi_service_start(void) {
   spi_bridge_send_command(
-      SPI_ID_WIFI_START, NULL, 0, NULL, NULL, spi_bridge_get_timeout(SPI_ID_WIFI_START));
+      SPI_ID_WIFI_START, NULL, 0, NULL, NULL, 0, spi_bridge_get_timeout(SPI_ID_WIFI_START));
 }
 
 void wifi_service_stop(void) {
   spi_bridge_send_command(
-      SPI_ID_WIFI_STOP, NULL, 0, NULL, NULL, spi_bridge_get_timeout(SPI_ID_WIFI_STOP));
+      SPI_ID_WIFI_STOP, NULL, 0, NULL, NULL, 0, spi_bridge_get_timeout(SPI_ID_WIFI_STOP));
 }
 
-void wifi_service_scan(void) {
-  spi_bridge_send_command(
-      SPI_ID_WIFI_SCAN, NULL, 0, NULL, NULL, spi_bridge_get_timeout(SPI_ID_WIFI_SCAN));
+esp_err_t wifi_service_scan(void) {
+  // The C5 runs the scan; the helper polls the status without holding the bridge
+  // (so the UI and other peripherals stay free) and returns once it completes.
+  return spi_bridge_run_scan(SPI_ID_WIFI_SCAN, SPI_ID_WIFI_SCAN_STATUS, NULL, 0);
 }
 
 uint16_t wifi_service_get_ap_count(void) {
@@ -63,6 +105,7 @@ uint16_t wifi_service_get_ap_count(void) {
                               2,
                               &resp,
                               payload,
+                              sizeof(payload),
                               spi_bridge_get_timeout(SPI_ID_SYSTEM_DATA)) == ESP_OK) {
     uint16_t count;
     memcpy(&count, payload, 2);
@@ -79,7 +122,23 @@ wifi_ap_record_t *wifi_service_get_ap_record(uint16_t index) {
                               2,
                               &resp,
                               (uint8_t *)&s_cached_record,
+                              sizeof(s_cached_record),
                               spi_bridge_get_timeout(SPI_ID_SYSTEM_DATA)) == ESP_OK) {
+    // SSIDs are arbitrary bytes off the air. Non-printable / invalid-UTF-8 bytes
+    // hang LVGL's text renderer (the font only has ASCII glyphs anyway), so
+    // replace anything outside printable ASCII with '?'. Single point, so every
+    // consumer (console + UI) gets clean text.
+    for (size_t i = 0; i < sizeof(s_cached_record.ssid) && s_cached_record.ssid[i] != '\0'; i++) {
+      uint8_t c = s_cached_record.ssid[i];
+      if (c < 0x20 || c > 0x7E) {
+        s_cached_record.ssid[i] = '?';
+      }
+    }
+    // Hidden networks come back with an empty SSID: show a placeholder instead
+    // of a blank row. Single point, so every consumer (console + UI) gets it.
+    if (s_cached_record.ssid[0] == '\0') {
+      strcpy((char *)s_cached_record.ssid, "[rede oculta]");
+    }
     return &s_cached_record;
   }
   return NULL;
@@ -96,22 +155,12 @@ esp_err_t wifi_service_connect_to_ap(const char *ssid, const char *password) {
                                  sizeof(cfg),
                                  NULL,
                                  NULL,
+                                 0,
                                  spi_bridge_get_timeout(SPI_ID_WIFI_CONNECT));
 }
 
 bool wifi_service_is_connected(void) {
-  spi_header_t resp;
-  spi_system_status_t sys = {0};
-
-  if (spi_bridge_send_command(SPI_ID_SYSTEM_STATUS,
-                              NULL,
-                              0,
-                              &resp,
-                              (uint8_t *)&sys,
-                              spi_bridge_get_timeout(SPI_ID_SYSTEM_STATUS)) == ESP_OK) {
-    return sys.wifi_connected != 0;
-  }
-  return (wifi_service_get_connected_ssid() != NULL);
+  return s_status_connected;
 }
 
 const char *wifi_service_get_connected_ssid(void) {
@@ -122,6 +171,7 @@ const char *wifi_service_get_connected_ssid(void) {
                               0,
                               &resp,
                               (uint8_t *)s_connected_ssid,
+                              sizeof(s_connected_ssid),
                               spi_bridge_get_timeout(SPI_ID_WIFI_GET_STA_INFO)) == ESP_OK) {
     s_connected_ssid[SSID_MAX_LEN - 1] = '\0';
     return s_connected_ssid;
@@ -130,18 +180,7 @@ const char *wifi_service_get_connected_ssid(void) {
 }
 
 bool wifi_service_is_active(void) {
-  spi_header_t resp;
-  spi_system_status_t sys = {0};
-
-  if (spi_bridge_send_command(SPI_ID_SYSTEM_STATUS,
-                              NULL,
-                              0,
-                              &resp,
-                              (uint8_t *)&sys,
-                              spi_bridge_get_timeout(SPI_ID_SYSTEM_STATUS)) == ESP_OK) {
-    return sys.wifi_active != 0;
-  }
-  return false;
+  return s_status_active;
 }
 
 void wifi_service_change_to_hotspot(const char *new_ssid) {
@@ -171,6 +210,7 @@ esp_err_t wifi_service_save_ap_config(
                                  sizeof(cfg),
                                  NULL,
                                  NULL,
+                                 0,
                                  spi_bridge_get_timeout(SPI_ID_WIFI_SAVE_AP_CONFIG));
 }
 
@@ -181,6 +221,7 @@ esp_err_t wifi_service_set_enabled(bool enabled) {
                                  1,
                                  NULL,
                                  NULL,
+                                 0,
                                  spi_bridge_get_timeout(SPI_ID_WIFI_SET_ENABLED));
 }
 
@@ -190,6 +231,7 @@ esp_err_t wifi_service_set_ap_ssid(const char *ssid) {
                                  strlen(ssid),
                                  NULL,
                                  NULL,
+                                 0,
                                  spi_bridge_get_timeout(SPI_ID_WIFI_SET_AP));
 }
 
@@ -202,6 +244,7 @@ esp_err_t wifi_service_set_ap_password(const char *password) {
                                  strlen(password),
                                  NULL,
                                  NULL,
+                                 0,
                                  spi_bridge_get_timeout(SPI_ID_WIFI_SET_AP_PASSWORD));
 }
 
@@ -212,6 +255,7 @@ esp_err_t wifi_service_set_ap_max_conn(uint8_t max_conn) {
                                  1,
                                  NULL,
                                  NULL,
+                                 0,
                                  spi_bridge_get_timeout(SPI_ID_WIFI_SET_AP_MAX_CONN));
 }
 
@@ -224,6 +268,7 @@ esp_err_t wifi_service_set_ap_ip(const char *ip_addr) {
                                  strlen(ip_addr),
                                  NULL,
                                  NULL,
+                                 0,
                                  spi_bridge_get_timeout(SPI_ID_WIFI_SET_AP_IP));
 }
 
@@ -235,6 +280,7 @@ void wifi_service_promiscuous_start(wifi_promiscuous_cb_t cb, wifi_promiscuous_f
                                           0,
                                           NULL,
                                           NULL,
+                                          0,
                                           spi_bridge_get_timeout(SPI_ID_WIFI_PROMISC_START));
   if (err == ESP_ERR_NOT_SUPPORTED) {
     ESP_LOGW(TAG, "Promiscuous start not supported over SPI");
@@ -247,6 +293,7 @@ void wifi_service_promiscuous_stop(void) {
                                           0,
                                           NULL,
                                           NULL,
+                                          0,
                                           spi_bridge_get_timeout(SPI_ID_WIFI_PROMISC_STOP));
   if (err == ESP_ERR_NOT_SUPPORTED) {
     ESP_LOGW(TAG, "Promiscuous stop not supported over SPI");
@@ -259,6 +306,7 @@ void wifi_service_start_channel_hopping(void) {
                           0,
                           NULL,
                           NULL,
+                          0,
                           spi_bridge_get_timeout(SPI_ID_WIFI_CH_HOP_START));
 }
 
@@ -268,5 +316,6 @@ void wifi_service_stop_channel_hopping(void) {
                           0,
                           NULL,
                           NULL,
+                          0,
                           spi_bridge_get_timeout(SPI_ID_WIFI_CH_HOP_STOP));
 }

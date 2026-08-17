@@ -21,10 +21,12 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 #include "freertos/queue.h"
 
 #include "cc1101.h"
 #include "pin_def.h"
+#include "led_control.h"
 #include "subghz_protocol_registry.h"
 #include "subghz_analyzer.h"
 #include "subghz_storage.h"
@@ -43,8 +45,8 @@ static const char *TAG = "SUBGHZ_RX";
 #define RX_QUEUE_TIMEOUT_MS   100
 #define HOP_INTERVAL_MS       5000
 #define RX_TASK_STACK_SIZE    8192
-#define RX_TASK_PRIORITY      5
-#define RX_TASK_CORE          1
+#define RX_TASK_PRIORITY      SYS_PRIO_SERVICE_HI
+#define RX_TASK_CORE          SYS_CORE_RADIO
 #define FILENAME_BUF_SIZE     32
 #define HEX_BUF_SIZE          65
 #define MAX_HEX_BYTES         32
@@ -163,6 +165,7 @@ static void handle_scan_mode(const int32_t *decode_buffer, size_t decode_idx) {
     subghz_analyzer_process(decode_buffer, decode_idx, &analysis);
     get_dynamic_filename(filename, sizeof(filename), "DEC");
     subghz_storage_save_decoded(filename, &decoded, s_rx_freq, analysis.estimated_te);
+    led_signal_info(); // decoded a known protocol
     return;
   }
 
@@ -178,6 +181,7 @@ static void handle_scan_mode(const int32_t *decode_buffer, size_t decode_idx) {
     get_dynamic_filename(filename, sizeof(filename), "UNK");
     subghz_storage_save_raw(filename, decode_buffer, decode_idx, s_rx_freq);
     log_recovered_bitstream(&analysis);
+    led_signal_warning(); // captured RF but no known protocol matched
   }
 
   size_t preview = decode_idx > RAW_PREVIEW_COUNT ? RAW_PREVIEW_COUNT : decode_idx;
@@ -215,6 +219,10 @@ static void subghz_rx_task(void *pvParameters) {
            (int)s_rx_preset,
            (unsigned long)s_rx_freq);
 
+  rmt_symbol_word_t *raw_symbols = NULL;
+  int32_t *decode_buffer = NULL;
+  esp_err_t err = ESP_OK;
+
   rmt_rx_channel_config_t rx_channel_cfg = {
       .clk_src = RMT_CLK_SRC_DEFAULT,
       .resolution_hz = RMT_RESOLUTION_HZ,
@@ -224,14 +232,26 @@ static void subghz_rx_task(void *pvParameters) {
       .flags.with_dma = true,
   };
 
-  ESP_ERROR_CHECK(rmt_new_rx_channel(&rx_channel_cfg, &s_rx_channel));
+  err = rmt_new_rx_channel(&rx_channel_cfg, &s_rx_channel);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "rmt_new_rx_channel failed: %s", esp_err_to_name(err));
+    goto cleanup;
+  }
 
   s_rx_queue = xQueueCreate(RX_QUEUE_DEPTH, sizeof(rmt_rx_done_event_data_t));
   rmt_rx_event_callbacks_t cbs = {
       .on_recv_done = subghz_rx_done_callback,
   };
-  ESP_ERROR_CHECK(rmt_rx_register_event_callbacks(s_rx_channel, &cbs, s_rx_queue));
-  ESP_ERROR_CHECK(rmt_enable(s_rx_channel));
+  err = rmt_rx_register_event_callbacks(s_rx_channel, &cbs, s_rx_queue);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "rmt_rx_register_event_callbacks failed: %s", esp_err_to_name(err));
+    goto cleanup;
+  }
+  err = rmt_enable(s_rx_channel);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "rmt_enable failed: %s", esp_err_to_name(err));
+    goto cleanup;
+  }
 
   cc1101_set_preset(s_rx_preset, s_rx_freq);
 
@@ -244,8 +264,6 @@ static void subghz_rx_task(void *pvParameters) {
   };
 
   rmt_rx_done_event_data_t rx_data;
-  rmt_symbol_word_t *raw_symbols = NULL;
-  int32_t *decode_buffer = NULL;
 
   size_t raw_symbols_size = sizeof(rmt_symbol_word_t) * RX_BUFFER_SIZE;
   raw_symbols = heap_caps_aligned_alloc(
@@ -261,7 +279,11 @@ static void subghz_rx_task(void *pvParameters) {
     goto cleanup;
   }
 
-  ESP_ERROR_CHECK(rmt_receive(s_rx_channel, raw_symbols, raw_symbols_size, &receive_config));
+  err = rmt_receive(s_rx_channel, raw_symbols, raw_symbols_size, &receive_config);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "rmt_receive failed: %s", esp_err_to_name(err));
+    goto cleanup;
+  }
 
   TickType_t last_hop_time = xTaskGetTickCount();
   const TickType_t hop_interval = pdMS_TO_TICKS(HOP_INTERVAL_MS);
@@ -274,8 +296,10 @@ static void subghz_rx_task(void *pvParameters) {
     }
 
     if (rx_data.num_symbols == 0) {
-      if (s_is_running) {
-        ESP_ERROR_CHECK(rmt_receive(s_rx_channel, raw_symbols, raw_symbols_size, &receive_config));
+      if (s_is_running &&
+          rmt_receive(s_rx_channel, raw_symbols, raw_symbols_size, &receive_config) != ESP_OK) {
+        ESP_LOGE(TAG, "rmt_receive failed; stopping RX");
+        break;
       }
       continue;
     }
@@ -293,8 +317,10 @@ static void subghz_rx_task(void *pvParameters) {
       }
     }
 
-    if (s_is_running) {
-      ESP_ERROR_CHECK(rmt_receive(s_rx_channel, raw_symbols, raw_symbols_size, &receive_config));
+    if (s_is_running &&
+        rmt_receive(s_rx_channel, raw_symbols, raw_symbols_size, &receive_config) != ESP_OK) {
+      ESP_LOGE(TAG, "rmt_receive failed; stopping RX");
+      break;
     }
   }
 
@@ -306,11 +332,17 @@ cleanup:
     free(decode_buffer);
   }
   cc1101_strobe(CC1101_SIDLE);
-  rmt_disable(s_rx_channel);
-  rmt_del_channel(s_rx_channel);
-  vQueueDelete(s_rx_queue);
-  s_rx_channel = NULL;
-  s_rx_queue = NULL;
+  if (s_rx_channel != NULL) {
+    rmt_disable(s_rx_channel);
+    rmt_del_channel(s_rx_channel);
+    s_rx_channel = NULL;
+  }
+  if (s_rx_queue != NULL) {
+    vQueueDelete(s_rx_queue);
+    s_rx_queue = NULL;
+  }
+  s_is_running = false;
+  s_rx_task_handle = NULL;
   vTaskDelete(NULL);
 }
 

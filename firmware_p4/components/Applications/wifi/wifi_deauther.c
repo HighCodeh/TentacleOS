@@ -15,6 +15,8 @@
 
 #include "wifi_deauther.h"
 
+#include "led_control.h"
+
 #include <string.h>
 
 #include "esp_log.h"
@@ -36,7 +38,9 @@ bool wifi_deauther_start(const wifi_ap_record_t *ap_record,
   payload[12] = (uint8_t)type;
   payload[13] = ap_record->primary;
   s_session_id = spi_session_start(SPI_ID_WIFI_APP_DEAUTHER, payload, sizeof(payload), NULL, NULL);
-  return s_session_id != SPI_SESSION_INVALID_ID;
+  bool ok = s_session_id != SPI_SESSION_INVALID_ID;
+  ok ? led_signal_info() : led_signal_error();
+  return ok;
 }
 
 bool wifi_deauther_start_targeted(const wifi_ap_record_t *ap_record,
@@ -48,7 +52,9 @@ bool wifi_deauther_start_targeted(const wifi_ap_record_t *ap_record,
   payload[12] = (uint8_t)type;
   payload[13] = ap_record->primary;
   s_session_id = spi_session_start(SPI_ID_WIFI_APP_DEAUTHER, payload, sizeof(payload), NULL, NULL);
-  return s_session_id != SPI_SESSION_INVALID_ID;
+  bool ok = s_session_id != SPI_SESSION_INVALID_ID;
+  ok ? led_signal_info() : led_signal_error();
+  return ok;
 }
 
 void wifi_deauther_stop(void) {
@@ -62,7 +68,8 @@ void wifi_deauther_stop(void) {
 bool wifi_deauther_is_running(void) {
   spi_header_t resp;
   uint8_t payload[1] = {0};
-  if (spi_bridge_send_command(SPI_ID_WIFI_DEAUTH_STATUS, NULL, 0, &resp, payload, 1000) == ESP_OK) {
+  if (spi_bridge_send_command(
+          SPI_ID_WIFI_DEAUTH_STATUS, NULL, 0, &resp, payload, sizeof(payload), 1000) == ESP_OK) {
     return payload[0] != 0;
   }
   return false;
@@ -77,7 +84,7 @@ void wifi_deauther_send_deauth_frame(const wifi_ap_record_t *ap_record,
   payload[6] = (uint8_t)type;
   payload[7] = ap_record->primary;
   spi_bridge_send_command(
-      SPI_ID_WIFI_DEAUTH_SEND_FRAME, payload, sizeof(payload), NULL, NULL, 2000);
+      SPI_ID_WIFI_DEAUTH_SEND_FRAME, payload, sizeof(payload), NULL, NULL, 0, 2000);
 }
 
 void wifi_deauther_send_broadcast_deauth(const wifi_ap_record_t *ap_record,
@@ -89,14 +96,14 @@ void wifi_deauther_send_broadcast_deauth(const wifi_ap_record_t *ap_record,
   payload[6] = (uint8_t)type;
   payload[7] = ap_record->primary;
   spi_bridge_send_command(
-      SPI_ID_WIFI_DEAUTH_SEND_BROADCAST, payload, sizeof(payload), NULL, NULL, 2000);
+      SPI_ID_WIFI_DEAUTH_SEND_BROADCAST, payload, sizeof(payload), NULL, NULL, 0, 2000);
 }
 
 void wifi_deauther_send_raw_frame(const uint8_t *frame_buffer, int size) {
   if (frame_buffer == NULL || size <= 0 || size > SPI_MAX_PAYLOAD)
     return;
   spi_bridge_send_command(
-      SPI_ID_WIFI_DEAUTH_SEND_RAW, frame_buffer, (uint8_t)size, NULL, NULL, 2000);
+      SPI_ID_WIFI_DEAUTH_SEND_RAW, frame_buffer, (uint8_t)size, NULL, NULL, 0, 2000);
 }
 
 void wifi_deauther_send_association_request(const wifi_ap_record_t *ap_record) {
@@ -109,7 +116,7 @@ void wifi_deauther_send_association_request(const wifi_ap_record_t *ap_record) {
   payload[7] = ssid_len;
   memcpy(payload + 8, ap_record->ssid, ssid_len);
   spi_bridge_send_command(
-      SPI_ID_WIFI_ASSOC_REQUEST, payload, (uint8_t)(8 + ssid_len), NULL, NULL, 2000);
+      SPI_ID_WIFI_ASSOC_REQUEST, payload, (uint8_t)(8 + ssid_len), NULL, NULL, 0, 2000);
 }
 
 int ieee80211_raw_frame_sanity_check(int32_t arg, int32_t arg2, int32_t arg3) {

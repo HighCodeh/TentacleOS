@@ -23,6 +23,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "bluetooth_service.h"
 
@@ -40,6 +41,8 @@ typedef struct {
   uint8_t len;
 } ble_sniffer_packet_t;
 
+static ble_sniffer_observer_t s_observer = NULL;
+
 static QueueHandle_t s_sniffer_queue = NULL;
 static TaskHandle_t s_sniffer_task_handle = NULL;
 static StackType_t *s_sniffer_task_stack = NULL;
@@ -48,6 +51,10 @@ static uint8_t *s_sniffer_queue_storage = NULL;
 static StaticQueue_t *s_sniffer_queue_struct = NULL;
 
 static void sniffer_task(void *pvParameters);
+
+void ble_sniffer_set_observer(ble_sniffer_observer_t cb) {
+  s_observer = cb;
+}
 
 static void packet_handler(
     const uint8_t *addr, uint8_t addr_type, int rssi, const uint8_t *data, uint16_t len) {
@@ -97,18 +104,20 @@ esp_err_t ble_sniffer_start(void) {
                                        s_sniffer_queue_storage,
                                        s_sniffer_queue_struct);
 
-  s_sniffer_task_handle = xTaskCreateStatic(sniffer_task,
-                                            "sniffer_task",
-                                            SNIFFER_TASK_STACK_SIZE,
-                                            NULL,
-                                            tskIDLE_PRIORITY + 1,
-                                            s_sniffer_task_stack,
-                                            s_sniffer_task_tcb);
+  s_sniffer_task_handle = xTaskCreateStaticPinnedToCore(sniffer_task,
+                                                        "sniffer_task",
+                                                        SNIFFER_TASK_STACK_SIZE,
+                                                        NULL,
+                                                        SYS_PRIO_BACKGROUND_LO,
+                                                        s_sniffer_task_stack,
+                                                        s_sniffer_task_tcb,
+                                                        SYS_CORE_RADIO);
 
   return bluetooth_service_start_sniffer(packet_handler);
 }
 
 void ble_sniffer_stop(void) {
+  s_observer = NULL;
   bluetooth_service_stop_sniffer();
 
   if (s_sniffer_task_handle != NULL) {
@@ -158,6 +167,18 @@ static void sniffer_task(void *pvParameters) {
         printf("%02X ", packet.data[i]);
       }
       printf("\n");
+
+      ble_sniffer_observer_t obs = s_observer;
+      if (obs != NULL) {
+        ble_sniffer_adv_t adv = {
+            .addr = packet.addr,
+            .addr_type = packet.addr_type,
+            .rssi = packet.rssi,
+            .data = packet.data,
+            .len = packet.len,
+        };
+        obs(&adv);
+      }
     }
   }
 }

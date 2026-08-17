@@ -22,6 +22,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "bluetooth_service.h"
 #include "oui_lookup.h"
@@ -32,7 +33,7 @@
 static const char *TAG = "BLE_SCANNER";
 
 #define SCANNER_STACK_SIZE    4096
-#define SCANNER_TASK_PRIORITY 5
+#define SCANNER_TASK_PRIORITY SYS_PRIO_SERVICE_HI
 #define SCAN_DURATION_MS      10000
 
 static TaskHandle_t s_scanner_task_handle = NULL;
@@ -57,7 +58,8 @@ bool ble_scanner_start(void) {
                                                            MALLOC_CAP_SPIRAM);
   }
   if (s_scanner_task_tcb == NULL) {
-    s_scanner_task_tcb = (StaticTask_t *)heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_SPIRAM);
+    s_scanner_task_tcb = (StaticTask_t *)heap_caps_malloc(sizeof(StaticTask_t),
+                                                          MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   }
 
   if (s_scanner_task_stack == NULL || s_scanner_task_tcb == NULL) {
@@ -70,13 +72,14 @@ bool ble_scanner_start(void) {
   }
 
   s_is_scanning = true;
-  s_scanner_task_handle = xTaskCreateStatic(scanner_task,
-                                            "ble_scan_task",
-                                            SCANNER_STACK_SIZE,
-                                            NULL,
-                                            SCANNER_TASK_PRIORITY,
-                                            s_scanner_task_stack,
-                                            s_scanner_task_tcb);
+  s_scanner_task_handle = xTaskCreateStaticPinnedToCore(scanner_task,
+                                                        "ble_scan_task",
+                                                        SCANNER_STACK_SIZE,
+                                                        NULL,
+                                                        SCANNER_TASK_PRIORITY,
+                                                        s_scanner_task_stack,
+                                                        s_scanner_task_tcb,
+                                                        SYS_CORE_RADIO);
 
   return (s_scanner_task_handle != NULL);
 }
@@ -172,6 +175,14 @@ static bool save_results_to_loot(void) {
 
 static void scanner_task(void *pvParameters) {
   ESP_LOGI(TAG, "Starting BLE Scan Task (PSRAM)...");
+
+  if (bluetooth_service_init() != ESP_OK || bluetooth_service_start() != ESP_OK) {
+    ESP_LOGE(TAG, "BLE not available on C5; aborting scan");
+    s_is_scanning = false;
+    s_scanner_task_handle = NULL;
+    vTaskDelete(NULL);
+    return;
+  }
 
   bluetooth_service_scan(SCAN_DURATION_MS);
 

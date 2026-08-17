@@ -40,12 +40,15 @@
 
 static const char *TAG = "WIFI_DISPATCHER";
 
+// Compact scan results for the companion app (SPI_ID_WIFI_APP_SCAN_AP). Built
+// from the raw scan once, then served through the generic data pipe.
+static spi_wifi_scan_record_t s_app_scan_records[WIFI_SCAN_LIST_SIZE];
+
 #define WIFI_SSID_MAX_LEN         32
 #define WIFI_PASSWORD_MAX_LEN     64
 #define WIFI_IP_ADDR_MAX_LEN      15
 #define WIFI_DEAUTHER_MIN_PAYLOAD 13
 #define WIFI_FLOOD_MIN_PAYLOAD    7
-#define WIFI_SNIFFER_MIN_PAYLOAD  2
 #define WIFI_ASSOC_MIN_PAYLOAD    8
 #define WIFI_DEAUTH_FRAME_MIN     8
 #define WIFI_TARGET_MIN_PAYLOAD   7
@@ -113,6 +116,55 @@ static spi_status_t open_session(spi_id_t op_id,
   return SPI_STATUS_OK;
 }
 
+// Scan work functions run by the shared async runner (spi_bridge_async_scan_start).
+// Each does the blocking scan and provides the results; the SPI handler returns
+// immediately so the bridge stays free.
+static void scan_fn_wifi_scan(void) {
+  wifi_service_scan();
+  spi_bridge_provide_results(
+      wifi_service_get_ap_record(0), wifi_service_get_ap_count(), sizeof(wifi_ap_record_t));
+}
+
+static void scan_fn_app_ap(void) {
+  wifi_service_scan();
+  uint16_t count = wifi_service_get_ap_count();
+  if (count > WIFI_SCAN_LIST_SIZE)
+    count = WIFI_SCAN_LIST_SIZE;
+  for (uint16_t i = 0; i < count; i++) {
+    spi_wifi_scan_record_t *rec = &s_app_scan_records[i];
+    memset(rec, 0, sizeof(*rec));
+    const wifi_ap_record_t *ap = wifi_service_get_ap_record(i);
+    if (ap == NULL)
+      continue;
+    memcpy(rec->bssid, ap->bssid, sizeof(rec->bssid));
+    rec->rssi = ap->rssi;
+    rec->channel = ap->primary;
+    rec->authmode = (uint8_t)ap->authmode;
+    size_t j = 0;
+    for (; j < sizeof(rec->ssid) - 1 && ap->ssid[j] != '\0'; j++) {
+      uint8_t c = ap->ssid[j];
+      rec->ssid[j] = (c < 0x20 || c > 0x7E) ? '?' : c;
+    }
+    rec->ssid[j] = '\0';
+  }
+  spi_bridge_provide_results(s_app_scan_records, count, sizeof(spi_wifi_scan_record_t));
+}
+
+static void scan_fn_app_client(void) {
+  if (!client_scanner_start())
+    return;
+  const TickType_t start = xTaskGetTickCount();
+  const TickType_t timeout = pdMS_TO_TICKS(WIFI_CLIENT_SCAN_TIMEOUT);
+  uint16_t count = 0;
+  client_scanner_record_t *results = NULL;
+  while ((results = client_scanner_get_results(&count)) == NULL) {
+    if ((xTaskGetTickCount() - start) > timeout)
+      return;
+    vTaskDelay(pdMS_TO_TICKS(CLIENT_SCAN_POLL_DELAY_MS));
+  }
+  spi_bridge_provide_results(results, count, sizeof(client_scanner_record_t));
+}
+
 spi_status_t wifi_dispatcher_execute(spi_id_t id,
                                      const uint8_t *payload,
                                      uint8_t len,
@@ -123,9 +175,11 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
 
   switch (id) {
     case SPI_ID_WIFI_SCAN:
-      wifi_service_scan();
-      spi_bridge_provide_results(
-          wifi_service_get_ap_record(0), wifi_service_get_ap_count(), sizeof(wifi_ap_record_t));
+      return spi_bridge_async_scan_start(scan_fn_wifi_scan) ? SPI_STATUS_OK : SPI_STATUS_BUSY;
+
+    case SPI_ID_WIFI_SCAN_STATUS:
+      out_resp_payload[0] = spi_bridge_async_scan_busy() ? 1 : 0;
+      *out_resp_len = 1;
       return SPI_STATUS_OK;
 
     case SPI_ID_WIFI_CONNECT: {
@@ -229,28 +283,10 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
       return SPI_STATUS_OK;
 
     case SPI_ID_WIFI_APP_SCAN_AP:
-      wifi_service_scan();
-      spi_bridge_provide_results(
-          wifi_service_get_ap_record(0), wifi_service_get_ap_count(), sizeof(wifi_ap_record_t));
-      return SPI_STATUS_OK;
+      return spi_bridge_async_scan_start(scan_fn_app_ap) ? SPI_STATUS_OK : SPI_STATUS_BUSY;
 
     case SPI_ID_WIFI_APP_SCAN_CLIENT:
-      if (!client_scanner_start())
-        return SPI_STATUS_BUSY;
-      {
-        const TickType_t start = xTaskGetTickCount();
-        const TickType_t timeout = pdMS_TO_TICKS(WIFI_CLIENT_SCAN_TIMEOUT);
-        uint16_t count = 0;
-        client_scanner_record_t *results = NULL;
-        while ((results = client_scanner_get_results(&count)) == NULL) {
-          if ((xTaskGetTickCount() - start) > timeout) {
-            return SPI_STATUS_BUSY;
-          }
-          vTaskDelay(pdMS_TO_TICKS(CLIENT_SCAN_POLL_DELAY_MS));
-        }
-        spi_bridge_provide_results(results, count, sizeof(client_scanner_record_t));
-        return SPI_STATUS_OK;
-      }
+      return spi_bridge_async_scan_start(scan_fn_app_client) ? SPI_STATUS_OK : SPI_STATUS_BUSY;
 
     case SPI_ID_WIFI_APP_BEACON_SPAM: {
       bool ok;
@@ -313,14 +349,19 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
     }
 
     case SPI_ID_WIFI_APP_SNIFFER: {
-      if (len < WIFI_SNIFFER_MIN_PAYLOAD)
-        return SPI_STATUS_ERROR;
+      // The companion app's live view wants raw frames across every channel. If
+      // it omits the args, default to RAW + channel 0 (hopping) instead of
+      // rejecting, so an empty START still streams something useful.
+      // payload[0]: sniffer type, payload[1]: channel (0 = hop all).
       // payload[2] (optional): monitor_mode flag — when set, buffer recycles
       // on overflow and packet counter keeps growing (used by Packet Monitor).
+      wifi_sniffer_type_t type =
+          (len >= 1) ? (wifi_sniffer_type_t)payload[0] : WIFI_SNIFFER_TYPE_RAW;
+      uint8_t channel = (len >= 2) ? payload[1] : 0;
       bool monitor_mode = (len >= 3) && (payload[2] != 0);
       wifi_sniffer_set_monitor_mode(monitor_mode);
       spi_bridge_stream_enable(SPI_ID_WIFI_APP_SNIFFER, true);
-      if (!wifi_sniffer_start((wifi_sniffer_type_t)payload[0], payload[1])) {
+      if (!wifi_sniffer_start(type, channel)) {
         spi_bridge_stream_enable(SPI_ID_WIFI_APP_SNIFFER, false);
         return SPI_STATUS_ERROR;
       }

@@ -49,6 +49,21 @@ extern "C" {
 /** @brief Bit position of the command field in the Denon frame word. */
 #define DENON_CMD_SHIFT 5
 
+/** @brief Bit position of the 2-bit frame-type field in the Denon frame word. */
+#define DENON_FRAME_SHIFT 13
+
+/** @brief Bit mask for the 2-bit frame-type field. */
+#define DENON_FRAME_MASK 0x3
+
+/** @brief Frame-type value of the complementary auto-repeat frame (inverted). */
+#define DENON_FRAME_INVERTED 0x3
+
+/** @brief XOR mask that inverts the command and frame-type bits for the second frame. */
+#define DENON_INVERT_MASK 0x7FE0
+
+/** @brief Silence between the normal frame and its complementary repeat, in microseconds. */
+#define DENON_REPEAT_GAP_US 45000
+
 /**
  * @brief Decode a Denon IR frame from RMT symbols.
  *

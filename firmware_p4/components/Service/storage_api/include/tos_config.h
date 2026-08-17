@@ -38,6 +38,7 @@ extern "C" {
 #define ASSETS_CONFIG_BLE    FLASH_CONFIG_BLE
 #define ASSETS_CONFIG_LORA   FLASH_CONFIG_LORA
 #define ASSETS_CONFIG_SYSTEM FLASH_CONFIG_SYSTEM
+#define ASSETS_CONFIG_LED    FLASH_CONFIG_LED
 
 typedef struct {
   int brightness;
@@ -62,6 +63,7 @@ typedef struct {
 } tos_config_wifi_client_t;
 
 typedef struct {
+  bool enabled;
   tos_config_wifi_ap_t ap;
   tos_config_wifi_client_t client;
 } tos_config_wifi_t;
@@ -90,11 +92,21 @@ typedef struct {
   bool first_boot_done;
 } tos_config_system_t;
 
+// RGB status LED (LP5816). brightness is 0-100 %. Colors are 0xRRGGBB and map to
+// the three semantic signals; stored in the file as "#RRGGBB" hex strings.
+typedef struct {
+  int brightness;
+  uint32_t info_color;    // informative (default purple)
+  uint32_t warning_color; // warning (default yellow)
+  uint32_t error_color;   // error (default red)
+} tos_config_led_t;
+
 extern tos_config_screen_t g_config_screen;
 extern tos_config_wifi_t g_config_wifi;
 extern tos_config_ble_t g_config_ble;
 extern tos_config_lora_t g_config_lora;
 extern tos_config_system_t g_config_system;
+extern tos_config_led_t g_config_led;
 
 esp_err_t tos_config_load(const char *sd_path, const char *flash_path, const char *module);
 void tos_config_load_all(void);

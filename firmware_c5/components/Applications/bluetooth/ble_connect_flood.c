@@ -22,6 +22,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 #include "host/ble_gap.h"
 
 #include "bluetooth_service.h"
@@ -29,7 +30,7 @@
 static const char *TAG = "BLE_CONNECT_FLOOD";
 
 #define FLOOD_STACK_SIZE      4096
-#define FLOOD_TASK_PRIORITY   5
+#define FLOOD_TASK_PRIORITY   SYS_PRIO_SERVICE_HI
 #define FLOOD_CONNECT_TIMEOUT 5000
 #define FLOOD_RETRY_DELAY_MS  100
 #define FLOOD_CYCLE_DELAY_MS  20

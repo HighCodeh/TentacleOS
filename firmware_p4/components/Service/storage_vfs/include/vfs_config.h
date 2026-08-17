@@ -32,7 +32,7 @@ extern "C" {
 
 #ifdef VFS_USE_SD_CARD
 #define VFS_MOUNT_POINT    "/sdcard"
-#define VFS_MAX_FILES      10
+#define VFS_MAX_FILES      5
 #define VFS_FORMAT_ON_FAIL false
 #define VFS_BACKEND_NAME   "SD Card"
 #endif

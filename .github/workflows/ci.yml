@@ -13,12 +13,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install clang-format
         run: pip install clang-format==22.1.3
 
       - name: Run format check
-        run: bash tools/format.sh --check
+        run: bash tools/format.sh --check-changed "${{ github.event.pull_request.base.sha }}"
 
   commitlint:
     name: Validate Commits
@@ -50,3 +52,26 @@ jobs:
       - name: Build
         run: bash tools/build.sh
         shell: bash
+
+  hle-tests:
+    name: HLE Tests
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev
+
+      - name: Configure
+        run: cmake -B build -S tools/hle
+        env:
+          SDL_VIDEODRIVER: dummy
+
+      - name: Build tests
+        run: cmake --build build --target hle_tests -j$(nproc)
+
+      - name: Run tests
+        run: ./build/hle_tests

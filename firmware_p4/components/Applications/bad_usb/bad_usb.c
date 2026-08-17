@@ -32,6 +32,7 @@ static const char *TAG = "BAD_USB";
 #define HID_REPORT_ID_MOUSE    2
 #define USB_POLL_INTERVAL_MS   100
 #define USB_SETTLE_DELAY_MS    2000
+#define USB_MOUNT_TIMEOUT_MS   8000
 
 static bool s_is_initialized = false;
 
@@ -77,13 +78,34 @@ esp_err_t bad_usb_deinit(void) {
   return ESP_OK;
 }
 
-void bad_usb_wait_for_connection(void) {
+bool bad_usb_wait_for_connection_ex(bad_usb_abort_cb_t should_abort) {
   ESP_LOGI(TAG, "Waiting for USB host connection...");
+  int waited_ms = 0;
   while (!tud_mounted()) {
+    if (should_abort != NULL && should_abort()) {
+      ESP_LOGW(TAG, "Wait for connection aborted");
+      return false;
+    }
+    if (waited_ms >= USB_MOUNT_TIMEOUT_MS) {
+      ESP_LOGE(TAG, "USB host not detected after %d ms", USB_MOUNT_TIMEOUT_MS);
+      return false;
+    }
     vTaskDelay(pdMS_TO_TICKS(USB_POLL_INTERVAL_MS));
+    waited_ms += USB_POLL_INTERVAL_MS;
   }
   ESP_LOGI(TAG, "USB host connected. Settling for %d ms...", USB_SETTLE_DELAY_MS);
-  vTaskDelay(pdMS_TO_TICKS(USB_SETTLE_DELAY_MS));
+  for (int elapsed = 0; elapsed < USB_SETTLE_DELAY_MS; elapsed += USB_POLL_INTERVAL_MS) {
+    if (should_abort != NULL && should_abort()) {
+      ESP_LOGW(TAG, "Settle aborted");
+      return false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(USB_POLL_INTERVAL_MS));
+  }
+  return true;
+}
+
+void bad_usb_wait_for_connection(void) {
+  (void)bad_usb_wait_for_connection_ex(NULL);
 }
 
 static void send_keyboard_report(uint8_t keycode, uint8_t modifier) {

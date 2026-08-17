@@ -15,14 +15,17 @@
 
 #include "footer_ui.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+
 #include "esp_log.h"
 
 #include "cJSON.h"
 #include "storage_assets.h"
+#include "tos_flash_paths.h"
 #include "ui_theme.h"
 
-#define FOOTER_HEIGHT 20
-#include "tos_flash_paths.h"
+#define FOOTER_HEIGHT         20
 #define INTERFACE_CONFIG_PATH FLASH_CONFIG_INTERFACE
 
 static bool footer_is_hidden(void) {

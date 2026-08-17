@@ -22,6 +22,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 #include "sys/stat.h"
 
 #include "bluetooth_service.h"
@@ -34,7 +35,7 @@
 static const char *TAG = "BLE_SCANNER";
 
 #define SCANNER_STACK_SIZE    4096
-#define SCANNER_TASK_PRIORITY 5
+#define SCANNER_TASK_PRIORITY SYS_PRIO_SERVICE_HI
 #define SCAN_DURATION_MS      10000
 #define DIR_PERMISSIONS       0777
 

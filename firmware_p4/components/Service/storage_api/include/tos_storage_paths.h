@@ -68,6 +68,7 @@ extern "C" {
 #define TOS_PATH_CONFIG_BLE    TOS_PATH_CONFIG_DIR "/ble.conf"
 #define TOS_PATH_CONFIG_LORA   TOS_PATH_CONFIG_DIR "/lora.conf"
 #define TOS_PATH_CONFIG_SYSTEM TOS_PATH_CONFIG_DIR "/system.conf"
+#define TOS_PATH_CONFIG_LED    TOS_PATH_CONFIG_DIR "/led.conf"
 
 // System paths
 #define TOS_PATH_FAVORITES VFS_MOUNT_POINT "/favorites.json"

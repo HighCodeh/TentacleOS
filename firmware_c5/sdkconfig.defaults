@@ -8,6 +8,25 @@ CONFIG_ESPTOOLPY_NO_STUB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
+# Core dump to the dedicated flash partition (ELF format) for field forensics,
+# matching the P4. On a panic the backtrace/registers/task stacks are saved to
+# the coredump partition. The C5 is headless (no boot-report viewer like the P4),
+# so retrieve it over serial with `idf.py coredump-info` / `coredump-dbg`.
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
+CONFIG_ESP_COREDUMP_STACK_SIZE=1792
+
+# Hold the panic backtrace on the serial line for 2 s before rebooting, so field
+# debugging can read it instead of it scrolling past with the next boot.
+CONFIG_ESP_SYSTEM_PANIC_REBOOT_DELAY_SECONDS=2
+
+# OTA rollback: a new image boots in PENDING_VERIFY. ota_post_boot_check() marks
+# it valid only once the P4 has used the bridge, else it rolls back to the last
+# good image. The bridge is the C5's only job and only recovery path, so bridge
+# health is the boot health criterion.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
 # CPU 240MHz (C5 default is 160MHz)
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 
@@ -15,20 +34,23 @@ CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 CONFIG_FREERTOS_UNICORE=y
 CONFIG_ESP_SYSTEM_SINGLE_CORE_MODE=y
 
-# PSRAM quad, 40MHz
+# 8MB PSRAM, in-package on the C5 module (confirmed at boot). IGNORE_NOTFOUND so a
+# PSRAM fault degrades to internal RAM instead of boot-looping the headless C5.
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_QUAD=y
 CONFIG_SPIRAM_SPEED_40M=y
-CONFIG_SPIRAM_USE_MALLOC=y
-CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384
-CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768
+CONFIG_SPIRAM_IGNORE_NOTFOUND=y
+CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y
 
 # Larger stack for kernel_init
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 
-# Console via UART0 (CH340 on C5 devkit: GPIO11/12)
+# Console primary on UART0 (visible on the CP2105), secondary on USB-JTAG.
+# UART0 is only borrowed for the OTA transfer, which is now triggered on demand
+# over SPI (SPI_ID_SYSTEM_START_UART_OTA) and silences logging while it runs, so
+# the console and the OTA no longer collide. Logs are also teed to the P4 over SPI.
 CONFIG_ESP_CONSOLE_UART_DEFAULT=y
-CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG=y
 
 # Bluetooth NimBLE
 CONFIG_BT_ENABLED=y
@@ -42,3 +64,7 @@ CONFIG_BOOTLOADER_LOG_VERSION_1=y
 # Required for sys_monitor (uxTaskGetSystemState / vTaskList)
 CONFIG_FREERTOS_USE_TRACE_FACILITY=y
 CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS=y
+
+# Task WDT reboots (panics) instead of only warning when a task starves the core
+# or the sys_monitor heartbeat stops feeding it. Same policy as the P4.
+CONFIG_ESP_TASK_WDT_PANIC=y

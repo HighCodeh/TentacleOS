@@ -46,6 +46,18 @@ typedef void (*spi_stream_cb_t)(spi_id_t id, const uint8_t *payload, uint8_t len
 esp_err_t spi_bridge_master_init(void);
 
 /**
+ * @brief Initialize the SPI master bridge in a specific handshake mode.
+ *
+ * spi_bridge_master_init() is the same as calling this with
+ * SPI_BRIDGE_MODE_IRQ. Use SPI_BRIDGE_MODE_POLL on boards without an IRQ trace;
+ * the C5 slave must be initialized in the matching mode.
+ *
+ * @param mode  SPI_BRIDGE_MODE_IRQ (default) or SPI_BRIDGE_MODE_POLL.
+ * @return ESP_OK on success, or an error code from the PHY driver.
+ */
+esp_err_t spi_bridge_master_init_mode(spi_bridge_mode_t mode);
+
+/**
  * @brief Return the timeout (ms) for a given SPI command ID.
  *
  * Returns SPI_TIMEOUT_DEFAULT_MS unless the command is in the override
@@ -55,6 +67,17 @@ esp_err_t spi_bridge_master_init(void);
  * @return    Timeout in milliseconds.
  */
 uint32_t spi_bridge_get_timeout(spi_id_t id);
+
+/**
+ * @brief Run an async scan on the C5 without holding the bridge for its duration.
+ *
+ * Fires @p scan_id (the C5 starts the scan and returns immediately), then polls
+ * @p status_id until it reports the scan finished. Results are fetched by the
+ * caller afterwards as before. Returns ESP_OK when done, ESP_ERR_TIMEOUT if the
+ * status never cleared.
+ */
+esp_err_t
+spi_bridge_run_scan(spi_id_t scan_id, spi_id_t status_id, const uint8_t *payload, uint8_t len);
 
 /**
  * @brief Mark the bridge as alive or dead.
@@ -68,14 +91,39 @@ uint32_t spi_bridge_get_timeout(spi_id_t id);
 void spi_bridge_set_alive(bool alive);
 
 /**
+ * @brief Whether the bridge is currently marked alive.
+ *
+ * @return true if send_command will attempt transmission, false if it
+ * short-circuits (C5 not detected yet). Used by the link monitor.
+ */
+bool spi_bridge_is_alive(void);
+
+/**
+ * @brief Suspend or resume the normal TentacleOS bridge traffic.
+ *
+ * When suspended, spi_bridge_send_command and the stream poller return
+ * ESP_ERR_INVALID_STATE without touching the bus, and any in-flight
+ * transaction is drained. Used to hand the SPI bus to the legacy
+ * (InkTest-protocol) recovery client without the two protocols colliding.
+ *
+ * @param suspended true to quiesce the bridge, false to resume.
+ */
+void spi_bridge_suspend(bool suspended);
+
+/**
  * @brief Send a command to the SPI slave and receive the response.
  *
- * @param id          Command identifier.
- * @param payload     Pointer to the command payload (may be NULL).
- * @param len         Payload length in bytes.
- * @param out_header  Pointer to store the response header (may be NULL).
- * @param out_payload Buffer to store the response payload (may be NULL).
- * @param timeout_ms  Maximum time to wait for the response in milliseconds.
+ * @param id           Command identifier.
+ * @param payload      Pointer to the command payload (may be NULL).
+ * @param len          Payload length in bytes.
+ * @param out_header   Pointer to store the response header (may be NULL). Its
+ *                     length field reports how many payload bytes were written.
+ * @param out_payload  Buffer to store the response payload (may be NULL).
+ * @param out_capacity Size of out_payload in bytes. The copy is clamped to this,
+ *                     so a slave that announces (or a corrupted length that
+ *                     inflates) more bytes than the buffer holds cannot overflow
+ *                     it. Ignored when out_payload is NULL; pass 0 there.
+ * @param timeout_ms   Maximum time to wait for the response in milliseconds.
  * @return
  *   - ESP_OK on success
  *   - ESP_ERR_TIMEOUT if the slave did not respond in time
@@ -87,6 +135,7 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
                                   uint8_t len,
                                   spi_header_t *out_header,
                                   uint8_t *out_payload,
+                                  size_t out_capacity,
                                   uint32_t timeout_ms);
 
 /**

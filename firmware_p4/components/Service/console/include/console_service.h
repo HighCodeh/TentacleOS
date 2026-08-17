@@ -35,6 +35,11 @@ esp_err_t console_service_init(void);
 void console_service_start(void);
 
 /**
+ * @brief Stop and delete the console REPL (frees the console UART).
+ */
+void console_service_stop(void);
+
+/**
  * @brief Register filesystem commands (ls, cd, pwd, cat).
  */
 void register_fs_commands(void);
@@ -48,6 +53,36 @@ void register_system_commands(void);
  * @brief Register Wi-Fi commands.
  */
 void register_wifi_commands(void);
+
+/**
+ * @brief Register BadUSB commands (run, type, layout, stop, status).
+ */
+void register_badusb_commands(void);
+
+/**
+ * @brief Register host-link commands (psk, regen, status).
+ */
+void register_hostlink_commands(void);
+
+/**
+ * @brief Register screen capture/navigation commands (goto, screenshot, key).
+ */
+void register_screen_commands(void);
+
+/**
+ * @brief Register infrared commands (rx, send, deinit).
+ */
+void register_ir_commands(void);
+
+/**
+ * @brief Register battery/charger status command (battery).
+ */
+void register_battery_commands(void);
+
+/**
+ * @brief Register I2C bus commands (i2cscan).
+ */
+void register_i2c_commands(void);
 
 #ifdef __cplusplus
 }

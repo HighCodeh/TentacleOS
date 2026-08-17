@@ -22,11 +22,14 @@
 #include "esp_log.h"
 
 #include "ir_protocol_nec.h"
+#include "ir_protocol_nec42.h"
 #include "ir_protocol_samsung.h"
 #include "ir_protocol_rc5.h"
 #include "ir_protocol_rc6.h"
 #include "ir_protocol_sony.h"
 #include "ir_protocol_panasonic.h"
+#include "ir_protocol_rca.h"
+#include "ir_protocol_pioneer.h"
 
 static const char *TAG = "IR_FILE";
 
@@ -87,11 +90,16 @@ static uint32_t parse_hex_bytes(const char *str) {
 static bool
 flipper_to_ir_data(const char *proto, uint32_t addr, uint32_t cmd, ir_data_t *out_data) {
   memset(out_data, 0, sizeof(ir_data_t));
-  if (strcmp(proto, "NEC") == 0 || strcmp(proto, "NECext") == 0 || strcmp(proto, "NEC42") == 0 ||
-      strcmp(proto, "NEC42ext") == 0) {
+  if (strcmp(proto, "NEC") == 0 || strcmp(proto, "NECext") == 0) {
     out_data->protocol = IR_PROTO_NEC;
     out_data->address = addr & NEC_EXT_ADDR_MASK;
-    out_data->command = cmd & NEC_ADDR_STANDARD_MAX;
+    out_data->command = cmd & NEC_EXT_CMD_MASK;
+    return true;
+  }
+  if (strcmp(proto, "NEC42") == 0 || strcmp(proto, "NEC42ext") == 0) {
+    out_data->protocol = IR_PROTO_NEC42;
+    out_data->address = addr & NEC42_ADDR_MASK;
+    out_data->command = cmd & NEC42_CMD_MASK;
     return true;
   }
   if (strcmp(proto, "Samsung32") == 0) {
@@ -120,17 +128,32 @@ flipper_to_ir_data(const char *proto, uint32_t addr, uint32_t cmd, ir_data_t *ou
   }
   if (strcmp(proto, "Kaseikyo") == 0) {
     out_data->protocol = IR_PROTO_PANASONIC;
-    out_data->address = (addr >> KASEIKYO_ADDR_SHIFT) & KASEIKYO_ADDR_MASK;
+    out_data->address = addr;
     out_data->command = cmd & 0xFF;
+    return true;
+  }
+  if (strcmp(proto, "RCA") == 0) {
+    out_data->protocol = IR_PROTO_RCA;
+    out_data->address = addr & RCA_ADDR_MASK;
+    out_data->command = cmd & RCA_CMD_MASK;
+    return true;
+  }
+  if (strcmp(proto, "Pioneer") == 0) {
+    out_data->protocol = IR_PROTO_PIONEER;
+    out_data->address = addr & PIONEER_EXT_ADDR_MASK;
+    out_data->command = cmd & PIONEER_ADDR_STANDARD_MAX;
     return true;
   }
   return false;
 }
 
-static const char *to_flipper_proto(ir_protocol_t proto, uint16_t address, uint16_t command) {
+static const char *to_flipper_proto(ir_protocol_t proto, uint32_t address, uint32_t command) {
   switch (proto) {
     case IR_PROTO_NEC:
-      return (address > NEC_ADDR_STANDARD_MAX) ? "NECext" : "NEC";
+      return (address > NEC_ADDR_STANDARD_MAX || command > NEC_ADDR_STANDARD_MAX) ? "NECext"
+                                                                                  : "NEC";
+    case IR_PROTO_NEC42:
+      return "NEC42";
     case IR_PROTO_SAMSUNG:
       return "Samsung32";
     case IR_PROTO_RC6:
@@ -139,6 +162,10 @@ static const char *to_flipper_proto(ir_protocol_t proto, uint16_t address, uint1
       return (command > RC5_CMD_MASK) ? "RC5X" : "RC5";
     case IR_PROTO_PANASONIC:
       return "Kaseikyo";
+    case IR_PROTO_RCA:
+      return "RCA";
+    case IR_PROTO_PIONEER:
+      return "Pioneer";
     case IR_PROTO_SONY:
       if (address > SONY_SIRC15_ADDR_MAX)
         return "SIRC20";

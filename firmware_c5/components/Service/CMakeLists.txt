@@ -13,12 +13,20 @@
 # You should have received a copy of the GNU General Public License
 # along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-file(GLOB_RECURSE CONSOLE_SERVICE_SRCS "console/*.c")
-file(GLOB_RECURSE CONSOLE_COMMANDS_SRCS "console/commands/*.c")
+set(VERSION_META_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../common/metadata")
+set(VERSION_INFO_FILE "${VERSION_META_DIR}/version_info.txt")
+file(STRINGS "${VERSION_INFO_FILE}" FW_VERSION LIMIT_COUNT 1)
+string(STRIP "${FW_VERSION}" FW_VERSION)
+set(GENERATED_VERSION_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+configure_file("${VERSION_META_DIR}/ota_version.h.in"
+               "${GENERATED_VERSION_DIR}/ota_version.h" @ONLY)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${VERSION_INFO_FILE}")
+
 file(GLOB_RECURSE SPI_BRIDGE_SRCS "spi_bridge/*.c")
 file(GLOB_RECURSE SD_CARD_SRCS "sd_card/*.c")
 file(GLOB_RECURSE MESHTASTIC_SRCS "meshtastic/*.c")
 file(GLOB_RECURSE MESHCORE_SRCS "meshcore/*.c")
+file(GLOB_RECURSE HOST_LINK_SRCS "host_link/*.c")
 
 
 idf_component_register(SRCS 
@@ -40,13 +48,13 @@ idf_component_register(SRCS
   "storage_assets/storage_assets.c"
 
   "esp_now/service_esp_now.c"
+  "ota/ota_service.c"
   ${SPI_BRIDGE_SRCS}
-  ${CONSOLE_SERVICE_SRCS}
-  ${CONSOLE_COMMANDS_SRCS}
   ${SD_CARD_SRCS}
   ${MESHTASTIC_SRCS}
   ${MESHCORE_SRCS}
-  INCLUDE_DIRS 
+  ${HOST_LINK_SRCS}
+  INCLUDE_DIRS
   "wifi/include"
   "http_server/include"
   "dns_server/include"
@@ -56,10 +64,12 @@ idf_component_register(SRCS
   "storage_assets/include"
   "esp_now/include"
   "spi_bridge/include"
-  "console/include"
   "sd_card/include"
   "meshtastic/include"
   "meshcore/include"
+  "host_link/include"
+  "ota/include"
+  "${GENERATED_VERSION_DIR}"
 
 
 
@@ -73,6 +83,7 @@ idf_component_register(SRCS
     esp_common
     esp_netif
     esp_app_format
+    app_update
     Drivers
     Applications
     esp_http_server
@@ -80,7 +91,5 @@ idf_component_register(SRCS
     lvgl
     littlefs
     cjson
-    console
-    argtable3
     mdns
 )

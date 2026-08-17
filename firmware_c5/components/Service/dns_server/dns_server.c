@@ -22,6 +22,7 @@
 #include "esp_netif.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 #include "lwip/netdb.h"
 #include "lwip/sockets.h"
 
@@ -30,7 +31,7 @@ static const char *TAG = "DNS_SERVER";
 #define DNS_PORT                53
 #define DNS_BUF_SIZE            512
 #define DNS_TASK_STACK_SIZE     4096
-#define DNS_TASK_PRIORITY       5
+#define DNS_TASK_PRIORITY       SYS_PRIO_SERVICE_HI
 #define DNS_RECV_TIMEOUT_S      1
 #define DNS_RESPONSE_TTL        60
 #define DNS_FALLBACK_IP         "192.168.4.1"

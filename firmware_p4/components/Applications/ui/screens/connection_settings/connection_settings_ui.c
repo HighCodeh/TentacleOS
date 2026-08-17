@@ -18,10 +18,13 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 
-#include "buttons_gpio.h"
+#include "host_link.h"
 #include "lv_port_indev.h"
 #include "menu_component_ui.h"
 #include "msgbox_ui.h"
+#include "notify_ui.h"
+#include "power_manager.h"
+#include "tusb_desc.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 #include "wifi_service.h"
@@ -30,7 +33,7 @@ static const char *TAG = "CONN_UI";
 
 #define IDX_WIFI                       0
 #define IDX_NETWORKS                   1
-#define NAV_TIMER_INTERVAL_MS          50
+#define IDX_USB_NATIVE                 2
 #define WIFI_LOADING_TIMER_INTERVAL_MS 100
 #define WIFI_LOADING_MIN_US            1500000
 #define WIFI_LOADING_MAX_US            5000000
@@ -38,22 +41,14 @@ static const char *TAG = "CONN_UI";
 
 static lv_obj_t *s_screen_conn = NULL;
 static menu_component_t s_menu;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_wifi_loading_timer = NULL;
 static int64_t s_wifi_loading_start_time = 0;
 static int64_t s_msgbox_open_time = 0;
-
-static bool s_btn_up_last = false;
-static bool s_btn_down_last = false;
-static bool s_btn_left_last = false;
-static bool s_btn_right_last = false;
-static bool s_btn_ok_last = false;
-static bool s_btn_back_last = false;
+static bool s_usb_no_sleep_held = false;
 
 static void wifi_loading_timer_cb(lv_timer_t *timer);
 static void show_wifi_loading(void);
-static void update_wifi_toggle(void);
-static void nav_timer_cb(lv_timer_t *timer);
+static void connection_settings_input(const input_event_t *ev, void *ctx);
 
 void ui_connection_settings_open(void) {
   if (s_screen_conn != NULL) {
@@ -68,14 +63,15 @@ void ui_connection_settings_open(void) {
   lv_obj_set_style_bg_opa(s_screen_conn, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen_conn, LV_OBJ_FLAG_SCROLLABLE);
 
-  s_menu = menu_component_create(s_screen_conn, "CONNECTION", NULL);
-  menu_component_add_toggle(&s_menu, "/assets/icons/wifi_menu_icon.bin", "WI-FI", is_wifi_active);
-  menu_component_add_item(&s_menu, "/assets/icons/search_menu_icon.bin", "NETWORKS");
+  s_menu = menu_component_create(s_screen_conn, "CONNECTION", "/assets/icons/hub.bin");
+  menu_component_add_toggle(&s_menu, "/assets/icons/wifi.bin", "WI-FI", is_wifi_active);
+  menu_component_add_item(&s_menu, "/assets/icons/wifi_find.bin", "NETWORKS");
+  // USB-C data mux: OFF = UART bridge (serial/flash, default), ON = native P4 USB.
+  menu_component_add_toggle(&s_menu, "/assets/icons/usb.bin", "USB NATIVE", usb_mux_is_native());
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
+  ui_input_set_screen_handler(connection_settings_input, NULL);
 
-  lv_screen_load(s_screen_conn);
+  ui_screen_load_owned(&s_screen_conn, s_screen_conn);
 }
 
 static void wifi_loading_timer_cb(lv_timer_t *timer) {
@@ -88,6 +84,7 @@ static void wifi_loading_timer_cb(lv_timer_t *timer) {
   lv_timer_del(timer);
   s_wifi_loading_timer = NULL;
   msgbox_close();
+  notify(NOTIFY_INFO, "Wi-Fi on");
 }
 
 static void show_wifi_loading(void) {
@@ -100,70 +97,71 @@ static void show_wifi_loading(void) {
       lv_timer_create(wifi_loading_timer_cb, WIFI_LOADING_TIMER_INTERVAL_MS, NULL);
 }
 
-static void update_wifi_toggle(void) {
-  bool is_active = wifi_service_is_active();
-  menu_component_set_toggle(&s_menu, IDX_WIFI, is_active);
+static void conn_toggle(int sel) {
+  if (sel == IDX_WIFI) {
+    menu_component_toggle_item(&s_menu, IDX_WIFI);
+    bool is_new_state = menu_component_get_toggle(&s_menu, IDX_WIFI);
+    wifi_service_set_enabled(is_new_state);
+
+    if (is_new_state) {
+      show_wifi_loading();
+    } else {
+      msgbox_close();
+      notify(NOTIFY_INFO, "Wi-Fi off");
+    }
+  } else if (sel == IDX_USB_NATIVE) {
+    menu_component_toggle_item(&s_menu, IDX_USB_NATIVE);
+    bool native = menu_component_get_toggle(&s_menu, IDX_USB_NATIVE);
+    usb_mux_set_native(native);
+    if (native) {
+      host_link_cdc_init();
+    }
+    if (native && !s_usb_no_sleep_held) {
+      power_manager_no_sleep_acquire();
+      s_usb_no_sleep_held = true;
+    } else if (!native && s_usb_no_sleep_held) {
+      power_manager_no_sleep_release();
+      s_usb_no_sleep_held = false;
+    }
+    notify(NOTIFY_INFO, native ? "USB: native (serial off)" : "USB: UART bridge");
+  }
 }
 
-static void nav_timer_cb(lv_timer_t *timer) {
-  if (lv_screen_active() != s_screen_conn) {
-    lv_timer_delete(timer);
-    s_nav_timer = NULL;
-    return;
-  }
-
-  if (ui_input_is_locked())
-    return;
-
-  bool is_up = up_button_is_down();
-  bool is_down = down_button_is_down();
-  bool is_left = left_button_is_down();
-  bool is_right = right_button_is_down();
-  bool is_ok = ok_button_is_down();
-  bool is_back = back_button_is_down();
-
+static void connection_settings_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
   int sel = menu_component_get_selected(&s_menu);
 
-  if (is_down && !s_btn_down_last)
-    menu_component_next(&s_menu);
-
-  if (is_up && !s_btn_up_last)
-    menu_component_prev(&s_menu);
-
-  if (is_back && !s_btn_back_last)
-    ui_switch_screen(SCREEN_SETTINGS);
-
-  if ((is_left && !s_btn_left_last) || (is_right && !s_btn_right_last)) {
-    if (sel == IDX_WIFI) {
-      menu_component_toggle_item(&s_menu, IDX_WIFI);
-      bool is_new_state = menu_component_get_toggle(&s_menu, IDX_WIFI);
-      wifi_service_set_enabled(is_new_state);
-
-      if (is_new_state)
-        show_wifi_loading();
-      else
-        msgbox_close();
-    }
-  }
-
-  if ((is_ok && !s_btn_ok_last) || (is_right && !s_btn_right_last)) {
-    if (sel == IDX_NETWORKS) {
-      if (!wifi_service_is_active()) {
-        int64_t now = esp_timer_get_time();
-        if (now - s_msgbox_open_time >= MSGBOX_DEBOUNCE_US) {
-          s_msgbox_open_time = now;
-          msgbox_open(LV_SYMBOL_CLOSE, "WIFI OFF", "OK", NULL, NULL);
-        }
-      } else {
-        ui_switch_screen(SCREEN_CONNECT_WIFI);
+  switch (ev->button) {
+    case INPUT_BTN_DOWN:
+      if (nav)
+        menu_component_next(&s_menu);
+      break;
+    case INPUT_BTN_UP:
+      if (nav)
+        menu_component_prev(&s_menu);
+      break;
+    case INPUT_BTN_BACK:
+      if (press)
+        ui_switch_screen(SCREEN_SETTINGS);
+      break;
+    case INPUT_BTN_LEFT:
+      if (press)
+        conn_toggle(sel);
+      break;
+    case INPUT_BTN_RIGHT:
+      if (press) {
+        conn_toggle(sel);
+        if (sel == IDX_NETWORKS)
+          ui_switch_screen(SCREEN_CONNECT_WIFI);
       }
-    }
+      break;
+    case INPUT_BTN_OK:
+      if (press && sel == IDX_NETWORKS)
+        ui_switch_screen(SCREEN_CONNECT_WIFI);
+      break;
+    default:
+      break;
   }
-
-  s_btn_up_last = is_up;
-  s_btn_down_last = is_down;
-  s_btn_left_last = is_left;
-  s_btn_right_last = is_right;
-  s_btn_ok_last = is_ok;
-  s_btn_back_last = is_back;
 }

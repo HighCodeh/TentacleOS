@@ -22,6 +22,7 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "cJSON.h"
 #include "mac_vendor.h"
@@ -35,7 +36,7 @@
 static const char *TAG = "TARGET_SCANNER";
 
 #define SCANNER_STACK_SIZE    4096
-#define SCANNER_TASK_PRIORITY 5
+#define SCANNER_TASK_PRIORITY SYS_PRIO_SERVICE_HI
 #define SCAN_DURATION_MS      30000
 #define MAX_SCAN_RESULTS      200
 #define BSSID_LEN             6

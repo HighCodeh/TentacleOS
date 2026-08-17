@@ -24,7 +24,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include "ed25519.h"
+#include "sodium.h"
 #include "sx1262.h"
 #include "sx1262_regs.h"
 
@@ -133,7 +133,7 @@ esp_err_t meshcore_send_direct_msg(const uint8_t peer_pub_key[32],
     *out_expected_ack = ack_crc;
 
   uint8_t shared[32];
-  ed25519_key_exchange(shared, peer_pub_key, id->priv_key);
+  mc_x25519(shared, peer_pub_key, id->priv_key);
 
   const meshcore_contact_t *c = meshcore_contact_find(peer_pub_key);
   bool has_path = (c != NULL && c->out_path_len != MESHCORE_OUT_PATH_UNKNOWN);
@@ -274,7 +274,7 @@ esp_err_t mc_send_path_return(const uint8_t peer_pub_key[32],
   const meshcore_identity_t *id = mc_get_identity();
 
   uint8_t shared[32];
-  ed25519_key_exchange(shared, peer_pub_key, id->priv_key);
+  mc_x25519(shared, peer_pub_key, id->priv_key);
 
   uint8_t plaintext[2 + MESHCORE_MAX_PATH + 1 + 16];
   int pt_len = 0;
@@ -333,7 +333,7 @@ static void process_advert(const meshcore_packet_view_t *pkt) {
   memcpy(&sign_buf[0], pubkey, 32);
   memcpy(&sign_buf[32], &p[32], 4);
   memcpy(&sign_buf[36], app_data, sig_app_len);
-  if (!ed25519_verify(sig, sign_buf, 36 + sig_app_len, pubkey)) {
+  if (crypto_sign_verify_detached(sig, sign_buf, 36 + sig_app_len, pubkey) != 0) {
     ESP_LOGW(TAG,
              "ADVERT invalid sig (%02X%02X%02X%02X) -- discard",
              pubkey[0],
@@ -466,7 +466,7 @@ static void process_txt_msg(const meshcore_packet_view_t *pkt) {
       continue;
 
     uint8_t shared[32];
-    ed25519_key_exchange(shared, contacts[i].pub_key, id->priv_key);
+    mc_x25519(shared, contacts[i].pub_key, id->priv_key);
 
     uint8_t plaintext[160];
     int pt_len =
@@ -592,7 +592,7 @@ static void process_path_payload(const meshcore_packet_view_t *pkt) {
       continue;
 
     uint8_t shared[32];
-    ed25519_key_exchange(shared, contacts[i].pub_key, id->priv_key);
+    mc_x25519(shared, contacts[i].pub_key, id->priv_key);
 
     uint8_t plaintext[200];
     int pt_len =

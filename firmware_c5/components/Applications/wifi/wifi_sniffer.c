@@ -25,6 +25,7 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "pcap_serializer.h"
 #include "sd_card_init.h"
@@ -45,9 +46,9 @@ static const char *TAG = "WIFI_SNIFFER";
 #define SNIFFER_STREAM_DELAY_MS   50
 #define SNIFFER_STOP_DELAY_MS     200
 #define SNIFFER_TASK_STACK_SIZE   4096
-#define SNIFFER_TASK_PRIORITY     5
+#define SNIFFER_TASK_PRIORITY     SYS_PRIO_SERVICE_HI
 #define MAX_TRACKED_SESSIONS      16
-#define MAX_KNOWN_APS             32
+#define MAX_KNOWN_APS             128
 #define DEFAULT_SNAPLEN           65535
 #define BSSID_LEN                 6
 #define MAC_LEN                   6
@@ -63,6 +64,8 @@ static const char *TAG = "WIFI_SNIFFER";
 #define MGMT_FRAME_TYPE           0
 #define DATA_FRAME_TYPE           2
 #define CTRL_FRAME_TYPE           1
+// Channels 1-14 are 2.4 GHz; anything above is a 5 GHz channel.
+#define FIRST_5GHZ_CHANNEL        15
 #define EAPOL_DESCRIPTOR_TYPE     3
 #define EAPOL_KEY_DESC_OFFSET     4
 #define EAPOL_KEY_DATA_LEN_OFFSET 93
@@ -90,6 +93,21 @@ static uint32_t s_buffer_offset = 0;
 static uint32_t s_packet_count = 0;
 static uint32_t s_session_id = SPI_SESSION_INVALID_ID;
 static uint32_t s_deauth_count = 0;
+
+// Per-type / per-band tallies, surfaced to the companion app via the stats poll.
+// Counted for every frame seen (like s_deauth_count), independent of the save
+// filter, so they reflect what is actually on the air.
+static uint32_t s_beacon_count = 0;
+static uint32_t s_probe_req_count = 0;
+static uint32_t s_probe_resp_count = 0;
+static uint32_t s_data_count = 0;
+static uint32_t s_ctrl_count = 0;
+static uint32_t s_mgmt_count = 0;
+static uint32_t s_pkts_2ghz = 0;
+static uint32_t s_pkts_5ghz = 0;
+static uint32_t s_unique_aps = 0;
+static uint8_t s_last_channel = 0;
+static int8_t s_last_rssi = -127;      // RSSI of the last captured frame (-127 = none yet)
 static bool s_is_monitor_mode = false; // packet monitor: counts forever, buffer recycles
 static bool s_is_sniffing = false;
 static bool s_is_pcap_enabled = false;
@@ -120,6 +138,20 @@ static bool check_pmkid_presence(const uint8_t *payload, int len, const uint8_t 
 static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type);
 static void stream_task(void *arg);
 static bool save_to_file(const char *path, bool use_sd);
+
+static void reset_monitor_counters(void) {
+  s_beacon_count = 0;
+  s_probe_req_count = 0;
+  s_probe_resp_count = 0;
+  s_data_count = 0;
+  s_ctrl_count = 0;
+  s_mgmt_count = 0;
+  s_pkts_2ghz = 0;
+  s_pkts_5ghz = 0;
+  s_unique_aps = 0;
+  s_last_channel = 0;
+  s_last_rssi = -127;
+}
 
 void wifi_sniffer_set_snaplen(uint16_t len) {
   s_snaplen = len;
@@ -157,6 +189,7 @@ bool wifi_sniffer_start(wifi_sniffer_type_t type, uint8_t channel) {
   s_is_pmkid_captured = false;
   s_is_handshake_captured = false;
   s_current_type = type;
+  reset_monitor_counters();
 
   memset(s_sessions, 0, sizeof(s_sessions));
   memset(s_known_aps, 0, sizeof(s_known_aps));
@@ -218,6 +251,7 @@ bool wifi_sniffer_start_stream_sd(wifi_sniffer_type_t type, uint8_t channel, con
   s_rb_read_offset = 0;
   s_packet_count = 0;
   s_current_type = type;
+  reset_monitor_counters();
 
   memset(s_sessions, 0, sizeof(s_sessions));
   memset(s_known_aps, 0, sizeof(s_known_aps));
@@ -351,6 +385,22 @@ uint32_t wifi_sniffer_get_buffer_usage(void) {
   return s_buffer_offset;
 }
 
+void wifi_sniffer_fill_ext_stats(spi_sniffer_stats_t *out) {
+  if (out == NULL)
+    return;
+  out->beacons = s_beacon_count;
+  out->probe_reqs = s_probe_req_count;
+  out->probe_resps = s_probe_resp_count;
+  out->data_frames = s_data_count;
+  out->ctrl_frames = s_ctrl_count;
+  out->mgmt_frames = s_mgmt_count;
+  out->pkts_2ghz = s_pkts_2ghz;
+  out->pkts_5ghz = s_pkts_5ghz;
+  out->unique_aps = s_unique_aps;
+  out->channel = s_last_channel;
+  out->last_rssi = s_last_rssi;
+}
+
 bool wifi_sniffer_pmkid_captured(void) {
   return s_is_pmkid_captured;
 }
@@ -438,15 +488,21 @@ static void inject_unicast_probe_req(const uint8_t *target_bssid) {
 }
 
 static void register_known_ap(const uint8_t *bssid) {
+  static const uint8_t empty_bssid[BSSID_LEN] = {0};
+  int free_idx = -1;
   for (int i = 0; i < MAX_KNOWN_APS; i++) {
     if (memcmp(s_known_aps[i].bssid, bssid, BSSID_LEN) == 0) {
       s_known_aps[i].has_ssid = true;
-      return;
+      return; // already seen: a repeat AP stays, it is not counted again
     }
+    if (free_idx < 0 && memcmp(s_known_aps[i].bssid, empty_bssid, BSSID_LEN) == 0)
+      free_idx = i;
   }
-  int idx = s_packet_count % MAX_KNOWN_APS;
-  memcpy(s_known_aps[idx].bssid, bssid, BSSID_LEN);
-  s_known_aps[idx].has_ssid = true;
+  if (free_idx < 0)
+    return; // table full: stop counting instead of evicting and recounting
+  memcpy(s_known_aps[free_idx].bssid, bssid, BSSID_LEN);
+  s_known_aps[free_idx].has_ssid = true;
+  s_unique_aps++;
 }
 
 static bool is_ap_ssid_known(const uint8_t *bssid) {
@@ -651,6 +707,27 @@ static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
       ESP_LOGW(TAG, "Deauth detected!");
   }
 
+  if (fc->type == MGMT_FRAME_TYPE) {
+    s_mgmt_count++;
+    if (fc->subtype == BEACON_SUBTYPE)
+      s_beacon_count++;
+    else if (fc->subtype == PROBE_REQ_SUBTYPE)
+      s_probe_req_count++;
+    else if (fc->subtype == PROBE_RESP_SUBTYPE)
+      s_probe_resp_count++;
+  } else if (fc->type == DATA_FRAME_TYPE) {
+    s_data_count++;
+  } else if (fc->type == CTRL_FRAME_TYPE) {
+    s_ctrl_count++;
+  }
+
+  s_last_channel = ppkt->rx_ctrl.channel;
+  s_last_rssi = ppkt->rx_ctrl.rssi;
+  if (ppkt->rx_ctrl.channel >= FIRST_5GHZ_CHANNEL)
+    s_pkts_5ghz++;
+  else
+    s_pkts_2ghz++;
+
   if (s_is_verbose) {
     if (fc->type == MGMT_FRAME_TYPE && fc->subtype == BEACON_SUBTYPE)
       printf("B");
@@ -781,27 +858,9 @@ static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
 }
 
 static bool save_to_file(const char *path, bool use_sd) {
-  if (s_pcap_buffer == NULL || s_buffer_offset == 0)
-    return false;
-
-  if (!use_sd) {
-    storage_mkdir_recursive(FLASH_STORAGE_WIFI_PCAP);
-  }
-
-  esp_err_t err;
-  if (use_sd) {
-    if (!sd_is_mounted())
-      return false;
-    err = sd_write_binary(path, s_pcap_buffer, s_buffer_offset);
-  } else {
-    err = storage_write_binary(path, s_pcap_buffer, s_buffer_offset);
-  }
-
-  if (err == ESP_OK) {
-    ESP_LOGI(TAG, "Saved PCAP to %s (%lu bytes)", path, s_buffer_offset);
-    return true;
-  } else {
-    ESP_LOGE(TAG, "Failed to save PCAP: %s", esp_err_to_name(err));
-    return false;
-  }
+  (void)path;
+  (void)use_sd;
+  // Pcaps are heavy: the C5 never persists them. Frames stream to the P4 over SPI
+  // and the P4 writes the .pcap to its SD card. Without a card nothing is saved.
+  return false;
 }

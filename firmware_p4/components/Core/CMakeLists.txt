@@ -14,9 +14,10 @@
 # along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 
-idf_component_register(SRCS 
+idf_component_register(SRCS
   "kernel.c"
   "sys_monitor.c"
+  "sys_shutdown.c"
 
   INCLUDE_DIRS 
   "include"

@@ -12,33 +12,24 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 project(TentacleOS_C5)
 
-if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
-    # Windows Detection
-    message(STATUS "Host System: Windows. Using PowerShell script.")
-    set(CONVERT_SCRIPT "${CMAKE_SOURCE_DIR}/../tools/png_to_bin/png_conversor_to_bin.ps1")
-    set(CONVERT_COMMAND powershell.exe -ExecutionPolicy Bypass -File "${CONVERT_SCRIPT}")
-    
-elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
-    # Linux or macOS Detection
-    message(STATUS "Host System: ${CMAKE_HOST_SYSTEM_NAME}. Using Bash script.")
-    set(CONVERT_SCRIPT "${CMAKE_SOURCE_DIR}/../tools/png_to_bin/png_conversor_to_bin.sh")
-    set(CONVERT_COMMAND bash "${CONVERT_SCRIPT}")
-    
-else()
-    message(FATAL_ERROR "Unsupported Operating System: ${CMAKE_HOST_SYSTEM_NAME}")
-endif()
-
-# Execute the conversion process
+# The C5 is headless: its assets are plain config/html/storage files (no PNG
+# icons or fonts), so there is no png->bin conversion step like the P4 has. The
+# assets/ tree is staged into temp/ so the build can stamp the current version
+# into firmware.json before imaging, without dirtying the source tree.
+# The `storage` partition holds runtime captures (evil twin passwords, pcaps,
+# GATT dumps, espnow chat) and is formatted on first boot (VFS_FORMAT_ON_FAIL).
 execute_process(
-    COMMAND ${CONVERT_COMMAND}
-    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    RESULT_VARIABLE convert_result
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_LIST_DIR}/assets" "${CMAKE_CURRENT_LIST_DIR}/temp"
 )
 
-if(NOT convert_result EQUAL 0)
-    message(FATAL_ERROR "Failed to convert assets. Check the logs above for details.")
+file(STRINGS "${CMAKE_CURRENT_LIST_DIR}/../common/metadata/version_info.txt" FW_VERSION LIMIT_COUNT 1)
+string(STRIP "${FW_VERSION}" FW_VERSION)
+set(FW_JSON "${CMAKE_CURRENT_LIST_DIR}/temp/config/OTA/firmware.json")
+if(EXISTS "${FW_JSON}")
+    file(READ "${FW_JSON}" _fw_json)
+    string(REGEX REPLACE "\"version\"[ \t]*:[ \t]*\"[^\"]*\"" "\"version\": \"${FW_VERSION}\"" _fw_json "${_fw_json}")
+    file(WRITE "${FW_JSON}" "${_fw_json}")
 endif()
-
-# ==============================================================================
 
 littlefs_create_partition_image(assets temp FLASH_IN_PROJECT)

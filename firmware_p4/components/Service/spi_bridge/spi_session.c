@@ -18,9 +18,11 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "led_control.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "spi_bridge.h"
 #include "spi_timeouts.h"
@@ -31,7 +33,7 @@ static const char *TAG = "SPI_SESSION";
 #define HEARTBEAT_FAIL_LIMIT  3
 #define HEARTBEAT_TIMEOUT_MS  1000
 #define HEARTBEAT_STACK_SIZE  3072
-#define HEARTBEAT_PRIO        5
+#define HEARTBEAT_PRIO        SYS_PRIO_SERVICE_HI
 
 typedef struct {
   uint32_t session_id;
@@ -52,10 +54,11 @@ static void notify_lost_locked(const char *reason) {
     return;
 
   ESP_LOGW(TAG,
-           "Session 0x%08lx (op 0x%02X) lost: %s",
+           "Session 0x%08lx (op 0x%04X) lost: %s",
            (unsigned long)s_state.session_id,
            s_state.op_id,
            reason);
+  led_signal_warning();
 
   uint32_t lost_id = s_state.session_id;
   spi_id_t lost_op = s_state.op_id;
@@ -129,6 +132,7 @@ static void heartbeat_task(void *arg) {
                                             sizeof(req),
                                             &resp_header,
                                             (uint8_t *)&resp,
+                                            sizeof(resp),
                                             HEARTBEAT_TIMEOUT_MS);
     bool ok = (ret == ESP_OK) && (resp.alive != 0);
     if (ok) {
@@ -142,6 +146,7 @@ static void heartbeat_task(void *arg) {
              consecutive_fails,
              HEARTBEAT_FAIL_LIMIT,
              (unsigned long)session_id);
+    led_signal_warning();
     if (consecutive_fails >= HEARTBEAT_FAIL_LIMIT) {
       xSemaphoreTake(s_mutex, portMAX_DELAY);
       if (s_state.session_id == session_id) {
@@ -162,6 +167,7 @@ void spi_session_init(void) {
   spi_bridge_register_stream_cb(SPI_ID_SESSION_LOST, on_session_lost_stream);
   s_initialized = true;
   ESP_LOGI(TAG, "Session client started");
+  led_signal_info();
 }
 
 uint32_t spi_session_start(spi_id_t op_id,
@@ -178,20 +184,28 @@ uint32_t spi_session_start(spi_id_t op_id,
              "Replacing active session 0x%08lx with new start of op 0x%02X",
              (unsigned long)s_state.session_id,
              op_id);
+    led_signal_warning();
     notify_lost_locked("preempted by local start");
   }
   xSemaphoreGive(s_mutex);
 
   spi_header_t resp_header = {0};
   spi_session_resp_t resp = {0};
-  esp_err_t ret = spi_bridge_send_command(
-      op_id, params, params_len, &resp_header, (uint8_t *)&resp, spi_bridge_get_timeout(op_id));
+  esp_err_t ret = spi_bridge_send_command(op_id,
+                                          params,
+                                          params_len,
+                                          &resp_header,
+                                          (uint8_t *)&resp,
+                                          sizeof(resp),
+                                          spi_bridge_get_timeout(op_id));
   if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "START op 0x%02X bridge error: %s", op_id, esp_err_to_name(ret));
+    ESP_LOGE(TAG, "START op 0x%04X bridge error: %s", op_id, esp_err_to_name(ret));
+    led_signal_error();
     return SPI_SESSION_INVALID_ID;
   }
   if (resp.session_id == SPI_SESSION_INVALID_ID) {
-    ESP_LOGE(TAG, "START op 0x%02X did not return a session id", op_id);
+    ESP_LOGE(TAG, "START op 0x%04X did not return a session id", op_id);
+    led_signal_error();
     return SPI_SESSION_INVALID_ID;
   }
 
@@ -203,22 +217,25 @@ uint32_t spi_session_start(spi_id_t op_id,
   s_state.on_lost = on_lost;
   s_state.stop_requested = false;
   spi_bridge_register_stream_cb(op_id, on_session_stream);
-  BaseType_t ok = xTaskCreate(heartbeat_task,
-                              "spi_session_hb",
-                              HEARTBEAT_STACK_SIZE,
-                              (void *)(uintptr_t)resp.session_id,
-                              HEARTBEAT_PRIO,
-                              &s_state.heartbeat_task);
+  BaseType_t ok = xTaskCreatePinnedToCore(heartbeat_task,
+                                          "spi_session_hb",
+                                          HEARTBEAT_STACK_SIZE,
+                                          (void *)(uintptr_t)resp.session_id,
+                                          HEARTBEAT_PRIO,
+                                          &s_state.heartbeat_task,
+                                          SYS_CORE_RADIO);
   uint32_t session_id = s_state.session_id;
   xSemaphoreGive(s_mutex);
 
   if (ok != pdPASS) {
     ESP_LOGE(TAG, "Failed to create heartbeat task");
+    led_signal_error();
     spi_session_stop(session_id);
     return SPI_SESSION_INVALID_ID;
   }
 
-  ESP_LOGI(TAG, "Session 0x%08lx started for op 0x%02X", (unsigned long)session_id, op_id);
+  ESP_LOGI(TAG, "Session 0x%08lx started for op 0x%04X", (unsigned long)session_id, op_id);
+  led_signal_info();
   return session_id;
 }
 
@@ -237,6 +254,7 @@ esp_err_t spi_session_stop(uint32_t session_id) {
                           sizeof(req),
                           NULL,
                           NULL,
+                          0,
                           spi_bridge_get_timeout(SPI_ID_SESSION_STOP));
 
   xSemaphoreTake(s_mutex, portMAX_DELAY);
@@ -247,6 +265,7 @@ esp_err_t spi_session_stop(uint32_t session_id) {
   xSemaphoreGive(s_mutex);
 
   ESP_LOGI(TAG, "Session 0x%08lx stopped", (unsigned long)session_id);
+  led_signal_info();
   return ESP_OK;
 }
 

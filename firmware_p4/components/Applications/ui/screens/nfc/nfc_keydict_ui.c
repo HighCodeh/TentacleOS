@@ -1,0 +1,259 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
+#include "nfc_keydict_ui.h"
+
+#include "lvgl.h"
+#include "st7789.h"
+
+#include "ui_chrome.h"
+#include "ui_feedback.h"
+#include "ui_manager.h"
+#include "ui_theme.h"
+
+#define MX        8
+#define BODY_H    (LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
+#define CONTENT_W (LCD_H_RES - 2 * MX)
+#define ROW_GAP   5
+
+#define KEY_COUNT 4
+#define ROW_H     28
+#define ROW_RAD   8
+
+#define CHIP_H   16
+#define CHIP_RAD 8
+#define CHIP_PAD 6
+#define TAG_H    14
+#define TAG_PAD  5
+
+#define COL_DIM 0x8A8594
+
+#define HDR_TITLE   "KEY DICTIONARY"
+#define HDR_ICON    "/assets/icons/nfc.bin"
+#define FOOTER_HINT "OK load   UP/DOWN key   +/- edit"
+
+#define TXT_COUNT "1024 keys"
+#define TXT_SRC   "mfc_default"
+
+#define ACT_ADD LV_SYMBOL_PLUS " add"
+#define ACT_RM  LV_SYMBOL_TRASH " remove"
+#define ACT_SD  LV_SYMBOL_SD_CARD " SD"
+
+typedef struct {
+  const char *hex;
+  const char *tag;
+  bool tag_chip;
+} key_def_t;
+
+static const key_def_t KEYS[KEY_COUNT] = {
+    {"FF FF FF FF FF FF", "default", true},
+    {"A0 A1 A2 A3 A4 A5", "MAD", false},
+    {"D3 F7 D3 F7 D3 F7", "NDEF", false},
+    {"00 00 00 00 00 00", "blank", false},
+};
+
+static lv_obj_t *s_screen = NULL;
+static lv_obj_t *s_row[KEY_COUNT];
+static lv_obj_t *s_hex[KEY_COUNT];
+
+static int s_sel = 0;
+
+static void make_chip(lv_obj_t *parent, const char *txt, bool sel) {
+  lv_obj_t *chip = lv_obj_create(parent);
+  lv_obj_remove_flag(chip, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_height(chip, CHIP_H);
+  lv_obj_set_width(chip, LV_SIZE_CONTENT);
+  lv_obj_set_style_radius(chip, CHIP_RAD, 0);
+  lv_obj_set_style_pad_hor(chip, CHIP_PAD, 0);
+  lv_obj_set_style_pad_ver(chip, 0, 0);
+  lv_obj_set_style_bg_color(chip, current_theme.border_accent, 0);
+  lv_obj_set_style_bg_opa(chip, sel ? LV_OPA_30 : LV_OPA_10, 0);
+  lv_obj_set_style_border_color(chip, current_theme.border_accent, 0);
+  lv_obj_set_style_border_width(chip, sel ? 1 : 0, 0);
+
+  lv_obj_t *l = lv_label_create(chip);
+  lv_label_set_text(l, txt);
+  lv_obj_set_style_text_font(l, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(l, sel ? current_theme.border_accent : lv_color_hex(COL_DIM), 0);
+  lv_obj_center(l);
+}
+
+static lv_obj_t *make_row(lv_obj_t *parent, int i) {
+  lv_obj_t *row = lv_obj_create(parent);
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_width(row, lv_pct(100));
+  lv_obj_set_height(row, ROW_H);
+  lv_obj_set_style_radius(row, ROW_RAD, 0);
+  lv_obj_set_style_bg_color(row, current_theme.bg_secondary, 0);
+  lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(row, 2, 0);
+  lv_obj_set_style_pad_left(row, 8, 0);
+  lv_obj_set_style_pad_right(row, 8, 0);
+  lv_obj_set_style_pad_ver(row, 0, 0);
+  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(
+      row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+  lv_obj_t *hex = lv_label_create(row);
+  lv_label_set_text(hex, KEYS[i].hex);
+  lv_obj_set_style_text_font(hex, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(hex, current_theme.text_main, 0);
+  lv_obj_set_flex_grow(hex, 1);
+
+  if (KEYS[i].tag_chip) {
+    lv_obj_t *tag = lv_obj_create(row);
+    lv_obj_remove_flag(tag, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_height(tag, TAG_H);
+    lv_obj_set_width(tag, LV_SIZE_CONTENT);
+    lv_obj_set_style_radius(tag, CHIP_RAD, 0);
+    lv_obj_set_style_pad_hor(tag, TAG_PAD, 0);
+    lv_obj_set_style_pad_ver(tag, 0, 0);
+    lv_obj_set_style_bg_color(tag, current_theme.border_accent, 0);
+    lv_obj_set_style_bg_opa(tag, LV_OPA_20, 0);
+    lv_obj_set_style_border_width(tag, 0, 0);
+    lv_obj_t *tl = lv_label_create(tag);
+    lv_label_set_text(tl, KEYS[i].tag);
+    lv_obj_set_style_text_font(tl, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(tl, current_theme.border_accent, 0);
+    lv_obj_center(tl);
+  } else {
+    lv_obj_t *tag = lv_label_create(row);
+    lv_label_set_text(tag, KEYS[i].tag);
+    lv_obj_set_style_text_font(tag, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(tag, lv_color_hex(COL_DIM), 0);
+  }
+
+  s_hex[i] = hex;
+  return row;
+}
+
+static void refresh_selection(void) {
+  for (int i = 0; i < KEY_COUNT; i++) {
+    bool sel = (i == s_sel);
+    lv_obj_set_style_border_color(
+        s_row[i], sel ? current_theme.border_accent : current_theme.border_inactive, 0);
+    lv_obj_set_style_border_opa(s_row[i], sel ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_color(
+        s_row[i], sel ? current_theme.bg_primary : current_theme.bg_secondary, 0);
+    lv_obj_set_style_shadow_width(s_row[i], sel ? 12 : 0, 0);
+    lv_obj_set_style_shadow_color(s_row[i], current_theme.border_accent, 0);
+    lv_obj_set_style_shadow_spread(s_row[i], sel ? -3 : 0, 0);
+    lv_obj_set_style_text_color(
+        s_hex[i], sel ? current_theme.border_accent : current_theme.text_main, 0);
+  }
+}
+
+static void build_body(lv_obj_t *parent) {
+  lv_obj_t *chips = lv_obj_create(parent);
+  lv_obj_remove_flag(chips, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_width(chips, lv_pct(100));
+  lv_obj_set_height(chips, LV_SIZE_CONTENT);
+  lv_obj_set_style_bg_opa(chips, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(chips, 0, 0);
+  lv_obj_set_style_pad_all(chips, 0, 0);
+  lv_obj_set_style_pad_column(chips, 5, 0);
+  lv_obj_set_flex_flow(chips, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(chips, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  make_chip(chips, TXT_COUNT, true);
+  make_chip(chips, TXT_SRC, false);
+
+  for (int i = 0; i < KEY_COUNT; i++)
+    s_row[i] = make_row(parent, i);
+  refresh_selection();
+
+  lv_obj_t *actions = lv_obj_create(parent);
+  lv_obj_remove_flag(actions, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_width(actions, lv_pct(100));
+  lv_obj_set_height(actions, LV_SIZE_CONTENT);
+  lv_obj_set_style_bg_opa(actions, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(actions, 0, 0);
+  lv_obj_set_style_pad_all(actions, 0, 0);
+  lv_obj_set_style_pad_column(actions, 6, 0);
+  lv_obj_set_flex_flow(actions, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(actions, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  make_chip(actions, ACT_ADD, false);
+  make_chip(actions, ACT_RM, false);
+  make_chip(actions, ACT_SD, false);
+}
+
+static void nfc_keydict_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+
+  switch (ev->button) {
+    case INPUT_BTN_BACK:
+      if (press)
+        ui_switch_screen(SCREEN_NFC_MENU);
+      break;
+    case INPUT_BTN_DOWN:
+      if (nav) {
+        s_sel = (s_sel + 1) % KEY_COUNT;
+        refresh_selection();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_UP:
+      if (nav) {
+        s_sel = (s_sel - 1 + KEY_COUNT) % KEY_COUNT;
+        refresh_selection();
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_OK:
+      if (press)
+        ui_feedback(UI_FB_SELECT);
+      break;
+    default:
+      break;
+  }
+}
+
+void ui_nfc_keydict_open(void) {
+  if (s_screen != NULL) {
+    lv_obj_del(s_screen);
+    s_screen = NULL;
+  }
+  s_sel = 0;
+
+  s_screen = lv_obj_create(NULL);
+  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
+  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
+  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_border_width(s_screen, 0, 0);
+  lv_obj_set_style_pad_all(s_screen, 0, 0);
+
+  ui_chrome_header(s_screen, HDR_TITLE, HDR_ICON);
+
+  lv_obj_t *body = lv_obj_create(s_screen);
+  lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(body, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(body, LCD_H_RES, BODY_H);
+  lv_obj_align(body, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
+  lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(body, 0, 0);
+  lv_obj_set_style_pad_all(body, MX, 0);
+  lv_obj_set_style_pad_row(body, ROW_GAP, 0);
+  lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
+
+  build_body(body);
+
+  ui_chrome_footer(s_screen, FOOTER_HINT);
+
+  ui_input_set_screen_handler(nfc_keydict_input, NULL);
+
+  ui_screen_load_owned(&s_screen, s_screen);
+}

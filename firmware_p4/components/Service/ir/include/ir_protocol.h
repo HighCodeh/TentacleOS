@@ -29,6 +29,12 @@ extern "C" {
 /** @brief Tolerance window for pulse matching, in percent. */
 #define IR_TOLERANCE 25
 
+/**
+ * @brief Tight tolerance, in percent, for disambiguating protocols whose
+ * preambles are close together (e.g. Pioneer 8500/4225 vs NEC 9000/4500).
+ */
+#define IR_TOLERANCE_STRICT 6
+
 /** @brief Default carrier frequency in Hz (NEC, Samsung, LG, JVC, Denon). */
 #define IR_CARRIER_HZ_DEFAULT 38000
 
@@ -40,6 +46,9 @@ extern "C" {
 
 /** @brief Carrier frequency in Hz for Panasonic. */
 #define IR_CARRIER_HZ_PANASONIC 37000
+
+/** @brief Carrier frequency in Hz for Pioneer. */
+#define IR_CARRIER_HZ_PIONEER 40000
 
 /**
  * @brief Supported IR protocols.
@@ -55,6 +64,9 @@ typedef enum {
   IR_PROTO_JVC,
   IR_PROTO_DENON,
   IR_PROTO_PANASONIC,
+  IR_PROTO_RCA,
+  IR_PROTO_PIONEER,
+  IR_PROTO_NEC42,
   IR_PROTO_COUNT,
 } ir_protocol_t;
 
@@ -63,8 +75,8 @@ typedef enum {
  */
 typedef struct {
   ir_protocol_t protocol;
-  uint16_t address;
-  uint16_t command;
+  uint32_t address;
+  uint32_t command;
   bool repeat;
 } ir_data_t;
 
@@ -123,6 +135,18 @@ typedef struct {
  * @return true if within IR_TOLERANCE percent of expected, false otherwise.
  */
 bool ir_match(uint32_t measured_us, uint32_t expected_us);
+
+/**
+ * @brief Check if a measured pulse duration matches an expected value within a
+ *        caller-supplied tolerance.
+ *
+ * @param[in] measured_us   Measured duration in microseconds.
+ * @param[in] expected_us   Expected duration in microseconds.
+ * @param[in] tol_percent   Tolerance window, in percent.
+ *
+ * @return true if within @p tol_percent of expected, false otherwise.
+ */
+bool ir_match_tol(uint32_t measured_us, uint32_t expected_us, uint32_t tol_percent);
 
 /**
  * @brief Get the display name of a protocol.

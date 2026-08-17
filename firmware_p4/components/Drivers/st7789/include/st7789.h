@@ -20,22 +20,35 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
 #include <stdint.h>
 
+#include "esp_err.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_vendor.h"
 
-#define LCD_PIXEL_CLOCK_HZ (40 * 1000 * 1000)
+/**
+ * @brief SPI pixel clock. 20 MHz to match firmware_p4_prototype; the shared
+ *        FFC / prototype hardware shows signal-integrity corruption
+ *        (garbled/white images) above 20 MHz.
+ */
+#define LCD_PIXEL_CLOCK_HZ (20 * 1000 * 1000)
 #define LCD_H_RES          240
 #define LCD_V_RES          320
-#define LCD_CMD_BITS       8
-#define LCD_PARAM_BITS     8
+/**
+ * @brief Physical panel dimensions (used by lvgl_glue / esp_lvgl_port). Same
+ *        values as LCD_H/V_RES here since the panel runs in fixed portrait.
+ */
+#define LCD_PANEL_W    240
+#define LCD_PANEL_H    320
+#define LCD_CMD_BITS   8
+#define LCD_PARAM_BITS 8
 
-/** LCD panel handle (used by LVGL display driver). */
+/** @brief LCD panel handle (used by LVGL display driver). */
 extern esp_lcd_panel_handle_t panel_handle;
 
-/** LCD IO handle (used by LVGL display driver). */
+/** @brief LCD IO handle (used by LVGL display driver). */
 extern esp_lcd_panel_io_handle_t io_handle;
 
 /**
@@ -44,8 +57,10 @@ extern esp_lcd_panel_io_handle_t io_handle;
  * Creates the SPI panel IO on SPI3_HOST, configures and resets the
  * ST7789 panel, inverts colors for IPS panels, initializes backlight
  * PWM, and applies saved brightness/rotation from config file.
+ *
+ * @return ESP_OK on success, or an esp_err_t from the panel IO/init on failure.
  */
-void st7789_init(void);
+esp_err_t st7789_init(void);
 
 /**
  * @brief Fill the entire screen with a single color.
@@ -64,11 +79,31 @@ void st7789_fill_screen(uint16_t color);
 void lcd_set_brightness(uint8_t percent);
 
 /**
+ * @brief Apply a backlight level WITHOUT persisting it.
+ *
+ * Used for transient changes (auto-dim / fade) so the user's saved brightness is
+ * preserved and can be restored exactly.
+ *
+ * @param percent  Brightness percentage (0-100).
+ */
+void lcd_apply_brightness(uint8_t percent);
+
+/**
  * @brief Get the current backlight brightness.
  *
  * @return Brightness percentage (0-100).
  */
 uint8_t lcd_get_brightness(void);
+
+/**
+ * @brief Put the display panel to sleep (pixels off) or wake it.
+ *
+ * Cuts the panel itself, not just the backlight. Pair with backlight off/restore
+ * for a real screen-off.
+ *
+ * @param sleep  true = panel off, false = panel on.
+ */
+void lcd_display_sleep(bool sleep);
 
 /**
  * @brief Set the display rotation.

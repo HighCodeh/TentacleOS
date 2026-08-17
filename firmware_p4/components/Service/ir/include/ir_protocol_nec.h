@@ -70,6 +70,12 @@ extern "C" {
 /** @brief Bit mask for the 16-bit extended address field in a NECext frame. */
 #define NEC_EXT_ADDR_MASK 0xFFFF
 
+/** @brief Bit position of the high command byte in a 16-bit extended command (ONKYO/Apple). */
+#define NEC_CMD_HI_SHIFT 8
+
+/** @brief Bit mask for the 16-bit extended command field. */
+#define NEC_EXT_CMD_MASK 0xFFFF
+
 /**
  * @brief Decode a NEC IR frame from RMT symbols.
  *

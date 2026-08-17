@@ -20,6 +20,7 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "esp_err.h"
@@ -54,6 +55,25 @@ esp_err_t bad_usb_deinit(void);
  * to allow the host OS to enumerate the device.
  */
 void bad_usb_wait_for_connection(void);
+
+/**
+ * @brief Abort predicate polled while waiting for a USB host connection.
+ *
+ * @return true to cancel the wait, false to keep waiting.
+ */
+typedef bool (*bad_usb_abort_cb_t)(void);
+
+/**
+ * @brief Abortable variant of bad_usb_wait_for_connection().
+ *
+ * Polls tud_mounted() (and the post-mount settle delay) while calling the abort
+ * predicate between polls, so a caller can cancel a run that is still waiting for
+ * a host that never arrives.
+ *
+ * @param should_abort  Predicate polled between waits; NULL waits indefinitely.
+ * @return true if the host mounted and settled, false if aborted.
+ */
+bool bad_usb_wait_for_connection_ex(bad_usb_abort_cb_t should_abort);
 
 #ifdef __cplusplus
 }

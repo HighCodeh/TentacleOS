@@ -13,13 +13,24 @@
 # You should have received a copy of the GNU General Public License
 # along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
+set(VERSION_META_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../common/metadata")
+set(VERSION_INFO_FILE "${VERSION_META_DIR}/version_info.txt")
+file(STRINGS "${VERSION_INFO_FILE}" FW_VERSION LIMIT_COUNT 1)
+string(STRIP "${FW_VERSION}" FW_VERSION)
+set(GENERATED_VERSION_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+configure_file("${VERSION_META_DIR}/ota_version.h.in"
+               "${GENERATED_VERSION_DIR}/ota_version.h" @ONLY)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${VERSION_INFO_FILE}")
+
 file(GLOB_RECURSE SD_CARD_SERVICE_SRCS "sd_card/*.c")
 file(GLOB_RECURSE CONSOLE_SERVICE_SRCS "console/*.c")
 file(GLOB_RECURSE CONSOLE_COMMANDS_SRCS "console/commands/*.c")
 file(GLOB_RECURSE C5_FLASHER_SRCS "c5_flasher/*.c")
+file(GLOB_RECURSE LVGL_SRCS "lvgl/*.c")
 file(GLOB_RECURSE SPI_BRIDGE_SRCS "spi_bridge/*.c")
 file(GLOB_RECURSE BRIDGE_MANAGER_SRCS "bridge_manager/*.c")
 file(GLOB_RECURSE BT_SERVICE_SRCS "bluetooth/*.c")
+file(GLOB_RECURSE HOST_LINK_SRCS "host_link/*.c")
 file(GLOB_RECURSE STORAGE_API_SRCS "storage_api/*.c")
 file(GLOB_RECURSE STORAGE_VFS_SRCS "storage_vfs/*.c")
 file(GLOB_RECURSE STORAGE_ASSETS_SRCS "storage_assets/*.c")
@@ -28,6 +39,10 @@ idf_component_register(SRCS
   "font/font.c"
   "icons/icons.c"
   "wifi/wifi_service.c"
+  "boot_report/boot_report.c"
+  "sys_time/sys_time.c"
+  "power_manager/power_manager.c"
+  "power_manager/power_manager_usb.c"
 
   ${STORAGE_API_SRCS}
   ${STORAGE_VFS_SRCS}
@@ -35,18 +50,27 @@ idf_component_register(SRCS
 
   "ir/ir.c"
   "ir/ir_file.c"
+  "ir/ir_ac.c"
+  "ir/ir_ac_coolix.c"
+  "ir/ir_ac_gree.c"
+  "ir/ir_ac_lg.c"
+  "ir/ir_ac_midea.c"
+  "ir/ir_ac_toshiba.c"
+  "ir/ir_ac_haier.c"
   "ir/ir_protocol.c"
   "ir/ir_protocol_nec.c"
+  "ir/ir_protocol_nec42.c"
   "ir/ir_protocol_samsung.c"
   "ir/ir_protocol_lg.c"
   "ir/ir_protocol_jvc.c"
   "ir/ir_protocol_denon.c"
   "ir/ir_protocol_panasonic.c"
+  "ir/ir_protocol_rca.c"
+  "ir/ir_protocol_pioneer.c"
   "ir/ir_protocol_rc6.c"
   "ir/ir_protocol_rc5.c"
   "ir/ir_protocol_sony.c"
-  "lvgl_port/lv_port_indev.c"
-  "lvgl_port/lv_port_disp.c"
+  ${LVGL_SRCS}
   ${SD_CARD_SERVICE_SRCS}
   ${CONSOLE_SERVICE_SRCS}
   ${CONSOLE_COMMANDS_SRCS}
@@ -54,6 +78,7 @@ idf_component_register(SRCS
   ${SPI_BRIDGE_SRCS}
   ${BRIDGE_MANAGER_SRCS}
   ${BT_SERVICE_SRCS}
+  ${HOST_LINK_SRCS}
 
   "ota/ota_service.c"
 
@@ -61,18 +86,23 @@ idf_component_register(SRCS
   "font/include"
   "icons/include"
   "wifi/include"
+  "boot_report/include"
+  "sys_time/include"
+  "power_manager/include"
   "ir/include"
   "storage_api/include"
   "storage_vfs/include"
   "storage_assets/include"
-  "lvgl_port/include"
+  "lvgl/include"
   "sd_card/include"
   "console/include"
   "spi_bridge/include"
+  "host_link/include"
   "c5_flasher/include"
   "bridge_manager/include"
   "bluetooth/include"
   "ota/include"
+  "${GENERATED_VERSION_DIR}"
 
 
 
@@ -89,22 +119,24 @@ idf_component_register(SRCS
     esp_http_server
     nvs_flash
     lvgl
+    esp_lvgl_port
+    esp_lcd
     littlefs
     cjson
-    console 
+    console
     argtable3
     app_update
+    esp-serial-flasher
+    esp_tinyusb
+    mbedtls
+    esp_hw_support
+    espcoredump
+    esp_pm
 )
 
-# Embed C5 Firmware Binary into Service component (used by c5_flasher)
-set(C5_BIN_PATH "${CMAKE_SOURCE_DIR}/../firmware_c5/build/TentacleOS_C5.bin")
-set(C5_FIRMWARE_EMBEDDED 0)
-if(EXISTS ${C5_BIN_PATH})
-    target_add_binary_data(${COMPONENT_LIB} "${C5_BIN_PATH}" BINARY)
-    set(C5_FIRMWARE_EMBEDDED 1)
-    message(STATUS "Embedding C5 Firmware: ${C5_BIN_PATH}")
-else()
-    message(WARNING "C5 Firmware binary not found at ${C5_BIN_PATH}. Firmware update feature will be disabled.")
-endif()
-
-target_compile_definitions(${COMPONENT_LIB} PRIVATE C5_FIRMWARE_EMBEDDED=${C5_FIRMWARE_EMBEDDED})
+# C5 firmware is NOT embedded in the P4 binary anymore. c5_flasher.c streams the
+# C5 app image from the micro-SD at /sdcard/c5/TentacleOS_C5.bin, which frees the
+# whole C5 image (~1MB) from the P4 app slot. Both guards stay 0 on purpose; the
+# ROM-recovery path (c5_rom_flasher.c) compiles to its graceful stub.
+target_compile_definitions(${COMPONENT_LIB} PRIVATE C5_FIRMWARE_EMBEDDED=0)
+target_compile_definitions(${COMPONENT_LIB} PRIVATE C5_ROM_IMAGES_EMBEDDED=0)

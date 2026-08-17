@@ -15,6 +15,48 @@
 # You should have received a copy of the GNU General Public License
 # along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
+set -o pipefail
+
+usage() {
+  echo "Usage: $0 [--check | --changed <base-ref> | --check-changed <base-ref>]"
+}
+
+MODE="format"
+BASE_REF=""
+case "${1:-}" in
+  "")
+    if [ "$#" -ne 0 ]; then
+      usage
+      exit 2
+    fi
+    ;;
+  --check)
+    if [ "$#" -ne 1 ]; then
+      usage
+      exit 2
+    fi
+    MODE="check"
+    ;;
+  --changed)
+    if [ "$#" -ne 2 ] || [ -z "$2" ]; then
+      usage
+      exit 2
+    fi
+    BASE_REF="$2"
+    ;;
+  --check-changed)
+    if [ "$#" -ne 2 ] || [ -z "$2" ]; then
+      usage
+      exit 2
+    fi
+    MODE="check"
+    BASE_REF="$2"
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
@@ -25,47 +67,64 @@ TARGETS=(
   "$REPO_ROOT/firmware_c5/main"
 )
 
-EXCLUDE_DIRS=(
-  "managed_components"
-  "build"
+DIFF_TARGETS=(
+  "firmware_p4/components"
+  "firmware_p4/main"
+  "firmware_c5/components"
+  "firmware_c5/main"
 )
 
-EXCLUDE_ARGS=()
-for dir in "${EXCLUDE_DIRS[@]}"; do
-  EXCLUDE_ARGS+=(-not -path "*/$dir/*")
-done
-
-EXISTING_TARGETS=()
-for target in "${TARGETS[@]}"; do
-  if [ -d "$target" ]; then
-    EXISTING_TARGETS+=("$target")
+FILES=()
+if [ -n "$BASE_REF" ]; then
+  if ! git -C "$REPO_ROOT" rev-parse --verify "${BASE_REF}^{commit}" >/dev/null 2>&1; then
+    echo "Unknown base ref: $BASE_REF"
+    exit 2
   fi
-done
 
-if [ ${#EXISTING_TARGETS[@]} -eq 0 ]; then
-  echo "No target directories found."
-  exit 0
+  while IFS= read -r -d '' path; do
+    case "$path" in
+      *.c|*.h) FILES+=("$REPO_ROOT/$path") ;;
+    esac
+  done < <(git -C "$REPO_ROOT" diff --name-only -z --diff-filter=ACMR \
+    "$BASE_REF"...HEAD -- "${DIFF_TARGETS[@]}")
+else
+  EXISTING_TARGETS=()
+  for target in "${TARGETS[@]}"; do
+    if [ -d "$target" ]; then
+      EXISTING_TARGETS+=("$target")
+    fi
+  done
+
+  if [ "${#EXISTING_TARGETS[@]}" -eq 0 ]; then
+    echo "No target directories found."
+    exit 0
+  fi
+
+  while IFS= read -r -d '' path; do
+    FILES+=("$path")
+  done < <(find "${EXISTING_TARGETS[@]}" -type f \( -name "*.c" -o -name "*.h" \) \
+    -not -path "*/managed_components/*" -not -path "*/build/*" -print0)
 fi
 
-FILES=$(find "${EXISTING_TARGETS[@]}" \( -name "*.c" -o -name "*.h" \) "${EXCLUDE_ARGS[@]}")
-
-if [ -z "$FILES" ]; then
+COUNT="${#FILES[@]}"
+if [ "$COUNT" -eq 0 ]; then
   echo "No files to format."
   exit 0
 fi
 
-COUNT=$(echo "$FILES" | wc -l)
-
-if [ "$1" = "--check" ]; then
+if [ "$MODE" = "check" ]; then
   echo "Checking $COUNT files..."
-  echo "$FILES" | xargs clang-format --dry-run --Werror 2>&1
-  if [ $? -ne 0 ]; then
-    echo "Formatting errors found. Run ./tools/format.sh to fix."
+  if ! printf '%s\0' "${FILES[@]}" | xargs -0 clang-format --dry-run --Werror; then
+    if [ -n "$BASE_REF" ]; then
+      echo "Formatting errors found. Run ./tools/format.sh --changed \"$BASE_REF\" to fix."
+    else
+      echo "Formatting errors found. Run ./tools/format.sh to fix."
+    fi
     exit 1
   fi
   echo "All files formatted correctly."
 else
   echo "Formatting $COUNT files..."
-  echo "$FILES" | xargs clang-format -i
+  printf '%s\0' "${FILES[@]}" | xargs -0 clang-format -i
   echo "Done."
 fi

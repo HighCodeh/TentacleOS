@@ -28,12 +28,19 @@
 #include "ir_protocol_jvc.h"
 #include "ir_protocol_denon.h"
 #include "ir_protocol_panasonic.h"
+#include "ir_protocol_rca.h"
+#include "ir_protocol_pioneer.h"
+#include "ir_protocol_nec42.h"
 
 static const char *TAG = "IR_PROTOCOL";
 
-bool ir_match(uint32_t measured, uint32_t expected) {
-  uint32_t margin = expected * IR_TOLERANCE / 100;
+bool ir_match_tol(uint32_t measured, uint32_t expected, uint32_t tol_percent) {
+  uint32_t margin = expected * tol_percent / 100;
   return measured >= (expected - margin) && measured <= (expected + margin);
+}
+
+bool ir_match(uint32_t measured, uint32_t expected) {
+  return ir_match_tol(measured, expected, IR_TOLERANCE);
 }
 
 const char *ir_protocol_name(ir_protocol_t proto) {
@@ -56,6 +63,12 @@ const char *ir_protocol_name(ir_protocol_t proto) {
       return "DENON";
     case IR_PROTO_PANASONIC:
       return "PANASONIC";
+    case IR_PROTO_RCA:
+      return "RCA";
+    case IR_PROTO_PIONEER:
+      return "PIONEER";
+    case IR_PROTO_NEC42:
+      return "NEC42";
     default:
       return "UNKNOWN";
   }
@@ -70,6 +83,8 @@ uint32_t ir_carrier_freq(ir_protocol_t proto) {
       return IR_CARRIER_HZ_SONY;
     case IR_PROTO_PANASONIC:
       return IR_CARRIER_HZ_PANASONIC;
+    case IR_PROTO_PIONEER:
+      return IR_CARRIER_HZ_PIONEER;
     default:
       return IR_CARRIER_HZ_DEFAULT;
   }
@@ -221,6 +236,10 @@ bool ir_decode(const rmt_symbol_word_t *symbols, size_t count, ir_data_t *out_da
 
   memset(out_data, 0, sizeof(ir_data_t));
 
+  if (ir_protocol_pioneer_decode(symbols, count, out_data))
+    return true;
+  if (ir_protocol_nec42_decode(symbols, count, out_data))
+    return true;
   if (ir_protocol_nec_decode(symbols, count, out_data))
     return true;
   if (ir_protocol_lg_decode(symbols, count, out_data))
@@ -230,6 +249,8 @@ bool ir_decode(const rmt_symbol_word_t *symbols, size_t count, ir_data_t *out_da
   if (ir_protocol_samsung_decode(symbols, count, out_data))
     return true;
   if (ir_protocol_panasonic_decode(symbols, count, out_data))
+    return true;
+  if (ir_protocol_rca_decode(symbols, count, out_data))
     return true;
   if (ir_protocol_rc6_decode(symbols, count, out_data))
     return true;
@@ -268,6 +289,12 @@ size_t ir_encode(const ir_data_t *data, rmt_symbol_word_t *symbols, size_t max) 
       return ir_protocol_denon_encode(data, symbols, max);
     case IR_PROTO_PANASONIC:
       return ir_protocol_panasonic_encode(data, symbols, max);
+    case IR_PROTO_RCA:
+      return ir_protocol_rca_encode(data, symbols, max);
+    case IR_PROTO_PIONEER:
+      return ir_protocol_pioneer_encode(data, symbols, max);
+    case IR_PROTO_NEC42:
+      return ir_protocol_nec42_encode(data, symbols, max);
     default:
       ESP_LOGW(TAG, "Encode called with unknown protocol: %d", (int)data->protocol);
       return 0;

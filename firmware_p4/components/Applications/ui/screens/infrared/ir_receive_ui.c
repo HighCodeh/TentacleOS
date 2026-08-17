@@ -16,287 +16,446 @@
 #include "ir_receive_ui.h"
 
 #include <stdio.h>
-#include <string.h>
 
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "st7789.h"
+#include "lvgl.h"
 
-#include "buttons_gpio.h"
-#include "ir.h"
-#include "ir_file.h"
-#include "ir_protocol.h"
-#include "keyboard_ui.h"
-#include "msgbox_ui.h"
-#include "spinner_ui.h"
-#include "storage_mkdir.h"
-#include "tos_storage_paths.h"
+#include "capture_result_ui.h"
+#include "ir_store.h"
+#include "notify_ui.h"
+#include "sigwave_ui.h"
+#include "ui_chrome.h"
+#include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
+#include "waves_ui.h"
 
 static const char *TAG = "IR_RX_UI";
 
-#define OUTER_BORDER           4
-#define TOP_BORDER_H           46
-#define TOP_AREA_BORDER_WIDTH  3
-#define TITLE_BAR_W            170
-#define TITLE_BAR_H            30
-#define TITLE_BAR_RADIUS       12
-#define TITLE_BAR_BORDER_WIDTH 2
-#define STATUS_LABEL_OFFSET_Y  12
-#define DETAIL_LABEL_OFFSET_Y  35
-#define DETAIL_LABEL_MARGIN    20
-#define SPINNER_SIZE           30
-#define SPINNER_OFFSET_Y       (-20)
-#define NAV_TIMER_INTERVAL_MS  50
-#define KB_OPEN_DELAY_MS       300
-#define RX_TASK_STACK_SIZE     4096
-#define RX_TASK_PRIORITY       5
-#define RX_TIMEOUT_MS          15000
-#define IR_DIR_MAX_LEN         300
-#define IR_PATH_MAX_LEN        300
-#define IR_BUF_MAX_LEN         512
-#define IR_DETAIL_BUF_LEN      128
+#define SIG_GREEN 0x00E676
+
+#define HEADER_TITLE_Y     10
+#define HEADER_RULE_Y      32
+#define HEADER_RULE_W      70
+#define HEADER_RULE_H      2
+#define HEADER_RULE_RADIUS 1
+
+#define STATUS_Y 48
+#define DETAIL_Y 66
+
+#define POLL_TICK_MS      50
+#define CAPTURE_WINDOW_MS 1500 // one ir_capture_start() window; re-armed while listening
+#define DOT_CYCLE_MS      350
+
+#define CARD_W       162
+#define CARD_H       82
+#define CARD_RADIUS  12
+#define CARD_BORDER  2
+#define CARD_Y_OFS   -28
+#define CARD_RISE_PX 70
+#define CARD_RISE_MS 450
+
+#define IR_ICON "/assets/icons/settings_input_antenna.bin"
+
+#define STATUS_IDLE     "Press OK to start"
+#define STATUS_BUSY     "Waiting for signal"
+#define STATUS_CAPTURED "Signal captured!"
+#define STATUS_SAVED    "Signal saved!"
+
+#define DETAIL_AIM "Point remote at device"
+
+#define HINT_IDLE     "OK = Capture   BACK = Exit"
+#define HINT_BUSY     "BACK to cancel"
+#define HINT_SHOW     "BACK = Exit"
+#define HINT_CAPTURED "UP/DOWN choose   OK do   BACK exit"
+
+#define REVEAL_MS 3000
+
+#define WAVES_IDLE_OPA LV_OPA_40
+
+typedef enum {
+  ST_IDLE = 0,
+  ST_CAPTURING,
+  ST_CAPTURED,
+  ST_OPTIONS,
+} rx_state_t;
 
 static lv_obj_t *s_screen = NULL;
-static lv_timer_t *s_nav_timer = NULL;
+static lv_timer_t *s_tick_timer = NULL;
 static lv_obj_t *s_status_label = NULL;
 static lv_obj_t *s_detail_label = NULL;
-static spinner_ui_t s_spinner;
+static lv_obj_t *s_hint_label = NULL;
+static lv_obj_t *s_waves = NULL;
+static lv_obj_t *s_sig = NULL;
+static lv_obj_t *s_card = NULL;
+static capture_result_t s_cr = {0};
+static rx_state_t s_state = ST_IDLE;
+static uint32_t s_capture_start = 0;
+static uint32_t s_captured_at = 0;
+static bool s_saved = false;
+static bool s_listening = false;
+static ir_data_t s_captured = {0};
+static char s_card_text[48];
+static rmt_symbol_word_t s_raw_buf[IR_MAX_SYMBOLS];
 
-static bool s_btn_back_last = false;
-static bool s_btn_ok_last = false;
-static TaskHandle_t s_rx_task_handle = NULL;
-static volatile bool s_is_rx_done = false;
-static volatile bool s_is_rx_success = false;
-static ir_data_t s_rx_result;
+static void ir_receive_tick_cb(lv_timer_t *timer);
+static void ir_receive_input(const input_event_t *ev, void *ctx);
+static void build_captured_card(void);
 
-static void rx_task(void *pvParameters);
-static void on_save_result(bool is_confirm);
-static void on_name_entered(const char *text, void *user_data);
-static void deferred_kb_open(lv_timer_t *timer);
-static void on_ask_save(bool is_confirm);
-static void show_waiting(void);
-static void show_result(void);
-static void nav_timer_cb(lv_timer_t *timer);
+static void clear_result(void) {
+  if (s_card != NULL) {
+    lv_obj_del(s_card);
+    s_card = NULL;
+  }
+  capture_result_destroy(&s_cr);
+}
+
+static void card_rise_cb(void *var, int32_t v) {
+  lv_obj_set_style_translate_y((lv_obj_t *)var, v, 0);
+}
+
+static void set_status(const char *text, bool success) {
+  if (s_status_label == NULL)
+    return;
+  lv_label_set_text(s_status_label, text);
+  lv_obj_set_style_text_color(
+      s_status_label, success ? lv_color_hex(SIG_GREEN) : current_theme.text_main, 0);
+}
+
+static void set_hint(const char *text) {
+  if (s_hint_label != NULL)
+    ui_chrome_footer_set_text(s_hint_label, text);
+}
+
+static void stop_listening(void) {
+  s_listening = false;
+  ir_capture_reset();
+}
+
+static void start_capture(void) {
+  clear_result();
+  s_state = ST_CAPTURING;
+  s_saved = false;
+  s_capture_start = lv_tick_get();
+  if (s_status_label)
+    lv_obj_remove_flag(s_status_label, LV_OBJ_FLAG_HIDDEN);
+  if (s_detail_label)
+    lv_obj_remove_flag(s_detail_label, LV_OBJ_FLAG_HIDDEN);
+  set_status(STATUS_BUSY, false);
+  if (s_detail_label)
+    lv_label_set_text(s_detail_label, DETAIL_AIM);
+  if (s_waves) {
+    lv_obj_remove_flag(s_waves, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_opa(s_waves, LV_OPA_COVER, 0);
+  }
+  if (s_sig)
+    lv_obj_remove_flag(s_sig, LV_OBJ_FLAG_HIDDEN);
+  set_hint(HINT_BUSY);
+
+  ir_capture_reset();
+  ir_capture_start(CAPTURE_WINDOW_MS);
+  s_listening = true;
+}
+
+// Populate the captured card from the real decoded frame in s_captured.
+static void build_captured_card(void) {
+  s_state = ST_CAPTURED;
+  s_listening = false;
+  if (s_waves)
+    lv_obj_add_flag(s_waves, LV_OBJ_FLAG_HIDDEN);
+  if (s_sig)
+    lv_obj_add_flag(s_sig, LV_OBJ_FLAG_HIDDEN);
+  set_status(STATUS_CAPTURED, true);
+  if (s_detail_label)
+    lv_label_set_text(s_detail_label, "");
+
+  s_card = lv_obj_create(s_screen);
+  lv_obj_remove_flag(s_card, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(s_card, CARD_W, CARD_H);
+  lv_obj_align(s_card, LV_ALIGN_CENTER, 0, CARD_Y_OFS);
+  lv_obj_set_style_radius(s_card, CARD_RADIUS, 0);
+  lv_obj_set_style_bg_opa(s_card, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(s_card, current_theme.bg_primary, 0);
+  lv_obj_set_style_bg_grad_color(s_card, current_theme.bg_secondary, 0);
+  lv_obj_set_style_bg_grad_dir(s_card, LV_GRAD_DIR_VER, 0);
+  lv_obj_set_style_border_width(s_card, CARD_BORDER, 0);
+  lv_obj_set_style_border_color(s_card, current_theme.border_accent, 0);
+  lv_obj_set_style_pad_all(s_card, 6, 0);
+
+  lv_obj_t *info = lv_label_create(s_card);
+  if (s_captured.protocol != IR_PROTO_UNKNOWN)
+    snprintf(s_card_text,
+             sizeof(s_card_text),
+             LV_SYMBOL_OK "  %s   0x%02lX / 0x%02lX",
+             ir_protocol_name(s_captured.protocol),
+             (unsigned long)s_captured.address,
+             (unsigned long)s_captured.command);
+  else
+    snprintf(s_card_text, sizeof(s_card_text), LV_SYMBOL_OK "  RAW signal");
+  lv_label_set_text(info, s_card_text);
+  lv_obj_set_style_text_color(info, current_theme.text_main, 0);
+  lv_obj_set_style_text_font(info, &lv_font_montserrat_12, 0);
+  lv_obj_align(info, LV_ALIGN_TOP_MID, 0, 0);
+
+  sigwave_create_static(s_card, LV_ALIGN_BOTTOM_MID, 0, -2);
+
+  lv_anim_t a;
+  lv_anim_init(&a);
+  lv_anim_set_var(&a, s_card);
+  lv_anim_set_exec_cb(&a, card_rise_cb);
+  lv_anim_set_values(&a, CARD_RISE_PX, 0);
+  lv_anim_set_duration(&a, CARD_RISE_MS);
+  lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+  lv_anim_start(&a);
+
+  s_captured_at = lv_tick_get();
+  set_hint(HINT_SHOW);
+  ESP_LOGI(TAG, "captured %s", ir_protocol_name(s_captured.protocol));
+  ir_print_data(&s_captured);
+  ui_feedback(UI_FB_READ);
+}
+
+// Re-transmit the captured signal — decoded frame, or raw fallback.
+static void send_captured(void) {
+  if (s_captured.protocol != IR_PROTO_UNKNOWN) {
+    ir_store_send_data(&s_captured);
+    return;
+  }
+  size_t n = 0;
+  if (ir_get_last_raw(s_raw_buf, IR_MAX_SYMBOLS, &n) == ESP_OK && n > 0)
+    ir_store_send_raw(s_raw_buf, n, IR_CARRIER_HZ_DEFAULT);
+}
+
+// Persist the captured signal to /sdcard/ir as a Flipper .ir file.
+static bool save_captured(void) {
+  char name[IR_STORE_NAME_MAX];
+  if (s_captured.protocol != IR_PROTO_UNKNOWN) {
+    ir_store_name_for_data(&s_captured, name, sizeof(name));
+    return ir_store_save_data(name, &s_captured) == ESP_OK;
+  }
+  size_t n = 0;
+  if (ir_get_last_raw(s_raw_buf, IR_MAX_SYMBOLS, &n) != ESP_OK || n == 0)
+    return false;
+  ir_store_next_free("raw", name, sizeof(name));
+  return ir_store_save_raw(name, s_raw_buf, n, IR_CARRIER_HZ_DEFAULT) == ESP_OK;
+}
+
+static void show_options(void) {
+  if (s_card != NULL) {
+    lv_obj_del(s_card);
+    s_card = NULL;
+  }
+  if (s_status_label)
+    lv_obj_add_flag(s_status_label, LV_OBJ_FLAG_HIDDEN);
+  if (s_detail_label)
+    lv_obj_add_flag(s_detail_label, LV_OBJ_FLAG_HIDDEN);
+
+  static char sub[24];
+  static char val[32];
+  if (s_captured.protocol != IR_PROTO_UNKNOWN) {
+    snprintf(sub, sizeof(sub), "%s protocol", ir_protocol_name(s_captured.protocol));
+    snprintf(val,
+             sizeof(val),
+             "cmd 0x%02lX / 0x%02lX",
+             (unsigned long)s_captured.address,
+             (unsigned long)s_captured.command);
+  } else {
+    snprintf(sub, sizeof(sub), "RAW capture");
+    snprintf(val, sizeof(val), "unknown protocol");
+  }
+
+  capture_result_cfg_t cfg = {
+      .accent = current_theme.border_accent,
+      .card_icon = IR_ICON,
+      .card_title = "Signal captured",
+      .card_sub = sub,
+      .card_value = val,
+      .primary_label = "Send",
+      .again_label = "Receive again",
+  };
+  s_cr = capture_result_create(s_screen, &cfg);
+  s_state = ST_OPTIONS;
+  set_hint(HINT_CAPTURED);
+}
 
 void ui_ir_receive_open(void) {
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
   }
-
-  s_is_rx_done = false;
-  s_is_rx_success = false;
-  s_rx_task_handle = NULL;
+  stop_listening();
+  s_card = NULL;
+  s_cr = (capture_result_t){0};
+  s_state = ST_IDLE;
+  s_saved = false;
+  s_captured = (ir_data_t){0};
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, OUTER_BORDER, 0);
-  lv_obj_set_style_border_color(s_screen, current_theme.border_interface, 0);
+  lv_obj_set_style_border_width(s_screen, 0, 0);
   lv_obj_set_style_pad_all(s_screen, 0, 0);
 
-  lv_obj_t *top_area = lv_obj_create(s_screen);
-  lv_obj_set_size(top_area, LCD_H_RES - OUTER_BORDER * 2, TOP_BORDER_H);
-  lv_obj_align(top_area, LV_ALIGN_TOP_MID, 0, 0);
-  lv_obj_remove_flag(top_area, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_opa(top_area, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(top_area, TOP_AREA_BORDER_WIDTH, 0);
-  lv_obj_set_style_border_color(top_area, current_theme.border_interface, 0);
-  lv_obj_set_style_border_side(top_area, LV_BORDER_SIDE_BOTTOM, 0);
-  lv_obj_set_style_radius(top_area, 0, 0);
-  lv_obj_set_style_pad_all(top_area, 0, 0);
-
-  lv_obj_t *title_bar = lv_obj_create(top_area);
-  lv_obj_set_size(title_bar, TITLE_BAR_W, TITLE_BAR_H);
-  lv_obj_align(title_bar, LV_ALIGN_CENTER, 0, 0);
-  lv_obj_remove_flag(title_bar, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_radius(title_bar, TITLE_BAR_RADIUS, 0);
-  lv_obj_set_style_bg_opa(title_bar, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(title_bar, current_theme.bg_primary, 0);
-  lv_obj_set_style_bg_grad_color(title_bar, current_theme.bg_secondary, 0);
-  lv_obj_set_style_bg_grad_dir(title_bar, LV_GRAD_DIR_HOR, 0);
-  lv_obj_set_style_border_width(title_bar, TITLE_BAR_BORDER_WIDTH, 0);
-  lv_obj_set_style_border_color(title_bar, current_theme.border_accent, 0);
-
-  lv_obj_t *title_lbl = lv_label_create(title_bar);
-  lv_label_set_text(title_lbl, "IR LEARN");
-  lv_obj_set_style_text_color(title_lbl, current_theme.text_main, 0);
-  lv_obj_set_style_text_font(title_lbl, &lv_font_montserrat_14, 0);
-  lv_obj_center(title_lbl);
+  ui_chrome_header(s_screen, "Learn", "/assets/icons/settings_input_antenna.bin");
 
   s_status_label = lv_label_create(s_screen);
-  lv_label_set_text(s_status_label, "Press OK to start");
+  lv_label_set_text(s_status_label, STATUS_IDLE);
   lv_obj_set_style_text_color(s_status_label, current_theme.text_main, 0);
   lv_obj_set_style_text_font(s_status_label, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_align(s_status_label, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_align(s_status_label, LV_ALIGN_TOP_MID, 0, TOP_BORDER_H + STATUS_LABEL_OFFSET_Y);
+  lv_obj_align(s_status_label, LV_ALIGN_TOP_MID, 0, STATUS_Y);
 
   s_detail_label = lv_label_create(s_screen);
   lv_label_set_text(s_detail_label, "");
   lv_obj_set_style_text_color(s_detail_label, current_theme.border_accent, 0);
   lv_obj_set_style_text_font(s_detail_label, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_align(s_detail_label, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_set_width(s_detail_label, LCD_H_RES - OUTER_BORDER * 2 - DETAIL_LABEL_MARGIN);
-  lv_obj_align(s_detail_label, LV_ALIGN_TOP_MID, 0, TOP_BORDER_H + DETAIL_LABEL_OFFSET_Y);
+  lv_obj_align(s_detail_label, LV_ALIGN_TOP_MID, 0, DETAIL_Y);
 
-  s_spinner = spinner_ui_create(s_screen, SPINNER_SIZE);
-  lv_obj_align(s_spinner.obj, LV_ALIGN_BOTTOM_MID, 0, SPINNER_OFFSET_Y);
-  spinner_ui_hide(&s_spinner);
+  s_waves = waves_create(s_screen, LV_ALIGN_CENTER, 0, 12, NULL, IR_ICON);
+  lv_obj_set_style_opa(s_waves, WAVES_IDLE_OPA, 0);
+  s_sig = sigwave_create(s_screen, LV_ALIGN_BOTTOM_MID, 0, -28);
+  lv_obj_add_flag(s_sig, LV_OBJ_FLAG_HIDDEN);
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
+  s_hint_label = ui_chrome_footer(s_screen, HINT_IDLE);
 
-  lv_screen_load(s_screen);
+  if (s_tick_timer == NULL)
+    s_tick_timer = lv_timer_create(ir_receive_tick_cb, POLL_TICK_MS, NULL);
+  ui_input_set_screen_handler(ir_receive_input, NULL);
+
+  ui_screen_load_owned(&s_screen, s_screen);
 }
 
-static void rx_task(void *pvParameters) {
-  (void)pvParameters;
-  ir_rx_init();
-  s_is_rx_success = ir_receive(&s_rx_result, RX_TIMEOUT_MS);
-  s_is_rx_done = true;
-  s_rx_task_handle = NULL;
-  vTaskDelete(NULL);
-}
-
-static void on_save_result(bool is_confirm) {
-  if (is_confirm) {
-    if (s_status_label != NULL)
-      lv_label_set_text(s_status_label, "Press OK to start");
-    if (s_detail_label != NULL)
-      lv_label_set_text(s_detail_label, "");
-  } else {
-    ui_switch_screen(SCREEN_IR_MENU);
-  }
-}
-
-static void on_name_entered(const char *text, void *user_data) {
-  (void)user_data;
-
-  if (text == NULL || strlen(text) == 0)
+static void capturing_tick(void) {
+  if (s_status_label == NULL)
     return;
+  int dots = ((lv_tick_get() - s_capture_start) / DOT_CYCLE_MS) % 4;
+  char buf[24];
+  snprintf(buf,
+           sizeof(buf),
+           "%s%s",
+           STATUS_BUSY,
+           dots == 1   ? "."
+           : dots == 2 ? ".."
+           : dots == 3 ? "..."
+                       : "");
+  lv_label_set_text(s_status_label, buf);
+}
 
-  ir_file_t file;
-  ir_file_init(&file);
-  ir_file_add_parsed(&file, text, &s_rx_result);
-
-  char buf[IR_BUF_MAX_LEN];
-  size_t len = ir_file_to_string(&file, buf, sizeof(buf));
-  bool is_saved = false;
-
-  if (len > 0) {
-    const char *proto = ir_protocol_name(s_rx_result.protocol);
-
-    char dir[IR_DIR_MAX_LEN];
-    snprintf(dir, sizeof(dir), TOS_PATH_IR "/%.64s", proto);
-    storage_mkdir_recursive(dir);
-
-    char path[IR_PATH_MAX_LEN];
-    snprintf(path, sizeof(path), TOS_PATH_IR "/%.64s/%.64s.ir", proto, text);
-
-    FILE *f = fopen(path, "w");
-    if (f != NULL) {
-      fwrite(buf, 1, len, f);
-      fclose(f);
-      is_saved = true;
-      ESP_LOGI(TAG, "Saved: %s", path);
-    }
+// Return the screen to its idle "Press OK" state (used on capture error).
+static void back_to_idle(void) {
+  stop_listening();
+  s_state = ST_IDLE;
+  set_status(STATUS_IDLE, false);
+  if (s_detail_label)
+    lv_label_set_text(s_detail_label, "");
+  if (s_waves) {
+    lv_obj_remove_flag(s_waves, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_opa(s_waves, WAVES_IDLE_OPA, 0);
   }
-
-  ir_file_free(&file);
-
-  if (is_saved)
-    msgbox_open(LV_SYMBOL_OK, "Signal saved!", "Continue", "Exit", on_save_result);
-  else
-    msgbox_open(LV_SYMBOL_WARNING, "Failed to save!", "Continue", "Exit", on_save_result);
+  if (s_sig)
+    lv_obj_add_flag(s_sig, LV_OBJ_FLAG_HIDDEN);
+  set_hint(HINT_IDLE);
 }
 
-static void deferred_kb_open(lv_timer_t *timer) {
-  (void)timer;
-  keyboard_open(NULL, on_name_entered, NULL);
-}
-
-static void on_ask_save(bool is_confirm) {
-  if (is_confirm) {
-    lv_timer_t *kb_timer = lv_timer_create(deferred_kb_open, KB_OPEN_DELAY_MS, NULL);
-    lv_timer_set_repeat_count(kb_timer, 1);
-  } else {
-    if (s_status_label != NULL)
-      lv_label_set_text(s_status_label, "Press OK to start");
-    if (s_detail_label != NULL)
-      lv_label_set_text(s_detail_label, "");
+static void poll_capture(void) {
+  capturing_tick();
+  ir_data_t d;
+  ir_cap_status_t st = ir_capture_poll(&d);
+  if (st == IR_CAP_GOT) {
+    s_captured = d;
+    build_captured_card();
+  } else if (st == IR_CAP_TIMEOUT && s_listening) {
+    // Nothing yet — re-arm and keep listening until a signal or the user cancels.
+    ir_capture_reset();
+    ir_capture_start(CAPTURE_WINDOW_MS);
+  } else if (st == IR_CAP_ERROR) {
+    // RX channel couldn't be brought up — don't spin forever on "Waiting...".
+    back_to_idle();
+    notify(NOTIFY_WARNING, "IR receiver unavailable");
   }
 }
 
-static void show_waiting(void) {
-  if (s_status_label != NULL)
-    lv_label_set_text(s_status_label, "Waiting for signal...");
-  if (s_detail_label != NULL)
-    lv_label_set_text(s_detail_label, "Point remote at device");
-  spinner_ui_show(&s_spinner);
-}
-
-static void show_result(void) {
-  spinner_ui_hide(&s_spinner);
-
-  if (s_is_rx_success) {
-    lv_label_set_text(s_status_label, "Signal captured!");
-
-    char buf[IR_DETAIL_BUF_LEN];
-    snprintf(buf,
-             sizeof(buf),
-             "Protocol: %s\nAddress: 0x%04X\nCommand: 0x%04X",
-             ir_protocol_name(s_rx_result.protocol),
-             s_rx_result.address,
-             s_rx_result.command);
-    lv_label_set_text(s_detail_label, buf);
-
-    msgbox_open(LV_SYMBOL_OK, "Save signal?", "Yes", "No", on_ask_save);
-  } else {
-    lv_label_set_text(s_status_label, "No signal detected");
-    lv_label_set_text(s_detail_label, "Press OK to try again");
-  }
-}
-
-static void nav_timer_cb(lv_timer_t *timer) {
+static void ir_receive_tick_cb(lv_timer_t *timer) {
   if (lv_screen_active() != s_screen) {
     lv_timer_delete(timer);
-    s_nav_timer = NULL;
+    s_tick_timer = NULL;
     return;
   }
 
-  if (ui_input_is_locked())
-    return;
-
-  if (msgbox_is_open())
-    return;
-
-  if (s_is_rx_done) {
-    s_is_rx_done = false;
-    show_result();
+  if (s_state == ST_CAPTURING) {
+    poll_capture();
+  } else if (s_state == ST_CAPTURED) {
+    if (lv_tick_get() - s_captured_at >= REVEAL_MS)
+      show_options();
   }
+}
 
-  bool is_back = back_button_is_down();
-  bool is_ok = ok_button_is_down();
+static void ir_receive_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
-  if (is_back && !s_btn_back_last) {
-    if (s_rx_task_handle != NULL) {
-      vTaskDelete(s_rx_task_handle);
-      s_rx_task_handle = NULL;
+  if (ev->button == INPUT_BTN_BACK) {
+    if (press) {
+      stop_listening();
+      ui_switch_screen(SCREEN_IR_MENU);
     }
-    ui_switch_screen(SCREEN_IR_MENU);
+    return;
   }
 
-  if (is_ok && !s_btn_ok_last && s_rx_task_handle == NULL) {
-    s_is_rx_done = false;
-    s_is_rx_success = false;
-    show_waiting();
-    xTaskCreate(rx_task, "ir_rx", RX_TASK_STACK_SIZE, NULL, RX_TASK_PRIORITY, &s_rx_task_handle);
+  if (s_state == ST_IDLE) {
+    if (ev->button == INPUT_BTN_OK && press)
+      start_capture();
+  } else if (s_state == ST_OPTIONS) {
+    switch (ev->button) {
+      case INPUT_BTN_DOWN:
+        if (nav) {
+          capture_result_next(&s_cr);
+          ui_feedback(UI_FB_NAV);
+        }
+        break;
+      case INPUT_BTN_UP:
+        if (nav) {
+          capture_result_prev(&s_cr);
+          ui_feedback(UI_FB_NAV);
+        }
+        break;
+      case INPUT_BTN_OK:
+        if (press) {
+          switch (capture_result_selected(&s_cr)) {
+            case CAP_ACT_PRIMARY:
+              send_captured();
+              ui_feedback(UI_FB_EMULATE);
+              notify(NOTIFY_INFO, "Signal sent");
+              break;
+            case CAP_ACT_SAVE:
+              if (!s_saved) {
+                if (save_captured()) {
+                  s_saved = true;
+                  capture_result_mark_saved(&s_cr);
+                  ui_feedback(UI_FB_WRITE);
+                  notify(NOTIFY_SAVED, "IR signal saved");
+                } else {
+                  notify(NOTIFY_WARNING, "Save failed");
+                }
+              }
+              break;
+            case CAP_ACT_AGAIN:
+              start_capture();
+              break;
+            case CAP_ACT_DISCARD:
+              stop_listening();
+              ui_switch_screen(SCREEN_IR_MENU);
+              return;
+            default:
+              break;
+          }
+        }
+        break;
+      default:
+        break;
+    }
   }
-
-  s_btn_back_last = is_back;
-  s_btn_ok_last = is_ok;
 }

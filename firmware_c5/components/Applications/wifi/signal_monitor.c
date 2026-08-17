@@ -23,6 +23,7 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "wifi_80211.h"
 #include "wifi_service.h"
@@ -30,7 +31,7 @@
 static const char *TAG = "SIGNAL_MONITOR";
 
 #define MONITOR_STACK_SIZE       4096
-#define MONITOR_TASK_PRIORITY    5
+#define MONITOR_TASK_PRIORITY    SYS_PRIO_SERVICE_HI
 #define SIGNAL_TIMEOUT_MS        5000
 #define SIGNAL_CHECK_INTERVAL_MS 500
 #define SIGNAL_STOP_WAIT_MS      600

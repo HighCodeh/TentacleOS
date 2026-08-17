@@ -22,9 +22,8 @@ We are expanding support for the latest Espressif chips:
 
 | Target | Status |
 | :--- | :--- |
-| **ESP32-S3** | Main Development |
-| **ESP32-P4** | Experimental (firmware_p4) |
-| **ESP32-C5** | Experimental (firmware_c5) |
+| **ESP32-P4** | Main Development |
+| **ESP32-C5** | Main Development |
 
 
 ## Firmware Structure
@@ -68,6 +67,140 @@ Example layout:
 │   └── main.c
 └── README.md
 ```
+
+
+## Native HLE simulator
+
+The host-level emulation (HLE) target runs the P4 UI, LVGL, host-backed storage,
+and a simulated C5 SPI bridge on Linux. It is intended for UI and firmware-flow
+development without a connected High Boy.
+
+<p align="center">
+  <img src="pics/hle-emulator.png" alt="TentacleOS HLE emulator boot screen" width="240"/>
+  <br/>
+  <em>Boot screen rendered by the native SDL simulator.</em>
+</p>
+
+### Requirements
+
+- Linux
+- CMake 3.16 or newer
+- A C11/C++17 toolchain
+- Git and the SDL2 development headers
+- Internet access during the first configure, which downloads LVGL, cJSON, and
+  GoogleTest
+
+On Ubuntu or Debian:
+
+```bash
+sudo apt update
+sudo apt install build-essential cmake git libsdl2-dev
+```
+
+ESP-IDF, an ESP32 toolchain, and connected High Boy hardware are not required
+for the native simulator.
+
+### Build and run
+
+Run these commands from the repository root:
+
+```bash
+cmake -S tools/hle -B build
+cmake --build build --target hle_interactive -j
+./build/hle_interactive
+```
+
+The first build also converts the assets under `firmware_p4/assets`. After UI
+or firmware changes, rerun the `cmake --build` command and restart the
+simulator; reconfiguration is only needed after CMake or source-layout changes.
+
+### Controls
+
+| High Boy input | Keyboard |
+| :--- | :--- |
+| Directional buttons | Arrow keys or W/A/S/D |
+| OK | Enter, keypad Enter, or Space |
+| Back | Backspace or Escape |
+| Exit simulator | Ctrl+Q or close the window |
+
+### Storage
+
+The simulator stores `/sdcard` data under `/tmp/hle_storage` by default.
+Override the location with `HLE_STORAGE_PATH`:
+
+```bash
+HLE_STORAGE_PATH="$HOME/.local/state/tentacleos-hle" ./build/hle_interactive
+```
+
+Point `HLE_STORAGE_PATH` at a new empty directory to exercise the firmware's
+first-boot flow again.
+
+### Headless snapshots
+
+For deterministic, headless UI snapshots:
+
+```bash
+SDL_VIDEODRIVER=dummy \
+HLE_SNAPSHOT_PATH=/tmp/high-boy.ppm \
+HLE_SNAPSHOT_MS=6500 \
+./build/hle_interactive
+```
+
+The snapshot example renders for 6500 ms, writes a PPM image, and exits. It is
+also suitable for CI or SSH sessions without a display server.
+
+### Tests
+
+Run the native regression suite with:
+
+```bash
+cmake --build build --target hle_tests -j
+ctest --test-dir build --output-on-failure
+```
+
+#### Example: testing display output
+
+Every `*.cpp` file under `tools/hle/tests` is compiled into `hle_tests` and
+automatically registered with GoogleTest. For example, create
+`tools/hle/tests/test_my_ui.cpp`:
+
+```cpp
+#include <array>
+#include <cstdint>
+
+#include <gtest/gtest.h>
+
+#include "hle/hle_display.h"
+
+TEST(MyUIScreen, DrawsExpectedPixel) {
+    auto &display = hle::Display::instance();
+    display.fill_screen(0);
+
+    constexpr uint16_t expected_color = 0xF81F;
+    display.draw_bitmap(12, 20, 13, 21, &expected_color);
+
+    std::array<uint16_t, hle::LCD_H_RES * hle::LCD_V_RES> framebuffer{};
+    ASSERT_TRUE(display.copy_pixels_if_dirty(
+        framebuffer.data(), hle::LCD_H_RES * sizeof(uint16_t)));
+    EXPECT_EQ(framebuffer[(20 * hle::LCD_H_RES) + 12], expected_color);
+}
+```
+
+Build and run only that test:
+
+```bash
+cmake --build build --target hle_tests -j
+./build/hle_tests --gtest_filter=MyUIScreen.DrawsExpectedPixel
+```
+
+Use the same pattern for NVS, SPI bridge, input, and other host-emulated
+contracts. Tests that include C firmware headers should place those includes
+inside an `extern "C"` block.
+
+### Scope and limitations
+
+The HLE covers UI and host-emulated firmware flows. Wi-Fi, Bluetooth, radio,
+and other physical-hardware behavior still require target testing.
 
 
 ## How to Contribute

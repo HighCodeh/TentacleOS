@@ -22,8 +22,7 @@
 #include "mbedtls/aes.h"
 #include "mbedtls/md.h"
 #include "mbedtls/sha256.h"
-
-#include "ed25519.h"
+#include "sodium.h"
 
 static int
 aes_ecb_encrypt_pad(const uint8_t key[16], uint8_t *dest, const uint8_t *src, int src_len);
@@ -181,7 +180,7 @@ uint16_t meshcore_packet_build_advert(const meshcore_identity_t *identity,
   memcpy(&sign_buf[32], &out[2 + 32], 4);
   memcpy(&sign_buf[36], app_data, app_len);
 
-  ed25519_sign(&out[sig_pos], sign_buf, sign_len, identity->pub_key, identity->priv_key);
+  crypto_sign_detached(&out[sig_pos], NULL, sign_buf, sign_len, identity->priv_key);
 
   return pos;
 }
@@ -251,6 +250,16 @@ uint8_t mc_parse_hash_size(uint8_t sel) {
     default:
       return 0;
   }
+}
+
+void mc_x25519(uint8_t out_shared[32], const uint8_t peer_pub_key[32], const uint8_t my_sk[64]) {
+  uint8_t curve_sk[crypto_scalarmult_SCALARBYTES];
+  uint8_t curve_pk[crypto_scalarmult_BYTES];
+  crypto_sign_ed25519_sk_to_curve25519(curve_sk, my_sk);
+  crypto_sign_ed25519_pk_to_curve25519(curve_pk, peer_pub_key);
+  crypto_scalarmult(out_shared, curve_sk, curve_pk);
+  sodium_memzero(curve_sk, sizeof(curve_sk));
+  sodium_memzero(curve_pk, sizeof(curve_pk));
 }
 
 void mc_sha256_two(

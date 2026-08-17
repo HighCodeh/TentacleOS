@@ -114,6 +114,15 @@ uint32_t wifi_sniffer_get_deauth_count(void);
 uint32_t wifi_sniffer_get_buffer_usage(void);
 
 /**
+ * @brief Fill the extended monitor fields (per-type/per-band tallies, unique
+ *        APs, last channel) of a sniffer stats payload.
+ *
+ * @param out Stats struct whose extended tail is populated. The base fields
+ *            (packets/deauths/...) are left untouched.
+ */
+void wifi_sniffer_fill_ext_stats(spi_sniffer_stats_t *out);
+
+/**
  * @brief Set the maximum snapshot length for captured packets.
  *
  * @param len  Maximum bytes to capture per packet.

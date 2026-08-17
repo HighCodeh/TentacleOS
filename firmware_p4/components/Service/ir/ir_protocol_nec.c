@@ -49,14 +49,13 @@ bool ir_protocol_nec_decode(const rmt_symbol_word_t *symbols, size_t count, ir_d
   uint8_t cmd = (raw >> NEC_CMD_SHIFT) & NEC_ADDR_STANDARD_MAX;
   uint8_t cmd_inv = (raw >> NEC_CMD_INV_SHIFT) & NEC_ADDR_STANDARD_MAX;
 
-  if ((uint8_t)(cmd ^ cmd_inv) != NEC_INTEGRITY_MASK)
-    return false;
-
   out_data->protocol = IR_PROTO_NEC;
-  out_data->command = cmd;
   out_data->repeat = false;
   out_data->address =
       ((uint8_t)(addr ^ addr_inv) == NEC_INTEGRITY_MASK) ? addr : (raw & NEC_EXT_ADDR_MASK);
+  out_data->command = ((uint8_t)(cmd ^ cmd_inv) == NEC_INTEGRITY_MASK)
+                          ? cmd
+                          : (cmd | ((uint32_t)cmd_inv << NEC_CMD_HI_SHIFT));
   return true;
 }
 
@@ -74,18 +73,23 @@ size_t ir_protocol_nec_encode(const ir_data_t *data, rmt_symbol_word_t *symbols,
     return NEC_REPEAT_SYMBOL_COUNT;
   }
 
-  uint8_t cmd = data->command & NEC_ADDR_STANDARD_MAX;
-  uint32_t raw;
-
+  uint32_t addr_field;
   if (data->address <= NEC_ADDR_STANDARD_MAX) {
     uint8_t addr = data->address & NEC_ADDR_STANDARD_MAX;
-    raw = addr | ((uint32_t)(~addr & NEC_INTEGRITY_MASK) << NEC_ADDR_INV_SHIFT) |
-          ((uint32_t)cmd << NEC_CMD_SHIFT) |
-          ((uint32_t)(~cmd & NEC_INTEGRITY_MASK) << NEC_CMD_INV_SHIFT);
+    addr_field = addr | ((uint32_t)(~addr & NEC_INTEGRITY_MASK) << NEC_CMD_HI_SHIFT);
   } else {
-    raw = data->address | ((uint32_t)cmd << NEC_CMD_SHIFT) |
-          ((uint32_t)(~cmd & NEC_INTEGRITY_MASK) << NEC_CMD_INV_SHIFT);
+    addr_field = data->address & NEC_EXT_ADDR_MASK;
   }
+
+  uint32_t cmd_field;
+  if (data->command <= NEC_ADDR_STANDARD_MAX) {
+    uint8_t cmd = data->command & NEC_ADDR_STANDARD_MAX;
+    cmd_field = cmd | ((uint32_t)(~cmd & NEC_INTEGRITY_MASK) << NEC_CMD_HI_SHIFT);
+  } else {
+    cmd_field = data->command & NEC_EXT_CMD_MASK;
+  }
+
+  uint32_t raw = addr_field | (cmd_field << NEC_CMD_SHIFT);
 
   ir_encode_distance_cfg_t cfg = {
       .header_mark = NEC_HEADER_MARK,

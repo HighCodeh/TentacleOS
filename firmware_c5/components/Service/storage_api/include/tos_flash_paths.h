@@ -20,7 +20,10 @@
 extern "C" {
 #endif
 
-#define FLASH_MOUNT "/assets"
+#include "vfs_config.h"
+
+// Flash storage lives on the active VFS backend (LittleFS, 'storage' partition).
+#define FLASH_MOUNT VFS_MOUNT_POINT
 
 // Config paths (read-only defaults)
 #define FLASH_CONFIG_WIFI_AP      FLASH_MOUNT "/config/wifi/wifi_ap.conf"

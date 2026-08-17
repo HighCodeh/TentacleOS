@@ -22,6 +22,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 #include "freertos/semphr.h"
 
 #include "cc1101.h"
@@ -37,8 +38,8 @@ static const char *TAG = "SUBGHZ_SPECTRUM";
 #define MUTEX_TIMEOUT_MS       10
 #define GET_LINE_TIMEOUT_MS    5
 #define SPECTRUM_TASK_STACK    4096
-#define SPECTRUM_TASK_PRIORITY 1
-#define SPECTRUM_TASK_CORE     1
+#define SPECTRUM_TASK_PRIORITY SYS_PRIO_BACKGROUND_LO
+#define SPECTRUM_TASK_CORE     SYS_CORE_RADIO
 
 static TaskHandle_t s_spectrum_task_handle = NULL;
 static SemaphoreHandle_t s_spectrum_mutex = NULL;

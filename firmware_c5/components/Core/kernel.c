@@ -19,36 +19,40 @@
 
 #include "driver/gpio.h"
 #include "driver/i2c.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
 
-#include "bq25896.h"
 #include "buttons_gpio.h"
-#include "console_service.h"
+#include "c5_log.h"
 #include "i2c_init.h"
 #include "led_control.h"
+#include "ota_service.h"
 #include "pin_def.h"
-#include "spi.h"
 #include "spi_bridge.h"
 #include "storage_assets.h"
-#include "storage_init.h"
 #include "sys_monitor.h"
 #include "wifi_service.h"
 
 static const char *TAG = "SAFEGUARD";
 
-#define CONSOLE_TASK_STACK 4096
-#define CONSOLE_TASK_PRIO  5
-#define BOOT_SETTLE_MS     1500
+#define BOOT_SETTLE_MS 1500
 
-static void console_task(void *pvParameters) {
-  console_service_init();
-  vTaskDelete(NULL);
+// Fires on any heap_caps allocation failure with the size, caps and caller -
+// context the generic vApplicationMallocFailedHook lacks.
+static void heap_alloc_failed_cb(size_t size, uint32_t caps, const char *function_name) {
+  ESP_LOGE(TAG,
+           "alloc failed: %u B, caps 0x%lx, in %s",
+           (unsigned)size,
+           (unsigned long)caps,
+           function_name ? function_name : "?");
 }
 
 void kernel_init(void) {
+  heap_caps_register_failed_alloc_callback(heap_alloc_failed_cb);
+
   esp_err_t ret = nvs_flash_init();
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
     ESP_ERROR_CHECK(nvs_flash_erase());
@@ -56,22 +60,26 @@ void kernel_init(void) {
   }
   ESP_ERROR_CHECK(ret);
 
-  spi_init();
   init_i2c();
-  // Storage Init
-  storage_init();
+  // Only the assets partition is mounted: it holds P4-editable config (AP name,
+  // password, captive-portal HTML, chat config, known networks). Captured data
+  // (passwords, pcaps, scans) is NOT persisted on the C5 - it streams to the P4
+  // over SPI, which owns storage. So there is no runtime `storage` partition and
+  // no storage_init() here.
   storage_assets_init();
   storage_assets_print_info();
 
-  led_rgb_init();
-  bq25896_init();
-  spi_bridge_slave_init();
+  // The BQ25896 charger and RGB LED live on the P4 and are managed there; the C5
+  // has no battery/charger driver at all (it is not on the C5's I2C bus).
+  // V2 PCB has no bridge IRQ trace: run the slave in POLL mode (matches the P4).
+  spi_bridge_slave_init_mode(SPI_BRIDGE_MODE_POLL);
+  c5_log_init(); // tee C5 logs to the P4 over SPI for the companion console
+  // OTA is triggered on demand over SPI (SPI_ID_SYSTEM_START_UART_OTA); UART0 is
+  // the console until then. No always-on UART receiver here anymore.
 
-  sys_monitor(false);
+  sys_monitor_start(false);
 
   wifi_service_init();
-
-  xTaskCreate(console_task, "console_task", CONSOLE_TASK_STACK, NULL, CONSOLE_TASK_PRIO, NULL);
 
   vTaskDelay(pdMS_TO_TICKS(BOOT_SETTLE_MS));
 }

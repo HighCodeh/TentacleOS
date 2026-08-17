@@ -45,6 +45,12 @@ void wifi_service_deinit(void);
  */
 void wifi_service_stop(void);
 
+/** @brief True while a capture (promiscuous sniffer) is running. */
+bool wifi_service_is_busy(void);
+
+/** @brief Set WiFi modem sleep depth: deep = MAX_MODEM, otherwise MIN_MODEM. */
+void wifi_service_set_power_save(bool deep);
+
 /**
  * @brief Start the Wi-Fi radio.
  */

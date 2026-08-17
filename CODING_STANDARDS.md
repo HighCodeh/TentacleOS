@@ -188,6 +188,30 @@ cleanup:
 - All shared state must be initialized before `xTaskCreate`.
 - Tasks must release all resources before `vTaskDelete`. Set handles to `NULL` after deletion.
 
+### Task priority and core affinity
+
+- Every task priority and core comes from `sys_prio.h` (in `Drivers/sys_prio/include`, the
+  one component every task-creating module already depends on). Never pass a raw number or a
+  private `#define` for a task priority or core.
+- Always pin tasks with `xTaskCreatePinnedToCore` (or `xTaskCreateStaticPinnedToCore`).
+  Do not use the unpinned `xTaskCreate` / `xTaskCreateStatic`.
+- Priority bands (higher number is higher priority):
+
+  | Macro | Prio | Use |
+  |-------|------|-----|
+  | `SYS_PRIO_REALTIME` | 10 | Deferred ISR / hard real-time (radio IRQ) |
+  | `SYS_PRIO_RENDER` | 6 | LVGL renderer only |
+  | `SYS_PRIO_SERVICE_HI` | 5 | Latency-sensitive services (host link, radio rx/tx, streaming) |
+  | `SYS_PRIO_SERVICE_LO` | 4 | Regular services (media playback, capture, UI helpers) |
+  | `SYS_PRIO_BACKGROUND` | 3 | Periodic polling, logging, telemetry |
+  | `SYS_PRIO_BACKGROUND_LO` | 2 | Lowest non-idle background work |
+  | `SYS_PRIO_MONITOR` | 1 | Health monitor |
+
+- Core affinity: `SYS_CORE_UI` (core 1) runs the renderer plus everything that feeds the
+  screen (media, capture, UI helper tasks). `SYS_CORE_RADIO` (core 0) runs radios, host
+  link, bridge, storage and background services. The renderer must never share a core with
+  a radio or USB stream.
+
 
 ## Headers
 

@@ -24,6 +24,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 #include "host/ble_hs.h"
 
 #include "bluetooth_service.h"
@@ -31,7 +32,7 @@
 static const char *TAG = "SKIMMER_DETECTOR";
 
 #define SKIMMER_TASK_STACK_SIZE  4096
-#define SKIMMER_TASK_PRIORITY    5
+#define SKIMMER_TASK_PRIORITY    SYS_PRIO_SERVICE_HI
 #define SKIMMER_TIMEOUT_MS       30000
 #define SKIMMER_POLL_DELAY_MS    1000
 #define SKIMMER_MUTEX_TIMEOUT_MS 100

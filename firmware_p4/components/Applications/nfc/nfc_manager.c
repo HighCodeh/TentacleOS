@@ -17,8 +17,10 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "hb_nfc_timer.h"
+#include "led_control.h"
 #include "nfc_card_info.h"
 #include "nfc_poller.h"
 #include "nfc_reader.h"
@@ -85,6 +87,8 @@ static void nfc_manager_task(void *arg) {
         full.protocol = HB_PROTO_ISO14443_4A;
       }
 
+      led_signal_info(); // a card was detected and read
+
       if (s_mgr.cb) {
         s_mgr.cb(&full, s_mgr.ctx);
       } else {
@@ -111,7 +115,8 @@ hb_nfc_err_t nfc_manager_start(nfc_manager_card_found_cb_t cb, void *ctx) {
   s_mgr.ctx = ctx;
   s_mgr.running = true;
 
-  xTaskCreate(nfc_manager_task, "nfc_mgr", 8192, NULL, 5, &s_mgr.task);
+  xTaskCreatePinnedToCore(
+      nfc_manager_task, "nfc_mgr", 8192, NULL, SYS_PRIO_SERVICE_HI, &s_mgr.task, SYS_CORE_RADIO);
   return HB_NFC_OK;
 }
 

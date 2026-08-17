@@ -15,419 +15,507 @@
 
 #include "ir_send_ui.h"
 
-#include <string.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <dirent.h>
 
 #include "esp_log.h"
+#include "lvgl.h"
 
-#include "ui_theme.h"
-#include "ui_manager.h"
-#include "menu_component_ui.h"
-#include "msgbox_ui.h"
-#include "buttons_gpio.h"
 #include "assets_manager.h"
-#include "ir.h"
-#include "ir_file.h"
-#include "tos_storage_paths.h"
-#include "st7789.h"
+#include "capture_result_ui.h"
+#include "ir_store.h"
+#include "menu_component_ui.h"
+#include "notify_ui.h"
+#include "sigwave_ui.h"
+#include "ui_chrome.h"
+#include "ui_feedback.h"
+#include "ui_manager.h"
+#include "ui_theme.h"
 
 static const char *TAG = "IR_SEND_UI";
 
-#define OUTER_BORDER 4
-#define TOP_BORDER_H 46
-#define ITEM_H       47
-#define ITEM_W       210
-#define MAX_FILES    24
+#define SIG_GREEN 0x00E676
+#define COL_DIM   0x8A8594
+#define IR_ICON   "/assets/icons/podcasts.bin"
 
-#define FILE_NAME_MAX_LEN    96
-#define FILE_PATH_MAX_LEN    300
-#define DIR_NAME_FMT_MAX_LEN 64
-#define SUBPATH_BUF_SIZE     512
-#define SEND_PATH_BUF_SIZE   512
-#define IR_FILE_MAX_BYTES    4096
+#define TICK_MS      50
+#define SENDING_MS   1600
+#define DOT_CYCLE_MS 350
+#define REVEAL_MS    2600
 
-#define TITLE_BAR_W        170
-#define TITLE_BAR_H        30
-#define TITLE_BAR_RADIUS   12
-#define TITLE_BAR_BORDER_W 2
+#define STATUS_Y   50
+#define CARD_W     210
+#define CARD_H     64
+#define CARD_Y_OFS -30
+#define SIG_Y_OFS  44
 
-#define TOP_AREA_BORDER_W 3
-#define OUTER_BORDER_W    3
-#define ACCENT_BORDER_W   3
+#define STATUS_SENDING "Sending"
+#define STATUS_SENT    "Signal sent!"
 
-#define ITEM_RADIUS          10
-#define ITEM_BORDER_SELECTED 3
-#define ITEM_BORDER_NORMAL   1
-#define ITEM_PAD_H           8
-#define ITEM_PAD_COL         6
-#define ITEM_FLEX_GROW       1
+#define HINT_SENDING "Transmitting..."
+#define HINT_SENT    "BACK = Exit"
+#define HINT_OPTIONS "UP/DOWN choose   OK do   BACK exit"
 
-#define ITEMS_CONT_PAD      2
-#define ITEMS_CONT_PAD_ROW  6
-#define ITEMS_CONT_OFFSET_X 4
-#define ITEMS_CONT_OFFSET_Y 4
+#define EMPTY_NAME "No signals — use Learn"
 
-#define SCROLL_BAR_TRACK_W        3
-#define SCROLL_BAR_TRACK_OFF      10
-#define SCROLL_BAR_IMG_OFF        4
-#define SCROLL_BAR_THUMB_H        20
-#define SCROLL_BAR_ANIM_MS        150
-#define SCROLL_TRACK_X_FROM_RIGHT 10
-
-#define NAV_TIMER_PERIOD_MS 50
-
-#define SUBPATH_DIR_FMT TOS_PATH_IR "/%.64s"
-#define FILE_NAME_FMT   "[%.30s] %.60s"
-#define FILE_PATH_FMT   "%.128s/%.128s"
-#define SEND_PATH_FMT   TOS_PATH_IR "/%.300s"
+typedef enum {
+  VIEW_LIST = 0,
+  VIEW_SENDING,
+  VIEW_SENT,
+} send_view_t;
 
 static lv_obj_t *s_screen = NULL;
-static lv_timer_t *s_nav_timer = NULL;
-static lv_obj_t *s_items_cont = NULL;
-static lv_obj_t *s_item_objs[MAX_FILES];
-static lv_obj_t *s_scroll_bar = NULL;
+static menu_component_t s_menu;
+static send_view_t s_view = VIEW_LIST;
+static int s_sel = 0;
 
-static char s_file_names[MAX_FILES][FILE_NAME_MAX_LEN];
-static char s_file_paths[MAX_FILES][FILE_PATH_MAX_LEN];
-static size_t s_file_count = 0;
-static size_t s_selected = 0;
+static ir_store_entry_t s_entries[IR_STORE_MAX_ENTRIES];
+static int s_count = 0;
 
-static int32_t s_track_y_start;
-static int32_t s_track_h;
+static lv_timer_t *s_tick_timer = NULL;
+static lv_timer_t *s_send_timer = NULL;
 
-static bool s_btn_up_last = false;
-static bool s_btn_down_last = false;
-static bool s_btn_ok_last = false;
-static bool s_btn_back_last = false;
+static lv_obj_t *s_status_label = NULL;
+static lv_obj_t *s_hint_label = NULL;
+static lv_obj_t *s_card = NULL;
+static lv_obj_t *s_sig = NULL;
+static capture_result_t s_cr = {0};
+static bool s_options = false;
+static uint32_t s_send_start = 0;
+static uint32_t s_sent_at = 0;
 
-static void update_scroll_bar(void);
-static void update_selection(void);
-static void scan_ir_files(void);
-static void send_selected(void);
+static void ir_send_tick_cb(lv_timer_t *t);
+static void ir_send_input(const input_event_t *ev, void *ctx);
 static void build_list(void);
-static void nav_timer_cb(lv_timer_t *t);
+static void build_sending(void);
+static void send_done_cb(lv_timer_t *t);
 
-static void update_scroll_bar(void) {
-  if (s_scroll_bar == NULL || s_file_count <= 1)
-    return;
+static const char *sel_name(void) {
+  return (s_count > 0 && s_sel >= 0 && s_sel < s_count) ? s_entries[s_sel].name : EMPTY_NAME;
+}
 
-  int32_t pos = s_track_y_start + ((int32_t)s_selected * (s_track_h - SCROLL_BAR_THUMB_H)) /
-                                      (int32_t)(s_file_count - 1);
+static const char *sel_proto(void) {
+  return (s_count > 0 && s_sel >= 0 && s_sel < s_count) ? s_entries[s_sel].proto : "IR";
+}
 
+static void stop_send_timer(void) {
+  if (s_send_timer != NULL) {
+    lv_timer_delete(s_send_timer);
+    s_send_timer = NULL;
+  }
+}
+
+static lv_obj_t *new_screen(void) {
+  lv_obj_t *screen = lv_obj_create(NULL);
+  lv_obj_set_style_bg_color(screen, current_theme.screen_base, 0);
+  lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
+  lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_border_width(screen, 0, 0);
+  lv_obj_set_style_pad_all(screen, 0, 0);
+  return screen;
+}
+
+static void transy_cb(void *var, int32_t v) {
+  lv_obj_set_style_translate_y((lv_obj_t *)var, v, 0);
+}
+
+static void card_rise(lv_obj_t *o) {
   lv_anim_t a;
   lv_anim_init(&a);
-  lv_anim_set_var(&a, s_scroll_bar);
-  lv_anim_set_values(&a, lv_obj_get_y(s_scroll_bar), pos);
-  lv_anim_set_duration(&a, SCROLL_BAR_ANIM_MS);
-  lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
-  lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)lv_obj_set_y);
+  lv_anim_set_var(&a, o);
+  lv_anim_set_exec_cb(&a, transy_cb);
+  lv_anim_set_values(&a, 26, 0);
+  lv_anim_set_duration(&a, 300);
+  lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
   lv_anim_start(&a);
 }
 
-static void update_selection(void) {
-  for (size_t i = 0; i < s_file_count; i++) {
-    if (i == s_selected) {
-      lv_obj_set_style_border_width(s_item_objs[i], ITEM_BORDER_SELECTED, 0);
-      lv_obj_set_style_border_color(s_item_objs[i], current_theme.border_accent, 0);
-    } else {
-      lv_obj_set_style_border_width(s_item_objs[i], ITEM_BORDER_NORMAL, 0);
-      lv_obj_set_style_border_color(s_item_objs[i], current_theme.border_interface, 0);
-    }
-  }
-
-  if (s_file_count > 0 && s_item_objs[s_selected] != NULL) {
-    lv_obj_scroll_to_view(s_item_objs[s_selected], LV_ANIM_ON);
-  }
-
-  update_scroll_bar();
+static lv_obj_t *lit_panel(lv_obj_t *parent, int w, int h) {
+  lv_obj_t *p = lv_obj_create(parent);
+  lv_obj_remove_flag(p, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(p, w, h);
+  lv_obj_set_style_radius(p, 13, 0);
+  lv_obj_set_style_bg_color(p, current_theme.bg_secondary, 0);
+  lv_obj_set_style_bg_opa(p, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_grad_dir(p, LV_GRAD_DIR_NONE, 0);
+  lv_obj_set_style_border_width(p, 1, 0);
+  lv_obj_set_style_border_color(p, current_theme.border_accent, 0);
+  lv_obj_set_style_shadow_color(p, current_theme.border_accent, 0);
+  lv_obj_set_style_shadow_width(p, 16, 0);
+  lv_obj_set_style_shadow_opa(p, LV_OPA_40, 0);
+  lv_obj_set_style_shadow_spread(p, -4, 0);
+  return p;
 }
 
-static void scan_ir_files(void) {
-  s_file_count = 0;
-
-  DIR *root = opendir(TOS_PATH_IR);
-  if (root == NULL)
+static void set_status(const char *text, bool success) {
+  if (s_status_label == NULL)
     return;
-
-  struct dirent *proto_ent;
-  while ((proto_ent = readdir(root)) != NULL && s_file_count < MAX_FILES) {
-    if (proto_ent->d_name[0] == '.' || proto_ent->d_type != DT_DIR)
-      continue;
-
-    char sub_path[SUBPATH_BUF_SIZE];
-    snprintf(sub_path, sizeof(sub_path), SUBPATH_DIR_FMT, proto_ent->d_name);
-
-    DIR *sub = opendir(sub_path);
-    if (sub == NULL)
-      continue;
-
-    struct dirent *file_ent;
-    while ((file_ent = readdir(sub)) != NULL && s_file_count < MAX_FILES) {
-      size_t len = strlen(file_ent->d_name);
-      if (len < 4 || strcmp(file_ent->d_name + len - 3, ".ir") != 0)
-        continue;
-
-      snprintf(s_file_names[s_file_count],
-               sizeof(s_file_names[0]),
-               FILE_NAME_FMT,
-               proto_ent->d_name,
-               file_ent->d_name);
-
-      snprintf(s_file_paths[s_file_count],
-               sizeof(s_file_paths[0]),
-               FILE_PATH_FMT,
-               proto_ent->d_name,
-               file_ent->d_name);
-
-      s_file_count++;
-    }
-    closedir(sub);
-  }
-  closedir(root);
+  lv_label_set_text(s_status_label, text);
+  lv_obj_set_style_text_color(
+      s_status_label, success ? lv_color_hex(SIG_GREEN) : current_theme.text_main, 0);
 }
 
-static void send_selected(void) {
-  if (s_file_count == 0)
-    return;
+static void set_hint(const char *text) {
+  if (s_hint_label != NULL)
+    ui_chrome_footer_set_text(s_hint_label, text);
+}
 
-  char path[SEND_PATH_BUF_SIZE];
-  snprintf(path, sizeof(path), SEND_PATH_FMT, s_file_paths[s_selected]);
+static lv_obj_t *build_cartridge(lv_obj_t *parent) {
+  lv_obj_t *card = lit_panel(parent, CARD_W, CARD_H);
+  lv_obj_align(card, LV_ALIGN_CENTER, 0, CARD_Y_OFS);
+  lv_obj_set_style_pad_all(card, 10, 0);
+  lv_obj_set_flex_flow(card, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(card, 10, 0);
 
-  FILE *f = fopen(path, "r");
-  if (f == NULL) {
-    ESP_LOGE(TAG, "Failed to open IR file: %s", path);
-    msgbox_open(LV_SYMBOL_WARNING, "Failed to open file", "OK", NULL, NULL);
-    return;
+  lv_obj_t *well = lv_obj_create(card);
+  lv_obj_remove_flag(well, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(well, 40, 40);
+  lv_obj_set_style_radius(well, 10, 0);
+  lv_obj_set_style_bg_color(well, current_theme.bg_primary, 0);
+  lv_obj_set_style_bg_opa(well, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_grad_dir(well, LV_GRAD_DIR_NONE, 0);
+  lv_obj_set_style_border_width(well, 0, 0);
+  lv_obj_set_style_pad_all(well, 0, 0);
+
+  lv_image_dsc_t *dsc = assets_get(IR_ICON);
+  if (dsc != NULL) {
+    lv_obj_t *img = lv_image_create(well);
+    lv_image_set_src(img, dsc);
+    lv_obj_center(img);
+    lv_obj_set_style_image_recolor(img, current_theme.text_main, 0);
+    lv_obj_set_style_image_recolor_opa(img, LV_OPA_COVER, 0);
   }
 
-  fseek(f, 0, SEEK_END);
-  int32_t sz = (int32_t)ftell(f);
-  fseek(f, 0, SEEK_SET);
+  lv_obj_t *col = lv_obj_create(card);
+  lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_height(col, LV_SIZE_CONTENT);
+  lv_obj_set_flex_grow(col, 1);
+  lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(col, 0, 0);
+  lv_obj_set_style_pad_all(col, 0, 0);
+  lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(col, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+  lv_obj_set_style_pad_row(col, 3, 0);
 
-  if (sz <= 0 || sz > IR_FILE_MAX_BYTES) {
-    ESP_LOGE(TAG, "Invalid IR file size: %ld", (long)sz);
-    fclose(f);
-    msgbox_open(LV_SYMBOL_WARNING, "Invalid file", "OK", NULL, NULL);
-    return;
-  }
+  lv_obj_t *name = lv_label_create(col);
+  lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+  lv_obj_set_width(name, lv_pct(100));
+  lv_label_set_text(name, sel_name());
+  lv_obj_set_style_text_font(name, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(name, current_theme.text_main, 0);
 
-  char *buf = malloc((size_t)sz + 1);
-  if (buf == NULL) {
-    ESP_LOGE(TAG, "Failed to allocate IR file buffer");
-    fclose(f);
-    return;
-  }
+  lv_obj_t *sub = lv_label_create(col);
+  lv_label_set_text_fmt(sub, "Transmitting %s", sel_proto());
+  lv_obj_set_style_text_font(sub, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(sub, current_theme.border_accent, 0);
 
-  size_t read = fread(buf, 1, (size_t)sz, f);
-  fclose(f);
-
-  if ((int32_t)read != sz) {
-    ESP_LOGE(TAG, "Short read on IR file: expected %ld, got %zu", (long)sz, read);
-    free(buf);
-    msgbox_open(LV_SYMBOL_WARNING, "Failed to read file", "OK", NULL, NULL);
-    return;
-  }
-
-  buf[sz] = '\0';
-
-  ir_file_t ir_file;
-  ir_file_init(&ir_file);
-
-  if (ir_file_parse(buf, &ir_file) && ir_file.count > 0) {
-    ir_tx_init();
-    ir_file_send(&ir_file.signals[0]);
-    msgbox_open(LV_SYMBOL_OK, "Signal sent!", "OK", NULL, NULL);
-  } else {
-    ESP_LOGW(TAG, "IR file parse failed or empty: %s", path);
-    msgbox_open(LV_SYMBOL_WARNING, "Failed to send", "OK", NULL, NULL);
-  }
-
-  ir_file_free(&ir_file);
-  free(buf);
+  return card;
 }
 
 static void build_list(void) {
-  if (s_items_cont != NULL)
-    lv_obj_clean(s_items_cont);
-
-  scan_ir_files();
-
-  for (size_t i = 0; i < s_file_count; i++) {
-    lv_obj_t *item = lv_obj_create(s_items_cont);
-    lv_obj_set_size(item, ITEM_W, ITEM_H);
-    lv_obj_remove_flag(item, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_radius(item, ITEM_RADIUS, 0);
-    lv_obj_set_style_bg_opa(item, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(item, current_theme.bg_primary, 0);
-    lv_obj_set_style_bg_grad_color(item, current_theme.bg_secondary, 0);
-    lv_obj_set_style_bg_grad_dir(item, LV_GRAD_DIR_HOR, 0);
-    lv_obj_set_style_border_width(item, ITEM_BORDER_NORMAL, 0);
-    lv_obj_set_style_border_color(item, current_theme.border_interface, 0);
-    lv_obj_set_style_pad_left(item, ITEM_PAD_H, 0);
-    lv_obj_set_style_pad_right(item, ITEM_PAD_H, 0);
-    lv_obj_set_flex_flow(item, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(item, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(item, ITEM_PAD_COL, 0);
-
-    lv_obj_t *lbl = lv_label_create(item);
-    lv_label_set_text(lbl, s_file_names[i]);
-    lv_obj_set_style_text_color(lbl, current_theme.text_main, 0);
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
-    lv_obj_set_flex_grow(lbl, ITEM_FLEX_GROW);
-    lv_label_set_long_mode(lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
-
-    lv_obj_t *arrow = lv_label_create(item);
-    lv_label_set_text(arrow, LV_SYMBOL_PLAY);
-    lv_obj_set_style_text_color(arrow, current_theme.border_accent, 0);
-    lv_obj_set_style_text_font(arrow, &lv_font_montserrat_12, 0);
-
-    s_item_objs[i] = item;
-  }
-
-  if (s_file_count == 0) {
-    lv_obj_t *empty = lv_label_create(s_items_cont);
-    lv_label_set_text(empty, "No .ir files found");
-    lv_obj_set_style_text_color(empty, current_theme.border_inactive, 0);
-    lv_obj_set_style_text_font(empty, &lv_font_montserrat_12, 0);
-  }
-
-  update_selection();
-}
-
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
-    return;
-  }
-  if (ui_input_is_locked())
-    return;
-  if (msgbox_is_open())
-    return;
-
-  bool up = up_button_is_down();
-  bool down = down_button_is_down();
-  bool ok = ok_button_is_down();
-  bool back = back_button_is_down();
-
-  if (down && !s_btn_down_last && s_file_count > 0) {
-    s_selected = (s_selected + 1) % s_file_count;
-    update_selection();
-  }
-  if (up && !s_btn_up_last && s_file_count > 0) {
-    s_selected = (s_selected == 0) ? s_file_count - 1 : s_selected - 1;
-    update_selection();
-  }
-  if (ok && !s_btn_ok_last) {
-    send_selected();
-  }
-  if (back && !s_btn_back_last) {
-    ui_switch_screen(SCREEN_IR_MENU);
-  }
-
-  s_btn_up_last = up;
-  s_btn_down_last = down;
-  s_btn_ok_last = ok;
-  s_btn_back_last = back;
-}
-
-void ui_ir_send_open(void) {
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
   }
+  s_status_label = NULL;
+  s_hint_label = NULL;
+  s_card = NULL;
+  s_sig = NULL;
+  s_cr = (capture_result_t){0};
+  s_options = false;
 
-  s_selected = 0;
+  s_count = ir_store_list(s_entries, IR_STORE_MAX_ENTRIES);
+  if (s_count < 0)
+    s_count = 0;
+  if (s_count > MENU_COMP_MAX_ITEMS) {
+    // menu_component holds at most MENU_COMP_MAX_ITEMS rows — don't let extra
+    // files silently fall off the end (selection math would desync). Browse/Burst
+    // still reach the rest.
+    ESP_LOGW(TAG, "%d IR files; showing first %d", s_count, MENU_COMP_MAX_ITEMS);
+    s_count = MENU_COMP_MAX_ITEMS;
+  }
+  if (s_sel >= s_count)
+    s_sel = (s_count > 0) ? s_count - 1 : 0;
+
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, OUTER_BORDER, 0);
-  lv_obj_set_style_border_color(s_screen, current_theme.border_interface, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
 
-  lv_obj_t *top_area = lv_obj_create(s_screen);
-  lv_obj_set_size(top_area, LCD_H_RES - OUTER_BORDER * 2, TOP_BORDER_H);
-  lv_obj_align(top_area, LV_ALIGN_TOP_MID, 0, 0);
-  lv_obj_remove_flag(top_area, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_opa(top_area, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(top_area, TOP_AREA_BORDER_W, 0);
-  lv_obj_set_style_border_color(top_area, current_theme.border_interface, 0);
-  lv_obj_set_style_border_side(top_area, LV_BORDER_SIDE_BOTTOM, 0);
-  lv_obj_set_style_radius(top_area, 0, 0);
-  lv_obj_set_style_pad_all(top_area, 0, 0);
+  s_menu = menu_component_create(s_screen, "IR SEND", IR_ICON);
+  if (s_count == 0) {
+    menu_component_add_item(&s_menu, "/assets/icons/graphic_eq.bin", EMPTY_NAME);
+  } else {
+    for (int i = 0; i < s_count; i++)
+      menu_component_add_item(&s_menu, "/assets/icons/graphic_eq.bin", s_entries[i].name);
+    if (s_sel > 0 && s_sel < s_count)
+      menu_component_select(&s_menu, s_sel);
+  }
 
-  lv_obj_t *title_bar = lv_obj_create(top_area);
-  lv_obj_set_size(title_bar, TITLE_BAR_W, TITLE_BAR_H);
-  lv_obj_align(title_bar, LV_ALIGN_CENTER, 0, 0);
-  lv_obj_remove_flag(title_bar, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_radius(title_bar, TITLE_BAR_RADIUS, 0);
-  lv_obj_set_style_bg_opa(title_bar, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(title_bar, current_theme.bg_primary, 0);
-  lv_obj_set_style_bg_grad_color(title_bar, current_theme.bg_secondary, 0);
-  lv_obj_set_style_bg_grad_dir(title_bar, LV_GRAD_DIR_HOR, 0);
-  lv_obj_set_style_border_width(title_bar, TITLE_BAR_BORDER_W, 0);
-  lv_obj_set_style_border_color(title_bar, current_theme.border_accent, 0);
+  ui_screen_load_owned(&s_screen, s_screen);
+}
 
-  lv_obj_t *title_lbl = lv_label_create(title_bar);
-  lv_label_set_text(title_lbl, "IR SEND");
-  lv_obj_set_style_text_color(title_lbl, current_theme.text_main, 0);
-  lv_obj_set_style_text_font(title_lbl, &lv_font_montserrat_14, 0);
-  lv_obj_center(title_lbl);
+static void build_sending(void) {
+  if (s_screen != NULL) {
+    lv_obj_del(s_screen);
+    s_screen = NULL;
+  }
+  s_cr = (capture_result_t){0};
+  s_options = false;
 
-  int32_t items_y = TOP_BORDER_H + ITEMS_CONT_OFFSET_Y;
-  int32_t items_h = LCD_V_RES - items_y - OUTER_BORDER - ITEMS_CONT_OFFSET_Y;
+  s_screen = new_screen();
+  ui_chrome_header(s_screen, "Send", IR_ICON);
 
-  s_items_cont = lv_obj_create(s_screen);
-  lv_obj_set_size(s_items_cont, ITEM_W + ITEMS_CONT_PAD * 4, items_h);
-  lv_obj_align(s_items_cont, LV_ALIGN_TOP_LEFT, ITEMS_CONT_OFFSET_X, items_y);
-  lv_obj_set_style_bg_opa(s_items_cont, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(s_items_cont, 0, 0);
-  lv_obj_set_style_pad_all(s_items_cont, ITEMS_CONT_PAD, 0);
-  lv_obj_set_style_pad_row(s_items_cont, ITEMS_CONT_PAD_ROW, 0);
-  lv_obj_set_flex_flow(s_items_cont, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_scrollbar_mode(s_items_cont, LV_SCROLLBAR_MODE_OFF);
-  lv_obj_set_scroll_snap_y(s_items_cont, LV_SCROLL_SNAP_START);
+  s_status_label = lv_label_create(s_screen);
+  lv_label_set_text(s_status_label, STATUS_SENDING);
+  lv_obj_set_style_text_color(s_status_label, current_theme.text_main, 0);
+  lv_obj_set_style_text_font(s_status_label, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_align(s_status_label, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_align(s_status_label, LV_ALIGN_TOP_MID, 0, STATUS_Y);
 
-  int32_t track_x = LCD_H_RES - OUTER_BORDER - SCROLL_TRACK_X_FROM_RIGHT;
-  s_track_y_start = items_y + SCROLL_BAR_TRACK_OFF;
-  s_track_h = items_h - SCROLL_BAR_TRACK_OFF * 2;
+  s_card = build_cartridge(s_screen);
+  s_sig = sigwave_create(s_screen, LV_ALIGN_CENTER, 0, SIG_Y_OFS);
 
-  // Points must outlive this function (used by lv_line)
-  static lv_point_precise_t track_pts[2];
-  track_pts[0].x = 0;
-  track_pts[0].y = 0;
-  track_pts[1].x = 0;
-  track_pts[1].y = s_track_h;
+  s_hint_label = ui_chrome_footer(s_screen, HINT_SENDING);
 
-  lv_obj_t *track = lv_line_create(s_screen);
-  lv_line_set_points(track, track_pts, 2);
-  lv_obj_set_pos(track, track_x, s_track_y_start);
-  lv_obj_set_style_line_color(track, current_theme.border_inactive, 0);
-  lv_obj_set_style_line_opa(track, LV_OPA_COVER, 0);
-  lv_obj_set_style_line_width(track, SCROLL_BAR_TRACK_W, 0);
-  lv_obj_set_style_line_dash_width(track, SCROLL_BAR_TRACK_W + 1, 0);
-  lv_obj_set_style_line_dash_gap(track, SCROLL_BAR_TRACK_W + 1, 0);
+  ui_screen_load_owned(&s_screen, s_screen);
+}
 
-  // Cached across calls: asset descriptor is constant after first load
-  static lv_image_dsc_t *sb_dsc = NULL;
-  if (sb_dsc == NULL)
-    sb_dsc = assets_get("/assets/icons/slide_bar_v.bin");
+static void show_options(void) {
+  if (s_card != NULL) {
+    lv_obj_del(s_card);
+    s_card = NULL;
+  }
+  if (s_sig != NULL) {
+    lv_obj_del(s_sig);
+    s_sig = NULL;
+  }
+  if (s_status_label != NULL) {
+    lv_obj_add_flag(s_status_label, LV_OBJ_FLAG_HIDDEN);
+  }
 
-  s_scroll_bar = lv_image_create(s_screen);
-  if (sb_dsc != NULL)
-    lv_image_set_src(s_scroll_bar, sb_dsc);
+  capture_result_cfg_t cfg = {
+      .accent = current_theme.border_accent,
+      .card_icon = IR_ICON,
+      .card_title = sel_name(),
+      .card_sub = sel_proto(),
+      .card_value = "sent",
+      .primary_label = "Send again",
+      .again_label = "Pick another",
+  };
+  s_cr = capture_result_create(s_screen, &cfg);
+  s_options = true;
+  set_hint(HINT_OPTIONS);
+}
 
-  lv_obj_set_pos(s_scroll_bar, track_x - SCROLL_BAR_IMG_OFF, s_track_y_start);
-  lv_obj_move_foreground(s_scroll_bar);
+// Actually transmit the selected file's first signal. Quick and blocking; the
+// on-screen "Sending" animation continues cosmetically.
+static void transmit_selected(void) {
+  if (s_count <= 0 || s_sel < 0 || s_sel >= s_count)
+    return;
+  ir_file_t f;
+  ir_file_init(&f);
+  esp_err_t r = ESP_FAIL;
+  if (ir_store_load(s_entries[s_sel].path, &f) == ESP_OK && f.count > 0)
+    r = ir_store_send_signal(&f.signals[0]);
+  else
+    ESP_LOGW(TAG, "load %s failed", s_entries[s_sel].path);
+  ir_file_free(&f);
+  if (r != ESP_OK)
+    notify(NOTIFY_WARNING, "Send failed");
+}
+
+static void start_send(void) {
+  stop_send_timer();
+  s_view = VIEW_SENDING;
+  s_send_start = lv_tick_get();
+  transmit_selected();
+  build_sending();
+  ui_feedback(UI_FB_SELECT);
+  s_send_timer = lv_timer_create(send_done_cb, SENDING_MS, NULL);
+  lv_timer_set_repeat_count(s_send_timer, 1);
+}
+
+static void send_done_cb(lv_timer_t *t) {
+  (void)t;
+  s_send_timer = NULL;
+  if (lv_screen_active() != s_screen)
+    return;
+
+  s_view = VIEW_SENT;
+  s_options = false;
+  set_status(STATUS_SENT, true);
+
+  if (s_sig != NULL) {
+    lv_obj_del(s_sig);
+    s_sig = NULL;
+  }
+  s_sig = sigwave_create_static(s_screen, LV_ALIGN_CENTER, 0, SIG_Y_OFS);
+
+  if (s_card != NULL) {
+    lv_obj_fade_in(s_card, 280, 0);
+    card_rise(s_card);
+  }
+
+  s_sent_at = lv_tick_get();
+  set_hint(HINT_SENT);
+  ui_feedback(UI_FB_WRITE);
+}
+
+static void sending_tick(void) {
+  if (s_status_label == NULL)
+    return;
+  int dots = ((lv_tick_get() - s_send_start) / DOT_CYCLE_MS) % 4;
+  char buf[24];
+  snprintf(buf,
+           sizeof(buf),
+           "%s%s",
+           STATUS_SENDING,
+           dots == 1   ? "."
+           : dots == 2 ? ".."
+           : dots == 3 ? "..."
+                       : "");
+  lv_label_set_text(s_status_label, buf);
+}
+
+static void ir_send_tick_cb(lv_timer_t *t) {
+  if (lv_screen_active() != s_screen) {
+    lv_timer_delete(t);
+    s_tick_timer = NULL;
+    return;
+  }
+
+  if (s_view == VIEW_SENDING) {
+    sending_tick();
+  } else if (s_view == VIEW_SENT && !s_options && lv_tick_get() - s_sent_at >= REVEAL_MS) {
+    show_options();
+  }
+}
+
+static void ir_send_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+
+  switch (s_view) {
+    case VIEW_LIST:
+      switch (ev->button) {
+        case INPUT_BTN_DOWN:
+          if (nav) {
+            menu_component_next(&s_menu);
+            ui_feedback(UI_FB_NAV);
+          }
+          break;
+        case INPUT_BTN_UP:
+          if (nav) {
+            menu_component_prev(&s_menu);
+            ui_feedback(UI_FB_NAV);
+          }
+          break;
+        case INPUT_BTN_OK:
+        case INPUT_BTN_RIGHT:
+          if (press) {
+            if (s_count <= 0) {
+              notify(NOTIFY_INFO, "Capture a signal in Learn first");
+            } else {
+              s_sel = menu_component_get_selected(&s_menu);
+              start_send();
+            }
+          }
+          break;
+        case INPUT_BTN_BACK:
+        case INPUT_BTN_LEFT:
+          if (press)
+            ui_switch_screen(SCREEN_IR_MENU);
+          break;
+        default:
+          break;
+      }
+      break;
+
+    case VIEW_SENDING:
+      if (ev->button == INPUT_BTN_BACK && press) {
+        stop_send_timer();
+        s_view = VIEW_LIST;
+        build_list();
+      }
+      break;
+
+    case VIEW_SENT:
+      if (!s_options) {
+        if (ev->button == INPUT_BTN_BACK && press) {
+          s_view = VIEW_LIST;
+          build_list();
+        }
+      } else {
+        switch (ev->button) {
+          case INPUT_BTN_DOWN:
+            if (nav) {
+              capture_result_next(&s_cr);
+              ui_feedback(UI_FB_NAV);
+            }
+            break;
+          case INPUT_BTN_UP:
+            if (nav) {
+              capture_result_prev(&s_cr);
+              ui_feedback(UI_FB_NAV);
+            }
+            break;
+          case INPUT_BTN_OK:
+            if (press) {
+              switch (capture_result_selected(&s_cr)) {
+                case CAP_ACT_PRIMARY:
+                  start_send();
+                  break;
+                case CAP_ACT_SAVE:
+                  capture_result_mark_saved(&s_cr);
+                  notify(NOTIFY_INFO, "Already saved");
+                  break;
+                case CAP_ACT_AGAIN:
+                  s_view = VIEW_LIST;
+                  build_list();
+                  break;
+                case CAP_ACT_DISCARD:
+                  ui_switch_screen(SCREEN_IR_MENU);
+                  break;
+                default:
+                  break;
+              }
+            }
+            break;
+          case INPUT_BTN_BACK:
+            if (press)
+              ui_switch_screen(SCREEN_IR_MENU);
+            break;
+          default:
+            break;
+        }
+      }
+      break;
+
+    default:
+      break;
+  }
+}
+
+void ui_ir_send_open(void) {
+  stop_send_timer();
+  if (s_screen != NULL) {
+    lv_obj_del(s_screen);
+    s_screen = NULL;
+  }
+  s_status_label = NULL;
+  s_hint_label = NULL;
+  s_card = NULL;
+  s_sig = NULL;
+  s_cr = (capture_result_t){0};
+  s_options = false;
+  s_view = VIEW_LIST;
+  s_sel = 0;
 
   build_list();
 
-  if (s_nav_timer == NULL) {
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_TIMER_PERIOD_MS, NULL);
-  }
-
-  lv_screen_load(s_screen);
+  ui_input_set_screen_handler(ir_send_input, NULL);
+  if (s_tick_timer == NULL)
+    s_tick_timer = lv_timer_create(ir_send_tick_cb, TICK_MS, NULL);
 }
