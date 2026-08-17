@@ -49,7 +49,7 @@ static const char *TAG = "SPI_BRIDGE_C5";
 #define SPI_BRIDGE_TASK_PRIO  SYS_PRIO_REALTIME
 #define SPI_IRQ_PULSE_US      10
 #define SPI_RESTART_DELAY_MS  50
-#define SPI_FW_VERSION_LEN 32
+#define SPI_FW_VERSION_LEN    32
 
 typedef struct {
   spi_id_t id;
