@@ -13,8 +13,23 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(TentacleOS_C5)
 
 # The C5 is headless: its assets are plain config/html/storage files (no PNG
-# icons or fonts), so there is no png->bin conversion step like the P4 has. Image
-# the assets/ tree straight into the `assets` LittleFS partition and flash it.
+# icons or fonts), so there is no png->bin conversion step like the P4 has. The
+# assets/ tree is staged into temp/ so the build can stamp the current version
+# into firmware.json before imaging, without dirtying the source tree.
 # The `storage` partition holds runtime captures (evil twin passwords, pcaps,
 # GATT dumps, espnow chat) and is formatted on first boot (VFS_FORMAT_ON_FAIL).
-littlefs_create_partition_image(assets assets FLASH_IN_PROJECT)
+execute_process(
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_LIST_DIR}/assets" "${CMAKE_CURRENT_LIST_DIR}/temp"
+)
+
+file(STRINGS "${CMAKE_CURRENT_LIST_DIR}/../common/metadata/version_info.txt" FW_VERSION LIMIT_COUNT 1)
+string(STRIP "${FW_VERSION}" FW_VERSION)
+set(FW_JSON "${CMAKE_CURRENT_LIST_DIR}/temp/config/OTA/firmware.json")
+if(EXISTS "${FW_JSON}")
+    file(READ "${FW_JSON}" _fw_json)
+    string(REGEX REPLACE "\"version\"[ \t]*:[ \t]*\"[^\"]*\"" "\"version\": \"${FW_VERSION}\"" _fw_json "${_fw_json}")
+    file(WRITE "${FW_JSON}" "${_fw_json}")
+endif()
+
+littlefs_create_partition_image(assets temp FLASH_IN_PROJECT)

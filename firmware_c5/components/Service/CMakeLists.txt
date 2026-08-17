@@ -13,6 +13,15 @@
 # You should have received a copy of the GNU General Public License
 # along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
+set(VERSION_META_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../common/metadata")
+set(VERSION_INFO_FILE "${VERSION_META_DIR}/version_info.txt")
+file(STRINGS "${VERSION_INFO_FILE}" FW_VERSION LIMIT_COUNT 1)
+string(STRIP "${FW_VERSION}" FW_VERSION)
+set(GENERATED_VERSION_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+configure_file("${VERSION_META_DIR}/ota_version.h.in"
+               "${GENERATED_VERSION_DIR}/ota_version.h" @ONLY)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${VERSION_INFO_FILE}")
+
 file(GLOB_RECURSE SPI_BRIDGE_SRCS "spi_bridge/*.c")
 file(GLOB_RECURSE SD_CARD_SRCS "sd_card/*.c")
 file(GLOB_RECURSE MESHTASTIC_SRCS "meshtastic/*.c")
@@ -60,6 +69,7 @@ idf_component_register(SRCS
   "meshcore/include"
   "host_link/include"
   "ota/include"
+  "${GENERATED_VERSION_DIR}"
 
 
 

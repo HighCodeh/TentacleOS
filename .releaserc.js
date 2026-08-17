@@ -78,19 +78,13 @@ module.exports = {
     [
       "@semantic-release/exec",
       {
-        prepareCmd:
-          "sed -i 's/\"version\": *\"[^\"]*\"/\"version\": \"${nextRelease.version}\"/' firmware_p4/assets/config/OTA/firmware.json firmware_c5/assets/config/OTA/firmware.json && sed -i 's/#define FIRMWARE_VERSION \"[^\"]*\"/#define FIRMWARE_VERSION \"${nextRelease.version}\"/' firmware_p4/components/Service/ota/include/ota_version.h",
+        prepareCmd: "printf '%s\\n' '${nextRelease.version}' > common/metadata/version_info.txt",
       },
     ],
     [
       "@semantic-release/git",
       {
-        assets: [
-          "CHANGELOG.md",
-          "firmware_p4/assets/config/OTA/firmware.json",
-          "firmware_c5/assets/config/OTA/firmware.json",
-          "firmware_p4/components/Service/ota/include/ota_version.h",
-        ],
+        assets: ["CHANGELOG.md", "common/metadata/version_info.txt"],
         message: "chore(release): v${nextRelease.version}",
       },
     ],

@@ -34,6 +34,7 @@
 #include "bluetooth_service.h"
 #include "deauther_detector.h"
 #include "ota_service.h"
+#include "ota_version.h"
 #include "session_manager.h"
 #include "signal_monitor.h"
 #include "spi_slave_driver.h"
@@ -48,8 +49,7 @@ static const char *TAG = "SPI_BRIDGE_C5";
 #define SPI_BRIDGE_TASK_PRIO  SYS_PRIO_REALTIME
 #define SPI_IRQ_PULSE_US      10
 #define SPI_RESTART_DELAY_MS  50
-#define SPI_FW_VERSION_LEN    32
-#define SPI_FW_VERSION_STRING "1.3.0"
+#define SPI_FW_VERSION_LEN 32
 
 typedef struct {
   spi_id_t id;
@@ -247,7 +247,7 @@ esp_err_t spi_bridge_slave_init_mode(spi_bridge_mode_t mode) {
 // Static functions
 
 static void load_firmware_version(void) {
-  strncpy(s_firmware_version, SPI_FW_VERSION_STRING, sizeof(s_firmware_version) - 1);
+  strncpy(s_firmware_version, FIRMWARE_VERSION, sizeof(s_firmware_version) - 1);
   s_firmware_version[sizeof(s_firmware_version) - 1] = '\0';
   ESP_LOGI(TAG, "Firmware version: %s", s_firmware_version);
 }

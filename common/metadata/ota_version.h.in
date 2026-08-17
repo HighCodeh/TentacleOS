@@ -1,0 +1,16 @@
+// Generated at build time from common/metadata/version_info.txt. Do not edit.
+
+#ifndef OTA_VERSION_H
+#define OTA_VERSION_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define FIRMWARE_VERSION "@FW_VERSION@"
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // OTA_VERSION_H

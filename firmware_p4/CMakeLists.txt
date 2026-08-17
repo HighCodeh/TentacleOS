@@ -39,6 +39,13 @@ if(NOT convert_result EQUAL 0)
     message(FATAL_ERROR "Failed to convert assets. Check the logs above for details.")
 endif()
 
-# ==============================================================================
+file(STRINGS "${CMAKE_CURRENT_LIST_DIR}/../common/metadata/version_info.txt" FW_VERSION LIMIT_COUNT 1)
+string(STRIP "${FW_VERSION}" FW_VERSION)
+set(FW_JSON "${CMAKE_CURRENT_LIST_DIR}/temp/config/OTA/firmware.json")
+if(EXISTS "${FW_JSON}")
+    file(READ "${FW_JSON}" _fw_json)
+    string(REGEX REPLACE "\"version\"[ \t]*:[ \t]*\"[^\"]*\"" "\"version\": \"${FW_VERSION}\"" _fw_json "${_fw_json}")
+    file(WRITE "${FW_JSON}" "${_fw_json}")
+endif()
 
 littlefs_create_partition_image(assets temp FLASH_IN_PROJECT)
