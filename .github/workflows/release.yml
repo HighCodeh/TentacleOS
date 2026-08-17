@@ -84,13 +84,17 @@ jobs:
         run: bash tools/build.sh
         shell: bash
 
-      - name: Rename binary
-        run: cp firmware_p4/build/TentacleOS_P4.bin "TentacleOS_v${{ needs.release.outputs.version }}.bin"
+      - name: Rename binaries
+        run: |
+          cp firmware_p4/build/TentacleOS_P4.bin "TentacleOS-P4-${{ needs.release.outputs.version }}.bin"
+          cp firmware_c5/build/TentacleOS_C5.bin "TentacleOS-C5-${{ needs.release.outputs.version }}.bin"
 
-      - name: Upload binary to Release
+      - name: Upload binaries to Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: "v${{ needs.release.outputs.version }}"
-          files: "TentacleOS_v${{ needs.release.outputs.version }}.bin"
+          files: |
+            TentacleOS-P4-${{ needs.release.outputs.version }}.bin
+            TentacleOS-C5-${{ needs.release.outputs.version }}.bin
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
