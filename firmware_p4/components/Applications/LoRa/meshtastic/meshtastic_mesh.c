@@ -1365,8 +1365,8 @@ esp_err_t meshtastic_mesh_start(void) {
 
   s_is_running = true;
 
-  BaseType_t ok =
-      xTaskCreatePinnedToCore(mesh_task, "mesh_tx", 4096, NULL, SYS_PRIO_BACKGROUND, &s_mesh_task_handle, SYS_CORE_RADIO);
+  BaseType_t ok = xTaskCreatePinnedToCore(
+      mesh_task, "mesh_tx", 4096, NULL, SYS_PRIO_BACKGROUND, &s_mesh_task_handle, SYS_CORE_RADIO);
   if (ok != pdPASS) {
     s_is_running = false;
     ESP_LOGE(TAG, "Failed to create mesh task");

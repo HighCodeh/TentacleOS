@@ -49,7 +49,7 @@ static const char *TAG = "WIFI_ATTACK_UI";
 #define DEAUTH_FRAME_TYPE WIFI_DEAUTHER_TYPE_CLASS3
 #define DEAUTH_BROADCAST  true
 
-#define BOLT_ICON   "/assets/icons/bolt.bin"
+#define BOLT_ICON "/assets/icons/bolt.bin"
 #define PICK_ICON "/assets/icons/wifi_find.bin"
 
 typedef enum {
@@ -364,8 +364,13 @@ static void begin_attack(attack_kind_t kind) {
   build_running_view();
   ui_input_set_screen_handler(wifi_attack_input, NULL);
 
-  if (xTaskCreatePinnedToCore(attack_start_task, "atk_start", TASK_STACK_SIZE, NULL, TASK_PRIORITY,
-                              NULL, SYS_CORE_RADIO) != pdPASS) {
+  if (xTaskCreatePinnedToCore(attack_start_task,
+                              "atk_start",
+                              TASK_STACK_SIZE,
+                              NULL,
+                              TASK_PRIORITY,
+                              NULL,
+                              SYS_CORE_RADIO) != pdPASS) {
     s_is_attack_starting = false;
     s_is_attack_started = false;
     build_list_view();
@@ -378,8 +383,13 @@ static void stop_running_attack(void) {
   s_is_stop_requested = true;
   if (!s_is_attack_stopping) {
     s_is_attack_stopping = true;
-    if (xTaskCreatePinnedToCore(attack_stop_task, "atk_stop", TASK_STACK_SIZE, NULL, TASK_PRIORITY,
-                                NULL, SYS_CORE_RADIO) != pdPASS) {
+    if (xTaskCreatePinnedToCore(attack_stop_task,
+                                "atk_stop",
+                                TASK_STACK_SIZE,
+                                NULL,
+                                TASK_PRIORITY,
+                                NULL,
+                                SYS_CORE_RADIO) != pdPASS) {
       s_is_attack_stopping = false;
     }
   }
@@ -430,8 +440,9 @@ static void start_ap_pick(attack_kind_t kind) {
 
   if (!s_is_pick_scanning) {
     s_is_pick_scanning = true;
-    if (xTaskCreatePinnedToCore(ap_pick_task, "atk_pick", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL,
-                                SYS_CORE_RADIO) != pdPASS) {
+    if (xTaskCreatePinnedToCore(
+            ap_pick_task, "atk_pick", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL, SYS_CORE_RADIO) !=
+        pdPASS) {
       s_is_pick_scanning = false;
       build_pick_list();
       ui_input_set_screen_handler(wifi_attack_input, NULL);

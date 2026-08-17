@@ -34,18 +34,18 @@ extern "C" {
 
 #include "esp_rom_crc.h"
 
-#define SPI_SYNC_BYTE                 0xAA
+#define SPI_SYNC_BYTE 0xAA
 // Capped at 255: the header's `length` field is a uint8_t, so 256 was never
 // representable ((uint8_t)256 == 0). For a RESPONSE, `length` also counts the
 // status byte, so its data maxes at 254 (SPI_MAX_PAYLOAD - SPI_RESP_STATUS_SIZE).
-#define SPI_MAX_PAYLOAD               255
-#define SPI_RESP_STATUS_SIZE          1
+#define SPI_MAX_PAYLOAD      255
+#define SPI_RESP_STATUS_SIZE 1
 
 // Wire-protocol version. Bump on ANY change to the contract below (an id, a
 // struct, or the header layout). The P4 reads the C5's value at bridge init via
 // SPI_ID_SYSTEM_PROTO_VERSION and flags a mismatch loudly, so two copies of this
 // header that drifted are caught at boot instead of silently misparsing frames.
-#define SPI_PROTOCOL_VERSION          2
+#define SPI_PROTOCOL_VERSION 2
 
 #define SPI_BT_SPAM_ITEM_LEN          32
 #define SPI_BT_SPAM_LIST_MAX          64
@@ -81,8 +81,8 @@ typedef enum {
   SPI_CAT_WIFI = 0x01,
   SPI_CAT_BT = 0x02,
   SPI_CAT_LORA = 0x03,
-  SPI_CAT_MESH = 0x04,  // Meshtastic phone bridge
-  SPI_CAT_MCORE = 0x05, // MeshCore phone bridge
+  SPI_CAT_MESH = 0x04,   // Meshtastic phone bridge
+  SPI_CAT_MCORE = 0x05,  // MeshCore phone bridge
   SPI_CAT_HOST = 0x06,   // Companion host-link BLE relay
   SPI_CAT_SCREEN = 0x07, // P4-native screen sharing over the host link (USB)
   SPI_CAT_SESSION = 0xFF
@@ -111,16 +111,17 @@ typedef enum {
   SPI_ID_SYSTEM_LOG = SPI_CMD(SPI_CAT_SYSTEM, 0x07), // C5→P4 stream: log lines [level u8][utf-8]
   SPI_ID_SYSTEM_ENTER_DOWNLOAD =
       SPI_CMD(SPI_CAT_SYSTEM, 0x08), // P4→C5: reboot into ROM download mode (serial-flash recovery)
-  SPI_ID_SYSTEM_OTA_BEGIN = SPI_CMD(
-      SPI_CAT_SYSTEM, 0x09), // P4→C5: begin app OTA. Payload = spi_ota_begin_t (u32 size + u8
-                             // transport). C5 erases; bytes then arrive over SPI (OTA_DATA) or UART.
+  SPI_ID_SYSTEM_OTA_BEGIN =
+      SPI_CMD(SPI_CAT_SYSTEM,
+              0x09), // P4→C5: begin app OTA. Payload = spi_ota_begin_t (u32 size + u8
+                     // transport). C5 erases; bytes then arrive over SPI (OTA_DATA) or UART.
   SPI_ID_SYSTEM_OTA_STATUS = SPI_CMD(
       SPI_CAT_SYSTEM, 0x0A), // P4→C5: poll OTA progress. Response payload = spi_ota_status_t.
   SPI_ID_SYSTEM_OTA_DATA = SPI_CMD(
       SPI_CAT_SYSTEM, 0x0B), // P4→C5: one firmware chunk (SPI transport). Written sequentially; the
                              // C5 finalizes and reboots once bytes_written reaches the image size.
-  SPI_ID_SYSTEM_INFO = SPI_CMD(
-      SPI_CAT_SYSTEM, 0x0C), // P4→C5: read chip info. Response payload = spi_sys_info_t.
+  SPI_ID_SYSTEM_INFO =
+      SPI_CMD(SPI_CAT_SYSTEM, 0x0C), // P4→C5: read chip info. Response payload = spi_sys_info_t.
   SPI_ID_SYSTEM_PROTO_VERSION = SPI_CMD(
       SPI_CAT_SYSTEM, 0x0D), // P4→C5: read the C5's SPI_PROTOCOL_VERSION. Response payload = u16.
 
@@ -363,22 +364,22 @@ typedef struct __attribute__((packed)) {
 
 /** @brief Where the C5 receives the firmware image after an OTA begin. */
 typedef enum {
-  SPI_OTA_TRANSPORT_SPI = 0,  ///< Image bytes arrive as SPI_ID_SYSTEM_OTA_DATA chunks.
-  SPI_OTA_TRANSPORT_UART = 1  ///< Image bytes arrive raw on UART0; control stays on SPI.
+  SPI_OTA_TRANSPORT_SPI = 0, ///< Image bytes arrive as SPI_ID_SYSTEM_OTA_DATA chunks.
+  SPI_OTA_TRANSPORT_UART = 1 ///< Image bytes arrive raw on UART0; control stays on SPI.
 } spi_ota_transport_t;
 
 /** @brief SPI_ID_SYSTEM_OTA_BEGIN request payload. */
 typedef struct __attribute__((packed)) {
-  uint32_t size;   ///< Image size in bytes.
+  uint32_t size;     ///< Image size in bytes.
   uint8_t transport; ///< spi_ota_transport_t
 } spi_ota_begin_t;
 
 /** @brief SPI_ID_SYSTEM_INFO response payload: C5 chip identity. */
 typedef struct __attribute__((packed)) {
-  uint8_t chip_model;    ///< esp_chip_model_t
+  uint8_t chip_model;     ///< esp_chip_model_t
   uint16_t chip_revision; ///< major*100 + minor
-  uint8_t mac[6];        ///< base MAC
-  uint32_t free_heap;    ///< current free heap in bytes
+  uint8_t mac[6];         ///< base MAC
+  uint32_t free_heap;     ///< current free heap in bytes
 } spi_sys_info_t;
 
 /**
@@ -566,11 +567,11 @@ typedef struct {
  * ssid is sanitized printable ASCII, null-terminated, empty for hidden networks.
  */
 typedef struct {
-  uint8_t bssid[6];   // AP MAC
-  int8_t rssi;        // signal strength, dBm
-  uint8_t channel;    // primary channel
-  uint8_t authmode;   // wifi_auth_mode_t value (0=open, 3=wpa2, 6=wpa3, ...)
-  uint8_t ssid[33];   // null-terminated, sanitized ASCII ('' = hidden)
+  uint8_t bssid[6]; // AP MAC
+  int8_t rssi;      // signal strength, dBm
+  uint8_t channel;  // primary channel
+  uint8_t authmode; // wifi_auth_mode_t value (0=open, 3=wpa2, 6=wpa3, ...)
+  uint8_t ssid[33]; // null-terminated, sanitized ASCII ('' = hidden)
 } __attribute__((packed)) spi_wifi_scan_record_t;
 
 /**

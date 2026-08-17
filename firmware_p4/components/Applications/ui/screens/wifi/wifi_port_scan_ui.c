@@ -195,13 +195,9 @@ void ui_wifi_port_scan_open(void) {
   build_screen();
   if (!s_scanning) {
     s_scanning = true;
-    if (xTaskCreatePinnedToCore(scan_task,
-                                "port_scan",
-                                TASK_STACK_SIZE,
-                                NULL,
-                                TASK_PRIORITY,
-                                NULL,
-                                SYS_CORE_RADIO) != pdPASS) {
+    if (xTaskCreatePinnedToCore(
+            scan_task, "port_scan", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL, SYS_CORE_RADIO) !=
+        pdPASS) {
       s_scanning = false;
       s_state = SCAN_DONE;
       build_screen();

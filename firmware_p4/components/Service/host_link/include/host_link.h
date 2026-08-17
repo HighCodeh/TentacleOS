@@ -48,8 +48,9 @@ typedef enum {
   HOST_TYPE_RESP = 0x02,
   HOST_TYPE_STREAM = 0x03,
   HOST_TYPE_LOG = 0x04,
-  HOST_TYPE_HELLO = 0x10,     // app → device: { host_ver, client_nonce[16] }
-  HOST_TYPE_HELLO_ACK = 0x11, // device → app: { host_ver, server_nonce[16], device_id[6], mac_psk[16] }
+  HOST_TYPE_HELLO = 0x10, // app → device: { host_ver, client_nonce[16] }
+  HOST_TYPE_HELLO_ACK =
+      0x11, // device → app: { host_ver, server_nonce[16], device_id[6], mac_psk[16] }
 } host_type_t;
 
 #define HOST_LINK_NONCE_SIZE     16
@@ -136,7 +137,9 @@ esp_err_t host_link_cdc_init(void);
  * @param text      UTF-8 log text (ANSI already stripped by the caller).
  * @param text_len  Length of @p text in bytes (no NUL needed).
  */
-void host_link_emit_log(host_log_source_t source, host_log_level_t level, const char *text,
+void host_link_emit_log(host_log_source_t source,
+                        host_log_level_t level,
+                        const char *text,
                         size_t text_len);
 
 /**

@@ -49,9 +49,9 @@ static const char *TAG = "SPECTRUM_UI";
 #define TASK_STOP_RETRIES      40
 #define TASK_STOP_DELAY_MS     10
 #define ANIM_TIMER_MS          33
-#define SPECTRUM_TASK_STACK 8192
+#define SPECTRUM_TASK_STACK    8192
 #define SPECTRUM_TASK_PRIORITY SYS_PRIO_SERVICE_LO
-#define SPECTRUM_TASK_CORE SYS_CORE_UI
+#define SPECTRUM_TASK_CORE     SYS_CORE_UI
 
 #define SPECTRUM_ICON      "/assets/icons/graphic_eq.bin"
 #define SPECTRUM_TITLE     "SPECTRUM"

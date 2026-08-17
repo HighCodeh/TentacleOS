@@ -43,7 +43,10 @@ static const char *TAG = "SAFEGUARD";
 // Fires on any heap_caps allocation failure with the size, caps and caller -
 // context the generic vApplicationMallocFailedHook lacks.
 static void heap_alloc_failed_cb(size_t size, uint32_t caps, const char *function_name) {
-  ESP_LOGE(TAG, "alloc failed: %u B, caps 0x%lx, in %s", (unsigned)size, (unsigned long)caps,
+  ESP_LOGE(TAG,
+           "alloc failed: %u B, caps 0x%lx, in %s",
+           (unsigned)size,
+           (unsigned long)caps,
            function_name ? function_name : "?");
 }
 

@@ -44,8 +44,12 @@ bool host_files_is_file_op(uint16_t cmd);
  * @param out_len  Receives the response data length.
  * @return spi_status_t value (OK / ERROR / INVALID_ARG / ...).
  */
-uint8_t host_files_handle(uint16_t cmd, const uint8_t *payload, uint16_t plen, uint8_t *out_data,
-                          uint16_t out_cap, uint16_t *out_len);
+uint8_t host_files_handle(uint16_t cmd,
+                          const uint8_t *payload,
+                          uint16_t plen,
+                          uint8_t *out_data,
+                          uint16_t out_cap,
+                          uint16_t *out_len);
 
 #ifdef __cplusplus
 }

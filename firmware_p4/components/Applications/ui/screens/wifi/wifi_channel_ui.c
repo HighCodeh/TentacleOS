@@ -36,7 +36,7 @@ static const char *TAG = "WIFI_CHAN_UI";
 #define MAX_ROWS        12
 #define CHAN_MAX        14
 #define TASK_STACK_SIZE 8192
-#define TASK_PRIORITY SYS_PRIO_SERVICE_LO
+#define TASK_PRIORITY   SYS_PRIO_SERVICE_LO
 
 #define COLOR_QUIET_HEX   0x00E676
 #define COLOR_BUSY_HEX    0xFFC107
@@ -364,8 +364,13 @@ void ui_wifi_channel_open(void) {
 
   if (!s_scanning) {
     s_scanning = true;
-    if (xTaskCreatePinnedToCore(wifi_channel_task, "wifi_chan", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL, SYS_CORE_RADIO) !=
-        pdPASS) {
+    if (xTaskCreatePinnedToCore(wifi_channel_task,
+                                "wifi_chan",
+                                TASK_STACK_SIZE,
+                                NULL,
+                                TASK_PRIORITY,
+                                NULL,
+                                SYS_CORE_RADIO) != pdPASS) {
       s_scanning = false;
       s_scan_state = SCAN_FAIL;
       build_screen();

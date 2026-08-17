@@ -32,7 +32,7 @@
 
 static const char *TAG = "SUBGHZ_RD";
 
-#define RX_PRESET CC1101_PRESET_OOK_800KHZ
+#define RX_PRESET       CC1101_PRESET_OOK_800KHZ
 #define RX_FREQ_HOPPING 0
 
 #define TICK_MS       33

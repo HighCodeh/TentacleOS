@@ -68,7 +68,8 @@ void wifi_deauther_stop(void) {
 bool wifi_deauther_is_running(void) {
   spi_header_t resp;
   uint8_t payload[1] = {0};
-  if (spi_bridge_send_command(SPI_ID_WIFI_DEAUTH_STATUS, NULL, 0, &resp, payload, sizeof(payload), 1000) == ESP_OK) {
+  if (spi_bridge_send_command(
+          SPI_ID_WIFI_DEAUTH_STATUS, NULL, 0, &resp, payload, sizeof(payload), 1000) == ESP_OK) {
     return payload[0] != 0;
   }
   return false;

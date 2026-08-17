@@ -36,7 +36,7 @@
 static const char *TAG = "HOST_LINK_BLE";
 
 #define BLE_TASK_STACK         4096
-#define BLE_TASK_PRIO SYS_PRIO_SERVICE_HI
+#define BLE_TASK_PRIO          SYS_PRIO_SERVICE_HI
 #define BLE_STATUS_TICK_MS     200
 #define BLE_SPI_TIMEOUT_MS     1000
 #define BLE_RX_FRAME_MAX       512 // one C5 BLE-write worth; host_link_feed reframes
@@ -95,8 +95,13 @@ esp_err_t host_link_ble_init(void) {
   host_link_mark_ble_writer(ble_write); // lets the log-over-BLE toggle gate BLE only
 
   s_is_running = true;
-  if (xTaskCreatePinnedToCore(status_task, "hl_ble", BLE_TASK_STACK, NULL, BLE_TASK_PRIO, &s_status_task, SYS_CORE_RADIO) !=
-      pdPASS) {
+  if (xTaskCreatePinnedToCore(status_task,
+                              "hl_ble",
+                              BLE_TASK_STACK,
+                              NULL,
+                              BLE_TASK_PRIO,
+                              &s_status_task,
+                              SYS_CORE_RADIO) != pdPASS) {
     s_is_running = false;
     spi_bridge_unregister_stream_cb(SPI_ID_HOST_RX);
     vSemaphoreDelete(s_tx_mutex);
@@ -266,8 +271,13 @@ static esp_err_t fetch_status(spi_host_status_t *out_status) {
     return ESP_ERR_INVALID_ARG;
   }
   spi_header_t resp;
-  return spi_bridge_send_command(
-      SPI_ID_HOST_STATUS, NULL, 0, &resp, (uint8_t *)out_status, sizeof(*out_status), BLE_SPI_TIMEOUT_MS);
+  return spi_bridge_send_command(SPI_ID_HOST_STATUS,
+                                 NULL,
+                                 0,
+                                 &resp,
+                                 (uint8_t *)out_status,
+                                 sizeof(*out_status),
+                                 BLE_SPI_TIMEOUT_MS);
 }
 
 static esp_err_t request_ble_init(void) {

@@ -22,7 +22,7 @@
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define FADE_MS      200
+#define FADE_MS 200
 
 #define TITLE       "DEVELOPER"
 #define TITLE_ICON  "/assets/icons/developer_board.bin"

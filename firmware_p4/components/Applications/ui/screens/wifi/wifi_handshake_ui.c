@@ -88,17 +88,17 @@ static const char *TAG = "WIFI_HANDSHAKE_UI";
 #define COL_OK  0x00E676
 #define COL_DIM 0x8A8594
 
-#define AP_NAME        "Monitor"
-#define AP_CHAN        "HOP"
-#define LBL_BSSID      "BSSID"
-#define LBL_STA        "STA"
-#define LBL_EAPOL      "EAPOL 4-WAY"
-#define TXT_CAPTURING  "capturing"
-#define TXT_COMPLETE   "complete"
-#define TXT_CAPTURED   "captured"
-#define LBL_PMKID      "PMKID"
-#define VAL_NONE       "--"
-#define BSSID_NONE     "--:--:--:--:--:--"
+#define AP_NAME       "Monitor"
+#define AP_CHAN       "HOP"
+#define LBL_BSSID     "BSSID"
+#define LBL_STA       "STA"
+#define LBL_EAPOL     "EAPOL 4-WAY"
+#define TXT_CAPTURING "capturing"
+#define TXT_COMPLETE  "complete"
+#define TXT_CAPTURED  "captured"
+#define LBL_PMKID     "PMKID"
+#define VAL_NONE      "--"
+#define BSSID_NONE    "--:--:--:--:--:--"
 
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_badge[BADGE_COUNT];
@@ -159,8 +159,7 @@ static void set_progress(int lit) {
 }
 
 static void format_bssid(char *buf, size_t len, const uint8_t *b) {
-  snprintf(
-      buf, len, "%02X:%02X:%02X:%02X:%02X:%02X", b[0], b[1], b[2], b[3], b[4], b[5]);
+  snprintf(buf, len, "%02X:%02X:%02X:%02X:%02X:%02X", b[0], b[1], b[2], b[3], b[4], b[5]);
 }
 
 static void state_ready_cb(void *param) {

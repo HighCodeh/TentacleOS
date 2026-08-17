@@ -26,22 +26,30 @@
 
 static const char *TAG = "INPUT_MGR";
 
-#define BUTTON_PRESSED_LEVEL   0
-#define SAMPLE_PERIOD_MS       5    // sampler tick; independent of the render loop
-#define DEBOUNCE_SAMPLES       4    // stable samples required to accept a level (~20 ms)
-#define LONG_PRESS_MS          800  // held this long fires LONG_PRESS once
-#define REPEAT_DELAY_MS        400  // first REPEAT after a press
-#define REPEAT_PERIOD_MS       120  // subsequent REPEAT interval
-#define EVENT_QUEUE_LEN        16
+#define BUTTON_PRESSED_LEVEL 0
+#define SAMPLE_PERIOD_MS     5   // sampler tick; independent of the render loop
+#define DEBOUNCE_SAMPLES     4   // stable samples required to accept a level (~20 ms)
+#define LONG_PRESS_MS        800 // held this long fires LONG_PRESS once
+#define REPEAT_DELAY_MS      400 // first REPEAT after a press
+#define REPEAT_PERIOD_MS     120 // subsequent REPEAT interval
+#define EVENT_QUEUE_LEN      16
 
 static const uint32_t s_button_gpio[INPUT_BTN_COUNT] = {
-    [INPUT_BTN_UP] = GPIO_BTN_UP_PIN,       [INPUT_BTN_DOWN] = GPIO_BTN_DOWN_PIN,
-    [INPUT_BTN_LEFT] = GPIO_BTN_LEFT_PIN,   [INPUT_BTN_RIGHT] = GPIO_BTN_RIGHT_PIN,
-    [INPUT_BTN_OK] = GPIO_BTN_OK_PIN,       [INPUT_BTN_BACK] = GPIO_BTN_BACK_PIN,
+    [INPUT_BTN_UP] = GPIO_BTN_UP_PIN,
+    [INPUT_BTN_DOWN] = GPIO_BTN_DOWN_PIN,
+    [INPUT_BTN_LEFT] = GPIO_BTN_LEFT_PIN,
+    [INPUT_BTN_RIGHT] = GPIO_BTN_RIGHT_PIN,
+    [INPUT_BTN_OK] = GPIO_BTN_OK_PIN,
+    [INPUT_BTN_BACK] = GPIO_BTN_BACK_PIN,
 };
 
 static const char *const s_button_name[INPUT_BTN_COUNT] = {
-    "UP", "DOWN", "LEFT", "RIGHT", "OK", "BACK",
+    "UP",
+    "DOWN",
+    "LEFT",
+    "RIGHT",
+    "OK",
+    "BACK",
 };
 
 typedef struct {
@@ -54,8 +62,8 @@ typedef struct {
 } button_state_t;
 
 static button_state_t s_state[INPUT_BTN_COUNT];
-static volatile bool s_held[INPUT_BTN_COUNT];         // read by input_is_down (shim path)
-static volatile bool s_press_latch[INPUT_BTN_COUNT];  // consumed by input_consume_press
+static volatile bool s_held[INPUT_BTN_COUNT];        // read by input_is_down (shim path)
+static volatile bool s_press_latch[INPUT_BTN_COUNT]; // consumed by input_consume_press
 static volatile int64_t s_sim_until_us[INPUT_BTN_COUNT];
 static volatile uint32_t s_last_activity_ms;
 

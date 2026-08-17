@@ -27,10 +27,10 @@
 #define I2C_TIMEOUT_MS 100
 // Consecutive I2C failures before a bus recovery is attempted.
 #define I2C_FAIL_RECOVER 3
-#define BATV_BASE_MV   2304
-#define BATV_STEP_MV   20
-#define BATTERY_MIN_MV 3200
-#define BATTERY_MAX_MV 4200
+#define BATV_BASE_MV     2304
+#define BATV_STEP_MV     20
+#define BATTERY_MIN_MV   3200
+#define BATTERY_MAX_MV   4200
 
 // Definições dos Registradores
 #define REG_ILIM       0x00
@@ -86,10 +86,10 @@
 // a few seconds later. Cleared on power-off so BATFET_DIS stays a permanent off.
 // BATFET_DLY (bit 3): 1 = delay the BATFET turn-off so the MCU finishes the I2C
 // transaction cleanly before the rail collapses.
-#define REG_BATFET_CTRL     0x09
-#define BATFET_DIS_MASK     0b00100000
-#define BATFET_DLY_MASK     0b00001000
-#define BATFET_RST_EN_MASK  0b00000100
+#define REG_BATFET_CTRL    0x09
+#define BATFET_DIS_MASK    0b00100000
+#define BATFET_DLY_MASK    0b00001000
+#define BATFET_RST_EN_MASK 0b00000100
 
 static const char *TAG = "BQ25896";
 
@@ -304,8 +304,8 @@ esp_err_t bq25896_power_off(void) {
     ESP_LOGE(TAG, "power_off: could not read BATFET reg: %s", esp_err_to_name(ret));
     return ret;
   }
-  data |= BATFET_DIS_MASK;    // force BATFET off (ship mode)
-  data |= BATFET_DLY_MASK;    // delayed turn-off: finish this I2C write first
+  data |= BATFET_DIS_MASK;     // force BATFET off (ship mode)
+  data |= BATFET_DLY_MASK;     // delayed turn-off: finish this I2C write first
   data &= ~BATFET_RST_EN_MASK; // disarm the /QON auto-reset so it stays off
   ret = bq25896_write_reg(REG_BATFET_CTRL, data);
   if (ret != ESP_OK) {

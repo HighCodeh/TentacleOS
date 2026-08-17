@@ -28,7 +28,7 @@
 #include "drv2605l.h"
 
 #define FB_TASK_STACK_SIZE 3072
-#define FB_TASK_PRIORITY SYS_PRIO_SERVICE_LO
+#define FB_TASK_PRIORITY   SYS_PRIO_SERVICE_LO
 
 /** @brief Single pending slot. Feedback is a reaction to an input that already
  *         happened - a stale one is worthless, so we drop instead of queueing.

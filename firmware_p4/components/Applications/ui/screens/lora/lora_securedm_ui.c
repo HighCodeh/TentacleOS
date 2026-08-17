@@ -72,9 +72,9 @@
 
 #define SCROLL_STEP 36
 
-#define ROW_GAP      8
-#define ROW_GLOW_W   14
-#define POLL_MS      1000
+#define ROW_GAP    8
+#define ROW_GLOW_W 14
+#define POLL_MS    1000
 
 #define DM_MAX_CONTACTS 32
 

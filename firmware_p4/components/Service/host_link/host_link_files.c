@@ -44,8 +44,8 @@
 
 static const char *TAG = "HOST_LINK_FILES";
 
-#define FILE_PATH_MAX        256
-#define FILE_WRITE_TRUNCATE  0x01
+#define FILE_PATH_MAX       256
+#define FILE_WRITE_TRUNCATE 0x01
 
 // Filesystem roots the companion may touch. Anything else is rejected.
 static const char *const ALLOWED_ROOTS[] = {"/assets", "/littlefs", "/sdcard"};
@@ -135,8 +135,8 @@ static uint8_t do_stat(const char *path, uint8_t *out, uint16_t *out_len) {
   return SPI_STATUS_OK;
 }
 
-static uint8_t do_read(const uint8_t *payload, uint16_t plen, uint8_t *out, uint16_t cap,
-                       uint16_t *out_len) {
+static uint8_t
+do_read(const uint8_t *payload, uint16_t plen, uint8_t *out, uint16_t cap, uint16_t *out_len) {
   if (plen < 6) {
     return SPI_STATUS_INVALID_ARG;
   }
@@ -207,8 +207,12 @@ static uint8_t do_write(const uint8_t *payload, uint16_t plen, uint8_t *out, uin
   return (written == data_len) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
 }
 
-uint8_t host_files_handle(uint16_t cmd, const uint8_t *payload, uint16_t plen, uint8_t *out_data,
-                          uint16_t out_cap, uint16_t *out_len) {
+uint8_t host_files_handle(uint16_t cmd,
+                          const uint8_t *payload,
+                          uint16_t plen,
+                          uint8_t *out_data,
+                          uint16_t out_cap,
+                          uint16_t *out_len) {
   *out_len = 0;
   if (payload == NULL && plen > 0) {
     return SPI_STATUS_INVALID_ARG;

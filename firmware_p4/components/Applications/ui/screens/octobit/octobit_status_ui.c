@@ -54,7 +54,7 @@
 #define COL_RAISE 0x170A28
 #define COL_DIM   0x8A8594
 
-#define REFRESH_MS   1000
+#define REFRESH_MS 1000
 
 enum {
   ST_UPTIME = 0,

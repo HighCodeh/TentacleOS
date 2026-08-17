@@ -173,7 +173,8 @@ uint8_t bluetooth_service_get_own_addr_type(void) {
   spi_header_t resp;
   uint8_t payload[1] = {0};
   if (spi_bridge_send_command(
-          SPI_ID_BT_GET_ADDR_TYPE, NULL, 0, &resp, payload, sizeof(payload), SPI_DATA_TIMEOUT_MS) == ESP_OK) {
+          SPI_ID_BT_GET_ADDR_TYPE, NULL, 0, &resp, payload, sizeof(payload), SPI_DATA_TIMEOUT_MS) ==
+      ESP_OK) {
     return payload[0];
   }
   return 0;
@@ -210,9 +211,13 @@ esp_err_t bluetooth_service_load_spam_list(char ***out_list, size_t *out_count) 
   spi_header_t resp;
   uint8_t payload[2];
   uint16_t magic_count = SPI_DATA_INDEX_COUNT;
-  if (spi_bridge_send_command(
-          SPI_ID_SYSTEM_DATA, (uint8_t *)&magic_count, 2, &resp, payload, sizeof(payload), SPI_DATA_TIMEOUT_MS) !=
-      ESP_OK) {
+  if (spi_bridge_send_command(SPI_ID_SYSTEM_DATA,
+                              (uint8_t *)&magic_count,
+                              2,
+                              &resp,
+                              payload,
+                              sizeof(payload),
+                              SPI_DATA_TIMEOUT_MS) != ESP_OK) {
     return ESP_FAIL;
   }
 
@@ -234,9 +239,13 @@ esp_err_t bluetooth_service_load_spam_list(char ***out_list, size_t *out_count) 
   for (uint16_t i = 0; i < total; i++) {
     uint16_t idx = i;
     uint8_t item_buf[SPI_BT_SPAM_ITEM_LEN] = {0};
-    if (spi_bridge_send_command(
-            SPI_ID_SYSTEM_DATA, (uint8_t *)&idx, 2, &resp, item_buf, sizeof(item_buf), SPI_DATA_TIMEOUT_MS) !=
-        ESP_OK) {
+    if (spi_bridge_send_command(SPI_ID_SYSTEM_DATA,
+                                (uint8_t *)&idx,
+                                2,
+                                &resp,
+                                item_buf,
+                                sizeof(item_buf),
+                                SPI_DATA_TIMEOUT_MS) != ESP_OK) {
       bluetooth_service_free_spam_list(out, i);
       return ESP_FAIL;
     }
@@ -282,7 +291,8 @@ esp_err_t bluetooth_service_save_spam_list(const char *const *list, size_t count
     }
   }
 
-  return spi_bridge_send_command(SPI_ID_BT_SPAM_LIST_COMMIT, NULL, 0, NULL, NULL, 0, SPI_TIMEOUT_MS);
+  return spi_bridge_send_command(
+      SPI_ID_BT_SPAM_LIST_COMMIT, NULL, 0, NULL, NULL, 0, SPI_TIMEOUT_MS);
 }
 
 void bluetooth_service_free_spam_list(char **list, size_t count) {
@@ -305,9 +315,13 @@ uint16_t bluetooth_service_get_scan_count(void) {
   spi_header_t resp;
   uint8_t payload[2];
   uint16_t magic_count = SPI_DATA_INDEX_COUNT;
-  if (spi_bridge_send_command(
-          SPI_ID_SYSTEM_DATA, (uint8_t *)&magic_count, 2, &resp, payload, sizeof(payload), SPI_DATA_TIMEOUT_MS) ==
-      ESP_OK) {
+  if (spi_bridge_send_command(SPI_ID_SYSTEM_DATA,
+                              (uint8_t *)&magic_count,
+                              2,
+                              &resp,
+                              payload,
+                              sizeof(payload),
+                              SPI_DATA_TIMEOUT_MS) == ESP_OK) {
     uint16_t count;
     memcpy(&count, payload, 2);
     return count;
@@ -321,7 +335,8 @@ bluetooth_service_scan_result_t *bluetooth_service_get_scan_result(uint16_t inde
                               (uint8_t *)&index,
                               2,
                               &resp,
-                              (uint8_t *)&s_cached_scan_record, sizeof(s_cached_scan_record),
+                              (uint8_t *)&s_cached_scan_record,
+                              sizeof(s_cached_scan_record),
                               SPI_DATA_TIMEOUT_MS) == ESP_OK) {
     return &s_cached_scan_record;
   }
@@ -335,8 +350,13 @@ static bool get_info(spi_bt_info_t *out_info) {
     return false;
   }
   spi_header_t resp;
-  if (spi_bridge_send_command(
-          SPI_ID_BT_GET_INFO, NULL, 0, &resp, (uint8_t *)out_info, sizeof(*out_info), SPI_DATA_TIMEOUT_MS) == ESP_OK) {
+  if (spi_bridge_send_command(SPI_ID_BT_GET_INFO,
+                              NULL,
+                              0,
+                              &resp,
+                              (uint8_t *)out_info,
+                              sizeof(*out_info),
+                              SPI_DATA_TIMEOUT_MS) == ESP_OK) {
     return true;
   }
   return false;

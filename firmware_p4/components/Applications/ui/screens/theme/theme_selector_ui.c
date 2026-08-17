@@ -32,10 +32,10 @@
 
 static const char *TAG = "THEME_SELECTOR_UI";
 
-#define TITLE_ICON   "/assets/icons/palette.bin"
-#define BASE_FRAME   "/assets/frames/base_frame_0.bin"
-#define CARD_Y_BIAS  (-18)
-#define ANIM_MS      220
+#define TITLE_ICON  "/assets/icons/palette.bin"
+#define BASE_FRAME  "/assets/frames/base_frame_0.bin"
+#define CARD_Y_BIAS (-18)
+#define ANIM_MS     220
 
 extern int theme_idx;
 extern const char *theme_names[];

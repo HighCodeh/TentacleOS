@@ -29,14 +29,14 @@
 
 static const char *TAG = "HAPTIC_UI";
 
-#define LIVE_ROW     0
-#define CAT_ROW      1
-#define FX_ROW       2
-#define PAT_ROW      3
-#define CAL_ROW      4
+#define LIVE_ROW 0
+#define CAT_ROW  1
+#define FX_ROW   2
+#define PAT_ROW  3
+#define CAL_ROW  4
 
 #define HAPTIC_TASK_STACK_SIZE 2816
-#define HAPTIC_TASK_PRIORITY SYS_PRIO_SERVICE_HI
+#define HAPTIC_TASK_PRIORITY   SYS_PRIO_SERVICE_HI
 
 typedef struct {
   uint8_t id;
@@ -233,7 +233,9 @@ static void start_worker(TaskFunction_t fn, const char *name) {
     return;
   s_busy = true;
   s_pat_cancel = false;
-  if (xTaskCreatePinnedToCore(fn, name, HAPTIC_TASK_STACK_SIZE, NULL, HAPTIC_TASK_PRIORITY, NULL, SYS_CORE_UI) != pdPASS)
+  if (xTaskCreatePinnedToCore(
+          fn, name, HAPTIC_TASK_STACK_SIZE, NULL, HAPTIC_TASK_PRIORITY, NULL, SYS_CORE_UI) !=
+      pdPASS)
     s_busy = false;
 }
 

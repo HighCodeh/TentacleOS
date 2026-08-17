@@ -50,7 +50,7 @@ static const char *TAG = "STORAGE_UI";
 #define ACT_HEALTH     2
 #define ACT_COUNT      3
 #define FMT_TASK_STACK 8192
-#define FMT_TASK_PRIO SYS_PRIO_SERVICE_HI
+#define FMT_TASK_PRIO  SYS_PRIO_SERVICE_HI
 
 #define LIST_LEFT     6
 #define LIST_TOP_Y    46
@@ -316,7 +316,8 @@ static void fmt_confirm_cb(bool confirm) {
     return;
   s_formatting = true;
   show_fmt_overlay();
-  xTaskCreatePinnedToCore(format_task, "sd_format", FMT_TASK_STACK, NULL, FMT_TASK_PRIO, NULL, SYS_CORE_RADIO);
+  xTaskCreatePinnedToCore(
+      format_task, "sd_format", FMT_TASK_STACK, NULL, FMT_TASK_PRIO, NULL, SYS_CORE_RADIO);
 }
 
 static void fire_action(int idx) {

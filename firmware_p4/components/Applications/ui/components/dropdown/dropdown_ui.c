@@ -103,7 +103,7 @@ static int hide_objs_count = 0;
 static bool btn_up_last, btn_down_last, btn_left_last, btn_right_last, btn_ok_last, btn_back_last;
 static lv_timer_t *slide_btn_timer = NULL;
 
-static uint32_t up_hold_start = 0;   // tick when UP was pressed (long-press timing)
+static uint32_t up_hold_start = 0;    // tick when UP was pressed (long-press timing)
 static bool up_hold_consumed = false; // long-press already toggled for this hold
 
 static void refresh_sd_status(void);
@@ -330,8 +330,13 @@ static void conn_set_wifi(bool on) {
   refresh_focus();
   if (!on)
     notify(NOTIFY_WARNING, "Wi-Fi off");
-  xTaskCreatePinnedToCore(wifi_apply_task, "wifi_apply", 4096, (void *)(intptr_t)on,
-                          SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_RADIO);
+  xTaskCreatePinnedToCore(wifi_apply_task,
+                          "wifi_apply",
+                          4096,
+                          (void *)(intptr_t)on,
+                          SYS_PRIO_SERVICE_LO,
+                          NULL,
+                          SYS_CORE_RADIO);
 }
 
 static void conn_set_ble(bool on) {
@@ -341,8 +346,13 @@ static void conn_set_ble(bool on) {
   refresh_focus();
   if (!on)
     notify(NOTIFY_WARNING, "BLE off");
-  xTaskCreatePinnedToCore(ble_apply_task, "ble_apply", 4096, (void *)(intptr_t)on,
-                          SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_RADIO);
+  xTaskCreatePinnedToCore(ble_apply_task,
+                          "ble_apply",
+                          4096,
+                          (void *)(intptr_t)on,
+                          SYS_PRIO_SERVICE_LO,
+                          NULL,
+                          SYS_CORE_RADIO);
 }
 
 static void slide_btn_timer_cb(lv_timer_t *timer) {

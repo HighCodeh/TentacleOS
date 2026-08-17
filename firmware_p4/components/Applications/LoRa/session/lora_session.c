@@ -31,10 +31,10 @@
 #include "meshtastic_nodedb.h"
 #include "meshtastic_phone_bridge.h"
 
-#define MSG_RING        24
-#define MT_BROADCAST    0xFFFFFFFFu
-#define MC_PUBLIC_CHAN  0
-#define RING_LOCK_MS    50
+#define MSG_RING       24
+#define MT_BROADCAST   0xFFFFFFFFu
+#define MC_PUBLIC_CHAN 0
+#define RING_LOCK_MS   50
 
 static const char *TAG = "LORA_SESSION";
 
@@ -186,8 +186,7 @@ bool lora_session_node_get(uint16_t idx, lora_node_t *out) {
     const mt_node_entry_t *n = mt_nodedb_get_by_index(idx);
     if (n == NULL)
       return false;
-    snprintf(out->name, sizeof(out->name), "%s",
-             (n->long_name[0] != '\0') ? n->long_name : n->id);
+    snprintf(out->name, sizeof(out->name), "%s", (n->long_name[0] != '\0') ? n->long_name : n->id);
     out->rssi = n->rssi;
     out->snr = n->snr;
     return true;

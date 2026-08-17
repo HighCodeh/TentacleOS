@@ -66,7 +66,6 @@ static page_dots_t s_dots;
 static lv_image_dsc_t *s_base_dsc = NULL;
 static int s_sel = 0;
 
-
 static int32_t carousel_slot(int item_idx) {
   int32_t n = GAME_COUNT;
   int32_t d = (item_idx - s_sel + n) % n;

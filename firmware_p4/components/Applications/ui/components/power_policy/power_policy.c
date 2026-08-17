@@ -34,9 +34,9 @@
 #define BATT_CHECK_MS    2000 // battery poll cadence (accumulated from POWER_POLL_MS)
 #define POWEROFF_HOLD_MS 3000 // OK + LEFT held this long powers the device off
 
-#define BATT_CRIT_PCT         5  // at/below: repeated critical warning
-#define BATT_SHUTDOWN_PCT     2  // at/below (sustained): graceful power off
-#define BATT_SHUTDOWN_SAMPLES 3  // consecutive critical polls before shutdown
+#define BATT_CRIT_PCT         5 // at/below: repeated critical warning
+#define BATT_SHUTDOWN_PCT     2 // at/below (sustained): graceful power off
+#define BATT_SHUTDOWN_SAMPLES 3 // consecutive critical polls before shutdown
 
 static lv_timer_t *s_timer = NULL;
 static bool s_low_last = false;
@@ -77,7 +77,7 @@ static void check_battery(void) {
   if (on_battery && bs.soc <= BATT_SHUTDOWN_PCT) {
     if (++s_shutdown_count >= BATT_SHUTDOWN_SAMPLES) {
       notify(NOTIFY_WARNING, "Battery empty - shutting down");
-      bq25896_power_off();  // real ship mode (no effect while on USB)
+      bq25896_power_off(); // real ship mode (no effect while on USB)
     }
   } else {
     s_shutdown_count = 0;
@@ -113,7 +113,7 @@ static void tick_cb(lv_timer_t *t) {
 }
 
 bool power_policy_is_asleep(void) {
-  return false;  // the screen never auto-sleeps anymore
+  return false; // the screen never auto-sleeps anymore
 }
 
 void power_policy_init(void) {

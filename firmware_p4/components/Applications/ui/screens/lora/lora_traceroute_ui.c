@@ -244,7 +244,9 @@ static void collect_nodes(void) {
     if (nm != NULL)
       snprintf(s_picks[s_pick_count].name, sizeof(s_picks[s_pick_count].name), "%s", nm);
     else
-      snprintf(s_picks[s_pick_count].name, sizeof(s_picks[s_pick_count].name), "!%08lx",
+      snprintf(s_picks[s_pick_count].name,
+               sizeof(s_picks[s_pick_count].name),
+               "!%08lx",
                (unsigned long)e->num);
     s_picks[s_pick_count].num = e->num;
     s_pick_count++;
@@ -321,7 +323,8 @@ static void build_picker(void) {
   lv_obj_set_style_pad_bottom(s_pick_list, 6, 0);
   lv_obj_set_style_pad_row(s_pick_list, HOP_ROW_GAP, 0);
   lv_obj_set_flex_flow(s_pick_list, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_align(s_pick_list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_flex_align(
+      s_pick_list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_set_scroll_dir(s_pick_list, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(s_pick_list, LV_SCROLLBAR_MODE_AUTO);
   lv_obj_remove_flag(s_pick_list, LV_OBJ_FLAG_SCROLL_ELASTIC);

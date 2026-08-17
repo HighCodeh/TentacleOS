@@ -24,7 +24,6 @@
 
 static const char *TAG = "UI_WIFI_MENU";
 
-
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
 
@@ -50,7 +49,6 @@ static const struct {
 };
 
 #define MENU_ITEMS_COUNT (sizeof(MENU_ITEMS) / sizeof(MENU_ITEMS[0]))
-
 
 static void wifi_menu_input(const input_event_t *ev, void *ctx) {
   (void)ctx;

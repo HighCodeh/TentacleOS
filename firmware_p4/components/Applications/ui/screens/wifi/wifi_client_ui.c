@@ -36,11 +36,11 @@
 
 static const char *TAG = "WIFI_CLI_UI";
 
-#define CLI_HEADER_ICON  "/assets/icons/devices.bin"
-#define CLI_STATUS_ICON  "/assets/icons/wifi_find.bin"
-#define CLI_MAX          12
+#define CLI_HEADER_ICON "/assets/icons/devices.bin"
+#define CLI_STATUS_ICON "/assets/icons/wifi_find.bin"
+#define CLI_MAX         12
 #define TASK_STACK_SIZE 8192
-#define TASK_PRIORITY SYS_PRIO_SERVICE_LO
+#define TASK_PRIORITY   SYS_PRIO_SERVICE_LO
 
 #define COLOR_STRONG_HEX 0x00E676
 #define COLOR_WEAK_HEX   0xF5B13D
@@ -379,8 +379,13 @@ void ui_wifi_client_open(void) {
 
   if (!s_scanning) {
     s_scanning = true;
-    if (xTaskCreatePinnedToCore(wifi_client_task, "wifi_cli", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL, SYS_CORE_RADIO) !=
-        pdPASS) {
+    if (xTaskCreatePinnedToCore(wifi_client_task,
+                                "wifi_cli",
+                                TASK_STACK_SIZE,
+                                NULL,
+                                TASK_PRIORITY,
+                                NULL,
+                                SYS_CORE_RADIO) != pdPASS) {
       s_scanning = false;
       s_scan_state = SCAN_FAIL;
       build_screen();

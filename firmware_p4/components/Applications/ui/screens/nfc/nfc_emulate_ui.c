@@ -30,14 +30,14 @@
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define TICK_MS      33
-#define CARD_ICON    "/assets/icons/contactless.bin"
-#define COL_DIM      0x8A8594
-#define SIG_GREEN    0x00E676
-#define TX_DOTS      3
-#define CARD_Y_OFS   (-24)
-#define FIELD_BOX_W  210
-#define FIELD_BOX_H  122
+#define TICK_MS     33
+#define CARD_ICON   "/assets/icons/contactless.bin"
+#define COL_DIM     0x8A8594
+#define SIG_GREEN   0x00E676
+#define TX_DOTS     3
+#define CARD_Y_OFS  (-24)
+#define FIELD_BOX_W 210
+#define FIELD_BOX_H 122
 
 #define MAX_CARDS      10
 #define WALLET_FRONT_Y (-24)

@@ -34,7 +34,7 @@ extern "C" {
 // longer per-channel dwell), so a full scan with a companion connected can take
 // ~30 s. Keep the master's wait above that or the command times out mid-scan and
 // the late response desyncs the bridge.
-#define SPI_TIMEOUT_WIFI_MS    40000
+#define SPI_TIMEOUT_WIFI_MS 40000
 
 #ifdef __cplusplus
 }

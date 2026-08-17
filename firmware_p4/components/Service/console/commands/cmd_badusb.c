@@ -184,8 +184,7 @@ static int cmd_badusb(int argc, char **argv) {
 }
 
 void register_badusb_commands(void) {
-  s_run_args.asset =
-      arg_str0("a", "asset", "<name>", "Run script from internal bad_usb_scripts");
+  s_run_args.asset = arg_str0("a", "asset", "<name>", "Run script from internal bad_usb_scripts");
   s_run_args.file = arg_str0("f", "file", "<path>", "Run script from SD card");
   s_run_args.end = arg_end(1);
 

@@ -65,8 +65,13 @@ static void session_lost_cb(uint32_t session_id, spi_id_t op_id) {
 static void update_stats(void) {
   spi_header_t resp;
   uint16_t magic_stats = SPI_DATA_INDEX_STATS;
-  spi_bridge_send_command(
-      SPI_ID_SYSTEM_DATA, (uint8_t *)&magic_stats, 2, &resp, (uint8_t *)&s_cached_stats, sizeof(s_cached_stats), 1000);
+  spi_bridge_send_command(SPI_ID_SYSTEM_DATA,
+                          (uint8_t *)&magic_stats,
+                          2,
+                          &resp,
+                          (uint8_t *)&s_cached_stats,
+                          sizeof(s_cached_stats),
+                          1000);
 }
 
 static bool
@@ -187,7 +192,8 @@ void wifi_sniffer_get_pmkid_bssid(uint8_t out_bssid[6]) {
     return;
   spi_header_t resp;
   uint8_t payload[6] = {0};
-  if (spi_bridge_send_command(SPI_ID_WIFI_SNIFFER_GET_PMKID_BSSID, NULL, 0, &resp, payload, sizeof(payload), 1000) ==
+  if (spi_bridge_send_command(
+          SPI_ID_WIFI_SNIFFER_GET_PMKID_BSSID, NULL, 0, &resp, payload, sizeof(payload), 1000) ==
       ESP_OK) {
     memcpy(out_bssid, payload, 6);
   } else {
@@ -205,8 +211,13 @@ void wifi_sniffer_get_handshake_bssid(uint8_t out_bssid[6]) {
     return;
   spi_header_t resp;
   uint8_t payload[6] = {0};
-  if (spi_bridge_send_command(
-          SPI_ID_WIFI_SNIFFER_GET_HANDSHAKE_BSSID, NULL, 0, &resp, payload, sizeof(payload), 1000) == ESP_OK) {
+  if (spi_bridge_send_command(SPI_ID_WIFI_SNIFFER_GET_HANDSHAKE_BSSID,
+                              NULL,
+                              0,
+                              &resp,
+                              payload,
+                              sizeof(payload),
+                              1000) == ESP_OK) {
     memcpy(out_bssid, payload, 6);
   } else {
     memset(out_bssid, 0, 6);

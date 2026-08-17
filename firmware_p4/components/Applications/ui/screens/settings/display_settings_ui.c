@@ -53,7 +53,7 @@ static int timeout_idx_for_seconds(int seconds) {
       return i;
     }
   }
-  return TIMEOUT_COUNT - 1;  // fall back to "Off"
+  return TIMEOUT_COUNT - 1; // fall back to "Off"
 }
 
 static lv_obj_t *s_screen = NULL;
@@ -106,7 +106,8 @@ static void display_settings_input(const input_event_t *ev, void *ctx) {
           if (s_menu.has_intensity[sel]) {
             menu_component_intensity_dec(&s_menu, sel);
             if (sel == ROW_BRIGHTNESS)
-              lcd_apply_brightness(menu_component_get_intensity(&s_menu, sel) * BRIGHTNESS_STEP_PCT);
+              lcd_apply_brightness(menu_component_get_intensity(&s_menu, sel) *
+                                   BRIGHTNESS_STEP_PCT);
             s_changed = true;
           } else if (s_menu.val_labels[sel] != NULL) {
             cycle_selector(sel, -1);
@@ -121,7 +122,8 @@ static void display_settings_input(const input_event_t *ev, void *ctx) {
           if (s_menu.has_intensity[sel]) {
             menu_component_intensity_inc(&s_menu, sel);
             if (sel == ROW_BRIGHTNESS)
-              lcd_apply_brightness(menu_component_get_intensity(&s_menu, sel) * BRIGHTNESS_STEP_PCT);
+              lcd_apply_brightness(menu_component_get_intensity(&s_menu, sel) *
+                                   BRIGHTNESS_STEP_PCT);
             s_changed = true;
           } else if (s_menu.val_labels[sel] != NULL) {
             cycle_selector(sel, +1);
@@ -172,7 +174,8 @@ void ui_display_settings_open(void) {
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
   s_menu = menu_component_create(s_screen, "DISPLAY", "/assets/icons/display_settings.bin");
-  menu_component_add_intensity(&s_menu, "/assets/icons/brightness_6.bin", "Brightness", bright_level);
+  menu_component_add_intensity(
+      &s_menu, "/assets/icons/brightness_6.bin", "Brightness", bright_level);
   menu_component_add_selector(
       &s_menu, "/assets/icons/screen_rotation.bin", "Rotation", ROTATION_OPTS[s_rotation_idx]);
   menu_component_add_selector(

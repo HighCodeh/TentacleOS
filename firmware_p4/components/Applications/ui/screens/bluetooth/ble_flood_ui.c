@@ -90,9 +90,8 @@ static void flood_mode_stop(void) {
 }
 
 static esp_err_t flood_mode_start(void) {
-  return (s_mode == MODE_L2CAP)
-             ? ble_l2cap_flood_start(s_target_addr, s_target_type)
-             : ble_connect_flood_start(s_target_addr, s_target_type);
+  return (s_mode == MODE_L2CAP) ? ble_l2cap_flood_start(s_target_addr, s_target_type)
+                                : ble_connect_flood_start(s_target_addr, s_target_type);
 }
 
 static void stop_all(void) {
@@ -223,8 +222,12 @@ static bool select_target(void) {
            sizeof(s_target),
            "%.16s  %02X:%02X:%02X:%02X:%02X:%02X",
            (res[best].name[0] != '\0') ? res[best].name : "(unknown)",
-           res[best].addr[5], res[best].addr[4], res[best].addr[3],
-           res[best].addr[2], res[best].addr[1], res[best].addr[0]);
+           res[best].addr[5],
+           res[best].addr[4],
+           res[best].addr[3],
+           res[best].addr[2],
+           res[best].addr[1],
+           res[best].addr[0]);
   return true;
 }
 

@@ -45,8 +45,9 @@ extern "C" {
 
 /** @brief Trust level of the current wall-clock. */
 typedef enum {
-  SYS_TIME_STATE_ESTIMATED = 0, /**< Baseline (build date or last-known NVS); a floor, not a real sync. */
-  SYS_TIME_STATE_SYNCED,        /**< Set from a real external source; time() is trustworthy. */
+  SYS_TIME_STATE_ESTIMATED =
+      0,                 /**< Baseline (build date or last-known NVS); a floor, not a real sync. */
+  SYS_TIME_STATE_SYNCED, /**< Set from a real external source; time() is trustworthy. */
 } sys_time_state_t;
 
 /** @brief Origin of the current time value. */

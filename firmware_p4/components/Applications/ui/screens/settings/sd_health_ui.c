@@ -62,9 +62,9 @@
 #define BAR_H   10
 #define KV_Y    70
 
-#define SD_PATH "/sdcard"
+#define SD_PATH      "/sdcard"
 #define BYTES_PER_GB 1000000000ULL
-#define CTA_TXT "Remount & retest"
+#define CTA_TXT      "Remount & retest"
 
 #define READ_VAL  "21.4"
 #define WRITE_VAL "12.8"

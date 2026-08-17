@@ -43,9 +43,9 @@ static const char *TAG = "IR_RX_UI";
 #define STATUS_Y 48
 #define DETAIL_Y 66
 
-#define POLL_TICK_MS       50
-#define CAPTURE_WINDOW_MS  1500 // one ir_capture_start() window; re-armed while listening
-#define DOT_CYCLE_MS       350
+#define POLL_TICK_MS      50
+#define CAPTURE_WINDOW_MS 1500 // one ir_capture_start() window; re-armed while listening
+#define DOT_CYCLE_MS      350
 
 #define CARD_W       162
 #define CARD_H       82

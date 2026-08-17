@@ -26,7 +26,7 @@
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define LABEL_LEN    40
+#define LABEL_LEN 40
 
 #define GATT_ICON    "/assets/icons/hub.bin"
 #define SERVICE_ICON "/assets/icons/folder.bin"

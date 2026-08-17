@@ -41,9 +41,9 @@ static const char *TAG = "HOME_UI";
 #define HOME_ART_ASSET "/assets/img/image.bin"
 #define HOME_DATE_FONT "A:assets/fonts/Inter.bin"
 
-#define HOME_PAD     10
-#define HOME_ROW_GAP 8
-#define HOME_INNER_W (LCD_H_RES - 2 * HOME_PAD)
+#define HOME_PAD       10
+#define HOME_ROW_GAP   8
+#define HOME_INNER_W   (LCD_H_RES - 2 * HOME_PAD)
 #define HOME_ART_MAX_W 210
 #define HOME_ART_MAX_H 132
 #define HOME_FLOAT_AMP 5

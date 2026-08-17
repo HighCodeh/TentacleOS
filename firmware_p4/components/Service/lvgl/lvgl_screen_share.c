@@ -40,7 +40,7 @@ static const char *TAG = "SCREEN_SHARE";
 #define SS_STRIP_ROWS      8           // 240*8*2 = 3840 B + header < 4067 host cap
 #define SS_LOCK_TIMEOUT_MS 200
 #define SS_TASK_STACK      8192
-#define SS_TASK_PRIO SYS_PRIO_SERVICE_LO
+#define SS_TASK_PRIO       SYS_PRIO_SERVICE_LO
 
 // Master enable. While false, START is rejected so the capture task never runs
 // and no snapshot RAM is used.
@@ -72,7 +72,8 @@ static void send_strips(void) {
 
     uint8_t *dst = s_strip + sizeof(spi_screen_strip_t);
     for (uint16_t r = 0; r < rows; r++) {
-      memcpy(dst + (size_t)r * SS_WIDTH * 2, s_snap_data + (size_t)(y + r) * s_stride,
+      memcpy(dst + (size_t)r * SS_WIDTH * 2,
+             s_snap_data + (size_t)(y + r) * s_stride,
              (size_t)SS_WIDTH * 2);
     }
 
@@ -113,10 +114,14 @@ static void ss_task(void *arg) {
     vTaskDelete(NULL);
     return;
   }
-  lv_draw_buf_init(&s_snap, SS_WIDTH, SS_HEIGHT, LV_COLOR_FORMAT_RGB565, s_stride, s_snap_data,
-                   data_size);
+  lv_draw_buf_init(
+      &s_snap, SS_WIDTH, SS_HEIGHT, LV_COLOR_FORMAT_RGB565, s_stride, s_snap_data, data_size);
 
-  ESP_LOGI(TAG, "screen share started (%dx%d @ %d fps, %u KB buffer)", SS_WIDTH, SS_HEIGHT, SS_FPS,
+  ESP_LOGI(TAG,
+           "screen share started (%dx%d @ %d fps, %u KB buffer)",
+           SS_WIDTH,
+           SS_HEIGHT,
+           SS_FPS,
            (unsigned)(data_size / 1024));
 
   while (s_active) {
@@ -134,13 +139,26 @@ static void ss_task(void *arg) {
 static void inject_key(uint8_t screen_key) {
   uint32_t lv_key;
   switch (screen_key) {
-    case SPI_SCREEN_KEY_UP: lv_key = LV_KEY_UP; break;
-    case SPI_SCREEN_KEY_DOWN: lv_key = LV_KEY_DOWN; break;
-    case SPI_SCREEN_KEY_LEFT: lv_key = LV_KEY_LEFT; break;
-    case SPI_SCREEN_KEY_RIGHT: lv_key = LV_KEY_RIGHT; break;
-    case SPI_SCREEN_KEY_OK: lv_key = LV_KEY_ENTER; break;
-    case SPI_SCREEN_KEY_BACK: lv_key = LV_KEY_ESC; break;
-    default: return;
+    case SPI_SCREEN_KEY_UP:
+      lv_key = LV_KEY_UP;
+      break;
+    case SPI_SCREEN_KEY_DOWN:
+      lv_key = LV_KEY_DOWN;
+      break;
+    case SPI_SCREEN_KEY_LEFT:
+      lv_key = LV_KEY_LEFT;
+      break;
+    case SPI_SCREEN_KEY_RIGHT:
+      lv_key = LV_KEY_RIGHT;
+      break;
+    case SPI_SCREEN_KEY_OK:
+      lv_key = LV_KEY_ENTER;
+      break;
+    case SPI_SCREEN_KEY_BACK:
+      lv_key = LV_KEY_ESC;
+      break;
+    default:
+      return;
   }
   lv_port_indev_inject(lv_key);
 }
@@ -149,8 +167,12 @@ bool lvgl_screen_share_is_host_op(uint16_t cmd) {
   return SPI_CMD_CAT(cmd) == SPI_CAT_SCREEN;
 }
 
-uint8_t lvgl_screen_share_handle(uint16_t cmd, const uint8_t *payload, uint16_t plen, uint8_t *out,
-                                 size_t out_cap, uint16_t *out_len) {
+uint8_t lvgl_screen_share_handle(uint16_t cmd,
+                                 const uint8_t *payload,
+                                 uint16_t plen,
+                                 uint8_t *out,
+                                 size_t out_cap,
+                                 uint16_t *out_len) {
   (void)out;
   (void)out_cap;
   if (out_len != NULL) {
@@ -164,8 +186,13 @@ uint8_t lvgl_screen_share_handle(uint16_t cmd, const uint8_t *payload, uint16_t 
       }
       s_active = true;
       if (s_task == NULL) {
-        if (xTaskCreatePinnedToCore(ss_task, "screen_share", SS_TASK_STACK, NULL, SS_TASK_PRIO, &s_task, SYS_CORE_RADIO) !=
-            pdPASS) {
+        if (xTaskCreatePinnedToCore(ss_task,
+                                    "screen_share",
+                                    SS_TASK_STACK,
+                                    NULL,
+                                    SS_TASK_PRIO,
+                                    &s_task,
+                                    SYS_CORE_RADIO) != pdPASS) {
           s_active = false;
           s_task = NULL;
           return SPI_STATUS_ERROR;

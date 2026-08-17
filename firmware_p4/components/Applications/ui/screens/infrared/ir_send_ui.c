@@ -387,8 +387,7 @@ static void ir_send_tick_cb(lv_timer_t *t) {
 
   if (s_view == VIEW_SENDING) {
     sending_tick();
-  } else if (s_view == VIEW_SENT && !s_options &&
-             lv_tick_get() - s_sent_at >= REVEAL_MS) {
+  } else if (s_view == VIEW_SENT && !s_options && lv_tick_get() - s_sent_at >= REVEAL_MS) {
     show_options();
   }
 }

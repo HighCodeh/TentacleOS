@@ -100,8 +100,8 @@ static const char *TAG = "RFID_UI";
 #define CARD_RISE_PX  26
 #define CARD_RISE_MS  300
 
-#define CARD_H_WIDE  162
-#define CARD_Y_READ  8
+#define CARD_H_WIDE 162
+#define CARD_Y_READ 8
 
 #define CARD_TOP      0x3A1170
 #define CARD_BOT      0x140230
@@ -114,8 +114,8 @@ static const char *TAG = "RFID_UI";
 #define CHIP_GOLD_TOP 0xD9A521
 #define CHIP_GOLD_BOT 0xF4D36B
 #define CHIP_LINE_COL 0x7A5A10
-#define SAVED_CARD_Y (-28)
-#define SAVED_ACT_Y  (-24)
+#define SAVED_CARD_Y  (-28)
+#define SAVED_ACT_Y   (-24)
 
 #define HINT_SAVED "UP/DOWN choose   OK open   BACK exit"
 

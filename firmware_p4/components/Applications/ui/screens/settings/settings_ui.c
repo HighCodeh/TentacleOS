@@ -37,16 +37,16 @@
 
 static const char *TAG = "SETTINGS_UI";
 
-#define ENTRY_FADE_MS       180
+#define ENTRY_FADE_MS 180
 
 #define C5_PROGRESS_TICK_MS       200
 #define C5_DISMISS_DELAY_MS       2000
-#define C5_FLASH_TASK_STACK 8192
-#define C5_FLASH_TASK_PRIO SYS_PRIO_SERVICE_HI
+#define C5_FLASH_TASK_STACK       8192
+#define C5_FLASH_TASK_PRIO        SYS_PRIO_SERVICE_HI
 #define C5_ROM_FLASH_TASK_STACK   8192
-#define C5_ROM_FLASH_TASK_PRIO SYS_PRIO_SERVICE_HI
+#define C5_ROM_FLASH_TASK_PRIO    SYS_PRIO_SERVICE_HI
 #define C5_PASSTHROUGH_TASK_STACK 8192
-#define C5_PASSTHROUGH_TASK_PRIO SYS_PRIO_SERVICE_HI
+#define C5_PASSTHROUGH_TASK_PRIO  SYS_PRIO_SERVICE_HI
 #define REBOOT_DELAY_MS           80
 
 #define ACTION_TOGGLE_ROTATION (-1)
@@ -295,7 +295,13 @@ static void start_c5_flash(void) {
   if (s_c5_prog_timer == NULL)
     s_c5_prog_timer = lv_timer_create(c5_progress_tick, C5_PROGRESS_TICK_MS, NULL);
 
-  xTaskCreatePinnedToCore(c5_flash_task, "c5_flash", C5_FLASH_TASK_STACK, NULL, C5_FLASH_TASK_PRIO, NULL, SYS_CORE_RADIO);
+  xTaskCreatePinnedToCore(c5_flash_task,
+                          "c5_flash",
+                          C5_FLASH_TASK_STACK,
+                          NULL,
+                          C5_FLASH_TASK_PRIO,
+                          NULL,
+                          SYS_CORE_RADIO);
 }
 
 static void c5_rom_flash_task(void *arg) {
@@ -342,9 +348,9 @@ static void start_c5_passthrough(void) {
                           SYS_CORE_RADIO);
 }
 
-#define SHUT_TICK_MS    150
-#define SHUT_LOG_COLOR  0x00E676
-#define SHUT_BUF_LEN    360
+#define SHUT_TICK_MS   150
+#define SHUT_LOG_COLOR 0x00E676
+#define SHUT_BUF_LEN   360
 
 static const char *SHUTDOWN_STEPS[] = {
     "ui manager",

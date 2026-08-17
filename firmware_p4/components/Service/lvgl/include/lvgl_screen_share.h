@@ -45,8 +45,12 @@ bool lvgl_screen_share_is_host_op(uint16_t cmd);
  *
  * @return an SPI_STATUS_* code.
  */
-uint8_t lvgl_screen_share_handle(uint16_t cmd, const uint8_t *payload, uint16_t plen,
-                                 uint8_t *out, size_t out_cap, uint16_t *out_len);
+uint8_t lvgl_screen_share_handle(uint16_t cmd,
+                                 const uint8_t *payload,
+                                 uint16_t plen,
+                                 uint8_t *out,
+                                 size_t out_cap,
+                                 uint16_t *out_len);
 
 /**
  * @brief Stop streaming and free the capture buffer.

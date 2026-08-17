@@ -37,7 +37,7 @@ static const char *TAG = "SPEAKER_UI";
 #define SND_AMP           0.75f
 #define MAX_SEQ           64
 #define N_EQ              10
-#define SPK_TASK_STACK 8192
+#define SPK_TASK_STACK    8192
 #define SPK_TASK_PRIORITY SYS_PRIO_SERVICE_LO
 #define NP_TIMER_MS       33
 #define MAX_SONG_ROWS     10
@@ -461,7 +461,8 @@ static void play_song_now(const speaker_song_t *song) {
   s_cur_freq = 0;
   s_note_count = song->count > 0 ? song->count : 1;
   nowplaying_open(song);
-  if (xTaskCreatePinnedToCore(speaker_task, "spk_play", SPK_TASK_STACK, NULL, SPK_TASK_PRIORITY, NULL, SYS_CORE_UI) !=
+  if (xTaskCreatePinnedToCore(
+          speaker_task, "spk_play", SPK_TASK_STACK, NULL, SPK_TASK_PRIORITY, NULL, SYS_CORE_UI) !=
       pdPASS) {
     s_busy = false;
     s_playing = false;

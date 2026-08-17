@@ -21,9 +21,9 @@
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define TITLE     "BOOT MAP"
-#define ICON      "/assets/icons/troubleshoot.bin"
-#define HINT      "BACK exit"
+#define TITLE "BOOT MAP"
+#define ICON  "/assets/icons/troubleshoot.bin"
+#define HINT  "BACK exit"
 
 #define OK_COLOR   0x00E676
 #define FAIL_COLOR 0xFF5252
@@ -42,8 +42,8 @@ static void add_row(lv_obj_t *list, const boot_stage_t *st) {
   lv_obj_set_style_border_width(row, 0, 0);
   lv_obj_set_style_pad_all(row, 2, 0);
   lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
-                        LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_flex_align(
+      row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
   lv_obj_t *name = lv_label_create(row);
   lv_label_set_text_fmt(name, "%s%s", st->name, st->required ? " *" : "");

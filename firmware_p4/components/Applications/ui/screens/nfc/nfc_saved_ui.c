@@ -236,8 +236,7 @@ static void nfc_saved_tick_cb(lv_timer_t *t) {
     s_tick_timer = NULL;
     return;
   }
-  if (s_detail == DT_VIEW && s_phase == DV_CARD &&
-      !(msgbox_is_open() || ui_input_is_locked()) &&
+  if (s_detail == DT_VIEW && s_phase == DV_CARD && !(msgbox_is_open() || ui_input_is_locked()) &&
       lv_tick_get() - s_reveal_start >= CARD_REVEAL_MS) {
     present_choices();
   }
@@ -278,8 +277,7 @@ static void nfc_saved_input(const input_event_t *ev, void *ctx) {
             ui_feedback(UI_FB_EMULATE);
             ui_switch_screen(SCREEN_NFC_EMULATE);
           } else {
-            msgbox_open(
-                LV_SYMBOL_TRASH, "Delete this card?", "Delete", "Cancel", on_del_confirm);
+            msgbox_open(LV_SYMBOL_TRASH, "Delete this card?", "Delete", "Cancel", on_del_confirm);
           }
         }
         break;

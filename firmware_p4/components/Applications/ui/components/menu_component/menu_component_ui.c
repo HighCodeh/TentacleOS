@@ -31,22 +31,21 @@
 #define ITEM_BORDER current_theme.border_inactive
 #define SEL_BORDER  current_theme.border_accent
 
-#define HEADER_H         46 // a touch taller so the submenu breadcrumb label has room below the header
-#define FOOTER_H         MENU_COMP_FOOTER_H
-#define ITEM_H           44
-#define ITEM_GAP         6
-#define ICON_CELL        26
-#define LEFT_MARGIN      6
-#define RIGHT_GUTTER     16
-#define ITEMS_Y          (HEADER_H + 4)
-#define OUTER_BORDER     4
+#define HEADER_H     46 // a touch taller so the submenu breadcrumb label has room below the header
+#define FOOTER_H     MENU_COMP_FOOTER_H
+#define ITEM_H       44
+#define ITEM_GAP     6
+#define ICON_CELL    26
+#define LEFT_MARGIN  6
+#define RIGHT_GUTTER 16
+#define ITEMS_Y      (HEADER_H + 4)
+#define OUTER_BORDER 4
 #define THUMB_FALLBACK_H 45
 #define SCROLL_ANIM_MS   200
 #define OVERFLOW_SLOP_PX 2
 
 #define DEFAULT_HINT \
   LV_SYMBOL_UP LV_SYMBOL_DOWN "  Nav    " LV_SYMBOL_OK "  OK    " LV_SYMBOL_LEFT "  Back"
-
 
 static lv_obj_t *make_icon(lv_obj_t *parent, const char *icon_path) {
   if (!icon_path)

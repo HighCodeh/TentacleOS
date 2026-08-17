@@ -32,7 +32,7 @@
 static const char *TAG = "SPI_BRIDGE_P4";
 
 #define SPI_STREAM_TASK_STACK 16384
-#define SPI_STREAM_TASK_PRIO SYS_PRIO_SERVICE_HI
+#define SPI_STREAM_TASK_PRIO  SYS_PRIO_SERVICE_HI
 #define SPI_MUTEX_TIMEOUT_MS  50
 #define SPI_STREAM_POLL_MS    10
 #define SPI_STREAM_IDLE_MS    20
@@ -68,8 +68,12 @@ static spi_bridge_mode_t s_bridge_mode = SPI_BRIDGE_MODE_IRQ;
 
 static void stream_task(void *arg);
 static esp_err_t fetch_stream(const uint8_t **out_records, uint16_t *out_batch_len);
-static esp_err_t recv_frame(uint8_t *tx_buf, uint8_t *rx_buf, size_t frame_size, uint16_t expect_cmd,
-                            bool match_cmd, uint32_t timeout_ms);
+static esp_err_t recv_frame(uint8_t *tx_buf,
+                            uint8_t *rx_buf,
+                            size_t frame_size,
+                            uint16_t expect_cmd,
+                            bool match_cmd,
+                            uint32_t timeout_ms);
 static spi_stream_cb_t get_stream_cb(spi_id_t id);
 static bool has_any_stream_cb(void);
 
@@ -110,8 +114,12 @@ esp_err_t spi_bridge_master_init_mode(spi_bridge_mode_t mode) {
 //              is still busy it has no TX armed and reads back as junk, so we
 //              retry until it answers or the timeout elapses.
 // tx_buf is used as the (zeroed) outgoing dummy; frame_size is the transfer size.
-static esp_err_t recv_frame(uint8_t *tx_buf, uint8_t *rx_buf, size_t frame_size, uint16_t expect_cmd,
-                            bool match_cmd, uint32_t timeout_ms) {
+static esp_err_t recv_frame(uint8_t *tx_buf,
+                            uint8_t *rx_buf,
+                            size_t frame_size,
+                            uint16_t expect_cmd,
+                            bool match_cmd,
+                            uint32_t timeout_ms) {
   memset(tx_buf, 0, frame_size);
 
   if (s_bridge_mode == SPI_BRIDGE_MODE_IRQ) {
@@ -249,20 +257,18 @@ uint32_t spi_bridge_get_timeout(spi_id_t id) {
   return SPI_TIMEOUT_DEFAULT_MS;
 }
 
-#define SCAN_STATUS_POLL_MS   250
+#define SCAN_STATUS_POLL_MS 250
 // ~40 s ceiling (matches SPI_TIMEOUT_WIFI_MS). This is only the upper bound: the
 // loop returns as soon as the scan reports done, so a fast scan is not delayed.
 #define SCAN_STATUS_MAX_POLLS 160
 
-esp_err_t spi_bridge_run_scan(spi_id_t scan_id,
-                              spi_id_t status_id,
-                              const uint8_t *payload,
-                              uint8_t len) {
+esp_err_t
+spi_bridge_run_scan(spi_id_t scan_id, spi_id_t status_id, const uint8_t *payload, uint8_t len) {
   // Fire the async scan (the C5 returns immediately) then poll the status until
   // it clears. The bridge is free between polls, so the UI and other peripherals
   // are not blocked for the whole scan.
-  esp_err_t err =
-      spi_bridge_send_command(scan_id, payload, len, NULL, NULL, 0, spi_bridge_get_timeout(scan_id));
+  esp_err_t err = spi_bridge_send_command(
+      scan_id, payload, len, NULL, NULL, 0, spi_bridge_get_timeout(scan_id));
   if (err != ESP_OK) {
     return err;
   }
@@ -271,7 +277,8 @@ esp_err_t spi_bridge_run_scan(spi_id_t scan_id,
     spi_header_t resp;
     uint8_t busy = 1;
     if (spi_bridge_send_command(
-            status_id, NULL, 0, &resp, &busy, sizeof(busy), spi_bridge_get_timeout(status_id)) == ESP_OK &&
+            status_id, NULL, 0, &resp, &busy, sizeof(busy), spi_bridge_get_timeout(status_id)) ==
+            ESP_OK &&
         busy == 0) {
       return ESP_OK;
     }
@@ -363,8 +370,8 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
     // late, landing on this read. Reject it rather than handing the caller the
     // wrong data; the slave has already re-armed its RX, so the next command
     // resyncs on its own.
-    ESP_LOGW(TAG, "Response ID mismatch (req 0x%04X, resp 0x%04X), dropping", id,
-             spi_header_cmd(resp));
+    ESP_LOGW(
+        TAG, "Response ID mismatch (req 0x%04X, resp 0x%04X), dropping", id, spi_header_cmd(resp));
     led_signal_warning();
     s_is_command_in_flight = false;
     xSemaphoreGive(s_spi_mutex);

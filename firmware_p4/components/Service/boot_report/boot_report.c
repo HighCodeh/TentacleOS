@@ -29,9 +29,9 @@ static const char *TAG = "BOOT_REPORT";
 // Boot-loop counter in RTC_NOINIT memory: survives a reset but not a power
 // cycle, and never writes flash. A magic word tells a real count from the
 // garbage RTC RAM holds after power-on.
-#define BOOTLOOP_MAGIC     0x7005B007u
-#define STABLE_UPTIME_US   (20 * 1000 * 1000)  // clear the counter after 20 s up
-#define NVS_NAMESPACE      "boot_report"
+#define BOOTLOOP_MAGIC      0x7005B007u
+#define STABLE_UPTIME_US    (20 * 1000 * 1000) // clear the counter after 20 s up
+#define NVS_NAMESPACE       "boot_report"
 #define NVS_KEY_LAST_REASON "last_reason"
 #define NVS_KEY_PANIC_TOTAL "panic_total"
 #define NVS_KEY_BOOT_TOTAL  "boot_total"
@@ -58,7 +58,10 @@ void boot_report_reset(void) {
 
 void boot_report_record(const char *name, bool required, esp_err_t result) {
   if (result != ESP_OK) {
-    ESP_LOGW(TAG, "stage '%s' (%s) -> %s", name, required ? "required" : "optional",
+    ESP_LOGW(TAG,
+             "stage '%s' (%s) -> %s",
+             name,
+             required ? "required" : "optional",
              esp_err_to_name(result));
   } else {
     ESP_LOGI(TAG, "stage '%s' ok", name);
@@ -69,7 +72,7 @@ void boot_report_record(const char *name, bool required, esp_err_t result) {
   }
 
   if (s_stage_count >= BOOT_REPORT_MAX_STAGES) {
-    return;  // map full: keep counting failures above but stop storing
+    return; // map full: keep counting failures above but stop storing
   }
 
   s_stages[s_stage_count].name = name;
@@ -91,22 +94,38 @@ bool boot_report_all_required_ok(void) {
 
 const char *boot_report_reason_str(esp_reset_reason_t reason) {
   switch (reason) {
-    case ESP_RST_POWERON:   return "Power-on";
-    case ESP_RST_EXT:       return "External pin";
-    case ESP_RST_SW:        return "Software restart";
-    case ESP_RST_PANIC:     return "Panic / exception";
-    case ESP_RST_INT_WDT:   return "Interrupt watchdog";
-    case ESP_RST_TASK_WDT:  return "Task watchdog";
-    case ESP_RST_WDT:       return "Other watchdog";
-    case ESP_RST_DEEPSLEEP: return "Deep sleep wake";
-    case ESP_RST_BROWNOUT:  return "Brownout";
-    case ESP_RST_SDIO:      return "SDIO";
-    case ESP_RST_USB:       return "USB peripheral";
-    case ESP_RST_JTAG:      return "JTAG";
-    case ESP_RST_EFUSE:     return "eFuse error";
-    case ESP_RST_PWR_GLITCH: return "Power glitch";
-    case ESP_RST_CPU_LOCKUP: return "CPU lockup";
-    default:                return "Unknown";
+    case ESP_RST_POWERON:
+      return "Power-on";
+    case ESP_RST_EXT:
+      return "External pin";
+    case ESP_RST_SW:
+      return "Software restart";
+    case ESP_RST_PANIC:
+      return "Panic / exception";
+    case ESP_RST_INT_WDT:
+      return "Interrupt watchdog";
+    case ESP_RST_TASK_WDT:
+      return "Task watchdog";
+    case ESP_RST_WDT:
+      return "Other watchdog";
+    case ESP_RST_DEEPSLEEP:
+      return "Deep sleep wake";
+    case ESP_RST_BROWNOUT:
+      return "Brownout";
+    case ESP_RST_SDIO:
+      return "SDIO";
+    case ESP_RST_USB:
+      return "USB peripheral";
+    case ESP_RST_JTAG:
+      return "JTAG";
+    case ESP_RST_EFUSE:
+      return "eFuse error";
+    case ESP_RST_PWR_GLITCH:
+      return "Power glitch";
+    case ESP_RST_CPU_LOCKUP:
+      return "CPU lockup";
+    default:
+      return "Unknown";
   }
 }
 
@@ -178,8 +197,11 @@ void boot_report_capture_crash(void) {
   persist_summary(s_crash.reason, s_crash.crash);
 
   if (s_crash.crash) {
-    ESP_LOGW(TAG, "Previous run ended abnormally: %s (coredump=%d, task=%s)",
-             boot_report_reason_str(s_crash.reason), s_crash.has_coredump, s_crash.task);
+    ESP_LOGW(TAG,
+             "Previous run ended abnormally: %s (coredump=%d, task=%s)",
+             boot_report_reason_str(s_crash.reason),
+             s_crash.has_coredump,
+             s_crash.task);
   }
 }
 
@@ -218,10 +240,12 @@ void boot_report_track_bootloop(void) {
 
   if (reason_is_abnormal(reason)) {
     s_rtc_abnormal_count++;
-    ESP_LOGW(TAG, "Abnormal boot #%lu: %s", (unsigned long)s_rtc_abnormal_count,
+    ESP_LOGW(TAG,
+             "Abnormal boot #%lu: %s",
+             (unsigned long)s_rtc_abnormal_count,
              boot_report_reason_str(reason));
   } else {
-    s_rtc_abnormal_count = 0;  // a clean reset / power-on breaks the loop
+    s_rtc_abnormal_count = 0; // a clean reset / power-on breaks the loop
   }
 
   // Clear the counter once we have stayed up long enough to call this boot
@@ -236,8 +260,7 @@ void boot_report_track_bootloop(void) {
 }
 
 bool boot_report_in_bootloop(void) {
-  return s_rtc_magic == BOOTLOOP_MAGIC &&
-         s_rtc_abnormal_count >= BOOT_REPORT_BOOTLOOP_THRESHOLD;
+  return s_rtc_magic == BOOTLOOP_MAGIC && s_rtc_abnormal_count >= BOOT_REPORT_BOOTLOOP_THRESHOLD;
 }
 
 uint32_t boot_report_abnormal_boots(void) {
@@ -254,7 +277,8 @@ uint32_t boot_report_boot_count(void) {
 
 void boot_report_mark_stable(void) {
   if (s_rtc_abnormal_count != 0) {
-    ESP_LOGI(TAG, "Boot stable: clearing abnormal-boot counter (was %lu)",
+    ESP_LOGI(TAG,
+             "Boot stable: clearing abnormal-boot counter (was %lu)",
              (unsigned long)s_rtc_abnormal_count);
   }
   s_rtc_abnormal_count = 0;

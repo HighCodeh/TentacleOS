@@ -78,8 +78,12 @@ static void render_list(void) {
                        sizeof(buf) - pos,
                        first ? "%02X:%02X:%02X:%02X:%02X:%02X  %d"
                              : "\n%02X:%02X:%02X:%02X:%02X:%02X  %d",
-                       list[i].addr[5], list[i].addr[4], list[i].addr[3],
-                       list[i].addr[2], list[i].addr[1], list[i].addr[0],
+                       list[i].addr[5],
+                       list[i].addr[4],
+                       list[i].addr[3],
+                       list[i].addr[2],
+                       list[i].addr[1],
+                       list[i].addr[0],
                        list[i].rssi);
       if (m < 0)
         break;

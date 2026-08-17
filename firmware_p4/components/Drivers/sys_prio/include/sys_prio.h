@@ -55,4 +55,4 @@
 #define SYS_PRIO_BACKGROUND_LO 2
 #define SYS_PRIO_MONITOR       1
 
-#endif  // SYS_PRIO_H
+#endif // SYS_PRIO_H

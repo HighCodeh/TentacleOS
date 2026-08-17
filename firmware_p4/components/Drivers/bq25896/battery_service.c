@@ -25,9 +25,9 @@
 static const char *TAG = "BATTERY_SVC";
 
 #define POLL_INTERVAL_MS 1000
-#define CHG_OFF_DEBOUNCE 3    // not-charging polls (while still plugged) before dropping the flag
+#define CHG_OFF_DEBOUNCE 3 // not-charging polls (while still plugged) before dropping the flag
 #define TASK_STACK       4096
-#define TASK_PRIO SYS_PRIO_BACKGROUND
+#define TASK_PRIO        SYS_PRIO_BACKGROUND
 #define SOC_STEP_MAX     3  // max SoC delta applied per poll (smoothing)
 #define SOC_EMA_DEN      4  // EMA: ema = (ema*3 + raw)/4 (rejects load sag)
 #define LOW_ENTER_PCT    15 // latch "low" at/below this SoC
@@ -170,7 +170,9 @@ void battery_service_init(void) {
     s_snap.valid = true;
   }
 
-  if (xTaskCreatePinnedToCore(battery_task, "battery_svc", TASK_STACK, NULL, TASK_PRIO, NULL, SYS_CORE_RADIO) != pdPASS) {
+  if (xTaskCreatePinnedToCore(
+          battery_task, "battery_svc", TASK_STACK, NULL, TASK_PRIO, NULL, SYS_CORE_RADIO) !=
+      pdPASS) {
     ESP_LOGE(TAG, "task create failed");
     vSemaphoreDelete(s_mtx);
     s_mtx = NULL;

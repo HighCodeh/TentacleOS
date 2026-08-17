@@ -78,7 +78,13 @@ static void sniffer_observer(const ble_sniffer_adv_t *adv) {
   int n = snprintf(row,
                    sizeof(row),
                    "%02X:%02X:%02X:%02X:%02X:%02X %d",
-                   addr[5], addr[4], addr[3], addr[2], addr[1], addr[0], adv->rssi);
+                   addr[5],
+                   addr[4],
+                   addr[3],
+                   addr[2],
+                   addr[1],
+                   addr[0],
+                   adv->rssi);
   for (int i = 0; i < adv->len && n > 0 && n < (int)sizeof(row) - 3; i++)
     n += snprintf(row + n, sizeof(row) - n, " %02X", adv->data[i]);
 

@@ -50,10 +50,10 @@ static void process_frame(const uint8_t *frame, size_t total);
 static void handle_hello(const uint8_t *payload, uint16_t plen);
 static void dispatch_cmd(uint8_t category, uint8_t op, const uint8_t *payload, uint8_t plen);
 static uint8_t status_from_err(esp_err_t err);
-static void emit_frame(uint8_t type, uint8_t category, uint8_t op, const uint8_t *payload,
-                       uint16_t payload_len);
-static void send_resp(uint8_t category, uint8_t op, uint8_t status, const uint8_t *data,
-                      uint16_t data_len);
+static void emit_frame(
+    uint8_t type, uint8_t category, uint8_t op, const uint8_t *payload, uint16_t payload_len);
+static void
+send_resp(uint8_t category, uint8_t op, uint8_t status, const uint8_t *data, uint16_t data_len);
 
 esp_err_t host_link_init(void) {
   if (s_lock == NULL) {
@@ -94,9 +94,9 @@ void host_link_session_release(host_link_writer_t writer) {
   }
   xSemaphoreGive(s_lock);
   if (owned) {
-    host_stream_teardown();     // stop any live stream so the C5 session is reaped
-    lvgl_screen_share_stop();   // safeguard: never keep capturing into a dead link
-    host_link_sec_reset();      // force re-handshake on the next session
+    host_stream_teardown();   // stop any live stream so the C5 session is reaped
+    lvgl_screen_share_stop(); // safeguard: never keep capturing into a dead link
+    host_link_sec_reset();    // force re-handshake on the next session
   }
 }
 
@@ -325,8 +325,8 @@ static uint8_t status_from_err(esp_err_t err) {
 // Assemble and write one host frame. Holds s_lock across the counter bump and
 // the transport write so frames stay atomic and the per-direction counter stays
 // monotonic even when RESP (command worker) and LOG (log worker) race.
-static void emit_frame(uint8_t type, uint8_t category, uint8_t op, const uint8_t *payload,
-                       uint16_t payload_len) {
+static void emit_frame(
+    uint8_t type, uint8_t category, uint8_t op, const uint8_t *payload, uint16_t payload_len) {
   if (s_writer == NULL)
     return;
 
@@ -379,8 +379,8 @@ static void emit_frame(uint8_t type, uint8_t category, uint8_t op, const uint8_t
   xSemaphoreGive(s_lock);
 }
 
-static void send_resp(uint8_t category, uint8_t op, uint8_t status, const uint8_t *data,
-                      uint16_t data_len) {
+static void
+send_resp(uint8_t category, uint8_t op, uint8_t status, const uint8_t *data, uint16_t data_len) {
   // [status][data...]. Sized for the largest local response (a file chunk).
   // Single-session guarantees only one dispatcher runs at a time.
   static uint8_t payload[1 + HOST_FILE_DATA_MAX];
@@ -399,8 +399,11 @@ void host_link_mark_ble_writer(host_link_writer_t writer) {
 // Emit one LOG frame. Background logs (gate_ble=true) are suppressed over BLE
 // when the log-over-BLE toggle is off; USB always carries them, and console
 // output (gate_ble=false) is always delivered.
-static void emit_log_frame(host_log_source_t source, host_log_level_t level, const char *text,
-                           size_t text_len, bool gate_ble) {
+static void emit_log_frame(host_log_source_t source,
+                           host_log_level_t level,
+                           const char *text,
+                           size_t text_len,
+                           bool gate_ble) {
   if (text == NULL)
     return;
   if (gate_ble && s_writer != NULL && s_writer == s_ble_writer &&
@@ -418,7 +421,9 @@ static void emit_log_frame(host_log_source_t source, host_log_level_t level, con
   emit_frame(HOST_TYPE_LOG, 0x00, 0x00, payload, (uint16_t)(2 + text_len));
 }
 
-void host_link_emit_log(host_log_source_t source, host_log_level_t level, const char *text,
+void host_link_emit_log(host_log_source_t source,
+                        host_log_level_t level,
+                        const char *text,
                         size_t text_len) {
   emit_log_frame(source, level, text, text_len, true);
 }

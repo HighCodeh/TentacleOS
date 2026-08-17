@@ -23,7 +23,6 @@
 
 static const char *TAG = "IR_MENU_UI";
 
-
 typedef struct {
   const char *name;
   const char *icon;

@@ -46,10 +46,10 @@ static const char *TAG = "OTA_SVC";
 
 // UART transport: UART0 (U0RXD=GPIO12, U0TXD=GPIO11) carries the raw .bin from the
 // P4; control (begin/status) stays on SPI so the C5 never transmits on UART here.
-#define OTA_UART        UART_NUM_0
-#define OTA_UART_RX_PIN 12
-#define OTA_UART_TX_PIN 11
-#define OTA_UART_BAUD   115200
+#define OTA_UART         UART_NUM_0
+#define OTA_UART_RX_PIN  12
+#define OTA_UART_TX_PIN  11
+#define OTA_UART_BAUD    115200
 #define OTA_UART_RINGBUF (16 * 1024)
 
 static volatile uint8_t s_state = SPI_OTA_STATE_IDLE;
@@ -108,7 +108,10 @@ static void ota_writer_task(void *arg) {
     return;
   }
 
-  ESP_LOGW(TAG, "OTA: %lu bytes -> '%s' via %s (erasing...)", (unsigned long)s_ota_size, part->label,
+  ESP_LOGW(TAG,
+           "OTA: %lu bytes -> '%s' via %s (erasing...)",
+           (unsigned long)s_ota_size,
+           part->label,
            uart ? "UART" : "SPI");
   esp_ota_handle_t handle = 0;
   s_state = SPI_OTA_STATE_ERASING;
@@ -144,7 +147,8 @@ static void ota_writer_task(void *arg) {
     }
     err = esp_ota_write(handle, buf, n);
     if (err != ESP_OK) {
-      ESP_LOGE(TAG, "esp_ota_write @ %lu: %s", (unsigned long)s_bytes_written, esp_err_to_name(err));
+      ESP_LOGE(
+          TAG, "esp_ota_write @ %lu: %s", (unsigned long)s_bytes_written, esp_err_to_name(err));
       esp_ota_abort(handle);
       s_state = SPI_OTA_STATE_ERROR;
       goto fail;

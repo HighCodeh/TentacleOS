@@ -206,8 +206,7 @@ bool ui_sd_ready(void) {
 static bool input_dispatch_blocked(void) {
   // While the screen is asleep, swallow input: the press that wakes it (tracked
   // by input_manager, which wakes the power policy) must not also act on the UI.
-  return ui_input_is_locked() || msgbox_is_open() || keyboard_is_open() ||
-         power_policy_is_asleep();
+  return ui_input_is_locked() || msgbox_is_open() || keyboard_is_open() || power_policy_is_asleep();
 }
 
 static void ui_input_pump(lv_timer_t *t) {
@@ -219,7 +218,7 @@ static void ui_input_pump(lv_timer_t *t) {
       continue;
     }
     if (s_screen_handler == NULL || input_dispatch_blocked()) {
-      continue;  // drain and discard so stale events do not fire once unblocked
+      continue; // drain and discard so stale events do not fire once unblocked
     }
     ui_input_handler_t handler = s_screen_handler;
     handler(&ev, s_screen_handler_ctx);
@@ -314,7 +313,7 @@ static void ui_boot_task(void *pvParameter) {
     ui_release();
   }
 
-  vTaskDelete(NULL);  // boot done; nothing to loop on
+  vTaskDelete(NULL); // boot done; nothing to loop on
 }
 
 static void clear_current_screen(void) {

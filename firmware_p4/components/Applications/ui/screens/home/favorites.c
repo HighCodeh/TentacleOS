@@ -22,10 +22,10 @@
 
 static const char *TAG = "FAVORITES";
 
-#define FAV_NVS_NS   "favorites"
-#define FAV_NVS_KEY  "set"
-#define FAV_BITS     32
-#define FAV_WORDS    (((int)SCREEN_COUNT + FAV_BITS - 1) / FAV_BITS)
+#define FAV_NVS_NS  "favorites"
+#define FAV_NVS_KEY "set"
+#define FAV_BITS    32
+#define FAV_WORDS   (((int)SCREEN_COUNT + FAV_BITS - 1) / FAV_BITS)
 
 static uint32_t s_fav[FAV_WORDS];
 static bool s_loaded = false;

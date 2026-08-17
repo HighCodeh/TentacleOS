@@ -43,16 +43,24 @@ bool host_stream_is_session_op(uint16_t cmd);
  *
  * @return spi_status_t; on OK writes the session id (u32) into @p out_data.
  */
-uint8_t host_stream_start(uint16_t cmd, const uint8_t *payload, uint16_t plen, uint8_t *out_data,
-                          uint16_t out_cap, uint16_t *out_len);
+uint8_t host_stream_start(uint16_t cmd,
+                          const uint8_t *payload,
+                          uint16_t plen,
+                          uint8_t *out_data,
+                          uint16_t out_cap,
+                          uint16_t *out_len);
 
 /**
  * @brief Handle a SESSION-category control command from the app (HEARTBEAT /
  *        STOP). Heartbeats refresh app liveness; STOP tears the session down.
  *        These are P4-local — the P4 keeps heartbeating the C5 itself.
  */
-uint8_t host_stream_session_ctrl(uint16_t cmd, const uint8_t *payload, uint16_t plen,
-                                 uint8_t *out_data, uint16_t out_cap, uint16_t *out_len);
+uint8_t host_stream_session_ctrl(uint16_t cmd,
+                                 const uint8_t *payload,
+                                 uint16_t plen,
+                                 uint8_t *out_data,
+                                 uint16_t out_cap,
+                                 uint16_t *out_len);
 
 /** @brief Tear down any active stream (called on companion link loss). */
 void host_stream_teardown(void);

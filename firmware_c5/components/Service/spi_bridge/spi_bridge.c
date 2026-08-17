@@ -45,7 +45,7 @@ static const char *TAG = "SPI_BRIDGE_C5";
 
 #define SPI_STREAM_QUEUE_LEN  32
 #define SPI_BRIDGE_TASK_STACK 8192
-#define SPI_BRIDGE_TASK_PRIO SYS_PRIO_REALTIME
+#define SPI_BRIDGE_TASK_PRIO  SYS_PRIO_REALTIME
 #define SPI_IRQ_PULSE_US      10
 #define SPI_RESTART_DELAY_MS  50
 #define SPI_FW_VERSION_LEN    32
@@ -398,9 +398,9 @@ static void bridge_task(void *pvParameters) {
           // task drains it to flash. BUSY means the writer is behind - the P4
           // retries the same chunk.
           esp_err_t wr = ota_service_write(cmd_payload, header->length);
-          status = (wr == ESP_OK)              ? SPI_STATUS_OK
-                   : (wr == ESP_ERR_NO_MEM)    ? SPI_STATUS_BUSY
-                                               : SPI_STATUS_ERROR;
+          status = (wr == ESP_OK)           ? SPI_STATUS_OK
+                   : (wr == ESP_ERR_NO_MEM) ? SPI_STATUS_BUSY
+                                            : SPI_STATUS_ERROR;
         } else if (cmd == SPI_ID_SYSTEM_OTA_STATUS) {
           spi_ota_status_t ota_st;
           ota_service_get_status(&ota_st);

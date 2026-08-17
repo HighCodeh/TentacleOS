@@ -51,8 +51,12 @@ bool host_state_is_local_op(uint16_t cmd);
  * @param out_len  Receives the response data length.
  * @return spi_status_t value.
  */
-uint8_t host_state_handle(uint16_t cmd, const uint8_t *payload, uint16_t plen, uint8_t *out_data,
-                          uint16_t out_cap, uint16_t *out_len);
+uint8_t host_state_handle(uint16_t cmd,
+                          const uint8_t *payload,
+                          uint16_t plen,
+                          uint8_t *out_data,
+                          uint16_t out_cap,
+                          uint16_t *out_len);
 
 #ifdef __cplusplus
 }

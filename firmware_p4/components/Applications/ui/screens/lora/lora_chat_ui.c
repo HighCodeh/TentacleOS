@@ -41,21 +41,21 @@
 
 static const char *TAG = "LORA_MESH";
 
-#define CONNECT_POLL_MS 1000
-#define CHAT_POLL_MS    500
-#define CHAT_BATCH      8
+#define CONNECT_POLL_MS       1000
+#define CHAT_POLL_MS          500
+#define CHAT_BATCH            8
 #define LORA_START_TASK_STACK 12288
-#define SIG_GREEN    0x00E676
-#define COL_DIM      0x8A8594
-#define ENTRY_MS     220
+#define SIG_GREEN             0x00E676
+#define COL_DIM               0x8A8594
+#define ENTRY_MS              220
 
 #define BADGE_SIZE    28
 #define BADGE_ICON_PX 18
 
-#define DOTS_STEP_MS  340
-#define DOTS_MAX      3
+#define DOTS_STEP_MS 340
+#define DOTS_MAX     3
 
-#define BUBBLE_MAX_W  184
+#define BUBBLE_MAX_W 184
 
 #define LORA_AMBER     0xF5B13D
 #define MAP_CENTER_X   120
@@ -190,8 +190,12 @@ static void start_active_proto(lora_proto_t proto) {
   if (s_starting || lora_session_active() != LORA_PROTO_NONE)
     return;
   s_starting = true;
-  if (xTaskCreatePinnedToCore(lora_start_task, "lora_start", LORA_START_TASK_STACK,
-                              (void *)(intptr_t)proto, SYS_PRIO_BACKGROUND, NULL,
+  if (xTaskCreatePinnedToCore(lora_start_task,
+                              "lora_start",
+                              LORA_START_TASK_STACK,
+                              (void *)(intptr_t)proto,
+                              SYS_PRIO_BACKGROUND,
+                              NULL,
                               SYS_CORE_RADIO) != pdPASS) {
     s_starting = false;
     ESP_LOGE(TAG, "failed to spawn start task");
@@ -205,8 +209,8 @@ static void refresh_nodes(void) {
     lora_node_t nd;
     if (!lora_session_node_get(i, &nd))
       continue;
-    snprintf(s_nodes[n].name, sizeof(s_nodes[n].name), "%s",
-             (nd.name[0] != '\0') ? nd.name : "node");
+    snprintf(
+        s_nodes[n].name, sizeof(s_nodes[n].name), "%s", (nd.name[0] != '\0') ? nd.name : "node");
     s_nodes[n].rssi = nd.rssi;
     s_nodes[n].strong = (nd.rssi == 0) || (nd.rssi >= RSSI_GOOD);
     n++;
@@ -299,8 +303,8 @@ static void build_home_view(void) {
     const mt_region_info_t *rg = mt_region_info(mt_region_current());
     const mt_preset_info_t *pr = mt_preset_info(mt_preset_current());
     char band[64];
-    snprintf(band, sizeof(band), "%s  %s", (rg != NULL) ? rg->name : "?",
-             (pr != NULL) ? pr->name : "?");
+    snprintf(
+        band, sizeof(band), "%s  %s", (rg != NULL) ? rg->name : "?", (pr != NULL) ? pr->name : "?");
     menu_component_add_section(&s_menu, band);
   }
   menu_component_add_section(&s_menu, s_linked ? "[ MESH ONLINE ]" : "[ STANDALONE ]");

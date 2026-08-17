@@ -53,8 +53,8 @@ static const mbedtls_md_info_t *md_sha256(void) {
 }
 
 // HMAC-SHA256 truncated to HL_MAC_SIZE.
-static void hmac_trunc(const uint8_t *key, size_t key_len, const uint8_t *data, size_t data_len,
-                       uint8_t *out_mac) {
+static void hmac_trunc(
+    const uint8_t *key, size_t key_len, const uint8_t *data, size_t data_len, uint8_t *out_mac) {
   uint8_t full[32];
   mbedtls_md_hmac(md_sha256(), key, key_len, data, data_len, full);
   memcpy(out_mac, full, HL_MAC_SIZE);
@@ -124,8 +124,8 @@ void host_link_sec_reset(void) {
   mbedtls_platform_zeroize(s_k_d2a, sizeof(s_k_d2a));
 }
 
-esp_err_t host_link_sec_handle_hello(const uint8_t *payload, uint16_t plen, uint8_t *ack_out,
-                                     size_t ack_cap, size_t *out_len) {
+esp_err_t host_link_sec_handle_hello(
+    const uint8_t *payload, uint16_t plen, uint8_t *ack_out, size_t ack_cap, size_t *out_len) {
   if (!s_psk_loaded)
     return ESP_ERR_INVALID_STATE;
   // HELLO payload = [host_ver u8][client_nonce[16]]
@@ -143,12 +143,24 @@ esp_err_t host_link_sec_handle_hello(const uint8_t *payload, uint16_t plen, uint
   memcpy(salt, client_nonce, HOST_LINK_NONCE_SIZE);
   memcpy(salt + HOST_LINK_NONCE_SIZE, server_nonce, HOST_LINK_NONCE_SIZE);
 
-  int rc = mbedtls_hkdf(md_sha256(), salt, sizeof(salt), s_psk, sizeof(s_psk),
-                        (const uint8_t *)HL_INFO_A2D, sizeof(HL_INFO_A2D) - 1, s_k_a2d,
+  int rc = mbedtls_hkdf(md_sha256(),
+                        salt,
+                        sizeof(salt),
+                        s_psk,
+                        sizeof(s_psk),
+                        (const uint8_t *)HL_INFO_A2D,
+                        sizeof(HL_INFO_A2D) - 1,
+                        s_k_a2d,
                         sizeof(s_k_a2d));
   if (rc == 0)
-    rc = mbedtls_hkdf(md_sha256(), salt, sizeof(salt), s_psk, sizeof(s_psk),
-                      (const uint8_t *)HL_INFO_D2A, sizeof(HL_INFO_D2A) - 1, s_k_d2a,
+    rc = mbedtls_hkdf(md_sha256(),
+                      salt,
+                      sizeof(salt),
+                      s_psk,
+                      sizeof(s_psk),
+                      (const uint8_t *)HL_INFO_D2A,
+                      sizeof(HL_INFO_D2A) - 1,
+                      s_k_d2a,
                       sizeof(s_k_d2a));
   if (rc != 0) {
     ESP_LOGE(TAG, "HKDF failed: -0x%04x", -rc);
@@ -186,7 +198,9 @@ esp_err_t host_link_sec_handle_hello(const uint8_t *payload, uint16_t plen, uint
   return ESP_OK;
 }
 
-bool host_link_sec_verify_inbound(const uint8_t *span, size_t span_len, const uint8_t *mac,
+bool host_link_sec_verify_inbound(const uint8_t *span,
+                                  size_t span_len,
+                                  const uint8_t *mac,
                                   uint32_t counter) {
   if (!s_authed)
     return false;

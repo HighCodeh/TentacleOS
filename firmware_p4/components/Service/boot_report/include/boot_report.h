@@ -30,9 +30,9 @@ extern "C" {
 
 // One kernel_init subsystem and how it came up.
 typedef struct {
-  const char *name;   ///< short subsystem label (static string)
-  bool required;      ///< a required stage failing aborts to safe mode
-  esp_err_t result;   ///< ESP_OK, an error code, or ESP_ERR_NOT_FOUND when skipped
+  const char *name; ///< short subsystem label (static string)
+  bool required;    ///< a required stage failing aborts to safe mode
+  esp_err_t result; ///< ESP_OK, an error code, or ESP_ERR_NOT_FOUND when skipped
 } boot_stage_t;
 
 // Snapshot of the last reset / crash, filled once at boot.

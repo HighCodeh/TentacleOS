@@ -63,18 +63,22 @@
 #define LOG_KEEP     1000
 #define SEED_LINES   6
 
-#define STATUS_KINDS 6
+#define STATUS_KINDS    6
 #define STATUS_LINE_LEN 64
 
 static void format_status_line(int idx, char *buf, size_t n) {
   switch (idx % STATUS_KINDS) {
     case 0:
-      snprintf(buf, n, "[heap] int %uKB dma %uKB",
+      snprintf(buf,
+               n,
+               "[heap] int %uKB dma %uKB",
                (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
                (unsigned)(heap_caps_get_free_size(MALLOC_CAP_DMA) / 1024));
       break;
     case 1:
-      snprintf(buf, n, "[psram] free %uKB",
+      snprintf(buf,
+               n,
+               "[psram] free %uKB",
                (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
       break;
     case 2:
@@ -83,7 +87,11 @@ static void format_status_line(int idx, char *buf, size_t n) {
     case 3: {
       battery_snapshot_t b;
       if (battery_service_get(&b) && b.valid) {
-        snprintf(buf, n, "[batt] %d%% %umV %s", b.soc, (unsigned)b.vbat_mv,
+        snprintf(buf,
+                 n,
+                 "[batt] %d%% %umV %s",
+                 b.soc,
+                 (unsigned)b.vbat_mv,
                  b.charging ? "chg" : (b.vbus_present ? "usb" : "bat"));
       } else {
         snprintf(buf, n, "[batt] --");
@@ -91,11 +99,17 @@ static void format_status_line(int idx, char *buf, size_t n) {
       break;
     }
     case 4:
-      snprintf(buf, n, "[radio] wifi %s ble %s", wifi_service_is_active() ? "on" : "off",
+      snprintf(buf,
+               n,
+               "[radio] wifi %s ble %s",
+               wifi_service_is_active() ? "on" : "off",
                bluetooth_service_is_running_cached() ? "on" : "off");
       break;
     default:
-      snprintf(buf, n, "[sys] up %lus scr %d", (unsigned long)(lv_tick_get() / 1000),
+      snprintf(buf,
+               n,
+               "[sys] up %lus scr %d",
+               (unsigned long)(lv_tick_get() / 1000),
                (int)ui_current_screen());
       break;
   }

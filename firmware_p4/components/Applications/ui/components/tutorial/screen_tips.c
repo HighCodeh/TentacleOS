@@ -30,8 +30,8 @@
 #define TIP_NVS_KEY_SKIP "skip"
 #define TIP_WORDS        ((SCREEN_COUNT + 31) / 32)
 
-#define TIP_SCRIM_OPA 232              // how dark the screen behind gets
-#define TIP_ARM_MS    500              // ignore input while the intro plays
+#define TIP_SCRIM_OPA 232 // how dark the screen behind gets
+#define TIP_ARM_MS    500 // ignore input while the intro plays
 #define TIP_TEXT_W    182
 #define TIP_ART       "/assets/img/image.bin"
 
@@ -382,8 +382,7 @@ void screen_tips_handle_input(const input_event_t *ev) {
     return;
   if (lv_tick_get() - s_open_tick < TIP_ARM_MS)
     return;
-  if (ev->button == INPUT_BTN_OK || ev->button == INPUT_BTN_BACK ||
-      ev->button == INPUT_BTN_RIGHT)
+  if (ev->button == INPUT_BTN_OK || ev->button == INPUT_BTN_BACK || ev->button == INPUT_BTN_RIGHT)
     dismiss();
 }
 

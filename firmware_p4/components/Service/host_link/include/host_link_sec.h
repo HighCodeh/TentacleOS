@@ -62,8 +62,8 @@ void host_link_sec_reset(void);
  * @param ack_cap  Capacity of @p ack_out.
  * @param out_len  Receives the HELLO_ACK payload length.
  */
-esp_err_t host_link_sec_handle_hello(const uint8_t *payload, uint16_t plen, uint8_t *ack_out,
-                                     size_t ack_cap, size_t *out_len);
+esp_err_t host_link_sec_handle_hello(
+    const uint8_t *payload, uint16_t plen, uint8_t *ack_out, size_t ack_cap, size_t *out_len);
 
 /**
  * @brief Verify an inbound authenticated frame: recompute the MAC over @p span
@@ -78,7 +78,9 @@ esp_err_t host_link_sec_handle_hello(const uint8_t *payload, uint16_t plen, uint
  * @param counter   Frame counter (from the envelope).
  * @return true if authentic and fresh.
  */
-bool host_link_sec_verify_inbound(const uint8_t *span, size_t span_len, const uint8_t *mac,
+bool host_link_sec_verify_inbound(const uint8_t *span,
+                                  size_t span_len,
+                                  const uint8_t *mac,
                                   uint32_t counter);
 
 /**

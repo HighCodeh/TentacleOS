@@ -135,10 +135,8 @@ void mt_mod_traceroute_on_received(const mt_packet_meta_t *meta,
     s_result_from = meta->from;
     s_result_ready = true;
     s_pending = false;
-    ESP_LOGI(TAG,
-             "TraceRoute result from 0x%08lX (%d hops)",
-             (unsigned long)meta->from,
-             s_result_count);
+    ESP_LOGI(
+        TAG, "TraceRoute result from 0x%08lX (%d hops)", (unsigned long)meta->from, s_result_count);
     return;
   }
 

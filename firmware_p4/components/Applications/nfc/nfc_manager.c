@@ -115,7 +115,8 @@ hb_nfc_err_t nfc_manager_start(nfc_manager_card_found_cb_t cb, void *ctx) {
   s_mgr.ctx = ctx;
   s_mgr.running = true;
 
-  xTaskCreatePinnedToCore(nfc_manager_task, "nfc_mgr", 8192, NULL, SYS_PRIO_SERVICE_HI, &s_mgr.task, SYS_CORE_RADIO);
+  xTaskCreatePinnedToCore(
+      nfc_manager_task, "nfc_mgr", 8192, NULL, SYS_PRIO_SERVICE_HI, &s_mgr.task, SYS_CORE_RADIO);
   return HB_NFC_OK;
 }
 

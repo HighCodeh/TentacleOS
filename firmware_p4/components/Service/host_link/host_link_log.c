@@ -32,10 +32,10 @@
 #include "freertos/task.h"
 #include "sys_prio.h"
 
-#define HOST_LOG_LINE_MAX    240 // bytes of stripped text kept per line
-#define HOST_LOG_QUEUE_DEPTH 24  // ring slots (drop-oldest beyond this)
+#define HOST_LOG_LINE_MAX    240  // bytes of stripped text kept per line
+#define HOST_LOG_QUEUE_DEPTH 24   // ring slots (drop-oldest beyond this)
 #define HOST_LOG_TASK_STK    6144 // emit -> ble_write -> SPI command chain is deep
-#define HOST_LOG_TASK_PRIO SYS_PRIO_BACKGROUND
+#define HOST_LOG_TASK_PRIO   SYS_PRIO_BACKGROUND
 
 typedef struct {
   uint8_t level;
@@ -171,8 +171,13 @@ esp_err_t host_link_log_init(void) {
   if (s_log_queue == NULL)
     return ESP_ERR_NO_MEM;
 
-  if (xTaskCreatePinnedToCore(log_task, "hl_log", HOST_LOG_TASK_STK, NULL, HOST_LOG_TASK_PRIO, &s_log_task, SYS_CORE_RADIO) !=
-      pdPASS) {
+  if (xTaskCreatePinnedToCore(log_task,
+                              "hl_log",
+                              HOST_LOG_TASK_STK,
+                              NULL,
+                              HOST_LOG_TASK_PRIO,
+                              &s_log_task,
+                              SYS_CORE_RADIO) != pdPASS) {
     vQueueDelete(s_log_queue);
     s_log_queue = NULL;
     return ESP_FAIL;

@@ -32,7 +32,7 @@
 static const char *TAG = "YS_RFID2";
 
 #define RFID_TASK_STACK_SIZE     4096
-#define RFID_TASK_PRIORITY SYS_PRIO_SERVICE_HI
+#define RFID_TASK_PRIORITY       SYS_PRIO_SERVICE_HI
 #define RFID_READ_TIMEOUT_MS     100
 #define RFID_DEFAULT_BAUD        9600
 #define RFID_DEFAULT_DEBOUNCE_MS 1000
@@ -150,9 +150,13 @@ esp_err_t ys_rfid2_start(ys_rfid2_event_cb_t cb, void *ctx) {
   ys_rfid2_parser_reset();
   ys_rfid2_hal_uart_flush();
 
-  BaseType_t ret = xTaskCreatePinnedToCore(
-      reader_task, "ys_rfid2", RFID_TASK_STACK_SIZE, NULL, RFID_TASK_PRIORITY, &s_rfid.task,
-      SYS_CORE_RADIO);
+  BaseType_t ret = xTaskCreatePinnedToCore(reader_task,
+                                           "ys_rfid2",
+                                           RFID_TASK_STACK_SIZE,
+                                           NULL,
+                                           RFID_TASK_PRIORITY,
+                                           &s_rfid.task,
+                                           SYS_CORE_RADIO);
 
   if (ret != pdPASS) {
     ESP_LOGE(TAG, "Failed to create reader task");

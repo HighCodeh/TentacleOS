@@ -23,8 +23,8 @@
 #include "ui_theme.h"
 #include "wifi_names.h"
 
-#define COLOR_NAME   0x00E676
-#define COLOR_ADD    0xCC00FF
+#define COLOR_NAME 0x00E676
+#define COLOR_ADD  0xCC00FF
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;

@@ -145,8 +145,13 @@ static void build_screen(void) {
     s_menu = menu_component_create(s_screen, title, SCAN_ICON);
     for (int i = 0; i < s_client_count; i++) {
       char row[40];
-      snprintf(row, sizeof(row), "%02X:%02X:%02X   %d dBm", s_clients[i].mac[3], s_clients[i].mac[4],
-               s_clients[i].mac[5], s_clients[i].rssi);
+      snprintf(row,
+               sizeof(row),
+               "%02X:%02X:%02X   %d dBm",
+               s_clients[i].mac[3],
+               s_clients[i].mac[4],
+               s_clients[i].mac[5],
+               s_clients[i].rssi);
       menu_component_add_item(&s_menu, SCAN_ICON, row);
       menu_component_set_item_label_color(&s_menu, i, lv_color_hex(COLOR_CLIENT));
     }
@@ -241,7 +246,12 @@ static void start_client_scan(void) {
   if (!s_worker_busy) {
     s_worker_busy = true;
     s_restart_pending = false;
-    if (xTaskCreatePinnedToCore(client_worker, "tgt_scan", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL,
+    if (xTaskCreatePinnedToCore(client_worker,
+                                "tgt_scan",
+                                TASK_STACK_SIZE,
+                                NULL,
+                                TASK_PRIORITY,
+                                NULL,
                                 SYS_CORE_RADIO) != pdPASS) {
       s_worker_busy = false;
       s_client_active = false;
@@ -306,8 +316,17 @@ static void show_client(int idx) {
     return;
   const client_t *c = &s_clients[idx];
   char msg[112];
-  snprintf(msg, sizeof(msg), "%02X:%02X:%02X:%02X:%02X:%02X\nRSSI %d dBm\nassoc %s", c->mac[0],
-           c->mac[1], c->mac[2], c->mac[3], c->mac[4], c->mac[5], c->rssi, s_sel_ssid);
+  snprintf(msg,
+           sizeof(msg),
+           "%02X:%02X:%02X:%02X:%02X:%02X\nRSSI %d dBm\nassoc %s",
+           c->mac[0],
+           c->mac[1],
+           c->mac[2],
+           c->mac[3],
+           c->mac[4],
+           c->mac[5],
+           c->rssi,
+           s_sel_ssid);
   msgbox_open(LV_SYMBOL_WIFI, msg, "OK", NULL, NULL);
 }
 
@@ -393,8 +412,9 @@ void ui_wifi_target_clients_open(void) {
 
   if (!s_pick_scanning) {
     s_pick_scanning = true;
-    if (xTaskCreatePinnedToCore(ap_pick_task, "tgt_pick", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL,
-                                SYS_CORE_RADIO) != pdPASS) {
+    if (xTaskCreatePinnedToCore(
+            ap_pick_task, "tgt_pick", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL, SYS_CORE_RADIO) !=
+        pdPASS) {
       s_pick_scanning = false;
       s_state = TC_PICK_LIST;
       build_screen();

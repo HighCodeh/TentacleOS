@@ -71,10 +71,10 @@ static const char *const WIZ_THEME_NAMES[] = {"default", "cyber_blue"};
 #define WOBBLE_PX    5
 
 // Vertical chooser geometry.
-#define CH_ROW_H    30
-#define CH_ARROW_W  22
-#define CH_LIST_W   190
-#define CH_MAX      6
+#define CH_ROW_H   30
+#define CH_ARROW_W 22
+#define CH_LIST_W  190
+#define CH_MAX     6
 
 extern lv_group_t *main_group;
 
@@ -113,8 +113,13 @@ static void anim_tx_cb(void *obj, int32_t v) {
   lv_obj_set_style_translate_x((lv_obj_t *)obj, v, 0);
 }
 
-static void fade(lv_obj_t *o, int32_t from, int32_t to, uint32_t ms, uint32_t delay,
-                 lv_anim_path_cb_t path, lv_anim_completed_cb_t done) {
+static void fade(lv_obj_t *o,
+                 int32_t from,
+                 int32_t to,
+                 uint32_t ms,
+                 uint32_t delay,
+                 lv_anim_path_cb_t path,
+                 lv_anim_completed_cb_t done) {
   lv_obj_set_style_opa(o, (lv_opa_t)from, 0);
   lv_anim_t a;
   lv_anim_init(&a);
@@ -243,8 +248,8 @@ static void ch_arrow_to(int idx) {
   lv_obj_set_y(s_ch_arrow, idx * CH_ROW_H + (CH_ROW_H - 16) / 2);
 }
 
-static void build_chooser(lv_obj_t *c, const char **items, const uint32_t *colors, int count,
-                          int *selp) {
+static void
+build_chooser(lv_obj_t *c, const char **items, const uint32_t *colors, int count, int *selp) {
   if (count > CH_MAX)
     count = CH_MAX;
   s_ch_count = count;
@@ -558,8 +563,13 @@ static void build_page_now(int idx) {
     lv_obj_t *ch = lv_obj_get_child(s_content, i);
     if (ch == s_mascot)
       continue;
-    fade(ch, LV_OPA_TRANSP, LV_OPA_COVER, FADE_IN_MS, base + (uint32_t)step * STAGGER_MS,
-         lv_anim_path_ease_out, NULL);
+    fade(ch,
+         LV_OPA_TRANSP,
+         LV_OPA_COVER,
+         FADE_IN_MS,
+         base + (uint32_t)step * STAGGER_MS,
+         lv_anim_path_ease_out,
+         NULL);
     step++;
   }
 
@@ -596,7 +606,8 @@ static void finish(void) {
   s_active = false;
   mark_done();
 
-  if (s_theme_sel >= 0 && s_theme_sel < (int)(sizeof(WIZ_THEME_NAMES) / sizeof(WIZ_THEME_NAMES[0]))) {
+  if (s_theme_sel >= 0 &&
+      s_theme_sel < (int)(sizeof(WIZ_THEME_NAMES) / sizeof(WIZ_THEME_NAMES[0]))) {
     const char *name = WIZ_THEME_NAMES[s_theme_sel];
     if (strcmp(g_config_screen.theme, name) != 0) {
       strncpy(g_config_screen.theme, name, sizeof(g_config_screen.theme) - 1);

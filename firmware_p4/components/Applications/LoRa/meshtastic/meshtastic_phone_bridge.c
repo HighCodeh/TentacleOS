@@ -32,7 +32,7 @@
 static const char *TAG = "MESH_BRIDGE";
 
 #define BRIDGE_NOTIFY_TASK_STACK  4096
-#define BRIDGE_NOTIFY_TASK_PRIO SYS_PRIO_SERVICE_HI
+#define BRIDGE_NOTIFY_TASK_PRIO   SYS_PRIO_SERVICE_HI
 #define BRIDGE_NOTIFY_TICK_MS     100
 #define BRIDGE_SPI_TIMEOUT_MS     1000
 #define BRIDGE_FROMRADIO_BUF_SIZE 512
@@ -368,8 +368,13 @@ static esp_err_t fetch_status(spi_mesh_status_t *out_status) {
     return ESP_ERR_INVALID_ARG;
   }
   spi_header_t resp;
-  return spi_bridge_send_command(
-      SPI_ID_MESH_STATUS, NULL, 0, &resp, (uint8_t *)out_status, sizeof(*out_status), BRIDGE_SPI_TIMEOUT_MS);
+  return spi_bridge_send_command(SPI_ID_MESH_STATUS,
+                                 NULL,
+                                 0,
+                                 &resp,
+                                 (uint8_t *)out_status,
+                                 sizeof(*out_status),
+                                 BRIDGE_SPI_TIMEOUT_MS);
 }
 
 static void store_status(const spi_mesh_status_t *status) {

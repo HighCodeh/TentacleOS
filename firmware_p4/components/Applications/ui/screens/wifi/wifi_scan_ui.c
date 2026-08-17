@@ -241,9 +241,13 @@ void ui_wifi_scan_open(void) {
 
   if (!s_scanning) {
     s_scanning = true;
-    if (xTaskCreatePinnedToCore(
-            wifi_scan_task, "wifi_scan", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL, SYS_CORE_RADIO) !=
-        pdPASS) {
+    if (xTaskCreatePinnedToCore(wifi_scan_task,
+                                "wifi_scan",
+                                TASK_STACK_SIZE,
+                                NULL,
+                                TASK_PRIORITY,
+                                NULL,
+                                SYS_CORE_RADIO) != pdPASS) {
       s_scanning = false;
       s_scan_state = SCAN_DONE;
       s_ap_count = 0;

@@ -26,10 +26,10 @@
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define REFRESH_MS   33
-#define FIELD_GREEN  0x00E676
-#define SCALE_FWD    285
-#define DOTS_Y_OFS   (-28)
+#define REFRESH_MS  33
+#define FIELD_GREEN 0x00E676
+#define SCALE_FWD   285
+#define DOTS_Y_OFS  (-28)
 
 enum { CE_BROWSE, CE_EDIT, CE_EMULATE };
 

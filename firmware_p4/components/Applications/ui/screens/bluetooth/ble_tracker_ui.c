@@ -188,8 +188,12 @@ static void build_results_view(void) {
     snprintf(mac,
              sizeof(mac),
              "%02X:%02X:%02X:%02X:%02X:%02X",
-             rec[i].addr[5], rec[i].addr[4], rec[i].addr[3],
-             rec[i].addr[2], rec[i].addr[1], rec[i].addr[0]);
+             rec[i].addr[5],
+             rec[i].addr[4],
+             rec[i].addr[3],
+             rec[i].addr[2],
+             rec[i].addr[1],
+             rec[i].addr[0]);
     make_tracker_card(body, type, mac, rec[i].rssi);
     if (shown == 0)
       lv_label_set_text_fmt(alert_sub, "%s in range", type);

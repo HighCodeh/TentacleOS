@@ -36,16 +36,28 @@ static const char *TAG = "FACTORY_RESET";
 // Config directories on each storage (assets LittleFS + SD). Deleting file
 // contents while keeping the directory skeleton avoids re-flashing and keeps
 // config saves working right after the reset.
-#define FLASH_CONFIG_DIR FLASH_MOUNT "/config"
+#define FLASH_CONFIG_DIR  FLASH_MOUNT "/config"
 #define FLASH_STORAGE_DIR FLASH_MOUNT "/storage"
 
 // SD user-data roots wiped by a full reset. The C5 firmware image
 // (VFS_MOUNT_POINT "/c5") is intentionally left out so C5 recovery survives.
 static const char *const SD_USER_DIRS[] = {
-    TOS_PATH_NFC,       TOS_PATH_RFID,      TOS_PATH_SUBGHZ,   TOS_PATH_IR,
-    TOS_PATH_WIFI,      TOS_PATH_BLE,       TOS_PATH_LORA,     TOS_PATH_BADUSB,
-    TOS_PATH_THEMES,    TOS_PATH_RINGTONES, TOS_PATH_APPS,     TOS_PATH_APPS_DATA,
-    TOS_PATH_SCRIPTS,   TOS_PATH_LOGS,      TOS_PATH_BACKUP,   TOS_PATH_CACHE,
+    TOS_PATH_NFC,
+    TOS_PATH_RFID,
+    TOS_PATH_SUBGHZ,
+    TOS_PATH_IR,
+    TOS_PATH_WIFI,
+    TOS_PATH_BLE,
+    TOS_PATH_LORA,
+    TOS_PATH_BADUSB,
+    TOS_PATH_THEMES,
+    TOS_PATH_RINGTONES,
+    TOS_PATH_APPS,
+    TOS_PATH_APPS_DATA,
+    TOS_PATH_SCRIPTS,
+    TOS_PATH_LOGS,
+    TOS_PATH_BACKUP,
+    TOS_PATH_CACHE,
     TOS_PATH_UPDATE,
 };
 #define SD_USER_DIRS_COUNT ((int)(sizeof(SD_USER_DIRS) / sizeof(SD_USER_DIRS[0])))
@@ -55,7 +67,7 @@ static const char *const SD_USER_DIRS[] = {
 static esp_err_t delete_files_recursive(const char *dir) {
   DIR *d = opendir(dir);
   if (d == NULL) {
-    return ESP_OK;  // absent path: nothing to clear
+    return ESP_OK; // absent path: nothing to clear
   }
 
   esp_err_t result = ESP_OK;
@@ -111,7 +123,8 @@ esp_err_t tos_factory_reset_config(void) {
     unlink(TOS_PATH_SETUP_MARKER);
   }
 
-  ESP_LOGW(TAG, "Configuration reset %s", result == ESP_OK ? "complete" : "completed with warnings");
+  ESP_LOGW(
+      TAG, "Configuration reset %s", result == ESP_OK ? "complete" : "completed with warnings");
   return result;
 }
 

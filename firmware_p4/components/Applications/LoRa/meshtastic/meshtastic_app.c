@@ -36,7 +36,7 @@
 static const char *TAG = "MT_APP";
 
 #define MT_POLL_TASK_STACK      8192
-#define MT_POLL_TASK_PRIO SYS_PRIO_BACKGROUND
+#define MT_POLL_TASK_PRIO       SYS_PRIO_BACKGROUND
 #define MT_POLL_PERIOD_MS       50
 #define MT_TICK_PERIOD_MS       1000
 #define MT_DEFAULT_TX_POWER_DBM 20
@@ -148,8 +148,13 @@ esp_err_t meshtastic_app_start(void) {
     return ret;
   }
 
-  if (xTaskCreatePinnedToCore(poll_task, "mt_poll", MT_POLL_TASK_STACK, NULL, MT_POLL_TASK_PRIO, NULL, SYS_CORE_RADIO) !=
-      pdPASS) {
+  if (xTaskCreatePinnedToCore(poll_task,
+                              "mt_poll",
+                              MT_POLL_TASK_STACK,
+                              NULL,
+                              MT_POLL_TASK_PRIO,
+                              NULL,
+                              SYS_CORE_RADIO) != pdPASS) {
     ESP_LOGE(TAG, "Failed to spawn poll task");
     return ESP_ERR_NO_MEM;
   }

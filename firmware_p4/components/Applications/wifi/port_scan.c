@@ -33,8 +33,13 @@ static int fetch_results(port_scan_result_t *results, int max_results) {
   uint8_t resp_buf[SPI_MAX_PAYLOAD];
 
   uint16_t index = SPI_DATA_INDEX_COUNT;
-  esp_err_t ret = spi_bridge_send_command(
-      SPI_ID_SYSTEM_DATA, (const uint8_t *)&index, sizeof(index), &resp_hdr, resp_buf, sizeof(resp_buf), 5000);
+  esp_err_t ret = spi_bridge_send_command(SPI_ID_SYSTEM_DATA,
+                                          (const uint8_t *)&index,
+                                          sizeof(index),
+                                          &resp_hdr,
+                                          resp_buf,
+                                          sizeof(resp_buf),
+                                          5000);
 
   if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
     ESP_LOGE(TAG, "Failed to fetch result count");
@@ -50,8 +55,13 @@ static int fetch_results(port_scan_result_t *results, int max_results) {
 
   int count = 0;
   for (uint16_t i = 0; i < total; i++) {
-    ret = spi_bridge_send_command(
-        SPI_ID_SYSTEM_DATA, (const uint8_t *)&i, sizeof(i), &resp_hdr, resp_buf, sizeof(resp_buf), 2000);
+    ret = spi_bridge_send_command(SPI_ID_SYSTEM_DATA,
+                                  (const uint8_t *)&i,
+                                  sizeof(i),
+                                  &resp_hdr,
+                                  resp_buf,
+                                  sizeof(resp_buf),
+                                  2000);
 
     if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
       ESP_LOGW(TAG, "Failed to fetch result %d", i);
@@ -90,7 +100,8 @@ int port_scan_target_range(const char *target_ip,
                                           (const uint8_t *)&req,
                                           sizeof(req),
                                           &resp_hdr,
-                                          resp_buf, sizeof(resp_buf),
+                                          resp_buf,
+                                          sizeof(resp_buf),
                                           PORT_SCAN_TIMEOUT_MS);
 
   if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
@@ -140,7 +151,8 @@ int port_scan_target_list(const char *target_ip,
                                           payload,
                                           offset,
                                           &resp_hdr,
-                                          resp_buf, sizeof(resp_buf),
+                                          resp_buf,
+                                          sizeof(resp_buf),
                                           PORT_SCAN_TIMEOUT_MS);
 
   if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
@@ -172,7 +184,8 @@ int port_scan_network_range_using_port_range(const char *start_ip,
                                           (const uint8_t *)&req,
                                           sizeof(req),
                                           &resp_hdr,
-                                          resp_buf, sizeof(resp_buf),
+                                          resp_buf,
+                                          sizeof(resp_buf),
                                           PORT_SCAN_TIMEOUT_MS);
 
   if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
@@ -220,8 +233,13 @@ int port_scan_network_range_using_port_list(const char *start_ip,
   spi_header_t resp_hdr;
   uint8_t resp_buf[SPI_MAX_PAYLOAD];
 
-  esp_err_t ret = spi_bridge_send_command(
-      SPI_ID_WIFI_PORT_SCAN_NETWORK, payload, offset, &resp_hdr, resp_buf, sizeof(resp_buf), PORT_SCAN_TIMEOUT_MS);
+  esp_err_t ret = spi_bridge_send_command(SPI_ID_WIFI_PORT_SCAN_NETWORK,
+                                          payload,
+                                          offset,
+                                          &resp_hdr,
+                                          resp_buf,
+                                          sizeof(resp_buf),
+                                          PORT_SCAN_TIMEOUT_MS);
 
   if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
     ESP_LOGE(TAG, "Network list scan failed");
@@ -252,7 +270,8 @@ int port_scan_cidr_using_port_range(const char *base_ip,
                                           (const uint8_t *)&req,
                                           sizeof(req),
                                           &resp_hdr,
-                                          resp_buf, sizeof(resp_buf),
+                                          resp_buf,
+                                          sizeof(resp_buf),
                                           PORT_SCAN_TIMEOUT_MS);
 
   if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
@@ -300,8 +319,13 @@ int port_scan_cidr_using_port_list(const char *base_ip,
   spi_header_t resp_hdr;
   uint8_t resp_buf[SPI_MAX_PAYLOAD];
 
-  esp_err_t ret = spi_bridge_send_command(
-      SPI_ID_WIFI_PORT_SCAN_CIDR, payload, offset, &resp_hdr, resp_buf, sizeof(resp_buf), PORT_SCAN_TIMEOUT_MS);
+  esp_err_t ret = spi_bridge_send_command(SPI_ID_WIFI_PORT_SCAN_CIDR,
+                                          payload,
+                                          offset,
+                                          &resp_hdr,
+                                          resp_buf,
+                                          sizeof(resp_buf),
+                                          PORT_SCAN_TIMEOUT_MS);
 
   if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
     ESP_LOGE(TAG, "CIDR list scan failed");

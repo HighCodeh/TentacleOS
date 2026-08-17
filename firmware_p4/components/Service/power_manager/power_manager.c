@@ -78,7 +78,7 @@ static esp_pm_lock_handle_t s_no_sleep_lock = NULL;
 void power_manager_init(void) {
   esp_pm_config_t cfg = {
       .max_freq_mhz = PM_FREQ_MHZ,
-      .min_freq_mhz = PM_FREQ_MHZ,  // == max: no DFS, keeps the console UART baud
+      .min_freq_mhz = PM_FREQ_MHZ, // == max: no DFS, keeps the console UART baud
       .light_sleep_enable = true,
   };
   esp_err_t err = esp_pm_configure(&cfg);
@@ -117,7 +117,11 @@ esp_err_t power_manager_no_sleep_release(void) {
 // discipline lands. Everything is an inert no-op; the CPU stays at its fixed
 // frequency and never sleeps. The USB state above is still tracked for policy.
 void power_manager_init(void) {}
-esp_err_t power_manager_no_sleep_acquire(void) { return ESP_OK; }
-esp_err_t power_manager_no_sleep_release(void) { return ESP_OK; }
+esp_err_t power_manager_no_sleep_acquire(void) {
+  return ESP_OK;
+}
+esp_err_t power_manager_no_sleep_release(void) {
+  return ESP_OK;
+}
 
 #endif // CONFIG_PM_ENABLE

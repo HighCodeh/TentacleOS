@@ -31,8 +31,8 @@
 
 static const char *TAG = "BLE_KEYBOARD_UI";
 
-#define CONN_POLL_MS          400
-#define CURSOR_BLINK_MS       500
+#define CONN_POLL_MS    400
+#define CURSOR_BLINK_MS 500
 
 #define HID_KEY_ENTER 0x28
 #define HID_KEY_SPACE 0x2C
@@ -183,19 +183,48 @@ static bool ascii_to_hid(char c, uint8_t *key, uint8_t *mod) {
     return true;
   }
   switch (c) {
-    case '0': *key = 0x27; return true;
-    case '\n': *key = HID_KEY_ENTER; return true;
-    case ' ': *key = HID_KEY_SPACE; return true;
-    case '.': *key = 0x37; return true;
-    case ',': *key = 0x36; return true;
-    case '-': *key = 0x2D; return true;
-    case '_': *key = 0x2D; *mod = HID_MOD_SHIFT; return true;
-    case '/': *key = 0x38; return true;
-    case ':': *key = 0x33; *mod = HID_MOD_SHIFT; return true;
-    case ';': *key = 0x33; return true;
-    case '!': *key = 0x1E; *mod = HID_MOD_SHIFT; return true;
-    case '?': *key = 0x38; *mod = HID_MOD_SHIFT; return true;
-    default: return false;
+    case '0':
+      *key = 0x27;
+      return true;
+    case '\n':
+      *key = HID_KEY_ENTER;
+      return true;
+    case ' ':
+      *key = HID_KEY_SPACE;
+      return true;
+    case '.':
+      *key = 0x37;
+      return true;
+    case ',':
+      *key = 0x36;
+      return true;
+    case '-':
+      *key = 0x2D;
+      return true;
+    case '_':
+      *key = 0x2D;
+      *mod = HID_MOD_SHIFT;
+      return true;
+    case '/':
+      *key = 0x38;
+      return true;
+    case ':':
+      *key = 0x33;
+      *mod = HID_MOD_SHIFT;
+      return true;
+    case ';':
+      *key = 0x33;
+      return true;
+    case '!':
+      *key = 0x1E;
+      *mod = HID_MOD_SHIFT;
+      return true;
+    case '?':
+      *key = 0x38;
+      *mod = HID_MOD_SHIFT;
+      return true;
+    default:
+      return false;
   }
 }
 

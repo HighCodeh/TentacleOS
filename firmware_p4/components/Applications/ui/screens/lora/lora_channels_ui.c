@@ -114,9 +114,13 @@ static void load_slots(void) {
         continue;
       s_slot[i].used = true;
       s_slot[i].primary = (ch->role == MT_CH_PRIMARY);
-      snprintf(s_slot[i].name, sizeof(s_slot[i].name), "%s",
+      snprintf(s_slot[i].name,
+               sizeof(s_slot[i].name),
+               "%s",
                (ch->name[0] != '\0') ? ch->name : "channel");
-      snprintf(s_slot[i].role, sizeof(s_slot[i].role), "%s",
+      snprintf(s_slot[i].role,
+               sizeof(s_slot[i].role),
+               "%s",
                (ch->role == MT_CH_PRIMARY) ? "PRIMARY" : "SECONDARY");
       fill_bars(s_slot[i].bars, ch->psk, MT_PSK_SIZE);
     }
@@ -127,9 +131,13 @@ static void load_slots(void) {
         continue;
       s_slot[i].used = true;
       s_slot[i].primary = (i == MESHCORE_PUBLIC_CHANNEL);
-      snprintf(s_slot[i].name, sizeof(s_slot[i].name), "%s",
+      snprintf(s_slot[i].name,
+               sizeof(s_slot[i].name),
+               "%s",
                (ch->name[0] != '\0') ? ch->name : "channel");
-      snprintf(s_slot[i].role, sizeof(s_slot[i].role), "%s",
+      snprintf(s_slot[i].role,
+               sizeof(s_slot[i].role),
+               "%s",
                (i == MESHCORE_PUBLIC_CHANNEL) ? "PUBLIC" : "GROUP");
       fill_bars(s_slot[i].bars, ch->secret, KEY_LEN);
     }

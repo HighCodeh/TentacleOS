@@ -46,7 +46,7 @@ static const char *TAG = "WIFI_SNIFFER";
 #define SNIFFER_STREAM_DELAY_MS   50
 #define SNIFFER_STOP_DELAY_MS     200
 #define SNIFFER_TASK_STACK_SIZE   4096
-#define SNIFFER_TASK_PRIORITY SYS_PRIO_SERVICE_HI
+#define SNIFFER_TASK_PRIORITY     SYS_PRIO_SERVICE_HI
 #define MAX_TRACKED_SESSIONS      16
 #define MAX_KNOWN_APS             128
 #define DEFAULT_SNAPLEN           65535
@@ -107,7 +107,7 @@ static uint32_t s_pkts_2ghz = 0;
 static uint32_t s_pkts_5ghz = 0;
 static uint32_t s_unique_aps = 0;
 static uint8_t s_last_channel = 0;
-static int8_t s_last_rssi = -127; // RSSI of the last captured frame (-127 = none yet)
+static int8_t s_last_rssi = -127;      // RSSI of the last captured frame (-127 = none yet)
 static bool s_is_monitor_mode = false; // packet monitor: counts forever, buffer recycles
 static bool s_is_sniffing = false;
 static bool s_is_pcap_enabled = false;

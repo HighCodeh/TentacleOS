@@ -37,7 +37,7 @@ static const char *TAG = "BLE_TRACK_DEV";
 #define BLE_ADDR_LEN 6
 #define NAME_LEN     24
 
-#define TRACK_ICON  "/assets/icons/bluetooth_searching.bin"
+#define TRACK_ICON "/assets/icons/bluetooth_searching.bin"
 
 #define ARC_SIZE     140
 #define ARC_WIDTH    15

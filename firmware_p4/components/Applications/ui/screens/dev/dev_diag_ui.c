@@ -203,7 +203,11 @@ static void tick_cb(lv_timer_t *t) {
   if (s_temp_val != NULL) {
     float celsius = read_die_temp();
     if (celsius > TEMP_INVALID_C) {
-      snprintf(buf, sizeof(buf), "%d\xC2\xB0" "C", (int)(celsius + 0.5f));
+      snprintf(buf,
+               sizeof(buf),
+               "%d\xC2\xB0"
+               "C",
+               (int)(celsius + 0.5f));
     } else {
       snprintf(buf, sizeof(buf), "--");
     }

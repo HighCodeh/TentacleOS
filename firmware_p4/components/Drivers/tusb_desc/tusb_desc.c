@@ -83,26 +83,26 @@ static const uint8_t s_desc_hid_report[] = {
 
 // Configuration Descriptor — composite: HID (BadUSB) + CDC-ACM (companion link).
 // Identical for both speeds except the CDC bulk endpoint size (see above).
-#define CONFIG_DESCRIPTOR(cdc_ep_size)                                                             \
-  TUD_CONFIG_DESCRIPTOR(1,                                                                          \
-                        TUSB_DESC_ITF_NUM_TOTAL,                                                    \
-                        0,                                                                          \
-                        CONFIG_TOTAL_LEN,                                                           \
-                        TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP,                                         \
-                        USB_MAX_POWER_MA),                                                          \
-      TUD_HID_DESCRIPTOR(TUSB_DESC_ITF_NUM_HID,                                                     \
-                         0,                                                                         \
-                         HID_ITF_PROTOCOL_KEYBOARD,                                                 \
-                         sizeof(s_desc_hid_report),                                                 \
-                         TUSB_DESC_EP_HID_IN,                                                        \
-                         CFG_TUD_HID_EP_BUFSIZE,                                                     \
-                         USB_HID_POLL_INTERVAL_MS),                                                 \
-      TUD_CDC_DESCRIPTOR(TUSB_DESC_ITF_NUM_CDC,                                                     \
-                         STR_IDX_CDC,                                                               \
-                         TUSB_DESC_EP_CDC_NOTIF,                                                     \
-                         8,                                                                         \
-                         TUSB_DESC_EP_CDC_OUT,                                                       \
-                         TUSB_DESC_EP_CDC_IN,                                                        \
+#define CONFIG_DESCRIPTOR(cdc_ep_size)                      \
+  TUD_CONFIG_DESCRIPTOR(1,                                  \
+                        TUSB_DESC_ITF_NUM_TOTAL,            \
+                        0,                                  \
+                        CONFIG_TOTAL_LEN,                   \
+                        TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, \
+                        USB_MAX_POWER_MA),                  \
+      TUD_HID_DESCRIPTOR(TUSB_DESC_ITF_NUM_HID,             \
+                         0,                                 \
+                         HID_ITF_PROTOCOL_KEYBOARD,         \
+                         sizeof(s_desc_hid_report),         \
+                         TUSB_DESC_EP_HID_IN,               \
+                         CFG_TUD_HID_EP_BUFSIZE,            \
+                         USB_HID_POLL_INTERVAL_MS),         \
+      TUD_CDC_DESCRIPTOR(TUSB_DESC_ITF_NUM_CDC,             \
+                         STR_IDX_CDC,                       \
+                         TUSB_DESC_EP_CDC_NOTIF,            \
+                         8,                                 \
+                         TUSB_DESC_EP_CDC_OUT,              \
+                         TUSB_DESC_EP_CDC_IN,               \
                          (cdc_ep_size))
 
 static const uint8_t s_desc_configuration_hs[] = {CONFIG_DESCRIPTOR(CDC_EP_SIZE_HS)};
@@ -273,7 +273,7 @@ static void usb_mux_configure_pin(void) {
 
 void usb_mux_init(void) {
   usb_mux_configure_pin();
-  gpio_set_level(GPIO_USB_MUX_SEL_PIN, 0);  // default: USB-UART bridge
+  gpio_set_level(GPIO_USB_MUX_SEL_PIN, 0); // default: USB-UART bridge
   s_mux_native = false;
   ESP_LOGI(TAG, "USB mux default: UART bridge");
 }

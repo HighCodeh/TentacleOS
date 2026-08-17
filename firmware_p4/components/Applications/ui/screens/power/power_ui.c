@@ -26,7 +26,7 @@
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define REFRESH_MS   700
+#define REFRESH_MS 700
 
 #define HEADER_ICON "/assets/icons/power_settings_new.bin"
 

@@ -37,9 +37,9 @@
 
 static const char *TAG = "WIFI_SIG_LOC_UI";
 
-#define ARC_ANIM_MS   260
-#define ENTRY_FADE_MS 240
-#define SIGNAL_POLL_MS  300
+#define ARC_ANIM_MS    260
+#define ENTRY_FADE_MS  240
+#define SIGNAL_POLL_MS 300
 
 #define HEADER_ICON "/assets/icons/wifi_find.bin"
 #define DBM_FONT    "A:assets/fonts/Inter.bin"
@@ -378,8 +378,9 @@ static void start_locating(void) {
   if (!s_worker_busy) {
     s_worker_busy = true;
     s_restart_pending = false;
-    if (xTaskCreatePinnedToCore(signal_worker, "sig_mon", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL,
-                                SYS_CORE_RADIO) != pdPASS) {
+    if (xTaskCreatePinnedToCore(
+            signal_worker, "sig_mon", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL, SYS_CORE_RADIO) !=
+        pdPASS) {
       s_worker_busy = false;
     }
   } else {
@@ -497,8 +498,9 @@ void ui_wifi_signal_locator_open(void) {
 
   if (!s_pick_scanning) {
     s_pick_scanning = true;
-    if (xTaskCreatePinnedToCore(ap_pick_task, "sig_pick", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL,
-                                SYS_CORE_RADIO) != pdPASS) {
+    if (xTaskCreatePinnedToCore(
+            ap_pick_task, "sig_pick", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL, SYS_CORE_RADIO) !=
+        pdPASS) {
       s_pick_scanning = false;
       s_state = SL_PICK_LIST;
       build_pick_list();

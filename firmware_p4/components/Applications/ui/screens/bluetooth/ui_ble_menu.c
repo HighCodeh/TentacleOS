@@ -24,7 +24,6 @@
 
 static const char *TAG = "UI_BLE_MENU";
 
-
 typedef struct {
   const char *name;
   const char *icon;

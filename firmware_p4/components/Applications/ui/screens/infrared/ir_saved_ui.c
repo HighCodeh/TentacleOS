@@ -36,8 +36,8 @@
 
 static const char *TAG = "IR_SAVED_UI";
 
-#define MAX_PROTOS   16
-#define MAX_FILES    IR_STORE_MAX_ENTRIES
+#define MAX_PROTOS 16
+#define MAX_FILES  IR_STORE_MAX_ENTRIES
 
 #define IR_ICON        "/assets/icons/settings_input_antenna.bin"
 #define IR_SIGNAL_ICON "/assets/icons/settings_remote.bin"

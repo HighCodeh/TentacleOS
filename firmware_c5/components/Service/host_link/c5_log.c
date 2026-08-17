@@ -31,7 +31,7 @@
 #define C5_LOG_TEXT_MAX    240 // bytes of stripped text kept per line
 #define C5_LOG_QUEUE_DEPTH 12
 #define C5_LOG_TASK_STK    3072
-#define C5_LOG_TASK_PRIO SYS_PRIO_SERVICE_LO
+#define C5_LOG_TASK_PRIO   SYS_PRIO_SERVICE_LO
 
 typedef struct {
   uint8_t level;

@@ -76,10 +76,8 @@ uint32_t spi_bridge_get_timeout(spi_id_t id);
  * caller afterwards as before. Returns ESP_OK when done, ESP_ERR_TIMEOUT if the
  * status never cleared.
  */
-esp_err_t spi_bridge_run_scan(spi_id_t scan_id,
-                              spi_id_t status_id,
-                              const uint8_t *payload,
-                              uint8_t len);
+esp_err_t
+spi_bridge_run_scan(spi_id_t scan_id, spi_id_t status_id, const uint8_t *payload, uint8_t len);
 
 /**
  * @brief Mark the bridge as alive or dead.

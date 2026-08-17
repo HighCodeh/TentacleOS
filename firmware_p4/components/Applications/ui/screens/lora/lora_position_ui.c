@@ -64,10 +64,10 @@
 #define COL_OK        0x00E676
 #define COL_BC_BORDER 0x234A3E
 
-#define LAT_E7_LIMIT 900000000
-#define LON_E7_LIMIT 1800000000
-#define ALT_M_MIN    (-1000)
-#define ALT_M_MAX    100000
+#define LAT_E7_LIMIT   900000000
+#define LON_E7_LIMIT   1800000000
+#define ALT_M_MIN      (-1000)
+#define ALT_M_MAX      100000
 #define COORD_E7_SCALE 10000000
 #define COORD_FRAC_DIV 1000
 

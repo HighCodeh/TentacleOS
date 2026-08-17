@@ -63,8 +63,8 @@ void c5_passthrough_run(void) {
   };
   uart_driver_install(HOST_UART, UART_BUF_BYTES, UART_BUF_BYTES, 0, NULL, 0);
   uart_param_config(HOST_UART, &host_cfg);
-  uart_set_pin(HOST_UART, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE,
-               UART_PIN_NO_CHANGE);
+  uart_set_pin(
+      HOST_UART, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
 
   // 4. UART1 (C5) - RX-only on GPIO_C5_UART_RX_PIN (= C5 TX). DO NOT route TX,
   //    the shared line must stay a passive input here (see header comment).
@@ -72,8 +72,8 @@ void c5_passthrough_run(void) {
   uart_config_t c5_cfg = host_cfg;
   uart_driver_install(C5_UART, UART_BUF_BYTES, 0, 0, NULL, 0);
   uart_param_config(C5_UART, &c5_cfg);
-  uart_set_pin(C5_UART, UART_PIN_NO_CHANGE, GPIO_C5_UART_RX_PIN, UART_PIN_NO_CHANGE,
-               UART_PIN_NO_CHANGE);
+  uart_set_pin(
+      C5_UART, UART_PIN_NO_CHANGE, GPIO_C5_UART_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
 
   const char *banner = "\r\n\r\n"
                        "*** C5 esptool passthrough active.\r\n"

@@ -27,7 +27,7 @@ static const char *TAG = "I2C_INIT";
 static i2c_master_bus_handle_t s_bus = NULL;
 static uint32_t s_recover_count = 0;
 
-#define I2C_RECOVER_CLOCKS 9  // enough SCL pulses to walk any slave past its ACK
+#define I2C_RECOVER_CLOCKS  9 // enough SCL pulses to walk any slave past its ACK
 #define I2C_RECOVER_HALF_US 5 // ~100 kHz bit-bang half period
 
 // Clock out a slave that is holding SDA low (stuck mid-transfer after a partial

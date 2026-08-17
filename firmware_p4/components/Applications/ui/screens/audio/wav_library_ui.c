@@ -29,13 +29,13 @@
 #include "ui_theme.h"
 #include "wav_player_ui.h"
 
-#define SDCARD_ROOT  "/sdcard"
-#define MAX_TRACKS   64
-#define PATH_LEN     192
-#define NAME_LEN     56
-#define MAX_DEPTH    3
-#define HDR_ICON     "/assets/icons/graphic_eq.bin"
-#define ROW_ICON     "/assets/icons/music_note.bin"
+#define SDCARD_ROOT "/sdcard"
+#define MAX_TRACKS  64
+#define PATH_LEN    192
+#define NAME_LEN    56
+#define MAX_DEPTH   3
+#define HDR_ICON    "/assets/icons/graphic_eq.bin"
+#define ROW_ICON    "/assets/icons/music_note.bin"
 
 #define EMPTY_ICON "/assets/icons/sd_card.bin"
 #define EMPTY_MSG  "No .wav on SD card"

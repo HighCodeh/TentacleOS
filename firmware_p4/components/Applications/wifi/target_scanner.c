@@ -44,7 +44,8 @@ static bool fetch_results(uint16_t count) {
                                 (uint8_t *)&idx,
                                 2,
                                 &resp,
-                                (uint8_t *)&s_cached_results[i], sizeof(s_cached_results[i]),
+                                (uint8_t *)&s_cached_results[i],
+                                sizeof(s_cached_results[i]),
                                 sizeof(target_scanner_record_t)) != ESP_OK) {
       return false;
     }
@@ -84,8 +85,13 @@ target_scanner_record_t *target_scanner_get_results(uint16_t *out_count) {
 target_scanner_record_t *target_scanner_get_live_results(uint16_t *out_count, bool *is_scanning) {
   spi_header_t resp;
   uint8_t payload[3] = {0};
-  if (spi_bridge_send_command(
-          SPI_ID_WIFI_TARGET_SCAN_STATUS, NULL, 0, &resp, payload, sizeof(payload), sizeof(payload)) != ESP_OK) {
+  if (spi_bridge_send_command(SPI_ID_WIFI_TARGET_SCAN_STATUS,
+                              NULL,
+                              0,
+                              &resp,
+                              payload,
+                              sizeof(payload),
+                              sizeof(payload)) != ESP_OK) {
     if (out_count != NULL)
       *out_count = 0;
     if (is_scanning != NULL)
@@ -121,5 +127,6 @@ bool target_scanner_save_results_to_internal_flash(void) {
 }
 
 bool target_scanner_save_results_to_sd_card(void) {
-  return (spi_bridge_send_command(SPI_ID_WIFI_TARGET_SAVE_SD, NULL, 0, NULL, NULL, 0, 5000) == ESP_OK);
+  return (spi_bridge_send_command(SPI_ID_WIFI_TARGET_SAVE_SD, NULL, 0, NULL, NULL, 0, 5000) ==
+          ESP_OK);
 }

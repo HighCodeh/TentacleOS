@@ -29,7 +29,7 @@
 
 static const char *TAG = "CONSOLE";
 
-#define CONSOLE_MAX_CMDLINE     512
+#define CONSOLE_MAX_CMDLINE 512
 // REPL task stack: comes from INTERNAL RAM (FreeRTOS stacks can't live in PSRAM).
 // 32 KB failed to allocate late in boot (LVGL's full-frame buffer + audio + tasks
 // have eaten internal RAM), which made esp_console_new_repl_uart return ESP_FAIL

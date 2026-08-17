@@ -38,9 +38,9 @@
 
 static const char *TAG = "SAFE_MODE_UI";
 
-#define TITLE       "SAFE MODE"
-#define TITLE_ICON  "/assets/icons/troubleshoot.bin"
-#define MENU_HINT   "UP/DOWN  OK select  BACK"
+#define TITLE        "SAFE MODE"
+#define TITLE_ICON   "/assets/icons/troubleshoot.bin"
+#define MENU_HINT    "UP/DOWN  OK select  BACK"
 #define CONFIRM_HINT "OK confirm   BACK cancel"
 
 #define ROW_RESET_CONFIG 0
@@ -111,7 +111,9 @@ static void build_menu(void) {
   // why the device came up degraded.
   if (boot_report_in_bootloop()) {
     static char loop_hint[64];
-    snprintf(loop_hint, sizeof(loop_hint), "Boot loop: %s",
+    snprintf(loop_hint,
+             sizeof(loop_hint),
+             "Boot loop: %s",
              boot_report_reason_str(boot_report_crash()->reason));
     menu_component_set_hint(&s_menu, loop_hint);
   } else {
@@ -122,8 +124,8 @@ static void build_menu(void) {
   ui_screen_load_owned(&s_screen, s_screen);
 }
 
-static void build_message(const char *title, const char *body, const char *hint,
-                          lv_color_t accent) {
+static void
+build_message(const char *title, const char *body, const char *hint, lv_color_t accent) {
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
@@ -160,7 +162,8 @@ static void start_reset(sm_action_t action) {
   build_message("ERASING",
                 action == ACTION_RESET_ALL ? "Erasing all data.\nThe device will reboot."
                                            : "Resetting configuration.\nThe device will reboot.",
-                NULL, ui_theme_get_accent());
+                NULL,
+                ui_theme_get_accent());
   // Run the wipe off the LVGL task so file deletion never stalls the renderer.
   xTaskCreatePinnedToCore(factory_task,
                           "factory_reset",
@@ -195,12 +198,14 @@ static void safe_mode_input(const input_event_t *ev, void *ctx) {
               s_state = SM_CONFIRM_CONFIG;
               build_message("RESET CONFIG",
                             "Restore all settings to factory defaults?\nUser data is kept.",
-                            CONFIRM_HINT, ui_theme_get_accent());
+                            CONFIRM_HINT,
+                            ui_theme_get_accent());
             } else if (sel == ROW_RESET_ALL) {
               s_state = SM_CONFIRM_ALL;
               build_message("RESET ALL",
                             "Erase config, all captures/loot and NVS?\nThis cannot be undone.",
-                            CONFIRM_HINT, lv_palette_main(LV_PALETTE_RED));
+                            CONFIRM_HINT,
+                            lv_palette_main(LV_PALETTE_RED));
             } else if (sel == ROW_VIEW_CRASH) {
               // Viewer returns to this menu via ui_safe_mode_open (rebuilds it).
               ui_crash_report_open_cb(ui_safe_mode_open);
@@ -233,7 +238,7 @@ static void safe_mode_input(const input_event_t *ev, void *ctx) {
       break;
 
     case SM_WORKING:
-      break;  // ignore input while the wipe runs
+      break; // ignore input while the wipe runs
   }
 }
 

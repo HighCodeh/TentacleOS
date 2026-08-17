@@ -290,7 +290,7 @@ esp_err_t ota_post_boot_check(void) {
 
   if (ret != ESP_OK || ota_state != ESP_OTA_IMG_PENDING_VERIFY) {
     ESP_LOGI(TAG, "Normal boot (no pending OTA verification)");
-    ota_sync_version_to_assets();  // assets is mounted now (runs after kernel_init)
+    ota_sync_version_to_assets(); // assets is mounted now (runs after kernel_init)
     return ESP_OK;
   }
 

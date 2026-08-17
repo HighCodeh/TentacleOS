@@ -28,7 +28,8 @@ bool sys_metrics_die_temp_c(float *out_celsius) {
     return false;
   }
   if (s_tsens == NULL) {
-    temperature_sensor_config_t cfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(SM_TEMP_MIN_C, SM_TEMP_MAX_C);
+    temperature_sensor_config_t cfg =
+        TEMPERATURE_SENSOR_CONFIG_DEFAULT(SM_TEMP_MIN_C, SM_TEMP_MAX_C);
     if (temperature_sensor_install(&cfg, &s_tsens) != ESP_OK) {
       s_tsens = NULL;
       s_tsens_failed = true;

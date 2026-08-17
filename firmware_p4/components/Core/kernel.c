@@ -112,7 +112,10 @@ static void kernel_init_safe_mode(void) {
 // Fires on any heap_caps allocation failure with the size, caps and caller -
 // context the generic vApplicationMallocFailedHook lacks.
 static void heap_alloc_failed_cb(size_t size, uint32_t caps, const char *function_name) {
-  ESP_LOGE(TAG, "alloc failed: %u B, caps 0x%lx, in %s", (unsigned)size, (unsigned long)caps,
+  ESP_LOGE(TAG,
+           "alloc failed: %u B, caps 0x%lx, in %s",
+           (unsigned)size,
+           (unsigned long)caps,
            function_name ? function_name : "?");
 }
 
@@ -186,8 +189,10 @@ esp_err_t kernel_init(void) {
   // Push the LED signal colors + brightness into the driver. Service owns the
   // config; the driver just stores the values, so it never depends on the config
   // module (keeps the Drivers <- Service dependency direction).
-  led_set_signal_config(g_config_led.info_color, g_config_led.warning_color,
-                        g_config_led.error_color, g_config_led.brightness);
+  led_set_signal_config(g_config_led.info_color,
+                        g_config_led.warning_color,
+                        g_config_led.error_color,
+                        g_config_led.brightness);
   // Custom SD log tee (tos_log) removed: its esp_log_set_vprintf hook put a
   // newlib vsnprintf (~1.5 KB) on every logging task's stack and overflowed the
   // small (4 KB) driver tasks. Crash forensics now come from the coredump
@@ -272,7 +277,13 @@ esp_err_t kernel_init(void) {
   // + redirects stdout). Do it after all the boot logging above so the takeover
   // does not race concurrent writes on UART0 (that race left UART0 dead: output
   // died right at host_link_log_init and the REPL prompt never appeared).
-  xTaskCreatePinnedToCore(console_task, "console_task", CONSOLE_TASK_STACK, NULL, CONSOLE_TASK_PRIO, NULL, SYS_CORE_RADIO);
+  xTaskCreatePinnedToCore(console_task,
+                          "console_task",
+                          CONSOLE_TASK_STACK,
+                          NULL,
+                          CONSOLE_TASK_PRIO,
+                          NULL,
+                          SYS_CORE_RADIO);
   // C5-dependent host-link pieces disabled with the bridge: the C5 log relay and
   // the BLE relay status poller (SPI_ID_HOST_STATUS) both talk to the C5.
   // host_link_c5log_init(); // relay C5 logs (SPI_ID_SYSTEM_LOG) as source=C5 LOG frames

@@ -26,10 +26,10 @@
 #include "ui_theme.h"
 #include "waves_ui.h"
 
-#define SEARCH_MS       2600
-#define APPLY_TICK_MS   45
-#define APPLY_STEP      2
-#define PROG_MAX        100
+#define SEARCH_MS     2600
+#define APPLY_TICK_MS 45
+#define APPLY_STEP    2
+#define PROG_MAX      100
 
 #define CONTENT_Y_OFS ((UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H) / 2)
 

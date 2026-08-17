@@ -78,7 +78,10 @@ static void build_screen(void) {
 
   uint32_t abnormal = boot_report_abnormal_boots();
   if (abnormal > 0) {
-    snprintf(buf, sizeof(buf), "Abnormal boots: %lu/%d", (unsigned long)abnormal,
+    snprintf(buf,
+             sizeof(buf),
+             "Abnormal boots: %lu/%d",
+             (unsigned long)abnormal,
              BOOT_REPORT_BOOTLOOP_THRESHOLD);
     add_line(body, buf, abnormal >= BOOT_REPORT_BOOTLOOP_THRESHOLD ? 0xFF5252 : 0xFFC23D);
   }
@@ -120,7 +123,7 @@ static void crash_report_input(const input_event_t *ev, void *ctx) {
   }
   if (ev->button == INPUT_BTN_OK && s_has_dump) {
     boot_report_clear_crash();
-    build_screen();  // redraw: dump is gone now
+    build_screen(); // redraw: dump is gone now
   } else if (ev->button == INPUT_BTN_BACK) {
     if (s_on_back != NULL) {
       s_on_back();

@@ -30,8 +30,8 @@
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define REFRESH_MS   33
-#define REVEAL_MS    3000
+#define REFRESH_MS 33
+#define REVEAL_MS  3000
 
 #define COL_DIM      0x8A8594
 #define DUMP_W       214

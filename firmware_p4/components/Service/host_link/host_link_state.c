@@ -99,7 +99,8 @@ static uint8_t do_device_state(uint8_t *out, uint16_t cap, uint16_t *out_len) {
   uint8_t c5_len = 0;
   spi_header_t resp;
   uint8_t resp_buf[SPI_MAX_PAYLOAD];
-  if (spi_bridge_send_command(SPI_ID_SYSTEM_VERSION, NULL, 0, &resp, resp_buf, sizeof(resp_buf), 1000) == ESP_OK) {
+  if (spi_bridge_send_command(
+          SPI_ID_SYSTEM_VERSION, NULL, 0, &resp, resp_buf, sizeof(resp_buf), 1000) == ESP_OK) {
     c5_len = (resp.length < STATE_VERSION_MAX) ? resp.length : (STATE_VERSION_MAX - 1);
     memcpy(ver_c5, resp_buf, c5_len);
   }
@@ -159,8 +160,12 @@ static uint8_t do_console_exec(const uint8_t *payload, uint16_t plen) {
   return SPI_STATUS_OK;
 }
 
-uint8_t host_state_handle(uint16_t cmd, const uint8_t *payload, uint16_t plen, uint8_t *out_data,
-                          uint16_t out_cap, uint16_t *out_len) {
+uint8_t host_state_handle(uint16_t cmd,
+                          const uint8_t *payload,
+                          uint16_t plen,
+                          uint8_t *out_data,
+                          uint16_t out_cap,
+                          uint16_t *out_len) {
   *out_len = 0;
 
   switch (cmd) {
@@ -189,7 +194,9 @@ uint8_t host_state_handle(uint16_t cmd, const uint8_t *payload, uint16_t plen, u
         out_data[1] = s_log_over_ble_enabled ? 1 : 0;
         *out_len = 2;
       }
-      ESP_LOGI(TAG, "Settings: console_exec=%d log_over_ble=%d", s_console_exec_enabled,
+      ESP_LOGI(TAG,
+               "Settings: console_exec=%d log_over_ble=%d",
+               s_console_exec_enabled,
                s_log_over_ble_enabled);
       return SPI_STATUS_OK;
 

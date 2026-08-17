@@ -45,8 +45,8 @@ static const char *TAG = "SUBGHZ_RX";
 #define RX_QUEUE_TIMEOUT_MS   100
 #define HOP_INTERVAL_MS       5000
 #define RX_TASK_STACK_SIZE    8192
-#define RX_TASK_PRIORITY SYS_PRIO_SERVICE_HI
-#define RX_TASK_CORE SYS_CORE_RADIO
+#define RX_TASK_PRIORITY      SYS_PRIO_SERVICE_HI
+#define RX_TASK_CORE          SYS_CORE_RADIO
 #define FILENAME_BUF_SIZE     32
 #define HEX_BUF_SIZE          65
 #define MAX_HEX_BYTES         32

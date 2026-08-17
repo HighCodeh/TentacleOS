@@ -62,7 +62,8 @@ static int cmd_c5(int argc, char **argv) {
       c5_flasher_init(); // UART1 is only needed when the bytes travel over UART
     }
     esp_err_t r = c5_flasher_update(NULL, 0, transport);
-    printf("C5 OTA (%s): %s\n", (transport == SPI_OTA_TRANSPORT_UART) ? "uart" : "spi",
+    printf("C5 OTA (%s): %s\n",
+           (transport == SPI_OTA_TRANSPORT_UART) ? "uart" : "spi",
            esp_err_to_name(r));
     return r == ESP_OK ? 0 : 1;
   }
@@ -172,8 +173,8 @@ static void print_interface_info(uint8_t iface, const char *name) {
   spi_header_t resp_hdr;
   uint8_t resp_buf[SPI_MAX_PAYLOAD];
 
-  esp_err_t ret =
-      spi_bridge_send_command(SPI_ID_WIFI_GET_IP_INFO, &iface, 1, &resp_hdr, resp_buf, sizeof(resp_buf), 2000);
+  esp_err_t ret = spi_bridge_send_command(
+      SPI_ID_WIFI_GET_IP_INFO, &iface, 1, &resp_hdr, resp_buf, sizeof(resp_buf), 2000);
 
   if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
     printf("%s Interface: unavailable\n", name);
@@ -243,10 +244,18 @@ typedef struct {
 } stack_alloc_t;
 
 static const stack_alloc_t STACK_ALLOC[] = {
-    {"spi_stream", 16384}, {"console_task", 8192}, {"host_link", 8192},
-    {"ui_fb", 6144},       {"sd_cd", 6144},        {"battery_svc", 6144},
-    {"c5_link_mon", 6144}, {"hl_log", 6144},       {"SysMonitor", 4096},
-    {"wifi_status", 4096}, {"tos_log", 4096},      {"hl_ble", 4096},
+    {"spi_stream", 16384},
+    {"console_task", 8192},
+    {"host_link", 8192},
+    {"ui_fb", 6144},
+    {"sd_cd", 6144},
+    {"battery_svc", 6144},
+    {"c5_link_mon", 6144},
+    {"hl_log", 6144},
+    {"SysMonitor", 4096},
+    {"wifi_status", 4096},
+    {"tos_log", 4096},
+    {"hl_ble", 4096},
 };
 #define STACK_ALLOC_COUNT (sizeof(STACK_ALLOC) / sizeof(STACK_ALLOC[0]))
 
@@ -300,14 +309,18 @@ static int cmd_stack(int argc, char **argv) {
       flag = "cut";
 
     if (alloc == 0)
-      printf("%-16.16s     -  %6u B      -  %s\n", snap[i].pcTaskName,
-             (unsigned)min_free, flag);
+      printf("%-16.16s     -  %6u B      -  %s\n", snap[i].pcTaskName, (unsigned)min_free, flag);
     else
-      printf("%-16.16s %5u  %6u B   %3u%%  %s\n", snap[i].pcTaskName,
-             (unsigned)alloc, (unsigned)min_free, (unsigned)slack, flag);
+      printf("%-16.16s %5u  %6u B   %3u%%  %s\n",
+             snap[i].pcTaskName,
+             (unsigned)alloc,
+             (unsigned)min_free,
+             (unsigned)slack,
+             flag);
   }
   printf("----------------------------------------------\n");
-  printf("Tasks: %u   Heap free: %u B (min %u B)\n", (unsigned)count,
+  printf("Tasks: %u   Heap free: %u B (min %u B)\n",
+         (unsigned)count,
          (unsigned)esp_get_free_heap_size(),
          (unsigned)esp_get_minimum_free_heap_size());
   printf("Flags: LOW=<512B free  cut=reclaim candidate  chk=alloc table stale\n");
@@ -335,10 +348,8 @@ static int cmd_date(int argc, char **argv) {
   if (argc == 1) {
     char buf[32];
     sys_time_format(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S");
-    const char *state =
-        (sys_time_state() == SYS_TIME_STATE_SYNCED) ? "synced" : "estimated";
-    printf("Clock: %s UTC (%s, source: %s)\n", buf, state,
-           date_source_name(sys_time_source()));
+    const char *state = (sys_time_state() == SYS_TIME_STATE_SYNCED) ? "synced" : "estimated";
+    printf("Clock: %s UTC (%s, source: %s)\n", buf, state, date_source_name(sys_time_source()));
     return 0;
   }
 

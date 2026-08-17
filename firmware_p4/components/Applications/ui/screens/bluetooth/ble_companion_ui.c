@@ -29,8 +29,8 @@
 
 static const char *TAG = "BLE_COMPANION_UI";
 
-#define CONN_POLL_MS          500
-#define COMPANION_ICON        "/assets/icons/app_shortcut.bin"
+#define CONN_POLL_MS   500
+#define COMPANION_ICON "/assets/icons/app_shortcut.bin"
 
 #define SIG_GREEN 0x00E676
 #define COL_DIM   0x8A8594

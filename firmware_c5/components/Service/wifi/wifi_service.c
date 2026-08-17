@@ -39,7 +39,7 @@
 static const char *TAG = "WIFI_SERVICE";
 
 #define HOPPER_STACK_SIZE       4096
-#define HOPPER_TASK_PRIORITY SYS_PRIO_SERVICE_HI
+#define HOPPER_TASK_PRIORITY    SYS_PRIO_SERVICE_HI
 #define HOPPER_DELAY_MS         250
 #define MAX_WIFI_CHANNEL        13
 #define SCAN_MUTEX_TIMEOUT_MS   1000
@@ -662,8 +662,8 @@ event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *ev
 // 2.4 GHz (1-13) plus the common non-DFS 5 GHz channels (UNII-1 + UNII-3). DFS
 // channels (52-144) need radar detection and aren't usable for passive hopping,
 // so they're left out. esp_wifi_set_channel picks the band from the number.
-static const uint8_t HOP_CHANNELS[] = {1,   2,   3,   4,   5,   6,   7,  8,  9, 10, 11,
-                                       12,  13,  36,  40,  44,  48,  149, 153, 157, 161, 165};
+static const uint8_t HOP_CHANNELS[] = {1,  2,  3,  4,  5,  6,  7,   8,   9,   10,  11,
+                                       12, 13, 36, 40, 44, 48, 149, 153, 157, 161, 165};
 #define HOP_CHANNEL_COUNT (sizeof(HOP_CHANNELS) / sizeof(HOP_CHANNELS[0]))
 
 static void channel_hopper_task(void *pvParameters) {

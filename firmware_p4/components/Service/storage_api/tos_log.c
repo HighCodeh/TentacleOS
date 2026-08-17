@@ -43,14 +43,14 @@ static const char *TAG = "TOS_LOG";
 // line and appends it to a RAM buffer under a mutex; a dedicated task drains the
 // buffer to flash in batches, off the logging tasks' critical paths, and is the
 // only code that opens, writes, flushes, or rotates the file.
-#define LOG_BUF_SIZE       2048              // RAM buffer, double-buffered on flush
-#define LOG_LINE_MAX       256               // max bytes captured from one log line
-#define LOG_FLUSH_MS       1000              // periodic drain interval
-#define LOG_HIGH_WATER     (LOG_BUF_SIZE * 3 / 4) // early-drain threshold for bursts
-#define LOG_LOCK_WAIT_MS   50                // append gives up rather than block
-#define LOG_TASK_STACK     4096
-#define LOG_TASK_PRIO SYS_PRIO_BACKGROUND
-#define LOG_STOP_WAIT_MS   2000
+#define LOG_BUF_SIZE     2048                   // RAM buffer, double-buffered on flush
+#define LOG_LINE_MAX     256                    // max bytes captured from one log line
+#define LOG_FLUSH_MS     1000                   // periodic drain interval
+#define LOG_HIGH_WATER   (LOG_BUF_SIZE * 3 / 4) // early-drain threshold for bursts
+#define LOG_LOCK_WAIT_MS 50                     // append gives up rather than block
+#define LOG_TASK_STACK   4096
+#define LOG_TASK_PRIO    SYS_PRIO_BACKGROUND
+#define LOG_STOP_WAIT_MS 2000
 
 static FILE *s_log_file = NULL;
 static vprintf_like_t s_original_vprintf = NULL;
@@ -61,10 +61,10 @@ static TaskHandle_t s_flush_task = NULL;
 static volatile bool s_ready = false;
 static volatile bool s_stop = false;
 
-static uint8_t s_buf[LOG_BUF_SIZE];          // accumulation buffer (append path)
-static uint8_t s_scratch[LOG_BUF_SIZE];      // drain buffer (flush task only)
+static uint8_t s_buf[LOG_BUF_SIZE];     // accumulation buffer (append path)
+static uint8_t s_scratch[LOG_BUF_SIZE]; // drain buffer (flush task only)
 static size_t s_buf_len = 0;
-static size_t s_dropped = 0;                 // bytes dropped while buffer was full
+static size_t s_dropped = 0; // bytes dropped while buffer was full
 
 static void build_path(char *out_path, int index) {
   snprintf(out_path, LOG_PATH_LEN, LOG_FILE_FMT, index);
@@ -172,7 +172,7 @@ static int log_to_file(const char *fmt, va_list args) {
   static volatile bool s_in_vprintf[portNUM_PROCESSORS];
   BaseType_t core = xPortGetCoreID();
   if (s_in_vprintf[core]) {
-    return 0;  // nested log from within the print path: drop to stop recursion
+    return 0; // nested log from within the print path: drop to stop recursion
   }
 
   s_in_vprintf[core] = true;
@@ -262,8 +262,13 @@ esp_err_t tos_log_init(void) {
   s_dropped = 0;
   s_stop = false;
 
-  if (xTaskCreatePinnedToCore(flush_task, "tos_log", LOG_TASK_STACK, NULL, LOG_TASK_PRIO, &s_flush_task, SYS_CORE_RADIO) !=
-      pdPASS) {
+  if (xTaskCreatePinnedToCore(flush_task,
+                              "tos_log",
+                              LOG_TASK_STACK,
+                              NULL,
+                              LOG_TASK_PRIO,
+                              &s_flush_task,
+                              SYS_CORE_RADIO) != pdPASS) {
     ESP_LOGE(TAG, "Failed to create log flush task");
     err = ESP_FAIL;
     goto cleanup;

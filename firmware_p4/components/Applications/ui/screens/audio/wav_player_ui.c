@@ -43,7 +43,7 @@
 #define VOL_DEFAULT       80
 #define PATH_MAX_LEN      256
 #define PLAYER_TASK_STACK 8192
-#define PLAYER_TASK_PRIO SYS_PRIO_SERVICE_HI
+#define PLAYER_TASK_PRIO  SYS_PRIO_SERVICE_HI
 #define DBLCLICK_MS       350
 #define G1                0x7A52D6
 #define G2                0xB89AFF
@@ -285,8 +285,13 @@ static void start_playback(void) {
   for (int i = 0; i < N_BARS; i++)
     s_level[i] = 0;
   s_task_run = true;
-  if (xTaskCreatePinnedToCore(player_task, "wav_play", PLAYER_TASK_STACK, NULL, PLAYER_TASK_PRIO, &s_task, SYS_CORE_UI) !=
-      pdPASS) {
+  if (xTaskCreatePinnedToCore(player_task,
+                              "wav_play",
+                              PLAYER_TASK_STACK,
+                              NULL,
+                              PLAYER_TASK_PRIO,
+                              &s_task,
+                              SYS_CORE_UI) != pdPASS) {
     s_task_run = false;
     s_err = true;
   }

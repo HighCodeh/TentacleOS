@@ -33,7 +33,7 @@ static const char *TAG = "MESH_TCP";
 
 #define TCP_PORT                  4403
 #define TCP_TASK_STACK            4096
-#define TCP_TASK_PRIO SYS_PRIO_SERVICE_HI
+#define TCP_TASK_PRIO             SYS_PRIO_SERVICE_HI
 #define TCP_TASK_TICK_MS          50
 #define TCP_RX_BUF_SIZE           512
 #define TCP_FRAME_MAX             512

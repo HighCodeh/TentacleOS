@@ -114,26 +114,26 @@ static const char *TAG = "BADUSB_UI";
 #define INFO_LABEL_X       12
 #define STATUS_FOOTER_HINT "BACK exit"
 
-#define PAY_LIST_TOP      46
-#define PAY_LIST_W        216
-#define PAY_LIST_H        150
-#define PAY_ROW_H         26
-#define PAY_ROW_GAP       4
-#define PAY_KEY_SZ        20
-#define PAY_KEY_RADIUS    6
-#define PAY_ROW_RADIUS    8
-#define PAY_ROW_PAD_HOR   8
-#define PAY_ROW_PAD_COL   8
-#define PAY_GLOW_W        14
-#define PAY_PREVIEW_W     216
-#define PAY_PREVIEW_H     92
-#define PAY_PREVIEW_BOT   26
-#define PAY_PREVIEW_RAD   8
-#define PAY_PREVIEW_PAD   8
+#define PAY_LIST_TOP       46
+#define PAY_LIST_W         216
+#define PAY_LIST_H         150
+#define PAY_ROW_H          26
+#define PAY_ROW_GAP        4
+#define PAY_KEY_SZ         20
+#define PAY_KEY_RADIUS     6
+#define PAY_ROW_RADIUS     8
+#define PAY_ROW_PAD_HOR    8
+#define PAY_ROW_PAD_COL    8
+#define PAY_GLOW_W         14
+#define PAY_PREVIEW_W      216
+#define PAY_PREVIEW_H      92
+#define PAY_PREVIEW_BOT    26
+#define PAY_PREVIEW_RAD    8
+#define PAY_PREVIEW_PAD    8
 #define PAY_PREVIEW_BODY_Y 18
-#define PAY_KEY_TINT_OPA  LV_OPA_20
-#define PAY_BODY_BUF_LEN  200
-#define PREVIEW_MAX_LINES 4
+#define PAY_KEY_TINT_OPA   LV_OPA_20
+#define PAY_BODY_BUF_LEN   200
+#define PREVIEW_MAX_LINES  4
 
 #define BADUSB_SCRIPT_DIR TOS_PATH_BADUSB
 #define BADUSB_ASSET_DIR  FLASH_STORAGE_BADUSB
@@ -713,8 +713,13 @@ static void build_running(void) {
     atomic_store(&s_bad_total, 0);
     atomic_store(&s_bad_state, BAD_IDLE);
     atomic_store(&s_run_active, true);
-    BaseType_t ok = xTaskCreatePinnedToCore(
-        bad_run_task, "badusb_run", RUN_TASK_STACK, NULL, SYS_PRIO_SERVICE_HI, NULL, SYS_CORE_RADIO);
+    BaseType_t ok = xTaskCreatePinnedToCore(bad_run_task,
+                                            "badusb_run",
+                                            RUN_TASK_STACK,
+                                            NULL,
+                                            SYS_PRIO_SERVICE_HI,
+                                            NULL,
+                                            SYS_CORE_RADIO);
     if (ok != pdPASS) {
       atomic_store(&s_run_active, false);
       atomic_store(&s_bad_result, ESP_ERR_NO_MEM);
@@ -817,8 +822,7 @@ static void build_payloads(void) {
   lv_obj_set_style_pad_all(s_pay_list, 0, 0);
   lv_obj_set_style_pad_row(s_pay_list, PAY_ROW_GAP, 0);
   lv_obj_set_flex_flow(s_pay_list, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_align(
-      s_pay_list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
+  lv_obj_set_flex_align(s_pay_list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
   lv_obj_set_scroll_dir(s_pay_list, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(s_pay_list, LV_SCROLLBAR_MODE_AUTO);
 

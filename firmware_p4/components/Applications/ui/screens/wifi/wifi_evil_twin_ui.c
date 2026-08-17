@@ -235,13 +235,9 @@ static void start_attack_selected(void) {
 
   if (!s_is_attacking) {
     s_is_attacking = true;
-    if (xTaskCreatePinnedToCore(attack_task,
-                                "evil_twin",
-                                TASK_STACK_SIZE,
-                                NULL,
-                                TASK_PRIORITY,
-                                NULL,
-                                SYS_CORE_RADIO) != pdPASS) {
+    if (xTaskCreatePinnedToCore(
+            attack_task, "evil_twin", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL, SYS_CORE_RADIO) !=
+        pdPASS) {
       s_is_attacking = false;
     }
   }

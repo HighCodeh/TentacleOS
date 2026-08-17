@@ -42,7 +42,7 @@
 #define PILL_W         52
 #define PILL_H         24
 
-#define BRIGHT_MIN     5   // lowest level the LED still lights at
+#define BRIGHT_MIN     5 // lowest level the LED still lights at
 #define BRIGHT_MAX     100
 #define BRIGHT_STEP    5
 #define BRIGHT_DEFAULT 80
@@ -320,8 +320,10 @@ static void save_config(void) {
   g_config_led.error_color = PRESETS[s_color_idx[SIG_ERROR]].hex;
 
   // Apply live so subsequent signals use the new colors/brightness immediately.
-  led_set_signal_config(g_config_led.info_color, g_config_led.warning_color,
-                        g_config_led.error_color, g_config_led.brightness);
+  led_set_signal_config(g_config_led.info_color,
+                        g_config_led.warning_color,
+                        g_config_led.error_color,
+                        g_config_led.brightness);
 
   // Persist to SD only (matches the storage policy: no SD -> keep in RAM for this
   // session but do not write anything).

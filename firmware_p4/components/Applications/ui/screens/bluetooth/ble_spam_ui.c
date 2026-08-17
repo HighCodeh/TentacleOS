@@ -32,9 +32,9 @@
 
 static const char *TAG = "BLE_SPAM_UI";
 
-#define RUN_TICK_MS           250
-#define COL_DIM               0x8A8594
-#define SPAM_ICON             "/assets/icons/broadcast_on_personal.bin"
+#define RUN_TICK_MS 250
+#define COL_DIM     0x8A8594
+#define SPAM_ICON   "/assets/icons/broadcast_on_personal.bin"
 
 #define SPAM_GRID_PAD      8
 #define SPAM_GRID_GAP      6
@@ -47,7 +47,12 @@ static const char *TAG = "BLE_SPAM_UI";
 #define SPAM_EDIT_ICON_HEX 0xB89AFF
 
 static const uint32_t SPAM_ECO_COLOR[] = {
-    0xE0E0E0, 0xFF8A5B, 0x4CBDD6, 0x54D08A, 0x54D08A, 0xFFC24C,
+    0xE0E0E0,
+    0xFF8A5B,
+    0x4CBDD6,
+    0x54D08A,
+    0x54D08A,
+    0xFFC24C,
 };
 #define SPAM_ECO_COLOR_COUNT (sizeof(SPAM_ECO_COLOR) / sizeof(SPAM_ECO_COLOR[0]))
 

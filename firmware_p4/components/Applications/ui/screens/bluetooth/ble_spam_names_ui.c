@@ -33,8 +33,8 @@
 
 static const char *TAG = "BLE_SPAM_NAMES_UI";
 
-#define NAMES_MAX    10
-#define NAME_LEN     24
+#define NAMES_MAX 10
+#define NAME_LEN  24
 
 #define NAME_ICON "/assets/icons/broadcast_on_personal.bin"
 #define ADD_ICON  "/assets/icons/add.bin"

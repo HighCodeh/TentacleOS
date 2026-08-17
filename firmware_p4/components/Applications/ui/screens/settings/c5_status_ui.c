@@ -113,8 +113,9 @@ static void build_info_card(void) {
   if (alive) {
     spi_header_t hdr;
     char ver[C5_VER_BUF_LEN] = {0};
-    if (spi_bridge_send_command(SPI_ID_SYSTEM_VERSION, NULL, 0, &hdr, (uint8_t *)ver, sizeof(ver),
-                                C5_VER_TIMEOUT_MS) == ESP_OK &&
+    if (spi_bridge_send_command(
+            SPI_ID_SYSTEM_VERSION, NULL, 0, &hdr, (uint8_t *)ver, sizeof(ver), C5_VER_TIMEOUT_MS) ==
+            ESP_OK &&
         ver[0] != '\0')
       strlcpy(cver, ver, sizeof(cver));
   }

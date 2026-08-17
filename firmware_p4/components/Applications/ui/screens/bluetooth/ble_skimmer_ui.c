@@ -183,8 +183,12 @@ static void build_results_view(void) {
     snprintf(mac,
              sizeof(mac),
              "%02X:%02X:%02X:%02X:%02X:%02X",
-             rec[i].addr[5], rec[i].addr[4], rec[i].addr[3],
-             rec[i].addr[2], rec[i].addr[1], rec[i].addr[0]);
+             rec[i].addr[5],
+             rec[i].addr[4],
+             rec[i].addr[3],
+             rec[i].addr[2],
+             rec[i].addr[1],
+             rec[i].addr[0]);
     make_suspect_card(body, name, mac, rec[i].rssi);
     shown++;
   }

@@ -32,10 +32,10 @@
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define WR_TICK_MS   33
-#define SIG_GREEN    0x00E676
-#define COL_DIM      0x8A8594
-#define WRITE_ICON   "/assets/icons/edit.bin"
+#define WR_TICK_MS 33
+#define SIG_GREEN  0x00E676
+#define COL_DIM    0x8A8594
+#define WRITE_ICON "/assets/icons/edit.bin"
 
 #define MAX_CARDS    10
 #define CARD_PANEL_H 122

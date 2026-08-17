@@ -74,7 +74,6 @@ static void connect_bt_input(const input_event_t *ev, void *ctx) {
   }
 }
 
-
 void ui_connect_bt_open(void) {
   if (s_screen != NULL) {
     lv_obj_del(s_screen);

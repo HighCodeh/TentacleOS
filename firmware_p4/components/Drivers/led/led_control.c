@@ -29,18 +29,18 @@ static const char *TAG = "LED_CONTROL";
 // The LEDs are common-anode (anode to 3.3V), the chip sinks each cathode. Channel
 // map from the schematic (sheet 6): OUT0 = RED (D10.1), OUT1 = GREEN (D10.2),
 // OUT2 = BLUE (D10.3), OUT3 = D11 (unused). I2C target address is 0x2C.
-#define LP5816_ADDR 0x2C
+#define LP5816_ADDR    0x2C
 #define I2C_TIMEOUT_MS 50
 
-#define REG_CHIP_EN      0x00 // bit0 = device enable
-#define REG_DEV_CONFIG0  0x01 // bit0 = MAX_CURRENT (0 = 25.5mA, 1 = 51mA)
-#define REG_DEV_CONFIG1  0x02 // bits[3:0] = OUT3..OUT0 enable
-#define REG_DEV_CONFIG2  0x03 // fade time + per-channel fade enable
-#define REG_DEV_CONFIG3  0x04 // per-channel exponential dimming enable
-#define REG_RESET_CMD    0x0E // write 0xCC = reset all registers
-#define REG_UPDATE_CMD   0x0F // write 0x55 = latch DEV_CONFIGx
-#define REG_OUT0_DC      0x14 // dot-current (analog brightness ceiling) OUT0..OUT3
-#define REG_OUT0_PWM     0x18 // 8-bit manual PWM duty OUT0..OUT3
+#define REG_CHIP_EN     0x00 // bit0 = device enable
+#define REG_DEV_CONFIG0 0x01 // bit0 = MAX_CURRENT (0 = 25.5mA, 1 = 51mA)
+#define REG_DEV_CONFIG1 0x02 // bits[3:0] = OUT3..OUT0 enable
+#define REG_DEV_CONFIG2 0x03 // fade time + per-channel fade enable
+#define REG_DEV_CONFIG3 0x04 // per-channel exponential dimming enable
+#define REG_RESET_CMD   0x0E // write 0xCC = reset all registers
+#define REG_UPDATE_CMD  0x0F // write 0x55 = latch DEV_CONFIGx
+#define REG_OUT0_DC     0x14 // dot-current (analog brightness ceiling) OUT0..OUT3
+#define REG_OUT0_PWM    0x18 // 8-bit manual PWM duty OUT0..OUT3
 
 #define CMD_RESET  0xCC
 #define CMD_UPDATE 0x55
@@ -97,11 +97,11 @@ esp_err_t led_rgb_init(void) {
   lp5816_write(REG_DEV_CONFIG3, 0x00);           // linear dimming
   lp5816_write(REG_UPDATE_CMD, CMD_UPDATE);      // latch the DEV_CONFIG changes
 
-  lp5816_write(REG_OUT0_DC + 0, LED_DC_LEVEL);   // red current ceiling
-  lp5816_write(REG_OUT0_DC + 1, LED_DC_LEVEL);   // green
-  lp5816_write(REG_OUT0_DC + 2, LED_DC_LEVEL);   // blue
+  lp5816_write(REG_OUT0_DC + 0, LED_DC_LEVEL); // red current ceiling
+  lp5816_write(REG_OUT0_DC + 1, LED_DC_LEVEL); // green
+  lp5816_write(REG_OUT0_DC + 2, LED_DC_LEVEL); // blue
 
-  lp5816_write(REG_OUT0_PWM + 0, 0);             // start dark
+  lp5816_write(REG_OUT0_PWM + 0, 0); // start dark
   lp5816_write(REG_OUT0_PWM + 1, 0);
   lp5816_write(REG_OUT0_PWM + 2, 0);
 
@@ -194,8 +194,8 @@ static void sig_blink(uint32_t hex) {
 
   if (s_sig_task == NULL) {
     // Created lazily on the first signal (all defs are in scope here).
-    xTaskCreatePinnedToCore(sig_off_task, "led_sig", 3072, NULL, SYS_PRIO_BACKGROUND, &s_sig_task,
-                            SYS_CORE_RADIO);
+    xTaskCreatePinnedToCore(
+        sig_off_task, "led_sig", 3072, NULL, SYS_PRIO_BACKGROUND, &s_sig_task, SYS_CORE_RADIO);
   }
   if (s_sig_task != NULL) {
     xTaskNotifyGive(s_sig_task); // wake the off task to (re)schedule the clear

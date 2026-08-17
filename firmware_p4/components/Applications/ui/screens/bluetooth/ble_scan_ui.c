@@ -46,8 +46,8 @@ static const char *TAG = "BLE_SCAN_UI";
 #define SCAN_TIMEOUT_MS       15000
 #define BLE_DEV_ICON          "/assets/icons/bluetooth.bin"
 #define BLE_SEARCH_ICON       "/assets/icons/bluetooth_searching.bin"
-#define BLE_SCAN_TASK_STACK 8192
-#define BLE_SCAN_TASK_PRIO SYS_PRIO_SERVICE_LO
+#define BLE_SCAN_TASK_STACK   8192
+#define BLE_SCAN_TASK_PRIO    SYS_PRIO_SERVICE_LO
 #define HERO_CARD_W           200
 #define HERO_CARD_H           108
 
@@ -254,8 +254,7 @@ static void update_selection(void) {
   if (s_chip_name != NULL)
     lv_label_set_text(s_chip_name, s_devs[s_sel].name);
   if (s_chip_meta != NULL)
-    lv_label_set_text_fmt(
-        s_chip_meta, "%s  %.8s", s_devs[s_sel].vendor, s_devs[s_sel].mac);
+    lv_label_set_text_fmt(s_chip_meta, "%s  %.8s", s_devs[s_sel].vendor, s_devs[s_sel].mac);
   if (s_chip_rssi != NULL) {
     lv_label_set_text_fmt(s_chip_rssi, "%d", s_devs[s_sel].rssi);
     lv_obj_set_style_text_color(s_chip_rssi, lv_color_hex(blip_hex(s_devs[s_sel].rssi)), 0);
@@ -412,9 +411,14 @@ static void collect_results(void) {
       snprintf(s_devs[count].mac,
                sizeof(s_devs[count].mac),
                "%02X:%02X:%02X:%02X:%02X:%02X",
-               d->addr[5], d->addr[4], d->addr[3], d->addr[2], d->addr[1], d->addr[0]);
-      snprintf(s_devs[count].vendor, sizeof(s_devs[count].vendor), "%.23s",
-               oui_get_vendor(d->addr));
+               d->addr[5],
+               d->addr[4],
+               d->addr[3],
+               d->addr[2],
+               d->addr[1],
+               d->addr[0]);
+      snprintf(
+          s_devs[count].vendor, sizeof(s_devs[count].vendor), "%.23s", oui_get_vendor(d->addr));
       count++;
     }
   }

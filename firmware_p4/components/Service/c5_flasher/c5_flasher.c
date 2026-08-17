@@ -47,10 +47,10 @@ void c5_flasher_progress(uint32_t *sent, uint32_t *total) {
 #define OTA_BAUD     115200
 #define OTA_UART_BUF 4096
 
-#define OTA_SPI_CHUNK         240  // firmware bytes per OTA_DATA command (fits the u8 length)
-#define OTA_DATA_TIMEOUT_MS   300  // per-chunk OTA_DATA timeout; short so a lost ack recovers fast
-#define OTA_CHUNK_DEADLINE_MS 5000 // total time to land one chunk (retries BUSY / lost acks)
-#define OTA_MAX_BLOCK         4096 // block buffer (UART writes; SPI uses OTA_SPI_CHUNK of it)
+#define OTA_SPI_CHUNK         240   // firmware bytes per OTA_DATA command (fits the u8 length)
+#define OTA_DATA_TIMEOUT_MS   300   // per-chunk OTA_DATA timeout; short so a lost ack recovers fast
+#define OTA_CHUNK_DEADLINE_MS 5000  // total time to land one chunk (retries BUSY / lost acks)
+#define OTA_MAX_BLOCK         4096  // block buffer (UART writes; SPI uses OTA_SPI_CHUNK of it)
 #define OTA_UART_WINDOW       12288 // bytes the P4 may run ahead of the C5 (< its 16KB ring buffer)
 
 #define C5_SD_FW_PATH "/sdcard/c5/TentacleOS_C5.bin"
@@ -198,7 +198,8 @@ esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size, uint8_t 
                             (const uint8_t *)&begin_req,
                             sizeof(begin_req),
                             &sresp,
-                            NULL, 0,
+                            NULL,
+                            0,
                             OTA_BEGIN_TIMEOUT_MS);
     if (c5_ota_poll(&st) == ESP_OK) {
       if (st.state == SPI_OTA_STATE_ERASING || st.state == SPI_OTA_STATE_READY ||
@@ -237,8 +238,8 @@ esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size, uint8_t 
     vTaskDelay(pdMS_TO_TICKS(50));
   }
   if (!ready) {
-    ESP_LOGE(TAG, "C5 did not reach READY within %d ms (erase too slow or hung)",
-             OTA_ERASE_TIMEOUT_MS);
+    ESP_LOGE(
+        TAG, "C5 did not reach READY within %d ms (erase too slow or hung)", OTA_ERASE_TIMEOUT_MS);
     goto cleanup;
   }
   ESP_LOGI(TAG,
@@ -383,7 +384,8 @@ cleanup:
 
 esp_err_t c5_flasher_ping(void) {
   spi_header_t resp = {0};
-  return spi_bridge_send_command(SPI_ID_SYSTEM_PING, NULL, 0, &resp, NULL, 0, OTA_STATUS_TIMEOUT_MS);
+  return spi_bridge_send_command(
+      SPI_ID_SYSTEM_PING, NULL, 0, &resp, NULL, 0, OTA_STATUS_TIMEOUT_MS);
 }
 
 esp_err_t c5_flasher_info(void) {

@@ -46,8 +46,13 @@ bool gatt_explorer_start(const uint8_t *addr, uint8_t addr_type) {
   spi_header_t resp_hdr;
   uint8_t resp_buf[SPI_MAX_PAYLOAD];
 
-  esp_err_t ret = spi_bridge_send_command(
-      SPI_ID_BT_APP_GATT_EXP, payload, sizeof(payload), &resp_hdr, resp_buf, sizeof(resp_buf), GATT_SPI_TIMEOUT_MS);
+  esp_err_t ret = spi_bridge_send_command(SPI_ID_BT_APP_GATT_EXP,
+                                          payload,
+                                          sizeof(payload),
+                                          &resp_hdr,
+                                          resp_buf,
+                                          sizeof(resp_buf),
+                                          GATT_SPI_TIMEOUT_MS);
 
   if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
     ESP_LOGE(TAG, "Failed to start GATT exploration on C5");

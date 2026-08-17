@@ -34,11 +34,11 @@
 
 static const char *TAG = "IR_STORE";
 
-#define IR_DIR             TOS_PATH_IR // "/sdcard/ir"
-#define IR_STORE_FILE_MAX  (512 * 1024)
-#define IR_SERIALIZE_MAX   16384
+#define IR_DIR            TOS_PATH_IR // "/sdcard/ir"
+#define IR_STORE_FILE_MAX (512 * 1024)
+#define IR_SERIALIZE_MAX  16384
 #define IR_CAP_TASK_STACK 8192
-#define IR_CAP_TASK_PRIO SYS_PRIO_SERVICE_HI
+#define IR_CAP_TASK_PRIO  SYS_PRIO_SERVICE_HI
 
 // ----------------------------------------------------------------------------
 // Path helpers
@@ -313,7 +313,11 @@ esp_err_t ir_store_send_raw(const rmt_symbol_word_t *symbols, size_t count, uint
   if (r != ESP_OK)
     return r;
   r = ir_send_raw(symbols, count, freq);
-  ESP_LOGI(TAG, "send raw %u sym @%luHz -> %s", (unsigned)count, (unsigned long)freq, esp_err_to_name(r));
+  ESP_LOGI(TAG,
+           "send raw %u sym @%luHz -> %s",
+           (unsigned)count,
+           (unsigned long)freq,
+           esp_err_to_name(r));
   return r;
 }
 

@@ -48,8 +48,8 @@
 #define HEADER_ACTIVE_TINT_HEX 0x00E676
 #define SD_CD_PRESENT_LEVEL    0
 
-#define STATUS_POLL_MS       1000
-#define WIFI_ANIM_MS         800
+#define STATUS_POLL_MS         1000
+#define WIFI_ANIM_MS           800
 #define BATTERY_CHARGE_ANIM_MS 350
 
 #define SD_MOUNT_RETRIES        3
@@ -73,7 +73,7 @@ static bool s_cd_configured = false;
 static bool s_sd_mounted = false;
 static int s_sd_used_pct = 0;
 static TaskHandle_t s_cd_task = NULL;       // debounces the CD ISR + (un)mounts
-static bool s_sd_present_committed = false;  // last debounced CD state acted on
+static bool s_sd_present_committed = false; // last debounced CD state acted on
 static volatile bool s_sd_remount_req = false;
 static char s_sd_name[24];
 static char s_sd_size[16];
@@ -125,8 +125,8 @@ static void sd_cd_ensure_configured(void) {
   // (vfs mount/statvfs) runs here and UI updates hop to the LVGL thread via
   // lv_async_call. Boot state is handled by the task's first pass.
   if (s_cd_task == NULL) {
-    xTaskCreatePinnedToCore(sd_cd_task, "sd_cd", SD_TASK_STACK, NULL, SYS_PRIO_SERVICE_LO, &s_cd_task,
-                            SYS_CORE_RADIO);
+    xTaskCreatePinnedToCore(
+        sd_cd_task, "sd_cd", SD_TASK_STACK, NULL, SYS_PRIO_SERVICE_LO, &s_cd_task, SYS_CORE_RADIO);
   }
 
   gpio_isr_handler_add(GPIO_SD_CD_PIN, sd_cd_isr, NULL);
@@ -242,9 +242,9 @@ static void sd_cd_task(void *arg) {
   bool boot = true;
   for (;;) {
     if (!boot) {
-      ulTaskNotifyTake(pdTRUE, portMAX_DELAY);       // wait for a CD edge
-      vTaskDelay(pdMS_TO_TICKS(SD_CD_DEBOUNCE_MS));  // let the switch settle
-      ulTaskNotifyTake(pdTRUE, 0);                   // drain bounces during settle
+      ulTaskNotifyTake(pdTRUE, portMAX_DELAY);      // wait for a CD edge
+      vTaskDelay(pdMS_TO_TICKS(SD_CD_DEBOUNCE_MS)); // let the switch settle
+      ulTaskNotifyTake(pdTRUE, 0);                  // drain bounces during settle
     }
 
     bool force = s_sd_remount_req;
@@ -252,11 +252,11 @@ static void sd_cd_task(void *arg) {
 
     bool present = sd_card_present();
     if (!boot && !force && present == s_sd_present_committed) {
-      continue;  // spurious edge, no real change
+      continue; // spurious edge, no real change
     }
 
     if (force && vfs_sdcard_is_mounted()) {
-      vfs_sdcard_deinit();  // drop the unhealthy mount so it is rebuilt fresh
+      vfs_sdcard_deinit(); // drop the unhealthy mount so it is rebuilt fresh
     }
     s_sd_present_committed = present;
 
@@ -431,7 +431,7 @@ void header_ui_set_wifi_connecting(bool connecting) {
       lv_timer_delete(wifi_anim_timer);
       wifi_anim_timer = NULL;
     }
-    update_wifi_icon_static();  // settle on the real state
+    update_wifi_icon_static(); // settle on the real state
   }
 }
 

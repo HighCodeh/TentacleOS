@@ -268,8 +268,8 @@ void ui_time_open(void) {
 
   ui_chrome_header(s_screen, "DATE & TIME", TIME_ICON);
   ui_chrome_footer(s_screen,
-                   LV_SYMBOL_OK " save   " LV_SYMBOL_UP LV_SYMBOL_DOWN " edit   " LV_SYMBOL_LEFT
-                                LV_SYMBOL_RIGHT " field");
+                   LV_SYMBOL_OK " save   " LV_SYMBOL_UP LV_SYMBOL_DOWN
+                                " edit   " LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " field");
 
   lv_obj_t *card = lv_obj_create(s_screen);
   lv_obj_set_size(card, CARD_W, LV_SIZE_CONTENT);

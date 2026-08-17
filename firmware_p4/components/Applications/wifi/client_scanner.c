@@ -44,7 +44,8 @@ static bool fetch_results(void) {
   uint16_t magic_count = SPI_DATA_INDEX_COUNT;
 
   if (spi_bridge_send_command(
-          SPI_ID_SYSTEM_DATA, (uint8_t *)&magic_count, 2, &resp, payload, sizeof(payload), 1000) != ESP_OK) {
+          SPI_ID_SYSTEM_DATA, (uint8_t *)&magic_count, 2, &resp, payload, sizeof(payload), 1000) !=
+      ESP_OK) {
     return false;
   }
 
@@ -69,9 +70,13 @@ static bool fetch_results(void) {
   }
 
   for (uint16_t i = 0; i < count; i++) {
-    if (spi_bridge_send_command(
-            SPI_ID_SYSTEM_DATA, (uint8_t *)&i, 2, &resp, (uint8_t *)&s_cached_results[i], sizeof(s_cached_results[i]), 1000) !=
-        ESP_OK) {
+    if (spi_bridge_send_command(SPI_ID_SYSTEM_DATA,
+                                (uint8_t *)&i,
+                                2,
+                                &resp,
+                                (uint8_t *)&s_cached_results[i],
+                                sizeof(s_cached_results[i]),
+                                1000) != ESP_OK) {
       free(s_cached_results);
       s_cached_results = NULL;
       return false;
@@ -85,14 +90,15 @@ static bool fetch_results(void) {
 
 bool client_scanner_start(void) {
   client_scanner_free_results();
-  esp_err_t err = spi_bridge_run_scan(SPI_ID_WIFI_APP_SCAN_CLIENT, SPI_ID_WIFI_SCAN_STATUS, NULL, 0);
+  esp_err_t err =
+      spi_bridge_run_scan(SPI_ID_WIFI_APP_SCAN_CLIENT, SPI_ID_WIFI_SCAN_STATUS, NULL, 0);
   if (err != ESP_OK) {
     led_signal_error();
     return false;
   }
   bool ok = fetch_results();
   if (ok) {
-    client_scanner_save_results_to_sd_card();  // SD-only; no-op without a card
+    client_scanner_save_results_to_sd_card(); // SD-only; no-op without a card
     s_cached_count > 0 ? led_signal_info() : led_signal_warning();
   } else {
     led_signal_error();
@@ -113,9 +119,13 @@ client_scanner_record_t *client_scanner_get_results(uint16_t *out_count) {
 
 client_scanner_record_t *client_scanner_get_result_by_index(uint16_t index) {
   spi_header_t resp;
-  if (spi_bridge_send_command(
-          SPI_ID_SYSTEM_DATA, (uint8_t *)&index, 2, &resp, (uint8_t *)&s_cached_client, sizeof(s_cached_client), 1000) ==
-      ESP_OK) {
+  if (spi_bridge_send_command(SPI_ID_SYSTEM_DATA,
+                              (uint8_t *)&index,
+                              2,
+                              &resp,
+                              (uint8_t *)&s_cached_client,
+                              sizeof(s_cached_client),
+                              1000) == ESP_OK) {
     return &s_cached_client;
   }
   return NULL;
@@ -154,10 +164,23 @@ bool client_scanner_save_results_to_sd_card(void) {
     }
     char bssid[18];
     char client_mac[18];
-    snprintf(bssid, sizeof(bssid), "%02X:%02X:%02X:%02X:%02X:%02X", c->bssid[0], c->bssid[1],
-             c->bssid[2], c->bssid[3], c->bssid[4], c->bssid[5]);
-    snprintf(client_mac, sizeof(client_mac), "%02X:%02X:%02X:%02X:%02X:%02X", c->client_mac[0],
-             c->client_mac[1], c->client_mac[2], c->client_mac[3], c->client_mac[4],
+    snprintf(bssid,
+             sizeof(bssid),
+             "%02X:%02X:%02X:%02X:%02X:%02X",
+             c->bssid[0],
+             c->bssid[1],
+             c->bssid[2],
+             c->bssid[3],
+             c->bssid[4],
+             c->bssid[5]);
+    snprintf(client_mac,
+             sizeof(client_mac),
+             "%02X:%02X:%02X:%02X:%02X:%02X",
+             c->client_mac[0],
+             c->client_mac[1],
+             c->client_mac[2],
+             c->client_mac[3],
+             c->client_mac[4],
              c->client_mac[5]);
     cJSON_AddStringToObject(obj, "bssid", bssid);
     cJSON_AddStringToObject(obj, "client", client_mac);

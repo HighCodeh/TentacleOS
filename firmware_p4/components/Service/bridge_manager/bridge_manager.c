@@ -45,18 +45,26 @@ static const char *TAG = "BRIDGE_MGR";
 static void check_c5_protocol(void) {
   spi_header_t hdr;
   uint16_t c5_ver = 0;
-  esp_err_t r = spi_bridge_send_command(
-      SPI_ID_SYSTEM_PROTO_VERSION, NULL, 0, &hdr, (uint8_t *)&c5_ver, sizeof(c5_ver), C5_PROBE_TIMEOUT_MS);
+  esp_err_t r = spi_bridge_send_command(SPI_ID_SYSTEM_PROTO_VERSION,
+                                        NULL,
+                                        0,
+                                        &hdr,
+                                        (uint8_t *)&c5_ver,
+                                        sizeof(c5_ver),
+                                        C5_PROBE_TIMEOUT_MS);
   if (r != ESP_OK) {
     // An older C5 predates this op and answers UNSUPPORTED - itself a mismatch.
-    ESP_LOGE(TAG, "C5 SPI protocol version unavailable (P4=v%u) - headers out of sync, reflash both",
+    ESP_LOGE(TAG,
+             "C5 SPI protocol version unavailable (P4=v%u) - headers out of sync, reflash both",
              (unsigned)SPI_PROTOCOL_VERSION);
     led_signal_error();
     return;
   }
   if (c5_ver != SPI_PROTOCOL_VERSION) {
-    ESP_LOGE(TAG, "SPI protocol MISMATCH: P4=v%u C5=v%u - spi_protocol.h copies drifted, reflash both",
-             (unsigned)SPI_PROTOCOL_VERSION, (unsigned)c5_ver);
+    ESP_LOGE(TAG,
+             "SPI protocol MISMATCH: P4=v%u C5=v%u - spi_protocol.h copies drifted, reflash both",
+             (unsigned)SPI_PROTOCOL_VERSION,
+             (unsigned)c5_ver);
     led_signal_error();
     return;
   }
@@ -78,8 +86,8 @@ static void c5_link_monitor(void *arg) {
     // Optimistically allow one probe (nothing else touches the bus while dead).
     spi_bridge_set_alive(true);
     memset(ver, 0, sizeof(ver));
-    esp_err_t r =
-        spi_bridge_send_command(SPI_ID_SYSTEM_VERSION, NULL, 0, &hdr, ver, sizeof(ver), C5_PROBE_TIMEOUT_MS);
+    esp_err_t r = spi_bridge_send_command(
+        SPI_ID_SYSTEM_VERSION, NULL, 0, &hdr, ver, sizeof(ver), C5_PROBE_TIMEOUT_MS);
     if (r == ESP_OK) {
       ESP_LOGI(TAG, "C5 link established (detected after boot), version: %s", ver);
       led_signal_info(); // C5 back: clear the degraded (warning) indicator
@@ -106,7 +114,8 @@ esp_err_t bridge_manager_init(void) {
   // C5 boot, or a C5 reboot after an OTA). Started once here.
   // 6 KB: the probe calls spi_bridge_send_command (which puts two SPI_FRAME_SIZE
   // buffers on the stack) and logs via vfprintf on timeout - 3 KB overflowed.
-  xTaskCreatePinnedToCore(c5_link_monitor, "c5_link_mon", 6144, NULL, SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_RADIO);
+  xTaskCreatePinnedToCore(
+      c5_link_monitor, "c5_link_mon", 6144, NULL, SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_RADIO);
 
   spi_header_t resp_header;
   uint8_t resp_ver[VERSION_BUF_SIZE];

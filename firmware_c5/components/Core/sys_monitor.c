@@ -34,18 +34,18 @@ static const char *TAG = "SYS_MONITOR";
 #define MONITOR_STACK_SIZE       4096
 #define MONITOR_PRIORITY         SYS_PRIO_MONITOR
 #define MONITOR_CORE             SYS_CORE_MAIN
-#define CRITICAL_STACK_THRESHOLD 256   // free stack (bytes); below this a task is at risk
-#define STACK_ESCALATE_CYCLES    5     // consecutive critical cycles before a controlled restart
-#define STACK_WATCH_MAX          8     // distinct critical tasks tracked for persistence
-#define REBOOT_GRACE_MS          1500  // let the alert log flush before restart
+#define CRITICAL_STACK_THRESHOLD 256  // free stack (bytes); below this a task is at risk
+#define STACK_ESCALATE_CYCLES    5    // consecutive critical cycles before a controlled restart
+#define STACK_WATCH_MAX          8    // distinct critical tasks tracked for persistence
+#define REBOOT_GRACE_MS          1500 // let the alert log flush before restart
 #define ALERT_MSG_SIZE           128
 
 // Internal-RAM heap policy (the tight pool; wifi/bt buffers + task stacks live
 // here). The largest contiguous block is tracked alongside total free because
 // fragmentation can fail an allocation before the total runs out.
-#define HEAP_WARN_FREE_B    24576  // total internal free below this -> warn once
-#define HEAP_WARN_LARGEST_B 12288  // largest contiguous block below this -> warn once
-#define HEAP_CRIT_FREE_B    8192   // sustained below this -> controlled restart
+#define HEAP_WARN_FREE_B    24576 // total internal free below this -> warn once
+#define HEAP_WARN_LARGEST_B 12288 // largest contiguous block below this -> warn once
+#define HEAP_CRIT_FREE_B    8192  // sustained below this -> controlled restart
 #define HEAP_CRIT_CYCLES    3
 
 typedef struct {
@@ -64,9 +64,9 @@ typedef struct {
 // The C5 is headless, so "report" means logging: safeguard_alert() just logs.
 typedef struct {
   char name[configMAX_TASK_NAME_LEN];
-  uint32_t streak;  // consecutive monitor cycles this task has been critical
-  bool alerted;     // alert already emitted for the current streak
-  bool seen;        // matched in the cycle currently being processed
+  uint32_t streak; // consecutive monitor cycles this task has been critical
+  bool alerted;    // alert already emitted for the current streak
+  bool seen;       // matched in the cycle currently being processed
 } stack_watch_t;
 
 static stack_watch_t s_watch[STACK_WATCH_MAX];
@@ -122,7 +122,7 @@ static void check_task_stacks(const TaskStatus_t *tasks, uint32_t count) {
     stack_watch_t *w = watch_find(name);
     if (w == NULL) {
       if (s_watch_count >= STACK_WATCH_MAX) {
-        continue;  // table full; the condition is still logged above
+        continue; // table full; the condition is still logged above
       }
       w = &s_watch[s_watch_count++];
       strncpy(w->name, name, sizeof(w->name) - 1);
@@ -138,13 +138,16 @@ static void check_task_stacks(const TaskStatus_t *tasks, uint32_t count) {
     if (!w->alerted) {
       w->alerted = true;
       char msg_buf[ALERT_MSG_SIZE];
-      snprintf(
-          msg_buf, sizeof(msg_buf), "Low stack in '%s' (%lu B free)", name, (unsigned long)watermark);
+      snprintf(msg_buf,
+               sizeof(msg_buf),
+               "Low stack in '%s' (%lu B free)",
+               name,
+               (unsigned long)watermark);
       safeguard_alert("LOW STACK", msg_buf);
     }
 
     if (w->streak >= STACK_ESCALATE_CYCLES) {
-      escalate_stack_restart(name, watermark);  // does not return
+      escalate_stack_restart(name, watermark); // does not return
     }
   }
 
@@ -188,8 +191,10 @@ static void check_heap(void) {
 
   if (free_int < HEAP_CRIT_FREE_B) {
     if (++crit_streak >= HEAP_CRIT_CYCLES) {
-      ESP_LOGE(TAG, "Heap critically low (%lu B) for %d cycles; controlled restart",
-               (unsigned long)free_int, HEAP_CRIT_CYCLES);
+      ESP_LOGE(TAG,
+               "Heap critically low (%lu B) for %d cycles; controlled restart",
+               (unsigned long)free_int,
+               HEAP_CRIT_CYCLES);
       controlled_restart("SYSTEM RECOVERY", "Out of memory; restarting to recover");
     }
   } else {

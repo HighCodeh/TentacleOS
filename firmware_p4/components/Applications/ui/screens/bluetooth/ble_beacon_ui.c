@@ -24,8 +24,8 @@
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define SPAM_TICK_MS          120
-#define BEACON_CYCLE_MS       400
+#define SPAM_TICK_MS    120
+#define BEACON_CYCLE_MS 400
 
 #define BODY_W 240
 #define BODY_H 256

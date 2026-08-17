@@ -38,10 +38,10 @@
 
 static const char *TAG = "HOST_LINK_STREAM";
 
-#define STREAM_APP_TIMEOUT_MS  6000 // tear down if no app heartbeat within this
+#define STREAM_APP_TIMEOUT_MS   6000 // tear down if no app heartbeat within this
 #define STREAM_WATCHDOG_TICK_MS 1000
-#define STREAM_WD_TASK_STK     3072
-#define STREAM_WD_TASK_PRIO SYS_PRIO_SERVICE_LO
+#define STREAM_WD_TASK_STK      3072
+#define STREAM_WD_TASK_PRIO     SYS_PRIO_SERVICE_LO
 
 // Ops the proxy owns (start via spi_session and push records to the app).
 static const uint16_t SESSION_OPS[] = {SPI_ID_WIFI_APP_SNIFFER};
@@ -92,8 +92,12 @@ void host_stream_teardown(void) {
   xSemaphoreGive(s_lock);
 }
 
-uint8_t host_stream_start(uint16_t cmd, const uint8_t *payload, uint16_t plen, uint8_t *out_data,
-                          uint16_t out_cap, uint16_t *out_len) {
+uint8_t host_stream_start(uint16_t cmd,
+                          const uint8_t *payload,
+                          uint16_t plen,
+                          uint8_t *out_data,
+                          uint16_t out_cap,
+                          uint16_t *out_len) {
   *out_len = 0;
   if (out_cap < sizeof(uint32_t)) {
     return SPI_STATUS_ERROR;
@@ -117,8 +121,13 @@ uint8_t host_stream_start(uint16_t cmd, const uint8_t *payload, uint16_t plen, u
   xSemaphoreGive(s_lock);
 
   if (s_watchdog == NULL) {
-    xTaskCreatePinnedToCore(watchdog_task, "hl_stream_wd", STREAM_WD_TASK_STK, NULL,
-                            STREAM_WD_TASK_PRIO, &s_watchdog, SYS_CORE_RADIO);
+    xTaskCreatePinnedToCore(watchdog_task,
+                            "hl_stream_wd",
+                            STREAM_WD_TASK_STK,
+                            NULL,
+                            STREAM_WD_TASK_PRIO,
+                            &s_watchdog,
+                            SYS_CORE_RADIO);
   }
 
   memcpy(out_data, &sid, sizeof(sid));
@@ -127,8 +136,12 @@ uint8_t host_stream_start(uint16_t cmd, const uint8_t *payload, uint16_t plen, u
   return SPI_STATUS_OK;
 }
 
-uint8_t host_stream_session_ctrl(uint16_t cmd, const uint8_t *payload, uint16_t plen,
-                                 uint8_t *out_data, uint16_t out_cap, uint16_t *out_len) {
+uint8_t host_stream_session_ctrl(uint16_t cmd,
+                                 const uint8_t *payload,
+                                 uint16_t plen,
+                                 uint8_t *out_data,
+                                 uint16_t out_cap,
+                                 uint16_t *out_len) {
   (void)payload;
   (void)plen;
   *out_len = 0;

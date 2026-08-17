@@ -41,7 +41,7 @@ static const char *TAG = "MC_APP";
 #define MC_BRIDGE_NAME_PREFIX NULL
 
 #define MC_POLL_TASK_STACK 12288
-#define MC_POLL_TASK_PRIO SYS_PRIO_BACKGROUND
+#define MC_POLL_TASK_PRIO  SYS_PRIO_BACKGROUND
 #define MC_POLL_PERIOD_MS  50
 
 static void poll_task(void *pv);
@@ -144,8 +144,13 @@ esp_err_t meshcore_app_start(void) {
     return ret;
   }
 
-  if (xTaskCreatePinnedToCore(poll_task, "mc_poll", MC_POLL_TASK_STACK, NULL, MC_POLL_TASK_PRIO, NULL, SYS_CORE_RADIO) !=
-      pdPASS) {
+  if (xTaskCreatePinnedToCore(poll_task,
+                              "mc_poll",
+                              MC_POLL_TASK_STACK,
+                              NULL,
+                              MC_POLL_TASK_PRIO,
+                              NULL,
+                              SYS_CORE_RADIO) != pdPASS) {
     ESP_LOGE(TAG, "Failed to spawn poll task");
     return ESP_ERR_NO_MEM;
   }

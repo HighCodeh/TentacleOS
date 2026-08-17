@@ -163,8 +163,13 @@ static void start_capture(void) {
   s_poll_run = true;
   if (!s_worker_busy) {
     s_worker_busy = true;
-    if (xTaskCreatePinnedToCore(packets_worker, "pkts_worker", TASK_STACK_SIZE, NULL, TASK_PRIORITY,
-                                NULL, SYS_CORE_RADIO) != pdPASS) {
+    if (xTaskCreatePinnedToCore(packets_worker,
+                                "pkts_worker",
+                                TASK_STACK_SIZE,
+                                NULL,
+                                TASK_PRIORITY,
+                                NULL,
+                                SYS_CORE_RADIO) != pdPASS) {
       s_worker_busy = false;
       s_poll_run = false;
       ESP_LOGW(TAG, "failed to spawn packet capture worker");

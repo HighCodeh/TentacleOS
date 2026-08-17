@@ -57,7 +57,7 @@ extern const uint8_t c5_pt_end[] asm("_binary_partition_table_bin_end");
 extern const uint8_t c5_otad_start[] asm("_binary_ota_data_initial_bin_start");
 extern const uint8_t c5_otad_end[] asm("_binary_ota_data_initial_bin_end");
 
-#define C5_ROM_UART UART_NUM_1
+#define C5_ROM_UART  UART_NUM_1
 // The C5 on the V2 board has a 48 MHz crystal, so its ROM bootloader runs at an
 // effective baud of 115200 * 48/40 = 138240. 115200 produces garbled framing
 // ("Invalid head of packet"); 138240 connects cleanly. (The OTA path stays at
@@ -85,8 +85,11 @@ static esp_loader_error_t rom_uart_only_init(esp_loader_port_t *port) {
   };
   if (uart_param_config((uart_port_t)p->uart_port, &cfg) != ESP_OK)
     return ESP_LOADER_ERROR_FAIL;
-  if (uart_set_pin((uart_port_t)p->uart_port, (int)p->uart_tx_pin, (int)p->uart_rx_pin,
-                   UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE) != ESP_OK)
+  if (uart_set_pin((uart_port_t)p->uart_port,
+                   (int)p->uart_tx_pin,
+                   (int)p->uart_rx_pin,
+                   UART_PIN_NO_CHANGE,
+                   UART_PIN_NO_CHANGE) != ESP_OK)
     return ESP_LOADER_ERROR_FAIL;
   uint32_t rx = p->rx_buffer_size ? p->rx_buffer_size : 2048;
   if (uart_driver_install((uart_port_t)p->uart_port, rx, 0, 0, NULL, 0) != ESP_OK)
@@ -95,7 +98,9 @@ static esp_loader_error_t rom_uart_only_init(esp_loader_port_t *port) {
   return ESP_LOADER_SUCCESS;
 }
 
-static void rom_noop_port(esp_loader_port_t *port) { (void)port; }
+static void rom_noop_port(esp_loader_port_t *port) {
+  (void)port;
+}
 
 // Initialized at runtime from esp32_uart_ops, then three callbacks overridden.
 static esp_loader_port_ops_t s_rom_ops;
@@ -121,7 +126,10 @@ static esp_err_t flash_one_region(esp_loader_t *loader, const c5_region_t *r) {
       .block_size = C5_ROM_BLOCK,
       .skip_verify = false,
   };
-  ESP_LOGI(TAG, "  '%s' @ 0x%05lX: %lu bytes", r->name, (unsigned long)r->offset,
+  ESP_LOGI(TAG,
+           "  '%s' @ 0x%05lX: %lu bytes",
+           r->name,
+           (unsigned long)r->offset,
            (unsigned long)r->size);
 
   esp_loader_error_t e = esp_loader_flash_start(loader, &cfg);
@@ -139,19 +147,28 @@ static esp_err_t flash_one_region(esp_loader_t *loader, const c5_region_t *r) {
     }
     e = esp_loader_flash_write(loader, &cfg, block, n);
     if (e != ESP_LOADER_SUCCESS) {
-      ESP_LOGE(TAG, "  flash_write('%s') @ %lu failed: loader err %d", r->name,
-               (unsigned long)off, (int)e);
+      ESP_LOGE(TAG,
+               "  flash_write('%s') @ %lu failed: loader err %d",
+               r->name,
+               (unsigned long)off,
+               (int)e);
       return ESP_FAIL;
     }
     off += n;
     if ((off & 0x3FFFF) < C5_ROM_BLOCK || off == padded)
-      ESP_LOGI(TAG, "    %s %lu/%lu (%lu%%)", r->name, (unsigned long)off, (unsigned long)padded,
+      ESP_LOGI(TAG,
+               "    %s %lu/%lu (%lu%%)",
+               r->name,
+               (unsigned long)off,
+               (unsigned long)padded,
                (unsigned long)((uint64_t)off * 100 / padded));
   }
 
   e = esp_loader_flash_finish(loader, &cfg); // sends flash-end + verifies MD5
   if (e != ESP_LOADER_SUCCESS) {
-    ESP_LOGE(TAG, "  flash_finish('%s') failed (MD5 mismatch / timeout): loader err %d", r->name,
+    ESP_LOGE(TAG,
+             "  flash_finish('%s') failed (MD5 mismatch / timeout): loader err %d",
+             r->name,
              (int)e);
     return ESP_FAIL;
   }
@@ -194,8 +211,12 @@ esp_err_t c5_flasher_rom_flash(void) {
     return ESP_FAIL;
   }
 
-  ESP_LOGI(TAG, "Connecting to C5 ROM bootloader on UART%d @ %d (TX=GPIO%d/RX=GPIO%d)...",
-           C5_ROM_UART, C5_ROM_BAUD, GPIO_C5_UART_TX_PIN, GPIO_C5_UART_RX_PIN);
+  ESP_LOGI(TAG,
+           "Connecting to C5 ROM bootloader on UART%d @ %d (TX=GPIO%d/RX=GPIO%d)...",
+           C5_ROM_UART,
+           C5_ROM_BAUD,
+           GPIO_C5_UART_TX_PIN,
+           GPIO_C5_UART_RX_PIN);
 
   esp_loader_connect_args_t cargs = ESP_LOADER_CONNECT_DEFAULT();
   e = esp_loader_connect(&loader, &cargs);
@@ -206,8 +227,10 @@ esp_err_t c5_flasher_rom_flash(void) {
     esp_loader_deinit(&loader);
     return ESP_FAIL;
   }
-  ESP_LOGI(TAG, "Connected. target_chip id=%d (ESP32C5 expected = %d)",
-           (int)esp_loader_get_target(&loader), (int)ESP32C5_CHIP);
+  ESP_LOGI(TAG,
+           "Connected. target_chip id=%d (ESP32C5 expected = %d)",
+           (int)esp_loader_get_target(&loader),
+           (int)ESP32C5_CHIP);
 
   const c5_region_t regions[] = {
       {0x2000, c5_bl_start, (uint32_t)(c5_bl_end - c5_bl_start), "bootloader"},
