@@ -1,3 +1,200 @@
+## [1.3.1](https://github.com/HighCodeh/TentacleOS/compare/v1.3.0...v1.3.1) (2026-06-04)
+
+### Bug Fixes
+
+* **sx1262:** make HAL re-creatable and tolerate shared SPI3 bus (fccb5271790931a47055a7e62e1cc9f02f3b7b67) - [@yajatnarayan](https://github.com/yajatnarayan)
+
+## [1.3.0](https://github.com/HighCodeh/TentacleOS/compare/v1.2.4...v1.3.0) (2026-05-29)
+
+### Features
+
+* **build:** added sdkconfig.defaults and remove de sdkconfig & sdkconfig.old (502872ee5c8b774c6d7052e72fb6ef7c26940d03) - [@anarchyysm](https://github.com/anarchyysm)
+* **buttons:** log button presses with name and GPIO (2a95e367ca1bfefcef9079587a3834ca8e642e78) - [@anarchyysm](https://github.com/anarchyysm)
+* **c5_flasher:** SYNC handshake, 921600 baud, and ACK flow control (8eb239a61a3746f7d7f8e5f816c737a87787439f) - [@anarchyysm](https://github.com/anarchyysm)
+* **license:** New license for tentacleOS (e0100702b1731f7b2a068013ee0da8f76fc238b8) - [@anarchyysm](https://github.com/anarchyysm)
+* **lora/meshcore:** add BLE companion + public API (934f0460c7f70d44b379624e3ea1cf2b22a1611e) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora/meshcore:** add contact db + flood router (eff596be627eb350d28cf8971ab4430e3b295918) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora/meshcore:** add crypto + NVS foundation (3bc5bf7373de56c3c2b26b73533eb1a29b68b943) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora/meshcore:** split radio (P4) and phone transport (C5) over SPI (c221420c40f47663581d81629d779d2e36d0f039) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora/meshtastic:** add E2E PKI with X25519 + AES-CCM (7c32ea3ed055ba259b9bf352593247b65e7dc01d) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora/meshtastic:** add ReliableRouter with ACK/NAK and CSMA jitter (491dda692bedba04cf069077241e5f7b7c9d7323) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora/meshtastic:** add roles, NodeDB and channel settings (1197ff5ee8e2b20a5a48677dc128f6009acd9a9a) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora/meshtastic:** bootstrap stack and enable companion path (cd0c888e817b2affaf39e71357546cde2a0031cb) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora/meshtastic:** expand admin module (SecurityConfig, GET_CONFIG, owner) (a54c7a47dd209ea59b88a406d8ea6d9b9276b44f) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora/meshtastic:** implement 12-state PhoneAPI handshake with QueueStatus (43f6ca580b4ab3c9a595fa78c7c8474a78522d95) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora/meshtastic:** MQTT bridge skeleton (disabled, AP-only safe) (9bece7407f747d872adf82b949d0087808a9ff91) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora/meshtastic:** NeighborInfo module (9218ae318233db7595dcb02e78d3f363f4e10774) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora/meshtastic:** reliable peer discovery (boot burst, fast phase, retry) (7acf26e6f35e25e32a0f05666cff95fc7adafc0e) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora/meshtastic:** split radio (P4) and phone transports (C5) over SPI (f0e55747efdddaa8d9131caaea7fba60c387d7e6) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora/meshtastic:** Unishox2 compression for text port=7 (5652030de8350d9b3c2775f84995a11d2b40e1a6) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora/rnode:** add command dispatcher and Reticulum command handlers (bb8451d1fbe75c569407bbe65fcc0befef0b022d) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora/rnode:** add config persistence and airtime tracker (827b7b8e7af35b924c97b1e9b4276faa8d295894) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora/rnode:** add KISS framing and serial transport (418ca46e6b4f8088d6460bfbf9dddebef017b3d3) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora/rnode:** wire core lifecycle and CSMA listen-before-talk (5edfef2ce03bfbe1ebee47738d0bfe859b8e3482) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora:** add BLE NimBLE and WiFi AP/TCP transports (ecf00b1e0e74a6422329c29fece8e5f3a7e94433) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora:** add core - wire format, AES-CTR, TX queue, CSMA/CA (d693518551ac19e8224dc8e59c373f7ec96b584d) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora:** add core modules, text, routing, nodeinfo, position (8df5a8a77a6c9e3ece7ce7ed41e4f18741ad0724) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora:** add module dispatcher and Data protobuf parser (6731efa2ad244a091b18dd45af06c2fe00e43fe3) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora:** add multi-PSK channels and PacketHistory dedup (7f653ce6aa17351c4d6c21a27acd7c1c002987fc) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora:** add PhoneAPI FSM for config handshake (f48d26ab6a33da1394ad60e20dcd56fb9f8af2ff) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora:** add region tables, modem presets and device roles (09651ae21902e4af6dc722321d7df45f0734b602) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora:** add telemetry, traceroute and admin modules (5ec92bbd41968a3ff590cad9cc99e37190685c1e) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora:** scaffold component with NVS persistence (f0a472efd9bccb3c10c5669db99a57c7f2691cc4) - [@lthiagovs](https://github.com/lthiagovs)
+* **rfid:** add AWID 26-bit protocol decoder (a1e1cb56fa56530573740d90339676c8c4d3ea3f) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** add EM4100 protocol decoder (ce9a6184a02064c43d3357aff373d46ac702240e) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** add FDX-B ISO 11784 animal tag protocol decoder (548472bff088b20657f3e2f6bd98fff4a9323e65) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** add Gallagher enterprise protocol decoder (21a9993bd59bf4ee2e5b002868ae8c7b555b372f) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** add HID Corporate 1000 35-bit protocol decoder (a7beed34f0731d9a8d50c659c61d4b112f830c73) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** add HID Prox H10301 26-bit protocol decoder (ec8176f6d1f4dde6d24fc873bb5382e7eb172781) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** add Indala 26-bit protocol decoder (5e311012baa593c5ff0b2cc0af552aa509027e3b) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** add Jablotron 26-bit protocol decoder (410a9586a9d0ef961b3b6a2f258b4b946fcd1879) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** add Kantech ioProx XSF protocol decoder (605e8fb9bc1f997c6a077f6ebed372c637c39ed4) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** add Keri 26-bit protocol decoder (7ce19aa59c951f8f55df0d29953e44890c982712) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** add Nexwatch/Honeywell QuadraKey protocol decoder (e9a90b4544c0472b3918d03b92e3d41fc56e1096) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** add Noralsy protocol decoder (d5ad6c68f77235291dbc680138962591b2783274) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** add PAC/Stanley 26-bit protocol decoder (37a0cf92c8640dfa005526e09d225d186c21b581) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** add Paradox proprietary protocol decoder (3e17b020245764e67b790cc438427c664de616c8) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** add protocol decoder interface and registry (19bc2998bc53b3a73dab7344af3a5ff8c1d17b28) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** add Pyramid/Farpointe 26-bit protocol decoder (546fcbfcbbd1cf6c1e47b9421c166d2e176bd4dd) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** add RFID card storage with NVS backend (d756263a2db9d795c3f38192ffcea8e080d457f7) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** add RFID manager bridging driver to protocol layer (9e066e97efc3757af32f9ffb281f642087c148db) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** add Securakey protocol decoder (65500e01a324bbf6768fc71491dd9c823ff37992) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** add Viking 26-bit protocol decoder (e96631442451c5da13e628f901d6a21150abf59f) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** add YS_RFID2 HAL UART abstraction layer (54dbef7ea7c8de567042da6236370cf58af90ff8) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** add YS-RFID2 core driver with reader task (47d0f37ea7e295899b96882330da2c10da89ad9a) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** add YS-RFID2 types and public API header (b1d18fddc28002d3fc051b1c181bee28635ca9f8) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** add YS-RFID2 UART stream parser (934c9ad717cad39ae454b66aac93331bd1a1e8e2) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** integrate YS-RFID2 driver into build and boot sequence (eeed33ee16e532648af383921fe385c42ed639ce) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** register all 17 protocols in registry (be4adc89d289ba5fcba9a2c48be94cb9a89b0eb2) - [@anarchyysm](https://github.com/anarchyysm)
+* **rfid:** register RFID application in build system (54e46c506535dedcb22c9899d38c597ae9f02ad8) - [@anarchyysm](https://github.com/anarchyysm)
+* **spi_bridge:** session lifecycle for long-running ops (b161728d70ede025836c59cbebcf55443f501f6f) - [@anarchyysm](https://github.com/anarchyysm)
+* **spi_bridge:** session lifecycle, alive flag, and centralized timeouts (95c163889defd706f2ba50e3d516b051c2bf72ba) - [@anarchyysm](https://github.com/anarchyysm)
+* **sx1262:** add SX1262 LoRa driver (b7b6d7874df988d9760d203f11846231772d108b) - [@lthiagovs](https://github.com/lthiagovs)
+
+### Bug Fixes
+
+* **about:** show ESP32-P4 on P4 firmware build (c37785ad03c21946f01b9b24dc608b8b7bbb5c41) - [@Jestriker](https://github.com/Jestriker)
+* **build:** added meshcore gatt into C5 Cmake (a8431beb41f0eb1cc05dff987b4c15cfc93df41f) - [@anarchyysm](https://github.com/anarchyysm)
+* **build:** hardcode IDF_TARGET in CMakeLists to prevent wrong toolchain selection (1f5cbffdd6cde68cee2a014ab0b06380b21b480b) - [@anarchyysm](https://github.com/anarchyysm)
+* **ci:** specify IDF target per firmware and update container to v5.5.3 (ef5bbcb25415b0a107f9b7e238d7a790ee8c7d39) - [@anarchyysm](https://github.com/anarchyysm)
+* **led_control:** no-op blink when strip not initialized (86a02be6c5ce978f4b91b4fd45b750e777767fb7) - [@anarchyysm](https://github.com/anarchyysm)
+* **lora/meshcore:** companion protocol interop fixes (e1142790b06e851c2ca0f7903787923df6e0f90e) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora/meshcore:** companion protocol interop fixes (a954704203be5bfeac125cfa0ed1ecf2ce6fa428) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora/meshtastic:** correct protocol encoding and admin variants (7b6e56cec73515af80921a5da35d67f54434cb29) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora/meshtastic:** correct Routing ACK encoding (error_reason field 3) (151a62b4929b71be97a17aa4c6e5cc0bfa25f167) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora/meshtastic:** emit NodeInfo update to phone + parse want_response from Data (22c8a079dad3440b641427fc006b4bc30ab3027c) - [@lthiagovs](https://github.com/lthiagovs)
+* **lora/meshtastic:** silence NimBLE GATT notify log spam (a144327d7da48f2374a4358fd91fe71518653609) - [@lthiagovs](https://github.com/lthiagovs)
+* **sdkconfig:** enable FreeRTOS trace facility for P4 sys_monitor (b0a8c0833c320d228ff7a6a7c297713f086e3ff2) - [@anarchyysm](https://github.com/anarchyysm)
+* **sdkconfig:** enable LVGL Montserrat fonts 12 and 14 for P4 (5670e2f90412c3f26a28d57d33a701a2278d358c) - [@anarchyysm](https://github.com/anarchyysm)
+* **sys_monitor:** pin task to core 0 (C5 is unicore) (9a3eee8a7b9934ceedfb65ecba16257f744d58e1) - [@anarchyysm](https://github.com/anarchyysm)
+* **tools:** correct format.sh path in error message (6bccc373b42667de18df70b75e2910eb9c73961d) - [@Jestriker](https://github.com/Jestriker)
+* **tools:** use arrays instead of string concatenation in format.sh (e77db17d278457a4c5758fddcce33b6478118ba1) - [@anarchyysm](https://github.com/anarchyysm)
+
+## [1.2.4](https://github.com/HighCodeh/TentacleOS/compare/v1.2.3...v1.2.4) (2026-04-11)
+
+### Bug Fixes
+
+* **subghz:** proposital typo to test github releases (1bd6d2f80f29bbb83a25f4f0ac2df0c5ade94ad1) - [@anarchyysm](https://github.com/anarchyysm)
+
+## [1.2.3](https://github.com/HighCodeh/TentacleOS/compare/v1.2.2...v1.2.3) (2026-04-11)
+
+## [1.2.2](https://github.com/HighCodeh/TentacleOS/compare/v1.2.1...v1.2.2) (2026-04-11)
+
+### Bug Fixes
+
+* **ci:** trying do puy author name to releases (68100103ee7882d2a6b91ba1c22420f5f6d70174) - @
+
+## [1.2.1](https://github.com/HighCodeh/TentacleOS/compare/v1.2.0...v1.2.1) (2026-04-11)
+
+### Bug Fixes
+
+* **ci:** author names to release changelogs (06756513618de9f33abc1fc6453cf2b78da9a578) —
+
+## [1.2.0](https://github.com/HighCodeh/TentacleOS/compare/v1.1.0...v1.2.0) (2026-04-11)
+
+### Features
+
+* **assets:** add infrared menu icons (e07a3e618c9061a98c1252932842a72ea16bc727) — @
+* **assets:** add inter font (9860659ae175183b16b3fff0f3dd72e3061c7d56) — @
+* **assets:** add new frames for coverflow menu (5064762356d7528d9a52b246d2d8814ad3d3d2f6) — @
+* **assets:** add new menu icons for redesigned UI (8786bc3aea9201d03030ac75280092b065c809f3) — @
+* **assets:** add octobit profile portrait (168ba34dd47d9f851c2a0dc8841420eee333af7f) — @
+* **build:** register new UI components and screen include paths (a9625a015f356c226ba097631410e7a73f3aa08b) — @
+* **core:** plug first boot and config loading into boot sequence (dcde322dc1b60c88a76dff8dd9cd95421abbd234) — @
+* **evil-twin:** add template upload P4->C5 via SPI and password save to SD (49e474f0adf6f34c96712f4bef9c3078d1f6e7f5) — @
+* **ir:** new multi-protocol ir library (02d835aed8363a9ce5afa2ece963881868d060ea) — @
+* **kernel:** integrate tos_theme and tos_log into boot sequence (8b9825465fa231a5cf505efcf2e460eceb414932) — @
+* **log:** add tos_log system with SD persistence and 2MB rotation (6f761670c840bc19e87fa311c9243f05b53cd6e4) — @
+* **sdkconfig:** enable FAT32 LFN, increase LVGL heap to 128KB, set PSRAM (67699985f3ebfe998268072c5b51da1782199d78) — @
+* **storage:** add centralized flash path headers for P4 and C5 (ec35d8bff2184bbb0c6515ea1320626efc76b99b) — @
+* **storage:** add centralized loot filename generator with date prefix (c9562363071cc13c1115a90d71864a90ab0398b6) — @
+* **storage:** add first boot setup with folder structure and default configs (8d8c637dc6624a83ca795f9a67b6121789979789) — @
+* **storage:** add modular config system with SD/flash fallback (a500554e89bfdfeb6f675fa605288b56c22283c5) — @
+* **storage:** add stream I/O API for high-thoughput continuous writes (27d8ad91c82819c8888542315aa2231fbeff3467) — @
+* **storage:** add tos_theme (4364cc900c9c284f65f32ded1c9ef31aadbf8025) — @
+* **storage:** add unified path registry tos_storage_paths.h (cc7f062f9590d14a45c6923d7924fee6800b2073) — @
+* **storage:** add unified path registry tos_storage_paths.h (727d554e7c2f91f5f2fe86174fa938653942654d) — @
+* **storage:** cross-filesystem copy, smart theme migration, sd folder structure setup (a0330e7e3f50b51e85fd5d16a5d59265ecb52011) — @
+* **tools:** add automatic 3D frame rotation script (c21cc57efc1c739c80f606fc79d1e281ba394d23) — @
+* **tools:** integrate frame rotation into ps1 script (2d93ac12b5d8c211173b2ff131fabc5e8477c9d6) — @
+* **tools:** integrate frame rotation into sh script (6a885bad06c61ff042daee017f5e0328f9e1a8ec) — @
+* **ui:** add infrared menu to coverflow (21735cc6e28e5eeb1789a0ecacc3fb679f5feb3e) — @
+* **ui:** add infrared screens to ui_manager (d86d16648f16478d8d658f9d9d771d6c9aeb23b4) — @
+* **ui:** add msgbox_is_open() to check visibility state (3960ac4dd36266251c8ace0a2832f2c6222a309a) — @
+* **ui:** add new ir screens to ui_manager.h (89c084eb09a3e093666d1355f6ad07d13c4d99a9) — @
+* **ui:** add protocol colors, .conf section parser and sd lazyload support (1306c91209f3da891cfbb499cd63e8112cbdb832) — @
+* **ui:** add SCREEN_NFC_MENU and SCREEN_FILES to screen_id_t (040c14cd690a826a4ea28e75c280ee5906f825ce) — @
+* **ui:** add SD lazyload with flash override and unload support (53b3d7de123e9b166ca8608b44ca9db464e9a3bf) — @
+* **ui:** added nfc and files screen and increase ui task stack (fdad7bafac1cd90a0c4a0a38137a27beedc410c1) — @
+* **ui:** added theme colors and input lock to interface settings screen (9f0037ee289445c570cad96bed13a612389f48cd) — @
+* **ui:** files screen (683c43def38683908f9a9c363c0bbbf77debf8a8) — @
+* **ui:** include theme selector screen & input lock function (33381a106952356efbdffb5486f346a18825137b) — @
+* **ui:** include theme selector screen in ui_manager (c5f2e0a31054f15007c91cc568b0cfdad18a386d) — @
+* **ui:** new area chart component (079074eb34c551f42479bf6a1f5226837426b18e) — @
+* **ui:** new chart component (018d8744b7acab267dd9b0e348149e05981b132a) — @
+* **ui:** new dropdown component (c634eec0e7c24d373ef09d83fc5222f4024c8c8d) — @
+* **ui:** new infrared burst screen (6aa4f567e963b989f9bbc29647a3ad5caa03bc1e) — @
+* **ui:** new infrared controller screen (6b311e3fca8d8d1c4b214be044775e2e2bddeb99) — @
+* **ui:** new infrared menu screen (31ea0273ed53c21a997e25d0d5f9755fee194d50) — @
+* **ui:** new infrared receive screen (9d3a7f36e1c84fc011c91e1fe8040ce39f6a419c) — @
+* **ui:** new intensity bar component (da6a7e8fa2d682b4aefc8fe42d61d431bcb3c215) — @
+* **ui:** new nfc menu screen (1e44ea4ee4cc465ba56e3586f9bf9407d5a95608) — @
+* **ui:** new page dots component (817a3facbac8606af35df37eccf992828c2e4199) — @
+* **ui:** new saved infrared signals screen (33a3fbd19e0a58e9e65e22ca02456191f1e1d4ff) — @
+* **ui:** new send infrared screen (70e10828fd1305705c87dfa0f2432638f2dd25ee) — @
+* **ui:** new spinner component (b85ec85699b364643b718eac7ebf2594f8557a29) — @
+* **ui:** new text viewer component (eb717d877fd43f6409be15a2c7ac2b8c074d482d) — @
+* **ui:** new theme selector screen (495bfd5a845216e0213e10d455b7ff84a9f0d4b6) — @
+* **ui:** new toggle button component (8ebf8c3ceb8007816ab58e78f4198ba537241332) — @
+* **ui:** redesign button component (b856851d1eed87873916743cecd81928c833840a) — @
+* **ui:** redesign coverflow (ca4f59161a2b142749e71a5921f278b8536bef61) — @
+* **ui:** redesign header component (953168a46aac2530d1aa590d29b853e4ab5b1fe2) — @
+* **ui:** redesign keyboard component (ac4455e21ce01183e5a88e7527194be6c438cc49) — @
+* **ui:** redesign menu component (7eb58f05645ebca00f93c3cc4d246b9b40e690de) — @
+* **ui:** redesign messagebox component (cad146531974895a219c821a885c0e84bdd4f9ef) — @
+* **ui:** update battery settings screen appearance (29397b41bb11b7909bae8ad15cd8bd34b3363dc7) — @
+* **ui:** update connection settings screen appearance (297f616da1eace48d5774032968f0e361e46d4f6) — @
+* **ui:** update display settings screen appearance (bbb10cb96a86557459784264a9d78fad1592fa1c) — @
+* **ui:** update home screen appearance (db31162864445f2bfc774523123982c495e3d38c) — @
+* **ui:** update interface settings screen appearance (2d7707ae5cad2d78dddacd84ebe5ffb00ad5d154) — @
+* **ui:** update settings screen appearance (a0b7f0b9c80607f7d8f2d839464c9bee648b59a6) — @
+* **ui:** update sound settings screen appearance (7b2713a5ba5df8d795855ece014d9cd29df4c761) — @
+* **ui:** update wifi screen appearance (f4b397251c3667bb7dba13e3bfa2b559fcb8b18e) — @
+
+### Bug Fixes
+
+* **build:** insert storage_api, _vsf and _assets into CMAKE GLOB_RECURSIVE (1c45ee31ae6304ec9b02689b32e28412c159cab0) — @
+* **cc1101:** the GDO0 and GDO2 was inverted, fixed (be0e1a1eeab9744974bfcf44016e24c3269ad67a) — @
+* **p4/nfc:** add missing includes (601cf5c52fd6a9c6ff717548e2691f99c98b01c3) — @
+* **ui:** load saved theme on boot (1991343bec3bb8f0b61806912d970c61ba064e2b) — @
+* **ui:** missing stdio.h include (ee9ffde4e47b9b40d87f273af67cca6b19663abb) — @
+* **ui:** missing stdio.h include in wifi_probe_ui (111df6f1382f0b25745755e02db582fa0dadf490) — @
+* **ui:** prevent scroll animation when switching themes (6b782ac3f56f240cfdb17a7bd4f442a5b8219a7b) — @
+
+### Reverts
+
+* Revert "chore(clang-format): format ALL source files, firmware p4 & c5" (6ac12ea9f41a95e14c9b4a2164f5c2a05c5b2189) — @
+
 # [1.1.0](https://github.com/HighCodeh/TentacleOS/compare/v1.0.1...v1.1.0) (2026-03-19)
 
 
