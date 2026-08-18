@@ -41,6 +41,9 @@ static TaskHandle_t s_stop_caller_handle = NULL;
 #define SX1262_IRQ_TASK_PRIO  SYS_PRIO_REALTIME
 #define SX1262_IRQ_TASK_CORE  SYS_CORE_RADIO
 
+#define SX1262_INIT_MAX_ATTEMPTS 3
+
+static esp_err_t sx1262_hw_bringup(const sx1262_config_t *config);
 static esp_err_t validate_hal(const sx1262_hal_t *hal);
 static esp_err_t validate_config(const sx1262_config_t *config);
 static esp_err_t hw_reset(sx1262_hal_t *hal);
@@ -67,9 +70,42 @@ esp_err_t sx1262_init(const sx1262_config_t *config) {
   }
 
   memcpy(&s_config, config, sizeof(sx1262_config_t));
+
+  ret = ESP_ERR_INVALID_STATE;
+  for (int attempt = 1; attempt <= SX1262_INIT_MAX_ATTEMPTS; attempt++) {
+    ret = sx1262_hw_bringup(config);
+    if (ret == ESP_OK) {
+      break;
+    }
+    ESP_LOGW(TAG,
+             "Init attempt %d/%d failed (%s) — retrying",
+             attempt,
+             SX1262_INIT_MAX_ATTEMPTS,
+             esp_err_to_name(ret));
+  }
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "Init failed after %d attempts", SX1262_INIT_MAX_ATTEMPTS);
+    return ret;
+  }
+
+  sx1262_irq_init(&s_config.hal, &s_config, &s_callbacks);
+
+  sx1262_radio_init(&s_config.hal, &s_config);
+
+  ESP_LOGI(TAG,
+           "Initialized — freq: %lu, sf: %d, bw: 0x%02X, power: %d dBm",
+           (unsigned long)config->frequency_hz,
+           config->sf,
+           config->bw,
+           config->tx_power_dbm);
+
+  return ESP_OK;
+}
+
+static esp_err_t sx1262_hw_bringup(const sx1262_config_t *config) {
   sx1262_hal_t *hal = &s_config.hal;
 
-  ret = hw_reset(hal);
+  esp_err_t ret = hw_reset(hal);
   if (ret != ESP_OK) {
     return ret;
   }
@@ -149,10 +185,6 @@ esp_err_t sx1262_init(const sx1262_config_t *config) {
     return ret;
   }
 
-  sx1262_irq_init(hal, &s_config, &s_callbacks);
-
-  sx1262_radio_init(hal, &s_config);
-
   uint8_t status = 0;
   ret = sx1262_get_status(&status);
   if (ret != ESP_OK) {
@@ -160,18 +192,20 @@ esp_err_t sx1262_init(const sx1262_config_t *config) {
   }
 
   uint8_t chip_mode = (status & SX1262_STATUS_CHIP_MODE_MASK) >> SX1262_STATUS_CHIP_MODE_SHIFT;
+  if (chip_mode != SX1262_CHIP_MODE_STDBY_RC) {
+    ESP_LOGW(TAG,
+             "Bring-up left chip in bad state: status=0x%02X chip_mode=%d (want %d)",
+             status,
+             chip_mode,
+             SX1262_CHIP_MODE_STDBY_RC);
+    return ESP_ERR_INVALID_STATE;
+  }
 
   ESP_LOGI(TAG,
            "Init OK — status: 0x%02X, chip_mode: %d (STDBY_RC=%d)",
            status,
            chip_mode,
            SX1262_CHIP_MODE_STDBY_RC);
-  ESP_LOGI(TAG,
-           "Initialized — freq: %lu, sf: %d, bw: 0x%02X, power: %d dBm",
-           (unsigned long)config->frequency_hz,
-           config->sf,
-           config->bw,
-           config->tx_power_dbm);
 
   return ESP_OK;
 }
