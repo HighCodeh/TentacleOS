@@ -41,7 +41,7 @@
 #define PIN_RXEN GPIO_LORA_RXEN_PIN
 
 #define SPI_HOST_ID      SPI3_HOST
-#define SPI_FREQ_HZ      8000000
+#define SPI_FREQ_HZ      4000000
 #define SPI_MAX_TRANSFER 264
 
 static const char *TAG = "SX1262_HAL_ESP32";

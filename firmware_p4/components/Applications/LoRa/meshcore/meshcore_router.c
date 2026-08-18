@@ -658,6 +658,8 @@ static void on_rx_done(const sx1262_packet_t *pkt, void *ctx) {
   (void)ctx;
   if (pkt == NULL)
     return;
+  ESP_LOGI(TAG, "RX diag: %u bytes rssi=%d snr=%d crc_err=%d hdr_err=%d", pkt->len,
+           pkt->rssi_pkt_dbm, pkt->snr_pkt_db, (int)pkt->has_crc_error, (int)pkt->has_header_error);
   if (pkt->has_crc_error || pkt->has_header_error) {
     ESP_LOGD(TAG, "RX HW error -- skip");
     return;

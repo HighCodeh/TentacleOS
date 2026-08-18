@@ -187,6 +187,8 @@ bool sx1262_irq_has_packet(void) {
 }
 
 static esp_err_t read_rx_packet(sx1262_packet_t *out_pkt, uint16_t irq_flags) {
+  bool errored = (irq_flags & (SX1262_IRQ_CRC_ERR | SX1262_IRQ_HEADER_ERR)) != 0;
+
   uint8_t rx_buf_status[2] = {0};
   esp_err_t ret = sx1262_cmd_read(s_hal, SX1262_OP_GET_RX_BUFFER_STATUS, rx_buf_status, 2);
   if (ret != ESP_OK) {
@@ -204,7 +206,7 @@ static esp_err_t read_rx_packet(sx1262_packet_t *out_pkt, uint16_t irq_flags) {
     return ret;
   }
 
-  if (payload_len > 0) {
+  if (payload_len > 0 && !errored) {
     ret = sx1262_cmd_read_buffer(s_hal, buf_offset, out_pkt->buf, payload_len);
     if (ret != ESP_OK) {
       ESP_LOGE(TAG, "ReadBuffer failed");
@@ -212,7 +214,7 @@ static esp_err_t read_rx_packet(sx1262_packet_t *out_pkt, uint16_t irq_flags) {
     }
   }
 
-  out_pkt->len = payload_len;
+  out_pkt->len = errored ? 0 : payload_len;
   out_pkt->rssi_pkt_dbm = -(int16_t)(pkt_status[0] / 2);
   out_pkt->snr_pkt_db = (int8_t)pkt_status[1] / 4;
   out_pkt->signal_rssi_dbm = -(int16_t)(pkt_status[2] / 2);
