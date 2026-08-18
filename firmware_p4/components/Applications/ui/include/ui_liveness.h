@@ -37,6 +37,17 @@ extern "C" {
  */
 uint32_t ui_render_beat(void);
 
+/**
+ * @brief Advance the render heartbeat from a full-screen takeover renderer.
+ *
+ * A full-screen app that takes the panel and drives it directly (e.g. the Game
+ * Boy emulator, which holds the LVGL lock and blits itself) prevents the internal
+ * lv_timer from bumping the beat. Such an app must call this once per rendered
+ * frame so the system monitor sees the display is still alive. If the app truly
+ * hangs, the beat stalls and the monitor performs its normal controlled restart.
+ */
+void ui_render_beat_kick(void);
+
 #ifdef __cplusplus
 }
 #endif

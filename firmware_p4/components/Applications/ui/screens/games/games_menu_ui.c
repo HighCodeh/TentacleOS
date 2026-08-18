@@ -40,11 +40,9 @@ typedef struct {
 } game_t;
 
 static const game_t GAMES[] = {
-    {"Octo Pet", "/assets/icons/game_pet.bin", 0x834EC6, false, SCREEN_GAME_OCTOPET},
-    {"Octo Flap", "/assets/icons/game_flap.bin", 0x00E5D0, true, SCREEN_GAME_FLAPPY},
     {"Snake", "/assets/icons/game_snake.bin", 0x00E676, true, SCREEN_GAME_SNAKE},
     {"Breakout", "/assets/icons/game_brk.bin", 0xFFB020, true, SCREEN_GAME_BREAKOUT},
-    {"Motion / Level", "/assets/icons/sensors.bin", 0x22D3EE, true, SCREEN_MOTION},
+    {"Game Boy", "/assets/icons/game_gb.bin", 0x9BBC0F, true, SCREEN_GAME_GB},
     {"Coming Soon", "/assets/icons/timer.bin", 0x5E12A0, false, TARGET_STUB},
 };
 #define GAME_COUNT ((int)(sizeof(GAMES) / sizeof(GAMES[0])))
