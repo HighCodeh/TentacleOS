@@ -225,6 +225,14 @@ static void on_anim_done(lv_anim_t *a) {
   s_is_animating = false;
 }
 
+// lv_obj_set_style_opa takes a third (selector) argument, so it cannot be used
+// directly as a 2-arg animation exec callback: the selector would be an
+// uninitialized register. Under -O2 that garbage selector made each frame add a
+// fresh local-style entry, growing the style list until taskLVGL stalled (WDT).
+static void anim_set_opa_cb(void *var, int32_t v) {
+  lv_obj_set_style_opa((lv_obj_t *)var, (lv_opa_t)v, 0);
+}
+
 static void load_item_frame(size_t item_idx, int frame) {
   if (s_menu_data[item_idx].icon_frames[frame] != NULL &&
       s_menu_data[item_idx].icon_dscs[frame] == NULL)
@@ -306,7 +314,7 @@ static void place_item(size_t item_idx, bool anim) {
 
     lv_anim_set_var(&a, s_base_imgs[item_idx]);
     lv_anim_set_values(&a, lv_obj_get_style_opa(s_base_imgs[item_idx], 0), to);
-    lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)lv_obj_set_style_opa);
+    lv_anim_set_exec_cb(&a, anim_set_opa_cb);
     lv_anim_start(&a);
 
     lv_anim_set_var(&a, s_icon_imgs[item_idx]);
@@ -373,7 +381,7 @@ static void update_view(bool anim) {
     lv_anim_set_var(&a, s_label);
     lv_anim_set_values(&a, LV_OPA_0, LV_OPA_COVER);
     lv_anim_set_duration(&a, LABEL_FADE_MS);
-    lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)lv_obj_set_style_opa);
+    lv_anim_set_exec_cb(&a, anim_set_opa_cb);
     lv_anim_start(&a);
   }
 
