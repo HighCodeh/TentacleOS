@@ -163,6 +163,18 @@ bool meshcore_phone_bridge_is_connected(void) {
   return is_connected;
 }
 
+bool meshcore_phone_bridge_is_subscribed(void) {
+  bool is_subscribed = false;
+  if (s_status_mutex == NULL) {
+    return false;
+  }
+  if (xSemaphoreTake(s_status_mutex, pdMS_TO_TICKS(BRIDGE_STATUS_TICK_MS)) == pdTRUE) {
+    is_subscribed = (s_cached_status.ble_subscribed != 0);
+    xSemaphoreGive(s_status_mutex);
+  }
+  return is_subscribed;
+}
+
 static void status_task(void *pvParameters) {
   (void)pvParameters;
 

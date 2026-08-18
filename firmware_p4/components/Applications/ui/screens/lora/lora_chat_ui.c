@@ -26,6 +26,7 @@
 #include "assets_manager.h"
 #include "keyboard_ui.h"
 #include "lora_session.h"
+#include "meshcore_phoneapi.h"
 #include "menu_component_ui.h"
 #include "meshtastic_presets.h"
 #include "meshtastic_regions.h"
@@ -777,6 +778,15 @@ static void build_connect(void) {
     lv_obj_set_style_text_color(s_status_label, current_theme.text_main, 0);
     lv_obj_set_style_text_font(s_status_label, &lv_font_montserrat_14, 0);
     lv_obj_align(s_status_label, LV_ALIGN_TOP_MID, 0, 52);
+
+    if (proto_for_sel(s_proto) == LORA_PROTO_MESHCORE) {
+      lv_obj_t *pin_lbl = lv_label_create(s_screen);
+      lv_label_set_text_fmt(pin_lbl, "Pairing PIN  %06lu",
+                            (unsigned long)meshcore_phoneapi_get_pin());
+      lv_obj_set_style_text_color(pin_lbl, accent, 0);
+      lv_obj_set_style_text_font(pin_lbl, &lv_font_montserrat_16, 0);
+      lv_obj_align(pin_lbl, LV_ALIGN_TOP_MID, 0, 76);
+    }
 
     lv_anim_t ad;
     lv_anim_init(&ad);
