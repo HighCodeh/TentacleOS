@@ -8,7 +8,11 @@
 
 #include "lvgl_glue.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+
 #include "esp_heap_caps.h"
+#include "esp_lcd_panel_io.h"
 #include "esp_lvgl_port.h"
 #include "esp_log.h"
 
@@ -18,16 +22,33 @@
 static const char *TAG = "LVGL_GLUE";
 
 #define LVGL_PORT_TASK_PRIORITY   SYS_PRIO_RENDER
-#define LVGL_PORT_TASK_STACK      (8 * 1024)
+#define LVGL_PORT_TASK_STACK      (16 * 1024)
 #define LVGL_PORT_MAX_SLEEP_MS    500
 #define LVGL_PORT_TIMER_PERIOD_MS 5
-#define LVGL_BUF_LINES            (LCD_PANEL_H / 8)
+#define LVGL_BUF_LINES            (LCD_PANEL_H / 4)
 #define ROTATION_LOCK_TIMEOUT_MS  2000
 
 static bool s_ready = false;
 static bool s_landscape = false;
 static lv_display_t *s_disp = NULL;
 static volatile lvgl_glue_strip_cb_t s_capture_cb = NULL;
+
+static SemaphoreHandle_t s_trans_done = NULL;
+static volatile bool s_direct_mode = false;
+
+static bool trans_done_cb(esp_lcd_panel_io_handle_t io,
+                          esp_lcd_panel_io_event_data_t *ed, void *ctx) {
+  (void)io;
+  (void)ed;
+  BaseType_t hp = pdFALSE;
+  if (s_direct_mode) {
+    if (s_trans_done != NULL)
+      xSemaphoreGiveFromISR(s_trans_done, &hp);
+  } else {
+    lv_display_flush_ready((lv_display_t *)ctx);
+  }
+  return hp == pdTRUE;
+}
 
 static void capture_flush_start_cb(lv_event_t *e) {
   lvgl_glue_strip_cb_t cb = s_capture_cb;
@@ -93,6 +114,12 @@ esp_err_t lvgl_glue_init(void) {
   }
   lv_display_add_event_cb(s_disp, capture_flush_start_cb, LV_EVENT_FLUSH_START, NULL);
 
+  s_trans_done = xSemaphoreCreateBinary();
+  const esp_lcd_panel_io_callbacks_t io_cbs = {
+      .on_color_trans_done = trans_done_cb,
+  };
+  esp_lcd_panel_io_register_event_callbacks(io_handle, &io_cbs, s_disp);
+
   ESP_LOGI(TAG,
            "LVGL up — %dx%d, partial double buffer (%d lines) in internal DMA RAM",
            LCD_PANEL_W,
@@ -112,6 +139,21 @@ void lvgl_glue_capture_begin(lvgl_glue_strip_cb_t cb) {
 
 void lvgl_glue_capture_end(void) {
   s_capture_cb = NULL;
+}
+
+void lvgl_glue_direct_begin(void) {
+  if (s_trans_done != NULL)
+    xSemaphoreTake(s_trans_done, 0);
+  s_direct_mode = true;
+}
+
+void lvgl_glue_direct_end(void) {
+  s_direct_mode = false;
+}
+
+void lvgl_glue_wait_flush(uint32_t timeout_ms) {
+  if (s_trans_done != NULL)
+    xSemaphoreTake(s_trans_done, pdMS_TO_TICKS(timeout_ms));
 }
 
 bool lvgl_glue_lock(int timeout_ms) {

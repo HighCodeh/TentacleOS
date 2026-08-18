@@ -62,6 +62,27 @@ bool lvgl_glue_lock(int timeout_ms);
 void lvgl_glue_unlock(void);
 
 /**
+ * @brief Direct-draw (panel takeover) support for a full-screen app — e.g. the
+ * Game Boy emulator — that holds the LVGL lock and drives the ST7789 itself via
+ * raw esp_lcd_panel_draw_bitmap() calls.
+ *
+ * The ST7789 SPI is async: draw_bitmap queues the transfer and returns, so
+ * reusing a single blit buffer for the next strip while the previous strip's DMA
+ * is still reading it corrupts the image (horizontal noise). Between _begin() and
+ * _end(), the shared color-transfer-done ISR raises a semaphore instead of
+ * signalling LVGL's flush-ready; the app calls lvgl_glue_wait_flush() after each
+ * draw to block until that strip's DMA has finished, making single-buffer reuse
+ * safe. Call _begin() right after taking the LVGL lock and _end() before
+ * releasing it. Outside this window the ISR drives LVGL exactly as before.
+ */
+void lvgl_glue_direct_begin(void);
+void lvgl_glue_direct_end(void);
+
+/** Block until the most recent esp_lcd color transfer's DMA completes (or the
+ *  timeout elapses). Only meaningful between lvgl_glue_direct_begin/_end(). */
+void lvgl_glue_wait_flush(uint32_t timeout_ms);
+
+/**
  * @brief Toggle between portrait (LV_DISPLAY_ROTATION_0) and landscape-
  *        left (LV_DISPLAY_ROTATION_90).
  *
