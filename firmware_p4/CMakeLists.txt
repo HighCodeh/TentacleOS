@@ -8,6 +8,12 @@ cmake_minimum_required(VERSION 3.16)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(IDF_TARGET "esp32p4")
 
+# The gameboy emulator lives under components/Applications/ (it belongs with the
+# other apps) but is still its own component with its own build flags, so point
+# the component manager at that dir to discover it (only gameboy/ there has a
+# CMakeLists.txt; the sibling app subdirs are part of the Applications umbrella).
+set(EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_LIST_DIR}/components/Applications")
+
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 # The -O2 perf build (CONFIG_COMPILER_OPTIMIZATION_PERF) makes GCC run the flow
