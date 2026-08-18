@@ -1044,8 +1044,8 @@ size_info_*.txt
 # pytest-embedded log folder
 pytest_embedded_log/
 
-# idf-component-manager output
-dependencies.lock
+# idf-component-manager lock: TRACKED for reproducible builds (pins the exact
+# managed-component versions so every clone resolves the same deps).
 
 !assets/
 !assets/**
