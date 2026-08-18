@@ -16,10 +16,13 @@
 #include "esp_lvgl_port.h"
 #include "esp_log.h"
 
+#include "spi.h"
 #include "st7789.h"
 #include "sys_prio.h"
 
 static const char *TAG = "LVGL_GLUE";
+
+#define SPI3_FLUSH_TIMEOUT_MS 50
 
 #define LVGL_PORT_TASK_PRIORITY   SYS_PRIO_RENDER
 #define LVGL_PORT_TASK_STACK      (16 * 1024)
@@ -35,6 +38,7 @@ static volatile lvgl_glue_strip_cb_t s_capture_cb = NULL;
 
 static SemaphoreHandle_t s_trans_done = NULL;
 static volatile bool s_direct_mode = false;
+static volatile bool s_flush_took_bus = false;
 
 static bool trans_done_cb(esp_lcd_panel_io_handle_t io,
                           esp_lcd_panel_io_event_data_t *ed, void *ctx) {
@@ -46,11 +50,17 @@ static bool trans_done_cb(esp_lcd_panel_io_handle_t io,
       xSemaphoreGiveFromISR(s_trans_done, &hp);
   } else {
     lv_display_flush_ready((lv_display_t *)ctx);
+    if (s_flush_took_bus) {
+      s_flush_took_bus = false;
+      spi_bus_lock_give_from_isr(&hp);
+    }
   }
   return hp == pdTRUE;
 }
 
 static void capture_flush_start_cb(lv_event_t *e) {
+  s_flush_took_bus = spi_bus_lock_take(SPI3_FLUSH_TIMEOUT_MS);
+
   lvgl_glue_strip_cb_t cb = s_capture_cb;
   if (cb == NULL) {
     return;

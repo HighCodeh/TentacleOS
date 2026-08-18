@@ -25,7 +25,10 @@
 #include "freertos/semphr.h"
 
 #include "pin_def.h"
+#include "spi.h"
 #include "sx1262_regs.h"
+
+#define SPI3_BUS_LOCK_TIMEOUT_MS 1000
 
 #define PIN_SCK  GPIO_LORA_SCLK_PIN
 #define PIN_MOSI GPIO_LORA_MOSI_PIN
@@ -48,6 +51,7 @@ typedef struct {
   SemaphoreHandle_t spi_mutex;
   portMUX_TYPE critical_mux;
   bool is_initialized;
+  bool took_bus_lock;
 } hal_esp32_ctx_t;
 
 static hal_esp32_ctx_t s_ctx = {
@@ -55,6 +59,7 @@ static hal_esp32_ctx_t s_ctx = {
     .spi_mutex = NULL,
     .critical_mux = portMUX_INITIALIZER_UNLOCKED,
     .is_initialized = false,
+    .took_bus_lock = false,
 };
 
 static int hal_spi_transfer(void *ctx, const uint8_t *tx, uint8_t *rx, size_t len) {
@@ -106,12 +111,17 @@ static uint32_t hal_get_tick_ms(void *ctx) {
 static void hal_lock(void *ctx) {
   hal_esp32_ctx_t *c = (hal_esp32_ctx_t *)ctx;
   xSemaphoreTake(c->spi_mutex, portMAX_DELAY);
+  c->took_bus_lock = spi_bus_lock_take(SPI3_BUS_LOCK_TIMEOUT_MS);
   spi_device_acquire_bus(c->spi, portMAX_DELAY);
 }
 
 static void hal_unlock(void *ctx) {
   hal_esp32_ctx_t *c = (hal_esp32_ctx_t *)ctx;
   spi_device_release_bus(c->spi);
+  if (c->took_bus_lock) {
+    spi_bus_lock_give();
+    c->took_bus_lock = false;
+  }
   xSemaphoreGive(c->spi_mutex);
 }
 
