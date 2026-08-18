@@ -335,15 +335,22 @@ void ui_home_open(void) {
   lv_obj_set_style_border_width(content, 0, 0);
   lv_obj_set_style_pad_left(content, HOME_PAD, 0);
   lv_obj_set_style_pad_right(content, HOME_PAD, 0);
-  lv_obj_set_style_pad_top(content, 8, 0);
-  lv_obj_set_style_pad_bottom(content, HOME_PAD, 0);
-  lv_obj_set_style_pad_row(content, HOME_ROW_GAP, 0);
+  lv_obj_set_style_pad_top(content, 4, 0);
+  lv_obj_set_style_pad_bottom(content, HOME_PAD + 18, 0);
+  lv_obj_set_style_pad_row(content, HOME_ROW_GAP - 4, 0);
   lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
   build_date(content);
   build_octobit(content);
   build_favorites(content);
+
+  lv_obj_t *hint = lv_label_create(s_screen_home);
+  lv_label_set_text(hint, LV_SYMBOL_DOWN " Apps    " LV_SYMBOL_UP " hold: Config");
+  lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(hint, current_theme.text_secondary, 0);
+  lv_obj_set_style_bg_opa(hint, LV_OPA_TRANSP, 0);
+  lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -3);
 
   lv_obj_add_event_cb(s_screen_home, home_event_cb, LV_EVENT_KEY, NULL);
 
