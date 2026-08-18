@@ -20,6 +20,7 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "driver/gpio.h"
 #include "driver/ledc.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -264,6 +265,12 @@ esp_err_t st7789_init(void) {
     ESP_LOGE(TAG, "panel IO create failed: %s", esp_err_to_name(ret));
     return ret;
   }
+
+  // Drive the SCLK/MOSI edges harder on the long, unterminated display FFC so
+  // they settle within the 20 MHz bit period; at the default cap the edge is
+  // still settling when a radio's EMI hits it and long transfers garble.
+  gpio_set_drive_capability(GPIO_SPI_SCLK_PIN, LCD_SPI_DRIVE_CAP);
+  gpio_set_drive_capability(GPIO_SPI_MOSI_PIN, LCD_SPI_DRIVE_CAP);
 
   esp_lcd_panel_dev_config_t panel_config = {
       .reset_gpio_num = GPIO_ST7789_RST_PIN,

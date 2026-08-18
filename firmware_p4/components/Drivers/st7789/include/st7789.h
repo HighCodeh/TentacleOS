@@ -34,6 +34,16 @@ extern "C" {
  *        (garbled/white images) above 20 MHz.
  */
 #define LCD_PIXEL_CLOCK_HZ (20 * 1000 * 1000)
+
+/**
+ * @brief Drive strength for the SPI3 SCLK/MOSI pins that feed the display FFC.
+ *        The FFC is long/capacitive and unterminated: at the IDF default the
+ *        edges barely settle at 20 MHz, so a radio's EMI corrupts the still-
+ *        settling edge and garbles long transfers. Strongest drive (CAP_3) makes
+ *        the edges settle faster for more timing margin. (A weaker cap starves
+ *        the FFC so hard the panel will not even init, so do not lower this.)
+ */
+#define LCD_SPI_DRIVE_CAP GPIO_DRIVE_CAP_3
 #define LCD_H_RES          240
 #define LCD_V_RES          320
 /**
