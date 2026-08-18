@@ -199,7 +199,7 @@ void keyboard_close(void) {
       lv_group_set_editing(main_group, false);
       lv_group_remove_all_objs(main_group);
     }
-    lv_obj_del(kb_screen);
+    lv_obj_del_async(kb_screen);
     kb_screen = NULL;
     kb_obj = NULL;
     kb_ta = NULL;
