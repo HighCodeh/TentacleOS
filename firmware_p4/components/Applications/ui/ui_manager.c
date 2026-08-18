@@ -770,6 +770,14 @@ screen_id_t ui_current_screen(void) {
   return current_screen_id;
 }
 
+void ui_relayout_current_screen(void) {
+  // Rebuild the active screen through its normal open path so it re-runs its
+  // layout at the current logical resolution. Used after a rotation change so the
+  // on-screen layout reflows immediately instead of only on the next navigation.
+  if (current_screen_id != SCREEN_NONE)
+    ui_switch_screen(current_screen_id);
+}
+
 void ui_manager_relayout_current(void) {}
 
 bool ui_btn_up(void) {

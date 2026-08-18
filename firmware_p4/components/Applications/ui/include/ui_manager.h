@@ -230,6 +230,12 @@ void ui_screen_load_owned(lv_obj_t **slot, lv_obj_t *scr);
 screen_id_t ui_current_screen(void);
 
 /**
+ * @brief Rebuild the active screen so it re-lays-out at the current logical
+ *        resolution. Call after a rotation change to reflow it immediately.
+ */
+void ui_relayout_current_screen(void);
+
+/**
  * @brief Whether a screen shows the global chrome (status bar + dropdown).
  *
  * false for active "operation" screens — reading/sending/scanning/emulating/
