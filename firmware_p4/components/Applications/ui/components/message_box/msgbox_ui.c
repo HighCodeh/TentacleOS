@@ -19,9 +19,10 @@
 
 #include "assets_manager.h"
 #include "buttons_gpio.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
-#define MSGBOX_H       ((LCD_V_RES * 45) / 100)
+#define MSGBOX_H       ((ui_screen_h() * 45) / 100)
 #define ANIM_TIME      300
 #define BORDER_COLOR   current_theme.border_accent
 #define GRAD_TOP       current_theme.border_interface
@@ -103,7 +104,7 @@ static void do_close(bool confirm) {
   lv_anim_t a;
   lv_anim_init(&a);
   lv_anim_set_var(&a, closing);
-  lv_anim_set_values(&a, lv_obj_get_y(closing), LCD_V_RES);
+  lv_anim_set_values(&a, lv_obj_get_y(closing), ui_screen_h());
   lv_anim_set_duration(&a, ANIM_TIME);
   lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
   lv_anim_set_exec_cb(&a, slide_anim_cb);
@@ -208,8 +209,8 @@ void msgbox_open(
 
   lv_obj_t *scr = lv_screen_active();
   panel = lv_obj_create(scr);
-  lv_obj_set_size(panel, LCD_H_RES, MSGBOX_H);
-  lv_obj_set_pos(panel, 0, LCD_V_RES);
+  lv_obj_set_size(panel, ui_screen_w(), MSGBOX_H);
+  lv_obj_set_pos(panel, 0, ui_screen_h());
   lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_event_cb(panel, panel_deleted_cb, LV_EVENT_DELETE, NULL);
 
@@ -250,7 +251,7 @@ void msgbox_open(
   lv_obj_set_style_text_font(msg_lbl, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_align(msg_lbl, LV_TEXT_ALIGN_CENTER, 0);
   lv_label_set_long_mode(msg_lbl, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(msg_lbl, LCD_H_RES - 40);
+  lv_obj_set_width(msg_lbl, ui_screen_w() - 40);
 
   lv_obj_t *btn_row = lv_obj_create(content);
   lv_obj_set_size(btn_row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
@@ -279,11 +280,11 @@ void msgbox_open(
 
   update_btn_selection();
 
-  int target_y = LCD_V_RES - MSGBOX_H;
+  int target_y = ui_screen_h() - MSGBOX_H;
   lv_anim_t a;
   lv_anim_init(&a);
   lv_anim_set_var(&a, panel);
-  lv_anim_set_values(&a, LCD_V_RES, target_y);
+  lv_anim_set_values(&a, ui_screen_h(), target_y);
   lv_anim_set_duration(&a, ANIM_TIME);
   lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
   lv_anim_set_exec_cb(&a, slide_anim_cb);
@@ -328,7 +329,7 @@ void msgbox_open_sd_info(const char *name, const char *size, const char *free, c
   lv_obj_t *scr = lv_screen_active();
   panel = lv_obj_create(scr);
   lv_obj_set_size(panel, SD_MODAL_W, SD_MODAL_H);
-  lv_obj_set_pos(panel, (LCD_H_RES - SD_MODAL_W) / 2, LCD_V_RES);
+  lv_obj_set_pos(panel, (ui_screen_w() - SD_MODAL_W) / 2, ui_screen_h());
   lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_event_cb(panel, panel_deleted_cb, LV_EVENT_DELETE, NULL);
 
@@ -392,11 +393,11 @@ void msgbox_open_sd_info(const char *name, const char *size, const char *free, c
   btn_sel = 0;
   update_btn_selection();
 
-  int target_y = (LCD_V_RES - SD_MODAL_H) / 2;
+  int target_y = (ui_screen_h() - SD_MODAL_H) / 2;
   lv_anim_t a;
   lv_anim_init(&a);
   lv_anim_set_var(&a, panel);
-  lv_anim_set_values(&a, LCD_V_RES, target_y);
+  lv_anim_set_values(&a, ui_screen_h(), target_y);
   lv_anim_set_duration(&a, ANIM_TIME);
   lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
   lv_anim_set_exec_cb(&a, slide_anim_cb);
@@ -421,7 +422,7 @@ void msgbox_open_info(const char *icon_path,
   lv_obj_t *scr = lv_screen_active();
   panel = lv_obj_create(scr);
   lv_obj_set_size(panel, SD_MODAL_W, SD_MODAL_H);
-  lv_obj_set_pos(panel, (LCD_H_RES - SD_MODAL_W) / 2, LCD_V_RES);
+  lv_obj_set_pos(panel, (ui_screen_w() - SD_MODAL_W) / 2, ui_screen_h());
   lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_event_cb(panel, panel_deleted_cb, LV_EVENT_DELETE, NULL);
 
@@ -483,11 +484,11 @@ void msgbox_open_info(const char *icon_path,
   btn_sel = 0;
   update_btn_selection();
 
-  int target_y = (LCD_V_RES - SD_MODAL_H) / 2;
+  int target_y = (ui_screen_h() - SD_MODAL_H) / 2;
   lv_anim_t a;
   lv_anim_init(&a);
   lv_anim_set_var(&a, panel);
-  lv_anim_set_values(&a, LCD_V_RES, target_y);
+  lv_anim_set_values(&a, ui_screen_h(), target_y);
   lv_anim_set_duration(&a, ANIM_TIME);
   lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
   lv_anim_set_exec_cb(&a, slide_anim_cb);

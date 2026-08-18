@@ -20,6 +20,7 @@
 #include "st7789.h"
 
 #include "header_ui.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 // Whether the next chrome header shows the breadcrumb letreiro. Set per screen by
@@ -72,7 +73,7 @@ lv_obj_t *ui_chrome_light_title(lv_obj_t *container, const char *title) {
   lv_obj_set_style_text_opa(lbl, LV_OPA_80, 0);
   lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
   lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
-  lv_obj_set_width(lbl, LCD_H_RES - 24);
+  lv_obj_set_width(lbl, ui_screen_w() - 24);
   lv_obj_align(lbl, LV_ALIGN_BOTTOM_LEFT, 12, -1);
   return lbl;
 }
@@ -81,7 +82,7 @@ lv_obj_t *ui_chrome_light_title(lv_obj_t *container, const char *title) {
 // still starts at UI_CHROME_HEADER_H and no per-screen layout changes are needed.
 static lv_obj_t *make_header_container(lv_obj_t *parent) {
   lv_obj_t *hdr = lv_obj_create(parent);
-  lv_obj_set_size(hdr, LCD_H_RES, UI_CHROME_HEADER_H);
+  lv_obj_set_size(hdr, lv_pct(100), UI_CHROME_HEADER_H);
   lv_obj_align(hdr, LV_ALIGN_TOP_LEFT, 0, 0);
   lv_obj_remove_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(hdr, LV_OBJ_FLAG_CLICKABLE);
@@ -114,7 +115,7 @@ lv_obj_t *ui_chrome_header_overlay(lv_obj_t *parent, const char *title, const ch
 
 lv_obj_t *ui_chrome_footer(lv_obj_t *parent, const char *hint) {
   lv_obj_t *ft = lv_obj_create(parent);
-  lv_obj_set_size(ft, LCD_H_RES, UI_CHROME_FOOTER_H);
+  lv_obj_set_size(ft, lv_pct(100), UI_CHROME_FOOTER_H);
   lv_obj_align(ft, LV_ALIGN_BOTTOM_LEFT, 0, 0);
   lv_obj_remove_flag(ft, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(ft, LV_OBJ_FLAG_CLICKABLE);
