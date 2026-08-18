@@ -86,7 +86,6 @@ static const char *TAG = "SUBGHZ_UI";
 #define SGC_THUMB_H     45
 #define SGC_THUMB_ICON  "/assets/icons/drag_indicator.bin"
 
-#define COL_DIM   0x8A8594
 #define COL_RAISE 0x170A28
 
 #define HINT_SAVED "UP/DOWN choose   OK open   BACK exit"
@@ -344,7 +343,7 @@ static void style_sig_row(int i, bool sel) {
     lv_obj_set_style_border_opa(card, LV_OPA_60, 0);
     lv_obj_set_style_shadow_width(card, 0, 0);
     lv_obj_set_style_shadow_opa(card, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_text_color(s_sig_val[i], lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(s_sig_val[i], current_theme.text_secondary, 0);
   }
 }
 
@@ -420,7 +419,7 @@ static void build_saved_list(void) {
     lv_label_set_long_mode(proto, LV_LABEL_LONG_DOT);
     lv_label_set_text(proto, SAVED_SIGS[i].proto);
     lv_obj_set_style_text_font(proto, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(proto, lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(proto, current_theme.text_secondary, 0);
     lv_obj_align(proto, LV_ALIGN_TOP_LEFT, 0, 20);
 
     lv_obj_t *bars = lv_obj_create(card);
@@ -500,7 +499,7 @@ static void style_info_row(int idx, bool sel) {
     lv_obj_set_style_border_opa(row, LV_OPA_COVER, 0);
     lv_obj_set_style_shadow_width(row, 0, 0);
     lv_obj_set_style_shadow_opa(row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_text_color(s_info_icons[idx], lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(s_info_icons[idx], current_theme.text_secondary, 0);
     lv_obj_set_style_text_color(s_info_labels[idx], current_theme.text_main, 0);
   }
 }
@@ -615,7 +614,7 @@ static void info_del_confirm(bool confirm) {
   ui_feedback(UI_FB_WRITE);
   notify(NOTIFY_INFO, "Signal deleted");
   s_view = VIEW_SAVED;
-  lv_async_call(rebuild_async, NULL);
+  ui_async_call(rebuild_async, NULL);
 }
 
 static void build_screen(void) {

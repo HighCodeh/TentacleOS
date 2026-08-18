@@ -181,7 +181,7 @@ static void ap_scan_task(void *arg) {
 
   s_ap_count = n;
   s_is_scanning = false;
-  lv_async_call(scan_done_cb, NULL);
+  ui_async_call(scan_done_cb, NULL);
   vTaskDelete(NULL);
 }
 
@@ -210,7 +210,7 @@ static void attack_task(void *arg) {
       evil_twin_get_last_password(s_password, sizeof(s_password));
       s_is_captured = true;
       captured = true;
-      lv_async_call(password_ready_cb, NULL);
+      ui_async_call(password_ready_cb, NULL);
     }
     vTaskDelay(pdMS_TO_TICKS(ET_POLL_MS));
   }

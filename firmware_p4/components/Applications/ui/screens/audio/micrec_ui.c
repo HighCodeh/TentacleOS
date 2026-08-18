@@ -377,7 +377,7 @@ static void op_done_cb(void *unused) {
 static void finish(const char *done_text) {
   strncpy(s_done_text, done_text, sizeof(s_done_text) - 1);
   s_done_text[sizeof(s_done_text) - 1] = '\0';
-  lv_async_call(op_done_cb, NULL);
+  ui_async_call(op_done_cb, NULL);
 }
 
 static void mic_level_cb(int peak, int rms, void *ctx) {

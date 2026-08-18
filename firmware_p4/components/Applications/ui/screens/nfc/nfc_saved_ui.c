@@ -36,7 +36,6 @@
 #define TICK_MS        50
 #define CARD_H         122
 #define PEEK           60
-#define COL_DIM        0x8A8594
 #define SAVED_ICON     "/assets/icons/bookmarks.bin"
 #define CARD_ICON      "/assets/icons/nfc.bin"
 #define CARD_REVEAL_MS 1100
@@ -109,7 +108,7 @@ static void build_empty(void) {
   lv_obj_t *s = lv_label_create(card);
   lv_label_set_text(s, "Read a tag first");
   lv_obj_set_style_text_font(s, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(s, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s, current_theme.text_secondary, 0);
 }
 
 static void relayout(void) {
@@ -227,7 +226,7 @@ static void on_del_confirm(bool confirm) {
   ui_feedback(UI_FB_WRITE);
   notify(NOTIFY_INFO, "Card deleted");
   overlay_close();
-  lv_async_call(rebuild_async, NULL);
+  ui_async_call(rebuild_async, NULL);
 }
 
 static void nfc_saved_tick_cb(lv_timer_t *t) {

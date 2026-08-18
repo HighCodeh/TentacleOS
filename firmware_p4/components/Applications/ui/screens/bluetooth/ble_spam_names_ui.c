@@ -121,7 +121,7 @@ static void on_kb_submit(const char *text, void *ud) {
     ui_feedback(UI_FB_WRITE);
     notify(NOTIFY_SAVED, "Name added");
   }
-  lv_async_call(rebuild_async, NULL);
+  ui_async_call(rebuild_async, NULL);
 }
 
 static void on_delete_confirm(bool confirm) {
@@ -134,7 +134,7 @@ static void on_delete_confirm(bool confirm) {
     notify(NOTIFY_INFO, "Name deleted");
   }
   s_del_index = -1;
-  lv_async_call(rebuild_async, NULL);
+  ui_async_call(rebuild_async, NULL);
 }
 
 static void ble_spam_names_input(const input_event_t *ev, void *ctx) {

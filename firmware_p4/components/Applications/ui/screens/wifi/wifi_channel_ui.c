@@ -41,7 +41,6 @@ static const char *TAG = "WIFI_CHAN_UI";
 #define COLOR_QUIET_HEX   0x00E676
 #define COLOR_BUSY_HEX    0xFFC107
 #define COLOR_CROWDED_HEX 0xF44336
-#define COLOR_DIM_HEX     0x8A8594
 
 #define OCCUPANCY_FULL_APS 6
 
@@ -217,7 +216,7 @@ static void build_spectrum(void) {
   lv_obj_t *hint = lv_label_create(s_screen);
   lv_label_set_text_fmt(
       hint, "Ch %d crowded  %d AP  pick Ch %d", s_row_channel[cr], s_row_ap_count[cr], rec);
-  lv_obj_set_style_text_color(hint, lv_color_hex(COLOR_DIM_HEX), 0);
+  lv_obj_set_style_text_color(hint, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, SPEC_HINT_Y);
@@ -286,7 +285,7 @@ static void wifi_channel_task(void *arg) {
     s_row_count = 0;
     s_scan_state = SCAN_FAIL;
     s_scanning = false;
-    lv_async_call(scan_done_cb, NULL);
+    ui_async_call(scan_done_cb, NULL);
     vTaskDelete(NULL);
     return;
   }
@@ -324,7 +323,7 @@ static void wifi_channel_task(void *arg) {
   s_row_count = rows;
   s_scan_state = SCAN_DONE;
   s_scanning = false;
-  lv_async_call(scan_done_cb, NULL);
+  ui_async_call(scan_done_cb, NULL);
   vTaskDelete(NULL);
 }
 

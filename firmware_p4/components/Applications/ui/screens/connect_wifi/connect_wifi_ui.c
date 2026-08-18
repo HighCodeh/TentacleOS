@@ -52,7 +52,6 @@ static const char *TAG = "CONNECT_WIFI_UI";
 
 #define COLOR_OPEN_HEX 0x00E676
 #define COLOR_LOCK_HEX 0xF5B13D
-#define COLOR_DIM_HEX  0x8A8594
 
 #define NET_BODY_H      (LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
 #define NET_ROW_H       46
@@ -159,7 +158,7 @@ static void wifi_connect_task(void *arg) {
   s_connect_ip[2] = 1;
   s_connect_ip[3] = 42;
   s_connecting = false;
-  lv_async_call(connect_done_cb, NULL);
+  ui_async_call(connect_done_cb, NULL);
   vTaskDelete(NULL);
 }
 
@@ -280,7 +279,7 @@ static void build_join_list(void) {
 
     lv_obj_t *sec = lv_label_create(card);
     lv_label_set_text_fmt(sec, "%s  ch %d", s_aps[i].open ? "Open" : "WPA2", s_aps[i].channel);
-    lv_obj_set_style_text_color(sec, lv_color_hex(COLOR_DIM_HEX), 0);
+    lv_obj_set_style_text_color(sec, current_theme.text_secondary, 0);
     lv_obj_set_style_text_font(sec, &lv_font_montserrat_12, 0);
     lv_obj_align(sec, LV_ALIGN_BOTTOM_LEFT, NET_TEXT_X, -6);
 
@@ -372,7 +371,7 @@ static void wifi_scan_task(void *arg) {
   s_ap_count = count;
   s_scan_state = SCAN_DONE;
   s_scanning = false;
-  lv_async_call(scan_done_cb, NULL);
+  ui_async_call(scan_done_cb, NULL);
   vTaskDelete(NULL);
 }
 

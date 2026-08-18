@@ -477,7 +477,7 @@ static void rebuild_async(void *p) {
 
 static void cycle_category(int dir) {
   s_category = (s_category + dir + NUM_CATS) % NUM_CATS;
-  lv_async_call(rebuild_async, NULL);
+  ui_async_call(rebuild_async, NULL);
 }
 
 static void speaker_input(const input_event_t *ev, void *ctx) {

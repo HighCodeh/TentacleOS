@@ -270,7 +270,7 @@ static void c5_flash_task(void *arg) {
   esp_err_t r = (init_r != ESP_OK) ? init_r : c5_flasher_update(NULL, 0, SPI_OTA_TRANSPORT_SPI);
   ESP_LOGI(TAG, "c5_flasher result: %s", esp_err_to_name(r));
 
-  lv_async_call(c5_flash_done_on_lvgl, (void *)(intptr_t)r);
+  ui_async_call(c5_flash_done_on_lvgl, (void *)(intptr_t)r);
   vTaskDelete(NULL);
 }
 
@@ -308,7 +308,7 @@ static void c5_rom_flash_task(void *arg) {
   (void)arg;
   esp_err_t r = c5_flasher_rom_flash();
   ESP_LOGI(TAG, "c5_rom_flash result: %s", esp_err_to_name(r));
-  lv_async_call(c5_flash_done_on_lvgl, (void *)(intptr_t)r);
+  ui_async_call(c5_flash_done_on_lvgl, (void *)(intptr_t)r);
   vTaskDelete(NULL);
 }
 

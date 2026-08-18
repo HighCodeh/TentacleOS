@@ -145,7 +145,7 @@ static void packets_worker(void *arg) {
       hs = wifi_sniffer_handshake_captured();
     s_pkt_count = count;
     s_hs_captured = hs;
-    lv_async_call(packets_update_cb, NULL);
+    ui_async_call(packets_update_cb, NULL);
     vTaskDelay(pdMS_TO_TICKS(PACKETS_POLL_MS));
   }
 

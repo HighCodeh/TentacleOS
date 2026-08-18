@@ -130,7 +130,7 @@ static void probe_worker(void *arg) {
     probe_monitor_free_results();
     s_ui_count = (uint16_t)copied;
     s_seen_total = n;
-    lv_async_call(probe_refresh_cb, NULL);
+    ui_async_call(probe_refresh_cb, NULL);
     vTaskDelay(pdMS_TO_TICKS(POLL_INTERVAL_MS));
   }
 

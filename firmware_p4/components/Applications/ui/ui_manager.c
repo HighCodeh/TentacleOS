@@ -78,10 +78,18 @@
 #include "haptic_ui.h"
 #include "speaker_ui.h"
 #include "micrec_ui.h"
+#include "mp3_player_ui.h"
+#include "mp4_player_ui.h"
 #include "wav_player_ui.h"
+#include "image_viewer_ui.h"
+#include "usb_storage_ui.h"
 #include "wav_library_ui.h"
 #include "spectrum_ui.h"
 #include "lora_chat_ui.h"
+#include "games_menu_ui.h"
+#include "snake_ui.h"
+#include "breakout_ui.h"
+#include "gb_ui.h"
 #include "octobit_status_ui.h"
 #include "dev_menu_ui.h"
 #include "subghz_menu_ui.h"
@@ -179,6 +187,10 @@ uint32_t ui_render_beat(void) {
 // runaway screen callback, or a dead/suspended task); sys_monitor polls it.
 static void render_beat_cb(lv_timer_t *t) {
   (void)t;
+  s_render_beat++;
+}
+
+void ui_render_beat_kick(void) {
   s_render_beat++;
 }
 
@@ -354,6 +366,14 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
     case SCREEN_NFC_READ:
     case SCREEN_NFC_EMULATE:
       return nfc_manager_stop;
+    case SCREEN_WAV_PLAYER:
+      return ui_wav_player_stop;
+    case SCREEN_MP3_PLAYER:
+      return ui_mp3_player_stop;
+    case SCREEN_IMAGE_VIEWER:
+      return ui_image_viewer_stop;
+    case SCREEN_USB_STORAGE:
+      return ui_usb_storage_stop;
     default:
       return NULL;
   }
@@ -431,12 +451,28 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_micrec_open;
     case SCREEN_WAV_PLAYER:
       return ui_wav_player_open;
+    case SCREEN_MP4_PLAYER:
+      return ui_mp4_player_open;
+    case SCREEN_MP3_PLAYER:
+      return ui_mp3_player_open;
     case SCREEN_PLAYER:
       return ui_wav_library_open;
+    case SCREEN_IMAGE_VIEWER:
+      return ui_image_viewer_open;
+    case SCREEN_USB_STORAGE:
+      return ui_usb_storage_open;
     case SCREEN_SPECTRUM:
       return ui_spectrum_open;
     case SCREEN_LORA_CHAT:
       return ui_lora_chat_open;
+    case SCREEN_GAMES_MENU:
+      return ui_games_menu_open;
+    case SCREEN_GAME_SNAKE:
+      return ui_snake_open;
+    case SCREEN_GAME_BREAKOUT:
+      return ui_breakout_open;
+    case SCREEN_GAME_GB:
+      return ui_gb_open;
     case SCREEN_OCTOBIT_STATUS:
       return ui_octobit_status_open;
     case SCREEN_DEV_MENU:
@@ -635,6 +671,10 @@ bool ui_screen_shows_chrome(screen_id_t s) {
     case SCREEN_SUBGHZ_BRUTE:
     // --- Audio / LoRa / sensors: play / record / live monitor ---
     case SCREEN_WAV_PLAYER:
+    case SCREEN_MP4_PLAYER:
+    case SCREEN_MP3_PLAYER:
+    case SCREEN_IMAGE_VIEWER:
+    case SCREEN_USB_STORAGE:
     case SCREEN_SPECTRUM:
     case SCREEN_MIC_REC:
     case SCREEN_LORA_RNODE:
@@ -681,7 +721,7 @@ void ui_switch_screen(screen_id_t new_screen) {
     ui_chrome_set_status_enabled(ui_screen_shows_chrome(new_screen));
     open_fn();
     current_screen_id = new_screen;
-    if (outgoing != NULL && outgoing != lv_screen_active())
+    if (outgoing != NULL && outgoing != lv_screen_active() && lv_obj_is_valid(outgoing))
       lv_obj_del_async(outgoing);
     screen_tips_hook(new_screen);
     ui_release();
@@ -700,6 +740,13 @@ bool ui_acquire(void) {
 
 void ui_release(void) {
   lvgl_glue_unlock();
+}
+
+void ui_async_call(lv_async_cb_t cb, void *user_data) {
+  if (ui_acquire()) {
+    lv_async_call(cb, user_data);
+    ui_release();
+  }
 }
 
 void ui_screen_load(lv_obj_t *scr) {

@@ -43,7 +43,6 @@ static const char *TAG = "STORAGE_UI";
 #define G1             0x7A52D6
 #define G2             0xB89AFF
 #define CYAN           0x00E5D0
-#define OK_COLOR       0x00E676
 #define DANGER_COLOR   0xFF5470
 #define ACT_EJECT      0
 #define ACT_FORMAT     1
@@ -307,7 +306,7 @@ static void format_task(void *arg) {
   esp_err_t r = vfs_sdcard_format();
   if (r == ESP_OK && !vfs_sdcard_is_mounted())
     vfs_sdcard_init();
-  lv_async_call(format_done_cb, (void *)(intptr_t)r);
+  ui_async_call(format_done_cb, (void *)(intptr_t)r);
   vTaskDelete(NULL);
 }
 

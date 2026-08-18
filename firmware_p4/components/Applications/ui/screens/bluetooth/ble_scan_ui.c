@@ -40,7 +40,6 @@ static const char *TAG = "BLE_SCAN_UI";
 #define STATUS_TICK_MS        50
 #define DOT_CYCLE_MS          350
 #define SCAN_RESULT_COLOR_HEX 0x00E676
-#define COL_DIM               0x8A8594
 #define BLE_MAX_DEVS          12
 #define SCAN_POLL_MS          150
 #define SCAN_TIMEOUT_MS       15000
@@ -227,7 +226,7 @@ static void build_empty_hero(const char *title, const char *sub) {
   lv_obj_t *s = lv_label_create(card);
   lv_label_set_text(s, sub);
   lv_obj_set_style_text_font(s, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(s, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s, current_theme.text_secondary, 0);
   lv_obj_set_style_text_align(s, LV_TEXT_ALIGN_CENTER, 0);
 
   ui_chrome_footer(s_screen, "RIGHT Rescan   BACK Back");
@@ -313,7 +312,7 @@ static void build_radar(void) {
 
   s_chip_meta = lv_label_create(s_chip);
   lv_obj_set_style_text_font(s_chip_meta, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(s_chip_meta, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s_chip_meta, current_theme.text_secondary, 0);
   lv_obj_align(s_chip_meta, LV_ALIGN_BOTTOM_LEFT, 0, 0);
 
   s_chip_rssi = lv_label_create(s_chip);
@@ -433,7 +432,7 @@ static void ble_scan_task(void *arg) {
     s_dev_count = 0;
     s_scan_state = SCAN_FAIL;
     s_scanning = false;
-    lv_async_call(scan_done_cb, NULL);
+    ui_async_call(scan_done_cb, NULL);
     vTaskDelete(NULL);
     return;
   }
@@ -455,7 +454,7 @@ static void ble_scan_task(void *arg) {
   }
 
   s_scanning = false;
-  lv_async_call(scan_done_cb, NULL);
+  ui_async_call(scan_done_cb, NULL);
   vTaskDelete(NULL);
 }
 

@@ -15,6 +15,8 @@
 
 #include "ir_saved_ui.h"
 
+#include "esp_attr.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -43,7 +45,6 @@ static const char *TAG = "IR_SAVED_UI";
 #define IR_SIGNAL_ICON "/assets/icons/settings_remote.bin"
 #define IR_CARRIER     "38 kHz"
 
-#define FILES_COL_DIM   0x8A8594
 #define IRC_LEFT        6
 #define IRC_GUTTER      16
 #define IRC_TOP_Y       46
@@ -76,12 +77,12 @@ static bool s_saved = false;
 
 // Real data: every .ir under /sdcard/ir, the distinct protocols across them,
 // and the files filtered to the currently-open protocol.
-static ir_store_entry_t s_all[IR_STORE_MAX_ENTRIES];
+EXT_RAM_BSS_ATTR static ir_store_entry_t s_all[IR_STORE_MAX_ENTRIES];
 static int s_all_count = 0;
 static char s_protos[MAX_PROTOS][16];
 static int s_proto_count = 0;
 static char s_proto_name[16] = {0};
-static ir_store_entry_t s_files[MAX_FILES];
+EXT_RAM_BSS_ATTR static ir_store_entry_t s_files[MAX_FILES];
 static int s_file_count = 0;
 
 static lv_obj_t *s_file_list = NULL;
@@ -178,7 +179,7 @@ static void on_rename_submit(const char *text, void *ud) {
   filter_for_proto(s_proto_name);
   if (s_file_count == 0)
     s_level = LEVEL_PROTOCOLS;
-  lv_async_call(rebuild_async, NULL);
+  ui_async_call(rebuild_async, NULL);
 }
 
 static void on_delete_confirm(bool confirm) {
@@ -190,7 +191,7 @@ static void on_delete_confirm(bool confirm) {
   reload_all();
   filter_for_proto(s_proto_name);
   s_level = (s_file_count > 0) ? LEVEL_FILES : LEVEL_PROTOCOLS;
-  lv_async_call(rebuild_async, NULL);
+  ui_async_call(rebuild_async, NULL);
 }
 
 static void move_file_thumb(void) {
@@ -223,7 +224,7 @@ static void style_file_row(int i, bool sel) {
     lv_obj_set_style_border_opa(card, LV_OPA_60, 0);
     lv_obj_set_style_shadow_width(card, 0, 0);
     lv_obj_set_style_shadow_opa(card, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_text_color(s_file_values[i], lv_color_hex(FILES_COL_DIM), 0);
+    lv_obj_set_style_text_color(s_file_values[i], current_theme.text_secondary, 0);
   }
 }
 
@@ -300,7 +301,7 @@ static void build_files_list(void) {
     lv_label_set_long_mode(proto, LV_LABEL_LONG_DOT);
     lv_label_set_text(proto, s_files[i].proto);
     lv_obj_set_style_text_font(proto, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(proto, lv_color_hex(FILES_COL_DIM), 0);
+    lv_obj_set_style_text_color(proto, current_theme.text_secondary, 0);
     lv_obj_align(proto, LV_ALIGN_TOP_LEFT, 0, 20);
 
     lv_obj_t *pulse = lv_line_create(card);

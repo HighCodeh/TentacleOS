@@ -55,7 +55,6 @@ static const char *TAG = "WIFI_DEAUTH_DET_UI";
 
 #define ALERT_COLOR 0xE53935
 #define CALM_COLOR  0x00E676
-#define DIM_COLOR   0x8A8594
 
 #define POLL_INTERVAL_MS 1000
 #define TASK_STACK_SIZE  8192
@@ -108,7 +107,7 @@ static void apply_state(bool alert) {
   if (s_status_label != NULL) {
     lv_label_set_text(s_status_label, alert ? "Deauth flood detected" : "Monitoring...");
     lv_obj_set_style_text_color(
-        s_status_label, alert ? lv_color_hex(ALERT_COLOR) : lv_color_hex(DIM_COLOR), 0);
+        s_status_label, alert ? lv_color_hex(ALERT_COLOR) : current_theme.text_secondary, 0);
   }
 
   if (s_banner != NULL) {
@@ -149,7 +148,7 @@ static void detector_worker(void *arg) {
 
   while (s_is_poll_running) {
     uint32_t count = deauther_detector_get_count();
-    lv_async_call(count_ready_cb, (void *)(uintptr_t)count);
+    ui_async_call(count_ready_cb, (void *)(uintptr_t)count);
     vTaskDelay(pdMS_TO_TICKS(POLL_INTERVAL_MS));
   }
 
@@ -234,12 +233,12 @@ void ui_wifi_deauth_detector_open(void) {
   lv_obj_t *caption = lv_label_create(s_card);
   lv_label_set_text(caption, "DEAUTH FRAMES");
   lv_obj_set_style_text_font(caption, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(caption, lv_color_hex(DIM_COLOR), 0);
+  lv_obj_set_style_text_color(caption, current_theme.text_secondary, 0);
 
   lv_obj_t *info = lv_label_create(s_screen);
   lv_label_set_text(info, "Watching channels 1-13");
   lv_obj_set_style_text_font(info, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(info, lv_color_hex(DIM_COLOR), 0);
+  lv_obj_set_style_text_color(info, current_theme.text_secondary, 0);
   lv_obj_set_style_text_align(info, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align_to(info, s_card, LV_ALIGN_OUT_BOTTOM_MID, 0, 14);
 
