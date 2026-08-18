@@ -18,16 +18,14 @@
 # ui_manager.c and assets_manager.c at the ui/ root) — new screens compile
 # automatically. INCLUDE_DIRS is the only hand-maintained part; add a screen's
 # include/ dir there when a new screen area is introduced.
+# Globs every ui/**/*.c (e.g. screens/files/usb_storage_ui.c). NOTE: adding a new
+# .c under ui/ needs a CMake reconfigure to re-run this glob.
 file(GLOB_RECURSE UI_SRCS "ui/*.c")
 
 list(REMOVE_ITEM UI_SRCS
-  "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/games_menu_ui.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/flappy_ui.c"
-  "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/snake_ui.c"
-  "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/breakout_ui.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/octopet_ui.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/motion_ui.c"
-  "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/game_fx.c"
 )
 
 # Application (non-UI) sources — the real drivers/services stay in the build.
@@ -83,6 +81,8 @@ idf_component_register(SRCS
   "ui/include"
   # --- ui screens (mirrors firmware_p4_prototype) ---
   "ui/screens/audio/include"
+  "ui/screens/video/include"
+  "ui/screens/images/include"
   "ui/screens/badusb/include"
   "ui/screens/bluetooth/include"
   "ui/screens/boot/include"
@@ -139,8 +139,10 @@ idf_component_register(SRCS
   REQUIRES
   driver
   esp_driver_tsens
+  esp_driver_jpeg
   Drivers
   Service
+  gameboy
   esp_common
   esp_wifi
   esp_tinyusb
@@ -151,6 +153,7 @@ idf_component_register(SRCS
   joltwallet__littlefs
   nvs_flash
   espressif__esp-dsp
+  chmorgan__esp-libhelix-mp3
 )
 target_link_libraries(${COMPONENT_LIB} -Wl,-zmuldefs)
 target_compile_definitions(${COMPONENT_LIB} PRIVATE MESH_HEADLESS=0)

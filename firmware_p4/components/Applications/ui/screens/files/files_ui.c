@@ -30,6 +30,9 @@
 #include "storage_assets.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "image_viewer_ui.h"
+#include "mp3_player_ui.h"
+#include "mp4_player_ui.h"
 #include "wav_player_ui.h"
 #include "text_viewer_ui.h"
 #include "ui_theme.h"
@@ -60,7 +63,6 @@ static const char *TAG = "FILES_UI";
 #define SCROLL_STEP  36
 
 #define COL_RAISE 0x170A28
-#define COL_DIM   0x8A8594
 #define COL_DIRNM 0xF0E6FF
 
 #define MAX_ENTRIES 96
@@ -93,6 +95,7 @@ static const char *const VOL_LABELS[] = {"Assets", "SD Card"};
 static const char *const VOL_PATHS[] = {ASSETS_ROOT, SDCARD_ROOT};
 #define VOL_COUNT 2
 #define VOL_SD    1
+#define ENTRY_USB_MSC 99
 
 static const char *ICON_OF[] = {
     [FT_DIR] = "/assets/icons/folder.bin",
@@ -235,6 +238,8 @@ static uint8_t type_from_ext(const char *name) {
 
 static const char *entry_icon(int idx) {
   if (s_depth == 0) {
+    if (s_vol_idx[idx] == ENTRY_USB_MSC)
+      return "/assets/icons/usb.bin";
     return (s_vol_idx[idx] == VOL_SD) ? "/assets/icons/sd_card.bin" : "/assets/icons/folder.bin";
   }
   return ICON_OF[s_entries[idx].type];
@@ -242,6 +247,8 @@ static const char *entry_icon(int idx) {
 
 static lv_color_t entry_color(int idx) {
   if (s_depth == 0) {
+    if (s_vol_idx[idx] == ENTRY_USB_MSC)
+      return lv_color_hex(0x00E676);
     return (s_vol_idx[idx] == VOL_SD) ? lv_color_hex(0x00BCD4) : lv_color_hex(0xFFC400);
   }
   return color_of(s_entries[idx].type);
@@ -275,6 +282,15 @@ static void scan_dir(void) {
       e->size = 0;
       e->type = FT_DIR;
       s_vol_idx[s_count] = k;
+      s_count++;
+    }
+    if (vfs_sdcard_is_mounted() && s_count < MAX_ENTRIES) {
+      entry_t *e = &s_entries[s_count];
+      snprintf(e->name, sizeof(e->name), "USB Storage");
+      e->is_dir = true;
+      e->size = 0;
+      e->type = FT_DIR;
+      s_vol_idx[s_count] = ENTRY_USB_MSC;
       s_count++;
     }
     return;
@@ -351,10 +367,14 @@ static void fill_peek(int idx) {
   lv_obj_set_style_border_color(s_pk_tag, c, 0);
 
   if (e->is_dir) {
-    lv_label_set_text(s_pk_meta, s_depth == 0 ? "Storage volume" : "Folder");
-    if (s_depth == 0) {
+    if (s_depth == 0 && s_vol_idx[idx] == ENTRY_USB_MSC) {
+      lv_label_set_text(s_pk_meta, "USB drive");
+      lv_label_set_text(s_pk_snip, "Share SD with a PC");
+    } else if (s_depth == 0) {
+      lv_label_set_text(s_pk_meta, "Storage volume");
       lv_label_set_text(s_pk_snip, s_vol_idx[idx] == VOL_SD ? "SD card" : "Internal flash");
     } else {
+      lv_label_set_text(s_pk_meta, "Folder");
       lv_label_set_text(s_pk_snip, "");
     }
   } else {
@@ -414,7 +434,7 @@ static void populate_row(int j) {
     char sz[16];
     fmt_size(sz, sizeof(sz), e->size);
     lv_label_set_text(s_row_right[j], sz);
-    lv_obj_set_style_text_color(s_row_right[j], lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(s_row_right[j], current_theme.text_secondary, 0);
   }
   style_item(row, entry_color(idx), idx == s_sel);
 }
@@ -581,7 +601,7 @@ static void build_pathbar(void) {
   lv_label_set_text(lbl, s_depth == 0 ? "root" : s_cwd);
   lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
   lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(lbl, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(lbl, current_theme.text_secondary, 0);
   lv_obj_set_flex_grow(lbl, 1);
 
   lv_obj_t *dots = plain(bar);
@@ -775,7 +795,7 @@ static void build_peek(void) {
   lv_label_set_long_mode(s_pk_meta, LV_LABEL_LONG_DOT);
   lv_obj_set_width(s_pk_meta, lv_pct(100));
   lv_obj_set_style_text_font(s_pk_meta, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(s_pk_meta, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s_pk_meta, current_theme.text_secondary, 0);
 
   s_pk_snip = lv_label_create(pk);
   lv_label_set_long_mode(s_pk_snip, LV_LABEL_LONG_DOT);
@@ -992,6 +1012,11 @@ static void do_enter(void) {
     return;
   }
   if (s_depth == 0) {
+    if (s_vol_idx[s_sel] == ENTRY_USB_MSC) {
+      ui_feedback(UI_FB_SELECT);
+      ui_switch_screen(SCREEN_USB_STORAGE);
+      return;
+    }
     enter_dir(VOL_PATHS[s_vol_idx[s_sel]], true);
     return;
   }
@@ -1009,6 +1034,38 @@ static void do_enter(void) {
     ui_wav_player_set_path(full);
     ui_wav_player_set_return(SCREEN_FILES);
     ui_switch_screen(SCREEN_WAV_PLAYER);
+    return;
+  }
+  if (dot != NULL && (strcasecmp(dot, ".mp4") == 0 || strcasecmp(dot, ".m4v") == 0 ||
+                      strcasecmp(dot, ".mov") == 0)) {
+    char full[FULL_PATH];
+    snprintf(full, sizeof(full), "%s/%s", s_cwd, e->name);
+    ui_feedback(UI_FB_SELECT);
+    s_resume = true;
+    ui_mp4_player_set_path(full);
+    ui_mp4_player_set_return(SCREEN_FILES);
+    ui_switch_screen(SCREEN_MP4_PLAYER);
+    return;
+  }
+  if (dot != NULL && strcasecmp(dot, ".mp3") == 0) {
+    char full[FULL_PATH];
+    snprintf(full, sizeof(full), "%s/%s", s_cwd, e->name);
+    ui_feedback(UI_FB_SELECT);
+    s_resume = true;
+    ui_mp3_player_set_path(full);
+    ui_mp3_player_set_return(SCREEN_FILES);
+    ui_switch_screen(SCREEN_MP3_PLAYER);
+    return;
+  }
+  if (dot != NULL && (strcasecmp(dot, ".jpg") == 0 || strcasecmp(dot, ".jpeg") == 0 ||
+                      strcasecmp(dot, ".png") == 0 || strcasecmp(dot, ".gif") == 0)) {
+    char full[FULL_PATH];
+    snprintf(full, sizeof(full), "%s/%s", s_cwd, e->name);
+    ui_feedback(UI_FB_SELECT);
+    s_resume = true;
+    ui_image_viewer_set_path(full);
+    ui_image_viewer_set_return(SCREEN_FILES);
+    ui_switch_screen(SCREEN_IMAGE_VIEWER);
     return;
   }
   s_in_viewer = true;
