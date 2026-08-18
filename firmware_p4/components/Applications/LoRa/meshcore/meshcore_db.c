@@ -15,6 +15,8 @@
 
 #include "meshcore_internal.h"
 
+#include "esp_attr.h"
+
 #include <stdint.h>
 #include <string.h>
 
@@ -60,7 +62,7 @@ typedef struct {
 } mc_pending_t;
 
 static meshcore_channel_t s_channels[MESHCORE_MAX_CHANNELS];
-static meshcore_contact_t s_contacts[MESHCORE_MAX_CONTACTS];
+EXT_RAM_BSS_ATTR static meshcore_contact_t s_contacts[MESHCORE_MAX_CONTACTS];
 
 static mc_dedup_entry_t s_dedup[MC_DEDUP_SIZE];
 static uint16_t s_dedup_idx = 0;

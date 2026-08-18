@@ -15,6 +15,8 @@
 
 #include "mf_key_cache.h"
 
+#include "esp_attr.h"
+
 #include <string.h>
 
 #include "esp_log.h"
@@ -30,7 +32,7 @@ static const char *TAG = "NFC_MF_KEY_CACHE";
 #define NVS_ENTRY_NAME_SIZE 16
 #define MF_KEY_SIZE         6
 
-static mf_key_cache_entry_t s_cache[MF_KEY_CACHE_MAX_CARDS];
+EXT_RAM_BSS_ATTR static mf_key_cache_entry_t s_cache[MF_KEY_CACHE_MAX_CARDS];
 static int s_count = 0;
 
 static int find_entry(const uint8_t *uid, uint8_t uid_len) {

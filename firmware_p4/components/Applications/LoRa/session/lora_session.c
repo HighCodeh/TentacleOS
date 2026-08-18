@@ -39,7 +39,7 @@
 static const char *TAG = "LORA_SESSION";
 
 static lora_proto_t s_proto = LORA_PROTO_NONE;
-static lora_msg_t s_msgs[MSG_RING];
+EXT_RAM_BSS_ATTR static lora_msg_t s_msgs[MSG_RING];
 static uint16_t s_head = 0;
 static uint16_t s_count = 0;
 static uint32_t s_total = 0;

@@ -40,6 +40,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
 
@@ -48,7 +49,6 @@ static const char *TAG = "BADUSB_UI";
 #define TERM_GREEN       0x00E676
 #define TERM_DIM_GREEN   0x1F7A52
 #define DARK_PANEL_COLOR 0x05090A
-#define SIG_GREEN        0x00E676
 #define ERR_RED          0xFF5252
 #define WARN_AMBER       0xFFB300
 
@@ -212,7 +212,7 @@ static view_t s_view = VIEW_LIST;
 static int s_payload_sel = 0;
 static int s_layout_active = 0;
 
-static char s_pl_path[MAX_PAYLOADS][PL_PATH_LEN];
+EXT_RAM_BSS_ATTR static char s_pl_path[MAX_PAYLOADS][PL_PATH_LEN];
 static char s_pl_name[MAX_PAYLOADS][PL_NAME_LEN];
 static bool s_pl_is_asset[MAX_PAYLOADS];
 static int s_pl_count = 0;
@@ -899,7 +899,7 @@ static void build_layout(void) {
   for (int i = 0; i < LAYOUT_COUNT; i++) {
     menu_component_add_item(&s_menu, "/assets/icons/keyboard.bin", LAYOUTS[i].label);
     if (i == s_layout_active)
-      menu_component_set_item_label_color(&s_menu, i, lv_color_hex(SIG_GREEN));
+      menu_component_set_item_label_color(&s_menu, i, lv_color_hex(UI_COL_SUCCESS));
   }
   menu_component_select(&s_menu, s_layout_active);
   fade_in(s_menu.items_cont, FADE_MS);
@@ -916,7 +916,7 @@ static void status_row(lv_obj_t *panel, int index, const badusb_status_row_t *ro
   lv_obj_t *val = lv_label_create(panel);
   lv_label_set_text(val, row->value);
   lv_obj_set_style_text_color(
-      val, row->is_accent ? lv_color_hex(SIG_GREEN) : current_theme.text_main, 0);
+      val, row->is_accent ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_main, 0);
   lv_obj_set_style_text_font(val, &lv_font_montserrat_12, 0);
   lv_obj_align(val, LV_ALIGN_TOP_RIGHT, -INFO_LABEL_X, INFO_FIRST_ROW_Y + index * INFO_ROW_GAP);
 }
@@ -1121,7 +1121,7 @@ static void input_view_layout(const input_event_t *ev, bool press, bool nav) {
         if (sel >= 0 && sel < LAYOUT_COUNT && sel != s_layout_active) {
           menu_component_set_item_label_color(&s_menu, s_layout_active, current_theme.text_main);
           s_layout_active = sel;
-          menu_component_set_item_label_color(&s_menu, s_layout_active, lv_color_hex(SIG_GREEN));
+          menu_component_set_item_label_color(&s_menu, s_layout_active, lv_color_hex(UI_COL_SUCCESS));
           ESP_LOGI(TAG, "layout set: %s", LAYOUTS[s_layout_active].label);
         }
       }

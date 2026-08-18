@@ -28,7 +28,7 @@ static const char *TAG = "MT_NODEDB";
 
 #define MT_NODEDB_NVS_KEY "nodedb"
 
-static mt_node_entry_t s_nodes[MT_NODEDB_MAX_NODES];
+EXT_RAM_BSS_ATTR static mt_node_entry_t s_nodes[MT_NODEDB_MAX_NODES];
 static uint16_t s_count = 0;
 
 static uint64_t dec_varint(const uint8_t *buf, uint16_t max_len, uint16_t *out_used) {

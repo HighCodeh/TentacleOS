@@ -14,6 +14,8 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 #include "nfc_reader.h"
 
+#include "esp_attr.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -441,7 +443,7 @@ void mf_classic_read_full(nfc_iso14443a_data_t *card) {
   mf_classic_key_t nested_src_key;
   mf_key_type_t nested_src_type = MF_KEY_A;
 
-  static sector_result_t results[40];
+  EXT_RAM_BSS_ATTR static sector_result_t results[40];
   memset(results, 0, sizeof(results));
 
   for (int sect = 0; sect < nsect; sect++) {
