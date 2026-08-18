@@ -36,8 +36,6 @@ static const char *TAG = "BLE_SNIFFER_UI";
 #define ROW_LEN      40
 #define FEED_BUF_LEN (MAX_ROWS * ROW_LEN)
 
-#define COL_DIM 0x8A8594
-
 #define SNIFF_ICON "/assets/icons/monitoring.bin"
 
 #define STATUS_Y      48

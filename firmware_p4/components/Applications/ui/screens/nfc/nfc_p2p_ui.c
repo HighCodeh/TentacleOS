@@ -23,6 +23,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 #define MX        8
@@ -49,8 +50,6 @@
 #define STREAM_STEP  4
 #define STREAM_MAX   100
 
-#define COL_DIM  0x8A8594
-#define COL_OK   0x00E676
 #define COL_CYAN 0x37E0A8
 #define COL_LINE 0x2A2636
 
@@ -111,7 +110,7 @@ static lv_obj_t *make_device(lv_obj_t *parent, const char *glyph, const char *na
   lv_obj_t *nm = lv_label_create(col);
   lv_label_set_text(nm, name);
   lv_obj_set_style_text_font(nm, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(nm, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(nm, current_theme.text_secondary, 0);
   return col;
 }
 
@@ -205,9 +204,9 @@ static void stream_cb(lv_timer_t *t) {
   if (s_pct >= STREAM_MAX) {
     s_pct = STREAM_MAX;
     lv_label_set_text(s_put_mark, LV_SYMBOL_OK);
-    lv_obj_set_style_text_color(s_put_mark, lv_color_hex(COL_OK), 0);
+    lv_obj_set_style_text_color(s_put_mark, lv_color_hex(UI_COL_SUCCESS), 0);
     lv_label_set_text(s_put_pct, STEP_DONE);
-    lv_obj_set_style_text_color(s_put_pct, lv_color_hex(COL_OK), 0);
+    lv_obj_set_style_text_color(s_put_pct, lv_color_hex(UI_COL_SUCCESS), 0);
     lv_timer_delete(t);
     s_stream_timer = NULL;
     return;
@@ -243,18 +242,18 @@ static void build_body(lv_obj_t *parent) {
 
   make_step(steps,
             LV_SYMBOL_OK,
-            lv_color_hex(COL_OK),
+            lv_color_hex(UI_COL_SUCCESS),
             STEP1_TXT,
             STEP1_META,
-            lv_color_hex(COL_DIM),
+            current_theme.text_secondary,
             NULL,
             NULL);
   make_step(steps,
             LV_SYMBOL_OK,
-            lv_color_hex(COL_OK),
+            lv_color_hex(UI_COL_SUCCESS),
             STEP2_TXT,
             STEP2_META,
-            lv_color_hex(COL_DIM),
+            current_theme.text_secondary,
             NULL,
             NULL);
   make_step(steps,

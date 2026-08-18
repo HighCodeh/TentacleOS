@@ -64,7 +64,6 @@
 #define TILE_VAL_Y  25
 #define TILE_GLOW_W 12
 
-#define COL_DIM    0x8A8594
 #define COL_BAND_A 0x221F2E
 #define COL_BAND_B 0x3A2F55
 
@@ -120,7 +119,7 @@ static void build_freq_card(void) {
   lv_obj_t *cap = lv_label_create(card);
   lv_label_set_text(cap, "TUNED FREQUENCY");
   lv_obj_set_style_text_font(cap, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(cap, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(cap, current_theme.text_secondary, 0);
   lv_obj_align(cap, LV_ALIGN_TOP_MID, 0, FREQ_CAP_Y);
 
   lv_obj_t *grp = lv_obj_create(card);
@@ -183,7 +182,7 @@ static void build_freq_card(void) {
     lv_obj_t *lbl = lv_label_create(scale);
     lv_label_set_text(lbl, SCALE_LABELS[i]);
     lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(lbl, lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(lbl, current_theme.text_secondary, 0);
   }
 }
 
@@ -201,7 +200,7 @@ static lv_obj_t *build_tile(int i) {
   lv_obj_t *cap = lv_label_create(tile);
   lv_label_set_text(cap, FIELDS[i].name);
   lv_obj_set_style_text_font(cap, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(cap, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(cap, current_theme.text_secondary, 0);
   lv_obj_align(cap, LV_ALIGN_TOP_LEFT, TILE_PAD_L, TILE_CAP_Y);
 
   lv_obj_t *grp = lv_obj_create(tile);
@@ -225,7 +224,7 @@ static lv_obj_t *build_tile(int i) {
     lv_obj_t *unit = lv_label_create(grp);
     lv_label_set_text(unit, FIELDS[i].unit);
     lv_obj_set_style_text_font(unit, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(unit, lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(unit, current_theme.text_secondary, 0);
   }
 
   return tile;

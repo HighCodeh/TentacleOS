@@ -33,7 +33,6 @@
 #define REFRESH_MS 33
 #define REVEAL_MS  3000
 
-#define COL_DIM      0x8A8594
 #define DUMP_W       214
 #define DUMP_Y       102
 #define DUMP_ROW_GAP 2
@@ -107,7 +106,7 @@ static void build_dump(void) {
   for (int i = 0; i < DUMP_LINE_COUNT; i++) {
     lv_obj_t *ln = lv_label_create(s_dump);
     lv_label_set_text(ln, DUMP_LINES[i]);
-    lv_obj_set_style_text_color(ln, lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(ln, current_theme.text_secondary, 0);
     lv_obj_set_style_text_font(ln, &lv_font_montserrat_12, 0);
   }
 }

@@ -75,7 +75,7 @@ static void nfc_config_input(const input_event_t *ev, void *ctx) {
         } else if (sel == CFG_DIAG) {
           msgbox_open(
               LV_SYMBOL_WARNING,
-              "ST25R3916: no reply\nSPI3 MISO blocked\n(GPIO36 jumper) —\nrunning simulated",
+              "ST25R3916: no reply\nSPI3 MISO blocked\n(GPIO36 jumper) -\nrunning simulated",
               NULL,
               NULL,
               NULL);

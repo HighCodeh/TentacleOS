@@ -29,8 +29,6 @@
 
 static const char *TAG = "IR_CTRL_UI";
 
-#define COL_DIM 0x8A8594
-
 #define MAX_BTNS 16
 
 #define KEYPAD_W 232
@@ -267,7 +265,7 @@ static void apply_focus_style(lv_obj_t *btn, bool focused) {
     lv_obj_set_style_shadow_width(btn, 0, 0);
     lv_obj_set_style_shadow_opa(btn, LV_OPA_TRANSP, 0);
     if (lbl)
-      lv_obj_set_style_text_color(lbl, lv_color_hex(COL_DIM), 0);
+      lv_obj_set_style_text_color(lbl, current_theme.text_secondary, 0);
   }
 }
 
@@ -300,7 +298,7 @@ static void ac_apply_row_style(lv_obj_t *row, bool focused) {
     lv_obj_set_style_shadow_width(row, 0, 0);
     lv_obj_set_style_shadow_opa(row, LV_OPA_TRANSP, 0);
     if (name)
-      lv_obj_set_style_text_color(name, lv_color_hex(COL_DIM), 0);
+      lv_obj_set_style_text_color(name, current_theme.text_secondary, 0);
   }
 }
 
@@ -313,7 +311,7 @@ static void ac_update_values(void) {
   lv_label_set_text(s_ac_vals[AC_F_FAN], AC_FANS[s_ac_fan]);
 
   lv_color_t active = current_theme.border_accent;
-  lv_color_t idle = lv_color_hex(COL_DIM);
+  lv_color_t idle = current_theme.text_secondary;
   lv_color_t body = s_ac_power ? active : idle;
   lv_obj_set_style_text_color(
       s_ac_vals[AC_F_POWER], s_ac_power ? lv_color_hex(AC_ON_COLOR) : idle, 0);

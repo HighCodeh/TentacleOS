@@ -26,6 +26,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 #include "wifi_service.h"
 
@@ -70,8 +71,6 @@
 #define TILE_GAP    6
 #define RCOL_GAP    6
 
-#define COL_OK   0x00E676
-#define COL_DIM  0x8A8594
 #define COL_CYAN 0x37E0A8
 #define COL_ACC2 0xB89AFF
 
@@ -166,7 +165,7 @@ static lv_obj_t *make_tile(
   lv_obj_set_flex_align(tile, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_set_style_pad_row(tile, 1, 0);
 
-  make_label(tile, lbl, &lv_font_montserrat_12, lv_color_hex(COL_DIM));
+  make_label(tile, lbl, &lv_font_montserrat_12, current_theme.text_secondary);
   make_label(tile, val, vfont, vcol);
   return tile;
 }
@@ -178,15 +177,15 @@ static void update_uptime_label(void) {
     char buf[UPTIME_BUF];
     snprintf(buf, sizeof(buf), UPTIME_ONLINE_FMT, s_secs / 60, s_secs % 60);
     lv_label_set_text(s_uptime, buf);
-    lv_obj_set_style_text_color(s_uptime, lv_color_hex(COL_OK), 0);
+    lv_obj_set_style_text_color(s_uptime, lv_color_hex(UI_COL_SUCCESS), 0);
   } else {
     lv_label_set_text(s_uptime, TXT_OFFLINE);
-    lv_obj_set_style_text_color(s_uptime, lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(s_uptime, current_theme.text_secondary, 0);
   }
 }
 
 static void apply_online(void) {
-  lv_color_t c = s_online ? lv_color_hex(COL_OK) : lv_color_hex(COL_DIM);
+  lv_color_t c = s_online ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_secondary;
 
   if (s_dot != NULL)
     lv_obj_set_style_bg_color(s_dot, c, 0);
@@ -249,7 +248,7 @@ static void build_status_card(lv_obj_t *parent) {
   lv_obj_set_style_radius(s_dot, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_border_width(s_dot, 0, 0);
   lv_obj_set_style_bg_opa(s_dot, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(s_dot, lv_color_hex(COL_OK), 0);
+  lv_obj_set_style_bg_color(s_dot, lv_color_hex(UI_COL_SUCCESS), 0);
 
   lv_obj_t *txt = lv_obj_create(card);
   lv_obj_remove_flag(txt, LV_OBJ_FLAG_SCROLLABLE);
@@ -264,7 +263,7 @@ static void build_status_card(lv_obj_t *parent) {
   lv_obj_set_style_pad_row(txt, 2, 0);
 
   make_label(txt, AP_NAME, &lv_font_montserrat_14, current_theme.text_main);
-  s_uptime = make_label(txt, "", &lv_font_montserrat_12, lv_color_hex(COL_OK));
+  s_uptime = make_label(txt, "", &lv_font_montserrat_12, lv_color_hex(UI_COL_SUCCESS));
 
   s_toggle = lv_obj_create(card);
   lv_obj_remove_flag(s_toggle, LV_OBJ_FLAG_SCROLLABLE);
@@ -272,9 +271,9 @@ static void build_status_card(lv_obj_t *parent) {
   lv_obj_set_size(s_toggle, TOGGLE_W, TOGGLE_H);
   lv_obj_set_style_radius(s_toggle, TOGGLE_RADIUS, 0);
   lv_obj_set_style_pad_all(s_toggle, 0, 0);
-  lv_obj_set_style_bg_color(s_toggle, lv_color_hex(COL_OK), 0);
+  lv_obj_set_style_bg_color(s_toggle, lv_color_hex(UI_COL_SUCCESS), 0);
   lv_obj_set_style_bg_opa(s_toggle, LV_OPA_20, 0);
-  lv_obj_set_style_border_color(s_toggle, lv_color_hex(COL_OK), 0);
+  lv_obj_set_style_border_color(s_toggle, lv_color_hex(UI_COL_SUCCESS), 0);
   lv_obj_set_style_border_width(s_toggle, 1, 0);
 
   s_knob = lv_obj_create(s_toggle);
@@ -283,7 +282,7 @@ static void build_status_card(lv_obj_t *parent) {
   lv_obj_set_style_radius(s_knob, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_border_width(s_knob, 0, 0);
   lv_obj_set_style_bg_opa(s_knob, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(s_knob, lv_color_hex(COL_OK), 0);
+  lv_obj_set_style_bg_color(s_knob, lv_color_hex(UI_COL_SUCCESS), 0);
   lv_obj_align(s_knob, LV_ALIGN_RIGHT_MID, -KNOB_INSET, 0);
 }
 
@@ -304,7 +303,7 @@ static void build_arc(lv_obj_t *parent) {
 
   lv_obj_t *center = make_label(arc, ARC_CENTER, &lv_font_montserrat_14, current_theme.text_main);
   lv_obj_align(center, LV_ALIGN_CENTER, 0, -6);
-  lv_obj_t *sub = make_label(arc, ARC_SUB, &lv_font_montserrat_12, lv_color_hex(COL_DIM));
+  lv_obj_t *sub = make_label(arc, ARC_SUB, &lv_font_montserrat_12, current_theme.text_secondary);
   lv_obj_align(sub, LV_ALIGN_CENTER, 0, 11);
 }
 

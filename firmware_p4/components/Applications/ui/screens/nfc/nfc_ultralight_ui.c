@@ -35,7 +35,6 @@
 #define DUMP_PAD  8
 #define DUMP_LGAP 3
 
-#define COL_DIM    0x8A8594
 #define COL_LINE   0x2A2636
 #define COL_PANEL2 0x1A1626
 
@@ -82,7 +81,7 @@ static void make_chip(lv_obj_t *parent, const char *txt, bool sel) {
   lv_obj_t *l = lv_label_create(chip);
   lv_label_set_text(l, txt);
   lv_obj_set_style_text_font(l, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(l, sel ? current_theme.border_accent : lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(l, sel ? current_theme.border_accent : current_theme.text_secondary, 0);
   lv_obj_center(l);
 }
 

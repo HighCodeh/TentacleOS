@@ -26,6 +26,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 #define SPARK_MS 700
@@ -73,8 +74,6 @@
 
 #define COL_ACC2  0xB89AFF
 #define COL_CYAN  0x37E0A8
-#define COL_DIM   0x8A8594
-#define COL_OK    0x00E676
 #define COL_WARN  0xFFC23D
 #define COL_BAD   0xFF5470
 #define COL_TRACK 0x241F31
@@ -210,7 +209,7 @@ static uint32_t nb_fill(const lora_node_t *nd, char *buf, size_t n) {
     int at = (t < 0) ? -t : t;
     snprintf(buf, n, "%c%d.%d", sign, at / 10, at % 10);
     if (nd->snr >= SNR_OK_DB)
-      return COL_OK;
+      return UI_COL_SUCCESS;
     if (nd->snr >= SNR_WARN_DB)
       return COL_WARN;
     return COL_BAD;
@@ -218,13 +217,13 @@ static uint32_t nb_fill(const lora_node_t *nd, char *buf, size_t n) {
   if (nd->rssi != 0) {
     snprintf(buf, n, "%d", nd->rssi);
     if (nd->rssi >= RSSI_OK_DBM)
-      return COL_OK;
+      return UI_COL_SUCCESS;
     if (nd->rssi >= RSSI_WARN_DBM)
       return COL_WARN;
     return COL_BAD;
   }
   snprintf(buf, n, "--");
-  return COL_DIM;
+  return 0x8A8594; // TODO: not themed (raw hex arg)
 }
 
 static void refresh_chips(void) {
@@ -240,7 +239,7 @@ static void refresh_chips(void) {
     lv_obj_set_style_shadow_opa(s_chips[i], sel ? LV_OPA_40 : LV_OPA_TRANSP, 0);
     lv_obj_set_style_shadow_spread(s_chips[i], sel ? -2 : 0, 0);
     lv_obj_set_style_text_color(
-        s_chip_name[i], sel ? current_theme.text_main : lv_color_hex(COL_DIM), 0);
+        s_chip_name[i], sel ? current_theme.text_main : current_theme.text_secondary, 0);
   }
 }
 
@@ -344,7 +343,7 @@ static lv_obj_t *make_panel(lv_obj_t *root,
   lv_obj_t *cap = lv_label_create(head);
   lv_label_set_text(cap, title);
   lv_obj_set_style_text_font(cap, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(cap, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(cap, current_theme.text_secondary, 0);
 
   lv_obj_t *val = lv_label_create(head);
   lv_label_set_text(val, "--");
@@ -495,12 +494,12 @@ void ui_lora_telemetry_open(void) {
   s_link_sub = lv_label_create(batt);
   lv_label_set_text(s_link_sub, "--");
   lv_obj_set_style_text_font(s_link_sub, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(s_link_sub, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s_link_sub, current_theme.text_secondary, 0);
 
   lv_obj_t *nlbl = lv_label_create(root);
   lv_label_set_text(nlbl, "NEIGHBORS");
   lv_obj_set_style_text_font(nlbl, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(nlbl, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(nlbl, current_theme.text_secondary, 0);
 
   lv_obj_t *chips = lv_obj_create(root);
   lv_obj_remove_flag(chips, LV_OBJ_FLAG_SCROLLABLE);
@@ -536,7 +535,7 @@ void ui_lora_telemetry_open(void) {
     lv_obj_t *sv = lv_label_create(chip);
     lv_label_set_text(sv, "--");
     lv_obj_set_style_text_font(sv, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(sv, lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(sv, current_theme.text_secondary, 0);
     s_chip_val[i] = sv;
 
     s_chips[i] = chip;
@@ -545,7 +544,7 @@ void ui_lora_telemetry_open(void) {
   s_nb_empty = lv_label_create(chips);
   lv_label_set_text(s_nb_empty, "Listening for nodes...");
   lv_obj_set_style_text_font(s_nb_empty, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(s_nb_empty, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s_nb_empty, current_theme.text_secondary, 0);
   lv_obj_add_flag(s_nb_empty, LV_OBJ_FLAG_HIDDEN);
 
   rebuild_points();

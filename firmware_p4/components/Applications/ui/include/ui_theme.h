@@ -34,6 +34,7 @@ typedef struct {
   lv_color_t border_interface;
   lv_color_t border_inactive;
   lv_color_t text_main;
+  lv_color_t text_secondary;
   lv_color_t screen_base;
 
   lv_color_t protocol_nfc;

@@ -20,6 +20,7 @@
 #include "battery_service.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 static const char *TAG = "BATTERY_SETTINGS_UI";
@@ -34,7 +35,6 @@ static const char *TAG = "BATTERY_SETTINGS_UI";
 #define STAT_CARD_H   46
 #define LOW_COLOR     0xE53935
 #define MID_COLOR     0xFFB300
-#define OK_COLOR      0x00E676
 #define TITLE_FONT    "A:assets/fonts/Inter.bin"
 
 static lv_obj_t *s_screen = NULL;
@@ -46,7 +46,7 @@ static lv_color_t level_color(int pct) {
     return lv_color_hex(LOW_COLOR);
   if (pct < 60)
     return lv_color_hex(MID_COLOR);
-  return lv_color_hex(OK_COLOR);
+  return lv_color_hex(UI_COL_SUCCESS);
 }
 
 static void arc_anim_exec_cb(void *obj, int32_t v) {
@@ -158,7 +158,7 @@ void ui_battery_settings_open(void) {
   uint32_t chip_color;
   if (charging) {
     lv_label_set_text(chg, LV_SYMBOL_CHARGE " CHARGING");
-    chip_color = OK_COLOR;
+    chip_color = UI_COL_SUCCESS;
   } else if (on_usb) {
     lv_label_set_text(chg, LV_SYMBOL_CHARGE " ON USB");
     chip_color = MID_COLOR;
@@ -190,16 +190,16 @@ void ui_battery_settings_open(void) {
   add_stat_card(stats,
                 on_usb ? "USB" : "BATT",
                 "SOURCE",
-                on_usb ? lv_color_hex(OK_COLOR) : current_theme.text_main);
+                on_usb ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_main);
 
   const char *st = "IDLE";
   lv_color_t st_col = current_theme.border_accent;
   if (charging) {
     st = (bs.chg == CHARGE_STATUS_PRECHARGE) ? "PRE" : "FAST";
-    st_col = lv_color_hex(OK_COLOR);
+    st_col = lv_color_hex(UI_COL_SUCCESS);
   } else if (bs.chg == CHARGE_STATUS_CHARGE_DONE) {
     st = "FULL";
-    st_col = lv_color_hex(OK_COLOR);
+    st_col = lv_color_hex(UI_COL_SUCCESS);
   }
   add_stat_card(stats, st, "STATUS", st_col);
 

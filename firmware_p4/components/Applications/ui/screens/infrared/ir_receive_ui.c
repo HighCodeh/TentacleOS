@@ -27,12 +27,11 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
 
 static const char *TAG = "IR_RX_UI";
-
-#define SIG_GREEN 0x00E676
 
 #define HEADER_TITLE_Y     10
 #define HEADER_RULE_Y      32
@@ -119,7 +118,7 @@ static void set_status(const char *text, bool success) {
     return;
   lv_label_set_text(s_status_label, text);
   lv_obj_set_style_text_color(
-      s_status_label, success ? lv_color_hex(SIG_GREEN) : current_theme.text_main, 0);
+      s_status_label, success ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_main, 0);
 }
 
 static void set_hint(const char *text) {

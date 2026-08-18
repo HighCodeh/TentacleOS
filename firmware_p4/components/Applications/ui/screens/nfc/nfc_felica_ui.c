@@ -39,7 +39,6 @@
 #define DUMP_RAD 8
 #define DUMP_PAD 8
 
-#define COL_DIM    0x8A8594
 #define COL_CYAN   0x37E0A8
 #define COL_LINE   0x2A2636
 #define COL_PANEL2 0x1A1626
@@ -88,7 +87,7 @@ static void make_chip(lv_obj_t *parent, const char *txt, bool sel) {
   lv_obj_t *l = lv_label_create(chip);
   lv_label_set_text(l, txt);
   lv_obj_set_style_text_font(l, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(l, sel ? current_theme.border_accent : lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(l, sel ? current_theme.border_accent : current_theme.text_secondary, 0);
   lv_obj_center(l);
 }
 
@@ -118,7 +117,7 @@ static lv_obj_t *make_row(lv_obj_t *parent, int i) {
   lv_obj_t *desc = lv_label_create(row);
   lv_label_set_text(desc, SVCS[i].desc);
   lv_obj_set_style_text_font(desc, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(desc, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(desc, current_theme.text_secondary, 0);
 
   s_code[i] = code;
   return row;

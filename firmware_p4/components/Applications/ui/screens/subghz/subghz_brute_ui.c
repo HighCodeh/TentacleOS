@@ -26,6 +26,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 static const char *TAG = "SUBGHZ_BF";
@@ -35,8 +36,6 @@ static const char *TAG = "SUBGHZ_BF";
 #define BRUTE_MS      4200
 #define SCOPE_TICK_MS 38
 #define DOT_CYCLE_MS  350
-
-#define SIG_GREEN 0x00E676
 
 #define STATUS_Y 48
 #define FREQ_Y   68
@@ -299,7 +298,7 @@ static void resolve(void) {
     lv_obj_remove_flag(s_hit, LV_OBJ_FLAG_HIDDEN);
   if (s_status != NULL) {
     lv_label_set_text(s_status, "Code found!");
-    lv_obj_set_style_text_color(s_status, lv_color_hex(SIG_GREEN), 0);
+    lv_obj_set_style_text_color(s_status, lv_color_hex(UI_COL_SUCCESS), 0);
   }
   if (s_hint != NULL)
     ui_chrome_footer_set_text(s_hint, HINT_SHOW);

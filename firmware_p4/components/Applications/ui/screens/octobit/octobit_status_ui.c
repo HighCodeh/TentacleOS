@@ -52,7 +52,6 @@
 #define OCTO_XP_MAX 2000
 
 #define COL_RAISE 0x170A28
-#define COL_DIM   0x8A8594
 
 #define REFRESH_MS 1000
 
@@ -156,7 +155,7 @@ static void refresh_values(void) {
 
 static void refresh_selection(void) {
   const lv_color_t accent = current_theme.border_accent;
-  const lv_color_t dim = lv_color_hex(COL_DIM);
+  const lv_color_t dim = current_theme.text_secondary;
   for (int i = 0; i < ST_COUNT; i++) {
     bool sel = (i == s_sel);
     lv_obj_set_style_border_color(s_row[i], sel ? accent : current_theme.border_inactive, 0);
@@ -277,13 +276,13 @@ static void build_top_card(void) {
   lv_obj_t *xp_tag = lv_label_create(card);
   lv_label_set_text(xp_tag, "XP");
   lv_obj_set_style_text_font(xp_tag, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(xp_tag, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(xp_tag, current_theme.text_secondary, 0);
   lv_obj_align(xp_tag, LV_ALIGN_LEFT_MID, col_x, -12);
 
   lv_obj_t *xp_val = lv_label_create(card);
   lv_label_set_text_fmt(xp_val, "%d / %d", OCTO_XP, OCTO_XP_MAX);
   lv_obj_set_style_text_font(xp_val, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(xp_val, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(xp_val, current_theme.text_secondary, 0);
   lv_obj_set_width(xp_val, col_w);
   lv_obj_set_style_text_align(xp_val, LV_TEXT_ALIGN_RIGHT, 0);
   lv_obj_align(xp_val, LV_ALIGN_LEFT_MID, col_x, -12);
@@ -319,13 +318,13 @@ static void build_selector(void) {
   lv_obj_t *tag = lv_label_create(s_screen);
   lv_label_set_text(tag, "STATISTICS");
   lv_obj_set_style_text_font(tag, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(tag, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(tag, current_theme.text_secondary, 0);
   lv_obj_align(tag, LV_ALIGN_TOP_LEFT, MX + 4, SELHD_Y);
 
   s_counter = lv_label_create(s_screen);
   lv_label_set_text(s_counter, "1/8");
   lv_obj_set_style_text_font(s_counter, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(s_counter, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s_counter, current_theme.text_secondary, 0);
   lv_obj_align(s_counter, LV_ALIGN_TOP_RIGHT, -(MX + 4), SELHD_Y);
 
   lv_obj_t *wrap = lv_obj_create(s_screen);

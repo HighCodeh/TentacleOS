@@ -23,6 +23,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
 
@@ -76,8 +77,6 @@
 #define PH_ERASE_MAX  42
 #define PH_WRITE_MAX  96
 
-#define COL_SUCCESS 0x00E676
-#define COL_DIM     0x8A8594
 #define COL_TRACK   0x202028
 
 #define NEW_VERSION       "v2.1.0"
@@ -280,7 +279,7 @@ static void build_found(void) {
   lv_obj_t *cap = lv_label_create(card);
   lv_label_set_text(cap, CAPTION_NEW);
   lv_obj_set_style_text_font(cap, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(cap, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(cap, current_theme.text_secondary, 0);
   lv_obj_align(cap, LV_ALIGN_CENTER, 0, -20);
 
   lv_obj_t *pill = lv_obj_create(card);
@@ -303,7 +302,7 @@ static void build_found(void) {
   lv_obj_t *inst = lv_label_create(card);
   lv_label_set_text(inst, INSTALLED_ROW);
   lv_obj_set_style_text_font(inst, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(inst, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(inst, current_theme.text_secondary, 0);
   lv_obj_align(inst, LV_ALIGN_BOTTOM_MID, 0, 0);
 }
 
@@ -320,10 +319,10 @@ static void set_step_label(void) {
     char buf[STEP_BUF_LEN];
     snprintf(buf, sizeof(buf), STEP_WRITE_FMT, s_pct);
     lv_label_set_text(s_step_lbl, buf);
-    lv_obj_set_style_text_color(s_step_lbl, lv_color_hex(COL_SUCCESS), 0);
+    lv_obj_set_style_text_color(s_step_lbl, lv_color_hex(UI_COL_SUCCESS), 0);
   } else {
     lv_label_set_text(s_step_lbl, STEP_FINALIZE);
-    lv_obj_set_style_text_color(s_step_lbl, lv_color_hex(COL_SUCCESS), 0);
+    lv_obj_set_style_text_color(s_step_lbl, lv_color_hex(UI_COL_SUCCESS), 0);
   }
 }
 
@@ -381,7 +380,7 @@ static void build_applying(void) {
   lv_obj_set_style_bg_opa(s_bar, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_radius(s_bar, BAR_RAD, LV_PART_MAIN);
   lv_obj_set_style_bg_color(s_bar, current_theme.border_accent, LV_PART_INDICATOR);
-  lv_obj_set_style_bg_grad_color(s_bar, lv_color_hex(COL_SUCCESS), LV_PART_INDICATOR);
+  lv_obj_set_style_bg_grad_color(s_bar, lv_color_hex(UI_COL_SUCCESS), LV_PART_INDICATOR);
   lv_obj_set_style_bg_grad_dir(s_bar, LV_GRAD_DIR_HOR, LV_PART_INDICATOR);
   lv_obj_set_style_bg_opa(s_bar, LV_OPA_COVER, LV_PART_INDICATOR);
   lv_obj_set_style_radius(s_bar, BAR_RAD, LV_PART_INDICATOR);

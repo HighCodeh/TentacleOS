@@ -31,6 +31,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 #define HDR_TITLE   "POSITION"
@@ -60,8 +61,6 @@
 #define BC_RAD   8
 #define BC_PAD_H 9
 
-#define COL_DIM       0x8A8594
-#define COL_OK        0x00E676
 #define COL_BC_BORDER 0x234A3E
 
 #define LAT_E7_LIMIT   900000000
@@ -226,7 +225,7 @@ static void refresh_fields(void) {
     lv_obj_set_style_shadow_width(s_row[i], act ? GLOW_W : 0, 0);
     lv_obj_set_style_shadow_opa(s_row[i], act ? LV_OPA_30 : LV_OPA_TRANSP, 0);
     lv_obj_set_style_text_color(
-        s_tag[i], act ? current_theme.border_accent : lv_color_hex(COL_DIM), 0);
+        s_tag[i], act ? current_theme.border_accent : current_theme.text_secondary, 0);
     if (act)
       lv_obj_remove_flag(s_caret[i], LV_OBJ_FLAG_HIDDEN);
     else
@@ -255,11 +254,11 @@ static void refresh_broadcast(void) {
     return;
   if (s_bcast) {
     lv_label_set_text(s_bc_val, "ON");
-    lv_obj_set_style_text_color(s_bc_val, lv_color_hex(COL_OK), 0);
+    lv_obj_set_style_text_color(s_bc_val, lv_color_hex(UI_COL_SUCCESS), 0);
     lv_obj_set_style_border_color(s_bc_row, lv_color_hex(COL_BC_BORDER), 0);
   } else {
     lv_label_set_text(s_bc_val, "OFF");
-    lv_obj_set_style_text_color(s_bc_val, lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(s_bc_val, current_theme.text_secondary, 0);
     lv_obj_set_style_border_color(s_bc_row, current_theme.border_inactive, 0);
   }
 }
@@ -365,7 +364,7 @@ static void build_placeholder(void) {
   lv_obj_set_width(msg, LCD_H_RES - 2 * ROOT_PAD);
   lv_label_set_text(msg, "Start a protocol first");
   lv_obj_set_style_text_font(msg, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_text_color(msg, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(msg, current_theme.text_secondary, 0);
   lv_obj_set_style_text_align(msg, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_center(msg);
 
@@ -443,7 +442,7 @@ void ui_lora_position_open(void) {
   lv_obj_t *cap = lv_label_create(card);
   lv_label_set_text(cap, "FIXED POSITION");
   lv_obj_set_style_text_font(cap, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(cap, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(cap, current_theme.text_secondary, 0);
 
   for (int i = 0; i < FIELD_CNT; i++)
     make_field(card, i);
@@ -483,7 +482,7 @@ void ui_lora_position_open(void) {
                         ? "manual fix (no GPS) \xE2\x80\xA2 rebroadcast every 15 min"
                         : "manual fix (no GPS) \xE2\x80\xA2 sent in each advert");
   lv_obj_set_style_text_font(cap2, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(cap2, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(cap2, current_theme.text_secondary, 0);
   lv_obj_set_style_text_align(cap2, LV_TEXT_ALIGN_CENTER, 0);
 
   refresh_fields();

@@ -32,8 +32,6 @@
 #define CARD_W 160
 #define CARD_H 54
 
-#define COL_DIM 0x8A8594
-
 typedef struct {
   const char *kind;
   const char *uuid;
@@ -136,7 +134,7 @@ void ui_beacon_spam_open(void) {
 
   lv_obj_t *type = lv_label_create(body);
   lv_label_set_text(type, "Type: Mixed");
-  lv_obj_set_style_text_color(type, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(type, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(type, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_align(type, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(type, LV_ALIGN_TOP_MID, 0, 78);
@@ -153,7 +151,7 @@ void ui_beacon_spam_open(void) {
 
   s_uuid_label = lv_label_create(body);
   lv_label_set_text_fmt(s_uuid_label, "%s  %s", BEACONS[0].kind, BEACONS[0].uuid);
-  lv_obj_set_style_text_color(s_uuid_label, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s_uuid_label, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(s_uuid_label, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_align(s_uuid_label, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(s_uuid_label, LV_ALIGN_TOP_MID, 0, 166);

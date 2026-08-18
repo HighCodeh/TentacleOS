@@ -24,6 +24,7 @@
 #include "msgbox_ui.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 #define REFRESH_MS 700
@@ -59,8 +60,6 @@
 #define ICON_W       20
 #define NAME_PAD_L   9
 
-#define SUCCESS_COLOR 0x00E676
-#define COL_DIM       0x8A8594
 #define COL_RAISE     0x170A28
 
 enum { ACT_CHARGE, ACT_SCAN, ACT_REGS, ACT_OFF, ACT_COUNT };
@@ -108,12 +107,12 @@ static const char *vbus_name(bq25896_vbus_status_t s) {
 
 static void style_state_chip(bool charging) {
   if (charging) {
-    lv_obj_set_style_text_color(s_state, lv_color_hex(SUCCESS_COLOR), 0);
-    lv_obj_set_style_bg_color(s_state, lv_color_hex(SUCCESS_COLOR), 0);
+    lv_obj_set_style_text_color(s_state, lv_color_hex(UI_COL_SUCCESS), 0);
+    lv_obj_set_style_bg_color(s_state, lv_color_hex(UI_COL_SUCCESS), 0);
     lv_obj_set_style_bg_opa(s_state, LV_OPA_20, 0);
     lv_obj_set_style_border_width(s_state, 0, 0);
   } else {
-    lv_obj_set_style_text_color(s_state, lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(s_state, current_theme.text_secondary, 0);
     lv_obj_set_style_bg_color(s_state, current_theme.bg_secondary, 0);
     lv_obj_set_style_bg_opa(s_state, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_state, CHIP_BORDER_W, 0);
@@ -180,7 +179,7 @@ static void refresh_telem(void) {
 
 static void refresh_selection(void) {
   const lv_color_t accent = current_theme.border_accent;
-  const lv_color_t dim = lv_color_hex(COL_DIM);
+  const lv_color_t dim = current_theme.text_secondary;
   for (int i = 0; i < ACT_COUNT; i++) {
     bool sel = (i == s_sel);
     lv_obj_set_style_border_color(s_row[i], sel ? accent : current_theme.border_inactive, 0);
@@ -235,7 +234,7 @@ static void build_hero(void) {
   s_src = lv_label_create(card);
   lv_label_set_text(s_src, "");
   lv_obj_set_style_text_font(s_src, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(s_src, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s_src, current_theme.text_secondary, 0);
   lv_obj_align(s_src, LV_ALIGN_RIGHT_MID, SRC_X, SRC_Y);
 }
 

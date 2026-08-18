@@ -28,11 +28,11 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 static const char *TAG = "SUBGHZ_SEND_UI";
 
-#define SIG_GREEN    0x00E676
 #define ANTENNA_ICON "/assets/icons/settings_input_antenna.bin"
 #define SIGNAL_ICON  "/assets/icons/graphic_eq.bin"
 
@@ -46,7 +46,6 @@ static const char *TAG = "SUBGHZ_SEND_UI";
 #define SCOPE_Y_OFS -8
 
 #define WAVES_ICON "/assets/icons/waves.bin"
-#define DIM_COLOR  0x8A8594
 
 #define LIST_PAD_SIDE   8
 #define LIST_PAD_ROW    6
@@ -135,7 +134,7 @@ static void set_status(const char *text, bool success) {
     return;
   lv_label_set_text(s_status_label, text);
   lv_obj_set_style_text_color(
-      s_status_label, success ? lv_color_hex(SIG_GREEN) : current_theme.text_main, 0);
+      s_status_label, success ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_main, 0);
 }
 
 static void set_hint(const char *text) {
@@ -160,8 +159,8 @@ static void style_row(int i, bool sel) {
     lv_obj_set_style_bg_color(r, current_theme.bg_primary, 0);
     lv_obj_set_style_border_color(r, current_theme.border_inactive, 0);
     lv_obj_set_style_shadow_width(r, 0, 0);
-    lv_obj_set_style_text_color(s_row_name[i], lv_color_hex(DIM_COLOR), 0);
-    lv_obj_set_style_text_color(s_row_val[i], lv_color_hex(DIM_COLOR), 0);
+    lv_obj_set_style_text_color(s_row_name[i], current_theme.text_secondary, 0);
+    lv_obj_set_style_text_color(s_row_val[i], current_theme.text_secondary, 0);
   }
 }
 

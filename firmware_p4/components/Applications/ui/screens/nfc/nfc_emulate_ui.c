@@ -28,12 +28,11 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 #define TICK_MS     33
 #define CARD_ICON   "/assets/icons/contactless.bin"
-#define COL_DIM     0x8A8594
-#define SIG_GREEN   0x00E676
 #define TX_DOTS     3
 #define CARD_Y_OFS  (-24)
 #define FIELD_BOX_W 210
@@ -136,7 +135,7 @@ static void build_empty(const char *icon, const char *title, const char *sub) {
   lv_obj_t *s = lv_label_create(card);
   lv_label_set_text(s, sub);
   lv_obj_set_style_text_font(s, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(s, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s, current_theme.text_secondary, 0);
 }
 
 static lv_obj_t *
@@ -209,14 +208,14 @@ static void wallet_build(void) {
   lv_obj_set_size(dot, 8, 8);
   lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_border_width(dot, 0, 0);
-  lv_obj_set_style_bg_color(dot, lv_color_hex(SIG_GREEN), 0);
+  lv_obj_set_style_bg_color(dot, lv_color_hex(UI_COL_SUCCESS), 0);
   lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
   blink_loop(dot, 900, 0);
 
   lv_obj_t *txt = lv_label_create(tap);
   lv_label_set_text(txt, "tap to broadcast");
   lv_obj_set_style_text_font(txt, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(txt, lv_color_hex(SIG_GREEN), 0);
+  lv_obj_set_style_text_color(txt, lv_color_hex(UI_COL_SUCCESS), 0);
 
   s_dots = page_dots_create(s_body, s_count, LV_ALIGN_BOTTOM_MID, 0, -4);
   page_dots_set(&s_dots, s_sel);

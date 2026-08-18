@@ -36,9 +36,6 @@ static const char *TAG = "BLE_EXPOSURE_UI";
 #define ROW_LEN      36
 #define LIST_BUF_LEN (MAX_ADV * ROW_LEN)
 
-#define COL_DIM     0x8A8594
-#define COL_SUCCESS 0x00E676
-
 #define EXPO_ICON "/assets/icons/broadcast_on_personal.bin"
 
 #define COUNT_CARD_W 190

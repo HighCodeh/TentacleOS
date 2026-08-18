@@ -52,7 +52,6 @@ static const char *TAG = "BLE_TRACK_DEV";
 #define COL_COLD 0x2A6FDB
 #define COL_WARM 0xFFB300
 #define COL_HOT  0x00E676
-#define COL_DIM  0x8A8594
 
 typedef enum { PHASE_SCAN, PHASE_TRACK, PHASE_NOTGT } track_phase_t;
 
@@ -118,7 +117,7 @@ static void apply_reading(int trend) {
       lv_obj_set_style_text_color(s_caption, lv_color_hex(COL_COLD), 0);
     } else {
       lv_label_set_text(s_caption, "Hold steady");
-      lv_obj_set_style_text_color(s_caption, lv_color_hex(COL_DIM), 0);
+      lv_obj_set_style_text_color(s_caption, current_theme.text_secondary, 0);
     }
   }
 }
@@ -179,12 +178,12 @@ void ui_ble_track_device_open(void) {
   lv_obj_t *tip = lv_label_create(s_screen);
   lv_label_set_text(tip, "Move around to home in");
   lv_obj_set_style_text_font(tip, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(tip, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(tip, current_theme.text_secondary, 0);
   lv_obj_align(tip, LV_ALIGN_BOTTOM_MID, 0, -(UI_CHROME_FOOTER_H + 14));
 
   if (s_caption != NULL) {
     lv_label_set_text(s_caption, "Finding devices...");
-    lv_obj_set_style_text_color(s_caption, lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(s_caption, current_theme.text_secondary, 0);
   }
   lv_obj_fade_in(s_screen, 240, 0);
 

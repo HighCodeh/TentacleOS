@@ -33,7 +33,6 @@
 static const char *TAG = "BLE_SPAM_UI";
 
 #define RUN_TICK_MS 250
-#define COL_DIM     0x8A8594
 #define SPAM_ICON   "/assets/icons/broadcast_on_personal.bin"
 
 #define SPAM_GRID_PAD      8
@@ -116,7 +115,7 @@ static lv_obj_t *build_spam_card(
   lv_obj_t *d = lv_label_create(c);
   lv_label_set_text(d, effect);
   lv_obj_set_style_text_font(d, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(d, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(d, current_theme.text_secondary, 0);
   return c;
 }
 
@@ -288,7 +287,7 @@ void ui_ble_spam_open(void) {
   const canned_spam_type_t *mt = spam_get_attack_type(s_spam_mode);
   lv_obj_t *mode = lv_label_create(body);
   lv_label_set_text_fmt(mode, "Mode: %s", (mt != NULL && mt->name) ? mt->name : "?");
-  lv_obj_set_style_text_color(mode, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(mode, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(mode, &lv_font_montserrat_12, 0);
   lv_obj_align(mode, LV_ALIGN_TOP_MID, 0, 34);
 
@@ -306,7 +305,7 @@ void ui_ble_spam_open(void) {
 
   s_run_rate_label = lv_label_create(body);
   lv_label_set_text(s_run_rate_label, "Broadcasting");
-  lv_obj_set_style_text_color(s_run_rate_label, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s_run_rate_label, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(s_run_rate_label, &lv_font_montserrat_12, 0);
   lv_obj_align(s_run_rate_label, LV_ALIGN_TOP_MID, 0, 180);
 

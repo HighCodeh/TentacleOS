@@ -20,6 +20,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 #define MOVE_TICK_MS    50
@@ -34,8 +35,6 @@
 #define MX        8
 #define CONTENT_W (240 - 2 * MX)
 
-#define COL_DIM     0x8A8594
-#define COL_SUCCESS 0x00E676
 #define COL_ACC2    0xB89AFF
 
 #define STATUS_Y 48
@@ -103,7 +102,7 @@ static void refresh_chip(void) {
   }
   if (s_chip_lbl)
     lv_obj_set_style_text_color(
-        s_chip_lbl, s_jiggle ? current_theme.screen_base : lv_color_hex(COL_DIM), 0);
+        s_chip_lbl, s_jiggle ? current_theme.screen_base : current_theme.text_secondary, 0);
 }
 
 static void build_status(void) {
@@ -113,7 +112,7 @@ static void build_status(void) {
   lv_obj_align(dot, LV_ALIGN_TOP_LEFT, MX, STATUS_Y + 5);
   lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_border_width(dot, 0, 0);
-  lv_obj_set_style_bg_color(dot, lv_color_hex(COL_SUCCESS), 0);
+  lv_obj_set_style_bg_color(dot, lv_color_hex(UI_COL_SUCCESS), 0);
   lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
 
   lv_obj_t *lbl = lv_label_create(s_screen);
@@ -176,7 +175,7 @@ static void build_trackpad(void) {
   lv_obj_t *tag = lv_label_create(pad);
   lv_label_set_text(tag, "trackpad");
   lv_obj_set_style_text_font(tag, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(tag, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(tag, current_theme.text_secondary, 0);
   lv_obj_align(tag, LV_ALIGN_BOTTOM_LEFT, 6, -4);
 }
 
@@ -190,7 +189,7 @@ static void build_rail(void) {
   lv_obj_set_style_pad_hor(rail, 0, 0);
   lv_obj_set_style_bg_color(rail, current_theme.bg_primary, 0);
   lv_obj_set_style_bg_opa(rail, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_color(rail, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_border_color(rail, current_theme.text_secondary, 0);
   lv_obj_set_style_border_opa(rail, LV_OPA_40, 0);
   lv_obj_set_style_border_width(rail, 1, 0);
   lv_obj_set_flex_flow(rail, LV_FLEX_FLOW_COLUMN);
@@ -205,7 +204,7 @@ static void build_rail(void) {
   lv_obj_t *scr = lv_label_create(rail);
   lv_label_set_text(scr, "SCR");
   lv_obj_set_style_text_font(scr, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(scr, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(scr, current_theme.text_secondary, 0);
 
   lv_obj_t *down = lv_label_create(rail);
   lv_label_set_text(down, LV_SYMBOL_DOWN);
@@ -236,7 +235,7 @@ static void build_click(int x, const char *text, bool selected) {
   lv_label_set_text(lbl, text);
   lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(
-      lbl, selected ? current_theme.border_accent : lv_color_hex(COL_DIM), 0);
+      lbl, selected ? current_theme.border_accent : current_theme.text_secondary, 0);
   lv_obj_center(lbl);
 }
 

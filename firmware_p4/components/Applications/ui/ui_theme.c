@@ -101,6 +101,7 @@ void ui_theme_load_idx(int color_idx) {
     current_theme.border_interface = lv_color_hex(0xBF00FF);
     current_theme.border_inactive = lv_color_hex(0x2A2A2A);
     current_theme.text_main = lv_color_hex(0xFFFFFF);
+    current_theme.text_secondary = lv_color_hex(0x8A8594);
     current_theme.screen_base = lv_color_hex(0x000000);
     current_theme.protocol_nfc = lv_color_hex(0xCC00FF);
     current_theme.protocol_wifi = lv_color_hex(0xBF00FF);
@@ -150,6 +151,9 @@ void ui_theme_load_idx(int color_idx) {
           lv_color_hex(hex_to_int(cJSON_GetObjectItem(theme_node, "screen_base")->valuestring));
 
       cJSON *v;
+      v = cJSON_GetObjectItem(theme_node, "text_secondary");
+      current_theme.text_secondary =
+          v ? lv_color_hex(hex_to_int(v->valuestring)) : lv_color_hex(0x8A8594);
       v = cJSON_GetObjectItem(theme_node, "protocol_nfc");
       current_theme.protocol_nfc =
           v ? lv_color_hex(hex_to_int(v->valuestring)) : lv_color_hex(0x2196F3);
@@ -198,6 +202,8 @@ static void apply_conf_color(const char *key, const char *value, int section) {
       current_theme.border_inactive = color;
     else if (strcmp(key, "text_main") == 0)
       current_theme.text_main = color;
+    else if (strcmp(key, "text_secondary") == 0)
+      current_theme.text_secondary = color;
     else if (strcmp(key, "screen_base") == 0)
       current_theme.screen_base = color;
   } else if (section == CONF_SECTION_PROTOCOL) {
@@ -311,6 +317,9 @@ static void parse_theme_json(const char *data) {
   v = cJSON_GetObjectItem(colors, "text_main");
   if (v)
     current_theme.text_main = lv_color_hex(hex_to_int(v->valuestring));
+  v = cJSON_GetObjectItem(colors, "text_secondary");
+  if (v)
+    current_theme.text_secondary = lv_color_hex(hex_to_int(v->valuestring));
   v = cJSON_GetObjectItem(colors, "screen_base");
   if (v)
     current_theme.screen_base = lv_color_hex(hex_to_int(v->valuestring));

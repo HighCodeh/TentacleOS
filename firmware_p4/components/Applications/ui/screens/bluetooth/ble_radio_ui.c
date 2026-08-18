@@ -40,7 +40,6 @@
 #define ROW_GAP   8
 #define ROW_STEP  (ROW_H + ROW_GAP)
 
-#define COL_DIM   0x8A8594
 #define COL_RAISE 0x170A28
 
 enum {
@@ -104,7 +103,7 @@ static void update_values(void) {
 
 static void refresh_selection(void) {
   const lv_color_t accent = current_theme.border_accent;
-  const lv_color_t dim = lv_color_hex(COL_DIM);
+  const lv_color_t dim = current_theme.text_secondary;
   for (int i = 0; i < R_COUNT; i++) {
     bool sel = (i == s_sel);
     lv_obj_set_style_border_color(s_row[i], sel ? accent : current_theme.border_inactive, 0);

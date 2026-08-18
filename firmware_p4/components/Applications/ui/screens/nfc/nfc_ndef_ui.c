@@ -37,8 +37,6 @@
 #define CHIP_RAD 8
 #define CHIP_PAD 6
 
-#define COL_DIM 0x8A8594
-
 #define HDR_TITLE   "NDEF"
 #define HDR_ICON    "/assets/icons/nfc.bin"
 #define FOOTER_HINT "OK edit   UP/DOWN record   BACK"
@@ -82,7 +80,7 @@ static void make_chip(lv_obj_t *parent, const char *txt, bool sel) {
   lv_obj_t *l = lv_label_create(chip);
   lv_label_set_text(l, txt);
   lv_obj_set_style_text_font(l, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(l, sel ? current_theme.border_accent : lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(l, sel ? current_theme.border_accent : current_theme.text_secondary, 0);
   lv_obj_center(l);
 }
 
@@ -127,7 +125,7 @@ static lv_obj_t *make_row(lv_obj_t *parent, int i) {
   lv_obj_t *sub = lv_label_create(col);
   lv_label_set_text(sub, RECS[i].sub);
   lv_obj_set_style_text_font(sub, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(sub, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(sub, current_theme.text_secondary, 0);
 
   s_icon[i] = ic;
   s_title[i] = title;
@@ -146,9 +144,9 @@ static void refresh_selection(void) {
     lv_obj_set_style_shadow_color(s_row[i], current_theme.border_accent, 0);
     lv_obj_set_style_shadow_spread(s_row[i], sel ? -3 : 0, 0);
     lv_obj_set_style_text_color(
-        s_icon[i], sel ? current_theme.border_accent : lv_color_hex(COL_DIM), 0);
+        s_icon[i], sel ? current_theme.border_accent : current_theme.text_secondary, 0);
     lv_obj_set_style_text_color(
-        s_title[i], sel ? current_theme.text_main : lv_color_hex(COL_DIM), 0);
+        s_title[i], sel ? current_theme.text_main : current_theme.text_secondary, 0);
   }
 }
 

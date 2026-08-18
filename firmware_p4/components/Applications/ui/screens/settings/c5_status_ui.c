@@ -27,6 +27,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 #define MX           8
@@ -39,8 +40,6 @@
 #define ROW_GAP      6
 #define ROW_STEP     (ROW_H + ROW_GAP)
 
-#define COL_SUCCESS 0x00E676
-#define COL_DIM     0x8A8594
 #define COL_RAISE   0x170A28
 
 #define HDR_ICON  "/assets/icons/developer_board.bin"
@@ -86,7 +85,7 @@ static lv_obj_t *info_row(lv_obj_t *card, int index, const char *tag_txt, const 
   lv_obj_t *val = lv_label_create(card);
   lv_label_set_text(val, val_txt);
   lv_obj_set_style_text_font(val, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_text_color(val, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(val, current_theme.text_secondary, 0);
   lv_obj_align(val, LV_ALIGN_TOP_RIGHT, 0, index * INFO_ROW_GAP);
   return val;
 }
@@ -122,7 +121,7 @@ static void build_info_card(void) {
 
   lv_obj_t *link_val = info_row(card, 0, "Link", alive ? "ALIVE" : "DOWN");
   if (alive)
-    lv_obj_set_style_text_color(link_val, lv_color_hex(COL_SUCCESS), 0);
+    lv_obj_set_style_text_color(link_val, lv_color_hex(UI_COL_SUCCESS), 0);
   info_row(card, 1, "C5 FW", cver);
   info_row(card, 2, "Expected", FIRMWARE_VERSION);
 }
@@ -163,7 +162,7 @@ static lv_obj_t *make_action_row(lv_obj_t *parent, int i) {
 
 static void refresh_selection(void) {
   const lv_color_t accent = current_theme.border_accent;
-  const lv_color_t dim = lv_color_hex(COL_DIM);
+  const lv_color_t dim = current_theme.text_secondary;
   for (int i = 0; i < ACT_COUNT; i++) {
     bool sel = (i == s_sel);
     lv_obj_set_style_border_color(s_act_row[i], sel ? accent : current_theme.border_inactive, 0);

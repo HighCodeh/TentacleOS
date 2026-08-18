@@ -20,6 +20,7 @@
 
 #include "ui_chrome.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 #define MX        8
@@ -38,8 +39,6 @@
 #define DUMP_RAD 8
 #define DUMP_PAD 8
 
-#define COL_DIM    0x8A8594
-#define COL_OK     0x00E676
 #define COL_CYAN   0x37E0A8
 #define COL_PANEL2 0x1A1626
 #define COL_LINE   0x2A2636
@@ -85,7 +84,7 @@ static void make_kv(lv_obj_t *parent, const char *k, const char *v) {
   lv_obj_t *kl = lv_label_create(row);
   lv_label_set_text(kl, k);
   lv_obj_set_style_text_font(kl, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(kl, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(kl, current_theme.text_secondary, 0);
 
   lv_obj_t *vl = lv_label_create(row);
   lv_label_set_text(vl, v);
@@ -121,7 +120,7 @@ static void build_auth_card(lv_obj_t *parent) {
   lv_obj_t *ok = lv_label_create(top);
   lv_label_set_text(ok, LV_SYMBOL_OK " " TXT_AUTH);
   lv_obj_set_style_text_font(ok, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(ok, lv_color_hex(COL_OK), 0);
+  lv_obj_set_style_text_color(ok, lv_color_hex(UI_COL_SUCCESS), 0);
 
   lv_obj_t *spacer = lv_obj_create(top);
   lv_obj_remove_flag(spacer, LV_OBJ_FLAG_SCROLLABLE);
@@ -154,7 +153,7 @@ static void build_dump(lv_obj_t *parent) {
   lv_obj_t *lbl = lv_label_create(parent);
   lv_label_set_text(lbl, TXT_FILE);
   lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(lbl, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(lbl, current_theme.text_secondary, 0);
 
   lv_obj_t *box = lv_obj_create(parent);
   lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);

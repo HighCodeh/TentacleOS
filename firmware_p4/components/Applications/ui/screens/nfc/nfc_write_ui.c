@@ -30,11 +30,10 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 #define WR_TICK_MS 33
-#define SIG_GREEN  0x00E676
-#define COL_DIM    0x8A8594
 #define WRITE_ICON "/assets/icons/edit.bin"
 
 #define MAX_CARDS    10
@@ -127,7 +126,7 @@ static void build_empty(const char *icon, const char *title, const char *sub) {
   lv_obj_t *s = lv_label_create(card);
   lv_label_set_text(s, sub);
   lv_obj_set_style_text_font(s, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(s, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s, current_theme.text_secondary, 0);
 }
 
 static lv_obj_t *dash_line(lv_obj_t *parent, lv_point_precise_t *pts, int x, int y) {
@@ -282,18 +281,18 @@ static void begin_writing(void) {
 }
 
 static void finish_write(void) {
-  lv_obj_set_style_text_color(s_ov_status, lv_color_hex(SIG_GREEN), 0);
+  lv_obj_set_style_text_color(s_ov_status, lv_color_hex(UI_COL_SUCCESS), 0);
   lv_label_set_text(s_ov_status, "Written!");
   if (s_ov_bar) {
     lv_bar_set_value(s_ov_bar, 100, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(s_ov_bar, lv_color_hex(SIG_GREEN), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(s_ov_bar, lv_color_hex(UI_COL_SUCCESS), LV_PART_INDICATOR);
   }
   if (s_ov_card) {
     s_ov_ok = lv_obj_create(s_ov);
     lv_obj_remove_flag(s_ov_ok, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(s_ov_ok, 30, 30);
     lv_obj_set_style_radius(s_ov_ok, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(s_ov_ok, lv_color_hex(SIG_GREEN), 0);
+    lv_obj_set_style_bg_color(s_ov_ok, lv_color_hex(UI_COL_SUCCESS), 0);
     lv_obj_set_style_bg_opa(s_ov_ok, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_ov_ok, 0, 0);
     lv_obj_align_to(s_ov_ok, s_ov_card, LV_ALIGN_TOP_RIGHT, -8, 8);

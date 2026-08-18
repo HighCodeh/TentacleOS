@@ -38,8 +38,6 @@
 #define TAG_H    14
 #define TAG_PAD  5
 
-#define COL_DIM 0x8A8594
-
 #define HDR_TITLE   "KEY DICTIONARY"
 #define HDR_ICON    "/assets/icons/nfc.bin"
 #define FOOTER_HINT "OK load   UP/DOWN key   +/- edit"
@@ -86,7 +84,7 @@ static void make_chip(lv_obj_t *parent, const char *txt, bool sel) {
   lv_obj_t *l = lv_label_create(chip);
   lv_label_set_text(l, txt);
   lv_obj_set_style_text_font(l, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(l, sel ? current_theme.border_accent : lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(l, sel ? current_theme.border_accent : current_theme.text_secondary, 0);
   lv_obj_center(l);
 }
 
@@ -133,7 +131,7 @@ static lv_obj_t *make_row(lv_obj_t *parent, int i) {
     lv_obj_t *tag = lv_label_create(row);
     lv_label_set_text(tag, KEYS[i].tag);
     lv_obj_set_style_text_font(tag, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(tag, lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(tag, current_theme.text_secondary, 0);
   }
 
   s_hex[i] = hex;

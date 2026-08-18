@@ -42,8 +42,6 @@ static const char *TAG = "BLE_FLOOD_UI";
 
 #define BLE_ADDR_LEN 6
 
-#define COL_DIM 0x8A8594
-
 #define CARD_W 172
 #define CARD_H 54
 
@@ -164,7 +162,7 @@ void ui_ble_flood_open(void) {
 
   s_target_label = lv_label_create(body);
   lv_label_set_text(s_target_label, "");
-  lv_obj_set_style_text_color(s_target_label, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s_target_label, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(s_target_label, &lv_font_montserrat_12, 0);
   lv_obj_align(s_target_label, LV_ALIGN_TOP_MID, 0, 38);
 
@@ -185,7 +183,7 @@ void ui_ble_flood_open(void) {
 
   s_rate_label = lv_label_create(body);
   lv_label_set_text(s_rate_label, "");
-  lv_obj_set_style_text_color(s_rate_label, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s_rate_label, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(s_rate_label, &lv_font_montserrat_12, 0);
   lv_obj_align(s_rate_label, LV_ALIGN_TOP_MID, 0, 178);
 

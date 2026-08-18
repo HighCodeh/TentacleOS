@@ -47,7 +47,6 @@
 #define BRIGHT_STEP    5
 #define BRIGHT_DEFAULT 80
 
-#define COL_DIM   0x8A8594
 #define COL_OFF   0x101018
 #define COL_TRACK 0x202028
 
@@ -193,7 +192,7 @@ static lv_obj_t *make_ctrl_card(lv_obj_t *parent, const char *label, int h) {
   lv_obj_t *lbl = lv_label_create(card);
   lv_label_set_text(lbl, label);
   lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(lbl, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(lbl, current_theme.text_secondary, 0);
   lv_obj_set_width(lbl, CARD_LABEL_W);
   return card;
 }

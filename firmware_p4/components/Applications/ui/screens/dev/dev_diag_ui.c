@@ -25,6 +25,7 @@
 #include "sys_metrics.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 #define TICK_MS 260
@@ -33,10 +34,8 @@
 #define ICON        "/assets/icons/troubleshoot.bin"
 #define FOOTER_HINT LV_SYMBOL_LEFT "  BACK exit"
 
-#define OK_COLOR   0x00E676
 #define WARN_COLOR 0xFFC23D
 #define CYAN_COLOR 0x37E0A8
-#define DIM_COLOR  0x8A8594
 #define GRID_COLOR 0x241F31
 
 #define PANEL_PAD    8
@@ -95,7 +94,7 @@ make_value_label(lv_obj_t *panel, const char *title, uint32_t color, const char 
 
   lv_obj_t *t = lv_label_create(head);
   lv_label_set_text(t, title);
-  lv_obj_set_style_text_color(t, lv_color_hex(DIM_COLOR), 0);
+  lv_obj_set_style_text_color(t, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(t, &lv_font_montserrat_12, 0);
 
   lv_obj_t *v = lv_label_create(head);
@@ -145,7 +144,7 @@ static lv_obj_t *make_stat(lv_obj_t *row, const char *key, const char *val, uint
 
   lv_obj_t *k = lv_label_create(c);
   lv_label_set_text(k, key);
-  lv_obj_set_style_text_color(k, lv_color_hex(DIM_COLOR), 0);
+  lv_obj_set_style_text_color(k, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(k, &lv_font_montserrat_12, 0);
 
   lv_obj_t *v = lv_label_create(c);
@@ -193,7 +192,7 @@ static void tick_cb(lv_timer_t *t) {
     if (battery_service_get(&b) && b.valid) {
       snprintf(buf, sizeof(buf), "%d%%", b.soc);
       lv_obj_set_style_text_color(
-          s_batt_val, lv_color_hex(b.soc <= BATT_LOW_PCT ? WARN_COLOR : OK_COLOR), 0);
+          s_batt_val, lv_color_hex(b.soc <= BATT_LOW_PCT ? WARN_COLOR : UI_COL_SUCCESS), 0);
     } else {
       snprintf(buf, sizeof(buf), "--");
     }
@@ -217,7 +216,7 @@ static void tick_cb(lv_timer_t *t) {
   if (s_c5_val != NULL) {
     bool alive = spi_bridge_is_alive();
     lv_label_set_text(s_c5_val, alive ? "OK" : "OFF");
-    lv_obj_set_style_text_color(s_c5_val, lv_color_hex(alive ? OK_COLOR : WARN_COLOR), 0);
+    lv_obj_set_style_text_color(s_c5_val, lv_color_hex(alive ? UI_COL_SUCCESS : WARN_COLOR), 0);
   }
 }
 
@@ -289,9 +288,9 @@ static void build_screen(void) {
   lv_obj_set_flex_flow(stats, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(
       stats, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  s_batt_val = make_stat(stats, "Batt", "--", OK_COLOR);
+  s_batt_val = make_stat(stats, "Batt", "--", UI_COL_SUCCESS);
   s_temp_val = make_stat(stats, "Temp", "--", CYAN_COLOR);
-  s_c5_val = make_stat(stats, "C5", "--", DIM_COLOR);
+  s_c5_val = make_stat(stats, "C5", "--", 0x8A8594);  // TODO: not themed (raw hex arg)
 
   ui_input_set_screen_handler(dev_diag_input, NULL);
 

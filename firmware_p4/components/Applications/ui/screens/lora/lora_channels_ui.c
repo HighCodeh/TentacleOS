@@ -70,7 +70,6 @@
 
 #define COL_ACC2 0xB89AFF
 #define COL_CYAN 0x37E0A8
-#define COL_DIM  0x8A8594
 #define COL_SLOT 0x4A4556
 
 typedef struct {
@@ -170,7 +169,7 @@ static void build_filled_tile(lv_obj_t *tile, int i) {
   lv_label_set_text_fmt(idx, "%d", i);
   lv_obj_set_style_text_font(idx, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(
-      idx, primary ? current_theme.border_accent : lv_color_hex(COL_DIM), 0);
+      idx, primary ? current_theme.border_accent : current_theme.text_secondary, 0);
 
   lv_obj_t *d = lv_obj_create(head);
   lv_obj_remove_flag(d, LV_OBJ_FLAG_SCROLLABLE);
@@ -206,7 +205,7 @@ static void build_filled_tile(lv_obj_t *tile, int i) {
   lv_obj_t *stub = lv_label_create(tile);
   lv_label_set_text(stub, s_slot[i].role);
   lv_obj_set_style_text_font(stub, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(stub, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(stub, current_theme.text_secondary, 0);
 
   lv_obj_t *bars = bare_box(tile, lv_pct(100), BAR_MAX_H);
   lv_obj_set_flex_flow(bars, LV_FLEX_FLOW_ROW);
@@ -299,7 +298,7 @@ static void build_grid_content(void) {
     lv_obj_add_flag(s_empty_msg, LV_OBJ_FLAG_FLOATING);
     lv_label_set_text(s_empty_msg, "Start a protocol first");
     lv_obj_set_style_text_font(s_empty_msg, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(s_empty_msg, lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(s_empty_msg, current_theme.text_secondary, 0);
     lv_obj_center(s_empty_msg);
     return;
   }

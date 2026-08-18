@@ -28,6 +28,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 static const char *TAG = "SUBGHZ_RD";
@@ -41,8 +42,6 @@ static const char *TAG = "SUBGHZ_RD";
 #define FREQ_CYCLE_MS 420
 #define SCOPE_TICK_MS 38
 #define DOT_CYCLE_MS  350
-
-#define SIG_GREEN 0x00E676
 
 #define HEADER_TITLE_Y 10
 #define HEADER_RULE_Y  32
@@ -453,7 +452,7 @@ static void scan_done_cb(lv_timer_t *t) {
 
   if (s_status) {
     lv_label_set_text(s_status, "Signal locked!");
-    lv_obj_set_style_text_color(s_status, lv_color_hex(SIG_GREEN), 0);
+    lv_obj_set_style_text_color(s_status, lv_color_hex(UI_COL_SUCCESS), 0);
   }
   if (s_freq)
     lv_label_set_text(s_freq, SIG_LOCK_FREQ);

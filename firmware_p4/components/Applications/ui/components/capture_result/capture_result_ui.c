@@ -21,7 +21,6 @@
 #include "ui_chrome.h"
 #include "ui_theme.h"
 
-#define COL_DIM   0x8A8594
 #define COL_RAISE 0x170A28
 
 #define CR_TOP    UI_CHROME_HEADER_H
@@ -58,7 +57,7 @@ static void style_row(capture_result_t *cr, int i, bool sel) {
   lv_obj_set_style_shadow_color(cr->rows[i], cr->accent, 0);
   lv_obj_set_style_shadow_spread(cr->rows[i], sel ? -3 : 0, 0);
   if (!(cr->saved && i == CAP_ACT_SAVE))
-    lv_obj_set_style_text_color(cr->icons[i], sel ? cr->accent : lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(cr->icons[i], sel ? cr->accent : current_theme.text_secondary, 0);
 }
 
 static void refresh(capture_result_t *cr) {
@@ -127,7 +126,7 @@ static void make_card(capture_result_t *cr, lv_obj_t *root, const capture_result
     lv_label_set_long_mode(sub, LV_LABEL_LONG_DOT);
     lv_label_set_text(sub, cfg->card_sub);
     lv_obj_set_style_text_font(sub, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(sub, lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(sub, current_theme.text_secondary, 0);
   }
   if (cfg->card_value) {
     lv_obj_t *val = lv_label_create(col);

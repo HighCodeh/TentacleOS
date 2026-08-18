@@ -30,6 +30,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 static const char *TAG = "SCRIPTS_UI";
@@ -40,9 +41,7 @@ static const char *TAG = "SCRIPTS_UI";
 #define TERM_GREEN       0x00E676
 #define TERM_DIM_GREEN   0x1F7A52
 #define DARK_PANEL_COLOR 0x05090A
-#define DIM_COLOR        0x8A8594
 #define DANGER_COLOR     0xFF5252
-#define SUCCESS_COLOR    0x00E676
 
 #define HEADER_TITLE "SCRIPTS"
 #define HEADER_ICON  "/assets/icons/description.bin"
@@ -340,7 +339,7 @@ static bool script_needs_permission(const script_t *s) {
 
 static void build_badge(lv_obj_t *parent, cap_t c) {
   bool avail = CAPS[c].available;
-  lv_color_t color = avail ? current_theme.border_accent : lv_color_hex(DIM_COLOR);
+  lv_color_t color = avail ? current_theme.border_accent : current_theme.text_secondary;
 
   lv_obj_t *badge = lv_obj_create(parent);
   lv_obj_remove_flag(badge, LV_OBJ_FLAG_SCROLLABLE);
@@ -431,7 +430,7 @@ static void build_empty(void) {
   lv_obj_t *t2 = lv_label_create(card);
   lv_label_set_text(t2, "Copy .js to /apps/scripts");
   lv_obj_set_style_text_font(t2, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(t2, lv_color_hex(DIM_COLOR), 0);
+  lv_obj_set_style_text_color(t2, current_theme.text_secondary, 0);
 
   fade_in(card, FADE_MS);
 }
@@ -490,7 +489,7 @@ static void build_browser(void) {
 
     lv_obj_t *chev = lv_label_create(row);
     lv_label_set_text(chev, CHEVRON_TEXT);
-    lv_obj_set_style_text_color(chev, lv_color_hex(DIM_COLOR), 0);
+    lv_obj_set_style_text_color(chev, current_theme.text_secondary, 0);
     lv_obj_set_style_text_font(chev, &lv_font_montserrat_12, 0);
 
     s_rows[i] = row;
@@ -610,7 +609,7 @@ static void show_done(void) {
     char buf[80];
     snprintf(buf, sizeof(buf), LV_SYMBOL_OK "  %s", s->result);
     lv_label_set_text(result, buf);
-    lv_obj_set_style_text_color(result, lv_color_hex(SUCCESS_COLOR), 0);
+    lv_obj_set_style_text_color(result, lv_color_hex(UI_COL_SUCCESS), 0);
     ui_feedback(UI_FB_WRITE);
     ESP_LOGI(TAG, "mock script done: %s", s->name);
   }

@@ -24,12 +24,10 @@
 #include "notify_ui.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 static const char *TAG = "LORA_MQTT";
-
-#define SIG_GREEN 0x00E676
-#define COL_DIM   0x8A8594
 
 #define FIELD_MAX    40
 #define PASS_MASK    "******"
@@ -89,9 +87,9 @@ static void apply_status(void) {
       &s_menu, ROW_STATUS, s_connected ? "Connected" : "Disconnected");
   menu_component_set_selector_value(&s_menu, ROW_ACTION, s_connected ? "Disconnect" : "Connect");
   menu_component_set_item_label_color(
-      &s_menu, ROW_STATUS, s_connected ? lv_color_hex(SIG_GREEN) : lv_color_hex(COL_DIM));
+      &s_menu, ROW_STATUS, s_connected ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_secondary);
   menu_component_set_item_label_color(
-      &s_menu, ROW_ACTION, s_connected ? lv_color_hex(SIG_GREEN) : current_theme.text_main);
+      &s_menu, ROW_ACTION, s_connected ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_main);
 }
 
 static void toggle_connect(void) {

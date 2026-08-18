@@ -41,7 +41,6 @@
 #define VISA_Y 12
 #define EDGE_Y (-12)
 
-#define COL_DIM   0x8A8594
 #define COL_WHITE 0xFFFFFF
 #define COL_GOLD  0xD9A521
 #define CARD_TOP  0x3A2F6A
@@ -81,7 +80,7 @@ static void make_kv(lv_obj_t *parent, const char *k, const char *v, lv_color_t v
   lv_obj_t *kl = lv_label_create(row);
   lv_label_set_text(kl, k);
   lv_obj_set_style_text_font(kl, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(kl, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(kl, current_theme.text_secondary, 0);
 
   lv_obj_t *vl = lv_label_create(row);
   lv_label_set_text(vl, v);

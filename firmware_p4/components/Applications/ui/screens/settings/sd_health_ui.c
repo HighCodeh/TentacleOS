@@ -25,6 +25,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 #include "vfs_core.h"
 #include "vfs_sdcard.h"
@@ -39,8 +40,6 @@
 #define MX        8
 #define CONTENT_W (240 - 2 * MX)
 
-#define COL_DIM     0x8A8594
-#define COL_SUCCESS 0x00E676
 #define COL_ACC2    0xB89AFF
 
 #define HERO_Y   48
@@ -156,7 +155,7 @@ static void build_hero(void) {
   lv_obj_t *spec = lv_label_create(card);
   lv_label_set_text(spec, mounted ? "FAT32" : "Not mounted");
   lv_obj_set_style_text_font(spec, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(spec, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(spec, current_theme.text_secondary, 0);
   lv_obj_align(spec, LV_ALIGN_TOP_LEFT, INFO_X, 26);
 
   lv_obj_t *chip = lv_obj_create(card);
@@ -182,7 +181,7 @@ static void build_hero(void) {
   lv_obj_set_style_radius(bar, 5, LV_PART_MAIN);
   lv_obj_set_style_bg_color(bar, current_theme.bg_primary, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_border_color(bar, lv_color_hex(COL_DIM), LV_PART_MAIN);
+  lv_obj_set_style_border_color(bar, current_theme.text_secondary, LV_PART_MAIN);
   lv_obj_set_style_border_opa(bar, LV_OPA_40, LV_PART_MAIN);
   lv_obj_set_style_border_width(bar, 1, LV_PART_MAIN);
   lv_obj_set_style_radius(bar, 5, LV_PART_INDICATOR);
@@ -194,7 +193,7 @@ static void build_hero(void) {
   lv_obj_t *used = lv_label_create(card);
   lv_label_set_text(used, usedbuf);
   lv_obj_set_style_text_font(used, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(used, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(used, current_theme.text_secondary, 0);
   lv_obj_align(used, LV_ALIGN_TOP_LEFT, 0, KV_Y);
 
   lv_obj_t *free_lbl = lv_label_create(card);
@@ -216,17 +215,17 @@ build_tile(int x, const char *caption, const char *value, lv_obj_t **val_out, lv
   lv_obj_t *cap = lv_label_create(card);
   lv_label_set_text(cap, caption);
   lv_obj_set_style_text_font(cap, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(cap, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(cap, current_theme.text_secondary, 0);
 
   lv_obj_t *val = lv_label_create(card);
   lv_label_set_text(val, value);
   lv_obj_set_style_text_font(val, &lv_font_montserrat_16, 0);
-  lv_obj_set_style_text_color(val, lv_color_hex(COL_SUCCESS), 0);
+  lv_obj_set_style_text_color(val, lv_color_hex(UI_COL_SUCCESS), 0);
 
   lv_obj_t *sub = lv_label_create(card);
   lv_label_set_text(sub, UNIT_OK);
   lv_obj_set_style_text_font(sub, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(sub, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(sub, current_theme.text_secondary, 0);
 
   *val_out = val;
   *sub_out = sub;
