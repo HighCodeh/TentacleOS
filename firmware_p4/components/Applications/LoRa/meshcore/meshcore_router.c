@@ -659,7 +659,7 @@ static void on_rx_done(const sx1262_packet_t *pkt, void *ctx) {
   if (pkt == NULL)
     return;
   if (pkt->has_crc_error || pkt->has_header_error) {
-    ESP_LOGW(TAG, "RX HW error -- skip");
+    ESP_LOGD(TAG, "RX HW error -- skip");
     return;
   }
 

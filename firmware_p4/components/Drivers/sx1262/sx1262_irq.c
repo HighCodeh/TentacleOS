@@ -102,7 +102,7 @@ esp_err_t sx1262_irq_process(void) {
       uint8_t next_head = (s_rx_head + 1) % SX1262_RX_RING_SIZE;
       if (next_head == s_rx_tail) {
         s_hal->exit_critical(s_hal->ctx);
-        ESP_LOGW(TAG, "Ring buffer full — packet discarded");
+        ESP_LOGD(TAG, "Ring buffer full — packet discarded");
       } else {
         memcpy(&s_rx_ring[s_rx_head], &pkt, sizeof(sx1262_packet_t));
         s_rx_head = next_head;
@@ -128,13 +128,13 @@ esp_err_t sx1262_irq_process(void) {
   }
 
   if ((irq_flags & SX1262_IRQ_CRC_ERR) && !(irq_flags & SX1262_IRQ_RX_DONE)) {
-    ESP_LOGW(TAG, "IRQ: CRC error (standalone)");
+    ESP_LOGD(TAG, "IRQ: CRC error (standalone)");
     if (s_cbs.on_error != NULL) {
       s_cbs.on_error(ESP_ERR_INVALID_CRC, s_cbs.cb_ctx);
     }
   }
   if ((irq_flags & SX1262_IRQ_HEADER_ERR) && !(irq_flags & SX1262_IRQ_RX_DONE)) {
-    ESP_LOGW(TAG, "IRQ: Header error (standalone)");
+    ESP_LOGD(TAG, "IRQ: Header error (standalone)");
     if (s_cbs.on_error != NULL) {
       s_cbs.on_error(ESP_FAIL, s_cbs.cb_ctx);
     }

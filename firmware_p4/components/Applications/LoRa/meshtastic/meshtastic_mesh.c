@@ -1181,10 +1181,7 @@ static void on_rx_done(const sx1262_packet_t *pkt, void *ctx) {
   if (pkt == NULL)
     return;
   if (pkt->has_crc_error || pkt->has_header_error) {
-    ESP_LOGW(TAG, "RX: erro HW, ignoring");
-
-    if (s_is_running)
-      sx1262_receive_continuous();
+    ESP_LOGD(TAG, "RX: erro HW, ignoring");
     return;
   }
 
