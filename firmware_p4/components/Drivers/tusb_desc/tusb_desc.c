@@ -45,8 +45,20 @@ static const char *TAG = "TUSB_DESC";
 #define STR_IDX_PRODUCT      2
 #define STR_IDX_SERIAL       3
 #define STR_IDX_CDC          4
+#if CFG_TUD_MSC
+#define STR_IDX_MSC          5
+#endif
 
+#if CFG_TUD_MSC
+#define CONFIG_TOTAL_LEN \
+  (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + TUD_CDC_DESC_LEN + TUD_MSC_DESC_LEN)
+#define MSC_DESCRIPTOR(ep_size)                                             \
+  , TUD_MSC_DESCRIPTOR(TUSB_DESC_ITF_NUM_MSC, STR_IDX_MSC,                  \
+                       TUSB_DESC_EP_MSC_OUT, TUSB_DESC_EP_MSC_IN, (ep_size))
+#else
 #define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + TUD_CDC_DESC_LEN)
+#define MSC_DESCRIPTOR(ep_size)
+#endif
 
 // CDC data (bulk) endpoint max packet size is speed-dependent: USB requires it
 // to be EXACTLY 512 at High Speed and 8/16/32/64 at Full Speed. The P4 USB is
@@ -103,7 +115,8 @@ static const uint8_t s_desc_hid_report[] = {
                          8,                                 \
                          TUSB_DESC_EP_CDC_OUT,              \
                          TUSB_DESC_EP_CDC_IN,               \
-                         (cdc_ep_size))
+                         (cdc_ep_size))                     \
+      MSC_DESCRIPTOR(cdc_ep_size)
 
 static const uint8_t s_desc_configuration_hs[] = {CONFIG_DESCRIPTOR(CDC_EP_SIZE_HS)};
 static const uint8_t s_desc_configuration_fs[] = {CONFIG_DESCRIPTOR(CDC_EP_SIZE_FS)};
@@ -115,6 +128,9 @@ static const char *s_string_desc_arr[] = {
     "BadUSB Device",        // Product
     "123456",               // Serial Number
     "TentacleOS Companion", // CDC interface (host link)
+#if CFG_TUD_MSC
+    "TentacleOS SD",
+#endif
 };
 
 #define STRING_DESC_COUNT (sizeof(s_string_desc_arr) / sizeof(s_string_desc_arr[0]))
