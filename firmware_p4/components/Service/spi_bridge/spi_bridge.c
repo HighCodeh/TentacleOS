@@ -254,7 +254,17 @@ uint32_t spi_bridge_get_timeout(spi_id_t id) {
   if (id >= SPI_ID_WIFI_SCAN && id <= SPI_ID_WIFI_APP_PROBE_MON) {
     return SPI_TIMEOUT_WIFI_MS;
   }
-  return SPI_TIMEOUT_DEFAULT_MS;
+  switch (id) {
+    case SPI_ID_MESH_BLE_INIT:
+    case SPI_ID_MESH_BLE_STOP:
+    case SPI_ID_MCORE_BLE_INIT:
+    case SPI_ID_MCORE_BLE_STOP:
+    case SPI_ID_HOST_BLE_INIT:
+    case SPI_ID_HOST_BLE_STOP:
+      return SPI_TIMEOUT_BLE_LIFECYCLE_MS;
+    default:
+      return SPI_TIMEOUT_DEFAULT_MS;
+  }
 }
 
 #define SCAN_STATUS_POLL_MS 250
