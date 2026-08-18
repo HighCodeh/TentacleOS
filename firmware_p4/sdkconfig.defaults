@@ -22,6 +22,13 @@ CONFIG_ESP32P4_REV_MIN_100=y
 # CPU 360MHz (P4 maximum)
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_360=y
 
+# Build the whole app + IDF at -O2 (perf) instead of the -Og default. The LVGL
+# software renderer is fully CPU-bound, so this is the biggest transparent speed
+# win (identical output). Assertions stay on (ASSERTIONS_ENABLE) for safety.
+# Trade-off: harder step-debugging; flip back to _DEBUG for interactive debug.
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+# CONFIG_COMPILER_OPTIMIZATION_DEBUG is not set
+
 # PSRAM hex-octal mode, 200MHz - P4 specific (V3 prototype has PSRAM populated)
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_HEX=y
@@ -29,6 +36,11 @@ CONFIG_SPIRAM_SPEED_200M=y
 CONFIG_SPIRAM_USE_MALLOC=y
 CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=2048
 CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768
+# Allow static .bss to live in PSRAM (via EXT_RAM_BSS_ATTR). The UI screens keep
+# large static list buffers (image_viewer file list, gb paths, ir/wav lists, ...)
+# that were pinning ~200-300 KB of the scarce internal DRAM; moving them to PSRAM
+# with EXT_RAM_BSS_ATTR is what needs this on.
+CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
 
 # Larger stack for kernel_init
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
@@ -45,6 +57,8 @@ CONFIG_TINYUSB_MODE_DMA=y
 # TinyUSB CDC-ACM — companion host link (composite alongside the HID)
 CONFIG_TINYUSB_CDC_ENABLED=y
 CONFIG_TINYUSB_CDC_COUNT=1
+CONFIG_TINYUSB_MSC_ENABLED=y
+CONFIG_TINYUSB_MSC_BUFSIZE=4096
 
 # Required for sys_monitor (uxTaskGetSystemState / vTaskList)
 CONFIG_FREERTOS_USE_TRACE_FACILITY=y
@@ -80,6 +94,9 @@ CONFIG_MBEDTLS_HKDF_C=y
 
 # LVGL QR code widget — companion pairing screen renders the PSK as a QR
 CONFIG_LV_USE_QRCODE=y
+CONFIG_LV_USE_LODEPNG=y
+CONFIG_LV_USE_GIF=y
+CONFIG_LV_USE_TJPGD=y
 
 # LVGL snapshot — NFC card-emulation screen snapshots a panel to animate it
 CONFIG_LV_USE_SNAPSHOT=y

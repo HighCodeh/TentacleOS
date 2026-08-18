@@ -14,3 +14,5 @@ dependencies:
   # compile. Revisit when upstream fixes the guard or we move to IDF 6.
   espressif/esp_lvgl_port: '>=2.0.0,<2.9.0'
   espressif/esp-dsp: ^1.5.0
+  # Helix fixed-point MP3 decoder (classic MP3* API via mp3dec.h) for the player.
+  chmorgan/esp-libhelix-mp3: "^1.0.3"
