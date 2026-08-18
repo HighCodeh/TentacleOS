@@ -15,6 +15,8 @@
 
 #include "wav_library_ui.h"
 
+#include "esp_attr.h"
+
 #include <dirent.h>
 #include <stdio.h>
 #include <string.h>
@@ -25,11 +27,13 @@
 #include "assets_manager.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
+#include "mp3_player_ui.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 #include "wav_player_ui.h"
 
 #define SDCARD_ROOT "/sdcard"
+#define ASSETS_ROOT "/assets"
 #define MAX_TRACKS  64
 #define PATH_LEN    192
 #define NAME_LEN    56
@@ -38,13 +42,12 @@
 #define ROW_ICON    "/assets/icons/music_note.bin"
 
 #define EMPTY_ICON "/assets/icons/sd_card.bin"
-#define EMPTY_MSG  "No .wav on SD card"
+#define EMPTY_MSG  "No music on SD card"
 #define EMPTY_SUB  "Add tracks and reopen"
 #define CARD_W     200
 #define CARD_H     132
 #define BADGE_PX   56
 #define ICON_PX    34
-#define DIM_COLOR  0x8A8594
 
 #define LIST_PAD_SIDE  8
 #define LIST_PAD_ROW   6
@@ -84,16 +87,21 @@ static int s_eq_phase = 0;
 
 static const uint8_t EQ_PAT[8] = {3, 7, 11, 15, 16, 12, 8, 4};
 
-static char s_paths[MAX_TRACKS][PATH_LEN];
-static char s_names[MAX_TRACKS][NAME_LEN];
+EXT_RAM_BSS_ATTR static char s_paths[MAX_TRACKS][PATH_LEN];
+EXT_RAM_BSS_ATTR static char s_names[MAX_TRACKS][NAME_LEN];
 static int s_count = 0;
 static int s_sel = 0;
 static bool s_resume = false;
 static bool s_empty = false;
 
-static bool is_wav(const char *name) {
+static bool is_playable(const char *name) {
   const char *dot = strrchr(name, '.');
-  return dot != NULL && strcasecmp(dot, ".wav") == 0;
+  return dot != NULL && (strcasecmp(dot, ".wav") == 0 || strcasecmp(dot, ".mp3") == 0);
+}
+
+static bool name_is_mp3(const char *name) {
+  const char *dot = strrchr(name, '.');
+  return dot != NULL && strcasecmp(dot, ".mp3") == 0;
 }
 
 static void scan_dir(const char *dir, int depth) {
@@ -115,7 +123,7 @@ static void scan_dir(const char *dir, int depth) {
     strlcat(full, dn, sizeof(full));
     if (ent->d_type == DT_DIR) {
       scan_dir(full, depth + 1);
-    } else if (is_wav(dn)) {
+    } else if (is_playable(dn)) {
       strncpy(s_paths[s_count], full, PATH_LEN - 1);
       s_paths[s_count][PATH_LEN - 1] = '\0';
       strncpy(s_names[s_count], dn, NAME_LEN - 1);
@@ -129,6 +137,7 @@ static void scan_dir(const char *dir, int depth) {
 static void scan_wavs(void) {
   s_count = 0;
   scan_dir(SDCARD_ROOT, 0);
+  scan_dir(ASSETS_ROOT, 0);
 }
 
 int ui_wav_library_count(void) {
@@ -150,6 +159,31 @@ const char *ui_wav_library_name(int i) {
 void ui_wav_library_set_selected(int i) {
   if (i >= 0 && i < s_count)
     s_sel = i;
+}
+
+bool ui_wav_library_is_mp3(int i) {
+  if (i < 0 || i >= s_count)
+    return false;
+  return name_is_mp3(s_paths[i]);
+}
+
+void ui_player_play_index(int i, int return_screen) {
+  if (s_count <= 0)
+    return;
+  i = ((i % s_count) + s_count) % s_count;
+  s_sel = i;
+  s_resume = true;
+  if (name_is_mp3(s_paths[i])) {
+    ui_mp3_player_set_path(s_paths[i]);
+    ui_mp3_player_set_index(i);
+    ui_mp3_player_set_return(return_screen);
+    ui_switch_screen(SCREEN_MP3_PLAYER);
+  } else {
+    ui_wav_player_set_path(s_paths[i]);
+    ui_wav_player_set_index(i);
+    ui_wav_player_set_return(return_screen);
+    ui_switch_screen(SCREEN_WAV_PLAYER);
+  }
 }
 
 static void track_duration(int i, char *out, size_t n) {
@@ -201,7 +235,7 @@ static void build_empty_card(void) {
   lv_obj_t *sub = lv_label_create(card);
   lv_label_set_text(sub, EMPTY_SUB);
   lv_obj_set_style_text_font(sub, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(sub, lv_color_hex(DIM_COLOR), 0);
+  lv_obj_set_style_text_color(sub, current_theme.text_secondary, 0);
 }
 
 static void split_name(const char *full, char *base, size_t bn, char *ext, size_t en) {
@@ -274,8 +308,8 @@ static void style_row(int i, bool sel) {
     lv_obj_set_style_border_color(row, current_theme.border_inactive, 0);
     lv_obj_set_style_shadow_width(row, 0, 0);
     lv_obj_set_style_shadow_opa(row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_text_color(s_row_name[i], lv_color_hex(DIM_COLOR), 0);
-    lv_obj_set_style_text_color(s_row_val[i], lv_color_hex(DIM_COLOR), 0);
+    lv_obj_set_style_text_color(s_row_name[i], current_theme.text_secondary, 0);
+    lv_obj_set_style_text_color(s_row_val[i], current_theme.text_secondary, 0);
   }
 }
 
@@ -401,7 +435,7 @@ static void build_list(void) {
     lv_obj_t *extl = lv_label_create(col);
     lv_label_set_text(extl, ext);
     lv_obj_set_style_text_font(extl, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(extl, lv_color_hex(DIM_COLOR), 0);
+    lv_obj_set_style_text_color(extl, current_theme.text_secondary, 0);
 
     char dur[DUR_BUF];
     track_duration(i, dur, sizeof(dur));
@@ -418,16 +452,10 @@ static void build_list(void) {
 }
 
 static void play_selected(void) {
-  if (s_count <= 0)
+  if (s_count <= 0 || s_sel < 0 || s_sel >= s_count)
     return;
-  if (s_sel < 0 || s_sel >= s_count)
-    return;
-  s_resume = true;
   ui_feedback(UI_FB_SELECT);
-  ui_wav_player_set_path(s_paths[s_sel]);
-  ui_wav_player_set_index(s_sel);
-  ui_wav_player_set_return(SCREEN_PLAYER);
-  ui_switch_screen(SCREEN_WAV_PLAYER);
+  ui_player_play_index(s_sel, SCREEN_PLAYER);
 }
 
 static void wav_library_input(const input_event_t *ev, void *ctx) {

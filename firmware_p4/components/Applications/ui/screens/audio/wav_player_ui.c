@@ -27,6 +27,8 @@
 #include "st7789.h"
 
 #include "audio_i2s.h"
+#include "tos_config.h"
+#include "tos_storage_paths.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -92,6 +94,7 @@ static volatile int s_i_rate = 0;
 static volatile int s_i_ch = 0;
 static volatile int s_i_bits = 0;
 static int s_vol = VOL_DEFAULT;
+static bool s_vol_dirty = false;
 
 static uint32_t rd_u32(const uint8_t *p) {
   return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
@@ -264,7 +267,7 @@ static void player_task(void *arg) {
   s_task = NULL;
   if (s_exit_req) {
     s_exit_req = false;
-    lv_async_call(exit_to_files_cb, NULL);
+    ui_async_call(exit_to_files_cb, NULL);
   }
   vTaskDelete(NULL);
 }
@@ -338,27 +341,6 @@ static void refresh_track_labels(void) {
   }
 }
 
-static void play_index(int i) {
-  if (s_index >= 0) {
-    int n = ui_wav_library_count();
-    if (n > 0) {
-      if (i < 0)
-        i = n - 1;
-      if (i >= n)
-        i = 0;
-      s_index = i;
-      const char *p = ui_wav_library_path(i);
-      if (p != NULL) {
-        strncpy(s_path, p, sizeof(s_path) - 1);
-        s_path[sizeof(s_path) - 1] = '\0';
-      }
-      ui_wav_library_set_selected(i);
-    }
-  }
-  refresh_track_labels();
-  start_playback();
-}
-
 static void go_relative(int dir) {
   int n = pl_count();
   if (n <= 1 || s_index < 0) {
@@ -366,7 +348,7 @@ static void go_relative(int dir) {
     start_playback();
     return;
   }
-  play_index((s_index + dir + n) % n);
+  ui_player_play_index(s_index + dir, s_return);
 }
 
 static void fmt_time(char *out, size_t n, int sec) {
@@ -432,15 +414,8 @@ static void wav_player_input(const input_event_t *ev, void *ctx) {
 
   switch (ev->button) {
     case INPUT_BTN_BACK:
-      if (press) {
-        s_pending_play = false;
-        if (s_task_run) {
-          s_stop_req = true;
-          s_exit_req = true;
-        } else {
-          ui_switch_screen(s_return);
-        }
-      }
+      if (press)
+        ui_switch_screen(s_return);
       break;
     case INPUT_BTN_OK:
       if (press) {
@@ -480,6 +455,7 @@ static void wav_player_input(const input_event_t *ev, void *ctx) {
     case INPUT_BTN_DOWN:
       if (nav) {
         s_vol = (s_vol > VOL_STEP) ? s_vol - VOL_STEP : 0;
+        s_vol_dirty = true;
         audio_i2s_set_volume((uint8_t)s_vol);
         ui_feedback(UI_FB_NAV);
       }
@@ -487,6 +463,7 @@ static void wav_player_input(const input_event_t *ev, void *ctx) {
     case INPUT_BTN_UP:
       if (nav) {
         s_vol = (s_vol + VOL_STEP < 100) ? s_vol + VOL_STEP : 100;
+        s_vol_dirty = true;
         audio_i2s_set_volume((uint8_t)s_vol);
         ui_feedback(UI_FB_NAV);
       }
@@ -538,6 +515,20 @@ void ui_wav_player_set_path(const char *path) {
 
 void ui_wav_player_set_index(int index) {
   s_index = index;
+}
+
+void ui_wav_player_stop(void) {
+  s_pending_play = false;
+  if (s_task_run) {
+    s_stop_req = true;
+    for (int i = 0; i < 80 && s_task_run; i++)
+      vTaskDelay(pdMS_TO_TICKS(10));
+  }
+  if (s_vol_dirty) {
+    g_config_system.volume = s_vol;
+    tos_config_save(TOS_PATH_CONFIG_SYSTEM, "system");
+    s_vol_dirty = false;
+  }
 }
 
 void ui_wav_player_open(void) {
@@ -699,6 +690,8 @@ void ui_wav_player_open(void) {
 
   refresh_track_labels();
 
+  s_vol = g_config_system.volume;
+  s_vol_dirty = false;
   audio_i2s_set_volume((uint8_t)s_vol);
   start_playback();
 

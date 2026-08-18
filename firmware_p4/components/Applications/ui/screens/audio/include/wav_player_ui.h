@@ -46,6 +46,13 @@ void ui_wav_player_set_return(int screen);
 /** @brief Open the WAV player screen and start streaming the set path. */
 void ui_wav_player_open(void);
 
+/**
+ * @brief Stop playback and release the I2S channel, waiting for the decode task
+ *        to exit. Registered as the screen close hook so navigating away (or
+ *        handing off to the MP3 player) tears down cleanly with no audio clash.
+ */
+void ui_wav_player_stop(void);
+
 #ifdef __cplusplus
 }
 #endif

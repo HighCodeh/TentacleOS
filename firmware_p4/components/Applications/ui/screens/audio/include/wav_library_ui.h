@@ -20,8 +20,21 @@
 extern "C" {
 #endif
 
-/** @brief Open the audio player library: lists every .wav on the SD card. */
+#include <stdbool.h>
+
+/** @brief Open the audio player library: lists every .wav / .mp3 on the SD card. */
 void ui_wav_library_open(void);
+
+/** @brief True if track @p i is an .mp3 (else it is a .wav). */
+bool ui_wav_library_is_mp3(int i);
+
+/**
+ * @brief Play library track @p i in the correct player (wav or mp3), wrapping
+ *        the index. Used by both players for prev/next and auto-advance so
+ *        navigation flows seamlessly across a mixed wav+mp3 list. @p return_screen
+ *        is a screen_id_t value the opened player returns to on BACK.
+ */
+void ui_player_play_index(int i, int return_screen);
 
 /** @brief Number of .wav tracks found on the last scan. */
 int ui_wav_library_count(void);
