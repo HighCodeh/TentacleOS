@@ -76,8 +76,6 @@ static void get_config_defaults(char *out_ssid,
                                 char *out_ip_addr,
                                 bool *out_enabled);
 
-// Public function implementations
-
 void wifi_service_init(void) {
   esp_err_t err;
 
@@ -114,8 +112,6 @@ void wifi_service_init(void) {
 
   ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
 
-  // Dual-band (2.4 + 5 GHz) BEFORE configuring the AP: a stale 5G-only band mode
-  // persisted in NVS otherwise rejects the 2.4 GHz AP channel and aborts set_config.
   esp_err_t band_err = esp_wifi_set_band_mode(WIFI_BAND_MODE_AUTO);
   if (band_err != ESP_OK) {
     ESP_LOGW(TAG, "Could not enable dual-band: %s", esp_err_to_name(band_err));
@@ -166,10 +162,6 @@ void wifi_service_init(void) {
   if (is_enabled) {
     ESP_ERROR_CHECK(esp_wifi_start());
     s_is_active = true;
-    // Enable modem sleep explicitly. It only takes effect for an idle, connected
-    // STA (radio wakes per DTIM); AP mode and promiscuous sniffing keep the radio
-    // in continuous RX regardless. The real idle savings need the P4 to signal
-    // low-power over the bridge so the C5 can drop the radio (see power state API).
     esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
     ESP_LOGI(TAG, "Wi-Fi AP started with SSID: %s", target_ssid);
   } else {
@@ -565,14 +557,10 @@ void wifi_service_promiscuous_stop(void) {
 }
 
 bool wifi_service_is_busy(void) {
-  // A capture is in flight (sniffer / deauth detector / handshake). Do not drop
-  // the radio for power saving while this is true.
   return s_promiscuous_active;
 }
 
 void wifi_service_set_power_save(bool deep) {
-  // deep = screen dimmed (MAX_MODEM, longer beacon skips); otherwise MIN_MODEM.
-  // Only meaningful for an idle connected STA; harmless otherwise.
   esp_wifi_set_ps(deep ? WIFI_PS_MAX_MODEM : WIFI_PS_MIN_MODEM);
 }
 
@@ -637,31 +625,24 @@ void wifi_service_stop_channel_hopping(void) {
   ESP_LOGI(TAG, "Channel hopping stopped");
 }
 
-// Static function implementations
-
 static void
 event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
   if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STACONNECTED) {
     wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *)event_data;
     ESP_LOGI(TAG, "Station connected to AP, MAC: " MACSTR, MAC2STR(event->mac));
-    led_blink_green();
   } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STADISCONNECTED) {
-    led_blink_red();
+    ESP_LOGI(TAG, "Station disconnected from AP");
   } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
     ESP_LOGI(TAG, "Disconnected from AP");
     s_is_connected = false;
   } else if (event_base == IP_EVENT && event_id == IP_EVENT_AP_STAIPASSIGNED) {
     ESP_LOGI(TAG, "IP assigned to station connected to AP");
-    led_blink_green();
   } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
     ESP_LOGI(TAG, "Got IP address, Wi-Fi connected");
     s_is_connected = true;
   }
 }
 
-// 2.4 GHz (1-13) plus the common non-DFS 5 GHz channels (UNII-1 + UNII-3). DFS
-// channels (52-144) need radar detection and aren't usable for passive hopping,
-// so they're left out. esp_wifi_set_channel picks the band from the number.
 static const uint8_t HOP_CHANNELS[] = {1,  2,  3,  4,  5,  6,  7,   8,   9,   10,  11,
                                        12, 13, 36, 40, 44, 48, 149, 153, 157, 161, 165};
 #define HOP_CHANNEL_COUNT (sizeof(HOP_CHANNELS) / sizeof(HOP_CHANNELS[0]))
