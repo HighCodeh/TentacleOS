@@ -19,6 +19,8 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "esp_log.h"
 
@@ -31,6 +33,36 @@ static const char *TAG = "STORAGE_WRITE";
 
 #define FORMAT_BUF_SIZE 512
 
+static esp_err_t ensure_parent_dir(const char *full_path) {
+  char dir[VFS_MAX_PATH];
+  strncpy(dir, full_path, sizeof(dir) - 1);
+  dir[sizeof(dir) - 1] = '\0';
+
+  char *slash = strrchr(dir, '/');
+  if (slash == NULL || slash == dir) {
+    return ESP_OK;
+  }
+  *slash = '\0';
+
+  esp_err_t ret = storage_mkdir_recursive(dir);
+  if (ret != ESP_OK) {
+    return ret;
+  }
+
+  // An earlier bug created directories where files should be. Remove such a
+  // stale directory so the write can open the path as a file.
+  struct stat st;
+  if (stat(full_path, &st) == 0 && S_ISDIR(st.st_mode)) {
+    ESP_LOGW(TAG, "Removing stale directory in place of file: %s", full_path);
+    if (rmdir(full_path) != 0) {
+      ESP_LOGE(TAG, "Failed to remove stale directory: %s", full_path);
+      return ESP_FAIL;
+    }
+  }
+
+  return ESP_OK;
+}
+
 esp_err_t storage_write_string(const char *path, const char *data) {
   if (!storage_is_mounted() || path == NULL || data == NULL) {
     return !storage_is_mounted() ? ESP_ERR_INVALID_STATE : ESP_ERR_INVALID_ARG;
@@ -39,7 +71,7 @@ esp_err_t storage_write_string(const char *path, const char *data) {
   char full_path[VFS_MAX_PATH];
   storage_resolve_path(path, full_path, sizeof(full_path));
 
-  esp_err_t ret = storage_mkdir_recursive(full_path);
+  esp_err_t ret = ensure_parent_dir(full_path);
   if (ret != ESP_OK) {
     return ret;
   }
@@ -60,7 +92,7 @@ esp_err_t storage_append_string(const char *path, const char *data) {
   char full_path[VFS_MAX_PATH];
   storage_resolve_path(path, full_path, sizeof(full_path));
 
-  esp_err_t ret = storage_mkdir_recursive(full_path);
+  esp_err_t ret = ensure_parent_dir(full_path);
   if (ret != ESP_OK) {
     return ret;
   }
@@ -81,7 +113,7 @@ esp_err_t storage_write_binary(const char *path, const void *data, size_t size) 
   char full_path[VFS_MAX_PATH];
   storage_resolve_path(path, full_path, sizeof(full_path));
 
-  esp_err_t ret = storage_mkdir_recursive(full_path);
+  esp_err_t ret = ensure_parent_dir(full_path);
   if (ret != ESP_OK) {
     return ret;
   }
@@ -102,7 +134,7 @@ esp_err_t storage_append_binary(const char *path, const void *data, size_t size)
   char full_path[VFS_MAX_PATH];
   storage_resolve_path(path, full_path, sizeof(full_path));
 
-  esp_err_t ret = storage_mkdir_recursive(full_path);
+  esp_err_t ret = ensure_parent_dir(full_path);
   if (ret != ESP_OK) {
     return ret;
   }
@@ -143,7 +175,7 @@ esp_err_t storage_write_formatted(const char *path, const char *format, ...) {
   char full_path[VFS_MAX_PATH];
   storage_resolve_path(path, full_path, sizeof(full_path));
 
-  esp_err_t ret = storage_mkdir_recursive(full_path);
+  esp_err_t ret = ensure_parent_dir(full_path);
   if (ret != ESP_OK) {
     return ret;
   }
@@ -179,7 +211,7 @@ esp_err_t storage_append_formatted(const char *path, const char *format, ...) {
   char full_path[VFS_MAX_PATH];
   storage_resolve_path(path, full_path, sizeof(full_path));
 
-  esp_err_t ret = storage_mkdir_recursive(full_path);
+  esp_err_t ret = ensure_parent_dir(full_path);
   if (ret != ESP_OK) {
     return ret;
   }
@@ -235,7 +267,7 @@ esp_err_t storage_write_csv_row(const char *path, const char **columns, size_t n
   char full_path[VFS_MAX_PATH];
   storage_resolve_path(path, full_path, sizeof(full_path));
 
-  esp_err_t ret = storage_mkdir_recursive(full_path);
+  esp_err_t ret = ensure_parent_dir(full_path);
   if (ret != ESP_OK) {
     return ret;
   }
@@ -265,7 +297,7 @@ esp_err_t storage_append_csv_row(const char *path, const char **columns, size_t 
   char full_path[VFS_MAX_PATH];
   storage_resolve_path(path, full_path, sizeof(full_path));
 
-  esp_err_t ret = storage_mkdir_recursive(full_path);
+  esp_err_t ret = ensure_parent_dir(full_path);
   if (ret != ESP_OK) {
     return ret;
   }
