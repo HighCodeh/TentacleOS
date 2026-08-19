@@ -27,9 +27,9 @@ static const char *TAG = "HID_HAL";
 // Fallback pacing used only when no readiness source is registered.
 #define FALLBACK_KEY_DELAY_US   5000
 #define FALLBACK_MOUSE_DELAY_US 2000
-// Host stopped draining reports (unplugged mid-run): stop waiting instead of
-// spinning the ducky task forever.
-#define REPORT_READY_TIMEOUT_MS 50
+// Must exceed how long a busy host/editor can stall HID polling, else a report
+// is sent into a busy endpoint and dropped. Only a real disconnect should hit it.
+#define REPORT_READY_TIMEOUT_MS 1000
 
 static hid_send_cb_t s_send_cb = NULL;
 static hid_mouse_cb_t s_mouse_cb = NULL;
