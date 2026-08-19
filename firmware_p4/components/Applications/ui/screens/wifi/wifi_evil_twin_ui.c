@@ -169,7 +169,8 @@ static void ap_scan_task(void *arg) {
     wifi_ap_record_t *recs = ap_scanner_get_results(&count);
     if (recs != NULL) {
       for (uint16_t i = 0; i < count && n < ET_AP_MAX; i++) {
-        if (recs[i].ssid[0] == '\0')
+        // Cloning is by SSID, so skip hidden networks (masked as a placeholder).
+        if (recs[i].ssid[0] == '\0' || strcmp((const char *)recs[i].ssid, "[rede oculta]") == 0)
           continue;
         strncpy(s_ap_ssids[n], (const char *)recs[i].ssid, ET_SSID_LEN - 1);
         s_ap_ssids[n][ET_SSID_LEN - 1] = '\0';
