@@ -144,6 +144,19 @@ void hid_layouts_type_string_us(const char *str) {
         case ';':
           keycode = HID_KEY_SEMICOLON;
           break;
+        case '\'':
+          keycode = HID_KEY_APOSTROPHE;
+          break;
+        case '`':
+          keycode = HID_KEY_GRAVE;
+          break;
+        case '\\':
+          keycode = HID_KEY_BACKSLASH;
+          break;
+        case '|':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_BACKSLASH;
+          break;
         default:
           break;
       }
