@@ -59,7 +59,7 @@ static int cmd_c5(int argc, char **argv) {
       return 1;
     }
     if (transport == SPI_OTA_TRANSPORT_UART) {
-      c5_flasher_init(); // UART1 is only needed when the bytes travel over UART
+      c5_flasher_init();
     }
     esp_err_t r = c5_flasher_update(NULL, 0, transport);
     printf("C5 OTA (%s): %s\n",
@@ -145,8 +145,7 @@ static int cmd_firstboot(int argc, char **argv) {
     nvs_commit(h);
     nvs_close(h);
   }
-  printf("First-boot wizard + screen tips cleared. Restarting...\n");
-  esp_restart();
+  printf("First-boot wizard + screen tips cleared. Will run on the next reset.\n");
   return 0;
 }
 
@@ -432,7 +431,7 @@ void register_system_commands(void) {
 
   const esp_console_cmd_t cmd_firstboot_def = {
       .command = "firstboot",
-      .help = "Clear the first-boot onboarding flag and restart to run it again",
+      .help = "Clear the first-boot onboarding flag so it runs on the next reset",
       .hint = NULL,
       .func = &cmd_firstboot,
   };
