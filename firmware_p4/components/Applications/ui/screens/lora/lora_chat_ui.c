@@ -37,6 +37,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
@@ -457,7 +458,7 @@ static void build_nodes_list(void) {
       online++;
 
   s_node_list = lv_obj_create(s_screen);
-  lv_obj_set_size(s_node_list, lv_pct(100), LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_size(s_node_list, lv_pct(100), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
   lv_obj_align(s_node_list, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(s_node_list, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(s_node_list, 0, 0);
@@ -602,7 +603,7 @@ static void build_nodes_view(void) {
     lv_obj_set_flex_flow(wrap, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(wrap, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_align(
-        wrap, LV_ALIGN_CENTER, NODE_POS[i].x - LCD_H_RES / 2, NODE_POS[i].y - LCD_V_RES / 2);
+        wrap, LV_ALIGN_CENTER, NODE_POS[i].x - ui_screen_w() / 2, NODE_POS[i].y - ui_screen_h() / 2);
 
     s_node_pins[i] = make_badge(wrap, "/assets/icons/settings_input_antenna.bin", accent);
 
@@ -624,7 +625,7 @@ static void build_nodes_view(void) {
   lv_obj_set_flex_flow(you_wrap, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(you_wrap, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_align(
-      you_wrap, LV_ALIGN_CENTER, MAP_CENTER_X - LCD_H_RES / 2, MAP_CENTER_Y - LCD_V_RES / 2);
+      you_wrap, LV_ALIGN_CENTER, MAP_CENTER_X - ui_screen_w() / 2, MAP_CENTER_Y - ui_screen_h() / 2);
 
   lv_obj_t *you_pin = make_badge(you_wrap, "/assets/icons/hub.bin", accent);
   lv_obj_set_size(you_pin, YOU_PIN_SZ, YOU_PIN_SZ);
@@ -927,7 +928,7 @@ static void build_chat(void) {
   s_hint = ui_chrome_footer(s_screen, LV_SYMBOL_KEYBOARD " OK write   BACK nodes");
 
   s_chat_list = lv_obj_create(s_screen);
-  lv_obj_set_size(s_chat_list, LCD_H_RES, LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_size(s_chat_list, ui_screen_w(), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
   lv_obj_align(s_chat_list, LV_ALIGN_TOP_LEFT, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(s_chat_list, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(s_chat_list, 0, 0);

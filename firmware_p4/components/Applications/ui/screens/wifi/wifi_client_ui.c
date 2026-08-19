@@ -30,6 +30,7 @@
 #include "msgbox_ui.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
 #include "wifi_service.h"
@@ -49,7 +50,7 @@ static const char *TAG = "WIFI_CLI_UI";
 #define SCAN_WAVES_Y_OFS   -6
 #define SCAN_CAPTION_Y_OFS 78
 
-#define MAP_BODY_H      (LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
+#define MAP_BODY_H      (ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
 #define MAP_PAD         10
 #define MAP_AP_X        8
 #define MAP_AP_W        96
@@ -181,7 +182,7 @@ static void build_map(void) {
   ui_chrome_header(s_screen, "Clients", CLI_HEADER_ICON);
 
   lv_obj_t *body = lv_obj_create(s_screen);
-  lv_obj_set_size(body, LCD_H_RES, MAP_BODY_H);
+  lv_obj_set_size(body, ui_screen_w(), MAP_BODY_H);
   lv_obj_align(body, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, 0);

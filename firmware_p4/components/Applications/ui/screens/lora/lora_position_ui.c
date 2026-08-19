@@ -31,6 +31,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
 
@@ -39,7 +40,7 @@
 #define FOOTER_HINT "MOVE  " LV_SYMBOL_RIGHT " EDIT   OK BCAST   BACK"
 
 #define BODY_TOP UI_CHROME_HEADER_H
-#define BODY_H   (LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
+#define BODY_H   (ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
 
 #define ROOT_PAD 8
 #define ROOT_GAP 7
@@ -361,7 +362,7 @@ static void build_placeholder(void) {
 
   lv_obj_t *msg = lv_label_create(s_screen);
   lv_label_set_long_mode(msg, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(msg, LCD_H_RES - 2 * ROOT_PAD);
+  lv_obj_set_width(msg, ui_screen_w() - 2 * ROOT_PAD);
   lv_label_set_text(msg, "Start a protocol first");
   lv_obj_set_style_text_font(msg, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(msg, current_theme.text_secondary, 0);
@@ -417,7 +418,7 @@ void ui_lora_position_open(void) {
 
   lv_obj_t *root = lv_obj_create(s_screen);
   lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(root, LCD_H_RES, BODY_H);
+  lv_obj_set_size(root, ui_screen_w(), BODY_H);
   lv_obj_align(root, LV_ALIGN_TOP_MID, 0, BODY_TOP);
   lv_obj_set_style_bg_opa(root, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(root, 0, 0);

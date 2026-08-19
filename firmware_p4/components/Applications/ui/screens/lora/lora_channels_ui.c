@@ -32,6 +32,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 #define HDR_TITLE   "CHANNELS"
@@ -39,7 +40,7 @@
 #define FOOTER_HINT "UP/DN  OK RENAME  RIGHT OFF  BACK"
 
 #define BODY_TOP UI_CHROME_HEADER_H
-#define BODY_H   (LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
+#define BODY_H   (ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
 
 #define GRID_PAD 7
 #define GRID_GAP 6
@@ -437,7 +438,7 @@ void ui_lora_channels_open(void) {
   ui_chrome_header(s_screen, HDR_TITLE, HDR_ICON);
 
   lv_obj_t *grid = lv_obj_create(s_screen);
-  lv_obj_set_size(grid, LCD_H_RES, BODY_H);
+  lv_obj_set_size(grid, ui_screen_w(), BODY_H);
   lv_obj_align(grid, LV_ALIGN_TOP_MID, 0, BODY_TOP);
   lv_obj_set_style_bg_opa(grid, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(grid, 0, 0);

@@ -31,6 +31,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 #define TICK_MS        50
@@ -356,7 +357,7 @@ void ui_nfc_saved_open(void) {
     ui_chrome_footer(s_screen, "BACK  Back");
   } else {
     s_cont = lv_obj_create(s_screen);
-    lv_obj_set_size(s_cont, lv_pct(100), LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+    lv_obj_set_size(s_cont, lv_pct(100), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
     lv_obj_align(s_cont, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
     lv_obj_set_style_bg_opa(s_cont, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(s_cont, 0, 0);

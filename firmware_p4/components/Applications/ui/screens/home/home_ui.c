@@ -30,20 +30,21 @@
 #include "menu_ui.h"
 #include "sys_time.h"
 #include "ui_feedback.h"
+#include "ui_metrics.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
 static const char *TAG = "HOME_UI";
 
 #define HOME_HEADER_HEIGHT_PCT 9
-#define HOME_HEADER_HEIGHT     ((LCD_V_RES * HOME_HEADER_HEIGHT_PCT) / 100)
+#define HOME_HEADER_HEIGHT     ((ui_screen_h() * HOME_HEADER_HEIGHT_PCT) / 100)
 
 #define HOME_ART_ASSET "/assets/img/image.bin"
 #define HOME_DATE_FONT "A:assets/fonts/Inter.bin"
 
 #define HOME_PAD       10
 #define HOME_ROW_GAP   8
-#define HOME_INNER_W   (LCD_H_RES - 2 * HOME_PAD)
+#define HOME_INNER_W   (ui_screen_w() - 2 * HOME_PAD)
 #define HOME_ART_MAX_W 210
 #define HOME_ART_MAX_H 132
 #define HOME_FLOAT_AMP 5
@@ -328,8 +329,9 @@ void ui_home_open(void) {
   header_ui_create(s_screen_home);
 
   lv_obj_t *content = lv_obj_create(s_screen_home);
-  lv_obj_set_size(content, LCD_H_RES, LCD_V_RES - HOME_HEADER_HEIGHT);
-  lv_obj_align(content, LV_ALIGN_TOP_MID, 0, HOME_HEADER_HEIGHT);
+  int32_t header_h = HOME_HEADER_HEIGHT;
+  lv_obj_set_size(content, ui_screen_w(), ui_screen_h() - header_h);
+  lv_obj_align(content, LV_ALIGN_TOP_MID, 0, header_h);
   lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(content, 0, 0);

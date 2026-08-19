@@ -24,6 +24,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
@@ -294,7 +295,7 @@ void ui_ble_mouse_open(void) {
 
   lv_obj_t *body = lv_obj_create(s_mouse_screen);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(body, LCD_H_RES, LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_size(body, lv_pct(100), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
   lv_obj_align(body, LV_ALIGN_TOP_LEFT, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(body, 0, 0);

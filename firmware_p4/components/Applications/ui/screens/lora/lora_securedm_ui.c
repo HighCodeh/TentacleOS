@@ -32,6 +32,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
 
@@ -41,7 +42,7 @@
 #define FOOTER_CHAT "OK WRITE   UP/DOWN SCROLL   BACK"
 
 #define BODY_TOP UI_CHROME_HEADER_H
-#define BODY_BOT (LCD_V_RES - UI_CHROME_FOOTER_H)
+#define BODY_BOT (ui_screen_h() - UI_CHROME_FOOTER_H)
 
 #define BANNER_H 36
 #define INPUT_H  32
@@ -241,7 +242,7 @@ static void build_banner(lv_obj_t *parent, const char *name, const char *sub, bo
 
   lv_obj_t *banner = lv_obj_create(parent);
   lv_obj_remove_flag(banner, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(banner, LCD_H_RES, BANNER_H);
+  lv_obj_set_size(banner, ui_screen_w(), BANNER_H);
   lv_obj_align(banner, LV_ALIGN_TOP_MID, 0, BODY_TOP);
   lv_obj_set_style_radius(banner, 0, 0);
   lv_obj_set_style_bg_color(banner, acc, 0);
@@ -355,7 +356,7 @@ static void add_bubble(lv_obj_t *list, bool outgoing, const char *text, const ch
 
 static void build_list_container(lv_obj_t *parent) {
   s_list = lv_obj_create(parent);
-  lv_obj_set_size(s_list, LCD_H_RES, BODY_BOT - INPUT_H - (BODY_TOP + BANNER_H));
+  lv_obj_set_size(s_list, ui_screen_w(), BODY_BOT - INPUT_H - (BODY_TOP + BANNER_H));
   lv_obj_align(s_list, LV_ALIGN_TOP_MID, 0, BODY_TOP + BANNER_H);
   lv_obj_set_style_bg_opa(s_list, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(s_list, 0, 0);
@@ -487,7 +488,7 @@ static void build_thread_list(lv_obj_t *parent) {
 static void build_input(lv_obj_t *parent, const char *placeholder) {
   lv_obj_t *strip = lv_obj_create(parent);
   lv_obj_remove_flag(strip, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(strip, LCD_H_RES, INPUT_H);
+  lv_obj_set_size(strip, ui_screen_w(), INPUT_H);
   lv_obj_align(strip, LV_ALIGN_TOP_MID, 0, BODY_BOT - INPUT_H);
   lv_obj_set_style_radius(strip, 0, 0);
   lv_obj_set_style_bg_opa(strip, LV_OPA_TRANSP, 0);

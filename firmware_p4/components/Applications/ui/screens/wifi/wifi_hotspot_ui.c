@@ -26,6 +26,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
 #include "wifi_service.h"
@@ -37,9 +38,9 @@
 #define FOOTER_HINT "UP/DOWN  OK TOGGLE  BACK"
 
 #define MX        8
-#define CONTENT_W (LCD_H_RES - 2 * MX)
+#define CONTENT_W (ui_screen_w() - 2 * MX)
 #define BODY_TOP  UI_CHROME_HEADER_H
-#define BODY_H    (LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
+#define BODY_H    (ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
 #define STACK_GAP 9
 
 #define STATUS_H      54

@@ -32,6 +32,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 #include "wav_library_ui.h"
 
@@ -559,7 +560,7 @@ void ui_wav_player_open(void) {
 
   lv_obj_t *body = lv_obj_create(s_screen);
   lv_obj_remove_style_all(body);
-  lv_obj_set_size(body, 216, LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_size(body, 216, ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
   lv_obj_align(body, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);

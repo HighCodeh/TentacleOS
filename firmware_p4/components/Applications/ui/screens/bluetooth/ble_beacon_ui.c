@@ -22,6 +22,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 #define SPAM_TICK_MS    120
@@ -117,7 +118,7 @@ void ui_beacon_spam_open(void) {
   ui_chrome_footer(s_screen, "BACK Stop");
 
   lv_obj_t *body = lv_obj_create(s_screen);
-  lv_obj_set_size(body, BODY_W, BODY_H);
+  lv_obj_set_size(body, lv_pct(100), ui_screen_h() - UI_CHROME_HEADER_H);
   lv_obj_align(body, LV_ALIGN_TOP_LEFT, 0, UI_CHROME_HEADER_H);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, 0);

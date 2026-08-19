@@ -30,11 +30,12 @@
 #include "st7789.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 
 static const char *TAG = "IMG_VIEWER";
 
-#define VIEW_W               LCD_H_RES
-#define VIEW_H               LCD_V_RES
+#define VIEW_W               ui_screen_w()
+#define VIEW_H               ui_screen_h()
 #define HDR_H                26
 #define FTR_H                24
 #define IMG_AREA_H           (VIEW_H - HDR_H - FTR_H)

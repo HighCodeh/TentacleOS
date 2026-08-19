@@ -24,6 +24,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
@@ -91,7 +92,7 @@ static void pop_in(lv_obj_t *obj, int target_px, uint32_t ms) {
 static lv_obj_t *make_body(lv_obj_t *parent) {
   lv_obj_t *b = lv_obj_create(parent);
   lv_obj_remove_flag(b, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(b, LCD_H_RES, LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_size(b, lv_pct(100), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
   lv_obj_align(b, LV_ALIGN_TOP_LEFT, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(b, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(b, 0, 0);

@@ -30,6 +30,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
 
@@ -55,8 +56,8 @@ static const char *TAG = "SCRIPTS_UI";
 #define LIST_X         6
 #define LIST_Y         46
 #define LIST_GUTTER    16
-#define LIST_W         (LCD_H_RES - LIST_X - LIST_GUTTER)
-#define LIST_BODY_H    (LCD_V_RES - LIST_Y - UI_CHROME_FOOTER_H - 4)
+#define LIST_W         (ui_screen_w() - LIST_X - LIST_GUTTER)
+#define LIST_BODY_H    (ui_screen_h() - LIST_Y - UI_CHROME_FOOTER_H - 4)
 #define ROW_H          26
 #define ROW_GAP        4
 #define ROW_RADIUS     8
@@ -69,12 +70,12 @@ static const char *TAG = "SCRIPTS_UI";
 #define BADGE_PAD_VER  1
 #define BADGE_TINT_OPA LV_OPA_20
 
-#define SCROLL_TRACK_X          227
+#define SCROLL_TRACK_X          (ui_screen_w() - 13)
 #define SCROLL_TRACK_Y          54
-#define SCROLL_TRACK_LEN        232
+#define SCROLL_TRACK_LEN        (ui_screen_h() - SCROLL_TRACK_Y - 34)
 #define SCROLL_TRACK_WIDTH      3
 #define SCROLL_DASH             4
-#define SCROLL_THUMB_X          223
+#define SCROLL_THUMB_X          (ui_screen_w() - 17)
 #define SCROLL_THUMB_FALLBACK_H 45
 #define SCROLL_THUMB_SRC        "/assets/icons/drag_indicator.bin"
 
@@ -495,7 +496,11 @@ static void build_browser(void) {
     s_rows[i] = row;
   }
 
-  static lv_point_precise_t scroll_pts[2] = {{0, 0}, {0, SCROLL_TRACK_LEN}};
+  static lv_point_precise_t scroll_pts[2];
+  scroll_pts[0].x = 0;
+  scroll_pts[0].y = 0;
+  scroll_pts[1].x = 0;
+  scroll_pts[1].y = SCROLL_TRACK_LEN;
   lv_obj_t *track = lv_line_create(s_screen);
   lv_line_set_points(track, scroll_pts, 2);
   lv_obj_set_pos(track, SCROLL_TRACK_X, SCROLL_TRACK_Y);

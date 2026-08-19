@@ -28,6 +28,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
 
@@ -168,7 +169,7 @@ static void wallet_build(void) {
   s_body = lv_obj_create(s_screen);
   lv_obj_remove_flag(s_body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(s_body, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(s_body, lv_pct(100), LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_size(s_body, lv_pct(100), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
   lv_obj_align(s_body, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(s_body, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(s_body, 0, 0);

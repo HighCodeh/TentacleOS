@@ -29,6 +29,7 @@
 #include "audio_i2s.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 static const char *TAG = "SPECTRUM_UI";
@@ -269,7 +270,7 @@ void ui_spectrum_open(void) {
 
   int band_top = UI_CHROME_HEADER_H;
   int plot_top = band_top + PLOT_TOP_OFS;
-  int plot_h = LCD_V_RES - UI_CHROME_FOOTER_H - AXIS_H - PLOT_BOTTOM_PAD - plot_top;
+  int plot_h = ui_screen_h() - UI_CHROME_FOOTER_H - AXIS_H - PLOT_BOTTOM_PAD - plot_top;
   if (plot_h < PLOT_MIN_H)
     plot_h = PLOT_MIN_H;
 

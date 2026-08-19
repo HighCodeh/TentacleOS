@@ -26,6 +26,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
 
@@ -36,7 +37,7 @@
 #define FOOTER_HINT "UP/DOWN   OK NODE   BACK"
 
 #define BODY_TOP UI_CHROME_HEADER_H
-#define BODY_H   (LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
+#define BODY_H   (ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
 
 #define ROOT_PAD 8
 #define ROOT_GAP 7
@@ -445,7 +446,7 @@ void ui_lora_telemetry_open(void) {
 
   lv_obj_t *root = lv_obj_create(s_screen);
   lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(root, LCD_H_RES, BODY_H);
+  lv_obj_set_size(root, ui_screen_w(), BODY_H);
   lv_obj_align(root, LV_ALIGN_TOP_MID, 0, BODY_TOP);
   lv_obj_set_style_bg_opa(root, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(root, 0, 0);

@@ -25,6 +25,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 #define RADIO_ICON "/assets/icons/bluetooth.bin"
@@ -32,7 +33,7 @@
 #define BLE_ADDR_LEN 6
 
 #define MX        10
-#define CONTENT_W (LCD_H_RES - 2 * MX)
+#define CONTENT_W (ui_screen_w() - 2 * MX)
 #define CARD_Y    50
 #define CARD_H    58
 #define ROWS_Y    124

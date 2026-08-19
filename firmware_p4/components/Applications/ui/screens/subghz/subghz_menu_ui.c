@@ -31,6 +31,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 static const char *TAG = "SUBGHZ_UI";
@@ -251,7 +252,7 @@ static void build_analyzer(void) {
   lv_obj_align(s_freq_lbl, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H + 14);
 
   int total_w = BAR_COUNT * BAR_W + (BAR_COUNT - 1) * BAR_GAP;
-  int x0 = (LCD_H_RES - total_w) / 2;
+  int x0 = (ui_screen_w() - total_w) / 2;
 
   static lv_point_precise_t base_pts[2];
   base_pts[0].x = 0;
@@ -372,7 +373,7 @@ static void build_saved_list(void) {
   lv_obj_t *cont = lv_obj_create(s_screen);
   s_sig_cont = cont;
   lv_obj_set_size(
-      cont, LCD_H_RES - SGC_LEFT - SGC_GUTTER, LCD_V_RES - SGC_TOP_Y - UI_CHROME_FOOTER_H - 4);
+      cont, ui_screen_w() - SGC_LEFT - SGC_GUTTER, ui_screen_h() - SGC_TOP_Y - UI_CHROME_FOOTER_H - 4);
   lv_obj_align(cont, LV_ALIGN_TOP_LEFT, SGC_LEFT, SGC_TOP_Y);
   lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(cont, 0, 0);

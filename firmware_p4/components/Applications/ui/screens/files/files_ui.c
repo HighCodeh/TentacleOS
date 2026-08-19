@@ -30,6 +30,7 @@
 #include "storage_assets.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "image_viewer_ui.h"
 #include "mp3_player_ui.h"
 #include "mp4_player_ui.h"
@@ -53,7 +54,7 @@ static const char *TAG = "FILES_UI";
 #define TILE_H    64
 #define GLABEL_H  28
 
-#define ROW_CONTENT_W   (LCD_H_RES - 16)
+#define ROW_CONTENT_W   (ui_screen_w() - 16)
 #define ROW_NAME_X      36
 #define ROW_NAME_W_FILE (ROW_CONTENT_W - ROW_NAME_X - 52)
 #define ROW_NAME_W_DIR  (ROW_CONTENT_W - ROW_NAME_X - 24)
@@ -542,7 +543,7 @@ static void build_header(void) {
   lv_obj_t *hdr = lv_obj_create(s_screen);
   lv_obj_remove_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(hdr, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(hdr, LCD_H_RES, HEADER_H);
+  lv_obj_set_size(hdr, ui_screen_w(), HEADER_H);
   lv_obj_align(hdr, LV_ALIGN_TOP_LEFT, 0, 0);
   lv_obj_set_style_radius(hdr, 0, 0);
   lv_obj_set_style_bg_color(hdr, current_theme.bg_secondary, 0);
@@ -586,7 +587,7 @@ static void build_pathbar(void) {
   lv_obj_t *bar = lv_obj_create(s_screen);
   lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(bar, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(bar, LCD_H_RES, PATH_H);
+  lv_obj_set_size(bar, ui_screen_w(), PATH_H);
   lv_obj_align(bar, LV_ALIGN_TOP_LEFT, 0, HEADER_H);
   lv_obj_set_style_radius(bar, 0, 0);
   lv_obj_set_style_bg_color(bar, lv_color_hex(0x0A0710), 0);
@@ -657,12 +658,12 @@ static lv_obj_t *make_row_pool(lv_obj_t *parent, int j) {
 }
 
 static void build_list(void) {
-  int list_h = LCD_V_RES - CONTENT_Y - FOOTER_H - PEEK_H - 8;
+  int list_h = ui_screen_h() - CONTENT_Y - FOOTER_H - PEEK_H - 8;
 
   lv_obj_t *wrap = lv_obj_create(s_screen);
   lv_obj_remove_flag(wrap, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(wrap, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(wrap, LCD_H_RES, list_h);
+  lv_obj_set_size(wrap, ui_screen_w(), list_h);
   lv_obj_align(wrap, LV_ALIGN_TOP_LEFT, 0, CONTENT_Y);
   lv_obj_set_style_bg_opa(wrap, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(wrap, 0, 0);
@@ -702,12 +703,12 @@ static lv_obj_t *make_tile_pool(lv_obj_t *parent, int j) {
 }
 
 static void build_grid(void) {
-  int grid_h = LCD_V_RES - CONTENT_Y - FOOTER_H - GLABEL_H;
+  int grid_h = ui_screen_h() - CONTENT_Y - FOOTER_H - GLABEL_H;
 
   lv_obj_t *g = lv_obj_create(s_screen);
   lv_obj_remove_flag(g, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(g, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(g, LCD_H_RES, grid_h);
+  lv_obj_set_size(g, ui_screen_w(), grid_h);
   lv_obj_align(g, LV_ALIGN_TOP_LEFT, 0, CONTENT_Y);
   lv_obj_set_style_bg_opa(g, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(g, 0, 0);
@@ -725,7 +726,7 @@ static void build_grid(void) {
   lv_obj_t *gl = lv_obj_create(s_screen);
   lv_obj_remove_flag(gl, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(gl, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(gl, LCD_H_RES, GLABEL_H);
+  lv_obj_set_size(gl, ui_screen_w(), GLABEL_H);
   lv_obj_align(gl, LV_ALIGN_BOTTOM_LEFT, 0, -FOOTER_H);
   lv_obj_set_style_radius(gl, 0, 0);
   lv_obj_set_style_bg_opa(gl, LV_OPA_TRANSP, 0);
@@ -754,7 +755,7 @@ static void build_peek(void) {
   lv_obj_t *pk = lv_obj_create(s_screen);
   lv_obj_remove_flag(pk, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(pk, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(pk, LCD_H_RES - 16, PEEK_H);
+  lv_obj_set_size(pk, ui_screen_w() - 16, PEEK_H);
   lv_obj_align(pk, LV_ALIGN_BOTTOM_MID, 0, -(FOOTER_H + 4));
   lv_obj_set_style_radius(pk, 11, 0);
   lv_obj_set_style_bg_color(pk, lv_color_hex(COL_RAISE), 0);
@@ -809,7 +810,7 @@ static void build_footer(const char *hint) {
   lv_obj_t *ft = lv_obj_create(s_screen);
   lv_obj_remove_flag(ft, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(ft, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(ft, LCD_H_RES, FOOTER_H);
+  lv_obj_set_size(ft, ui_screen_w(), FOOTER_H);
   lv_obj_align(ft, LV_ALIGN_BOTTOM_LEFT, 0, 0);
   lv_obj_set_style_radius(ft, 0, 0);
   lv_obj_set_style_bg_color(ft, current_theme.bg_secondary, 0);

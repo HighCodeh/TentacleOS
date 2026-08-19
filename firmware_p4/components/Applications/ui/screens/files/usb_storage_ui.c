@@ -27,13 +27,14 @@
 #include "sys_prio.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 #include "usb_msc.h"
 
 static const char *TAG = "USB_STORAGE_UI";
 
-#define VIEW_W LCD_PANEL_W
-#define VIEW_H LCD_PANEL_H
+#define VIEW_W ui_screen_w()
+#define VIEW_H ui_screen_h()
 
 #define COL_READY     lv_color_hex(0x00BCD4)
 #define COL_CONNECTED lv_color_hex(0x00E676)

@@ -27,6 +27,7 @@
 #include "menu_component_ui.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
 #include "wifi_service.h"
@@ -49,7 +50,7 @@ static const char *TAG = "WIFI_CHAN_UI";
 
 #define SPEC_PANEL_TOP     (UI_CHROME_HEADER_H + 8)
 #define SPEC_PANEL_MARGIN  8
-#define SPEC_PANEL_W       (LCD_H_RES - SPEC_PANEL_MARGIN * 2)
+#define SPEC_PANEL_W       (ui_screen_w() - SPEC_PANEL_MARGIN * 2)
 #define SPEC_PANEL_H       210
 #define SPEC_PANEL_PAD     8
 #define SPEC_PANEL_RADIUS  10

@@ -27,11 +27,12 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
 
 #define MX           8
-#define CONTENT_W    (LCD_H_RES - 2 * MX)
+#define CONTENT_W    (ui_screen_w() - 2 * MX)
 #define INFO_Y       50
 #define INFO_H       98
 #define INFO_ROW_GAP 26
