@@ -42,6 +42,7 @@ static TaskHandle_t s_stop_caller_handle = NULL;
 #define SX1262_IRQ_TASK_CORE  SYS_CORE_RADIO
 
 #define SX1262_INIT_MAX_ATTEMPTS 3
+#define SX1262_IRQ_FAIL_RECOVER  5
 
 static esp_err_t sx1262_hw_bringup(const sx1262_config_t *config);
 static esp_err_t validate_hal(const sx1262_hal_t *hal);
@@ -478,10 +479,16 @@ esp_err_t sx1262_receive_single(uint32_t timeout_ms) {
 }
 
 esp_err_t sx1262_receive_continuous(void) {
+  if (!s_is_running) {
+    return ESP_ERR_INVALID_STATE;
+  }
   return sx1262_radio_receive_continuous();
 }
 
 void sx1262_stop_rx(void) {
+  if (!s_is_running) {
+    return;
+  }
   sx1262_radio_stop_rx();
 }
 esp_err_t sx1262_cad_start(void) {
@@ -499,14 +506,34 @@ esp_err_t sx1262_set_rx_duty_cycle(uint32_t rx_ms, uint32_t sleep_ms) {
   return sx1262_radio_set_rx_duty_cycle(rx_ms, sleep_ms);
 }
 
+static void sx1262_recover(void) {
+  ESP_LOGW(TAG, "SX1262 wedged — hardware reset + reconfigure");
+  if (sx1262_hw_bringup(&s_config) != ESP_OK) {
+    ESP_LOGE(TAG, "recover: bring-up failed");
+    return;
+  }
+  sx1262_irq_init(&s_config.hal, &s_config, &s_callbacks);
+  sx1262_radio_init(&s_config.hal, &s_config);
+  (void)sx1262_receive_continuous();
+  ESP_LOGI(TAG, "SX1262 recovered");
+}
+
 static void irq_task(void *arg) {
   (void)arg;
   sx1262_hal_t *hal = &s_config.hal;
+  int fail_streak = 0;
 
   ESP_LOGI(TAG, "IRQ task running");
 
   while (s_is_running) {
-    sx1262_irq_process();
+    if (sx1262_irq_process() != ESP_OK) {
+      if (++fail_streak >= SX1262_IRQ_FAIL_RECOVER) {
+        sx1262_recover();
+        fail_streak = 0;
+      }
+    } else {
+      fail_streak = 0;
+    }
     hal->delay_ms(hal->ctx, 10);
   }
 
@@ -644,7 +671,7 @@ static esp_err_t apply_workaround_w2(sx1262_hal_t *hal) {
     return ret;
   }
 
-  val |= 0x1E; /* Set bits 4:1 to 1111 */
+  val |= 0x1E;
 
   ret = sx1262_cmd_write_register(hal, SX1262_REG_TX_CLAMP_CONFIG, &val, 1);
   if (ret != ESP_OK) {
