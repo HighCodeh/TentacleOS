@@ -45,7 +45,7 @@ See the general project architecture:
 
 ## How to use this project
 
-We recommend that this project serves as a basis for custom projects with ESP32-S3.
+We recommend that this project serves as a basis for custom projects with the ESP32-P4 and ESP32-C5.
 To start a new project with ESP-IDF, follow the official guide:
 [ESP-IDF Documentation - Create a new project](https://docs.espressif.com/projects/esp-idf/en/latest/api-guides/build-system.html#start-a-new-project)
 

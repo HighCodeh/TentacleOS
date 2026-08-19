@@ -61,7 +61,7 @@ firmware_p4/          # ESP32-P4 master firmware (embeds C5 binary)
     Drivers/          # Hardware drivers (SPI, buttons, display, radio, USB)
     Service/          # Support services (OTA, WiFi, console, storage, SPI bridge)
     Core/             # System core and main managers
-    Applications/     # User-facing apps (UI, bad_usb, SubGhz)
+    Applications/     # User-facing apps (UI, bad_usb, SubGhz, gameboy, nfc)
     Drivers/spi_bridge_phy/  # SPI bridge physical layer (P4 side)
   main/main.c         # Entry point
 common/metadata/      # Shared metadata
