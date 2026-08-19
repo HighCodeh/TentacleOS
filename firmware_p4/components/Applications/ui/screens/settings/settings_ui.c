@@ -49,7 +49,6 @@ static const char *TAG = "SETTINGS_UI";
 #define C5_PASSTHROUGH_TASK_PRIO  SYS_PRIO_SERVICE_HI
 #define REBOOT_DELAY_MS           80
 
-#define ACTION_TOGGLE_ROTATION (-1)
 #define ACTION_FLASH_C5        (-2)
 #define ACTION_C5_PASSTHROUGH  (-3)
 #define ACTION_REBOOT_P4       (-4)
@@ -84,7 +83,6 @@ static const settings_item_t MAIN_ITEMS[] = {
     {"DISPLAY", "/assets/icons/display_settings.bin", SCREEN_DISPLAY_SETTINGS},
     {"INTERFACE", "/assets/icons/tune.bin", SCREEN_INTERFACE_SETTINGS},
     {"THEME", "/assets/icons/palette.bin", SCREEN_THEME_SELECTOR},
-    {"ROTATE SCREEN", "/assets/icons/screen_rotation.bin", ACTION_TOGGLE_ROTATION},
     {"SOUND", "/assets/icons/volume_up.bin", SCREEN_SOUND_SETTINGS},
     {"AUDIO & HAPTICS", "/assets/icons/graphic_eq.bin", GOTO_LAB},
     {"BATTERY", "/assets/icons/battery_full.bin", SCREEN_BATTERY_SETTINGS},
@@ -172,11 +170,6 @@ view_table(settings_view_t view, int *count, const char **title, const char **ic
         *icon = "/assets/icons/settings.bin";
       return MAIN_ITEMS;
   }
-}
-
-static void rotation_confirm_cb(bool confirm) {
-  if (confirm)
-    ui_manager_relayout_current();
 }
 
 static void show_c5_progress(const char *msg) {
@@ -294,6 +287,10 @@ static void start_c5_flash(void) {
     lv_obj_remove_flag(s_c5_bar, LV_OBJ_FLAG_HIDDEN);
   if (s_c5_prog_timer == NULL)
     s_c5_prog_timer = lv_timer_create(c5_progress_tick, C5_PROGRESS_TICK_MS, NULL);
+
+  if (s_c5_overlay)
+    lv_obj_move_foreground(s_c5_overlay);
+  lv_refr_now(NULL);
 
   xTaskCreatePinnedToCore(c5_flash_task,
                           "c5_flash",
@@ -413,14 +410,6 @@ static void start_reboot_p4(void) {
 
 static bool run_action(int target) {
   switch (target) {
-    case ACTION_TOGGLE_ROTATION:
-
-      msgbox_open("/assets/icons/screen_rotation.bin",
-                  "Switch portrait/landscape now?",
-                  "YES",
-                  "NO",
-                  rotation_confirm_cb);
-      return true;
     case ACTION_FLASH_C5:
 
       start_c5_flash();
