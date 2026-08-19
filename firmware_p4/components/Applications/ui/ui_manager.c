@@ -221,10 +221,34 @@ static bool input_dispatch_blocked(void) {
   return ui_input_is_locked() || msgbox_is_open() || keyboard_is_open() || power_policy_is_asleep();
 }
 
+// Landscape is LV_DISPLAY_ROTATION_270 — the panel content is turned a quarter
+// turn, so a physical d-pad press must be turned the same quarter turn for
+// navigation to point the way it looks on screen. Applied centrally so every
+// screen handler keeps using plain UP/DOWN/LEFT/RIGHT and adapts for free.
+// OK/BACK are direction-agnostic. (If a direction reads inverted on hardware,
+// reverse this cycle.)
+static input_button_t input_remap_for_rotation(input_button_t b) {
+  if (!lvgl_glue_is_landscape())
+    return b;
+  switch (b) {
+    case INPUT_BTN_UP:
+      return INPUT_BTN_RIGHT;
+    case INPUT_BTN_RIGHT:
+      return INPUT_BTN_DOWN;
+    case INPUT_BTN_DOWN:
+      return INPUT_BTN_LEFT;
+    case INPUT_BTN_LEFT:
+      return INPUT_BTN_UP;
+    default:
+      return b;
+  }
+}
+
 static void ui_input_pump(lv_timer_t *t) {
   (void)t;
   input_event_t ev;
   while (input_get_event(&ev, 0)) {
+    ev.button = input_remap_for_rotation(ev.button);
     if (screen_tips_active()) {
       screen_tips_handle_input(&ev);
       continue;
