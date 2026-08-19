@@ -30,8 +30,8 @@
 #define TIP_NVS_KEY_SKIP "skip"
 #define TIP_WORDS        ((SCREEN_COUNT + 31) / 32)
 
-#define TIP_SCRIM_OPA 232 // how dark the screen behind gets
-#define TIP_ARM_MS    500 // ignore input while the intro plays
+#define TIP_SCRIM_OPA 232
+#define TIP_ARM_MS    500
 #define TIP_TEXT_W    182
 #define TIP_ART       "/assets/img/image.bin"
 
@@ -108,7 +108,8 @@ static const tip_entry_t TIPS[] = {
 
     {SCREEN_NFC_MENU,
      "NFC",
-     "The whole 13.56 MHz NFC world: read tags, write, emulate and store your cards."},
+     "The whole 13.56 MHz NFC world: read tags, write, emulate and store your cards. Heads-up: "
+     "mocked for now due to a hardware issue."},
     {SCREEN_CARD_EMU,
      "CARD EMULATION",
      "Build a card from scratch or pick a saved one, and the High Boy broadcasts it as the real "
@@ -144,7 +145,8 @@ static const tip_entry_t TIPS[] = {
 
     {SCREEN_SUBGHZ_MENU,
      "SUB-GHZ",
-     "The Sub-GHz radio: capture, analyze and replay remote signals on 433, 868 and 315 MHz."},
+     "The Sub-GHz radio: capture, analyze and replay remote signals on 433, 868 and 315 MHz. "
+     "Heads-up: mocked for now due to a hardware issue."},
     {SCREEN_SUBGHZ_BRUTE,
      "CODE BRUTE FORCE",
      "Brute Force fires thousands of codes across a range until one pops the gate - no key "
@@ -155,8 +157,8 @@ static const tip_entry_t TIPS[] = {
      "rate and key."},
     {SCREEN_RFID_MENU,
      "RFID 125 kHz",
-     "RFID reads LF 125 kHz tags: read, emulate, add one by hand, even clone a whole access "
-     "badge."},
+     "RFID reads LF 125 kHz tags: read, emulate, add one by hand, even clone a whole access badge. "
+     "Heads-up: mocked for now due to a hardware issue."},
     {SCREEN_SUBGHZ_CONFIG,
      "RADIO CONFIG",
      "For the tough ones, Radio Config tunes modulation, bandwidth, data rate and preset before "
@@ -184,7 +186,7 @@ static const tip_entry_t TIPS[] = {
     {SCREEN_LORA_CHAT,
      "LORA MESH",
      "Step into the LoRa mesh: pick MeshCore or Meshtastic, see the nodes on the map and chat "
-     "off-grid."},
+     "off-grid. Heads-up: mocked for now due to a hardware issue."},
     {SCREEN_LORA_SECURE_DM,
      "ENCRYPTED DM",
      "Direct messages with per-contact X25519 keys. Compare fingerprints to be sure who is on the "
@@ -288,6 +290,7 @@ static uint32_t s_seen[TIP_WORDS];
 static lv_obj_t *s_scrim = NULL;
 static lv_obj_t *s_prev_focus = NULL;
 static uint32_t s_open_tick = 0;
+static bool s_armed = false;
 
 static const tip_entry_t *tip_for(screen_id_t screen) {
   for (int i = 0; i < TIP_COUNT; i++) {
@@ -368,7 +371,7 @@ static void dismiss(void) {
 static void scrim_key_cb(lv_event_t *e) {
   if (lv_event_get_code(e) != LV_EVENT_KEY)
     return;
-  if (lv_tick_get() - s_open_tick < TIP_ARM_MS)
+  if (!s_armed || lv_tick_get() - s_open_tick < TIP_ARM_MS)
     return;
   uint32_t key = lv_event_get_key(e);
   if (key == LV_KEY_ENTER || key == LV_KEY_ESC || key == LV_KEY_RIGHT)
@@ -378,9 +381,13 @@ static void scrim_key_cb(lv_event_t *e) {
 void screen_tips_handle_input(const input_event_t *ev) {
   if (!s_active || ev == NULL)
     return;
+  if (ev->action == INPUT_ACTION_RELEASE) {
+    s_armed = true;
+    return;
+  }
   if (ev->action != INPUT_ACTION_PRESS)
     return;
-  if (lv_tick_get() - s_open_tick < TIP_ARM_MS)
+  if (!s_armed || lv_tick_get() - s_open_tick < TIP_ARM_MS)
     return;
   if (ev->button == INPUT_BTN_OK || ev->button == INPUT_BTN_BACK || ev->button == INPUT_BTN_RIGHT)
     dismiss();
@@ -396,7 +403,6 @@ static void tip_ty_cb(void *o, int32_t v) {
   lv_obj_set_style_translate_y((lv_obj_t *)o, v, 0);
 }
 
-// Fade an element in from transparent, after `delay` ms.
 static void tip_fade(lv_obj_t *o, uint32_t delay) {
   lv_obj_set_style_opa(o, LV_OPA_TRANSP, 0);
   lv_anim_t a;
@@ -410,7 +416,6 @@ static void tip_fade(lv_obj_t *o, uint32_t delay) {
   lv_anim_start(&a);
 }
 
-// Gentle continuous float for the mascot.
 static void tip_bob(lv_obj_t *o) {
   lv_anim_t a;
   lv_anim_init(&a);
@@ -431,14 +436,13 @@ static void build_overlay(const tip_entry_t *entry) {
   lv_obj_remove_flag(scrim, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(scrim, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_style_bg_color(scrim, lv_color_black(), 0);
-  lv_obj_set_style_bg_opa(scrim, LV_OPA_TRANSP, 0); // fades in — the screen darkens
+  lv_obj_set_style_bg_opa(scrim, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(scrim, 0, 0);
   lv_obj_set_style_radius(scrim, 0, 0);
   lv_obj_set_style_pad_all(scrim, 0, 0);
   lv_obj_add_event_cb(scrim, scrim_key_cb, LV_EVENT_KEY, NULL);
   s_scrim = scrim;
 
-  // The screen behind darkens first.
   lv_anim_t a;
   lv_anim_init(&a);
   lv_anim_set_var(&a, scrim);
@@ -448,7 +452,6 @@ static void build_overlay(const tip_entry_t *entry) {
   lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
   lv_anim_start(&a);
 
-  // No boxed window: octobit on top, the explanation below it, centered on the scrim.
   lv_obj_t *col = lv_obj_create(scrim);
   lv_obj_remove_style_all(col);
   lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE);
@@ -463,18 +466,36 @@ static void build_overlay(const tip_entry_t *entry) {
   if (dsc != NULL) {
     lv_obj_t *img = lv_image_create(col);
     lv_image_set_src(img, dsc);
-    lv_image_set_scale(img, 168); // ~66% so it leaves room for the text
+    lv_image_set_scale(img, 168);
     tip_fade(img, 130);
     tip_bob(img);
   }
 
-  lv_obj_t *title = lv_label_create(col);
+  lv_obj_t *card = lv_obj_create(col);
+  lv_obj_remove_style_all(card);
+  lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_width(card, LV_SIZE_CONTENT);
+  lv_obj_set_height(card, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(card, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_hor(card, 18, 0);
+  lv_obj_set_style_pad_ver(card, 14, 0);
+  lv_obj_set_style_pad_row(card, 8, 0);
+  lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(card, current_theme.bg_primary, 0);
+  lv_obj_set_style_radius(card, 16, 0);
+  lv_obj_set_style_border_width(card, 1, 0);
+  lv_obj_set_style_border_color(card, current_theme.border_accent, 0);
+  lv_obj_set_style_border_opa(card, 110, 0);
+  tip_fade(card, 200);
+
+  lv_obj_t *title = lv_label_create(card);
   lv_label_set_text(title, entry->title);
   lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
   lv_obj_set_style_text_color(title, current_theme.border_accent, 0);
   tip_fade(title, 300);
 
-  lv_obj_t *tip = lv_label_create(col);
+  lv_obj_t *tip = lv_label_create(card);
   lv_label_set_long_mode(tip, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(tip, TIP_TEXT_W);
   lv_label_set_text(tip, entry->tip);
@@ -483,7 +504,7 @@ static void build_overlay(const tip_entry_t *entry) {
   lv_obj_set_style_text_align(tip, LV_TEXT_ALIGN_CENTER, 0);
   tip_fade(tip, 380);
 
-  lv_obj_t *hint = lv_label_create(col);
+  lv_obj_t *hint = lv_label_create(card);
   lv_label_set_text(hint, LV_SYMBOL_OK "  OK");
   lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(hint, current_theme.border_accent, 0);
@@ -491,6 +512,7 @@ static void build_overlay(const tip_entry_t *entry) {
   tip_fade(hint, 460);
 
   s_open_tick = lv_tick_get();
+  s_armed = false;
   s_active = true;
   hijack_input();
 }
