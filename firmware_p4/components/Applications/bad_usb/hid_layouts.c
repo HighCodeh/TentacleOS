@@ -173,16 +173,20 @@ void hid_layouts_type_string_abnt2(const char *str) {
     uint8_t c1 = (uint8_t)str[i];
     uint8_t c2 = (uint8_t)str[i + 1];
 
-    // Single quote -> dead key acute + space
+    // Apostrophe and double quote sit on the key left of '1' (US grave position).
     if (c1 == '\'') {
-      hid_hal_press_key(HID_KEY_BRACKET_LEFT, 0);
-      hid_hal_press_key(HID_KEY_SPACE, 0);
+      hid_hal_press_key(HID_KEY_GRAVE, 0);
+      continue;
+    }
+    if (c1 == '"') {
+      hid_hal_press_key(HID_KEY_GRAVE, KEYBOARD_MODIFIER_LEFTSHIFT);
       continue;
     }
 
-    // Double quote -> dead key acute + shift
-    if (c1 == '"') {
+    // Backtick is the grave dead key (Shift + acute key); space emits the literal.
+    if (c1 == '`') {
       hid_hal_press_key(HID_KEY_BRACKET_LEFT, KEYBOARD_MODIFIER_LEFTSHIFT);
+      hid_hal_press_key(HID_KEY_SPACE, 0);
       continue;
     }
 
