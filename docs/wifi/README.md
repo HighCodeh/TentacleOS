@@ -1,19 +1,41 @@
+# Wi-Fi service
+
+Split across **both firmwares**. The **C5 owns the real radio** (the full esp-idf
+Wi-Fi stack, AP/STA, scanning, promiscuous capture, config persistence). The **P4
+is a pure proxy**: every public call forwards to the C5 over the SPI bridge. Keep
+this split in mind - the two `wifi_service` APIs look almost identical, but the
+P4 one has no local Wi-Fi stack behind it.
+
+Both headers share the same file-path defines:
+
+```c
+#define WIFI_AP_CONFIG_FILE      "config/wifi/wifi_ap.conf"
+#define WIFI_KNOWN_NETWORKS_FILE "storage/wifi/know_networks.json"
+```
+
+Both are relative paths handed to the `storage_assets` API; the actual files
+live on the C5 (it owns storage for Wi-Fi state).
+
+---
+
 # P4
 
-This component manages Wi-Fi functionalities including Access Point (AP) mode, Station (STA) mode, scanning, and configuration persistence using JSON files.
+`firmware_p4/components/Service/wifi/` - a **thin SPI-bridge proxy** to the C5.
+There is **no local esp-idf Wi-Fi stack on the P4**: no APSTA mode, no NVS init,
+no default event loop, no netif / static IP / DHCP server, no `cJSON`, no local
+channel-hop task, and no LED signalling in this module. Every operation is a
+`spi_bridge_send_command` (or `spi_bridge_run_scan`) to the C5.
 
-## Functionality Overview
+## How state is read without blocking the UI
 
-The service handles:
-- **Initialization/Deinitialization:** Setup of NVS, Netif, Event Loops, and Wi-Fi drivers.
-- **Access Point (AP):** Configurable SSID, password, max connections, and custom IP address.
-- **Scanning:** Active scanning for nearby networks.
-- **Station (STA):** Connecting to external Wi-Fi networks.
-- **Hotspot Management:** Dynamic switching of AP configuration.
-- **Promiscuous Mode:** Low-level packet sniffing and environment monitoring.
-- **Channel Hopping:** Automated cycling through Wi-Fi channels for environment monitoring.
-- **Configuration Persistence:** AP/client settings loaded via `tos_config_load_all()` from SD (`config/wifi.conf`) with flash fallback (`/assets/config/wifi/wifi_ap.conf`).
-- **Known Networks:** Automatically saves connected network credentials to `wifi/` on SD card.
+The header getters (`wifi_service_is_active` / `wifi_service_is_connected`) are
+polled from an `lv_timer` on the LVGL thread. Doing a blocking SPI RPC there
+froze the renderer whenever the bridge was busy (e.g. during a scan, which holds
+the bridge mutex for seconds). So a background `status_poll_task` (pinned to
+`SYS_CORE_RADIO`, priority `SYS_PRIO_BACKGROUND`) polls `SPI_ID_SYSTEM_STATUS`
+once per second and caches `wifi_active` / `wifi_connected` into volatile flags;
+the getters just read those flags. The same poll also feeds
+`bluetooth_service_set_running_cached`.
 
 ## API Functions
 
@@ -23,51 +45,51 @@ The service handles:
 ```c
 void wifi_service_init(void);
 ```
-Initializes the Wi-Fi stack in `APSTA` mode.
-- Initializes NVS (performing erase if necessary).
-- Sets up the default event loop and registers handlers.
-- Loads AP configuration from storage (or uses defaults "Darth Maul"/"MyPassword123").
-- Configures the static IP (default: 192.168.4.1) and starts the DHCP server.
+Spawns the background `status_poll_task` (once). It does **not** bring up any
+radio - the C5 owns that.
 
 #### `wifi_service_deinit`
 ```c
 void wifi_service_deinit(void);
 ```
-Completely shuts down the Wi-Fi service.
-- Stops the Wi-Fi driver.
-- Unregisters event handlers.
-- Deinitializes the driver.
-- Frees synchronization primitives (mutexes) and clears static data.
+Sends `SPI_ID_WIFI_STOP` to the C5 (functionally identical to
+`wifi_service_stop`; there is no local stack to tear down).
 
 #### `wifi_service_start` / `wifi_service_stop`
 ```c
 void wifi_service_start(void);
 void wifi_service_stop(void);
 ```
-Simple wrappers to start or stop the Wi-Fi driver without full deinitialization. `wifi_service_stop` also clears stored scan results.
+Forward `SPI_ID_WIFI_START` / `SPI_ID_WIFI_STOP` to the C5.
 
 ### Scanning
 
 #### `wifi_service_scan`
 ```c
-void wifi_service_scan(void);
+esp_err_t wifi_service_scan(void);
 ```
-Performs an active Wi-Fi scan.
-- Uses a mutex to ensure thread safety.
-- Stores up to `WIFI_SCAN_LIST_SIZE` results internally.
-- Provides visual feedback via LEDs (Green for AP connection, Red for failures, Blue for scan success).
+**Async, proxied.** The C5 runs the scan. This calls
+`spi_bridge_run_scan(SPI_ID_WIFI_SCAN, SPI_ID_WIFI_SCAN_STATUS, NULL, 0)`, which
+kicks the scan and polls the scan-status id **without holding the bridge mutex**
+(so the UI and other peripherals stay free), returning once the C5 reports
+completion. Returns `esp_err_t`.
 
 #### `wifi_service_get_ap_count`
 ```c
 uint16_t wifi_service_get_ap_count(void);
 ```
-Returns the number of networks found in the last scan.
+Fetches the last-scan count from the C5 via `SPI_ID_SYSTEM_DATA` (with the
+`SPI_DATA_INDEX_COUNT` magic index). Returns 0 on bridge failure.
 
 #### `wifi_service_get_ap_record`
 ```c
-wifi_ap_record_t* wifi_service_get_ap_record(uint16_t index);
+wifi_ap_record_t *wifi_service_get_ap_record(uint16_t index);
 ```
-Retrieves a pointer to a specific scan result record. Returns `NULL` if the index is invalid.
+Fetches one scan record from the C5 (`SPI_ID_SYSTEM_DATA`, indexed) into a static
+cache and returns a pointer to it, or `NULL` on failure. Sanitizes the SSID at
+this single point for every consumer (console + UI): non-printable / non-ASCII
+bytes become `?` (they hang LVGL's text renderer), and an empty SSID (hidden
+network) is replaced with the placeholder `[rede oculta]`.
 
 ### Connection & Management
 
@@ -75,132 +97,105 @@ Retrieves a pointer to a specific scan result record. Returns `NULL` if the inde
 ```c
 esp_err_t wifi_service_connect_to_ap(const char *ssid, const char *password);
 ```
-Connects the device (as a station) to an external Access Point.
-- Configures authentication mode based on the presence of a password (WPA2_PSK or OPEN).
-- Disconnects any existing connection before attempting a new one.
-- **Persistence:** Automatically saves the SSID and password to `assets/storage/wifi/know_networks.json`. If the network already exists, the password is updated.
+Packs the SSID/password into `spi_wifi_connect_t` and forwards
+`SPI_ID_WIFI_CONNECT` to the C5. The C5 performs the actual join and known-network
+persistence.
 
 #### `wifi_service_is_connected`
 ```c
 bool wifi_service_is_connected(void);
 ```
-Returns `true` if the device is currently connected to an external Wi-Fi network and has an IP address.
+Returns the cached `wifi_connected` flag (refreshed by `status_poll_task`). Does
+**not** hit the bridge.
 
 #### `wifi_service_is_active`
 ```c
 bool wifi_service_is_active(void);
 ```
-Returns `true` if the Wi-Fi service is started (driver initialized and interface up).
+Returns the cached `wifi_active` flag (refreshed by `status_poll_task`). Does
+**not** hit the bridge.
 
 #### `wifi_service_get_connected_ssid`
 ```c
-const char* wifi_service_get_connected_ssid(void);
+const char *wifi_service_get_connected_ssid(void);
 ```
-Returns the SSID of the currently connected network. Returns `NULL` if not connected.
+Fetches the STA SSID from the C5 via `SPI_ID_WIFI_GET_STA_INFO` into a static
+buffer; returns it (NUL-terminated) or `NULL` on failure.
 
 #### `wifi_service_change_to_hotspot`
 ```c
 void wifi_service_change_to_hotspot(const char *new_ssid);
 ```
-Dynamically reconfigures the device's Access Point to an **Open** network with the specified SSID.
-- Stops the Wi-Fi driver briefly to apply changes.
-- Sets `authmode` to `WIFI_AUTH_OPEN`.
-- Restarts Wi-Fi with the new configuration.
+On the P4 this is just a wrapper around `wifi_service_set_ap_ssid(new_ssid)`.
 
 ### Promiscuous Mode
 
-#### `wifi_service_promiscuous_start`
+#### `wifi_service_promiscuous_start` / `wifi_service_promiscuous_stop`
 ```c
 void wifi_service_promiscuous_start(wifi_promiscuous_cb_t cb, wifi_promiscuous_filter_t *filter);
-```
-Enables promiscuous mode (sniffer) with a custom callback and filter.
-- `cb`: Function to handle captured packets.
-- `filter`: Filter mask (e.g., `WIFI_PROMIS_FILTER_MASK_MGMT`).
-
-#### `wifi_service_promiscuous_stop`
-```c
 void wifi_service_promiscuous_stop(void);
 ```
-Disables promiscuous mode and clears the callback.
+Forward `SPI_ID_WIFI_PROMISC_START` / `SPI_ID_WIFI_PROMISC_STOP`. The `cb` and
+`filter` arguments are **ignored** on the P4 (the capture and its callback run on
+the C5); the signature is kept for source compatibility. If the C5 replies
+`ESP_ERR_NOT_SUPPORTED`, a warning is logged.
 
 ### Channel Hopping
 
-#### `wifi_service_start_channel_hopping`
+#### `wifi_service_start_channel_hopping` / `wifi_service_stop_channel_hopping`
 ```c
 void wifi_service_start_channel_hopping(void);
-```
-Starts a background task that cycles the Wi-Fi interface through channels 1 to 13. 
-- Useful for promiscuous mode applications (e.g., deauth detection).
-- Task memory is allocated in PSRAM if available.
-
-#### `wifi_service_stop_channel_hopping`
-```c
 void wifi_service_stop_channel_hopping(void);
 ```
-Stops the channel hopping task and frees associated memory resources.
+Forward `SPI_ID_WIFI_CH_HOP_START` / `SPI_ID_WIFI_CH_HOP_STOP`. The hopping task
+itself lives on the C5.
 
 ### Configuration Storage
 
+All setters forward to the C5, which persists to `WIFI_AP_CONFIG_FILE` and
+applies any radio state change.
+
 #### `wifi_service_save_ap_config`
 ```c
-esp_err_t wifi_service_save_ap_config(const char *ssid, const char *password, uint8_t max_conn, const char *ip_addr, bool enabled);
+esp_err_t wifi_service_save_ap_config(
+    const char *ssid, const char *password, uint8_t max_conn, const char *ip_addr, bool enabled);
 ```
-Saves the AP configuration to a JSON file (`/assets/config/wifi/wifi_ap.conf`).
-- Uses `cJSON` to serialize settings.
-- Persists data using the storage API.
-- **State Management:** If `enabled` is `true` and Wi-Fi is inactive, it calls `wifi_service_start()`. If `enabled` is `false` and Wi-Fi is active, it calls `wifi_service_stop()`.
+Packs the fields into `spi_wifi_ap_config_t` and forwards
+`SPI_ID_WIFI_SAVE_AP_CONFIG`. Returns `ESP_ERR_INVALID_ARG` if `ssid` is NULL.
 
 #### Individual Setters
-Helper functions to update a single configuration parameter while preserving others. They automatically save the config and trigger state changes if `enabled` is toggled.
-
 ```c
-esp_err_t wifi_service_set_enabled(bool enabled);
-esp_err_t wifi_service_set_ap_ssid(const char *ssid);
-esp_err_t wifi_service_set_ap_password(const char *password);
-esp_err_t wifi_service_set_ap_max_conn(uint8_t max_conn);
-esp_err_t wifi_service_set_ap_ip(const char *ip_addr);
+esp_err_t wifi_service_set_enabled(bool enabled);       // SPI_ID_WIFI_SET_ENABLED
+esp_err_t wifi_service_set_ap_ssid(const char *ssid);   // SPI_ID_WIFI_SET_AP
+esp_err_t wifi_service_set_ap_password(const char *p);  // SPI_ID_WIFI_SET_AP_PASSWORD
+esp_err_t wifi_service_set_ap_max_conn(uint8_t n);      // SPI_ID_WIFI_SET_AP_MAX_CONN
+esp_err_t wifi_service_set_ap_ip(const char *ip_addr);  // SPI_ID_WIFI_SET_AP_IP
 ```
-
-**Internal Loader:** `wifi_service_load_ap_config` is called during initialization to read these settings. If `enabled` is found to be `false` in the config, `wifi_service_init` will initialize the driver but **not** start the radio.
-
-## Internal Implementation Details
-
-### Event Handling
-A static `wifi_event_handler` manages Wi-Fi and IP events:
-- **WIFI_EVENT_AP_STACONNECTED:** Logs the MAC of the connected station and blinks Green.
-- **WIFI_EVENT_AP_STADISCONNECTED:** Blinks Red.
-- **IP_EVENT_AP_STAIPASSIGNED:** Logs IP assignment and blinks Green.
-
-### Thread Safety
-A `wifi_mutex` (Semaphore) is used to protect the scanning process (`wifi_service_scan`), preventing concurrent scan requests which could lead to resource conflicts.
-
-### Channel Hopping Task
-The channel hopping feature runs as a static FreeRTOS task. It uses `esp_wifi_set_channel` to switch channels every 250ms. To optimize internal RAM usage, both the task stack and the Task Control Block (TCB) are allocated in **PSRAM** using the `SPIRAM` capability.
-
-### Castings & Memory Management
-- **cJSON:** Used extensively for parsing and generating configuration files.
-- **PSRAM Allocation:** Critical tasks and large buffers are allocated in PSRAM to preserve internal memory.
-- **Type Casting:** `event_data` is cast to specific event structures (e.g., `wifi_event_ap_staconnected_t*`) within handlers.
-- **String Handling:** `strncpy` is used safely with explicit null-termination to prevent buffer overflows when handling SSIDs and passwords.
+Each forwards one SPI command. `wifi_service_set_ap_password` /
+`wifi_service_set_ap_ip` return `ESP_ERR_INVALID_ARG` on a NULL argument.
 
 ---
 
 # C5
 
-This component manages Wi-Fi functionalities including Access Point (AP) mode, Station (STA) mode, scanning, and configuration persistence using JSON files.
+`firmware_c5/components/Service/wifi/` - this is where the **real Wi-Fi stack
+lives**. It manages AP mode, STA mode, scanning, promiscuous capture, channel
+hopping, and JSON config persistence directly on the esp-idf Wi-Fi driver.
 
 ## Functionality Overview
 
-The service handles:
-- **Initialization/Deinitialization:** Setup of NVS, Netif, Event Loops, and Wi-Fi drivers.
-- **Access Point (AP):** Configurable SSID, password, max connections, and custom IP address.
-- **Scanning:** Active scanning for nearby networks.
-- **Station (STA):** Connecting to external Wi-Fi networks.
-- **Hotspot Management:** Dynamic switching of AP configuration.
-- **Promiscuous Mode:** Low-level packet sniffing and environment monitoring.
-- **Channel Hopping:** Automated cycling through Wi-Fi channels for environment monitoring.
-- **Configuration Persistence:** Loading and saving AP settings to/from `assets/config/wifi/wifi_ap.conf`.
-- **Known Networks:** Automatically saves connected network credentials to `assets/storage/wifi/know_networks.json`.
+- **Initialization/Deinitialization:** NVS, Netif, default event loop + handlers,
+  and the Wi-Fi driver, brought up in `WIFI_MODE_APSTA`.
+- **Access Point (AP):** Configurable SSID, password, max connections, custom
+  static IP (default `192.168.4.1`), DHCP server.
+- **Scanning:** Active scan storing up to `WIFI_SCAN_LIST_SIZE` results.
+- **Station (STA):** Joins external networks.
+- **Promiscuous Mode / Channel Hopping:** Low-level capture plus a background task
+  cycling channels for environment monitoring.
+- **Configuration Persistence:** AP settings to/from `WIFI_AP_CONFIG_FILE`
+  (`config/wifi/wifi_ap.conf`) via `storage_assets`.
+- **Known Networks:** Connected credentials saved to `WIFI_KNOWN_NETWORKS_FILE`
+  (`storage/wifi/know_networks.json`).
 
 ## API Functions
 
@@ -210,28 +205,38 @@ The service handles:
 ```c
 void wifi_service_init(void);
 ```
-Initializes the Wi-Fi stack in `APSTA` mode.
-- Initializes NVS (performing erase if necessary).
-- Sets up the default event loop and registers handlers.
-- Loads AP configuration from storage (or uses defaults "Darth Maul"/"MyPassword123").
-- Configures the static IP (default: 192.168.4.1) and starts the DHCP server.
+Initializes the Wi-Fi stack in `APSTA` mode: NVS (erase if needed), default event
+loop + handlers, AP config load (defaults `Darth Maul` / `MyPassword123`), static
+IP and DHCP server. If the loaded config has `enabled == false`, the driver is
+initialized but the radio is **not** started.
 
 #### `wifi_service_deinit`
 ```c
 void wifi_service_deinit(void);
 ```
-Completely shuts down the Wi-Fi service.
-- Stops the Wi-Fi driver.
-- Unregisters event handlers.
-- Deinitializes the driver.
-- Frees synchronization primitives (mutexes) and clears static data.
+Fully shuts down the service: stops the driver, unregisters handlers, deinits the
+driver, frees mutexes, and clears static state.
 
 #### `wifi_service_start` / `wifi_service_stop`
 ```c
 void wifi_service_start(void);
 void wifi_service_stop(void);
 ```
-Simple wrappers to start or stop the Wi-Fi driver without full deinitialization. `wifi_service_stop` also clears stored scan results.
+Start or stop the driver without full deinit. `wifi_service_stop` also clears
+stored scan results.
+
+#### `wifi_service_is_busy`
+```c
+bool wifi_service_is_busy(void);
+```
+Returns `true` while a capture (promiscuous sniffer) is running.
+
+#### `wifi_service_set_power_save`
+```c
+void wifi_service_set_power_save(bool deep);
+```
+Sets the Wi-Fi modem-sleep depth via `esp_wifi_set_ps`: `deep == true` selects
+`WIFI_PS_MAX_MODEM`, otherwise `WIFI_PS_MIN_MODEM`.
 
 ### Scanning
 
@@ -239,10 +244,9 @@ Simple wrappers to start or stop the Wi-Fi driver without full deinitialization.
 ```c
 void wifi_service_scan(void);
 ```
-Performs an active Wi-Fi scan.
-- Uses a mutex to ensure thread safety.
-- Stores up to `WIFI_SCAN_LIST_SIZE` results internally.
-- Provides visual feedback via LEDs (Green for AP connection, Red for failures, Blue for scan success).
+Performs an active Wi-Fi scan (mutex-guarded, stops channel hopping first). Stores
+up to `WIFI_SCAN_LIST_SIZE` results and gives LED feedback (red on failure, blue
+on success).
 
 #### `wifi_service_get_ap_count`
 ```c
@@ -252,9 +256,9 @@ Returns the number of networks found in the last scan.
 
 #### `wifi_service_get_ap_record`
 ```c
-wifi_ap_record_t* wifi_service_get_ap_record(uint16_t index);
+wifi_ap_record_t *wifi_service_get_ap_record(uint16_t index);
 ```
-Retrieves a pointer to a specific scan result record. Returns `NULL` if the index is invalid.
+Returns a pointer to a specific scan result, or `NULL` if the index is invalid.
 
 ### Connection & Management
 
@@ -262,37 +266,36 @@ Retrieves a pointer to a specific scan result record. Returns `NULL` if the inde
 ```c
 esp_err_t wifi_service_connect_to_ap(const char *ssid, const char *password);
 ```
-Connects the device (as a station) to an external Access Point.
-- Configures authentication mode based on the presence of a password (WPA2_PSK or OPEN).
-- Disconnects any existing connection before attempting a new one.
-- **Persistence:** Automatically saves the SSID and password to `assets/storage/wifi/know_networks.json`. If the network already exists, the password is updated.
+Connects (as STA) to an external AP.
+- Auth mode chosen by password presence (WPA2_PSK or OPEN).
+- Disconnects any existing connection first.
+- **Persistence:** saves SSID/password to `WIFI_KNOWN_NETWORKS_FILE`, updating the
+  password if the network already exists.
 
 #### `wifi_service_is_connected`
 ```c
 bool wifi_service_is_connected(void);
 ```
-Returns `true` if the device is currently connected to an external Wi-Fi network and has an IP address.
+Returns `true` if connected to an external network and holding an IP.
 
 #### `wifi_service_is_active`
 ```c
 bool wifi_service_is_active(void);
 ```
-Returns `true` if the Wi-Fi service is started (driver initialized and interface up).
+Returns `true` if the service is started (driver up, interface up).
 
 #### `wifi_service_get_connected_ssid`
 ```c
-const char* wifi_service_get_connected_ssid(void);
+const char *wifi_service_get_connected_ssid(void);
 ```
-Returns the SSID of the currently connected network. Returns `NULL` if not connected.
+Returns the connected SSID, or `NULL` if not connected.
 
 #### `wifi_service_change_to_hotspot`
 ```c
 void wifi_service_change_to_hotspot(const char *new_ssid);
 ```
-Dynamically reconfigures the device's Access Point to an **Open** network with the specified SSID.
-- Stops the Wi-Fi driver briefly to apply changes.
-- Sets `authmode` to `WIFI_AUTH_OPEN`.
-- Restarts Wi-Fi with the new configuration.
+Reconfigures the AP to an **Open** network with the given SSID: briefly stops the
+driver, sets `authmode` to `WIFI_AUTH_OPEN`, restarts with the new config.
 
 ### Promiscuous Mode
 
@@ -300,9 +303,8 @@ Dynamically reconfigures the device's Access Point to an **Open** network with t
 ```c
 void wifi_service_promiscuous_start(wifi_promiscuous_cb_t cb, wifi_promiscuous_filter_t *filter);
 ```
-Enables promiscuous mode (sniffer) with a custom callback and filter.
-- `cb`: Function to handle captured packets.
-- `filter`: Filter mask (e.g., `WIFI_PROMIS_FILTER_MASK_MGMT`).
+Enables promiscuous (sniffer) mode with the given packet callback and filter mask
+(e.g. `WIFI_PROMIS_FILTER_MASK_MGMT`; `NULL` for no filter).
 
 #### `wifi_service_promiscuous_stop`
 ```c
@@ -316,30 +318,32 @@ Disables promiscuous mode and clears the callback.
 ```c
 void wifi_service_start_channel_hopping(void);
 ```
-Starts a background task that cycles the Wi-Fi interface through channels 1 to 13. 
-- Useful for promiscuous mode applications (e.g., deauth detection).
-- Task memory is allocated in PSRAM if available.
+Starts a background task cycling channels 1..13 (250 ms cadence via
+`esp_wifi_set_channel`), useful for promiscuous applications (e.g. deauth
+detection). Both the task stack and TCB are allocated in **PSRAM** (`SPIRAM`) to
+spare internal RAM.
 
 #### `wifi_service_stop_channel_hopping`
 ```c
 void wifi_service_stop_channel_hopping(void);
 ```
-Stops the channel hopping task and frees associated memory resources.
+Stops the channel-hopping task and frees its resources.
 
 ### Configuration Storage
 
 #### `wifi_service_save_ap_config`
 ```c
-esp_err_t wifi_service_save_ap_config(const char *ssid, const char *password, uint8_t max_conn, const char *ip_addr, bool enabled);
+esp_err_t wifi_service_save_ap_config(
+    const char *ssid, const char *password, uint8_t max_conn, const char *ip_addr, bool enabled);
 ```
-Saves the AP configuration to a JSON file (`/assets/config/wifi/wifi_ap.conf`).
-- Uses `cJSON` to serialize settings.
-- Persists data using the storage API.
-- **State Management:** If `enabled` is `true` and Wi-Fi is inactive, it calls `wifi_service_start()`. If `enabled` is `false` and Wi-Fi is active, it calls `wifi_service_stop()`.
+Serializes the settings with `cJSON` and writes them to `WIFI_AP_CONFIG_FILE`.
+**State management:** if `enabled` is `true` and Wi-Fi is inactive it calls
+`wifi_service_start()`; if `enabled` is `false` and Wi-Fi is active it calls
+`wifi_service_stop()`.
 
 #### Individual Setters
-Helper functions to update a single configuration parameter while preserving others. They automatically save the config and trigger state changes if `enabled` is toggled.
-
+Helpers that update a single parameter while preserving the rest, auto-saving and
+triggering state changes when `enabled` toggles.
 ```c
 esp_err_t wifi_service_set_enabled(bool enabled);
 esp_err_t wifi_service_set_ap_ssid(const char *ssid);
@@ -348,24 +352,27 @@ esp_err_t wifi_service_set_ap_max_conn(uint8_t max_conn);
 esp_err_t wifi_service_set_ap_ip(const char *ip_addr);
 ```
 
-**Internal Loader:** `wifi_service_load_ap_config` is called during initialization to read these settings. If `enabled` is found to be `false` in the config, `wifi_service_init` will initialize the driver but **not** start the radio.
+**Internal loader:** an internal `load_ap_config` runs during init. If `enabled`
+is `false` in the config, `wifi_service_init` brings the driver up but does **not**
+start the radio.
 
 ## Internal Implementation Details
 
 ### Event Handling
-A static `wifi_event_handler` manages Wi-Fi and IP events:
-- **WIFI_EVENT_AP_STACONNECTED:** Logs the MAC of the connected station and blinks Green.
-- **WIFI_EVENT_AP_STADISCONNECTED:** Blinks Red.
-- **IP_EVENT_AP_STAIPASSIGNED:** Logs IP assignment and blinks Green.
+A static `event_handler` (registered for `WIFI_EVENT` and `IP_EVENT`) manages
+station connect/disconnect and IP-assignment events, logging and driving LED
+feedback (green on connect / IP, red on disconnect).
 
 ### Thread Safety
-A `wifi_mutex` (Semaphore) is used to protect the scanning process (`wifi_service_scan`), preventing concurrent scan requests which could lead to resource conflicts.
+A mutex protects the scan path (`wifi_service_scan`) against concurrent scan
+requests.
 
 ### Channel Hopping Task
-The channel hopping feature runs as a static FreeRTOS task. It uses `esp_wifi_set_channel` to switch channels every 250ms. To optimize internal RAM usage, both the task stack and the Task Control Block (TCB) are allocated in **PSRAM** using the `SPIRAM` capability.
+Runs as a static FreeRTOS task; stack and TCB are placed in **PSRAM** (`SPIRAM`)
+to preserve internal RAM.
 
-### Castings & Memory Management
-- **cJSON:** Used extensively for parsing and generating configuration files.
-- **PSRAM Allocation:** Critical tasks and large buffers are allocated in PSRAM to preserve internal memory.
-- **Type Casting:** `event_data` is cast to specific event structures (e.g., `wifi_event_ap_staconnected_t*`) within handlers.
-- **String Handling:** `strncpy` is used safely with explicit null-termination to prevent buffer overflows when handling SSIDs and passwords.
+### Memory & String Handling
+`cJSON` is used for config parse/serialize; SSIDs/passwords are copied with
+`strncpy` plus explicit NUL-termination.
+</content>
+</invoke>
