@@ -26,9 +26,12 @@ const boot_stage_t *boot_report_stages(int *out_count);
 bool boot_report_all_required_ok(void);
 ```
 
-Recorded stages with their real return codes: `sd-storage` (optional, absent SD
-is fine), `assets` (required), `battery` (optional), `display` (required),
-`nvs` (required). A **required** failure makes `kernel_init` drop into
+Recorded stages with their real return codes, in the order `kernel_init` runs
+them: `nvs` (required), `i2c` (optional, degrades charger/haptic/LED only),
+`sd-storage` (optional, absent SD is fine), `sd-health` (optional, recorded only
+when the SD is mounted), `assets` (required), `battery` (optional), `audio`
+(optional), `display` (required), `lvgl` (required, recorded only when the panel
+came up). A **required** failure makes `kernel_init` drop into
 [safe mode](../recovery/README.md) instead of booting blind, and the function
 returns `ESP_FAIL`.
 
@@ -95,6 +98,7 @@ void boot_report_track_bootloop(void);   // FIRST thing in app_main
 bool boot_report_in_bootloop(void);
 uint32_t boot_report_abnormal_boots(void);
 uint32_t boot_report_panic_total(void);
+uint32_t boot_report_boot_count(void);
 void boot_report_mark_stable(void);
 ```
 
@@ -113,9 +117,13 @@ void boot_report_mark_stable(void);
   [safe mode](../recovery/README.md) - the degraded target (no radios, no SD
   theme, minimal UI). The safe-mode footer shows the reset reason, and the crash
   viewer shows `Panics total` and `Abnormal boots N/3`.
-- Only a **summary** is persisted to NVS (namespace `boot_report`: last reason +
-  running panic total), written on abnormal boots only, so flash wear is
-  negligible. The RTC counter carries the loop state itself.
+- A **summary** is persisted to NVS (namespace `boot_report`). A real
+  **total boot count** (`boot_total`, exposed via `boot_report_boot_count()`) is
+  bumped once every boot from `boot_report_capture_crash` - one small write per
+  boot. The **last reason** + running **panic total** (`boot_report_panic_total()`)
+  are written only on abnormal boots, so panic-path flash wear stays negligible.
+  The RTC counter carries the consecutive-loop state itself; NVS holds the
+  lifetime totals.
 
 ## Follow-ups
 
