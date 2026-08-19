@@ -51,12 +51,12 @@
 #define MARKER_GLOW 8
 #define SCALE_Y     62
 
-#define GRID_Y   (CARD1_Y + CARD1_H + 8)
 #define TILE_W   108
 #define TILE_H   52
 #define TILE_GAP 8
 #define TILE_X_L MX
 #define TILE_X_R (MX + TILE_W + TILE_GAP)
+#define GRID_Y   LV_MIN(CARD1_Y + CARD1_H + 8, ui_screen_h() - UI_CHROME_FOOTER_H - 2 * TILE_H - 8)
 #define ROW2_Y   (GRID_Y + TILE_H + 8)
 
 #define TILE_RADIUS 9
@@ -90,7 +90,7 @@ static const rf_field_t FIELDS[FIELD_COUNT] = {
 };
 
 static const int TILE_X[FIELD_COUNT] = {TILE_X_L, TILE_X_R, TILE_X_L, TILE_X_R};
-static const int TILE_Y[FIELD_COUNT] = {GRID_Y, GRID_Y, ROW2_Y, ROW2_Y};
+static int TILE_Y[FIELD_COUNT];
 
 static const char *SCALE_LABELS[4] = {"300", "433", "700", "928"};
 
@@ -306,6 +306,10 @@ void ui_subghz_config_open(void) {
     s_screen = NULL;
   }
   s_sel = 0;
+  TILE_Y[0] = GRID_Y;
+  TILE_Y[1] = GRID_Y;
+  TILE_Y[2] = ROW2_Y;
+  TILE_Y[3] = ROW2_Y;
   for (int i = 0; i < FIELD_COUNT; i++)
     s_val_idx[i] = FIELDS[i].def;
 

@@ -385,8 +385,7 @@ static void build_result(void) {
   }
 
   lv_obj_t *list = lv_obj_create(s_screen);
-  lv_obj_remove_flag(list, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(list, HOP_LIST_W, LV_SIZE_CONTENT);
+  lv_obj_set_size(list, HOP_LIST_W, ui_screen_h() - BODY_TOP_Y - UI_CHROME_FOOTER_H);
   lv_obj_align(list, LV_ALIGN_TOP_MID, 0, BODY_TOP_Y);
   lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(list, 0, 0);
@@ -394,6 +393,9 @@ static void build_result(void) {
   lv_obj_set_style_pad_row(list, HOP_ROW_GAP, 0);
   lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_scroll_dir(list, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_AUTO);
+  lv_obj_remove_flag(list, LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM);
 
   lv_color_t accent = ui_theme_get_accent();
   for (int i = 0; i < n; i++)

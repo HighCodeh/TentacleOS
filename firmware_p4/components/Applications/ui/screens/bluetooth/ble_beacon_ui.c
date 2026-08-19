@@ -29,7 +29,7 @@
 #define BEACON_CYCLE_MS 400
 
 #define BODY_W 240
-#define BODY_H 256
+#define BODY_H LV_MIN(256, ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
 #define CARD_W 160
 #define CARD_H 54
 
@@ -155,7 +155,8 @@ void ui_beacon_spam_open(void) {
   lv_obj_set_style_text_color(s_uuid_label, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(s_uuid_label, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_align(s_uuid_label, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_align(s_uuid_label, LV_ALIGN_TOP_MID, 0, 166);
+  lv_obj_align(s_uuid_label, LV_ALIGN_TOP_MID, 0,
+               LV_MIN(166, ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H - 14));
 
   fade_in(header, 200);
   fade_in(status, 200);

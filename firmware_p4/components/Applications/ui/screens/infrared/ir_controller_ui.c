@@ -25,6 +25,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 static const char *TAG = "IR_CTRL_UI";
@@ -32,8 +33,8 @@ static const char *TAG = "IR_CTRL_UI";
 #define MAX_BTNS 16
 
 #define KEYPAD_W 232
-#define KEYPAD_H 250
 #define KEYPAD_Y 44
+#define KEYPAD_H LV_MIN(250, ui_screen_h() - KEYPAD_Y - UI_CHROME_FOOTER_H)
 
 #define FLASH_MS 150
 
@@ -61,7 +62,7 @@ static const char *TAG = "IR_CTRL_UI";
 typedef struct {
   const char *text;
   int dx, dy, w, h;
-  const char *sig; // universal-remote signal name in the .ir file, or NULL if none
+  const char *sig;
 } rc_btn_t;
 
 typedef struct {
@@ -99,7 +100,6 @@ static const rc_btn_t SOUND_BTNS[] = {
     {"MODE", 58, 194, 58, 34, NULL},
 };
 
-// AC uses the state panel (build_ac_panel), not these buttons — sig stays NULL.
 static const rc_btn_t AC_BTNS[] = {
     {LV_SYMBOL_POWER, -58, 14, 58, 34, NULL},
     {"MODE", 58, 14, 58, 34, NULL},
@@ -147,8 +147,6 @@ static int s_ac_fan = AC_FAN_DEFAULT;
 
 static void ir_controller_input(const input_event_t *ev, void *ctx);
 
-// --- Universal remote: send codes sourced from Flipper .ir files on the SD ---
-
 static const char *const UNIVERSAL_FILE[] = {
     [IR_DEV_TV] = "/sdcard/ir/tv.ir",
     [IR_DEV_SOUND] = "/sdcard/ir/audio.ir",
@@ -166,9 +164,6 @@ static void load_universal(ir_device_t dev) {
     lv_timer_delete(s_send_timer);
     s_send_timer = NULL;
   }
-  // Free unconditionally: a prior ir_store_load() can partially allocate signals[]
-  // and then fail (leaving s_uni_loaded false but memory live). ir_file_free is safe
-  // on a zeroed file, so this covers both the loaded and partial-failure cases.
   ir_file_free(&s_uni);
   s_uni_loaded = false;
   ir_file_init(&s_uni);
@@ -188,8 +183,6 @@ static int uni_count(const char *name) {
   return c;
 }
 
-// Transmit one matching code per tick — a universal button can map to many
-// brand codes, and sending them all inline would stall the UI.
 static void uni_send_tick(lv_timer_t *t) {
   if (lv_screen_active() != s_screen) {
     lv_timer_delete(t);
@@ -223,18 +216,17 @@ static void uni_send(const char *name) {
   s_send_timer = lv_timer_create(uni_send_tick, 90, NULL);
 }
 
-// Map the AC panel state onto the universal ac.ir signal names.
 static const char *ac_universal_name(void) {
   if (!s_ac_power)
     return "Off";
   bool hi = s_ac_temp >= 24;
   switch (s_ac_mode) {
     case 0:
-      return hi ? "Cool_hi" : "Cool_lo"; // Cool
+      return hi ? "Cool_hi" : "Cool_lo";
     case 1:
-      return hi ? "Heat_hi" : "Heat_lo"; // Heat
+      return hi ? "Heat_hi" : "Heat_lo";
     case 2:
-      return "Dh"; // Fan / dehumidify
+      return "Dh";
     default:
       return hi ? "Cool_hi" : "Cool_lo";
   }

@@ -202,7 +202,8 @@ static void wallet_build(void) {
   lv_obj_set_style_pad_column(tap, 7, 0);
   lv_obj_set_flex_flow(tap, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(tap, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_align(tap, LV_ALIGN_CENTER, 0, WALLET_TAP_Y);
+  const int emu_body_h = ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H;
+  lv_obj_align(tap, LV_ALIGN_CENTER, 0, LV_MIN(WALLET_TAP_Y, emu_body_h / 2 - 7));
 
   lv_obj_t *dot = lv_obj_create(tap);
   lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE);

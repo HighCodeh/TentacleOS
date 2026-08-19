@@ -55,7 +55,7 @@
 #define G_VAL_Y    22
 #define G_RADIUS   8
 
-#define CAR_LBL_Y (GRID_Y + G_TILE_H + 8)
+#define CAR_LBL_Y LV_MIN(GRID_Y + G_TILE_H + 8, ui_screen_h() - UI_CHROME_FOOTER_H - 66)
 #define CHIP_Y    (CAR_LBL_Y + 20)
 #define CHIP_H    24
 #define CHIP_GAP  6
@@ -99,7 +99,6 @@ static int s_sel = 2;
 static rmt_symbol_word_t s_raw[IR_MAX_SYMBOLS];
 static size_t s_raw_count = 0;
 
-// Pull the last frame the RMT RX captured and derive real scope stats from it.
 static void compute_stats(void) {
   s_raw_count = 0;
   if (ir_rx_init() == ESP_OK)

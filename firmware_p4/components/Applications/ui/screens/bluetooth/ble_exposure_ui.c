@@ -25,6 +25,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 static const char *TAG = "BLE_EXPOSURE_UI";
@@ -42,7 +43,7 @@ static const char *TAG = "BLE_EXPOSURE_UI";
 #define COUNT_CARD_H 34
 #define COUNT_CARD_Y 50
 #define LIST_PANEL_W 224
-#define LIST_PANEL_H 190
+#define LIST_PANEL_H LV_MIN(190, ui_screen_h() - LIST_PANEL_Y - UI_CHROME_FOOTER_H)
 #define LIST_PANEL_Y 94
 #define LIST_PAD     8
 

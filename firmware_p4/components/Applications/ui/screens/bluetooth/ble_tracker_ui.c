@@ -42,7 +42,7 @@ static const char *TAG = "BLE_TRACKER_UI";
 #define TRACK_ICON "/assets/icons/troubleshoot.bin"
 
 #define BODY_W       240
-#define BODY_H       256
+#define BODY_H       LV_MIN(256, ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
 #define BODY_PAD     10
 #define BODY_GAP     8
 #define CARD_W       220

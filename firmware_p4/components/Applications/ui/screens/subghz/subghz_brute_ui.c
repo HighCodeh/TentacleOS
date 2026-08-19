@@ -26,6 +26,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
 
@@ -73,14 +74,14 @@ static const char *TAG = "SUBGHZ_BF";
 
 #define BAR_W     192
 #define BAR_H     8
-#define BAR_Y     210
-#define CODES_Y   234
-#define HIT_Y     258
+#define BAR_Y     (CARD_Y + 20)
+#define CODES_Y   (CARD_Y + 44)
+#define HIT_Y     (CARD_Y + 68)
 #define TRACK_COL 0x202028
 
 #define CARD_W             210
 #define CARD_H             96
-#define CARD_Y             190
+#define CARD_Y             LV_MIN(190, ui_screen_h() - UI_CHROME_FOOTER_H - CARD_H)
 #define CARD_RADIUS        12
 #define CARD_SHADOW_W      14
 #define CARD_SHADOW_SPREAD -3

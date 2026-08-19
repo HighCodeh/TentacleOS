@@ -557,11 +557,14 @@ static void build_terminal(void) {
   lv_label_set_text(s_pct_lbl, PCT_TEXT "   0%");
   lv_obj_set_style_text_color(s_pct_lbl, lv_color_hex(TERM_GREEN), 0);
   lv_obj_set_style_text_font(s_pct_lbl, &lv_font_montserrat_12, 0);
-  lv_obj_align(s_pct_lbl, LV_ALIGN_TOP_MID, 0, PCT_Y);
+  lv_obj_align(s_pct_lbl, LV_ALIGN_TOP_MID, 0,
+               LV_MIN(PCT_Y, ui_screen_h() - UI_CHROME_FOOTER_H - 56));
 
   s_progress = lv_bar_create(s_screen);
   lv_obj_set_size(s_progress, PROGRESS_W, PROGRESS_H);
-  lv_obj_align(s_progress, LV_ALIGN_TOP_MID, 0, PROGRESS_Y);
+  lv_obj_align(s_progress, LV_ALIGN_TOP_MID, 0,
+               LV_MIN(PCT_Y, ui_screen_h() - UI_CHROME_FOOTER_H - 56) +
+                   (PROGRESS_Y - PCT_Y));
   lv_bar_set_range(s_progress, 0, 100);
   lv_bar_set_value(s_progress, 0, LV_ANIM_OFF);
   lv_obj_set_style_bg_color(s_progress, lv_color_hex(PROGRESS_TRACK_COLOR), LV_PART_MAIN);
@@ -622,7 +625,9 @@ static void show_done(void) {
   lv_label_set_long_mode(result, LV_LABEL_LONG_WRAP);
   lv_obj_set_style_text_align(result, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_font(result, &lv_font_montserrat_14, 0);
-  lv_obj_align(result, LV_ALIGN_TOP_MID, 0, RESULT_Y);
+  lv_obj_align(result, LV_ALIGN_TOP_MID, 0,
+               LV_MIN(PCT_Y, ui_screen_h() - UI_CHROME_FOOTER_H - 56) +
+                   (RESULT_Y - PCT_Y));
   fade_in(result, FADE_MS);
 
   if (s_footer != NULL)

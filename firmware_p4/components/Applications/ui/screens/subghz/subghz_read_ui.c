@@ -28,6 +28,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
 
@@ -83,7 +84,7 @@ static const char *TAG = "SUBGHZ_RD";
 #define GRID_OPA LV_OPA_20
 
 #define READOUT_W       192
-#define READOUT_Y       198
+#define READOUT_Y       LV_MIN(198, ui_screen_h() - UI_CHROME_FOOTER_H - 70)
 #define READOUT_ROW_GAP 5
 #define READOUT_FADE_MS 240
 #define READOUT_STAGGER 70

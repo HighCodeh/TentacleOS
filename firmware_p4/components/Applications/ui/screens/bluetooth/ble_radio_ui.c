@@ -36,7 +36,7 @@
 #define CONTENT_W (ui_screen_w() - 2 * MX)
 #define CARD_Y    50
 #define CARD_H    58
-#define ROWS_Y    124
+#define ROWS_Y    LV_MIN(124, ui_screen_h() - UI_CHROME_FOOTER_H - (R_COUNT - 1) * ROW_STEP - ROW_H)
 #define ROW_H     42
 #define ROW_GAP   8
 #define ROW_STEP  (ROW_H + ROW_GAP)

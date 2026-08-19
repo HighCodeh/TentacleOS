@@ -413,7 +413,9 @@ void ui_wifi_hotspot_open(void) {
   ui_chrome_footer(s_screen, FOOTER_HINT);
 
   lv_obj_t *stack = lv_obj_create(s_screen);
-  lv_obj_remove_flag(stack, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(stack, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(stack, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(stack, LV_SCROLLBAR_MODE_AUTO);
   lv_obj_remove_flag(stack, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(stack, CONTENT_W, BODY_H);
   lv_obj_align(stack, LV_ALIGN_TOP_MID, 0, BODY_TOP);

@@ -32,6 +32,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
 
@@ -50,7 +51,7 @@ static const char *TAG = "BLE_SCAN_UI";
 #define HERO_CARD_W           200
 #define HERO_CARD_H           108
 
-#define RADAR_BOX       190
+#define RADAR_BOX       LV_MIN(190, ui_screen_h() - RADAR_TOP_Y - (CHIP_H + 10) - UI_CHROME_FOOTER_H)
 #define RADAR_TOP_Y     (UI_CHROME_HEADER_H + 4)
 #define RADAR_RING_1    28
 #define RADAR_RING_2    55

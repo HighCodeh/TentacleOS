@@ -22,6 +22,7 @@
 
 #include "ui_chrome.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
 
@@ -32,7 +33,8 @@ static const char *TAG = "LORA_RNODE";
 
 #define CARD_W      216
 #define CFG_CARD_H  110
-#define CNT_CARD_H  82
+#define CNT_CARD_H \
+  LV_MIN(82, ui_screen_h() - (BODY_TOP_Y + CFG_CARD_H + CARD_GAP) - UI_CHROME_FOOTER_H)
 #define CARD_RADIUS 13
 #define CARD_PAD    12
 #define CARD_GAP    12

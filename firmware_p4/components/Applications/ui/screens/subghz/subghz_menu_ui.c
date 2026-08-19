@@ -51,7 +51,7 @@ static const char *TAG = "SUBGHZ_UI";
 #define BAR_GAP        4
 #define BAR_MIN_H      6
 #define BAR_MAX_H      200
-#define BAR_BASELINE_Y 288
+#define BAR_BASELINE_Y (ui_screen_h() - UI_CHROME_FOOTER_H - 10)
 #define FREQ_CYCLE_MS  400
 
 #define CARD_W       200
@@ -81,9 +81,9 @@ static const char *TAG = "SUBGHZ_UI";
 #define SGC_BAR_W       6
 #define SGC_BAR_MIN     3
 #define SGC_BAR_SPAN    12
-#define SGC_TRACK_X     227
+#define SGC_TRACK_X     (ui_screen_w() - 13)
 #define SGC_TRACK_Y     54
-#define SGC_TRACK_LEN   232
+#define SGC_TRACK_LEN   LV_MIN(232, ui_screen_h() - UI_CHROME_FOOTER_H - SGC_TRACK_Y)
 #define SGC_THUMB_H     45
 #define SGC_THUMB_ICON  "/assets/icons/drag_indicator.bin"
 
@@ -711,8 +711,6 @@ static void start_saved_send(void) {
   lv_obj_set_style_border_width(s_send_overlay, 0, 0);
   lv_obj_set_style_pad_all(s_send_overlay, 0, 0);
 
-  // Transient transmit overlay: snapshot header (no rebind) so freeing it never
-  // dangles the live parent screen's dynamic header.
   ui_chrome_header_overlay(s_send_overlay, "SEND", "/assets/icons/settings_input_antenna.bin");
 
   s_send_status = lv_label_create(s_send_overlay);

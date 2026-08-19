@@ -132,7 +132,10 @@ static lv_obj_t *make_action_row(lv_obj_t *parent, int i) {
   lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(row, CONTENT_W, ROW_H);
-  lv_obj_align(row, LV_ALIGN_TOP_MID, 0, ACT_Y + i * ROW_STEP);
+  lv_obj_align(row, LV_ALIGN_TOP_MID, 0,
+               LV_MIN(ACT_Y, ui_screen_h() - UI_CHROME_FOOTER_H -
+                                 ((ACT_COUNT - 1) * ROW_STEP + ROW_H)) +
+                   i * ROW_STEP);
   lv_obj_set_style_radius(row, 9, 0);
   lv_obj_set_style_bg_color(row, current_theme.bg_secondary, 0);
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);

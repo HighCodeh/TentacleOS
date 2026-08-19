@@ -159,6 +159,10 @@ static void bench_build(void) {
   lv_obj_set_style_border_width(s_body, 0, 0);
   lv_obj_set_style_pad_all(s_body, 0, 0);
 
+  const int body_h = ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H;
+  const int slot_y = LV_MIN(SLOT_Y, body_h - SLOT_H);
+  const int arrow_y = LV_MIN(ARROW_Y, slot_y - 26);
+
   lv_obj_t *src = nfc_ui_card_panel(s_body, nfc_sim_saved_get(s_sel));
   lv_obj_align(src, LV_ALIGN_TOP_MID, 0, SRC_Y);
   card_rise(src);
@@ -167,7 +171,7 @@ static void bench_build(void) {
   lv_label_set_text(arrow, LV_SYMBOL_DOWN);
   lv_obj_set_style_text_font(arrow, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(arrow, current_theme.border_accent, 0);
-  lv_obj_align(arrow, LV_ALIGN_TOP_MID, 0, ARROW_Y);
+  lv_obj_align(arrow, LV_ALIGN_TOP_MID, 0, arrow_y);
 
   top_pts[0].x = 0;
   top_pts[0].y = 0;
@@ -185,17 +189,17 @@ static void bench_build(void) {
   rgt_pts[0].y = 0;
   rgt_pts[1].x = 0;
   rgt_pts[1].y = SLOT_H;
-  dash_line(s_body, top_pts, SLOT_X, SLOT_Y);
-  dash_line(s_body, bot_pts, SLOT_X, SLOT_Y + SLOT_H);
-  dash_line(s_body, lft_pts, SLOT_X, SLOT_Y);
-  dash_line(s_body, rgt_pts, SLOT_X + SLOT_W, SLOT_Y);
+  dash_line(s_body, top_pts, SLOT_X, slot_y);
+  dash_line(s_body, bot_pts, SLOT_X, slot_y + SLOT_H);
+  dash_line(s_body, lft_pts, SLOT_X, slot_y);
+  dash_line(s_body, rgt_pts, SLOT_X + SLOT_W, slot_y);
 
   lv_obj_t *slot_lbl = lv_label_create(s_body);
   lv_label_set_text(slot_lbl, "place blank tag\nto write");
   lv_obj_set_style_text_align(slot_lbl, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_font(slot_lbl, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(slot_lbl, current_theme.border_accent, 0);
-  lv_obj_align(slot_lbl, LV_ALIGN_TOP_MID, 0, SLOT_Y + 20);
+  lv_obj_align(slot_lbl, LV_ALIGN_TOP_MID, 0, slot_y + 20);
 
   s_dots = page_dots_create(s_body, s_count, LV_ALIGN_BOTTOM_MID, 0, -2);
   page_dots_set(&s_dots, s_sel);

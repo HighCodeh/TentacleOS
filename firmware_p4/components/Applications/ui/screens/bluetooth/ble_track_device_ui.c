@@ -26,6 +26,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 static const char *TAG = "BLE_TRACK_DEV";
@@ -39,7 +40,7 @@ static const char *TAG = "BLE_TRACK_DEV";
 
 #define TRACK_ICON "/assets/icons/bluetooth_searching.bin"
 
-#define ARC_SIZE     140
+#define ARC_SIZE     LV_MIN(140, ui_screen_h() - (ARC_TOP_Y + 20) - UI_CHROME_FOOTER_H - 20)
 #define ARC_WIDTH    15
 #define ARC_ROTATION 270
 #define ARC_TOP_Y    50

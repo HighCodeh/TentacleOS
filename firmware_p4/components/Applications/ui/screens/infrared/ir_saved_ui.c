@@ -55,9 +55,9 @@ static const char *TAG = "IR_SAVED_UI";
 #define IRC_CARD_RADIUS 12
 #define IRC_CARD_PAD    10
 #define IRC_GLOW_W      14
-#define IRC_TRACK_X     227
+#define IRC_TRACK_X     (ui_screen_w() - 13)
 #define IRC_TRACK_Y     54
-#define IRC_TRACK_LEN   232
+#define IRC_TRACK_LEN   LV_MIN(232, ui_screen_h() - UI_CHROME_FOOTER_H - IRC_TRACK_Y)
 #define IRC_THUMB_H     45
 #define IRC_THUMB_ICON  "/assets/icons/drag_indicator.bin"
 
@@ -76,8 +76,6 @@ static int s_proto = 0;
 static int s_file = 0;
 static bool s_saved = false;
 
-// Real data: every .ir under /sdcard/ir, the distinct protocols across them,
-// and the files filtered to the currently-open protocol.
 EXT_RAM_BSS_ATTR static ir_store_entry_t s_all[IR_STORE_MAX_ENTRIES];
 static int s_all_count = 0;
 static char s_protos[MAX_PROTOS][16];
@@ -95,7 +93,6 @@ static lv_obj_t *s_file_thumb = NULL;
 static void build_screen(void);
 static void ir_saved_input(const input_event_t *ev, void *ctx);
 
-// Re-scan /sdcard/ir and rebuild the distinct-protocol bucket list.
 static void reload_all(void) {
   s_all_count = ir_store_list(s_all, IR_STORE_MAX_ENTRIES);
   if (s_all_count < 0)
@@ -117,7 +114,6 @@ static void reload_all(void) {
   }
 }
 
-// Filter the flat file list down to the files of one protocol.
 static void filter_for_proto(const char *proto) {
   s_file_count = 0;
   for (int i = 0; i < s_all_count && s_file_count < MAX_FILES; i++) {
@@ -130,7 +126,6 @@ static void filter_for_proto(const char *proto) {
     s_file = 0;
 }
 
-// Load the selected file and format its first signal's command for display.
 static void selected_value(char *buf, size_t cap) {
   buf[0] = '\0';
   ir_file_t f;

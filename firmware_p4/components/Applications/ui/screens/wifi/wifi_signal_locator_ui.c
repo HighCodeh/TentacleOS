@@ -28,6 +28,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
 
@@ -278,9 +279,14 @@ static void build_locator(void) {
   lv_obj_set_style_pad_ver(target, 3, 0);
   lv_obj_align(target, LV_ALIGN_TOP_MID, 0, TARGET_Y);
 
+  const int arc_stack_h = ARC_SIZE + 10 + 32 + 18;
+  int arc_top_y = LV_MIN(ARC_TOP_Y, ui_screen_h() - UI_CHROME_FOOTER_H - arc_stack_h);
+  int pill_y = arc_top_y + ARC_SIZE + 10;
+  int prox_y = pill_y + 32;
+
   s_arc = lv_arc_create(s_screen);
   lv_obj_set_size(s_arc, ARC_SIZE, ARC_SIZE);
-  lv_obj_align(s_arc, LV_ALIGN_TOP_MID, 0, ARC_TOP_Y);
+  lv_obj_align(s_arc, LV_ALIGN_TOP_MID, 0, arc_top_y);
   lv_arc_set_rotation(s_arc, ARC_ROTATION);
   lv_arc_set_bg_angles(s_arc, 0, 360);
   lv_arc_set_range(s_arc, RANGE_MIN, RANGE_MAX);
@@ -314,14 +320,14 @@ static void build_locator(void) {
   lv_obj_set_style_border_width(s_hint, 1, 0);
   lv_obj_set_style_pad_hor(s_hint, 12, 0);
   lv_obj_set_style_pad_ver(s_hint, 3, 0);
-  lv_obj_align(s_hint, LV_ALIGN_TOP_MID, 0, PILL_Y);
+  lv_obj_align(s_hint, LV_ALIGN_TOP_MID, 0, pill_y);
 
   s_prox_label = lv_label_create(s_screen);
   lv_label_set_text(s_prox_label, proximity_text(rssi_to_pct(s_rssi)));
   lv_obj_set_style_text_font(s_prox_label, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(s_prox_label, current_theme.text_secondary, 0);
   lv_obj_set_style_text_align(s_prox_label, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_align(s_prox_label, LV_ALIGN_TOP_MID, 0, PROX_Y);
+  lv_obj_align(s_prox_label, LV_ALIGN_TOP_MID, 0, prox_y);
 
   apply_signal(s_rssi);
 
