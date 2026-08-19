@@ -16,6 +16,8 @@
 #include "esp_lvgl_port.h"
 #include "esp_log.h"
 
+#include "draw/lv_draw_buf_private.h"
+
 #include "spi.h"
 #include "st7789.h"
 #include "sys_prio.h"
@@ -39,6 +41,23 @@ static volatile lvgl_glue_strip_cb_t s_capture_cb = NULL;
 static SemaphoreHandle_t s_trans_done = NULL;
 static volatile bool s_direct_mode = false;
 static volatile bool s_flush_took_bus = false;
+
+#define DRAWBUF_PSRAM_THRESHOLD (48 * 1024)
+
+static void *draw_buf_psram_malloc(size_t size, lv_color_format_t cf) {
+  (void)cf;
+  size += LV_DRAW_BUF_ALIGN - 1;
+  void *p = NULL;
+  if (size > DRAWBUF_PSRAM_THRESHOLD)
+    p = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (p == NULL)
+    p = heap_caps_malloc(size, MALLOC_CAP_DEFAULT);
+  return p;
+}
+
+static void draw_buf_free(void *buf) {
+  heap_caps_free(buf);
+}
 
 static bool trans_done_cb(esp_lcd_panel_io_handle_t io,
                           esp_lcd_panel_io_event_data_t *ed, void *ctx) {
@@ -122,6 +141,13 @@ esp_err_t lvgl_glue_init(void) {
     ESP_LOGE(TAG, "lvgl_port_add_disp returned NULL");
     return ESP_FAIL;
   }
+
+  lv_draw_buf_handlers_t *dbh = lv_draw_buf_get_handlers();
+  dbh->buf_malloc_cb = draw_buf_psram_malloc;
+  dbh->buf_free_cb = draw_buf_free;
+  lv_draw_buf_handlers_t *idbh = lv_draw_buf_get_image_handlers();
+  idbh->buf_malloc_cb = draw_buf_psram_malloc;
+  idbh->buf_free_cb = draw_buf_free;
   lv_display_add_event_cb(s_disp, capture_flush_start_cb, LV_EVENT_FLUSH_START, NULL);
 
   s_trans_done = xSemaphoreCreateBinary();

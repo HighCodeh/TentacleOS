@@ -57,6 +57,9 @@ static lv_obj_t *s_ftr = NULL;
 static uint8_t *s_blob = NULL;
 static lv_image_dsc_t s_raw_dsc;
 
+static lv_obj_t *s_loading = NULL;
+static lv_timer_t *s_decode_timer = NULL;
+
 EXT_RAM_BSS_ATTR static char s_list[MAX_IMAGES][PATH_LEN];
 static int s_count = 0;
 static int s_idx = 0;
@@ -161,32 +164,30 @@ static void scan_folder(void) {
 
 static void fit_image(lv_obj_t *w, int32_t iw, int32_t ih) {
   lv_obj_set_size(w, VIEW_W, IMG_AREA_H);
-  bool fits = (iw > 0 && ih > 0 && iw <= VIEW_W && ih <= IMG_AREA_H);
-  lv_image_set_inner_align(w, fits ? LV_IMAGE_ALIGN_CENTER : LV_IMAGE_ALIGN_CONTAIN);
-  lv_image_set_antialias(w, !fits);
+  lv_image_set_inner_align(w, LV_IMAGE_ALIGN_CENTER);
+
+  bool oversize = (iw > 0 && ih > 0 && (iw > VIEW_W || ih > IMG_AREA_H));
+  if (oversize) {
+    int32_t sw = (int32_t)((int64_t)VIEW_W * LV_SCALE_NONE / iw);
+    int32_t sh = (int32_t)((int64_t)IMG_AREA_H * LV_SCALE_NONE / ih);
+    int32_t s = sw < sh ? sw : sh;
+    lv_image_set_scale(w, (uint32_t)(s < 1 ? 1 : s));
+  } else {
+    lv_image_set_scale(w, LV_SCALE_NONE);
+  }
+  lv_image_set_antialias(w, oversize);
   lv_obj_center(w);
 }
 
-static void load_current(void) {
-  if (s_area == NULL)
-    return;
-  lv_obj_clean(s_area);
-  free_media();
-
-  if (s_count <= 0)
+static void decode_now(lv_timer_t *t) {
+  (void)t;
+  s_decode_timer = NULL;
+  if (s_area == NULL || s_count <= 0)
     return;
 
   const char *path = s_list[s_idx];
   const char *name = strrchr(path, '/');
   name = (name != NULL) ? name + 1 : path;
-
-  if (s_hdr != NULL)
-    lv_label_set_text(s_hdr, name);
-  if (s_ftr != NULL) {
-    char f[FOOTER_TXT_LEN];
-    snprintf(f, sizeof(f), "%d/%d   " LV_SYMBOL_LEFT " " LV_SYMBOL_RIGHT, s_idx + 1, s_count);
-    lv_label_set_text(s_ftr, f);
-  }
 
   img_fmt_t fmt = fmt_of(name);
   size_t len = 0;
@@ -197,30 +198,37 @@ static void load_current(void) {
     char lp[PATH_LEN + LVGL_PATH_PREFIX_MAX];
     strlcpy(lp, "A:", sizeof(lp));
     strlcat(lp, (path[0] == '/') ? path + 1 : path, sizeof(lp));
-    w = lv_image_create(s_area);
-    lv_image_set_src(w, lp);
     lv_image_header_t h;
     memset(&h, 0, sizeof(h));
-    if (lv_image_decoder_get_info(lp, &h) == LV_RESULT_OK) {
+    lv_result_t r = lv_image_decoder_get_info(lp, &h);
+    ESP_LOGI(TAG, "JPEG '%s': src='%s' get_info=%s %dx%d cf=%d", name, lp,
+             r == LV_RESULT_OK ? "OK" : "FAIL", (int)h.w, (int)h.h, (int)h.cf);
+    if (r == LV_RESULT_OK) {
       iw = h.w;
       ih = h.h;
     }
+    w = lv_image_create(s_area);
+    lv_image_set_src(w, lp);
   } else if (fmt == IMG_PNG) {
     s_blob = read_file(path, &len);
+    ESP_LOGI(TAG, "PNG '%s': read=%u bytes", name, (unsigned)len);
     if (s_blob != NULL) {
       memset(&s_raw_dsc, 0, sizeof(s_raw_dsc));
       s_raw_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
       s_raw_dsc.header.cf = LV_COLOR_FORMAT_RAW;
       s_raw_dsc.data = s_blob;
       s_raw_dsc.data_size = (uint32_t)len;
-      w = lv_image_create(s_area);
-      lv_image_set_src(w, &s_raw_dsc);
       lv_image_header_t h;
       memset(&h, 0, sizeof(h));
-      if (lv_image_decoder_get_info(&s_raw_dsc, &h) == LV_RESULT_OK) {
+      lv_result_t r = lv_image_decoder_get_info(&s_raw_dsc, &h);
+      ESP_LOGI(TAG, "PNG '%s': get_info=%s %dx%d cf=%d", name,
+               r == LV_RESULT_OK ? "OK" : "FAIL", (int)h.w, (int)h.h, (int)h.cf);
+      if (r == LV_RESULT_OK) {
         iw = h.w;
         ih = h.h;
       }
+      w = lv_image_create(s_area);
+      lv_image_set_src(w, &s_raw_dsc);
     }
   } else if (fmt == IMG_GIF) {
 #if LV_USE_GIF
@@ -243,16 +251,58 @@ static void load_current(void) {
 #endif
   }
 
+  if (s_loading != NULL) {
+    lv_obj_del(s_loading);
+    s_loading = NULL;
+  }
+
   if (w == NULL) {
     lv_obj_t *ph = lv_label_create(s_area);
     lv_label_set_text(ph, LV_SYMBOL_WARNING "  cannot display");
     lv_obj_set_style_text_color(ph, lv_color_hex(0xFF5252), 0);
     lv_obj_set_style_text_font(ph, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_align(ph, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_center(ph);
     return;
   }
 
   fit_image(w, iw, ih);
+}
+
+static void load_current(void) {
+  if (s_decode_timer != NULL) {
+    lv_timer_del(s_decode_timer);
+    s_decode_timer = NULL;
+  }
+  if (s_area == NULL)
+    return;
+  lv_obj_clean(s_area);
+  s_loading = NULL;
+  free_media();
+
+  if (s_count <= 0)
+    return;
+
+  const char *path = s_list[s_idx];
+  const char *name = strrchr(path, '/');
+  name = (name != NULL) ? name + 1 : path;
+
+  if (s_hdr != NULL)
+    lv_label_set_text(s_hdr, name);
+  if (s_ftr != NULL) {
+    char f[FOOTER_TXT_LEN];
+    snprintf(f, sizeof(f), "%d/%d   " LV_SYMBOL_LEFT " " LV_SYMBOL_RIGHT, s_idx + 1, s_count);
+    lv_label_set_text(s_ftr, f);
+  }
+
+  s_loading = lv_label_create(s_area);
+  lv_label_set_text(s_loading, LV_SYMBOL_REFRESH "  Loading...");
+  lv_obj_set_style_text_color(s_loading, lv_color_hex(0x8A8594), 0);
+  lv_obj_set_style_text_font(s_loading, &lv_font_montserrat_14, 0);
+  lv_obj_center(s_loading);
+
+  s_decode_timer = lv_timer_create(decode_now, 40, NULL);
+  lv_timer_set_repeat_count(s_decode_timer, 1);
 }
 
 static void go_relative(int dir) {
@@ -300,13 +350,31 @@ void ui_image_viewer_set_return(int screen) {
 }
 
 void ui_image_viewer_stop(void) {
+  if (s_decode_timer != NULL) {
+    lv_timer_del(s_decode_timer);
+    s_decode_timer = NULL;
+  }
   if (s_area != NULL)
     lv_obj_clean(s_area);
   free_media();
   s_count = 0;
+  s_loading = NULL;
   s_area = NULL;
   s_hdr = NULL;
   s_ftr = NULL;
+}
+
+static void on_screen_delete(lv_event_t *e) {
+  (void)e;
+  if (s_decode_timer != NULL) {
+    lv_timer_del(s_decode_timer);
+    s_decode_timer = NULL;
+  }
+  s_loading = NULL;
+  s_area = NULL;
+  s_hdr = NULL;
+  s_ftr = NULL;
+  free_media();
 }
 
 void ui_image_viewer_open(void) {
@@ -316,6 +384,7 @@ void ui_image_viewer_open(void) {
   }
 
   s_screen = lv_obj_create(NULL);
+  lv_obj_add_event_cb(s_screen, on_screen_delete, LV_EVENT_DELETE, NULL);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_color(s_screen, lv_color_black(), 0);
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
@@ -345,9 +414,9 @@ void ui_image_viewer_open(void) {
   lv_obj_set_style_text_color(s_ftr, lv_color_hex(0x9AA0A6), 0);
   lv_obj_align(s_ftr, LV_ALIGN_BOTTOM_MID, 0, -5);
 
-  scan_folder();
-  load_current();
-
   ui_input_set_screen_handler(image_viewer_input, NULL);
   ui_screen_load_owned(&s_screen, s_screen);
+
+  scan_folder();
+  load_current();
 }
