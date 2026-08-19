@@ -1,18 +1,25 @@
 # Screen input migration guide
 
-How to convert one screen from the old per-screen polling `lv_timer` to the
-central event-driven input. Background: [input_manager](../input_manager/README.md),
+How a screen wires up input: the central event-driven model, and how it was
+converted from the old per-screen polling `lv_timer`. Background:
+[input_manager](../input_manager/README.md),
 [ui: event-driven handlers](README.md#input-event-driven-handlers).
 
-**Status:** 7 screens migrated (see [Reference examples](#reference-examples));
-~91 still use `nav_timer_cb`. Find the remaining ones with:
+**Status: migration complete (historical reference).** Every screen now
+registers an input handler with `ui_input_set_screen_handler` (~110 screen
+files). The single remaining `nav_timer_cb` is in `games/octopet_ui.c`, a
+deliberate continuous-held-state case (see the games gotcha below), not a
+pending TODO. Confirm with:
 
 ```sh
-grep -rln "nav_timer_cb\|nav_cb\b" firmware_p4/components/Applications/ui/screens --include='*.c'
+grep -rln "ui_input_set_screen_handler" firmware_p4/components/Applications/ui/screens --include='*.c' | wc -l
+grep -rln "nav_timer_cb" firmware_p4/components/Applications/ui/screens --include='*.c'
 ```
 
-Nothing is broken in the meantime: unmigrated screens keep working through the
-`buttons_gpio` shim. Migrate opportunistically, build after each batch.
+This document is kept as a reference: the recipe and gotchas below describe the
+current handler pattern, so use it when adding a new screen or if you ever find
+a stray polling timer. The reference-examples table still points at real,
+representative screens.
 
 ## What you are replacing
 
@@ -110,14 +117,12 @@ Copy the closest match:
 | `bluetooth/ui_ble_menu.c` | Forward decl + `MENU_ITEMS` target dispatch |
 | `games/games_menu_ui.c` | Carousel: LEFT/UP and RIGHT/DOWN cycle an index with REPEAT |
 
-## Remaining work (~91 screens)
+## The one intentional exception
 
-By area (run the grep above for the live list): bluetooth 15, wifi 14, nfc 13,
-settings 11, lora 8, infrared 7, subghz 5, audio 4, dev 3, games 2, badusb 2,
-and one each in theme, rfid, haptic, gpio, files, connect_wifi,
-connection_settings. The simple area menus (settings, submenus) are quickest;
-the games and multi-view NFC/RFID screens need the continuous-state / multi-view
-handling above.
+`games/octopet_ui.c` keeps a `nav_timer_cb` on purpose: the pet moves while a
+direction is held, which is a continuous-held-state case (see the games gotcha
+above), not something a pure press/edge handler models well. It reads button
+levels from its own tick timer. This is by design; do not "migrate" it.
 
 ## Verify
 
