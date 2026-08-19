@@ -28,6 +28,7 @@
 #include "nfc_ui_common.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 #define REFRESH_MS 33
@@ -97,7 +98,10 @@ static void build_dump(void) {
   lv_obj_remove_flag(s_dump, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_width(s_dump, DUMP_W);
   lv_obj_set_height(s_dump, LV_SIZE_CONTENT);
-  lv_obj_align(s_dump, LV_ALIGN_CENTER, 0, DUMP_Y);
+  const int dumpH = DUMP_LINE_COUNT * 14 + (DUMP_LINE_COUNT - 1) * DUMP_ROW_GAP;
+  const int dump_y =
+      LV_MIN(DUMP_Y, (ui_screen_h() - UI_CHROME_FOOTER_H) - ui_screen_h() / 2 - dumpH / 2);
+  lv_obj_align(s_dump, LV_ALIGN_CENTER, 0, dump_y);
   lv_obj_set_style_bg_opa(s_dump, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(s_dump, 0, 0);
   lv_obj_set_style_pad_all(s_dump, 0, 0);
