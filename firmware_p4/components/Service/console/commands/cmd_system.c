@@ -253,7 +253,6 @@ static const stack_alloc_t STACK_ALLOC[] = {
     {"hl_log", 6144},
     {"SysMonitor", 4096},
     {"wifi_status", 4096},
-    {"tos_log", 4096},
     {"hl_ble", 4096},
 };
 #define STACK_ALLOC_COUNT (sizeof(STACK_ALLOC) / sizeof(STACK_ALLOC[0]))
