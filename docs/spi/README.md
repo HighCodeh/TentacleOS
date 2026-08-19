@@ -12,8 +12,11 @@ This component acts as a central manager for the SPI bus, allowing multiple devi
 ## Supported Devices (`spi_device_id_t`)
 
 1.  **SPI_DEVICE_ST7789:** Display Driver
-2.  **SPI_DEVICE_CC1101:** Sub-GHz Radio
+2.  **SPI_DEVICE_CC1101:** Sub-GHz radio. The enum name is **legacy**: the SPI3
+    radio is now the **SX1262 LoRa** part, which shares the SPI3 bus with the
+    ST7789 display behind a bus lock (see `spi_bus_lock_take` / `spi_bus_lock_give`).
 3.  **SPI_DEVICE_SD_CARD:** Storage
+4.  **SPI_DEVICE_BRIDGE:** The P4->C5 SPI bridge device (P4 only).
 
 ## API Reference
 
@@ -69,7 +72,7 @@ This component acts as a central manager for the SPI bus, allowing multiple devi
 ## Supported Devices (`spi_device_id_t`)
 
 1.  **SPI_DEVICE_ST7789:** Display Driver
-2.  **SPI_DEVICE_CC1101:** Sub-GHz Radio
+2.  **SPI_DEVICE_CC1101:** Sub-GHz radio (legacy enum name for the LoRa part).
 3.  **SPI_DEVICE_SD_CARD:** Storage
 
 ## API Reference
