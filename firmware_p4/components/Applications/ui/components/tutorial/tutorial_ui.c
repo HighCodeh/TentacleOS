@@ -32,6 +32,7 @@
 #include "tos_config.h"
 #include "tos_storage_paths.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 static const char *TAG = "TUTORIAL";
@@ -46,10 +47,10 @@ static const char *const WIZ_THEME_NAMES[] = {"default", "cyber_blue"};
 #define WIZ_MARGIN    16
 #define WIZ_STEP_Y    6
 #define WIZ_PROG_Y    24
-#define WIZ_PROG_W    (LCD_H_RES - 2 * WIZ_MARGIN)
+#define WIZ_PROG_W    (ui_screen_w() - 2 * WIZ_MARGIN)
 #define WIZ_PROG_H    4
 #define WIZ_CONTENT_Y 36
-#define WIZ_CONTENT_H 252
+#define WIZ_CONTENT_H (ui_screen_h() - WIZ_CONTENT_Y - 32)
 #define WIZ_FOOT_Y    -8
 #define WIZ_GAP       9
 #define WIZ_TEXT_W    206
@@ -704,7 +705,7 @@ void tutorial_start(void) {
   s_content = lv_obj_create(root);
   lv_obj_remove_style_all(s_content);
   lv_obj_remove_flag(s_content, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(s_content, LCD_H_RES, WIZ_CONTENT_H);
+  lv_obj_set_size(s_content, ui_screen_w(), WIZ_CONTENT_H);
   lv_obj_align(s_content, LV_ALIGN_TOP_MID, 0, WIZ_CONTENT_Y);
   lv_obj_set_flex_flow(s_content, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(
