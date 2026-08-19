@@ -504,7 +504,14 @@ esp_err_t vfs_sdcard_init(void);
 esp_err_t vfs_sdcard_deinit(void);
 bool vfs_sdcard_is_mounted(void);
 void vfs_sdcard_print_info(void);
+bool vfs_sdcard_get_name(char *out, size_t n);
 esp_err_t vfs_sdcard_format(void);
+esp_err_t vfs_register_sd_backend(void);
+esp_err_t vfs_unregister_sd_backend(void);
+
+// Raw handoff for USB Mass Storage (see "USB Mass Storage (MSC)" below)
+esp_err_t vfs_sdcard_detach_for_msc(void **out_card);
+esp_err_t vfs_sdcard_reattach_after_msc(void *card);
 ```
 
 ### LittleFS Backend
@@ -518,6 +525,70 @@ bool vfs_littlefs_is_mounted(void);
 void vfs_littlefs_print_info(void);
 esp_err_t vfs_littlefs_format(void);
 ```
+
+---
+
+## USB Mass Storage (MSC)
+
+> P4 only. The MSC path lives in `storage_vfs`
+> (`usb_msc.c` / `vfs_sdcard.c`, headers `include/usb_msc.h` and
+> `include/vfs_sdcard.h`). The C5 has no USB connector or SD card and does not
+> build these.
+
+USB Mass Storage mode exposes the microSD directly to a host PC as a USB drive.
+Because a host filesystem and the firmware's FAT mount cannot own the card at
+the same time, entering MSC hands the raw block device over to the USB stack and
+tears down the app's `/sdcard` mount; leaving MSC does the reverse and resumes
+normal operation **without a reboot** (it only reboots if the remount fails).
+
+### Control API (`usb_msc.h`)
+
+```c
+#include "usb_msc.h"
+
+typedef enum {
+  USB_MSC_IDLE = 0,  // Not in USB-storage mode
+  USB_MSC_ENTERING,  // Detaching SD / bringing USB up
+  USB_MSC_ACTIVE,    // SD exposed to the host as a USB drive
+  USB_MSC_ERROR,     // Could not enter (SD restored, safe to leave)
+  USB_MSC_EXITING,   // Tearing down / remounting SD
+} usb_msc_state_t;
+
+usb_msc_state_t usb_msc_get_state(void);   // poll from the UI
+bool            usb_msc_host_connected(void); // true while the host has it mounted
+void            usb_msc_enter(void);        // blocking - run on a worker task
+void            usb_msc_exit(void);         // blocking - run on a worker task
+```
+
+- `usb_msc_enter()` detaches the app's `/sdcard` FAT, exposes the raw card to the
+  host, and switches the USB mux to native. On failure the SD is restored and the
+  state goes to `USB_MSC_ERROR`.
+- `usb_msc_exit()` stops exposing the card, remounts `/sdcard`, and routes the USB
+  connector back to the UART bridge. It resumes without a reboot; only a failed
+  remount forces a reboot to recover.
+- Both `usb_msc_enter()` and `usb_msc_exit()` are **blocking** - never call them
+  from the LVGL thread; drive them from a worker task and poll `usb_msc_get_state()`.
+
+### Raw SD handoff (`vfs_sdcard.h`)
+
+MSC is implemented on top of two raw-handoff helpers in the SD backend that give
+up and reclaim the physical card around the USB stack:
+
+```c
+// Give up the app's FAT mount and hand back the SD as a RAW, still-powered block
+// device for USB MSC. The card is re-initialized (never formatted).
+// out_card receives an sdmmc_card_t* (as void*) on success.
+esp_err_t vfs_sdcard_detach_for_msc(void **out_card);
+
+// Undo the detach: release the raw SDMMC card+host handed to MSC and remount the
+// app FAT at /sdcard. Call AFTER the MSC storage layer is torn down. Lets the
+// firmware resume without a reboot. `card` is the handle from the detach call.
+esp_err_t vfs_sdcard_reattach_after_msc(void *card);
+```
+
+`vfs_sdcard_detach_for_msc()` leaves the app FAT mount detached on failure;
+`vfs_sdcard_reattach_after_msc()` performs the remount that returns the card to
+the firmware.
 
 ---
 
