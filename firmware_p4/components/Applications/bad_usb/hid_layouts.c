@@ -32,22 +32,6 @@ static const char *TAG = "HID_LAYOUTS";
 #define HID_KEY_NON_US_BACKSLASH 0x64
 #endif
 
-// ABNT2 UTF-8 byte pairs for accented characters
-#define UTF8_LOWER_C_CEDILLA_B2 0xA7 // c = 0xC3 0xA7
-#define UTF8_UPPER_C_CEDILLA_B2 0x87 // C = 0xC3 0x87
-#define UTF8_LOWER_A_ACUTE_B2   0xA1 // a = 0xC3 0xA1
-#define UTF8_LOWER_E_ACUTE_B2   0xA9 // e = 0xC3 0xA9
-#define UTF8_LOWER_I_ACUTE_B2   0xAD // i = 0xC3 0xAD
-#define UTF8_LOWER_O_ACUTE_B2   0xB3 // o = 0xC3 0xB3
-#define UTF8_LOWER_U_ACUTE_B2   0xBA // u = 0xC3 0xBA
-#define UTF8_LOWER_A_CIRCUM_B2  0xA2 // a = 0xC3 0xA2
-#define UTF8_LOWER_E_CIRCUM_B2  0xAA // e = 0xC3 0xAA
-#define UTF8_LOWER_O_CIRCUM_B2  0xB4 // o = 0xC3 0xB4
-#define UTF8_LOWER_A_TILDE_B2   0xA3 // a = 0xC3 0xA3
-#define UTF8_LOWER_O_TILDE_B2   0xB5 // o = 0xC3 0xB5
-#define UTF8_LOWER_A_GRAVE_B2   0xA0 // a = 0xC3 0xA0
-#define UTF8_2BYTE_LEAD         0xC3
-
 static bool try_decode_abnt2_utf8(uint8_t c1, uint8_t c2);
 
 void hid_layouts_type_string_us(const char *str) {
@@ -190,6 +174,18 @@ void hid_layouts_type_string_abnt2(const char *str) {
       continue;
     }
 
+    // Circumflex/tilde are dead keys; a trailing space emits the literal char.
+    if (c1 == '^') {
+      hid_hal_press_key(HID_KEY_APOSTROPHE, KEYBOARD_MODIFIER_LEFTSHIFT);
+      hid_hal_press_key(HID_KEY_SPACE, 0);
+      continue;
+    }
+    if (c1 == '~') {
+      hid_hal_press_key(HID_KEY_APOSTROPHE, 0);
+      hid_hal_press_key(HID_KEY_SPACE, 0);
+      continue;
+    }
+
     // Try UTF-8 two-byte sequences (accented characters)
     if ((c1 & 0xE0) == 0xC0 && c2 != '\0') {
       if (try_decode_abnt2_utf8(c1, c2)) {
@@ -277,6 +273,14 @@ void hid_layouts_type_string_abnt2(const char *str) {
         case ',':
           keycode = HID_KEY_COMMA;
           break;
+        case '<':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_COMMA;
+          break;
+        case '>':
+          modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+          keycode = HID_KEY_PERIOD;
+          break;
         case ';':
           keycode = HID_KEY_SLASH;
           break;
@@ -325,83 +329,96 @@ void hid_layouts_type_string_abnt2(const char *str) {
   }
 }
 
+typedef struct {
+  uint8_t c1;  // UTF-8 lead byte (0xC2 or 0xC3)
+  uint8_t c2;  // UTF-8 continuation byte
+  uint8_t k1;  // dead key or direct key
+  uint8_t m1;  // modifier for k1
+  uint8_t k2;  // base letter, 0 for a single keypress
+  uint8_t m2;  // modifier for k2 (shift = uppercase)
+} abnt2_utf8_entry_t;
+
+// ABNT2 dead-key prefix (key, modifier) pressed before the base letter.
+#define DK_ACUTE  HID_KEY_BRACKET_LEFT, 0
+#define DK_GRAVE  HID_KEY_BRACKET_LEFT, KEYBOARD_MODIFIER_LEFTSHIFT
+#define DK_CIRCUM HID_KEY_APOSTROPHE, KEYBOARD_MODIFIER_LEFTSHIFT
+#define DK_TILDE  HID_KEY_APOSTROPHE, 0
+#define DK_DIAER  HID_KEY_6, KEYBOARD_MODIFIER_LEFTSHIFT
+
+static const abnt2_utf8_entry_t ABNT2_UTF8_MAP[] = {
+    {0xC3, 0xA7, HID_KEY_SEMICOLON, 0, 0, 0},                         // ç
+    {0xC3, 0x87, HID_KEY_SEMICOLON, KEYBOARD_MODIFIER_LEFTSHIFT, 0, 0}, // Ç
+    {0xC3, 0xA0, DK_GRAVE, HID_KEY_A, 0},                            // à
+    {0xC3, 0xA1, DK_ACUTE, HID_KEY_A, 0},                            // á
+    {0xC3, 0xA2, DK_CIRCUM, HID_KEY_A, 0},                           // â
+    {0xC3, 0xA3, DK_TILDE, HID_KEY_A, 0},                            // ã
+    {0xC3, 0xA4, DK_DIAER, HID_KEY_A, 0},                            // ä
+    {0xC3, 0xA8, DK_GRAVE, HID_KEY_E, 0},                            // è
+    {0xC3, 0xA9, DK_ACUTE, HID_KEY_E, 0},                            // é
+    {0xC3, 0xAA, DK_CIRCUM, HID_KEY_E, 0},                           // ê
+    {0xC3, 0xAB, DK_DIAER, HID_KEY_E, 0},                            // ë
+    {0xC3, 0xAC, DK_GRAVE, HID_KEY_I, 0},                            // ì
+    {0xC3, 0xAD, DK_ACUTE, HID_KEY_I, 0},                            // í
+    {0xC3, 0xAE, DK_CIRCUM, HID_KEY_I, 0},                           // î
+    {0xC3, 0xAF, DK_DIAER, HID_KEY_I, 0},                            // ï
+    {0xC3, 0xB1, DK_TILDE, HID_KEY_N, 0},                            // ñ
+    {0xC3, 0xB2, DK_GRAVE, HID_KEY_O, 0},                            // ò
+    {0xC3, 0xB3, DK_ACUTE, HID_KEY_O, 0},                            // ó
+    {0xC3, 0xB4, DK_CIRCUM, HID_KEY_O, 0},                           // ô
+    {0xC3, 0xB5, DK_TILDE, HID_KEY_O, 0},                            // õ
+    {0xC3, 0xB6, DK_DIAER, HID_KEY_O, 0},                            // ö
+    {0xC3, 0xB9, DK_GRAVE, HID_KEY_U, 0},                            // ù
+    {0xC3, 0xBA, DK_ACUTE, HID_KEY_U, 0},                            // ú
+    {0xC3, 0xBB, DK_CIRCUM, HID_KEY_U, 0},                           // û
+    {0xC3, 0xBC, DK_DIAER, HID_KEY_U, 0},                            // ü
+    {0xC3, 0x80, DK_GRAVE, HID_KEY_A, KEYBOARD_MODIFIER_LEFTSHIFT},  // À
+    {0xC3, 0x81, DK_ACUTE, HID_KEY_A, KEYBOARD_MODIFIER_LEFTSHIFT},  // Á
+    {0xC3, 0x82, DK_CIRCUM, HID_KEY_A, KEYBOARD_MODIFIER_LEFTSHIFT}, // Â
+    {0xC3, 0x83, DK_TILDE, HID_KEY_A, KEYBOARD_MODIFIER_LEFTSHIFT},  // Ã
+    {0xC3, 0x84, DK_DIAER, HID_KEY_A, KEYBOARD_MODIFIER_LEFTSHIFT},  // Ä
+    {0xC3, 0x88, DK_GRAVE, HID_KEY_E, KEYBOARD_MODIFIER_LEFTSHIFT},  // È
+    {0xC3, 0x89, DK_ACUTE, HID_KEY_E, KEYBOARD_MODIFIER_LEFTSHIFT},  // É
+    {0xC3, 0x8A, DK_CIRCUM, HID_KEY_E, KEYBOARD_MODIFIER_LEFTSHIFT}, // Ê
+    {0xC3, 0x8B, DK_DIAER, HID_KEY_E, KEYBOARD_MODIFIER_LEFTSHIFT},  // Ë
+    {0xC3, 0x8C, DK_GRAVE, HID_KEY_I, KEYBOARD_MODIFIER_LEFTSHIFT},  // Ì
+    {0xC3, 0x8D, DK_ACUTE, HID_KEY_I, KEYBOARD_MODIFIER_LEFTSHIFT},  // Í
+    {0xC3, 0x8E, DK_CIRCUM, HID_KEY_I, KEYBOARD_MODIFIER_LEFTSHIFT}, // Î
+    {0xC3, 0x8F, DK_DIAER, HID_KEY_I, KEYBOARD_MODIFIER_LEFTSHIFT},  // Ï
+    {0xC3, 0x91, DK_TILDE, HID_KEY_N, KEYBOARD_MODIFIER_LEFTSHIFT},  // Ñ
+    {0xC3, 0x92, DK_GRAVE, HID_KEY_O, KEYBOARD_MODIFIER_LEFTSHIFT},  // Ò
+    {0xC3, 0x93, DK_ACUTE, HID_KEY_O, KEYBOARD_MODIFIER_LEFTSHIFT},  // Ó
+    {0xC3, 0x94, DK_CIRCUM, HID_KEY_O, KEYBOARD_MODIFIER_LEFTSHIFT}, // Ô
+    {0xC3, 0x95, DK_TILDE, HID_KEY_O, KEYBOARD_MODIFIER_LEFTSHIFT},  // Õ
+    {0xC3, 0x96, DK_DIAER, HID_KEY_O, KEYBOARD_MODIFIER_LEFTSHIFT},  // Ö
+    {0xC3, 0x99, DK_GRAVE, HID_KEY_U, KEYBOARD_MODIFIER_LEFTSHIFT},  // Ù
+    {0xC3, 0x9A, DK_ACUTE, HID_KEY_U, KEYBOARD_MODIFIER_LEFTSHIFT},  // Ú
+    {0xC3, 0x9B, DK_CIRCUM, HID_KEY_U, KEYBOARD_MODIFIER_LEFTSHIFT}, // Û
+    {0xC3, 0x9C, DK_DIAER, HID_KEY_U, KEYBOARD_MODIFIER_LEFTSHIFT},  // Ü
+    {0xC2, 0xA2, HID_KEY_5, KEYBOARD_MODIFIER_RIGHTALT, 0, 0},       // ¢
+    {0xC2, 0xA3, HID_KEY_4, KEYBOARD_MODIFIER_RIGHTALT, 0, 0},       // £
+    {0xC2, 0xA7, HID_KEY_EQUAL, KEYBOARD_MODIFIER_RIGHTALT, 0, 0},   // §
+    {0xC2, 0xAC, HID_KEY_6, KEYBOARD_MODIFIER_RIGHTALT, 0, 0},       // ¬
+    {0xC2, 0xB2, HID_KEY_2, KEYBOARD_MODIFIER_RIGHTALT, 0, 0},       // ²
+    {0xC2, 0xB3, HID_KEY_3, KEYBOARD_MODIFIER_RIGHTALT, 0, 0},       // ³
+    {0xC2, 0xB9, HID_KEY_1, KEYBOARD_MODIFIER_RIGHTALT, 0, 0},       // ¹
+};
+
+#undef DK_ACUTE
+#undef DK_GRAVE
+#undef DK_CIRCUM
+#undef DK_TILDE
+#undef DK_DIAER
+
 static bool try_decode_abnt2_utf8(uint8_t c1, uint8_t c2) {
-  if (c1 != UTF8_2BYTE_LEAD) {
-    return false;
+  for (size_t i = 0; i < sizeof(ABNT2_UTF8_MAP) / sizeof(ABNT2_UTF8_MAP[0]); ++i) {
+    const abnt2_utf8_entry_t *e = &ABNT2_UTF8_MAP[i];
+    if (e->c1 == c1 && e->c2 == c2) {
+      hid_hal_press_key(e->k1, e->m1);
+      if (e->k2 != 0) {
+        hid_hal_press_key(e->k2, e->m2);
+      }
+      return true;
+    }
   }
-
-  // Cedilla
-  if (c2 == UTF8_LOWER_C_CEDILLA_B2) {
-    hid_hal_press_key(HID_KEY_SEMICOLON, 0);
-    return true;
-  }
-  if (c2 == UTF8_UPPER_C_CEDILLA_B2) {
-    hid_hal_press_key(HID_KEY_SEMICOLON, KEYBOARD_MODIFIER_LEFTSHIFT);
-    return true;
-  }
-
-  // Acute accent (dead key = BRACKET_LEFT)
-  if (c2 == UTF8_LOWER_A_ACUTE_B2) {
-    hid_hal_press_key(HID_KEY_BRACKET_LEFT, 0);
-    hid_hal_press_key(HID_KEY_A, 0);
-    return true;
-  }
-  if (c2 == UTF8_LOWER_E_ACUTE_B2) {
-    hid_hal_press_key(HID_KEY_BRACKET_LEFT, 0);
-    hid_hal_press_key(HID_KEY_E, 0);
-    return true;
-  }
-  if (c2 == UTF8_LOWER_I_ACUTE_B2) {
-    hid_hal_press_key(HID_KEY_BRACKET_LEFT, 0);
-    hid_hal_press_key(HID_KEY_I, 0);
-    return true;
-  }
-  if (c2 == UTF8_LOWER_O_ACUTE_B2) {
-    hid_hal_press_key(HID_KEY_BRACKET_LEFT, 0);
-    hid_hal_press_key(HID_KEY_O, 0);
-    return true;
-  }
-  if (c2 == UTF8_LOWER_U_ACUTE_B2) {
-    hid_hal_press_key(HID_KEY_BRACKET_LEFT, 0);
-    hid_hal_press_key(HID_KEY_U, 0);
-    return true;
-  }
-
-  // Circumflex accent (dead key = APOSTROPHE + SHIFT)
-  if (c2 == UTF8_LOWER_A_CIRCUM_B2) {
-    hid_hal_press_key(HID_KEY_APOSTROPHE, KEYBOARD_MODIFIER_LEFTSHIFT);
-    hid_hal_press_key(HID_KEY_A, 0);
-    return true;
-  }
-  if (c2 == UTF8_LOWER_E_CIRCUM_B2) {
-    hid_hal_press_key(HID_KEY_APOSTROPHE, KEYBOARD_MODIFIER_LEFTSHIFT);
-    hid_hal_press_key(HID_KEY_E, 0);
-    return true;
-  }
-  if (c2 == UTF8_LOWER_O_CIRCUM_B2) {
-    hid_hal_press_key(HID_KEY_APOSTROPHE, KEYBOARD_MODIFIER_LEFTSHIFT);
-    hid_hal_press_key(HID_KEY_O, 0);
-    return true;
-  }
-
-  // Tilde (dead key = APOSTROPHE)
-  if (c2 == UTF8_LOWER_A_TILDE_B2) {
-    hid_hal_press_key(HID_KEY_APOSTROPHE, 0);
-    hid_hal_press_key(HID_KEY_A, 0);
-    return true;
-  }
-  if (c2 == UTF8_LOWER_O_TILDE_B2) {
-    hid_hal_press_key(HID_KEY_APOSTROPHE, 0);
-    hid_hal_press_key(HID_KEY_O, 0);
-    return true;
-  }
-
-  // Grave accent (dead key = BRACKET_LEFT + SHIFT)
-  if (c2 == UTF8_LOWER_A_GRAVE_B2) {
-    hid_hal_press_key(HID_KEY_BRACKET_LEFT, KEYBOARD_MODIFIER_LEFTSHIFT);
-    hid_hal_press_key(HID_KEY_A, 0);
-    return true;
-  }
-
   return false;
 }
