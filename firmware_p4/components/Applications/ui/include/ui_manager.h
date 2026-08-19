@@ -236,6 +236,13 @@ screen_id_t ui_current_screen(void);
 void ui_relayout_current_screen(void);
 
 /**
+ * @brief Is the given LOGICAL direction button currently held? Accounts for the
+ *        landscape d-pad rotation. Use in components that poll button levels
+ *        directly (dropdown, modals) so they navigate like the rotated screens.
+ */
+bool ui_nav_pressed(input_button_t logical);
+
+/**
  * @brief Whether a screen shows the global chrome (status bar + dropdown).
  *
  * false for active "operation" screens — reading/sending/scanning/emulating/

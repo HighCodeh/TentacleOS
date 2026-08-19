@@ -244,6 +244,33 @@ static input_button_t input_remap_for_rotation(input_button_t b) {
   }
 }
 
+bool ui_nav_pressed(input_button_t logical) {
+  if (!lvgl_glue_is_landscape())
+    return input_is_down(logical);
+  // Inverse of input_remap_for_rotation: the physical button that maps to this
+  // logical direction in landscape. For components that poll button levels
+  // directly (dropdown, modals) instead of going through the remapped pump.
+  // Keep in sync with input_remap_for_rotation.
+  input_button_t phys = logical;
+  switch (logical) {
+    case INPUT_BTN_UP:
+      phys = INPUT_BTN_RIGHT;
+      break;
+    case INPUT_BTN_DOWN:
+      phys = INPUT_BTN_LEFT;
+      break;
+    case INPUT_BTN_LEFT:
+      phys = INPUT_BTN_UP;
+      break;
+    case INPUT_BTN_RIGHT:
+      phys = INPUT_BTN_DOWN;
+      break;
+    default:
+      break;
+  }
+  return input_is_down(phys);
+}
+
 static void ui_input_pump(lv_timer_t *t) {
   (void)t;
   input_event_t ev;

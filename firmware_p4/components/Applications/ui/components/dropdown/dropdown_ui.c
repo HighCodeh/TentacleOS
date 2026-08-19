@@ -37,6 +37,7 @@
 #include "tos_storage_paths.h"
 #include "tutorial_ui.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 #include "vfs_sdcard.h"
 #include "wifi_service.h"
@@ -361,8 +362,8 @@ static void slide_btn_timer_cb(lv_timer_t *timer) {
     slide_btn_timer = NULL;
     return;
   }
-  bool up = up_button_is_down(), down = down_button_is_down();
-  bool left = left_button_is_down(), right = right_button_is_down();
+  bool up = ui_nav_pressed(INPUT_BTN_UP), down = ui_nav_pressed(INPUT_BTN_DOWN);
+  bool left = ui_nav_pressed(INPUT_BTN_LEFT), right = ui_nav_pressed(INPUT_BTN_RIGHT);
   bool ok = ok_button_is_down(), back = back_button_is_down();
 
   uint32_t nowt = lv_tick_get();
@@ -795,8 +796,8 @@ void dropdown_ui_create(lv_obj_t *parent) {
 
   lv_obj_update_layout(slide_panel);
   s_panel_h = lv_obj_get_height(slide_panel);
-  if (s_panel_h < 40 || s_panel_h > LCD_V_RES)
-    s_panel_h = (LCD_V_RES * 85) / 100;
+  if (s_panel_h < 40 || s_panel_h > ui_screen_h())
+    s_panel_h = (ui_screen_h() * 85) / 100;
   lv_obj_set_y(slide_panel, -s_panel_h);
 
   if (slide_btn_timer == NULL)
