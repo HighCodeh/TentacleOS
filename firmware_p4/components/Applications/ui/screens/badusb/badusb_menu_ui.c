@@ -135,8 +135,9 @@ static const char *TAG = "BADUSB_UI";
 #define PAY_BODY_BUF_LEN   200
 #define PREVIEW_MAX_LINES  4
 
-#define BADUSB_SCRIPT_DIR TOS_PATH_BADUSB
-#define BADUSB_ASSET_DIR  FLASH_STORAGE_BADUSB
+#define BADUSB_SCRIPT_DIR   TOS_PATH_BADUSB
+#define BADUSB_ASSET_DIR    FLASH_STORAGE_BADUSB
+#define BADUSB_SCAN_MAX_DEPTH 3
 #define ASSETS_PREFIX_LEN (sizeof(FLASH_MOUNT "/") - 1)
 #define MAX_PAYLOADS      24
 #define PL_PATH_LEN       192
@@ -279,21 +280,31 @@ static bool is_ducky_script(const char *name) {
          strcasecmp(dot, ".duck") == 0 || strcasecmp(dot, ".ducky") == 0;
 }
 
-static void scan_dir_into(const char *dir, bool is_asset) {
+// Recurses into subfolders so payloads organised in /badusb/<category>/ still
+// show. Depth is bounded and subdirs are visited while their parent DIR is open,
+// so at most BADUSB_SCAN_MAX_DEPTH handles are held (under VFS_MAX_FILES).
+static void scan_dir_into_depth(const char *dir, bool is_asset, int depth) {
   DIR *d = opendir(dir);
   if (d == NULL) {
-    ESP_LOGW(TAG, "No script dir: %s", dir);
+    if (depth == 0)
+      ESP_LOGW(TAG, "No script dir: %s", dir);
     return;
   }
   struct dirent *ent;
   while ((ent = readdir(d)) != NULL && s_pl_count < MAX_PAYLOADS) {
     if (ent->d_name[0] == '.')
       continue;
-    if (ent->d_type == DT_DIR)
-      continue;
-    if (!is_ducky_script(ent->d_name))
-      continue;
     if (strlen(dir) + 1 + strlen(ent->d_name) >= PL_PATH_LEN)
+      continue;
+    if (ent->d_type == DT_DIR) {
+      if (depth + 1 < BADUSB_SCAN_MAX_DEPTH) {
+        char sub[PL_PATH_LEN];
+        snprintf(sub, sizeof(sub), "%s/%s", dir, ent->d_name);
+        scan_dir_into_depth(sub, is_asset, depth + 1);
+      }
+      continue;
+    }
+    if (!is_ducky_script(ent->d_name))
       continue;
     strlcpy(s_pl_path[s_pl_count], dir, PL_PATH_LEN);
     strlcat(s_pl_path[s_pl_count], "/", PL_PATH_LEN);
@@ -303,6 +314,10 @@ static void scan_dir_into(const char *dir, bool is_asset) {
     s_pl_count++;
   }
   closedir(d);
+}
+
+static void scan_dir_into(const char *dir, bool is_asset) {
+  scan_dir_into_depth(dir, is_asset, 0);
 }
 
 static void scan_payloads(void) {
