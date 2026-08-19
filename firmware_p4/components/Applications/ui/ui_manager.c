@@ -182,9 +182,6 @@ uint32_t ui_render_beat(void) {
   return s_render_beat;
 }
 
-// Bumped by an lv_timer inside the LVGL port task, so it advances only while
-// that task is servicing timers. It stalls on a frozen renderer (lock deadlock,
-// runaway screen callback, or a dead/suspended task); sys_monitor polls it.
 static void render_beat_cb(lv_timer_t *t) {
   (void)t;
   s_render_beat++;
@@ -194,12 +191,6 @@ void ui_render_beat_kick(void) {
   s_render_beat++;
 }
 
-// Event-driven input. One pump (created in ui_init) drains input_manager events
-// and dispatches them to the active screen's handler, replacing the ~110
-// per-screen polling lv_timers. Input is swallowed while a transition lock is
-// active or a modal overlay (msgbox/keyboard) is up, matching the old per-screen
-// guards; the dropdown refreshes the transition lock while open, so it is covered
-// too.
 static ui_input_handler_t s_screen_handler = NULL;
 static void *s_screen_handler_ctx = NULL;
 
@@ -216,17 +207,9 @@ bool ui_sd_ready(void) {
 }
 
 static bool input_dispatch_blocked(void) {
-  // While the screen is asleep, swallow input: the press that wakes it (tracked
-  // by input_manager, which wakes the power policy) must not also act on the UI.
   return ui_input_is_locked() || msgbox_is_open() || keyboard_is_open() || power_policy_is_asleep();
 }
 
-// Landscape is LV_DISPLAY_ROTATION_270 — the panel content is turned a quarter
-// turn, so a physical d-pad press must be turned the same quarter turn for
-// navigation to point the way it looks on screen. Applied centrally so every
-// screen handler keeps using plain UP/DOWN/LEFT/RIGHT and adapts for free.
-// OK/BACK are direction-agnostic. (If a direction reads inverted on hardware,
-// reverse this cycle.)
 static input_button_t input_remap_for_rotation(input_button_t b) {
   if (!lvgl_glue_is_landscape())
     return b;
@@ -247,10 +230,6 @@ static input_button_t input_remap_for_rotation(input_button_t b) {
 bool ui_nav_pressed(input_button_t logical) {
   if (!lvgl_glue_is_landscape())
     return input_is_down(logical);
-  // Inverse of input_remap_for_rotation: the physical button that maps to this
-  // logical direction in landscape. For components that poll button levels
-  // directly (dropdown, modals) instead of going through the remapped pump.
-  // Keep in sync with input_remap_for_rotation.
   input_button_t phys = logical;
   switch (logical) {
     case INPUT_BTN_UP:
@@ -281,12 +260,10 @@ static void ui_input_pump(lv_timer_t *t) {
       continue;
     }
     if (s_screen_handler == NULL || input_dispatch_blocked()) {
-      continue; // drain and discard so stale events do not fire once unblocked
+      continue;
     }
     ui_input_handler_t handler = s_screen_handler;
     handler(&ev, s_screen_handler_ctx);
-    // If the handler switched screens, stop draining: remaining events belong to
-    // the transition (and are flushed by the input lock ui_switch_screen sets).
     if (s_screen_handler != handler) {
       break;
     }
@@ -302,26 +279,14 @@ void ui_init(void) {
 
   ui_feedback_init();
 
-  // Global power policy (display sleep + low-battery) and the global quick-
-  // settings dropdown. Both live on the top layer so they survive screen
-  // switches; created under the LVGL lock. The display is already registered
-  // (lvgl_glue_init ran before ui_init), so lv_layer_top() is valid here.
   if (ui_acquire()) {
     power_policy_init();
     dropdown_ui_global_init();
-    // Render-progress heartbeat: this lv_timer runs inside the LVGL port task,
-    // so it advances only while that task is servicing timers. sys_monitor polls
-    // ui_render_beat() to detect a frozen renderer. See ui_liveness.h.
     lv_timer_create(render_beat_cb, RENDER_BEAT_MS, NULL);
-    // Single input pump for all event-driven screens (replaces per-screen timers).
     lv_timer_create(ui_input_pump, UI_INPUT_PUMP_MS, NULL);
     ui_release();
   }
 
-  // Boot orchestration runs once in a transient task (it needs the 5 s splash
-  // delay and a deep stack for screen construction), then deletes itself. There
-  // is no perpetual UI task: rendering lives in the LVGL port task and each
-  // screen's lv_timers, and liveness is supervised by sys_monitor.
   xTaskCreatePinnedToCore(ui_boot_task,
                           "ui_boot",
                           UI_BOOT_TASK_STACK_SIZE,
@@ -340,9 +305,6 @@ void ui_init_safe_mode(void) {
   ui_theme_init();
   ui_feedback_init();
 
-  // Minimal LVGL infra: render heartbeat (so sys_monitor still sees liveness)
-  // and the shared input pump. No power policy (screen stays on), no dropdown,
-  // no boot animation, no home. Just the recovery screen.
   if (ui_acquire()) {
     lv_timer_create(render_beat_cb, RENDER_BEAT_MS, NULL);
     lv_timer_create(ui_input_pump, UI_INPUT_PUMP_MS, NULL);
@@ -376,21 +338,16 @@ static void ui_boot_task(void *pvParameter) {
     ui_release();
   }
 
-  vTaskDelete(NULL); // boot done; nothing to loop on
+  vTaskDelete(NULL);
 }
 
 static void clear_current_screen(void) {
-  // Drop the outgoing screen's input handler; a migrated screen re-registers its
-  // own in its open function. Non-migrated screens leave it NULL and keep using
-  // their own polling timer.
   ui_input_set_screen_handler(NULL, NULL);
   if (main_group != NULL) {
     lv_group_remove_all_objs(main_group);
   }
 }
 
-// Tick-safe comparisons: lv_tick_get() is a uint32_t ms counter that wraps every
-// ~49.7 days, so compare signed deltas instead of the raw values.
 bool ui_input_is_locked(void) {
   return (int32_t)(lv_tick_get() - input_lock_until) < 0;
 }
@@ -404,12 +361,6 @@ void ui_input_lock(uint32_t ms) {
 typedef void (*ui_open_fn_t)(void);
 typedef void (*ui_close_fn_t)(void);
 
-// Lifecycle contract (item 13): the close fn a screen registers to release the
-// hardware / stop the task it started. ui_switch_screen() calls it on the
-// outgoing screen before opening the next, so a radio/capture never keeps running
-// after the user leaves its screen. Only screens that own hardware or a task need
-// one; every other screen returns NULL (its widgets are freed by the screen
-// swap). New hardware screens: add a public *_stop and a case here.
 static ui_close_fn_t screen_close_fn(screen_id_t s) {
   switch (s) {
     case SCREEN_SUBGHZ_READ:
@@ -674,10 +625,9 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
 }
 
 bool ui_screen_shows_chrome(screen_id_t s) {
-  if (s == SCREEN_NONE) // boot splash / no screen yet: no chrome, no dropdown
+  if (s == SCREEN_NONE)
     return false;
   switch (s) {
-    // --- Wi-Fi: live scan / attack / capture / monitor ---
     case SCREEN_WIFI_SCAN_MENU:
     case SCREEN_WIFI_CHANNELS:
     case SCREEN_WIFI_CLIENTS:
@@ -691,7 +641,6 @@ bool ui_screen_shows_chrome(screen_id_t s) {
     case SCREEN_WIFI_SIGNAL_LOCATOR:
     case SCREEN_WIFI_HANDSHAKE:
     case SCREEN_WIFI_HOTSPOT:
-    // --- BLE: live scan / spam / sniff / emulate ---
     case SCREEN_BLE_SCAN:
     case SCREEN_BLE_SPAM:
     case SCREEN_BLE_BEACON_SPAM:
@@ -703,24 +652,20 @@ bool ui_screen_shows_chrome(screen_id_t s) {
     case SCREEN_BLE_TRACK_DEVICE:
     case SCREEN_BLE_KEYBOARD:
     case SCREEN_BLE_MOUSE:
-    // --- NFC: live read / write / emulate / scan ---
     case SCREEN_NFC_READ:
     case SCREEN_NFC_WRITE:
     case SCREEN_NFC_EMULATE:
     case SCREEN_CARD_EMU:
     case SCREEN_NFC_SCAN:
     case SCREEN_NFC_P2P:
-    // --- IR: transmit / capture ---
     case SCREEN_IR_RECEIVE:
     case SCREEN_IR_SEND:
     case SCREEN_IR_BURST:
     case SCREEN_IR_CONTROLLER:
     case SCREEN_IR_RAW:
-    // --- SubGHz: read / send / brute ---
     case SCREEN_SUBGHZ_READ:
     case SCREEN_SUBGHZ_SEND:
     case SCREEN_SUBGHZ_BRUTE:
-    // --- Audio / LoRa / sensors: play / record / live monitor ---
     case SCREEN_WAV_PLAYER:
     case SCREEN_MP4_PLAYER:
     case SCREEN_MP3_PLAYER:
@@ -732,7 +677,6 @@ bool ui_screen_shows_chrome(screen_id_t s) {
     case SCREEN_LORA_TELEMETRY:
     case SCREEN_USB_MOUSE:
     case SCREEN_IMU_MONITOR:
-    // --- Dev / system: live terminal / running payload / update ---
     case SCREEN_DEV_CONSOLE:
     case SCREEN_DEV_DIAG:
     case SCREEN_BOOT_MAP:
@@ -746,6 +690,25 @@ bool ui_screen_shows_chrome(screen_id_t s) {
   }
 }
 
+void sx1262_stop_rx(void);
+esp_err_t sx1262_receive_continuous(void);
+
+static bool is_lora_screen(screen_id_t s) {
+  switch (s) {
+    case SCREEN_LORA_CHAT:
+    case SCREEN_LORA_TRACEROUTE:
+    case SCREEN_LORA_RNODE:
+    case SCREEN_LORA_MQTT:
+    case SCREEN_LORA_CHANNELS:
+    case SCREEN_LORA_POSITION:
+    case SCREEN_LORA_TELEMETRY:
+    case SCREEN_LORA_SECURE_DM:
+      return true;
+    default:
+      return false;
+  }
+}
+
 void ui_switch_screen(screen_id_t new_screen) {
   ui_open_fn_t open_fn = screen_open_fn(new_screen);
   if (open_fn == NULL) {
@@ -756,22 +719,22 @@ void ui_switch_screen(screen_id_t new_screen) {
   input_lock_until = lv_tick_get() + INPUT_LOCK_MS;
 
   if (ui_acquire()) {
+    screen_id_t from = current_screen_id;
     lv_obj_t *outgoing = lv_screen_active();
-    // Lifecycle: stop the outgoing screen's hardware/task before tearing it down.
     ui_close_fn_t close_fn = screen_close_fn(current_screen_id);
     if (close_fn != NULL) {
       close_fn();
     }
     clear_current_screen();
-    // Returning to the top level clears the breadcrumb root so a stale category
-    // ("NFC") never prefixes a fresh navigation. Category menus re-set it on open.
     if (new_screen == SCREEN_HOME || new_screen == SCREEN_MENU)
       ui_chrome_set_breadcrumb_root("");
-    // Tell the chrome header whether to carry the shared status cluster before
-    // the screen builds it (current_screen_id only updates after open_fn()).
     ui_chrome_set_status_enabled(ui_screen_shows_chrome(new_screen));
     open_fn();
     current_screen_id = new_screen;
+    if (is_lora_screen(from) && !is_lora_screen(new_screen))
+      sx1262_stop_rx();
+    else if (!is_lora_screen(from) && is_lora_screen(new_screen))
+      (void)sx1262_receive_continuous();
     if (outgoing != NULL && outgoing != lv_screen_active() && lv_obj_is_valid(outgoing))
       lv_obj_del_async(outgoing);
     screen_tips_hook(new_screen);
@@ -780,8 +743,6 @@ void ui_switch_screen(screen_id_t new_screen) {
 }
 
 bool ui_acquire(void) {
-  // Finite timeout so a task that never releases the lock can no longer freeze
-  // every other UI caller forever. Callers already treat false as "skip".
   if (!lvgl_glue_lock(UI_LOCK_TIMEOUT_MS)) {
     ESP_LOGW(TAG, "ui_acquire timed out after %d ms; UI lock held elsewhere", UI_LOCK_TIMEOUT_MS);
     return false;
@@ -822,9 +783,6 @@ screen_id_t ui_current_screen(void) {
 }
 
 void ui_relayout_current_screen(void) {
-  // Rebuild the active screen through its normal open path so it re-runs its
-  // layout at the current logical resolution. Used after a rotation change so the
-  // on-screen layout reflows immediately instead of only on the next navigation.
   if (current_screen_id != SCREEN_NONE)
     ui_switch_screen(current_screen_id);
 }

@@ -90,6 +90,8 @@ void ui_theme_load_idx(int color_idx) {
   if (color_idx < 0 || color_idx > (THEME_COUNT - 1))
     color_idx = 0;
 
+  theme_idx = color_idx;
+
   FILE *f = fopen(THEME_CONFIG_PATH, "r");
   if (f == NULL) {
     ESP_LOGW(TAG, "Theme file not found, using built-in default palette");
@@ -411,6 +413,13 @@ void ui_theme_load_from_name(const char *theme_name) {
   }
 
   free(data);
+
+  for (int i = 0; i < THEME_COUNT; i++) {
+    if (strcmp(theme_name, theme_names[i]) == 0) {
+      theme_idx = i;
+      break;
+    }
+  }
 
   assets_unload_sd();
 
