@@ -74,9 +74,9 @@ static const char *TAG = "FILES_UI";
 #define GUTTER_MAX  512
 #define FULL_PATH   (MAX_PATH + MAX_NAME)
 #define ROW_POOL    LIST_VIS
-#define GRID_COLS   2
-#define GRID_ROWS   3
-#define GRID_POOL   (GRID_COLS * GRID_ROWS)
+#define GRID_COLS_MAX 4
+#define GRID_ROWS_MAX 3
+#define GRID_POOL     (GRID_COLS_MAX * GRID_ROWS_MAX)
 
 #define ASSETS_ROOT "/assets"
 #define SDCARD_ROOT "/sdcard"
@@ -164,6 +164,9 @@ static bool s_resume = false;
 static lv_obj_t *s_screen = NULL;
 static lv_timer_t *s_timer = NULL;
 static view_t s_view = VIEW_LIST;
+
+static int s_grid_cols = 2;
+static int s_grid_rows = 3;
 
 static lv_obj_t *s_row[ROW_POOL];
 static lv_obj_t *s_row_icon[ROW_POOL];
@@ -443,7 +446,7 @@ static void populate_row(int j) {
 static void populate_tile(int j) {
   int idx = s_top + j;
   lv_obj_t *tile = s_tile[j];
-  if (idx >= s_count) {
+  if (j >= s_grid_cols * s_grid_rows || idx >= s_count) {
     hide_obj(tile);
     return;
   }
@@ -502,18 +505,18 @@ static void refresh_selection(void) {
     }
     fill_peek(s_sel);
   } else {
-    int row = s_sel / GRID_COLS;
-    int toprow = s_top / GRID_COLS;
+    int row = s_sel / s_grid_cols;
+    int toprow = s_top / s_grid_cols;
     if (row < toprow) {
       toprow = row;
     }
-    if (row >= toprow + GRID_ROWS) {
-      toprow = row - GRID_ROWS + 1;
+    if (row >= toprow + s_grid_rows) {
+      toprow = row - s_grid_rows + 1;
     }
     if (toprow < 0) {
       toprow = 0;
     }
-    s_top = toprow * GRID_COLS;
+    s_top = toprow * s_grid_cols;
     for (int j = 0; j < GRID_POOL; j++) {
       populate_tile(j);
     }
@@ -705,6 +708,11 @@ static lv_obj_t *make_tile_pool(lv_obj_t *parent, int j) {
 static void build_grid(void) {
   int grid_h = ui_screen_h() - CONTENT_Y - FOOTER_H - GLABEL_H;
 
+  s_grid_cols = (ui_screen_w() - 16 + 6) / (TILE_W + 6);
+  s_grid_cols = LV_CLAMP(1, s_grid_cols, GRID_COLS_MAX);
+  s_grid_rows = (grid_h - 16 + 6) / (TILE_H + 6);
+  s_grid_rows = LV_CLAMP(1, s_grid_rows, GRID_ROWS_MAX);
+
   lv_obj_t *g = lv_obj_create(s_screen);
   lv_obj_remove_flag(g, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(g, LV_OBJ_FLAG_CLICKABLE);
@@ -843,7 +851,6 @@ static void load_preview(const char *path) {
     total = (long)n;
   }
 
-  // Classify: a NUL byte or lots of non-printables means it's a binary file.
   int nonprint = 0;
   bool binary = false;
   for (size_t i = 0; i < n; i++) {
@@ -861,7 +868,6 @@ static void load_preview(const char *path) {
   }
 
   if (!binary) {
-    // Text: keep it, replacing any stray control byte with a dot.
     s_vbuf[n] = '\0';
     for (size_t i = 0; i < n; i++) {
       unsigned char c = (unsigned char)s_vbuf[i];
@@ -875,7 +881,6 @@ static void load_preview(const char *path) {
     return;
   }
 
-  // Binary: give it a real hex preview (offset + bytes) so it still opens.
   unsigned char raw[256];
   size_t hn = n < sizeof(raw) ? n : sizeof(raw);
   for (size_t i = 0; i < hn; i++) {
@@ -900,9 +905,6 @@ static void build_viewer(void) {
   snprintf(full, sizeof(full), "%s/%s", s_cwd, e->name);
   load_preview(full);
 
-  // Use the shared text_viewer component (wrapped text, line/byte meta, scroll
-  // bar). It builds a full-screen viewer under s_screen; keep its scroll area in
-  // s_vbody so the nav timer's UP/DOWN can scroll it.
   s_tv = text_viewer_create(s_screen, e->name);
   text_viewer_set_text(&s_tv, s_vbuf);
   s_vbody = s_tv.text_area;
@@ -973,11 +975,11 @@ static void move_grid(int dx, int dy) {
     s--;
   }
   if (dy > 0) {
-    int t = s + GRID_COLS;
+    int t = s + s_grid_cols;
     s = (t < s_count) ? t : s_count - 1;
   }
   if (dy < 0) {
-    int t = s - GRID_COLS;
+    int t = s - s_grid_cols;
     if (t >= 0) {
       s = t;
     }
@@ -1147,8 +1149,6 @@ static void files_input(const input_event_t *ev, void *ctx) {
   const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
   if (s_in_viewer) {
-    // _bounded clamps the scroll to the content — plain lv_obj_scroll_by() ignores
-    // the content bounds (and SCROLL_ELASTIC/MOMENTUM), which let it scroll forever.
     switch (ev->button) {
       case INPUT_BTN_DOWN:
         if (nav && s_vbody)
