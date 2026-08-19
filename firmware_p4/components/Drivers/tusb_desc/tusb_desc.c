@@ -52,13 +52,8 @@ static const char *TAG = "TUSB_DESC";
 #define STR_IDX_MSC          5
 #endif
 
-// The MSC interface is advertised only while the SD is actually handed to the
-// USB host (mass-storage mode). The esp_tinyusb MSC callbacks dereference a
-// storage handle that only exists after tinyusb_msc_storage_init_sdmmc(); if the
-// composite exposes MSC on a plain native-USB bring-up (the USB-NATIVE toggle or
-// BadUSB), the host's first SCSI command hits a NULL handle and panics the
-// TinyUSB task. So HID+CDC is the base config and MSC is a separate variant,
-// selected at runtime (see busb_set_msc_exposed / tud_descriptor_configuration_cb).
+// MSC is a runtime-selected variant, exposed only in mass-storage mode: an
+// unbacked MSC LUN crashes the TinyUSB task on the host's first SCSI command.
 #define ITF_NUM_BASE    3 // HID + CDC (comm + data)
 #define CONFIG_LEN_BASE (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + TUD_CDC_DESC_LEN)
 

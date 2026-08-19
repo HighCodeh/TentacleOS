@@ -46,10 +46,8 @@ void hid_hal_register_callback(hid_send_cb_t send_cb,
   s_ready_cb = ready_cb;
 }
 
-// Block until the transport has delivered the previous report, so the next one
-// never overwrites a report the host has not polled yet (which drops keys). This
-// paces sending to the host's poll rate (~1ms), the fastest loss-free rate. The
-// 1ms wait matches the 1kHz tick, and yielding feeds lower-priority tasks + WDT.
+// Wait until the previous report was delivered before sending the next, so we
+// never overwrite an unpolled report (dropped keys). Paces to the host's ~1ms poll.
 static void wait_report_ready(uint32_t fallback_us) {
   if (s_ready_cb == NULL) {
     ets_delay_us(fallback_us);
