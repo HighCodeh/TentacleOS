@@ -24,21 +24,43 @@
 
 static const char *TAG = "HID_HAL";
 
-#define KEY_PRESS_DELAY_US   5000
-#define KEY_RELEASE_DELAY_US 5000
-#define MOUSE_MOVE_DELAY_US  2000
-#define MOUSE_CLICK_DELAY_US 5000
+// Fallback pacing used only when no readiness source is registered.
+#define FALLBACK_KEY_DELAY_US   5000
+#define FALLBACK_MOUSE_DELAY_US 2000
+// Host stopped draining reports (unplugged mid-run): stop waiting instead of
+// spinning the ducky task forever.
+#define REPORT_READY_TIMEOUT_MS 50
 
 static hid_send_cb_t s_send_cb = NULL;
 static hid_mouse_cb_t s_mouse_cb = NULL;
 static hid_wait_cb_t s_wait_cb = NULL;
+static hid_ready_cb_t s_ready_cb = NULL;
 
 void hid_hal_register_callback(hid_send_cb_t send_cb,
                                hid_mouse_cb_t mouse_cb,
-                               hid_wait_cb_t wait_cb) {
+                               hid_wait_cb_t wait_cb,
+                               hid_ready_cb_t ready_cb) {
   s_send_cb = send_cb;
   s_mouse_cb = mouse_cb;
   s_wait_cb = wait_cb;
+  s_ready_cb = ready_cb;
+}
+
+// Block until the transport has delivered the previous report, so the next one
+// never overwrites a report the host has not polled yet (which drops keys). This
+// paces sending to the host's poll rate (~1ms), the fastest loss-free rate. The
+// 1ms wait matches the 1kHz tick, and yielding feeds lower-priority tasks + WDT.
+static void wait_report_ready(uint32_t fallback_us) {
+  if (s_ready_cb == NULL) {
+    ets_delay_us(fallback_us);
+    return;
+  }
+  for (uint32_t waited_ms = 0; !s_ready_cb(); waited_ms++) {
+    if (waited_ms >= REPORT_READY_TIMEOUT_MS) {
+      return;
+    }
+    vTaskDelay(pdMS_TO_TICKS(1));
+  }
 }
 
 void hid_hal_press_key(uint8_t keycode, uint8_t modifiers) {
@@ -46,13 +68,11 @@ void hid_hal_press_key(uint8_t keycode, uint8_t modifiers) {
     return;
   }
 
+  wait_report_ready(FALLBACK_KEY_DELAY_US);
   s_send_cb(keycode, modifiers);
-  ets_delay_us(KEY_PRESS_DELAY_US);
-
+  wait_report_ready(FALLBACK_KEY_DELAY_US);
   s_send_cb(0, 0);
-  ets_delay_us(KEY_RELEASE_DELAY_US);
-
-  vTaskDelay(0); // Yield to prevent WDT starvation
+  wait_report_ready(FALLBACK_KEY_DELAY_US);
 }
 
 void hid_hal_mouse_move(int8_t x, int8_t y) {
@@ -60,9 +80,9 @@ void hid_hal_mouse_move(int8_t x, int8_t y) {
     return;
   }
 
+  wait_report_ready(FALLBACK_MOUSE_DELAY_US);
   s_mouse_cb(x, y, 0, 0);
-  ets_delay_us(MOUSE_MOVE_DELAY_US);
-  vTaskDelay(0);
+  wait_report_ready(FALLBACK_MOUSE_DELAY_US);
 }
 
 void hid_hal_mouse_click(uint8_t buttons) {
@@ -70,11 +90,11 @@ void hid_hal_mouse_click(uint8_t buttons) {
     return;
   }
 
+  wait_report_ready(FALLBACK_MOUSE_DELAY_US);
   s_mouse_cb(0, 0, buttons, 0); // Press
-  ets_delay_us(MOUSE_CLICK_DELAY_US);
+  wait_report_ready(FALLBACK_MOUSE_DELAY_US);
   s_mouse_cb(0, 0, 0, 0); // Release
-  ets_delay_us(MOUSE_CLICK_DELAY_US);
-  vTaskDelay(0);
+  wait_report_ready(FALLBACK_MOUSE_DELAY_US);
 }
 
 void hid_hal_mouse_scroll(int8_t wheel) {
@@ -82,9 +102,9 @@ void hid_hal_mouse_scroll(int8_t wheel) {
     return;
   }
 
+  wait_report_ready(FALLBACK_MOUSE_DELAY_US);
   s_mouse_cb(0, 0, 0, wheel);
-  ets_delay_us(MOUSE_MOVE_DELAY_US);
-  vTaskDelay(0);
+  wait_report_ready(FALLBACK_MOUSE_DELAY_US);
 }
 
 void hid_hal_wait_for_connection(void) {

@@ -20,6 +20,7 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
 #include <stdint.h>
 
 /**
@@ -46,6 +47,15 @@ typedef void (*hid_mouse_cb_t)(int8_t x, int8_t y, uint8_t buttons, int8_t wheel
 typedef void (*hid_wait_cb_t)(void);
 
 /**
+ * @brief Callback type reporting whether the transport can accept a new report.
+ *
+ * Returns true once the previous report has been delivered to the host. The HAL
+ * gates on this to send at the host's poll rate without overwriting a report the
+ * host has not read yet (which would drop keys).
+ */
+typedef bool (*hid_ready_cb_t)(void);
+
+/**
  * @brief Register the transport driver callbacks.
  *
  * This decouples the HAL from specific transports (USB, BLE, etc.).
@@ -54,10 +64,12 @@ typedef void (*hid_wait_cb_t)(void);
  * @param send_cb   Keyboard report callback.
  * @param mouse_cb  Mouse report callback.
  * @param wait_cb   Connection wait callback.
+ * @param ready_cb  Report-readiness callback (NULL falls back to fixed delays).
  */
 void hid_hal_register_callback(hid_send_cb_t send_cb,
                                hid_mouse_cb_t mouse_cb,
-                               hid_wait_cb_t wait_cb);
+                               hid_wait_cb_t wait_cb,
+                               hid_ready_cb_t ready_cb);
 
 /**
  * @brief Press and release a key.
