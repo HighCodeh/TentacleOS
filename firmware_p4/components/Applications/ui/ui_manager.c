@@ -232,12 +232,12 @@ static input_button_t input_remap_for_rotation(input_button_t b) {
     return b;
   switch (b) {
     case INPUT_BTN_UP:
-      return INPUT_BTN_RIGHT;
-    case INPUT_BTN_RIGHT:
-      return INPUT_BTN_DOWN;
-    case INPUT_BTN_DOWN:
       return INPUT_BTN_LEFT;
     case INPUT_BTN_LEFT:
+      return INPUT_BTN_DOWN;
+    case INPUT_BTN_DOWN:
+      return INPUT_BTN_RIGHT;
+    case INPUT_BTN_RIGHT:
       return INPUT_BTN_UP;
     default:
       return b;
