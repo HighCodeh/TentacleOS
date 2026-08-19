@@ -546,6 +546,26 @@ static void build_nodes_list(void) {
   node_select(s_node);
 }
 
+#define MAP_DESIGN_CX 120
+#define MAP_DESIGN_CY 150
+#define MAP_MAX_OFFY  84
+
+static int map_scale_num(void) {
+  int cy = ui_screen_h() / 2;
+  int room_up = cy - UI_CHROME_HEADER_H - 22;
+  int room_dn = ui_screen_h() - MESH_INFO_BOT - MESH_INFO_H - cy - 8;
+  int room = LV_MIN(room_up, room_dn);
+  if (room < 20)
+    room = 20;
+  return LV_MIN(room, MAP_MAX_OFFY);
+}
+
+static void map_xy(int nx, int ny, int *px, int *py) {
+  int num = map_scale_num();
+  *px = ui_screen_w() / 2 + (nx - MAP_DESIGN_CX) * num / MAP_MAX_OFFY;
+  *py = ui_screen_h() / 2 + (ny - MAP_DESIGN_CY) * num / MAP_MAX_OFFY;
+}
+
 static void build_nodes_view(void) {
   lv_color_t accent = ui_theme_get_accent();
   ui_chrome_header(s_screen, "s_nodes", "/assets/icons/hub.bin");
@@ -579,10 +599,13 @@ static void build_nodes_view(void) {
     int w;
     bool dashed;
     link_style(i, &col, &w, &dashed);
-    s_link_pts[i][0].x = MAP_CENTER_X;
-    s_link_pts[i][0].y = MAP_CENTER_Y;
-    s_link_pts[i][1].x = NODE_POS[i].x;
-    s_link_pts[i][1].y = NODE_POS[i].y;
+    int cx, cy, nx, ny;
+    map_xy(MAP_CENTER_X, MAP_CENTER_Y, &cx, &cy);
+    map_xy(NODE_POS[i].x, NODE_POS[i].y, &nx, &ny);
+    s_link_pts[i][0].x = cx;
+    s_link_pts[i][0].y = cy;
+    s_link_pts[i][1].x = nx;
+    s_link_pts[i][1].y = ny;
     lv_obj_t *ln = lv_line_create(s_screen);
     lv_obj_align(ln, LV_ALIGN_TOP_LEFT, 0, 0);
     lv_line_set_points(ln, s_link_pts[i], 2);
@@ -602,8 +625,9 @@ static void build_nodes_view(void) {
     lv_obj_set_style_pad_row(wrap, 1, 0);
     lv_obj_set_flex_flow(wrap, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(wrap, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_align(
-        wrap, LV_ALIGN_CENTER, NODE_POS[i].x - ui_screen_w() / 2, NODE_POS[i].y - ui_screen_h() / 2);
+    int nx, ny;
+    map_xy(NODE_POS[i].x, NODE_POS[i].y, &nx, &ny);
+    lv_obj_align(wrap, LV_ALIGN_CENTER, nx - ui_screen_w() / 2, ny - ui_screen_h() / 2);
 
     s_node_pins[i] = make_badge(wrap, "/assets/icons/settings_input_antenna.bin", accent);
 
@@ -624,8 +648,9 @@ static void build_nodes_view(void) {
   lv_obj_set_style_pad_row(you_wrap, 1, 0);
   lv_obj_set_flex_flow(you_wrap, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(you_wrap, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_align(
-      you_wrap, LV_ALIGN_CENTER, MAP_CENTER_X - ui_screen_w() / 2, MAP_CENTER_Y - ui_screen_h() / 2);
+  int you_x, you_y;
+  map_xy(MAP_CENTER_X, MAP_CENTER_Y, &you_x, &you_y);
+  lv_obj_align(you_wrap, LV_ALIGN_CENTER, you_x - ui_screen_w() / 2, you_y - ui_screen_h() / 2);
 
   lv_obj_t *you_pin = make_badge(you_wrap, "/assets/icons/hub.bin", accent);
   lv_obj_set_size(you_pin, YOU_PIN_SZ, YOU_PIN_SZ);
