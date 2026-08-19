@@ -61,6 +61,7 @@ void usb_msc_enter(void) {
     return;
   }
 
+  busb_set_msc_exposed(true);
   usb_mux_set_native(true);
   s_state = USB_MSC_ACTIVE;
   ESP_LOGI(TAG, "USB drive live");
@@ -73,6 +74,9 @@ void usb_msc_exit(void) {
   }
   s_state = USB_MSC_EXITING;
 
+  // Hide MSC (re-enumerating the host) while the storage handle is still valid,
+  // so no SCSI command lands on a deinitialized backend.
+  busb_set_msc_exposed(false);
   tinyusb_msc_storage_deinit();
   usb_mux_set_native(false);
 

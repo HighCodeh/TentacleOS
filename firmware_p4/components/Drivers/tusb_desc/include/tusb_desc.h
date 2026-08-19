@@ -62,6 +62,18 @@ extern "C" {
 esp_err_t busb_init(void);
 
 /**
+ * @brief Advertise (or hide) the mass-storage interface on the composite.
+ *
+ * MSC must only be exposed while the SD is actually handed to the USB host,
+ * because the storage-backed SCSI callbacks assume an initialized handle. Off by
+ * default; enter/exit mass-storage mode via this before/after switching the mux.
+ * If TinyUSB is already up, the host is re-enumerated so it re-reads the config.
+ *
+ * @param exposed  true while mass-storage mode is active; false otherwise.
+ */
+void busb_set_msc_exposed(bool exposed);
+
+/**
  * @brief Configure the USB-C data mux (TS3USB221) and default it to the UART
  *        bridge.
  *

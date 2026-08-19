@@ -19,6 +19,8 @@
 
 #include "esp_log.h"
 #include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "pin_def.h"
 #include "soc/usb_dwc_struct.h"
 #include "tinyusb.h"
@@ -38,6 +40,7 @@ static const char *TAG = "TUSB_DESC";
 // USB Configuration
 #define USB_MAX_POWER_MA         100
 #define USB_HID_POLL_INTERVAL_MS 1
+#define BUSB_REENUM_DELAY_MS     100 // detach window so the host notices the re-enumeration
 
 // String descriptor indices
 #define STR_IDX_LANGID       0
@@ -49,16 +52,15 @@ static const char *TAG = "TUSB_DESC";
 #define STR_IDX_MSC          5
 #endif
 
-#if CFG_TUD_MSC
-#define CONFIG_TOTAL_LEN \
-  (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + TUD_CDC_DESC_LEN + TUD_MSC_DESC_LEN)
-#define MSC_DESCRIPTOR(ep_size)                                             \
-  , TUD_MSC_DESCRIPTOR(TUSB_DESC_ITF_NUM_MSC, STR_IDX_MSC,                  \
-                       TUSB_DESC_EP_MSC_OUT, TUSB_DESC_EP_MSC_IN, (ep_size))
-#else
-#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + TUD_CDC_DESC_LEN)
-#define MSC_DESCRIPTOR(ep_size)
-#endif
+// The MSC interface is advertised only while the SD is actually handed to the
+// USB host (mass-storage mode). The esp_tinyusb MSC callbacks dereference a
+// storage handle that only exists after tinyusb_msc_storage_init_sdmmc(); if the
+// composite exposes MSC on a plain native-USB bring-up (the USB-NATIVE toggle or
+// BadUSB), the host's first SCSI command hits a NULL handle and panics the
+// TinyUSB task. So HID+CDC is the base config and MSC is a separate variant,
+// selected at runtime (see busb_set_msc_exposed / tud_descriptor_configuration_cb).
+#define ITF_NUM_BASE    3 // HID + CDC (comm + data)
+#define CONFIG_LEN_BASE (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + TUD_CDC_DESC_LEN)
 
 // CDC data (bulk) endpoint max packet size is speed-dependent: USB requires it
 // to be EXACTLY 512 at High Speed and 8/16/32/64 at Full Speed. The P4 USB is
@@ -95,11 +97,11 @@ static const uint8_t s_desc_hid_report[] = {
 
 // Configuration Descriptor — composite: HID (BadUSB) + CDC-ACM (companion link).
 // Identical for both speeds except the CDC bulk endpoint size (see above).
-#define CONFIG_DESCRIPTOR(cdc_ep_size)                      \
+#define HID_CDC_BLOCK(itf_total, total_len, cdc_ep_size)    \
   TUD_CONFIG_DESCRIPTOR(1,                                  \
-                        TUSB_DESC_ITF_NUM_TOTAL,            \
+                        (itf_total),                        \
                         0,                                  \
-                        CONFIG_TOTAL_LEN,                   \
+                        (total_len),                        \
                         TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, \
                         USB_MAX_POWER_MA),                  \
       TUD_HID_DESCRIPTOR(TUSB_DESC_ITF_NUM_HID,             \
@@ -115,11 +117,27 @@ static const uint8_t s_desc_hid_report[] = {
                          8,                                 \
                          TUSB_DESC_EP_CDC_OUT,              \
                          TUSB_DESC_EP_CDC_IN,               \
-                         (cdc_ep_size))                     \
-      MSC_DESCRIPTOR(cdc_ep_size)
+                         (cdc_ep_size))
 
-static const uint8_t s_desc_configuration_hs[] = {CONFIG_DESCRIPTOR(CDC_EP_SIZE_HS)};
-static const uint8_t s_desc_configuration_fs[] = {CONFIG_DESCRIPTOR(CDC_EP_SIZE_FS)};
+static const uint8_t s_desc_configuration_hs[] = {
+    HID_CDC_BLOCK(ITF_NUM_BASE, CONFIG_LEN_BASE, CDC_EP_SIZE_HS)};
+static const uint8_t s_desc_configuration_fs[] = {
+    HID_CDC_BLOCK(ITF_NUM_BASE, CONFIG_LEN_BASE, CDC_EP_SIZE_FS)};
+
+#if CFG_TUD_MSC
+#define ITF_NUM_MSC_TOTAL 4
+#define CONFIG_LEN_MSC    (CONFIG_LEN_BASE + TUD_MSC_DESC_LEN)
+#define MSC_INTERFACE(ep_size)                             \
+  TUD_MSC_DESCRIPTOR(TUSB_DESC_ITF_NUM_MSC, STR_IDX_MSC,   \
+                     TUSB_DESC_EP_MSC_OUT, TUSB_DESC_EP_MSC_IN, (ep_size))
+
+static const uint8_t s_desc_configuration_msc_hs[] = {
+    HID_CDC_BLOCK(ITF_NUM_MSC_TOTAL, CONFIG_LEN_MSC, CDC_EP_SIZE_HS),
+    MSC_INTERFACE(CDC_EP_SIZE_HS)};
+static const uint8_t s_desc_configuration_msc_fs[] = {
+    HID_CDC_BLOCK(ITF_NUM_MSC_TOTAL, CONFIG_LEN_MSC, CDC_EP_SIZE_FS),
+    MSC_INTERFACE(CDC_EP_SIZE_FS)};
+#endif
 
 // String Descriptors
 static const char *s_string_desc_arr[] = {
@@ -137,6 +155,10 @@ static const char *s_string_desc_arr[] = {
 
 static uint16_t s_desc_str_buf[32];
 
+// Whether the composite currently advertises the MSC interface (mass-storage
+// mode). Off by default so plain native-USB bring-ups stay HID+CDC only.
+static volatile bool s_msc_exposed = false;
+
 // TinyUSB Descriptor Callbacks
 
 const uint8_t *tud_descriptor_device_cb(void) {
@@ -147,7 +169,13 @@ const uint8_t *tud_descriptor_configuration_cb(uint8_t index) {
   (void)index;
   // Serve the descriptor whose CDC bulk endpoint size matches the negotiated
   // link speed (512 at HS, 64 at FS), so tu_edpt_validate accepts the config.
-  return (tud_speed_get() == TUSB_SPEED_HIGH) ? s_desc_configuration_hs : s_desc_configuration_fs;
+  bool high_speed = (tud_speed_get() == TUSB_SPEED_HIGH);
+#if CFG_TUD_MSC
+  if (s_msc_exposed) {
+    return high_speed ? s_desc_configuration_msc_hs : s_desc_configuration_msc_fs;
+  }
+#endif
+  return high_speed ? s_desc_configuration_hs : s_desc_configuration_fs;
 }
 
 const uint16_t *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
@@ -211,10 +239,11 @@ static void force_hs_otg_session_valid(void) {
   USB_DWC_HS.gotgctl_reg = otg;
 }
 
+static bool s_installed = false;
+
 esp_err_t busb_init(void) {
   // HID (BadUSB) and CDC (companion) share one TinyUSB install — whoever calls
   // first brings the composite up; later calls are no-ops.
-  static bool s_installed = false;
   if (s_installed) {
     return ESP_OK;
   }
@@ -262,6 +291,27 @@ esp_err_t busb_init(void) {
   s_installed = true;
   ESP_LOGI(TAG, "TinyUSB driver installed");
   return ESP_OK;
+}
+
+void busb_set_msc_exposed(bool exposed) {
+#if CFG_TUD_MSC
+  if (s_msc_exposed == exposed) {
+    return;
+  }
+  // Not up yet: the flag alone decides what the first enumeration advertises.
+  if (!s_installed) {
+    s_msc_exposed = exposed;
+    return;
+  }
+  // Already enumerated with the other layout; drop off the bus, swap the
+  // advertised config, and re-attach so the host re-reads the descriptor.
+  tud_disconnect();
+  vTaskDelay(pdMS_TO_TICKS(BUSB_REENUM_DELAY_MS));
+  s_msc_exposed = exposed;
+  tud_connect();
+#else
+  (void)exposed;
+#endif
 }
 
 // USB-C data mux (TS3USB221) on GPIO_USB_MUX_SEL_PIN. LOW routes the single
