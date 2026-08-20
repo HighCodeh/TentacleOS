@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-/** @brief Open the Sub-GHz radio configuration screen (tuner dashboard mock). */
+/** @brief Open the Sub-GHz radio configuration screen; applies preset/modulation to the CC1101. */
 void ui_subghz_config_open(void);
 
 #ifdef __cplusplus

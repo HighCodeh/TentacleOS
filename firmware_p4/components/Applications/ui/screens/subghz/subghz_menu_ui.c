@@ -16,6 +16,7 @@
 #include "subghz_menu_ui.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include "esp_log.h"
 #include "lvgl.h"
@@ -27,14 +28,16 @@
 #include "notify_ui.h"
 #include "octobit_ui.h"
 #include "sigwave_ui.h"
+#include "subghz_receiver.h"
+#include "subghz_replay.h"
 #include "subghz_scope_ui.h"
+#include "subghz_spectrum.h"
+#include "subghz_storage.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_metrics.h"
 #include "ui_theme.h"
-
-static const char *TAG = "SUBGHZ_UI";
 
 #define FADE_MS 200
 
@@ -119,33 +122,26 @@ static const struct {
 #define IDX_SEND     5
 #define IDX_CONFIG   6
 
-static const struct {
-  const char *name;
-  const char *freq;
-  const char *proto;
-} SAVED_SIGS[] = {
-    {"Gate_433", "433.92 MHz", "Princeton"},
-    {"Doorbell", "433.92 MHz", "CAME"},
-    {"TPMS_FL", "315.00 MHz", "FSK TPMS"},
-    {"Garage", "868.30 MHz", "Nice FLO"},
-    {"Car_Fob", "433.92 MHz", "KeeLoq"},
-    {"Barrier", "868.30 MHz", "BFT Mitto"},
-    {"Weather", "433.92 MHz", "Oregon v3"},
-    {"Remote_2", "315.00 MHz", "Holtek"},
-    {"Sensor_A", "433.92 MHz", "Princeton"},
-    {"Gate_868", "868.30 MHz", "Nice FLO"},
-};
-#define SAVED_COUNT ((int)(sizeof(SAVED_SIGS) / sizeof(SAVED_SIGS[0])))
+#define SAVED_MAX 64
+static subghz_storage_entry_t s_saved[SAVED_MAX];
+static int s_saved_count = 0;
 
-static const struct {
-  const char *label;
-  const char *value;
-} DETAIL_ROWS[] = {
-    {"Protocol", "Princeton"},
-    {"Key", "0x1A2B3C"},
-    {"Frequency", "433.92 MHz"},
-};
-#define DETAIL_ROW_COUNT ((int)(sizeof(DETAIL_ROWS) / sizeof(DETAIL_ROWS[0])))
+static void fmt_mhz(uint32_t hz, char *out, size_t n) {
+  if (hz == 0) {
+    snprintf(out, n, "-- MHz");
+    return;
+  }
+  snprintf(out,
+           n,
+           "%lu.%02lu MHz",
+           (unsigned long)(hz / 1000000UL),
+           (unsigned long)((hz % 1000000UL) / 10000UL));
+}
+
+static void load_saved(void) {
+  int n = subghz_storage_list(s_saved, SAVED_MAX);
+  s_saved_count = (n < 0) ? 0 : n;
+}
 
 static const struct {
   const char *icon;
@@ -156,8 +152,11 @@ static const struct {
 };
 #define INFO_ACTION_COUNT ((int)(sizeof(INFO_ACTIONS) / sizeof(INFO_ACTIONS[0])))
 
-static const char *ANALYZER_FREQS[] = {"433.92 MHz", "868.30 MHz", "315.00 MHz"};
-#define ANALYZER_FREQ_COUNT ((int)(sizeof(ANALYZER_FREQS) / sizeof(ANALYZER_FREQS[0])))
+#define ANALYZER_CENTER_HZ 433920000
+#define ANALYZER_SPAN_HZ   2000000
+#define ANALYZER_POLL_MS   140
+#define ANALYZER_DBM_FLOOR -110
+#define ANALYZER_DBM_CEIL  -20
 
 typedef enum {
   VIEW_LIST = 0,
@@ -173,7 +172,6 @@ static view_t s_view = VIEW_LIST;
 static int s_saved_sel = 0;
 
 static lv_obj_t *s_freq_lbl = NULL;
-static int s_freq_idx = 0;
 
 static lv_obj_t *s_info_rows[INFO_ACTION_COUNT];
 static lv_obj_t *s_info_icons[INFO_ACTION_COUNT];
@@ -181,10 +179,11 @@ static lv_obj_t *s_info_labels[INFO_ACTION_COUNT];
 static int s_info_sel = 0;
 
 static lv_obj_t *s_sig_cont = NULL;
-static lv_obj_t *s_sig_row[SAVED_COUNT];
-static lv_obj_t *s_sig_name[SAVED_COUNT];
-static lv_obj_t *s_sig_val[SAVED_COUNT];
+static lv_obj_t *s_sig_row[SAVED_MAX];
+static lv_obj_t *s_sig_name[SAVED_MAX];
+static lv_obj_t *s_sig_val[SAVED_MAX];
 static lv_obj_t *s_sig_thumb = NULL;
+static lv_obj_t *s_spec_bars[BAR_COUNT];
 
 static lv_obj_t *s_send_overlay = NULL;
 static lv_obj_t *s_send_status = NULL;
@@ -222,31 +221,66 @@ static void fade_in(lv_obj_t *obj, uint32_t duration_ms) {
   lv_anim_start(&a);
 }
 
-static void bar_height_cb(void *var, int32_t v) {
-  lv_obj_t *bar = (lv_obj_t *)var;
-  lv_obj_set_height(bar, v);
-  lv_obj_set_y(bar, BAR_BASELINE_Y - v);
-}
+#define SIGNAL_STRONG_COLOR 0x00E676
 
-static void freq_cycle_cb(lv_timer_t *t) {
+static void spectrum_poll_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen || s_view != VIEW_ANALYZER) {
     lv_timer_delete(t);
     s_freq_timer = NULL;
     return;
   }
-  s_freq_idx = (s_freq_idx + 1) % ANALYZER_FREQ_COUNT;
-  if (s_freq_lbl)
-    lv_label_set_text(s_freq_lbl, ANALYZER_FREQS[s_freq_idx]);
-}
 
-#define SIGNAL_STRONG_COLOR 0x00E676
+  subghz_spectrum_line_t line;
+  if (!subghz_spectrum_get_line(&line))
+    return;
+
+  int per = SPECTRUM_SAMPLES / BAR_COUNT;
+  if (per < 1)
+    per = 1;
+
+  for (int i = 0; i < BAR_COUNT; i++) {
+    float sum = 0.0f;
+    int cnt = 0;
+    for (int k = 0; k < per; k++) {
+      int idx = i * per + k;
+      if (idx < SPECTRUM_SAMPLES) {
+        sum += line.dbm_values[idx];
+        cnt++;
+      }
+    }
+    float dbm = cnt ? (sum / (float)cnt) : (float)ANALYZER_DBM_FLOOR;
+
+    int h = (int)(((dbm - ANALYZER_DBM_FLOOR) * (BAR_MAX_H - BAR_MIN_H)) /
+                  (ANALYZER_DBM_CEIL - ANALYZER_DBM_FLOOR)) +
+            BAR_MIN_H;
+    if (h < BAR_MIN_H)
+      h = BAR_MIN_H;
+    if (h > BAR_MAX_H)
+      h = BAR_MAX_H;
+
+    if (s_spec_bars[i] == NULL)
+      continue;
+    lv_obj_set_height(s_spec_bars[i], h);
+    lv_obj_set_y(s_spec_bars[i], BAR_BASELINE_Y - h);
+
+    lv_color_t c;
+    if (dbm >= -45.0f)
+      c = lv_color_hex(SIGNAL_STRONG_COLOR);
+    else if (dbm >= -75.0f)
+      c = current_theme.border_accent;
+    else
+      c = current_theme.border_inactive;
+    lv_obj_set_style_bg_color(s_spec_bars[i], c, 0);
+  }
+}
 
 static void build_analyzer(void) {
   ui_chrome_header(s_screen, "ANALYZER", "/assets/icons/graphic_eq.bin");
 
-  s_freq_idx = 0;
+  char freq_str[16];
+  fmt_mhz(ANALYZER_CENTER_HZ, freq_str, sizeof(freq_str));
   s_freq_lbl = lv_label_create(s_screen);
-  lv_label_set_text(s_freq_lbl, ANALYZER_FREQS[0]);
+  lv_label_set_text(s_freq_lbl, freq_str);
   lv_obj_set_style_text_color(s_freq_lbl, current_theme.border_accent, 0);
   lv_obj_set_style_text_font(s_freq_lbl, &lv_font_montserrat_14, 0);
   lv_obj_align(s_freq_lbl, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H + 14);
@@ -269,43 +303,25 @@ static void build_analyzer(void) {
   lv_obj_set_style_line_dash_gap(baseline, 4, 0);
 
   for (int i = 0; i < BAR_COUNT; i++) {
-    int peak = BAR_MAX_H - (i % 5) * 12;
-
     lv_obj_t *bar = lv_obj_create(s_screen);
+    s_spec_bars[i] = bar;
     lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(bar, BAR_W, BAR_MIN_H);
     lv_obj_set_style_radius(bar, 2, 0);
     lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
-
-    lv_color_t bar_color;
-    if (peak >= (BAR_MAX_H - 12))
-      bar_color = lv_color_hex(SIGNAL_STRONG_COLOR);
-    else if (peak >= (BAR_MAX_H - 36))
-      bar_color = current_theme.border_accent;
-    else
-      bar_color = current_theme.border_inactive;
-    lv_obj_set_style_bg_color(bar, bar_color, 0);
+    lv_obj_set_style_bg_color(bar, current_theme.border_inactive, 0);
     lv_obj_set_style_bg_grad_color(bar, current_theme.bg_secondary, 0);
     lv_obj_set_style_bg_grad_dir(bar, LV_GRAD_DIR_VER, 0);
     lv_obj_set_style_border_width(bar, 0, 0);
-
     lv_obj_set_pos(bar, x0 + i * (BAR_W + BAR_GAP), BAR_BASELINE_Y - BAR_MIN_H);
-
-    lv_anim_t a;
-    lv_anim_init(&a);
-    lv_anim_set_var(&a, bar);
-    lv_anim_set_exec_cb(&a, bar_height_cb);
-    lv_anim_set_values(&a, BAR_MIN_H, peak);
-    lv_anim_set_duration(&a, 420 + (i % 4) * 90);
-    lv_anim_set_playback_duration(&a, 420 + (i % 3) * 80);
-    lv_anim_set_delay(&a, i * 55);
-    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
-    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
-    lv_anim_start(&a);
   }
 
   fade_in(s_freq_lbl, FADE_MS);
-  s_freq_timer = lv_timer_create(freq_cycle_cb, FREQ_CYCLE_MS, NULL);
+
+  if (subghz_receiver_is_running())
+    subghz_receiver_stop();
+  subghz_spectrum_start(ANALYZER_CENTER_HZ, ANALYZER_SPAN_HZ);
+  s_freq_timer = lv_timer_create(spectrum_poll_cb, ANALYZER_POLL_MS, NULL);
 
   ui_chrome_footer(s_screen, HINT_ANALYZER);
 }
@@ -317,7 +333,7 @@ static void build_saved_empty(void) {
 }
 
 static void move_sig_thumb(void) {
-  if (s_sig_thumb == NULL || SAVED_COUNT <= 1)
+  if (s_sig_thumb == NULL || s_saved_count <= 1)
     return;
   int thumb_h = lv_obj_get_height(s_sig_thumb);
   if (thumb_h <= 0)
@@ -325,7 +341,7 @@ static void move_sig_thumb(void) {
   int travel = SGC_TRACK_LEN - thumb_h;
   if (travel < 0)
     travel = 0;
-  int pos = SGC_TRACK_Y + (s_saved_sel * travel) / (SAVED_COUNT - 1);
+  int pos = SGC_TRACK_Y + (s_saved_sel * travel) / (s_saved_count - 1);
   lv_obj_set_y(s_sig_thumb, pos);
 }
 
@@ -349,7 +365,7 @@ static void style_sig_row(int i, bool sel) {
 }
 
 static void update_sig_selection(void) {
-  for (int i = 0; i < SAVED_COUNT; i++)
+  for (int i = 0; i < s_saved_count; i++)
     style_sig_row(i, i == s_saved_sel);
   if (s_sig_cont != NULL && s_sig_row[s_saved_sel] != NULL) {
     lv_obj_update_layout(s_sig_cont);
@@ -359,7 +375,8 @@ static void update_sig_selection(void) {
 }
 
 static void build_saved_list(void) {
-  if (SAVED_COUNT == 0) {
+  load_saved();
+  if (s_saved_count == 0) {
     build_saved_empty();
     return;
   }
@@ -367,8 +384,8 @@ static void build_saved_list(void) {
 
   if (s_saved_sel < 0)
     s_saved_sel = 0;
-  if (s_saved_sel >= SAVED_COUNT)
-    s_saved_sel = SAVED_COUNT - 1;
+  if (s_saved_sel >= s_saved_count)
+    s_saved_sel = s_saved_count - 1;
 
   lv_obj_t *cont = lv_obj_create(s_screen);
   s_sig_cont = cont;
@@ -385,7 +402,7 @@ static void build_saved_list(void) {
   lv_obj_set_scrollbar_mode(cont, LV_SCROLLBAR_MODE_OFF);
   lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM);
 
-  for (int i = 0; i < SAVED_COUNT; i++) {
+  for (int i = 0; i < s_saved_count; i++) {
     lv_obj_t *card = lv_obj_create(cont);
     s_sig_row[i] = card;
     lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
@@ -403,14 +420,16 @@ static void build_saved_list(void) {
     s_sig_name[i] = name;
     lv_obj_set_width(name, lv_pct(68));
     lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
-    lv_label_set_text(name, SAVED_SIGS[i].name);
+    lv_label_set_text(name, s_saved[i].name);
     lv_obj_set_style_text_font(name, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(name, current_theme.text_main, 0);
     lv_obj_align(name, LV_ALIGN_TOP_LEFT, 0, 0);
 
+    char fbuf[16];
+    fmt_mhz(s_saved[i].frequency, fbuf, sizeof(fbuf));
     lv_obj_t *val = lv_label_create(card);
     s_sig_val[i] = val;
-    lv_label_set_text(val, SAVED_SIGS[i].freq);
+    lv_label_set_text(val, fbuf);
     lv_obj_set_style_text_font(val, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(val, current_theme.border_accent, 0);
     lv_obj_align(val, LV_ALIGN_TOP_RIGHT, 0, 2);
@@ -418,7 +437,7 @@ static void build_saved_list(void) {
     lv_obj_t *proto = lv_label_create(card);
     lv_obj_set_width(proto, lv_pct(100));
     lv_label_set_long_mode(proto, LV_LABEL_LONG_DOT);
-    lv_label_set_text(proto, SAVED_SIGS[i].proto);
+    lv_label_set_text(proto, s_saved[i].protocol);
     lv_obj_set_style_text_font(proto, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(proto, current_theme.text_secondary, 0);
     lv_obj_align(proto, LV_ALIGN_TOP_LEFT, 0, 20);
@@ -532,11 +551,39 @@ static void build_saved_info(void) {
   lv_obj_set_style_pad_row(card, 4, 0);
 
   lv_obj_t *name = lv_label_create(card);
-  lv_label_set_text(name, SAVED_SIGS[s_saved_sel].name);
+  lv_label_set_text(name, s_saved[s_saved_sel].name);
   lv_obj_set_style_text_color(name, current_theme.text_main, 0);
   lv_obj_set_style_text_font(name, &lv_font_montserrat_14, 0);
 
-  for (int i = 0; i < DETAIL_ROW_COUNT; i++) {
+  char freq_str[16];
+  fmt_mhz(s_saved[s_saved_sel].frequency, freq_str, sizeof(freq_str));
+
+  char key_str[24];
+  strlcpy(key_str, "RAW", sizeof(key_str));
+  char content[512];
+  if (subghz_storage_read(s_saved[s_saved_sel].name, content, sizeof(content)) > 0) {
+    const char *kp = strstr(content, "Key: ");
+    if (kp != NULL) {
+      unsigned b[8] = {0};
+      if (sscanf(kp + 5, "%x %x %x %x %x %x %x %x", &b[0], &b[1], &b[2], &b[3], &b[4], &b[5],
+                 &b[6], &b[7]) >= 8) {
+        uint32_t v =
+            ((uint32_t)b[4] << 24) | ((uint32_t)b[5] << 16) | ((uint32_t)b[6] << 8) | (uint32_t)b[7];
+        snprintf(key_str, sizeof(key_str), "0x%lX", (unsigned long)v);
+      }
+    }
+  }
+
+  const struct {
+    const char *label;
+    const char *value;
+  } rows[] = {
+      {"Protocol", s_saved[s_saved_sel].protocol},
+      {"Key", key_str},
+      {"Frequency", freq_str},
+  };
+
+  for (int i = 0; i < (int)(sizeof(rows) / sizeof(rows[0])); i++) {
     lv_obj_t *row = lv_obj_create(card);
     lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_width(row, lv_pct(100));
@@ -549,12 +596,12 @@ static void build_saved_info(void) {
         row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
     lv_obj_t *label = lv_label_create(row);
-    lv_label_set_text(label, DETAIL_ROWS[i].label);
+    lv_label_set_text(label, rows[i].label);
     lv_obj_set_style_text_color(label, current_theme.border_inactive, 0);
     lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
 
     lv_obj_t *value = lv_label_create(row);
-    lv_label_set_text(value, DETAIL_ROWS[i].value);
+    lv_label_set_text(value, rows[i].value);
     lv_obj_set_style_text_color(value, current_theme.border_accent, 0);
     lv_obj_set_style_text_font(value, &lv_font_montserrat_12, 0);
   }
@@ -611,15 +658,17 @@ static void build_saved_info(void) {
 static void info_del_confirm(bool confirm) {
   if (!confirm)
     return;
-  ESP_LOGI(TAG, "mock saved delete: %s", SAVED_SIGS[s_saved_sel].name);
+  esp_err_t err = subghz_storage_delete(s_saved[s_saved_sel].name);
   ui_feedback(UI_FB_WRITE);
-  notify(NOTIFY_INFO, "Signal deleted");
+  notify(err == ESP_OK ? NOTIFY_INFO : NOTIFY_WARNING,
+         err == ESP_OK ? "Signal deleted" : "Delete failed");
   s_view = VIEW_SAVED;
   ui_async_call(rebuild_async, NULL);
 }
 
 static void build_screen(void) {
   stop_freq_timer();
+  subghz_spectrum_stop();
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
@@ -702,6 +751,16 @@ static void send_lock_cb(lv_timer_t *t) {
 }
 
 static void start_saved_send(void) {
+  esp_err_t rerr = subghz_replay_file(s_saved[s_saved_sel].name);
+  if (rerr == ESP_ERR_NOT_SUPPORTED) {
+    notify(NOTIFY_WARNING, "Replay not supported");
+    return;
+  }
+  if (rerr != ESP_OK) {
+    notify(NOTIFY_WARNING, "Send failed");
+    return;
+  }
+
   s_send_overlay = lv_obj_create(s_screen);
   lv_obj_set_size(s_send_overlay, lv_pct(100), lv_pct(100));
   lv_obj_center(s_send_overlay);
@@ -719,8 +778,10 @@ static void start_saved_send(void) {
   lv_obj_set_style_text_font(s_send_status, &lv_font_montserrat_14, 0);
   lv_obj_align(s_send_status, LV_ALIGN_TOP_MID, 0, SEND_STATUS_Y);
 
+  char freq_str[16];
+  fmt_mhz(s_saved[s_saved_sel].frequency, freq_str, sizeof(freq_str));
   lv_obj_t *freq = lv_label_create(s_send_overlay);
-  lv_label_set_text(freq, SAVED_SIGS[s_saved_sel].freq);
+  lv_label_set_text(freq, freq_str);
   lv_obj_set_style_text_color(freq, current_theme.border_accent, 0);
   lv_obj_set_style_text_font(freq, &lv_font_montserrat_12, 0);
   lv_obj_align(freq, LV_ALIGN_TOP_MID, 0, SEND_FREQ_Y);
@@ -798,7 +859,7 @@ static void subghz_menu_input(const input_event_t *ev, void *ctx) {
     case VIEW_SAVED:
       switch (ev->button) {
         case INPUT_BTN_DOWN:
-          if (nav && s_saved_sel < SAVED_COUNT - 1) {
+          if (nav && s_saved_sel < s_saved_count - 1) {
             s_saved_sel++;
             update_sig_selection();
             ui_feedback(UI_FB_NAV);
@@ -813,7 +874,6 @@ static void subghz_menu_input(const input_event_t *ev, void *ctx) {
           break;
         case INPUT_BTN_OK:
           if (press) {
-            ESP_LOGI(TAG, "mock saved open: %s", SAVED_SIGS[s_saved_sel].name);
             s_view = VIEW_SAVED_INFO;
             build_screen();
           }

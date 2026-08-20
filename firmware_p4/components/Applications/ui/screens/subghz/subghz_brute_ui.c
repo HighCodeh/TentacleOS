@@ -20,9 +20,8 @@
 #include "esp_log.h"
 #include "lvgl.h"
 
-#include "capture_result_ui.h"
-#include "msgbox_ui.h"
 #include "notify_ui.h"
+#include "subghz_brute.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -32,9 +31,7 @@
 
 static const char *TAG = "SUBGHZ_BF";
 
-#define TICK_MS       33
-#define REVEAL_MS     3000
-#define BRUTE_MS      4200
+#define TICK_MS       120
 #define SCOPE_TICK_MS 38
 #define DOT_CYCLE_MS  350
 
@@ -75,8 +72,7 @@ static const char *TAG = "SUBGHZ_BF";
 #define BAR_W     192
 #define BAR_H     8
 #define BAR_Y     (CARD_Y + 20)
-#define CODES_Y   (CARD_Y + 44)
-#define HIT_Y     (CARD_Y + 68)
+#define CODES_Y   (CARD_Y + 46)
 #define TRACK_COL 0x202028
 
 #define CARD_W             210
@@ -89,13 +85,12 @@ static const char *TAG = "SUBGHZ_BF";
 #define STATUS_RUN "Transmitting"
 #define HINT_RUN   "BACK to stop"
 #define HINT_SHOW  "BACK = Exit"
-#define HINT_MENU  "UP/DOWN choose   OK do   BACK exit"
 
-#define BRUTE_PROTO "Princeton"
-#define BRUTE_FREQ  "433.92 MHz"
-#define BRUTE_HIT   "0x1A2B3C"
-#define BRUTE_TOTAL 4096
-#define BRUTE_HIT_N (BRUTE_TOTAL / 3)
+#define BRUTE_PROTO_NAME "CAME"
+#define BRUTE_BITS       12
+#define BRUTE_FREQ_HZ    433920000
+#define BRUTE_TOTAL      (1 << BRUTE_BITS)
+#define BRUTE_FREQ_STR   "433.92 MHz"
 
 static const uint8_t OOK_BITS[] = {0, 0, 0, 1, 1, 0};
 #define OOK_BIT_COUNT ((int)(sizeof(OOK_BITS) / sizeof(OOK_BITS[0])))
@@ -111,20 +106,14 @@ static lv_obj_t *s_wave = NULL;
 static lv_obj_t *s_card = NULL;
 static lv_obj_t *s_bar = NULL;
 static lv_obj_t *s_codes = NULL;
-static lv_obj_t *s_hit = NULL;
 static lv_obj_t *s_hint = NULL;
 
-static capture_result_t s_cr = {0};
 static lv_point_precise_t s_wave_pts[WAVE_POINTS];
 static lv_point_precise_t s_ook_pts[OOK_MAX_PTS];
 static int s_phase = 0;
 static int s_mod = 0;
-static int s_code_count = 0;
 static uint32_t s_run_start = 0;
-static uint32_t s_locked_at = 0;
 static bool s_locked = false;
-static bool s_options = false;
-static bool s_saved = false;
 
 static void brute_tick_cb(lv_timer_t *t);
 static void scope_tick_cb(lv_timer_t *t);
@@ -270,88 +259,36 @@ static void build_readout(void) {
   lv_bar_set_value(s_bar, 0, LV_ANIM_OFF);
 
   s_codes = lv_label_create(s_screen);
-  lv_label_set_text_fmt(s_codes, "Codes  0 / %d", BRUTE_TOTAL);
+  lv_label_set_text_fmt(s_codes, "Sent  0 / %d", BRUTE_TOTAL);
   lv_obj_set_style_text_color(s_codes, current_theme.border_accent, 0);
   lv_obj_set_style_text_font(s_codes, &lv_font_montserrat_12, 0);
   lv_obj_align(s_codes, LV_ALIGN_TOP_MID, 0, CODES_Y);
-
-  s_hit = lv_label_create(s_screen);
-  lv_label_set_text(s_hit, BRUTE_PROTO "  " BRUTE_HIT);
-  lv_obj_set_style_text_color(s_hit, current_theme.text_main, 0);
-  lv_obj_set_style_text_font(s_hit, &lv_font_montserrat_12, 0);
-  lv_obj_align(s_hit, LV_ALIGN_TOP_MID, 0, HIT_Y);
-  lv_obj_add_flag(s_hit, LV_OBJ_FLAG_HIDDEN);
 }
 
-static void resolve(void) {
+static void finish_sweep(void) {
   s_locked = true;
   stop_timer(&s_scope_timer);
   if (s_wave != NULL)
     lv_obj_set_style_line_rounded(s_wave, false, 0);
   fill_ook();
 
-  s_code_count = BRUTE_HIT_N;
   if (s_bar != NULL)
-    lv_bar_set_value(s_bar, s_code_count, LV_ANIM_OFF);
+    lv_bar_set_value(s_bar, BRUTE_TOTAL, LV_ANIM_OFF);
   if (s_codes != NULL)
-    lv_label_set_text_fmt(s_codes, "Hit at code %d", s_code_count);
-  if (s_hit != NULL)
-    lv_obj_remove_flag(s_hit, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text_fmt(s_codes, "Sent  %d / %d", BRUTE_TOTAL, BRUTE_TOTAL);
   if (s_status != NULL) {
-    lv_label_set_text(s_status, "Code found!");
+    lv_label_set_text(s_status, "Sweep complete");
     lv_obj_set_style_text_color(s_status, lv_color_hex(UI_COL_SUCCESS), 0);
   }
   if (s_hint != NULL)
     ui_chrome_footer_set_text(s_hint, HINT_SHOW);
-  s_locked_at = lv_tick_get();
 
-  ESP_LOGI(TAG, "mock subghz brute hit: %s %s", BRUTE_PROTO, BRUTE_HIT);
+  ESP_LOGI(TAG, "brute sweep complete (%d codes)", BRUTE_TOTAL);
   ui_feedback(UI_FB_WRITE);
 }
 
-static void show_options(void) {
-  if (s_scope != NULL) {
-    lv_obj_del(s_scope);
-    s_scope = NULL;
-    s_wave = NULL;
-  }
-  if (s_bar != NULL) {
-    lv_obj_del(s_bar);
-    s_bar = NULL;
-  }
-  if (s_codes != NULL) {
-    lv_obj_del(s_codes);
-    s_codes = NULL;
-  }
-  if (s_hit != NULL) {
-    lv_obj_del(s_hit);
-    s_hit = NULL;
-  }
-  if (s_card != NULL) {
-    lv_obj_del(s_card);
-    s_card = NULL;
-  }
-  if (s_status != NULL)
-    lv_obj_add_flag(s_status, LV_OBJ_FLAG_HIDDEN);
-  if (s_freq != NULL)
-    lv_obj_add_flag(s_freq, LV_OBJ_FLAG_HIDDEN);
-
-  capture_result_cfg_t cfg = {
-      .accent = current_theme.border_accent,
-      .card_icon = "/assets/icons/bolt.bin",
-      .card_title = "Code found",
-      .card_sub = BRUTE_PROTO " (OOK)",
-      .card_value = BRUTE_HIT,
-      .primary_label = "Send",
-      .again_label = "Run again",
-  };
-  s_cr = capture_result_create(s_screen, &cfg);
-  s_options = true;
-  if (s_hint != NULL)
-    ui_chrome_footer_set_text(s_hint, HINT_MENU);
-}
-
 void ui_subghz_brute_open(void) {
+  subghz_brute_stop();
   stop_timer(&s_scope_timer);
   stop_timer(&s_tick_timer);
   if (s_screen != NULL) {
@@ -365,16 +302,10 @@ void ui_subghz_brute_open(void) {
   s_card = NULL;
   s_bar = NULL;
   s_codes = NULL;
-  s_hit = NULL;
   s_hint = NULL;
-  s_cr = (capture_result_t){0};
   s_phase = 0;
   s_mod = 0;
-  s_code_count = 0;
   s_locked = false;
-  s_options = false;
-  s_saved = false;
-  s_locked_at = 0;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -392,7 +323,7 @@ void ui_subghz_brute_open(void) {
   lv_obj_align(s_status, LV_ALIGN_TOP_MID, 0, STATUS_Y);
 
   s_freq = lv_label_create(s_screen);
-  lv_label_set_text(s_freq, BRUTE_FREQ);
+  lv_label_set_text(s_freq, BRUTE_PROTO_NAME "  " BRUTE_FREQ_STR);
   lv_obj_set_style_text_color(s_freq, current_theme.border_accent, 0);
   lv_obj_set_style_text_font(s_freq, &lv_font_montserrat_12, 0);
   lv_obj_align(s_freq, LV_ALIGN_TOP_MID, 0, FREQ_Y);
@@ -407,6 +338,19 @@ void ui_subghz_brute_open(void) {
   s_tick_timer = lv_timer_create(brute_tick_cb, TICK_MS, NULL);
 
   ui_input_set_screen_handler(subghz_brute_input, NULL);
+
+  esp_err_t berr = subghz_brute_start(BRUTE_PROTO_NAME, BRUTE_BITS, BRUTE_FREQ_HZ);
+  if (berr != ESP_OK) {
+    s_locked = true;
+    stop_timer(&s_scope_timer);
+    if (s_status != NULL) {
+      lv_label_set_text(s_status, "Unavailable");
+      lv_obj_set_style_text_color(s_status, current_theme.text_secondary, 0);
+    }
+    if (s_hint != NULL)
+      ui_chrome_footer_set_text(s_hint, HINT_SHOW);
+    notify(NOTIFY_WARNING, "Brute unavailable");
+  }
 
   ui_screen_load_owned(&s_screen, s_screen);
 }
@@ -428,96 +372,49 @@ static void brute_tick_cb(lv_timer_t *t) {
     s_tick_timer = NULL;
     return;
   }
+  if (s_locked)
+    return;
 
-  if (!s_locked) {
-    uint32_t el = lv_tick_get() - s_run_start;
-    if (s_status != NULL) {
-      int dots = (el / DOT_CYCLE_MS) % 4;
-      char buf[24];
-      snprintf(buf,
-               sizeof(buf),
-               "%s%s",
-               STATUS_RUN,
-               dots == 1   ? "."
-               : dots == 2 ? ".."
-               : dots == 3 ? "..."
-                           : "");
-      lv_label_set_text(s_status, buf);
-    }
-    int count = (int)((uint64_t)el * BRUTE_TOTAL / BRUTE_MS);
-    if (count > BRUTE_TOTAL)
-      count = BRUTE_TOTAL;
-    s_code_count = count;
-    if (s_bar != NULL)
-      lv_bar_set_value(s_bar, count, LV_ANIM_OFF);
-    if (s_codes != NULL)
-      lv_label_set_text_fmt(s_codes, "Codes  %d / %d", count, BRUTE_TOTAL);
+  if (s_status != NULL) {
+    int dots = ((lv_tick_get() - s_run_start) / DOT_CYCLE_MS) % 4;
+    char buf[24];
+    snprintf(buf,
+             sizeof(buf),
+             "%s%s",
+             STATUS_RUN,
+             dots == 1   ? "."
+             : dots == 2 ? ".."
+             : dots == 3 ? "..."
+                         : "");
+    lv_label_set_text(s_status, buf);
   }
 
-  if (!s_locked) {
-    if (lv_tick_get() - s_run_start >= BRUTE_MS)
-      resolve();
-  } else if (!s_options) {
-    if (lv_tick_get() - s_locked_at >= REVEAL_MS)
-      show_options();
+  subghz_brute_status_t st;
+  if (!subghz_brute_get_status(&st))
+    return;
+
+  int total = st.total ? (int)st.total : BRUTE_TOTAL;
+  int sent = (int)st.sent;
+  if (s_bar != NULL) {
+    lv_bar_set_range(s_bar, 0, total);
+    lv_bar_set_value(s_bar, sent, LV_ANIM_OFF);
   }
+  if (s_codes != NULL)
+    lv_label_set_text_fmt(s_codes, "Sent  %d / %d", sent, total);
+
+  if (st.done)
+    finish_sweep();
 }
 
 static void subghz_brute_input(const input_event_t *ev, void *ctx) {
   (void)ctx;
   const bool press = (ev->action == INPUT_ACTION_PRESS);
-  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
   if (ev->button == INPUT_BTN_BACK) {
-    if (press)
+    if (press) {
+      subghz_brute_stop();
       ui_switch_screen(SCREEN_SUBGHZ_MENU);
+    }
     return;
-  }
-
-  if (!s_options)
-    return;
-
-  switch (ev->button) {
-    case INPUT_BTN_DOWN:
-      if (nav) {
-        capture_result_next(&s_cr);
-        ui_feedback(UI_FB_NAV);
-      }
-      break;
-    case INPUT_BTN_UP:
-      if (nav) {
-        capture_result_prev(&s_cr);
-        ui_feedback(UI_FB_NAV);
-      }
-      break;
-    case INPUT_BTN_OK:
-      if (press) {
-        switch (capture_result_selected(&s_cr)) {
-          case CAP_ACT_PRIMARY:
-            ui_feedback(UI_FB_EMULATE);
-            notify(NOTIFY_INFO, BRUTE_FREQ " sent");
-            break;
-          case CAP_ACT_SAVE:
-            if (!s_saved) {
-              s_saved = true;
-              capture_result_mark_saved(&s_cr);
-              ESP_LOGI(TAG, "mock subghz brute saved: %s", BRUTE_HIT);
-              ui_feedback(UI_FB_WRITE);
-              notify(NOTIFY_SAVED, "Sub-GHz code saved");
-            }
-            break;
-          case CAP_ACT_AGAIN:
-            ui_subghz_brute_open();
-            return;
-          case CAP_ACT_DISCARD:
-            ui_switch_screen(SCREEN_SUBGHZ_MENU);
-            return;
-          default:
-            break;
-        }
-      }
-      break;
-    default:
-      break;
   }
 }

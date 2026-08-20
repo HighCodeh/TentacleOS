@@ -20,13 +20,12 @@
 extern "C" {
 #endif
 
-/** @brief Open the Sub-GHz menu screen (MOCK): Read / Read RAW / Analyzer / Brute / Saved. No
- * radio. */
+/** @brief Open the Sub-GHz menu screen: Read / Read RAW / Analyzer / Brute / Saved / Send. */
 void ui_subghz_menu_open(void);
 
 /**
- * @brief Open the Sub-GHz "Read" capture screen (MOCK): scanning waves -> canned
- *        captured signal -> save prompt. No radio.
+ * @brief Open the Sub-GHz "Read" capture screen: runs the CC1101 receiver, shows the
+ *        decoded protocol/frequency/key, and can replay or persist the capture.
  */
 void ui_subghz_read_open(void);
 

@@ -16,6 +16,7 @@
 #include "subghz_send_ui.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include "esp_log.h"
 #include "lvgl.h"
@@ -24,15 +25,16 @@
 #include "assets_manager.h"
 #include "capture_result_ui.h"
 #include "notify_ui.h"
+#include "octobit_ui.h"
+#include "subghz_replay.h"
 #include "subghz_scope_ui.h"
+#include "subghz_storage.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_metrics.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
-
-static const char *TAG = "SUBGHZ_SEND_UI";
 
 #define ANTENNA_ICON "/assets/icons/settings_input_antenna.bin"
 #define SIGNAL_ICON  "/assets/icons/graphic_eq.bin"
@@ -68,17 +70,27 @@ static const char *TAG = "SUBGHZ_SEND_UI";
 #define HINT_LIST    "UP/DOWN choose   OK send   BACK exit"
 #define HINT_OPTIONS "UP/DOWN choose   OK do   BACK exit"
 
-static const struct {
-  const char *name;
-  const char *freq;
-  const char *proto;
-} SIGNALS[] = {
-    {"Gate_433", "433.92 MHz", "Princeton"},
-    {"Doorbell", "433.92 MHz", "CAME"},
-    {"TPMS_FL", "315.00 MHz", "TPMS"},
-    {"Garage", "868.30 MHz", "Nice FLO"},
-};
-#define SIGNAL_COUNT ((int)(sizeof(SIGNALS) / sizeof(SIGNALS[0])))
+#define SIGNAL_MAX 64
+static subghz_storage_entry_t s_sigs[SIGNAL_MAX];
+static int s_sig_count = 0;
+static char s_card_freq[16];
+
+static void fmt_mhz(uint32_t hz, char *out, size_t n) {
+  if (hz == 0) {
+    snprintf(out, n, "-- MHz");
+    return;
+  }
+  snprintf(out,
+           n,
+           "%lu.%02lu MHz",
+           (unsigned long)(hz / 1000000UL),
+           (unsigned long)((hz % 1000000UL) / 10000UL));
+}
+
+static void load_signals(void) {
+  int n = subghz_storage_list(s_sigs, SIGNAL_MAX);
+  s_sig_count = (n < 0) ? 0 : n;
+}
 
 typedef enum {
   VIEW_LIST = 0,
@@ -88,9 +100,9 @@ typedef enum {
 
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_list = NULL;
-static lv_obj_t *s_rows[SIGNAL_COUNT];
-static lv_obj_t *s_row_name[SIGNAL_COUNT];
-static lv_obj_t *s_row_val[SIGNAL_COUNT];
+static lv_obj_t *s_rows[SIGNAL_MAX];
+static lv_obj_t *s_row_name[SIGNAL_MAX];
+static lv_obj_t *s_row_val[SIGNAL_MAX];
 static send_view_t s_view = VIEW_LIST;
 static int s_sel = 0;
 
@@ -166,7 +178,7 @@ static void style_row(int i, bool sel) {
 }
 
 static void update_selection(void) {
-  for (int i = 0; i < SIGNAL_COUNT; i++)
+  for (int i = 0; i < s_sig_count; i++)
     style_row(i, i == s_sel);
   if (s_list != NULL && s_rows[s_sel] != NULL) {
     lv_obj_update_layout(s_list);
@@ -188,13 +200,22 @@ static void build_list(void) {
   s_cr = (capture_result_t){0};
   s_options = false;
 
-  if (s_sel < 0)
-    s_sel = 0;
-  if (s_sel >= SIGNAL_COUNT)
-    s_sel = SIGNAL_COUNT - 1;
+  load_signals();
 
   s_screen = new_screen();
   ui_chrome_header(s_screen, "SEND", ANTENNA_ICON);
+
+  if (s_sig_count == 0) {
+    octobit_create(s_screen, "No saved signals yet");
+    s_hint_label = ui_chrome_footer(s_screen, "BACK exit");
+    ui_screen_load_owned(&s_screen, s_screen);
+    return;
+  }
+
+  if (s_sel < 0)
+    s_sel = 0;
+  if (s_sel >= s_sig_count)
+    s_sel = s_sig_count - 1;
 
   lv_obj_t *cont = lv_obj_create(s_screen);
   s_list = cont;
@@ -216,7 +237,7 @@ static void build_list(void) {
   lv_obj_set_style_width(cont, LIST_SB_W, LV_PART_SCROLLBAR);
   lv_obj_set_style_radius(cont, LIST_SB_RADIUS, LV_PART_SCROLLBAR);
 
-  for (int i = 0; i < SIGNAL_COUNT; i++) {
+  for (int i = 0; i < s_sig_count; i++) {
     lv_obj_t *r = lv_obj_create(cont);
     s_rows[i] = r;
     lv_obj_remove_flag(r, LV_OBJ_FLAG_SCROLLABLE);
@@ -254,12 +275,14 @@ static void build_list(void) {
     s_row_name[i] = name;
     lv_label_set_long_mode(name, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_set_flex_grow(name, 1);
-    lv_label_set_text(name, SIGNALS[i].name);
+    lv_label_set_text(name, s_sigs[i].name);
     lv_obj_set_style_text_font(name, &lv_font_montserrat_14, 0);
 
+    char fbuf[16];
+    fmt_mhz(s_sigs[i].frequency, fbuf, sizeof(fbuf));
     lv_obj_t *val = lv_label_create(r);
     s_row_val[i] = val;
-    lv_label_set_text(val, SIGNALS[i].freq);
+    lv_label_set_text(val, fbuf);
     lv_obj_set_style_text_font(val, &lv_font_montserrat_12, 0);
   }
 
@@ -289,8 +312,10 @@ static void build_sending(void) {
   lv_obj_set_style_text_align(s_status_label, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(s_status_label, LV_ALIGN_TOP_MID, 0, STATUS_Y);
 
+  char freq_str[16];
+  fmt_mhz(s_sigs[s_sel].frequency, freq_str, sizeof(freq_str));
   s_freq_label = lv_label_create(s_screen);
-  lv_label_set_text(s_freq_label, SIGNALS[s_sel].freq);
+  lv_label_set_text(s_freq_label, freq_str);
   lv_obj_set_style_text_color(s_freq_label, current_theme.border_accent, 0);
   lv_obj_set_style_text_font(s_freq_label, &lv_font_montserrat_12, 0);
   lv_obj_align(s_freq_label, LV_ALIGN_TOP_MID, 0, FREQ_Y);
@@ -313,12 +338,13 @@ static void show_options(void) {
   if (s_freq_label != NULL)
     lv_obj_add_flag(s_freq_label, LV_OBJ_FLAG_HIDDEN);
 
+  fmt_mhz(s_sigs[s_sel].frequency, s_card_freq, sizeof(s_card_freq));
   capture_result_cfg_t cfg = {
       .accent = current_theme.border_accent,
       .card_icon = SIGNAL_ICON,
-      .card_title = SIGNALS[s_sel].name,
-      .card_sub = SIGNALS[s_sel].proto,
-      .card_value = SIGNALS[s_sel].freq,
+      .card_title = s_sigs[s_sel].name,
+      .card_sub = s_sigs[s_sel].protocol,
+      .card_value = s_card_freq,
       .primary_label = "Send again",
       .again_label = "Pick another",
   };
@@ -329,10 +355,18 @@ static void show_options(void) {
 }
 
 static void start_send(void) {
+  esp_err_t err = subghz_replay_file(s_sigs[s_sel].name);
+  if (err == ESP_ERR_NOT_SUPPORTED) {
+    notify(NOTIFY_WARNING, "Replay not supported");
+    return;
+  }
+  if (err != ESP_OK) {
+    notify(NOTIFY_WARNING, "Send failed");
+    return;
+  }
   stop_send_timer();
   s_view = VIEW_SENDING;
   s_send_start = lv_tick_get();
-  ESP_LOGI(TAG, "mock send: %s %s", SIGNALS[s_sel].name, SIGNALS[s_sel].freq);
   build_sending();
   ui_feedback(UI_FB_SELECT);
   s_send_timer = lv_timer_create(send_done_cb, SENDING_MS, NULL);
@@ -396,7 +430,7 @@ static void subghz_send_input(const input_event_t *ev, void *ctx) {
     case VIEW_LIST:
       switch (ev->button) {
         case INPUT_BTN_DOWN:
-          if (nav && s_sel < SIGNAL_COUNT - 1) {
+          if (nav && s_sel < s_sig_count - 1) {
             s_sel++;
             update_selection();
             ui_feedback(UI_FB_NAV);
@@ -474,9 +508,8 @@ static void subghz_send_input(const input_event_t *ev, void *ctx) {
                   if (!s_saved) {
                     s_saved = true;
                     capture_result_mark_saved(&s_cr);
-                    ESP_LOGI(TAG, "mock signal saved: %s", SIGNALS[s_sel].name);
                     ui_feedback(UI_FB_WRITE);
-                    notify(NOTIFY_SAVED, "Sub-GHz signal saved");
+                    notify(NOTIFY_INFO, "Already on SD");
                   }
                   break;
                 case CAP_ACT_AGAIN:

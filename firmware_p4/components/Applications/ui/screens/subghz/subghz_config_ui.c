@@ -15,10 +15,14 @@
 
 #include "subghz_config_ui.h"
 
+#include <stdlib.h>
+
 #include "lvgl.h"
 #include "st7789.h"
 
+#include "cc1101.h"
 #include "notify_ui.h"
+#include "subghz_settings.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -253,6 +257,28 @@ static void adjust_value(int dir) {
   lv_label_set_text(s_tile_num[s_sel], FIELDS[s_sel].values[s_val_idx[s_sel]]);
 }
 
+#define CONFIG_FREQ_HZ 433920000
+
+static const uint8_t MOD_MAP[4] = {0, 2, 1, 3};
+static const cc1101_preset_t PRESET_MAP[4] = {
+    CC1101_PRESET_2FSK_47KHZ,
+    CC1101_PRESET_2FSK_95KHZ,
+    CC1101_PRESET_OOK_270KHZ,
+    CC1101_PRESET_OOK_650KHZ,
+};
+
+static void apply_config(void) {
+  cc1101_preset_t preset = PRESET_MAP[s_val_idx[3]];
+  cc1101_set_preset(preset, CONFIG_FREQ_HZ);
+  cc1101_set_modulation(MOD_MAP[s_val_idx[0]]);
+  cc1101_set_rx_bandwidth((float)atof(FIELDS[1].values[s_val_idx[1]]));
+  cc1101_set_data_rate((float)atof(FIELDS[2].values[s_val_idx[2]]) * 1000.0f);
+  cc1101_set_frequency(CONFIG_FREQ_HZ);
+
+  subghz_settings_set_preset(preset);
+  subghz_settings_set_freq(CONFIG_FREQ_HZ);
+}
+
 static void subghz_config_input(const input_event_t *ev, void *ctx) {
   (void)ctx;
   const bool press = (ev->action == INPUT_ACTION_PRESS);
@@ -291,6 +317,7 @@ static void subghz_config_input(const input_event_t *ev, void *ctx) {
       break;
     case INPUT_BTN_OK:
       if (press) {
+        apply_config();
         notify(NOTIFY_SAVED, "Radio config applied");
         ui_feedback(UI_FB_SELECT);
       }
