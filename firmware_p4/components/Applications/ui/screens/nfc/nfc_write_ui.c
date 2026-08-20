@@ -30,11 +30,11 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 #define WR_TICK_MS 33
-#define SIG_GREEN  0x00E676
-#define COL_DIM    0x8A8594
 #define WRITE_ICON "/assets/icons/edit.bin"
 
 #define MAX_CARDS    10
@@ -44,7 +44,7 @@
 #define SLOT_W       150
 #define SLOT_H       72
 #define SLOT_Y       (ARROW_Y + 26)
-#define SLOT_X       ((LCD_H_RES - SLOT_W) / 2)
+#define SLOT_X       ((ui_screen_w() - SLOT_W) / 2)
 
 enum { WR_NONE, WR_PLACE, WR_WRITING, WR_DONE };
 #define T_PLACE   1300
@@ -127,7 +127,7 @@ static void build_empty(const char *icon, const char *title, const char *sub) {
   lv_obj_t *s = lv_label_create(card);
   lv_label_set_text(s, sub);
   lv_obj_set_style_text_font(s, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(s, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s, current_theme.text_secondary, 0);
 }
 
 static lv_obj_t *dash_line(lv_obj_t *parent, lv_point_precise_t *pts, int x, int y) {
@@ -153,11 +153,15 @@ static void bench_build(void) {
   s_body = lv_obj_create(s_screen);
   lv_obj_remove_flag(s_body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(s_body, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(s_body, lv_pct(100), LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_size(s_body, lv_pct(100), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
   lv_obj_align(s_body, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(s_body, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(s_body, 0, 0);
   lv_obj_set_style_pad_all(s_body, 0, 0);
+
+  const int body_h = ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H;
+  const int slot_y = LV_MIN(SLOT_Y, body_h - SLOT_H);
+  const int arrow_y = LV_MIN(ARROW_Y, slot_y - 26);
 
   lv_obj_t *src = nfc_ui_card_panel(s_body, nfc_sim_saved_get(s_sel));
   lv_obj_align(src, LV_ALIGN_TOP_MID, 0, SRC_Y);
@@ -167,7 +171,7 @@ static void bench_build(void) {
   lv_label_set_text(arrow, LV_SYMBOL_DOWN);
   lv_obj_set_style_text_font(arrow, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(arrow, current_theme.border_accent, 0);
-  lv_obj_align(arrow, LV_ALIGN_TOP_MID, 0, ARROW_Y);
+  lv_obj_align(arrow, LV_ALIGN_TOP_MID, 0, arrow_y);
 
   top_pts[0].x = 0;
   top_pts[0].y = 0;
@@ -185,17 +189,17 @@ static void bench_build(void) {
   rgt_pts[0].y = 0;
   rgt_pts[1].x = 0;
   rgt_pts[1].y = SLOT_H;
-  dash_line(s_body, top_pts, SLOT_X, SLOT_Y);
-  dash_line(s_body, bot_pts, SLOT_X, SLOT_Y + SLOT_H);
-  dash_line(s_body, lft_pts, SLOT_X, SLOT_Y);
-  dash_line(s_body, rgt_pts, SLOT_X + SLOT_W, SLOT_Y);
+  dash_line(s_body, top_pts, SLOT_X, slot_y);
+  dash_line(s_body, bot_pts, SLOT_X, slot_y + SLOT_H);
+  dash_line(s_body, lft_pts, SLOT_X, slot_y);
+  dash_line(s_body, rgt_pts, SLOT_X + SLOT_W, slot_y);
 
   lv_obj_t *slot_lbl = lv_label_create(s_body);
   lv_label_set_text(slot_lbl, "place blank tag\nto write");
   lv_obj_set_style_text_align(slot_lbl, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_font(slot_lbl, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(slot_lbl, current_theme.border_accent, 0);
-  lv_obj_align(slot_lbl, LV_ALIGN_TOP_MID, 0, SLOT_Y + 20);
+  lv_obj_align(slot_lbl, LV_ALIGN_TOP_MID, 0, slot_y + 20);
 
   s_dots = page_dots_create(s_body, s_count, LV_ALIGN_BOTTOM_MID, 0, -2);
   page_dots_set(&s_dots, s_sel);
@@ -282,18 +286,18 @@ static void begin_writing(void) {
 }
 
 static void finish_write(void) {
-  lv_obj_set_style_text_color(s_ov_status, lv_color_hex(SIG_GREEN), 0);
+  lv_obj_set_style_text_color(s_ov_status, lv_color_hex(UI_COL_SUCCESS), 0);
   lv_label_set_text(s_ov_status, "Written!");
   if (s_ov_bar) {
     lv_bar_set_value(s_ov_bar, 100, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(s_ov_bar, lv_color_hex(SIG_GREEN), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(s_ov_bar, lv_color_hex(UI_COL_SUCCESS), LV_PART_INDICATOR);
   }
   if (s_ov_card) {
     s_ov_ok = lv_obj_create(s_ov);
     lv_obj_remove_flag(s_ov_ok, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(s_ov_ok, 30, 30);
     lv_obj_set_style_radius(s_ov_ok, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(s_ov_ok, lv_color_hex(SIG_GREEN), 0);
+    lv_obj_set_style_bg_color(s_ov_ok, lv_color_hex(UI_COL_SUCCESS), 0);
     lv_obj_set_style_bg_opa(s_ov_ok, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_ov_ok, 0, 0);
     lv_obj_align_to(s_ov_ok, s_ov_card, LV_ALIGN_TOP_RIGHT, -8, 8);

@@ -32,20 +32,52 @@ This component provides read-only access to a dedicated LittleFS partition for s
 
 ### Partition Table
 
-The assets partition must be defined in your partition table (`partitions.csv`):
+The assets partition is defined in the firmware partition table
+(`firmware_p4/partitions.csv` and `firmware_c5/partitions.csv`). The layout is
+OTA-based: there is no `factory` app partition and no separate `storage` data
+partition. Two app slots (`ota_0` / `ota_1`) hold the A/B firmware images, a
+`coredump` partition captures crash dumps, and `assets` is a read-only LittleFS
+image. The P4 and C5 differ in slot sizes and ordering.
+
+**P4 (`firmware_p4/partitions.csv`):**
 
 ```csv
-# Name,     Type, SubType, Offset,  Size,    Flags
-nvs,        data, nvs,     0x9000,  0x6000,
-phy_init,   data, phy,     0xf000,  0x1000,
-factory,    app,  factory, 0x10000, 1M,
-assets,     data, spiffs,  0x110000, 512K,
-storage,    data, spiffs,  0x190000, 1M,
+# Name,   Type, SubType,  Offset,   Size,      Flags
+nvs,      data, nvs,      0x9000,   24K,
+otadata,  data, ota,      0xf000,   8K,
+phy_init, data, phy,      0x11000,  4K,
+ota_0,    app,  ota_0,    0x20000,  0x270000,
+ota_1,    app,  ota_1,    0x290000, 0x270000,
+coredump, data, coredump, 0x500000, 64K,
+assets,   data, littlefs, 0x510000, 0x2E0000,
 ```
 
+`assets` is `0x2E0000` bytes (~2.9 MB) at offset `0x510000`.
+
+**C5 (`firmware_c5/partitions.csv`):**
+
+```csv
+# Name,   Type, SubType,  Offset,   Size,     Flags
+nvs,      data, nvs,      0x9000,   24K,
+otadata,  data, ota,      0xf000,   8K,
+phy_init, data, phy,      0x11000,  4K,
+ota_0,    app,  ota_0,    0x20000,  2M,
+ota_1,    app,  ota_1,    0x220000, 2M,
+assets,   data, littlefs, 0x420000, 0x1E0000,
+coredump, data, coredump, 0x600000, 64K,
+```
+
+`assets` is `0x1E0000` bytes (~1.9 MB) at offset `0x420000`. Note the ordering
+differs from the P4: on the C5, `assets` comes before `coredump`.
+
 **Important Notes:**
-- The SubType must be `spiffs` (even though we use LittleFS - this is an ESP-IDF quirk).
-- Size should be sufficient for all your assets (adjust as needed).
+- The SubType is `littlefs` (the image is mounted with esp_littlefs). This
+  project uses the native `littlefs` subtype, not the older `spiffs`-subtype
+  workaround.
+- A `coredump` partition (64K) is reserved for crash dumps; it is separate from
+  the assets and app storage.
+- There is no `factory` app partition and no separate `storage` data partition;
+  firmware lives in the `ota_0` / `ota_1` slots.
 - The partition must be flashed before use.
 
 ### Constants
@@ -102,7 +134,7 @@ void app_main(void) {
 ```
 I (1234) storage_assets: Initializing LittleFS for assets partition
 I (1245) storage_assets: Assets ready at /assets
-I (1246) storage_assets: Partition size: 524288 bytes, used: 12345 bytes
+I (1246) storage_assets: Partition size: 3014656 bytes, used: 12345 bytes
 I (1247) storage_assets: === Files in assets partition ===
 I (1248) storage_assets:   [1] logo.bin (1200 bytes)
 I (1249) storage_assets:   [DIR] fonts/
@@ -304,10 +336,10 @@ Prints detailed information about the assets partition to the console.
 I (1234) storage_assets: === Assets Partition Info ===
 I (1235) storage_assets: Mount point: /assets
 I (1236) storage_assets: Partition: assets
-I (1237) storage_assets: Total size: 524288 bytes (512.00 KB)
+I (1237) storage_assets: Total size: 3014656 bytes (2944.00 KB)
 I (1238) storage_assets: Used: 98765 bytes (96.45 KB)
-I (1239) storage_assets: Free: 425523 bytes (415.55 KB)
-I (1240) storage_assets: Usage: 18.8%
+I (1239) storage_assets: Free: 2915891 bytes (2847.55 KB)
+I (1240) storage_assets: Usage: 3.3%
 ```
 
 **Usage:**
@@ -548,7 +580,7 @@ project/
 **Solution:**
 1. Add partition to `partitions.csv`:
    ```csv
-   assets, data, spiffs, 0x110000, 512K,
+   assets, data, littlefs, 0x510000, 0x2E0000,
    ```
 2. Set partition table in `sdkconfig`:
    ```
@@ -655,20 +687,52 @@ This component provides read-only access to a dedicated LittleFS partition for s
 
 ### Partition Table
 
-The assets partition must be defined in your partition table (`partitions.csv`):
+The assets partition is defined in the firmware partition table
+(`firmware_p4/partitions.csv` and `firmware_c5/partitions.csv`). The layout is
+OTA-based: there is no `factory` app partition and no separate `storage` data
+partition. Two app slots (`ota_0` / `ota_1`) hold the A/B firmware images, a
+`coredump` partition captures crash dumps, and `assets` is a read-only LittleFS
+image. The P4 and C5 differ in slot sizes and ordering.
+
+**P4 (`firmware_p4/partitions.csv`):**
 
 ```csv
-# Name,     Type, SubType, Offset,  Size,    Flags
-nvs,        data, nvs,     0x9000,  0x6000,
-phy_init,   data, phy,     0xf000,  0x1000,
-factory,    app,  factory, 0x10000, 1M,
-assets,     data, spiffs,  0x110000, 512K,
-storage,    data, spiffs,  0x190000, 1M,
+# Name,   Type, SubType,  Offset,   Size,      Flags
+nvs,      data, nvs,      0x9000,   24K,
+otadata,  data, ota,      0xf000,   8K,
+phy_init, data, phy,      0x11000,  4K,
+ota_0,    app,  ota_0,    0x20000,  0x270000,
+ota_1,    app,  ota_1,    0x290000, 0x270000,
+coredump, data, coredump, 0x500000, 64K,
+assets,   data, littlefs, 0x510000, 0x2E0000,
 ```
 
+`assets` is `0x2E0000` bytes (~2.9 MB) at offset `0x510000`.
+
+**C5 (`firmware_c5/partitions.csv`):**
+
+```csv
+# Name,   Type, SubType,  Offset,   Size,     Flags
+nvs,      data, nvs,      0x9000,   24K,
+otadata,  data, ota,      0xf000,   8K,
+phy_init, data, phy,      0x11000,  4K,
+ota_0,    app,  ota_0,    0x20000,  2M,
+ota_1,    app,  ota_1,    0x220000, 2M,
+assets,   data, littlefs, 0x420000, 0x1E0000,
+coredump, data, coredump, 0x600000, 64K,
+```
+
+`assets` is `0x1E0000` bytes (~1.9 MB) at offset `0x420000`. Note the ordering
+differs from the P4: on the C5, `assets` comes before `coredump`.
+
 **Important Notes:**
-- The SubType must be `spiffs` (even though we use LittleFS - this is an ESP-IDF quirk).
-- Size should be sufficient for all your assets (adjust as needed).
+- The SubType is `littlefs` (the image is mounted with esp_littlefs). This
+  project uses the native `littlefs` subtype, not the older `spiffs`-subtype
+  workaround.
+- A `coredump` partition (64K) is reserved for crash dumps; it is separate from
+  the assets and app storage.
+- There is no `factory` app partition and no separate `storage` data partition;
+  firmware lives in the `ota_0` / `ota_1` slots.
 - The partition must be flashed before use.
 
 ### Constants
@@ -725,7 +789,7 @@ void app_main(void) {
 ```
 I (1234) storage_assets: Initializing LittleFS for assets partition
 I (1245) storage_assets: Assets ready at /assets
-I (1246) storage_assets: Partition size: 524288 bytes, used: 12345 bytes
+I (1246) storage_assets: Partition size: 3014656 bytes, used: 12345 bytes
 I (1247) storage_assets: === Files in assets partition ===
 I (1248) storage_assets:   [1] logo.bin (1200 bytes)
 I (1249) storage_assets:   [DIR] fonts/
@@ -927,10 +991,10 @@ Prints detailed information about the assets partition to the console.
 I (1234) storage_assets: === Assets Partition Info ===
 I (1235) storage_assets: Mount point: /assets
 I (1236) storage_assets: Partition: assets
-I (1237) storage_assets: Total size: 524288 bytes (512.00 KB)
+I (1237) storage_assets: Total size: 3014656 bytes (2944.00 KB)
 I (1238) storage_assets: Used: 98765 bytes (96.45 KB)
-I (1239) storage_assets: Free: 425523 bytes (415.55 KB)
-I (1240) storage_assets: Usage: 18.8%
+I (1239) storage_assets: Free: 2915891 bytes (2847.55 KB)
+I (1240) storage_assets: Usage: 3.3%
 ```
 
 **Usage:**
@@ -1171,7 +1235,7 @@ project/
 **Solution:**
 1. Add partition to `partitions.csv`:
    ```csv
-   assets, data, spiffs, 0x110000, 512K,
+   assets, data, littlefs, 0x510000, 0x2E0000,
    ```
 2. Set partition table in `sdkconfig`:
    ```

@@ -102,7 +102,7 @@ esp_err_t sx1262_irq_process(void) {
       uint8_t next_head = (s_rx_head + 1) % SX1262_RX_RING_SIZE;
       if (next_head == s_rx_tail) {
         s_hal->exit_critical(s_hal->ctx);
-        ESP_LOGW(TAG, "Ring buffer full — packet discarded");
+        ESP_LOGD(TAG, "Ring buffer full — packet discarded");
       } else {
         memcpy(&s_rx_ring[s_rx_head], &pkt, sizeof(sx1262_packet_t));
         s_rx_head = next_head;
@@ -128,13 +128,13 @@ esp_err_t sx1262_irq_process(void) {
   }
 
   if ((irq_flags & SX1262_IRQ_CRC_ERR) && !(irq_flags & SX1262_IRQ_RX_DONE)) {
-    ESP_LOGW(TAG, "IRQ: CRC error (standalone)");
+    ESP_LOGD(TAG, "IRQ: CRC error (standalone)");
     if (s_cbs.on_error != NULL) {
       s_cbs.on_error(ESP_ERR_INVALID_CRC, s_cbs.cb_ctx);
     }
   }
   if ((irq_flags & SX1262_IRQ_HEADER_ERR) && !(irq_flags & SX1262_IRQ_RX_DONE)) {
-    ESP_LOGW(TAG, "IRQ: Header error (standalone)");
+    ESP_LOGD(TAG, "IRQ: Header error (standalone)");
     if (s_cbs.on_error != NULL) {
       s_cbs.on_error(ESP_FAIL, s_cbs.cb_ctx);
     }
@@ -187,6 +187,8 @@ bool sx1262_irq_has_packet(void) {
 }
 
 static esp_err_t read_rx_packet(sx1262_packet_t *out_pkt, uint16_t irq_flags) {
+  bool errored = (irq_flags & (SX1262_IRQ_CRC_ERR | SX1262_IRQ_HEADER_ERR)) != 0;
+
   uint8_t rx_buf_status[2] = {0};
   esp_err_t ret = sx1262_cmd_read(s_hal, SX1262_OP_GET_RX_BUFFER_STATUS, rx_buf_status, 2);
   if (ret != ESP_OK) {
@@ -204,7 +206,7 @@ static esp_err_t read_rx_packet(sx1262_packet_t *out_pkt, uint16_t irq_flags) {
     return ret;
   }
 
-  if (payload_len > 0) {
+  if (payload_len > 0 && !errored) {
     ret = sx1262_cmd_read_buffer(s_hal, buf_offset, out_pkt->buf, payload_len);
     if (ret != ESP_OK) {
       ESP_LOGE(TAG, "ReadBuffer failed");
@@ -212,7 +214,7 @@ static esp_err_t read_rx_packet(sx1262_packet_t *out_pkt, uint16_t irq_flags) {
     }
   }
 
-  out_pkt->len = payload_len;
+  out_pkt->len = errored ? 0 : payload_len;
   out_pkt->rssi_pkt_dbm = -(int16_t)(pkt_status[0] / 2);
   out_pkt->snr_pkt_db = (int8_t)pkt_status[1] / 4;
   out_pkt->signal_rssi_dbm = -(int16_t)(pkt_status[2] / 2);

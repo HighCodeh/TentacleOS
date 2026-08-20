@@ -74,20 +74,47 @@ The P4 flashes the C5's firmware over a separate UART link using the official
 
 ## 3. Frame format
 
-Every packet on the SPI bus starts with a fixed **5-byte header**:
+Every packet on the SPI bus starts with a fixed **7-byte header** (5 bytes of
+framing + a 2-byte CRC-16):
 
 ```c
-typedef struct {
+typedef struct __attribute__((packed)) {
   uint8_t sync;     // 0xAA
   uint8_t type;     // 0x01 CMD, 0x02 RESP, 0x03 STREAM
   uint8_t category; // spi_cat_t - subsystem
   uint8_t op;       // operation within the category
   uint8_t length;   // payload bytes that follow (0-255)
+  uint16_t crc;     // CRC-16 over [type,category,op,length] + data
 } spi_header_t;
 ```
 
-`SPI_FRAME_SIZE` = header + 256 B payload, **rounded up to a multiple of 4** for
-DMA = **264 B**. The command/response path always transfers `SPI_FRAME_SIZE`.
+`SPI_MAX_PAYLOAD` is **255** (not 256): the header's `length` is a `uint8_t`, so
+256 was never representable. For a RESP, `length` also counts the status byte, so
+its data maxes at 254.
+
+`SPI_FRAME_SIZE` = header + `SPI_MAX_PAYLOAD`, **rounded up to a multiple of 4**
+for DMA = **264 B** (unchanged: the header grew by 2 and the payload cap shrank by
+1). The command/response path always transfers `SPI_FRAME_SIZE`.
+
+### Frame-integrity CRC (SPI-1)
+
+Every frame carries a **CRC-16/CCITT** (the ESP-ROM `esp_rom_crc16_le`
+implementation) over the header's `[type,category,op,length]` plus the data bytes.
+The `sync` byte (framing marker) and the `crc` field itself are excluded. Inline
+helpers in `spi_protocol.h`:
+
+```c
+uint16_t spi_frame_crc(const spi_header_t *h, uint16_t data_len);  // compute
+void     spi_frame_seal(const spi_header_t *h, uint16_t data_len); // stamp into a fresh frame
+bool     spi_frame_valid(const spi_header_t *h, uint16_t data_len);// verify on receive
+```
+
+`data_len` is `header.length` for CMD/RESP frames, or `2 + batch_len` for STREAM
+frames (whose `header.length` is 0 and whose real size lives in the leading `u16`
+of the payload). The receiver drops any frame that fails `spi_frame_valid` - a
+mismatch means the bus corrupted it. The CRC catches bus corruption; it does
+**not** catch a drifted `spi_protocol.h` (intact bytes, different meaning) - that
+is the job of the proto-version check (SPI-2, §8).
 
 ### Command identifier = `category` + `op`
 
@@ -104,6 +131,7 @@ alone; `op` selects the operation within it.
 | `SPI_CAT_MESH`    | `0x04` | meshtastic (split BLE/WiFi transport) |
 | `SPI_CAT_MCORE`   | `0x05` | meshcore → `bt_dispatcher` |
 | `SPI_CAT_HOST`    | `0x06` | companion host-link BLE relay → `bt_dispatcher` |
+| `SPI_CAT_SCREEN`  | `0x07` | P4-native screen sharing over the USB host link (handled locally, never relayed) |
 | `SPI_CAT_SESSION` | `0xFF` | inline session handlers |
 
 In C, the `SPI_ID_*` constants stay single named values (e.g.
@@ -142,6 +170,24 @@ P4 (master)                                  C5 (slave)
 - A per-command **mutex** on the P4 serialises commands; long radio ops get
   longer timeouts (`SPI_TIMEOUT_WIFI_MS = 20 s`, default `1 s`).
 
+### Handshake modes: IRQ vs POLL
+
+The handshake is a physical-layer choice (`spi_bridge_mode_t`); the wire protocol
+is identical either way. Both ends must be initialized in the **same** mode.
+
+- **`SPI_BRIDGE_MODE_IRQ`** (default) - the C5 pulses the IRQ GPIO when a
+  response/stream frame is armed; the P4 catches the rising edge. Needs the IRQ
+  trace wired.
+- **`SPI_BRIDGE_MODE_POLL`** - no IRQ line, so the P4 re-clocks the bus until the
+  slave answers with a valid frame. Used on boards without an IRQ trace (the
+  HighBoy V2 PCB has `GPIO_BRIDGE_IRQ_PIN == -1`, so `bridge_manager` initializes
+  the master in POLL mode).
+
+```c
+esp_err_t spi_bridge_master_init(void);                          // == IRQ mode
+esp_err_t spi_bridge_master_init_mode(spi_bridge_mode_t mode);   // pick IRQ or POLL
+```
+
 ---
 
 ## 5. Generic data pipe (pulling lists)
@@ -174,7 +220,7 @@ transfer** (`SPI_STREAM_FRAME_SIZE = 2048 B`) instead of one record per
 round-trip:
 
 ```
-STREAM frame payload (after the 5-byte header, type = STREAM):
+STREAM frame payload (after the 7-byte header, type = STREAM):
   [u16 batch_len][record][record]...        record = [u16 op][u8 len][len bytes]
 ```
 
@@ -218,14 +264,76 @@ running into the void if the P4 crashes or stops listening:
 
 ---
 
+## Async scans (non-blocking)
+
+A radio scan can take seconds. Rather than hold the per-command bridge mutex for
+its whole duration, a scan is run **asynchronously**: fire the scan command (the
+C5 starts it and returns immediately), then poll a lightweight status id until it
+reports the scan finished. Results are fetched afterwards through the generic data
+pipe as usual.
+
+```c
+esp_err_t spi_bridge_run_scan(spi_id_t scan_id, spi_id_t status_id,
+                              const uint8_t *payload, uint8_t len);
+```
+
+Returns `ESP_OK` when the status id reports done, or `ESP_ERR_TIMEOUT` if it never
+cleared. The status ids are `SPI_ID_WIFI_SCAN_STATUS` (`0x0150`) and
+`SPI_ID_BT_SCAN_STATUS` (`0x027F`) - each responds `1` while its scan is running.
+
+---
+
+## Power management
+
+The P4 tells the C5 its power state so the co-processor can drop its radio when
+the P4 is idle or asleep instead of running full RX all the time. It sends
+`SPI_ID_SYSTEM_POWER_STATE` (op `0x4A`) with a one-byte `spi_power_state_t`:
+
+| State | Value | Meaning |
+|-------|-------|---------|
+| `SPI_POWER_ACTIVE` | 0 | Normal operation: full radio. |
+| `SPI_POWER_IDLE` | 1 | Screen dimmed: deeper modem sleep (MAX_MODEM). |
+| `SPI_POWER_SLEEP` | 2 | Device asleep: drop the radio (unless a capture is running). |
+
+---
+
 ## 8. Firmware versioning & flashing
 
-The C5 firmware is **embedded in the P4 firmware** at build time (bootloader +
-partition table + app). On boot, `bridge_manager` queries the C5's version
-(`SPI_ID_SYSTEM_VERSION`) and compares it against the P4's expected version
-(`FIRMWARE_VERSION`, currently **1.3.0**). On mismatch (or no response) the P4
-re-flashes the C5 over the UART link using `esp-serial-flasher`, writing the
-full image:
+Two independent checks run at boot in `bridge_manager`, both **detection-only** -
+the P4 never auto-flashes (the user updates explicitly with the `c5` console
+command):
+
+- **App version.** Query the C5's version (`SPI_ID_SYSTEM_VERSION`) and compare it
+  against the P4's expected `FIRMWARE_VERSION` (generated from
+  `common/metadata/version_info.txt`, currently **1.4.0**). A mismatch logs
+  "update available"; a silent C5 marks the bridge down.
+- **Wire-protocol version (SPI-2).** Read the C5's `SPI_ID_SYSTEM_PROTO_VERSION`
+  (op `0x0D`) and compare it against `SPI_PROTOCOL_VERSION` (**2**). This catches a
+  drifted `spi_protocol.h` that the per-frame CRC cannot (intact bytes, different
+  meaning). A mismatch logs loudly and lights the error LED but keeps the bridge
+  up. Bump `SPI_PROTOCOL_VERSION` in **both** copies of `spi_protocol.h` on any
+  change to the contract (an id, a struct, or the header layout).
+
+### Update path
+
+The everyday update is an **app OTA**: the C5 keeps running its app and receives a
+new image into its inactive OTA slot. The image is **streamed from the SD card**
+(`/sdcard/c5/TentacleOS_C5.bin`) - it is no longer embedded in the P4 binary for
+this path. The OTA control plane (begin / status / per-chunk acks) always rides
+this SPI bridge:
+
+| Op | `spi_id_t` | Purpose |
+|----|------------|---------|
+| `SPI_ID_SYSTEM_OTA_BEGIN` | `0x0009` | begin OTA; payload `spi_ota_begin_t { size, transport }` |
+| `SPI_ID_SYSTEM_OTA_STATUS` | `0x000A` | poll `spi_ota_status_t { state, bytes_written }` |
+| `SPI_ID_SYSTEM_OTA_DATA` | `0x000B` | one firmware chunk (SPI transport) |
+
+The image bytes travel over the transport chosen in `spi_ota_begin_t.transport`
+(`spi_ota_transport_t`): `SPI_OTA_TRANSPORT_SPI` (as `OTA_DATA` chunks) or
+`SPI_OTA_TRANSPORT_UART` (raw over UART). For a blank/bricked C5 that has no
+running app, the P4 first sends `SPI_ID_SYSTEM_ENTER_DOWNLOAD` (op `0x08`) to boot
+the C5 into ROM download mode, then reflashes over UART with `esp-serial-flasher`
+using the **embedded** images (the fallback path):
 
 | Image | C5 flash offset |
 |-------|-----------------|
@@ -233,9 +341,8 @@ full image:
 | partition table | `0x8000` |
 | app | `0x10000` |
 
-Any breaking change to the wire format must bump **both** versions
-(`FIRMWARE_VERSION` on the P4 and `SPI_FW_VERSION_STRING` on the C5) to the same
-new value, forcing a re-sync.
+Full detail: [`../c5_flasher/README.md`](../c5_flasher/README.md) and
+[`../bridge_manager/README.md`](../bridge_manager/README.md).
 
 ---
 
@@ -245,8 +352,10 @@ new value, forcing a re-sync.
 - `components/Service/spi_bridge/` - `spi_bridge.c` (send command, stream task),
   `spi_session.c` (session/heartbeat), `spi_protocol.h` (shared contract)
 - `components/Drivers/spi_bridge_phy/` - SPI master PHY + IRQ edge ISR
-- `components/Service/bridge_manager/` - version check + C5 recovery
-- `components/Service/c5_flasher/` - `esp-serial-flasher` wrapper
+- `components/Service/bridge_manager/` - bridge lifecycle, app + proto-version
+  checks, C5 link monitor, OTA trigger
+- `components/Service/c5_flasher/` - app OTA (SD image over SPI/UART) +
+  `esp-serial-flasher` ROM fallback
 
 **C5 (slave)**
 - `components/Service/spi_bridge/` - `spi_bridge.c` (`bridge_task` routing +
@@ -280,17 +389,18 @@ This component manages the high-speed communication link between the **ESP32-P4 
 The P4 acts as the **SPI Master**. It is responsible for:
 1. Generating the SCLK and managing the CS line.
 2. Initiating all command transfers.
-3. Handling the **IRQ (Handshake)** signal from the C5 to know when response data is ready.
-4. Managing the C5 lifecycle (Reset, Boot mode, and Firmware Updates via UART).
+3. Handling the **IRQ (Handshake)** signal from the C5 to know when response data is ready (or re-clocking the bus in POLL mode on boards without an IRQ trace).
+4. Managing the C5 lifecycle: reset/boot control, the app OTA (streamed from the SD image over the SPI bridge), and ROM serial-flash recovery over UART.
 
 ## Protocol Specification
-Every packet follows a 5-byte fixed header:
+Every packet follows a 7-byte fixed header (5 framing bytes + a 2-byte CRC-16):
 - `Sync (0xAA)`: Packet synchronization.
 - `Type`: `0x01` (Command), `0x02` (Response), `0x03` (Stream).
 - `Category`: Subsystem selector (`spi_cat_t`: WiFi `0x01`, BT `0x02`, …). The C5
   routes a command to a dispatcher by this byte alone.
 - `Op`: Operation within the category.
-- `Length`: Size of the following payload (0-255 bytes).
+- `Length`: Size of the following payload (0-255 bytes; `SPI_MAX_PAYLOAD = 255`).
+- `CRC`: CRC-16 over `[type,category,op,length]` + data (see §3, Frame-integrity CRC).
 
 `Category` + `Op` together form the packed command identifier (`spi_id_t`),
 built via `SPI_CMD(cat, op)`. Use `spi_header_cmd()` / `spi_header_set_cmd()` to
@@ -311,9 +421,28 @@ Every command's `spi_id_t` packs `Category` (high byte) and `Op` (low byte) via 
 | `SPI_ID_SYSTEM_DATA` | `0x05` | `0x0005` |
 | `SPI_ID_SYSTEM_STREAM` | `0x06` | `0x0006` |
 | `SPI_ID_SYSTEM_LOG` | `0x07` | `0x0007` |
+| `SPI_ID_SYSTEM_ENTER_DOWNLOAD` | `0x08` | `0x0008` |
+| `SPI_ID_SYSTEM_OTA_BEGIN` | `0x09` | `0x0009` |
+| `SPI_ID_SYSTEM_OTA_STATUS` | `0x0A` | `0x000A` |
+| `SPI_ID_SYSTEM_OTA_DATA` | `0x0B` | `0x000B` |
+| `SPI_ID_SYSTEM_INFO` | `0x0C` | `0x000C` |
+| `SPI_ID_SYSTEM_PROTO_VERSION` | `0x0D` | `0x000D` |
+| `SPI_ID_SYSTEM_POWER_STATE` | `0x4A` | `0x004A` |
 
 `SPI_ID_SYSTEM_LOG` is a C5→P4 stream carrying log lines (`[level u8][utf-8]`) for
 the companion's C5 console (see the host-link docs).
+
+- `ENTER_DOWNLOAD` (`0x08`): P4→C5 - reboot into ROM serial-download mode for
+  serial-flash recovery.
+- `OTA_BEGIN` / `OTA_STATUS` / `OTA_DATA` (`0x09`-`0x0B`): P4→C5 app-OTA control
+  plane (§8). BEGIN payload `spi_ota_begin_t { u32 size, u8 transport }`; STATUS
+  response `spi_ota_status_t { u8 state, u32 bytes_written }`; DATA carries one
+  firmware chunk on the SPI transport.
+- `SYSTEM_INFO` (`0x0C`): P4→C5 - read chip identity (`spi_sys_info_t`:
+  model / revision / MAC / free heap).
+- `PROTO_VERSION` (`0x0D`): P4→C5 - read the C5's `SPI_PROTOCOL_VERSION` (u16).
+  Checked at bridge init (§8).
+- `POWER_STATE` (`0x4A`): P4→C5 - device power state (see Power management below).
 
 System ops `0x40`-`0x49` (`FILE_*`, `SYSTEM_DEVICE_STATE`, `SYSTEM_CONSOLE_EXEC`,
 `SYSTEM_GET_SETTINGS`, `SYSTEM_SET_SETTINGS`) are **P4-local host-link commands**:
@@ -326,6 +455,7 @@ in [`../host_link/protocol.md`](../host_link/protocol.md).
 | Command | Op | `spi_id_t` |
 |---------|----|------------|
 | `SPI_ID_WIFI_SCAN` | `0x10` | `0x0110` |
+| `SPI_ID_WIFI_SCAN_STATUS` | `0x50` | `0x0150` |
 | `SPI_ID_WIFI_CONNECT` | `0x11` | `0x0111` |
 | `SPI_ID_WIFI_DISCONNECT` | `0x12` | `0x0112` |
 | `SPI_ID_WIFI_GET_STA_INFO` | `0x13` | `0x0113` |
@@ -396,6 +526,7 @@ in [`../host_link/protocol.md`](../host_link/protocol.md).
 | Command | Op | `spi_id_t` |
 |---------|----|------------|
 | `SPI_ID_BT_SCAN` | `0x50` | `0x0250` |
+| `SPI_ID_BT_SCAN_STATUS` | `0x7F` | `0x027F` |
 | `SPI_ID_BT_CONNECT` | `0x51` | `0x0251` |
 | `SPI_ID_BT_DISCONNECT` | `0x52` | `0x0252` |
 | `SPI_ID_BT_GET_INFO` | `0x53` | `0x0253` |
@@ -475,6 +606,27 @@ this category to `bt_dispatcher`. See [`../host_link/`](../host_link/README.md).
 | `SPI_ID_HOST_RX` | `0xA3` | `0x06A3` | C5→P4 stream: app→device (BLE write) |
 | `SPI_ID_HOST_STATUS` | `0xA4` | `0x06A4` | P4→C5 cmd: poll BLE connection state |
 
+### Screen (`0x07`)
+
+P4-native screen sharing over the USB host link. These are **handled locally on
+the P4 and never relayed to the C5**; they share the `spi_id_t` space so the
+companion app and P4 agree on the ids. `START`/`STOP`/`KEY` are app→device
+commands; `FRAME` is a device→app STREAM.
+
+| Command | Op | `spi_id_t` | Direction |
+|---------|----|------------|-----------|
+| `SPI_ID_SCREEN_START` | `0x01` | `0x0701` | app→device: start streaming the live screen |
+| `SPI_ID_SCREEN_STOP` | `0x02` | `0x0702` | app→device: stop streaming |
+| `SPI_ID_SCREEN_KEY` | `0x03` | `0x0703` | app→device: inject a key (`spi_screen_key_t`) |
+| `SPI_ID_SCREEN_FRAME` | `0x04` | `0x0704` | device→app STREAM: RGB565 row-strip |
+
+- `spi_screen_key_t`: `UP` (0), `DOWN` (1), `LEFT` (2), `RIGHT` (3), `OK` (4),
+  `BACK` (5) - mapped to the LVGL keypad.
+- `SPI_ID_SCREEN_FRAME` payload starts with `spi_screen_strip_t { u16 y, u16 rows,
+  u16 width }`, followed by `rows * width` little-endian RGB565 pixels. The screen
+  is streamed as horizontal row-strips; `y == 0` marks the first strip of a new
+  frame.
+
 ### Session (`0xFF`)
 
 | Command | Op | `spi_id_t` |
@@ -485,15 +637,17 @@ this category to `bt_dispatcher`. See [`../host_link/`](../host_link/README.md).
 
 ## Frame Example
 
-The 5-byte header maps directly to `spi_header_t`:
+The 7-byte header maps directly to `spi_header_t` (`cc cc` below is the little-
+endian CRC-16, computed over `[type,category,op,length]` + data - see §3):
 
 ```c
-typedef struct {
+typedef struct __attribute__((packed)) {
   uint8_t sync;     // 0xAA
   uint8_t type;     // spi_type_t: CMD 0x01 / RESP 0x02 / STREAM 0x03
   uint8_t category; // spi_cat_t
   uint8_t op;       // operation within the category
   uint8_t length;   // payload bytes that follow (0-255)
+  uint16_t crc;     // CRC-16 over [type,category,op,length] + data
 } spi_header_t;
 ```
 
@@ -501,23 +655,25 @@ typedef struct {
 
 ```
 P4 -> C5  (command)
-  AA 01 01 10 00
-  ^  ^  ^  ^  ^
-  |  |  |  |  +-- length = 0
-  |  |  |  +----- op       = 0x10
-  |  |  +-------- category = 0x01 (WiFi)
-  |  +----------- type     = 0x01 (CMD)
-  +-------------- sync     = 0xAA
+  AA 01 01 10 00 cc cc
+  ^  ^  ^  ^  ^  ^--^
+  |  |  |  |  |    +-- crc      = CRC-16 (little-endian)
+  |  |  |  |  +------- length   = 0
+  |  |  |  +---------- op       = 0x10
+  |  |  +------------- category = 0x01 (WiFi)
+  |  +---------------- type     = 0x01 (CMD)
+  +------------------- sync     = 0xAA
 
-C5 -> P4  (response, after raising IRQ) - payload byte 0 is the status
-  AA 02 01 10 01 00
-  ^  ^  ^  ^  ^  ^
-  |  |  |  |  |  +-- status   = 0x00 (SPI_STATUS_OK)
-  |  |  |  |  +----- length   = 1
-  |  |  |  +-------- op       = 0x10
-  |  |  +----------- category = 0x01
-  |  +-------------- type     = 0x02 (RESP)
-  +----------------- sync     = 0xAA
+C5 -> P4  (response, after the handshake) - payload byte 0 is the status
+  AA 02 01 10 01 cc cc 00
+  ^  ^  ^  ^  ^  ^--^  ^
+  |  |  |  |  |   |    +-- status   = 0x00 (SPI_STATUS_OK)  [payload byte 0]
+  |  |  |  |  |   +------- crc      = CRC-16 (little-endian)
+  |  |  |  |  +---------- length    = 1
+  |  |  |  +------------- op        = 0x10
+  |  |  +---------------- category  = 0x01
+  |  +------------------- type      = 0x02 (RESP)
+  +---------------------- sync      = 0xAA
 ```
 
 Scan results are then pulled item-by-item through the **Generic Data Pipe** (`SPI_ID_SYSTEM_DATA`) described below.
@@ -538,7 +694,7 @@ per round-trip:
 - The C5 buffers records in a ring (depth `SPI_STREAM_QUEUE_LEN = 64`). On a
   `SPI_ID_SYSTEM_STREAM` poll it packs as many as fit into a single large frame
   of `SPI_STREAM_FRAME_SIZE` (2048 B) and the P4 always clocks that fixed size.
-- Stream frame layout (after the 5-byte header, `type = STREAM`):
+- Stream frame layout (after the 7-byte header, `type = STREAM`):
   `[u16 batch_len]` then `batch_len` bytes of records, each
   `[u16 op][u8 len][len bytes]`. `batch_len = 0` means "no data" → the P4 backs
   off and polls again later.
@@ -805,7 +961,8 @@ This component transforms the **ESP32-C5** into a high-performance radio co-proc
 ## How it Works
 The C5 runs a background task (`spi_bridge_task`) that stays in a blocked state waiting for the P4 to send SPI bytes. 
 
-1. **Reception**: When bytes arrive, the task validates the `0xAA` sync byte.
+1. **Reception**: When bytes arrive, the task validates the `0xAA` sync byte and
+   the frame CRC-16 (`spi_frame_valid`), dropping any corrupted frame.
 2. **Routing**: It switches on the `Category` byte and routes the payload to the appropriate **Dispatcher** (WiFi or Bluetooth); the `Op` byte selects the operation within that dispatcher.
 3. **Execution**: The Dispatcher executes the radio command (e.g., starts a scan).
 4. **Notification**: Once the command is done (or results are ready), the C5 raises the **IRQ (Handshake)** pin.

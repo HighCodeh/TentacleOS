@@ -22,17 +22,16 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 #define SPAM_TICK_MS    120
 #define BEACON_CYCLE_MS 400
 
 #define BODY_W 240
-#define BODY_H 256
+#define BODY_H LV_MIN(256, ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
 #define CARD_W 160
 #define CARD_H 54
-
-#define COL_DIM 0x8A8594
 
 typedef struct {
   const char *kind;
@@ -119,7 +118,7 @@ void ui_beacon_spam_open(void) {
   ui_chrome_footer(s_screen, "BACK Stop");
 
   lv_obj_t *body = lv_obj_create(s_screen);
-  lv_obj_set_size(body, BODY_W, BODY_H);
+  lv_obj_set_size(body, lv_pct(100), ui_screen_h() - UI_CHROME_HEADER_H);
   lv_obj_align(body, LV_ALIGN_TOP_LEFT, 0, UI_CHROME_HEADER_H);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, 0);
@@ -136,7 +135,7 @@ void ui_beacon_spam_open(void) {
 
   lv_obj_t *type = lv_label_create(body);
   lv_label_set_text(type, "Type: Mixed");
-  lv_obj_set_style_text_color(type, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(type, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(type, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_align(type, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(type, LV_ALIGN_TOP_MID, 0, 78);
@@ -153,10 +152,13 @@ void ui_beacon_spam_open(void) {
 
   s_uuid_label = lv_label_create(body);
   lv_label_set_text_fmt(s_uuid_label, "%s  %s", BEACONS[0].kind, BEACONS[0].uuid);
-  lv_obj_set_style_text_color(s_uuid_label, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s_uuid_label, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(s_uuid_label, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_align(s_uuid_label, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_align(s_uuid_label, LV_ALIGN_TOP_MID, 0, 166);
+  lv_obj_align(s_uuid_label,
+               LV_ALIGN_TOP_MID,
+               0,
+               LV_MIN(166, ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H - 14));
 
   fade_in(header, 200);
   fade_in(status, 200);

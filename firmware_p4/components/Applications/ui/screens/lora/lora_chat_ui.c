@@ -26,6 +26,7 @@
 #include "assets_manager.h"
 #include "keyboard_ui.h"
 #include "lora_session.h"
+#include "meshcore_phoneapi.h"
 #include "menu_component_ui.h"
 #include "meshtastic_presets.h"
 #include "meshtastic_regions.h"
@@ -36,6 +37,8 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
 
@@ -45,8 +48,6 @@ static const char *TAG = "LORA_MESH";
 #define CHAT_POLL_MS          500
 #define CHAT_BATCH            8
 #define LORA_START_TASK_STACK 12288
-#define SIG_GREEN             0x00E676
-#define COL_DIM               0x8A8594
 #define ENTRY_MS              220
 
 #define BADGE_SIZE    28
@@ -319,7 +320,7 @@ static void build_home_view(void) {
   menu_component_add_item(&s_menu, "/assets/icons/lan.bin", "Traceroute");
 
   if (s_linked)
-    menu_component_set_item_label_color(&s_menu, 0, lv_color_hex(SIG_GREEN));
+    menu_component_set_item_label_color(&s_menu, 0, lv_color_hex(UI_COL_SUCCESS));
 
   menu_component_select(&s_menu, s_home_sel);
   menu_component_set_hint(&s_menu,
@@ -328,15 +329,15 @@ static void build_home_view(void) {
 
 static void link_style(int i, lv_color_t *col, int *w, bool *dashed) {
   if (!s_nodes[i].strong) {
-    *col = lv_color_hex(COL_DIM);
+    *col = current_theme.text_secondary;
     *w = 1;
     *dashed = true;
   } else if (s_nodes[i].rssi >= RSSI_STRONG) {
-    *col = lv_color_hex(SIG_GREEN);
+    *col = lv_color_hex(UI_COL_SUCCESS);
     *w = 3;
     *dashed = false;
   } else if (s_nodes[i].rssi >= RSSI_GOOD) {
-    *col = lv_color_hex(SIG_GREEN);
+    *col = lv_color_hex(UI_COL_SUCCESS);
     *w = 2;
     *dashed = false;
   } else {
@@ -351,8 +352,9 @@ static void node_style_pin(int i, bool selected) {
   if (pin == NULL)
     return;
   bool online = s_nodes[i].strong;
-  lv_color_t edge = selected ? current_theme.border_accent
-                             : (online ? lv_color_hex(SIG_GREEN) : lv_color_hex(COL_DIM));
+  lv_color_t edge = selected
+                        ? current_theme.border_accent
+                        : (online ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_secondary);
   lv_obj_set_style_border_color(pin, edge, 0);
   lv_obj_set_style_border_width(pin, selected ? 2 : 1, 0);
   lv_obj_set_style_opa(pin, (online || selected) ? LV_OPA_COVER : LV_OPA_50, 0);
@@ -366,11 +368,11 @@ static void node_style_pin(int i, bool selected) {
     lv_obj_set_style_shadow_opa(pin, LV_OPA_TRANSP, 0);
   }
   if (s_node_names[i] != NULL)
-    lv_obj_set_style_text_color(s_node_names[i],
-                                selected
-                                    ? current_theme.border_accent
-                                    : (online ? current_theme.text_main : lv_color_hex(COL_DIM)),
-                                0);
+    lv_obj_set_style_text_color(
+        s_node_names[i],
+        selected ? current_theme.border_accent
+                 : (online ? current_theme.text_main : current_theme.text_secondary),
+        0);
 }
 
 static void node_update_info(int i) {
@@ -380,7 +382,7 @@ static void node_update_info(int i) {
   if (s_info_name != NULL) {
     lv_label_set_text(s_info_name, s_nodes[i].name);
     lv_obj_set_style_text_color(
-        s_info_name, online ? current_theme.text_main : lv_color_hex(COL_DIM), 0);
+        s_info_name, online ? current_theme.text_main : current_theme.text_secondary, 0);
   }
   if (s_info_meta != NULL) {
     char meta[40];
@@ -389,7 +391,7 @@ static void node_update_info(int i) {
     snprintf(meta, sizeof(meta), "%s \xC2\xB7 %s", rssi_s, online ? "ONLINE" : "OFFLINE");
     lv_label_set_text(s_info_meta, meta);
     lv_obj_set_style_text_color(
-        s_info_meta, online ? lv_color_hex(SIG_GREEN) : lv_color_hex(COL_DIM), 0);
+        s_info_meta, online ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_secondary, 0);
   }
   if (s_info_bar != NULL) {
     int pct = (s_nodes[i].rssi - SNR_RSSI_FLOOR) * 100 / SNR_RSSI_SPAN;
@@ -429,10 +431,10 @@ static void node_style_row(int i, bool selected) {
   }
   if (s_list_name[i] != NULL)
     lv_obj_set_style_text_color(
-        s_list_name[i], selected ? current_theme.text_main : lv_color_hex(COL_DIM), 0);
+        s_list_name[i], selected ? current_theme.text_main : current_theme.text_secondary, 0);
   if (s_list_val[i] != NULL)
     lv_obj_set_style_text_color(
-        s_list_val[i], selected ? current_theme.border_accent : lv_color_hex(COL_DIM), 0);
+        s_list_val[i], selected ? current_theme.border_accent : current_theme.text_secondary, 0);
 }
 
 static void node_select(int sel) {
@@ -457,7 +459,8 @@ static void build_nodes_list(void) {
       online++;
 
   s_node_list = lv_obj_create(s_screen);
-  lv_obj_set_size(s_node_list, lv_pct(100), LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_size(
+      s_node_list, lv_pct(100), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
   lv_obj_align(s_node_list, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(s_node_list, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(s_node_list, 0, 0);
@@ -477,13 +480,13 @@ static void build_nodes_list(void) {
 
   lv_obj_t *cap = lv_label_create(s_node_list);
   lv_label_set_text_fmt(cap, "%d / %d s_nodes ONLINE", online, s_rnode_count);
-  lv_obj_set_style_text_color(cap, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(cap, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(cap, &lv_font_montserrat_12, 0);
 
   if (s_rnode_count == 0) {
     lv_obj_t *empty = lv_label_create(s_node_list);
     lv_label_set_text(empty, "Listening for nodes...");
-    lv_obj_set_style_text_color(empty, lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(empty, current_theme.text_secondary, 0);
     lv_obj_set_style_text_font(empty, &lv_font_montserrat_14, 0);
   }
 
@@ -517,10 +520,10 @@ static void build_nodes_list(void) {
     lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_border_width(dot, 0, 0);
     lv_obj_set_style_bg_color(
-        dot, node_online ? lv_color_hex(SIG_GREEN) : lv_color_hex(COL_DIM), 0);
+        dot, node_online ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_secondary, 0);
     lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
     if (node_online) {
-      lv_obj_set_style_shadow_color(dot, lv_color_hex(SIG_GREEN), 0);
+      lv_obj_set_style_shadow_color(dot, lv_color_hex(UI_COL_SUCCESS), 0);
       lv_obj_set_style_shadow_width(dot, LIST_DOT_GLOW_W, 0);
       lv_obj_set_style_shadow_opa(dot, LV_OPA_50, 0);
     }
@@ -543,6 +546,26 @@ static void build_nodes_list(void) {
   }
 
   node_select(s_node);
+}
+
+#define MAP_DESIGN_CX 120
+#define MAP_DESIGN_CY 150
+#define MAP_MAX_OFFY  84
+
+static int map_scale_num(void) {
+  int cy = ui_screen_h() / 2;
+  int room_up = cy - UI_CHROME_HEADER_H - 22;
+  int room_dn = ui_screen_h() - MESH_INFO_BOT - MESH_INFO_H - cy - 8;
+  int room = LV_MIN(room_up, room_dn);
+  if (room < 20)
+    room = 20;
+  return LV_MIN(room, MAP_MAX_OFFY);
+}
+
+static void map_xy(int nx, int ny, int *px, int *py) {
+  int num = map_scale_num();
+  *px = ui_screen_w() / 2 + (nx - MAP_DESIGN_CX) * num / MAP_MAX_OFFY;
+  *py = ui_screen_h() / 2 + (ny - MAP_DESIGN_CY) * num / MAP_MAX_OFFY;
 }
 
 static void build_nodes_view(void) {
@@ -569,7 +592,7 @@ static void build_nodes_view(void) {
       online++;
   lv_obj_t *cap = lv_label_create(s_screen);
   lv_label_set_text_fmt(cap, "%d / %d s_nodes ONLINE", online, s_rnode_count);
-  lv_obj_set_style_text_color(cap, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(cap, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(cap, &lv_font_montserrat_12, 0);
   lv_obj_align(cap, LV_ALIGN_TOP_MID, 0, MESH_CAP_Y);
 
@@ -578,10 +601,13 @@ static void build_nodes_view(void) {
     int w;
     bool dashed;
     link_style(i, &col, &w, &dashed);
-    s_link_pts[i][0].x = MAP_CENTER_X;
-    s_link_pts[i][0].y = MAP_CENTER_Y;
-    s_link_pts[i][1].x = NODE_POS[i].x;
-    s_link_pts[i][1].y = NODE_POS[i].y;
+    int cx, cy, nx, ny;
+    map_xy(MAP_CENTER_X, MAP_CENTER_Y, &cx, &cy);
+    map_xy(NODE_POS[i].x, NODE_POS[i].y, &nx, &ny);
+    s_link_pts[i][0].x = cx;
+    s_link_pts[i][0].y = cy;
+    s_link_pts[i][1].x = nx;
+    s_link_pts[i][1].y = ny;
     lv_obj_t *ln = lv_line_create(s_screen);
     lv_obj_align(ln, LV_ALIGN_TOP_LEFT, 0, 0);
     lv_line_set_points(ln, s_link_pts[i], 2);
@@ -601,8 +627,9 @@ static void build_nodes_view(void) {
     lv_obj_set_style_pad_row(wrap, 1, 0);
     lv_obj_set_flex_flow(wrap, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(wrap, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_align(
-        wrap, LV_ALIGN_CENTER, NODE_POS[i].x - LCD_H_RES / 2, NODE_POS[i].y - LCD_V_RES / 2);
+    int nx, ny;
+    map_xy(NODE_POS[i].x, NODE_POS[i].y, &nx, &ny);
+    lv_obj_align(wrap, LV_ALIGN_CENTER, nx - ui_screen_w() / 2, ny - ui_screen_h() / 2);
 
     s_node_pins[i] = make_badge(wrap, "/assets/icons/settings_input_antenna.bin", accent);
 
@@ -623,8 +650,9 @@ static void build_nodes_view(void) {
   lv_obj_set_style_pad_row(you_wrap, 1, 0);
   lv_obj_set_flex_flow(you_wrap, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(you_wrap, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_align(
-      you_wrap, LV_ALIGN_CENTER, MAP_CENTER_X - LCD_H_RES / 2, MAP_CENTER_Y - LCD_V_RES / 2);
+  int you_x, you_y;
+  map_xy(MAP_CENTER_X, MAP_CENTER_Y, &you_x, &you_y);
+  lv_obj_align(you_wrap, LV_ALIGN_CENTER, you_x - ui_screen_w() / 2, you_y - ui_screen_h() / 2);
 
   lv_obj_t *you_pin = make_badge(you_wrap, "/assets/icons/hub.bin", accent);
   lv_obj_set_size(you_pin, YOU_PIN_SZ, YOU_PIN_SZ);
@@ -697,7 +725,7 @@ static void build_configs_view(void) {
 }
 
 static lv_obj_t *make_companion_card(lv_obj_t *parent, bool linked, lv_color_t accent) {
-  lv_color_t edge = linked ? lv_color_hex(SIG_GREEN) : accent;
+  lv_color_t edge = linked ? lv_color_hex(UI_COL_SUCCESS) : accent;
   lv_obj_t *card = lit_panel(parent, 200, 60, edge);
   lv_obj_set_style_pad_all(card, 8, 0);
   lv_obj_set_flex_flow(card, LV_FLEX_FLOW_ROW);
@@ -722,13 +750,14 @@ static lv_obj_t *make_companion_card(lv_obj_t *parent, bool linked, lv_color_t a
 
   lv_obj_t *sub = lv_label_create(txt);
   lv_label_set_text(sub, linked ? "Linked  \xC2\xB7  BLE" : "v1.2  \xC2\xB7  BLE");
-  lv_obj_set_style_text_color(sub, linked ? lv_color_hex(SIG_GREEN) : lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(
+      sub, linked ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(sub, &lv_font_montserrat_12, 0);
 
   if (linked) {
     lv_obj_t *chk = lv_label_create(card);
     lv_label_set_text(chk, LV_SYMBOL_OK);
-    lv_obj_set_style_text_color(chk, lv_color_hex(SIG_GREEN), 0);
+    lv_obj_set_style_text_color(chk, lv_color_hex(UI_COL_SUCCESS), 0);
     lv_obj_set_style_text_font(chk, &lv_font_montserrat_14, 0);
   }
   return card;
@@ -779,6 +808,15 @@ static void build_connect(void) {
     lv_obj_set_style_text_font(s_status_label, &lv_font_montserrat_14, 0);
     lv_obj_align(s_status_label, LV_ALIGN_TOP_MID, 0, 52);
 
+    if (proto_for_sel(s_proto) == LORA_PROTO_MESHCORE) {
+      lv_obj_t *pin_lbl = lv_label_create(s_screen);
+      lv_label_set_text_fmt(
+          pin_lbl, "Pairing PIN  %06lu", (unsigned long)meshcore_phoneapi_get_pin());
+      lv_obj_set_style_text_color(pin_lbl, accent, 0);
+      lv_obj_set_style_text_font(pin_lbl, &lv_font_montserrat_16, 0);
+      lv_obj_align(pin_lbl, LV_ALIGN_TOP_MID, 0, 76);
+    }
+
     lv_anim_t ad;
     lv_anim_init(&ad);
     lv_anim_set_var(&ad, s_status_label);
@@ -800,7 +838,7 @@ static void build_connect(void) {
   } else {
     lv_obj_t *st = lv_label_create(s_screen);
     lv_label_set_text(st, "Companion linked!");
-    lv_obj_set_style_text_color(st, lv_color_hex(SIG_GREEN), 0);
+    lv_obj_set_style_text_color(st, lv_color_hex(UI_COL_SUCCESS), 0);
     lv_obj_set_style_text_font(st, &lv_font_montserrat_14, 0);
     lv_obj_align(st, LV_ALIGN_TOP_MID, 0, 52);
     lv_obj_fade_in(st, ENTRY_MS, 0);
@@ -918,7 +956,8 @@ static void build_chat(void) {
   s_hint = ui_chrome_footer(s_screen, LV_SYMBOL_KEYBOARD " OK write   BACK nodes");
 
   s_chat_list = lv_obj_create(s_screen);
-  lv_obj_set_size(s_chat_list, LCD_H_RES, LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_size(
+      s_chat_list, ui_screen_w(), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
   lv_obj_align(s_chat_list, LV_ALIGN_TOP_LEFT, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(s_chat_list, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(s_chat_list, 0, 0);

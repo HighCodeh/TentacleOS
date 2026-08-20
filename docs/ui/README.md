@@ -1,13 +1,17 @@
 # ui_manager
-step-by-step process for adding a new screen (feature) to the HighBoy system using the ui_manager architecture.
 
-**Example** used: We'll create a fictional **Bluetooth (BLE)** screen.
+Step-by-step process for adding a new screen (feature) to TentacleOS using the
+`ui_manager` architecture. Source of truth: `ui/ui_manager.c`,
+`ui/include/ui_manager.h`, `ui/include/ui_metrics.h`, `ui/include/ui_theme.h`,
+and the screens under `ui/screens/`.
 
-### 1. Register the screen in the UI ui_manager
-The `ui_manager` needs to know about the new screen to handle navigation.
+**Example** used: a fictional **Bluetooth (BLE)** menu screen.
 
-**File:** `ui/ui_manager.h`
-1. Add a new identifier to the `enum`:
+### 1. Add a screen id
+The `ui_manager` identifies every screen by an enum value.
+
+**File:** `ui/include/ui_manager.h`
+Add a new identifier to `screen_id_t`:
 ```c
 typedef enum {
     SCREEN_NONE,
@@ -15,163 +19,202 @@ typedef enum {
     SCREEN_MENU,
     SCREEN_WIFI_MENU,
     // ...
-    SCREEN_BLE_MENU, // <--- NEW ID ADDED
+    SCREEN_BLE_MENU, // <--- NEW ID
 } screen_id_t;
 ```
 
-### 2. Configure routing and Power Management
-Define how the ui_manager should open the screen and handle any required hardware power states.
+### 2. Register the open function in the dispatch table
+Routing is a dispatch table, not a `switch` inside `ui_switch_screen`.
+`screen_open_fn(screen_id_t)` maps an id to the function that builds and loads
+the screen; `ui_switch_screen` looks the id up there. If it returns `NULL` the
+screen is treated as unavailable and the manager stays put.
 
 **File:** `ui/ui_manager.c`
-1. Include de header for the new screen (created in Step 3):
+1. Include the screen header (created in Step 4):
 ```c
-#include "screens/bluetooth/ui_ble_menu.h"
+#include "ui_ble_menu.h"
 ```
 
-2. (Optional) Power Management: If the screen uses a radio (Wi-Fi, BLE, RF), add logic to automatically enable/disable the hardware.
+2. Add a `case` to `screen_open_fn()`:
 ```c
-static bool is_ble_screen(screen_id_t screen) {
-    switch (screen) {
-        case SCREEN_BLE_MENU:
-        case SCREEN_BLE_SCAN: // Future sub-screens
-            return true;
-        default:
-            return false;
-    }
+static ui_open_fn_t screen_open_fn(screen_id_t s) {
+  switch (s) {
+    // ... other cases ...
+    case SCREEN_BLE_MENU:
+      return ui_ble_menu_open; // <--- NEW ROUTE
+    default:
+      return NULL;
+  }
 }
 ```
 
-Update `ui_switch_screen` to call `ble_init()` / `ble_deinit()` based on this flag (similar to how Wi-Fi is handled).
+### 3. If the screen owns hardware or a task, register a stop hook
+Screens that start a radio, a worker task, or a media player must register a
+stop function in `screen_close_fn()`. `ui_switch_screen` calls it on the
+outgoing screen before tearing it down, so the resource is always released on
+navigation. Current examples: `SCREEN_SUBGHZ_READ` -> `subghz_receiver_stop`,
+`SCREEN_NFC_READ` / `SCREEN_NFC_EMULATE` -> `nfc_manager_stop`,
+`SCREEN_WAV_PLAYER` -> `ui_wav_player_stop`, `SCREEN_MP3_PLAYER` ->
+`ui_mp3_player_stop`, `SCREEN_IMAGE_VIEWER` -> `ui_image_viewer_stop`,
+`SCREEN_USB_STORAGE` -> `ui_usb_storage_stop`.
 
-3. Add the case to the main switch statement:
 ```c
-void ui_switch_screen(screen_id_t new_screen) {
-    if (ui_acquire()) {
-        // ... init/deinit logic ...
-        clear_current_screen();
-
-        switch (new_screen) {
-            // ... other cases ...
-
-            case SCREEN_BLE_MENU: // <--- NEW ROUTE
-                ui_ble_menu_open();
-                break;
-        }
-        // ...
-    }
+static ui_close_fn_t screen_close_fn(screen_id_t s) {
+  switch (s) {
+    // ... other cases ...
+    case SCREEN_BLE_READ:
+      return ble_scanner_stop; // <--- release the radio/task on leave
+    default:
+      return NULL;
+  }
 }
 ```
 
-### 3. Create the New Screen UI 
-Create the folder and files for the new feature: `ui/screens/bluetooth/`
+This supersedes the old advice of calling `ble_init()` / `ble_deinit()` inside
+`ui_switch_screen`. A plain menu that owns no hardware needs no close hook.
 
-**Header File:** `ui_ble_menu.h`
+Enabling a radio for a whole area is done at the menu, not here: `menu_ui.c`'s
+`ensure_radio_on()` powers Wi-Fi / BLE on when the user opens that area's menu.
+
+### 4. Create the screen source
+Create the files under `ui/screens/bluetooth/`.
+
+**Header:** `ui/screens/bluetooth/include/ui_ble_menu.h`
 ```c
 #ifndef UI_BLE_MENU_H
 #define UI_BLE_MENU_H
-#include "lvgl.h"
-void ui_ble_menu_open(void); // Public function
+void ui_ble_menu_open(void);
 #endif
 ```
 
-**Source File:** `ui_ble_menu.c`
-Standard template from any Highboy screen:
+**Source:** `ui/screens/bluetooth/ui_ble_menu.c`. The current template:
 
 ```c
 #include "ui_ble_menu.h"
-#include "ui_manager.h"
-#include "lv_port_indev.h" // Access to main_group
+
 #include "esp_log.h"
 
-static const char *TAG = "UI_BLE";
-static lv_obj_t * screen_ble = NULL;
+#include "menu_component_ui.h"
+#include "ui_manager.h"
+#include "ui_metrics.h"
+#include "ui_theme.h"
 
-// 1. Event Callback (Navigation)
-static void ble_event_cb(lv_event_t * e) {
-    lv_event_code_t code = lv_event_get_code(e);
+static const char *TAG = "UI_BLE_MENU";
 
-    if (code == LV_EVENT_KEY) {
-        uint32_t key = lv_event_get_key(e);
-        // BACK BUTTON (ESC/LEFT)
-        if (key == LV_KEY_ESC || key == LV_KEY_LEFT) {
-            ESP_LOGI(TAG, "Returning to Main Menu");
-            // Destroy current screen and open Menu
-            ui_switch_screen(SCREEN_MENU);
-        }
-    }
+static lv_obj_t *s_screen = NULL;
+static menu_component_t s_menu;
+
+// Event-driven input: one debounced event at a time. The central pump only
+// calls this while input is unlocked and no modal overlay is up. UP/DOWN also
+// act on REPEAT for held auto-scroll; actions use PRESS only.
+static void ble_menu_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  const bool press = (ev->action == INPUT_ACTION_PRESS);
+  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+  switch (ev->button) {
+    case INPUT_BTN_DOWN:
+      if (nav) menu_component_next(&s_menu);
+      break;
+    case INPUT_BTN_UP:
+      if (nav) menu_component_prev(&s_menu);
+      break;
+    case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
+      if (press) ui_switch_screen(SCREEN_MENU);
+      break;
+    case INPUT_BTN_OK:
+    case INPUT_BTN_RIGHT:
+      if (press) { /* enter the selected item */ }
+      break;
+    default:
+      break;
+  }
 }
 
-// 2. Screen Build Function
 void ui_ble_menu_open(void) {
-    // Safety cleanup
-    if (screen_ble) {
-        lv_obj_del(screen_ble);
-        screen_ble = NULL;
-    }
+  if (s_screen != NULL) {
+    lv_obj_del(s_screen);
+    s_screen = NULL;
+  }
 
-    // A. Create Base Screen
-    screen_ble = lv_obj_create(NULL);
-    lv_obj_set_style_bg_color(screen_ble, lv_color_black(), 0);
+  s_screen = lv_obj_create(NULL);
+  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
+  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
+  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-    // B. Add Content (e.g., Title)
-    lv_obj_t * label = lv_label_create(screen_ble);
-    lv_label_set_text(label, "Bluetooth Menu");
-    lv_obj_set_style_text_color(label, lv_color_white(), 0);
-    lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
+  s_menu = menu_component_create(s_screen, "BLUETOOTH", "/assets/icons/bluetooth.bin");
+  // ... add items ...
 
-    // C. Setup Navigation
-    lv_obj_add_event_cb(screen_ble, ble_event_cb, LV_EVENT_KEY, NULL);
+  ui_input_set_screen_handler(ble_menu_input, NULL);
 
-    // Add to Input Group (Essential!)
-    if (main_group) {
-        lv_group_add_obj(main_group, screen_ble);
-        lv_group_focus_obj(screen_ble);
-    }
-
-    // D. Load Screen
-    lv_screen_load(screen_ble);
+  ui_screen_load_owned(&s_screen, s_screen);
 }
 ```
 
-### 4. Link from the main Menu
-Add a button/entru in the main menu to access the new screen
+Points that differ from older screens - all required for new screens:
 
-**File:** `ui/screens/menu/ui_menu.c`
-1. In the `menu_event_cb` callback, locate the corresponding item ID case and add/uncomment the call:
+- **Input is event-driven.** Register a handler with
+  `ui_input_set_screen_handler(handler, ctx)`; it receives an `input_event_t`
+  (`ev->button` in `INPUT_BTN_UP..BACK`, `ev->action` in
+  `INPUT_ACTION_PRESS` / `RELEASE` / `LONG_PRESS` / `REPEAT`, both from
+  `input_manager.h`). No `LV_EVENT_KEY` callback, no `lv_event_get_key`, no
+  manual `main_group` focus, no `s_*_last` edge bookkeeping. The handler is
+  cleared for you on the next screen switch. See
+  [input-migration.md](input-migration.md) for the full pattern and gotchas.
+- **Load the screen owned.** Use `ui_screen_load_owned(&s_screen, scr)` instead
+  of raw `lv_screen_load`. When the object is freed on navigation, the slot is
+  set back to `NULL`, so the screen never double-frees or dereferences a stale
+  pointer. Do not manually `lv_obj_del` the previous screen in the open
+  function beyond the guarded self-cleanup shown above.
+- **Be rotation-aware.** Never hardcode `LCD_H_RES` / `LCD_V_RES` for layout;
+  those are fixed panel constants. Use `ui_screen_w()` / `ui_screen_h()` from
+  `ui_metrics.h` (they follow the live rotation). If the screen must reflow
+  after a rotation change, call `ui_relayout_current_screen()`. When a component
+  polls button levels directly, use `ui_nav_pressed(logical)` so it navigates
+  correctly in landscape.
+- **Schedule onto the UI thread from workers.** Any worker/radio task that
+  needs to touch LVGL must marshal through `ui_async_call()` (the required
+  wrapper around `lv_async_call`; it takes the UI lock first). Never call LVGL
+  directly from another task.
+- **Styling uses the theme.** Pull colors from `current_theme` in
+  `ui_theme.h` (`screen_base`, `bg_primary`, `text_main`, `border_accent`,
+  ...). For a protocol screen, set the active protocol with
+  `ui_theme_set_protocol(PROTOCOL_BLE)` and read the accent with
+  `ui_theme_get_accent()`, or use the per-protocol fields directly
+  (`current_theme.protocol_ble`, `protocol_nfc`, `protocol_wifi`,
+  `protocol_subghz`, `protocol_rfid`, `protocol_ir`, `protocol_lora`). Do not
+  hardcode `lv_color_black()` / `lv_color_white()`.
+
+### 5. Link from the main menu
+The main menu (`ui/screens/menu/menu_ui.c`) is a data table: each
+`menu_ui_item_t` carries a `target` of type `screen_id_t`. Add (or point) an
+entry at the new id:
 ```c
-case MENU_ID_BLUETOOTH:
-    ui_switch_screen(SCREEN_BLE_MENU); // <--- Routes to the new screen
-    break;
+{"BLUETOOTH",
+ { /* icon frames */ },
+ BASE_FRAMES, {NULL}, {NULL},
+ SCREEN_BLE_MENU}, // <--- target
 ```
-(Note: If the MENU_ID_BLUETOOTH entry doesn't exist yet in menu_item_id_t, create it.)
+Selecting the item calls `ensure_radio_on(target)` and then
+`ui_switch_screen(target)`; you do not write a per-item `case`.
 
-### 5. Update Build System (CMake)
-Commom error: forgettint to register the new source files.
+### 6. Build system (CMake)
+**File:** `components/Applications/CMakeLists.txt` (this is the `Applications`
+component; there is no separate CMakeLists under `ui/`).
 
-**File:** `CMakeLists.txt` (UI component)
-1. Add the new sources files and include directory:
+Sources are picked up automatically: `file(GLOB_RECURSE UI_SRCS "ui/*.c")`
+globs every `.c` under `ui/`, so a new screen source compiles without editing
+the SRCS list. Because it is a glob, **adding a new `.c` needs a reconfigure**
+(`idf.py reconfigure`, or a clean build) to re-run it.
+
+The only hand-maintained part is `INCLUDE_DIRS`: when you introduce a brand-new
+screen *area* (a new folder with its own `include/`), add its include dir:
 ```cmake
-file(GLOB_RECURSE HOME_UI_SRCS "ui/screens/home/*.c")
-file(GLOB_RECURSE MENU_UI_SRCS "ui/screens/menu/*.c")
-file(GLOB_RECURSE WIFI_UI_SRCS "ui/screens/wifi/*.c")
-file(GLOB_RECURSE BLE_UI_SRCS  "ui/screens/ble/*.c") # <---- Add srcs here
-
-idf_component_register(SRCS 
-  "ui/ui_manager.c"
-  ${HOME_UI_SRCS}
-  ${MENU_UI_SRCS}
-  ${WIFI_UI_SRCS}
-  ${BLE_UI_SRCS} # <----- and call it here
-
-  INCLUDE_DIRS 
-  "ui/include"
-  "ui/screens/home/include"
-  "ui/screens/menu/include"
-  "ui/screens/wifi/include"
-  "ui/screens/ble/include" # <----- dont forget include files
-)
+  # --- ui screens ---
+  "ui/screens/bluetooth/include" # note: screens/bluetooth/, there is no screens/ble/
 ```
-2. Recommended: Run `idf.py reconfigure` in the terminal after saving
+An existing area (like `bluetooth`) already has its include dir listed, so a
+new screen inside it needs nothing here.
 
 ---
 
@@ -224,9 +267,10 @@ That is all: no timer to create or delete, no `ui_input_is_locked()` /
 you on the next screen switch. Use `REPEAT` for held auto-scroll and
 `input_is_down(button)` when you need a continuous held state (games).
 
-See `nfc_menu_ui.c` for the reference migration, and
-[input-migration.md](input-migration.md) for the step-by-step guide to convert
-the remaining ~91 screens off their polling timers (with the gotchas).
+See `nfc_menu_ui.c` for the reference handler, and
+[input-migration.md](input-migration.md) for the full pattern and gotchas. Every
+screen already uses this model; the lone exception is `games/octopet_ui.c`,
+which keeps a poll timer on purpose for continuous held-direction movement.
 
 ## Screen power policy (auto-dim / sleep)
 
@@ -249,16 +293,19 @@ lock. It reads `input_last_activity_ms()` (from `input_manager`) and the
 The display settings screen writes `auto_lock_seconds` / `auto_dim` / brightness
 through `tos_config`, which is the sole writer of the `screen` config file.
 
-## Execution Flow Sumamary
-1. User selects **Bluetooth** from the Main Menu.
-2. Menu callback calls `ui_switch_screen(SCREEN_BLE_MENU)`.
-3. `ui_manager`:
-  - Handles hardware power (enables BLE if needed).
-  - Clears previous screen.
-  - Calls `ui_ble_menu_open()`.
+## Execution flow summary
+1. User selects **Bluetooth** in the main menu.
+2. The menu resolves the item's `target` (`SCREEN_BLE_MENU`), calls
+   `ensure_radio_on(target)` (powers BLE on for the area), then
+   `ui_switch_screen(SCREEN_BLE_MENU)`.
+3. `ui_switch_screen`:
+  - Looks the id up in `screen_open_fn()`; stays put if it is `NULL`.
+  - Calls the outgoing screen's `screen_close_fn()` stop hook, if any.
+  - Clears the previous screen (and the old input handler).
+  - Calls the resolved open function, `ui_ble_menu_open()`.
 4. `ui_ble_menu_open`:
-  - Creates visual objects.
-  - Adds objects to `main_group`.
-  - Loads the screen.
+  - Builds the screen objects (theme colors, rotation-aware layout).
+  - Registers its input handler with `ui_input_set_screen_handler()`.
+  - Loads the screen with `ui_screen_load_owned(&s_screen, scr)`.
 
-**Done! The new screen is fully integrated, safe and navigable.**
+**Done: the new screen is integrated, safe and navigable.**

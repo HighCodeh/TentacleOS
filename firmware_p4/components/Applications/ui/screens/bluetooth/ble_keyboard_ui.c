@@ -26,6 +26,8 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
 
@@ -40,9 +42,6 @@ static const char *TAG = "BLE_KEYBOARD_UI";
 #define HID_MOD_GUI   0x08
 
 #define KB_ICON "/assets/icons/keyboard.bin"
-
-#define SIG_GREEN 0x00E676
-#define COL_DIM   0x8A8594
 
 #define CONSOLE_W 212
 #define CONSOLE_H 150
@@ -93,7 +92,7 @@ static lv_obj_t *lit_panel(lv_obj_t *parent, int w, int h) {
 static lv_obj_t *make_body(lv_obj_t *parent) {
   lv_obj_t *b = lv_obj_create(parent);
   lv_obj_remove_flag(b, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(b, LCD_H_RES, LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_size(b, lv_pct(100), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
   lv_obj_align(b, LV_ALIGN_TOP_LEFT, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(b, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(b, 0, 0);
@@ -113,7 +112,7 @@ static void build_pairing(void) {
 
   lv_obj_t *hint = lv_label_create(s_body);
   lv_label_set_text(hint, "Accept on Target-PC");
-  lv_obj_set_style_text_color(hint, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(hint, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(hint, LV_ALIGN_CENTER, 0, 82);
@@ -140,7 +139,7 @@ static void build_console(void) {
 
   lv_obj_t *status = lv_label_create(s_body);
   lv_label_set_text(status, LV_SYMBOL_OK "  Connected");
-  lv_obj_set_style_text_color(status, lv_color_hex(SIG_GREEN), 0);
+  lv_obj_set_style_text_color(status, lv_color_hex(UI_COL_SUCCESS), 0);
   lv_obj_set_style_text_font(status, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(status, LV_ALIGN_TOP_MID, 0, 10);
@@ -151,7 +150,7 @@ static void build_console(void) {
   s_term_label = lv_label_create(card);
   lv_label_set_long_mode(s_term_label, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(s_term_label, CONSOLE_W - 20);
-  lv_obj_set_style_text_color(s_term_label, lv_color_hex(SIG_GREEN), 0);
+  lv_obj_set_style_text_color(s_term_label, lv_color_hex(UI_COL_SUCCESS), 0);
   lv_obj_set_style_text_font(s_term_label, &lv_font_montserrat_14, 0);
   lv_obj_align(s_term_label, LV_ALIGN_TOP_LEFT, 0, 0);
   update_terminal();

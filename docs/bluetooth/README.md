@@ -59,12 +59,51 @@ Performs a blocking discovery procedure for the specified duration. Results are 
 - `bluetooth_service_get_scan_count()`: Returns the number of unique devices found.
 - `bluetooth_service_get_scan_result(uint16_t index)`: Returns a pointer to a `bluetooth_service_scan_result_t` structure containing name, RSSI, and MAC address.
 
+### Sniffer & Tracker
+
+#### `bluetooth_service_start_sniffer`
+```c
+typedef void (*bluetooth_service_sniffer_cb_t)(
+    const uint8_t *addr, uint8_t addr_type, int rssi, const uint8_t *data, uint16_t len);
+
+esp_err_t bluetooth_service_start_sniffer(bluetooth_service_sniffer_cb_t cb);
+```
+Starts a passive BLE sniffer (raw advertisement capture). `cb` is invoked for each received advertisement with the advertiser address, address type, RSSI, and the raw advertisement bytes.
+
+#### `bluetooth_service_stop_sniffer`
+```c
+void bluetooth_service_stop_sniffer(void);
+```
+Stops the BLE sniffer.
+
+#### `bluetooth_service_start_tracker`
+```c
+typedef void (*bluetooth_service_tracker_cb_t)(int rssi);
+
+esp_err_t bluetooth_service_start_tracker(const uint8_t *addr, bluetooth_service_tracker_cb_t cb);
+```
+Starts RSSI tracking for a specific BLE device (6-byte `addr`). `cb` is invoked with the RSSI of the tracked device on each update.
+
+#### `bluetooth_service_stop_tracker`
+```c
+void bluetooth_service_stop_tracker(void);
+```
+Stops the RSSI tracker.
+
 ### Advertising Management
 
 #### `bluetooth_service_start_advertising` / `stop_advertising`
 Standard connectable advertising using the configured device name. Advertising automatically restarts on disconnection.
 
 ### Connection Management
+
+#### `bluetooth_service_connect`
+```c
+esp_err_t bluetooth_service_connect(const uint8_t *addr,
+                                    uint8_t addr_type,
+                                    int (*cb)(struct ble_gap_event *event, void *arg));
+```
+Initiates a BLE connection to a remote device. `addr` is the 6-byte target address, `addr_type` its address type, and `cb` a GAP event callback that receives connection events for this link.
 
 #### `bluetooth_service_disconnect_all`
 ```c

@@ -15,6 +15,8 @@
 
 #include "ir_burst_ui.h"
 
+#include "esp_attr.h"
+
 #include <stdio.h>
 
 #include "esp_log.h"
@@ -26,12 +28,11 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 static const char *TAG = "IR_BURST_UI";
 
-#define SIG_GREEN 0x00E676
-#define COL_DIM   0x8A8594
 #define BAR_TRACK 0x202028
 
 #define IR_BURST_ICON "/assets/icons/bolt.bin"
@@ -71,7 +72,7 @@ static lv_obj_t *s_log_label = NULL;
 static lv_obj_t *s_footer = NULL;
 static int s_sent = 0;
 
-static ir_store_entry_t s_entries[IR_STORE_MAX_ENTRIES];
+EXT_RAM_BSS_ATTR static ir_store_entry_t s_entries[IR_STORE_MAX_ENTRIES];
 static int s_total = 0;
 
 static void ir_burst_input(const input_event_t *ev, void *ctx);
@@ -157,7 +158,7 @@ void ui_ir_burst_open(void) {
 
   s_count_label = lv_label_create(s_screen);
   lv_label_set_text_fmt(s_count_label, "0 / %d files", s_total);
-  lv_obj_set_style_text_color(s_count_label, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s_count_label, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(s_count_label, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_align(s_count_label, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(s_count_label, LV_ALIGN_TOP_MID, 0, COUNT_Y);
@@ -189,7 +190,7 @@ void ui_ir_burst_open(void) {
 
   s_log_label = lv_label_create(s_screen);
   lv_label_set_text(s_log_label, s_total > 0 ? "" : "Capture signals in Learn first");
-  lv_obj_set_style_text_color(s_log_label, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s_log_label, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(s_log_label, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_align(s_log_label, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(s_log_label, LV_ALIGN_BOTTOM_MID, 0, LOG_Y);
@@ -237,7 +238,7 @@ static void burst_tick_cb(lv_timer_t *timer) {
 
   if (s_sent >= s_total) {
     lv_label_set_text(s_status_label, STATUS_DONE);
-    lv_obj_set_style_text_color(s_status_label, lv_color_hex(SIG_GREEN), 0);
+    lv_obj_set_style_text_color(s_status_label, lv_color_hex(UI_COL_SUCCESS), 0);
     lv_label_set_text_fmt(s_count_label, "%d / %d files", s_total, s_total);
     if (s_footer)
       ui_chrome_footer_set_text(s_footer, HINT_DONE);

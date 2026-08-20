@@ -26,6 +26,8 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 #define HDR_TITLE "RAW SIGNAL"
@@ -33,7 +35,7 @@
 #define FOOTER    "OK replay   BACK exit"
 
 #define MX        8
-#define CONTENT_W (LCD_H_RES - 2 * MX)
+#define CONTENT_W (ui_screen_w() - 2 * MX)
 
 #define CARD1_Y     50
 #define CARD1_H     76
@@ -53,16 +55,13 @@
 #define G_VAL_Y    22
 #define G_RADIUS   8
 
-#define CAR_LBL_Y (GRID_Y + G_TILE_H + 8)
+#define CAR_LBL_Y LV_MIN(GRID_Y + G_TILE_H + 8, ui_screen_h() - UI_CHROME_FOOTER_H - 66)
 #define CHIP_Y    (CAR_LBL_Y + 20)
 #define CHIP_H    24
 #define CHIP_GAP  6
 #define CHIP_PAD  10
 #define CHIP_RAD  8
 #define KV_Y      (CHIP_Y + CHIP_H + 8)
-
-#define COL_DIM 0x8A8594
-#define COL_OK  0x00E676
 
 #define CARRIER_COUNT 4
 #define CHIP_TXT_LEN  10
@@ -100,7 +99,6 @@ static int s_sel = 2;
 static rmt_symbol_word_t s_raw[IR_MAX_SYMBOLS];
 static size_t s_raw_count = 0;
 
-// Pull the last frame the RMT RX captured and derive real scope stats from it.
 static void compute_stats(void) {
   s_raw_count = 0;
   if (ir_rx_init() == ESP_OK)
@@ -143,7 +141,7 @@ static void build_scope_card(void) {
   lv_obj_t *hdr = lv_label_create(card);
   lv_label_set_text(hdr, "PULSE TRAIN");
   lv_obj_set_style_text_font(hdr, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(hdr, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(hdr, current_theme.text_secondary, 0);
   lv_obj_align(hdr, LV_ALIGN_TOP_LEFT, CARD_PAD_X, CARD_HDR_Y);
 
   lv_obj_t *cap_grp = lv_obj_create(card);
@@ -163,13 +161,15 @@ static void build_scope_card(void) {
   lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_border_width(dot, 0, 0);
   lv_obj_set_style_pad_all(dot, 0, 0);
-  lv_obj_set_style_bg_color(dot, lv_color_hex(has ? COL_OK : COL_DIM), 0);
+  lv_obj_set_style_bg_color(
+      dot, (has ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_secondary), 0);
   lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
 
   lv_obj_t *cap_lbl = lv_label_create(cap_grp);
   lv_label_set_text(cap_lbl, has ? "CAPTURED" : "EMPTY");
   lv_obj_set_style_text_font(cap_lbl, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(cap_lbl, lv_color_hex(has ? COL_OK : COL_DIM), 0);
+  lv_obj_set_style_text_color(
+      cap_lbl, (has ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_secondary), 0);
 
   lv_obj_t *scope = lv_line_create(card);
   lv_line_set_points(scope, PULSE_PTS, PULSE_PT_COUNT);
@@ -196,7 +196,7 @@ static void build_stat_tile(int i) {
   lv_obj_t *cap = lv_label_create(tile);
   lv_label_set_text(cap, STATS[i].cap);
   lv_obj_set_style_text_font(cap, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(cap, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(cap, current_theme.text_secondary, 0);
   lv_obj_align(cap, LV_ALIGN_TOP_LEFT, G_TILE_PAD, G_CAP_Y);
 
   lv_obj_t *grp = lv_obj_create(tile);
@@ -219,7 +219,7 @@ static void build_stat_tile(int i) {
     lv_obj_t *unit = lv_label_create(grp);
     lv_label_set_text(unit, STATS[i].unit);
     lv_obj_set_style_text_font(unit, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(unit, lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(unit, current_theme.text_secondary, 0);
   }
 }
 
@@ -237,7 +237,7 @@ static void style_chip(int i, bool sel) {
     lv_obj_set_style_bg_color(s_chip[i], current_theme.bg_primary, 0);
     lv_obj_set_style_bg_opa(s_chip[i], LV_OPA_COVER, 0);
     lv_obj_set_style_border_color(s_chip[i], current_theme.border_inactive, 0);
-    lv_obj_set_style_text_color(s_chip_lbl[i], lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(s_chip_lbl[i], current_theme.text_secondary, 0);
   }
 }
 
@@ -245,7 +245,7 @@ static void build_carrier(void) {
   lv_obj_t *lbl = lv_label_create(s_screen);
   lv_label_set_text(lbl, "CARRIER FREQUENCY");
   lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(lbl, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(lbl, current_theme.text_secondary, 0);
   lv_obj_align(lbl, LV_ALIGN_TOP_LEFT, MX, CAR_LBL_Y);
 
   lv_obj_t *row = lv_obj_create(s_screen);
@@ -283,7 +283,7 @@ static void build_saved_row(void) {
   lv_obj_t *tag = lv_label_create(s_screen);
   lv_label_set_text(tag, "Last capture");
   lv_obj_set_style_text_font(tag, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(tag, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(tag, current_theme.text_secondary, 0);
   lv_obj_align(tag, LV_ALIGN_TOP_LEFT, MX, KV_Y);
 
   lv_obj_t *name = lv_label_create(s_screen);

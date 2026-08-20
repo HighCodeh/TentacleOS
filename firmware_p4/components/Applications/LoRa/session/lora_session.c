@@ -39,7 +39,7 @@
 static const char *TAG = "LORA_SESSION";
 
 static lora_proto_t s_proto = LORA_PROTO_NONE;
-static lora_msg_t s_msgs[MSG_RING];
+EXT_RAM_BSS_ATTR static lora_msg_t s_msgs[MSG_RING];
 static uint16_t s_head = 0;
 static uint16_t s_count = 0;
 static uint32_t s_total = 0;
@@ -219,9 +219,9 @@ void lora_session_on_rx_text(const char *who, const char *text) {
 bool lora_session_app_connected(void) {
   switch (s_proto) {
     case LORA_PROTO_MESHTASTIC:
-      return meshtastic_phone_bridge_is_connected();
+      return meshtastic_phone_bridge_is_subscribed();
     case LORA_PROTO_MESHCORE:
-      return meshcore_phone_bridge_is_connected();
+      return meshcore_phone_bridge_is_subscribed();
     default:
       return false;
   }

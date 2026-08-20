@@ -37,6 +37,7 @@
 #include "pin_def.h"
 #include "sys_time.h"
 #include "ui_feedback.h"
+#include "ui_manager.h"
 #include "ui_theme.h"
 #include "vfs_config.h"
 #include "vfs_core.h"
@@ -262,7 +263,7 @@ static void sd_cd_task(void *arg) {
 
     if (present) {
       if (sd_try_mount()) {
-        lv_async_call(sd_apply_mounted, (void *)(intptr_t)(boot || force));
+        ui_async_call(sd_apply_mounted, (void *)(intptr_t)(boot || force));
       } else if (vfs_sdcard_is_mounted()) {
         vfs_sdcard_deinit();
       }
@@ -271,7 +272,7 @@ static void sd_cd_task(void *arg) {
       if (vfs_sdcard_is_mounted()) {
         vfs_sdcard_deinit();
       }
-      lv_async_call(sd_apply_removed, NULL);
+      ui_async_call(sd_apply_removed, NULL);
     }
 
     boot = false;

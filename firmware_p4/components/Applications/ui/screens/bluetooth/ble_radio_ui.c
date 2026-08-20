@@ -25,6 +25,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 #define RADIO_ICON "/assets/icons/bluetooth.bin"
@@ -32,15 +33,14 @@
 #define BLE_ADDR_LEN 6
 
 #define MX        10
-#define CONTENT_W (LCD_H_RES - 2 * MX)
+#define CONTENT_W (ui_screen_w() - 2 * MX)
 #define CARD_Y    50
 #define CARD_H    58
-#define ROWS_Y    124
+#define ROWS_Y    LV_MIN(124, ui_screen_h() - UI_CHROME_FOOTER_H - (R_COUNT - 1) * ROW_STEP - ROW_H)
 #define ROW_H     42
 #define ROW_GAP   8
 #define ROW_STEP  (ROW_H + ROW_GAP)
 
-#define COL_DIM   0x8A8594
 #define COL_RAISE 0x170A28
 
 enum {
@@ -104,7 +104,7 @@ static void update_values(void) {
 
 static void refresh_selection(void) {
   const lv_color_t accent = current_theme.border_accent;
-  const lv_color_t dim = lv_color_hex(COL_DIM);
+  const lv_color_t dim = current_theme.text_secondary;
   for (int i = 0; i < R_COUNT; i++) {
     bool sel = (i == s_sel);
     lv_obj_set_style_border_color(s_row[i], sel ? accent : current_theme.border_inactive, 0);

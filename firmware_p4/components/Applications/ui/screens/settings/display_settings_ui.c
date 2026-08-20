@@ -61,14 +61,31 @@ static menu_component_t s_menu;
 
 static bool s_changed = false;
 
+// Menu row to re-focus after a rotation-triggered rebuild, so toggling rotation
+// does not bounce the selection back to the top row. -1 = nothing pending.
+static int s_pending_row = -1;
+
 static void cycle_selector(int sel, int dir) {
   if (sel == ROW_ROTATION) {
     s_rotation_idx = (s_rotation_idx + dir + ROTATION_COUNT) % ROTATION_COUNT;
-    menu_component_set_selector_value(&s_menu, sel, ROTATION_OPTS[s_rotation_idx]);
     bool want_landscape = (s_rotation_idx == 1);
     if (want_landscape != lvgl_glue_is_landscape())
       lvgl_glue_toggle_rotation();
-    s_changed = true;
+    // The rebuild re-reads state from g_config_screen and resets s_changed, so
+    // capture every pending setting first, persist, then rebuild. This keeps the
+    // new orientation live and reflows this screen (and all screens opened after)
+    // at the new logical resolution without dropping a pending brightness/timeout
+    // edit made before the toggle.
+    g_config_screen.brightness =
+        menu_component_get_intensity(&s_menu, ROW_BRIGHTNESS) * BRIGHTNESS_STEP_PCT;
+    g_config_screen.rotation = want_landscape ? 2 : 1;
+    g_config_screen.auto_lock_seconds = TIMEOUT_SECS[s_timeout_idx];
+    g_config_screen.auto_dim = menu_component_get_toggle(&s_menu, ROW_AUTODIM);
+    if (ui_sd_ready())
+      tos_config_save(TOS_PATH_CONFIG_SCREEN, "screen");
+    s_pending_row = ROW_ROTATION;
+    ui_relayout_current_screen();
+    return;
   } else if (sel == ROW_TIMEOUT) {
     s_timeout_idx = (s_timeout_idx + dir + TIMEOUT_COUNT) % TIMEOUT_COUNT;
     menu_component_set_selector_value(&s_menu, sel, TIMEOUT_OPTS[s_timeout_idx]);
@@ -183,6 +200,11 @@ void ui_display_settings_open(void) {
   menu_component_add_toggle(
       &s_menu, "/assets/icons/brightness_auto.bin", "Auto-dim", g_config_screen.auto_dim);
   menu_component_add_toggle(&s_menu, "/assets/icons/invert_colors.bin", "Invert", false);
+
+  if (s_pending_row >= 0) {
+    menu_component_select(&s_menu, s_pending_row);
+    s_pending_row = -1;
+  }
 
   if (s_menu.items_cont != NULL)
     lv_obj_fade_in(s_menu.items_cont, ENTRY_FADE_MS, 0);

@@ -49,6 +49,8 @@
 #define CC1101_MOD_4FSK 3
 #define CC1101_MOD_MSK  4
 
+#define CC1101_BUS_LOCK_TIMEOUT_MS 1000
+
 static const char *TAG = "CC1101_DRIVER";
 static spi_device_handle_t s_cc1101_spi = NULL;
 
@@ -133,6 +135,13 @@ static void cc1101_enable_sniffer_mode(uint32_t freq_hz, uint8_t modulation) {
   cc1101_strobe(CC1101_SRX);
 }
 
+static void cc1101_txn(spi_transaction_t *t) {
+  bool locked = spi_bus_lock_take(CC1101_BUS_LOCK_TIMEOUT_MS);
+  spi_device_transmit(s_cc1101_spi, t);
+  if (locked)
+    spi_bus_lock_give();
+}
+
 void cc1101_write_burst(uint8_t reg, const uint8_t *buf, uint8_t len) {
   if (s_cc1101_spi == NULL)
     return;
@@ -150,7 +159,7 @@ void cc1101_write_burst(uint8_t reg, const uint8_t *buf, uint8_t len) {
   t.tx_buffer = tx_buf;
   t.rx_buffer = NULL;
 
-  spi_device_transmit(s_cc1101_spi, &t);
+  cc1101_txn(&t);
 
   free(tx_buf);
 }
@@ -164,7 +173,7 @@ void cc1101_write_reg(uint8_t reg, uint8_t val) {
   t.flags = SPI_TRANS_USE_TXDATA;
   t.tx_data[0] = reg;
   t.tx_data[1] = val;
-  spi_device_transmit(s_cc1101_spi, &t);
+  cc1101_txn(&t);
 }
 
 uint8_t cc1101_read_reg(uint8_t reg) {
@@ -176,7 +185,7 @@ uint8_t cc1101_read_reg(uint8_t reg) {
   t.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
   t.tx_data[0] = 0x80 | reg; // Read bit
   t.tx_data[1] = 0x00;
-  spi_device_transmit(s_cc1101_spi, &t);
+  cc1101_txn(&t);
   return t.rx_data[1];
 }
 
@@ -203,7 +212,7 @@ void cc1101_read_burst(uint8_t reg, uint8_t *buf, uint8_t len) {
   t.tx_buffer = tx_buf;
   t.rx_buffer = rx_buf;
 
-  spi_device_transmit(s_cc1101_spi, &t);
+  cc1101_txn(&t);
 
   memcpy(buf, &rx_buf[1], len);
 
@@ -219,7 +228,7 @@ void cc1101_strobe(uint8_t cmd) {
   t.length = 8;
   t.flags = SPI_TRANS_USE_TXDATA;
   t.tx_data[0] = cmd;
-  spi_device_transmit(s_cc1101_spi, &t);
+  cc1101_txn(&t);
 }
 
 void cc1101_calibrate(void) {

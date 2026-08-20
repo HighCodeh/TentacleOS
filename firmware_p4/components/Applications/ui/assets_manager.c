@@ -30,8 +30,6 @@
 
 static const char *TAG = "ASSETS_MANAGER";
 
-#define ARGB8888_BYTES_PER_PIXEL 4
-
 typedef struct __attribute__((packed)) {
   uint32_t magic_cf;
   uint16_t w;
@@ -104,7 +102,7 @@ static lv_result_t asset_decoder_open(lv_image_decoder_t *decoder, lv_image_deco
   const uint32_t w = node->dsc.header.w;
   const uint32_t h = node->dsc.header.h;
 
-  lv_draw_buf_t *buf = lv_draw_buf_create(w, h, LV_COLOR_FORMAT_ARGB8888, LV_STRIDE_AUTO);
+  lv_draw_buf_t *buf = lv_draw_buf_create(w, h, node->dsc.header.cf, LV_STRIDE_AUTO);
   if (buf == NULL) {
     ESP_LOGE(TAG,
              "draw buf alloc failed for %s (%lux%lu)",
@@ -122,16 +120,15 @@ static lv_result_t asset_decoder_open(lv_image_decoder_t *decoder, lv_image_deco
     return LV_RESULT_INVALID;
   }
 
-  const uint32_t row_bytes = w * ARGB8888_BYTES_PER_PIXEL;
-  bool ok = true;
-  for (uint32_t y = 0; y < h && ok; y++) {
-    uint8_t *row = buf->data + (size_t)y * buf->header.stride;
-    ok = fread(row, 1, row_bytes, f) == row_bytes;
-  }
+  size_t got = fread(buf->data, 1, buf->data_size, f);
   fclose(f);
 
-  if (!ok) {
-    ESP_LOGE(TAG, "pixel read failed for %s", node->path);
+  if (got != buf->data_size) {
+    ESP_LOGE(TAG,
+             "pixel read failed for %s (%u/%u)",
+             node->path,
+             (unsigned)got,
+             (unsigned)buf->data_size);
     lv_draw_buf_destroy(buf);
     return LV_RESULT_INVALID;
   }
@@ -229,13 +226,21 @@ lv_image_dsc_t *assets_get(const char *path) {
     return NULL;
   }
 
+  lv_color_format_t cf = LV_COLOR_FORMAT_ARGB8888;
+  if ((hdr.magic_cf & 0xFF) == LV_IMAGE_HEADER_MAGIC)
+    cf = (lv_color_format_t)((hdr.magic_cf >> 8) & 0xFF);
+  uint32_t stride = lv_draw_buf_width_to_stride(hdr.w, cf);
+  uint32_t data_size = stride * hdr.h;
+  if (cf == LV_COLOR_FORMAT_RGB565A8)
+    data_size += (stride / 2) * hdr.h;
+
   node->dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
-  node->dsc.header.cf = LV_COLOR_FORMAT_ARGB8888;
+  node->dsc.header.cf = cf;
   node->dsc.header.w = hdr.w;
   node->dsc.header.h = hdr.h;
-  node->dsc.header.stride = hdr.w * ARGB8888_BYTES_PER_PIXEL;
+  node->dsc.header.stride = stride;
   node->dsc.header.flags = 0;
-  node->dsc.data_size = (uint32_t)hdr.w * hdr.h * ARGB8888_BYTES_PER_PIXEL;
+  node->dsc.data_size = data_size;
   node->dsc.data = (const uint8_t *)node->path;
 
   node->next = s_assets_head;

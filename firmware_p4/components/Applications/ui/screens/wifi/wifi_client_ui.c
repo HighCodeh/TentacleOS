@@ -30,6 +30,7 @@
 #include "msgbox_ui.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
 #include "wifi_service.h"
@@ -44,13 +45,12 @@ static const char *TAG = "WIFI_CLI_UI";
 
 #define COLOR_STRONG_HEX 0x00E676
 #define COLOR_WEAK_HEX   0xF5B13D
-#define COLOR_DIM_HEX    0x8A8594
 #define RSSI_STRONG_DBM  -60
 
 #define SCAN_WAVES_Y_OFS   -6
 #define SCAN_CAPTION_Y_OFS 78
 
-#define MAP_BODY_H      (LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
+#define MAP_BODY_H      (ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
 #define MAP_PAD         10
 #define MAP_AP_X        8
 #define MAP_AP_W        96
@@ -142,7 +142,7 @@ add_card_text(lv_obj_t *card, const char *title, lv_color_t title_color, const c
 
   lv_obj_t *s = lv_label_create(card);
   lv_label_set_text(s, sub);
-  lv_obj_set_style_text_color(s, lv_color_hex(COLOR_DIM_HEX), 0);
+  lv_obj_set_style_text_color(s, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(s, &lv_font_montserrat_12, 0);
   lv_obj_align(s, LV_ALIGN_BOTTOM_MID, 0, -4);
 }
@@ -182,7 +182,7 @@ static void build_map(void) {
   ui_chrome_header(s_screen, "Clients", CLI_HEADER_ICON);
 
   lv_obj_t *body = lv_obj_create(s_screen);
-  lv_obj_set_size(body, LCD_H_RES, MAP_BODY_H);
+  lv_obj_set_size(body, ui_screen_w(), MAP_BODY_H);
   lv_obj_align(body, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, 0);
@@ -324,7 +324,7 @@ static void wifi_client_task(void *arg) {
   derive_aps();
   s_scan_state = SCAN_DONE;
   s_scanning = false;
-  lv_async_call(scan_done_cb, NULL);
+  ui_async_call(scan_done_cb, NULL);
   vTaskDelete(NULL);
 }
 

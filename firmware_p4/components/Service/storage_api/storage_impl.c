@@ -68,7 +68,7 @@ esp_err_t storage_file_get_info(const char *path, storage_file_info_t *info) {
     return ret;
   }
 
-  strncpy(info->path, full_path, sizeof(info->path) - 1);
+  snprintf(info->path, sizeof(info->path), "%s", full_path);
   info->size = st.size;
   info->modified_time = st.mtime;
   info->created_time = st.ctime;

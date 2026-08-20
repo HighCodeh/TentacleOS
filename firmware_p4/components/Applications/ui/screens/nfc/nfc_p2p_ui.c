@@ -23,11 +23,13 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 #define MX        8
-#define BODY_H    (LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
-#define CONTENT_W (LCD_H_RES - 2 * MX)
+#define BODY_H    (ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
+#define CONTENT_W (ui_screen_w() - 2 * MX)
 #define ROW_GAP   8
 
 #define DEV_ROW_H 62
@@ -49,8 +51,6 @@
 #define STREAM_STEP  4
 #define STREAM_MAX   100
 
-#define COL_DIM  0x8A8594
-#define COL_OK   0x00E676
 #define COL_CYAN 0x37E0A8
 #define COL_LINE 0x2A2636
 
@@ -111,7 +111,7 @@ static lv_obj_t *make_device(lv_obj_t *parent, const char *glyph, const char *na
   lv_obj_t *nm = lv_label_create(col);
   lv_label_set_text(nm, name);
   lv_obj_set_style_text_font(nm, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(nm, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(nm, current_theme.text_secondary, 0);
   return col;
 }
 
@@ -205,9 +205,9 @@ static void stream_cb(lv_timer_t *t) {
   if (s_pct >= STREAM_MAX) {
     s_pct = STREAM_MAX;
     lv_label_set_text(s_put_mark, LV_SYMBOL_OK);
-    lv_obj_set_style_text_color(s_put_mark, lv_color_hex(COL_OK), 0);
+    lv_obj_set_style_text_color(s_put_mark, lv_color_hex(UI_COL_SUCCESS), 0);
     lv_label_set_text(s_put_pct, STEP_DONE);
-    lv_obj_set_style_text_color(s_put_pct, lv_color_hex(COL_OK), 0);
+    lv_obj_set_style_text_color(s_put_pct, lv_color_hex(UI_COL_SUCCESS), 0);
     lv_timer_delete(t);
     s_stream_timer = NULL;
     return;
@@ -243,18 +243,18 @@ static void build_body(lv_obj_t *parent) {
 
   make_step(steps,
             LV_SYMBOL_OK,
-            lv_color_hex(COL_OK),
+            lv_color_hex(UI_COL_SUCCESS),
             STEP1_TXT,
             STEP1_META,
-            lv_color_hex(COL_DIM),
+            current_theme.text_secondary,
             NULL,
             NULL);
   make_step(steps,
             LV_SYMBOL_OK,
-            lv_color_hex(COL_OK),
+            lv_color_hex(UI_COL_SUCCESS),
             STEP2_TXT,
             STEP2_META,
-            lv_color_hex(COL_DIM),
+            current_theme.text_secondary,
             NULL,
             NULL);
   make_step(steps,
@@ -310,7 +310,7 @@ void ui_nfc_p2p_open(void) {
   lv_obj_t *body = lv_obj_create(s_screen);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(body, LCD_H_RES, BODY_H);
+  lv_obj_set_size(body, ui_screen_w(), BODY_H);
   lv_obj_align(body, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(body, 0, 0);

@@ -793,19 +793,36 @@ static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
   }
 
   if (is_save && spi_bridge_stream_is_enabled(SPI_ID_WIFI_APP_SNIFFER)) {
+    uint16_t total_len = ppkt->rx_ctrl.sig_len;
+    if (total_len > SPI_WIFI_SNIFFER_FRAME_MAX)
+      total_len = SPI_WIFI_SNIFFER_FRAME_MAX; // bounded by the P4 reassembly buffer
+
     uint8_t stream_buf[SPI_MAX_PAYLOAD];
-    spi_wifi_sniffer_frame_t *stream = (spi_wifi_sniffer_frame_t *)stream_buf;
-    uint16_t raw_len = ppkt->rx_ctrl.sig_len;
-    if (raw_len > SPI_WIFI_SNIFFER_MAX_DATA)
-      raw_len = SPI_WIFI_SNIFFER_MAX_DATA;
-    stream->rssi = ppkt->rx_ctrl.rssi;
-    stream->channel = ppkt->rx_ctrl.channel;
-    stream->len = (uint8_t)raw_len;
-    memcpy(stream->data, ppkt->payload, raw_len);
-    if (s_session_id != SPI_SESSION_INVALID_ID) {
-      session_manager_try_emit(s_session_id, stream_buf, (uint8_t)(raw_len + 3));
-    } else {
-      spi_bridge_stream_push(SPI_ID_WIFI_APP_SNIFFER, stream_buf, (uint8_t)(raw_len + 3));
+    spi_wifi_sniffer_frame_t *frag = (spi_wifi_sniffer_frame_t *)stream_buf;
+
+    // Split the frame into ordered fragments; the P4 reassembles them. A frame
+    // that fits in one transfer is just a single fragment (offset 0, no MORE).
+    for (uint16_t off = 0; off < total_len;) {
+      uint16_t chunk = total_len - off;
+      if (chunk > SPI_WIFI_SNIFFER_FRAG_DATA_MAX)
+        chunk = SPI_WIFI_SNIFFER_FRAG_DATA_MAX;
+
+      frag->rssi = ppkt->rx_ctrl.rssi;
+      frag->channel = ppkt->rx_ctrl.channel;
+      frag->total_len = total_len;
+      frag->frag_off = off;
+      frag->frag_len = (uint8_t)chunk;
+      frag->flags = ((off + chunk) < total_len) ? SPI_WIFI_SNIFFER_FRAG_MORE : 0;
+      memcpy(frag->data, ppkt->payload + off, chunk);
+
+      uint8_t buf_len = (uint8_t)(sizeof(spi_wifi_sniffer_frame_t) + chunk);
+      bool ok = (s_session_id != SPI_SESSION_INVALID_ID)
+                    ? (session_manager_try_emit(s_session_id, stream_buf, buf_len) == ESP_OK)
+                    : spi_bridge_stream_push(SPI_ID_WIFI_APP_SNIFFER, stream_buf, buf_len);
+      if (!ok)
+        break; // backpressure: drop the rest; the P4 discards the partial frame
+
+      off += chunk;
     }
   }
 

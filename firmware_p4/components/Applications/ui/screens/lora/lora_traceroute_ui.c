@@ -28,6 +28,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
 
@@ -38,8 +39,6 @@ static const char *TAG = "LORA_TRACERT";
 
 #define ENTRY_MS       220
 #define ROW_STAGGER_MS 90
-
-#define COL_DIM 0x8A8594
 
 #define BODY_TOP_Y  46
 #define HOP_LIST_W  228
@@ -229,7 +228,7 @@ static void make_hop_row(lv_obj_t *parent, int idx, int count, lv_color_t accent
 
   lv_obj_t *sub = lv_label_create(txt);
   lv_label_set_text(sub, hop_role(idx, count));
-  lv_obj_set_style_text_color(sub, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(sub, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(sub, &lv_font_montserrat_12, 0);
 }
 
@@ -277,7 +276,7 @@ static void pick_style_row(int i, bool selected) {
   }
   if (s_pick_names[i] != NULL)
     lv_obj_set_style_text_color(
-        s_pick_names[i], selected ? current_theme.text_main : lv_color_hex(COL_DIM), 0);
+        s_pick_names[i], selected ? current_theme.text_main : current_theme.text_secondary, 0);
 }
 
 static void pick_select(int sel) {
@@ -292,7 +291,7 @@ static void pick_select(int sel) {
 static void centered_note(const char *text) {
   lv_obj_t *msg = lv_label_create(s_screen);
   lv_label_set_text(msg, text);
-  lv_obj_set_style_text_color(msg, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(msg, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(msg, &lv_font_montserrat_14, 0);
   lv_obj_center(msg);
 }
@@ -314,7 +313,8 @@ static void build_picker(void) {
   }
 
   s_pick_list = lv_obj_create(s_screen);
-  lv_obj_set_size(s_pick_list, LCD_H_RES, LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_size(
+      s_pick_list, ui_screen_w(), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
   lv_obj_align(s_pick_list, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(s_pick_list, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(s_pick_list, 0, 0);
@@ -386,8 +386,7 @@ static void build_result(void) {
   }
 
   lv_obj_t *list = lv_obj_create(s_screen);
-  lv_obj_remove_flag(list, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(list, HOP_LIST_W, LV_SIZE_CONTENT);
+  lv_obj_set_size(list, HOP_LIST_W, ui_screen_h() - BODY_TOP_Y - UI_CHROME_FOOTER_H);
   lv_obj_align(list, LV_ALIGN_TOP_MID, 0, BODY_TOP_Y);
   lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(list, 0, 0);
@@ -395,6 +394,9 @@ static void build_result(void) {
   lv_obj_set_style_pad_row(list, HOP_ROW_GAP, 0);
   lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_scroll_dir(list, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_AUTO);
+  lv_obj_remove_flag(list, LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM);
 
   lv_color_t accent = ui_theme_get_accent();
   for (int i = 0; i < n; i++)

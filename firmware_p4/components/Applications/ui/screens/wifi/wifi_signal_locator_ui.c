@@ -28,6 +28,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
 
@@ -75,7 +76,6 @@ static const char *TAG = "WIFI_SIG_LOC_UI";
 #define NEAR_COLOR 0x00E676
 #define WARM_COLOR 0x00E676
 #define COLD_COLOR 0x29B6F6
-#define DIM_COLOR  0x8A8594
 
 typedef enum { SL_PICK_SCANNING, SL_PICK_LIST, SL_LOCATING } sl_state_t;
 
@@ -182,7 +182,7 @@ static void apply_signal(int prev_rssi) {
       hc = lv_color_hex(COLD_COLOR);
       ht = LV_SYMBOL_DOWN " COLDER";
     } else {
-      hc = lv_color_hex(DIM_COLOR);
+      hc = current_theme.text_secondary;
       ht = LV_SYMBOL_MINUS " HOLD";
     }
     lv_label_set_text(s_hint, ht);
@@ -279,9 +279,14 @@ static void build_locator(void) {
   lv_obj_set_style_pad_ver(target, 3, 0);
   lv_obj_align(target, LV_ALIGN_TOP_MID, 0, TARGET_Y);
 
+  const int arc_stack_h = ARC_SIZE + 10 + 32 + 18;
+  int arc_top_y = LV_MIN(ARC_TOP_Y, ui_screen_h() - UI_CHROME_FOOTER_H - arc_stack_h);
+  int pill_y = arc_top_y + ARC_SIZE + 10;
+  int prox_y = pill_y + 32;
+
   s_arc = lv_arc_create(s_screen);
   lv_obj_set_size(s_arc, ARC_SIZE, ARC_SIZE);
-  lv_obj_align(s_arc, LV_ALIGN_TOP_MID, 0, ARC_TOP_Y);
+  lv_obj_align(s_arc, LV_ALIGN_TOP_MID, 0, arc_top_y);
   lv_arc_set_rotation(s_arc, ARC_ROTATION);
   lv_arc_set_bg_angles(s_arc, 0, 360);
   lv_arc_set_range(s_arc, RANGE_MIN, RANGE_MAX);
@@ -304,7 +309,7 @@ static void build_locator(void) {
   lv_obj_t *unit = lv_label_create(s_screen);
   lv_label_set_text(unit, "dBm");
   lv_obj_set_style_text_font(unit, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(unit, lv_color_hex(DIM_COLOR), 0);
+  lv_obj_set_style_text_color(unit, current_theme.text_secondary, 0);
   lv_obj_align_to(unit, s_arc, LV_ALIGN_CENTER, 0, 16);
 
   s_hint = lv_label_create(s_screen);
@@ -315,14 +320,14 @@ static void build_locator(void) {
   lv_obj_set_style_border_width(s_hint, 1, 0);
   lv_obj_set_style_pad_hor(s_hint, 12, 0);
   lv_obj_set_style_pad_ver(s_hint, 3, 0);
-  lv_obj_align(s_hint, LV_ALIGN_TOP_MID, 0, PILL_Y);
+  lv_obj_align(s_hint, LV_ALIGN_TOP_MID, 0, pill_y);
 
   s_prox_label = lv_label_create(s_screen);
   lv_label_set_text(s_prox_label, proximity_text(rssi_to_pct(s_rssi)));
   lv_obj_set_style_text_font(s_prox_label, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(s_prox_label, lv_color_hex(DIM_COLOR), 0);
+  lv_obj_set_style_text_color(s_prox_label, current_theme.text_secondary, 0);
   lv_obj_set_style_text_align(s_prox_label, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_align(s_prox_label, LV_ALIGN_TOP_MID, 0, PROX_Y);
+  lv_obj_align(s_prox_label, LV_ALIGN_TOP_MID, 0, prox_y);
 
   apply_signal(s_rssi);
 
@@ -357,7 +362,7 @@ static void signal_worker(void *arg) {
 
     while (s_poll_run && !s_restart_pending) {
       s_shared_rssi = signal_monitor_get_rssi();
-      lv_async_call(signal_update_cb, NULL);
+      ui_async_call(signal_update_cb, NULL);
       vTaskDelay(pdMS_TO_TICKS(SIGNAL_POLL_MS));
     }
 
@@ -421,7 +426,7 @@ static void ap_pick_task(void *arg) {
 
   s_ap_count = n;
   s_pick_scanning = false;
-  lv_async_call(ap_pick_done_cb, NULL);
+  ui_async_call(ap_pick_done_cb, NULL);
   vTaskDelete(NULL);
 }
 

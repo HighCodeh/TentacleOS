@@ -32,6 +32,8 @@ file(GLOB_RECURSE BRIDGE_MANAGER_SRCS "bridge_manager/*.c")
 file(GLOB_RECURSE BT_SERVICE_SRCS "bluetooth/*.c")
 file(GLOB_RECURSE HOST_LINK_SRCS "host_link/*.c")
 file(GLOB_RECURSE STORAGE_API_SRCS "storage_api/*.c")
+# storage_vfs/*.c includes usb_msc.c (expose the SD as a USB drive). NOTE: adding
+# a new .c under storage_vfs requires a CMake reconfigure to re-run this glob.
 file(GLOB_RECURSE STORAGE_VFS_SRCS "storage_vfs/*.c")
 file(GLOB_RECURSE STORAGE_ASSETS_SRCS "storage_assets/*.c")
 

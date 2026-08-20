@@ -139,7 +139,7 @@ static void scan_task(void *arg) {
   s_count = n;
   s_state = SCAN_DONE;
   s_scanning = false;
-  lv_async_call(scan_done_cb, NULL);
+  ui_async_call(scan_done_cb, NULL);
   vTaskDelete(NULL);
 }
 

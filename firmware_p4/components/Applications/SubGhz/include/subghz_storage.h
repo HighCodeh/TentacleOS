@@ -27,12 +27,51 @@
 extern "C" {
 #endif
 
+#define SUBGHZ_STORAGE_NAME_MAX  40
+#define SUBGHZ_STORAGE_PROTO_MAX 24
+
+/**
+ * @brief Metadata for one saved Sub-GHz capture (parsed from its .sub header).
+ */
+typedef struct {
+  char name[SUBGHZ_STORAGE_NAME_MAX];      /**< @brief File name without the .sub suffix. */
+  char protocol[SUBGHZ_STORAGE_PROTO_MAX]; /**< @brief Protocol label ("RAW" for raw captures). */
+  uint32_t frequency;                      /**< @brief Center frequency in Hz. */
+} subghz_storage_entry_t;
+
 /**
  * @brief Initialize the Sub-GHz storage subsystem.
  *
  * @return esp_err_t ESP_OK on success, or an error code on failure.
  */
 esp_err_t subghz_storage_init(void);
+
+/**
+ * @brief List saved captures on the SD card.
+ *
+ * @param out          Destination array.
+ * @param max_entries  Capacity of the destination array.
+ * @return Number of entries written, or -1 on error.
+ */
+int subghz_storage_list(subghz_storage_entry_t *out, int max_entries);
+
+/**
+ * @brief Read a saved capture's raw .sub text.
+ *
+ * @param name      Capture name (without .sub).
+ * @param out_buf   Destination buffer (null-terminated on success).
+ * @param out_size  Size of the destination buffer.
+ * @return Number of bytes read, or -1 on error.
+ */
+int subghz_storage_read(const char *name, char *out_buf, size_t out_size);
+
+/**
+ * @brief Delete a saved capture.
+ *
+ * @param name  Capture name (without .sub).
+ * @return esp_err_t ESP_OK on success, or an error code on failure.
+ */
+esp_err_t subghz_storage_delete(const char *name);
 
 /**
  * @brief Save a decoded signal to persistent storage.

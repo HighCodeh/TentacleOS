@@ -29,6 +29,7 @@
 #include "terminal_ui.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 #include "wifi_service.h"
 
@@ -45,15 +46,15 @@
 #define BODY_BOTTOM_PAD 4
 #define RIGHT_GUTTER    16
 #define BODY_Y          (UI_CHROME_HEADER_H + BODY_TOP_PAD)
-#define TERM_W          (LCD_H_RES - BODY_X - RIGHT_GUTTER)
-#define TERM_H          (LCD_V_RES - BODY_Y - UI_CHROME_FOOTER_H - BODY_BOTTOM_PAD)
+#define TERM_W          (ui_screen_w() - BODY_X - RIGHT_GUTTER)
+#define TERM_H          (ui_screen_h() - BODY_Y - UI_CHROME_FOOTER_H - BODY_BOTTOM_PAD)
 
-#define SCROLL_TRACK_X   227
+#define SCROLL_TRACK_X   (ui_screen_w() - 13)
 #define SCROLL_TRACK_Y   54
-#define SCROLL_TRACK_LEN 232
+#define SCROLL_TRACK_LEN (ui_screen_h() - SCROLL_TRACK_Y - 34)
 #define SCROLL_LINE_W    3
 #define SCROLL_DASH      4
-#define SCROLL_THUMB_X   223
+#define SCROLL_THUMB_X   (ui_screen_w() - 17)
 #define SCROLL_THUMB_H   45
 
 #define LINE_STEP   24
@@ -262,7 +263,11 @@ static void build_screen(void) {
   lv_obj_set_style_bg_opa(s_term, LV_OPA_TRANSP, LV_PART_CURSOR);
   lv_obj_set_style_border_width(s_term, 0, LV_PART_CURSOR);
 
-  static lv_point_precise_t track_pts[2] = {{0, 0}, {0, SCROLL_TRACK_LEN}};
+  static lv_point_precise_t track_pts[2];
+  track_pts[0].x = 0;
+  track_pts[0].y = 0;
+  track_pts[1].x = 0;
+  track_pts[1].y = SCROLL_TRACK_LEN;
   lv_obj_t *track = lv_line_create(s_screen);
   lv_line_set_points(track, track_pts, 2);
   lv_obj_set_pos(track, SCROLL_TRACK_X, SCROLL_TRACK_Y);

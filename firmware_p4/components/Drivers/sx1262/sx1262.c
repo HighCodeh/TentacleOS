@@ -41,6 +41,10 @@ static TaskHandle_t s_stop_caller_handle = NULL;
 #define SX1262_IRQ_TASK_PRIO  SYS_PRIO_REALTIME
 #define SX1262_IRQ_TASK_CORE  SYS_CORE_RADIO
 
+#define SX1262_INIT_MAX_ATTEMPTS 3
+#define SX1262_IRQ_FAIL_RECOVER  5
+
+static esp_err_t sx1262_hw_bringup(const sx1262_config_t *config);
 static esp_err_t validate_hal(const sx1262_hal_t *hal);
 static esp_err_t validate_config(const sx1262_config_t *config);
 static esp_err_t hw_reset(sx1262_hal_t *hal);
@@ -67,9 +71,42 @@ esp_err_t sx1262_init(const sx1262_config_t *config) {
   }
 
   memcpy(&s_config, config, sizeof(sx1262_config_t));
+
+  ret = ESP_ERR_INVALID_STATE;
+  for (int attempt = 1; attempt <= SX1262_INIT_MAX_ATTEMPTS; attempt++) {
+    ret = sx1262_hw_bringup(config);
+    if (ret == ESP_OK) {
+      break;
+    }
+    ESP_LOGW(TAG,
+             "Init attempt %d/%d failed (%s) — retrying",
+             attempt,
+             SX1262_INIT_MAX_ATTEMPTS,
+             esp_err_to_name(ret));
+  }
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "Init failed after %d attempts", SX1262_INIT_MAX_ATTEMPTS);
+    return ret;
+  }
+
+  sx1262_irq_init(&s_config.hal, &s_config, &s_callbacks);
+
+  sx1262_radio_init(&s_config.hal, &s_config);
+
+  ESP_LOGI(TAG,
+           "Initialized — freq: %lu, sf: %d, bw: 0x%02X, power: %d dBm",
+           (unsigned long)config->frequency_hz,
+           config->sf,
+           config->bw,
+           config->tx_power_dbm);
+
+  return ESP_OK;
+}
+
+static esp_err_t sx1262_hw_bringup(const sx1262_config_t *config) {
   sx1262_hal_t *hal = &s_config.hal;
 
-  ret = hw_reset(hal);
+  esp_err_t ret = hw_reset(hal);
   if (ret != ESP_OK) {
     return ret;
   }
@@ -149,10 +186,6 @@ esp_err_t sx1262_init(const sx1262_config_t *config) {
     return ret;
   }
 
-  sx1262_irq_init(hal, &s_config, &s_callbacks);
-
-  sx1262_radio_init(hal, &s_config);
-
   uint8_t status = 0;
   ret = sx1262_get_status(&status);
   if (ret != ESP_OK) {
@@ -160,18 +193,20 @@ esp_err_t sx1262_init(const sx1262_config_t *config) {
   }
 
   uint8_t chip_mode = (status & SX1262_STATUS_CHIP_MODE_MASK) >> SX1262_STATUS_CHIP_MODE_SHIFT;
+  if (chip_mode != SX1262_CHIP_MODE_STDBY_RC) {
+    ESP_LOGW(TAG,
+             "Bring-up left chip in bad state: status=0x%02X chip_mode=%d (want %d)",
+             status,
+             chip_mode,
+             SX1262_CHIP_MODE_STDBY_RC);
+    return ESP_ERR_INVALID_STATE;
+  }
 
   ESP_LOGI(TAG,
            "Init OK — status: 0x%02X, chip_mode: %d (STDBY_RC=%d)",
            status,
            chip_mode,
            SX1262_CHIP_MODE_STDBY_RC);
-  ESP_LOGI(TAG,
-           "Initialized — freq: %lu, sf: %d, bw: 0x%02X, power: %d dBm",
-           (unsigned long)config->frequency_hz,
-           config->sf,
-           config->bw,
-           config->tx_power_dbm);
 
   return ESP_OK;
 }
@@ -444,10 +479,16 @@ esp_err_t sx1262_receive_single(uint32_t timeout_ms) {
 }
 
 esp_err_t sx1262_receive_continuous(void) {
+  if (!s_is_running) {
+    return ESP_ERR_INVALID_STATE;
+  }
   return sx1262_radio_receive_continuous();
 }
 
 void sx1262_stop_rx(void) {
+  if (!s_is_running) {
+    return;
+  }
   sx1262_radio_stop_rx();
 }
 esp_err_t sx1262_cad_start(void) {
@@ -465,14 +506,34 @@ esp_err_t sx1262_set_rx_duty_cycle(uint32_t rx_ms, uint32_t sleep_ms) {
   return sx1262_radio_set_rx_duty_cycle(rx_ms, sleep_ms);
 }
 
+static void sx1262_recover(void) {
+  ESP_LOGW(TAG, "SX1262 wedged — hardware reset + reconfigure");
+  if (sx1262_hw_bringup(&s_config) != ESP_OK) {
+    ESP_LOGE(TAG, "recover: bring-up failed");
+    return;
+  }
+  sx1262_irq_init(&s_config.hal, &s_config, &s_callbacks);
+  sx1262_radio_init(&s_config.hal, &s_config);
+  (void)sx1262_receive_continuous();
+  ESP_LOGI(TAG, "SX1262 recovered");
+}
+
 static void irq_task(void *arg) {
   (void)arg;
   sx1262_hal_t *hal = &s_config.hal;
+  int fail_streak = 0;
 
   ESP_LOGI(TAG, "IRQ task running");
 
   while (s_is_running) {
-    sx1262_irq_process();
+    if (sx1262_irq_process() != ESP_OK) {
+      if (++fail_streak >= SX1262_IRQ_FAIL_RECOVER) {
+        sx1262_recover();
+        fail_streak = 0;
+      }
+    } else {
+      fail_streak = 0;
+    }
     hal->delay_ms(hal->ctx, 10);
   }
 
@@ -610,7 +671,7 @@ static esp_err_t apply_workaround_w2(sx1262_hal_t *hal) {
     return ret;
   }
 
-  val |= 0x1E; /* Set bits 4:1 to 1111 */
+  val |= 0x1E;
 
   ret = sx1262_cmd_write_register(hal, SX1262_REG_TX_CLAMP_CONFIG, &val, 1);
   if (ret != ESP_OK) {

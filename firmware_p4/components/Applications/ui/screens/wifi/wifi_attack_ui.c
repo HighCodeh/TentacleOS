@@ -340,7 +340,7 @@ static void attack_start_task(void *arg) {
   }
   s_is_attack_started = ok;
   s_is_attack_starting = false;
-  lv_async_call(attack_started_cb, NULL);
+  ui_async_call(attack_started_cb, NULL);
   vTaskDelete(NULL);
 }
 
@@ -428,7 +428,7 @@ static void ap_pick_task(void *arg) {
 
   s_ap_count = n;
   s_is_pick_scanning = false;
-  lv_async_call(ap_pick_done_cb, NULL);
+  ui_async_call(ap_pick_done_cb, NULL);
   vTaskDelete(NULL);
 }
 

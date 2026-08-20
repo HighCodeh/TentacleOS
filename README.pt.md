@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="pics/Highboy_repo.png" alt="HighBoy Banner" width="1000"/>
+  <img src="pics/banner.png" alt="HighBoy Banner" width="1000"/>
 </p>
 
 
@@ -47,7 +47,7 @@ Veja a arquitetura geral do projeto:
 
 ## Como utilizar este projeto
 
-Recomendamos que este projeto sirva como base para projetos personalizados com ESP32-S3.  
+Recomendamos que este projeto sirva como base para projetos personalizados com o ESP32-P4 e o ESP32-C5.  
 Para começar um novo projeto com ESP-IDF, siga o guia oficial:  
 [Documentação ESP-IDF - Criar novo projeto](https://docs.espressif.com/projects/esp-idf/en/latest/api-guides/build-system.html#start-a-new-project)
 

@@ -21,11 +21,12 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 #define MX        8
-#define BODY_H    (LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
-#define CONTENT_W (LCD_H_RES - 2 * MX)
+#define BODY_H    (ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
+#define CONTENT_W (ui_screen_w() - 2 * MX)
 #define ROW_GAP   6
 
 #define SVC_COUNT 3
@@ -39,7 +40,6 @@
 #define DUMP_RAD 8
 #define DUMP_PAD 8
 
-#define COL_DIM    0x8A8594
 #define COL_CYAN   0x37E0A8
 #define COL_LINE   0x2A2636
 #define COL_PANEL2 0x1A1626
@@ -88,7 +88,8 @@ static void make_chip(lv_obj_t *parent, const char *txt, bool sel) {
   lv_obj_t *l = lv_label_create(chip);
   lv_label_set_text(l, txt);
   lv_obj_set_style_text_font(l, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(l, sel ? current_theme.border_accent : lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(
+      l, sel ? current_theme.border_accent : current_theme.text_secondary, 0);
   lv_obj_center(l);
 }
 
@@ -118,7 +119,7 @@ static lv_obj_t *make_row(lv_obj_t *parent, int i) {
   lv_obj_t *desc = lv_label_create(row);
   lv_label_set_text(desc, SVCS[i].desc);
   lv_obj_set_style_text_font(desc, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(desc, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(desc, current_theme.text_secondary, 0);
 
   s_code[i] = code;
   return row;
@@ -239,7 +240,7 @@ void ui_nfc_felica_open(void) {
   lv_obj_t *body = lv_obj_create(s_screen);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(body, LCD_H_RES, BODY_H);
+  lv_obj_set_size(body, ui_screen_w(), BODY_H);
   lv_obj_align(body, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(body, 0, 0);

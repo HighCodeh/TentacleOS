@@ -30,6 +30,8 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 static const char *TAG = "SCRIPTS_UI";
@@ -40,9 +42,7 @@ static const char *TAG = "SCRIPTS_UI";
 #define TERM_GREEN       0x00E676
 #define TERM_DIM_GREEN   0x1F7A52
 #define DARK_PANEL_COLOR 0x05090A
-#define DIM_COLOR        0x8A8594
 #define DANGER_COLOR     0xFF5252
-#define SUCCESS_COLOR    0x00E676
 
 #define HEADER_TITLE "SCRIPTS"
 #define HEADER_ICON  "/assets/icons/description.bin"
@@ -56,8 +56,8 @@ static const char *TAG = "SCRIPTS_UI";
 #define LIST_X         6
 #define LIST_Y         46
 #define LIST_GUTTER    16
-#define LIST_W         (LCD_H_RES - LIST_X - LIST_GUTTER)
-#define LIST_BODY_H    (LCD_V_RES - LIST_Y - UI_CHROME_FOOTER_H - 4)
+#define LIST_W         (ui_screen_w() - LIST_X - LIST_GUTTER)
+#define LIST_BODY_H    (ui_screen_h() - LIST_Y - UI_CHROME_FOOTER_H - 4)
 #define ROW_H          26
 #define ROW_GAP        4
 #define ROW_RADIUS     8
@@ -70,12 +70,12 @@ static const char *TAG = "SCRIPTS_UI";
 #define BADGE_PAD_VER  1
 #define BADGE_TINT_OPA LV_OPA_20
 
-#define SCROLL_TRACK_X          227
+#define SCROLL_TRACK_X          (ui_screen_w() - 13)
 #define SCROLL_TRACK_Y          54
-#define SCROLL_TRACK_LEN        232
+#define SCROLL_TRACK_LEN        (ui_screen_h() - SCROLL_TRACK_Y - 34)
 #define SCROLL_TRACK_WIDTH      3
 #define SCROLL_DASH             4
-#define SCROLL_THUMB_X          223
+#define SCROLL_THUMB_X          (ui_screen_w() - 17)
 #define SCROLL_THUMB_FALLBACK_H 45
 #define SCROLL_THUMB_SRC        "/assets/icons/drag_indicator.bin"
 
@@ -340,7 +340,7 @@ static bool script_needs_permission(const script_t *s) {
 
 static void build_badge(lv_obj_t *parent, cap_t c) {
   bool avail = CAPS[c].available;
-  lv_color_t color = avail ? current_theme.border_accent : lv_color_hex(DIM_COLOR);
+  lv_color_t color = avail ? current_theme.border_accent : current_theme.text_secondary;
 
   lv_obj_t *badge = lv_obj_create(parent);
   lv_obj_remove_flag(badge, LV_OBJ_FLAG_SCROLLABLE);
@@ -431,7 +431,7 @@ static void build_empty(void) {
   lv_obj_t *t2 = lv_label_create(card);
   lv_label_set_text(t2, "Copy .js to /apps/scripts");
   lv_obj_set_style_text_font(t2, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(t2, lv_color_hex(DIM_COLOR), 0);
+  lv_obj_set_style_text_color(t2, current_theme.text_secondary, 0);
 
   fade_in(card, FADE_MS);
 }
@@ -490,13 +490,17 @@ static void build_browser(void) {
 
     lv_obj_t *chev = lv_label_create(row);
     lv_label_set_text(chev, CHEVRON_TEXT);
-    lv_obj_set_style_text_color(chev, lv_color_hex(DIM_COLOR), 0);
+    lv_obj_set_style_text_color(chev, current_theme.text_secondary, 0);
     lv_obj_set_style_text_font(chev, &lv_font_montserrat_12, 0);
 
     s_rows[i] = row;
   }
 
-  static lv_point_precise_t scroll_pts[2] = {{0, 0}, {0, SCROLL_TRACK_LEN}};
+  static lv_point_precise_t scroll_pts[2];
+  scroll_pts[0].x = 0;
+  scroll_pts[0].y = 0;
+  scroll_pts[1].x = 0;
+  scroll_pts[1].y = SCROLL_TRACK_LEN;
   lv_obj_t *track = lv_line_create(s_screen);
   lv_line_set_points(track, scroll_pts, 2);
   lv_obj_set_pos(track, SCROLL_TRACK_X, SCROLL_TRACK_Y);
@@ -553,11 +557,15 @@ static void build_terminal(void) {
   lv_label_set_text(s_pct_lbl, PCT_TEXT "   0%");
   lv_obj_set_style_text_color(s_pct_lbl, lv_color_hex(TERM_GREEN), 0);
   lv_obj_set_style_text_font(s_pct_lbl, &lv_font_montserrat_12, 0);
-  lv_obj_align(s_pct_lbl, LV_ALIGN_TOP_MID, 0, PCT_Y);
+  lv_obj_align(
+      s_pct_lbl, LV_ALIGN_TOP_MID, 0, LV_MIN(PCT_Y, ui_screen_h() - UI_CHROME_FOOTER_H - 56));
 
   s_progress = lv_bar_create(s_screen);
   lv_obj_set_size(s_progress, PROGRESS_W, PROGRESS_H);
-  lv_obj_align(s_progress, LV_ALIGN_TOP_MID, 0, PROGRESS_Y);
+  lv_obj_align(s_progress,
+               LV_ALIGN_TOP_MID,
+               0,
+               LV_MIN(PCT_Y, ui_screen_h() - UI_CHROME_FOOTER_H - 56) + (PROGRESS_Y - PCT_Y));
   lv_bar_set_range(s_progress, 0, 100);
   lv_bar_set_value(s_progress, 0, LV_ANIM_OFF);
   lv_obj_set_style_bg_color(s_progress, lv_color_hex(PROGRESS_TRACK_COLOR), LV_PART_MAIN);
@@ -610,7 +618,7 @@ static void show_done(void) {
     char buf[80];
     snprintf(buf, sizeof(buf), LV_SYMBOL_OK "  %s", s->result);
     lv_label_set_text(result, buf);
-    lv_obj_set_style_text_color(result, lv_color_hex(SUCCESS_COLOR), 0);
+    lv_obj_set_style_text_color(result, lv_color_hex(UI_COL_SUCCESS), 0);
     ui_feedback(UI_FB_WRITE);
     ESP_LOGI(TAG, "mock script done: %s", s->name);
   }
@@ -618,7 +626,10 @@ static void show_done(void) {
   lv_label_set_long_mode(result, LV_LABEL_LONG_WRAP);
   lv_obj_set_style_text_align(result, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_font(result, &lv_font_montserrat_14, 0);
-  lv_obj_align(result, LV_ALIGN_TOP_MID, 0, RESULT_Y);
+  lv_obj_align(result,
+               LV_ALIGN_TOP_MID,
+               0,
+               LV_MIN(PCT_Y, ui_screen_h() - UI_CHROME_FOOTER_H - 56) + (RESULT_Y - PCT_Y));
   fade_in(result, FADE_MS);
 
   if (s_footer != NULL)

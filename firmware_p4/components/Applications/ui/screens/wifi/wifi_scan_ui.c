@@ -175,7 +175,7 @@ static void wifi_scan_task(void *arg) {
   s_ap_count = n;
   s_scan_state = SCAN_DONE;
   s_scanning = false;
-  lv_async_call(scan_done_cb, NULL);
+  ui_async_call(scan_done_cb, NULL);
   vTaskDelete(NULL);
 }
 

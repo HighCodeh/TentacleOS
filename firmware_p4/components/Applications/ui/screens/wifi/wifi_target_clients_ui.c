@@ -202,7 +202,7 @@ static void client_worker(void *arg) {
     bool started = target_scanner_start(bssid, channel);
     s_client_count = 0;
     s_client_active = started;
-    lv_async_call(client_update_cb, NULL);
+    ui_async_call(client_update_cb, NULL);
 
     bool scanning = started;
     while (started && s_poll_run && !s_restart_pending && scanning) {
@@ -223,7 +223,7 @@ static void client_worker(void *arg) {
       s_client_count = n;
       scanning = is_scanning;
       s_client_active = is_scanning;
-      lv_async_call(client_update_cb, NULL);
+      ui_async_call(client_update_cb, NULL);
     }
 
     target_scanner_free_results();
@@ -296,7 +296,7 @@ static void ap_pick_task(void *arg) {
 
   s_ap_count = n;
   s_pick_scanning = false;
-  lv_async_call(ap_pick_done_cb, NULL);
+  ui_async_call(ap_pick_done_cb, NULL);
   vTaskDelete(NULL);
 }
 

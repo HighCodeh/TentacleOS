@@ -165,6 +165,14 @@ static menu_ui_item_t s_menu_data[] = {
      {NULL},
      {NULL},
      SCREEN_FILES},
+    {"APPS",
+     {"/assets/frames/apps_frame_0.bin",
+      "/assets/frames/apps_frame_1.bin",
+      "/assets/frames/apps_frame_2.bin"},
+     BASE_FRAMES,
+     {NULL},
+     {NULL},
+     SCREEN_GAMES_MENU},
     {"PLAYER",
      {"/assets/frames/player_glyph.bin",
       "/assets/frames/player_glyph.bin",
@@ -201,7 +209,7 @@ static void place_item(size_t item_idx, bool anim);
 static void fix_z_order(void);
 static void update_view(bool anim);
 static void on_anim_done(lv_anim_t *a);
-static void on_key_event(lv_event_t *e);
+static void menu_event_cb(lv_event_t *e);
 
 static int32_t carousel_slot(size_t item_idx) {
   int32_t n = (int32_t)MENU_ITEM_COUNT;
@@ -215,6 +223,14 @@ static int32_t carousel_slot(size_t item_idx) {
 static void on_anim_done(lv_anim_t *a) {
   (void)a;
   s_is_animating = false;
+}
+
+// lv_obj_set_style_opa takes a third (selector) argument, so it cannot be used
+// directly as a 2-arg animation exec callback: the selector would be an
+// uninitialized register. Under -O2 that garbage selector made each frame add a
+// fresh local-style entry, growing the style list until taskLVGL stalled (WDT).
+static void anim_set_opa_cb(void *var, int32_t v) {
+  lv_obj_set_style_opa((lv_obj_t *)var, (lv_opa_t)v, 0);
 }
 
 static void load_item_frame(size_t item_idx, int frame) {
@@ -298,7 +314,7 @@ static void place_item(size_t item_idx, bool anim) {
 
     lv_anim_set_var(&a, s_base_imgs[item_idx]);
     lv_anim_set_values(&a, lv_obj_get_style_opa(s_base_imgs[item_idx], 0), to);
-    lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)lv_obj_set_style_opa);
+    lv_anim_set_exec_cb(&a, anim_set_opa_cb);
     lv_anim_start(&a);
 
     lv_anim_set_var(&a, s_icon_imgs[item_idx]);
@@ -354,8 +370,9 @@ static void update_view(bool anim) {
 
   if (s_fav_badge != NULL) {
     bool fav = favorites_is(s_menu_data[s_selected].target);
-    lv_label_set_text(s_fav_badge, fav ? LV_SYMBOL_OK "  FAVORITED" : "");
-    lv_obj_set_style_text_color(s_fav_badge, lv_color_hex(FAV_ACCENT), 0);
+    lv_label_set_text(s_fav_badge, fav ? LV_SYMBOL_OK "  FAVORITED" : "hold OK to favorite");
+    lv_obj_set_style_text_color(
+        s_fav_badge, fav ? lv_color_hex(FAV_ACCENT) : current_theme.text_secondary, 0);
   }
 
   if (anim) {
@@ -364,7 +381,7 @@ static void update_view(bool anim) {
     lv_anim_set_var(&a, s_label);
     lv_anim_set_values(&a, LV_OPA_0, LV_OPA_COVER);
     lv_anim_set_duration(&a, LABEL_FADE_MS);
-    lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)lv_obj_set_style_opa);
+    lv_anim_set_exec_cb(&a, anim_set_opa_cb);
     lv_anim_start(&a);
   }
 
@@ -405,8 +422,26 @@ static void ensure_radio_on(screen_id_t target) {
   }
 }
 
-static void on_key_event(lv_event_t *e) {
-  if (lv_event_get_code(e) != LV_EVENT_KEY)
+static void menu_open_selected(void) {
+  screen_id_t target = s_menu_data[s_selected].target;
+  ensure_radio_on(target);
+  ui_switch_screen(target);
+}
+
+static void menu_event_cb(lv_event_t *e) {
+  const lv_event_code_t code = lv_event_get_code(e);
+
+  if (code == LV_EVENT_SHORT_CLICKED) {
+    menu_open_selected();
+    return;
+  }
+  if (code == LV_EVENT_LONG_PRESSED) {
+    favorites_toggle(s_menu_data[s_selected].target);
+    ui_feedback(UI_FB_SELECT);
+    update_view(false);
+    return;
+  }
+  if (code != LV_EVENT_KEY)
     return;
 
   uint32_t k = lv_event_get_key(e);
@@ -428,21 +463,13 @@ static void on_key_event(lv_event_t *e) {
   }
 
   if (k == LV_KEY_DOWN) {
-    favorites_toggle(s_menu_data[s_selected].target);
-    ui_feedback(UI_FB_SELECT);
-    update_view(false);
+    menu_open_selected();
     return;
   }
 
   if (k == LV_KEY_ESC) {
     ui_switch_screen(SCREEN_HOME);
     return;
-  }
-
-  if (k == LV_KEY_ENTER) {
-    screen_id_t target = s_menu_data[s_selected].target;
-    ensure_radio_on(target);
-    ui_switch_screen(target);
   }
 }
 
@@ -512,7 +539,10 @@ void ui_menu_open(void) {
 
   update_view(false);
 
-  lv_obj_add_event_cb(s_screen, on_key_event, LV_EVENT_KEY, NULL);
+  lv_obj_add_flag(s_screen, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(s_screen, menu_event_cb, LV_EVENT_KEY, NULL);
+  lv_obj_add_event_cb(s_screen, menu_event_cb, LV_EVENT_SHORT_CLICKED, NULL);
+  lv_obj_add_event_cb(s_screen, menu_event_cb, LV_EVENT_LONG_PRESSED, NULL);
 
   if (main_group != NULL) {
     lv_group_add_obj(main_group, s_screen);

@@ -9,28 +9,38 @@ This component initializes and manages the ST7789 LCD controller using the ESP-I
 - **Dependencies:** `esp_lcd`, `driver/gpio`, `driver/ledc`, `spi`
 
 ## Hardware Configuration
-- **Resolution:** 240x240
+- **Resolution:** 240x320 (`LCD_H_RES` 240 / `LCD_V_RES` 320; `LCD_PANEL_W`/`LCD_PANEL_H` match).
 - **Color Depth:** 16-bit (RGB565)
-- **Interface:** SPI (via `spi` component driver)
+- **Interface:** SPI on `SPI3_HOST`, 20 MHz pixel clock (`LCD_PIXEL_CLOCK_HZ`).
+
+## SPI drive-strength hardening
+`st7789_init` bumps the SPI3 `SCLK`/`MOSI` pins to `LCD_SPI_DRIVE_CAP`
+(`GPIO_DRIVE_CAP_3`, the strongest) via `gpio_set_drive_capability`. The display
+FFC is long, capacitive and unterminated: at the IDF default the 20 MHz edges
+barely settle, so a radio's EMI corrupts the still-settling edge and garbles long
+transfers. Do not lower this - a weaker cap starves the FFC so hard the panel
+will not even init.
 
 ## Internal Backlight Control
-Although a separate `backlight` component exists, this driver currently includes its own internal PWM initialization (`init_backlight_pwm`) and control logic using `LEDC_TIMER_0` / `LEDC_CHANNEL_0`.
-*Note: This overlaps with the standalone `backlight` component. Verify project integration to avoid timer conflicts.*
+This driver owns its own PWM backlight init (`init_backlight_pwm`) and control
+logic using `LEDC_TIMER_0` / `LEDC_CHANNEL_0`, 13-bit resolution at 5 kHz on
+`GPIO_ST7789_BL_PIN`.
 
 ## API Reference
 
 ### `st7789_init`
 ```c
-void st7789_init(void);
+esp_err_t st7789_init(void);
 ```
-Initializes the display.
-1.  Creates the SPI device interface on `SPI3_HOST`.
-2.  Configures the ST7789 panel (Reset pin, RGB order, etc.).
-3.  Resets and initializes the panel.
-4.  Inverts colors (standard for many ST7789 IPS panels).
-5.  Turns the display ON.
-6.  Initializes the backlight PWM and **applies** (does not re-save) the saved
-    brightness/rotation.
+Initializes the display. Returns `ESP_OK`, or the failing `esp_err_t` from the
+panel IO / panel create / reset / init step (cleaning up any handles it created).
+1.  Creates the SPI panel IO on `SPI3_HOST`.
+2.  Hardens the SPI3 `SCLK`/`MOSI` drive strength (see above).
+3.  Configures the ST7789 panel (Reset pin, RGB order, etc.).
+4.  Resets and initializes the panel.
+5.  Inverts colors (standard for many ST7789 IPS panels).
+6.  Turns the display ON.
+7.  Initializes the backlight PWM and applies the saved brightness/rotation.
 
 ### `lcd_apply_brightness`
 ```c
@@ -53,6 +63,20 @@ through `tos_config` (see below).
 uint8_t lcd_get_brightness(void);
 ```
 Reads the persisted brightness back from the config file.
+
+### `lcd_set_rotation`
+```c
+void lcd_set_rotation(uint8_t rotation);
+```
+Sets the panel rotation (index `1`-`4`, clamped). Applies the matching
+mirror / swap-xy / gap for the 240x320 panel and persists the value. Rotations
+3 and 4 apply a `ROTATION_GAP_OFFSET` (80) to line the visible window up.
+
+### `lcd_get_rotation`
+```c
+uint8_t lcd_get_rotation(void);
+```
+Reads the persisted rotation index (1-4) back from the config file.
 
 ### `lcd_display_sleep`
 ```c

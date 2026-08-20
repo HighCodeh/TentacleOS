@@ -24,6 +24,7 @@
 #include "page_dots_ui.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 #define REFRESH_MS  33
@@ -238,7 +239,7 @@ static void emulate_start(const nfc_sim_card_t *card) {
 
   int H = lv_display_get_vertical_resolution(NULL);
   if (H < 200)
-    H = 320;
+    H = ui_screen_h();
   int top_y = H * 8 / 100;
   if (top_y < 4)
     top_y = 4;

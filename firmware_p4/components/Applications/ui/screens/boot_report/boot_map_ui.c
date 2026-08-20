@@ -19,13 +19,13 @@
 
 #include "boot_report.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 #define TITLE "BOOT MAP"
 #define ICON  "/assets/icons/troubleshoot.bin"
 #define HINT  "BACK exit"
 
-#define OK_COLOR   0x00E676
 #define FAIL_COLOR 0xFF5252
 #define SKIP_COLOR 0x8A8594
 
@@ -54,7 +54,7 @@ static void add_row(lv_obj_t *list, const boot_stage_t *st) {
   uint32_t color;
   if (st->result == ESP_OK) {
     state = "OK";
-    color = OK_COLOR;
+    color = UI_COL_SUCCESS;
   } else if (st->result == ESP_ERR_NOT_FOUND) {
     state = "skip";
     color = SKIP_COLOR;

@@ -23,12 +23,11 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 #define NFC_ICON "/assets/icons/contactless.bin"
 
-#define SIG_GREEN 0x00E676
-#define COL_DIM   0x8A8594
 #define COL_RAISE 0x170A28
 
 #define SCAN_STEP_MS 480
@@ -127,8 +126,8 @@ static void set_row_state(int i, row_state_t state) {
   if (s_dot[i] == NULL || s_value[i] == NULL || s_row[i] == NULL)
     return;
 
-  lv_color_t dot_color = lv_color_hex(COL_DIM);
-  lv_color_t txt_color = lv_color_hex(COL_DIM);
+  lv_color_t dot_color = current_theme.text_secondary;
+  lv_color_t txt_color = current_theme.text_secondary;
   const char *txt = VAL_QUEUED;
   bool raise = false;
 
@@ -140,13 +139,13 @@ static void set_row_state(int i, row_state_t state) {
       raise = true;
       break;
     case ROW_PRESENT:
-      dot_color = lv_color_hex(SIG_GREEN);
-      txt_color = lv_color_hex(SIG_GREEN);
+      dot_color = lv_color_hex(UI_COL_SUCCESS);
+      txt_color = lv_color_hex(UI_COL_SUCCESS);
       txt = s_present_value;
       break;
     case ROW_ABSENT:
-      dot_color = lv_color_hex(COL_DIM);
-      txt_color = lv_color_hex(COL_DIM);
+      dot_color = current_theme.text_secondary;
+      txt_color = current_theme.text_secondary;
       txt = VAL_ABSENT;
       break;
     case ROW_PENDING:
@@ -217,7 +216,7 @@ static void build_card(void) {
     lv_obj_set_style_radius(dot, DOT_RADIUS, 0);
     lv_obj_set_style_border_width(dot, 0, 0);
     lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(dot, lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_bg_color(dot, current_theme.text_secondary, 0);
 
     lv_obj_t *tech = lv_label_create(group);
     lv_label_set_text(tech, TECHS[i].tech);
@@ -229,7 +228,7 @@ static void build_card(void) {
     lv_label_set_long_mode(value, LV_LABEL_LONG_DOT);
     lv_obj_set_flex_grow(value, 1);
     lv_label_set_text(value, VAL_QUEUED);
-    lv_obj_set_style_text_color(value, lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(value, current_theme.text_secondary, 0);
     lv_obj_set_style_text_font(value, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_align(value, LV_TEXT_ALIGN_RIGHT, 0);
   }
@@ -260,11 +259,11 @@ static void finish_scan(void) {
     snprintf(buf, sizeof(buf), "%d of %d present", present, TECH_COUNT);
     lv_label_set_text(s_summary, buf);
     lv_obj_set_style_text_color(
-        s_summary, present > 0 ? lv_color_hex(SIG_GREEN) : lv_color_hex(COL_DIM), 0);
+        s_summary, present > 0 ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_secondary, 0);
   }
   if (s_status != NULL) {
     lv_label_set_text(s_status, STATUS_DONE);
-    lv_obj_set_style_text_color(s_status, lv_color_hex(SIG_GREEN), 0);
+    lv_obj_set_style_text_color(s_status, lv_color_hex(UI_COL_SUCCESS), 0);
   }
   if (s_hint != NULL)
     ui_chrome_footer_set_text(s_hint, HINT_DONE);

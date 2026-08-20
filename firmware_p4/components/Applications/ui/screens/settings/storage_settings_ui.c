@@ -29,6 +29,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 #include "vfs_core.h"
 #include "vfs_sdcard.h"
@@ -38,12 +39,11 @@ static const char *TAG = "STORAGE_UI";
 #define SD_PATH        "/sdcard"
 #define ASSETS_LABEL   "assets"
 #define DATA_LABEL     "storage"
-#define CONTENT_W      204
+#define CONTENT_W      (LIST_W - 14)
 #define BAR_H          9
 #define G1             0x7A52D6
 #define G2             0xB89AFF
 #define CYAN           0x00E5D0
-#define OK_COLOR       0x00E676
 #define DANGER_COLOR   0xFF5470
 #define ACT_EJECT      0
 #define ACT_FORMAT     1
@@ -54,11 +54,11 @@ static const char *TAG = "STORAGE_UI";
 
 #define LIST_LEFT     6
 #define LIST_TOP_Y    46
-#define LIST_W        218
-#define LIST_H        248
-#define SB_TRACK_X    227
+#define LIST_W        (ui_screen_w() - LIST_LEFT - 16)
+#define LIST_H        (ui_screen_h() - LIST_TOP_Y - 26)
+#define SB_TRACK_X    (ui_screen_w() - 13)
 #define SB_TRACK_Y    54
-#define SB_TRACK_LEN  232
+#define SB_TRACK_LEN  (ui_screen_h() - SB_TRACK_Y - 34)
 #define SB_THUMB_H    45
 #define SB_THUMB_ICON "/assets/icons/drag_indicator.bin"
 
@@ -307,7 +307,7 @@ static void format_task(void *arg) {
   esp_err_t r = vfs_sdcard_format();
   if (r == ESP_OK && !vfs_sdcard_is_mounted())
     vfs_sdcard_init();
-  lv_async_call(format_done_cb, (void *)(intptr_t)r);
+  ui_async_call(format_done_cb, (void *)(intptr_t)r);
   vTaskDelete(NULL);
 }
 

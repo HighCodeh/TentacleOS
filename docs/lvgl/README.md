@@ -53,8 +53,15 @@ esp_err_t lvgl_glue_init(void);
    are not ready.
 2. **`lvgl_port_init`:** starts the managed LVGL task (calls `lv_init`
    internally), the periodic tick, and a recursive mutex (the lock).
-3. **`lvgl_port_add_disp`:** registers the display - DMA double buffering (20
-   lines), RGB565 with byte swap, internal RAM (no PSRAM).
+3. **`lvgl_port_add_disp`:** registers the display - a partial DMA double buffer
+   of `LVGL_BUF_LINES` (`LCD_PANEL_H / 4` = 80) lines in internal DMA-capable
+   RAM, RGB565 with byte swap.
+4. **PSRAM draw buffers:** overrides LVGL's draw and image buffer handlers with
+   `draw_buf_psram_malloc`, which routes allocations larger than
+   `DRAWBUF_PSRAM_THRESHOLD` (48 KB) to PSRAM (`MALLOC_CAP_SPIRAM`) and falls
+   back to the default heap otherwise. This keeps big off-screen / image buffers
+   off the scarce internal heap. The DMA render double buffer above stays in
+   internal DMA RAM (PSRAM is not DMA-reachable by the LCD).
 
 ### Thread safety
 ```c
@@ -80,6 +87,35 @@ wrap it.
 > push results back to the screen with an `lv_timer` or `lv_async_call`, which
 > run inside the LVGL task already under the lock. See
 > [ui: long-running work](../ui/README.md#long-running-work-and-the-watchdog).
+
+### Direct draw (panel takeover)
+```c
+void lvgl_glue_direct_begin(void);
+void lvgl_glue_direct_end(void);
+void lvgl_glue_wait_flush(uint32_t timeout_ms);
+```
+For a full-screen app (e.g. the Game Boy emulator) that holds the LVGL lock and
+drives the ST7789 itself with raw `esp_lcd_panel_draw_bitmap()` calls. The panel
+SPI is async - `draw_bitmap` queues the transfer and returns - so reusing one
+blit buffer for the next strip while the previous DMA is still reading it
+corrupts the image. Between `_begin()` and `_end()` the shared
+color-transfer-done ISR raises a semaphore instead of signalling LVGL flush-ready;
+the app calls `lvgl_glue_wait_flush()` after each draw to block until that
+strip's DMA finished, making single-buffer reuse safe. Call `_begin()` right
+after taking the lock and `_end()` before releasing it; outside this window the
+ISR drives LVGL exactly as before.
+
+### Screenshot capture
+```c
+typedef void (*lvgl_glue_strip_cb_t)(
+    int32_t x1, int32_t y1, int32_t x2, int32_t y2, const uint8_t *data, int32_t stride);
+void lvgl_glue_capture_begin(lvgl_glue_strip_cb_t cb);
+void lvgl_glue_capture_end(void);
+```
+Tees each rendered strip to `cb` from the LVGL flush path, handing over the
+strip's area plus the active buffer in native RGB565 (pre byte-swap).
+`_capture_begin(cb)` starts the tee (pass `NULL` to disable); `_capture_end()`
+stops it.
 
 ### Rotation
 ```c

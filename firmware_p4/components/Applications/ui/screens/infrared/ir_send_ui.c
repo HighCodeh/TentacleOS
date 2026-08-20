@@ -15,6 +15,8 @@
 
 #include "ir_send_ui.h"
 
+#include "esp_attr.h"
+
 #include <stdio.h>
 
 #include "esp_log.h"
@@ -29,13 +31,12 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 static const char *TAG = "IR_SEND_UI";
 
-#define SIG_GREEN 0x00E676
-#define COL_DIM   0x8A8594
-#define IR_ICON   "/assets/icons/podcasts.bin"
+#define IR_ICON "/assets/icons/podcasts.bin"
 
 #define TICK_MS      50
 #define SENDING_MS   1600
@@ -55,7 +56,7 @@ static const char *TAG = "IR_SEND_UI";
 #define HINT_SENT    "BACK = Exit"
 #define HINT_OPTIONS "UP/DOWN choose   OK do   BACK exit"
 
-#define EMPTY_NAME "No signals — use Learn"
+#define EMPTY_NAME "No signals - use Learn"
 
 typedef enum {
   VIEW_LIST = 0,
@@ -68,7 +69,7 @@ static menu_component_t s_menu;
 static send_view_t s_view = VIEW_LIST;
 static int s_sel = 0;
 
-static ir_store_entry_t s_entries[IR_STORE_MAX_ENTRIES];
+EXT_RAM_BSS_ATTR static ir_store_entry_t s_entries[IR_STORE_MAX_ENTRIES];
 static int s_count = 0;
 
 static lv_timer_t *s_tick_timer = NULL;
@@ -151,7 +152,7 @@ static void set_status(const char *text, bool success) {
     return;
   lv_label_set_text(s_status_label, text);
   lv_obj_set_style_text_color(
-      s_status_label, success ? lv_color_hex(SIG_GREEN) : current_theme.text_main, 0);
+      s_status_label, success ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_main, 0);
 }
 
 static void set_hint(const char *text) {

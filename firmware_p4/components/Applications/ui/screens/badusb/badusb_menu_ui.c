@@ -40,6 +40,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
 
@@ -48,7 +49,6 @@ static const char *TAG = "BADUSB_UI";
 #define TERM_GREEN       0x00E676
 #define TERM_DIM_GREEN   0x1F7A52
 #define DARK_PANEL_COLOR 0x05090A
-#define SIG_GREEN        0x00E676
 #define ERR_RED          0xFF5252
 #define WARN_AMBER       0xFFB300
 
@@ -135,12 +135,13 @@ static const char *TAG = "BADUSB_UI";
 #define PAY_BODY_BUF_LEN   200
 #define PREVIEW_MAX_LINES  4
 
-#define BADUSB_SCRIPT_DIR TOS_PATH_BADUSB
-#define BADUSB_ASSET_DIR  FLASH_STORAGE_BADUSB
-#define ASSETS_PREFIX_LEN (sizeof(FLASH_MOUNT "/") - 1)
-#define MAX_PAYLOADS      24
-#define PL_PATH_LEN       192
-#define PL_NAME_LEN       56
+#define BADUSB_SCRIPT_DIR     TOS_PATH_BADUSB
+#define BADUSB_ASSET_DIR      FLASH_STORAGE_BADUSB
+#define BADUSB_SCAN_MAX_DEPTH 3
+#define ASSETS_PREFIX_LEN     (sizeof(FLASH_MOUNT "/") - 1)
+#define MAX_PAYLOADS          24
+#define PL_PATH_LEN           192
+#define PL_NAME_LEN           56
 
 #define POLL_MS 80
 
@@ -212,7 +213,7 @@ static view_t s_view = VIEW_LIST;
 static int s_payload_sel = 0;
 static int s_layout_active = 0;
 
-static char s_pl_path[MAX_PAYLOADS][PL_PATH_LEN];
+EXT_RAM_BSS_ATTR static char s_pl_path[MAX_PAYLOADS][PL_PATH_LEN];
 static char s_pl_name[MAX_PAYLOADS][PL_NAME_LEN];
 static bool s_pl_is_asset[MAX_PAYLOADS];
 static int s_pl_count = 0;
@@ -279,21 +280,31 @@ static bool is_ducky_script(const char *name) {
          strcasecmp(dot, ".duck") == 0 || strcasecmp(dot, ".ducky") == 0;
 }
 
-static void scan_dir_into(const char *dir, bool is_asset) {
+// Recurses into subfolders so payloads organised in /badusb/<category>/ still
+// show. Depth is bounded and subdirs are visited while their parent DIR is open,
+// so at most BADUSB_SCAN_MAX_DEPTH handles are held (under VFS_MAX_FILES).
+static void scan_dir_into_depth(const char *dir, bool is_asset, int depth) {
   DIR *d = opendir(dir);
   if (d == NULL) {
-    ESP_LOGW(TAG, "No script dir: %s", dir);
+    if (depth == 0)
+      ESP_LOGW(TAG, "No script dir: %s", dir);
     return;
   }
   struct dirent *ent;
   while ((ent = readdir(d)) != NULL && s_pl_count < MAX_PAYLOADS) {
     if (ent->d_name[0] == '.')
       continue;
-    if (ent->d_type == DT_DIR)
-      continue;
-    if (!is_ducky_script(ent->d_name))
-      continue;
     if (strlen(dir) + 1 + strlen(ent->d_name) >= PL_PATH_LEN)
+      continue;
+    if (ent->d_type == DT_DIR) {
+      if (depth + 1 < BADUSB_SCAN_MAX_DEPTH) {
+        char sub[PL_PATH_LEN];
+        snprintf(sub, sizeof(sub), "%s/%s", dir, ent->d_name);
+        scan_dir_into_depth(sub, is_asset, depth + 1);
+      }
+      continue;
+    }
+    if (!is_ducky_script(ent->d_name))
       continue;
     strlcpy(s_pl_path[s_pl_count], dir, PL_PATH_LEN);
     strlcat(s_pl_path[s_pl_count], "/", PL_PATH_LEN);
@@ -303,6 +314,10 @@ static void scan_dir_into(const char *dir, bool is_asset) {
     s_pl_count++;
   }
   closedir(d);
+}
+
+static void scan_dir_into(const char *dir, bool is_asset) {
+  scan_dir_into_depth(dir, is_asset, 0);
 }
 
 static void scan_payloads(void) {
@@ -899,7 +914,7 @@ static void build_layout(void) {
   for (int i = 0; i < LAYOUT_COUNT; i++) {
     menu_component_add_item(&s_menu, "/assets/icons/keyboard.bin", LAYOUTS[i].label);
     if (i == s_layout_active)
-      menu_component_set_item_label_color(&s_menu, i, lv_color_hex(SIG_GREEN));
+      menu_component_set_item_label_color(&s_menu, i, lv_color_hex(UI_COL_SUCCESS));
   }
   menu_component_select(&s_menu, s_layout_active);
   fade_in(s_menu.items_cont, FADE_MS);
@@ -916,7 +931,7 @@ static void status_row(lv_obj_t *panel, int index, const badusb_status_row_t *ro
   lv_obj_t *val = lv_label_create(panel);
   lv_label_set_text(val, row->value);
   lv_obj_set_style_text_color(
-      val, row->is_accent ? lv_color_hex(SIG_GREEN) : current_theme.text_main, 0);
+      val, row->is_accent ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_main, 0);
   lv_obj_set_style_text_font(val, &lv_font_montserrat_12, 0);
   lv_obj_align(val, LV_ALIGN_TOP_RIGHT, -INFO_LABEL_X, INFO_FIRST_ROW_Y + index * INFO_ROW_GAP);
 }
@@ -1121,7 +1136,8 @@ static void input_view_layout(const input_event_t *ev, bool press, bool nav) {
         if (sel >= 0 && sel < LAYOUT_COUNT && sel != s_layout_active) {
           menu_component_set_item_label_color(&s_menu, s_layout_active, current_theme.text_main);
           s_layout_active = sel;
-          menu_component_set_item_label_color(&s_menu, s_layout_active, lv_color_hex(SIG_GREEN));
+          menu_component_set_item_label_color(
+              &s_menu, s_layout_active, lv_color_hex(UI_COL_SUCCESS));
           ESP_LOGI(TAG, "layout set: %s", LAYOUTS[s_layout_active].label);
         }
       }

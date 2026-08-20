@@ -30,6 +30,7 @@
 #include "msgbox_ui.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
 
@@ -52,9 +53,8 @@ static const char *TAG = "CONNECT_WIFI_UI";
 
 #define COLOR_OPEN_HEX 0x00E676
 #define COLOR_LOCK_HEX 0xF5B13D
-#define COLOR_DIM_HEX  0x8A8594
 
-#define NET_BODY_H      (LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
+#define NET_BODY_H      (ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
 #define NET_ROW_H       46
 #define NET_ROW_GAP     6
 #define NET_SIDE_PAD    8
@@ -159,7 +159,7 @@ static void wifi_connect_task(void *arg) {
   s_connect_ip[2] = 1;
   s_connect_ip[3] = 42;
   s_connecting = false;
-  lv_async_call(connect_done_cb, NULL);
+  ui_async_call(connect_done_cb, NULL);
   vTaskDelete(NULL);
 }
 
@@ -248,7 +248,7 @@ static void build_join_list(void) {
   ui_chrome_header(s_screen, "Networks", "/assets/icons/wifi_find.bin");
 
   lv_obj_t *col = lv_obj_create(s_screen);
-  lv_obj_set_size(col, LCD_H_RES, NET_BODY_H);
+  lv_obj_set_size(col, ui_screen_w(), NET_BODY_H);
   lv_obj_align(col, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(col, 0, 0);
@@ -280,7 +280,7 @@ static void build_join_list(void) {
 
     lv_obj_t *sec = lv_label_create(card);
     lv_label_set_text_fmt(sec, "%s  ch %d", s_aps[i].open ? "Open" : "WPA2", s_aps[i].channel);
-    lv_obj_set_style_text_color(sec, lv_color_hex(COLOR_DIM_HEX), 0);
+    lv_obj_set_style_text_color(sec, current_theme.text_secondary, 0);
     lv_obj_set_style_text_font(sec, &lv_font_montserrat_12, 0);
     lv_obj_align(sec, LV_ALIGN_BOTTOM_LEFT, NET_TEXT_X, -6);
 
@@ -372,7 +372,7 @@ static void wifi_scan_task(void *arg) {
   s_ap_count = count;
   s_scan_state = SCAN_DONE;
   s_scanning = false;
-  lv_async_call(scan_done_cb, NULL);
+  ui_async_call(scan_done_cb, NULL);
   vTaskDelete(NULL);
 }
 

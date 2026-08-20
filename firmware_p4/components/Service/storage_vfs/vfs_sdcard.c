@@ -18,6 +18,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -341,6 +342,70 @@ esp_err_t vfs_sdcard_format(void) {
     return ret;
   }
 
+  return vfs_sdcard_init();
+}
+
+esp_err_t vfs_sdcard_detach_for_msc(void **out_card) {
+  if (out_card == NULL) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  *out_card = NULL;
+
+  if (s_sdcard.mounted) {
+    esp_err_t r = vfs_sdcard_deinit();
+    if (r != ESP_OK) {
+      ESP_LOGE(TAG, "detach: unmount failed: %s", esp_err_to_name(r));
+      return r;
+    }
+  }
+
+  sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+  host.max_freq_khz = SDMMC_FREQ_HIGHSPEED;
+
+  sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
+  slot_config.width = 4;
+  slot_config.clk = GPIO_SDMMC_CLK_PIN;
+  slot_config.cmd = GPIO_SDMMC_CMD_PIN;
+  slot_config.d0 = GPIO_SDMMC_D0_PIN;
+  slot_config.d1 = GPIO_SDMMC_D1_PIN;
+  slot_config.d2 = GPIO_SDMMC_D2_PIN;
+  slot_config.d3 = GPIO_SDMMC_D3_PIN;
+  slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
+
+  esp_err_t r = sdmmc_host_init();
+  if (r != ESP_OK) {
+    ESP_LOGE(TAG, "detach: host init: %s", esp_err_to_name(r));
+    return r;
+  }
+  r = sdmmc_host_init_slot(host.slot, &slot_config);
+  if (r != ESP_OK) {
+    ESP_LOGE(TAG, "detach: slot init: %s", esp_err_to_name(r));
+    sdmmc_host_deinit();
+    return r;
+  }
+  sdmmc_card_t *card = calloc(1, sizeof(sdmmc_card_t));
+  if (card == NULL) {
+    sdmmc_host_deinit();
+    return ESP_ERR_NO_MEM;
+  }
+  r = sdmmc_card_init(&host, card);
+  if (r != ESP_OK) {
+    ESP_LOGE(TAG, "detach: card init: %s", esp_err_to_name(r));
+    free(card);
+    sdmmc_host_deinit();
+    return r;
+  }
+
+  *out_card = card;
+  ESP_LOGI(TAG, "SD detached from app FAT and handed to USB MSC (raw)");
+  return ESP_OK;
+}
+
+esp_err_t vfs_sdcard_reattach_after_msc(void *card) {
+  (void)sdmmc_host_deinit();
+  if (card != NULL) {
+    free(card);
+  }
   return vfs_sdcard_init();
 }
 

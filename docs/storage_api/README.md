@@ -291,6 +291,38 @@ storage_append_csv_row("/data/sensors.csv", row, 3);
 
 ---
 
+## Atomic Writes
+
+Header: `storage_atomic.h`
+
+For config files where a crash mid-write must never leave a half-written file,
+use the atomic replace. It writes to `<path>.tmp`, flushes and fsyncs it, then
+renames it over the destination. On FAT (where rename cannot replace an existing
+target) it unlinks the target first and retries. The original file is untouched
+on any failure before the rename, and if power is lost between the unlink and the
+rename the complete `<path>.tmp` survives for the loader to recover. Works on both
+FAT (SD) and LittleFS (flash) mounts.
+
+```c
+#include "storage_atomic.h"
+
+esp_err_t storage_write_atomic(const char *path, const void *data, size_t len);
+```
+
+| Return | Meaning |
+|--------|---------|
+| `ESP_OK` | File replaced atomically |
+| `ESP_ERR_INVALID_ARG` | Bad arguments (`path` NULL, or `data` NULL with non-zero `len`) |
+| `ESP_ERR_INVALID_SIZE` | The temp path does not fit |
+| `ESP_FAIL` | I/O failure (destination preserved unless recovery applies) |
+
+```c
+// Replace a config file so a crash never leaves it half-written
+storage_write_atomic(TOS_PATH_CONFIG_SYSTEM, json, strlen(json));
+```
+
+---
+
 ## Stream I/O
 
 Header: `storage_stream.h`

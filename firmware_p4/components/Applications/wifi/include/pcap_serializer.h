@@ -22,10 +22,11 @@ extern "C" {
 
 #include <stdint.h>
 
-#define PCAP_MAGIC_NUMBER     0xa1b2c3d4
-#define PCAP_VERSION_MAJOR    2
-#define PCAP_VERSION_MINOR    4
-#define PCAP_LINK_TYPE_802_11 105
+#define PCAP_MAGIC_NUMBER              0xa1b2c3d4
+#define PCAP_VERSION_MAJOR             2
+#define PCAP_VERSION_MINOR             4
+#define PCAP_LINK_TYPE_802_11          105
+#define PCAP_LINK_TYPE_802_11_RADIOTAP 127
 
 /**
  * @brief PCAP global file header.

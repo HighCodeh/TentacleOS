@@ -30,6 +30,10 @@
 #include "storage_assets.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
+#include "image_viewer_ui.h"
+#include "mp3_player_ui.h"
+#include "mp4_player_ui.h"
 #include "wav_player_ui.h"
 #include "text_viewer_ui.h"
 #include "ui_theme.h"
@@ -50,7 +54,7 @@ static const char *TAG = "FILES_UI";
 #define TILE_H    64
 #define GLABEL_H  28
 
-#define ROW_CONTENT_W   (LCD_H_RES - 16)
+#define ROW_CONTENT_W   (ui_screen_w() - 16)
 #define ROW_NAME_X      36
 #define ROW_NAME_W_FILE (ROW_CONTENT_W - ROW_NAME_X - 52)
 #define ROW_NAME_W_DIR  (ROW_CONTENT_W - ROW_NAME_X - 24)
@@ -60,20 +64,19 @@ static const char *TAG = "FILES_UI";
 #define SCROLL_STEP  36
 
 #define COL_RAISE 0x170A28
-#define COL_DIM   0x8A8594
 #define COL_DIRNM 0xF0E6FF
 
-#define MAX_ENTRIES 96
-#define MAX_DEPTH   10
-#define MAX_PATH    256
-#define MAX_NAME    64
-#define PREVIEW_MAX 2048
-#define GUTTER_MAX  512
-#define FULL_PATH   (MAX_PATH + MAX_NAME)
-#define ROW_POOL    LIST_VIS
-#define GRID_COLS   2
-#define GRID_ROWS   3
-#define GRID_POOL   (GRID_COLS * GRID_ROWS)
+#define MAX_ENTRIES   96
+#define MAX_DEPTH     10
+#define MAX_PATH      256
+#define MAX_NAME      64
+#define PREVIEW_MAX   2048
+#define GUTTER_MAX    512
+#define FULL_PATH     (MAX_PATH + MAX_NAME)
+#define ROW_POOL      LIST_VIS
+#define GRID_COLS_MAX 4
+#define GRID_ROWS_MAX 3
+#define GRID_POOL     (GRID_COLS_MAX * GRID_ROWS_MAX)
 
 #define ASSETS_ROOT "/assets"
 #define SDCARD_ROOT "/sdcard"
@@ -91,8 +94,9 @@ typedef enum { VIEW_LIST = 0, VIEW_GRID } view_t;
 
 static const char *const VOL_LABELS[] = {"Assets", "SD Card"};
 static const char *const VOL_PATHS[] = {ASSETS_ROOT, SDCARD_ROOT};
-#define VOL_COUNT 2
-#define VOL_SD    1
+#define VOL_COUNT     2
+#define VOL_SD        1
+#define ENTRY_USB_MSC 99
 
 static const char *ICON_OF[] = {
     [FT_DIR] = "/assets/icons/folder.bin",
@@ -160,6 +164,9 @@ static bool s_resume = false;
 static lv_obj_t *s_screen = NULL;
 static lv_timer_t *s_timer = NULL;
 static view_t s_view = VIEW_LIST;
+
+static int s_grid_cols = 2;
+static int s_grid_rows = 3;
 
 static lv_obj_t *s_row[ROW_POOL];
 static lv_obj_t *s_row_icon[ROW_POOL];
@@ -235,6 +242,8 @@ static uint8_t type_from_ext(const char *name) {
 
 static const char *entry_icon(int idx) {
   if (s_depth == 0) {
+    if (s_vol_idx[idx] == ENTRY_USB_MSC)
+      return "/assets/icons/usb.bin";
     return (s_vol_idx[idx] == VOL_SD) ? "/assets/icons/sd_card.bin" : "/assets/icons/folder.bin";
   }
   return ICON_OF[s_entries[idx].type];
@@ -242,6 +251,8 @@ static const char *entry_icon(int idx) {
 
 static lv_color_t entry_color(int idx) {
   if (s_depth == 0) {
+    if (s_vol_idx[idx] == ENTRY_USB_MSC)
+      return lv_color_hex(0x00E676);
     return (s_vol_idx[idx] == VOL_SD) ? lv_color_hex(0x00BCD4) : lv_color_hex(0xFFC400);
   }
   return color_of(s_entries[idx].type);
@@ -275,6 +286,15 @@ static void scan_dir(void) {
       e->size = 0;
       e->type = FT_DIR;
       s_vol_idx[s_count] = k;
+      s_count++;
+    }
+    if (vfs_sdcard_is_mounted() && s_count < MAX_ENTRIES) {
+      entry_t *e = &s_entries[s_count];
+      snprintf(e->name, sizeof(e->name), "USB Storage");
+      e->is_dir = true;
+      e->size = 0;
+      e->type = FT_DIR;
+      s_vol_idx[s_count] = ENTRY_USB_MSC;
       s_count++;
     }
     return;
@@ -351,10 +371,14 @@ static void fill_peek(int idx) {
   lv_obj_set_style_border_color(s_pk_tag, c, 0);
 
   if (e->is_dir) {
-    lv_label_set_text(s_pk_meta, s_depth == 0 ? "Storage volume" : "Folder");
-    if (s_depth == 0) {
+    if (s_depth == 0 && s_vol_idx[idx] == ENTRY_USB_MSC) {
+      lv_label_set_text(s_pk_meta, "USB drive");
+      lv_label_set_text(s_pk_snip, "Share SD with a PC");
+    } else if (s_depth == 0) {
+      lv_label_set_text(s_pk_meta, "Storage volume");
       lv_label_set_text(s_pk_snip, s_vol_idx[idx] == VOL_SD ? "SD card" : "Internal flash");
     } else {
+      lv_label_set_text(s_pk_meta, "Folder");
       lv_label_set_text(s_pk_snip, "");
     }
   } else {
@@ -414,7 +438,7 @@ static void populate_row(int j) {
     char sz[16];
     fmt_size(sz, sizeof(sz), e->size);
     lv_label_set_text(s_row_right[j], sz);
-    lv_obj_set_style_text_color(s_row_right[j], lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(s_row_right[j], current_theme.text_secondary, 0);
   }
   style_item(row, entry_color(idx), idx == s_sel);
 }
@@ -422,7 +446,7 @@ static void populate_row(int j) {
 static void populate_tile(int j) {
   int idx = s_top + j;
   lv_obj_t *tile = s_tile[j];
-  if (idx >= s_count) {
+  if (j >= s_grid_cols * s_grid_rows || idx >= s_count) {
     hide_obj(tile);
     return;
   }
@@ -481,18 +505,18 @@ static void refresh_selection(void) {
     }
     fill_peek(s_sel);
   } else {
-    int row = s_sel / GRID_COLS;
-    int toprow = s_top / GRID_COLS;
+    int row = s_sel / s_grid_cols;
+    int toprow = s_top / s_grid_cols;
     if (row < toprow) {
       toprow = row;
     }
-    if (row >= toprow + GRID_ROWS) {
-      toprow = row - GRID_ROWS + 1;
+    if (row >= toprow + s_grid_rows) {
+      toprow = row - s_grid_rows + 1;
     }
     if (toprow < 0) {
       toprow = 0;
     }
-    s_top = toprow * GRID_COLS;
+    s_top = toprow * s_grid_cols;
     for (int j = 0; j < GRID_POOL; j++) {
       populate_tile(j);
     }
@@ -522,7 +546,7 @@ static void build_header(void) {
   lv_obj_t *hdr = lv_obj_create(s_screen);
   lv_obj_remove_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(hdr, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(hdr, LCD_H_RES, HEADER_H);
+  lv_obj_set_size(hdr, ui_screen_w(), HEADER_H);
   lv_obj_align(hdr, LV_ALIGN_TOP_LEFT, 0, 0);
   lv_obj_set_style_radius(hdr, 0, 0);
   lv_obj_set_style_bg_color(hdr, current_theme.bg_secondary, 0);
@@ -566,7 +590,7 @@ static void build_pathbar(void) {
   lv_obj_t *bar = lv_obj_create(s_screen);
   lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(bar, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(bar, LCD_H_RES, PATH_H);
+  lv_obj_set_size(bar, ui_screen_w(), PATH_H);
   lv_obj_align(bar, LV_ALIGN_TOP_LEFT, 0, HEADER_H);
   lv_obj_set_style_radius(bar, 0, 0);
   lv_obj_set_style_bg_color(bar, lv_color_hex(0x0A0710), 0);
@@ -581,7 +605,7 @@ static void build_pathbar(void) {
   lv_label_set_text(lbl, s_depth == 0 ? "root" : s_cwd);
   lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
   lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(lbl, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(lbl, current_theme.text_secondary, 0);
   lv_obj_set_flex_grow(lbl, 1);
 
   lv_obj_t *dots = plain(bar);
@@ -637,12 +661,12 @@ static lv_obj_t *make_row_pool(lv_obj_t *parent, int j) {
 }
 
 static void build_list(void) {
-  int list_h = LCD_V_RES - CONTENT_Y - FOOTER_H - PEEK_H - 8;
+  int list_h = ui_screen_h() - CONTENT_Y - FOOTER_H - PEEK_H - 8;
 
   lv_obj_t *wrap = lv_obj_create(s_screen);
   lv_obj_remove_flag(wrap, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(wrap, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(wrap, LCD_H_RES, list_h);
+  lv_obj_set_size(wrap, ui_screen_w(), list_h);
   lv_obj_align(wrap, LV_ALIGN_TOP_LEFT, 0, CONTENT_Y);
   lv_obj_set_style_bg_opa(wrap, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(wrap, 0, 0);
@@ -682,12 +706,17 @@ static lv_obj_t *make_tile_pool(lv_obj_t *parent, int j) {
 }
 
 static void build_grid(void) {
-  int grid_h = LCD_V_RES - CONTENT_Y - FOOTER_H - GLABEL_H;
+  int grid_h = ui_screen_h() - CONTENT_Y - FOOTER_H - GLABEL_H;
+
+  s_grid_cols = (ui_screen_w() - 16 + 6) / (TILE_W + 6);
+  s_grid_cols = LV_CLAMP(1, s_grid_cols, GRID_COLS_MAX);
+  s_grid_rows = (grid_h - 16 + 6) / (TILE_H + 6);
+  s_grid_rows = LV_CLAMP(1, s_grid_rows, GRID_ROWS_MAX);
 
   lv_obj_t *g = lv_obj_create(s_screen);
   lv_obj_remove_flag(g, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(g, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(g, LCD_H_RES, grid_h);
+  lv_obj_set_size(g, ui_screen_w(), grid_h);
   lv_obj_align(g, LV_ALIGN_TOP_LEFT, 0, CONTENT_Y);
   lv_obj_set_style_bg_opa(g, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(g, 0, 0);
@@ -705,7 +734,7 @@ static void build_grid(void) {
   lv_obj_t *gl = lv_obj_create(s_screen);
   lv_obj_remove_flag(gl, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(gl, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(gl, LCD_H_RES, GLABEL_H);
+  lv_obj_set_size(gl, ui_screen_w(), GLABEL_H);
   lv_obj_align(gl, LV_ALIGN_BOTTOM_LEFT, 0, -FOOTER_H);
   lv_obj_set_style_radius(gl, 0, 0);
   lv_obj_set_style_bg_opa(gl, LV_OPA_TRANSP, 0);
@@ -734,7 +763,7 @@ static void build_peek(void) {
   lv_obj_t *pk = lv_obj_create(s_screen);
   lv_obj_remove_flag(pk, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(pk, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(pk, LCD_H_RES - 16, PEEK_H);
+  lv_obj_set_size(pk, ui_screen_w() - 16, PEEK_H);
   lv_obj_align(pk, LV_ALIGN_BOTTOM_MID, 0, -(FOOTER_H + 4));
   lv_obj_set_style_radius(pk, 11, 0);
   lv_obj_set_style_bg_color(pk, lv_color_hex(COL_RAISE), 0);
@@ -775,7 +804,7 @@ static void build_peek(void) {
   lv_label_set_long_mode(s_pk_meta, LV_LABEL_LONG_DOT);
   lv_obj_set_width(s_pk_meta, lv_pct(100));
   lv_obj_set_style_text_font(s_pk_meta, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(s_pk_meta, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s_pk_meta, current_theme.text_secondary, 0);
 
   s_pk_snip = lv_label_create(pk);
   lv_label_set_long_mode(s_pk_snip, LV_LABEL_LONG_DOT);
@@ -789,7 +818,7 @@ static void build_footer(const char *hint) {
   lv_obj_t *ft = lv_obj_create(s_screen);
   lv_obj_remove_flag(ft, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(ft, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(ft, LCD_H_RES, FOOTER_H);
+  lv_obj_set_size(ft, ui_screen_w(), FOOTER_H);
   lv_obj_align(ft, LV_ALIGN_BOTTOM_LEFT, 0, 0);
   lv_obj_set_style_radius(ft, 0, 0);
   lv_obj_set_style_bg_color(ft, current_theme.bg_secondary, 0);
@@ -822,7 +851,6 @@ static void load_preview(const char *path) {
     total = (long)n;
   }
 
-  // Classify: a NUL byte or lots of non-printables means it's a binary file.
   int nonprint = 0;
   bool binary = false;
   for (size_t i = 0; i < n; i++) {
@@ -840,7 +868,6 @@ static void load_preview(const char *path) {
   }
 
   if (!binary) {
-    // Text: keep it, replacing any stray control byte with a dot.
     s_vbuf[n] = '\0';
     for (size_t i = 0; i < n; i++) {
       unsigned char c = (unsigned char)s_vbuf[i];
@@ -854,7 +881,6 @@ static void load_preview(const char *path) {
     return;
   }
 
-  // Binary: give it a real hex preview (offset + bytes) so it still opens.
   unsigned char raw[256];
   size_t hn = n < sizeof(raw) ? n : sizeof(raw);
   for (size_t i = 0; i < hn; i++) {
@@ -879,9 +905,6 @@ static void build_viewer(void) {
   snprintf(full, sizeof(full), "%s/%s", s_cwd, e->name);
   load_preview(full);
 
-  // Use the shared text_viewer component (wrapped text, line/byte meta, scroll
-  // bar). It builds a full-screen viewer under s_screen; keep its scroll area in
-  // s_vbody so the nav timer's UP/DOWN can scroll it.
   s_tv = text_viewer_create(s_screen, e->name);
   text_viewer_set_text(&s_tv, s_vbuf);
   s_vbody = s_tv.text_area;
@@ -952,11 +975,11 @@ static void move_grid(int dx, int dy) {
     s--;
   }
   if (dy > 0) {
-    int t = s + GRID_COLS;
+    int t = s + s_grid_cols;
     s = (t < s_count) ? t : s_count - 1;
   }
   if (dy < 0) {
-    int t = s - GRID_COLS;
+    int t = s - s_grid_cols;
     if (t >= 0) {
       s = t;
     }
@@ -992,6 +1015,11 @@ static void do_enter(void) {
     return;
   }
   if (s_depth == 0) {
+    if (s_vol_idx[s_sel] == ENTRY_USB_MSC) {
+      ui_feedback(UI_FB_SELECT);
+      ui_switch_screen(SCREEN_USB_STORAGE);
+      return;
+    }
     enter_dir(VOL_PATHS[s_vol_idx[s_sel]], true);
     return;
   }
@@ -1009,6 +1037,38 @@ static void do_enter(void) {
     ui_wav_player_set_path(full);
     ui_wav_player_set_return(SCREEN_FILES);
     ui_switch_screen(SCREEN_WAV_PLAYER);
+    return;
+  }
+  if (dot != NULL && (strcasecmp(dot, ".mp4") == 0 || strcasecmp(dot, ".m4v") == 0 ||
+                      strcasecmp(dot, ".mov") == 0)) {
+    char full[FULL_PATH];
+    snprintf(full, sizeof(full), "%s/%s", s_cwd, e->name);
+    ui_feedback(UI_FB_SELECT);
+    s_resume = true;
+    ui_mp4_player_set_path(full);
+    ui_mp4_player_set_return(SCREEN_FILES);
+    ui_switch_screen(SCREEN_MP4_PLAYER);
+    return;
+  }
+  if (dot != NULL && strcasecmp(dot, ".mp3") == 0) {
+    char full[FULL_PATH];
+    snprintf(full, sizeof(full), "%s/%s", s_cwd, e->name);
+    ui_feedback(UI_FB_SELECT);
+    s_resume = true;
+    ui_mp3_player_set_path(full);
+    ui_mp3_player_set_return(SCREEN_FILES);
+    ui_switch_screen(SCREEN_MP3_PLAYER);
+    return;
+  }
+  if (dot != NULL && (strcasecmp(dot, ".jpg") == 0 || strcasecmp(dot, ".jpeg") == 0 ||
+                      strcasecmp(dot, ".png") == 0 || strcasecmp(dot, ".gif") == 0)) {
+    char full[FULL_PATH];
+    snprintf(full, sizeof(full), "%s/%s", s_cwd, e->name);
+    ui_feedback(UI_FB_SELECT);
+    s_resume = true;
+    ui_image_viewer_set_path(full);
+    ui_image_viewer_set_return(SCREEN_FILES);
+    ui_switch_screen(SCREEN_IMAGE_VIEWER);
     return;
   }
   s_in_viewer = true;
@@ -1089,8 +1149,6 @@ static void files_input(const input_event_t *ev, void *ctx) {
   const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
   if (s_in_viewer) {
-    // _bounded clamps the scroll to the content — plain lv_obj_scroll_by() ignores
-    // the content bounds (and SCROLL_ELASTIC/MOMENTUM), which let it scroll forever.
     switch (ev->button) {
       case INPUT_BTN_DOWN:
         if (nav && s_vbody)

@@ -80,7 +80,7 @@ static void on_kb_submit(const char *text, void *ud) {
       wifi_names_remove(s_edit_index);
   }
   s_edit_index = -1;
-  lv_async_call(rebuild_async, NULL);
+  ui_async_call(rebuild_async, NULL);
 }
 
 static void wifi_names_input(const input_event_t *ev, void *ctx) {

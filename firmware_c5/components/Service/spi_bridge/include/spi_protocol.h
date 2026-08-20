@@ -575,14 +575,36 @@ typedef struct {
 } __attribute__((packed)) spi_wifi_scan_record_t;
 
 /**
- * @brief WiFi sniffer stream frame.
+ * @brief WiFi sniffer stream fragment.
+ *
+ * A single 802.11 frame can exceed one SPI transfer (payload capped at
+ * SPI_MAX_PAYLOAD), so the C5 splits large frames into ordered fragments and
+ * the P4 reassembles them. rssi/channel/total_len are repeated on every
+ * fragment so the P4 can validate cheaply. frag_off is this fragment's byte
+ * offset within the full frame; SPI_WIFI_SNIFFER_FRAG_MORE is set on every
+ * fragment except the last. A frame that fits in one transfer is a single
+ * fragment with frag_off == 0 and the MORE bit clear.
+ *
+ * Max data bytes per fragment = SPI_MAX_PAYLOAD - sizeof(spi_stream_meta_t)
+ * - sizeof(spi_wifi_sniffer_frame_t).
  */
 typedef struct {
-  int8_t rssi;
-  uint8_t channel;
-  uint8_t len;
+  int8_t rssi;        // dBm signal of the frame
+  uint8_t channel;    // primary channel
+  uint16_t total_len; // full 802.11 frame length across all fragments
+  uint16_t frag_off;  // byte offset of this fragment within the frame
+  uint8_t frag_len;   // data bytes carried by this fragment
+  uint8_t flags;      // SPI_WIFI_SNIFFER_FRAG_* bits
   uint8_t data[0];
 } __attribute__((packed)) spi_wifi_sniffer_frame_t;
+
+#define SPI_WIFI_SNIFFER_FRAG_MORE 0x01u // more fragments follow this one
+#define SPI_WIFI_SNIFFER_FRAME_MAX 2346  // max reassembled 802.11 frame (bytes)
+
+// Max frame bytes carried by a single fragment (transfer cap minus the stream
+// meta prepended by the session layer minus this fragment header).
+#define SPI_WIFI_SNIFFER_FRAG_DATA_MAX \
+  ((int)(SPI_MAX_PAYLOAD - sizeof(spi_stream_meta_t) - sizeof(spi_wifi_sniffer_frame_t)))
 
 /**
  * @brief BLE sniffer stream frame.

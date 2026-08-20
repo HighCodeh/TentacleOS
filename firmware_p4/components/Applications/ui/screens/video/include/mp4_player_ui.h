@@ -13,43 +13,30 @@
 // You should have received a copy of the GNU General Public License
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-#ifndef TOS_LOG_H
-#define TOS_LOG_H
+#ifndef MP4_PLAYER_UI_H
+#define MP4_PLAYER_UI_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#include "esp_err.h"
+/**
+ * @brief Set the .mp4 / .m4v / .mov file to open. Call BEFORE switching to
+ *        SCREEN_MP4_PLAYER (e.g. from the Files screen). The string is copied.
+ */
+void ui_mp4_player_set_path(const char *path);
 
 /**
- * @brief Initialize the persistent log system.
- *
- * Redirects all ESP_LOGx output to a file on the SD card via
- * esp_log_set_vprintf. Logs are written to both serial and file
- * simultaneously.
- *
- * Log files are rotated automatically:
- *   - sys.1.log (current) -> sys.2.log -> ... -> sys.5.log
- *   - Maximum 5 files, total limited to 10 MB
- *   - When sys.1.log exceeds 2 MB, rotation occurs
- *
- * @return
- *   - ESP_OK on success
- *   - ESP_FAIL if the log file cannot be opened
+ * @brief Set the screen to return to on BACK (as a screen_id_t value).
+ *        Defaults to the Files screen.
  */
-esp_err_t tos_log_init(void);
+void ui_mp4_player_set_return(int screen);
 
-/**
- * @brief Flush and close the log file.
- *
- * Restores the default ESP_LOG vprintf handler. Call this before
- * unmounting the SD card.
- */
-void tos_log_deinit(void);
+/** @brief Open the MP4 player screen: parses metadata + cover and shows them. */
+void ui_mp4_player_open(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // TOS_LOG_H
+#endif // MP4_PLAYER_UI_H

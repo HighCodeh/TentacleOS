@@ -28,12 +28,12 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 #define TICK_MS     33
 #define CARD_ICON   "/assets/icons/contactless.bin"
-#define COL_DIM     0x8A8594
-#define SIG_GREEN   0x00E676
 #define TX_DOTS     3
 #define CARD_Y_OFS  (-24)
 #define FIELD_BOX_W 210
@@ -136,7 +136,7 @@ static void build_empty(const char *icon, const char *title, const char *sub) {
   lv_obj_t *s = lv_label_create(card);
   lv_label_set_text(s, sub);
   lv_obj_set_style_text_font(s, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(s, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s, current_theme.text_secondary, 0);
 }
 
 static lv_obj_t *
@@ -169,7 +169,7 @@ static void wallet_build(void) {
   s_body = lv_obj_create(s_screen);
   lv_obj_remove_flag(s_body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(s_body, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(s_body, lv_pct(100), LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_size(s_body, lv_pct(100), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
   lv_obj_align(s_body, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(s_body, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(s_body, 0, 0);
@@ -202,21 +202,22 @@ static void wallet_build(void) {
   lv_obj_set_style_pad_column(tap, 7, 0);
   lv_obj_set_flex_flow(tap, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(tap, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_align(tap, LV_ALIGN_CENTER, 0, WALLET_TAP_Y);
+  const int emu_body_h = ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H;
+  lv_obj_align(tap, LV_ALIGN_CENTER, 0, LV_MIN(WALLET_TAP_Y, emu_body_h / 2 - 7));
 
   lv_obj_t *dot = lv_obj_create(tap);
   lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(dot, 8, 8);
   lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_border_width(dot, 0, 0);
-  lv_obj_set_style_bg_color(dot, lv_color_hex(SIG_GREEN), 0);
+  lv_obj_set_style_bg_color(dot, lv_color_hex(UI_COL_SUCCESS), 0);
   lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
   blink_loop(dot, 900, 0);
 
   lv_obj_t *txt = lv_label_create(tap);
   lv_label_set_text(txt, "tap to broadcast");
   lv_obj_set_style_text_font(txt, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(txt, lv_color_hex(SIG_GREEN), 0);
+  lv_obj_set_style_text_color(txt, lv_color_hex(UI_COL_SUCCESS), 0);
 
   s_dots = page_dots_create(s_body, s_count, LV_ALIGN_BOTTOM_MID, 0, -4);
   page_dots_set(&s_dots, s_sel);

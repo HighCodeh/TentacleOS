@@ -24,6 +24,8 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
 
@@ -34,7 +36,6 @@ static const char *TAG = "BLE_MOUSE_UI";
 #define FOUND_DWELL_US        600000
 #define DOT_CYCLE_US          350000
 
-#define SIG_GREEN 0x00E676
 #define COL_RAISE 0x170A28
 
 static void opa_cb(void *var, int32_t v) {
@@ -85,7 +86,7 @@ static void pair_reveal(void) {
   s_pair_waves = waves_create(s_pair_screen, LV_ALIGN_CENTER, 0, -24, LV_SYMBOL_OK, NULL);
 
   lv_label_set_text(s_pair_status, "Connected!");
-  lv_obj_set_style_text_color(s_pair_status, lv_color_hex(SIG_GREEN), 0);
+  lv_obj_set_style_text_color(s_pair_status, lv_color_hex(UI_COL_SUCCESS), 0);
   ui_feedback(UI_FB_EMULATE);
 }
 
@@ -294,7 +295,7 @@ void ui_ble_mouse_open(void) {
 
   lv_obj_t *body = lv_obj_create(s_mouse_screen);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(body, LCD_H_RES, LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_size(body, lv_pct(100), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
   lv_obj_align(body, LV_ALIGN_TOP_LEFT, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(body, 0, 0);

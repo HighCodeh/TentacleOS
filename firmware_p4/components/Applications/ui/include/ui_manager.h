@@ -86,11 +86,18 @@ typedef enum {
   SCREEN_IR_BURST,
   SCREEN_OCTOBIT_STATUS,
   SCREEN_DEV_MENU,
+  SCREEN_GAMES_MENU,
+  SCREEN_GAME_SNAKE,
+  SCREEN_GAME_BREAKOUT,
+  SCREEN_GAME_GB,
+  SCREEN_GAME_DOOM,
   SCREEN_GPIO,
   SCREEN_HAPTIC,
   SCREEN_SPEAKER,
   SCREEN_MIC_REC,
   SCREEN_WAV_PLAYER,
+  SCREEN_MP4_PLAYER,
+  SCREEN_MP3_PLAYER,
   SCREEN_PLAYER,
   SCREEN_SUBGHZ_MENU,
   SCREEN_SUBGHZ_READ,
@@ -164,6 +171,8 @@ typedef enum {
   SCREEN_SD_HEALTH,
   SCREEN_USB_MOUSE,
   SCREEN_TIME,
+  SCREEN_IMAGE_VIEWER,
+  SCREEN_USB_STORAGE,
   SCREEN_COUNT
 } screen_id_t;
 
@@ -185,6 +194,17 @@ bool ui_acquire(void);
 
 /** @brief Release the UI mutex. */
 void ui_release(void);
+
+/**
+ * @brief Schedule an lv_async_call safely from any thread.
+ *
+ * lv_async_call() creates an lv_timer under the hood, mutating LVGL's global
+ * timer list. Called from a non-LVGL thread (radio/bridge worker tasks) it races
+ * lv_timer_handler on the render thread. This wrapper takes the (recursive) UI
+ * mutex first, so it is safe to call from any context; it silently drops the
+ * call only if the lock cannot be taken within the UI timeout.
+ */
+void ui_async_call(lv_async_cb_t cb, void *user_data);
 
 /** @brief Switch to a new screen by identifier. */
 void ui_switch_screen(screen_id_t new_screen);
@@ -209,6 +229,19 @@ void ui_screen_load_owned(lv_obj_t **slot, lv_obj_t *scr);
 
 /** @brief Returns the currently active screen id. */
 screen_id_t ui_current_screen(void);
+
+/**
+ * @brief Rebuild the active screen so it re-lays-out at the current logical
+ *        resolution. Call after a rotation change to reflow it immediately.
+ */
+void ui_relayout_current_screen(void);
+
+/**
+ * @brief Is the given LOGICAL direction button currently held? Accounts for the
+ *        landscape d-pad rotation. Use in components that poll button levels
+ *        directly (dropdown, modals) so they navigate like the rotated screens.
+ */
+bool ui_nav_pressed(input_button_t logical);
 
 /**
  * @brief Whether a screen shows the global chrome (status bar + dropdown).

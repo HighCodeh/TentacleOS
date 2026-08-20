@@ -26,6 +26,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 static const char *TAG = "BLE_SNIFFER_UI";
@@ -36,8 +37,6 @@ static const char *TAG = "BLE_SNIFFER_UI";
 #define ROW_LEN      40
 #define FEED_BUF_LEN (MAX_ROWS * ROW_LEN)
 
-#define COL_DIM 0x8A8594
-
 #define SNIFF_ICON "/assets/icons/monitoring.bin"
 
 #define STATUS_Y      48
@@ -45,7 +44,7 @@ static const char *TAG = "BLE_SNIFFER_UI";
 #define FRAMES_CARD_H 34
 #define FRAMES_CARD_Y 70
 #define HEX_PANEL_W   224
-#define HEX_PANEL_H   150
+#define HEX_PANEL_H   LV_MIN(150, ui_screen_h() - HEX_PANEL_Y - UI_CHROME_FOOTER_H)
 #define HEX_PANEL_Y   112
 #define HEX_PANEL_PAD 8
 

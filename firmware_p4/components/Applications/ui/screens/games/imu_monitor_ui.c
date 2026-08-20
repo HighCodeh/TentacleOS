@@ -32,7 +32,6 @@
 #define MX        8
 #define CONTENT_W (240 - 2 * MX)
 
-#define COL_DIM  0x8A8594
 #define COL_CYAN 0x37E0A8
 #define COL_WARN 0xFFC23D
 #define COL_ACC2 0xB89AFF
@@ -217,7 +216,8 @@ static void build_scope_card(void) {
 
   fill_traces();
 
-  lv_obj_t *xval = make_mono_label(card, "X -0.01", COL_DIM, 0, VAL_ROW_Y);
+  lv_obj_t *xval =
+      make_mono_label(card, "X -0.01", 0x8A8594, 0, VAL_ROW_Y); // TODO: not themed (raw hex arg)
   lv_obj_set_style_text_color(xval, current_theme.border_accent, 0);
   make_mono_label(card, "Y +0.05", COL_CYAN, 80, VAL_ROW_Y);
   make_mono_label(card, "Z +1.00", COL_WARN, 158, VAL_ROW_Y);
@@ -233,7 +233,7 @@ static void build_gyro_card(void) {
     lv_obj_t *lbl = lv_label_create(card);
     lv_label_set_text(lbl, GYRO_ROWS[i].label);
     lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(lbl, lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(lbl, current_theme.text_secondary, 0);
     lv_obj_align(lbl, LV_ALIGN_TOP_LEFT, 0, row_y);
 
     lv_obj_t *track = lv_obj_create(card);
@@ -244,7 +244,7 @@ static void build_gyro_card(void) {
     lv_obj_set_style_pad_all(track, 0, 0);
     lv_obj_set_style_bg_color(track, current_theme.bg_primary, 0);
     lv_obj_set_style_bg_opa(track, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(track, lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_border_color(track, current_theme.text_secondary, 0);
     lv_obj_set_style_border_opa(track, LV_OPA_40, 0);
     lv_obj_set_style_border_width(track, 1, 0);
     lv_obj_set_style_clip_corner(track, true, 0);

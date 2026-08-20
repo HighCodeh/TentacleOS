@@ -24,10 +24,11 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 #define MX        8
-#define CONTENT_W (LCD_H_RES - 2 * MX)
+#define CONTENT_W (ui_screen_w() - 2 * MX)
 
 #define PREVIEW_Y      50
 #define PREVIEW_D      72
@@ -42,26 +43,24 @@
 #define PILL_W         52
 #define PILL_H         24
 
-#define BRIGHT_MIN     5 // lowest level the LED still lights at
+#define BRIGHT_MIN     5
 #define BRIGHT_MAX     100
 #define BRIGHT_STEP    5
 #define BRIGHT_DEFAULT 80
 
-#define COL_DIM   0x8A8594
 #define COL_OFF   0x101018
 #define COL_TRACK 0x202028
 
 #define HDR_ICON  "/assets/icons/palette.bin"
 #define HDR_TITLE "LED SIGNALS"
 
-// The three semantic signals whose color is being configured.
 enum { SIG_INFO = 0, SIG_WARNING, SIG_ERROR, SIG_COUNT };
 static const char *SIG_NAMES[SIG_COUNT] = {"INFO", "WARNING", "ERROR"};
 
 enum {
-  FOCUS_SIGNAL = 0, // which signal to edit (info / warning / error)
-  FOCUS_COLOR,      // color assigned to the selected signal
-  FOCUS_BRIGHT,     // global intensity (one value for all signals)
+  FOCUS_SIGNAL = 0,
+  FOCUS_COLOR,
+  FOCUS_BRIGHT,
   FOCUS_COUNT,
 };
 
@@ -70,9 +69,6 @@ typedef struct {
   uint32_t hex;
 } preset_t;
 
-// Saturated primaries: these drive a physical RGB LED, so pale/pastel values
-// (lots of all three channels) wash out to white. Keep the channels pure. The
-// three signal defaults (purple/yellow/red) are all present so they map back.
 static const preset_t PRESETS[] = {
     {"Red", 0xFF0000},
     {"Orange", 0xFF6000},
@@ -93,12 +89,10 @@ static lv_obj_t *s_sig_val = NULL;
 
 static int s_focus = FOCUS_SIGNAL;
 static int s_signal = SIG_INFO;
-static int s_color_idx[SIG_COUNT]; // selected preset index per signal
+static int s_color_idx[SIG_COUNT];
 static int s_bright = BRIGHT_DEFAULT;
 static bool s_changed = false;
 
-// Scale one 8-bit channel by a percentage, clamped to [0, 255] so an out-of-range
-// percentage can never overflow the byte and wrap the color to a wrong hue.
 static uint8_t scale_channel(uint8_t chan, int pct) {
   if (pct < 0)
     pct = 0;
@@ -129,8 +123,6 @@ static void update_preview(void) {
   lv_obj_set_style_shadow_color(s_preview, lv_color_hex(hex), 0);
   lv_obj_set_style_shadow_opa(s_preview, LV_OPA_60, 0);
 
-  // Drive the physical RGB LED (LP5816) to match the preview: selected signal's
-  // color scaled by the brightness percentage.
   led_set_color(scale_channel((hex >> 16) & 0xFF, s_bright),
                 scale_channel((hex >> 8) & 0xFF, s_bright),
                 scale_channel(hex & 0xFF, s_bright));
@@ -193,7 +185,7 @@ static lv_obj_t *make_ctrl_card(lv_obj_t *parent, const char *label, int h) {
   lv_obj_t *lbl = lv_label_create(card);
   lv_label_set_text(lbl, label);
   lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(lbl, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(lbl, current_theme.text_secondary, 0);
   lv_obj_set_width(lbl, CARD_LABEL_W);
   return card;
 }
@@ -292,7 +284,12 @@ static void build_controls(void) {
   lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(col, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(col, CONTENT_W, LV_SIZE_CONTENT);
-  lv_obj_align(col, LV_ALIGN_TOP_MID, 0, CTRL_Y);
+  lv_obj_align(col,
+               LV_ALIGN_TOP_MID,
+               0,
+               LV_MIN(CTRL_Y,
+                      ui_screen_h() - UI_CHROME_FOOTER_H -
+                          (SWATCH_CARD_H + BRIGHT_CARD_H + STEALTH_CARD_H + 2 * CTRL_GAP)));
   lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(col, 0, 0);
   lv_obj_set_style_pad_all(col, 0, 0);
@@ -310,7 +307,7 @@ static int preset_index_of(uint32_t hex) {
     if (PRESETS[i].hex == (hex & 0xFFFFFF))
       return i;
   }
-  return 0; // custom/unknown color falls back to the first preset
+  return 0;
 }
 
 static void save_config(void) {
@@ -319,14 +316,11 @@ static void save_config(void) {
   g_config_led.warning_color = PRESETS[s_color_idx[SIG_WARNING]].hex;
   g_config_led.error_color = PRESETS[s_color_idx[SIG_ERROR]].hex;
 
-  // Apply live so subsequent signals use the new colors/brightness immediately.
   led_set_signal_config(g_config_led.info_color,
                         g_config_led.warning_color,
                         g_config_led.error_color,
                         g_config_led.brightness);
 
-  // Persist to SD only (matches the storage policy: no SD -> keep in RAM for this
-  // session but do not write anything).
   if (tos_config_save(TOS_PATH_CONFIG_LED, "led") == ESP_OK) {
     notify(NOTIFY_SAVED, "LED settings saved");
   } else {

@@ -64,12 +64,8 @@ static void deauth_task(void *pvParameters);
 
 void wifi_deauther_send_raw_frame(const uint8_t *frame_buffer, int size) {
   esp_err_t ret = esp_wifi_80211_tx(WIFI_IF_AP, frame_buffer, size, false);
-  if (ret != ESP_OK) {
+  if (ret != ESP_OK)
     ESP_LOGD(TAG, "TX Fail: 0x%x", ret);
-    led_blink_red();
-  } else {
-    led_blink_green();
-  }
 }
 
 void wifi_deauther_send_deauth_frame(const wifi_ap_record_t *ap_record,
@@ -159,7 +155,6 @@ bool wifi_deauther_start(const wifi_ap_record_t *ap_record,
   if (ap_record == NULL)
     return false;
 
-  // Clean up previous task memory if it wasn't freed
   if (s_deauth_task_stack != NULL) {
     free(s_deauth_task_stack);
     s_deauth_task_stack = NULL;
@@ -262,7 +257,6 @@ bool wifi_deauther_start_targeted(const wifi_ap_record_t *ap_record,
 void wifi_deauther_stop(void) {
   if (s_is_running) {
     s_is_running = false;
-    // Give task time to finish loop and delete itself
     vTaskDelay(pdMS_TO_TICKS(DEAUTHER_DELAY_MS + DEAUTHER_STOP_MARGIN_MS));
   }
 }
@@ -290,6 +284,7 @@ static const uint8_t *get_deauth_frame_template(wifi_deauther_frame_type_t type)
 
 static void deauth_task(void *pvParameters) {
   ESP_LOGI(TAG, "Deauther Task Started");
+  led_blink_green();
 
   const uint8_t *frame_template = get_deauth_frame_template(s_type);
   uint8_t frame[DEAUTH_FRAME_LEN];

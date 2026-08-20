@@ -22,6 +22,8 @@
 
 #include "ui_chrome.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 static const char *TAG = "LORA_RNODE";
@@ -29,12 +31,10 @@ static const char *TAG = "LORA_RNODE";
 #define DATA_TICK_MS 700
 #define ENTRY_MS     220
 
-#define SIG_GREEN 0x00E676
-#define COL_DIM   0x8A8594
-
-#define CARD_W      216
-#define CFG_CARD_H  110
-#define CNT_CARD_H  82
+#define CARD_W     216
+#define CFG_CARD_H 110
+#define CNT_CARD_H \
+  LV_MIN(82, ui_screen_h() - (BODY_TOP_Y + CFG_CARD_H + CARD_GAP) - UI_CHROME_FOOTER_H)
 #define CARD_RADIUS 13
 #define CARD_PAD    12
 #define CARD_GAP    12
@@ -122,7 +122,7 @@ static void build_config_card(lv_obj_t *parent, lv_color_t accent) {
   lv_obj_set_size(dot, DOT_SIZE, DOT_SIZE);
   lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_border_width(dot, 0, 0);
-  lv_obj_set_style_bg_color(dot, lv_color_hex(SIG_GREEN), 0);
+  lv_obj_set_style_bg_color(dot, lv_color_hex(UI_COL_SUCCESS), 0);
   lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
 
   lv_anim_t a;
@@ -152,13 +152,13 @@ static void build_counter_card(lv_obj_t *parent, lv_color_t accent) {
 
   s_counter_lbl = lv_label_create(card);
   lv_label_set_text_fmt(s_counter_lbl, "RX %lu    TX %lu", s_rx, s_tx);
-  lv_obj_set_style_text_color(s_counter_lbl, lv_color_hex(SIG_GREEN), 0);
+  lv_obj_set_style_text_color(s_counter_lbl, lv_color_hex(UI_COL_SUCCESS), 0);
   lv_obj_set_style_text_font(s_counter_lbl, &lv_font_montserrat_14, 0);
 
   s_last_lbl = lv_label_create(card);
   lv_label_set_text_fmt(
       s_last_lbl, "Last: RSSI %d  SNR %d.%d", s_last_rssi, s_last_snr / 10, s_last_snr % 10);
-  lv_obj_set_style_text_color(s_last_lbl, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s_last_lbl, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(s_last_lbl, &lv_font_montserrat_12, 0);
 }
 

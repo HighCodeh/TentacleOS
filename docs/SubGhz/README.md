@@ -60,6 +60,8 @@ Captures RF signals via the CC1101 GDO0 pin routed to the ESP32 RMT RX periphera
 4. **SCAN mode:** Protocol registry tries all decoders -> Analyzer for unknowns
 5. **RAW mode:** Direct save to storage
 
+**LED feedback:** The RX pipeline drives the status LED as it processes signals: `led_signal_info()` fires when a known protocol is decoded, and `led_signal_warning()` fires when RF is captured but no registered protocol matches.
+
 #### API
 
 ```c
@@ -120,7 +122,7 @@ void subghz_spectrum_start(uint32_t center_freq, uint32_t span_hz);
 void subghz_spectrum_stop(void);
 bool subghz_spectrum_get_line(subghz_spectrum_line_t *out_line);
 ```
-- Task stack: 4096 bytes, priority 1, Core 1.
+- Task stack: 4096 bytes, Core 1. Priority comes from `sys_prio.h`: the `SYS_PRIO_BACKGROUND_LO` band (lowest non-idle background work), so the sweep never contends with the renderer or latency-sensitive services.
 - Thread-safe reads via `subghz_spectrum_get_line`.
 
 ### Signal Analyzer (`subghz_analyzer`)

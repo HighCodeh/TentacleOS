@@ -1,0 +1,137 @@
+REM Amiga ASCII art (LGB) - types the art into the focused window
+REM Focus a text editor first. END before ENTER stops the editor auto-indent
+REM from accumulating; HOME returns to column 0 for the next line.
+DELAY 1000
+HOME
+STRING                      ___..-.---.---.--..___
+END
+ENTER
+HOME
+STRING                _..-- `.`.   `.  `.  `.      --.._
+END
+ENTER
+HOME
+STRING               /    ___________\   \   \______    \
+END
+ENTER
+HOME
+STRING               |   |.-----------`.  `.  `.---.|   |
+END
+ENTER
+HOME
+STRING               |`. |'  \`.        \   \   \  '|   |
+END
+ENTER
+HOME
+STRING               |`. |'   \ `-._     `.  `.  `.'|   |
+END
+ENTER
+HOME
+STRING              /|   |'    `-._o)\  /(o\   \   \|   |\
+END
+ENTER
+HOME
+STRING            .' |   |'  `.     .'  '.  `.  `.  `.  | `.
+END
+ENTER
+HOME
+STRING           /  .|   |'    `.  (_.==._)   \   \   \ |.  \         _.--.
+END
+ENTER
+HOME
+STRING         .' .' |   |'      _.-======-._  `.  `.  `. `. `.    _.-_.-'\\
+END
+ENTER
+HOME
+STRING        /  /   |   |'    .'   |_||_|   `.  \   \   \  \  \ .'_.'     ||
+END
+ENTER
+HOME
+STRING       / .'    |`. |'   /_.-'========`-._\  `.  `-._`._`. \(.__      :|
+END
+ENTER
+HOME
+STRING      ( '      |`. |'.______________________.'\      _.) ` )`-._`-._/ /
+END
+ENTER
+HOME
+STRING       \\      |   '.------------------------.'`-._-'    //     `-._.'
+END
+ENTER
+HOME
+STRING       _\\_    \    | AMIGA  O O O O * * `.`.|    '     //
+END
+ENTER
+HOME
+STRING      (_  _)    '-._|________________________|_.-'|   _//_
+END
+ENTER
+HOME
+STRING      /  /      /`-._      |`-._     / /      /   |  (_  _)
+END
+ENTER
+HOME
+STRING    .'   \     |`-._ `-._   `-._`-._/ /      /    |    \  \
+END
+ENTER
+HOME
+STRING   /      `.   |    `-._ `-._   `-._|/      /     |    /   `.
+END
+ENTER
+HOME
+STRING  /  / / /. )  |  `-._  `-._ `-._          /     /   .'      \
+END
+ENTER
+HOME
+STRING | | | \ \|/   |  `-._`-._  `-._ `-._     /     /.  ( .\ \ \  \
+END
+ENTER
+HOME
+STRING  \ \ \ \/     |  `-._`-._`-._  `-._ `-._/     /  \  \|/ / | | |
+END
+ENTER
+HOME
+STRING   `.\_\/       `-._  `-._`-._`-._  `-._/|    /|   \   \/ / / /
+END
+ENTER
+HOME
+STRING               /    `-._  `-._`-._`-._  ||   / |    \   \/_/.'
+END
+ENTER
+HOME
+STRING             .'         `-._  `-._`-._  ||  /  |     \
+END
+ENTER
+HOME
+STRING    LGB     /           / . `-._  `-._  || /   |      \
+END
+ENTER
+HOME
+STRING           '\          / /      `-._    ||/'._.'       \
+END
+ENTER
+HOME
+STRING            \`.      .' /           `-._|/              \
+END
+ENTER
+HOME
+STRING             `.`-._.' .'               \               .'
+END
+ENTER
+HOME
+STRING               `-.__\/                 `\            .' '
+END
+ENTER
+HOME
+STRING                                        \`.       _.' .'
+END
+ENTER
+HOME
+STRING                                         `.`-._.-' _.'
+END
+ENTER
+HOME
+STRING                                           `-.__.-'
+END
+ENTER
+HOME

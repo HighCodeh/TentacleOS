@@ -33,8 +33,8 @@ static const char *TAG = "SUBGHZ_SPECTRUM";
 #define RSSI_SAMPLE_DELAY_US   20
 #define RSSI_SAMPLE_COUNT      3
 #define RSSI_MIN_DBM           (-130.0f)
-#define YIELD_INTERVAL         16
-#define SWEEP_DELAY_MS         5
+#define YIELD_INTERVAL         1
+#define SWEEP_DELAY_MS         15
 #define MUTEX_TIMEOUT_MS       10
 #define GET_LINE_TIMEOUT_MS    5
 #define SPECTRUM_TASK_STACK    4096

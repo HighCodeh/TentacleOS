@@ -31,7 +31,7 @@
 
 static const char *TAG = "MESH_BRIDGE";
 
-#define BRIDGE_NOTIFY_TASK_STACK  4096
+#define BRIDGE_NOTIFY_TASK_STACK  8192
 #define BRIDGE_NOTIFY_TASK_PRIO   SYS_PRIO_SERVICE_HI
 #define BRIDGE_NOTIFY_TICK_MS     100
 #define BRIDGE_SPI_TIMEOUT_MS     1000
@@ -182,6 +182,18 @@ bool meshtastic_phone_bridge_is_connected(void) {
     xSemaphoreGive(s_status_mutex);
   }
   return is_connected;
+}
+
+bool meshtastic_phone_bridge_is_subscribed(void) {
+  bool is_subscribed = false;
+  if (s_status_mutex == NULL) {
+    return false;
+  }
+  if (xSemaphoreTake(s_status_mutex, pdMS_TO_TICKS(BRIDGE_NOTIFY_TICK_MS)) == pdTRUE) {
+    is_subscribed = (s_cached_status.ble_subscribed != 0) || (s_cached_status.tcp_clients != 0);
+    xSemaphoreGive(s_status_mutex);
+  }
+  return is_subscribed;
 }
 
 static void notify_task(void *pvParameters) {

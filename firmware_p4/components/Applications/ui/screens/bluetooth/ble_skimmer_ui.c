@@ -25,6 +25,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
 
@@ -37,13 +38,12 @@ static const char *TAG = "BLE_SKIMMER_UI";
 #define DETAIL_LEN     48
 #define SUSPECTS_SHOWN 3
 
-#define COL_DIM    0x8A8594
 #define COL_THREAT 0xFFB300
 
 #define SKIM_ICON "/assets/icons/warning.bin"
 
 #define BODY_W       240
-#define BODY_H       256
+#define BODY_H       LV_MIN(256, ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
 #define BODY_PAD     10
 #define BODY_GAP     8
 #define CARD_W       220
@@ -74,7 +74,7 @@ static void stop_detector(void) {
 
 static lv_obj_t *body_container(void) {
   lv_obj_t *body = lv_obj_create(s_screen);
-  lv_obj_set_size(body, BODY_W, BODY_H);
+  lv_obj_set_size(body, lv_pct(100), ui_screen_h() - UI_CHROME_HEADER_H);
   lv_obj_align(body, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, 0);
@@ -119,7 +119,7 @@ static void make_suspect_card(lv_obj_t *parent, const char *name, const char *ma
   char buf[DETAIL_LEN];
   snprintf(buf, sizeof(buf), "%s   %d dBm", mac, rssi);
   lv_label_set_text(detail, buf);
-  lv_obj_set_style_text_color(detail, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(detail, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(detail, &lv_font_montserrat_12, 0);
   lv_obj_align(detail, LV_ALIGN_TOP_LEFT, 0, DETAIL_Y);
 }
@@ -141,7 +141,7 @@ static void build_scanning_view(void) {
 
   lv_obj_t *sub = lv_label_create(s_screen);
   lv_label_set_text(sub, "Looking for HC / RNBT chips");
-  lv_obj_set_style_text_color(sub, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(sub, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(sub, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_align(sub, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(sub, LV_ALIGN_CENTER, 0, SUB_Y_OFS);

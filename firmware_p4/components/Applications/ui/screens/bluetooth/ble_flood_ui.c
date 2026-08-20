@@ -30,6 +30,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 static const char *TAG = "BLE_FLOOD_UI";
@@ -41,8 +42,6 @@ static const char *TAG = "BLE_FLOOD_UI";
 #define FLOOD_ICON "/assets/icons/broadcast_on_personal.bin"
 
 #define BLE_ADDR_LEN 6
-
-#define COL_DIM 0x8A8594
 
 #define CARD_W 172
 #define CARD_H 54
@@ -150,7 +149,7 @@ void ui_ble_flood_open(void) {
 
   lv_obj_t *body = lv_obj_create(s_screen);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(body, LCD_H_RES, LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_size(body, lv_pct(100), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
   lv_obj_align(body, LV_ALIGN_TOP_LEFT, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(body, 0, 0);
@@ -164,7 +163,7 @@ void ui_ble_flood_open(void) {
 
   s_target_label = lv_label_create(body);
   lv_label_set_text(s_target_label, "");
-  lv_obj_set_style_text_color(s_target_label, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s_target_label, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(s_target_label, &lv_font_montserrat_12, 0);
   lv_obj_align(s_target_label, LV_ALIGN_TOP_MID, 0, 38);
 
@@ -185,7 +184,7 @@ void ui_ble_flood_open(void) {
 
   s_rate_label = lv_label_create(body);
   lv_label_set_text(s_rate_label, "");
-  lv_obj_set_style_text_color(s_rate_label, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s_rate_label, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(s_rate_label, &lv_font_montserrat_12, 0);
   lv_obj_align(s_rate_label, LV_ALIGN_TOP_MID, 0, 178);
 

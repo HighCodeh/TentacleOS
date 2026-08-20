@@ -24,6 +24,8 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
 
@@ -31,9 +33,6 @@ static const char *TAG = "BLE_COMPANION_UI";
 
 #define CONN_POLL_MS   500
 #define COMPANION_ICON "/assets/icons/app_shortcut.bin"
-
-#define SIG_GREEN 0x00E676
-#define COL_DIM   0x8A8594
 
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_body = NULL;
@@ -93,7 +92,7 @@ static void pop_in(lv_obj_t *obj, int target_px, uint32_t ms) {
 static lv_obj_t *make_body(lv_obj_t *parent) {
   lv_obj_t *b = lv_obj_create(parent);
   lv_obj_remove_flag(b, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(b, LCD_H_RES, LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_size(b, lv_pct(100), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
   lv_obj_align(b, LV_ALIGN_TOP_LEFT, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(b, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(b, 0, 0);
@@ -113,7 +112,7 @@ static void build_pairing(void) {
 
   lv_obj_t *caption = lv_label_create(s_body);
   lv_label_set_text(caption, "Pairing key (PSK):");
-  lv_obj_set_style_text_color(caption, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(caption, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(caption, &lv_font_montserrat_12, 0);
   lv_obj_align(caption, LV_ALIGN_CENTER, 0, 78);
 
@@ -154,7 +153,7 @@ static void show_success(void) {
   lv_obj_t *seal = lv_obj_create(seal_slot);
   lv_obj_remove_flag(seal, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_radius(seal, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_bg_color(seal, lv_color_hex(SIG_GREEN), 0);
+  lv_obj_set_style_bg_color(seal, lv_color_hex(UI_COL_SUCCESS), 0);
   lv_obj_set_style_bg_opa(seal, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(seal, 0, 0);
   lv_obj_set_style_pad_all(seal, 0, 0);
@@ -169,7 +168,7 @@ static void show_success(void) {
 
   lv_obj_t *status = lv_label_create(s_body);
   lv_label_set_text(status, "Companion linked!");
-  lv_obj_set_style_text_color(status, lv_color_hex(SIG_GREEN), 0);
+  lv_obj_set_style_text_color(status, lv_color_hex(UI_COL_SUCCESS), 0);
   lv_obj_set_style_text_font(status, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(status, LV_ALIGN_CENTER, 0, 42);
@@ -188,7 +187,7 @@ static void show_success(void) {
 
   lv_obj_t *ver = lv_label_create(badge);
   lv_label_set_text(ver, "v1.2 - Companion v1.0");
-  lv_obj_set_style_text_color(ver, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(ver, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(ver, &lv_font_montserrat_12, 0);
 
   pop_in(seal, 30, 360);

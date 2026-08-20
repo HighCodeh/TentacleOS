@@ -33,6 +33,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
 
@@ -41,8 +42,6 @@ static const char *TAG = "RFID_UI";
 #define TICK_MS   50
 #define REVEAL_MS 3000
 
-#define SIG_GREEN  0x00E676
-#define COL_DIM    0x8A8594
 #define COL_DANGER 0xFF5470
 
 #define LIST_TITLE_ICON "/assets/icons/contactless.bin"
@@ -176,7 +175,7 @@ static const char *TAG = "RFID_UI";
 #define CARD_TITLE    "EM4100"
 #define CARD_SUBTITLE "Low-Frequency 125 kHz"
 #define CARD_LINE     "UID  1A 2B 3C 4D 55"
-#define CARD_META     "64-bit  ·  Read-only"
+#define CARD_META     "64-bit  |  Read-only"
 
 static const char *const WIEGAND_LINES[] = {
     "Format:  HID 26-bit",
@@ -210,10 +209,10 @@ typedef struct {
 } rfid_card_t;
 
 static const rfid_card_t SAVED_CARDS[] = {
-    {"Office_Badge", "EM4100", "1A 2B 3C 4D 55", "64-bit  ·  Read-only"},
-    {"Garage_Fob", "HIDProx", "20 06 EC 0C 86", "44-bit  ·  Read-only"},
-    {"Gym_Tag", "Indala", "A0 00 1C FE 49", "64-bit  ·  Read-only"},
-    {"Locker_03", "EM4100", "09 FB 2D 77 11", "64-bit  ·  Read-only"},
+    {"Office_Badge", "EM4100", "1A 2B 3C 4D 55", "64-bit  |  Read-only"},
+    {"Garage_Fob", "HIDProx", "20 06 EC 0C 86", "44-bit  |  Read-only"},
+    {"Gym_Tag", "Indala", "A0 00 1C FE 49", "64-bit  |  Read-only"},
+    {"Locker_03", "EM4100", "09 FB 2D 77 11", "64-bit  |  Read-only"},
 };
 #define SAVED_CARD_COUNT ((int)(sizeof(SAVED_CARDS) / sizeof(SAVED_CARDS[0])))
 #define RFID_MAX_CARDS   16
@@ -587,7 +586,7 @@ static void reveal_captured_card(void) {
     lv_anim_delete(s_status_lbl, opa_cb);
     lv_obj_set_style_opa(s_status_lbl, LV_OPA_COVER, 0);
     lv_label_set_text(s_status_lbl, "Tag detected!");
-    lv_obj_set_style_text_color(s_status_lbl, lv_color_hex(SIG_GREEN), 0);
+    lv_obj_set_style_text_color(s_status_lbl, lv_color_hex(UI_COL_SUCCESS), 0);
   }
 
   lv_obj_t *card =
@@ -676,7 +675,7 @@ static void build_saved_empty(void) {
   lv_obj_t *s = lv_label_create(card);
   lv_label_set_text(s, "Read or add a tag first");
   lv_obj_set_style_text_font(s, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(s, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s, current_theme.text_secondary, 0);
 
   s_hint = ui_chrome_footer(s_screen, HINT_SHOW);
 }
@@ -703,7 +702,7 @@ static void saved_row_detail(const rfid_card_t *c, char *out, size_t n) {
   int fc = 0;
   int cn = 0;
   uid_wiegand(c->uid, &fc, &cn);
-  snprintf(out, n, "%s  ·  FC %d  CN %d", c->proto, fc, cn);
+  snprintf(out, n, "%s  |  FC %d  CN %d", c->proto, fc, cn);
 }
 
 static void saved_apply_selection(void) {
@@ -900,7 +899,7 @@ static void seed_emulate_default(void) {
   snprintf(s_emu_sub, sizeof(s_emu_sub), "%s", CARD_SUBTITLE);
   snprintf(s_emu_line, sizeof(s_emu_line), "%s", CARD_LINE);
   snprintf(s_emu_meta, sizeof(s_emu_meta), "%s", CARD_META);
-  snprintf(s_emu_freq, sizeof(s_emu_freq), "EM4100  ·  125 kHz LF");
+  snprintf(s_emu_freq, sizeof(s_emu_freq), "EM4100  |  125 kHz LF");
 }
 
 static void seed_emulate_from_card(const rfid_card_t *c) {
@@ -908,7 +907,7 @@ static void seed_emulate_from_card(const rfid_card_t *c) {
   snprintf(s_emu_sub, sizeof(s_emu_sub), "%s", c->proto);
   snprintf(s_emu_line, sizeof(s_emu_line), "UID  %s", c->uid);
   snprintf(s_emu_meta, sizeof(s_emu_meta), "%s", c->bits);
-  snprintf(s_emu_freq, sizeof(s_emu_freq), "%s  ·  125 kHz LF", c->proto);
+  snprintf(s_emu_freq, sizeof(s_emu_freq), "%s  |  125 kHz LF", c->proto);
 }
 
 static void emu_tick(void) {
@@ -924,7 +923,7 @@ static void build_emulate(void) {
 
   s_status_lbl = lv_label_create(s_screen);
   lv_label_set_text(s_status_lbl, "Emulating");
-  lv_obj_set_style_text_color(s_status_lbl, lv_color_hex(SIG_GREEN), 0);
+  lv_obj_set_style_text_color(s_status_lbl, lv_color_hex(UI_COL_SUCCESS), 0);
   lv_obj_set_style_text_font(s_status_lbl, &lv_font_montserrat_14, 0);
   lv_obj_align(s_status_lbl, LV_ALIGN_TOP_MID, 0, STATUS_Y);
 
@@ -1066,7 +1065,7 @@ static void clone_tick(void) {
       }
       if (s_status_lbl != NULL) {
         lv_label_set_text(s_status_lbl, "Source captured!");
-        lv_obj_set_style_text_color(s_status_lbl, lv_color_hex(SIG_GREEN), 0);
+        lv_obj_set_style_text_color(s_status_lbl, lv_color_hex(UI_COL_SUCCESS), 0);
       }
       s_clone_card =
           build_data_card(s_screen, CARD_TITLE, CARD_SUBTITLE, CARD_LINE, CARD_META, true, false);
@@ -1089,7 +1088,7 @@ static void clone_tick(void) {
     if (el >= CLONE_WRITE_MS) {
       if (s_status_lbl != NULL) {
         lv_label_set_text(s_status_lbl, "Cloned!");
-        lv_obj_set_style_text_color(s_status_lbl, lv_color_hex(SIG_GREEN), 0);
+        lv_obj_set_style_text_color(s_status_lbl, lv_color_hex(UI_COL_SUCCESS), 0);
       }
       ui_feedback(UI_FB_WRITE);
       ESP_LOGI(TAG, "mock rfid clone written: %s", CARD_TITLE);
@@ -1134,13 +1133,13 @@ static void format_uid(const char *text, char *out, size_t n) {
 static void add_uid_submit(const char *text, void *ud) {
   (void)ud;
   format_uid(text, s_add_uid, sizeof(s_add_uid));
-  menu_component_set_selector_value(&s_menu, 1, s_add_uid[0] ? s_add_uid : "—");
+  menu_component_set_selector_value(&s_menu, 1, s_add_uid[0] ? s_add_uid : "-");
 }
 
 static void build_add_manual(void) {
   s_menu = menu_component_create(s_screen, "ADD MANUALLY", WRITE_ICON);
   menu_component_add_selector(&s_menu, CARD_ICON, "Protocol", ADD_PROTOS[s_add_proto]);
-  menu_component_add_selector(&s_menu, COPY_ICON, "UID", s_add_uid[0] ? s_add_uid : "—");
+  menu_component_add_selector(&s_menu, COPY_ICON, "UID", s_add_uid[0] ? s_add_uid : "-");
   menu_component_add_selector(&s_menu, FILE_ICON, "Bits", ADD_BITS[s_add_bits]);
   menu_component_add_item(&s_menu, SAVED_ICON, "Save card");
   menu_component_set_hint(&s_menu, HINT_ADD);
@@ -1163,7 +1162,7 @@ static void add_manual_commit(void) {
   snprintf(c->name, sizeof(c->name), "Manual_%02d", s_card_count + 1);
   snprintf(c->proto, sizeof(c->proto), "%s", ADD_PROTOS[s_add_proto]);
   snprintf(c->uid, sizeof(c->uid), "%s", s_add_uid);
-  snprintf(c->bits, sizeof(c->bits), "%s  ·  Read-only", ADD_BITS[s_add_bits]);
+  snprintf(c->bits, sizeof(c->bits), "%s  |  Read-only", ADD_BITS[s_add_bits]);
   s_saved_sel = s_card_count;
   s_card_count++;
 

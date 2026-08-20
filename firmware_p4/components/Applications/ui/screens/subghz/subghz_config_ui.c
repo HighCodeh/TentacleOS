@@ -15,13 +15,18 @@
 
 #include "subghz_config_ui.h"
 
+#include <stdlib.h>
+
 #include "lvgl.h"
 #include "st7789.h"
 
+#include "cc1101.h"
 #include "notify_ui.h"
+#include "subghz_settings.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 #define HDR_TITLE "RADIO CONFIG"
@@ -29,7 +34,7 @@
 #define FOOTER    "UP/DN pick   L/R adjust   OK set"
 
 #define MX        8
-#define CONTENT_W (LCD_H_RES - 2 * MX)
+#define CONTENT_W (ui_screen_w() - 2 * MX)
 
 #define CARD1_Y     50
 #define CARD1_H     84
@@ -50,12 +55,12 @@
 #define MARKER_GLOW 8
 #define SCALE_Y     62
 
-#define GRID_Y   (CARD1_Y + CARD1_H + 8)
 #define TILE_W   108
 #define TILE_H   52
 #define TILE_GAP 8
 #define TILE_X_L MX
 #define TILE_X_R (MX + TILE_W + TILE_GAP)
+#define GRID_Y   LV_MIN(CARD1_Y + CARD1_H + 8, ui_screen_h() - UI_CHROME_FOOTER_H - 2 * TILE_H - 8)
 #define ROW2_Y   (GRID_Y + TILE_H + 8)
 
 #define TILE_RADIUS 9
@@ -64,7 +69,6 @@
 #define TILE_VAL_Y  25
 #define TILE_GLOW_W 12
 
-#define COL_DIM    0x8A8594
 #define COL_BAND_A 0x221F2E
 #define COL_BAND_B 0x3A2F55
 
@@ -90,7 +94,7 @@ static const rf_field_t FIELDS[FIELD_COUNT] = {
 };
 
 static const int TILE_X[FIELD_COUNT] = {TILE_X_L, TILE_X_R, TILE_X_L, TILE_X_R};
-static const int TILE_Y[FIELD_COUNT] = {GRID_Y, GRID_Y, ROW2_Y, ROW2_Y};
+static int TILE_Y[FIELD_COUNT];
 
 static const char *SCALE_LABELS[4] = {"300", "433", "700", "928"};
 
@@ -120,7 +124,7 @@ static void build_freq_card(void) {
   lv_obj_t *cap = lv_label_create(card);
   lv_label_set_text(cap, "TUNED FREQUENCY");
   lv_obj_set_style_text_font(cap, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(cap, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(cap, current_theme.text_secondary, 0);
   lv_obj_align(cap, LV_ALIGN_TOP_MID, 0, FREQ_CAP_Y);
 
   lv_obj_t *grp = lv_obj_create(card);
@@ -183,7 +187,7 @@ static void build_freq_card(void) {
     lv_obj_t *lbl = lv_label_create(scale);
     lv_label_set_text(lbl, SCALE_LABELS[i]);
     lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(lbl, lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(lbl, current_theme.text_secondary, 0);
   }
 }
 
@@ -201,7 +205,7 @@ static lv_obj_t *build_tile(int i) {
   lv_obj_t *cap = lv_label_create(tile);
   lv_label_set_text(cap, FIELDS[i].name);
   lv_obj_set_style_text_font(cap, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(cap, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(cap, current_theme.text_secondary, 0);
   lv_obj_align(cap, LV_ALIGN_TOP_LEFT, TILE_PAD_L, TILE_CAP_Y);
 
   lv_obj_t *grp = lv_obj_create(tile);
@@ -225,7 +229,7 @@ static lv_obj_t *build_tile(int i) {
     lv_obj_t *unit = lv_label_create(grp);
     lv_label_set_text(unit, FIELDS[i].unit);
     lv_obj_set_style_text_font(unit, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(unit, lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(unit, current_theme.text_secondary, 0);
   }
 
   return tile;
@@ -251,6 +255,28 @@ static void adjust_value(int dir) {
   int n = FIELDS[s_sel].count;
   s_val_idx[s_sel] = (s_val_idx[s_sel] + dir + n) % n;
   lv_label_set_text(s_tile_num[s_sel], FIELDS[s_sel].values[s_val_idx[s_sel]]);
+}
+
+#define CONFIG_FREQ_HZ 433920000
+
+static const uint8_t MOD_MAP[4] = {0, 2, 1, 3};
+static const cc1101_preset_t PRESET_MAP[4] = {
+    CC1101_PRESET_2FSK_47KHZ,
+    CC1101_PRESET_2FSK_95KHZ,
+    CC1101_PRESET_OOK_270KHZ,
+    CC1101_PRESET_OOK_650KHZ,
+};
+
+static void apply_config(void) {
+  cc1101_preset_t preset = PRESET_MAP[s_val_idx[3]];
+  cc1101_set_preset(preset, CONFIG_FREQ_HZ);
+  cc1101_set_modulation(MOD_MAP[s_val_idx[0]]);
+  cc1101_set_rx_bandwidth((float)atof(FIELDS[1].values[s_val_idx[1]]));
+  cc1101_set_data_rate((float)atof(FIELDS[2].values[s_val_idx[2]]) * 1000.0f);
+  cc1101_set_frequency(CONFIG_FREQ_HZ);
+
+  subghz_settings_set_preset(preset);
+  subghz_settings_set_freq(CONFIG_FREQ_HZ);
 }
 
 static void subghz_config_input(const input_event_t *ev, void *ctx) {
@@ -291,6 +317,7 @@ static void subghz_config_input(const input_event_t *ev, void *ctx) {
       break;
     case INPUT_BTN_OK:
       if (press) {
+        apply_config();
         notify(NOTIFY_SAVED, "Radio config applied");
         ui_feedback(UI_FB_SELECT);
       }
@@ -306,6 +333,10 @@ void ui_subghz_config_open(void) {
     s_screen = NULL;
   }
   s_sel = 0;
+  TILE_Y[0] = GRID_Y;
+  TILE_Y[1] = GRID_Y;
+  TILE_Y[2] = ROW2_Y;
+  TILE_Y[3] = ROW2_Y;
   for (int i = 0; i < FIELD_COUNT; i++)
     s_val_idx[i] = FIELDS[i].def;
 

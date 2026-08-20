@@ -4,9 +4,20 @@ Handles firmware updates for TentacleOS via MicroSD card. Uses A/B OTA partition
 
 ## How It Works
 
-The C5 firmware is embedded inside the P4 binary at build time. A single `.bin` file updates both chips.
+The P4 and C5 update through **two separate flows**:
 
-### Update Flow
+- **P4 self-OTA** - the P4 flashes its own inactive OTA slot from an image on the
+  SD card, then reboots and self-validates (this document's main subject).
+- **C5 app OTA** - a separate flow (`c5_flasher`) reads
+  `/sdcard/c5/TentacleOS_C5.bin` and pushes it to the C5 over the SPI bridge; the
+  C5 writes its own inactive slot and reboots. See [C5 App OTA](#c5-app-ota-over-the-spi-bridge).
+
+> **Note:** embedding the C5 firmware inside the P4 binary now applies **only** to
+> the ROM-download recovery path (used to reflash a bricked/blank C5 over UART/ROM);
+> the normal C5 app update is the separate SPI-bridge flow above, not a single
+> combined `.bin`.
+
+### Update Flow (P4 self-OTA)
 
 1. Place firmware at `/sdcard/update/tentacleos.bin`
 2. Trigger `ota_start_update()` from UI or console
@@ -45,6 +56,37 @@ Scenarios:
   fails, P4 does not confirm, bootloader rolls back
 - **Healthy new image** - confirmed within a few seconds of boot
 
+### C5 App OTA (over the SPI bridge)
+
+The normal C5 firmware update is independent of the P4 self-OTA above. It is
+driven from the P4 by `c5_flasher` (`components/Service/c5_flasher/c5_flasher.c`):
+
+1. The image is read from `/sdcard/c5/TentacleOS_C5.bin` (not embedded in the P4
+   binary).
+2. The P4 sends `SPI_ID_SYSTEM_OTA_BEGIN` (size + transport) over the SPI bridge.
+   The C5 erases its inactive OTA slot asynchronously and reports `READY` via
+   `SPI_ID_SYSTEM_OTA_STATUS`.
+3. The P4 streams the image as `SPI_ID_SYSTEM_OTA_DATA` chunks; the C5 writes each
+   sequentially and acks. `bytes_written` (from the STATUS poll) is the resync
+   point if a chunk ack is lost.
+4. When the last chunk lands, the C5 finalizes, sets the boot slot to `DONE`, and
+   reboots into the new firmware. The P4 marks the bridge link down so the link
+   monitor re-probes and reconnects the new C5.
+
+> On the HighBoy V2 the transport is **SPI** (`SPI_OTA_TRANSPORT_SPI`); the UART
+> transport path in `c5_flasher` is kept for a future board that routes a real
+> P4->C5 UART and does not work on V2.
+
+**C5-side rollback (validated by P4 bridge health).** On the C5, after a fresh OTA
+image boots, `ota_post_boot_check()`
+(`firmware_c5/components/Service/ota/include/ota_service.h`) sees the running
+partition is pending verification and **waits for the P4 to reach it over the
+bridge** before marking the app valid; if the P4 does not establish the link
+within the validation window, the C5 does not confirm and the bootloader rolls
+back to the previous C5 image. It must be called after the C5's `kernel_init` so
+the bridge slave is already listening. This is the inverse of the P4 side, whose
+confirmation depends only on **local** health (see below) and never on the C5.
+
 ### Partition Table
 
 See [boot_report](../boot_report/README.md) for the full current layout (the OTA
@@ -59,7 +101,21 @@ slots were resized to `0x270000` to make room for a `coredump` partition).
 
 ### Versioning
 
-Version is read from `assets/config/OTA/firmware.json`. Both P4 and C5 share the same version string. The C5 responds its version via `SPI_ID_SYSTEM_VERSION` (0x04).
+The build-time version string is `common/metadata/version_info.txt` (a single
+line, e.g. `1.4.0`). `firmware_p4/components/Service/CMakeLists.txt` reads it and
+configures `common/metadata/ota_version.h.in` into a generated `ota_version.h`
+that defines `FIRMWARE_VERSION`, which `ota_service.c` compiles in and returns
+from `ota_get_current_version()`. (The header is generated at build time from
+`version_info.txt`; there is no checked-in `ota_version.h`.)
+
+`assets/config/OTA/firmware.json` is **only the runtime/synced copy**, not the
+source of truth: `firmware_p4/CMakeLists.txt` stamps the same `version_info.txt`
+value into the assets image at build time, and at boot `ota_sync_version_to_assets()`
+(called from `ota_post_boot_check()`) rewrites `firmware.json` to the running
+`FIRMWARE_VERSION` if they differ.
+
+The C5 reports its own version over the SPI bridge via `SPI_ID_SYSTEM_VERSION`
+(SYSTEM subcommand `0x04`).
 
 ## API
 

@@ -15,6 +15,8 @@
 
 #include "subghz_receiver.h"
 
+#include <string.h>
+
 #include "driver/gpio.h"
 #include "driver/rmt_rx.h"
 #include "driver/rmt_encoder.h"
@@ -23,6 +25,7 @@
 #include "freertos/task.h"
 #include "sys_prio.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 
 #include "cc1101.h"
 #include "pin_def.h"
@@ -30,6 +33,7 @@
 #include "subghz_protocol_registry.h"
 #include "subghz_analyzer.h"
 #include "subghz_storage.h"
+#include "subghz_transmitter.h"
 
 static const char *TAG = "SUBGHZ_RX";
 
@@ -79,6 +83,49 @@ static uint32_t s_capture_count = 0;
 static rmt_channel_handle_t s_rx_channel = NULL;
 static QueueHandle_t s_rx_queue = NULL;
 
+#define RESULT_LOCK_TIMEOUT_MS 20
+static SemaphoreHandle_t s_result_mutex = NULL;
+static subghz_rx_result_t s_latest;
+static uint32_t s_result_seq = 0;
+
+static void publish_rx_result(bool decoded,
+                              const subghz_data_t *data,
+                              const subghz_analyzer_result_t *analysis,
+                              const char *save_name) {
+  if (s_result_mutex == NULL)
+    return;
+  if (xSemaphoreTake(s_result_mutex, pdMS_TO_TICKS(RESULT_LOCK_TIMEOUT_MS)) != pdTRUE)
+    return;
+
+  s_result_seq++;
+  s_latest.seq = s_result_seq;
+  s_latest.decoded = decoded;
+  s_latest.freq = s_rx_freq;
+  if (save_name != NULL)
+    strlcpy(s_latest.save_name, save_name, sizeof(s_latest.save_name));
+  else
+    s_latest.save_name[0] = '\0';
+
+  if (data != NULL) {
+    s_latest.data = *data;
+    if (data->protocol_name != NULL)
+      strlcpy(s_latest.name_buf, data->protocol_name, sizeof(s_latest.name_buf));
+    else
+      s_latest.name_buf[0] = '\0';
+  } else {
+    memset(&s_latest.data, 0, sizeof(s_latest.data));
+    s_latest.name_buf[0] = '\0';
+  }
+  s_latest.data.protocol_name = s_latest.name_buf;
+
+  if (analysis != NULL)
+    s_latest.analysis = *analysis;
+  else
+    memset(&s_latest.analysis, 0, sizeof(s_latest.analysis));
+
+  xSemaphoreGive(s_result_mutex);
+}
+
 static void get_dynamic_filename(char *out_name, size_t out_size, const char *prefix) {
   s_capture_count++;
   snprintf(out_name, out_size, "%s_%03lu", prefix, (unsigned long)s_capture_count);
@@ -121,6 +168,7 @@ static void handle_raw_mode(const int32_t *decode_buffer, size_t decode_idx) {
   ESP_LOGD(TAG, "RAW: received %d pulses", (int)decode_idx);
   get_dynamic_filename(filename, sizeof(filename), "RAW");
   subghz_storage_save_raw(filename, decode_buffer, decode_idx, s_rx_freq);
+  publish_rx_result(false, NULL, NULL, filename);
 }
 
 static void log_recovered_bitstream(const subghz_analyzer_result_t *analysis) {
@@ -165,6 +213,7 @@ static void handle_scan_mode(const int32_t *decode_buffer, size_t decode_idx) {
     subghz_analyzer_process(decode_buffer, decode_idx, &analysis);
     get_dynamic_filename(filename, sizeof(filename), "DEC");
     subghz_storage_save_decoded(filename, &decoded, s_rx_freq, analysis.estimated_te);
+    publish_rx_result(true, &decoded, &analysis, filename);
     led_signal_info(); // decoded a known protocol
     return;
   }
@@ -180,6 +229,7 @@ static void handle_scan_mode(const int32_t *decode_buffer, size_t decode_idx) {
 
     get_dynamic_filename(filename, sizeof(filename), "UNK");
     subghz_storage_save_raw(filename, decode_buffer, decode_idx, s_rx_freq);
+    publish_rx_result(false, NULL, &analysis, filename);
     log_recovered_bitstream(&analysis);
     led_signal_warning(); // captured RF but no known protocol matched
   }
@@ -350,8 +400,20 @@ esp_err_t subghz_receiver_start(subghz_mode_t mode, cc1101_preset_t preset, uint
   if (s_is_running) {
     return ESP_ERR_INVALID_STATE;
   }
+
+  subghz_tx_stop();
+
   s_rx_mode = mode;
   s_rx_preset = preset;
+
+  if (s_result_mutex == NULL)
+    s_result_mutex = xSemaphoreCreateMutex();
+  if (s_result_mutex != NULL &&
+      xSemaphoreTake(s_result_mutex, pdMS_TO_TICKS(RESULT_LOCK_TIMEOUT_MS)) == pdTRUE) {
+    s_result_seq = 0;
+    memset(&s_latest, 0, sizeof(s_latest));
+    xSemaphoreGive(s_result_mutex);
+  }
 
   if (freq == 0) {
     s_is_hopping_active = true;
@@ -383,4 +445,19 @@ void subghz_receiver_stop(void) {
 
 bool subghz_receiver_is_running(void) {
   return s_is_running;
+}
+
+bool subghz_receiver_get_result(subghz_rx_result_t *out) {
+  if (out == NULL || s_result_mutex == NULL)
+    return false;
+  if (xSemaphoreTake(s_result_mutex, pdMS_TO_TICKS(RESULT_LOCK_TIMEOUT_MS)) != pdTRUE)
+    return false;
+
+  bool has = (s_latest.seq != 0);
+  if (has) {
+    *out = s_latest;
+    out->data.protocol_name = out->name_buf;
+  }
+  xSemaphoreGive(s_result_mutex);
+  return has;
 }

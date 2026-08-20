@@ -81,6 +81,16 @@ esp_err_t meshcore_phone_bridge_ble_stop(void);
  */
 bool meshcore_phone_bridge_is_connected(void);
 
+/**
+ * @brief Whether the connected phone has subscribed to notifications, i.e. the
+ *        companion app is actually paired and ready (not just BLE-linked).
+ *
+ * Use this for the "linked" UI state: ble_connected goes true at the raw BLE
+ * link (before the pairing PIN even shows), while ble_subscribed only goes true
+ * after encryption + the app subscribing.
+ */
+bool meshcore_phone_bridge_is_subscribed(void);
+
 #ifdef __cplusplus
 }
 #endif

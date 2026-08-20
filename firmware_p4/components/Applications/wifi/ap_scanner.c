@@ -23,9 +23,9 @@
 
 #include "cJSON.h"
 #include "led_control.h"
-#include "spi_bridge.h"
 #include "storage_write.h"
 #include "tos_storage_paths.h"
+#include "wifi_service.h"
 
 static const char *TAG = "AP_SCANNER";
 
@@ -38,73 +38,47 @@ static uint16_t s_cached_count = 0;
 static bool s_is_scan_ready = false;
 static wifi_ap_record_t s_empty_record;
 
-static bool fetch_results(void) {
-  spi_header_t resp;
-  uint8_t payload[2];
-  uint16_t magic_count = SPI_DATA_INDEX_COUNT;
+bool ap_scanner_start(void) {
+  ap_scanner_free_results();
 
-  if (spi_bridge_send_command(
-          SPI_ID_SYSTEM_DATA, (uint8_t *)&magic_count, 2, &resp, payload, sizeof(payload), 1000) !=
-      ESP_OK) {
+  wifi_service_start();
+  if (wifi_service_scan() != ESP_OK) {
+    ESP_LOGW(TAG, "AP scan failed");
+    led_signal_error();
     return false;
   }
 
-  uint16_t count = 0;
-  memcpy(&count, payload, 2);
-
-  if (s_cached_results != NULL) {
-    free(s_cached_results);
-    s_cached_results = NULL;
-  }
-  s_cached_count = 0;
-
+  uint16_t count = wifi_service_get_ap_count();
   if (count == 0) {
     s_is_scan_ready = true;
+    led_signal_warning();
     return true;
   }
 
   s_cached_results = (wifi_ap_record_t *)malloc(count * sizeof(wifi_ap_record_t));
   if (s_cached_results == NULL) {
     ESP_LOGW(TAG, "Failed to allocate AP results buffer");
+    led_signal_error();
     return false;
   }
 
+  uint16_t n = 0;
   for (uint16_t i = 0; i < count; i++) {
-    if (spi_bridge_send_command(SPI_ID_SYSTEM_DATA,
-                                (uint8_t *)&i,
-                                2,
-                                &resp,
-                                (uint8_t *)&s_cached_results[i],
-                                sizeof(s_cached_results[i]),
-                                1000) != ESP_OK) {
-      free(s_cached_results);
-      s_cached_results = NULL;
-      return false;
-    }
+    // wifi_service sanitizes each record (printable SSID, hidden -> placeholder)
+    // and returns a pointer to a shared buffer, so copy it into our cache.
+    wifi_ap_record_t *rec = wifi_service_get_ap_record(i);
+    if (rec == NULL)
+      continue;
+    s_cached_results[n++] = *rec;
   }
 
-  s_cached_count = count;
+  s_cached_count = n;
   s_is_scan_ready = true;
-  return true;
-}
 
-bool ap_scanner_start(void) {
-  ap_scanner_free_results();
-  esp_err_t err = spi_bridge_run_scan(SPI_ID_WIFI_APP_SCAN_AP, SPI_ID_WIFI_SCAN_STATUS, NULL, 0);
-  if (err != ESP_OK) {
-    ESP_LOGW(TAG, "AP scan failed over SPI");
-    led_signal_error();
-    return false;
-  }
-  bool ok = fetch_results();
-  if (ok) {
-    // Auto-persist to SD when a card is present; a no-op otherwise (SD-only).
-    ap_scanner_save_results_to_sd_card();
-    s_cached_count > 0 ? led_signal_info() : led_signal_warning();
-  } else {
-    led_signal_error();
-  }
-  return ok;
+  // Auto-persist to SD when a card is present; a no-op otherwise (SD-only).
+  ap_scanner_save_results_to_sd_card();
+  s_cached_count > 0 ? led_signal_info() : led_signal_warning();
+  return true;
 }
 
 wifi_ap_record_t *ap_scanner_get_results(uint16_t *out_count) {

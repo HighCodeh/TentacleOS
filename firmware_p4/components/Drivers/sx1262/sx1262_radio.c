@@ -209,7 +209,7 @@ esp_err_t sx1262_radio_receive_continuous(void) {
     return ret;
   }
 
-  ESP_LOGI(TAG, "RX continuous started");
+  ESP_LOGD(TAG, "RX continuous started");
   return ESP_OK;
 }
 

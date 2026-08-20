@@ -37,7 +37,6 @@
 #define DECAY     0.94f
 
 #define COL_LEVEL 0x00E676
-#define COL_DIM   0x8A8594
 
 #define HDR_ICON  "/assets/icons/sensors.bin"
 #define HDR_TITLE "BUBBLE LEVEL"
@@ -89,7 +88,7 @@ static void build_level(void) {
   lv_obj_center(ring);
   lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_color(ring, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_border_color(ring, current_theme.text_secondary, 0);
   lv_obj_set_style_border_width(ring, 2, 0);
   lv_obj_set_style_pad_all(ring, 0, 0);
 
@@ -109,7 +108,7 @@ static void build_level(void) {
   s_status = lv_label_create(s_screen);
   lv_label_set_text(s_status, "TILTED");
   lv_obj_set_style_text_font(s_status, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_text_color(s_status, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s_status, current_theme.text_secondary, 0);
   lv_obj_align(s_status, LV_ALIGN_BOTTOM_MID, 0, -52);
 
   s_read = lv_label_create(s_screen);
@@ -144,7 +143,7 @@ static void update_physics(void) {
   if (s_status) {
     lv_label_set_text(s_status, level ? "LEVEL" : "TILTED");
     lv_obj_set_style_text_color(
-        s_status, level ? lv_color_hex(COL_LEVEL) : lv_color_hex(COL_DIM), 0);
+        s_status, level ? lv_color_hex(COL_LEVEL) : current_theme.text_secondary, 0);
   }
   if (s_read)
     lv_label_set_text_fmt(s_read, "Pitch %d deg   Roll %d deg", (int)s_pitch, (int)s_roll);

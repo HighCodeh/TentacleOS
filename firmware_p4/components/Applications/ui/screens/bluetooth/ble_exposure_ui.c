@@ -25,6 +25,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 static const char *TAG = "BLE_EXPOSURE_UI";
@@ -36,16 +37,13 @@ static const char *TAG = "BLE_EXPOSURE_UI";
 #define ROW_LEN      36
 #define LIST_BUF_LEN (MAX_ADV * ROW_LEN)
 
-#define COL_DIM     0x8A8594
-#define COL_SUCCESS 0x00E676
-
 #define EXPO_ICON "/assets/icons/broadcast_on_personal.bin"
 
 #define COUNT_CARD_W 190
 #define COUNT_CARD_H 34
 #define COUNT_CARD_Y 50
 #define LIST_PANEL_W 224
-#define LIST_PANEL_H 190
+#define LIST_PANEL_H LV_MIN(190, ui_screen_h() - LIST_PANEL_Y - UI_CHROME_FOOTER_H)
 #define LIST_PANEL_Y 94
 #define LIST_PAD     8
 

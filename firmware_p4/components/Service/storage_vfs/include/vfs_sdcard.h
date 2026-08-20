@@ -47,6 +47,23 @@ esp_err_t vfs_sdcard_format(void);
 esp_err_t vfs_register_sd_backend(void);
 esp_err_t vfs_unregister_sd_backend(void);
 
+/**
+ * @brief Give up the app's FAT mount and hand back the SD as a RAW, still-powered
+ *        block device for USB Mass Storage. The card is re-initialized (never
+ *        formatted). There is no restore path — exit USB-MSC mode via reboot.
+ * @param out_card receives an @c sdmmc_card_t* (as @c void*) on success.
+ * @return ESP_OK, or an error (the app FAT mount is left detached on failure).
+ */
+esp_err_t vfs_sdcard_detach_for_msc(void **out_card);
+
+/**
+ * @brief Undo vfs_sdcard_detach_for_msc(): release the raw SDMMC card+host that
+ *        was handed to USB MSC and remount the app FAT at /sdcard. Call AFTER the
+ *        MSC storage layer is torn down. Lets the firmware resume without a reboot.
+ * @param card the handle returned by vfs_sdcard_detach_for_msc() (may be NULL).
+ */
+esp_err_t vfs_sdcard_reattach_after_msc(void *card);
+
 #ifdef __cplusplus
 }
 #endif

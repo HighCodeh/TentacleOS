@@ -32,6 +32,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 #define HDR_TITLE   "CHANNELS"
@@ -39,7 +40,7 @@
 #define FOOTER_HINT "UP/DN  OK RENAME  RIGHT OFF  BACK"
 
 #define BODY_TOP UI_CHROME_HEADER_H
-#define BODY_H   (LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
+#define BODY_H   (ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
 
 #define GRID_PAD 7
 #define GRID_GAP 6
@@ -70,7 +71,6 @@
 
 #define COL_ACC2 0xB89AFF
 #define COL_CYAN 0x37E0A8
-#define COL_DIM  0x8A8594
 #define COL_SLOT 0x4A4556
 
 typedef struct {
@@ -170,7 +170,7 @@ static void build_filled_tile(lv_obj_t *tile, int i) {
   lv_label_set_text_fmt(idx, "%d", i);
   lv_obj_set_style_text_font(idx, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(
-      idx, primary ? current_theme.border_accent : lv_color_hex(COL_DIM), 0);
+      idx, primary ? current_theme.border_accent : current_theme.text_secondary, 0);
 
   lv_obj_t *d = lv_obj_create(head);
   lv_obj_remove_flag(d, LV_OBJ_FLAG_SCROLLABLE);
@@ -206,7 +206,7 @@ static void build_filled_tile(lv_obj_t *tile, int i) {
   lv_obj_t *stub = lv_label_create(tile);
   lv_label_set_text(stub, s_slot[i].role);
   lv_obj_set_style_text_font(stub, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(stub, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(stub, current_theme.text_secondary, 0);
 
   lv_obj_t *bars = bare_box(tile, lv_pct(100), BAR_MAX_H);
   lv_obj_set_flex_flow(bars, LV_FLEX_FLOW_ROW);
@@ -299,7 +299,7 @@ static void build_grid_content(void) {
     lv_obj_add_flag(s_empty_msg, LV_OBJ_FLAG_FLOATING);
     lv_label_set_text(s_empty_msg, "Start a protocol first");
     lv_obj_set_style_text_font(s_empty_msg, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(s_empty_msg, lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(s_empty_msg, current_theme.text_secondary, 0);
     lv_obj_center(s_empty_msg);
     return;
   }
@@ -438,7 +438,7 @@ void ui_lora_channels_open(void) {
   ui_chrome_header(s_screen, HDR_TITLE, HDR_ICON);
 
   lv_obj_t *grid = lv_obj_create(s_screen);
-  lv_obj_set_size(grid, LCD_H_RES, BODY_H);
+  lv_obj_set_size(grid, ui_screen_w(), BODY_H);
   lv_obj_align(grid, LV_ALIGN_TOP_MID, 0, BODY_TOP);
   lv_obj_set_style_bg_opa(grid, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(grid, 0, 0);

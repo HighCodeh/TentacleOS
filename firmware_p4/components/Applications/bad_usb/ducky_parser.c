@@ -259,7 +259,7 @@ static bool is_modifier(const char *word, uint8_t *out_mod) {
     return true;
   }
   if (strcasecmp(word, "GUI") == 0 || strcasecmp(word, "WINDOWS") == 0 ||
-      strcasecmp(word, "COMMAND") == 0) {
+      strcasecmp(word, "SUPER") == 0 || strcasecmp(word, "COMMAND") == 0) {
     *out_mod |= KEYBOARD_MODIFIER_LEFTGUI;
     return true;
   }

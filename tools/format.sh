@@ -83,6 +83,7 @@ if [ -n "$BASE_REF" ]; then
 
   while IFS= read -r -d '' path; do
     case "$path" in
+      */Applications/doom/*) ;;  # vendored doomgeneric engine: not our style
       *.c|*.h) FILES+=("$REPO_ROOT/$path") ;;
     esac
   done < <(git -C "$REPO_ROOT" diff --name-only -z --diff-filter=ACMR \
@@ -103,7 +104,8 @@ else
   while IFS= read -r -d '' path; do
     FILES+=("$path")
   done < <(find "${EXISTING_TARGETS[@]}" -type f \( -name "*.c" -o -name "*.h" \) \
-    -not -path "*/managed_components/*" -not -path "*/build/*" -print0)
+    -not -path "*/managed_components/*" -not -path "*/build/*" \
+    -not -path "*/Applications/doom/*" -print0)
 fi
 
 COUNT="${#FILES[@]}"

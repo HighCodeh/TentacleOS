@@ -85,7 +85,7 @@ void sys_time_init(void) {
 
   time_t baseline = sys_time_build_epoch();
   time_t saved = sys_time_saved_epoch();
-  if (saved > baseline) {
+  if (saved >= SYS_TIME_EPOCH_MIN) {
     baseline = saved;
   }
 

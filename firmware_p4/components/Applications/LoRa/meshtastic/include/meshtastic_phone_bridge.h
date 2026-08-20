@@ -94,6 +94,13 @@ esp_err_t meshtastic_phone_bridge_wifi_stop(void);
  */
 bool meshtastic_phone_bridge_is_connected(void);
 
+/**
+ * @brief Whether the phone app is actually paired and ready: BLE subscribed
+ *        (after encryption) or a TCP client is attached — not just BLE-linked.
+ *        Use this for the "linked" UI state.
+ */
+bool meshtastic_phone_bridge_is_subscribed(void);
+
 #ifdef __cplusplus
 }
 #endif

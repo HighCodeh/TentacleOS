@@ -21,6 +21,7 @@
 #include "assets_manager.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 #define HEADER_BG   current_theme.bg_secondary
@@ -139,7 +140,7 @@ menu_component_create(lv_obj_t *parent, const char *title, const char *title_ico
   (void)title_icon_path; // the shared status header carries its own icons now
 
   m.screen = lv_obj_create(parent);
-  lv_obj_set_size(m.screen, LCD_H_RES, LCD_V_RES);
+  lv_obj_set_size(m.screen, lv_pct(100), lv_pct(100));
   lv_obj_align(m.screen, LV_ALIGN_TOP_LEFT, 0, 0);
   lv_obj_remove_flag(m.screen, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_color(m.screen, current_theme.screen_base, 0);
@@ -153,7 +154,7 @@ menu_component_create(lv_obj_t *parent, const char *title, const char *title_ico
   // alone). Kept in title_bar (transparent) so callers that fade_in(title_bar)
   // still animate the whole area.
   m.title_bar = lv_obj_create(m.screen);
-  lv_obj_set_size(m.title_bar, LCD_H_RES, HEADER_H);
+  lv_obj_set_size(m.title_bar, lv_pct(100), HEADER_H);
   lv_obj_align(m.title_bar, LV_ALIGN_TOP_LEFT, 0, 0);
   lv_obj_remove_flag(m.title_bar, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(m.title_bar, LV_OBJ_FLAG_CLICKABLE);
@@ -163,12 +164,12 @@ menu_component_create(lv_obj_t *parent, const char *title, const char *title_ico
   lv_obj_set_style_radius(m.title_bar, 0, 0);
   m.title_label = ui_chrome_light_title(m.title_bar, title);
 
-  int items_h = LCD_V_RES - ITEMS_Y - FOOTER_H - 4;
+  int items_h = ui_screen_h() - ITEMS_Y - FOOTER_H - 4;
   if (items_h < ITEM_H)
     items_h = ITEM_H;
 
   m.items_cont = lv_obj_create(m.screen);
-  lv_obj_set_size(m.items_cont, LCD_H_RES - LEFT_MARGIN - RIGHT_GUTTER, items_h);
+  lv_obj_set_size(m.items_cont, ui_screen_w() - LEFT_MARGIN - RIGHT_GUTTER, items_h);
   lv_obj_align(m.items_cont, LV_ALIGN_TOP_LEFT, LEFT_MARGIN, ITEMS_Y);
   lv_obj_set_style_bg_opa(m.items_cont, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(m.items_cont, 0, 0);
@@ -178,7 +179,7 @@ menu_component_create(lv_obj_t *parent, const char *title, const char *title_ico
   lv_obj_set_scrollbar_mode(m.items_cont, LV_SCROLLBAR_MODE_OFF);
   lv_obj_set_scroll_snap_y(m.items_cont, LV_SCROLL_SNAP_NONE);
 
-  int track_x = LCD_H_RES - OUTER_BORDER - 9;
+  int track_x = ui_screen_w() - OUTER_BORDER - 9;
   m.track_y_start = ITEMS_Y + 8;
   m.track_h = items_h - 16;
   if (m.track_h < 0)
@@ -210,7 +211,7 @@ menu_component_create(lv_obj_t *parent, const char *title, const char *title_ico
   lv_obj_move_foreground(m.scroll_bar);
 
   m.footer = lv_obj_create(m.screen);
-  lv_obj_set_size(m.footer, LCD_H_RES, FOOTER_H);
+  lv_obj_set_size(m.footer, lv_pct(100), FOOTER_H);
   lv_obj_align(m.footer, LV_ALIGN_BOTTOM_LEFT, 0, 0);
   lv_obj_remove_flag(m.footer, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(m.footer, LV_OBJ_FLAG_CLICKABLE);

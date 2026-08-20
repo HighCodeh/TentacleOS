@@ -27,15 +27,24 @@ extern "C" {
 
 // Composite device interfaces: HID (BadUSB) + CDC-ACM (companion host link).
 // CDC uses two interfaces (comm + data), so the data interface is CDC+1.
-#define TUSB_DESC_ITF_NUM_HID   0
-#define TUSB_DESC_ITF_NUM_CDC   1 // comm; data interface = 2
+#define TUSB_DESC_ITF_NUM_HID 0
+#define TUSB_DESC_ITF_NUM_CDC 1 // comm; data interface = 2
+#if CFG_TUD_MSC
+#define TUSB_DESC_ITF_NUM_MSC   3 // mass storage (SD as USB drive), after CDC data (2)
+#define TUSB_DESC_ITF_NUM_TOTAL 4
+#else
 #define TUSB_DESC_ITF_NUM_TOTAL 3
+#endif
 
 // Endpoint addresses
 #define TUSB_DESC_EP_HID_IN    0x81
 #define TUSB_DESC_EP_CDC_NOTIF 0x82
 #define TUSB_DESC_EP_CDC_OUT   0x03
 #define TUSB_DESC_EP_CDC_IN    0x83
+#if CFG_TUD_MSC
+#define TUSB_DESC_EP_MSC_OUT 0x04
+#define TUSB_DESC_EP_MSC_IN  0x84
+#endif
 
 /**
  * @brief Initialize the TinyUSB driver with HID composite descriptors.
@@ -51,6 +60,18 @@ extern "C" {
  *   - ESP_FAIL if the TinyUSB driver installation fails
  */
 esp_err_t busb_init(void);
+
+/**
+ * @brief Advertise (or hide) the mass-storage interface on the composite.
+ *
+ * MSC must only be exposed while the SD is actually handed to the USB host,
+ * because the storage-backed SCSI callbacks assume an initialized handle. Off by
+ * default; enter/exit mass-storage mode via this before/after switching the mux.
+ * If TinyUSB is already up, the host is re-enumerated so it re-reads the config.
+ *
+ * @param exposed  true while mass-storage mode is active; false otherwise.
+ */
+void busb_set_msc_exposed(bool exposed);
 
 /**
  * @brief Configure the USB-C data mux (TS3USB221) and default it to the UART

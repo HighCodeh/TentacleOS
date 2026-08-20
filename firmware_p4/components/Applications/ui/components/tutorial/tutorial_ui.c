@@ -28,10 +28,13 @@
 #include "host_link_sec.h"
 #include "storage_assets.h"
 #include "storage_init.h"
+#include <time.h>
+
 #include "sys_time.h"
 #include "tos_config.h"
 #include "tos_storage_paths.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 static const char *TAG = "TUTORIAL";
@@ -46,10 +49,10 @@ static const char *const WIZ_THEME_NAMES[] = {"default", "cyber_blue"};
 #define WIZ_MARGIN    16
 #define WIZ_STEP_Y    6
 #define WIZ_PROG_Y    24
-#define WIZ_PROG_W    (LCD_H_RES - 2 * WIZ_MARGIN)
+#define WIZ_PROG_W    (ui_screen_w() - 2 * WIZ_MARGIN)
 #define WIZ_PROG_H    4
 #define WIZ_CONTENT_Y 36
-#define WIZ_CONTENT_H 252
+#define WIZ_CONTENT_H (ui_screen_h() - WIZ_CONTENT_Y - 32)
 #define WIZ_FOOT_Y    -8
 #define WIZ_GAP       9
 #define WIZ_TEXT_W    206
@@ -58,19 +61,17 @@ static const char *const WIZ_THEME_NAMES[] = {"default", "cyber_blue"};
 #define WIZ_SUB_OPA   180
 #define WIZ_SWATCH    24
 
-// Animation timing (slow + cinematic; affordable now that PSRAM keeps frames resident).
 #define FADE_OUT_MS  180
 #define FADE_IN_MS   320
 #define PROG_MS      460
-#define STAGGER_MS   110  // gap between elements fading in one after another
-#define MASCOT_FADE  420  // octobit fade-in
-#define MASCOT_ENTER 640  // when the text starts fading in (after octobit is established)
-#define BOB_MS       1800 // octobit float period (slow, gentle)
+#define STAGGER_MS   110
+#define MASCOT_FADE  420
+#define MASCOT_ENTER 640
+#define BOB_MS       1800
 #define BOB_PX       6
-#define WOBBLE_MS    560 // arrow idle horizontal swing period
+#define WOBBLE_MS    560
 #define WOBBLE_PX    5
 
-// Vertical chooser geometry.
 #define CH_ROW_H   30
 #define CH_ARROW_W 22
 #define CH_LIST_W  190
@@ -79,7 +80,7 @@ static const char *const WIZ_THEME_NAMES[] = {"default", "cyber_blue"};
 extern lv_group_t *main_group;
 
 static bool s_active = false;
-static bool s_busy = false; // mid page-transition: swallow input
+static bool s_busy = false;
 static int s_page = 0;
 static int s_pending = 0;
 static uint32_t s_open_tick = 0;
@@ -89,9 +90,8 @@ static lv_obj_t *s_content = NULL;
 static lv_obj_t *s_prog_fill = NULL;
 static lv_obj_t *s_step = NULL;
 static lv_obj_t *s_foot = NULL;
-static lv_obj_t *s_mascot = NULL; // octobit on the current page (NULL if none)
+static lv_obj_t *s_mascot = NULL;
 
-// Active chooser (rebuilt per page; count==0 means the page is not a chooser).
 static lv_obj_t *s_ch_rows[CH_MAX] = {NULL};
 static lv_obj_t *s_ch_arrow = NULL;
 static int s_ch_count = 0;
@@ -100,8 +100,6 @@ static int *s_ch_selp = NULL;
 
 static int s_lang_sel = 0;
 static int s_theme_sel = 0;
-
-// ---- small animation helpers ------------------------------------------------
 
 static void anim_opa_cb(void *obj, int32_t v) {
   lv_obj_set_style_opa((lv_obj_t *)obj, (lv_opa_t)v, 0);
@@ -133,8 +131,6 @@ static void fade(lv_obj_t *o,
     lv_anim_set_completed_cb(&a, done);
   lv_anim_start(&a);
 }
-
-// ---- reusable page widgets --------------------------------------------------
 
 static lv_obj_t *wiz_heading(lv_obj_t *p, const char *text) {
   lv_obj_t *l = lv_label_create(p);
@@ -199,7 +195,6 @@ static void wiz_chip(lv_obj_t *p, const char *text, lv_color_t accent) {
   lv_obj_set_style_pad_ver(k, 4, 0);
 }
 
-// A small octobit that gently bobs, added to the top of a guide page's content.
 static void wiz_mascot(lv_obj_t *p, int zoom) {
   lv_image_dsc_t *dsc = assets_get(WIZ_ART_ASSET);
   if (dsc == NULL)
@@ -208,8 +203,7 @@ static void wiz_mascot(lv_obj_t *p, int zoom) {
   lv_image_set_src(img, dsc);
   if (zoom != 256)
     lv_image_set_scale(img, zoom);
-  s_mascot = img; // build_page_now choreographs its entrance (fade + glide in)
-  // Gentle continuous float (translate-y; independent of the entrance translate-x).
+  s_mascot = img;
   lv_anim_t a;
   lv_anim_init(&a);
   lv_anim_set_var(&a, img);
@@ -221,8 +215,6 @@ static void wiz_mascot(lv_obj_t *p, int zoom) {
   lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
   lv_anim_start(&a);
 }
-
-// ---- animated vertical chooser (the "setinha" selector) ---------------------
 
 static void ch_restyle(void) {
   for (int i = 0; i < s_ch_count; i++) {
@@ -240,8 +232,6 @@ static void ch_restyle(void) {
   }
 }
 
-// Vertical alignment is INSTANT — the arrow snaps to the selected row; the only
-// motion it keeps is the idle horizontal swing (started in build_chooser).
 static void ch_arrow_to(int idx) {
   if (!s_ch_arrow)
     return;
@@ -297,7 +287,6 @@ build_chooser(lv_obj_t *c, const char **items, const uint32_t *colors, int count
   ch_restyle();
   ch_arrow_to(s_ch_sel);
 
-  // Idle swing so it reads as "point here, use UP/DOWN".
   lv_anim_t a;
   lv_anim_init(&a);
   lv_anim_set_var(&a, s_ch_arrow);
@@ -321,8 +310,6 @@ static void chooser_move(int delta) {
   ch_arrow_to(n);
 }
 
-// ---- pages ------------------------------------------------------------------
-
 static void page_language(lv_obj_t *c) {
   wiz_heading(c, "Language");
   wiz_sub(c, "Pick your language. UP / DOWN to choose.");
@@ -330,27 +317,126 @@ static void page_language(lv_obj_t *c) {
   build_chooser(c, langs, NULL, 4, &s_lang_sel);
 }
 
+static struct tm s_dt;
+static int s_dt_field = 0;
+static bool s_dt_active = false;
+static lv_obj_t *s_dt_lbl[5] = {0};
+
+static int dt_days_in_month(int year, int mon0) {
+  static const int base[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  if (mon0 == 1) {
+    bool leap = (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
+    return leap ? 29 : 28;
+  }
+  return base[mon0];
+}
+
+static void dt_refresh(void) {
+  char b[8];
+  snprintf(b, sizeof(b), "%04d", s_dt.tm_year + 1900);
+  if (s_dt_lbl[0])
+    lv_label_set_text(s_dt_lbl[0], b);
+  snprintf(b, sizeof(b), "%02d", s_dt.tm_mon + 1);
+  if (s_dt_lbl[1])
+    lv_label_set_text(s_dt_lbl[1], b);
+  snprintf(b, sizeof(b), "%02d", s_dt.tm_mday);
+  if (s_dt_lbl[2])
+    lv_label_set_text(s_dt_lbl[2], b);
+  snprintf(b, sizeof(b), "%02d", s_dt.tm_hour);
+  if (s_dt_lbl[3])
+    lv_label_set_text(s_dt_lbl[3], b);
+  snprintf(b, sizeof(b), "%02d", s_dt.tm_min);
+  if (s_dt_lbl[4])
+    lv_label_set_text(s_dt_lbl[4], b);
+  for (int i = 0; i < 5; i++)
+    if (s_dt_lbl[i])
+      lv_obj_set_style_text_color(
+          s_dt_lbl[i], i == s_dt_field ? current_theme.border_accent : current_theme.text_main, 0);
+}
+
+static void dt_adjust(int d) {
+  switch (s_dt_field) {
+    case 0: {
+      int y = s_dt.tm_year + 1900 + d;
+      if (y < 2020)
+        y = 2099;
+      if (y > 2099)
+        y = 2020;
+      s_dt.tm_year = y - 1900;
+      break;
+    }
+    case 1:
+      s_dt.tm_mon = (s_dt.tm_mon + d + 12) % 12;
+      break;
+    case 2: {
+      int dim = dt_days_in_month(s_dt.tm_year + 1900, s_dt.tm_mon);
+      s_dt.tm_mday += d;
+      if (s_dt.tm_mday < 1)
+        s_dt.tm_mday = dim;
+      if (s_dt.tm_mday > dim)
+        s_dt.tm_mday = 1;
+      break;
+    }
+    case 3:
+      s_dt.tm_hour = (s_dt.tm_hour + d + 24) % 24;
+      break;
+    case 4:
+      s_dt.tm_min = (s_dt.tm_min + d + 60) % 60;
+      break;
+    default:
+      break;
+  }
+  int dim = dt_days_in_month(s_dt.tm_year + 1900, s_dt.tm_mon);
+  if (s_dt.tm_mday > dim)
+    s_dt.tm_mday = dim;
+  dt_refresh();
+}
+
+static void dt_save(void) {
+  struct tm t = s_dt;
+  t.tm_sec = 0;
+  t.tm_isdst = 0;
+  time_t epoch = mktime(&t);
+  if (epoch != (time_t)-1)
+    sys_time_set(epoch, SYS_TIME_SOURCE_MANUAL);
+}
+
 static void page_datetime(lv_obj_t *c) {
   wiz_heading(c, "Date & Time");
-  lv_obj_t *clk = lv_label_create(c);
-  char clkbuf[16];
-  if (!sys_time_format(clkbuf, sizeof(clkbuf), "%H:%M"))
-    snprintf(clkbuf, sizeof(clkbuf), "--:--");
-  lv_label_set_text(clk, clkbuf);
-  lv_obj_set_style_text_font(clk, &lv_font_montserrat_16, 0);
-  lv_obj_set_style_text_color(clk, current_theme.border_accent, 0);
-  wiz_sub(c, "High Boy timestamps every capture and log. Sync the clock from the companion app.");
-  lv_obj_t *pill = lv_label_create(c);
-  lv_label_set_text(pill, LV_SYMBOL_REFRESH "  Sync from companion");
-  lv_obj_set_style_text_font(pill, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(pill, current_theme.border_accent, 0);
-  lv_obj_set_style_bg_opa(pill, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(pill, current_theme.bg_secondary, 0);
-  lv_obj_set_style_border_width(pill, 1, 0);
-  lv_obj_set_style_border_color(pill, current_theme.border_accent, 0);
-  lv_obj_set_style_radius(pill, 8, 0);
-  lv_obj_set_style_pad_hor(pill, 9, 0);
-  lv_obj_set_style_pad_ver(pill, 4, 0);
+  wiz_sub(c, "High Boy timestamps every capture and log. Set the clock now.");
+
+  time_t now = sys_time_now();
+  localtime_r(&now, &s_dt);
+  s_dt_field = 0;
+
+  lv_obj_t *row = lv_obj_create(c);
+  lv_obj_remove_style_all(row);
+  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(row, 3, 0);
+
+  static const char *const SEP[5] = {NULL, "-", "-", "   ", ":"};
+  for (int i = 0; i < 5; i++) {
+    if (SEP[i]) {
+      lv_obj_t *sep = lv_label_create(row);
+      lv_label_set_text(sep, SEP[i]);
+      lv_obj_set_style_text_font(sep, &lv_font_montserrat_16, 0);
+      lv_obj_set_style_text_color(sep, current_theme.text_secondary, 0);
+    }
+    s_dt_lbl[i] = lv_label_create(row);
+    lv_obj_set_style_text_font(s_dt_lbl[i], &lv_font_montserrat_16, 0);
+  }
+  dt_refresh();
+  s_dt_active = true;
+
+  lv_obj_t *hint = lv_label_create(c);
+  lv_label_set_text(hint,
+                    LV_SYMBOL_UP LV_SYMBOL_DOWN " edit   " LV_SYMBOL_LEFT LV_SYMBOL_RIGHT
+                                                " field   " LV_SYMBOL_OK " set");
+  lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(hint, current_theme.text_secondary, 0);
 }
 
 static void wiz_status_row(lv_obj_t *list, const char *name, const char *value) {
@@ -387,7 +473,7 @@ static void page_storage(lv_obj_t *c) {
 
 static void page_companion(lv_obj_t *c) {
   wiz_heading(c, "Companion App");
-  wiz_sub(c, "Pair the phone app for time sync, file transfer and remote control.");
+  wiz_sub(c, "Pair the phone app for file transfer and remote control.");
   lv_obj_t *box = lv_label_create(c);
   char psk[HOST_LINK_PSK_HEX_SIZE];
   if (host_link_sec_get_psk_hex(psk, sizeof(psk)) == ESP_OK) {
@@ -492,6 +578,9 @@ static void page_ready(lv_obj_t *c) {
   wiz_mascot(c, 256);
   wiz_heading(c, "You're all set!");
   wiz_sub(c, "Tips will nudge you as you go. Let's dive in.");
+  wiz_sub(c,
+          "The High Boy is an early prototype: a few tools are still simulated while the "
+          "hardware matures. You're getting a first look at something that's growing fast.");
 }
 
 typedef void (*wiz_build_fn)(lv_obj_t *);
@@ -499,12 +588,12 @@ typedef void (*wiz_build_fn)(lv_obj_t *);
 typedef struct {
   wiz_build_fn build;
   const char *foot;
-  bool mascot; // keep the persistent guide visible from here on
+  bool mascot;
 } wiz_page_t;
 
 static const wiz_page_t PAGES[] = {
     {page_language, "UP/DOWN Pick    OK Next", false},
-    {page_datetime, "OK Next    BACK Back", false},
+    {page_datetime, "OK Set    BACK Back", false},
     {page_storage, "OK Next    BACK Back", false},
     {page_companion, "OK Next    BACK Back", false},
     {page_terms, "OK Accept    BACK Back", false},
@@ -526,17 +615,19 @@ static void arm_done(lv_anim_t *a) {
 }
 
 static void build_page_now(int idx) {
-  s_busy = true; // cleared by arm_done() when the fade-in finishes
+  s_busy = true;
   s_page = idx;
   s_ch_count = 0;
   s_ch_arrow = NULL;
-  s_mascot = NULL; // set by wiz_mascot() during the build if this page has one
+  s_mascot = NULL;
+  s_dt_active = false;
+  for (int i = 0; i < 5; i++)
+    s_dt_lbl[i] = NULL;
   lv_obj_clean(s_content);
   PAGES[idx].build(s_content);
   lv_label_set_text(s_foot, PAGES[idx].foot);
   lv_label_set_text_fmt(s_step, "%d / %d", idx + 1, PAGE_COUNT);
 
-  // Progress bar eases to the new fraction.
   lv_anim_t a;
   lv_anim_init(&a);
   lv_anim_set_var(&a, s_prog_fill);
@@ -546,13 +637,10 @@ static void build_page_now(int idx) {
   lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
   lv_anim_start(&a);
 
-  // Compose the page in on the dark canvas: octobit fades in and glides from the
-  // side first, THEN the text fades in below it, element by element.
   lv_obj_set_style_opa(s_content, LV_OPA_COVER, 0);
 
   uint32_t base = 0;
   if (s_mascot) {
-    // Octobit simply fades in and floats in place (no slide); the text waits for it.
     fade(s_mascot, LV_OPA_TRANSP, LV_OPA_COVER, MASCOT_FADE, 0, lv_anim_path_ease_out, NULL);
     base = MASCOT_ENTER;
   }
@@ -573,7 +661,6 @@ static void build_page_now(int idx) {
     step++;
   }
 
-  // Arm input once the whole sequence has settled (a no-op timing anim).
   uint32_t settle = base + (step > 0 ? (uint32_t)(step - 1) * STAGGER_MS : 0) + FADE_IN_MS;
   fade(s_content, LV_OPA_COVER, LV_OPA_COVER, settle, 0, lv_anim_path_linear, arm_done);
 }
@@ -641,7 +728,43 @@ static void key_cb(lv_event_t *e) {
     return;
   uint32_t key = lv_event_get_key(e);
 
-  // On a chooser page UP/DOWN move the selection (arrow slides to it).
+  if (s_dt_active) {
+    if (key == LV_KEY_UP) {
+      dt_adjust(+1);
+      return;
+    }
+    if (key == LV_KEY_DOWN) {
+      dt_adjust(-1);
+      return;
+    }
+    if (key == LV_KEY_RIGHT) {
+      s_dt_field = (s_dt_field + 1) % 5;
+      dt_refresh();
+      return;
+    }
+    if (key == LV_KEY_LEFT) {
+      s_dt_field = (s_dt_field + 4) % 5;
+      dt_refresh();
+      return;
+    }
+    if (key == LV_KEY_ENTER) {
+      dt_save();
+      s_dt_active = false;
+      if (s_page + 1 < PAGE_COUNT)
+        go_page(s_page + 1);
+      else
+        finish();
+      return;
+    }
+    if (key == LV_KEY_ESC) {
+      s_dt_active = false;
+      if (s_page > 0)
+        go_page(s_page - 1);
+      return;
+    }
+    return;
+  }
+
   if (s_ch_count > 0) {
     if (key == LV_KEY_UP) {
       chooser_move(-1);
@@ -704,7 +827,7 @@ void tutorial_start(void) {
   s_content = lv_obj_create(root);
   lv_obj_remove_style_all(s_content);
   lv_obj_remove_flag(s_content, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(s_content, LCD_H_RES, WIZ_CONTENT_H);
+  lv_obj_set_size(s_content, ui_screen_w(), WIZ_CONTENT_H);
   lv_obj_align(s_content, LV_ALIGN_TOP_MID, 0, WIZ_CONTENT_Y);
   lv_obj_set_flex_flow(s_content, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(

@@ -23,10 +23,12 @@
 
 static const char *TAG = "SPI_BUS";
 
-#define SPI_MAX_TRANSFER_SIZE 32768
+#define SPI_MAX_TRANSFER_SIZE 49152
 
 static spi_device_handle_t s_device_handles[SPI_DEVICE_MAX] = {NULL};
 static bool s_bus_active[SOC_SPI_PERIPH_NUM] = {false};
+
+static SemaphoreHandle_t s_spi3_lock = NULL;
 
 esp_err_t spi_bus_init(spi_host_device_t host, int mosi, int miso, int sclk) {
   if (host >= SOC_SPI_PERIPH_NUM) {
@@ -49,9 +51,36 @@ esp_err_t spi_bus_init(spi_host_device_t host, int mosi, int miso, int sclk) {
   if (ret == ESP_OK) {
     s_bus_active[host] = true;
     ESP_LOGI(TAG, "Bus host %d initialized", host);
+    if (host == SPI3_HOST && s_spi3_lock == NULL) {
+      s_spi3_lock = xSemaphoreCreateBinary();
+      if (s_spi3_lock != NULL) {
+        xSemaphoreGive(s_spi3_lock);
+      } else {
+        ESP_LOGE(TAG, "Failed to create SPI3 bus lock");
+      }
+    }
   }
 
   return ret;
+}
+
+bool spi_bus_lock_take(uint32_t timeout_ms) {
+  if (s_spi3_lock == NULL) {
+    return true;
+  }
+  return xSemaphoreTake(s_spi3_lock, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
+}
+
+void spi_bus_lock_give(void) {
+  if (s_spi3_lock != NULL) {
+    xSemaphoreGive(s_spi3_lock);
+  }
+}
+
+void spi_bus_lock_give_from_isr(BaseType_t *hpw) {
+  if (s_spi3_lock != NULL) {
+    xSemaphoreGiveFromISR(s_spi3_lock, hpw);
+  }
 }
 
 esp_err_t spi_init(void) {

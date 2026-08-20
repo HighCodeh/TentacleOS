@@ -50,10 +50,11 @@ typedef struct {
   uint8_t buf[PA_MAX_FRAME_SIZE];
 } pa_frame_t;
 
-static pa_frame_t s_queue[PA_FROMRADIO_QUEUE_SZ];
+EXT_RAM_BSS_ATTR static pa_frame_t s_queue[PA_FROMRADIO_QUEUE_SZ];
 static uint8_t s_queue_head = 0;
 static uint8_t s_queue_tail = 0;
 static SemaphoreHandle_t s_queue_mutex = NULL;
+static SemaphoreHandle_t s_fsm_mutex = NULL;
 
 static uint32_t s_node_num = 0;
 static phoneapi_state_t s_state = PA_STATE_IDLE;
@@ -74,25 +75,25 @@ static uint16_t enc_varint(uint8_t *buf, uint64_t value) {
 }
 
 static uint16_t enc_field_varint(uint8_t *buf, uint8_t field_num, uint64_t value) {
-  buf[0] = (field_num << 3) | 0;
-  return 1 + enc_varint(&buf[1], value);
+  uint16_t pos = enc_varint(buf, ((uint64_t)field_num << 3) | 0);
+  return pos + enc_varint(&buf[pos], value);
 }
 
 static uint16_t
 enc_field_bytes(uint8_t *buf, uint8_t field_num, const uint8_t *data, uint16_t len) {
-  buf[0] = (field_num << 3) | 2;
-  uint16_t pos = 1 + enc_varint(&buf[1], len);
+  uint16_t pos = enc_varint(buf, ((uint64_t)field_num << 3) | 2);
+  pos += enc_varint(&buf[pos], len);
   memcpy(&buf[pos], data, len);
   return pos + len;
 }
 
 static uint16_t enc_field_fixed32(uint8_t *buf, uint8_t field_num, uint32_t value) {
-  buf[0] = (field_num << 3) | 5;
-  buf[1] = (uint8_t)(value & 0xFF);
-  buf[2] = (uint8_t)((value >> 8) & 0xFF);
-  buf[3] = (uint8_t)((value >> 16) & 0xFF);
-  buf[4] = (uint8_t)((value >> 24) & 0xFF);
-  return 5;
+  uint16_t pos = enc_varint(buf, ((uint64_t)field_num << 3) | 5);
+  buf[pos++] = (uint8_t)(value & 0xFF);
+  buf[pos++] = (uint8_t)((value >> 8) & 0xFF);
+  buf[pos++] = (uint8_t)((value >> 16) & 0xFF);
+  buf[pos++] = (uint8_t)((value >> 24) & 0xFF);
+  return pos;
 }
 
 static uint64_t dec_varint(const uint8_t *buf, uint16_t max_len, uint16_t *out_used) {
@@ -272,7 +273,7 @@ static uint16_t build_config_empty(uint8_t *out, uint32_t rid, uint8_t cfg_type)
 static uint16_t build_moduleconfig_empty(uint8_t *out, uint32_t rid, uint8_t mc_type) {
   uint8_t mc[8];
   uint16_t mc_len = 0;
-  mc[mc_len++] = (mc_type << 3) | 2;
+  mc_len += enc_varint(&mc[mc_len], ((uint64_t)mc_type << 3) | 2);
   mc[mc_len++] = 0;
 
   uint16_t pos = 0;
@@ -576,6 +577,11 @@ esp_err_t phoneapi_init(uint32_t node_num) {
     if (s_queue_mutex == NULL)
       return ESP_ERR_NO_MEM;
   }
+  if (s_fsm_mutex == NULL) {
+    s_fsm_mutex = xSemaphoreCreateMutex();
+    if (s_fsm_mutex == NULL)
+      return ESP_ERR_NO_MEM;
+  }
 
   ESP_LOGI(
       TAG, "Initialized - node=0x%08lX, queue=%d", (unsigned long)node_num, PA_FROMRADIO_QUEUE_SZ);
@@ -620,6 +626,8 @@ esp_err_t phoneapi_on_toradio(const uint8_t *pb_data, uint16_t pb_len) {
       uint64_t value = dec_varint(&pb_data[i], pb_len - i, &vused);
       i += vused;
       if (field == 3) {
+        if (s_fsm_mutex != NULL)
+          xSemaphoreTake(s_fsm_mutex, portMAX_DELAY);
         s_want_config_nonce = (uint32_t)value;
         ESP_LOGI(TAG, "ToRadio.want_config_id = %lu", (unsigned long)value);
         if (s_want_config_nonce == PA_NONCE_ONLY_NODES) {
@@ -633,6 +641,8 @@ esp_err_t phoneapi_on_toradio(const uint8_t *pb_data, uint16_t pb_len) {
              k++) {
           advance_fsm();
         }
+        if (s_fsm_mutex != NULL)
+          xSemaphoreGive(s_fsm_mutex);
       }
     } else if (wire_type == 5) {
       i += 4;
@@ -644,9 +654,13 @@ esp_err_t phoneapi_on_toradio(const uint8_t *pb_data, uint16_t pb_len) {
 }
 
 uint16_t phoneapi_poll_fromradio(uint8_t *out_buf, uint16_t max_len) {
+  if (s_fsm_mutex != NULL)
+    xSemaphoreTake(s_fsm_mutex, portMAX_DELAY);
   while (!queue_has_data() && s_state != PA_STATE_SEND_PACKETS && s_state != PA_STATE_IDLE) {
     advance_fsm();
   }
+  if (s_fsm_mutex != NULL)
+    xSemaphoreGive(s_fsm_mutex);
   return queue_pop(out_buf, max_len);
 }
 
@@ -669,7 +683,15 @@ void phoneapi_push_packet(const uint8_t *mp_bytes, uint16_t mp_len) {
 
 void phoneapi_disconnect(void) {
   ESP_LOGI(TAG, "Transporte desconectado - resetando FSM");
+  if (s_fsm_mutex != NULL)
+    xSemaphoreTake(s_fsm_mutex, portMAX_DELAY);
   s_state = PA_STATE_IDLE;
-  s_queue_head = s_queue_tail;
   s_config_iter = 0;
+  if (s_fsm_mutex != NULL)
+    xSemaphoreGive(s_fsm_mutex);
+  if (s_queue_mutex != NULL)
+    xSemaphoreTake(s_queue_mutex, portMAX_DELAY);
+  s_queue_head = s_queue_tail;
+  if (s_queue_mutex != NULL)
+    xSemaphoreGive(s_queue_mutex);
 }

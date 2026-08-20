@@ -15,6 +15,8 @@
 
 #include "meshcore_phoneapi.h"
 
+#include "esp_attr.h"
+
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -22,6 +24,8 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_random.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 #include "meshcore.h"
 #include "meshcore_internal.h"
@@ -103,8 +107,9 @@ static const char *TAG = "MC_PHONEAPI";
 
 #define CONTACT_FRAME_SIZE 143
 
-#define MC_OFFLINE_QUEUE_SIZE 16
-#define MC_OFFLINE_FRAME_MAX  240
+#define MC_OFFLINE_QUEUE_SIZE     16
+#define MC_OFFLINE_FRAME_MAX      240
+#define MC_QUEUE_MUTEX_TIMEOUT_MS 100
 
 #define MC_NVS_KEY_BLE_PIN "ble_pin"
 #define MC_NVS_KEY_AUTOADD "autoadd"
@@ -136,8 +141,9 @@ static uint8_t s_autoadd_max_hops = MC_AUTOADD_DEFAULT_MAX_HOPS;
 static meshcore_phoneapi_outbound_cb_t s_outbound_cb = NULL;
 static void *s_outbound_ctx = NULL;
 
-static mc_queued_frame_t s_offline_queue[MC_OFFLINE_QUEUE_SIZE];
+EXT_RAM_BSS_ATTR static mc_queued_frame_t s_offline_queue[MC_OFFLINE_QUEUE_SIZE];
 static uint8_t s_offline_queue_len = 0;
+static SemaphoreHandle_t s_queue_mutex = NULL;
 
 static void send_resp(const uint8_t *buf, uint16_t len);
 static void send_err(uint8_t sub);
@@ -193,6 +199,12 @@ esp_err_t meshcore_phoneapi_init(void) {
   s_offline_queue_len = 0;
   s_outbound_cb = NULL;
   s_outbound_ctx = NULL;
+  if (s_queue_mutex == NULL) {
+    s_queue_mutex = xSemaphoreCreateMutex();
+    if (s_queue_mutex == NULL) {
+      return ESP_ERR_NO_MEM;
+    }
+  }
   s_is_initialized = true;
   ESP_LOGI(TAG, "Initialized — PIN=%lu", (unsigned long)s_ble_pin);
   return ESP_OK;
@@ -209,7 +221,11 @@ uint32_t meshcore_phoneapi_get_pin(void) {
 
 void meshcore_phoneapi_on_disconnect(void) {
   s_app_target_ver = 0;
+  if (s_queue_mutex != NULL)
+    xSemaphoreTake(s_queue_mutex, portMAX_DELAY);
   s_offline_queue_len = 0;
+  if (s_queue_mutex != NULL)
+    xSemaphoreGive(s_queue_mutex);
 }
 
 void meshcore_phoneapi_on_inbound(const uint8_t *buf, uint16_t len) {
@@ -460,6 +476,10 @@ static uint32_t load_or_generate_ble_pin(void) {
 static void offline_queue_push(const uint8_t *frame, uint16_t len) {
   if (len == 0 || len > MC_OFFLINE_FRAME_MAX)
     return;
+  if (s_queue_mutex != NULL &&
+      xSemaphoreTake(s_queue_mutex, pdMS_TO_TICKS(MC_QUEUE_MUTEX_TIMEOUT_MS)) != pdTRUE) {
+    return;
+  }
   if (s_offline_queue_len >= MC_OFFLINE_QUEUE_SIZE) {
     for (int i = 0; i < MC_OFFLINE_QUEUE_SIZE - 1; i++) {
       s_offline_queue[i] = s_offline_queue[i + 1];
@@ -469,17 +489,28 @@ static void offline_queue_push(const uint8_t *frame, uint16_t len) {
   s_offline_queue[s_offline_queue_len].len = len;
   memcpy(s_offline_queue[s_offline_queue_len].buf, frame, len);
   s_offline_queue_len++;
+  if (s_queue_mutex != NULL)
+    xSemaphoreGive(s_queue_mutex);
 }
 
 static bool offline_queue_pop(uint8_t *out, uint16_t *out_len) {
-  if (s_offline_queue_len == 0)
+  if (s_queue_mutex != NULL &&
+      xSemaphoreTake(s_queue_mutex, pdMS_TO_TICKS(MC_QUEUE_MUTEX_TIMEOUT_MS)) != pdTRUE) {
     return false;
+  }
+  if (s_offline_queue_len == 0) {
+    if (s_queue_mutex != NULL)
+      xSemaphoreGive(s_queue_mutex);
+    return false;
+  }
   *out_len = s_offline_queue[0].len;
   memcpy(out, s_offline_queue[0].buf, *out_len);
   for (int i = 0; i < s_offline_queue_len - 1; i++) {
     s_offline_queue[i] = s_offline_queue[i + 1];
   }
   s_offline_queue_len--;
+  if (s_queue_mutex != NULL)
+    xSemaphoreGive(s_queue_mutex);
   return true;
 }
 
@@ -514,6 +545,8 @@ static void deserialize_contact(meshcore_contact_t *c, const uint8_t in[], size_
   c->type = in[o++];
   c->flags = in[o++];
   c->out_path_len = in[o++];
+  if (c->out_path_len != MESHCORE_OUT_PATH_UNKNOWN && c->out_path_len > MESHCORE_MAX_PATH)
+    c->out_path_len = MESHCORE_MAX_PATH;
   memcpy(c->out_path, &in[o], MESHCORE_MAX_PATH);
   o += MESHCORE_MAX_PATH;
   char tmp[MESHCORE_NAME_MAX + 1] = {0};
@@ -545,7 +578,7 @@ static void handle_device_query(const uint8_t *p, uint16_t len) {
     s_app_target_ver = p[1];
     ESP_LOGI(TAG, "app_target_ver = %u", s_app_target_ver);
   }
-  uint8_t resp[80];
+  uint8_t resp[82];
   uint16_t o = 0;
   resp[o++] = RESP_CODE_DEVICE_INFO;
   resp[o++] = FIRMWARE_VER_CODE;
@@ -925,9 +958,12 @@ static void handle_get_advert_path(const uint8_t *p, uint16_t len) {
   if (c == NULL || c->out_path_len == MESHCORE_OUT_PATH_UNKNOWN) {
     resp[o++] = 0;
   } else {
-    resp[o++] = c->out_path_len;
-    memcpy(&resp[o], c->out_path, c->out_path_len);
-    o += c->out_path_len;
+    uint8_t plen = c->out_path_len;
+    if (plen > MESHCORE_MAX_PATH)
+      plen = MESHCORE_MAX_PATH;
+    resp[o++] = plen;
+    memcpy(&resp[o], c->out_path, plen);
+    o += plen;
   }
   send_resp(resp, o);
 }

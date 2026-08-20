@@ -20,11 +20,14 @@
 extern "C" {
 #endif
 
-#include <stdint.h>
+#include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
-#include "esp_err.h"
 #include "driver/spi_master.h"
+#include "esp_err.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 /**
  * @brief Registered SPI device identifiers.
@@ -122,6 +125,36 @@ esp_err_t spi_transmit(spi_device_id_t id, const uint8_t *data, size_t len);
  *   - ESP_ERR_INVALID_STATE if bus is not active
  */
 esp_err_t spi_bus_deinit(spi_host_device_t host);
+
+/**
+ * @brief Take the shared SPI3 bus lock.
+ *
+ * SPI3 is shared by the ST7789 display and the SX1262 LoRa radio. Both must
+ * hold this lock around their transactions so a radio transfer never overlaps
+ * or starves a display flush (which would stall the LVGL renderer). Callers use
+ * a bounded timeout and proceed on failure: the ESP-IDF per-bus lock still
+ * serializes the actual transfers, so a timeout only loses fairness, never
+ * correctness. The lock is created lazily by spi_bus_init(SPI3_HOST); before
+ * that this is a no-op returning true.
+ *
+ * @param timeout_ms  Milliseconds to wait for the lock.
+ * @return true if the lock was taken (caller must give it), false on timeout.
+ */
+bool spi_bus_lock_take(uint32_t timeout_ms);
+
+/**
+ * @brief Release the shared SPI3 bus lock from task context.
+ */
+void spi_bus_lock_give(void);
+
+/**
+ * @brief Release the shared SPI3 bus lock from an ISR (e.g. the LCD
+ *        color-transfer-done callback).
+ *
+ * @param hpw  Set to pdTRUE if a higher-priority task was woken; pass to
+ *             portYIELD_FROM_ISR() at the end of the ISR. May be NULL.
+ */
+void spi_bus_lock_give_from_isr(BaseType_t *hpw);
 
 #ifdef __cplusplus
 }

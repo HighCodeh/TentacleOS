@@ -38,6 +38,7 @@ static bool s_is_initialized = false;
 
 static void send_keyboard_report(uint8_t keycode, uint8_t modifier);
 static void send_mouse_report(int8_t x, int8_t y, uint8_t buttons, int8_t wheel);
+static bool hid_report_ready(void);
 
 esp_err_t bad_usb_init(void) {
   if (s_is_initialized) {
@@ -51,7 +52,8 @@ esp_err_t bad_usb_init(void) {
     return err;
   }
 
-  hid_hal_register_callback(send_keyboard_report, send_mouse_report, bad_usb_wait_for_connection);
+  hid_hal_register_callback(
+      send_keyboard_report, send_mouse_report, bad_usb_wait_for_connection, hid_report_ready);
   s_is_initialized = true;
 
   ESP_LOGI(TAG, "Initialized");
@@ -65,7 +67,7 @@ esp_err_t bad_usb_deinit(void) {
   }
 
   ESP_LOGI(TAG, "Deinitializing...");
-  hid_hal_register_callback(NULL, NULL, NULL);
+  hid_hal_register_callback(NULL, NULL, NULL, NULL);
 
   esp_err_t err = tinyusb_driver_uninstall();
   if (err != ESP_OK) {
@@ -116,4 +118,8 @@ static void send_keyboard_report(uint8_t keycode, uint8_t modifier) {
 
 static void send_mouse_report(int8_t x, int8_t y, uint8_t buttons, int8_t wheel) {
   tud_hid_mouse_report(HID_REPORT_ID_MOUSE, buttons, x, y, wheel, 0);
+}
+
+static bool hid_report_ready(void) {
+  return tud_hid_ready();
 }

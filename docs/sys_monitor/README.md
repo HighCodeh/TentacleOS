@@ -22,12 +22,29 @@ kills tasks.
    (`esp_restart()`), preceded by a log, a UI alert and a short grace delay.
 5. Tasks that recover or exit drop out of the table, so a fresh dip starts a new
    streak instead of inheriting a stale one.
-6. It is also the **Task Watchdog heartbeat** (`esp_task_wdt_add`/`reset` each
+6. **Heap watch** (`check_heap()`): reads internal free and the largest
+   contiguous internal block. When either drops low
+   (`HEAP_WARN_FREE_B` / `HEAP_WARN_LARGEST_B`) it warns once, evicts the image
+   cache via `assets_manager_evict_cache()` to reclaim RAM, then shows one UI
+   alert. If total internal free stays under `HEAP_CRIT_FREE_B` for
+   `HEAP_CRIT_CYCLES` consecutive cycles it does a controlled restart. Both the
+   warn latch and the critical streak reset once free RAM recovers.
+7. **SD health watch** (`check_storage_health()`, every `STORAGE_CHECK_CYCLES`
+   cycles ~= 60 s): when the SD is mounted and `storage_check_health()` fails, it
+   requests a remount via `header_ui_request_sd_remount()`.
+8. **I2C recovery watch** (`check_i2c_health()`): polls `i2c_recover_count()` and
+   logs when the bus recovery count advances (the I2C driver self-recovered a
+   stuck bus). Observe-and-report only; no escalation.
+9. It is also the **Task Watchdog heartbeat** (`esp_task_wdt_add`/`reset` each
    cycle) and the **UI render supervisor**: it polls `ui_render_beat()` (a beat
-   bumped by an `lv_timer` inside the LVGL task) and, if the beat stalls for a
-   couple of cycles, does the same controlled restart. This replaces the old
-   "watch a task called `UI Task` by name" logic - it watches the renderer's
-   actual progress, not a task name.
+   bumped by an `lv_timer` inside the LVGL task) and, if the beat does not move
+   for `UI_STALL_ESCALATE_CYCLES` cycles (8, ~16 s), does the same controlled
+   restart. The tolerance is intentionally generous: a legitimately slow but
+   blocking op on the UI thread (e.g. a multi-second `wifi scan` run under the
+   LVGL lock) freezes the renderer for a few seconds without being deadlocked, so
+   only a genuinely stuck UI should reboot. This replaces the old "watch a task
+   called `UI Task` by name" logic - it watches the renderer's actual progress,
+   not a task name.
 
 `usStackHighWaterMark` is monotonic (it records the lowest free stack ever seen,
 and never rises again), so a sustained streak means the task is alive and running
@@ -56,11 +73,13 @@ escalation is the controlled restart above.
 | `CRITICAL_STACK_THRESHOLD` | 256 | Free-stack floor (bytes) that flags a task |
 | `STACK_ESCALATE_CYCLES` | 5 | Consecutive critical cycles before a controlled restart |
 | `STACK_WATCH_MAX` | 8 | Distinct critical tasks tracked for persistence |
+| `UI_STALL_ESCALATE_CYCLES` | 8 | Cycles with no render-beat progress (~16 s) before a controlled restart |
+| `HEAP_WARN_FREE_B` | 24576 | Internal free below this warns once |
+| `HEAP_WARN_LARGEST_B` | 12288 | Largest contiguous internal block below this warns once |
+| `HEAP_CRIT_FREE_B` | 8192 | Internal free below this (sustained) escalates |
+| `HEAP_CRIT_CYCLES` | 3 | Consecutive critical-heap cycles before a controlled restart |
+| `STORAGE_CHECK_CYCLES` | 30 | SD-health probe cadence (cycles, ~60 s) |
 | `REBOOT_GRACE_MS` | 1500 | Delay after the alert so it renders / logs flush |
-
-> The controlled restart has a `TODO(item 31)` hook: once the graceful shutdown
-> path exists it should run there so the filesystem and radios flush their state
-> before `esp_restart()`.
 
 ---
 

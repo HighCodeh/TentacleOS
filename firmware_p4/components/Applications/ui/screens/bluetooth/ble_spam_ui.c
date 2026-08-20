@@ -28,12 +28,12 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 static const char *TAG = "BLE_SPAM_UI";
 
 #define RUN_TICK_MS 250
-#define COL_DIM     0x8A8594
 #define SPAM_ICON   "/assets/icons/broadcast_on_personal.bin"
 
 #define SPAM_GRID_PAD      8
@@ -116,7 +116,7 @@ static lv_obj_t *build_spam_card(
   lv_obj_t *d = lv_label_create(c);
   lv_label_set_text(d, effect);
   lv_obj_set_style_text_font(d, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(d, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(d, current_theme.text_secondary, 0);
   return c;
 }
 
@@ -161,7 +161,7 @@ void ui_ble_spam_select_open(void) {
 
   lv_obj_t *grid = lv_obj_create(s_select_screen);
   lv_obj_remove_flag(grid, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(grid, LCD_H_RES, LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_size(grid, lv_pct(100), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
   lv_obj_align(grid, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(grid, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(grid, 0, 0);
@@ -273,7 +273,7 @@ void ui_ble_spam_open(void) {
 
   lv_obj_t *body = lv_obj_create(s_run_screen);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(body, LCD_H_RES, LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_size(body, lv_pct(100), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
   lv_obj_align(body, LV_ALIGN_TOP_LEFT, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(body, 0, 0);
@@ -288,7 +288,7 @@ void ui_ble_spam_open(void) {
   const canned_spam_type_t *mt = spam_get_attack_type(s_spam_mode);
   lv_obj_t *mode = lv_label_create(body);
   lv_label_set_text_fmt(mode, "Mode: %s", (mt != NULL && mt->name) ? mt->name : "?");
-  lv_obj_set_style_text_color(mode, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(mode, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(mode, &lv_font_montserrat_12, 0);
   lv_obj_align(mode, LV_ALIGN_TOP_MID, 0, 34);
 
@@ -306,7 +306,7 @@ void ui_ble_spam_open(void) {
 
   s_run_rate_label = lv_label_create(body);
   lv_label_set_text(s_run_rate_label, "Broadcasting");
-  lv_obj_set_style_text_color(s_run_rate_label, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(s_run_rate_label, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(s_run_rate_label, &lv_font_montserrat_12, 0);
   lv_obj_align(s_run_rate_label, LV_ALIGN_TOP_MID, 0, 180);
 

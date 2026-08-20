@@ -21,9 +21,8 @@ extern "C" {
 #endif
 
 /**
- * @brief Open the Sub-GHz "Send" screen (MOCK): pick a saved signal from a list,
- *        then a pulse-train transmit animation that auto-confirms "Sent!". No
- *        radio.
+ * @brief Open the Sub-GHz "Send" screen: pick a saved capture from the SD library
+ *        and replay it over the CC1101 transmitter.
  */
 void ui_subghz_send_open(void);
 

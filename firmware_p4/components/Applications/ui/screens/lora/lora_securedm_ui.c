@@ -32,6 +32,8 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
+#include "ui_semantic.h"
 #include "ui_theme.h"
 
 #define HDR_TITLE   "SECURE DM"
@@ -40,7 +42,7 @@
 #define FOOTER_CHAT "OK WRITE   UP/DOWN SCROLL   BACK"
 
 #define BODY_TOP UI_CHROME_HEADER_H
-#define BODY_BOT (LCD_V_RES - UI_CHROME_FOOTER_H)
+#define BODY_BOT (ui_screen_h() - UI_CHROME_FOOTER_H)
 
 #define BANNER_H 36
 #define INPUT_H  32
@@ -78,8 +80,6 @@
 
 #define DM_MAX_CONTACTS 32
 
-#define COL_DIM   0x8A8594
-#define COL_OK    0x00E676
 #define COL_OUTTX 0xF2EEFF
 #define COL_OUTGR 0x2A1F52
 
@@ -238,11 +238,11 @@ static lv_obj_t *make_seal(lv_obj_t *parent, lv_color_t col) {
 }
 
 static void build_banner(lv_obj_t *parent, const char *name, const char *sub, bool secure) {
-  lv_color_t acc = secure ? lv_color_hex(COL_OK) : lv_color_hex(COL_DIM);
+  lv_color_t acc = secure ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_secondary;
 
   lv_obj_t *banner = lv_obj_create(parent);
   lv_obj_remove_flag(banner, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(banner, LCD_H_RES, BANNER_H);
+  lv_obj_set_size(banner, ui_screen_w(), BANNER_H);
   lv_obj_align(banner, LV_ALIGN_TOP_MID, 0, BODY_TOP);
   lv_obj_set_style_radius(banner, 0, 0);
   lv_obj_set_style_bg_color(banner, acc, 0);
@@ -335,7 +335,7 @@ static void add_bubble(lv_obj_t *list, bool outgoing, const char *text, const ch
   if (outgoing) {
     lv_obj_set_flex_align(meta, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   } else {
-    make_seal(meta, lv_color_hex(COL_OK));
+    make_seal(meta, lv_color_hex(UI_COL_SUCCESS));
   }
 
   lv_obj_t *tlbl = lv_label_create(meta);
@@ -347,7 +347,7 @@ static void add_bubble(lv_obj_t *list, bool outgoing, const char *text, const ch
     lv_obj_set_style_text_opa(tlbl, LV_OPA_70, 0);
   } else {
     lv_label_set_text(tlbl, ts);
-    lv_obj_set_style_text_color(tlbl, lv_color_hex(COL_DIM), 0);
+    lv_obj_set_style_text_color(tlbl, current_theme.text_secondary, 0);
   }
   lv_obj_set_style_text_font(tlbl, &lv_font_montserrat_12, 0);
 
@@ -356,7 +356,7 @@ static void add_bubble(lv_obj_t *list, bool outgoing, const char *text, const ch
 
 static void build_list_container(lv_obj_t *parent) {
   s_list = lv_obj_create(parent);
-  lv_obj_set_size(s_list, LCD_H_RES, BODY_BOT - INPUT_H - (BODY_TOP + BANNER_H));
+  lv_obj_set_size(s_list, ui_screen_w(), BODY_BOT - INPUT_H - (BODY_TOP + BANNER_H));
   lv_obj_align(s_list, LV_ALIGN_TOP_MID, 0, BODY_TOP + BANNER_H);
   lv_obj_set_style_bg_opa(s_list, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(s_list, 0, 0);
@@ -379,7 +379,7 @@ static void add_placeholder(lv_obj_t *list, const char *txt) {
   lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
   lv_label_set_text(l, txt);
   lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_set_style_text_color(l, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(l, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
 }
 
@@ -400,7 +400,7 @@ static void make_contact_row(lv_obj_t *list, int i, const dm_contact_t *c) {
   lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-  make_lock(row, lv_color_hex(COL_OK));
+  make_lock(row, lv_color_hex(UI_COL_SUCCESS));
 
   lv_obj_t *col = bare_box(row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
   lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
@@ -413,14 +413,14 @@ static void make_contact_row(lv_obj_t *list, int i, const dm_contact_t *c) {
   lv_obj_set_width(nm, lv_pct(100));
   lv_label_set_text(nm, c->name);
   lv_obj_set_style_text_font(nm, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(nm, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(nm, current_theme.text_secondary, 0);
 
   lv_obj_t *fp = lv_label_create(col);
   char sub[24];
   lv_snprintf(sub, sizeof(sub), "key %s", c->fp);
   lv_label_set_text(fp, sub);
   lv_obj_set_style_text_font(fp, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(fp, lv_color_hex(COL_OK), 0);
+  lv_obj_set_style_text_color(fp, lv_color_hex(UI_COL_SUCCESS), 0);
 
   s_rows[i] = row;
   s_row_name[i] = nm;
@@ -446,7 +446,7 @@ static void row_style(int i, bool selected) {
   }
   if (s_row_name[i] != NULL)
     lv_obj_set_style_text_color(
-        s_row_name[i], selected ? current_theme.text_main : lv_color_hex(COL_DIM), 0);
+        s_row_name[i], selected ? current_theme.text_main : current_theme.text_secondary, 0);
 }
 
 static void select_contact(int sel) {
@@ -488,7 +488,7 @@ static void build_thread_list(lv_obj_t *parent) {
 static void build_input(lv_obj_t *parent, const char *placeholder) {
   lv_obj_t *strip = lv_obj_create(parent);
   lv_obj_remove_flag(strip, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(strip, LCD_H_RES, INPUT_H);
+  lv_obj_set_size(strip, ui_screen_w(), INPUT_H);
   lv_obj_align(strip, LV_ALIGN_TOP_MID, 0, BODY_BOT - INPUT_H);
   lv_obj_set_style_radius(strip, 0, 0);
   lv_obj_set_style_bg_opa(strip, LV_OPA_TRANSP, 0);
@@ -501,7 +501,7 @@ static void build_input(lv_obj_t *parent, const char *placeholder) {
   lv_obj_set_flex_flow(strip, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(strip, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-  make_lock(strip, lv_color_hex(COL_OK));
+  make_lock(strip, lv_color_hex(UI_COL_SUCCESS));
 
   lv_obj_t *pill = lv_obj_create(strip);
   lv_obj_remove_flag(pill, LV_OBJ_FLAG_SCROLLABLE);
@@ -520,7 +520,7 @@ static void build_input(lv_obj_t *parent, const char *placeholder) {
   lv_obj_t *ph = lv_label_create(pill);
   lv_label_set_text(ph, placeholder);
   lv_obj_set_style_text_font(ph, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(ph, lv_color_hex(COL_DIM), 0);
+  lv_obj_set_style_text_color(ph, current_theme.text_secondary, 0);
 }
 
 static void on_kb_submit(const char *text, void *user_data) {

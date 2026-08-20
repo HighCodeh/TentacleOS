@@ -35,6 +35,14 @@ extern "C" {
 // ~30 s. Keep the master's wait above that or the command times out mid-scan and
 // the late response desyncs the bridge.
 #define SPI_TIMEOUT_WIFI_MS 40000
+// The *_BLE_INIT / *_BLE_STOP commands run the full NimBLE lifecycle on the C5
+// (tear down the other GATT services via a blocking nimble_port_stop, then
+// nimble_port_init + service add) synchronously on the single SPI bridge task of
+// a single-core chip, so bring-up regularly overruns the 1 s default. When it
+// does, the late response desyncs the bridge and the P4 keeps retrying (which
+// tears the just-started service back down). Give these commands enough headroom
+// to complete on the first try.
+#define SPI_TIMEOUT_BLE_LIFECYCLE_MS 5000
 
 #ifdef __cplusplus
 }
