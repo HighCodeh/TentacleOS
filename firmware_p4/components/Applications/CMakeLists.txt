@@ -143,6 +143,7 @@ idf_component_register(SRCS
   Drivers
   Service
   gameboy
+  doom
   esp_common
   esp_wifi
   esp_tinyusb

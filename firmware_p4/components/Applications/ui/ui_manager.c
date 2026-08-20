@@ -90,6 +90,7 @@
 #include "snake_ui.h"
 #include "breakout_ui.h"
 #include "gb_ui.h"
+#include "doom_real_ui.h"
 #include "octobit_status_ui.h"
 #include "dev_menu_ui.h"
 #include "subghz_menu_ui.h"
@@ -475,6 +476,8 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_breakout_open;
     case SCREEN_GAME_GB:
       return ui_gb_open;
+    case SCREEN_GAME_DOOM:
+      return ui_doom_real_open;
     case SCREEN_OCTOBIT_STATUS:
       return ui_octobit_status_open;
     case SCREEN_DEV_MENU:
