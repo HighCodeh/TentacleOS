@@ -8,7 +8,9 @@ cmake_minimum_required(VERSION 3.16)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(IDF_TARGET "esp32p4")
 
-set(EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_LIST_DIR}/components/Applications/gameboy")
+set(EXTRA_COMPONENT_DIRS
+    "${CMAKE_CURRENT_LIST_DIR}/components/Applications/gameboy"
+    "${CMAKE_CURRENT_LIST_DIR}/components/Applications/doom")
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 

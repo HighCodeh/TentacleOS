@@ -1,0 +1,22 @@
+# Move the DOOM engine's large static .bss/.common out of scarce internal SRAM
+# and into PSRAM. libdoom.a parks ~300 KB in internal RAM at link time (visplanes
+# ~85 KB, openings ~41 KB, ticdata, viewangletox, drawsegs, zlight, vissprites,
+# ...), which starves the whole system to ~14 KB free internal — so entering DOOM
+# fails to get the ST7789 SPI-DMA bounce buffer ("Failed to allocate priv TX
+# buffer") and every blit dies.
+#
+# These are CPU-only renderer scratch buffers (the real double framebuffer is
+# malloc'd in PSRAM already), so PSRAM placement is safe — no DMA touches them.
+# Only .bss/.common move; initialized .data (states, mobjinfo, S_sfx) stays
+# internal. Requires CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y for the
+# extern_ram region to exist.
+
+[scheme:doom_extram]
+entries:
+    bss -> extern_ram
+    common -> extern_ram
+
+[mapping:doom]
+archive: libdoom.a
+entries:
+    * (doom_extram)
