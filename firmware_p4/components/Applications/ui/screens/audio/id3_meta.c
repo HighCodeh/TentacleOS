@@ -59,8 +59,8 @@ static void copy_text(char *dst, size_t dstcap, const uint8_t *data, uint32_t le
   dst[o] = '\0';
 }
 
-static void handle_pic(const uint8_t *frame_data, uint32_t len, long file_base, bool v22,
-                       id3_meta_t *out) {
+static void
+handle_pic(const uint8_t *frame_data, uint32_t len, long file_base, bool v22, id3_meta_t *out) {
   if (len < 4)
     return;
   uint8_t enc = frame_data[0];

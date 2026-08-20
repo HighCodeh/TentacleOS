@@ -32,7 +32,7 @@ extern "C" {
  */
 typedef struct {
   lv_image_dsc_t dsc;
-  void *buf;  ///< backing pixel buffer (freed by media_thumb_free)
+  void *buf; ///< backing pixel buffer (freed by media_thumb_free)
   uint16_t w;
   uint16_t h;
 } media_thumb_t;

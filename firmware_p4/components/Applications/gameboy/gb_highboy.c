@@ -48,23 +48,24 @@ uint8_t audio_read(const uint16_t addr) {
   return s_apu ? minigb_apu_audio_read(s_apu, addr) : GB_OPEN_BUS;
 }
 void audio_write(const uint16_t addr, const uint8_t val) {
-  if (s_apu) minigb_apu_audio_write(s_apu, addr, val);
+  if (s_apu)
+    minigb_apu_audio_write(s_apu, addr, val);
 }
 #include "peanut_gb.h"
 
 static const char *TAG = "GB";
 
-#define GB_JOYPAD_IDLE      0xFF
+#define GB_JOYPAD_IDLE 0xFF
 
-#define GB_DST_W            320
-#define GB_DST_H            240
-#define GB_X_OFF            ((320 - GB_DST_W) / 2)
-#define GB_Y_OFF            ((240 - GB_DST_H) / 2)
-#define GB_STRIP_ROWS       24
+#define GB_DST_W      320
+#define GB_DST_H      240
+#define GB_X_OFF      ((320 - GB_DST_W) / 2)
+#define GB_Y_OFF      ((240 - GB_DST_H) / 2)
+#define GB_STRIP_ROWS 24
 
-#define GB_ROM_PATH_LEN     300
-#define GB_MAIN_STACK       32768
-#define GB_AUDIO_STACK      4096
+#define GB_ROM_PATH_LEN 300
+#define GB_MAIN_STACK   32768
+#define GB_AUDIO_STACK  4096
 
 #define GB_STARTUP_DELAY_MS 150
 #define GB_EXIT_HOLD_MS     1200
@@ -75,8 +76,8 @@ static const char *TAG = "GB";
 #define GB_AUDIO_POLL_MS    10
 #define GB_AUDIO_STOP_TRIES 100
 
-#define GB_FRAME_US         (1000000 / 60)
-#define GB_RESYNC_US        250000
+#define GB_FRAME_US  (1000000 / 60)
+#define GB_RESYNC_US 250000
 
 static const uint32_t GB_DMG_PALETTE[] = {0xE0F8D0, 0x88C070, 0x346856, 0x081820};
 #define GB_DMG_PALETTE_COUNT (sizeof(GB_DMG_PALETTE) / sizeof(GB_DMG_PALETTE[0]))
@@ -132,9 +133,11 @@ static void gb_err(struct gb_s *gb, const enum gb_error_e e, const uint16_t addr
 
 static void lcd_line(struct gb_s *gb, const uint8_t *pixels, const uint_fast8_t line) {
   (void)gb;
-  if (line >= LCD_HEIGHT) return;
+  if (line >= LCD_HEIGHT)
+    return;
   uint8_t *dst = s_shade + (size_t)line * LCD_WIDTH;
-  for (int x = 0; x < LCD_WIDTH; x++) dst[x] = pixels[x] & LCD_COLOUR;
+  for (int x = 0; x < LCD_WIDTH; x++)
+    dst[x] = pixels[x] & LCD_COLOUR;
 }
 
 static inline uint16_t to565be(uint32_t rgb) {
@@ -147,7 +150,8 @@ static bool find_gb_rom(char *out, size_t outsz) {
   const char *dirs[] = {"/sdcard", "/sdcard/gb", "/sdcard/roms", NULL};
   for (int d = 0; dirs[d]; d++) {
     DIR *dir = opendir(dirs[d]);
-    if (!dir) continue;
+    if (!dir)
+      continue;
     struct dirent *e;
     while ((e = readdir(dir)) != NULL) {
       size_t n = strlen(e->d_name);
@@ -175,9 +179,13 @@ static void derive_savepath(void) {
 }
 
 static void load_cram(void) {
-  if (!s_has_save || !s_cram) return;
+  if (!s_has_save || !s_cram)
+    return;
   FILE *f = fopen(s_savepath, "rb");
-  if (!f) { ESP_LOGW(TAG, "no save file yet (%s)", s_savepath); return; }
+  if (!f) {
+    ESP_LOGW(TAG, "no save file yet (%s)", s_savepath);
+    return;
+  }
   fseek(f, 0, SEEK_END);
   long sz = ftell(f);
   fseek(f, 0, SEEK_SET);
@@ -191,9 +199,13 @@ static void load_cram(void) {
 }
 
 static void save_cram(void) {
-  if (!s_has_save || !s_cram || s_cram_size <= 1) return;
+  if (!s_has_save || !s_cram || s_cram_size <= 1)
+    return;
   FILE *f = fopen(s_savepath, "wb");
-  if (!f) { ESP_LOGE(TAG, "save open failed (%s)", s_savepath); return; }
+  if (!f) {
+    ESP_LOGE(TAG, "save open failed (%s)", s_savepath);
+    return;
+  }
   size_t w = fwrite(s_cram, 1, s_cram_size, f);
   fclose(f);
   s_cram_dirty = false;
@@ -205,21 +217,27 @@ static void poll_input(void) {
   bool l = left_button_is_down(), r = right_button_is_down();
   bool ok = ok_button_is_down(), bk = back_button_is_down();
   uint8_t jp = GB_JOYPAD_IDLE;
-  if (r)  jp &= ~JOYPAD_UP;
-  if (l)  jp &= ~JOYPAD_DOWN;
-  if (up) jp &= ~JOYPAD_LEFT;
-  if (dn) jp &= ~JOYPAD_RIGHT;
+  if (r)
+    jp &= ~JOYPAD_UP;
+  if (l)
+    jp &= ~JOYPAD_DOWN;
+  if (up)
+    jp &= ~JOYPAD_LEFT;
+  if (dn)
+    jp &= ~JOYPAD_RIGHT;
 
   static int64_t bk_since = 0;
   if (ok && bk) {
     jp &= ~JOYPAD_START;
     bk_since = 0;
   } else {
-    if (ok) jp &= ~JOYPAD_A;
+    if (ok)
+      jp &= ~JOYPAD_A;
     if (bk) {
       jp &= ~JOYPAD_B;
       int64_t now = esp_timer_get_time() / 1000;
-      if (bk_since == 0) bk_since = now;
+      if (bk_since == 0)
+        bk_since = now;
       else if (now - bk_since >= GB_EXIT_HOLD_MS) {
         s_exit_req = true;
       }
@@ -236,10 +254,11 @@ static void blit_frame(void) {
     for (int j = 0; j < rows; j++) {
       const uint8_t *srow = s_shade + (size_t)s_sy[y0 + j] * LCD_WIDTH;
       uint16_t *orow = s_strip + (size_t)j * GB_DST_W;
-      for (int x = 0; x < GB_DST_W; x++) orow[x] = s_pal[srow[s_sx[x]]];
+      for (int x = 0; x < GB_DST_W; x++)
+        orow[x] = s_pal[srow[s_sx[x]]];
     }
-    esp_lcd_panel_draw_bitmap(panel_handle, GB_X_OFF, GB_Y_OFF + y0, GB_X_OFF + GB_DST_W,
-                              GB_Y_OFF + y0 + rows, s_strip);
+    esp_lcd_panel_draw_bitmap(
+        panel_handle, GB_X_OFF, GB_Y_OFF + y0, GB_X_OFF + GB_DST_W, GB_Y_OFF + y0 + rows, s_strip);
     lvgl_glue_wait_flush(GB_FLUSH_WAIT_MS);
   }
 }
@@ -274,7 +293,10 @@ static void gb_audio_task(void *arg) {
   }
   ESP_LOGW(TAG, "audio task running @ %d Hz", AUDIO_SAMPLE_RATE);
   while (s_audio_run) {
-    if (s_apu == NULL) { vTaskDelay(pdMS_TO_TICKS(GB_AUDIO_POLL_MS)); continue; }
+    if (s_apu == NULL) {
+      vTaskDelay(pdMS_TO_TICKS(GB_AUDIO_POLL_MS));
+      continue;
+    }
     minigb_apu_audio_callback(s_apu, st);
     for (unsigned i = 0; i < AUDIO_SAMPLES; i++)
       mo[i] = (int16_t)(((int)st[2 * i] + (int)st[2 * i + 1]) >> 1);
@@ -288,29 +310,41 @@ static void gb_audio_task(void *arg) {
 
 static void gb_main_task(void *arg) {
   (void)arg;
-  ESP_LOGW(TAG, "gb_main_task: enter (free int=%u psram=%u)",
+  ESP_LOGW(TAG,
+           "gb_main_task: enter (free int=%u psram=%u)",
            (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
            (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
   vTaskDelay(pdMS_TO_TICKS(GB_STARTUP_DELAY_MS));
 
-  if (!storage_is_mounted()) storage_init();
+  if (!storage_is_mounted())
+    storage_init();
   if (!storage_is_mounted()) {
     ESP_LOGE(TAG, "SD not mounted. Halting.");
-    for (;;) vTaskDelay(pdMS_TO_TICKS(GB_HALT_DELAY_MS));
+    for (;;)
+      vTaskDelay(pdMS_TO_TICKS(GB_HALT_DELAY_MS));
   }
 
   if (s_rompath[0] == '\0' && !find_gb_rom(s_rompath, sizeof(s_rompath))) {
     ESP_LOGE(TAG, "No .gb/.gbc ROM found on SD.");
-    for (;;) vTaskDelay(pdMS_TO_TICKS(GB_HALT_DELAY_MS));
+    for (;;)
+      vTaskDelay(pdMS_TO_TICKS(GB_HALT_DELAY_MS));
   }
   ESP_LOGW(TAG, "loading ROM: %s", s_rompath);
   FILE *f = fopen(s_rompath, "rb");
-  if (f == NULL) { ESP_LOGE(TAG, "fopen failed"); for (;;) vTaskDelay(pdMS_TO_TICKS(GB_HALT_DELAY_MS)); }
+  if (f == NULL) {
+    ESP_LOGE(TAG, "fopen failed");
+    for (;;)
+      vTaskDelay(pdMS_TO_TICKS(GB_HALT_DELAY_MS));
+  }
   fseek(f, 0, SEEK_END);
   s_rom_size = ftell(f);
   fseek(f, 0, SEEK_SET);
   s_rom = heap_caps_malloc(s_rom_size, MALLOC_CAP_SPIRAM);
-  if (s_rom == NULL) { ESP_LOGE(TAG, "ROM alloc %u failed", (unsigned)s_rom_size); for (;;) vTaskDelay(pdMS_TO_TICKS(GB_HALT_DELAY_MS)); }
+  if (s_rom == NULL) {
+    ESP_LOGE(TAG, "ROM alloc %u failed", (unsigned)s_rom_size);
+    for (;;)
+      vTaskDelay(pdMS_TO_TICKS(GB_HALT_DELAY_MS));
+  }
   size_t rd = fread(s_rom, 1, s_rom_size, f);
   fclose(f);
   ESP_LOGW(TAG, "ROM %u bytes read (%u)", (unsigned)rd, (unsigned)s_rom_size);
@@ -320,7 +354,8 @@ static void gb_main_task(void *arg) {
   s_strip = heap_caps_malloc((size_t)GB_DST_W * GB_STRIP_ROWS * sizeof(uint16_t),
                              MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
   if (s_gb == NULL || s_shade == NULL || s_strip == NULL) {
-    ESP_LOGE(TAG, "buffer alloc failed (int free=%u) - returning to launcher",
+    ESP_LOGE(TAG,
+             "buffer alloc failed (int free=%u) - returning to launcher",
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL));
     vTaskDelay(pdMS_TO_TICKS(50));
     esp_restart();
@@ -331,7 +366,8 @@ static void gb_main_task(void *arg) {
   ESP_LOGW(TAG, "gb_init -> %d", (int)ie);
   if (ie != GB_INIT_NO_ERROR) {
     ESP_LOGE(TAG, "gb_init failed (%d) - unsupported cart?", (int)ie);
-    for (;;) vTaskDelay(pdMS_TO_TICKS(GB_HALT_DELAY_MS));
+    for (;;)
+      vTaskDelay(pdMS_TO_TICKS(GB_HALT_DELAY_MS));
   }
 
   size_t ram = 0;
@@ -339,7 +375,8 @@ static void gb_main_task(void *arg) {
   s_has_save = (ram > 0);
   s_cram_size = ram ? ram : 1;
   s_cram = heap_caps_malloc(s_cram_size, MALLOC_CAP_SPIRAM);
-  if (s_cram) memset(s_cram, 0, s_cram_size);
+  if (s_cram)
+    memset(s_cram, 0, s_cram_size);
   gb_init_lcd(s_gb, lcd_line);
 
   derive_savepath();
@@ -349,17 +386,25 @@ static void gb_main_task(void *arg) {
   s_apu = heap_caps_malloc(sizeof(struct minigb_apu_ctx), MALLOC_CAP_SPIRAM);
   if (s_apu) {
     minigb_apu_audio_init(s_apu);
-    xTaskCreatePinnedToCoreWithCaps(gb_audio_task, "gb_audio", GB_AUDIO_STACK, NULL,
-                                    SYS_PRIO_SERVICE_HI, NULL, SYS_CORE_RADIO,
+    xTaskCreatePinnedToCoreWithCaps(gb_audio_task,
+                                    "gb_audio",
+                                    GB_AUDIO_STACK,
+                                    NULL,
+                                    SYS_PRIO_SERVICE_HI,
+                                    NULL,
+                                    SYS_CORE_RADIO,
                                     MALLOC_CAP_SPIRAM);
   } else {
     ESP_LOGW(TAG, "APU alloc failed - running without sound");
     s_audio_done = true;
   }
 
-  for (size_t i = 0; i < GB_DMG_PALETTE_COUNT; i++) s_pal[i] = to565be(GB_DMG_PALETTE[i]);
-  for (int x = 0; x < GB_DST_W; x++) s_sx[x] = (uint8_t)(x * LCD_WIDTH / GB_DST_W);
-  for (int y = 0; y < GB_DST_H; y++) s_sy[y] = (uint8_t)(y * LCD_HEIGHT / GB_DST_H);
+  for (size_t i = 0; i < GB_DMG_PALETTE_COUNT; i++)
+    s_pal[i] = to565be(GB_DMG_PALETTE[i]);
+  for (int x = 0; x < GB_DST_W; x++)
+    s_sx[x] = (uint8_t)(x * LCD_WIDTH / GB_DST_W);
+  for (int y = 0; y < GB_DST_H; y++)
+    s_sy[y] = (uint8_t)(y * LCD_HEIGHT / GB_DST_H);
 
   lvgl_glue_lock(-1);
   lvgl_glue_direct_begin();
@@ -373,7 +418,8 @@ static void gb_main_task(void *arg) {
   int64_t last_blit = 0;
   for (;;) {
     poll_input();
-    if (s_exit_req) break;
+    if (s_exit_req)
+      break;
 
     int64_t now = esp_timer_get_time();
     int64_t due = start + (int64_t)frame * GB_FRAME_US;
@@ -392,14 +438,16 @@ static void gb_main_task(void *arg) {
 
     if (s_cram_dirty) {
       int64_t ms = esp_timer_get_time() / 1000;
-      if (ms - s_cram_dirty_ms >= GB_AUTOSAVE_MS) save_cram();
+      if (ms - s_cram_dirty_ms >= GB_AUTOSAVE_MS)
+        save_cram();
     }
 
     now = esp_timer_get_time();
     due = start + (int64_t)frame * GB_FRAME_US;
     if (due > now) {
       int64_t d_ms = (due - now) / 1000;
-      if (d_ms >= 1) vTaskDelay(pdMS_TO_TICKS(d_ms));
+      if (d_ms >= 1)
+        vTaskDelay(pdMS_TO_TICKS(d_ms));
     } else if (now - due > GB_RESYNC_US) {
       start = now - (int64_t)frame * GB_FRAME_US;
     }
@@ -415,12 +463,30 @@ static void gb_main_task(void *arg) {
 
   vTaskDelay(pdMS_TO_TICKS(GB_DMA_DRAIN_MS));
 
-  if (s_apu)   { free(s_apu);   s_apu = NULL; }
-  if (s_cram)  { free(s_cram);  s_cram = NULL; }
-  if (s_strip) { free(s_strip); s_strip = NULL; }
-  if (s_shade) { free(s_shade); s_shade = NULL; }
-  if (s_gb)    { free(s_gb);    s_gb = NULL; }
-  if (s_rom)   { free(s_rom);   s_rom = NULL; }
+  if (s_apu) {
+    free(s_apu);
+    s_apu = NULL;
+  }
+  if (s_cram) {
+    free(s_cram);
+    s_cram = NULL;
+  }
+  if (s_strip) {
+    free(s_strip);
+    s_strip = NULL;
+  }
+  if (s_shade) {
+    free(s_shade);
+    s_shade = NULL;
+  }
+  if (s_gb) {
+    free(s_gb);
+    s_gb = NULL;
+  }
+  if (s_rom) {
+    free(s_rom);
+    s_rom = NULL;
+  }
 
   lvgl_glue_direct_end();
   s_finished = true;
@@ -439,8 +505,13 @@ void highboy_gb_start(const char *rompath) {
   } else {
     s_rompath[0] = '\0';
   }
-  BaseType_t ok = xTaskCreatePinnedToCoreWithCaps(
-      gb_main_task, "gameboy", GB_MAIN_STACK, NULL,
-      SYS_PRIO_SERVICE_HI, NULL, SYS_CORE_UI, MALLOC_CAP_SPIRAM);
+  BaseType_t ok = xTaskCreatePinnedToCoreWithCaps(gb_main_task,
+                                                  "gameboy",
+                                                  GB_MAIN_STACK,
+                                                  NULL,
+                                                  SYS_PRIO_SERVICE_HI,
+                                                  NULL,
+                                                  SYS_CORE_UI,
+                                                  MALLOC_CAP_SPIRAM);
   ESP_LOGW(TAG, "highboy_gb_start: task create -> %s", ok == pdPASS ? "OK" : "FAILED");
 }

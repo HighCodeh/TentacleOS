@@ -405,10 +405,10 @@ static void add_row(const char *label, const char *value) {
 static void build_rows_from_result(void) {
   s_row_count = 0;
 
-  const char *mod = (s_result.analysis.modulation_hint != NULL &&
-                     s_result.analysis.modulation_hint[0] != '\0')
-                        ? s_result.analysis.modulation_hint
-                        : "OOK";
+  const char *mod =
+      (s_result.analysis.modulation_hint != NULL && s_result.analysis.modulation_hint[0] != '\0')
+          ? s_result.analysis.modulation_hint
+          : "OOK";
   snprintf(s_mod_str, sizeof(s_mod_str), "%s", mod);
 
   if (s_result.decoded) {

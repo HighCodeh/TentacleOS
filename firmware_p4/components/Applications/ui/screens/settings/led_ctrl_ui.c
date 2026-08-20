@@ -284,10 +284,12 @@ static void build_controls(void) {
   lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(col, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(col, CONTENT_W, LV_SIZE_CONTENT);
-  lv_obj_align(col, LV_ALIGN_TOP_MID, 0,
-               LV_MIN(CTRL_Y, ui_screen_h() - UI_CHROME_FOOTER_H -
-                                  (SWATCH_CARD_H + BRIGHT_CARD_H + STEALTH_CARD_H +
-                                   2 * CTRL_GAP)));
+  lv_obj_align(col,
+               LV_ALIGN_TOP_MID,
+               0,
+               LV_MIN(CTRL_Y,
+                      ui_screen_h() - UI_CHROME_FOOTER_H -
+                          (SWATCH_CARD_H + BRIGHT_CARD_H + STEALTH_CARD_H + 2 * CTRL_GAP)));
   lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(col, 0, 0);
   lv_obj_set_style_pad_all(col, 0, 0);

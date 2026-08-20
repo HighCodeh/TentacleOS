@@ -15,7 +15,6 @@
 //      System-specific joystick interface.
 //
 
-
 #ifndef __I_JOYSTICK__
 #define __I_JOYSTICK__
 
@@ -36,8 +35,8 @@
 #define IS_BUTTON_AXIS(axis) ((axis) >= 0 && ((axis) & BUTTON_AXIS) != 0)
 
 // Get the individual buttons from a button axis value.
-#define BUTTON_AXIS_NEG(axis)  ((axis) & 0xff)
-#define BUTTON_AXIS_POS(axis)  (((axis) >> 8) & 0xff)
+#define BUTTON_AXIS_NEG(axis) ((axis) & 0xff)
+#define BUTTON_AXIS_POS(axis) (((axis) >> 8) & 0xff)
 
 // Create a button axis value from two button values.
 #define CREATE_BUTTON_AXIS(neg, pos) (BUTTON_AXIS | (neg) | ((pos) << 8))
@@ -45,17 +44,16 @@
 // If this bit is set in an axis value, the axis is not actually a
 // joystick axis, but is a "hat" axis. This means that we read (one of)
 // the hats on the joystick.
-#define HAT_AXIS    0x20000
+#define HAT_AXIS 0x20000
 
 #define IS_HAT_AXIS(axis) ((axis) >= 0 && ((axis) & HAT_AXIS) != 0)
 
 // Get the hat number from a hat axis value.
-#define HAT_AXIS_HAT(axis)         ((axis) & 0xff)
+#define HAT_AXIS_HAT(axis) ((axis) & 0xff)
 // Which axis of the hat? (horizonal or vertical)
-#define HAT_AXIS_DIRECTION(axis)   (((axis) >> 8) & 0xff)
+#define HAT_AXIS_DIRECTION(axis) (((axis) >> 8) & 0xff)
 
-#define CREATE_HAT_AXIS(hat, direction) \
-    (HAT_AXIS | (hat) | ((direction) << 8))
+#define CREATE_HAT_AXIS(hat, direction) (HAT_AXIS | (hat) | ((direction) << 8))
 
 #define HAT_AXIS_HORIZONTAL 1
 #define HAT_AXIS_VERTICAL   2
@@ -67,4 +65,3 @@ void I_UpdateJoystick(void);
 void I_BindJoystickVariables(void);
 
 #endif /* #ifndef __I_JOYSTICK__ */
-

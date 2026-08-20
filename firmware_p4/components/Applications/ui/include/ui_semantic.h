@@ -38,16 +38,16 @@ extern "C" {
 #define UI_COL_SUCCESS 0x00E676
 
 /** @brief Bad / threat / stop / failure (red). */
-#define UI_COL_DANGER  0xFF5252
+#define UI_COL_DANGER 0xFF5252
 
 /** @brief Caution / pending / degraded (amber). */
 #define UI_COL_WARNING 0xFFB300
 
 /** @brief Max-contrast text/fill, absolute by intent. */
-#define UI_COL_WHITE   0xFFFFFF
+#define UI_COL_WHITE 0xFFFFFF
 
 /** @brief Absolute black, absolute by intent. */
-#define UI_COL_BLACK   0x000000
+#define UI_COL_BLACK 0x000000
 
 #ifdef __cplusplus
 }

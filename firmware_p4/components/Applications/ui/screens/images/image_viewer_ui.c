@@ -201,8 +201,14 @@ static void decode_now(lv_timer_t *t) {
     lv_image_header_t h;
     memset(&h, 0, sizeof(h));
     lv_result_t r = lv_image_decoder_get_info(lp, &h);
-    ESP_LOGI(TAG, "JPEG '%s': src='%s' get_info=%s %dx%d cf=%d", name, lp,
-             r == LV_RESULT_OK ? "OK" : "FAIL", (int)h.w, (int)h.h, (int)h.cf);
+    ESP_LOGI(TAG,
+             "JPEG '%s': src='%s' get_info=%s %dx%d cf=%d",
+             name,
+             lp,
+             r == LV_RESULT_OK ? "OK" : "FAIL",
+             (int)h.w,
+             (int)h.h,
+             (int)h.cf);
     if (r == LV_RESULT_OK) {
       iw = h.w;
       ih = h.h;
@@ -221,8 +227,13 @@ static void decode_now(lv_timer_t *t) {
       lv_image_header_t h;
       memset(&h, 0, sizeof(h));
       lv_result_t r = lv_image_decoder_get_info(&s_raw_dsc, &h);
-      ESP_LOGI(TAG, "PNG '%s': get_info=%s %dx%d cf=%d", name,
-               r == LV_RESULT_OK ? "OK" : "FAIL", (int)h.w, (int)h.h, (int)h.cf);
+      ESP_LOGI(TAG,
+               "PNG '%s': get_info=%s %dx%d cf=%d",
+               name,
+               r == LV_RESULT_OK ? "OK" : "FAIL",
+               (int)h.w,
+               (int)h.h,
+               (int)h.cf);
       if (r == LV_RESULT_OK) {
         iw = h.w;
         ih = h.h;

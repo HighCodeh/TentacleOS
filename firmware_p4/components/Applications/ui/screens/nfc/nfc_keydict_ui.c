@@ -85,7 +85,8 @@ static void make_chip(lv_obj_t *parent, const char *txt, bool sel) {
   lv_obj_t *l = lv_label_create(chip);
   lv_label_set_text(l, txt);
   lv_obj_set_style_text_font(l, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(l, sel ? current_theme.border_accent : current_theme.text_secondary, 0);
+  lv_obj_set_style_text_color(
+      l, sel ? current_theme.border_accent : current_theme.text_secondary, 0);
   lv_obj_center(l);
 }
 

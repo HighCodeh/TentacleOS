@@ -216,7 +216,8 @@ static void build_scope_card(void) {
 
   fill_traces();
 
-  lv_obj_t *xval = make_mono_label(card, "X -0.01", 0x8A8594, 0, VAL_ROW_Y);  // TODO: not themed (raw hex arg)
+  lv_obj_t *xval =
+      make_mono_label(card, "X -0.01", 0x8A8594, 0, VAL_ROW_Y); // TODO: not themed (raw hex arg)
   lv_obj_set_style_text_color(xval, current_theme.border_accent, 0);
   make_mono_label(card, "Y +0.05", COL_CYAN, 80, VAL_ROW_Y);
   make_mono_label(card, "Z +1.00", COL_WARN, 158, VAL_ROW_Y);

@@ -66,14 +66,14 @@ static const char *TAG = "FILES_UI";
 #define COL_RAISE 0x170A28
 #define COL_DIRNM 0xF0E6FF
 
-#define MAX_ENTRIES 96
-#define MAX_DEPTH   10
-#define MAX_PATH    256
-#define MAX_NAME    64
-#define PREVIEW_MAX 2048
-#define GUTTER_MAX  512
-#define FULL_PATH   (MAX_PATH + MAX_NAME)
-#define ROW_POOL    LIST_VIS
+#define MAX_ENTRIES   96
+#define MAX_DEPTH     10
+#define MAX_PATH      256
+#define MAX_NAME      64
+#define PREVIEW_MAX   2048
+#define GUTTER_MAX    512
+#define FULL_PATH     (MAX_PATH + MAX_NAME)
+#define ROW_POOL      LIST_VIS
 #define GRID_COLS_MAX 4
 #define GRID_ROWS_MAX 3
 #define GRID_POOL     (GRID_COLS_MAX * GRID_ROWS_MAX)
@@ -94,8 +94,8 @@ typedef enum { VIEW_LIST = 0, VIEW_GRID } view_t;
 
 static const char *const VOL_LABELS[] = {"Assets", "SD Card"};
 static const char *const VOL_PATHS[] = {ASSETS_ROOT, SDCARD_ROOT};
-#define VOL_COUNT 2
-#define VOL_SD    1
+#define VOL_COUNT     2
+#define VOL_SD        1
 #define ENTRY_USB_MSC 99
 
 static const char *ICON_OF[] = {

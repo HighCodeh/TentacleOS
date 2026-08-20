@@ -124,7 +124,10 @@ static lv_result_t asset_decoder_open(lv_image_decoder_t *decoder, lv_image_deco
   fclose(f);
 
   if (got != buf->data_size) {
-    ESP_LOGE(TAG, "pixel read failed for %s (%u/%u)", node->path, (unsigned)got,
+    ESP_LOGE(TAG,
+             "pixel read failed for %s (%u/%u)",
+             node->path,
+             (unsigned)got,
              (unsigned)buf->data_size);
     lv_draw_buf_destroy(buf);
     return LV_RESULT_INVALID;

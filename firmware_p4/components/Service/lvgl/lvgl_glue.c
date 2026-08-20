@@ -59,8 +59,8 @@ static void draw_buf_free(void *buf) {
   heap_caps_free(buf);
 }
 
-static bool trans_done_cb(esp_lcd_panel_io_handle_t io,
-                          esp_lcd_panel_io_event_data_t *ed, void *ctx) {
+static bool
+trans_done_cb(esp_lcd_panel_io_handle_t io, esp_lcd_panel_io_event_data_t *ed, void *ctx) {
   (void)io;
   (void)ed;
   BaseType_t hp = pdFALSE;

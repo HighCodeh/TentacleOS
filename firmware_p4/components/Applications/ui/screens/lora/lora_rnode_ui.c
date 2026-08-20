@@ -31,8 +31,8 @@ static const char *TAG = "LORA_RNODE";
 #define DATA_TICK_MS 700
 #define ENTRY_MS     220
 
-#define CARD_W      216
-#define CFG_CARD_H  110
+#define CARD_W     216
+#define CFG_CARD_H 110
 #define CNT_CARD_H \
   LV_MIN(82, ui_screen_h() - (BODY_TOP_Y + CFG_CARD_H + CARD_GAP) - UI_CHROME_FOOTER_H)
 #define CARD_RADIUS 13

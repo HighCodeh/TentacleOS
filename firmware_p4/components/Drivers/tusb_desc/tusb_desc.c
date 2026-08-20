@@ -49,7 +49,7 @@ static const char *TAG = "TUSB_DESC";
 #define STR_IDX_SERIAL       3
 #define STR_IDX_CDC          4
 #if CFG_TUD_MSC
-#define STR_IDX_MSC          5
+#define STR_IDX_MSC 5
 #endif
 
 // MSC is a runtime-selected variant, exposed only in mass-storage mode: an
@@ -92,26 +92,22 @@ static const uint8_t s_desc_hid_report[] = {
 
 // Configuration Descriptor — composite: HID (BadUSB) + CDC-ACM (companion link).
 // Identical for both speeds except the CDC bulk endpoint size (see above).
-#define HID_CDC_BLOCK(itf_total, total_len, cdc_ep_size)    \
-  TUD_CONFIG_DESCRIPTOR(1,                                  \
-                        (itf_total),                        \
-                        0,                                  \
-                        (total_len),                        \
-                        TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, \
-                        USB_MAX_POWER_MA),                  \
-      TUD_HID_DESCRIPTOR(TUSB_DESC_ITF_NUM_HID,             \
-                         0,                                 \
-                         HID_ITF_PROTOCOL_KEYBOARD,         \
-                         sizeof(s_desc_hid_report),         \
-                         TUSB_DESC_EP_HID_IN,               \
-                         CFG_TUD_HID_EP_BUFSIZE,            \
-                         USB_HID_POLL_INTERVAL_MS),         \
-      TUD_CDC_DESCRIPTOR(TUSB_DESC_ITF_NUM_CDC,             \
-                         STR_IDX_CDC,                       \
-                         TUSB_DESC_EP_CDC_NOTIF,            \
-                         8,                                 \
-                         TUSB_DESC_EP_CDC_OUT,              \
-                         TUSB_DESC_EP_CDC_IN,               \
+#define HID_CDC_BLOCK(itf_total, total_len, cdc_ep_size)                                     \
+  TUD_CONFIG_DESCRIPTOR(                                                                     \
+      1, (itf_total), 0, (total_len), TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, USB_MAX_POWER_MA), \
+      TUD_HID_DESCRIPTOR(TUSB_DESC_ITF_NUM_HID,                                              \
+                         0,                                                                  \
+                         HID_ITF_PROTOCOL_KEYBOARD,                                          \
+                         sizeof(s_desc_hid_report),                                          \
+                         TUSB_DESC_EP_HID_IN,                                                \
+                         CFG_TUD_HID_EP_BUFSIZE,                                             \
+                         USB_HID_POLL_INTERVAL_MS),                                          \
+      TUD_CDC_DESCRIPTOR(TUSB_DESC_ITF_NUM_CDC,                                              \
+                         STR_IDX_CDC,                                                        \
+                         TUSB_DESC_EP_CDC_NOTIF,                                             \
+                         8,                                                                  \
+                         TUSB_DESC_EP_CDC_OUT,                                               \
+                         TUSB_DESC_EP_CDC_IN,                                                \
                          (cdc_ep_size))
 
 static const uint8_t s_desc_configuration_hs[] = {
@@ -122,9 +118,9 @@ static const uint8_t s_desc_configuration_fs[] = {
 #if CFG_TUD_MSC
 #define ITF_NUM_MSC_TOTAL 4
 #define CONFIG_LEN_MSC    (CONFIG_LEN_BASE + TUD_MSC_DESC_LEN)
-#define MSC_INTERFACE(ep_size)                             \
-  TUD_MSC_DESCRIPTOR(TUSB_DESC_ITF_NUM_MSC, STR_IDX_MSC,   \
-                     TUSB_DESC_EP_MSC_OUT, TUSB_DESC_EP_MSC_IN, (ep_size))
+#define MSC_INTERFACE(ep_size) \
+  TUD_MSC_DESCRIPTOR(          \
+      TUSB_DESC_ITF_NUM_MSC, STR_IDX_MSC, TUSB_DESC_EP_MSC_OUT, TUSB_DESC_EP_MSC_IN, (ep_size))
 
 static const uint8_t s_desc_configuration_msc_hs[] = {
     HID_CDC_BLOCK(ITF_NUM_MSC_TOTAL, CONFIG_LEN_MSC, CDC_EP_SIZE_HS),

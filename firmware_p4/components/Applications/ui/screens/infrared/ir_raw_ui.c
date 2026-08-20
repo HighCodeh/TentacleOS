@@ -161,13 +161,15 @@ static void build_scope_card(void) {
   lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_border_width(dot, 0, 0);
   lv_obj_set_style_pad_all(dot, 0, 0);
-  lv_obj_set_style_bg_color(dot, (has ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_secondary), 0);
+  lv_obj_set_style_bg_color(
+      dot, (has ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_secondary), 0);
   lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
 
   lv_obj_t *cap_lbl = lv_label_create(cap_grp);
   lv_label_set_text(cap_lbl, has ? "CAPTURED" : "EMPTY");
   lv_obj_set_style_text_font(cap_lbl, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(cap_lbl, (has ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_secondary), 0);
+  lv_obj_set_style_text_color(
+      cap_lbl, (has ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_secondary), 0);
 
   lv_obj_t *scope = lv_line_create(card);
   lv_line_set_points(scope, PULSE_PTS, PULSE_PT_COUNT);

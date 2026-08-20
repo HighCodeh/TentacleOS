@@ -53,4 +53,4 @@ bool highboy_gb_finished(void);
 }
 #endif
 
-#endif  // GB_HIGHBOY_H
+#endif // GB_HIGHBOY_H

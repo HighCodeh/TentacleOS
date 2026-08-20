@@ -21,8 +21,8 @@
 #ifndef W_MERGE_H
 #define W_MERGE_H
 
-#define W_NWT_MERGE_SPRITES   0x1
-#define W_NWT_MERGE_FLATS     0x2
+#define W_NWT_MERGE_SPRITES 0x1
+#define W_NWT_MERGE_FLATS   0x2
 
 // Add a new WAD and merge it into the main directory
 
@@ -41,4 +41,3 @@ void W_NWTDashMerge(char *filename);
 void W_PrintDirectory(void);
 
 #endif /* #ifndef W_MERGE_H */
-

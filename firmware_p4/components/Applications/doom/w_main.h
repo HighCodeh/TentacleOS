@@ -21,4 +21,3 @@
 boolean W_ParseCommandLine(void);
 
 #endif /* #ifndef W_MAIN_H */
-

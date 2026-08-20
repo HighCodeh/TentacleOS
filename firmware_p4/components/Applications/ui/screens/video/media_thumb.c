@@ -25,8 +25,8 @@
 
 static const char *TAG = "MEDIA_THUMB";
 
-#define THUMB_MAX_DIM             2048
-#define JPEG_DECODE_TIMEOUT_MS    70
+#define THUMB_MAX_DIM          2048
+#define JPEG_DECODE_TIMEOUT_MS 70
 
 bool media_thumb_decode_jpeg(const uint8_t *jpeg, size_t len, media_thumb_t *out) {
   if (jpeg == NULL || len < 4 || out == NULL)
@@ -75,7 +75,8 @@ bool media_thumb_decode_jpeg(const uint8_t *jpeg, size_t len, media_thumb_t *out
     ESP_LOGW(TAG, "get_info failed (progressive JPEG?)");
     goto done;
   }
-  ESP_LOGI(TAG, "cover %ux%u, %u bytes", (unsigned)info.width, (unsigned)info.height, (unsigned)len);
+  ESP_LOGI(
+      TAG, "cover %ux%u, %u bytes", (unsigned)info.width, (unsigned)info.height, (unsigned)len);
   if (info.width == 0 || info.height == 0 || info.width > THUMB_MAX_DIM ||
       info.height > THUMB_MAX_DIM) {
     ESP_LOGW(TAG, "bad cover dims %ux%u", (unsigned)info.width, (unsigned)info.height);
@@ -89,8 +90,8 @@ bool media_thumb_decode_jpeg(const uint8_t *jpeg, size_t len, media_thumb_t *out
     goto done;
   }
 
-  if (jpeg_decoder_process(jpgd, &decode_cfg, in_buf, (uint32_t)len, out_buf, out_buf_size,
-                           &decoded) != ESP_OK) {
+  if (jpeg_decoder_process(
+          jpgd, &decode_cfg, in_buf, (uint32_t)len, out_buf, out_buf_size, &decoded) != ESP_OK) {
     ESP_LOGW(TAG, "jpeg_decoder_process failed");
     goto done;
   }

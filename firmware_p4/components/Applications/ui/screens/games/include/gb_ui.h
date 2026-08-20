@@ -33,4 +33,4 @@ void ui_gb_open(void);
 }
 #endif
 
-#endif  // GB_UI_H
+#endif // GB_UI_H

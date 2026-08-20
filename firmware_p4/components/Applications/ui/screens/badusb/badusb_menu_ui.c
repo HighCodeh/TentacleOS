@@ -135,13 +135,13 @@ static const char *TAG = "BADUSB_UI";
 #define PAY_BODY_BUF_LEN   200
 #define PREVIEW_MAX_LINES  4
 
-#define BADUSB_SCRIPT_DIR   TOS_PATH_BADUSB
-#define BADUSB_ASSET_DIR    FLASH_STORAGE_BADUSB
+#define BADUSB_SCRIPT_DIR     TOS_PATH_BADUSB
+#define BADUSB_ASSET_DIR      FLASH_STORAGE_BADUSB
 #define BADUSB_SCAN_MAX_DEPTH 3
-#define ASSETS_PREFIX_LEN (sizeof(FLASH_MOUNT "/") - 1)
-#define MAX_PAYLOADS      24
-#define PL_PATH_LEN       192
-#define PL_NAME_LEN       56
+#define ASSETS_PREFIX_LEN     (sizeof(FLASH_MOUNT "/") - 1)
+#define MAX_PAYLOADS          24
+#define PL_PATH_LEN           192
+#define PL_NAME_LEN           56
 
 #define POLL_MS 80
 
@@ -1136,7 +1136,8 @@ static void input_view_layout(const input_event_t *ev, bool press, bool nav) {
         if (sel >= 0 && sel < LAYOUT_COUNT && sel != s_layout_active) {
           menu_component_set_item_label_color(&s_menu, s_layout_active, current_theme.text_main);
           s_layout_active = sel;
-          menu_component_set_item_label_color(&s_menu, s_layout_active, lv_color_hex(UI_COL_SUCCESS));
+          menu_component_set_item_label_color(
+              &s_menu, s_layout_active, lv_color_hex(UI_COL_SUCCESS));
           ESP_LOGI(TAG, "layout set: %s", LAYOUTS[s_layout_active].label);
         }
       }

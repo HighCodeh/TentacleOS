@@ -41,7 +41,7 @@
 #define MX        8
 #define CONTENT_W (ui_screen_w() - 2 * MX)
 
-#define COL_ACC2    0xB89AFF
+#define COL_ACC2 0xB89AFF
 
 #define HERO_Y   48
 #define HERO_H   108
@@ -207,8 +207,8 @@ static void build_hero(void) {
 static void
 build_tile(int x, const char *caption, const char *value, lv_obj_t **val_out, lv_obj_t **sub_out) {
   lv_obj_t *card = make_card(s_screen, TILE_W, TILE_H);
-  lv_obj_align(card, LV_ALIGN_TOP_LEFT, x,
-               LV_MIN(TILE_Y, ui_screen_h() - UI_CHROME_FOOTER_H - TILE_H));
+  lv_obj_align(
+      card, LV_ALIGN_TOP_LEFT, x, LV_MIN(TILE_Y, ui_screen_h() - UI_CHROME_FOOTER_H - TILE_H));
   lv_obj_set_style_pad_ver(card, 4, 0);
   lv_obj_set_style_pad_row(card, 0, 0);
   lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
@@ -237,8 +237,7 @@ static void build_cta(void) {
   lv_obj_t *row = lv_obj_create(s_screen);
   lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(row, CONTENT_W, CTA_H);
-  lv_obj_align(row, LV_ALIGN_TOP_MID, 0,
-               LV_MIN(CTA_Y, ui_screen_h() - UI_CHROME_FOOTER_H - CTA_H));
+  lv_obj_align(row, LV_ALIGN_TOP_MID, 0, LV_MIN(CTA_Y, ui_screen_h() - UI_CHROME_FOOTER_H - CTA_H));
   lv_obj_set_style_radius(row, 9, 0);
   lv_obj_set_style_pad_all(row, 0, 0);
   lv_obj_set_style_bg_color(row, current_theme.bg_secondary, 0);

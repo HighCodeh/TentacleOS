@@ -23,4 +23,3 @@
 extern net_module_t net_sdl_module;
 
 #endif /* #ifndef NET_SDL_H */
-

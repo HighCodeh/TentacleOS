@@ -34,9 +34,9 @@ extern "C" {
  * @brief Metadata for one saved Sub-GHz capture (parsed from its .sub header).
  */
 typedef struct {
-  char name[SUBGHZ_STORAGE_NAME_MAX];    /**< @brief File name without the .sub suffix. */
+  char name[SUBGHZ_STORAGE_NAME_MAX];      /**< @brief File name without the .sub suffix. */
   char protocol[SUBGHZ_STORAGE_PROTO_MAX]; /**< @brief Protocol label ("RAW" for raw captures). */
-  uint32_t frequency;                    /**< @brief Center frequency in Hz. */
+  uint32_t frequency;                      /**< @brief Center frequency in Hz. */
 } subghz_storage_entry_t;
 
 /**

@@ -389,8 +389,9 @@ static void build_saved_list(void) {
 
   lv_obj_t *cont = lv_obj_create(s_screen);
   s_sig_cont = cont;
-  lv_obj_set_size(
-      cont, ui_screen_w() - SGC_LEFT - SGC_GUTTER, ui_screen_h() - SGC_TOP_Y - UI_CHROME_FOOTER_H - 4);
+  lv_obj_set_size(cont,
+                  ui_screen_w() - SGC_LEFT - SGC_GUTTER,
+                  ui_screen_h() - SGC_TOP_Y - UI_CHROME_FOOTER_H - 4);
   lv_obj_align(cont, LV_ALIGN_TOP_LEFT, SGC_LEFT, SGC_TOP_Y);
   lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(cont, 0, 0);
@@ -565,10 +566,18 @@ static void build_saved_info(void) {
     const char *kp = strstr(content, "Key: ");
     if (kp != NULL) {
       unsigned b[8] = {0};
-      if (sscanf(kp + 5, "%x %x %x %x %x %x %x %x", &b[0], &b[1], &b[2], &b[3], &b[4], &b[5],
-                 &b[6], &b[7]) >= 8) {
-        uint32_t v =
-            ((uint32_t)b[4] << 24) | ((uint32_t)b[5] << 16) | ((uint32_t)b[6] << 8) | (uint32_t)b[7];
+      if (sscanf(kp + 5,
+                 "%x %x %x %x %x %x %x %x",
+                 &b[0],
+                 &b[1],
+                 &b[2],
+                 &b[3],
+                 &b[4],
+                 &b[5],
+                 &b[6],
+                 &b[7]) >= 8) {
+        uint32_t v = ((uint32_t)b[4] << 24) | ((uint32_t)b[5] << 16) | ((uint32_t)b[6] << 8) |
+                     (uint32_t)b[7];
         snprintf(key_str, sizeof(key_str), "0x%lX", (unsigned long)v);
       }
     }

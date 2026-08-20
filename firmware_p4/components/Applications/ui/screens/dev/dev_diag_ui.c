@@ -290,7 +290,7 @@ static void build_screen(void) {
       stats, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   s_batt_val = make_stat(stats, "Batt", "--", UI_COL_SUCCESS);
   s_temp_val = make_stat(stats, "Temp", "--", CYAN_COLOR);
-  s_c5_val = make_stat(stats, "C5", "--", 0x8A8594);  // TODO: not themed (raw hex arg)
+  s_c5_val = make_stat(stats, "C5", "--", 0x8A8594); // TODO: not themed (raw hex arg)
 
   ui_input_set_screen_handler(dev_diag_input, NULL);
 

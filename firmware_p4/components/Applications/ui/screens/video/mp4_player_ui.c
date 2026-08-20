@@ -101,7 +101,11 @@ static void load_cover(void) {
 
 static void fmt_duration(char *out, size_t n, uint32_t sec) {
   if (sec >= 3600)
-    snprintf(out, n, "%u:%02u:%02u", (unsigned)(sec / 3600), (unsigned)((sec / 60) % 60),
+    snprintf(out,
+             n,
+             "%u:%02u:%02u",
+             (unsigned)(sec / 3600),
+             (unsigned)((sec / 60) % 60),
              (unsigned)(sec % 60));
   else
     snprintf(out, n, "%u:%02u", (unsigned)(sec / 60), (unsigned)(sec % 60));
@@ -139,8 +143,8 @@ static void refresh_timer_cb(lv_timer_t *t) {
   }
 }
 
-static lv_obj_t *make_label(lv_obj_t *parent, const char *txt, const lv_font_t *font, lv_color_t col,
-                            int width) {
+static lv_obj_t *
+make_label(lv_obj_t *parent, const char *txt, const lv_font_t *font, lv_color_t col, int width) {
   lv_obj_t *l = lv_label_create(parent);
   lv_label_set_text(l, txt);
   lv_obj_set_style_text_font(l, font, 0);
@@ -178,7 +182,8 @@ void ui_mp4_player_open(void) {
   lv_obj_align(body, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_align(body, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_flex_align(
+      body, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_all(body, 4, 0);
 
   lv_obj_t *cover = lv_obj_create(body);
@@ -250,11 +255,21 @@ void ui_mp4_player_open(void) {
   if (s_meta.duration_sec > 0)
     fmt_duration(dur, sizeof(dur), s_meta.duration_sec);
   if (s_meta.width > 0 && s_meta.height > 0)
-    snprintf(meta_line, sizeof(meta_line), "%s  |  %ux%u%s%s", mp4_vcodec_name(s_meta.vcodec),
-             (unsigned)s_meta.width, (unsigned)s_meta.height, dur[0] ? "  |  " : "", dur);
+    snprintf(meta_line,
+             sizeof(meta_line),
+             "%s  |  %ux%u%s%s",
+             mp4_vcodec_name(s_meta.vcodec),
+             (unsigned)s_meta.width,
+             (unsigned)s_meta.height,
+             dur[0] ? "  |  " : "",
+             dur);
   else
-    snprintf(meta_line, sizeof(meta_line), "%s%s%s", mp4_vcodec_name(s_meta.vcodec),
-             dur[0] ? "  |  " : "", dur);
+    snprintf(meta_line,
+             sizeof(meta_line),
+             "%s%s%s",
+             mp4_vcodec_name(s_meta.vcodec),
+             dur[0] ? "  |  " : "",
+             dur);
   make_label(body, meta_line, &lv_font_montserrat_12, lv_color_hex(0x00E5D0), 210);
 
   s_status = lv_label_create(body);

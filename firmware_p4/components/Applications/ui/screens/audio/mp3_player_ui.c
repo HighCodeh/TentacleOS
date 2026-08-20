@@ -117,7 +117,9 @@ static void free_thumb(void) {
 
 static void load_cover(void) {
   free_thumb();
-  ESP_LOGI(TAG, "ID3 cover fmt=%d size=%u (1=JPEG 2=PNG 0=none)", (int)s_meta.cover_fmt,
+  ESP_LOGI(TAG,
+           "ID3 cover fmt=%d size=%u (1=JPEG 2=PNG 0=none)",
+           (int)s_meta.cover_fmt,
            (unsigned)s_meta.cover_size);
   if (s_meta.cover_fmt == ID3_COVER_NONE || s_meta.cover_size == 0)
     return;
@@ -336,8 +338,13 @@ static void start_playback(void) {
   for (int i = 0; i < N_BARS; i++)
     s_level[i] = 0;
   s_task_run = true;
-  if (xTaskCreatePinnedToCore(player_task, "mp3_play", PLAYER_TASK_STACK, NULL,
-                              PLAYER_TASK_PRIO, &s_task, SYS_CORE_UI) != pdPASS) {
+  if (xTaskCreatePinnedToCore(player_task,
+                              "mp3_play",
+                              PLAYER_TASK_STACK,
+                              NULL,
+                              PLAYER_TASK_PRIO,
+                              &s_task,
+                              SYS_CORE_UI) != pdPASS) {
     s_task_run = false;
     s_err = true;
   }
@@ -456,8 +463,8 @@ void ui_mp3_player_stop(void) {
   }
 }
 
-static lv_obj_t *mk_label(lv_obj_t *parent, const char *txt, const lv_font_t *font, lv_color_t col,
-                          int width) {
+static lv_obj_t *
+mk_label(lv_obj_t *parent, const char *txt, const lv_font_t *font, lv_color_t col, int width) {
   lv_obj_t *l = lv_label_create(parent);
   lv_label_set_text(l, txt);
   lv_obj_set_style_text_font(l, font, 0);
@@ -493,7 +500,8 @@ static lv_obj_t *transport_btn(lv_obj_t *parent, const char *sym, bool primary) 
   lv_obj_t *l = lv_label_create(b);
   lv_label_set_text(l, sym);
   lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_text_color(l, primary ? lv_color_hex(0x0A0220) : current_theme.text_secondary, 0);
+  lv_obj_set_style_text_color(
+      l, primary ? lv_color_hex(0x0A0220) : current_theme.text_secondary, 0);
   lv_obj_center(l);
   return l;
 }
@@ -533,7 +541,8 @@ void ui_mp3_player_open(void) {
   lv_obj_align(body, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_align(body, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_flex_align(
+      body, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_hor(body, 6, 0);
   lv_obj_set_style_pad_ver(body, 6, 0);
 
@@ -639,8 +648,8 @@ void ui_mp3_player_open(void) {
   lv_obj_remove_style_all(trow);
   lv_obj_set_size(trow, 200, LV_SIZE_CONTENT);
   lv_obj_set_flex_flow(trow, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(trow, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
-                        LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_flex_align(
+      trow, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   s_t_cur = mk_label(trow, "0:00", &lv_font_montserrat_12, current_theme.text_main, 0);
   s_t_tot = mk_label(trow, "0:00", &lv_font_montserrat_12, current_theme.text_main, 0);
 

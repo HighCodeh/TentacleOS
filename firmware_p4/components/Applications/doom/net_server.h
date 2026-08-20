@@ -39,4 +39,3 @@ void NET_SV_AddModule(net_module_t *module);
 void NET_SV_RegisterWithMaster(void);
 
 #endif /* #ifndef NET_SERVER_H */
-

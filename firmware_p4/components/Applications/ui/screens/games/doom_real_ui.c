@@ -15,9 +15,9 @@
 
 #include "doom_real_ui.h"
 
-#include "ui_manager.h"    // lvgl.h + ui_screen_load()
-#include "ui_liveness.h"   // ui_render_beat_kick()
-#include "doom_highboy.h"  // highboy_doom_start() (doom component)
+#include "ui_manager.h"   // lvgl.h + ui_screen_load()
+#include "ui_liveness.h"  // ui_render_beat_kick()
+#include "doom_highboy.h" // highboy_doom_start() (doom component)
 
 void ui_doom_real_open(void) {
   lv_obj_t *scr = lv_obj_create(NULL);

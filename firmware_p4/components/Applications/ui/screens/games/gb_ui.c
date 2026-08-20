@@ -30,17 +30,17 @@
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define MAX_ROMS          64
-#define NAV_MS            80
-#define SD_ROOT           "/sdcard"
-#define MAX_DEPTH         3
-#define ROM_PATH_LEN      300
-#define ROM_NAME_LEN      256
-#define EXT_GB_LEN        3
-#define EXT_GBC_LEN       4
-#define COLOR_NO_ROMS     0xDD4444
-#define LIST_TOP_OFFSET   26
-#define LIST_HEIGHT_TRIM  60
+#define MAX_ROMS         64
+#define NAV_MS           80
+#define SD_ROOT          "/sdcard"
+#define MAX_DEPTH        3
+#define ROM_PATH_LEN     300
+#define ROM_NAME_LEN     256
+#define EXT_GB_LEN       3
+#define EXT_GBC_LEN      4
+#define COLOR_NO_ROMS    0xDD4444
+#define LIST_TOP_OFFSET  26
+#define LIST_HEIGHT_TRIM 60
 
 EXT_RAM_BSS_ATTR static char s_paths[MAX_ROMS][ROM_PATH_LEN];
 EXT_RAM_BSS_ATTR static char s_names[MAX_ROMS][ROM_NAME_LEN];
@@ -97,9 +97,11 @@ static void draw_sel(void) {
   for (int i = 0; i < s_count; i++) {
     bool sel = (i == s_sel);
     lv_label_set_text_fmt(s_items[i], "%s %s", sel ? ">" : " ", s_names[i]);
-    lv_obj_set_style_text_color(s_items[i], sel ? ui_theme_get_accent() : current_theme.text_main, 0);
+    lv_obj_set_style_text_color(
+        s_items[i], sel ? ui_theme_get_accent() : current_theme.text_main, 0);
   }
-  if (s_count > 0) lv_obj_scroll_to_view(s_items[s_sel], LV_ANIM_OFF);
+  if (s_count > 0)
+    lv_obj_scroll_to_view(s_items[s_sel], LV_ANIM_OFF);
 }
 
 static void nav_tick(lv_timer_t *t) {
@@ -116,22 +118,34 @@ static void nav_tick(lv_timer_t *t) {
     }
     return;
   }
-  if (ui_input_is_locked()) return;
+  if (ui_input_is_locked())
+    return;
 
   bool up = ui_btn_up(), dn = ui_btn_down(), lf = ui_btn_left();
   bool ok = ok_button_is_down(), bk = back_button_is_down();
 
   if (s_count > 0) {
-    if (dn && !s_dn_last) { s_sel = (s_sel + 1) % s_count; draw_sel(); }
-    if (up && !s_up_last) { s_sel = (s_sel - 1 + s_count) % s_count; draw_sel(); }
+    if (dn && !s_dn_last) {
+      s_sel = (s_sel + 1) % s_count;
+      draw_sel();
+    }
+    if (up && !s_up_last) {
+      s_sel = (s_sel - 1 + s_count) % s_count;
+      draw_sel();
+    }
     if (ok && !s_ok_last) {
       s_launched = true;
       highboy_gb_start(s_paths[s_sel]);
     }
   }
-  if ((bk && !s_bk_last) || (lf && !s_lf_last)) ui_switch_screen(SCREEN_GAMES_MENU);
+  if ((bk && !s_bk_last) || (lf && !s_lf_last))
+    ui_switch_screen(SCREEN_GAMES_MENU);
 
-  s_up_last = up; s_dn_last = dn; s_ok_last = ok; s_bk_last = bk; s_lf_last = lf;
+  s_up_last = up;
+  s_dn_last = dn;
+  s_ok_last = ok;
+  s_bk_last = bk;
+  s_lf_last = lf;
 }
 
 void ui_gb_open(void) {
@@ -140,7 +154,8 @@ void ui_gb_open(void) {
   s_up_last = s_dn_last = s_ok_last = s_bk_last = s_lf_last = false;
   s_nav = NULL;
 
-  if (!storage_is_mounted()) storage_init();
+  if (!storage_is_mounted())
+    storage_init();
   scan_roms();
 
   s_scr = lv_obj_create(NULL);
@@ -157,7 +172,8 @@ void ui_gb_open(void) {
 
   if (s_count == 0) {
     lv_obj_t *m = lv_label_create(s_scr);
-    lv_label_set_text(m, "No .gb / .gbc ROMs found.\n\nCopy games anywhere on the\nSD card and reopen.");
+    lv_label_set_text(
+        m, "No .gb / .gbc ROMs found.\n\nCopy games anywhere on the\nSD card and reopen.");
     lv_obj_set_style_text_color(m, lv_color_hex(COLOR_NO_ROMS), 0);
     lv_obj_set_style_text_align(m, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_center(m);

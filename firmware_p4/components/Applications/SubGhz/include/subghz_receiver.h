@@ -43,12 +43,12 @@ typedef enum {
  * @brief Latest capture published by the receiver task for UI consumers.
  */
 typedef struct {
-  uint32_t seq;                      /**< @brief Capture counter; 0 means nothing captured yet. */
-  bool decoded;                      /**< @brief true if a known protocol was decoded. */
-  subghz_data_t data;                /**< @brief Decoded fields; protocol_name points to name_buf. */
-  char name_buf[32];                 /**< @brief Backing storage for data.protocol_name. */
-  char save_name[40];                /**< @brief File name the capture was auto-saved under. */
-  uint32_t freq;                     /**< @brief Frequency in Hz at the moment of capture. */
+  uint32_t seq;       /**< @brief Capture counter; 0 means nothing captured yet. */
+  bool decoded;       /**< @brief true if a known protocol was decoded. */
+  subghz_data_t data; /**< @brief Decoded fields; protocol_name points to name_buf. */
+  char name_buf[32];  /**< @brief Backing storage for data.protocol_name. */
+  char save_name[40]; /**< @brief File name the capture was auto-saved under. */
+  uint32_t freq;      /**< @brief Frequency in Hz at the moment of capture. */
   subghz_analyzer_result_t analysis; /**< @brief Timing/modulation analysis of the capture. */
 } subghz_rx_result_t;
 

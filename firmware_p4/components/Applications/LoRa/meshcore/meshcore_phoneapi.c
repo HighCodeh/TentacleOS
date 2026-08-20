@@ -107,8 +107,8 @@ static const char *TAG = "MC_PHONEAPI";
 
 #define CONTACT_FRAME_SIZE 143
 
-#define MC_OFFLINE_QUEUE_SIZE 16
-#define MC_OFFLINE_FRAME_MAX  240
+#define MC_OFFLINE_QUEUE_SIZE     16
+#define MC_OFFLINE_FRAME_MAX      240
 #define MC_QUEUE_MUTEX_TIMEOUT_MS 100
 
 #define MC_NVS_KEY_BLE_PIN "ble_pin"

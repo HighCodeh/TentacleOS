@@ -127,10 +127,8 @@ int subghz_storage_read(const char *name, char *out_buf, size_t out_size) {
   return (int)rd;
 }
 
-static void parse_header(const char *content,
-                         char *proto_out,
-                         size_t proto_size,
-                         uint32_t *freq_out) {
+static void
+parse_header(const char *content, char *proto_out, size_t proto_size, uint32_t *freq_out) {
   proto_out[0] = '\0';
   *freq_out = 0;
 

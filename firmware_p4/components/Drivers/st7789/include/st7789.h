@@ -44,8 +44,8 @@ extern "C" {
  *        the FFC so hard the panel will not even init, so do not lower this.)
  */
 #define LCD_SPI_DRIVE_CAP GPIO_DRIVE_CAP_3
-#define LCD_H_RES          240
-#define LCD_V_RES          320
+#define LCD_H_RES         240
+#define LCD_V_RES         320
 /**
  * @brief Physical panel dimensions (used by lvgl_glue / esp_lvgl_port). Same
  *        values as LCD_H/V_RES here since the panel runs in fixed portrait.

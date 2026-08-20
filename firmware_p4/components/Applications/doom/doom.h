@@ -5,7 +5,6 @@
  *      Author: Florian
  */
 
-
 #ifndef SRC_CHOCDOOM_DOOM_H_
 #define SRC_CHOCDOOM_DOOM_H_
 
@@ -25,7 +24,7 @@
  *  function prototypes                                                *
  *---------------------------------------------------------------------*/
 
-void D_DoomMain (void);
+void D_DoomMain(void);
 
 /*---------------------------------------------------------------------*
  *  global data                                                        *

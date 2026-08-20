@@ -244,8 +244,9 @@ static void build_files_list(void) {
 
   lv_obj_t *cont = lv_obj_create(s_screen);
   s_file_list = cont;
-  lv_obj_set_size(
-      cont, ui_screen_w() - IRC_LEFT - IRC_GUTTER, ui_screen_h() - IRC_TOP_Y - UI_CHROME_FOOTER_H - 4);
+  lv_obj_set_size(cont,
+                  ui_screen_w() - IRC_LEFT - IRC_GUTTER,
+                  ui_screen_h() - IRC_TOP_Y - UI_CHROME_FOOTER_H - 4);
   lv_obj_align(cont, LV_ALIGN_TOP_LEFT, IRC_LEFT, IRC_TOP_Y);
   lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(cont, 0, 0);

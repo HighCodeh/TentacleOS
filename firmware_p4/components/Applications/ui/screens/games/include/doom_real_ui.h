@@ -29,4 +29,4 @@ void ui_doom_real_open(void);
 }
 #endif
 
-#endif  // DOOM_REAL_UI_H
+#endif // DOOM_REAL_UI_H

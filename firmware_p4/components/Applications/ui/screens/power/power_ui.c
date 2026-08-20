@@ -60,7 +60,7 @@
 #define ICON_W       20
 #define NAME_PAD_L   9
 
-#define COL_RAISE     0x170A28
+#define COL_RAISE 0x170A28
 
 enum { ACT_CHARGE, ACT_SCAN, ACT_REGS, ACT_OFF, ACT_COUNT };
 

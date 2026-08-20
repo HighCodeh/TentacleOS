@@ -21,10 +21,10 @@
 
 static const char *TAG = "MP4_META";
 
-#define MP4_MAX_DEPTH        8
-#define MP4_MAX_BOXES        4096
-#define ILST_STR_MAX         128
-#define MP4_MAX_COVER_BYTES  (4u * 1024u * 1024u)
+#define MP4_MAX_DEPTH       8
+#define MP4_MAX_BOXES       4096
+#define ILST_STR_MAX        128
+#define MP4_MAX_COVER_BYTES (4u * 1024u * 1024u)
 
 typedef struct {
   mp4_meta_t *m;
@@ -58,8 +58,8 @@ static void str_copy_trunc(char *dst, size_t dstcap, const char *src, size_t src
   dst[k] = '\0';
 }
 
-static void handle_ilst_data(FILE *f, const uint8_t *key, long payload_off, long payload_end,
-                             mp4_ctx_t *c) {
+static void
+handle_ilst_data(FILE *f, const uint8_t *key, long payload_off, long payload_end, mp4_ctx_t *c) {
   uint8_t hd[8];
   if (payload_end - payload_off < 8 || !read_at(f, payload_off, hd, 8))
     return;

@@ -134,8 +134,13 @@ esp_err_t subghz_brute_start(const char *protocol, uint8_t bit_count, uint32_t f
     cc1101_set_frequency(freq);
 
   s_run = true;
-  BaseType_t ret = xTaskCreatePinnedToCore(
-      brute_task, "subghz_brute", BRUTE_TASK_STACK, NULL, BRUTE_TASK_PRIORITY, &s_task, BRUTE_TASK_CORE);
+  BaseType_t ret = xTaskCreatePinnedToCore(brute_task,
+                                           "subghz_brute",
+                                           BRUTE_TASK_STACK,
+                                           NULL,
+                                           BRUTE_TASK_PRIORITY,
+                                           &s_task,
+                                           BRUTE_TASK_CORE);
   if (ret != pdPASS) {
     s_run = false;
     set_status(0, total, false, true);

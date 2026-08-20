@@ -77,7 +77,7 @@
 #define PH_ERASE_MAX  42
 #define PH_WRITE_MAX  96
 
-#define COL_TRACK   0x202028
+#define COL_TRACK 0x202028
 
 #define NEW_VERSION       "v2.1.0"
 #define INSTALLED_VERSION "v2.0.0"

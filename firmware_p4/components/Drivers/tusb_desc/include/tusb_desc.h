@@ -27,8 +27,8 @@ extern "C" {
 
 // Composite device interfaces: HID (BadUSB) + CDC-ACM (companion host link).
 // CDC uses two interfaces (comm + data), so the data interface is CDC+1.
-#define TUSB_DESC_ITF_NUM_HID   0
-#define TUSB_DESC_ITF_NUM_CDC   1 // comm; data interface = 2
+#define TUSB_DESC_ITF_NUM_HID 0
+#define TUSB_DESC_ITF_NUM_CDC 1 // comm; data interface = 2
 #if CFG_TUD_MSC
 #define TUSB_DESC_ITF_NUM_MSC   3 // mass storage (SD as USB drive), after CDC data (2)
 #define TUSB_DESC_ITF_NUM_TOTAL 4
@@ -42,8 +42,8 @@ extern "C" {
 #define TUSB_DESC_EP_CDC_OUT   0x03
 #define TUSB_DESC_EP_CDC_IN    0x83
 #if CFG_TUD_MSC
-#define TUSB_DESC_EP_MSC_OUT   0x04
-#define TUSB_DESC_EP_MSC_IN    0x84
+#define TUSB_DESC_EP_MSC_OUT 0x04
+#define TUSB_DESC_EP_MSC_IN  0x84
 #endif
 
 /**

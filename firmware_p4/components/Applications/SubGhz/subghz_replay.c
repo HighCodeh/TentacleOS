@@ -34,10 +34,10 @@
 
 static const char *TAG = "SUBGHZ_REPLAY";
 
-#define REPLAY_FILE_BUF     8192
-#define REPLAY_MAX_PULSES   2048
-#define REPLAY_RX_DRAIN_MS  150
-#define REPLAY_PROTO_MAX    24
+#define REPLAY_FILE_BUF    8192
+#define REPLAY_MAX_PULSES  2048
+#define REPLAY_RX_DRAIN_MS 150
+#define REPLAY_PROTO_MAX   24
 
 static uint32_t parse_u32_after(const char *content, const char *key) {
   const char *p = strstr(content, key);
@@ -67,7 +67,14 @@ static uint32_t parse_key_value(const char *content) {
   unsigned b[8] = {0};
   int n = sscanf(p + strlen("Key: "),
                  "%x %x %x %x %x %x %x %x",
-                 &b[0], &b[1], &b[2], &b[3], &b[4], &b[5], &b[6], &b[7]);
+                 &b[0],
+                 &b[1],
+                 &b[2],
+                 &b[3],
+                 &b[4],
+                 &b[5],
+                 &b[6],
+                 &b[7]);
   if (n < 8)
     return 0;
   return ((uint32_t)b[4] << 24) | ((uint32_t)b[5] << 16) | ((uint32_t)b[6] << 8) | (uint32_t)b[7];

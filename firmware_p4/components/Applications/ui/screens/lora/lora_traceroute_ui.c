@@ -313,7 +313,8 @@ static void build_picker(void) {
   }
 
   s_pick_list = lv_obj_create(s_screen);
-  lv_obj_set_size(s_pick_list, ui_screen_w(), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_size(
+      s_pick_list, ui_screen_w(), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
   lv_obj_align(s_pick_list, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(s_pick_list, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(s_pick_list, 0, 0);

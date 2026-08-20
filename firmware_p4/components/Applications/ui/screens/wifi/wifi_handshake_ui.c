@@ -151,9 +151,11 @@ static void set_progress(int lit) {
 
   bool done = (lit >= BADGE_COUNT);
   lv_label_set_text(s_status, done ? TXT_COMPLETE : TXT_CAPTURING);
-  lv_obj_set_style_text_color(s_status, done ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_secondary, 0);
+  lv_obj_set_style_text_color(
+      s_status, done ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_secondary, 0);
 
-  lv_obj_set_style_bg_color(s_saved_dot, done ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_secondary, 0);
+  lv_obj_set_style_bg_color(
+      s_saved_dot, done ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_secondary, 0);
   lv_label_set_text(s_saved_txt, done ? TXT_CAPTURED : TXT_CAPTURING);
 }
 
@@ -283,7 +285,8 @@ static void build_info_card(lv_obj_t *parent) {
   lv_obj_t *chip_l = make_label(chip, AP_CHAN, &lv_font_montserrat_12, current_theme.border_accent);
   lv_obj_center(chip_l);
 
-  lv_obj_t *b_tag = make_label(card, LBL_BSSID, &lv_font_montserrat_12, current_theme.text_secondary);
+  lv_obj_t *b_tag =
+      make_label(card, LBL_BSSID, &lv_font_montserrat_12, current_theme.text_secondary);
   lv_obj_align(b_tag, LV_ALIGN_TOP_LEFT, 0, BSSID_Y);
   s_bssid_val = make_label(card, BSSID_NONE, &lv_font_montserrat_12, current_theme.text_main);
   lv_obj_align(s_bssid_val, LV_ALIGN_TOP_RIGHT, 0, BSSID_Y);
@@ -344,7 +347,8 @@ static void build_eapol_card(lv_obj_t *parent) {
     lv_obj_set_style_bg_opa(b, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(b, 1, 0);
     lv_obj_set_style_pad_all(b, 0, 0);
-    lv_obj_t *bl = make_label(b, BADGE_TXT[i], &lv_font_montserrat_12, current_theme.text_secondary);
+    lv_obj_t *bl =
+        make_label(b, BADGE_TXT[i], &lv_font_montserrat_12, current_theme.text_secondary);
     lv_obj_center(bl);
     s_badge[i] = bl;
     s_badge_box[i] = b;
@@ -373,7 +377,8 @@ static void build_saved_row(lv_obj_t *parent) {
   lv_obj_set_style_bg_opa(s_saved_dot, LV_OPA_COVER, 0);
   lv_obj_set_style_bg_color(s_saved_dot, current_theme.text_secondary, 0);
 
-  s_saved_txt = make_label(row, TXT_CAPTURING, &lv_font_montserrat_12, current_theme.text_secondary);
+  s_saved_txt =
+      make_label(row, TXT_CAPTURING, &lv_font_montserrat_12, current_theme.text_secondary);
 }
 
 static void wifi_handshake_input(const input_event_t *ev, void *ctx) {

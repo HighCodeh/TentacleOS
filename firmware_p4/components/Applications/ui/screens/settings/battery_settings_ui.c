@@ -179,9 +179,10 @@ void ui_battery_settings_open(void) {
   lv_obj_t *stats = lv_obj_create(s_screen);
   lv_obj_remove_style_all(stats);
   lv_obj_set_size(stats, ui_screen_w() - 24, LV_SIZE_CONTENT);
-  lv_obj_align(stats, LV_ALIGN_TOP_MID, 0,
-               LV_MIN(ARC_TOP_Y + ARC_SIZE + 16,
-                      ui_screen_h() - UI_CHROME_FOOTER_H - STAT_CARD_H));
+  lv_obj_align(stats,
+               LV_ALIGN_TOP_MID,
+               0,
+               LV_MIN(ARC_TOP_Y + ARC_SIZE + 16, ui_screen_h() - UI_CHROME_FOOTER_H - STAT_CARD_H));
   lv_obj_remove_flag(stats, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_flex_flow(stats, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(stats, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);

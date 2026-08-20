@@ -110,7 +110,12 @@ static void usb_storage_input(const input_event_t *ev, void *ctx) {
       s_exit_requested = true;
       set_texts("Ejecting...", current_theme.text_secondary, "Restoring the card.");
       ui_feedback(UI_FB_SELECT);
-      xTaskCreatePinnedToCore(exit_task, "usb_msc_x", USB_MSC_TASK_STACK, NULL, SYS_PRIO_SERVICE_HI, NULL,
+      xTaskCreatePinnedToCore(exit_task,
+                              "usb_msc_x",
+                              USB_MSC_TASK_STACK,
+                              NULL,
+                              SYS_PRIO_SERVICE_HI,
+                              NULL,
                               SYS_CORE_RADIO);
       break;
     case USB_MSC_ERROR:
@@ -185,8 +190,8 @@ void ui_usb_storage_open(void) {
   s_timer = lv_timer_create(refresh_cb, REFRESH_PERIOD_MS, NULL);
   ui_screen_load_owned(&s_screen, s_screen);
 
-  xTaskCreatePinnedToCore(enter_task, "usb_msc_e", USB_MSC_TASK_STACK, NULL, SYS_PRIO_SERVICE_HI, NULL,
-                          SYS_CORE_RADIO);
+  xTaskCreatePinnedToCore(
+      enter_task, "usb_msc_e", USB_MSC_TASK_STACK, NULL, SYS_PRIO_SERVICE_HI, NULL, SYS_CORE_RADIO);
 }
 
 void ui_usb_storage_stop(void) {

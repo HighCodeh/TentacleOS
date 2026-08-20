@@ -17,25 +17,21 @@
 //	DOOM strings, by language.
 //
 
-
 #ifndef __DSTRINGS__
 #define __DSTRINGS__
-
 
 // All important printed strings.
 
 #include "d_englsh.h"
 
 // Misc. other strings.
-#define SAVEGAMENAME	"doomsav"
-
+#define SAVEGAMENAME "doomsav"
 
 // QuitDOOM messages
 // 8 per each game type
-#define NUM_QUITMESSAGES   8
+#define NUM_QUITMESSAGES 8
 
 extern char *doom1_endmsg[];
 extern char *doom2_endmsg[];
-
 
 #endif

@@ -14,8 +14,7 @@
 //
 // DESCRIPTION:
 //      Miscellaneous.
-//    
-
+//
 
 #ifndef __M_MISC__
 #define __M_MISC__
@@ -38,8 +37,7 @@ char *M_StrCaseStr(char *haystack, char *needle);
 char *M_StringDuplicate(const char *orig);
 boolean M_StringCopy(char *dest, const char *src, size_t dest_size);
 boolean M_StringConcat(char *dest, const char *src, size_t dest_size);
-char *M_StringReplace(const char *haystack, const char *needle,
-                      const char *replacement);
+char *M_StringReplace(const char *haystack, const char *needle, const char *replacement);
 char *M_StringJoin(const char *s, ...);
 boolean M_StringStartsWith(const char *s, const char *prefix);
 boolean M_StringEndsWith(const char *s, const char *suffix);
@@ -48,4 +46,3 @@ int M_snprintf(char *buf, size_t buf_len, const char *s, ...);
 char *M_OEMToUTF8(const char *ansi);
 
 #endif
-

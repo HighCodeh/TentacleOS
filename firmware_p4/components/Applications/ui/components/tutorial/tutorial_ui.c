@@ -334,15 +334,20 @@ static int dt_days_in_month(int year, int mon0) {
 static void dt_refresh(void) {
   char b[8];
   snprintf(b, sizeof(b), "%04d", s_dt.tm_year + 1900);
-  if (s_dt_lbl[0]) lv_label_set_text(s_dt_lbl[0], b);
+  if (s_dt_lbl[0])
+    lv_label_set_text(s_dt_lbl[0], b);
   snprintf(b, sizeof(b), "%02d", s_dt.tm_mon + 1);
-  if (s_dt_lbl[1]) lv_label_set_text(s_dt_lbl[1], b);
+  if (s_dt_lbl[1])
+    lv_label_set_text(s_dt_lbl[1], b);
   snprintf(b, sizeof(b), "%02d", s_dt.tm_mday);
-  if (s_dt_lbl[2]) lv_label_set_text(s_dt_lbl[2], b);
+  if (s_dt_lbl[2])
+    lv_label_set_text(s_dt_lbl[2], b);
   snprintf(b, sizeof(b), "%02d", s_dt.tm_hour);
-  if (s_dt_lbl[3]) lv_label_set_text(s_dt_lbl[3], b);
+  if (s_dt_lbl[3])
+    lv_label_set_text(s_dt_lbl[3], b);
   snprintf(b, sizeof(b), "%02d", s_dt.tm_min);
-  if (s_dt_lbl[4]) lv_label_set_text(s_dt_lbl[4], b);
+  if (s_dt_lbl[4])
+    lv_label_set_text(s_dt_lbl[4], b);
   for (int i = 0; i < 5; i++)
     if (s_dt_lbl[i])
       lv_obj_set_style_text_color(
@@ -353,8 +358,10 @@ static void dt_adjust(int d) {
   switch (s_dt_field) {
     case 0: {
       int y = s_dt.tm_year + 1900 + d;
-      if (y < 2020) y = 2099;
-      if (y > 2099) y = 2020;
+      if (y < 2020)
+        y = 2099;
+      if (y > 2099)
+        y = 2020;
       s_dt.tm_year = y - 1900;
       break;
     }
@@ -364,8 +371,10 @@ static void dt_adjust(int d) {
     case 2: {
       int dim = dt_days_in_month(s_dt.tm_year + 1900, s_dt.tm_mon);
       s_dt.tm_mday += d;
-      if (s_dt.tm_mday < 1) s_dt.tm_mday = dim;
-      if (s_dt.tm_mday > dim) s_dt.tm_mday = 1;
+      if (s_dt.tm_mday < 1)
+        s_dt.tm_mday = dim;
+      if (s_dt.tm_mday > dim)
+        s_dt.tm_mday = 1;
       break;
     }
     case 3:
@@ -378,7 +387,8 @@ static void dt_adjust(int d) {
       break;
   }
   int dim = dt_days_in_month(s_dt.tm_year + 1900, s_dt.tm_mon);
-  if (s_dt.tm_mday > dim) s_dt.tm_mday = dim;
+  if (s_dt.tm_mday > dim)
+    s_dt.tm_mday = dim;
   dt_refresh();
 }
 
@@ -568,8 +578,9 @@ static void page_ready(lv_obj_t *c) {
   wiz_mascot(c, 256);
   wiz_heading(c, "You're all set!");
   wiz_sub(c, "Tips will nudge you as you go. Let's dive in.");
-  wiz_sub(c, "The High Boy is an early prototype: a few tools are still simulated while the "
-             "hardware matures. You're getting a first look at something that's growing fast.");
+  wiz_sub(c,
+          "The High Boy is an early prototype: a few tools are still simulated while the "
+          "hardware matures. You're getting a first look at something that's growing fast.");
 }
 
 typedef void (*wiz_build_fn)(lv_obj_t *);

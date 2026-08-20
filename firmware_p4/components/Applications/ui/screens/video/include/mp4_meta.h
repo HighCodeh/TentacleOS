@@ -25,36 +25,36 @@ extern "C" {
 
 /** @brief Video codec of the first video track, detected from the sample-entry fourcc. */
 typedef enum {
-  MP4_VCODEC_NONE = 0,  ///< no video track
-  MP4_VCODEC_H264,      ///< avc1 / avc3 — NOT decodable in realtime on ESP32-P4 (no HW decoder)
-  MP4_VCODEC_MJPEG,     ///< mjpa / jpeg / MJPG — decodable via the HW JPEG engine
-  MP4_VCODEC_MPEG4,     ///< mp4v — not supported
+  MP4_VCODEC_NONE = 0, ///< no video track
+  MP4_VCODEC_H264,     ///< avc1 / avc3 — NOT decodable in realtime on ESP32-P4 (no HW decoder)
+  MP4_VCODEC_MJPEG,    ///< mjpa / jpeg / MJPG — decodable via the HW JPEG engine
+  MP4_VCODEC_MPEG4,    ///< mp4v — not supported
   MP4_VCODEC_OTHER,
 } mp4_vcodec_t;
 
 /** @brief Cover-art image format (from the iTunes 'covr' data-atom type flag). */
 typedef enum {
   MP4_COVER_NONE = 0,
-  MP4_COVER_JPEG,  ///< covr data type 13
-  MP4_COVER_PNG,   ///< covr data type 14
+  MP4_COVER_JPEG, ///< covr data type 13
+  MP4_COVER_PNG,  ///< covr data type 14
 } mp4_cover_fmt_t;
 
 /** @brief Parsed MP4 metadata. Strings are always NUL-terminated (empty if absent). */
 typedef struct {
-  char title[64];   ///< ilst  \xA9nam
-  char artist[64];  ///< ilst  \xA9ART
-  char album[64];   ///< ilst  \xA9alb
-  char year[8];     ///< ilst  \xA9day (first 4 chars)
+  char title[64];  ///< ilst  \xA9nam
+  char artist[64]; ///< ilst  \xA9ART
+  char album[64];  ///< ilst  \xA9alb
+  char year[8];    ///< ilst  \xA9day (first 4 chars)
 
-  uint32_t duration_sec;  ///< from mvhd (duration / timescale)
-  uint16_t width;         ///< first video track sample-entry width
-  uint16_t height;        ///< first video track sample-entry height
+  uint32_t duration_sec; ///< from mvhd (duration / timescale)
+  uint16_t width;        ///< first video track sample-entry width
+  uint16_t height;       ///< first video track sample-entry height
   mp4_vcodec_t vcodec;
-  bool has_audio;         ///< an 'soun' handler track is present
+  bool has_audio; ///< an 'soun' handler track is present
 
-  mp4_cover_fmt_t cover_fmt;  ///< embedded cover art (from 'covr'); read via mp4_meta_read_cover()
-  long cover_off;             ///< absolute file offset of the image bytes (0 if none)
-  uint32_t cover_size;        ///< size of the image blob in bytes
+  mp4_cover_fmt_t cover_fmt; ///< embedded cover art (from 'covr'); read via mp4_meta_read_cover()
+  long cover_off;            ///< absolute file offset of the image bytes (0 if none)
+  uint32_t cover_size;       ///< size of the image blob in bytes
 } mp4_meta_t;
 
 /**

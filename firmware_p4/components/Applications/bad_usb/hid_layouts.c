@@ -330,12 +330,12 @@ void hid_layouts_type_string_abnt2(const char *str) {
 }
 
 typedef struct {
-  uint8_t c1;  // UTF-8 lead byte (0xC2 or 0xC3)
-  uint8_t c2;  // UTF-8 continuation byte
-  uint8_t k1;  // dead key or direct key
-  uint8_t m1;  // modifier for k1
-  uint8_t k2;  // base letter, 0 for a single keypress
-  uint8_t m2;  // modifier for k2 (shift = uppercase)
+  uint8_t c1; // UTF-8 lead byte (0xC2 or 0xC3)
+  uint8_t c2; // UTF-8 continuation byte
+  uint8_t k1; // dead key or direct key
+  uint8_t m1; // modifier for k1
+  uint8_t k2; // base letter, 0 for a single keypress
+  uint8_t m2; // modifier for k2 (shift = uppercase)
 } abnt2_utf8_entry_t;
 
 // ABNT2 dead-key prefix (key, modifier) pressed before the base letter.
@@ -346,61 +346,61 @@ typedef struct {
 #define DK_DIAER  HID_KEY_6, KEYBOARD_MODIFIER_LEFTSHIFT
 
 static const abnt2_utf8_entry_t ABNT2_UTF8_MAP[] = {
-    {0xC3, 0xA7, HID_KEY_SEMICOLON, 0, 0, 0},                         // ç
+    {0xC3, 0xA7, HID_KEY_SEMICOLON, 0, 0, 0},                           // ç
     {0xC3, 0x87, HID_KEY_SEMICOLON, KEYBOARD_MODIFIER_LEFTSHIFT, 0, 0}, // Ç
-    {0xC3, 0xA0, DK_GRAVE, HID_KEY_A, 0},                            // à
-    {0xC3, 0xA1, DK_ACUTE, HID_KEY_A, 0},                            // á
-    {0xC3, 0xA2, DK_CIRCUM, HID_KEY_A, 0},                           // â
-    {0xC3, 0xA3, DK_TILDE, HID_KEY_A, 0},                            // ã
-    {0xC3, 0xA4, DK_DIAER, HID_KEY_A, 0},                            // ä
-    {0xC3, 0xA8, DK_GRAVE, HID_KEY_E, 0},                            // è
-    {0xC3, 0xA9, DK_ACUTE, HID_KEY_E, 0},                            // é
-    {0xC3, 0xAA, DK_CIRCUM, HID_KEY_E, 0},                           // ê
-    {0xC3, 0xAB, DK_DIAER, HID_KEY_E, 0},                            // ë
-    {0xC3, 0xAC, DK_GRAVE, HID_KEY_I, 0},                            // ì
-    {0xC3, 0xAD, DK_ACUTE, HID_KEY_I, 0},                            // í
-    {0xC3, 0xAE, DK_CIRCUM, HID_KEY_I, 0},                           // î
-    {0xC3, 0xAF, DK_DIAER, HID_KEY_I, 0},                            // ï
-    {0xC3, 0xB1, DK_TILDE, HID_KEY_N, 0},                            // ñ
-    {0xC3, 0xB2, DK_GRAVE, HID_KEY_O, 0},                            // ò
-    {0xC3, 0xB3, DK_ACUTE, HID_KEY_O, 0},                            // ó
-    {0xC3, 0xB4, DK_CIRCUM, HID_KEY_O, 0},                           // ô
-    {0xC3, 0xB5, DK_TILDE, HID_KEY_O, 0},                            // õ
-    {0xC3, 0xB6, DK_DIAER, HID_KEY_O, 0},                            // ö
-    {0xC3, 0xB9, DK_GRAVE, HID_KEY_U, 0},                            // ù
-    {0xC3, 0xBA, DK_ACUTE, HID_KEY_U, 0},                            // ú
-    {0xC3, 0xBB, DK_CIRCUM, HID_KEY_U, 0},                           // û
-    {0xC3, 0xBC, DK_DIAER, HID_KEY_U, 0},                            // ü
-    {0xC3, 0x80, DK_GRAVE, HID_KEY_A, KEYBOARD_MODIFIER_LEFTSHIFT},  // À
-    {0xC3, 0x81, DK_ACUTE, HID_KEY_A, KEYBOARD_MODIFIER_LEFTSHIFT},  // Á
-    {0xC3, 0x82, DK_CIRCUM, HID_KEY_A, KEYBOARD_MODIFIER_LEFTSHIFT}, // Â
-    {0xC3, 0x83, DK_TILDE, HID_KEY_A, KEYBOARD_MODIFIER_LEFTSHIFT},  // Ã
-    {0xC3, 0x84, DK_DIAER, HID_KEY_A, KEYBOARD_MODIFIER_LEFTSHIFT},  // Ä
-    {0xC3, 0x88, DK_GRAVE, HID_KEY_E, KEYBOARD_MODIFIER_LEFTSHIFT},  // È
-    {0xC3, 0x89, DK_ACUTE, HID_KEY_E, KEYBOARD_MODIFIER_LEFTSHIFT},  // É
-    {0xC3, 0x8A, DK_CIRCUM, HID_KEY_E, KEYBOARD_MODIFIER_LEFTSHIFT}, // Ê
-    {0xC3, 0x8B, DK_DIAER, HID_KEY_E, KEYBOARD_MODIFIER_LEFTSHIFT},  // Ë
-    {0xC3, 0x8C, DK_GRAVE, HID_KEY_I, KEYBOARD_MODIFIER_LEFTSHIFT},  // Ì
-    {0xC3, 0x8D, DK_ACUTE, HID_KEY_I, KEYBOARD_MODIFIER_LEFTSHIFT},  // Í
-    {0xC3, 0x8E, DK_CIRCUM, HID_KEY_I, KEYBOARD_MODIFIER_LEFTSHIFT}, // Î
-    {0xC3, 0x8F, DK_DIAER, HID_KEY_I, KEYBOARD_MODIFIER_LEFTSHIFT},  // Ï
-    {0xC3, 0x91, DK_TILDE, HID_KEY_N, KEYBOARD_MODIFIER_LEFTSHIFT},  // Ñ
-    {0xC3, 0x92, DK_GRAVE, HID_KEY_O, KEYBOARD_MODIFIER_LEFTSHIFT},  // Ò
-    {0xC3, 0x93, DK_ACUTE, HID_KEY_O, KEYBOARD_MODIFIER_LEFTSHIFT},  // Ó
-    {0xC3, 0x94, DK_CIRCUM, HID_KEY_O, KEYBOARD_MODIFIER_LEFTSHIFT}, // Ô
-    {0xC3, 0x95, DK_TILDE, HID_KEY_O, KEYBOARD_MODIFIER_LEFTSHIFT},  // Õ
-    {0xC3, 0x96, DK_DIAER, HID_KEY_O, KEYBOARD_MODIFIER_LEFTSHIFT},  // Ö
-    {0xC3, 0x99, DK_GRAVE, HID_KEY_U, KEYBOARD_MODIFIER_LEFTSHIFT},  // Ù
-    {0xC3, 0x9A, DK_ACUTE, HID_KEY_U, KEYBOARD_MODIFIER_LEFTSHIFT},  // Ú
-    {0xC3, 0x9B, DK_CIRCUM, HID_KEY_U, KEYBOARD_MODIFIER_LEFTSHIFT}, // Û
-    {0xC3, 0x9C, DK_DIAER, HID_KEY_U, KEYBOARD_MODIFIER_LEFTSHIFT},  // Ü
-    {0xC2, 0xA2, HID_KEY_5, KEYBOARD_MODIFIER_RIGHTALT, 0, 0},       // ¢
-    {0xC2, 0xA3, HID_KEY_4, KEYBOARD_MODIFIER_RIGHTALT, 0, 0},       // £
-    {0xC2, 0xA7, HID_KEY_EQUAL, KEYBOARD_MODIFIER_RIGHTALT, 0, 0},   // §
-    {0xC2, 0xAC, HID_KEY_6, KEYBOARD_MODIFIER_RIGHTALT, 0, 0},       // ¬
-    {0xC2, 0xB2, HID_KEY_2, KEYBOARD_MODIFIER_RIGHTALT, 0, 0},       // ²
-    {0xC2, 0xB3, HID_KEY_3, KEYBOARD_MODIFIER_RIGHTALT, 0, 0},       // ³
-    {0xC2, 0xB9, HID_KEY_1, KEYBOARD_MODIFIER_RIGHTALT, 0, 0},       // ¹
+    {0xC3, 0xA0, DK_GRAVE, HID_KEY_A, 0},                               // à
+    {0xC3, 0xA1, DK_ACUTE, HID_KEY_A, 0},                               // á
+    {0xC3, 0xA2, DK_CIRCUM, HID_KEY_A, 0},                              // â
+    {0xC3, 0xA3, DK_TILDE, HID_KEY_A, 0},                               // ã
+    {0xC3, 0xA4, DK_DIAER, HID_KEY_A, 0},                               // ä
+    {0xC3, 0xA8, DK_GRAVE, HID_KEY_E, 0},                               // è
+    {0xC3, 0xA9, DK_ACUTE, HID_KEY_E, 0},                               // é
+    {0xC3, 0xAA, DK_CIRCUM, HID_KEY_E, 0},                              // ê
+    {0xC3, 0xAB, DK_DIAER, HID_KEY_E, 0},                               // ë
+    {0xC3, 0xAC, DK_GRAVE, HID_KEY_I, 0},                               // ì
+    {0xC3, 0xAD, DK_ACUTE, HID_KEY_I, 0},                               // í
+    {0xC3, 0xAE, DK_CIRCUM, HID_KEY_I, 0},                              // î
+    {0xC3, 0xAF, DK_DIAER, HID_KEY_I, 0},                               // ï
+    {0xC3, 0xB1, DK_TILDE, HID_KEY_N, 0},                               // ñ
+    {0xC3, 0xB2, DK_GRAVE, HID_KEY_O, 0},                               // ò
+    {0xC3, 0xB3, DK_ACUTE, HID_KEY_O, 0},                               // ó
+    {0xC3, 0xB4, DK_CIRCUM, HID_KEY_O, 0},                              // ô
+    {0xC3, 0xB5, DK_TILDE, HID_KEY_O, 0},                               // õ
+    {0xC3, 0xB6, DK_DIAER, HID_KEY_O, 0},                               // ö
+    {0xC3, 0xB9, DK_GRAVE, HID_KEY_U, 0},                               // ù
+    {0xC3, 0xBA, DK_ACUTE, HID_KEY_U, 0},                               // ú
+    {0xC3, 0xBB, DK_CIRCUM, HID_KEY_U, 0},                              // û
+    {0xC3, 0xBC, DK_DIAER, HID_KEY_U, 0},                               // ü
+    {0xC3, 0x80, DK_GRAVE, HID_KEY_A, KEYBOARD_MODIFIER_LEFTSHIFT},     // À
+    {0xC3, 0x81, DK_ACUTE, HID_KEY_A, KEYBOARD_MODIFIER_LEFTSHIFT},     // Á
+    {0xC3, 0x82, DK_CIRCUM, HID_KEY_A, KEYBOARD_MODIFIER_LEFTSHIFT},    // Â
+    {0xC3, 0x83, DK_TILDE, HID_KEY_A, KEYBOARD_MODIFIER_LEFTSHIFT},     // Ã
+    {0xC3, 0x84, DK_DIAER, HID_KEY_A, KEYBOARD_MODIFIER_LEFTSHIFT},     // Ä
+    {0xC3, 0x88, DK_GRAVE, HID_KEY_E, KEYBOARD_MODIFIER_LEFTSHIFT},     // È
+    {0xC3, 0x89, DK_ACUTE, HID_KEY_E, KEYBOARD_MODIFIER_LEFTSHIFT},     // É
+    {0xC3, 0x8A, DK_CIRCUM, HID_KEY_E, KEYBOARD_MODIFIER_LEFTSHIFT},    // Ê
+    {0xC3, 0x8B, DK_DIAER, HID_KEY_E, KEYBOARD_MODIFIER_LEFTSHIFT},     // Ë
+    {0xC3, 0x8C, DK_GRAVE, HID_KEY_I, KEYBOARD_MODIFIER_LEFTSHIFT},     // Ì
+    {0xC3, 0x8D, DK_ACUTE, HID_KEY_I, KEYBOARD_MODIFIER_LEFTSHIFT},     // Í
+    {0xC3, 0x8E, DK_CIRCUM, HID_KEY_I, KEYBOARD_MODIFIER_LEFTSHIFT},    // Î
+    {0xC3, 0x8F, DK_DIAER, HID_KEY_I, KEYBOARD_MODIFIER_LEFTSHIFT},     // Ï
+    {0xC3, 0x91, DK_TILDE, HID_KEY_N, KEYBOARD_MODIFIER_LEFTSHIFT},     // Ñ
+    {0xC3, 0x92, DK_GRAVE, HID_KEY_O, KEYBOARD_MODIFIER_LEFTSHIFT},     // Ò
+    {0xC3, 0x93, DK_ACUTE, HID_KEY_O, KEYBOARD_MODIFIER_LEFTSHIFT},     // Ó
+    {0xC3, 0x94, DK_CIRCUM, HID_KEY_O, KEYBOARD_MODIFIER_LEFTSHIFT},    // Ô
+    {0xC3, 0x95, DK_TILDE, HID_KEY_O, KEYBOARD_MODIFIER_LEFTSHIFT},     // Õ
+    {0xC3, 0x96, DK_DIAER, HID_KEY_O, KEYBOARD_MODIFIER_LEFTSHIFT},     // Ö
+    {0xC3, 0x99, DK_GRAVE, HID_KEY_U, KEYBOARD_MODIFIER_LEFTSHIFT},     // Ù
+    {0xC3, 0x9A, DK_ACUTE, HID_KEY_U, KEYBOARD_MODIFIER_LEFTSHIFT},     // Ú
+    {0xC3, 0x9B, DK_CIRCUM, HID_KEY_U, KEYBOARD_MODIFIER_LEFTSHIFT},    // Û
+    {0xC3, 0x9C, DK_DIAER, HID_KEY_U, KEYBOARD_MODIFIER_LEFTSHIFT},     // Ü
+    {0xC2, 0xA2, HID_KEY_5, KEYBOARD_MODIFIER_RIGHTALT, 0, 0},          // ¢
+    {0xC2, 0xA3, HID_KEY_4, KEYBOARD_MODIFIER_RIGHTALT, 0, 0},          // £
+    {0xC2, 0xA7, HID_KEY_EQUAL, KEYBOARD_MODIFIER_RIGHTALT, 0, 0},      // §
+    {0xC2, 0xAC, HID_KEY_6, KEYBOARD_MODIFIER_RIGHTALT, 0, 0},          // ¬
+    {0xC2, 0xB2, HID_KEY_2, KEYBOARD_MODIFIER_RIGHTALT, 0, 0},          // ²
+    {0xC2, 0xB3, HID_KEY_3, KEYBOARD_MODIFIER_RIGHTALT, 0, 0},          // ³
+    {0xC2, 0xB9, HID_KEY_1, KEYBOARD_MODIFIER_RIGHTALT, 0, 0},          // ¹
 };
 
 #undef DK_ACUTE

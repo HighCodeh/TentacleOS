@@ -36,7 +36,6 @@
 // Version code for cph's longtics hack ("v1.91")
 #define DOOM_191_VERSION 111
 
-
 // If rangecheck is undefined,
 // most parameter validation debugging code will not be compiled
 #define RANGECHECK
@@ -46,27 +45,25 @@
 
 // The current state of the game: whether we are
 // playing, gazing at the intermission screen,
-// the game final animation, or a demo. 
-typedef enum
-{
-    GS_LEVEL,
-    GS_INTERMISSION,
-    GS_FINALE,
-    GS_DEMOSCREEN,
+// the game final animation, or a demo.
+typedef enum {
+  GS_LEVEL,
+  GS_INTERMISSION,
+  GS_FINALE,
+  GS_DEMOSCREEN,
 } gamestate_t;
 
-typedef enum
-{
-    ga_nothing,
-    ga_loadlevel,
-    ga_newgame,
-    ga_loadgame,
-    ga_savegame,
-    ga_playdemo,
-    ga_completed,
-    ga_victory,
-    ga_worlddone,
-    ga_screenshot
+typedef enum {
+  ga_nothing,
+  ga_loadlevel,
+  ga_newgame,
+  ga_loadgame,
+  ga_savegame,
+  ga_playdemo,
+  ga_completed,
+  ga_victory,
+  ga_worlddone,
+  ga_screenshot
 } gameaction_t;
 
 //
@@ -74,95 +71,83 @@ typedef enum
 //
 
 // Skill flags.
-#define	MTF_EASY		1
-#define	MTF_NORMAL		2
-#define	MTF_HARD		4
+#define MTF_EASY   1
+#define MTF_NORMAL 2
+#define MTF_HARD   4
 
 // Deaf monsters/do not react to sound.
-#define	MTF_AMBUSH		8
-
+#define MTF_AMBUSH 8
 
 //
 // Key cards.
 //
-typedef enum
-{
-    it_bluecard,
-    it_yellowcard,
-    it_redcard,
-    it_blueskull,
-    it_yellowskull,
-    it_redskull,
-    
-    NUMCARDS
-    
+typedef enum {
+  it_bluecard,
+  it_yellowcard,
+  it_redcard,
+  it_blueskull,
+  it_yellowskull,
+  it_redskull,
+
+  NUMCARDS
+
 } card_t;
-
-
 
 // The defined weapons,
 //  including a marker indicating
 //  user has not changed weapon.
-typedef enum
-{
-    wp_fist,
-    wp_pistol,
-    wp_shotgun,
-    wp_chaingun,
-    wp_missile,
-    wp_plasma,
-    wp_bfg,
-    wp_chainsaw,
-    wp_supershotgun,
+typedef enum {
+  wp_fist,
+  wp_pistol,
+  wp_shotgun,
+  wp_chaingun,
+  wp_missile,
+  wp_plasma,
+  wp_bfg,
+  wp_chainsaw,
+  wp_supershotgun,
 
-    NUMWEAPONS,
-    
-    // No pending weapon change.
-    wp_nochange
+  NUMWEAPONS,
+
+  // No pending weapon change.
+  wp_nochange
 
 } weapontype_t;
 
-
 // Ammunition types defined.
-typedef enum
-{
-    am_clip,	// Pistol / chaingun ammo.
-    am_shell,	// Shotgun / double barreled shotgun.
-    am_cell,	// Plasma rifle, BFG.
-    am_misl,	// Missile launcher.
-    NUMAMMO,
-    am_noammo	// Unlimited for chainsaw / fist.	
+typedef enum {
+  am_clip,  // Pistol / chaingun ammo.
+  am_shell, // Shotgun / double barreled shotgun.
+  am_cell,  // Plasma rifle, BFG.
+  am_misl,  // Missile launcher.
+  NUMAMMO,
+  am_noammo // Unlimited for chainsaw / fist.
 
 } ammotype_t;
 
-
 // Power up artifacts.
-typedef enum
-{
-    pw_invulnerability,
-    pw_strength,
-    pw_invisibility,
-    pw_ironfeet,
-    pw_allmap,
-    pw_infrared,
-    NUMPOWERS
-    
+typedef enum {
+  pw_invulnerability,
+  pw_strength,
+  pw_invisibility,
+  pw_ironfeet,
+  pw_allmap,
+  pw_infrared,
+  NUMPOWERS
+
 } powertype_t;
-
-
 
 //
 // Power up durations,
 //  how many seconds till expiration,
 //  assuming TICRATE is 35 ticks/second.
 //
-typedef enum
-{
-    INVULNTICS	= (30*TICRATE),
-    INVISTICS	= (60*TICRATE),
-    INFRATICS	= (120*TICRATE),
-    IRONTICS	= (60*TICRATE)
-    
+typedef enum {
+  INVULNTICS = (30 * TICRATE),
+  INVISTICS = (60 * TICRATE),
+  INFRATICS = (120 * TICRATE),
+  IRONTICS = (60 * TICRATE)
+
 } powerduration_t;
 
-#endif          // __DOOMDEF__
+#endif // __DOOMDEF__

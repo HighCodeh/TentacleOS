@@ -30,11 +30,11 @@ extern "C" {
  * @brief USB Mass Storage mode state.
  */
 typedef enum {
-  USB_MSC_IDLE = 0,  /**< Not in USB-storage mode. */
-  USB_MSC_ENTERING,  /**< Detaching SD / bringing USB up. */
-  USB_MSC_ACTIVE,    /**< SD exposed to the host as a USB drive. */
-  USB_MSC_ERROR,     /**< Could not enter (SD restored, safe to leave). */
-  USB_MSC_EXITING,   /**< Tearing down / remounting SD. */
+  USB_MSC_IDLE = 0, /**< Not in USB-storage mode. */
+  USB_MSC_ENTERING, /**< Detaching SD / bringing USB up. */
+  USB_MSC_ACTIVE,   /**< SD exposed to the host as a USB drive. */
+  USB_MSC_ERROR,    /**< Could not enter (SD restored, safe to leave). */
+  USB_MSC_EXITING,  /**< Tearing down / remounting SD. */
 } usb_msc_state_t;
 
 /**

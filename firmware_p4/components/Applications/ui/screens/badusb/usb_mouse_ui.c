@@ -35,7 +35,7 @@
 #define MX        8
 #define CONTENT_W (240 - 2 * MX)
 
-#define COL_ACC2    0xB89AFF
+#define COL_ACC2 0xB89AFF
 
 #define STATUS_Y 48
 #define STATUS_H 18

@@ -86,8 +86,10 @@ static void apply_status(void) {
   menu_component_set_selector_value(
       &s_menu, ROW_STATUS, s_connected ? "Connected" : "Disconnected");
   menu_component_set_selector_value(&s_menu, ROW_ACTION, s_connected ? "Disconnect" : "Connect");
-  menu_component_set_item_label_color(
-      &s_menu, ROW_STATUS, s_connected ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_secondary);
+  menu_component_set_item_label_color(&s_menu,
+                                      ROW_STATUS,
+                                      s_connected ? lv_color_hex(UI_COL_SUCCESS)
+                                                  : current_theme.text_secondary);
   menu_component_set_item_label_color(
       &s_menu, ROW_ACTION, s_connected ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_main);
 }

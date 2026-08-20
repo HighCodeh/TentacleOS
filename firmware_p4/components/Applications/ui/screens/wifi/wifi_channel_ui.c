@@ -48,9 +48,9 @@ static const char *TAG = "WIFI_CHAN_UI";
 #define SCAN_WAVES_Y_OFS   -6
 #define SCAN_CAPTION_Y_OFS 78
 
-#define SPEC_PANEL_TOP     (UI_CHROME_HEADER_H + 8)
-#define SPEC_PANEL_MARGIN  8
-#define SPEC_PANEL_W       (ui_screen_w() - SPEC_PANEL_MARGIN * 2)
+#define SPEC_PANEL_TOP    (UI_CHROME_HEADER_H + 8)
+#define SPEC_PANEL_MARGIN 8
+#define SPEC_PANEL_W      (ui_screen_w() - SPEC_PANEL_MARGIN * 2)
 // Fit the spectrum panel to the live height (leaving room for the footer and the
 // hint below) so it does not overflow the shorter landscape screen. In portrait
 // this resolves to ~212, matching the previous fixed 210.

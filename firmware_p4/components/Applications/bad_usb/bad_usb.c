@@ -52,10 +52,8 @@ esp_err_t bad_usb_init(void) {
     return err;
   }
 
-  hid_hal_register_callback(send_keyboard_report,
-                            send_mouse_report,
-                            bad_usb_wait_for_connection,
-                            hid_report_ready);
+  hid_hal_register_callback(
+      send_keyboard_report, send_mouse_report, bad_usb_wait_for_connection, hid_report_ready);
   s_is_initialized = true;
 
   ESP_LOGI(TAG, "Initialized");

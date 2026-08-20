@@ -18,7 +18,6 @@
 //	Functions to blit a block to the screen.
 //
 
-
 #ifndef __V_VIDEO__
 #define __V_VIDEO__
 
@@ -31,8 +30,7 @@
 // VIDEO
 //
 
-#define CENTERY			(SCREENHEIGHT/2)
-
+#define CENTERY (SCREENHEIGHT / 2)
 
 extern int dirtybox[4];
 
@@ -44,22 +42,19 @@ extern byte *tinttable;
 typedef boolean (*vpatchclipfunc_t)(patch_t *, int, int);
 void V_SetPatchClipCallback(vpatchclipfunc_t func);
 
-
 // Allocates buffer screens, call before R_Init.
-void V_Init (void);
+void V_Init(void);
 
 // Draw a block from the specified source screen to the screen.
 
-void V_CopyRect(int srcx, int srcy, byte *source,
-                int width, int height,
-                int destx, int desty);
+void V_CopyRect(int srcx, int srcy, byte *source, int width, int height, int destx, int desty);
 
 void V_DrawPatch(int x, int y, patch_t *patch);
 void V_DrawPatchFlipped(int x, int y, patch_t *patch);
 void V_DrawTLPatch(int x, int y, patch_t *patch);
-void V_DrawAltTLPatch(int x, int y, patch_t * patch);
+void V_DrawAltTLPatch(int x, int y, patch_t *patch);
 void V_DrawShadowedPatch(int x, int y, patch_t *patch);
-void V_DrawXlaPatch(int x, int y, patch_t * patch);     // villsa [STRIFE]
+void V_DrawXlaPatch(int x, int y, patch_t *patch); // villsa [STRIFE]
 void V_DrawPatchDirect(int x, int y, patch_t *patch);
 
 // Draw a linear block of pixels into the view buffer.
@@ -85,7 +80,7 @@ void V_UseBuffer(byte *buffer);
 
 void V_RestoreBuffer(void);
 
-// Save a screenshot of the current screen to a file, named in the 
+// Save a screenshot of the current screen to a file, named in the
 // format described in the string passed to the function, eg.
 // "DOOM%02i.pcx"
 
@@ -105,4 +100,3 @@ void V_LoadXlaTable(void);
 void V_DrawMouseSpeedBox(int speed);
 
 #endif
-

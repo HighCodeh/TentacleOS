@@ -36,16 +36,18 @@ typedef enum {
  * @brief Parsed ID3v2 tag. Strings are always NUL-terminated (empty if absent).
  */
 typedef struct {
-  char title[64];   /**< TIT2 / TT2 */
-  char artist[64];  /**< TPE1 / TP1 */
-  char album[64];   /**< TALB / TAL */
-  char year[8];     /**< TYER / TDRC / TYE */
+  char title[64];  /**< TIT2 / TT2 */
+  char artist[64]; /**< TPE1 / TP1 */
+  char album[64];  /**< TALB / TAL */
+  char year[8];    /**< TYER / TDRC / TYE */
 
-  id3_cover_fmt_t cover_fmt; /**< Embedded cover-art format (APIC / PIC). Read with id3_meta_read_cover(). */
-  long cover_off;            /**< Absolute file offset of the image bytes (0 if none). */
-  uint32_t cover_size;       /**< Size of the image blob in bytes. */
+  id3_cover_fmt_t
+      cover_fmt;  /**< Embedded cover-art format (APIC / PIC). Read with id3_meta_read_cover(). */
+  long cover_off; /**< Absolute file offset of the image bytes (0 if none). */
+  uint32_t cover_size; /**< Size of the image blob in bytes. */
 
-  long audio_off; /**< File offset where audio begins, right after the ID3v2 tag; a decoder should fseek here before searching for the first MP3 frame sync word. */
+  long audio_off; /**< File offset where audio begins, right after the ID3v2 tag; a decoder should
+                     fseek here before searching for the first MP3 frame sync word. */
 } id3_meta_t;
 
 /**
