@@ -64,15 +64,19 @@ static bool trans_done_cb(esp_lcd_panel_io_handle_t io,
   (void)io;
   (void)ed;
   BaseType_t hp = pdFALSE;
-  if (s_direct_mode) {
+  // s_flush_took_bus marks an LVGL-driven flush (set in capture_flush_start_cb).
+  // Complete it even in direct mode, else lv_refr's wait_for_flushing() spins
+  // forever (disp->flushing never clears) and the SPI3 bus lock leaks. App direct
+  // draws (DOOM/Game Boy) never set this flag; they only pulse the wait semaphore.
+  if (s_flush_took_bus) {
+    lv_display_flush_ready((lv_display_t *)ctx);
+    s_flush_took_bus = false;
+    spi_bus_lock_give_from_isr(&hp);
+  } else if (s_direct_mode) {
     if (s_trans_done != NULL)
       xSemaphoreGiveFromISR(s_trans_done, &hp);
   } else {
     lv_display_flush_ready((lv_display_t *)ctx);
-    if (s_flush_took_bus) {
-      s_flush_took_bus = false;
-      spi_bus_lock_give_from_isr(&hp);
-    }
   }
   return hp == pdTRUE;
 }
