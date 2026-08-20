@@ -156,7 +156,7 @@ esp_err_t subghz_tx_init(void) {
       .resolution_hz = RMT_RESOLUTION_HZ,
       .mem_block_symbols = RMT_MEM_BLOCK_SYMBOLS,
       .trans_queue_depth = RMT_TRANS_QUEUE_DEPTH,
-      .gpio_num = GPIO_CC1101_GDO2_PIN,
+      .gpio_num = GPIO_CC1101_GDO0_PIN,
       .flags.invert_out = false,
   };
   esp_err_t err = rmt_new_tx_channel(&tx_channel_cfg, &s_tx_channel);
