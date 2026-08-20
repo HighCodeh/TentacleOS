@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="pics/Highboy_repo.png" alt="HighBoy Banner" width="1000"/>
+  <img src="pics/banner.png" alt="HighBoy Banner" width="1000"/>
 </p>
 
 
