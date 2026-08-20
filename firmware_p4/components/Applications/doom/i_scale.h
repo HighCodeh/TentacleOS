@@ -16,6 +16,7 @@
 //      Pixel-doubling scale up functions.
 //
 
+
 #ifndef __I_SCALE__
 #define __I_SCALE__
 
@@ -49,3 +50,4 @@ extern screen_mode_t mode_squash_4x;
 extern screen_mode_t mode_squash_5x;
 
 #endif /* #ifndef __I_SCALE__ */
+

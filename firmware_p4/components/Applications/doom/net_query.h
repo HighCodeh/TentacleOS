@@ -41,3 +41,4 @@ extern boolean NET_Query_CheckAddedToMaster(boolean *result);
 extern void NET_Query_MasterResponse(net_packet_t *packet);
 
 #endif /* #ifndef NET_QUERY_H */
+

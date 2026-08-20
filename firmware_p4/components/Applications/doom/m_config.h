@@ -14,7 +14,8 @@
 //
 // DESCRIPTION:
 //      Configuration file interface.
-//
+//    
+
 
 #ifndef __M_CONFIG__
 #define __M_CONFIG__

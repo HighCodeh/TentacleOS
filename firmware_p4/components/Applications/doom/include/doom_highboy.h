@@ -19,4 +19,4 @@ void highboy_doom_start(void (*render_beat_kick)(void));
 }
 #endif
 
-#endif // DOOM_HIGHBOY_H
+#endif  // DOOM_HIGHBOY_H

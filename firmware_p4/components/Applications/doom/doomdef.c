@@ -17,8 +17,12 @@
 //   and skill level, and display parameters.
 //
 
+
+
 #include "doomdef.h"
 
 // Location for any defines turned variables.
 
 // None.
+
+
