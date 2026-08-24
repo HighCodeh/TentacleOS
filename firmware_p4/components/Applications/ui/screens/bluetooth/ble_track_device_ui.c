@@ -272,7 +272,6 @@ static void ble_track_device_input(const input_event_t *ev, void *ctx) {
   const bool press = (ev->action == INPUT_ACTION_PRESS);
   switch (ev->button) {
     case INPUT_BTN_BACK:
-    case INPUT_BTN_LEFT:
       if (press) {
         stop_all();
         ui_switch_screen(SCREEN_BLE_DETECT_MENU);

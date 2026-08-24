@@ -209,7 +209,6 @@ static void beacon_input(const input_event_t *ev, void *ctx) {
 
   switch (ev->button) {
     case INPUT_BTN_BACK:
-    case INPUT_BTN_LEFT:
       if (press) {
         run_stop_timers();
         ui_switch_screen(SCREEN_BLE_MENU);

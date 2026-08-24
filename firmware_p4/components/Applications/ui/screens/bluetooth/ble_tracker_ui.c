@@ -267,7 +267,6 @@ static void ble_tracker_input(const input_event_t *ev, void *ctx) {
 
   switch (ev->button) {
     case INPUT_BTN_BACK:
-    case INPUT_BTN_LEFT:
       if (press) {
         stop_detector();
         ui_switch_screen(SCREEN_BLE_DETECT_MENU);

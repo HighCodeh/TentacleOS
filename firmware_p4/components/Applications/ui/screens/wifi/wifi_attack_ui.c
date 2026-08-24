@@ -479,7 +479,6 @@ static void wifi_attack_input(const input_event_t *ev, void *ctx) {
             menu_component_prev(&s_menu);
           break;
         case INPUT_BTN_BACK:
-        case INPUT_BTN_LEFT:
           if (press)
             ui_switch_screen(SCREEN_WIFI_MENU);
           break;
@@ -503,7 +502,7 @@ static void wifi_attack_input(const input_event_t *ev, void *ctx) {
       break;
 
     case VIEW_PICK_SCANNING:
-      if ((ev->button == INPUT_BTN_BACK || ev->button == INPUT_BTN_LEFT) && press)
+      if ((ev->button == INPUT_BTN_BACK) && press)
         build_list_view();
       break;
 
@@ -518,7 +517,6 @@ static void wifi_attack_input(const input_event_t *ev, void *ctx) {
             menu_component_prev(&s_menu);
           break;
         case INPUT_BTN_BACK:
-        case INPUT_BTN_LEFT:
           if (press)
             build_list_view();
           break;
@@ -533,7 +531,7 @@ static void wifi_attack_input(const input_event_t *ev, void *ctx) {
       break;
 
     case VIEW_RUNNING:
-      if ((ev->button == INPUT_BTN_BACK || ev->button == INPUT_BTN_LEFT) && press) {
+      if ((ev->button == INPUT_BTN_BACK) && press) {
         stop_running_attack();
         build_list_view();
       }

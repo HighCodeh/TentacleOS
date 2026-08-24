@@ -613,7 +613,6 @@ static void lora_securedm_input(const input_event_t *ev, void *ctx) {
   if (s_view == DM_VIEW_CONTACTS) {
     switch (ev->button) {
       case INPUT_BTN_BACK:
-      case INPUT_BTN_LEFT:
         if (press)
           ui_switch_screen(SCREEN_LORA_CHAT);
         break;
@@ -642,7 +641,6 @@ static void lora_securedm_input(const input_event_t *ev, void *ctx) {
 
   switch (ev->button) {
     case INPUT_BTN_BACK:
-    case INPUT_BTN_LEFT:
       if (press) {
         s_view = DM_VIEW_CONTACTS;
         build_screen();

@@ -453,7 +453,7 @@ static void wifi_signal_locator_input(const input_event_t *ev, void *ctx) {
 
   switch (s_state) {
     case SL_PICK_SCANNING:
-      if ((ev->button == INPUT_BTN_BACK || ev->button == INPUT_BTN_LEFT) && press)
+      if ((ev->button == INPUT_BTN_BACK) && press)
         ui_switch_screen(SCREEN_WIFI_MENU);
       break;
 
@@ -468,7 +468,6 @@ static void wifi_signal_locator_input(const input_event_t *ev, void *ctx) {
             menu_component_prev(&s_menu);
           break;
         case INPUT_BTN_BACK:
-        case INPUT_BTN_LEFT:
           if (press)
             ui_switch_screen(SCREEN_WIFI_MENU);
           break;
@@ -483,7 +482,7 @@ static void wifi_signal_locator_input(const input_event_t *ev, void *ctx) {
       break;
 
     case SL_LOCATING:
-      if ((ev->button == INPUT_BTN_BACK || ev->button == INPUT_BTN_LEFT) && press)
+      if ((ev->button == INPUT_BTN_BACK) && press)
         leave_screen();
       break;
 

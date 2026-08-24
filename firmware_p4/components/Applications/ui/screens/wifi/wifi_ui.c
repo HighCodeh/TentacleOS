@@ -64,7 +64,6 @@ static void wifi_menu_input(const input_event_t *ev, void *ctx) {
         menu_component_prev(&s_menu);
       break;
     case INPUT_BTN_BACK:
-    case INPUT_BTN_LEFT:
       if (press)
         ui_switch_screen(SCREEN_MENU);
       break;

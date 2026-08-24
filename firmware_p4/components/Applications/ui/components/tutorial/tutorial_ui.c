@@ -781,7 +781,7 @@ static void key_cb(lv_event_t *e) {
       go_page(s_page + 1);
     else
       finish();
-  } else if (key == LV_KEY_LEFT || key == LV_KEY_ESC) {
+  } else if (key == LV_KEY_ESC) {
     if (s_page > 0)
       go_page(s_page - 1);
   }

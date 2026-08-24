@@ -505,8 +505,6 @@ static void ble_scan_input(const input_event_t *ev, void *ctx) {
   }
 
   if (s_scan_state == SCAN_RUNNING) {
-    if (ev->button == INPUT_BTN_LEFT && press)
-      ui_switch_screen(SCREEN_BLE_MENU);
     return;
   }
 
@@ -533,10 +531,6 @@ static void ble_scan_input(const input_event_t *ev, void *ctx) {
   }
 
   switch (ev->button) {
-    case INPUT_BTN_LEFT:
-      if (press)
-        ui_switch_screen(SCREEN_BLE_MENU);
-      break;
     case INPUT_BTN_RIGHT:
       if (press && !s_scanning)
         ui_ble_scan_open();

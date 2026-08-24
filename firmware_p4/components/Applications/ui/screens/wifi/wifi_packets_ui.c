@@ -306,7 +306,6 @@ static void wifi_packets_input(const input_event_t *ev, void *ctx) {
           menu_component_prev(&s_menu);
         break;
       case INPUT_BTN_BACK:
-      case INPUT_BTN_LEFT:
         if (press)
           ui_switch_screen(SCREEN_WIFI_MENU);
         break;
@@ -325,7 +324,6 @@ static void wifi_packets_input(const input_event_t *ev, void *ctx) {
   } else {
     switch (ev->button) {
       case INPUT_BTN_BACK:
-      case INPUT_BTN_LEFT:
         if (press) {
           stop_capture();
           ESP_LOGI(TAG, "capture stopped: %s", MODES[s_mode_idx].name);

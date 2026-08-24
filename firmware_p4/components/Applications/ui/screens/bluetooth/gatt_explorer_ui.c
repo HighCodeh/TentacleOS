@@ -199,7 +199,6 @@ static void gatt_explorer_input(const input_event_t *ev, void *ctx) {
       }
       break;
     case INPUT_BTN_BACK:
-    case INPUT_BTN_LEFT:
       if (press) {
         if (s_level == LEVEL_CHARS) {
           s_level = LEVEL_SERVICES;

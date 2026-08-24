@@ -65,7 +65,6 @@ static void connect_bt_input(const input_event_t *ev, void *ctx) {
     case INPUT_BTN_OK:
     case INPUT_BTN_RIGHT:
     case INPUT_BTN_BACK:
-    case INPUT_BTN_LEFT:
       if (press)
         ui_switch_screen(SCREEN_CONNECTION_SETTINGS);
       break;

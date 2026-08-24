@@ -47,8 +47,6 @@ static void nfc_config_input(const input_event_t *ev, void *ctx) {
         if (sel == CFG_POLL) {
           s_poll = (s_poll - 1 + POLL_N) % POLL_N;
           menu_component_set_selector_value(&s_menu, CFG_POLL, POLL_NAMES[s_poll]);
-        } else {
-          ui_switch_screen(SCREEN_NFC_MENU);
         }
       }
       break;

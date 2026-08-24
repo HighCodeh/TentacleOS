@@ -449,7 +449,6 @@ static void subghz_send_input(const input_event_t *ev, void *ctx) {
             start_send();
           break;
         case INPUT_BTN_BACK:
-        case INPUT_BTN_LEFT:
           if (press)
             ui_switch_screen(SCREEN_SUBGHZ_MENU);
           break;
