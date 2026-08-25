@@ -15,7 +15,11 @@
 
 #include "theme_selector_ui.h"
 
+#include <dirent.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "esp_log.h"
 
@@ -32,10 +36,21 @@
 
 static const char *TAG = "THEME_SELECTOR_UI";
 
-#define TITLE_ICON  "/assets/icons/palette.bin"
-#define BASE_FRAME  "/assets/frames/base_frame_0.bin"
-#define CARD_Y_BIAS (-18)
-#define ANIM_MS     220
+#define TITLE_ICON          "/assets/icons/palette.bin"
+#define BASE_FRAME          "/assets/frames/base_frame_0.bin"
+#define CARD_Y_BIAS         (-18)
+#define ANIM_MS             220
+#define THEMES_DIR          "/sdcard/themes"
+#define MAX_THEMES          24
+#define TNAME_MAX           32
+#define THEME_PATH_MAX      128
+#define ACCENT_BUF_SIZE     1024
+#define DEFAULT_CARD_ACCENT 0x888888
+#define THEME_FILE_JSON     "theme.json"
+#define THEME_FILE_CONF     "theme.conf"
+#define ACCENT_KEY          "border_accent"
+#define HEX_PREFIX          "0x"
+#define HEX_BASE            16
 
 extern int theme_idx;
 extern const char *theme_names[];
@@ -51,6 +66,14 @@ static const theme_face_t THEMES[] = {
 };
 #define THEME_COUNT ((int)(sizeof(THEMES) / sizeof(THEMES[0])))
 
+typedef struct {
+  char name[TNAME_MAX];
+  char label[TNAME_MAX];
+  uint32_t accent;
+  bool builtin;
+  int flash_idx;
+} theme_entry_t;
+
 static const int32_t CAR_PX[] = {-94, -50, 0, 50, 94};
 static const int32_t CAR_PY[] = {-14, -6, 0, -6, -14};
 static const int32_t CAR_SC[] = {117, 161, 234, 161, 117};
@@ -60,12 +83,16 @@ static const int32_t CAR_Z[] = {0, 1, 2, 1, 0};
 #define CAR_CENTER 2
 
 static lv_obj_t *s_screen = NULL;
-static lv_obj_t *s_cards[THEME_COUNT];
+static lv_obj_t *s_cards[MAX_THEMES];
 static lv_obj_t *s_label = NULL;
 static lv_obj_t *s_active = NULL;
 static page_dots_t s_dots;
 static lv_image_dsc_t *s_base_dsc = NULL;
+static theme_entry_t s_entries[MAX_THEMES];
+static int s_count = 0;
 static int s_sel = 0;
+static int s_applied = 0;
+static char s_readbuf[ACCENT_BUF_SIZE];
 static bool s_animating = false;
 
 static void build_screen(void);
@@ -88,8 +115,96 @@ static void anim_done_cb(lv_anim_t *a) {
   s_animating = false;
 }
 
+static bool has_theme_file(const char *name) {
+  char path[THEME_PATH_MAX];
+  struct stat st;
+  snprintf(path, sizeof(path), "%s/%s/%s", THEMES_DIR, name, THEME_FILE_JSON);
+  if (stat(path, &st) == 0 && S_ISREG(st.st_mode))
+    return true;
+  snprintf(path, sizeof(path), "%s/%s/%s", THEMES_DIR, name, THEME_FILE_CONF);
+  return (stat(path, &st) == 0 && S_ISREG(st.st_mode));
+}
+
+static uint32_t read_sd_accent(const char *name) {
+  char path[THEME_PATH_MAX];
+  for (int variant = 0; variant < 2; variant++) {
+    snprintf(path,
+             sizeof(path),
+             "%s/%s/%s",
+             THEMES_DIR,
+             name,
+             variant == 0 ? THEME_FILE_JSON : THEME_FILE_CONF);
+    FILE *f = fopen(path, "rb");
+    if (f == NULL)
+      continue;
+    size_t n = fread(s_readbuf, 1, sizeof(s_readbuf) - 1, f);
+    fclose(f);
+    s_readbuf[n] = '\0';
+    uint32_t accent = DEFAULT_CARD_ACCENT;
+    char *p = strstr(s_readbuf, ACCENT_KEY);
+    if (p != NULL) {
+      char *h = strstr(p, HEX_PREFIX);
+      if (h != NULL)
+        accent = (uint32_t)strtoul(h, NULL, HEX_BASE);
+    }
+    return accent;
+  }
+  return DEFAULT_CARD_ACCENT;
+}
+
+static void build_entries(void) {
+  s_count = 0;
+
+  for (int i = 0; i < THEME_COUNT && s_count < MAX_THEMES; i++) {
+    theme_entry_t *e = &s_entries[s_count++];
+    strlcpy(e->name, theme_names[i], sizeof(e->name));
+    strlcpy(e->label, THEMES[i].label, sizeof(e->label));
+    e->accent = THEMES[i].accent;
+    e->builtin = true;
+    e->flash_idx = i;
+  }
+
+  DIR *dir = opendir(THEMES_DIR);
+  if (dir != NULL) {
+    struct dirent *de;
+    while ((de = readdir(dir)) != NULL && s_count < MAX_THEMES) {
+      if (de->d_name[0] == '.')
+        continue;
+      bool dup = false;
+      for (int i = 0; i < THEME_COUNT; i++)
+        if (strcmp(de->d_name, theme_names[i]) == 0)
+          dup = true;
+      if (dup || !has_theme_file(de->d_name))
+        continue;
+      theme_entry_t *e = &s_entries[s_count++];
+      strlcpy(e->name, de->d_name, sizeof(e->name));
+      strlcpy(e->label, de->d_name, sizeof(e->label));
+      e->accent = read_sd_accent(de->d_name);
+      e->builtin = false;
+      e->flash_idx = -1;
+    }
+    closedir(dir);
+  }
+
+  if (s_count == 0) {
+    strlcpy(s_entries[0].name, theme_names[0], sizeof(s_entries[0].name));
+    strlcpy(s_entries[0].label, THEMES[0].label, sizeof(s_entries[0].label));
+    s_entries[0].accent = THEMES[0].accent;
+    s_entries[0].builtin = true;
+    s_entries[0].flash_idx = 0;
+    s_count = 1;
+  }
+}
+
+static int find_applied(void) {
+  for (int i = 0; i < s_count; i++)
+    if (strcmp(s_entries[i].name, g_config_screen.theme) == 0)
+      return i;
+  return 0;
+}
+
 static int32_t carousel_slot(int item_idx) {
-  int32_t n = THEME_COUNT;
+  int32_t n = s_count;
   int32_t d = (item_idx - s_sel + n) % n;
   if (d > n / 2)
     d -= n;
@@ -103,7 +218,7 @@ static lv_obj_t *make_card(lv_obj_t *parent, int i) {
     lv_image_set_src(card, s_base_dsc);
   lv_image_set_antialias(card, false);
   lv_obj_align(card, LV_ALIGN_CENTER, 0, CARD_Y_BIAS);
-  lv_obj_set_style_image_recolor(card, lv_color_hex(THEMES[i].accent), 0);
+  lv_obj_set_style_image_recolor(card, lv_color_hex(s_entries[i].accent), 0);
   lv_obj_set_style_image_recolor_opa(card, LV_OPA_COVER, 0);
   return card;
 }
@@ -163,7 +278,7 @@ static void place_card(int i, bool anim) {
 
 static void fix_z_order(void) {
   for (int z = 0; z <= CAR_CENTER; z++) {
-    for (int i = 0; i < THEME_COUNT; i++) {
+    for (int i = 0; i < s_count; i++) {
       int32_t slot = carousel_slot(i);
       if (slot >= 0 && CAR_Z[slot] == z)
         lv_obj_move_foreground(s_cards[i]);
@@ -172,14 +287,14 @@ static void fix_z_order(void) {
 }
 
 static void update_view(bool anim) {
-  lv_label_set_text_fmt(s_label, LV_SYMBOL_LEFT "  %s  " LV_SYMBOL_RIGHT, THEMES[s_sel].label);
-  lv_label_set_text(s_active, s_sel == theme_idx ? LV_SYMBOL_OK " APPLIED" : "OK to apply");
+  lv_label_set_text_fmt(s_label, LV_SYMBOL_LEFT "  %s  " LV_SYMBOL_RIGHT, s_entries[s_sel].label);
+  lv_label_set_text(s_active, s_sel == s_applied ? LV_SYMBOL_OK " APPLIED" : "OK to apply");
   lv_obj_set_style_text_color(
-      s_active, s_sel == theme_idx ? current_theme.border_accent : current_theme.text_main, 0);
-  lv_obj_set_style_text_opa(s_active, s_sel == theme_idx ? LV_OPA_COVER : LV_OPA_50, 0);
+      s_active, s_sel == s_applied ? current_theme.border_accent : current_theme.text_main, 0);
+  lv_obj_set_style_text_opa(s_active, s_sel == s_applied ? LV_OPA_COVER : LV_OPA_50, 0);
 
   page_dots_set(&s_dots, s_sel);
-  for (int i = 0; i < THEME_COUNT; i++)
+  for (int i = 0; i < s_count; i++)
     place_card(i, anim);
   fix_z_order();
 }
@@ -195,22 +310,28 @@ static void theme_selector_input(const input_event_t *ev, void *ctx) {
         ui_switch_screen(SCREEN_SETTINGS);
       break;
     case INPUT_BTN_OK:
-      if (press && s_sel != theme_idx) {
-        theme_idx = s_sel;
-        ui_theme_load_idx(s_sel);
-        strlcpy(g_config_screen.theme, theme_names[s_sel], sizeof(g_config_screen.theme));
+      if (press && s_sel != s_applied) {
+        theme_entry_t *e = &s_entries[s_sel];
+        if (e->builtin) {
+          theme_idx = e->flash_idx;
+          ui_theme_load_idx(e->flash_idx);
+        } else {
+          ui_theme_load_from_name(e->name);
+        }
+        strlcpy(g_config_screen.theme, e->name, sizeof(g_config_screen.theme));
         if (ui_sd_ready()) {
           tos_config_save(TOS_PATH_CONFIG_SCREEN, "screen");
           notify(NOTIFY_SAVED, "Theme saved");
         }
-        ESP_LOGI(TAG, "applied theme %d (%s)", s_sel, THEMES[s_sel].label);
+        s_applied = s_sel;
+        ESP_LOGI(TAG, "applied theme %d (%s)", s_sel, e->name);
         build_screen();
       }
       break;
     case INPUT_BTN_RIGHT:
     case INPUT_BTN_DOWN:
       if (nav && !s_animating) {
-        s_sel = (s_sel + 1) % THEME_COUNT;
+        s_sel = (s_sel + 1) % s_count;
         s_animating = true;
         ui_feedback(UI_FB_NAV);
         update_view(true);
@@ -219,7 +340,7 @@ static void theme_selector_input(const input_event_t *ev, void *ctx) {
     case INPUT_BTN_LEFT:
     case INPUT_BTN_UP:
       if (nav && !s_animating) {
-        s_sel = (s_sel == 0) ? THEME_COUNT - 1 : s_sel - 1;
+        s_sel = (s_sel == 0) ? s_count - 1 : s_sel - 1;
         s_animating = true;
         ui_feedback(UI_FB_NAV);
         update_view(true);
@@ -245,7 +366,7 @@ static void build_screen(void) {
   ui_chrome_header(s_screen, "THEME", TITLE_ICON);
   ui_chrome_footer(s_screen, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " Browse   " LV_SYMBOL_OK " Apply");
 
-  for (int i = 0; i < THEME_COUNT; i++)
+  for (int i = 0; i < s_count; i++)
     s_cards[i] = make_card(s_screen, i);
 
   s_label = lv_label_create(s_screen);
@@ -257,12 +378,12 @@ static void build_screen(void) {
   lv_obj_set_style_text_font(s_active, &lv_font_montserrat_12, 0);
   lv_obj_align(s_active, LV_ALIGN_BOTTOM_MID, 0, -42);
 
-  s_dots = page_dots_create(s_screen, THEME_COUNT, LV_ALIGN_BOTTOM_MID, 0, -26);
+  s_dots = page_dots_create(s_screen, s_count, LV_ALIGN_BOTTOM_MID, 0, -26);
 
   if (s_sel < 0)
     s_sel = 0;
-  if (s_sel >= THEME_COUNT)
-    s_sel = THEME_COUNT - 1;
+  if (s_sel >= s_count)
+    s_sel = s_count - 1;
   update_view(false);
 
   ui_input_set_screen_handler(theme_selector_input, NULL);
@@ -273,7 +394,9 @@ static void build_screen(void) {
 }
 
 void ui_theme_selector_open(void) {
-  s_sel = (theme_idx >= 0 && theme_idx < THEME_COUNT) ? theme_idx : 0;
+  build_entries();
+  s_applied = find_applied();
+  s_sel = s_applied;
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
