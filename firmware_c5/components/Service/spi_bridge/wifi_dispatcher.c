@@ -45,6 +45,7 @@ static const char *TAG = "WIFI_DISPATCHER";
 // Compact scan results for the companion app (SPI_ID_WIFI_APP_SCAN_AP). Built
 // from the raw scan once, then served through the generic data pipe.
 static spi_wifi_scan_record_t s_app_scan_records[WIFI_SCAN_LIST_SIZE];
+static spi_wifi_scan_record_ex_t s_app_scan_records_ex[WIFI_SCAN_LIST_SIZE];
 
 // Port scan runs on the shared async runner so the SPI bridge (and the UI/app
 // link it carries) never blocks for the seconds-to-minutes a sweep can take.
@@ -187,6 +188,38 @@ static void scan_fn_app_ap(void) {
   spi_bridge_provide_results(s_app_scan_records, count, sizeof(spi_wifi_scan_record_t));
 }
 
+static void scan_fn_app_ap_detail(void) {
+  wifi_service_scan();
+  uint16_t count = wifi_service_get_ap_count();
+  if (count > WIFI_SCAN_LIST_SIZE)
+    count = WIFI_SCAN_LIST_SIZE;
+  for (uint16_t i = 0; i < count; i++) {
+    spi_wifi_scan_record_ex_t *rec = &s_app_scan_records_ex[i];
+    memset(rec, 0, sizeof(*rec));
+    const wifi_ap_record_t *ap = wifi_service_get_ap_record(i);
+    if (ap == NULL)
+      continue;
+    memcpy(rec->bssid, ap->bssid, sizeof(rec->bssid));
+    rec->rssi = ap->rssi;
+    rec->channel = ap->primary;
+    rec->second = (uint8_t)ap->second;
+    rec->authmode = (uint8_t)ap->authmode;
+    rec->pairwise_cipher = (uint8_t)ap->pairwise_cipher;
+    rec->group_cipher = (uint8_t)ap->group_cipher;
+    rec->phy =
+        (uint8_t)((ap->phy_11b ? 0x01 : 0) | (ap->phy_11g ? 0x02 : 0) | (ap->phy_11n ? 0x04 : 0) |
+                  (ap->phy_11ax ? 0x08 : 0) | (ap->phy_lr ? 0x10 : 0) | (ap->wps ? 0x20 : 0));
+    memcpy(rec->country, ap->country.cc, sizeof(rec->country));
+    size_t j = 0;
+    for (; j < sizeof(rec->ssid) - 1 && ap->ssid[j] != '\0'; j++) {
+      uint8_t c = ap->ssid[j];
+      rec->ssid[j] = (c < 0x20 || c > 0x7E) ? '?' : c;
+    }
+    rec->ssid[j] = '\0';
+  }
+  spi_bridge_provide_results(s_app_scan_records_ex, count, sizeof(spi_wifi_scan_record_ex_t));
+}
+
 static void scan_fn_app_client(void) {
   if (!client_scanner_start())
     return;
@@ -283,9 +316,8 @@ static bool parse_port_list(const uint8_t *p, uint8_t len, size_t offset) {
     offset += 2;
   }
   s_port_scan_req.list_size = count;
-  s_port_scan_req.max_results = (max_res == 0 || max_res > PORT_SCAN_MAX_RESULTS)
-                                    ? PORT_SCAN_MAX_RESULTS
-                                    : max_res;
+  s_port_scan_req.max_results =
+      (max_res == 0 || max_res > PORT_SCAN_MAX_RESULTS) ? PORT_SCAN_MAX_RESULTS : max_res;
   return true;
 }
 
@@ -414,6 +446,9 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
 
     case SPI_ID_WIFI_APP_SCAN_AP:
       return spi_bridge_async_scan_start(scan_fn_app_ap) ? SPI_STATUS_OK : SPI_STATUS_BUSY;
+
+    case SPI_ID_WIFI_APP_SCAN_AP_DETAIL:
+      return spi_bridge_async_scan_start(scan_fn_app_ap_detail) ? SPI_STATUS_OK : SPI_STATUS_BUSY;
 
     case SPI_ID_WIFI_APP_SCAN_CLIENT:
       return spi_bridge_async_scan_start(scan_fn_app_client) ? SPI_STATUS_OK : SPI_STATUS_BUSY;
