@@ -26,7 +26,7 @@ The prompt `highboy>` indicates the system is ready.
 | `stack` | Stack budget report: allocated vs high-water free per task, with reclaim/low flags. | `stack` |
 | `date` | Shows the UTC wall-clock (with sync state and source), or sets it. | `date [<YYYY-MM-DD> <HH:MM:SS>]` |
 | `ip` | Shows current network interfaces (IP, Mask, GW, MAC) for STA and AP. | `ip` |
-| `restart` | Reboots the system. | `restart` |
+| `reboot` | Reboots the Highboy (P4). | `reboot` |
 | `firstboot` | Clears the first-boot onboarding + screen-tips flags so they run on the next reset. | `firstboot` |
 | `capprep` | Skips onboarding (wizard + tips) and restarts clean, for screen capture. | `capprep` |
 
@@ -92,6 +92,7 @@ Manages the C5 radio co-processor over the SPI bridge (and UART for recovery).
 | `ping` | Pings the running C5 over the SPI bridge. | `c5 ping` |
 | `info` | Reads the C5 chip info over the SPI bridge. | `c5 info` |
 | `sync` | Re-probes and reconnects the bridge (e.g. after a C5 reboot). | `c5 sync` |
+| `reboot` | Reboots the running C5 over the SPI bridge (deferred ack; run `c5 sync` after). | `c5 reboot` |
 | `download` | Asks the running C5 to enter ROM download mode (over SPI). | `c5 download` |
 | `rom` | Serial-flashes a C5 already in download mode (recovery). | `c5 rom` |
 | `passthrough` | Bridges host `esptool` to the C5 (never returns; reboot/BACK exits). | `c5 passthrough` |

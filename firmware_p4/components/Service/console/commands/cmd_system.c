@@ -39,11 +39,12 @@ static const char *TAG = "CMD_SYSTEM";
 
 static int cmd_c5(int argc, char **argv) {
   if (argc < 2) {
-    printf("usage: c5 <ota|ping|info|sync|download|rom|passthrough|release>\n");
+    printf("usage: c5 <ota|ping|info|sync|reboot|download|rom|passthrough|release>\n");
     printf("  ota <spi|uart>  push the C5 image; control on SPI, bytes over spi or uart\n");
     printf("  ping            ping the running C5 over the SPI bridge\n");
     printf("  info            read the C5 chip info over the SPI bridge\n");
     printf("  sync            re-probe and reconnect the bridge (e.g. after a C5 reboot)\n");
+    printf("  reboot          reboot the running C5 (deferred ack; run 'c5 sync' after)\n");
     printf("  download        ask the running C5 to enter ROM download mode (SPI)\n");
     printf("  rom             serial-flash a C5 already in download mode (recovery)\n");
     printf("  passthrough     bridge host esptool <-> C5 (never returns; BACK reboots)\n");
@@ -107,6 +108,16 @@ static int cmd_c5(int argc, char **argv) {
     c5_flasher_release_uart();
     return 0;
   }
+  if (strcmp(argv[1], "reboot") == 0) {
+    spi_header_t resp;
+    uint8_t buf[8];
+    esp_err_t r =
+        spi_bridge_send_command(SPI_ID_SYSTEM_REBOOT, NULL, 0, &resp, buf, sizeof(buf), 2000);
+    printf("C5 reboot: %s\n", esp_err_to_name(r));
+    if (r == ESP_OK)
+      printf("C5 rebooting; run 'c5 sync' once it is back.\n");
+    return r == ESP_OK ? 0 : 1;
+  }
   printf("unknown subcommand '%s'\n", argv[1]);
   return 1;
 }
@@ -124,8 +135,8 @@ static int cmd_free(int argc, char **argv) {
   return 0;
 }
 
-static int cmd_restart(int argc, char **argv) {
-  printf("Restarting system...\n");
+static int cmd_reboot(int argc, char **argv) {
+  printf("Rebooting...\n");
   esp_restart();
   return 0;
 }
@@ -420,13 +431,13 @@ void register_system_commands(void) {
   };
   ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&cmd_free_def));
 
-  const esp_console_cmd_t cmd_restart_def = {
-      .command = "restart",
-      .help = "Reboot the Highboy",
+  const esp_console_cmd_t cmd_reboot_def = {
+      .command = "reboot",
+      .help = "Reboot the Highboy (P4)",
       .hint = NULL,
-      .func = &cmd_restart,
+      .func = &cmd_reboot,
   };
-  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&cmd_restart_def));
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&cmd_reboot_def));
 
   const esp_console_cmd_t cmd_firstboot_def = {
       .command = "firstboot",
@@ -446,7 +457,7 @@ void register_system_commands(void) {
 
   const esp_console_cmd_t cmd_c5_def = {
       .command = "c5",
-      .help = "C5 firmware update: ota | download | rom | passthrough | release",
+      .help = "C5: ota | ping | info | sync | reboot | download | rom | passthrough | release",
       .hint = NULL,
       .func = &cmd_c5,
   };
