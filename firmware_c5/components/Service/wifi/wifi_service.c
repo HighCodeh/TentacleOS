@@ -374,6 +374,10 @@ void wifi_service_scan(void) {
   wifi_service_promiscuous_stop();
   wifi_service_stop_channel_hopping();
 
+  if (!s_is_active) {
+    wifi_service_start();
+  }
+
   wifi_scan_config_t scan_config = {
       .ssid = NULL,
       .bssid = NULL,
