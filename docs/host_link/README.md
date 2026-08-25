@@ -7,6 +7,14 @@ the component READMEs, and the byte-level wire format lives in the protocol spec
 
 - Companion app implementation guide: [`app-guide.md`](./app-guide.md)
 - Wire spec: [`protocol.md`](./protocol.md)
+- WiFi command reference (per-command payloads): [`wifi-commands.md`](./wifi-commands.md)
+- Bluetooth command reference (per-command payloads): [`bluetooth-commands.md`](./bluetooth-commands.md)
+- System command reference (housekeeping, data pipe, OTA): [`system-commands.md`](./system-commands.md)
+- IR command reference (transmit/capture/torch): [`ir-commands.md`](./ir-commands.md)
+- Sub-GHz command reference (CC1101 rx/tx/spectrum): [`subghz-commands.md`](./subghz-commands.md)
+- Audio command reference (speaker/tone/chime): [`audio-commands.md`](./audio-commands.md)
+- LED command reference (RGB status LED): [`led-commands.md`](./led-commands.md)
+- Reference tester (all groups over USB CDC): `tools/host_link/cli.py`
 - SPI bridge (P4↔C5 transport this rides on): [`../spi_bridge/README.md`](../spi_bridge/README.md)
 - P4 component reference: the [`# P4`](#p4) section below.
 - C5 component reference: the [`# C5`](#c5) section below.

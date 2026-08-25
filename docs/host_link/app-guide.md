@@ -182,6 +182,18 @@ List results (scan tables, etc.) are pulled with the generic data pipe
 `SPI_ID_SYSTEM_DATA` (`category=0x00`, `op=0x05`): index `0xFFFF` returns the
 count, `0..N-1` returns one item. See [`../spi_bridge/README.md`](../spi_bridge/README.md).
 
+The full per-command payload contract for each category - every request/response
+byte layout, which commands are async scans, sessions, or use the data pipe - is
+in [`wifi-commands.md`](./wifi-commands.md) (WiFi, `0x01`),
+[`bluetooth-commands.md`](./bluetooth-commands.md) (Bluetooth, `0x02`) and
+[`system-commands.md`](./system-commands.md) (System, `0x00`),
+[`ir-commands.md`](./ir-commands.md) (IR, `0x08`),
+[`subghz-commands.md`](./subghz-commands.md) (Sub-GHz, `0x09`),
+[`audio-commands.md`](./audio-commands.md) (Audio, `0x0A`) and
+[`led-commands.md`](./led-commands.md) (LED, `0x0B`). One reference tester,
+`tools/host_link/cli.py`, drives every group
+(`system`/`wifi`/`bt`/`ir`/`subghz`/`audio`/`led`) over USB CDC.
+
 ---
 
 ## 7. Streaming (sniffers, monitors)
