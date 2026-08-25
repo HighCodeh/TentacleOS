@@ -53,7 +53,7 @@ static spi_wifi_scan_record_t s_app_scan_records[WIFI_SCAN_LIST_SIZE];
 // pipe. Callers poll SPI_ID_WIFI_SCAN_STATUS (the shared async-scan busy flag)
 // and fetch results once it clears.
 #define PORT_SCAN_MAX_RESULTS   32
-#define PORT_SCAN_PORT_LIST_MAX 64
+#define PORT_SCAN_PORT_LIST_MAX 128 // fits a common-ports list within one SPI frame
 
 typedef enum {
   PORT_SCAN_KIND_TARGET_RANGE,
@@ -79,6 +79,7 @@ typedef struct {
 static port_scan_dispatch_req_t s_port_scan_req;
 static port_scan_result_t s_port_scan_raw[PORT_SCAN_MAX_RESULTS];
 static spi_port_scan_result_t s_port_scan_records[PORT_SCAN_MAX_RESULTS];
+static uint16_t s_port_scan_count; // live count served by the dynamic data pipe
 
 #define WIFI_SSID_MAX_LEN         32
 #define WIFI_PASSWORD_MAX_LEN     64
@@ -203,60 +204,65 @@ static void scan_fn_app_client(void) {
 
 // Async runner body: run the scan captured in s_port_scan_req, convert the raw
 // results to the wire record, and publish them through the data pipe.
+// Live-publish each open port the instant it is found: convert the raw hit to
+// the wire record and bump the count the data pipe exposes. A full sweep can run
+// for minutes, so publishing only at the end would let the caller's poll time
+// out and return nothing; with live publishing the P4 can fetch whatever has
+// been found so far at any point.
+static void port_scan_hit(const port_scan_result_t *hit, void *ctx) {
+  (void)ctx;
+  if (s_port_scan_count >= PORT_SCAN_MAX_RESULTS)
+    return;
+  spi_port_scan_result_t *dst = &s_port_scan_records[s_port_scan_count];
+  memset(dst, 0, sizeof(*dst));
+  strncpy(dst->ip_str, hit->ip_str, sizeof(dst->ip_str) - 1);
+  dst->port = (uint16_t)hit->port;
+  dst->protocol = (uint8_t)hit->protocol;
+  dst->status = (uint8_t)hit->status;
+  strncpy(dst->banner, hit->banner, sizeof(dst->banner) - 1);
+  s_port_scan_count++; // bump last: the P4 only reads indices below the count
+}
+
 static void scan_fn_port_scan(void) {
   const port_scan_dispatch_req_t *r = &s_port_scan_req;
-  int n = 0;
   switch (r->kind) {
     case PORT_SCAN_KIND_TARGET_RANGE:
-      n = port_scan_target_range(
-          r->ip, r->start_port, r->end_port, s_port_scan_raw, r->max_results);
+      port_scan_target_range(r->ip, r->start_port, r->end_port, s_port_scan_raw, r->max_results);
       break;
     case PORT_SCAN_KIND_TARGET_LIST:
-      n = port_scan_target_list(
-          r->ip, r->ports, r->list_size, s_port_scan_raw, r->max_results);
+      port_scan_target_list(r->ip, r->ports, r->list_size, s_port_scan_raw, r->max_results);
       break;
     case PORT_SCAN_KIND_NET_RANGE:
-      n = port_scan_network_range_using_port_range(
+      port_scan_network_range_using_port_range(
           r->ip, r->end_ip, r->start_port, r->end_port, s_port_scan_raw, r->max_results);
       break;
     case PORT_SCAN_KIND_NET_LIST:
-      n = port_scan_network_range_using_port_list(
+      port_scan_network_range_using_port_list(
           r->ip, r->end_ip, r->ports, r->list_size, s_port_scan_raw, r->max_results);
       break;
     case PORT_SCAN_KIND_CIDR_RANGE:
-      n = port_scan_cidr_using_port_range(
+      port_scan_cidr_using_port_range(
           r->ip, r->cidr, r->start_port, r->end_port, s_port_scan_raw, r->max_results);
       break;
     case PORT_SCAN_KIND_CIDR_LIST:
-      n = port_scan_cidr_using_port_list(
+      port_scan_cidr_using_port_list(
           r->ip, r->cidr, r->ports, r->list_size, s_port_scan_raw, r->max_results);
       break;
   }
-
-  if (n < 0)
-    n = 0;
-  if (n > PORT_SCAN_MAX_RESULTS)
-    n = PORT_SCAN_MAX_RESULTS;
-
-  for (int i = 0; i < n; i++) {
-    spi_port_scan_result_t *dst = &s_port_scan_records[i];
-    memset(dst, 0, sizeof(*dst));
-    strncpy(dst->ip_str, s_port_scan_raw[i].ip_str, sizeof(dst->ip_str) - 1);
-    dst->port = (uint16_t)s_port_scan_raw[i].port;
-    dst->protocol = (uint8_t)s_port_scan_raw[i].protocol;
-    dst->status = (uint8_t)s_port_scan_raw[i].status;
-    strncpy(dst->banner, s_port_scan_raw[i].banner, sizeof(dst->banner) - 1);
-  }
-
-  spi_bridge_provide_results(s_port_scan_records, (uint16_t)n, sizeof(spi_port_scan_result_t));
+  // Results were published live via port_scan_hit; nothing to do at the end.
 }
 
 // Kick the port scan off on the shared async runner. Rejects if a scan (AP,
-// client, or port) is already running.
+// client, or port) is already running. Publishes results through the dynamic
+// data pipe so the P4 can read partial results while the sweep is still running.
 static spi_status_t start_port_scan(void) {
   if (spi_bridge_async_scan_busy())
     return SPI_STATUS_BUSY;
+  s_port_scan_count = 0;
   port_scan_reset_abort();
+  port_scan_set_hit_cb(port_scan_hit, NULL);
+  spi_bridge_provide_results_dynamic(
+      s_port_scan_records, &s_port_scan_count, sizeof(spi_port_scan_result_t));
   return spi_bridge_async_scan_start(scan_fn_port_scan) ? SPI_STATUS_OK : SPI_STATUS_BUSY;
 }
 
