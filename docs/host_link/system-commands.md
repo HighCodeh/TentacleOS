@@ -64,8 +64,30 @@ state, settings, console exec). IDs, for the shared id space:
 | `0x48` | `SYSTEM_GET_SETTINGS` | `[console_exec u8][log_over_ble u8]` |
 | `0x49` | `SYSTEM_SET_SETTINGS` | write `[console_exec u8][log_over_ble u8]` |
 | `0x40`-`0x45` | `FILE_LIST/STAT/READ/WRITE/DELETE/MKDIR` | file transfer over `/assets`, `/littlefs`, `/sdcard` |
+| `0x4B` | `SYSTEM_CONFIG_GET` | read a settings section: req `[section u8]` -> the section struct (below) |
+| `0x4C` | `SYSTEM_SET_THEME` | switch the active UI theme by name: req `name` (<= 31 bytes), applied live |
+| `0x4D` | `SYSTEM_CONFIG_SET` | write a settings section: req `[section u8][section struct]`, applied live |
 
 These are handled on the P4 and never relayed to the C5.
+
+### Settings sections (`CONFIG_GET` / `CONFIG_SET`)
+
+`section` (payload byte 0, `spi_config_section_t`) selects one config block, each
+mapping to a `tos_config` global and a packed struct. `CONFIG_GET` request is
+`[section u8]` and returns the struct; `CONFIG_SET` request is `[section u8]`
+then the struct, applied live and persisted.
+
+| section | value | struct | fields |
+|---------|-------|--------|--------|
+| `DISPLAY` | `0` | `spi_cfg_display_t` | `[brightness u8][rotation u8][auto_lock_seconds u16][auto_dim u8]` |
+| `SOUND` | `1` | `spi_cfg_sound_t` | `[volume u8][vibration u8]` |
+| `CONNECTIVITY` | `2` | `spi_cfg_connectivity_t` | `[wifi_enabled u8][ble_enabled u8]` |
+| `LED` | `3` | `spi_cfg_led_t` | `[brightness u8]` |
+
+`brightness`/`volume` are 0-100; `rotation` is `1` portrait / `2` landscape;
+`auto_lock_seconds` `0` = never; the booleans are `0`/`1`. `SYSTEM_SET_THEME`
+takes a theme name (a built-in like `default`/`cyber_blue`, or an SD theme under
+`/sdcard/themes/<name>/`) and restyles the live screen.
 
 ---
 
@@ -128,7 +150,7 @@ typedef struct {
 | `0x06` | `SYSTEM_STREAM` | internal stream-batch envelope, not a command |
 | `0x07` | `SYSTEM_LOG` | C5->P4 log stream; you receive these as `LOG` frames, you don't request them |
 | `0x08` | `SYSTEM_ENTER_DOWNLOAD` | reboots the C5 into ROM serial-flash mode (wired recovery) |
-| `0x0D` | `SYSTEM_PROTO_VERSION` | P4<->C5 SPI protocol version check (`SPI_PROTOCOL_VERSION`, currently `2`); the app uses the host-link `VER`, not this |
+| `0x0D` | `SYSTEM_PROTO_VERSION` | P4<->C5 SPI protocol version check (`SPI_PROTOCOL_VERSION`, currently `6`); the app uses the host-link `VER`, not this |
 | `0x4A` | `SYSTEM_POWER_STATE` | P4->C5 power hint so the C5 can drop its radio when the P4 sleeps |
 | `0x50`-`0x53` | `SYSTEM_CFG_HASH`/`BEGIN`/`CHUNK`/`COMMIT` | P4->C5 config cache: the P4 pushes its master config files to the C5, hash-gated (CRC32) so unchanged files are never re-sent |
 

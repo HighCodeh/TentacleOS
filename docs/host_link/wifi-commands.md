@@ -36,7 +36,8 @@ Three shapes recur; each command below says which one it uses.
 
 ### Scans are asynchronous (non-blocking)
 
-`SCAN` (`0x10`), `APP_SCAN_AP` (`0x20`), `APP_SCAN_CLIENT` (`0x21`) and all
+`SCAN` (`0x10`), `APP_SCAN_AP` (`0x20`), `APP_SCAN_AP_DETAIL` (`0x2A`),
+`APP_SCAN_CLIENT` (`0x21`) and all
 `PORT_SCAN_*` (`0x49`-`0x4C`) run on the C5's async scan runner so the link is
 never blocked while they run. They return `OK` (or `BUSY` if a scan is already
 running) **immediately**. Poll **`SCAN_STATUS` (`0x50`)** - `RESP` data
@@ -80,6 +81,7 @@ bytes right after (total `32 + passlen`, passlen <= 64).
 | op | name | request payload | response | pattern |
 |----|------|-----------------|----------|---------|
 | `0x20` | `WIFI_APP_SCAN_AP` | none | none (async) | poll `0x50`, data pipe -> `spi_wifi_scan_record_t` (§5) |
+| `0x2A` | `WIFI_APP_SCAN_AP_DETAIL` | none | none (async) | poll `0x50`, data pipe -> `spi_wifi_scan_record_ex_t` (§5) |
 | `0x21` | `WIFI_APP_SCAN_CLIENT` | none | none (async) | poll `0x50`, data pipe -> `client_scanner_record_t` (§5) |
 | `0x22` | `WIFI_APP_BEACON_SPAM` | optional SSID-list file `path` string (empty = random SSIDs) | `[session_id u32]` | session |
 | `0x23` | `WIFI_APP_DEAUTHER` | `bssid[6]` + `client[6]` + `[type u8]` + optional `[channel u8]` (13 bytes min, 14 with channel) | `[session_id u32]` | session |
@@ -214,6 +216,20 @@ typedef struct {
   uint8_t authmode;    // wifi_auth_mode_t (0=open, 3=wpa2, 6=wpa3, ...)
   uint8_t ssid[33];    // NUL-terminated, sanitized ASCII ('' = hidden)
 } spi_wifi_scan_record_t;                // packed, 43 bytes
+
+// APP_SCAN_AP_DETAIL data-pipe record (superset of spi_wifi_scan_record_t)
+typedef struct {
+  uint8_t bssid[6];
+  int8_t rssi;
+  uint8_t channel;         // primary channel
+  uint8_t second;          // wifi_second_chan_t (0 none, 1 above, 2 below)
+  uint8_t authmode;        // wifi_auth_mode_t
+  uint8_t pairwise_cipher; // wifi_cipher_type_t
+  uint8_t group_cipher;    // wifi_cipher_type_t
+  uint8_t phy;             // bit0 11b, 1 11g, 2 11n, 3 11ax, 4 LR, 5 WPS
+  uint8_t country[3];      // country code (cc), NUL-padded
+  uint8_t ssid[33];        // NUL-terminated, sanitized ASCII ('' = hidden)
+} spi_wifi_scan_record_ex_t;             // packed, 49 bytes
 
 // APP_SCAN_CLIENT data-pipe record
 typedef struct {

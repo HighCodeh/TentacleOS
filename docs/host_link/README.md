@@ -14,6 +14,8 @@ the component READMEs, and the byte-level wire format lives in the protocol spec
 - Sub-GHz command reference (CC1101 rx/tx/spectrum): [`subghz-commands.md`](./subghz-commands.md)
 - Audio command reference (speaker/tone/chime): [`audio-commands.md`](./audio-commands.md)
 - LED command reference (RGB status LED): [`led-commands.md`](./led-commands.md)
+- BadUSB command reference (Ducky script run/abort/status): [`badusb-commands.md`](./badusb-commands.md)
+- LoRa command reference (radio config + broadcast chat): [`lora-commands.md`](./lora-commands.md)
 - Reference tester (all groups over USB CDC): `tools/host_link/cli.py`
 - SPI bridge (P4↔C5 transport this rides on): [`../spi_bridge/README.md`](../spi_bridge/README.md)
 - P4 component reference: the [`# P4`](#p4) section below.

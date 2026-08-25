@@ -189,9 +189,11 @@ in [`wifi-commands.md`](./wifi-commands.md) (WiFi, `0x01`),
 [`system-commands.md`](./system-commands.md) (System, `0x00`),
 [`ir-commands.md`](./ir-commands.md) (IR, `0x08`),
 [`subghz-commands.md`](./subghz-commands.md) (Sub-GHz, `0x09`),
-[`audio-commands.md`](./audio-commands.md) (Audio, `0x0A`) and
-[`led-commands.md`](./led-commands.md) (LED, `0x0B`). One reference tester,
-`tools/host_link/cli.py`, drives every group
+[`audio-commands.md`](./audio-commands.md) (Audio, `0x0A`),
+[`led-commands.md`](./led-commands.md) (LED, `0x0B`),
+[`badusb-commands.md`](./badusb-commands.md) (BadUSB, `0x0C`) and
+[`lora-commands.md`](./lora-commands.md) (LoRa config `0x0D` + chat `0x0E`). One
+reference tester, `tools/host_link/cli.py`, drives every group
 (`system`/`wifi`/`bt`/`ir`/`subghz`/`audio`/`led`) over USB CDC.
 
 ---
