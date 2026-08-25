@@ -16,6 +16,7 @@
 #include "dns_server.h"
 
 #include <ctype.h>
+#include <stdbool.h>
 #include <string.h>
 
 #include "esp_log.h"
@@ -38,6 +39,7 @@ static const char *TAG = "DNS_SERVER";
 #define DNS_MAX_DOMAIN_LEN      128
 #define DNS_MAX_LABEL_DEPTH     20
 #define DNS_FLAGS_AUTH_RESPONSE 0x8500
+#define DNS_FLAGS_NXDOMAIN      0x8503
 #define DNS_COMPRESSION_PTR     0xC00C
 #define DNS_TYPE_A              1
 #define DNS_CLASS_IN            1
@@ -75,6 +77,21 @@ static void send_dns_response(int sock,
                               uint8_t *request_buf,
                               int request_len);
 static void dns_server_task(void *pvParameters);
+
+// Android runs its HTTPS connectivity probe against www.google.com. If we hijack it
+// to the AP, the phone's TLS connect to :443 gets an instant RST and One UI
+// short-circuits to "connected, no internet" before it ever runs the HTTP probe
+// that reveals the portal. Returning NXDOMAIN makes the HTTPS probe fail at DNS
+// instead, so the HTTP probe still fires. Everything else is hijacked to the AP.
+static bool dns_is_https_probe_host(const char *name) {
+  char lower[DNS_MAX_DOMAIN_LEN];
+  size_t i = 0;
+  for (; name[i] != '\0' && i < sizeof(lower) - 1; i++) {
+    lower[i] = (char)tolower((unsigned char)name[i]);
+  }
+  lower[i] = '\0';
+  return strcmp(lower, "www.google.com") == 0;
+}
 
 void start_dns_server(void) {
   if (s_task_handle != NULL) {
@@ -188,12 +205,12 @@ static void send_dns_response(int sock,
     return;
   }
 
-  ESP_LOGI(TAG, "DNS query: %s", domain_name);
-
+  // Hijack every name to the AP like a real captive portal (so even the OS's bogus
+  // DNS-manipulation probes resolve), EXCEPT the HTTPS probe host: NXDOMAIN it so
+  // the phone's HTTPS probe fails at DNS instead of RST-ing on :443, which lets the
+  // HTTP probe fire and expose the portal.
   memcpy(response_buf, request_buf, sizeof(dns_server_header_t));
   dns_server_header_t *resp_hdr = (dns_server_header_t *)response_buf;
-  resp_hdr->flags = htons(DNS_FLAGS_AUTH_RESPONSE);
-  resp_hdr->ancount = htons(1);
   resp_hdr->nscount = 0;
   resp_hdr->arcount = 0;
 
@@ -201,6 +218,19 @@ static void send_dns_response(int sock,
   memcpy(response_buf + sizeof(dns_server_header_t),
          request_buf + sizeof(dns_server_header_t),
          question_full_len);
+
+  if (dns_is_https_probe_host(domain_name)) {
+    ESP_LOGI(TAG, "DNS query: %s -> NXDOMAIN (https-probe)", domain_name);
+    resp_hdr->flags = htons(DNS_FLAGS_NXDOMAIN);
+    resp_hdr->ancount = 0;
+    int nx_total_len = sizeof(dns_server_header_t) + question_full_len;
+    sendto(sock, response_buf, nx_total_len, 0, (struct sockaddr *)client_addr, addr_len);
+    return;
+  }
+
+  ESP_LOGI(TAG, "DNS query: %s -> AP", domain_name);
+  resp_hdr->flags = htons(DNS_FLAGS_AUTH_RESPONSE);
+  resp_hdr->ancount = htons(1);
 
   dns_server_answer_t *answer =
       (dns_server_answer_t *)(response_buf + sizeof(dns_server_header_t) + question_full_len);

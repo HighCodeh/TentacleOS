@@ -68,3 +68,11 @@ CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS=y
 # Task WDT reboots (panics) instead of only warning when a task starves the core
 # or the sys_monitor heartbeat stops feeding it. Same policy as the P4.
 CONFIG_ESP_TASK_WDT_PANIC=y
+
+# Captive portal survivability. Internal DRAM is the scarce resource on the C5
+# (the AP + services leave only ~20 KB free), which starves the sync esp_http_server
+# so it serves the portal once then can't sustain the OS probes. Push WiFi/LWIP
+# buffers into the 8 MB PSRAM to free internal DRAM for the HTTP connections. A
+# short TCP MSL also frees closed connections fast instead of lingering 60 s.
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+CONFIG_LWIP_TCP_MSL=5000

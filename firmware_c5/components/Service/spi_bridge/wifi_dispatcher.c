@@ -549,7 +549,9 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
       char ssid[WIFI_SSID_BUF_LEN] = {0};
       uint8_t copy_len = (len > WIFI_SSID_MAX_LEN) ? WIFI_SSID_MAX_LEN : len;
       memcpy(ssid, payload, copy_len);
-      evil_twin_start_attack(ssid);
+      // Async: the portal bring-up (~1.5 s) runs on a task so this returns the
+      // session id immediately and the P4 can start heartbeating right away.
+      evil_twin_start_attack_async(ssid, NULL);
       return open_session(SPI_ID_WIFI_APP_EVIL_TWIN,
                           killed_evil_twin,
                           out_resp_payload,
@@ -774,7 +776,7 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
             (template_len >= sizeof(template_path)) ? (sizeof(template_path) - 1) : template_len;
         memcpy(template_path, payload + 1 + ssid_len + 1, copy_len);
       }
-      evil_twin_start_attack_with_template(ssid, template_path);
+      evil_twin_start_attack_async(ssid, template_path);
       return SPI_STATUS_OK;
     }
 

