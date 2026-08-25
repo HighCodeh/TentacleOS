@@ -127,17 +127,22 @@ alone; `op` selects the operation within it.
 | `SPI_CAT_SYSTEM`  | `0x00` | inline system handlers |
 | `SPI_CAT_WIFI`    | `0x01` | `wifi_dispatcher` |
 | `SPI_CAT_BT`      | `0x02` | `bt_dispatcher` |
-| `SPI_CAT_LORA`    | `0x03` | (lora) |
+| `SPI_CAT_LORA`    | `0x03` | reserved for future raw LoRa (not yet handled on either chip) |
 | `SPI_CAT_MESH`    | `0x04` | meshtastic (split BLE/WiFi transport) |
 | `SPI_CAT_MCORE`   | `0x05` | meshcore → `bt_dispatcher` |
 | `SPI_CAT_HOST`    | `0x06` | companion host-link BLE relay → `bt_dispatcher` |
 | `SPI_CAT_SCREEN`  | `0x07` | P4-native screen sharing over the USB host link (handled locally, never relayed) |
+| `SPI_CAT_IR`      | `0x08` | P4-native IR (handled locally by `host_link_ir`, never relayed) |
+| `SPI_CAT_SUBGHZ`  | `0x09` | P4-native Sub-GHz (handled locally by `host_link_subghz`, never relayed) |
+| `SPI_CAT_AUDIO`   | `0x0A` | P4-native audio (handled locally by `host_link_audio`, never relayed) |
+| `SPI_CAT_LED`     | `0x0B` | P4-native status LED (handled locally by `host_link_led`, never relayed) |
 | `SPI_CAT_SESSION` | `0xFF` | inline session handlers |
 
 In C, the `SPI_ID_*` constants stay single named values (e.g.
 `SPI_ID_WIFI_SCAN = SPI_CMD(SPI_CAT_WIFI, 0x10) = 0x0110`), so call sites and
 dispatcher `case` labels are unchanged - only the wire carries the two bytes.
-The full command table lives in the P4 component README.
+The full command table is `spi_protocol.h`; the app-facing per-command payloads
+are in [`../host_link/`](../host_link/) (`wifi`/`bluetooth`/`system`/`ir`/`subghz`/`audio`/`led-commands.md`).
 
 ### Response status
 
