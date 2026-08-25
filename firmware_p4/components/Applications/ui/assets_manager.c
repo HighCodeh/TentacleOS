@@ -15,6 +15,7 @@
 
 #include "assets_manager.h"
 
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,8 +41,22 @@ typedef struct __attribute__((packed)) {
 typedef struct asset_node {
   lv_image_dsc_t dsc;
   char *path;
+  char *file;
   struct asset_node *next;
 } asset_node_t;
+
+#define ASSETS_OVERRIDE_MAX 4
+#define ASSETS_PREFIX_MAX   32
+#define ASSETS_SDDIR_MAX    96
+#define ASSETS_FILE_MAX     160
+
+typedef struct {
+  char flash_prefix[ASSETS_PREFIX_MAX];
+  char sd_dir[ASSETS_SDDIR_MAX];
+} assets_override_t;
+
+static assets_override_t s_overrides[ASSETS_OVERRIDE_MAX];
+static int s_override_count = 0;
 
 static asset_node_t *s_assets_head = NULL;
 static bool s_decoder_registered = false;
@@ -81,6 +96,65 @@ static bool read_bin_header(const char *path, bin_header_t *out) {
   return ok;
 }
 
+static void resolve_file(const char *path, char *out, size_t out_size) {
+  for (int i = 0; i < s_override_count; i++) {
+    size_t plen = strlen(s_overrides[i].flash_prefix);
+    if (strncmp(path, s_overrides[i].flash_prefix, plen) != 0)
+      continue;
+    char cand[ASSETS_FILE_MAX];
+    int n = snprintf(cand, sizeof(cand), "%s%s", s_overrides[i].sd_dir, path + plen);
+    if (n <= 0 || (size_t)n >= sizeof(cand))
+      continue;
+    FILE *f = fopen(cand, "rb");
+    if (f != NULL) {
+      fclose(f);
+      strlcpy(out, cand, out_size);
+      return;
+    }
+  }
+  strlcpy(out, path, out_size);
+}
+
+static void header_to_dsc(const bin_header_t *hdr, lv_image_dsc_t *dsc) {
+  lv_color_format_t cf = LV_COLOR_FORMAT_ARGB8888;
+  if ((hdr->magic_cf & 0xFF) == LV_IMAGE_HEADER_MAGIC)
+    cf = (lv_color_format_t)((hdr->magic_cf >> 8) & 0xFF);
+  uint32_t stride = lv_draw_buf_width_to_stride(hdr->w, cf);
+  uint32_t data_size = stride * hdr->h;
+  if (cf == LV_COLOR_FORMAT_RGB565A8)
+    data_size += (stride / 2) * hdr->h;
+  dsc->header.magic = LV_IMAGE_HEADER_MAGIC;
+  dsc->header.cf = cf;
+  dsc->header.w = hdr->w;
+  dsc->header.h = hdr->h;
+  dsc->header.stride = stride;
+  dsc->header.flags = 0;
+  dsc->data_size = data_size;
+}
+
+static void refresh_overridden_nodes(void) {
+  bool changed = false;
+  for (asset_node_t *n = s_assets_head; n != NULL; n = n->next) {
+    char eff[ASSETS_FILE_MAX];
+    resolve_file(n->path, eff, sizeof(eff));
+    if (n->file != NULL && strcmp(eff, n->file) == 0)
+      continue;
+    bin_header_t hdr;
+    if (!read_bin_header(eff, &hdr))
+      continue;
+    char *nf = strdup(eff);
+    if (nf == NULL)
+      continue;
+    header_to_dsc(&hdr, &n->dsc);
+    free(n->file);
+    n->file = nf;
+    n->dsc.data = (const uint8_t *)n->file;
+    changed = true;
+  }
+  if (changed)
+    lv_image_cache_drop(NULL);
+}
+
 static lv_result_t asset_decoder_info(lv_image_decoder_t *decoder,
                                       lv_image_decoder_dsc_t *dsc,
                                       lv_image_header_t *header) {
@@ -106,13 +180,13 @@ static lv_result_t asset_decoder_open(lv_image_decoder_t *decoder, lv_image_deco
   if (buf == NULL) {
     ESP_LOGE(TAG,
              "draw buf alloc failed for %s (%lux%lu)",
-             node->path,
+             node->file,
              (unsigned long)w,
              (unsigned long)h);
     return LV_RESULT_INVALID;
   }
 
-  FILE *f = fopen(node->path, "rb");
+  FILE *f = fopen(node->file, "rb");
   if (f == NULL || fseek(f, sizeof(bin_header_t), SEEK_SET) != 0) {
     if (f)
       fclose(f);
@@ -126,7 +200,7 @@ static lv_result_t asset_decoder_open(lv_image_decoder_t *decoder, lv_image_deco
   if (got != buf->data_size) {
     ESP_LOGE(TAG,
              "pixel read failed for %s (%u/%u)",
-             node->path,
+             node->file,
              (unsigned)got,
              (unsigned)buf->data_size);
     lv_draw_buf_destroy(buf);
@@ -211,9 +285,12 @@ lv_image_dsc_t *assets_get(const char *path) {
   if (node != NULL)
     return &node->dsc;
 
+  char eff[ASSETS_FILE_MAX];
+  resolve_file(path, eff, sizeof(eff));
+
   bin_header_t hdr;
-  if (!read_bin_header(path, &hdr)) {
-    ESP_LOGW(TAG, "asset not found: %s", path);
+  if (!read_bin_header(eff, &hdr)) {
+    ESP_LOGW(TAG, "asset not found: %s", eff);
     return NULL;
   }
 
@@ -221,27 +298,16 @@ lv_image_dsc_t *assets_get(const char *path) {
   if (node == NULL)
     return NULL;
   node->path = strdup(path);
-  if (node->path == NULL) {
+  node->file = strdup(eff);
+  if (node->path == NULL || node->file == NULL) {
+    free(node->path);
+    free(node->file);
     free(node);
     return NULL;
   }
 
-  lv_color_format_t cf = LV_COLOR_FORMAT_ARGB8888;
-  if ((hdr.magic_cf & 0xFF) == LV_IMAGE_HEADER_MAGIC)
-    cf = (lv_color_format_t)((hdr.magic_cf >> 8) & 0xFF);
-  uint32_t stride = lv_draw_buf_width_to_stride(hdr.w, cf);
-  uint32_t data_size = stride * hdr.h;
-  if (cf == LV_COLOR_FORMAT_RGB565A8)
-    data_size += (stride / 2) * hdr.h;
-
-  node->dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
-  node->dsc.header.cf = cf;
-  node->dsc.header.w = hdr.w;
-  node->dsc.header.h = hdr.h;
-  node->dsc.header.stride = stride;
-  node->dsc.header.flags = 0;
-  node->dsc.data_size = data_size;
-  node->dsc.data = (const uint8_t *)node->path;
+  header_to_dsc(&hdr, &node->dsc);
+  node->dsc.data = (const uint8_t *)node->file;
 
   node->next = s_assets_head;
   s_assets_head = node;
@@ -253,6 +319,7 @@ void assets_manager_free_all(void) {
   while (curr) {
     asset_node_t *next = curr->next;
     free(curr->path);
+    free(curr->file);
     free(curr);
     curr = next;
   }
@@ -274,9 +341,22 @@ void assets_manager_evict_cache(void) {
 }
 
 int assets_load_from_sd(const char *sd_dir, const char *flash_prefix) {
-  (void)sd_dir;
-  (void)flash_prefix;
-  return 0;
+  if (sd_dir == NULL || flash_prefix == NULL || s_override_count >= ASSETS_OVERRIDE_MAX)
+    return 0;
+  DIR *d = opendir(sd_dir);
+  if (d == NULL)
+    return 0;
+  closedir(d);
+  strlcpy(s_overrides[s_override_count].flash_prefix, flash_prefix, ASSETS_PREFIX_MAX);
+  strlcpy(s_overrides[s_override_count].sd_dir, sd_dir, ASSETS_SDDIR_MAX);
+  s_override_count++;
+  refresh_overridden_nodes();
+  return 1;
 }
 
-void assets_unload_sd(void) {}
+void assets_unload_sd(void) {
+  if (s_override_count == 0)
+    return;
+  s_override_count = 0;
+  refresh_overridden_nodes();
+}
