@@ -21,10 +21,14 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
+#include "host_link_audio.h"
 #include "host_link_files.h"
+#include "host_link_ir.h"
+#include "host_link_led.h"
 #include "host_link_sec.h"
 #include "host_link_state.h"
 #include "host_link_stream.h"
+#include "host_link_subghz.h"
 #include "lvgl_screen_share.h"
 #include "spi_bridge.h"
 #include "spi_protocol.h"
@@ -96,6 +100,8 @@ void host_link_session_release(host_link_writer_t writer) {
   if (owned) {
     host_stream_teardown();   // stop any live stream so the C5 session is reaped
     lvgl_screen_share_stop(); // safeguard: never keep capturing into a dead link
+    host_ir_stop_rx();        // stop IR capture so it can't stream into a dead link
+    host_subghz_stop();       // stop Sub-GHz rx/spectrum streams too
     host_link_sec_reset();    // force re-handshake on the next session
   }
 }
@@ -261,6 +267,43 @@ static void process_frame(const uint8_t *frame, size_t total) {
     uint16_t slen = 0;
     uint8_t status = lvgl_screen_share_handle(cmd, payload, plen16, sdata, sizeof(sdata), &slen);
     send_resp(category, op, status, sdata, slen);
+    return;
+  }
+
+  // IR is P4-native (RMT); handled locally. IR_TX_RAW can carry more than one SPI
+  // frame, so like file ops it must run before the relay size cap below.
+  if (host_ir_is_op(cmd)) {
+    uint8_t idata[8];
+    uint16_t ilen = 0;
+    uint8_t status = host_ir_handle(cmd, payload, plen16, idata, sizeof(idata), &ilen);
+    send_resp(category, op, status, idata, ilen);
+    return;
+  }
+
+  // LED and audio are P4-native, handled locally (tiny responses).
+  if (host_led_is_op(cmd)) {
+    uint8_t d[8];
+    uint16_t l = 0;
+    uint8_t status = host_led_handle(cmd, payload, plen16, d, sizeof(d), &l);
+    send_resp(category, op, status, d, l);
+    return;
+  }
+  if (host_audio_is_op(cmd)) {
+    uint8_t d[8];
+    uint16_t l = 0;
+    uint8_t status = host_audio_handle(cmd, payload, plen16, d, sizeof(d), &l);
+    send_resp(category, op, status, d, l);
+    return;
+  }
+
+  // Sub-GHz is P4-native (CC1101); handled locally. TX_RAW carries many timings
+  // and LIST returns rows inline (no data pipe on the P4 side), so both need the
+  // larger buffer and must run before the relay cap.
+  if (host_subghz_is_op(cmd)) {
+    static uint8_t sgdata[HOST_FILE_DATA_MAX];
+    uint16_t sglen = 0;
+    uint8_t status = host_subghz_handle(cmd, payload, plen16, sgdata, sizeof(sgdata), &sglen);
+    send_resp(category, op, status, sgdata, sglen);
     return;
   }
 

@@ -85,6 +85,10 @@ typedef enum {
   SPI_CAT_MCORE = 0x05,  // MeshCore phone bridge
   SPI_CAT_HOST = 0x06,   // Companion host-link BLE relay
   SPI_CAT_SCREEN = 0x07, // P4-native screen sharing over the host link (USB)
+  SPI_CAT_IR = 0x08,     // P4-native IR TX/RX/torch over the host link (USB)
+  SPI_CAT_SUBGHZ = 0x09, // P4-native Sub-GHz (CC1101) over the host link
+  SPI_CAT_AUDIO = 0x0A,  // P4-native audio (speaker/tone/chime) over the host link
+  SPI_CAT_LED = 0x0B,    // P4-native RGB status LED over the host link
   SPI_CAT_SESSION = 0xFF
 } spi_cat_t;
 
@@ -255,7 +259,11 @@ typedef enum {
   SPI_ID_BT_HID_IS_CONNECTED = SPI_CMD(SPI_CAT_BT, 0x73),
   SPI_ID_BT_HID_SEND_KEY = SPI_CMD(SPI_CAT_BT, 0x74),
 
-  // LoRa
+  // LoRa. The SX1262 is P4-local; real LoRa runs via the Meshtastic/MeshCore/
+  // RNode stacks + the mesh phone bridges below. These two ids are RESERVED for a
+  // future raw-LoRa command surface (custom/proprietary protocol) and are not yet
+  // implemented on either chip — if built, it must be a P4-local host-link handler
+  // driving the sx1262 driver, not a C5 relay.
   SPI_ID_LORA_RX = SPI_CMD(SPI_CAT_LORA, 0x80),
   SPI_ID_LORA_TX = SPI_CMD(SPI_CAT_LORA, 0x81),
 
@@ -292,6 +300,41 @@ typedef enum {
   SPI_ID_SCREEN_STOP = SPI_CMD(SPI_CAT_SCREEN, 0x02),
   SPI_ID_SCREEN_KEY = SPI_CMD(SPI_CAT_SCREEN, 0x03),
   SPI_ID_SCREEN_FRAME = SPI_CMD(SPI_CAT_SCREEN, 0x04),
+
+  // IR (P4-native: RMT transmit/receive + DC torch). P4-local host-link
+  // commands, handled on the P4 and never relayed to the C5; listed here so the
+  // app, P4 and C5 share one id space and never collide.
+  SPI_ID_IR_TX = SPI_CMD(SPI_CAT_IR, 0x01),        // app→device: send a decoded signal
+  SPI_ID_IR_TX_RAW = SPI_CMD(SPI_CAT_IR, 0x02),    // app→device: send raw RMT symbols
+  SPI_ID_IR_RX_START = SPI_CMD(SPI_CAT_IR, 0x03),  // app→device: start streaming capture
+  SPI_ID_IR_RX_STOP = SPI_CMD(SPI_CAT_IR, 0x04),   // app→device: stop capture
+  SPI_ID_IR_RX_FRAME = SPI_CMD(SPI_CAT_IR, 0x05),  // device→app STREAM: one decoded signal
+  SPI_ID_IR_TORCH_ON = SPI_CMD(SPI_CAT_IR, 0x06),  // app→device: IR LED DC torch on
+  SPI_ID_IR_TORCH_OFF = SPI_CMD(SPI_CAT_IR, 0x07), // app→device: IR LED DC torch off
+
+  // Sub-GHz (P4-native, CC1101). P4-local host-link commands, never relayed.
+  SPI_ID_SUBGHZ_RX_START = SPI_CMD(SPI_CAT_SUBGHZ, 0x01),      // [mode u8][preset u8][freq u32]
+  SPI_ID_SUBGHZ_RX_FRAME = SPI_CMD(SPI_CAT_SUBGHZ, 0x02),      // device→app STREAM: one capture
+  SPI_ID_SUBGHZ_RX_STOP = SPI_CMD(SPI_CAT_SUBGHZ, 0x03),       // stop receiver
+  SPI_ID_SUBGHZ_TX_RAW = SPI_CMD(SPI_CAT_SUBGHZ, 0x04),        // [count u16][timings i32 * count]
+  SPI_ID_SUBGHZ_REPLAY = SPI_CMD(SPI_CAT_SUBGHZ, 0x05),        // [name] replay a saved capture
+  SPI_ID_SUBGHZ_SPECTRUM_START = SPI_CMD(SPI_CAT_SUBGHZ, 0x06), // [center u32][span u32]
+  SPI_ID_SUBGHZ_SPECTRUM_LINE = SPI_CMD(SPI_CAT_SUBGHZ, 0x07),  // device→app STREAM: one sweep line
+  SPI_ID_SUBGHZ_SPECTRUM_STOP = SPI_CMD(SPI_CAT_SUBGHZ, 0x08),  // stop spectrum sweep
+  SPI_ID_SUBGHZ_LIST = SPI_CMD(SPI_CAT_SUBGHZ, 0x09),          // list saved captures via data pipe
+  SPI_ID_SUBGHZ_DELETE = SPI_CMD(SPI_CAT_SUBGHZ, 0x0A),        // [name] delete a saved capture
+
+  // Audio (P4-native, speaker). P4-local host-link commands, never relayed.
+  SPI_ID_AUDIO_SET_VOLUME = SPI_CMD(SPI_CAT_AUDIO, 0x01), // [pct u8]
+  SPI_ID_AUDIO_TONE = SPI_CMD(SPI_CAT_AUDIO, 0x02),       // [freq u16][dur_ms u16][amp_pct u8]
+  SPI_ID_AUDIO_CHIME = SPI_CMD(SPI_CAT_AUDIO, 0x03),      // play the UI chime
+  SPI_ID_AUDIO_CLICK = SPI_CMD(SPI_CAT_AUDIO, 0x04),      // play the UI click
+
+  // RGB status LED (P4-native). P4-local host-link commands, never relayed.
+  SPI_ID_LED_SET_COLOR = SPI_CMD(SPI_CAT_LED, 0x01), // [r u8][g u8][b u8]
+  SPI_ID_LED_CLEAR = SPI_CMD(SPI_CAT_LED, 0x02),     // turn the LED off
+  SPI_ID_LED_BLINK = SPI_CMD(SPI_CAT_LED, 0x03),     // [r u8][g u8][b u8][dur_ms u16]
+  SPI_ID_LED_SIGNAL = SPI_CMD(SPI_CAT_LED, 0x04),    // [which u8]: 0 info, 1 warning, 2 error
 
   SPI_ID_SESSION_HEARTBEAT = SPI_CMD(SPI_CAT_SESSION, 0xF0),
   SPI_ID_SESSION_LOST = SPI_CMD(SPI_CAT_SESSION, 0xF1),
