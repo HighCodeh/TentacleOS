@@ -84,6 +84,21 @@ void register_battery_commands(void);
  */
 void register_i2c_commands(void);
 
+/**
+ * @brief Register RGB status-LED commands (led).
+ */
+void register_led_commands(void);
+
+/**
+ * @brief Register audio commands (audio: volume/tone/chime/click).
+ */
+void register_audio_commands(void);
+
+/**
+ * @brief Register Sub-GHz commands (subghz: rx/tx/spectrum/list/replay).
+ */
+void register_subghz_commands(void);
+
 #ifdef __cplusplus
 }
 #endif
