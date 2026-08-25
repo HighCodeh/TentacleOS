@@ -45,7 +45,7 @@ extern "C" {
 // struct, or the header layout). The P4 reads the C5's value at bridge init via
 // SPI_ID_SYSTEM_PROTO_VERSION and flags a mismatch loudly, so two copies of this
 // header that drifted are caught at boot instead of silently misparsing frames.
-#define SPI_PROTOCOL_VERSION 2
+#define SPI_PROTOCOL_VERSION 6
 
 #define SPI_BT_SPAM_ITEM_LEN          32
 #define SPI_BT_SPAM_LIST_MAX          64
@@ -81,14 +81,17 @@ typedef enum {
   SPI_CAT_WIFI = 0x01,
   SPI_CAT_BT = 0x02,
   SPI_CAT_LORA = 0x03,
-  SPI_CAT_MESH = 0x04,   // Meshtastic phone bridge
-  SPI_CAT_MCORE = 0x05,  // MeshCore phone bridge
-  SPI_CAT_HOST = 0x06,   // Companion host-link BLE relay
-  SPI_CAT_SCREEN = 0x07, // P4-native screen sharing over the host link (USB)
-  SPI_CAT_IR = 0x08,     // P4-native IR TX/RX/torch over the host link (USB)
-  SPI_CAT_SUBGHZ = 0x09, // P4-native Sub-GHz (CC1101) over the host link
-  SPI_CAT_AUDIO = 0x0A,  // P4-native audio (speaker/tone/chime) over the host link
-  SPI_CAT_LED = 0x0B,    // P4-native RGB status LED over the host link
+  SPI_CAT_MESH = 0x04,     // Meshtastic phone bridge
+  SPI_CAT_MCORE = 0x05,    // MeshCore phone bridge
+  SPI_CAT_HOST = 0x06,     // Companion host-link BLE relay
+  SPI_CAT_SCREEN = 0x07,   // P4-native screen sharing over the host link (USB)
+  SPI_CAT_IR = 0x08,       // P4-native IR TX/RX/torch over the host link (USB)
+  SPI_CAT_SUBGHZ = 0x09,   // P4-native Sub-GHz (CC1101) over the host link
+  SPI_CAT_AUDIO = 0x0A,    // P4-native audio (speaker/tone/chime) over the host link
+  SPI_CAT_LED = 0x0B,      // P4-native RGB status LED over the host link
+  SPI_CAT_BADUSB = 0x0C,   // P4-native BadUSB (USB-HID); companion host-link only
+  SPI_CAT_LORACFG = 0x0D,  // P4-native LoRa radio config; companion host-link only
+  SPI_CAT_LORACHAT = 0x0E, // P4-native LoRa chat; companion host-link only
   SPI_CAT_SESSION = 0xFF
 } spi_cat_t;
 
@@ -153,6 +156,12 @@ typedef enum {
   SPI_ID_SYSTEM_CFG_BEGIN = SPI_CMD(SPI_CAT_SYSTEM, 0x51),  // P4→C5: begin push (spi_cfg_begin_t)
   SPI_ID_SYSTEM_CFG_CHUNK = SPI_CMD(SPI_CAT_SYSTEM, 0x52),  // P4→C5: [id u8][offset u32][bytes]
   SPI_ID_SYSTEM_CFG_COMMIT = SPI_CMD(SPI_CAT_SYSTEM, 0x53), // P4→C5: [id u8] finalize (write + store hash)
+  // P4-local companion op: switch the active UI theme by name (never relayed).
+  SPI_ID_SYSTEM_SET_THEME = SPI_CMD(SPI_CAT_SYSTEM, 0x4C),
+  // P4-local companion settings: structured per-section get/set of the device
+  // config (tos_config), applied live. Payload begins with a spi_config_section_t.
+  SPI_ID_SYSTEM_CONFIG_GET = SPI_CMD(SPI_CAT_SYSTEM, 0x4B),
+  SPI_ID_SYSTEM_CONFIG_SET = SPI_CMD(SPI_CAT_SYSTEM, 0x4D),
 
   // WiFi Basic
   SPI_ID_WIFI_SCAN = SPI_CMD(SPI_CAT_WIFI, 0x10),
@@ -184,6 +193,7 @@ typedef enum {
   SPI_ID_WIFI_APP_DEAUTH_DET = SPI_CMD(SPI_CAT_WIFI, 0x27),
   SPI_ID_WIFI_APP_PROBE_MON = SPI_CMD(SPI_CAT_WIFI, 0x28),
   SPI_ID_WIFI_APP_SIGNAL_MON = SPI_CMD(SPI_CAT_WIFI, 0x29),
+  SPI_ID_WIFI_APP_SCAN_AP_DETAIL = SPI_CMD(SPI_CAT_WIFI, 0x2A),
   SPI_ID_WIFI_SNIFFER_SET_SNAPLEN = SPI_CMD(SPI_CAT_WIFI, 0x2B),
   SPI_ID_WIFI_SNIFFER_SET_VERBOSE = SPI_CMD(SPI_CAT_WIFI, 0x2C),
   SPI_ID_WIFI_SNIFFER_SAVE_FLASH = SPI_CMD(SPI_CAT_WIFI, 0x2D),
@@ -319,16 +329,16 @@ typedef enum {
   SPI_ID_IR_TORCH_OFF = SPI_CMD(SPI_CAT_IR, 0x07), // app→device: IR LED DC torch off
 
   // Sub-GHz (P4-native, CC1101). P4-local host-link commands, never relayed.
-  SPI_ID_SUBGHZ_RX_START = SPI_CMD(SPI_CAT_SUBGHZ, 0x01),      // [mode u8][preset u8][freq u32]
-  SPI_ID_SUBGHZ_RX_FRAME = SPI_CMD(SPI_CAT_SUBGHZ, 0x02),      // device→app STREAM: one capture
-  SPI_ID_SUBGHZ_RX_STOP = SPI_CMD(SPI_CAT_SUBGHZ, 0x03),       // stop receiver
-  SPI_ID_SUBGHZ_TX_RAW = SPI_CMD(SPI_CAT_SUBGHZ, 0x04),        // [count u16][timings i32 * count]
-  SPI_ID_SUBGHZ_REPLAY = SPI_CMD(SPI_CAT_SUBGHZ, 0x05),        // [name] replay a saved capture
+  SPI_ID_SUBGHZ_RX_START = SPI_CMD(SPI_CAT_SUBGHZ, 0x01),       // [mode u8][preset u8][freq u32]
+  SPI_ID_SUBGHZ_RX_FRAME = SPI_CMD(SPI_CAT_SUBGHZ, 0x02),       // device→app STREAM: one capture
+  SPI_ID_SUBGHZ_RX_STOP = SPI_CMD(SPI_CAT_SUBGHZ, 0x03),        // stop receiver
+  SPI_ID_SUBGHZ_TX_RAW = SPI_CMD(SPI_CAT_SUBGHZ, 0x04),         // [count u16][timings i32 * count]
+  SPI_ID_SUBGHZ_REPLAY = SPI_CMD(SPI_CAT_SUBGHZ, 0x05),         // [name] replay a saved capture
   SPI_ID_SUBGHZ_SPECTRUM_START = SPI_CMD(SPI_CAT_SUBGHZ, 0x06), // [center u32][span u32]
   SPI_ID_SUBGHZ_SPECTRUM_LINE = SPI_CMD(SPI_CAT_SUBGHZ, 0x07),  // device→app STREAM: one sweep line
   SPI_ID_SUBGHZ_SPECTRUM_STOP = SPI_CMD(SPI_CAT_SUBGHZ, 0x08),  // stop spectrum sweep
-  SPI_ID_SUBGHZ_LIST = SPI_CMD(SPI_CAT_SUBGHZ, 0x09),          // list saved captures via data pipe
-  SPI_ID_SUBGHZ_DELETE = SPI_CMD(SPI_CAT_SUBGHZ, 0x0A),        // [name] delete a saved capture
+  SPI_ID_SUBGHZ_LIST = SPI_CMD(SPI_CAT_SUBGHZ, 0x09),           // list saved captures via data pipe
+  SPI_ID_SUBGHZ_DELETE = SPI_CMD(SPI_CAT_SUBGHZ, 0x0A),         // [name] delete a saved capture
 
   // Audio (P4-native, speaker). P4-local host-link commands, never relayed.
   SPI_ID_AUDIO_SET_VOLUME = SPI_CMD(SPI_CAT_AUDIO, 0x01), // [pct u8]
@@ -341,6 +351,20 @@ typedef enum {
   SPI_ID_LED_CLEAR = SPI_CMD(SPI_CAT_LED, 0x02),     // turn the LED off
   SPI_ID_LED_BLINK = SPI_CMD(SPI_CAT_LED, 0x03),     // [r u8][g u8][b u8][dur_ms u16]
   SPI_ID_LED_SIGNAL = SPI_CMD(SPI_CAT_LED, 0x04),    // [which u8]: 0 info, 1 warning, 2 error
+
+  // Companion BadUSB (P4-native; category 0x0C). Handled on the P4, never relayed.
+  SPI_ID_BADUSB_RUN = SPI_CMD(SPI_CAT_BADUSB, 0x10),
+  SPI_ID_BADUSB_ABORT = SPI_CMD(SPI_CAT_BADUSB, 0x11),
+  SPI_ID_BADUSB_STATUS = SPI_CMD(SPI_CAT_BADUSB, 0x12),
+
+  // Companion LoRa config + chat (P4-native; categories 0x0D/0x0E). Handled on
+  // the P4, never relayed.
+  SPI_ID_LORACFG_GET = SPI_CMD(SPI_CAT_LORACFG, 0x10),
+  SPI_ID_LORACFG_SET = SPI_CMD(SPI_CAT_LORACFG, 0x11),
+  SPI_ID_LORACHAT_START = SPI_CMD(SPI_CAT_LORACHAT, 0x10),
+  SPI_ID_LORACHAT_STOP = SPI_CMD(SPI_CAT_LORACHAT, 0x11),
+  SPI_ID_LORACHAT_SEND = SPI_CMD(SPI_CAT_LORACHAT, 0x12),
+  SPI_ID_LORACHAT_RX = SPI_CMD(SPI_CAT_LORACHAT, 0x60),
 
   SPI_ID_SESSION_HEARTBEAT = SPI_CMD(SPI_CAT_SESSION, 0xF0),
   SPI_ID_SESSION_LOST = SPI_CMD(SPI_CAT_SESSION, 0xF1),
@@ -376,6 +400,42 @@ typedef enum {
   SPI_POWER_IDLE = 1,   ///< Screen dimmed: deeper modem sleep (MAX_MODEM).
   SPI_POWER_SLEEP = 2,  ///< Device asleep: drop the radio (unless a capture is running).
 } spi_power_state_t;
+
+/**
+ * @brief Companion settings section id (payload byte 0 of SPI_ID_SYSTEM_CONFIG_*).
+ * Each section maps to one tos_config global and one packed struct below.
+ */
+typedef enum {
+  SPI_CFG_SECTION_DISPLAY = 0,
+  SPI_CFG_SECTION_SOUND = 1,
+  SPI_CFG_SECTION_CONNECTIVITY = 2,
+  SPI_CFG_SECTION_LED = 3,
+} spi_config_section_t;
+
+/** @brief Display section (g_config_screen). */
+typedef struct __attribute__((packed)) {
+  uint8_t brightness;         // 0-100
+  uint8_t rotation;           // 1 portrait, 2 landscape
+  uint16_t auto_lock_seconds; // 0 = never
+  uint8_t auto_dim;           // bool
+} spi_cfg_display_t;
+
+/** @brief Sound section (g_config_system). */
+typedef struct __attribute__((packed)) {
+  uint8_t volume;    // 0-100
+  uint8_t vibration; // bool
+} spi_cfg_sound_t;
+
+/** @brief Connectivity section (g_config_wifi.enabled + g_config_ble.enabled). */
+typedef struct __attribute__((packed)) {
+  uint8_t wifi_enabled; // bool
+  uint8_t ble_enabled;  // bool
+} spi_cfg_connectivity_t;
+
+/** @brief LED section (g_config_led.brightness). */
+typedef struct __attribute__((packed)) {
+  uint8_t brightness; // 0-100
+} spi_cfg_led_t;
 
 /**
  * @brief Screen-share control keys (payload byte 0 of SPI_ID_SCREEN_KEY).
@@ -643,6 +703,25 @@ typedef struct {
   uint8_t authmode; // wifi_auth_mode_t value (0=open, 3=wpa2, 6=wpa3, ...)
   uint8_t ssid[33]; // null-terminated, sanitized ASCII ('' = hidden)
 } __attribute__((packed)) spi_wifi_scan_record_t;
+
+/**
+ * @brief Detailed WiFi scan result, served by SPI_ID_WIFI_APP_SCAN_AP_DETAIL
+ * through the same data pipe. Superset of spi_wifi_scan_record_t adding the
+ * secondary channel, pairwise/group ciphers, PHY flags and country code so the
+ * companion app can show a full AP profile. Fixed-size and explicit.
+ */
+typedef struct {
+  uint8_t bssid[6];        // AP MAC
+  int8_t rssi;             // signal strength, dBm
+  uint8_t channel;         // primary channel
+  uint8_t second;          // wifi_second_chan_t (0 none, 1 above, 2 below)
+  uint8_t authmode;        // wifi_auth_mode_t value
+  uint8_t pairwise_cipher; // wifi_cipher_type_t
+  uint8_t group_cipher;    // wifi_cipher_type_t
+  uint8_t phy;             // bit0 11b, 1 11g, 2 11n, 3 11ax, 4 LR, 5 WPS
+  uint8_t country[3];      // country code (cc), null-padded
+  uint8_t ssid[33];        // null-terminated, sanitized ASCII ('' = hidden)
+} __attribute__((packed)) spi_wifi_scan_record_ex_t;
 
 /**
  * @brief WiFi sniffer stream fragment.
