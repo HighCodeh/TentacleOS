@@ -35,6 +35,7 @@
 #include "audio_i2s.h"
 #include "input_manager.h"
 #include "bridge_manager.h"
+#include "config_sync.h"
 #include "spi_bridge.h"
 #include "storage_init.h"
 #include "storage_assets.h"
@@ -219,6 +220,7 @@ esp_err_t kernel_init(void) {
   // C5 is absent this marks the bridge down and the monitor re-probes until it
   // appears, so a late-booting C5 is still picked up. Never blocks the boot.
   bridge_manager_init();
+  config_sync_start(); // push changed config files to the C5 (hash-gated, background)
   buttons_init();
   ys_rfid2_init(NULL);
   // Creates the TX mutex that serializes access to the single I2S_NUM_0 TX

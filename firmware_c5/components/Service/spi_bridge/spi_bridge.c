@@ -31,6 +31,7 @@
 #include "soc/soc.h"
 
 #include "bt_dispatcher.h"
+#include "config_cache.h"
 #include "bluetooth_service.h"
 #include "deauther_detector.h"
 #include "ota_service.h"
@@ -476,6 +477,35 @@ static void bridge_task(void *pvParameters) {
           spi_frame_seal((spi_header_t *)tx_buf, (uint16_t)(sizeof(uint16_t) + batch_len));
           tx_size = SPI_STREAM_FRAME_SIZE;
           tx_ready = true;
+        } else if (cmd == SPI_ID_SYSTEM_CFG_HASH) {
+          uint8_t id = (header->length >= 1) ? cmd_payload[0] : 0xFF;
+          uint32_t hh = config_cache_get_hash(id);
+          memcpy(resp_payload, &hh, sizeof(hh));
+          resp_len = sizeof(hh);
+          status = SPI_STATUS_OK;
+        } else if (cmd == SPI_ID_SYSTEM_CFG_BEGIN) {
+          if (header->length < sizeof(spi_cfg_begin_t)) {
+            status = SPI_STATUS_INVALID_ARG;
+          } else {
+            spi_cfg_begin_t req;
+            memcpy(&req, cmd_payload, sizeof(req));
+            status = (config_cache_begin(req.id, req.size, req.hash) == ESP_OK) ? SPI_STATUS_OK
+                                                                                : SPI_STATUS_ERROR;
+          }
+        } else if (cmd == SPI_ID_SYSTEM_CFG_CHUNK) {
+          if (header->length < 5) {
+            status = SPI_STATUS_INVALID_ARG;
+          } else {
+            uint32_t off;
+            memcpy(&off, cmd_payload + 1, sizeof(off));
+            status = (config_cache_chunk(
+                          cmd_payload[0], off, cmd_payload + 5, header->length - 5) == ESP_OK)
+                         ? SPI_STATUS_OK
+                         : SPI_STATUS_ERROR;
+          }
+        } else if (cmd == SPI_ID_SYSTEM_CFG_COMMIT) {
+          uint8_t id = (header->length >= 1) ? cmd_payload[0] : 0xFF;
+          status = (config_cache_commit(id) == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
         } else {
           status = SPI_STATUS_UNSUPPORTED;
         }

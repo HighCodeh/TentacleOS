@@ -147,6 +147,12 @@ typedef enum {
   // P4→C5: device power state (payload = spi_power_state_t). Lets the C5 drop its
   // radio when the P4 is idle/asleep instead of running full RX all the time.
   SPI_ID_SYSTEM_POWER_STATE = SPI_CMD(SPI_CAT_SYSTEM, 0x4A),
+  // Config cache: the P4 (master) pushes config files to the C5, hash-gated so an
+  // unchanged file is never re-sent. Config ids are spi_cfg_id_t.
+  SPI_ID_SYSTEM_CFG_HASH = SPI_CMD(SPI_CAT_SYSTEM, 0x50),   // P4→C5: read C5's stored hash [id u8]→[hash u32]
+  SPI_ID_SYSTEM_CFG_BEGIN = SPI_CMD(SPI_CAT_SYSTEM, 0x51),  // P4→C5: begin push (spi_cfg_begin_t)
+  SPI_ID_SYSTEM_CFG_CHUNK = SPI_CMD(SPI_CAT_SYSTEM, 0x52),  // P4→C5: [id u8][offset u32][bytes]
+  SPI_ID_SYSTEM_CFG_COMMIT = SPI_CMD(SPI_CAT_SYSTEM, 0x53), // P4→C5: [id u8] finalize (write + store hash)
 
   // WiFi Basic
   SPI_ID_WIFI_SCAN = SPI_CMD(SPI_CAT_WIFI, 0x10),
@@ -340,6 +346,27 @@ typedef enum {
   SPI_ID_SESSION_LOST = SPI_CMD(SPI_CAT_SESSION, 0xF1),
   SPI_ID_SESSION_STOP = SPI_CMD(SPI_CAT_SESSION, 0xF2)
 } spi_id_t;
+
+/**
+ * @brief Config-cache file ids, shared by the P4 (master) and C5 (consumer).
+ * Each id maps to a fixed config path on each chip; the P4 owns the master copy
+ * and pushes it to the C5 when the hashes differ. Keep this list in sync on both.
+ */
+typedef enum {
+  SPI_CFG_WIFI_AP = 0,   // config/wifi/wifi_ap.conf
+  SPI_CFG_BLE_ANNOUNCE,  // config/bluetooth/ble_announce.conf
+  SPI_CFG_BLE_SPAM,      // config/bluetooth/beacon_list.conf
+  SPI_CFG_CHAT,          // config/chat/chat.conf
+  SPI_CFG_CHAT_ADDRS,    // config/chat/addresses.conf
+  SPI_CFG_COUNT
+} spi_cfg_id_t;
+
+/** @brief SPI_ID_SYSTEM_CFG_BEGIN request payload. */
+typedef struct __attribute__((packed)) {
+  uint8_t id;    ///< spi_cfg_id_t
+  uint32_t size; ///< total config size in bytes
+  uint32_t hash; ///< CRC32 of the config bytes (esp_crc32_le)
+} spi_cfg_begin_t;
 
 /**
  * @brief Device power state, sent P4→C5 as the SPI_ID_SYSTEM_POWER_STATE payload.

@@ -130,6 +130,7 @@ typedef struct {
 | `0x08` | `SYSTEM_ENTER_DOWNLOAD` | reboots the C5 into ROM serial-flash mode (wired recovery) |
 | `0x0D` | `SYSTEM_PROTO_VERSION` | P4<->C5 SPI protocol version check (`SPI_PROTOCOL_VERSION`, currently `2`); the app uses the host-link `VER`, not this |
 | `0x4A` | `SYSTEM_POWER_STATE` | P4->C5 power hint so the C5 can drop its radio when the P4 sleeps |
+| `0x50`-`0x53` | `SYSTEM_CFG_HASH`/`BEGIN`/`CHUNK`/`COMMIT` | P4->C5 config cache: the P4 pushes its master config files to the C5, hash-gated (CRC32) so unchanged files are never re-sent |
 
 Sending these from the companion app is unsupported and can reboot the
 coprocessor or disrupt the link.
