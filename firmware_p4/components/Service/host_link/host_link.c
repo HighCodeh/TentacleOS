@@ -22,13 +22,17 @@
 #include "freertos/semphr.h"
 
 #include "host_link_audio.h"
+#include "host_link_badusb.h"
+#include "host_link_config.h"
 #include "host_link_files.h"
 #include "host_link_ir.h"
 #include "host_link_led.h"
+#include "host_link_lora.h"
 #include "host_link_sec.h"
 #include "host_link_state.h"
 #include "host_link_stream.h"
 #include "host_link_subghz.h"
+#include "host_link_theme.h"
 #include "lvgl_screen_share.h"
 #include "spi_bridge.h"
 #include "spi_protocol.h"
@@ -102,7 +106,8 @@ void host_link_session_release(host_link_writer_t writer) {
     lvgl_screen_share_stop(); // safeguard: never keep capturing into a dead link
     host_ir_stop_rx();        // stop IR capture so it can't stream into a dead link
     host_subghz_stop();       // stop Sub-GHz rx/spectrum streams too
-    host_link_sec_reset();    // force re-handshake on the next session
+    host_lora_stop();
+    host_link_sec_reset(); // force re-handshake on the next session
   }
 }
 
@@ -225,7 +230,7 @@ static void process_frame(const uint8_t *frame, size_t total) {
   // payloads larger than one SPI frame, so they bypass the relay size cap.
   uint16_t cmd = SPI_CMD(category, op);
   if (host_files_is_file_op(cmd)) {
-    static uint8_t fdata[HOST_FILE_DATA_MAX];
+    static uint8_t fdata[HOST_FILE_CHUNK];
     uint16_t flen = 0;
     uint8_t status = host_files_handle(cmd, payload, plen16, fdata, sizeof(fdata), &flen);
     send_resp(category, op, status, fdata, flen);
@@ -304,6 +309,23 @@ static void process_frame(const uint8_t *frame, size_t total) {
     uint16_t sglen = 0;
     uint8_t status = host_subghz_handle(cmd, payload, plen16, sgdata, sizeof(sgdata), &sglen);
     send_resp(category, op, status, sgdata, sglen);
+    return;
+  }
+
+  if (host_badusb_is_op(cmd) || host_lora_is_op(cmd) || host_config_is_op(cmd) ||
+      host_theme_is_op(cmd)) {
+    static uint8_t ldata[HOST_FILE_DATA_MAX];
+    uint16_t llen = 0;
+    uint8_t status;
+    if (host_badusb_is_op(cmd))
+      status = host_badusb_handle(cmd, payload, plen16, ldata, sizeof(ldata), &llen);
+    else if (host_lora_is_op(cmd))
+      status = host_lora_handle(cmd, payload, plen16, ldata, sizeof(ldata), &llen);
+    else if (host_config_is_op(cmd))
+      status = host_config_handle(cmd, payload, plen16, ldata, sizeof(ldata), &llen);
+    else
+      status = host_theme_handle(cmd, payload, plen16, ldata, sizeof(ldata), &llen);
+    send_resp(category, op, status, ldata, llen);
     return;
   }
 
@@ -426,9 +448,9 @@ static void
 send_resp(uint8_t category, uint8_t op, uint8_t status, const uint8_t *data, uint16_t data_len) {
   // [status][data...]. Sized for the largest local response (a file chunk).
   // Single-session guarantees only one dispatcher runs at a time.
-  static uint8_t payload[1 + HOST_FILE_DATA_MAX];
-  if (data_len > HOST_FILE_DATA_MAX)
-    data_len = HOST_FILE_DATA_MAX;
+  static uint8_t payload[1 + HOST_FILE_CHUNK];
+  if (data_len > HOST_FILE_CHUNK)
+    data_len = HOST_FILE_CHUNK;
   payload[0] = status;
   if (data_len > 0 && data != NULL)
     memcpy(payload + 1, data, data_len);

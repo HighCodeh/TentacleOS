@@ -27,8 +27,12 @@ extern "C" {
 // owns both filesystems (internal flash + micro-SD); these handlers are run
 // locally, never relayed to the C5. Paths are sandboxed to the mounted roots.
 //
-// Largest data carried in one FILE_READ chunk / FILE_WRITE data segment.
+// Largest data carried in one FILE_WRITE data segment and generic local resp.
 #define HOST_FILE_DATA_MAX 1024
+
+// Largest FILE_READ chunk. Bigger => fewer round-trips reading large assets.
+// Must leave room in HOST_LINK_MAX_FRAME (header + body header + status + MAC).
+#define HOST_FILE_CHUNK 3072
 
 /** @brief True if @p cmd (a packed SPI_CMD id) is a P4-local file op. */
 bool host_files_is_file_op(uint16_t cmd);
