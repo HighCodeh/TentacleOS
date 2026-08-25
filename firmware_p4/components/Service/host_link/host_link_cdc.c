@@ -35,7 +35,7 @@ static const char *TAG = "HOST_LINK_CDC";
 
 #define HOST_LINK_CDC_ITF        TINYUSB_CDC_ACM_0
 #define HOST_LINK_CDC_RX_CHUNK   64
-#define HOST_LINK_CDC_STREAM     1024
+#define HOST_LINK_CDC_STREAM     4096
 #define HOST_LINK_CDC_TASK_STK   8192 // dispatch routes into SPI + deep ops; 4K ran dry
 #define HOST_LINK_CDC_TASK_PRIO  SYS_PRIO_SERVICE_HI
 #define HOST_LINK_CDC_FLUSH_MS   50
@@ -48,9 +48,11 @@ static void cdc_rx_cb(int itf, cdcacm_event_t *event) {
   (void)event;
   uint8_t buf[HOST_LINK_CDC_RX_CHUNK];
   size_t rx = 0;
-  if (tinyusb_cdcacm_read((tinyusb_cdcacm_itf_t)itf, buf, sizeof(buf), &rx) == ESP_OK && rx > 0) {
-    // Non-blocking: if the worker is behind, drop rather than stall the USB task.
+  while (tinyusb_cdcacm_read((tinyusb_cdcacm_itf_t)itf, buf, sizeof(buf), &rx) == ESP_OK &&
+         rx > 0) {
     xStreamBufferSend(s_rx_stream, buf, rx, 0);
+    if (rx < sizeof(buf))
+      break;
   }
 }
 
