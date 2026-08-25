@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_netif.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -29,6 +30,7 @@
 #include "session_manager.h"
 #include "evil_twin.h"
 #include "meshtastic_tcp.h"
+#include "port_scan.h"
 #include "probe_monitor.h"
 #include "signal_monitor.h"
 #include "spi_bridge.h"
@@ -43,6 +45,40 @@ static const char *TAG = "WIFI_DISPATCHER";
 // Compact scan results for the companion app (SPI_ID_WIFI_APP_SCAN_AP). Built
 // from the raw scan once, then served through the generic data pipe.
 static spi_wifi_scan_record_t s_app_scan_records[WIFI_SCAN_LIST_SIZE];
+
+// Port scan runs on the shared async runner so the SPI bridge (and the UI/app
+// link it carries) never blocks for the seconds-to-minutes a sweep can take.
+// The handler parses the request into s_port_scan_req and kicks the runner; the
+// runner does the blocking scan, then publishes results via the generic data
+// pipe. Callers poll SPI_ID_WIFI_SCAN_STATUS (the shared async-scan busy flag)
+// and fetch results once it clears.
+#define PORT_SCAN_MAX_RESULTS   32
+#define PORT_SCAN_PORT_LIST_MAX 64
+
+typedef enum {
+  PORT_SCAN_KIND_TARGET_RANGE,
+  PORT_SCAN_KIND_TARGET_LIST,
+  PORT_SCAN_KIND_NET_RANGE,
+  PORT_SCAN_KIND_NET_LIST,
+  PORT_SCAN_KIND_CIDR_RANGE,
+  PORT_SCAN_KIND_CIDR_LIST,
+} port_scan_kind_t;
+
+typedef struct {
+  port_scan_kind_t kind;
+  char ip[16];
+  char end_ip[16];
+  uint8_t cidr;
+  int start_port;
+  int end_port;
+  int ports[PORT_SCAN_PORT_LIST_MAX];
+  int list_size;
+  int max_results;
+} port_scan_dispatch_req_t;
+
+static port_scan_dispatch_req_t s_port_scan_req;
+static port_scan_result_t s_port_scan_raw[PORT_SCAN_MAX_RESULTS];
+static spi_port_scan_result_t s_port_scan_records[PORT_SCAN_MAX_RESULTS];
 
 #define WIFI_SSID_MAX_LEN         32
 #define WIFI_PASSWORD_MAX_LEN     64
@@ -163,6 +199,94 @@ static void scan_fn_app_client(void) {
     vTaskDelay(pdMS_TO_TICKS(CLIENT_SCAN_POLL_DELAY_MS));
   }
   spi_bridge_provide_results(results, count, sizeof(client_scanner_record_t));
+}
+
+// Async runner body: run the scan captured in s_port_scan_req, convert the raw
+// results to the wire record, and publish them through the data pipe.
+static void scan_fn_port_scan(void) {
+  const port_scan_dispatch_req_t *r = &s_port_scan_req;
+  int n = 0;
+  switch (r->kind) {
+    case PORT_SCAN_KIND_TARGET_RANGE:
+      n = port_scan_target_range(
+          r->ip, r->start_port, r->end_port, s_port_scan_raw, r->max_results);
+      break;
+    case PORT_SCAN_KIND_TARGET_LIST:
+      n = port_scan_target_list(
+          r->ip, r->ports, r->list_size, s_port_scan_raw, r->max_results);
+      break;
+    case PORT_SCAN_KIND_NET_RANGE:
+      n = port_scan_network_range_using_port_range(
+          r->ip, r->end_ip, r->start_port, r->end_port, s_port_scan_raw, r->max_results);
+      break;
+    case PORT_SCAN_KIND_NET_LIST:
+      n = port_scan_network_range_using_port_list(
+          r->ip, r->end_ip, r->ports, r->list_size, s_port_scan_raw, r->max_results);
+      break;
+    case PORT_SCAN_KIND_CIDR_RANGE:
+      n = port_scan_cidr_using_port_range(
+          r->ip, r->cidr, r->start_port, r->end_port, s_port_scan_raw, r->max_results);
+      break;
+    case PORT_SCAN_KIND_CIDR_LIST:
+      n = port_scan_cidr_using_port_list(
+          r->ip, r->cidr, r->ports, r->list_size, s_port_scan_raw, r->max_results);
+      break;
+  }
+
+  if (n < 0)
+    n = 0;
+  if (n > PORT_SCAN_MAX_RESULTS)
+    n = PORT_SCAN_MAX_RESULTS;
+
+  for (int i = 0; i < n; i++) {
+    spi_port_scan_result_t *dst = &s_port_scan_records[i];
+    memset(dst, 0, sizeof(*dst));
+    strncpy(dst->ip_str, s_port_scan_raw[i].ip_str, sizeof(dst->ip_str) - 1);
+    dst->port = (uint16_t)s_port_scan_raw[i].port;
+    dst->protocol = (uint8_t)s_port_scan_raw[i].protocol;
+    dst->status = (uint8_t)s_port_scan_raw[i].status;
+    strncpy(dst->banner, s_port_scan_raw[i].banner, sizeof(dst->banner) - 1);
+  }
+
+  spi_bridge_provide_results(s_port_scan_records, (uint16_t)n, sizeof(spi_port_scan_result_t));
+}
+
+// Kick the port scan off on the shared async runner. Rejects if a scan (AP,
+// client, or port) is already running.
+static spi_status_t start_port_scan(void) {
+  if (spi_bridge_async_scan_busy())
+    return SPI_STATUS_BUSY;
+  port_scan_reset_abort();
+  return spi_bridge_async_scan_start(scan_fn_port_scan) ? SPI_STATUS_OK : SPI_STATUS_BUSY;
+}
+
+// Parse a packed port list: [max_results u16][count u16][ports u16 * count].
+// Returns false if the payload is malformed. Clamps count to the static cap.
+static bool parse_port_list(const uint8_t *p, uint8_t len, size_t offset) {
+  if (len < offset + 4)
+    return false;
+  uint16_t max_res = (uint16_t)(p[offset] | (p[offset + 1] << 8));
+  uint16_t count = (uint16_t)(p[offset + 2] | (p[offset + 3] << 8));
+  offset += 4;
+  if (count > PORT_SCAN_PORT_LIST_MAX)
+    count = PORT_SCAN_PORT_LIST_MAX;
+  if (len < offset + (size_t)count * 2)
+    return false;
+  for (uint16_t i = 0; i < count; i++) {
+    s_port_scan_req.ports[i] = (uint16_t)(p[offset] | (p[offset + 1] << 8));
+    offset += 2;
+  }
+  s_port_scan_req.list_size = count;
+  s_port_scan_req.max_results = (max_res == 0 || max_res > PORT_SCAN_MAX_RESULTS)
+                                    ? PORT_SCAN_MAX_RESULTS
+                                    : max_res;
+  return true;
+}
+
+static int clamp_max_results(uint16_t requested) {
+  if (requested == 0 || requested > PORT_SCAN_MAX_RESULTS)
+    return PORT_SCAN_MAX_RESULTS;
+  return requested;
 }
 
 spi_status_t wifi_dispatcher_execute(spi_id_t id,
@@ -656,6 +780,122 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
 
     case SPI_ID_WIFI_AP_SAVE_SD:
       return ap_scanner_save_results_to_sd_card() ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+
+    case SPI_ID_WIFI_PORT_SCAN_TARGET_RANGE: {
+      if (len < sizeof(spi_port_scan_range_req_t))
+        return SPI_STATUS_INVALID_ARG;
+      const spi_port_scan_range_req_t *req = (const spi_port_scan_range_req_t *)payload;
+      memset(&s_port_scan_req, 0, sizeof(s_port_scan_req));
+      s_port_scan_req.kind = PORT_SCAN_KIND_TARGET_RANGE;
+      memcpy(s_port_scan_req.ip, req->ip, sizeof(s_port_scan_req.ip));
+      s_port_scan_req.ip[sizeof(s_port_scan_req.ip) - 1] = '\0';
+      s_port_scan_req.start_port = req->start_port;
+      s_port_scan_req.end_port = req->end_port;
+      s_port_scan_req.max_results = clamp_max_results(req->max_results);
+      return start_port_scan();
+    }
+
+    case SPI_ID_WIFI_PORT_SCAN_TARGET_LIST: {
+      // Packed: ip[16][max_results u16][count u16][ports u16 * count].
+      if (len < 16)
+        return SPI_STATUS_INVALID_ARG;
+      memset(&s_port_scan_req, 0, sizeof(s_port_scan_req));
+      s_port_scan_req.kind = PORT_SCAN_KIND_TARGET_LIST;
+      memcpy(s_port_scan_req.ip, payload, sizeof(s_port_scan_req.ip));
+      s_port_scan_req.ip[sizeof(s_port_scan_req.ip) - 1] = '\0';
+      if (!parse_port_list(payload, len, 16))
+        return SPI_STATUS_INVALID_ARG;
+      return start_port_scan();
+    }
+
+    case SPI_ID_WIFI_PORT_SCAN_NETWORK: {
+      // Range and list share this id; a payload the exact size of the range
+      // struct is the range variant, anything else is the packed list variant.
+      memset(&s_port_scan_req, 0, sizeof(s_port_scan_req));
+      if (len == sizeof(spi_port_scan_network_req_t)) {
+        const spi_port_scan_network_req_t *req = (const spi_port_scan_network_req_t *)payload;
+        s_port_scan_req.kind = PORT_SCAN_KIND_NET_RANGE;
+        memcpy(s_port_scan_req.ip, req->start_ip, sizeof(s_port_scan_req.ip));
+        s_port_scan_req.ip[sizeof(s_port_scan_req.ip) - 1] = '\0';
+        memcpy(s_port_scan_req.end_ip, req->end_ip, sizeof(s_port_scan_req.end_ip));
+        s_port_scan_req.end_ip[sizeof(s_port_scan_req.end_ip) - 1] = '\0';
+        s_port_scan_req.start_port = req->start_port;
+        s_port_scan_req.end_port = req->end_port;
+        s_port_scan_req.max_results = clamp_max_results(req->max_results);
+      } else {
+        // Packed list: start_ip[16] end_ip[16] [max u16][count u16][ports...].
+        if (len < 32)
+          return SPI_STATUS_INVALID_ARG;
+        s_port_scan_req.kind = PORT_SCAN_KIND_NET_LIST;
+        memcpy(s_port_scan_req.ip, payload, sizeof(s_port_scan_req.ip));
+        s_port_scan_req.ip[sizeof(s_port_scan_req.ip) - 1] = '\0';
+        memcpy(s_port_scan_req.end_ip, payload + 16, sizeof(s_port_scan_req.end_ip));
+        s_port_scan_req.end_ip[sizeof(s_port_scan_req.end_ip) - 1] = '\0';
+        if (!parse_port_list(payload, len, 32))
+          return SPI_STATUS_INVALID_ARG;
+      }
+      return start_port_scan();
+    }
+
+    case SPI_ID_WIFI_PORT_SCAN_CIDR: {
+      // Range and list share this id; disambiguated by payload size as above.
+      memset(&s_port_scan_req, 0, sizeof(s_port_scan_req));
+      if (len == sizeof(spi_port_scan_cidr_req_t)) {
+        const spi_port_scan_cidr_req_t *req = (const spi_port_scan_cidr_req_t *)payload;
+        s_port_scan_req.kind = PORT_SCAN_KIND_CIDR_RANGE;
+        memcpy(s_port_scan_req.ip, req->base_ip, sizeof(s_port_scan_req.ip));
+        s_port_scan_req.ip[sizeof(s_port_scan_req.ip) - 1] = '\0';
+        s_port_scan_req.cidr = req->cidr;
+        s_port_scan_req.start_port = req->start_port;
+        s_port_scan_req.end_port = req->end_port;
+        s_port_scan_req.max_results = clamp_max_results(req->max_results);
+      } else {
+        // Packed list: base_ip[16][cidr u8][max u16][count u16][ports...].
+        if (len < 17)
+          return SPI_STATUS_INVALID_ARG;
+        s_port_scan_req.kind = PORT_SCAN_KIND_CIDR_LIST;
+        memcpy(s_port_scan_req.ip, payload, sizeof(s_port_scan_req.ip));
+        s_port_scan_req.ip[sizeof(s_port_scan_req.ip) - 1] = '\0';
+        s_port_scan_req.cidr = payload[16];
+        if (!parse_port_list(payload, len, 17))
+          return SPI_STATUS_INVALID_ARG;
+      }
+      return start_port_scan();
+    }
+
+    case SPI_ID_WIFI_PORT_SCAN_STOP:
+      port_scan_request_abort();
+      return SPI_STATUS_OK;
+
+    case SPI_ID_WIFI_GET_MAC: {
+      uint8_t iface = (len >= 1) ? payload[0] : 0;
+      wifi_interface_t wif = (iface == 1) ? WIFI_IF_AP : WIFI_IF_STA;
+      uint8_t mac[WIFI_MAC_LEN] = {0};
+      if (esp_wifi_get_mac(wif, mac) != ESP_OK)
+        return SPI_STATUS_ERROR;
+      memcpy(out_resp_payload, mac, sizeof(mac));
+      *out_resp_len = sizeof(mac);
+      return SPI_STATUS_OK;
+    }
+
+    case SPI_ID_WIFI_GET_IP_INFO: {
+      uint8_t iface = (len >= 1) ? payload[0] : 0;
+      const char *key = (iface == 1) ? "WIFI_AP_DEF" : "WIFI_STA_DEF";
+      esp_netif_t *netif = esp_netif_get_handle_from_ifkey(key);
+      if (netif == NULL)
+        return SPI_STATUS_ERROR;
+      esp_netif_ip_info_t ip = {0};
+      esp_netif_get_ip_info(netif, &ip);
+      spi_wifi_ip_info_t info = {0};
+      info.interface = iface;
+      esp_wifi_get_mac((iface == 1) ? WIFI_IF_AP : WIFI_IF_STA, info.mac);
+      info.ip = ip.ip.addr;
+      info.netmask = ip.netmask.addr;
+      info.gw = ip.gw.addr;
+      memcpy(out_resp_payload, &info, sizeof(info));
+      *out_resp_len = sizeof(info);
+      return SPI_STATUS_OK;
+    }
 
     case SPI_ID_MESH_WIFI_INIT: {
       if (len < sizeof(spi_mesh_init_t)) {

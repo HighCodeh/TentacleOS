@@ -161,6 +161,19 @@ int port_scan_cidr_using_port_list(const char *base_ip,
                                    port_scan_result_t *results,
                                    int max_results);
 
+/**
+ * @brief Request an in-flight scan to abort at the next port boundary.
+ *
+ * The scans run on the shared async runner; this lets a STOP command cut a long
+ * range/network sweep short without blocking. Loops check the flag between ports.
+ */
+void port_scan_request_abort(void);
+
+/**
+ * @brief Clear the abort flag before starting a new scan.
+ */
+void port_scan_reset_abort(void);
+
 #ifdef __cplusplus
 }
 #endif

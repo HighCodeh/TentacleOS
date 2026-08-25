@@ -20,6 +20,8 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "spi_bridge.h"
 #include "spi_protocol.h"
@@ -27,8 +29,31 @@
 static const char *TAG = "PORT_SCANNER";
 
 #define PORT_SCAN_TIMEOUT_MS 20000
+#define PORT_SCAN_POLL_MS    200
+
+// The C5 runs the scan on its async runner (non-blocking so the SPI/UI link
+// never stalls). The START command returns immediately; block here polling the
+// shared async-scan busy flag until the sweep finishes, then read the results.
+static void wait_scan_idle(void) {
+  spi_header_t resp_hdr;
+  uint8_t resp_buf[SPI_MAX_PAYLOAD];
+  int waited = 0;
+  while (waited < PORT_SCAN_TIMEOUT_MS) {
+    // spi_bridge_send_command strips the status byte (it becomes the esp_err);
+    // resp_buf[0] is the busy flag itself, not a status byte.
+    esp_err_t ret = spi_bridge_send_command(
+        SPI_ID_WIFI_SCAN_STATUS, NULL, 0, &resp_hdr, resp_buf, sizeof(resp_buf), 2000);
+    if (ret == ESP_OK && resp_buf[0] == 0)
+      return;
+    vTaskDelay(pdMS_TO_TICKS(PORT_SCAN_POLL_MS));
+    waited += PORT_SCAN_POLL_MS;
+  }
+  ESP_LOGW(TAG, "Scan did not finish within %d ms", PORT_SCAN_TIMEOUT_MS);
+}
 
 static int fetch_results(port_scan_result_t *results, int max_results) {
+  wait_scan_idle();
+
   spi_header_t resp_hdr;
   uint8_t resp_buf[SPI_MAX_PAYLOAD];
 
@@ -41,13 +66,16 @@ static int fetch_results(port_scan_result_t *results, int max_results) {
                                           sizeof(resp_buf),
                                           5000);
 
-  if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
+  // send_command already strips the status byte (conveyed via ret); resp_buf is
+  // pure data. The data-pipe count is the whole payload: [count u16].
+  if (ret != ESP_OK) {
     ESP_LOGE(TAG, "Failed to fetch result count");
     led_signal_error();
     return 0;
   }
 
-  uint16_t total = resp_buf[1] | (resp_buf[2] << 8);
+  uint16_t total = 0;
+  memcpy(&total, resp_buf, sizeof(total));
   if (total > max_results)
     total = max_results;
 
@@ -63,12 +91,12 @@ static int fetch_results(port_scan_result_t *results, int max_results) {
                                   sizeof(resp_buf),
                                   2000);
 
-    if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
+    if (ret != ESP_OK) {
       ESP_LOGW(TAG, "Failed to fetch result %d", i);
       continue;
     }
 
-    spi_port_scan_result_t *rec = (spi_port_scan_result_t *)&resp_buf[1];
+    spi_port_scan_result_t *rec = (spi_port_scan_result_t *)resp_buf;
     strncpy(results[count].ip_str, rec->ip_str, 16);
     results[count].port = rec->port;
     results[count].protocol = (rec->protocol == 0) ? PORT_SCAN_PROTO_TCP : PORT_SCAN_PROTO_UDP;

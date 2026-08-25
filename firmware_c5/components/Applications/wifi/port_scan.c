@@ -28,6 +28,16 @@
 
 static const char *TAG = "PORT_SCANNER";
 
+static volatile bool s_abort_requested = false;
+
+void port_scan_request_abort(void) {
+  s_abort_requested = true;
+}
+
+void port_scan_reset_abort(void) {
+  s_abort_requested = false;
+}
+
 #define SCAN_DELAY_MS         10
 #define NETWORK_SCAN_DELAY_MS 20
 #define FLAG_TYPE_RANGE       0
@@ -67,7 +77,7 @@ int port_scan_target_range(const char *target_ip,
   int count = 0;
   char banner[PORT_SCAN_MAX_BANNER_LEN];
   for (int port = start_port; port <= end_port; port++) {
-    if (count >= max_results)
+    if (count >= max_results || s_abort_requested)
       break;
     if (check_tcp(target_ip, port, banner))
       add_result(target_ip, port, 0, banner, results, &count, max_results);
@@ -90,7 +100,7 @@ int port_scan_target_list(const char *target_ip,
   char banner[PORT_SCAN_MAX_BANNER_LEN];
   for (int i = 0; i < list_size; i++) {
     int port = port_list[i];
-    if (count >= max_results)
+    if (count >= max_results || s_abort_requested)
       break;
     if (check_tcp(target_ip, port, banner))
       add_result(target_ip, port, 0, banner, results, &count, max_results);
@@ -291,7 +301,7 @@ static int scan_network_iterator(uint32_t ip_start_hbo,
   ESP_LOGI(TAG, "Scanning %u hosts...", diff + 1);
   uint32_t ip_curr = ip_start_hbo;
 
-  while (ip_curr <= ip_end_hbo && count < max_results) {
+  while (ip_curr <= ip_end_hbo && count < max_results && !s_abort_requested) {
     struct in_addr ip_struct;
     ip_struct.s_addr = htonl(ip_curr);
     char current_ip_str[16];
