@@ -130,7 +130,7 @@ static void battery_task(void *arg) {
     static int last_soc = -1, last_charging = -1, last_vbus = -1, last_chg = -1, last_fault = -1;
     if (soc != last_soc || (int)t.charging != last_charging || (int)t.power_good != last_vbus ||
         (int)t.chg != last_chg || (int)t.fault != last_fault) {
-      ESP_LOGI(TAG,
+      ESP_LOGD(TAG,
                "vbat=%umV soc=%d%% charging=%d vbus=%d chg_stat=%d fault=0x%02X",
                t.vbat_mv,
                soc,
