@@ -26,9 +26,6 @@ extern "C" {
 // P4-local companion op that switches the active UI theme by name
 // (SPI_ID_SYSTEM_SET_THEME). The theme apply is marshalled onto the LVGL thread.
 
-/** @brief True if @p cmd (a packed SPI_CMD id) is the SET_THEME companion op. */
-bool host_theme_is_op(uint16_t cmd);
-
 /**
  * @brief Apply and persist a theme by name.
  *

@@ -85,10 +85,6 @@ static bool path_ok(const uint8_t *src, uint16_t src_len, char *out, size_t out_
   return false;
 }
 
-bool host_files_is_file_op(uint16_t cmd) {
-  return cmd >= SPI_ID_FILE_LIST && cmd <= SPI_ID_FILE_MKDIR;
-}
-
 static uint8_t do_list(const char *path, uint8_t *out, uint16_t cap, uint16_t *out_len) {
   DIR *dir = opendir(path);
   if (dir == NULL) {

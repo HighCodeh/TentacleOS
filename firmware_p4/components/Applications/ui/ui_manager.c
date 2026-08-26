@@ -86,6 +86,7 @@
 #include "wav_library_ui.h"
 #include "spectrum_ui.h"
 #include "lora_chat_ui.h"
+#include "apps_ui.h"
 #include "games_menu_ui.h"
 #include "snake_ui.h"
 #include "breakout_ui.h"
@@ -470,6 +471,8 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_lora_chat_open;
     case SCREEN_GAMES_MENU:
       return ui_games_menu_open;
+    case SCREEN_APPS:
+      return ui_apps_open;
     case SCREEN_GAME_SNAKE:
       return ui_snake_open;
     case SCREEN_GAME_BREAKOUT:

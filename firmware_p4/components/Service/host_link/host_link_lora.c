@@ -217,11 +217,6 @@ static uint8_t handle_chat_send(const uint8_t *payload, uint16_t plen) {
   return (err == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
 }
 
-bool host_lora_is_op(uint16_t cmd) {
-  uint8_t cat = SPI_CMD_CAT(cmd);
-  return cat == SPI_CAT_LORACFG || cat == SPI_CAT_LORACHAT;
-}
-
 void host_lora_stop(void) {
   s_chat_active = false;
 }

@@ -23,9 +23,6 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 
-/** @brief True if @p cmd is an LED host-link command (category SPI_CAT_LED). */
-bool host_led_is_op(uint16_t cmd);
-
 /** @brief Handle an LED host-link command locally on the P4. Returns spi_status_t. */
 uint8_t host_led_handle(uint16_t cmd,
                         const uint8_t *payload,

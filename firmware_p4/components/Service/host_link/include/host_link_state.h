@@ -37,9 +37,6 @@ bool host_settings_console_exec_enabled(void);
 /** @brief True if logs may be delivered over BLE (default on; USB always on). */
 bool host_settings_log_over_ble_enabled(void);
 
-/** @brief True if @p cmd is a P4-local device-state/settings/console op. */
-bool host_state_is_local_op(uint16_t cmd);
-
 /**
  * @brief Execute a device-state / settings / console-exec op locally.
  *

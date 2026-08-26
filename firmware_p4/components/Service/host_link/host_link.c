@@ -21,9 +21,11 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
+#include "host_link_apps.h"
 #include "host_link_audio.h"
 #include "host_link_badusb.h"
 #include "host_link_config.h"
+#include "host_link_dispatch.h"
 #include "host_link_files.h"
 #include "host_link_ir.h"
 #include "host_link_led.h"
@@ -62,6 +64,13 @@ static void emit_frame(
     uint8_t type, uint8_t category, uint8_t op, const uint8_t *payload, uint16_t payload_len);
 static void
 send_resp(uint8_t category, uint8_t op, uint8_t status, const uint8_t *data, uint16_t data_len);
+static void register_builtins(void);
+static uint8_t screen_share_shim(uint16_t cmd,
+                                 const uint8_t *payload,
+                                 uint16_t plen,
+                                 uint8_t *out,
+                                 uint16_t out_cap,
+                                 uint16_t *out_len);
 
 esp_err_t host_link_init(void) {
   if (s_lock == NULL) {
@@ -77,6 +86,8 @@ esp_err_t host_link_init(void) {
     ESP_LOGE(TAG, "Security init failed: %s", esp_err_to_name(err));
     return err;
   }
+
+  register_builtins();
 
   ESP_LOGI(TAG, "Host link initialized");
   return ESP_OK;
@@ -226,115 +237,25 @@ static void process_frame(const uint8_t *frame, size_t total) {
     return;
   }
 
-  // File ops are handled locally on the P4 (it owns flash + SD) and may carry
-  // payloads larger than one SPI frame, so they bypass the relay size cap.
+  // Local P4 handlers live in the dispatch registry; anything not registered
+  // relays to the C5. Registered handlers may exceed the 255-byte relay cap
+  // (file/IR/Sub-GHz chunks), so the cap only guards the relay path below.
   uint16_t cmd = SPI_CMD(category, op);
-  if (host_files_is_file_op(cmd)) {
-    static uint8_t fdata[HOST_FILE_CHUNK];
-    uint16_t flen = 0;
-    uint8_t status = host_files_handle(cmd, payload, plen16, fdata, sizeof(fdata), &flen);
-    send_resp(category, op, status, fdata, flen);
+  host_link_handler_t h;
+  if (host_link_dispatch_lookup(cmd, &h)) {
+    // The single companion session serializes dispatch, so one shared scratch
+    // buffer sized to the largest response (a file chunk) is safe.
+    static uint8_t scratch[HOST_FILE_CHUNK];
+    uint16_t rlen = 0;
+    uint8_t status = h.handle(cmd, payload, plen16, scratch, h.out_cap, &rlen);
+    send_resp(category, op, status, scratch, rlen);
     return;
   }
 
-  // Device state, settings, and console exec are also handled locally on the P4.
-  if (host_state_is_local_op(cmd)) {
-    static uint8_t sdata[HOST_FILE_DATA_MAX];
-    uint16_t slen = 0;
-    uint8_t status = host_state_handle(cmd, payload, plen16, sdata, sizeof(sdata), &slen);
-    send_resp(category, op, status, sdata, slen);
-    return;
-  }
-
-  // SESSION control (heartbeat/stop) is the companion's liveness proxy — handled
-  // locally, never relayed (the P4 keeps heartbeating the C5 on its own).
-  if (category == SPI_CAT_SESSION) {
-    uint8_t cdata[8];
-    uint16_t clen = 0;
-    uint8_t status = host_stream_session_ctrl(cmd, payload, plen16, cdata, sizeof(cdata), &clen);
-    send_resp(category, op, status, cdata, clen);
-    return;
-  }
-
-  // Session-based streaming ops (e.g. sniffer) run through the spi_session model
-  // and push records to the app as STREAM frames.
-  if (host_stream_is_session_op(cmd)) {
-    uint8_t sdata[8];
-    uint16_t slen = 0;
-    uint8_t status = host_stream_start(cmd, payload, plen16, sdata, sizeof(sdata), &slen);
-    send_resp(category, op, status, sdata, slen);
-    return;
-  }
-
-  // Screen sharing is P4-native (snapshot + USB stream), handled locally.
-  if (lvgl_screen_share_is_host_op(cmd)) {
-    uint8_t sdata[8];
-    uint16_t slen = 0;
-    uint8_t status = lvgl_screen_share_handle(cmd, payload, plen16, sdata, sizeof(sdata), &slen);
-    send_resp(category, op, status, sdata, slen);
-    return;
-  }
-
-  // IR is P4-native (RMT); handled locally. IR_TX_RAW can carry more than one SPI
-  // frame, so like file ops it must run before the relay size cap below.
-  if (host_ir_is_op(cmd)) {
-    uint8_t idata[8];
-    uint16_t ilen = 0;
-    uint8_t status = host_ir_handle(cmd, payload, plen16, idata, sizeof(idata), &ilen);
-    send_resp(category, op, status, idata, ilen);
-    return;
-  }
-
-  // LED and audio are P4-native, handled locally (tiny responses).
-  if (host_led_is_op(cmd)) {
-    uint8_t d[8];
-    uint16_t l = 0;
-    uint8_t status = host_led_handle(cmd, payload, plen16, d, sizeof(d), &l);
-    send_resp(category, op, status, d, l);
-    return;
-  }
-  if (host_audio_is_op(cmd)) {
-    uint8_t d[8];
-    uint16_t l = 0;
-    uint8_t status = host_audio_handle(cmd, payload, plen16, d, sizeof(d), &l);
-    send_resp(category, op, status, d, l);
-    return;
-  }
-
-  // Sub-GHz is P4-native (CC1101); handled locally. TX_RAW carries many timings
-  // and LIST returns rows inline (no data pipe on the P4 side), so both need the
-  // larger buffer and must run before the relay cap.
-  if (host_subghz_is_op(cmd)) {
-    static uint8_t sgdata[HOST_FILE_DATA_MAX];
-    uint16_t sglen = 0;
-    uint8_t status = host_subghz_handle(cmd, payload, plen16, sgdata, sizeof(sgdata), &sglen);
-    send_resp(category, op, status, sgdata, sglen);
-    return;
-  }
-
-  if (host_badusb_is_op(cmd) || host_lora_is_op(cmd) || host_config_is_op(cmd) ||
-      host_theme_is_op(cmd)) {
-    static uint8_t ldata[HOST_FILE_DATA_MAX];
-    uint16_t llen = 0;
-    uint8_t status;
-    if (host_badusb_is_op(cmd))
-      status = host_badusb_handle(cmd, payload, plen16, ldata, sizeof(ldata), &llen);
-    else if (host_lora_is_op(cmd))
-      status = host_lora_handle(cmd, payload, plen16, ldata, sizeof(ldata), &llen);
-    else if (host_config_is_op(cmd))
-      status = host_config_handle(cmd, payload, plen16, ldata, sizeof(ldata), &llen);
-    else
-      status = host_theme_handle(cmd, payload, plen16, ldata, sizeof(ldata), &llen);
-    send_resp(category, op, status, ldata, llen);
-    return;
-  }
-
-  // Everything else relays to the C5 over SPI, whose payloads cap at one frame.
   if (plen16 > SPI_MAX_PAYLOAD) {
     send_resp(category, op, SPI_STATUS_INVALID_ARG, NULL, 0);
     return;
   }
-
   dispatch_cmd(category, op, payload, (uint8_t)plen16);
 }
 
@@ -455,6 +376,54 @@ send_resp(uint8_t category, uint8_t op, uint8_t status, const uint8_t *data, uin
   if (data_len > 0 && data != NULL)
     memcpy(payload + 1, data, data_len);
   emit_frame(HOST_TYPE_RESP, category, op, payload, (uint16_t)(1 + data_len));
+}
+
+// screen share exposes size_t out_cap; adapt it to the registry's uint16_t.
+static uint8_t screen_share_shim(uint16_t cmd,
+                                 const uint8_t *payload,
+                                 uint16_t plen,
+                                 uint8_t *out,
+                                 uint16_t out_cap,
+                                 uint16_t *out_len) {
+  return lvgl_screen_share_handle(cmd, payload, plen, out, out_cap, out_len);
+}
+
+static void register_builtins(void) {
+  static bool done = false;
+  if (done)
+    return;
+  done = true;
+
+  const host_link_handler_t builtins[] = {
+      {SPI_CAT_SYSTEM, SPI_ID_FILE_LIST & 0xFF, SPI_ID_FILE_MKDIR & 0xFF, HOST_FILE_CHUNK,
+       host_files_handle, "files"},
+      {SPI_CAT_SYSTEM, SPI_ID_SYSTEM_DEVICE_STATE & 0xFF, SPI_ID_SYSTEM_SET_SETTINGS & 0xFF,
+       HOST_FILE_DATA_MAX, host_state_handle, "state"},
+      {SPI_CAT_SYSTEM, SPI_ID_SYSTEM_CONFIG_GET & 0xFF, SPI_ID_SYSTEM_CONFIG_GET & 0xFF,
+       HOST_FILE_DATA_MAX, host_config_handle, "config-get"},
+      {SPI_CAT_SYSTEM, SPI_ID_SYSTEM_SET_THEME & 0xFF, SPI_ID_SYSTEM_SET_THEME & 0xFF,
+       HOST_FILE_DATA_MAX, host_theme_handle, "theme"},
+      {SPI_CAT_SYSTEM, SPI_ID_SYSTEM_CONFIG_SET & 0xFF, SPI_ID_SYSTEM_CONFIG_SET & 0xFF,
+       HOST_FILE_DATA_MAX, host_config_handle, "config-set"},
+      {SPI_CAT_SYSTEM, SPI_ID_APP_LIST & 0xFF, SPI_ID_APP_GRANT & 0xFF, HOST_FILE_DATA_MAX,
+       host_apps_handle, "apps"},
+      {SPI_CAT_SESSION, 0x00, 0xFF, 8, host_stream_session_ctrl, "session"},
+      {SPI_CAT_WIFI, SPI_ID_WIFI_APP_SNIFFER & 0xFF, SPI_ID_WIFI_APP_SNIFFER & 0xFF, 8,
+       host_stream_start, "wifi-sniffer"},
+      {SPI_CAT_SCREEN, 0x00, 0xFF, 8, screen_share_shim, "screen"},
+      {SPI_CAT_IR, 0x00, 0xFF, 8, host_ir_handle, "ir"},
+      {SPI_CAT_SUBGHZ, 0x00, 0xFF, HOST_FILE_DATA_MAX, host_subghz_handle, "subghz"},
+      {SPI_CAT_AUDIO, 0x00, 0xFF, 8, host_audio_handle, "audio"},
+      {SPI_CAT_LED, 0x00, 0xFF, 8, host_led_handle, "led"},
+      {SPI_CAT_BADUSB, 0x00, 0xFF, HOST_FILE_DATA_MAX, host_badusb_handle, "badusb"},
+      {SPI_CAT_LORACFG, 0x00, 0xFF, HOST_FILE_DATA_MAX, host_lora_handle, "loracfg"},
+      {SPI_CAT_LORACHAT, 0x00, 0xFF, HOST_FILE_DATA_MAX, host_lora_handle, "lorachat"},
+  };
+  for (size_t i = 0; i < sizeof(builtins) / sizeof(builtins[0]); i++) {
+    esp_err_t err = host_link_register(&builtins[i]);
+    if (err != ESP_OK)
+      ESP_LOGE(TAG, "register builtin '%s' failed: %s", builtins[i].name, esp_err_to_name(err));
+  }
 }
 
 void host_link_mark_ble_writer(host_link_writer_t writer) {

@@ -18,10 +18,6 @@
 #include "led_control.h"
 #include "spi_protocol.h"
 
-bool host_led_is_op(uint16_t cmd) {
-  return (cmd >> 8) == SPI_CAT_LED;
-}
-
 uint8_t host_led_handle(uint16_t cmd,
                         const uint8_t *payload,
                         uint16_t plen,

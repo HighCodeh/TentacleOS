@@ -99,6 +99,11 @@ void register_audio_commands(void);
  */
 void register_subghz_commands(void);
 
+/**
+ * @brief Register the app loader commands (apprun, appstop, apps, appgrant, appinstall).
+ */
+void register_apprun_commands(void);
+
 #ifdef __cplusplus
 }
 #endif

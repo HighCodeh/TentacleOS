@@ -63,10 +63,6 @@ static void badusb_run_task(void *arg) {
   vTaskDelete(NULL);
 }
 
-bool host_badusb_is_op(uint16_t cmd) {
-  return SPI_CMD_CAT(cmd) == SPI_CAT_BADUSB;
-}
-
 uint8_t host_badusb_handle(uint16_t cmd,
                            const uint8_t *payload,
                            uint16_t plen,

@@ -23,9 +23,6 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 
-/** @brief True if @p cmd is an IR host-link command (category SPI_CAT_IR). */
-bool host_ir_is_op(uint16_t cmd);
-
 /**
  * @brief Handle an IR host-link command locally on the P4 (driving Service/ir).
  *

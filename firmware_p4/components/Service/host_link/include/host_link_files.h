@@ -34,9 +34,6 @@ extern "C" {
 // Must leave room in HOST_LINK_MAX_FRAME (header + body header + status + MAC).
 #define HOST_FILE_CHUNK 3072
 
-/** @brief True if @p cmd (a packed SPI_CMD id) is a P4-local file op. */
-bool host_files_is_file_op(uint16_t cmd);
-
 /**
  * @brief Execute a file op locally.
  *

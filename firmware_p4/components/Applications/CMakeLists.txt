@@ -80,6 +80,7 @@ idf_component_register(SRCS
   # --- ui core ---
   "ui/include"
   # --- ui screens (mirrors firmware_p4_prototype) ---
+  "ui/screens/apps/include"
   "ui/screens/audio/include"
   "ui/screens/video/include"
   "ui/screens/images/include"

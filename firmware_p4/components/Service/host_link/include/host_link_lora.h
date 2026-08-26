@@ -28,9 +28,6 @@ extern "C" {
 // relayed to the C5. Chat is backed by the MeshCore stack via the lora_session
 // facade; received messages are pushed to the app as LORACHAT.RX STREAM frames.
 
-/** @brief True if @p cmd (a packed SPI_CMD id) is a LoRa config or chat op. */
-bool host_lora_is_op(uint16_t cmd);
-
 /**
  * @brief Execute a LoRa config/chat companion op locally.
  *

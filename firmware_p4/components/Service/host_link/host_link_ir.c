@@ -62,10 +62,6 @@ static void ir_rx_task(void *arg) {
   vTaskDelete(NULL);
 }
 
-bool host_ir_is_op(uint16_t cmd) {
-  return (cmd >> 8) == SPI_CAT_IR;
-}
-
 void host_ir_stop_rx(void) {
   if (s_rx_task == NULL)
     return;

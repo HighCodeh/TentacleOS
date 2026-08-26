@@ -28,9 +28,6 @@ extern "C" {
 // tos_config global, persists it, and applies the change live (brightness,
 // rotation, volume, wifi/ble enable, led). All local — never relayed to the C5.
 
-/** @brief True if @p cmd is a companion settings op (CONFIG_GET / CONFIG_SET). */
-bool host_config_is_op(uint16_t cmd);
-
 /**
  * @brief Execute a companion settings op locally.
  *

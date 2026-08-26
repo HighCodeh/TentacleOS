@@ -43,9 +43,6 @@ static const char *TAG = "HOST_LINK_STREAM";
 #define STREAM_WD_TASK_STK      3072
 #define STREAM_WD_TASK_PRIO     SYS_PRIO_SERVICE_LO
 
-// Ops the proxy owns (start via spi_session and push records to the app).
-static const uint16_t SESSION_OPS[] = {SPI_ID_WIFI_APP_SNIFFER};
-
 static SemaphoreHandle_t s_lock = NULL;
 static uint32_t s_session_id = SPI_SESSION_INVALID_ID;
 static uint16_t s_session_op = 0;
@@ -63,14 +60,6 @@ esp_err_t host_link_stream_init(void) {
       return ESP_ERR_NO_MEM;
   }
   return ESP_OK;
-}
-
-bool host_stream_is_session_op(uint16_t cmd) {
-  for (size_t i = 0; i < sizeof(SESSION_OPS) / sizeof(SESSION_OPS[0]); i++) {
-    if (SESSION_OPS[i] == cmd)
-      return true;
-  }
-  return false;
 }
 
 static void stop_locked(void) {

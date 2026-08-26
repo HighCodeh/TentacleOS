@@ -28,14 +28,8 @@ extern "C" {
 // screen (lv_snapshot) and streams it as RGB565 row-strips to the companion
 // app; the app's control buttons come back as key injections into the keypad.
 //
-// Commands (SPI_CAT_SCREEN) are dispatched locally by host_link via the two
-// functions below - they are never relayed to the C5.
-
-/**
- * @brief Whether a host-link command id belongs to screen sharing.
- * @param cmd  SPI_CMD(category, op) id.
- */
-bool lvgl_screen_share_is_host_op(uint16_t cmd);
+// The command (SPI_CAT_SCREEN) is dispatched locally by host_link via the
+// handler below; it is never relayed to the C5.
 
 /**
  * @brief Handle a screen-share command from the companion app.

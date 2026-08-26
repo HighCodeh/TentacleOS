@@ -69,11 +69,6 @@ bool host_settings_log_over_ble_enabled(void) {
   return s_log_over_ble_enabled;
 }
 
-bool host_state_is_local_op(uint16_t cmd) {
-  return cmd == SPI_ID_SYSTEM_DEVICE_STATE || cmd == SPI_ID_SYSTEM_CONSOLE_EXEC ||
-         cmd == SPI_ID_SYSTEM_GET_SETTINGS || cmd == SPI_ID_SYSTEM_SET_SETTINGS;
-}
-
 static void persist_settings(void) {
   nvs_handle_t h;
   if (nvs_open(HL_NVS_NAMESPACE, NVS_READWRITE, &h) != ESP_OK)

@@ -27,9 +27,6 @@ extern "C" {
 // the P4, so these run locally and are never relayed to the C5. RUN spawns a
 // worker task and returns immediately; poll STATUS for completion.
 
-/** @brief True if @p cmd (a packed SPI_CMD id) is a BadUSB companion op. */
-bool host_badusb_is_op(uint16_t cmd);
-
 /**
  * @brief Execute a BadUSB companion op locally.
  *

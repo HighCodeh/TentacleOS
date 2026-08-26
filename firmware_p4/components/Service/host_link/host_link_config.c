@@ -174,10 +174,6 @@ static uint8_t do_set(uint8_t section, const uint8_t *body, uint16_t blen) {
   return SPI_STATUS_OK;
 }
 
-bool host_config_is_op(uint16_t cmd) {
-  return cmd == SPI_ID_SYSTEM_CONFIG_GET || cmd == SPI_ID_SYSTEM_CONFIG_SET;
-}
-
 uint8_t host_config_handle(uint16_t cmd,
                            const uint8_t *payload,
                            uint16_t plen,

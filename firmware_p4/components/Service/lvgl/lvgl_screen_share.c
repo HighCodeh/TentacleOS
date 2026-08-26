@@ -163,10 +163,6 @@ static void inject_key(uint8_t screen_key) {
   lv_port_indev_inject(lv_key);
 }
 
-bool lvgl_screen_share_is_host_op(uint16_t cmd) {
-  return SPI_CMD_CAT(cmd) == SPI_CAT_SCREEN;
-}
-
 uint8_t lvgl_screen_share_handle(uint16_t cmd,
                                  const uint8_t *payload,
                                  uint16_t plen,

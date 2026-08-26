@@ -37,10 +37,6 @@ static void apply_theme_cb(void *arg) {
   ui_relayout_current_screen();
 }
 
-bool host_theme_is_op(uint16_t cmd) {
-  return cmd == SPI_ID_SYSTEM_SET_THEME;
-}
-
 uint8_t host_theme_handle(uint16_t cmd,
                           const uint8_t *payload,
                           uint16_t plen,

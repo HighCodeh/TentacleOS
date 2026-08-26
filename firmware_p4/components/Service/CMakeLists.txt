@@ -31,6 +31,7 @@ file(GLOB_RECURSE SPI_BRIDGE_SRCS "spi_bridge/*.c")
 file(GLOB_RECURSE BRIDGE_MANAGER_SRCS "bridge_manager/*.c")
 file(GLOB_RECURSE BT_SERVICE_SRCS "bluetooth/*.c")
 file(GLOB_RECURSE HOST_LINK_SRCS "host_link/*.c")
+file(GLOB_RECURSE APP_RUNTIME_SRCS "app_runtime/*.c")
 file(GLOB_RECURSE STORAGE_API_SRCS "storage_api/*.c")
 # storage_vfs/*.c includes usb_msc.c (expose the SD as a USB drive). NOTE: adding
 # a new .c under storage_vfs requires a CMake reconfigure to re-run this glob.
@@ -81,6 +82,7 @@ idf_component_register(SRCS
   ${BRIDGE_MANAGER_SRCS}
   ${BT_SERVICE_SRCS}
   ${HOST_LINK_SRCS}
+  ${APP_RUNTIME_SRCS}
 
   "ota/ota_service.c"
 
@@ -100,6 +102,7 @@ idf_component_register(SRCS
   "console/include"
   "spi_bridge/include"
   "host_link/include"
+  "app_runtime/include"
   "c5_flasher/include"
   "bridge_manager/include"
   "bluetooth/include"
@@ -134,6 +137,8 @@ idf_component_register(SRCS
     esp_hw_support
     espcoredump
     esp_pm
+    esp_mm
+    libsodium
 )
 
 # C5 firmware is NOT embedded in the P4 binary anymore. c5_flasher.c streams the

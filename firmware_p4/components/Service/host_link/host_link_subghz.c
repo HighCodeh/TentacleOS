@@ -108,10 +108,6 @@ static void spec_poll_task(void *arg) {
   vTaskDelete(NULL);
 }
 
-bool host_subghz_is_op(uint16_t cmd) {
-  return (cmd >> 8) == SPI_CAT_SUBGHZ;
-}
-
 void host_subghz_stop(void) {
   s_rx_run = false;
   s_spec_run = false;

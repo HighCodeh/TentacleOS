@@ -23,9 +23,6 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 
-/** @brief True if @p cmd is a Sub-GHz host-link command (category SPI_CAT_SUBGHZ). */
-bool host_subghz_is_op(uint16_t cmd);
-
 /** @brief Handle a Sub-GHz host-link command locally on the P4. Returns spi_status_t. */
 uint8_t host_subghz_handle(uint16_t cmd,
                            const uint8_t *payload,

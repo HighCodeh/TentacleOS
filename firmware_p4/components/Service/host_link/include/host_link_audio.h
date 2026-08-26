@@ -23,9 +23,6 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 
-/** @brief True if @p cmd is an audio host-link command (category SPI_CAT_AUDIO). */
-bool host_audio_is_op(uint16_t cmd);
-
 /** @brief Handle an audio host-link command locally on the P4. Returns spi_status_t. */
 uint8_t host_audio_handle(uint16_t cmd,
                           const uint8_t *payload,

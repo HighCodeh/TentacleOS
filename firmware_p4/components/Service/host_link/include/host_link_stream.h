@@ -34,9 +34,6 @@ extern "C" {
 /** @brief Init the streaming proxy (mutex + app-liveness watchdog state). */
 esp_err_t host_link_stream_init(void);
 
-/** @brief True if @p cmd starts a session-based stream the proxy should own. */
-bool host_stream_is_session_op(uint16_t cmd);
-
 /**
  * @brief Start a session-based stream on the app's behalf (spi_session_start)
  *        and begin pushing its records as STREAM frames.

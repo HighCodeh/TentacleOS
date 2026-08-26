@@ -33,6 +33,7 @@ static const struct {
   const char *icon;
   screen_id_t screen;
 } MENU_ITEMS[] = {
+    {"Apps", "/assets/icons/description.bin", SCREEN_APPS},
     {"Scripts", "/assets/icons/description.bin", SCREEN_SCRIPTS},
     {"Console", "/assets/icons/monitoring.bin", SCREEN_DEV_CONSOLE},
     {"P4 Update", "/assets/icons/system_update.bin", SCREEN_SYSTEM_UPDATE},
