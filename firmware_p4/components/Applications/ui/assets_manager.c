@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "esp_heap_caps.h"
 #include "esp_littlefs.h"
 #include "esp_log.h"
 
@@ -42,6 +43,7 @@ typedef struct asset_node {
   lv_image_dsc_t dsc;
   char *path;
   char *file;
+  uint8_t *sd_data;
   struct asset_node *next;
 } asset_node_t;
 
@@ -132,8 +134,31 @@ static void header_to_dsc(const bin_header_t *hdr, lv_image_dsc_t *dsc) {
   dsc->data_size = data_size;
 }
 
+static void load_sd_pixels(asset_node_t *n) {
+  free(n->sd_data);
+  n->sd_data = NULL;
+  if (n->file == NULL || strncmp(n->file, "/sdcard", 7) != 0)
+    return;
+  size_t sz = n->dsc.data_size;
+  if (sz == 0)
+    return;
+  uint8_t *buf = heap_caps_malloc(sz, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (buf == NULL) {
+    ESP_LOGW(TAG, "sd preload alloc failed for %s (%u B)", n->file, (unsigned)sz);
+    return;
+  }
+  FILE *f = fopen(n->file, "rb");
+  if (f == NULL || fseek(f, sizeof(bin_header_t), SEEK_SET) != 0 || fread(buf, 1, sz, f) != sz) {
+    if (f != NULL)
+      fclose(f);
+    free(buf);
+    return;
+  }
+  fclose(f);
+  n->sd_data = buf;
+}
+
 static void refresh_overridden_nodes(void) {
-  bool changed = false;
   for (asset_node_t *n = s_assets_head; n != NULL; n = n->next) {
     char eff[ASSETS_FILE_MAX];
     resolve_file(n->path, eff, sizeof(eff));
@@ -149,10 +174,9 @@ static void refresh_overridden_nodes(void) {
     free(n->file);
     n->file = nf;
     n->dsc.data = (const uint8_t *)n->file;
-    changed = true;
+    load_sd_pixels(n);
+    lv_image_cache_drop(&n->dsc);
   }
-  if (changed)
-    lv_image_cache_drop(NULL);
 }
 
 static lv_result_t asset_decoder_info(lv_image_decoder_t *decoder,
@@ -186,25 +210,29 @@ static lv_result_t asset_decoder_open(lv_image_decoder_t *decoder, lv_image_deco
     return LV_RESULT_INVALID;
   }
 
-  FILE *f = fopen(node->file, "rb");
-  if (f == NULL || fseek(f, sizeof(bin_header_t), SEEK_SET) != 0) {
-    if (f)
-      fclose(f);
-    lv_draw_buf_destroy(buf);
-    return LV_RESULT_INVALID;
-  }
+  if (node->sd_data != NULL) {
+    memcpy(buf->data, node->sd_data, buf->data_size);
+  } else {
+    FILE *f = fopen(node->file, "rb");
+    if (f == NULL || fseek(f, sizeof(bin_header_t), SEEK_SET) != 0) {
+      if (f)
+        fclose(f);
+      lv_draw_buf_destroy(buf);
+      return LV_RESULT_INVALID;
+    }
 
-  size_t got = fread(buf->data, 1, buf->data_size, f);
-  fclose(f);
+    size_t got = fread(buf->data, 1, buf->data_size, f);
+    fclose(f);
 
-  if (got != buf->data_size) {
-    ESP_LOGE(TAG,
-             "pixel read failed for %s (%u/%u)",
-             node->file,
-             (unsigned)got,
-             (unsigned)buf->data_size);
-    lv_draw_buf_destroy(buf);
-    return LV_RESULT_INVALID;
+    if (got != buf->data_size) {
+      ESP_LOGE(TAG,
+               "pixel read failed for %s (%u/%u)",
+               node->file,
+               (unsigned)got,
+               (unsigned)buf->data_size);
+      lv_draw_buf_destroy(buf);
+      return LV_RESULT_INVALID;
+    }
   }
 
   dsc->decoded = buf;
@@ -308,6 +336,7 @@ lv_image_dsc_t *assets_get(const char *path) {
 
   header_to_dsc(&hdr, &node->dsc);
   node->dsc.data = (const uint8_t *)node->file;
+  load_sd_pixels(node);
 
   node->next = s_assets_head;
   s_assets_head = node;
@@ -320,6 +349,7 @@ void assets_manager_free_all(void) {
     asset_node_t *next = curr->next;
     free(curr->path);
     free(curr->file);
+    free(curr->sd_data);
     free(curr);
     curr = next;
   }
