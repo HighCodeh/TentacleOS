@@ -32,6 +32,7 @@ extern "C" {
 #endif
 
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -46,7 +47,7 @@ typedef struct host_link_handler host_link_handler_t; // opaque to apps
 #endif
 
 #define TOS_ABI_VERSION_MAJOR 1
-#define TOS_ABI_VERSION_MINOR 1
+#define TOS_ABI_VERSION_MINOR 2
 
 /** Log levels; values match esp_log_level_t so they pass straight through. */
 typedef enum {
@@ -74,6 +75,51 @@ typedef enum {
   TOS_CAP_CONSOLE = 1u << 7,  // register console commands
 } tos_cap_t;
 
+// --- Device subsystems -----------------------------------------------------
+// Each subsystem is its own sub-struct reached via a pointer in tos_api_t
+// (`api->wifi->scan()`). This is the pattern for growing the ABI: add a new
+// `tos_<subsystem>_api_t` and one pointer here; existing apps are unaffected.
+
+/** One access point from a scan. */
+typedef struct {
+  char ssid[33];
+  uint8_t bssid[6];
+  int8_t rssi;
+  uint8_t channel;
+  uint8_t authmode; ///< esp-idf wifi_auth_mode_t value
+} tos_wifi_ap_t;
+
+/**
+ * WiFi. Discovery + station control run on the P4; monitors and attacks run on
+ * the C5 radio. Reads are ungated; scan/monitor need `radio-rx`; connect and
+ * anything that transmits (attacks, channel hop) need `radio-tx`. The session
+ * calls return a session id; end them with `session_stop`.
+ */
+typedef struct tos_wifi_api {
+  esp_err_t (*scan)(void); ///< blocks until the scan finishes (radio-rx)
+  int (*ap_count)(void);
+  esp_err_t (*ap_get)(int index, tos_wifi_ap_t *out);
+  bool (*is_connected)(void);
+  const char *(*connected_ssid)(void);
+  esp_err_t (*connect)(const char *ssid, const char *password); ///< radio-tx
+  esp_err_t (*disconnect)(void);                                ///< radio-tx
+
+  esp_err_t (*sniffer_start)(uint8_t type, uint8_t channel, bool monitor, uint32_t *out_session);
+  esp_err_t (*deauth_detect)(uint32_t *out_session);                             ///< radio-rx
+  esp_err_t (*probe_monitor)(uint32_t *out_session);                             ///< radio-rx
+  esp_err_t (*signal_monitor)(const uint8_t bssid[6], uint8_t channel, uint32_t *out_session);
+
+  esp_err_t (*deauth)(const uint8_t bssid[6], const uint8_t client[6], uint8_t type,
+                      uint8_t channel, uint32_t *out_session);            ///< radio-tx
+  esp_err_t (*deauth_broadcast)(const uint8_t bssid[6], uint8_t type, uint8_t channel);
+  esp_err_t (*flood)(uint8_t type, const uint8_t bssid[6], uint8_t channel, uint32_t *out_session);
+  esp_err_t (*beacon_spam)(const char *ssid_list_path, uint32_t *out_session); ///< NULL = random
+  esp_err_t (*evil_twin)(const char *ssid, uint32_t *out_session);
+
+  esp_err_t (*session_stop)(uint32_t session); ///< stop any session above
+  esp_err_t (*channel_hop)(bool enable);       ///< radio-tx
+} tos_wifi_api_t;
+
 /**
  * The host API table. Built once and shared const by every app. Grouped by the
  * capability that gates each call; the lifecycle group is always available.
@@ -100,6 +146,9 @@ typedef struct tos_api {
 
   // Device surfaces (grow additively, minor-bumped). led_set needs TOS_CAP_UI.
   esp_err_t (*led_set)(uint8_t r, uint8_t g, uint8_t b);
+
+  // Subsystem namespaces (each its own sub-struct; per-call capability gating).
+  const tos_wifi_api_t *wifi;
 } tos_api_t;
 
 /** @brief The shared, const host API table handed to every app at entry. */

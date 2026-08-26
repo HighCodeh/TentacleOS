@@ -107,6 +107,8 @@ static esp_err_t api_led_set(uint8_t r, uint8_t g, uint8_t b) {
   return ESP_OK;
 }
 
+extern const tos_wifi_api_t tos_wifi_api_impl; // tos_api_wifi.c
+
 static const tos_api_t s_api = {
     .abi_major = TOS_ABI_VERSION_MAJOR,
     .abi_minor = TOS_ABI_VERSION_MINOR,
@@ -121,6 +123,7 @@ static const tos_api_t s_api = {
     .console_register = api_console_register,
     .console_unregister = api_console_unregister,
     .led_set = api_led_set,
+    .wifi = &tos_wifi_api_impl,
 };
 
 const tos_api_t *tos_api_get(void) {
