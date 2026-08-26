@@ -22,18 +22,13 @@
 #include "esp_err.h"
 #include "esp_heap_caps.h"
 
-#include "alloc_hb.h"
-#include "blink_hb.h"
-#include "counter_hb.h"
-#include "hello_hb.h"
-#include "spin_hb.h"
-#include "svc_hb.h"
 #include "tos_api.h"
 #include "tos_app_mgr.h"
 #include "tos_grants.h"
 #include "tos_hb.h"
 
 #define APP_MAX_HB_SIZE (512 * 1024)
+#define APPS_DIR        "/sdcard/apps"
 
 static void print_caps(uint32_t caps) {
   static const struct {
@@ -56,76 +51,48 @@ static void print_caps(uint32_t caps) {
     printf("(none)");
 }
 
-static const uint8_t *embedded_app(const char *name, size_t *out_len) {
-  if (strcmp(name, "hello") == 0) {
-    *out_len = hello_hb_len;
-    return hello_hb;
-  }
-  if (strcmp(name, "blink") == 0) {
-    *out_len = blink_hb_len;
-    return blink_hb;
-  }
-  if (strcmp(name, "counter") == 0) {
-    *out_len = counter_hb_len;
-    return counter_hb;
-  }
-  if (strcmp(name, "alloc") == 0) {
-    *out_len = alloc_hb_len;
-    return alloc_hb;
-  }
-  if (strcmp(name, "svc") == 0) {
-    *out_len = svc_hb_len;
-    return svc_hb;
-  }
-  if (strcmp(name, "spin") == 0) {
-    *out_len = spin_hb_len;
-    return spin_hb;
-  }
-  return NULL;
-}
-
 static int cmd_apprun(int argc, char **argv) {
-  const uint8_t *buf;
-  size_t len;
-  uint8_t *heapbuf = NULL;
-
-  if (argc >= 2 && argv[1][0] == '/') {
-    FILE *f = fopen(argv[1], "rb");
-    if (f == NULL) {
-      printf("apprun: cannot open %s\n", argv[1]);
-      return 1;
-    }
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (sz <= 0 || sz > APP_MAX_HB_SIZE) {
-      fclose(f);
-      printf("apprun: bad file size %ld\n", sz);
-      return 1;
-    }
-    heapbuf = heap_caps_malloc((size_t)sz, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (heapbuf == NULL) {
-      fclose(f);
-      printf("apprun: out of memory\n");
-      return 1;
-    }
-    size_t rd = fread(heapbuf, 1, (size_t)sz, f);
-    fclose(f);
-    if (rd != (size_t)sz) {
-      heap_caps_free(heapbuf);
-      printf("apprun: short read\n");
-      return 1;
-    }
-    buf = heapbuf;
-    len = (size_t)sz;
-  } else {
-    const char *name = (argc >= 2) ? argv[1] : "hello";
-    buf = embedded_app(name, &len);
-    if (buf == NULL) {
-      printf("apprun: unknown app '%s' (try: hello, blink, or /sdcard/x.hb)\n", name);
-      return 1;
-    }
+  if (argc < 2) {
+    printf("usage: apprun <name>|/path/to.hb [grant]   (apps live in %s)\n", APPS_DIR);
+    return 1;
   }
+
+  // A bare name resolves to /sdcard/apps/<name>.hb; a path is used verbatim.
+  char pathbuf[96];
+  const char *path = argv[1];
+  if (argv[1][0] != '/') {
+    snprintf(pathbuf, sizeof(pathbuf), APPS_DIR "/%s.hb", argv[1]);
+    path = pathbuf;
+  }
+
+  FILE *f = fopen(path, "rb");
+  if (f == NULL) {
+    printf("apprun: cannot open %s\n", path);
+    return 1;
+  }
+  fseek(f, 0, SEEK_END);
+  long sz = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  if (sz <= 0 || sz > APP_MAX_HB_SIZE) {
+    fclose(f);
+    printf("apprun: bad file size %ld\n", sz);
+    return 1;
+  }
+  uint8_t *heapbuf = heap_caps_malloc((size_t)sz, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (heapbuf == NULL) {
+    fclose(f);
+    printf("apprun: out of memory\n");
+    return 1;
+  }
+  size_t rd = fread(heapbuf, 1, (size_t)sz, f);
+  fclose(f);
+  if (rd != (size_t)sz) {
+    heap_caps_free(heapbuf);
+    printf("apprun: short read\n");
+    return 1;
+  }
+  const uint8_t *buf = heapbuf;
+  size_t len = (size_t)sz;
 
   // Consent gate: an app runs only with capabilities the user approved. Peek the
   // manifest (this also verifies the signature) and compare against stored grants.
@@ -248,38 +215,10 @@ static int cmd_appgrant(int argc, char **argv) {
   return 0;
 }
 
-static int cmd_appinstall(int argc, char **argv) {
-  if (argc < 2) {
-    printf("usage: appinstall <name>  (installs an embedded app to /sdcard/apps)\n");
-    return 1;
-  }
-  size_t len;
-  const uint8_t *buf = embedded_app(argv[1], &len);
-  if (buf == NULL) {
-    printf("appinstall: unknown app '%s'\n", argv[1]);
-    return 1;
-  }
-  char path[64];
-  snprintf(path, sizeof(path), "/sdcard/apps/%s.hb", argv[1]);
-  FILE *f = fopen(path, "wb");
-  if (f == NULL) {
-    printf("appinstall: cannot write %s (is the SD card mounted?)\n", path);
-    return 1;
-  }
-  size_t wr = fwrite(buf, 1, len, f);
-  fclose(f);
-  if (wr != len) {
-    printf("appinstall: short write\n");
-    return 1;
-  }
-  printf("appinstall: %s -> %s (%u bytes)\n", argv[1], path, (unsigned)wr);
-  return 0;
-}
-
 void register_apprun_commands(void) {
   const esp_console_cmd_t run = {.command = "apprun",
-                                 .help = "Run a .hb app: hello, blink, counter, alloc, svc, spin, or /sdcard path",
-                                 .hint = "[hello|blink|counter|alloc|svc|spin|/sdcard/x.hb]",
+                                 .help = "Run a .hb app from /sdcard/apps: apprun <name>|/path.hb [grant]",
+                                 .hint = "<name>|/path.hb [grant]",
                                  .func = &cmd_apprun};
   const esp_console_cmd_t stop = {.command = "appstop",
                                   .help = "Stop a running app: appstop [name]",
@@ -291,13 +230,8 @@ void register_apprun_commands(void) {
                                    .help = "List capability grants, or: appgrant <name> revoke",
                                    .hint = "[name revoke]",
                                    .func = &cmd_appgrant};
-  const esp_console_cmd_t install = {.command = "appinstall",
-                                     .help = "Copy an embedded app to /sdcard/apps for the Apps screen",
-                                     .hint = "<name>",
-                                     .func = &cmd_appinstall};
   ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&run));
   ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&stop));
   ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&list));
   ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&grant));
-  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&install));
 }

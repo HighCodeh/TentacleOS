@@ -100,7 +100,7 @@ void register_audio_commands(void);
 void register_subghz_commands(void);
 
 /**
- * @brief Register the app loader commands (apprun, appstop, apps, appgrant, appinstall).
+ * @brief Register the app loader commands (apprun, appstop, apps, appgrant).
  */
 void register_apprun_commands(void);
 
