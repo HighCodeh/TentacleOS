@@ -163,6 +163,15 @@ typedef enum {
   SPI_ID_SYSTEM_CONFIG_GET = SPI_CMD(SPI_CAT_SYSTEM, 0x4B),
   SPI_ID_SYSTEM_CONFIG_SET = SPI_CMD(SPI_CAT_SYSTEM, 0x4D),
 
+  // P4-local app manager over the companion link (host_link). Handled on the P4,
+  // never sent to the C5; reserved here to keep the two copies in sync.
+  SPI_ID_APP_LIST = SPI_CMD(SPI_CAT_SYSTEM, 0x54),    // -> [count u8] then per app
+  SPI_ID_APP_INSTALL = SPI_CMD(SPI_CAT_SYSTEM, 0x55), // validate /sdcard/apps/<name>.hb
+  SPI_ID_APP_START = SPI_CMD(SPI_CAT_SYSTEM, 0x56),   // start <name>
+  SPI_ID_APP_STOP = SPI_CMD(SPI_CAT_SYSTEM, 0x57),    // stop <name>
+  SPI_ID_APP_REMOVE = SPI_CMD(SPI_CAT_SYSTEM, 0x58),  // delete <name>.hb + clear grant
+  SPI_ID_APP_GRANT = SPI_CMD(SPI_CAT_SYSTEM, 0x59),   // approve <name>'s requested caps
+
   // WiFi Basic
   SPI_ID_WIFI_SCAN = SPI_CMD(SPI_CAT_WIFI, 0x10),
   SPI_ID_WIFI_SCAN_STATUS = SPI_CMD(SPI_CAT_WIFI, 0x50), // P4 polls this: 1 = scan running
