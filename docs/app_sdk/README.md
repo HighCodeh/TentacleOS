@@ -37,15 +37,16 @@ cd tools/app_sdk
 ./build.sh                     # compiles + signs every app_sdk/<name>/app.c -> <name>/app.hb
 ```
 
-Then on the device console:
+Copy `tools/app_sdk/hello/app.hb` to `/sdcard/apps/hello.hb` (card reader, or the
+companion `FILE_WRITE`). Then on the device console:
 
 ```
-appinstall hello               # copies the embedded hello.hb to /sdcard/apps
 apprun hello grant             # first run: approve its capabilities, then run
 ```
 
 Or, on the device UI: **menu -> DEV -> Apps**, pick the app, press OK, and approve
-the capability prompt.
+the capability prompt. Apps live only on the SD card (`/sdcard/apps/*.hb`); the
+firmware ships no built-in apps.
 
 ---
 
@@ -118,6 +119,33 @@ The full contract is `Service/app_runtime/include/tos_api.h`. ABI version 1.1.
 The surface grows additively (minor ABI bumps); an app built against 1.x keeps
 running on any firmware with the same major and a >= minor.
 
+### Subsystems (`api->wifi`, …)
+
+Bigger areas are their own sub-struct reached by a pointer, so calls read as
+`api->wifi->scan()`. WiFi is the first (ABI 1.2); the same shape is how every
+future subsystem (ir, subghz, ble, …) is added.
+
+**`api->wifi`** — full reference in `tos_api.h` (`tos_wifi_api_t`):
+
+| Call | Capability | Notes |
+|------|-----------|-------|
+| `scan()` | `radio-rx` | blocks until the scan finishes |
+| `ap_count()` / `ap_get(i, &ap)` | `radio-rx` | read results after `scan()`; `ap` is `tos_wifi_ap_t` |
+| `is_connected()` / `connected_ssid()` | — | station state |
+| `connect(ssid, pass)` / `disconnect()` | `radio-tx` | join / leave an AP |
+| `sniffer_start(type, ch, monitor, &sid)` | `radio-rx` | 802.11 sniffer; returns a session id |
+| `deauth_detect(&sid)` / `probe_monitor(&sid)` / `signal_monitor(bssid, ch, &sid)` | `radio-rx` | monitors |
+| `deauth(bssid, client, type, ch, &sid)` | `radio-tx` | targeted deauth session |
+| `deauth_broadcast(bssid, type, ch)` | `radio-tx` | single-shot broadcast deauth |
+| `flood(type, bssid, ch, &sid)` | `radio-tx` | auth/assoc/probe flood |
+| `beacon_spam(ssid_list_path, &sid)` | `radio-tx` | `NULL` = random SSIDs |
+| `evil_twin(ssid, &sid)` | `radio-tx` | fake AP + captive portal |
+| `session_stop(sid)` | — | stop any monitor/attack session |
+| `channel_hop(enable)` | `radio-tx` | radio channel hopping |
+
+The app never sees the SPI ids or byte layouts underneath — just typed calls.
+This is the reference for exposing firmware to apps (see "Extending the ABI").
+
 ---
 
 ## 5. Capabilities
@@ -155,8 +183,7 @@ minimum: the consent prompt shows exactly what you ask for.
 
 `build.sh` compiles and signs every `app_sdk/<name>/app.c`. Put your app in its own
 dir (`tools/app_sdk/myapp/app.c`), optionally a `caps` file (hex, default `0x20`),
-then run `./build.sh`. It also regenerates the embedded copy the firmware ships for
-`appinstall`/`apprun <name>`.
+then run `./build.sh`. Output is `<name>/app.hb` — copy it to `/sdcard/apps/`.
 
 ### By hand
 
@@ -187,9 +214,8 @@ a section-based ET_REL relocator, so it needs per-section, un-relaxed relocation
 
 ## 7. Install, run, manage
 
-### Install
+Apps live only in `/sdcard/apps/*.hb` — the firmware ships none.
 
-- **Console:** `appinstall <name>` copies a built-in example to `/sdcard/apps`.
 - **Manual:** copy `myapp.hb` to `/sdcard/apps/myapp.hb` (card reader / USB-MSC).
 - **Companion:** `FILE_WRITE` the bundle to `/sdcard/apps/<name>.hb`, then
   `APP_INSTALL <name>` to verify the signature (see
@@ -211,7 +237,6 @@ a section-based ET_REL relocator, so it needs per-section, un-relaxed relocation
 | `appstop [name]` | stop one (or the only one if unnamed) |
 | `appgrant` | list stored capability grants |
 | `appgrant <name> revoke` | revoke a grant (re-prompts next run) |
-| `appinstall <name>` | copy an embedded example to `/sdcard/apps` |
 
 Up to `TOS_APP_MAX` (4) apps run concurrently.
 
@@ -236,7 +261,31 @@ Up to `TOS_APP_MAX` (4) apps run concurrently.
 
 ---
 
-## 9. Example apps
+## 9. Extending the ABI (for firmware devs)
+
+The API only lets apps do what the firmware **exposes**. Exposing more is done in
+the firmware, on purpose, as typed curated functions — never by handing apps the
+internal command table. The pattern (WiFi is the worked example):
+
+1. **Declare the surface** in `tos_api.h`: a `tos_<sys>_api_t` sub-struct of
+   function pointers, and a `const tos_<sys>_api_t *<sys>;` pointer in `tos_api_t`.
+   Use self-contained types (no firmware/IDF structs leak into the ABI). Bump
+   `TOS_ABI_VERSION_MINOR` (additive).
+2. **Implement wrappers** in `tos_api_<sys>.c`: each function checks a capability
+   (`if (!tos_app_cap_check(TOS_CAP_...)) return ESP_ERR_NOT_SUPPORTED;`), then
+   calls the real firmware (a service function, or `spi_bridge_send_command` to
+   the C5), converting to/from the ABI's typed args. Define the
+   `const tos_<sys>_api_t tos_<sys>_api_impl = { ... }` table.
+3. **Wire it** in `tos_api.c`: `extern` the impl and set `.<sys> = &tos_<sys>_api_impl`.
+4. **Document** the calls + their capabilities here.
+
+`tos_api_wifi.c` is the template: connectivity wraps `wifi_service_*`; the
+monitors/attacks wrap `spi_bridge_send_command(SPI_ID_WIFI_*, …)`. Each new area
+(ir, subghz, ble) follows the same four steps.
+
+---
+
+## 10. Example apps
 
 In [`tools/app_sdk/`](../../tools/app_sdk), each is one `app.c` you can copy:
 
@@ -248,3 +297,4 @@ In [`tools/app_sdk/`](../../tools/app_sdk), each is one `app.c` you can copy:
 | `alloc` | the memory arena (allocates, leaks, gets reclaimed) |
 | `svc` | registers a console command, runs until stopped |
 | `spin` | a misbehaving app (ignores stop) — exercises force-kill |
+| `wifiscan` | the WiFi subsystem: `api->wifi->scan()` + typed results |

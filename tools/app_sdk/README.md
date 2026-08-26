@@ -18,8 +18,9 @@ Phase 8 of `APP_PLATFORM_PLAN.md`.
   firmware trust-store header. Reflash after running it.
 - `keys/dev_ed25519.key` — the dev signing key (throwaway; production keys are
   managed separately and kept out of the repo).
-- `hello/`, `blink/`, `counter/`, `alloc/`, `svc/`, `spin/` — example apps, one
-  `app.c` each (see the guide's example table).
+- `hello/`, `blink/`, `counter/`, `alloc/`, `svc/`, `spin/`, `wifiscan/` — example
+  apps, one `app.c` each (see the guide's example table). `wifiscan` shows the
+  `api->wifi` subsystem.
 
 Per-app `caps` file (hex, e.g. `0x80`) sets the capabilities the app requests;
 default is `0x20` (ui).
