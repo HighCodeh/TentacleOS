@@ -78,7 +78,7 @@ On first boot, `tos_first_boot_setup()` creates the full directory tree on the S
 ├── badusb/assets/     - DuckyScript payloads + keyboard layouts
 ├── themes/            - Custom themes (*/theme.conf)
 ├── ringtones/         - Custom sounds
-├── apps/              - External apps (.tap)
+├── apps/              - External apps (.hb)
 ├── apps_data/         - App persistence
 ├── scripts/           - User scripts
 ├── logs/              - System logs

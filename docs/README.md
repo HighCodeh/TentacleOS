@@ -9,6 +9,7 @@ README.md, separated by `---`.
 
 - [host_link/](host_link/README.md) - companion app link: overview, [app implementation guide](host_link/app-guide.md), [protocol spec](host_link/protocol.md), per-firmware sections
 - [spi_bridge/](spi_bridge/README.md) - P4<->C5 SPI bridge: architecture + per-firmware sections
+- [app_sdk/](app_sdk/README.md) - **write an app for the device**: build, sign, install, run (loads signed `.hb` bundles from SD; plan in [`../APP_PLATFORM_PLAN.md`](../APP_PLATFORM_PLAN.md))
 
 ## All components
 
