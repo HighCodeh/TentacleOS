@@ -24,6 +24,7 @@
 #include "freertos/task.h"
 #include "sys_prio.h"
 
+#include "resource_mgr.h"
 #include "spi_bridge.h"
 #include "spi_timeouts.h"
 
@@ -49,6 +50,10 @@ static session_state_t s_state = {0};
 static SemaphoreHandle_t s_mutex = NULL;
 static bool s_initialized = false;
 
+// The RES_WIFI grant held for the active session (UI/firmware path). Released
+// whenever the session ends; see notify_lost_locked and spi_session_stop.
+static res_handle_t s_res_handle = RES_HANDLE_NONE;
+
 static void notify_lost_locked(const char *reason) {
   if (s_state.session_id == SPI_SESSION_INVALID_ID)
     return;
@@ -67,9 +72,21 @@ static void notify_lost_locked(const char *reason) {
 
   spi_bridge_unregister_stream_cb(stream_id);
   memset(&s_state, 0, sizeof(s_state));
+  resource_release(s_res_handle); // safe under the lock: never fires a callback
+  s_res_handle = RES_HANDLE_NONE;
 
   if (cb != NULL)
     cb(lost_id, lost_op);
+}
+
+// resource_mgr fires this (outside its lock) if a higher-priority owner takes the
+// radio from us. The grant is already released; drop the session too.
+static void session_res_revoked(void *user) {
+  (void)user;
+  xSemaphoreTake(s_mutex, portMAX_DELAY);
+  s_res_handle = RES_HANDLE_NONE;
+  notify_lost_locked("radio preempted");
+  xSemaphoreGive(s_mutex);
 }
 
 static void on_session_stream(spi_id_t id, const uint8_t *payload, uint8_t len) {
@@ -163,6 +180,7 @@ static void heartbeat_task(void *arg) {
 void spi_session_init(void) {
   if (s_initialized)
     return;
+  resource_mgr_init();
   s_mutex = xSemaphoreCreateMutex();
   spi_bridge_register_stream_cb(SPI_ID_SESSION_LOST, on_session_lost_stream);
   s_initialized = true;
@@ -189,6 +207,25 @@ uint32_t spi_session_start(spi_id_t op_id,
   }
   xSemaphoreGive(s_mutex);
 
+  // Reserve the radio for the UI/firmware path. spi_session is generic (WiFi and
+  // BLE sessions both flow through it), so pick the resource from the op category.
+  // This preempts a lower-priority app holding it (its session is stopped) and is
+  // refused only if a higher-or-equal owner holds it.
+  res_id_t res_id = (SPI_CMD_CAT(op_id) == SPI_CAT_BT) ? RES_BLE : RES_WIFI;
+  res_request_t res_req = {.id = res_id,
+                           .lane = RES_LANE_MAIN,
+                           .owner_kind = RES_OWNER_UI,
+                           .owner_task = NULL,
+                           .allow_preempt = true,
+                           .on_revoke = session_res_revoked,
+                           .user = NULL};
+  res_handle_t new_handle = RES_HANDLE_NONE;
+  if (resource_acquire(&res_req, &new_handle) != ESP_OK) {
+    ESP_LOGW(TAG, "WiFi radio busy; cannot start op 0x%04X", op_id);
+    led_signal_error();
+    return SPI_SESSION_INVALID_ID;
+  }
+
   spi_header_t resp_header = {0};
   spi_session_resp_t resp = {0};
   esp_err_t ret = spi_bridge_send_command(op_id,
@@ -201,11 +238,13 @@ uint32_t spi_session_start(spi_id_t op_id,
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "START op 0x%04X bridge error: %s", op_id, esp_err_to_name(ret));
     led_signal_error();
+    resource_release(new_handle);
     return SPI_SESSION_INVALID_ID;
   }
   if (resp.session_id == SPI_SESSION_INVALID_ID) {
     ESP_LOGE(TAG, "START op 0x%04X did not return a session id", op_id);
     led_signal_error();
+    resource_release(new_handle);
     return SPI_SESSION_INVALID_ID;
   }
 
@@ -216,6 +255,7 @@ uint32_t spi_session_start(spi_id_t op_id,
   s_state.on_stream = on_stream;
   s_state.on_lost = on_lost;
   s_state.stop_requested = false;
+  s_res_handle = new_handle;
   spi_bridge_register_stream_cb(op_id, on_session_stream);
   BaseType_t ok = xTaskCreatePinnedToCore(heartbeat_task,
                                           "spi_session_hb",
@@ -261,6 +301,8 @@ esp_err_t spi_session_stop(uint32_t session_id) {
   if (s_state.session_id == session_id) {
     spi_bridge_unregister_stream_cb(s_state.op_id);
     memset(&s_state, 0, sizeof(s_state));
+    resource_release(s_res_handle);
+    s_res_handle = RES_HANDLE_NONE;
   }
   xSemaphoreGive(s_mutex);
 

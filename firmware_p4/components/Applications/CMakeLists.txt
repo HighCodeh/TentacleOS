@@ -156,6 +156,7 @@ idf_component_register(SRCS
   nvs_flash
   espressif__esp-dsp
   chmorgan__esp-libhelix-mp3
+  resource_mgr
 )
 target_link_libraries(${COMPONENT_LIB} -Wl,-zmuldefs)
 target_compile_definitions(${COMPONENT_LIB} PRIVATE MESH_HEADLESS=0)

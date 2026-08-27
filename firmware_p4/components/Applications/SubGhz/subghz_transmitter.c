@@ -30,8 +30,14 @@
 
 #include "cc1101.h"
 #include "pin_def.h"
+#include "resource_mgr.h"
 
 static const char *TAG = "SUBGHZ_TX";
+
+// RES_SUBGHZ grant held while the CC1101 is in TX mode. TX and RX are mutually
+// exclusive (RX start stops TX first, and brute/replay stop RX before TX), so
+// the two paths never both hold the radio.
+static res_handle_t s_tx_res = RES_HANDLE_NONE;
 
 #define RMT_RESOLUTION_HZ     1000000
 #define TX_QUEUE_SIZE         10
@@ -147,6 +153,16 @@ esp_err_t subghz_tx_init(void) {
     return ESP_OK;
   }
 
+  res_request_t res_req = {.id = RES_SUBGHZ,
+                           .lane = RES_LANE_MAIN,
+                           .owner_kind = RES_OWNER_UI,
+                           .owner_task = NULL,
+                           .allow_preempt = false};
+  if (resource_acquire(&res_req, &s_tx_res) != ESP_OK) {
+    ESP_LOGW(TAG, "SubGhz radio busy; TX not started");
+    return ESP_ERR_INVALID_STATE;
+  }
+
   ESP_LOGI(TAG, "Initializing SubGhz Transmitter (Async Task)");
 
   cc1101_strobe(CC1101_SIDLE);
@@ -162,6 +178,8 @@ esp_err_t subghz_tx_init(void) {
   esp_err_t err = rmt_new_tx_channel(&tx_channel_cfg, &s_tx_channel);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "rmt_new_tx_channel failed: %s", esp_err_to_name(err));
+    resource_release(s_tx_res);
+    s_tx_res = RES_HANDLE_NONE;
     return err;
   }
 
@@ -171,6 +189,8 @@ esp_err_t subghz_tx_init(void) {
     ESP_LOGE(TAG, "rmt_new_copy_encoder failed: %s", esp_err_to_name(err));
     rmt_del_channel(s_tx_channel);
     s_tx_channel = NULL;
+    resource_release(s_tx_res);
+    s_tx_res = RES_HANDLE_NONE;
     return err;
   }
 
@@ -181,6 +201,8 @@ esp_err_t subghz_tx_init(void) {
     rmt_del_channel(s_tx_channel);
     s_copy_encoder = NULL;
     s_tx_channel = NULL;
+    resource_release(s_tx_res);
+    s_tx_res = RES_HANDLE_NONE;
     return err;
   }
 
@@ -190,6 +212,8 @@ esp_err_t subghz_tx_init(void) {
   s_tx_queue = xQueueCreate(TX_QUEUE_SIZE, sizeof(subghz_tx_item_t));
   if (s_tx_queue == NULL) {
     ESP_LOGE(TAG, "Failed to create TX Queue");
+    resource_release(s_tx_res);
+    s_tx_res = RES_HANDLE_NONE;
     return ESP_ERR_NO_MEM;
   }
 
@@ -236,6 +260,9 @@ void subghz_tx_stop(void) {
   }
 
   cc1101_strobe(CC1101_SIDLE);
+
+  resource_release(s_tx_res);
+  s_tx_res = RES_HANDLE_NONE;
 
   s_tx_task_handle = NULL;
 }

@@ -25,6 +25,7 @@
 #include "tusb_desc.h"
 
 #include "hid_hal.h"
+#include "resource_mgr.h"
 
 static const char *TAG = "BAD_USB";
 
@@ -35,6 +36,7 @@ static const char *TAG = "BAD_USB";
 #define USB_MOUNT_TIMEOUT_MS   8000
 
 static bool s_is_initialized = false;
+static res_handle_t s_hid_res = RES_HANDLE_NONE; // RES_HID_USB held while TinyUSB HID is installed
 
 static void send_keyboard_report(uint8_t keycode, uint8_t modifier);
 static void send_mouse_report(int8_t x, int8_t y, uint8_t buttons, int8_t wheel);
@@ -46,9 +48,21 @@ esp_err_t bad_usb_init(void) {
     return ESP_ERR_INVALID_STATE;
   }
 
+  res_request_t res_req = {.id = RES_HID_USB,
+                           .lane = RES_LANE_MAIN,
+                           .owner_kind = RES_OWNER_UI,
+                           .owner_task = NULL,
+                           .allow_preempt = false};
+  if (resource_acquire(&res_req, &s_hid_res) != ESP_OK) {
+    ESP_LOGW(TAG, "USB HID busy; BadUSB not started");
+    return ESP_ERR_INVALID_STATE;
+  }
+
   esp_err_t err = busb_init();
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to initialize TinyUSB: %s", esp_err_to_name(err));
+    resource_release(s_hid_res);
+    s_hid_res = RES_HANDLE_NONE;
     return err;
   }
 
@@ -76,6 +90,8 @@ esp_err_t bad_usb_deinit(void) {
   }
 
   s_is_initialized = false;
+  resource_release(s_hid_res);
+  s_hid_res = RES_HANDLE_NONE;
   ESP_LOGI(TAG, "Deinitialized");
   return ESP_OK;
 }

@@ -53,9 +53,16 @@ typedef struct {
   uint32_t granted_caps;    ///< bitmask of tos_cap_t the loader granted
   const char *id;           ///< app id, for logs
   volatile bool *stop;      ///< set true to ask the app to exit (NULL = never)
+  volatile bool *res_lost;  ///< set true when a radio the app held was preempted (NULL = untracked)
   struct tos_arena *arena;  ///< per-app allocation arena (NULL = untracked)
   tos_app_regs_t *regs;     ///< commands the app registered (NULL = untracked)
 } tos_app_ctx_t;
+
+/** @brief Set the resource-lost flag for the app bound to @p task (revoke side). */
+void tos_app_ctx_signal_resource_lost(void *task);
+
+/** @brief Clear the calling app's resource-lost flag (on a successful acquire). */
+void tos_app_ctx_clear_resource_lost(void);
 
 /** @brief Record a console/host_link command the running app registered. */
 void tos_app_regs_record_console(tos_app_regs_t *regs, const char *cmd);

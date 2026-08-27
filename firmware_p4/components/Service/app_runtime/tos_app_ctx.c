@@ -108,6 +108,27 @@ bool tos_app_cap_check(uint32_t cap) {
   return (ctx->granted_caps & cap) == cap;
 }
 
+void tos_app_ctx_signal_resource_lost(void *task) {
+  if (s_lock == NULL || task == NULL)
+    return;
+  xSemaphoreTake(s_lock, portMAX_DELAY);
+  for (int i = 0; i < TOS_MAX_APP_BINDINGS; i++) {
+    if (s_bindings[i].task == task) {
+      tos_app_ctx_t *ctx = s_bindings[i].ctx;
+      if (ctx != NULL && ctx->res_lost != NULL)
+        *ctx->res_lost = true;
+      break;
+    }
+  }
+  xSemaphoreGive(s_lock);
+}
+
+void tos_app_ctx_clear_resource_lost(void) {
+  tos_app_ctx_t *ctx = tos_app_ctx_current();
+  if (ctx != NULL && ctx->res_lost != NULL)
+    *ctx->res_lost = false;
+}
+
 static const char *REG_TAG = "TOS_APP_CTX";
 
 void tos_app_regs_record_console(tos_app_regs_t *regs, const char *cmd) {

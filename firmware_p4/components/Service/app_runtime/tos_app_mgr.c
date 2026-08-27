@@ -24,6 +24,7 @@
 #include "freertos/task.h"
 
 #include "led_control.h"
+#include "resource_mgr.h"
 #include "sys_prio.h"
 #include "tos_app_ctx.h"
 #include "tos_arena.h"
@@ -39,6 +40,7 @@ static const char *TAG = "TOS_APP_MGR";
 typedef struct {
   volatile bool active;
   volatile bool stop;
+  volatile bool res_lost;
   volatile bool cleaning;
   bool has_img;
   TaskHandle_t task;
@@ -79,6 +81,7 @@ static bool claim_cleanup(app_slot_t *a) {
 // (natural exit) or the killer (force-kill).
 static void finish_slot(app_slot_t *a) {
   tos_app_ctx_unbind(a->task); // covers force-kill, which never unbinds itself
+  resource_release_owner_task(a->task); // stop any radio the app left running
   tos_app_regs_teardown(&a->regs);
   if (a->caps & TOS_CAP_UI)
     led_clear(); // only if this app could have driven the LED
@@ -103,6 +106,7 @@ static void app_task(void *arg) {
   tos_app_ctx_t ctx = {.granted_caps = a->caps,
                        .id = a->name,
                        .stop = &a->stop,
+                       .res_lost = &a->res_lost,
                        .arena = a->arena,
                        .regs = &a->regs};
   tos_app_ctx_bind(xTaskGetCurrentTaskHandle(), &ctx);
@@ -144,6 +148,7 @@ esp_err_t tos_app_mgr_start(const uint8_t *hb, size_t len, const tos_api_t *api)
       a = &s_apps[i];
       a->active = true;
       a->stop = false;
+      a->res_lost = false;
       a->cleaning = false;
       a->has_img = false;
       a->arena = NULL;

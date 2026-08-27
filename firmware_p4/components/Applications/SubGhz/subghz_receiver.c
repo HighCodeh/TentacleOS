@@ -34,8 +34,13 @@
 #include "subghz_analyzer.h"
 #include "subghz_storage.h"
 #include "subghz_transmitter.h"
+#include "resource_mgr.h"
 
 static const char *TAG = "SUBGHZ_RX";
+
+// RES_SUBGHZ grant held while the CC1101 is in RX mode. Acquired after
+// subghz_tx_stop() (which releases the TX grant), so the radio is free.
+static res_handle_t s_rx_res = RES_HANDLE_NONE;
 
 #define RMT_RESOLUTION_HZ     1000000
 #define RX_BUFFER_SIZE        1024
@@ -392,6 +397,8 @@ cleanup:
     s_rx_queue = NULL;
   }
   s_is_running = false;
+  resource_release(s_rx_res); // covers a self-exit that never went through _stop
+  s_rx_res = RES_HANDLE_NONE;
   s_rx_task_handle = NULL;
   vTaskDelete(NULL);
 }
@@ -402,6 +409,16 @@ esp_err_t subghz_receiver_start(subghz_mode_t mode, cc1101_preset_t preset, uint
   }
 
   subghz_tx_stop();
+
+  res_request_t res_req = {.id = RES_SUBGHZ,
+                           .lane = RES_LANE_MAIN,
+                           .owner_kind = RES_OWNER_UI,
+                           .owner_task = NULL,
+                           .allow_preempt = false};
+  if (resource_acquire(&res_req, &s_rx_res) != ESP_OK) {
+    ESP_LOGW(TAG, "SubGhz radio busy; RX not started");
+    return ESP_ERR_INVALID_STATE;
+  }
 
   s_rx_mode = mode;
   s_rx_preset = preset;
@@ -433,6 +450,8 @@ esp_err_t subghz_receiver_start(subghz_mode_t mode, cc1101_preset_t preset, uint
                                            RX_TASK_CORE);
   if (ret != pdPASS) {
     ESP_LOGE(TAG, "Failed to create RX task");
+    resource_release(s_rx_res);
+    s_rx_res = RES_HANDLE_NONE;
     return ESP_ERR_NO_MEM;
   }
 
@@ -441,6 +460,8 @@ esp_err_t subghz_receiver_start(subghz_mode_t mode, cc1101_preset_t preset, uint
 
 void subghz_receiver_stop(void) {
   s_is_running = false;
+  resource_release(s_rx_res);
+  s_rx_res = RES_HANDLE_NONE;
 }
 
 bool subghz_receiver_is_running(void) {

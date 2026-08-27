@@ -28,6 +28,8 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 
+#include "resource_mgr.h"
+
 static const char *TAG = "IR";
 
 static rmt_channel_handle_t s_rx_chan;
@@ -45,6 +47,11 @@ static SemaphoreHandle_t s_mutex = NULL;
 
 static bool s_is_rx_inited = false;
 static bool s_is_tx_inited = false;
+
+// RES_IR grants. TX and RX share the one IR front end, so they are mutually
+// exclusive: whichever inits first holds it; the other init returns BUSY.
+static res_handle_t s_rx_res = RES_HANDLE_NONE;
+static res_handle_t s_tx_res = RES_HANDLE_NONE;
 // True while the RX channel is armed for a frame. A one-shot rmt_receive() is
 // consumed by every frame (including NEC repeat frames), so if a frame lands
 // while no one is in ir_receive(), the channel goes idle — ir_rx_prime() re-arms
@@ -90,6 +97,17 @@ esp_err_t ir_rx_init(void) {
     return ret;
   }
 
+  res_request_t res_req = {.id = RES_IR,
+                           .lane = RES_LANE_MAIN,
+                           .owner_kind = RES_OWNER_UI,
+                           .owner_task = NULL,
+                           .allow_preempt = false};
+  if (resource_acquire(&res_req, &s_rx_res) != ESP_OK) {
+    ESP_LOGW(TAG, "IR busy; RX not started");
+    ret = ESP_ERR_INVALID_STATE;
+    goto fail;
+  }
+
   s_rx_queue = xQueueCreate(1, sizeof(rmt_rx_done_event_data_t));
   if (s_rx_queue == NULL) {
     ret = ESP_ERR_NO_MEM;
@@ -130,6 +148,8 @@ fail:
     vQueueDelete(s_rx_queue);
     s_rx_queue = NULL;
   }
+  resource_release(s_rx_res);
+  s_rx_res = RES_HANDLE_NONE;
   return ret;
 }
 
@@ -162,6 +182,8 @@ void ir_rx_deinit(void) {
   }
   s_rx_armed = false;
   s_is_rx_inited = false;
+  resource_release(s_rx_res);
+  s_rx_res = RES_HANDLE_NONE;
   ESP_LOGI(TAG, "IR RX released");
 }
 
@@ -194,6 +216,17 @@ esp_err_t ir_tx_init(void) {
     return ret;
   }
 
+  res_request_t res_req = {.id = RES_IR,
+                           .lane = RES_LANE_MAIN,
+                           .owner_kind = RES_OWNER_UI,
+                           .owner_task = NULL,
+                           .allow_preempt = false};
+  if (resource_acquire(&res_req, &s_tx_res) != ESP_OK) {
+    ESP_LOGW(TAG, "IR busy; TX not started");
+    ret = ESP_ERR_INVALID_STATE;
+    goto fail;
+  }
+
   rmt_copy_encoder_config_t enc_cfg = {};
   ret = rmt_new_copy_encoder(&enc_cfg, &s_tx_encoder);
   if (ret != ESP_OK) {
@@ -221,6 +254,8 @@ fail:
     rmt_del_channel(s_tx_chan);
     s_tx_chan = NULL;
   }
+  resource_release(s_tx_res);
+  s_tx_res = RES_HANDLE_NONE;
   return ret;
 }
 
@@ -240,6 +275,8 @@ void ir_tx_deinit(void) {
   }
   s_current_carrier = 0;
   s_is_tx_inited = false;
+  resource_release(s_tx_res);
+  s_tx_res = RES_HANDLE_NONE;
   ESP_LOGI(TAG, "IR TX released");
 }
 
