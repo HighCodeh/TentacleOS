@@ -139,6 +139,7 @@ idf_component_register(SRCS
     esp_pm
     esp_mm
     libsodium
+    resource_mgr
 )
 
 # C5 firmware is NOT embedded in the P4 binary anymore. c5_flasher.c streams the

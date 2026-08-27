@@ -104,6 +104,11 @@ void register_subghz_commands(void);
  */
 void register_apprun_commands(void);
 
+/**
+ * @brief Register the resource arbitration command (resources).
+ */
+void register_resource_commands(void);
+
 #ifdef __cplusplus
 }
 #endif
