@@ -139,6 +139,20 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
                                   uint32_t timeout_ms);
 
 /**
+ * @brief Acquire the bridge transaction lock, waiting up to @p timeout_ms for any
+ *        in-flight command to finish. While held, no command runs. Intended for a
+ *        caller that must safely stop a task which may be mid-transaction (e.g.
+ *        force-killing an app): lock, delete the task, unlock. Do NOT call
+ *        spi_bridge_send_command while holding it (it would deadlock). Must be
+ *        unlocked from the same task.
+ * @return ESP_OK if acquired, ESP_ERR_TIMEOUT otherwise.
+ */
+esp_err_t spi_bridge_lock(uint32_t timeout_ms);
+
+/** @brief Release the bridge transaction lock taken with spi_bridge_lock. */
+void spi_bridge_unlock(void);
+
+/**
  * @brief Register a callback for stream frames with the given SPI ID.
  *
  * @param id  SPI function identifier to listen for.

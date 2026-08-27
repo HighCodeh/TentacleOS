@@ -25,6 +25,7 @@
 
 #include "led_control.h"
 #include "resource_mgr.h"
+#include "spi_bridge.h"
 #include "sys_prio.h"
 #include "tos_app_ctx.h"
 #include "tos_arena.h"
@@ -34,8 +35,9 @@
 
 static const char *TAG = "TOS_APP_MGR";
 
-#define APP_TASK_STACK   8192
-#define APP_ARENA_BUDGET (1024 * 1024) // 1 MB per app
+#define APP_TASK_STACK      8192
+#define APP_ARENA_BUDGET    (1024 * 1024) // 1 MB per app
+#define APP_KILL_QUIESCE_MS 3000          // wait out an in-flight SPI before force-kill
 
 typedef struct {
   volatile bool active;
@@ -225,8 +227,20 @@ esp_err_t tos_app_mgr_stop(const char *name, uint32_t timeout_ms) {
 
   if (claim_cleanup(a)) {
     ESP_LOGW(TAG, "force-killing unresponsive app '%s'", a->name);
-    if (a->task != NULL)
+    if (a->task != NULL) {
+      // Deleting a task that holds the SPI bridge mutex corrupts it. Quiesce the
+      // bridge first (waits out any in-flight app SPI); only then is the delete
+      // safe. If the bridge won't quiesce the C5 is wedged, so drop the claim and
+      // leave the app rather than corrupt the bridge - it self-cleans once its
+      // SPI returns, or a later stop/reboot handles it.
+      if (spi_bridge_lock(APP_KILL_QUIESCE_MS) != ESP_OK) {
+        ESP_LOGE(TAG, "bridge busy; not force-killing '%s' to avoid corruption", a->name);
+        a->cleaning = false;
+        return ESP_ERR_TIMEOUT;
+      }
       vTaskDelete(a->task);
+      spi_bridge_unlock();
+    }
     finish_slot(a);
     return ESP_OK;
   }

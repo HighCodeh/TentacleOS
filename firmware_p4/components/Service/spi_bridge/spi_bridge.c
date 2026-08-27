@@ -417,6 +417,20 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
   return out;
 }
 
+esp_err_t spi_bridge_lock(uint32_t timeout_ms) {
+  if (s_spi_mutex == NULL)
+    s_spi_mutex = xSemaphoreCreateMutex();
+  if (s_spi_mutex == NULL)
+    return ESP_ERR_NO_MEM;
+  return (xSemaphoreTake(s_spi_mutex, pdMS_TO_TICKS(timeout_ms)) == pdTRUE) ? ESP_OK
+                                                                           : ESP_ERR_TIMEOUT;
+}
+
+void spi_bridge_unlock(void) {
+  if (s_spi_mutex != NULL)
+    xSemaphoreGive(s_spi_mutex);
+}
+
 // Static functions
 
 static spi_stream_cb_t get_stream_cb(spi_id_t id) {
