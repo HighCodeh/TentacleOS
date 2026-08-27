@@ -278,6 +278,11 @@ spi_status_t bt_dispatcher_execute(spi_id_t id,
     }
 
     case SPI_ID_BT_HID_INIT:
+      // Bring the NimBLE host up first (and tear down mesh/host GATT). Without
+      // this, HID_INIT after the stack was deinitialised (e.g. companion BLE
+      // turned off) runs ble_gatts_count_cfg on a dead host and crashes.
+      if (!bt_ensure_service_ready())
+        return SPI_STATUS_ERROR;
       return (ble_hid_init() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
 
     case SPI_ID_BT_HID_DEINIT:
