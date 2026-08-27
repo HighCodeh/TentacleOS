@@ -18,6 +18,9 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
+
+#define RES_WAIT_POLL_MS 20
 
 static const char *TAG = "RESOURCE_MGR";
 
@@ -194,6 +197,18 @@ esp_err_t resource_acquire(const res_request_t *req, res_handle_t *out_handle) {
   return ret;
 }
 
+esp_err_t resource_acquire_timeout(const res_request_t *req, uint32_t timeout_ms,
+                                   res_handle_t *out_handle) {
+  uint32_t waited = 0;
+  for (;;) {
+    esp_err_t e = resource_acquire(req, out_handle);
+    if (e == ESP_OK || e == ESP_ERR_INVALID_ARG || waited >= timeout_ms)
+      return e;
+    vTaskDelay(pdMS_TO_TICKS(RES_WAIT_POLL_MS));
+    waited += RES_WAIT_POLL_MS;
+  }
+}
+
 esp_err_t resource_release(res_handle_t handle) {
   if (handle == RES_HANDLE_NONE || s_lock == NULL)
     return ESP_OK;
@@ -206,6 +221,19 @@ esp_err_t resource_release(res_handle_t handle) {
     s_grants[index].active = false;
   xSemaphoreGive(s_lock);
   return ESP_OK;
+}
+
+bool resource_handle_valid(res_handle_t handle) {
+  if (handle == RES_HANDLE_NONE || s_lock == NULL)
+    return false;
+  int index = (int)(handle & 0xFFu);
+  uint32_t token = handle >> 8;
+  if (index >= RES_MAX_GRANTS)
+    return false;
+  xSemaphoreTake(s_lock, portMAX_DELAY);
+  bool ok = s_grants[index].active && s_grants[index].token == token;
+  xSemaphoreGive(s_lock);
+  return ok;
 }
 
 bool resource_available(res_id_t id, uint8_t lane, res_owner_kind_t owner_kind) {

@@ -376,17 +376,38 @@ Two WiFi (or two BLE) attacks at once: capacity 1, the second gets BUSY.
    - **User-facing status: the `resources` console command** covers introspection.
      A graphical header glyph is deferred: it needs a new icon asset and header
      plumbing for modest value over the console.
-4. **(Optional, later)** Bounded queue with timeout for acquire, if we ever want
-   "wait for the radio" instead of fail-fast.
+4. **Bounded-wait acquire. DONE.** `resource_acquire_timeout(req, timeout_ms,
+   &h)` retries until the resource frees or the timeout elapses, for a caller that
+   wants to wait rather than fail-fast. The default `resource_acquire` stays
+   fail-fast (the right default for a security device); no caller waits today, the
+   API is there for when one needs to.
 
-## Known edge (precondition for Phase: SYSTEM connectivity arbitration)
+## Mid-start preemption. RESOLVED.
 
-`spi_session_start` acquires `RES_WIFI` after releasing its own mutex and stores
-the handle a few lines later. Nothing at priority above UI acquires `RES_WIFI`
-today, so the window is unreachable. Before wiring `wifi_service` connectivity as
-`RES_OWNER_SYSTEM` (which could preempt UI), re-check the handle after the C5
-start returns and stop the session if it was preempted mid-start, mirroring the
-`still_ours` guard already in `tos_api_wifi.c`'s `start_wifi_session`.
+`spi_session_start` acquires the radio before the C5 start round-trip. If a
+higher-priority owner takes the radio during that round-trip, the grant is gone
+by the time the session id comes back. `spi_session_start` now re-checks
+`resource_handle_valid(new_handle)` after the start returns and, if the grant was
+preempted, stops the just-started C5 session and returns invalid instead of
+leaving an orphan the manager no longer tracks. This closes the window before
+`wifi_service` connectivity is ever wired as `RES_OWNER_SYSTEM`.
+
+## Remaining loose ends (each blocked on a real prerequisite)
+
+- **`wifi_service` / `bluetooth_service` connectivity arbitration** (scan/connect
+  as owner-inferred). This means moving acquisition down to the service layer with
+  owner inference (APP via `tos_app_ctx`, else UI/system) and de-duping against the
+  ABI wrappers, on OTA-critical and UI paths. It should be validated on hardware,
+  not landed blind. The *attack* surface, the actual contended resource, is already
+  arbitrated for app and UI.
+- **On-device UI BLE non-session ops** (scan/adv/mac) as `RES_OWNER_UI`. Same
+  owner-inference shape as above (the session ops already inherit arbitration via
+  `spi_session`).
+- **NFC / RFID.** No consumer wires the reader today (the NFC UI is simulated;
+  hardware is touched only by diagnostics and boot). `RES_NFC` is modeled; wiring
+  it now would arbitrate nothing.
+- **Graphical radio-busy indicator** in the header. Needs a new icon asset; the
+  `resources` console command already exposes the state.
 
 ## Files
 

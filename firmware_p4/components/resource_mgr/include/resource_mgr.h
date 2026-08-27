@@ -89,8 +89,20 @@ esp_err_t resource_mgr_init(void);
  */
 esp_err_t resource_acquire(const res_request_t *req, res_handle_t *out_handle);
 
+/**
+ * @brief Like resource_acquire, but retry for up to @p timeout_ms before giving
+ *        up with the same error resource_acquire would return. Blocks the caller
+ *        (polls), so never call it from a time-critical context. @p timeout_ms 0
+ *        behaves exactly like resource_acquire (one try, fail-fast).
+ */
+esp_err_t resource_acquire_timeout(const res_request_t *req, uint32_t timeout_ms,
+                                   res_handle_t *out_handle);
+
 /** @brief Release a grant. Idempotent; a stale handle is ignored. */
 esp_err_t resource_release(res_handle_t handle);
+
+/** @brief True if @p handle still names a live grant (not released or preempted). */
+bool resource_handle_valid(res_handle_t handle);
 
 /** @brief True if the lane has a slot free for @p owner_kind right now. */
 bool resource_available(res_id_t id, uint8_t lane, res_owner_kind_t owner_kind);

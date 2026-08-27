@@ -248,6 +248,17 @@ uint32_t spi_session_start(spi_id_t op_id,
     return SPI_SESSION_INVALID_ID;
   }
 
+  // A higher-priority owner may have taken the radio while the start was in
+  // flight. If so our grant is gone: stop the just-started session and bail
+  // rather than leave the C5 running an orphan the manager no longer tracks.
+  if (!resource_handle_valid(new_handle)) {
+    ESP_LOGW(TAG, "radio taken during start of op 0x%04X; dropping session", op_id);
+    spi_session_stop_req_t drop = {.session_id = resp.session_id};
+    spi_bridge_send_command(SPI_ID_SESSION_STOP, (uint8_t *)&drop, sizeof(drop), NULL, NULL, 0,
+                            spi_bridge_get_timeout(SPI_ID_SESSION_STOP));
+    return SPI_SESSION_INVALID_ID;
+  }
+
   xSemaphoreTake(s_mutex, portMAX_DELAY);
   s_state.session_id = resp.session_id;
   s_state.op_id = op_id;
