@@ -33,7 +33,7 @@ Flash (P4 only, which also programs C5):
 
 ## Formatting
 
-Formatting is enforced by CI and the pre-commit hook. Run manually before committing:
+Formatting is handled automatically by the `.clang-format` pre-commit hook — as an agent, do **not** run it manually. CI verifies it, and `./tools/format.sh` exists for humans who want to run it themselves:
 
 ```bash
 ./tools/format.sh                            # fix all firmware sources
@@ -85,6 +85,10 @@ All rules are in `CODING_STANDARDS.md`. Key points an agent must not miss:
 - **File layout order**: license, own header, C stdlib, ESP-IDF/FreeRTOS, project headers, defines, static types, static vars, forward decls, public funcs, static funcs.
 - **Headers**: `#ifndef` guards, `extern "C"` blocks, include order separated by blank lines.
 - **Source file layout**: `^[0-9a-z_]+\.[ch]$`, filename is a prefix for its content.
+- **Comments**: only a short, pertinent WHY when it is non-obvious. No multi-line rationale dumps, no restating what the code does, no banner/dashed-line section separators.
+- **Task priority and core** come from `sys_prio.h` (`Drivers/sys_prio/include`); always pin with `xTaskCreatePinnedToCore`. UI/render on core 1, radios on core 0. See Concurrency in `CODING_STANDARDS.md`.
+- **`spi_protocol.h` has two hand-maintained copies** (`firmware_p4` and `firmware_c5`). Any change to one (ops, structs, version) MUST be mirrored to the other in the same commit: they are one shared contract, kept aligned by the runtime version check. Even P4-local ops are reserved in both to avoid future collisions.
+- **Only change what was explicitly asked for** — do not add unsolicited refactors or improvements.
 
 ## Hook Setup
 
