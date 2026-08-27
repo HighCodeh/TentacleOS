@@ -30,6 +30,7 @@
 #include "sys_prio.h"
 
 #include "host_link.h"
+#include "resource_mgr.h"
 #include "spi_bridge.h"
 #include "spi_protocol.h"
 
@@ -64,6 +65,9 @@ static volatile bool s_want_ble_active = false;
 static bool s_ble_active_on_c5 = false;
 static uint16_t s_reconcile_ticks_remaining = BLE_RECONCILE_INTERVAL;
 static bool s_was_connected = false;
+// RES_BLE held while the companion wants the BLE transport, so an app BLE attack
+// gets BUSY instead of tearing down the companion's GATT on the C5.
+static res_handle_t s_ble_res = RES_HANDLE_NONE;
 
 static void status_task(void *pvParameters);
 static void on_rx_stream(spi_id_t id, const uint8_t *payload, uint8_t len);
@@ -117,11 +121,23 @@ esp_err_t host_link_ble_init(void) {
 
 esp_err_t host_link_ble_start(void) {
   s_want_ble_active = true;
+  // Reserve the BLE radio for the companion. Preempts an app BLE attack (its
+  // session is stopped) so the control channel wins; apps then get BUSY.
+  if (s_ble_res == RES_HANDLE_NONE) {
+    res_request_t req = {.id = RES_BLE,
+                         .lane = RES_LANE_MAIN,
+                         .owner_kind = RES_OWNER_COMPANION,
+                         .owner_task = NULL,
+                         .allow_preempt = true};
+    resource_acquire(&req, &s_ble_res);
+  }
   return request_ble_init();
 }
 
 esp_err_t host_link_ble_stop(void) {
   s_want_ble_active = false;
+  resource_release(s_ble_res);
+  s_ble_res = RES_HANDLE_NONE;
   return request_ble_stop();
 }
 

@@ -99,11 +99,23 @@ int app_main(const tos_api_t *api, int argc, char **argv) {
 An app that loops **without** yielding (`delay_ms`/`yield`) or ignores
 `should_stop` will be force-killed after a timeout — do not rely on that.
 
+An app driving a radio should also poll `api->resource_lost()`: it goes nonzero
+when the on-device UI or the companion preempts a radio the app held (the app's
+C5 session is already stopped), so the app can stop or back off instead of
+talking to a session that is gone:
+
+```c
+while (!api->should_stop() && !api->resource_lost()) {
+  // ... use the session started earlier ...
+  api->delay_ms(200);
+}
+```
+
 ---
 
 ## 4. The host API (`tos_api_t`)
 
-The full contract is `Service/app_runtime/include/tos_api.h`. ABI version 1.1.
+The full contract is `Service/app_runtime/include/tos_api.h`. ABI version 1.4.
 
 | Call | Capability | Notes |
 |------|-----------|-------|
@@ -112,6 +124,7 @@ The full contract is `Service/app_runtime/include/tos_api.h`. ABI version 1.1.
 | `delay_ms(ms)` | — | blocks, feeds the watchdog |
 | `yield()` | — | cooperative yield (also feeds the watchdog) |
 | `should_stop()` | — | nonzero once `appstop` was called |
+| `resource_lost()` | — | nonzero once a radio the app held was preempted by the UI/companion |
 | `host_link_register(h)` / `host_link_unregister(cat, op)` | `hostlink` | add a companion command; auto-removed on exit |
 | `console_register(cmd, help, func)` / `console_unregister(cmd)` | `console` | add a shell command; auto-removed on exit |
 | `led_set(r, g, b)` | `ui` | RGB status LED |
@@ -122,8 +135,8 @@ running on any firmware with the same major and a >= minor.
 ### Subsystems (`api->wifi`, …)
 
 Bigger areas are their own sub-struct reached by a pointer, so calls read as
-`api->wifi->scan()`. WiFi is the first (ABI 1.2); the same shape is how every
-future subsystem (ir, subghz, ble, …) is added.
+`api->wifi->scan()`. WiFi came first (ABI 1.2) and BLE followed (ABI 1.3); the
+same shape is how every future subsystem (ir, subghz, …) is added.
 
 **`api->wifi`** — full reference in `tos_api.h` (`tos_wifi_api_t`):
 
@@ -145,6 +158,28 @@ future subsystem (ir, subghz, ble, …) is added.
 
 The app never sees the SPI ids or byte layouts underneath — just typed calls.
 This is the reference for exposing firmware to apps (see "Extending the ABI").
+
+**`api->ble`** — full reference in `tos_api.h` (`tos_ble_api_t`). The C5 serialises
+the whole Bluetooth host, so BLE is **one-owner**: any call returns
+`ESP_ERR_INVALID_STATE` (BUSY) when the companion BLE link or another app holds
+the radio. That is by design — an app attack can never tear down the companion's
+own BLE channel.
+
+| Call | Capability | Notes |
+|------|-----------|-------|
+| `scan(duration_ms)` | `radio-rx` | blocks until the scan finishes (`0` = 5 s) |
+| `device_count()` / `device_get(i, &d)` | `radio-rx` | read results after `scan()`; `d` is `tos_ble_device_t` |
+| `connect(addr, addr_type)` / `disconnect()` | `radio-tx` | connect / drop |
+| `set_random_mac()` | `radio-tx` | MAC spoof |
+| `adv_start()` / `adv_stop()` | `radio-tx` | advertising |
+| `sniffer_start(&sid)` | `radio-rx` | advertisement sniffer; returns a session id |
+| `spam(attack_index, &sid)` | `radio-tx` | adv spam (0 Apple Juice, 1 Sour Apple, 2 Swift Pair, 3 Samsung, 4 Android, 5 Tutti Frutti) |
+| `flood(addr, addr_type, &sid)` | `radio-tx` | connect flood |
+| `skimmer_detect(&sid)` / `tracker_detect(&sid)` | `radio-rx` | detectors (tracker = AirTag etc.) |
+| `session_stop(sid)` | — | stop any monitor/attack session |
+| `hid_start()` / `hid_stop()` | `hid` | BadBLE HID keyboard: advertise a HID peripheral, held until stop |
+| `hid_is_connected()` | `hid` | is a target connected? |
+| `hid_send_key(modifier, keycode)` | `hid` | one USB-HID key (send, then a zero key to release) |
 
 ---
 

@@ -47,7 +47,7 @@ typedef struct host_link_handler host_link_handler_t; // opaque to apps
 #endif
 
 #define TOS_ABI_VERSION_MAJOR 1
-#define TOS_ABI_VERSION_MINOR 2
+#define TOS_ABI_VERSION_MINOR 4
 
 /** Log levels; values match esp_log_level_t so they pass straight through. */
 typedef enum {
@@ -120,6 +120,47 @@ typedef struct tos_wifi_api {
   esp_err_t (*channel_hop)(bool enable);       ///< radio-tx
 } tos_wifi_api_t;
 
+/** One BLE device from a scan. */
+typedef struct {
+  char name[32];
+  uint8_t addr[6];
+  uint8_t addr_type; ///< NimBLE address type: 0 public, 1 random
+  int8_t rssi;
+} tos_ble_device_t;
+
+/**
+ * BLE. The C5 serialises the whole Bluetooth host, so BLE is one-owner: a call
+ * fails with ESP_ERR_INVALID_STATE (BUSY) when the companion BLE link or another
+ * app holds the radio. Scan/monitors need `radio-rx`; connect/MAC/adv/spam/flood
+ * need `radio-tx`; the HID keyboard (BadBLE) needs `hid`. The session calls
+ * return a session id ended with `session_stop`.
+ */
+typedef struct tos_ble_api {
+  esp_err_t (*scan)(uint32_t duration_ms); ///< blocks until the scan finishes (radio-rx)
+  int (*device_count)(void);
+  esp_err_t (*device_get)(int index, tos_ble_device_t *out);
+
+  esp_err_t (*connect)(const uint8_t addr[6], uint8_t addr_type); ///< radio-tx
+  esp_err_t (*disconnect)(void);
+  esp_err_t (*set_random_mac)(void); ///< MAC spoof (radio-tx)
+  esp_err_t (*adv_start)(void);      ///< radio-tx
+  esp_err_t (*adv_stop)(void);
+
+  esp_err_t (*sniffer_start)(uint32_t *out_session);              ///< radio-rx
+  esp_err_t (*spam)(uint8_t attack_index, uint32_t *out_session); ///< radio-tx (see SDK spam table)
+  esp_err_t (*flood)(const uint8_t addr[6], uint8_t addr_type, uint32_t *out_session); ///< radio-tx
+  esp_err_t (*skimmer_detect)(uint32_t *out_session);             ///< radio-rx
+  esp_err_t (*tracker_detect)(uint32_t *out_session);             ///< radio-rx (tracker/AirTag detector)
+  esp_err_t (*session_stop)(uint32_t session);
+
+  // BLE HID keyboard (BadBLE). hid_start advertises a HID peripheral and holds
+  // the radio until hid_stop; send keys once a target connects.
+  esp_err_t (*hid_start)(void); ///< hid
+  esp_err_t (*hid_stop)(void);
+  bool (*hid_is_connected)(void);
+  esp_err_t (*hid_send_key)(uint8_t modifier, uint8_t keycode); ///< hid
+} tos_ble_api_t;
+
 /**
  * The host API table. Built once and shared const by every app. Grouped by the
  * capability that gates each call; the lifecycle group is always available.
@@ -135,6 +176,10 @@ typedef struct tos_api {
   void (*delay_ms)(uint32_t ms);
   void (*yield)(void);      // cooperative yield that also feeds the task watchdog
   int (*should_stop)(void); // nonzero once the manager asked this app to exit
+  // nonzero once a radio this app held was preempted by the UI/companion; the
+  // app's C5 session is already stopped, so stop using it. Cleared on the next
+  // successful radio acquire. Sibling of should_stop.
+  int (*resource_lost)(void);
 
   // Command surfaces. host_link_* need TOS_CAP_HOSTLINK; console_* need TOS_CAP_CONSOLE.
   esp_err_t (*host_link_register)(const host_link_handler_t *h);
@@ -149,6 +194,7 @@ typedef struct tos_api {
 
   // Subsystem namespaces (each its own sub-struct; per-call capability gating).
   const tos_wifi_api_t *wifi;
+  const tos_ble_api_t *ble;
 } tos_api_t;
 
 /** @brief The shared, const host API table handed to every app at entry. */

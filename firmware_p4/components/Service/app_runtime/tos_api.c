@@ -62,6 +62,11 @@ static int api_should_stop(void) {
   return (ctx != NULL && ctx->stop != NULL && *ctx->stop) ? 1 : 0;
 }
 
+static int api_resource_lost(void) {
+  tos_app_ctx_t *ctx = tos_app_ctx_current();
+  return (ctx != NULL && ctx->res_lost != NULL && *ctx->res_lost) ? 1 : 0;
+}
+
 static esp_err_t api_host_link_register(const host_link_handler_t *h) {
   if (!tos_app_cap_check(TOS_CAP_HOSTLINK))
     return ESP_ERR_NOT_SUPPORTED;
@@ -108,6 +113,7 @@ static esp_err_t api_led_set(uint8_t r, uint8_t g, uint8_t b) {
 }
 
 extern const tos_wifi_api_t tos_wifi_api_impl; // tos_api_wifi.c
+extern const tos_ble_api_t tos_ble_api_impl;   // tos_api_ble.c
 
 static const tos_api_t s_api = {
     .abi_major = TOS_ABI_VERSION_MAJOR,
@@ -118,12 +124,14 @@ static const tos_api_t s_api = {
     .delay_ms = api_delay_ms,
     .yield = api_yield,
     .should_stop = api_should_stop,
+    .resource_lost = api_resource_lost,
     .host_link_register = api_host_link_register,
     .host_link_unregister = api_host_link_unregister,
     .console_register = api_console_register,
     .console_unregister = api_console_unregister,
     .led_set = api_led_set,
     .wifi = &tos_wifi_api_impl,
+    .ble = &tos_ble_api_impl,
 };
 
 const tos_api_t *tos_api_get(void) {
