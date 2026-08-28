@@ -2,13 +2,13 @@
 
 Arbitration layer for the shared radios and peripherals, so that apps, the
 on-device UI, and the companion (host_link) never drive the same hardware into
-conflicting states, while still allowing the concurrency the hardware genuinely
-supports (e.g. companion-over-BLE running at the same time as a BAD BLE HID app).
+conflicting states.
 
-Status: Phase 1 and Phase 2 complete and building. The manager plus every radio
+Status: Phases 1-4 complete and hardware-validated. The manager plus every radio
 with a real consumer (WiFi, BLE, SubGHz, IR, USB HID) is wired, including the BLE
-app ABI (`tos_api_ble.c`, ABI 1.3) and the companion-over-BLE reservation.
-Companion piece to `APP_PLATFORM_PLAN.md`.
+app ABI (`tos_api_ble.c`, ABI 1.4), the `resource_lost()` preemption notification,
+and the companion-over-BLE reservation. See "Hardware validation" below. Companion
+piece to `APP_PLATFORM_PLAN.md`.
 
 **Correction vs the first draft of this doc:** BLE is NOT multiplexed into
 connection/advertising/scanner lanes on this hardware. The C5 `bt_dispatcher`
@@ -409,16 +409,47 @@ leaving an orphan the manager no longer tracks. This closes the window before
 - **Graphical radio-busy indicator** in the header. Needs a new icon asset; the
   `resources` console command already exposes the state.
 
+## Hardware validation and the fixes it surfaced
+
+Validated on the P4+C5 hardware from the console (`resources`) plus two throwaway
+test apps (since removed):
+- **Acquire/release** - `resources` shows a running app holding `wifi`/`ble`, freed
+  on stop.
+- **Preemption + `resource_lost()`** - a UI attack takes the radio from a background
+  app; the app's C5 session is stopped and `resource_lost()` goes nonzero.
+- **BUSY** - an app is refused with `ESP_ERR_INVALID_STATE` (259) while the UI holds
+  the radio.
+- **Companion reservation** - with the companion on BLE, an app's `ble->hid_start()`
+  returns BUSY (259) and the companion GATT is never torn down.
+- **Teardown reclaim** - a killed app's radio is released.
+
+Three robustness bugs surfaced during testing and were fixed (see git history):
+1. **Force-kill vs the SPI bridge mutex.** `tos_app_mgr` force-killed an app with
+   `vTaskDelete` while it held the bridge transaction mutex, corrupting it
+   (a `vTaskPriorityDisinheritAfterTimeout` panic). Fix: `spi_bridge_lock()`
+   quiesces the bridge before the delete; if it will not quiesce, the app is left
+   rather than corrupt the bridge.
+2. **BLE HID init on a torn-down stack.** `SPI_ID_BT_HID_INIT` ran `ble_hid_init`
+   without the NimBLE host up, crashing after the companion BLE was turned off.
+   Fix: call `bt_ensure_service_ready()` first (C5 `bt_dispatcher`).
+3. **Stream task starved internal RAM.** The 16 KB SPI stream task stack was
+   allocated from internal RAM per session and failed to create under pressure.
+   Fix: PSRAM stack plus a persistent (never-recreated) task; the TCB stays internal.
+
+Known, not yet fixed: `ble_sniffer.c` / `ble_scanner.c` allocate their
+`StaticTask_t` TCB in PSRAM, which the same TCB-memory check rejects - those two
+attacks would crash on start.
+
 ## Files
 
-New:
-- `firmware_p4/components/Service/resource_mgr/include/resource_mgr.h`
-- `firmware_p4/components/Service/resource_mgr/resource_mgr.c`
-- `firmware_p4/components/Service/resource_mgr/CMakeLists.txt`
+New: the `resource_mgr` component at `firmware_p4/components/resource_mgr/`
+(`include/resource_mgr.h`, `resource_mgr.c`, `CMakeLists.txt`) - a top-level leaf
+component, and `tos_api_ble.c` plus a `resources` console command under `Service`.
 
-Touched (per the integration table): `tos_api_wifi.c`, `tos_api_ble.c` (new),
-`tos_app_ctx.c`, `include/tos_api.h`, the host_link BLE server, the UI attack
-screens, `wifi_service.c`, a new console command.
+Touched: `tos_api_wifi.c`, `tos_app_ctx.{c,h}`, `tos_app_mgr.c`, `tos_api.{c,h}`,
+`spi_session.c`, `spi_bridge.{c,h}`, the host_link BLE server, and the SubGhz / IR
+/ BadUSB engines. On the C5, only `bt_dispatcher.c` (the HID-init fix).
 
-No change to `spi_protocol.h`, the SPI bridge, or the C5 firmware: arbitration is
-entirely a P4-side concern in front of the existing transport.
+`spi_protocol.h` is unchanged - the arbitration reuses the existing ops and is a
+P4-side concern in front of the transport; the one C5 change is an unrelated crash
+fix, not a protocol change.
