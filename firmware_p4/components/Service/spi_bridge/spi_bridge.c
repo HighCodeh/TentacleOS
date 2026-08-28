@@ -19,6 +19,7 @@
 
 #include "esp_log.h"
 #include "led_control.h"
+#include "esp_heap_caps.h"
 #include "esp_rom_sys.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -60,6 +61,11 @@ typedef struct {
 
 static SemaphoreHandle_t s_spi_mutex = NULL;
 static TaskHandle_t s_stream_task_handle = NULL;
+// The stream task's stack lives in PSRAM (16 KB) and is allocated once, so its
+// creation never competes for scarce internal RAM. The task is persistent: it
+// idles instead of self-deleting, so it is created exactly once and reused.
+static StackType_t *s_stream_stack = NULL;
+static StaticTask_t *s_stream_tcb = NULL;
 static volatile bool s_is_command_in_flight = false;
 static volatile bool s_bridge_alive = true;
 static volatile bool s_suspended = false;
@@ -206,15 +212,27 @@ void spi_bridge_register_stream_cb(spi_id_t id, spi_stream_cb_t cb) {
     if (s_spi_mutex == NULL) {
       s_spi_mutex = xSemaphoreCreateMutex();
     }
-    BaseType_t created = xTaskCreatePinnedToCore(stream_task,
-                                                 "spi_stream",
-                                                 SPI_STREAM_TASK_STACK,
-                                                 NULL,
-                                                 SPI_STREAM_TASK_PRIO,
-                                                 &s_stream_task_handle,
-                                                 SYS_CORE_RADIO);
-    if (created != pdPASS) {
-      s_stream_task_handle = NULL;
+    if (s_stream_stack == NULL)
+      s_stream_stack =
+          heap_caps_malloc(SPI_STREAM_TASK_STACK * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
+    // The stack may live in PSRAM, but the TCB must be in internal RAM (the
+    // scheduler touches it with the cache off) - it is only a few hundred bytes.
+    if (s_stream_tcb == NULL)
+      s_stream_tcb = heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (s_stream_stack == NULL || s_stream_tcb == NULL) {
+      ESP_LOGE(TAG, "Failed to allocate SPI stream task PSRAM stack");
+      led_signal_error();
+      return;
+    }
+    s_stream_task_handle = xTaskCreateStaticPinnedToCore(stream_task,
+                                                         "spi_stream",
+                                                         SPI_STREAM_TASK_STACK,
+                                                         NULL,
+                                                         SPI_STREAM_TASK_PRIO,
+                                                         s_stream_stack,
+                                                         s_stream_tcb,
+                                                         SYS_CORE_RADIO);
+    if (s_stream_task_handle == NULL) {
       ESP_LOGE(TAG, "Failed to create SPI stream task");
       led_signal_error();
     }
@@ -517,9 +535,8 @@ static esp_err_t fetch_stream(const uint8_t **out_records, uint16_t *out_batch_l
 static void stream_task(void *arg) {
   while (1) {
     if (!has_any_stream_cb()) {
-      s_stream_task_handle = NULL;
-      vTaskDelete(NULL);
-      return;
+      vTaskDelay(pdMS_TO_TICKS(SPI_STREAM_IDLE_MS)); // persist and idle; never self-delete
+      continue;
     }
 
     if (s_is_command_in_flight) {
