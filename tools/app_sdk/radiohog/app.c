@@ -8,8 +8,11 @@ int app_main(const tos_api_t *api, int argc, char **argv) {
   (void)argc;
   (void)argv;
 
+  // probe_monitor (not deauth_detect) so this app's C5 op differs from the UI
+  // Deauth Detector screen used in the preemption test - avoids a same-op
+  // stop/start race on the C5 when the UI takes the radio.
   uint32_t sid = 0;
-  int e = api->wifi->deauth_detect(&sid); // radio-rx monitor session
+  int e = api->wifi->probe_monitor(&sid); // radio-rx monitor session
   if (e != 0) {
     api->log(TOS_LOG_ERROR, "RADIOHOG", "start failed: %d (radio busy, or radio-rx not granted)", e);
     return 1;
