@@ -44,6 +44,13 @@ void assets_manager_evict_cache(void);
 /** @brief Load assets from SD card directory, overriding flash assets. */
 int assets_load_from_sd(const char *sd_dir, const char *flash_prefix);
 
+/**
+ * @brief Pre-load overridden assets into RAM/PSRAM so later draws never block on
+ *        SD reads. Pass a flash prefix (e.g. "/assets/frames") to warm just that
+ *        group, or NULL for all. Call at theme-apply time (UI thread).
+ */
+void assets_manager_warm(const char *flash_prefix);
+
 /** @brief Unload all SD-sourced assets from the cache. */
 void assets_unload_sd(void);
 

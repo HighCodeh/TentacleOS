@@ -439,6 +439,7 @@ void ui_theme_load_from_name(const char *theme_name) {
   total += assets_load_from_sd(asset_dir, "/assets/img");
 
   if (total > 0) {
+    assets_manager_warm("/assets/frames");
     ESP_LOGI(TAG, "Theme '%s': loaded %d SD asset override(s)", theme_name, total);
   }
 }

@@ -47,14 +47,17 @@ typedef struct asset_node {
   struct asset_node *next;
 } asset_node_t;
 
-#define ASSETS_OVERRIDE_MAX 4
-#define ASSETS_PREFIX_MAX   32
-#define ASSETS_SDDIR_MAX    96
-#define ASSETS_FILE_MAX     160
+#define ASSETS_OVERRIDE_MAX  4
+#define ASSETS_PREFIX_MAX    32
+#define ASSETS_SDDIR_MAX     96
+#define ASSETS_FILE_MAX      160
+#define ASSETS_FILELIST_INIT 16
 
 typedef struct {
   char flash_prefix[ASSETS_PREFIX_MAX];
   char sd_dir[ASSETS_SDDIR_MAX];
+  char **files;
+  int file_count;
 } assets_override_t;
 
 static assets_override_t s_overrides[ASSETS_OVERRIDE_MAX];
@@ -98,21 +101,27 @@ static bool read_bin_header(const char *path, bin_header_t *out) {
   return ok;
 }
 
+static bool override_has(const assets_override_t *ov, const char *name) {
+  for (int j = 0; j < ov->file_count; j++) {
+    if (strcmp(ov->files[j], name) == 0)
+      return true;
+  }
+  return false;
+}
+
 static void resolve_file(const char *path, char *out, size_t out_size) {
   for (int i = 0; i < s_override_count; i++) {
     size_t plen = strlen(s_overrides[i].flash_prefix);
     if (strncmp(path, s_overrides[i].flash_prefix, plen) != 0)
       continue;
-    char cand[ASSETS_FILE_MAX];
-    int n = snprintf(cand, sizeof(cand), "%s%s", s_overrides[i].sd_dir, path + plen);
-    if (n <= 0 || (size_t)n >= sizeof(cand))
+    const char *tail = path + plen;
+    if (*tail == '/')
+      tail++;
+    if (!override_has(&s_overrides[i], tail))
       continue;
-    FILE *f = fopen(cand, "rb");
-    if (f != NULL) {
-      fclose(f);
-      strlcpy(out, cand, out_size);
+    int n = snprintf(out, out_size, "%s/%s", s_overrides[i].sd_dir, tail);
+    if (n > 0 && (size_t)n < out_size)
       return;
-    }
   }
   strlcpy(out, path, out_size);
 }
@@ -376,17 +385,72 @@ int assets_load_from_sd(const char *sd_dir, const char *flash_prefix) {
   DIR *d = opendir(sd_dir);
   if (d == NULL)
     return 0;
+
+  assets_override_t *ov = &s_overrides[s_override_count];
+  strlcpy(ov->flash_prefix, flash_prefix, ASSETS_PREFIX_MAX);
+  strlcpy(ov->sd_dir, sd_dir, ASSETS_SDDIR_MAX);
+  ov->files = NULL;
+  ov->file_count = 0;
+
+  int cap = 0;
+  struct dirent *de;
+  while ((de = readdir(d)) != NULL) {
+    if (de->d_type == DT_DIR)
+      continue;
+    if (de->d_name[0] == '.' &&
+        (de->d_name[1] == '\0' || (de->d_name[1] == '.' && de->d_name[2] == '\0')))
+      continue;
+    if (ov->file_count == cap) {
+      int ncap = cap ? cap * 2 : ASSETS_FILELIST_INIT;
+      char **nf = realloc(ov->files, (size_t)ncap * sizeof(char *));
+      if (nf == NULL) {
+        ESP_LOGE(TAG, "override file index realloc failed");
+        break;
+      }
+      ov->files = nf;
+      cap = ncap;
+    }
+    ov->files[ov->file_count] = strdup(de->d_name);
+    if (ov->files[ov->file_count] == NULL) {
+      ESP_LOGE(TAG, "override filename strdup failed");
+      break;
+    }
+    ov->file_count++;
+  }
   closedir(d);
-  strlcpy(s_overrides[s_override_count].flash_prefix, flash_prefix, ASSETS_PREFIX_MAX);
-  strlcpy(s_overrides[s_override_count].sd_dir, sd_dir, ASSETS_SDDIR_MAX);
+
   s_override_count++;
   refresh_overridden_nodes();
   return 1;
 }
 
+void assets_manager_warm(const char *flash_prefix) {
+  for (int i = 0; i < s_override_count; i++) {
+    if (flash_prefix != NULL && strcmp(s_overrides[i].flash_prefix, flash_prefix) != 0)
+      continue;
+    for (int j = 0; j < s_overrides[i].file_count; j++) {
+      char p[ASSETS_FILE_MAX];
+      int n = snprintf(p, sizeof(p), "%s/%s", s_overrides[i].flash_prefix, s_overrides[i].files[j]);
+      if (n > 0 && (size_t)n < sizeof(p))
+        assets_get(p);
+    }
+  }
+}
+
+static void free_override_index(void) {
+  for (int i = 0; i < s_override_count; i++) {
+    for (int j = 0; j < s_overrides[i].file_count; j++)
+      free(s_overrides[i].files[j]);
+    free(s_overrides[i].files);
+    s_overrides[i].files = NULL;
+    s_overrides[i].file_count = 0;
+  }
+}
+
 void assets_unload_sd(void) {
   if (s_override_count == 0)
     return;
+  free_override_index();
   s_override_count = 0;
   refresh_overridden_nodes();
 }
