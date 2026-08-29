@@ -24,8 +24,10 @@
 #include "esp_log.h"
 
 #include "assets_manager.h"
+#include "msgbox_ui.h"
 #include "notify_ui.h"
 #include "page_dots_ui.h"
+#include "reboot_ui.h"
 #include "st7789.h"
 #include "tos_config.h"
 #include "tos_storage_paths.h"
@@ -299,6 +301,14 @@ static void update_view(bool anim) {
   fix_z_order();
 }
 
+static bool s_is_reboot_armed = false;
+
+static void theme_reboot_cb(bool confirm) {
+  (void)confirm;
+  msgbox_close();
+  reboot_ui_reboot();
+}
+
 static void theme_selector_input(const input_event_t *ev, void *ctx) {
   (void)ctx;
   const bool press = (ev->action == INPUT_ACTION_PRESS);
@@ -310,22 +320,19 @@ static void theme_selector_input(const input_event_t *ev, void *ctx) {
         ui_switch_screen(SCREEN_SETTINGS);
       break;
     case INPUT_BTN_OK:
-      if (press && s_sel != s_applied) {
+      if (press && !s_is_reboot_armed && s_sel != s_applied) {
         theme_entry_t *e = &s_entries[s_sel];
-        if (e->builtin) {
-          theme_idx = e->flash_idx;
-          ui_theme_load_idx(e->flash_idx);
-        } else {
-          ui_theme_load_from_name(e->name);
-        }
+        if (!ui_sd_ready())
+          break;
         strlcpy(g_config_screen.theme, e->name, sizeof(g_config_screen.theme));
-        if (ui_sd_ready()) {
-          tos_config_save(TOS_PATH_CONFIG_SCREEN, "screen");
-          notify(NOTIFY_SAVED, "Theme saved");
-        }
-        s_applied = s_sel;
-        ESP_LOGI(TAG, "applied theme %d (%s)", s_sel, e->name);
-        build_screen();
+        tos_config_save(TOS_PATH_CONFIG_SCREEN, "screen");
+        s_is_reboot_armed = true;
+        ESP_LOGI(TAG, "theme %d (%s) saved; restarting to apply", s_sel, e->name);
+        msgbox_open("/assets/icons/restart_alt.bin",
+                    "Theme saved. Restarting to apply it.",
+                    "RESTART",
+                    NULL,
+                    theme_reboot_cb);
       }
       break;
     case INPUT_BTN_RIGHT:
@@ -394,6 +401,7 @@ static void build_screen(void) {
 }
 
 void ui_theme_selector_open(void) {
+  s_is_reboot_armed = false;
   build_entries();
   s_applied = find_applied();
   s_sel = s_applied;
