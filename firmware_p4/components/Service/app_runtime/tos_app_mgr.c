@@ -24,9 +24,11 @@
 #include "freertos/task.h"
 
 #include "led_control.h"
+#include "lvgl_glue.h"
 #include "resource_mgr.h"
 #include "spi_bridge.h"
 #include "sys_prio.h"
+#include "tos_api_ui.h"
 #include "tos_app_ctx.h"
 #include "tos_arena.h"
 #include "tos_elf.h"
@@ -85,8 +87,10 @@ static void finish_slot(app_slot_t *a) {
   tos_app_ctx_unbind(a->task); // covers force-kill, which never unbinds itself
   resource_release_owner_task(a->task); // stop any radio the app left running
   tos_app_regs_teardown(&a->regs);
-  if (a->caps & TOS_CAP_UI)
-    led_clear(); // only if this app could have driven the LED
+  if (a->caps & TOS_CAP_UI) {
+    tos_ui_app_teardown(a->task); // delete any screen it created, return to launcher
+    led_clear();                  // only if this app could have driven the LED
+  }
   size_t leaked = tos_arena_used(a->arena);
   if (leaked > 0)
     ESP_LOGW(TAG, "app '%s' leaked %u bytes; reclaiming", a->name, (unsigned)leaked);
@@ -140,6 +144,11 @@ esp_err_t tos_app_mgr_start(const uint8_t *hb, size_t len, const tos_api_t *api)
   if (e != ESP_OK)
     return e;
   if (meta.abi_major != TOS_ABI_VERSION_MAJOR)
+    return ESP_ERR_INVALID_VERSION;
+  // MINOR is additive-only: an app requiring a newer minor than we provide would
+  // dereference ABI fields this firmware's tos_api_t does not have (OOB read past
+  // the shared struct). Refuse it at load — the documented "requires minor >=" rule.
+  if (meta.abi_minor > TOS_ABI_VERSION_MINOR)
     return ESP_ERR_INVALID_VERSION;
 
   // Reserve a free slot (name set now so a concurrent list sees it).
@@ -233,13 +242,31 @@ esp_err_t tos_app_mgr_stop(const char *name, uint32_t timeout_ms) {
       // safe. If the bridge won't quiesce the C5 is wedged, so drop the claim and
       // leave the app rather than corrupt the bridge - it self-cleans once its
       // SPI returns, or a later stop/reboot handles it.
+      // Both locks must be held at the delete so the app holds neither: the SPI
+      // bridge (else deleting mid-transfer corrupts the bridge mutex) and, for a UI
+      // app, the LVGL lock (else deleting mid-LVGL-call strands the recursive render
+      // lock and freezes the display). Order is LVGL-then-bridge to match the only
+      // other nesting in the system — a UI timer that talks to the C5 takes the LVGL
+      // lock first; the bridge never takes the LVGL lock — so there is no inversion.
+      // If either won't come free the subsystem is wedged; drop the claim rather
+      // than corrupt/strand it (the app self-cleans once its call returns).
+      bool ui_app = (a->caps & TOS_CAP_UI) != 0;
+      if (ui_app && !lvgl_glue_lock(APP_KILL_QUIESCE_MS)) {
+        ESP_LOGE(TAG, "UI busy; not force-killing '%s' to avoid corruption", a->name);
+        a->cleaning = false;
+        return ESP_ERR_TIMEOUT;
+      }
       if (spi_bridge_lock(APP_KILL_QUIESCE_MS) != ESP_OK) {
         ESP_LOGE(TAG, "bridge busy; not force-killing '%s' to avoid corruption", a->name);
+        if (ui_app)
+          lvgl_glue_unlock();
         a->cleaning = false;
         return ESP_ERR_TIMEOUT;
       }
       vTaskDelete(a->task);
       spi_bridge_unlock();
+      if (ui_app)
+        lvgl_glue_unlock();
     }
     finish_slot(a);
     return ESP_OK;

@@ -122,6 +122,27 @@ static uint32_t sym_run_addr(const loader_t *l, const elf32_sym_t *s) {
   return sec_run(l, s->st_shndx) + s->st_value;
 }
 
+// Apps link no libc, but the compiler emits implicit calls to the freestanding
+// runtime (memcpy/memset/memmove/memcmp) for struct copies, array fills, etc. Those
+// arrive as undefined symbols; resolve them to the firmware's own implementations so
+// every app gets them for free instead of faulting on a null call. Returns the
+// function address, or 0 if the name is not one we provide.
+static uint32_t resolve_extern(const char *name) {
+  static const struct {
+    const char *name;
+    void *fn;
+  } kProvided[] = {
+      {"memcpy", (void *)memcpy},
+      {"memset", (void *)memset},
+      {"memmove", (void *)memmove},
+      {"memcmp", (void *)memcmp},
+  };
+  for (size_t i = 0; i < sizeof(kProvided) / sizeof(kProvided[0]); i++)
+    if (strcmp(name, kProvided[i].name) == 0)
+      return (uint32_t)(uintptr_t)kProvided[i].fn;
+  return 0;
+}
+
 static void patch_u32(uint32_t addr, uint32_t v) {
   memcpy((void *)(uintptr_t)addr, &v, 4);
 }
@@ -157,8 +178,24 @@ static esp_err_t apply_one_rela(loader_t *l,
                                 uint32_t p_run) {
   const elf32_sym_t *symtab = (const elf32_sym_t *)(l->elf + symsh->sh_offset);
   const elf32_sym_t *sym = &symtab[ELF32_R_SYM(r->r_info)];
-  uint32_t s = sym_run_addr(l, sym) + (uint32_t)r->r_addend;
   uint32_t type = ELF32_R_TYPE(r->r_info);
+
+  // An undefined named symbol is an external the compiler expects the runtime to
+  // provide (memcpy/memset/...). Resolve it to a firmware function; if we do not
+  // provide it, fail the load with the name instead of silently writing a call to 0.
+  uint32_t base;
+  if (sym->st_shndx == SHN_UNDEF && sym->st_name != 0) {
+    const char *strtab = (const char *)(l->elf + l->sh[symsh->sh_link].sh_offset);
+    const char *name = strtab + sym->st_name;
+    base = resolve_extern(name);
+    if (base == 0) {
+      ESP_LOGE(TAG, "unresolved external symbol '%s' (app links no libc)", name);
+      return ESP_ERR_NOT_FOUND;
+    }
+  } else {
+    base = sym_run_addr(l, sym);
+  }
+  uint32_t s = base + (uint32_t)r->r_addend;
 
   switch (type) {
     case R_RISCV_32:
