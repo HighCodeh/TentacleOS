@@ -62,6 +62,7 @@ void c5_flasher_progress(uint32_t *sent, uint32_t *total) {
 #define OTA_DONE_TIMEOUT_MS   30000 // final: wait for validate + DONE/ERROR
 
 #define ENTER_DOWNLOAD_TIMEOUT_MS 500
+#define C5_REBOOT_TIMEOUT_MS      2000
 
 esp_err_t c5_flasher_init(void) {
   const uart_config_t cfg = {
@@ -110,6 +111,19 @@ esp_err_t c5_flasher_enter_download(void) {
     return ESP_OK;
   }
   ESP_LOGE(TAG, "enter-download command failed: %s", esp_err_to_name(ret));
+  return ret;
+}
+
+esp_err_t c5_flasher_reboot(void) {
+  ESP_LOGW(TAG, "Requesting C5 reboot over SPI...");
+
+  spi_header_t resp = {0};
+  esp_err_t ret =
+      spi_bridge_send_command(SPI_ID_SYSTEM_REBOOT, NULL, 0, &resp, NULL, 0, C5_REBOOT_TIMEOUT_MS);
+  if (ret == ESP_OK || ret == ESP_ERR_TIMEOUT) {
+    return ESP_OK;
+  }
+  ESP_LOGE(TAG, "reboot command failed: %s", esp_err_to_name(ret));
   return ret;
 }
 

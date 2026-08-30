@@ -109,10 +109,7 @@ static int cmd_c5(int argc, char **argv) {
     return 0;
   }
   if (strcmp(argv[1], "reboot") == 0) {
-    spi_header_t resp;
-    uint8_t buf[8];
-    esp_err_t r =
-        spi_bridge_send_command(SPI_ID_SYSTEM_REBOOT, NULL, 0, &resp, buf, sizeof(buf), 2000);
+    esp_err_t r = c5_flasher_reboot();
     printf("C5 reboot: %s\n", esp_err_to_name(r));
     if (r == ESP_OK)
       printf("C5 rebooting; run 'c5 sync' once it is back.\n");
