@@ -30,6 +30,7 @@
 #include "lvgl_glue.h"
 #include "lv_port_indev.h"
 #include "msgbox_ui.h"
+#include "resource_mgr.h"
 #include "notify_ui.h"
 #include "power_policy.h"
 #include "screen_tips.h"
@@ -117,6 +118,7 @@
 #include "nfc_scan_ui.h"
 #include "subghz_send_ui.h"
 #include "system_update_ui.h"
+#include "c5_console_ui.h"
 #include "c5_status_ui.h"
 #include "led_ctrl_ui.h"
 #include "lora_traceroute_ui.h"
@@ -569,6 +571,8 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_system_update_open;
     case SCREEN_C5_STATUS:
       return ui_c5_status_open;
+    case SCREEN_C5_CONSOLE:
+      return ui_c5_console_open;
     case SCREEN_LED_CTRL:
       return ui_led_ctrl_open;
     case SCREEN_LORA_TRACEROUTE:
@@ -690,6 +694,7 @@ bool ui_screen_shows_chrome(screen_id_t s) {
     case SCREEN_SYSTEM_UPDATE:
     case SCREEN_SCRIPTS:
     case SCREEN_TIME:
+    case SCREEN_APP_RUNNING:
       return false;
     default:
       return true;
@@ -715,6 +720,41 @@ static bool is_lora_screen(screen_id_t s) {
   }
 }
 
+// Display lease (RES_DISPLAY). The UI holds it while a native firmware screen is
+// foreground; a running app holds it while its own screen is up. When a native
+// screen returns to the foreground the UI re-claims the lane, which preempts a
+// running app (UI prio 20 > app prio 10) and fires the app's on_revoke ->
+// resource_lost(). Handing the panel to an app (ui_app_screen_enter) releases the
+// UI's grant so the app's screen_open can take it.
+static res_handle_t s_ui_display = RES_HANDLE_NONE;
+
+static void ui_display_ui_revoked(void *user) {
+  (void)user; // nothing higher than the UI takes the panel today; keep the slot sane
+  s_ui_display = RES_HANDLE_NONE;
+}
+
+static void ui_display_claim_ui(void) {
+  if (resource_handle_valid(s_ui_display))
+    return; // already ours
+  res_request_t req = {
+      .id = RES_DISPLAY,
+      .lane = RES_LANE_MAIN,
+      .owner_kind = RES_OWNER_UI,
+      .owner_task = NULL,
+      .priority = 0, // default: UI = 20
+      .allow_preempt = true,
+      .on_revoke = ui_display_ui_revoked,
+      .user = NULL,
+  };
+  if (resource_acquire(&req, &s_ui_display) != ESP_OK)
+    s_ui_display = RES_HANDLE_NONE; // degrade: no clean preemption, UI still draws
+}
+
+static void ui_display_release_ui(void) {
+  resource_release(s_ui_display);
+  s_ui_display = RES_HANDLE_NONE;
+}
+
 void ui_switch_screen(screen_id_t new_screen) {
   ui_open_fn_t open_fn = screen_open_fn(new_screen);
   if (open_fn == NULL) {
@@ -725,6 +765,9 @@ void ui_switch_screen(screen_id_t new_screen) {
   input_lock_until = lv_tick_get() + INPUT_LOCK_MS;
 
   if (ui_acquire()) {
+    // A native screen is coming to the foreground: (re)claim the panel for the UI.
+    // If an app held it, this preempts the app and fires its resource_lost().
+    ui_display_claim_ui();
     screen_id_t from = current_screen_id;
     lv_obj_t *outgoing = lv_screen_active();
     ui_close_fn_t close_fn = screen_close_fn(current_screen_id);
@@ -746,6 +789,24 @@ void ui_switch_screen(screen_id_t new_screen) {
     screen_tips_hook(new_screen);
     ui_release();
   }
+}
+
+void ui_app_screen_enter(lv_obj_t *scr, ui_input_handler_t handler, void *ctx) {
+  if (scr == NULL)
+    return;
+  ui_display_release_ui(); // drop the panel so the app's screen_open can lease it
+  input_lock_until = lv_tick_get() + INPUT_LOCK_MS;
+  lv_obj_t *outgoing = lv_screen_active();
+  ui_close_fn_t close_fn = screen_close_fn(current_screen_id);
+  if (close_fn != NULL)
+    close_fn();
+  clear_current_screen();
+  ui_chrome_set_status_enabled(false);
+  lv_screen_load(scr);
+  current_screen_id = SCREEN_APP_RUNNING;
+  ui_input_set_screen_handler(handler, ctx);
+  if (outgoing != NULL && outgoing != scr && lv_obj_is_valid(outgoing))
+    lv_obj_del_async(outgoing);
 }
 
 bool ui_acquire(void) {

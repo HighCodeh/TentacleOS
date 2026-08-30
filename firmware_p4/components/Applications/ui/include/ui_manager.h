@@ -142,6 +142,7 @@ typedef enum {
   SCREEN_SUBGHZ_SEND,
   SCREEN_SYSTEM_UPDATE,
   SCREEN_C5_STATUS,
+  SCREEN_C5_CONSOLE,
   SCREEN_LED_CTRL,
   SCREEN_LORA_TRACEROUTE,
   SCREEN_LORA_RNODE,
@@ -173,6 +174,7 @@ typedef enum {
   SCREEN_TIME,
   SCREEN_IMAGE_VIEWER,
   SCREEN_USB_STORAGE,
+  SCREEN_APP_RUNNING,
   SCREEN_COUNT
 } screen_id_t;
 
@@ -276,6 +278,17 @@ typedef void (*ui_input_handler_t)(const input_event_t *ev, void *ctx);
  * polling lv_timers. Pass NULL to clear.
  */
 void ui_input_set_screen_handler(ui_input_handler_t handler, void *ctx);
+
+/**
+ * @brief Hand the display to a native app's own LVGL screen.
+ *
+ * Loads @p scr as the active screen, marks the active screen id
+ * SCREEN_APP_RUNNING (chromeless, so no status bar or dropdown draws over the
+ * app), and registers @p handler as the input handler so the app receives button
+ * events through its poll queue. Used only by the UI subsystem of the app ABI
+ * (tos_api_ui.c). Must be called with the UI mutex held.
+ */
+void ui_app_screen_enter(lv_obj_t *scr, ui_input_handler_t handler, void *ctx);
 
 /** @brief Check if user input is temporarily locked. */
 bool ui_input_is_locked(void);
