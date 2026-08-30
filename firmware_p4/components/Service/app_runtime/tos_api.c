@@ -114,6 +114,8 @@ static esp_err_t api_led_set(uint8_t r, uint8_t g, uint8_t b) {
 
 extern const tos_wifi_api_t tos_wifi_api_impl; // tos_api_wifi.c
 extern const tos_ble_api_t tos_ble_api_impl;   // tos_api_ble.c
+extern const tos_ui_api_t tos_ui_api_impl;     // tos_api_ui.c
+extern const tos_fs_api_t tos_fs_api_impl;     // tos_api_fs.c
 
 static const tos_api_t s_api = {
     .abi_major = TOS_ABI_VERSION_MAJOR,
@@ -132,6 +134,8 @@ static const tos_api_t s_api = {
     .led_set = api_led_set,
     .wifi = &tos_wifi_api_impl,
     .ble = &tos_ble_api_impl,
+    .ui = &tos_ui_api_impl,
+    .fs = &tos_fs_api_impl,
 };
 
 const tos_api_t *tos_api_get(void) {

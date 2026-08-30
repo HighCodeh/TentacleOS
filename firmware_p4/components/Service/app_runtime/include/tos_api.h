@@ -44,10 +44,25 @@ extern "C" {
 // Standalone SDK build (app compiled on a PC, no ESP-IDF): self-contained.
 typedef int esp_err_t;
 typedef struct host_link_handler host_link_handler_t; // opaque to apps
+// The subset of esp_err.h codes the ABI can return (values match ESP-IDF).
+#define ESP_OK                  0
+#define ESP_FAIL                -1
+#define ESP_ERR_NO_MEM          0x101
+#define ESP_ERR_INVALID_ARG     0x102
+#define ESP_ERR_INVALID_STATE   0x103
+#define ESP_ERR_INVALID_SIZE    0x104
+#define ESP_ERR_NOT_FOUND       0x105
+#define ESP_ERR_NOT_SUPPORTED   0x106
+#define ESP_ERR_TIMEOUT         0x107
+#define ESP_ERR_INVALID_VERSION 0x10A
 #endif
 
 #define TOS_ABI_VERSION_MAJOR 1
-#define TOS_ABI_VERSION_MINOR 4
+// 1.9 = ui->image (retained image widget from app-provided LVGL .bin bytes).
+// 1.8 = read-only fs subsystem. NOTE: 1.7 was briefly a (removed) IMU subsystem in
+// dev; fs took a fresh minor so a firmware built during the IMU era rejects an
+// fs app at the load gate instead of mismatching its api->fs pointer.
+#define TOS_ABI_VERSION_MINOR 9
 
 /** Log levels; values match esp_log_level_t so they pass straight through. */
 typedef enum {
@@ -161,6 +176,105 @@ typedef struct tos_ble_api {
   esp_err_t (*hid_send_key)(uint8_t modifier, uint8_t keycode); ///< hid
 } tos_ble_api_t;
 
+// UI subsystem (api->ui): create and drive a full-screen widget UI on the 240x320
+// display. Optional — an app that never touches api->ui owns no screen. Every call
+// needs TOS_CAP_UI. No LVGL type crosses this ABI: widgets are opaque handles,
+// geometry is int, colour is packed 0x00RRGGBB. The display is single-owner: while
+// one app holds the screen, another app's screen_open returns ESP_ERR_INVALID_STATE.
+typedef uint32_t tos_ui_obj_t;        ///< opaque widget handle; 0 == none/error
+#define TOS_UI_NONE ((tos_ui_obj_t)0) ///< the "no widget" / root-parent sentinel
+typedef uint32_t tos_rgb_t;           ///< 0x00RRGGBB (firmware packs to the panel)
+
+typedef enum {
+  TOS_KEY_UP = 1,
+  TOS_KEY_DOWN,
+  TOS_KEY_LEFT,
+  TOS_KEY_RIGHT,
+  TOS_KEY_OK,
+  TOS_KEY_BACK,
+} tos_ui_key_t;
+typedef enum { TOS_KEY_RELEASE = 0, TOS_KEY_PRESS = 1, TOS_KEY_REPEAT = 2 } tos_ui_action_t;
+typedef struct {
+  uint8_t key;    ///< tos_ui_key_t
+  uint8_t action; ///< tos_ui_action_t
+} tos_ui_event_t;
+
+/** Runs on the app task with the LVGL lock already held (see batch). Keep it
+ *  short and non-blocking: no delay/yield/should_stop, no SD/SPI I/O. */
+typedef void (*tos_ui_batch_cb)(void *user);
+
+typedef struct tos_ui_api {
+  // Screen lifecycle. Opt-in: nothing exists until screen_open().
+  esp_err_t (*screen_open)(void); ///< create + show the full-bleed 240x320 screen
+  void (*screen_close)(void);     ///< dismiss now (a normal return / kill also reclaims it)
+  void (*metrics)(int32_t *w, int32_t *h); ///< usable size in px (240x320)
+
+  // Retained builders. parent == TOS_UI_NONE attaches to the screen root. Return a
+  // handle to keep, or TOS_UI_NONE on error. Strings are COPIED by the firmware.
+  tos_ui_obj_t (*label)(tos_ui_obj_t parent, int32_t x, int32_t y, const char *text);
+  tos_ui_obj_t (*rect)(tos_ui_obj_t parent, int32_t x, int32_t y, int32_t w, int32_t h);
+  tos_ui_obj_t (*bar)(tos_ui_obj_t parent, int32_t x, int32_t y, int32_t w, int32_t h,
+                      int32_t min, int32_t max);
+
+  // Retained mutators. Call anytime from the app loop; each locks internally and
+  // is a harmless no-op on a stale/invalid handle.
+  esp_err_t (*set_text)(tos_ui_obj_t h, const char *text); ///< label; copies the string
+  esp_err_t (*set_value)(tos_ui_obj_t h, int32_t v);       ///< bar
+  esp_err_t (*set_pos)(tos_ui_obj_t h, int32_t x, int32_t y);
+  esp_err_t (*set_size)(tos_ui_obj_t h, int32_t w, int32_t ht);
+  esp_err_t (*set_text_color)(tos_ui_obj_t h, tos_rgb_t rgb);
+  esp_err_t (*set_bg_color)(tos_ui_obj_t h, tos_rgb_t rgb);
+  esp_err_t (*set_hidden)(tos_ui_obj_t h, bool hidden);
+  esp_err_t (*del)(tos_ui_obj_t h); ///< delete a widget and its descendants
+
+  // Atomic frame: take the LVGL lock once, run cb (app task, lock held), release.
+  // Cheaper than N separate setters for a periodic redraw; no mid-frame repaint.
+  esp_err_t (*batch)(tos_ui_batch_cb cb, void *user);
+
+  // Input: non-blocking drain on the app task. 1 = event dequeued, 0 = none.
+  int (*poll_event)(tos_ui_event_t *out);
+
+  // Canvas (direct-panel) mode (ABI 1.6) — for games/emulators that push full
+  // frames. Mutually exclusive with the widget builders on the same session: after
+  // canvas_begin(), label/rect/bar return TOS_UI_NONE. canvas_begin() reports the
+  // physical panel size (240x320, always portrait). canvas_blit() copies a
+  // little-endian RGB565 rect (row-major, stride == w) to (x,y); the firmware owns
+  // byte-order and DMA. canvas_end() (or a normal return / kill) reclaims it.
+  esp_err_t (*canvas_begin)(int32_t *w, int32_t *h);
+  esp_err_t (*canvas_blit)(const void *rgb565, int32_t x, int32_t y, int32_t w, int32_t h);
+  void (*canvas_end)(void);
+
+  // Retained image widget (ABI 1.9). Decodes an LVGL .bin (the same format the
+  // asset tooling and the .hb icon use: [magic_cf u32][w u16][h u16][pixels]) that
+  // the app carries in its own image, copies the pixels into firmware memory and
+  // shows them at (x,y). Widget-mode only (TOS_UI_NONE in canvas mode). Bounded to
+  // the 240x320 panel; returns TOS_UI_NONE on a bad or oversized blob. The copy is
+  // freed with the widget, so the app's bytes need not outlive the call.
+  tos_ui_obj_t (*image)(tos_ui_obj_t parent, int32_t x, int32_t y, const void *bin,
+                        uint32_t bin_len);
+} tos_ui_api_t;
+
+/** One directory entry from tos_fs_api.list(). */
+typedef struct {
+  char name[64];  ///< entry name only (no path)
+  uint32_t size;  ///< file size in bytes (0 for directories)
+  bool is_dir;    ///< true if a subdirectory
+} tos_fs_dirent_t;
+
+/**
+ * Read-only filesystem access to the SD card (ABI 1.8). Needs TOS_CAP_FS_READ.
+ * Every path must be absolute under "/sdcard" (others are refused). Provides
+ * directory listing and streaming file reads; there is no write path.
+ */
+typedef struct tos_fs_api {
+  int (*list)(const char *path, tos_fs_dirent_t *out, int max); ///< entry count, or <0
+  long (*size)(const char *path);                               ///< bytes, or -1 if missing
+  void *(*open)(const char *path);                              ///< read handle, or NULL
+  int (*read)(void *handle, void *buf, int len);                ///< bytes read, 0=EOF, <0 err
+  int (*seek)(void *handle, long offset);                       ///< absolute seek; 0 ok, <0 err
+  void (*close)(void *handle);
+} tos_fs_api_t;
+
 /**
  * The host API table. Built once and shared const by every app. Grouped by the
  * capability that gates each call; the lifecycle group is always available.
@@ -195,6 +309,8 @@ typedef struct tos_api {
   // Subsystem namespaces (each its own sub-struct; per-call capability gating).
   const tos_wifi_api_t *wifi;
   const tos_ble_api_t *ble;
+  const tos_ui_api_t *ui; ///< on-device screen (minor 5+); needs TOS_CAP_UI
+  const tos_fs_api_t *fs; ///< read-only SD access (minor 8+); needs TOS_CAP_FS_READ
 } tos_api_t;
 
 /** @brief The shared, const host API table handed to every app at entry. */
