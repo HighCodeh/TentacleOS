@@ -44,6 +44,7 @@ typedef enum {
   RES_NFC,
   RES_HID_USB, ///< BadUSB / HID injection
   RES_LORA,
+  RES_DISPLAY, ///< the ST7789 panel: one owner draws the screen at a time (UI or an app)
   RES_COUNT
 } res_id_t;
 

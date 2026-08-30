@@ -51,6 +51,10 @@ static const res_desc_t s_desc[RES_COUNT] = {
     [RES_NFC] = {"nfc", true, 1, {{"", 1, 0}}},
     [RES_HID_USB] = {"hid_usb", true, 1, {{"", 1, 0}}},
     [RES_LORA] = {"lora", true, 1, {{"", 1, 0}}},
+    // Exclusive + preemptible: the on-device UI (prio 20) preempts a running app
+    // (prio 10) when a native screen returns to the foreground; the app's
+    // on_revoke fires resource_lost(), the same signal it already knows from radios.
+    [RES_DISPLAY] = {"display", true, 1, {{"", 1, 0}}},
 };
 
 typedef struct {
