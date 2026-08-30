@@ -18,8 +18,15 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "st7789.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
+#include "st7789.h"
+#include "sys_prio.h"
+
+#include "c5_console_ui.h"
+#include "c5_flasher.h"
+#include "msgbox_ui.h"
 #include "notify_ui.h"
 #include "ota_version.h"
 #include "spi_bridge.h"
@@ -49,24 +56,29 @@
 #define C5_VER_TIMEOUT_MS 500
 #define C5_VER_BUF_LEN    24
 
+#define C5_OP_TASK_STACK 4096
+#define C5_OP_TASK_PRIO  SYS_PRIO_SERVICE_HI
+
+#define C5_REBOOT_HOLD_MS    10000
+#define C5_REBOOT_LABEL      LV_SYMBOL_REFRESH "  Rebooting C5..."
+#define C5_REBOOT_TEXT_COLOR 0x8A8594
+
 enum {
-  ACT_DOWNLOAD = 0,
-  ACT_PING,
-  ACT_INFO,
+  ACT_CONSOLE = 0,
+  ACT_DOWNLOAD,
+  ACT_REBOOT,
   ACT_COUNT,
 };
 
 typedef struct {
   const char *sym;
   const char *name;
-  notify_type_t toast_type;
-  const char *toast_text;
 } action_def_t;
 
 static const action_def_t ACTIONS[ACT_COUNT] = {
-    {LV_SYMBOL_DOWNLOAD, "Enter Download", NOTIFY_INFO, "C5 entering download mode"},
-    {LV_SYMBOL_REFRESH, "Legacy Ping", NOTIFY_INFO, "C5 ping: pong in 12 ms"},
-    {LV_SYMBOL_LIST, "Get Info", NOTIFY_SAVED, "C5 v0.9.1  heap 41 KB free"},
+    {LV_SYMBOL_LIST, "C5 Console"},
+    {LV_SYMBOL_DOWNLOAD, "Enter Download"},
+    {LV_SYMBOL_REFRESH, "Reboot C5"},
 };
 
 static lv_obj_t *s_screen = NULL;
@@ -75,6 +87,9 @@ static lv_obj_t *s_act_icon[ACT_COUNT];
 static lv_obj_t *s_act_name[ACT_COUNT];
 
 static int s_sel = 0;
+static bool s_is_busy = false;
+static int s_pending = -1;
+static bool s_is_reboot_ok = true;
 
 static lv_obj_t *info_row(lv_obj_t *card, int index, const char *tag_txt, const char *val_txt) {
   lv_obj_t *tag = lv_label_create(card);
@@ -183,6 +198,79 @@ static void refresh_selection(void) {
   }
 }
 
+static void c5_op_done(void *data) {
+  esp_err_t r = (esp_err_t)(intptr_t)data;
+  s_is_busy = false;
+  spi_bridge_set_alive(false);
+  if (s_pending == ACT_REBOOT) {
+    s_is_reboot_ok = (r == ESP_OK);
+    return;
+  }
+  if (r != ESP_OK) {
+    notify(NOTIFY_WARNING, "C5 download failed");
+    return;
+  }
+  msgbox_open_info(NULL,
+                   "C5 IN DOWNLOAD MODE",
+                   "Flash it externally now (RELEASE UART / FLASH C5 ROM). It stays down "
+                   "until re-flashed.",
+                   current_theme.border_accent);
+}
+
+static void c5_op_task(void *arg) {
+  (void)arg;
+  esp_err_t r = (s_pending == ACT_REBOOT) ? c5_flasher_reboot() : c5_flasher_enter_download();
+  ui_async_call(c5_op_done, (void *)(intptr_t)r);
+  vTaskDelete(NULL);
+}
+
+static void c5_reboot_input(const input_event_t *ev, void *ctx) {
+  (void)ev;
+  (void)ctx;
+}
+
+static void c5_reboot_overlay_show(void) {
+  lv_obj_t *scr = lv_obj_create(NULL);
+  lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+  lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_t *lbl = lv_label_create(scr);
+  lv_label_set_text(lbl, C5_REBOOT_LABEL);
+  lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(lbl, lv_color_hex(C5_REBOOT_TEXT_COLOR), 0);
+  lv_obj_center(lbl);
+
+  ui_input_set_screen_handler(c5_reboot_input, NULL);
+  ui_screen_load(scr);
+}
+
+static void c5_reboot_done(lv_timer_t *timer) {
+  lv_timer_delete(timer);
+  ui_switch_screen(SCREEN_C5_STATUS);
+  notify(s_is_reboot_ok ? NOTIFY_SAVED : NOTIFY_WARNING,
+         s_is_reboot_ok ? "C5 rebooted" : "C5 reboot failed");
+}
+
+static void on_op_confirm(bool confirm) {
+  if (!confirm || s_is_busy)
+    return;
+  s_is_busy = true;
+  if (xTaskCreatePinnedToCore(
+          c5_op_task, "c5_op", C5_OP_TASK_STACK, NULL, C5_OP_TASK_PRIO, NULL, SYS_CORE_RADIO) !=
+      pdPASS) {
+    s_is_busy = false;
+    notify(NOTIFY_WARNING, "C5 busy, try again");
+    return;
+  }
+  if (s_pending == ACT_REBOOT) {
+    s_is_reboot_ok = true;
+    c5_reboot_overlay_show();
+    lv_timer_t *timer = lv_timer_create(c5_reboot_done, C5_REBOOT_HOLD_MS, NULL);
+    lv_timer_set_repeat_count(timer, 1);
+  }
+}
+
 static void c5_status_input(const input_event_t *ev, void *ctx) {
   (void)ctx;
   const bool press = (ev->action == INPUT_ACTION_PRESS);
@@ -209,8 +297,20 @@ static void c5_status_input(const input_event_t *ev, void *ctx) {
       break;
     case INPUT_BTN_OK:
       if (press) {
-        notify(ACTIONS[s_sel].toast_type, ACTIONS[s_sel].toast_text);
         ui_feedback(UI_FB_SELECT);
+        if (s_sel == ACT_CONSOLE) {
+          ui_switch_screen(SCREEN_C5_CONSOLE);
+        } else if (s_sel == ACT_DOWNLOAD) {
+          s_pending = ACT_DOWNLOAD;
+          msgbox_open(NULL,
+                      "Put the C5 in ROM download mode?\nIt stops running until re-flashed.",
+                      "Enter",
+                      "Cancel",
+                      on_op_confirm);
+        } else {
+          s_pending = ACT_REBOOT;
+          msgbox_open(NULL, "Reboot the C5 now?", "Reboot", "Cancel", on_op_confirm);
+        }
       }
       break;
     default:
