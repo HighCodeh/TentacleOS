@@ -89,6 +89,7 @@ static uint8_t *s_cram;
 static size_t s_cram_size;
 static uint8_t *s_shade;
 static uint16_t *s_strip;
+static int s_strip_rows; // strip height actually allocated (adapts to free DMA RAM)
 static uint16_t s_pal[GB_DMG_PALETTE_COUNT];
 static uint8_t s_sx[GB_DST_W], s_sy[GB_DST_H];
 
@@ -249,8 +250,8 @@ static void poll_input(void) {
 }
 
 static void blit_frame(void) {
-  for (int y0 = 0; y0 < GB_DST_H; y0 += GB_STRIP_ROWS) {
-    int rows = (y0 + GB_STRIP_ROWS <= GB_DST_H) ? GB_STRIP_ROWS : (GB_DST_H - y0);
+  for (int y0 = 0; y0 < GB_DST_H; y0 += s_strip_rows) {
+    int rows = (y0 + s_strip_rows <= GB_DST_H) ? s_strip_rows : (GB_DST_H - y0);
     for (int j = 0; j < rows; j++) {
       const uint8_t *srow = s_shade + (size_t)s_sy[y0 + j] * LCD_WIDTH;
       uint16_t *orow = s_strip + (size_t)j * GB_DST_W;
@@ -264,9 +265,9 @@ static void blit_frame(void) {
 }
 
 static void panel_clear_black(void) {
-  memset(s_strip, 0, (size_t)GB_DST_W * GB_STRIP_ROWS * sizeof(uint16_t));
-  for (int y = 0; y < GB_DST_H; y += GB_STRIP_ROWS) {
-    int rows = (y + GB_STRIP_ROWS <= GB_DST_H) ? GB_STRIP_ROWS : (GB_DST_H - y);
+  memset(s_strip, 0, (size_t)GB_DST_W * s_strip_rows * sizeof(uint16_t));
+  for (int y = 0; y < GB_DST_H; y += s_strip_rows) {
+    int rows = (y + s_strip_rows <= GB_DST_H) ? s_strip_rows : (GB_DST_H - y);
     esp_lcd_panel_draw_bitmap(panel_handle, 0, y, GB_DST_W, y + rows, s_strip);
     lvgl_glue_wait_flush(GB_FLUSH_WAIT_MS);
   }
@@ -351,8 +352,22 @@ static void gb_main_task(void *arg) {
 
   s_gb = heap_caps_malloc(sizeof(struct gb_s), MALLOC_CAP_SPIRAM);
   s_shade = heap_caps_malloc((size_t)LCD_WIDTH * LCD_HEIGHT, MALLOC_CAP_SPIRAM);
-  s_strip = heap_caps_malloc((size_t)GB_DST_W * GB_STRIP_ROWS * sizeof(uint16_t),
-                             MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+  // Internal DMA RAM is scarce/fragmented (LVGL's draw buffers hold a large chunk),
+  // so the full-height strip may not fit. Take the tallest strip that does, sizing
+  // the first try to the largest free block (no noisy "alloc failed" log) and
+  // halving down to a single row as a floor.
+  {
+    int rows = GB_STRIP_ROWS;
+    size_t avail = heap_caps_get_largest_free_block(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    while (rows > 1 && (size_t)GB_DST_W * rows * sizeof(uint16_t) > avail)
+      rows >>= 1;
+    for (; rows >= 1 && s_strip == NULL; rows >>= 1) {
+      s_strip = heap_caps_malloc((size_t)GB_DST_W * rows * sizeof(uint16_t),
+                                 MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+      if (s_strip != NULL)
+        s_strip_rows = rows;
+    }
+  }
   if (s_gb == NULL || s_shade == NULL || s_strip == NULL) {
     ESP_LOGE(TAG,
              "buffer alloc failed (int free=%u) - returning to launcher",
