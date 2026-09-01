@@ -275,6 +275,233 @@ typedef struct tos_fs_api {
   void (*close)(void *handle);
 } tos_fs_api_t;
 
+// Reserved radio subsystems (contract only; not yet published in tos_api_t).
+// These typed surfaces lock the app-facing shape of the five P4-native radios so
+// each radio's build can target a stable contract. Each is PUBLISHED on its own
+// -- a pointer appended to tos_api_t, a tos_api_<radio>.c impl, and a MINOR bump
+// -- once its backend is wired (SubGHz/IR/RFID first, NFC after the ST25R3916
+// bring-up, LoRa last). Until then an app cannot reach it. Reads/receives need
+// TOS_CAP_RADIO_RX; anything that transmits needs TOS_CAP_RADIO_TX. Long-running
+// captures return an out_session ended with the subsystem's session_stop, exactly
+// like wifi/ble.
+
+/** A Sub-GHz signal from the receiver. `decoded` is false for an unrecognised
+ *  capture (only the raw timings via get_raw are then meaningful). */
+typedef struct {
+  char protocol[32]; ///< decoder name, "" if not decoded
+  bool decoded;
+  uint32_t freq_hz;
+  uint32_t value;   ///< decoded key value (protocol-defined)
+  uint32_t serial;  ///< decoded serial/id
+  uint8_t bit_count;
+  uint8_t btn;      ///< decoded button/command nibble
+} tos_subghz_signal_t;
+
+/**
+ * Sub-GHz (CC1101). Capture on a frequency/preset, read decoded results or raw
+ * timings, and transmit raw pulse trains or replay a saved capture. Decoded
+ * replay is only possible for protocols with an encoder (CAME, RCSwitch); the
+ * others are decode-only and replay() returns ESP_ERR_NOT_SUPPORTED for them,
+ * while RAW replay and tx_raw always work. Timings are microseconds, signed:
+ * +mark / -space.
+ */
+typedef struct tos_subghz_api {
+  esp_err_t (*rx_start)(uint32_t freq_hz, uint8_t preset, uint32_t *out_session); ///< radio-rx
+  int (*rx_poll)(tos_subghz_signal_t *out);      ///< 1 = new signal dequeued, 0 = none
+  int (*get_raw)(int32_t *out, int max);         ///< last signal's timings; count, or <0
+  esp_err_t (*tx_raw)(const int32_t *timings, int count, uint32_t freq_hz); ///< radio-tx
+  esp_err_t (*replay)(const char *path);         ///< radio-tx; saved capture under /sdcard
+  esp_err_t (*set_frequency)(uint32_t freq_hz);
+  // Spectrum sweep. Poll fills dbm[] (up to `max`, hardware caps at 80 bins) and
+  // reports the start frequency and per-bin step; returns the sample count or 0.
+  esp_err_t (*spectrum_start)(uint32_t center_hz, uint32_t span_hz, uint32_t *out_session); ///< radio-rx
+  int (*spectrum_poll)(uint32_t *out_start_hz, uint32_t *out_step_hz, float *dbm, int max);
+  esp_err_t (*session_stop)(uint32_t session);
+} tos_subghz_api_t;
+
+/** Infrared remote protocols (index matches the firmware decoder table). */
+typedef enum {
+  TOS_IR_NEC = 0,
+  TOS_IR_SAMSUNG,
+  TOS_IR_RC6,
+  TOS_IR_RC5,
+  TOS_IR_SONY,
+  TOS_IR_LG,
+  TOS_IR_JVC,
+  TOS_IR_DENON,
+  TOS_IR_PANASONIC,
+  TOS_IR_RCA,
+  TOS_IR_PIONEER,
+  TOS_IR_NEC42,
+} tos_ir_proto_t;
+
+/** Air-conditioner remote vendors (index matches the firmware AC table). */
+typedef enum {
+  TOS_IR_AC_COOLIX = 0,
+  TOS_IR_AC_GREE,
+  TOS_IR_AC_LG,
+  TOS_IR_AC_MIDEA,
+  TOS_IR_AC_TOSHIBA,
+  TOS_IR_AC_HAIER,
+} tos_ir_ac_proto_t;
+
+typedef enum {
+  TOS_IR_AC_MODE_AUTO = 0,
+  TOS_IR_AC_MODE_COOL,
+  TOS_IR_AC_MODE_HEAT,
+  TOS_IR_AC_MODE_DRY,
+  TOS_IR_AC_MODE_FAN,
+} tos_ir_ac_mode_t;
+
+typedef enum {
+  TOS_IR_AC_FAN_AUTO = 0,
+  TOS_IR_AC_FAN_LOW,
+  TOS_IR_AC_FAN_MED,
+  TOS_IR_AC_FAN_HIGH,
+} tos_ir_ac_fan_t;
+
+/** One IR remote code. */
+typedef struct {
+  uint8_t protocol; ///< tos_ir_proto_t
+  uint32_t address;
+  uint32_t command;
+  bool repeat;
+} tos_ir_code_t;
+
+/** Air-conditioner state to encode into a full AC frame. */
+typedef struct {
+  uint8_t protocol; ///< tos_ir_ac_proto_t
+  bool power;
+  uint8_t mode;   ///< tos_ir_ac_mode_t
+  uint8_t temp_c; ///< target temperature, Celsius
+  uint8_t fan;    ///< tos_ir_ac_fan_t
+} tos_ir_ac_t;
+
+/**
+ * Infrared (RMT). Receive a decoded remote code (blocks up to timeout), send a
+ * code or a raw pulse train, replay a saved .ir capture, or emit a full
+ * air-conditioner frame. Raw pulses are microseconds, signed: +mark / -space.
+ */
+typedef struct tos_ir_api {
+  esp_err_t (*receive)(tos_ir_code_t *out, uint32_t timeout_ms); ///< radio-rx; blocks
+  esp_err_t (*send)(const tos_ir_code_t *code);                  ///< radio-tx
+  int (*get_last_raw)(int32_t *out, int max);                   ///< last capture's pulses; count, or <0
+  esp_err_t (*send_raw)(const int32_t *pulses, int count, uint32_t carrier_hz); ///< radio-tx
+  esp_err_t (*send_file)(const char *path);                    ///< radio-tx; .ir under /sdcard
+  esp_err_t (*send_ac)(const tos_ir_ac_t *ac);                 ///< radio-tx
+} tos_ir_api_t;
+
+/** NFC tag technology. */
+typedef enum {
+  TOS_NFC_UNKNOWN = 0,
+  TOS_NFC_ISO14443A,
+  TOS_NFC_ISO14443B,
+  TOS_NFC_ISO15693,
+} tos_nfc_proto_t;
+
+/** One NFC tag from a poll. */
+typedef struct {
+  uint8_t uid[10];
+  uint8_t uid_len;
+  uint8_t atqa[2];
+  uint8_t sak;
+  uint8_t protocol; ///< tos_nfc_proto_t
+} tos_nfc_tag_t;
+
+/**
+ * NFC (ST25R3916, 13.56 MHz). Target surface: poll the field for a tag,
+ * Mifare-Classic block read/write with a 6-byte key, and UID emulation as a
+ * session. Backed by the ST25R3916 stack; published once the reader bring-up is
+ * wired (the on-device UI is simulation-backed until then).
+ */
+typedef struct tos_nfc_api {
+  esp_err_t (*poll)(tos_nfc_tag_t *out, uint32_t timeout_ms);                        ///< radio-rx
+  esp_err_t (*read_block)(uint8_t block, const uint8_t key[6], uint8_t out[16]);     ///< radio-rx
+  esp_err_t (*write_block)(uint8_t block, const uint8_t key[6], const uint8_t data[16]); ///< radio-tx
+  esp_err_t (*emulate_start)(const uint8_t *uid, uint8_t uid_len, uint32_t *out_session); ///< radio-tx
+  esp_err_t (*session_stop)(uint32_t session);
+} tos_nfc_api_t;
+
+/** One 125 kHz LF tag read, decoded if the format is known. */
+typedef struct {
+  char id[11];         ///< raw hex id string
+  char protocol[24];   ///< decoded format name, "" if raw only
+  uint32_t card_number;
+  uint16_t facility_code;
+  uint8_t bit_count;
+  uint64_t raw_value;
+} tos_rfid_tag_t;
+
+/**
+ * RFID 125 kHz (YS-RFID2). Read-only by hardware: the reader is a UART LF reader
+ * and the decoders have no encoder, so there is deliberately no write/clone in
+ * this contract.
+ */
+typedef struct tos_rfid_api {
+  esp_err_t (*read)(tos_rfid_tag_t *out, uint32_t timeout_ms); ///< radio-rx; blocks
+} tos_rfid_api_t;
+
+/** Raw LoRa PHY parameters. */
+typedef struct {
+  uint32_t freq_hz;
+  uint8_t sf;         ///< spreading factor 5..12
+  uint8_t bw;         ///< bandwidth index (SX1262 raw value)
+  uint8_t cr;         ///< coding rate 5..8
+  int8_t tx_power_dbm;
+} tos_lora_cfg_t;
+
+/** One received raw LoRa packet. */
+typedef struct {
+  uint8_t data[256];
+  uint8_t len;
+  int16_t rssi_dbm;
+  int8_t snr_db;
+} tos_lora_packet_t;
+
+/** Mesh stack selection for mesh_start(). */
+typedef enum {
+  TOS_LORA_MESH_MESHTASTIC = 0,
+  TOS_LORA_MESH_MESHCORE,
+} tos_lora_mesh_t;
+
+/** One mesh chat message. */
+typedef struct {
+  bool outgoing;
+  char who[24];
+  char text[160];
+} tos_lora_msg_t;
+
+/** One mesh node from the node database. */
+typedef struct {
+  char name[32];
+  int16_t rssi_dbm;
+  float snr_db;
+} tos_lora_node_t;
+
+/**
+ * LoRa (SX1262). Single radio owner: the raw PHY, either mesh stack, and the
+ * RNode TNC are mutually exclusive; hold one via its session and stop it before
+ * switching. Raw mode = configure + send + rx_start/rx_poll. Mesh mode =
+ * mesh_start(proto) then send_text / poll / node list. RNode mode hands the radio
+ * to a host over the KISS serial bridge and runs until session_stop.
+ */
+typedef struct tos_lora_api {
+  // Raw PHY.
+  esp_err_t (*configure)(const tos_lora_cfg_t *cfg);
+  esp_err_t (*send)(const uint8_t *data, uint8_t len); ///< radio-tx; blocks until TX done
+  esp_err_t (*rx_start)(uint32_t *out_session);        ///< radio-rx; continuous receive
+  int (*rx_poll)(tos_lora_packet_t *out);              ///< 1 = packet dequeued, 0 = none
+  // Mesh chat (Meshtastic / MeshCore).
+  esp_err_t (*mesh_start)(uint8_t proto, uint32_t *out_session); ///< tos_lora_mesh_t; radio-tx
+  esp_err_t (*mesh_send_text)(const char *text);                ///< radio-tx; broadcast
+  int (*mesh_poll)(tos_lora_msg_t *out);                        ///< 1 = new message, 0 = none
+  int (*mesh_node_count)(void);
+  esp_err_t (*mesh_node_get)(int index, tos_lora_node_t *out);
+  // RNode KISS TNC bridge.
+  esp_err_t (*rnode_start)(uint32_t *out_session); ///< radio-tx
+  esp_err_t (*session_stop)(uint32_t session);
+} tos_lora_api_t;
+
 /**
  * The host API table. Built once and shared const by every app. Grouped by the
  * capability that gates each call; the lifecycle group is always available.
