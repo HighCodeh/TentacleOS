@@ -295,10 +295,13 @@ static void format_done_cb(void *data) {
     lv_obj_del(s_fmt_overlay);
     s_fmt_overlay = NULL;
   }
-  if (r == ESP_OK)
-    notify(NOTIFY_SAVED, "SD formatted (FAT32)");
-  else
+  if (r == ESP_OK) {
+    char msg[32];
+    snprintf(msg, sizeof(msg), "SD formatted (%s)", vfs_sdcard_fs_type());
+    notify(NOTIFY_SAVED, msg);
+  } else {
     notify(NOTIFY_WARNING, "Format failed");
+  }
   build_screen();
 }
 

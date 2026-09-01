@@ -109,6 +109,11 @@ void register_apprun_commands(void);
  */
 void register_resource_commands(void);
 
+/**
+ * @brief Register SD card commands (sd: status, toexfat).
+ */
+void register_sd_commands(void);
+
 #ifdef __cplusplus
 }
 #endif

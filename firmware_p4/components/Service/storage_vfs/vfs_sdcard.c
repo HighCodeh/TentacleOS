@@ -23,7 +23,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "esp_vfs_fat.h"
 #include "driver/sdmmc_host.h"
 #include "driver/sdmmc_defs.h"
@@ -333,16 +335,130 @@ void vfs_sdcard_print_info(void) {
 }
 
 esp_err_t vfs_sdcard_format(void) {
+  if (!s_sdcard.mounted || s_sdcard.card == NULL) {
+    return ESP_ERR_INVALID_STATE;
+  }
+
+  // Real f_mkfs via the IDF helper: FM_ANY auto-selects exFAT for cards too large
+  // for FAT32. The card stays mounted at VFS_MOUNT_POINT afterwards.
+  esp_err_t ret = esp_vfs_fat_sdcard_format(VFS_MOUNT_POINT, s_sdcard.card);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "Format failed: %s", esp_err_to_name(ret));
+    return ret;
+  }
+
+  ESP_LOGI(TAG, "SD formatted (%s)", vfs_sdcard_fs_type());
+  return ESP_OK;
+}
+
+esp_err_t vfs_sdcard_format_exfat(void) {
+  if (!s_sdcard.mounted || s_sdcard.card == NULL) {
+    return ESP_ERR_INVALID_STATE;
+  }
+
+  esp_err_t ret = esp_vfs_fat_sdcard_format_exfat(VFS_MOUNT_POINT, s_sdcard.card);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "exFAT format failed: %s", esp_err_to_name(ret));
+    return ret;
+  }
+
+  ESP_LOGI(TAG, "SD formatted (%s)", vfs_sdcard_fs_type());
+  return ESP_OK;
+}
+
+const char *vfs_sdcard_fs_type(void) {
+  if (!s_sdcard.mounted) {
+    return "--";
+  }
+  FATFS *fs;
+  DWORD free_clusters;
+  if (f_getfree("0:", &free_clusters, &fs) != FR_OK) {
+    return "?";
+  }
+  switch (fs->fs_type) {
+    case FS_FAT12:
+      return "FAT12";
+    case FS_FAT16:
+      return "FAT16";
+    case FS_FAT32:
+      return "FAT32";
+    case FS_EXFAT:
+      return "exFAT";
+    default:
+      return "?";
+  }
+}
+
+esp_err_t vfs_sdcard_benchmark(float *out_read_mbs, float *out_write_mbs) {
   if (!s_sdcard.mounted) {
     return ESP_ERR_INVALID_STATE;
   }
 
-  esp_err_t ret = vfs_sdcard_deinit();
-  if (ret != ESP_OK) {
-    return ret;
+  const size_t chunk = 64 * 1024;
+  const size_t total = 1024 * 1024;
+  const char *path = VFS_MOUNT_POINT "/.hb_bench.tmp";
+
+  uint8_t *buf = heap_caps_malloc(chunk, MALLOC_CAP_SPIRAM);
+  if (buf == NULL) {
+    buf = malloc(chunk);
+  }
+  if (buf == NULL) {
+    return ESP_ERR_NO_MEM;
+  }
+  memset(buf, 0xA5, chunk);
+
+  esp_err_t ret = ESP_FAIL;
+  FILE *f = fopen(path, "wb");
+  if (f == NULL) {
+    free(buf);
+    return ESP_FAIL;
   }
 
-  return vfs_sdcard_init();
+  int64_t t0 = esp_timer_get_time();
+  size_t done = 0;
+  bool ok = true;
+  while (done < total) {
+    if (fwrite(buf, 1, chunk, f) != chunk) {
+      ok = false;
+      break;
+    }
+    done += chunk;
+  }
+  fflush(f);
+  fsync(fileno(f));
+  int64_t t1 = esp_timer_get_time();
+  fclose(f);
+
+  size_t rd = 0;
+  int64_t t2 = 0, t3 = 0;
+  if (ok) {
+    f = fopen(path, "rb");
+    if (f == NULL) {
+      ok = false;
+    } else {
+      t2 = esp_timer_get_time();
+      size_t n;
+      while ((n = fread(buf, 1, chunk, f)) > 0) {
+        rd += n;
+      }
+      t3 = esp_timer_get_time();
+      fclose(f);
+    }
+  }
+
+  unlink(path);
+  free(buf);
+
+  if (ok && done > 0 && rd > 0) {
+    double wsec = (double)(t1 - t0) / 1e6;
+    double rsec = (double)(t3 - t2) / 1e6;
+    if (out_write_mbs)
+      *out_write_mbs = wsec > 0 ? (float)((double)done / 1e6 / wsec) : 0.0f;
+    if (out_read_mbs)
+      *out_read_mbs = rsec > 0 ? (float)((double)rd / 1e6 / rsec) : 0.0f;
+    ret = ESP_OK;
+  }
+  return ret;
 }
 
 esp_err_t vfs_sdcard_detach_for_msc(void **out_card) {

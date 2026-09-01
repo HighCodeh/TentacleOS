@@ -32,7 +32,6 @@
 #include "vfs_sdcard.h"
 
 #define RETEST_TICK_MS 90
-#define RETEST_TICKS   16
 
 #define HDR_TITLE  "SD HEALTH"
 #define HDR_ICON   "/assets/icons/sd_card.bin"
@@ -66,8 +65,9 @@
 #define BYTES_PER_GB 1000000000ULL
 #define CTA_TXT      "Remount & retest"
 
-#define READ_VAL  "21.4"
-#define WRITE_VAL "12.8"
+#define READ_VAL  "--"
+#define WRITE_VAL "--"
+#define UNIT_IDLE "MB/s"
 #define UNIT_OK   "MB/s OK"
 #define UNIT_TEST "MB/s ..."
 
@@ -78,8 +78,6 @@ static lv_obj_t *s_read_val = NULL;
 static lv_obj_t *s_write_val = NULL;
 static lv_obj_t *s_read_sub = NULL;
 static lv_obj_t *s_write_sub = NULL;
-
-static int s_retest_left = 0;
 
 static lv_obj_t *make_card(lv_obj_t *parent, int w, int h) {
   lv_obj_t *card = lv_obj_create(parent);
@@ -154,7 +152,7 @@ static void build_hero(void) {
   lv_obj_align(name, LV_ALIGN_TOP_LEFT, INFO_X, 4);
 
   lv_obj_t *spec = lv_label_create(card);
-  lv_label_set_text(spec, mounted ? "FAT32" : "Not mounted");
+  lv_label_set_text(spec, mounted ? vfs_sdcard_fs_type() : "Not mounted");
   lv_obj_set_style_text_font(spec, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(spec, current_theme.text_secondary, 0);
   lv_obj_align(spec, LV_ALIGN_TOP_LEFT, INFO_X, 26);
@@ -225,7 +223,7 @@ build_tile(int x, const char *caption, const char *value, lv_obj_t **val_out, lv
   lv_obj_set_style_text_color(val, lv_color_hex(UI_COL_SUCCESS), 0);
 
   lv_obj_t *sub = lv_label_create(card);
-  lv_label_set_text(sub, UNIT_OK);
+  lv_label_set_text(sub, UNIT_IDLE);
   lv_obj_set_style_text_font(sub, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(sub, current_theme.text_secondary, 0);
 
@@ -263,43 +261,50 @@ static void set_tiles_testing(bool testing) {
     lv_label_set_text(s_write_sub, unit);
 }
 
-static void retest_tick_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_retest_timer = NULL;
+static void set_speed(lv_obj_t *label, float mbs) {
+  if (!label)
     return;
-  }
-  s_retest_left--;
-  if (s_retest_left <= 0) {
-    if (s_read_val)
-      lv_label_set_text(s_read_val, READ_VAL);
-    if (s_write_val)
-      lv_label_set_text(s_write_val, WRITE_VAL);
-    set_tiles_testing(false);
-    lv_timer_delete(t);
-    s_retest_timer = NULL;
+  int v = (int)(mbs * 10.0f + 0.5f);
+  char buf[8];
+  lv_snprintf(buf, sizeof(buf), "%d.%d", v / 10, v % 10);
+  lv_label_set_text(label, buf);
+}
+
+static void retest_run_cb(lv_timer_t *t) {
+  lv_timer_delete(t);
+  s_retest_timer = NULL;
+  if (lv_screen_active() != s_screen)
+    return;
+
+  float rmbs = 0.0f;
+  float wmbs = 0.0f;
+  esp_err_t r = vfs_sdcard_benchmark(&rmbs, &wmbs);
+  set_tiles_testing(false);
+
+  if (r == ESP_OK) {
+    set_speed(s_read_val, rmbs);
+    set_speed(s_write_val, wmbs);
     ui_feedback(UI_FB_READ);
     notify(NOTIFY_SAVED, "SD retest OK");
-    return;
+  } else {
+    if (s_read_val)
+      lv_label_set_text(s_read_val, "--");
+    if (s_write_val)
+      lv_label_set_text(s_write_val, "--");
+    notify(NOTIFY_WARNING, "SD test failed");
   }
-  char rbuf[8];
-  char wbuf[8];
-  int rv = 180 + ((s_retest_left * 37) % 60);
-  int wv = 100 + ((s_retest_left * 29) % 50);
-  lv_snprintf(rbuf, sizeof(rbuf), "%d.%d", rv / 10, rv % 10);
-  lv_snprintf(wbuf, sizeof(wbuf), "%d.%d", wv / 10, wv % 10);
-  if (s_read_val)
-    lv_label_set_text(s_read_val, rbuf);
-  if (s_write_val)
-    lv_label_set_text(s_write_val, wbuf);
 }
 
 static void start_retest(void) {
   if (s_retest_timer != NULL)
     return;
-  s_retest_left = RETEST_TICKS;
+  if (!vfs_sdcard_is_mounted()) {
+    notify(NOTIFY_WARNING, "No SD card");
+    return;
+  }
   set_tiles_testing(true);
-  s_retest_timer = lv_timer_create(retest_tick_cb, RETEST_TICK_MS, NULL);
+  // Defer one tick so the "..." state paints before the blocking benchmark runs.
+  s_retest_timer = lv_timer_create(retest_run_cb, RETEST_TICK_MS, NULL);
   ui_feedback(UI_FB_SELECT);
 }
 
@@ -342,7 +347,6 @@ void ui_sd_health_open(void) {
     s_screen = NULL;
   }
   s_read_val = s_write_val = s_read_sub = s_write_sub = NULL;
-  s_retest_left = 0;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -363,4 +367,7 @@ void ui_sd_health_open(void) {
   ui_input_set_screen_handler(sd_health_input, NULL);
 
   ui_screen_load_owned(&s_screen, s_screen);
+
+  // Fill the tiles with a real measurement as soon as the screen is up.
+  start_retest();
 }
