@@ -108,7 +108,9 @@ static esp_err_t replay_decoded(const char *content) {
   data.protocol_name = proto;
   data.bit_count = (uint8_t)parse_u32_after(content, "Bit: ");
   data.raw_value = parse_key_value(content);
-  data.serial = data.raw_value;
+  data.serial =
+      (strstr(content, "Serial: ") != NULL) ? parse_u32_after(content, "Serial: ") : data.raw_value;
+  data.btn = (uint8_t)parse_u32_after(content, "Btn: ");
 
   int32_t *pulses = malloc(REPLAY_MAX_PULSES * sizeof(int32_t));
   if (pulses == NULL)

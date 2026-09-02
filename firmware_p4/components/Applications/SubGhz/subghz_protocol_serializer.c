@@ -49,6 +49,8 @@ size_t subghz_protocol_serialize_decoded(
                           "Protocol: %s\n"
                           "Bit: %d\n"
                           "Key: 00 00 00 00 %02X %02X %02X %02X\n"
+                          "Serial: %lu\n"
+                          "Btn: %u\n"
                           "TE: %lu\n",
                           (unsigned long)frequency,
                           (unsigned int)subghz_protocol_get_preset_id(),
@@ -58,6 +60,8 @@ size_t subghz_protocol_serialize_decoded(
                           (unsigned int)((val >> 16) & 0xFF),
                           (unsigned int)((val >> 8) & 0xFF),
                           (unsigned int)(val & 0xFF),
+                          (unsigned long)data->serial,
+                          (unsigned int)data->btn,
                           (unsigned long)te);
 }
 

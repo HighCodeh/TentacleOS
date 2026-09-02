@@ -32,7 +32,7 @@ extern subghz_protocol_t protocol_chamberlain;
 extern subghz_protocol_t protocol_holtek;
 extern subghz_protocol_t protocol_liftmaster;
 extern subghz_protocol_t protocol_linear;
-extern subghz_protocol_t protocol_rossi;
+extern subghz_protocol_t protocol_keeloq;
 
 static const subghz_protocol_t *REGISTERED_PROTOCOLS[] = {
     &protocol_rcswitch,
@@ -44,7 +44,7 @@ static const subghz_protocol_t *REGISTERED_PROTOCOLS[] = {
     &protocol_holtek,
     &protocol_liftmaster,
     &protocol_linear,
-    &protocol_rossi,
+    &protocol_keeloq,
 };
 
 #define REGISTERED_PROTOCOLS_COUNT (sizeof(REGISTERED_PROTOCOLS) / sizeof(REGISTERED_PROTOCOLS[0]))
