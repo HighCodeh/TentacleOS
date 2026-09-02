@@ -70,6 +70,14 @@ tools/                # Build, flash, format, setup scripts
 
 Each target is a standalone ESP-IDF project with its own `CMakeLists.txt`, `partitions.csv`, and `sdkconfig.defaults`.
 
+**Component placement:** every firmware component lives under one of the four
+architecture roots — `Applications/`, `Core/`, `Drivers/`, `Service/`. Do **not**
+add a new top-level component directly in `components/`. When a piece of code must
+be its own component (to break a dependency cycle, or to override an IDF component),
+nest it under the matching root and register it via `EXTRA_COMPONENT_DIRS` in the
+project `CMakeLists.txt`. Existing examples: `Applications/gameboy`,
+`Applications/doom`, `Service/fatfs` (vendored IDF override), `Core/resource_mgr`.
+
 ## Documentation
 
 Project documentation lives in `docs/` — one directory per component, indexed in

@@ -17,7 +17,7 @@
 // on-device UI, the companion (host_link), and the firmware core all acquire a
 // resource here before driving the hardware, so they never fight over one radio
 // while still allowing the concurrency the hardware supports (BLE multiplexes
-// into connection/advertising/scanner lanes). See RESOURCE_MANAGER_PLAN.md.
+// into connection/advertising/scanner lanes).
 //
 // This component depends only on FreeRTOS: enforcement of a preemption is done
 // through the owner's on_revoke callback, not by calling any transport here, so
