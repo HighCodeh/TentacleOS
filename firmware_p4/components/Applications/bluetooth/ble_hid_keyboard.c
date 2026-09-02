@@ -30,14 +30,11 @@ static const char *TAG = "BLE_HID_KEYBOARD";
 static bool s_is_connected = false;
 
 esp_err_t ble_hid_init(void) {
-  spi_header_t resp_hdr;
-  uint8_t resp_buf[SPI_MAX_PAYLOAD];
+  esp_err_t ret =
+      spi_bridge_send_command(SPI_ID_BT_HID_INIT, NULL, 0, NULL, NULL, 0, HID_SPI_INIT_TIMEOUT_MS);
 
-  esp_err_t ret = spi_bridge_send_command(
-      SPI_ID_BT_HID_INIT, NULL, 0, &resp_hdr, resp_buf, sizeof(resp_buf), HID_SPI_INIT_TIMEOUT_MS);
-
-  if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
-    ESP_LOGE(TAG, "Failed to init HID on C5");
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to init HID on C5: %s", esp_err_to_name(ret));
     return ESP_FAIL;
   }
 
@@ -46,19 +43,11 @@ esp_err_t ble_hid_init(void) {
 }
 
 esp_err_t ble_hid_deinit(void) {
-  spi_header_t resp_hdr;
-  uint8_t resp_buf[SPI_MAX_PAYLOAD];
+  esp_err_t ret = spi_bridge_send_command(
+      SPI_ID_BT_HID_DEINIT, NULL, 0, NULL, NULL, 0, HID_SPI_DEINIT_TIMEOUT_MS);
 
-  esp_err_t ret = spi_bridge_send_command(SPI_ID_BT_HID_DEINIT,
-                                          NULL,
-                                          0,
-                                          &resp_hdr,
-                                          resp_buf,
-                                          sizeof(resp_buf),
-                                          HID_SPI_DEINIT_TIMEOUT_MS);
-
-  if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
-    ESP_LOGW(TAG, "Failed to deinit HID on C5");
+  if (ret != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to deinit HID on C5: %s", esp_err_to_name(ret));
   }
 
   s_is_connected = false;
@@ -77,11 +66,11 @@ bool ble_hid_is_connected(void) {
                                           sizeof(resp_buf),
                                           HID_SPI_QUERY_TIMEOUT_MS);
 
-  if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
+  if (ret != ESP_OK || resp_hdr.length < 1) {
     return false;
   }
 
-  s_is_connected = resp_buf[1];
+  s_is_connected = (resp_buf[0] != 0);
   return s_is_connected;
 }
 
