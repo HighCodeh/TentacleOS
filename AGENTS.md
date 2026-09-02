@@ -70,6 +70,15 @@ tools/                # Build, flash, format, setup scripts
 
 Each target is a standalone ESP-IDF project with its own `CMakeLists.txt`, `partitions.csv`, and `sdkconfig.defaults`.
 
+## Documentation
+
+Project documentation lives in `docs/` — one directory per component, indexed in
+[docs/README.md](./docs/README.md). When you need to understand a subsystem, a
+decision, or the project, consult its `docs/<component>/README.md` first (each
+component's in-tree README points back to it) instead of guessing from the code.
+Always keep it up to date: when you change a subsystem's behavior, contract, or
+interface, update its doc in the same change.
+
 ## Coding Standards
 
 All rules are in `CODING_STANDARDS.md`. Key points an agent must not miss:
