@@ -10,7 +10,8 @@ set(IDF_TARGET "esp32p4")
 
 set(EXTRA_COMPONENT_DIRS
     "${CMAKE_CURRENT_LIST_DIR}/components/Applications/gameboy"
-    "${CMAKE_CURRENT_LIST_DIR}/components/Applications/doom")
+    "${CMAKE_CURRENT_LIST_DIR}/components/Applications/doom"
+    "${CMAKE_CURRENT_LIST_DIR}/components/Service/fatfs")
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 

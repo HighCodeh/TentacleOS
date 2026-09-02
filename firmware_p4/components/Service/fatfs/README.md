@@ -4,6 +4,11 @@ Local override of the ESP-IDF `fatfs` component. It shadows the built-in one so
 project builds, teammates, and CI all pick up exFAT without touching the shared
 IDF install.
 
+It lives nested under `components/Service/` (not at the top-level `components/`)
+and is registered as a component through `EXTRA_COMPONENT_DIRS` in the project
+`CMakeLists.txt`, the same way `Applications/gameboy` and `Applications/doom` are.
+The name stays `fatfs`, which is what makes it override the IDF built-in.
+
 ## Why it exists
 
 ESP-IDF does not expose an exFAT toggle in menuconfig, on purpose: enabling exFAT
