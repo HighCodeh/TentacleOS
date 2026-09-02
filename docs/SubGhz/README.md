@@ -249,6 +249,8 @@ typedef struct {
 | LiftMaster   | OOK/PWM    | Garage door openers          |
 | Linear       | OOK/PWM    | Gate/access control          |
 | KeeLoq       | OOK/PWM    | HCS301 rolling-code remotes   |
+| GateTX       | OOK/PWM    | Gate remotes (24-bit)        |
+| Holtek_HT12X | OOK/PWM    | HT12E DIP remotes (12-bit)   |
 
 RCSwitch, CAME and the fixed-code plugins (Ansonic, Chamberlain, Holtek,
 LiftMaster, Linear, Nice FLO, Princeton) also transmit: each has a real `.encode`
@@ -306,6 +308,39 @@ replaced the old Rossi stub). Manufacturer keys load at runtime from the SD asse
 
 The decoded save format carries extra `Serial:` and `Btn:` lines so a saved KeeLoq
 capture replays with the correct rolling counter.
+
+## TODO / Not Yet Supported
+
+Tracked against `FlipperZero-Subghz-DB` (validation vectors) and Momentum firmware
+(reference decoders). Ordered by how blocked each item is.
+
+**Portable + validatable (do next).** Fixed-code protocols present in the DB with
+plenty of captures, but with a non-PWM encoding so they need a custom decoder (not
+the shared `subghz_pwm_encode` helper):
+- **MegaCode** — pulse-position (te_short == te_long, fixed slots), 24-bit. ~10 DB captures.
+- **SMC5326** — tri-state (0/1/float), te 300/900, 25-bit. ~5 DB captures.
+- **Firefly (Allstar)** — long inter-bit gap (te 600/4000), 18-bit. ~3 DB captures.
+
+**Separate rolling-code protocols (own frame + crypto).** Need their own decoder
+ported from Momentum:
+- **Security+ 2.0** (Chamberlain rolling) — ~4 DB captures.
+- **Somfy Telis (RTS)** — 1 DB capture.
+
+**KeeLoq makers needing a separate protocol decoder.** These are NOT KeeLoq
+learning types — Momentum implements them as standalone protocols (different frame).
+There are **zero captures in this DB**, so a port could not be validated yet:
+- **FAAC SLH**, **KINGGATES (Stylo 4k)**, **JAROLIFT**.
+
+**KeeLoq makers needing data we do not have:**
+- **AN-Motors** — uses standard KeeLoq, but its manufacturer key is not in our
+  `keeloq_mfcodes.txt`; the `.sub` is encrypted with that key, so it cannot be
+  recovered from the capture. Need the key.
+- **Beninca_ARC** — reserved even upstream (Momentum leaves type 9 unimplemented).
+- **ERREKA** — needs the seed carried in an extended frame we do not parse.
+
+**Cross-cutting:** over-the-air RF validation (does a transmitted frame open a real
+gate; does the pwm bit order match a real remote) still needs an SDR / real target.
+New fixed protocols are validated only by encode↔decode round-trip today.
 
 ## Common Types (`subghz_types.h`)
 

@@ -33,6 +33,8 @@ extern subghz_protocol_t protocol_holtek;
 extern subghz_protocol_t protocol_liftmaster;
 extern subghz_protocol_t protocol_linear;
 extern subghz_protocol_t protocol_keeloq;
+extern subghz_protocol_t protocol_gatetx;
+extern subghz_protocol_t protocol_holtek_ht12x;
 
 static const subghz_protocol_t *REGISTERED_PROTOCOLS[] = {
     &protocol_rcswitch,
@@ -45,6 +47,8 @@ static const subghz_protocol_t *REGISTERED_PROTOCOLS[] = {
     &protocol_liftmaster,
     &protocol_linear,
     &protocol_keeloq,
+    &protocol_gatetx,
+    &protocol_holtek_ht12x,
 };
 
 #define REGISTERED_PROTOCOLS_COUNT (sizeof(REGISTERED_PROTOCOLS) / sizeof(REGISTERED_PROTOCOLS[0]))
@@ -123,6 +127,8 @@ bool subghz_protocol_registry_selftest(char *report, size_t report_len) {
       {"Nice Flo", 12, 0x0F0},
       {"Princeton", 24, 0x0F0F0F},
       {"Linear", 10, 0x2AA},
+      {"GateTX", 24, 0x0F0F0F},
+      {"Holtek_HT12X", 12, 0x555},
   };
 
   int32_t pulses[128];
