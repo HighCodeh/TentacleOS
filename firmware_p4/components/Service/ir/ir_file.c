@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 
 #include "ir_protocol_nec.h"
@@ -59,7 +60,8 @@ static esp_err_t grow(ir_file_t *file) {
   if (file->count < file->capacity)
     return ESP_OK;
   size_t new_cap = (file->capacity == 0) ? IR_FILE_INITIAL_CAP : file->capacity * 2;
-  ir_signal_t *tmp = realloc(file->signals, new_cap * sizeof(ir_signal_t));
+  ir_signal_t *tmp = heap_caps_realloc(
+      file->signals, new_cap * sizeof(ir_signal_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (tmp == NULL) {
     ESP_LOGE(TAG, "Failed to grow signals array");
     return ESP_ERR_NO_MEM;
@@ -191,7 +193,12 @@ static esp_err_t parse_raw_data(const char *str, ir_signal_t *sig) {
       p++;
   }
 
-  sig->raw = malloc(count * sizeof(uint32_t));
+  if (count == 0) {
+    sig->raw = NULL;
+    sig->raw_count = 0;
+    return ESP_OK;
+  }
+  sig->raw = heap_caps_malloc(count * sizeof(uint32_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (sig->raw == NULL) {
     ESP_LOGE(TAG, "Failed to allocate raw data");
     return ESP_ERR_NO_MEM;
@@ -447,7 +454,8 @@ esp_err_t ir_file_add_raw(ir_file_t *file, const ir_file_add_raw_cfg_t *cfg) {
   sig->frequency = cfg->freq;
   sig->raw_count = cfg->count * 2;
 
-  sig->raw = malloc(sig->raw_count * sizeof(uint32_t));
+  sig->raw =
+      heap_caps_malloc(sig->raw_count * sizeof(uint32_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (sig->raw == NULL) {
     ESP_LOGE(TAG, "Failed to allocate raw buffer");
     ret = ESP_ERR_NO_MEM;

@@ -22,6 +22,7 @@
 #include <strings.h>
 #include <sys/stat.h>
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -144,7 +145,7 @@ esp_err_t ir_store_load(const char *path, ir_file_t *file) {
     return ESP_ERR_INVALID_SIZE;
   }
 
-  char *buf = malloc((size_t)sz + 1);
+  char *buf = heap_caps_malloc((size_t)sz + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (buf == NULL) {
     fclose(f);
     return ESP_ERR_NO_MEM;
