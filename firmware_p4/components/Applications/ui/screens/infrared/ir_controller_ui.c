@@ -153,6 +153,12 @@ static const char *const UNIVERSAL_FILE[] = {
     [IR_DEV_AC] = "/sdcard/ir/ac.ir",
 };
 
+static const char *const UNIVERSAL_FILE_BUNDLED[] = {
+    [IR_DEV_TV] = "/assets/ir/tv.ir",
+    [IR_DEV_SOUND] = "/assets/ir/audio.ir",
+    [IR_DEV_AC] = "/assets/ir/ac.ir",
+};
+
 static ir_file_t s_uni = {0};
 static bool s_uni_loaded = false;
 static char s_send_name[24];
@@ -167,8 +173,17 @@ static void load_universal(ir_device_t dev) {
   ir_file_free(&s_uni);
   s_uni_loaded = false;
   ir_file_init(&s_uni);
-  if ((int)dev >= 0 && (int)dev < LAYOUT_COUNT && UNIVERSAL_FILE[dev] != NULL) {
-    if (ir_store_load(UNIVERSAL_FILE[dev], &s_uni) == ESP_OK && s_uni.count > 0)
+  if ((int)dev < 0 || (int)dev >= LAYOUT_COUNT)
+    return;
+  if (UNIVERSAL_FILE[dev] != NULL && ir_store_load(UNIVERSAL_FILE[dev], &s_uni) == ESP_OK &&
+      s_uni.count > 0) {
+    s_uni_loaded = true;
+    return;
+  }
+  if (UNIVERSAL_FILE_BUNDLED[dev] != NULL) {
+    ir_file_free(&s_uni);
+    ir_file_init(&s_uni);
+    if (ir_store_load(UNIVERSAL_FILE_BUNDLED[dev], &s_uni) == ESP_OK && s_uni.count > 0)
       s_uni_loaded = true;
   }
 }
