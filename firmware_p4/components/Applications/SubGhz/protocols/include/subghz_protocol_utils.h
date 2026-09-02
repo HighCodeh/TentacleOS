@@ -49,6 +49,48 @@ static inline bool subghz_check_pulse(int32_t raw_len, uint32_t target_len, uint
   return (abs_len >= target_len - tolerance) && (abs_len <= target_len + tolerance);
 }
 
+#define SUBGHZ_PWM_GUARD_MULT 20
+
+/**
+ * @brief Encode a fixed-code OOK-PWM signal, MSB first: bit 1 = long mark + short
+ *        space, bit 0 = short mark + long space, then a trailing inter-frame guard
+ *        space. This is the shared shape of CAME, Ansonic, Chamberlain, Holtek,
+ *        Liftmaster, Linear, Nice Flo and Princeton.
+ *
+ * @param value      Bit value to transmit (MSB first).
+ * @param bit_count  Number of bits (1..32).
+ * @param short_us   Short element duration, microseconds.
+ * @param long_us    Long element duration, microseconds.
+ * @param pulses     Output buffer (us, +mark/-space).
+ * @param max_count  Size of @p pulses.
+ * @return Pulse count, or 0 if bit_count is out of range or the buffer is too small.
+ */
+static inline size_t subghz_pwm_encode(uint32_t value,
+                                       uint8_t bit_count,
+                                       uint32_t short_us,
+                                       uint32_t long_us,
+                                       int32_t *pulses,
+                                       size_t max_count) {
+  if (bit_count == 0 || bit_count > 32 || pulses == NULL) {
+    return 0;
+  }
+  if (max_count < (size_t)bit_count * 2 + 1) {
+    return 0;
+  }
+  size_t idx = 0;
+  for (int i = (int)bit_count - 1; i >= 0; i--) {
+    if ((value >> i) & 1u) {
+      pulses[idx++] = (int32_t)long_us;
+      pulses[idx++] = -(int32_t)short_us;
+    } else {
+      pulses[idx++] = (int32_t)short_us;
+      pulses[idx++] = -(int32_t)long_us;
+    }
+  }
+  pulses[idx++] = -(int32_t)(short_us * SUBGHZ_PWM_GUARD_MULT);
+  return idx;
+}
+
 #ifdef __cplusplus
 }
 #endif

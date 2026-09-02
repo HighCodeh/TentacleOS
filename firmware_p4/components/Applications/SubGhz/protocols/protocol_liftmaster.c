@@ -83,5 +83,13 @@ protocol_liftmaster_decode(const int32_t *raw_data, size_t count, subghz_data_t 
   return false;
 }
 
+static size_t
+protocol_liftmaster_encode(const subghz_data_t *data, int32_t *pulses, size_t max_count) {
+  return subghz_pwm_encode(
+      data->raw_value, data->bit_count, LIFTMASTER_SHORT_US, LIFTMASTER_LONG_US, pulses, max_count);
+}
+
 subghz_protocol_t protocol_liftmaster = {
-    .name = "Liftmaster", .decode = protocol_liftmaster_decode, .encode = NULL};
+    .name = "Liftmaster",
+    .decode = protocol_liftmaster_decode,
+    .encode = protocol_liftmaster_encode};

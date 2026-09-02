@@ -24,7 +24,6 @@
 #include "freertos/task.h"
 
 #include "cc1101.h"
-#include "subghz_protocol_decoder.h"
 #include "subghz_protocol_registry.h"
 #include "subghz_protocol_serializer.h"
 #include "subghz_receiver.h"
@@ -80,23 +79,6 @@ static uint32_t parse_key_value(const char *content) {
   return ((uint32_t)b[4] << 24) | ((uint32_t)b[5] << 16) | ((uint32_t)b[6] << 8) | (uint32_t)b[7];
 }
 
-static const subghz_protocol_t *lookup_protocol(const char *proto) {
-  const subghz_protocol_t *p = subghz_protocol_registry_get_by_name(proto);
-  if (p != NULL)
-    return p;
-
-  char first[REPLAY_PROTO_MAX];
-  size_t i = 0;
-  while (proto[i] != '\0' && proto[i] != ' ' && i < sizeof(first) - 1) {
-    first[i] = proto[i];
-    i++;
-  }
-  first[i] = '\0';
-  if (i == 0)
-    return NULL;
-  return subghz_protocol_registry_get_by_name(first);
-}
-
 static esp_err_t replay_raw(const char *content) {
   int32_t *pulses = malloc(REPLAY_MAX_PULSES * sizeof(int32_t));
   if (pulses == NULL)
@@ -122,12 +104,6 @@ static esp_err_t replay_decoded(const char *content) {
   char proto[REPLAY_PROTO_MAX];
   parse_protocol(content, proto, sizeof(proto));
 
-  const subghz_protocol_t *p = lookup_protocol(proto);
-  if (p == NULL || p->encode == NULL) {
-    ESP_LOGW(TAG, "replay unsupported for protocol '%s'", proto);
-    return ESP_ERR_NOT_SUPPORTED;
-  }
-
   subghz_data_t data = {0};
   data.protocol_name = proto;
   data.bit_count = (uint8_t)parse_u32_after(content, "Bit: ");
@@ -138,10 +114,11 @@ static esp_err_t replay_decoded(const char *content) {
   if (pulses == NULL)
     return ESP_ERR_NO_MEM;
 
-  size_t n = p->encode(&data, pulses, REPLAY_MAX_PULSES);
+  size_t n = subghz_protocol_registry_encode(proto, &data, pulses, REPLAY_MAX_PULSES);
   if (n == 0) {
     free(pulses);
-    return ESP_FAIL;
+    ESP_LOGW(TAG, "replay unsupported for protocol '%s'", proto);
+    return ESP_ERR_NOT_SUPPORTED;
   }
 
   if (freq != 0)

@@ -82,5 +82,11 @@ static bool protocol_linear_decode(const int32_t *raw_data, size_t count, subghz
   return false;
 }
 
+static size_t
+protocol_linear_encode(const subghz_data_t *data, int32_t *pulses, size_t max_count) {
+  return subghz_pwm_encode(
+      data->raw_value, data->bit_count, LINEAR_SHORT_US, LINEAR_LONG_US, pulses, max_count);
+}
+
 subghz_protocol_t protocol_linear = {
-    .name = "Linear", .decode = protocol_linear_decode, .encode = NULL};
+    .name = "Linear", .decode = protocol_linear_decode, .encode = protocol_linear_encode};

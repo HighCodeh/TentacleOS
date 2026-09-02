@@ -84,5 +84,11 @@ static bool protocol_holtek_decode(const int32_t *raw_data, size_t count, subghz
   return false;
 }
 
+static size_t
+protocol_holtek_encode(const subghz_data_t *data, int32_t *pulses, size_t max_count) {
+  return subghz_pwm_encode(
+      data->raw_value, data->bit_count, HOLTEK_SHORT_US, HOLTEK_LONG_US, pulses, max_count);
+}
+
 subghz_protocol_t protocol_holtek = {
-    .name = "Holtek", .decode = protocol_holtek_decode, .encode = NULL};
+    .name = "Holtek", .decode = protocol_holtek_decode, .encode = protocol_holtek_encode};

@@ -83,5 +83,17 @@ protocol_chamberlain_decode(const int32_t *raw_data, size_t count, subghz_data_t
   return false;
 }
 
+static size_t
+protocol_chamberlain_encode(const subghz_data_t *data, int32_t *pulses, size_t max_count) {
+  return subghz_pwm_encode(data->raw_value,
+                           data->bit_count,
+                           CHAMBERLAIN_SHORT_US,
+                           CHAMBERLAIN_LONG_US,
+                           pulses,
+                           max_count);
+}
+
 subghz_protocol_t protocol_chamberlain = {
-    .name = "Chamberlain", .decode = protocol_chamberlain_decode, .encode = NULL};
+    .name = "Chamberlain",
+    .decode = protocol_chamberlain_decode,
+    .encode = protocol_chamberlain_encode};

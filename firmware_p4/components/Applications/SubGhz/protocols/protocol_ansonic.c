@@ -83,5 +83,11 @@ protocol_ansonic_decode(const int32_t *raw_data, size_t count, subghz_data_t *ou
   return false;
 }
 
+static size_t
+protocol_ansonic_encode(const subghz_data_t *data, int32_t *pulses, size_t max_count) {
+  return subghz_pwm_encode(
+      data->raw_value, data->bit_count, ANSONIC_SHORT_US, ANSONIC_LONG_US, pulses, max_count);
+}
+
 subghz_protocol_t protocol_ansonic = {
-    .name = "Ansonic", .decode = protocol_ansonic_decode, .encode = NULL};
+    .name = "Ansonic", .decode = protocol_ansonic_decode, .encode = protocol_ansonic_encode};

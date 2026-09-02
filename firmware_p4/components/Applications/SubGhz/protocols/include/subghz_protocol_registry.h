@@ -47,6 +47,31 @@ bool subghz_protocol_registry_decode_all(const int32_t *pulses,
  */
 const subghz_protocol_t *subghz_protocol_registry_get_by_name(const char *name);
 
+/**
+ * @brief Encode a decoded signal back to pulse timings via the named protocol's
+ *        encoder. Resolves decorated names ("CAME 12bit", "RCSwitch(P1)").
+ *
+ * @param name       Protocol name (exact or decorated).
+ * @param data       Decoded values to encode (bit_count, raw_value, name).
+ * @param out        Output buffer for pulse timings (us, +mark/-space).
+ * @param max_count  Size of @p out.
+ * @return Pulse count, or 0 if the protocol is unknown or decode-only.
+ */
+size_t subghz_protocol_registry_encode(const char *name,
+                                       const subghz_data_t *data,
+                                       int32_t *out,
+                                       size_t max_count);
+
+/**
+ * @brief Round-trip self-test of every protocol that has an encoder (today CAME
+ *        and RCSwitch): encode a known value, decode it back, confirm it matches.
+ *
+ * @param report      Optional buffer for a human-readable per-case report.
+ * @param report_len  Size of @p report (ignored if report is NULL).
+ * @return true if every case passed.
+ */
+bool subghz_protocol_registry_selftest(char *report, size_t report_len);
+
 #ifdef __cplusplus
 }
 #endif
