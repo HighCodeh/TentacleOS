@@ -25,6 +25,8 @@
 
 #include "cc1101.h"
 #include "subghz_receiver.h"
+#include "subghz_keeloq.h"
+#include "subghz_protocol_registry.h"
 #include "subghz_replay.h"
 #include "subghz_spectrum.h"
 #include "subghz_storage.h"
@@ -127,12 +129,13 @@ static int subghz_list(void) {
 
 static int cmd_subghz(int argc, char **argv) {
   if (argc < 2) {
-    printf("usage: subghz <rx|spectrum|list|replay|delete>\n");
+    printf("usage: subghz <rx|spectrum|list|replay|delete|selftest>\n");
     printf("  rx <freq_hz> [seconds] [raw]     receive/decode for a window\n");
     printf("  spectrum <center> <span> [lines] RSSI sweep, print peak per line\n");
     printf("  list                             list saved captures\n");
     printf("  replay <name>                    replay a saved capture\n");
     printf("  delete <name>                    delete a saved capture\n");
+    printf("  selftest                         round-trip the CAME/RCSwitch encoders\n");
     return 1;
   }
 
@@ -142,6 +145,21 @@ static int cmd_subghz(int argc, char **argv) {
     return subghz_spectrum(argc, argv);
   if (strcmp(argv[1], "list") == 0)
     return subghz_list();
+
+  if (strcmp(argv[1], "selftest") == 0) {
+    char report[192];
+    bool ok = subghz_protocol_registry_selftest(report, sizeof(report));
+    printf("%s", report);
+
+    char kreport[288];
+    subghz_keeloq_load_mfkeys();
+    bool kok = subghz_keeloq_selftest(kreport, sizeof(kreport));
+    printf("%s", kreport);
+
+    bool all = ok && kok;
+    printf("subghz: selftest %s\n", all ? "PASS" : "FAIL");
+    return all ? 0 : 1;
+  }
 
   if (strcmp(argv[1], "replay") == 0) {
     if (argc < 3) {

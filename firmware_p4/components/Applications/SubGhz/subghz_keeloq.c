@@ -1,0 +1,347 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
+#include "subghz_keeloq.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "esp_log.h"
+
+#include "storage_assets.h"
+
+static const char *TAG = "SUBGHZ_KEELOQ";
+
+#define KL_NLF          0x3A5C742EUL
+#define kl_bit(x, n)    (((x) >> (n)) & 1)
+#define kl_g5(x, a, b, c, d, e)                                                                    \
+  (kl_bit(x, a) + kl_bit(x, b) * 2 + kl_bit(x, c) * 4 + kl_bit(x, d) * 8 + kl_bit(x, e) * 16)
+
+#define KL_MFCODES_PATH "config/subghz/keeloq_mfcodes.txt"
+#define KL_MAX_KEYS     160
+
+// HCS301 line coding: PWM, bit 1 = long mark + short space, bit 0 = short mark +
+// long space. Preamble of alternating Te pulses, then a header guard low.
+#define KL_TE_SHORT      400
+#define KL_TE_LONG       800
+#define KL_PREAMBLE      12
+#define KL_HEADER_LOW    (10 * KL_TE_SHORT)
+#define KL_DATA_BITS     64
+#define KL_HEADER_THRESH (5 * KL_TE_SHORT)
+#define KL_DISC_MASK     0x3FF
+
+static keeloq_mfkey_t s_mfkeys[KL_MAX_KEYS];
+static int s_mfkey_count = 0;
+
+uint32_t subghz_keeloq_encrypt(uint32_t x, uint64_t key) {
+  for (uint32_t r = 0; r < 528; r++) {
+    x = (x >> 1) ^ (((uint32_t)(kl_bit(x, 0) ^ kl_bit(x, 16) ^ (uint32_t)kl_bit(key, r & 63) ^
+                                kl_bit(KL_NLF, kl_g5(x, 1, 9, 20, 26, 31))))
+                    << 31);
+  }
+  return x;
+}
+
+uint32_t subghz_keeloq_decrypt(uint32_t x, uint64_t key) {
+  for (uint32_t r = 0; r < 528; r++) {
+    x = (x << 1) ^ kl_bit(x, 31) ^ kl_bit(x, 15) ^ (uint32_t)kl_bit(key, (15 - r) & 63) ^
+        kl_bit(KL_NLF, kl_g5(x, 0, 8, 19, 25, 30));
+  }
+  return x;
+}
+
+static uint64_t normal_learning(uint32_t serial, uint64_t mkey) {
+  uint32_t k1 = subghz_keeloq_decrypt((serial & 0x0FFFFFFF) | 0x20000000, mkey);
+  uint32_t k2 = subghz_keeloq_decrypt((serial & 0x0FFFFFFF) | 0x60000000, mkey);
+  return ((uint64_t)k2 << 32) | k1;
+}
+
+static uint64_t secure_learning(uint32_t serial, uint32_t seed, uint64_t mkey) {
+  uint32_t k1 = subghz_keeloq_decrypt(serial, mkey);
+  uint32_t k2 = subghz_keeloq_decrypt(seed, mkey);
+  return ((uint64_t)k2 << 32) | k1;
+}
+
+uint64_t subghz_keeloq_learn(uint64_t mkey, uint32_t serial, uint8_t type, uint32_t seed) {
+  switch (type) {
+    case KL_LEARN_SIMPLE:
+      return mkey;
+    case KL_LEARN_SECURE:
+      return secure_learning(serial, seed, mkey);
+    case KL_LEARN_NORMAL:
+    default:
+      // Vendor-specific schemes (FAAC SLH, Beninca, AERF, JCM1G, Magic, ...) are
+      // not yet ported; they fall back to normal learning and must be validated
+      // against a real capture before they are trusted for those makes.
+      return normal_learning(serial, mkey);
+  }
+}
+
+static void copy_trimmed(char *dst, size_t dst_size, const char *src) {
+  while (*src == ' ' || *src == '\t') {
+    src++;
+  }
+  size_t i = 0;
+  while (src[i] != '\0' && src[i] != '\r' && src[i] != '\n' && i < dst_size - 1) {
+    dst[i] = src[i];
+    i++;
+  }
+  while (i > 0 && (dst[i - 1] == ' ' || dst[i - 1] == '\t')) {
+    i--;
+  }
+  dst[i] = '\0';
+}
+
+int subghz_keeloq_load_mfkeys(void) {
+  if (s_mfkey_count > 0) {
+    return s_mfkey_count;
+  }
+
+  size_t sz = 0;
+  if (storage_assets_get_file_size(KL_MFCODES_PATH, &sz) != ESP_OK || sz == 0) {
+    ESP_LOGW(TAG, "mfcodes asset missing (%s)", KL_MFCODES_PATH);
+    return -1;
+  }
+  char *buf = malloc(sz + 1);
+  if (buf == NULL) {
+    return -1;
+  }
+  size_t rd = 0;
+  if (storage_assets_read_file(KL_MFCODES_PATH, (uint8_t *)buf, sz, &rd) != ESP_OK) {
+    free(buf);
+    return -1;
+  }
+  buf[rd] = '\0';
+
+  char name[28] = "";
+  uint64_t key = 0;
+  bool have_name = false, have_key = false;
+
+  char *save = NULL;
+  for (char *line = strtok_r(buf, "\n", &save); line != NULL && s_mfkey_count < KL_MAX_KEYS;
+       line = strtok_r(NULL, "\n", &save)) {
+    char *p;
+    if (strncmp(line, "Manufacturer:", 13) == 0) {
+      copy_trimmed(name, sizeof(name), line + 13);
+      have_name = name[0] != '\0';
+    } else if ((p = strstr(line, "Key (Hex):")) != NULL) {
+      key = strtoull(p + strlen("Key (Hex):"), NULL, 16);
+      have_key = true;
+    } else if ((p = strstr(line, "Type:")) != NULL) {
+      int type = atoi(p + strlen("Type:"));
+      if (have_name && have_key) {
+        keeloq_mfkey_t *e = &s_mfkeys[s_mfkey_count++];
+        snprintf(e->name, sizeof(e->name), "%s", name);
+        e->key = key;
+        e->type = (uint8_t)type;
+      }
+      have_name = have_key = false;
+    }
+  }
+
+  free(buf);
+  ESP_LOGI(TAG, "loaded %d KeeLoq manufacturer keys", s_mfkey_count);
+  return s_mfkey_count;
+}
+
+int subghz_keeloq_mfkey_count(void) {
+  return s_mfkey_count;
+}
+
+const keeloq_mfkey_t *subghz_keeloq_mfkey_at(int index) {
+  if (index < 0 || index >= s_mfkey_count) {
+    return NULL;
+  }
+  return &s_mfkeys[index];
+}
+
+static void emit_word(uint32_t word, int32_t *pulses, size_t *idx) {
+  for (int b = 0; b < 32; b++) {
+    if ((word >> b) & 1u) {
+      pulses[(*idx)++] = KL_TE_LONG;
+      pulses[(*idx)++] = -KL_TE_SHORT;
+    } else {
+      pulses[(*idx)++] = KL_TE_SHORT;
+      pulses[(*idx)++] = -KL_TE_LONG;
+    }
+  }
+}
+
+static size_t pwm_encode_frame(uint32_t hop, uint32_t fix, int32_t *pulses, size_t max_count) {
+  size_t need = (size_t)KL_PREAMBLE * 2 + 2 + KL_DATA_BITS * 2;
+  if (pulses == NULL || max_count < need) {
+    return 0;
+  }
+  size_t idx = 0;
+  for (int i = 0; i < KL_PREAMBLE; i++) {
+    pulses[idx++] = KL_TE_SHORT;
+    pulses[idx++] = -KL_TE_SHORT;
+  }
+  pulses[idx++] = KL_TE_SHORT;
+  pulses[idx++] = -KL_HEADER_LOW;
+  emit_word(hop, pulses, &idx);
+  emit_word(fix, pulses, &idx);
+  return idx;
+}
+
+bool subghz_keeloq_pwm_decode(const int32_t *pulses,
+                              size_t count,
+                              uint32_t *out_fix,
+                              uint32_t *out_hop) {
+  // Find the header guard low, then the data starts on the next mark.
+  size_t data = 0;
+  bool found = false;
+  for (size_t i = 0; i + 1 < count; i++) {
+    if (pulses[i] < -KL_HEADER_THRESH) {
+      data = i + 1;
+      found = true;
+      break;
+    }
+  }
+  if (!found || data + (size_t)KL_DATA_BITS * 2 > count) {
+    return false;
+  }
+
+  uint32_t words[2] = {0, 0};
+  size_t k = data;
+  for (int bit = 0; bit < KL_DATA_BITS; bit++) {
+    int32_t mark = pulses[k];
+    int32_t space = pulses[k + 1];
+    if (mark <= 0 || space >= 0) {
+      return false;
+    }
+    uint32_t b = ((uint32_t)mark > (uint32_t)(-space)) ? 1u : 0u;
+    words[bit / 32] |= (b << (bit % 32));
+    k += 2;
+  }
+  *out_hop = words[0];
+  *out_fix = words[1];
+  return true;
+}
+
+bool subghz_keeloq_identify(uint32_t fix, uint32_t hop, keeloq_result_t *out) {
+  uint32_t serial = fix & 0x0FFFFFFF;
+  uint8_t fix_btn = (fix >> 28) & 0xF;
+
+  for (int i = 0; i < s_mfkey_count; i++) {
+    uint64_t dkey = subghz_keeloq_learn(s_mfkeys[i].key, serial, s_mfkeys[i].type, 0);
+    uint32_t plain = subghz_keeloq_decrypt(hop, dkey);
+    uint32_t disc = (plain >> 16) & KL_DISC_MASK;
+    uint8_t enc_btn = (plain >> 28) & 0xF;
+    if (disc == (serial & KL_DISC_MASK) && enc_btn == fix_btn) {
+      out->serial = serial;
+      out->button = fix_btn;
+      out->counter = plain & 0xFFFF;
+      strncpy(out->mfname, s_mfkeys[i].name, sizeof(out->mfname) - 1);
+      out->mfname[sizeof(out->mfname) - 1] = '\0';
+      out->decrypted = true;
+      return true;
+    }
+  }
+  out->mfname[0] = '\0';
+  out->decrypted = false;
+  return false;
+}
+
+size_t subghz_keeloq_encode(uint32_t serial,
+                            uint8_t button,
+                            uint16_t counter,
+                            uint64_t mkey,
+                            uint8_t type,
+                            int32_t *pulses,
+                            size_t max_count) {
+  uint64_t dkey = subghz_keeloq_learn(mkey, serial, type, 0);
+  uint32_t disc = serial & KL_DISC_MASK;
+  uint32_t plain = ((uint32_t)(button & 0xF) << 28) | (disc << 16) | counter;
+  uint32_t hop = subghz_keeloq_encrypt(plain, dkey);
+  uint32_t fix = ((uint32_t)(button & 0xF) << 28) | (serial & 0x0FFFFFFF);
+  return pwm_encode_frame(hop, fix, pulses, max_count);
+}
+
+bool subghz_keeloq_selftest(char *report, size_t report_len) {
+  bool all_ok = true;
+  size_t off = 0;
+  if (report != NULL && report_len > 0) {
+    report[0] = '\0';
+  }
+#define KL_REPORT(...)                                                                             \
+  do {                                                                                            \
+    if (report != NULL && report_len > off) {                                                     \
+      off += snprintf(report + off, report_len - off, __VA_ARGS__);                                \
+    }                                                                                             \
+  } while (0)
+
+  // 1) cipher is its own inverse.
+  {
+    uint64_t key = 0x0123456789ABCDEFULL;
+    uint32_t pt = 0xDEADBEEF;
+    bool ok = subghz_keeloq_decrypt(subghz_keeloq_encrypt(pt, key), key) == pt;
+    all_ok &= ok;
+    KL_REPORT("cipher inverse           %s\n", ok ? "PASS" : "FAIL");
+  }
+
+  // 2) full encode -> PWM -> demod -> decrypt round-trip with a known key.
+  {
+    uint64_t mkey = 0x8455F43584941223ULL; // DoorHan
+    uint32_t serial = 0x1234567 & 0x0FFFFFFF;
+    uint8_t btn = 0x2;
+    uint16_t cnt = 0x000A;
+    int32_t pulses[256];
+    size_t n = subghz_keeloq_encode(serial, btn, cnt, mkey, KL_LEARN_NORMAL, pulses, 256);
+    uint32_t fix = 0, hop = 0;
+    bool demod = n > 0 && subghz_keeloq_pwm_decode(pulses, n, &fix, &hop);
+    uint64_t dkey = subghz_keeloq_learn(mkey, fix & 0x0FFFFFFF, KL_LEARN_NORMAL, 0);
+    uint32_t plain = subghz_keeloq_decrypt(hop, dkey);
+    bool ok = demod && (plain & 0xFFFF) == cnt && ((plain >> 28) & 0xF) == btn &&
+              (fix & 0x0FFFFFFF) == serial;
+    all_ok &= ok;
+    KL_REPORT("encode/pwm/decrypt       %s (cnt=%04X btn=%X)\n", ok ? "PASS" : "FAIL",
+              (unsigned)(plain & 0xFFFF), (unsigned)((plain >> 28) & 0xF));
+  }
+
+  // 3) identify picks the right manufacturer (needs the mfkeys asset loaded).
+  if (s_mfkey_count > 0) {
+    const keeloq_mfkey_t *mf = NULL;
+    for (int i = 0; i < s_mfkey_count; i++) {
+      if (strcmp(s_mfkeys[i].name, "DoorHan") == 0) {
+        mf = &s_mfkeys[i];
+        break;
+      }
+    }
+    if (mf != NULL) {
+      uint32_t serial = 0x0ABCDEF & 0x0FFFFFFF;
+      uint8_t btn = 0x4;
+      uint16_t cnt = 0x0100;
+      int32_t pulses[256];
+      size_t n = subghz_keeloq_encode(serial, btn, cnt, mf->key, mf->type, pulses, 256);
+      uint32_t fix = 0, hop = 0;
+      keeloq_result_t res = {0};
+      bool ok = n > 0 && subghz_keeloq_pwm_decode(pulses, n, &fix, &hop) &&
+                subghz_keeloq_identify(fix, hop, &res) && strcmp(res.mfname, "DoorHan") == 0 &&
+                res.counter == cnt && res.serial == serial;
+      all_ok &= ok;
+      KL_REPORT("identify (%d keys)       %s (%s cnt=%04X)\n", s_mfkey_count, ok ? "PASS" : "FAIL",
+                res.mfname, (unsigned)res.counter);
+    } else {
+      KL_REPORT("identify                 SKIP (DoorHan not in table)\n");
+    }
+  } else {
+    KL_REPORT("identify                 SKIP (mfkeys not loaded)\n");
+  }
+
+#undef KL_REPORT
+  return all_ok;
+}
