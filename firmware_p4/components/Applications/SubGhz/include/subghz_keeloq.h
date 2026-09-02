@@ -24,14 +24,30 @@
 extern "C" {
 #endif
 
-/** @brief Manufacturer key-derivation scheme (numbers mirror the Flipper mfcodes
- *         "Type" field). Only NORMAL/SIMPLE/SECURE are implemented today; the
- *         vendor-specific schemes fall back to NORMAL and need a real capture to
- *         validate (see subghz_keeloq.c). */
+/** @brief Manufacturer key-derivation scheme (numbers mirror the Flipper/Momentum
+ *         mfcodes "Type" field). The deterministic schemes (derivable from the
+ *         fixed part alone: SIMPLE, NORMAL, MAGIC_XOR, MAGIC_SERIAL_1/2/3, PUJOL,
+ *         AERF, SIMPLE_JCM) are ported and cover ~103 of the 116 keys. The
+ *         seed/mix-based ones (SECURE, FAAC, ERREKA) and the make-specific
+ *         KINGGATES/JAROLIFT fall back to NORMAL until the seed is extracted from
+ *         the transmission. Derivations ported from Momentum firmware (GPLv3),
+ *         lib/subghz/protocols/keeloq_common.c. */
 typedef enum {
+  KL_LEARN_UNKNOWN = 0,
   KL_LEARN_SIMPLE = 1, ///< device key == manufacturer key
-  KL_LEARN_NORMAL = 2, ///< derived from serial (Microchip normal learning)
-  KL_LEARN_SECURE = 3, ///< derived from serial + a 32-bit seed
+  KL_LEARN_NORMAL = 2, ///< Microchip normal learning (from the serial)
+  KL_LEARN_SECURE = 3, ///< normal + a 32-bit seed (needs the seed from the frame)
+  KL_LEARN_MAGIC_XOR_TYPE_1 = 4,
+  KL_LEARN_FAAC = 5, ///< seed-based (not yet ported)
+  KL_LEARN_MAGIC_SERIAL_TYPE_1 = 6,
+  KL_LEARN_MAGIC_SERIAL_TYPE_2 = 7,
+  KL_LEARN_MAGIC_SERIAL_TYPE_3 = 8,
+  KL_LEARN_SIMPLE_KINGGATES = 10,
+  KL_LEARN_NORMAL_JAROLIFT = 11, ///< separate protocol upstream (falls back)
+  KL_LEARN_ERREKA = 12,          ///< seed/mix-based (not yet ported)
+  KL_LEARN_PUJOL = 13,
+  KL_LEARN_AERF = 14, ///< uses the derived-key decrypt variant
+  KL_LEARN_SIMPLE_JCM = 15,
 } keeloq_learning_t;
 
 /** @brief One manufacturer entry from the mfcodes asset. */

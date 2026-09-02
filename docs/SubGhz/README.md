@@ -248,7 +248,12 @@ typedef struct {
 | Holtek       | OOK/PWM    | Remote controls              |
 | LiftMaster   | OOK/PWM    | Garage door openers          |
 | Linear       | OOK/PWM    | Gate/access control          |
-| Rossi        | OOK/PWM    | Gate remotes                 |
+| KeeLoq       | OOK/PWM    | HCS301 rolling-code remotes   |
+
+RCSwitch, CAME and the fixed-code plugins (Ansonic, Chamberlain, Holtek,
+LiftMaster, Linear, Nice FLO, Princeton) also transmit: each has a real `.encode`
+(shared `subghz_pwm_encode` helper), verified by `subghz selftest`. KeeLoq is the
+rolling-code plugin (see the KeeLoq section below); it replaced the old Rossi stub.
 
 ### Utility Functions (`subghz_protocol_utils.h`)
 
@@ -265,6 +270,34 @@ void subghz_protocol_registry_init(void);
 bool subghz_protocol_registry_decode_all(const int32_t *pulses, size_t count, subghz_data_t *out_data);
 const subghz_protocol_t *subghz_protocol_registry_get_by_name(const char *name);
 ```
+
+## KeeLoq Rolling Code (`subghz_keeloq`)
+
+HCS301 rolling-code support, surfaced as the `KeeLoq` protocol plugin (which
+replaced the old Rossi stub). Manufacturer keys load at runtime from the SD asset
+`config/subghz/keeloq_mfcodes.txt` (Flipper mfcodes format, 116 keys).
+
+- **Decode (capture):** `subghz_keeloq_identify(fix, hop, ...)` brute-forces every
+  loaded manufacturer key: derives the per-device key, decrypts the 32-bit hop, and
+  on a discrimination + button match recovers serial / button / counter / maker.
+  The plugin reports it as `KeeLoq <manufacturer>` with the serial and counter in
+  `subghz_data_t`.
+- **Encode (replay):** `subghz_keeloq_encode(...)` transmits the NEXT code
+  (counter + 1) — the rolling-code prediction attack — reached from the normal
+  replay path (`subghz_replay_file` → registry encode).
+- **Key derivation:** ported verbatim from Momentum firmware (GPLv3,
+  `lib/subghz/protocols/keeloq_common.c`). Deterministic schemes — SIMPLE, NORMAL,
+  MAGIC_XOR, MAGIC_SERIAL 1/2/3, PUJOL, SIMPLE_JCM — support decode **and** rolling
+  TX; AERF is decode-only (derived-key decrypt, no encrypt inverse). Together these
+  cover ~103 of the 116 keys. The seed/mix schemes (SECURE, FAAC, ERREKA) and the
+  make-specific KINGGATES / JAROLIFT fall back to NORMAL until the seed is parsed
+  from the transmission.
+- **Self-test:** `subghz selftest` runs the cipher inverse, a full
+  encode→PWM→decode→decrypt round-trip, and `identify` against the loaded keys.
+  Over-the-air correctness (against a real remote/gate) is still unvalidated.
+
+The decoded save format carries extra `Serial:` and `Btn:` lines so a saved KeeLoq
+capture replays with the correct rolling counter.
 
 ## Common Types (`subghz_types.h`)
 

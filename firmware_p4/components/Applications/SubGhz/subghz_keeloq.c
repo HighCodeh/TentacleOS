@@ -63,30 +63,126 @@ uint32_t subghz_keeloq_decrypt(uint32_t x, uint64_t key) {
   return x;
 }
 
-static uint64_t normal_learning(uint32_t serial, uint64_t mkey) {
-  uint32_t k1 = subghz_keeloq_decrypt((serial & 0x0FFFFFFF) | 0x20000000, mkey);
-  uint32_t k2 = subghz_keeloq_decrypt((serial & 0x0FFFFFFF) | 0x60000000, mkey);
+// Key-derivation schemes ported from Momentum firmware (GPLv3),
+// lib/subghz/protocols/keeloq_common.c. `fix` is the 32-bit fixed part
+// (button<<28 | serial); each scheme masks it as it needs.
+
+static uint32_t word_rotate16(uint32_t v) {
+  return (v >> 16) | (v << 16);
+}
+
+static uint64_t normal_learning(uint32_t fix, uint64_t mkey) {
+  uint32_t k1 = subghz_keeloq_decrypt((fix & 0x0FFFFFFF) | 0x20000000, mkey);
+  uint32_t k2 = subghz_keeloq_decrypt((fix & 0x0FFFFFFF) | 0x60000000, mkey);
   return ((uint64_t)k2 << 32) | k1;
 }
 
-static uint64_t secure_learning(uint32_t serial, uint32_t seed, uint64_t mkey) {
-  uint32_t k1 = subghz_keeloq_decrypt(serial, mkey);
+static uint64_t secure_learning(uint32_t fix, uint32_t seed, uint64_t mkey) {
+  uint32_t k1 = subghz_keeloq_decrypt(fix & 0x0FFFFFFF, mkey);
   uint32_t k2 = subghz_keeloq_decrypt(seed, mkey);
+  return ((uint64_t)k1 << 32) | k2;
+}
+
+static uint64_t magic_xor_type1_learning(uint32_t fix, uint64_t xor_key) {
+  uint32_t d = fix & 0x0FFFFFFF;
+  return (((uint64_t)d << 32) | d) ^ xor_key;
+}
+
+static uint64_t magic_serial_type1_learning(uint32_t fix, uint64_t man) {
+  return (man & 0xFFFFFFFF) | ((uint64_t)fix << 40) |
+         ((uint64_t)(((fix & 0xFF) + ((fix >> 8) & 0xFF)) & 0xFF) << 32);
+}
+
+static uint64_t magic_serial_type2_learning(uint32_t fix, uint64_t man) {
+  uint64_t hi = ((uint64_t)(fix & 0xFF) << 56) | ((uint64_t)((fix >> 8) & 0xFF) << 48) |
+                ((uint64_t)((fix >> 16) & 0xFF) << 40) | ((uint64_t)((fix >> 24) & 0xFF) << 32);
+  return (man & 0x00000000FFFFFFFFULL) | hi;
+}
+
+static uint64_t magic_serial_type3_learning(uint32_t fix, uint64_t man) {
+  return (man & 0xFFFFFFFFFF000000ULL) | (fix & 0xFFFFFF);
+}
+
+static uint64_t pujol_learning(uint32_t fix, uint64_t mkey) {
+  uint32_t d = fix & 0x0FFFFFFF;
+  uint32_t w1 = subghz_keeloq_decrypt(d | 0x20000000, mkey);
+  uint32_t w2 = subghz_keeloq_decrypt(d | 0x60000000, mkey);
+  return ((uint64_t)word_rotate16(w2) << 32) | word_rotate16(w1);
+}
+
+// AERF uses a KeeLoq NLFSR variant for both key extension and decrypt.
+static uint32_t nl_extend(uint32_t x, uint32_t k_lo, uint32_t k_hi, uint32_t outer_limit) {
+  uint32_t r5 = 0;
+  const uint32_t r6 = KL_NLF;
+  while (r5 != outer_limit) {
+    if (r5 < 0x210u) {
+      uint32_t r1 = (x >> 15) & 1u;
+      uint32_t r7 = r1 ^ ((x >> 1) | (x << 31));
+      r1 = (15u - r5) & 0x3Fu;
+      uint32_t lr = 32u - r1;
+      uint32_t ip = r1 - 32u;
+      lr = k_hi << lr;
+      r1 = k_lo >> r1;
+      ip = (r1 < 32u) ? (k_hi >> ip) : 0u;
+      r1 = (r1 | lr | ip) & 1u;
+      ip = (x >> 30) & 1u;
+      r1 ^= r7;
+      r7 = (x >> 25) & 1u;
+      r7 += ip << 1;
+      ip = (x >> 19) & 1u;
+      ip += r7 << 1;
+      r7 = (x >> 8) & 1u;
+      r7 += ip << 1;
+      x &= 1u;
+      x += r7 << 1;
+      x = (uint32_t)((int32_t)r6 >> (x & 31u));
+      x &= 1u;
+      x ^= r1;
+    }
+    r5 += 1u;
+  }
+  return x;
+}
+
+static uint32_t decrypt_derived(uint32_t hop, uint64_t man, uint32_t outer_limit) {
+  return nl_extend(hop, (uint32_t)man, (uint32_t)(man >> 32), outer_limit);
+}
+
+static uint64_t aerf_learning(uint32_t fix, uint64_t key) {
+  uint32_t k_lo = (uint32_t)key;
+  uint32_t k_hi = (uint32_t)(key >> 32);
+  uint32_t d = fix & 0x0FFFFFFF;
+  uint32_t k1 = nl_extend(d | 0x20000000u, k_lo, k_hi, 0x40u);
+  uint32_t k2 = nl_extend(d | 0x60000000u, k_lo, k_hi, 0x40u);
   return ((uint64_t)k2 << 32) | k1;
 }
 
-uint64_t subghz_keeloq_learn(uint64_t mkey, uint32_t serial, uint8_t type, uint32_t seed) {
+uint64_t subghz_keeloq_learn(uint64_t mkey, uint32_t fix, uint8_t type, uint32_t seed) {
   switch (type) {
     case KL_LEARN_SIMPLE:
+    case KL_LEARN_SIMPLE_KINGGATES:
+    case KL_LEARN_SIMPLE_JCM:
       return mkey;
     case KL_LEARN_SECURE:
-      return secure_learning(serial, seed, mkey);
+      return secure_learning(fix, seed, mkey);
+    case KL_LEARN_MAGIC_XOR_TYPE_1:
+      return magic_xor_type1_learning(fix, mkey);
+    case KL_LEARN_MAGIC_SERIAL_TYPE_1:
+      return magic_serial_type1_learning(fix, mkey);
+    case KL_LEARN_MAGIC_SERIAL_TYPE_2:
+      return magic_serial_type2_learning(fix, mkey);
+    case KL_LEARN_MAGIC_SERIAL_TYPE_3:
+      return magic_serial_type3_learning(fix, mkey);
+    case KL_LEARN_PUJOL:
+      return pujol_learning(fix, mkey);
+    case KL_LEARN_AERF:
+      return aerf_learning(fix, mkey);
     case KL_LEARN_NORMAL:
+    case KL_LEARN_NORMAL_JAROLIFT:
     default:
-      // Vendor-specific schemes (FAAC SLH, Beninca, AERF, JCM1G, Magic, ...) are
-      // not yet ported; they fall back to normal learning and must be validated
-      // against a real capture before they are trusted for those makes.
-      return normal_learning(serial, mkey);
+      // FAAC, Erreka and the make-specific Jarolift/Kinggates need a seed or a
+      // separate protocol not yet ported; they fall back to normal learning.
+      return normal_learning(fix, mkey);
   }
 }
 
@@ -237,8 +333,10 @@ bool subghz_keeloq_identify(uint32_t fix, uint32_t hop, keeloq_result_t *out) {
   uint8_t fix_btn = (fix >> 28) & 0xF;
 
   for (int i = 0; i < s_mfkey_count; i++) {
-    uint64_t dkey = subghz_keeloq_learn(s_mfkeys[i].key, serial, s_mfkeys[i].type, 0);
-    uint32_t plain = subghz_keeloq_decrypt(hop, dkey);
+    uint8_t type = s_mfkeys[i].type;
+    uint64_t dkey = subghz_keeloq_learn(s_mfkeys[i].key, fix, type, 0);
+    uint32_t plain =
+        (type == KL_LEARN_AERF) ? decrypt_derived(hop, dkey, 0x240u) : subghz_keeloq_decrypt(hop, dkey);
     uint32_t disc = (plain >> 16) & KL_DISC_MASK;
     uint8_t enc_btn = (plain >> 28) & 0xF;
     if (disc == (serial & KL_DISC_MASK) && enc_btn == fix_btn) {
@@ -263,11 +361,14 @@ size_t subghz_keeloq_encode(uint32_t serial,
                             uint8_t type,
                             int32_t *pulses,
                             size_t max_count) {
-  uint64_t dkey = subghz_keeloq_learn(mkey, serial, type, 0);
+  if (type == KL_LEARN_AERF) {
+    return 0; // AERF uses the derived-key decrypt; no encrypt inverse to replay with
+  }
+  uint32_t fix = ((uint32_t)(button & 0xF) << 28) | (serial & 0x0FFFFFFF);
+  uint64_t dkey = subghz_keeloq_learn(mkey, fix, type, 0);
   uint32_t disc = serial & KL_DISC_MASK;
   uint32_t plain = ((uint32_t)(button & 0xF) << 28) | (disc << 16) | counter;
   uint32_t hop = subghz_keeloq_encrypt(plain, dkey);
-  uint32_t fix = ((uint32_t)(button & 0xF) << 28) | (serial & 0x0FFFFFFF);
   return pwm_encode_frame(hop, fix, pulses, max_count);
 }
 
