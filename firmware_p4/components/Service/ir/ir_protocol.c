@@ -85,6 +85,8 @@ uint32_t ir_carrier_freq(ir_protocol_t proto) {
       return IR_CARRIER_HZ_PANASONIC;
     case IR_PROTO_PIONEER:
       return IR_CARRIER_HZ_PIONEER;
+    case IR_PROTO_RCA:
+      return IR_CARRIER_HZ_RCA;
     default:
       return IR_CARRIER_HZ_DEFAULT;
   }

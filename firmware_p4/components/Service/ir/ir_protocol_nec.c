@@ -74,7 +74,7 @@ size_t ir_protocol_nec_encode(const ir_data_t *data, rmt_symbol_word_t *symbols,
   }
 
   uint32_t addr_field;
-  if (data->address <= NEC_ADDR_STANDARD_MAX) {
+  if (!data->extended && data->address <= NEC_ADDR_STANDARD_MAX) {
     uint8_t addr = data->address & NEC_ADDR_STANDARD_MAX;
     addr_field = addr | ((uint32_t)(~addr & NEC_INTEGRITY_MASK) << NEC_CMD_HI_SHIFT);
   } else {

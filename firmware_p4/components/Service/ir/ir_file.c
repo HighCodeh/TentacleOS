@@ -96,6 +96,7 @@ flipper_to_ir_data(const char *proto, uint32_t addr, uint32_t cmd, ir_data_t *ou
     out_data->protocol = IR_PROTO_NEC;
     out_data->address = addr & NEC_EXT_ADDR_MASK;
     out_data->command = cmd & NEC_EXT_CMD_MASK;
+    out_data->extended = (strcmp(proto, "NECext") == 0);
     return true;
   }
   if (strcmp(proto, "NEC42") == 0 || strcmp(proto, "NEC42ext") == 0) {
@@ -126,12 +127,15 @@ flipper_to_ir_data(const char *proto, uint32_t addr, uint32_t cmd, ir_data_t *ou
     out_data->protocol = IR_PROTO_SONY;
     out_data->address = addr & SONY_ADDR_MASK;
     out_data->command = cmd & SONY_CMD_MASK;
+    out_data->nbits = (strcmp(proto, "SIRC20") == 0)   ? SONY_SIRC20_BITS
+                      : (strcmp(proto, "SIRC15") == 0) ? SONY_SIRC15_BITS
+                                                       : SONY_SIRC12_BITS;
     return true;
   }
   if (strcmp(proto, "Kaseikyo") == 0) {
     out_data->protocol = IR_PROTO_PANASONIC;
     out_data->address = addr;
-    out_data->command = cmd & 0xFF;
+    out_data->command = cmd & KASEIKYO_DATA_MASK;
     return true;
   }
   if (strcmp(proto, "RCA") == 0) {
