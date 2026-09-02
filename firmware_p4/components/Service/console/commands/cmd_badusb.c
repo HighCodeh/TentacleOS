@@ -22,6 +22,7 @@
 #include "esp_console.h"
 #include "esp_err.h"
 
+#include "bad_ble.h"
 #include "bad_usb.h"
 #include "ducky_parser.h"
 #include "tinyusb.h"
@@ -45,8 +46,24 @@ static esp_err_t ensure_badusb_ready(void) {
 static struct {
   struct arg_str *asset;
   struct arg_str *file;
+  struct arg_lit *ble;
   struct arg_end *end;
 } s_run_args;
+
+static bool start_ble_target(void) {
+  if (bad_ble_init() != ESP_OK) {
+    printf("Failed to start BadBLE.\n");
+    return false;
+  }
+  ducky_set_output_mode(DUCKY_OUTPUT_BLUETOOTH);
+  printf("Waiting for a Bluetooth host to pair...\n");
+  if (!bad_ble_wait_for_connection_ex(NULL)) {
+    printf("No Bluetooth host connected.\n");
+    bad_ble_deinit();
+    return false;
+  }
+  return true;
+}
 
 static int subcmd_run(int argc, char **argv) {
   int nerrors = arg_parse(argc, argv, (void **)&s_run_args);
@@ -56,20 +73,24 @@ static int subcmd_run(int argc, char **argv) {
   }
 
   if (s_run_args.asset->count == 0 && s_run_args.file->count == 0) {
-    printf("Usage: badusb run -a <asset> | -f <sd_path>\n");
+    printf("Usage: badusb run -a <asset> | -f <sd_path> [-b]\n");
     return 1;
   }
 
-  if (ensure_badusb_ready() != ESP_OK) {
-    printf("Failed to initialize BadUSB.\n");
-    return 1;
+  bool use_ble = (s_run_args.ble->count > 0);
+  if (use_ble) {
+    if (!start_ble_target())
+      return 1;
+  } else {
+    if (ensure_badusb_ready() != ESP_OK) {
+      printf("Failed to initialize BadUSB.\n");
+      return 1;
+    }
+    ducky_set_output_mode(DUCKY_OUTPUT_USB);
   }
-  ducky_set_output_mode(DUCKY_OUTPUT_USB);
 
   esp_err_t err;
   if (s_run_args.asset->count > 0) {
-    // Asset scripts live under /assets/storage/bad_usb_scripts/; the loader
-    // prepends /assets/, so we only add the script subdirectory here.
     char asset_path[BADUSB_ASSET_PATH_MAX];
     snprintf(asset_path, sizeof(asset_path), "%s%s", BADUSB_ASSET_DIR, s_run_args.asset->sval[0]);
     printf("Running asset script '%s'...\n", asset_path);
@@ -79,6 +100,9 @@ static int subcmd_run(int argc, char **argv) {
     printf("Running SD script '%s'...\n", path);
     err = ducky_run_from_sdcard(path);
   }
+
+  if (use_ble)
+    bad_ble_deinit();
 
   if (err == ESP_OK) {
     printf("Script finished.\n");
@@ -154,7 +178,7 @@ static int cmd_badusb(int argc, char **argv) {
     printf("Usage: badusb <command> [options]\n\n");
     printf("Commands:\n");
     printf("  run     Run a DuckyScript\n");
-    printf("          -a <asset> (internal) | -f <sd_path>\n");
+    printf("          -a <asset> (internal) | -f <sd_path>  [-b for Bluetooth]\n");
     printf("  type    Type a literal string over HID\n");
     printf("          type <text...>\n");
     printf("  layout  Set keyboard layout\n");
@@ -186,6 +210,7 @@ static int cmd_badusb(int argc, char **argv) {
 void register_badusb_commands(void) {
   s_run_args.asset = arg_str0("a", "asset", "<name>", "Run script from internal bad_usb_scripts");
   s_run_args.file = arg_str0("f", "file", "<path>", "Run script from SD card");
+  s_run_args.ble = arg_lit0("b", "ble", "Send over Bluetooth HID instead of USB");
   s_run_args.end = arg_end(1);
 
   const esp_console_cmd_t badusb_cmd = {.command = "badusb",

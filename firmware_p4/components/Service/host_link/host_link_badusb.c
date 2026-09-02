@@ -22,6 +22,7 @@
 #include "freertos/task.h"
 #include "sys_prio.h"
 
+#include "bad_ble.h"
 #include "bad_usb.h"
 #include "ducky_parser.h"
 #include "spi_protocol.h"
@@ -34,8 +35,12 @@ static const char *TAG = "HOST_BADUSB";
 #define BADUSB_TASK_PRIORITY SYS_PRIO_SERVICE_HI
 #define BADUSB_TASK_CORE     SYS_CORE_RADIO
 
+#define BADUSB_TARGET_USB 0x00
+#define BADUSB_TARGET_BLE 0x01
+
 static volatile bool s_busy = false;
 static volatile bool s_abort = false;
+static bool s_use_ble = false;
 static TaskHandle_t s_task = NULL;
 static char s_path[BADUSB_PATH_MAX];
 
@@ -43,18 +48,30 @@ static bool badusb_should_abort(void) {
   return s_abort;
 }
 
+static void run_current_path(void) {
+  if (strncmp(s_path, BADUSB_ASSETS_PREFIX, strlen(BADUSB_ASSETS_PREFIX)) == 0)
+    ducky_run_from_assets(s_path + strlen(BADUSB_ASSETS_PREFIX));
+  else
+    ducky_run_from_sdcard(s_path);
+}
+
 static void badusb_run_task(void *arg) {
   (void)arg;
 
-  bad_usb_init();
-  ducky_set_output_mode(DUCKY_OUTPUT_USB);
   ducky_set_layout(DUCKY_LAYOUT_US);
 
-  if (bad_usb_wait_for_connection_ex(badusb_should_abort) && !s_abort) {
-    if (strncmp(s_path, BADUSB_ASSETS_PREFIX, strlen(BADUSB_ASSETS_PREFIX)) == 0)
-      ducky_run_from_assets(s_path + strlen(BADUSB_ASSETS_PREFIX));
-    else
-      ducky_run_from_sdcard(s_path);
+  if (s_use_ble) {
+    if (bad_ble_init() == ESP_OK) {
+      ducky_set_output_mode(DUCKY_OUTPUT_BLUETOOTH);
+      if (bad_ble_wait_for_connection_ex(badusb_should_abort) && !s_abort)
+        run_current_path();
+      bad_ble_deinit();
+    }
+  } else {
+    bad_usb_init();
+    ducky_set_output_mode(DUCKY_OUTPUT_USB);
+    if (bad_usb_wait_for_connection_ex(badusb_should_abort) && !s_abort)
+      run_current_path();
   }
 
   ESP_LOGI(TAG, "run finished: %s", s_path);
@@ -79,8 +96,19 @@ uint8_t host_badusb_handle(uint16_t cmd,
       if (payload == NULL || plen == 0)
         return SPI_STATUS_INVALID_ARG;
 
-      uint16_t n = plen < sizeof(s_path) - 1 ? plen : (uint16_t)(sizeof(s_path) - 1);
-      memcpy(s_path, payload, n);
+      const uint8_t *path_bytes = payload;
+      uint16_t path_plen = plen;
+      s_use_ble = false;
+      if (payload[0] <= BADUSB_TARGET_BLE) {
+        s_use_ble = (payload[0] == BADUSB_TARGET_BLE);
+        path_bytes = payload + 1;
+        path_plen = (uint16_t)(plen - 1);
+      }
+      if (path_plen == 0)
+        return SPI_STATUS_INVALID_ARG;
+
+      uint16_t n = path_plen < sizeof(s_path) - 1 ? path_plen : (uint16_t)(sizeof(s_path) - 1);
+      memcpy(s_path, path_bytes, n);
       s_path[n] = '\0';
 
       s_abort = false;

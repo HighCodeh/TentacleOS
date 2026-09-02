@@ -6,7 +6,7 @@ This component implements a modular HID injection tool capable of emulating keyb
 
 - **Location:** `components/Applications/bad_usb/`
 - **Dependencies:** `tinyusb`, `tusb_desc`, `storage_api`, `freertos`
-- **Transport:** USB HID via TinyUSB (Bluetooth planned)
+- **Transport:** USB HID via TinyUSB, or Bluetooth HID (HOGP on the C5)
 
 ## Architecture
 
@@ -32,7 +32,7 @@ This component implements a modular HID injection tool capable of emulating keyb
 │  ┌───────────────┴─────────────────────────┐    │
 │  │        Transport Backend                │    │
 │  │  USB: bad_usb.c (TinyUSB)              │    │
-│  │  BLE: (planned)                         │    │
+│  │  BLE: bad_ble.c (HOGP via C5)          │    │
 │  └─────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────┘
 ```
@@ -57,6 +57,18 @@ bool bad_usb_wait_for_connection_ex(bad_usb_abort_cb_t should_abort);
 - `bad_usb_deinit` unregisters callbacks and uninstalls the TinyUSB driver.
 - `bad_usb_wait_for_connection` blocks until the USB host mounts the device, then waits 2 seconds (`USB_SETTLE_DELAY_MS`) for the host OS to enumerate.
 - `bad_usb_wait_for_connection_ex` is the abortable variant. It polls `tud_mounted()` with an **8 second mount timeout** (`USB_MOUNT_TIMEOUT_MS`), calling `should_abort` (a `bad_usb_abort_cb_t`) between polls and during the post-mount settle. It returns `true` if the host mounted and settled, `false` if the timeout elapsed or the abort predicate fired. `bad_usb_wait_for_connection` is just `_ex(NULL)`, which never times out on the abort path but still stops after the mount timeout. Use `_ex` so a run waiting for a host that never arrives can be cancelled.
+
+### BadBLE Driver (`bad_ble.h`)
+
+```c
+esp_err_t bad_ble_init(void);
+esp_err_t bad_ble_deinit(void);
+void bad_ble_wait_for_connection(void);
+bool bad_ble_wait_for_connection_ex(bad_ble_abort_cb_t should_abort);
+```
+- The Bluetooth transport, mirror of the USB one. `bad_ble_init` acquires the `RES_BLE` host resource, starts the HID-over-GATT keyboard on the C5 (`ble_hid_init`, which advertises), and registers `ble_hid_send_key` as the HAL keyboard callback — so the same transport-agnostic parser types over Bluetooth with no changes. Mouse is keyboard-only over BLE, so `MOUSE_*` commands are no-ops on this transport.
+- `bad_ble_deinit` unregisters the callback, stops the C5 keyboard (`ble_hid_deinit`) and releases `RES_BLE`.
+- `bad_ble_wait_for_connection_ex` polls `ble_hid_is_connected()` with a **30 second pairing timeout** (`BLE_CONNECT_TIMEOUT_MS`), calling `should_abort` between polls. A run selects the transport by calling `bad_ble_init` instead of `bad_usb_init`; the on-device **Output Target** menu, the console `badusb run -b`, and the host-link target byte all route here.
 
 ### HID HAL (`hid_hal.h`)
 

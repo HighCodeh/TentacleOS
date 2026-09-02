@@ -30,6 +30,7 @@
 #include "st7789.h"
 
 #include "assets_manager.h"
+#include "bad_ble.h"
 #include "bad_usb.h"
 #include "ducky_parser.h"
 #include "menu_component_ui.h"
@@ -102,9 +103,10 @@ static const char *TAG = "BADUSB_UI";
 #define SCRIPT_LINE_BUF   96
 #define PREVIEW_TITLE_BUF 64
 
-#define TERM_PROMPT   "root@target:~#"
-#define DETECT_STATUS "Waiting for host"
-#define INSTRUCT_TEXT "RIGHT = Run again   BACK = Exit"
+#define TERM_PROMPT       "root@target:~#"
+#define DETECT_STATUS     "Waiting for host"
+#define DETECT_STATUS_BLE "Pair Bluetooth device"
+#define INSTRUCT_TEXT     "RIGHT = Run again   BACK = Exit"
 
 #define INFO_PANEL_W       200
 #define INFO_PANEL_H       120
@@ -157,6 +159,7 @@ static const struct {
     {"Run Payload", "/assets/icons/play_arrow.bin"},
     {"Payloads", "/assets/icons/description.bin"},
     {"Keyboard Layout", "/assets/icons/keyboard.bin"},
+    {"Output Target", "/assets/icons/swap_horiz.bin"},
     {"USB Status", "/assets/icons/usb.bin"},
     {"HID Mouse", "/assets/icons/usb.bin"},
 };
@@ -165,8 +168,9 @@ static const struct {
 #define IDX_RUN_PAYLOAD 0
 #define IDX_PAYLOADS    1
 #define IDX_LAYOUT      2
-#define IDX_STATUS      3
-#define IDX_MOUSE       4
+#define IDX_TARGET      3
+#define IDX_STATUS      4
+#define IDX_MOUSE       5
 
 static const struct {
   const char *label;
@@ -176,6 +180,20 @@ static const struct {
     {"BR (ABNT2)", DUCKY_LAYOUT_ABNT2},
 };
 #define LAYOUT_COUNT ((int)(sizeof(LAYOUTS) / sizeof(LAYOUTS[0])))
+
+typedef enum {
+  BAD_TARGET_USB = 0,
+  BAD_TARGET_BLE,
+} bad_target_t;
+
+static const struct {
+  const char *label;
+  const char *icon;
+} TARGETS[] = {
+    {"USB", "/assets/icons/usb.bin"},
+    {"Bluetooth", "/assets/icons/bluetooth.bin"},
+};
+#define TARGET_COUNT ((int)(sizeof(TARGETS) / sizeof(TARGETS[0])))
 
 typedef enum {
   RUN_STAGE_DETECTING = 0,
@@ -188,6 +206,7 @@ typedef enum {
   VIEW_PAYLOADS,
   VIEW_RUNNING,
   VIEW_LAYOUT,
+  VIEW_TARGET,
   VIEW_STATUS,
 } view_t;
 
@@ -212,6 +231,7 @@ static view_t s_view = VIEW_LIST;
 
 static int s_payload_sel = 0;
 static int s_layout_active = 0;
+static int s_target_active = 0;
 
 EXT_RAM_BSS_ATTR static char s_pl_path[MAX_PAYLOADS][PL_PATH_LEN];
 static char s_pl_name[MAX_PAYLOADS][PL_NAME_LEN];
@@ -365,29 +385,9 @@ static bool badusb_abort_requested(void) {
   return atomic_load(&s_bad_abort);
 }
 
-static void bad_run_task(void *arg) {
-  (void)arg;
-  esp_err_t err = ESP_OK;
-
-  assets_manager_evict_cache();
-  size_t free_int = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-  size_t big_int = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
-  ESP_LOGI(TAG, "pre-run internal heap: free=%u largest=%u", (unsigned)free_int, (unsigned)big_int);
-  if (free_int < BADUSB_MIN_FREE_INTERNAL || big_int < BADUSB_MIN_BLOCK_INTERNAL) {
-    ESP_LOGE(TAG, "Not enough internal RAM for USB; refusing run");
-    atomic_store(&s_bad_result, ESP_ERR_NO_MEM);
-    atomic_store(&s_bad_state, BAD_ERROR);
-    atomic_store(&s_run_active, false);
-    vTaskDelete(NULL);
-    return;
-  }
-
+static esp_err_t run_via_usb(void) {
   s_prev_mux_native = usb_mux_is_native();
-  atomic_store(&s_bad_cur, 0);
-  atomic_store(&s_bad_total, 0);
-  atomic_store(&s_bad_state, BAD_WAIT);
-
-  err = usb_mux_set_native(true);
+  esp_err_t err = usb_mux_set_native(true);
   if (err == ESP_OK) {
     esp_err_t ie = bad_usb_init();
     if (ie != ESP_OK && ie != ESP_ERR_INVALID_STATE)
@@ -414,6 +414,60 @@ static void bad_run_task(void *arg) {
   }
 
   usb_mux_set_native(s_prev_mux_native);
+  return err;
+}
+
+static esp_err_t run_via_ble(void) {
+  esp_err_t err = bad_ble_init();
+  if (err != ESP_OK)
+    return err;
+
+  ducky_set_output_mode(DUCKY_OUTPUT_BLUETOOTH);
+  ducky_set_layout(LAYOUTS[s_layout_active].layout);
+  ducky_set_progress_callback(bad_progress_cb);
+
+  if (bad_ble_wait_for_connection_ex(badusb_abort_requested)) {
+    if (!badusb_abort_requested()) {
+      atomic_store(&s_bad_state, BAD_RUN);
+      if (s_run_is_asset)
+        err = ducky_run_from_assets(s_run_path + ASSETS_PREFIX_LEN);
+      else
+        err = ducky_run_from_sdcard(s_run_path);
+    }
+  } else if (!badusb_abort_requested()) {
+    err = ESP_ERR_TIMEOUT;
+  }
+  ducky_set_progress_callback(NULL);
+
+  bad_ble_deinit();
+  return err;
+}
+
+static void bad_run_task(void *arg) {
+  (void)arg;
+  bool is_ble = (s_target_active == BAD_TARGET_BLE);
+
+  if (!is_ble) {
+    assets_manager_evict_cache();
+    size_t free_int = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    size_t big_int = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+    ESP_LOGI(
+        TAG, "pre-run internal heap: free=%u largest=%u", (unsigned)free_int, (unsigned)big_int);
+    if (free_int < BADUSB_MIN_FREE_INTERNAL || big_int < BADUSB_MIN_BLOCK_INTERNAL) {
+      ESP_LOGE(TAG, "Not enough internal RAM for USB; refusing run");
+      atomic_store(&s_bad_result, ESP_ERR_NO_MEM);
+      atomic_store(&s_bad_state, BAD_ERROR);
+      atomic_store(&s_run_active, false);
+      vTaskDelete(NULL);
+      return;
+    }
+  }
+
+  atomic_store(&s_bad_cur, 0);
+  atomic_store(&s_bad_total, 0);
+  atomic_store(&s_bad_state, BAD_WAIT);
+
+  esp_err_t err = is_ble ? run_via_ble() : run_via_usb();
 
   atomic_store(&s_bad_result, err);
   if (badusb_abort_requested())
@@ -434,7 +488,8 @@ static void request_abort(void) {
 
 static void build_detecting(void) {
   s_status_lbl = lv_label_create(s_screen);
-  lv_label_set_text(s_status_lbl, DETECT_STATUS);
+  lv_label_set_text(s_status_lbl,
+                    s_target_active == BAD_TARGET_BLE ? DETECT_STATUS_BLE : DETECT_STATUS);
   lv_obj_set_style_text_color(s_status_lbl, current_theme.text_main, 0);
   lv_obj_set_style_text_font(s_status_lbl, &lv_font_montserrat_14, 0);
   lv_obj_align(s_status_lbl, LV_ALIGN_TOP_MID, 0, STATUS_Y_OFS);
@@ -921,6 +976,18 @@ static void build_layout(void) {
   fade_in(s_menu.title_bar, FADE_MS);
 }
 
+static void build_target(void) {
+  s_menu = menu_component_create(s_screen, "OUTPUT", "/assets/icons/swap_horiz.bin");
+  for (int i = 0; i < TARGET_COUNT; i++) {
+    menu_component_add_item(&s_menu, TARGETS[i].icon, TARGETS[i].label);
+    if (i == s_target_active)
+      menu_component_set_item_label_color(&s_menu, i, lv_color_hex(UI_COL_SUCCESS));
+  }
+  menu_component_select(&s_menu, s_target_active);
+  fade_in(s_menu.items_cont, FADE_MS);
+  fade_in(s_menu.title_bar, FADE_MS);
+}
+
 static void status_row(lv_obj_t *panel, int index, const badusb_status_row_t *row) {
   lv_obj_t *lab = lv_label_create(panel);
   lv_label_set_text(lab, row->label);
@@ -1002,6 +1069,9 @@ static void build_screen(void) {
     case VIEW_LAYOUT:
       build_layout();
       break;
+    case VIEW_TARGET:
+      build_target();
+      break;
     case VIEW_STATUS:
       build_status();
       break;
@@ -1051,6 +1121,9 @@ static void input_view_list(const input_event_t *ev, bool press, bool nav) {
           build_screen();
         } else if (sel == IDX_LAYOUT) {
           s_view = VIEW_LAYOUT;
+          build_screen();
+        } else if (sel == IDX_TARGET) {
+          s_view = VIEW_TARGET;
           build_screen();
         } else if (sel == IDX_STATUS) {
           s_view = VIEW_STATUS;
@@ -1153,6 +1226,39 @@ static void input_view_layout(const input_event_t *ev, bool press, bool nav) {
   }
 }
 
+static void input_view_target(const input_event_t *ev, bool press, bool nav) {
+  switch (ev->button) {
+    case INPUT_BTN_DOWN:
+      if (nav)
+        menu_component_next(&s_menu);
+      break;
+    case INPUT_BTN_UP:
+      if (nav)
+        menu_component_prev(&s_menu);
+      break;
+    case INPUT_BTN_OK:
+      if (press) {
+        int sel = menu_component_get_selected(&s_menu);
+        if (sel >= 0 && sel < TARGET_COUNT && sel != s_target_active) {
+          menu_component_set_item_label_color(&s_menu, s_target_active, current_theme.text_main);
+          s_target_active = sel;
+          menu_component_set_item_label_color(
+              &s_menu, s_target_active, lv_color_hex(UI_COL_SUCCESS));
+          ESP_LOGI(TAG, "output target set: %s", TARGETS[s_target_active].label);
+        }
+      }
+      break;
+    case INPUT_BTN_BACK:
+      if (press) {
+        s_view = VIEW_LIST;
+        build_screen();
+      }
+      break;
+    default:
+      break;
+  }
+}
+
 static void input_view_status(const input_event_t *ev, bool press) {
   if (ev->button == INPUT_BTN_BACK && press) {
     s_view = VIEW_LIST;
@@ -1177,6 +1283,9 @@ static void badusb_input(const input_event_t *ev, void *ctx) {
       break;
     case VIEW_LAYOUT:
       input_view_layout(ev, press, nav);
+      break;
+    case VIEW_TARGET:
+      input_view_target(ev, press, nav);
       break;
     case VIEW_STATUS:
       input_view_status(ev, press);

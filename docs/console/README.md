@@ -65,7 +65,7 @@ HID injection via DuckyScript. Hint: `badusb <run|type|layout|stop|status> ...`.
 
 | Subcommand | Description | Arguments | Example |
 | :--- | :--- | :--- | :--- |
-| `run` | Runs a DuckyScript. | `-a <name>`: internal asset (under `bad_usb_scripts/`)<br>`-f <path>`: script from SD card | `badusb run -a rickroll.txt` |
+| `run` | Runs a DuckyScript. | `-a <name>`: internal asset (under `bad_usb_scripts/`)<br>`-f <path>`: script from SD card<br>`-b`: send over Bluetooth HID instead of USB (waits for a host to pair) | `badusb run -a rickroll.txt`<br>`badusb run -f /sdcard/p.txt -b` |
 | `type` | Types a literal string over HID. | `<text...>` | `badusb type hello world` |
 | `layout` | Sets the keyboard layout. | `<us\|abnt2>` | `badusb layout abnt2` |
 | `stop` | Aborts the running script (stops at the next line). | None | `badusb stop` |
