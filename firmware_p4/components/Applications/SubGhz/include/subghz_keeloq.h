@@ -27,11 +27,11 @@ extern "C" {
 /** @brief Manufacturer key-derivation scheme (numbers mirror the Flipper/Momentum
  *         mfcodes "Type" field). The deterministic schemes (derivable from the
  *         fixed part alone: SIMPLE, NORMAL, MAGIC_XOR, MAGIC_SERIAL_1/2/3, PUJOL,
- *         AERF, SIMPLE_JCM) are ported and cover ~103 of the 116 keys. The
- *         seed/mix-based ones (SECURE, FAAC, ERREKA) and the make-specific
- *         KINGGATES/JAROLIFT fall back to NORMAL until the seed is extracted from
- *         the transmission. Derivations ported from Momentum firmware (GPLv3),
- *         lib/subghz/protocols/keeloq_common.c. */
+ *         AERF, SIMPLE_JCM), plus UNKNOWN (multi-scheme brute) and SECURE
+ *         (serial/zero seed fallback), cover ~110 of the 116 keys for decode. The
+ *         remaining ~6 (FAAC, KINGGATES, JAROLIFT, ERREKA, reserved Beninca) are
+ *         separate protocols upstream and fall back to NORMAL. Derivations ported
+ *         from Momentum firmware (GPLv3), lib/subghz/protocols/keeloq_common.c. */
 typedef enum {
   KL_LEARN_UNKNOWN = 0,
   KL_LEARN_SIMPLE = 1, ///< device key == manufacturer key

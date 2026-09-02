@@ -288,10 +288,12 @@ replaced the old Rossi stub). Manufacturer keys load at runtime from the SD asse
 - **Key derivation:** ported verbatim from Momentum firmware (GPLv3,
   `lib/subghz/protocols/keeloq_common.c`). Deterministic schemes — SIMPLE, NORMAL,
   MAGIC_XOR, MAGIC_SERIAL 1/2/3, PUJOL, SIMPLE_JCM — support decode **and** rolling
-  TX; AERF is decode-only (derived-key decrypt, no encrypt inverse). Together these
-  cover ~103 of the 116 keys. The seed/mix schemes (SECURE, FAAC, ERREKA) and the
-  make-specific KINGGATES / JAROLIFT fall back to NORMAL until the seed is parsed
-  from the transmission.
+  TX; AERF is decode-only (derived-key decrypt, no encrypt inverse). Adding
+  UNKNOWN (multi-scheme brute: simple / normal / byte-reversed key) and SECURE
+  (serial-derived or zero seed fallback) brings decode coverage to ~110 of the 116
+  keys. The remaining ~6 are separate protocols upstream — FAAC SLH, KINGGATES,
+  JAROLIFT — plus ERREKA (needs the seed) and the reserved Beninca_ARC; those need
+  their own frame decoders ported and a real capture to validate.
 - **Self-test:** `subghz selftest` runs the cipher inverse, a full
   encode→PWM→decode→decrypt round-trip, and `identify` against the loaded keys.
   Over-the-air correctness (against a real remote/gate) is still unvalidated.

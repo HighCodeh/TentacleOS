@@ -328,23 +328,80 @@ bool subghz_keeloq_pwm_decode(const int32_t *pulses,
   return true;
 }
 
+static bool keeloq_check(uint32_t plain, uint32_t serial, uint8_t fix_btn) {
+  return ((plain >> 16) & KL_DISC_MASK) == (serial & KL_DISC_MASK) &&
+         ((plain >> 28) & 0xF) == fix_btn;
+}
+
+static uint64_t byte_reverse64(uint64_t k) {
+  uint64_t r = 0;
+  for (int i = 0; i < 64; i += 8) {
+    r |= (uint64_t)((uint8_t)(k >> i)) << (56 - i);
+  }
+  return r;
+}
+
+// Try the candidate plaintexts a manufacturer's learning type can produce; on the
+// first that passes the discrimination + button check, return it. Mirrors the
+// per-type decode in Momentum keeloq.c (UNKNOWN brute-tries several schemes;
+// SECURE tries a serial-derived then a zero seed; AERF tries all decrypt limits).
+static bool keeloq_recover(uint64_t mkey,
+                           uint8_t type,
+                           uint32_t fix,
+                           uint32_t hop,
+                           uint32_t serial,
+                           uint8_t fix_btn,
+                           uint32_t *out_plain) {
+  uint32_t p;
+  switch (type) {
+    case KL_LEARN_AERF: {
+      uint64_t man = aerf_learning(fix, mkey);
+      p = decrypt_derived(hop, man, 0x240u);
+      if (keeloq_check(p, serial, fix_btn)) break;
+      p = decrypt_derived(hop, man, 0x210u);
+      if (keeloq_check(p, serial, fix_btn)) break;
+      p = subghz_keeloq_decrypt(hop, man);
+      if (keeloq_check(p, serial, fix_btn)) break;
+      return false;
+    }
+    case KL_LEARN_SECURE:
+      p = subghz_keeloq_decrypt(hop, secure_learning(fix, fix & 0x0FFFFFFF, mkey));
+      if (keeloq_check(p, serial, fix_btn)) break;
+      p = subghz_keeloq_decrypt(hop, secure_learning(fix, 0, mkey));
+      if (keeloq_check(p, serial, fix_btn)) break;
+      return false;
+    case KL_LEARN_UNKNOWN: {
+      uint64_t rev = byte_reverse64(mkey);
+      p = subghz_keeloq_decrypt(hop, mkey);
+      if (keeloq_check(p, serial, fix_btn)) break;
+      p = subghz_keeloq_decrypt(hop, rev);
+      if (keeloq_check(p, serial, fix_btn)) break;
+      p = subghz_keeloq_decrypt(hop, normal_learning(fix, mkey));
+      if (keeloq_check(p, serial, fix_btn)) break;
+      p = subghz_keeloq_decrypt(hop, normal_learning(fix, rev));
+      if (keeloq_check(p, serial, fix_btn)) break;
+      return false;
+    }
+    default:
+      p = subghz_keeloq_decrypt(hop, subghz_keeloq_learn(mkey, fix, type, 0));
+      if (keeloq_check(p, serial, fix_btn)) break;
+      return false;
+  }
+  *out_plain = p;
+  return true;
+}
+
 bool subghz_keeloq_identify(uint32_t fix, uint32_t hop, keeloq_result_t *out) {
   uint32_t serial = fix & 0x0FFFFFFF;
   uint8_t fix_btn = (fix >> 28) & 0xF;
 
   for (int i = 0; i < s_mfkey_count; i++) {
-    uint8_t type = s_mfkeys[i].type;
-    uint64_t dkey = subghz_keeloq_learn(s_mfkeys[i].key, fix, type, 0);
-    uint32_t plain =
-        (type == KL_LEARN_AERF) ? decrypt_derived(hop, dkey, 0x240u) : subghz_keeloq_decrypt(hop, dkey);
-    uint32_t disc = (plain >> 16) & KL_DISC_MASK;
-    uint8_t enc_btn = (plain >> 28) & 0xF;
-    if (disc == (serial & KL_DISC_MASK) && enc_btn == fix_btn) {
+    uint32_t plain;
+    if (keeloq_recover(s_mfkeys[i].key, s_mfkeys[i].type, fix, hop, serial, fix_btn, &plain)) {
       out->serial = serial;
       out->button = fix_btn;
       out->counter = plain & 0xFFFF;
-      strncpy(out->mfname, s_mfkeys[i].name, sizeof(out->mfname) - 1);
-      out->mfname[sizeof(out->mfname) - 1] = '\0';
+      snprintf(out->mfname, sizeof(out->mfname), "%s", s_mfkeys[i].name);
       out->decrypted = true;
       return true;
     }
