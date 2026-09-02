@@ -88,6 +88,14 @@ const keeloq_mfkey_t *subghz_keeloq_mfkey_at(int index);
  *  @return true if a key claimed the frame. */
 bool subghz_keeloq_identify(uint32_t fix, uint32_t hop, keeloq_result_t *out);
 
+/** @brief Bit-reverse a 64-bit value (KeeLoq is transmitted LSB-first). */
+uint64_t subghz_keeloq_reverse64(uint64_t v);
+
+/** @brief Identify a full 64-bit KeeLoq key (fix<<32 | hop, the on-air / Flipper
+ *         .sub form). Reverses it to cipher order, then runs identify.
+ *  @return true if a manufacturer key claimed the frame. */
+bool subghz_keeloq_decode_key(uint64_t key, keeloq_result_t *out);
+
 /** @brief Build the HCS301 pulse train (us, +mark/-space) for a rolling code:
  *         encrypts @p counter under the device key derived from @p mkey/@p type,
  *         packs the 64-bit frame and adds preamble + header. For a rolling-code

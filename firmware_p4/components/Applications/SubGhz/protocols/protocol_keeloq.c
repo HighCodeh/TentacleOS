@@ -42,7 +42,8 @@ static bool protocol_keeloq_decode(const int32_t *pulses, size_t count, subghz_d
     return false;
   }
   keeloq_result_t res;
-  if (!subghz_keeloq_identify(fix, hop, &res)) {
+  uint64_t key = ((uint64_t)fix << 32) | hop;
+  if (!subghz_keeloq_decode_key(key, &res)) {
     return false;
   }
 

@@ -294,9 +294,15 @@ replaced the old Rossi stub). Manufacturer keys load at runtime from the SD asse
   keys. The remaining ~6 are separate protocols upstream — FAAC SLH, KINGGATES,
   JAROLIFT — plus ERREKA (needs the seed) and the reserved Beninca_ARC; those need
   their own frame decoders ported and a real capture to validate.
-- **Self-test:** `subghz selftest` runs the cipher inverse, a full
-  encode→PWM→decode→decrypt round-trip, and `identify` against the loaded keys.
-  Over-the-air correctness (against a real remote/gate) is still unvalidated.
+- **Framing:** the 64-bit key is transmitted LSB-first, so decode bit-reverses it
+  to cipher order (`subghz_keeloq_decode_key`); the discrimination is the low
+  **8 bits** of the fixed part (HCS200/HCS300 common), not 10.
+- **Self-test:** `subghz selftest` runs the cipher inverse (checked against a
+  published KeeLoq test vector), a full encode→PWM→decode round-trip, and three
+  **real golden captures** from `FlipperZero-Subghz-DB` (DoorHan, Elmes_Poland,
+  JCM_Tech) that must decode to the right maker + counter. The cipher, disc,
+  reversal and learnings are validated against real remotes this way; only the
+  on-air RF (does the transmitted signal open a real gate) still needs an SDR.
 
 The decoded save format carries extra `Serial:` and `Btn:` lines so a saved KeeLoq
 capture replays with the correct rolling counter.

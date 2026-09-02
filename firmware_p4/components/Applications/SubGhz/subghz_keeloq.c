@@ -41,7 +41,7 @@ static const char *TAG = "SUBGHZ_KEELOQ";
 #define KL_HEADER_LOW    (10 * KL_TE_SHORT)
 #define KL_DATA_BITS     64
 #define KL_HEADER_THRESH (5 * KL_TE_SHORT)
-#define KL_DISC_MASK     0x3FF
+#define KL_DISC_MASK     0xFF // low 8 bits of the fixed part (HCS200/HCS300 common)
 
 static keeloq_mfkey_t s_mfkeys[KL_MAX_KEYS];
 static int s_mfkey_count = 0;
@@ -411,6 +411,20 @@ bool subghz_keeloq_identify(uint32_t fix, uint32_t hop, keeloq_result_t *out) {
   return false;
 }
 
+uint64_t subghz_keeloq_reverse64(uint64_t v) {
+  uint64_t r = 0;
+  for (int i = 0; i < 64; i++) {
+    r = (r << 1) | (v & 1);
+    v >>= 1;
+  }
+  return r;
+}
+
+bool subghz_keeloq_decode_key(uint64_t key, keeloq_result_t *out) {
+  uint64_t c = subghz_keeloq_reverse64(key);
+  return subghz_keeloq_identify((uint32_t)(c >> 32), (uint32_t)c, out);
+}
+
 size_t subghz_keeloq_encode(uint32_t serial,
                             uint8_t button,
                             uint16_t counter,
@@ -426,7 +440,9 @@ size_t subghz_keeloq_encode(uint32_t serial,
   uint32_t disc = serial & KL_DISC_MASK;
   uint32_t plain = ((uint32_t)(button & 0xF) << 28) | (disc << 16) | counter;
   uint32_t hop = subghz_keeloq_encrypt(plain, dkey);
-  return pwm_encode_frame(hop, fix, pulses, max_count);
+  // Transmit in on-air (Flipper .sub) order: reverse the cipher-order key.
+  uint64_t logical = subghz_keeloq_reverse64(((uint64_t)fix << 32) | hop);
+  return pwm_encode_frame((uint32_t)logical, (uint32_t)(logical >> 32), pulses, max_count);
 }
 
 bool subghz_keeloq_selftest(char *report, size_t report_len) {
@@ -451,50 +467,42 @@ bool subghz_keeloq_selftest(char *report, size_t report_len) {
     KL_REPORT("cipher inverse           %s\n", ok ? "PASS" : "FAIL");
   }
 
-  // 2) full encode -> PWM -> demod -> decrypt round-trip with a known key.
-  {
-    uint64_t mkey = 0x8455F43584941223ULL; // DoorHan
+  // 2) full encode -> PWM -> demod -> decode_key round-trip (reversal + identify).
+  if (s_mfkey_count > 0) {
     uint32_t serial = 0x1234567 & 0x0FFFFFFF;
     uint8_t btn = 0x2;
     uint16_t cnt = 0x000A;
     int32_t pulses[256];
-    size_t n = subghz_keeloq_encode(serial, btn, cnt, mkey, KL_LEARN_NORMAL, pulses, 256);
+    size_t n =
+        subghz_keeloq_encode(serial, btn, cnt, 0x8455F43584941223ULL, KL_LEARN_SIMPLE, pulses, 256);
     uint32_t fix = 0, hop = 0;
-    bool demod = n > 0 && subghz_keeloq_pwm_decode(pulses, n, &fix, &hop);
-    uint64_t dkey = subghz_keeloq_learn(mkey, fix & 0x0FFFFFFF, KL_LEARN_NORMAL, 0);
-    uint32_t plain = subghz_keeloq_decrypt(hop, dkey);
-    bool ok = demod && (plain & 0xFFFF) == cnt && ((plain >> 28) & 0xF) == btn &&
-              (fix & 0x0FFFFFFF) == serial;
+    keeloq_result_t res = {0};
+    bool ok = n > 0 && subghz_keeloq_pwm_decode(pulses, n, &fix, &hop) &&
+              subghz_keeloq_decode_key(((uint64_t)fix << 32) | hop, &res) && res.counter == cnt &&
+              res.serial == serial && res.button == btn;
     all_ok &= ok;
-    KL_REPORT("encode/pwm/decrypt       %s (cnt=%04X btn=%X)\n", ok ? "PASS" : "FAIL",
-              (unsigned)(plain & 0xFFFF), (unsigned)((plain >> 28) & 0xF));
+    KL_REPORT("encode/pwm/roundtrip     %s (%s cnt=%04X)\n", ok ? "PASS" : "FAIL", res.mfname,
+              (unsigned)res.counter);
   }
 
-  // 3) identify picks the right manufacturer (needs the mfkeys asset loaded).
+  // 3) real captures from FlipperZero-Subghz-DB decode to the right maker + counter.
   if (s_mfkey_count > 0) {
-    const keeloq_mfkey_t *mf = NULL;
-    for (int i = 0; i < s_mfkey_count; i++) {
-      if (strcmp(s_mfkeys[i].name, "DoorHan") == 0) {
-        mf = &s_mfkeys[i];
-        break;
-      }
-    }
-    if (mf != NULL) {
-      uint32_t serial = 0x0ABCDEF & 0x0FFFFFFF;
-      uint8_t btn = 0x4;
-      uint16_t cnt = 0x0100;
-      int32_t pulses[256];
-      size_t n = subghz_keeloq_encode(serial, btn, cnt, mf->key, mf->type, pulses, 256);
-      uint32_t fix = 0, hop = 0;
+    static const struct {
+      const char *name;
+      uint64_t key;
+      uint16_t cnt;
+    } vec[] = {
+        {"DoorHan", 0x4850F07233789514ULL, 0x0004},
+        {"Elmes_Poland", 0xDA8FF0433848ED44ULL, 0x0050},
+        {"JCM_Tech", 0x3B5DBD838C154684ULL, 0x7578},
+    };
+    for (size_t v = 0; v < sizeof(vec) / sizeof(vec[0]); v++) {
       keeloq_result_t res = {0};
-      bool ok = n > 0 && subghz_keeloq_pwm_decode(pulses, n, &fix, &hop) &&
-                subghz_keeloq_identify(fix, hop, &res) && strcmp(res.mfname, "DoorHan") == 0 &&
-                res.counter == cnt && res.serial == serial;
+      bool ok = subghz_keeloq_decode_key(vec[v].key, &res) &&
+                strcmp(res.mfname, vec[v].name) == 0 && res.counter == vec[v].cnt;
       all_ok &= ok;
-      KL_REPORT("identify (%d keys)       %s (%s cnt=%04X)\n", s_mfkey_count, ok ? "PASS" : "FAIL",
-                res.mfname, (unsigned)res.counter);
-    } else {
-      KL_REPORT("identify                 SKIP (DoorHan not in table)\n");
+      KL_REPORT("real %-12s %s (%s cnt=%04X)\n", vec[v].name, ok ? "PASS" : "FAIL", res.mfname,
+                (unsigned)res.counter);
     }
   } else {
     KL_REPORT("identify                 SKIP (mfkeys not loaded)\n");
