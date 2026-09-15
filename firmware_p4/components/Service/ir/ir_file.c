@@ -31,6 +31,9 @@
 #include "ir_protocol_panasonic.h"
 #include "ir_protocol_rca.h"
 #include "ir_protocol_pioneer.h"
+#include "ir_protocol_lg.h"
+#include "ir_protocol_jvc.h"
+#include "ir_protocol_denon.h"
 
 static const char *TAG = "IR_FILE";
 
@@ -150,6 +153,24 @@ flipper_to_ir_data(const char *proto, uint32_t addr, uint32_t cmd, ir_data_t *ou
     out_data->command = cmd & PIONEER_ADDR_STANDARD_MAX;
     return true;
   }
+  if (strcmp(proto, "LG") == 0) {
+    out_data->protocol = IR_PROTO_LG;
+    out_data->address = addr & LG_ADDR_MASK;
+    out_data->command = cmd & LG_CMD_MASK;
+    return true;
+  }
+  if (strcmp(proto, "JVC") == 0) {
+    out_data->protocol = IR_PROTO_JVC;
+    out_data->address = addr & JVC_ADDR_MASK;
+    out_data->command = cmd;
+    return true;
+  }
+  if (strcmp(proto, "Denon") == 0) {
+    out_data->protocol = IR_PROTO_DENON;
+    out_data->address = addr & DENON_ADDR_MASK;
+    out_data->command = cmd;
+    return true;
+  }
   return false;
 }
 
@@ -172,6 +193,12 @@ static const char *to_flipper_proto(ir_protocol_t proto, uint32_t address, uint3
       return "RCA";
     case IR_PROTO_PIONEER:
       return "Pioneer";
+    case IR_PROTO_LG:
+      return "LG";
+    case IR_PROTO_JVC:
+      return "JVC";
+    case IR_PROTO_DENON:
+      return "Denon";
     case IR_PROTO_SONY:
       if (address > SONY_SIRC15_ADDR_MAX)
         return "SIRC20";

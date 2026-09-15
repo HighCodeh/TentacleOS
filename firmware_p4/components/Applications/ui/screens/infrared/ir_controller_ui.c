@@ -15,11 +15,13 @@
 
 #include "ir_controller_ui.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <strings.h>
 
 #include "esp_log.h"
 
+#include "ir_ac.h"
 #include "ir_store.h"
 #include "notify_ui.h"
 #include "ui_chrome.h"
@@ -38,31 +40,40 @@ static const char *TAG = "IR_CTRL_UI";
 
 #define FLASH_MS 150
 
-#define AC_FIELD_COUNT 4
+#define AC_FIELD_COUNT 5
 #define AC_F_POWER     0
 #define AC_F_MODE      1
 #define AC_F_TEMP      2
 #define AC_F_FAN       3
+#define AC_F_BRAND     4
 
 #define AC_TEMP_MIN     16
 #define AC_TEMP_MAX     30
 #define AC_TEMP_DEFAULT 22
-#define AC_FAN_DEFAULT  1
+#define AC_MODE_DEFAULT 1
+#define AC_FAN_DEFAULT  0
+#define AC_BRAND_ALL    0
+#define AC_TX_GAP_MS    90
 #define AC_ON_COLOR     0x00E676
 
 #define AC_ROW_W      210
-#define AC_ROW_H      48
-#define AC_ROW_GAP    10
+#define AC_ROW_H      42
+#define AC_ROW_GAP    8
 #define AC_ROW_RADIUS 10
 #define AC_ROW_PAD    16
 #define AC_ROW_BORDER 2
 #define AC_ROW_GLOW   14
 #define AC_ROW_SPREAD (-3)
 
+#define RC_BTN_RADIUS 16
+#define RC_POWER_TINT 0xFF5252
+#define RC_PLAY_TINT  0x00E676
+
 typedef struct {
   const char *text;
   int dx, dy, w, h;
   const char *sig;
+  uint32_t tint;
 } rc_btn_t;
 
 typedef struct {
@@ -73,58 +84,38 @@ typedef struct {
 } rc_layout_t;
 
 static const rc_btn_t TV_BTNS[] = {
-    {LV_SYMBOL_POWER, -64, 8, 52, 32, "Power"},
-    {LV_SYMBOL_MUTE, 64, 8, 52, 32, "Mute"},
-    {LV_SYMBOL_UP, 0, 50, 44, 30, NULL},
-    {LV_SYMBOL_LEFT, -54, 96, 42, 34, NULL},
-    {"OK", 0, 90, 54, 52, NULL},
-    {LV_SYMBOL_RIGHT, 54, 96, 42, 34, NULL},
-    {LV_SYMBOL_DOWN, 0, 148, 44, 30, NULL},
-    {"VOL +", -76, 186, 54, 28, "Vol_up"},
-    {"VOL -", -76, 218, 54, 28, "Vol_dn"},
-    {LV_SYMBOL_LIST, 0, 186, 48, 28, NULL},
-    {LV_SYMBOL_HOME, 0, 218, 48, 28, NULL},
-    {"CH +", 76, 186, 54, 28, "Ch_next"},
-    {"CH -", 76, 218, 54, 28, "Ch_prev"},
+    {LV_SYMBOL_POWER, -58, 16, 52, 52, "Power", RC_POWER_TINT},
+    {LV_SYMBOL_MUTE, 58, 16, 52, 52, "Mute", 0},
+    {"VOL +", -58, 86, 98, 50, "Vol_up", 0},
+    {"CH +", 58, 86, 98, 50, "Ch_next", 0},
+    {"VOL -", -58, 144, 98, 50, "Vol_dn", 0},
+    {"CH -", 58, 144, 98, 50, "Ch_prev", 0},
 };
 
 static const rc_btn_t SOUND_BTNS[] = {
-    {LV_SYMBOL_POWER, -58, 16, 58, 34, "Power"},
-    {"SRC", 58, 16, 58, 34, NULL},
-    {"VOL -", -58, 68, 58, 34, "Vol_dn"},
-    {"VOL +", 58, 68, 58, 34, "Vol_up"},
-    {LV_SYMBOL_PREV, -70, 128, 50, 42, "Prev"},
-    {LV_SYMBOL_PLAY, 0, 124, 58, 50, "Play"},
-    {LV_SYMBOL_NEXT, 70, 128, 50, 42, "Next"},
-    {LV_SYMBOL_MUTE, -58, 194, 58, 34, "Mute"},
-    {"MODE", 58, 194, 58, 34, NULL},
-};
-
-static const rc_btn_t AC_BTNS[] = {
-    {LV_SYMBOL_POWER, -58, 14, 58, 34, NULL},
-    {"MODE", 58, 14, 58, 34, NULL},
-    {"TEMP +", 0, 64, 80, 38, NULL},
-    {"TEMP -", 0, 110, 80, 38, NULL},
-    {"FAN", -58, 162, 58, 34, NULL},
-    {"SWING", 58, 162, 58, 34, NULL},
-    {"TIMER", -58, 206, 58, 34, NULL},
-    {"ECO", 58, 206, 58, 34, NULL},
+    {LV_SYMBOL_POWER, 0, 10, 52, 52, "Power", RC_POWER_TINT},
+    {"VOL -", -58, 74, 98, 44, "Vol_dn", 0},
+    {"VOL +", 58, 74, 98, 44, "Vol_up", 0},
+    {LV_SYMBOL_PREV, -68, 132, 50, 50, "Prev", 0},
+    {LV_SYMBOL_PLAY, 0, 127, 60, 60, "Play", RC_PLAY_TINT},
+    {LV_SYMBOL_NEXT, 68, 132, 50, 50, "Next", 0},
+    {LV_SYMBOL_MUTE, 0, 197, 110, 40, "Mute", 0},
 };
 
 static const rc_layout_t LAYOUTS[] = {
-    [IR_DEV_TV] = {"TV Remote", TV_BTNS, (int)(sizeof(TV_BTNS) / sizeof(TV_BTNS[0])), 4},
+    [IR_DEV_TV] = {"TV Remote", TV_BTNS, (int)(sizeof(TV_BTNS) / sizeof(TV_BTNS[0])), 0},
     [IR_DEV_SOUND] = {"Sound System",
                       SOUND_BTNS,
                       (int)(sizeof(SOUND_BTNS) / sizeof(SOUND_BTNS[0])),
-                      5},
-    [IR_DEV_AC] = {"Air Cond.", AC_BTNS, (int)(sizeof(AC_BTNS) / sizeof(AC_BTNS[0])), 2},
+                      4},
+    [IR_DEV_AC] = {"Air Cond.", NULL, 0, 0},
 };
 #define LAYOUT_COUNT ((int)(sizeof(LAYOUTS) / sizeof(LAYOUTS[0])))
 
-static const char *const AC_LABELS[AC_FIELD_COUNT] = {"Power", "Mode", "Temp", "Fan"};
-static const char *const AC_MODES[] = {"Cool", "Heat", "Fan", "Auto"};
+static const char *const AC_LABELS[AC_FIELD_COUNT] = {"Power", "Mode", "Temp", "Fan", "Brand"};
+static const char *const AC_MODES[] = {"Auto", "Cool", "Dry", "Heat", "Fan"};
 #define AC_MODE_COUNT ((int)(sizeof(AC_MODES) / sizeof(AC_MODES[0])))
-static const char *const AC_FANS[] = {"Low", "Med", "High", "Auto"};
+static const char *const AC_FANS[] = {"Auto", "Low", "Med", "High"};
 #define AC_FAN_COUNT ((int)(sizeof(AC_FANS) / sizeof(AC_FANS[0])))
 
 static ir_device_t s_device = IR_DEV_TV;
@@ -141,9 +132,13 @@ static lv_obj_t *s_ac_rows[AC_FIELD_COUNT];
 static lv_obj_t *s_ac_vals[AC_FIELD_COUNT];
 static int s_ac_sel = 0;
 static bool s_ac_power = true;
-static int s_ac_mode = 0;
+static int s_ac_mode = AC_MODE_DEFAULT;
 static int s_ac_temp = AC_TEMP_DEFAULT;
 static int s_ac_fan = AC_FAN_DEFAULT;
+static int s_ac_brand = AC_BRAND_ALL;
+static ir_ac_state_t s_ac_tx = {0};
+static int s_ac_tx_proto = 0;
+static lv_timer_t *s_ac_tx_timer = NULL;
 
 static void ir_controller_input(const input_event_t *ev, void *ctx);
 
@@ -231,22 +226,6 @@ static void uni_send(const char *name) {
   s_send_timer = lv_timer_create(uni_send_tick, 90, NULL);
 }
 
-static const char *ac_universal_name(void) {
-  if (!s_ac_power)
-    return "Off";
-  bool hi = s_ac_temp >= 24;
-  switch (s_ac_mode) {
-    case 0:
-      return hi ? "Cool_hi" : "Cool_lo";
-    case 1:
-      return hi ? "Heat_hi" : "Heat_lo";
-    case 2:
-      return "Dh";
-    default:
-      return hi ? "Cool_hi" : "Cool_lo";
-  }
-}
-
 void ui_ir_controller_set_device(ir_device_t dev) {
   if ((int)dev >= 0 && (int)dev < LAYOUT_COUNT)
     s_device = dev;
@@ -254,6 +233,7 @@ void ui_ir_controller_set_device(ir_device_t dev) {
 
 static void apply_focus_style(lv_obj_t *btn, bool focused) {
   lv_obj_t *lbl = lv_obj_get_child(btn, 0);
+  uint32_t tint = (uint32_t)(uintptr_t)lv_obj_get_user_data(btn);
   lv_obj_set_style_bg_color(btn, current_theme.bg_secondary, 0);
   if (focused) {
     lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
@@ -264,7 +244,7 @@ static void apply_focus_style(lv_obj_t *btn, bool focused) {
     lv_obj_set_style_shadow_opa(btn, LV_OPA_50, 0);
     lv_obj_set_style_shadow_spread(btn, -3, 0);
     if (lbl)
-      lv_obj_set_style_text_color(lbl, current_theme.border_accent, 0);
+      lv_obj_set_style_text_color(lbl, tint ? lv_color_hex(tint) : current_theme.border_accent, 0);
   } else {
     lv_obj_set_style_bg_opa(btn, LV_OPA_80, 0);
     lv_obj_set_style_border_color(btn, current_theme.border_inactive, 0);
@@ -272,7 +252,7 @@ static void apply_focus_style(lv_obj_t *btn, bool focused) {
     lv_obj_set_style_shadow_width(btn, 0, 0);
     lv_obj_set_style_shadow_opa(btn, LV_OPA_TRANSP, 0);
     if (lbl)
-      lv_obj_set_style_text_color(lbl, current_theme.text_secondary, 0);
+      lv_obj_set_style_text_color(lbl, tint ? lv_color_hex(tint) : current_theme.text_secondary, 0);
   }
 }
 
@@ -316,6 +296,10 @@ static void ac_update_values(void) {
   lv_label_set_text(s_ac_vals[AC_F_MODE], AC_MODES[s_ac_mode]);
   lv_label_set_text(s_ac_vals[AC_F_TEMP], temp_buf);
   lv_label_set_text(s_ac_vals[AC_F_FAN], AC_FANS[s_ac_fan]);
+  lv_label_set_text(s_ac_vals[AC_F_BRAND],
+                    s_ac_brand == AC_BRAND_ALL
+                        ? "All"
+                        : ir_ac_protocol_name((ir_ac_protocol_t)s_ac_brand));
 
   lv_color_t active = current_theme.border_accent;
   lv_color_t idle = current_theme.text_secondary;
@@ -325,6 +309,7 @@ static void ac_update_values(void) {
   lv_obj_set_style_text_color(s_ac_vals[AC_F_MODE], body, 0);
   lv_obj_set_style_text_color(s_ac_vals[AC_F_TEMP], body, 0);
   lv_obj_set_style_text_color(s_ac_vals[AC_F_FAN], body, 0);
+  lv_obj_set_style_text_color(s_ac_vals[AC_F_BRAND], active, 0);
 }
 
 static void flash_restore_cb(lv_timer_t *t) {
@@ -419,21 +404,46 @@ static void ac_set_sel(int idx) {
   ui_feedback(UI_FB_NAV);
 }
 
+static void ac_tx_all_tick(lv_timer_t *t) {
+  if (lv_screen_active() != s_screen || s_ac_tx_proto >= IR_AC_PROTO_COUNT) {
+    lv_timer_delete(t);
+    s_ac_tx_timer = NULL;
+    return;
+  }
+  s_ac_tx.protocol = (ir_ac_protocol_t)s_ac_tx_proto++;
+  ir_store_send_ac(&s_ac_tx);
+}
+
 static void ac_send(void) {
   ui_feedback(UI_FB_EMULATE);
   ac_flash();
-  uni_send(ac_universal_name());
-  char buf[48];
-  snprintf(buf,
-           sizeof(buf),
-           "AC  %s  %s  %d C  %s",
-           s_ac_power ? "On" : "Off",
-           AC_MODES[s_ac_mode],
-           s_ac_temp,
-           AC_FANS[s_ac_fan]);
+  s_ac_tx.power = s_ac_power;
+  s_ac_tx.mode = (ir_ac_mode_t)s_ac_mode;
+  s_ac_tx.temp_c = (uint8_t)s_ac_temp;
+  s_ac_tx.fan = (ir_ac_fan_t)s_ac_fan;
+
+  if (s_ac_brand == AC_BRAND_ALL) {
+    s_ac_tx_proto = IR_AC_PROTO_COOLIX;
+    if (s_ac_tx_timer != NULL)
+      lv_timer_delete(s_ac_tx_timer);
+    s_ac_tx_timer = lv_timer_create(ac_tx_all_tick, AC_TX_GAP_MS, NULL);
+  } else {
+    s_ac_tx.protocol = (ir_ac_protocol_t)s_ac_brand;
+    ir_store_send_ac(&s_ac_tx);
+  }
+
+  const char *bname =
+      s_ac_brand == AC_BRAND_ALL ? "All" : ir_ac_protocol_name((ir_ac_protocol_t)s_ac_brand);
+  char buf[64];
+  if (s_ac_power)
+    snprintf(
+        buf, sizeof(buf), "%s  %s  %d C  %s", bname, AC_MODES[s_ac_mode], s_ac_temp, AC_FANS[s_ac_fan]);
+  else
+    snprintf(buf, sizeof(buf), "%s  Off", bname);
   notify(NOTIFY_INFO, buf);
   ESP_LOGI(TAG,
-           "AC send: power=%d mode=%s temp=%d fan=%s",
+           "AC send: brand=%s power=%d mode=%s temp=%d fan=%s",
+           bname,
            s_ac_power,
            AC_MODES[s_ac_mode],
            s_ac_temp,
@@ -457,6 +467,9 @@ static void ac_change(int dir) {
       break;
     case AC_F_FAN:
       s_ac_fan = (s_ac_fan + dir + AC_FAN_COUNT) % AC_FAN_COUNT;
+      break;
+    case AC_F_BRAND:
+      s_ac_brand = (s_ac_brand + dir + IR_AC_PROTO_COUNT) % IR_AC_PROTO_COUNT;
       break;
     default:
       break;
@@ -516,9 +529,10 @@ static lv_obj_t *make_button(const rc_btn_t *def) {
   lv_obj_set_size(btn, def->w, def->h);
   lv_obj_align(btn, LV_ALIGN_TOP_MID, def->dx, def->dy);
   lv_obj_remove_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_radius(btn, (def->w == def->h) ? LV_RADIUS_CIRCLE : 10, 0);
+  lv_obj_set_style_radius(btn, (def->w == def->h) ? LV_RADIUS_CIRCLE : RC_BTN_RADIUS, 0);
   lv_obj_set_style_bg_grad_dir(btn, LV_GRAD_DIR_NONE, 0);
   lv_obj_set_style_pad_all(btn, 0, 0);
+  lv_obj_set_user_data(btn, (void *)(uintptr_t)def->tint);
 
   lv_obj_t *lbl = lv_label_create(btn);
   lv_label_set_text(lbl, def->text);
@@ -537,6 +551,10 @@ void ui_ir_controller_open(void) {
   if (s_flash_timer != NULL) {
     lv_timer_delete(s_flash_timer);
     s_flash_timer = NULL;
+  }
+  if (s_ac_tx_timer != NULL) {
+    lv_timer_delete(s_ac_tx_timer);
+    s_ac_tx_timer = NULL;
   }
   s_lay = &LAYOUTS[s_device];
   load_universal(s_device);
@@ -563,9 +581,10 @@ void ui_ir_controller_open(void) {
 
   if (s_is_ac) {
     s_ac_power = true;
-    s_ac_mode = 0;
+    s_ac_mode = AC_MODE_DEFAULT;
     s_ac_temp = AC_TEMP_DEFAULT;
     s_ac_fan = AC_FAN_DEFAULT;
+    s_ac_brand = AC_BRAND_ALL;
     build_ac_panel();
   } else {
     for (int i = 0; i < s_lay->count && i < MAX_BTNS; i++)
@@ -613,7 +632,7 @@ static void ir_controller_input(const input_event_t *ev, void *ctx) {
         break;
       case INPUT_BTN_OK:
         if (press)
-          ac_change(1);
+          ac_send();
         break;
       default:
         break;

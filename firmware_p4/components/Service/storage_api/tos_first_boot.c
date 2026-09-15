@@ -243,6 +243,10 @@ static const asset_copy_t FIRST_BOOT_ASSETS[] = {
     {FLASH_NFC_DICT "/mf_classic_user.dic", TOS_PATH_NFC_DICT "/mf_classic_user.dic"},
     {FLASH_NFC_DICT "/mf_ulc_default.dic", TOS_PATH_NFC_DICT "/mf_ulc_default.dic"},
 
+    {FLASH_MOUNT "/ir/tv.ir", TOS_PATH_IR "/tv.ir"},
+    {FLASH_MOUNT "/ir/audio.ir", TOS_PATH_IR "/audio.ir"},
+    {FLASH_MOUNT "/ir/ac.ir", TOS_PATH_IR "/ac.ir"},
+
     {NULL, NULL}};
 
 static esp_err_t copy_file_cross_fs(const char *src, const char *dst) {

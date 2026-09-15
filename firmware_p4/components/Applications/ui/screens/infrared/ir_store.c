@@ -322,6 +322,17 @@ esp_err_t ir_store_send_raw(const rmt_symbol_word_t *symbols, size_t count, uint
   return r;
 }
 
+esp_err_t ir_store_send_ac(const ir_ac_state_t *state) {
+  if (state == NULL)
+    return ESP_ERR_INVALID_ARG;
+  esp_err_t r = tx_ready();
+  if (r != ESP_OK)
+    return r;
+  r = ir_ac_send(state);
+  ESP_LOGI(TAG, "send AC %s -> %s", ir_ac_protocol_name(state->protocol), esp_err_to_name(r));
+  return r;
+}
+
 int ir_store_send_named(const ir_file_t *file, const char *name) {
   if (file == NULL || name == NULL)
     return 0;
