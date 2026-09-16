@@ -30,6 +30,7 @@
 #include "msgbox_ui.h"
 #include "notify_ui.h"
 #include "page_dots_ui.h"
+#include "rfid_manager.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -260,6 +261,12 @@ static bool s_card_revealed = false;
 static bool s_saved = false;
 static capture_result_t s_cr = {0};
 static uint32_t s_revealed_at = 0;
+
+static rfid_card_event_t s_captured = {0};
+static char s_rd_title[24];
+static char s_rd_sub[24];
+static char s_rd_uid[32];
+static char s_rd_meta[48];
 
 static button_ui_t s_info_emulate;
 static button_ui_t s_info_delete;
@@ -590,25 +597,57 @@ static void reveal_captured_card(void) {
   }
 
   lv_obj_t *card =
-      build_data_card(s_screen, CARD_TITLE, CARD_SUBTITLE, CARD_LINE, CARD_META, true, true);
+      build_data_card(s_screen, s_rd_title, s_rd_sub, s_rd_uid, s_rd_meta, true, false);
   lv_obj_align(card, LV_ALIGN_CENTER, 0, CARD_Y_READ);
   card_rise(card);
 }
 
-static void scan_done_cb(lv_timer_t *t) {
-  (void)t;
-  s_scan_timer = NULL;
-  if (lv_screen_active() != s_screen)
-    return;
+static void format_captured(void) {
+  const ys_rfid2_raw_data_t *raw = &s_captured.driver_event.raw;
+  snprintf(s_rd_sub, sizeof(s_rd_sub), "125 kHz LF");
+  size_t p = 0;
+  for (int i = 0; i < YS_RFID2_RAW_DATA_LEN && p < sizeof(s_rd_uid); i++)
+    p += snprintf(s_rd_uid + p, sizeof(s_rd_uid) - p, i ? " %02X" : "UID  %02X", raw->data[i]);
+  if (s_captured.is_decoded) {
+    snprintf(s_rd_title, sizeof(s_rd_title), "%s", s_captured.decoded.protocol_name);
+    snprintf(s_rd_meta,
+             sizeof(s_rd_meta),
+             "%u-bit  |  FC %u  CN %u",
+             (unsigned)s_captured.decoded.bit_count,
+             (unsigned)s_captured.decoded.facility_code,
+             (unsigned)s_captured.decoded.card_number);
+  } else {
+    snprintf(s_rd_title, sizeof(s_rd_title), "Unknown");
+    snprintf(s_rd_meta,
+             sizeof(s_rd_meta),
+             "%u-bit  |  raw %s",
+             (unsigned)raw->bit_count,
+             raw->id_str);
+  }
+}
 
+static void reveal_on_lvgl(void *arg) {
+  (void)arg;
+  if (ui_current_screen() != SCREEN_RFID_MENU || s_view != VIEW_READ || s_card_revealed)
+    return;
+  if (s_screen == NULL || lv_screen_active() != s_screen)
+    return;
+  format_captured();
   s_card_revealed = true;
   s_revealed_at = lv_tick_get();
   reveal_captured_card();
-  ESP_LOGI(TAG, "mock rfid capture: %s %s", CARD_TITLE, CARD_LINE);
   ui_feedback(UI_FB_READ);
-
   if (s_hint != NULL)
     ui_chrome_footer_set_text(s_hint, HINT_SHOW);
+  ESP_LOGI(TAG, "rfid read: %s  %s", s_rd_title, s_rd_uid);
+}
+
+static void rfid_read_cb(const rfid_card_event_t *event, void *ctx) {
+  (void)ctx;
+  if (event->driver_event.type != YS_RFID2_EVENT_CARD_DETECTED)
+    return;
+  s_captured = *event;
+  ui_async_call(reveal_on_lvgl, NULL);
 }
 
 static void build_read(void) {
@@ -635,8 +674,9 @@ static void build_read(void) {
 
   s_hint = ui_chrome_footer(s_screen, HINT_SCAN);
 
-  s_scan_timer = lv_timer_create(scan_done_cb, SCAN_MS, NULL);
-  lv_timer_set_repeat_count(s_scan_timer, 1);
+  esp_err_t err = rfid_manager_start(rfid_read_cb, NULL);
+  if (err != ESP_OK)
+    notify(NOTIFY_WARNING, "RFID reader busy");
 }
 
 static void build_saved_empty(void) {
@@ -1191,6 +1231,7 @@ static void on_saved_delete_confirm(bool confirm) {
 
 static void build_screen(void) {
   stop_scan_timers();
+  rfid_manager_stop();
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
@@ -1224,8 +1265,8 @@ static void build_screen(void) {
           .accent = current_theme.border_accent,
           .card_icon = CARD_ICON,
           .card_title = "Tag captured",
-          .card_sub = CARD_TITLE,
-          .card_value = CARD_LINE,
+          .card_sub = s_rd_title,
+          .card_value = s_rd_uid,
           .primary_label = "Emulate",
           .again_label = "Read again",
       };

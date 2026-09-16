@@ -61,6 +61,7 @@
 #include "nfc_emulate_ui.h"
 #include "nfc_read_ui.h"
 #include "nfc_manager.h"
+#include "rfid_manager.h"
 #include "subghz_receiver.h"
 #include "nfc_saved_ui.h"
 #include "nfc_write_ui.h"
@@ -372,6 +373,8 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
     case SCREEN_NFC_READ:
     case SCREEN_NFC_EMULATE:
       return nfc_manager_stop;
+    case SCREEN_RFID_MENU:
+      return rfid_manager_stop;
     case SCREEN_WAV_PLAYER:
       return ui_wav_player_stop;
     case SCREEN_MP3_PLAYER:
