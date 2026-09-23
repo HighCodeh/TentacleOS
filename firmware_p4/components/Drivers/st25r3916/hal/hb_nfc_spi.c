@@ -22,20 +22,23 @@
 #include "esp_log.h"
 #include "esp_err.h"
 
+#include "spi.h"
+
 static const char *TAG = "hb_nfc_spi";
 
-/* ST25R3916 SPI framing constants (datasheet DocID 031020 Rev 3, Sec. 6). */
-#define HB_NFC_SPI_READ_FLAG        0x40 /**< Set bit 6 to select a read operation. */
-#define HB_NFC_SPI_ADDR_MASK        0x3F /**< Register address occupies bits [5:0]. */
-#define HB_NFC_SPI_REG_XFER_BITS    16   /**< Bit count for a 2-byte register transaction. */
-#define HB_NFC_SPI_CMD_XFER_BITS    8    /**< Bit count for a 1-byte direct command. */
-#define HB_NFC_SPI_FIFO_LOAD_BYTE   0x80 /**< FIFO load prefix byte. */
-#define HB_NFC_SPI_FIFO_READ_BYTE   0x9F /**< FIFO read prefix byte. */
-#define HB_NFC_SPI_PT_MEM_READ_BYTE 0xBF /**< Passive target memory read prefix byte. */
-#define HB_NFC_SPI_FIFO_MAX_BYTES   512  /**< ST25R3916 FIFO capacity. */
-#define HB_NFC_SPI_PT_MEM_MAX_LEN   19   /**< Maximum PT memory payload (NFC-F section). */
-#define HB_NFC_SPI_PT_MEM_HDR_BYTES 2    /**< Bytes before payload in PT memory read response. */
-#define HB_NFC_SPI_RAW_XFER_MAX_LEN 64   /**< Maximum length for hb_nfc_spi_raw_xfer(). */
+#define HB_NFC_BUS_LOCK_TIMEOUT_MS 100
+
+#define HB_NFC_SPI_READ_FLAG        0x40
+#define HB_NFC_SPI_ADDR_MASK        0x3F
+#define HB_NFC_SPI_REG_XFER_BITS    16
+#define HB_NFC_SPI_CMD_XFER_BITS    8
+#define HB_NFC_SPI_FIFO_LOAD_BYTE   0x80
+#define HB_NFC_SPI_FIFO_READ_BYTE   0x9F
+#define HB_NFC_SPI_PT_MEM_READ_BYTE 0xBF
+#define HB_NFC_SPI_FIFO_MAX_BYTES   512
+#define HB_NFC_SPI_PT_MEM_MAX_LEN   19
+#define HB_NFC_SPI_PT_MEM_HDR_BYTES 2
+#define HB_NFC_SPI_RAW_XFER_MAX_LEN 64
 
 static spi_device_handle_t s_spi = NULL;
 static bool s_is_init = false;
@@ -48,16 +51,9 @@ esp_err_t hb_nfc_spi_init(const hb_nfc_spi_config_t *config) {
   if (s_is_init)
     return ESP_OK;
 
-  spi_bus_config_t bus = {
-      .mosi_io_num = config->pin_mosi,
-      .miso_io_num = config->pin_miso,
-      .sclk_io_num = config->pin_sclk,
-      .quadwp_io_num = GPIO_NUM_NC,
-      .quadhd_io_num = GPIO_NUM_NC,
-  };
-  esp_err_t ret = spi_bus_initialize(config->spi_host, &bus, SPI_DMA_CH_AUTO);
+  esp_err_t ret = spi_init();
   if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "bus init fail: %s", esp_err_to_name(ret));
+    ESP_LOGE(TAG, "shared bus init fail: %s", esp_err_to_name(ret));
     return ESP_FAIL;
   }
 
@@ -72,13 +68,13 @@ esp_err_t hb_nfc_spi_init(const hb_nfc_spi_config_t *config) {
   ret = spi_bus_add_device(config->spi_host, &dev, &s_spi);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "add device fail: %s", esp_err_to_name(ret));
-    spi_bus_free(config->spi_host);
     return ESP_FAIL;
   }
 
   s_is_init = true;
   ESP_LOGI(TAG,
-           "SPI OK: mode=%u clk=%lu cs=%d",
+           "SPI OK (shared bus, host %d): mode=%u clk=%lu cs=%d",
+           config->spi_host,
            config->mode,
            (unsigned long)config->clock_hz,
            config->pin_cs);
@@ -99,28 +95,28 @@ esp_err_t hb_nfc_spi_reg_read(uint8_t addr, uint8_t *out_value) {
   if (out_value == NULL)
     return ESP_ERR_INVALID_ARG;
 
-  uint8_t tx[2] = {(uint8_t)(HB_NFC_SPI_READ_FLAG | (addr & HB_NFC_SPI_ADDR_MASK)), 0x00};
-  uint8_t rx[2] = {0};
   spi_transaction_t t = {
+      .flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA,
       .length = HB_NFC_SPI_REG_XFER_BITS,
-      .tx_buffer = tx,
-      .rx_buffer = rx,
   };
+  t.tx_data[0] = (uint8_t)(HB_NFC_SPI_READ_FLAG | (addr & HB_NFC_SPI_ADDR_MASK));
+  t.tx_data[1] = 0x00;
   esp_err_t err = transmit(&t);
   if (err != ESP_OK) {
     *out_value = 0;
     return err;
   }
-  *out_value = rx[1];
+  *out_value = t.rx_data[1];
   return ESP_OK;
 }
 
 esp_err_t hb_nfc_spi_reg_write(uint8_t addr, uint8_t value) {
-  uint8_t tx[2] = {(uint8_t)(addr & HB_NFC_SPI_ADDR_MASK), value};
   spi_transaction_t t = {
+      .flags = SPI_TRANS_USE_TXDATA,
       .length = HB_NFC_SPI_REG_XFER_BITS,
-      .tx_buffer = tx,
   };
+  t.tx_data[0] = (uint8_t)(addr & HB_NFC_SPI_ADDR_MASK);
+  t.tx_data[1] = value;
   return transmit(&t);
 }
 
@@ -171,9 +167,10 @@ esp_err_t hb_nfc_spi_fifo_read(uint8_t *data, size_t len) {
 
 esp_err_t hb_nfc_spi_direct_cmd(uint8_t cmd) {
   spi_transaction_t t = {
+      .flags = SPI_TRANS_USE_TXDATA,
       .length = HB_NFC_SPI_CMD_XFER_BITS,
-      .tx_buffer = &cmd,
   };
+  t.tx_data[0] = cmd;
   return transmit(&t);
 }
 
@@ -229,7 +226,11 @@ static esp_err_t transmit(spi_transaction_t *t) {
   if (s_spi == NULL || t == NULL)
     return ESP_FAIL;
 
+  bool locked = spi_bus_lock_take(HB_NFC_BUS_LOCK_TIMEOUT_MS);
   esp_err_t ret = spi_device_transmit(s_spi, t);
+  if (locked)
+    spi_bus_lock_give();
+
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "spi transmit fail: %s", esp_err_to_name(ret));
     return ESP_FAIL;

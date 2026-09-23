@@ -27,6 +27,8 @@ extern "C" {
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
 
+#include "pin_def.h"
+
 /**
  * @brief Hardware and bus configuration for library initialization.
  *
@@ -44,18 +46,21 @@ typedef struct {
 } highboy_nfc_config_t;
 
 /**
- * @brief Default configuration based on ESP32-P4 reference wiring.
+ * @brief Default configuration for the HighBoy V2 board: the ST25R3916 sits on the
+ * shared SPI3 bus (display / CC1101 / SX1262), with its own CS/IRQ from pin_def.h.
+ * The SPI pins are the shared-bus pins; hb_nfc_spi_init() joins that bus rather
+ * than initializing its own.
  */
-#define HIGHBOY_NFC_CONFIG_DEFAULT() \
-  {                                  \
-      .pin_mosi = GPIO_NUM_18,       \
-      .pin_miso = GPIO_NUM_19,       \
-      .pin_sclk = GPIO_NUM_17,       \
-      .pin_cs = GPIO_NUM_3,          \
-      .pin_irq = GPIO_NUM_8,         \
-      .spi_host = SPI2_HOST,         \
-      .spi_mode = 1,                 \
-      .spi_clock_hz = 500000,        \
+#define HIGHBOY_NFC_CONFIG_DEFAULT()    \
+  {                                     \
+      .pin_mosi = GPIO_SPI_MOSI_PIN,    \
+      .pin_miso = GPIO_SPI_MISO_PIN,    \
+      .pin_sclk = GPIO_SPI_SCLK_PIN,    \
+      .pin_cs = GPIO_NFC_CS_PIN,        \
+      .pin_irq = GPIO_NFC_IRQ_PIN,      \
+      .spi_host = SPI3_HOST,            \
+      .spi_mode = 1,                    \
+      .spi_clock_hz = 2000000,          \
   }
 
 /**

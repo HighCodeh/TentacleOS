@@ -16,20 +16,26 @@
 #include "nfc_read_ui.h"
 
 #include <stdio.h>
+#include <string.h>
 
-#include "esp_random.h"
+#include "esp_log.h"
 #include "lvgl.h"
 
 #include "capture_result_ui.h"
 #include "keyboard_ui.h"
 #include "notify_ui.h"
 #include "ui_feedback.h"
+#include "highboy_nfc.h"
+#include "nfc_manager.h"
 #include "nfc_sim.h"
 #include "nfc_ui_common.h"
+#include "st25r3916_core.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_metrics.h"
 #include "ui_theme.h"
+
+static const char *TAG = "NFC_READ_UI";
 
 #define REFRESH_MS 33
 #define REVEAL_MS  3000
@@ -40,12 +46,7 @@
 
 enum { ST_SCAN, ST_FOUND, ST_OPTIONS };
 
-static const char *const DUMP_LINES[] = {
-    "Sector 0  KeyA FFFFFFFFFFFF  ok",
-    "Sector 1  KeyB A0A1A2A3A4A5  ok",
-    "Sectors 16/16   Keys 32/32",
-};
-#define DUMP_LINE_COUNT ((int)(sizeof(DUMP_LINES) / sizeof(DUMP_LINES[0])))
+#define DUMP_LINE_COUNT 3
 
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_status = NULL;
@@ -58,9 +59,9 @@ static capture_result_t s_cr = {0};
 
 static int s_state = ST_SCAN;
 static uint32_t s_scan_start = 0;
-static uint32_t s_scan_deadline = 1800;
 static uint32_t s_found_at = 0;
 static nfc_sim_card_t s_card;
+static hb_nfc_card_data_t s_captured;
 
 static void show_rings(bool show) {
   for (int i = 0; i < 3; i++) {
@@ -76,7 +77,6 @@ static void show_rings(bool show) {
 static void begin_scan(void) {
   s_state = ST_SCAN;
   s_scan_start = lv_tick_get();
-  s_scan_deadline = 1500 + (esp_random() % 1400);
   if (s_card_panel) {
     lv_obj_del(s_card_panel);
     s_card_panel = NULL;
@@ -107,9 +107,15 @@ static void build_dump(void) {
   lv_obj_set_style_pad_all(s_dump, 0, 0);
   lv_obj_set_flex_flow(s_dump, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(s_dump, DUMP_ROW_GAP, 0);
+  char lines[DUMP_LINE_COUNT][40];
+  char uid[24];
+  nfc_sim_format_uid(&s_card, uid, sizeof(uid));
+  snprintf(lines[0], sizeof(lines[0]), "Type  %s", s_card.type);
+  snprintf(lines[1], sizeof(lines[1]), "UID   %s", uid);
+  snprintf(lines[2], sizeof(lines[2]), "ATQA %04X   SAK %02X", s_card.atqa, s_card.sak);
   for (int i = 0; i < DUMP_LINE_COUNT; i++) {
     lv_obj_t *ln = lv_label_create(s_dump);
-    lv_label_set_text(ln, DUMP_LINES[i]);
+    lv_label_set_text(ln, lines[i]);
     lv_obj_set_style_text_color(ln, current_theme.text_secondary, 0);
     lv_obj_set_style_text_font(ln, &lv_font_montserrat_12, 0);
   }
@@ -118,7 +124,6 @@ static void build_dump(void) {
 static void reveal(void) {
   s_state = ST_FOUND;
   s_found_at = lv_tick_get();
-  nfc_sim_random_card(&s_card);
   show_rings(false);
   s_card_panel = nfc_ui_card_panel(s_screen, &s_card);
   lv_obj_align(s_card_panel, LV_ALIGN_CENTER, 0, 10);
@@ -248,12 +253,76 @@ static void refresh_cb(lv_timer_t *t) {
              : dots == 3 ? "..."
                          : "");
     lv_label_set_text(s_status, buf);
-    if (el >= s_scan_deadline)
-      reveal();
   } else if (s_state == ST_FOUND) {
     if (lv_tick_get() - s_found_at >= REVEAL_MS)
       show_options();
   }
+}
+
+static void proto_name(highboy_nfc_protocol_t p, char *out, size_t n) {
+  const char *s;
+  switch (p) {
+    case HB_PROTO_MF_CLASSIC:
+      s = "MIFARE Classic";
+      break;
+    case HB_PROTO_MF_ULTRALIGHT:
+      s = "MIFARE Ultralight";
+      break;
+    case HB_PROTO_MF_PLUS:
+      s = "MIFARE Plus";
+      break;
+    case HB_PROTO_MF_DESFIRE:
+      s = "MIFARE DESFire";
+      break;
+    case HB_PROTO_ISO14443_4A:
+      s = "ISO14443-4A";
+      break;
+    case HB_PROTO_ISO14443_4B:
+      s = "ISO14443-4B";
+      break;
+    case HB_PROTO_ISO14443_3B:
+      s = "ISO14443-3B";
+      break;
+    case HB_PROTO_FELICA:
+      s = "FeliCa";
+      break;
+    case HB_PROTO_ISO15693:
+      s = "ISO15693";
+      break;
+    case HB_PROTO_ST25TB:
+      s = "ST25TB";
+      break;
+    case HB_PROTO_SLIX:
+      s = "SLIX";
+      break;
+    default:
+      s = "NFC Type A";
+      break;
+  }
+  snprintf(out, n, "%s", s);
+}
+
+static void nfc_reveal_lvgl(void *arg) {
+  (void)arg;
+  if (lv_screen_active() != s_screen || s_state != ST_SCAN)
+    return;
+  const highboy_nfc_iso14443a_t *a = &s_captured.iso14443a;
+  memset(&s_card, 0, sizeof(s_card));
+  proto_name(s_captured.protocol, s_card.type, sizeof(s_card.type));
+  s_card.uid_len = a->uid_len > sizeof(s_card.uid) ? (uint8_t)sizeof(s_card.uid) : a->uid_len;
+  memcpy(s_card.uid, a->uid, s_card.uid_len);
+  s_card.atqa = (uint16_t)((a->atqa[1] << 8) | a->atqa[0]);
+  s_card.sak = a->sak;
+  reveal();
+  ESP_LOGI(TAG, "card: %s uid_len=%u sak=%02X", s_card.type, s_card.uid_len, s_card.sak);
+}
+
+static void nfc_read_cb(const hb_nfc_card_data_t *card, void *ctx) {
+  (void)ctx;
+  if (card == NULL)
+    return;
+  s_captured = *card;
+  ui_async_call(nfc_reveal_lvgl, NULL);
 }
 
 void ui_nfc_read_open(void) {
@@ -283,6 +352,18 @@ void ui_nfc_read_open(void) {
   s_hint = ui_chrome_footer(s_screen, "BACK  Exit");
 
   begin_scan();
+
+  static bool s_nfc_hw_init = false;
+  if (!s_nfc_hw_init) {
+    highboy_nfc_config_t cfg = HIGHBOY_NFC_CONFIG_DEFAULT();
+    esp_err_t nfc_ret = st25r3916_core_init(&cfg);
+    if (nfc_ret == ESP_OK)
+      s_nfc_hw_init = true;
+    else
+      ESP_LOGE(TAG, "st25r3916_core_init failed: %s", esp_err_to_name(nfc_ret));
+  }
+  if (s_nfc_hw_init && nfc_manager_start(nfc_read_cb, NULL) != ESP_OK)
+    ESP_LOGW(TAG, "nfc_manager_start failed");
 
   if (s_timer == NULL)
     s_timer = lv_timer_create(refresh_cb, REFRESH_MS, NULL);

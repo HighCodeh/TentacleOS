@@ -64,6 +64,8 @@ esp_err_t st25r3916_core_init(const highboy_nfc_config_t *config) {
   hb_nfc_timer_delay_ms(ST25R3916_SPI_INIT_DELAY_MS);
   hb_nfc_spi_direct_cmd(ST25R3916_CMD_SET_DEFAULT);
 
+  hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_EN);
+
   bool osc_ok = false;
   for (int i = 0; i < ST25R3916_OSC_POLL_MAX; i++) {
     uint8_t irq_status = 0;
