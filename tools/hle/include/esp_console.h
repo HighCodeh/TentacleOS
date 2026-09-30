@@ -15,6 +15,7 @@ typedef struct {
 } esp_console_cmd_t;
 
 esp_err_t esp_console_cmd_register(const esp_console_cmd_t *cmd);
+esp_err_t esp_console_cmd_deregister(const char *cmd_name);
 esp_err_t esp_console_init(const void *config);
 esp_err_t esp_console_start(void);
 

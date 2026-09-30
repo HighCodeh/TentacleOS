@@ -7,6 +7,7 @@ extern "C" {
 #define configMINIMAL_STACK_SIZE 1024
 #define configTICK_RATE_HZ       1000
 #define configMAX_PRIORITIES     25
+#define configMAX_TASK_NAME_LEN  16
 #define configUSE_PREEMPTION     1
 #define configUSE_TIME_SLICING   1
 #define portSHORT short

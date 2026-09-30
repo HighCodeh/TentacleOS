@@ -5,6 +5,7 @@
 #include <stddef.h>
 
 #include "FreeRTOSConfig.h"
+#include "esp_attr.h"
 #include "portmacro.h"
 
 #ifdef __cplusplus
@@ -51,10 +52,17 @@ void vTaskResume(TaskHandle_t handle);
 UBaseType_t uxTaskGetStackHighWaterMark(TaskHandle_t handle);
 char *pcTaskGetName(TaskHandle_t handle);
 TaskHandle_t xTaskGetCurrentTaskHandle(void);
+uint32_t ulTaskNotifyTake(BaseType_t clear_on_exit, TickType_t ticks_to_wait);
+BaseType_t xTaskNotifyGive(TaskHandle_t handle);
+void vTaskNotifyGiveFromISR(TaskHandle_t handle, BaseType_t *higher_prio_woken);
 
 TaskHandle_t xTaskCreateStatic(TaskFunction_t func, const char *name, uint32_t stack_depth,
                                 void *params, UBaseType_t prio, StackType_t *stack_buf,
                                 StaticTask_t *task_buf);
+TaskHandle_t xTaskCreateStaticPinnedToCore(TaskFunction_t func, const char *name,
+                                           uint32_t stack_depth, void *params, UBaseType_t prio,
+                                           StackType_t *stack_buf, StaticTask_t *task_buf,
+                                           BaseType_t core_id);
 
 #ifdef __cplusplus
 }

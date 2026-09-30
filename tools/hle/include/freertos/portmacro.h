@@ -15,6 +15,7 @@ static inline void portENTER_CRITICAL(portMUX_TYPE *mux) { (void)mux; }
 static inline void portEXIT_CRITICAL(portMUX_TYPE *mux)  { (void)mux; }
 static inline void portENTER_CRITICAL_ISR(portMUX_TYPE *mux) { (void)mux; }
 static inline void portEXIT_CRITICAL_ISR(portMUX_TYPE *mux)  { (void)mux; }
+#define portYIELD_FROM_ISR(...) ((void)0)
 
 #ifdef __cplusplus
 }

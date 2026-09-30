@@ -53,6 +53,8 @@ typedef int32_t esp_err_t;
         }                                                               \
     } while(0)
 
+const char *esp_err_to_name(esp_err_t code);
+
 void _esp_error_check_failed(esp_err_t rc, const char *file, int line,
                               const char *func, const char *expr);
 

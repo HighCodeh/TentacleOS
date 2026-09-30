@@ -67,10 +67,13 @@ typedef struct {
 #define GPIO_INTR_POSEDGE    1
 #define GPIO_INTR_NEGEDGE    2
 #define GPIO_INTR_ANYEDGE    3
+#define GPIO_INTR_LOW_LEVEL  4
+#define GPIO_INTR_HIGH_LEVEL 5
 #define GPIO_MODE_INPUT      1
 #define GPIO_MODE_OUTPUT     2
 #define GPIO_MODE_INPUT_OUTPUT 3
 #define GPIO_MODE_INPUT_OUTPUT_OD 4
+#define GPIO_MODE_OUTPUT_OD  6
 #define GPIO_PULLUP_ENABLE    1
 #define GPIO_PULLUP_DISABLE   0
 #define GPIO_PULLDOWN_ENABLE  1
@@ -82,6 +85,27 @@ int       gpio_get_level(gpio_num_t pin);
 esp_err_t gpio_install_isr_service(int flags);
 esp_err_t gpio_isr_handler_add(gpio_num_t pin, void (*handler)(void *), void *arg);
 void      gpio_reset_pin(gpio_num_t pin);
+
+typedef enum {
+    GPIO_DRIVE_CAP_0,
+    GPIO_DRIVE_CAP_1,
+    GPIO_DRIVE_CAP_2,
+    GPIO_DRIVE_CAP_DEFAULT = GPIO_DRIVE_CAP_2,
+    GPIO_DRIVE_CAP_3,
+} gpio_drive_cap_t;
+
+esp_err_t gpio_set_drive_capability(gpio_num_t pin, gpio_drive_cap_t strength);
+
+typedef enum {
+    GPIO_PULLUP_ONLY,
+    GPIO_PULLDOWN_ONLY,
+    GPIO_PULLUP_PULLDOWN,
+    GPIO_FLOATING,
+} gpio_pull_mode_t;
+
+esp_err_t gpio_set_pull_mode(gpio_num_t pin, gpio_pull_mode_t pull);
+esp_err_t gpio_set_direction(gpio_num_t pin, int mode);
+esp_err_t gpio_wakeup_enable(gpio_num_t pin, int intr_type);
 
 #ifdef __cplusplus
 }

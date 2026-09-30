@@ -33,13 +33,37 @@ typedef enum {
 } wifi_cipher_type_t;
 
 typedef struct {
+    char cc[3];
+    uint8_t schan;
+    uint8_t nchan;
+    int8_t max_tx_power;
+    int policy;
+} wifi_country_t;
+
+typedef enum {
+    WIFI_SECOND_CHAN_NONE = 0,
+    WIFI_SECOND_CHAN_ABOVE,
+    WIFI_SECOND_CHAN_BELOW,
+} wifi_second_chan_t;
+
+typedef struct {
     uint8_t bssid[6];
     uint8_t ssid[33];
     uint8_t primary;
+    wifi_second_chan_t second;
     int8_t rssi;
     wifi_auth_mode_t authmode;
     wifi_cipher_type_t pairwise_cipher;
     wifi_cipher_type_t group_cipher;
+    uint32_t phy_11b : 1;
+    uint32_t phy_11g : 1;
+    uint32_t phy_11n : 1;
+    uint32_t phy_lr : 1;
+    uint32_t phy_11a : 1;
+    uint32_t phy_11ac : 1;
+    uint32_t phy_11ax : 1;
+    uint32_t wps : 1;
+    wifi_country_t country;
     uint16_t count;
 } wifi_ap_record_t;
 

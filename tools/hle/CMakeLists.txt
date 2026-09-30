@@ -9,6 +9,15 @@ set(FIRMWARE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 set(HLE_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include")
 set(HLE_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
 set(HLE_ASSETS_DIR "${FIRMWARE_ROOT}/firmware_p4/temp")
+set(HLE_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+
+# Same generated header the P4 Service component produces for ESP-IDF builds.
+set(HLE_VERSION_INFO_FILE "${FIRMWARE_ROOT}/common/metadata/version_info.txt")
+file(STRINGS "${HLE_VERSION_INFO_FILE}" FW_VERSION LIMIT_COUNT 1)
+string(STRIP "${FW_VERSION}" FW_VERSION)
+configure_file("${FIRMWARE_ROOT}/common/metadata/ota_version.h.in"
+               "${HLE_GENERATED_DIR}/ota_version.h" @ONLY)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${HLE_VERSION_INFO_FILE}")
 
 # ── Collect firmware component include dirs ───────────────────────────────────
 function(collect_firmware_includes TARGET_DIR OUTPUT_VAR)
@@ -113,7 +122,7 @@ list(FILTER HLE_SRC EXCLUDE REGEX ".*main\\.cpp$")        # main is for interact
 list(FILTER HLE_SRC EXCLUDE REGEX ".*lv_port.*\\.cpp$")   # lv_port needs display context
 list(FILTER HLE_SRC EXCLUDE REGEX ".*hle_kernel.*\\.cpp$") # kernel needs LVGL + bridge
 add_library(hle_shims STATIC ${HLE_SRC})
-target_include_directories(hle_shims PUBLIC ${HLE_INCLUDE_DIR} ${P4_INCLUDES})
+target_include_directories(hle_shims PUBLIC ${HLE_INCLUDE_DIR} ${HLE_GENERATED_DIR} ${P4_INCLUDES})
 target_compile_options(hle_shims PRIVATE -Wno-pmf-conversions)
 target_compile_definitions(hle_shims PRIVATE HLE_ASSETS_DIR="${HLE_ASSETS_DIR}")
 
@@ -138,7 +147,7 @@ list(FILTER _c5_srcs EXCLUDE REGEX ".*/meshcore/.*\\.c$")
 list(FILTER _c5_srcs EXCLUDE REGEX ".*/sd_card/.*\\.c$")
 list(FILTER _c5_srcs EXCLUDE REGEX ".*/storage_vfs/vfs_sdcard\\.c$")
 set_target_properties(firmware_c5 PROPERTIES SOURCES "${_c5_srcs}")
-target_include_directories(firmware_c5 SYSTEM PRIVATE ${HLE_INCLUDE_DIR} ${C5_INCLUDES} ${cjson_SOURCE_DIR})
+target_include_directories(firmware_c5 SYSTEM PRIVATE ${HLE_INCLUDE_DIR} ${HLE_GENERATED_DIR} ${C5_INCLUDES} ${cjson_SOURCE_DIR})
 target_compile_options(firmware_c5 PRIVATE -Wno-implicit-function-declaration)
 
 add_library(firmware_p4 STATIC
@@ -146,9 +155,11 @@ add_library(firmware_p4 STATIC
     ${P4_DRV} ${P4_DRV_DEEP} ${P4_SVC} ${P4_SVC_DEEP}
     ${P4_APP} ${P4_APP_DEEP} ${P4_APP_DEEP2}
 )
-target_include_directories(firmware_p4 SYSTEM PRIVATE ${HLE_INCLUDE_DIR} ${P4_INCLUDES})
+target_include_directories(firmware_p4 SYSTEM PRIVATE ${HLE_INCLUDE_DIR} ${HLE_GENERATED_DIR} ${P4_INCLUDES})
 target_include_directories(firmware_p4 SYSTEM PRIVATE ${cjson_SOURCE_DIR} ${lvgl_SOURCE_DIR}/src)
 target_compile_options(firmware_p4 PRIVATE -Wno-implicit-function-declaration)
+# tos_api.h switches to its standalone-SDK types when ESP_PLATFORM is unset.
+target_compile_definitions(firmware_p4 PRIVATE ESP_PLATFORM)
 target_link_libraries(firmware_p4 PUBLIC lvgl)
 
 # P4: exclude hardware drivers and transports that need deep external stacks
@@ -162,12 +173,10 @@ list(FILTER _p4_srcs EXCLUDE REGEX ".*/Service/host_link/.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*/Applications/wifi/.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*/ui/screens/wifi/.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*/ui/screens/connect_wifi/.*\\.c$")
+# LoRa screens call into the LoRa/ radio stack excluded above
+list(FILTER _p4_srcs EXCLUDE REGEX ".*/ui/screens/lora/.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*tusb.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*ys_rfid2.*hal.*\\.c$")
-list(FILTER _p4_srcs EXCLUDE REGEX ".*/nfc/.*/nfc_crypto\\.c$")
-list(FILTER _p4_srcs EXCLUDE REGEX ".*/nfc/.*/mf_desfire\\.c$")
-list(FILTER _p4_srcs EXCLUDE REGEX ".*/nfc/.*/mf_ultralight\\.c$")
-list(FILTER _p4_srcs EXCLUDE REGEX ".*/nfc/.*/t2t_emu\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*storage_vfs/vfs_sdcard.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*storage_vfs/vfs_spiffs.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*storage_vfs/vfs_littlefs.*\\.c$")
@@ -176,9 +185,24 @@ list(FILTER _p4_srcs EXCLUDE REGEX ".*console/.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*ota/.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*sd_card/.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*lv_port_disp\\.c$")
-list(FILTER _p4_srcs EXCLUDE REGEX ".*lv_port_indev\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*lv_port_touch\\.c$")
+# esp_lvgl_port display glue, I2S audio, TinyUSB, the vendored IDF fatfs, the
+# RISC-V .hb loader and DOOM need the real SoC. HLE stands in for the ones the
+# UI calls (lv_port_glue_hle.cpp, hle_stub_hardware.cpp).
+list(FILTER _p4_srcs EXCLUDE REGEX ".*/Service/lvgl/lvgl_glue\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*/Drivers/audio_i2s/.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*/power_manager/power_manager_usb\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*/storage_vfs/usb_msc\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*/Service/fatfs/.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*/app_runtime/tos_elf\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*/Applications/doom/.*\\.c$")
 set_target_properties(firmware_p4 PROPERTIES SOURCES "${_p4_srcs}")
+
+# Mirrors Applications/gameboy/CMakeLists.txt.
+set(_gameboy_srcs ${_p4_srcs})
+list(FILTER _gameboy_srcs INCLUDE REGEX ".*/Applications/gameboy/.*\\.c$")
+set_property(SOURCE ${_gameboy_srcs} APPEND PROPERTY COMPILE_DEFINITIONS
+    ENABLE_SOUND=1 MINIGB_APU_AUDIO_FORMAT_S16SYS)
 
 # ── Tests ────────────────────────────────────────────────────────────────────
 enable_testing()
@@ -195,11 +219,13 @@ if(HLE_BUILD_INTERACTIVE)
     set(INTERACTIVE_SRC
         "${HLE_SRC_DIR}/main.cpp"
         "${HLE_SRC_DIR}/hal/lv_port_disp_hle.cpp"
-        "${HLE_SRC_DIR}/hal/lv_port_indev_hle.cpp"
         "${HLE_SRC_DIR}/hal/hle_kernel.cpp"
         "${HLE_SRC_DIR}/hal/hle_stub_system.cpp"
         "${HLE_SRC_DIR}/hal/hle_stub_ui_wifi.cpp"
+        "${HLE_SRC_DIR}/hal/hle_stub_ui_lora.cpp"
         "${HLE_SRC_DIR}/hal/hle_stub_dispatchers.cpp"
+        "${HLE_SRC_DIR}/hal/hle_stub_hardware.cpp"
+        "${HLE_SRC_DIR}/hal/lv_port_glue_hle.cpp"
     )
     add_executable(hle_interactive ${INTERACTIVE_SRC})
     target_include_directories(hle_interactive PRIVATE ${HLE_INCLUDE_DIR})

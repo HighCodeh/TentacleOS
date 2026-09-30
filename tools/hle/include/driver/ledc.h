@@ -11,7 +11,9 @@ typedef int ledc_channel_t;
 typedef int ledc_mode_t;
 #define LEDC_LOW_SPEED_MODE 0
 #define LEDC_TIMER_0        0
+#define LEDC_TIMER_1        1
 #define LEDC_CHANNEL_0      0
+#define LEDC_CHANNEL_1      1
 #define LEDC_TIMER_10_BIT   10
 #define LEDC_TIMER_13_BIT   13
 #define LEDC_AUTO_CLK       0

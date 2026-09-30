@@ -57,6 +57,8 @@ typedef struct {
 esp_err_t spi_bus_initialize(spi_host_device_t host, const spi_bus_config_t *bus, int dma);
 esp_err_t spi_bus_add_device(spi_host_device_t host, const spi_device_interface_config_t *dev, spi_device_handle_t *handle);
 esp_err_t spi_device_transmit(spi_device_handle_t handle, const void *trans);
+esp_err_t spi_device_acquire_bus(spi_device_handle_t handle, uint32_t wait);
+void spi_device_release_bus(spi_device_handle_t handle);
 esp_err_t spi_device_polling_transmit(spi_device_handle_t handle, const void *trans);
 esp_err_t spi_bus_remove_device(spi_device_handle_t handle);
 

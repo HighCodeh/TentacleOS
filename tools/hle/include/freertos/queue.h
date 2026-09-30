@@ -12,6 +12,8 @@ QueueHandle_t xQueueCreateStatic(UBaseType_t queue_len, UBaseType_t item_size,
 BaseType_t xQueueSend(QueueHandle_t queue, const void *item, TickType_t timeout);
 BaseType_t xQueueSendFromISR(QueueHandle_t queue, const void *item, BaseType_t *higher_prio_woken);
 BaseType_t xQueueReceive(QueueHandle_t queue, void *item, TickType_t timeout);
+BaseType_t xQueueOverwrite(QueueHandle_t queue, const void *item);
+BaseType_t xQueueReset(QueueHandle_t queue);
 void vQueueDelete(QueueHandle_t queue);
 
 #ifdef __cplusplus
