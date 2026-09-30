@@ -75,3 +75,14 @@ jobs:
 
       - name: Run tests
         run: ./build/hle_tests
+
+      - name: Build simulator
+        run: cmake --build build --target hle_interactive -j$(nproc)
+
+      - name: Boot simulator headless
+        run: timeout 120 ./build/hle_interactive
+        env:
+          SDL_VIDEODRIVER: dummy
+          HLE_STORAGE_PATH: ${{ runner.temp }}/hle
+          HLE_SNAPSHOT_PATH: ${{ runner.temp }}/hle-boot.ppm
+          HLE_SNAPSHOT_MS: 5000
