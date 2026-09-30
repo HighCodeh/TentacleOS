@@ -69,7 +69,10 @@ set(ENABLE_TARGET_EXPORT OFF CACHE BOOL "Export cJSON CMake targets" FORCE)
 set(CJSON_OVERRIDE_BUILD_SHARED_LIBS ON CACHE BOOL "Override cJSON library type" FORCE)
 set(CJSON_BUILD_SHARED_LIBS OFF CACHE BOOL "Build cJSON as a shared library" FORCE)
 FetchContent_Declare(cjson GIT_REPOSITORY https://github.com/DaveGamble/cJSON.git GIT_TAG v1.7.18)
+# cJSON asks for cmake_minimum_required(3.0), which CMake 4 refuses to configure.
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 FetchContent_MakeAvailable(cjson)
+unset(CMAKE_POLICY_VERSION_MINIMUM)
 
 FetchContent_Declare(googletest GIT_REPOSITORY https://github.com/google/googletest.git GIT_TAG v1.14.0)
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
