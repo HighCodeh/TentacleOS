@@ -55,17 +55,17 @@ typedef struct {
   int32_t r_addend;
 } elf32_rela_t;
 
-#define ET_REL           1
-#define EM_RISCV         243
-#define SHT_PROGBITS     1
-#define SHT_SYMTAB       2
-#define SHT_RELA         4
-#define SHT_NOBITS       8
-#define SHF_WRITE        0x1
-#define SHF_ALLOC        0x2
-#define SHF_EXECINSTR    0x4
-#define SHN_UNDEF        0
-#define SHN_ABS          0xfff1
+#define ET_REL        1
+#define EM_RISCV      243
+#define SHT_PROGBITS  1
+#define SHT_SYMTAB    2
+#define SHT_RELA      4
+#define SHT_NOBITS    8
+#define SHF_WRITE     0x1
+#define SHF_ALLOC     0x2
+#define SHF_EXECINSTR 0x4
+#define SHN_UNDEF     0
+#define SHN_ABS       0xfff1
 
 #define R_RISCV_32       1
 #define R_RISCV_BRANCH   16
@@ -78,14 +78,14 @@ typedef struct {
 #define R_RISCV_ALIGN    43
 #define R_RISCV_RELAX    51
 
-#define ELF32_R_SYM(i)  ((i) >> 8)
-#define ELF32_R_TYPE(i) ((i) & 0xff)
+#define ELF32_R_SYM(i)   ((i) >> 8)
+#define ELF32_R_TYPE(i)  ((i) & 0xff)
 #define ELF32_ST_TYPE(i) ((i) & 0xf)
-#define STT_SECTION 3
+#define STT_SECTION      3
 
-#define REGION_EXEC 0
-#define REGION_DATA 1
-#define MAX_SECTIONS 96
+#define REGION_EXEC    0
+#define REGION_DATA    1
+#define MAX_SECTIONS   96
 #define ALIGN_UP(v, a) (((v) + ((a) - 1)) & ~((size_t)(a) - 1))
 
 typedef int (*app_entry_fn)(const tos_api_t *api, int argc, char **argv);
@@ -251,7 +251,11 @@ esp_err_t tos_elf_load(const uint8_t *elf, size_t elf_len, tos_elf_image_t *out)
     return ESP_ERR_INVALID_ARG;
 
   const elf32_ehdr_t *eh = (const elf32_ehdr_t *)elf;
-  if (memcmp(eh->e_ident, "\x7f""ELF", 4) != 0 || eh->e_ident[4] != 1 || eh->e_ident[5] != 1) {
+  if (memcmp(eh->e_ident,
+             "\x7f"
+             "ELF",
+             4) != 0 ||
+      eh->e_ident[4] != 1 || eh->e_ident[5] != 1) {
     ESP_LOGE(TAG, "not a little-endian 32-bit ELF");
     return ESP_ERR_NOT_SUPPORTED;
   }
@@ -318,8 +322,12 @@ esp_err_t tos_elf_load(const uint8_t *elf, size_t elf_len, tos_elf_image_t *out)
   err = esp_mmu_vaddr_to_paddr(exec_owner, &paddr, &tgt);
   if (err != ESP_OK)
     goto out;
-  err = esp_mmu_map(paddr, exec_map, MMU_TARGET_PSRAM0, MMU_MEM_CAP_EXEC | MMU_MEM_CAP_READ,
-                    ESP_MMU_MMAP_FLAG_PADDR_SHARED, &exec_image);
+  err = esp_mmu_map(paddr,
+                    exec_map,
+                    MMU_TARGET_PSRAM0,
+                    MMU_MEM_CAP_EXEC | MMU_MEM_CAP_READ,
+                    ESP_MMU_MMAP_FLAG_PADDR_SHARED,
+                    &exec_image);
   if (err != ESP_OK || exec_image == NULL) {
     ESP_LOGE(TAG, "esp_mmu_map exec alias: %s", esp_err_to_name(err));
     goto out;
@@ -383,14 +391,18 @@ esp_err_t tos_elf_load(const uint8_t *elf, size_t elf_len, tos_elf_image_t *out)
 
   // Publish the exec region's writes and drop stale instruction-cache lines.
   esp_cache_msync(exec_owner, exec_map, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
-  esp_cache_msync(exec_image, exec_map, ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_TYPE_INST);
+  esp_cache_msync(
+      exec_image, exec_map, ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_TYPE_INST);
 
   out->exec_image = exec_image;
   out->exec_owner = exec_owner;
   out->data_region = data_region;
   out->exec_map = exec_map;
   out->entry = entry_addr;
-  ESP_LOGI(TAG, "loaded app: exec=%p data=%p entry=0x%08x", exec_image, data_region,
+  ESP_LOGI(TAG,
+           "loaded app: exec=%p data=%p entry=0x%08x",
+           exec_image,
+           data_region,
            (unsigned)entry_addr);
   return ESP_OK;
 
