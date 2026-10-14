@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <atomic>
 #include <cinttypes>
 #include <pthread.h>
@@ -10,11 +11,14 @@
 #include <queue>
 #include <dirent.h>
 #include <chrono>
+#include <condition_variable>
 #include <thread>
 #include <utility>
 
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_mac.h"
+#include "esp_rom_crc.h"
 #include "esp_rom_sys.h"
 #include "esp_system.h"
 #include "esp_timer.h"
@@ -22,6 +26,7 @@
 #include "nvs_flash.h"
 #include "driver/gpio.h"
 #include "driver/i2c.h"
+#include "driver/i2c_master.h"
 #include "driver/spi_master.h"
 #include "driver/spi_slave.h"
 #include "driver/rmt.h"
@@ -33,6 +38,7 @@
 #include "hle/spi_bridge_channel.h"
 #include "hle/hle_display.h"
 #include "hle/hle_kernel.h"
+#include "pin_def.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_vfs_fat.h"
 #include "esp_littlefs.h"
@@ -46,10 +52,39 @@
 // ESP System
 // ═══════════════════════════════════════════════════════════════════════════════
 
+static constexpr size_t SHUTDOWN_HANDLERS_MAX = 5;
+static shutdown_handler_t s_shutdown_handlers[SHUTDOWN_HANDLERS_MAX];
+
+esp_err_t esp_register_shutdown_handler(shutdown_handler_t handle) {
+    for (auto &slot : s_shutdown_handlers) {
+        if (slot == handle) return ESP_ERR_INVALID_STATE;
+        if (slot == nullptr) {
+            slot = handle;
+            return ESP_OK;
+        }
+    }
+    return ESP_ERR_NO_MEM;
+}
+
 void esp_restart(void) {
+    for (auto *handler : s_shutdown_handlers) {
+        if (handler != nullptr) handler();
+    }
     fprintf(stderr, "I [SYSTEM] esp_restart() called — exiting\n");
     exit(0);
 }
+
+uint32_t esp_get_minimum_free_heap_size(void) { return 8 * 1024 * 1024; }
+
+esp_err_t esp_read_mac(uint8_t *mac, int type) {
+    if (mac == nullptr) return ESP_ERR_INVALID_ARG;
+    const uint8_t base[6] = {0x02, 0x48, 0x4C, 0x45, 0x00, 0x00};
+    memcpy(mac, base, sizeof(base));
+    mac[5] = static_cast<uint8_t>(type);
+    return ESP_OK;
+}
+
+esp_reset_reason_t esp_reset_reason(void) { return ESP_RST_POWERON; }
 
 static int hle_default_vlog(const char *fmt, va_list ap) { return vprintf(fmt, ap); }
 static vprintf_like_t s_log_vprintf = hle_default_vlog;
@@ -58,6 +93,11 @@ vprintf_like_t esp_log_set_vprintf(vprintf_like_t func) {
     vprintf_like_t previous = s_log_vprintf;
     if (func) s_log_vprintf = func;
     return previous;
+}
+
+void esp_log_writev(esp_log_level_t level, const char *tag, const char *format, va_list args) {
+    (void)level; (void)tag;
+    s_log_vprintf(format, args);
 }
 
 uint64_t esp_timer_get_time(void) {
@@ -69,20 +109,151 @@ void esp_rom_delay_us(uint32_t us) {
     std::this_thread::sleep_for(std::chrono::microseconds(us));
 }
 
+// Same semantics as the ROM (and IDF's linux target): the running value is
+// inverted on entry and exit, so results chain across calls.
+uint32_t esp_rom_crc32_le(uint32_t crc, uint8_t const *buf, uint32_t len) {
+    crc = ~crc;
+    for (uint32_t i = 0; i < len; i++) {
+        crc ^= buf[i];
+        for (int bit = 0; bit < 8; bit++) {
+            crc = (crc & 1) ? (crc >> 1) ^ 0xEDB88320u : crc >> 1;
+        }
+    }
+    return ~crc;
+}
+
+uint16_t esp_rom_crc16_le(uint16_t crc, uint8_t const *buf, uint32_t len) {
+    crc = static_cast<uint16_t>(~crc);
+    for (uint32_t i = 0; i < len; i++) {
+        crc ^= buf[i];
+        for (int bit = 0; bit < 8; bit++) {
+            crc = (crc & 1) ? static_cast<uint16_t>((crc >> 1) ^ 0x8408) : crc >> 1;
+        }
+    }
+    return static_cast<uint16_t>(~crc);
+}
+
+// esp_timer: one dispatcher thread runs every callback in deadline order, like
+// IDF's ESP_TIMER_TASK dispatch. The state is never freed, so the thread can
+// outlive static destruction at exit.
+struct HleTimer {
+    void (*callback)(void *arg);
+    void *arg;
+    uint64_t period_us;
+    uint64_t next_us;
+    bool is_active;
+};
+
+struct HleTimerState {
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::vector<HleTimer *> timers;
+    bool is_dispatcher_running = false;
+};
+
+static HleTimerState &timer_state(void) {
+    static auto *s_state = new HleTimerState;
+    return *s_state;
+}
+
+static void timer_dispatch_loop(void) {
+    HleTimerState &st = timer_state();
+    std::unique_lock<std::mutex> lock(st.mutex);
+    for (;;) {
+        HleTimer *due = nullptr;
+        for (auto *timer : st.timers) {
+            if (timer->is_active && (due == nullptr || timer->next_us < due->next_us)) {
+                due = timer;
+            }
+        }
+        if (due == nullptr) {
+            st.cv.wait(lock);
+            continue;
+        }
+        const uint64_t now = esp_timer_get_time();
+        if (due->next_us > now) {
+            st.cv.wait_for(lock, std::chrono::microseconds(due->next_us - now));
+            continue;
+        }
+        if (due->period_us > 0) {
+            due->next_us += due->period_us;
+        } else {
+            due->is_active = false;
+        }
+        void (*callback)(void *) = due->callback;
+        void *arg = due->arg;
+        lock.unlock();
+        callback(arg);
+        lock.lock();
+    }
+}
+
+static esp_err_t timer_start(esp_timer_handle_t handle, uint64_t delay_us, uint64_t period_us) {
+    if (handle == nullptr) return ESP_ERR_INVALID_ARG;
+    HleTimerState &st = timer_state();
+    {
+        std::lock_guard<std::mutex> lock(st.mutex);
+        auto *timer = static_cast<HleTimer *>(handle);
+        if (timer->is_active) return ESP_ERR_INVALID_STATE;
+        timer->period_us = period_us;
+        timer->next_us = esp_timer_get_time() + delay_us;
+        timer->is_active = true;
+        if (!st.is_dispatcher_running) {
+            std::thread(timer_dispatch_loop).detach();
+            st.is_dispatcher_running = true;
+        }
+    }
+    st.cv.notify_all();
+    return ESP_OK;
+}
+
 esp_err_t esp_timer_create(const esp_timer_create_args_t *args, esp_timer_handle_t *handle) {
-    (void)args;
-    if (handle) *handle = (void *)0x1;
+    if (args == nullptr || args->callback == nullptr || handle == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    auto *timer = new HleTimer{args->callback, args->arg, 0, 0, false};
+    HleTimerState &st = timer_state();
+    std::lock_guard<std::mutex> lock(st.mutex);
+    st.timers.push_back(timer);
+    *handle = timer;
     return ESP_OK;
 }
 esp_err_t esp_timer_start_periodic(esp_timer_handle_t handle, uint64_t period_us) {
-    (void)handle; (void)period_us; return ESP_OK;
+    if (period_us == 0) return ESP_ERR_INVALID_ARG;
+    return timer_start(handle, period_us, period_us);
 }
-esp_err_t esp_timer_stop(esp_timer_handle_t handle) { (void)handle; return ESP_OK; }
-esp_err_t esp_timer_delete(esp_timer_handle_t handle) { (void)handle; return ESP_OK; }
+esp_err_t esp_timer_start_once(esp_timer_handle_t handle, uint64_t timeout_us) {
+    return timer_start(handle, timeout_us, 0);
+}
+esp_err_t esp_timer_stop(esp_timer_handle_t handle) {
+    if (handle == nullptr) return ESP_ERR_INVALID_ARG;
+    HleTimerState &st = timer_state();
+    std::lock_guard<std::mutex> lock(st.mutex);
+    auto *timer = static_cast<HleTimer *>(handle);
+    if (!timer->is_active) return ESP_ERR_INVALID_STATE;
+    timer->is_active = false;
+    return ESP_OK;
+}
+esp_err_t esp_timer_delete(esp_timer_handle_t handle) {
+    if (handle == nullptr) return ESP_ERR_INVALID_ARG;
+    HleTimerState &st = timer_state();
+    std::lock_guard<std::mutex> lock(st.mutex);
+    auto *timer = static_cast<HleTimer *>(handle);
+    if (timer->is_active) return ESP_ERR_INVALID_STATE;
+    st.timers.erase(std::remove(st.timers.begin(), st.timers.end(), timer), st.timers.end());
+    delete timer;
+    return ESP_OK;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FreeRTOS Implementation (pthread-based)
 // ═══════════════════════════════════════════════════════════════════════════════
+
+struct TaskNotify {
+    std::mutex mutex;
+    std::condition_variable cv;
+    uint32_t count = 0;
+};
 
 struct TaskInfo {
     pthread_t thread;
@@ -92,7 +263,10 @@ struct TaskInfo {
     volatile bool suspended = false;
     void *params;
     SemaphoreHandle_t suspend_sem;
+    TaskNotify *notify;
 };
+
+static thread_local TaskInfo *t_current_task = nullptr;
 
 static std::mutex s_tasks_mutex;
 static std::map<TaskHandle_t, TaskInfo> s_tasks;
@@ -107,6 +281,7 @@ static TickType_t get_tick_count(void) {
 
 static void *task_wrapper(void *arg) {
     TaskInfo *info = static_cast<TaskInfo *>(arg);
+    t_current_task = info;
     info->func(info->params);
     info->running = false;
     return nullptr;
@@ -121,6 +296,7 @@ BaseType_t xTaskCreatePinnedToCore(TaskFunction_t func, const char *name, uint32
     info->name = name ? name : "unnamed";
     info->params = params;
     info->suspend_sem = xSemaphoreCreateBinary();
+    info->notify = new TaskNotify{};
 
     pthread_t thread;
     pthread_attr_t attr;
@@ -142,7 +318,7 @@ BaseType_t xTaskCreatePinnedToCore(TaskFunction_t func, const char *name, uint32
 }
 
 void vTaskDelete(TaskHandle_t handle) {
-    if (!handle) {
+    if (!handle || handle == t_current_task) {
         pthread_exit(nullptr);
     }
     auto *info = static_cast<TaskInfo *>(handle);
@@ -161,7 +337,45 @@ void vTaskDelay(TickType_t ticks) {
 
 TickType_t xTaskGetTickCount(void) { return get_tick_count(); }
 char *pcTaskGetName(TaskHandle_t handle) { (void)handle; return (char *)"shim_task"; }
-TaskHandle_t xTaskGetCurrentTaskHandle(void) { return nullptr; }
+TaskHandle_t xTaskGetCurrentTaskHandle(void) { return t_current_task; }
+
+// Threads the firmware did not create (main, LVGL) still get a private
+// notification slot, so a wait there blocks instead of spinning.
+static TaskNotify *current_task_notify(void) {
+    static thread_local TaskNotify s_thread_notify;
+    return t_current_task != nullptr ? t_current_task->notify : &s_thread_notify;
+}
+
+uint32_t ulTaskNotifyTake(BaseType_t clear_on_exit, TickType_t ticks_to_wait) {
+    TaskNotify *notify = current_task_notify();
+    std::unique_lock<std::mutex> lock(notify->mutex);
+    auto has_notification = [notify] { return notify->count > 0; };
+    if (ticks_to_wait == portMAX_DELAY) {
+        notify->cv.wait(lock, has_notification);
+    } else if (!notify->cv.wait_for(lock, std::chrono::milliseconds(ticks_to_wait * portTICK_PERIOD_MS),
+                                    has_notification)) {
+        return 0;
+    }
+    const uint32_t value = notify->count;
+    notify->count = clear_on_exit ? 0 : notify->count - 1;
+    return value;
+}
+
+BaseType_t xTaskNotifyGive(TaskHandle_t handle) {
+    if (handle == nullptr) return pdFAIL;
+    TaskNotify *notify = static_cast<TaskInfo *>(handle)->notify;
+    {
+        std::lock_guard<std::mutex> lock(notify->mutex);
+        notify->count++;
+    }
+    notify->cv.notify_all();
+    return pdPASS;
+}
+
+void vTaskNotifyGiveFromISR(TaskHandle_t handle, BaseType_t *higher_prio_woken) {
+    xTaskNotifyGive(handle);
+    if (higher_prio_woken != nullptr) *higher_prio_woken = pdFALSE;
+}
 
 void vTaskSuspend(TaskHandle_t handle) {
     if (!handle) return;
@@ -189,6 +403,14 @@ TaskHandle_t xTaskCreateStatic(TaskFunction_t func, const char *name, uint32_t s
     TaskHandle_t handle = nullptr;
     xTaskCreatePinnedToCore(func, name, stack_depth, params, prio, &handle, 0);
     return handle;
+}
+
+TaskHandle_t xTaskCreateStaticPinnedToCore(TaskFunction_t func, const char *name,
+                                           uint32_t stack_depth, void *params, UBaseType_t prio,
+                                           StackType_t *stack_buf, StaticTask_t *task_buf,
+                                           BaseType_t core_id) {
+    (void)core_id;
+    return xTaskCreateStatic(func, name, stack_depth, params, prio, stack_buf, task_buf);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -352,6 +574,27 @@ BaseType_t xQueueSendFromISR(QueueHandle_t queue, const void *item, BaseType_t *
     pthread_cond_signal(&q->cond);
     pthread_mutex_unlock(&q->mutex);
     return pdTRUE;
+}
+
+BaseType_t xQueueOverwrite(QueueHandle_t queue, const void *item) {
+    if (!queue) return pdFALSE;
+    auto *q = static_cast<QueueInfo *>(queue);
+    pthread_mutex_lock(&q->mutex);
+    std::queue<std::vector<uint8_t>>().swap(q->items);
+    q->items.emplace((const uint8_t *)item, (const uint8_t *)item + q->item_size);
+    pthread_cond_signal(&q->cond);
+    pthread_mutex_unlock(&q->mutex);
+    return pdPASS;
+}
+
+BaseType_t xQueueReset(QueueHandle_t queue) {
+    if (!queue) return pdFALSE;
+    auto *q = static_cast<QueueInfo *>(queue);
+    pthread_mutex_lock(&q->mutex);
+    std::queue<std::vector<uint8_t>>().swap(q->items);
+    pthread_cond_broadcast(&q->cond);
+    pthread_mutex_unlock(&q->mutex);
+    return pdPASS;
 }
 
 BaseType_t xQueueReceive(QueueHandle_t queue, void *item, TickType_t timeout) {
@@ -736,6 +979,88 @@ esp_err_t nvs_set_blob(nvs_handle_t handle, const char *key, const void *value,
     return nvs_set_buffer(handle, key, value, length, NVSValueType::Blob);
 }
 
+// Iterators snapshot the matching entries when created, which is enough for
+// the list-then-read pattern the firmware uses.
+struct nvs_opaque_iterator_t {
+    std::vector<nvs_entry_info_t> entries;
+    size_t index = 0;
+};
+
+static nvs_type_t nvs_entry_type(NVSValueType type) {
+    switch (type) {
+    case NVSValueType::I8: return NVS_TYPE_I8;
+    case NVSValueType::U8: return NVS_TYPE_U8;
+    case NVSValueType::I16: return NVS_TYPE_I16;
+    case NVSValueType::U16: return NVS_TYPE_U16;
+    case NVSValueType::I32: return NVS_TYPE_I32;
+    case NVSValueType::U32: return NVS_TYPE_U32;
+    case NVSValueType::I64: return NVS_TYPE_I64;
+    case NVSValueType::U64: return NVS_TYPE_U64;
+    case NVSValueType::String: return NVS_TYPE_STR;
+    case NVSValueType::Blob: return NVS_TYPE_BLOB;
+    }
+    return NVS_TYPE_ANY;
+}
+
+esp_err_t nvs_entry_find(const char *part_name, const char *namespace_name, nvs_type_t type,
+                         nvs_iterator_t *output_iterator) {
+    (void)part_name;
+    if (output_iterator == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *output_iterator = nullptr;
+
+    auto *iterator = new nvs_opaque_iterator_t{};
+    {
+        std::lock_guard<std::mutex> lock(s_nvs_mutex);
+        for (const auto &[ns_name, ns] : s_nvs_storage) {
+            if (namespace_name != nullptr && ns_name != namespace_name) {
+                continue;
+            }
+            for (const auto &[key, value] : ns.keys) {
+                const nvs_type_t entry_type = nvs_entry_type(value.type);
+                if (type != NVS_TYPE_ANY && entry_type != type) {
+                    continue;
+                }
+                nvs_entry_info_t info{};
+                strncpy(info.namespace_name, ns_name.c_str(), sizeof(info.namespace_name) - 1);
+                strncpy(info.key, key.c_str(), sizeof(info.key) - 1);
+                info.type = entry_type;
+                iterator->entries.push_back(info);
+            }
+        }
+    }
+
+    if (iterator->entries.empty()) {
+        delete iterator;
+        return ESP_ERR_NVS_NOT_FOUND;
+    }
+    *output_iterator = iterator;
+    return ESP_OK;
+}
+
+esp_err_t nvs_entry_next(nvs_iterator_t *iterator) {
+    if (iterator == nullptr || *iterator == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (++(*iterator)->index >= (*iterator)->entries.size()) {
+        delete *iterator;
+        *iterator = nullptr;
+        return ESP_ERR_NVS_NOT_FOUND;
+    }
+    return ESP_OK;
+}
+
+esp_err_t nvs_entry_info(const nvs_iterator_t iterator, nvs_entry_info_t *out_info) {
+    if (iterator == nullptr || out_info == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *out_info = iterator->entries[iterator->index];
+    return ESP_OK;
+}
+
+void nvs_release_iterator(nvs_iterator_t iterator) { delete iterator; }
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // WiFi Stubs
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -761,12 +1086,6 @@ int esp_wifi_get_channel(uint8_t *primary, int *secondary) { if (primary) *prima
 static std::mutex s_gpio_mutex;
 static std::map<gpio_num_t, bool> s_gpio_levels;
 
-static constexpr gpio_num_t HLE_GPIO_BTN_LEFT_PIN = 5;
-static constexpr gpio_num_t HLE_GPIO_BTN_BACK_PIN = 7;
-static constexpr gpio_num_t HLE_GPIO_BTN_UP_PIN = 15;
-static constexpr gpio_num_t HLE_GPIO_BTN_DOWN_PIN = 6;
-static constexpr gpio_num_t HLE_GPIO_BTN_OK_PIN = 4;
-static constexpr gpio_num_t HLE_GPIO_BTN_RIGHT_PIN = 16;
 
 esp_err_t gpio_config(const gpio_config_t *cfg) {
     if (!cfg) return ESP_ERR_INVALID_ARG;
@@ -796,16 +1115,32 @@ esp_err_t gpio_isr_handler_add(gpio_num_t pin, void (*handler)(void *), void *ar
     (void)pin; (void)handler; (void)arg; return ESP_OK;
 }
 void gpio_reset_pin(gpio_num_t pin) { (void)pin; }
+esp_err_t gpio_set_drive_capability(gpio_num_t pin, gpio_drive_cap_t strength) {
+    (void)pin; (void)strength; return ESP_OK;
+}
+esp_err_t gpio_set_pull_mode(gpio_num_t pin, gpio_pull_mode_t pull) {
+    std::lock_guard<std::mutex> lock(s_gpio_mutex);
+    if (pull == GPIO_PULLUP_ONLY || pull == GPIO_PULLUP_PULLDOWN) {
+        s_gpio_levels[pin] = true;
+    } else if (pull == GPIO_PULLDOWN_ONLY) {
+        s_gpio_levels[pin] = false;
+    }
+    return ESP_OK;
+}
+esp_err_t gpio_set_direction(gpio_num_t pin, int mode) { (void)pin; (void)mode; return ESP_OK; }
+esp_err_t gpio_wakeup_enable(gpio_num_t pin, int intr_type) {
+    (void)pin; (void)intr_type; return ESP_OK;
+}
 
 extern "C" void hle_set_button_mask(unsigned char mask) {
     std::lock_guard<std::mutex> lock(s_gpio_mutex);
 
-    s_gpio_levels[HLE_GPIO_BTN_UP_PIN] = (mask & (1u << 0)) == 0;
-    s_gpio_levels[HLE_GPIO_BTN_DOWN_PIN] = (mask & (1u << 1)) == 0;
-    s_gpio_levels[HLE_GPIO_BTN_LEFT_PIN] = (mask & (1u << 2)) == 0;
-    s_gpio_levels[HLE_GPIO_BTN_RIGHT_PIN] = (mask & (1u << 3)) == 0;
-    s_gpio_levels[HLE_GPIO_BTN_OK_PIN] = (mask & (1u << 4)) == 0;
-    s_gpio_levels[HLE_GPIO_BTN_BACK_PIN] = (mask & (1u << 5)) == 0;
+    s_gpio_levels[GPIO_BTN_UP_PIN] = (mask & (1u << 0)) == 0;
+    s_gpio_levels[GPIO_BTN_DOWN_PIN] = (mask & (1u << 1)) == 0;
+    s_gpio_levels[GPIO_BTN_LEFT_PIN] = (mask & (1u << 2)) == 0;
+    s_gpio_levels[GPIO_BTN_RIGHT_PIN] = (mask & (1u << 3)) == 0;
+    s_gpio_levels[GPIO_BTN_OK_PIN] = (mask & (1u << 4)) == 0;
+    s_gpio_levels[GPIO_BTN_BACK_PIN] = (mask & (1u << 5)) == 0;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -830,9 +1165,62 @@ esp_err_t i2c_master_cmd_begin(i2c_port_t port, i2c_cmd_handle_t cmd, int timeou
 }
 void i2c_cmd_link_delete(i2c_cmd_handle_t cmd) { (void)cmd; }
 
+// New master API: an empty bus. Transfers fail the way IDF 5.5 reports a NACK
+// (ESP_ERR_INVALID_STATE), so drivers see their chip as absent instead of
+// acting on zeroed registers (a zeroed BQ25896 reads as a flat battery).
+static uint8_t s_i2c_bus_token;
+static uint8_t s_i2c_dev_token;
+
+esp_err_t i2c_new_master_bus(const i2c_master_bus_config_t *bus_config,
+                             i2c_master_bus_handle_t *ret_bus_handle) {
+    if (bus_config == nullptr || ret_bus_handle == nullptr) return ESP_ERR_INVALID_ARG;
+    *ret_bus_handle = reinterpret_cast<i2c_master_bus_handle_t>(&s_i2c_bus_token);
+    return ESP_OK;
+}
+esp_err_t i2c_del_master_bus(i2c_master_bus_handle_t bus_handle) { (void)bus_handle; return ESP_OK; }
+esp_err_t i2c_master_bus_add_device(i2c_master_bus_handle_t bus_handle,
+                                    const i2c_device_config_t *dev_config,
+                                    i2c_master_dev_handle_t *ret_handle) {
+    if (bus_handle == nullptr || dev_config == nullptr || ret_handle == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *ret_handle = reinterpret_cast<i2c_master_dev_handle_t>(&s_i2c_dev_token);
+    return ESP_OK;
+}
+esp_err_t i2c_master_bus_rm_device(i2c_master_dev_handle_t handle) { (void)handle; return ESP_OK; }
+esp_err_t i2c_master_transmit(i2c_master_dev_handle_t dev, const uint8_t *write_buffer,
+                              size_t write_size, int xfer_timeout_ms) {
+    (void)dev; (void)write_buffer; (void)write_size; (void)xfer_timeout_ms;
+    return ESP_ERR_INVALID_STATE;
+}
+esp_err_t i2c_master_transmit_receive(i2c_master_dev_handle_t dev, const uint8_t *write_buffer,
+                                      size_t write_size, uint8_t *read_buffer, size_t read_size,
+                                      int xfer_timeout_ms) {
+    (void)dev; (void)write_buffer; (void)write_size; (void)xfer_timeout_ms;
+    if (read_buffer != nullptr) memset(read_buffer, 0, read_size);
+    return ESP_ERR_INVALID_STATE;
+}
+esp_err_t i2c_master_receive(i2c_master_dev_handle_t dev, uint8_t *read_buffer, size_t read_size,
+                             int xfer_timeout_ms) {
+    (void)dev; (void)xfer_timeout_ms;
+    if (read_buffer != nullptr) memset(read_buffer, 0, read_size);
+    return ESP_ERR_INVALID_STATE;
+}
+esp_err_t i2c_master_probe(i2c_master_bus_handle_t bus_handle, uint16_t address,
+                           int xfer_timeout_ms) {
+    (void)bus_handle; (void)address; (void)xfer_timeout_ms;
+    return ESP_ERR_NOT_FOUND;
+}
+esp_err_t i2c_master_bus_reset(i2c_master_bus_handle_t bus_handle) { (void)bus_handle; return ESP_OK; }
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // SPI Stubs
 // ═══════════════════════════════════════════════════════════════════════════════
+
+esp_err_t spi_device_acquire_bus(spi_device_handle_t handle, uint32_t wait) {
+    (void)handle; (void)wait; return ESP_OK;
+}
+void spi_device_release_bus(spi_device_handle_t handle) { (void)handle; }
 
 esp_err_t spi_bus_initialize(spi_host_device_t host, const spi_bus_config_t *bus, int dma) {
     (void)host; (void)bus; (void)dma; return ESP_OK;
@@ -1041,6 +1429,7 @@ esp_err_t spi_bridge_phy_transmit(const uint8_t *tx_data, uint8_t *rx_data, size
     if (resp_len > 0) {
         memcpy(rx_data + sizeof(resp_header), resp_payload, resp_len);
     }
+    spi_frame_seal(reinterpret_cast<spi_header_t *>(rx_data), resp_len);
     return ESP_OK;
 }
 esp_err_t spi_bridge_phy_wait_irq(uint32_t timeout_ms) {
@@ -1092,6 +1481,7 @@ esp_err_t spi_slave_transmit(int host, spi_slave_transaction_t *trans, int timeo
         if (payload_len > 0) {
             memcpy(reinterpret_cast<uint8_t *>(header) + sizeof(*header), payload, payload_len);
         }
+        spi_frame_seal(header, payload_len);
     } else if (trans->tx_buffer != nullptr && trans->rx_buffer == nullptr) {
         const auto *header = static_cast<const spi_header_t *>(trans->tx_buffer);
         if (header->sync != SPI_SYNC_BYTE) {
@@ -1157,6 +1547,9 @@ struct HLEPanel {
     void *ctx;
 };
 
+esp_err_t esp_lcd_panel_io_del(esp_lcd_panel_io_handle_t io) { (void)io; return ESP_OK; }
+esp_err_t esp_lcd_panel_del(esp_lcd_panel_handle_t panel) { (void)panel; return ESP_OK; }
+
 esp_err_t esp_lcd_new_panel_io_spi(int bus, const esp_lcd_panel_io_spi_config_t *cfg,
                                     esp_lcd_panel_io_handle_t *out_io) {
     (void)bus; (void)cfg;
@@ -1212,8 +1605,12 @@ esp_err_t esp_lcd_panel_io_register_event_callbacks(esp_lcd_panel_io_handle_t io
 // VFS / Storage stubs (mount to host tmpdir)
 // ═══════════════════════════════════════════════════════════════════════════════
 
+#include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/types.h>
+
+#include "vfs_core.h"
 
 static std::string s_base_path = "/tmp/hle_storage";
 
@@ -1296,6 +1693,115 @@ extern "C" int __wrap_unlink(const char *path) {
     return __real_unlink(translated.c_str());
 }
 
+// Host backend for /sdcard: the POSIX calls vfs_sdcard.c makes on the card,
+// applied to the translated host path.
+static void hle_sd_fill_stat(const struct stat &native, const char *name, vfs_stat_t *st) {
+    strncpy(st->name, name, VFS_MAX_NAME - 1);
+    st->name[VFS_MAX_NAME - 1] = '\0';
+    st->type = S_ISDIR(native.st_mode) ? VFS_TYPE_DIR : VFS_TYPE_FILE;
+    st->size = native.st_size;
+    st->mtime = native.st_mtime;
+    st->ctime = native.st_ctime;
+    st->is_hidden = false;
+    st->is_readonly = false;
+}
+
+static esp_err_t hle_sd_init(void) { return ESP_OK; }
+static esp_err_t hle_sd_deinit(void) { return ESP_OK; }
+static bool hle_sd_is_mounted(void) { return true; }
+static vfs_fd_t hle_sd_open(const char *path, int flags, int mode) {
+    return open(hle_translate_path(path).c_str(), flags, mode);
+}
+static ssize_t hle_sd_read(vfs_fd_t fd, void *buf, size_t size) { return read(fd, buf, size); }
+static ssize_t hle_sd_write(vfs_fd_t fd, const void *buf, size_t size) {
+    return write(fd, buf, size);
+}
+static off_t hle_sd_lseek(vfs_fd_t fd, off_t offset, int whence) {
+    return lseek(fd, offset, whence);
+}
+static esp_err_t hle_sd_close(vfs_fd_t fd) { return close(fd) == 0 ? ESP_OK : ESP_FAIL; }
+static esp_err_t hle_sd_fsync(vfs_fd_t fd) { return fsync(fd) == 0 ? ESP_OK : ESP_FAIL; }
+static esp_err_t hle_sd_stat(const char *path, vfs_stat_t *st) {
+    struct stat native;
+    if (__real_stat(hle_translate_path(path).c_str(), &native) != 0) return ESP_FAIL;
+    const char *name = strrchr(path, '/');
+    hle_sd_fill_stat(native, name ? name + 1 : path, st);
+    return ESP_OK;
+}
+static esp_err_t hle_sd_fstat(vfs_fd_t fd, vfs_stat_t *st) {
+    struct stat native;
+    if (fstat(fd, &native) != 0) return ESP_FAIL;
+    hle_sd_fill_stat(native, "", st);
+    return ESP_OK;
+}
+static esp_err_t hle_sd_rename(const char *old_path, const char *new_path) {
+    return __real_rename(hle_translate_path(old_path).c_str(),
+                         hle_translate_path(new_path).c_str()) == 0 ? ESP_OK : ESP_FAIL;
+}
+static esp_err_t hle_sd_unlink(const char *path) {
+    return __real_unlink(hle_translate_path(path).c_str()) == 0 ? ESP_OK : ESP_FAIL;
+}
+static esp_err_t hle_sd_truncate(const char *path, off_t length) {
+    return truncate(hle_translate_path(path).c_str(), length) == 0 ? ESP_OK : ESP_FAIL;
+}
+static esp_err_t hle_sd_mkdir(const char *path, int mode) {
+    return __real_mkdir(hle_translate_path(path).c_str(), mode) == 0 ? ESP_OK : ESP_FAIL;
+}
+static esp_err_t hle_sd_rmdir(const char *path) {
+    return rmdir(hle_translate_path(path).c_str()) == 0 ? ESP_OK : ESP_FAIL;
+}
+static vfs_dir_t hle_sd_opendir(const char *path) {
+    return reinterpret_cast<vfs_dir_t>(__real_opendir(hle_translate_path(path).c_str()));
+}
+static esp_err_t hle_sd_readdir(vfs_dir_t dir, vfs_stat_t *entry) {
+    struct dirent *ent = readdir(reinterpret_cast<DIR *>(dir));
+    if (ent == nullptr) return ESP_ERR_NOT_FOUND;
+    strncpy(entry->name, ent->d_name, VFS_MAX_NAME - 1);
+    entry->name[VFS_MAX_NAME - 1] = '\0';
+    entry->type = ent->d_type == DT_DIR ? VFS_TYPE_DIR : VFS_TYPE_FILE;
+    entry->size = 0;
+    return ESP_OK;
+}
+static esp_err_t hle_sd_closedir(vfs_dir_t dir) {
+    return closedir(reinterpret_cast<DIR *>(dir)) == 0 ? ESP_OK : ESP_FAIL;
+}
+static esp_err_t hle_sd_statvfs(vfs_statvfs_t *stat) {
+    struct statvfs native;
+    if (statvfs(hle_translate_path("/sdcard").c_str(), &native) != 0) return ESP_FAIL;
+    stat->block_size = static_cast<uint32_t>(native.f_frsize);
+    stat->total_blocks = static_cast<uint32_t>(native.f_blocks);
+    stat->free_blocks = static_cast<uint32_t>(native.f_bavail);
+    stat->total_bytes = static_cast<uint64_t>(native.f_blocks) * native.f_frsize;
+    stat->free_bytes = static_cast<uint64_t>(native.f_bavail) * native.f_frsize;
+    stat->used_bytes = stat->total_bytes - stat->free_bytes;
+    return ESP_OK;
+}
+
+static const vfs_backend_ops_t s_hle_sd_ops = {
+    .init = hle_sd_init,
+    .deinit = hle_sd_deinit,
+    .is_mounted = hle_sd_is_mounted,
+    .open = hle_sd_open,
+    .read = hle_sd_read,
+    .write = hle_sd_write,
+    .lseek = hle_sd_lseek,
+    .close = hle_sd_close,
+    .fsync = hle_sd_fsync,
+    .stat = hle_sd_stat,
+    .fstat = hle_sd_fstat,
+    .rename = hle_sd_rename,
+    .unlink = hle_sd_unlink,
+    .truncate = hle_sd_truncate,
+    .mkdir = hle_sd_mkdir,
+    .rmdir = hle_sd_rmdir,
+    .opendir = hle_sd_opendir,
+    .readdir = hle_sd_readdir,
+    .closedir = hle_sd_closedir,
+    .statvfs = hle_sd_statvfs,
+};
+
+extern "C" const vfs_backend_ops_t *hle_sd_backend_ops(void) { return &s_hle_sd_ops; }
+
 extern "C" {
 
 esp_err_t esp_vfs_fat_sdmmc_mount(const char *base_path, const sdmmc_host_t *host, const void *slot,
@@ -1327,15 +1833,26 @@ esp_err_t esp_vfs_fat_spiflash_unmount(const char *base, void *wl_handle) {
 } // extern "C"
 
 // LittleFS stubs
+static bool s_littlefs_mounted = false;
+
 esp_err_t esp_vfs_littlefs_register(const esp_vfs_littlefs_conf_t *conf) {
     if (conf && conf->base_path) {
         std::string dir = s_base_path + conf->base_path;
         mkdir(dir.c_str(), 0755);
         fprintf(stderr, "I [LFS] Registered HLE LittleFS at %s\n", conf->base_path);
     }
+    s_littlefs_mounted = true;
     return ESP_OK;
 }
-esp_err_t esp_vfs_littlefs_unregister(const char *label) { (void)label; return ESP_OK; }
+esp_err_t esp_vfs_littlefs_unregister(const char *label) {
+    (void)label;
+    s_littlefs_mounted = false;
+    return ESP_OK;
+}
+bool esp_littlefs_mounted(const char *partition_label) {
+    (void)partition_label;
+    return s_littlefs_mounted;
+}
 
 // Partition stubs
 esp_partition_t *esp_partition_find_first(int type, int subtype, const char *label) {

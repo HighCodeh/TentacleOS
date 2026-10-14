@@ -52,6 +52,8 @@ typedef struct {
 } esp_lcd_panel_io_callbacks_t;
 
 esp_err_t esp_lcd_new_panel_io_spi(int bus, const esp_lcd_panel_io_spi_config_t *cfg, esp_lcd_panel_io_handle_t *out_io);
+esp_err_t esp_lcd_panel_io_del(esp_lcd_panel_io_handle_t io);
+esp_err_t esp_lcd_panel_del(esp_lcd_panel_handle_t panel);
 esp_err_t esp_lcd_new_panel_st7789(esp_lcd_panel_io_handle_t io, const esp_lcd_panel_dev_config_t *cfg, esp_lcd_panel_handle_t *out_panel);
 
 // Panel ops

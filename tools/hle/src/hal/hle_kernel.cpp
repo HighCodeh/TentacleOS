@@ -10,6 +10,7 @@
 #include <mutex>
 #include <thread>
 
+#include "hle/lv_port_hle.h"
 #include "hle/spi_bridge_channel.h"
 
 extern "C" {
@@ -18,6 +19,10 @@ extern "C" {
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "spi_protocol.h"
+#include "vfs_config.h"
+#include "vfs_core.h"
+
+const vfs_backend_ops_t *hle_sd_backend_ops(void);
 }
 
 static const char *TAG = "HLE_SHIM";
@@ -30,7 +35,10 @@ extern "C" {
 
 static bool s_vfs_mounted = false;
 bool vfs_sdcard_is_mounted(void) { return s_vfs_mounted; }
-esp_err_t vfs_register_sd_backend(void) {
+esp_err_t vfs_sdcard_init(void) {
+    if (s_vfs_mounted) {
+        return ESP_OK;
+    }
     const std::filesystem::path dir =
         std::filesystem::path(hle_get_storage_path()) / "sdcard";
     std::error_code error;
@@ -42,13 +50,46 @@ esp_err_t vfs_register_sd_backend(void) {
         return ESP_FAIL;
     }
 
+    const vfs_backend_config_t backend = {
+        .type = VFS_BACKEND_SD_FAT,
+        .mount_point = VFS_MOUNT_POINT,
+        .ops = hle_sd_backend_ops(),
+        .private_data = nullptr,
+    };
+    const esp_err_t ret = vfs_register_backend(&backend);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to register the HLE SD backend: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
     s_vfs_mounted = true;
     ESP_LOGI(TAG, "HLE SD card mounted at %s", dir.c_str());
     return ESP_OK;
 }
-esp_err_t vfs_unregister_sd_backend(void) {
+esp_err_t vfs_sdcard_deinit(void) {
+    if (!s_vfs_mounted) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    vfs_unregister_backend(VFS_MOUNT_POINT);
     s_vfs_mounted = false;
     return ESP_OK;
+}
+esp_err_t vfs_register_sd_backend(void) { return vfs_sdcard_init(); }
+esp_err_t vfs_unregister_sd_backend(void) { return vfs_sdcard_deinit(); }
+bool vfs_sdcard_get_name(char *out, size_t n) {
+    if (out == nullptr || n == 0 || !s_vfs_mounted) {
+        return false;
+    }
+    snprintf(out, n, "HLE");
+    return true;
+}
+const char *vfs_sdcard_fs_type(void) { return s_vfs_mounted ? "host" : "--"; }
+// Never format or benchmark the host directory that backs the SD card.
+esp_err_t vfs_sdcard_format(void) { return ESP_ERR_NOT_SUPPORTED; }
+esp_err_t vfs_sdcard_benchmark(float *out_read_mbs, float *out_write_mbs) {
+    if (out_read_mbs != nullptr) *out_read_mbs = 0.0f;
+    if (out_write_mbs != nullptr) *out_write_mbs = 0.0f;
+    return ESP_ERR_NOT_SUPPORTED;
 }
 
 } // extern "C"
@@ -143,6 +184,13 @@ static void c5_bridge_worker(hle::SPIBridgeChannel *channel) {
             channel->slave_send_response(cmd_id, SPI_STATUS_OK, status, sizeof(status));
             break;
         }
+        case SPI_ID_SYSTEM_PROTO_VERSION: {
+            const uint16_t version = SPI_PROTOCOL_VERSION;
+            channel->slave_send_response(cmd_id, SPI_STATUS_OK,
+                                         reinterpret_cast<const uint8_t *>(&version),
+                                         sizeof(version));
+            break;
+        }
         case SPI_ID_SYSTEM_VERSION:
             channel->slave_send_response(cmd_id, SPI_STATUS_OK,
                                          reinterpret_cast<const uint8_t *>(FIRMWARE_VERSION),
@@ -184,6 +232,7 @@ void hle_kernel_init(void) {
 }
 
 void hle_kernel_shutdown(void) {
+    hle_lvgl_glue_stop();
     auto *channel = hle_get_bridge_channel();
     if (channel != nullptr) {
         channel->close();

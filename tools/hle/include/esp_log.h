@@ -25,10 +25,13 @@ extern "C" {
 #define ESP_LOGI(tag, fmt, ...) fprintf(stderr, "I [%s] " fmt "\n", tag, ##__VA_ARGS__)
 #define ESP_LOGD(tag, fmt, ...) fprintf(stderr, "D [%s] " fmt "\n", tag, ##__VA_ARGS__)
 #define ESP_LOGV(tag, fmt, ...) fprintf(stderr, "V [%s] " fmt "\n", tag, ##__VA_ARGS__)
+#define ESP_LOG_BUFFER_HEX(tag, buf, len) ((void)0)
 #define ESP_LOG_BUFFER_HEX_LEVEL(tag, buf, len, level) ((void)0)
 #define ESP_LOG_BUFFER_HEXDUMP(tag, buf, len, level) ((void)0)
 
+typedef int esp_log_level_t;
 typedef int (*vprintf_like_t)(const char *fmt, va_list ap);
+void esp_log_writev(esp_log_level_t level, const char *tag, const char *format, va_list args);
 
 vprintf_like_t esp_log_set_vprintf(vprintf_like_t func);
 

@@ -9,6 +9,11 @@
 #define LV_USE_LOG 1
 #define LV_LOG_LEVEL LV_LOG_LEVEL_WARN
 #define LV_USE_QRCODE 1
+#define LV_USE_SNAPSHOT 1
+
+/* Match firmware_p4/sdkconfig.defaults: clib malloc and a 1 MiB image cache. */
+#define LV_USE_STDLIB_MALLOC LV_STDLIB_CLIB
+#define LV_CACHE_DEF_SIZE    (1024 * 1024)
 
 #define LV_FONT_MONTSERRAT_12 1
 #define LV_FONT_MONTSERRAT_14 1
