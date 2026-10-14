@@ -20,7 +20,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sdmmc_cmd.h"
-#include "tusb_msc_storage.h"
+#include "tinyusb_msc.h"
 
 #include "tusb_desc.h"
 #include "vfs_sdcard.h"
@@ -32,13 +32,19 @@ static const char *TAG = "USB_MSC";
 
 static volatile usb_msc_state_t s_state = USB_MSC_IDLE;
 static void *s_card = NULL;
+static tinyusb_msc_storage_handle_t s_handle = NULL;
 
 usb_msc_state_t usb_msc_get_state(void) {
   return s_state;
 }
 
 bool usb_msc_host_connected(void) {
-  return (s_state == USB_MSC_ACTIVE) && tinyusb_msc_storage_in_use_by_usb_host();
+  if (s_state != USB_MSC_ACTIVE || s_handle == NULL) {
+    return false;
+  }
+  tinyusb_msc_mount_point_t mp;
+  return tinyusb_msc_get_storage_mount_point(s_handle, &mp) == ESP_OK &&
+         mp == TINYUSB_MSC_STORAGE_MOUNT_USB;
 }
 
 void usb_msc_enter(void) {
@@ -52,9 +58,28 @@ void usb_msc_enter(void) {
   }
   s_card = raw;
 
-  const tinyusb_msc_sdmmc_config_t msc_cfg = {.card = (sdmmc_card_t *)raw};
-  if (tinyusb_msc_storage_init_sdmmc(&msc_cfg) != ESP_OK) {
+  // We own the card lifecycle ourselves (detach/reattach above), so disable the
+  // MSC layer's auto mount/format on host connect+eject: otherwise it remounts
+  // (and may format) the FAT inside the device during the host's eject flush,
+  // fighting our handoff and rebooting the device.
+  const tinyusb_msc_driver_config_t drv_cfg = {.user_flags.auto_mount_off = 1};
+  esp_err_t dr = tinyusb_msc_install_driver(&drv_cfg);
+  if (dr != ESP_OK && dr != ESP_ERR_INVALID_STATE) {
+    ESP_LOGE(TAG, "MSC driver install failed (%s) - restoring SD", esp_err_to_name(dr));
+    (void)vfs_sdcard_reattach_after_msc(s_card);
+    s_card = NULL;
+    s_state = USB_MSC_ERROR;
+    return;
+  }
+
+  const tinyusb_msc_storage_config_t msc_cfg = {
+      .medium.card = (sdmmc_card_t *)raw,
+      .fat_fs = {.base_path = NULL, .do_not_format = true},
+      .mount_point = TINYUSB_MSC_STORAGE_MOUNT_USB,
+  };
+  if (tinyusb_msc_new_storage_sdmmc(&msc_cfg, &s_handle) != ESP_OK) {
     ESP_LOGE(TAG, "MSC storage init failed - restoring SD");
+    s_handle = NULL;
     (void)vfs_sdcard_reattach_after_msc(s_card);
     s_card = NULL;
     s_state = USB_MSC_ERROR;
@@ -77,7 +102,13 @@ void usb_msc_exit(void) {
   // Hide MSC (re-enumerating the host) while the storage handle is still valid,
   // so no SCSI command lands on a deinitialized backend.
   busb_set_msc_exposed(false);
-  tinyusb_msc_storage_deinit();
+  if (s_handle != NULL) {
+    esp_err_t dr = tinyusb_msc_delete_storage(s_handle);
+    if (dr != ESP_OK) {
+      ESP_LOGW(TAG, "MSC storage delete failed: %s", esp_err_to_name(dr));
+    }
+    s_handle = NULL;
+  }
   usb_mux_set_native(false);
 
   esp_err_t r = vfs_sdcard_reattach_after_msc(s_card);

@@ -563,6 +563,16 @@ void            usb_msc_exit(void);         // blocking - run on a worker task
 - `usb_msc_enter()` detaches the app's `/sdcard` FAT, exposes the raw card to the
   host, and switches the USB mux to native. On failure the SD is restored and the
   state goes to `USB_MSC_ERROR`.
+- The MSC driver is installed with `auto_mount_off`, so the firmware is the sole
+  owner of the card: the esp_tinyusb layer never auto-remounts or formats the FAT
+  on host connect/eject. The host eject flush is served as raw-sector writes;
+  without this the eject-time remount fights our handoff and reboots the device,
+  dropping the just-copied files.
+- esp_tinyusb allocates the whole MSC storage object (which embeds a
+  `CONFIG_TINYUSB_MSC_BUFSIZE` buffer) from `MALLOC_CAP_DMA`, i.e. internal RAM on
+  the P4. That RAM is tight by the time the Files UI is up, so the buffer is kept
+  at 1024 B; a `USB_MSC: MSC storage init failed` after an
+  `heap_caps_aligned_alloc` failure means it must drop further (512 B).
 - `usb_msc_exit()` stops exposing the card, remounts `/sdcard`, and routes the USB
   connector back to the UART bridge. It resumes without a reboot; only a failed
   remount forces a reboot to recover.
