@@ -92,6 +92,9 @@ CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 # HKDF for the companion host-link key derivation (disabled by default in IDF)
 CONFIG_MBEDTLS_HKDF_C=y
 
+# 3DES for MIFARE Ultralight C auth in the NFC reader (disabled by default in IDF)
+CONFIG_MBEDTLS_DES_C=y
+
 # LVGL QR code widget — companion pairing screen renders the PSK as a QR
 CONFIG_LV_USE_QRCODE=y
 CONFIG_LV_USE_LODEPNG=y

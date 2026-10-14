@@ -3,7 +3,10 @@ dependencies:
   espressif/tinyusb: '*'
   espressif/esp_tinyusb: '*'
   joltwallet/littlefs: ^1.14.8
-  lvgl/lvgl: ^9.4.0
+  # Cap below 9.6.0: 9.6 moved lv_image_decoder_private.h to image/ and dropped
+  # lv_cache_private.h, and ui/assets_manager.c includes both by their 9.5 paths.
+  # v1.5.0 shipped on 9.5.0.
+  lvgl/lvgl: '>=9.4.0,<9.6.0'
   espressif/cjson: ^1.7.19
   espressif/argtable3: ^3.3
   espressif/libsodium: ^1.0.22
