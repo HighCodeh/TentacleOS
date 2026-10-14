@@ -89,16 +89,20 @@ interface, update its doc in the same change.
 
 ## Coding Standards
 
-All rules are in `CODING_STANDARDS.md`. Key points an agent must not miss:
+All code MUST follow the conventions defined in [CODING_STANDARDS.md](./CODING_STANDARDS.md).
+Read it before writing any code. It covers naming, types, error handling, concurrency,
+file organization, logging, and header structure.
+
+Key points an agent must not miss:
 
 - **Public functions** are prefixed with module name (`cc1101_set_frequency()`). **Static functions** drop the prefix (`process_pulse()`).
 - **Variables**: local `snake_case`, static `s_` prefix, global `g_` prefix, bools `is_`/`has_`/`can_`, output params `out_`.
-- **Types**: `module_name_t` with `_cb_t` for callbacks.
+- **Types**: all types use `snake_case` with `_t` suffix, prefixed by the module name (`module_name_t`), with `_cb_t` for callbacks.
 - **Constants**: `UPPER_SNAKE_CASE`. Every literal with domain meaning must be a named `#define` (except `0`, `1`, `NULL`, `true`, `false`).
 - **Enums**: `UPPER_SNAKE_CASE` with module prefix, include `_COUNT` sentinel when iterable.
 - **Fixed-width types** from `<stdint.h>` for all hardware code. Never rely on implicit `int`.
-- **Error handling**: public functions return `esp_err_t`. Every `malloc` must be checked for `NULL`, logged with `ESP_LOGE`, and handled via `goto cleanup`.
-- **Logging**: every `.c` file defines `static const char *TAG = "MODULE_NAME";`. Use `ESP_LOGx` macros, never `printf`.
+- **Error handling**: public functions return `esp_err_t` when they can fail. Every `malloc` must be checked for `NULL`, logged with `ESP_LOGE`, and handled via `goto cleanup`. Use `goto cleanup` for functions with multiple resources.
+- **Logging**: every `.c` file defines `static const char *TAG = "MODULE_NAME";` at the top. Use `ESP_LOGx` macros, never `printf`.
 - **File layout order**: license, own header, C stdlib, ESP-IDF/FreeRTOS, project headers, defines, static types, static vars, forward decls, public funcs, static funcs.
 - **Headers**: `#ifndef` guards, `extern "C"` blocks, include order separated by blank lines.
 - **Source file layout**: `^[0-9a-z_]+\.[ch]$`, filename is a prefix for its content.
