@@ -15,6 +15,7 @@
 
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_rom_crc.h"
 #include "esp_rom_sys.h"
 #include "esp_system.h"
 #include "esp_timer.h"
@@ -67,6 +68,30 @@ uint64_t esp_timer_get_time(void) {
 
 void esp_rom_delay_us(uint32_t us) {
     std::this_thread::sleep_for(std::chrono::microseconds(us));
+}
+
+// Same semantics as the ROM (and IDF's linux target): the running value is
+// inverted on entry and exit, so results chain across calls.
+uint32_t esp_rom_crc32_le(uint32_t crc, uint8_t const *buf, uint32_t len) {
+    crc = ~crc;
+    for (uint32_t i = 0; i < len; i++) {
+        crc ^= buf[i];
+        for (int bit = 0; bit < 8; bit++) {
+            crc = (crc & 1) ? (crc >> 1) ^ 0xEDB88320u : crc >> 1;
+        }
+    }
+    return ~crc;
+}
+
+uint16_t esp_rom_crc16_le(uint16_t crc, uint8_t const *buf, uint32_t len) {
+    crc = static_cast<uint16_t>(~crc);
+    for (uint32_t i = 0; i < len; i++) {
+        crc ^= buf[i];
+        for (int bit = 0; bit < 8; bit++) {
+            crc = (crc & 1) ? static_cast<uint16_t>((crc >> 1) ^ 0x8408) : crc >> 1;
+        }
+    }
+    return static_cast<uint16_t>(~crc);
 }
 
 esp_err_t esp_timer_create(const esp_timer_create_args_t *args, esp_timer_handle_t *handle) {
