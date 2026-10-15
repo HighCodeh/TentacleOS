@@ -61,6 +61,7 @@ static void battery_task(void *arg) {
   bool low = s_snap.low;
   bool charging_disp = s_snap.charging; // debounced charging shown to the UI
   int chg_off = 0;
+  int read_failures = 0;
   bool first = true;
 
   for (;;) {
@@ -70,11 +71,30 @@ static void battery_task(void *arg) {
     first = false;
 
     bq25896_telem_t t;
-    if (bq25896_read_telemetry(&t) != ESP_OK)
+    esp_err_t read_err = bq25896_read_telemetry(&t);
+    if (read_err != ESP_OK) {
+      if (++read_failures >= 3) {
+        ESP_LOGW(TAG,
+                 "charger telemetry failed 3x (%s); reapplying runtime config",
+                 esp_err_to_name(read_err));
+        (void)bq25896_reapply_runtime_config();
+        read_failures = 0;
+      }
       continue;
+    }
+    read_failures = 0;
+
+    // A charger watchdog/POR would clear continuous conversion. Repair it
+    // before accepting default 2.304-V ADC codes as real battery data.
+    if (!t.adc_continuous) {
+      ESP_LOGW(TAG, "charger ADC stopped; restoring continuous conversion");
+      (void)bq25896_reapply_runtime_config();
+      continue;
+    }
 
     // Filter the raw (voltage-lookup) SoC: an EMA rejects the transient voltage
-    // sag when a radio transmits (which otherwise makes the % dip then recover).
+    // sag when a radio transmits (which otherwise makes the % dip then
+    // recover).
     int raw = clamp_pct(t.soc);
     ema = (ema * (SOC_EMA_DEN - 1) + raw) / SOC_EMA_DEN;
     int target = ema;
@@ -96,10 +116,10 @@ static void battery_task(void *arg) {
     else if (soc >= LOW_EXIT_PCT)
       low = false;
 
-    // Debounce charging so the icon/bolt doesn't flicker when the charger cycles
-    // (e.g. pre-charge on a marginal cell): turn ON immediately; turn OFF
-    // immediately when unplugged; but require a few consecutive not-charging polls
-    // to drop it while still on external power.
+    // Debounce charging so the icon/bolt doesn't flicker when the charger
+    // cycles (e.g. pre-charge on a marginal cell): turn ON immediately; turn
+    // OFF immediately when unplugged; but require a few consecutive
+    // not-charging polls to drop it while still on external power.
     if (t.charging) {
       charging_disp = true;
       chg_off = 0;
@@ -123,26 +143,45 @@ static void battery_task(void *arg) {
     }
 
     // Log only when a meaningful field changes — the old per-poll dump was 1 Hz
-    // spam. vbat jitters by tens of mV so it isn't a trigger; it just rides along
-    // in the line when a real change (SoC / charge state / vbus / fault) fires.
-    // vbat==2304 => ADC register is 0 (not converting); vbat==0 => I2C read failed;
-    // chg_stat: 0 not-charging, 1 pre, 2 fast, 3 done.
-    static int last_soc = -1, last_charging = -1, last_vbus = -1, last_chg = -1, last_fault = -1;
+    // spam. vbat jitters by tens of mV so it isn't a trigger; it just rides
+    // along in the line when a real change (SoC / charge state / vbus / fault)
+    // fires. vbat==2304 => ADC register is 0 (not converting); vbat==0 => I2C
+    // read failed; chg_stat: 0 not-charging, 1 pre, 2 fast, 3 done.
+    static int last_soc = -1, last_charging = -1, last_vbus = -1, last_chg = -1, last_fault = -1,
+               last_ntc = -1, last_thermal = -1, last_idpm = -1, last_vdpm = -1;
     if (soc != last_soc || (int)t.charging != last_charging || (int)t.power_good != last_vbus ||
-        (int)t.chg != last_chg || (int)t.fault != last_fault) {
-      ESP_LOGD(TAG,
-               "vbat=%umV soc=%d%% charging=%d vbus=%d chg_stat=%d fault=0x%02X",
+        (int)t.chg != last_chg || (int)t.fault != last_fault || (int)t.ntc_state != last_ntc ||
+        (int)t.thermal_regulation != last_thermal || (int)t.input_current_dpm != last_idpm ||
+        (int)t.input_voltage_dpm != last_vdpm) {
+      ESP_LOGI(TAG,
+               "vbat=%u vsys=%u vbus=%u ichg=%umA temp=%d.%dC soc=%d%% src=%d "
+               "pg=%d chg=%d/%d "
+               "dpm=%d/%d therm=%d ntc=%d fault=0x%02X",
                t.vbat_mv,
+               t.vsys_mv,
+               t.vbus_mv,
+               t.ichg_ma,
+               t.temperature_decic / 10,
+               t.temperature_decic < 0 ? -(t.temperature_decic % 10) : t.temperature_decic % 10,
                soc,
-               (int)t.charging,
+               (int)t.vbus,
                (int)t.power_good,
+               (int)t.charging,
                (int)t.chg,
+               (int)t.input_current_dpm,
+               (int)t.input_voltage_dpm,
+               (int)t.thermal_regulation,
+               (int)t.ntc_state,
                t.fault);
       last_soc = soc;
       last_charging = (int)t.charging;
       last_vbus = (int)t.power_good;
       last_chg = (int)t.chg;
       last_fault = (int)t.fault;
+      last_ntc = (int)t.ntc_state;
+      last_thermal = (int)t.thermal_regulation;
+      last_idpm = (int)t.input_current_dpm;
+      last_vdpm = (int)t.input_voltage_dpm;
     }
   }
 }

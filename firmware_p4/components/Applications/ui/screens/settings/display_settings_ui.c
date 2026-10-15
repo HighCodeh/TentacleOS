@@ -30,10 +30,10 @@
 #define ROW_ROTATION   1
 #define ROW_TIMEOUT    2
 #define ROW_AUTODIM    3
-#define ROW_INVERT     4
 
 // Brightness maps the 5-step intensity bar to a percentage (level * 20).
-#define BRIGHTNESS_STEP_PCT 20
+#define BRIGHTNESS_STEP_PCT  20
+#define BRIGHTNESS_MIN_LEVEL 1
 
 static const char *const ROTATION_OPTS[] = {"Portrait", "Landscape"};
 #define ROTATION_COUNT ((int)(sizeof(ROTATION_OPTS) / sizeof(ROTATION_OPTS[0])))
@@ -121,7 +121,9 @@ static void display_settings_input(const input_event_t *ev, void *ctx) {
         int sel = menu_component_get_selected(&s_menu);
         if (sel >= 0) {
           if (s_menu.has_intensity[sel]) {
-            menu_component_intensity_dec(&s_menu, sel);
+            if (sel != ROW_BRIGHTNESS ||
+                menu_component_get_intensity(&s_menu, sel) > BRIGHTNESS_MIN_LEVEL)
+              menu_component_intensity_dec(&s_menu, sel);
             if (sel == ROW_BRIGHTNESS)
               lcd_apply_brightness(menu_component_get_intensity(&s_menu, sel) *
                                    BRIGHTNESS_STEP_PCT);
@@ -180,8 +182,10 @@ void ui_display_settings_open(void) {
   s_changed = false;
 
   int bright_level = lcd_get_brightness() / BRIGHTNESS_STEP_PCT;
-  if (bright_level < 0)
-    bright_level = 0;
+  if (bright_level < BRIGHTNESS_MIN_LEVEL) {
+    bright_level = BRIGHTNESS_MIN_LEVEL;
+    lcd_apply_brightness(BRIGHTNESS_MIN_LEVEL * BRIGHTNESS_STEP_PCT);
+  }
   if (bright_level > 5)
     bright_level = 5;
 
@@ -199,7 +203,7 @@ void ui_display_settings_open(void) {
       &s_menu, "/assets/icons/timer.bin", "Timeout", TIMEOUT_OPTS[s_timeout_idx]);
   menu_component_add_toggle(
       &s_menu, "/assets/icons/brightness_auto.bin", "Auto-dim", g_config_screen.auto_dim);
-  menu_component_add_toggle(&s_menu, "/assets/icons/invert_colors.bin", "Invert", false);
+  menu_component_set_hint(&s_menu, "LEFT/RIGHT change   OK toggle   BACK save");
 
   if (s_pending_row >= 0) {
     menu_component_select(&s_menu, s_pending_row);

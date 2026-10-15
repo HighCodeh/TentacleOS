@@ -17,6 +17,7 @@
 #define POWER_POLICY_H
 
 #include <stdbool.h>
+#include "lvgl.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,13 +27,22 @@ extern "C" {
  * @brief Start the global power policy (idempotent). Call once from ui_init(),
  *        under the LVGL lock (it creates an lv_timer).
  *
- * Owns two always-on behaviours in a single LVGL timer:
- *  - Screen power: after auto_lock_seconds of button inactivity it dims (when
- *    auto_dim is set) and then sleeps the panel, restoring the user's brightness
- *    on the next input. Reads input_last_activity_ms() and g_config_screen.
- *  - Low-battery policy: raise a toast on the low-battery edge.
+ * Owns the low-battery safety policy and the global manual power-off gestures.
+
  */
 void power_policy_init(void);
+
+/**
+ * @brief Open the safe power-off confirmation dialog.
+ *
+ * Cancel is
+ * selected by default. Confirmation stops the active operation,
+ * requests
+ * BQ25896 ship mode, unmounts storage, and presents the final power
+ * state.
+ * Must be called from the LVGL thread.
+ */
+void power_policy_show_shutdown_dialog(void);
 
 /**
  * @brief Whether the screen is currently asleep (panel off).
@@ -41,6 +51,21 @@ void power_policy_init(void);
  * screen instead of also acting on the underlying UI.
  */
 bool power_policy_is_asleep(void);
+
+/**
+ * @brief Keep the display awake only while owner is the active LVGL screen.
+ *
+ * Call under
+ * the LVGL lock. Enable while an animation is running; disable when
+ * paused or leaving its
+ * screen. Disabling a different owner does nothing.
+ * The hold is also released when owner is
+ * deleted. This does not synthesize
+ * input, change the saved timeout/brightness, or suspend
+ * battery/manual OFF
+ * policy. A NULL or invalid owner cannot acquire the hold.
+ */
+void power_policy_set_display_hold(const lv_obj_t *owner, bool enabled);
 
 #ifdef __cplusplus
 }

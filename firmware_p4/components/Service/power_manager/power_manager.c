@@ -69,9 +69,8 @@ static const char *TAG = "POWER_MGR";
 // Frequency is PINNED (min == max): no DFS. DFS would scale the APB and break the
 // console UART baud (the IDF UART driver excludes the console UART from PM). The
 // power win here is light sleep (CPU fully off when idle), not DFS. Light sleep
-// is gated by the NO_LIGHT_SLEEP lock, held while native USB is connected or
-// external power is present (item 41); the screen does not hold it (backlight
-// always on), so on battery the CPU may light sleep with the panel lit.
+// is gated by the NO_LIGHT_SLEEP lock, held while the screen is on, native USB
+// is connected, or external power is present (item 41).
 #define PM_FREQ_MHZ 360
 
 static esp_pm_lock_handle_t s_no_sleep_lock = NULL;

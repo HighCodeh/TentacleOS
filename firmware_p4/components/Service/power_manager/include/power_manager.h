@@ -27,7 +27,7 @@ extern "C" {
 // System power manager. Owns esp_pm: dynamic frequency scaling (CPU drops clock
 // when idle) plus automatic light sleep. Light sleep only actually engages when
 // nobody holds the shared NO_LIGHT_SLEEP lock AND all tasks are blocked, so it
-// happens when the device is genuinely idle (no active resource or owner).
+// happens when the device is genuinely idle (screen off, no active resource).
 //
 // Lives in Service (not Core as the audit suggested) because power_policy lives
 // in Applications, which cannot depend on Core (Core already REQUIRES
@@ -38,7 +38,7 @@ extern "C" {
  * @brief Configure esp_pm (DFS + light sleep) and create the shared lock.
  *
  * Call once early in boot. Does not acquire the lock; owners that need the CPU
- * fully awake acquire it themselves (USB session, active radio, ...).
+ * fully awake acquire it themselves (screen on, USB session, active radio, ...).
  */
 void power_manager_init(void);
 
