@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ir_menu_ui.h"
+#include "ir_library_ui.h"
 
 #include "esp_log.h"
 
@@ -33,6 +34,7 @@ static const ir_menu_item_t MENU_ITEMS[] = {
     {"Learn", "/assets/icons/settings_input_antenna.bin", SCREEN_IR_RECEIVE},
     {"Send", "/assets/icons/podcasts.bin", SCREEN_IR_SEND},
     {"Remote Control", "/assets/icons/settings_remote.bin", SCREEN_IR_REMOTE_TYPE},
+    {"Remote Library", "/assets/icons/folder_open.bin", -1},
     {"Browse Signals", "/assets/icons/folder_open.bin", SCREEN_IR_SAVED},
     {"Burst", "/assets/icons/bolt.bin", SCREEN_IR_BURST},
     {"RAW Signal", "/assets/icons/graphic_eq.bin", SCREEN_IR_RAW},
@@ -84,8 +86,12 @@ static void ir_menu_input(const input_event_t *ev, void *ctx) {
     case INPUT_BTN_OK:
       if (press) {
         int sel = menu_component_get_selected(&s_menu);
-        if (sel >= 0 && sel < (int)MENU_ITEMS_COUNT && MENU_ITEMS[sel].target >= 0)
-          ui_switch_screen(MENU_ITEMS[sel].target);
+        if (sel >= 0 && sel < (int)MENU_ITEMS_COUNT) {
+          if (MENU_ITEMS[sel].target < 0)
+            ui_ir_library_open();
+          else
+            ui_switch_screen(MENU_ITEMS[sel].target);
+        }
       }
       break;
     default:

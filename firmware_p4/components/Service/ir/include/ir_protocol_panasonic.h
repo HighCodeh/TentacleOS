@@ -67,6 +67,12 @@ extern "C" {
 /** @brief Bit position of byte3 in the Panasonic frame word. */
 #define PANASONIC_BYTE3_SHIFT 40
 
+/** @brief Bit position of the address field in the Kaseikyo/Panasonic Flipper frame. */
+#define KASEIKYO_ADDR_SHIFT 16
+
+/** @brief Bit mask for the 12-bit address field in the Kaseikyo/Panasonic Flipper frame. */
+#define KASEIKYO_ADDR_MASK 0xFFF
+
 /** @brief Bit mask for the 16-bit vendor ID field in the Panasonic frame word. */
 #define PANASONIC_VENDOR_MASK 0xFFFF
 

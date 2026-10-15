@@ -30,6 +30,7 @@
 #include "sys_prio.h"
 
 #include "ir_protocol.h"
+#include "ir_ac_request.h"
 #include "storage_mkdir.h"
 #include "tos_storage_paths.h"
 
@@ -323,14 +324,17 @@ esp_err_t ir_store_send_raw(const rmt_symbol_word_t *symbols, size_t count, uint
 }
 
 esp_err_t ir_store_send_ac(const ir_ac_state_t *state) {
-  if (state == NULL)
-    return ESP_ERR_INVALID_ARG;
-  esp_err_t r = tx_ready();
-  if (r != ESP_OK)
-    return r;
-  r = ir_ac_send(state);
-  ESP_LOGI(TAG, "send AC %s -> %s", ir_ac_protocol_name(state->protocol), esp_err_to_name(r));
-  return r;
+  const char *reason = ir_ac_request_error(state);
+  if (reason != NULL) {
+    ESP_LOGW(TAG, "AC request rejected: %s", reason);
+    return state == NULL ? ESP_ERR_INVALID_ARG : ESP_ERR_NOT_SUPPORTED;
+  }
+  esp_err_t result = tx_ready();
+  if (result != ESP_OK)
+    return result;
+  result = ir_ac_send(state);
+  ESP_LOGI(TAG, "send AC %s -> %s", ir_ac_protocol_name(state->protocol), esp_err_to_name(result));
+  return result;
 }
 
 int ir_store_send_named(const ir_file_t *file, const char *name) {

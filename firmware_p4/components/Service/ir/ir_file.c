@@ -15,6 +15,9 @@
 
 #include "ir_file.h"
 
+#include <ctype.h>
+#include <errno.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,9 +34,6 @@
 #include "ir_protocol_panasonic.h"
 #include "ir_protocol_rca.h"
 #include "ir_protocol_pioneer.h"
-#include "ir_protocol_lg.h"
-#include "ir_protocol_jvc.h"
-#include "ir_protocol_denon.h"
 
 static const char *TAG = "IR_FILE";
 
@@ -74,22 +74,27 @@ static esp_err_t grow(ir_file_t *file) {
   return ESP_OK;
 }
 
-static uint32_t parse_hex_bytes(const char *str) {
+static bool parse_hex_bytes(const char *str, uint32_t *out) {
   uint32_t result = 0;
   uint32_t shift = 0;
-  while (*str && shift < 32) {
-    while (*str == ' ')
+  while (*str) {
+    while (isspace((unsigned char)*str))
       str++;
     if (*str == '\0')
       break;
-    uint8_t byte;
-    if (sscanf(str, "%2hhx", &byte) != 1)
-      break;
-    result |= ((uint32_t)byte << shift);
+    if (shift >= 32 || !isxdigit((unsigned char)str[0]) || !isxdigit((unsigned char)str[1]))
+      return false;
+    char byte_text[3] = {str[0], str[1], '\0'};
+    result |= (uint32_t)strtoul(byte_text, NULL, 16) << shift;
     shift += 8;
     str += 2;
+    if (*str != '\0' && !isspace((unsigned char)*str))
+      return false;
   }
-  return result;
+  if (shift == 0)
+    return false;
+  *out = result;
+  return true;
 }
 
 static bool
@@ -153,24 +158,6 @@ flipper_to_ir_data(const char *proto, uint32_t addr, uint32_t cmd, ir_data_t *ou
     out_data->command = cmd & PIONEER_ADDR_STANDARD_MAX;
     return true;
   }
-  if (strcmp(proto, "LG") == 0) {
-    out_data->protocol = IR_PROTO_LG;
-    out_data->address = addr & LG_ADDR_MASK;
-    out_data->command = cmd & LG_CMD_MASK;
-    return true;
-  }
-  if (strcmp(proto, "JVC") == 0) {
-    out_data->protocol = IR_PROTO_JVC;
-    out_data->address = addr & JVC_ADDR_MASK;
-    out_data->command = cmd;
-    return true;
-  }
-  if (strcmp(proto, "Denon") == 0) {
-    out_data->protocol = IR_PROTO_DENON;
-    out_data->address = addr & DENON_ADDR_MASK;
-    out_data->command = cmd;
-    return true;
-  }
   return false;
 }
 
@@ -193,12 +180,6 @@ static const char *to_flipper_proto(ir_protocol_t proto, uint32_t address, uint3
       return "RCA";
     case IR_PROTO_PIONEER:
       return "Pioneer";
-    case IR_PROTO_LG:
-      return "LG";
-    case IR_PROTO_JVC:
-      return "JVC";
-    case IR_PROTO_DENON:
-      return "Denon";
     case IR_PROTO_SONY:
       if (address > SONY_SIRC15_ADDR_MAX)
         return "SIRC20";
@@ -215,37 +196,42 @@ static esp_err_t parse_raw_data(const char *str, ir_signal_t *sig) {
   size_t count = 0;
   const char *p = str;
   while (*p) {
-    while (*p == ' ')
+    while (isspace((unsigned char)*p))
       p++;
     if (*p == '\0')
       break;
-    count++;
-    while (*p && *p != ' ')
-      p++;
+    if (!isdigit((unsigned char)*p))
+      return ESP_ERR_INVALID_ARG;
+    errno = 0;
+    char *end;
+    unsigned long duration = strtoul(p, &end, 10);
+    if (errno == ERANGE || duration == 0 || duration > UINT32_MAX ||
+        (*end != '\0' && !isspace((unsigned char)*end)))
+      return ESP_ERR_INVALID_ARG;
+    if (++count > IR_FILE_RAW_MAX_PULSES)
+      return ESP_ERR_INVALID_SIZE;
+    p = end;
   }
 
-  if (count == 0) {
-    sig->raw = NULL;
-    sig->raw_count = 0;
-    return ESP_OK;
-  }
-  sig->raw = heap_caps_malloc(count * sizeof(uint32_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  if (sig->raw == NULL) {
+  if (count == 0)
+    return ESP_ERR_INVALID_ARG;
+  uint32_t *raw = heap_caps_malloc(count * sizeof(uint32_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (raw == NULL) {
     ESP_LOGE(TAG, "Failed to allocate raw data");
     return ESP_ERR_NO_MEM;
   }
-  sig->raw_count = 0;
 
   p = str;
-  while (*p) {
-    while (*p == ' ')
+  for (size_t i = 0; i < count; i++) {
+    while (isspace((unsigned char)*p))
       p++;
-    if (*p == '\0')
-      break;
-    sig->raw[sig->raw_count++] = (uint32_t)atol(p);
-    while (*p && *p != ' ')
-      p++;
+    char *end;
+    raw[i] = (uint32_t)strtoul(p, &end, 10);
+    p = end;
   }
+  free(sig->raw);
+  sig->raw = raw;
+  sig->raw_count = count;
   return ESP_OK;
 }
 
@@ -257,8 +243,14 @@ static esp_err_t finalize_signal(ir_signal_t *current,
   if (!current->is_raw) {
     if (!flipper_to_ir_data(proto_name, addr32, cmd32, &current->data)) {
       ESP_LOGW(TAG, "Unknown protocol '%s' for signal '%s'", proto_name, current->name);
+      free(current->raw);
+      current->raw = NULL;
       return ESP_OK;
     }
+    if (current->raw != NULL)
+      return ESP_ERR_INVALID_ARG;
+  } else if (current->raw == NULL || current->raw_count == 0 || current->frequency == 0) {
+    return ESP_ERR_INVALID_ARG;
   }
 
   esp_err_t ret = grow(file);
@@ -266,6 +258,8 @@ static esp_err_t finalize_signal(ir_signal_t *current,
     return ret;
 
   file->signals[file->count++] = *current;
+  current->raw = NULL; // Ownership transferred to the destination file.
+  current->raw_count = 0;
   return ESP_OK;
 }
 
@@ -273,10 +267,30 @@ esp_err_t ir_file_parse(const char *content, ir_file_t *file) {
   if (content == NULL || file == NULL)
     return ESP_ERR_INVALID_ARG;
 
+  size_t content_len = strnlen(content, IR_FILE_CONTENT_MAX + 1U);
+  if (content_len > IR_FILE_CONTENT_MAX)
+    return ESP_ERR_INVALID_SIZE;
+
+  // Allocate one full-line buffer in PSRAM. Never truncate an AC RAW frame.
+  size_t max_line = 0;
+  size_t line_len = 0;
+  for (size_t i = 0; i < content_len; i++) {
+    if (content[i] == '\n')
+      line_len = 0;
+    else if (++line_len > max_line)
+      max_line = line_len;
+  }
+  char *buf = heap_caps_malloc(max_line + 1U, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (buf == NULL)
+    return ESP_ERR_NO_MEM;
+
+  esp_err_t ret = ESP_OK;
+  const size_t initial_count = file->count;
   const char *line = content;
   ir_signal_t current;
   memset(&current, 0, sizeof(current));
   bool in_signal = false;
+  bool have_type = false;
   char proto_name[IR_FILE_PROTO_NAME_MAX];
   uint32_t addr32 = 0;
   uint32_t cmd32 = 0;
@@ -286,15 +300,11 @@ esp_err_t ir_file_parse(const char *content, ir_file_t *file) {
     const char *eol = strchr(line, '\n');
     size_t len = eol ? (size_t)(eol - line) : strlen(line);
 
-    char buf[IR_FILE_LINE_BUF_SIZE];
-    if (len >= sizeof(buf))
-      len = sizeof(buf) - 1;
     memcpy(buf, line, len);
     buf[len] = '\0';
+    line = eol ? eol + 1 : line + len;
     if (len > 0 && buf[len - 1] == '\r')
       buf[--len] = '\0';
-
-    line = eol ? eol + 1 : line + len;
 
     if (buf[0] == '#' || len == 0)
       continue;
@@ -307,46 +317,91 @@ esp_err_t ir_file_parse(const char *content, ir_file_t *file) {
     *colon = '\0';
     char *key = buf;
     char *value = colon + 1;
-    while (*value == ' ')
+    while (isspace((unsigned char)*value))
       value++;
+    char *value_end = value + strlen(value);
+    while (value_end > value && isspace((unsigned char)value_end[-1]))
+      *--value_end = '\0';
 
     if (strcmp(key, "name") == 0) {
       if (in_signal) {
-        esp_err_t ret = finalize_signal(&current, proto_name, addr32, cmd32, file);
+        ret = have_type ? finalize_signal(&current, proto_name, addr32, cmd32, file)
+                        : ESP_ERR_INVALID_ARG;
         if (ret != ESP_OK)
-          return ret;
+          goto cleanup;
       }
       memset(&current, 0, sizeof(current));
       strncpy(current.name, value, IR_FILE_NAME_MAX - 1);
       in_signal = true;
+      have_type = false;
       proto_name[0] = '\0';
       addr32 = 0;
       cmd32 = 0;
+    } else if (!in_signal) {
+      continue;
     } else if (strcmp(key, "type") == 0) {
+      if (strcmp(value, "raw") != 0 && strcmp(value, "parsed") != 0) {
+        ret = ESP_ERR_INVALID_ARG;
+        goto cleanup;
+      }
       current.is_raw = (strcmp(value, "raw") == 0);
+      have_type = true;
     } else if (strcmp(key, "protocol") == 0) {
+      if (strlen(value) >= sizeof(proto_name)) {
+        ret = ESP_ERR_INVALID_ARG;
+        goto cleanup;
+      }
       strncpy(proto_name, value, sizeof(proto_name) - 1);
+      proto_name[sizeof(proto_name) - 1] = '\0';
     } else if (strcmp(key, "address") == 0) {
-      addr32 = parse_hex_bytes(value);
+      if (!parse_hex_bytes(value, &addr32)) {
+        ret = ESP_ERR_INVALID_ARG;
+        goto cleanup;
+      }
     } else if (strcmp(key, "command") == 0) {
-      cmd32 = parse_hex_bytes(value);
+      if (!parse_hex_bytes(value, &cmd32)) {
+        ret = ESP_ERR_INVALID_ARG;
+        goto cleanup;
+      }
     } else if (strcmp(key, "frequency") == 0) {
-      current.frequency = (uint32_t)atol(value);
+      errno = 0;
+      char *end;
+      unsigned long frequency = strtoul(value, &end, 10);
+      while (isspace((unsigned char)*end))
+        end++;
+      if (!isdigit((unsigned char)*value) || errno == ERANGE || frequency == 0 ||
+          frequency > UINT32_MAX || *end != '\0') {
+        ret = ESP_ERR_INVALID_ARG;
+        goto cleanup;
+      }
+      current.frequency = (uint32_t)frequency;
     } else if (strcmp(key, "data") == 0) {
-      esp_err_t ret = parse_raw_data(value, &current);
+      ret = parse_raw_data(value, &current);
       if (ret != ESP_OK)
-        return ret;
+        goto cleanup;
     }
   }
 
   if (in_signal) {
-    esp_err_t ret = finalize_signal(&current, proto_name, addr32, cmd32, file);
+    ret = have_type ? finalize_signal(&current, proto_name, addr32, cmd32, file)
+                    : ESP_ERR_INVALID_ARG;
     if (ret != ESP_OK)
-      return ret;
+      goto cleanup;
   }
 
-  ESP_LOGI(TAG, "Parsed %d signals", file->count);
-  return ESP_OK;
+  ESP_LOGI(TAG, "Parsed %u signals", (unsigned)file->count);
+
+cleanup:
+  free(current.raw);
+  free(buf);
+  if (ret != ESP_OK) {
+    while (file->count > initial_count) {
+      ir_signal_t *sig = &file->signals[--file->count];
+      free(sig->raw);
+      memset(sig, 0, sizeof(*sig));
+    }
+  }
+  return ret;
 }
 
 size_t ir_file_to_string(const ir_file_t *file, char *buf, size_t buf_size) {
@@ -435,6 +490,22 @@ esp_err_t ir_file_send(const ir_signal_t *signal) {
     return ESP_ERR_INVALID_ARG;
 
   if (signal->is_raw) {
+    if (signal->raw == NULL || signal->raw_count == 0 ||
+        signal->frequency < IR_FILE_RAW_MIN_FREQUENCY_HZ ||
+        signal->frequency > IR_FILE_RAW_MAX_FREQUENCY_HZ)
+      return ESP_ERR_INVALID_ARG;
+    if (signal->raw_count > IR_FILE_RAW_MAX_PULSES)
+      return ESP_ERR_INVALID_SIZE;
+
+    uint32_t total_us = 0;
+    for (size_t i = 0; i < signal->raw_count; i++) {
+      uint32_t duration = signal->raw[i];
+      if (duration == 0 || duration > IR_FILE_RAW_MAX_DURATION_US ||
+          duration > IR_FILE_RAW_MAX_TOTAL_US - total_us)
+        return ESP_ERR_INVALID_SIZE;
+      total_us += duration;
+    }
+
     size_t sym_count = (signal->raw_count + 1) / 2;
     rmt_symbol_word_t *symbols = malloc(sym_count * sizeof(rmt_symbol_word_t));
     if (symbols == NULL) {

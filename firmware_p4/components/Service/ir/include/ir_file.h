@@ -28,8 +28,17 @@ extern "C" {
 /** @brief Maximum length of a protocol name string, including null terminator. */
 #define IR_FILE_PROTO_NAME_MAX 32
 
-/** @brief Maximum line buffer size used during file parsing. */
-#define IR_FILE_LINE_BUF_SIZE 1024
+/** @brief Maximum input size. Lines are read in full using a PSRAM buffer. */
+#define IR_FILE_CONTENT_MAX (512U * 1024U)
+
+/** @brief Bound RAW storage to 32 KiB per signal (up to 16 KiB for TX symbols). */
+#define IR_FILE_RAW_MAX_PULSES 8192U
+
+/** @brief Current RMT TX limits; oversized durations are rejected, never truncated. */
+#define IR_FILE_RAW_MAX_DURATION_US  32767U
+#define IR_FILE_RAW_MAX_TOTAL_US     900000U
+#define IR_FILE_RAW_MIN_FREQUENCY_HZ 10000U
+#define IR_FILE_RAW_MAX_FREQUENCY_HZ 100000U
 
 /** @brief Initial capacity of the signals array before any growth. */
 #define IR_FILE_INITIAL_CAP 8
@@ -87,7 +96,9 @@ void ir_file_free(ir_file_t *file);
  * @brief Parse a Flipper Zero IR file from a null-terminated string.
  *
  * Appends parsed signals to @p file. Caller must call ir_file_init before
- * the first parse and ir_file_free when done.
+ * the first parse and ir_file_free when done. On error, signals appended by this
+ * call are freed and pre-existing signals are preserved. RAW lines are never
+ * truncated; each signal is limited to IR_FILE_RAW_MAX_PULSES timings.
  *
  * @param[in]     content  Null-terminated file content. Must not be NULL.
  * @param[in,out] file     Destination file. Must not be NULL.
@@ -96,6 +107,8 @@ void ir_file_free(ir_file_t *file);
  *   - ESP_OK on success
  *   - ESP_ERR_INVALID_ARG if any pointer is NULL
  *   - ESP_ERR_NO_MEM if allocation fails
+ *   - ESP_ERR_INVALID_SIZE if content or a RAW signal exceeds the documented limit
+ *   - ESP_ERR_INVALID_ARG if a RAW timing or signal field is malformed
  */
 esp_err_t ir_file_parse(const char *content, ir_file_t *file);
 
@@ -127,6 +140,9 @@ ir_signal_t *ir_file_find(const ir_file_t *file, const char *name);
  * @brief Transmit a signal over IR.
  *
  * Dispatches to ir_send_raw for raw signals or ir_send for decoded signals.
+ * RAW transmission accepts positive durations through 32767 us, total duration
+ * through 900000 us, and carriers from 10 to 100 kHz. These limits preserve the
+ * current driver's 15-bit durations and one-second completion timeout.
  *
  * @param[in] signal  Signal to transmit. Must not be NULL.
  *

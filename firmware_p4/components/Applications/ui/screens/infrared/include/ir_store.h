@@ -111,7 +111,7 @@ esp_err_t ir_store_send_signal(const ir_signal_t *signal);
 /** @brief Transmit a raw symbol buffer (brings TX up first). */
 esp_err_t ir_store_send_raw(const rmt_symbol_word_t *symbols, size_t count, uint32_t freq);
 
-/** @brief Encode and transmit a full AC state frame (brings TX up first). */
+/** @brief Send one supported AC state; rejects values the codec would silently replace. */
 esp_err_t ir_store_send_ac(const ir_ac_state_t *state);
 
 /**
