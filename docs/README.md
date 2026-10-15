@@ -33,6 +33,7 @@ README.md, separated by `---`.
 | `espnow_chat` | [README.md](espnow_chat/README.md)  |
 | `gameboy` | [README.md](gameboy/README.md) - Game Boy emulator application |
 | `doom` | [README.md](doom/README.md) - DOOM input and internal-DMA strip rendering |
+| `hle` | [README.md](hle/README.md) - host simulator compatibility and SPI CRC regression tests |
 | `host_link` | [app-guide.md](host_link/app-guide.md) [protocol.md](host_link/protocol.md) [README.md](host_link/README.md)  |
 | `http_server` | [README.md](http_server/README.md)  |
 | `i2c_init` | [README.md](i2c_init/README.md) - shared I2C bus initialization driver |
