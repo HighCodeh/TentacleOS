@@ -49,6 +49,13 @@ typedef struct {
 static session_state_t s_state = {0};
 static SemaphoreHandle_t s_mutex = NULL;
 static bool s_initialized = false;
+// Preserve the source of a callback after releasing s_mutex. A stop/start may
+// otherwise replace s_state before the consumer handles this old record.
+static __thread uint32_t s_callback_session_id = SPI_SESSION_INVALID_ID;
+
+uint32_t spi_session_callback_id(void) {
+  return s_callback_session_id;
+}
 
 // The RES_WIFI grant held for the active session (UI/firmware path). Released
 // whenever the session ends; see notify_lost_locked and spi_session_stop.
@@ -109,7 +116,10 @@ static void on_session_stream(spi_id_t id, const uint8_t *payload, uint8_t len) 
   xSemaphoreGive(s_mutex);
 
   if (cb != NULL) {
+    uint32_t previous_callback_id = s_callback_session_id;
+    s_callback_session_id = meta.session_id;
     cb(payload + sizeof(meta), (uint8_t)(len - sizeof(meta)));
+    s_callback_session_id = previous_callback_id;
   }
 }
 
@@ -254,7 +264,12 @@ uint32_t spi_session_start(spi_id_t op_id,
   if (!resource_handle_valid(new_handle)) {
     ESP_LOGW(TAG, "radio taken during start of op 0x%04X; dropping session", op_id);
     spi_session_stop_req_t drop = {.session_id = resp.session_id};
-    spi_bridge_send_command(SPI_ID_SESSION_STOP, (uint8_t *)&drop, sizeof(drop), NULL, NULL, 0,
+    spi_bridge_send_command(SPI_ID_SESSION_STOP,
+                            (uint8_t *)&drop,
+                            sizeof(drop),
+                            NULL,
+                            NULL,
+                            0,
                             spi_bridge_get_timeout(SPI_ID_SESSION_STOP));
     return SPI_SESSION_INVALID_ID;
   }

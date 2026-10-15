@@ -50,6 +50,20 @@ extern "C" {
 /** Stream payload callback (meta header is stripped before invocation). */
 typedef void (*spi_session_stream_cb_t)(const uint8_t *data, uint8_t len);
 
+/**
+ * @brief Source session id of the current thread's stream callback.
+ *
+ * Returns
+ * SPI_SESSION_INVALID_ID outside a callback. The value remains the
+ * original packet's id even
+ * when another task stops/replaces the session after
+ * metadata validation. Consumers that defer
+ * work must copy it with their data;
+ * it must not be replaced by the id of a newly started
+ * session.
+ */
+uint32_t spi_session_callback_id(void);
+
 /** Invoked when the C5 stops acknowledging this session (heartbeat fail or LOST stream). */
 typedef void (*spi_session_lost_cb_t)(uint32_t session_id, spi_id_t op_id);
 

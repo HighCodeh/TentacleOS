@@ -15,16 +15,79 @@
 
 #include "spi_slave_driver.h"
 
+#include <stdbool.h>
 #include <string.h>
 
 #include "driver/gpio.h"
 #include "driver/spi_slave.h"
+#include "esp_attr.h"
 #include "esp_log.h"
+#include "esp_memory_utils.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/portmacro.h"
+#include "hal/gpio_ll.h"
+#include "sdkconfig.h"
+#include "soc/soc_caps.h"
 
 #include "pin_def.h"
 
 static const char *TAG = "SPI_SLAVE_DRV";
+
+// The atomic publication below is intentionally target-specific. In this C5
+// IDF path, validated DMA buffers need neither heap allocation nor cache sync
+// in spi_slave_queue_trans(). Revisit rather than silently porting to a target
+// where the driver may allocate or block inside the critical section.
+#if !CONFIG_IDF_TARGET_ESP32C5 || !CONFIG_FREERTOS_UNICORE || SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
+#error "SPI paired publication requires single-core C5 without internal-memory cache"
+#endif
+
+#define SPI_PAIR_MAX_BYTES 2048u
+static portMUX_TYPE s_pair_lock = portMUX_INITIALIZER_UNLOCKED;
+static DRAM_ATTR portMUX_TYPE s_setup_diag_lock = portMUX_INITIALIZER_UNLOCKED;
+static DRAM_ATTR spi_slave_setup_diag_t s_setup_diag;
+
+static void IRAM_ATTR post_setup_observe(spi_slave_transaction_t *trans) {
+  if (!trans)
+    return;
+  // IDF invokes this AFTER spi_slave_hal_user_start(). An active CS here is
+  // an overlap observation, not proof CS was low when arming began: the
+  // master can assert CS in the interval before this register sample. Read
+  // the register directly so the callback never depends on flash-resident
+  // gpio_get_level(). No payload, allocation, logging or timing wait here.
+  bool cs_low = gpio_ll_get_level(GPIO_LL_GET_HW(0), GPIO_BRIDGE_CS_PIN) == 0;
+  portENTER_CRITICAL_ISR(&s_setup_diag_lock);
+  if (trans->tx_buffer) {
+    if (s_setup_diag.tx_armed != UINT32_MAX)
+      s_setup_diag.tx_armed++;
+    if (cs_low && s_setup_diag.tx_cs_low_after_setup != UINT32_MAX)
+      s_setup_diag.tx_cs_low_after_setup++;
+  }
+  if (trans->rx_buffer) {
+    if (s_setup_diag.rx_armed != UINT32_MAX)
+      s_setup_diag.rx_armed++;
+    if (cs_low && s_setup_diag.rx_cs_low_after_setup != UINT32_MAX)
+      s_setup_diag.rx_cs_low_after_setup++;
+  }
+  portEXIT_CRITICAL_ISR(&s_setup_diag_lock);
+}
+
+esp_err_t spi_slave_driver_get_setup_diag(spi_slave_setup_diag_t *out) {
+  if (!out)
+    return ESP_ERR_INVALID_ARG;
+  spi_slave_setup_diag_t snapshot;
+  portENTER_CRITICAL(&s_setup_diag_lock);
+  snapshot = s_setup_diag;
+  portEXIT_CRITICAL(&s_setup_diag_lock);
+  // A caller's destination need not be internal RAM. Keep its write outside
+  // the interrupt-masked window; the captured values remain one snapshot.
+  *out = snapshot;
+  return ESP_OK;
+}
+
+static bool pair_buffer_valid(const void *data, size_t len) {
+  return data && len && len <= SPI_PAIR_MAX_BYTES && !(len & 3u) && esp_ptr_word_aligned(data) &&
+         esp_ptr_dma_capable(data);
+}
 
 esp_err_t spi_slave_driver_init(void) {
   spi_bus_config_t buscfg = {
@@ -40,6 +103,7 @@ esp_err_t spi_slave_driver_init(void) {
       .spics_io_num = GPIO_BRIDGE_CS_PIN,
       .queue_size = 3,
       .flags = 0,
+      .post_setup_cb = post_setup_observe,
   };
 
   gpio_config_t io_conf = {
@@ -57,6 +121,12 @@ esp_err_t spi_slave_driver_init(void) {
     ESP_LOGE(TAG, "Failed to initialize SPI slave: %s", esp_err_to_name(ret));
     return ret;
   }
+
+  // Successful initialization has no queued transaction yet. Do not clear
+  // observations on a failed duplicate init of an already running driver.
+  portENTER_CRITICAL(&s_setup_diag_lock);
+  s_setup_diag = (spi_slave_setup_diag_t){0};
+  portEXIT_CRITICAL(&s_setup_diag_lock);
 
   ESP_LOGI(TAG, "SPI slave driver initialized");
   return ESP_OK;
@@ -85,6 +155,56 @@ esp_err_t spi_slave_driver_queue(spi_slave_transaction_t *trans,
 esp_err_t spi_slave_driver_wait(void) {
   spi_slave_transaction_t *result = NULL;
   return spi_slave_get_trans_result(SPI2_HOST, &result, portMAX_DELAY);
+}
+
+esp_err_t spi_slave_driver_queue_response_and_receive(spi_slave_transaction_t *tx_trans,
+                                                      const uint8_t *tx_data,
+                                                      size_t tx_len,
+                                                      spi_slave_transaction_t *rx_trans,
+                                                      uint8_t *rx_data,
+                                                      size_t rx_len) {
+  // Reject descriptor/length/alignment errors before entering the critical
+  // section, avoiding the IDF driver's error-logging paths while interrupts
+  // are masked. The queue is initialized once and has three slots; the sole
+  // caller has already reaped both prior transactions before entering here.
+  if (!tx_trans || !rx_trans || tx_trans == rx_trans || !pair_buffer_valid(tx_data, tx_len) ||
+      !pair_buffer_valid(rx_data, rx_len))
+    return ESP_ERR_INVALID_ARG;
+  uintptr_t tx_addr = (uintptr_t)tx_data, rx_addr = (uintptr_t)rx_data;
+  if ((tx_addr <= rx_addr && rx_addr - tx_addr < tx_len) ||
+      (rx_addr < tx_addr && tx_addr - rx_addr < rx_len))
+    return ESP_ERR_INVALID_ARG;
+
+  memset(tx_trans, 0, sizeof(*tx_trans));
+  memset(rx_trans, 0, sizeof(*rx_trans));
+  tx_trans->length = tx_len * 8;
+  tx_trans->tx_buffer = tx_data;
+  rx_trans->length = rx_len * 8;
+  rx_trans->rx_buffer = rx_data;
+
+  // C5 is single-core: neither task preemption nor the SPI setup ISR can
+  // expose the response before the next receive has been queued. These are
+  // strictly nonblocking calls; never use portMAX_DELAY within this section.
+  portENTER_CRITICAL(&s_pair_lock);
+  esp_err_t ret = spi_slave_queue_trans(SPI2_HOST, tx_trans, 0);
+  if (ret == ESP_OK)
+    ret = spi_slave_queue_trans(SPI2_HOST, rx_trans, 0);
+  portEXIT_CRITICAL(&s_pair_lock);
+  return ret;
+}
+
+esp_err_t spi_slave_driver_wait_for(spi_slave_transaction_t *expected) {
+  if (!expected)
+    return ESP_ERR_INVALID_ARG;
+  spi_slave_transaction_t *result = NULL;
+  esp_err_t ret = spi_slave_get_trans_result(SPI2_HOST, &result, portMAX_DELAY);
+  if (ret != ESP_OK)
+    return ret;
+  if (result != expected)
+    return ESP_ERR_INVALID_RESPONSE;
+  if (result->trans_len != expected->length)
+    return ESP_ERR_INVALID_SIZE;
+  return ESP_OK;
 }
 
 void spi_slave_driver_set_irq(int level) {

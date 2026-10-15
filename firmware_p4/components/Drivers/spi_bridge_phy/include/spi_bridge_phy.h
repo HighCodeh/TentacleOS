@@ -63,6 +63,23 @@ esp_err_t spi_bridge_phy_init_ex(bool setup_irq);
 esp_err_t spi_bridge_phy_transmit(const uint8_t *tx_data, uint8_t *rx_data, size_t len);
 
 /**
+ * Select 2, 4 or 10 MHz without changing SPI mode or other peripherals.
+ * The caller MUST hold
+ * the bridge mutex and exclude the legacy session.
+ * No transfer or persistent configuration write
+ * is made. On failure the previous device is
+ * restored best-effort; get_clock_hz() reports zero
+ * if the bridge is absent.
+ */
+esp_err_t spi_bridge_phy_set_clock_hz(uint32_t clock_hz);
+
+/** Configured normal bridge clock, or zero if that device is unavailable.
+ * Serialize with
+ * set_clock_hz()/legacy operations through the bridge mutex.
+ */
+uint32_t spi_bridge_phy_get_clock_hz(void);
+
+/**
  * @brief Wait for an IRQ pulse from the C5 slave.
  *
  * @param timeout_ms  Maximum wait time in milliseconds.
@@ -73,10 +90,11 @@ esp_err_t spi_bridge_phy_wait_irq(uint32_t timeout_ms);
 /**
  * @brief Enter a legacy (InkTest-compatible) SPI session.
  *
- * Removes the normal 10 MHz TentacleOS bridge device and adds a 4 MHz mode-0
- * device matching the InkTest master, so the P4 can talk to a C5 still running
- * InkTest (e.g. to command it into ROM download mode for reflashing). The
- * normal bridge must be quiesced first via spi_bridge_suspend(true).
+ * Removes the normal TentacleOS bridge device and adds a 4 MHz mode-0
+ * device matching the
+ * InkTest master, so the P4 can talk to a C5 still running InkTest (e.g. to command it into ROM
+ * download mode for reflashing). The normal bridge must be quiesced first via
+ * spi_bridge_suspend(true).
  *
  * @return ESP_OK on success, or an error code (the normal device is restored
  *         on failure).

@@ -20,6 +20,8 @@
 #include "driver/gpio.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_rom_sys.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
@@ -28,9 +30,10 @@
 
 static const char *TAG = "SPI_BRIDGE_PHY";
 
-#define BRIDGE_CLOCK_HZ   (10 * 1000 * 1000)
+#define BRIDGE_CLOCK_HZ   (4 * 1000 * 1000)
 #define BRIDGE_SPI_MODE   0
 #define BRIDGE_QUEUE_SIZE 7
+#define BRIDGE_CS_IDLE_US 100
 
 // Legacy (InkTest) bridge speed. The InkTest C5 master ran the bus at 4 MHz;
 // matching it maximizes the odds the InkTest slave answers cleanly during the
@@ -39,16 +42,35 @@ static const char *TAG = "SPI_BRIDGE_PHY";
 
 static SemaphoreHandle_t s_irq_semaphore = NULL;
 static spi_device_handle_t s_legacy_handle = NULL;
+static uint32_t s_clock_hz = BRIDGE_CLOCK_HZ;
+static int64_t s_last_completion_us;
+static bool s_have_completion;
 
+static esp_err_t add_normal_device(uint32_t clock_hz) {
+  spi_device_config_t config = {
+      .cs_pin = GPIO_BRIDGE_CS_PIN,
+      .clock_speed_hz = (int)clock_hz,
+      .mode = BRIDGE_SPI_MODE,
+      .queue_size = BRIDGE_QUEUE_SIZE,
+  };
+  return spi_add_device(BRIDGE_SPI_HOST, SPI_DEVICE_BRIDGE, &config);
+}
+
+#if GPIO_BRIDGE_IRQ_PIN >= 0
 static void IRAM_ATTR irq_handler(void *arg) {
   xSemaphoreGiveFromISR(s_irq_semaphore, NULL);
 }
+#endif
 
 esp_err_t spi_bridge_phy_init(void) {
   return spi_bridge_phy_init_ex(true);
 }
 
 esp_err_t spi_bridge_phy_init_ex(bool setup_irq) {
+#if GPIO_BRIDGE_IRQ_PIN < 0
+  if (setup_irq)
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
   s_irq_semaphore = xSemaphoreCreateBinary();
 
   esp_err_t ret =
@@ -57,20 +79,14 @@ esp_err_t spi_bridge_phy_init_ex(bool setup_irq) {
     return ret;
   }
 
-  spi_device_config_t devcfg = {
-      .cs_pin = GPIO_BRIDGE_CS_PIN,
-      .clock_speed_hz = BRIDGE_CLOCK_HZ,
-      .mode = BRIDGE_SPI_MODE,
-      .queue_size = BRIDGE_QUEUE_SIZE,
-  };
-
-  ret = spi_add_device(SPI2_HOST, SPI_DEVICE_BRIDGE, &devcfg);
+  ret = add_normal_device(s_clock_hz);
   if (ret != ESP_OK) {
     return ret;
   }
 
   // POLL mode boards have no IRQ trace: skip the GPIO/ISR entirely. The master
   // polls the bus (spi_bridge_phy_wait_irq is never called in that mode).
+#if GPIO_BRIDGE_IRQ_PIN >= 0
   if (setup_irq) {
     gpio_config_t io_conf = {
         .intr_type = GPIO_INTR_POSEDGE,
@@ -81,12 +97,48 @@ esp_err_t spi_bridge_phy_init_ex(bool setup_irq) {
     gpio_config(&io_conf);
     gpio_isr_handler_add(GPIO_BRIDGE_IRQ_PIN, irq_handler, NULL);
   }
+#endif
 
-  ESP_LOGI(TAG, "SPI bridge PHY initialized (%s)", setup_irq ? "IRQ" : "poll");
+  ESP_LOGI(TAG,
+           "SPI bridge PHY initialized (%s), clock=%lu Hz, CS idle=%u us",
+           setup_irq ? "IRQ" : "poll",
+           (unsigned long)s_clock_hz,
+           BRIDGE_CS_IDLE_US);
   return ESP_OK;
 }
 
 #define SPI_BRIDGE_DMA_MARGIN 1024
+
+uint32_t spi_bridge_phy_get_clock_hz(void) {
+  return spi_get_handle(SPI_DEVICE_BRIDGE) != NULL ? s_clock_hz : 0;
+}
+
+esp_err_t spi_bridge_phy_set_clock_hz(uint32_t clock_hz) {
+  if (clock_hz != 2000000 && clock_hz != 4000000 && clock_hz != 10000000)
+    return ESP_ERR_INVALID_ARG;
+  // Caller holds the bridge mutex. Never swap a device during a transfer or
+  // take over the explicitly separate legacy/recovery session.
+  if (s_legacy_handle != NULL || spi_get_handle(SPI_DEVICE_BRIDGE) == NULL)
+    return ESP_ERR_INVALID_STATE;
+  if (clock_hz == s_clock_hz)
+    return ESP_OK;
+  esp_err_t ret = spi_remove_device(SPI_DEVICE_BRIDGE);
+  if (ret != ESP_OK)
+    return ret;
+  ret = add_normal_device(clock_hz);
+  if (ret == ESP_OK) {
+    s_clock_hz = clock_hz;
+    return ESP_OK;
+  }
+  // Only the device configuration is restored. No SPI command is replayed.
+  esp_err_t rollback = add_normal_device(s_clock_hz);
+  if (rollback != ESP_OK)
+    ESP_LOGE(TAG,
+             "Clock change and rollback failed: 0x%x/0x%x; bridge unavailable",
+             (unsigned)ret,
+             (unsigned)rollback);
+  return ret;
+}
 
 esp_err_t spi_bridge_phy_transmit(const uint8_t *tx_data, uint8_t *rx_data, size_t len) {
   spi_device_handle_t handle = spi_get_handle(SPI_DEVICE_BRIDGE);
@@ -104,14 +156,26 @@ esp_err_t spi_bridge_phy_transmit(const uint8_t *tx_data, uint8_t *rx_data, size
       .tx_buffer = tx_data,
       .rx_buffer = rx_data,
   };
-  return spi_device_polling_transmit(handle, &t);
+  // Give the C5 completion ISR time between CS assertions. This is an idle
+  // gap, not CS held active, and is a qualification experiment, not a claim
+  // that arbitrary interrupt latency or electrical corruption is solved.
+  if (s_have_completion) {
+    int64_t elapsed = esp_timer_get_time() - s_last_completion_us;
+    if (elapsed < BRIDGE_CS_IDLE_US)
+      esp_rom_delay_us((uint32_t)(BRIDGE_CS_IDLE_US - elapsed));
+  }
+  esp_err_t ret = spi_device_polling_transmit(handle, &t);
+  // Even an error may have toggled CS; guard the next transaction as well.
+  s_last_completion_us = esp_timer_get_time();
+  s_have_completion = true;
+  return ret;
 }
 
 esp_err_t spi_bridge_phy_legacy_begin(void) {
   if (s_legacy_handle != NULL) {
     return ESP_OK; // already in a legacy session
   }
-  // Free the normal 10 MHz bridge device so its CS pin is available, then add a
+  // Free the normal bridge device so its CS pin is available, then add a
   // 4 MHz mode-0 device that mirrors the InkTest master. The caller must have
   // quiesced the normal bridge (spi_bridge_suspend) before calling this.
   esp_err_t ret = spi_remove_device(SPI_DEVICE_BRIDGE);
@@ -154,14 +218,8 @@ esp_err_t spi_bridge_phy_legacy_end(void) {
     spi_bus_remove_device(s_legacy_handle);
     s_legacy_handle = NULL;
   }
-  // Restore the normal 10 MHz TentacleOS bridge device.
-  spi_device_config_t devcfg = {
-      .cs_pin = GPIO_BRIDGE_CS_PIN,
-      .clock_speed_hz = BRIDGE_CLOCK_HZ,
-      .mode = BRIDGE_SPI_MODE,
-      .queue_size = BRIDGE_QUEUE_SIZE,
-  };
-  return spi_add_device(BRIDGE_SPI_HOST, SPI_DEVICE_BRIDGE, &devcfg);
+  // Restore the selected normal clock; legacy remains fixed at 4 MHz.
+  return add_normal_device(s_clock_hz);
 }
 
 esp_err_t spi_bridge_phy_wait_irq(uint32_t timeout_ms) {

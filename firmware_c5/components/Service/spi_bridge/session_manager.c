@@ -26,6 +26,7 @@
 #include "sys_prio.h"
 
 #include "spi_bridge.h"
+#include "hb_muse_c5_service.h"
 
 static const char *TAG = "SESSION_MGR";
 
@@ -82,6 +83,7 @@ static void close_active_locked(const char *reason) {
 }
 
 static void emit_session_lost(uint32_t session_id, spi_id_t op_id) {
+  hb_muse_c5_service_revoke(); // local session loss revokes cloud permission
   spi_session_lost_t payload = {.session_id = session_id, .cmd = (uint16_t)op_id};
   spi_bridge_stream_push(SPI_ID_SESSION_LOST, (const uint8_t *)&payload, sizeof(payload));
 }

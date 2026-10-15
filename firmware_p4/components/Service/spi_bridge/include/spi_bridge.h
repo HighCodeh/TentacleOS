@@ -58,6 +58,26 @@ esp_err_t spi_bridge_master_init(void);
 esp_err_t spi_bridge_master_init_mode(spi_bridge_mode_t mode);
 
 /**
+ * Select a diagnostic bridge clock of 2, 4 or 10 MHz. Serializes the complete
+ * PHY
+ * switch/rollback with all bridge traffic (1000 ms lock timeout). No wire
+ * protocol change,
+ * command replay, persisted setting or chip reset. Refuses
+ * changes during a suspended/legacy
+ * session. A missing PHY after failed
+ * rollback marks the bridge dead; normal requests then fail
+ * closed.
+ */
+esp_err_t spi_bridge_set_clock_hz(uint32_t hz);
+
+/**
+ * Current configured clock; zero if no normal PHY or the snapshot lock times
+ * out (1000 ms).
+ * Must not be called by a task already holding the bridge lock.
+ */
+uint32_t spi_bridge_get_clock_hz(void);
+
+/**
  * @brief Return the timeout (ms) for a given SPI command ID.
  *
  * Returns SPI_TIMEOUT_DEFAULT_MS unless the command is in the override

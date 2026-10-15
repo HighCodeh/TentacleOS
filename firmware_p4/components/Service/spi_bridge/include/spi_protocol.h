@@ -45,7 +45,7 @@ extern "C" {
 // struct, or the header layout). The P4 reads the C5's value at bridge init via
 // SPI_ID_SYSTEM_PROTO_VERSION and flags a mismatch loudly, so two copies of this
 // header that drifted are caught at boot instead of silently misparsing frames.
-#define SPI_PROTOCOL_VERSION 6
+#define SPI_PROTOCOL_VERSION 8
 
 #define SPI_BT_SPAM_ITEM_LEN          32
 #define SPI_BT_SPAM_LIST_MAX          64
@@ -92,6 +92,8 @@ typedef enum {
   SPI_CAT_BADUSB = 0x0C,   // P4-native BadUSB (USB-HID); companion host-link only
   SPI_CAT_LORACFG = 0x0D,  // P4-native LoRa radio config; companion host-link only
   SPI_CAT_LORACHAT = 0x0E, // P4-native LoRa chat; companion host-link only
+  SPI_CAT_FLY = 0x0F,      // P4-native Mosca TEST world; authenticated host link
+  SPI_CAT_GROK = 0x10,     // Explicitly started, paired TLS LAN voice transport
   SPI_CAT_SESSION = 0xFF
 } spi_cat_t;
 
@@ -152,10 +154,12 @@ typedef enum {
   SPI_ID_SYSTEM_POWER_STATE = SPI_CMD(SPI_CAT_SYSTEM, 0x4A),
   // Config cache: the P4 (master) pushes config files to the C5, hash-gated so an
   // unchanged file is never re-sent. Config ids are spi_cfg_id_t.
-  SPI_ID_SYSTEM_CFG_HASH = SPI_CMD(SPI_CAT_SYSTEM, 0x50),   // P4→C5: read C5's stored hash [id u8]→[hash u32]
-  SPI_ID_SYSTEM_CFG_BEGIN = SPI_CMD(SPI_CAT_SYSTEM, 0x51),  // P4→C5: begin push (spi_cfg_begin_t)
-  SPI_ID_SYSTEM_CFG_CHUNK = SPI_CMD(SPI_CAT_SYSTEM, 0x52),  // P4→C5: [id u8][offset u32][bytes]
-  SPI_ID_SYSTEM_CFG_COMMIT = SPI_CMD(SPI_CAT_SYSTEM, 0x53), // P4→C5: [id u8] finalize (write + store hash)
+  SPI_ID_SYSTEM_CFG_HASH =
+      SPI_CMD(SPI_CAT_SYSTEM, 0x50), // P4→C5: read C5's stored hash [id u8]→[hash u32]
+  SPI_ID_SYSTEM_CFG_BEGIN = SPI_CMD(SPI_CAT_SYSTEM, 0x51), // P4→C5: begin push (spi_cfg_begin_t)
+  SPI_ID_SYSTEM_CFG_CHUNK = SPI_CMD(SPI_CAT_SYSTEM, 0x52), // P4→C5: [id u8][offset u32][bytes]
+  SPI_ID_SYSTEM_CFG_COMMIT =
+      SPI_CMD(SPI_CAT_SYSTEM, 0x53), // P4→C5: [id u8] finalize (write + store hash)
   // P4-local companion op: switch the active UI theme by name (never relayed).
   SPI_ID_SYSTEM_SET_THEME = SPI_CMD(SPI_CAT_SYSTEM, 0x4C),
   // P4-local companion settings: structured per-section get/set of the device
@@ -283,6 +287,7 @@ typedef enum {
   SPI_ID_BT_HID_DEINIT = SPI_CMD(SPI_CAT_BT, 0x72),
   SPI_ID_BT_HID_IS_CONNECTED = SPI_CMD(SPI_CAT_BT, 0x73),
   SPI_ID_BT_HID_SEND_KEY = SPI_CMD(SPI_CAT_BT, 0x74),
+  SPI_ID_BT_HID_SEND_MOUSE = SPI_CMD(SPI_CAT_BT, 0x75),
 
   // LoRa. The SX1262 is P4-local; real LoRa runs via the Meshtastic/MeshCore/
   // RNode stacks + the mesh phone bridges below. These two ids are RESERVED for a
@@ -375,6 +380,16 @@ typedef enum {
   SPI_ID_LORACHAT_SEND = SPI_CMD(SPI_CAT_LORACHAT, 0x12),
   SPI_ID_LORACHAT_RX = SPI_CMD(SPI_CAT_LORACHAT, 0x60),
 
+  SPI_ID_FLY_CONFIG = SPI_CMD(SPI_CAT_FLY, 0x01),
+  SPI_ID_FLY_EXCHANGE = SPI_CMD(SPI_CAT_FLY, 0x02),
+  SPI_ID_FLY_STOP = SPI_CMD(SPI_CAT_FLY, 0x03),
+
+  SPI_ID_GROK_START = SPI_CMD(SPI_CAT_GROK, 0x01),
+  SPI_ID_GROK_STOP = SPI_CMD(SPI_CAT_GROK, 0x02),
+  SPI_ID_GROK_STATUS = SPI_CMD(SPI_CAT_GROK, 0x03),
+  SPI_ID_GROK_TX = SPI_CMD(SPI_CAT_GROK, 0x04),
+  SPI_ID_GROK_PULL = SPI_CMD(SPI_CAT_GROK, 0x05),
+
   SPI_ID_SESSION_HEARTBEAT = SPI_CMD(SPI_CAT_SESSION, 0xF0),
   SPI_ID_SESSION_LOST = SPI_CMD(SPI_CAT_SESSION, 0xF1),
   SPI_ID_SESSION_STOP = SPI_CMD(SPI_CAT_SESSION, 0xF2)
@@ -386,11 +401,12 @@ typedef enum {
  * and pushes it to the C5 when the hashes differ. Keep this list in sync on both.
  */
 typedef enum {
-  SPI_CFG_WIFI_AP = 0,   // config/wifi/wifi_ap.conf
-  SPI_CFG_BLE_ANNOUNCE,  // config/bluetooth/ble_announce.conf
-  SPI_CFG_BLE_SPAM,      // config/bluetooth/beacon_list.conf
-  SPI_CFG_CHAT,          // config/chat/chat.conf
-  SPI_CFG_CHAT_ADDRS,    // config/chat/addresses.conf
+  SPI_CFG_WIFI_AP = 0,  // config/wifi/wifi_ap.conf
+  SPI_CFG_BLE_ANNOUNCE, // config/bluetooth/ble_announce.conf
+  SPI_CFG_BLE_SPAM,     // config/bluetooth/beacon_list.conf
+  SPI_CFG_CHAT,         // config/chat/chat.conf
+  SPI_CFG_CHAT_ADDRS,   // config/chat/addresses.conf
+  SPI_CFG_GROK,         // config/grok.json, local pairing only; never cloud key
   SPI_CFG_COUNT
 } spi_cfg_id_t;
 
@@ -676,6 +692,8 @@ typedef struct {
 /**
  * @brief WiFi sniffer statistics payload.
  */
+#define SPI_WIFI_SPECTRUM_BIN_COUNT 39
+
 typedef struct {
   uint32_t packets;
   uint32_t deauths;
@@ -695,9 +713,30 @@ typedef struct {
   uint32_t unique_aps;  // distinct BSSIDs seen (approximate)
   uint8_t channel;      // channel of the last captured frame
   int8_t last_rssi;     // RSSI of the last captured frame (sniffer, not signal monitor)
+  // Bins 0..13 are channels 1..14. Bins 14..38 are channels
+  // 36..64, 100..144 and 149..165 in their legal four-channel steps.
+  // The P4 derives live rates from consecutive cumulative snapshots.
+  uint32_t channel_packets[SPI_WIFI_SPECTRUM_BIN_COUNT];
+  int8_t channel_peak_rssi[SPI_WIFI_SPECTRUM_BIN_COUNT];
 } __attribute__((packed)) spi_sniffer_stats_t;
 
 #define SPI_WIFI_SNIFFER_MAX_DATA (SPI_MAX_PAYLOAD - 4)
+
+/** Band selector shared by survey and passive monitor commands. */
+#define SPI_WIFI_BAND_DUAL 0u
+#define SPI_WIFI_BAND_2G   1u
+#define SPI_WIFI_BAND_5G   2u
+
+/**
+ * Optional payload for SPI_ID_WIFI_SCAN. Older callers may send no payload,
+ * which remains equivalent to a dual-band active scan with driver defaults.
+ */
+typedef struct {
+  uint8_t band;    // SPI_WIFI_BAND_* selector
+  uint8_t passive; // 0 = active, 1 = passive
+  uint16_t dwell_min_ms;
+  uint16_t dwell_max_ms;
+} __attribute__((packed)) spi_wifi_scan_config_t;
 
 /**
  * @brief Compact WiFi scan result, served by SPI_ID_WIFI_APP_SCAN_AP through the
