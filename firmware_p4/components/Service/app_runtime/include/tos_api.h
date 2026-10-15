@@ -84,8 +84,8 @@ typedef enum {
   TOS_CAP_FS_WRITE = 1u << 1,
   TOS_CAP_RADIO_TX = 1u << 2, // WiFi/BT/SubGHz/LoRa/IR transmit
   TOS_CAP_RADIO_RX = 1u << 3,
-  TOS_CAP_HID = 1u << 4,     // BadUSB / HID injection
-  TOS_CAP_UI = 1u << 5,      // screen / LED / on-device UI
+  TOS_CAP_HID = 1u << 4,      // BadUSB / HID injection
+  TOS_CAP_UI = 1u << 5,       // screen / LED / on-device UI
   TOS_CAP_HOSTLINK = 1u << 6, // register companion (host_link) commands
   TOS_CAP_CONSOLE = 1u << 7,  // register console commands
 } tos_cap_t;
@@ -120,12 +120,15 @@ typedef struct tos_wifi_api {
   esp_err_t (*disconnect)(void);                                ///< radio-tx
 
   esp_err_t (*sniffer_start)(uint8_t type, uint8_t channel, bool monitor, uint32_t *out_session);
-  esp_err_t (*deauth_detect)(uint32_t *out_session);                             ///< radio-rx
-  esp_err_t (*probe_monitor)(uint32_t *out_session);                             ///< radio-rx
+  esp_err_t (*deauth_detect)(uint32_t *out_session); ///< radio-rx
+  esp_err_t (*probe_monitor)(uint32_t *out_session); ///< radio-rx
   esp_err_t (*signal_monitor)(const uint8_t bssid[6], uint8_t channel, uint32_t *out_session);
 
-  esp_err_t (*deauth)(const uint8_t bssid[6], const uint8_t client[6], uint8_t type,
-                      uint8_t channel, uint32_t *out_session);            ///< radio-tx
+  esp_err_t (*deauth)(const uint8_t bssid[6],
+                      const uint8_t client[6],
+                      uint8_t type,
+                      uint8_t channel,
+                      uint32_t *out_session); ///< radio-tx
   esp_err_t (*deauth_broadcast)(const uint8_t bssid[6], uint8_t type, uint8_t channel);
   esp_err_t (*flood)(uint8_t type, const uint8_t bssid[6], uint8_t channel, uint32_t *out_session);
   esp_err_t (*beacon_spam)(const char *ssid_list_path, uint32_t *out_session); ///< NULL = random
@@ -164,8 +167,8 @@ typedef struct tos_ble_api {
   esp_err_t (*sniffer_start)(uint32_t *out_session);              ///< radio-rx
   esp_err_t (*spam)(uint8_t attack_index, uint32_t *out_session); ///< radio-tx (see SDK spam table)
   esp_err_t (*flood)(const uint8_t addr[6], uint8_t addr_type, uint32_t *out_session); ///< radio-tx
-  esp_err_t (*skimmer_detect)(uint32_t *out_session);             ///< radio-rx
-  esp_err_t (*tracker_detect)(uint32_t *out_session);             ///< radio-rx (tracker/AirTag detector)
+  esp_err_t (*skimmer_detect)(uint32_t *out_session);                                  ///< radio-rx
+  esp_err_t (*tracker_detect)(uint32_t *out_session); ///< radio-rx (tracker/AirTag detector)
   esp_err_t (*session_stop)(uint32_t session);
 
   // BLE HID keyboard (BadBLE). hid_start advertises a HID peripheral and holds
@@ -213,8 +216,8 @@ typedef struct tos_ui_api {
   // handle to keep, or TOS_UI_NONE on error. Strings are COPIED by the firmware.
   tos_ui_obj_t (*label)(tos_ui_obj_t parent, int32_t x, int32_t y, const char *text);
   tos_ui_obj_t (*rect)(tos_ui_obj_t parent, int32_t x, int32_t y, int32_t w, int32_t h);
-  tos_ui_obj_t (*bar)(tos_ui_obj_t parent, int32_t x, int32_t y, int32_t w, int32_t h,
-                      int32_t min, int32_t max);
+  tos_ui_obj_t (*bar)(
+      tos_ui_obj_t parent, int32_t x, int32_t y, int32_t w, int32_t h, int32_t min, int32_t max);
 
   // Retained mutators. Call anytime from the app loop; each locks internally and
   // is a harmless no-op on a stale/invalid handle.
@@ -250,15 +253,15 @@ typedef struct tos_ui_api {
   // shows them at (x,y). Widget-mode only (TOS_UI_NONE in canvas mode). Bounded to
   // the 240x320 panel; returns TOS_UI_NONE on a bad or oversized blob. The copy is
   // freed with the widget, so the app's bytes need not outlive the call.
-  tos_ui_obj_t (*image)(tos_ui_obj_t parent, int32_t x, int32_t y, const void *bin,
-                        uint32_t bin_len);
+  tos_ui_obj_t (*image)(
+      tos_ui_obj_t parent, int32_t x, int32_t y, const void *bin, uint32_t bin_len);
 } tos_ui_api_t;
 
 /** One directory entry from tos_fs_api.list(). */
 typedef struct {
-  char name[64];  ///< entry name only (no path)
-  uint32_t size;  ///< file size in bytes (0 for directories)
-  bool is_dir;    ///< true if a subdirectory
+  char name[64]; ///< entry name only (no path)
+  uint32_t size; ///< file size in bytes (0 for directories)
+  bool is_dir;   ///< true if a subdirectory
 } tos_fs_dirent_t;
 
 /**
@@ -291,10 +294,10 @@ typedef struct {
   char protocol[32]; ///< decoder name, "" if not decoded
   bool decoded;
   uint32_t freq_hz;
-  uint32_t value;   ///< decoded key value (protocol-defined)
-  uint32_t serial;  ///< decoded serial/id
+  uint32_t value;  ///< decoded key value (protocol-defined)
+  uint32_t serial; ///< decoded serial/id
   uint8_t bit_count;
-  uint8_t btn;      ///< decoded button/command nibble
+  uint8_t btn; ///< decoded button/command nibble
 } tos_subghz_signal_t;
 
 /**
@@ -307,14 +310,16 @@ typedef struct {
  */
 typedef struct tos_subghz_api {
   esp_err_t (*rx_start)(uint32_t freq_hz, uint8_t preset, uint32_t *out_session); ///< radio-rx
-  int (*rx_poll)(tos_subghz_signal_t *out);      ///< 1 = new signal dequeued, 0 = none
-  int (*get_raw)(int32_t *out, int max);         ///< last signal's timings; count, or <0
+  int (*rx_poll)(tos_subghz_signal_t *out); ///< 1 = new signal dequeued, 0 = none
+  int (*get_raw)(int32_t *out, int max);    ///< last signal's timings; count, or <0
   esp_err_t (*tx_raw)(const int32_t *timings, int count, uint32_t freq_hz); ///< radio-tx
-  esp_err_t (*replay)(const char *path);         ///< radio-tx; saved capture under /sdcard
+  esp_err_t (*replay)(const char *path); ///< radio-tx; saved capture under /sdcard
   esp_err_t (*set_frequency)(uint32_t freq_hz);
   // Spectrum sweep. Poll fills dbm[] (up to `max`, hardware caps at 80 bins) and
   // reports the start frequency and per-bin step; returns the sample count or 0.
-  esp_err_t (*spectrum_start)(uint32_t center_hz, uint32_t span_hz, uint32_t *out_session); ///< radio-rx
+  esp_err_t (*spectrum_start)(uint32_t center_hz,
+                              uint32_t span_hz,
+                              uint32_t *out_session); ///< radio-rx
   int (*spectrum_poll)(uint32_t *out_start_hz, uint32_t *out_step_hz, float *dbm, int max);
   esp_err_t (*session_stop)(uint32_t session);
 } tos_subghz_api_t;
@@ -385,10 +390,10 @@ typedef struct {
 typedef struct tos_ir_api {
   esp_err_t (*receive)(tos_ir_code_t *out, uint32_t timeout_ms); ///< radio-rx; blocks
   esp_err_t (*send)(const tos_ir_code_t *code);                  ///< radio-tx
-  int (*get_last_raw)(int32_t *out, int max);                   ///< last capture's pulses; count, or <0
+  int (*get_last_raw)(int32_t *out, int max); ///< last capture's pulses; count, or <0
   esp_err_t (*send_raw)(const int32_t *pulses, int count, uint32_t carrier_hz); ///< radio-tx
-  esp_err_t (*send_file)(const char *path);                    ///< radio-tx; .ir under /sdcard
-  esp_err_t (*send_ac)(const tos_ir_ac_t *ac);                 ///< radio-tx
+  esp_err_t (*send_file)(const char *path);    ///< radio-tx; .ir under /sdcard
+  esp_err_t (*send_ac)(const tos_ir_ac_t *ac); ///< radio-tx
 } tos_ir_api_t;
 
 /** NFC tag technology. */
@@ -415,17 +420,21 @@ typedef struct {
  * wired (the on-device UI is simulation-backed until then).
  */
 typedef struct tos_nfc_api {
-  esp_err_t (*poll)(tos_nfc_tag_t *out, uint32_t timeout_ms);                        ///< radio-rx
-  esp_err_t (*read_block)(uint8_t block, const uint8_t key[6], uint8_t out[16]);     ///< radio-rx
-  esp_err_t (*write_block)(uint8_t block, const uint8_t key[6], const uint8_t data[16]); ///< radio-tx
-  esp_err_t (*emulate_start)(const uint8_t *uid, uint8_t uid_len, uint32_t *out_session); ///< radio-tx
+  esp_err_t (*poll)(tos_nfc_tag_t *out, uint32_t timeout_ms);                    ///< radio-rx
+  esp_err_t (*read_block)(uint8_t block, const uint8_t key[6], uint8_t out[16]); ///< radio-rx
+  esp_err_t (*write_block)(uint8_t block,
+                           const uint8_t key[6],
+                           const uint8_t data[16]); ///< radio-tx
+  esp_err_t (*emulate_start)(const uint8_t *uid,
+                             uint8_t uid_len,
+                             uint32_t *out_session); ///< radio-tx
   esp_err_t (*session_stop)(uint32_t session);
 } tos_nfc_api_t;
 
 /** One 125 kHz LF tag read, decoded if the format is known. */
 typedef struct {
-  char id[11];         ///< raw hex id string
-  char protocol[24];   ///< decoded format name, "" if raw only
+  char id[11];       ///< raw hex id string
+  char protocol[24]; ///< decoded format name, "" if raw only
   uint32_t card_number;
   uint16_t facility_code;
   uint8_t bit_count;
@@ -444,9 +453,9 @@ typedef struct tos_rfid_api {
 /** Raw LoRa PHY parameters. */
 typedef struct {
   uint32_t freq_hz;
-  uint8_t sf;         ///< spreading factor 5..12
-  uint8_t bw;         ///< bandwidth index (SX1262 raw value)
-  uint8_t cr;         ///< coding rate 5..8
+  uint8_t sf; ///< spreading factor 5..12
+  uint8_t bw; ///< bandwidth index (SX1262 raw value)
+  uint8_t cr; ///< coding rate 5..8
   int8_t tx_power_dbm;
 } tos_lora_cfg_t;
 
@@ -493,8 +502,8 @@ typedef struct tos_lora_api {
   int (*rx_poll)(tos_lora_packet_t *out);              ///< 1 = packet dequeued, 0 = none
   // Mesh chat (Meshtastic / MeshCore).
   esp_err_t (*mesh_start)(uint8_t proto, uint32_t *out_session); ///< tos_lora_mesh_t; radio-tx
-  esp_err_t (*mesh_send_text)(const char *text);                ///< radio-tx; broadcast
-  int (*mesh_poll)(tos_lora_msg_t *out);                        ///< 1 = new message, 0 = none
+  esp_err_t (*mesh_send_text)(const char *text);                 ///< radio-tx; broadcast
+  int (*mesh_poll)(tos_lora_msg_t *out);                         ///< 1 = new message, 0 = none
   int (*mesh_node_count)(void);
   esp_err_t (*mesh_node_get)(int index, tos_lora_node_t *out);
   // RNode KISS TNC bridge.

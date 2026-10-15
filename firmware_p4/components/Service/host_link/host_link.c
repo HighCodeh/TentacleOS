@@ -17,9 +17,13 @@
 
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
+#include "sys_prio.h"
 
 #include "host_link_apps.h"
 #include "host_link_audio.h"
@@ -27,6 +31,8 @@
 #include "host_link_config.h"
 #include "host_link_dispatch.h"
 #include "host_link_files.h"
+#include "host_link_fly.h"
+#include "fly_link.h"
 #include "host_link_ir.h"
 #include "host_link_led.h"
 #include "host_link_lora.h"
@@ -51,17 +57,48 @@ static const char *TAG = "HOST_LINK";
 static host_link_writer_t s_writer = NULL;
 static host_link_writer_t s_ble_writer = NULL; // identifies the BLE transport
 static volatile bool s_emitting = false;       // true while a frame is being written out
-static uint8_t s_acc[HOST_LINK_MAX_FRAME];     // reassembly accumulator
+// Host framing is CPU-only and does not require DMA-capable internal RAM.
+// Keep both 4 KB staging buffers in PSRAM so USB/BLE transport support does
+// not permanently consume the radio/display heap.
+EXT_RAM_BSS_ATTR static uint8_t s_acc[HOST_LINK_MAX_FRAME]; // reassembly accumulator
 static size_t s_acc_len = 0;
 static uint32_t s_tx_counter = 0;
 static SemaphoreHandle_t s_lock = NULL;
+// Lock order: TX recursive mutex -> security recursive mutex. Neither is ever
+// taken by ingress/line-state callbacks. The state spinlock protects only small
+// snapshots; no queue, crypto, transport, handler or teardown runs under it.
+static portMUX_TYPE s_state_lock = portMUX_INITIALIZER_UNLOCKED;
+static uint32_t s_generation = 1;
+static uint32_t s_ready_generation = 0;
+static uint32_t s_worker_generation = 0;
+static uint32_t s_dispatch_generation = 0;
+static TaskHandle_t s_worker = NULL;
+#define HOST_LINK_RX_CHUNK 64
+#define HOST_LINK_RX_DEPTH 64
+typedef struct {
+  host_link_writer_t writer;
+  uint32_t generation;
+  uint8_t len;
+  uint8_t data[HOST_LINK_RX_CHUNK];
+} rx_item_t;
+static QueueHandle_t s_rx_queue = NULL;
+static bool s_initialized = false;
+static bool s_started = false;
+static void host_link_worker(void *arg);
+static void reconcile_session(void);
+static void parse_bytes(const uint8_t *data, size_t len);
+static void teardown_session(void);
 
 static void process_frame(const uint8_t *frame, size_t total);
 static void handle_hello(const uint8_t *payload, uint16_t plen);
 static void dispatch_cmd(uint8_t category, uint8_t op, const uint8_t *payload, uint8_t plen);
 static uint8_t status_from_err(esp_err_t err);
-static void emit_frame(
-    uint8_t type, uint8_t category, uint8_t op, const uint8_t *payload, uint16_t payload_len);
+static void emit_frame(uint32_t generation,
+                       uint8_t type,
+                       uint8_t category,
+                       uint8_t op,
+                       const uint8_t *payload,
+                       uint16_t payload_len);
 static void
 send_resp(uint8_t category, uint8_t op, uint8_t status, const uint8_t *data, uint16_t data_len);
 static void register_builtins(void);
@@ -73,8 +110,10 @@ static uint8_t screen_share_shim(uint16_t cmd,
                                  uint16_t *out_len);
 
 esp_err_t host_link_init(void) {
+  if (s_initialized)
+    return ESP_OK;
   if (s_lock == NULL) {
-    s_lock = xSemaphoreCreateMutex();
+    s_lock = xSemaphoreCreateRecursiveMutex();
     if (s_lock == NULL)
       return ESP_ERR_NO_MEM;
   }
@@ -87,54 +126,220 @@ esp_err_t host_link_init(void) {
     return err;
   }
 
+  fly_link_init();
   register_builtins();
+  s_initialized = true;
+#ifdef HOST_LINK_TEST
+  return host_link_start_worker();
+#else
+  ESP_LOGI(TAG, "Host link initialized; worker deferred until transport use");
+  return ESP_OK;
+#endif
+}
 
-  ESP_LOGI(TAG, "Host link initialized");
+esp_err_t host_link_start_worker(void) {
+  if (!s_initialized || s_lock == NULL)
+    return ESP_ERR_INVALID_STATE;
+  xSemaphoreTakeRecursive(s_lock, portMAX_DELAY);
+  if (s_started) {
+    xSemaphoreGiveRecursive(s_lock);
+    return ESP_OK;
+  }
+  if (s_rx_queue == NULL) {
+    s_rx_queue = xQueueCreate(HOST_LINK_RX_DEPTH, sizeof(rx_item_t));
+    if (s_rx_queue == NULL) {
+      xSemaphoreGiveRecursive(s_lock);
+      return ESP_ERR_NO_MEM;
+    }
+  }
+#ifndef HOST_LINK_TEST
+  if (s_worker == NULL && xTaskCreatePinnedToCore(host_link_worker,
+                                                  "host_link",
+                                                  8192,
+                                                  NULL,
+                                                  SYS_PRIO_SERVICE_HI,
+                                                  &s_worker,
+                                                  SYS_CORE_RADIO) != pdPASS) {
+    xSemaphoreGiveRecursive(s_lock);
+    return ESP_ERR_NO_MEM;
+  }
+#endif
+  __atomic_store_n(&s_started, true, __ATOMIC_RELEASE);
+  xSemaphoreGiveRecursive(s_lock);
+  ESP_LOGI(TAG, "Host link worker started");
   return ESP_OK;
 }
 
 bool host_link_session_acquire(host_link_writer_t writer) {
-  if (writer == NULL)
+  if (writer == NULL || !__atomic_load_n(&s_started, __ATOMIC_ACQUIRE))
     return false;
-  xSemaphoreTake(s_lock, portMAX_DELAY);
+  portENTER_CRITICAL(&s_state_lock);
   bool ok = (s_writer == NULL || s_writer == writer);
-  if (ok)
+  if (ok && s_writer != writer) {
     s_writer = writer;
-  xSemaphoreGive(s_lock);
+    if (++s_generation == 0)
+      ++s_generation;
+    s_ready_generation = 0;
+  }
+  portEXIT_CRITICAL(&s_state_lock);
+  if (ok && s_rx_queue != NULL) {
+    const rx_item_t wake = {0};
+    xQueueSend(s_rx_queue, &wake, 0);
+  }
   return ok;
 }
 
-void host_link_session_release(host_link_writer_t writer) {
-  xSemaphoreTake(s_lock, portMAX_DELAY);
-  bool owned = (s_writer == writer);
+static void release_generation(host_link_writer_t writer, uint32_t generation) {
+  portENTER_CRITICAL(&s_state_lock);
+  bool owned =
+      (writer != NULL && s_writer == writer && (generation == 0 || generation == s_generation));
   if (owned) {
     s_writer = NULL;
-    s_acc_len = 0;
+    if (++s_generation == 0)
+      ++s_generation;
+    s_ready_generation = 0;
   }
-  xSemaphoreGive(s_lock);
-  if (owned) {
-    host_stream_teardown();   // stop any live stream so the C5 session is reaped
-    lvgl_screen_share_stop(); // safeguard: never keep capturing into a dead link
-    host_ir_stop_rx();        // stop IR capture so it can't stream into a dead link
-    host_subghz_stop();       // stop Sub-GHz rx/spectrum streams too
-    host_lora_stop();
-    host_link_sec_reset(); // force re-handshake on the next session
+  portEXIT_CRITICAL(&s_state_lock);
+  if (owned && s_rx_queue != NULL) {
+    const rx_item_t wake = {0};
+    xQueueSend(s_rx_queue, &wake, 0);
   }
+}
+
+void host_link_session_release(host_link_writer_t writer) {
+  release_generation(writer, 0);
+}
+
+void host_link_session_release_generation(host_link_writer_t writer, uint32_t generation) {
+  if (generation != 0)
+    release_generation(writer, generation);
 }
 
 bool host_link_session_owns(host_link_writer_t writer) {
-  return s_writer == writer; // single-word read; benign race
+  return host_link_session_generation(writer) != 0;
 }
 
 void host_link_reset_rx(void) {
-  s_acc_len = 0;
+  portENTER_CRITICAL(&s_state_lock);
+  if (++s_generation == 0)
+    ++s_generation;
+  s_ready_generation = 0;
+  portEXIT_CRITICAL(&s_state_lock);
+  if (s_rx_queue != NULL) {
+    const rx_item_t wake = {0};
+    xQueueSend(s_rx_queue, &wake, 0);
+  }
 }
+
+uint32_t host_link_session_generation(host_link_writer_t writer) {
+  portENTER_CRITICAL(&s_state_lock);
+  uint32_t generation = writer != NULL && writer == s_writer ? s_generation : 0;
+  portEXIT_CRITICAL(&s_state_lock);
+  return generation;
+}
+
+bool host_link_generation_matches(host_link_writer_t writer, uint32_t generation) {
+  return generation != 0 && host_link_session_generation(writer) == generation;
+}
+
+uint32_t host_link_output_generation(void) {
+  // A command that was already executing at disconnect must not borrow the
+  // next owner's generation for its response or a newly spawned producer.
+  if (s_worker != NULL && xTaskGetCurrentTaskHandle() == s_worker)
+    return s_dispatch_generation;
+  portENTER_CRITICAL(&s_state_lock);
+  uint32_t generation = s_ready_generation;
+  portEXIT_CRITICAL(&s_state_lock);
+  return generation;
+}
+
+bool host_link_feed(host_link_writer_t writer,
+                    uint32_t generation,
+                    const uint8_t *data,
+                    size_t len) {
+  if (data == NULL || len == 0 || s_rx_queue == NULL ||
+      !host_link_generation_matches(writer, generation))
+    return false;
+  while (len != 0) {
+    if (!host_link_generation_matches(writer, generation))
+      return false;
+    rx_item_t item = {.writer = writer, .generation = generation};
+    item.len = len > sizeof(item.data) ? sizeof(item.data) : len;
+    memcpy(item.data, data, item.len);
+    if (xQueueSend(s_rx_queue, &item, 0) != pdTRUE) {
+      // Dropping a middle chunk would splice frames. Fail closed and require
+      // a fresh open/HELLO instead; callback never waits for queue space.
+      host_link_session_release_generation(writer, generation);
+      return false;
+    }
+    data += item.len;
+    len -= item.len;
+  }
+  return true;
+}
+
+static void teardown_session(void) {
+  host_stream_teardown();
+  lvgl_screen_share_stop();
+  host_ir_stop_rx();
+  host_subghz_stop();
+  host_lora_stop();
+  fly_link_transport_lost();
+}
+
+static void reconcile_session(void) {
+  for (;;) {
+    portENTER_CRITICAL(&s_state_lock);
+    uint32_t generation = s_generation;
+    portEXIT_CRITICAL(&s_state_lock);
+    if (s_worker_generation == generation)
+      return;
+    // Worker alone owns the accumulator. Wait out any old TX before replacing
+    // keys, but release TX before stopping tasks that might themselves emit.
+    xSemaphoreTakeRecursive(s_lock, portMAX_DELAY);
+    host_link_sec_reset();
+    s_tx_counter = 0;
+    xSemaphoreGiveRecursive(s_lock);
+    s_acc_len = 0;
+    s_dispatch_generation = 0;
+    teardown_session();
+    s_worker_generation = generation;
+  }
+}
+
+static bool pump(TickType_t wait) {
+  reconcile_session();
+  rx_item_t item;
+  if (xQueueReceive(s_rx_queue, &item, wait) != pdTRUE)
+    return false;
+  reconcile_session();
+  if (item.len != 0 && host_link_generation_matches(item.writer, item.generation)) {
+    s_dispatch_generation = item.generation;
+    parse_bytes(item.data, item.len);
+    s_dispatch_generation = 0;
+  }
+  reconcile_session();
+  return true;
+}
+
+static void host_link_worker(void *arg) {
+  (void)arg;
+  for (;;)
+    pump(pdMS_TO_TICKS(100));
+}
+
+#ifdef HOST_LINK_TEST
+bool host_link_test_pump(void) {
+  s_worker = xTaskGetCurrentTaskHandle();
+  return pump(0);
+}
+#endif
 
 bool host_link_is_emitting(void) {
-  return s_emitting;
+  return __atomic_load_n(&s_emitting, __ATOMIC_ACQUIRE);
 }
 
-void host_link_feed(const uint8_t *data, size_t len) {
+static void parse_bytes(const uint8_t *data, size_t len) {
   if (data == NULL || len == 0)
     return;
 
@@ -183,6 +388,14 @@ void host_link_feed(const uint8_t *data, size_t len) {
       return; // wait for the rest
 
     process_frame(s_acc, total);
+    if (s_dispatch_generation == 0)
+      return; // HELLO consumed/reset its transcript
+
+    portENTER_CRITICAL(&s_state_lock);
+    bool still_current = s_generation == s_worker_generation;
+    portEXIT_CRITICAL(&s_state_lock);
+    if (!still_current)
+      return; // reconcile owns reset; no post-dispatch underflow
 
     memmove(s_acc, s_acc + total, s_acc_len - total);
     s_acc_len -= total;
@@ -199,7 +412,7 @@ static void process_frame(const uint8_t *frame, size_t total) {
   uint16_t body_len = (uint16_t)frame[8] | ((uint16_t)frame[9] << 8);
   (void)total;
 
-  if (ver != HOST_LINK_VER) {
+  if (ver != HOST_LINK_VER || (flags & ~HOST_LINK_FLAG_AUTH) != 0) {
     ESP_LOGW(TAG, "Unsupported host-link version %u", ver);
     return;
   }
@@ -215,6 +428,8 @@ static void process_frame(const uint8_t *frame, size_t total) {
 
   // Pre-auth handshake: the only frame accepted before keys exist.
   if (type == HOST_TYPE_HELLO) {
+    if (flags != 0)
+      return;
     handle_hello(payload, plen16);
     return;
   }
@@ -236,6 +451,11 @@ static void process_frame(const uint8_t *frame, size_t total) {
     ESP_LOGW(TAG, "Ignoring non-CMD frame type 0x%02X from host", type);
     return;
   }
+  portENTER_CRITICAL(&s_state_lock);
+  bool current = s_dispatch_generation == s_generation && s_ready_generation == s_generation;
+  portEXIT_CRITICAL(&s_state_lock);
+  if (!current)
+    return;
 
   // Local P4 handlers live in the dispatch registry; anything not registered
   // relays to the C5. Registered handlers may exceed the 255-byte relay cap
@@ -260,22 +480,47 @@ static void process_frame(const uint8_t *frame, size_t total) {
 }
 
 static void handle_hello(const uint8_t *payload, uint16_t plen) {
+  if (payload == NULL || plen != 1 + HOST_LINK_NONCE_SIZE || payload[0] != HOST_LINK_VER)
+    return;
+  // Rekey is also a generation boundary. Invalidate queued input and every old
+  // producer before deriving; do not let an old log precede the new ACK.
+  portENTER_CRITICAL(&s_state_lock);
+  bool current = s_generation == s_dispatch_generation && s_writer != NULL;
+  if (current) {
+    if (++s_generation == 0)
+      ++s_generation;
+    s_ready_generation = 0;
+  }
+  uint32_t generation = s_generation;
+  portEXIT_CRITICAL(&s_state_lock);
+  if (!current)
+    return;
+  // No TX lock held during teardown (producers may be finishing a write).
+  teardown_session();
+  xSemaphoreTakeRecursive(s_lock, portMAX_DELAY);
+  host_link_sec_reset();
+  s_tx_counter = 0;
   uint8_t ack[1 + HOST_LINK_NONCE_SIZE + HOST_LINK_DEVICE_ID_SIZE + HOST_LINK_MAC_SIZE];
   size_t ack_len = 0;
   esp_err_t err = host_link_sec_handle_hello(payload, plen, ack, sizeof(ack), &ack_len);
   if (err != ESP_OK) {
+    xSemaphoreGiveRecursive(s_lock);
     ESP_LOGW(TAG, "HELLO rejected: %s", esp_err_to_name(err));
     return;
   }
 
-  // The handshake reset the session; restart the outbound counter so the first
-  // authenticated device→app frame begins a fresh sequence.
-  xSemaphoreTake(s_lock, portMAX_DELAY);
-  s_tx_counter = 0;
-  xSemaphoreGive(s_lock);
-
   // HELLO_ACK travels unauthenticated (its proof is mac_psk in the payload).
-  emit_frame(HOST_TYPE_HELLO_ACK, 0x00, 0x00, ack, (uint16_t)ack_len);
+  emit_frame(generation, HOST_TYPE_HELLO_ACK, 0x00, 0x00, ack, (uint16_t)ack_len);
+  portENTER_CRITICAL(&s_state_lock);
+  if (s_generation == generation && s_writer != NULL)
+    s_ready_generation = generation;
+  portEXIT_CRITICAL(&s_state_lock);
+  xSemaphoreGiveRecursive(s_lock);
+  // Discard trailing bytes from the previous transcript. The next ingress
+  // chunk is tagged by the transport with the new generation.
+  s_acc_len = 0;
+  s_worker_generation = generation;
+  s_dispatch_generation = 0;
 }
 
 static void dispatch_cmd(uint8_t category, uint8_t op, const uint8_t *payload, uint8_t plen) {
@@ -311,33 +556,47 @@ static uint8_t status_from_err(esp_err_t err) {
 // Assemble and write one host frame. Holds s_lock across the counter bump and
 // the transport write so frames stay atomic and the per-direction counter stays
 // monotonic even when RESP (command worker) and LOG (log worker) race.
-static void emit_frame(
-    uint8_t type, uint8_t category, uint8_t op, const uint8_t *payload, uint16_t payload_len) {
-  if (s_writer == NULL)
+static void emit_frame(uint32_t generation,
+                       uint8_t type,
+                       uint8_t category,
+                       uint8_t op,
+                       const uint8_t *payload,
+                       uint16_t payload_len) {
+  if (generation == 0 || s_lock == NULL)
     return;
 
-  static uint8_t frame[HOST_LINK_MAX_FRAME];
+  EXT_RAM_BSS_ATTR static uint8_t frame[HOST_LINK_MAX_FRAME];
+  if (payload_len >
+      HOST_LINK_MAX_FRAME - HOST_LINK_HDR_SIZE - HOST_LINK_BODY_HDR - HOST_LINK_MAC_SIZE)
+    return;
   uint16_t body_len = (uint16_t)(HOST_LINK_BODY_HDR + payload_len);
 
   // Handshake frames are always unauthenticated; everything else carries a MAC
   // once the session is up.
   bool is_handshake = (type == HOST_TYPE_HELLO || type == HOST_TYPE_HELLO_ACK);
-  bool authed = !is_handshake && host_link_sec_is_authenticated();
-  size_t span = (size_t)HOST_LINK_HDR_SIZE + body_len;
-  size_t out_len = span + (authed ? HOST_LINK_MAC_SIZE : 0);
-  if (out_len > sizeof(frame))
-    return; // never overflow the frame buffer
-
-  xSemaphoreTake(s_lock, portMAX_DELAY);
-  // Re-read the writer under the lock: a transport disconnect (session_release)
-  // can null it between the top-of-function check and the call below, which
-  // would turn the indirect call into a jump to NULL.
+  xSemaphoreTakeRecursive(s_lock, portMAX_DELAY);
+  portENTER_CRITICAL(&s_state_lock);
   host_link_writer_t writer = s_writer;
-  if (writer == NULL) {
-    xSemaphoreGive(s_lock);
+  bool current = writer != NULL && generation == s_generation &&
+                 (is_handshake || generation == s_ready_generation);
+  portEXIT_CRITICAL(&s_state_lock);
+  bool authed = !is_handshake && host_link_sec_is_authenticated();
+  if (!current || (!is_handshake && !authed)) {
+    xSemaphoreGiveRecursive(s_lock);
     return;
   }
-  s_emitting = true; // the writer runs blocking SPI that may log; gate the tee
+  size_t span = (size_t)HOST_LINK_HDR_SIZE + body_len;
+  size_t out_len = span + (authed ? HOST_LINK_MAC_SIZE : 0);
+  if (out_len > sizeof(frame)) {
+    xSemaphoreGiveRecursive(s_lock);
+    return;
+  }
+  if (s_tx_counter == UINT32_MAX) {
+    xSemaphoreGiveRecursive(s_lock);
+    host_link_session_release_generation(writer, generation);
+    return;
+  }
+  __atomic_store_n(&s_emitting, true, __ATOMIC_RELEASE); // gate recursive log tee
   uint32_t counter = s_tx_counter++;
 
   frame[0] = HOST_LINK_MAGIC0;
@@ -357,12 +616,16 @@ static void emit_frame(
     memcpy(frame + HOST_LINK_HDR_SIZE + HOST_LINK_BODY_HDR, payload, payload_len);
 
   // MAC covers [VER .. end of BODY) and is appended after the body.
-  if (authed)
-    host_link_sec_sign_outbound(frame + 2, span - 2, frame + span);
+  if (authed && !host_link_sec_sign_outbound(frame + 2, span - 2, frame + span)) {
+    __atomic_store_n(&s_emitting, false, __ATOMIC_RELEASE);
+    xSemaphoreGiveRecursive(s_lock);
+    return;
+  }
 
-  writer(frame, out_len);
-  s_emitting = false;
-  xSemaphoreGive(s_lock);
+  if (host_link_generation_matches(writer, generation))
+    writer(generation, frame, out_len);
+  __atomic_store_n(&s_emitting, false, __ATOMIC_RELEASE);
+  xSemaphoreGiveRecursive(s_lock);
 }
 
 static void
@@ -375,7 +638,8 @@ send_resp(uint8_t category, uint8_t op, uint8_t status, const uint8_t *data, uin
   payload[0] = status;
   if (data_len > 0 && data != NULL)
     memcpy(payload + 1, data, data_len);
-  emit_frame(HOST_TYPE_RESP, category, op, payload, (uint16_t)(1 + data_len));
+  emit_frame(
+      s_dispatch_generation, HOST_TYPE_RESP, category, op, payload, (uint16_t)(1 + data_len));
 }
 
 // screen share exposes size_t out_cap; adapt it to the registry's uint16_t.
@@ -395,21 +659,49 @@ static void register_builtins(void) {
   done = true;
 
   const host_link_handler_t builtins[] = {
-      {SPI_CAT_SYSTEM, SPI_ID_FILE_LIST & 0xFF, SPI_ID_FILE_MKDIR & 0xFF, HOST_FILE_CHUNK,
-       host_files_handle, "files"},
-      {SPI_CAT_SYSTEM, SPI_ID_SYSTEM_DEVICE_STATE & 0xFF, SPI_ID_SYSTEM_SET_SETTINGS & 0xFF,
-       HOST_FILE_DATA_MAX, host_state_handle, "state"},
-      {SPI_CAT_SYSTEM, SPI_ID_SYSTEM_CONFIG_GET & 0xFF, SPI_ID_SYSTEM_CONFIG_GET & 0xFF,
-       HOST_FILE_DATA_MAX, host_config_handle, "config-get"},
-      {SPI_CAT_SYSTEM, SPI_ID_SYSTEM_SET_THEME & 0xFF, SPI_ID_SYSTEM_SET_THEME & 0xFF,
-       HOST_FILE_DATA_MAX, host_theme_handle, "theme"},
-      {SPI_CAT_SYSTEM, SPI_ID_SYSTEM_CONFIG_SET & 0xFF, SPI_ID_SYSTEM_CONFIG_SET & 0xFF,
-       HOST_FILE_DATA_MAX, host_config_handle, "config-set"},
-      {SPI_CAT_SYSTEM, SPI_ID_APP_LIST & 0xFF, SPI_ID_APP_GRANT & 0xFF, HOST_FILE_DATA_MAX,
-       host_apps_handle, "apps"},
+      {SPI_CAT_SYSTEM,
+       SPI_ID_FILE_LIST & 0xFF,
+       SPI_ID_FILE_MKDIR & 0xFF,
+       HOST_FILE_CHUNK,
+       host_files_handle,
+       "files"},
+      {SPI_CAT_SYSTEM,
+       SPI_ID_SYSTEM_DEVICE_STATE & 0xFF,
+       SPI_ID_SYSTEM_SET_SETTINGS & 0xFF,
+       HOST_FILE_DATA_MAX,
+       host_state_handle,
+       "state"},
+      {SPI_CAT_SYSTEM,
+       SPI_ID_SYSTEM_CONFIG_GET & 0xFF,
+       SPI_ID_SYSTEM_CONFIG_GET & 0xFF,
+       HOST_FILE_DATA_MAX,
+       host_config_handle,
+       "config-get"},
+      {SPI_CAT_SYSTEM,
+       SPI_ID_SYSTEM_SET_THEME & 0xFF,
+       SPI_ID_SYSTEM_SET_THEME & 0xFF,
+       HOST_FILE_DATA_MAX,
+       host_theme_handle,
+       "theme"},
+      {SPI_CAT_SYSTEM,
+       SPI_ID_SYSTEM_CONFIG_SET & 0xFF,
+       SPI_ID_SYSTEM_CONFIG_SET & 0xFF,
+       HOST_FILE_DATA_MAX,
+       host_config_handle,
+       "config-set"},
+      {SPI_CAT_SYSTEM,
+       SPI_ID_APP_LIST & 0xFF,
+       SPI_ID_APP_GRANT & 0xFF,
+       HOST_FILE_DATA_MAX,
+       host_apps_handle,
+       "apps"},
       {SPI_CAT_SESSION, 0x00, 0xFF, 8, host_stream_session_ctrl, "session"},
-      {SPI_CAT_WIFI, SPI_ID_WIFI_APP_SNIFFER & 0xFF, SPI_ID_WIFI_APP_SNIFFER & 0xFF, 8,
-       host_stream_start, "wifi-sniffer"},
+      {SPI_CAT_WIFI,
+       SPI_ID_WIFI_APP_SNIFFER & 0xFF,
+       SPI_ID_WIFI_APP_SNIFFER & 0xFF,
+       8,
+       host_stream_start,
+       "wifi-sniffer"},
       {SPI_CAT_SCREEN, 0x00, 0xFF, 8, screen_share_shim, "screen"},
       {SPI_CAT_IR, 0x00, 0xFF, 8, host_ir_handle, "ir"},
       {SPI_CAT_SUBGHZ, 0x00, 0xFF, HOST_FILE_DATA_MAX, host_subghz_handle, "subghz"},
@@ -418,6 +710,7 @@ static void register_builtins(void) {
       {SPI_CAT_BADUSB, 0x00, 0xFF, HOST_FILE_DATA_MAX, host_badusb_handle, "badusb"},
       {SPI_CAT_LORACFG, 0x00, 0xFF, HOST_FILE_DATA_MAX, host_lora_handle, "loracfg"},
       {SPI_CAT_LORACHAT, 0x00, 0xFF, HOST_FILE_DATA_MAX, host_lora_handle, "lorachat"},
+      {SPI_CAT_FLY, 0x00, 0xFF, FLY_LINK_RESPONSE_MAX, host_fly_handle, "fly"},
   };
   for (size_t i = 0; i < sizeof(builtins) / sizeof(builtins[0]); i++) {
     esp_err_t err = host_link_register(&builtins[i]);
@@ -427,21 +720,26 @@ static void register_builtins(void) {
 }
 
 void host_link_mark_ble_writer(host_link_writer_t writer) {
+  portENTER_CRITICAL(&s_state_lock);
   s_ble_writer = writer;
+  portEXIT_CRITICAL(&s_state_lock);
 }
 
 // Emit one LOG frame. Background logs (gate_ble=true) are suppressed over BLE
 // when the log-over-BLE toggle is off; USB always carries them, and console
 // output (gate_ble=false) is always delivered.
-static void emit_log_frame(host_log_source_t source,
+static void emit_log_frame(uint32_t generation,
+                           host_log_source_t source,
                            host_log_level_t level,
                            const char *text,
                            size_t text_len,
                            bool gate_ble) {
   if (text == NULL)
     return;
-  if (gate_ble && s_writer != NULL && s_writer == s_ble_writer &&
-      !host_settings_log_over_ble_enabled()) {
+  portENTER_CRITICAL(&s_state_lock);
+  bool ble = s_writer != NULL && s_writer == s_ble_writer;
+  portEXIT_CRITICAL(&s_state_lock);
+  if (gate_ble && ble && !host_settings_log_over_ble_enabled()) {
     return;
   }
 
@@ -452,20 +750,34 @@ static void emit_log_frame(host_log_source_t source,
   payload[0] = (uint8_t)source;
   payload[1] = (uint8_t)level;
   memcpy(payload + 2, text, text_len);
-  emit_frame(HOST_TYPE_LOG, 0x00, 0x00, payload, (uint16_t)(2 + text_len));
+  emit_frame(generation, HOST_TYPE_LOG, 0x00, 0x00, payload, (uint16_t)(2 + text_len));
 }
 
 void host_link_emit_log(host_log_source_t source,
                         host_log_level_t level,
                         const char *text,
                         size_t text_len) {
-  emit_log_frame(source, level, text, text_len, true);
+  emit_log_frame(host_link_output_generation(), source, level, text, text_len, true);
 }
 
 void host_link_emit_console(const char *text, size_t text_len) {
-  emit_log_frame(HOST_LOG_SRC_P4, HOST_LOG_LEVEL_INFO, text, text_len, false);
+  emit_log_frame(
+      host_link_output_generation(), HOST_LOG_SRC_P4, HOST_LOG_LEVEL_INFO, text, text_len, false);
 }
 
 void host_link_emit_stream(uint8_t category, uint8_t op, const uint8_t *data, uint16_t len) {
-  emit_frame(HOST_TYPE_STREAM, category, op, data, len);
+  emit_frame(host_link_output_generation(), HOST_TYPE_STREAM, category, op, data, len);
+}
+
+void host_link_emit_stream_generation(
+    uint32_t generation, uint8_t category, uint8_t op, const uint8_t *data, uint16_t len) {
+  emit_frame(generation, HOST_TYPE_STREAM, category, op, data, len);
+}
+
+void host_link_emit_log_generation(uint32_t generation,
+                                   host_log_source_t source,
+                                   host_log_level_t level,
+                                   const char *text,
+                                   size_t text_len) {
+  emit_log_frame(generation, source, level, text, text_len, true);
 }

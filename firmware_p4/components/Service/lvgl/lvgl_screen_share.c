@@ -46,8 +46,12 @@ static const char *TAG = "SCREEN_SHARE";
 // and no snapshot RAM is used.
 static const bool s_enabled = true;
 
-static volatile bool s_active = false;
-static TaskHandle_t s_task = NULL;
+// Protect START/STOP versus the capture task. STOP never waits for the task or
+// a transport write; the old task must finish before a new capture can start.
+static portMUX_TYPE s_state_lock = portMUX_INITIALIZER_UNLOCKED;
+static bool s_active = false;
+static bool s_running = false;
+static uint32_t s_generation = 0;
 
 // Reused snapshot target: our own DMA-incapable internal buffer wrapped in an
 // lv_draw_buf (LVGL's mem pool is far too small for a 150 KB frame).
@@ -56,13 +60,30 @@ static uint8_t *s_snap_data = NULL;
 static uint32_t s_stride = 0;
 
 // One row-strip on the wire: header + RGB565 pixels.
-static uint8_t s_strip[sizeof(spi_screen_strip_t) + SS_STRIP_ROWS * SS_WIDTH * 2];
+EXT_RAM_BSS_ATTR static uint8_t s_strip[sizeof(spi_screen_strip_t) + SS_STRIP_ROWS * SS_WIDTH * 2];
 
-static void send_strips(void) {
+static bool capture_is_active(uint32_t generation) {
+  portENTER_CRITICAL(&s_state_lock);
+  bool active = s_active && s_running && s_generation == generation;
+  portEXIT_CRITICAL(&s_state_lock);
+  return active;
+}
+
+static void capture_finished(void) {
+  portENTER_CRITICAL(&s_state_lock);
+  s_active = false;
+  s_running = false;
+  s_generation = 0;
+  portEXIT_CRITICAL(&s_state_lock);
+}
+
+static void send_strips(uint32_t generation) {
   const uint8_t cat = SPI_CMD_CAT(SPI_ID_SCREEN_FRAME);
   const uint8_t op = SPI_CMD_OP(SPI_ID_SCREEN_FRAME);
 
   for (uint16_t y = 0; y < SS_HEIGHT; y += SS_STRIP_ROWS) {
+    if (!capture_is_active(generation))
+      return;
     uint16_t rows = (y + SS_STRIP_ROWS <= SS_HEIGHT) ? SS_STRIP_ROWS : (uint16_t)(SS_HEIGHT - y);
 
     spi_screen_strip_t *hdr = (spi_screen_strip_t *)s_strip;
@@ -78,11 +99,11 @@ static void send_strips(void) {
     }
 
     uint16_t len = (uint16_t)(sizeof(spi_screen_strip_t) + (size_t)rows * SS_WIDTH * 2);
-    host_link_emit_stream(cat, op, s_strip, len);
+    host_link_emit_stream_generation(generation, cat, op, s_strip, len);
   }
 }
 
-static void capture_and_send(void) {
+static void capture_and_send(uint32_t generation) {
   // Snapshot must run under the LVGL lock (it walks the object tree). We render
   // into our private buffer, then release the lock before streaming (nothing
   // else touches s_snap_data, so the send needs no lock).
@@ -97,20 +118,20 @@ static void capture_and_send(void) {
   lvgl_glue_unlock();
 
   if (ok) {
-    send_strips();
+    send_strips(generation);
   }
 }
 
 static void ss_task(void *arg) {
-  (void)arg;
+  // Immutable origin for every strip, even if a new HELLO arrives mid-frame.
+  uint32_t generation = (uint32_t)(uintptr_t)arg;
 
   s_stride = lv_draw_buf_width_to_stride(SS_WIDTH, LV_COLOR_FORMAT_RGB565);
   size_t data_size = (size_t)s_stride * SS_HEIGHT;
   s_snap_data = heap_caps_malloc(data_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (s_snap_data == NULL) {
     ESP_LOGE(TAG, "no memory for %u-byte snapshot buffer - screen share off", (unsigned)data_size);
-    s_active = false;
-    s_task = NULL;
+    capture_finished();
     vTaskDelete(NULL);
     return;
   }
@@ -124,14 +145,14 @@ static void ss_task(void *arg) {
            SS_FPS,
            (unsigned)(data_size / 1024));
 
-  while (s_active) {
-    capture_and_send();
+  while (capture_is_active(generation)) {
+    capture_and_send(generation);
     vTaskDelay(pdMS_TO_TICKS(SS_PERIOD_MS));
   }
 
   heap_caps_free(s_snap_data);
   s_snap_data = NULL;
-  s_task = NULL;
+  capture_finished();
   ESP_LOGI(TAG, "screen share stopped");
   vTaskDelete(NULL);
 }
@@ -176,25 +197,35 @@ uint8_t lvgl_screen_share_handle(uint16_t cmd,
   }
 
   switch (cmd) {
-    case SPI_ID_SCREEN_START:
+    case SPI_ID_SCREEN_START: {
       if (!s_enabled) {
         return SPI_STATUS_UNSUPPORTED; // temporarily disabled
       }
+      uint32_t generation = host_link_output_generation();
+      if (generation == 0)
+        return SPI_STATUS_BUSY;
+      portENTER_CRITICAL(&s_state_lock);
+      if (s_running) {
+        bool same_capture = s_active && s_generation == generation;
+        portEXIT_CRITICAL(&s_state_lock);
+        return same_capture ? SPI_STATUS_OK : SPI_STATUS_BUSY;
+      }
       s_active = true;
-      if (s_task == NULL) {
-        if (xTaskCreatePinnedToCore(ss_task,
-                                    "screen_share",
-                                    SS_TASK_STACK,
-                                    NULL,
-                                    SS_TASK_PRIO,
-                                    &s_task,
-                                    SYS_CORE_RADIO) != pdPASS) {
-          s_active = false;
-          s_task = NULL;
-          return SPI_STATUS_ERROR;
-        }
+      s_running = true;
+      s_generation = generation;
+      portEXIT_CRITICAL(&s_state_lock);
+      if (xTaskCreatePinnedToCore(ss_task,
+                                  "screen_share",
+                                  SS_TASK_STACK,
+                                  (void *)(uintptr_t)generation,
+                                  SS_TASK_PRIO,
+                                  NULL,
+                                  SYS_CORE_RADIO) != pdPASS) {
+        capture_finished();
+        return SPI_STATUS_ERROR;
       }
       return SPI_STATUS_OK;
+    }
 
     case SPI_ID_SCREEN_STOP:
       lvgl_screen_share_stop();
@@ -215,9 +246,14 @@ uint8_t lvgl_screen_share_handle(uint16_t cmd,
 void lvgl_screen_share_stop(void) {
   // Idempotent: the capture task sees s_active=false, frees its buffer and
   // exits on the next tick. Safe to call even when not streaming.
+  portENTER_CRITICAL(&s_state_lock);
   s_active = false;
+  portEXIT_CRITICAL(&s_state_lock);
 }
 
 bool lvgl_screen_share_is_active(void) {
-  return s_active;
+  portENTER_CRITICAL(&s_state_lock);
+  bool active = s_active;
+  portEXIT_CRITICAL(&s_state_lock);
+  return active;
 }

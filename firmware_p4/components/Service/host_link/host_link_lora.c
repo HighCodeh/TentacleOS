@@ -84,7 +84,7 @@ static void lookup_node_signal(const char *who, int16_t *rssi, int8_t *snr) {
   }
 }
 
-static void emit_rx(const lora_msg_t *m) {
+static void emit_rx(uint32_t generation, const lora_msg_t *m) {
   uint8_t frame[LORA_RX_FRAME_MAX];
   uint16_t pos = 0;
   size_t nl = strnlen(m->who, sizeof(m->who));
@@ -106,19 +106,19 @@ static void emit_rx(const lora_msg_t *m) {
   memcpy(frame + pos, m->text, tl);
   pos = (uint16_t)(pos + tl);
 
-  host_link_emit_stream(
-      SPI_CMD_CAT(SPI_ID_LORACHAT_RX), SPI_CMD_OP(SPI_ID_LORACHAT_RX), frame, pos);
+  host_link_emit_stream_generation(
+      generation, SPI_CMD_CAT(SPI_ID_LORACHAT_RX), SPI_CMD_OP(SPI_ID_LORACHAT_RX), frame, pos);
 }
 
 static void lora_rx_task(void *arg) {
-  (void)arg;
+  const uint32_t generation = (uint32_t)(uintptr_t)arg;
   lora_msg_t batch[LORA_RX_BATCH];
 
   while (s_chat_active) {
     uint16_t n = lora_session_msg_since(&s_seq, batch, LORA_RX_BATCH);
     for (uint16_t i = 0; i < n; i++)
       if (!batch[i].outgoing)
-        emit_rx(&batch[i]);
+        emit_rx(generation, &batch[i]);
     if (n < LORA_RX_BATCH)
       vTaskDelay(pdMS_TO_TICKS(LORA_POLL_MS));
   }
@@ -169,6 +169,8 @@ static uint8_t handle_cfg_set(const uint8_t *payload, uint16_t plen) {
 
 static uint8_t handle_chat_start(
     const uint8_t *payload, uint16_t plen, uint8_t *out, uint16_t out_cap, uint16_t *out_len) {
+  if (s_rx_task != NULL)
+    return SPI_STATUS_BUSY;
   char name[LORA_NAME_MAX];
   uint16_t n = plen < sizeof(name) - 1 ? plen : (uint16_t)(sizeof(name) - 1);
   if (payload != NULL && n > 0)
@@ -191,7 +193,7 @@ static uint8_t handle_chat_start(
   if (s_rx_task == NULL && xTaskCreatePinnedToCore(lora_rx_task,
                                                    "lora_hl_rx",
                                                    LORA_RX_TASK_STACK,
-                                                   NULL,
+                                                   (void *)(uintptr_t)host_link_output_generation(),
                                                    LORA_RX_TASK_PRIO,
                                                    &s_rx_task,
                                                    LORA_RX_TASK_CORE) != pdPASS) {

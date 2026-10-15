@@ -30,8 +30,11 @@ static const char *TAG = "LVGL_GLUE";
 #define LVGL_PORT_TASK_STACK      (16 * 1024)
 #define LVGL_PORT_MAX_SLEEP_MS    500
 #define LVGL_PORT_TIMER_PERIOD_MS 5
-#define LVGL_BUF_LINES            (LCD_PANEL_H / 4)
-#define ROTATION_LOCK_TIMEOUT_MS  2000
+// Two 80-line DMA buffers consumed ~75 KB of internal RAM. Forty-line double
+// buffering still gives the SPI panel long contiguous transfers while returning
+// ~37 KB to NFC/Sub-GHz/audio DMA and the general internal heap.
+#define LVGL_BUF_LINES           (LCD_PANEL_H / 8)
+#define ROTATION_LOCK_TIMEOUT_MS 2000
 
 static bool s_ready = false;
 static bool s_landscape = false;

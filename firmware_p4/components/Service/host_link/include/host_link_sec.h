@@ -90,7 +90,7 @@ bool host_link_sec_verify_inbound(const uint8_t *span,
  * @param span_len  Length of @p span.
  * @param out_mac   Receives the 16-byte truncated HMAC.
  */
-void host_link_sec_sign_outbound(const uint8_t *span, size_t span_len, uint8_t *out_mac);
+bool host_link_sec_sign_outbound(const uint8_t *span, size_t span_len, uint8_t *out_mac);
 
 /** @brief Copy the PSK as a lowercase hex string (for QR/console provisioning). */
 esp_err_t host_link_sec_get_psk_hex(char *out, size_t out_cap);

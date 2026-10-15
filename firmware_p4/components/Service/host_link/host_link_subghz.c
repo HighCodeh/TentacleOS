@@ -48,7 +48,7 @@ static void ensure_storage(void) {
 }
 
 static void rx_poll_task(void *arg) {
-  (void)arg;
+  const uint32_t generation = (uint32_t)(uintptr_t)arg;
   subghz_rx_result_t res;
   uint32_t last_seq = 0;
   while (s_rx_run) {
@@ -72,7 +72,8 @@ static void rx_poll_task(void *arg) {
       buf[n++] = plen;
       memcpy(buf + n, proto, plen);
       n += plen;
-      host_link_emit_stream(SPI_CAT_SUBGHZ, SPI_ID_SUBGHZ_RX_FRAME & 0xFF, buf, n);
+      host_link_emit_stream_generation(
+          generation, SPI_CAT_SUBGHZ, SPI_ID_SUBGHZ_RX_FRAME & 0xFF, buf, n);
     }
     vTaskDelay(pdMS_TO_TICKS(SUBGHZ_POLL_MS));
   }
@@ -82,7 +83,7 @@ static void rx_poll_task(void *arg) {
 }
 
 static void spec_poll_task(void *arg) {
-  (void)arg;
+  const uint32_t generation = (uint32_t)(uintptr_t)arg;
   subghz_spectrum_line_t line;
   while (s_spec_run) {
     if (subghz_spectrum_get_line(&line)) {
@@ -99,7 +100,8 @@ static void spec_poll_task(void *arg) {
       buf[n++] = SPECTRUM_SAMPLES;
       for (int i = 0; i < SPECTRUM_SAMPLES; i++)
         buf[n++] = (int8_t)line.dbm_values[i];
-      host_link_emit_stream(SPI_CAT_SUBGHZ, SPI_ID_SUBGHZ_SPECTRUM_LINE & 0xFF, buf, n);
+      host_link_emit_stream_generation(
+          generation, SPI_CAT_SUBGHZ, SPI_ID_SUBGHZ_SPECTRUM_LINE & 0xFF, buf, n);
     }
     vTaskDelay(pdMS_TO_TICKS(SUBGHZ_POLL_MS));
   }
@@ -131,13 +133,18 @@ uint8_t host_subghz_handle(uint16_t cmd,
         return SPI_STATUS_BUSY;
       subghz_mode_t mode = (subghz_mode_t)payload[0];
       cc1101_preset_t preset = (cc1101_preset_t)payload[1];
-      uint32_t freq = (uint32_t)(payload[2] | (payload[3] << 8) | (payload[4] << 16) |
-                                 (payload[5] << 24));
+      uint32_t freq =
+          (uint32_t)(payload[2] | (payload[3] << 8) | (payload[4] << 16) | (payload[5] << 24));
       if (subghz_receiver_start(mode, preset, freq) != ESP_OK)
         return SPI_STATUS_ERROR;
       s_rx_run = true;
-      if (xTaskCreatePinnedToCore(rx_poll_task, "sg_rx", 4096, NULL, SYS_PRIO_SERVICE_LO,
-                                  &s_rx_task, SYS_CORE_RADIO) != pdPASS) {
+      if (xTaskCreatePinnedToCore(rx_poll_task,
+                                  "sg_rx",
+                                  4096,
+                                  (void *)(uintptr_t)host_link_output_generation(),
+                                  SYS_PRIO_SERVICE_LO,
+                                  &s_rx_task,
+                                  SYS_CORE_RADIO) != pdPASS) {
         s_rx_run = false;
         subghz_receiver_stop();
         return SPI_STATUS_ERROR;
@@ -182,14 +189,19 @@ uint8_t host_subghz_handle(uint16_t cmd,
         return SPI_STATUS_INVALID_ARG;
       if (s_rx_task != NULL || s_spec_task != NULL)
         return SPI_STATUS_BUSY;
-      uint32_t center = (uint32_t)(payload[0] | (payload[1] << 8) | (payload[2] << 16) |
-                                   (payload[3] << 24));
-      uint32_t span = (uint32_t)(payload[4] | (payload[5] << 8) | (payload[6] << 16) |
-                                 (payload[7] << 24));
+      uint32_t center =
+          (uint32_t)(payload[0] | (payload[1] << 8) | (payload[2] << 16) | (payload[3] << 24));
+      uint32_t span =
+          (uint32_t)(payload[4] | (payload[5] << 8) | (payload[6] << 16) | (payload[7] << 24));
       subghz_spectrum_start(center, span);
       s_spec_run = true;
-      if (xTaskCreatePinnedToCore(spec_poll_task, "sg_spec", 4096, NULL, SYS_PRIO_SERVICE_LO,
-                                  &s_spec_task, SYS_CORE_RADIO) != pdPASS) {
+      if (xTaskCreatePinnedToCore(spec_poll_task,
+                                  "sg_spec",
+                                  4096,
+                                  (void *)(uintptr_t)host_link_output_generation(),
+                                  SYS_PRIO_SERVICE_LO,
+                                  &s_spec_task,
+                                  SYS_CORE_RADIO) != pdPASS) {
         s_spec_run = false;
         subghz_spectrum_stop();
         return SPI_STATUS_ERROR;

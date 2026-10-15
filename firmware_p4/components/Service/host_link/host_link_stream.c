@@ -46,6 +46,7 @@ static const char *TAG = "HOST_LINK_STREAM";
 static SemaphoreHandle_t s_lock = NULL;
 static uint32_t s_session_id = SPI_SESSION_INVALID_ID;
 static uint16_t s_session_op = 0;
+static uint32_t s_generation = 0;
 static int64_t s_last_app_hb_us = 0;
 static TaskHandle_t s_watchdog = NULL;
 
@@ -67,6 +68,7 @@ static void stop_locked(void) {
     uint32_t sid = s_session_id;
     s_session_id = SPI_SESSION_INVALID_ID;
     s_session_op = 0;
+    s_generation = 0;
     xSemaphoreGive(s_lock);
     spi_session_stop(sid); // sends STOP to C5 + kills the P4→C5 heartbeat
     xSemaphoreTake(s_lock, portMAX_DELAY);
@@ -106,6 +108,7 @@ uint8_t host_stream_start(uint16_t cmd,
   xSemaphoreTake(s_lock, portMAX_DELAY);
   s_session_id = sid;
   s_session_op = cmd;
+  s_generation = host_link_output_generation();
   s_last_app_hb_us = esp_timer_get_time();
   xSemaphoreGive(s_lock);
 
@@ -165,26 +168,33 @@ static void on_stream(const uint8_t *data, uint8_t len) {
   uint16_t op;
   xSemaphoreTake(s_lock, portMAX_DELAY);
   op = s_session_op;
-  bool active = (s_session_id != SPI_SESSION_INVALID_ID);
+  uint32_t generation = s_generation;
+  bool active =
+      (s_session_id != SPI_SESSION_INVALID_ID && spi_session_callback_id() == s_session_id);
   xSemaphoreGive(s_lock);
   if (!active) {
     return;
   }
-  host_link_emit_stream(SPI_CMD_CAT(op), SPI_CMD_OP(op), data, len);
+  host_link_emit_stream_generation(generation, SPI_CMD_CAT(op), SPI_CMD_OP(op), data, len);
 }
 
 static void on_lost(uint32_t session_id, spi_id_t op_id) {
-  (void)session_id;
   // The C5 (or a preempting start) ended the session. Tell the app the stream
   // is over via a SESSION/LOST STREAM frame, then clear local state.
   xSemaphoreTake(s_lock, portMAX_DELAY);
-  bool was_ours = (op_id == s_session_op && s_session_id != SPI_SESSION_INVALID_ID);
-  s_session_id = SPI_SESSION_INVALID_ID;
-  s_session_op = 0;
+  bool was_ours = (op_id == s_session_op && session_id == s_session_id &&
+                   s_session_id != SPI_SESSION_INVALID_ID);
+  uint32_t generation = s_generation;
+  if (was_ours) {
+    s_session_id = SPI_SESSION_INVALID_ID;
+    s_session_op = 0;
+    s_generation = 0;
+  }
   xSemaphoreGive(s_lock);
 
   if (was_ours) {
-    host_link_emit_stream(SPI_CAT_SESSION, SPI_CMD_OP(SPI_ID_SESSION_LOST), NULL, 0);
+    host_link_emit_stream_generation(
+        generation, SPI_CAT_SESSION, SPI_CMD_OP(SPI_ID_SESSION_LOST), NULL, 0);
   }
 }
 

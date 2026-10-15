@@ -29,7 +29,7 @@ extern "C" {
 // Host-link frame envelope (see docs/host_link/protocol.md):
 //   [MAGIC 'H''B'][VER u8][FLAGS u8][COUNTER u32][LEN u16][BODY LEN][MAC 16 if FLAGS.auth]
 // BODY = [type u8][category u8][op u8][payload...]
-// Phase 1: no crypto — FLAGS.auth is 0 and no MAC is present/verified.
+// HELLO/ACK are unauthenticated. All other frames require a fresh keyed MAC.
 
 #define HOST_LINK_MAGIC0 0x48 // 'H'
 #define HOST_LINK_MAGIC1 0x42 // 'B'
@@ -72,12 +72,14 @@ typedef enum {
 } host_log_level_t;
 
 // Transport write callback: emit one fully-framed host frame (CDC/BLE owns it).
-typedef void (*host_link_writer_t)(const uint8_t *frame, size_t len);
+typedef void (*host_link_writer_t)(uint32_t generation, const uint8_t *frame, size_t len);
 
 /**
  * @brief Initialize the host-link layer (reassembly + dispatch state).
  */
 esp_err_t host_link_init(void);
+// Start ingress resources from a transport INIT task, never from a callback.
+esp_err_t host_link_start_worker(void);
 
 /**
  * @brief Claim the single companion session for a transport's writer.
@@ -91,24 +93,54 @@ esp_err_t host_link_init(void);
 bool host_link_session_acquire(host_link_writer_t writer);
 
 /**
- * @brief Release the session if @p writer owns it; resets crypto + reassembly
- *        so a reconnecting app must re-handshake.
+ * @brief Callback-safe invalidation if @p writer owns it. Crypto, reassembly
+ *        and producer
+ * teardown are deferred to the core worker. Never waits
+ *        for a handler, TX, crypto or SPI
+ * operation.
  */
 void host_link_session_release(host_link_writer_t writer);
+// Fail a specific transfer only, without revoking a newer reuse of the writer.
+void host_link_session_release_generation(host_link_writer_t writer, uint32_t generation);
 
 /** @brief True if @p writer currently owns the session. */
 bool host_link_session_owns(host_link_writer_t writer);
 
 /**
- * @brief Feed received transport bytes. May contain partial or multiple frames;
- *        complete frames are reassembled, dispatched, and answered via the
- *        registered writer.
+ * @brief Queue received transport bytes without waiting. Only the core worker
+ *
+ * reassembles/dispatches. On overflow invalidate this generation, never
+ *        splice across a
+ * lost chunk. Callers must retry with a fresh HELLO.
  */
-void host_link_feed(const uint8_t *data, size_t len);
+// Callback-safe, nonblocking ingress. A generation is captured BEFORE reading
+// transport bytes, never looked up later when draining a queue.
+uint32_t host_link_session_generation(host_link_writer_t writer);
+bool host_link_generation_matches(host_link_writer_t writer, uint32_t generation);
+bool host_link_feed(host_link_writer_t writer,
+                    uint32_t generation,
+                    const uint8_t *data,
+                    size_t len);
+
+// Capture when an asynchronous operation/log is STARTED, retain with its data.
+// Zero means no authenticated, ready owner. Never retag old data on emission.
+uint32_t host_link_output_generation(void);
+void host_link_emit_stream_generation(
+    uint32_t generation, uint8_t category, uint8_t op, const uint8_t *data, uint16_t len);
+void host_link_emit_log_generation(uint32_t generation,
+                                   host_log_source_t source,
+                                   host_log_level_t level,
+                                   const char *text,
+                                   size_t text_len);
+
+#ifdef HOST_LINK_TEST
+bool host_link_test_pump(void);
+#endif
 
 /**
- * @brief Discard any partially-reassembled frame. Call when the transport drops
- *        so stale bytes don't bleed into the next session.
+ * @brief Invalidate the transcript while retaining transport ownership. The
+ *        worker
+ * discards RX and keys asynchronously; requires a fresh HELLO.
  */
 void host_link_reset_rx(void);
 

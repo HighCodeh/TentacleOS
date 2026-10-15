@@ -28,11 +28,11 @@
 
 static const char *TAG = "HOST_LINK_IR";
 
-#define IR_TX_MIN_PAYLOAD   10  // [proto u8][addr u32][cmd u32][repeat u8]
-#define IR_RAW_HDR_LEN      6   // [carrier u32][count u16]
-#define IR_RAW_MAX_SYMBOLS  512 // cap per IR_TX_RAW
-#define IR_FRAME_LEN        10  // decoded-signal wire layout (same as IR_TX)
-#define IR_RX_RECV_MS       200 // poll window: bounds stop-flag latency
+#define IR_TX_MIN_PAYLOAD  10  // [proto u8][addr u32][cmd u32][repeat u8]
+#define IR_RAW_HDR_LEN     6   // [carrier u32][count u16]
+#define IR_RAW_MAX_SYMBOLS 512 // cap per IR_TX_RAW
+#define IR_FRAME_LEN       10  // decoded-signal wire layout (same as IR_TX)
+#define IR_RX_RECV_MS      200 // poll window: bounds stop-flag latency
 
 static TaskHandle_t s_rx_task = NULL;
 static volatile bool s_rx_run = false;
@@ -47,14 +47,15 @@ static void encode_signal(const ir_data_t *d, uint8_t out[IR_FRAME_LEN]) {
 }
 
 static void ir_rx_task(void *arg) {
-  (void)arg;
+  const uint32_t generation = (uint32_t)(uintptr_t)arg;
   ir_data_t data;
   while (s_rx_run) {
     ir_rx_prime();
     if (ir_receive(&data, IR_RX_RECV_MS) == ESP_OK) {
       uint8_t frame[IR_FRAME_LEN];
       encode_signal(&data, frame);
-      host_link_emit_stream(SPI_CAT_IR, SPI_ID_IR_RX_FRAME & 0xFF, frame, sizeof(frame));
+      host_link_emit_stream_generation(
+          generation, SPI_CAT_IR, SPI_ID_IR_RX_FRAME & 0xFF, frame, sizeof(frame));
     }
   }
   ir_rx_deinit();
@@ -122,9 +123,13 @@ uint8_t host_ir_handle(uint16_t cmd,
       if (ir_rx_init() != ESP_OK)
         return SPI_STATUS_ERROR;
       s_rx_run = true;
-      if (xTaskCreatePinnedToCore(
-              ir_rx_task, "ir_rx", 4096, NULL, SYS_PRIO_SERVICE_LO, &s_rx_task, SYS_CORE_RADIO) !=
-          pdPASS) {
+      if (xTaskCreatePinnedToCore(ir_rx_task,
+                                  "ir_rx",
+                                  4096,
+                                  (void *)(uintptr_t)host_link_output_generation(),
+                                  SYS_PRIO_SERVICE_LO,
+                                  &s_rx_task,
+                                  SYS_CORE_RADIO) != pdPASS) {
         s_rx_run = false;
         ir_rx_deinit();
         return SPI_STATUS_ERROR;

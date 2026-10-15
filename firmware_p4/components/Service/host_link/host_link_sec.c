@@ -26,6 +26,8 @@
 #include "nvs.h"
 
 #include "host_link.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 static const char *TAG = "HOST_LINK_SEC";
 
@@ -41,6 +43,7 @@ static const char HL_INFO_D2A[] = "tos-host-d2a";
 
 static uint8_t s_psk[HOST_LINK_PSK_SIZE];
 static bool s_psk_loaded = false;
+static SemaphoreHandle_t s_crypto_lock = NULL;
 
 static bool s_authed = false;
 static uint8_t s_k_a2d[HOST_LINK_KEY_SIZE];
@@ -53,11 +56,16 @@ static const mbedtls_md_info_t *md_sha256(void) {
 }
 
 // HMAC-SHA256 truncated to HL_MAC_SIZE.
-static void hmac_trunc(
+static bool hmac_trunc(
     const uint8_t *key, size_t key_len, const uint8_t *data, size_t data_len, uint8_t *out_mac) {
-  uint8_t full[32];
-  mbedtls_md_hmac(md_sha256(), key, key_len, data, data_len, full);
-  memcpy(out_mac, full, HL_MAC_SIZE);
+  uint8_t full[32] = {0};
+  int rc = mbedtls_md_hmac(md_sha256(), key, key_len, data, data_len, full);
+  if (rc == 0)
+    memcpy(out_mac, full, HL_MAC_SIZE);
+  else
+    memset(out_mac, 0, HL_MAC_SIZE);
+  mbedtls_platform_zeroize(full, sizeof(full));
+  return rc == 0;
 }
 
 // Constant-time equality to avoid leaking MAC mismatch position via timing.
@@ -80,7 +88,7 @@ static esp_err_t persist_psk(void) {
   return err;
 }
 
-esp_err_t host_link_sec_init(void) {
+static esp_err_t sec_init_locked(void) {
   host_link_sec_reset();
 
   nvs_handle_t h;
@@ -112,25 +120,27 @@ esp_err_t host_link_sec_init(void) {
   return ESP_OK;
 }
 
-bool host_link_sec_is_authenticated(void) {
-  return s_authed;
-}
-
-void host_link_sec_reset(void) {
-  s_authed = false;
+static void sec_reset_locked(void) {
+  __atomic_store_n(&s_authed, false, __ATOMIC_RELEASE);
   s_rx_valid = false;
   s_rx_counter = 0;
   mbedtls_platform_zeroize(s_k_a2d, sizeof(s_k_a2d));
   mbedtls_platform_zeroize(s_k_d2a, sizeof(s_k_d2a));
 }
 
-esp_err_t host_link_sec_handle_hello(
+static esp_err_t sec_hello_locked(
     const uint8_t *payload, uint16_t plen, uint8_t *ack_out, size_t ack_cap, size_t *out_len) {
   if (!s_psk_loaded)
     return ESP_ERR_INVALID_STATE;
   // HELLO payload = [host_ver u8][client_nonce[16]]
-  if (payload == NULL || plen < 1 + HOST_LINK_NONCE_SIZE)
+  if (payload == NULL || plen != 1 + HOST_LINK_NONCE_SIZE || payload[0] != HOST_LINK_VER ||
+      ack_out == NULL || out_len == NULL)
     return ESP_ERR_INVALID_ARG;
+  const size_t need = 1 + HOST_LINK_NONCE_SIZE + HOST_LINK_DEVICE_ID_SIZE + HL_MAC_SIZE;
+  if (ack_cap < need)
+    return ESP_ERR_INVALID_SIZE;
+  *out_len = 0;
+  host_link_sec_reset();
 
   uint8_t host_ver = payload[0];
   const uint8_t *client_nonce = payload + 1;
@@ -170,16 +180,15 @@ esp_err_t host_link_sec_handle_hello(
 
   // mac_psk = HMAC(PSK, client_nonce || server_nonce) — proves PSK possession.
   uint8_t mac_psk[HL_MAC_SIZE];
-  hmac_trunc(s_psk, sizeof(s_psk), salt, sizeof(salt), mac_psk);
+  if (!hmac_trunc(s_psk, sizeof(s_psk), salt, sizeof(salt), mac_psk)) {
+    host_link_sec_reset();
+    return ESP_FAIL;
+  }
 
   uint8_t device_id[HOST_LINK_DEVICE_ID_SIZE];
   esp_read_mac(device_id, ESP_MAC_BASE);
 
   // HELLO_ACK payload = [host_ver][server_nonce[16]][device_id[6]][mac_psk[16]]
-  size_t need = 1 + HOST_LINK_NONCE_SIZE + HOST_LINK_DEVICE_ID_SIZE + HL_MAC_SIZE;
-  if (ack_cap < need)
-    return ESP_ERR_INVALID_SIZE;
-
   size_t off = 0;
   ack_out[off++] = host_ver;
   memcpy(ack_out + off, server_nonce, HOST_LINK_NONCE_SIZE);
@@ -193,20 +202,19 @@ esp_err_t host_link_sec_handle_hello(
   // Keys are live; counters reset (inbound baseline set by the first authed frame).
   s_rx_valid = false;
   s_rx_counter = 0;
-  s_authed = true;
+  __atomic_store_n(&s_authed, true, __ATOMIC_RELEASE);
   ESP_LOGI(TAG, "Handshake complete; session authenticated");
   return ESP_OK;
 }
 
-bool host_link_sec_verify_inbound(const uint8_t *span,
-                                  size_t span_len,
-                                  const uint8_t *mac,
-                                  uint32_t counter) {
+static bool
+sec_verify_locked(const uint8_t *span, size_t span_len, const uint8_t *mac, uint32_t counter) {
   if (!s_authed)
     return false;
 
   uint8_t expect[HL_MAC_SIZE];
-  hmac_trunc(s_k_a2d, sizeof(s_k_a2d), span, span_len, expect);
+  if (span == NULL || mac == NULL || !hmac_trunc(s_k_a2d, sizeof(s_k_a2d), span, span_len, expect))
+    return false;
   if (!ct_equal(expect, mac, HL_MAC_SIZE))
     return false;
 
@@ -219,11 +227,13 @@ bool host_link_sec_verify_inbound(const uint8_t *span,
   return true;
 }
 
-void host_link_sec_sign_outbound(const uint8_t *span, size_t span_len, uint8_t *out_mac) {
-  hmac_trunc(s_k_d2a, sizeof(s_k_d2a), span, span_len, out_mac);
+static bool sec_sign_locked(const uint8_t *span, size_t span_len, uint8_t *out_mac) {
+  if (!s_authed || span == NULL || out_mac == NULL)
+    return false;
+  return hmac_trunc(s_k_d2a, sizeof(s_k_d2a), span, span_len, out_mac);
 }
 
-esp_err_t host_link_sec_get_psk_hex(char *out, size_t out_cap) {
+static esp_err_t sec_get_psk_locked(char *out, size_t out_cap) {
   if (!s_psk_loaded)
     return ESP_ERR_INVALID_STATE;
   if (out_cap < HOST_LINK_PSK_HEX_SIZE)
@@ -237,12 +247,100 @@ esp_err_t host_link_sec_get_psk_hex(char *out, size_t out_cap) {
   return ESP_OK;
 }
 
-esp_err_t host_link_sec_regenerate_psk(void) {
+static esp_err_t sec_regenerate_locked(void) {
+  uint8_t previous[HOST_LINK_PSK_SIZE];
+  memcpy(previous, s_psk, sizeof(previous));
   esp_fill_random(s_psk, sizeof(s_psk));
   s_psk_loaded = true;
   host_link_sec_reset();
   esp_err_t err = persist_psk();
+  if (err != ESP_OK)
+    memcpy(s_psk, previous, sizeof(s_psk));
+  mbedtls_platform_zeroize(previous, sizeof(previous));
   if (err == ESP_OK)
     ESP_LOGW(TAG, "PSK regenerated; existing pairings invalidated");
+  return err;
+}
+
+// Security API serializes the entire key lifecycle, including console/UI PSK
+// access. Recursive solely for helpers calling reset; it never takes TX or
+// performs teardown. Authentication status is an atomic snapshot for log hooks
+// and UI, not authorization (verify/sign take the lock and recheck).
+esp_err_t host_link_sec_init(void) {
+  if (s_crypto_lock == NULL) {
+    s_crypto_lock = xSemaphoreCreateRecursiveMutex();
+    if (s_crypto_lock == NULL)
+      return ESP_ERR_NO_MEM;
+  }
+  xSemaphoreTakeRecursive(s_crypto_lock, portMAX_DELAY);
+  esp_err_t err = sec_init_locked();
+  xSemaphoreGiveRecursive(s_crypto_lock);
+  return err;
+}
+
+bool host_link_sec_is_authenticated(void) {
+  return __atomic_load_n(&s_authed, __ATOMIC_ACQUIRE);
+}
+
+void host_link_sec_reset(void) {
+  if (s_crypto_lock == NULL)
+    return;
+  xSemaphoreTakeRecursive(s_crypto_lock, portMAX_DELAY);
+  sec_reset_locked();
+  xSemaphoreGiveRecursive(s_crypto_lock);
+}
+
+esp_err_t host_link_sec_handle_hello(
+    const uint8_t *payload, uint16_t plen, uint8_t *ack_out, size_t ack_cap, size_t *out_len) {
+  if (s_crypto_lock == NULL)
+    return ESP_ERR_INVALID_STATE;
+  xSemaphoreTakeRecursive(s_crypto_lock, portMAX_DELAY);
+  esp_err_t err = sec_hello_locked(payload, plen, ack_out, ack_cap, out_len);
+  xSemaphoreGiveRecursive(s_crypto_lock);
+  return err;
+}
+
+bool host_link_sec_verify_inbound(const uint8_t *span,
+                                  size_t span_len,
+                                  const uint8_t *mac,
+                                  uint32_t counter) {
+  if (s_crypto_lock == NULL)
+    return false;
+  xSemaphoreTakeRecursive(s_crypto_lock, portMAX_DELAY);
+  bool ok = sec_verify_locked(span, span_len, mac, counter);
+  xSemaphoreGiveRecursive(s_crypto_lock);
+  return ok;
+}
+
+bool host_link_sec_sign_outbound(const uint8_t *span, size_t span_len, uint8_t *out_mac) {
+  if (s_crypto_lock == NULL)
+    return false;
+  xSemaphoreTakeRecursive(s_crypto_lock, portMAX_DELAY);
+  bool ok = sec_sign_locked(span, span_len, out_mac);
+  xSemaphoreGiveRecursive(s_crypto_lock);
+  return ok;
+}
+
+esp_err_t host_link_sec_get_psk_hex(char *out, size_t out_cap) {
+  if (s_crypto_lock == NULL || out == NULL)
+    return ESP_ERR_INVALID_STATE;
+  xSemaphoreTakeRecursive(s_crypto_lock, portMAX_DELAY);
+  esp_err_t err = sec_get_psk_locked(out, out_cap);
+  xSemaphoreGiveRecursive(s_crypto_lock);
+  return err;
+}
+
+esp_err_t host_link_sec_regenerate_psk(void) {
+  if (s_crypto_lock == NULL)
+    return ESP_ERR_INVALID_STATE;
+  // Invalidate outbound work BEFORE waiting on crypto; callbacks remain free
+  // to invalidate further. Worker will reset/teardown before the next HELLO.
+  host_link_reset_rx();
+  xSemaphoreTakeRecursive(s_crypto_lock, portMAX_DELAY);
+  esp_err_t err = sec_regenerate_locked();
+  xSemaphoreGiveRecursive(s_crypto_lock);
+  // A HELLO may have entered while regeneration waited for crypto. Invalidate
+  // that whole interval too, so it cannot publish an ACK using the old PSK.
+  host_link_reset_rx();
   return err;
 }
