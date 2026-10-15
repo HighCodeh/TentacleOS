@@ -29,6 +29,22 @@ void msgbox_open(
     const char *icon, const char *msg, const char *btn_ok, const char *btn_cancel, msgbox_cb_t cb);
 
 /**
+ * @brief Open a message box and explicitly choose the initially selected
+ * action.
+ *
+ * Use @p default_confirm=false for destructive actions such as
+ * power-off. The
+ * regular msgbox_open() keeps its historical confirm-first
+ * behaviour.
+ */
+void msgbox_open_ex(const char *icon,
+                    const char *msg,
+                    const char *btn_ok,
+                    const char *btn_cancel,
+                    msgbox_cb_t cb,
+                    bool default_confirm);
+
+/**
  * @brief Open the "SD card connected" info modal (badge + card details + OK).
  *
  * A centered card showing the SD icon in an accent badge with a check mark,

@@ -1,5 +1,12 @@
 # ui_manager
 
+The integrated High Boy build uses `-Os` for theme loading and the Home, Menu,
+Connect Wi-Fi, NFC presentation and Settings screens to fit the existing P4
+application slots. This changes compiler sizing only: no screen or feature is
+removed. NFC protocol/driver code, radio processing, audio and game engines keep
+their existing optimization settings. Muse/Grok layout retains its previous
+localized LTO policy. Physical UI timing still needs acceptance testing.
+
 Step-by-step process for adding a new screen (feature) to TentacleOS using the
 `ui_manager` architecture. Source of truth: `ui/ui_manager.c`,
 `ui/include/ui_manager.h`, `ui/include/ui_metrics.h`, `ui/include/ui_theme.h`,

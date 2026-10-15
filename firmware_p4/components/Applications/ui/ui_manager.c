@@ -61,7 +61,6 @@
 #include "nfc_emulate_ui.h"
 #include "nfc_read_ui.h"
 #include "nfc_manager.h"
-#include "rfid_manager.h"
 #include "subghz_receiver.h"
 #include "nfc_saved_ui.h"
 #include "nfc_write_ui.h"
@@ -94,6 +93,9 @@
 #include "breakout_ui.h"
 #include "gb_ui.h"
 #include "doom_real_ui.h"
+#include "fly_ui.h"
+#include "muse_ui.h"
+#include "grok_idle_ui.h"
 #include "octobit_status_ui.h"
 #include "dev_menu_ui.h"
 #include "subghz_menu_ui.h"
@@ -105,7 +107,6 @@
 #include "ble_tracker_ui.h"
 #include "ble_skimmer_ui.h"
 #include "ble_exposure_ui.h"
-#include "gatt_explorer_ui.h"
 #include "ble_keyboard_ui.h"
 #include "ble_flood_ui.h"
 #include "ble_radio_ui.h"
@@ -124,8 +125,6 @@
 #include "led_ctrl_ui.h"
 #include "lora_traceroute_ui.h"
 #include "lora_rnode_ui.h"
-#include "lora_mqtt_ui.h"
-#include "scripts_ui.h"
 #include "dev_console_ui.h"
 #include "dev_diag_ui.h"
 #include "nfc_bankcard_ui.h"
@@ -136,6 +135,8 @@
 #include "nfc_felica_ui.h"
 #include "nfc_p2p_ui.h"
 #include "nfc_keydict_ui.h"
+#include "nfc_apdu_ui.h"
+#include "nfc_protocol_lab_ui.h"
 #include "subghz_config_ui.h"
 #include "ir_raw_ui.h"
 #include "lora_channels_ui.h"
@@ -354,7 +355,7 @@ static void clear_current_screen(void) {
 }
 
 bool ui_input_is_locked(void) {
-  return (int32_t)(lv_tick_get() - input_lock_until) < 0;
+  return (int32_t)(lv_tick_get() - input_lock_until) < 0 || power_policy_is_asleep();
 }
 
 void ui_input_lock(uint32_t ms) {
@@ -373,8 +374,16 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
     case SCREEN_NFC_READ:
     case SCREEN_NFC_EMULATE:
       return nfc_manager_stop;
-    case SCREEN_RFID_MENU:
-      return rfid_manager_stop;
+    case SCREEN_NFC_APDU:
+      return ui_nfc_apdu_stop;
+    case SCREEN_NFC_P2P:
+      return ui_nfc_p2p_stop;
+    case SCREEN_NFC_DESFIRE:
+    case SCREEN_NFC_ISO15693:
+    case SCREEN_NFC_ULTRALIGHT:
+    case SCREEN_NFC_NDEF:
+    case SCREEN_NFC_FELICA:
+      return ui_nfc_protocol_lab_stop;
     case SCREEN_WAV_PLAYER:
       return ui_wav_player_stop;
     case SCREEN_MP3_PLAYER:
@@ -383,6 +392,16 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
       return ui_image_viewer_stop;
     case SCREEN_USB_STORAGE:
       return ui_usb_storage_stop;
+    case SCREEN_USB_MOUSE:
+      return ui_usb_mouse_stop;
+    case SCREEN_RFID_MENU:
+      return ui_rfid_menu_stop;
+    case SCREEN_FLY:
+      return ui_fly_stop;
+    case SCREEN_MUSE:
+      return ui_muse_stop;
+    case SCREEN_GROK_IDLE:
+      return ui_grok_idle_stop;
     default:
       return NULL;
   }
@@ -486,6 +505,12 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_gb_open;
     case SCREEN_GAME_DOOM:
       return ui_doom_real_open;
+    case SCREEN_FLY:
+      return ui_fly_open;
+    case SCREEN_MUSE:
+      return ui_muse_open;
+    case SCREEN_GROK_IDLE:
+      return ui_grok_idle_open;
     case SCREEN_OCTOBIT_STATUS:
       return ui_octobit_status_open;
     case SCREEN_DEV_MENU:
@@ -544,8 +569,6 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_ble_skimmer_open;
     case SCREEN_BLE_EXPOSURE:
       return ui_ble_exposure_open;
-    case SCREEN_GATT_EXPLORER:
-      return ui_gatt_explorer_open;
     case SCREEN_BLE_KEYBOARD:
       return ui_ble_keyboard_open;
     case SCREEN_BLE_FLOOD:
@@ -582,10 +605,6 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_lora_traceroute_open;
     case SCREEN_LORA_RNODE:
       return ui_lora_rnode_open;
-    case SCREEN_LORA_MQTT:
-      return ui_lora_mqtt_open;
-    case SCREEN_SCRIPTS:
-      return ui_scripts_open;
     case SCREEN_DEV_CONSOLE:
       return ui_dev_console_open;
     case SCREEN_DEV_DIAG:
@@ -610,6 +629,8 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_nfc_p2p_open;
     case SCREEN_NFC_KEYDICT:
       return ui_nfc_keydict_open;
+    case SCREEN_NFC_APDU:
+      return ui_nfc_apdu_open;
     case SCREEN_SUBGHZ_CONFIG:
       return ui_subghz_config_open;
     case SCREEN_IR_RAW:
@@ -671,6 +692,7 @@ bool ui_screen_shows_chrome(screen_id_t s) {
     case SCREEN_CARD_EMU:
     case SCREEN_NFC_SCAN:
     case SCREEN_NFC_P2P:
+    case SCREEN_NFC_APDU:
     case SCREEN_IR_RECEIVE:
     case SCREEN_IR_SEND:
     case SCREEN_IR_BURST:
@@ -698,6 +720,9 @@ bool ui_screen_shows_chrome(screen_id_t s) {
     case SCREEN_SCRIPTS:
     case SCREEN_TIME:
     case SCREEN_APP_RUNNING:
+    case SCREEN_FLY:
+    case SCREEN_MUSE:
+    case SCREEN_GROK_IDLE:
       return false;
     default:
       return true;
@@ -712,7 +737,6 @@ static bool is_lora_screen(screen_id_t s) {
     case SCREEN_LORA_CHAT:
     case SCREEN_LORA_TRACEROUTE:
     case SCREEN_LORA_RNODE:
-    case SCREEN_LORA_MQTT:
     case SCREEN_LORA_CHANNELS:
     case SCREEN_LORA_POSITION:
     case SCREEN_LORA_TELEMETRY:
@@ -756,6 +780,20 @@ static void ui_display_claim_ui(void) {
 static void ui_display_release_ui(void) {
   resource_release(s_ui_display);
   s_ui_display = RES_HANDLE_NONE;
+}
+
+void ui_prepare_shutdown(void) {
+  screen_id_t closing = current_screen_id;
+  ui_close_fn_t close_fn = screen_close_fn(closing);
+  if (close_fn != NULL)
+    close_fn();
+  if (is_lora_screen(closing))
+    sx1262_stop_rx();
+  // A native shutdown screen must own the panel even if an ELF app was active.
+  ui_display_claim_ui();
+  clear_current_screen();
+  ui_chrome_set_status_enabled(false);
+  current_screen_id = SCREEN_NONE;
 }
 
 void ui_switch_screen(screen_id_t new_screen) {

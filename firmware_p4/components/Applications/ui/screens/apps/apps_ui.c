@@ -20,7 +20,9 @@
 
 #include "apps_ui.h"
 
+#include "esp_attr.h"
 #include "lvgl.h"
+#include "misc/cache/instance/lv_image_cache.h"
 
 #include "app_registry.h"
 #include "input_manager.h"
@@ -32,8 +34,19 @@
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
-static app_reg_entry_t s_reg[APP_REG_MAX];
+EXT_RAM_BSS_ATTR static app_reg_entry_t s_reg[APP_REG_MAX];
 static int s_count = 0;
+
+static void apps_deleted(lv_event_t *event) {
+  (void)event;
+  // Delete image widgets before dropping the registry-backed icon descriptors.
+  if (s_menu.items_cont != NULL)
+    lv_obj_clean(s_menu.items_cont);
+  for (int i = 0; i < s_count; ++i)
+    lv_image_cache_drop(&s_reg[i].icon);
+  app_registry_free(s_reg, s_count);
+  s_count = 0;
+}
 
 static void launch_selected(void) {
   int sel = menu_component_get_selected(&s_menu);
@@ -77,13 +90,15 @@ void ui_apps_open(void) {
   s_count = app_registry_scan(s_reg, APP_REG_MAX);
 
   s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
+  lv_obj_set_style_bg_color(s_screen, lv_color_black(), 0);
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-  s_menu = menu_component_create(s_screen, "APPS", NULL);
+  s_menu = menu_component_create(s_screen, "SD APPLICATIONS", NULL);
   if (s_count == 0) {
-    menu_component_add_section(&s_menu, "No apps in /sdcard/apps");
+    menu_component_add_section(&s_menu, "No SD applications installed");
+    menu_component_add_section(&s_menu, "Copy signed .hb bundles to");
+    menu_component_add_section(&s_menu, "/sdcard/apps and reopen");
   } else {
     for (int i = 0; i < s_count; i++) {
       const char *label = s_reg[i].title[0] ? s_reg[i].title : s_reg[i].file;
@@ -93,7 +108,8 @@ void ui_apps_open(void) {
         menu_component_add_item(&s_menu, APP_ICON, label);
     }
   }
-  menu_component_set_hint(&s_menu, "OK run   BACK exit");
+  menu_component_set_hint(&s_menu, "OK verify + open   BACK exit");
+  lv_obj_add_event_cb(s_screen, apps_deleted, LV_EVENT_DELETE, NULL);
 
   ui_input_set_screen_handler(apps_input, NULL);
   ui_screen_load_owned(&s_screen, s_screen);

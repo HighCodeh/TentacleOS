@@ -197,8 +197,12 @@ static lv_obj_t *create_btn(lv_obj_t *parent, const char *text) {
   return btn;
 }
 
-void msgbox_open(
-    const char *icon, const char *msg, const char *btn_ok, const char *btn_cancel, msgbox_cb_t cb) {
+void msgbox_open_ex(const char *icon,
+                    const char *msg,
+                    const char *btn_ok,
+                    const char *btn_cancel,
+                    msgbox_cb_t cb,
+                    bool default_confirm) {
   if (panel)
     discard_panel_silent();
 
@@ -272,10 +276,12 @@ void msgbox_open(
     btn_count++;
   }
   if (has_ok) {
+    int ok_index = btn_count;
     btn_objs[btn_count] = create_btn(btn_row, btn_ok);
     btn_confirms[btn_count] = true;
-    btn_sel = btn_count;
     btn_count++;
+    if (!has_cancel || default_confirm)
+      btn_sel = ok_index;
   }
 
   update_btn_selection();
@@ -292,6 +298,11 @@ void msgbox_open(
 
   if (!msgbox_timer)
     msgbox_timer = lv_timer_create(msgbox_timer_cb, MSGBOX_POLL_MS, NULL);
+}
+
+void msgbox_open(
+    const char *icon, const char *msg, const char *btn_ok, const char *btn_cancel, msgbox_cb_t cb) {
+  msgbox_open_ex(icon, msg, btn_ok, btn_cancel, cb, true);
 }
 
 static void sd_add_info_row(lv_obj_t *parent, const char *k, const char *v) {

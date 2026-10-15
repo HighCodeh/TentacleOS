@@ -160,6 +160,7 @@ typedef enum {
   SCREEN_NFC_FELICA,
   SCREEN_NFC_P2P,
   SCREEN_NFC_KEYDICT,
+  SCREEN_NFC_APDU,
   SCREEN_SUBGHZ_CONFIG,
   SCREEN_IR_RAW,
   SCREEN_LORA_CHANNELS,
@@ -175,6 +176,9 @@ typedef enum {
   SCREEN_IMAGE_VIEWER,
   SCREEN_USB_STORAGE,
   SCREEN_APP_RUNNING,
+  SCREEN_FLY,
+  SCREEN_MUSE,
+  SCREEN_GROK_IDLE,
   SCREEN_COUNT
 } screen_id_t;
 
@@ -289,6 +293,9 @@ void ui_input_set_screen_handler(ui_input_handler_t handler, void *ctx);
  * (tos_api_ui.c). Must be called with the UI mutex held.
  */
 void ui_app_screen_enter(lv_obj_t *scr, ui_input_handler_t handler, void *ctx);
+
+/** Stop the active operation and detach its input before system shutdown. */
+void ui_prepare_shutdown(void);
 
 /** @brief Check if user input is temporarily locked. */
 bool ui_input_is_locked(void);

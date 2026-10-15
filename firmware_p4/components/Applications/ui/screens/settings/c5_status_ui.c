@@ -48,8 +48,6 @@
 #define ROW_GAP      6
 #define ROW_STEP     (ROW_H + ROW_GAP)
 
-#define COL_RAISE 0x170A28
-
 #define HDR_ICON  "/assets/icons/developer_board.bin"
 #define HDR_TITLE "C5 STATUS"
 
@@ -59,14 +57,16 @@
 #define C5_OP_TASK_STACK 4096
 #define C5_OP_TASK_PRIO  SYS_PRIO_SERVICE_HI
 
-#define C5_REBOOT_HOLD_MS    10000
 #define C5_REBOOT_LABEL      LV_SYMBOL_REFRESH "  Rebooting C5..."
 #define C5_REBOOT_TEXT_COLOR 0x8A8594
+#define C5_RELINK_ATTEMPTS   10
+#define C5_RELINK_DELAY_MS   500
 
 enum {
   ACT_CONSOLE = 0,
-  ACT_DOWNLOAD,
+  ACT_SYNC,
   ACT_REBOOT,
+  ACT_DOWNLOAD,
   ACT_COUNT,
 };
 
@@ -77,8 +77,9 @@ typedef struct {
 
 static const action_def_t ACTIONS[ACT_COUNT] = {
     {LV_SYMBOL_LIST, "C5 Console"},
-    {LV_SYMBOL_DOWNLOAD, "Enter Download"},
+    {LV_SYMBOL_REFRESH, "Sync Link"},
     {LV_SYMBOL_REFRESH, "Reboot C5"},
+    {LV_SYMBOL_DOWNLOAD, "ROM Bootloader"},
 };
 
 static lv_obj_t *s_screen = NULL;
@@ -89,7 +90,6 @@ static lv_obj_t *s_act_name[ACT_COUNT];
 static int s_sel = 0;
 static bool s_is_busy = false;
 static int s_pending = -1;
-static bool s_is_reboot_ok = true;
 
 static lv_obj_t *info_row(lv_obj_t *card, int index, const char *tag_txt, const char *val_txt) {
   lv_obj_t *tag = lv_label_create(card);
@@ -113,7 +113,9 @@ static void build_info_card(void) {
   lv_obj_set_size(card, CONTENT_W, INFO_H);
   lv_obj_align(card, LV_ALIGN_TOP_MID, 0, INFO_Y);
   lv_obj_set_style_radius(card, 12, 0);
-  lv_obj_set_style_bg_color(card, current_theme.bg_secondary, 0);
+  lv_obj_set_style_bg_color(card, current_theme.bg_item_top, 0);
+  lv_obj_set_style_bg_grad_color(card, current_theme.bg_item_bot, 0);
+  lv_obj_set_style_bg_grad_dir(card, LV_GRAD_DIR_VER, 0);
   lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
   lv_obj_set_style_border_color(card, current_theme.border_accent, 0);
   lv_obj_set_style_border_width(card, 1, 0);
@@ -189,7 +191,10 @@ static void refresh_selection(void) {
     lv_obj_set_style_border_color(s_act_row[i], sel ? accent : current_theme.border_inactive, 0);
     lv_obj_set_style_border_opa(s_act_row[i], sel ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
     lv_obj_set_style_bg_color(
-        s_act_row[i], sel ? lv_color_hex(COL_RAISE) : current_theme.bg_secondary, 0);
+        s_act_row[i], sel ? current_theme.bg_primary : current_theme.bg_item_top, 0);
+    lv_obj_set_style_bg_grad_color(
+        s_act_row[i], sel ? current_theme.bg_secondary : current_theme.bg_item_bot, 0);
+    lv_obj_set_style_bg_grad_dir(s_act_row[i], LV_GRAD_DIR_VER, 0);
     lv_obj_set_style_shadow_width(s_act_row[i], sel ? 14 : 0, 0);
     lv_obj_set_style_shadow_color(s_act_row[i], accent, 0);
     lv_obj_set_style_shadow_spread(s_act_row[i], sel ? -3 : 0, 0);
@@ -201,25 +206,49 @@ static void refresh_selection(void) {
 static void c5_op_done(void *data) {
   esp_err_t r = (esp_err_t)(intptr_t)data;
   s_is_busy = false;
-  spi_bridge_set_alive(false);
   if (s_pending == ACT_REBOOT) {
-    s_is_reboot_ok = (r == ESP_OK);
+    ui_switch_screen(SCREEN_C5_STATUS);
+    notify(r == ESP_OK ? NOTIFY_SAVED : NOTIFY_WARNING,
+           r == ESP_OK ? "C5 rebooted and linked" : "C5 reboot/link failed");
+    return;
+  }
+  if (s_pending == ACT_SYNC) {
+    ui_switch_screen(SCREEN_C5_STATUS);
+    notify(r == ESP_OK ? NOTIFY_SAVED : NOTIFY_WARNING,
+           r == ESP_OK ? "C5 link is alive" : "C5 did not answer");
     return;
   }
   if (r != ESP_OK) {
-    notify(NOTIFY_WARNING, "C5 download failed");
+    notify(NOTIFY_WARNING, "C5 ROM boot failed");
     return;
   }
+  spi_bridge_set_alive(false);
   msgbox_open_info(NULL,
-                   "C5 IN DOWNLOAD MODE",
-                   "Flash it externally now (RELEASE UART / FLASH C5 ROM). It stays down "
-                   "until re-flashed.",
+                   "C5 ROM BOOT ACTIVE",
+                   "Flash through the C5 USB serial port. After flashing, power-cycle the board "
+                   "once to clear forced ROM boot.",
                    current_theme.border_accent);
 }
 
 static void c5_op_task(void *arg) {
   (void)arg;
-  esp_err_t r = (s_pending == ACT_REBOOT) ? c5_flasher_reboot() : c5_flasher_enter_download();
+  esp_err_t r = ESP_FAIL;
+  if (s_pending == ACT_SYNC) {
+    r = c5_flasher_sync();
+  } else if (s_pending == ACT_REBOOT) {
+    r = c5_flasher_reboot();
+    if (r == ESP_OK) {
+      spi_bridge_set_alive(false);
+      for (int attempt = 0; attempt < C5_RELINK_ATTEMPTS; attempt++) {
+        vTaskDelay(pdMS_TO_TICKS(C5_RELINK_DELAY_MS));
+        r = c5_flasher_sync();
+        if (r == ESP_OK)
+          break;
+      }
+    }
+  } else if (s_pending == ACT_DOWNLOAD) {
+    r = c5_flasher_enter_download();
+  }
   ui_async_call(c5_op_done, (void *)(intptr_t)r);
   vTaskDelete(NULL);
 }
@@ -245,13 +274,6 @@ static void c5_reboot_overlay_show(void) {
   ui_screen_load(scr);
 }
 
-static void c5_reboot_done(lv_timer_t *timer) {
-  lv_timer_delete(timer);
-  ui_switch_screen(SCREEN_C5_STATUS);
-  notify(s_is_reboot_ok ? NOTIFY_SAVED : NOTIFY_WARNING,
-         s_is_reboot_ok ? "C5 rebooted" : "C5 reboot failed");
-}
-
 static void on_op_confirm(bool confirm) {
   if (!confirm || s_is_busy)
     return;
@@ -264,10 +286,20 @@ static void on_op_confirm(bool confirm) {
     return;
   }
   if (s_pending == ACT_REBOOT) {
-    s_is_reboot_ok = true;
     c5_reboot_overlay_show();
-    lv_timer_t *timer = lv_timer_create(c5_reboot_done, C5_REBOOT_HOLD_MS, NULL);
-    lv_timer_set_repeat_count(timer, 1);
+  }
+}
+
+static void start_operation(int operation) {
+  if (s_is_busy)
+    return;
+  s_pending = operation;
+  s_is_busy = true;
+  if (xTaskCreatePinnedToCore(
+          c5_op_task, "c5_op", C5_OP_TASK_STACK, NULL, C5_OP_TASK_PRIO, NULL, SYS_CORE_RADIO) !=
+      pdPASS) {
+    s_is_busy = false;
+    notify(NOTIFY_WARNING, "C5 busy, try again");
   }
 }
 
@@ -300,16 +332,19 @@ static void c5_status_input(const input_event_t *ev, void *ctx) {
         ui_feedback(UI_FB_SELECT);
         if (s_sel == ACT_CONSOLE) {
           ui_switch_screen(SCREEN_C5_CONSOLE);
-        } else if (s_sel == ACT_DOWNLOAD) {
+        } else if (s_sel == ACT_SYNC) {
+          notify(NOTIFY_INFO, "Synchronizing C5...");
+          start_operation(ACT_SYNC);
+        } else if (s_sel == ACT_REBOOT) {
+          s_pending = ACT_REBOOT;
+          msgbox_open(NULL, "Reboot C5 and verify its link?", "Reboot", "Cancel", on_op_confirm);
+        } else {
           s_pending = ACT_DOWNLOAD;
           msgbox_open(NULL,
-                      "Put the C5 in ROM download mode?\nIt stops running until re-flashed.",
-                      "Enter",
+                      "Enter C5 ROM bootloader?\nThe radio and SPI link stop until rebooted.",
+                      "ROM Boot",
                       "Cancel",
                       on_op_confirm);
-        } else {
-          s_pending = ACT_REBOOT;
-          msgbox_open(NULL, "Reboot the C5 now?", "Reboot", "Cancel", on_op_confirm);
         }
       }
       break;
@@ -327,6 +362,8 @@ void ui_c5_status_open(void) {
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
+  lv_obj_set_style_bg_grad_color(s_screen, current_theme.bg_primary, 0);
+  lv_obj_set_style_bg_grad_dir(s_screen, LV_GRAD_DIR_VER, 0);
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 

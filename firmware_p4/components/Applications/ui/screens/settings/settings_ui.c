@@ -21,6 +21,7 @@
 
 #include "assets_manager.h"
 #include "msgbox_ui.h"
+#include "notify_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_theme.h"
@@ -29,6 +30,7 @@
 #include "ui_manager.h"
 #include "lv_port_indev.h"
 #include "c5_flasher.h"
+#include "spi_bridge.h"
 #include "spi_protocol.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
@@ -45,6 +47,8 @@ static const char *TAG = "SETTINGS_UI";
 #define C5_FLASH_TASK_PRIO        SYS_PRIO_SERVICE_HI
 #define C5_ROM_FLASH_TASK_STACK   8192
 #define C5_ROM_FLASH_TASK_PRIO    SYS_PRIO_SERVICE_HI
+#define C5_BOOT_TASK_STACK        4096
+#define C5_BOOT_TASK_PRIO         SYS_PRIO_SERVICE_HI
 #define C5_PASSTHROUGH_TASK_STACK 8192
 #define C5_PASSTHROUGH_TASK_PRIO  SYS_PRIO_SERVICE_HI
 #define REBOOT_DELAY_MS           80
@@ -54,6 +58,7 @@ static const char *TAG = "SETTINGS_UI";
 #define ACTION_REBOOT_P4       (-4)
 #define ACTION_FLASH_C5_ROM    (-5)
 #define ACTION_RELEASE_C5_UART (-6)
+#define ACTION_C5_BOOT_MODE    (-7)
 
 #define GOTO_LAB (-20)
 #define GOTO_DEV (-21)
@@ -89,6 +94,7 @@ static const settings_item_t MAIN_ITEMS[] = {
     {"POWER", "/assets/icons/power_settings_new.bin", SCREEN_POWER},
     {"STORAGE", "/assets/icons/storage.bin", SCREEN_STORAGE},
     {"FIRMWARE", "/assets/icons/developer_board.bin", GOTO_DEV},
+    {"C5 CONTROL", "/assets/icons/troubleshoot.bin", SCREEN_C5_STATUS},
     {"ABOUT", "/assets/icons/info.bin", SCREEN_ABOUT_SETTINGS},
     {"TIME", "/assets/icons/timer.bin", SCREEN_TIME},
     {"RESTART P4", "/assets/icons/restart_alt.bin", ACTION_REBOOT_P4},
@@ -119,10 +125,11 @@ static const settings_item_t LAB_ITEMS[] = {
 
 static const settings_item_t DEV_ITEMS[] = {
     {"UPDATE C5", "/assets/icons/system_update.bin", ACTION_FLASH_C5},
+    {"C5 BOOT MODE", "/assets/icons/download.bin", ACTION_C5_BOOT_MODE},
     {"FLASH C5 (ROM)", "/assets/icons/usb.bin", ACTION_FLASH_C5_ROM},
-    {"RELEASE UART", "/assets/icons/cable.bin", ACTION_RELEASE_C5_UART},
-    {"C5 BRIDGE", "/assets/icons/swap_horiz.bin", ACTION_C5_PASSTHROUGH},
     {"C5 STATUS", "/assets/icons/troubleshoot.bin", SCREEN_C5_STATUS},
+    {"C5 BRIDGE", "/assets/icons/swap_horiz.bin", ACTION_C5_PASSTHROUGH},
+    {"RELEASE UART", "/assets/icons/cable.bin", ACTION_RELEASE_C5_UART},
 };
 #define DEV_COUNT ((int)(sizeof(DEV_ITEMS) / sizeof(DEV_ITEMS[0])))
 
@@ -134,6 +141,7 @@ static lv_obj_t *s_dev_tiles[DEV_COUNT];
 static int s_dev_sel = 0;
 
 static lv_obj_t *s_c5_overlay = NULL;
+static lv_obj_t *s_c5_title_label = NULL;
 static lv_obj_t *s_c5_status_label = NULL;
 static lv_obj_t *s_c5_bar = NULL;
 static lv_timer_t *s_c5_prog_timer = NULL;
@@ -172,7 +180,7 @@ view_table(settings_view_t view, int *count, const char **title, const char **ic
   }
 }
 
-static void show_c5_progress(const char *msg) {
+static void show_c5_progress(const char *title_text, const char *msg) {
   if (s_c5_overlay == NULL) {
     s_c5_overlay = lv_obj_create(s_screen);
     lv_obj_set_size(s_c5_overlay, LV_PCT(100), LV_PCT(100));
@@ -196,11 +204,11 @@ static void show_c5_progress(const char *msg) {
     lv_obj_set_style_shadow_color(box, current_theme.border_accent, 0);
     lv_obj_set_style_shadow_opa(box, LV_OPA_40, 0);
 
-    lv_obj_t *title = lv_label_create(box);
-    lv_label_set_text(title, LV_SYMBOL_DOWNLOAD "  UPDATING C5");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(title, current_theme.border_accent, 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 0);
+    s_c5_title_label = lv_label_create(box);
+    lv_label_set_text(s_c5_title_label, title_text ? title_text : "C5 OPERATION");
+    lv_obj_set_style_text_font(s_c5_title_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(s_c5_title_label, current_theme.border_accent, 0);
+    lv_obj_align(s_c5_title_label, LV_ALIGN_TOP_MID, 0, 0);
 
     s_c5_status_label = lv_label_create(box);
     lv_label_set_text(s_c5_status_label, msg ? msg : "Starting...");
@@ -222,8 +230,11 @@ static void show_c5_progress(const char *msg) {
     lv_obj_set_style_bg_opa(s_c5_bar, LV_OPA_COVER, LV_PART_INDICATOR);
     lv_obj_set_style_radius(s_c5_bar, 4, LV_PART_INDICATOR);
     lv_obj_add_flag(s_c5_bar, LV_OBJ_FLAG_HIDDEN);
-  } else if (s_c5_status_label && msg) {
-    lv_label_set_text(s_c5_status_label, msg);
+  } else {
+    if (s_c5_title_label && title_text)
+      lv_label_set_text(s_c5_title_label, title_text);
+    if (s_c5_status_label && msg)
+      lv_label_set_text(s_c5_status_label, msg);
   }
 }
 
@@ -235,6 +246,7 @@ static void hide_c5_progress(void) {
   if (s_c5_overlay) {
     lv_obj_del(s_c5_overlay);
     s_c5_overlay = NULL;
+    s_c5_title_label = NULL;
     s_c5_status_label = NULL;
     s_c5_bar = NULL;
   }
@@ -281,7 +293,7 @@ static void start_c5_flash(void) {
   if (s_c5_in_progress)
     return;
   s_c5_in_progress = true;
-  show_c5_progress("Updating C5 (OTA)...\nDo not power off.");
+  show_c5_progress(LV_SYMBOL_DOWNLOAD "  UPDATING C5", "Updating C5 (OTA)...\nDo not power off.");
 
   if (s_c5_bar)
     lv_obj_remove_flag(s_c5_bar, LV_OBJ_FLAG_HIDDEN);
@@ -314,6 +326,7 @@ static void start_c5_rom_flash(void) {
     return;
   s_c5_in_progress = true;
   show_c5_progress(
+      LV_SYMBOL_DOWNLOAD "  FLASHING C5",
       "ROM flash (blank C5).\nC5 must be in download\nmode. ~2-3 min. Don't\npower off.");
   xTaskCreatePinnedToCore(c5_rom_flash_task,
                           "c5_rom_flash",
@@ -322,6 +335,58 @@ static void start_c5_rom_flash(void) {
                           C5_ROM_FLASH_TASK_PRIO,
                           NULL,
                           SYS_CORE_RADIO);
+}
+
+static void c5_boot_done_on_lvgl(void *data) {
+  esp_err_t r = (esp_err_t)(intptr_t)data;
+  hide_c5_progress();
+
+  if (r == ESP_OK) {
+    spi_bridge_set_alive(false);
+    msgbox_open_info("/assets/icons/download.bin",
+                     "C5 ROM BOOT ACTIVE",
+                     "C5 is ready for flashing. Use its USB serial port, or choose FLASH C5 "
+                     "(ROM) for the embedded recovery image. Reboot C5 to return to normal.",
+                     lv_color_hex(0x00E676));
+  } else {
+    msgbox_open_info("/assets/icons/error.bin",
+                     "C5 BOOT FAILED",
+                     "C5 did not answer. Start it normally, check C5 STATUS, then try again.",
+                     lv_color_hex(0xFF5470));
+  }
+}
+
+static void c5_boot_task(void *arg) {
+  (void)arg;
+  esp_err_t r = spi_bridge_is_alive() ? ESP_OK : c5_flasher_sync();
+  if (r == ESP_OK)
+    r = c5_flasher_enter_download();
+  ESP_LOGI(TAG, "C5 ROM boot request: %s", esp_err_to_name(r));
+  ui_async_call(c5_boot_done_on_lvgl, (void *)(intptr_t)r);
+  vTaskDelete(NULL);
+}
+
+static void start_c5_boot_mode(void) {
+  if (s_c5_in_progress)
+    return;
+  s_c5_in_progress = true;
+  show_c5_progress(LV_SYMBOL_DOWNLOAD "  C5 BOOT MODE",
+                   "Checking the C5 link...\nEntering ROM bootloader.");
+  if (xTaskCreatePinnedToCore(c5_boot_task,
+                              "c5_boot",
+                              C5_BOOT_TASK_STACK,
+                              NULL,
+                              C5_BOOT_TASK_PRIO,
+                              NULL,
+                              SYS_CORE_RADIO) != pdPASS) {
+    hide_c5_progress();
+    notify(NOTIFY_WARNING, "Could not start C5 boot task");
+  }
+}
+
+static void confirm_c5_boot_mode(bool confirm) {
+  if (confirm)
+    start_c5_boot_mode();
 }
 
 static void c5_passthrough_task(void *arg) {
@@ -418,6 +483,14 @@ static bool run_action(int target) {
 
       start_c5_rom_flash();
       return true;
+    case ACTION_C5_BOOT_MODE:
+
+      msgbox_open("/assets/icons/download.bin",
+                  "Enter C5 ROM boot mode? Wi-Fi, BLE and the SPI link stop until C5 reboots.",
+                  "Enter Boot",
+                  "Cancel",
+                  confirm_c5_boot_mode);
+      return true;
     case ACTION_RELEASE_C5_UART:
 
       c5_flasher_release_uart();
@@ -478,7 +551,9 @@ static lv_obj_t *make_dev_tile(lv_obj_t *parent, int idx) {
   lv_obj_set_size(tile, DEV_TILE_W, DEV_TILE_H);
   lv_obj_remove_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_radius(tile, DEV_TILE_RAD, 0);
-  lv_obj_set_style_bg_color(tile, current_theme.bg_secondary, 0);
+  lv_obj_set_style_bg_color(tile, current_theme.bg_item_top, 0);
+  lv_obj_set_style_bg_grad_color(tile, current_theme.bg_item_bot, 0);
+  lv_obj_set_style_bg_grad_dir(tile, LV_GRAD_DIR_VER, 0);
   lv_obj_set_style_bg_opa(tile, LV_OPA_80, 0);
   lv_obj_set_style_border_width(tile, 2, 0);
   lv_obj_set_style_pad_all(tile, 4, 0);
@@ -635,6 +710,8 @@ static void build_settings_view(settings_view_t view) {
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
+  lv_obj_set_style_bg_grad_color(s_screen, current_theme.bg_primary, 0);
+  lv_obj_set_style_bg_grad_dir(s_screen, LV_GRAD_DIR_VER, 0);
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 

@@ -21,6 +21,7 @@ extern "C" {
 #endif
 
 #include "ui_manager.h"
+#include "lvgl.h"
 
 /** @brief Open the main menu screen. */
 void ui_menu_open(void);
@@ -33,6 +34,17 @@ const char *menu_catalog_name(int index);
 
 /** @brief Target screen of the app at @p index (SCREEN_HOME if out of range). */
 screen_id_t menu_catalog_target(int index);
+
+/** Read-only render of this menu's real catalog/assets/carousel, never a screen
+ * switch or a
+ * second firmware instance. UI/LVGL task only; no input, radio,
+ * favorites writes, global header
+ * binding, or persistent animation timers. */
+typedef struct menu_ui_preview menu_ui_preview_t;
+menu_ui_preview_t *menu_ui_preview_create(void);
+bool menu_ui_preview_select(menu_ui_preview_t *preview, unsigned index);
+lv_obj_t *menu_ui_preview_root(menu_ui_preview_t *preview);
+void menu_ui_preview_destroy(menu_ui_preview_t *preview);
 
 #ifdef __cplusplus
 }

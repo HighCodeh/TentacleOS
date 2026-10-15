@@ -19,6 +19,8 @@
 
 #include "menu_component_ui.h"
 #include "notify_ui.h"
+#include "tos_config.h"
+#include "tos_storage_paths.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
@@ -26,29 +28,13 @@ static const char *TAG = "INTERFACE_SETTINGS_UI";
 
 #define ENTRY_FADE_MS 200
 
-#define ROW_ANIMATIONS 0
-#define ROW_HAPTICS    1
-#define ROW_SOUNDFX    2
-#define ROW_THEME      3
-#define ROW_LANGUAGE   4
-#define ROW_LED        5
-
-static const char *const LANGUAGE_OPTS[] = {"EN", "PT", "ES"};
-#define LANGUAGE_COUNT ((int)(sizeof(LANGUAGE_OPTS) / sizeof(LANGUAGE_OPTS[0])))
-
-static int s_language_idx = 0;
+#define ROW_HAPTICS 0
+#define ROW_THEME   1
+#define ROW_LED     2
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
 static bool s_changed = false;
-
-static void cycle_selector(int sel, int dir) {
-  if (sel == ROW_LANGUAGE) {
-    s_language_idx = (s_language_idx + dir + LANGUAGE_COUNT) % LANGUAGE_COUNT;
-    menu_component_set_selector_value(&s_menu, sel, LANGUAGE_OPTS[s_language_idx]);
-    s_changed = true;
-  }
-}
 
 static void interface_settings_input(const input_event_t *ev, void *ctx) {
   (void)ctx;
@@ -71,39 +57,32 @@ static void interface_settings_input(const input_event_t *ev, void *ctx) {
           ui_switch_screen(SCREEN_THEME_SELECTOR);
         } else if (sel == ROW_LED) {
           ui_switch_screen(SCREEN_LED_CTRL);
-        } else if (sel >= 0 && s_menu.has_toggle[sel]) {
+        } else if (sel == ROW_HAPTICS) {
           menu_component_toggle_item(&s_menu, sel);
+          g_config_system.vibration = menu_component_get_toggle(&s_menu, sel);
           s_changed = true;
-          ESP_LOGI(TAG, "mock toggle row %d -> %d", sel, menu_component_get_toggle(&s_menu, sel));
+          ESP_LOGI(TAG, "haptics -> %d", g_config_system.vibration);
         }
       }
       break;
     case INPUT_BTN_LEFT:
       if (press) {
-        int sel = menu_component_get_selected(&s_menu);
-        if (sel >= 0) {
-          if (s_menu.has_intensity[sel])
-            menu_component_intensity_dec(&s_menu, sel);
-          else if (s_menu.val_labels[sel] != NULL)
-            cycle_selector(sel, -1);
-        }
+        /* No value selectors on this screen. */
       }
       break;
     case INPUT_BTN_RIGHT:
       if (press) {
-        int sel = menu_component_get_selected(&s_menu);
-        if (sel >= 0) {
-          if (s_menu.has_intensity[sel])
-            menu_component_intensity_inc(&s_menu, sel);
-          else if (s_menu.val_labels[sel] != NULL)
-            cycle_selector(sel, +1);
-        }
+        /* No value selectors on this screen. */
       }
       break;
     case INPUT_BTN_BACK:
       if (press) {
-        if (s_changed)
-          notify(NOTIFY_SAVED, "Interface settings saved");
+        if (s_changed) {
+          if (tos_config_save(TOS_PATH_CONFIG_SYSTEM, "system") == ESP_OK)
+            notify(NOTIFY_SAVED, "Interface settings saved");
+          else
+            notify(NOTIFY_WARNING, "Save failed (no SD?)");
+        }
         ui_switch_screen(SCREEN_SETTINGS);
       }
       break;
@@ -118,7 +97,6 @@ void ui_interface_settings_open(void) {
     s_screen = NULL;
   }
 
-  s_language_idx = 0;
   s_changed = false;
 
   s_screen = lv_obj_create(NULL);
@@ -127,12 +105,9 @@ void ui_interface_settings_open(void) {
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
   s_menu = menu_component_create(s_screen, "INTERFACE", "/assets/icons/tune.bin");
-  menu_component_add_toggle(&s_menu, "/assets/icons/animation.bin", "Animations", true);
-  menu_component_add_toggle(&s_menu, "/assets/icons/vibration.bin", "Haptics", true);
-  menu_component_add_toggle(&s_menu, "/assets/icons/volume_up.bin", "Sound FX", true);
+  menu_component_add_toggle(
+      &s_menu, "/assets/icons/vibration.bin", "Haptics", g_config_system.vibration);
   menu_component_add_item(&s_menu, "/assets/icons/palette.bin", "Theme");
-  menu_component_add_selector(
-      &s_menu, "/assets/icons/language.bin", "Language", LANGUAGE_OPTS[s_language_idx]);
   menu_component_add_item(&s_menu, "/assets/icons/sensors.bin", "LED / Notify");
 
   if (s_menu.items_cont != NULL)

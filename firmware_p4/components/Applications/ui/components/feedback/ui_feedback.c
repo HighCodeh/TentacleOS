@@ -26,6 +26,7 @@
 
 #include "audio_i2s.h"
 #include "drv2605l.h"
+#include "tos_config.h"
 
 #define FB_TASK_STACK_SIZE 3072
 #define FB_TASK_PRIORITY   SYS_PRIO_SERVICE_LO
@@ -167,9 +168,9 @@ static void fb_task(void *arg) {
 
     // s_playing was already set by the producer that claimed this slot.
     const fb_def_t *d = &DEFS[k];
-    if (d->haptic)
+    if (d->haptic && g_config_system.vibration)
       (void)drv2605l_play_effect(d->haptic);
-    if (d->notes && d->count > 0)
+    if (d->notes && d->count > 0 && g_config_system.ui_sound_fx)
       (void)audio_i2s_play_song(d->notes, d->count, d->amp);
 
     // play_song only returns once the samples have actually reached the amp

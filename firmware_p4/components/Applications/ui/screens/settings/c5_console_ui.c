@@ -15,16 +15,22 @@
 
 #include "c5_console_ui.h"
 
+#include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 
 #include "lvgl.h"
 #include "st7789.h"
 
 #include "assets_manager.h"
+#include "c5_flasher.h"
+#include "notify_ui.h"
 #include "spi_bridge.h"
 #include "spi_protocol.h"
+#include "sys_prio.h"
 #include "terminal_ui.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
@@ -37,7 +43,7 @@
 #define TITLE       "C5 CONSOLE"
 #define ICON        "/assets/icons/monitoring.bin"
 #define DRAG_ICON   "/assets/icons/drag_indicator.bin"
-#define FOOTER_HINT "UP/DOWN scroll   BACK exit"
+#define FOOTER_HINT "LEFT clear  OK follow  RIGHT sync"
 
 #define BODY_X          6
 #define BODY_TOP_PAD    4
@@ -64,19 +70,40 @@
 #define RING_SIZE   4096
 #define DRAIN_CHUNK 512
 
+#define SYNC_TASK_STACK 3072
+#define SYNC_TASK_PRIO  SYS_PRIO_SERVICE_HI
+
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_term = NULL;
 static lv_obj_t *s_thumb = NULL;
 static lv_timer_t *s_thumb_timer = NULL;
 static lv_timer_t *s_drain = NULL;
 static bool s_follow = true;
-static char s_trim_buf[LOG_KEEP + 1];
+static bool s_sync_busy = false;
+EXT_RAM_BSS_ATTR static char s_trim_buf[LOG_KEEP + 1];
 
-static char s_hist[RING_SIZE];
+EXT_RAM_BSS_ATTR static char s_hist[RING_SIZE];
 static volatile uint32_t s_hist_head = 0;
 static volatile uint64_t s_hist_total = 0;
 static portMUX_TYPE s_hist_mux = portMUX_INITIALIZER_UNLOCKED;
 static uint64_t s_read_cursor = 0;
+
+static void hist_write(const char *data, uint16_t len);
+
+static void hist_clear(void) {
+  portENTER_CRITICAL(&s_hist_mux);
+  s_hist_head = 0;
+  s_hist_total = 0;
+  portEXIT_CRITICAL(&s_hist_mux);
+  s_read_cursor = 0;
+}
+
+static void hist_write_line(const char *text) {
+  if (text == NULL)
+    return;
+  hist_write(text, (uint16_t)strlen(text));
+  hist_write("\n", 1);
+}
 
 static void hist_write(const char *data, uint16_t len) {
   portENTER_CRITICAL(&s_hist_mux);
@@ -196,6 +223,38 @@ static void thumb_tick_cb(lv_timer_t *t) {
   update_thumb();
 }
 
+static void sync_done(void *data) {
+  esp_err_t result = (esp_err_t)(intptr_t)data;
+  s_sync_busy = false;
+  char line[64];
+  snprintf(
+      line, sizeof(line), "[P4] C5 link: %s", result == ESP_OK ? "ALIVE" : esp_err_to_name(result));
+  hist_write_line(line);
+  notify(result == ESP_OK ? NOTIFY_SAVED : NOTIFY_WARNING,
+         result == ESP_OK ? "C5 link restored" : "C5 did not answer");
+}
+
+static void sync_task(void *arg) {
+  (void)arg;
+  esp_err_t result = c5_flasher_sync();
+  ui_async_call(sync_done, (void *)(intptr_t)result);
+  vTaskDelete(NULL);
+}
+
+static void start_sync(void) {
+  if (s_sync_busy)
+    return;
+  s_sync_busy = true;
+  hist_write_line("[P4] Synchronizing C5 link...");
+  if (xTaskCreatePinnedToCore(
+          sync_task, "c5_ui_sync", SYNC_TASK_STACK, NULL, SYNC_TASK_PRIO, NULL, SYS_CORE_RADIO) !=
+      pdPASS) {
+    s_sync_busy = false;
+    hist_write_line("[P4] Could not start sync task");
+    notify(NOTIFY_WARNING, "C5 sync busy");
+  }
+}
+
 static void c5_console_input(const input_event_t *ev, void *ctx) {
   (void)ctx;
   const bool press = (ev->action == INPUT_ACTION_PRESS);
@@ -213,6 +272,30 @@ static void c5_console_input(const input_event_t *ev, void *ctx) {
         lv_obj_scroll_by(s_term, 0, -LINE_STEP, LV_ANIM_ON);
         if (scroll_bottom <= LINE_STEP + FOLLOW_SLOP)
           s_follow = true;
+      }
+      break;
+    case INPUT_BTN_LEFT:
+      if (press) {
+        hist_clear();
+        if (s_term != NULL)
+          lv_textarea_set_text(s_term, "");
+        s_follow = true;
+        hist_write_line("[P4] C5 console cleared");
+      }
+      break;
+    case INPUT_BTN_RIGHT:
+      if (press)
+        start_sync();
+      break;
+    case INPUT_BTN_OK:
+      if (press) {
+        s_follow = !s_follow;
+        if (s_follow && s_term != NULL) {
+          lv_obj_update_layout(s_term);
+          int32_t bottom = lv_obj_get_scroll_y(s_term) + lv_obj_get_scroll_bottom(s_term);
+          lv_obj_scroll_to_y(s_term, bottom, LV_ANIM_OFF);
+        }
+        notify(NOTIFY_INFO, s_follow ? "Console follow ON" : "Console follow paused");
       }
       break;
     case INPUT_BTN_BACK:
@@ -291,10 +374,13 @@ void ui_c5_console_open(void) {
   s_thumb_timer = NULL;
   s_drain = NULL;
   s_follow = true;
+  s_sync_busy = false;
   s_trim_buf[0] = '\0';
   s_read_cursor = 0;
 
   spi_bridge_register_stream_cb(SPI_ID_SYSTEM_LOG, on_c5_log);
+  hist_write_line(spi_bridge_is_alive() ? "[P4] C5 link ALIVE"
+                                        : "[P4] C5 link DOWN - RIGHT to sync");
   build_screen();
 
   s_thumb_timer = lv_timer_create(thumb_tick_cb, THUMB_TICK_MS, NULL);

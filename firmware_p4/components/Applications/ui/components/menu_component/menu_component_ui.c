@@ -116,6 +116,11 @@ static void update_selection(menu_component_t *m) {
   for (int i = 0; i < m->item_count; i++) {
     if (i == m->selected) {
       lv_obj_set_style_border_color(m->items[i], SEL_BORDER, 0);
+      lv_obj_set_style_bg_opa(m->items[i], LV_OPA_COVER, 0);
+      lv_obj_set_style_shadow_width(m->items[i], 12, 0);
+      lv_obj_set_style_shadow_color(m->items[i], SEL_BORDER, 0);
+      lv_obj_set_style_shadow_opa(m->items[i], LV_OPA_30, 0);
+      lv_obj_set_style_shadow_spread(m->items[i], -3, 0);
       bool has_widget = m->has_toggle[i] || m->has_intensity[i] || m->val_labels[i];
       if (m->sel_dots[i]) {
         if (has_widget)
@@ -125,6 +130,8 @@ static void update_selection(menu_component_t *m) {
       }
     } else {
       lv_obj_set_style_border_color(m->items[i], ITEM_BORDER, 0);
+      lv_obj_set_style_bg_opa(m->items[i], LV_OPA_90, 0);
+      lv_obj_set_style_shadow_width(m->items[i], 0, 0);
       if (m->sel_dots[i])
         lv_obj_add_flag(m->sel_dots[i], LV_OBJ_FLAG_HIDDEN);
     }
@@ -147,6 +154,8 @@ menu_component_create(lv_obj_t *parent, const char *title, const char *title_ico
   lv_obj_align(m.screen, LV_ALIGN_TOP_LEFT, 0, 0);
   lv_obj_remove_flag(m.screen, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_color(m.screen, current_theme.screen_base, 0);
+  lv_obj_set_style_bg_grad_color(m.screen, current_theme.bg_primary, 0);
+  lv_obj_set_style_bg_grad_dir(m.screen, LV_GRAD_DIR_VER, 0);
   lv_obj_set_style_bg_opa(m.screen, LV_OPA_COVER, 0);
   lv_obj_set_style_pad_all(m.screen, 0, 0);
   lv_obj_set_style_border_width(m.screen, 0, 0);
@@ -253,9 +262,10 @@ static lv_obj_t *item_begin(menu_component_t *menu) {
   lv_obj_set_height(item, ITEM_H);
   lv_obj_remove_flag(item, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_radius(item, 10, 0);
-  lv_obj_set_style_bg_opa(item, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(item, ITEM_BG, 0);
-  lv_obj_set_style_bg_grad_dir(item, LV_GRAD_DIR_NONE, 0);
+  lv_obj_set_style_bg_opa(item, LV_OPA_90, 0);
+  lv_obj_set_style_bg_color(item, current_theme.bg_item_top, 0);
+  lv_obj_set_style_bg_grad_color(item, current_theme.bg_item_bot, 0);
+  lv_obj_set_style_bg_grad_dir(item, LV_GRAD_DIR_VER, 0);
   lv_obj_set_style_border_width(item, 2, 0);
   lv_obj_set_style_border_color(item, ITEM_BORDER, 0);
   lv_obj_set_style_pad_left(item, 6, 0);
