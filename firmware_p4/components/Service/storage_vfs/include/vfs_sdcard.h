@@ -48,8 +48,11 @@ esp_err_t vfs_sdcard_format(void);
 /**
  * @brief Reformat the mounted card as exFAT, wiping all data. Forces exFAT even
  *        on small cards (unlike vfs_sdcard_format(), which auto-picks FAT32/exFAT
- *        by size). The card stays mounted afterwards.
- * @return ESP_OK, ESP_ERR_INVALID_STATE if not mounted, or an I/O error.
+ *        by size). The card stays mounted on success. If remount fails, the
+ *        backend is
+ * detached; vfs_sdcard_init() can attempt recovery later.
+ * @return ESP_OK, ESP_ERR_INVALID_STATE
+ * if not mounted, or an I/O error.
  */
 esp_err_t vfs_sdcard_format_exfat(void);
 
@@ -62,8 +65,13 @@ const char *vfs_sdcard_fs_type(void);
 /**
  * @brief Measure sequential read/write throughput with a temporary file.
  *
- * Writes then reads back a small payload on the mounted card and reports the
- * rates in MB/s (10^6 bytes). The temp file is removed before returning. Blocks
+ * Writes then verifies an exact payload on the mounted card and reports the
+ * rates in MB/s (10^6
+ * bytes). Uses exclusive creation: a preexisting benchmark
+ * file is never overwritten or deleted.
+ * Its own temp file is removed before
+ * returning (failure to remove it is reported as an error).
+ * Blocks
  * for a few hundred ms; call off the render critical path.
  *
  * @param out_read_mbs   receives the read rate in MB/s (may be NULL).

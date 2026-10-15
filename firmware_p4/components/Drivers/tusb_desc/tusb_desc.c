@@ -25,6 +25,9 @@
 #include "soc/usb_dwc_struct.h"
 #include "tinyusb.h"
 #include "tinyusb_default_config.h"
+#if HB_GROK_USB_AUDIO_ENABLED
+#include "grok_uac_wire.h"
+#endif
 
 static const char *TAG = "TUSB_DESC";
 
@@ -115,6 +118,38 @@ static const uint8_t s_desc_configuration_hs[] = {
 static const uint8_t s_desc_configuration_fs[] = {
     HID_CDC_BLOCK(ITF_NUM_BASE, CONFIG_LEN_BASE, CDC_EP_SIZE_FS)};
 
+#if HB_GROK_USB_AUDIO_ENABLED
+// A separate identity avoids cached HID-only descriptors on the Mac. The
+// normal device, HID/CDC interface numbers, and all existing endpoints stay put.
+static const tusb_desc_device_t s_desc_voice_device = {
+    .bLength = sizeof(tusb_desc_device_t),
+    .bDescriptorType = TUSB_DESC_DEVICE,
+    .bcdUSB = 0x0200,
+    .bDeviceClass = TUSB_CLASS_MISC,
+    .bDeviceSubClass = MISC_SUBCLASS_COMMON,
+    .bDeviceProtocol = MISC_PROTOCOL_IAD,
+    .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
+    .idVendor = USB_VENDOR_ID,
+    .idProduct = 0x4002,
+    .bcdDevice = USB_BCD_DEVICE,
+    .iManufacturer = STR_IDX_MANUFACTURER,
+    .iProduct = STR_IDX_PRODUCT,
+    .iSerialNumber = STR_IDX_SERIAL,
+    .bNumConfigurations = 1,
+};
+static const uint8_t s_desc_configuration_voice_hs[] = {
+    HID_CDC_BLOCK(6, CONFIG_LEN_BASE + GROK_UAC_DESC_LEN, CDC_EP_SIZE_HS),
+    GROK_UAC_DESCRIPTOR(STR_IDX_PRODUCT, 4, 4)};
+static const uint8_t s_desc_configuration_voice_fs[] = {
+    HID_CDC_BLOCK(6, CONFIG_LEN_BASE + GROK_UAC_DESC_LEN, CDC_EP_SIZE_FS),
+    GROK_UAC_DESCRIPTOR(STR_IDX_PRODUCT, 1, 3)};
+_Static_assert(sizeof(s_desc_configuration_voice_hs) == CONFIG_LEN_BASE + GROK_UAC_DESC_LEN,
+               "USB voice descriptor length mismatch");
+_Static_assert(sizeof(s_desc_configuration_voice_fs) == sizeof(s_desc_configuration_voice_hs),
+               "USB voice speed layouts differ");
+static volatile bool s_voice_exposed = false;
+#endif
+
 #if CFG_TUD_MSC
 #define ITF_NUM_MSC_TOTAL 4
 #define CONFIG_LEN_MSC    (CONFIG_LEN_BASE + TUD_MSC_DESC_LEN)
@@ -153,6 +188,10 @@ static volatile bool s_msc_exposed = false;
 // TinyUSB Descriptor Callbacks
 
 const uint8_t *tud_descriptor_device_cb(void) {
+#if HB_GROK_USB_AUDIO_ENABLED
+  if (s_voice_exposed && !s_msc_exposed)
+    return (const uint8_t *)&s_desc_voice_device;
+#endif
   return (const uint8_t *)&s_desc_device;
 }
 
@@ -165,6 +204,10 @@ const uint8_t *tud_descriptor_configuration_cb(uint8_t index) {
   if (s_msc_exposed) {
     return high_speed ? s_desc_configuration_msc_hs : s_desc_configuration_msc_fs;
   }
+#endif
+#if HB_GROK_USB_AUDIO_ENABLED
+  if (s_voice_exposed)
+    return high_speed ? s_desc_configuration_voice_hs : s_desc_configuration_voice_fs;
 #endif
   return high_speed ? s_desc_configuration_hs : s_desc_configuration_fs;
 }
@@ -181,6 +224,10 @@ const uint16_t *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
       return NULL;
     }
     const char *str = s_string_desc_arr[index];
+#if HB_GROK_USB_AUDIO_ENABLED
+    if (index == STR_IDX_PRODUCT && s_voice_exposed && !s_msc_exposed)
+      str = "High Boy Voice";
+#endif
     chr_count = strlen(str);
     for (uint8_t i = 0; i < chr_count; i++) {
       s_desc_str_buf[1 + i] = str[i];
@@ -286,6 +333,11 @@ esp_err_t busb_init(void) {
 
 void busb_set_msc_exposed(bool exposed) {
 #if CFG_TUD_MSC
+#if HB_GROK_USB_AUDIO_ENABLED
+  // Storage wins a race with voice teardown. Never advertise both layouts.
+  if (exposed)
+    s_voice_exposed = false;
+#endif
   if (s_msc_exposed == exposed) {
     return;
   }
@@ -302,6 +354,42 @@ void busb_set_msc_exposed(bool exposed) {
   tud_connect();
 #else
   (void)exposed;
+#endif
+}
+
+bool busb_msc_is_exposed(void) {
+  return s_msc_exposed;
+}
+
+bool busb_voice_is_exposed(void) {
+#if HB_GROK_USB_AUDIO_ENABLED
+  return s_voice_exposed && !s_msc_exposed;
+#else
+  return false;
+#endif
+}
+
+esp_err_t busb_set_voice_exposed(bool exposed) {
+#if HB_GROK_USB_AUDIO_ENABLED
+  if (exposed && s_msc_exposed)
+    return ESP_ERR_INVALID_STATE;
+  if (s_voice_exposed == exposed)
+    return ESP_OK;
+  if (s_installed) {
+    tud_disconnect();
+    vTaskDelay(pdMS_TO_TICKS(BUSB_REENUM_DELAY_MS));
+  }
+  // An MSC switch may have won while we were detached.
+  esp_err_t result = ESP_OK;
+  if (exposed && s_msc_exposed)
+    result = ESP_ERR_INVALID_STATE;
+  else
+    s_voice_exposed = exposed;
+  if (s_installed)
+    tud_connect();
+  return result;
+#else
+  return exposed ? ESP_ERR_NOT_SUPPORTED : ESP_OK;
 #endif
 }
 

@@ -470,12 +470,20 @@ esp_err_t esp_vfs_fat_sdcard_unmount(const char *base_path, sdmmc_card_t *card)
     return err;
 }
 
+bool esp_vfs_fat_sdcard_is_mounted(const char *base_path, const sdmmc_card_t *card)
+{
+    uint32_t id = FF_VOLUMES;
+    return base_path && card && s_get_context_id_by_card(card, &id) &&
+           strcmp(base_path, s_ctx[id]->base_path) == 0 &&
+           s_ctx[id]->fs && s_ctx[id]->fs->fs_type != 0;
+}
+
 // TentacleOS: body factored out of esp_vfs_fat_sdcard_format_cfg so the mkfs
 // format kind (FM_ANY vs FM_EXFAT) can be selected. See this component's README.
 static esp_err_t format_card_fm(const char *base_path, sdmmc_card_t *card, esp_vfs_fat_mount_config_t *cfg, BYTE fmt_kind)
 {
     esp_err_t ret = ESP_OK;
-    if (!card) {
+    if (!base_path || !card) {
         ESP_LOGE(TAG, "card not initialized");
         return ESP_ERR_INVALID_STATE;
     }
@@ -486,27 +494,25 @@ static esp_err_t format_card_fm(const char *base_path, sdmmc_card_t *card, esp_v
         return ESP_ERR_INVALID_STATE;
     }
 
-    //unmount
-    char drv[3] = {(char)('0' + pdrv), ':', 0};
-    FRESULT res = f_mount(0, drv, 0);
-    if (res != FR_OK) {
-        ESP_LOGE(TAG, "f_mount unmount failed (%d)", res);
-        return ESP_FAIL;
+    uint32_t id = FF_VOLUMES;
+    if (!s_get_context_id_by_card(card, &id) ||
+        strcmp(base_path, s_ctx[id]->base_path) != 0 || !s_ctx[id]->fs) {
+        return ESP_ERR_INVALID_STATE;
     }
 
+    // Allocate before changing the mounted filesystem. OOM must not detach it.
     const size_t workbuf_size = 4096;
     void *workbuf = ff_memalloc(workbuf_size);
     if (workbuf == NULL) {
         return ESP_ERR_NO_MEM;
     }
 
-    //format
-    uint32_t id = FF_VOLUMES;
-
-    {
-        const bool found = s_get_context_id_by_card(card, &id);
-        (void)found;
-        assert(found);
+    char drv[3] = {(char)('0' + pdrv), ':', 0};
+    FRESULT res = f_mount(0, drv, 0);
+    if (res != FR_OK) {
+        free(workbuf);
+        ESP_LOGE(TAG, "f_mount unmount failed (%d)", res);
+        return ESP_FAIL;
     }
 
     if (cfg) {
@@ -525,11 +531,13 @@ static esp_err_t format_card_fm(const char *base_path, sdmmc_card_t *card, esp_v
         ESP_LOGD(TAG, "f_mkfs failed (%d)", res);
     }
 
-    //mount back
-    esp_err_t err = s_f_mount(card, s_ctx[id]->fs, drv, pdrv, &s_ctx[id]->mount_config, NULL);
-    if (err != ESP_OK) {
-        unmount_card_core(base_path, card);
-        ESP_LOGE(TAG, "failed to format, resources recycled, please mount again");
+    // Exactly one non-destructive remount attempt; never auto-format again.
+    // Keep ownership of the registered card/context unchanged even on failure.
+    // The caller can query the state, then explicitly unmount and retry later.
+    res = f_mount(s_ctx[id]->fs, drv, 1);
+    if (res != FR_OK) {
+        ESP_LOGE(TAG, "format remount failed (%d); card handle retained", res);
+        return ESP_FAIL;
     }
 
     return ret;

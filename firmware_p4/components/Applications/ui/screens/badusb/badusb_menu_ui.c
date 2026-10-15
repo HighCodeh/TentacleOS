@@ -161,7 +161,7 @@ static const struct {
     {"Keyboard Layout", "/assets/icons/keyboard.bin"},
     {"Output Target", "/assets/icons/swap_horiz.bin"},
     {"USB Status", "/assets/icons/usb.bin"},
-    {"HID Mouse", "/assets/icons/usb.bin"},
+    {"USB HID Mouse", "/assets/icons/mouse.bin"},
 };
 #define MENU_ITEM_COUNT ((int)(sizeof(MENU_ITEMS) / sizeof(MENU_ITEMS[0])))
 

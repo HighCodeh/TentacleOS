@@ -277,6 +277,15 @@ esp_err_t esp_vfs_fat_sdcard_format(const char *base_path, sdmmc_card_t *card);
 esp_err_t esp_vfs_fat_sdcard_format_exfat(const char *base_path, sdmmc_card_t *card);
 
 /**
+ * @brief Inspect registered FAT mount state without reading or writing the card.
+ *
+ * Formatting retains the card handle on failure. If its final remount failed,
+ * this returns false; call esp_vfs_fat_sdcard_unmount to release the handle.
+ * This is a state snapshot, not a physical card-health or concurrency guarantee.
+ */
+bool esp_vfs_fat_sdcard_is_mounted(const char *base_path, const sdmmc_card_t *card);
+
+/**
  * @brief Convenience function to initialize FAT filesystem in SPI flash and register it in VFS
  *
  * This is an all-in-one function which does the following:

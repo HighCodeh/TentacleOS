@@ -73,6 +73,11 @@ esp_err_t busb_init(void);
  */
 void busb_set_msc_exposed(bool exposed);
 
+// Worker-only optional audio layout. MSC always takes priority. No mux change.
+esp_err_t busb_set_voice_exposed(bool exposed);
+bool busb_voice_is_exposed(void);
+bool busb_msc_is_exposed(void);
+
 /**
  * @brief Configure the USB-C data mux (TS3USB221) and default it to the UART
  *        bridge.

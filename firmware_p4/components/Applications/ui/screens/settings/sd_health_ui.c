@@ -22,6 +22,7 @@
 #include "lvgl.h"
 
 #include "notify_ui.h"
+#include "msgbox_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -35,7 +36,7 @@
 
 #define HDR_TITLE  "SD HEALTH"
 #define HDR_ICON   "/assets/icons/sd_card.bin"
-#define FOOTER_TXT "OK REMOUNT   R RETEST   BACK"
+#define FOOTER_TXT "OK REMOUNT   R TEST   BACK"
 
 #define MX        8
 #define CONTENT_W (ui_screen_w() - 2 * MX)
@@ -63,7 +64,7 @@
 
 #define SD_PATH      "/sdcard"
 #define BYTES_PER_GB 1000000000ULL
-#define CTA_TXT      "Remount & retest"
+#define CTA_TXT      "R: test 1 MB read/write"
 
 #define READ_VAL  "--"
 #define WRITE_VAL "--"
@@ -291,6 +292,10 @@ static void retest_run_cb(lv_timer_t *t) {
       lv_label_set_text(s_read_val, "--");
     if (s_write_val)
       lv_label_set_text(s_write_val, "--");
+    if (s_read_sub)
+      lv_label_set_text(s_read_sub, "Test failed");
+    if (s_write_sub)
+      lv_label_set_text(s_write_sub, "Test failed");
     notify(NOTIFY_WARNING, "SD test failed");
   }
 }
@@ -305,7 +310,18 @@ static void start_retest(void) {
   set_tiles_testing(true);
   // Defer one tick so the "..." state paints before the blocking benchmark runs.
   s_retest_timer = lv_timer_create(retest_run_cb, RETEST_TICK_MS, NULL);
+  if (s_retest_timer == NULL) {
+    lv_label_set_text(s_read_sub, UNIT_IDLE);
+    lv_label_set_text(s_write_sub, UNIT_IDLE);
+    notify(NOTIFY_WARNING, "Not enough memory for test");
+    return;
+  }
   ui_feedback(UI_FB_SELECT);
+}
+
+static void confirm_retest(bool confirmed) {
+  if (confirmed)
+    start_retest();
 }
 
 static void sd_health_input(const input_event_t *ev, void *ctx) {
@@ -330,7 +346,13 @@ static void sd_health_input(const input_event_t *ev, void *ctx) {
       break;
     case INPUT_BTN_RIGHT:
       if (press)
-        start_retest();
+        msgbox_open_ex(
+            HDR_ICON,
+            "Test SD read/write?\nWrites a 1 MB temporary file.\nDo not remove the card.",
+            "TEST",
+            "Cancel",
+            confirm_retest,
+            false);
       break;
     default:
       break;
@@ -368,6 +390,5 @@ void ui_sd_health_open(void) {
 
   ui_screen_load_owned(&s_screen, s_screen);
 
-  // Fill the tiles with a real measurement as soon as the screen is up.
-  start_retest();
+  // Opening the information screen must not write to the user's card.
 }

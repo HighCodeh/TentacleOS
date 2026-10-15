@@ -19,6 +19,7 @@
 #include "esp_vfs_fat.h"
 #include "sdmmc_cmd.h"
 #include "ff.h"
+#include "diskio_sdmmc.h"
 #include <string.h>
 
 static const char *TAG = "SD_CARD_INFO";
@@ -81,19 +82,33 @@ esp_err_t sd_get_fs_stats(sd_fs_stats_t *stats) {
     return ESP_ERR_INVALID_ARG;
   }
 
-  FATFS *fs;
+  memset(stats, 0, sizeof(*stats));
+  sdmmc_card_t *card = sd_get_card_handle();
+  if (card == NULL) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  BYTE pdrv = ff_diskio_get_pdrv_card(card);
+  if (pdrv >= FF_VOLUMES || pdrv > 9) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  char drv[3] = {(char)('0' + pdrv), ':', 0};
+  FATFS *fs = NULL;
   DWORD fre_clust;
 
-  if (f_getfree("0:", &fre_clust, &fs) != FR_OK) {
+  if (f_getfree(drv, &fre_clust, &fs) != FR_OK || fs == NULL) {
     ESP_LOGE(TAG, "Failed to get filesystem stats");
     return ESP_FAIL;
   }
 
-  uint64_t total_sectors = (fs->n_fatent - 2) * fs->csize;
-  uint64_t free_sectors = fre_clust * fs->csize;
+  if (fs->n_fatent < 2 || fs->csize == 0 || fre_clust > fs->n_fatent - 2 ||
+      card->csd.sector_size == 0) {
+    return ESP_FAIL;
+  }
+  uint64_t total_sectors = (uint64_t)(fs->n_fatent - 2) * fs->csize;
+  uint64_t free_sectors = (uint64_t)fre_clust * fs->csize;
 
-  stats->total_bytes = total_sectors * FF_MAX_SS;
-  stats->free_bytes = free_sectors * FF_MAX_SS;
+  stats->total_bytes = total_sectors * card->csd.sector_size;
+  stats->free_bytes = free_sectors * card->csd.sector_size;
   stats->used_bytes = stats->total_bytes - stats->free_bytes;
 
   return ESP_OK;

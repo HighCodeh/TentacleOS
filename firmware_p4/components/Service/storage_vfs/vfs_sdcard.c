@@ -32,6 +32,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sdmmc_cmd.h"
+#include "diskio_sdmmc.h"
 
 #include "pin_def.h"
 #include "vfs_config.h"
@@ -156,29 +157,43 @@ static esp_err_t sdcard_closedir(vfs_dir_t dir) {
   return (closedir(d) == 0) ? ESP_OK : ESP_FAIL;
 }
 
-static esp_err_t sdcard_statvfs(vfs_statvfs_t *stat) {
+static esp_err_t sdcard_get_fs(FATFS **fs, DWORD *free_clusters) {
   if (!s_sdcard.mounted || !s_sdcard.card) {
     return ESP_ERR_INVALID_STATE;
   }
-
-  uint64_t total = ((uint64_t)s_sdcard.card->csd.capacity) * s_sdcard.card->csd.sector_size;
-
-  stat->total_bytes = total;
-  stat->block_size = s_sdcard.card->csd.sector_size;
-  stat->total_blocks = s_sdcard.card->csd.capacity;
-
-  FATFS *fs;
-  DWORD free_clusters;
-
-  if (f_getfree("0:", &free_clusters, &fs) == FR_OK) {
-    uint64_t free_sectors = free_clusters * fs->csize;
-    stat->free_bytes = free_sectors * s_sdcard.card->csd.sector_size;
-    stat->free_blocks = free_sectors;
-  } else {
-    stat->free_bytes = 0;
-    stat->free_blocks = 0;
+  BYTE pdrv = ff_diskio_get_pdrv_card(s_sdcard.card);
+  if (pdrv >= FF_VOLUMES || pdrv > 9) {
+    return ESP_ERR_INVALID_STATE;
   }
+  char drv[3] = {(char)('0' + pdrv), ':', 0};
+  return f_getfree(drv, free_clusters, fs) == FR_OK ? ESP_OK : ESP_FAIL;
+}
 
+static esp_err_t sdcard_statvfs(vfs_statvfs_t *stat) {
+  if (stat == NULL) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  memset(stat, 0, sizeof(*stat));
+  FATFS *fs = NULL;
+  DWORD free_clusters = 0;
+  esp_err_t ret = sdcard_get_fs(&fs, &free_clusters);
+  if (ret != ESP_OK) {
+    return ret;
+  }
+  if (fs == NULL || fs->n_fatent < 2 || fs->csize == 0 || free_clusters > fs->n_fatent - 2) {
+    return ESP_FAIL;
+  }
+  uint64_t total_sectors = (uint64_t)(fs->n_fatent - 2) * fs->csize;
+  uint64_t free_sectors = (uint64_t)free_clusters * fs->csize;
+  // Current FatFs uses 32-bit LBA; reject impossible/corrupt geometry.
+  if (total_sectors > UINT32_MAX || s_sdcard.card->csd.sector_size == 0) {
+    return ESP_FAIL;
+  }
+  stat->block_size = s_sdcard.card->csd.sector_size;
+  stat->total_blocks = (uint32_t)total_sectors;
+  stat->free_blocks = (uint32_t)free_sectors;
+  stat->total_bytes = total_sectors * stat->block_size;
+  stat->free_bytes = free_sectors * stat->block_size;
   stat->used_bytes = stat->total_bytes - stat->free_bytes;
 
   return ESP_OK;
@@ -281,10 +296,10 @@ esp_err_t vfs_sdcard_deinit(void) {
 
   esp_err_t ret = esp_vfs_fat_sdcard_unmount(VFS_MOUNT_POINT, s_sdcard.card);
 
-  if (ret == ESP_OK) {
-    s_sdcard.mounted = false;
-    s_sdcard.card = NULL;
-  }
+  // IDF releases the handle before unregistering the VFS path. Even if that
+  // final unregister reports an error, this pointer must never be reused.
+  s_sdcard.mounted = false;
+  s_sdcard.card = NULL;
 
   return ret;
 }
@@ -334,14 +349,19 @@ void vfs_sdcard_print_info(void) {
   }
 }
 
-esp_err_t vfs_sdcard_format(void) {
+static esp_err_t sdcard_format(bool exfat) {
   if (!s_sdcard.mounted || s_sdcard.card == NULL) {
     return ESP_ERR_INVALID_STATE;
   }
 
-  // Real f_mkfs via the IDF helper: FM_ANY auto-selects exFAT for cards too large
-  // for FAT32. The card stays mounted at VFS_MOUNT_POINT afterwards.
-  esp_err_t ret = esp_vfs_fat_sdcard_format(VFS_MOUNT_POINT, s_sdcard.card);
+  esp_err_t ret = exfat ? esp_vfs_fat_sdcard_format_exfat(VFS_MOUNT_POINT, s_sdcard.card)
+                        : esp_vfs_fat_sdcard_format(VFS_MOUNT_POINT, s_sdcard.card);
+  if (!esp_vfs_fat_sdcard_is_mounted(VFS_MOUNT_POINT, s_sdcard.card)) {
+    // The formatter retained the handle, but its remount failed. Release it
+    // exactly once and leave the backend unmounted for a deliberate retry.
+    vfs_sdcard_deinit();
+    return ret == ESP_OK ? ESP_FAIL : ret;
+  }
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "Format failed: %s", esp_err_to_name(ret));
     return ret;
@@ -351,28 +371,21 @@ esp_err_t vfs_sdcard_format(void) {
   return ESP_OK;
 }
 
+esp_err_t vfs_sdcard_format(void) {
+  return sdcard_format(false);
+}
+
 esp_err_t vfs_sdcard_format_exfat(void) {
-  if (!s_sdcard.mounted || s_sdcard.card == NULL) {
-    return ESP_ERR_INVALID_STATE;
-  }
-
-  esp_err_t ret = esp_vfs_fat_sdcard_format_exfat(VFS_MOUNT_POINT, s_sdcard.card);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "exFAT format failed: %s", esp_err_to_name(ret));
-    return ret;
-  }
-
-  ESP_LOGI(TAG, "SD formatted (%s)", vfs_sdcard_fs_type());
-  return ESP_OK;
+  return sdcard_format(true);
 }
 
 const char *vfs_sdcard_fs_type(void) {
   if (!s_sdcard.mounted) {
     return "--";
   }
-  FATFS *fs;
+  FATFS *fs = NULL;
   DWORD free_clusters;
-  if (f_getfree("0:", &free_clusters, &fs) != FR_OK) {
+  if (sdcard_get_fs(&fs, &free_clusters) != ESP_OK || fs == NULL) {
     return "?";
   }
   switch (fs->fs_type) {
@@ -389,7 +402,15 @@ const char *vfs_sdcard_fs_type(void) {
   }
 }
 
+static uint8_t benchmark_byte(size_t offset) {
+  return (uint8_t)((offset * 33U) ^ (offset >> 8) ^ (offset >> 16) ^ 0xA5U);
+}
+
 esp_err_t vfs_sdcard_benchmark(float *out_read_mbs, float *out_write_mbs) {
+  if (out_read_mbs)
+    *out_read_mbs = 0.0f;
+  if (out_write_mbs)
+    *out_write_mbs = 0.0f;
   if (!s_sdcard.mounted) {
     return ESP_ERR_INVALID_STATE;
   }
@@ -405,11 +426,17 @@ esp_err_t vfs_sdcard_benchmark(float *out_read_mbs, float *out_write_mbs) {
   if (buf == NULL) {
     return ESP_ERR_NO_MEM;
   }
-  memset(buf, 0xA5, chunk);
-
   esp_err_t ret = ESP_FAIL;
-  FILE *f = fopen(path, "wb");
+  // Never truncate or remove a preexisting file (including a failed old test).
+  int fd = open(path, O_CREAT | O_EXCL | O_RDWR, 0600);
+  if (fd < 0) {
+    free(buf);
+    return ESP_FAIL;
+  }
+  FILE *f = fdopen(fd, "w+b");
   if (f == NULL) {
+    close(fd);
+    unlink(path); // only the file this invocation exclusively created
     free(buf);
     return ESP_FAIL;
   }
@@ -418,38 +445,54 @@ esp_err_t vfs_sdcard_benchmark(float *out_read_mbs, float *out_write_mbs) {
   size_t done = 0;
   bool ok = true;
   while (done < total) {
+    for (size_t i = 0; i < chunk; ++i)
+      buf[i] = benchmark_byte(done + i);
     if (fwrite(buf, 1, chunk, f) != chunk) {
       ok = false;
       break;
     }
     done += chunk;
   }
-  fflush(f);
-  fsync(fileno(f));
+  if (fflush(f) != 0)
+    ok = false;
+  if (fsync(fileno(f)) != 0)
+    ok = false;
   int64_t t1 = esp_timer_get_time();
-  fclose(f);
 
   size_t rd = 0;
   int64_t t2 = 0, t3 = 0;
+  if (ok && fseek(f, 0, SEEK_SET) != 0)
+    ok = false;
   if (ok) {
-    f = fopen(path, "rb");
-    if (f == NULL) {
-      ok = false;
-    } else {
-      t2 = esp_timer_get_time();
-      size_t n;
-      while ((n = fread(buf, 1, chunk, f)) > 0) {
-        rd += n;
+    t2 = esp_timer_get_time();
+    while (rd < total) {
+      if (fread(buf, 1, chunk, f) != chunk) {
+        ok = false;
+        break;
       }
-      t3 = esp_timer_get_time();
-      fclose(f);
+      for (size_t i = 0; i < chunk; ++i) {
+        if (buf[i] != benchmark_byte(rd + i)) {
+          ok = false;
+          break;
+        }
+      }
+      if (!ok)
+        break;
+      rd += chunk;
     }
+    // Verify both exact payload length and a clean end of file.
+    if (rd != total || fgetc(f) != EOF || ferror(f))
+      ok = false;
+    t3 = esp_timer_get_time();
   }
 
-  unlink(path);
+  if (fclose(f) != 0)
+    ok = false;
+  if (unlink(path) != 0)
+    ok = false;
   free(buf);
 
-  if (ok && done > 0 && rd > 0) {
+  if (ok && done == total && rd == total) {
     double wsec = (double)(t1 - t0) / 1e6;
     double rsec = (double)(t3 - t2) / 1e6;
     if (out_write_mbs)

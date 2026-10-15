@@ -15,22 +15,31 @@
 
 #include "usb_mouse_ui.h"
 
+#include "esp_err.h"
+#include "esp_timer.h"
 #include "lvgl.h"
+#include "tusb.h"
 
+#include "bad_usb.h"
+#include "hid_hal.h"
+#include "tusb_desc.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
 
-#define MOVE_TICK_MS    50
+#define MOVE_TICK_MS    40
 #define JIGGLE_TICK_MS  70
 #define JIGGLE_STEP_DEG 18
 #define JIGGLE_RADIUS   16
 
 #define HDR_TITLE  "HID MOUSE"
 #define HDR_ICON   "/assets/icons/mouse.bin"
-#define FOOTER_TXT "MOVE pad - L/R click - SEL jiggle"
+#define FOOTER_TXT "ARROWS move  OK click/hold R  OK+UP/DN scroll"
+
+#define RIGHT_CLICK_HOLD_MS 700
+#define SCROLL_REPEAT_MS    140
 
 #define MX        8
 #define CONTENT_W (240 - 2 * MX)
@@ -73,11 +82,22 @@ static lv_timer_t *s_jiggle_timer = NULL;
 static lv_obj_t *s_cursor = NULL;
 static lv_obj_t *s_chip = NULL;
 static lv_obj_t *s_chip_lbl = NULL;
+static lv_obj_t *s_status_dot = NULL;
+static lv_obj_t *s_status_lbl = NULL;
 
 static int s_cur_x = CUR_START_X;
 static int s_cur_y = CUR_START_Y;
 static int s_jig_ang = 0;
-static bool s_jiggle = true;
+static bool s_jiggle = false;
+static bool s_prev_mux_native = false;
+static bool s_usb_init_ok = false;
+static bool s_usb_ready = false;
+static bool s_ok_last = false;
+static int64_t s_ok_down_ms = 0;
+static int64_t s_last_scroll_ms = 0;
+static bool s_right_click_sent = false;
+static bool s_ok_chord = false;
+static bool s_jiggle_chord_latched = false;
 
 static int clamp(int v, int lo, int hi) {
   if (v < lo)
@@ -105,21 +125,36 @@ static void refresh_chip(void) {
         s_chip_lbl, s_jiggle ? current_theme.screen_base : current_theme.text_secondary, 0);
 }
 
-static void build_status(void) {
-  lv_obj_t *dot = lv_obj_create(s_screen);
-  lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(dot, 7, 7);
-  lv_obj_align(dot, LV_ALIGN_TOP_LEFT, MX, STATUS_Y + 5);
-  lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_border_width(dot, 0, 0);
-  lv_obj_set_style_bg_color(dot, lv_color_hex(UI_COL_SUCCESS), 0);
-  lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
+static void refresh_usb_status(void) {
+  bool ready = s_usb_init_ok && tud_mounted();
+  if (ready == s_usb_ready && s_status_lbl != NULL)
+    return;
+  s_usb_ready = ready;
 
-  lv_obj_t *lbl = lv_label_create(s_screen);
-  lv_label_set_text(lbl, "HID MOUSE - ACTIVE");
-  lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(lbl, current_theme.text_main, 0);
-  lv_obj_align(lbl, LV_ALIGN_TOP_LEFT, MX + 13, STATUS_Y + 1);
+  const char *text = !s_usb_init_ok ? "USB HID ERROR" : ready ? "USB HID READY" : "CONNECT USB...";
+  lv_color_t color = !s_usb_init_ok ? lv_color_hex(UI_COL_DANGER)
+                     : ready        ? lv_color_hex(UI_COL_SUCCESS)
+                                    : current_theme.border_accent;
+  if (s_status_lbl != NULL) {
+    lv_label_set_text(s_status_lbl, text);
+    lv_obj_set_style_text_color(s_status_lbl, color, 0);
+  }
+  if (s_status_dot != NULL)
+    lv_obj_set_style_bg_color(s_status_dot, color, 0);
+}
+
+static void build_status(void) {
+  s_status_dot = lv_obj_create(s_screen);
+  lv_obj_remove_flag(s_status_dot, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(s_status_dot, 7, 7);
+  lv_obj_align(s_status_dot, LV_ALIGN_TOP_LEFT, MX, STATUS_Y + 5);
+  lv_obj_set_style_radius(s_status_dot, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_border_width(s_status_dot, 0, 0);
+  lv_obj_set_style_bg_opa(s_status_dot, LV_OPA_COVER, 0);
+
+  s_status_lbl = lv_label_create(s_screen);
+  lv_obj_set_style_text_font(s_status_lbl, &lv_font_montserrat_12, 0);
+  lv_obj_align(s_status_lbl, LV_ALIGN_TOP_LEFT, MX + 13, STATUS_Y + 1);
 
   s_chip = lv_obj_create(s_screen);
   lv_obj_remove_flag(s_chip, LV_OBJ_FLAG_SCROLLABLE);
@@ -134,6 +169,7 @@ static void build_status(void) {
   lv_obj_set_style_text_font(s_chip_lbl, &lv_font_montserrat_12, 0);
   lv_obj_center(s_chip_lbl);
   refresh_chip();
+  refresh_usb_status();
 }
 
 static void build_trackpad(void) {
@@ -245,14 +281,18 @@ static void jiggle_tick_cb(lv_timer_t *t) {
     s_jiggle_timer = NULL;
     return;
   }
-  if (!s_jiggle)
+  refresh_usb_status();
+  if (!s_jiggle || !s_usb_ready)
     return;
   s_jig_ang = (s_jig_ang + JIGGLE_STEP_DEG) % 360;
   int cx = (CUR_MIN + CUR_MAX_X) / 2;
   int cy = (CUR_MIN + CUR_MAX_Y) / 2;
+  int old_x = s_cur_x;
+  int old_y = s_cur_y;
   s_cur_x = cx + (JIGGLE_RADIUS * lv_trigo_sin((int16_t)s_jig_ang)) / 32767;
   s_cur_y = cy + (JIGGLE_RADIUS * lv_trigo_cos((int16_t)s_jig_ang)) / 32767;
   update_cursor();
+  hid_hal_mouse_move((int8_t)(s_cur_x - old_x), (int8_t)(s_cur_y - old_y));
 }
 
 static void usb_mouse_input(const input_event_t *ev, void *ctx) {
@@ -263,13 +303,6 @@ static void usb_mouse_input(const input_event_t *ev, void *ctx) {
     case INPUT_BTN_BACK:
       if (press)
         ui_switch_screen(SCREEN_BADUSB_MENU);
-      break;
-    case INPUT_BTN_OK:
-      if (press) {
-        s_jiggle = !s_jiggle;
-        refresh_chip();
-        ui_feedback(UI_FB_SELECT);
-      }
       break;
     default:
       break;
@@ -284,30 +317,91 @@ static void move_tick_cb(lv_timer_t *t) {
   }
   if (ui_input_is_locked())
     return;
-  if (s_jiggle)
-    return;
 
-  bool moved = false;
-  if (input_is_down(INPUT_BTN_UP)) {
-    s_cur_y -= MOVE_STEP;
-    moved = true;
+  refresh_usb_status();
+
+  bool up = input_is_down(INPUT_BTN_UP);
+  bool down = input_is_down(INPUT_BTN_DOWN);
+  bool left = input_is_down(INPUT_BTN_LEFT);
+  bool right = input_is_down(INPUT_BTN_RIGHT);
+  bool ok = input_is_down(INPUT_BTN_OK);
+  int64_t now_ms = esp_timer_get_time() / 1000;
+
+  if (ok && !s_ok_last) {
+    s_ok_down_ms = now_ms;
+    s_last_scroll_ms = 0;
+    s_right_click_sent = false;
+    s_ok_chord = false;
+    s_jiggle_chord_latched = false;
   }
-  if (input_is_down(INPUT_BTN_DOWN)) {
-    s_cur_y += MOVE_STEP;
-    moved = true;
+
+  // OK+LEFT toggles the keep-awake circle without producing a click.
+  if (ok && left && !s_jiggle_chord_latched) {
+    s_jiggle_chord_latched = true;
+    s_ok_chord = true;
+    s_jiggle = !s_jiggle;
+    refresh_chip();
+    ui_feedback(UI_FB_SELECT);
+  } else if (ok && (up || down)) {
+    s_ok_chord = true;
+    if (s_usb_ready && (s_last_scroll_ms == 0 || now_ms - s_last_scroll_ms >= SCROLL_REPEAT_MS)) {
+      s_last_scroll_ms = now_ms;
+      hid_hal_mouse_scroll(up ? 1 : -1);
+    }
+  } else if (ok && !s_right_click_sent && !s_ok_chord &&
+             now_ms - s_ok_down_ms >= RIGHT_CLICK_HOLD_MS) {
+    if (s_usb_ready)
+      hid_hal_mouse_click(MOUSE_BUTTON_RIGHT);
+    s_right_click_sent = true;
+    ui_feedback(UI_FB_SELECT);
   }
-  if (input_is_down(INPUT_BTN_LEFT)) {
-    s_cur_x -= MOVE_STEP;
-    moved = true;
+
+  if (!ok && s_ok_last) {
+    if (!s_right_click_sent && !s_ok_chord && s_usb_ready) {
+      hid_hal_mouse_click(MOUSE_BUTTON_LEFT);
+      ui_feedback(UI_FB_SELECT);
+    }
+    s_ok_down_ms = 0;
   }
-  if (input_is_down(INPUT_BTN_RIGHT)) {
-    s_cur_x += MOVE_STEP;
-    moved = true;
+
+  if (s_jiggle || ok) {
+    s_ok_last = ok;
+    return;
   }
+
+  int8_t dx = 0;
+  int8_t dy = 0;
+  if (up)
+    dy -= MOVE_STEP;
+  if (down)
+    dy += MOVE_STEP;
+  if (left)
+    dx -= MOVE_STEP;
+  if (right)
+    dx += MOVE_STEP;
+  bool moved = dx != 0 || dy != 0;
   if (moved) {
+    s_cur_x += dx;
+    s_cur_y += dy;
     update_cursor();
-    ui_feedback(UI_FB_NAV);
+    if (s_usb_ready)
+      hid_hal_mouse_move(dx, dy);
   }
+  s_ok_last = ok;
+}
+
+void ui_usb_mouse_stop(void) {
+  if (s_move_timer != NULL) {
+    lv_timer_delete(s_move_timer);
+    s_move_timer = NULL;
+  }
+  if (s_jiggle_timer != NULL) {
+    lv_timer_delete(s_jiggle_timer);
+    s_jiggle_timer = NULL;
+  }
+  if (usb_mux_is_native() != s_prev_mux_native)
+    (void)usb_mux_set_native(s_prev_mux_native);
+  s_usb_ready = false;
 }
 
 void ui_usb_mouse_open(void) {
@@ -322,10 +416,28 @@ void ui_usb_mouse_open(void) {
   s_cursor = NULL;
   s_chip = NULL;
   s_chip_lbl = NULL;
+  s_status_dot = NULL;
+  s_status_lbl = NULL;
   s_cur_x = CUR_START_X;
   s_cur_y = CUR_START_Y;
   s_jig_ang = 0;
-  s_jiggle = true;
+  s_jiggle = false;
+  s_ok_last = false;
+  s_ok_down_ms = 0;
+  s_last_scroll_ms = 0;
+  s_right_click_sent = false;
+  s_ok_chord = false;
+  s_jiggle_chord_latched = false;
+
+  s_prev_mux_native = usb_mux_is_native();
+  esp_err_t usb_err = usb_mux_set_native(true);
+  if (usb_err == ESP_OK) {
+    esp_err_t hid_err = bad_usb_init();
+    s_usb_init_ok = hid_err == ESP_OK || hid_err == ESP_ERR_INVALID_STATE;
+  } else {
+    s_usb_init_ok = false;
+  }
+  s_usb_ready = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);

@@ -88,6 +88,7 @@ typedef struct {
   int timezone_offset;
   int volume;
   bool vibration;
+  bool ui_sound_fx;
   char log_level[8];
   bool first_boot_done;
 } tos_config_system_t;

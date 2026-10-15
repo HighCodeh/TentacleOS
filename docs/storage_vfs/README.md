@@ -576,8 +576,30 @@ void            usb_msc_exit(void);         // blocking - run on a worker task
 - `usb_msc_exit()` stops exposing the card, remounts `/sdcard`, and routes the USB
   connector back to the UART bridge. It resumes without a reboot; only a failed
   remount forces a reboot to recover.
+- Storage deletion can report pending deferred writes. Exit retries for up to
+  100 attempts with 10 ms delays; the card and storage handle remain owned by
+  MSC until deletion succeeds. If deletion still fails, MSC is exposed again
+  and the state returns to `USB_MSC_ACTIVE`. The Files screen remains open and
+  BACK can retry eject. The firmware never frees or remounts a live MSC card.
+- Entry failures restore the app mount only after any created storage instance
+  has been deleted. A failed rollback remount uses the same controlled reboot
+  recovery as a failed exit remount. A USB mux failure is logged and rolled back.
+- Atomic state transitions reject overlapping enter/exit workers. The UI's
+  connected indicator checks USB enumeration with `tud_mounted()` while active;
+  it never queries a potentially deleted storage handle. This indicates a USB
+  connection, not proof that the host OS has mounted a filesystem.
 - Both `usb_msc_enter()` and `usb_msc_exit()` are **blocking** - never call them
   from the LVGL thread; drive them from a worker task and poll `usb_msc_get_state()`.
+
+### Host regression tests
+
+Run `node --test tools/highboy/tests/test_usb_msc.mjs` from the repository root.
+The test compiles the actual `usb_msc.c` with the host C compiler and mocks only
+hardware/library interfaces. It covers normal and repeated cycles, deferred
+writes, persistent deletion failure, failed entry/rollback/remount, overlapping
+calls and mux failures. No firmware build, attached device or card is used.
+Real USB enumeration, eject timing and filesystem integrity still need device
+validation with a disposable test card.
 
 ### Raw SD handoff (`vfs_sdcard.h`)
 
