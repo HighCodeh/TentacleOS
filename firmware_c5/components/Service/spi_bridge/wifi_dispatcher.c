@@ -29,6 +29,7 @@
 #include "deauther_detector.h"
 #include "session_manager.h"
 #include "evil_twin.h"
+#include "grok_wifi.h"
 #include "meshtastic_tcp.h"
 #include "port_scan.h"
 #include "probe_monitor.h"
@@ -46,6 +47,12 @@ static const char *TAG = "WIFI_DISPATCHER";
 // from the raw scan once, then served through the generic data pipe.
 static spi_wifi_scan_record_t s_app_scan_records[WIFI_SCAN_LIST_SIZE];
 static spi_wifi_scan_record_ex_t s_app_scan_records_ex[WIFI_SCAN_LIST_SIZE];
+static spi_wifi_scan_config_t s_scan_cfg = {
+    .band = SPI_WIFI_BAND_DUAL,
+    .passive = 0,
+    .dwell_min_ms = 0,
+    .dwell_max_ms = 0,
+};
 
 // Port scan runs on the shared async runner so the SPI bridge (and the UI/app
 // link it carries) never blocks for the seconds-to-minutes a sweep can take.
@@ -158,7 +165,8 @@ static spi_status_t open_session(spi_id_t op_id,
 // Each does the blocking scan and provides the results; the SPI handler returns
 // immediately so the bridge stays free.
 static void scan_fn_wifi_scan(void) {
-  wifi_service_scan();
+  wifi_service_scan_ex(
+      s_scan_cfg.band, s_scan_cfg.passive != 0, s_scan_cfg.dwell_min_ms, s_scan_cfg.dwell_max_ms);
   spi_bridge_provide_results(
       wifi_service_get_ap_record(0), wifi_service_get_ap_count(), sizeof(wifi_ap_record_t));
 }
@@ -335,8 +343,31 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
   (void)TAG;
   *out_resp_len = 0;
 
+  // Voice owns the current STA channel while its TLS worker is alive. Do not
+  // retune it for scans/captures or replace its network behind the user's back.
+  // Explicit Wi-Fi stop/disconnect remains available and closes voice first.
+  if (grok_wifi_is_active()) {
+    if (id == SPI_ID_WIFI_STOP || id == SPI_ID_WIFI_DISCONNECT) {
+      grok_wifi_stop();
+    } else if (id != SPI_ID_WIFI_GET_STA_INFO && id != SPI_ID_WIFI_SCAN_STATUS) {
+      return SPI_STATUS_BUSY;
+    }
+  }
+
   switch (id) {
     case SPI_ID_WIFI_SCAN:
+      if (spi_bridge_async_scan_busy())
+        return SPI_STATUS_BUSY;
+      s_scan_cfg = (spi_wifi_scan_config_t){
+          .band = SPI_WIFI_BAND_DUAL,
+          .passive = 0,
+          .dwell_min_ms = 0,
+          .dwell_max_ms = 0,
+      };
+      if (len >= sizeof(spi_wifi_scan_config_t))
+        memcpy(&s_scan_cfg, payload, sizeof(s_scan_cfg));
+      if (s_scan_cfg.band > SPI_WIFI_BAND_5G)
+        return SPI_STATUS_INVALID_ARG;
       return spi_bridge_async_scan_start(scan_fn_wifi_scan) ? SPI_STATUS_OK : SPI_STATUS_BUSY;
 
     case SPI_ID_WIFI_SCAN_STATUS:
@@ -518,12 +549,15 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
       // it omits the args, default to RAW + channel 0 (hopping) instead of
       // rejecting, so an empty START still streams something useful.
       // payload[0]: sniffer type, payload[1]: channel (0 = hop all).
-      // payload[2] (optional): monitor_mode flag — when set, buffer recycles
-      // on overflow and packet counter keeps growing (used by Packet Monitor).
+      // payload[2] (optional): monitor_mode flag — counter/statistics only.
+      // payload[3] (optional): band selector (dual/2.4/5 GHz).
       wifi_sniffer_type_t type =
           (len >= 1) ? (wifi_sniffer_type_t)payload[0] : WIFI_SNIFFER_TYPE_RAW;
       uint8_t channel = (len >= 2) ? payload[1] : 0;
       bool monitor_mode = (len >= 3) && (payload[2] != 0);
+      uint8_t band = (len >= 4) ? payload[3] : SPI_WIFI_BAND_DUAL;
+      if (band > SPI_WIFI_BAND_5G || wifi_service_set_analysis_band(band) != ESP_OK)
+        return SPI_STATUS_INVALID_ARG;
       wifi_sniffer_set_monitor_mode(monitor_mode);
       spi_bridge_stream_enable(SPI_ID_WIFI_APP_SNIFFER, true);
       if (!wifi_sniffer_start(type, channel)) {

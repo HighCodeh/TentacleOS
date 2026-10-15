@@ -33,17 +33,16 @@
 #include "ui_metrics.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
+#include "wifi_service.h"
 
 static const char *TAG = "CONNECT_WIFI_UI";
 
-#define WIFI_MAX_APS     12
-#define SCAN_SIM_STEPS   4
-#define SCAN_SIM_STEP_MS 220
+#define WIFI_MAX_APS 12
 
 #define WIFI_TASK_STACK_SIZE 8192
 #define WIFI_TASK_PRIORITY   SYS_PRIO_SERVICE_LO
-#define CONNECT_SIM_STEPS    4
-#define CONNECT_SIM_STEP_MS  300
+#define CONNECT_POLL_MS      250
+#define CONNECT_TIMEOUT_MS   20000
 
 #define CONNECT_STATE_FAILED    0
 #define CONNECT_STATE_CONNECTED 1
@@ -77,27 +76,11 @@ static const char *TAG = "CONNECT_WIFI_UI";
 typedef enum { SCAN_RUNNING, SCAN_DONE, SCAN_FAIL } scan_state_t;
 
 typedef struct {
-  const char *ssid;
-  int8_t rssi;
-} mock_ap_t;
-
-typedef struct {
-  char ssid[25];
+  char ssid[33];
   int8_t rssi;
   bool open;
   uint8_t channel;
 } ap_entry_t;
-
-static const mock_ap_t MOCK_APS[] = {
-    {"TentacleNet", -38},
-    {"HighCode-Guest", -52},
-    {"Familia Souza", -60},
-    {"iPhone de Ana", -67},
-    {"NET_2G_A1B2", -74},
-};
-#define MOCK_AP_COUNT (sizeof(MOCK_APS) / sizeof(MOCK_APS[0]))
-
-static const uint8_t MOCK_AP_CH[MOCK_AP_COUNT] = {36, 6, 1, 11, 44};
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
@@ -150,24 +133,29 @@ static void connect_done_cb(void *unused) {
 static void wifi_connect_task(void *arg) {
   (void)arg;
 
-  for (int i = 0; i < CONNECT_SIM_STEPS; i++)
-    vTaskDelay(pdMS_TO_TICKS(CONNECT_SIM_STEP_MS));
+  esp_err_t err = wifi_service_connect_to_ap(s_connect_ssid, s_connect_pass);
+  uint32_t waited = 0;
+  while (err == ESP_OK && !wifi_service_is_connected() && waited < CONNECT_TIMEOUT_MS) {
+    vTaskDelay(pdMS_TO_TICKS(CONNECT_POLL_MS));
+    waited += CONNECT_POLL_MS;
+  }
 
-  s_connect_state = CONNECT_STATE_CONNECTED;
-  s_connect_ip[0] = 192;
-  s_connect_ip[1] = 168;
-  s_connect_ip[2] = 1;
-  s_connect_ip[3] = 42;
+  if (err == ESP_OK && wifi_service_is_connected()) {
+    s_connect_state = CONNECT_STATE_CONNECTED;
+    if (wifi_service_get_ip(0, s_connect_ip) != ESP_OK)
+      memset(s_connect_ip, 0, sizeof(s_connect_ip));
+  } else {
+    s_connect_state = CONNECT_STATE_FAILED;
+  }
   s_connecting = false;
   ui_async_call(connect_done_cb, NULL);
   vTaskDelete(NULL);
 }
 
-static void on_keyboard_submit(const char *text, void *user_data) {
-  (void)user_data;
+static void start_connection(const char *password) {
   if (s_connecting || s_scanning)
     return;
-  strncpy(s_connect_pass, text ? text : "", sizeof(s_connect_pass) - 1);
+  strncpy(s_connect_pass, password ? password : "", sizeof(s_connect_pass) - 1);
   s_connect_pass[sizeof(s_connect_pass) - 1] = '\0';
   s_connecting = true;
   ESP_LOGI(TAG, "connecting to '%s'...", s_connect_ssid);
@@ -179,6 +167,11 @@ static void on_keyboard_submit(const char *text, void *user_data) {
                               NULL,
                               SYS_CORE_RADIO) != pdPASS)
     s_connecting = false;
+}
+
+static void on_keyboard_submit(const char *text, void *user_data) {
+  (void)user_data;
+  start_connection(text);
 }
 
 static void add_sec_glyph(lv_obj_t *card, bool open) {
@@ -349,16 +342,20 @@ static void wifi_scan_task(void *arg) {
   (void)arg;
   int count = 0;
 
-  for (int i = 0; i < SCAN_SIM_STEPS; i++)
-    vTaskDelay(pdMS_TO_TICKS(SCAN_SIM_STEP_MS));
-
-  for (size_t i = 0; i < MOCK_AP_COUNT && count < WIFI_MAX_APS; i++) {
-    strncpy(s_aps[count].ssid, MOCK_APS[i].ssid, sizeof(s_aps[count].ssid) - 1);
-    s_aps[count].ssid[sizeof(s_aps[count].ssid) - 1] = '\0';
-    s_aps[count].rssi = MOCK_APS[i].rssi;
-    s_aps[count].open = (strstr(MOCK_APS[i].ssid, "Guest") != NULL);
-    s_aps[count].channel = MOCK_AP_CH[i];
-    count++;
+  esp_err_t scan_err = wifi_service_scan();
+  if (scan_err == ESP_OK) {
+    uint16_t total = wifi_service_get_ap_count();
+    for (uint16_t i = 0; i < total && count < WIFI_MAX_APS; i++) {
+      const wifi_ap_record_t *ap = wifi_service_get_ap_record(i);
+      if (ap == NULL)
+        continue;
+      strncpy(s_aps[count].ssid, (const char *)ap->ssid, sizeof(s_aps[count].ssid) - 1);
+      s_aps[count].ssid[sizeof(s_aps[count].ssid) - 1] = '\0';
+      s_aps[count].rssi = ap->rssi;
+      s_aps[count].open = (ap->authmode == WIFI_AUTH_OPEN);
+      s_aps[count].channel = ap->primary;
+      count++;
+    }
   }
 
   for (int i = 1; i < count; i++) {
@@ -370,7 +367,7 @@ static void wifi_scan_task(void *arg) {
   }
 
   s_ap_count = count;
-  s_scan_state = SCAN_DONE;
+  s_scan_state = (scan_err == ESP_OK) ? SCAN_DONE : SCAN_FAIL;
   s_scanning = false;
   ui_async_call(scan_done_cb, NULL);
   vTaskDelete(NULL);
@@ -412,7 +409,10 @@ static void connect_wifi_input(const input_event_t *ev, void *ctx) {
       if (press && join && s_sel >= 0 && s_sel < s_ap_count) {
         strncpy(s_connect_ssid, s_aps[s_sel].ssid, sizeof(s_connect_ssid) - 1);
         s_connect_ssid[sizeof(s_connect_ssid) - 1] = '\0';
-        keyboard_open(NULL, on_keyboard_submit, NULL);
+        if (s_aps[s_sel].open)
+          start_connection("");
+        else
+          keyboard_open(NULL, on_keyboard_submit, NULL);
       }
       break;
     default:
@@ -441,5 +441,5 @@ void ui_connect_wifi_open(void) {
     }
   }
 
-  ESP_LOGI(TAG, "Networks screen opened (mock scan)");
+  ESP_LOGI(TAG, "Networks screen opened (C5 hardware scan)");
 }

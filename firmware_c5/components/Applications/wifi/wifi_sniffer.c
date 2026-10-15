@@ -40,6 +40,9 @@
 
 static const char *TAG = "WIFI_SNIFFER";
 
+_Static_assert(sizeof(spi_sniffer_stats_t) <= SPI_MAX_PAYLOAD,
+               "sniffer statistics exceed one SPI payload");
+
 #define SNIFFER_BUFFER_SIZE       (200 * 1024)
 #define SNIFFER_BUFFER_MARGIN     2048
 #define SNIFFER_STREAM_CHUNK_SIZE 4096
@@ -107,7 +110,9 @@ static uint32_t s_pkts_2ghz = 0;
 static uint32_t s_pkts_5ghz = 0;
 static uint32_t s_unique_aps = 0;
 static uint8_t s_last_channel = 0;
-static int8_t s_last_rssi = -127;      // RSSI of the last captured frame (-127 = none yet)
+static int8_t s_last_rssi = -127; // RSSI of the last captured frame (-127 = none yet)
+static uint32_t s_channel_packets[SPI_WIFI_SPECTRUM_BIN_COUNT];
+static int8_t s_channel_peak_rssi[SPI_WIFI_SPECTRUM_BIN_COUNT];
 static bool s_is_monitor_mode = false; // packet monitor: counts forever, buffer recycles
 static bool s_is_sniffing = false;
 static bool s_is_pcap_enabled = false;
@@ -139,6 +144,18 @@ static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type);
 static void stream_task(void *arg);
 static bool save_to_file(const char *path, bool use_sd);
 
+static int spectrum_bin_for_channel(uint8_t channel) {
+  if (channel >= 1 && channel <= 14)
+    return channel - 1;
+  if (channel >= 36 && channel <= 64 && ((channel - 36) % 4) == 0)
+    return 14 + (channel - 36) / 4;
+  if (channel >= 100 && channel <= 144 && ((channel - 100) % 4) == 0)
+    return 22 + (channel - 100) / 4;
+  if (channel >= 149 && channel <= 165 && ((channel - 149) % 4) == 0)
+    return 34 + (channel - 149) / 4;
+  return -1;
+}
+
 static void reset_monitor_counters(void) {
   s_beacon_count = 0;
   s_probe_req_count = 0;
@@ -151,6 +168,8 @@ static void reset_monitor_counters(void) {
   s_unique_aps = 0;
   s_last_channel = 0;
   s_last_rssi = -127;
+  memset(s_channel_packets, 0, sizeof(s_channel_packets));
+  memset(s_channel_peak_rssi, -127, sizeof(s_channel_peak_rssi));
 }
 
 void wifi_sniffer_set_snaplen(uint16_t len) {
@@ -167,7 +186,7 @@ bool wifi_sniffer_start(wifi_sniffer_type_t type, uint8_t channel) {
     return false;
   }
 
-  if (s_pcap_buffer == NULL) {
+  if (!s_is_monitor_mode && s_pcap_buffer == NULL) {
     s_pcap_buffer = (uint8_t *)heap_caps_malloc(SNIFFER_BUFFER_SIZE, MALLOC_CAP_SPIRAM);
   }
 
@@ -201,7 +220,8 @@ bool wifi_sniffer_start(wifi_sniffer_type_t type, uint8_t channel) {
   }
 
   wifi_promiscuous_filter_t filter = {.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT |
-                                                     WIFI_PROMIS_FILTER_MASK_DATA};
+                                                     WIFI_PROMIS_FILTER_MASK_DATA |
+                                                     WIFI_PROMIS_FILTER_MASK_CTRL};
   wifi_service_promiscuous_start(sniffer_callback, &filter);
 
   s_is_sniffing = true;
@@ -329,6 +349,7 @@ void wifi_sniffer_stop(void) {
 
   wifi_service_promiscuous_stop();
   wifi_service_stop_channel_hopping();
+  wifi_service_set_analysis_band(SPI_WIFI_BAND_DUAL);
   s_is_sniffing = false;
   s_is_streaming_sd = false;
 
@@ -399,6 +420,8 @@ void wifi_sniffer_fill_ext_stats(spi_sniffer_stats_t *out) {
   out->unique_aps = s_unique_aps;
   out->channel = s_last_channel;
   out->last_rssi = s_last_rssi;
+  memcpy(out->channel_packets, s_channel_packets, sizeof(out->channel_packets));
+  memcpy(out->channel_peak_rssi, s_channel_peak_rssi, sizeof(out->channel_peak_rssi));
 }
 
 bool wifi_sniffer_pmkid_captured(void) {
@@ -723,6 +746,12 @@ static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
 
   s_last_channel = ppkt->rx_ctrl.channel;
   s_last_rssi = ppkt->rx_ctrl.rssi;
+  int spectrum_bin = spectrum_bin_for_channel(ppkt->rx_ctrl.channel);
+  if (spectrum_bin >= 0) {
+    s_channel_packets[spectrum_bin]++;
+    if (ppkt->rx_ctrl.rssi > s_channel_peak_rssi[spectrum_bin])
+      s_channel_peak_rssi[spectrum_bin] = ppkt->rx_ctrl.rssi;
+  }
   if (ppkt->rx_ctrl.channel >= FIRST_5GHZ_CHANNEL)
     s_pkts_5ghz++;
   else
@@ -792,7 +821,7 @@ static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
       break;
   }
 
-  if (is_save && spi_bridge_stream_is_enabled(SPI_ID_WIFI_APP_SNIFFER)) {
+  if (is_save && !s_is_monitor_mode && spi_bridge_stream_is_enabled(SPI_ID_WIFI_APP_SNIFFER)) {
     uint16_t total_len = ppkt->rx_ctrl.sig_len;
     if (total_len > SPI_WIFI_SNIFFER_FRAME_MAX)
       total_len = SPI_WIFI_SNIFFER_FRAME_MAX; // bounded by the P4 reassembly buffer

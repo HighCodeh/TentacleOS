@@ -36,6 +36,35 @@ typedef enum {
   WIFI_SNIFFER_TYPE_COUNT
 } wifi_sniffer_type_t;
 
+typedef enum {
+  WIFI_ANALYSIS_BAND_DUAL = 0,
+  WIFI_ANALYSIS_BAND_2G = 1,
+  WIFI_ANALYSIS_BAND_5G = 2,
+} wifi_analysis_band_t;
+
+#define WIFI_SPECTRUM_BIN_COUNT 39
+
+typedef struct {
+  uint32_t packets;
+  uint32_t deauths;
+  uint32_t buffer_usage;
+  uint32_t beacons;
+  uint32_t probe_reqs;
+  uint32_t probe_resps;
+  uint32_t data_frames;
+  uint32_t ctrl_frames;
+  uint32_t mgmt_frames;
+  uint32_t pkts_2ghz;
+  uint32_t pkts_5ghz;
+  uint32_t unique_aps;
+  uint8_t channel;
+  int8_t last_rssi;
+  uint32_t channel_packets[WIFI_SPECTRUM_BIN_COUNT];
+  int8_t channel_peak_rssi[WIFI_SPECTRUM_BIN_COUNT];
+  bool handshake_captured;
+  bool pmkid_captured;
+} wifi_sniffer_stats_t;
+
 /**
  * @brief Callback invoked for each sniffed frame in stream mode.
  *
@@ -54,6 +83,9 @@ typedef void (*wifi_sniffer_cb_t)(const uint8_t *frame, uint16_t len, int8_t rss
  * @return true on success, false on failure.
  */
 bool wifi_sniffer_start(wifi_sniffer_type_t type, uint8_t channel);
+
+/** Start a capture constrained to dual, 2.4 GHz, or 5 GHz hopping. */
+bool wifi_sniffer_start_band(wifi_sniffer_type_t type, uint8_t channel, wifi_analysis_band_t band);
 
 /**
  * @brief Start the sniffer in streaming mode with a callback.
@@ -76,6 +108,9 @@ bool wifi_sniffer_start_stream(wifi_sniffer_type_t type, uint8_t channel, wifi_s
  * @param channel  Wi-Fi channel (0 for hopping).
  */
 bool wifi_sniffer_start_monitor(uint8_t channel);
+
+/** Start a counter-only monitor constrained to a selected band. */
+bool wifi_sniffer_start_monitor_band(uint8_t channel, wifi_analysis_band_t band);
 
 /**
  * @brief Stop the sniffer and release stream resources.
@@ -103,6 +138,12 @@ bool wifi_sniffer_stop_capture(void);
  * @return Bytes written to the capture file.
  */
 size_t wifi_sniffer_get_capture_size(void);
+
+/** Full path of the active/latest PCAP, or an empty string for counter-only mode. */
+const char *wifi_sniffer_get_capture_path(void);
+
+/** Fetch one coherent statistics snapshot from the C5. */
+bool wifi_sniffer_get_stats(wifi_sniffer_stats_t *out);
 
 /**
  * @brief Free the C5 sniffer packet buffer over SPI.

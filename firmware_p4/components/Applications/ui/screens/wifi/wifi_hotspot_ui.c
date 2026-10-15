@@ -93,8 +93,8 @@
 #define VAL_CHANNEL "-"
 #define LBL_GATEWAY "GATEWAY"
 #define VAL_GATEWAY AP_IP
-#define LBL_TX      "TX"
-#define LBL_RX      "RX"
+#define LBL_TX      "SSID"
+#define LBL_RX      "SECURITY"
 #define ARC_CENTER  "-"
 #define ARC_SUB     "/ 8"
 
@@ -111,20 +111,36 @@ static bool s_online = true;
 static volatile bool s_ap_busy = false;
 static volatile bool s_ap_desired = false;
 static volatile bool s_ap_dirty = false;
+static volatile esp_err_t s_ap_result = ESP_OK;
+
+static void apply_online(void);
+
+static void ap_apply_done(void *arg) {
+  (void)arg;
+  if (s_ap_result == ESP_OK) {
+    s_online = s_ap_desired;
+    if (s_online)
+      s_secs = 0;
+  }
+  if (ui_current_screen() == SCREEN_WIFI_HOTSPOT)
+    apply_online();
+}
 
 static void ap_apply_task(void *arg) {
   (void)arg;
+  esp_err_t err = ESP_OK;
   do {
     bool want = s_ap_desired;
     s_ap_dirty = false;
     if (want) {
-      wifi_service_save_ap_config(AP_NAME, AP_PASSWORD, AP_MAX_CONN, AP_IP, true);
-      wifi_service_start();
+      err = wifi_service_save_ap_config(AP_NAME, AP_PASSWORD, AP_MAX_CONN, AP_IP, true);
     } else {
-      wifi_service_set_enabled(false);
+      err = wifi_service_set_enabled(false);
     }
   } while (s_ap_dirty);
+  s_ap_result = err;
   s_ap_busy = false;
+  ui_async_call(ap_apply_done, NULL);
   vTaskDelete(NULL);
 }
 
@@ -354,12 +370,10 @@ static void build_traffic_row(lv_obj_t *parent) {
   lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_set_style_pad_column(row, TILE_GAP, 0);
 
-  lv_obj_t *tx =
-      make_tile(row, LBL_TX, VAL_PLACEHOLDER, lv_color_hex(COL_CYAN), &lv_font_montserrat_14);
+  lv_obj_t *tx = make_tile(row, LBL_TX, AP_NAME, lv_color_hex(COL_CYAN), &lv_font_montserrat_14);
   lv_obj_set_height(tx, TILE_H);
   lv_obj_set_flex_grow(tx, 1);
-  lv_obj_t *rx =
-      make_tile(row, LBL_RX, VAL_PLACEHOLDER, lv_color_hex(COL_ACC2), &lv_font_montserrat_14);
+  lv_obj_t *rx = make_tile(row, LBL_RX, "OPEN", lv_color_hex(COL_ACC2), &lv_font_montserrat_14);
   lv_obj_set_height(rx, TILE_H);
   lv_obj_set_flex_grow(rx, 1);
 }
@@ -377,9 +391,8 @@ static void wifi_hotspot_input(const input_event_t *ev, void *ctx) {
       break;
     case INPUT_BTN_OK:
       if (press) {
-        s_online = !s_online;
-        apply_online();
-        ap_request(s_online);
+        bool desired = s_ap_busy ? !s_ap_desired : !s_online;
+        ap_request(desired);
         ui_feedback(UI_FB_SELECT);
       }
       break;
@@ -399,7 +412,7 @@ void ui_wifi_hotspot_open(void) {
   s_knob = NULL;
   s_uptime = NULL;
   s_secs = START_SECS;
-  s_online = true;
+  s_online = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -430,7 +443,6 @@ void ui_wifi_hotspot_open(void) {
   build_traffic_row(stack);
 
   apply_online();
-
   ap_request(true);
 
   ui_input_set_screen_handler(wifi_hotspot_input, NULL);

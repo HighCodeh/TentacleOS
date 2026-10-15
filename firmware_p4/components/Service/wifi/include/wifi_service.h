@@ -26,7 +26,7 @@ extern "C" {
 #include "esp_err.h"
 #include "esp_wifi.h"
 
-#define WIFI_SCAN_LIST_SIZE      20
+#define WIFI_SCAN_LIST_SIZE      64
 #define WIFI_AP_CONFIG_FILE      "config/wifi/wifi_ap.conf"
 #define WIFI_KNOWN_NETWORKS_FILE "storage/wifi/know_networks.json"
 
@@ -83,6 +83,17 @@ bool wifi_service_is_connected(void);
 bool wifi_service_is_active(void);
 
 /**
+ * @brief Read the current IPv4 address from the C5 network interface.
+ *
+ * @param interface  0
+ * for station, 1 for access point.
+ * @param[out] out_ip Four IPv4 octets.
+ * @return ESP_OK on
+ * success, or an error code.
+ */
+esp_err_t wifi_service_get_ip(uint8_t interface, uint8_t out_ip[4]);
+
+/**
  * @brief Get the SSID of the currently connected access point.
  *
  * @return Pointer to the SSID string, or NULL if not connected.
@@ -93,6 +104,14 @@ const char *wifi_service_get_connected_ssid(void);
  * @brief Scan for nearby access points.
  */
 esp_err_t wifi_service_scan(void);
+
+/**
+ * Run a configured scan on the C5.
+ * band: 0 dual, 1 2.4 GHz, 2 5 GHz. Dwell values of zero
+ * use safe defaults.
+ */
+esp_err_t
+wifi_service_scan_ex(uint8_t band, bool passive, uint16_t dwell_min_ms, uint16_t dwell_max_ms);
 
 /**
  * @brief Get the number of access points found in the last scan.

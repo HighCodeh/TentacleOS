@@ -26,7 +26,7 @@ extern "C" {
 #include "esp_err.h"
 #include "esp_wifi.h"
 
-#define WIFI_SCAN_LIST_SIZE      20
+#define WIFI_SCAN_LIST_SIZE      64
 #define WIFI_AP_CONFIG_FILE      "config/wifi/wifi_ap.conf"
 #define WIFI_KNOWN_NETWORKS_FILE "storage/wifi/know_networks.json"
 
@@ -99,6 +99,9 @@ const char *wifi_service_get_connected_ssid(void);
  * @brief Scan for nearby access points.
  */
 void wifi_service_scan(void);
+
+/** Run a scan constrained to one band, or both bands when band is 0. */
+void wifi_service_scan_ex(uint8_t band, bool passive, uint16_t dwell_min_ms, uint16_t dwell_max_ms);
 
 /**
  * @brief Get the number of access points found in the last scan.
@@ -188,6 +191,9 @@ void wifi_service_promiscuous_stop(void);
  * @brief Start channel hopping across all Wi-Fi channels.
  */
 void wifi_service_start_channel_hopping(void);
+
+/** Select which band the next channel-hopping session will visit (0/1/2). */
+esp_err_t wifi_service_set_analysis_band(uint8_t band);
 
 /**
  * @brief Stop channel hopping.

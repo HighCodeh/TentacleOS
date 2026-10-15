@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sys_prio.h"
@@ -54,7 +55,7 @@ static scan_state_t s_state = SCAN_RUNNING;
 static bool s_scanning = false;
 static bool s_connected = false;
 static int s_count = 0;
-static port_scan_result_t s_results[PORT_MAX];
+EXT_RAM_BSS_ATTR static port_scan_result_t s_results[PORT_MAX];
 
 static void wifi_port_scan_input(const input_event_t *ev, void *ctx);
 
