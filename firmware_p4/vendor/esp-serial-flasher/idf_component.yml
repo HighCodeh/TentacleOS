@@ -1,0 +1,20 @@
+dependencies:
+  usb_host_cdc_acm:
+    rules:
+    - if: target in [esp32s2, esp32s3, esp32p4]
+    version: ^2
+  usb_host_ch34x_vcp:
+    rules:
+    - if: target in [esp32s2, esp32s3, esp32p4]
+    version: ^2.2
+  usb_host_cp210x_vcp:
+    rules:
+    - if: target in [esp32s2, esp32s3, esp32p4]
+    version: ^2.2
+description: esp-serial-flasher is a portable C library for flashing or loading apps
+  to RAM of Espressif SoCs from other host microcontrollers
+files:
+  exclude:
+  - .cache/**/*
+url: https://github.com/espressif/esp-serial-flasher
+version: 2.0.0

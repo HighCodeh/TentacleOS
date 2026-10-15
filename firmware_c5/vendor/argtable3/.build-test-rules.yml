@@ -1,0 +1,9 @@
+argtable3/test_apps/argtable_unit_tests:
+  disable:
+    - if: IDF_TARGET not in ["esp32", "esp32c3"]
+      reason: "Sufficient to test on one Xtensa and one RISC-V target"
+
+argtable3/test_apps/console_compat:
+  disable:
+    - if: IDF_TARGET not in ["esp32", "esp32c3"]
+      reason: "Sufficient to test on one Xtensa and one RISC-V target"

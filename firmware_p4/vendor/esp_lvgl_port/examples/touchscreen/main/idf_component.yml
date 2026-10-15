@@ -1,0 +1,6 @@
+dependencies:
+  esp_lcd_touch_tt21100:
+    version: ^1
+  esp_lvgl_port:
+    version: '*'
+  idf: '>=5.2'

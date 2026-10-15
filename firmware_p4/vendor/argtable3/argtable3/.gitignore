@@ -1,0 +1,24 @@
+# except for .gitignore
+!.gitignore
+
+build*/
+dist/
+.archive/
+.tags/
+.misc/
+.venv/
+.py*/
+docs/source/xml/
+docs/build/
+
+# Ignore JetBrains and Eclipse IDE metadata and default build directories
+.vscode/
+.idea/
+.settings/
+.project
+.cproject
+Release/
+Debug/
+cmake-build-*/
+docs/_build/
+docs/xml/

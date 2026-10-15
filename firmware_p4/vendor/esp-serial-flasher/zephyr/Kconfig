@@ -1,0 +1,55 @@
+# SPDX-FileCopyrightText: 2026 Espressif Systems (Shanghai) CO LTD
+# SPDX-License-Identifier: Apache-2.0
+
+config ESP_SERIAL_FLASHER
+    bool "ESP Serial Flasher support"
+    select CONSOLE_SUBSYS
+    select GPIO
+    help
+      This option enables the ESP Serial Flasher library
+
+if ESP_SERIAL_FLASHER
+
+config ESP_SERIAL_FLASHER_UART_BUFSIZE
+    int "ESP Serial Flasher UART buffer size"
+    default 512
+    help
+      Buffer size for UART TX and RX packets
+
+config SERIAL_FLASHER_RESET_HOLD_TIME_MS
+    int "Time for which the reset pin is asserted when doing a hard reset"
+    default 100
+
+config SERIAL_FLASHER_BOOT_HOLD_TIME_MS
+    int "Time for which the boot pin is asserted when doing a hard reset"
+    default 50
+
+config SERIAL_FLASHER_WRITE_BLOCK_RETRIES
+    int "Number of retries when writing blocks either to target flash or RAM"
+    default 3
+
+choice SERIAL_FLASHER_LOG_LEVEL_CHOICE
+    prompt "Compile-time minimum log level"
+    default SERIAL_FLASHER_LOG_LEVEL_WARN
+
+    config SERIAL_FLASHER_LOG_LEVEL_NONE
+        bool "None — no logging compiled in (zero binary cost)"
+    config SERIAL_FLASHER_LOG_LEVEL_ERROR
+        bool "Error — protocol errors only"
+    config SERIAL_FLASHER_LOG_LEVEL_WARN
+        bool "Warn — errors + unexpected-but-non-fatal events (recommended)"
+    config SERIAL_FLASHER_LOG_LEVEL_INFO
+        bool "Info — + connection, chip detection, flash size, write progress"
+    config SERIAL_FLASHER_LOG_LEVEL_DEBUG
+        bool "Debug — + per-command trace and transfer hex dumps"
+endchoice
+
+config SERIAL_FLASHER_LOG_LEVEL
+    int
+    default 0 if SERIAL_FLASHER_LOG_LEVEL_NONE
+    default 1 if SERIAL_FLASHER_LOG_LEVEL_ERROR
+    default 2 if SERIAL_FLASHER_LOG_LEVEL_WARN
+    default 3 if SERIAL_FLASHER_LOG_LEVEL_INFO
+    default 4 if SERIAL_FLASHER_LOG_LEVEL_DEBUG
+
+endif # ESP_SERIAL_FLASHER

@@ -1,0 +1,4 @@
+dependencies:
+  espressif/argtable3:
+    version: "*"
+    override_path: "../../.."

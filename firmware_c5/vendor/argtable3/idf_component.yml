@@ -1,0 +1,10 @@
+dependencies:
+  idf: '>=5.1'
+description: Argtable3 - GNU-style command-line option parsing C library
+documentation: https://www.argtable.org/docs/
+repository: git://github.com/espressif/idf-extra-components.git
+repository_info:
+  commit_sha: 7267cae246d8797fb33c1d269343523ef6653416
+  path: argtable3
+url: https://github.com/espressif/idf-extra-components/tree/master/argtable3
+version: 3.3.1~1

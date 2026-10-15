@@ -1,0 +1,17 @@
+---
+:cmock:
+  :mock_prefix: mock_
+  :plugins:
+    - :callback
+    - :ignore
+    - :expect_any_args
+    - :array
+    - :return_thru_ptr
+  :strippables:
+    - '(?:extern|static)\s+'
+  :treat_as:
+    uint8_t: HEX8
+    uint16_t: HEX16
+    uint32_t: UINT32
+    int8_t: INT8
+    bool: UINT8

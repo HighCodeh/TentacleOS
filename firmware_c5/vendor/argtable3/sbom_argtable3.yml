@@ -1,0 +1,6 @@
+name: argtable3
+version: 3.3.1
+supplier: 'Organization: argtable'
+description: GNU-style command-line option parsing C library
+url: https://github.com/argtable/argtable3/
+hash: b50c6c81f25eef8af51141678b333c55b661414d

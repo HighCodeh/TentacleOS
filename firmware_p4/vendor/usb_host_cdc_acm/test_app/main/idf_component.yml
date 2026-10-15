@@ -1,0 +1,35 @@
+## IDF Component Manager Manifest File
+dependencies:
+  # Needed as DUT
+  espressif/usb_host_cdc_acm:
+    version: "*"
+    override_path: "../../../usb_host_cdc_acm"
+
+  # Needed for CDC mock device
+  espressif/esp_tinyusb:
+    version: "*"
+    override_path: "../../../../../../device/esp_tinyusb"
+
+  espressif/usb:
+    version: "*"
+    override_path: "../../../../../usb"
+    rules:                                    # Both if clauses must be fulfilled to override the component
+      - if: "$ENV_VAR_USB_COMP_MANAGED == yes"  # Environmental variable to select between managed (esp-usb) and native (esp-idf) USB Component
+      - if: "idf_version >=5.4"                 # Use managed component only for 5.4 and above
+
+  # Following components are not needed, but this way we at least built them in CI
+  espressif/esp_modem_usb_dte:
+    version: "*"
+    override_path: "../../../esp_modem_usb_dte"
+  espressif/usb_host_vcp:
+    version: "*"
+    override_path: "../../../usb_host_vcp"
+  espressif/usb_host_ch34x_vcp:
+    version: "*"
+    override_path: "../../../usb_host_ch34x_vcp"
+  espressif/usb_host_cp210x_vcp:
+    version: "*"
+    override_path: "../../../usb_host_cp210x_vcp"
+  espressif/usb_host_ftdi_vcp:
+    version: "*"
+    override_path: "../../../usb_host_ftdi_vcp"

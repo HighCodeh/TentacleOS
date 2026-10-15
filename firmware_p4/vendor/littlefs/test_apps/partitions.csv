@@ -1,0 +1,10 @@
+# Partition table for littlefs unit tests
+# Name,        Type, SubType,  Offset,   Size,    Flags
+nvs,           data, nvs,      0x9000,   0x4000
+phy_init,      data, phy,      0xd000,   0x1000
+factory,       app,  factory,  0x10000,  1M
+# Partitions for filesystem tests and benchmarks
+fat_store,     data, fat,      ,         528K
+spiffs_store,  data, spiffs,   ,         512K
+flash_test,    data, spiffs,   ,         512K
+named_part,    data, 0x83,     ,         64K

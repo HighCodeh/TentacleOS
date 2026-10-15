@@ -1,0 +1,22 @@
+dependencies:
+  idf: '>=5.0'
+  tinyusb:
+    public: true
+    version: '>=0.17.0~2'
+description: Espressif's additions to TinyUSB
+documentation: https://docs.espressif.com/projects/esp-usb/en/latest/esp32p4/usb_device.html
+files:
+  exclude:
+  - test_apps
+repository: git://github.com/espressif/esp-usb.git
+repository_info:
+  commit_sha: c04934a51fb0f4db4b63b2500af793d1c0abf742
+  path: device/esp_tinyusb
+targets:
+- esp32s2
+- esp32s3
+- esp32p4
+- esp32h4
+- esp32s31
+url: https://github.com/espressif/esp-usb/tree/master/device/esp_tinyusb
+version: 2.2.0

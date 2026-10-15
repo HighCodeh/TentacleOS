@@ -1,0 +1,9 @@
+Checks: |
+  -bugprone-*,
+  clang-diagnostic-*,
+  clang-analyzer-*,
+  -modernize-*,
+  -performance-*,
+  -readability-*,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  -clang-analyzer-valist.Uninitialized
