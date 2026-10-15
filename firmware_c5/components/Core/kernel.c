@@ -54,10 +54,8 @@ void kernel_init(void) {
   heap_caps_register_failed_alloc_callback(heap_alloc_failed_cb);
 
   esp_err_t ret = nvs_flash_init();
-  if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    ESP_ERROR_CHECK(nvs_flash_erase());
-    ret = nvs_flash_init();
-  }
+  // Integrated build: never erase existing NVS on an init error.
+  // Fail closed below; migration/recovery requires a separate reviewed action.
   ESP_ERROR_CHECK(ret);
 
   init_i2c();

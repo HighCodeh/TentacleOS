@@ -21,6 +21,7 @@ extern "C" {
 #endif
 
 #include "esp_err.h"
+#include <stdbool.h>
 
 // P4 side of the P4->C5 config cache. The P4 owns the master config files (in
 // its assets partition) and pushes each to the C5 only when its CRC32 differs
@@ -39,6 +40,10 @@ void config_sync_start(void);
  * waiting for the next boot. Returns ESP_OK if the C5 is up to date or updated.
  */
 esp_err_t config_sync_push(uint8_t id);
+
+// Serialized with boot/config updates. The optional gate is checked between
+// bounded transactions so an explicitly stopped voice setup does not continue.
+esp_err_t config_sync_push_cancellable(uint8_t id, bool (*keep_running)(void));
 
 #ifdef __cplusplus
 }

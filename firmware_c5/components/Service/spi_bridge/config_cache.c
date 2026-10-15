@@ -19,6 +19,7 @@
 
 #include "esp_log.h"
 #include "nvs.h"
+#include "mbedtls/platform_util.h"
 
 #include "spi_protocol.h"
 #include "storage_assets.h"
@@ -35,12 +36,24 @@ static const char *const s_cfg_paths[SPI_CFG_COUNT] = {
     [SPI_CFG_BLE_SPAM] = "config/bluetooth/beacon_list.conf",
     [SPI_CFG_CHAT] = "config/chat/chat.conf",
     [SPI_CFG_CHAT_ADDRS] = "config/chat/addresses.conf",
+    [SPI_CFG_GROK] = "config/grok.json",
 };
 
 static uint8_t s_stage[CFG_STAGE_MAX + 1];
 static uint32_t s_stage_size;
 static uint32_t s_stage_hash;
 static uint8_t s_stage_id = 0xFF;
+
+// Pairing credentials must not remain in the shared staging buffer after the
+// transaction ends or is rejected. Other configuration behavior is unchanged.
+static void discard_grok_stage(void) {
+  if (s_stage_id != SPI_CFG_GROK)
+    return;
+  mbedtls_platform_zeroize(s_stage, sizeof(s_stage));
+  s_stage_id = 0xFF;
+  s_stage_size = 0;
+  s_stage_hash = 0;
+}
 
 static void hash_key(uint8_t id, char *out) {
   out[0] = 'h';
@@ -65,8 +78,11 @@ uint32_t config_cache_get_hash(uint8_t id) {
 }
 
 esp_err_t config_cache_begin(uint8_t id, uint32_t size, uint32_t hash) {
-  if (id >= SPI_CFG_COUNT || size > CFG_STAGE_MAX)
+  if (id >= SPI_CFG_COUNT || size > CFG_STAGE_MAX) {
+    discard_grok_stage();
     return ESP_ERR_INVALID_ARG;
+  }
+  discard_grok_stage();
   s_stage_id = id;
   s_stage_size = size;
   s_stage_hash = hash;
@@ -75,22 +91,30 @@ esp_err_t config_cache_begin(uint8_t id, uint32_t size, uint32_t hash) {
 }
 
 esp_err_t config_cache_chunk(uint8_t id, uint32_t offset, const uint8_t *data, uint16_t len) {
-  if (id != s_stage_id || data == NULL)
+  if (id != s_stage_id || data == NULL) {
+    discard_grok_stage();
     return ESP_ERR_INVALID_STATE;
-  if ((uint32_t)offset + len > s_stage_size || offset + len > CFG_STAGE_MAX)
+  }
+  if (offset > s_stage_size || len > s_stage_size - offset || offset > CFG_STAGE_MAX ||
+      len > CFG_STAGE_MAX - offset) {
+    discard_grok_stage();
     return ESP_ERR_INVALID_SIZE;
+  }
   memcpy(s_stage + offset, data, len);
   return ESP_OK;
 }
 
 esp_err_t config_cache_commit(uint8_t id) {
-  if (id != s_stage_id || id >= SPI_CFG_COUNT)
+  if (id != s_stage_id || id >= SPI_CFG_COUNT) {
+    discard_grok_stage();
     return ESP_ERR_INVALID_STATE;
+  }
 
   s_stage[s_stage_size] = '\0'; // configs are text; storage_assets writes a string
   esp_err_t err = storage_assets_write_file(s_cfg_paths[id], (const char *)s_stage);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "cfg %u write %s failed: %s", id, s_cfg_paths[id], esp_err_to_name(err));
+    discard_grok_stage();
     s_stage_id = 0xFF;
     return err;
   }
@@ -103,8 +127,13 @@ esp_err_t config_cache_commit(uint8_t id) {
     nvs_commit(h);
     nvs_close(h);
   }
-  ESP_LOGI(TAG, "cfg %u updated (%s, %u bytes, hash 0x%08x)",
-           id, s_cfg_paths[id], (unsigned)s_stage_size, (unsigned)s_stage_hash);
+  ESP_LOGI(TAG,
+           "cfg %u updated (%s, %u bytes, hash 0x%08x)",
+           id,
+           s_cfg_paths[id],
+           (unsigned)s_stage_size,
+           (unsigned)s_stage_hash);
+  discard_grok_stage();
   s_stage_id = 0xFF;
   return ESP_OK;
 }

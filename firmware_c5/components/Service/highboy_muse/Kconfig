@@ -1,0 +1,9 @@
+config HOMEHUB_HEADLESS_CHAT
+    bool
+    default y
+
+# Upstream public constant; community pairing still reports epoch zero.
+config HOMEHUB_PAIRING_AUTH_EPOCH
+    int
+    range 1 1
+    default 1

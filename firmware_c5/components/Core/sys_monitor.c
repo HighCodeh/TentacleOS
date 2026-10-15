@@ -173,10 +173,18 @@ static void check_heap(void) {
     if (!warned) {
       warned = true;
       ESP_LOGW(TAG,
-               "Low heap: %lu B free, largest block %lu B (min ever %lu B)",
+               "Low internal heap: %lu B free, largest block %lu B (min internal %lu B)",
                (unsigned long)free_int,
                (unsigned long)largest,
-               (unsigned long)esp_get_minimum_free_heap_size());
+               (unsigned long)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
+      // Do not compare an internal-RAM warning with the total/default heap's
+      // historical minimum: that pool also includes the much larger PSRAM.
+      const uint32_t external_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+      ESP_LOGW(TAG,
+               "PSRAM heap: %lu B free, largest block %lu B (min PSRAM %lu B)",
+               (unsigned long)heap_caps_get_free_size(external_caps),
+               (unsigned long)heap_caps_get_largest_free_block(external_caps),
+               (unsigned long)heap_caps_get_minimum_free_size(external_caps));
       char msg[ALERT_MSG_SIZE];
       snprintf(msg,
                sizeof(msg),
