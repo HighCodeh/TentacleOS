@@ -1,3 +1,4 @@
+#include "esp_heap_caps.h"
 // Copyright (c) 2025 HIGH CODE LLC
 //
 // TentacleOS is free software: you can redistribute it and/or modify
@@ -82,7 +83,7 @@ static uint32_t s_random_passkey = 0;
 static uint8_t s_battery_level = GATT_BATTERY_STUB_PCT;
 static uint32_t s_node_num = 0;
 static uint8_t s_toradio_buf[GATT_FROMRADIO_FRAME_MAX];
-static gatt_fromradio_slot_t s_queue[GATT_FROMRADIO_QUEUE_SLOTS];
+static gatt_fromradio_slot_t *s_queue; // Lazy PSRAM, retained for callback lifetime
 static uint8_t s_queue_head = 0;
 static uint8_t s_queue_tail = 0;
 static SemaphoreHandle_t s_queue_mutex = NULL;
@@ -168,10 +169,8 @@ esp_err_t meshtastic_gatt_init(uint32_t node_num) {
   }
 
   ret = nvs_flash_init();
-  if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    nvs_flash_erase();
-    ret = nvs_flash_init();
-  }
+  // Integrated build: never erase existing NVS on an init error.
+  // Fail closed below; migration/recovery requires a separate reviewed action.
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "NVS init failed: %s", esp_err_to_name(ret));
     return ret;
@@ -182,7 +181,13 @@ esp_err_t meshtastic_gatt_init(uint32_t node_num) {
   s_fromnum_subscribed = false;
   s_logradio_subscribed = false;
   s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-  memset(s_queue, 0, sizeof(s_queue));
+  if (!s_queue) {
+    s_queue = heap_caps_calloc(
+        GATT_FROMRADIO_QUEUE_SLOTS, sizeof(*s_queue), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_queue)
+      return ESP_ERR_NO_MEM;
+  }
+  memset(s_queue, 0, GATT_FROMRADIO_QUEUE_SLOTS * sizeof(*s_queue));
   s_queue_head = 0;
   s_queue_tail = 0;
 

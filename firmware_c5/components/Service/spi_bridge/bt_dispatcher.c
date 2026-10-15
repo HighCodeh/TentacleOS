@@ -83,12 +83,47 @@ static bool bt_ensure_service_ready(void) {
   return true;
 }
 
+static bool bt_prepare_hid_service(void) {
+  if (meshcore_gatt_is_running())
+    meshcore_gatt_stop();
+  if (host_link_gatt_is_running())
+    host_link_gatt_stop();
+  if (meshtastic_gatt_is_running())
+    meshtastic_gatt_stop();
+
+  // HID is an exclusive GATT mode. Its service table must be present before
+  // nimble_port_run() starts, otherwise a central can see the advertisement
+  // but discover no keyboard/mouse reports.
+  if (!ble_hid_services_registered()) {
+    if (bluetooth_service_is_initialized()) {
+      if (bluetooth_service_deinit() != ESP_OK)
+        return false;
+      ble_hid_stack_reset();
+    }
+    if (bluetooth_service_init() != ESP_OK)
+      return false;
+    if (ble_hid_register_services() != ESP_OK) {
+      bluetooth_service_deinit();
+      ble_hid_stack_reset();
+      return false;
+    }
+  }
+
+  if (!bluetooth_service_is_running() && bluetooth_service_start() != ESP_OK)
+    return false;
+  bluetooth_service_stop_advertising();
+  return true;
+}
+
 static spi_status_t bt_release_service_for_gatt(void) {
   if (!bluetooth_service_is_initialized())
     return SPI_STATUS_OK;
   if (spi_bridge_async_scan_busy() || session_manager_is_active())
     return SPI_STATUS_BUSY;
-  return (bluetooth_service_deinit() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+  esp_err_t err = bluetooth_service_deinit();
+  if (err == ESP_OK)
+    ble_hid_stack_reset();
+  return (err == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
 }
 
 static spi_status_t bt_open_session(spi_id_t op_id,
@@ -138,13 +173,15 @@ spi_status_t bt_dispatcher_execute(spi_id_t id,
       return (bluetooth_service_init() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
 
     case SPI_ID_BT_DEINIT:
-      return (bluetooth_service_deinit() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+    case SPI_ID_BT_STOP: {
+      esp_err_t err = bluetooth_service_deinit();
+      if (err == ESP_OK)
+        ble_hid_stack_reset();
+      return (err == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+    }
 
     case SPI_ID_BT_START:
       return (bluetooth_service_start() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
-
-    case SPI_ID_BT_STOP:
-      return (bluetooth_service_deinit() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
 
     case SPI_ID_BT_SCAN: {
       uint32_t duration = BT_SCAN_DEFAULT_DURATION_MS;
@@ -281,7 +318,7 @@ spi_status_t bt_dispatcher_execute(spi_id_t id,
       // Bring the NimBLE host up first (and tear down mesh/host GATT). Without
       // this, HID_INIT after the stack was deinitialised (e.g. companion BLE
       // turned off) runs ble_gatts_count_cfg on a dead host and crashes.
-      if (!bt_ensure_service_ready())
+      if (!bt_prepare_hid_service())
         return SPI_STATUS_ERROR;
       return (ble_hid_init() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
 
@@ -297,6 +334,12 @@ spi_status_t bt_dispatcher_execute(spi_id_t id,
       if (len < 2)
         return SPI_STATUS_INVALID_ARG;
       ble_hid_send_key(payload[1], payload[0]); // payload = [modifier][keycode]
+      return SPI_STATUS_OK;
+
+    case SPI_ID_BT_HID_SEND_MOUSE:
+      if (len < 4)
+        return SPI_STATUS_INVALID_ARG;
+      ble_hid_send_mouse((int8_t)payload[1], (int8_t)payload[2], payload[0], (int8_t)payload[3]);
       return SPI_STATUS_OK;
 
     case SPI_ID_BT_L2CAP_STATUS:

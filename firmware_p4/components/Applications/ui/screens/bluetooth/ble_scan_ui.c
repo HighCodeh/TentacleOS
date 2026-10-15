@@ -438,14 +438,13 @@ static void ble_scan_task(void *arg) {
     return;
   }
 
-  uint16_t dummy = 0;
   uint32_t waited = 0;
-  while (ble_scanner_get_results(&dummy) == NULL && waited < SCAN_TIMEOUT_MS) {
+  while (ble_scanner_is_scanning() && waited < SCAN_TIMEOUT_MS) {
     vTaskDelay(pdMS_TO_TICKS(SCAN_POLL_MS));
     waited += SCAN_POLL_MS;
   }
 
-  if (waited >= SCAN_TIMEOUT_MS) {
+  if (ble_scanner_is_scanning()) {
     ble_scanner_free_results();
     s_dev_count = 0;
     s_scan_state = SCAN_FAIL;

@@ -36,7 +36,6 @@ static const ui_ble_detect_item_t MENU_ITEMS[] = {
     {"Tracker Detector", "/assets/icons/troubleshoot.bin", SCREEN_BLE_TRACKER},
     {"Skimmer Detector", "/assets/icons/warning.bin", SCREEN_BLE_SKIMMER},
     {"Exposure Beacons", "/assets/icons/broadcast_on_personal.bin", SCREEN_BLE_EXPOSURE},
-    {"GATT Explorer", "/assets/icons/hub.bin", SCREEN_GATT_EXPLORER},
     {"Track Device", "/assets/icons/sensors.bin", SCREEN_BLE_TRACK_DEVICE},
 };
 #define MENU_ITEMS_COUNT (sizeof(MENU_ITEMS) / sizeof(MENU_ITEMS[0]))

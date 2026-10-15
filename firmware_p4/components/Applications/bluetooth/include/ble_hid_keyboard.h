@@ -56,6 +56,19 @@ bool ble_hid_is_connected(void);
  */
 void ble_hid_send_key(uint8_t keycode, uint8_t modifier);
 
+/**
+ * @brief Send one relative mouse report via the C5 composite HID service.
+ *
+ * @param x
+ * Horizontal relative movement (-127..127).
+ * @param y       Vertical relative movement
+ * (-127..127).
+ * @param buttons HID button bitmap (bit0 left, bit1 right, bit2 middle).
+ * @param
+ * wheel   Relative vertical wheel movement (-127..127).
+ */
+void ble_hid_send_mouse(int8_t x, int8_t y, uint8_t buttons, int8_t wheel);
+
 #ifdef __cplusplus
 }
 #endif
