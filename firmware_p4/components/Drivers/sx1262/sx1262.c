@@ -120,30 +120,30 @@ static esp_err_t sx1262_hw_bringup(const sx1262_config_t *config) {
     return ret;
   }
 
-  uint8_t reg_mode = SX1262_REGULATOR_DCDC;
+  /* High Boy V2 implements the SX1262 LDO-only supply option: VREG and
+   * DCC_SW have no external
+   * 15 uH / 47 nH buck network on the schematic.
+   * Selecting DC-DC on this assembly makes the
+   * following calibration assert
+   * BUSY indefinitely. */
+  uint8_t reg_mode = SX1262_REGULATOR_LDO;
   ret = sx1262_cmd_write(hal, SX1262_OP_SET_REGULATOR_MODE, &reg_mode, 1);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "SetRegulatorMode failed");
     return ret;
   }
 
-  uint8_t cal_param = SX1262_CALIBRATE_ALL;
-  ret = sx1262_cmd_write(hal, SX1262_OP_CALIBRATE, &cal_param, 1);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Calibrate failed");
-    return ret;
-  }
+  /* POR already calibrates RC64k, RC13M, PLL and ADC.  On both High Boy V2
+   * prototypes, issuing
+   * Calibrate(0x89, 0x7F) wedges BUSY indefinitely; with
+   * NRESET not routed to the P4, that can
+   * only be recovered by removing all
+   * power.  Keep command calibration out of the base
+   * SPI/configuration
+   * bring-up.  CalibrateImage is deliberately deferred to a separate lab
 
-  ret = sx1262_cmd_wait_busy(hal, SX1262_WAIT_BUSY_TIMEOUT_MS);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "BUSY timeout after Calibrate");
-    return ret;
-  }
-
-  ret = calibrate_image(hal, config->frequency_hz);
-  if (ret != ESP_OK) {
-    return ret;
-  }
+   * * step after register readback and XOSC behavior have been proven. */
+  ESP_LOGI(TAG, "Using POR calibration; command/image calibration deferred");
 
   ret = apply_workaround_w2(hal);
   if (ret != ESP_OK) {
@@ -370,9 +370,14 @@ esp_err_t sx1262_get_status(uint8_t *out_status) {
 
   hal->lock(hal->ctx);
   hal->cs_low(hal->ctx);
-  hal->spi_transfer(hal->ctx, tx, rx, 2);
+  int spi_ret = hal->spi_transfer(hal->ctx, tx, rx, 2);
   hal->cs_high(hal->ctx);
   hal->unlock(hal->ctx);
+
+  if (spi_ret < 0) {
+    ESP_LOGE(TAG, "GetStatus SPI transfer failed: %d", spi_ret);
+    return ESP_FAIL;
+  }
 
   *out_status = rx[1];
   return ESP_OK;
@@ -405,6 +410,12 @@ esp_err_t sx1262_start(void) {
     return ESP_ERR_INVALID_STATE;
   }
 
+  /* Publish the running state before the high-priority task can be scheduled.
+   * Otherwise
+   * irq_task() may run immediately, observe false and exit before
+   * xTaskCreatePinnedToCore()
+   * returns to this task. */
+  s_is_running = true;
   BaseType_t xret = xTaskCreatePinnedToCore(irq_task,
                                             "sx1262_irq",
                                             SX1262_IRQ_TASK_STACK,
@@ -414,11 +425,11 @@ esp_err_t sx1262_start(void) {
                                             SX1262_IRQ_TASK_CORE);
 
   if (xret != pdPASS || s_irq_task_handle == NULL) {
+    s_is_running = false;
     ESP_LOGE(TAG, "Failed to create IRQ task");
     return ESP_ERR_NO_MEM;
   }
 
-  s_is_running = true;
   ESP_LOGI(TAG, "IRQ task started");
   return ESP_OK;
 }
@@ -653,13 +664,37 @@ static esp_err_t hw_reset(sx1262_hal_t *hal) {
   hal->reset_write(hal->ctx, 1);
   hal->delay_ms(hal->ctx, SX1262_RESET_WAIT_MS);
 
+  /* High Boy V2 leaves NRESET unconnected, so an ESP32-P4 reset does not
+   * necessarily reset the
+   * SX1262.  It may still be in sleep from an earlier
+   * firmware session.  Wake it exactly as
+   * the Semtech reference board does:
+   * assert NSS without waiting on BUSY, allow the wake edge
+   * to settle, clock
+   * GetStatus, release NSS, then wait for BUSY.  The same sequence is
+   * harmless
+   * on boards where a real hardware reset was just performed. */
+  uint8_t wake_tx[2] = {SX1262_OP_GET_STATUS, 0x00};
+  uint8_t wake_rx[2] = {0};
+  hal->lock(hal->ctx);
+  hal->cs_low(hal->ctx);
+  hal->delay_ms(hal->ctx, 1);
+  int wake_spi = hal->spi_transfer(hal->ctx, wake_tx, wake_rx, sizeof(wake_tx));
+  hal->cs_high(hal->ctx);
+  hal->unlock(hal->ctx);
+  if (wake_spi < 0) {
+    ESP_LOGE(TAG, "NSS wake-up SPI transfer failed: %d", wake_spi);
+    return ESP_FAIL;
+  }
+  hal->delay_ms(hal->ctx, 1);
+
   esp_err_t ret = sx1262_cmd_wait_busy(hal, SX1262_WAIT_BUSY_TIMEOUT_MS);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "BUSY did not go LOW after reset");
     return ret;
   }
 
-  ESP_LOGI(TAG, "Hardware reset complete");
+  ESP_LOGI(TAG, "Hardware reset/NSS wake complete (raw status %02X %02X)", wake_rx[0], wake_rx[1]);
   return ESP_OK;
 }
 

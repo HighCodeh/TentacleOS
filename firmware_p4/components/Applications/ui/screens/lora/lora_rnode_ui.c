@@ -1,188 +1,244 @@
-// Copyright (c) 2025 HIGH CODE LLC
-//
-// TentacleOS is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// TentacleOS is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+// Copyright (c) 2026 HIGH CODE LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "lora_rnode_ui.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include "esp_log.h"
-#include "esp_random.h"
 
+#include "lora_lab.h"
+#include "notify_ui.h"
 #include "ui_chrome.h"
+#include "ui_feedback.h"
 #include "ui_manager.h"
-#include "ui_metrics.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
 
-static const char *TAG = "LORA_RNODE";
+static const char *TAG = "LORA_RADIO_LAB";
 
-#define DATA_TICK_MS 700
-#define ENTRY_MS     220
-
-#define CARD_W     216
-#define CFG_CARD_H 110
-#define CNT_CARD_H \
-  LV_MIN(82, ui_screen_h() - (BODY_TOP_Y + CFG_CARD_H + CARD_GAP) - UI_CHROME_FOOTER_H)
-#define CARD_RADIUS 13
-#define CARD_PAD    12
-#define CARD_GAP    12
-#define BODY_TOP_Y  50
-
-#define PANEL_SHADOW_W      14
-#define PANEL_SHADOW_SPREAD (-3)
-
-#define DOT_SIZE 9
-#define DOT_MS   680
+#define LAB_REFRESH_MS 250
+#define ENTRY_MS       180
+#define CARD_W         216
+#define CARD_RADIUS    12
+#define BODY_TOP_Y     43
+#define CARD_GAP       7
+#define STATUS_H       68
+#define RSSI_H         82
+#define PACKET_H       79
 
 #define ICON_ANTENNA "/assets/icons/settings_input_antenna.bin"
 
-#define RX_STEP_MAX 3
-#define TX_STEP_MAX 2
-#define TX_CHANCE   3
-#define LAST_EVERY  4
+typedef struct {
+  uint32_t hz;
+  const char *label;
+} lab_frequency_t;
 
-#define RSSI_BASE (-92)
-#define RSSI_SPAN 9
-#define SNR_BASE  85
-#define SNR_SPAN  21
-#define SNR_BIAS  10
+static const lab_frequency_t LAB_FREQUENCIES[] = {
+    {433920000U, "433.920 MHz"},
+    {868100000U, "868.100 MHz"},
+    {906875000U, "906.875 MHz"},
+    {915000000U, "915.000 MHz"},
+};
+#define LAB_FREQ_COUNT   ((int)(sizeof(LAB_FREQUENCIES) / sizeof(LAB_FREQUENCIES[0])))
+#define LAB_DEFAULT_FREQ 2
 
 static lv_obj_t *s_screen = NULL;
-static lv_obj_t *s_counter_lbl = NULL;
-static lv_obj_t *s_last_lbl = NULL;
-static lv_timer_t *s_data_timer = NULL;
+static lv_obj_t *s_state_label = NULL;
+static lv_obj_t *s_chip_label = NULL;
+static lv_obj_t *s_rssi_label = NULL;
+static lv_obj_t *s_rssi_stats_label = NULL;
+static lv_obj_t *s_rssi_bar = NULL;
+static lv_obj_t *s_packet_label = NULL;
+static lv_obj_t *s_last_label = NULL;
+static lv_timer_t *s_refresh_timer = NULL;
+static int s_freq_index = LAB_DEFAULT_FREQ;
 
-static unsigned long s_rx = 0;
-static unsigned long s_tx = 0;
-static int s_tick = 0;
-static int s_last_rssi = RSSI_BASE;
-static int s_last_snr = SNR_BASE;
-
-static void opa_cb(void *var, int32_t v) {
-  lv_obj_set_style_opa((lv_obj_t *)var, (lv_opa_t)v, 0);
+static lv_obj_t *lab_card(lv_obj_t *parent, int y, int h, lv_color_t accent) {
+  lv_obj_t *card = lv_obj_create(parent);
+  lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(card, CARD_W, h);
+  lv_obj_align(card, LV_ALIGN_TOP_MID, 0, y);
+  lv_obj_set_style_radius(card, CARD_RADIUS, 0);
+  lv_obj_set_style_bg_color(card, current_theme.bg_secondary, 0);
+  lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(card, 1, 0);
+  lv_obj_set_style_border_color(card, accent, 0);
+  lv_obj_set_style_shadow_color(card, accent, 0);
+  lv_obj_set_style_shadow_width(card, 10, 0);
+  lv_obj_set_style_shadow_opa(card, LV_OPA_30, 0);
+  lv_obj_set_style_shadow_spread(card, -3, 0);
+  lv_obj_set_style_pad_all(card, 8, 0);
+  return card;
 }
 
-static lv_obj_t *lit_panel(lv_obj_t *parent, int w, int h, lv_color_t accent) {
-  lv_obj_t *p = lv_obj_create(parent);
-  lv_obj_remove_flag(p, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(p, w, h);
-  lv_obj_set_style_radius(p, CARD_RADIUS, 0);
-  lv_obj_set_style_bg_color(p, current_theme.bg_secondary, 0);
-  lv_obj_set_style_bg_opa(p, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_grad_dir(p, LV_GRAD_DIR_NONE, 0);
-  lv_obj_set_style_border_width(p, 1, 0);
-  lv_obj_set_style_border_color(p, accent, 0);
-  lv_obj_set_style_shadow_color(p, accent, 0);
-  lv_obj_set_style_shadow_width(p, PANEL_SHADOW_W, 0);
-  lv_obj_set_style_shadow_opa(p, LV_OPA_40, 0);
-  lv_obj_set_style_shadow_spread(p, PANEL_SHADOW_SPREAD, 0);
-  lv_obj_set_style_pad_all(p, CARD_PAD, 0);
-  lv_obj_set_flex_flow(p, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_align(p, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-  lv_obj_set_style_pad_row(p, 3, 0);
-  return p;
+static lv_obj_t *lab_label(lv_obj_t *parent,
+                           const char *text,
+                           const lv_font_t *font,
+                           lv_color_t color,
+                           lv_align_t align,
+                           int x,
+                           int y) {
+  lv_obj_t *label = lv_label_create(parent);
+  lv_label_set_text(label, text);
+  lv_obj_set_style_text_font(label, font, 0);
+  lv_obj_set_style_text_color(label, color, 0);
+  lv_obj_align(label, align, x, y);
+  return label;
 }
 
-static lv_obj_t *readout_line(lv_obj_t *parent, const char *text, lv_color_t color) {
-  lv_obj_t *l = lv_label_create(parent);
-  lv_label_set_text(l, text);
-  lv_obj_set_style_text_color(l, color, 0);
-  lv_obj_set_style_text_font(l, &lv_font_montserrat_12, 0);
-  return l;
+static const char *lab_state_name(lora_lab_state_t state) {
+  switch (state) {
+    case LORA_LAB_STARTING:
+      return "STARTING";
+    case LORA_LAB_RX:
+      return "RX PASS";
+    case LORA_LAB_FAILED:
+      return "FAILED";
+    default:
+      return "IDLE";
+  }
 }
 
-static void build_config_card(lv_obj_t *parent, lv_color_t accent) {
-  lv_obj_t *card = lit_panel(parent, CARD_W, CFG_CARD_H, accent);
-  lv_obj_align(card, LV_ALIGN_TOP_MID, 0, BODY_TOP_Y);
-
-  lv_obj_t *head = lv_obj_create(card);
-  lv_obj_remove_flag(head, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(head, LV_PCT(100), LV_SIZE_CONTENT);
-  lv_obj_set_style_bg_opa(head, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(head, 0, 0);
-  lv_obj_set_style_pad_all(head, 0, 0);
-  lv_obj_set_flex_flow(head, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(head, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_style_pad_column(head, 7, 0);
-
-  lv_obj_t *dot = lv_obj_create(head);
-  lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(dot, DOT_SIZE, DOT_SIZE);
-  lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_border_width(dot, 0, 0);
-  lv_obj_set_style_bg_color(dot, lv_color_hex(UI_COL_SUCCESS), 0);
-  lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
-
-  lv_anim_t a;
-  lv_anim_init(&a);
-  lv_anim_set_var(&a, dot);
-  lv_anim_set_exec_cb(&a, opa_cb);
-  lv_anim_set_values(&a, LV_OPA_30, LV_OPA_COVER);
-  lv_anim_set_duration(&a, DOT_MS);
-  lv_anim_set_playback_duration(&a, DOT_MS);
-  lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
-  lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
-  lv_anim_start(&a);
-
-  lv_obj_t *title = lv_label_create(head);
-  lv_label_set_text(title, "RNode / KISS");
-  lv_obj_set_style_text_color(title, accent, 0);
-  lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
-
-  readout_line(card, "Freq 915.0 MHz", current_theme.text_main);
-  readout_line(card, "SF7   BW 125k   CR 4:5", current_theme.text_main);
-  readout_line(card, "TX 17 dBm", current_theme.text_main);
-}
-
-static void build_counter_card(lv_obj_t *parent, lv_color_t accent) {
-  lv_obj_t *card = lit_panel(parent, CARD_W, CNT_CARD_H, accent);
-  lv_obj_align(card, LV_ALIGN_TOP_MID, 0, BODY_TOP_Y + CFG_CARD_H + CARD_GAP);
-
-  s_counter_lbl = lv_label_create(card);
-  lv_label_set_text_fmt(s_counter_lbl, "RX %lu    TX %lu", s_rx, s_tx);
-  lv_obj_set_style_text_color(s_counter_lbl, lv_color_hex(UI_COL_SUCCESS), 0);
-  lv_obj_set_style_text_font(s_counter_lbl, &lv_font_montserrat_14, 0);
-
-  s_last_lbl = lv_label_create(card);
-  lv_label_set_text_fmt(
-      s_last_lbl, "Last: RSSI %d  SNR %d.%d", s_last_rssi, s_last_snr / 10, s_last_snr % 10);
-  lv_obj_set_style_text_color(s_last_lbl, current_theme.text_secondary, 0);
-  lv_obj_set_style_text_font(s_last_lbl, &lv_font_montserrat_12, 0);
-}
-
-static void data_tick_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    if (s_data_timer == t)
-      s_data_timer = NULL;
+static void format_packet_prefix(const lora_lab_snapshot_t *snap, char *out, size_t out_len) {
+  if (snap->last_packet_len == 0) {
+    snprintf(out, out_len, "Last: waiting for LoRa packet");
     return;
   }
-  if (s_counter_lbl == NULL)
+  size_t shown = snap->last_packet_len;
+  if (shown > sizeof(snap->last_packet_prefix)) {
+    shown = sizeof(snap->last_packet_prefix);
+  }
+  size_t used = (size_t)snprintf(out, out_len, "HEX:");
+  for (size_t i = 0; i < shown && used + 4 < out_len; i++) {
+    used += (size_t)snprintf(out + used, out_len - used, " %02X", snap->last_packet_prefix[i]);
+  }
+  if (snap->last_packet_len > shown && used + 4 < out_len) {
+    snprintf(out + used, out_len - used, " ...");
+  }
+}
+
+static void refresh_readouts(void) {
+  lora_lab_snapshot_t snap = {0};
+  lora_lab_get_snapshot(&snap);
+
+  lv_color_t state_color = current_theme.text_secondary;
+  if (snap.state == LORA_LAB_RX) {
+    state_color = lv_color_hex(UI_COL_SUCCESS);
+  } else if (snap.state == LORA_LAB_FAILED) {
+    state_color = lv_color_hex(UI_COL_DANGER);
+  } else if (snap.state == LORA_LAB_STARTING) {
+    state_color = ui_theme_get_accent();
+  }
+  lv_label_set_text_fmt(
+      s_state_label, "%s   %s", lab_state_name(snap.state), LAB_FREQUENCIES[s_freq_index].label);
+  lv_obj_set_style_text_color(s_state_label, state_color, 0);
+
+  if (snap.state == LORA_LAB_FAILED) {
+    lv_label_set_text_fmt(s_chip_label, "SPI/SX1262: %s", esp_err_to_name(snap.error));
+  } else if (snap.state == LORA_LAB_RX) {
+    lv_label_set_text_fmt(s_chip_label,
+                          "SPI 0x%02X  ERR %04X  B%d D%d",
+                          snap.chip_status,
+                          snap.device_errors,
+                          snap.busy_level,
+                          snap.dio1_level);
+  } else {
+    lv_label_set_text(s_chip_label, "SPI + BUSY + DIO1 check...");
+  }
+
+  if (snap.rssi_samples == 0) {
+    lv_label_set_text(s_rssi_label, "RSSI  -- dBm");
+    lv_label_set_text(s_rssi_stats_label, "min / avg / max:  -- / -- / --");
+    lv_bar_set_value(s_rssi_bar, -130, LV_ANIM_OFF);
+  } else {
+    lv_label_set_text_fmt(s_rssi_label, "RSSI  %d dBm", snap.rssi_now_dbm);
+    lv_label_set_text_fmt(s_rssi_stats_label,
+                          "min / avg / max:  %d / %d / %d",
+                          snap.rssi_min_dbm,
+                          snap.rssi_avg_dbm,
+                          snap.rssi_max_dbm);
+    int value = snap.rssi_now_dbm;
+    if (value < -130)
+      value = -130;
+    if (value > -30)
+      value = -30;
+    lv_bar_set_value(s_rssi_bar, value, LV_ANIM_ON);
+  }
+
+  lv_label_set_text_fmt(s_packet_label,
+                        "RX %lu   CRC %u   HDR %u",
+                        (unsigned long)snap.rx_packets,
+                        snap.crc_errors,
+                        snap.header_errors);
+  char last[96];
+  format_packet_prefix(&snap, last, sizeof(last));
+  if (snap.last_packet_len > 0) {
+    size_t used = strlen(last);
+    if (used + 24 < sizeof(last)) {
+      snprintf(last + used,
+               sizeof(last) - used,
+               "\n%dB  %ddBm  SNR %d",
+               snap.last_packet_len,
+               snap.last_packet_rssi_dbm,
+               snap.last_packet_snr_db);
+    }
+  }
+  lv_label_set_text(s_last_label, last);
+}
+
+static void refresh_timer_cb(lv_timer_t *timer) {
+  if (lv_screen_active() != s_screen) {
+    lora_lab_stop();
+    lv_timer_delete(timer);
+    if (s_refresh_timer == timer) {
+      s_refresh_timer = NULL;
+    }
     return;
+  }
+  refresh_readouts();
+}
 
-  s_rx += (esp_random() % (RX_STEP_MAX + 1));
-  if ((esp_random() % TX_CHANCE) == 0)
-    s_tx += (esp_random() % (TX_STEP_MAX + 1));
-  lv_label_set_text_fmt(s_counter_lbl, "RX %lu    TX %lu", s_rx, s_tx);
+static void start_selected_frequency(void) {
+  lora_lab_stop();
+  esp_err_t err = lora_lab_start(LAB_FREQUENCIES[s_freq_index].hz);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "start failed: %s", esp_err_to_name(err));
+    notify(NOTIFY_LORA, "Radio Lab start failed");
+  }
+  refresh_readouts();
+}
 
-  s_tick++;
-  if (s_tick % LAST_EVERY == 0 && s_last_lbl != NULL) {
-    s_last_rssi = RSSI_BASE + (int)(esp_random() % RSSI_SPAN) - (RSSI_SPAN / 2);
-    s_last_snr = SNR_BASE + (int)(esp_random() % SNR_SPAN) - SNR_BIAS;
-    lv_label_set_text_fmt(
-        s_last_lbl, "Last: RSSI %d  SNR %d.%d", s_last_rssi, s_last_snr / 10, s_last_snr % 10);
+static void lora_lab_input(const input_event_t *event, void *ctx) {
+  (void)ctx;
+  if (event->action != INPUT_ACTION_PRESS) {
+    return;
+  }
+
+  switch (event->button) {
+    case INPUT_BTN_LEFT:
+      s_freq_index = (s_freq_index + LAB_FREQ_COUNT - 1) % LAB_FREQ_COUNT;
+      ui_feedback(UI_FB_SELECT);
+      start_selected_frequency();
+      break;
+    case INPUT_BTN_RIGHT:
+      s_freq_index = (s_freq_index + 1) % LAB_FREQ_COUNT;
+      ui_feedback(UI_FB_SELECT);
+      start_selected_frequency();
+      break;
+    case INPUT_BTN_OK:
+      lora_lab_reset_stats();
+      ui_feedback(UI_FB_SELECT);
+      notify(NOTIFY_LORA, "LoRa counters reset");
+      refresh_readouts();
+      break;
+    case INPUT_BTN_BACK:
+      lora_lab_stop();
+      ui_switch_screen(SCREEN_LORA_CHAT);
+      break;
+    default:
+      break;
   }
 }
 
@@ -194,53 +250,74 @@ static void build_screen(void) {
   lv_obj_set_style_border_width(s_screen, 0, 0);
   lv_obj_set_style_pad_all(s_screen, 0, 0);
 
-  ui_chrome_header(s_screen, "RNODE", ICON_ANTENNA);
-
   lv_color_t accent = ui_theme_get_accent();
-  build_config_card(s_screen, accent);
-  build_counter_card(s_screen, accent);
+  ui_chrome_header(s_screen, "LORA RADIO LAB", ICON_ANTENNA);
 
-  ui_chrome_footer(s_screen, LV_SYMBOL_LEFT " BACK to LoRa");
+  lv_obj_t *status = lab_card(s_screen, BODY_TOP_Y, STATUS_H, accent);
+  s_state_label =
+      lab_label(status, "STARTING", &lv_font_montserrat_14, accent, LV_ALIGN_TOP_LEFT, 0, 0);
+  s_chip_label = lab_label(status,
+                           "SPI + BUSY + DIO1 check...",
+                           &lv_font_montserrat_12,
+                           current_theme.text_secondary,
+                           LV_ALIGN_BOTTOM_LEFT,
+                           0,
+                           0);
 
+  int rssi_y = BODY_TOP_Y + STATUS_H + CARD_GAP;
+  lv_obj_t *signal = lab_card(s_screen, rssi_y, RSSI_H, accent);
+  s_rssi_label = lab_label(signal,
+                           "RSSI  -- dBm",
+                           &lv_font_montserrat_16,
+                           current_theme.text_main,
+                           LV_ALIGN_TOP_LEFT,
+                           0,
+                           0);
+  s_rssi_stats_label = lab_label(signal,
+                                 "min / avg / max:  -- / -- / --",
+                                 &lv_font_montserrat_12,
+                                 current_theme.text_secondary,
+                                 LV_ALIGN_TOP_LEFT,
+                                 0,
+                                 24);
+  s_rssi_bar = lv_bar_create(signal);
+  lv_obj_set_size(s_rssi_bar, 198, 7);
+  lv_obj_align(s_rssi_bar, LV_ALIGN_BOTTOM_MID, 0, 0);
+  lv_bar_set_range(s_rssi_bar, -130, -30);
+  lv_bar_set_value(s_rssi_bar, -130, LV_ANIM_OFF);
+  lv_obj_set_style_bg_color(s_rssi_bar, current_theme.bg_primary, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(s_rssi_bar, accent, LV_PART_INDICATOR);
+
+  int packet_y = rssi_y + RSSI_H + CARD_GAP;
+  lv_obj_t *packets = lab_card(s_screen, packet_y, PACKET_H, accent);
+  s_packet_label = lab_label(packets,
+                             "RX 0   CRC 0   HDR 0",
+                             &lv_font_montserrat_12,
+                             lv_color_hex(UI_COL_SUCCESS),
+                             LV_ALIGN_TOP_LEFT,
+                             0,
+                             0);
+  s_last_label = lab_label(packets,
+                           "Last: waiting for LoRa packet",
+                           &lv_font_montserrat_12,
+                           current_theme.text_secondary,
+                           LV_ALIGN_TOP_LEFT,
+                           0,
+                           20);
+
+  ui_chrome_footer(s_screen, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " freq  OK reset  BACK");
   lv_obj_fade_in(s_screen, ENTRY_MS, 0);
-}
-
-static void lora_rnode_input(const input_event_t *ev, void *ctx) {
-  (void)ctx;
-  const bool press = (ev->action == INPUT_ACTION_PRESS);
-
-  switch (ev->button) {
-    case INPUT_BTN_BACK:
-      if (press)
-        ui_switch_screen(SCREEN_LORA_CHAT);
-      break;
-    default:
-      break;
-  }
 }
 
 void ui_lora_rnode_open(void) {
   ui_theme_set_protocol(PROTOCOL_LORA);
-
-  if (s_screen != NULL) {
-    lv_obj_del(s_screen);
-    s_screen = NULL;
-  }
-  s_counter_lbl = NULL;
-  s_last_lbl = NULL;
-  s_rx = 0;
-  s_tx = 0;
-  s_tick = 0;
-  s_last_rssi = RSSI_BASE;
-  s_last_snr = SNR_BASE;
-
   build_screen();
-
-  ui_input_set_screen_handler(lora_rnode_input, NULL);
-  if (s_data_timer == NULL)
-    s_data_timer = lv_timer_create(data_tick_cb, DATA_TICK_MS, NULL);
-
+  ui_input_set_screen_handler(lora_lab_input, NULL);
   ui_screen_load_owned(&s_screen, s_screen);
 
-  ESP_LOGI(TAG, "LoRa RNode (mock) opened");
+  start_selected_frequency();
+  if (s_refresh_timer == NULL) {
+    s_refresh_timer = lv_timer_create(refresh_timer_cb, LAB_REFRESH_MS, NULL);
+  }
+  ESP_LOGI(TAG, "real receive-only SX1262 lab opened");
 }

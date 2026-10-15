@@ -109,12 +109,18 @@ esp_err_t sx1262_irq_process(void) {
         s_hal->exit_critical(s_hal->ctx);
       }
 
+      /* Complete the hardware event before the callback.  Mesh callbacks
+       * immediately
+       * re-arm continuous RX; completing it afterwards would
+       * overwrite the newly-entered
+       * RX state with STDBY_RC. */
+      sx1262_fsm_on_irq_complete();
       if (s_cbs.on_rx_done != NULL) {
         s_cbs.on_rx_done(&pkt, s_cbs.cb_ctx);
       }
+    } else {
+      sx1262_fsm_on_irq_complete();
     }
-
-    sx1262_fsm_on_irq_complete();
   }
 
   if (irq_flags & SX1262_IRQ_TIMEOUT) {

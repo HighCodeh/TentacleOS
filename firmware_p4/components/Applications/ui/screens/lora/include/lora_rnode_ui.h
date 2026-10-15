@@ -21,10 +21,10 @@ extern "C" {
 #endif
 
 /**
- * @brief Open the RNode / KISS status screen — a lit readout card of the radio
- *        parameters (Freq / SF / BW / CR / TX power) plus live RX/TX frame
- *        counters and the last received RSSI/SNR, all ticking as mock traffic
- *        arrives. BACK or LEFT returns to the LoRa chat hub.
+ * @brief Open the real receive-only SX1262 engineering screen.
+ *        parameters (Freq / SF / BW
+ * / CR / TX power) plus live RX/TX frame counters and the last received RSSI/SNR, all ticking as
+ * mock traffic arrives. BACK or LEFT returns to the LoRa chat hub.
  */
 void ui_lora_rnode_open(void);
 

@@ -30,6 +30,8 @@
 #include "meshtastic_mesh.h"
 #include "meshtastic_nodedb.h"
 #include "meshtastic_phone_bridge.h"
+#include "power_manager.h"
+#include "sx1262.h"
 
 #define MSG_RING       24
 #define MT_BROADCAST   0xFFFFFFFFu
@@ -44,6 +46,7 @@ static uint16_t s_head = 0;
 static uint16_t s_count = 0;
 static uint32_t s_total = 0;
 static SemaphoreHandle_t s_lock = NULL;
+static bool s_no_sleep_held = false;
 
 static bool ring_lock(void) {
   if (s_lock == NULL)
@@ -91,6 +94,15 @@ esp_err_t lora_session_start(lora_proto_t proto) {
     return ESP_ERR_INVALID_STATE;
   }
 
+  if (!s_no_sleep_held) {
+    esp_err_t pm_err = power_manager_no_sleep_acquire();
+    if (pm_err != ESP_OK) {
+      ESP_LOGE(TAG, "Cannot hold radio power state: %s", esp_err_to_name(pm_err));
+      return pm_err;
+    }
+    s_no_sleep_held = true;
+  }
+
   esp_err_t err;
   switch (proto) {
     case LORA_PROTO_MESHTASTIC:
@@ -100,6 +112,10 @@ esp_err_t lora_session_start(lora_proto_t proto) {
       err = meshcore_app_start();
       break;
     default:
+      if (s_no_sleep_held) {
+        (void)power_manager_no_sleep_release();
+        s_no_sleep_held = false;
+      }
       return ESP_ERR_INVALID_ARG;
   }
 
@@ -108,6 +124,11 @@ esp_err_t lora_session_start(lora_proto_t proto) {
     ESP_LOGI(TAG, "Started proto %d", (int)proto);
   } else {
     ESP_LOGE(TAG, "Start proto %d failed: %s", (int)proto, esp_err_to_name(err));
+    sx1262_deinit();
+    if (s_no_sleep_held) {
+      (void)power_manager_no_sleep_release();
+      s_no_sleep_held = false;
+    }
   }
   return err;
 }
