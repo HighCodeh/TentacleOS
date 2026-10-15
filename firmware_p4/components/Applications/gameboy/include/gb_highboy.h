@@ -17,6 +17,7 @@
 #define GB_HIGHBOY_H
 
 #include <stdbool.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,8 +27,12 @@ extern "C" {
  * @brief Launch the Game Boy (DMG) emulator (Peanut-GB core) in its own task.
  *
  * The emulator takes over the ST7789 (landscape, stretched to full screen) and
- * runs until the user holds BACK for ~1.2 s. Battery-backed cartridge RAM is
- * persisted to <rom>.sav next to the ROM on the SD card.
+ * runs until the user holds OK+BACK for 2 s with the D-pad released.
+ * OK=A, BACK=B, both=A+B.
+ * Physical RIGHT+both=START; LEFT+both=SELECT.
+ * Battery-backed cartridge RAM is
+ * persisted to
+ * <rom>.sav next to the ROM on the SD card.
  *
  * On exit the task tears itself down (stops audio, frees its buffers, releases
  * the LVGL lock) and reports highboy_gb_finished(); the ROM picker then restores
@@ -48,6 +53,18 @@ void highboy_gb_start(const char *rompath);
  * @return true once teardown is complete, false while the emulator is running.
  */
 bool highboy_gb_finished(void);
+
+/** Last launch/runtime error, or an empty string. Read after finished() is true. */
+const char *highboy_gb_last_error(void);
+
+/**
+ * Validate the selected file's header and size without allocating its ROM.
+ * Does not mount
+ * the SD card or prove full gameplay compatibility.
+ * Writes a short error to reason when
+ * provided; clears it on success.
+ */
+bool highboy_gb_validate_rom(const char *rompath, char *reason, size_t reason_size);
 
 #ifdef __cplusplus
 }

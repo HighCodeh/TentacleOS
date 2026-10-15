@@ -14,8 +14,12 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "gb_highboy.h"
+#include "gb_rom_validation.h"
+#include "gb_input_mapping.h"
+#include "gb_save_io.h"
 
 #include <dirent.h>
+#include <setjmp.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -32,6 +36,7 @@
 
 #include "audio_i2s.h"
 #include "buttons_gpio.h"
+#include "input_manager.h"
 #include "lvgl_glue.h"
 #include "st7789.h"
 #include "storage_init.h"
@@ -68,11 +73,9 @@ static const char *TAG = "GB";
 #define GB_AUDIO_STACK  4096
 
 #define GB_STARTUP_DELAY_MS 150
-#define GB_EXIT_HOLD_MS     1200
 #define GB_AUTOSAVE_MS      3000
 #define GB_FLUSH_WAIT_MS    100
 #define GB_DMA_DRAIN_MS     30
-#define GB_HALT_DELAY_MS    2000
 #define GB_AUDIO_POLL_MS    10
 #define GB_AUDIO_STOP_TRIES 100
 
@@ -94,18 +97,74 @@ static uint16_t s_pal[GB_DMG_PALETTE_COUNT];
 static uint8_t s_sx[GB_DST_W], s_sy[GB_DST_H];
 
 static char s_rompath[GB_ROM_PATH_LEN];
-static char s_savepath[GB_ROM_PATH_LEN];
+static char s_savepath[GB_ROM_PATH_LEN + 5];
 static bool s_has_save = false;
 static volatile bool s_cram_dirty = false;
 static int64_t s_cram_dirty_ms = 0;
 
 static volatile bool s_exit_req = false;
 static volatile bool s_finished = false;
+static volatile bool s_running = false;
 static volatile bool s_audio_run = true;
-static volatile bool s_audio_done = false;
+static volatile bool s_audio_done = true;
+static char s_last_error[96];
+static jmp_buf s_core_error_jmp;
+static bool s_core_error_armed = false;
+static highboy_gb_input_state_t s_input_state;
+
+_Static_assert(JOYPAD_A == 0x01 && JOYPAD_B == 0x02 && JOYPAD_SELECT == 0x04 &&
+                   JOYPAD_START == 0x08 && JOYPAD_RIGHT == 0x10 && JOYPAD_LEFT == 0x20 &&
+                   JOYPAD_UP == 0x40 && JOYPAD_DOWN == 0x80,
+               "DMG input bit layout changed");
 
 bool highboy_gb_finished(void) {
   return s_finished;
+}
+
+const char *highboy_gb_last_error(void) {
+  return s_last_error;
+}
+
+static void set_error(const char *message) {
+  strlcpy(s_last_error, message, sizeof(s_last_error));
+  ESP_LOGE(TAG, "%s", s_last_error);
+}
+
+/* Leaves a successful file positioned at its beginning for the later read. */
+static const char *check_rom_file(FILE *file, size_t *rom_bytes) {
+  uint8_t header[HIGHBOY_GB_HEADER_BYTES];
+  if (fseek(file, 0, SEEK_END) != 0)
+    return "Unable to seek ROM file";
+  long size = ftell(file);
+  if (size < 0 || fseek(file, 0, SEEK_SET) != 0)
+    return "Unable to read ROM file size";
+  size_t read_bytes = fread(header, 1, sizeof(header), file);
+  if (ferror(file))
+    return "SD error while reading ROM header";
+  const char *error = highboy_gb_header_error(header, read_bytes, (size_t)size);
+  if (error)
+    return error;
+  if (fseek(file, 0, SEEK_SET) != 0)
+    return "Unable to seek ROM file";
+  if (rom_bytes)
+    *rom_bytes = (size_t)size;
+  return NULL;
+}
+
+bool highboy_gb_validate_rom(const char *rompath, char *reason, size_t reason_size) {
+  const char *error = NULL;
+  FILE *file = NULL;
+  if (!rompath || !rompath[0] || strlen(rompath) >= GB_ROM_PATH_LEN)
+    error = "Invalid or excessively long ROM path";
+  else if (!(file = fopen(rompath, "rb")))
+    error = "Unable to open ROM on microSD";
+  else
+    error = check_rom_file(file, NULL);
+  if (file)
+    fclose(file);
+  if (reason && reason_size)
+    strlcpy(reason, error ? error : "", reason_size);
+  return error == NULL;
 }
 
 static uint8_t rom_read(struct gb_s *gb, const uint_fast32_t addr) {
@@ -130,6 +189,10 @@ static void cram_write(struct gb_s *gb, const uint_fast32_t addr, const uint8_t 
 static void gb_err(struct gb_s *gb, const enum gb_error_e e, const uint16_t addr) {
   (void)gb;
   ESP_LOGE(TAG, "gb_error %d @ 0x%04X", (int)e, addr);
+  snprintf(s_last_error, sizeof(s_last_error), "Emulator error %d at %04X", (int)e, addr);
+  /* Peanut-GB declares invalid opcodes unreachable; returning here is unsafe. */
+  if (s_core_error_armed)
+    longjmp(s_core_error_jmp, 1);
 }
 
 static void lcd_line(struct gb_s *gb, const uint8_t *pixels, const uint_fast8_t line) {
@@ -148,7 +211,7 @@ static inline uint16_t to565be(uint32_t rgb) {
 }
 
 static bool find_gb_rom(char *out, size_t outsz) {
-  const char *dirs[] = {"/sdcard", "/sdcard/gb", "/sdcard/roms", NULL};
+  const char *dirs[] = {"/sdcard/games/gameboy", "/sdcard", "/sdcard/gb", "/sdcard/roms", NULL};
   for (int d = 0; dirs[d]; d++) {
     DIR *dir = opendir(dirs[d]);
     if (!dir)
@@ -179,74 +242,61 @@ static void derive_savepath(void) {
   strncat(s_savepath, ".sav", sizeof(s_savepath) - strlen(s_savepath) - 1);
 }
 
-static void load_cram(void) {
+static bool load_cram(void) {
   if (!s_has_save || !s_cram)
-    return;
-  FILE *f = fopen(s_savepath, "rb");
-  if (!f) {
-    ESP_LOGW(TAG, "no save file yet (%s)", s_savepath);
-    return;
+    return true;
+  bool present = false;
+  const char *error = gb_save_load_checked(s_savepath, s_cram, s_cram_size, &present);
+  if (error) {
+    set_error(error);
+    return false;
   }
-  fseek(f, 0, SEEK_END);
-  long sz = ftell(f);
-  fseek(f, 0, SEEK_SET);
-  if ((size_t)sz == s_cram_size) {
-    size_t rd = fread(s_cram, 1, s_cram_size, f);
-    ESP_LOGW(TAG, "save loaded (%u B) from %s", (unsigned)rd, s_savepath);
-  } else {
-    ESP_LOGW(TAG, "save size mismatch (%ld vs %u) - ignoring", sz, (unsigned)s_cram_size);
-  }
-  fclose(f);
+  ESP_LOGW(
+      TAG, "%s (%u B) %s", present ? "save loaded" : "new save", (unsigned)s_cram_size, s_savepath);
+  return true;
 }
 
-static void save_cram(void) {
+static bool save_cram(void) {
   if (!s_has_save || !s_cram || s_cram_size <= 1)
-    return;
-  FILE *f = fopen(s_savepath, "wb");
-  if (!f) {
-    ESP_LOGE(TAG, "save open failed (%s)", s_savepath);
-    return;
+    return true;
+  const char *error = gb_save_commit_checked(s_savepath, s_cram, s_cram_size);
+  if (error) {
+    set_error(error);
+    return false;
   }
-  size_t w = fwrite(s_cram, 1, s_cram_size, f);
-  fclose(f);
   s_cram_dirty = false;
-  ESP_LOGW(TAG, "save written (%u B) -> %s", (unsigned)w, s_savepath);
+  ESP_LOGW(TAG, "save verified (%u B) -> %s", (unsigned)s_cram_size, s_savepath);
+  return true;
+}
+
+static void drain_menu_input(void) {
+  /* LVGL is parked during play. Do not leave its menu queue full of game input. */
+  input_event_t event;
+  while (input_get_event(&event, 0)) {}
+  for (input_button_t b = 0; b < INPUT_BTN_COUNT; ++b)
+    (void)input_consume_press(b);
 }
 
 static void poll_input(void) {
-  bool up = up_button_is_down(), dn = down_button_is_down();
-  bool l = left_button_is_down(), r = right_button_is_down();
-  bool ok = ok_button_is_down(), bk = back_button_is_down();
-  uint8_t jp = GB_JOYPAD_IDLE;
-  if (r)
-    jp &= ~JOYPAD_UP;
-  if (l)
-    jp &= ~JOYPAD_DOWN;
-  if (up)
-    jp &= ~JOYPAD_LEFT;
-  if (dn)
-    jp &= ~JOYPAD_RIGHT;
-
-  static int64_t bk_since = 0;
-  if (ok && bk) {
-    jp &= ~JOYPAD_START;
-    bk_since = 0;
-  } else {
-    if (ok)
-      jp &= ~JOYPAD_A;
-    if (bk) {
-      jp &= ~JOYPAD_B;
-      int64_t now = esp_timer_get_time() / 1000;
-      if (bk_since == 0)
-        bk_since = now;
-      else if (now - bk_since >= GB_EXIT_HOLD_MS) {
-        s_exit_req = true;
-      }
-    } else {
-      bk_since = 0;
-    }
-  }
-  s_gb->direct.joypad = jp;
+  uint8_t physical = 0;
+  if (up_button_is_down())
+    physical |= GB_PHYS_UP;
+  if (down_button_is_down())
+    physical |= GB_PHYS_DOWN;
+  if (left_button_is_down())
+    physical |= GB_PHYS_LEFT;
+  if (right_button_is_down())
+    physical |= GB_PHYS_RIGHT;
+  if (ok_button_is_down())
+    physical |= GB_PHYS_OK;
+  if (back_button_is_down())
+    physical |= GB_PHYS_BACK;
+  bool exit_requested = false;
+  s_gb->direct.joypad = highboy_gb_input_update(
+      &s_input_state, physical, (uint32_t)(esp_timer_get_time() / 1000), &exit_requested);
+  if (exit_requested)
+    s_exit_req = true;
+  drain_menu_input();
 }
 
 static void blit_frame(void) {
@@ -288,6 +338,7 @@ static void gb_audio_task(void *arg) {
     ESP_LOGE(TAG, "audio buf alloc failed");
     free(st);
     free(mo);
+    audio_i2s_stream_stop();
     s_audio_done = true;
     vTaskDeleteWithCaps(NULL);
     return;
@@ -311,6 +362,9 @@ static void gb_audio_task(void *arg) {
 
 static void gb_main_task(void *arg) {
   (void)arg;
+  FILE *f = NULL;
+  bool direct_started = false;
+  bool save_ready = false;
   ESP_LOGW(TAG,
            "gb_main_task: enter (free int=%u psram=%u)",
            (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
@@ -320,34 +374,44 @@ static void gb_main_task(void *arg) {
   if (!storage_is_mounted())
     storage_init();
   if (!storage_is_mounted()) {
-    ESP_LOGE(TAG, "SD not mounted. Halting.");
-    for (;;)
-      vTaskDelay(pdMS_TO_TICKS(GB_HALT_DELAY_MS));
+    set_error("microSD is not mounted");
+    goto teardown;
   }
 
   if (s_rompath[0] == '\0' && !find_gb_rom(s_rompath, sizeof(s_rompath))) {
-    ESP_LOGE(TAG, "No .gb/.gbc ROM found on SD.");
-    for (;;)
-      vTaskDelay(pdMS_TO_TICKS(GB_HALT_DELAY_MS));
+    set_error("No Game Boy ROM found on microSD");
+    goto teardown;
   }
   ESP_LOGW(TAG, "loading ROM: %s", s_rompath);
-  FILE *f = fopen(s_rompath, "rb");
+  f = fopen(s_rompath, "rb");
   if (f == NULL) {
-    ESP_LOGE(TAG, "fopen failed");
-    for (;;)
-      vTaskDelay(pdMS_TO_TICKS(GB_HALT_DELAY_MS));
+    set_error("Unable to open ROM on microSD");
+    goto teardown;
   }
-  fseek(f, 0, SEEK_END);
-  s_rom_size = ftell(f);
-  fseek(f, 0, SEEK_SET);
+  const char *validation_error = check_rom_file(f, &s_rom_size);
+  if (validation_error) {
+    set_error(validation_error);
+    goto teardown;
+  }
   s_rom = heap_caps_malloc(s_rom_size, MALLOC_CAP_SPIRAM);
   if (s_rom == NULL) {
-    ESP_LOGE(TAG, "ROM alloc %u failed", (unsigned)s_rom_size);
-    for (;;)
-      vTaskDelay(pdMS_TO_TICKS(GB_HALT_DELAY_MS));
+    set_error("Not enough PSRAM for this ROM");
+    goto teardown;
   }
   size_t rd = fread(s_rom, 1, s_rom_size, f);
+  bool rom_read_failed = ferror(f) || rd != s_rom_size;
   fclose(f);
+  f = NULL;
+  if (rom_read_failed) {
+    set_error("ROM read was incomplete; check microSD");
+    goto teardown;
+  }
+  /* Validate the bytes actually loaded too, in case the card changed mid-read. */
+  validation_error = highboy_gb_header_error(s_rom, s_rom_size, s_rom_size);
+  if (validation_error) {
+    set_error(validation_error);
+    goto teardown;
+  }
   ESP_LOGW(TAG, "ROM %u bytes read (%u)", (unsigned)rd, (unsigned)s_rom_size);
 
   s_gb = heap_caps_malloc(sizeof(struct gb_s), MALLOC_CAP_SPIRAM);
@@ -372,8 +436,8 @@ static void gb_main_task(void *arg) {
     ESP_LOGE(TAG,
              "buffer alloc failed (int free=%u) - returning to launcher",
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL));
-    vTaskDelay(pdMS_TO_TICKS(50));
-    esp_restart();
+    set_error("Not enough memory for Game Boy video");
+    goto teardown;
   }
   memset(s_shade, 0, (size_t)LCD_WIDTH * LCD_HEIGHT);
 
@@ -381,34 +445,49 @@ static void gb_main_task(void *arg) {
   ESP_LOGW(TAG, "gb_init -> %d", (int)ie);
   if (ie != GB_INIT_NO_ERROR) {
     ESP_LOGE(TAG, "gb_init failed (%d) - unsupported cart?", (int)ie);
-    for (;;)
-      vTaskDelay(pdMS_TO_TICKS(GB_HALT_DELAY_MS));
+    set_error("Emulator rejected this cartridge");
+    goto teardown;
   }
 
   size_t ram = 0;
-  gb_get_save_size_s(s_gb, &ram);
+  if (gb_get_save_size_s(s_gb, &ram) != 0) {
+    set_error("Cartridge save size is unsupported");
+    goto teardown;
+  }
   s_has_save = (ram > 0);
   s_cram_size = ram ? ram : 1;
   s_cram = heap_caps_malloc(s_cram_size, MALLOC_CAP_SPIRAM);
-  if (s_cram)
-    memset(s_cram, 0, s_cram_size);
+  if (!s_cram) {
+    set_error("Not enough PSRAM for cartridge save RAM");
+    goto teardown;
+  }
+  memset(s_cram, 0, s_cram_size);
   gb_init_lcd(s_gb, lcd_line);
 
   derive_savepath();
-  load_cram();
+  if (!load_cram())
+    goto teardown;
   s_cram_dirty = false;
+  save_ready = true;
 
   s_apu = heap_caps_malloc(sizeof(struct minigb_apu_ctx), MALLOC_CAP_SPIRAM);
   if (s_apu) {
     minigb_apu_audio_init(s_apu);
-    xTaskCreatePinnedToCoreWithCaps(gb_audio_task,
-                                    "gb_audio",
-                                    GB_AUDIO_STACK,
-                                    NULL,
-                                    SYS_PRIO_SERVICE_HI,
-                                    NULL,
-                                    SYS_CORE_RADIO,
-                                    MALLOC_CAP_SPIRAM);
+    s_audio_run = true;
+    s_audio_done = false;
+    BaseType_t audio_ok = xTaskCreatePinnedToCoreWithCaps(gb_audio_task,
+                                                          "gb_audio",
+                                                          GB_AUDIO_STACK,
+                                                          NULL,
+                                                          SYS_PRIO_SERVICE_HI,
+                                                          NULL,
+                                                          SYS_CORE_RADIO,
+                                                          MALLOC_CAP_SPIRAM);
+    if (audio_ok != pdPASS) {
+      ESP_LOGW(TAG, "audio task creation failed - running without sound");
+      s_audio_run = false;
+      s_audio_done = true;
+    }
   } else {
     ESP_LOGW(TAG, "APU alloc failed - running without sound");
     s_audio_done = true;
@@ -423,10 +502,13 @@ static void gb_main_task(void *arg) {
 
   lvgl_glue_lock(-1);
   lvgl_glue_direct_begin();
+  direct_started = true;
   esp_lcd_panel_swap_xy(panel_handle, true);
   esp_lcd_panel_mirror(panel_handle, true, false);
   panel_clear_black();
-  ESP_LOGW(TAG, "running. D-pad, OK=A, BACK=B, OK+BACK=START, hold BACK ~1.2s=exit.");
+  ESP_LOGW(TAG,
+           "running. OK=A BACK=B; both=A+B; RIGHT+both=START LEFT+both=SELECT; "
+           "hold both 2s with D-pad released to exit.");
 
   int64_t start = esp_timer_get_time();
   uint64_t frame = 0;
@@ -442,7 +524,13 @@ static void gb_main_task(void *arg) {
     bool want_blit = !behind && (now - last_blit >= 2 * GB_FRAME_US);
     s_gb->direct.frame_skip = !want_blit;
 
+    if (setjmp(s_core_error_jmp)) {
+      s_core_error_armed = false;
+      break;
+    }
+    s_core_error_armed = true;
     gb_run_frame(s_gb);
+    s_core_error_armed = false;
     frame++;
 
     if (want_blit) {
@@ -453,8 +541,8 @@ static void gb_main_task(void *arg) {
 
     if (s_cram_dirty) {
       int64_t ms = esp_timer_get_time() / 1000;
-      if (ms - s_cram_dirty_ms >= GB_AUTOSAVE_MS)
-        save_cram();
+      if (ms - s_cram_dirty_ms >= GB_AUTOSAVE_MS && !save_cram())
+        break;
     }
 
     now = esp_timer_get_time();
@@ -468,17 +556,24 @@ static void gb_main_task(void *arg) {
     }
   }
 
-  ESP_LOGW(TAG, "exit requested -> save + teardown");
-  save_cram();
+teardown:
+  s_core_error_armed = false;
+  if (f)
+    fclose(f);
+  ESP_LOGW(TAG, "returning to launcher%s", s_last_error[0] ? " after error" : "");
+  if (save_ready && !s_last_error[0] && s_cram_dirty)
+    save_cram();
 
   s_audio_run = false;
   for (int i = 0; i < GB_AUDIO_STOP_TRIES && !s_audio_done; i++)
     vTaskDelay(pdMS_TO_TICKS(GB_AUDIO_POLL_MS));
-  audio_i2s_stream_stop();
+  if (s_apu)
+    audio_i2s_stream_stop();
 
   vTaskDelay(pdMS_TO_TICKS(GB_DMA_DRAIN_MS));
 
-  if (s_apu) {
+  /* Never free APU memory while a stalled audio worker may still use it. */
+  if (s_apu && s_audio_done) {
     free(s_apu);
     s_apu = NULL;
   }
@@ -503,17 +598,43 @@ static void gb_main_task(void *arg) {
     s_rom = NULL;
   }
 
-  lvgl_glue_direct_end();
+  if (direct_started) {
+    drain_menu_input();
+    lvgl_glue_direct_end();
+    lvgl_glue_unlock();
+  }
+  s_has_save = false;
+  s_rom_size = s_cram_size = 0;
+  s_strip_rows = 0;
+  s_running = false;
   s_finished = true;
-  lvgl_glue_unlock();
   vTaskDeleteWithCaps(NULL);
 }
 
 void highboy_gb_start(const char *rompath) {
+  if (s_running)
+    return;
+  s_last_error[0] = '\0';
+  if (!s_audio_done) {
+    set_error("Game audio is still stopping; try again");
+    s_finished = true;
+    return;
+  }
+  if (s_apu) {
+    free(s_apu);
+    s_apu = NULL;
+  }
+  if (rompath && strlen(rompath) >= sizeof(s_rompath)) {
+    set_error("ROM path is too long");
+    s_finished = true;
+    return;
+  }
   s_exit_req = false;
+  highboy_gb_input_reset(&s_input_state);
   s_finished = false;
-  s_audio_run = true;
-  s_audio_done = false;
+  s_running = true;
+  s_audio_run = false;
+  s_audio_done = true;
   if (rompath && rompath[0]) {
     strncpy(s_rompath, rompath, sizeof(s_rompath) - 1);
     s_rompath[sizeof(s_rompath) - 1] = '\0';
@@ -529,4 +650,9 @@ void highboy_gb_start(const char *rompath) {
                                                   SYS_CORE_UI,
                                                   MALLOC_CAP_SPIRAM);
   ESP_LOGW(TAG, "highboy_gb_start: task create -> %s", ok == pdPASS ? "OK" : "FAILED");
+  if (ok != pdPASS) {
+    set_error("Not enough memory to start Game Boy");
+    s_running = false;
+    s_finished = true;
+  }
 }
