@@ -85,8 +85,14 @@ jobs:
             firmware_${{ matrix.target }}/build_highboy/partition_table/partition-table.bin
 
   host-tests:
-    name: High Boy offline regression tests
+    name: High Boy offline regression tests (${{ matrix.compiler }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    env:
+      CC: ${{ matrix.compiler }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -95,14 +101,13 @@ jobs:
       - name: Install host compiler
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential
+          sudo apt-get install -y build-essential clang
       - name: Run source contracts and host regressions
         run: bash tools/highboy/test.command
 
   hle-tests:
     name: HLE Tests
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -112,7 +117,7 @@ jobs:
           sudo apt-get install -y libsdl2-dev
 
       - name: Configure
-        run: cmake -B build -S tools/hle
+        run: cmake -B build -S tools/hle -DHLE_BUILD_INTERACTIVE=OFF
         env:
           SDL_VIDEODRIVER: dummy
 
