@@ -135,6 +135,22 @@ typedef enum {
 void cc1101_init(void);
 
 /**
+ * @brief Check whether the CC1101 SPI device was attached successfully.
+ *
+ * @return true when
+ * the driver owns a valid SPI device handle.
+ */
+bool cc1101_is_initialized(void);
+
+/**
+ * @brief Run the TI manual reset sequence and restore the safe defaults.
+ *
+ * @return ESP_OK
+ * when the chip answers with a valid VERSION register.
+ */
+esp_err_t cc1101_recover(void);
+
+/**
  * @brief Set the carrier frequency.
  *
  * @param freq_hz Frequency in Hertz.

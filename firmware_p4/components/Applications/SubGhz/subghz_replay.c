@@ -36,7 +36,7 @@ static const char *TAG = "SUBGHZ_REPLAY";
 #define REPLAY_FILE_BUF    8192
 #define REPLAY_MAX_PULSES  2048
 #define REPLAY_RX_DRAIN_MS 150
-#define REPLAY_PROTO_MAX   24
+#define REPLAY_PROTO_MAX   40
 
 static uint32_t parse_u32_after(const char *content, const char *key) {
   const char *p = strstr(content, key);
@@ -45,11 +45,11 @@ static uint32_t parse_u32_after(const char *content, const char *key) {
   return (uint32_t)strtoul(p + strlen(key), NULL, 10);
 }
 
-static void parse_protocol(const char *content, char *out, size_t out_size) {
+static bool parse_protocol(const char *content, char *out, size_t out_size) {
   out[0] = '\0';
   const char *p = strstr(content, "Protocol: ");
   if (p == NULL)
-    return;
+    return false;
   p += strlen("Protocol: ");
   size_t i = 0;
   while (p[i] != '\0' && p[i] != '\n' && p[i] != '\r' && i < out_size - 1) {
@@ -57,6 +57,7 @@ static void parse_protocol(const char *content, char *out, size_t out_size) {
     i++;
   }
   out[i] = '\0';
+  return i > 0 && (p[i] == '\0' || p[i] == '\n' || p[i] == '\r');
 }
 
 static uint32_t parse_key_value(const char *content) {
@@ -102,7 +103,9 @@ static esp_err_t replay_raw(const char *content) {
 static esp_err_t replay_decoded(const char *content) {
   uint32_t freq = parse_u32_after(content, "Frequency: ");
   char proto[REPLAY_PROTO_MAX];
-  parse_protocol(content, proto, sizeof(proto));
+  if (!parse_protocol(content, proto, sizeof(proto))) {
+    return ESP_ERR_INVALID_ARG;
+  }
 
   subghz_data_t data = {0};
   data.protocol_name = proto;

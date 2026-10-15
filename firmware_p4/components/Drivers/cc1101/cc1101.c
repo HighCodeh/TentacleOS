@@ -28,7 +28,7 @@
 #include "pin_def.h"
 #include "spi.h"
 
-#define CC1101_SPI_CLOCK_HZ    (4 * 1000 * 1000)
+#define CC1101_SPI_CLOCK_HZ    (1 * 1000 * 1000)
 #define CC1101_SPI_QUEUE_SIZE  7
 #define CC1101_RESET_DELAY_MS  50
 #define CC1101_CAL_DELAY_MS    5
@@ -98,8 +98,13 @@ static void cc1101_enable_sniffer_mode(uint32_t freq_hz, uint8_t modulation) {
 
   cc1101_set_frequency(freq_hz);
   cc1101_set_rx_bandwidth(812.0);
-  cc1101_write_reg(CC1101_MDMCFG3, 0x93);
+  cc1101_set_data_rate(4800.0f);
   cc1101_set_modulation(modulation);
+
+  /* Transparent RX must not inherit the reset-default sync qualifier. */
+  if (modulation == CC1101_MOD_ASK) {
+    cc1101_write_reg(CC1101_MDMCFG2, 0x30); // DC filter on, OOK, no sync qualification
+  }
 
   cc1101_write_reg(CC1101_MDMCFG1, 0x02); // 2 preamble bytes, no FEC
   cc1101_write_reg(CC1101_MDMCFG0, 0xF8); // Channel spacing
@@ -109,10 +114,14 @@ static void cc1101_enable_sniffer_mode(uint32_t freq_hz, uint8_t modulation) {
   cc1101_write_reg(CC1101_FOCCFG, 0x16);
   cc1101_write_reg(CC1101_BSCFG, 0x1C);
 
-  // AGC - Max Sensitivity
+  /* Board-proven OOK profile.  Higher-gain experimental settings made this
+   * prototype lose the
+   * CC1101 after RX; keep the stable profile until the
+   * filtered 3V3 rail can be measured under
+   * load. */
   cc1101_write_reg(CC1101_AGCCTRL2, 0xC7);
   cc1101_write_reg(CC1101_AGCCTRL1, 0x00);
-  cc1101_write_reg(CC1101_AGCCTRL0, 0xB2);
+  cc1101_write_reg(CC1101_AGCCTRL0, 0x91); // 8 dB OOK boundary, faster settling
 
   cc1101_write_reg(CC1101_FREND1, 0x56);
   cc1101_set_pa(10); // Max power
@@ -135,11 +144,42 @@ static void cc1101_enable_sniffer_mode(uint32_t freq_hz, uint8_t modulation) {
   cc1101_strobe(CC1101_SRX);
 }
 
-static void cc1101_txn(spi_transaction_t *t) {
-  bool locked = spi_bus_lock_take(CC1101_BUS_LOCK_TIMEOUT_MS);
-  spi_device_transmit(s_cc1101_spi, t);
-  if (locked)
-    spi_bus_lock_give();
+static esp_err_t cc1101_reset_radio(void) {
+  if (s_cc1101_spi == NULL)
+    return ESP_ERR_INVALID_STATE;
+
+  if (!spi_bus_lock_take(CC1101_BUS_LOCK_TIMEOUT_MS)) {
+    ESP_LOGE(TAG, "SPI3 bus lock timeout");
+    return ESP_ERR_TIMEOUT;
+  }
+
+  spi_transaction_t reset = {0};
+  reset.length = 8;
+  reset.flags = SPI_TRANS_USE_TXDATA;
+  reset.tx_data[0] = CC1101_SRES;
+  esp_err_t err = spi_device_transmit(s_cc1101_spi, &reset);
+  spi_bus_lock_give();
+  if (err != ESP_OK)
+    ESP_LOGE(TAG, "manual reset failed: %s", esp_err_to_name(err));
+  else
+    ets_delay_us(1000);
+  return err;
+}
+
+static esp_err_t cc1101_txn(spi_transaction_t *t) {
+  if (s_cc1101_spi == NULL)
+    return ESP_ERR_INVALID_STATE;
+
+  if (!spi_bus_lock_take(CC1101_BUS_LOCK_TIMEOUT_MS)) {
+    ESP_LOGE(TAG, "SPI3 bus lock timeout");
+    return ESP_ERR_TIMEOUT;
+  }
+
+  esp_err_t err = spi_device_transmit(s_cc1101_spi, t);
+  spi_bus_lock_give();
+  if (err != ESP_OK)
+    ESP_LOGE(TAG, "SPI transaction failed: %s", esp_err_to_name(err));
+  return err;
 }
 
 void cc1101_write_burst(uint8_t reg, const uint8_t *buf, uint8_t len) {
@@ -185,8 +225,7 @@ uint8_t cc1101_read_reg(uint8_t reg) {
   t.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
   t.tx_data[0] = 0x80 | reg; // Read bit
   t.tx_data[1] = 0x00;
-  cc1101_txn(&t);
-  return t.rx_data[1];
+  return cc1101_txn(&t) == ESP_OK ? t.rx_data[1] : 0xFFU;
 }
 
 void cc1101_read_burst(uint8_t reg, uint8_t *buf, uint8_t len) {
@@ -212,9 +251,10 @@ void cc1101_read_burst(uint8_t reg, uint8_t *buf, uint8_t len) {
   t.tx_buffer = tx_buf;
   t.rx_buffer = rx_buf;
 
-  cc1101_txn(&t);
-
-  memcpy(buf, &rx_buf[1], len);
+  if (cc1101_txn(&t) == ESP_OK)
+    memcpy(buf, &rx_buf[1], len);
+  else
+    memset(buf, 0xFF, len);
 
   free(tx_buf);
   free(rx_buf);
@@ -223,6 +263,10 @@ void cc1101_read_burst(uint8_t reg, uint8_t *buf, uint8_t len) {
 void cc1101_strobe(uint8_t cmd) {
   if (s_cc1101_spi == NULL)
     return;
+  if (cmd == CC1101_SRES) {
+    cc1101_reset_radio();
+    return;
+  }
   spi_transaction_t t;
   memset(&t, 0, sizeof(t));
   t.length = 8;
@@ -328,7 +372,10 @@ void cc1101_set_data_rate(float baud) {
   uint8_t mdmcfg4 = cc1101_read_reg(CC1101_MDMCFG4);
   uint8_t rxbw_val = mdmcfg4 & 0xF0; // Preserve RX Bandwidth
 
-  float c = baud;
+  /* The register-search constants below are expressed in kBaud while the
+   * public API (and UI
+   * callers) pass baud. */
+  float c = baud / 1000.0f;
   uint8_t mdmcfg3 = 0;
   uint8_t drate_e = 0;
 
@@ -599,6 +646,25 @@ float cc1101_convert_rssi(uint8_t rssi_raw) {
 }
 
 void cc1101_init(void) {
+  if (s_cc1101_spi != NULL)
+    return;
+
+  /* PE613050A antenna-tuning switch controls.  The current BOM leaves the
+   * four selectable
+   * shunt branches unpopulated, but the CMOS inputs must not
+   * float.  V2=0, V1=0
+   * deterministically selects RF1. */
+  const gpio_config_t rf_switch_cfg = {
+      .pin_bit_mask = (1ULL << GPIO_RF_SW_V1_PIN) | (1ULL << GPIO_RF_SW_V2_PIN),
+      .mode = GPIO_MODE_OUTPUT,
+      .pull_up_en = GPIO_PULLUP_DISABLE,
+      .pull_down_en = GPIO_PULLDOWN_ENABLE,
+      .intr_type = GPIO_INTR_DISABLE,
+  };
+  gpio_config(&rf_switch_cfg);
+  gpio_set_level(GPIO_RF_SW_V1_PIN, 0);
+  gpio_set_level(GPIO_RF_SW_V2_PIN, 0);
+
   spi_device_config_t devcfg = {.clock_speed_hz = CC1101_SPI_CLOCK_HZ,
                                 .mode = 0,
                                 .cs_pin = GPIO_CC1101_CS_PIN,
@@ -628,6 +694,29 @@ void cc1101_init(void) {
   cc1101_set_frequency(CC1101_DEFAULT_FREQ_HZ);
 }
 
+bool cc1101_is_initialized(void) {
+  return s_cc1101_spi != NULL;
+}
+
+esp_err_t cc1101_recover(void) {
+  if (s_cc1101_spi == NULL)
+    cc1101_init();
+  if (s_cc1101_spi == NULL)
+    return ESP_ERR_INVALID_STATE;
+
+  esp_err_t err = cc1101_reset_radio();
+  if (err != ESP_OK)
+    return err;
+
+  cc1101_write_reg(CC1101_IOCFG0, 0x2E);
+  cc1101_write_reg(CC1101_IOCFG2, 0x2E);
+  cc1101_set_frequency(CC1101_DEFAULT_FREQ_HZ);
+
+  uint8_t part = cc1101_read_reg(CC1101_PARTNUM | 0x40U);
+  uint8_t version = cc1101_read_reg(CC1101_VERSION | 0x40U);
+  return (part == 0x00U && version != 0x00U && version != 0xFFU) ? ESP_OK : ESP_FAIL;
+}
+
 void cc1101_enable_async_mode(uint32_t freq_hz) {
   cc1101_enable_sniffer_mode(freq_hz, CC1101_MOD_ASK);
 }
@@ -647,6 +736,9 @@ void cc1101_set_preset(cc1101_preset_t preset, uint32_t freq_hz) {
     case CC1101_PRESET_OOK_270KHZ:
       cc1101_enable_async_mode(freq_hz);
       cc1101_set_rx_bandwidth(270.0);
+      /* Keep the board-proven AGCCTRL2=0xC7 base profile.  Enabling every
+       * DVGA stage
+       * (0x07) has made this prototype lose the CC1101 after RX. */
       break;
 
     case CC1101_PRESET_OOK_650KHZ:

@@ -31,9 +31,9 @@
 #include "subghz_spectrum.h"
 #include "subghz_storage.h"
 
-#define SUBGHZ_RX_DEFAULT_S    10
-#define SUBGHZ_SPEC_DEFAULT_N  5
-#define SUBGHZ_POLL_MS         50
+#define SUBGHZ_RX_DEFAULT_S   10
+#define SUBGHZ_SPEC_DEFAULT_N 5
+#define SUBGHZ_POLL_MS        50
 
 static int subghz_rx(int argc, char **argv) {
   if (argc < 3) {
@@ -135,7 +135,7 @@ static int cmd_subghz(int argc, char **argv) {
     printf("  list                             list saved captures\n");
     printf("  replay <name>                    replay a saved capture\n");
     printf("  delete <name>                    delete a saved capture\n");
-    printf("  selftest                         round-trip the CAME/RCSwitch encoders\n");
+    printf("  selftest                         check codecs in memory (no radio TX)\n");
     return 1;
   }
 
@@ -190,7 +190,7 @@ static int cmd_subghz(int argc, char **argv) {
 void register_subghz_commands(void) {
   const esp_console_cmd_t cmd_subghz_def = {
       .command = "subghz",
-      .help = "Sub-GHz (CC1101): subghz rx | spectrum | list | replay | delete",
+      .help = "Sub-GHz (CC1101): subghz rx | spectrum | list | replay | delete | selftest",
       .hint = NULL,
       .func = &cmd_subghz,
   };

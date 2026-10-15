@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_log.h"
 #include "lvgl.h"
 #include "st7789.h"
@@ -71,7 +72,7 @@
 #define HINT_OPTIONS "UP/DOWN choose   OK do   BACK exit"
 
 #define SIGNAL_MAX 64
-static subghz_storage_entry_t s_sigs[SIGNAL_MAX];
+EXT_RAM_BSS_ATTR static subghz_storage_entry_t s_sigs[SIGNAL_MAX];
 static int s_sig_count = 0;
 static char s_card_freq[16];
 
@@ -100,9 +101,9 @@ typedef enum {
 
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_list = NULL;
-static lv_obj_t *s_rows[SIGNAL_MAX];
-static lv_obj_t *s_row_name[SIGNAL_MAX];
-static lv_obj_t *s_row_val[SIGNAL_MAX];
+EXT_RAM_BSS_ATTR static lv_obj_t *s_rows[SIGNAL_MAX];
+EXT_RAM_BSS_ATTR static lv_obj_t *s_row_name[SIGNAL_MAX];
+EXT_RAM_BSS_ATTR static lv_obj_t *s_row_val[SIGNAL_MAX];
 static send_view_t s_view = VIEW_LIST;
 static int s_sel = 0;
 

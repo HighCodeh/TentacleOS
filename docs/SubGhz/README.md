@@ -257,6 +257,18 @@ LiftMaster, Linear, Nice FLO, Princeton) also transmit: each has a real `.encode
 (shared `subghz_pwm_encode` helper), verified by `subghz selftest`. KeeLoq is the
 rolling-code plugin (see the KeeLoq section below); it replaced the old Rossi stub.
 
+The HighBoy merge retains `protocol_rossi.c` as unregistered legacy source only.
+It is not a usable decoder: its broad pulse heuristic fabricated the serial
+`0xDEADBEEF` and returned no captured value. It must not shadow the KeeLoq decoder.
+The existing custom UI and PSRAM layout are unchanged by this codec merge.
+
+Registry lookup accepts an exact name first, then a leading registered name
+followed by a space or `(`. This preserves saved names such as `CAME 12bit`,
+`Nice Flo 12bit`, `RCSwitch(P1)` and `KeeLoq <manufacturer>` without accepting
+arbitrary substring matches. Replay uses that same registry encoder.
+RCSwitch rejects zero or wider-than-32-bit input and out-of-range protocol
+indices before any shift or index adjustment.
+
 ### Utility Functions (`subghz_protocol_utils.h`)
 
 ```c
@@ -308,6 +320,28 @@ replaced the old Rossi stub). Manufacturer keys load at runtime from the SD asse
 
 The decoded save format carries extra `Serial:` and `Btn:` lines so a saved KeeLoq
 capture replays with the correct rolling counter.
+
+Legacy fixed-code files without these fields remain readable: serial falls back
+to the stored key value and button defaults to zero. Replay accepts the full
+40-byte protocol-label buffer used by the KeeLoq adapter; longer labels are
+rejected rather than truncated. Decoded serialization returns zero and clears
+the output on insufficient buffer space, never a length beyond the buffer.
+
+### Offline merge regression tests
+
+Run `python3 -B tools/highboy/test_subghz.py` from the repository root. It compiles
+the actual protocol, registry, serializer, replay and KeeLoq sources with strict
+C11 warnings and UndefinedBehaviorSanitizer. Radio, FreeRTOS and storage calls
+are RAM-only test doubles; it opens no device, SD assets, or private key files.
+
+Coverage includes all 12 fixed-code self-test vectors, an independent expected
+PWM pulse vector, exact/decorated name lookup, invalid/small buffers, decoded and
+raw file replay, legacy files, cipher inverse/frame round-trips, and a synthetic
+long manufacturer name through serialization and replay. The synthetic key is
+a public test constant, not a key read from a device. Golden manufacturer-capture
+identification is skipped without the real public asset and is not claimed by
+this host test. Neither host tests nor `subghz selftest` transmit RF or establish
+electrical, modulation-tolerance, or real-device interoperability.
 
 ## TODO / Not Yet Supported
 

@@ -16,6 +16,7 @@
 #include "subghz_protocol_serializer.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "esp_log.h"
@@ -34,35 +35,41 @@ uint8_t subghz_protocol_get_preset_id(void) {
 
 size_t subghz_protocol_serialize_decoded(
     const subghz_data_t *data, uint32_t frequency, uint32_t te, char *out_buf, size_t out_size) {
-  if (data == NULL || out_buf == NULL) {
+  if (data == NULL || data->protocol_name == NULL || out_buf == NULL || out_size == 0) {
     return 0;
   }
 
   uint32_t val = data->raw_value;
 
-  return (size_t)snprintf(out_buf,
-                          out_size,
-                          "Filetype: High Boy SubGhz File\n"
-                          "Version 1\n"
-                          "Frequency: %lu\n"
-                          "Preset: %u\n"
-                          "Protocol: %s\n"
-                          "Bit: %d\n"
-                          "Key: 00 00 00 00 %02X %02X %02X %02X\n"
-                          "Serial: %lu\n"
-                          "Btn: %u\n"
-                          "TE: %lu\n",
-                          (unsigned long)frequency,
-                          (unsigned int)subghz_protocol_get_preset_id(),
-                          data->protocol_name,
-                          (int)data->bit_count,
-                          (unsigned int)((val >> 24) & 0xFF),
-                          (unsigned int)((val >> 16) & 0xFF),
-                          (unsigned int)((val >> 8) & 0xFF),
-                          (unsigned int)(val & 0xFF),
-                          (unsigned long)data->serial,
-                          (unsigned int)data->btn,
-                          (unsigned long)te);
+  int written = snprintf(out_buf,
+                         out_size,
+                         "Filetype: High Boy SubGhz File\n"
+                         "Version 1\n"
+                         "Frequency: %lu\n"
+                         "Preset: %u\n"
+                         "Protocol: %s\n"
+                         "Bit: %d\n"
+                         "Key: 00 00 00 00 %02X %02X %02X %02X\n"
+                         "Serial: %lu\n"
+                         "Btn: %u\n"
+                         "TE: %lu\n",
+                         (unsigned long)frequency,
+                         (unsigned int)subghz_protocol_get_preset_id(),
+                         data->protocol_name,
+                         (int)data->bit_count,
+                         (unsigned int)((val >> 24) & 0xFF),
+                         (unsigned int)((val >> 16) & 0xFF),
+                         (unsigned int)((val >> 8) & 0xFF),
+                         (unsigned int)(val & 0xFF),
+                         (unsigned long)data->serial,
+                         (unsigned int)data->btn,
+                         (unsigned long)te);
+  if (written < 0 || (size_t)written >= out_size) {
+    out_buf[0] = '\0';
+    ESP_LOGW(TAG, "Decoded capture buffer is too small");
+    return 0;
+  }
+  return (size_t)written;
 }
 
 size_t subghz_protocol_serialize_raw(
