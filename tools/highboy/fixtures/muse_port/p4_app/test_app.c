@@ -18,13 +18,26 @@ static bool tx_valid,mic,fail_mic,fail_control,drop_pcm_reply,drop_all,corrupt_s
 static size_t prefix;
 static int16_t received[1024];
 static unsigned received_count;
+typedef enum {
+    TEXT_FAULT_NONE,
+    TEXT_FAULT_OFFSET,
+    TEXT_FAULT_CAPACITY,
+    TEXT_FAULT_OVERRUN,
+    TEXT_FAULT_SHORT,
+    TEXT_FAULT_EMPTY,
+    TEXT_FAULT_COUNT
+} text_fault_t;
+static text_fault_t text_fault;
 static bool id_same(hb_muse_sdk_id_t a) { return a.generation==sdk.id.generation && a.turn==sdk.id.turn; }
 hb_muse_sdk_dispatch_t hb_muse_sdk_begin(hb_muse_sdk_id_t id) {
     assert(sdk.session_ready && !sdk.id.turn);++begins;sdk.id=id;sdk.phase=HB_MUSE_SDK_BEGIN_PENDING;return HB_MUSE_SDK_QUEUED;
 }
 hb_muse_sdk_audio_t hb_muse_sdk_audio(hb_muse_sdk_id_t id,uint32_t first,const int16_t *p,size_t n) {
     assert(id_same(id) && first==sdk.accepted_frames && sdk.phase==HB_MUSE_SDK_LISTENING);
-    if(n>prefix)n=prefix;assert(n<=1024-received_count);
+    if(n>prefix) {
+        n=prefix;
+    }
+    assert(n<=1024-received_count);
     memcpy(received+received_count,p,n*sizeof(*p));received_count+=(unsigned)n;
     sdk.accepted_frames+=(uint32_t)n;++audios;return (hb_muse_sdk_audio_t){n,false};
 }
@@ -70,6 +83,22 @@ static void cycle(unsigned elapsed) {
     if(corrupt_status && request.opcode==HB_MUSE_WIRE_STATUS) {
         corrupt_status=false;reply.payload[30]=1;assert(hb_muse_wire_encode(&reply,response,sizeof(response),&n));
     }
+    if(request.opcode==HB_MUSE_WIRE_TEXT && text_fault!=TEXT_FAULT_NONE) {
+        if(text_fault==TEXT_FAULT_OFFSET || text_fault==TEXT_FAULT_OVERRUN) {
+            assert(app.text_total>0);
+            app.text_offset=(uint16_t)(text_fault==TEXT_FAULT_OFFSET ? app.text_total+1 : app.text_total-1);
+            reply.payload[10]=(uint8_t)app.text_offset;
+            reply.payload[11]=(uint8_t)(app.text_offset>>8);
+        } else if(text_fault==TEXT_FAULT_CAPACITY) {
+            app.text_total=(uint16_t)sizeof(app.text);
+            reply.payload[8]=(uint8_t)app.text_total;
+            reply.payload[9]=(uint8_t)(app.text_total>>8);
+        } else {
+            reply.payload_len=(uint16_t)(text_fault==TEXT_FAULT_SHORT ? 11 : 12);
+        }
+        text_fault=TEXT_FAULT_NONE;
+        assert(hb_muse_wire_encode(&reply,response,sizeof(response),&n));
+    }
     hb_muse_app_receive(&app,response,n,now);
 }
 static void setup(void) {
@@ -77,6 +106,7 @@ static void setup(void) {
     now=0;enables=connects=revokes=mic_starts=mic_stops=begins=audios=ends=0;
     sends=pcm_sends=received_count=0;tx_size=last_pcm_size=0;
     tx_valid=mic=fail_mic=fail_control=drop_pcm_reply=drop_all=corrupt_status=false;prefix=106;
+    text_fault=TEXT_FAULT_NONE;
     assert(hb_muse_endpoint_init(&endpoint,42));hb_muse_endpoint_access(&endpoint,false,true,true);
     const hb_muse_app_ops_t ops={control,send_frame,start_mic,stop_mic};
     assert(hb_muse_app_init(&app,&ops,&endpoint));assert(view().phase==HB_MUSE_APP_DISABLED && !sends && !mic_starts);
@@ -100,7 +130,10 @@ static void listening(void) {
 static void test_no_auto(void) {
     setup();for(unsigned i=0;i<10;++i)cycle(1);assert(!enables && !connects && !sends && !mic_starts);
     connect_ready();assert(hb_muse_app_physical_ptt(&app,true,now)==HB_MUSE_NOT_READY);
-    for(unsigned i=0;i<5;++i)cycle(100);assert(!begins && !mic_starts);
+    for(unsigned i=0;i<5;++i) {
+        cycle(100);
+    }
+    assert(!begins && !mic_starts);
     hb_muse_app_close(&app);assert(revokes==1 && view().phase==HB_MUSE_APP_DISABLED);
     ++groups;
 }
@@ -133,7 +166,10 @@ static void test_cancel(void) {
     listening();int16_t p[10]={1};assert(hb_muse_app_pcm(&app,p,10)==HB_MUSE_OK);
     hb_muse_app_cancel(&app);assert(!mic && !hb_muse_app_pcm_capacity(&app) && revokes==1);
     for(unsigned i=0;i<320;++i)assert(app.pcm[i]==0);
-    for(unsigned i=0;i<10;++i)cycle(100);assert(!audios && !ends && !pcm_sends && !app.connecting);
+    for(unsigned i=0;i<10;++i) {
+        cycle(100);
+    }
+    assert(!audios && !ends && !pcm_sends && !app.connecting);
     ++groups;
 }
 static void test_timeout(void) {
@@ -146,7 +182,10 @@ static void test_timeout(void) {
 static void waiting(void) {
     listening();int16_t p[1]={42};assert(hb_muse_app_pcm(&app,p,1)==HB_MUSE_OK);
     (void)hb_muse_app_physical_ptt(&app,false,now);
-    for(unsigned i=0;i<10 && !ends;++i)cycle(1);assert(ends==1);
+    for(unsigned i=0;i<10 && !ends;++i) {
+        cycle(1);
+    }
+    assert(ends==1);
     sdk.end_ack=sdk.note_ack=true;sdk.phase=HB_MUSE_SDK_WAIT_REPLY;cycle(101);
 }
 static void test_text(void) {
@@ -176,6 +215,20 @@ static void test_revision(void) {
 static void test_invalid_text(void) {
     waiting();sdk.text[0]=(char)0xc0;sdk.text[1]=(char)0xaf;sdk.text[2]=0;sdk.text_revision=1;
     cycle(101);cycle(1);assert(view().phase==HB_MUSE_APP_ERROR && !view().text_complete && revokes==1);++groups;
+}
+static void test_text_bounds(void) {
+    for(text_fault_t fault=TEXT_FAULT_OFFSET;fault<TEXT_FAULT_COUNT;++fault) {
+        waiting();
+        strcpy(sdk.text,"Bounded reply");
+        sdk.text_revision=1;
+        text_fault=fault;
+        cycle(101);
+        cycle(1);
+        assert(text_fault==TEXT_FAULT_NONE);
+        assert(view().phase==HB_MUSE_APP_ERROR && view().error==HB_MUSE_APP_BAD_RESPONSE);
+        assert(!view().text_complete && revokes==1 && !mic);
+        ++groups;
+    }
 }
 static void test_bad_status(void) {
     listening();corrupt_status=true;cycle(101);assert(view().phase==HB_MUSE_APP_ERROR && !mic && revokes==1);++groups;
@@ -212,6 +265,6 @@ static void test_recording_limit(void) {
 }
 int main(void) {
     test_no_auto();test_begin_ack();test_audio_release();test_replay();test_cancel();test_timeout();
-    test_text();test_revision();test_invalid_text();test_bad_status();test_mic_failure();test_control_failure();test_clock();test_stale_response();test_recording_limit();
+    test_text();test_revision();test_invalid_text();test_text_bounds();test_bad_status();test_mic_failure();test_control_failure();test_clock();test_stale_response();test_recording_limit();
     printf("P4 app: %u strict/UBSan groups; static app=%zu bytes; explicit SDK/driver fixtures only\n",groups,sizeof(app));return 0;
 }

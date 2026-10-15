@@ -80033,7 +80033,15 @@
       "local_sha256": "589998f686d41f832825c5f25484d6602361c1796326510d8cfb43cb211199b9",
       "upstream_sha256": null,
       "action": "preserve_local_overlay",
-      "normalized_local_sha256": "589998f686d41f832825c5f25484d6602361c1796326510d8cfb43cb211199b9"
+      "normalized_local_sha256": "589998f686d41f832825c5f25484d6602361c1796326510d8cfb43cb211199b9",
+      "reviewed_target_sha256": "7cbf714a444476003ca14fb439dd0af7b72722b811c86a51a29cceed249abe9a",
+      "review_reason": "Bound reply text offset and total before subtraction/copy, reserve the terminating NUL, and compare lengths as size_t under GCC strict warnings; covered by five malformed-text host regressions.",
+      "review_base_sha256": "69779fc547d26a67ce7c717953d9373006189eb342c3035e9af12f01d13d0778",
+      "previous_formatting": {
+        "before_sha256": "589998f686d41f832825c5f25484d6602361c1796326510d8cfb43cb211199b9",
+        "after_sha256": "69779fc547d26a67ce7c717953d9373006189eb342c3035e9af12f01d13d0778",
+        "formatter": "clang-format version 22.1.5"
+      }
     },
     {
       "target": "firmware_p4/components/Service/highboy_muse/p4_app/hb_muse_app.h",
@@ -123845,5 +123853,5 @@
       "normalized_local_sha256": "b3cf121f9d87272b36d9debf1b76b61edb1b9a6846c9a8086bb9fec7f530d5f7"
     }
   ],
-  "reviewed_delta_count": 22
+  "reviewed_delta_count": 23
 }

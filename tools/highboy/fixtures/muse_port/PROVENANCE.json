@@ -1,6 +1,6 @@
 {
   "description": "Explicit public deterministic host fixtures and boundary fakes only; no legacy production source or runtime assets.",
-  "source_snapshot": "Original local highboy_muse_port fixture bytes retained unchanged.",
+  "source_snapshot": "Original local highboy_muse_port fixture hashes and sizes retained; explicitly reviewed fixes use separate reviewed hashes and sizes.",
   "files": [
     {
       "path": "tests/test_core.c",
@@ -48,7 +48,10 @@
       "path": "pairing/test_setup.c",
       "source": "work/highboy_muse_port/pairing/test_setup.c",
       "sha256": "9a2d335181b62c1529e92a83008ebf8e6be9eba1ac23b96f8215897e462d3437",
-      "bytes": 13691
+      "bytes": 13691,
+      "reviewed_sha256": "f0b8b0edfb22796da0ed455620bcacd996211b3ae58edddd47cd5b0bfd505232",
+      "reviewed_bytes": 13728,
+      "review_reason": "Separate conditional fixture actions with explicit braces to satisfy GCC misleading-indentation diagnostics without changing setup scenarios."
     },
     {
       "path": "pairing/setup_host.h",
@@ -84,7 +87,10 @@
       "path": "p4_app/test_app.c",
       "source": "work/highboy_muse_port/p4_app/test_app.c",
       "sha256": "c84861080f0301190490d4a677d671f688f06f39797f4ae33c59b6a52ac8f4c6",
-      "bytes": 12555
+      "bytes": 12555,
+      "reviewed_sha256": "7d96d14fb253317572d5c3ea5e11da5f9e2f603552f6a85b45d9ce5c3425ebd1",
+      "reviewed_bytes": 14271,
+      "review_reason": "Add five malformed-text rejection groups for offset, capacity, overrun, short and empty replies; separate conditional/loop fixture actions for GCC strict warnings."
     },
     {
       "path": "integrated_c5/test_wifi_json_bound.c",

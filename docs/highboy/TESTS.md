@@ -27,7 +27,9 @@ files/hashes, duplicate targets, and unexpected content changes fail the gate.
 An explicit, file-by-file `REVIEWED_MERGES` list excludes the intentional project
 build/configuration changes, upstream DOOM/USB-MSC merge, restored upstream
 reserved radio API declarations, and reviewed SubGHz repairs from the
-byte-preservation assertion. Those exclusions are reported, not
+byte-preservation assertion. The P4 Muse reply-text bounds correction also has
+an explicit reviewed source seal, review base and reason; its superseded
+formatting proof remains archived in the import record. Those exclusions are reported, not
 described as unchanged files. Their functional validation belongs to the SubGHz
 suite and firmware build/review. Every changed exception must have its sealed
 `reviewed_target_sha256`; the gate pins that post-merge output as well. A revert
@@ -68,7 +70,12 @@ UndefinedBehaviorSanitizer. Exactly 15 established public fixture/fake files
 are included under `tools/highboy/fixtures/muse_port`; no legacy production
 source, entire legacy directory, runtime asset, or account data is copied.
 `PROVENANCE.json` records each original source path, byte count and SHA-256.
-The fixture inventory and hashes are verified before host compilation.
+These original fields are retained for all 15 fixtures. Only `p4_app/test_app.c`
+and `pairing/test_setup.c` have separately sealed `reviewed_sha256`,
+`reviewed_bytes` and `review_reason` fields: bounded-text regressions and GCC
+warning cleanup. The verifier requires complete valid review fields for exactly
+those whitelisted paths and rejects reviews on other fixtures. The fixture
+inventory and current original-or-reviewed hashes are checked before compilation.
 Fixtures are then copied to a temporary directory so quoted includes resolve
 to canonical headers rather than adjacent legacy production headers. Pairing
 tests use canonical vendored cJSON.
@@ -80,7 +87,7 @@ tests use canonical vendored cJSON.
 | Wire client | 21 deterministic retry/state groups |
 | PCM adapter | 21 audio-boundary groups |
 | Endpoint | 17 adapter/endpoint groups |
-| P4 app | 15 application/PTT groups |
+| P4 app | 20 application/PTT groups, including five malformed-text rejection cases |
 | Pairing adapter | 60 isolated scenarios; cryptography/store boundaries faked |
 | Passive GATT/fragment codec | 11 groups; NimBLE explicitly faked |
 | Setup owner | 27 isolated scenarios; SDK/GATT/runtime/store boundaries faked |
@@ -96,7 +103,10 @@ substitute for target builds and subsequent explicitly authorized device tests.
 
 ## Offline dependencies and options
 
-A host `cc` compiler with UBSan and Python 3 are required. All source, fixture,
+A host `cc` compiler with UBSan and Python 3 are required. `CC` selects the host
+compiler (shell-style arguments are parsed with `shlex.split`, not executed by
+a shell), so GCC and Clang CI jobs compile the same canonical sources and strict
+warning/UBSan flags. All source, fixture,
 normalization and license references are contained in this repository; the
 tests do not depend on a sibling workspace or an absolute user-directory path.
 No dependency is downloaded. `--skip-host` explicitly runs only the

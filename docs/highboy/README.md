@@ -113,7 +113,7 @@ offsets or assets image to it blindly. No partition is enlarged merely to pass
 the app size check. The previous local P4 image had only 1,840 bytes of margin,
 so the final linked size is an explicit release gate.
 
-The integrated candidate fits: P4 **2,943,504 / 2,949,120 bytes** (5,616 free),
+The integrated candidate fits: P4 **2,943,520 / 2,949,120 bytes** (5,600 free),
 C5 **2,016,096 / 2,097,152 bytes** (81,056 free). Layout/control screens use size
 optimization; protocol/driver cores and emulators retain their previous flags.
 This is still very little expansion headroom, especially on the P4.

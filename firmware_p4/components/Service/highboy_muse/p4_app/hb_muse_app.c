@@ -330,9 +330,10 @@ static void on_status(hb_muse_app_t *a, const hb_muse_wire_frame_t *r) {
 static void on_text(hb_muse_app_t *a, const hb_muse_wire_frame_t *r) {
   const uint8_t *p = r->payload;
   size_t n = r->payload_len;
-  if (n < 12 || u32(p) != a->text_revision || u32(p + 4) != a->message_index ||
-      u16(p + 8) != a->text_total || u16(p + 10) != a->text_offset ||
-      n - 12 > a->text_total - a->text_offset || (n == 12 && a->text_offset < a->text_total)) {
+  if (n < 12 || a->text_offset > a->text_total || a->text_total >= sizeof(a->text) ||
+      u32(p) != a->text_revision || u32(p + 4) != a->message_index || u16(p + 8) != a->text_total ||
+      u16(p + 10) != a->text_offset || n - 12 > (size_t)(a->text_total - a->text_offset) ||
+      (n == 12 && a->text_offset < a->text_total)) {
     fail(a, HB_MUSE_APP_BAD_RESPONSE);
     return;
   }

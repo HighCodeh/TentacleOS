@@ -1212,8 +1212,8 @@
       "formatter": "clang-format version 22.1.5"
     },
     "firmware_p4/components/Service/highboy_muse/p4_app/hb_muse_app.c": {
-      "after_sha256": "69779fc547d26a67ce7c717953d9373006189eb342c3035e9af12f01d13d0778",
-      "before_sha256": "589998f686d41f832825c5f25484d6602361c1796326510d8cfb43cb211199b9",
+      "after_sha256": "ed11cf52cd792becc44eeec275f68857f0e9a17296e3b2da8b2a2642d543e55a",
+      "before_sha256": "7cbf714a444476003ca14fb439dd0af7b72722b811c86a51a29cceed249abe9a",
       "formatter": "clang-format version 22.1.5"
     },
     "firmware_p4/components/Service/highboy_muse/p4_app/hb_muse_app.h": {

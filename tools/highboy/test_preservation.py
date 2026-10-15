@@ -9,8 +9,10 @@ No firmware build, serial port, device, network or account API is used.
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -32,6 +34,7 @@ REVIEWED_MERGES = {
     "firmware_p4/sdkconfig.defaults",
     "firmware_p4/main/idf_component.yml",
     "firmware_p4/components/Service/app_runtime/include/tos_api.h",
+    "firmware_p4/components/Service/highboy_muse/p4_app/hb_muse_app.c",
     "firmware_p4/components/Applications/doom/doomgeneric_highboy.c",
     "firmware_p4/components/Service/storage_vfs/usb_msc.c",
     "firmware_p4/components/Service/console/commands/cmd_subghz.c",
@@ -49,6 +52,8 @@ REVIEWED_MERGES = {
     "firmware_p4/components/Applications/SubGhz/protocols/include/subghz_protocol_registry.h",
     "firmware_p4/components/Applications/SubGhz/protocols/include/subghz_protocol_utils.h",
 }
+
+REVIEWED_FIXTURES = {"pairing/test_setup.c", "p4_app/test_app.c"}
 
 C5_MEMORY = {
     "CONFIG_IDF_TARGET": '"esp32c5"',
@@ -118,6 +123,25 @@ def config_values(paths):
     return values
 
 
+def fixture_expected_content(item):
+    """Keep original evidence and require complete seals for explicitly reviewed fixtures."""
+    if not valid_hash(item.get("sha256")) or type(item.get("bytes")) is not int or item["bytes"] < 0:
+        raise ValueError("Invalid original fixture evidence")
+    review_fields = {"reviewed_sha256", "reviewed_bytes", "review_reason"}
+    present = review_fields.intersection(item)
+    if item.get("path") not in REVIEWED_FIXTURES:
+        if present:
+            raise ValueError("Unlisted fixture review")
+        return item["sha256"], item["bytes"]
+    if present != review_fields:
+        raise ValueError("Incomplete reviewed fixture evidence")
+    if (not valid_hash(item["reviewed_sha256"])
+            or type(item["reviewed_bytes"]) is not int or item["reviewed_bytes"] < 0
+            or not isinstance(item["review_reason"], str) or not item["review_reason"].strip()):
+        raise ValueError("Invalid reviewed fixture evidence")
+    return item["reviewed_sha256"], item["reviewed_bytes"]
+
+
 def verify_fixture_inventory():
     manifest = json.loads((FIXTURES / "PROVENANCE.json").read_text())
     records = manifest["files"]
@@ -130,7 +154,8 @@ def verify_fixture_inventory():
         raise ValueError("Host fixture inventory differs from provenance")
     for item in records:
         content = contained(FIXTURES, item["path"]).read_bytes()
-        if len(content) != item["bytes"] or digest(content) != item["sha256"]:
+        expected_hash, expected_size = fixture_expected_content(item)
+        if len(content) != expected_size or digest(content) != expected_hash:
             raise ValueError("Host fixture changed: " + item["path"])
     return len(records)
 
@@ -337,6 +362,48 @@ class FormattingProofTests(unittest.TestCase):
             self.assertFalse(formatting_chain_matches(self.item, self.formatted, proof))
 
 
+class FixtureProofTests(unittest.TestCase):
+    def setUp(self):
+        self.item = {"path": "tests/test_core.c", "sha256": digest(b"original"), "bytes": 8}
+
+    def reviewed(self):
+        return dict(self.item, path="p4_app/test_app.c", reviewed_sha256=digest(b"reviewed"),
+                    reviewed_bytes=8, review_reason="Explicit bounded fixture regression")
+
+    def test_original_fixture_evidence(self):
+        self.assertEqual(fixture_expected_content(self.item), (self.item["sha256"], 8))
+
+    def test_explicit_review_retains_original_hash(self):
+        item = self.reviewed()
+        self.assertEqual(fixture_expected_content(item), (item["reviewed_sha256"], 8))
+        self.assertEqual(item["sha256"], self.item["sha256"])
+
+    def test_unlisted_review_rejected(self):
+        item = self.reviewed()
+        item["path"] = "tests/test_core.c"
+        with self.assertRaises(ValueError):
+            fixture_expected_content(item)
+
+    def test_missing_review_fields_rejected(self):
+        for key in ("reviewed_sha256", "reviewed_bytes", "review_reason"):
+            item = self.reviewed()
+            del item[key]
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                fixture_expected_content(item)
+        item = dict(self.item, path="p4_app/test_app.c")
+        with self.assertRaises(ValueError):
+            fixture_expected_content(item)
+
+    def test_invalid_hash_size_and_reason_rejected(self):
+        for key, value in (("sha256", "bad"), ("bytes", -1), ("bytes", True),
+                           ("reviewed_sha256", "bad"), ("reviewed_bytes", -1),
+                           ("reviewed_bytes", True), ("review_reason", " ")):
+            item = self.reviewed()
+            item[key] = value
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                fixture_expected_content(item)
+
+
 class CanonicalHostTests(unittest.TestCase):
     """Compile canonical production sources with repository-contained fixtures."""
 
@@ -348,7 +415,8 @@ class CanonicalHostTests(unittest.TestCase):
     def setUp(self):
         if not RUN_HOST:
             self.skipTest("Host tests explicitly disabled")
-        if not FIXTURES.is_dir() or not shutil.which("cc"):
+        self.compiler = shlex.split(os.environ.get("CC", "cc"))
+        if not FIXTURES.is_dir() or not self.compiler or not shutil.which(self.compiler[0]):
             self.fail("Offline fixtures and a host C compiler are required; use --skip-host explicitly")
 
     def run_fixture(self, fixture, sources, includes=(), defines=(), scenarios=False):
@@ -365,7 +433,7 @@ class CanonicalHostTests(unittest.TestCase):
             test_source = directory / "fixture.c"
             shutil.copyfile(FIXTURES / fixture, test_source)
             binary = directory / "test"
-            command = ["cc", *flags, *["-D" + define for define in defines]]
+            command = [*self.compiler, *flags, *["-D" + define for define in defines]]
             for include in include_dirs:
                 command += ["-I", str(include)]
             command += [*map(str, sources), str(test_source), "-o", str(binary)]

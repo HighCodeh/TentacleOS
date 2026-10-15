@@ -87,7 +87,12 @@ static void release(void*u) { (void)u;assert(!lock_depth);++release_calls; }
 static bool services(void*u) { (void)u;assert(!lock_depth);return quiet; }
 static bool wifi(void*u,const char*s,const char*p,bool(*guard)(void*),void*g) {
     (void)u;assert(!lock_depth && !strcmp(s,"fixture-ssid") && !strcmp(p,"fixture-password"));
-    if(revoke_wifi) hb_muse_setup_revoke();if(expire_wifi) now_ms+=120000;
+    if(revoke_wifi) {
+        hb_muse_setup_revoke();
+    }
+    if(expire_wifi) {
+        now_ms+=120000;
+    }
     if(!guard(g)) return false;
     ++wifi_calls; return wifi_ok && guard(g);
 }
