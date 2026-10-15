@@ -1,0 +1,96 @@
+{
+  "description": "Explicit public deterministic host fixtures and boundary fakes only; no legacy production source or runtime assets.",
+  "source_snapshot": "Original local highboy_muse_port fixture bytes retained unchanged.",
+  "files": [
+    {
+      "path": "tests/test_core.c",
+      "source": "work/highboy_muse_port/tests/test_core.c",
+      "sha256": "b4040fac51df398588a4771588665be04c5e629367096564820b8cf462cfbe38",
+      "bytes": 15613
+    },
+    {
+      "path": "transport/test_wire.c",
+      "source": "work/highboy_muse_port/transport/test_wire.c",
+      "sha256": "242c0946d8bf8622b123b6b3073b63d6acd3cf3e1669e50ebf52661d7af805e9",
+      "bytes": 27879
+    },
+    {
+      "path": "transport/test_client.c",
+      "source": "work/highboy_muse_port/transport/test_client.c",
+      "sha256": "715548578ab7291292f9ca410cf20cb64e3e6bb5cf00a28c1278d861f69b3653",
+      "bytes": 22410
+    },
+    {
+      "path": "transport/test_endpoint.c",
+      "source": "work/highboy_muse_port/transport/test_endpoint.c",
+      "sha256": "8cc63c1bcfeda3f2f3244d1135613f3bc64eacd20e3fe9b6927d6d65ad1183ab",
+      "bytes": 19914
+    },
+    {
+      "path": "sdk_adapter/test_pcm_adapter.c",
+      "source": "work/highboy_muse_port/sdk_adapter/test_pcm_adapter.c",
+      "sha256": "fe37e3dbe2450b314e2f568333d4a420a964b1adba9dd954505c851ae237249f",
+      "bytes": 20294
+    },
+    {
+      "path": "pairing/test_transport.c",
+      "source": "work/highboy_muse_port/pairing/test_transport.c",
+      "sha256": "9cb190ea48453408ffa3881fa7c6d9c0a1301cce4d8d7e1bd796870bc3ee8f21",
+      "bytes": 7168
+    },
+    {
+      "path": "pairing/test_pairing.c",
+      "source": "work/highboy_muse_port/pairing/test_pairing.c",
+      "sha256": "61eba1b644cc9174783b986de6fb5ffd34ac1079f8342029a4a73d2adafe770b",
+      "bytes": 24580
+    },
+    {
+      "path": "pairing/test_setup.c",
+      "source": "work/highboy_muse_port/pairing/test_setup.c",
+      "sha256": "9a2d335181b62c1529e92a83008ebf8e6be9eba1ac23b96f8215897e462d3437",
+      "bytes": 13691
+    },
+    {
+      "path": "pairing/setup_host.h",
+      "source": "work/highboy_muse_port/pairing/setup_host.h",
+      "sha256": "2711454ca27d77aa771afba63ff7a2ce02b7484f08b8ba2521c43f01d03b7cb5",
+      "bytes": 483
+    },
+    {
+      "path": "pairing/gatt_fakes/host/ble_gatt.h",
+      "source": "work/highboy_muse_port/pairing/gatt_fakes/host/ble_gatt.h",
+      "sha256": "237156ad1d4957194556c509f1fb81ec53dde018e2605875baa3252c64efd09f",
+      "bytes": 1553
+    },
+    {
+      "path": "pairing/gatt_fakes/host/ble_hs.h",
+      "source": "work/highboy_muse_port/pairing/gatt_fakes/host/ble_hs.h",
+      "sha256": "ab0f5e56928a72b550661829acb3518277b572658c98874528dd49c010e1309c",
+      "bytes": 22
+    },
+    {
+      "path": "pairing/gatt_fakes/host/ble_uuid.h",
+      "source": "work/highboy_muse_port/pairing/gatt_fakes/host/ble_uuid.h",
+      "sha256": "ab0f5e56928a72b550661829acb3518277b572658c98874528dd49c010e1309c",
+      "bytes": 22
+    },
+    {
+      "path": "bridge/test_rpc.c",
+      "source": "work/highboy_muse_port/bridge/test_rpc.c",
+      "sha256": "d27b8df261b33206f4eba881e90256c4b70aad3c45cc83cfa35aa5122a428a93",
+      "bytes": 7699
+    },
+    {
+      "path": "p4_app/test_app.c",
+      "source": "work/highboy_muse_port/p4_app/test_app.c",
+      "sha256": "c84861080f0301190490d4a677d671f688f06f39797f4ae33c59b6a52ac8f4c6",
+      "bytes": 12555
+    },
+    {
+      "path": "integrated_c5/test_wifi_json_bound.c",
+      "source": "work/highboy_muse_port/integrated_c5/test_wifi_json_bound.c",
+      "sha256": "6a972416d491476e14c31d864dc724be797ef086cbaf80c2a4f28f57509fb4f7",
+      "bytes": 1322
+    }
+  ]
+}
