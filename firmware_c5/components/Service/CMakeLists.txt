@@ -14,6 +14,9 @@
 # along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 set(VERSION_META_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../common/metadata")
+if(NOT EXISTS "${VERSION_META_DIR}/version_info.txt")
+  set(VERSION_META_DIR "${CMAKE_CURRENT_LIST_DIR}/../../common/metadata")
+endif()
 set(VERSION_INFO_FILE "${VERSION_META_DIR}/version_info.txt")
 file(STRINGS "${VERSION_INFO_FILE}" FW_VERSION LIMIT_COUNT 1)
 string(STRIP "${FW_VERSION}" FW_VERSION)
@@ -32,6 +35,8 @@ file(GLOB_RECURSE HOST_LINK_SRCS "host_link/*.c")
 idf_component_register(SRCS 
   "wifi/wifi_service.c"
   "wifi/mac_vendor.c"
+  "grok_wifi/grok_wifi.c"
+  "grok_wifi/grok_wifi_core.c"
   "http_server/http_server_service.c"
   "dns_server/dns_server.c"
   "bluetooth/bluetooth_service.c"
@@ -56,6 +61,7 @@ idf_component_register(SRCS
   ${HOST_LINK_SRCS}
   INCLUDE_DIRS
   "wifi/include"
+  "grok_wifi/include"
   "http_server/include"
   "dns_server/include"
   "bluetooth/include"
@@ -76,12 +82,16 @@ idf_component_register(SRCS
 
   REQUIRES 
     sdmmc
-    driver  
+    driver
+    esp_driver_uart
+    highboy_muse
     vfs
     fatfs
     esp_timer
     esp_common
     esp_netif
+    esp-tls
+    mbedtls
     esp_app_format
     app_update
     Drivers

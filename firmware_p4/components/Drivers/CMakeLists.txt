@@ -16,6 +16,8 @@
 file(GLOB_RECURSE ST25R3916_SRCS "st25r3916/*.c")
 file(GLOB_RECURSE YS_RFID2_SRCS "ys_rfid2/*.c")
 file(GLOB_RECURSE SX1262_SRCS "sx1262/*.c")
+file(GLOB_RECURSE LF_RFID_SRCS "lf_rfid/*.c")
+file(GLOB_RECURSE RF_FRONTEND_SRCS "rf_frontend/*.c")
 
 
 idf_component_register(SRCS
@@ -33,10 +35,14 @@ idf_component_register(SRCS
   "input_manager/input_manager.c"
   "spi_bridge_phy/spi_bridge_phy.c"
   "audio_i2s/audio_i2s.c"
+  "grok_usb_audio/grok_usb_audio.c"
   "drv2605l/drv2605l.c"
+  "qmi8658a/qmi8658a.c"
   ${ST25R3916_SRCS}
   ${YS_RFID2_SRCS}
   ${SX1262_SRCS}
+  ${LF_RFID_SRCS}
+  ${RF_FRONTEND_SRCS}
 
   INCLUDE_DIRS
   "sys_prio/include"
@@ -53,12 +59,16 @@ idf_component_register(SRCS
   "gpio_header/include"
   "spi_bridge_phy/include"
   "audio_i2s/include"
+  "grok_usb_audio/include"
   "drv2605l/include"
+  "qmi8658a/include"
   "st25r3916/include"
   "st25r3916/hal/include"
   "ys_rfid2/include"
   "ys_rfid2/hal/include"
   "sx1262/include"
+  "lf_rfid/include"
+  "rf_frontend/include"
 
   REQUIRES
   driver
@@ -66,6 +76,7 @@ idf_component_register(SRCS
   Service
   esp_lcd
   PRIV_REQUIRES
+  esp_timer
   esp_tinyusb
   soc
-  "espressif__led_strip")
+  "led_strip")

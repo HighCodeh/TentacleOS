@@ -1,3 +1,10 @@
+# Integrated High Boy development checkout
+
+This local branch preserves the customized Muse-enabled P4/C5 firmware while
+integrating `dev` at `011ed7d`. Read [the integration guide](docs/highboy/README.md)
+before building or deploying. The upstream instructions below are background;
+the integrated C5 uses its separate IDF 6.0.1 lane. No automatic flash is enabled.
+
 <p align="center">
   <img src="pics/banner.png" alt="HighBoy Banner" width="1000"/>
 </p>

@@ -18,6 +18,9 @@
 
 # Configuration
 PROJECT_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." &> /dev/null && pwd)
+if [ -f "$PROJECT_ROOT/integration/import.json" ]; then
+    exec bash "$PROJECT_ROOT/tools/highboy/build.command" "$@"
+fi
 C5_DIR="$PROJECT_ROOT/firmware_c5"
 P4_DIR="$PROJECT_ROOT/firmware_p4"
 

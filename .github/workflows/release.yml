@@ -25,6 +25,14 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Gate legacy full-firmware release for the integrated profile
+        run: |
+          if [ -f integration/import.json ]; then
+            echo "::error::Integrated High Boy outputs are app-only candidates, not full-flash releases."
+            echo "::error::Use the per-target CI artifacts; review assets, partition migration and paired deployment before enabling public releases."
+            exit 1
+          fi
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22

@@ -14,6 +14,9 @@
 # along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 set(VERSION_META_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../common/metadata")
+if(NOT EXISTS "${VERSION_META_DIR}/version_info.txt")
+  set(VERSION_META_DIR "${CMAKE_CURRENT_LIST_DIR}/../../common/metadata")
+endif()
 set(VERSION_INFO_FILE "${VERSION_META_DIR}/version_info.txt")
 file(STRINGS "${VERSION_INFO_FILE}" FW_VERSION LIMIT_COUNT 1)
 string(STRIP "${FW_VERSION}" FW_VERSION)
@@ -43,6 +46,9 @@ idf_component_register(SRCS
   "icons/icons.c"
   "wifi/wifi_service.c"
   "boot_report/boot_report.c"
+  "boot_sound/boot_sound.c"
+  "fly_link/fly_link.c"
+  "muse/hb_muse_p4_service.c"
   "sys_time/sys_time.c"
   "power_manager/power_manager.c"
   "power_manager/power_manager_usb.c"
@@ -91,6 +97,9 @@ idf_component_register(SRCS
   "icons/include"
   "wifi/include"
   "boot_report/include"
+  "boot_sound/include"
+  "fly_link/include"
+  "muse"
   "sys_time/include"
   "power_manager/include"
   "ir/include"
@@ -140,6 +149,8 @@ idf_component_register(SRCS
     esp_mm
     libsodium
     resource_mgr
+    highboy_muse
+    esp-libhelix-mp3
 )
 
 # C5 firmware is NOT embedded in the P4 binary anymore. c5_flasher.c streams the
@@ -148,3 +159,5 @@ idf_component_register(SRCS
 # ROM-recovery path (c5_rom_flasher.c) compiles to its graceful stub.
 target_compile_definitions(${COMPONENT_LIB} PRIVATE C5_FIRMWARE_EMBEDDED=0)
 target_compile_definitions(${COMPONENT_LIB} PRIVATE C5_ROM_IMAGES_EMBEDDED=0)
+
+set_source_files_properties("muse/hb_muse_p4_service.c" PROPERTIES COMPILE_OPTIONS "-Os;-flto=2;-ffat-lto-objects")

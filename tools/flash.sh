@@ -17,6 +17,11 @@
 
 
 PROJECT_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." &> /dev/null && pwd)
+if [ -f "$PROJECT_ROOT/integration/import.json" ]; then
+    echo 'This integrated checkout is build-only. Review the paired release manifest and device layout before flashing.' >&2
+    echo 'No firmware or assets were written. See docs/highboy/README.md.' >&2
+    exit 2
+fi
 P4_DIR="$PROJECT_ROOT/firmware_p4"
 
 GREEN='\033[0;32m'

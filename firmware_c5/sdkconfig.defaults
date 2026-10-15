@@ -42,6 +42,15 @@ CONFIG_SPIRAM_SPEED_40M=y
 CONFIG_SPIRAM_IGNORE_NOTFOUND=y
 CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y
 
+# mbedTLS uses the standard allocator: large TLS record buffers prefer PSRAM;
+# smaller allocations prefer internal RAM and can fall back to PSRAM. Keep the
+# 16 KiB TLS input record capacity and certificate/hostname verification intact.
+# This is a global crypto allocation policy, including Wi-Fi/NimBLE users.
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384
+# CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC is not set
+CONFIG_MBEDTLS_DEFAULT_MEM_ALLOC=y
+
 # Larger stack for kernel_init
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 

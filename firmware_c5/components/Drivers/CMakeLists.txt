@@ -35,4 +35,4 @@ idf_component_register(SRCS
   Service
   esp_lcd
   PRIV_REQUIRES
-  "espressif__led_strip")
+  "led_strip")

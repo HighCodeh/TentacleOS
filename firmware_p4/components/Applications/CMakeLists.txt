@@ -118,6 +118,7 @@ idf_component_register(SRCS
   "ui/components/error/include"
   "ui/components/feedback/include"
   "ui/components/footer/include"
+  "ui/components/hb_viz/include"
   "ui/components/header/include"
   "ui/components/intensity_bar/include"
   "ui/components/keyboard/include"
@@ -152,11 +153,12 @@ idf_component_register(SRCS
   bt
   libsodium
   mqtt
-  joltwallet__littlefs
+  littlefs
   nvs_flash
-  espressif__esp-dsp
-  chmorgan__esp-libhelix-mp3
+  esp-dsp
+  esp-libhelix-mp3
   resource_mgr
+  highboy_muse
 )
 target_link_libraries(${COMPONENT_LIB} -Wl,-zmuldefs)
 target_compile_definitions(${COMPONENT_LIB} PRIVATE MESH_HEADLESS=0)
@@ -164,3 +166,24 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE MESH_HEADLESS=0)
 # lv_anim_exec_xcb_t for animations; GCC14/IDF5 flags this under
 # -Wcast-function-type. Downgrade it from error for this component.
 target_compile_options(${COMPONENT_LIB} PRIVATE -Wno-error=cast-function-type)
+
+set_source_files_properties("ui/screens/apps/muse_ui.c" PROPERTIES COMPILE_OPTIONS "-Os;-flto=2;-ffat-lto-objects")
+
+set_source_files_properties("ui/screens/games/games_menu_ui.c" PROPERTIES COMPILE_OPTIONS "-Os;-flto=2;-ffat-lto-objects")
+
+set_source_files_properties("ui/screens/apps/grok_idle_ui.c" PROPERTIES COMPILE_OPTIONS "-Os;-flto=2;-ffat-lto-objects")
+
+set_source_files_properties("ui/ui_manager.c" "ui/screens/settings/settings_ui.c" "ui/screens/apps/apps_ui.c" PROPERTIES COMPILE_OPTIONS "-Os")
+
+file(GLOB HIGHBOY_SIZE_UI "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/settings/*.c")
+set_source_files_properties(${HIGHBOY_SIZE_UI} PROPERTIES COMPILE_OPTIONS "-Os")
+
+# Layout/control screens favor code size; radio, audio and emulator cores keep -O2.
+file(GLOB HIGHBOY_SIZE_NFC_UI "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/nfc/*.c")
+set_source_files_properties(
+  "ui/ui_theme.c"
+  "ui/screens/home/home_ui.c"
+  "ui/screens/menu/menu_ui.c"
+  "ui/screens/connect_wifi/connect_wifi_ui.c"
+  ${HIGHBOY_SIZE_NFC_UI}
+  PROPERTIES COMPILE_OPTIONS "-Os")

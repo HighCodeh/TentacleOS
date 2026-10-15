@@ -1,5 +1,15 @@
 # TentacleOS — Agent Instructions
 
+## Local integrated branch exception
+
+This checkout includes the verified High Boy Muse integration. Read
+`docs/highboy/README.md` before changing build, protocol or deployment paths.
+`tools/build.sh` routes to an offline app-only build: P4 uses IDF v5.5.3, C5 uses
+IDF v6.0.1 for its Muse integration. Preserve the paired protocol v8 headers and
+the C5 memory overlay. Do not run older external `prepare.py` generators here.
+`tools/flash.sh` is intentionally gated pending a reviewed restore package;
+upstream's generic flash commands below are not valid for this local candidate.
+
 ## Project Overview
 
 Embedded firmware for the High Boy platform (ESP32-S3/P4/C5). Dual-firmware architecture: ESP32-C5 is the co-processor, ESP32-P4 is the master that embeds the C5 binary at build time.

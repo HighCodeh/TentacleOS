@@ -7,6 +7,8 @@ README.md, separated by `---`.
 
 ## Featured
 
+- [highboy/](highboy/README.md) - integrated dev + local Muse pair, build lanes, preservation and deployment gates
+
 - [host_link/](host_link/README.md) - companion app link: overview, [app implementation guide](host_link/app-guide.md), [protocol spec](host_link/protocol.md), per-firmware sections
 - [spi_bridge/](spi_bridge/README.md) - P4<->C5 SPI bridge: architecture + per-firmware sections
 - [app_sdk/](app_sdk/README.md) - **write an app for the device**: build, sign, install, run (loads signed `.hb` bundles from SD; plan in [`../APP_PLATFORM_PLAN.md`](../APP_PLATFORM_PLAN.md))
@@ -30,6 +32,7 @@ README.md, separated by `---`.
 | `esp_now` | [README.md](esp_now/README.md)  |
 | `espnow_chat` | [README.md](espnow_chat/README.md)  |
 | `gameboy` | [README.md](gameboy/README.md) - Game Boy emulator application |
+| `doom` | [README.md](doom/README.md) - DOOM input and internal-DMA strip rendering |
 | `host_link` | [app-guide.md](host_link/app-guide.md) [protocol.md](host_link/protocol.md) [README.md](host_link/README.md)  |
 | `http_server` | [README.md](http_server/README.md)  |
 | `i2c_init` | [README.md](i2c_init/README.md) - shared I2C bus initialization driver |

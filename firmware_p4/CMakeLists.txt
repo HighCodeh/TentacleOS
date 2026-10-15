@@ -11,10 +11,36 @@ set(IDF_TARGET "esp32p4")
 set(EXTRA_COMPONENT_DIRS
     "${CMAKE_CURRENT_LIST_DIR}/components/Applications/gameboy"
     "${CMAKE_CURRENT_LIST_DIR}/components/Applications/doom"
+    "${CMAKE_CURRENT_LIST_DIR}/components/Core/resource_mgr"
     "${CMAKE_CURRENT_LIST_DIR}/components/Service/fatfs"
-    "${CMAKE_CURRENT_LIST_DIR}/components/Core/resource_mgr")
+    "${CMAKE_CURRENT_LIST_DIR}/components/Service/highboy_muse")
 
+list(APPEND EXTRA_COMPONENT_DIRS
+    "${CMAKE_CURRENT_LIST_DIR}/vendor/esp-libhelix-mp3"
+    "${CMAKE_CURRENT_LIST_DIR}/vendor/argtable3"
+    "${CMAKE_CURRENT_LIST_DIR}/vendor/cjson"
+    "${CMAKE_CURRENT_LIST_DIR}/vendor/esp-dsp"
+    "${CMAKE_CURRENT_LIST_DIR}/vendor/esp-serial-flasher"
+    "${CMAKE_CURRENT_LIST_DIR}/vendor/esp_lvgl_port"
+    "${CMAKE_CURRENT_LIST_DIR}/vendor/esp_tinyusb"
+    "${CMAKE_CURRENT_LIST_DIR}/vendor/led_strip"
+    "${CMAKE_CURRENT_LIST_DIR}/vendor/libsodium"
+    "${CMAKE_CURRENT_LIST_DIR}/vendor/tinyusb"
+    "${CMAKE_CURRENT_LIST_DIR}/vendor/usb_host_cdc_acm"
+    "${CMAKE_CURRENT_LIST_DIR}/vendor/usb_host_ch34x_vcp"
+    "${CMAKE_CURRENT_LIST_DIR}/vendor/usb_host_cp210x_vcp"
+    "${CMAKE_CURRENT_LIST_DIR}/vendor/littlefs"
+    "${CMAKE_CURRENT_LIST_DIR}/vendor/lvgl"
+)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+
+# Runtime opt-in USB headset; can be compiled out if a release cannot afford it.
+option(HIGH_BOY_USB_VOICE "Build experimental High Boy USB audio mode" OFF)
+if(HIGH_BOY_USB_VOICE)
+    idf_build_set_property(COMPILE_DEFINITIONS "HB_GROK_USB_AUDIO_ENABLED=1" APPEND)
+    idf_build_set_property(COMPILE_DEFINITIONS
+        "CFG_TUSB_CONFIG_FILE=\"${CMAKE_CURRENT_LIST_DIR}/components/Drivers/grok_usb_audio/include/grok_tusb_config.h\"" APPEND)
+endif()
 
 # The -O2 perf build (CONFIG_COMPILER_OPTIMIZATION_PERF) makes GCC run the flow
 # analysis behind -Wstringop-truncation / -Wformat-truncation / -Wstringop-overflow
@@ -32,40 +58,4 @@ idf_build_set_property(COMPILE_OPTIONS "-Wno-error=maybe-uninitialized" APPEND)
 
 project(TentacleOS_P4)
 
-if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
-    # Windows Detection
-    message(STATUS "Host System: Windows. Using PowerShell script.")
-    set(CONVERT_SCRIPT "${CMAKE_SOURCE_DIR}/../tools/png_to_bin/png_conversor_to_bin.ps1")
-    set(CONVERT_COMMAND powershell.exe -ExecutionPolicy Bypass -File "${CONVERT_SCRIPT}")
-    
-elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
-    # Linux or macOS Detection
-    message(STATUS "Host System: ${CMAKE_HOST_SYSTEM_NAME}. Using Bash script.")
-    set(CONVERT_SCRIPT "${CMAKE_SOURCE_DIR}/../tools/png_to_bin/png_conversor_to_bin.sh")
-    set(CONVERT_COMMAND bash "${CONVERT_SCRIPT}")
-    
-else()
-    message(FATAL_ERROR "Unsupported Operating System: ${CMAKE_HOST_SYSTEM_NAME}")
-endif()
-
-# Execute the conversion process
-execute_process(
-    COMMAND ${CONVERT_COMMAND}
-    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    RESULT_VARIABLE convert_result
-)
-
-if(NOT convert_result EQUAL 0)
-    message(FATAL_ERROR "Failed to convert assets. Check the logs above for details.")
-endif()
-
-file(STRINGS "${CMAKE_CURRENT_LIST_DIR}/../common/metadata/version_info.txt" FW_VERSION LIMIT_COUNT 1)
-string(STRIP "${FW_VERSION}" FW_VERSION)
-set(FW_JSON "${CMAKE_CURRENT_LIST_DIR}/temp/config/OTA/firmware.json")
-if(EXISTS "${FW_JSON}")
-    file(READ "${FW_JSON}" _fw_json)
-    string(REGEX REPLACE "\"version\"[ \t]*:[ \t]*\"[^\"]*\"" "\"version\": \"${FW_VERSION}\"" _fw_json "${_fw_json}")
-    file(WRITE "${FW_JSON}" "${_fw_json}")
-endif()
-
-littlefs_create_partition_image(assets temp FLASH_IN_PROJECT)
+# APP-only: assets, SD, c5fw and boot metadata are untouched.
