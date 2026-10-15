@@ -20,8 +20,11 @@
 extern "C" {
 #endif
 
-/** @brief Open the EMV bank-card face screen (scheme, chip, masked PAN, AID). */
+/** @brief Open the read-only EMV contactless inspector. */
 void ui_nfc_bankcard_open(void);
+
+/** @brief Stop any active EMV scan and release the RF/power resources. */
+void ui_nfc_bankcard_stop(void);
 
 #ifdef __cplusplus
 }

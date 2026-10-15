@@ -24,7 +24,7 @@ extern "C" {
 #include "highboy_nfc_error.h"
 #include "highboy_nfc_compat.h"
 
-#define NFC_SCANNER_MAX_PROTOCOLS 4
+#define NFC_SCANNER_MAX_PROTOCOLS 8
 
 /**
  * @brief Scanner event containing detected protocols.

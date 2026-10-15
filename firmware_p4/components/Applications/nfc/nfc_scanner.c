@@ -65,16 +65,15 @@ hb_nfc_err_t nfc_scanner_start(nfc_scanner_t *s, nfc_scanner_cb_t cb, void *ctx)
     ESP_LOGI(TAG, "NFC-A found UID len=%u SAK=0x%02X", card_a.uid_len, card_a.sak);
     evt.protocols[evt.count++] = HB_PROTO_ISO14443_3A;
     nfc_card_type_info_t info = nfc_card_info_identify(card_a.sak, card_a.atqa);
-    if (info.is_mf_classic)
+    if (card_a.sak == NFC_SAK_PLUS_2K_SL2 || card_a.sak == NFC_SAK_PLUS_4K_SL2)
+      evt.protocols[evt.count++] = HB_PROTO_MF_PLUS;
+    else if (info.is_mf_classic)
       evt.protocols[evt.count++] = HB_PROTO_MF_CLASSIC;
     else if (info.is_mf_ultralight)
       evt.protocols[evt.count++] = HB_PROTO_MF_ULTRALIGHT;
-    else if (card_a.sak == NFC_SAK_ISO_DEP)
-      evt.protocols[evt.count++] = HB_PROTO_MF_PLUS;
     else if (info.is_iso_dep)
       evt.protocols[evt.count++] = HB_PROTO_ISO14443_4A;
     result = HB_NFC_OK;
-    goto done;
   }
 
   /* Step 2: NFC-B (ISO 14443-3B) */
@@ -89,9 +88,9 @@ hb_nfc_err_t nfc_scanner_start(nfc_scanner_t *s, nfc_scanner_cb_t cb, void *ctx)
                card_b.pupi[2],
                card_b.pupi[3]);
       evt.protocols[evt.count++] = HB_PROTO_ISO14443_3B;
-      evt.protocols[evt.count++] = HB_PROTO_ISO14443_4B;
+      if (iso14443b_attrib(&card_b, 8, 0) == HB_NFC_OK)
+        evt.protocols[evt.count++] = HB_PROTO_ISO14443_4B;
       result = HB_NFC_OK;
-      goto done;
     }
   }
 
@@ -108,7 +107,6 @@ hb_nfc_err_t nfc_scanner_start(nfc_scanner_t *s, nfc_scanner_cb_t cb, void *ctx)
                tag_f.idm[3]);
       evt.protocols[evt.count++] = HB_PROTO_FELICA;
       result = HB_NFC_OK;
-      goto done;
     }
   }
 
@@ -125,11 +123,9 @@ hb_nfc_err_t nfc_scanner_start(nfc_scanner_t *s, nfc_scanner_cb_t cb, void *ctx)
                tag_v.uid[3]);
       evt.protocols[evt.count++] = HB_PROTO_ISO15693;
       result = HB_NFC_OK;
-      goto done;
     }
   }
 
-done:
   /* Restore NFC-A mode as default regardless of outcome. */
   nfc_poller_start();
 

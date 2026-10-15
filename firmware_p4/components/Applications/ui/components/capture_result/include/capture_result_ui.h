@@ -45,6 +45,15 @@ typedef enum {
   CAP_ACT_MAX,         ///< action count sentinel
 } capture_action_t;
 
+#define CAP_RESULT_MAX_ACTIONS 8
+
+/** One row in a protocol-specific post-capture action list. */
+typedef struct {
+  int id;
+  const char *symbol;
+  const char *label;
+} capture_result_action_cfg_t;
+
 /**
  * @brief Configuration for a capture-result panel.
  */
@@ -62,14 +71,16 @@ typedef struct {
  * @brief Runtime handle for a capture-result panel.
  */
 typedef struct {
-  lv_obj_t *root;                ///< root container of the panel
-  lv_obj_t *rows[CAP_ACT_MAX];   ///< action row containers
-  lv_obj_t *icons[CAP_ACT_MAX];  ///< action row icon labels
-  lv_obj_t *labels[CAP_ACT_MAX]; ///< action row text labels
-  int count;                     ///< number of active actions
-  int sel;                       ///< index of the highlighted action
-  bool saved;                    ///< true once the Save row is confirmed
-  lv_color_t accent;             ///< protocol accent colour
+  lv_obj_t *root;                           ///< root container of the panel
+  lv_obj_t *rows[CAP_RESULT_MAX_ACTIONS];   ///< action row containers
+  lv_obj_t *icons[CAP_RESULT_MAX_ACTIONS];  ///< action row icon labels
+  lv_obj_t *labels[CAP_RESULT_MAX_ACTIONS]; ///< action row text labels
+  int action_ids[CAP_RESULT_MAX_ACTIONS];   ///< caller-defined action identifiers
+  bool done[CAP_RESULT_MAX_ACTIONS];        ///< rows marked complete
+  int count;                                ///< number of active actions
+  int sel;                                  ///< index of the highlighted action
+  bool saved;                               ///< true once the Save row is confirmed
+  lv_color_t accent;                        ///< protocol accent colour
 } capture_result_t;
 
 /**
@@ -84,6 +95,12 @@ typedef struct {
  * @return The panel handle, returned by value.
  */
 capture_result_t capture_result_create(lv_obj_t *parent, const capture_result_cfg_t *cfg);
+
+/** Build a post-capture panel with a protocol-specific action list. */
+capture_result_t capture_result_create_custom(lv_obj_t *parent,
+                                              const capture_result_cfg_t *cfg,
+                                              const capture_result_action_cfg_t *actions,
+                                              int action_count);
 
 /**
  * @brief Move the highlight to the next action.
@@ -104,11 +121,17 @@ void capture_result_prev(capture_result_t *cr);
  */
 capture_action_t capture_result_selected(const capture_result_t *cr);
 
+/** Return the caller-defined identifier for the highlighted row. */
+int capture_result_selected_id(const capture_result_t *cr);
+
 /**
  * @brief Relabel the Save row to a "Saved" confirmation (call after persisting).
  * @param cr  Panel handle.
  */
 void capture_result_mark_saved(capture_result_t *cr);
+
+/** Mark a caller-defined action row as completed and optionally relabel it. */
+void capture_result_mark_action_done(capture_result_t *cr, int action_id, const char *label);
 
 /**
  * @brief Delete the panel's objects (e.g. before starting a fresh capture).

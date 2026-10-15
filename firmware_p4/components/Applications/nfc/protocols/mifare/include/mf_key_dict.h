@@ -34,15 +34,16 @@ extern "C" {
 #endif
 
 /** @brief Maximum number of keys held in the in-memory dictionary. */
-#define MF_KEY_DICT_MAX_KEYS 256
+#define MF_KEY_DICT_MAX_KEYS 384
 
 /**
  * @brief Initialize the key dictionary (load default + user .dic files).
  *
- * Reads `mf_classic_default.dic` and `mf_classic_user.dic` from the NFC
- * dictionary path on the SD card, falling back to the flash partition.
- * Also migrates the legacy NVS namespace ("nfc_dict") into the user file
- * the first time it runs after upgrade.
+ * Seeds from the firmware's built-in dictionaries, then merges all matching
+ * dictionaries from
+ * the SD card. This keeps firmware updates and user keys.
+ * Also migrates the legacy NVS namespace
+ * ("nfc_dict") into the user file the first time it runs after upgrade.
  */
 void mf_key_dict_init(void);
 

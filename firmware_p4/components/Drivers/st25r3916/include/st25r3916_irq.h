@@ -45,6 +45,17 @@ typedef struct {
 esp_err_t st25r3916_irq_read(st25r3916_irq_status_t *out_status);
 
 /**
+ * @brief Clear latched interrupt status before starting a new RF exchange.
+ *
+ * The ST25R3916B
+ * interrupt status registers are read-to-clear. In
+ * particular, a delayed CRC/parity indication
+ * from the previous receive
+ * must not be mistaken for a failure of the next transmission.
+ */
+esp_err_t st25r3916_irq_clear(void);
+
+/**
  * @brief Read IRQ status and log all fields at WARN level.
  *
  * @param ctx Context string.
@@ -61,6 +72,27 @@ void st25r3916_irq_log(const char *ctx, uint16_t fifo_count);
  * - ESP_FAIL on hardware error.
  */
 esp_err_t st25r3916_irq_wait_txe(void);
+
+/**
+ * @brief Wait for the receiver to finish a complete RF frame.
+ *
+ * The interrupt registers are
+ * read-to-clear, therefore this routine also
+ * accumulates every status bit observed while
+ * waiting.  Callers must wait for
+ * RXE before draining the FIFO; a non-empty FIFO only means that
+ * reception is
+ * in progress, not that the frame is complete.
+ *
+ * @param timeout_ms Maximum wait
+ * in milliseconds.
+ * @param[out] out_status Accumulated interrupt snapshot. May be NULL.
+ *
+ * @return ESP_OK on RXE, ESP_ERR_TIMEOUT when no complete frame arrived, or
+ *         ESP_FAIL on
+ * an SPI read failure.
+ */
+esp_err_t st25r3916_irq_wait_rxe(int32_t timeout_ms, st25r3916_irq_status_t *out_status);
 
 #ifdef __cplusplus
 }

@@ -27,10 +27,18 @@
 
 static const char *TAG = "iso_dep";
 
+/* The PCD block number belongs to the active ISO-DEP session and must
+ * alternate between APDUs.
+ * Keeping it local to iso_dep_transceive() made the
+ * first SELECT work while the following
+ * EMV/NDEF command was rejected. */
+static uint8_t s_pcd_block_num = 0;
+
 /* ISO-DEP PCB helpers (best-effort values) */
 #define ISO_DEP_PCB_I_BLOCK 0x02U
 #define ISO_DEP_PCB_I_CHAIN 0x10U
 #define ISO_DEP_PCB_R_ACK   0xA2U
+#define ISO_DEP_PCB_R_NAK   0xB2U
 #define ISO_DEP_PCB_S_WTX   0xF2U
 
 /* ISO-DEP timing and protocol constants */
@@ -85,6 +93,7 @@ static const char *TAG = "iso_dep";
 #define ISO_DEP_GET_RESPONSE_RETRIES 8
 #define ISO_DEP_APDU_MIN_LEN         5
 #define ISO_DEP_INFO_FIELD_OFFSET    1
+#define ISO_DEP_LINK_RETRIES         2
 
 static size_t iso_dep_fsc_from_fsci(uint8_t fsci);
 static int iso_dep_fwt_ms(uint8_t fwi);
@@ -94,6 +103,8 @@ static bool iso_dep_is_r_block(uint8_t pcb);
 static bool iso_dep_is_s_block(uint8_t pcb);
 static bool iso_dep_is_wtx(uint8_t pcb);
 static int iso_dep_strip_crc(uint8_t *buf, int len);
+static int
+iso_dep_request_retransmit(uint8_t block_num, uint8_t *rx, size_t rx_max, int timeout_ms);
 
 static size_t iso_dep_fsc_from_fsci(uint8_t fsci) {
   static const uint16_t tbl[] = {16, 24, 32, 40, 48, 64, 96, 128, 256};
@@ -162,7 +173,27 @@ static int iso_dep_strip_crc(uint8_t *buf, int len) {
   return len;
 }
 
+static int
+iso_dep_request_retransmit(uint8_t block_num, uint8_t *rx, size_t rx_max, int timeout_ms) {
+  uint8_t rnak[1] = {(uint8_t)(ISO_DEP_PCB_R_NAK | (block_num & ISO_DEP_BLOCK_NUM_MASK))};
+
+  for (int attempt = 1; attempt <= ISO_DEP_LINK_RETRIES; attempt++) {
+    ESP_LOGW(TAG,
+             "ISO-DEP RX recovery: R-NAK PCB=0x%02X attempt=%d/%d",
+             rnak[0],
+             attempt,
+             ISO_DEP_LINK_RETRIES);
+    int len = nfc_poller_transceive(
+        rnak, sizeof(rnak), true, rx, rx_max, ISO_DEP_TRANSCEIVE_MIN_LEN, timeout_ms);
+    if (len > 0) {
+      return iso_dep_strip_crc(rx, len);
+    }
+  }
+  return 0;
+}
+
 hb_nfc_err_t iso_dep_rats(uint8_t fsdi, uint8_t cid, nfc_iso_dep_data_t *dep) {
+  s_pcd_block_num = 0;
   uint8_t cmd[ISO_DEP_RATS_LEN] = {
       ISO_DEP_RATS_CMD,
       (uint8_t)((fsdi << ISO_DEP_RATS_FSDI_SHIFT) | (cid & ISO_DEP_RATS_CID_MASK))};
@@ -226,7 +257,7 @@ int iso_dep_transceive(const nfc_iso_dep_data_t *dep,
 
   uint8_t rbuf[ISO_DEP_TRANSCEIVE_BUF_SIZE] = {0};
   int rlen = 0;
-  uint8_t block_num = 0;
+  uint8_t block_num = s_pcd_block_num;
 
   size_t off = 0;
   while (off < tx_len) {
@@ -248,9 +279,13 @@ int iso_dep_transceive(const nfc_iso_dep_data_t *dep,
                                  sizeof(rbuf),
                                  ISO_DEP_TRANSCEIVE_MIN_LEN,
                                  base_timeout);
-    if (rlen <= 0)
-      return 0;
-    rlen = iso_dep_strip_crc(rbuf, rlen);
+    if (rlen <= 0) {
+      rlen = iso_dep_request_retransmit(block_num, rbuf, sizeof(rbuf), base_timeout);
+      if (rlen <= 0)
+        return 0;
+    } else {
+      rlen = iso_dep_strip_crc(rbuf, rlen);
+    }
 
     if (chaining) {
       if (!iso_dep_is_r_block(rbuf[0])) {
@@ -293,8 +328,10 @@ int iso_dep_transceive(const nfc_iso_dep_data_t *dep,
         memcpy(&rx[out_len], &rbuf[ISO_DEP_INFO_FIELD_OFFSET], inf_len);
       out_len += (int)inf_len;
 
-      if (!chaining)
+      if (!chaining) {
+        s_pcd_block_num = block_num ^ ISO_DEP_BLOCK_NUM_MASK;
         return out_len;
+      }
 
       uint8_t rack[1] = {(uint8_t)(ISO_DEP_PCB_R_ACK | (pcb & ISO_DEP_BLOCK_NUM_MASK))};
       rlen = nfc_poller_transceive(

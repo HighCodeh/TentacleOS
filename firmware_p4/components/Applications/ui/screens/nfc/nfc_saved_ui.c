@@ -289,6 +289,7 @@ static void nfc_saved_input(const input_event_t *ev, void *ctx) {
 
   switch (ev->button) {
     case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
       if (press)
         ui_switch_screen(SCREEN_NFC_MENU);
       break;

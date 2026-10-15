@@ -87,6 +87,9 @@ typedef struct {
   hb_nfc_protocol_t protocol;    /**< @brief NFC protocol type. */
   uint8_t uid[10];               /**< @brief Card UID bytes. */
   uint8_t uid_len;               /**< @brief UID length in bytes. */
+  uint8_t atqa[2];               /**< @brief NFC-A ATQA when applicable. */
+  uint8_t sak;                   /**< @brief NFC-A SAK when applicable. */
+  size_t payload_len;            /**< @brief Saved protocol payload size. */
 } nfc_store_info_t;
 
 /**

@@ -15,13 +15,14 @@
 
 /**
  * @file nfc_sim.h
- * @brief NFC SIMULATION model and saved-card library.
+ * @brief Compact NFC card summary used by the NFC user interface.
  *
- * The real ST25R3916 reader is on the shared SPI3 bus, whose MISO line is tied
- * to LCD-RST by a board jumper and cannot be read reliably, so the NFC submenu
- * runs as a faithful SIMULATION instead of touching the radio. This module is
- * the shared card model plus a small saved "library" persisted in NVS, used by
- * the Read / Saved / Write / Emulate screens. No hardware is accessed.
+ * The historical nfc_sim_*
+ * name is kept to avoid breaking older screens. Saved
+ * cards are backed by the real versioned NFC
+ * vault; no demo cards are seeded.
+ * Templates are created only after an explicit user action in
+ * the card editor.
  */
 
 #ifndef NFC_SIM_H
@@ -39,19 +40,19 @@ extern "C" {
 #define NFC_SIM_TYPE_LEN  24
 
 /**
- * @brief A simulated NFC card / tag record.
+ * @brief NFC card/tag summary for lists and card panels.
  */
 typedef struct {
   char name[NFC_SIM_NAME_LEN];
   char type[NFC_SIM_TYPE_LEN];
-  uint8_t uid[7];
-  uint8_t uid_len; ///< UID length in bytes (4 or 7)
+  uint8_t uid[10];
+  uint8_t uid_len; ///< UID/PUPI/IDm length (up to 10 bytes)
   uint16_t atqa;
   uint8_t sak;
 } nfc_sim_card_t;
 
 /**
- * @brief Load the saved library from NVS (idempotent; seeds presets on first run).
+ * @brief Initialise the real NFC vault (idempotent).
  */
 void nfc_sim_init(void);
 
@@ -86,7 +87,7 @@ bool nfc_sim_add(const nfc_sim_card_t *card);
 void nfc_sim_remove(int index);
 
 /**
- * @brief Synthesize a fresh "discovered" tag (random UID from a realistic template).
+ * @brief Create an unsaved card template with a random UID.
  *
  * @param[out] out  Destination card record.
  */

@@ -48,7 +48,7 @@
 
 #define MAD_AID_FREE        0x0000 /* Unallocated sector */
 #define MAD_AID_DEFECT      0x0001 /* Defect management */
-#define MAD_AID_NDEF        0x0003 /* NDEF application */
+#define MAD_AID_NDEF        0xE103 /* NFC Forum: stored application-code first (03 E1) */
 #define MAD_AID_CARD_HOLDER 0x0004 /* Card-holder information */
 
 #define MFUL_PROD_TYPE_ULTRALIGHT 0x03
@@ -69,7 +69,7 @@
 
 static const char *TAG = "NFC_READER";
 
-mfc_emu_card_data_t s_emu_card = {0};
+EXT_RAM_BSS_ATTR mfc_emu_card_data_t s_emu_card;
 bool s_is_emu_data_ready = false;
 
 static void get_access_bits_for_block(
@@ -259,7 +259,7 @@ static void analyze_manufacturer_block(const uint8_t blk0[16], const nfc_iso1444
 }
 
 static void check_mad(const uint8_t blk1[16], const uint8_t blk2[16], bool key_was_mad) {
-  uint8_t mad_version = blk1[1] >> 6;
+  uint8_t mad_version = blk1[1] & 0x03U;
   bool has_mad = (blk1[0] != 0 || blk1[1] != 0);
 
   if (key_was_mad || has_mad) {

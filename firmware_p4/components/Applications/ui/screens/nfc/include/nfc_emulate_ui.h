@@ -20,8 +20,11 @@
 extern "C" {
 #endif
 
-/** @brief Open the NFC Emulate screen (stub list of saved cards). */
+/** @brief Open the real NFC emulation screen backed by saved MIFARE dumps. */
 void ui_nfc_emulate_open(void);
+
+/** @brief Stop any active RF emulation owned by the screen. */
+void ui_nfc_emulate_stop(void);
 
 #ifdef __cplusplus
 }

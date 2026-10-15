@@ -17,9 +17,13 @@
 #define NFC_READ_UI_H
 
 /**
- * @brief Simulated tag reader: animated field scan that "finds" a tag and shows
- *        its UID/type/ATQA/SAK; OK saves it to the library.
+ * @brief Real ST25R3916B NFC-A reader: scans asynchronously, shows the detected
+ *
+ * UID/type/ATQA/SAK, and allows saving the captured identity.
  */
 void ui_nfc_read_open(void);
+
+/** @brief Stop any active scan/block worker and turn the NFC field off. */
+void ui_nfc_read_stop(void);
 
 #endif // NFC_READ_UI_H

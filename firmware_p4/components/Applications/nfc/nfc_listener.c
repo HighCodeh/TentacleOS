@@ -19,6 +19,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "power_manager.h"
 #include "sys_prio.h"
 
 #include "nfc_device.h"
@@ -29,6 +30,7 @@ static const char *TAG = "NFC_LISTENER";
 
 static TaskHandle_t s_emu_task = NULL;
 static volatile bool s_is_emu_running = false;
+static bool s_no_sleep_held = false;
 
 static void nfc_listener_task(void *arg) {
   (void)arg;
@@ -43,10 +45,29 @@ static void nfc_listener_task(void *arg) {
 }
 
 static hb_nfc_err_t start_emu_task(void) {
+  if (s_emu_task != NULL || s_is_emu_running)
+    return HB_NFC_ERR_INTERNAL;
+
+  esp_err_t pm_err = power_manager_no_sleep_acquire();
+  if (pm_err != ESP_OK) {
+    ESP_LOGE(TAG, "failed to acquire NFC no-sleep lock: %s", esp_err_to_name(pm_err));
+    return HB_NFC_ERR_INTERNAL;
+  }
+  s_no_sleep_held = true;
+
   s_is_emu_running = true;
   BaseType_t rc = xTaskCreatePinnedToCore(
       nfc_listener_task, "nfc_emu", 4096, NULL, SYS_PRIO_SERVICE_HI, &s_emu_task, SYS_CORE_RADIO);
-  return (rc == pdPASS) ? HB_NFC_OK : HB_NFC_ERR_INTERNAL;
+  if (rc != pdPASS) {
+    s_is_emu_running = false;
+    s_emu_task = NULL;
+    (void)power_manager_no_sleep_release();
+    s_no_sleep_held = false;
+    return HB_NFC_ERR_INTERNAL;
+  }
+
+  ESP_LOGI(TAG, "light sleep locked for NFC emulation");
+  return HB_NFC_OK;
 }
 
 hb_nfc_err_t nfc_listener_start(const hb_nfc_card_data_t *card) {
@@ -98,4 +119,11 @@ void nfc_listener_stop(void) {
     vTaskDelay(pdMS_TO_TICKS(10));
   }
   mfc_emu_stop();
+
+  if (s_no_sleep_held) {
+    esp_err_t err = power_manager_no_sleep_release();
+    if (err != ESP_OK)
+      ESP_LOGW(TAG, "failed to release NFC no-sleep lock: %s", esp_err_to_name(err));
+    s_no_sleep_held = false;
+  }
 }

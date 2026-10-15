@@ -15,6 +15,7 @@
 
 #include "mf_key_dict.h"
 
+#include "esp_attr.h"
 #include <string.h>
 
 #include "esp_log.h"
@@ -23,6 +24,7 @@
 
 #include "highboy_nfc_error.h"
 #include "nfc_dict_loader.h"
+#include "tos_flash_paths.h"
 #include "tos_storage_paths.h"
 
 static const char *TAG = "NFC_MF_KEY_DICT";
@@ -35,7 +37,8 @@ static const char *TAG = "NFC_MF_KEY_DICT";
 #define LEGACY_NVS_KEY_COUNT  "extra_count"
 #define LEGACY_NVS_KEY_PREFIX "k_"
 
-static uint8_t s_keys[MF_KEY_DICT_MAX_KEYS][MF_KEY_SIZE];
+EXT_RAM_BSS_ATTR static uint8_t s_keys[MF_KEY_DICT_MAX_KEYS][MF_KEY_SIZE];
+EXT_RAM_BSS_ATTR static uint8_t s_merge_keys[MF_KEY_DICT_MAX_KEYS][MF_KEY_SIZE];
 static int s_count = 0;
 
 static void migrate_legacy_nvs(void) {
@@ -80,20 +83,42 @@ void mf_key_dict_init(void) {
 
   migrate_legacy_nvs();
 
-  const nfc_dict_scan_params_t scan = {
-      .dir = TOS_PATH_NFC_DICT,
+  /* Always seed from the firmware image so an older first-boot copy on the
+   * SD card cannot hide
+   * a dictionary added by a firmware update. */
+  const nfc_dict_scan_params_t flash_scan = {
+      .dir = FLASH_NFC_DICT,
       .prefix = "mf_classic_",
       .key_size = MF_KEY_SIZE,
       .max_keys = MF_KEY_DICT_MAX_KEYS,
   };
   size_t loaded = 0;
-  nfc_dict_load_dir(&scan, (uint8_t *)s_keys, &loaded);
+  nfc_dict_load_dir(&flash_scan, (uint8_t *)s_keys, &loaded);
+
+  /* Merge every user/extra SD dictionary after the built-ins. Duplicate keys,
+   * including an old
+   * SD default file, are skipped. */
+  memset(s_merge_keys, 0, sizeof(s_merge_keys));
+  const nfc_dict_scan_params_t sd_scan = {
+      .dir = TOS_PATH_NFC_DICT,
+      .prefix = "mf_classic_",
+      .key_size = MF_KEY_SIZE,
+      .max_keys = MF_KEY_DICT_MAX_KEYS,
+  };
+  size_t sd_loaded = 0;
+  nfc_dict_load_dir(&sd_scan, (uint8_t *)s_merge_keys, &sd_loaded);
+  for (size_t i = 0; i < sd_loaded && loaded < MF_KEY_DICT_MAX_KEYS; i++) {
+    const uint8_t *key = s_merge_keys[i];
+    if (nfc_dict_contains((const uint8_t *)s_keys, loaded, MF_KEY_SIZE, key))
+      continue;
+    memcpy(s_keys[loaded++], key, MF_KEY_SIZE);
+  }
   s_count = (int)loaded;
 
   if (s_count == 0)
-    ESP_LOGW(TAG, "No mf_classic_*.dic files found in %s", TOS_PATH_NFC_DICT);
+    ESP_LOGW(TAG, "No MIFARE Classic dictionaries found on flash or SD");
   else
-    ESP_LOGI(TAG, "Dictionary ready: %d keys", s_count);
+    ESP_LOGI(TAG, "Dictionary ready: %d keys (%u SD candidates)", s_count, (unsigned)sd_loaded);
 }
 
 int mf_key_dict_count(void) {

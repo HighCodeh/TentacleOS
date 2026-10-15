@@ -34,6 +34,7 @@ typedef highboy_nfc_iso14443a_t nfc_iso14443a_data_t;
 typedef highboy_nfc_iso14443b_t nfc_iso14443b_data_t;
 typedef highboy_nfc_iso_dep_t nfc_iso_dep_data_t;
 typedef highboy_nfc_iso15693_t nfc_iso15693_data_t;
+typedef highboy_nfc_felica_t nfc_felica_data_t;
 typedef highboy_nfc_card_t hb_nfc_card_data_t;
 typedef highboy_nfc_mf_key_type_t mf_key_type_t;
 

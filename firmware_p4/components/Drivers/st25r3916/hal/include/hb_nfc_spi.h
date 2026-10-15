@@ -47,7 +47,7 @@ typedef struct {
   gpio_num_t pin_sclk; /**< SCLK pin. */
   gpio_num_t pin_cs;   /**< Chip-select pin (active low). */
   uint8_t mode;        /**< SPI mode (0–3). ST25R3916 requires mode 1. */
-  uint32_t clock_hz;   /**< SPI clock in Hz. ST25R3916 datasheet max: 6 MHz. */
+  uint32_t clock_hz;   /**< SPI clock in Hz. ST25R3916B datasheet max: 10 MHz. */
 } hb_nfc_spi_config_t;
 
 /**
@@ -62,7 +62,7 @@ typedef struct {
 esp_err_t hb_nfc_spi_init(const hb_nfc_spi_config_t *config);
 
 /**
- * @brief Remove the SPI device and free the bus.
+ * @brief Remove only the NFC device; the shared High Boy SPI bus remains active.
  */
 void hb_nfc_spi_deinit(void);
 
@@ -83,6 +83,12 @@ esp_err_t hb_nfc_spi_reg_read(uint8_t addr, uint8_t *out_value);
  * @return ESP_OK on success, HB_NFC_ERR_SPI_XFER on failure.
  */
 esp_err_t hb_nfc_spi_reg_write(uint8_t addr, uint8_t value);
+
+/** Read a single register from ST25R3916 register space B. */
+esp_err_t hb_nfc_spi_reg_read_b(uint8_t addr, uint8_t *out_value);
+
+/** Write a single register in ST25R3916 register space B. */
+esp_err_t hb_nfc_spi_reg_write_b(uint8_t addr, uint8_t value);
 
 /**
  * @brief Read-modify-write a register using a bitmask.

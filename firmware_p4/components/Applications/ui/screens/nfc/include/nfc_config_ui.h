@@ -16,9 +16,7 @@
 #ifndef NFC_CONFIG_UI_H
 #define NFC_CONFIG_UI_H
 
-/**
- * @brief Simulated NFC settings + an honest SPI-bus diagnostic.
- */
+/** @brief Real NFC RF-field, poll timing, regulator, and bus diagnostics. */
 void ui_nfc_config_open(void);
 
 #endif // NFC_CONFIG_UI_H

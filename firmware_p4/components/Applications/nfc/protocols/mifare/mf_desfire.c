@@ -140,7 +140,7 @@ static int desfire_send_native_once(mf_desfire_session_t *session,
                                     uint8_t *out,
                                     size_t out_max,
                                     uint16_t *sw) {
-  if (session == NULL || session->dep_ready == NULL || out == NULL)
+  if (session == NULL || !session->dep_ready || out == NULL)
     return 0;
 
   uint8_t apdu[DESFIRE_APDU_BUF_SIZE];
@@ -176,7 +176,7 @@ int mf_desfire_apdu_transceive(mf_desfire_session_t *session,
                                uint8_t *rx,
                                size_t rx_max,
                                int timeout_ms) {
-  if (session == NULL || session->dep_ready == NULL)
+  if (session == NULL || !session->dep_ready)
     return 0;
   return iso_dep_apdu_transceive(&session->dep, apdu, apdu_len, rx, rx_max, timeout_ms);
 }
@@ -189,7 +189,7 @@ hb_nfc_err_t mf_desfire_transceive_native(mf_desfire_session_t *session,
                                           size_t out_max,
                                           size_t *out_len,
                                           uint16_t *sw) {
-  if (session == NULL || session->dep_ready == NULL || out == NULL || out_len == NULL)
+  if (session == NULL || !session->dep_ready || out == NULL || out_len == NULL)
     return HB_NFC_ERR_PARAM;
 
   *out_len = 0;
@@ -276,7 +276,7 @@ hb_nfc_err_t mf_desfire_select_application(mf_desfire_session_t *session,
 hb_nfc_err_t mf_desfire_authenticate_ev1_3des(mf_desfire_session_t *session,
                                               uint8_t key_no,
                                               const uint8_t key[16]) {
-  if (session == NULL || session->dep_ready == NULL || key == NULL)
+  if (session == NULL || !session->dep_ready || key == NULL)
     return HB_NFC_ERR_PARAM;
   session->authenticated = false;
 
@@ -364,7 +364,7 @@ hb_nfc_err_t mf_desfire_authenticate_ev1_3des(mf_desfire_session_t *session,
 hb_nfc_err_t mf_desfire_authenticate_ev1_aes(mf_desfire_session_t *session,
                                              uint8_t key_no,
                                              const uint8_t key[16]) {
-  if (session == NULL || session->dep_ready == NULL || key == NULL)
+  if (session == NULL || !session->dep_ready || key == NULL)
     return HB_NFC_ERR_PARAM;
   session->authenticated = false;
 
@@ -439,7 +439,7 @@ hb_nfc_err_t mf_desfire_authenticate_ev1_aes(mf_desfire_session_t *session,
 hb_nfc_err_t mf_desfire_authenticate_ev2_first(mf_desfire_session_t *session,
                                                uint8_t key_no,
                                                const uint8_t key[16]) {
-  if (session == NULL || session->dep_ready == NULL || key == NULL)
+  if (session == NULL || !session->dep_ready || key == NULL)
     return HB_NFC_ERR_PARAM;
   session->authenticated = false;
   session->ev2_authenticated = false;
@@ -512,7 +512,7 @@ hb_nfc_err_t mf_desfire_authenticate_ev2_nonfirst(mf_desfire_session_t *session,
                                                   const uint8_t key[16]) {
   if (session == NULL || !session->dep_ready || key == NULL)
     return HB_NFC_ERR_PARAM;
-  if (session->ev2_authenticated == NULL)
+  if (!session->ev2_authenticated)
     return HB_NFC_ERR_AUTH;
 
   uint8_t data_in[64];

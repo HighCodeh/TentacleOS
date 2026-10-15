@@ -32,7 +32,7 @@ typedef struct {
 static const nfc_menu_item_t ITEMS[] = {
     {"READ TAGS", "/assets/icons/contactless.bin", SCREEN_NFC_READ},
     {"SCAN / IDENTIFY", "/assets/icons/sensors.bin", SCREEN_NFC_SCAN},
-    {"EMULATE", "/assets/icons/contactless.bin", SCREEN_CARD_EMU},
+    {"EMULATE", "/assets/icons/contactless.bin", SCREEN_NFC_EMULATE},
     {"WRITE", "/assets/icons/edit.bin", SCREEN_NFC_WRITE},
     {"CONFIGURATIONS", "/assets/icons/settings.bin", SCREEN_NFC_CONFIG},
     {"SAVED", "/assets/icons/bookmarks.bin", SCREEN_NFC_SAVED},
@@ -43,6 +43,7 @@ static const nfc_menu_item_t ITEMS[] = {
     {"NDEF", "/assets/icons/description.bin", SCREEN_NFC_NDEF},
     {"FELICA", "/assets/icons/contactless.bin", SCREEN_NFC_FELICA},
     {"SHARE (P2P)", "/assets/icons/podcasts.bin", SCREEN_NFC_P2P},
+    {"APDU WORKBENCH", "/assets/icons/developer_board.bin", SCREEN_NFC_APDU},
     {"KEY DICTIONARY", "/assets/icons/settings.bin", SCREEN_NFC_KEYDICT},
 };
 #define ITEM_COUNT (sizeof(ITEMS) / sizeof(ITEMS[0]))
@@ -60,6 +61,7 @@ static void nfc_menu_input(const input_event_t *ev, void *ctx) {
 
   switch (ev->button) {
     case INPUT_BTN_BACK:
+    case INPUT_BTN_LEFT:
       if (press)
         ui_switch_screen(SCREEN_MENU);
       break;
