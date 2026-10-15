@@ -17,6 +17,7 @@
 
 #include <string.h>
 
+#include "driver/gpio.h"
 #include "esp_log.h"
 
 #include "pin_def.h"
@@ -84,6 +85,29 @@ void spi_bus_lock_give_from_isr(BaseType_t *hpw) {
 }
 
 esp_err_t spi_init(void) {
+  /* All SPI3 peripherals share MISO. Establish inactive chip-select levels
+   * before the first
+   * device is registered. */
+  const uint64_t cs_mask = (1ULL << GPIO_ST7789_CS_PIN) | (1ULL << GPIO_CC1101_CS_PIN) |
+                           (1ULL << GPIO_NFC_CS_PIN) | (1ULL << GPIO_QMI8658A_CS_PIN) |
+                           (1ULL << GPIO_LORA_CS_PIN);
+  const gpio_config_t cs_cfg = {
+      .pin_bit_mask = cs_mask,
+      .mode = GPIO_MODE_OUTPUT,
+      .pull_up_en = GPIO_PULLUP_DISABLE,
+      .pull_down_en = GPIO_PULLDOWN_DISABLE,
+      .intr_type = GPIO_INTR_DISABLE,
+  };
+  esp_err_t err = gpio_config(&cs_cfg);
+  if (err != ESP_OK) {
+    return err;
+  }
+  gpio_set_level(GPIO_ST7789_CS_PIN, 1);
+  gpio_set_level(GPIO_CC1101_CS_PIN, 1);
+  gpio_set_level(GPIO_NFC_CS_PIN, 1);
+  gpio_set_level(GPIO_QMI8658A_CS_PIN, 1);
+  gpio_set_level(GPIO_LORA_CS_PIN, 1);
+
   return spi_bus_init(SPI3_HOST, GPIO_SPI_MOSI_PIN, GPIO_SPI_MISO_PIN, GPIO_SPI_SCLK_PIN);
 }
 

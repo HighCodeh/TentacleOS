@@ -37,6 +37,8 @@ typedef enum {
   SPI_DEVICE_CC1101,
   SPI_DEVICE_SD_CARD,
   SPI_DEVICE_BRIDGE,
+  SPI_DEVICE_NFC,
+  SPI_DEVICE_IMU,
   SPI_DEVICE_MAX
 } spi_device_id_t;
 

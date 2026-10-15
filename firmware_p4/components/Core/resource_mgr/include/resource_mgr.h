@@ -17,7 +17,7 @@
 // on-device UI, the companion (host_link), and the firmware core all acquire a
 // resource here before driving the hardware, so they never fight over one radio
 // while still allowing the concurrency the hardware supports (BLE multiplexes
-// into connection/advertising/scanner lanes).
+// into connection/advertising/scanner lanes). See RESOURCE_MANAGER_PLAN.md.
 //
 // This component depends only on FreeRTOS: enforcement of a preemption is done
 // through the owner's on_revoke callback, not by calling any transport here, so
@@ -68,12 +68,13 @@ typedef uint32_t res_handle_t;
 /** One acquisition request. */
 typedef struct {
   res_id_t id;
-  uint8_t lane;                  ///< lane within the resource (RES_LANE_MAIN for exclusive)
+  uint8_t lane; ///< lane within the resource (RES_LANE_MAIN for exclusive)
   res_owner_kind_t owner_kind;
-  void *owner_task;              ///< APP: its TaskHandle_t; else NULL
-  uint8_t priority;              ///< 0 -> default for the owner kind
-  bool allow_preempt;            ///< may preempt a strictly lower-priority holder
-  void (*on_revoke)(void *user); ///< called (outside the lock) if this grant is preempted or bulk-released
+  void *owner_task;   ///< APP: its TaskHandle_t; else NULL
+  uint8_t priority;   ///< 0 -> default for the owner kind
+  bool allow_preempt; ///< may preempt a strictly lower-priority holder
+  void (*on_revoke)(
+      void *user); ///< called (outside the lock) if this grant is preempted or bulk-released
   void *user;
 } res_request_t;
 
@@ -96,8 +97,8 @@ esp_err_t resource_acquire(const res_request_t *req, res_handle_t *out_handle);
  *        (polls), so never call it from a time-critical context. @p timeout_ms 0
  *        behaves exactly like resource_acquire (one try, fail-fast).
  */
-esp_err_t resource_acquire_timeout(const res_request_t *req, uint32_t timeout_ms,
-                                   res_handle_t *out_handle);
+esp_err_t
+resource_acquire_timeout(const res_request_t *req, uint32_t timeout_ms, res_handle_t *out_handle);
 
 /** @brief Release a grant. Idempotent; a stale handle is ignored. */
 esp_err_t resource_release(res_handle_t handle);

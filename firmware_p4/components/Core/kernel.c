@@ -31,7 +31,7 @@
 #include "battery_service.h"
 #include "led_control.h"
 #include "buttons_gpio.h"
-#include "ys_rfid2.h"
+#include "lf_rfid.h"
 #include "audio_i2s.h"
 #include "input_manager.h"
 #include "bridge_manager.h"
@@ -156,6 +156,10 @@ esp_err_t kernel_init(void) {
     ESP_LOGE(TAG, "gpio_install_isr_service failed: %s", esp_err_to_name(isr_ret));
   }
 
+  // Revised High Boy V2 native 125 kHz stage: initialize its outputs low so
+  // the antenna is never energized during boot.
+  boot_report_record("rfid-lf", false, lf_rfid_init());
+
   // 2. Buses. I2C failure degrades the charger/haptic/LED but not the whole boot,
   // so it is reported (item 8) without forcing safe mode.
   spi_init();
@@ -222,7 +226,6 @@ esp_err_t kernel_init(void) {
   bridge_manager_init();
   config_sync_start(); // push changed config files to the C5 (hash-gated, background)
   buttons_init();
-  ys_rfid2_init(NULL);
   // Creates the TX mutex that serializes access to the single I2S_NUM_0 TX
   // channel, plus the UI-sound FX task. Playback still works without this (the
   // amp enable and the channel open are both lazy), but with no serialization:
@@ -244,6 +247,10 @@ esp_err_t kernel_init(void) {
     boot_report_record("lvgl", true, lvgl_glue_init());
     lv_port_indev_init();
     ui_init();
+    // The asynchronous MP3 boot task is disabled until its decoder/I2S crash is
+    // fixed.  A failure here happened after the display was initialized and
+    // caused a white screen followed by the boot-loop recovery UI.
+    ESP_LOGW(TAG, "Boot sound disabled (boot_sound crash guard)");
     if (g_config_screen.rotation == 2 && !lvgl_glue_is_landscape())
       lvgl_glue_toggle_rotation();
   } else {

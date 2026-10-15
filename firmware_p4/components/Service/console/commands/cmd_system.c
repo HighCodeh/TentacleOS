@@ -24,32 +24,168 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs.h"
 
 #include "c5_flasher.h"
+#include "hb_muse_p4_service.h"
 #include "led_control.h"
-#include "spi_protocol.h"
 #include "spi_bridge.h"
 #include "spi_protocol.h"
 #include "sys_time.h"
 
-static const char *TAG = "CMD_SYSTEM";
+#define C5_WAIT_STEP_MS    500U
+#define C5_WAIT_DEFAULT_MS 10000U
+#define C5_WAIT_MAX_MS     60000U
+
+static esp_err_t c5_wait_for_link(uint32_t timeout_ms) {
+  if (timeout_ms < C5_WAIT_STEP_MS)
+    timeout_ms = C5_WAIT_STEP_MS;
+  if (timeout_ms > C5_WAIT_MAX_MS)
+    timeout_ms = C5_WAIT_MAX_MS;
+
+  uint32_t elapsed_ms = 0;
+  do {
+    esp_err_t r = c5_flasher_sync();
+    if (r == ESP_OK)
+      return ESP_OK;
+    vTaskDelay(pdMS_TO_TICKS(C5_WAIT_STEP_MS));
+    elapsed_ms += C5_WAIT_STEP_MS;
+  } while (elapsed_ms < timeout_ms);
+  return ESP_ERR_TIMEOUT;
+}
+
+static void c5_print_usage(void) {
+  printf(
+      "usage: c5 "
+      "<status|ping|linktest|spiclock|info|sync|wait|reboot|boot|ota|rom|passthrough|release>\n");
+  printf("  status          show bridge state and query the running C5\n");
+  printf("  ping            test the running C5 over SPI\n");
+  printf("  linktest [n]    read-only PING/version/Grok-status test, 1..100 cycles (default 50)\n");
+  printf("  spiclock [MHz]  show/set volatile SPI clock: 2, 4 or 10; close Muse first\n");
+  printf("  info            show C5 silicon, MAC and free heap\n");
+  printf("  sync            perform one bridge reconnection attempt\n");
+  printf("  wait [seconds]  retry bridge reconnection (default: 10 s)\n");
+  printf("  reboot          reboot C5 and wait until the app reconnects\n");
+  printf("  boot            enter C5 ROM download mode (alias: download)\n");
+  printf("  ota <spi|uart>  update the C5 application from the microSD\n");
+  printf("  rom             flash embedded recovery images to a C5 in ROM mode\n");
+  printf("  passthrough     bridge host esptool <-> C5 until P4 reboot/BACK\n");
+  printf("  release         release C5 UART pins for an external programmer\n");
+}
+
+static bool c5_test_idle(void) {
+  if (hb_muse_p4_is_active()) {
+    printf("Close Muse before link qualification or clock changes.\n");
+    return false;
+  }
+  return true;
+}
+
+static int c5_linktest(unsigned cycles) {
+  if (!c5_test_idle())
+    return 1;
+  if (!spi_bridge_is_alive()) {
+    printf("C5 link is down; run c5 sync first.\n");
+    return 1;
+  }
+  const spi_id_t ids[] = {SPI_ID_SYSTEM_PING, SPI_ID_SYSTEM_PROTO_VERSION, SPI_ID_GROK_STATUS};
+  unsigned ok = 0, failed = 0, consecutive = 0, attempted = 0;
+  int64_t begin = esp_timer_get_time(), worst = 0;
+  printf("C5 link test: %lu Hz, %u read-only requests. No Grok START, microphone or API call.\n",
+         (unsigned long)spi_bridge_get_clock_hz(),
+         cycles * 3);
+  for (unsigned i = 0; i < cycles * 3 && consecutive < 3; ++i) {
+    if (esp_timer_get_time() - begin >= 15000000)
+      break;
+    // A UI start during qualification must stop the test before the next RPC.
+    if (hb_muse_p4_is_active())
+      break;
+    uint8_t data[14] = {0};
+    spi_header_t header = {0};
+    spi_id_t id = ids[i % 3];
+    int64_t started = esp_timer_get_time();
+    esp_err_t ret = spi_bridge_send_command(id, NULL, 0, &header, data, sizeof(data), 200);
+    int64_t elapsed = esp_timer_get_time() - started;
+    if (elapsed > worst)
+      worst = elapsed;
+    attempted++;
+    bool shape = id == SPI_ID_SYSTEM_PING ? header.length == 0
+                 : id == SPI_ID_SYSTEM_PROTO_VERSION
+                     ? (header.length == 2 &&
+                        ((unsigned)data[0] | (unsigned)data[1] << 8) == SPI_PROTOCOL_VERSION)
+                     : (header.length == 14 && data[0] <= 4);
+    if (ret == ESP_OK && shape) {
+      ok++;
+      consecutive = 0;
+    } else {
+      failed++;
+      consecutive++;
+      printf("C5 test request=%u cmd=0x%04x error=0x%x shape=%u\n",
+             attempted,
+             (unsigned)id,
+             (unsigned)ret,
+             (unsigned)shape);
+    }
+    vTaskDelay(1);
+  }
+  bool passed = attempted == cycles * 3 && failed == 0;
+  printf("C5 LINK %s: ok=%u failed=%u attempted=%u/%u worst_us=%lld elapsed_ms=%lld\n",
+         passed ? "PASS" : "FAIL",
+         ok,
+         failed,
+         attempted,
+         cycles * 3,
+         (long long)worst,
+         (long long)((esp_timer_get_time() - begin) / 1000));
+  printf("This checks the SPI link only, not TLS, Grok API or voice.\n");
+  return passed ? 0 : 1;
+}
 
 static int cmd_c5(int argc, char **argv) {
-  if (argc < 2) {
-    printf("usage: c5 <ota|ping|info|sync|reboot|download|rom|passthrough|release>\n");
-    printf("  ota <spi|uart>  push the C5 image; control on SPI, bytes over spi or uart\n");
-    printf("  ping            ping the running C5 over the SPI bridge\n");
-    printf("  info            read the C5 chip info over the SPI bridge\n");
-    printf("  sync            re-probe and reconnect the bridge (e.g. after a C5 reboot)\n");
-    printf("  reboot          reboot the running C5 (deferred ack; run 'c5 sync' after)\n");
-    printf("  download        ask the running C5 to enter ROM download mode (SPI)\n");
-    printf("  rom             serial-flash a C5 already in download mode (recovery)\n");
-    printf("  passthrough     bridge host esptool <-> C5 (never returns; BACK reboots)\n");
-    printf("  release         tri-state the C5 UART lines for an external programmer\n");
+  if (argc < 2 || strcmp(argv[1], "help") == 0) {
+    c5_print_usage();
     return 1;
+  }
+  if (strcmp(argv[1], "spiclock") == 0) {
+    if (argc == 2) {
+      printf("C5 SPI clock: %lu Hz (volatile; reboot restores default)\n",
+             (unsigned long)spi_bridge_get_clock_hz());
+      return 0;
+    }
+    if (argc != 3 || (strcmp(argv[2], "2") && strcmp(argv[2], "4") && strcmp(argv[2], "10"))) {
+      printf("usage: c5 spiclock [2|4|10]\n");
+      return 1;
+    }
+    if (!c5_test_idle())
+      return 1;
+    esp_err_t ret = spi_bridge_set_clock_hz((uint32_t)strtoul(argv[2], NULL, 10) * 1000000u);
+    printf("C5 SPI clock: %lu Hz; %s. No reboot or flash performed.\n",
+           (unsigned long)spi_bridge_get_clock_hz(),
+           esp_err_to_name(ret));
+    return ret == ESP_OK ? 0 : 1;
+  }
+  if (strcmp(argv[1], "linktest") == 0) {
+    unsigned long cycles = 50;
+    char *end = NULL;
+    if (argc == 3)
+      cycles = strtoul(argv[2], &end, 10);
+    if (argc > 3 || cycles == 0 || cycles > 100 || (argc == 3 && (end == argv[2] || *end))) {
+      printf("usage: c5 linktest [cycles: 1..100]\n");
+      return 1;
+    }
+    return c5_linktest((unsigned)cycles);
+  }
+  if (strcmp(argv[1], "status") == 0) {
+    printf("C5 bridge: %s\n", spi_bridge_is_alive() ? "ALIVE" : "DOWN");
+    esp_err_t r = c5_flasher_ping();
+    printf("C5 ping: %s\n", esp_err_to_name(r));
+    if (r == ESP_OK)
+      r = c5_flasher_info();
+    r == ESP_OK ? led_signal_info() : led_signal_error();
+    return r == ESP_OK ? 0 : 1;
   }
   if (strcmp(argv[1], "ota") == 0) {
     uint8_t transport = SPI_OTA_TRANSPORT_SPI;
@@ -88,9 +224,32 @@ static int cmd_c5(int argc, char **argv) {
     r == ESP_OK ? led_signal_info() : led_signal_error();
     return r == ESP_OK ? 0 : 1;
   }
-  if (strcmp(argv[1], "download") == 0) {
+  if (strcmp(argv[1], "wait") == 0) {
+    uint32_t timeout_ms = C5_WAIT_DEFAULT_MS;
+    if (argc >= 3) {
+      char *end = NULL;
+      unsigned long seconds = strtoul(argv[2], &end, 10);
+      if (end == argv[2] || *end != '\0' || seconds == 0 || seconds > 60) {
+        printf("usage: c5 wait [seconds: 1..60]\n");
+        return 1;
+      }
+      timeout_ms = (uint32_t)seconds * 1000U;
+    }
+    printf("Waiting up to %lu ms for the C5 application...\n", (unsigned long)timeout_ms);
+    esp_err_t r = c5_wait_for_link(timeout_ms);
+    printf("C5 link: %s\n", r == ESP_OK ? "ALIVE" : "TIMEOUT");
+    r == ESP_OK ? led_signal_info() : led_signal_error();
+    return r == ESP_OK ? 0 : 1;
+  }
+  if (strcmp(argv[1], "boot") == 0 || strcmp(argv[1], "download") == 0) {
+    printf("Entering C5 ROM bootloader. The SPI link will go down.\n");
     esp_err_t r = c5_flasher_enter_download();
-    printf("C5 enter-download: %s\n", esp_err_to_name(r));
+    printf("C5 ROM boot: %s\n", esp_err_to_name(r));
+    if (r == ESP_OK) {
+      spi_bridge_set_alive(false);
+      printf("Flash through the C5 USB serial port now.\n");
+      printf("After flashing, power-cycle the board to clear forced ROM boot.\n");
+    }
     return r == ESP_OK ? 0 : 1;
   }
   if (strcmp(argv[1], "rom") == 0) {
@@ -111,11 +270,18 @@ static int cmd_c5(int argc, char **argv) {
   if (strcmp(argv[1], "reboot") == 0) {
     esp_err_t r = c5_flasher_reboot();
     printf("C5 reboot: %s\n", esp_err_to_name(r));
-    if (r == ESP_OK)
-      printf("C5 rebooting; run 'c5 sync' once it is back.\n");
+    if (r == ESP_OK) {
+      spi_bridge_set_alive(false);
+      printf("Waiting for the C5 application to reconnect...\n");
+      vTaskDelay(pdMS_TO_TICKS(C5_WAIT_STEP_MS));
+      r = c5_wait_for_link(C5_WAIT_DEFAULT_MS);
+      printf("C5 link: %s\n", r == ESP_OK ? "ALIVE" : "TIMEOUT");
+    }
+    r == ESP_OK ? led_signal_info() : led_signal_error();
     return r == ESP_OK ? 0 : 1;
   }
-  printf("unknown subcommand '%s'\n", argv[1]);
+  printf("unknown C5 subcommand '%s'\n", argv[1]);
+  c5_print_usage();
   return 1;
 }
 
