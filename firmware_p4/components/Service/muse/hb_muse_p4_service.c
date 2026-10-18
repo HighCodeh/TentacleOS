@@ -8,6 +8,7 @@
 #ifndef HB_MUSE_P4_HOST_TEST
 #include "audio_i2s.h"
 #include "esp_heap_caps.h"
+#include "esp_log.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -18,13 +19,18 @@
 #include "sys_prio.h"
 #endif
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
-#define LOAD(x)     __atomic_load_n(&(x), __ATOMIC_ACQUIRE)
-#define STORE(x, v) __atomic_store_n(&(x), (v), __ATOMIC_RELEASE)
-#define RPC_MS      80u
-#define FRAME_MAX   248u
-#define EDGE_SLOTS  8u
+#define LOAD(x)            __atomic_load_n(&(x), __ATOMIC_ACQUIRE)
+#define STORE(x, v)        __atomic_store_n(&(x), (v), __ATOMIC_RELEASE)
+#define RPC_MS             80u
+#define FRAME_MAX          248u
+#define EDGE_SLOTS         8u
+#define MIC_STACK_BYTES    3072u
+#define WORKER_STACK_BYTES 8192u
+
+static const char *TAG = "MUSE_P4";
 enum {
   RPC_ENABLE = 0x1101,
   RPC_CONNECT,
@@ -36,12 +42,18 @@ enum {
   RPC_SETUP_STATUS,
   RPC_SETUP_EDGE,
   RPC_SETUP_CLOSE,
-  RPC_TOKEN
+  RPC_TOKEN,
+  RPC_PULL_REPLAY = 0x110c
 };
+typedef struct {
+  const void *data;
+  size_t bytes;
+} hb_muse_p4_rpc_input_t;
+
 typedef struct {
   bool pressed;
   uint64_t serial, ticket;
-} key_edge_t;
+} hb_muse_p4_key_edge_t;
 typedef struct {
   hb_muse_app_t app;
   hb_muse_p4_view_t view;
@@ -53,10 +65,10 @@ typedef struct {
   int16_t *recording_pcm;
   int16_t pcm[320];
   uint8_t response[FRAME_MAX + 4];
-} owner_t;
+} hb_muse_p4_owner_t;
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 static hb_muse_p4_view_t s_view;
-static key_edge_t s_edges[EDGE_SLOTS];
+static hb_muse_p4_key_edge_t s_edges[EDGE_SLOTS];
 static unsigned s_read, s_count;
 static bool s_running, s_requested, s_held, s_shutdown;
 static uint32_t s_generation, s_release;
@@ -68,10 +80,10 @@ bool hb_muse_p4_is_active(void) {
 static uint64_t now(void) {
   return (uint64_t)esp_timer_get_time() / 1000u;
 }
-static bool current(const owner_t *o) {
+static bool current(const hb_muse_p4_owner_t *o) {
   return LOAD(s_requested) && LOAD(s_generation) == o->generation;
 }
-static void publish(owner_t *o) {
+static void publish(hb_muse_p4_owner_t *o) {
   portENTER_CRITICAL(&s_lock);
   if (s_generation == o->generation)
     s_view = o->view;
@@ -84,7 +96,7 @@ void hb_muse_p4_view(hb_muse_p4_view_t *out) {
   *out = s_view;
   portEXIT_CRITICAL(&s_lock);
 }
-static void message(owner_t *o, bool error, const char *status, const char *detail) {
+static void message(hb_muse_p4_owner_t *o, bool error, const char *status, const char *detail) {
   o->view.error = error;
   snprintf(o->view.status, sizeof o->view.status, "%s", status);
   snprintf(o->view.detail, sizeof o->view.detail, "%s", detail);
@@ -113,13 +125,13 @@ void hb_muse_p4_key(bool pressed) {
       __atomic_add_fetch(&s_release, 1, __ATOMIC_ACQ_REL);
     } else {
       unsigned at = (s_read + s_count) % EDGE_SLOTS;
-      s_edges[at] = (key_edge_t){pressed, ++s_edge_serial, s_view.ticket};
+      s_edges[at] = (hb_muse_p4_key_edge_t){pressed, ++s_edge_serial, s_view.ticket};
       ++s_count;
     }
   }
   portEXIT_CRITICAL(&s_lock);
 }
-static bool pop(key_edge_t *edge) {
+static bool pop(hb_muse_p4_key_edge_t *edge) {
   bool yes = false;
   portENTER_CRITICAL(&s_lock);
   if (s_count) {
@@ -132,19 +144,30 @@ static bool pop(key_edge_t *edge) {
   portEXIT_CRITICAL(&s_lock);
   return yes;
 }
-static bool rpc(owner_t *o, uint16_t command, const void *input, size_t size, size_t *received) {
-  spi_header_t h = {0};
-  if (size > FRAME_MAX)
+static bool rpc(hb_muse_p4_owner_t *owner,
+                uint16_t command,
+                hb_muse_p4_rpc_input_t input,
+                size_t *out_received) {
+  spi_header_t header = {0};
+  if (input.bytes > FRAME_MAX) {
     return false;
-  memset(o->response, 0, sizeof o->response);
-  esp_err_t err = spi_bridge_send_command(
-      (spi_id_t)command, input, (uint8_t)size, &h, o->response, sizeof o->response, RPC_MS);
-  if (received)
-    *received = h.length;
-  return err == ESP_OK && h.length <= sizeof o->response;
+  }
+  memset(owner->response, 0, sizeof owner->response);
+  esp_err_t err = spi_bridge_send_command((spi_id_t)command,
+                                          input.data,
+                                          (uint8_t)input.bytes,
+                                          &header,
+                                          owner->response,
+                                          sizeof owner->response,
+                                          RPC_MS);
+  if (out_received != NULL) {
+    *out_received = header.length;
+  }
+  return err == ESP_OK && header.length <= sizeof owner->response;
 }
+
 static bool control(void *user, hb_muse_app_control_t action) {
-  owner_t *o = user;
+  hb_muse_p4_owner_t *o = user;
   uint8_t args[2] = {1, 1};
   size_t n = 0;
   uint16_t cmd = action == HB_MUSE_APP_ENABLE    ? RPC_ENABLE
@@ -152,15 +175,16 @@ static bool control(void *user, hb_muse_app_control_t action) {
                                                  : RPC_REVOKE;
   if (action != HB_MUSE_APP_REVOKE && !current(o))
     return false;
-  return rpc(o, cmd, args, action == HB_MUSE_APP_ENABLE ? 2 : 1, &n) && n == 0;
+  const hb_muse_p4_rpc_input_t input = {args, action == HB_MUSE_APP_ENABLE ? 2 : 1};
+  return rpc(o, cmd, input, &n) && n == 0;
 }
 static bool send_frame(void *user, const uint8_t *frame, size_t size) {
-  owner_t *o = user;
+  hb_muse_p4_owner_t *o = user;
   size_t n = 0;
-  return current(o) && rpc(o, RPC_TX, frame, size, &n) && n == 0;
+  return current(o) && rpc(o, RPC_TX, (hb_muse_p4_rpc_input_t){frame, size}, &n) && n == 0;
 }
 static void recorder(void *arg) {
-  owner_t *o = arg;
+  hb_muse_p4_owner_t *o = arg;
   int16_t block[320];
   while (LOAD(o->recording) && current(o) && LOAD(s_held) && LOAD(s_release) == o->mic_edge) {
     uint32_t used = LOAD(o->recorded);
@@ -188,7 +212,7 @@ static void recorder(void *arg) {
   vTaskDelete(NULL);
 }
 static void mic_stop(void *user) {
-  owner_t *o = user;
+  hb_muse_p4_owner_t *o = user;
   STORE(o->recording, false);
   while (LOAD(o->recorder_live))
     vTaskDelay(pdMS_TO_TICKS(1));
@@ -197,15 +221,17 @@ static void mic_stop(void *user) {
   o->view.level = 0;
 }
 static bool mic_start(void *user, uint32_t rate) {
-  owner_t *o = user;
+  hb_muse_p4_owner_t *o = user;
   if (rate != 16000 || !current(o) || !LOAD(s_held))
     return false;
   uint32_t release = LOAD(s_release);
-  if (!o->recording_pcm)
+  if (o->recording_pcm == NULL)
     o->recording_pcm = heap_caps_calloc(
         HB_MUSE_APP_MAX_FRAMES, sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  if (!o->recording_pcm)
+  if (o->recording_pcm == NULL) {
+    ESP_LOGE(TAG, "Failed to allocate microphone recording buffer");
     return false;
+  }
   o->recorded = o->drained = 0;
   o->release_pending = false;
   o->capture_fault = false;
@@ -220,8 +246,10 @@ static bool mic_start(void *user, uint32_t rate) {
   o->mic_edge = release;
   STORE(o->recording, true);
   STORE(o->recorder_live, true);
-  if (xTaskCreatePinnedToCore(recorder, "muse_mic", 3072, o, SYS_PRIO_SERVICE_LO + 1, NULL, 1) !=
+  if (xTaskCreatePinnedToCore(
+          recorder, "muse_mic", MIC_STACK_BYTES, o, SYS_PRIO_SERVICE_HI, NULL, SYS_CORE_UI) !=
       pdPASS) {
+    ESP_LOGE(TAG, "Failed to create Muse recorder task");
     STORE(o->recorder_live, false);
     STORE(o->recording, false);
     audio_i2s_mic_stream_stop();
@@ -240,14 +268,14 @@ static void put64(uint8_t *p, uint64_t n) {
   for (unsigned i = 0; i < 8; ++i)
     p[i] = (uint8_t)(n >> (i * 8));
 }
-static bool pull_reply(owner_t *o, uint32_t sequence, size_t *n) {
+static bool pull_reply(hb_muse_p4_owner_t *o, uint32_t sequence, size_t *n) {
   uint8_t request[5] = {1};
   for (unsigned i = 0; i < 4; ++i)
     request[i + 1] = (uint8_t)(sequence >> (8 * i));
   /* A versioned cached read, never a retry of legacy consuming PULL/TX.
    * C5 returns the exact prior result until the next sequence acknowledges it. */
   for (unsigned attempt = 0; attempt < 3 && current(o); ++attempt) {
-    if (rpc(o, 0x110c, request, sizeof request, n)) {
+    if (rpc(o, RPC_PULL_REPLAY, (hb_muse_p4_rpc_input_t){request, sizeof request}, n)) {
       if (*n < 4 || le32(o->response) != sequence)
         return false;
       *n -= 4;
@@ -278,12 +306,13 @@ static bool next_nonce(uint64_t *out) {
     *out = value;
   return ok;
 }
-static bool prepared(owner_t *o) {
+static bool prepared(hb_muse_p4_owner_t *o) {
   uint64_t deadline = now() + 10000;
   uint8_t v = 1;
+  const hb_muse_p4_rpc_input_t input = {&v, sizeof v};
   while (current(o) && now() < deadline) {
     size_t n = 0;
-    if (!rpc(o, RPC_STATUS, &v, 1, &n) || n != 32 || o->response[0] != 1 || o->response[31] != 0 ||
+    if (!rpc(o, RPC_STATUS, input, &n) || n != 32 || o->response[0] != 1 || o->response[31] != 0 ||
         le32(o->response + 24) != 120000 || o->response[28] != 248 || o->response[29] != 0 ||
         o->response[30] != 4) {
       message(o, true, "C5 link unavailable", "Check C5 / retry manually");
@@ -310,7 +339,7 @@ static bool prepared(owner_t *o) {
     message(o, true, "Preparation timed out", "RIGHT: retry manually");
   return false;
 }
-static void app_publish(owner_t *o) {
+static void app_publish(hb_muse_p4_owner_t *o) {
   hb_muse_app_view_t v;
   hb_muse_app_view(&o->app, &v);
   static const char *const names[] = {"Offline",
@@ -348,7 +377,7 @@ static void app_publish(owner_t *o) {
     snprintf(o->view.reply, sizeof o->view.reply, "%s", v.text);
   publish(o);
 }
-static void capture(owner_t *o, size_t capacity) {
+static void capture(hb_muse_p4_owner_t *o, size_t capacity) {
   size_t count = LOAD(o->recorded) - o->drained;
   if (count > capacity)
     count = capacity;
@@ -373,8 +402,8 @@ static void capture(owner_t *o, size_t capacity) {
   }
   memset(o->pcm, 0, sizeof o->pcm);
 }
-static void chat_edges(owner_t *o) {
-  key_edge_t edge;
+static void chat_edges(hb_muse_p4_owner_t *o) {
+  hb_muse_p4_key_edge_t edge;
   while (pop(&edge)) {
     if (!edge.pressed && o->app.mic_active) {
       /* Stop hardware now; drain only samples already published while
@@ -385,7 +414,7 @@ static void chat_edges(owner_t *o) {
       (void)hb_muse_app_physical_ptt(&o->app, edge.pressed, now());
   }
 }
-static void chat(owner_t *o) {
+static void chat(hb_muse_p4_owner_t *o) {
   hb_muse_app_ops_t ops = {control, send_frame, mic_start, mic_stop};
   hb_muse_app_init(&o->app, &ops, o);
   if (!hb_muse_app_confirm(&o->app, now())) {
@@ -456,11 +485,12 @@ static void chat(owner_t *o) {
   hb_muse_app_close(&o->app);
   mic_stop(o);
 }
-static void setup(owner_t *o) {
+static void setup(hb_muse_p4_owner_t *o) {
   size_t n = 0;
+  const hb_muse_p4_rpc_input_t empty_input = {NULL, 0};
   /* C5 deliberately refuses to arm UART over an already-loaded token.
    * Report that state as present, not as a failed setup. Read-only probe. */
-  if (o->operation == HB_MUSE_P4_TOKEN && rpc(o, RPC_SETUP_STATUS, NULL, 0, &n) && n == 32 &&
+  if (o->operation == HB_MUSE_P4_TOKEN && rpc(o, RPC_SETUP_STATUS, empty_input, &n) && n == 32 &&
       o->response[0] == 1 && o->response[1] <= 7 && (o->response[3] & 1)) {
     message(o,
             false,
@@ -473,8 +503,8 @@ static void setup(owner_t *o) {
   uint64_t edge_ticket = 0;
   bool released = false;
   bool completed = false;
-  if (!rpc(o, o->operation == HB_MUSE_P4_TOKEN ? RPC_TOKEN : RPC_SETUP_OPEN, NULL, 0, &n) ||
-      n != 1) {
+  const uint16_t command = o->operation == HB_MUSE_P4_TOKEN ? RPC_TOKEN : RPC_SETUP_OPEN;
+  if (!rpc(o, command, empty_input, &n) || n != 1) {
     message(o, true, "Setup link failed", "C5 reply missing or invalid. No automatic replay.");
     return;
   }
@@ -490,7 +520,7 @@ static void setup(owner_t *o) {
      * while transport state is unknown; persistent failure still closes. */
     bool status_ok = false;
     for (unsigned attempt = 0; attempt < 3 && current(o) && now() < deadline; ++attempt) {
-      if (rpc(o, RPC_SETUP_STATUS, NULL, 0, &n)) {
+      if (rpc(o, RPC_SETUP_STATUS, empty_input, &n)) {
         status_ok = true;
         break;
       }
@@ -498,7 +528,7 @@ static void setup(owner_t *o) {
       o->view.ticket = 0;
       edge_ticket = 0;
       released = false;
-      key_edge_t discarded;
+      hb_muse_p4_key_edge_t discarded;
       while (pop(&discarded)) {}
       message(o, false, "Checking pairing link", "Approval paused; BACK cancels.");
       if (attempt < 2)
@@ -556,7 +586,7 @@ static void setup(owner_t *o) {
         break;
       }
     }
-    key_edge_t edge;
+    hb_muse_p4_key_edge_t edge;
     while (pop(&edge)) {
       if (!current(o))
         break;
@@ -571,7 +601,8 @@ static void setup(owner_t *o) {
       put64(packet, edge.ticket);
       put64(packet + 8, edge.serial);
       packet[16] = edge.pressed;
-      if (!rpc(o, RPC_SETUP_EDGE, packet, sizeof packet, &n) || n != 1 || o->response[0] != 1) {
+      const hb_muse_p4_rpc_input_t input = {packet, sizeof packet};
+      if (!rpc(o, RPC_SETUP_EDGE, input, &n) || n != 1 || o->response[0] != 1) {
         message(
             o, true, "Pairing confirmation rejected", "No automatic retry of a physical approval.");
         return;
@@ -586,10 +617,10 @@ static void setup(owner_t *o) {
   if (!completed && !o->view.error)
     message(o, false, "Setup window ended", "No microphone or chat connection. Reopen explicitly.");
   /* CLOSE revokes setup only; a saved account remains in C5 storage. */
-  (void)rpc(o, RPC_SETUP_CLOSE, NULL, 0, &n);
+  (void)rpc(o, RPC_SETUP_CLOSE, empty_input, &n);
 }
 static void worker(void *arg) {
-  owner_t *o = arg;
+  hb_muse_p4_owner_t *o = arg;
   bool hold = power_manager_no_sleep_acquire() == ESP_OK;
   if (o->operation == HB_MUSE_P4_CHAT)
     chat(o);
@@ -606,7 +637,7 @@ static void worker(void *arg) {
                        : "Mic off / C5 close unconfirmed. Check the C5 connection.");
   } else {
     size_t ignored = 0;
-    (void)rpc(o, RPC_SETUP_CLOSE, NULL, 0, &ignored);
+    (void)rpc(o, RPC_SETUP_CLOSE, (hb_muse_p4_rpc_input_t){NULL, 0}, &ignored);
   }
   o->view.active = false;
   o->view.ready = false;
@@ -617,10 +648,10 @@ static void worker(void *arg) {
     (void)power_manager_no_sleep_release();
   if (o->recording_pcm) {
     memset(o->recording_pcm, 0, HB_MUSE_APP_MAX_FRAMES * sizeof(int16_t));
-    heap_caps_free(o->recording_pcm);
+    free(o->recording_pcm);
   }
   memset(o, 0, sizeof *o);
-  heap_caps_free(o);
+  free(o);
   portENTER_CRITICAL(&s_lock);
   STORE(s_running, false);
   STORE(s_requested, false);
@@ -651,18 +682,26 @@ esp_err_t hb_muse_p4_start(hb_muse_p4_operation_t operation) {
   s_view.active = true;
   snprintf(s_view.status, sizeof s_view.status, "Starting");
   portEXIT_CRITICAL(&s_lock);
-  owner_t *o = heap_caps_calloc(1, sizeof *o, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  if (!o)
+  hb_muse_p4_owner_t *o = heap_caps_calloc(1, sizeof *o, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (o == NULL) {
+    ESP_LOGE(TAG, "Failed to allocate Muse owner in PSRAM");
     o = heap_caps_calloc(1, sizeof *o, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (o == NULL) {
+      ESP_LOGE(TAG, "Failed to allocate Muse owner in internal memory");
+    }
+  }
   if (o) {
     o->generation = generation;
     o->operation = operation;
     o->view.active = true;
     if (!s_shutdown && esp_register_shutdown_handler(hb_muse_p4_stop) == ESP_OK)
       s_shutdown = true;
-    if (xTaskCreatePinnedToCore(worker, "muse_p4", 8192, o, SYS_PRIO_SERVICE_LO, NULL, 0) == pdPASS)
+    if (xTaskCreatePinnedToCore(
+            worker, "muse_p4", WORKER_STACK_BYTES, o, SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_RADIO) ==
+        pdPASS)
       return ESP_OK;
-    heap_caps_free(o);
+    ESP_LOGE(TAG, "Failed to create Muse control task");
+    free(o);
   }
   portENTER_CRITICAL(&s_lock);
   STORE(s_running, false);

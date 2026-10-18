@@ -1,0 +1,33 @@
+#!/usr/bin/env python3
+"""Run native P4 Muse adapter failure paths with explicit device interface fakes."""
+import os
+from pathlib import Path
+import shlex
+import subprocess
+import tempfile
+
+ROOT = Path(__file__).resolve().parents[2]
+MUSE = ROOT / "firmware_p4/components/Service/highboy_muse"
+
+
+def main():
+    with tempfile.TemporaryDirectory(prefix="highboy-native-muse-") as temporary:
+        directory = Path(temporary)
+        (directory / "native_host.h").write_text("/* Interfaces supplied by muse_native_test.c. */\n")
+        (directory / "esp_rom_crc.h").write_text(
+            "#include <stdint.h>\nuint16_t esp_rom_crc16_le(uint16_t, const uint8_t *, uint32_t);\n")
+        executable = directory / "test"
+        command = [*shlex.split(os.environ.get("CC", "cc")), "-std=c11", "-Wall", "-Wextra",
+                   "-Werror", "-fsanitize=undefined", "-DHB_MUSE_P4_HOST_TEST", "-I", str(directory),
+                   "-I", str(MUSE / "p4_app"),
+                   "-I", str(ROOT / "firmware_p4/components/Service/spi_bridge/include"),
+                   str(ROOT / "tools/highboy/tests/muse_native_test.c")]
+        command += [str(MUSE / source) for source in (
+            "p4_app/hb_muse_app.c", "core/hb_muse_core.c", "transport/hb_muse_wire.c",
+            "transport/hb_muse_wire_client.c")]
+        subprocess.run([*command, "-o", str(executable)], check=True, timeout=60)
+        subprocess.run([str(executable)], check=True, timeout=30)
+
+
+if __name__ == "__main__":
+    main()

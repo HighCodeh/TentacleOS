@@ -146,3 +146,9 @@ fresh P4/C5 builds, app-slot checks and physical device tests. HLE/emulator
 validation is outside the current firmware review scope. Baseline binary sizes
 do not certify these corrected sources.
 
+`test_muse_native.py` also compiles the complete native P4 Muse adapter with its
+real portable controller/codec and explicit device-interface fakes. It checks
+RPC payload bounds and command preservation, recording-buffer allocation errors,
+recorder-task rollback, owner-allocation fallback and control-task failure. It
+does not start a task, access NVS, record audio or contact the C5.
+

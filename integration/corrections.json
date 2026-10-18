@@ -262,6 +262,20 @@
       "before_sha256": "0d3e031ac3fa0c892938b433d0b333619e4afc24f127b0800e89a593cc2a0edb",
       "after_sha256": "c5dc188dba4ed1a1c24816d1969f8d2709aed4825a0d28aa3ce23c134aff4f1b",
       "reason": "Use project include guards and C++ linkage for new first-party headers."
+    },
+    "firmware_p4/components/Service/muse/hb_muse_p4_service.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "eabb101bc7a9c07b620a4692771e35ab348436c5e16bbd65dc76642ef8969bb4",
+      "after_sha256": "b56704c4f5186b06a818d3b42e416c05a0c0806317b15efcc8e62b7adbd064ee",
+      "reason": "Use central task policy, module-prefixed types, grouped RPC input and allocation/task error logs.",
+      "pre_format_sha256": "559573f14dd79051fda48026ddd4e0f5443493201c3278051f9fb96a63475074",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_p4/components/Service/muse/hb_muse_p4_service.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "25f2a3a4ad65064619ad3db5a170acac50b762388c54bfd7d132f766ff8e9f14",
+      "after_sha256": "8cf3cdfbd825c99816e93c53c5999970e5474eb1a84bd3deb927a74f635b7bf0",
+      "reason": "Use central task policy, module-prefixed types, portable header linkage and allocation error logs."
     }
   }
 }
