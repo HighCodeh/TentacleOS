@@ -182,3 +182,15 @@ The service maintains an internal array (`connection_handles`) of active peers. 
 ### Configuration Files
 - `assets/config/bluetooth/ble_announce.conf`: Device name and connection limits.
 - `assets/config/bluetooth/beacon_list.conf`: Payload list for BLE spam functions.
+
+## Integrated HID and radio ownership
+
+C5 HID supports keyboard and mouse input reports with separate report IDs and
+report-reference descriptors. HID services must be registered before starting
+the NimBLE host; repeated registration in the same lifecycle is idempotent.
+The implementation advertises Report Protocol rather than providing Boot
+Protocol. Service ownership must be released before another BLE application,
+including Muse pairing or host-link BLE, takes over the stack.
+
+P4 scanning workers remain pinned to `SYS_CORE_RADIO` using `sys_prio.h`.
+HID interoperability, pairing and switching between owners require device tests.

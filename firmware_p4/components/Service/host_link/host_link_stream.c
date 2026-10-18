@@ -41,7 +41,6 @@ static const char *TAG = "HOST_LINK_STREAM";
 #define STREAM_APP_TIMEOUT_MS   6000 // tear down if no app heartbeat within this
 #define STREAM_WATCHDOG_TICK_MS 1000
 #define STREAM_WD_TASK_STK      3072
-#define STREAM_WD_TASK_PRIO     SYS_PRIO_SERVICE_LO
 
 static SemaphoreHandle_t s_lock = NULL;
 static uint32_t s_session_id = SPI_SESSION_INVALID_ID;
@@ -117,7 +116,7 @@ uint8_t host_stream_start(uint16_t cmd,
                             "hl_stream_wd",
                             STREAM_WD_TASK_STK,
                             NULL,
-                            STREAM_WD_TASK_PRIO,
+                            SYS_PRIO_SERVICE_LO,
                             &s_watchdog,
                             SYS_CORE_RADIO);
   }

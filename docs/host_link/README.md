@@ -267,3 +267,18 @@ not at boot, so it doesn't hog NimBLE from the BLE attack features.
 - The C5 log stream is always enabled on this side; the P4 drops the resulting
   `LOG` frames when no companion session is active, and the **log-over-BLE**
   toggle (P4) gates BLE delivery. Build-validated; **not yet hardware-tested**.
+
+## Integrated session generations and asynchronous ingress
+
+P4 transport callbacks enqueue bounded input chunks; the host-link worker owns
+frame reassembly, dispatch and teardown. Disconnect, reset and a new HELLO
+invalidate the old session generation. Output producers retain their origin
+generation, preventing late responses or stream frames from entering a new
+session. Receive-queue overflow invalidates that session rather than splicing
+incomplete frames. TX and security operations use recursive mutexes with the
+TX-before-security lock order; transport callbacks do not wait for teardown.
+
+`host_link_init()` defers worker startup until transport use. Workers use the
+central scheduling macros, with radio/transport tasks on `SYS_CORE_RADIO`.
+Canonical Muse tests do not execute the host-link transports; physical USB/BLE
+streaming, reconnects and authorization require separate acceptance tests.

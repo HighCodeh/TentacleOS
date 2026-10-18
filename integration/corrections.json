@@ -139,6 +139,14 @@
       "pre_format_sha256": "1522b7a88f1d35a054354f11007d28f193aea233d8f4913837a421537b094022",
       "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
     },
+    "firmware_p4/components/Applications/bluetooth/ble_scanner.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "ac3978b97481caca67e434efdfb64dad7bd19396f8d3cf499815f7c39ab764b4",
+      "after_sha256": "00e358dbeb5ca61f61e280c5fc1261961fa39fa2e7d6f96cab7175458958b076",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "5c5ebfc5ea5bb753606efcbd8c116b08f78e4e7a716369425921263d4c136e52",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
     "firmware_p4/components/Applications/gameboy/include/gb_input_mapping.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "57c2e5d5ec513cef4e81bedd15932a1e30f855e4917001da347b110ffa2fb341",
@@ -201,6 +209,22 @@
       "pre_format_sha256": "18172547b5a2f009097ca932730e175ba7b120d36c3eb4883d8634e29d28d8ce",
       "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
     },
+    "firmware_p4/components/Core/kernel.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "c8d39b8b3c65406bcdfbd5855e4a32d3c1950fdaabbdbd1a80f554019fa592bb",
+      "after_sha256": "f91d1326f7c91e4c5619e97241fcf9f7ac47abbcf0706a7a592de38184191c51",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "a2c4915e6270da8f92175d5459ddc716618f531b13fa082bf15d066c9c3fc985",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_p4/components/Drivers/bq25896/battery_service.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "59327b6da36c5500101cfffc6054e81b3262179e924d13022072757e28f5e419",
+      "after_sha256": "db173b86295e9ecf7bb2adb76483e2bdf71282d0fbcce23cbf0e36273260b49d",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "8b4ea486019f738ceb16a77026d579a3e7bccc3421271a1f28e47e05a5523487",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
     "firmware_p4/components/Drivers/grok_usb_audio/include/grok_tusb_config.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "29bdf0f6931afafe23c3d630f8eb34592898287ecba12734455fe5245f162db4",
@@ -257,11 +281,75 @@
       "after_sha256": "b56df9a4438c7eebb51a3cb897b4660c8c825f2613ed37e2bb20d9d029f49117",
       "reason": "Retain antenna and initialized transport after uncertain field-off or startup rollback."
     },
+    "firmware_p4/components/Drivers/sx1262/sx1262.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "0f97146d0e4eb4857083744ef960a44413f5146375e2c88b80afa06a86b0776d",
+      "after_sha256": "30ca8422b99599d8cdb10d5194715b93d5966e918689e67fbc068950d1f571fb",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "17d8ba2d3b0996717b30e0e922b7b3e7db93abd2103b0673d514d3f23a0764fb",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_p4/components/Service/boot_sound/boot_sound.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "e71dab7c80f90f093c219b574898c7b2162de4f1aa7840a77bc52bb63a0bf3e8",
+      "after_sha256": "10c5de11ca34921efdaa16fa00178836c6893d97bbd9b0f9ca372c53f382d918",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "9c2ffd7f319e69046649f8b3183950aef55d5e6179a69937ba86ac74c3aec7ae",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
     "firmware_p4/components/Service/grok_client/include/grok_wire.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "0d3e031ac3fa0c892938b433d0b333619e4afc24f127b0800e89a593cc2a0edb",
       "after_sha256": "c5dc188dba4ed1a1c24816d1969f8d2709aed4825a0d28aa3ce23c134aff4f1b",
       "reason": "Use project include guards and C++ linkage for new first-party headers."
+    },
+    "firmware_p4/components/Service/host_link/host_link_ble.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "c6e287b9815da24cb53c66db34895dbe248ca0d198f1420274502886f286ddec",
+      "after_sha256": "6913b7da004cc1e14d65d477f7b2b38ec2bde621a14b22f9e118798bdafd812f",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "568c552d6fe9887fb9292d1d82dd0bb7a3c095ea44e3dabd9eba3b91638585c4",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_p4/components/Service/host_link/host_link_cdc.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "3def64439f60f22e3ea8e8de7a9ce3be2e986f25976a064dd0530b03bd3fd9f6",
+      "after_sha256": "9c7756aac817c49ff76a866707fbce43f98b16f013362b352999e1667ea5bcb7",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "f3d19e5509651cdfc9376a8c5280d3e6690ed9da4db4c776a97a7e8946714b65",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_p4/components/Service/host_link/host_link_log.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "95e91d93cc3bcd01cc7d8e730b873b45e8b4b66609d4c3cb475c956be0d45cb0",
+      "after_sha256": "1e2b2cb4d61145acea9b192612b7d529d9686abe255def7ccc9eac06ccb52967",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "884b8b4b7964ad997995cca846ed959a420884a1148451add10c17b98781e293",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_p4/components/Service/host_link/host_link_lora.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "2279a48354327f363e7d9c5720521b8a00b6ae85a6b33adcc95bedae387558d8",
+      "after_sha256": "5900d7c31eab757f16b068ff97cca19b455ff0178794481a586543a7afdff363",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "3a2deb9919f56360927ffef7398f900286d78f6159f62768736ae78553d41461",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_p4/components/Service/host_link/host_link_stream.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "5984f7e6bfe7cf52538ecc5b326b217d8153c94cfe91b363188fbf54cc1f0428",
+      "after_sha256": "63d324aae04e2089bdff736ee3d90c30504e767d1814e6a13aa7c77e00a6b6fa",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "eb3ddb6034c9fd98cd75ecbb0d5ebc65b708f3633f21ed7263c25d024d0bc3e7",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_p4/components/Service/lvgl/lvgl_screen_share.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "91358cf3c170fee931c0e3658a86e7be02ae143e6218365246154550e58eceef",
+      "after_sha256": "2870bff911d65982efb43aed9f27e17c113eab86f321e254bc80894224d50779",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "aebeda1733bf7c40cd7620ebf773ed2dedc7ffb287cd5ed4fbd5d6d0a39f1fdb",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
     },
     "firmware_p4/components/Service/muse/hb_muse_p4_service.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -276,6 +364,20 @@
       "before_sha256": "25f2a3a4ad65064619ad3db5a170acac50b762388c54bfd7d132f766ff8e9f14",
       "after_sha256": "8cf3cdfbd825c99816e93c53c5999970e5474eb1a84bd3deb927a74f635b7bf0",
       "reason": "Use central task policy, module-prefixed types, portable header linkage and allocation error logs."
+    },
+    "firmware_p4/components/Service/spi_bridge/spi_bridge.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "1ef59a43717e39cba25100f091dbea9d5f40f19e7497efbd42e0ff9f53996436",
+      "after_sha256": "a4c6f6bae37ced00af33093e833a715e9a13918c26051d5f81545a7b61be2a9c",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks."
+    },
+    "firmware_p4/components/Service/spi_bridge/spi_session.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "38c28511781f871c823bc91096ceab839c262ebd075c709e41b837c568c2a83a",
+      "after_sha256": "856b2a68271926b7370a0c81e23ba764e85010f1fad0e3c9ff24d8c96f49695f",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "cbb68ead9a8fdd38490eebab6939ae494605c358aa3ee6fb75e10d1d7283388e",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
     }
   }
 }

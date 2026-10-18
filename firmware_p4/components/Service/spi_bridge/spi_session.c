@@ -34,7 +34,6 @@ static const char *TAG = "SPI_SESSION";
 #define HEARTBEAT_FAIL_LIMIT  3
 #define HEARTBEAT_TIMEOUT_MS  1000
 #define HEARTBEAT_STACK_SIZE  3072
-#define HEARTBEAT_PRIO        SYS_PRIO_SERVICE_HI
 
 typedef struct {
   uint32_t session_id;
@@ -287,7 +286,7 @@ uint32_t spi_session_start(spi_id_t op_id,
                                           "spi_session_hb",
                                           HEARTBEAT_STACK_SIZE,
                                           (void *)(uintptr_t)resp.session_id,
-                                          HEARTBEAT_PRIO,
+                                          SYS_PRIO_SERVICE_HI,
                                           &s_state.heartbeat_task,
                                           SYS_CORE_RADIO);
   uint32_t session_id = s_state.session_id;

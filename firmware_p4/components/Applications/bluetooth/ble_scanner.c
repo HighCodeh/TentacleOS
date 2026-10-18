@@ -33,9 +33,8 @@
 
 static const char *TAG = "BLE_SCANNER";
 
-#define SCANNER_STACK_SIZE    4096
-#define SCANNER_TASK_PRIORITY SYS_PRIO_SERVICE_HI
-#define SCAN_DURATION_MS      10000
+#define SCANNER_STACK_SIZE 4096
+#define SCAN_DURATION_MS   10000
 
 static TaskHandle_t s_scanner_task_handle = NULL;
 
@@ -57,7 +56,7 @@ bool ble_scanner_start(void) {
                                                        "ble_scan_task",
                                                        SCANNER_STACK_SIZE,
                                                        NULL,
-                                                       SCANNER_TASK_PRIORITY,
+                                                       SYS_PRIO_SERVICE_HI,
                                                        &s_scanner_task_handle,
                                                        SYS_CORE_RADIO,
                                                        MALLOC_CAP_SPIRAM);

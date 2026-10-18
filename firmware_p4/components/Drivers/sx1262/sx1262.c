@@ -38,8 +38,6 @@ static TaskHandle_t s_irq_task_handle = NULL;
 static TaskHandle_t s_stop_caller_handle = NULL;
 
 #define SX1262_IRQ_TASK_STACK 4096
-#define SX1262_IRQ_TASK_PRIO  SYS_PRIO_REALTIME
-#define SX1262_IRQ_TASK_CORE  SYS_CORE_RADIO
 
 #define SX1262_INIT_MAX_ATTEMPTS 3
 #define SX1262_IRQ_FAIL_RECOVER  5
@@ -420,9 +418,9 @@ esp_err_t sx1262_start(void) {
                                             "sx1262_irq",
                                             SX1262_IRQ_TASK_STACK,
                                             NULL,
-                                            SX1262_IRQ_TASK_PRIO,
+                                            SYS_PRIO_REALTIME,
                                             &s_irq_task_handle,
-                                            SX1262_IRQ_TASK_CORE);
+                                            SYS_CORE_RADIO);
 
   if (xret != pdPASS || s_irq_task_handle == NULL) {
     s_is_running = false;

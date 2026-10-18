@@ -35,7 +35,6 @@
 #define HOST_LOG_LINE_MAX    240  // bytes of stripped text kept per line
 #define HOST_LOG_QUEUE_DEPTH 24   // ring slots (drop-oldest beyond this)
 #define HOST_LOG_TASK_STK    6144 // emit -> ble_write -> SPI command chain is deep
-#define HOST_LOG_TASK_PRIO   SYS_PRIO_BACKGROUND
 
 typedef struct {
   uint32_t generation;
@@ -181,7 +180,7 @@ esp_err_t host_link_log_init(void) {
                               "hl_log",
                               HOST_LOG_TASK_STK,
                               NULL,
-                              HOST_LOG_TASK_PRIO,
+                              SYS_PRIO_BACKGROUND,
                               &s_log_task,
                               SYS_CORE_RADIO) != pdPASS) {
     vQueueDelete(s_log_queue);

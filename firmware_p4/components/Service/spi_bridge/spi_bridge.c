@@ -33,7 +33,6 @@
 static const char *TAG = "SPI_BRIDGE_P4";
 
 #define SPI_STREAM_TASK_STACK 16384
-#define SPI_STREAM_TASK_PRIO  SYS_PRIO_SERVICE_HI
 #define SPI_MUTEX_TIMEOUT_MS  50
 #define SPI_STREAM_POLL_MS    10
 #define SPI_STREAM_IDLE_MS    20
@@ -394,7 +393,7 @@ void spi_bridge_register_stream_cb(spi_id_t id, spi_stream_cb_t cb) {
                                                          "spi_stream",
                                                          SPI_STREAM_TASK_STACK,
                                                          NULL,
-                                                         SPI_STREAM_TASK_PRIO,
+                                                         SYS_PRIO_SERVICE_HI,
                                                          s_stream_stack,
                                                          s_stream_tcb,
                                                          SYS_CORE_RADIO);

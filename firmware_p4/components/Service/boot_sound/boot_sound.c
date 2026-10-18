@@ -32,13 +32,11 @@
 
 static const char *TAG = "BOOT_SOUND";
 
-#define BOOT_SOUND_PATH_MAX      128
-#define BOOT_SOUND_READBUF       4096
-#define BOOT_SOUND_MAX_FRAME     2304
-#define BOOT_SOUND_REFILL_MIN    1024
-#define BOOT_SOUND_TASK_STACK    8192
-#define BOOT_SOUND_TASK_PRIORITY SYS_PRIO_SERVICE_HI
-#define BOOT_SOUND_TASK_CORE     SYS_CORE_RADIO
+#define BOOT_SOUND_PATH_MAX   128
+#define BOOT_SOUND_READBUF    4096
+#define BOOT_SOUND_MAX_FRAME  2304
+#define BOOT_SOUND_REFILL_MIN 1024
+#define BOOT_SOUND_TASK_STACK 8192
 
 static char s_path[BOOT_SOUND_PATH_MAX];
 static volatile bool s_running = false;
@@ -179,9 +177,9 @@ esp_err_t boot_sound_play(const char *path) {
                                                    "boot_sound",
                                                    BOOT_SOUND_TASK_STACK,
                                                    NULL,
-                                                   BOOT_SOUND_TASK_PRIORITY,
+                                                   SYS_PRIO_SERVICE_HI,
                                                    &s_task,
-                                                   BOOT_SOUND_TASK_CORE,
+                                                   SYS_CORE_RADIO,
                                                    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (ret != pdPASS) {
     s_running = false;

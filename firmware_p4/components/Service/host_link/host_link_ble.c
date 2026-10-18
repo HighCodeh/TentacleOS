@@ -37,7 +37,6 @@
 static const char *TAG = "HOST_LINK_BLE";
 
 #define BLE_TASK_STACK         4096
-#define BLE_TASK_PRIO          SYS_PRIO_SERVICE_HI
 #define BLE_STATUS_TICK_MS     200
 #define BLE_SPI_TIMEOUT_MS     1000
 #define BLE_RX_FRAME_MAX       512 // one C5 BLE-write worth; host_link_feed reframes
@@ -107,7 +106,7 @@ esp_err_t host_link_ble_init(void) {
                               "hl_ble",
                               BLE_TASK_STACK,
                               NULL,
-                              BLE_TASK_PRIO,
+                              SYS_PRIO_SERVICE_HI,
                               &s_status_task,
                               SYS_CORE_RADIO) != pdPASS) {
     s_is_running = false;

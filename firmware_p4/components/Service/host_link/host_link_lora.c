@@ -42,8 +42,6 @@ static const char *TAG = "HOST_LORA";
   (1 + 4 + 2 + 1 + 1 + sizeof(((lora_msg_t *)0)->who) + sizeof(((lora_msg_t *)0)->text))
 #define LORA_POLL_MS       500
 #define LORA_RX_TASK_STACK 4096
-#define LORA_RX_TASK_PRIO  SYS_PRIO_BACKGROUND
-#define LORA_RX_TASK_CORE  SYS_CORE_RADIO
 
 static volatile bool s_chat_active = false;
 static TaskHandle_t s_rx_task = NULL;
@@ -194,9 +192,9 @@ static uint8_t handle_chat_start(
                                                    "lora_hl_rx",
                                                    LORA_RX_TASK_STACK,
                                                    (void *)(uintptr_t)host_link_output_generation(),
-                                                   LORA_RX_TASK_PRIO,
+                                                   SYS_PRIO_BACKGROUND,
                                                    &s_rx_task,
-                                                   LORA_RX_TASK_CORE) != pdPASS) {
+                                                   SYS_CORE_RADIO) != pdPASS) {
     s_chat_active = false;
     return SPI_STATUS_ERROR;
   }

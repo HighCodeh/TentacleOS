@@ -40,7 +40,6 @@ static const char *TAG = "SCREEN_SHARE";
 #define SS_STRIP_ROWS      8           // 240*8*2 = 3840 B + header < 4067 host cap
 #define SS_LOCK_TIMEOUT_MS 200
 #define SS_TASK_STACK      8192
-#define SS_TASK_PRIO       SYS_PRIO_SERVICE_LO
 
 // Master enable. While false, START is rejected so the capture task never runs
 // and no snapshot RAM is used.
@@ -218,7 +217,7 @@ uint8_t lvgl_screen_share_handle(uint16_t cmd,
                                   "screen_share",
                                   SS_TASK_STACK,
                                   (void *)(uintptr_t)generation,
-                                  SS_TASK_PRIO,
+                                  SYS_PRIO_SERVICE_LO,
                                   NULL,
                                   SYS_CORE_RADIO) != pdPASS) {
         capture_finished();

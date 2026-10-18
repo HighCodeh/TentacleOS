@@ -63,7 +63,6 @@
 static const char *TAG = "KERNEL";
 
 #define CONSOLE_TASK_STACK     8192
-#define CONSOLE_TASK_PRIO      SYS_PRIO_SERVICE_HI
 #define BOOT_SETTLE_MS         1500
 #define DISPLAY_RETRY_DELAY_MS 100
 
@@ -290,7 +289,7 @@ esp_err_t kernel_init(void) {
                           "console_task",
                           CONSOLE_TASK_STACK,
                           NULL,
-                          CONSOLE_TASK_PRIO,
+                          SYS_PRIO_SERVICE_HI,
                           NULL,
                           SYS_CORE_RADIO);
   // C5-dependent host-link pieces disabled with the bridge: the C5 log relay and

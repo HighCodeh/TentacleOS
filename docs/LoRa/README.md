@@ -242,3 +242,12 @@ const rnode_stats_t     *rnode_get_stats(void);
 ```
 
 Defaults: 915 MHz, BW 125 kHz, SF8, CR 4/5, +17 dBm. The on-device screen is `lora_rnode_ui`.
+
+## Native radio laboratory
+
+`session/lora_lab` provides a receive-only SX1262 engineering session with
+SF7/BW125/CR4/5 and a private sync word. It validates the chip, samples RSSI,
+counts packets and CRC/header errors, and exposes bounded packet prefixes to the
+UI. It does not transmit. Starting is refused while a protocol session, lab
+worker or SX1262 owner is active. The worker uses `SYS_PRIO_BACKGROUND` on
+`SYS_CORE_RADIO` and releases its power lock during cleanup.
