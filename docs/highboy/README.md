@@ -93,6 +93,13 @@ again after compilation. The C5 check enforces all eight pinned target/memory
 settings, rather than accepting the source defaults as build evidence. Offline
 source-only jobs may run without build outputs; build jobs may not.
 
+Commit validation runs on both pull requests and pushes to `dev`. It checks the
+PR base-to-head range or the previous-to-current push range. A first push with a
+zero previous SHA checks only the new tip, avoiding a retrospective check of
+legacy history. Invalid or unavailable nonzero refs fail validation. Commitlint
+uses exact package versions and the root `package-lock.json` through
+`npm ci --ignore-scripts`; its accepted types match `AGENTS.md`.
+
 The legacy automatic `main` release is deliberately stopped before
 semantic-release when this integrated profile is present. That pipeline assumes
 one SDK, older output paths and a complete deployable firmware. It must not

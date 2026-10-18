@@ -58,7 +58,7 @@ Config: `.clang-format` — LLVM base, 2-space indent, 100-column limit, pointer
 
 Conventional Commits enforced by git hook and CI. Format: `<type>(<scope>): <description>`
 
-Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`, `ci`, `build`, `revert`, `delete`, `deleted`, `remove`, `removed`
+Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`, `ci`, `build`, `revert`, `delete`, `deleted`, `remove`, `removed`, `diag`, `tweak`
 
 Breaking changes use `!` before the colon. Header max length: 200 chars.
 

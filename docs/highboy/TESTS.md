@@ -67,6 +67,20 @@ and enforcing the shared `C5_MEMORY` policy in the C5 build job itself.
 overlay overrides, valid configurations and prohibited security changes using
 temporary files. It never edits the actual generated build configuration.
 
+Commit validation regressions run in their CI job after `npm ci --ignore-scripts`:
+
+```sh
+node --test tools/ci/test_commitlint.mjs
+```
+
+They exercise accepted/rejected types, breaking-change headers, the 200-character
+limit, invalid intermediate commits in a range, missing refs and first-push
+handling in isolated temporary Git repositories with hooks disabled.
+The updated build wrapper passed incremental C5/P4 builds with the required
+configuration checks. All eight configuration-gate tests, both commit-validation
+test groups and the complete offline regression runner passed locally. These
+workflow changes still require a committed push or PR to execute on GitHub Actions.
+
 
 ## Canonical-source host tests
 

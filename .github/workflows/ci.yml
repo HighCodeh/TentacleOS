@@ -32,7 +32,6 @@ jobs:
 
   commitlint:
     name: Validate Commits
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -43,9 +42,16 @@ jobs:
         with:
           node-version: 22
 
-      - run: npm install --save-dev @commitlint/cli @commitlint/config-conventional
+      - run: npm ci --ignore-scripts --no-audit --no-fund
 
-      - run: npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }}
+      - name: Test commit validation
+        run: node --test tools/ci/test_commitlint.mjs
+
+      - name: Validate incoming commits
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bash tools/ci/lint_commits.sh "$BASE_SHA" "$HEAD_SHA"
 
   build:
     name: Build ${{ matrix.target }} application
