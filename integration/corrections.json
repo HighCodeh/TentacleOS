@@ -147,6 +147,12 @@
       "pre_format_sha256": "5c5ebfc5ea5bb753606efcbd8c116b08f78e4e7a716369425921263d4c136e52",
       "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
     },
+    "firmware_p4/components/Applications/doom/doomgeneric_highboy.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "69801b7ad906a19626a1143874f3f0ed37c5e7cabfd1efe0ce4c507d44c92b80",
+      "after_sha256": "4e05aa40fd91a0c9174575daf872a0a4b2944f62780bd4c6435d512116ebbc8b",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks."
+    },
     "firmware_p4/components/Applications/gameboy/include/gb_input_mapping.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "57c2e5d5ec513cef4e81bedd15932a1e30f855e4917001da347b110ffa2fb341",

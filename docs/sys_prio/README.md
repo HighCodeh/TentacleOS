@@ -68,3 +68,17 @@ split** - every task runs on the one core.
 - Core macros are `SYS_CORE_MAIN` (0, the only core) and `SYS_CORE_ANY`.
 
 The port centralized every C5 task priority without changing any numeric value.
+
+## Integrated task corrections
+
+Affected first-party creation sites pass `SYS_PRIO_*` and `SYS_CORE_*` directly,
+including static and capability-allocated tasks. C5 Wi-Fi capture/hopping, bridge,
+session watchdog, Muse and legacy Grok workers are explicitly pinned to
+`SYS_CORE_MAIN`. Capability-allocated Muse stacks keep their internal-memory
+requirements; no new Drivers component dependency is introduced.
+
+P4 RFID uses `SYS_PRIO_SERVICE_LO` on `SYS_CORE_RADIO`. Muse microphone capture
+uses `SYS_PRIO_SERVICE_HI` on `SYS_CORE_UI`, with its control worker on the radio
+core. DOOM input uses `SYS_PRIO_SERVICE_HI` instead of the renderer-only band;
+both input and game tasks run on `SYS_CORE_UI`. These policy changes require a fresh
+paired build and subsequent timing checks on the device.

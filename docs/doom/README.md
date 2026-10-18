@@ -40,3 +40,10 @@ The host checks cover allocation fallback, RGB565 byte order, frame/letterbox
 strip coverage and draw/wait ordering, plus retained input and lock ordering.
 They do not measure actual panel DMA completion, frame rate, buttons or audio;
 those need a later device smoke test. No firmware build or flash is performed.
+
+## Central scheduling policy
+
+Both the game and button-input tasks use `SYS_PRIO_SERVICE_HI` on
+`SYS_CORE_UI`. The input task no longer borrows the renderer-only priority band.
+Task stacks retain their explicit PSRAM capabilities. Host strip tests validate
+DMA buffer ownership and conversion; input latency still needs device testing.

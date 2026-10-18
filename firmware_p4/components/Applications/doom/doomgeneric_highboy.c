@@ -28,6 +28,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 #include "freertos/idf_additions.h"   // xTaskCreatePinnedToCoreWithCaps
 #include "esp_timer.h"
 #include "esp_log.h"
@@ -216,8 +217,14 @@ static void panel_clear_black(void) {
 void DG_Init(void) {
   // Input runs in its own task (DOOM's loop blocks this task via Create()).
   // Stack in PSRAM — internal RAM is scarce (~30 KB free after full boot).
-  xTaskCreatePinnedToCoreWithCaps(doom_input_task, "doom_in", 4096, NULL, 6, NULL, 0,
-                                  MALLOC_CAP_SPIRAM);
+  xTaskCreatePinnedToCoreWithCaps(doom_input_task,
+                                "doom_in",
+                                4096,
+                                NULL,
+                                SYS_PRIO_SERVICE_HI,
+                                NULL,
+                                SYS_CORE_UI,
+                                MALLOC_CAP_SPIRAM);
 }
 
 void DG_DrawFrame(void) {
@@ -343,7 +350,7 @@ void highboy_doom_start(void (*render_beat_kick)(void)) {
   // RAM is nearly exhausted after boot (~30 KB), so an internal stack can't be
   // allocated. WithCaps puts the stack in the ample 32 MB PSRAM.
   BaseType_t ok = xTaskCreatePinnedToCoreWithCaps(
-      doom_main_task, "doom", 49152, NULL, 5, NULL, 1, MALLOC_CAP_SPIRAM);
+      doom_main_task, "doom", 49152, NULL, SYS_PRIO_SERVICE_HI, NULL, SYS_CORE_UI, MALLOC_CAP_SPIRAM);
   ESP_LOGW(TAG, "highboy_doom_start: task create -> %s",
            ok == pdPASS ? "OK" : "FAILED");
 }
