@@ -52,7 +52,6 @@ static const char *TAG = "MICREC_UI";
 #define OVERLAY_TICK_MS    60
 #define OVERLAY_HIDE_MS    700
 #define MIC_TASK_STACK     8192
-#define MIC_TASK_PRIORITY  SYS_PRIO_SERVICE_LO
 #define REC_TARGET_DEFAULT 26000
 #define REC_TARGET_MIN     16000
 #define REC_TARGET_STEP    3400
@@ -496,7 +495,7 @@ static void activate(int idx) {
     overlay_show("RECORDING", dur_ms, OV_VU);
     s_busy = true;
     if (xTaskCreatePinnedToCore(
-            record_task, "mic_rec", MIC_TASK_STACK, NULL, MIC_TASK_PRIORITY, NULL, SYS_CORE_UI) !=
+            record_task, "mic_rec", MIC_TASK_STACK, NULL, SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_UI) !=
         pdPASS) {
       s_busy = false;
       s_state = ST_IDLE;
@@ -515,7 +514,7 @@ static void activate(int idx) {
     overlay_show(s_loop ? "PLAYING (loop)" : "PLAYING", dur_ms, OV_TIME);
     s_busy = true;
     if (xTaskCreatePinnedToCore(
-            play_task, "mic_play", MIC_TASK_STACK, NULL, MIC_TASK_PRIORITY, NULL, SYS_CORE_UI) !=
+            play_task, "mic_play", MIC_TASK_STACK, NULL, SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_UI) !=
         pdPASS) {
       s_busy = false;
       s_state = ST_IDLE;
@@ -531,9 +530,13 @@ static void activate(int idx) {
       return;
     overlay_show("SAVING", SAVE_OV_MS, OV_TIME);
     s_busy = true;
-    if (xTaskCreatePinnedToCore(
-            save_task, "mic_save", MIC_TASK_STACK, NULL, MIC_TASK_PRIORITY, NULL, SYS_CORE_RADIO) !=
-        pdPASS) {
+    if (xTaskCreatePinnedToCore(save_task,
+                                "mic_save",
+                                MIC_TASK_STACK,
+                                NULL,
+                                SYS_PRIO_SERVICE_LO,
+                                NULL,
+                                SYS_CORE_RADIO) != pdPASS) {
       s_busy = false;
       finish("Task error");
     }

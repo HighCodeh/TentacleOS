@@ -316,3 +316,11 @@ through `tos_config`, which is the sole writer of the `screen` config file.
   - Loads the screen with `ui_screen_load_owned(&s_screen, scr)`.
 
 **Done: the new screen is integrated, safe and navigable.**
+
+## Integrated background workers
+
+Affected screen and boot worker creation sites use `SYS_PRIO_*` and
+`SYS_CORE_*` directly. Native RFID cancellation/results are synchronized and
+field cleanup remains with the reader task; see the
+[RF frontend reference](../rf_frontend/README.md). The native Muse PTT owner and
+its recording/control split are documented in [Muse](../muse/README.md).

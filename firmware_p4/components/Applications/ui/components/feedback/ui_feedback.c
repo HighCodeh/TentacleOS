@@ -29,7 +29,6 @@
 #include "tos_config.h"
 
 #define FB_TASK_STACK_SIZE 3072
-#define FB_TASK_PRIORITY   SYS_PRIO_SERVICE_LO
 
 /** @brief Single pending slot. Feedback is a reaction to an input that already
  *         happened - a stale one is worthless, so we drop instead of queueing.
@@ -114,7 +113,7 @@ void ui_feedback_init(void) {
   // UI core - a full-frame redraw would preempt it long enough to starve the
   // sample feed. Same reason the driver's own FX task lives there.
   if (xTaskCreatePinnedToCore(
-          fb_task, "ui_fb", FB_TASK_STACK_SIZE, NULL, FB_TASK_PRIORITY, NULL, SYS_CORE_RADIO) !=
+          fb_task, "ui_fb", FB_TASK_STACK_SIZE, NULL, SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_RADIO) !=
       pdPASS) {
     vQueueDelete(s_fb_q);
     s_fb_q = NULL;

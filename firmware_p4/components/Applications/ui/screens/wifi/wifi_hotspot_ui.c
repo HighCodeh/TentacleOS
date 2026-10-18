@@ -85,7 +85,6 @@
 #define START_SECS        0
 
 #define TASK_STACK_SIZE 4096
-#define TASK_PRIORITY   SYS_PRIO_SERVICE_LO
 
 #define VAL_PLACEHOLDER "--"
 
@@ -149,9 +148,13 @@ static void ap_request(bool enabled) {
   s_ap_dirty = true;
   if (!s_ap_busy) {
     s_ap_busy = true;
-    if (xTaskCreatePinnedToCore(
-            ap_apply_task, "ap_ctl", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL, SYS_CORE_RADIO) !=
-        pdPASS) {
+    if (xTaskCreatePinnedToCore(ap_apply_task,
+                                "ap_ctl",
+                                TASK_STACK_SIZE,
+                                NULL,
+                                SYS_PRIO_SERVICE_LO,
+                                NULL,
+                                SYS_CORE_RADIO) != pdPASS) {
       s_ap_busy = false;
     }
   }

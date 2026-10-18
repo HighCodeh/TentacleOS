@@ -40,7 +40,6 @@ static const char *TAG = "IR_STORE";
 #define IR_STORE_FILE_MAX (512 * 1024)
 #define IR_SERIALIZE_MAX  16384
 #define IR_CAP_TASK_STACK 8192
-#define IR_CAP_TASK_PRIO  SYS_PRIO_SERVICE_HI
 
 // ----------------------------------------------------------------------------
 // Path helpers
@@ -400,7 +399,7 @@ esp_err_t ir_capture_start(uint32_t timeout_ms) {
                               "ir_capture",
                               IR_CAP_TASK_STACK,
                               (void *)(uintptr_t)timeout_ms,
-                              IR_CAP_TASK_PRIO,
+                              SYS_PRIO_SERVICE_HI,
                               NULL,
                               SYS_CORE_RADIO) != pdPASS) {
     s_cap_running = false;

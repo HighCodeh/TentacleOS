@@ -41,7 +41,6 @@ static const char *SCAN_ICON = "/assets/icons/wifi_find.bin";
 #define SCAN_END_PORT     1024
 #define COLOR_OPEN        0x00E676
 #define TASK_STACK_SIZE   8192
-#define TASK_PRIORITY     SYS_PRIO_SERVICE_LO
 #define CAPTION_Y_OFS     78
 #define WAVES_Y_OFS       -6
 #define PORT_MAX          32
@@ -195,9 +194,13 @@ void ui_wifi_port_scan_open(void) {
   build_screen();
   if (!s_scanning) {
     s_scanning = true;
-    if (xTaskCreatePinnedToCore(
-            scan_task, "port_scan", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL, SYS_CORE_RADIO) !=
-        pdPASS) {
+    if (xTaskCreatePinnedToCore(scan_task,
+                                "port_scan",
+                                TASK_STACK_SIZE,
+                                NULL,
+                                SYS_PRIO_SERVICE_LO,
+                                NULL,
+                                SYS_CORE_RADIO) != pdPASS) {
       s_scanning = false;
       s_state = SCAN_DONE;
       build_screen();

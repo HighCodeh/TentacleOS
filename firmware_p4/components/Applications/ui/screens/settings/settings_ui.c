@@ -44,13 +44,9 @@ static const char *TAG = "SETTINGS_UI";
 #define C5_PROGRESS_TICK_MS       200
 #define C5_DISMISS_DELAY_MS       2000
 #define C5_FLASH_TASK_STACK       8192
-#define C5_FLASH_TASK_PRIO        SYS_PRIO_SERVICE_HI
 #define C5_ROM_FLASH_TASK_STACK   8192
-#define C5_ROM_FLASH_TASK_PRIO    SYS_PRIO_SERVICE_HI
 #define C5_BOOT_TASK_STACK        4096
-#define C5_BOOT_TASK_PRIO         SYS_PRIO_SERVICE_HI
 #define C5_PASSTHROUGH_TASK_STACK 8192
-#define C5_PASSTHROUGH_TASK_PRIO  SYS_PRIO_SERVICE_HI
 #define REBOOT_DELAY_MS           80
 
 #define ACTION_FLASH_C5        (-2)
@@ -308,7 +304,7 @@ static void start_c5_flash(void) {
                           "c5_flash",
                           C5_FLASH_TASK_STACK,
                           NULL,
-                          C5_FLASH_TASK_PRIO,
+                          SYS_PRIO_SERVICE_HI,
                           NULL,
                           SYS_CORE_RADIO);
 }
@@ -332,7 +328,7 @@ static void start_c5_rom_flash(void) {
                           "c5_rom_flash",
                           C5_ROM_FLASH_TASK_STACK,
                           NULL,
-                          C5_ROM_FLASH_TASK_PRIO,
+                          SYS_PRIO_SERVICE_HI,
                           NULL,
                           SYS_CORE_RADIO);
 }
@@ -376,7 +372,7 @@ static void start_c5_boot_mode(void) {
                               "c5_boot",
                               C5_BOOT_TASK_STACK,
                               NULL,
-                              C5_BOOT_TASK_PRIO,
+                              SYS_PRIO_SERVICE_HI,
                               NULL,
                               SYS_CORE_RADIO) != pdPASS) {
     hide_c5_progress();
@@ -405,7 +401,7 @@ static void start_c5_passthrough(void) {
                           "c5_passthru",
                           C5_PASSTHROUGH_TASK_STACK,
                           NULL,
-                          C5_PASSTHROUGH_TASK_PRIO,
+                          SYS_PRIO_SERVICE_HI,
                           NULL,
                           SYS_CORE_RADIO);
 }

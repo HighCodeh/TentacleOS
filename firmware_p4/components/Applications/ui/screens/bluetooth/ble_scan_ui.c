@@ -47,7 +47,6 @@ static const char *TAG = "BLE_SCAN_UI";
 #define BLE_DEV_ICON          "/assets/icons/bluetooth.bin"
 #define BLE_SEARCH_ICON       "/assets/icons/bluetooth_searching.bin"
 #define BLE_SCAN_TASK_STACK   8192
-#define BLE_SCAN_TASK_PRIO    SYS_PRIO_SERVICE_LO
 #define HERO_CARD_W           200
 #define HERO_CARD_H           108
 
@@ -550,7 +549,7 @@ void ui_ble_scan_open(void) {
                                 "ble_scan",
                                 BLE_SCAN_TASK_STACK,
                                 NULL,
-                                BLE_SCAN_TASK_PRIO,
+                                SYS_PRIO_SERVICE_LO,
                                 NULL,
                                 SYS_CORE_RADIO) != pdPASS) {
       s_scanning = false;

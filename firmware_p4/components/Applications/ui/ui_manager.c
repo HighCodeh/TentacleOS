@@ -168,8 +168,6 @@
 static const char *TAG = "UI_MANAGER";
 
 #define UI_BOOT_TASK_STACK_SIZE (4096 * 4)
-#define UI_BOOT_TASK_PRIORITY   SYS_PRIO_SERVICE_LO
-#define UI_BOOT_TASK_CORE       SYS_CORE_UI
 #define INPUT_LOCK_MS           500
 #define BOOT_SPLASH_DURATION_MS 5000
 #define RENDER_BEAT_MS          250
@@ -297,9 +295,9 @@ void ui_init(void) {
                           "ui_boot",
                           UI_BOOT_TASK_STACK_SIZE,
                           NULL,
-                          UI_BOOT_TASK_PRIORITY,
+                          SYS_PRIO_SERVICE_LO,
                           NULL,
-                          UI_BOOT_TASK_CORE);
+                          SYS_CORE_UI);
 
   ESP_LOGI(TAG, "UI Manager initialized successfully.");
 }

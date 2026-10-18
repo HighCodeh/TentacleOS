@@ -35,7 +35,6 @@ static const char *TAG = "WIFI_SURVEY_UI";
 #define RESULTS_PAGE_SIZE MENU_COMP_MAX_ITEMS
 #define HISTORY_POINTS    20
 #define TASK_STACK_SIZE   10240
-#define TASK_PRIORITY     SYS_PRIO_SERVICE_LO
 #define SURVEY_DWELL_MIN  45
 #define SURVEY_DWELL_MAX  90
 
@@ -669,7 +668,7 @@ static void start_survey(void) {
                               "wifi_survey",
                               TASK_STACK_SIZE,
                               (void *)(uintptr_t)s_generation,
-                              TASK_PRIORITY,
+                              SYS_PRIO_SERVICE_LO,
                               NULL,
                               SYS_CORE_RADIO) != pdPASS) {
     s_scan_run = false;

@@ -55,7 +55,6 @@
 #define C5_VER_BUF_LEN    24
 
 #define C5_OP_TASK_STACK 4096
-#define C5_OP_TASK_PRIO  SYS_PRIO_SERVICE_HI
 
 #define C5_REBOOT_LABEL      LV_SYMBOL_REFRESH "  Rebooting C5..."
 #define C5_REBOOT_TEXT_COLOR 0x8A8594
@@ -279,7 +278,7 @@ static void on_op_confirm(bool confirm) {
     return;
   s_is_busy = true;
   if (xTaskCreatePinnedToCore(
-          c5_op_task, "c5_op", C5_OP_TASK_STACK, NULL, C5_OP_TASK_PRIO, NULL, SYS_CORE_RADIO) !=
+          c5_op_task, "c5_op", C5_OP_TASK_STACK, NULL, SYS_PRIO_SERVICE_HI, NULL, SYS_CORE_RADIO) !=
       pdPASS) {
     s_is_busy = false;
     notify(NOTIFY_WARNING, "C5 busy, try again");
@@ -296,7 +295,7 @@ static void start_operation(int operation) {
   s_pending = operation;
   s_is_busy = true;
   if (xTaskCreatePinnedToCore(
-          c5_op_task, "c5_op", C5_OP_TASK_STACK, NULL, C5_OP_TASK_PRIO, NULL, SYS_CORE_RADIO) !=
+          c5_op_task, "c5_op", C5_OP_TASK_STACK, NULL, SYS_PRIO_SERVICE_HI, NULL, SYS_CORE_RADIO) !=
       pdPASS) {
     s_is_busy = false;
     notify(NOTIFY_WARNING, "C5 busy, try again");

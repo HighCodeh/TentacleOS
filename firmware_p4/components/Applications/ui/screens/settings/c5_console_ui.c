@@ -71,7 +71,6 @@
 #define DRAIN_CHUNK 512
 
 #define SYNC_TASK_STACK 3072
-#define SYNC_TASK_PRIO  SYS_PRIO_SERVICE_HI
 
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_term = NULL;
@@ -246,9 +245,13 @@ static void start_sync(void) {
     return;
   s_sync_busy = true;
   hist_write_line("[P4] Synchronizing C5 link...");
-  if (xTaskCreatePinnedToCore(
-          sync_task, "c5_ui_sync", SYNC_TASK_STACK, NULL, SYNC_TASK_PRIO, NULL, SYS_CORE_RADIO) !=
-      pdPASS) {
+  if (xTaskCreatePinnedToCore(sync_task,
+                              "c5_ui_sync",
+                              SYNC_TASK_STACK,
+                              NULL,
+                              SYS_PRIO_SERVICE_HI,
+                              NULL,
+                              SYS_CORE_RADIO) != pdPASS) {
     s_sync_busy = false;
     hist_write_line("[P4] Could not start sync task");
     notify(NOTIFY_WARNING, "C5 sync busy");

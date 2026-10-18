@@ -24,7 +24,6 @@ static const char *TAG = "WIFI_PACKETS_UI";
 #define PACKETS_POLL_MS    250
 #define RATE_WINDOW_MS     500
 #define TASK_STACK_SIZE    8192
-#define TASK_PRIORITY      SYS_PRIO_SERVICE_LO
 #define SPECTRUM_MIN_SCALE 16U
 #define SPECTRUM_SEGMENTS  16U
 #define SPECTRUM_HOLD_MS   120U
@@ -584,7 +583,7 @@ static void start_capture(void) {
                               "packet_lab",
                               TASK_STACK_SIZE,
                               NULL,
-                              TASK_PRIORITY,
+                              SYS_PRIO_SERVICE_LO,
                               NULL,
                               SYS_CORE_RADIO) != pdPASS) {
     s_worker_busy = false;

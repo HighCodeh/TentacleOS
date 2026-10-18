@@ -221,3 +221,16 @@ ir flash <on|off>                         drive the emitter at full power (torch
 - `ir rx` calls `ir_rx_init` + `ir_rx_prime`, waits for a frame, prints protocol/address/command (and `[repeat]`), then `ir_rx_deinit`. Reports timeout and undecoded-frame cases distinctly.
 - `ir send` resolves the protocol name (case-insensitive), parses `addr`/`cmd` (0x hex accepted), inits TX, sends, then deinits TX.
 - `ir flash on` drives the emitter to full power (`ir_flash_on`); `ir flash off` turns it off. The output is infrared - check with a phone camera.
+
+## Integrated IR library and validation
+
+The IR menu opens a native browser rooted at `/sdcard/ir/library`. It lists up
+to 48 short names per directory, uses pages of 16 entries and bounds directory
+depth to eight levels. Selecting an `.ir` file loads supported signals; selecting
+a signal transmits it through `ir_store_send_signal()`.
+
+`ir_file_parse()` reads full lines from a PSRAM buffer, limits input to 512 KiB
+and RAW signals to 8192 pulses. Invalid fields reject the parse and free signals
+appended by that call while preserving preexisting entries. Transmission rejects
+RAW durations outside 1–32767 us, totals above 900000 us and carriers outside
+10–100 kHz. Rejected timings are not truncated to fit RMT fields.

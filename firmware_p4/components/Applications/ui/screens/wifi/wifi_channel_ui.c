@@ -36,7 +36,6 @@ static const char *TAG = "WIFI_CHAN_UI";
 
 #define MAX_ROWS        12
 #define TASK_STACK_SIZE 8192
-#define TASK_PRIORITY   SYS_PRIO_SERVICE_LO
 
 #define COLOR_QUIET_HEX   0x00E676
 #define COLOR_BUSY_HEX    0xFFC107
@@ -403,7 +402,7 @@ void ui_wifi_channel_open(void) {
                                 "wifi_chan",
                                 TASK_STACK_SIZE,
                                 NULL,
-                                TASK_PRIORITY,
+                                SYS_PRIO_SERVICE_LO,
                                 NULL,
                                 SYS_CORE_RADIO) != pdPASS) {
       s_scanning = false;

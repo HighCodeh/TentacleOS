@@ -40,7 +40,6 @@ static const char *TAG = "CONNECT_WIFI_UI";
 #define WIFI_MAX_APS 12
 
 #define WIFI_TASK_STACK_SIZE 8192
-#define WIFI_TASK_PRIORITY   SYS_PRIO_SERVICE_LO
 #define CONNECT_POLL_MS      250
 #define CONNECT_TIMEOUT_MS   20000
 
@@ -163,7 +162,7 @@ static void start_connection(const char *password) {
                               "wifi_conn",
                               WIFI_TASK_STACK_SIZE,
                               NULL,
-                              WIFI_TASK_PRIORITY,
+                              SYS_PRIO_SERVICE_LO,
                               NULL,
                               SYS_CORE_RADIO) != pdPASS)
     s_connecting = false;
@@ -432,7 +431,7 @@ void ui_connect_wifi_open(void) {
                                 "wifi_scan",
                                 WIFI_TASK_STACK_SIZE,
                                 NULL,
-                                WIFI_TASK_PRIORITY,
+                                SYS_PRIO_SERVICE_LO,
                                 NULL,
                                 SYS_CORE_RADIO) != pdPASS) {
       s_scanning = false;

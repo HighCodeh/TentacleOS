@@ -376,3 +376,16 @@ to preserve internal RAM.
 `strncpy` plus explicit NUL-termination.
 </content>
 </invoke>
+
+## Integrated dual-band analysis
+
+The integrated C5 enables automatic 2.4/5 GHz band selection and provides
+`wifi_service_scan_ex()` for explicit band, passive/active mode and dwell times.
+P4 survey screens use SPI proxy results rather than local radio access. Scan band
+selection is scoped to the scan and restored afterward. Packet analysis supports
+band-constrained capture and counter-only monitors.
+
+C5 channel-hopping and sniffer stream tasks are pinned to `SYS_CORE_MAIN`;
+P4 proxy/UI workers use the central `sys_prio.h` policy. Availability of bands and
+channels still depends on the configured radio and region. Source/host validation
+does not establish physical reception or packet-capture reliability.

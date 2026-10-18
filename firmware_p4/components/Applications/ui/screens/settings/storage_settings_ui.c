@@ -53,7 +53,6 @@ static const char *TAG = "STORAGE_UI";
 #define ACT_HEALTH     3
 #define ACT_COUNT      4
 #define FMT_TASK_STACK 8192
-#define FMT_TASK_PRIO  SYS_PRIO_SERVICE_HI
 #define FMT_POLL_MS    50
 
 #define LIST_LEFT      6
@@ -364,7 +363,7 @@ static void fmt_confirm_cb(bool confirm) {
                               "sd_format",
                               FMT_TASK_STACK,
                               (void *)(uintptr_t)s_format_exfat,
-                              FMT_TASK_PRIO,
+                              SYS_PRIO_SERVICE_HI,
                               NULL,
                               SYS_CORE_RADIO) != pdPASS) {
     s_formatting = false;

@@ -165,6 +165,14 @@
       "after_sha256": "dfd01cfcece83c48b2a90c7c23ae6d787ce7b3597e98c82998cfeeff3b797307",
       "reason": "Use project include guards and C++ linkage for new first-party headers."
     },
+    "firmware_p4/components/Applications/ui/components/feedback/ui_feedback.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "7c5c39e78e68cd62ed23202d37b30c5e73799973fc352346d1d14f7d5f26ff73",
+      "after_sha256": "35e2a5e45b2ebd64d61ccf887576be01ea9d4e8b48b4cf4f7e5d92f209a33dce",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "c55852347906836b93690f17dc5bf74f13831d45bb6aea64020c6b7c2844dfce",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
     "firmware_p4/components/Applications/ui/include/grok_idle_ui.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "ef45255a34de09ee63f967734cf1ed9f86f7018dcfedc0c220838b0f1a1a365c",
@@ -176,6 +184,30 @@
       "before_sha256": "46e528c81a85ce5d2b8e71d159ef2b1ec27ca49d79d88fed25a46ed03e11ce74",
       "after_sha256": "48c9069ce559c73d58f0b4530ca148ec8ebb5d495bdd92b520b3a0b77972977d",
       "reason": "Use project include guards and C++ linkage for new first-party headers."
+    },
+    "firmware_p4/components/Applications/ui/screens/audio/micrec_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "fad018e39f8aee1e3c7080aed3c9dd507a5aec599389047c4877ab84b34eeb99",
+      "after_sha256": "36c229bf38dbfc48a14a67679eacde43d89423169bf6c3ff9afacab4b2133a89",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "e9e354c07bb3e113eb4e02a4bf4ee39b68cb9669f3cc4cc8094a3285cc9ce7a6",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_p4/components/Applications/ui/screens/bluetooth/ble_scan_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "c974a9d1d5ce353e17815518a9ff2dbd0634af40680b7f39a093c1654833429f",
+      "after_sha256": "27b10f18f2920670735140595298b1db02562e41ca7383a5fb325af28bb99f92",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "3e004ac548490fe9e661f5adf12a20e2b2bfd5b0e5e1c933097df8db2c48dbde",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_p4/components/Applications/ui/screens/connect_wifi/connect_wifi_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "0e20ea1e9fe47828ecaf84c99927c35d3484db27196891bd58d74f9c5495ab3d",
+      "after_sha256": "006dbc8135b2defc3a71366d877e8881f27143f8d079278e7286f1b2521eab6b",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "91ef4d9eb54e1b82b49823e69aa62cbc4adb17ef7a1885ff4d13fff9a9b8e66b",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
     },
     "firmware_p4/components/Applications/ui/screens/games/fly_local3d.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -201,12 +233,96 @@
       "after_sha256": "e8a27c99428c8d7b768df4253bdd1d944f219b1120202dc8bafc44307a7a0a19",
       "reason": "Use a project include guard and C++ linkage for the first-party inline menu helper."
     },
+    "firmware_p4/components/Applications/ui/screens/infrared/ir_store.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "1bf83f9c8576e24b2ae0f93426b19b3e53f69ebb5357892a519fc6e25959a917",
+      "after_sha256": "f8a63703c5904655b0f71843e3c3469ed3654a8cb1c28a0f987575474b033698",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "8f33bf1e69bbcb3d8b4c77e6553d0ff637d0436a7ec0738281d941cdabe49e4a",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
     "firmware_p4/components/Applications/ui/screens/rfid/rfid_menu_ui.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "215aadfbfea3c66807e3f93b9b035f27ee3108a5007af071fd0b298697a299fd",
       "after_sha256": "1873cc4520d92381546c16367abb0d409118fd394260725eeb8860113f81924d",
       "reason": "Synchronize reader lifecycle/results and keep field cleanup in the radio task.",
       "pre_format_sha256": "18172547b5a2f009097ca932730e175ba7b120d36c3eb4883d8634e29d28d8ce",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_p4/components/Applications/ui/screens/settings/c5_console_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "3ed95d42b4bb2ee3883673830a87ee2531e908e61b0dde5499bf1b0865dbafee",
+      "after_sha256": "b132aac3d0462e580b518e9d07d5d74e71bf3a8d1f1098a7d5c9ed676a68967a",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "ffac54e4b7c60e51c8b10bcce26f43ebe46a1928915a28846712253621cddd77",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_p4/components/Applications/ui/screens/settings/c5_status_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "439cdced02bb811ea05c2bf73d03d4d94f0b522d020b5efe149d60184508e722",
+      "after_sha256": "cfeb029692f7263d9f7dc1b8c6dfce01190be8fcf0726ea6b3a489b2675dbdf9",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "bbb790f61e70e12e6a037b73bbfec60688345858c5d13674cf3411fb80c19cd6",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_p4/components/Applications/ui/screens/settings/settings_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "7180479fe893f52929655c6ee57b86fbc584b2a5f777dc8eaa7cb6dd748b3603",
+      "after_sha256": "3e5fda90c41b694b8ac7395aa01ed0ef4a8fd8e6994baa1f63f75fe2a3c62fee",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "ca563b24f98918fe6110440390869683c1124bba1d353b4264ce125443831747",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_p4/components/Applications/ui/screens/settings/storage_settings_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "ff01c0ee0421402743707d2beca3786af8c0f47937d4c5e40fa2bec1a0c0c44b",
+      "after_sha256": "eb6cfd139d1dae564c9b966d8b4eea1187cc84a14ba597765b10fa789429d34f",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "ca965c9c57a59451a241578f538b821aee6f280325db19b8851fe2bc9bb6dec8",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_p4/components/Applications/ui/screens/wifi/wifi_channel_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "575a4636a4f1ad94a7f61439aa5239f71d88aae064066b743cd60e440ae7568d",
+      "after_sha256": "7dab6c6b5b595de91c169054f3c39b3f6bb2ad1ab378c7863d499f7f709e186d",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "c0899a09847c901582886e482b4e29d80830c437a6c813f040b256c4c59c637a",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_p4/components/Applications/ui/screens/wifi/wifi_hotspot_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "52c9975b37428a4a268f4c125b76f8feed22bf5d210a9713ef19f6fa19b10706",
+      "after_sha256": "7a635213a74e1b13943d9b6e0c47d06338c807bac894d8003e65c4fcd7aaa7df",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "ed321759082067e6166c8b5ed4bc1767c068895e4b4552240a47d56e1f2aaffd",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_p4/components/Applications/ui/screens/wifi/wifi_packets_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "f1a31e4d77d1062f9105592f5de025cff7c0219d8c6183c9c31f9b36bda274f1",
+      "after_sha256": "26120e4290736b20926c72cbb1945b0f711d25d86bb214ecefec76d2100c5b42",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks."
+    },
+    "firmware_p4/components/Applications/ui/screens/wifi/wifi_port_scan_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "94ef6aa2e033f3ca7e1c08851fcddd759d77cc7f9b6c87928c1eb16ad13c4a54",
+      "after_sha256": "1e68f162380a4019bc70d36edd9890aa168ab238d6ba058cdc3ddf3e532ee6f5",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "3b829d8421863ccd60e73535e4440209473c30d183b3ee9c238ae11e4945b857",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_p4/components/Applications/ui/screens/wifi/wifi_scan_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "c53a4a7d6c64a88bcc5a8c09400a18fb310fbe57153a8a5966af275bce0ad45f",
+      "after_sha256": "613d5f8fe5ef0fabf80e6cc3ebe6261062c31fd657d20befc8978920c1b5deff",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks."
+    },
+    "firmware_p4/components/Applications/ui/ui_manager.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "938b509321c8ef23ed8cf0f6f5ff2644fdabaea3a84ca1b544428c4c2c2eeba2",
+      "after_sha256": "00c83c4094432fb613e43f0e325440d51b97346e02837d4aff968510c8fb549e",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "6ec2fec14af0b18032e850437066a790b6c253f57ad6be2b484beb91caaf3dde",
       "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
     },
     "firmware_p4/components/Core/kernel.c": {
