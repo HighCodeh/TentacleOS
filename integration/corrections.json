@@ -3,6 +3,30 @@
   "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
   "status": "source_corrections_target_build_and_hardware_acceptance_pending",
   "files": {
+    "firmware_c5/components/Applications/wifi/wifi_sniffer.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "f6be9e84511f7a3678f4dde37ffcfbd791c4b22d971402dd2637230b7e8c6345",
+      "after_sha256": "1b7474ee89f22743cc2ac765510d775c5f4009062ce6e336cf76ced8df16664f",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "a956e94da8075d6b63480e0b138e69917a2ce826a79f3d3b17dfab7a3f31c37b",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_c5/components/Core/sys_monitor.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "7f408eeb8966ddbd0e7af74347292043603816cdac39da85b1c71ad01a936960",
+      "after_sha256": "807cf2b44ab073d76e325261ff68bc17638b672ef0e2c883f40b1c524a1258c3",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "3c881da0d2747fda79cf8aaad334e57bf10519901338ea18134a81810b214677",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_c5/components/Service/grok_wifi/grok_wifi.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "ef1836c275bb6dab522ff1edf0488956e992ff23f78150ff011dff801db1ff4f",
+      "after_sha256": "86eac1f9c7e77b9594963ae0b7006b7a4d9da08fc6609d31f18b992bb99742c4",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "480bf50e3470566f34d2841c08382777adf1f477cdc048d02b26af8861af14d1",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
     "firmware_c5/components/Service/grok_wifi/include/grok_wifi.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "b67d47ae22b0bdf0ee5cb876af4dace55672640cdc2483705aa6c21b85870eba",
@@ -14,6 +38,12 @@
       "before_sha256": "5136b7f7b8f7aeef1d4c7eec8c38b01090ca71b229d57fae7f957b6901087efa",
       "after_sha256": "62797d5b990741225e1ca443f90cabad29bc22b3e8711a39442f5ce5749bfd4a",
       "reason": "Use project include guards and C++ linkage for new first-party headers."
+    },
+    "firmware_c5/components/Service/highboy_muse/CMakeLists.txt": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "37129d32242ba12b38675b505ec1ba77a3668fa5086f8f205d02ee7094478603",
+      "after_sha256": "5e7ec68d7bb0fa5de27d947b09e9519573e90af3e777cc40f9e42c7c87ddab36",
+      "reason": "Expose central C5 scheduling header privately without a component dependency cycle."
     },
     "firmware_c5/components/Service/highboy_muse/bridge/hb_muse_rpc.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -33,11 +63,43 @@
       "after_sha256": "0dfdea67bb96f450071d9c3ed5aa059445f04668f85176f82dc3165ce408cf02",
       "reason": "Use project include guards and C++ linkage for new first-party headers."
     },
+    "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_setup.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "f302c1f6d4c331f3627719bb96254502c9e9b53aec503cdf5458c15ee2605132",
+      "after_sha256": "87c4d7706677d82affb0df740dd78f73e5be7a8aef91c839e0afa03ffa778638",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "e3cf60627c5831d21565b826440b307475bc62de9fca2c65a417b989b0fadcdb",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_c5/components/Service/highboy_muse/platform/hb_muse_account_worker.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "b06015ba8bc57652baf0f78f8a67aa22a76ac8a7a90229e1b15800d5b112d9d3",
+      "after_sha256": "cfb9e373fef68a7f05c34e9dfa531369b01ba9672f24e3fae0aa1113ce7e988f",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "4dc54a21cc6da1ca56c47202635b95ff46935bab1d9c3db98d121994d04edf89",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_c5/components/Service/highboy_muse/runtime/hb_muse_runtime.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "980d6504a88876176d3dee435516bdadd1bbd9dd017a516af1cfeb8ce84e2d82",
+      "after_sha256": "7bf63b3a6df36f954831e5b67fb2bee0b0e0d63b18fff33c4768b390ce908df1",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "ca7db346bafc1594c97c45144009f16803c1043eb73e79f804b84d80687ca09d",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
     "firmware_c5/components/Service/highboy_muse/token_uart/hb_muse_token_frame.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "1d48ac6c51172e08df2d5d14cf122d8507d6224de8e39e74589fd8433754389b",
       "after_sha256": "b781301e24ef3e76578a3e15fee56d72fbd2cdcd81e5ebc3dc9ecf3dc5a08191",
       "reason": "Use project include guards and C++ linkage for new first-party headers."
+    },
+    "firmware_c5/components/Service/highboy_muse/token_uart/hb_muse_token_uart.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "6d135f8b6be978dde4c45c9f363e795ccd5d90e9ebdca3a1e69ffe33ef528a51",
+      "after_sha256": "f2c94aa468c2d8d273d161cabd7eaebb5611722f43efe9288cab89b4c111e0d8",
+      "reason": "Pin token UART worker using central policy and release its capability-allocated task stack.",
+      "pre_format_sha256": "3251fce58faaa4bbffdef389dc35ce2bca763d00f2af99c9b601ad7442cb6c46",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
     },
     "firmware_c5/components/Service/highboy_muse/token_uart/hb_muse_token_uart.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -51,11 +113,31 @@
       "after_sha256": "0098597231f7967ab287926ce73d36a4a00a7da4dfab7b915896d33674c0a1e0",
       "reason": "Use project include guards and C++ linkage for new first-party headers."
     },
+    "firmware_c5/components/Service/spi_bridge/session_manager.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "20b4390aad30a6186bd8e35ca2ef3bdf8bc0140f517d169b7ec081a3193a0001",
+      "after_sha256": "ba66e01d733d5c3c0ffc0fbb57bfd7f10311759bbdca7969c4926b4c776a46cf",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks."
+    },
+    "firmware_c5/components/Service/spi_bridge/spi_bridge.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "502217de323db0a1f9431ba2da16ffe4302019902f060b22493071dbd0334153",
+      "after_sha256": "4b6e7f8b9cc7402047718773549def5febb1b3b19136013e127b218d59ea0344",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks."
+    },
     "firmware_c5/components/Service/wifi/hb_muse_wifi_json_bound.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "2b9a8996b9f47f95fa6a620b9dead6f94061fc2e4ee352777ddc587b2ba80d7b",
       "after_sha256": "79335ce0be1c319860418a58f7b666f0fb937991c7f9c70e8bd0796a5b237219",
       "reason": "Use project include guards and C++ linkage for new first-party headers."
+    },
+    "firmware_c5/components/Service/wifi/wifi_service.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "13718f544db0bfb4647a2a3295d5928d133937d57c9d93059d91ff4697a4ec95",
+      "after_sha256": "f3e8603e0a6a4d9276bcbd1cc02bd873a6758c4731a9b2bd9708c91a19d65f00",
+      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "pre_format_sha256": "1522b7a88f1d35a054354f11007d28f193aea233d8f4913837a421537b094022",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
     },
     "firmware_p4/components/Applications/gameboy/include/gb_input_mapping.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",

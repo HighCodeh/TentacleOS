@@ -51,7 +51,6 @@ static const char *TAG = "SPI_BRIDGE_C5";
 
 #define SPI_STREAM_QUEUE_LEN  32
 #define SPI_BRIDGE_TASK_STACK 8192
-#define SPI_BRIDGE_TASK_PRIO  SYS_PRIO_REALTIME
 #define SPI_IRQ_PULSE_US      10
 #define SPI_RESTART_DELAY_MS  50
 #define SPI_FW_VERSION_LEN    32
@@ -245,8 +244,13 @@ esp_err_t spi_bridge_slave_init_mode(spi_bridge_mode_t mode) {
     return ret;
   hb_muse_c5_service_register(); // only callbacks; default disabled
   session_manager_init();
-  xTaskCreate(
-      bridge_task, "spi_bridge_task", SPI_BRIDGE_TASK_STACK, NULL, SPI_BRIDGE_TASK_PRIO, NULL);
+  xTaskCreatePinnedToCore(bridge_task,
+                          "spi_bridge_task",
+                          SPI_BRIDGE_TASK_STACK,
+                          NULL,
+                          SYS_PRIO_REALTIME,
+                          NULL,
+                          SYS_CORE_MAIN);
   return ESP_OK;
 }
 

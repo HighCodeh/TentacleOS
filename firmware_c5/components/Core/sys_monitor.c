@@ -32,8 +32,6 @@ static const char *TAG = "SYS_MONITOR";
 
 #define MONITOR_INTERVAL_MS      2000
 #define MONITOR_STACK_SIZE       4096
-#define MONITOR_PRIORITY         SYS_PRIO_MONITOR
-#define MONITOR_CORE             SYS_CORE_MAIN
 #define CRITICAL_STACK_THRESHOLD 256  // free stack (bytes); below this a task is at risk
 #define STACK_ESCALATE_CYCLES    5    // consecutive critical cycles before a controlled restart
 #define STACK_WATCH_MAX          8    // distinct critical tasks tracked for persistence
@@ -268,7 +266,7 @@ void sys_monitor_start(bool is_verbose) {
                           "SysMonitor",
                           MONITOR_STACK_SIZE,
                           (void *)params,
-                          MONITOR_PRIORITY,
+                          SYS_PRIO_MONITOR,
                           NULL,
-                          MONITOR_CORE);
+                          SYS_CORE_MAIN);
 }

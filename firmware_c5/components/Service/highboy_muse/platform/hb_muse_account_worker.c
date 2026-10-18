@@ -10,6 +10,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "freertos/idf_additions.h"
+#include "sys_prio.h"
 #include "esp_heap_caps.h"
 #endif
 
@@ -182,9 +183,14 @@ bool hb_muse_account_worker_lookup(void *unused,
     memcpy(r->want, want, want_len);
   r->status = HB_MUSE_ACCOUNT_UNAVAILABLE;
   if (!current(r) ||
-      xTaskCreateWithCaps(
-          account_task, "muse_account", 8192, r, 4, NULL, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) !=
-          pdPASS) {
+      xTaskCreatePinnedToCoreWithCaps(account_task,
+                                      "muse_account",
+                                      8192,
+                                      r,
+                                      SYS_PRIO_SERVICE_LO,
+                                      NULL,
+                                      SYS_CORE_MAIN,
+                                      MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) != pdPASS) {
     release(r);
     release(r);
     atomic_store(&s_busy, false);

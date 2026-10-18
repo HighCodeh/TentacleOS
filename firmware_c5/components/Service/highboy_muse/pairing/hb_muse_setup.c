@@ -14,6 +14,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/idf_additions.h"
+#include "sys_prio.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #endif
@@ -537,8 +538,14 @@ bool hb_muse_setup_init(const hb_muse_setup_config_t *config) {
   s_ops = *config;
   s_status.phase = HB_MUSE_SETUP_OFF;
 #ifndef HB_MUSE_SETUP_HOST_TEST
-  if (xTaskCreateWithCaps(
-          task, "muse_setup", 8192, NULL, 4, NULL, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) != pdPASS)
+  if (xTaskCreatePinnedToCoreWithCaps(task,
+                                      "muse_setup",
+                                      8192,
+                                      NULL,
+                                      SYS_PRIO_SERVICE_LO,
+                                      NULL,
+                                      SYS_CORE_MAIN,
+                                      MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) != pdPASS)
     return false;
 #endif
   atomic_store(&s_initialized, true);

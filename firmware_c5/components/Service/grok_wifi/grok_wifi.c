@@ -425,7 +425,9 @@ static spi_status_t start(void) {
   s.state = STARTING;
   s.last_poll = esp_timer_get_time();
   portEXIT_CRITICAL(&s_lock);
-  if (xTaskCreate(voice_worker, "grok_tls", 6144, NULL, SYS_PRIO_SERVICE_LO, NULL) != pdPASS) {
+  if (xTaskCreatePinnedToCore(
+          voice_worker, "grok_tls", 6144, NULL, SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_MAIN) !=
+      pdPASS) {
     portENTER_CRITICAL(&s_lock);
     s.active = false;
     portEXIT_CRITICAL(&s_lock);

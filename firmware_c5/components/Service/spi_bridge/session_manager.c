@@ -33,7 +33,6 @@ static const char *TAG = "SESSION_MGR";
 #define SESSION_TIMEOUT_MS  5000
 #define WATCHDOG_PERIOD_MS  1000
 #define WATCHDOG_STACK_SIZE 3072
-#define WATCHDOG_PRIO       SYS_PRIO_SERVICE_HI
 #define DROP_LOG_INTERVAL   1000
 
 typedef struct {
@@ -114,7 +113,13 @@ void session_manager_init(void) {
   if (s_mutex != NULL)
     return;
   s_mutex = xSemaphoreCreateMutex();
-  xTaskCreate(watchdog_task, "session_wdt", WATCHDOG_STACK_SIZE, NULL, WATCHDOG_PRIO, NULL);
+  xTaskCreatePinnedToCore(watchdog_task,
+                          "session_wdt",
+                          WATCHDOG_STACK_SIZE,
+                          NULL,
+                          SYS_PRIO_SERVICE_HI,
+                          NULL,
+                          SYS_CORE_MAIN);
   ESP_LOGI(TAG,
            "Session manager started (timeout %dms, window %u)",
            SESSION_TIMEOUT_MS,

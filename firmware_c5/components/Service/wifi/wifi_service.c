@@ -39,7 +39,6 @@
 static const char *TAG = "WIFI_SERVICE";
 
 #define HOPPER_STACK_SIZE       4096
-#define HOPPER_TASK_PRIORITY    SYS_PRIO_SERVICE_HI
 #define HOPPER_DELAY_MS         250
 #define MAX_WIFI_CHANNEL        13
 #define SCAN_MUTEX_TIMEOUT_MS   1000
@@ -655,20 +654,22 @@ void wifi_service_start_channel_hopping(void) {
     free(s_hopper_task_tcb);
     s_hopper_task_tcb = NULL;
 
-    xTaskCreate(channel_hopper_task,
-                "chan_hopper_srv",
-                HOPPER_STACK_SIZE,
-                NULL,
-                HOPPER_TASK_PRIORITY,
-                &s_hopper_task_handle);
+    xTaskCreatePinnedToCore(channel_hopper_task,
+                            "chan_hopper_srv",
+                            HOPPER_STACK_SIZE,
+                            NULL,
+                            SYS_PRIO_SERVICE_HI,
+                            &s_hopper_task_handle,
+                            SYS_CORE_MAIN);
   } else {
-    s_hopper_task_handle = xTaskCreateStatic(channel_hopper_task,
-                                             "chan_hopper_srv",
-                                             HOPPER_STACK_SIZE,
-                                             NULL,
-                                             HOPPER_TASK_PRIORITY,
-                                             s_hopper_task_stack,
-                                             s_hopper_task_tcb);
+    s_hopper_task_handle = xTaskCreateStaticPinnedToCore(channel_hopper_task,
+                                                         "chan_hopper_srv",
+                                                         HOPPER_STACK_SIZE,
+                                                         NULL,
+                                                         SYS_PRIO_SERVICE_HI,
+                                                         s_hopper_task_stack,
+                                                         s_hopper_task_tcb,
+                                                         SYS_CORE_MAIN);
   }
 
   if (s_hopper_task_handle != NULL) {

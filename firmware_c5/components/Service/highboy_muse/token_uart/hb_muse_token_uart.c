@@ -10,6 +10,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/idf_additions.h"
+#include "sys_prio.h"
 #endif
 #include <stdatomic.h>
 #include <stdint.h>
@@ -134,7 +135,7 @@ done:
   s_store = NULL;
   s_quiet = NULL;
   atomic_store(&s_active, false);
-  vTaskDelete(NULL);
+  vTaskDeleteWithCaps(NULL);
 }
 bool hb_muse_token_uart_arm(hb_muse_token_store_fn store, bool (*quiet)(void)) {
   unsigned revision = atomic_load(&s_revision);
@@ -149,9 +150,14 @@ bool hb_muse_token_uart_arm(hb_muse_token_store_fn store, bool (*quiet)(void)) {
   s_store = store;
   s_quiet = quiet;
   if (atomic_load(&s_revision) != revision ||
-      xTaskCreateWithCaps(
-          worker, "muse_token", 4096, NULL, 3, NULL, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) !=
-          pdPASS) {
+      xTaskCreatePinnedToCoreWithCaps(worker,
+                                      "muse_token",
+                                      4096,
+                                      NULL,
+                                      SYS_PRIO_BACKGROUND,
+                                      NULL,
+                                      SYS_CORE_MAIN,
+                                      MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) != pdPASS) {
     s_store = NULL;
     s_quiet = NULL;
     atomic_store(&s_active, false);

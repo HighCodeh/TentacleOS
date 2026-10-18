@@ -28,6 +28,7 @@ idf_component_register(SRCS
   "sdk/pairing_signer_policy.c"
   "sdk/pairing_transcript.c"
   INCLUDE_DIRS "core" "sdk_adapter" "transport" "platform" "runtime" "bridge" "pairing" "token_uart" "sdk"
+  PRIV_INCLUDE_DIRS "../../Drivers/sys_prio/include"
   EMBED_FILES "sdk/test_reply.mp3"
   REQUIRES esp_timer esp_http_client esp-tls mbedtls nvs_flash esp_psram cjson noise_core minimp3 bt esp_driver_uart efuse
 )

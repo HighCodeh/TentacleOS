@@ -12,6 +12,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "freertos/idf_additions.h"
+#include "sys_prio.h"
 #include "esp_heap_caps.h"
 #include "muse_chat.h"
 #endif
@@ -386,9 +387,14 @@ bool hb_muse_runtime_init(const hb_muse_runtime_config_t *config) {
     goto failed;
   s_status.phase = HB_MUSE_RUNTIME_INITIALIZING;
   atomic_store(&s_initialized, true);
-  if (xTaskCreateWithCaps(
-          owner_task, "muse_owner", 8192, NULL, 4, NULL, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) ==
-      pdPASS)
+  if (xTaskCreatePinnedToCoreWithCaps(owner_task,
+                                      "muse_owner",
+                                      8192,
+                                      NULL,
+                                      SYS_PRIO_SERVICE_LO,
+                                      NULL,
+                                      SYS_CORE_MAIN,
+                                      MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) == pdPASS)
     return true;
   atomic_store(&s_initialized, false);
 failed:

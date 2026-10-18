@@ -49,7 +49,6 @@ _Static_assert(sizeof(spi_sniffer_stats_t) <= SPI_MAX_PAYLOAD,
 #define SNIFFER_STREAM_DELAY_MS   50
 #define SNIFFER_STOP_DELAY_MS     200
 #define SNIFFER_TASK_STACK_SIZE   4096
-#define SNIFFER_TASK_PRIORITY     SYS_PRIO_SERVICE_HI
 #define MAX_TRACKED_SESSIONS      16
 #define MAX_KNOWN_APS             128
 #define DEFAULT_SNAPLEN           65535
@@ -285,13 +284,14 @@ bool wifi_sniffer_start_stream_sd(wifi_sniffer_type_t type, uint8_t channel, con
       (StaticTask_t *)heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 
   if (s_stream_task_stack != NULL && s_stream_task_tcb != NULL) {
-    s_stream_task_handle = xTaskCreateStatic(stream_task,
-                                             "sniff_stream",
-                                             SNIFFER_TASK_STACK_SIZE,
-                                             NULL,
-                                             SNIFFER_TASK_PRIORITY,
-                                             s_stream_task_stack,
-                                             s_stream_task_tcb);
+    s_stream_task_handle = xTaskCreateStaticPinnedToCore(stream_task,
+                                                         "sniff_stream",
+                                                         SNIFFER_TASK_STACK_SIZE,
+                                                         NULL,
+                                                         SYS_PRIO_SERVICE_HI,
+                                                         s_stream_task_stack,
+                                                         s_stream_task_tcb,
+                                                         SYS_CORE_MAIN);
   }
 
   if (s_stream_task_handle == NULL) {
