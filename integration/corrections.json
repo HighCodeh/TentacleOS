@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
-  "status": "source_corrections_target_build_and_hardware_acceptance_pending",
+  "status": "local_target_builds_and_host_tests_passed_hardware_acceptance_pending",
   "files": {
     "firmware_c5/components/Applications/wifi/wifi_sniffer.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",

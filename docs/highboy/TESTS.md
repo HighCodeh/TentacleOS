@@ -81,7 +81,6 @@ configuration checks. All eight configuration-gate tests, both commit-validation
 test groups and the complete offline regression runner passed locally. These
 workflow changes still require a committed push or PR to execute on GitHub Actions.
 
-
 ## Canonical-source host tests
 
 The runner compiles the actual relocated production sources under
@@ -173,3 +172,37 @@ RPC payload bounds and command preservation, recording-buffer allocation errors,
 recorder-task rollback, owner-allocation fallback and control-task failure. It
 does not start a task, access NVS, record audio or contact the C5.
 
+## Corrected firmware build record
+
+The working-tree corrections based on `2b7614d3` passed both application builds
+in C5-then-P4 order, with component-manager downloads disabled, USB voice disabled
+and the original configuration overlays and partition tables retained.
+
+| Target | Exact ESP-IDF commit / tag | App bytes | Slot bytes | Free bytes |
+|---|---|---:|---:|---:|
+| C5 | `8c19b156084a0753687347cca1f5355782893533` / `v6.0.1` | 2,016,048 | 2,097,152 | 81,104 |
+| P4 | `2c211b236707889e8400c4dc5644dd5c4ee071e0` / `v5.5.3` | 2,944,624 | 2,949,120 | 4,496 |
+
+Candidate SHA-256 values for `firmware_<target>/build_highboy/TentacleOS_<TARGET>.bin`:
+
+- C5: `8d881e9568af9308f7efaa6c866fcd414d51a1f2e7b92c048eeb1840272f73a1`.
+- P4: `4c5752823ee424363209f4817275e9c63a14176512a3c8ecb69b83869fa4fd92`.
+
+SDKs and their required submodules were prepared separately before the offline
+builds. The P4 used `IDF_SKIP_CHECK_SUBMODULES=1` after initialization of its
+required pinned submodules; unused radio/other-chip submodules were omitted.
+The C5 build wrapper checks its thirteen required submodules before setting the
+same flag. Neither SDK's tracked source was patched. The generated C5
+configuration retains the 65,536-byte internal reserve, external NimBLE allocation
+and external task-stack permission.
+
+Both application-size checks and the paired SPI v8/source-contract checks passed.
+`bash tools/highboy/test.command` then passed all 34 preservation/portable-host
+tests without skips, RF ownership and native Muse regressions, Sub-GHz checks
+and all three DOOM/USB tests. The C5 memory check used the generated configuration.
+Builds still emit existing unused-symbol, truncation and deprecated-API warnings;
+the P4 SX1262 HAL also warns about disabled negative GPIO constants inside
+constant-false branches. Successful compilation does not certify a warning-free
+repository. Formatting remains delegated to the commit hook and CI, as required
+by `AGENTS.md`. No hardware, restore, flashing or live Muse session was exercised.
+HLE is outside this firmware review scope.
