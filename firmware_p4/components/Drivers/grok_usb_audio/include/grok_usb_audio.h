@@ -1,4 +1,5 @@
-#pragma once
+#ifndef FIRMWARE_P4_COMPONENTS_DRIVERS_GROK_USB_AUDIO_INCLUDE_GROK_USB_AUDIO_H
+#define FIRMWARE_P4_COMPONENTS_DRIVERS_GROK_USB_AUDIO_INCLUDE_GROK_USB_AUDIO_H
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -32,3 +33,5 @@ void grok_usb_audio_get_view(grok_usb_audio_view_t *out);
 #ifdef __cplusplus
 }
 #endif
+
+#endif // FIRMWARE_P4_COMPONENTS_DRIVERS_GROK_USB_AUDIO_INCLUDE_GROK_USB_AUDIO_H

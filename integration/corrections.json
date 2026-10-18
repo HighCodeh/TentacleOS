@@ -3,6 +3,114 @@
   "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
   "status": "source_corrections_target_build_and_hardware_acceptance_pending",
   "files": {
+    "firmware_c5/components/Service/grok_wifi/include/grok_wifi.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "b67d47ae22b0bdf0ee5cb876af4dace55672640cdc2483705aa6c21b85870eba",
+      "after_sha256": "18ac125b4774ed8cdb0ad6c0bf98b4465d47d2b7f8529a66beae24b59e297636",
+      "reason": "Use project include guards and C++ linkage for new first-party headers."
+    },
+    "firmware_c5/components/Service/grok_wifi/include/grok_wifi_core.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "5136b7f7b8f7aeef1d4c7eec8c38b01090ca71b229d57fae7f957b6901087efa",
+      "after_sha256": "62797d5b990741225e1ca443f90cabad29bc22b3e8711a39442f5ce5749bfd4a",
+      "reason": "Use project include guards and C++ linkage for new first-party headers."
+    },
+    "firmware_c5/components/Service/highboy_muse/bridge/hb_muse_rpc.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "0d21c35790f67af9e5cf8d08ea815e99501d1826b0eb9f65bd6268ade1633a24",
+      "after_sha256": "2a34293ce956736965a992c6643b5f391a68f38869cfe23d86c046f1ede04cb0",
+      "reason": "Use project include guards and C++ linkage for new first-party headers."
+    },
+    "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_pairing_fragments.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "122ca3a200c2ce0bc9558c19612a9d97061f5e4ebceedd6a4172626a27a33f46",
+      "after_sha256": "7435aa231e3cd2e680be1caa3d34fd434d988e19a99e0c94223f29b3882f8b2c",
+      "reason": "Use project include guards and C++ linkage for new first-party headers."
+    },
+    "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_pairing_gatt.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "238a776fee2b5baf6cc64ef78925a215cbf3d9f9c023a67205c4117e64284dff",
+      "after_sha256": "0dfdea67bb96f450071d9c3ed5aa059445f04668f85176f82dc3165ce408cf02",
+      "reason": "Use project include guards and C++ linkage for new first-party headers."
+    },
+    "firmware_c5/components/Service/highboy_muse/token_uart/hb_muse_token_frame.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "1d48ac6c51172e08df2d5d14cf122d8507d6224de8e39e74589fd8433754389b",
+      "after_sha256": "b781301e24ef3e76578a3e15fee56d72fbd2cdcd81e5ebc3dc9ecf3dc5a08191",
+      "reason": "Use project include guards and C++ linkage for new first-party headers."
+    },
+    "firmware_c5/components/Service/highboy_muse/token_uart/hb_muse_token_uart.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "a5cf73a884518a4533fadf6018e1c5ff48c7a6b53e730f1d9cbaee431d06dd1f",
+      "after_sha256": "a4034a681b4962e0f7dc3574166738577656df4ddca2c134a4c317ca5843f60c",
+      "reason": "Use project include guards and C++ linkage for new first-party headers."
+    },
+    "firmware_c5/components/Service/spi_bridge/hb_muse_c5_service.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "a9deb8e11b647668590a4ecfa88640878ee972114eea7624f6d0176e4c6ce647",
+      "after_sha256": "0098597231f7967ab287926ce73d36a4a00a7da4dfab7b915896d33674c0a1e0",
+      "reason": "Use project include guards and C++ linkage for new first-party headers."
+    },
+    "firmware_c5/components/Service/wifi/hb_muse_wifi_json_bound.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "2b9a8996b9f47f95fa6a620b9dead6f94061fc2e4ee352777ddc587b2ba80d7b",
+      "after_sha256": "79335ce0be1c319860418a58f7b666f0fb937991c7f9c70e8bd0796a5b237219",
+      "reason": "Use project include guards and C++ linkage for new first-party headers."
+    },
+    "firmware_p4/components/Applications/gameboy/include/gb_input_mapping.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "57c2e5d5ec513cef4e81bedd15932a1e30f855e4917001da347b110ffa2fb341",
+      "after_sha256": "439e60c5dc975237156221ab0c6460ab0feca48a8cf260c23cb6dd0e93b229d2",
+      "reason": "Use project include guards and C++ linkage for new first-party headers."
+    },
+    "firmware_p4/components/Applications/gameboy/include/gb_rom_validation.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "6e41a2ae7a8a393123532d632e5b9ea80e2a2e6760fffa54a452df65aac8c2f5",
+      "after_sha256": "ae642f9ea6188d447c634ac2e6ff90040fd778c7fcc620bb553f1663ee81d4e8",
+      "reason": "Use project include guards and C++ linkage for new first-party headers."
+    },
+    "firmware_p4/components/Applications/gameboy/include/gb_save_io.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "121fed5af7da13356d1ea3a919a02d46db01219c84fd71ecd08ba2cda274082b",
+      "after_sha256": "dfd01cfcece83c48b2a90c7c23ae6d787ce7b3597e98c82998cfeeff3b797307",
+      "reason": "Use project include guards and C++ linkage for new first-party headers."
+    },
+    "firmware_p4/components/Applications/ui/include/grok_idle_ui.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "ef45255a34de09ee63f967734cf1ed9f86f7018dcfedc0c220838b0f1a1a365c",
+      "after_sha256": "cc8aad9f1931bd7a46c820c1094810ffa21ec0685d97c7f45d9c08df008202fa",
+      "reason": "Use project include guards and C++ linkage for new first-party headers."
+    },
+    "firmware_p4/components/Applications/ui/include/muse_ui.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "46e528c81a85ce5d2b8e71d159ef2b1ec27ca49d79d88fed25a46ed03e11ce74",
+      "after_sha256": "48c9069ce559c73d58f0b4530ca148ec8ebb5d495bdd92b520b3a0b77972977d",
+      "reason": "Use project include guards and C++ linkage for new first-party headers."
+    },
+    "firmware_p4/components/Applications/ui/screens/games/fly_local3d.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "77a53bcd1815316a4cd6cc18fa046b7911130ec689f5ab8c135cdf80ac645cf6",
+      "after_sha256": "416b1267a75df9ba7d26d570fdf9df0daab2e27972cd4ad54c3856923aeb8a18",
+      "reason": "Use project include guards and C++ linkage for new first-party headers."
+    },
+    "firmware_p4/components/Applications/ui/screens/games/fly_menu_texture.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "720b7e4f8499857413a21c705d337f64c3bc4d6d9d9fbf7f36eeeac75ffdc65f",
+      "after_sha256": "b560dfbb3141836e3f11beccf76718930ea5455b5f7c7ecdb4f455c28266abbf",
+      "reason": "Use project include guards and C++ linkage for new first-party headers."
+    },
+    "firmware_p4/components/Applications/ui/screens/games/include/game_cover.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "90603615e452b16206c60fe06fa741e4f81067b2c7ec9c4165eb61b55f224cd1",
+      "after_sha256": "1c8b61998cd34f7edd5a847a30bbf5834ad901519dee7971886aea74fae1031a",
+      "reason": "Use project include guards and C++ linkage for new first-party headers."
+    },
+    "firmware_p4/components/Applications/ui/screens/games/muse_menu_icon.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "fd296b8b26ae13f1647abd2e6cd276983826d3a7cea9155f410536ed02235109",
+      "after_sha256": "e8a27c99428c8d7b768df4253bdd1d944f219b1120202dc8bafc44307a7a0a19",
+      "reason": "Use a project include guard and C++ linkage for the first-party inline menu helper."
+    },
     "firmware_p4/components/Applications/ui/screens/rfid/rfid_menu_ui.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "215aadfbfea3c66807e3f93b9b035f27ee3108a5007af071fd0b298697a299fd",
@@ -10,6 +118,24 @@
       "reason": "Synchronize reader lifecycle/results and keep field cleanup in the radio task.",
       "pre_format_sha256": "18172547b5a2f009097ca932730e175ba7b120d36c3eb4883d8634e29d28d8ce",
       "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_p4/components/Drivers/grok_usb_audio/include/grok_tusb_config.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "29bdf0f6931afafe23c3d630f8eb34592898287ecba12734455fe5245f162db4",
+      "after_sha256": "698b88b6260bfdc77495d98e4a3cddce7d2bbaaf18bb27450dd4d7b75a3e222a",
+      "reason": "Use project include guards and C++ linkage for new first-party headers."
+    },
+    "firmware_p4/components/Drivers/grok_usb_audio/include/grok_uac_wire.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "51e53b810e388151313a1972da19b5fd4a93e4c95416e52d5291821dac15112f",
+      "after_sha256": "1fb8061ee4fa7ab6617e6a418d07a026ed32b9cb05e6eaf6c1eef1036331bb3c",
+      "reason": "Use project include guards and C++ linkage for new first-party headers."
+    },
+    "firmware_p4/components/Drivers/grok_usb_audio/include/grok_usb_audio.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "4240f43e524ab8b0751274c4f8a7ffc15924d7abc7676dac1395ce33213fd9c1",
+      "after_sha256": "43642cd21e627f0b04f2d962fb730d3b494c784560e58593b782dae12da304c8",
+      "reason": "Use project include guards and C++ linkage for new first-party headers."
     },
     "firmware_p4/components/Drivers/rf_frontend/include/rf_frontend.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -48,6 +174,12 @@
       "before_sha256": "94cd34024dd524eccaeb7abb59cd55785e0e8026c871f9ec6cf25eaa14bef5bb",
       "after_sha256": "b56df9a4438c7eebb51a3cb897b4660c8c825f2613ed37e2bb20d9d029f49117",
       "reason": "Retain antenna and initialized transport after uncertain field-off or startup rollback."
+    },
+    "firmware_p4/components/Service/grok_client/include/grok_wire.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "0d3e031ac3fa0c892938b433d0b333619e4afc24f127b0800e89a593cc2a0edb",
+      "after_sha256": "c5dc188dba4ed1a1c24816d1969f8d2709aed4825a0d28aa3ce23c134aff4f1b",
+      "reason": "Use project include guards and C++ linkage for new first-party headers."
     }
   }
 }

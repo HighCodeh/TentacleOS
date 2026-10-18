@@ -1,4 +1,5 @@
-#pragma once
+#ifndef FIRMWARE_P4_COMPONENTS_SERVICE_GROK_CLIENT_INCLUDE_GROK_WIRE_H
+#define FIRMWARE_P4_COMPONENTS_SERVICE_GROK_CLIENT_INCLUDE_GROK_WIRE_H
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -21,6 +22,10 @@ enum {
   GROK_FRAME_MAX = 1024,
   GROK_SAMPLE_RATE = 16000
 };
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
   uint8_t header[3];
   uint8_t payload[GROK_FRAME_MAX + 1];
@@ -75,3 +80,9 @@ static inline bool grok_wire_feed(
   }
   return true;
 }
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // FIRMWARE_P4_COMPONENTS_SERVICE_GROK_CLIENT_INCLUDE_GROK_WIRE_H

@@ -5,6 +5,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
   /* Must gate real active connection + subscription + local setup window. */
   bool (*current)(void *user, uint16_t connection);
@@ -28,4 +32,8 @@ void hb_muse_pairing_gatt_stack_reset(void);
 /* Worker only, one already-fragmented <=160-byte notification. The caller must
  * check SDK record/session generations before EVERY fragment. No retries here. */
 bool hb_muse_pairing_gatt_notify(uint16_t connection, const uint8_t *fragment, size_t bytes);
+#ifdef __cplusplus
+}
+#endif
+
 #endif

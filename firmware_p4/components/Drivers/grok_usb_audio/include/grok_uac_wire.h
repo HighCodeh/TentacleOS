@@ -1,4 +1,5 @@
-#pragma once
+#ifndef FIRMWARE_P4_COMPONENTS_DRIVERS_GROK_USB_AUDIO_INCLUDE_GROK_UAC_WIRE_H
+#define FIRMWARE_P4_COMPONENTS_DRIVERS_GROK_USB_AUDIO_INCLUDE_GROK_UAC_WIRE_H
 
 #define GROK_UAC_RATE        16000
 #define GROK_UAC_DESC_LEN    237
@@ -77,3 +78,5 @@
                                   0,                                                             \
                                   AUDIO_CS_AS_ISO_DATA_EP_LOCK_DELAY_UNIT_UNDEFINED,             \
                                   0)
+
+#endif // FIRMWARE_P4_COMPONENTS_DRIVERS_GROK_USB_AUDIO_INCLUDE_GROK_UAC_WIRE_H

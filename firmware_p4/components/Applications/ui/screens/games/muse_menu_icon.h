@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#pragma once
+#ifndef FIRMWARE_P4_COMPONENTS_APPLICATIONS_UI_SCREENS_GAMES_MUSE_MENU_ICON_H
+#define FIRMWARE_P4_COMPONENTS_APPLICATIONS_UI_SCREENS_GAMES_MUSE_MENU_ICON_H
 #include "lvgl.h"
 #include "muse_app_icon.inc"
 // Avoid scaled I4 in this LVGL version's partial-line decoder. Expand once
 // into bounded PSRAM without changing the decoder, radio DMA heap or SD.
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 EXT_RAM_BSS_ATTR static uint32_t s_muse_logo_rgba[64 * 64];
 static const lv_image_dsc_t *muse_menu_icon(void) {
   static bool ready;
@@ -26,3 +31,9 @@ static const lv_image_dsc_t *muse_menu_icon(void) {
   }
   return &rgba;
 }
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // FIRMWARE_P4_COMPONENTS_APPLICATIONS_UI_SCREENS_GAMES_MUSE_MENU_ICON_H

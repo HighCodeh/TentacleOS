@@ -8,6 +8,10 @@
 #define HIGHBOY_GB_HEADER_BYTES 0x150u
 
 /* NULL means structurally supported, not that gameplay has been verified. */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 static inline const char *
 highboy_gb_header_error(const uint8_t *header, size_t header_bytes, size_t file_bytes) {
   if (!header || header_bytes < HIGHBOY_GB_HEADER_BYTES)
@@ -68,5 +72,9 @@ highboy_gb_header_error(const uint8_t *header, size_t header_bytes, size_t file_
   }
   return NULL;
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -5,6 +5,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 static inline bool hb_muse_wifi_json_shallow(const uint8_t *bytes, size_t n) {
   if (!bytes || !n || n > 32768u)
     return false;
@@ -43,4 +47,8 @@ static inline bool hb_muse_wifi_json_shallow(const uint8_t *bytes, size_t n) {
    * root, escaped syntax, object fields, duplicates and trailing content. */
   return depth == 0 && !quoted && !escaped;
 }
+#ifdef __cplusplus
+}
+#endif
+
 #endif

@@ -29,6 +29,10 @@
 
 #define GB_SAVE_IO_PATH_BYTES 320
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 static inline bool gb_save_sibling(char *out, const char *path, const char *suffix) {
   int n = snprintf(out, GB_SAVE_IO_PATH_BYTES, "%s%s", path, suffix);
   return n > 0 && n < GB_SAVE_IO_PATH_BYTES;
@@ -165,4 +169,8 @@ gb_save_commit_checked(const char *path, const uint8_t *ram, size_t bytes) {
   }
   return NULL;
 }
+#ifdef __cplusplus
+}
+#endif
+
 #endif

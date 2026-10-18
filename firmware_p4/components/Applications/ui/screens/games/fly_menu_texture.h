@@ -1,6 +1,7 @@
 // Copyright (c) 2026 HIGH CODE LLC
 // SPDX-License-Identifier: GPL-3.0-or-later
-#pragma once
+#ifndef FIRMWARE_P4_COMPONENTS_APPLICATIONS_UI_SCREENS_GAMES_FLY_MENU_TEXTURE_H
+#define FIRMWARE_P4_COMPONENTS_APPLICATIONS_UI_SCREENS_GAMES_FLY_MENU_TEXTURE_H
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -14,6 +15,10 @@
 // loop, NOT independent firmware execution and NOT remote control of radios.
 // App-owned buffers/widgets are allocated once at open; LVGL's own renderer
 // may allocate internal draw tasks/decoder scratch during snapshots.
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 bool fly_menu_texture_open(void);
 bool fly_menu_texture_tick(uint32_t elapsed_ms);
 const uint16_t *fly_menu_texture_pixels(void); // NULL => use a black screen.
@@ -27,3 +32,9 @@ bool fly_menu_texture_downsample(const uint16_t *source,
                                  unsigned source_stride,
                                  uint16_t *destination,
                                  size_t destination_capacity);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // FIRMWARE_P4_COMPONENTS_APPLICATIONS_UI_SCREENS_GAMES_FLY_MENU_TEXTURE_H

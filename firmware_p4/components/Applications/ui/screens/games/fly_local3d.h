@@ -1,6 +1,7 @@
 // Copyright (c) 2026 HIGH CODE LLC
 // SPDX-License-Identifier: GPL-3.0-or-later
-#pragma once
+#ifndef FIRMWARE_P4_COMPONENTS_APPLICATIONS_UI_SCREENS_GAMES_FLY_LOCAL3D_H
+#define FIRMWARE_P4_COMPONENTS_APPLICATIONS_UI_SCREENS_GAMES_FLY_LOCAL3D_H
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -11,6 +12,10 @@
 #define FLY_LOCAL3D_HEIGHT   240U
 #define FLY_LOCAL3D_PIXELS   (FLY_LOCAL3D_WIDTH * FLY_LOCAL3D_HEIGHT)
 #define FLY_LOCAL3D_FRAME_MS 100U
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef struct {
   float yaw;
@@ -48,3 +53,9 @@ bool fly_local3d_render(const fly_local3d_state_t *state,
                         size_t capacity,
                         unsigned width,
                         unsigned height);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // FIRMWARE_P4_COMPONENTS_APPLICATIONS_UI_SCREENS_GAMES_FLY_LOCAL3D_H

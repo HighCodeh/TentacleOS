@@ -12,6 +12,10 @@
 #define GROK_TOKEN_MAX   128
 #define GROK_SERVER_NAME "highboy-grok.local"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
   char host[16];
   uint16_t port;
@@ -34,5 +38,9 @@ size_t grok_wifi_ring_free(const grok_wifi_ring_t *ring);
 bool grok_wifi_ring_write(grok_wifi_ring_t *ring, const uint8_t *data, size_t size);
 size_t grok_wifi_ring_peek(const grok_wifi_ring_t *ring, uint8_t *out, size_t size);
 void grok_wifi_ring_drop(grok_wifi_ring_t *ring, size_t size);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

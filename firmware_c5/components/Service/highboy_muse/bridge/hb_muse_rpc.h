@@ -16,6 +16,10 @@ enum {
   HB_MUSE_RPC_PULL_REPLAY = 0x110c
 };
 /* Numeric values intentionally match the existing SPI status values. */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum {
   HB_MUSE_RPC_OK = 0,
   HB_MUSE_RPC_BUSY = 1,
@@ -66,4 +70,8 @@ hb_muse_rpc_result_t hb_muse_rpc_execute(hb_muse_rpc_t *,
                                          uint8_t *output,
                                          size_t capacity,
                                          size_t *output_size);
+#ifdef __cplusplus
+}
+#endif
+
 #endif

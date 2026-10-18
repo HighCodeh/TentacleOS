@@ -1,4 +1,5 @@
-#pragma once
+#ifndef FIRMWARE_P4_COMPONENTS_DRIVERS_GROK_USB_AUDIO_INCLUDE_GROK_TUSB_CONFIG_H
+#define FIRMWARE_P4_COMPONENTS_DRIVERS_GROK_USB_AUDIO_INCLUDE_GROK_TUSB_CONFIG_H
 // Project-owned overlay: never edit generated sdkconfig or managed components.
 #include "../../../../managed_components/espressif__esp_tinyusb/include/tusb_config.h"
 
@@ -14,3 +15,5 @@
 #define CFG_TUD_AUDIO_FUNC_1_EP_OUT_SZ_MAX              34
 #define CFG_TUD_AUDIO_FUNC_1_EP_IN_SW_BUF_SZ            1280
 #define CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ           1280
+
+#endif // FIRMWARE_P4_COMPONENTS_DRIVERS_GROK_USB_AUDIO_INCLUDE_GROK_TUSB_CONFIG_H

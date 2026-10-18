@@ -16,6 +16,10 @@ enum {
   GB_INPUT_EXIT_HOLD_MS = 2000
 };
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
   bool wait_release;
   bool exit_tracking;
@@ -87,4 +91,8 @@ static inline uint8_t highboy_gb_input_update(highboy_gb_input_state_t *s,
     pressed |= 0x80;
   return (uint8_t)~pressed;
 }
+#ifdef __cplusplus
+}
+#endif
+
 #endif

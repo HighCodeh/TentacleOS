@@ -6,6 +6,10 @@
 #define HB_MUSE_PAIRING_ATT_MAX         512u
 #define HB_MUSE_PAIRING_NOTIFY_MAX      160u
 #define HB_MUSE_PAIRING_FRAGMENT_TTL_MS 5000u
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
   uint8_t *buffer;
   size_t bytes;
@@ -43,4 +47,8 @@ bool hb_muse_pairing_fragment_encode(const uint8_t *json,
                                      uint8_t out[HB_MUSE_PAIRING_NOTIFY_MAX],
                                      size_t *out_bytes,
                                      uint8_t *total);
+#ifdef __cplusplus
+}
+#endif
+
 #endif
