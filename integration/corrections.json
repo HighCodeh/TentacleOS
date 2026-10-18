@@ -3,6 +3,14 @@
   "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
   "status": "source_corrections_target_build_and_hardware_acceptance_pending",
   "files": {
+    "firmware_p4/components/Applications/ui/screens/rfid/rfid_menu_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "215aadfbfea3c66807e3f93b9b035f27ee3108a5007af071fd0b298697a299fd",
+      "after_sha256": "1873cc4520d92381546c16367abb0d409118fd394260725eeb8860113f81924d",
+      "reason": "Synchronize reader lifecycle/results and keep field cleanup in the radio task.",
+      "pre_format_sha256": "18172547b5a2f009097ca932730e175ba7b120d36c3eb4883d8634e29d28d8ce",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
     "firmware_p4/components/Drivers/rf_frontend/include/rf_frontend.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "701dc8a417e7289fd192960ea69891a9cfbfb335931bcab59e72a1362827211e",

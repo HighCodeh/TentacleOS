@@ -14,3 +14,23 @@ updates; logs and hardware operations run outside them. Callers release ownershi
 only after their stage has been disabled. An uncertain NFC shutdown retains the
 reservation until a successful OFF transfer.
 
+# Native LF RFID
+
+`Drivers/lf_rfid` replaces the YS-RFID2 UART path in the integrated boot and RFID
+read screen. It initializes LF outputs off, generates the carrier with LEDC,
+measures carrier feedback with PCNT and reads EM4100 frames with parity checks.
+Console diagnostics also provide passive listening, edge capture and modulation
+checks. Pin assignments remain in `Drivers/pins/include/pin_def.h`.
+
+The RFID screen reader runs on `SYS_CORE_RADIO` at `SYS_PRIO_SERVICE_LO`.
+A critical section protects cancellation, generation, running state and the
+result/tag pair. It publishes a coherent result only for the current generation.
+The task owns its hardware from field start through field stop. Closing the
+screen invalidates its generation; cleanup may take one 500 ms read interval.
+Reopening while cleanup is active reports busy, and cannot launch a second
+reader. Task-creation failure permits a later retry.
+
+Run `python3 tools/highboy/test_rf_ownership.py` for concurrent LF/HF claims,
+failed NFC OFF/startup rollback/deinit, and RFID result/cancel/reopen/failure
+regressions. These tests use real host mutexes and explicit hardware/scheduler
+fakes. They do not certify antenna switching electrically.

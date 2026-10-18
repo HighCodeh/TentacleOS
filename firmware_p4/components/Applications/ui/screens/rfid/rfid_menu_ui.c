@@ -26,6 +26,7 @@
 
 #include "lf_rfid.h"
 #include "st7789.h"
+#include "sys_prio.h"
 
 #include "assets_manager.h"
 #include "button_ui.h"
@@ -46,6 +47,9 @@ static const char *TAG = "RFID_UI";
 
 #define TICK_MS   50
 #define REVEAL_MS 3000
+
+#define RFID_READER_STACK_BYTES 6144
+#define RFID_READER_POLL_MS     500
 
 #define COL_DANGER 0xFF5470
 
@@ -257,11 +261,12 @@ static uint32_t s_revealed_at = 0;
 static rfid_card_t s_last_card;
 static char s_capture_line[40];
 
-static TaskHandle_t s_reader_task = NULL;
-static volatile bool s_reader_cancel = false;
-static volatile bool s_reader_ready = false;
-static volatile esp_err_t s_reader_result = ESP_OK;
-static uint32_t s_reader_generation = 0;
+static portMUX_TYPE s_reader_lock = portMUX_INITIALIZER_UNLOCKED;
+static bool s_is_reader_running;
+static bool s_is_reader_cancelled;
+static bool s_is_reader_ready;
+static esp_err_t s_reader_result = ESP_OK;
+static uint32_t s_reader_generation;
 static lf_rfid_em4100_t s_reader_tag;
 
 static button_ui_t s_info_emulate;
@@ -304,17 +309,50 @@ static void store_init(void) {
   s_store_ready = true;
 }
 
+static bool reader_is_current(uint32_t generation) {
+  portENTER_CRITICAL(&s_reader_lock);
+  bool is_current = !s_is_reader_cancelled && generation == s_reader_generation;
+  portEXIT_CRITICAL(&s_reader_lock);
+  return is_current;
+}
+
+static bool reader_can_start(void) {
+  portENTER_CRITICAL(&s_reader_lock);
+  bool can_start = !s_is_reader_running && !s_is_reader_ready;
+  portEXIT_CRITICAL(&s_reader_lock);
+  return can_start;
+}
+
+static bool reader_take_result(esp_err_t *out_result, lf_rfid_em4100_t *out_tag) {
+  portENTER_CRITICAL(&s_reader_lock);
+  bool is_ready = s_is_reader_ready;
+  if (is_ready) {
+    *out_result = s_reader_result;
+    *out_tag = s_reader_tag;
+    s_is_reader_ready = false;
+  }
+  portEXIT_CRITICAL(&s_reader_lock);
+  return is_ready;
+}
+
 static void reader_task(void *arg) {
   const uint32_t generation = (uint32_t)(uintptr_t)arg;
   lf_rfid_em4100_t tag = {0};
-  esp_err_t result = lf_rfid_init();
-  if (result == ESP_OK)
-    result = lf_rfid_field_start(LF_RFID_NOMINAL_HZ, LF_RFID_DEFAULT_DUTY_PERMILLE);
+  bool has_field = false;
+  esp_err_t result = ESP_OK;
+  if (reader_is_current(generation)) {
+    result = lf_rfid_init();
+    if (result == ESP_OK && reader_is_current(generation)) {
+      result = lf_rfid_field_start(LF_RFID_NOMINAL_HZ, LF_RFID_DEFAULT_DUTY_PERMILLE);
+      has_field = result == ESP_OK;
+    }
+  }
 
-  while (!s_reader_cancel && generation == s_reader_generation && result == ESP_OK) {
-    result = lf_rfid_read_em4100(500, &tag);
-    if (result == ESP_OK)
+  while (has_field && reader_is_current(generation) && result == ESP_OK) {
+    result = lf_rfid_read_em4100(RFID_READER_POLL_MS, &tag);
+    if (result == ESP_OK) {
       break;
+    }
     if (result == ESP_ERR_NOT_FOUND) {
       result = ESP_OK;
       continue;
@@ -322,39 +360,56 @@ static void reader_task(void *arg) {
     break;
   }
 
-  lf_rfid_field_stop();
-  if (!s_reader_cancel && generation == s_reader_generation) {
+  if (has_field) {
+    lf_rfid_field_stop();
+  }
+  portENTER_CRITICAL(&s_reader_lock);
+  if (!s_is_reader_cancelled && generation == s_reader_generation) {
     s_reader_tag = tag;
     s_reader_result = result;
-    s_reader_ready = true;
+    s_is_reader_ready = true;
   }
-  s_reader_task = NULL;
+  s_is_reader_running = false;
+  portEXIT_CRITICAL(&s_reader_lock);
   vTaskDelete(NULL);
 }
 
 static void reader_start(void) {
-  s_reader_cancel = false;
-  s_reader_ready = false;
-  s_reader_result = ESP_OK;
-  const uint32_t generation = ++s_reader_generation;
-  if (s_reader_task != NULL) {
+  portENTER_CRITICAL(&s_reader_lock);
+  if (s_is_reader_running) {
     s_reader_result = ESP_ERR_INVALID_STATE;
-    s_reader_ready = true;
+    s_is_reader_ready = true;
+    portEXIT_CRITICAL(&s_reader_lock);
     return;
   }
-  if (xTaskCreate(
-          reader_task, "rfid_em4100", 6144, (void *)(uintptr_t)generation, 4, &s_reader_task) !=
-      pdPASS) {
-    s_reader_task = NULL;
+  s_is_reader_cancelled = false;
+  s_is_reader_ready = false;
+  s_reader_result = ESP_OK;
+  s_is_reader_running = true;
+  const uint32_t generation = ++s_reader_generation;
+  portEXIT_CRITICAL(&s_reader_lock);
+  if (xTaskCreatePinnedToCore(reader_task,
+                              "rfid_em4100",
+                              RFID_READER_STACK_BYTES,
+                              (void *)(uintptr_t)generation,
+                              SYS_PRIO_SERVICE_LO,
+                              NULL,
+                              SYS_CORE_RADIO) != pdPASS) {
+    ESP_LOGE(TAG, "Failed to create RFID reader task");
+    portENTER_CRITICAL(&s_reader_lock);
+    s_is_reader_running = false;
     s_reader_result = ESP_ERR_NO_MEM;
-    s_reader_ready = true;
+    s_is_reader_ready = !s_is_reader_cancelled && generation == s_reader_generation;
+    portEXIT_CRITICAL(&s_reader_lock);
   }
 }
 
 void ui_rfid_menu_stop(void) {
-  s_reader_cancel = true;
+  portENTER_CRITICAL(&s_reader_lock);
+  s_is_reader_cancelled = true;
+  s_is_reader_ready = false;
   ++s_reader_generation;
-  lf_rfid_field_stop();
+  portEXIT_CRITICAL(&s_reader_lock);
 }
 
 static void stop_scan_timers(void) {
@@ -1306,11 +1361,10 @@ static void read_tick(void) {
     if (s_hex_lbl != NULL)
       lv_label_set_text(s_hex_lbl, "FIELD ON | EM4100");
 
-    if (s_reader_ready) {
-      const esp_err_t result = s_reader_result;
-      s_reader_ready = false;
+    esp_err_t result = ESP_OK;
+    lf_rfid_em4100_t tag = {0};
+    if (reader_take_result(&result, &tag)) {
       if (result == ESP_OK) {
-        const lf_rfid_em4100_t tag = s_reader_tag;
         snprintf(s_last_card.name,
                  sizeof(s_last_card.name),
                  "EM4100_%02X%02X",
@@ -1425,8 +1479,7 @@ static void rfid_menu_input(const input_event_t *ev, void *ctx) {
       break;
 
     case VIEW_READ:
-      if (ev->button == INPUT_BTN_OK && press && !s_card_revealed && !s_reader_ready &&
-          s_reader_task == NULL) {
+      if (ev->button == INPUT_BTN_OK && press && !s_card_revealed && reader_can_start()) {
         ui_rfid_menu_stop();
         s_view = VIEW_READ;
         build_screen();

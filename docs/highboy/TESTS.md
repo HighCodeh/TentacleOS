@@ -131,3 +131,18 @@ retains the reviewed source hash and `formatter` identifies the tool; the output
 seal remains the exact hash of the formatted file. Original import and earlier
 formatting evidence is retained.
 
+The offline runner also executes `test_rf_ownership.py`. It compiles the actual
+RF frontend plus the production NFC HAL write/field/deinit functions and RFID
+reader lifecycle functions with explicit hardware and scheduler fakes. Host
+mutexes exercise 200 simultaneous LF/HF claim rounds. Failure injection covers
+OFF errors, uncertain startup transfers, oscillator/gain rollback errors and
+retained transport on failed deinit. Reader cases cover coherent results,
+cancellation before/during a read, reopening while busy and task creation failure.
+No RF field, GPIO, account or serial device is accessed.
+
+The preexisting canonical Muse suites cover the portable app and adapters, not
+the complete native P4/C5 worker implementation. Firmware acceptance requires
+fresh P4/C5 builds, app-slot checks and physical device tests. HLE/emulator
+validation is outside the current firmware review scope. Baseline binary sizes
+do not certify these corrected sources.
+
