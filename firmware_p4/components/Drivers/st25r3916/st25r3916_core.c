@@ -33,6 +33,7 @@ static const char *TAG = "ST25R3916_CORE";
 typedef struct {
   bool is_init;
   bool is_field_on;
+  bool has_field_fault;
   highboy_nfc_config_t config;
 } st25r3916_core_drv_state_t;
 
@@ -156,11 +157,15 @@ esp_err_t st25r3916_core_init(const highboy_nfc_config_t *config) {
   return ESP_OK;
 }
 
-void st25r3916_core_deinit(void) {
+esp_err_t st25r3916_core_deinit(void) {
   if (!s_drv.is_init) {
-    return;
+    return ESP_OK;
   }
-  st25r3916_core_field_off();
+  esp_err_t err = st25r3916_core_field_off();
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Keeping NFC initialized until the RF field can be disabled");
+    return err;
+  }
   hb_nfc_spi_reg_modify(
       ST25R3916_REG_IO_CONF2, ST25R3916_IO_CONF2_MISO_PD1 | ST25R3916_IO_CONF2_MISO_PD2, 0);
   hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_SHUTDOWN);
@@ -168,6 +173,7 @@ void st25r3916_core_deinit(void) {
   hb_nfc_gpio_deinit();
   s_drv.is_init = false;
   s_drv.is_field_on = false;
+  return ESP_OK;
 }
 
 esp_err_t st25r3916_core_check_id(uint8_t *out_id, uint8_t *out_type, uint8_t *out_rev) {
@@ -207,6 +213,9 @@ esp_err_t st25r3916_core_field_on(void) {
   if (!s_drv.is_init) {
     return ESP_ERR_INVALID_STATE;
   }
+  if (s_drv.has_field_fault) {
+    return ESP_ERR_INVALID_STATE;
+  }
   if (s_drv.is_field_on) {
     return ESP_OK;
   }
@@ -216,9 +225,12 @@ esp_err_t st25r3916_core_field_on(void) {
     ESP_LOGW(TAG, "Antenna busy in %s mode", rf_frontend_mode_name(rf_frontend_get_mode()));
     return err;
   }
+  // A failed transfer may already have enabled TX; retain ownership until OFF succeeds.
+  s_drv.is_field_on = true;
+  s_drv.has_field_fault = true;
   err = hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_FIELD_ON);
   if (err != ESP_OK) {
-    rf_frontend_release(RF_FRONTEND_NFC_13MHZ);
+    (void)st25r3916_core_field_off();
     return err;
   }
   bool osc_ok = false;
@@ -233,19 +245,17 @@ esp_err_t st25r3916_core_field_on(void) {
   }
   if (!osc_ok) {
     ESP_LOGW(TAG, "RF field start: oscillator did not stabilize");
-    hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_FIELD_OFF);
-    rf_frontend_release(RF_FRONTEND_NFC_13MHZ);
+    (void)st25r3916_core_field_off();
     return ESP_ERR_TIMEOUT;
   }
   hb_nfc_timer_delay_ms(ST25R3916_FIELD_ON_DELAY_MS);
   err = hb_nfc_spi_direct_cmd(ST25R3916_CMD_RESET_RX_GAIN);
   if (err != ESP_OK) {
-    hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_FIELD_OFF);
-    rf_frontend_release(RF_FRONTEND_NFC_13MHZ);
+    (void)st25r3916_core_field_off();
     return err;
   }
 
-  s_drv.is_field_on = true;
+  s_drv.has_field_fault = false;
   return ESP_OK;
 }
 
@@ -254,9 +264,15 @@ esp_err_t st25r3916_core_field_off(void) {
     return ESP_OK;
   }
   esp_err_t err = hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_FIELD_OFF);
+  if (err != ESP_OK) {
+    s_drv.is_field_on = true;
+    s_drv.has_field_fault = true;
+    ESP_LOGE(TAG, "RF field OFF failed; keeping shared antenna reserved");
+    return err;
+  }
   s_drv.is_field_on = false;
-  rf_frontend_release(RF_FRONTEND_NFC_13MHZ);
-  return err;
+  s_drv.has_field_fault = false;
+  return ESP_OK;
 }
 
 bool st25r3916_core_field_is_on(void) {

@@ -16,6 +16,30 @@
       "before_sha256": "5faabbc04beb0c2c6e91acc6981a5bb3ee4c1ec88175026b23e9b8aab2bd645d",
       "after_sha256": "b3a593933235877a9001d80e406fc6aae9c9a808ca0fded9c1ff1851ce042c97",
       "reason": "Use static RF arbitration with validated modes and coherent ownership."
+    },
+    "firmware_p4/components/Drivers/st25r3916/highboy_nfc.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "6da169994d144e7a75abfc06009803fe7943b6657f3e5c91763f34b5db3267cb",
+      "after_sha256": "342049e582253227f3a03fb029be13c4160da18d92300f042d1870b69f66c028",
+      "reason": "Retain antenna and initialized transport after uncertain field-off or startup rollback."
+    },
+    "firmware_p4/components/Drivers/st25r3916/include/highboy_nfc.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "06167ffe8e79b86418a1f3062d0982d8f35bb9f15c7bcca8cead4854f145923c",
+      "after_sha256": "9f32de05f71cca46ed57be20d9fc7fbab5f713548c952b2518a01c6ff69470ac",
+      "reason": "Retain antenna and initialized transport after uncertain field-off or startup rollback."
+    },
+    "firmware_p4/components/Drivers/st25r3916/include/st25r3916_core.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "bdd099e5e878ba7b6edffdbfd4c8bec81ac9e8806ca9774fa2e62ba75393b042",
+      "after_sha256": "aa3ce92cd16b844c6f39e29a71f29d4fd8a64a6d61c897dc139a8bf1f5d914db",
+      "reason": "Retain antenna and initialized transport after uncertain field-off or startup rollback."
+    },
+    "firmware_p4/components/Drivers/st25r3916/st25r3916_core.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "94cd34024dd524eccaeb7abb59cd55785e0e8026c871f9ec6cf25eaa14bef5bb",
+      "after_sha256": "b56df9a4438c7eebb51a3cb897b4660c8c825f2613ed37e2bb20d9d029f49117",
+      "reason": "Retain antenna and initialized transport after uncertain field-off or startup rollback."
     }
   }
 }

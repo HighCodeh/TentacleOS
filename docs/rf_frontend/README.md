@@ -10,4 +10,7 @@ mode is idempotent. `rf_frontend_release()` only releases the matching mode;
 
 A statically initialized `portMUX_TYPE` protects the mode. No lazy mutex creation,
 allocation or waiting is required. Critical sections contain only mode reads and
-updates; logs and hardware operations run outside them.
+updates; logs and hardware operations run outside them. Callers release ownership
+only after their stage has been disabled. An uncertain NFC shutdown retains the
+reservation until a successful OFF transfer.
+

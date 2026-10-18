@@ -8,13 +8,11 @@ The NFC feature has two halves in the tree:
    `st25r3916` driver (`components/Drivers/st25r3916/`, "HighBoy NFC").
 2. An on-device UI suite under `components/Applications/ui/screens/nfc/`.
 
-**Important:** the shipping UI currently runs as a **simulation**. As documented
-in `nfc_sim.h`, the ST25R3916 shares the SPI3 bus whose MISO line is tied to
-LCD-RST by a board jumper and cannot be read reliably, so the NFC screens use a
-faithful simulation model (`nfc_sim`) instead of driving the radio. The protocol
-stack and driver are compiled and complete, but the current screens do not call
-them (the only wiring is a defensive `nfc_manager_stop` close-hook registered in
-`ui_manager.c`).
+The integrated High Boy profile drives the ST25R3916 through native read,
+scan, write, emulation, protocol-laboratory and APDU services. `nfc_sim` remains
+as a shared card/library representation; its name does not mean that the native
+screens synthesize hardware results. Physical RF operation still requires board
+acceptance testing. See [High Boy integration](../highboy/README.md).
 
 ## Overview
 
@@ -22,37 +20,20 @@ them (the only wiring is a defensive `nfc_manager_stop` close-hook registered in
 - **UI location:** `components/Applications/ui/screens/nfc/`
 - **Driver:** `components/Drivers/st25r3916/` (`highboy_nfc_*`)
 - **Target IC:** ST25R3916 / ST25R3916B (SPI mode 1, clock <= 6 MHz)
-- **Simulation model:** `ui/screens/nfc/nfc_sim.c` (saved library persisted in NVS)
+- **Card/library model:** `ui/screens/nfc/nfc_sim.c` (saved library persisted in NVS)
 
 ## Architecture
 
+```text
+NFC UI -> manager / reader / listener / protocol service / APDU lab
+       -> ST25R3916 core -> shared SPI bus
+       -> RF frontend arbitration with native LF RFID
 ```
-┌──────────────────────────────────────────────────────────┐
-│              UI suite (ui/screens/nfc/*)                 │
-│  Menu + Read / Identify / Emulate / Write / Saved /      │
-│  Config / per-family detail screens                      │
-│  event-driven input, rotation-aware layout               │
-│                    │                                     │
-│                    ▼ (currently) nfc_sim model + NVS     │
-│         ┌───────────────────────────┐                    │
-│         │ nfc_sim: card model +     │                    │
-│         │ saved library (NVS)       │                    │
-│         └───────────────────────────┘                    │
-└──────────────────────────────────────────────────────────┘
-      · · · · · · (not wired in current UI) · · · · · · · · ·
-┌──────────────────────────────────────────────────────────┐
-│              NFC stack (Applications/nfc/)               │
-│  manager (state machine + scan task)                     │
-│  scanner · reader · listener (emulation)                 │
-│  device / store (NVS card profiles + entries)            │
-│  protocols/  (see table below)                           │
-└───────────────────────────┬──────────────────────────────┘
-                            ▼
-┌──────────────────────────────────────────────────────────┐
-│        st25r3916 driver (highboy_nfc, SPI2/SPI3)         │
-│  core · fifo · irq · aat + HAL (gpio / spi / timer)      │
-└──────────────────────────────────────────────────────────┘
-```
+
+The APDU workbench provides bounded command/response history and optional SD
+traces. DESFire, NFC-V, NDEF and FeliCa screens use the shared protocol laboratory.
+Their presence in the UI is not a claim that every operation has passed physical
+acceptance tests.
 
 ## UI Suite (`ui/screens/nfc/`)
 
@@ -75,10 +56,11 @@ switches to the matching screen via the `screen_id_t` enum in `ui_manager.h`.
 | FELICA | `SCREEN_NFC_FELICA` | `nfc_felica_ui.c` |
 | SHARE (P2P) | `SCREEN_NFC_P2P` | `nfc_p2p_ui.c` |
 | KEY DICTIONARY | `SCREEN_NFC_KEYDICT` | `nfc_keydict_ui.c` |
+| APDU WORKBENCH | `SCREEN_NFC_APDU` | `nfc_apdu_ui.c` |
 
 There is also a dedicated emulate screen (`nfc_emulate_ui.c`,
-`SCREEN_NFC_EMULATE`) reached from the read flow. All of these screens are driven
-by the `nfc_sim` model and LVGL animations; none currently drive the ST25R3916.
+`SCREEN_NFC_EMULATE`) reached from the read flow. Native operations run in background services and publish results to the UI.
+The `nfc_sim` model carries card metadata and saved-library entries.
 
 ### Event-driven input
 
@@ -107,7 +89,7 @@ fire-and-forget speaker cues (`nfc_ui_play_sound`: a rising blip on tag found, a
 tick on save). The Identify screen animates a per-technology checklist
 (NFC-A / NFC-B / NFC-F / NFC-V).
 
-### Simulation model (`nfc_sim`)
+### Card/library model (`nfc_sim`)
 
 `nfc_sim.c` is the shared card record (`nfc_sim_card_t`: name, type, UID, ATQA,
 SAK) plus a saved "library" (up to `NFC_SIM_MAX_SAVED` = 16 cards) persisted in
@@ -207,3 +189,17 @@ bool      highboy_nfc_field_detected(uint8_t *out_aux_display);
   (`hal/hb_nfc_gpio.c`, `hb_nfc_spi.c`, `hb_nfc_timer.c`).
 - Capacity constants live in `highboy_nfc_types.h` (UID up to 10 bytes for
   triple cascade, ATS up to 64 bytes, 512-byte hardware FIFO).
+
+## Shared antenna and failed shutdown
+
+NFC and native LF RFID share a physical antenna. The [RF frontend](../rf_frontend/README.md)
+arbitrates the stages using a statically initialized critical section.
+An unsuccessful NFC ON or OFF transfer may leave TX active. The core keeps the
+antenna reserved and marks the field uncertain until an OFF write succeeds.
+Further field-on requests fail with `ESP_ERR_INVALID_STATE` while uncertain.
+Oscillator and RX-gain startup failures use the same checked OFF recovery.
+`st25r3916_core_deinit()` now returns `esp_err_t`; it retains the initialized
+transport when OFF fails so callers can retry. The public `highboy_nfc_deinit()`
+wrapper retains its initialized flag on that failure. A successful SPI transfer
+is the software confirmation boundary; electrical field-off still needs hardware
+validation.

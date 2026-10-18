@@ -73,6 +73,7 @@ esp_err_t highboy_nfc_init(const highboy_nfc_config_t *config);
 
 /**
  * @brief Deinitialize the library and power down the RF field.
+ * Retains initialized state if field-off fails so shutdown can be retried.
  */
 void highboy_nfc_deinit(void);
 

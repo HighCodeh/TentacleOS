@@ -32,8 +32,9 @@ void highboy_nfc_deinit(void) {
   if (!s_initialized) {
     return;
   }
-  st25r3916_core_deinit();
-  s_initialized = false;
+  if (st25r3916_core_deinit() == ESP_OK) {
+    s_initialized = false;
+  }
 }
 
 bool highboy_nfc_is_initialized(void) {
