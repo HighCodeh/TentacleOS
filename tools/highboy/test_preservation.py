@@ -55,6 +55,8 @@ REVIEWED_MERGES = {
 
 REVIEWED_FIXTURES = {"pairing/test_setup.c", "p4_app/test_app.c"}
 
+CORRECTION_BASE = "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4"
+
 C5_MEMORY = {
     "CONFIG_IDF_TARGET": '"esp32c5"',
     "CONFIG_FREERTOS_HZ": "1000",
@@ -98,6 +100,25 @@ def formatting_chain_matches(item, actual_hash, proof):
     return (item.get("action") == "upstream_equivalent"
             and valid_hash(item.get("upstream_sha256"))
             and before == item["upstream_sha256"])
+
+
+def correction_chain_matches(item, actual_hash, formatting, correction):
+    """Require a bounded source correction rooted in the existing import/format seal."""
+    if not isinstance(correction, dict):
+        return False
+    before, after = correction.get("before_sha256"), correction.get("after_sha256")
+    if (not valid_hash(before) or not valid_hash(after) or actual_hash != after
+            or correction.get("base_commit") != CORRECTION_BASE
+            or not isinstance(correction.get("reason"), str) or not correction["reason"].strip()):
+        return False
+    if formatting_chain_matches(item, before, formatting):
+        return True
+    expected = item.get("reviewed_target_sha256", item.get("local_sha256"))
+    if valid_hash(expected) and before == expected:
+        return True
+    return (item.get("reviewed_target_sha256") is None
+            and item.get("action") == "upstream_equivalent"
+            and valid_hash(item.get("upstream_sha256")) and before == item["upstream_sha256"])
 
 
 def contained(base, relative):
@@ -171,6 +192,20 @@ class PreservationTests(unittest.TestCase):
         cls.formatting = cls.format_manifest["files"]
         if not isinstance(cls.formatting, dict):
             raise ValueError("Invalid formatting inventory")
+        corrections = json.loads((ROOT / "integration/corrections.json").read_text())
+        if corrections.get("schema_version") != 1 or corrections.get("base_commit") != CORRECTION_BASE:
+            raise ValueError("Invalid correction manifest")
+        cls.corrections = corrections["files"]
+        if not isinstance(cls.corrections, dict) or not cls.corrections:
+            raise ValueError("Invalid correction inventory")
+
+    def test_correction_provenance(self):
+        for target, proof in self.corrections.items():
+            with self.subTest(target=target):
+                self.assertIn(target, self.records, "Correction has no original import evidence")
+                actual_hash = digest(contained(ROOT, target).read_bytes())
+                self.assertTrue(correction_chain_matches(
+                    self.records[target], actual_hash, self.formatting.get(target), proof), target)
 
     def test_imports_preserved_except_explicit_rebases(self):
         self.assertEqual(len(self.records), len(self.manifest["files"]), "Duplicate import target")
@@ -185,6 +220,11 @@ class PreservationTests(unittest.TestCase):
                     continue
                 actual = path.read_bytes()
                 actual_hash = digest(actual)
+                if target in self.corrections:
+                    if not correction_chain_matches(item, actual_hash, self.formatting.get(target),
+                                                    self.corrections[target]):
+                        failures.append(target + " (correction chain invalid)")
+                    continue
                 expected_normalized = item.get("normalized_local_sha256", "")
                 if not re.fullmatch(r"[0-9a-f]{64}", expected_normalized):
                     failures.append(target + " (normalized source hash missing or invalid)")
@@ -216,7 +256,8 @@ class PreservationTests(unittest.TestCase):
         self.assertFalse(failures, "\n".join(failures[:40]))
         print(f"Import preservation: {len(self.records)} files; {normalized_count} CRLF-only; "
               f"{len(rebased)} separately hash-pinned integration rebases; "
-              f"{formatted_count} explicit formatting chains.")
+              f"{formatted_count} explicit formatting chains; "
+              f"{len(self.corrections)} explicit post-import corrections.")
 
     def test_formatting_provenance(self):
         for target, proof in self.formatting.items():
@@ -227,10 +268,15 @@ class PreservationTests(unittest.TestCase):
                 self.assertIsInstance(proof.get("formatter"), str)
                 self.assertTrue(proof["formatter"].strip(), target)
                 actual_hash = digest(contained(ROOT, target).read_bytes())
-                self.assertEqual(actual_hash, proof["after_sha256"], target)
                 item = self.records.get(target)
+                correction = self.corrections.get(target)
+                if correction is not None:
+                    self.assertEqual(correction["before_sha256"], proof["after_sha256"], target)
+                    self.assertTrue(correction_chain_matches(item, actual_hash, proof, correction), target)
+                else:
+                    self.assertEqual(actual_hash, proof["after_sha256"], target)
                 if item is not None:
-                    self.assertTrue(formatting_chain_matches(item, actual_hash, proof),
+                    self.assertTrue(formatting_chain_matches(item, proof["after_sha256"], proof),
                                     target + " (formatter input is not the sealed source)")
 
     def test_fixture_provenance(self):
@@ -260,7 +306,8 @@ class PreservationTests(unittest.TestCase):
                 actual_hash = digest((ROOT / target).read_bytes())
                 expected = item.get("reviewed_target_sha256", item["local_sha256"])
                 self.assertTrue(actual_hash == expected or formatting_chain_matches(
-                    item, actual_hash, self.formatting.get(target)), target)
+                    item, actual_hash, self.formatting.get(target)) or correction_chain_matches(
+                    item, actual_hash, self.formatting.get(target), self.corrections.get(target)), target)
 
     def test_protocol_and_dma_contract(self):
         relative = "components/Service/spi_bridge/include/spi_protocol.h"
@@ -360,6 +407,46 @@ class FormattingProofTests(unittest.TestCase):
             proof = dict(self.proof)
             proof[key] = ""
             self.assertFalse(formatting_chain_matches(self.item, self.formatted, proof))
+
+
+class CorrectionProofTests(unittest.TestCase):
+    def setUp(self):
+        self.original = digest(b"original")
+        self.formatted = digest(b"formatted")
+        self.corrected = digest(b"corrected")
+        self.item = {"local_sha256": self.original, "action": "preserve_local_overlay"}
+        self.formatting = {"before_sha256": self.original, "after_sha256": self.formatted,
+                           "formatter": "test formatter"}
+        self.correction = {"before_sha256": self.formatted, "after_sha256": self.corrected,
+                           "base_commit": CORRECTION_BASE, "reason": "RF ownership correction"}
+
+    def test_preserves_prior_formatting_and_import_seals(self):
+        self.assertTrue(correction_chain_matches(
+            self.item, self.corrected, self.formatting, self.correction))
+        self.correction["before_sha256"] = self.original
+        self.assertTrue(correction_chain_matches(self.item, self.corrected, None, self.correction))
+
+    def test_rejects_changed_output_and_unknown_input(self):
+        self.assertFalse(correction_chain_matches(
+            self.item, self.original, self.formatting, self.correction))
+        self.correction["before_sha256"] = digest(b"unknown")
+        self.assertFalse(correction_chain_matches(
+            self.item, self.corrected, self.formatting, self.correction))
+
+    def test_prior_review_cannot_be_bypassed(self):
+        self.item["reviewed_target_sha256"] = digest(b"reviewed")
+        self.assertFalse(correction_chain_matches(
+            self.item, self.corrected, self.formatting, self.correction))
+        self.correction["before_sha256"] = self.item["reviewed_target_sha256"]
+        self.assertTrue(correction_chain_matches(self.item, self.corrected, None, self.correction))
+
+    def test_rejects_incomplete_proofs(self):
+        for key in ("before_sha256", "after_sha256", "base_commit", "reason"):
+            proof = dict(self.correction)
+            proof[key] = ""
+            with self.subTest(key=key):
+                self.assertFalse(correction_chain_matches(
+                    self.item, self.corrected, self.formatting, proof))
 
 
 class FixtureProofTests(unittest.TestCase):

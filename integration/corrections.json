@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+  "status": "source_corrections_target_build_and_hardware_acceptance_pending",
+  "files": {
+    "firmware_p4/components/Drivers/rf_frontend/include/rf_frontend.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "701dc8a417e7289fd192960ea69891a9cfbfb335931bcab59e72a1362827211e",
+      "after_sha256": "4e0ba3f95e49b17c7ef59f3d188c957a75b1da9d12c7f3c3bb7efe17f4dd7ad7",
+      "reason": "Use static RF arbitration with validated modes and coherent ownership.",
+      "pre_format_sha256": "a676f5848f9d637e023f22af57668efb239b08e28ed086679e16a5d048b8c310",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_p4/components/Drivers/rf_frontend/rf_frontend.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "5faabbc04beb0c2c6e91acc6981a5bb3ee4c1ec88175026b23e9b8aab2bd645d",
+      "after_sha256": "b3a593933235877a9001d80e406fc6aae9c9a808ca0fded9c1ff1851ce042c97",
+      "reason": "Use static RF arbitration with validated modes and coherent ownership."
+    }
+  }
+}

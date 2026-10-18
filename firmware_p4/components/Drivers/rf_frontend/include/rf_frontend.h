@@ -15,9 +15,11 @@ typedef enum {
   RF_FRONTEND_IDLE = 0,
   RF_FRONTEND_LF_125KHZ,
   RF_FRONTEND_NFC_13MHZ,
+  RF_FRONTEND_COUNT,
 } rf_frontend_mode_t;
 
-/** Claim the antenna. Re-claiming the current mode is idempotent. */
+/** Claim the antenna using statically initialized synchronization. Re-claiming the current mode is
+ * idempotent. */
 esp_err_t rf_frontend_claim(rf_frontend_mode_t mode);
 
 /** Release the antenna if it is owned by mode. */

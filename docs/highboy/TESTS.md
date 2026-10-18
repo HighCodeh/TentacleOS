@@ -116,3 +116,18 @@ License checks establish that the preserved license/provenance files exist and
 the SDK Apache license text matches the hash verified against its original.
 They are inventory checks, not a legal opinion or an automatic distribution
 compliance certification.
+
+## Post-import source corrections
+
+`integration/corrections.json` records each explicit source correction against
+base commit `2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4`, including its input hash,
+output hash and reason. The original import manifest and formatting records
+remain unchanged. The gate requires each input to match its original, reviewed
+or formatted seal, and rejects changed outputs, unknown inputs and incomplete
+proofs. A correction cannot bypass a prior reviewed-source seal. These records
+are source evidence, not proof of a target build or hardware acceptance.
+When the automatic pre-commit hook formats a correction, `pre_format_sha256`
+retains the reviewed source hash and `formatter` identifies the tool; the output
+seal remains the exact hash of the formatted file. Original import and earlier
+formatting evidence is retained.
+
