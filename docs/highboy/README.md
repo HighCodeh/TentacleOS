@@ -88,6 +88,11 @@ Muse preservation, Sub-GHz, DOOM DMA and USB ownership tests. CI artifacts are
 explicitly named `highboy-<target>-app-only`; they are build evidence, not a
 verified full-flash or hardware-tested release.
 
+Each target's build requires its generated `sdkconfig` after configuration and
+again after compilation. The C5 check enforces all eight pinned target/memory
+settings, rather than accepting the source defaults as build evidence. Offline
+source-only jobs may run without build outputs; build jobs may not.
+
 The legacy automatic `main` release is deliberately stopped before
 semantic-release when this integrated profile is present. That pipeline assumes
 one SDK, older output paths and a complete deployable firmware. It must not

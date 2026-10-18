@@ -1,9 +1,34 @@
 #!/usr/bin/env python3
 """Offline source contract gates; no device access and no credentials read."""
+import argparse
 from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[2]
+
+C5_MEMORY = {
+    "CONFIG_IDF_TARGET": '"esp32c5"',
+    "CONFIG_FREERTOS_HZ": "1000",
+    "CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL": "y",
+    "CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL": "65536",
+    "CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL": "1024",
+    "CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM": "4",
+    "CONFIG_ESP_WIFI_RX_BA_WIN": "4",
+    "CONFIG_MBEDTLS_DEFAULT_MEM_ALLOC": "y",
+}
+
+
+def config_values(paths):
+    values = {}
+    for path in paths:
+        for line in path.read_text().splitlines():
+            match = re.fullmatch(r"(CONFIG_\w+)=(.*)", line.strip())
+            if match:
+                values[match[1]] = match[2]
+            match = re.fullmatch(r"# (CONFIG_\w+) is not set", line.strip())
+            if match:
+                values.pop(match[1], None)
+    return values
 
 
 def require(condition, message):
@@ -12,6 +37,10 @@ def require(condition, message):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--require-built", choices=("p4", "c5"),
+                        help="Require and validate this target's generated sdkconfig")
+    args = parser.parse_args()
     headers = [(ROOT / f"firmware_{chip}/components/Service/spi_bridge/include/spi_protocol.h").read_bytes()
                for chip in ("p4", "c5")]
     require(headers[0] == headers[1], "P4/C5 SPI contract mismatch")
@@ -28,17 +57,24 @@ def main():
         size = int(value[:-1]) * 1024**2 if value.endswith("M") else int(value, 0)
         require(size == slot, "Unexpected partition migration")
         overlay = "sdkconfig.muse" if chip == "p4" else "sdkconfig.baseline"
-        defaults = (project / "sdkconfig.defaults").read_text() + (project / overlay).read_text()
-        require("CONFIG_PARTITION_TABLE_OFFSET=0x8000" in defaults, "Unexpected partition offset")
+        defaults = config_values([project / "sdkconfig.defaults", project / overlay])
+        require(defaults.get("CONFIG_PARTITION_TABLE_OFFSET") == "0x8000", "Unexpected partition offset")
         if chip == "c5":
-            require("CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=65536" in defaults, "C5 DMA reserve missing")
-            require("CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y" in defaults, "C5 BLE PSRAM policy missing")
+            for key, expected in C5_MEMORY.items():
+                if key != "CONFIG_IDF_TARGET":
+                    require(defaults.get(key) == expected, f"C5 defaults mismatch: {key}")
         config = project / "build_highboy/sdkconfig"
-        if config.exists():
-            effective = config.read_text().splitlines()
-            require(f'CONFIG_IDF_TARGET="esp32{chip}"' in effective, "Wrong compiled target")
+        if args.require_built == chip:
+            require(config.is_file(), f"Missing generated {chip} sdkconfig: build validation required")
+        if config.is_file():
+            effective = config_values([config])
+            require(effective.get("CONFIG_IDF_TARGET") == f'"esp32{chip}"', "Wrong compiled target")
             for key in ("SECURE_BOOT", "SECURE_FLASH_ENC_ENABLED", "SECURE_SIGNED_APPS_NO_SECURE_BOOT"):
-                require(f"CONFIG_{key}=y" not in effective, "Unexpected security migration")
+                require(effective.get(f"CONFIG_{key}") != "y", "Unexpected security migration")
+            if chip == "c5":
+                for key, expected in C5_MEMORY.items():
+                    require(effective.get(key) == expected, f"C5 generated configuration mismatch: {key}")
+            print(f"{chip} generated configuration verified.")
     print("Offline contracts OK: paired SPI v8, architecture roots, original app slots, C5 memory policy.")
 
 

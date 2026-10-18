@@ -18,6 +18,8 @@ import subprocess
 import tempfile
 import unittest
 
+from check_contracts import C5_MEMORY
+
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "tools/highboy/fixtures/muse_port"
@@ -56,18 +58,6 @@ REVIEWED_MERGES = {
 REVIEWED_FIXTURES = {"pairing/test_setup.c", "p4_app/test_app.c"}
 
 CORRECTION_BASE = "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4"
-
-C5_MEMORY = {
-    "CONFIG_IDF_TARGET": '"esp32c5"',
-    "CONFIG_FREERTOS_HZ": "1000",
-    "CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL": "y",
-    "CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL": "65536",
-    "CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL": "1024",
-    "CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM": "4",
-    "CONFIG_ESP_WIFI_RX_BA_WIN": "4",
-    "CONFIG_MBEDTLS_DEFAULT_MEM_ALLOC": "y",
-}
-
 
 def digest(content):
     return hashlib.sha256(content).hexdigest()

@@ -87,6 +87,7 @@ python "$repo/tools/highboy/check_contracts.py"
 python "$IDF_PATH/tools/idf.py" -C "$project" -B "$build" \
   -D "SDKCONFIG=$build/sdkconfig" -D "SDKCONFIG_DEFAULTS=$SDKCONFIG_DEFAULTS" \
   -D "HIGH_BOY_USB_VOICE=OFF" reconfigure
+python "$repo/tools/highboy/check_contracts.py" --require-built "$target"
 cmake --build "$build" --target app --parallel "${HIGHBOY_BUILD_JOBS:-2}"
-python "$repo/tools/highboy/check_contracts.py"
+python "$repo/tools/highboy/check_contracts.py" --require-built "$target"
 echo "$target application built. No assets, flash, hardware, microphone or cloud session accessed."

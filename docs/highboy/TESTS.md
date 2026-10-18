@@ -60,6 +60,13 @@ The C5 configuration check first applies `sdkconfig.defaults` followed by
 `sdkconfig.baseline`, then verifies the effective
 `firmware_c5/build_highboy/sdkconfig` when present. A missing generated
 configuration is reported as pending, never as a successful build validation.
+The build wrapper separately invokes `check_contracts.py --require-built <target>`
+after configuration and after compilation, requiring the generated configuration
+and enforcing the shared `C5_MEMORY` policy in the C5 build job itself.
+`test_contracts.py` covers missing outputs, missing/incorrect/disabled C5 settings,
+overlay overrides, valid configurations and prohibited security changes using
+temporary files. It never edits the actual generated build configuration.
+
 
 ## Canonical-source host tests
 
