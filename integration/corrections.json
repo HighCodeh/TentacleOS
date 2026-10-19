@@ -122,8 +122,16 @@
     "firmware_c5/components/Service/spi_bridge/spi_bridge.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "502217de323db0a1f9431ba2da16ffe4302019902f060b22493071dbd0334153",
-      "after_sha256": "4b6e7f8b9cc7402047718773549def5febb1b3b19136013e127b218d59ea0344",
-      "reason": "Pass central scheduling macros directly and pin affected first-party tasks."
+      "after_sha256": "b7cf0ae240f85cb8b7ebd1a126e8808f91ce02997b36b6042ab510403279456c",
+      "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership",
+      "review_history": [
+        {
+          "after_sha256": "4b6e7f8b9cc7402047718773549def5febb1b3b19136013e127b218d59ea0344",
+          "reason": "Pass central scheduling macros directly and pin affected first-party tasks."
+        }
+      ],
+      "pre_format_sha256": "a4a68b438142b4688ddbcf08b5fd16b2dadea4354912873ff547b5e3df49ef2b",
+      "formatter": "clang-format version 22.1.5"
     },
     "firmware_c5/components/Service/wifi/hb_muse_wifi_json_bound.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -824,14 +832,30 @@
     "firmware_p4/components/Service/spi_bridge/include/spi_protocol.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "44e794090bdddda5f999a29dbbb55f907c89cb001a9284a0abd94c631987c342",
-      "after_sha256": "4b6bbe13c0511b1b89ba0e2a4e257ed57c14ae8ce0cde04ae41e4a6d3709132a",
-      "reason": "Add authenticated bounded NFC/LF companion capture with task-owned cleanup, preserve Muse category 0x11, mirror new category IDs and reuse synchronous NFC probes with explicit setup errors."
+      "after_sha256": "2476f49beef553555fe61e94000583c758e7eb99193110d2592acce35f944e97",
+      "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership",
+      "review_history": [
+        {
+          "after_sha256": "4b6bbe13c0511b1b89ba0e2a4e257ed57c14ae8ce0cde04ae41e4a6d3709132a",
+          "reason": "Add authenticated bounded NFC/LF companion capture with task-owned cleanup, preserve Muse category 0x11, mirror new category IDs and reuse synchronous NFC probes with explicit setup errors."
+        }
+      ],
+      "pre_format_sha256": "9d960b693e0fbc8869e9ea28942a57b7fde628eaab3b6a98c2dac8274082a0e1",
+      "formatter": "clang-format version 22.1.5"
     },
     "firmware_c5/components/Service/spi_bridge/include/spi_protocol.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "44e794090bdddda5f999a29dbbb55f907c89cb001a9284a0abd94c631987c342",
-      "after_sha256": "4b6bbe13c0511b1b89ba0e2a4e257ed57c14ae8ce0cde04ae41e4a6d3709132a",
-      "reason": "Add authenticated bounded NFC/LF companion capture with task-owned cleanup, preserve Muse category 0x11, mirror new category IDs and reuse synchronous NFC probes with explicit setup errors."
+      "after_sha256": "2476f49beef553555fe61e94000583c758e7eb99193110d2592acce35f944e97",
+      "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership",
+      "review_history": [
+        {
+          "after_sha256": "4b6bbe13c0511b1b89ba0e2a4e257ed57c14ae8ce0cde04ae41e4a6d3709132a",
+          "reason": "Add authenticated bounded NFC/LF companion capture with task-owned cleanup, preserve Muse category 0x11, mirror new category IDs and reuse synchronous NFC probes with explicit setup errors."
+        }
+      ],
+      "pre_format_sha256": "9d960b693e0fbc8869e9ea28942a57b7fde628eaab3b6a98c2dac8274082a0e1",
+      "formatter": "clang-format version 22.1.5"
     },
     "firmware_p4/components/Service/app_runtime/tos_hb.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -896,6 +920,18 @@
       "before_sha256": "8918a4a1ec1f79811a3c2a1796952970de955f0e2c09d85d9d18be2f0298f923",
       "after_sha256": "5f76eb1fc4a69f39d6b9ad57557c669a2f3e8d599e1a633356ed4f660c19ce01",
       "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership"
+    },
+    "firmware_c5/components/Service/CMakeLists.txt": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "81b7ed6cab0098e875aa3e27d5c6a8782292eee000c09d1a0c0de2275cf2af68",
+      "after_sha256": "6b810a2105fc7603c98de27eaf2882202291c5fa77fa9f2cba941a4d4b5a3276",
+      "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership"
+    },
+    "firmware_c5/components/Service/spi_bridge/hb_muse_c5_service.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "339da1e33f7bc54bbe041c091373a3a98b1f7b5e3d1be495a6d255c7182242df",
+      "after_sha256": "afcf5047e37043ecf184feca8b39a5152ca7f4f966ad2c77aea612191cea2ae2",
+      "reason": "Honor Muse setup reservations for MQTT while retaining status and cancellation access"
     }
   }
 }

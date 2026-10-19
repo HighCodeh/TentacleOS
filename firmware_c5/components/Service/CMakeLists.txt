@@ -33,6 +33,7 @@ file(GLOB_RECURSE HOST_LINK_SRCS "host_link/*.c")
 
 
 idf_component_register(SRCS 
+  "mqtt_bridge/mqtt_bridge.c"
   "wifi/wifi_service.c"
   "wifi/mac_vendor.c"
   "grok_wifi/grok_wifi.c"
@@ -60,6 +61,7 @@ idf_component_register(SRCS
   ${MESHCORE_SRCS}
   ${HOST_LINK_SRCS}
   INCLUDE_DIRS
+  "mqtt_bridge/include"
   "wifi/include"
   "grok_wifi/include"
   "http_server/include"
@@ -81,6 +83,7 @@ idf_component_register(SRCS
 
 
   REQUIRES 
+    mqtt
     sdmmc
     driver
     esp_driver_uart

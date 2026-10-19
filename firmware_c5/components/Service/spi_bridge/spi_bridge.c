@@ -32,6 +32,7 @@
 #include "soc/lp_aon_reg.h"
 #include "soc/soc.h"
 
+#include "mqtt_bridge.h"
 #include "bt_dispatcher.h"
 #include "config_cache.h"
 #include "grok_wifi.h"
@@ -632,6 +633,15 @@ static void bridge_task(void *pvParameters) {
             status = SPI_STATUS_UNSUPPORTED;
           }
           break;
+        case SPI_CAT_MQTT: {
+          mqtt_bridge_request_t request = {.command = cmd,
+                                           .payload = cmd_payload,
+                                           .length = header->length,
+                                           .out = resp_payload,
+                                           .out_length = &resp_len};
+          status = mqtt_bridge_execute(&request);
+          break;
+        }
         case SPI_CAT_WIFI:
           status =
               wifi_dispatcher_execute(cmd, cmd_payload, header->length, resp_payload, &resp_len);

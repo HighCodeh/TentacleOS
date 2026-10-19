@@ -56,6 +56,23 @@ extern "C" {
 #define SPI_DATA_INDEX_STATS        0xEEEE
 #define SPI_DATA_INDEX_DEAUTH_COUNT 0xDDDD
 
+#define SPI_MQTT_URI_MAX           128
+#define SPI_MQTT_CREDENTIAL_MAX    64
+#define SPI_MQTT_TOPIC_MAX         96
+#define SPI_MQTT_PACKET_MAX        512
+#define SPI_MQTT_CHUNK_HEADER_SIZE 8
+#define SPI_MQTT_CHUNK_MAX    (SPI_MAX_PAYLOAD - SPI_RESP_STATUS_SIZE - SPI_MQTT_CHUNK_HEADER_SIZE)
+#define SPI_MQTT_STATUS_SIZE  13
+#define SPI_MQTT_FLAG_RUNNING 0x01
+#define SPI_MQTT_FLAG_CONNECTED  0x02
+#define SPI_MQTT_FLAG_SUBSCRIBED 0x04
+#define SPI_MQTT_FLAG_ERROR      0x08
+#define SPI_MQTT_FIELD_URI       1
+#define SPI_MQTT_FIELD_USERNAME  2
+#define SPI_MQTT_FIELD_PASSWORD  3
+#define SPI_MQTT_FIELD_SUBSCRIBE 4
+#define SPI_MQTT_FIELD_PUBLISH   5
+
 /**
  * @brief SPI message types.
  */
@@ -97,6 +114,7 @@ typedef enum {
   SPI_CAT_MUSE = 0x11,     // Existing integrated Muse RPC category
   SPI_CAT_NFC = 0x12,      // P4-local companion NFC capture
   SPI_CAT_RFID = 0x13,     // P4-local companion LF RFID capture
+  SPI_CAT_MQTT = 0x14,     // C5-owned on-demand MQTT network bridge
   SPI_CAT_SESSION = 0xFF
 } spi_cat_t;
 
@@ -113,6 +131,13 @@ typedef enum {
  * Each value packs its category (high byte) and op (low byte) via SPI_CMD().
  */
 typedef enum {
+  SPI_ID_MQTT_CONFIG = SPI_CMD(SPI_CAT_MQTT, 0x01),
+  SPI_ID_MQTT_START = SPI_CMD(SPI_CAT_MQTT, 0x02),
+  SPI_ID_MQTT_STOP = SPI_CMD(SPI_CAT_MQTT, 0x03),
+  SPI_ID_MQTT_STATUS = SPI_CMD(SPI_CAT_MQTT, 0x04),
+  SPI_ID_MQTT_PUBLISH = SPI_CMD(SPI_CAT_MQTT, 0x05),
+  SPI_ID_MQTT_RECEIVE = SPI_CMD(SPI_CAT_MQTT, 0x06),
+  SPI_ID_MQTT_ACK = SPI_CMD(SPI_CAT_MQTT, 0x07),
   // System
   SPI_ID_SYSTEM_PING = SPI_CMD(SPI_CAT_SYSTEM, 0x01),
   SPI_ID_SYSTEM_STATUS = SPI_CMD(SPI_CAT_SYSTEM, 0x02),
