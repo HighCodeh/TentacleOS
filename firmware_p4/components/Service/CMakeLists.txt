@@ -25,6 +25,8 @@ configure_file("${VERSION_META_DIR}/ota_version.h.in"
                "${GENERATED_VERSION_DIR}/ota_version.h" @ONLY)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${VERSION_INFO_FILE}")
 
+include("${CMAKE_CURRENT_LIST_DIR}/app_runtime/trust_keys.cmake")
+
 file(GLOB_RECURSE SD_CARD_SERVICE_SRCS "sd_card/*.c")
 file(GLOB_RECURSE CONSOLE_SERVICE_SRCS "console/*.c")
 file(GLOB_RECURSE CONSOLE_COMMANDS_SRCS "console/commands/*.c")
@@ -164,3 +166,7 @@ set_source_files_properties("muse/hb_muse_p4_service.c" PROPERTIES COMPILE_OPTIO
 
 # Size optimization and LTO keep both script engines in the existing OTA slots.
 target_compile_options(${COMPONENT_LIB} PRIVATE -Os -flto=2 -ffat-lto-objects)
+
+if(TOS_APP_HAS_CUSTOM_TRUST)
+  target_compile_definitions(${COMPONENT_LIB} PRIVATE TOS_APP_HAS_CUSTOM_TRUST=1)
+endif()

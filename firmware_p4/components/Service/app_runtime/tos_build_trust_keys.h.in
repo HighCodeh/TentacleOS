@@ -1,0 +1,12 @@
+// Generated in the build directory; contains only the selected public key.
+#ifndef TOS_BUILD_TRUST_KEYS_H
+#define TOS_BUILD_TRUST_KEYS_H
+
+#include <stdint.h>
+
+#define TOS_TRUST_KEY_COUNT 1
+static const uint8_t TOS_TRUST_KEYS[TOS_TRUST_KEY_COUNT][32] = {
+    {@TOS_APP_TRUST_BYTES@},
+};
+
+#endif // TOS_BUILD_TRUST_KEYS_H

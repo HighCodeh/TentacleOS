@@ -84,9 +84,14 @@ project="$repo/firmware_$target"
 build="$project/build_highboy"
 export SDKCONFIG_DEFAULTS="$project/sdkconfig.defaults;$project/$overlay"
 python "$repo/tools/highboy/check_contracts.py"
+configure_args=(-D "HIGH_BOY_USB_VOICE=OFF")
+if [ "$target" = p4 ]; then
+  configure_args+=( -D "TOS_APP_PRODUCTION=${TOS_APP_PRODUCTION:-OFF}"
+                -D "TOS_APP_TRUST_PUBLIC_KEY=${TOS_APP_TRUST_PUBLIC_KEY:-}" )
+fi
 python "$IDF_PATH/tools/idf.py" -C "$project" -B "$build" \
   -D "SDKCONFIG=$build/sdkconfig" -D "SDKCONFIG_DEFAULTS=$SDKCONFIG_DEFAULTS" \
-  -D "HIGH_BOY_USB_VOICE=OFF" reconfigure
+  "${configure_args[@]}" reconfigure
 python "$repo/tools/highboy/check_contracts.py" --require-built "$target"
 cmake --build "$build" --target app --parallel "${HIGHBOY_BUILD_JOBS:-2}"
 python "$repo/tools/highboy/check_contracts.py" --require-built "$target"

@@ -24,8 +24,9 @@ Tooling lives in [`tools/app_sdk/`](../../tools/app_sdk). The published ABI is
 - **A signing key trusted by the device.** The firmware only runs apps signed by
   a key in its trust store (`firmware_p4/components/Service/app_runtime/include/tos_trust_keys.h`).
   The dev key is `tools/app_sdk/keys/dev_ed25519.key`; the matching public key is
-  already embedded in the firmware. To use your own key, run `gen_key.py` (§6) and
-  reflash.
+  already embedded in development builds. To select your own public key, use
+  the build configuration in §6. Changing the trusted identity requires a new
+  firmware candidate and the reviewed deployment process.
 
 ---
 
@@ -115,7 +116,7 @@ while (!api->should_stop() && !api->resource_lost()) {
 
 ## 4. The host API (`tos_api_t`)
 
-The full contract is `Service/app_runtime/include/tos_api.h`. ABI version 1.4.
+The full contract is `Service/app_runtime/include/tos_api.h`. ABI version 1.9.
 
 | Call | Capability | Notes |
 |------|-----------|-------|
@@ -239,11 +240,41 @@ a section-based ET_REL relocator, so it needs per-section, un-relaxed relocation
 
 ### Keys / trust store
 
-- `gen_key.py` makes a keypair: writes the private seed to `keys/dev_ed25519.key`
-  and regenerates the firmware trust-store header `tos_trust_keys.h` with the
-  public key. **Reflash the firmware** after changing keys.
-- The private key never ships in firmware; only the public key is embedded. Keep
-  production keys out of the repo (the dev key is a throwaway).
+Development builds keep the existing throwaway public key by default. A custom
+trust store is generated **only in the P4 build directory**; it replaces the dev
+identity rather than trusting both. Source headers, C5 firmware, SPI protocol and
+bundle format remain unchanged.
+
+```sh
+# PUBLIC key: exactly 64 hexadecimal characters (32 raw Ed25519 bytes).
+TOS_APP_PRODUCTION=ON TOS_APP_TRUST_PUBLIC_KEY=<public-key-hex> bash tools/build.sh p4
+
+# Signing is separate, on the signing machine. Never commit the private seed.
+TOS_APP_SIGNING_KEY=/secure/path/app-signing.seed bash tools/app_sdk/build.sh
+```
+
+`TOS_APP_PRODUCTION=ON` refuses a missing key, malformed hex, an all-zero key or
+the shipped development identity (including uppercase hex). This gate validates
+configuration; it does not certify custody of a real production key. No real
+production identity has been provisioned yet. `TOS_APP_TRUST_PUBLIC_KEY` may also
+be set without production mode for testing a custom identity. The integrated
+wrapper explicitly selects the default development configuration when these
+variables are absent, even when reusing a previously configured build directory.
+With direct IDF builds, pass the corresponding CMake `-D` options explicitly;
+CMake cache values persist until changed.
+
+Only the public key enters the firmware. `TOS_APP_SIGNING_KEY` selects the raw
+32-byte private seed consumed by `hb_pack.py`; its default is the existing dev
+seed. Production bundles must be signed using the identity selected for that
+firmware. Existing development-signed bundles will fail verification against a
+production-only trust store. No key rotation or multi-key policy is implied.
+
+The old `gen_key.py` is a development-only helper that **overwrites** the dev seed
+and checked-in trust header. Do not use it for production provisioning. Generate
+and retain the real production identity outside this repository; supply only its
+public half to the firmware build. This work produces app-only candidates; use
+[the reviewed High Boy deployment boundary](../highboy/README.md#flash-and-storage-boundary),
+not generic flashing instructions.
 
 ---
 

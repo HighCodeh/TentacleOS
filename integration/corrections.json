@@ -708,8 +708,14 @@
     "firmware_p4/components/Service/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "a5ab5cef02299410f4ba0c4ae7baac2b4840b1f42947372c35c57fa54a0c33a0",
-      "after_sha256": "716fa05eb0709ed37e2dcd95c196820071cf8c0ee169ced2bae247442307494f",
-      "reason": "Register bounded JavaScript/Lua engines and an SD worker; compact P4 applications, services and LVGL layout without changing partitions, drivers, standalone emulator flags or paired SPI v8."
+      "after_sha256": "9dc73e1f27c51b2c4418df140b12338dfaebd916fd199a16ea3f4d038769f535",
+      "reason": "Select a build-local app-signing public key and reject development identity in explicit production builds; preserve default development and paired firmware behavior.",
+      "review_history": [
+        {
+          "after_sha256": "716fa05eb0709ed37e2dcd95c196820071cf8c0ee169ced2bae247442307494f",
+          "reason": "Register bounded JavaScript/Lua engines and an SD worker; compact P4 applications, services and LVGL layout without changing partitions, drivers, standalone emulator flags or paired SPI v8."
+        }
+      ]
     },
     "firmware_p4/components/Applications/ui/screens/dev/dev_menu_ui.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -802,6 +808,14 @@
       "before_sha256": "44e794090bdddda5f999a29dbbb55f907c89cb001a9284a0abd94c631987c342",
       "after_sha256": "4b6bbe13c0511b1b89ba0e2a4e257ed57c14ae8ce0cde04ae41e4a6d3709132a",
       "reason": "Add authenticated bounded NFC/LF companion capture with task-owned cleanup, preserve Muse category 0x11, mirror new category IDs and reuse synchronous NFC probes with explicit setup errors."
+    },
+    "firmware_p4/components/Service/app_runtime/tos_hb.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "cdf9f0eb2e6b90aab73d35f389962a2b54ea1e343ddcbe48c63415291a50b2b3",
+      "after_sha256": "319e605f5d6253564b982ff89a9e0a9e20e17f9a14557afac5d9f2f32f3ed454",
+      "reason": "Select a build-local app-signing public key and reject development identity in explicit production builds; preserve default development and paired firmware behavior.",
+      "pre_format_sha256": "d8a2f20bc0c9a46b9fb29313fe39b308a5747f37f3a2b53e4589d0b5052cda4a",
+      "formatter": "clang-format version 22.1.5"
     }
   }
 }

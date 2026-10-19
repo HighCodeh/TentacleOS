@@ -20,7 +20,11 @@
 #include "esp_log.h"
 #include "sodium.h"
 
+#ifdef TOS_APP_HAS_CUSTOM_TRUST
+#include "tos_build_trust_keys.h"
+#else
 #include "tos_trust_keys.h"
+#endif
 
 static const char *TAG = "TOS_HB";
 
@@ -31,10 +35,10 @@ static const char *TAG = "TOS_HB";
 // v3: header || elf || meta || sig(64)  (meta_len set, HB_FLAG_HAS_META set)
 // The Ed25519 signature covers everything before it, so a v3 meta block (title +
 // icon) is inside the signed span and therefore trusted once verified.
-#define HB_HDR_SIZE   40
-#define HB_FORMAT_V2  2
-#define HB_FORMAT_V3  3
-#define HB_SIG_SIZE   64
+#define HB_HDR_SIZE      40
+#define HB_FORMAT_V2     2
+#define HB_FORMAT_V3     3
+#define HB_SIG_SIZE      64
 #define HB_FLAG_HAS_META 0x0001u
 
 static uint16_t rd16(const uint8_t *p) {
@@ -47,8 +51,8 @@ static uint32_t rd32(const uint8_t *p) {
 // Parse the 40-byte header (magic/version/abi/caps/name) and return the ELF and
 // meta lengths. No verification, no bounds check against a total length — the
 // caller decides how many bytes it holds. @p hdr must be >= HB_HDR_SIZE bytes.
-static esp_err_t parse_header(const uint8_t *hdr, tos_hb_t *out, uint32_t *elf_len,
-                              uint32_t *meta_len) {
+static esp_err_t
+parse_header(const uint8_t *hdr, tos_hb_t *out, uint32_t *elf_len, uint32_t *meta_len) {
   if (memcmp(hdr, "HBAP", 4) != 0) {
     ESP_LOGE(TAG, "bad magic");
     return ESP_ERR_NOT_SUPPORTED;
@@ -102,7 +106,9 @@ esp_err_t tos_hb_parse_meta(const uint8_t *meta, uint32_t meta_len, tos_hb_t *ou
   return ESP_OK;
 }
 
-esp_err_t tos_hb_read_header(const uint8_t *hdr, tos_hb_t *out, uint32_t *out_elf_len,
+esp_err_t tos_hb_read_header(const uint8_t *hdr,
+                             tos_hb_t *out,
+                             uint32_t *out_elf_len,
                              uint32_t *out_meta_len) {
   if (hdr == NULL || out == NULL || out_elf_len == NULL || out_meta_len == NULL)
     return ESP_ERR_INVALID_ARG;

@@ -8,6 +8,7 @@ MARCH=rv32imafc_zicsr_zifencei
 MABI=ilp32f
 # hb_pack needs PyNaCl, which lives in the system python, not the IDF venv.
 PY="${SYSTEM_PYTHON:-/usr/bin/python3}"
+SIGNING_KEY="${TOS_APP_SIGNING_KEY:-$HERE/keys/dev_ed25519.key}"
 
 for dir in "$HERE"/*/; do
   name="$(basename "$dir")"
@@ -20,7 +21,7 @@ for dir in "$HERE"/*/; do
     -c -o "$dir/app.elf" "$dir/app.c"
   caps="$(cat "$dir/caps" 2>/dev/null || echo 0x20)" # per-app caps file, default UI
   "$PY" "$HERE/hb_pack.py" "$dir/app.elf" "$dir/app.hb" --name "$name" --caps "$caps" \
-    --sign "$HERE/keys/dev_ed25519.key"
+    --sign "$SIGNING_KEY"
   echo "built '$name' -> $dir/app.hb ($(stat -c%s "$dir/app.hb") bytes)"
 done
 

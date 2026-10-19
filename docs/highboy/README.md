@@ -76,6 +76,11 @@ component-manager resolution is disabled, and the build does not install tools.
 Build products live in `firmware_{p4,c5}/build_highboy`, not the previous build
 directories.
 
+The P4 app-signing trust store can be selected with `TOS_APP_TRUST_PUBLIC_KEY`
+(64 public-key hex characters). `TOS_APP_PRODUCTION=ON` requires an explicit key
+and rejects the shipped development identity. This does not enable Secure Boot,
+Flash Encryption or provision eFuses. See [SDK trust configuration](../app_sdk/README.md#keys--trust-store).
+
 Build only produces applications. It does not access serial ports, flash, SD,
 microphone, token storage or any live Muse API. It does not regenerate runtime
 assets, embed a different C5 recovery image or migrate security eFuses.
