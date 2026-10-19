@@ -9,8 +9,8 @@ firmware: at entry it receives one pointer, `const tos_api_t *api`, and reaches
 every device function through it. It runs from PSRAM in its own supervised task,
 with only the capabilities the user approved.
 
-Tooling lives in [`tools/app_sdk/`](../../tools/app_sdk). Design details are in
-[`APP_PLATFORM_PLAN.md`](../../APP_PLATFORM_PLAN.md); the companion wire ops are in
+Tooling lives in [`tools/app_sdk/`](../../tools/app_sdk). The published ABI is
+`Service/app_runtime/include/tos_api.h`; the companion wire operations are in
 [`host_link/app-commands.md`](../host_link/app-commands.md).
 
 ---
@@ -333,3 +333,8 @@ In [`tools/app_sdk/`](../../tools/app_sdk), each is one `app.c` you can copy:
 | `svc` | registers a console command, runs until stopped |
 | `spin` | a misbehaving app (ignores stop) — exercises force-kill |
 | `wifiscan` | the WiFi subsystem: `api->wifi->scan()` + typed results |
+
+The former Dev Scripts demonstration no longer simulates a JavaScript run.
+Its legacy entry opens the native Apps browser, which loads signed `.hb` apps
+through the existing permissions and resource lifecycle. `SCREEN_SCRIPTS` is
+retained as a navigation alias for that browser. There is no JavaScript runtime.

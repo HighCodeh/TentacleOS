@@ -20,12 +20,7 @@
 extern "C" {
 #endif
 
-/** @brief Open the Scripts app: a mock JS-script runner.
- *
- * Browse a static list of mock scripts (each with capability badges and a
- * green terminal preview), grant permission for dangerous capabilities, then
- * watch a mock streaming run finish in a success or error state. All data is
- * mock; no real script engine or backend is involved. */
+/** @brief Open the native .hb Apps browser through the legacy Scripts entry. */
 void ui_scripts_open(void);
 
 #ifdef __cplusplus

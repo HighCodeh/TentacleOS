@@ -502,6 +502,7 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
     case SCREEN_GAMES_MENU:
       return ui_games_menu_open;
     case SCREEN_APPS:
+    case SCREEN_SCRIPTS:
       return ui_apps_open;
     case SCREEN_GAME_SNAKE:
       return ui_snake_open;
@@ -723,7 +724,6 @@ bool ui_screen_shows_chrome(screen_id_t s) {
     case SCREEN_BOOT_MAP:
     case SCREEN_CRASH_REPORT:
     case SCREEN_SYSTEM_UPDATE:
-    case SCREEN_SCRIPTS:
     case SCREEN_TIME:
     case SCREEN_APP_RUNNING:
     case SCREEN_FLY:

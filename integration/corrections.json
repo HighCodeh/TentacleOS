@@ -326,14 +326,18 @@
     "firmware_p4/components/Applications/ui/ui_manager.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "938b509321c8ef23ed8cf0f6f5ff2644fdabaea3a84ca1b544428c4c2c2eeba2",
-      "after_sha256": "01d768faf74488b0ffed2ba38b8a26f2f43c8ae6ae2f494e679f10b68acde232",
-      "reason": "Stop the owning native NFC worker when leaving each read, write, scan, bank-card or emulation screen.",
+      "after_sha256": "5a90ac7b458233eb1153d69fa1cf26f394a7d08bc673189da950abb15253639e",
+      "reason": "Replace the simulated JavaScript runner with the signed .hb Apps launcher and preserve equivalent legacy navigation.",
       "review_history": [
         {
           "after_sha256": "00c83c4094432fb613e43f0e325440d51b97346e02837d4aff968510c8fb549e",
           "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
           "pre_format_sha256": "6ec2fec14af0b18032e850437066a790b6c253f57ad6be2b484beb91caaf3dde",
           "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+        },
+        {
+          "after_sha256": "01d768faf74488b0ffed2ba38b8a26f2f43c8ae6ae2f494e679f10b68acde232",
+          "reason": "Stop the owning native NFC worker when leaving each read, write, scan, bank-card or emulation screen."
         }
       ]
     },
@@ -538,6 +542,18 @@
       "before_sha256": "6cdb049e823bb68b30c1154190e2dfec9e2362dcf7a8db6ea6cb4c32ab012547",
       "after_sha256": "0051b0b3d152640fac88aba8033ee25ac7367f51445b74248bc681cea200eb9f",
       "reason": "Expose bundled IR collections alongside the SD library, with bounded source switching and native parsing."
+    },
+    "firmware_p4/components/Applications/ui/screens/dev/scripts_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "0af22c076f14fc48f05dfd3f7a1878d1353634475181d504181cd6249c03eb1b",
+      "after_sha256": "7c0d3a5fa8749607506588cce3f6dda2a82a04a6ecb17b490afd6c7205efa4a1",
+      "reason": "Replace the simulated JavaScript runner with the signed .hb Apps launcher and preserve equivalent legacy navigation."
+    },
+    "firmware_p4/components/Applications/ui/screens/dev/include/scripts_ui.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "c6d6bbf8b1d7c1d998b81686ab84d7dcf236d15220d521c04293def7623c4e1d",
+      "after_sha256": "831a8e406286716c909e72710358d61cebee1a329901867c4b490e5d8b72f090",
+      "reason": "Replace the simulated JavaScript runner with the signed .hb Apps launcher and preserve equivalent legacy navigation."
     }
   }
 }
