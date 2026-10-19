@@ -44,7 +44,7 @@ switches to the matching screen via the `screen_id_t` enum in `ui_manager.h`.
 |-----------|--------|------|
 | READ TAGS | `SCREEN_NFC_READ` | `nfc_read_ui.c` |
 | SCAN / IDENTIFY | `SCREEN_NFC_SCAN` | `nfc_scan_ui.c` |
-| EMULATE | `SCREEN_CARD_EMU` | `card_emu_ui.c` |
+| EMULATE | `SCREEN_NFC_EMULATE` | `nfc_emulate_ui.c` |
 | WRITE | `SCREEN_NFC_WRITE` | `nfc_write_ui.c` |
 | CONFIGURATIONS | `SCREEN_NFC_CONFIG` | `nfc_config_ui.c` |
 | SAVED | `SCREEN_NFC_SAVED` | `nfc_saved_ui.c` |
@@ -58,8 +58,12 @@ switches to the matching screen via the `screen_id_t` enum in `ui_manager.h`.
 | KEY DICTIONARY | `SCREEN_NFC_KEYDICT` | `nfc_keydict_ui.c` |
 | APDU WORKBENCH | `SCREEN_NFC_APDU` | `nfc_apdu_ui.c` |
 
-There is also a dedicated emulate screen (`nfc_emulate_ui.c`,
-`SCREEN_NFC_EMULATE`) reached from the read flow. Native operations run in background services and publish results to the UI.
+The dedicated emulate screen (`nfc_emulate_ui.c`, `SCREEN_NFC_EMULATE`) uses
+saved MIFARE dumps. The legacy `SCREEN_CARD_EMU` entry opens that same native
+screen rather than animating a simulated card. Read, write, scan, bank-card and
+emulation screens each register their own stop handler with the screen manager,
+so navigation or resource preemption stops the owning worker.
+Native operations run in background services and publish results to the UI.
 The `nfc_sim` model carries card metadata and saved-library entries.
 
 ### Event-driven input

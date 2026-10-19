@@ -370,8 +370,16 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
     case SCREEN_SUBGHZ_READ:
       return subghz_receiver_stop;
     case SCREEN_NFC_READ:
+      return ui_nfc_read_stop;
+    case SCREEN_NFC_WRITE:
+      return ui_nfc_write_stop;
     case SCREEN_NFC_EMULATE:
-      return nfc_manager_stop;
+    case SCREEN_CARD_EMU:
+      return ui_nfc_emulate_stop;
+    case SCREEN_NFC_SCAN:
+      return ui_nfc_scan_stop;
+    case SCREEN_NFC_BANKCARD:
+      return ui_nfc_bankcard_stop;
     case SCREEN_NFC_APDU:
       return ui_nfc_apdu_stop;
     case SCREEN_NFC_P2P:

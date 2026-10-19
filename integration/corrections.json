@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
-  "status": "local_target_builds_and_host_tests_passed_hardware_acceptance_pending",
+  "status": "host_tests_passed_for_nfc_navigation_hardware_acceptance_pending",
   "files": {
     "firmware_c5/components/Applications/wifi/wifi_sniffer.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -326,10 +326,16 @@
     "firmware_p4/components/Applications/ui/ui_manager.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "938b509321c8ef23ed8cf0f6f5ff2644fdabaea3a84ca1b544428c4c2c2eeba2",
-      "after_sha256": "00c83c4094432fb613e43f0e325440d51b97346e02837d4aff968510c8fb549e",
-      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
-      "pre_format_sha256": "6ec2fec14af0b18032e850437066a790b6c253f57ad6be2b484beb91caaf3dde",
-      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+      "after_sha256": "01d768faf74488b0ffed2ba38b8a26f2f43c8ae6ae2f494e679f10b68acde232",
+      "reason": "Stop the owning native NFC worker when leaving each read, write, scan, bank-card or emulation screen.",
+      "review_history": [
+        {
+          "after_sha256": "00c83c4094432fb613e43f0e325440d51b97346e02837d4aff968510c8fb549e",
+          "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+          "pre_format_sha256": "6ec2fec14af0b18032e850437066a790b6c253f57ad6be2b484beb91caaf3dde",
+          "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+        }
+      ]
     },
     "firmware_p4/components/Core/kernel.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -500,6 +506,18 @@
       "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
       "pre_format_sha256": "cbb68ead9a8fdd38490eebab6939ae494605c358aa3ee6fb75e10d1d7283388e",
       "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_p4/components/Applications/ui/screens/nfc/card_emu_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "d1bf71983e2ad044347f5349ab3ed64dbaadef7c6e6a873219e8884d699d1fb4",
+      "after_sha256": "79852202bd446df10a8c656c73a62fdf321d3546fbedb1797ac1140e8182a504",
+      "reason": "Replace the legacy simulated card screen with the native MIFARE emulation entry."
+    },
+    "firmware_p4/components/Applications/ui/screens/nfc/include/card_emu_ui.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "d953be8662d9bc0a4c67ce47ee72137219b86659c2b2d6a09b0ff7bbee4aa718",
+      "after_sha256": "de1af8f69e43b84e9f6754e18590d4d68441492e733564b430191acfa73ffd9c",
+      "reason": "Document the native emulation entry and expose C++ linkage."
     }
   }
 }
