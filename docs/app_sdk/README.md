@@ -219,7 +219,9 @@ minimum: the consent prompt shows exactly what you ask for.
 
 `build.sh` compiles and signs every `app_sdk/<name>/app.c`. Put your app in its own
 dir (`tools/app_sdk/myapp/app.c`), optionally a `caps` file (hex, default `0x20`),
-then run `./build.sh`. Output is `<name>/app.hb` — copy it to `/sdcard/apps/`.
+then run `./build.sh`. The script supports BSD/macOS and GNU/Linux byte counts
+without GNU `stat`; its regression test also covers paths with spaces and an
+external signing-key path. Output is `<name>/app.hb` — copy it to `/sdcard/apps/`.
 
 ### By hand
 

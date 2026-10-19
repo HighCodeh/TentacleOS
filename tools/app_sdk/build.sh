@@ -22,7 +22,9 @@ for dir in "$HERE"/*/; do
   caps="$(cat "$dir/caps" 2>/dev/null || echo 0x20)" # per-app caps file, default UI
   "$PY" "$HERE/hb_pack.py" "$dir/app.elf" "$dir/app.hb" --name "$name" --caps "$caps" \
     --sign "$SIGNING_KEY"
-  echo "built '$name' -> $dir/app.hb ($(stat -c%s "$dir/app.hb") bytes)"
+  bytes="$(wc -c < "$dir/app.hb")"
+  bytes="${bytes//[[:space:]]/}"
+  echo "built '$name' -> $dir/app.hb ($bytes bytes)"
 done
 
 echo

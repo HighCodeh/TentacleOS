@@ -31,7 +31,7 @@ this work. No device was flashed or exercised.
 | [#155](https://github.com/HighCodeh/TentacleOS/issues/155) | MQTT is now honestly unavailable; implement its real transport. Dev Scripts now runs real JavaScript/Lua files separately from signed `.hb` apps and shares `tos_api_t` through per-run capability approval, resource ownership and cleanup; see [scripts](../scripts/README.md). GATT is explicitly a reference catalog and no longer invents read values; remote discovery/read integration remains. Native Wi-Fi connect, BLE mouse/companion and LoRa position paths exist but need device acceptance. |
 | [#156](https://github.com/HighCodeh/TentacleOS/issues/156) | Complete and exercise the UI / `.hb` / companion peripheral matrix after the missing ABI and host-link paths are implemented. |
 | [#157](https://github.com/HighCodeh/TentacleOS/issues/157) | Measure performance/internal RAM and prepare a reviewed OTA/asset/restore package. P4 code space is nearly exhausted; app-only builds are not a release candidate package. |
-| [#158](https://github.com/HighCodeh/TentacleOS/issues/158) | Obtain a reproducible description of the unnamed Bash bug; all reviewed shell files pass syntax checks. Field/consumer documentation needs the approved deployment/recovery procedure. |
+| [#158](https://github.com/HighCodeh/TentacleOS/issues/158) | Fixed a reproduced BSD/macOS SDK build bug (`stat -c%s` is GNU-only), with an isolated shell regression. The original unnamed Bash report remains unidentified: the user no longer recalls the command and the explanation is on another PC. All reviewed shell files pass syntax checks. Field/consumer documentation needs the approved deployment/recovery procedure. |
 
 ## Validation of this correction batch
 
