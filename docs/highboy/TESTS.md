@@ -312,3 +312,35 @@ chains in `integration/corrections.json`. Builds retain existing warnings.
 No device was accessed or flashed. Live USB/BLE capture, antenna behavior,
 interrupted hardware transactions and stack/timing headroom still need physical
 acceptance. See [the command reference](../host_link/rf-commands.md).
+
+## App-signing trust configuration build record
+
+Validated on 2026-10-19 from firmware commit `1fa0778b`, after automatic hook
+formatting. The default development configuration was rebuilt with both pinned
+SDKs (P4 v5.5.3, C5 v6.0.1) after a custom-public-key build.
+
+| Target | Application bytes | Slot bytes | Free bytes | SHA-256 |
+| --- | ---: | ---: | ---: | --- |
+| P4 | 2,947,712 | 2,949,120 | 1,408 | `db8b571208491be962afb05135f440764d0d1182f186b257baf899836973500e` |
+| C5 | 2,016,048 | 2,097,152 | 81,104 | `2f3a7dbf176845d141cf169d25dda22e51d297eb45f2134ee2998c7079009097` |
+
+The six new trust configuration tests passed: development default, required
+production key, development-key rejection (both hex cases), malformed/zero keys,
+selected-key header compilation and repeated reconfiguration of one build
+directory. The complete `tools/highboy/test.command` suite passed without skips;
+commitlint and whitespace checks passed. Partition layouts, paired SPI v8, C5
+memory policy and compiler optimization settings remain unchanged.
+
+An additional P4 build with the RFC 8032 public test vector selected in production
+mode passed the app-slot check. Its binary contained the selected public key and
+excluded the development public key. This selection check preceded hook
+formatting; the final paired build above followed it and restored the default.
+The final P4 binary contains the development key and excludes the test key,
+confirming the wrapper resets cached selection when configuration is absent.
+The P4 remains nearly full, with 1,408 bytes free. Existing build warnings remain.
+
+No real production key was created or provisioned, and no private key, device,
+flash or SD card was accessed. This validates configuration and compilation;
+it does not add cryptographic certification, Secure Boot, key custody or physical
+acceptance. Issue #149 remains open for radio API publication/teardown and the
+real production identity. See [trust configuration](../app_sdk/README.md#keys--trust-store).

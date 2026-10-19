@@ -70,3 +70,11 @@ The NFC/RFID implementation for #150 was validated after firmware commit
 Issue #150 was closed on 2026-10-19 for the agreed NFC/RFID scope; haptics
 remains deferred. The #149 ABI/publication work, #151 ephemeral pairing,
 MQTT/LoRa work and device/production acceptance issues remain open.
+
+## App-signing configuration update
+
+Firmware commit `1fa0778b` adds build-local public-key selection, production-mode
+configuration gates and external SDK signing-key selection. The [paired build
+record](TESTS.md#app-signing-trust-configuration-build-record) confirms unchanged
+application sizes and restoration of the default development identity. No real
+production key was provisioned, as requested. Issue #149 remains open.
