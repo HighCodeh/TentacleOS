@@ -80,3 +80,7 @@ idf_component_register(SRCS
   esp_tinyusb
   soc
   "led_strip")
+
+# Airtime policy is not a radio timing path; keep its accounting compact.
+set_source_files_properties("sx1262/sx1262_airtime.c" PROPERTIES
+  COMPILE_OPTIONS "-Os;-flto=2;-ffat-lto-objects")

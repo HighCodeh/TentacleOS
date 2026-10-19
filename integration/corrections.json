@@ -816,6 +816,18 @@
       "reason": "Select a build-local app-signing public key and reject development identity in explicit production builds; preserve default development and paired firmware behavior.",
       "pre_format_sha256": "d8a2f20bc0c9a46b9fb29313fe39b308a5747f37f3a2b53e4589d0b5052cda4a",
       "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/sx1262/sx1262_radio.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "e36c1061c60bc8bb8c207ac88b98a3ef8126f0f99e03119569994a6ea9ac327c",
+      "after_sha256": "8c265665b1982995e64448e3554fb77137e6d77a7e431c342563f0aaf03ca458",
+      "reason": "Enforce shared, conservative LoRa airtime pacing before all native TX operations, retaining debit across configuration and protocol changes."
+    },
+    "firmware_p4/components/Drivers/CMakeLists.txt": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "15c7869f1145eb6a78b540dd9c4003914c7bbbb98db9af36ed4ddd38e35d23bf",
+      "after_sha256": "8fde0cfcb8fe0b6ecfa2ed3ebc09ede10ae7a6e9429f0cdbed37a0e8538724aa",
+      "reason": "Enforce shared, conservative LoRa airtime pacing before all native TX operations, retaining debit across configuration and protocol changes."
     }
   }
 }

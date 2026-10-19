@@ -162,3 +162,33 @@ esp_err_t sx1262_process_irq(void);
 ## Chip Workarounds
 
 The driver applies the datasheet errata workarounds automatically: **W1** (BW500 sensitivity, before each TX), **W2** (TX clamp config, during bring-up), **W3** (implicit-header RX, when `is_implicit_hdr`), and **W4** (IQ polarity, on every `config_lora`).
+
+## Shared transmit airtime guard
+
+Every `sx1262_transmit()` path reserves estimated airtime before changing radio
+state or writing TX hardware. This covers MeshCore, Meshtastic (including relay,
+ACK and retry traffic), RNode and raw callers. `ESP_ERR_TIMEOUT` means the shared
+budget is busy; callers must defer or report failure, never assume transmission.
+Failed hardware attempts retain their debit, and reinitialization/configuration
+changes do not reset it. A static lock admits only one concurrent reservation.
+
+The estimate uses actual payload length, preamble, CRC/header, SF, coding rate,
+bandwidth and the same LDRO rule programmed by this driver. Integer rounding is
+upward, including the SX126x SF5/SF6 adjustments. The reference is the [Semtech
+SX126x time-on-air implementation](https://github.com/Lora-net/sx126x_driver/blob/master/src/sx126x.c).
+The guard uses microsecond monotonic time, including uptime beyond 32-bit millis.
+
+This is a conservative software pacing policy for occupied bandwidth overlapping
+433.05–434.79 MHz or 863–870 MHz. It spaces starts by airtime × duty divisor:
+10% for the 433 MHz range and frames wholly inside 869.4–869.65 MHz; 1% for frames
+wholly inside 865–868.6 MHz; 0.1% elsewhere in the guarded 868 MHz range. All these
+ranges share one next-start timestamp, so changing subbands cannot clear a debit.
+No regional pacing is imposed on other frequencies. A single frame larger than
+its one-hour allowance is rejected. Debits are volatile and reset on reboot;
+this is not a persistent regulatory ledger or certification of power, channel
+access, national allocations or deployment compliance. See the [CEPT SRD
+recommendation](https://docdb.cept.org/document/845) for the applicable framework.
+
+Host tests cover known SF7/SF12 vectors, occupied-bandwidth boundaries, cooldown
+edges, concurrent reservations, cross-frequency debit retention and unguarded
+frequencies. Physical airtime and regional acceptance remain pending.

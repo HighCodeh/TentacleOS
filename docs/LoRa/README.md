@@ -251,3 +251,12 @@ counts packets and CRC/header errors, and exposes bounded packet prefixes to the
 UI. It does not transmit. Starting is refused while a protocol session, lab
 worker or SX1262 owner is active. The worker uses `SYS_PRIO_BACKGROUND` on
 `SYS_CORE_RADIO` and releases its power lock during cleanup.
+
+## Mesh transmit pacing
+
+Both meshes now pass through the driver's [shared airtime guard](../sx1262/README.md#shared-transmit-airtime-guard).
+Relays, retries and acknowledgements consume the same budget as locally generated
+messages. A denied transmission returns `ESP_ERR_TIMEOUT`; this does not imply a
+packet was emitted. Existing mesh send/retry behavior handles that failure, with
+no new claim of guaranteed delivery. MQTT subscription and RNode launcher wiring
+remain separate pending work in #145.
