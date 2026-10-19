@@ -884,6 +884,18 @@
       "reason": "Publish native NFC discovery and LF RFID reads additively through the shared ABI, execute on the stable RF worker, and quiesce local operations before forced app deletion.",
       "pre_format_sha256": "d5f4e556b775c09d5d26951217d56dc942e51081d1bd6abfac3b69e01ad15184",
       "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/CMakeLists.txt": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "423dcada91e6ab2caa676d189fa06e48c1fab966756784d79a68170adcc52a3d",
+      "after_sha256": "4e7151e0676dc6ffa2890a8ed14765c91106c23d27b0a8e14d8696e1c8fd1b5e",
+      "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership"
+    },
+    "firmware_c5/sdkconfig.defaults": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "8918a4a1ec1f79811a3c2a1796952970de955f0e2c09d85d9d18be2f0298f923",
+      "after_sha256": "5f76eb1fc4a69f39d6b9ad57557c669a2f3e8d599e1a633356ed4f660c19ce01",
+      "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership"
     }
   }
 }

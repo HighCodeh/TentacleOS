@@ -85,3 +85,9 @@ CONFIG_ESP_TASK_WDT_PANIC=y
 # short TCP MSL also frees closed connections fast instead of lingering 60 s.
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 CONFIG_LWIP_TCP_MSL=5000
+
+# Pin the on-demand MQTT client to the radio core.
+CONFIG_MQTT_TASK_CORE_SELECTION_ENABLED=y
+CONFIG_MQTT_USE_CORE_0=y
+# CONFIG_MQTT_TRANSPORT_WEBSOCKET is not set
+# CONFIG_MQTT_TRANSPORT_WEBSOCKET_SECURE is not set

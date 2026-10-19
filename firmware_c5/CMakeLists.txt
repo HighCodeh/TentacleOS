@@ -16,6 +16,7 @@ set(EXTRA_COMPONENT_DIRS
     "${CMAKE_CURRENT_LIST_DIR}/vendor/cjson"
     "${CMAKE_CURRENT_LIST_DIR}/vendor/led_strip"
     "${CMAKE_CURRENT_LIST_DIR}/vendor/mdns"
+    "${CMAKE_CURRENT_LIST_DIR}/vendor/mqtt"
     "${CMAKE_CURRENT_LIST_DIR}/vendor/littlefs"
     "${CMAKE_CURRENT_LIST_DIR}/vendor/lvgl"
 )
