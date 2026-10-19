@@ -34,6 +34,7 @@
 #include "services/gap/ble_svc_gap.h"
 
 #include "cJSON.h"
+#include "gatt_explorer.h"
 #include "storage_assets.h"
 #include "storage_write.h"
 
@@ -143,6 +144,8 @@ esp_err_t bluetooth_service_start(void) {
 }
 
 esp_err_t bluetooth_service_stop(void) {
+  if (gatt_explorer_is_busy())
+    return ESP_ERR_INVALID_STATE;
   if (!s_is_running) {
     ESP_LOGW(TAG, "BLE not running");
     return ESP_OK;
@@ -170,6 +173,9 @@ esp_err_t bluetooth_service_deinit(void) {
     return ESP_OK;
   }
 
+  esp_err_t explorer_error = gatt_explorer_deinit();
+  if (explorer_error != ESP_OK)
+    return explorer_error;
   esp_err_t deinitialized = nimble_port_deinit();
   if (deinitialized != ESP_OK)
     return deinitialized;

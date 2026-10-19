@@ -253,3 +253,13 @@ following were wired 2026-08-24: `SET_RANDOM_MAC`, `START_ADV`, `STOP_ADV`,
 `APP_GATT_EXP`, `SPAM_LIST_*`, `HID_*`, and `L2CAP_STATUS`. Verify against
 `spi_protocol.h` and `bt_dispatcher.c` if in doubt.
 </content>
+
+## Remote GATT
+
+The authenticated Bluetooth relay also exposes start/status/record/read/stop
+operations for the bounded [remote GATT explorer](../gatt/README.md#bounded-spi-contract).
+START accepts a target address and type; success means queued, not connected.
+Poll status for discovery/read completion, fetch indexed records and explicitly
+stop the session. An active host-link BLE server owns NimBLE, so a remote GATT
+START is refused on that transport; use the USB companion path with the C5 radio
+available. The explorer does not stop an active host-link server to connect.

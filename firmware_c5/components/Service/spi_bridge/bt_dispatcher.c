@@ -161,6 +161,9 @@ spi_status_t bt_dispatcher_execute(spi_id_t id,
                                    uint8_t *out_resp_len) {
   (void)TAG;
   *out_resp_len = 0;
+  if (gatt_explorer_is_busy() && id != SPI_ID_BT_GATT_STATUS && id != SPI_ID_BT_GATT_RECORD &&
+      id != SPI_ID_BT_GATT_READ && id != SPI_ID_BT_GATT_STOP)
+    return SPI_STATUS_BUSY;
 
   switch (id) {
     case SPI_ID_BT_INIT:
@@ -258,12 +261,46 @@ spi_status_t bt_dispatcher_execute(spi_id_t id,
     }
 
     case SPI_ID_BT_APP_GATT_EXP: {
-      if (len < BT_CONNECT_MIN_PAYLOAD)
+      if (len != BT_CONNECT_MIN_PAYLOAD)
         return SPI_STATUS_INVALID_ARG;
+      if (meshcore_gatt_is_running() || host_link_gatt_is_running() || meshtastic_gatt_is_running())
+        return SPI_STATUS_BUSY;
       if (!bt_ensure_service_ready())
         return SPI_STATUS_ERROR;
       return gatt_explorer_start(payload, payload[BT_MAC_LEN]) ? SPI_STATUS_OK : SPI_STATUS_BUSY;
     }
+
+    case SPI_ID_BT_GATT_STATUS: {
+      if (len != 0)
+        return SPI_STATUS_INVALID_ARG;
+      spi_gatt_status_t status;
+      if (gatt_explorer_get_status(&status) != ESP_OK)
+        return SPI_STATUS_ERROR;
+      memcpy(out_resp_payload, &status, sizeof(status));
+      *out_resp_len = sizeof(status);
+      return SPI_STATUS_OK;
+    }
+    case SPI_ID_BT_GATT_RECORD: {
+      if (len != 1)
+        return SPI_STATUS_INVALID_ARG;
+      spi_gatt_record_t record;
+      if (gatt_explorer_get_record(payload[0], &record) != ESP_OK)
+        return SPI_STATUS_INVALID_ARG;
+      memcpy(out_resp_payload, &record, sizeof(record));
+      *out_resp_len = sizeof(record);
+      return SPI_STATUS_OK;
+    }
+    case SPI_ID_BT_GATT_READ: {
+      if (len != sizeof(uint16_t))
+        return SPI_STATUS_INVALID_ARG;
+      uint16_t handle;
+      memcpy(&handle, payload, sizeof(handle));
+      return gatt_explorer_read(handle) == ESP_OK ? SPI_STATUS_OK : SPI_STATUS_BUSY;
+    }
+    case SPI_ID_BT_GATT_STOP:
+      if (len != 0)
+        return SPI_STATUS_INVALID_ARG;
+      return gatt_explorer_stop() == ESP_OK ? SPI_STATUS_OK : SPI_STATUS_ERROR;
 
     case SPI_ID_BT_SPAM_LIST_LOAD: {
       char **list = NULL;

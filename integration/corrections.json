@@ -850,29 +850,41 @@
     "firmware_p4/components/Service/spi_bridge/include/spi_protocol.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "44e794090bdddda5f999a29dbbb55f907c89cb001a9284a0abd94c631987c342",
-      "after_sha256": "2476f49beef553555fe61e94000583c758e7eb99193110d2592acce35f944e97",
-      "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership",
+      "after_sha256": "82122fadbc59f6f66f3568a19062dff9076ffc2d0046e8a5d4f11761348b277c",
+      "reason": "Implement bounded remote GATT discovery and reads over paired SPI, native UI routing, lease expiry and NimBLE ownership-safe teardown",
       "review_history": [
         {
           "after_sha256": "4b6bbe13c0511b1b89ba0e2a4e257ed57c14ae8ce0cde04ae41e4a6d3709132a",
           "reason": "Add authenticated bounded NFC/LF companion capture with task-owned cleanup, preserve Muse category 0x11, mirror new category IDs and reuse synchronous NFC probes with explicit setup errors."
+        },
+        {
+          "after_sha256": "2476f49beef553555fe61e94000583c758e7eb99193110d2592acce35f944e97",
+          "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership",
+          "pre_format_sha256": "9d960b693e0fbc8869e9ea28942a57b7fde628eaab3b6a98c2dac8274082a0e1",
+          "formatter": "clang-format version 22.1.5"
         }
       ],
-      "pre_format_sha256": "9d960b693e0fbc8869e9ea28942a57b7fde628eaab3b6a98c2dac8274082a0e1",
+      "pre_format_sha256": "942dbcc7c87b3b5918765a41aa320d73c8b0ec18b8ea92c55fc21574127f5622",
       "formatter": "clang-format version 22.1.5"
     },
     "firmware_c5/components/Service/spi_bridge/include/spi_protocol.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "44e794090bdddda5f999a29dbbb55f907c89cb001a9284a0abd94c631987c342",
-      "after_sha256": "2476f49beef553555fe61e94000583c758e7eb99193110d2592acce35f944e97",
-      "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership",
+      "after_sha256": "82122fadbc59f6f66f3568a19062dff9076ffc2d0046e8a5d4f11761348b277c",
+      "reason": "Implement bounded remote GATT discovery and reads over paired SPI, native UI routing, lease expiry and NimBLE ownership-safe teardown",
       "review_history": [
         {
           "after_sha256": "4b6bbe13c0511b1b89ba0e2a4e257ed57c14ae8ce0cde04ae41e4a6d3709132a",
           "reason": "Add authenticated bounded NFC/LF companion capture with task-owned cleanup, preserve Muse category 0x11, mirror new category IDs and reuse synchronous NFC probes with explicit setup errors."
+        },
+        {
+          "after_sha256": "2476f49beef553555fe61e94000583c758e7eb99193110d2592acce35f944e97",
+          "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership",
+          "pre_format_sha256": "9d960b693e0fbc8869e9ea28942a57b7fde628eaab3b6a98c2dac8274082a0e1",
+          "formatter": "clang-format version 22.1.5"
         }
       ],
-      "pre_format_sha256": "9d960b693e0fbc8869e9ea28942a57b7fde628eaab3b6a98c2dac8274082a0e1",
+      "pre_format_sha256": "942dbcc7c87b3b5918765a41aa320d73c8b0ec18b8ea92c55fc21574127f5622",
       "formatter": "clang-format version 22.1.5"
     },
     "firmware_p4/components/Service/app_runtime/tos_hb.c": {
@@ -948,8 +960,14 @@
     "firmware_c5/components/Service/spi_bridge/hb_muse_c5_service.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "339da1e33f7bc54bbe041c091373a3a98b1f7b5e3d1be495a6d255c7182242df",
-      "after_sha256": "afcf5047e37043ecf184feca8b39a5152ca7f4f966ad2c77aea612191cea2ae2",
-      "reason": "Honor Muse setup reservations for MQTT while retaining status and cancellation access"
+      "after_sha256": "d07a56dbdfeaa5b6eee81338315e9dba77a0f0fc509448eeda1b40f0c096252b",
+      "reason": "Permit GATT cancellation and status while Muse setup owns radio controls",
+      "review_history": [
+        {
+          "after_sha256": "afcf5047e37043ecf184feca8b39a5152ca7f4f966ad2c77aea612191cea2ae2",
+          "reason": "Honor Muse setup reservations for MQTT while retaining status and cancellation access"
+        }
+      ]
     },
     "firmware_p4/components/Applications/LoRa/meshtastic/include/meshtastic_mqtt.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -982,6 +1000,34 @@
       "before_sha256": "937128f42705eada216cac65872ede9d87b7d3e30e391c3d4bf1f7d1fc177921",
       "after_sha256": "5b3350bde8c0adc09da90d8c5b485bee9fbac09749442e1b63c4d764d55c9f52",
       "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership"
+    },
+    "firmware_c5/components/Applications/bluetooth/gatt_explorer.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "a18fb826cbd7e53e07e0e434b24f92108682c7416edb0b0b2d24bd4d7cd3e453",
+      "after_sha256": "c1dd0857c68df7d146a2ba7f99b26158622a1419254beac4386c1c21b4129e8c",
+      "reason": "Implement bounded remote GATT discovery and reads over paired SPI, native UI routing, lease expiry and NimBLE ownership-safe teardown",
+      "pre_format_sha256": "3d0dd57ca78fc8f1ea707f434373992005650ba9a64754da7feb90652f6946f9",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Applications/bluetooth/include/gatt_explorer.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "69202d05b5b6db156ab430d2b731ca704e50fb74d47549fc7190ac126221f85c",
+      "after_sha256": "4a52bfe179ad84c7d4f95d827119df49294c9333af1be2088d062478610c788d",
+      "reason": "Implement bounded remote GATT discovery and reads over paired SPI, native UI routing, lease expiry and NimBLE ownership-safe teardown"
+    },
+    "firmware_c5/components/Service/bluetooth/bluetooth_service.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "abc5361d597c422ed1d6cc48f9a56759721b04376f06dd45ea8b6c8d74eade5b",
+      "after_sha256": "5fd346b1dd2aa79af83a8bdb40f1313a0e48c8988e26ae633da596c78881c310",
+      "reason": "Implement bounded remote GATT discovery and reads over paired SPI, native UI routing, lease expiry and NimBLE ownership-safe teardown"
+    },
+    "firmware_c5/components/Service/spi_bridge/bt_dispatcher.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "60c6780d4de9447a65780d77f9d3c5f18a6c3b37bf736d5e1b353b9538f097ff",
+      "after_sha256": "2fce3ccb2c18e3e1f176ce0c1992d2590ef2d30889452c021e4bc9768f2bfcc1",
+      "reason": "Implement bounded remote GATT discovery and reads over paired SPI, native UI routing, lease expiry and NimBLE ownership-safe teardown",
+      "pre_format_sha256": "6cc7cece816bf423e19c671aa1b1bfcac2a358e91cb3efde9dd56e6128d53e43",
+      "formatter": "clang-format version 22.1.5"
     }
   }
 }

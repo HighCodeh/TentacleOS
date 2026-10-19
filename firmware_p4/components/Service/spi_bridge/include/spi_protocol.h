@@ -76,6 +76,45 @@ extern "C" {
 /**
  * @brief SPI message types.
  */
+
+#define SPI_GATT_RECORD_MAX     48
+#define SPI_GATT_VALUE_MAX      64
+#define SPI_GATT_UUID_MAX       16
+#define SPI_GATT_PROPERTY_READ  0x02
+#define SPI_GATT_SERVICE        1
+#define SPI_GATT_CHARACTERISTIC 2
+
+typedef enum {
+  SPI_GATT_IDLE = 0,
+  SPI_GATT_CONNECTING,
+  SPI_GATT_DISCOVERING,
+  SPI_GATT_READY,
+  SPI_GATT_READING,
+  SPI_GATT_STOPPING,
+  SPI_GATT_ERROR,
+  SPI_GATT_STATE_COUNT
+} spi_gatt_state_t;
+
+typedef struct __attribute__((packed)) {
+  uint8_t kind;
+  uint8_t uuid_type;
+  uint8_t properties;
+  uint16_t start_handle;
+  uint16_t end_handle;
+  uint16_t value_handle;
+  uint8_t uuid[SPI_GATT_UUID_MAX];
+} spi_gatt_record_t;
+
+typedef struct __attribute__((packed)) {
+  uint8_t state;
+  uint8_t count;
+  uint8_t is_truncated;
+  uint16_t error;
+  uint16_t value_handle;
+  uint8_t value_length;
+  uint8_t value[SPI_GATT_VALUE_MAX];
+} spi_gatt_status_t;
+
 typedef enum { SPI_TYPE_CMD = 0x01, SPI_TYPE_RESP = 0x02, SPI_TYPE_STREAM = 0x03 } spi_type_t;
 
 /**
@@ -316,6 +355,11 @@ typedef enum {
   SPI_ID_BT_HID_IS_CONNECTED = SPI_CMD(SPI_CAT_BT, 0x73),
   SPI_ID_BT_HID_SEND_KEY = SPI_CMD(SPI_CAT_BT, 0x74),
   SPI_ID_BT_HID_SEND_MOUSE = SPI_CMD(SPI_CAT_BT, 0x75),
+
+  SPI_ID_BT_GATT_STATUS = SPI_CMD(SPI_CAT_BT, 0x76),
+  SPI_ID_BT_GATT_RECORD = SPI_CMD(SPI_CAT_BT, 0x77),
+  SPI_ID_BT_GATT_READ = SPI_CMD(SPI_CAT_BT, 0x78),
+  SPI_ID_BT_GATT_STOP = SPI_CMD(SPI_CAT_BT, 0x79),
 
   // LoRa. The SX1262 is P4-local; real LoRa runs via the Meshtastic/MeshCore/
   // RNode stacks + the mesh phone bridges below. These two ids are RESERVED for a

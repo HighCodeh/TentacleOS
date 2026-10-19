@@ -32,6 +32,7 @@ README.md, separated by `---`.
 | `drv2605l` | [README.md](drv2605l/README.md) - TI DRV2605L haptic motor driver |
 | `esp_now` | [README.md](esp_now/README.md)  |
 | `espnow_chat` | [README.md](espnow_chat/README.md)  |
+| `gatt` | [README.md](gatt/README.md) - remote BLE service discovery and characteristic reads |
 | `gameboy` | [README.md](gameboy/README.md) - Game Boy emulator application |
 | `doom` | [README.md](doom/README.md) - DOOM input and internal-DMA strip rendering |
 | `hle` | [README.md](hle/README.md) - host simulator compatibility and SPI CRC regression tests |

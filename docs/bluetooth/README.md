@@ -203,8 +203,10 @@ on demand and marks the session linked only after
 displayed PSK; ephemeral ECDH and a physical confirmation flow remain separate
 work (#151).
 
-Header descriptions identify screens using real C5 results. The GATT explorer
-screen presents a static catalog explicitly labeled GATT REFERENCE. Selecting
-a characteristic reports that no device is connected; it does not synthesize
-read values. Remote service discovery and characteristic reads remain pending. Hardware
-interoperability remains unverified for this candidate.
+The [remote GATT explorer](../gatt/README.md) now scans real targets, discovers
+remote services/characteristics and reads permitted attributes through C5.
+Its P4 UI uses a background worker and bounded snapshots. C5 performs operations
+on its NimBLE queue, rejects competing radio operations while owned, expires the
+connection lease and releases NPL resources before port deinitialization.
+The previous static reference catalog and C5 JSON-only result path are replaced.
+Device interoperability and the physical integration matrix remain unverified.

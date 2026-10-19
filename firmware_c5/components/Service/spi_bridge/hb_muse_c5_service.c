@@ -444,6 +444,8 @@ bool hb_muse_c5_service_allows(uint16_t cmd) {
   if (!reserved)
     return true;
   uint8_t category = (uint8_t)(cmd >> 8);
+  if (cmd == SPI_ID_BT_GATT_STOP || cmd == SPI_ID_BT_GATT_STATUS)
+    return true;
   if (category == SPI_CAT_MQTT)
     return cmd == SPI_ID_MQTT_STOP || cmd == SPI_ID_MQTT_STATUS;
   if (category == SPI_CAT_WIFI || category == SPI_CAT_BT || category == SPI_CAT_MESH ||
