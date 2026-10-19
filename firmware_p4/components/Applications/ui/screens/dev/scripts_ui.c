@@ -27,6 +27,9 @@
 
 #include "menu_component_ui.h"
 #include "notify_ui.h"
+#include "msgbox_ui.h"
+#include "tos_api.h"
+#include "tos_app_ctx.h"
 #include "script_runner.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
@@ -48,6 +51,7 @@ static menu_component_t s_menu;
 static char s_files[SCRIPT_LIST_MAX][SCRIPT_RUNNER_NAME_MAX];
 static size_t s_count;
 static bool s_is_output_view;
+static uint32_t s_consent_generation;
 EXT_RAM_BSS_ATTR static script_runner_snapshot_t s_snapshot;
 
 static int compare_names(const void *left, const void *right) {
@@ -85,13 +89,35 @@ static void build_list(void) {
   menu_component_set_hint(&s_menu, "OK run/refresh   BACK developer");
 }
 
+static void consent_result(bool is_allowed) {
+  script_runner_authorize(s_consent_generation, is_allowed);
+  s_consent_generation = 0;
+}
+
 static void refresh_output(lv_timer_t *timer) {
   (void)timer;
   if (!s_is_output_view || s_output == NULL)
     return;
   script_runner_snapshot(&s_snapshot);
   lv_label_set_text(s_output, s_snapshot.output);
-  if (s_snapshot.is_running)
+  if (s_snapshot.is_waiting_consent && !msgbox_is_open()) {
+    char message[SCRIPT_ENGINE_ERROR_MAX];
+    uint32_t caps = s_snapshot.requested_caps;
+    snprintf(message,
+             sizeof(message),
+             "Allow %s for this run?\n%s%s%s%s%s",
+             s_snapshot.name,
+             caps & TOS_CAP_FS_READ ? "Read SD files\n" : "",
+             caps & TOS_CAP_RADIO_RX ? "Receive / scan radios\n" : "",
+             caps & TOS_CAP_RADIO_TX ? "Transmit / control radios\n" : "",
+             caps & TOS_CAP_HID ? "Send HID keys\n" : "",
+             caps & TOS_CAP_UI ? "Control screen / LED\n" : "");
+    s_consent_generation = s_snapshot.generation;
+    msgbox_open_ex(SCRIPT_ICON, message, "Allow", "Deny", consent_result, false);
+  }
+  if (s_snapshot.is_waiting_consent)
+    lv_label_set_text(s_status, "Awaiting permission  |  BACK cancel");
+  else if (s_snapshot.is_running)
     lv_label_set_text(s_status, "Running  |  OK stop  BACK list");
   else if (s_snapshot.result == SCRIPT_ENGINE_OK)
     lv_label_set_text(s_status, "Finished  |  OK/BACK list");
@@ -165,7 +191,8 @@ static void scripts_input(const input_event_t *event, void *ctx) {
 static void screen_deleted(lv_event_t *event) {
   if (lv_event_get_target(event) != s_screen)
     return;
-  ui_scripts_stop();
+  if (ui_current_screen() != SCREEN_APP_RUNNING || !script_runner_has_display())
+    ui_scripts_stop();
   if (s_timer != NULL) {
     lv_timer_del(s_timer);
     s_timer = NULL;
@@ -189,5 +216,10 @@ void ui_scripts_open(void) {
 }
 
 void ui_scripts_stop(void) {
-  script_runner_stop();
+  if (s_consent_generation != 0 && msgbox_is_open()) {
+    msgbox_close();
+    s_consent_generation = 0;
+  }
+  if (!script_runner_has_display() || tos_app_ctx_current() == NULL)
+    script_runner_stop();
 }

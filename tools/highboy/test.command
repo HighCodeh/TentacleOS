@@ -11,6 +11,8 @@ python3 "$repo/tools/highboy/test_ir_library.py"
 python3 "$repo/tools/scripts/generate_js_stdlib.py" --check
 python3 "$repo/tools/scripts/test_engine.py"
 python3 "$repo/tools/scripts/test_runner.py"
+python3 "$repo/tools/scripts/test_context.py"
+python3 "$repo/tools/scripts/test_ui.py"
 python3 "$repo/tools/highboy/test_muse_native.py"
 python3 "$repo/tools/highboy/test_preservation.py"
 node --test "$repo/tools/highboy/tests/test_usb_msc.mjs" \

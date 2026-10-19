@@ -550,16 +550,22 @@
     "firmware_p4/components/Applications/ui/screens/dev/scripts_ui.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "0af22c076f14fc48f05dfd3f7a1878d1353634475181d504181cd6249c03eb1b",
-      "after_sha256": "b78d024dd8bdd697cb376c566d4d9425ba716e474625f67ab3a8b78f2ccef858",
-      "reason": "Restore a dedicated Scripts screen for real JavaScript/Lua SD execution with synchronized output and cancellation, keeping signed .hb Apps separate.",
+      "after_sha256": "efb92aeb8e02e8efaa87dce860db468df298b021c1afcbc63d0b75aa5e2bc369",
+      "reason": "Approve script capabilities per loaded source and preserve script-owned display handoffs while stopping native navigation and dismissing stale consent.",
       "review_history": [
         {
           "after_sha256": "7c0d3a5fa8749607506588cce3f6dda2a82a04a6ecb17b490afd6c7205efa4a1",
           "reason": "Replace the simulated JavaScript runner with the signed .hb Apps launcher and preserve equivalent legacy navigation."
+        },
+        {
+          "after_sha256": "b78d024dd8bdd697cb376c566d4d9425ba716e474625f67ab3a8b78f2ccef858",
+          "reason": "Restore a dedicated Scripts screen for real JavaScript/Lua SD execution with synchronized output and cancellation, keeping signed .hb Apps separate.",
+          "pre_format_sha256": "8c3f4326f41835d8cfb3e81c97d590789a05f66d1775e2dc808cf95308806b18",
+          "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
         }
       ],
-      "pre_format_sha256": "8c3f4326f41835d8cfb3e81c97d590789a05f66d1775e2dc808cf95308806b18",
-      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+      "pre_format_sha256": "217c2dfb10817f759c3a2baf37b79cf1eb6dcc8b2bc36715bc3521fb151476b4",
+      "formatter": "clang-format version 22.1.5"
     },
     "firmware_p4/components/Applications/ui/screens/dev/include/scripts_ui.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
