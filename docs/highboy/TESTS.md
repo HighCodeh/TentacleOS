@@ -275,3 +275,40 @@ This validates software paths with device fakes. Hardware radio sessions, displa
 responsiveness, stack headroom and cleanup on the actual P4/C5 still require
 physical acceptance. No device, flash or SD card was accessed. Builds retain
 pre-existing truncation and deprecated-library warnings; they are not warning-free.
+
+## Companion NFC/RFID capture build record
+
+Validated on 2026-10-19 from firmware source commit `5927bba0`, following the
+automatic pre-commit hook. The new companion scope is native NFC-A/B/F/V
+identification plus LF EM4100/EM4102 capture, status and retained-cleanup recovery.
+Haptics is deferred by the user; companion card writes/emulation are not added.
+
+| Target | Application bytes | Slot bytes | Free bytes | SHA-256 |
+| --- | ---: | ---: | ---: | --- |
+| P4 | 2,947,712 | 2,949,120 | 1,408 | `27d5aa89758a9d16185bde657c591a87c46be33be4584bded5468142a82a317b` |
+| C5 | 2,016,048 | 2,097,152 | 81,104 | `66cbea060f7592f6bbe7e39ac915a82a9c89be8688d63a76dcf1e02b32ed845b` |
+
+The offline paired build passed with P4 ESP-IDF v5.5.3 and C5 v6.0.1. SPI v8
+headers remain byte-identical; Muse retains category `0x11`, with new P4-local
+NFC/RFID categories `0x12`/`0x13`. Partition sizes and C5 memory settings are
+unchanged. No additional optimization policy was introduced for this batch.
+The final P4 slot is almost full; these hashes identify this exact build rather
+than a reproducibility guarantee across changed build metadata.
+
+`bash tools/highboy/test.command` passed without skips. New ASan/UBSan harnesses
+exercise production RF handlers, NFC probes and host-link routing: A/B/F/V and LF
+result layouts, malformed arguments, output bounds, shared-antenna contention,
+startup errors versus card absence, failed OFF/no-sleep recovery, and rejection
+of unauthenticated, failed-verification and stale-generation commands. The crypto
+and hardware operations are explicit fakes in routing tests. Existing concurrent
+RF tests additionally reject a foreign task's same-mode claim, OFF, deinit and
+unreserve. CLI tests use a fake link and never open a serial port.
+
+The existing JS/Lua, Muse, Sub-GHz, NFC, IR, preservation, DOOM DMA and USB tests
+also passed. Commitlint passed for both implementation commits. Formatting was
+performed by the automatic hook; imported source corrections retain their hash
+chains in `integration/corrections.json`. Builds retain existing warnings.
+
+No device was accessed or flashed. Live USB/BLE capture, antenna behavior,
+interrupted hardware transactions and stack/timing headroom still need physical
+acceptance. See [the command reference](../host_link/rf-commands.md).

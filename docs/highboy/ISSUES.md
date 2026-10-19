@@ -62,3 +62,11 @@ The [shared script ABI validation](TESTS.md#shared-script-abi-build-record)
 supersedes the previous script-runtime hashes for the current candidate. The
 published Wi-Fi/BLE, read-only filesystem and basic UI bindings are implemented;
 unpublished radio tables and physical acceptance remain open.
+
+## Companion RF capture update
+
+The NFC/RFID implementation for #150 was validated after firmware commit
+`5927bba0`; see [the paired build and test record](TESTS.md#companion-nfcrfid-capture-build-record).
+Issue #150 was closed on 2026-10-19 for the agreed NFC/RFID scope; haptics
+remains deferred. The #149 ABI/publication work, #151 ephemeral pairing,
+MQTT/LoRa work and device/production acceptance issues remain open.
