@@ -96,3 +96,6 @@ and transcript bounds. No device or SD card is accessed.
 The generated 32/64-bit JavaScript ROM and atom tables are checked by rebuilding
 with the host C compiler. When intentionally changing bindings, run
 `python3 tools/scripts/generate_js_stdlib.py` and review both generated variants.
+
+The [validated build record](../highboy/TESTS.md#script-runtime-build-record)
+contains the paired application sizes, hashes and acceptance limits.

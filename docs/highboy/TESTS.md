@@ -206,3 +206,35 @@ constant-false branches. Successful compilation does not certify a warning-free
 repository. Formatting remains delegated to the commit hook and CI, as required
 by `AGENTS.md`. No hardware, restore, flashing or live Muse session was exercised.
 HLE is outside this firmware review scope.
+
+## Script runtime build record
+
+The JavaScript/Lua candidate was validated on 2026-10-19 after firmware source
+commit `cfc01f51`. P4 was built with the pinned ESP-IDF v5.5.3 toolchain; the C5
+source is unchanged and passed the paired ESP-IDF v6.0.1 build. Both generated
+configurations and the shared SPI v8 contract passed the offline checks.
+
+| Target | Application bytes | Slot bytes | Free bytes | SHA-256 |
+| --- | ---: | ---: | ---: | --- |
+| P4 | 2,943,072 | 2,949,120 | 6,048 | `6462fe37f90733ef03d26ee5bb2b2311adcfb78e4ad370baccfb7af7c962befa` |
+| C5 | 2,016,048 | 2,097,152 | 81,104 | `4b803dcd2c9dc34b3258663e1d86cec807b6ff92595146a3a53677eb1b8c2b1d` |
+
+`bash tools/highboy/test.command` passed, including generated JavaScript ROM
+verification, pinned interpreter source hashes, real JavaScript/Lua ASan/UBSan
+execution, 199 Lua allocation-failure positions, memory churn, exceptions,
+protected-loop cancellation, SD worker ownership, task-creation failure, deadline
+and transcript bounds. The existing configuration, RF/NFC/RFID, IR, Muse,
+Sub-GHz, preservation, DOOM DMA and USB MSC checks also passed. Commitlint passed
+for all interpreter changes; commit messages contain only titles and no coauthor
+trailers. Formatting was performed by the automatic pre-commit hook.
+
+The optimization policy changed to accommodate both engines in the existing
+slots: P4 Applications and Service use `-Os` and LTO. LVGL control/layout code
+follows that policy while draw sources retain `-O2`, verified in generated
+compile commands. Drivers and standalone emulator components retain their
+previous flags. No partition, C5 memory setting or SPI version changed.
+
+This is app-only software validation. Script execution on the P4, native stack
+headroom, UI timing and peripheral throughput still need physical acceptance.
+No device, flash, SD card, microphone or cloud endpoint was accessed. See the
+[script runtime documentation](../scripts/README.md) for language and API limits.
