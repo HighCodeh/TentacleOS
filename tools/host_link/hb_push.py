@@ -24,7 +24,8 @@ Also supports pulling and listing:
     python hb_push.py --pull /sdcard/log.txt out.txt
     python hb_push.py --ls   /sdcard
 
-Requires: pip install pyserial   (nothing else - HKDF is done with stdlib).
+Requires: pip install -r tools/host_link/requirements.txt.
+Open Companion on the device and confirm the matching code for each connection.
 """
 
 import argparse
@@ -50,6 +51,7 @@ MAC_SIZE = 16                # truncated HMAC-SHA256
 NONCE_SIZE = 16
 DEVICE_ID_SIZE = 6
 PSK_SIZE = 32
+MAX_BODY = 4096 - HDR_SIZE - MAC_SIZE
 
 TYPE_CMD = 0x01
 TYPE_RESP = 0x02
@@ -90,6 +92,7 @@ class Link:
     def __init__(self, port, timeout=3.0):
         self.ser = serial.Serial(port, timeout=timeout)
         self.buf = bytearray()
+        self.rx_counter = None
         self.k_a2d = None       # app -> device sign key
         self.k_d2a = None       # device -> app verify key
         self.tx_counter = 0     # our monotonic counter
@@ -119,20 +122,25 @@ class Link:
                 del self.buf[:max(0, len(self.buf) - 1)]
             if len(self.buf) >= HDR_SIZE:
                 length = struct.unpack("<H", self.buf[8:10])[0]
+                if self.buf[2] != VER or self.buf[3] not in (0, FLAG_AUTH) or not 3 <= length <= MAX_BODY:
+                    raise PermissionError("invalid host-link header")
                 authed = self.buf[3] & FLAG_AUTH
                 total = HDR_SIZE + length + (MAC_SIZE if authed else 0)
                 if len(self.buf) >= total:
                     frame = bytes(self.buf[:total])
                     del self.buf[:total]
+                    if self.k_d2a is not None:
+                        from hb_pairing import verify_frame
+                        self.rx_counter = verify_frame(frame, self.k_d2a, self.rx_counter)
                     return frame
-            if time.time() > deadline:
+            if time.monotonic() > deadline:
                 raise TimeoutError("no complete frame from device")
             chunk = self.ser.read(256)
             if chunk:
                 self.buf += chunk
 
     def _recv_resp(self, timeout=5.0):
-        deadline = time.time() + timeout
+        deadline = time.monotonic() + timeout
         while True:
             frame = self._read_frame(deadline)
             body = frame[HDR_SIZE:HDR_SIZE + struct.unpack("<H", frame[8:10])[0]]
@@ -145,34 +153,8 @@ class Link:
             # ignore LOG/STREAM frames that arrive in between
 
     def handshake(self, psk):
-        client_nonce = os.urandom(NONCE_SIZE)
-        self._send(TYPE_HELLO, 0x00, 0x00, bytes([VER]) + client_nonce, authed=False)
-
-        deadline = time.time() + 5.0
-        while True:
-            frame = self._read_frame(deadline)
-            body = frame[HDR_SIZE:HDR_SIZE + struct.unpack("<H", frame[8:10])[0]]
-            if body and body[0] == TYPE_HELLO_ACK:
-                break
-
-        # payload after type/cat/op:
-        #   [host_ver][server_nonce[16]][device_id[6]][mac_psk[16]]
-        p = body[3:]
-        server_nonce = p[1:1 + NONCE_SIZE]
-        device_id = p[1 + NONCE_SIZE:1 + NONCE_SIZE + DEVICE_ID_SIZE]
-        mac_psk = p[1 + NONCE_SIZE + DEVICE_ID_SIZE:
-                    1 + NONCE_SIZE + DEVICE_ID_SIZE + MAC_SIZE]
-
-        salt = client_nonce + server_nonce
-        if not hmac.compare_digest(mac_psk, hmac16(psk, salt)):
-            raise PermissionError(
-                "PSK mismatch - the device does not hold this key "
-                "(check Settings -> PAIRING)")
-
-        self.k_a2d = hkdf_sha256(psk, salt, b"tos-host-a2d")
-        self.k_d2a = hkdf_sha256(psk, salt, b"tos-host-d2a")
-        self.tx_counter = 1  # HELLO used the unauth counter; authed frames start at 1
-        return device_id.hex(":")
+        from hb_pairing import perform_handshake
+        return perform_handshake(self, psk)
 
     def cmd(self, op, payload):
         self._send(TYPE_CMD, CAT_SYSTEM, op, payload, authed=True)

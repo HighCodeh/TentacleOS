@@ -24,7 +24,7 @@ Examples:
     python cli.py raw 0x02 0x53                 # any category/op + hex payload
 
 PSK from --psk, $HB_PSK, or a prompt (Settings -> PAIRING, or `hostlink psk`).
-Requires: pip install pyserial. Wire contracts: docs/host_link/*-commands.md.
+Requires: pip install -r tools/host_link/requirements.txt. Wire contracts: docs/host_link/*-commands.md.
 """
 
 import argparse
@@ -50,6 +50,7 @@ MAC_SIZE = 16
 NONCE_SIZE = 16
 DEVICE_ID_SIZE = 6
 PSK_SIZE = 32
+MAX_BODY = 4096 - HDR_SIZE - MAC_SIZE
 
 TYPE_CMD = 0x01
 TYPE_RESP = 0x02
@@ -105,6 +106,7 @@ class Link:
     def __init__(self, port, timeout=1.0):
         self.ser = serial.Serial(port, timeout=timeout)
         self.buf = bytearray()
+        self.rx_counter = None
         self.k_a2d = None
         self.k_d2a = None
         self.tx_counter = 0
@@ -132,13 +134,18 @@ class Link:
                 del self.buf[: max(0, len(self.buf) - 1)]
             if len(self.buf) >= HDR_SIZE:
                 length = struct.unpack("<H", self.buf[8:10])[0]
+                if self.buf[2] != VER or self.buf[3] not in (0, FLAG_AUTH) or not 3 <= length <= MAX_BODY:
+                    raise PermissionError("invalid host-link header")
                 authed = self.buf[3] & FLAG_AUTH
                 total = HDR_SIZE + length + (MAC_SIZE if authed else 0)
                 if len(self.buf) >= total:
                     frame = bytes(self.buf[:total])
                     del self.buf[:total]
+                    if self.k_d2a is not None:
+                        from hb_pairing import verify_frame
+                        self.rx_counter = verify_frame(frame, self.k_d2a, self.rx_counter)
                     return frame
-            if time.time() > deadline:
+            if time.monotonic() > deadline:
                 return None
             chunk = self.ser.read(256)
             if chunk:
@@ -150,31 +157,12 @@ class Link:
         return frame[HDR_SIZE : HDR_SIZE + length]
 
     def handshake(self, psk):
-        client_nonce = os.urandom(NONCE_SIZE)
-        self._send(TYPE_HELLO, 0x00, 0x00, bytes([VER]) + client_nonce, authed=False)
-        deadline = time.time() + 5.0
-        while True:
-            frame = self._read_frame(deadline)
-            if frame is None:
-                raise TimeoutError("no HELLO_ACK from device (is it on native USB?)")
-            body = self._body(frame)
-            if body and body[0] == TYPE_HELLO_ACK:
-                break
-        p = body[3:]
-        server_nonce = p[1 : 1 + NONCE_SIZE]
-        device_id = p[1 + NONCE_SIZE : 1 + NONCE_SIZE + DEVICE_ID_SIZE]
-        mac_psk = p[1 + NONCE_SIZE + DEVICE_ID_SIZE : 1 + NONCE_SIZE + DEVICE_ID_SIZE + MAC_SIZE]
-        salt = client_nonce + server_nonce
-        if not hmac.compare_digest(mac_psk, hmac16(psk, salt)):
-            raise PermissionError("PSK mismatch - device does not hold this key")
-        self.k_a2d = hkdf_sha256(psk, salt, b"tos-host-a2d")
-        self.k_d2a = hkdf_sha256(psk, salt, b"tos-host-d2a")
-        self.tx_counter = 1
-        return device_id.hex(":")
+        from hb_pairing import perform_handshake
+        return perform_handshake(self, psk)
 
     def cmd(self, category, op, payload=b"", timeout=6.0):
         self._send(TYPE_CMD, category, op, payload, authed=True)
-        deadline = time.time() + timeout
+        deadline = time.monotonic() + timeout
         while True:
             frame = self._read_frame(deadline)
             if frame is None:
@@ -189,15 +177,15 @@ class Link:
     def drain(self, seconds, heartbeat=None, decoder=None):
         """Print STREAM/LOG for a while. heartbeat=session_id keeps a session alive;
         decoder(cat, op, data) may render STREAM payloads specially."""
-        end = time.time() + seconds
-        next_hb = time.time() + 2.0
-        while time.time() < end:
-            if heartbeat is not None and time.time() >= next_hb:
+        end = time.monotonic() + seconds
+        next_hb = time.monotonic() + 2.0
+        while time.monotonic() < end:
+            if heartbeat is not None and time.monotonic() >= next_hb:
                 self._send(
                     TYPE_CMD, CAT_SESSION, OP_SESSION_HEARTBEAT,
                     struct.pack("<II", heartbeat, 0), authed=True,
                 )
-                next_hb = time.time() + 2.0
+                next_hb = time.monotonic() + 2.0
             frame = self._read_frame(min(end, next_hb))
             if frame is None:
                 continue
@@ -255,8 +243,8 @@ def fetch_list(link, decoder):
 
 
 def poll_scan(link, cat, status_op, timeout=25.0):
-    end = time.time() + timeout
-    while time.time() < end:
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
         st, data = link.cmd(cat, status_op)
         if st == 0 and data and data[0] == 0:
             return True
