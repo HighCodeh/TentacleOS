@@ -165,3 +165,12 @@ does not publish a release or claim endorsement by Meta/xAI.
 
 See the [issue audit](ISSUES.md) for completed implementation work, remaining
 code/device/production requirements, and the latest paired build evidence.
+
+## JavaScript and Lua runtime
+
+The [Scripts service](../scripts/README.md) adds real MicroQuickJS and Lua
+interpreters without changing the OTA partitions. This supersedes the baseline
+optimization description above: Applications and Service now use size
+optimization and LTO; LVGL control/layout code follows that policy while draw
+sources retain `-O2`. Driver and standalone emulator flags remain unchanged.
+Device performance acceptance is still pending.

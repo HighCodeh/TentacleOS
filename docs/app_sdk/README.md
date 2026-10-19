@@ -334,7 +334,10 @@ In [`tools/app_sdk/`](../../tools/app_sdk), each is one `app.c` you can copy:
 | `spin` | a misbehaving app (ignores stop) — exercises force-kill |
 | `wifiscan` | the WiFi subsystem: `api->wifi->scan()` + typed results |
 
-The former Dev Scripts demonstration no longer simulates a JavaScript run.
-Its legacy entry opens the native Apps browser, which loads signed `.hb` apps
-through the existing permissions and resource lifecycle. `SCREEN_SCRIPTS` is
-retained as a navigation alias for that browser. There is no JavaScript runtime.
+## Scripts and native apps
+
+Developer → Scripts runs plain JavaScript and Lua files through the
+[script interpreters](../scripts/README.md). Developer → Apps continues to run
+signed `.hb` bundles for richer native applications and custom UI. The script
+screen is separate from the Apps launcher and does not package script files as
+`.hb` apps.

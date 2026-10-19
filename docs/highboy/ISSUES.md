@@ -27,7 +27,7 @@ this work. No device was flashed or exercised.
 | [#151](https://github.com/HighCodeh/TentacleOS/issues/151) | Companion ephemeral ECDH and device-side pairing confirmation. Existing PSK authentication and separate Muse pairing do not meet this requirement. |
 | [#152](https://github.com/HighCodeh/TentacleOS/issues/152) | Production Secure Boot v2 and Flash Encryption provisioning for both chips, including keys, recovery and irreversible eFuse review. Both remain disabled. |
 | [#153](https://github.com/HighCodeh/TentacleOS/issues/153) | Existing boot-loop/safe-mode/WDT/coredump mechanisms need fault-injection and recovery acceptance on hardware. The boot-sound crash workaround remains. |
-| [#155](https://github.com/HighCodeh/TentacleOS/issues/155) | MQTT is now honestly unavailable; implement its real transport. Dev Scripts now routes to signed `.hb` apps. GATT is explicitly a reference catalog and no longer invents read values; remote discovery/read integration remains. Native Wi-Fi connect, BLE mouse/companion and LoRa position paths exist but need device acceptance. |
+| [#155](https://github.com/HighCodeh/TentacleOS/issues/155) | MQTT is now honestly unavailable; implement its real transport. Dev Scripts now runs real JavaScript/Lua files separately from signed `.hb` apps; see [scripts](../scripts/README.md). GATT is explicitly a reference catalog and no longer invents read values; remote discovery/read integration remains. Native Wi-Fi connect, BLE mouse/companion and LoRa position paths exist but need device acceptance. |
 | [#156](https://github.com/HighCodeh/TentacleOS/issues/156) | Complete and exercise the UI / `.hb` / companion peripheral matrix after the missing ABI and host-link paths are implemented. |
 | [#157](https://github.com/HighCodeh/TentacleOS/issues/157) | Measure performance/internal RAM and prepare a reviewed OTA/asset/restore package. P4 code space is nearly exhausted; app-only builds are not a release candidate package. |
 | [#158](https://github.com/HighCodeh/TentacleOS/issues/158) | Obtain a reproducible description of the unnamed Bash bug; all reviewed shell files pass syntax checks. Field/consumer documentation needs the approved deployment/recovery procedure. |
@@ -49,3 +49,10 @@ original partition sizes preserved:
 
 This is source/build evidence. Physical RF, BLE interoperability, current draw,
 sleep/wake, networking throughput and recovery remain unverified.
+
+## Script runtime update
+
+The JavaScript/Lua implementation supersedes the earlier temporary Scripts →
+Apps alias. Its languages, runtime limits and changed P4 optimization policy
+are documented in [Scripts](../scripts/README.md). The paired build hashes above
+belong to the earlier audit candidate, not to this interpreter update.

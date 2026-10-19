@@ -326,8 +326,8 @@
     "firmware_p4/components/Applications/ui/ui_manager.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "938b509321c8ef23ed8cf0f6f5ff2644fdabaea3a84ca1b544428c4c2c2eeba2",
-      "after_sha256": "5a90ac7b458233eb1153d69fa1cf26f394a7d08bc673189da950abb15253639e",
-      "reason": "Replace the simulated JavaScript runner with the signed .hb Apps launcher and preserve equivalent legacy navigation.",
+      "after_sha256": "3e84d11d2b68822fdadbdbb2977eed70e8e7bd5d0c46dffb26f00f6d89438246",
+      "reason": "Restore a dedicated Scripts screen for real JavaScript/Lua SD execution with synchronized output and cancellation, keeping signed .hb Apps separate.",
       "review_history": [
         {
           "after_sha256": "00c83c4094432fb613e43f0e325440d51b97346e02837d4aff968510c8fb549e",
@@ -338,6 +338,10 @@
         {
           "after_sha256": "01d768faf74488b0ffed2ba38b8a26f2f43c8ae6ae2f494e679f10b68acde232",
           "reason": "Stop the owning native NFC worker when leaving each read, write, scan, bank-card or emulation screen."
+        },
+        {
+          "after_sha256": "5a90ac7b458233eb1153d69fa1cf26f394a7d08bc673189da950abb15253639e",
+          "reason": "Replace the simulated JavaScript runner with the signed .hb Apps launcher and preserve equivalent legacy navigation."
         }
       ]
     },
@@ -546,14 +550,28 @@
     "firmware_p4/components/Applications/ui/screens/dev/scripts_ui.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "0af22c076f14fc48f05dfd3f7a1878d1353634475181d504181cd6249c03eb1b",
-      "after_sha256": "7c0d3a5fa8749607506588cce3f6dda2a82a04a6ecb17b490afd6c7205efa4a1",
-      "reason": "Replace the simulated JavaScript runner with the signed .hb Apps launcher and preserve equivalent legacy navigation."
+      "after_sha256": "b78d024dd8bdd697cb376c566d4d9425ba716e474625f67ab3a8b78f2ccef858",
+      "reason": "Restore a dedicated Scripts screen for real JavaScript/Lua SD execution with synchronized output and cancellation, keeping signed .hb Apps separate.",
+      "review_history": [
+        {
+          "after_sha256": "7c0d3a5fa8749607506588cce3f6dda2a82a04a6ecb17b490afd6c7205efa4a1",
+          "reason": "Replace the simulated JavaScript runner with the signed .hb Apps launcher and preserve equivalent legacy navigation."
+        }
+      ],
+      "pre_format_sha256": "8c3f4326f41835d8cfb3e81c97d590789a05f66d1775e2dc808cf95308806b18",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
     },
     "firmware_p4/components/Applications/ui/screens/dev/include/scripts_ui.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "c6d6bbf8b1d7c1d998b81686ab84d7dcf236d15220d521c04293def7623c4e1d",
-      "after_sha256": "831a8e406286716c909e72710358d61cebee1a329901867c4b490e5d8b72f090",
-      "reason": "Replace the simulated JavaScript runner with the signed .hb Apps launcher and preserve equivalent legacy navigation."
+      "after_sha256": "df34a903bb6b73d1b1d4efd0ad52b759eadee3a83c1091bed650357561ad8fb5",
+      "reason": "Restore a dedicated Scripts screen for real JavaScript/Lua SD execution with synchronized output and cancellation, keeping signed .hb Apps separate.",
+      "review_history": [
+        {
+          "after_sha256": "831a8e406286716c909e72710358d61cebee1a329901867c4b490e5d8b72f090",
+          "reason": "Replace the simulated JavaScript runner with the signed .hb Apps launcher and preserve equivalent legacy navigation."
+        }
+      ]
     },
     "firmware_p4/components/Applications/ui/screens/bluetooth/gatt_explorer_ui.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -650,6 +668,12 @@
       "before_sha256": "a5ab5cef02299410f4ba0c4ae7baac2b4840b1f42947372c35c57fa54a0c33a0",
       "after_sha256": "716fa05eb0709ed37e2dcd95c196820071cf8c0ee169ced2bae247442307494f",
       "reason": "Register bounded JavaScript/Lua engines and an SD worker; compact P4 applications, services and LVGL layout without changing partitions, drivers, standalone emulator flags or paired SPI v8."
+    },
+    "firmware_p4/components/Applications/ui/screens/dev/dev_menu_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "88e2b94c2bac537e0991f17d9f330ac4a0517b529497397e3992e75056bdaf7b",
+      "after_sha256": "6fc04032c858a736a70a8c253de732949d2cab1d362a80b6e4091d288c50ddb3",
+      "reason": "Restore a dedicated Scripts screen for real JavaScript/Lua SD execution with synchronized output and cancellation, keeping signed .hb Apps separate."
     }
   }
 }

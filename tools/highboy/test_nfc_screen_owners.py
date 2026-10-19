@@ -19,6 +19,7 @@ def main():
     screens = list(dict.fromkeys(re.findall(r'case (SCREEN_\w+):', dispatcher)))
     callbacks = set(re.findall(r'return (\w+);', dispatcher)) - {'NULL'}
     expected = {
+        'SCREEN_SCRIPTS': 'ui_scripts_stop',
         'SCREEN_NFC_READ': 'ui_nfc_read_stop',
         'SCREEN_NFC_WRITE': 'ui_nfc_write_stop',
         'SCREEN_NFC_EMULATE': 'ui_nfc_emulate_stop',

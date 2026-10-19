@@ -20,8 +20,9 @@
 extern "C" {
 #endif
 
-/** @brief Open the native .hb Apps browser through the legacy Scripts entry. */
+/** @brief Browse and execute JavaScript and Lua scripts from SD. */
 void ui_scripts_open(void);
+void ui_scripts_stop(void);
 
 #ifdef __cplusplus
 }

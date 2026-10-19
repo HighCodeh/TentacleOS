@@ -98,6 +98,7 @@
 #include "grok_idle_ui.h"
 #include "octobit_status_ui.h"
 #include "dev_menu_ui.h"
+#include "scripts_ui.h"
 #include "subghz_menu_ui.h"
 #include "subghz_brute_ui.h"
 #include "rfid_menu_ui.h"
@@ -367,6 +368,8 @@ typedef void (*ui_close_fn_t)(void);
 
 static ui_close_fn_t screen_close_fn(screen_id_t s) {
   switch (s) {
+    case SCREEN_SCRIPTS:
+      return ui_scripts_stop;
     case SCREEN_SUBGHZ_READ:
       return subghz_receiver_stop;
     case SCREEN_NFC_READ:
@@ -502,8 +505,9 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
     case SCREEN_GAMES_MENU:
       return ui_games_menu_open;
     case SCREEN_APPS:
-    case SCREEN_SCRIPTS:
       return ui_apps_open;
+    case SCREEN_SCRIPTS:
+      return ui_scripts_open;
     case SCREEN_GAME_SNAKE:
       return ui_snake_open;
     case SCREEN_GAME_BREAKOUT:
