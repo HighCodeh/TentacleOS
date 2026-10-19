@@ -160,3 +160,8 @@ Flappy/Octopet/Motion screens remain excluded, exactly as in the prior local bui
 Upstream HLE tools are retained, but the customized UI has not been certified by
 that simulator. GPL and third-party notices remain applicable; source preparation
 does not publish a release or claim endorsement by Meta/xAI.
+
+## Firmware issue tracking
+
+See the [issue audit](ISSUES.md) for completed implementation work, remaining
+code/device/production requirements, and the latest paired build evidence.

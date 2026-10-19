@@ -8,7 +8,8 @@ category. Multi-byte integers are little-endian.
 
 Apps run only with capabilities the user/companion approved; the on-device
 capability model (`tos_cap_t`) and signature/trust rules are the same ones the
-loader enforces (see `APP_PLATFORM_PLAN.md`). Installing a bundle is a plain
+loader enforces (see the [app SDK documentation](../app_sdk/README.md)).
+Installing a bundle is a plain
 `FILE_WRITE` (§10 of `protocol.md`) to `/sdcard/apps/<name>.hb`; the ops below
 manage the lifecycle around it.
 
