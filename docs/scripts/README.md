@@ -48,7 +48,7 @@ Both languages expose `tos.call(method, ...)`. Calls go through the same const
 leases; scripts do not call drivers or SPI operations directly. A failure to bind
 that context prevents execution. The script adapter additionally validates
 argument types, ranges and capability grants before invoking a function pointer.
-The adapter consumes native ABI 1.10; new namespace pointers are appended while
+The adapter consumes native ABI 1.11; new namespace pointers are appended while
 older field offsets stay compatible.
 
 Scripts request capabilities on their **first line**, using a strict hexadecimal
@@ -217,3 +217,12 @@ number representations. Missing tags, invalid timeouts, contention, cancellation
 and hardware errors raise the usual ABI error. NFC writes/emulation are not
 script bindings. A firmware table older than 1.10 is rejected before reading the
 new appended namespace pointers.
+
+## Infrared bindings
+
+ABI 1.11 adds `tos.call("ir.receive", timeout_ms)` and
+`tos.call("ir.send", protocol, address, command, repeat)`. Receive returns a
+record with those four fields. The bounds and ownership are shared with the
+[native IR API](../app_sdk/README.md#native-ir-api-abi-111): decoded codes only,
+RX timeout 1–1000 ms, explicit RX/TX approval and persistent-worker cleanup.
+An older host table is rejected before its appended IR pointer is accessed.

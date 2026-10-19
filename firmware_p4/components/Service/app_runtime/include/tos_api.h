@@ -63,7 +63,7 @@ typedef struct host_link_handler host_link_handler_t; // opaque to apps
 // 1.8 = read-only fs subsystem. NOTE: 1.7 was briefly a (removed) IMU subsystem in
 // dev; fs took a fresh minor so a firmware built during the IMU era rejects an
 // fs app at the load gate instead of mismatching its api->fs pointer.
-#define TOS_ABI_VERSION_MINOR 10
+#define TOS_ABI_VERSION_MINOR 11
 
 /** Log levels; values match esp_log_level_t so they pass straight through. */
 typedef enum {
@@ -551,6 +551,7 @@ typedef struct tos_api {
   const tos_fs_api_t *fs;     ///< read-only SD access (minor 8+); needs TOS_CAP_FS_READ
   const tos_nfc_api_t *nfc;   ///< native discovery (minor 10+); needs TOS_CAP_RADIO_RX
   const tos_rfid_api_t *rfid; ///< native LF capture (minor 10+); needs TOS_CAP_RADIO_RX
+  const tos_ir_api_t *ir;     ///< decoded infrared (minor 11+); receive/send capabilities
 } tos_api_t;
 
 /** @brief The shared, const host API table handed to every app at entry. */

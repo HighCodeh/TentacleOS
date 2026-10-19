@@ -123,6 +123,7 @@ extern const tos_fs_api_t tos_fs_api_impl;     // tos_api_fs.c
 
 extern const tos_nfc_api_t tos_nfc_api_impl;
 extern const tos_rfid_api_t tos_rfid_api_impl;
+extern const tos_ir_api_t tos_ir_api_impl;
 
 static const tos_api_t s_api = {
     .abi_major = TOS_ABI_VERSION_MAJOR,
@@ -145,6 +146,7 @@ static const tos_api_t s_api = {
     .fs = &tos_fs_api_impl,
     .nfc = &tos_nfc_api_impl,
     .rfid = &tos_rfid_api_impl,
+    .ir = &tos_ir_api_impl,
 };
 
 const tos_api_t *tos_api_get(void) {

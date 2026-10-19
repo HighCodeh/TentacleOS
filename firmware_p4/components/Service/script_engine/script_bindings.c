@@ -25,6 +25,7 @@
 #define SCRIPT_HEX_RADIX    16
 #define SCRIPT_DELAY_MAX_MS 30000
 #define SCRIPT_RF_ABI_MINOR 10
+#define SCRIPT_IR_ABI_MINOR 11
 
 static const char *TAG = "SCRIPT_BINDINGS";
 
@@ -96,6 +97,8 @@ typedef enum {
   SCRIPT_BINDINGS_FS_CLOSE,
   SCRIPT_BINDINGS_NFC_POLL,
   SCRIPT_BINDINGS_RFID_READ,
+  SCRIPT_BINDINGS_IR_RECEIVE,
+  SCRIPT_BINDINGS_IR_SEND,
   SCRIPT_BINDINGS_METHOD_COUNT
 } script_bindings_method_id_t;
 
@@ -173,6 +176,8 @@ static const script_bindings_method_t METHODS[] = {
     {"fs.close", "u", 0},
     {"nfc.poll", "u", TOS_CAP_RADIO_RX},
     {"rfid.read", "u", TOS_CAP_RADIO_RX},
+    {"ir.receive", "u", TOS_CAP_RADIO_RX},
+    {"ir.send", "yuub", TOS_CAP_RADIO_TX},
 };
 #define SCRIPT_METHOD_COUNT (sizeof(METHODS) / sizeof(METHODS[0]))
 _Static_assert(SCRIPT_METHOD_COUNT == SCRIPT_BINDINGS_METHOD_COUNT,
@@ -989,6 +994,29 @@ esp_err_t script_bindings_call(script_bindings_t *bindings, script_bindings_call
           goto no_memory;
         }
       }
+      break;
+    }
+    case SCRIPT_BINDINGS_IR_RECEIVE: {
+      if (api->abi_minor < SCRIPT_IR_ABI_MINOR || api->ir == NULL || api->ir->receive == NULL)
+        return ESP_ERR_NOT_SUPPORTED;
+      tos_ir_code_t code = {0};
+      err = api->ir->receive(&code, n[0]);
+      if (err != ESP_OK)
+        break;
+      call->result = cJSON_CreateObject();
+      REQUIRE_JSON(call->result);
+      REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "protocol", code.protocol));
+      REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "address", code.address));
+      REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "command", code.command));
+      REQUIRE_JSON(cJSON_AddBoolToObject(call->result, "repeat", code.repeat));
+      break;
+    }
+    case SCRIPT_BINDINGS_IR_SEND: {
+      if (api->abi_minor < SCRIPT_IR_ABI_MINOR || api->ir == NULL || api->ir->send == NULL)
+        return ESP_ERR_NOT_SUPPORTED;
+      tos_ir_code_t code = {
+          .protocol = n[0], .address = n[1], .command = n[2], .repeat = n[3] != 0};
+      err = api->ir->send(&code);
       break;
     }
     case SCRIPT_BINDINGS_RFID_READ: {

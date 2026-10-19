@@ -420,4 +420,29 @@ SDK `build.sh` now signs bundles with the ABI version of the header it compiled
 against; manual packers must specify `--abi-minor 10` for these calls.
 JavaScript and Lua expose the same calls through `tos.call("nfc.poll", 500)` and
 `tos.call("rfid.read", 500)`, with per-run receive permission and typed records.
-Sub-GHz, IR and LoRa tables remain unpublished pending their ownership adapters.
+Sub-GHz and LoRa tables remain unpublished pending their ownership adapters.
+
+## Native IR API (ABI 1.11)
+
+`api->ir->receive(&code, timeout_ms)` captures a decoded remote code with
+`TOS_CAP_RADIO_RX` and a 1–1000 ms timeout. `api->ir->send(&code)` sends one
+decoded code with `TOS_CAP_RADIO_TX`. The table is appended after RFID, preserving
+all older table offsets. Protocol values use `tos_ir_proto_t` (NEC=0 through
+NEC42=11); the adapter maps to the native decoder's UNKNOWN-prefixed enum.
+The code carries protocol, address, command and repeat. Extended NEC and explicit
+Sony bit-count selection are not represented by this API. Raw, file and AC send
+pointers remain NULL; callers must check optional pointers.
+
+Operations check capability and cancellation before entering the local-call lock
+and again after it. Hardware executes on the persistent firmware worker, so
+force-killing an app waits for the same gate and cannot strand a task-owned IR
+channel. A native UI/companion operation or torch blocks app acquisition. Failed
+hardware teardown retains ownership; the next local IR operation retries it.
+RX timeout and decode-not-found errors propagate distinctly. Local operations
+never authenticate a companion or emit a transport response. See [IR ownership](../ir/README.md#app-worker-lease).
+
+Scripts call the same table with `tos.call("ir.receive", 500)` or
+`tos.call("ir.send", 0, address, command, false)`. Receive returns
+`{protocol, address, command, repeat}`. Both bindings require ABI 1.11 and their
+per-run RX/TX approval. Manually packed apps using IR require `--abi-minor 11`;
+the SDK build script already reads that requirement from its compiled header.

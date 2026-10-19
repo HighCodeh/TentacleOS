@@ -1,6 +1,6 @@
 # Peripheral integration matrix
 
-Source checkpoint: firmware `555742ec`, ABI 1.10. “Implemented” means a native
+Initial checkpoint: firmware `555742ec`, ABI 1.10; follow-up records below supersede changed rows. “Implemented” means a native
 software path exists; no row has completed physical acceptance on the paired
 High Boy. HID layouts, haptics and HLE remain excluded by request.
 
@@ -11,7 +11,7 @@ High Boy. HID layouts, haptics and HLE remain excluded by request.
 | NFC A/B/F/V identification | Native reader screens | `nfc.poll`, JS/Lua `nfc.poll` | READ / STATUS / RECOVER | Real cards, antenna shutdown and transport tests (#148, #156) |
 | NFC block write / emulation | Native services and UI | Unpublished optional pointers are NULL | Not implemented | Add explicit sessions/ownership and acceptance; discovery coverage does not imply writes |
 | LF RFID EM4100/EM4102 read | Native LF worker | `rfid.read`, JS/Lua `rfid.read` | READ / STATUS / RECOVER | Physical field/capture validation; no write/clone ABI |
-| Infrared capture / send / library | Native RMT and bundled/SD library | Not published | Native capture / transmit commands | App adapter and cross-client ownership/teardown before physical matrix (#149, #156) |
+| Infrared capture / send / library | Native RMT and bundled/SD library | ABI 1.11 decoded receive/send; JS/Lua bindings | Native capture / transmit commands | Shared app-worker lease and retained cleanup implemented; raw/file/AC API and physical acceptance remain outside the published subset (#149, #156) |
 | Sub-GHz receive / raw replay / spectrum | Native CC1101 | Not published | Native handlers and streams | App adapter and session teardown; physical RX/TX/spectrum (#149, #156) |
 | LoRa MeshCore / Meshtastic | Native mesh sessions | Not published | Native chat/configuration bridge | Clean protocol ownership/teardown and app adapter (#149); live mesh acceptance |
 | LoRa airtime pacing | Shared SX1262 transmit guard | Future adapters inherit the driver guard | Existing TX callers inherit the driver guard | Host timing/concurrency tests pass; physical airtime/regional acceptance pending (#145) |
