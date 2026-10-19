@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-/** @brief Open the BLE exposure-notification monitor screen (mock GAEN). */
+/** @brief Open the BLE exposure-notification monitor using captured advertisements. */
 void ui_ble_exposure_open(void);
 
 #ifdef __cplusplus

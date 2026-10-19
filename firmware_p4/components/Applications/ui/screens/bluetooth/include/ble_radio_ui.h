@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-/** @brief BLE radio control screen (MOCK); MAC/link card plus randomize/power/disconnect rows. */
+/** @brief BLE radio controls for MAC, transmit power and connected peers. */
 void ui_ble_radio_open(void);
 
 #ifdef __cplusplus

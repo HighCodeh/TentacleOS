@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-/** @brief Editable custom advertiser-name list (MOCK); add via keyboard, delete via msgbox. */
+/** @brief Edit the persisted list of custom advertiser names. */
 void ui_ble_spam_names_open(void);
 
 #ifdef __cplusplus

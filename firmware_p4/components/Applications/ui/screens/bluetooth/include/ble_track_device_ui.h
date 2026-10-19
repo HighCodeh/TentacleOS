@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-/** @brief BLE hot/cold RSSI locator (MOCK); animates a gauge and dBm reading toward a target. */
+/** @brief BLE RSSI locator using scan results and the C5 tracker. */
 void ui_ble_track_device_open(void);
 
 #ifdef __cplusplus

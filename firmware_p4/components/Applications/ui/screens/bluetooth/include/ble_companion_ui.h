@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-/** @brief Companion "pairing" screen (MOCK); animates and waits for BACK. */
+/** @brief Open host-link BLE pairing and display authenticated session status. */
 void ui_companion_pairing_open(void);
 
 #ifdef __cplusplus

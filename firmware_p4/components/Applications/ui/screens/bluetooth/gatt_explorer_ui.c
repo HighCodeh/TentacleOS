@@ -17,7 +17,7 @@
 
 #include <stdio.h>
 
-#include "esp_random.h"
+#include "esp_log.h"
 #include "lvgl.h"
 
 #include "menu_component_ui.h"
@@ -25,6 +25,8 @@
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
+
+static const char *TAG = "GATT_EXPLORER_UI";
 
 #define LABEL_LEN 40
 
@@ -129,7 +131,7 @@ static void build_screen(void) {
   char label[LABEL_LEN];
 
   if (s_level == LEVEL_SERVICES) {
-    s_menu = menu_component_create(s_screen, "GATT SERVICES", GATT_ICON);
+    s_menu = menu_component_create(s_screen, "GATT REFERENCE", GATT_ICON);
     for (int i = 0; i < SERVICES_COUNT; i++) {
       snprintf(label, sizeof(label), "%s  %s", SERVICES[i].uuid, SERVICES[i].name);
       menu_component_add_item(&s_menu, SERVICE_ICON, label);
@@ -147,7 +149,7 @@ static void build_screen(void) {
                svc->chars[i].name);
       menu_component_add_item(&s_menu, CHAR_ICON, label);
     }
-    menu_component_set_hint(&s_menu, "OK Read   BACK Up");
+    menu_component_set_hint(&s_menu, "Reference only   BACK Up");
   }
 
   ui_input_set_screen_handler(gatt_explorer_input, NULL);
@@ -159,10 +161,9 @@ static void read_selected_char(int sel) {
   const gatt_service_t *svc = &SERVICES[s_service];
   if (sel < 0 || sel >= svc->char_count)
     return;
-  char msg[LABEL_LEN];
-  snprintf(msg, sizeof(msg), "%s = 0x%02X", svc->chars[sel].uuid, (unsigned)(esp_random() & 0xFF));
-  ui_feedback(UI_FB_READ);
-  notify(NOTIFY_INFO, msg);
+  ESP_LOGD(TAG, "Reference characteristic %s", svc->chars[sel].uuid);
+  ui_feedback(UI_FB_SELECT);
+  notify(NOTIFY_WARNING, "Reference only; no device connected");
 }
 
 static void gatt_explorer_input(const input_event_t *ev, void *ctx) {

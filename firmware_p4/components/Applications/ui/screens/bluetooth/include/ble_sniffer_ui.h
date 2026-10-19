@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-/** @brief Open the BLE advertisement sniffer screen (mock live hexdump). */
+/** @brief Open the BLE advertisement sniffer and display captured payloads. */
 void ui_ble_sniffer_open(void);
 
 #ifdef __cplusplus

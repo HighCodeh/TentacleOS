@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-/** @brief BLE HID keyboard screen (MOCK); pairs, then types a canned string into a console. */
+/** @brief BLE HID keyboard pairing and input through the C5 HID service. */
 void ui_ble_keyboard_open(void);
 
 #ifdef __cplusplus

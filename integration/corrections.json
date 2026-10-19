@@ -554,6 +554,84 @@
       "before_sha256": "c6d6bbf8b1d7c1d998b81686ab84d7dcf236d15220d521c04293def7623c4e1d",
       "after_sha256": "831a8e406286716c909e72710358d61cebee1a329901867c4b490e5d8b72f090",
       "reason": "Replace the simulated JavaScript runner with the signed .hb Apps launcher and preserve equivalent legacy navigation."
+    },
+    "firmware_p4/components/Applications/ui/screens/bluetooth/gatt_explorer_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "bd8159e4535237628d61fe2474540a4f723bc322a143f3202c99411efda82ea9",
+      "after_sha256": "0c639245a702cb12bacccde1911086cc0ece740ffcb15ba25c428796a417def3",
+      "reason": "Describe native BLE services accurately and label the static GATT reference without synthesized read values."
+    },
+    "firmware_p4/components/Applications/ui/screens/bluetooth/include/ble_companion_ui.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "c55eb9eaef7394f4e323bb8e59a68c7611823be61cc21ba9ea109ccb7ffb65fc",
+      "after_sha256": "f5d3658fe6439ee86b9383f7e7aadc219184e8ce2f711665d55f18efd70448f4",
+      "reason": "Describe native BLE services accurately and label the static GATT reference without synthesized read values."
+    },
+    "firmware_p4/components/Applications/ui/screens/bluetooth/include/ble_exposure_ui.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "efe629983f91d74a6dd86b83705a284e0527d345d268033ad3871301226fbe17",
+      "after_sha256": "b203f46cea7eb74ea1b23a1bda9976a0dc0be3af4faf82cabd7b670ac0bf325a",
+      "reason": "Describe native BLE services accurately and label the static GATT reference without synthesized read values."
+    },
+    "firmware_p4/components/Applications/ui/screens/bluetooth/include/ble_flood_ui.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "e2a11085e82d98e17b7b046ce1285b4aa96651767de89a4eb680290cb6b09710",
+      "after_sha256": "a994211f41960dbc9c1899378ecd68b967b6ffef5e6fe454dfd3d7c7de1687ce",
+      "reason": "Describe native BLE services accurately and label the static GATT reference without synthesized read values."
+    },
+    "firmware_p4/components/Applications/ui/screens/bluetooth/include/ble_keyboard_ui.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "dbe1f24e6ba5dcaa949057e00120bb6d33939f2055f63d79b3192d9ee2af2ebd",
+      "after_sha256": "dba2a62311c121268753b691462df4bbfb1e7cce252fb440e6969cb7b8b9786c",
+      "reason": "Describe native BLE services accurately and label the static GATT reference without synthesized read values."
+    },
+    "firmware_p4/components/Applications/ui/screens/bluetooth/include/ble_radio_ui.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "040a3aa72671ec0b120d68010bb30d107dc4877ba12f73c08ea1e51dbdb61260",
+      "after_sha256": "f7cfab122aad2cae69c748ad8a5e64b7b36ac42eeef7fc8b28c8194a24e07037",
+      "reason": "Describe native BLE services accurately and label the static GATT reference without synthesized read values."
+    },
+    "firmware_p4/components/Applications/ui/screens/bluetooth/include/ble_skimmer_ui.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "8b9f49aef731f8032525bec97189f47fd67f2aedeb82ec6285fe800ed93f6d56",
+      "after_sha256": "ba1c03f768efe4c4f313903bf3ad5a91dc10fc1dfde6af1266d84e48c89dea70",
+      "reason": "Describe native BLE services accurately and label the static GATT reference without synthesized read values."
+    },
+    "firmware_p4/components/Applications/ui/screens/bluetooth/include/ble_sniffer_ui.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "46aab6a821bc12060fbef1feb648559b5b5bcfb8892e0dc027de94d5fbc9d421",
+      "after_sha256": "33d3491e2287f4c72884b7c5680ebbfe68ce3442b72236a2041c0778f3ff46cf",
+      "reason": "Describe native BLE services accurately and label the static GATT reference without synthesized read values."
+    },
+    "firmware_p4/components/Applications/ui/screens/bluetooth/include/ble_spam_names_ui.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "677bc61966f459c371a2188b4df5c1910237792a68d05013294abdc877c93c40",
+      "after_sha256": "5750c0f9fe2ff03ed822234eacee4e05f42a9e7c93fc403dcddf99f972aeee20",
+      "reason": "Describe native BLE services accurately and label the static GATT reference without synthesized read values."
+    },
+    "firmware_p4/components/Applications/ui/screens/bluetooth/include/ble_spam_ui.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "e697f8a4c30cccf47d862dac25a51d19c0b12e5a1379acf76262996cd96c3b1b",
+      "after_sha256": "3d25d9ade792568be8df6d77c88cdc9164b1e3e0c59e642f02ce5391f4e1add5",
+      "reason": "Describe native BLE services accurately and label the static GATT reference without synthesized read values."
+    },
+    "firmware_p4/components/Applications/ui/screens/bluetooth/include/ble_track_device_ui.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "5b93995af23266535a8cd05fa7f793b33dccf1f4434d6d931a99fd803ae3a548",
+      "after_sha256": "99d934d94d6de593574941d9dfc919f401f4488073cc95fa92f80fba2c9e83b0",
+      "reason": "Describe native BLE services accurately and label the static GATT reference without synthesized read values."
+    },
+    "firmware_p4/components/Applications/ui/screens/bluetooth/include/ble_tracker_ui.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "64642b8af89f03f3e1eaada9fea73cf0381c79ac0099d8110ee67fe6c6e5db8e",
+      "after_sha256": "563fa439d6bb60afcc4fa41e7c087480b4e56457138fed8645720441353007f3",
+      "reason": "Describe native BLE services accurately and label the static GATT reference without synthesized read values."
+    },
+    "firmware_p4/components/Applications/ui/screens/bluetooth/include/gatt_explorer_ui.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "baf51cd7e32432972ea93a30e38fcb4df967eb8f0049dee7546bdace11592db8",
+      "after_sha256": "d84f6d55d5d9ec52df5447d12d2cdd4ebfb32a00fe49e7f11952ace1f6f4457e",
+      "reason": "Describe native BLE services accurately and label the static GATT reference without synthesized read values."
     }
   }
 }
