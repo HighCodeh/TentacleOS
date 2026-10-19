@@ -14,9 +14,9 @@ High Boy. HID layouts, haptics and HLE remain excluded by request.
 | Infrared capture / send / library | Native RMT and bundled/SD library | ABI 1.11 decoded receive/send; JS/Lua bindings | Native capture / transmit commands | Shared app-worker lease and retained cleanup implemented; raw/file/AC API and physical acceptance remain outside the published subset (#149, #156) |
 | Sub-GHz receive / raw replay / spectrum | Native CC1101 | Not published | Native handlers and streams | App adapter and session teardown; physical RX/TX/spectrum (#149, #156) |
 | LoRa MeshCore / Meshtastic | Native mesh sessions | Not published | Native chat/configuration bridge | Clean protocol ownership/teardown and app adapter (#149); live mesh acceptance |
-| LoRa airtime pacing | Shared SX1262 transmit guard | Future adapters inherit the driver guard | Existing TX callers inherit the driver guard | Host timing/concurrency tests pass; physical airtime/regional acceptance pending (#145) |
-| LoRa MQTT subscription | Native Meshtastic MQTT screen | Not published | No companion MQTT API; C5 owns the network client | Bounded SPI transport, confirmed subscription and chat reception implemented; real broker and paired-device acceptance pending (#145, #155) |
-| RNode / KISS | Legacy screen is receive-only radio lab | Not published | No usable P4 KISS endpoint | Legacy S3 UART rejected because GPIO43/44 are P4 SDMMC; implement a separate transport (#145) |
+| LoRa airtime pacing | Shared SX1262 transmit guard | Future adapters inherit the driver guard | Existing TX callers inherit the driver guard | Host timing/concurrency tests pass; physical airtime/regional acceptance pending (#156) |
+| LoRa MQTT subscription | Native Meshtastic MQTT screen | Not published | No companion MQTT API; C5 owns the network client | Bounded SPI transport, confirmed subscription and chat reception implemented; real broker and paired-device acceptance pending (#156) |
+| RNode / KISS | Legacy screen is receive-only radio lab | Not published | No usable P4 KISS endpoint | Decision under #145: unsupported on this P4 profile because GPIO43/44 are SDMMC; a future endpoint needs a separate transport design |
 | Power / recovery | Native diagnostics / safe mode | No power-control ABI | Existing system diagnostics | Sleep/wake, current draw, watchdog/crash and recovery acceptance (#135, #153) |
 
 ## Evidence and limits

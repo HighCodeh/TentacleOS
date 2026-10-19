@@ -13,10 +13,9 @@ this work. No device was flashed or exercised.
 | [#147](https://github.com/HighCodeh/TentacleOS/issues/147), [#154](https://github.com/HighCodeh/TentacleOS/issues/154) | Read/write/emulation screens call native services. Legacy card emulation now opens the native MIFARE screen; each NFC screen stops its own worker. `nfc_sim` remains a library representation, not the source of native capture results. Hardware acceptance is tracked separately in #148. |
 | [#142](https://github.com/HighCodeh/TentacleOS/issues/142) | The IR browser selects bundled `/assets/ir` collections or `/sdcard/ir/library`, with automatic fallback to bundled remotes when the SD library is absent/empty. The production parser loads 516 TV, 727 audio and 77 AC signals in host tests. Runtime assets must be installed; an app-only binary does not restore them. |
 | [#144](https://github.com/HighCodeh/TentacleOS/issues/144) | P4 mouse input reaches C5 HID through `SPI_ID_BT_HID_SEND_MOUSE`. Companion BLE starts on demand and reports authenticated host-link state. Stale mock descriptions for native screens were corrected. Ephemeral pairing remains #151; device interoperability is not claimed. |
-
 | [#150](https://github.com/HighCodeh/TentacleOS/issues/150) | Authenticated companion NFC-A/B/F/V identification and native LF EM4100 capture now have bounded READ/STATUS/RECOVER commands, task-owned antenna reservations, retained failed-OFF recovery and CLI tests. Haptics remains excluded by request. This supplies discovery/read commands; companion card writes/emulation and hardware/transport acceptance are not claimed. See [RF commands](../host_link/rf-commands.md). |
-
 | [#155](https://github.com/HighCodeh/TentacleOS/issues/155) | Native Wi-Fi/Bluetooth paths, real Meshtastic MQTT/position, real JS/Lua Scripts and a remote GATT explorer now replace the audited mock paths. GATT scans, connects, discovers and reads through C5 with bounded snapshots, cancellation and lease expiry. Host tests and paired SDK builds pass; actual device/network interoperability remains #143/#156. |
+| [#145](https://github.com/HighCodeh/TentacleOS/issues/145) | Shared SX1262 airtime pacing covers both meshes; real MQTT subscription/publication and bounded chat reception run through C5. The requested RNode decision is to leave the inherited UART endpoint unsupported on P4 because GPIO43/44 conflict with SDMMC; the menu is a receive-only lab. A future KISS endpoint requires a separate transport design. Physical acceptance remains #156. |
 
 ## Still open
 
@@ -24,7 +23,6 @@ this work. No device was flashed or exercised.
 | --- | --- |
 | [#135](https://github.com/HighCodeh/TentacleOS/issues/135) | Battery ADC diagnostics exist. Light-sleep is disabled; audit UART/USB and peripheral wake/locking before enabling and measuring it on hardware. |
 | [#143](https://github.com/HighCodeh/TentacleOS/issues/143) | Companion Wi-Fi dispatch exists. Measure actual throughput and validate complete scan/connect/session flows on the paired device. |
-| [#145](https://github.com/HighCodeh/TentacleOS/issues/145) | Shared driver-level airtime pacing now covers both meshes and all SX1262 TX callers, with host-tested cooldown/concurrency behavior. MQTT transport, confirmed subscription, encrypted-envelope publication and bounded text reception now run through C5; see [MQTT](../mqtt/README.md). Broker/device acceptance is still pending. RNode remains explicitly unavailable on P4: its inherited S3 UART GPIO43/44 conflict with SDMMC, and entry points now reject before hardware access. A separate usable KISS transport is still needed. The Meshtastic home now opens the real MQTT screen. |
 | [#148](https://github.com/HighCodeh/TentacleOS/issues/148) | Physical NFC card test with recorded hardware, card types, read/write/emulation results and field shutdown. |
 | [#149](https://github.com/HighCodeh/TentacleOS/issues/149) | NFC discovery and native LF RFID read tables are published in ABI 1.10, including JS/Lua bindings, stable-worker ownership, capability checks and force-kill quiescence. IR decoded receive/send is now published in ABI 1.11 with JS/Lua bindings and a shared worker lease. Sub-GHz and LoRa publication remain pending. Build-local public-key selection and production rejection of the shipped dev key are implemented and host-tested. A real production identity remains unprovisioned; the user requested configuration support first. Remaining radio publication and teardown remain open. |
 | [#151](https://github.com/HighCodeh/TentacleOS/issues/151) | Companion ephemeral ECDH and device-side pairing confirmation. Existing PSK authentication and separate Muse pairing do not meet this requirement. |
@@ -107,3 +105,13 @@ firmware `7aaae6b0`. This completes the remaining implementation work in #155.
 The physical cross-interface matrix remains open under #156; discovery/read
 fixtures do not prove actual BLE interoperability. Production provisioning,
 ephemeral companion pairing and unpublished radio ABI adapters remain separate.
+
+## LoRa scope completion
+
+Issue #145 has an empty body/comments and asks for EU mesh duty-cycle pacing,
+MQTT subscription and a RNode decision. The first two are implemented and
+host/build validated. The recorded P4 decision is **unsupported legacy UART**
+because of the SDMMC conflict. A usable KISS endpoint is a future transport
+feature, not a completed capability of this firmware. This supersedes earlier
+notes that kept #145 open for that additional endpoint. Actual regional airtime,
+broker/device interoperability and cross-interface acceptance remain under #156.

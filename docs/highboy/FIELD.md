@@ -30,7 +30,7 @@ supply physical results.
 | Wi-Fi | Scan, authorized connection/disconnection and bounded sessions through each implemented interface | Actual results, session cleanup, USB/BLE control latency and measured bytes/time |
 | BLE | Scan/connect, companion attach/detach and HID mouse | Actual peer/device behavior, connection ownership and reconnect behavior |
 | IR / Sub-GHz | Known receive/send fixtures and saved captures using existing UI/companion paths | Decoder/raw agreement, actual transmission and teardown; app matrix stays pending |
-| LoRa | Each available mesh, failed sends and shared airtime pacing | Real packets, measured airtime, errors and retry behavior; MQTT/KISS stay pending |
+| LoRa | Each available mesh, failed sends and shared airtime pacing | Real packets, measured airtime, errors and retry behavior; MQTT broker/device acceptance remains pending; KISS is unsupported on this profile |
 | Power | Battery diagnostics, external power, USB suspend and peripheral holds | Measured current and wake behavior; the current default keeps PM/light sleep disabled |
 | Recovery | Normal boot, safe-mode entry and reviewed fault injection | Reset reason, crash/coredump availability, boot-loop handling and successful recovery |
 

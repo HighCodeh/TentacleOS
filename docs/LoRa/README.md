@@ -260,7 +260,8 @@ messages. A denied transmission returns `ESP_ERR_TIMEOUT`; this does not imply a
 packet was emitted. Existing mesh send/retry behavior handles that failure, with
 no new claim of guaranteed delivery. The [MQTT bridge](../mqtt/README.md) now
 runs over the C5 station and feeds validated inbound text into chat. A usable
-P4 RNode transport remains pending in #145.
+P4 RNode transport is explicitly unsupported in this board profile; see the
+transport decision below.
 
 ## RNode transport decision for High Boy P4
 
@@ -274,3 +275,11 @@ reassigned to raw KISS. No alternate pins are guessed. Other target behavior is
 preserved. The radio-lab screen remains receive-only, with corrected tutorial
 text. This resolves the immediate transport choice; enabling a usable P4 RNode
 endpoint remains pending implementation and hardware acceptance.
+
+The decision requested by #145 is to keep the inherited UART RNode endpoint
+disabled on High Boy P4. GPIO43/44 belong to SDMMC, so enabling that endpoint
+would conflict with storage. The existing menu remains a receive-only radio lab;
+it does not advertise KISS/Reticulum support. Adding a future usable endpoint
+requires a separate board-safe USB or other transport design and validation.
+The current issue scope does not imply that such an endpoint is already usable.
+Physical airtime, MQTT/network and shared-radio acceptance remain #156.

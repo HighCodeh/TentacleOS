@@ -84,6 +84,6 @@ also a fake checking the key size/nonce layout; these tests do not prove crypto
 interoperability. The firmware uses mbedTLS AES-CTR.
 
 Actual broker/TLS interoperability, Wi-Fi reconnects, shared-chip load and radio
-behavior require the paired hardware. #145 remains open for the missing usable
-P4 RNode transport and physical acceptance. Remote GATT is now implemented
+behavior require the paired hardware under #156. The #145 RNode decision is to
+keep the conflicting inherited P4 UART transport unsupported; see [LoRa](../LoRa/README.md#rnode-transport-decision-for-high-boy-p4). Remote GATT is now implemented
 separately; see [GATT](../gatt/README.md).
