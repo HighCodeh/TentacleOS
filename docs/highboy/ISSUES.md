@@ -124,3 +124,17 @@ screen, a matching code and device OK; the old HELLO format is rejected. This is
 a client compatibility change, with updated CLI/file-transfer clients included.
 The frame envelope remains version 1, handshake payloads use version 2, and Muse
 pairing is unchanged. Physical acceptance remains under #156.
+
+## Native radio observation follow-up
+
+The [ABI 1.12 build and static RAM record](TESTS.md#native-radio-observation-abi-build-record)
+validates bounded Sub-GHz capture and LoRa chat observations in `.hb`, JS and Lua.
+The Sub-GHz worker now retains DMA/resources until successful RMT cleanup; the
+chat ring safely publishes its mutex on concurrent first use and handles cursor
+wrap. The P4 has 4,384 bytes free in its original slot. Static linker RAM counts
+are recorded separately from unmeasured runtime heap/performance.
+
+GitHub was rechecked after #151 closure: nine issues remain in scope (#135,
+#143, #148, #149, #152, #153, #156, #157, #158), plus excluded HID #64. Active
+radio control and teardown still require code; physical tests, production
+provisioning and the reviewed restore/consumer package are not complete.

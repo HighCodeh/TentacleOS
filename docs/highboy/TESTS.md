@@ -516,3 +516,56 @@ FINISH routing without command dispatch. CI installs the host crypto dependencie
 Physical buttons, entropy quality and USB/BLE interoperability remain acceptance
 work under #156. Muse's independent pairing is unchanged. No device, SD, flash,
 private production key or eFuse was accessed. Commitlint and whitespace checks pass.
+
+## Native radio observation ABI build record
+
+Validated on 2026-10-19 after automatic hook formatting, firmware `e10ba682`.
+Both pinned SDK builds and the complete offline suite passed. Paired SPI v8,
+the C5 memory overlay and original app slots are unchanged. Commitlint and
+whitespace checks passed for the implementation commits.
+
+| Target | Application bytes | Slot bytes | Free bytes | SHA-256 |
+| --- | ---: | ---: | ---: | --- |
+| P4 | 2,944,736 | 2,949,120 | 4,384 | `3165d2bd5dfb5bf8b24de59e36fcd6947f1d44c15dcd7f651539294d19b1b0f8` |
+| C5 | 2,042,896 | 2,097,152 | 54,256 | `4a72270ffcd190c61d5a9446a49e302a89d56982d1097d28bc3aace027db78a5` |
+
+ABI 1.12 appends Sub-GHz and LoRa namespaces after IR, preserving older offsets.
+Only `subghz.rx_poll` and `lora.mesh_poll` are implemented: they copy existing
+native results/history, require RX approval and hold the local RF kill gate
+while accessing native mutexes. Cursors are private to each native app/script
+run. Polling neither starts nor stops a radio. All active-control entries in
+these tables remain NULL. JS/Lua call the same tables and reject older ABIs.
+
+The Sub-GHz worker now keeps its grant, DMA memory and callback queue until RMT
+disable/delete succeed, preserving startup cancellation and rejecting competing
+starts. New ASan/UBSan tests compile the real worker against explicit RMT/RTOS
+fakes, including late callbacks during repeated cleanup failure. Capture IDs
+persist across restarts. Radio-view tests cover permission denial, stop before
+and after locking, initialization/lock failure, bounded copies and private
+cursors. Native chat-ring tests cover simultaneous first mutex creation, 2,000
+concurrent writes, overwritten backlog, independent cursors and sequence wrap.
+The actual JS/Lua engines pass record/null/nil/error, permissions and ABI tests.
+
+### Linked RAM checkpoint
+
+These are **static linker-map counts**, not live free heap, task stack margins
+or runtime performance measurements. They do not close #157.
+
+| Target / linker region | Region bytes | Linked bytes | Unallocated bytes |
+| --- | ---: | ---: | ---: |
+| P4 DIRAM | 576,464 | 401,830 | 174,634 |
+| C5 HP SRAM | 320,928 | 254,915 | 66,013 |
+| C5 LP SRAM | 16,384 | 24 | 16,360 |
+
+Reproduce with the lane's `python -m esp_idf_size`: IDF 5.5.3 uses
+`--format json --target esp32p4 firmware_p4/build_highboy/TentacleOS_P4.map`;
+IDF 6.0.1 uses `--format json2 firmware_c5/build_highboy/TentacleOS_C5.map`.
+Unallocated linker memory can still be consumed/reserved during boot; runtime
+heap minima, stack watermarks and throughput require the device.
+
+Issue #151 was closed on GitHub after its completed pairing implementation.
+Nine issues remain in this scope (#135, #143, #148, #149, #152, #153, #156,
+#157, #158); #64 stays excluded. This observation subset advances #149/#156
+but does not complete active radio control/teardown, production trust identity,
+physical acceptance or a reviewed restore package. No device, SD, private
+production key, flash or eFuse was accessed.
