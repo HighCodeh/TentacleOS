@@ -7,7 +7,7 @@ High Boy. HID layouts, haptics and HLE remain excluded by request.
 | Peripheral / operation | Device UI | Signed `.hb` ABI | Companion | Remaining acceptance / code |
 | --- | --- | --- | --- | --- |
 | Wi-Fi discovery / connect / sessions | Native P4→C5 services | `wifi` table | Authenticated Wi-Fi command set | Paired scan/connect/session matrix and measured live throughput (#143) |
-| BLE discovery / connect / HID mouse | Native P4→C5 services | `ble` table; mouse is not an ABI entry | Authenticated Bluetooth command set | Device interoperability; remote GATT discovery/read is not a complete explorer (#155) |
+| BLE discovery / connect / HID mouse | Native P4→C5 services | `ble` table; mouse is not an ABI entry | Authenticated Bluetooth command set | Device interoperability; remote GATT discovery/read now has a bounded native explorer; physical acceptance remains (#156) |
 | NFC A/B/F/V identification | Native reader screens | `nfc.poll`, JS/Lua `nfc.poll` | READ / STATUS / RECOVER | Real cards, antenna shutdown and transport tests (#148, #156) |
 | NFC block write / emulation | Native services and UI | Unpublished optional pointers are NULL | Not implemented | Add explicit sessions/ownership and acceptance; discovery coverage does not imply writes |
 | LF RFID EM4100/EM4102 read | Native LF worker | `rfid.read`, JS/Lua `rfid.read` | READ / STATUS / RECOVER | Physical field/capture validation; no write/clone ABI |
@@ -44,3 +44,12 @@ Meshtastic home now exposes the real [MQTT bridge](../mqtt/README.md): P4
 codec/chat integration over a bounded SPI service, with C5-owned TCP/TLS and
 confirmed subscriptions. It is a native UI feature; no new `.hb` or companion
 MQTT API is published. Real broker and paired-device acceptance remain pending.
+
+## Remote GATT follow-up
+
+The [native GATT explorer](../gatt/README.md) replaces the reference-only catalog.
+It scans, connects, discovers services/characteristics and reads permitted
+attributes over C5, with cancellation, an expiring connection lease and bounded
+snapshots. The authenticated USB companion can use the same Bluetooth commands;
+BLE companion ownership prevents simultaneous central exploration on that chip.
+No new `.hb` GATT table is published, and physical acceptance remains pending.

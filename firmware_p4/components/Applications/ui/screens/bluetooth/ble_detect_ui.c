@@ -31,6 +31,7 @@ typedef struct {
 } ui_ble_detect_item_t;
 
 static const ui_ble_detect_item_t MENU_ITEMS[] = {
+    {"GATT Explorer", "/assets/icons/bluetooth_searching.bin", SCREEN_GATT_EXPLORER},
     {"Scan Devices", "/assets/icons/bluetooth_searching.bin", SCREEN_BLE_SCAN},
     {"Sniffer", "/assets/icons/monitoring.bin", SCREEN_BLE_SNIFFER},
     {"Tracker Detector", "/assets/icons/troubleshoot.bin", SCREEN_BLE_TRACKER},

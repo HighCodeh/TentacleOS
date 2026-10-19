@@ -334,8 +334,8 @@
     "firmware_p4/components/Applications/ui/ui_manager.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "938b509321c8ef23ed8cf0f6f5ff2644fdabaea3a84ca1b544428c4c2c2eeba2",
-      "after_sha256": "c5f1c18aca8c4768ee76a7ecd1e078f73e2e1c9826a06a00f7c466773b88696e",
-      "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership",
+      "after_sha256": "fe251ea78d7c9f45d014f55cd4c20630abd76b502cfbd6e2d76bef52bd60bcfc",
+      "reason": "Implement bounded remote GATT discovery and reads over paired SPI, native UI routing, lease expiry and NimBLE ownership-safe teardown",
       "review_history": [
         {
           "after_sha256": "00c83c4094432fb613e43f0e325440d51b97346e02837d4aff968510c8fb549e",
@@ -354,6 +354,10 @@
         {
           "after_sha256": "3e84d11d2b68822fdadbdbb2977eed70e8e7bd5d0c46dffb26f00f6d89438246",
           "reason": "Restore a dedicated Scripts screen for real JavaScript/Lua SD execution with synchronized output and cancellation, keeping signed .hb Apps separate."
+        },
+        {
+          "after_sha256": "c5f1c18aca8c4768ee76a7ecd1e078f73e2e1c9826a06a00f7c466773b88696e",
+          "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership"
         }
       ]
     },
@@ -632,8 +636,16 @@
     "firmware_p4/components/Applications/ui/screens/bluetooth/gatt_explorer_ui.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "bd8159e4535237628d61fe2474540a4f723bc322a143f3202c99411efda82ea9",
-      "after_sha256": "0c639245a702cb12bacccde1911086cc0ece740ffcb15ba25c428796a417def3",
-      "reason": "Describe native BLE services accurately and label the static GATT reference without synthesized read values."
+      "after_sha256": "c40e6e4eb6e221e962f61c8fd1414623af5396e507299942ed050d17b610bbe6",
+      "reason": "Implement bounded remote GATT discovery and reads over paired SPI, native UI routing, lease expiry and NimBLE ownership-safe teardown",
+      "review_history": [
+        {
+          "after_sha256": "0c639245a702cb12bacccde1911086cc0ece740ffcb15ba25c428796a417def3",
+          "reason": "Describe native BLE services accurately and label the static GATT reference without synthesized read values."
+        }
+      ],
+      "pre_format_sha256": "53d02a71eb5eb4eed4a1d2ec93b1df951f5a3626d90d2f783a3deb84140c9bfb",
+      "formatter": "clang-format version 22.1.5"
     },
     "firmware_p4/components/Applications/ui/screens/bluetooth/include/ble_companion_ui.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -1028,6 +1040,26 @@
       "reason": "Implement bounded remote GATT discovery and reads over paired SPI, native UI routing, lease expiry and NimBLE ownership-safe teardown",
       "pre_format_sha256": "6cc7cece816bf423e19c671aa1b1bfcac2a358e91cb3efde9dd56e6128d53e43",
       "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/bluetooth/gatt_explorer.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "ceffbd6514786c9edcc2b30048b0b12c18dcbc3312f6c210a65150aa0a05f89c",
+      "after_sha256": "6448ac1dae0cefb52e872ba04cfee22b9fd60b383467ff926b0dbee6871e67ae",
+      "reason": "Implement bounded remote GATT discovery and reads over paired SPI, native UI routing, lease expiry and NimBLE ownership-safe teardown",
+      "pre_format_sha256": "236fdd601fc8eb4ead65fe8ca094ef7a1fcbc07d9d3ea4a39a0a6d681cd8ee0b",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/bluetooth/include/gatt_explorer.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "69202d05b5b6db156ab430d2b731ca704e50fb74d47549fc7190ac126221f85c",
+      "after_sha256": "cc50ef0676c4c11ffab93740a13a9e7199ab85bd6619701710226cc589a45162",
+      "reason": "Implement bounded remote GATT discovery and reads over paired SPI, native UI routing, lease expiry and NimBLE ownership-safe teardown"
+    },
+    "firmware_p4/components/Applications/ui/screens/bluetooth/ble_detect_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "e7b11984c5d5572d2a71e1905592e281230ca00fa68005a85ed4b8f0a7a672f6",
+      "after_sha256": "90ef47b2d5b5e7e293942a8a0cfb908b2b844cd1dd9cbfb1cdd4d6b4ef2b897f",
+      "reason": "Implement bounded remote GATT discovery and reads over paired SPI, native UI routing, lease expiry and NimBLE ownership-safe teardown"
     }
   }
 }

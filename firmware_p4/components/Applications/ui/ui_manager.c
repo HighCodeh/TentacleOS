@@ -55,6 +55,7 @@
 #include "connect_wifi_ui.h"
 #include "ui_ble_menu.h"
 #include "ble_scan_ui.h"
+#include "gatt_explorer_ui.h"
 #include "ble_mouse_ui.h"
 #include "connect_bt_ui.h"
 #include "nfc_menu_ui.h"
@@ -439,6 +440,8 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_ble_menu_open;
     case SCREEN_BLE_SCAN:
       return ui_ble_scan_open;
+    case SCREEN_GATT_EXPLORER:
+      return ui_gatt_explorer_open;
     case SCREEN_BLE_MOUSE_PAIRING:
       return ui_ble_mouse_pairing_open;
     case SCREEN_BLE_MOUSE:
