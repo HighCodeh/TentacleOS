@@ -179,3 +179,15 @@ optimization description above: Applications, Service and cJSON now use size
 optimization and LTO; LVGL control/layout code follows that policy while draw
 sources retain `-O2`. Driver and standalone emulator flags remain unchanged.
 Device performance acceptance is still pending.
+
+## P4 cryptography code size
+
+The existing portable libsodium backend now compiles with `-Os`. Vendor sources,
+algorithms, trust keys and hardware acceleration selections are unchanged; C5,
+radio drivers, renderers and emulators retain their previous policies. In the
+first linked comparison, this recovers 23,408 bytes relative to the same airtime-
+guarded candidate, leaving 24,096 bytes in the P4 slot. This is code-size evidence,
+not a claim of improved cryptographic throughput or side-channel certification.
+The vendored libsodium 1.0.22 host suite was built separately with `CFLAGS=-Os`
+and assembly disabled: all 101 tests passed, without skips. Device performance,
+stack usage and timing acceptance remain pending under #157.

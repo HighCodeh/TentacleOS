@@ -74,3 +74,7 @@ target_compile_options(${HIGHBOY_CJSON_LIB} PRIVATE -Os -flto=2 -ffat-lto-object
 
 # Keep the shared ABI and interpreter adapters in one LTO optimization unit.
 target_link_options(${CMAKE_PROJECT_NAME}.elf PRIVATE -flto-partition=one)
+
+# Compact portable cryptographic routines without changing their implementations.
+idf_component_get_property(HIGHBOY_SODIUM_LIB libsodium COMPONENT_LIB)
+target_compile_options(${HIGHBOY_SODIUM_LIB} PRIVATE -Os)

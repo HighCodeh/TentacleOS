@@ -690,12 +690,16 @@
     "firmware_p4/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "0f1227039a8fd707409aaebc1ba720212788503eb26421c5ded3947f10e67323",
-      "after_sha256": "bfb77fc7b6c05bbde5bbcf62661e32cfc29a5a8e43ddc867fbf67e679d331879",
-      "reason": "Compact shared cJSON marshalling and perform a single LTO optimization pass so JS/Lua ABI bindings fit the original paired OTA slots without changing driver flags or C5 settings.",
+      "after_sha256": "c1711cb1767d322bc7ac1c08cc52e64d9b8157771a2061f14a6f0b2dec7d153a",
+      "reason": "Measure size optimization for the existing portable P4 cryptography backend without changing algorithms, keys, vendor source or hardware/render flags.",
       "review_history": [
         {
           "after_sha256": "3f9e37605262ba8cd5c3e25d94f57f660c010e6baea480103d8fe554f58d4eef",
           "reason": "Register bounded JavaScript/Lua engines and an SD worker; compact P4 applications, services and LVGL layout without changing partitions, drivers, standalone emulator flags or paired SPI v8."
+        },
+        {
+          "after_sha256": "bfb77fc7b6c05bbde5bbcf62661e32cfc29a5a8e43ddc867fbf67e679d331879",
+          "reason": "Compact shared cJSON marshalling and perform a single LTO optimization pass so JS/Lua ABI bindings fit the original paired OTA slots without changing driver flags or C5 settings."
         }
       ]
     },
