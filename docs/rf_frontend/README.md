@@ -51,3 +51,9 @@ antenna unless its caller already owns a reservation, avoiding a competing lazy
 initialization. The companion uses the reservation across initialization, probe
 and shutdown, and holds a no-sleep reference until cleanup succeeds. See the
 [NFC/RFID commands](../host_link/rf-commands.md) for recovery and validation.
+
+The [ABI 1.10 NFC/RFID reads](../app_sdk/README.md#native-nfcrfid-api-abi-110)
+execute on the same persistent worker as companion capture. Reservations and
+retained failed-OFF cleanup belong to that firmware task, so app exit does not
+orphan antenna ownership. A forced app kill must quiesce the local-call gate
+before deleting the caller; the worker's fixed request buffers outlive apps.

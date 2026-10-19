@@ -366,6 +366,7 @@ In [`tools/app_sdk/`](../../tools/app_sdk), each is one `app.c` you can copy:
 | `svc` | registers a console command, runs until stopped |
 | `spin` | a misbehaving app (ignores stop) — exercises force-kill |
 | `wifiscan` | the WiFi subsystem: `api->wifi->scan()` + typed results |
+| `rfread` | ABI 1.10 NFC discovery and native LF RFID capture, with receive permission |
 
 ## Scripts and native apps
 

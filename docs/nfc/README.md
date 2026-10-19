@@ -218,3 +218,7 @@ and optional activation/geometry failures retain the original discovered card.
 The background manager uses the same probe implementations. The companion's
 bounded [capture commands](../host_link/rf-commands.md) call this interface under
 an exclusive RF reservation and a no-sleep reference.
+
+Native apps and scripts can now use the [ABI 1.10 discovery calls](../app_sdk/README.md#native-nfcrfid-api-abi-110).
+They reuse the native poll and stable RF worker, while block operations and
+emulation remain unpublished in the app ABI. UI functionality is unchanged.
