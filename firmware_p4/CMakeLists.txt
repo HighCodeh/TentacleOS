@@ -67,3 +67,10 @@ target_compile_options(${HIGHBOY_LVGL_LIB} PRIVATE -Os -flto=2 -ffat-lto-objects
 file(GLOB_RECURSE HIGHBOY_LVGL_DRAW "${CMAKE_CURRENT_LIST_DIR}/vendor/lvgl/src/draw/*.c")
 set_source_files_properties(${HIGHBOY_LVGL_DRAW}
     DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/vendor/lvgl" PROPERTIES COMPILE_OPTIONS "-O2")
+
+# Shared script ABI marshalling must fit the paired OTA slots.
+idf_component_get_property(HIGHBOY_CJSON_LIB cjson COMPONENT_LIB)
+target_compile_options(${HIGHBOY_CJSON_LIB} PRIVATE -Os -flto=2 -ffat-lto-objects)
+
+# Keep the shared ABI and interpreter adapters in one LTO optimization unit.
+target_link_options(${CMAKE_PROJECT_NAME}.elf PRIVATE -flto-partition=one)

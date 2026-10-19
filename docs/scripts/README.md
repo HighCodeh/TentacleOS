@@ -9,7 +9,9 @@ Copy the [JavaScript](../../tools/scripts/examples/hello.js) and
 [Lua](../../tools/scripts/examples/hello.lua) examples into `/sdcard/scripts`, then
 open Scripts, select a file and press OK. Output and real execution errors appear
 on screen. OK stops a running script; BACK returns to the list and requests stop.
-Leaving the Scripts screen also requests stop. A second script cannot start until
+Leaving the Scripts screen also requests stop, except when the script takes over
+the display through its ABI. Navigating away from that display revokes its lease
+and requests stop. Closing the script display returns to Scripts. A second script cannot start until
 the previous worker has released its interpreter and source buffer.
 
 The browser lists up to 16 files in that directory. Names are limited to 63
@@ -38,8 +40,100 @@ Both languages provide:
 | `sleep(ms)` | Yield for an integer duration from 0 to 30000 milliseconds, checking cancellation during the wait. |
 | `millis()` | Monotonic device uptime in milliseconds. JavaScript `Date.now()` uses wall-clock time separately. |
 
-No radio, HID, arbitrary filesystem, shell or custom UI bindings are introduced
-by this runtime. `.hb` apps retain their existing ABI and capability model.
+## Shared firmware ABI
+
+Both languages expose `tos.call(method, ...)`. Calls go through the same const
+`tos_api_t` returned by `tos_api_get()` for native `.hb` apps, with a task-bound
+`tos_app_ctx_t`. The existing ABI checks capabilities and owns radio/display
+leases; scripts do not call drivers or SPI operations directly. A failure to bind
+that context prevents execution. The script adapter additionally validates
+argument types, ranges and capability grants before invoking a function pointer.
+The native ABI version and layout remain unchanged (currently 1.9).
+
+Scripts request capabilities on their **first line**, using a strict hexadecimal
+mask without trailing spaces:
+
+```js
+// @caps 0x08
+tos.call("wifi.scan");
+var ap = tos.call("wifi.ap_get", 0);
+print(ap.ssid, ap.rssi);
+```
+
+```lua
+-- @caps 0x08
+tos.call("wifi.scan")
+local ap = tos.call("wifi.ap_get", 0)
+print(ap.ssid, ap.rssi)
+```
+
+| Mask | Permission |
+| --- | --- |
+| `0x01` | Read SD files |
+| `0x04` | Transmit / control radios |
+| `0x08` | Receive / scan radios |
+| `0x10` | Send BLE HID keys |
+| `0x20` | Control display and LED |
+
+Runnable [JavaScript](../../tools/scripts/examples/wifi_scan.js) and
+[Lua](../../tools/scripts/examples/wifi_scan.lua) scan examples are provided.
+
+Combine bits (for example `0x09` for SD reads and radio reception). No header
+means zero permissions. Unsupported bits, including filesystem writes and C
+callback registration, reject the run. Requested permissions require Allow/Deny
+confirmation **on every run**, initially selecting Deny. The source is loaded
+once and retained while confirmation is pending; approval applies to those exact
+bytes, not to a later SD read. Generation IDs reject stale dialog responses.
+Waiting for consent has a 30-second deadline; approval starts a fresh 30-second
+execution deadline. Stop or denial executes no script code.
+
+Available methods retain their ABI names, using a dot for namespaces:
+
+| Namespace | Methods |
+| --- | --- |
+| Lifecycle | `version`, `log`, `delay_ms`, `yield`, `should_stop`, `resource_lost`, `led_set` |
+| Wi-Fi | `scan`, `ap_count`, `ap_get`, `is_connected`, `connected_ssid`, `connect`, `disconnect`, `sniffer_start`, `deauth_detect`, `probe_monitor`, `signal_monitor`, `deauth`, `deauth_broadcast`, `flood`, `beacon_spam`, `evil_twin`, `session_stop`, `channel_hop` |
+| BLE | `scan`, `device_count`, `device_get`, `connect`, `disconnect`, `set_random_mac`, `adv_start`, `adv_stop`, `sniffer_start`, `spam`, `flood`, `skimmer_detect`, `tracker_detect`, `session_stop`, `hid_start`, `hid_stop`, `hid_is_connected`, `hid_send_key` |
+| Filesystem | `list`, `size`, `open`, `read`, `seek`, `close` |
+| UI | `screen_open`, `screen_close`, `metrics`, `label`, `rect`, `bar`, `set_text`, `set_value`, `set_pos`, `set_size`, `set_text_color`, `set_bg_color`, `set_hidden`, `del`, `poll_event`, `canvas_end` |
+
+Use `wifi.*`, `ble.*`, `fs.*` and `ui.*` for namespace names. See
+[`tos_api.h`](../../firmware_p4/components/Service/app_runtime/include/tos_api.h)
+for parameter order. The script representations differ where C uses pointers:
+
+- `version()` returns `{major, minor}`. Stop/connection predicates return booleans.
+  `log(text)` uses the fixed SCRIPT tag and treats text as data, not a format string.
+- MAC addresses are strings such as `"00:11:22:33:44:55"`, including in returned
+  AP/device records. `ap_get(index)` and `device_get(index)` return records with
+  the ABI field names. Indices start at zero in both languages.
+- Successful `esp_err_t` calls return zero; failures throw a language exception
+  with the ESP error code. Session-start methods return their session ID instead
+  of using an output pointer. Pass that ID to the namespace's `session_stop`.
+- `beacon_spam(null)` / `beacon_spam(nil)` selects the ABI's random-list mode.
+- `fs.list(path, limit)` returns an array/list of directory records (limit 1–8).
+  `fs.open(path)` returns an opaque integer token. At most four files can be open.
+  `fs.read(token, count)` returns up to 128 byte values, preserving embedded NUL;
+  an empty array/table means EOF. `fs.seek(token, offset)` uses absolute offsets
+  through INT32_MAX. Closed tokens cannot be reused. Paths remain restricted by
+  the ABI to `/sdcard`, and the interface is read-only.
+- `ui.metrics()` returns `{width, height}`. `ui.poll_event()` returns `{key, action}`
+  or null/nil when empty. Widgets use the existing opaque handles and root handle
+  zero. The native UI backend continues to validate ownership and stale handles.
+- Strings are limited to 256 UTF-8 bytes and cannot contain embedded NUL. Calls
+  accept up to seven scalar arguments; integers must be finite and in the ABI
+  parameter's range. Lua arrays returned by the adapter start at one.
+
+Raw memory pointers, native C callbacks (`batch`, console/host-link registration),
+image blobs and direct-panel canvas begin/blit remain native `.hb` facilities.
+NFC, RFID, Sub-GHz, infrared and LoRa contracts currently have no published pointer
+in `tos_api_t`, so scripts cannot reach them through this bridge yet. There are no
+shell bindings. This is capability enforcement for firmware calls, not process or
+hardware memory isolation for native apps.
+
+The worker closes owned files, revokes remaining radio leases, closes its UI and
+clears its LED before unbinding the context. Cleanup runs after success, error,
+cancellation, timeout and interpreter allocation failure. A subsequent run starts
+only after that cleanup completes.
 
 ## Execution limits and ownership
 
@@ -60,8 +154,9 @@ UI callbacks read a synchronized snapshot and never touch VM state.
   so protected calls cannot keep an ordinary VM loop running indefinitely.
 
 The baseline OTA slots are preserved. To accommodate both interpreters, P4
-Applications and Service code now use `-Os` and LTO. LVGL uses the same size
-policy with its draw/rasterizer sources explicitly retaining `-O2`. Drivers,
+Applications, Service, interpreters and cJSON marshalling use `-Os` and LTO.
+The final link uses one LTO optimization unit for these components. LVGL uses
+the same size policy with its draw/rasterizer sources explicitly retaining `-O2`. Drivers,
 standalone Game Boy/DOOM components, pinned SDKs, C5 memory settings and paired
 SPI v8 remain unchanged. This changes the optimization policy for P4 application
 and service code: responsiveness and peripheral throughput still need device
@@ -83,6 +178,8 @@ is in `Applications/scripts`, and the screen is in `ui/screens/dev`.
 python3 tools/scripts/generate_js_stdlib.py --check
 python3 tools/scripts/test_engine.py
 python3 tools/scripts/test_runner.py
+python3 tools/scripts/test_context.py
+python3 tools/scripts/test_ui.py
 bash tools/highboy/test.command
 ```
 
@@ -91,7 +188,14 @@ collections, output, syntax/runtime failures, infinite loops, protected-call
 cancellation, allocation failure, memory limits and recovery. Worker tests use
 the production file/worker code and real engines, with task, clock and filesystem
 fakes, to verify SD loading, busy ownership, task-creation failure, stop, timeout
-and transcript bounds. No device or SD card is accessed.
+and transcript bounds. ABI tests exercise the real JS/Lua marshalling, permission
+denial, strict arguments, output records, binary reads and file cleanup. Context
+tests exercise concurrent first binding, capacity exhaustion and resource-loss
+callbacks against the production context implementation. UI callback tests cover
+ABI handoff, asynchronous deletion, navigation cancellation and consent cleanup. No device or SD card is
+accessed. The marshalling uses bounded cJSON trees outside the 512 KiB VM budget
+(up to eight directory records or 128 byte nodes per call); trees are freed even
+when conversion into Lua fails under memory pressure.
 
 The generated 32/64-bit JavaScript ROM and atom tables are checked by rebuilding
 with the host C compiler. When intentionally changing bindings, run

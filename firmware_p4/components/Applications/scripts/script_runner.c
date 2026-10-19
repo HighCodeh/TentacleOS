@@ -15,6 +15,10 @@
 #include "freertos/task.h"
 
 #include "sys_prio.h"
+#include "script_bindings.h"
+#include "tos_app_ctx.h"
+#include "resource_mgr.h"
+#include "ui_manager.h"
 
 #define SCRIPT_TASK_STACK_BYTES 16384
 #define SCRIPT_POLL_MS          10
@@ -26,6 +30,9 @@ static const char *TAG = "SCRIPT_RUNNER";
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 EXT_RAM_BSS_ATTR static script_runner_snapshot_t s_snapshot;
 static bool s_is_stop_requested;
+static bool s_is_resource_lost;
+static bool s_has_display;
+static uint32_t s_generation;
 static int64_t s_started_ms;
 static size_t s_output_length;
 
@@ -37,8 +44,8 @@ static int64_t clock_ms(void *ctx) {
 static bool poll(void *ctx) {
   (void)ctx;
   portENTER_CRITICAL(&s_mux);
-  bool is_stopped =
-      s_is_stop_requested || clock_ms(NULL) - s_started_ms >= SCRIPT_RUNNER_TIMEOUT_MS;
+  bool is_stopped = s_is_stop_requested || s_is_resource_lost ||
+                    clock_ms(NULL) - s_started_ms >= SCRIPT_RUNNER_TIMEOUT_MS;
   portEXIT_CRITICAL(&s_mux);
   if (!is_stopped)
     vTaskDelay(1);
@@ -67,6 +74,36 @@ static void *allocate(size_t length) {
   return heap_caps_malloc(length, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 }
 
+static bool stop_requested(void *ctx) {
+  (void)ctx;
+  portENTER_CRITICAL(&s_mux);
+  bool is_stopped =
+      s_is_stop_requested || clock_ms(NULL) - s_started_ms >= SCRIPT_RUNNER_TIMEOUT_MS;
+  portEXIT_CRITICAL(&s_mux);
+  return is_stopped;
+}
+
+static bool resource_lost(void *ctx) {
+  (void)ctx;
+  portENTER_CRITICAL(&s_mux);
+  bool is_lost = s_is_resource_lost;
+  portEXIT_CRITICAL(&s_mux);
+  return is_lost;
+}
+
+static void set_resource_lost(void *ctx, bool is_lost) {
+  (void)ctx;
+  portENTER_CRITICAL(&s_mux);
+  s_is_resource_lost = is_lost;
+  portEXIT_CRITICAL(&s_mux);
+}
+
+static void set_display(bool is_open) {
+  portENTER_CRITICAL(&s_mux);
+  s_has_display = is_open;
+  portEXIT_CRITICAL(&s_mux);
+}
+
 static void run_script(void *ctx) {
   (void)ctx;
   char path[SCRIPT_PATH_MAX];
@@ -75,8 +112,19 @@ static void run_script(void *ctx) {
   memcpy(name, s_snapshot.name, sizeof(name));
   portEXIT_CRITICAL(&s_mux);
   snprintf(path, sizeof(path), "%s/%s", SCRIPT_RUNNER_DIRECTORY, name);
-  const script_engine_host_t host = {
-      .output = output, .poll = poll, .sleep = sleep_ms, .clock = clock_ms, .alloc = allocate};
+  script_bindings_t bindings = {.api = tos_api_get(), .display = set_display};
+  tos_app_ctx_t app_ctx = {.id = name,
+                           .poll_stop = stop_requested,
+                           .poll_resource_lost = resource_lost,
+                           .set_resource_lost = set_resource_lost,
+                           .ui_return_screen = SCREEN_SCRIPTS};
+  bool is_bound = false;
+  const script_engine_host_t host = {.bindings = &bindings,
+                                     .output = output,
+                                     .poll = poll,
+                                     .sleep = sleep_ms,
+                                     .clock = clock_ms,
+                                     .alloc = allocate};
   script_engine_request_t request = {.name = name, .host = &host};
   request.language = strcmp(strrchr(name, '.'), ".lua") == 0 ? SCRIPT_ENGINE_LUA : SCRIPT_ENGINE_JS;
   script_engine_result_t result = SCRIPT_ENGINE_ERROR;
@@ -108,11 +156,48 @@ static void run_script(void *ctx) {
   file = NULL;
   request.source = source;
   request.length = (size_t)length;
+  if (script_bindings_requested_caps(source, &bindings.caps) != ESP_OK) {
+    snprintf(request.error, sizeof(request.error), "Invalid script capabilities");
+    goto cleanup;
+  }
+  if (bindings.caps != 0) {
+    portENTER_CRITICAL(&s_mux);
+    s_snapshot.requested_caps = bindings.caps;
+    s_snapshot.is_waiting_consent = true;
+    portEXIT_CRITICAL(&s_mux);
+    bool is_waiting = true;
+    while (is_waiting && !poll(NULL)) {
+      portENTER_CRITICAL(&s_mux);
+      is_waiting = s_snapshot.is_waiting_consent;
+      portEXIT_CRITICAL(&s_mux);
+      vTaskDelay(pdMS_TO_TICKS(SCRIPT_POLL_MS));
+    }
+    if (poll(NULL)) {
+      result = SCRIPT_ENGINE_STOPPED;
+      goto cleanup;
+    }
+  }
+  app_ctx.granted_caps = bindings.caps;
+  if (tos_app_ctx_bind(xTaskGetCurrentTaskHandle(), &app_ctx) != ESP_OK) {
+    snprintf(request.error, sizeof(request.error), "Cannot bind script permissions");
+    goto cleanup;
+  }
+  is_bound = true;
   result = script_engine_run(&request);
   goto cleanup;
 read_error:
   snprintf(request.error, sizeof(request.error), "Cannot read complete script");
 cleanup:
+  script_bindings_close(&bindings);
+  if (is_bound) {
+    resource_release_owner_task(xTaskGetCurrentTaskHandle());
+    if (bindings.caps & TOS_CAP_UI) {
+      bindings.api->ui->screen_close();
+      bindings.api->led_set(0, 0, 0);
+    }
+    tos_app_ctx_unbind(xTaskGetCurrentTaskHandle());
+  }
+  set_display(false);
   if (file != NULL)
     fclose(file);
   free(source);
@@ -120,6 +205,7 @@ cleanup:
   s_snapshot.result = result;
   memcpy(s_snapshot.error, request.error, sizeof(s_snapshot.error));
   s_snapshot.is_running = false;
+  s_snapshot.is_waiting_consent = false;
   portEXIT_CRITICAL(&s_mux);
   ESP_LOGI(TAG, "Script %s finished (%d)", name, result);
   vTaskDeleteWithCaps(NULL);
@@ -152,6 +238,11 @@ esp_err_t script_runner_start(const char *name) {
   memcpy(s_snapshot.name, name, strlen(name) + 1);
   s_snapshot.is_running = true;
   s_is_stop_requested = false;
+  s_is_resource_lost = false;
+  s_has_display = false;
+  if (++s_generation == 0)
+    ++s_generation;
+  s_snapshot.generation = s_generation;
   s_output_length = 0;
   s_started_ms = clock_ms(NULL);
   portEXIT_CRITICAL(&s_mux);
@@ -171,6 +262,29 @@ esp_err_t script_runner_start(const char *name) {
     return ESP_ERR_NO_MEM;
   }
   return ESP_OK;
+}
+
+esp_err_t script_runner_authorize(uint32_t generation, bool is_allowed) {
+  portENTER_CRITICAL(&s_mux);
+  if (!s_snapshot.is_running || !s_snapshot.is_waiting_consent ||
+      s_snapshot.generation != generation) {
+    portEXIT_CRITICAL(&s_mux);
+    return ESP_ERR_INVALID_STATE;
+  }
+  s_snapshot.is_waiting_consent = false;
+  if (!is_allowed)
+    s_is_stop_requested = true;
+  else
+    s_started_ms = clock_ms(NULL);
+  portEXIT_CRITICAL(&s_mux);
+  return ESP_OK;
+}
+
+bool script_runner_has_display(void) {
+  portENTER_CRITICAL(&s_mux);
+  bool has_display = s_has_display;
+  portEXIT_CRITICAL(&s_mux);
+  return has_display;
 }
 
 void script_runner_stop(void) {

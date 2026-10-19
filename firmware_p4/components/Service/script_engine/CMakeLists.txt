@@ -7,12 +7,12 @@ set(LUA_SOURCES
     lstrlib.c lmathlib.c lutf8lib.c)
 list(TRANSFORM LUA_SOURCES PREPEND "${LUA_VENDOR}/")
 idf_component_register(
-    SRCS "script_engine.c" ${LUA_SOURCES}
+    SRCS "script_engine.c" "script_bindings.c" ${LUA_SOURCES}
          "${JS_VENDOR}/mquickjs.c" "${JS_VENDOR}/dtoa.c"
          "${JS_VENDOR}/libm.c" "${JS_VENDOR}/cutils.c"
-    INCLUDE_DIRS "include"
+    INCLUDE_DIRS "include" "../app_runtime/include" "../host_link/include"
     PRIV_INCLUDE_DIRS "${JS_VENDOR}" "${JS_VENDOR}/generated" "${LUA_VENDOR}"
-    REQUIRES log)
+    REQUIRES log cjson)
 target_compile_options(${COMPONENT_LIB} PRIVATE -Os -flto=2 -ffat-lto-objects -fno-math-errno -fno-trapping-math)
 target_compile_definitions(${COMPONENT_LIB} PRIVATE _GNU_SOURCE LUAI_MAXCCALLS=32)
 

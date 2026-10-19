@@ -22,6 +22,33 @@ static FILE *open_script(const char *path, const char *mode) {
 #include "script_runner.c"
 #undef fopen
 
+static unsigned s_bindings;
+static unsigned s_releases;
+static bool s_bind_should_fail;
+static int s_consent;
+static bool s_rewrite_pending;
+static void write_script(const char *name, const char *source);
+static const tos_api_t s_api={.abi_major=1,.abi_minor=9};
+const tos_api_t *tos_api_get(void) { return &s_api; }
+esp_err_t tos_app_ctx_bind(void *task,tos_app_ctx_t *ctx) {
+  assert(task==(void *)1 && ctx!=NULL);
+  if(s_bind_should_fail) return ESP_ERR_NO_MEM;
+  ++s_bindings; return ESP_OK;
+}
+void tos_app_ctx_unbind(void *task) { assert(task==(void *)1 && s_bindings==1); --s_bindings; }
+void resource_release_owner_task(void *task) { assert(task==(void *)1 && s_bindings==1); ++s_releases; }
+static void test_tick(void) {
+  if(s_consent && s_snapshot.is_waiting_consent) {
+    if(s_rewrite_pending) {
+      write_script("caps.js","// @caps 0x08\nprint('changed after load');");
+      s_rewrite_pending=false;
+    }
+    assert(script_runner_authorize(s_snapshot.generation+1,true)==ESP_ERR_INVALID_STATE);
+    assert(script_runner_authorize(s_snapshot.generation,s_consent>0)==ESP_OK);
+    s_consent=0;
+  }
+}
+
 static void write_script(const char *name, const char *source) {
   char path[512];
   snprintf(path, sizeof(path), "%s/%s", s_temporary_directory, name);
@@ -85,6 +112,29 @@ int main(int argc, char **argv) {
   script_runner_snapshot(&snapshot);
   assert(snapshot.result == SCRIPT_ENGINE_OK);
   assert(strlen(snapshot.output) == SCRIPT_RUNNER_OUTPUT_MAX - 1);
-  assert(s_finished_tasks == 6);
+  assert(s_finished_tasks == 6 && s_bindings==0);
+  s_bind_should_fail=true;
+  assert(script_runner_start("hello.js")==ESP_OK); finish();
+  script_runner_snapshot(&snapshot);
+  assert(snapshot.result==SCRIPT_ENGINE_ERROR && snapshot.output[0]==0);
+  s_bind_should_fail=false;
+  write_script("caps.js","// @caps 0x08\nprint(tos.call('version').major);");
+  s_consent=1; s_rewrite_pending=true;
+  assert(script_runner_start("caps.js")==ESP_OK); finish();
+  script_runner_snapshot(&snapshot);
+  assert(snapshot.result==SCRIPT_ENGINE_OK && strcmp(snapshot.output,"1\n")==0);
+  s_consent=-1;
+  assert(script_runner_start("caps.js")==ESP_OK); finish();
+  script_runner_snapshot(&snapshot);
+  assert(snapshot.result==SCRIPT_ENGINE_STOPPED && snapshot.output[0]==0);
+  assert(script_runner_start("caps.js")==ESP_OK); finish();
+  script_runner_snapshot(&snapshot);
+  assert(snapshot.result==SCRIPT_ENGINE_STOPPED && !snapshot.is_waiting_consent);
+  assert(script_runner_authorize(snapshot.generation,true)==ESP_ERR_INVALID_STATE);
+  write_script("caps.lua","-- @caps 0x02\nprint('never')");
+  assert(script_runner_start("caps.lua")==ESP_OK); finish();
+  script_runner_snapshot(&snapshot);
+  assert(snapshot.result==SCRIPT_ENGINE_ERROR && snapshot.output[0]==0);
+  assert(s_bindings==0);
   puts("PASS: SD JS/Lua execution, task failure, busy ownership, stop, deadline and bounded output");
 }

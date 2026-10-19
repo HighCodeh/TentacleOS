@@ -170,7 +170,7 @@ code/device/production requirements, and the latest paired build evidence.
 
 The [Scripts service](../scripts/README.md) adds real MicroQuickJS and Lua
 interpreters without changing the OTA partitions. This supersedes the baseline
-optimization description above: Applications and Service now use size
+optimization description above: Applications, Service and cJSON now use size
 optimization and LTO; LVGL control/layout code follows that policy while draw
 sources retain `-O2`. Driver and standalone emulator flags remain unchanged.
 Device performance acceptance is still pending.

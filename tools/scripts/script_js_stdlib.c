@@ -331,7 +331,14 @@ static const JSPropDef js_performance[] = {
 static const JSClassDef js_performance_obj =
     JS_OBJECT_DEF("Performance", js_performance);
 
+static const JSPropDef js_tos[] = {
+    JS_CFUNC_DEF("call", 1, js_abi_call),
+    JS_PROP_END,
+};
+static const JSClassDef js_tos_obj = JS_OBJECT_DEF("Tos", js_tos);
+
 static const JSPropDef js_global_object[] = {
+    JS_PROP_CLASS_DEF("tos", &js_tos_obj),
     JS_PROP_CLASS_DEF("Object", &js_object_class),
     JS_PROP_CLASS_DEF("Function", &js_function_class),
     JS_PROP_CLASS_DEF("Number", &js_number_class),

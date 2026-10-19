@@ -37,7 +37,10 @@ typedef int64_t (*script_engine_clock_cb_t)(void *ctx);
 // Allocations must be compatible with free().
 typedef void *(*script_engine_alloc_cb_t)(size_t length);
 
+struct script_bindings;
+
 typedef struct {
+  struct script_bindings *bindings;
   void *ctx;
   script_engine_output_cb_t output;
   script_engine_poll_cb_t poll;

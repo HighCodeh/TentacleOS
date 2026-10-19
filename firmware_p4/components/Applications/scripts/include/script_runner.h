@@ -20,6 +20,9 @@ extern "C" {
 
 typedef struct {
   bool is_running;
+  bool is_waiting_consent;
+  uint32_t generation;
+  uint32_t requested_caps;
   script_engine_result_t result;
   char name[SCRIPT_RUNNER_NAME_MAX];
   char output[SCRIPT_RUNNER_OUTPUT_MAX];
@@ -28,6 +31,8 @@ typedef struct {
 
 bool script_runner_name_is_valid(const char *name);
 esp_err_t script_runner_start(const char *name);
+esp_err_t script_runner_authorize(uint32_t generation, bool is_allowed);
+bool script_runner_has_display(void);
 void script_runner_stop(void);
 void script_runner_snapshot(script_runner_snapshot_t *out_snapshot);
 

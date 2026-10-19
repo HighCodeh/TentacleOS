@@ -42,6 +42,10 @@ def main():
                    '-I', str(directory), '-I', str(ENGINE / 'include'),
                    '-I', str(JS), '-I', str(JS / 'generated'), '-I', str(LUA),
                    str(ENGINE / 'script_engine.c'), str(ROOT / 'tools/scripts/tests/test_engine.c')]
+        command += ['-I', str(ROOT / 'firmware_p4/components/Service/app_runtime/include'),
+                    '-I', str(ROOT / 'firmware_p4/vendor/cjson/cJSON'),
+                    str(ROOT / 'firmware_p4/vendor/cjson/cJSON/cJSON.c'),
+                    str(ENGINE / 'script_bindings.c')]
         command += [str(JS / (name + '.c')) for name in ('mquickjs', 'dtoa', 'libm', 'cutils')]
         command += [str(LUA / (name + '.c')) for name in LUA_SOURCES]
         subprocess.run([*command, '-lm', '-o', str(executable)], check=True, timeout=120)
