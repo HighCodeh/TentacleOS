@@ -126,6 +126,7 @@
 #include "led_ctrl_ui.h"
 #include "lora_traceroute_ui.h"
 #include "lora_rnode_ui.h"
+#include "lora_mqtt_ui.h"
 #include "dev_console_ui.h"
 #include "dev_diag_ui.h"
 #include "nfc_bankcard_ui.h"
@@ -616,6 +617,8 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_lora_traceroute_open;
     case SCREEN_LORA_RNODE:
       return ui_lora_rnode_open;
+    case SCREEN_LORA_MQTT:
+      return ui_lora_mqtt_open;
     case SCREEN_DEV_CONSOLE:
       return ui_dev_console_open;
     case SCREEN_DEV_DIAG:
@@ -721,6 +724,7 @@ bool ui_screen_shows_chrome(screen_id_t s) {
     case SCREEN_MIC_REC:
     case SCREEN_LORA_RNODE:
     case SCREEN_LORA_TELEMETRY:
+    case SCREEN_LORA_MQTT:
     case SCREEN_USB_MOUSE:
     case SCREEN_IMU_MONITOR:
     case SCREEN_DEV_CONSOLE:
@@ -751,6 +755,7 @@ static bool is_lora_screen(screen_id_t s) {
     case SCREEN_LORA_POSITION:
     case SCREEN_LORA_TELEMETRY:
     case SCREEN_LORA_SECURE_DM:
+    case SCREEN_LORA_MQTT:
       return true;
     default:
       return false;

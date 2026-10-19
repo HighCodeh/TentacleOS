@@ -44,6 +44,8 @@
 
 static const char *TAG = "LORA_MESH";
 
+#define HOME_MQTT_INDEX 8
+
 #define CONNECT_POLL_MS       1000
 #define CHAT_POLL_MS          500
 #define CHAT_BATCH            8
@@ -318,6 +320,8 @@ static void build_home_view(void) {
   menu_component_add_item(&s_menu, "/assets/icons/monitoring.bin", "Telemetry");
   menu_component_add_item(&s_menu, "/assets/icons/vpn_key.bin", "Secure DM");
   menu_component_add_item(&s_menu, "/assets/icons/lan.bin", "Traceroute");
+  if (lora_session_active() == LORA_PROTO_MESHTASTIC)
+    menu_component_add_item(&s_menu, "/assets/icons/lan.bin", "MQTT");
 
   if (s_linked)
     menu_component_set_item_label_color(&s_menu, 0, lv_color_hex(UI_COL_SUCCESS));
@@ -1124,6 +1128,8 @@ static void lora_chat_input(const input_event_t *ev, void *ctx) {
               ui_switch_screen(SCREEN_LORA_SECURE_DM);
             } else if (s_home_sel == 7) {
               ui_switch_screen(SCREEN_LORA_TRACEROUTE);
+            } else if (s_home_sel == HOME_MQTT_INDEX) {
+              ui_switch_screen(SCREEN_LORA_MQTT);
             } else {
               s_view = (s_home_sel == 0)   ? VIEW_CONNECT
                        : (s_home_sel == 1) ? VIEW_NODES

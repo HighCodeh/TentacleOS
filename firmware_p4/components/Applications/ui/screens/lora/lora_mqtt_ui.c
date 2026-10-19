@@ -16,10 +16,12 @@
 #include "lora_mqtt_ui.h"
 
 #include <string.h>
+#include <stdio.h>
 
 #include "esp_log.h"
 
 #include "keyboard_ui.h"
+#include "meshtastic_mqtt.h"
 #include "menu_component_ui.h"
 #include "notify_ui.h"
 #include "ui_feedback.h"
@@ -29,11 +31,12 @@
 
 static const char *TAG = "LORA_MQTT";
 
-#define FIELD_MAX    40
-#define PASS_MASK    "******"
-#define PASS_UNSET   "(unset)"
-#define HOST_DEFAULT "mqtt.host"
-#define USER_DEFAULT "highboy"
+#define FIELD_MAX          128
+#define MQTT_UI_REFRESH_MS 500
+#define PASS_MASK          "******"
+#define PASS_UNSET         "(unset)"
+#define HOST_DEFAULT       ""
+#define USER_DEFAULT       ""
 
 #define ICON_BROKER "/assets/icons/public.bin"
 #define ICON_USER   "/assets/icons/hub.bin"
@@ -46,6 +49,7 @@ enum { ROW_BROKER = 0, ROW_USER, ROW_PASS, ROW_STATUS, ROW_ACTION, ROW_COUNT };
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
+static lv_timer_t *s_refresh;
 
 static char s_broker[FIELD_MAX];
 static char s_user[FIELD_MAX];
@@ -65,7 +69,7 @@ static void store_field(char *dst, const char *text) {
 
 static void on_kb_submit(const char *text, void *user_data) {
   (void)user_data;
-  if (text == NULL || text[0] == '\0')
+  if (text == NULL || (text[0] == '\0' && s_edit_field == ROW_BROKER))
     return;
 
   if (s_edit_field == ROW_BROKER) {
@@ -81,10 +85,64 @@ static void on_kb_submit(const char *text, void *user_data) {
   ui_feedback(UI_FB_WRITE);
 }
 
+static void refresh_status(void) {
+  mt_mqtt_snapshot_t snapshot;
+  meshtastic_mqtt_get_snapshot(&snapshot);
+  const char *state = "Stopped";
+  switch (snapshot.state) {
+    case MT_MQTT_CONNECTING:
+      state = "Connecting / subscribing";
+      break;
+    case MT_MQTT_LINKED:
+      state = "Connected + subscribed";
+      break;
+    case MT_MQTT_STOPPING:
+      state = "Disconnecting";
+      break;
+    case MT_MQTT_ERROR:
+      state = esp_err_to_name(snapshot.error);
+      break;
+    default:
+      break;
+  }
+  char status[96];
+  snprintf(status,
+           sizeof(status),
+           "%s RX%lu TX%lu",
+           state,
+           (unsigned long)snapshot.received,
+           (unsigned long)snapshot.published);
+  menu_component_set_selector_value(&s_menu, ROW_STATUS, status);
+  menu_component_set_selector_value(
+      &s_menu, ROW_ACTION, snapshot.is_requested ? "Disconnect" : "Connect");
+}
+
+static void refresh_timer(lv_timer_t *timer) {
+  if (lv_screen_active() != s_screen) {
+    if (s_refresh == timer)
+      s_refresh = NULL;
+    lv_timer_del(timer);
+    return;
+  }
+  refresh_status();
+}
+
 static void request_connect(void) {
-  ESP_LOGW(TAG, "MQTT connection unavailable: no IP transport to C5");
+  mt_mqtt_snapshot_t snapshot;
+  meshtastic_mqtt_get_snapshot(&snapshot);
+  if (snapshot.is_requested) {
+    meshtastic_mqtt_stop();
+  } else {
+    esp_err_t error = meshtastic_mqtt_init(s_broker, s_user, s_pass);
+    if (error != ESP_OK) {
+      ESP_LOGW(TAG, "MQTT request rejected: %s", esp_err_to_name(error));
+      notify(NOTIFY_WARNING,
+             error == ESP_ERR_INVALID_STATE ? "Start Meshtastic first / wait for stop"
+                                            : "Check MQTT broker and credentials");
+    }
+  }
   ui_feedback(UI_FB_SELECT);
-  notify(NOTIFY_WARNING, "MQTT network transport unavailable");
+  refresh_status();
 }
 
 static void build_screen(void) {
@@ -94,7 +152,7 @@ static void build_screen(void) {
   menu_component_add_selector(&s_menu, ICON_USER, "User", s_user);
   menu_component_add_selector(&s_menu, ICON_PASS, "Pass", pass_display());
   menu_component_add_section(&s_menu, "LINK");
-  menu_component_add_selector(&s_menu, ICON_STATUS, "Status", "Unavailable");
+  menu_component_add_selector(&s_menu, ICON_STATUS, "Status", "Stopped");
   menu_component_add_selector(&s_menu, ICON_ACTION, "Action", "Connect");
   menu_component_select(&s_menu, ROW_BROKER);
   menu_component_set_hint(&s_menu, LV_SYMBOL_UP LV_SYMBOL_DOWN "  move   OK edit/run   BACK exit");
@@ -138,13 +196,18 @@ static void lora_mqtt_input(const input_event_t *ev, void *ctx) {
 void ui_lora_mqtt_open(void) {
   ui_theme_set_protocol(PROTOCOL_LORA);
 
+  if (s_refresh != NULL) {
+    lv_timer_del(s_refresh);
+    s_refresh = NULL;
+  }
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
   }
-  store_field(s_broker, HOST_DEFAULT);
-  store_field(s_user, USER_DEFAULT);
-  s_pass[0] = '\0';
+  if (s_broker[0] == '\0')
+    store_field(s_broker, HOST_DEFAULT);
+  if (s_user[0] == '\0')
+    store_field(s_user, USER_DEFAULT);
   s_edit_field = ROW_BROKER;
 
   s_screen = lv_obj_create(NULL);
@@ -160,5 +223,7 @@ void ui_lora_mqtt_open(void) {
 
   ui_screen_load_owned(&s_screen, s_screen);
 
-  ESP_LOGI(TAG, "LoRa MQTT settings opened (network transport unavailable)");
+  refresh_status();
+  s_refresh = lv_timer_create(refresh_timer, MQTT_UI_REFRESH_MS, NULL);
+  ESP_LOGI(TAG, "LoRa MQTT settings opened");
 }

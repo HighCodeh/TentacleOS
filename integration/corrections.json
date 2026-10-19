@@ -334,8 +334,8 @@
     "firmware_p4/components/Applications/ui/ui_manager.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "938b509321c8ef23ed8cf0f6f5ff2644fdabaea3a84ca1b544428c4c2c2eeba2",
-      "after_sha256": "3e84d11d2b68822fdadbdbb2977eed70e8e7bd5d0c46dffb26f00f6d89438246",
-      "reason": "Restore a dedicated Scripts screen for real JavaScript/Lua SD execution with synchronized output and cancellation, keeping signed .hb Apps separate.",
+      "after_sha256": "c5f1c18aca8c4768ee76a7ecd1e078f73e2e1c9826a06a00f7c466773b88696e",
+      "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership",
       "review_history": [
         {
           "after_sha256": "00c83c4094432fb613e43f0e325440d51b97346e02837d4aff968510c8fb549e",
@@ -350,6 +350,10 @@
         {
           "after_sha256": "5a90ac7b458233eb1153d69fa1cf26f394a7d08bc673189da950abb15253639e",
           "reason": "Replace the simulated JavaScript runner with the signed .hb Apps launcher and preserve equivalent legacy navigation."
+        },
+        {
+          "after_sha256": "3e84d11d2b68822fdadbdbb2977eed70e8e7bd5d0c46dffb26f00f6d89438246",
+          "reason": "Restore a dedicated Scripts screen for real JavaScript/Lua SD execution with synchronized output and cancellation, keeping signed .hb Apps separate."
         }
       ]
     },
@@ -568,8 +572,16 @@
     "firmware_p4/components/Applications/ui/screens/lora/lora_mqtt_ui.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "0d76b5a909fafecdbebcf59abcf4b915382639bc236e7f66ce9ffd68a77f095f",
-      "after_sha256": "96419055b87df6b037c91dcc08c45a4379cf8d5f907ebd2e76fe0ed858195304",
-      "reason": "Remove synthetic connected state and success notifications while no C5 IP transport backs the P4 MQTT bridge."
+      "after_sha256": "1c4ee2ad77e8fa94d4071fd71679ffbc7a5832ba2f4cad6f8f0ba65457c2bcf6",
+      "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership",
+      "review_history": [
+        {
+          "after_sha256": "96419055b87df6b037c91dcc08c45a4379cf8d5f907ebd2e76fe0ed858195304",
+          "reason": "Remove synthetic connected state and success notifications while no C5 IP transport backs the P4 MQTT bridge."
+        }
+      ],
+      "pre_format_sha256": "afda714ab44a2f9f25bfe6d540819cea2b0dd0d5cbec929470ec47e412706e3d",
+      "formatter": "clang-format version 22.1.5"
     },
     "firmware_p4/components/Applications/ui/screens/infrared/ir_library_ui.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -714,8 +726,14 @@
     "firmware_p4/components/Applications/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "da11f270bf3ffb612ef0469030d722884b5eb81f62f1c50223df2c526b8054a5",
-      "after_sha256": "539b7c5858f4c83c2f3c4cac2fd27e23aedd3106dffd606058dafc50fd33ac2c",
-      "reason": "Register bounded JavaScript/Lua engines and an SD worker; compact P4 applications, services and LVGL layout without changing partitions, drivers, standalone emulator flags or paired SPI v8."
+      "after_sha256": "06b57e8a7b43f7ff04a6ad760598725905b2bc716b6f333bfc55d53b68bde322",
+      "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership",
+      "review_history": [
+        {
+          "after_sha256": "539b7c5858f4c83c2f3c4cac2fd27e23aedd3106dffd606058dafc50fd33ac2c",
+          "reason": "Register bounded JavaScript/Lua engines and an SD worker; compact P4 applications, services and LVGL layout without changing partitions, drivers, standalone emulator flags or paired SPI v8."
+        }
+      ]
     },
     "firmware_p4/components/Service/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -932,6 +950,38 @@
       "before_sha256": "339da1e33f7bc54bbe041c091373a3a98b1f7b5e3d1be495a6d255c7182242df",
       "after_sha256": "afcf5047e37043ecf184feca8b39a5152ca7f4f966ad2c77aea612191cea2ae2",
       "reason": "Honor Muse setup reservations for MQTT while retaining status and cancellation access"
+    },
+    "firmware_p4/components/Applications/LoRa/meshtastic/include/meshtastic_mqtt.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "aeee2b501e92818e09ed00ee2459d40c0e5a9e13fac2dabb98429945b27a3041",
+      "after_sha256": "6ca2672f371e90514e110245d43851affa9cea613eaf80f822664b467551fc1b",
+      "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership"
+    },
+    "firmware_p4/components/Applications/LoRa/meshtastic/meshtastic_mqtt.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "f8e7aec66df5a024cfeeb8b46253646513d45052c7767e3818f9877dd3b5fd94",
+      "after_sha256": "585295d219f4150f553ed363bf33223f08d137f691b0017403781e36134827f5",
+      "reason": "Check each MQTT topic formatting result before configuring the C5 client",
+      "review_history": [
+        {
+          "after_sha256": "a4c5d7acf5a410a3afa99e4dd6bf517957ec2f4200fc095be753bc06f50145f4",
+          "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership",
+          "pre_format_sha256": "c276193029de5ada5a9a491dc4183511de121d4ba2443abd2fd4cc0ed2f43c9d",
+          "formatter": "clang-format version 22.1.5"
+        }
+      ]
+    },
+    "firmware_p4/components/Applications/LoRa/meshtastic/meshtastic_mesh.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "1c3dc2d211c18b183e7d6b0fc0269357004f2e6a601efc73e8c7d8bf83d4e2b2",
+      "after_sha256": "0ad82cb0f13888a8058cb58a0be7ed229eaa9af87336528c5edaf09e7a48bef8",
+      "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership"
+    },
+    "firmware_p4/components/Applications/ui/screens/lora/lora_chat_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "937128f42705eada216cac65872ede9d87b7d3e30e391c3d4bf1f7d1fc177921",
+      "after_sha256": "5b3350bde8c0adc09da90d8c5b485bee9fbac09749442e1b63c4d764d55c9f52",
+      "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership"
     }
   }
 }

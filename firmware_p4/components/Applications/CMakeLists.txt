@@ -155,7 +155,6 @@ idf_component_register(SRCS
   mbedtls
   bt
   libsodium
-  mqtt
   littlefs
   nvs_flash
   esp-dsp

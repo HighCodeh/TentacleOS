@@ -38,6 +38,7 @@
 
 #include "mt_modules.h"
 #include "meshtastic_channels.h"
+#include "meshtastic_mqtt.h"
 #include "meshtastic_crypto_pki.h"
 #include "meshtastic_nodedb.h"
 #include "meshtastic_pki.h"
@@ -559,6 +560,8 @@ static void process_rx_packet(const sx1262_packet_t *pkt) {
   if (was_upgraded) {
     ESP_LOGD(TAG, "RX upgrade: hop %u higher than seen before - reprocessing", hop_limit);
   }
+
+  meshtastic_mqtt_publish_radio(pkt->buf, pkt->len);
 
   uint8_t decrypted[MT_MAX_PAYLOAD];
   uint16_t dec_len = payload_len;
@@ -1291,6 +1294,7 @@ static void mesh_task(void *arg) {
                  (unsigned long)pre_jitter,
                  channel_clear ? " LBT" : "");
         tx_ok = true;
+        meshtastic_mqtt_publish_radio(tx.buf, tx.len);
       }
 
       for (int i = 0; i < 500; i++) {
