@@ -17,7 +17,18 @@
 static const char *TAG="TEST_RF_ROUTING";
 static portMUX_TYPE s_state_lock=portMUX_INITIALIZER_UNLOCKED;
 static uint32_t s_generation=1, s_ready_generation=1, s_dispatch_generation=1;
-static bool s_is_authenticated, s_is_valid_mac;
+static bool s_is_authenticated, s_is_valid_mac, s_finish_allowed;
+static unsigned s_ready_responses;
+static void *s_lock=(void *)1;
+#define portMAX_DELAY 0
+#define xSemaphoreTakeRecursive(lock, wait) ((void)(lock), (void)(wait))
+#define xSemaphoreGiveRecursive(lock) ((void)(lock))
+static bool host_link_sec_finish(const uint8_t *span,size_t length,const uint8_t *mac,uint32_t counter) {
+  assert(span && length && mac && counter==1);return s_finish_allowed;
+}
+static void emit_frame(uint32_t generation,uint8_t type,uint8_t category,uint8_t op,const uint8_t *payload,uint16_t length) {
+  assert(generation==1 && type==HOST_TYPE_HELLO_READY && category==0 && op==0 && !payload && !length);++s_ready_responses;
+}
 static unsigned s_calls, s_responses, s_relays;
 static bool host_link_sec_is_authenticated(void) { return s_is_authenticated; }
 static bool host_link_sec_verify_inbound(const uint8_t *data,size_t length,const uint8_t *mac,uint32_t counter) {
@@ -60,5 +71,9 @@ int main(void) {
   process_frame(frame,sizeof(frame)); assert(s_calls==1 && s_responses==1 && s_relays==0);
   frame[11]=SPI_CAT_RFID;
   process_frame(frame,sizeof(frame)); assert(s_calls==2 && s_responses==2 && s_relays==0);
+  frame[10]=HOST_TYPE_HELLO_FINISH;frame[11]=0;frame[12]=0;
+  s_is_authenticated=false;s_finish_allowed=false;process_frame(frame,sizeof(frame));assert(s_ready_responses==0);
+  s_finish_allowed=true;process_frame(frame,sizeof(frame));assert(s_ready_responses==1 && s_calls==2);
+  frame[12]=1;process_frame(frame,sizeof(frame));assert(s_ready_responses==1);
   puts("PASS: production host-link RF routing rejects unauthenticated, failed-MAC/replay and stale-generation commands");
 }

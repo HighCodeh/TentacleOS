@@ -35,8 +35,8 @@ running device, not evidence that a card was read. See [build/test evidence](TES
 and [field recording](FIELD.md).
 
 Issue #156 remains open: absent adapters and physical rows cannot be replaced
-by this source matrix. GATT, RNode, ephemeral pairing and production
-provisioning are implementation work, not merely missing test checkmarks.
+by this source matrix. Unpublished radio adapters and production provisioning still require implementation
+or configuration; the physical matrix remains separate.
 
 ## MQTT follow-up
 
@@ -53,3 +53,10 @@ attributes over C5, with cancellation, an expiring connection lease and bounded
 snapshots. The authenticated USB companion can use the same Bluetooth commands;
 BLE companion ownership prevents simultaneous central exploration on that chip.
 No new `.hb` GATT table is published, and physical acceptance remains pending.
+
+## Companion authentication follow-up
+
+The [ephemeral pairing implementation](../host_link/pairing.md) now requires
+X25519 transcript proofs and physical code confirmation for USB/BLE. The actual
+clients verify reply MACs/counters. Real-crypto host tests and paired builds pass;
+transport/button/entropy acceptance remains physical work under #156.

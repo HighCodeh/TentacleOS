@@ -17,6 +17,8 @@ this work. No device was flashed or exercised.
 | [#155](https://github.com/HighCodeh/TentacleOS/issues/155) | Native Wi-Fi/Bluetooth paths, real Meshtastic MQTT/position, real JS/Lua Scripts and a remote GATT explorer now replace the audited mock paths. GATT scans, connects, discovers and reads through C5 with bounded snapshots, cancellation and lease expiry. Host tests and paired SDK builds pass; actual device/network interoperability remains #143/#156. |
 | [#145](https://github.com/HighCodeh/TentacleOS/issues/145) | Shared SX1262 airtime pacing covers both meshes; real MQTT subscription/publication and bounded chat reception run through C5. The requested RNode decision is to leave the inherited UART endpoint unsupported on P4 because GPIO43/44 conflict with SDMMC; the menu is a receive-only lab. A future KISS endpoint requires a separate transport design. Physical acceptance remains #156. |
 
+| [#151](https://github.com/HighCodeh/TentacleOS/issues/151) | Companion handshake v2 now uses fresh X25519, transcript-bound PSK proofs and physical token confirmation before signed FINISH/READY activates commands. Updated clients verify response MACs/replay counters; real-crypto C/Python interoperability, UI handler tests and paired builds pass. Physical USB/BLE/button acceptance remains #156. |
+
 ## Still open
 
 | Issue | Remaining work |
@@ -25,7 +27,6 @@ this work. No device was flashed or exercised.
 | [#143](https://github.com/HighCodeh/TentacleOS/issues/143) | Companion Wi-Fi dispatch exists. Measure actual throughput and validate complete scan/connect/session flows on the paired device. |
 | [#148](https://github.com/HighCodeh/TentacleOS/issues/148) | Physical NFC card test with recorded hardware, card types, read/write/emulation results and field shutdown. |
 | [#149](https://github.com/HighCodeh/TentacleOS/issues/149) | NFC discovery and native LF RFID read tables are published in ABI 1.10, including JS/Lua bindings, stable-worker ownership, capability checks and force-kill quiescence. IR decoded receive/send is now published in ABI 1.11 with JS/Lua bindings and a shared worker lease. Sub-GHz and LoRa publication remain pending. Build-local public-key selection and production rejection of the shipped dev key are implemented and host-tested. A real production identity remains unprovisioned; the user requested configuration support first. Remaining radio publication and teardown remain open. |
-| [#151](https://github.com/HighCodeh/TentacleOS/issues/151) | Companion ephemeral ECDH and device-side pairing confirmation. Existing PSK authentication and separate Muse pairing do not meet this requirement. |
 | [#152](https://github.com/HighCodeh/TentacleOS/issues/152) | Production Secure Boot v2 and Flash Encryption provisioning for both chips, including keys, recovery and irreversible eFuse review. Both remain disabled. |
 | [#153](https://github.com/HighCodeh/TentacleOS/issues/153) | Existing boot-loop/safe-mode/WDT/coredump mechanisms need fault-injection and recovery acceptance on hardware. The boot-sound crash workaround remains. |
 | [#156](https://github.com/HighCodeh/TentacleOS/issues/156) | The [source matrix](MATRIX.md) now identifies implemented and missing UI / `.hb` / companion paths. Missing adapters and the physical cross-interface acceptance still need completion. |
@@ -115,3 +116,12 @@ because of the SDMMC conflict. A usable KISS endpoint is a future transport
 feature, not a completed capability of this firmware. This supersedes earlier
 notes that kept #145 open for that additional endpoint. Actual regional airtime,
 broker/device interoperability and cross-interface acceptance remain under #156.
+
+## Ephemeral companion pairing completion
+
+The [paired build record](TESTS.md#companion-ephemeral-pairing-build-record)
+validates the #151 implementation. Every connection now requires the Companion
+screen, a matching code and device OK; the old HELLO format is rejected. This is
+a client compatibility change, with updated CLI/file-transfer clients included.
+The frame envelope remains version 1, handshake payloads use version 2, and Muse
+pairing is unchanged. Physical acceptance remains under #156.

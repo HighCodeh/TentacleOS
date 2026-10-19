@@ -483,3 +483,36 @@ These tests do not emit or capture infrared on a device. Raw/file/AC pointers
 remain NULL; Sub-GHz/LoRa adapters, production keys and physical acceptance remain
 open. The P4 has 7,232 bytes free in its existing slot. No device, flash, SD,
 private production key or eFuse was accessed.
+
+## Companion ephemeral pairing build record
+
+Validated on 2026-10-19 after automatic hook formatting, firmware `a18fbe7d`.
+Both pinned SDK builds and the complete offline suite passed. Paired SPI v8,
+all eight C5 memory settings and the original partition sizes are unchanged.
+The firmware vendor dependencies and production trust keys are unchanged.
+
+| Target | Application bytes | Slot bytes | Free bytes | SHA-256 |
+| --- | ---: | ---: | ---: | --- |
+| P4 | 2,942,496 | 2,949,120 | 6,624 | `033e753ee9130b3482f0c9b019c3e991c8c3983c126538156a708c473daa929e` |
+| C5 | 2,042,896 | 2,097,152 | 54,256 | `6904b6010f25cc9575ae3a4697a5b02e2567e38711381272f1c83165a4262455` |
+
+The [handshake v2 contract](../host_link/pairing.md) requires fresh X25519 keys,
+PSK-authenticated transcript proofs, token-bound physical confirmation and signed
+FINISH/READY before command authorization. There is no legacy PSK-only downgrade.
+The existing HMAC envelope retains visible payloads; this is not payload encryption.
+Both USB clients now verify reply MACs and replay counters. Confirmed USB pairing
+requests BLE relay shutdown, making the C5 available for central GATT operations.
+
+The new ASan/UBSan harness compiles production security with real libsodium
+X25519 and OpenSSL HKDF/HMAC adapters; RTOS/NVS/RNG/identity are explicit fixtures.
+It checks RFC 7748 public/shared vectors, low-order keys, altered proofs, token
+replacement, denial, expiry, reset, reflection/replay and persistence failure.
+The real Python cryptography helper matches C keys and comparison code; both
+actual USB clients complete the exchange against that backend and reject forged
+or replayed responses. The real UI OK/BACK handler is compiled and checked for
+displayed-token approval and cancellation. Existing RF dispatch tests also check
+FINISH routing without command dispatch. CI installs the host crypto dependencies.
+
+Physical buttons, entropy quality and USB/BLE interoperability remain acceptance
+work under #156. Muse's independent pairing is unchanged. No device, SD, flash,
+private production key or eFuse was accessed. Commitlint and whitespace checks pass.

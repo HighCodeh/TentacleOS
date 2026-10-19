@@ -107,7 +107,12 @@ jobs:
       - name: Install host compiler
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang
+          sudo apt-get install -y build-essential clang pkg-config libsodium-dev libssl-dev
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install companion test dependencies
+        run: python3 -m pip install -r tools/host_link/requirements.txt
       - name: Run source contracts and host regressions
         run: bash tools/highboy/test.command
 
