@@ -36,6 +36,10 @@ esp_err_t host_local_rf_init(void) {
   return ESP_OK;
 }
 
+bool host_local_rf_is_ready(void) {
+  return s_call_lock != NULL && s_done != NULL;
+}
+
 bool host_local_rf_lock(uint32_t timeout_ms) {
   return s_call_lock == NULL || xSemaphoreTake(s_call_lock, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
 }

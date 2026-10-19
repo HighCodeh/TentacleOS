@@ -15,6 +15,7 @@
 
 #include "lora_session.h"
 
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -45,15 +46,28 @@ EXT_RAM_BSS_ATTR static lora_msg_t s_msgs[MSG_RING];
 static uint16_t s_head = 0;
 static uint16_t s_count = 0;
 static uint32_t s_total = 0;
-static SemaphoreHandle_t s_lock = NULL;
+static _Atomic(SemaphoreHandle_t) s_lock;
 static bool s_no_sleep_held = false;
 
+static SemaphoreHandle_t ring_mutex(void) {
+  SemaphoreHandle_t mutex = atomic_load(&s_lock);
+  if (mutex != NULL)
+    return mutex;
+  SemaphoreHandle_t candidate = xSemaphoreCreateMutex();
+  if (candidate == NULL) {
+    ESP_LOGE(TAG, "Failed to allocate chat ring mutex");
+    return NULL;
+  }
+  if (!atomic_compare_exchange_strong(&s_lock, &mutex, candidate)) {
+    vSemaphoreDelete(candidate);
+    return mutex;
+  }
+  return candidate;
+}
+
 static bool ring_lock(void) {
-  if (s_lock == NULL)
-    s_lock = xSemaphoreCreateMutex();
-  if (s_lock == NULL)
-    return false;
-  return xSemaphoreTake(s_lock, pdMS_TO_TICKS(RING_LOCK_MS)) == pdTRUE;
+  SemaphoreHandle_t mutex = ring_mutex();
+  return mutex != NULL && xSemaphoreTake(mutex, pdMS_TO_TICKS(RING_LOCK_MS)) == pdTRUE;
 }
 
 static void ring_unlock(void) {
@@ -84,8 +98,8 @@ static void ring_push(bool outgoing, const char *who, const char *text) {
 }
 
 esp_err_t lora_session_start(lora_proto_t proto) {
-  if (s_lock == NULL)
-    s_lock = xSemaphoreCreateMutex();
+  if (ring_mutex() == NULL)
+    return ESP_ERR_NO_MEM;
 
   if (s_proto != LORA_PROTO_NONE) {
     if (s_proto == proto)
@@ -174,9 +188,9 @@ uint16_t lora_session_msg_since(uint32_t *io_seq, lora_msg_t *out, uint16_t max)
   uint16_t copied = 0;
   if (ring_lock()) {
     uint32_t oldest = s_total - s_count;
-    if (*io_seq < oldest)
+    if ((uint32_t)(s_total - *io_seq) > s_count)
       *io_seq = oldest;
-    while (*io_seq < s_total && copied < max) {
+    while (*io_seq != s_total && copied < max) {
       uint16_t rel = (uint16_t)(*io_seq - oldest);
       out[copied] = s_msgs[(s_head + rel) % MSG_RING];
       copied++;

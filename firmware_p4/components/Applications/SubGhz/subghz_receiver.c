@@ -109,6 +109,8 @@ static void publish_rx_result(bool decoded,
     return;
 
   s_result_seq++;
+  if (s_result_seq == 0)
+    ++s_result_seq;
   s_latest.seq = s_result_seq;
   s_latest.decoded = decoded;
   s_latest.freq = s_rx_freq;
@@ -460,7 +462,6 @@ esp_err_t subghz_receiver_start(subghz_mode_t mode, cc1101_preset_t preset, uint
   }
   if (s_result_mutex != NULL &&
       xSemaphoreTake(s_result_mutex, pdMS_TO_TICKS(RESULT_LOCK_TIMEOUT_MS)) == pdTRUE) {
-    s_result_seq = 0;
     memset(&s_latest, 0, sizeof(s_latest));
     xSemaphoreGive(s_result_mutex);
   }

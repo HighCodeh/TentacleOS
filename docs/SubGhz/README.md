@@ -403,3 +403,12 @@ typedef struct {
 ```
 
 Shared data structure used across decoder, serializer, storage, and UI layers.
+
+## App capture observations
+
+ABI 1.12 publishes read-only `subghz.rx_poll` for signed apps and JS/Lua,
+requiring RX permission. Each app/run has a private cursor over the latest
+native capture snapshot; sequence IDs persist across receiver restarts.
+Polling never starts or stops the receiver and does not expose raw timings.
+Active control and spectrum entries remain NULL pending their ownership adapters.
+See the [ABI contract](../app_sdk/README.md#native-radio-observations-abi-112).

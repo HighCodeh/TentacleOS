@@ -283,3 +283,13 @@ it does not advertise KISS/Reticulum support. Adding a future usable endpoint
 requires a separate board-safe USB or other transport design and validation.
 The current issue scope does not imply that such an endpoint is already usable.
 Physical airtime, MQTT/network and shared-radio acceptance remain #156.
+
+## App chat observations
+
+ABI 1.12 publishes read-only `lora.mesh_poll` for signed apps and JS/Lua,
+requiring RX permission. It copies the native 24-record chat ring with a private
+cursor per app/run. Its first mutex publication is atomic across UI, mesh and
+app callers; overwritten records are skipped and sequence wrap is handled.
+Polling does not start a mesh or claim the SX1262. Every active-control entry
+in the app table remains NULL until ownership/teardown adapters are implemented.
+See the [ABI contract](../app_sdk/README.md#native-radio-observations-abi-112).

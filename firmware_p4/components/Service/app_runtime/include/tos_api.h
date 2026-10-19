@@ -58,12 +58,14 @@ typedef struct host_link_handler host_link_handler_t; // opaque to apps
 #endif
 
 #define TOS_ABI_VERSION_MAJOR 1
+// 1.12 = read-only native Sub-GHz results and LoRa chat history.
+// 1.11 = decoded IR receive/send.
 // 1.10 = native NFC discovery and LF RFID reads (optional unsupported NFC calls are NULL).
 // 1.9 = ui->image (retained image widget from app-provided LVGL .bin bytes).
 // 1.8 = read-only fs subsystem. NOTE: 1.7 was briefly a (removed) IMU subsystem in
 // dev; fs took a fresh minor so a firmware built during the IMU era rejects an
 // fs app at the load gate instead of mismatching its api->fs pointer.
-#define TOS_ABI_VERSION_MINOR 11
+#define TOS_ABI_VERSION_MINOR 12
 
 /** Log levels; values match esp_log_level_t so they pass straight through. */
 typedef enum {
@@ -279,15 +281,11 @@ typedef struct tos_fs_api {
   void (*close)(void *handle);
 } tos_fs_api_t;
 
-// Reserved radio subsystems (contract only; not yet published in tos_api_t).
-// These typed surfaces lock the app-facing shape of the five P4-native radios so
-// each radio's build can target a stable contract. Each is PUBLISHED on its own
-// -- a pointer appended to tos_api_t, a tos_api_<radio>.c impl, and a MINOR bump
-// -- once its backend is wired (SubGHz/IR/RFID first, NFC after the ST25R3916
-// bring-up, LoRa last). Until then an app cannot reach it. Reads/receives need
-// TOS_CAP_RADIO_RX; anything that transmits needs TOS_CAP_RADIO_TX. Long-running
-// captures return an out_session ended with the subsystem's session_stop, exactly
-// like wifi/ble.
+// Native radio contracts. A published table may implement only a subset;
+// unsupported function pointers are NULL and must be checked before use.
+// Reads need TOS_CAP_RADIO_RX and transmissions need TOS_CAP_RADIO_TX.
+// ABI 1.12 Sub-GHz/LoRa expose observations of native services only: they do
+// not start, retune, transmit or stop a radio. Active sessions remain optional.
 
 /** A Sub-GHz signal from the receiver. `decoded` is false for an unrecognised
  *  capture (only the raw timings via get_raw are then meaningful). */
@@ -311,7 +309,7 @@ typedef struct {
  */
 typedef struct tos_subghz_api {
   esp_err_t (*rx_start)(uint32_t freq_hz, uint8_t preset, uint32_t *out_session); ///< radio-rx
-  int (*rx_poll)(tos_subghz_signal_t *out); ///< 1 = new signal dequeued, 0 = none
+  int (*rx_poll)(tos_subghz_signal_t *out); ///< 1 = new snapshot, 0 = none, <0 = -esp_err_t
   int (*get_raw)(int32_t *out, int max);    ///< last signal's timings; count, or <0
   esp_err_t (*tx_raw)(const int32_t *timings, int count, uint32_t freq_hz); ///< radio-tx
   esp_err_t (*replay)(const char *path); ///< radio-tx; saved capture under /sdcard
@@ -505,7 +503,7 @@ typedef struct tos_lora_api {
   // Mesh chat (Meshtastic / MeshCore).
   esp_err_t (*mesh_start)(uint8_t proto, uint32_t *out_session); ///< tos_lora_mesh_t; radio-tx
   esp_err_t (*mesh_send_text)(const char *text);                 ///< radio-tx; broadcast
-  int (*mesh_poll)(tos_lora_msg_t *out);                         ///< 1 = new message, 0 = none
+  int (*mesh_poll)(tos_lora_msg_t *out); ///< 1 = new message, 0 = none, <0 = -esp_err_t
   int (*mesh_node_count)(void);
   esp_err_t (*mesh_node_get)(int index, tos_lora_node_t *out);
   // RNode KISS TNC bridge.
@@ -547,11 +545,13 @@ typedef struct tos_api {
   // Subsystem namespaces (each its own sub-struct; per-call capability gating).
   const tos_wifi_api_t *wifi;
   const tos_ble_api_t *ble;
-  const tos_ui_api_t *ui;     ///< on-device screen (minor 5+); needs TOS_CAP_UI
-  const tos_fs_api_t *fs;     ///< read-only SD access (minor 8+); needs TOS_CAP_FS_READ
-  const tos_nfc_api_t *nfc;   ///< native discovery (minor 10+); needs TOS_CAP_RADIO_RX
-  const tos_rfid_api_t *rfid; ///< native LF capture (minor 10+); needs TOS_CAP_RADIO_RX
-  const tos_ir_api_t *ir;     ///< decoded infrared (minor 11+); receive/send capabilities
+  const tos_ui_api_t *ui;         ///< on-device screen (minor 5+); needs TOS_CAP_UI
+  const tos_fs_api_t *fs;         ///< read-only SD access (minor 8+); needs TOS_CAP_FS_READ
+  const tos_nfc_api_t *nfc;       ///< native discovery (minor 10+); needs TOS_CAP_RADIO_RX
+  const tos_rfid_api_t *rfid;     ///< native LF capture (minor 10+); needs TOS_CAP_RADIO_RX
+  const tos_ir_api_t *ir;         ///< decoded infrared (minor 11+); receive/send capabilities
+  const tos_subghz_api_t *subghz; ///< captured results only (minor 12+); radio-rx
+  const tos_lora_api_t *lora;     ///< native chat history only (minor 12+); radio-rx
 } tos_api_t;
 
 /** @brief The shared, const host API table handed to every app at entry. */

@@ -14,6 +14,7 @@ extern "C" {
 #endif
 
 esp_err_t host_local_rf_init(void);
+bool host_local_rf_is_ready(void);
 bool host_local_rf_lock(uint32_t timeout_ms);
 void host_local_rf_unlock(void);
 /** Caller holds the local RF lock until this synchronous call returns. */

@@ -420,7 +420,8 @@ SDK `build.sh` now signs bundles with the ABI version of the header it compiled
 against; manual packers must specify `--abi-minor 10` for these calls.
 JavaScript and Lua expose the same calls through `tos.call("nfc.poll", 500)` and
 `tos.call("rfid.read", 500)`, with per-run receive permission and typed records.
-Sub-GHz and LoRa tables remain unpublished pending their ownership adapters.
+Sub-GHz and LoRa observations are published in ABI 1.12 below; active radio
+control still needs ownership adapters.
 
 ## Native IR API (ABI 1.11)
 
@@ -446,3 +447,32 @@ Scripts call the same table with `tos.call("ir.receive", 500)` or
 `{protocol, address, command, repeat}`. Both bindings require ABI 1.11 and their
 per-run RX/TX approval. Manually packed apps using IR require `--abi-minor 11`;
 the SDK build script already reads that requirement from its compiled header.
+
+## Native radio observations (ABI 1.12)
+
+The appended `api->subghz` and `api->lora` tables expose **only**
+`subghz->rx_poll(&signal)` and `lora->mesh_poll(&message)`. Both require
+`TOS_CAP_RADIO_RX`, return 1 for a copied record, 0 for no new record, or a
+negative `esp_err_t` on denial, cancellation or synchronization failure.
+Check ABI minor >= 12 before accessing these appended pointers. All other
+entries in these two tables are NULL.
+
+These functions observe captures/chat already produced by native services.
+Start the receiver or mesh through its native interface first; polling alone
+never starts, tunes, transmits or stops a radio. Sub-GHz keeps only its latest
+snapshot, so intermediate captures can be overwritten. LoRa keeps the latest
+24 sent/received chat records and skips an overwritten backlog. Each app/run
+has independent cursors; neither polling nor app exit consumes another client's
+records or stops its radio. A newly started app can see retained history.
+Protocol restarts preserve the Sub-GHz capture sequence. Strings are bounded,
+owned copies; no driver pointers escape into apps.
+
+The shared local RF gate prevents force-kill while the native result/ring mutex
+is held. Polling is unavailable until that gate has been initialized. Active
+Sub-GHz capture/transmission, spectrum control, raw LoRa and mesh startup/send
+are still unpublished pending ownership and teardown work under #149/#156.
+
+Scripts use `tos.call("subghz.rx_poll")` and `tos.call("lora.mesh_poll")` through
+the same tables, with RX approval. They return the signal/message record or
+`null` (JavaScript) / `nil` (Lua) if there is no new record. Adapter errors raise
+the normal ABI error. No production signing identity is provisioned by this API.

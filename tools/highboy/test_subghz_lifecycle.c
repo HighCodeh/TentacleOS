@@ -222,6 +222,15 @@ int main(void) {
   run(FAIL_NONE, false, true);
   run(FAIL_RECEIVE, false, true);
   run(FAIL_NONE, false, false);
+  subghz_data_t data={.protocol_name="CAME",.raw_value=42};
+  publish_rx_result(true,&data,NULL,NULL);
+  subghz_rx_result_t first, second;
+  assert(subghz_receiver_get_result(&first));
+  run(FAIL_NONE,false,false);
+  assert(!subghz_receiver_get_result(&second));
+  publish_rx_result(true,&data,NULL,NULL);
+  assert(subghz_receiver_get_result(&second) && first.seq!=second.seq);
+  assert(second.data.protocol_name==second.name_buf && strcmp(second.name_buf,"CAME")==0);
   puts("Sub-GHz RX lifecycle: cancellation, contention, allocation and retained DMA cleanup passed");
   return 0;
 }

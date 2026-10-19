@@ -65,6 +65,8 @@ typedef struct {
   volatile bool *res_lost; ///< set true when a radio the app held was preempted (NULL = untracked)
   struct tos_arena *arena; ///< per-app allocation arena (NULL = untracked)
   tos_app_regs_t *regs;    ///< commands the app registered (NULL = untracked)
+  uint32_t subghz_sequence;
+  uint32_t lora_sequence;
 } tos_app_ctx_t;
 
 /** @brief Set the resource-lost flag for the app bound to @p task (revoke side). */
