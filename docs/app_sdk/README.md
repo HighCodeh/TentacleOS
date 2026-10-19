@@ -116,7 +116,7 @@ while (!api->should_stop() && !api->resource_lost()) {
 
 ## 4. The host API (`tos_api_t`)
 
-The full contract is `Service/app_runtime/include/tos_api.h`. ABI version 1.9.
+The full contract is `Service/app_runtime/include/tos_api.h`. ABI version 1.10.
 
 | Call | Capability | Notes |
 |------|-----------|-------|
@@ -386,3 +386,37 @@ an optional return-screen ID for interpreted callers. Native apps keep their
 existing flags and Apps return screen. Binding uses a statically initialized
 lock; if its fixed table is full, both native and script runners refuse execution
 rather than running with the privileges of an unbound firmware task.
+
+## Native NFC/RFID API (ABI 1.10)
+
+`api->nfc->poll(&tag, timeout_ms)` performs one A/B/F/V discovery pass. Timeout
+is 1–2000 ms and is checked between native probes; an in-flight probe may finish
+after that deadline. It returns `ESP_ERR_NOT_FOUND` when no tag was found.
+`tag.protocol` uses `tos_nfc_proto_t`, including appended `TOS_NFC_FELICA`;
+UID, ATQA and SAK are copied from the native result. NFC block read/write and
+emulation/session fields remain NULL: check optional function pointers before
+calling them. Their on-device screens use separate native services.
+
+`api->rfid->read(&tag, timeout_ms)` captures EM4100/EM4102 with a 40–500 ms sampling
+window. `id` is ten uppercase hex characters, `raw_value` is the 40-bit payload,
+`bit_count` is 40 and `card_number` is its low 32 bits. No facility interpretation
+is inferred (`facility_code=0`). No write or clone operation is published.
+
+Both require approved `TOS_CAP_RADIO_RX`, check stop before/after the broker lock,
+and execute on the persistent firmware RF worker, sharing native driver, antenna
+reservation and power-lock cleanup with the [companion RF backend](../host_link/rf-commands.md).
+The caller may wait up to 3 seconds for the local-call lock. Antenna contention
+returns `ESP_ERR_INVALID_STATE`; hardware/setup failures propagate as errors.
+A new local read retries pending worker-owned cleanup; failed OFF retains the
+reservation and power hold. Local calls do not authenticate a companion session,
+consume its counters or emit a USB/BLE response. They do not require HOSTLINK.
+
+Native force-kill waits for the local-call gate before deleting a task. If the
+gate or SPI/UI locks cannot be obtained, it returns a timeout. Natural app exit
+retries cleanup after a failed kill claim instead of remaining suspended forever.
+The native ABI appends pointers after `fs`, preserving older field offsets.
+SDK `build.sh` now signs bundles with the ABI version of the header it compiled
+against; manual packers must specify `--abi-minor 10` for these calls.
+JavaScript and Lua expose the same calls through `tos.call("nfc.poll", 500)` and
+`tos.call("rfid.read", 500)`, with per-run receive permission and typed records.
+Sub-GHz, IR and LoRa tables remain unpublished pending their ownership adapters.

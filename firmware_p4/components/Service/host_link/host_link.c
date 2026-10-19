@@ -35,6 +35,7 @@
 #include "fly_link.h"
 #include "host_link_ir.h"
 #include "host_link_rf.h"
+#include "host_link_local_rf.h"
 #include "host_link_led.h"
 #include "host_link_lora.h"
 #include "host_link_sec.h"
@@ -80,6 +81,7 @@ typedef struct {
   host_link_writer_t writer;
   uint32_t generation;
   uint8_t len;
+  bool is_local_rf;
   uint8_t data[HOST_LINK_RX_CHUNK];
 } rx_item_t;
 static QueueHandle_t s_rx_queue = NULL;
@@ -121,7 +123,10 @@ esp_err_t host_link_init(void) {
   s_acc_len = 0;
   s_tx_counter = 0;
 
-  esp_err_t err = host_link_sec_init();
+  esp_err_t err = host_local_rf_init();
+  if (err != ESP_OK)
+    return err;
+  err = host_link_sec_init();
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Security init failed: %s", esp_err_to_name(err));
     return err;
@@ -309,13 +314,22 @@ static void reconcile_session(void) {
   }
 }
 
+esp_err_t host_link_schedule_local_rf(void) {
+  if (s_rx_queue == NULL || xTaskGetCurrentTaskHandle() == s_worker)
+    return ESP_ERR_INVALID_STATE;
+  const rx_item_t item = {.is_local_rf = true};
+  return xQueueSend(s_rx_queue, &item, 0) == pdTRUE ? ESP_OK : ESP_ERR_TIMEOUT;
+}
+
 static bool pump(TickType_t wait) {
   reconcile_session();
   rx_item_t item;
   if (xQueueReceive(s_rx_queue, &item, wait) != pdTRUE)
     return false;
   reconcile_session();
-  if (item.len != 0 && host_link_generation_matches(item.writer, item.generation)) {
+  if (item.is_local_rf) {
+    host_local_rf_process();
+  } else if (item.len != 0 && host_link_generation_matches(item.writer, item.generation)) {
     s_dispatch_generation = item.generation;
     parse_bytes(item.data, item.len);
     s_dispatch_generation = 0;

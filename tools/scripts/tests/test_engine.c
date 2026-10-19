@@ -58,10 +58,25 @@ static int read_file(void *file,void *buffer,int count) {
 }
 static void close_file(void *file) { assert(file==(void *)1); ++s_closed; }
 static esp_err_t send_key(uint8_t modifier,uint8_t key) { assert(modifier==0 && key==4); ++s_keys; return ESP_OK; }
+static unsigned s_rf_reads;
+static esp_err_t read_rfid(tos_rfid_tag_t *out,uint32_t timeout) {
+  assert(timeout==500); ++s_rf_reads;
+  *out=(tos_rfid_tag_t){.id="0102030405",.protocol="EM4100",.bit_count=40,
+    .raw_value=UINT64_C(0x0102030405),.card_number=0x02030405};
+  return ESP_OK;
+}
+static esp_err_t poll_nfc(tos_nfc_tag_t *out,uint32_t timeout) {
+  assert(timeout==500); ++s_rf_reads;
+  *out=(tos_nfc_tag_t){.uid={1,2,3,4},.uid_len=4,.atqa={0x44,0},.sak=0x20,
+    .protocol=TOS_NFC_ISO14443A};
+  return ESP_OK;
+}
+static const tos_rfid_api_t rfid={.read=read_rfid};
+static const tos_nfc_api_t nfc={.poll=poll_nfc};
 static const tos_wifi_api_t wifi={.scan=scan,.ap_get=ap_get};
 static const tos_ble_api_t ble={.hid_send_key=send_key};
 static const tos_fs_api_t fs={.open=open_file,.read=read_file,.close=close_file};
-static const tos_api_t api={.abi_major=1,.abi_minor=9,.should_stop=should_stop,.wifi=&wifi,.ble=&ble,.fs=&fs};
+static const tos_api_t api={.abi_major=1,.abi_minor=TOS_ABI_VERSION_MINOR,.should_stop=should_stop,.wifi=&wifi,.ble=&ble,.fs=&fs,.nfc=&nfc,.rfid=&rfid};
 static script_bindings_t bindings={.api=&api};
 
 static void test_bindings(void) {
@@ -83,7 +98,21 @@ static void test_bindings(void) {
     assert(s_scans==scans);
     assert(run(language,"tos.call('no.such.method')")==SCRIPT_ENGINE_ERROR);
     assert(run(language,"tos.call('fs.open','/sdcard/test')")==SCRIPT_ENGINE_ERROR);
+    unsigned rf_reads=s_rf_reads;
+    assert(run(language,"tos.call('nfc.poll',500)")==SCRIPT_ENGINE_ERROR);
+    assert(run(language,"tos.call('rfid.read',500)")==SCRIPT_ENGINE_ERROR);
+    assert(s_rf_reads==rf_reads);
     bindings.caps=SCRIPT_BINDINGS_CAPS;
+    assert(run(language,"print(tos.call('rfid.read',500).id)")==SCRIPT_ENGINE_OK);
+    assert(strcmp(s_output_text,"0102030405\n")==0);
+    assert(run(language,language==SCRIPT_ENGINE_JS
+      ? "print(tos.call('nfc.poll',500).uid[0])" : "print(tos.call('nfc.poll',500).uid[1])")==SCRIPT_ENGINE_OK);
+    assert(strcmp(s_output_text,"1\n")==0 && s_rf_reads==rf_reads+2);
+    tos_api_t old_api=api; old_api.abi_minor=9; bindings.api=&old_api;
+    assert(run(language,"tos.call('nfc.poll',500)")==SCRIPT_ENGINE_ERROR);
+    assert(run(language,"tos.call('rfid.read',500)")==SCRIPT_ENGINE_ERROR);
+    assert(s_rf_reads==rf_reads+2); bindings.api=&api;
+
     assert(run(language,"tos.call('wifi.scan'); print(tos.call('wifi.ap_get',0).bssid)")==SCRIPT_ENGINE_OK);
     assert(s_scans==scans+1 && strcmp(s_output_text,"00:01:02:03:04:05\n")==0);
     assert(run(language,"tos.call('wifi.ap_get',1)")==SCRIPT_ENGINE_ERROR);

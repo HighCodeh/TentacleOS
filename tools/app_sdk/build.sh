@@ -9,6 +9,9 @@ MABI=ilp32f
 # hb_pack needs PyNaCl, which lives in the system python, not the IDF venv.
 PY="${SYSTEM_PYTHON:-/usr/bin/python3}"
 SIGNING_KEY="${TOS_APP_SIGNING_KEY:-$HERE/keys/dev_ed25519.key}"
+ABI_HEADER="$FW/app_runtime/include/tos_api.h"
+ABI_MAJOR="$(awk '$2 == "TOS_ABI_VERSION_MAJOR" {print $3}' "$ABI_HEADER")"
+ABI_MINOR="$(awk '$2 == "TOS_ABI_VERSION_MINOR" {print $3}' "$ABI_HEADER")"
 
 for dir in "$HERE"/*/; do
   name="$(basename "$dir")"
@@ -21,7 +24,7 @@ for dir in "$HERE"/*/; do
     -c -o "$dir/app.elf" "$dir/app.c"
   caps="$(cat "$dir/caps" 2>/dev/null || echo 0x20)" # per-app caps file, default UI
   "$PY" "$HERE/hb_pack.py" "$dir/app.elf" "$dir/app.hb" --name "$name" --caps "$caps" \
-    --sign "$SIGNING_KEY"
+    --sign "$SIGNING_KEY" --abi-major "$ABI_MAJOR" --abi-minor "$ABI_MINOR"
   bytes="$(wc -c < "$dir/app.hb")"
   bytes="${bytes//[[:space:]]/}"
   echo "built '$name' -> $dir/app.hb ($bytes bytes)"

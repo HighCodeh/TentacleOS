@@ -14,8 +14,11 @@ class BuildTests(unittest.TestCase):
     def test_portable_size_and_external_key(self):
         with tempfile.TemporaryDirectory(prefix="tos sdk build ") as temporary:
             directory = Path(temporary)
-            sdk = directory / "sdk"
-            sdk.mkdir()
+            sdk = directory / "tools/app_sdk"
+            sdk.mkdir(parents=True)
+            header = directory / "firmware_p4/components/Service/app_runtime/include/tos_api.h"
+            header.parent.mkdir(parents=True)
+            header.write_text("#define TOS_ABI_VERSION_MAJOR 1\n#define TOS_ABI_VERSION_MINOR 10\n")
             shutil.copyfile(ROOT / "tools/app_sdk/build.sh", sdk / "build.sh")
             app = sdk / "hello"
             app.mkdir()
@@ -35,6 +38,10 @@ exit 1
 set -eu
 [ "$8" = --sign ]
 [ "$9" = "$EXPECTED_KEY" ]
+[ "${10}" = --abi-major ]
+[ "${11}" = 1 ]
+[ "${12}" = --abi-minor ]
+[ "${13}" = 10 ]
 printf HBAPtest > "$3"
 ''',
                 "stat": '#!/bin/bash\necho "GNU stat must not be used" >&2\nexit 99\n',

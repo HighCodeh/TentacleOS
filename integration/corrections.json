@@ -738,8 +738,14 @@
     "firmware_p4/components/Service/app_runtime/tos_api.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "daf4dce672a929f2e09eeded7b618d2bbf8dbd17a65704c7fbd508a2956d0dcd",
-      "after_sha256": "7cc8161c83817bec79a8899fda6fd602580bf9ffaf86cfc14ae80e3c2087acf0",
-      "reason": "Bind native and interpreted callers safely to the shared ABI, synchronize script lifecycle flags and retain the correct launcher on UI teardown."
+      "after_sha256": "85e83b35aea291cb303081a86dc1fea24fcf72d1c92830d9d26bc3ae08cde292",
+      "reason": "Publish native NFC discovery and LF RFID reads additively through the shared ABI, execute on the stable RF worker, and quiesce local operations before forced app deletion.",
+      "review_history": [
+        {
+          "after_sha256": "7cc8161c83817bec79a8899fda6fd602580bf9ffaf86cfc14ae80e3c2087acf0",
+          "reason": "Bind native and interpreted callers safely to the shared ABI, synchronize script lifecycle flags and retain the correct launcher on UI teardown."
+        }
+      ]
     },
     "firmware_p4/components/Service/app_runtime/tos_api_ui.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -758,9 +764,17 @@
     "firmware_p4/components/Service/app_runtime/tos_app_mgr.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "77fc8cbac19cdf12a532df413e4f19bd2f0d68a952a23eea6f60031ca580b505",
-      "after_sha256": "f32b2c66885c8f4a9e12c09c54abd78123ba856e3afaa5b0c624be6fdbff5a94",
-      "reason": "Bind native and interpreted callers safely to the shared ABI, synchronize script lifecycle flags and retain the correct launcher on UI teardown.",
-      "pre_format_sha256": "1ac25a1fbabde63c7e686a69abe03c1e8c115b5b188adb351d509aff3b1eb497",
+      "after_sha256": "cee2e944ac1fb8169c2eda6bd2ffee1c0e5cefc0ae0e8bcebfc5318621807c97",
+      "reason": "Publish native NFC discovery and LF RFID reads additively through the shared ABI, execute on the stable RF worker, and quiesce local operations before forced app deletion.",
+      "review_history": [
+        {
+          "after_sha256": "f32b2c66885c8f4a9e12c09c54abd78123ba856e3afaa5b0c624be6fdbff5a94",
+          "reason": "Bind native and interpreted callers safely to the shared ABI, synchronize script lifecycle flags and retain the correct launcher on UI teardown.",
+          "pre_format_sha256": "1ac25a1fbabde63c7e686a69abe03c1e8c115b5b188adb351d509aff3b1eb497",
+          "formatter": "clang-format version 22.1.5"
+        }
+      ],
+      "pre_format_sha256": "f03635de996a3a80ce4f496ddacbc7073cda332d40a3835bb7a0df75b3fa7bbd",
       "formatter": "clang-format version 22.1.5"
     },
     "firmware_p4/components/Drivers/lf_rfid/lf_rfid.c": {
@@ -796,10 +810,16 @@
     "firmware_p4/components/Service/host_link/host_link.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "6fa28c9bb162cfad719c14b75c53124217b6d877887ba3d8ff4efd7524673cd4",
-      "after_sha256": "1f02ab60182bde330a6f8b11149c141c539df09904c5a14a99f946d1658804eb",
-      "reason": "Add authenticated bounded NFC/LF companion capture with task-owned cleanup, preserve Muse category 0x11, mirror new category IDs and reuse synchronous NFC probes with explicit setup errors.",
-      "pre_format_sha256": "4272e5b566e524f86f64d151a473de902a0a1078b37942f6f71a3db229c015d7",
-      "formatter": "clang-format version 22.1.5"
+      "after_sha256": "f6cf043463c8bb2a22250ff6faf69baf58cf2662028935e7215931a34d93535a",
+      "reason": "Publish native NFC discovery and LF RFID reads additively through the shared ABI, execute on the stable RF worker, and quiesce local operations before forced app deletion.",
+      "review_history": [
+        {
+          "after_sha256": "1f02ab60182bde330a6f8b11149c141c539df09904c5a14a99f946d1658804eb",
+          "reason": "Add authenticated bounded NFC/LF companion capture with task-owned cleanup, preserve Muse category 0x11, mirror new category IDs and reuse synchronous NFC probes with explicit setup errors.",
+          "pre_format_sha256": "4272e5b566e524f86f64d151a473de902a0a1078b37942f6f71a3db229c015d7",
+          "formatter": "clang-format version 22.1.5"
+        }
+      ]
     },
     "firmware_p4/components/Service/spi_bridge/include/spi_protocol.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -856,6 +876,14 @@
       "before_sha256": "14133c42887734860c7f7a270e6eff39759a0dc648dc32fe19a6288e148eabc6",
       "after_sha256": "7009f9eb5d8ba0c6b3d35f922b59b7b9f352f7a5ab129da348824ed6eda2c4ac",
       "reason": "Reject the inherited RNode S3 UART on the P4 before claiming SDMMC pins or initializing the radio, and align tutorial text with the actual receive-only lab."
+    },
+    "firmware_p4/components/Service/app_runtime/include/tos_api.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "9c2020f1c91901d7b2335daccc2055d14c8646b20094bab14fc8bdd3a83b0b5d",
+      "after_sha256": "ef540914e454c49228b43f64b0605a2094d3ac153b992d56ca51a2292a1f1a34",
+      "reason": "Publish native NFC discovery and LF RFID reads additively through the shared ABI, execute on the stable RF worker, and quiesce local operations before forced app deletion.",
+      "pre_format_sha256": "d5f4e556b775c09d5d26951217d56dc942e51081d1bd6abfac3b69e01ad15184",
+      "formatter": "clang-format version 22.1.5"
     }
   }
 }

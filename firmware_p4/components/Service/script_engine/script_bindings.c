@@ -24,6 +24,7 @@
 #define SCRIPT_MAC_TEXT     18
 #define SCRIPT_HEX_RADIX    16
 #define SCRIPT_DELAY_MAX_MS 30000
+#define SCRIPT_RF_ABI_MINOR 10
 
 static const char *TAG = "SCRIPT_BINDINGS";
 
@@ -93,6 +94,8 @@ typedef enum {
   SCRIPT_BINDINGS_FS_READ,
   SCRIPT_BINDINGS_FS_SEEK,
   SCRIPT_BINDINGS_FS_CLOSE,
+  SCRIPT_BINDINGS_NFC_POLL,
+  SCRIPT_BINDINGS_RFID_READ,
   SCRIPT_BINDINGS_METHOD_COUNT
 } script_bindings_method_id_t;
 
@@ -168,6 +171,8 @@ static const script_bindings_method_t METHODS[] = {
     {"fs.read", "uu", TOS_CAP_FS_READ},
     {"fs.seek", "uu", TOS_CAP_FS_READ},
     {"fs.close", "u", 0},
+    {"nfc.poll", "u", TOS_CAP_RADIO_RX},
+    {"rfid.read", "u", TOS_CAP_RADIO_RX},
 };
 #define SCRIPT_METHOD_COUNT (sizeof(METHODS) / sizeof(METHODS[0]))
 _Static_assert(SCRIPT_METHOD_COUNT == SCRIPT_BINDINGS_METHOD_COUNT,
@@ -948,6 +953,61 @@ esp_err_t script_bindings_call(script_bindings_t *bindings, script_bindings_call
       void *file = bindings->files[slot].file;
       api->fs->close(file);
       bindings->files[slot].file = NULL;
+      break;
+    }
+    case SCRIPT_BINDINGS_NFC_POLL: {
+      if (api->abi_minor < SCRIPT_RF_ABI_MINOR || api->nfc == NULL || api->nfc->poll == NULL)
+        return ESP_ERR_NOT_SUPPORTED;
+      tos_nfc_tag_t tag = {0};
+      err = api->nfc->poll(&tag, n[0]);
+      if (err != ESP_OK)
+        break;
+      if (tag.uid_len > sizeof(tag.uid))
+        return ESP_ERR_INVALID_SIZE;
+      call->result = cJSON_CreateObject();
+      REQUIRE_JSON(call->result);
+      REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "protocol", tag.protocol));
+      REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "uid_len", tag.uid_len));
+      REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "sak", tag.sak));
+      cJSON *uid = cJSON_AddArrayToObject(call->result, "uid");
+      REQUIRE_JSON(uid);
+      for (uint32_t index = 0; index < tag.uid_len; ++index) {
+        cJSON *byte = cJSON_CreateNumber(tag.uid[index]);
+        REQUIRE_JSON(byte);
+        if (!cJSON_AddItemToArray(uid, byte)) {
+          cJSON_Delete(byte);
+          goto no_memory;
+        }
+      }
+      cJSON *atqa = cJSON_AddArrayToObject(call->result, "atqa");
+      REQUIRE_JSON(atqa);
+      for (uint32_t index = 0; index < sizeof(tag.atqa); ++index) {
+        cJSON *byte = cJSON_CreateNumber(tag.atqa[index]);
+        REQUIRE_JSON(byte);
+        if (!cJSON_AddItemToArray(atqa, byte)) {
+          cJSON_Delete(byte);
+          goto no_memory;
+        }
+      }
+      break;
+    }
+    case SCRIPT_BINDINGS_RFID_READ: {
+      if (api->abi_minor < SCRIPT_RF_ABI_MINOR || api->rfid == NULL || api->rfid->read == NULL)
+        return ESP_ERR_NOT_SUPPORTED;
+      tos_rfid_tag_t tag = {0};
+      err = api->rfid->read(&tag, n[0]);
+      if (err != ESP_OK)
+        break;
+      tag.id[sizeof(tag.id) - 1] = 0;
+      tag.protocol[sizeof(tag.protocol) - 1] = 0;
+      call->result = cJSON_CreateObject();
+      REQUIRE_JSON(call->result);
+      REQUIRE_JSON(cJSON_AddStringToObject(call->result, "id", tag.id));
+      REQUIRE_JSON(cJSON_AddStringToObject(call->result, "protocol", tag.protocol));
+      REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "bit_count", tag.bit_count));
+      REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "raw_value", tag.raw_value));
+      REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "card_number", tag.card_number));
+      REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "facility_code", tag.facility_code));
       break;
     }
     default:

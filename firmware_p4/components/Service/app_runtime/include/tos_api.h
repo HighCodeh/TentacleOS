@@ -58,11 +58,12 @@ typedef struct host_link_handler host_link_handler_t; // opaque to apps
 #endif
 
 #define TOS_ABI_VERSION_MAJOR 1
+// 1.10 = native NFC discovery and LF RFID reads (optional unsupported NFC calls are NULL).
 // 1.9 = ui->image (retained image widget from app-provided LVGL .bin bytes).
 // 1.8 = read-only fs subsystem. NOTE: 1.7 was briefly a (removed) IMU subsystem in
 // dev; fs took a fresh minor so a firmware built during the IMU era rejects an
 // fs app at the load gate instead of mismatching its api->fs pointer.
-#define TOS_ABI_VERSION_MINOR 9
+#define TOS_ABI_VERSION_MINOR 10
 
 /** Log levels; values match esp_log_level_t so they pass straight through. */
 typedef enum {
@@ -402,6 +403,7 @@ typedef enum {
   TOS_NFC_ISO14443A,
   TOS_NFC_ISO14443B,
   TOS_NFC_ISO15693,
+  TOS_NFC_FELICA,
 } tos_nfc_proto_t;
 
 /** One NFC tag from a poll. */
@@ -414,10 +416,10 @@ typedef struct {
 } tos_nfc_tag_t;
 
 /**
- * NFC (ST25R3916, 13.56 MHz). Target surface: poll the field for a tag,
- * Mifare-Classic block read/write with a 6-byte key, and UID emulation as a
- * session. Backed by the ST25R3916 stack; published once the reader bring-up is
- * wired (the on-device UI is simulation-backed until then).
+ * NFC (ST25R3916, 13.56 MHz). poll scans A/B/F/V once, until timeout_ms
+ * (1..2000) is reached between native probes. A probe already running may finish
+ * after the deadline. Unpublished read/write/emulation entries are NULL; callers
+ * must check a function pointer before using it.
  */
 typedef struct tos_nfc_api {
   esp_err_t (*poll)(tos_nfc_tag_t *out, uint32_t timeout_ms);                    ///< radio-rx
@@ -442,9 +444,9 @@ typedef struct {
 } tos_rfid_tag_t;
 
 /**
- * RFID 125 kHz (YS-RFID2). Read-only by hardware: the reader is a UART LF reader
- * and the decoders have no encoder, so there is deliberately no write/clone in
- * this contract.
+ * Native LF EM4100/EM4102 capture, timeout 40..500 ms. id/raw_value carry
+ * the 40 payload bits; card_number is their low 32 bits. facility_code is zero
+ * because no site-specific facility interpretation is inferred. No write/clone.
  */
 typedef struct tos_rfid_api {
   esp_err_t (*read)(tos_rfid_tag_t *out, uint32_t timeout_ms); ///< radio-rx; blocks
@@ -545,8 +547,10 @@ typedef struct tos_api {
   // Subsystem namespaces (each its own sub-struct; per-call capability gating).
   const tos_wifi_api_t *wifi;
   const tos_ble_api_t *ble;
-  const tos_ui_api_t *ui; ///< on-device screen (minor 5+); needs TOS_CAP_UI
-  const tos_fs_api_t *fs; ///< read-only SD access (minor 8+); needs TOS_CAP_FS_READ
+  const tos_ui_api_t *ui;     ///< on-device screen (minor 5+); needs TOS_CAP_UI
+  const tos_fs_api_t *fs;     ///< read-only SD access (minor 8+); needs TOS_CAP_FS_READ
+  const tos_nfc_api_t *nfc;   ///< native discovery (minor 10+); needs TOS_CAP_RADIO_RX
+  const tos_rfid_api_t *rfid; ///< native LF capture (minor 10+); needs TOS_CAP_RADIO_RX
 } tos_api_t;
 
 /** @brief The shared, const host API table handed to every app at entry. */

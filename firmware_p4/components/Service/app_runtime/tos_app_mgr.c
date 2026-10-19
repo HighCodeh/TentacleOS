@@ -23,6 +23,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
+#include "host_link_local_rf.h"
 #include "led_control.h"
 #include "lvgl_glue.h"
 #include "resource_mgr.h"
@@ -37,9 +38,10 @@
 
 static const char *TAG = "TOS_APP_MGR";
 
-#define APP_TASK_STACK      8192
-#define APP_ARENA_BUDGET    (1024 * 1024) // 1 MB per app
-#define APP_KILL_QUIESCE_MS 3000          // wait out an in-flight SPI before force-kill
+#define APP_TASK_STACK       8192
+#define APP_ARENA_BUDGET     (1024 * 1024) // 1 MB per app
+#define APP_CLEANUP_RETRY_MS 20
+#define APP_KILL_QUIESCE_MS  3000 // wait out an in-flight SPI before force-kill
 
 typedef struct {
   volatile bool active;
@@ -107,6 +109,13 @@ static void finish_slot(app_slot_t *a) {
   a->active = false; // last: frees the slot
 }
 
+static void cleanup_current_app(app_slot_t *app) {
+  // A failed force-kill must let natural exit reclaim the slot on its next try.
+  while (!claim_cleanup(app))
+    vTaskDelay(pdMS_TO_TICKS(APP_CLEANUP_RETRY_MS));
+  finish_slot(app);
+}
+
 static void app_task(void *arg) {
   app_slot_t *a = (app_slot_t *)arg;
   tos_app_ctx_t ctx = {.granted_caps = a->caps,
@@ -126,10 +135,7 @@ static void app_task(void *arg) {
     ESP_LOGE(TAG, "app '%s' load failed: %s", a->name, esp_err_to_name(e));
   }
 
-  if (claim_cleanup(a))
-    finish_slot(a);
-  else
-    vTaskSuspend(NULL); // the killer claimed us and will delete this task
+  cleanup_current_app(a);
   vTaskDelete(NULL);
 }
 
@@ -256,7 +262,14 @@ esp_err_t tos_app_mgr_stop(const char *name, uint32_t timeout_ms) {
         a->cleaning = false;
         return ESP_ERR_TIMEOUT;
       }
+      if (!host_local_rf_lock(APP_KILL_QUIESCE_MS)) {
+        if (ui_app)
+          lvgl_glue_unlock();
+        a->cleaning = false;
+        return ESP_ERR_TIMEOUT;
+      }
       if (spi_bridge_lock(APP_KILL_QUIESCE_MS) != ESP_OK) {
+        host_local_rf_unlock();
         ESP_LOGE(TAG, "bridge busy; not force-killing '%s' to avoid corruption", a->name);
         if (ui_app)
           lvgl_glue_unlock();
@@ -265,6 +278,7 @@ esp_err_t tos_app_mgr_stop(const char *name, uint32_t timeout_ms) {
       }
       vTaskDelete(a->task);
       spi_bridge_unlock();
+      host_local_rf_unlock();
       if (ui_app)
         lvgl_glue_unlock();
     }

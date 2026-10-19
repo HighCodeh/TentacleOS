@@ -293,3 +293,13 @@ cleanup behavior and CLI examples are in [rf-commands.md](./rf-commands.md).
 These categories are dispatched before the generic handler registry, preserving
 the existing native app registration ABI. Disconnect/reset/HELLO cleanup also
 retries any retained RF shutdown through the core worker.
+
+## Trusted local RF callers
+
+The existing core worker also executes queued internal NFC/RFID reads from the
+native app ABI. The [local broker](../app_sdk/README.md#native-nfcrfid-api-abi-110)
+copies its bounded request/response, serializes local calls and keeps antenna
+ownership on the persistent worker. Local work uses an internal queue flag;
+wire ingress always initializes that flag to false. It does not bypass the wire
+MAC/generation checks or send a companion response. Session reconciliation still
+runs before and after queued work, and the worker alone owns retained RF cleanup.

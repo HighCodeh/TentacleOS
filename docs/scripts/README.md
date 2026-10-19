@@ -48,7 +48,8 @@ Both languages expose `tos.call(method, ...)`. Calls go through the same const
 leases; scripts do not call drivers or SPI operations directly. A failure to bind
 that context prevents execution. The script adapter additionally validates
 argument types, ranges and capability grants before invoking a function pointer.
-The native ABI version and layout remain unchanged (currently 1.9).
+The adapter consumes native ABI 1.10; new namespace pointers are appended while
+older field offsets stay compatible.
 
 Scripts request capabilities on their **first line**, using a strict hexadecimal
 mask without trailing spaces:
@@ -203,3 +204,16 @@ with the host C compiler. When intentionally changing bindings, run
 
 The [validated build record](../highboy/TESTS.md#shared-script-abi-build-record)
 contains the paired application sizes, hashes and acceptance limits.
+
+## NFC/RFID discovery bindings
+
+ABI 1.10 adds `nfc.poll(timeout_ms)` and `rfid.read(timeout_ms)` to `tos.call` in
+both languages. They require `radio-rx` (`@caps 0x08`) and use the same native
+[RF API](../app_sdk/README.md#native-nfcrfid-api-abi-110) and stable firmware worker
+as signed apps. `nfc.poll` returns `{protocol, uid_len, uid, atqa, sak}`, with UID
+and ATQA as byte arrays. `rfid.read` returns `{id, protocol, bit_count, raw_value,
+card_number, facility_code}`; the 40-bit raw identifier is exact in both language
+number representations. Missing tags, invalid timeouts, contention, cancellation
+and hardware errors raise the usual ABI error. NFC writes/emulation are not
+script bindings. A firmware table older than 1.10 is rejected before reading the
+new appended namespace pointers.
