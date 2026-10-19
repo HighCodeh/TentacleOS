@@ -20,7 +20,6 @@
 #include "esp_console.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
 #include "freertos/task.h"
 
 #include "host_link_dispatch.h"
@@ -34,22 +33,14 @@ typedef struct {
 } binding_t;
 
 static binding_t s_bindings[TOS_MAX_APP_BINDINGS];
-static SemaphoreHandle_t s_lock = NULL;
-
-static bool ensure_lock(void) {
-  if (s_lock == NULL)
-    s_lock = xSemaphoreCreateMutex();
-  return s_lock != NULL;
-}
+static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 
 esp_err_t tos_app_ctx_bind(void *task, tos_app_ctx_t *ctx) {
   if (task == NULL || ctx == NULL)
     return ESP_ERR_INVALID_ARG;
-  if (!ensure_lock())
-    return ESP_ERR_NO_MEM;
 
   esp_err_t err = ESP_ERR_NO_MEM;
-  xSemaphoreTake(s_lock, portMAX_DELAY);
+  portENTER_CRITICAL(&s_lock);
   int free_slot = -1;
   for (int i = 0; i < TOS_MAX_APP_BINDINGS; i++) {
     if (s_bindings[i].task == task) { // rebind
@@ -67,14 +58,14 @@ esp_err_t tos_app_ctx_bind(void *task, tos_app_ctx_t *ctx) {
   }
 
 out:
-  xSemaphoreGive(s_lock);
+  portEXIT_CRITICAL(&s_lock);
   return err;
 }
 
 void tos_app_ctx_unbind(void *task) {
-  if (s_lock == NULL || task == NULL)
+  if (task == NULL)
     return;
-  xSemaphoreTake(s_lock, portMAX_DELAY);
+  portENTER_CRITICAL(&s_lock);
   for (int i = 0; i < TOS_MAX_APP_BINDINGS; i++) {
     if (s_bindings[i].task == task) {
       s_bindings[i].task = NULL;
@@ -82,22 +73,20 @@ void tos_app_ctx_unbind(void *task) {
       break;
     }
   }
-  xSemaphoreGive(s_lock);
+  portEXIT_CRITICAL(&s_lock);
 }
 
 tos_app_ctx_t *tos_app_ctx_current(void) {
-  if (s_lock == NULL)
-    return NULL;
   void *self = xTaskGetCurrentTaskHandle();
   tos_app_ctx_t *ctx = NULL;
-  xSemaphoreTake(s_lock, portMAX_DELAY);
+  portENTER_CRITICAL(&s_lock);
   for (int i = 0; i < TOS_MAX_APP_BINDINGS; i++) {
     if (s_bindings[i].task == self) {
       ctx = s_bindings[i].ctx;
       break;
     }
   }
-  xSemaphoreGive(s_lock);
+  portEXIT_CRITICAL(&s_lock);
   return ctx;
 }
 
@@ -109,23 +98,27 @@ bool tos_app_cap_check(uint32_t cap) {
 }
 
 void tos_app_ctx_signal_resource_lost(void *task) {
-  if (s_lock == NULL || task == NULL)
+  if (task == NULL)
     return;
-  xSemaphoreTake(s_lock, portMAX_DELAY);
+  portENTER_CRITICAL(&s_lock);
   for (int i = 0; i < TOS_MAX_APP_BINDINGS; i++) {
     if (s_bindings[i].task == task) {
       tos_app_ctx_t *ctx = s_bindings[i].ctx;
-      if (ctx != NULL && ctx->res_lost != NULL)
+      if (ctx != NULL && ctx->set_resource_lost != NULL)
+        ctx->set_resource_lost(ctx->user, true);
+      else if (ctx != NULL && ctx->res_lost != NULL)
         *ctx->res_lost = true;
       break;
     }
   }
-  xSemaphoreGive(s_lock);
+  portEXIT_CRITICAL(&s_lock);
 }
 
 void tos_app_ctx_clear_resource_lost(void) {
   tos_app_ctx_t *ctx = tos_app_ctx_current();
-  if (ctx != NULL && ctx->res_lost != NULL)
+  if (ctx != NULL && ctx->set_resource_lost != NULL)
+    ctx->set_resource_lost(ctx->user, false);
+  else if (ctx != NULL && ctx->res_lost != NULL)
     *ctx->res_lost = false;
 }
 

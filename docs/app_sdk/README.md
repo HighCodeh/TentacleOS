@@ -341,3 +341,15 @@ Developer → Scripts runs plain JavaScript and Lua files through the
 signed `.hb` bundles for richer native applications and custom UI. The script
 screen is separate from the Apps launcher and does not package script files as
 `.hb` apps.
+
+Scripts use the same host table and capability checks through `tos.call(...)`.
+Their permission approval is per run, and their adapter exposes scalar values,
+records and opaque handles rather than native pointers or C callbacks. See the
+[script ABI reference](../scripts/README.md#shared-firmware-abi) for bindings and
+limits. Native `.hb` packaging, signatures and binary ABI remain unchanged.
+
+The internal task context supports synchronized stop/resource-loss callbacks and
+an optional return-screen ID for interpreted callers. Native apps keep their
+existing flags and Apps return screen. Binding uses a statically initialized
+lock; if its fixed table is full, both native and script runners refuse execution
+rather than running with the privileges of an unbound firmware task.

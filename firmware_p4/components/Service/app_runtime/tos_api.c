@@ -59,11 +59,15 @@ static void api_yield(void) {
 
 static int api_should_stop(void) {
   tos_app_ctx_t *ctx = tos_app_ctx_current();
+  if (ctx != NULL && ctx->poll_stop != NULL)
+    return ctx->poll_stop(ctx->user);
   return (ctx != NULL && ctx->stop != NULL && *ctx->stop) ? 1 : 0;
 }
 
 static int api_resource_lost(void) {
   tos_app_ctx_t *ctx = tos_app_ctx_current();
+  if (ctx != NULL && ctx->poll_resource_lost != NULL)
+    return ctx->poll_resource_lost(ctx->user);
   return (ctx != NULL && ctx->res_lost != NULL && *ctx->res_lost) ? 1 : 0;
 }
 

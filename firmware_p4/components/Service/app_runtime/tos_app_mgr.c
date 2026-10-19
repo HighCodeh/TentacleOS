@@ -84,7 +84,7 @@ static bool claim_cleanup(app_slot_t *a) {
 // Reverts everything the app touched. Runs once per app, from the app task
 // (natural exit) or the killer (force-kill).
 static void finish_slot(app_slot_t *a) {
-  tos_app_ctx_unbind(a->task); // covers force-kill, which never unbinds itself
+  tos_app_ctx_unbind(a->task);          // covers force-kill, which never unbinds itself
   resource_release_owner_task(a->task); // stop any radio the app left running
   tos_app_regs_teardown(&a->regs);
   if (a->caps & TOS_CAP_UI) {
@@ -115,9 +115,9 @@ static void app_task(void *arg) {
                        .res_lost = &a->res_lost,
                        .arena = a->arena,
                        .regs = &a->regs};
-  tos_app_ctx_bind(xTaskGetCurrentTaskHandle(), &ctx);
-
-  esp_err_t e = tos_elf_load(a->elf, a->elf_len, &a->img);
+  esp_err_t e = tos_app_ctx_bind(xTaskGetCurrentTaskHandle(), &ctx);
+  if (e == ESP_OK)
+    e = tos_elf_load(a->elf, a->elf_len, &a->img);
   if (e == ESP_OK) {
     a->has_img = true;
     int ret = tos_elf_call(&a->img, a->api);

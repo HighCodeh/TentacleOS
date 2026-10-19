@@ -48,14 +48,23 @@ typedef struct {
   int count;
 } tos_app_regs_t;
 
+typedef bool (*tos_app_ctx_poll_cb_t)(void *user);
+// Resource callbacks run under the binding lock and must not block.
+typedef void (*tos_app_ctx_resource_cb_t)(void *user, bool is_lost);
+
 /** One running app's execution context. */
 typedef struct {
-  uint32_t granted_caps;    ///< bitmask of tos_cap_t the loader granted
-  const char *id;           ///< app id, for logs
-  volatile bool *stop;      ///< set true to ask the app to exit (NULL = never)
-  volatile bool *res_lost;  ///< set true when a radio the app held was preempted (NULL = untracked)
-  struct tos_arena *arena;  ///< per-app allocation arena (NULL = untracked)
-  tos_app_regs_t *regs;     ///< commands the app registered (NULL = untracked)
+  void *user;
+  tos_app_ctx_poll_cb_t poll_stop;
+  tos_app_ctx_poll_cb_t poll_resource_lost;
+  tos_app_ctx_resource_cb_t set_resource_lost;
+  int32_t ui_return_screen;
+  uint32_t granted_caps;   ///< bitmask of tos_cap_t the loader granted
+  const char *id;          ///< app id, for logs
+  volatile bool *stop;     ///< set true to ask the app to exit (NULL = never)
+  volatile bool *res_lost; ///< set true when a radio the app held was preempted (NULL = untracked)
+  struct tos_arena *arena; ///< per-app allocation arena (NULL = untracked)
+  tos_app_regs_t *regs;    ///< commands the app registered (NULL = untracked)
 } tos_app_ctx_t;
 
 /** @brief Set the resource-lost flag for the app bound to @p task (revoke side). */

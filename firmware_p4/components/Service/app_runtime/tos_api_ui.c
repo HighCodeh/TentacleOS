@@ -49,13 +49,13 @@
       return ESP_ERR_NOT_SUPPORTED; \
   } while (0)
 
-#define UI_SESSIONS 4  // matches TOS_APP_MAX
-#define UI_MAX_OBJS 48 // per-app widget table size
-#define UI_EVQ_LEN  8  // input ring depth
-#define UI_SCREEN_W 240
-#define UI_SCREEN_H 320
+#define UI_SESSIONS          4  // matches TOS_APP_MAX
+#define UI_MAX_OBJS          48 // per-app widget table size
+#define UI_EVQ_LEN           8  // input ring depth
+#define UI_SCREEN_W          240
+#define UI_SCREEN_H          320
 #define SPI3_CANVAS_FLUSH_MS 50 // per-strip DMA wait for canvas blits
-#define UI_IMG_HDR           8   // app image .bin header: magic_cf u32 + w u16 + h u16
+#define UI_IMG_HDR           8  // app image .bin header: magic_cf u32 + w u16 + h u16
 
 enum { UI_T_LABEL = 0, UI_T_RECT, UI_T_BAR, UI_T_IMAGE };
 
@@ -67,8 +67,9 @@ typedef struct {
 } ui_wentry_t;
 
 typedef struct {
-  void *task;         // owning app task (key)
-  lv_obj_t *screen;   // firmware-owned root, or NULL
+  int32_t return_screen;
+  void *task;       // owning app task (key)
+  lv_obj_t *screen; // firmware-owned root, or NULL
   ui_wentry_t w[UI_MAX_OBJS];
   QueueHandle_t evq;
   res_handle_t display; // RES_DISPLAY lease held while the app's screen is up
@@ -250,6 +251,10 @@ static esp_err_t open_display(bool canvas) {
   void *task = xTaskGetCurrentTaskHandle();
   if (!ui_acquire())
     return ESP_ERR_TIMEOUT;
+  if (tos_api_get()->should_stop()) {
+    ui_release();
+    return ESP_ERR_INVALID_STATE;
+  }
 
   ui_session_t *s = session_for(task);
   if (s != NULL && s->screen != NULL) { // this app already has a screen
@@ -291,6 +296,9 @@ static esp_err_t open_display(bool canvas) {
   s->task = task;
   s->used = true;
   s->canvas = canvas;
+  tos_app_ctx_t *ctx = tos_app_ctx_current();
+  s->return_screen =
+      ctx != NULL && ctx->ui_return_screen != 0 ? ctx->ui_return_screen : SCREEN_GAMES_MENU;
   s->display = RES_HANDLE_NONE;
 
   lv_obj_t *scr = lv_obj_create(NULL);
@@ -349,7 +357,8 @@ void tos_ui_app_teardown(void *task) {
     s->used = false;
     return;
   }
-  resource_release(s->display); // drop the panel lease (backstop: finish_slot also releases by task)
+  resource_release(
+      s->display); // drop the panel lease (backstop: finish_slot also releases by task)
   s->display = RES_HANDLE_NONE;
   if (s->canvas) {
     lvgl_glue_direct_end(); // defensive: each blit already pairs begin/end under the lock
@@ -372,7 +381,7 @@ void tos_ui_app_teardown(void *task) {
   s->used = false;
   if (scr != NULL) {
     if (ui_current_screen() == SCREEN_APP_RUNNING) {
-      ui_switch_screen(SCREEN_GAMES_MENU); // back to the Apps carousel; del_async's the app screen
+      ui_switch_screen(s->return_screen);
     } else if (lv_obj_is_valid(scr) && scr == lv_screen_active()) {
       // Non-foreground: if scr is still the active screen, nobody replaced it, so
       // nobody scheduled its deletion — delete it now. If it is NOT the active
@@ -414,8 +423,7 @@ static esp_err_t u_canvas_begin(int32_t *w, int32_t *h) {
 // under the LVGL lock in direct mode, so the render task can't drive the panel or
 // the SPI bus concurrently; the lock is released at return, keeping the app killable
 // between frames.
-static esp_err_t
-u_canvas_blit(const void *src, int32_t x, int32_t y, int32_t w, int32_t h) {
+static esp_err_t u_canvas_blit(const void *src, int32_t x, int32_t y, int32_t w, int32_t h) {
   NEED(TOS_CAP_UI);
   // Overflow-safe clamp: each dimension must fit the panel, then the origin must
   // leave room. w<=UI_SCREEN_W makes (UI_SCREEN_W - w) >= 0, so no wrap in x/y.
@@ -467,7 +475,8 @@ u_canvas_blit(const void *src, int32_t x, int32_t y, int32_t w, int32_t h) {
       for (int32_t c = 0; c < w; c++)
         out[c] = (uint16_t)((in[c] >> 8) | (in[c] << 8));
     }
-    ret = esp_lcd_panel_draw_bitmap(panel_handle, x, y + row, x + w, y + row + rows, s_canvas_strip);
+    ret =
+        esp_lcd_panel_draw_bitmap(panel_handle, x, y + row, x + w, y + row + rows, s_canvas_strip);
     lvgl_glue_wait_flush(SPI3_CANVAS_FLUSH_MS);
   }
   lvgl_glue_direct_end();
@@ -550,8 +559,8 @@ static lv_image_dsc_t *decode_image_bin(const void *bin, uint32_t len) {
   const uint8_t *b = (const uint8_t *)bin;
   if (b == NULL || len < UI_IMG_HDR)
     return NULL;
-  uint32_t magic_cf = (uint32_t)b[0] | ((uint32_t)b[1] << 8) | ((uint32_t)b[2] << 16) |
-                      ((uint32_t)b[3] << 24);
+  uint32_t magic_cf =
+      (uint32_t)b[0] | ((uint32_t)b[1] << 8) | ((uint32_t)b[2] << 16) | ((uint32_t)b[3] << 24);
   uint16_t w = (uint16_t)(b[4] | (b[5] << 8));
   uint16_t h = (uint16_t)(b[6] | (b[7] << 8));
   if (w == 0 || h == 0 || w > UI_SCREEN_W || h > UI_SCREEN_H)
