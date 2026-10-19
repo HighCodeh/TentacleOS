@@ -444,9 +444,24 @@ static void process_frame(const uint8_t *frame, size_t total) {
 
   // Pre-auth handshake: the only frame accepted before keys exist.
   if (type == HOST_TYPE_HELLO) {
-    if (flags != 0)
+    if (flags != 0 || category != 0 || op != 0)
       return;
     handle_hello(payload, plen16);
+    return;
+  }
+
+  if (type == HOST_TYPE_HELLO_FINISH) {
+    if (flags != HOST_LINK_FLAG_AUTH || category != 0 || op != 0 || plen16 != 0)
+      return;
+    const uint8_t *mac = frame + HOST_LINK_HDR_SIZE + body_len;
+    size_t span_len = HOST_LINK_HDR_SIZE + body_len - 2;
+    xSemaphoreTakeRecursive(s_lock, portMAX_DELAY);
+    portENTER_CRITICAL(&s_state_lock);
+    bool current = s_generation == s_dispatch_generation && s_ready_generation == s_generation;
+    portEXIT_CRITICAL(&s_state_lock);
+    if (current && host_link_sec_finish(frame + 2, span_len, mac, counter))
+      emit_frame(s_dispatch_generation, HOST_TYPE_HELLO_READY, 0, 0, NULL, 0);
+    xSemaphoreGiveRecursive(s_lock);
     return;
   }
 
@@ -527,7 +542,7 @@ static void handle_hello(const uint8_t *payload, uint16_t plen) {
   xSemaphoreTakeRecursive(s_lock, portMAX_DELAY);
   host_link_sec_reset();
   s_tx_counter = 0;
-  uint8_t ack[1 + HOST_LINK_NONCE_SIZE + HOST_LINK_DEVICE_ID_SIZE + HOST_LINK_MAC_SIZE];
+  uint8_t ack[HOST_LINK_HELLO_ACK_SIZE];
   size_t ack_len = 0;
   esp_err_t err = host_link_sec_handle_hello(payload, plen, ack, sizeof(ack), &ack_len);
   if (err != ESP_OK) {
@@ -744,6 +759,13 @@ static void register_builtins(void) {
     if (err != ESP_OK)
       ESP_LOGE(TAG, "register builtin '%s' failed: %s", builtins[i].name, esp_err_to_name(err));
   }
+}
+
+bool host_link_is_ble_transport(void) {
+  portENTER_CRITICAL(&s_state_lock);
+  bool is_ble = s_writer != NULL && s_writer == s_ble_writer;
+  portEXIT_CRITICAL(&s_state_lock);
+  return is_ble;
 }
 
 void host_link_mark_ble_writer(host_link_writer_t writer) {

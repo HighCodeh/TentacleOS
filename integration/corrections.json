@@ -856,14 +856,18 @@
     "firmware_p4/components/Service/host_link/host_link.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "6fa28c9bb162cfad719c14b75c53124217b6d877887ba3d8ff4efd7524673cd4",
-      "after_sha256": "f6cf043463c8bb2a22250ff6faf69baf58cf2662028935e7215931a34d93535a",
-      "reason": "Publish native NFC discovery and LF RFID reads additively through the shared ABI, execute on the stable RF worker, and quiesce local operations before forced app deletion.",
+      "after_sha256": "30489aba83b015aadba984db3512d8bd5b85d5dd33fcaa18e24f1790cfad017c",
+      "reason": "Require fresh X25519 and transcript-bound PSK proofs, device token confirmation and signed key activation before companion commands",
       "review_history": [
         {
           "after_sha256": "1f02ab60182bde330a6f8b11149c141c539df09904c5a14a99f946d1658804eb",
           "reason": "Add authenticated bounded NFC/LF companion capture with task-owned cleanup, preserve Muse category 0x11, mirror new category IDs and reuse synchronous NFC probes with explicit setup errors.",
           "pre_format_sha256": "4272e5b566e524f86f64d151a473de902a0a1078b37942f6f71a3db229c015d7",
           "formatter": "clang-format version 22.1.5"
+        },
+        {
+          "after_sha256": "f6cf043463c8bb2a22250ff6faf69baf58cf2662028935e7215931a34d93535a",
+          "reason": "Publish native NFC discovery and LF RFID reads additively through the shared ABI, execute on the stable RF worker, and quiesce local operations before forced app deletion."
         }
       ]
     },
@@ -1083,6 +1087,38 @@
       "after_sha256": "884e399183aaed09878a1d84a2569f6cec31d0926cf9eeb9f1431c444eff464d",
       "reason": "Publish decoded IR through the shared app ABI and persistent worker, with native contention guards and retained hardware cleanup",
       "pre_format_sha256": "bbff8803e4174d08f3b529e03ef5cf7b71628ab3eb6bfc5ab43fab84b5676e2e",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/bluetooth/ble_companion_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "d4956ce43b78e6efe6c8471bb47b4dafcde119881154acac4f793ad968565215",
+      "after_sha256": "a487c9e6784eb50f72f55a057d531834cd16006fa9a3eccd2380dcc2ff2cb543",
+      "reason": "Require fresh X25519 and transcript-bound PSK proofs, device token confirmation and signed key activation before companion commands",
+      "pre_format_sha256": "da016d8543d31b1eec35ee5ee348b7821f1ecf36a99735564d43d60a5b5c344f",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/host_link/host_link_sec.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "185f5eb3e8e748ed61f7f1d3996dc6799e77391f6d56845bba71bcca91ae6a21",
+      "after_sha256": "ea18bdd6153f4d6ce00e952e82126aff6053751e314b8b0720efb3aa83ac3481",
+      "reason": "Require fresh X25519 and transcript-bound PSK proofs, device token confirmation and signed key activation before companion commands",
+      "pre_format_sha256": "a9b79fea64d0819839df118a300b9b1a032a541264c407e14bc93bfc1b625c45",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/host_link/include/host_link.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "0371bf7f1b571cfb7b11f9386a34aa9ecee1d91f7331d7bc0b76d6aa4c963348",
+      "after_sha256": "5e1d80e448880d786fae8ead9c9d7a81dfdf8db7fdfc10156157a1cfb2ccf2b3",
+      "reason": "Require fresh X25519 and transcript-bound PSK proofs, device token confirmation and signed key activation before companion commands",
+      "pre_format_sha256": "9fafe2452d70446404b362ff009750f8f217621bf06d7cc78b5c8e1479b44c78",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/host_link/include/host_link_sec.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "d4e4b314f3df9cd9c9a9a8ed53f0e9060e5e95d88776a6d8e3858683dbb14b58",
+      "after_sha256": "e489210a7dbf50b73d264825a3dab96122a6156f4cf69495e23f04b3a3177718",
+      "reason": "Require fresh X25519 and transcript-bound PSK proofs, device token confirmation and signed key activation before companion commands",
+      "pre_format_sha256": "573c2def14f0d2af91538521aa8778044c597065025b473d55819c8fd0d6cd88",
       "formatter": "clang-format version 22.1.5"
     }
   }

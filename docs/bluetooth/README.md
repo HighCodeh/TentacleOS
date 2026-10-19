@@ -199,9 +199,8 @@ The native mouse UI calls `ble_hid_send_mouse()` on P4. The bridge sends the
 buttons, signed X/Y deltas and wheel to `SPI_ID_BT_HID_SEND_MOUSE`; C5 dispatches
 them to the NimBLE HID mouse report. The companion screen starts host-link BLE
 on demand and marks the session linked only after
-`host_link_sec_is_authenticated()` succeeds. Its current pairing uses the
-displayed PSK; ephemeral ECDH and a physical confirmation flow remain separate
-work (#151).
+`host_link_sec_is_authenticated()` succeeds. Its [v2 pairing](../host_link/pairing.md) uses ephemeral X25519, transcript-bound
+PSK proofs and a physical code-confirmation flow before authentication.
 
 The [remote GATT explorer](../gatt/README.md) now scans real targets, discovers
 remote services/characteristics and reads permitted attributes through C5.

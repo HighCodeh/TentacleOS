@@ -81,7 +81,9 @@ the MAC itself), truncated to the first 16 bytes.
 | `0x03` | `STREAM` | device → app | live data (see §6) |
 | `0x04` | `LOG` | device → app | `[source u8][level u8][utf-8 text]` |
 | `0x10` | `HELLO` | app → device | handshake (unauthenticated) |
-| `0x11` | `HELLO_ACK` | device → app | handshake (unauthenticated) |
+| `0x11` | `HELLO_ACK` | device → app | transcript proof (unauthenticated envelope) |
+| `0x12` | `HELLO_FINISH` | app → device | signed ephemeral-key confirmation after device approval |
+| `0x13` | `HELLO_READY` | device → app | signed session activation |
 
 `category`/`op` are the same ids the firmware uses internally
 (`spi_id_t = (category << 8) | op`). Full table: [`../spi_bridge/README.md`](../spi_bridge/README.md).
@@ -105,44 +107,15 @@ loop:
 
 ---
 
-## 4. Pairing & handshake (do this on every connect)
+## 4. Pairing and handshake
 
-### 4.1 Get the PSK (once per device)
-
-The device shows a **32-byte PSK** as a QR code + hex on its screen
-(Settings -> PAIRING), or prints it on the dev console with `hostlink psk`. The
-app reads/types it once and stores it in the OS keystore (Keychain / Credential
-Manager / libsecret). The QR/hex encodes the 64-char lowercase hex of the PSK.
-
-### 4.2 Handshake frames
-
-1. **App -> device `HELLO`** (unauthenticated, `FLAGS=0`, no MAC). BODY:
-   `[type=0x10][cat=0x00][op=0x00][host_ver=0x01][client_nonce[16]]`
-   (`client_nonce` = 16 random bytes). `LEN = 20`.
-
-2. **Device -> app `HELLO_ACK`** (unauthenticated). BODY:
-   `[type=0x11][cat=0x00][op=0x00][host_ver=0x01][server_nonce[16]][device_id[6]][mac_psk[16]]`.
-   - `device_id` = the device's 6-byte base MAC.
-   - Verify `mac_psk == HMAC-SHA256(PSK, client_nonce || server_nonce)[:16]`. If it
-     doesn't match, the device doesn't hold your PSK - abort.
-
-3. **Both derive per-direction keys** (HKDF-SHA256, standard extract+expand):
-   ```
-   salt = client_nonce || server_nonce            # 32 bytes
-   K_a2d = HKDF-SHA256(ikm=PSK, salt=salt, info="tos-host-a2d", L=32)   # app -> device
-   K_d2a = HKDF-SHA256(ikm=PSK, salt=salt, info="tos-host-d2a", L=32)   # device -> app
-   ```
-   The `info` labels are exactly those 12 ASCII bytes (no NUL terminator).
-
-4. **Reset counters.** Use a fresh monotonic counter per direction for this
-   session. The app signs every app->device frame with `K_a2d`; it verifies every
-   device->app frame with `K_d2a`.
-
-After the handshake, **all** frames are authenticated (`FLAGS.bit0 = 1`, MAC
-appended). The device rejects (drops + logs) any non-`HELLO` frame that fails the
-MAC or counter check.
-
----
+Use the [handshake v2 contract](pairing.md) on every USB/BLE connection. Open
+Companion on the device, obtain its PSK, exchange fresh X25519 public keys and
+PSK-authenticated transcript proofs, compare the six-digit code and wait for
+device OK plus signed FINISH/READY. The reference Python clients implement it.
+Old PSK-only HELLO payloads are rejected. Frame envelope version remains 1.
+Session keys remain provisional before physical approval and verified FINISH;
+no command may be issued before READY. Validate all reply MACs and replay counters.
 
 ## 5. Authenticated frames, counters, replay
 
@@ -276,7 +249,8 @@ data is written in place at `offset` (file created if absent). Download = repeat
 ## 11. Connect sequence (summary)
 
 1. Open the transport (USB serial or BLE GATT + subscribe to TX notify).
-2. `HELLO` -> `HELLO_ACK`; verify `mac_psk`; derive `K_a2d`/`K_d2a`; reset counters.
+2. Open Companion on the device; perform [v2 pairing](pairing.md), compare codes,
+   press device OK and verify signed FINISH/READY before sending commands.
 3. Read `SYSTEM_DEVICE_STATE` / `SYSTEM_VERSION`; check firmware compatibility.
 4. Issue authenticated `CMD`s; handle `RESP`, `STREAM`, and `LOG` frames as they
    arrive. Heartbeat any active streaming session every ~2 s.
@@ -287,10 +261,11 @@ data is written in place at `offset` (file created if absent). Download = repeat
 ## 12. Crypto checklist (must match the firmware exactly)
 
 - HMAC-SHA256, truncated to the **first 16 bytes**.
-- HKDF-SHA256 (RFC 5869 extract+expand), `ikm = PSK`,
-  `salt = client_nonce || server_nonce`, `info` = `"tos-host-a2d"` / `"tos-host-d2a"`,
-  output length 32.
-- `mac_psk` and per-frame `MAC` are both HMAC-SHA256 truncated to 16 B; the
-  per-frame MAC input is `frame[2 .. 10+LEN]` (header-after-MAGIC plus BODY).
+- X25519 with fresh ephemeral keys; reject low-order/zero shared secrets.
+- HKDF-SHA256: ephemeral shared secret as IKM, PSK salt and full transcript-bound
+  directional labels as defined in [pairing](pairing.md), 32-byte outputs.
+- Client/server proofs use distinct domain labels and the full fixed transcripts.
+- Per-frame MAC input is `frame[2 .. 10+LEN]` (header-after-MAGIC plus BODY).
+- Require physical confirmation plus signed FINISH/READY; reject legacy HELLO.
 - Verify MACs in constant time. Never log or persist the PSK or session keys in
   plaintext.

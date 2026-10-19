@@ -15,6 +15,8 @@
 
 #include "ble_companion_ui.h"
 
+#include <stdio.h>
+
 #include "esp_log.h"
 #include "lvgl.h"
 #include "st7789.h"
@@ -39,6 +41,8 @@ static lv_obj_t *s_body = NULL;
 static lv_obj_t *s_footer = NULL;
 static lv_timer_t *s_phase_timer = NULL;
 static bool s_is_linked = false;
+static uint32_t s_pairing_token;
+static bool s_has_expired;
 
 static void companion_input(const input_event_t *ev, void *ctx);
 static void phase_timer_cb(lv_timer_t *timer);
@@ -137,7 +141,27 @@ static void build_pairing(void) {
   fade_in(card, 240);
 }
 
+static void show_confirmation(const host_link_pairing_t *pairing) {
+  lv_obj_clean(s_body);
+  lv_obj_t *label = lv_label_create(s_body);
+  char text[128];
+  snprintf(text,
+           sizeof(text),
+           "Confirm companion\n\n%06lu\n\nCompare this code with the app.\nOK Allow   BACK Reject",
+           (unsigned long)pairing->code);
+  lv_label_set_text(label, text);
+  lv_obj_set_style_text_color(label, current_theme.text_main, 0);
+  lv_obj_set_style_text_font(label, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_set_width(label, lv_pct(100));
+  lv_obj_center(label);
+  s_pairing_token = pairing->token;
+  ui_chrome_footer_set_text(s_footer, "OK Allow   BACK Reject");
+}
+
 static void show_success(void) {
+  if (!host_link_is_ble_transport())
+    host_link_ble_stop();
   lv_obj_clean(s_body);
 
   waves_create(s_body, LV_ALIGN_CENTER, 0, -34, LV_SYMBOL_OK, NULL);
@@ -199,6 +223,13 @@ static void show_success(void) {
 }
 
 void ui_companion_pairing_open(void) {
+  if (s_phase_timer != NULL) {
+    lv_timer_delete(s_phase_timer);
+    s_phase_timer = NULL;
+  }
+  s_pairing_token = 0;
+  s_has_expired = false;
+  host_link_sec_pairing_window(true);
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
@@ -232,12 +263,37 @@ void ui_companion_pairing_open(void) {
 
 static void phase_timer_cb(lv_timer_t *timer) {
   if (lv_screen_active() != s_screen) {
+    host_link_sec_pairing_window(false);
+    if (!s_is_linked)
+      host_link_reset_rx();
     lv_timer_delete(timer);
     if (s_phase_timer == timer)
       s_phase_timer = NULL;
     return;
   }
+  host_link_pairing_t pairing;
+  bool has_pending = host_link_sec_pairing_get(&pairing);
+  if (has_pending && pairing.token != s_pairing_token) {
+    show_confirmation(&pairing);
+  } else if (!has_pending && s_pairing_token != 0 && !host_link_sec_is_authenticated()) {
+    s_pairing_token = 0;
+    lv_obj_clean(s_body);
+    build_pairing();
+    ui_chrome_footer_set_text(s_footer, "BACK Cancel");
+  }
+  if (!pairing.can_pair && !s_has_expired && !host_link_sec_is_authenticated()) {
+    s_has_expired = true;
+    lv_obj_clean(s_body);
+    lv_obj_t *label = lv_label_create(s_body);
+    lv_label_set_text(label, "Pairing unavailable or expired.\nReopen Companion to retry.");
+    lv_obj_set_style_text_color(label, current_theme.text_main, 0);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_center(label);
+    ui_chrome_footer_set_text(s_footer, "BACK Exit");
+  }
   if (!s_is_linked && host_link_sec_is_authenticated()) {
+    host_link_sec_pairing_window(false);
     s_is_linked = true;
     lv_timer_delete(timer);
     s_phase_timer = NULL;
@@ -250,14 +306,24 @@ static void companion_input(const input_event_t *ev, void *ctx) {
   const bool press = (ev->action == INPUT_ACTION_PRESS);
 
   switch (ev->button) {
+    case INPUT_BTN_OK:
+      if (press && s_pairing_token != 0 &&
+          host_link_sec_pairing_confirm(s_pairing_token, true) == ESP_OK)
+        ui_chrome_footer_set_text(s_footer, "Waiting for app confirmation");
+      break;
     case INPUT_BTN_BACK:
       if (press) {
+        if (s_pairing_token != 0)
+          host_link_sec_pairing_confirm(s_pairing_token, false);
+        host_link_sec_pairing_window(false);
         if (s_phase_timer != NULL) {
           lv_timer_delete(s_phase_timer);
           s_phase_timer = NULL;
         }
-        if (!s_is_linked)
+        if (!s_is_linked) {
+          host_link_reset_rx();
           host_link_ble_stop();
+        }
         ui_switch_screen(SCREEN_BLE_MENU);
       }
       break;

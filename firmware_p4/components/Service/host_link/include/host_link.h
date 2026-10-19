@@ -40,17 +40,18 @@ extern "C" {
 
 #define HOST_LINK_FLAG_AUTH 0x01
 
-// BODY type (mirrors spi_type_t, plus LOG for pushed log text and the two
-// pre-auth handshake frames). Handshake frames always travel unauthenticated
+// BODY type (mirrors spi_type_t, plus LOG for pushed log text and the initial
+// handshake frames). HELLO and HELLO_ACK travel unauthenticated
 // (FLAGS.auth = 0, no envelope MAC); their proof is the mac_psk in the payload.
 typedef enum {
   HOST_TYPE_CMD = 0x01,
   HOST_TYPE_RESP = 0x02,
   HOST_TYPE_STREAM = 0x03,
   HOST_TYPE_LOG = 0x04,
-  HOST_TYPE_HELLO = 0x10, // app → device: { host_ver, client_nonce[16] }
-  HOST_TYPE_HELLO_ACK =
-      0x11, // device → app: { host_ver, server_nonce[16], device_id[6], mac_psk[16] }
+  HOST_TYPE_HELLO = 0x10,     // app → device: v2 nonce, ephemeral public key, PSK proof
+  HOST_TYPE_HELLO_ACK = 0x11, // device → app: v2 transcript-bound proof
+  HOST_TYPE_HELLO_FINISH = 0x12,
+  HOST_TYPE_HELLO_READY = 0x13,
 } host_type_t;
 
 #define HOST_LINK_NONCE_SIZE     16
@@ -192,6 +193,8 @@ void host_link_emit_stream(uint8_t category, uint8_t op, const uint8_t *data, ui
  *        log-over-BLE toggle can gate background logs on BLE only.
  */
 void host_link_mark_ble_writer(host_link_writer_t writer);
+/** True while BLE owns the single companion session. */
+bool host_link_is_ble_transport(void);
 
 /**
  * @brief Install the P4 log tee: hooks esp_log_set_vprintf (preserving the local

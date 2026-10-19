@@ -25,6 +25,7 @@ extern "C" {
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "host_link.h"
 
 // Host-link security core (host-link internal). Implements the HMAC-SHA256/HKDF
 // envelope from docs/host_link/protocol.md §6 over mbedTLS:
@@ -37,13 +38,30 @@ extern "C" {
 #define HOST_LINK_KEY_SIZE     32
 #define HOST_LINK_PSK_HEX_SIZE (HOST_LINK_PSK_SIZE * 2 + 1)
 
+#define HOST_LINK_PAIR_VERSION 2
+#define HOST_LINK_ECDH_SIZE    32
+#define HOST_LINK_HELLO_SIZE   (1 + HOST_LINK_NONCE_SIZE + HOST_LINK_ECDH_SIZE + HOST_LINK_MAC_SIZE)
+#define HOST_LINK_HELLO_ACK_SIZE (HOST_LINK_HELLO_SIZE + HOST_LINK_DEVICE_ID_SIZE)
+
+typedef struct {
+  uint32_t token;
+  uint32_t code;
+  bool is_approved;
+  bool can_pair;
+} host_link_pairing_t;
+
+void host_link_sec_pairing_window(bool is_open);
+bool host_link_sec_pairing_get(host_link_pairing_t *out);
+esp_err_t host_link_sec_pairing_confirm(uint32_t token, bool is_approved);
+bool host_link_sec_finish(const uint8_t *span, size_t length, const uint8_t *mac, uint32_t counter);
+
 /**
  * @brief Load the PSK from NVS (generating + persisting a random one if absent)
  *        and clear any session state. Call once at host-link init.
  */
 esp_err_t host_link_sec_init(void);
 
-/** @brief True once a HELLO handshake has established session keys. */
+/** @brief True after physical approval and verified ephemeral key confirmation. */
 bool host_link_sec_is_authenticated(void);
 
 /** @brief Drop the current session (e.g. on transport disconnect). */
@@ -52,11 +70,12 @@ void host_link_sec_reset(void);
 /**
  * @brief Process an inbound HELLO payload and build the HELLO_ACK payload.
  *
- * Derives K_a2d/K_d2a, marks the session authenticated, and resets the inbound
+ * Derives provisional X25519/PSK transcript-bound keys. Device confirmation and
+ * a signed FINISH activate the session. Resets the inbound
  * counter baseline. The caller emits @p ack_out as an unauthenticated
  * HELLO_ACK frame.
  *
- * @param payload  HELLO payload: [host_ver u8][client_nonce[16]].
+ * @param payload  HELLO v2: version, client nonce, X25519 public key and PSK proof.
  * @param plen     Length of @p payload.
  * @param ack_out  Buffer for the HELLO_ACK payload.
  * @param ack_cap  Capacity of @p ack_out.
