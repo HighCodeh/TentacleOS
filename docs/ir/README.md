@@ -224,7 +224,12 @@ ir flash <on|off>                         drive the emitter at full power (torch
 
 ## Integrated IR library and validation
 
-The IR menu opens a native browser rooted at `/sdcard/ir/library`. It lists up
+The IR menu opens a native browser with two sources: `/sdcard/ir/library` for
+user remotes and `/assets/ir` for the bundled `tv.ir`, `audio.ir` and `ac.ir`
+collections. If the SD library is missing or empty, it opens the built-in source.
+A source selector at the root switches between them without copying or writing
+files. The built-in source requires the runtime assets to be installed; an
+app-only build does not restore them. It lists up
 to 48 short names per directory, uses pages of 16 entries and bounds directory
 depth to eight levels. Selecting an `.ir` file loads supported signals; selecting
 a signal transmits it through `ir_store_send_signal()`.

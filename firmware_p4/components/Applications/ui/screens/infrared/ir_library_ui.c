@@ -11,27 +11,31 @@
 #include <sys/stat.h>
 
 #include "esp_attr.h"
+#include "esp_log.h"
 #include "ir_store.h"
 #include "menu_component_ui.h"
 #include "notify_ui.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define LIB_ROOT      "/sdcard/ir/library"
-#define LIB_PAGE_SIZE 16
-#define LIB_DIR_MAX   48
-#define LIB_DEPTH_MAX 8
-#define LIB_PATH_MAX  256
-#define LIB_NAME_MAX  96
-#define FOLDER_ICON   "/assets/icons/folder_open.bin"
-#define REMOTE_ICON   "/assets/icons/settings_remote.bin"
+#define LIB_ROOT         "/sdcard/ir/library"
+#define LIB_BUILTIN_ROOT "/assets/ir"
+#define LIB_PAGE_SIZE    16
+#define LIB_DIR_MAX      48
+#define LIB_DEPTH_MAX    8
+#define LIB_PATH_MAX     256
+#define LIB_NAME_MAX     96
+#define FOLDER_ICON      "/assets/icons/folder_open.bin"
+#define REMOTE_ICON      "/assets/icons/settings_remote.bin"
 
-_Static_assert(LIB_PAGE_SIZE + 2 <= MENU_COMP_MAX_ITEMS, "IR page exceeds menu capacity");
+_Static_assert(LIB_PAGE_SIZE + 3 <= MENU_COMP_MAX_ITEMS, "IR page exceeds menu capacity");
 
 typedef struct {
   char name[LIB_NAME_MAX];
   bool directory;
 } library_entry_t;
+
+static const char *TAG = "IR_LIBRARY_UI";
 
 EXT_RAM_BSS_ATTR static library_entry_t s_entries[LIB_DIR_MAX];
 static lv_obj_t *s_screen;
@@ -47,6 +51,8 @@ static int s_dir_selections[LIB_DEPTH_MAX];
 static int s_visible;
 static int s_previous_row;
 static int s_next_row;
+static int s_source_row;
+static bool s_is_builtin;
 static bool s_buttons;
 static bool s_missing;
 static bool s_limited;
@@ -99,6 +105,17 @@ static void scan_directory(void) {
   qsort(s_entries, (size_t)s_count, sizeof(s_entries[0]), compare_entries);
 }
 
+static void select_source(bool is_builtin) {
+  s_is_builtin = is_builtin;
+  s_depth = 0;
+  s_page = 0;
+  memset(s_dir_pages, 0, sizeof(s_dir_pages));
+  memset(s_dir_selections, 0, sizeof(s_dir_selections));
+  strlcpy(s_path, is_builtin ? LIB_BUILTIN_ROOT : LIB_ROOT, sizeof(s_path));
+  scan_directory();
+  ESP_LOGD(TAG, "IR library: %s (%d entries)", s_path, s_count);
+}
+
 static int item_count(void) {
   return s_buttons ? (int)s_remote.count : s_count;
 }
@@ -117,7 +134,7 @@ static void build_page(int selected) {
     s_page = 0;
   const char *name = s_buttons ? s_remote_name : strrchr(s_path, '/') + 1;
   if (!s_buttons && s_depth == 0)
-    name = "IR Library";
+    name = s_is_builtin ? "Built-in remotes" : "SD library";
   char title[48];
   snprintf(title, sizeof(title), "%.25s %d/%d", name, s_page + 1, pages);
   s_menu = menu_component_create(s_screen, title, REMOTE_ICON);
@@ -141,7 +158,13 @@ static void build_page(int selected) {
   }
   if (s_visible == 0)
     menu_component_add_item(
-        &s_menu, FOLDER_ICON, s_missing ? "SD library unavailable" : "No remotes here");
+        &s_menu, FOLDER_ICON, s_missing ? "Library unavailable" : "No remotes here");
+  s_source_row = -1;
+  if (!s_buttons && s_depth == 0) {
+    s_source_row = s_menu.item_count;
+    menu_component_add_item(
+        &s_menu, FOLDER_ICON, s_is_builtin ? "Browse SD library" : "Browse built-in remotes");
+  }
   s_previous_row = -1;
   s_next_row = -1;
   if (s_page > 0) {
@@ -254,7 +277,10 @@ static void library_input(const input_event_t *ev, void *ctx) {
     build_page(0);
   } else if (ev->button == INPUT_BTN_OK && press) {
     int selected = menu_component_get_selected(&s_menu);
-    if (selected == s_previous_row) {
+    if (selected == s_source_row) {
+      select_source(!s_is_builtin);
+      build_page(0);
+    } else if (selected == s_previous_row) {
       s_page--;
       build_page(0);
     } else if (selected == s_next_row) {
@@ -281,12 +307,9 @@ void ui_ir_library_open(void) {
     lv_obj_delete(s_screen);
   ir_file_init(&s_remote);
   s_buttons = false;
-  s_depth = 0;
-  s_page = 0;
-  memset(s_dir_pages, 0, sizeof(s_dir_pages));
-  memset(s_dir_selections, 0, sizeof(s_dir_selections));
-  strlcpy(s_path, LIB_ROOT, sizeof(s_path));
-  scan_directory();
+  select_source(false);
+  if (s_missing || s_count == 0)
+    select_source(true);
   lv_obj_t *outgoing = lv_screen_active();
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
-  "status": "host_tests_passed_for_nfc_navigation_hardware_acceptance_pending",
+  "status": "firmware_issue_corrections_hardware_acceptance_pending",
   "files": {
     "firmware_c5/components/Applications/wifi/wifi_sniffer.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -524,6 +524,20 @@
       "before_sha256": "0d76b5a909fafecdbebcf59abcf4b915382639bc236e7f66ce9ffd68a77f095f",
       "after_sha256": "96419055b87df6b037c91dcc08c45a4379cf8d5f907ebd2e76fe0ed858195304",
       "reason": "Remove synthetic connected state and success notifications while no C5 IP transport backs the P4 MQTT bridge."
+    },
+    "firmware_p4/components/Applications/ui/screens/infrared/ir_library_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "f2e6cb99c34362fed45e7da1fabf9e2ed4a1a3a61531282aca39b38a11d027d7",
+      "after_sha256": "e9fc5b023e9e4c41b5640685af7fb7d3cdc28040233a1bc9c2e9d18d93306991",
+      "reason": "Expose bundled IR collections alongside the SD library, with bounded source switching and native parsing.",
+      "pre_format_sha256": "90a908579c7bbae4f3246b7efa58512827919479a542e9f689b846ba870ba17a",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_p4/components/Applications/ui/screens/infrared/include/ir_library_ui.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "6cdb049e823bb68b30c1154190e2dfec9e2362dcf7a8db6ea6cb4c32ab012547",
+      "after_sha256": "0051b0b3d152640fac88aba8033ee25ac7367f51445b74248bc681cea200eb9f",
+      "reason": "Expose bundled IR collections alongside the SD library, with bounded source switching and native parsing."
     }
   }
 }

@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-/** Browse SD remotes and explicitly send a selected button. */
+/** Browse built-in and SD remotes and explicitly send a selected button. */
 void ui_ir_library_open(void);
 
 #ifdef __cplusplus
