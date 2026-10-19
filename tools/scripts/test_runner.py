@@ -29,7 +29,7 @@ typedef int esp_err_t;
 #define MALLOC_CAP_8BIT 2
 #define heap_caps_malloc(n, caps) malloc(n)
 ''')
-        (directory / 'esp_timer.h').write_text('static int64_t esp_timer_get_time(void) { return now_us; }\n')
+        (directory / 'esp_timer.h').write_text('static int64_t esp_timer_get_time(void) { return s_now_us; }\n')
         (directory / 'freertos/FreeRTOS.h').write_text('''#pragma once
 #include <pthread.h>
 typedef pthread_mutex_t portMUX_TYPE;
@@ -40,15 +40,15 @@ typedef pthread_mutex_t portMUX_TYPE;
 #define pdPASS 1
 ''')
         (directory / 'freertos/task.h').write_text('''#pragma once
-static void vTaskDelay(unsigned ticks) { now_us += (int64_t)ticks * 1000000; }
-static void vTaskDeleteWithCaps(void *task) { (void)task; ++finished_tasks; }
+static void vTaskDelay(unsigned ticks) { s_now_us += (int64_t)ticks * 1000000; }
+static void vTaskDeleteWithCaps(void *task) { (void)task; ++s_finished_tasks; }
 static int xTaskCreatePinnedToCoreWithCaps(void (*task)(void *), const char *name,
     unsigned stack, void *ctx, unsigned priority, void *handle, int core, unsigned caps) {
   (void)name; (void)ctx; (void)handle;
   assert(stack >= 16384 && priority == 2 && core == 0 && caps == 3);
-  if (task_should_fail) return 0;
-  assert(pending_task == NULL);
-  pending_task = task;
+  if (s_task_should_fail) return 0;
+  assert(s_pending_task == NULL);
+  s_pending_task = task;
   return pdPASS;
 }
 ''')

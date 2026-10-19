@@ -51,6 +51,7 @@ UI callbacks read a synchronized snapshot and never touch VM state.
 - Source: 1–65536 bytes, with embedded NUL rejected.
 - Interpreter heap: 512 KiB. MicroQuickJS receives one fixed arena; Lua's custom
   allocator accounts for allocation headers and transient reallocation storage.
+  Shrinking retains existing capacity so it cannot fail under memory pressure.
 - Transcript: the first 4095 bytes, with a terminating NUL. Further output is
   discarded without allocating more memory.
 - Runtime: 30 seconds, checked by VM hooks and interruptible sleep. Long native

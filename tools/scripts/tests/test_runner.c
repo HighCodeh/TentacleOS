@@ -6,16 +6,16 @@
 #include <string.h>
 #include <stdint.h>
 
-static void (*pending_task)(void *);
-static int task_should_fail;
-static int finished_tasks;
-static int64_t now_us;
-static const char *temporary_directory;
+static void (*s_pending_task)(void *);
+static int s_task_should_fail;
+static int s_finished_tasks;
+static int64_t s_now_us;
+static const char *s_temporary_directory;
 static FILE *open_script(const char *path, const char *mode) {
   const char *name = strrchr(path, '/');
   assert(name != NULL);
   char actual[512];
-  snprintf(actual, sizeof(actual), "%s%s", temporary_directory, name);
+  snprintf(actual, sizeof(actual), "%s%s", s_temporary_directory, name);
   return fopen(actual, mode);
 }
 #define fopen open_script
@@ -24,21 +24,21 @@ static FILE *open_script(const char *path, const char *mode) {
 
 static void write_script(const char *name, const char *source) {
   char path[512];
-  snprintf(path, sizeof(path), "%s/%s", temporary_directory, name);
+  snprintf(path, sizeof(path), "%s/%s", s_temporary_directory, name);
   FILE *file = fopen(path, "wb");
   assert(file != NULL);
   assert(fwrite(source, 1, strlen(source), file) == strlen(source));
   fclose(file);
 }
 static void finish(void) {
-  assert(pending_task != NULL);
-  void (*task)(void *) = pending_task;
-  pending_task = NULL;
+  assert(s_pending_task != NULL);
+  void (*task)(void *) = s_pending_task;
+  s_pending_task = NULL;
   task(NULL);
 }
 int main(int argc, char **argv) {
   assert(argc == 2);
-  temporary_directory = argv[1];
+  s_temporary_directory = argv[1];
   script_runner_snapshot_t snapshot;
   assert(script_runner_name_is_valid("hello.js"));
   assert(script_runner_name_is_valid("hello.lua"));
@@ -50,11 +50,11 @@ int main(int argc, char **argv) {
   write_script("hello.js", "print('JavaScript from SD');");
   write_script("hello.lua", "print('Lua from SD')");
   assert(script_runner_start("../bad.js") == ESP_ERR_INVALID_ARG);
-  task_should_fail = 1;
+  s_task_should_fail = 1;
   assert(script_runner_start("hello.js") == ESP_ERR_NO_MEM);
   script_runner_snapshot(&snapshot);
   assert(!snapshot.is_running && snapshot.result == SCRIPT_ENGINE_NO_MEMORY);
-  task_should_fail = 0;
+  s_task_should_fail = 0;
   assert(script_runner_start("hello.js") == ESP_OK);
   assert(script_runner_start("hello.lua") == ESP_ERR_INVALID_STATE);
   finish();
@@ -85,6 +85,6 @@ int main(int argc, char **argv) {
   script_runner_snapshot(&snapshot);
   assert(snapshot.result == SCRIPT_ENGINE_OK);
   assert(strlen(snapshot.output) == SCRIPT_RUNNER_OUTPUT_MAX - 1);
-  assert(finished_tasks == 6);
+  assert(s_finished_tasks == 6);
   puts("PASS: SD JS/Lua execution, task failure, busy ownership, stop, deadline and bounded output");
 }

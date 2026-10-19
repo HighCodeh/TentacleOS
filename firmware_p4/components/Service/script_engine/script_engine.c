@@ -59,6 +59,9 @@ static void *lua_allocate(void *ctx, void *pointer, size_t old_size, size_t new_
     free(old);
     return NULL;
   }
+  // Lua requires shrinking an allocation to succeed even when memory is exhausted.
+  if (old != NULL && new_size <= old_length)
+    return pointer;
   size_t old_cost = old == NULL ? 0 : old_length + sizeof(*old);
   if (new_size > SCRIPT_ENGINE_HEAP_MAX - sizeof(*old))
     return NULL;
