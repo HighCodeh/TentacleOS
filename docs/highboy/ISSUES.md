@@ -16,6 +16,8 @@ this work. No device was flashed or exercised.
 
 | [#150](https://github.com/HighCodeh/TentacleOS/issues/150) | Authenticated companion NFC-A/B/F/V identification and native LF EM4100 capture now have bounded READ/STATUS/RECOVER commands, task-owned antenna reservations, retained failed-OFF recovery and CLI tests. Haptics remains excluded by request. This supplies discovery/read commands; companion card writes/emulation and hardware/transport acceptance are not claimed. See [RF commands](../host_link/rf-commands.md). |
 
+| [#155](https://github.com/HighCodeh/TentacleOS/issues/155) | Native Wi-Fi/Bluetooth paths, real Meshtastic MQTT/position, real JS/Lua Scripts and a remote GATT explorer now replace the audited mock paths. GATT scans, connects, discovers and reads through C5 with bounded snapshots, cancellation and lease expiry. Host tests and paired SDK builds pass; actual device/network interoperability remains #143/#156. |
+
 ## Still open
 
 | Issue | Remaining work |
@@ -28,7 +30,6 @@ this work. No device was flashed or exercised.
 | [#151](https://github.com/HighCodeh/TentacleOS/issues/151) | Companion ephemeral ECDH and device-side pairing confirmation. Existing PSK authentication and separate Muse pairing do not meet this requirement. |
 | [#152](https://github.com/HighCodeh/TentacleOS/issues/152) | Production Secure Boot v2 and Flash Encryption provisioning for both chips, including keys, recovery and irreversible eFuse review. Both remain disabled. |
 | [#153](https://github.com/HighCodeh/TentacleOS/issues/153) | Existing boot-loop/safe-mode/WDT/coredump mechanisms need fault-injection and recovery acceptance on hardware. The boot-sound crash workaround remains. |
-| [#155](https://github.com/HighCodeh/TentacleOS/issues/155) | The real MQTT transport/UI is implemented over C5, including subscription and inbound chat; broker/device acceptance remains. Dev Scripts now runs real JavaScript/Lua files separately from signed `.hb` apps and shares `tos_api_t` through per-run capability approval, resource ownership and cleanup; see [scripts](../scripts/README.md). GATT is explicitly a reference catalog and no longer invents read values; remote discovery/read integration remains. Native Wi-Fi connect, BLE mouse/companion and LoRa position paths exist but need device acceptance. |
 | [#156](https://github.com/HighCodeh/TentacleOS/issues/156) | The [source matrix](MATRIX.md) now identifies implemented and missing UI / `.hb` / companion paths. Missing adapters and the physical cross-interface acceptance still need completion. |
 | [#157](https://github.com/HighCodeh/TentacleOS/issues/157) | Measure performance/internal RAM and prepare a reviewed OTA/asset/restore package. P4 portable-crypto size optimization recovered 23,408 bytes before the RF ABI additions, with all 101 libsodium host tests passing; device timing remains unmeasured and app-only builds are not a release candidate package. |
 | [#158](https://github.com/HighCodeh/TentacleOS/issues/158) | Fixed a reproduced BSD/macOS SDK build bug (`stat -c%s` is GNU-only), with an isolated shell regression. The original unnamed Bash report remains unidentified: the user no longer recalls the command and the explanation is on another PC. All reviewed shell files pass syntax checks. The [field guide](FIELD.md) documents current capabilities, bench evidence and the app-only boundary. A supported consumer installation procedure still needs the approved deployment/recovery package. |
@@ -98,3 +99,11 @@ subscription, encrypted publication and filtered inbound chat. The P4 retains
 network/transport/AES fakes; real broker and device acceptance remain pending.
 No additional issue is closed: #145 still needs a usable P4 RNode endpoint and
 #155 still needs remote GATT, alongside the other open requirements above.
+
+## Remote GATT follow-up
+
+The [GATT paired build record](TESTS.md#remote-gatt-build-record) validates
+firmware `7aaae6b0`. This completes the remaining implementation work in #155.
+The physical cross-interface matrix remains open under #156; discovery/read
+fixtures do not prove actual BLE interoperability. Production provisioning,
+ephemeral companion pairing and unpublished radio ABI adapters remain separate.

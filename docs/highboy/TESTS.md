@@ -420,3 +420,35 @@ shared-chip performance or device reconnect behavior. No device, flash, SD,
 private production key or eFuse was accessed. MQTT is now implemented for the
 native Meshtastic screen, but #145 remains open for usable P4 RNode transport
 and acceptance; #155 still includes remote GATT. See [MQTT](../mqtt/README.md).
+
+## Remote GATT build record
+
+Validated on 2026-10-19 after automatic hook formatting, from firmware commit
+`7aaae6b0`. Both pinned SDK builds and the complete offline regression suite
+passed. The original app partitions, paired SPI v8 headers, C5 memory overlay,
+Muse integration and existing optimization policy remain intact.
+
+| Target | Application bytes | Slot bytes | Free bytes | SHA-256 |
+| --- | ---: | ---: | ---: | --- |
+| P4 | 2,938,768 | 2,949,120 | 10,352 | `f971d8bbceb6d81503ecd284c5aa967cb523e3acd22402b3db74b04106b0c791` |
+| C5 | 2,042,896 | 2,097,152 | 54,256 | `cdcdf57e166efbcb1efbb5f67a61372dcace3611775746119044bb25eb3e405f` |
+
+The [remote GATT explorer](../gatt/README.md) now has an actual Detect-menu route,
+a P4 background scan/poll worker, C5 service/characteristic discovery and bounded
+ATT reads. The old reference catalog, JSON-only backend and self-freeing task
+stack are removed. A C5 lease expires abandoned connections. Competing Bluetooth
+operations cannot stop the owner; Muse still permits status/cancellation.
+
+New ASan/UBSan host tests compile the actual C5 state machine and P4 proxy with
+explicit NimBLE/event/transport fakes. They cover discovery, errors with NULL
+results, readable-handle validation, denied reads, value/cache truncation, UUID128
+copying, stale generations, allocation/timer failure, queued cancellation, lease
+expiry and NPL release/reinitialization. P4 tests reject malformed lengths,
+invalid states/counts/value lengths and transport errors. Menu routes are checked;
+paired builds validate actual SDK APIs. Existing MQTT, RF, scripting, preservation,
+Muse, USB and DOOM tests pass. These tests do not connect to a real BLE device.
+
+This completes the code changes tracked by #155: native Wi-Fi/Bluetooth paths,
+real Meshtastic MQTT/position paths and JS/Lua Dev Scripts. Physical Bluetooth,
+networking and cross-interface acceptance remain under #143/#156; HLE, HID
+layouts and haptics remain excluded. No device, SD, flash, key or eFuse was touched.

@@ -85,4 +85,5 @@ interoperability. The firmware uses mbedTLS AES-CTR.
 
 Actual broker/TLS interoperability, Wi-Fi reconnects, shared-chip load and radio
 behavior require the paired hardware. #145 remains open for the missing usable
-P4 RNode transport and physical acceptance; #155 still includes remote GATT.
+P4 RNode transport and physical acceptance. Remote GATT is now implemented
+separately; see [GATT](../gatt/README.md).
