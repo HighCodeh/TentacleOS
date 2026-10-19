@@ -77,13 +77,27 @@ static esp_err_t receive_ir(tos_ir_code_t *out, uint32_t timeout) {
 static esp_err_t send_ir(const tos_ir_code_t *code) {
   assert(code->protocol==TOS_IR_NEC && code->address==42 && code->command==7 && !code->repeat);return ESP_OK;
 }
+static unsigned s_view_calls;
+static int s_view_count=1;
+static int poll_subghz_view(tos_subghz_signal_t *out) {
+  ++s_view_calls;
+  *out=(tos_subghz_signal_t){.protocol="CAME",.decoded=true,.freq_hz=433920000,.value=42};
+  return s_view_count;
+}
+static int poll_mesh_view(tos_lora_msg_t *out) {
+  ++s_view_calls;
+  *out=(tos_lora_msg_t){.who="peer",.text="hello"};
+  return s_view_count;
+}
+static const tos_subghz_api_t subghz={.rx_poll=poll_subghz_view};
+static const tos_lora_api_t lora={.mesh_poll=poll_mesh_view};
 static const tos_ir_api_t ir={.receive=receive_ir,.send=send_ir};
 static const tos_rfid_api_t rfid={.read=read_rfid};
 static const tos_nfc_api_t nfc={.poll=poll_nfc};
 static const tos_wifi_api_t wifi={.scan=scan,.ap_get=ap_get};
 static const tos_ble_api_t ble={.hid_send_key=send_key};
 static const tos_fs_api_t fs={.open=open_file,.read=read_file,.close=close_file};
-static const tos_api_t api={.abi_major=1,.abi_minor=TOS_ABI_VERSION_MINOR,.should_stop=should_stop,.wifi=&wifi,.ble=&ble,.fs=&fs,.nfc=&nfc,.rfid=&rfid,.ir=&ir};
+static const tos_api_t api={.abi_major=1,.abi_minor=TOS_ABI_VERSION_MINOR,.should_stop=should_stop,.wifi=&wifi,.ble=&ble,.fs=&fs,.nfc=&nfc,.rfid=&rfid,.ir=&ir,.subghz=&subghz,.lora=&lora};
 static script_bindings_t bindings={.api=&api};
 
 static void test_bindings(void) {
@@ -105,11 +119,35 @@ static void test_bindings(void) {
     assert(s_scans==scans);
     assert(run(language,"tos.call('no.such.method')")==SCRIPT_ENGINE_ERROR);
     assert(run(language,"tos.call('fs.open','/sdcard/test')")==SCRIPT_ENGINE_ERROR);
+    unsigned views=s_view_calls;
+    assert(run(language,"tos.call('subghz.rx_poll')")==SCRIPT_ENGINE_ERROR);
+    assert(run(language,"tos.call('lora.mesh_poll')")==SCRIPT_ENGINE_ERROR);
+    assert(s_view_calls==views);
     unsigned rf_reads=s_rf_reads;
     assert(run(language,"tos.call('nfc.poll',500)")==SCRIPT_ENGINE_ERROR);
     assert(run(language,"tos.call('rfid.read',500)")==SCRIPT_ENGINE_ERROR);
     assert(s_rf_reads==rf_reads);
     bindings.caps=SCRIPT_BINDINGS_CAPS;
+    s_view_count=1;
+    assert(run(language,"print(tos.call('subghz.rx_poll').value)")==SCRIPT_ENGINE_OK);
+    assert(strcmp(s_output_text,"42\n")==0);
+    assert(run(language,"print(tos.call('lora.mesh_poll').text)")==SCRIPT_ENGINE_OK);
+    assert(strcmp(s_output_text,"hello\n")==0);
+    s_view_count=0;
+    assert(run(language,language==SCRIPT_ENGINE_JS
+      ? "if(tos.call('subghz.rx_poll')!==null) throw new Error('empty');"
+      : "assert(tos.call('subghz.rx_poll')==nil)")==SCRIPT_ENGINE_OK);
+    assert(run(language,language==SCRIPT_ENGINE_JS
+      ? "if(tos.call('lora.mesh_poll')!==null) throw new Error('empty');"
+      : "assert(tos.call('lora.mesh_poll')==nil)")==SCRIPT_ENGINE_OK);
+    s_view_count=-ESP_ERR_TIMEOUT;
+    assert(run(language,"tos.call('subghz.rx_poll')")==SCRIPT_ENGINE_ERROR);
+    assert(run(language,"tos.call('lora.mesh_poll')")==SCRIPT_ENGINE_ERROR);
+    tos_api_t old_view_api=api; old_view_api.abi_minor=11; bindings.api=&old_view_api;
+    views=s_view_calls;
+    assert(run(language,"tos.call('subghz.rx_poll')")==SCRIPT_ENGINE_ERROR);
+    assert(run(language,"tos.call('lora.mesh_poll')")==SCRIPT_ENGINE_ERROR);
+    assert(s_view_calls==views); bindings.api=&api;
     assert(run(language,"print(tos.call('rfid.read',500).id)")==SCRIPT_ENGINE_OK);
     assert(strcmp(s_output_text,"0102030405\n")==0);
     assert(run(language,language==SCRIPT_ENGINE_JS

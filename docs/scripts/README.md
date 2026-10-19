@@ -226,3 +226,14 @@ record with those four fields. The bounds and ownership are shared with the
 [native IR API](../app_sdk/README.md#native-ir-api-abi-111): decoded codes only,
 RX timeout 1–1000 ms, explicit RX/TX approval and persistent-worker cleanup.
 An older host table is rejected before its appended IR pointer is accessed.
+
+## Radio observation bindings
+
+ABI 1.12 adds `tos.call("subghz.rx_poll")` and `tos.call("lora.mesh_poll")`.
+Both require `radio-rx` (`@caps 0x08`) and observe existing native activity;
+they do not activate a radio. Sub-GHz returns
+`{protocol, decoded, freq_hz, value, serial, bit_count, btn}`; LoRa chat returns
+`{outgoing, who, text}`. Empty polls return JavaScript `null` or Lua `nil`.
+Cursors are independent for each app/run; retained history and overwritten
+backlog follow the [native observation contract](../app_sdk/README.md#native-radio-observations-abi-112).
+Older ABI tables are rejected before their appended pointers are accessed.

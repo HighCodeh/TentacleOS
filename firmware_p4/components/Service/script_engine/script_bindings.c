@@ -21,11 +21,12 @@
     if (!(value))           \
       goto no_memory;       \
   } while (0)
-#define SCRIPT_MAC_TEXT     18
-#define SCRIPT_HEX_RADIX    16
-#define SCRIPT_DELAY_MAX_MS 30000
-#define SCRIPT_RF_ABI_MINOR 10
-#define SCRIPT_IR_ABI_MINOR 11
+#define SCRIPT_MAC_TEXT             18
+#define SCRIPT_HEX_RADIX            16
+#define SCRIPT_DELAY_MAX_MS         30000
+#define SCRIPT_RF_ABI_MINOR         10
+#define SCRIPT_IR_ABI_MINOR         11
+#define SCRIPT_RADIO_VIEW_ABI_MINOR 12
 
 static const char *TAG = "SCRIPT_BINDINGS";
 
@@ -99,6 +100,8 @@ typedef enum {
   SCRIPT_BINDINGS_RFID_READ,
   SCRIPT_BINDINGS_IR_RECEIVE,
   SCRIPT_BINDINGS_IR_SEND,
+  SCRIPT_BINDINGS_SUBGHZ_POLL,
+  SCRIPT_BINDINGS_LORA_MESH_POLL,
   SCRIPT_BINDINGS_METHOD_COUNT
 } script_bindings_method_id_t;
 
@@ -178,6 +181,8 @@ static const script_bindings_method_t METHODS[] = {
     {"rfid.read", "u", TOS_CAP_RADIO_RX},
     {"ir.receive", "u", TOS_CAP_RADIO_RX},
     {"ir.send", "yuub", TOS_CAP_RADIO_TX},
+    {"subghz.rx_poll", "", TOS_CAP_RADIO_RX},
+    {"lora.mesh_poll", "", TOS_CAP_RADIO_RX},
 };
 #define SCRIPT_METHOD_COUNT (sizeof(METHODS) / sizeof(METHODS[0]))
 _Static_assert(SCRIPT_METHOD_COUNT == SCRIPT_BINDINGS_METHOD_COUNT,
@@ -1017,6 +1022,53 @@ esp_err_t script_bindings_call(script_bindings_t *bindings, script_bindings_call
       tos_ir_code_t code = {
           .protocol = n[0], .address = n[1], .command = n[2], .repeat = n[3] != 0};
       err = api->ir->send(&code);
+      break;
+    }
+    case SCRIPT_BINDINGS_SUBGHZ_POLL: {
+      if (api->abi_minor < SCRIPT_RADIO_VIEW_ABI_MINOR || api->subghz == NULL ||
+          api->subghz->rx_poll == NULL)
+        return ESP_ERR_NOT_SUPPORTED;
+      tos_subghz_signal_t signal = {0};
+      int count = api->subghz->rx_poll(&signal);
+      if (count < 0)
+        return -count;
+      if (count == 0) {
+        call->result = cJSON_CreateNull();
+        REQUIRE_JSON(call->result);
+        break;
+      }
+      signal.protocol[sizeof(signal.protocol) - 1] = '\0';
+      call->result = cJSON_CreateObject();
+      REQUIRE_JSON(call->result);
+      REQUIRE_JSON(cJSON_AddStringToObject(call->result, "protocol", signal.protocol));
+      REQUIRE_JSON(cJSON_AddBoolToObject(call->result, "decoded", signal.decoded));
+      REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "freq_hz", signal.freq_hz));
+      REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "value", signal.value));
+      REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "serial", signal.serial));
+      REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "bit_count", signal.bit_count));
+      REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "btn", signal.btn));
+      break;
+    }
+    case SCRIPT_BINDINGS_LORA_MESH_POLL: {
+      if (api->abi_minor < SCRIPT_RADIO_VIEW_ABI_MINOR || api->lora == NULL ||
+          api->lora->mesh_poll == NULL)
+        return ESP_ERR_NOT_SUPPORTED;
+      tos_lora_msg_t message = {0};
+      int count = api->lora->mesh_poll(&message);
+      if (count < 0)
+        return -count;
+      if (count == 0) {
+        call->result = cJSON_CreateNull();
+        REQUIRE_JSON(call->result);
+        break;
+      }
+      message.who[sizeof(message.who) - 1] = '\0';
+      message.text[sizeof(message.text) - 1] = '\0';
+      call->result = cJSON_CreateObject();
+      REQUIRE_JSON(call->result);
+      REQUIRE_JSON(cJSON_AddBoolToObject(call->result, "outgoing", message.outgoing));
+      REQUIRE_JSON(cJSON_AddStringToObject(call->result, "who", message.who));
+      REQUIRE_JSON(cJSON_AddStringToObject(call->result, "text", message.text));
       break;
     }
     case SCRIPT_BINDINGS_RFID_READ: {
