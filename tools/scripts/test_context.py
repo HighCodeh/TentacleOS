@@ -87,7 +87,7 @@ static inline size_t strlcpy(char *dst,const char *src,size_t size) {
 }
 #endif
 ''')
-        executable = directory / 'test' 
+        executable = directory / 'test'
         subprocess.run([*shlex.split(os.environ.get('CC', 'cc')), '-std=gnu11', '-Wall', '-Wextra',
                         '-Werror', '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
                         '-include', str(directory / 'string_compat.h'),

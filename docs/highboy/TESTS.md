@@ -238,3 +238,40 @@ This is app-only software validation. Script execution on the P4, native stack
 headroom, UI timing and peripheral throughput still need physical acceptance.
 No device, flash, SD card, microphone or cloud endpoint was accessed. See the
 [script runtime documentation](../scripts/README.md) for language and API limits.
+
+## Shared script ABI build record
+
+Validated on 2026-10-19 from firmware source commit `c8be1773`, after automatic
+pre-commit formatting. Both application-only targets passed the offline paired
+build using ESP-IDF v5.5.3 (P4) and v6.0.1 (C5).
+
+| Target | Application bytes | Slot bytes | Free bytes | SHA-256 |
+| --- | ---: | ---: | ---: | --- |
+| P4 | 2,945,904 | 2,949,120 | 3,216 | `c601cf91551e682eba0c75ce924d8920a5a890eaf977a8dbbd0a41b5ffae7d06` |
+| C5 | 2,016,048 | 2,097,152 | 81,104 | `f25f89e9d9f4bbd6aff4fee4a84be9b07f8099049d47995dfb4116b7257a91d0` |
+
+`bash tools/highboy/test.command` passed without skips, including both real
+interpreters under ASan/UBSan, generated ROM verification, capability denial,
+argument bounds, typed records, binary reads, file cleanup, cJSON allocation
+failures, consent denial/timeout, stale approval rejection, immutable loaded
+source, binding failure and concurrent context registration. Screen callback
+tests cover native navigation, ABI handoff and asynchronous deletion. Existing
+RF, NFC, IR, Muse, Sub-GHz, preservation, DOOM and USB checks also passed.
+Commitlint passed for the three implementation commits, whose messages contain
+only titles and no coauthor trailers.
+
+To retain the original slots, cJSON now uses `-Os` and LTO and the final P4 link
+uses `-flto-partition=one`. Generated compile commands confirmed compact cJSON,
+`-O2` for LVGL draw sources and unchanged driver flags. The P4 slot remains nearly
+full. C5 source and memory settings, paired SPI v8 and partition layouts are
+unchanged. The fresh C5 binary was embedded by the paired build; the hashes above
+identify these exact build artifacts, not a reproducible-build guarantee.
+
+The adapter shares `tos_api_t` with `.hb` apps and exposes Wi-Fi, BLE, read-only
+filesystem, lifecycle, LED and basic widgets. Native pointers, C callbacks,
+image/canvas rendering and unpublished radio tables remain outside the script
+surface; see the [binding reference](../scripts/README.md#shared-firmware-abi).
+This validates software paths with device fakes. Hardware radio sessions, display
+responsiveness, stack headroom and cleanup on the actual P4/C5 still require
+physical acceptance. No device, flash or SD card was accessed. Builds retain
+pre-existing truncation and deprecated-library warnings; they are not warning-free.

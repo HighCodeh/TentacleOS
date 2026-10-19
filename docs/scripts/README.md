@@ -85,7 +85,7 @@ confirmation **on every run**, initially selecting Deny. The source is loaded
 once and retained while confirmation is pending; approval applies to those exact
 bytes, not to a later SD read. Generation IDs reject stale dialog responses.
 Waiting for consent has a 30-second deadline; approval starts a fresh 30-second
-execution deadline. Stop or denial executes no script code.
+execution deadline. Stop or denial while waiting executes no script code.
 
 Available methods retain their ABI names, using a dot for namespaces:
 
@@ -201,5 +201,5 @@ The generated 32/64-bit JavaScript ROM and atom tables are checked by rebuilding
 with the host C compiler. When intentionally changing bindings, run
 `python3 tools/scripts/generate_js_stdlib.py` and review both generated variants.
 
-The [validated build record](../highboy/TESTS.md#script-runtime-build-record)
+The [validated build record](../highboy/TESTS.md#shared-script-abi-build-record)
 contains the paired application sizes, hashes and acceptance limits.
