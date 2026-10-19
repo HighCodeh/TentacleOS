@@ -56,3 +56,11 @@ bytes; the rest of the frame is the message `text` (no length prefix).
 
 Source of truth: `spi_protocol.h`, P4 `Service/host_link/host_link_lora.c`
 (driving `lora_session` + `meshcore`).
+
+## On-device MQTT screen
+
+The on-device MQTT settings screen reports the network transport as unavailable.
+Editing a broker or pressing Connect does not establish a connection or display
+a successful connection notification. The P4 MQTT client has no active C5 IP
+transport; the publish implementation is not a working mesh MQTT bridge. Receive
+subscription, transport integration and end-to-end validation remain pending.

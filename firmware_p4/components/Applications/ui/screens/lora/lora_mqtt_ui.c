@@ -50,7 +50,6 @@ static menu_component_t s_menu;
 static char s_broker[FIELD_MAX];
 static char s_user[FIELD_MAX];
 static char s_pass[FIELD_MAX];
-static bool s_connected = false;
 static int s_edit_field = ROW_BROKER;
 
 static void lora_mqtt_input(const input_event_t *ev, void *ctx);
@@ -82,28 +81,10 @@ static void on_kb_submit(const char *text, void *user_data) {
   ui_feedback(UI_FB_WRITE);
 }
 
-static void apply_status(void) {
-  menu_component_set_selector_value(
-      &s_menu, ROW_STATUS, s_connected ? "Connected" : "Disconnected");
-  menu_component_set_selector_value(&s_menu, ROW_ACTION, s_connected ? "Disconnect" : "Connect");
-  menu_component_set_item_label_color(&s_menu,
-                                      ROW_STATUS,
-                                      s_connected ? lv_color_hex(UI_COL_SUCCESS)
-                                                  : current_theme.text_secondary);
-  menu_component_set_item_label_color(
-      &s_menu, ROW_ACTION, s_connected ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_main);
-}
-
-static void toggle_connect(void) {
-  s_connected = !s_connected;
-  apply_status();
-  if (s_connected) {
-    ui_feedback(UI_FB_EMULATE);
-    notify(NOTIFY_INFO, "MQTT bridge connected");
-  } else {
-    ui_feedback(UI_FB_SELECT);
-    notify(NOTIFY_WARNING, "MQTT bridge stopped");
-  }
+static void request_connect(void) {
+  ESP_LOGW(TAG, "MQTT connection unavailable: no IP transport to C5");
+  ui_feedback(UI_FB_SELECT);
+  notify(NOTIFY_WARNING, "MQTT network transport unavailable");
 }
 
 static void build_screen(void) {
@@ -113,11 +94,10 @@ static void build_screen(void) {
   menu_component_add_selector(&s_menu, ICON_USER, "User", s_user);
   menu_component_add_selector(&s_menu, ICON_PASS, "Pass", pass_display());
   menu_component_add_section(&s_menu, "LINK");
-  menu_component_add_selector(&s_menu, ICON_STATUS, "Status", "Disconnected");
+  menu_component_add_selector(&s_menu, ICON_STATUS, "Status", "Unavailable");
   menu_component_add_selector(&s_menu, ICON_ACTION, "Action", "Connect");
   menu_component_select(&s_menu, ROW_BROKER);
   menu_component_set_hint(&s_menu, LV_SYMBOL_UP LV_SYMBOL_DOWN "  move   OK edit/run   BACK exit");
-  apply_status();
 }
 
 static void lora_mqtt_input(const input_event_t *ev, void *ctx) {
@@ -142,7 +122,7 @@ static void lora_mqtt_input(const input_event_t *ev, void *ctx) {
           ui_feedback(UI_FB_SELECT);
           keyboard_open(NULL, on_kb_submit, NULL);
         } else if (sel == ROW_ACTION) {
-          toggle_connect();
+          request_connect();
         }
       }
       break;
@@ -165,7 +145,6 @@ void ui_lora_mqtt_open(void) {
   store_field(s_broker, HOST_DEFAULT);
   store_field(s_user, USER_DEFAULT);
   s_pass[0] = '\0';
-  s_connected = false;
   s_edit_field = ROW_BROKER;
 
   s_screen = lv_obj_create(NULL);
@@ -181,5 +160,5 @@ void ui_lora_mqtt_open(void) {
 
   ui_screen_load_owned(&s_screen, s_screen);
 
-  ESP_LOGI(TAG, "LoRa MQTT bridge (mock) opened");
+  ESP_LOGI(TAG, "LoRa MQTT settings opened (network transport unavailable)");
 }

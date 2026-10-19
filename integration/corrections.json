@@ -518,6 +518,12 @@
       "before_sha256": "d953be8662d9bc0a4c67ce47ee72137219b86659c2b2d6a09b0ff7bbee4aa718",
       "after_sha256": "de1af8f69e43b84e9f6754e18590d4d68441492e733564b430191acfa73ffd9c",
       "reason": "Document the native emulation entry and expose C++ linkage."
+    },
+    "firmware_p4/components/Applications/ui/screens/lora/lora_mqtt_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "0d76b5a909fafecdbebcf59abcf4b915382639bc236e7f66ce9ffd68a77f095f",
+      "after_sha256": "96419055b87df6b037c91dcc08c45a4379cf8d5f907ebd2e76fe0ed858195304",
+      "reason": "Remove synthetic connected state and success notifications while no C5 IP transport backs the P4 MQTT bridge."
     }
   }
 }
