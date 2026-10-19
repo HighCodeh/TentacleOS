@@ -9,7 +9,7 @@ README.md, separated by `---`.
 
 - [highboy/](highboy/README.md) - integrated dev + local Muse pair, build lanes, preservation and deployment gates
 
-- [host_link/](host_link/README.md) - companion app link: overview, [app implementation guide](host_link/app-guide.md), [protocol spec](host_link/protocol.md), per-firmware sections
+- [host_link/](host_link/README.md) - companion app link: overview, [app implementation guide](host_link/app-guide.md), [protocol spec](host_link/protocol.md), [NFC/RFID commands](host_link/rf-commands.md), per-firmware sections
 - [spi_bridge/](spi_bridge/README.md) - P4<->C5 SPI bridge: architecture + per-firmware sections
 - [scripts/](scripts/README.md) - execute JavaScript and Lua source files from SD
 - [app_sdk/](app_sdk/README.md) - **write an app for the device**: build, sign, install and run signed `.hb` bundles from SD

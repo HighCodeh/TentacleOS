@@ -14,6 +14,8 @@ this work. No device was flashed or exercised.
 | [#142](https://github.com/HighCodeh/TentacleOS/issues/142) | The IR browser selects bundled `/assets/ir` collections or `/sdcard/ir/library`, with automatic fallback to bundled remotes when the SD library is absent/empty. The production parser loads 516 TV, 727 audio and 77 AC signals in host tests. Runtime assets must be installed; an app-only binary does not restore them. |
 | [#144](https://github.com/HighCodeh/TentacleOS/issues/144) | P4 mouse input reaches C5 HID through `SPI_ID_BT_HID_SEND_MOUSE`. Companion BLE starts on demand and reports authenticated host-link state. Stale mock descriptions for native screens were corrected. Ephemeral pairing remains #151; device interoperability is not claimed. |
 
+| [#150](https://github.com/HighCodeh/TentacleOS/issues/150) | Authenticated companion NFC-A/B/F/V identification and native LF EM4100 capture now have bounded READ/STATUS/RECOVER commands, task-owned antenna reservations, retained failed-OFF recovery and CLI tests. Haptics remains excluded by request. This supplies discovery/read commands; companion card writes/emulation and hardware/transport acceptance are not claimed. See [RF commands](../host_link/rf-commands.md). |
+
 ## Still open
 
 | Issue | Remaining work |
@@ -23,7 +25,6 @@ this work. No device was flashed or exercised.
 | [#145](https://github.com/HighCodeh/TentacleOS/issues/145) | Enforce shared mesh airtime budgets, implement MQTT transport/subscription/receive flow, and select/wire the RNode entry point. The MQTT UI no longer claims a synthetic connection. |
 | [#148](https://github.com/HighCodeh/TentacleOS/issues/148) | Physical NFC card test with recorded hardware, card types, read/write/emulation results and field shutdown. |
 | [#149](https://github.com/HighCodeh/TentacleOS/issues/149) | Publish usable radio API tables with capability checks, resource ownership and teardown. Provision a production trust key; the development key is not a production identity. |
-| [#150](https://github.com/HighCodeh/TentacleOS/issues/150) | Add NFC/RFID host-link commands with bounded results and coordinated radio ownership. Haptics is explicitly deferred. |
 | [#151](https://github.com/HighCodeh/TentacleOS/issues/151) | Companion ephemeral ECDH and device-side pairing confirmation. Existing PSK authentication and separate Muse pairing do not meet this requirement. |
 | [#152](https://github.com/HighCodeh/TentacleOS/issues/152) | Production Secure Boot v2 and Flash Encryption provisioning for both chips, including keys, recovery and irreversible eFuse review. Both remain disabled. |
 | [#153](https://github.com/HighCodeh/TentacleOS/issues/153) | Existing boot-loop/safe-mode/WDT/coredump mechanisms need fault-injection and recovery acceptance on hardware. The boot-sound crash workaround remains. |

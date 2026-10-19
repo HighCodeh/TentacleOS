@@ -368,3 +368,10 @@ Service/host_link/README.md` and `firmware_c5/components/Service/host_link/READM
   consoles, file viewer/editor, device-status indicators).
 
 The backend is the trust boundary; the UI layer only ever sees validated state.
+
+## Native NFC/RFID categories (integrated v8)
+
+Muse RPC retains category `0x11`. NFC `0x12` and LF RFID `0x13` expose bounded
+READ, STATUS and RECOVER operations, intercepted by the P4 after normal
+authentication and generation validation. See [rf-commands.md](./rf-commands.md).
+No host envelope version or existing command identity changes.

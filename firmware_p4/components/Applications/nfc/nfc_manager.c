@@ -46,14 +46,6 @@ static struct {
   bool no_sleep_held;
 } s_mgr = {0};
 
-typedef enum {
-  NFC_MANAGER_TECH_A = 0,
-  NFC_MANAGER_TECH_B,
-  NFC_MANAGER_TECH_F,
-  NFC_MANAGER_TECH_V,
-  NFC_MANAGER_TECH_COUNT,
-} nfc_manager_tech_t;
-
 static void nfc_manager_capture_rf_metrics(hb_nfc_card_data_t *card) {
   uint16_t regulator_mv = 0;
   bool current_limit = false;
@@ -80,13 +72,21 @@ static hb_nfc_protocol_t nfc_manager_classify_type_a(const nfc_iso14443a_data_t 
   return HB_PROTO_ISO14443_3A;
 }
 
-static bool nfc_manager_probe_a(hb_nfc_card_data_t *full) {
-  if (nfc_poller_start() != HB_NFC_OK)
-    return false;
+static esp_err_t discovery_error(hb_nfc_err_t error) {
+  return error == HB_NFC_ERR_NO_CARD || error == HB_NFC_ERR_TIMEOUT || error == ESP_ERR_NOT_FOUND
+             ? ESP_ERR_NOT_FOUND
+             : error;
+}
+
+static esp_err_t nfc_manager_probe_a(hb_nfc_card_data_t *full) {
+  hb_nfc_err_t error = nfc_poller_start();
+  if (error != HB_NFC_OK)
+    return error;
 
   nfc_iso14443a_data_t card = {0};
-  if (iso14443a_poller_select(&card) != HB_NFC_OK)
-    return false;
+  error = iso14443a_poller_select(&card);
+  if (error != HB_NFC_OK)
+    return discovery_error(error);
 
   full->iso14443a = card;
   full->protocol = nfc_manager_classify_type_a(&card);
@@ -99,43 +99,49 @@ static bool nfc_manager_probe_a(hb_nfc_card_data_t *full) {
     if (iso_dep_rats(8, 0, &dep) == HB_NFC_OK)
       full->data.iso_dep = dep;
   }
-  return true;
+  return ESP_OK;
 }
 
-static bool nfc_manager_probe_b(hb_nfc_card_data_t *full) {
-  if (iso14443b_poller_init() != HB_NFC_OK)
-    return false;
+static esp_err_t nfc_manager_probe_b(hb_nfc_card_data_t *full) {
+  hb_nfc_err_t error = iso14443b_poller_init();
+  if (error != HB_NFC_OK)
+    return error;
   nfc_iso14443b_data_t card = {0};
-  if (iso14443b_reqb(NFC_REQB_AFI_ALL, NFC_REQB_PARAM_DEFAULT, &card) != HB_NFC_OK)
-    return false;
+  error = iso14443b_reqb(NFC_REQB_AFI_ALL, NFC_REQB_PARAM_DEFAULT, &card);
+  if (error != HB_NFC_OK)
+    return discovery_error(error);
 
   full->data.iso14443b = card;
   full->protocol =
       iso14443b_attrib(&card, 8, 0) == HB_NFC_OK ? HB_PROTO_ISO14443_4B : HB_PROTO_ISO14443_3B;
-  return true;
+  return ESP_OK;
 }
 
-static bool nfc_manager_probe_f(hb_nfc_card_data_t *full) {
-  if (felica_poller_init() != HB_NFC_OK)
-    return false;
+static esp_err_t nfc_manager_probe_f(hb_nfc_card_data_t *full) {
+  hb_nfc_err_t error = felica_poller_init();
+  if (error != HB_NFC_OK)
+    return error;
   felica_tag_t tag = {0};
-  if (felica_sensf_req(FELICA_SC_COMMON, &tag) != HB_NFC_OK)
-    return false;
+  error = felica_sensf_req(FELICA_SC_COMMON, &tag);
+  if (error != HB_NFC_OK)
+    return discovery_error(error);
 
   full->protocol = HB_PROTO_FELICA;
   memcpy(full->data.felica.idm, tag.idm, sizeof(tag.idm));
   memcpy(full->data.felica.pmm, tag.pmm, sizeof(tag.pmm));
   memcpy(full->data.felica.system_code, tag.rd, sizeof(tag.rd));
   full->data.felica.system_code_valid = tag.rd_valid;
-  return true;
+  return ESP_OK;
 }
 
-static bool nfc_manager_probe_v(hb_nfc_card_data_t *full) {
-  if (iso15693_poller_init() != HB_NFC_OK)
-    return false;
+static esp_err_t nfc_manager_probe_v(hb_nfc_card_data_t *full) {
+  hb_nfc_err_t error = iso15693_poller_init();
+  if (error != HB_NFC_OK)
+    return error;
   iso15693_tag_t tag = {0};
-  if (iso15693_inventory(&tag) != HB_NFC_OK)
-    return false;
+  error = iso15693_inventory(&tag);
+  if (error != HB_NFC_OK)
+    return discovery_error(error);
 
   /* Geometry is optional. A valid inventory is still a valid card read. */
   (void)iso15693_get_system_info(&tag);
@@ -144,10 +150,10 @@ static bool nfc_manager_probe_v(hb_nfc_card_data_t *full) {
   full->data.iso15693.dsfid = tag.dsfid;
   full->data.iso15693.block_count = tag.block_count;
   full->data.iso15693.block_size = tag.block_size;
-  return true;
+  return ESP_OK;
 }
 
-static bool nfc_manager_probe(nfc_manager_tech_t tech, hb_nfc_card_data_t *full) {
+static esp_err_t nfc_manager_probe(nfc_manager_tech_t tech, hb_nfc_card_data_t *full) {
   memset(full, 0, sizeof(*full));
   full->protocol = HB_PROTO_UNKNOWN;
   switch (tech) {
@@ -160,8 +166,14 @@ static bool nfc_manager_probe(nfc_manager_tech_t tech, hb_nfc_card_data_t *full)
     case NFC_MANAGER_TECH_V:
       return nfc_manager_probe_v(full);
     default:
-      return false;
+      return ESP_ERR_INVALID_ARG;
   }
+}
+
+esp_err_t nfc_manager_poll(nfc_manager_tech_t tech, hb_nfc_card_data_t *out_card) {
+  if (out_card == NULL || tech < 0 || tech >= NFC_MANAGER_TECH_COUNT)
+    return ESP_ERR_INVALID_ARG;
+  return nfc_manager_probe(tech, out_card);
 }
 
 static void nfc_manager_auto_handle(const hb_nfc_card_data_t *card) {
@@ -193,7 +205,7 @@ static void nfc_manager_task(void *arg) {
 
   while (s_mgr.running) {
     hb_nfc_card_data_t full = {0};
-    if (nfc_manager_probe(tech, &full)) {
+    if (nfc_manager_probe(tech, &full) == ESP_OK) {
       s_mgr.state = NFC_MANAGER_STATE_READING;
       nfc_manager_capture_rf_metrics(&full);
 

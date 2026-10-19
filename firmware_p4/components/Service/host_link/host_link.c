@@ -34,6 +34,7 @@
 #include "host_link_fly.h"
 #include "fly_link.h"
 #include "host_link_ir.h"
+#include "host_link_rf.h"
 #include "host_link_led.h"
 #include "host_link_lora.h"
 #include "host_link_sec.h"
@@ -284,6 +285,7 @@ static void teardown_session(void) {
   host_ir_stop_rx();
   host_subghz_stop();
   host_lora_stop();
+  host_rf_stop();
   fly_link_transport_lost();
 }
 
@@ -457,10 +459,21 @@ static void process_frame(const uint8_t *frame, size_t total) {
   if (!current)
     return;
 
-  // Local P4 handlers live in the dispatch registry; anything not registered
-  // relays to the C5. Registered handlers may exceed the 255-byte relay cap
+  // RF captures use request objects; other local handlers use the registry.
+  // Unclaimed commands relay to the C5. Registered handlers may exceed the 255-byte relay cap
   // (file/IR/Sub-GHz chunks), so the cap only guards the relay path below.
   uint16_t cmd = SPI_CMD(category, op);
+  if (category == SPI_CAT_NFC || category == SPI_CAT_RFID) {
+    uint8_t response[HOST_RF_RESPONSE_MAX];
+    host_rf_request_t request = {.command = cmd,
+                                 .payload = payload,
+                                 .length = plen16,
+                                 .out = response,
+                                 .capacity = sizeof(response)};
+    uint8_t status = host_rf_handle(&request);
+    send_resp(category, op, status, response, request.out_length);
+    return;
+  }
   host_link_handler_t h;
   if (host_link_dispatch_lookup(cmd, &h)) {
     // The single companion session serializes dispatch, so one shared scratch

@@ -768,6 +768,40 @@
       "reason": "Reserve the shared antenna per task for companion captures, reject foreign driver operations, serialize NFC initialization and retain uncertain shutdown ownership.",
       "pre_format_sha256": "2f74f4c9719901febddc1f5715d09b034f53ff8df398d5aee291b10c0df76753",
       "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/include/nfc_manager.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "05025e639c25cd6338d33526f97a2ec5b0407ac93dac5801ce2b98fa35455bb8",
+      "after_sha256": "6b3ebf2fe0991a680847bedd027d7e669ff5d49aadc0a7c9fd10db3954452a22",
+      "reason": "Add authenticated bounded NFC/LF companion capture with task-owned cleanup, preserve Muse category 0x11, mirror new category IDs and reuse synchronous NFC probes with explicit setup errors."
+    },
+    "firmware_p4/components/Applications/nfc/nfc_manager.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "7ce2e5b8e50a5134909325ace1bb77b6ebe8acd7598b47a4ea9623aff898c8bb",
+      "after_sha256": "3843196c3edc991b67ffa33b7b6d5f7e4e8f213d8abd0ed52831c520fd2aea9e",
+      "reason": "Add authenticated bounded NFC/LF companion capture with task-owned cleanup, preserve Muse category 0x11, mirror new category IDs and reuse synchronous NFC probes with explicit setup errors.",
+      "pre_format_sha256": "0592370cebf9c9c75b55ec5abcb021956844329a9fa77b722780ad1cc63b0769",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/host_link/host_link.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "6fa28c9bb162cfad719c14b75c53124217b6d877887ba3d8ff4efd7524673cd4",
+      "after_sha256": "1f02ab60182bde330a6f8b11149c141c539df09904c5a14a99f946d1658804eb",
+      "reason": "Add authenticated bounded NFC/LF companion capture with task-owned cleanup, preserve Muse category 0x11, mirror new category IDs and reuse synchronous NFC probes with explicit setup errors.",
+      "pre_format_sha256": "4272e5b566e524f86f64d151a473de902a0a1078b37942f6f71a3db229c015d7",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/spi_bridge/include/spi_protocol.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "44e794090bdddda5f999a29dbbb55f907c89cb001a9284a0abd94c631987c342",
+      "after_sha256": "4b6bbe13c0511b1b89ba0e2a4e257ed57c14ae8ce0cde04ae41e4a6d3709132a",
+      "reason": "Add authenticated bounded NFC/LF companion capture with task-owned cleanup, preserve Muse category 0x11, mirror new category IDs and reuse synchronous NFC probes with explicit setup errors."
+    },
+    "firmware_c5/components/Service/spi_bridge/include/spi_protocol.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "44e794090bdddda5f999a29dbbb55f907c89cb001a9284a0abd94c631987c342",
+      "after_sha256": "4b6bbe13c0511b1b89ba0e2a4e257ed57c14ae8ce0cde04ae41e4a6d3709132a",
+      "reason": "Add authenticated bounded NFC/LF companion capture with task-owned cleanup, preserve Muse category 0x11, mirror new category IDs and reuse synchronous NFC probes with explicit setup errors."
     }
   }
 }

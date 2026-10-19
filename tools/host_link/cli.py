@@ -63,6 +63,8 @@ CAT_WIFI = 0x01
 CAT_BT = 0x02
 CAT_IR = 0x08
 CAT_SUBGHZ = 0x09
+CAT_NFC = 0x12
+CAT_RFID = 0x13
 CAT_AUDIO = 0x0A
 CAT_LED = 0x0B
 CAT_SESSION = 0xFF
@@ -697,6 +699,78 @@ LED_CMDS = {
 }
 
 
+RF_READ = 0x01
+RF_RECOVER = 0x02
+RF_STATUS = 0x03
+NFC_TECHNOLOGIES = {"a": 0, "b": 1, "f": 2, "v": 3}
+NFC_RESPONSE_SIZE = 17
+RFID_RESPONSE_SIZE = 9
+RF_TIMEOUT_MIN_MS = 40
+RF_TIMEOUT_MAX_MS = 500
+
+
+def nfc_read(link, args):
+    if len(args) > 1:
+        raise ValueError("nfc read [a|b|f|v]")
+    tech = args[0].lower() if args else "a"
+    if tech not in NFC_TECHNOLOGIES:
+        raise ValueError("nfc read expects a, b, f or v")
+    status, data = link.cmd(CAT_NFC, RF_READ, bytes([NFC_TECHNOLOGIES[tech]]))
+    if status != 0:
+        print(f"  {STATUS.get(status, status)}")
+        return
+    if data == b"\x00":
+        print("  no card found")
+        return
+    if (len(data) != NFC_RESPONSE_SIZE or data[0] != 1 or
+            data[1] != NFC_TECHNOLOGIES[tech] or not 1 <= data[3] <= 10):
+        raise ValueError("malformed NFC result")
+    uid = data[4:4 + data[3]].hex(":")
+    print(f"  NFC-{tech.upper()} id={uid} protocol={data[2]}")
+    if tech == "a":
+        print(f"  ATQA={data[14:16].hex()} SAK={data[16]:02x}")
+
+
+def rfid_read(link, args):
+    if len(args) > 1:
+        raise ValueError("rfid read [timeout_ms]")
+    timeout = int(args[0]) if args else RF_TIMEOUT_MAX_MS
+    if not RF_TIMEOUT_MIN_MS <= timeout <= RF_TIMEOUT_MAX_MS:
+        raise ValueError("RFID timeout must be 40..500 ms")
+    status, data = link.cmd(CAT_RFID, RF_READ, struct.pack("<H", timeout))
+    if status != 0:
+        print(f"  {STATUS.get(status, status)}")
+        return
+    if data == b"\x00":
+        print("  no tag found")
+        return
+    if len(data) != RFID_RESPONSE_SIZE or data[0] != 1 or data[6] not in (0, 1):
+        raise ValueError("malformed RFID result")
+    print(f"  EM4100 id={data[1:6].hex()} inverted={bool(data[6])} samples={int.from_bytes(data[7:9], 'little')}")
+
+
+def rf_status(link, category):
+    status, data = link.cmd(category, RF_STATUS)
+    if status != 0:
+        print(f"  {STATUS.get(status, status)}")
+        return
+    if len(data) != 2 or data[0] not in (0, 1) or data[1] not in (0, 1, 2):
+        raise ValueError("malformed RF status")
+    print(f"  retained={bool(data[0])} active_stage={['idle', 'LF 125 kHz', 'NFC 13.56 MHz'][data[1]]}")
+
+
+NFC_CMDS = {
+    "read": (nfc_read, "read [a|b|f|v] — one card-identification attempt"),
+    "status": (lambda link, args: rf_status(link, CAT_NFC), "antenna / retained cleanup state"),
+    "recover": (_simple(CAT_NFC, RF_RECOVER), "retry failed NFC field shutdown"),
+}
+RFID_CMDS = {
+    "read": (rfid_read, "read [timeout_ms 40..500] — one EM4100 capture"),
+    "status": (lambda link, args: rf_status(link, CAT_RFID), "antenna / retained cleanup state"),
+    "recover": (_simple(CAT_RFID, RF_RECOVER), "retry retained LF cleanup"),
+}
+
+
 GROUPS = {
     "system": SYSTEM_CMDS,
     "wifi": WIFI_CMDS,
@@ -705,6 +779,8 @@ GROUPS = {
     "subghz": SUBGHZ_CMDS,
     "audio": AUDIO_CMDS,
     "led": LED_CMDS,
+    "nfc": NFC_CMDS,
+    "rfid": RFID_CMDS,
 }
 
 

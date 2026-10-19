@@ -94,6 +94,9 @@ typedef enum {
   SPI_CAT_LORACHAT = 0x0E, // P4-native LoRa chat; companion host-link only
   SPI_CAT_FLY = 0x0F,      // P4-native Mosca TEST world; authenticated host link
   SPI_CAT_GROK = 0x10,     // Explicitly started, paired TLS LAN voice transport
+  SPI_CAT_MUSE = 0x11,     // Existing integrated Muse RPC category
+  SPI_CAT_NFC = 0x12,      // P4-local companion NFC capture
+  SPI_CAT_RFID = 0x13,     // P4-local companion LF RFID capture
   SPI_CAT_SESSION = 0xFF
 } spi_cat_t;
 
@@ -389,6 +392,13 @@ typedef enum {
   SPI_ID_GROK_STATUS = SPI_CMD(SPI_CAT_GROK, 0x03),
   SPI_ID_GROK_TX = SPI_CMD(SPI_CAT_GROK, 0x04),
   SPI_ID_GROK_PULL = SPI_CMD(SPI_CAT_GROK, 0x05),
+
+  SPI_ID_NFC_READ = SPI_CMD(SPI_CAT_NFC, 0x01),
+  SPI_ID_NFC_RECOVER = SPI_CMD(SPI_CAT_NFC, 0x02),
+  SPI_ID_NFC_STATUS = SPI_CMD(SPI_CAT_NFC, 0x03),
+  SPI_ID_RFID_READ = SPI_CMD(SPI_CAT_RFID, 0x01),
+  SPI_ID_RFID_RECOVER = SPI_CMD(SPI_CAT_RFID, 0x02),
+  SPI_ID_RFID_STATUS = SPI_CMD(SPI_CAT_RFID, 0x03),
 
   SPI_ID_SESSION_HEARTBEAT = SPI_CMD(SPI_CAT_SESSION, 0xF0),
   SPI_ID_SESSION_LOST = SPI_CMD(SPI_CAT_SESSION, 0xF1),

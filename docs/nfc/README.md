@@ -207,3 +207,14 @@ transport when OFF fails so callers can retry. The public `highboy_nfc_deinit()`
 wrapper retains its initialized flag on that failure. A successful SPI transfer
 is the software confirmation boundary; electrical field-off still needs hardware
 validation.
+
+## Synchronous companion discovery
+
+`nfc_manager_poll(technology, out_card)` reuses the manager's A/B/F/V probes
+without starting the scanner task. The caller initializes the driver, owns the
+antenna and performs field shutdown. Its output is a native card descriptor;
+setup errors propagate, discovery timeout/no-card maps to `ESP_ERR_NOT_FOUND`,
+and optional activation/geometry failures retain the original discovered card.
+The background manager uses the same probe implementations. The companion's
+bounded [capture commands](../host_link/rf-commands.md) call this interface under
+an exclusive RF reservation and a no-sleep reference.

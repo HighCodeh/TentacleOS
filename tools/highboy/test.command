@@ -6,6 +6,8 @@ python3 "$repo/tools/highboy/check_contracts.py"
 python3 "$repo/tools/highboy/test_contracts.py"
 python3 "$repo/tools/highboy/test_subghz.py"
 python3 "$repo/tools/highboy/test_rf_ownership.py"
+python3 "$repo/tools/host_link/test_rf.py"
+python3 "$repo/tools/host_link/test_rf_cli.py"
 python3 "$repo/tools/highboy/test_nfc_screen_owners.py"
 python3 "$repo/tools/highboy/test_ir_library.py"
 python3 "$repo/tools/scripts/generate_js_stdlib.py" --check

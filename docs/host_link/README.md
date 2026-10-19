@@ -17,6 +17,7 @@ the component READMEs, and the byte-level wire format lives in the protocol spec
 - BadUSB command reference (Ducky script run/abort/status): [`badusb-commands.md`](./badusb-commands.md)
 - LoRa command reference (radio config + broadcast chat): [`lora-commands.md`](./lora-commands.md)
 - App manager command reference (install/list/start/stop/remove/grant): [`app-commands.md`](./app-commands.md)
+- NFC/RFID capture reference (native P4 antenna ownership): [`rf-commands.md`](./rf-commands.md)
 - Reference tester (all groups over USB CDC): `tools/host_link/cli.py`
 - SPI bridge (P4↔C5 transport this rides on): [`../spi_bridge/README.md`](../spi_bridge/README.md)
 - P4 component reference: the [`# P4`](#p4) section below.
@@ -282,3 +283,13 @@ TX-before-security lock order; transport callbacks do not wait for teardown.
 central scheduling macros, with radio/transport tasks on `SYS_CORE_RADIO`.
 Canonical Muse tests do not execute the host-link transports; physical USB/BLE
 streaming, reconnects and authorization require separate acceptance tests.
+
+## Native NFC and LF RFID capture
+
+Categories NFC `0x12` and RFID `0x13` are P4-local authenticated commands with
+bounded synchronous capture and task-owned antenna reservations. The existing
+Muse category `0x11` is explicitly reserved. READ, STATUS and RECOVER wire layouts,
+cleanup behavior and CLI examples are in [rf-commands.md](./rf-commands.md).
+These categories are dispatched before the generic handler registry, preserving
+the existing native app registration ABI. Disconnect/reset/HELLO cleanup also
+retries any retained RF shutdown through the core worker.
