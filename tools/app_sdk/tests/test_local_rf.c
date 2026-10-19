@@ -61,6 +61,14 @@ esp_err_t host_link_schedule_local_rf(void) {
   pthread_cond_signal(&s_queue_ready); pthread_mutex_unlock(&s_queue_lock); return ESP_OK;
 }
 void host_rf_stop(void) { assert(pthread_equal(s_worker,pthread_self())); ++s_stops; }
+static esp_err_t s_ir_error;
+bool host_local_ir_is_command(uint16_t command) { return command==SPI_ID_IR_TX || command==SPI_ID_IR_RX_FRAME; }
+esp_err_t host_local_ir_execute(host_rf_request_t *request) {
+  assert(pthread_equal(pthread_self(),s_worker));
+  assert(request->length==10 && request->payload[9]==1);
+  request->out_length=0;
+  return s_ir_error;
+}
 uint8_t host_rf_handle(host_rf_request_t *request) {
   assert(pthread_equal(s_worker,pthread_self()));
   assert(request->command==SPI_ID_RFID_READ && request->length==2);
@@ -102,6 +110,11 @@ int main(void) {
   assert(host_local_rf_execute(&request)==ESP_OK && request.out_length==2);
   request.length=3;
   assert(host_local_rf_execute(&request)==ESP_ERR_INVALID_ARG);
+  uint8_t ir_payload[10]={0};ir_payload[9]=1;
+  request.command=SPI_ID_IR_TX;request.payload=ir_payload;request.length=sizeof(ir_payload);
+  assert(host_local_rf_execute(&request)==ESP_OK && request.out_length==0);
+  s_ir_error=ESP_ERR_TIMEOUT;
+  assert(host_local_rf_execute(&request)==ESP_ERR_TIMEOUT);
   host_local_rf_unlock();
   pthread_mutex_lock(&s_queue_lock); s_exit=true;
   pthread_cond_signal(&s_queue_ready); pthread_mutex_unlock(&s_queue_lock);

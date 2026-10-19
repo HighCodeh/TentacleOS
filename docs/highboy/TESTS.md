@@ -452,3 +452,34 @@ This completes the code changes tracked by #155: native Wi-Fi/Bluetooth paths,
 real Meshtastic MQTT/position paths and JS/Lua Dev Scripts. Physical Bluetooth,
 networking and cross-interface acceptance remain under #143/#156; HLE, HID
 layouts and haptics remain excluded. No device, SD, flash, key or eFuse was touched.
+
+## Decoded IR ABI build record
+
+Validated after automatic hook formatting on 2026-10-19, firmware `405a62f2`.
+Both pinned SDK builds, paired source/configuration contracts and the complete
+offline regression suite passed. Partition sizes, C5 memory settings and paired
+SPI v8 are unchanged.
+
+| Target | Application bytes | Slot bytes | Free bytes | SHA-256 |
+| --- | ---: | ---: | ---: | --- |
+| P4 | 2,941,888 | 2,949,120 | 7,232 | `844bd902a21ff0bd631ac34fd37d65fd416b276b1b2388aba45b9ea89b2faf42` |
+| C5 | 2,042,896 | 2,097,152 | 54,256 | `98ed6eabdf783a4376047e9e01f81d3011c7436ce0c12865bbb46c5f3723382a` |
+
+ABI 1.11 appends decoded IR receive/send after the existing RFID pointer. Native
+apps and real JS/Lua interpreters share the table, capability approval and bounded
+persistent-worker backend. Foreign native captures and torch prevent acquisition;
+while acquired, foreign initialization/teardown is rejected. Failed RMT teardown
+retains handles, resource grants and the app-worker lease until cleanup succeeds.
+
+New ASan/UBSan tests compile the real lease, driver lifecycle wrappers/teardown,
+IR backend and typed ABI against explicit RMT/task fakes. They cover RX/TX
+permissions, protocol conversion, contention, stop before/after locking, receive
+timeout and retained RX/TX/encoder cleanup. Broker tests now also route ten-byte
+IR work on the persistent worker, preserve the two-byte NFC/RFID input bound,
+and propagate IR errors. Real JS/Lua tests exercise both bindings, TX denial and
+older-ABI rejection. Existing regressions and commitlint pass.
+
+These tests do not emit or capture infrared on a device. Raw/file/AC pointers
+remain NULL; Sub-GHz/LoRa adapters, production keys and physical acceptance remain
+open. The P4 has 7,232 bytes free in its existing slot. No device, flash, SD,
+private production key or eFuse was accessed.

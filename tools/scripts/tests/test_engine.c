@@ -71,12 +71,19 @@ static esp_err_t poll_nfc(tos_nfc_tag_t *out,uint32_t timeout) {
     .protocol=TOS_NFC_ISO14443A};
   return ESP_OK;
 }
+static esp_err_t receive_ir(tos_ir_code_t *out, uint32_t timeout) {
+  assert(timeout==500); *out=(tos_ir_code_t){.protocol=TOS_IR_NEC,.address=42,.command=7,.repeat=false};return ESP_OK;
+}
+static esp_err_t send_ir(const tos_ir_code_t *code) {
+  assert(code->protocol==TOS_IR_NEC && code->address==42 && code->command==7 && !code->repeat);return ESP_OK;
+}
+static const tos_ir_api_t ir={.receive=receive_ir,.send=send_ir};
 static const tos_rfid_api_t rfid={.read=read_rfid};
 static const tos_nfc_api_t nfc={.poll=poll_nfc};
 static const tos_wifi_api_t wifi={.scan=scan,.ap_get=ap_get};
 static const tos_ble_api_t ble={.hid_send_key=send_key};
 static const tos_fs_api_t fs={.open=open_file,.read=read_file,.close=close_file};
-static const tos_api_t api={.abi_major=1,.abi_minor=TOS_ABI_VERSION_MINOR,.should_stop=should_stop,.wifi=&wifi,.ble=&ble,.fs=&fs,.nfc=&nfc,.rfid=&rfid};
+static const tos_api_t api={.abi_major=1,.abi_minor=TOS_ABI_VERSION_MINOR,.should_stop=should_stop,.wifi=&wifi,.ble=&ble,.fs=&fs,.nfc=&nfc,.rfid=&rfid,.ir=&ir};
 static script_bindings_t bindings={.api=&api};
 
 static void test_bindings(void) {
@@ -108,6 +115,15 @@ static void test_bindings(void) {
     assert(run(language,language==SCRIPT_ENGINE_JS
       ? "print(tos.call('nfc.poll',500).uid[0])" : "print(tos.call('nfc.poll',500).uid[1])")==SCRIPT_ENGINE_OK);
     assert(strcmp(s_output_text,"1\n")==0 && s_rf_reads==rf_reads+2);
+    assert(run(language,"print(tos.call('ir.receive',500).address)")==SCRIPT_ENGINE_OK);
+    assert(strcmp(s_output_text,"42\n")==0);
+    bindings.caps &= ~TOS_CAP_RADIO_TX;
+    assert(run(language,"tos.call('ir.send',0,42,7,false)")==SCRIPT_ENGINE_ERROR);
+    bindings.caps |= TOS_CAP_RADIO_TX;
+    assert(run(language,"tos.call('ir.send',0,42,7,false)")==SCRIPT_ENGINE_OK);
+    tos_api_t old_ir_api=api; old_ir_api.abi_minor=10; bindings.api=&old_ir_api;
+    assert(run(language,"tos.call('ir.receive',500)")==SCRIPT_ENGINE_ERROR);
+    bindings.api=&api;
     tos_api_t old_api=api; old_api.abi_minor=9; bindings.api=&old_api;
     assert(run(language,"tos.call('nfc.poll',500)")==SCRIPT_ENGINE_ERROR);
     assert(run(language,"tos.call('rfid.read',500)")==SCRIPT_ENGINE_ERROR);
