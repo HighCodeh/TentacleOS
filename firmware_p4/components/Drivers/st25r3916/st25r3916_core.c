@@ -40,6 +40,8 @@ typedef struct {
 static st25r3916_core_drv_state_t s_drv = {0};
 
 esp_err_t st25r3916_core_init(const highboy_nfc_config_t *config) {
+  if (!rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ))
+    return ESP_ERR_INVALID_STATE;
   if (config == NULL) {
     return ESP_ERR_INVALID_ARG;
   }
@@ -158,6 +160,8 @@ esp_err_t st25r3916_core_init(const highboy_nfc_config_t *config) {
 }
 
 esp_err_t st25r3916_core_deinit(void) {
+  if (!rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ))
+    return ESP_ERR_INVALID_STATE;
   if (!s_drv.is_init) {
     return ESP_OK;
   }
@@ -210,6 +214,8 @@ esp_err_t st25r3916_core_check_id(uint8_t *out_id, uint8_t *out_type, uint8_t *o
 }
 
 esp_err_t st25r3916_core_field_on(void) {
+  if (!rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ))
+    return ESP_ERR_INVALID_STATE;
   if (!s_drv.is_init) {
     return ESP_ERR_INVALID_STATE;
   }
@@ -260,6 +266,8 @@ esp_err_t st25r3916_core_field_on(void) {
 }
 
 esp_err_t st25r3916_core_field_off(void) {
+  if (!rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ))
+    return ESP_ERR_INVALID_STATE;
   if (!s_drv.is_init) {
     return ESP_OK;
   }

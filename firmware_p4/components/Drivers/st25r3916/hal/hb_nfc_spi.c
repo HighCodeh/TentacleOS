@@ -280,6 +280,8 @@ esp_err_t hb_nfc_spi_raw_xfer(const uint8_t *tx, uint8_t *rx, size_t len) {
 }
 
 static esp_err_t transmit(spi_transaction_t *t) {
+  if (!rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ))
+    return ESP_ERR_INVALID_STATE;
   if (s_spi == NULL || t == NULL)
     return ESP_FAIL;
 
@@ -290,6 +292,11 @@ static esp_err_t transmit(spi_transaction_t *t) {
     return ESP_ERR_TIMEOUT;
   }
 
+  if (!rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ)) {
+    if (shared_lock)
+      spi_bus_lock_give();
+    return ESP_ERR_INVALID_STATE;
+  }
   esp_err_t ret = spi_device_transmit(s_spi, t);
   if (shared_lock) {
     spi_bus_lock_give();

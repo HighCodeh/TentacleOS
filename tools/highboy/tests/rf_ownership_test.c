@@ -46,6 +46,9 @@ typedef pthread_mutex_t portMUX_TYPE;
 #define portENTER_CRITICAL(lock) assert(pthread_mutex_lock(lock) == 0)
 #define portEXIT_CRITICAL(lock) assert(pthread_mutex_unlock(lock) == 0)
 
+static _Thread_local unsigned s_task_identity;
+static void *xTaskGetCurrentTaskHandle(void) { return &s_task_identity; }
+
 /* FRONTEND */
 
 typedef struct {size_t length; const void *tx_buffer;} spi_transaction_t;
@@ -171,6 +174,41 @@ static void test_concurrent_claims(void) {
   assert(rf_frontend_get_mode() == RF_FRONTEND_NFC_13MHZ);
   rf_frontend_release(RF_FRONTEND_NFC_13MHZ);
 }
+static void *compete_with_reservation(void *arg) {
+  (void)arg;
+  assert(!rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ));
+  assert(!rf_frontend_can_access(RF_FRONTEND_LF_125KHZ));
+  assert(rf_frontend_claim(RF_FRONTEND_NFC_13MHZ)==ESP_ERR_INVALID_STATE);
+  assert(rf_frontend_claim(RF_FRONTEND_LF_125KHZ)==ESP_ERR_INVALID_STATE);
+  assert(rf_frontend_reserve(RF_FRONTEND_NFC_13MHZ)==ESP_ERR_INVALID_STATE);
+  assert(rf_frontend_unreserve(RF_FRONTEND_NFC_13MHZ)==ESP_ERR_INVALID_STATE);
+  assert(st25r3916_core_field_off()==ESP_ERR_INVALID_STATE);
+  assert(st25r3916_core_deinit()==ESP_ERR_INVALID_STATE);
+  rf_frontend_release(RF_FRONTEND_NFC_13MHZ);
+  return NULL;
+}
+static void test_reserved_owner(void) {
+  assert(rf_frontend_reserve(RF_FRONTEND_IDLE)==ESP_ERR_INVALID_ARG);
+  assert(rf_frontend_reserve(RF_FRONTEND_NFC_13MHZ)==ESP_OK);
+  assert(rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ));
+  assert(!rf_frontend_can_access(RF_FRONTEND_LF_125KHZ));
+  s_drv.is_init=true;
+  assert(st25r3916_core_field_on()==ESP_OK);
+  assert(rf_frontend_unreserve(RF_FRONTEND_NFC_13MHZ)==ESP_ERR_INVALID_STATE);
+  pthread_t thread;
+  assert(pthread_create(&thread,NULL,compete_with_reservation,NULL)==0);
+  assert(pthread_join(thread,NULL)==0);
+  assert(s_physical_field && rf_frontend_get_mode()==RF_FRONTEND_NFC_13MHZ);
+  s_fail_off=true;
+  assert(st25r3916_core_field_off()==ESP_ERR_TIMEOUT);
+  assert(rf_frontend_unreserve(RF_FRONTEND_NFC_13MHZ)==ESP_ERR_INVALID_STATE);
+  s_fail_off=false;
+  assert(st25r3916_core_field_off()==ESP_OK);
+  assert(rf_frontend_get_mode()==RF_FRONTEND_IDLE);
+  assert(rf_frontend_claim(RF_FRONTEND_LF_125KHZ)==ESP_ERR_INVALID_STATE);
+  assert(rf_frontend_unreserve(RF_FRONTEND_NFC_13MHZ)==ESP_OK);
+}
+
 static void assert_retained(void) {
   assert(s_physical_field && s_drv.is_field_on && s_drv.has_field_fault);
   assert(rf_frontend_claim(RF_FRONTEND_LF_125KHZ) == ESP_ERR_INVALID_STATE);
@@ -246,6 +284,7 @@ static void test_reader_lifecycle(void) {
 }
 int main(void) {
   test_concurrent_claims();
+  test_reserved_owner();
   test_field_failures();
   test_reader_lifecycle();
   assert(s_lf_starts == s_lf_stops && !s_lf_field && s_lf_reads == 4);

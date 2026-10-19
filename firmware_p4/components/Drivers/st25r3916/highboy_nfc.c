@@ -8,24 +8,30 @@
 #include "st25r3916_cmd.h"
 #include "st25r3916_core.h"
 #include "st25r3916_reg.h"
+#include "rf_frontend.h"
 
 static bool s_initialized;
 
 esp_err_t highboy_nfc_init(const highboy_nfc_config_t *config) {
-  if (config == NULL) {
+  if (config == NULL)
     return ESP_ERR_INVALID_ARG;
-  }
-  if (s_initialized) {
-    return ESP_OK;
-  }
-  if (config->spi_mode != 1 || config->spi_clock_hz == 0 || config->spi_clock_hz > 10000000U) {
+  if (config->spi_mode != 1 || config->spi_clock_hz == 0 || config->spi_clock_hz > 10000000U)
     return ESP_ERR_INVALID_ARG;
+  bool is_reserved = rf_frontend_reserve(RF_FRONTEND_NFC_13MHZ) == ESP_OK;
+  if (!is_reserved && !rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ))
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = ESP_OK;
+  if (!s_initialized) {
+    error = st25r3916_core_init(config);
+    if (error == ESP_OK)
+      s_initialized = true;
   }
-  esp_err_t err = st25r3916_core_init(config);
-  if (err == ESP_OK) {
-    s_initialized = true;
+  if (is_reserved) {
+    esp_err_t release_error = rf_frontend_unreserve(RF_FRONTEND_NFC_13MHZ);
+    if (release_error != ESP_OK)
+      error = release_error;
   }
-  return err;
+  return error;
 }
 
 void highboy_nfc_deinit(void) {

@@ -42,7 +42,7 @@ def main():
     source = source.replace("/* CORE */", core_functions).replace("/* RFID */", ui_states + ui_functions)
     with tempfile.TemporaryDirectory(prefix="highboy-rf-test-") as temporary:
         directory = Path(temporary)
-        for header in ("esp_err.h", "esp_log.h", "freertos/FreeRTOS.h"):
+        for header in ("esp_err.h", "esp_log.h", "freertos/FreeRTOS.h", "freertos/task.h"):
             target = directory / header
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text("/* Host interfaces supplied by the harness. */\n")

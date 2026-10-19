@@ -34,3 +34,20 @@ Run `python3 tools/highboy/test_rf_ownership.py` for concurrent LF/HF claims,
 failed NFC OFF/startup rollback/deinit, and RFID result/cancel/reopen/failure
 regressions. These tests use real host mutexes and explicit hardware/scheduler
 fakes. They do not certify antenna switching electrically.
+
+## Exclusive companion reservations
+
+`rf_frontend_reserve(mode)` atomically reserves an idle antenna for the calling
+task. It refuses an active field, including one in the same mode. Until
+`rf_frontend_unreserve(mode)` succeeds, claims and access from another task or
+mode fail. Native claims remain idempotent within their existing unreserved mode.
+The reservation survives a driver's successful field-off; unreserve is a separate
+step and requires the active mode to be idle. Failed OFF therefore retains both
+the stage claim and its external reservation.
+
+`rf_frontend_can_access(mode)` is checked by LF public hardware operations and
+NFC field lifecycle/SPI transfers. NFC initialization temporarily reserves the
+antenna unless its caller already owns a reservation, avoiding a competing lazy
+initialization. The companion uses the reservation across initialization, probe
+and shutdown, and holds a no-sleep reference until cleanup succeeds. See the
+[NFC/RFID commands](../host_link/rf-commands.md) for recovery and validation.

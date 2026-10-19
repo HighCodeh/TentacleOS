@@ -103,6 +103,9 @@ static esp_err_t set_measurement_interrupts(bool enable_carrier, bool enable_dat
 }
 
 esp_err_t lf_rfid_init(void) {
+  if (!rf_frontend_can_access(RF_FRONTEND_LF_125KHZ)) {
+    return ESP_ERR_INVALID_STATE;
+  }
   if (s_initialized) {
     return ESP_OK;
   }
@@ -201,6 +204,9 @@ esp_err_t lf_rfid_init(void) {
 }
 
 void lf_rfid_deinit(void) {
+  if (!rf_frontend_can_access(RF_FRONTEND_LF_125KHZ)) {
+    return;
+  }
   if (!s_initialized) {
     return;
   }
@@ -223,6 +229,9 @@ void lf_rfid_deinit(void) {
 }
 
 esp_err_t lf_rfid_field_start(uint32_t frequency_hz, uint16_t duty_permille) {
+  if (!rf_frontend_can_access(RF_FRONTEND_LF_125KHZ)) {
+    return ESP_ERR_INVALID_STATE;
+  }
   if (!s_initialized) {
     return ESP_ERR_INVALID_STATE;
   }
@@ -266,6 +275,9 @@ esp_err_t lf_rfid_field_start(uint32_t frequency_hz, uint16_t duty_permille) {
 }
 
 void lf_rfid_field_stop(void) {
+  if (!rf_frontend_can_access(RF_FRONTEND_LF_125KHZ)) {
+    return;
+  }
   if (!s_initialized) {
     return;
   }
@@ -377,6 +389,9 @@ static esp_err_t measure_feedback(uint32_t window_ms,
 }
 
 esp_err_t lf_rfid_measure(uint32_t window_ms, lf_rfid_field_report_t *out) {
+  if (!rf_frontend_can_access(RF_FRONTEND_LF_125KHZ)) {
+    return ESP_ERR_INVALID_STATE;
+  }
   if (!s_initialized || !s_field_on) {
     return ESP_ERR_INVALID_STATE;
   }
@@ -384,6 +399,9 @@ esp_err_t lf_rfid_measure(uint32_t window_ms, lf_rfid_field_report_t *out) {
 }
 
 esp_err_t lf_rfid_listen_external(uint32_t window_ms, lf_rfid_field_report_t *out) {
+  if (!rf_frontend_can_access(RF_FRONTEND_LF_125KHZ)) {
+    return ESP_ERR_INVALID_STATE;
+  }
   if (out == NULL || window_ms < LF_MEASURE_MIN_MS || window_ms > LF_MEASURE_MAX_MS) {
     return ESP_ERR_INVALID_ARG;
   }
@@ -408,6 +426,9 @@ esp_err_t lf_rfid_listen_external(uint32_t window_ms, lf_rfid_field_report_t *ou
 esp_err_t lf_rfid_modulation_test(uint32_t rate_hz,
                                   uint32_t duration_ms,
                                   lf_rfid_field_report_t *external_field) {
+  if (!rf_frontend_can_access(RF_FRONTEND_LF_125KHZ)) {
+    return ESP_ERR_INVALID_STATE;
+  }
   if (external_field == NULL || rate_hz < LF_MOD_RATE_MIN_HZ || rate_hz > LF_MOD_RATE_MAX_HZ ||
       duration_ms < LF_MOD_DURATION_MIN_MS || duration_ms > LF_MOD_DURATION_MAX_MS) {
     return ESP_ERR_INVALID_ARG;
@@ -459,6 +480,9 @@ esp_err_t lf_rfid_capture_edges(uint32_t duration_ms,
                                 lf_rfid_edge_t *edges,
                                 size_t capacity,
                                 size_t *out_count) {
+  if (!rf_frontend_can_access(RF_FRONTEND_LF_125KHZ)) {
+    return ESP_ERR_INVALID_STATE;
+  }
   if (edges == NULL || out_count == NULL || capacity == 0 || capacity > LF_RFID_RAW_MAX_EDGES ||
       duration_ms == 0 || duration_ms > LF_MEASURE_MAX_MS) {
     return ESP_ERR_INVALID_ARG;
@@ -600,6 +624,9 @@ esp_err_t lf_rfid_read_em4100(uint32_t timeout_ms, lf_rfid_em4100_t *out) {
 }
 
 esp_err_t lf_rfid_self_test(lf_rfid_self_test_t *out) {
+  if (!rf_frontend_can_access(RF_FRONTEND_LF_125KHZ)) {
+    return ESP_ERR_INVALID_STATE;
+  }
   if (out == NULL) {
     return ESP_ERR_INVALID_ARG;
   }

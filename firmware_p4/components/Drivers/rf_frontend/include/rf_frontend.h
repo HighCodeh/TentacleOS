@@ -8,6 +8,8 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
+
 #include "esp_err.h"
 
 /** The LF and HF stages share one physical antenna on High Boy V2. */
@@ -24,6 +26,12 @@ esp_err_t rf_frontend_claim(rf_frontend_mode_t mode);
 
 /** Release the antenna if it is owned by mode. */
 void rf_frontend_release(rf_frontend_mode_t mode);
+
+// Reserve a currently idle antenna for the calling task, including same-mode exclusion.
+esp_err_t rf_frontend_reserve(rf_frontend_mode_t mode);
+// Release only after the driver confirmed its field is off. A failed OFF retains the reservation.
+esp_err_t rf_frontend_unreserve(rf_frontend_mode_t mode);
+bool rf_frontend_can_access(rf_frontend_mode_t mode);
 
 /** Return the currently active RF stage. */
 rf_frontend_mode_t rf_frontend_get_mode(void);

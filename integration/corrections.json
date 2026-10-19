@@ -382,22 +382,44 @@
     "firmware_p4/components/Drivers/rf_frontend/include/rf_frontend.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "701dc8a417e7289fd192960ea69891a9cfbfb335931bcab59e72a1362827211e",
-      "after_sha256": "4e0ba3f95e49b17c7ef59f3d188c957a75b1da9d12c7f3c3bb7efe17f4dd7ad7",
-      "reason": "Use static RF arbitration with validated modes and coherent ownership.",
-      "pre_format_sha256": "a676f5848f9d637e023f22af57668efb239b08e28ed086679e16a5d048b8c310",
-      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+      "after_sha256": "96397f75fa69b56a34397650f35b86e41aef7231fc27dadf49afe426419f43cc",
+      "reason": "Reserve the shared antenna per task for companion captures, reject foreign driver operations, serialize NFC initialization and retain uncertain shutdown ownership.",
+      "review_history": [
+        {
+          "after_sha256": "4e0ba3f95e49b17c7ef59f3d188c957a75b1da9d12c7f3c3bb7efe17f4dd7ad7",
+          "reason": "Use static RF arbitration with validated modes and coherent ownership.",
+          "pre_format_sha256": "a676f5848f9d637e023f22af57668efb239b08e28ed086679e16a5d048b8c310",
+          "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+        }
+      ]
     },
     "firmware_p4/components/Drivers/rf_frontend/rf_frontend.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "5faabbc04beb0c2c6e91acc6981a5bb3ee4c1ec88175026b23e9b8aab2bd645d",
-      "after_sha256": "b3a593933235877a9001d80e406fc6aae9c9a808ca0fded9c1ff1851ce042c97",
-      "reason": "Use static RF arbitration with validated modes and coherent ownership."
+      "after_sha256": "abfe52150f3faff57bc1fdaec773c56574ad27ad9e4fee17cd61235d983aae33",
+      "reason": "Reserve the shared antenna per task for companion captures, reject foreign driver operations, serialize NFC initialization and retain uncertain shutdown ownership.",
+      "review_history": [
+        {
+          "after_sha256": "b3a593933235877a9001d80e406fc6aae9c9a808ca0fded9c1ff1851ce042c97",
+          "reason": "Use static RF arbitration with validated modes and coherent ownership."
+        }
+      ],
+      "pre_format_sha256": "2fb24a4e6a21530b59ca83378f21f2c9cd89de9e8122ff134f72cb6e33fe083d",
+      "formatter": "clang-format version 22.1.5"
     },
     "firmware_p4/components/Drivers/st25r3916/highboy_nfc.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "6da169994d144e7a75abfc06009803fe7943b6657f3e5c91763f34b5db3267cb",
-      "after_sha256": "342049e582253227f3a03fb029be13c4160da18d92300f042d1870b69f66c028",
-      "reason": "Retain antenna and initialized transport after uncertain field-off or startup rollback."
+      "after_sha256": "4f09ccbd0108c3898256e563a6e08bb0c73e9a25e4bfa0e3ed0810eef7e3dfde",
+      "reason": "Reserve the shared antenna per task for companion captures, reject foreign driver operations, serialize NFC initialization and retain uncertain shutdown ownership.",
+      "review_history": [
+        {
+          "after_sha256": "342049e582253227f3a03fb029be13c4160da18d92300f042d1870b69f66c028",
+          "reason": "Retain antenna and initialized transport after uncertain field-off or startup rollback."
+        }
+      ],
+      "pre_format_sha256": "5829ba18312b1970ff3653b2ec9a20fa2767110eef2b1fb6638a5390eef34bb5",
+      "formatter": "clang-format version 22.1.5"
     },
     "firmware_p4/components/Drivers/st25r3916/include/highboy_nfc.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -414,8 +436,16 @@
     "firmware_p4/components/Drivers/st25r3916/st25r3916_core.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "94cd34024dd524eccaeb7abb59cd55785e0e8026c871f9ec6cf25eaa14bef5bb",
-      "after_sha256": "b56df9a4438c7eebb51a3cb897b4660c8c825f2613ed37e2bb20d9d029f49117",
-      "reason": "Retain antenna and initialized transport after uncertain field-off or startup rollback."
+      "after_sha256": "d0e52e85e7f94f552d5c12a6506680cb0373c427d41af8207be3e5daf882d51b",
+      "reason": "Reserve the shared antenna per task for companion captures, reject foreign driver operations, serialize NFC initialization and retain uncertain shutdown ownership.",
+      "review_history": [
+        {
+          "after_sha256": "b56df9a4438c7eebb51a3cb897b4660c8c825f2613ed37e2bb20d9d029f49117",
+          "reason": "Retain antenna and initialized transport after uncertain field-off or startup rollback."
+        }
+      ],
+      "pre_format_sha256": "74ef9409406f4a050cec5b13703c53372cc455ce40b7b157dcf45583346401f0",
+      "formatter": "clang-format version 22.1.5"
     },
     "firmware_p4/components/Drivers/sx1262/sx1262.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -721,6 +751,22 @@
       "after_sha256": "f32b2c66885c8f4a9e12c09c54abd78123ba856e3afaa5b0c624be6fdbff5a94",
       "reason": "Bind native and interpreted callers safely to the shared ABI, synchronize script lifecycle flags and retain the correct launcher on UI teardown.",
       "pre_format_sha256": "1ac25a1fbabde63c7e686a69abe03c1e8c115b5b188adb351d509aff3b1eb497",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/lf_rfid/lf_rfid.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "79e60a9796b7ec4abb6f87e47b8d0945d56d86337f435cec0b41c8a4024553c3",
+      "after_sha256": "2f3b561b84d1414ab99428f87673ab5893464932128b1e7c84422a6d7006a3c1",
+      "reason": "Reserve the shared antenna per task for companion captures, reject foreign driver operations, serialize NFC initialization and retain uncertain shutdown ownership.",
+      "pre_format_sha256": "b98327d5df03daebe231c8b06f63d5fa47458ec1b7408e0b632f17e1eb9c75c1",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/st25r3916/hal/hb_nfc_spi.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "319a2d6d4c49908cc33a8135a2c58a89626196ce9276a534299883827d036c33",
+      "after_sha256": "2b884bce37b231e2de323f66a81fcbbd085105ecf378be44d153f31e5a92796d",
+      "reason": "Reserve the shared antenna per task for companion captures, reject foreign driver operations, serialize NFC initialization and retain uncertain shutdown ownership.",
+      "pre_format_sha256": "2f74f4c9719901febddc1f5715d09b034f53ff8df398d5aee291b10c0df76753",
       "formatter": "clang-format version 22.1.5"
     }
   }
