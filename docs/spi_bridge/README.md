@@ -1035,3 +1035,10 @@ References:
 - Streaming pattern: `wifi_sniffer.c`, `ble_sniffer.c`.
 - Non-streaming pattern: see the `killed_*` static functions plus the
   `open_session()` / `bt_open_session()` helpers in the dispatchers.
+
+## Meshtastic MQTT category
+
+Category `0x14` carries the [bounded MQTT bridge](../mqtt/README.md) between P4
+and C5, including configuration, status, fragmented packets and explicit RX ACK.
+Both hand-maintained headers retain version 8. The C5 owns the MQTT/TLS client;
+the P4 owns Meshtastic decoding and chat delivery. Muse category `0x11` is unchanged.

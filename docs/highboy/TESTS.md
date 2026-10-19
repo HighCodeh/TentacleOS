@@ -385,3 +385,38 @@ network throughput, field shutdown or a completed integration matrix. No device,
 SD, flash, real production key or eFuse was accessed. The [matrix](MATRIX.md) and
 [field guide](FIELD.md) identify missing implementations and physical acceptance;
 no remaining issue is claimed fully closed by this batch.
+
+## Meshtastic MQTT bridge build record
+
+Validated on 2026-10-19 after automatic hook formatting, from firmware commit
+`0132fb58`. Both pinned SDK builds and the complete offline regression suite
+passed. SPI v8 headers, all eight C5 memory settings and the original partition
+sizes remain intact.
+
+| Target | Application bytes | Slot bytes | Free bytes | SHA-256 |
+| --- | ---: | ---: | ---: | --- |
+| P4 | 2,935,040 | 2,949,120 | 14,080 | `764cf819eaefcc830f601ce997eb45729299243d13c7bc3f893e5fc7baae7f21` |
+| C5 | 2,041,216 | 2,097,152 | 55,936 | `891fb2fec8047b2cd78e89f6dd4954a3d64e35312cbeb295c16ea8ed598636c4` |
+
+The linked P4 ELF contains `ui_lora_mqtt_open` and the MQTT packet parser; the
+Meshtastic home opens that screen and its screen ID belongs to the LoRa family,
+so navigation retains the active session. The C5 links the hash-pinned ESP-MQTT
+client; the P4 reaches it through the mirrored category-0x14 SPI contract.
+The final MQTT topic formatting checks introduce no new build warnings.
+Existing unrelated warnings remain.
+
+`tools/mqtt/test_mqtt.py` runs the actual codec, C5 service and P4 worker with
+ASan/UBSan. It covers official field-5 MeshPacket/ServiceEnvelope vectors,
+truncated protobufs, 20,000 malformed inputs, invalid UTF-8, allocation/register/
+start failures, matching/denied SUBACK, disconnect state, bounded fragmented RX,
+head ACK, full queues, duplicate TX, encrypted-envelope chat routing, self-echo
+filtering, stop retries and a lost START response followed by cancellation.
+The vendored source hashes and native screen routing are also checked.
+
+Network, SPI, RTOS and AES implementations in this host harness are explicit
+fakes. The AES fake checks key size and nonce layout, not cryptographic output.
+These tests do not establish real broker/TLS interoperability, radio delivery,
+shared-chip performance or device reconnect behavior. No device, flash, SD,
+private production key or eFuse was accessed. MQTT is now implemented for the
+native Meshtastic screen, but #145 remains open for usable P4 RNode transport
+and acceptance; #155 still includes remote GATT. See [MQTT](../mqtt/README.md).

@@ -43,6 +43,7 @@ README.md, separated by `---`.
 | `led` | [README.md](led/README.md) - status/RGB LED driver |
 | `LoRa` | [README.md](LoRa/README.md) - LoRa messaging application |
 | `lvgl` | [README.md](lvgl/README.md)  |
+| `mqtt` | [README.md](mqtt/README.md) - C5 MQTT transport and Meshtastic UI integration |
 | `muse` | [README.md](muse/README.md) - P4 PTT and C5 pairing/runtime integration |
 | `rf_frontend` | [README.md](rf_frontend/README.md) - shared NFC/LF antenna and native RFID ownership |
 | `nfc` | [README.md](nfc/README.md) - NFC read/write application |

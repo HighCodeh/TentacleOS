@@ -15,7 +15,7 @@ High Boy. HID layouts, haptics and HLE remain excluded by request.
 | Sub-GHz receive / raw replay / spectrum | Native CC1101 | Not published | Native handlers and streams | App adapter and session teardown; physical RX/TX/spectrum (#149, #156) |
 | LoRa MeshCore / Meshtastic | Native mesh sessions | Not published | Native chat/configuration bridge | Clean protocol ownership/teardown and app adapter (#149); live mesh acceptance |
 | LoRa airtime pacing | Shared SX1262 transmit guard | Future adapters inherit the driver guard | Existing TX callers inherit the driver guard | Host timing/concurrency tests pass; physical airtime/regional acceptance pending (#145) |
-| LoRa MQTT subscription | Explicitly unavailable in UI | Not published | No MQTT socket service | Implement actual network transport, subscribe, fragmentation and receive path on the network-owning C5 (#145, #155) |
+| LoRa MQTT subscription | Native Meshtastic MQTT screen | Not published | No companion MQTT API; C5 owns the network client | Bounded SPI transport, confirmed subscription and chat reception implemented; real broker and paired-device acceptance pending (#145, #155) |
 | RNode / KISS | Legacy screen is receive-only radio lab | Not published | No usable P4 KISS endpoint | Legacy S3 UART rejected because GPIO43/44 are P4 SDMMC; implement a separate transport (#145) |
 | Power / recovery | Native diagnostics / safe mode | No power-control ABI | Existing system diagnostics | Sleep/wake, current draw, watchdog/crash and recovery acceptance (#135, #153) |
 
@@ -35,5 +35,12 @@ running device, not evidence that a card was read. See [build/test evidence](TES
 and [field recording](FIELD.md).
 
 Issue #156 remains open: absent adapters and physical rows cannot be replaced
-by this source matrix. MQTT, GATT, RNode, ephemeral pairing and production
+by this source matrix. GATT, RNode, ephemeral pairing and production
 provisioning are implementation work, not merely missing test checkmarks.
+
+## MQTT follow-up
+
+Meshtastic home now exposes the real [MQTT bridge](../mqtt/README.md): P4
+codec/chat integration over a bounded SPI service, with C5-owned TCP/TLS and
+confirmed subscriptions. It is a native UI feature; no new `.hb` or companion
+MQTT API is published. Real broker and paired-device acceptance remain pending.

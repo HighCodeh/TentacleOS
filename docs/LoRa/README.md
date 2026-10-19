@@ -153,7 +153,7 @@ bool      meshtastic_phone_bridge_is_subscribed(void);  // ble_subscribed || tcp
 - **Pairing PIN:** for Meshtastic the passkey is generated randomly on the C5 per pairing (display-only IO capability, MITM + bonding) and logged there. It is **not** shown on the P4 chat screen.
 - **Linked-on-subscribe gating:** `_is_connected()` is true at the raw BLE link; `_is_subscribed()` is true only after the phone subscribes (CCCD notify enabled on the FromNum characteristic, after encryption). Fromradio data is only pushed to the phone while a BLE client is connected or a TCP client is present.
 
-Other module surfaces (used by the UI/config screens): `meshtastic_mqtt` (`_init/_publish/_is_connected`), `meshtastic_wifi`, region/preset/role selection (`mt_region_*`, `mt_preset_*`, `mt_role_*` with `MT_ROLE_ROUTER` / `MT_ROLE_CLIENT`).
+Other module surfaces (used by the UI/config screens): `meshtastic_mqtt` (`_init/_publish/_is_connected/_get_snapshot/_stop`; see [MQTT](../mqtt/README.md)), `meshtastic_wifi`, region/preset/role selection (`mt_region_*`, `mt_preset_*`, `mt_role_*` with `MT_ROLE_ROUTER` / `MT_ROLE_CLIENT`).
 
 ## MeshCore Stack (`meshcore/`)
 
@@ -219,7 +219,7 @@ void ui_lora_chat_open(void);        // opens on the protocol picker
 void ui_lora_chat_open_chat(void);   // opens directly on the chat conversation
 ```
 
-Views: **Protocol picker** (MeshCore / Meshtastic) -> **Home** -> { Connect App, Nodes, Chat, Configs }. Home also links out to the sibling screens: Channels, Position, Telemetry, Secure DM, Traceroute (each its own screen under `ui/screens/lora/`).
+Views: **Protocol picker** (MeshCore / Meshtastic) -> **Home** -> { Connect App, Nodes, Chat, Configs }. Home also links out to the sibling screens: Channels, Position, Telemetry, Secure DM, Traceroute and MQTT (Meshtastic only; each its own screen under `ui/screens/lora/`).
 
 - **Home** shows region + preset (Meshtastic only) and a status banner driven by the linked state.
 - **Nodes** shows either a radial "map" of node pins with RSSI-colored links or a scrolling list, both fed by `lora_session_node_count()` / `lora_session_node_get()`.
@@ -258,8 +258,9 @@ Both meshes now pass through the driver's [shared airtime guard](../sx1262/READM
 Relays, retries and acknowledgements consume the same budget as locally generated
 messages. A denied transmission returns `ESP_ERR_TIMEOUT`; this does not imply a
 packet was emitted. Existing mesh send/retry behavior handles that failure, with
-no new claim of guaranteed delivery. MQTT subscription and RNode launcher wiring
-remain separate pending work in #145.
+no new claim of guaranteed delivery. The [MQTT bridge](../mqtt/README.md) now
+runs over the C5 station and feeds validated inbound text into chat. A usable
+P4 RNode transport remains pending in #145.
 
 ## RNode transport decision for High Boy P4
 

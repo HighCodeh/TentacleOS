@@ -22,13 +22,13 @@ this work. No device was flashed or exercised.
 | --- | --- |
 | [#135](https://github.com/HighCodeh/TentacleOS/issues/135) | Battery ADC diagnostics exist. Light-sleep is disabled; audit UART/USB and peripheral wake/locking before enabling and measuring it on hardware. |
 | [#143](https://github.com/HighCodeh/TentacleOS/issues/143) | Companion Wi-Fi dispatch exists. Measure actual throughput and validate complete scan/connect/session flows on the paired device. |
-| [#145](https://github.com/HighCodeh/TentacleOS/issues/145) | Shared driver-level airtime pacing now covers both meshes and all SX1262 TX callers, with host-tested cooldown/concurrency behavior. Implement MQTT transport/subscription/receive flow. RNode remains explicitly unavailable on P4: its inherited S3 UART GPIO43/44 conflict with SDMMC, and entry points now reject before hardware access. A separate usable KISS transport is still needed. The MQTT UI no longer claims a synthetic connection. |
+| [#145](https://github.com/HighCodeh/TentacleOS/issues/145) | Shared driver-level airtime pacing now covers both meshes and all SX1262 TX callers, with host-tested cooldown/concurrency behavior. MQTT transport, confirmed subscription, encrypted-envelope publication and bounded text reception now run through C5; see [MQTT](../mqtt/README.md). Broker/device acceptance is still pending. RNode remains explicitly unavailable on P4: its inherited S3 UART GPIO43/44 conflict with SDMMC, and entry points now reject before hardware access. A separate usable KISS transport is still needed. The Meshtastic home now opens the real MQTT screen. |
 | [#148](https://github.com/HighCodeh/TentacleOS/issues/148) | Physical NFC card test with recorded hardware, card types, read/write/emulation results and field shutdown. |
 | [#149](https://github.com/HighCodeh/TentacleOS/issues/149) | NFC discovery and native LF RFID read tables are published in ABI 1.10, including JS/Lua bindings, stable-worker ownership, capability checks and force-kill quiescence. Sub-GHz, IR and LoRa publication remain pending. Build-local public-key selection and production rejection of the shipped dev key are implemented and host-tested. A real production identity remains unprovisioned; the user requested configuration support first. Remaining radio publication and teardown remain open. |
 | [#151](https://github.com/HighCodeh/TentacleOS/issues/151) | Companion ephemeral ECDH and device-side pairing confirmation. Existing PSK authentication and separate Muse pairing do not meet this requirement. |
 | [#152](https://github.com/HighCodeh/TentacleOS/issues/152) | Production Secure Boot v2 and Flash Encryption provisioning for both chips, including keys, recovery and irreversible eFuse review. Both remain disabled. |
 | [#153](https://github.com/HighCodeh/TentacleOS/issues/153) | Existing boot-loop/safe-mode/WDT/coredump mechanisms need fault-injection and recovery acceptance on hardware. The boot-sound crash workaround remains. |
-| [#155](https://github.com/HighCodeh/TentacleOS/issues/155) | MQTT is now honestly unavailable; implement its real transport. Dev Scripts now runs real JavaScript/Lua files separately from signed `.hb` apps and shares `tos_api_t` through per-run capability approval, resource ownership and cleanup; see [scripts](../scripts/README.md). GATT is explicitly a reference catalog and no longer invents read values; remote discovery/read integration remains. Native Wi-Fi connect, BLE mouse/companion and LoRa position paths exist but need device acceptance. |
+| [#155](https://github.com/HighCodeh/TentacleOS/issues/155) | The real MQTT transport/UI is implemented over C5, including subscription and inbound chat; broker/device acceptance remains. Dev Scripts now runs real JavaScript/Lua files separately from signed `.hb` apps and shares `tos_api_t` through per-run capability approval, resource ownership and cleanup; see [scripts](../scripts/README.md). GATT is explicitly a reference catalog and no longer invents read values; remote discovery/read integration remains. Native Wi-Fi connect, BLE mouse/companion and LoRa position paths exist but need device acceptance. |
 | [#156](https://github.com/HighCodeh/TentacleOS/issues/156) | The [source matrix](MATRIX.md) now identifies implemented and missing UI / `.hb` / companion paths. Missing adapters and the physical cross-interface acceptance still need completion. |
 | [#157](https://github.com/HighCodeh/TentacleOS/issues/157) | Measure performance/internal RAM and prepare a reviewed OTA/asset/restore package. P4 portable-crypto size optimization recovered 23,408 bytes before the RF ABI additions, with all 101 libsodium host tests passing; device timing remains unmeasured and app-only builds are not a release candidate package. |
 | [#158](https://github.com/HighCodeh/TentacleOS/issues/158) | Fixed a reproduced BSD/macOS SDK build bug (`stat -c%s` is GNU-only), with an isolated shell regression. The original unnamed Bash report remains unidentified: the user no longer recalls the command and the explanation is on another PC. All reviewed shell files pass syntax checks. The [field guide](FIELD.md) documents current capabilities, bench evidence and the app-only boundary. A supported consumer installation procedure still needs the approved deployment/recovery package. |
@@ -85,6 +85,16 @@ The [current paired build record](TESTS.md#shared-airtime-and-native-rf-abi-buil
 validates firmware `555742ec`: 21,536 P4 bytes free after the ABI additions,
 101 passing libsodium host tests, and the complete offline regression suite.
 The [matrix](MATRIX.md) shows which interfaces remain unavailable. No additional
-issue is fully complete: MQTT transport/subscription, remote GATT, ephemeral
+issue is fully complete: remote GATT, ephemeral
 pairing and IR/Sub-GHz/LoRa app adapters still require code; device-only tests,
 production provisioning and the unidentified original Bash report remain open.
+
+## Meshtastic MQTT follow-up
+
+The [MQTT paired build record](TESTS.md#meshtastic-mqtt-bridge-build-record)
+validates the C5 client, bounded SPI transport, reachable P4 screen, confirmed
+subscription, encrypted publication and filtered inbound chat. The P4 retains
+14,080 bytes and C5 55,936 bytes in their existing slots. Tests use explicit
+network/transport/AES fakes; real broker and device acceptance remain pending.
+No additional issue is closed: #145 still needs a usable P4 RNode endpoint and
+#155 still needs remote GATT, alongside the other open requirements above.
