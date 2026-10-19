@@ -73,6 +73,20 @@ bool subghz_receiver_is_running(void);
 - Returns `ESP_OK` on success, `ESP_ERR_INVALID_STATE` if already running, `ESP_ERR_NO_MEM` on task creation failure.
 - Task stack: 8192 bytes, priority 5, Core 1.
 
+Shutdown is asynchronous: `subghz_receiver_stop()` requests cancellation and
+`subghz_receiver_is_running()` remains true through startup and hardware cleanup.
+The worker owns the resource grant until RMT disable and channel deletion succeed.
+Failed cleanup retries while retaining the DMA buffer, callback queue and radio
+grant; callers cannot start another RX worker during this interval. A cancellation
+before the worker starts is preserved. Queue/result-mutex allocation failures
+abort without publishing an unusable receiver.
+
+`python3 tools/highboy/test_subghz_lifecycle.py` exercises the production worker
+with explicit hardware/RTOS fakes and Address/UndefinedBehaviorSanitizer. It covers
+startup cancellation, competing starts, allocation/setup errors, and repeated
+disable/delete failures with a late callback. It does not prove physical RF or
+DMA behavior on the board.
+
 ### Transmitter (`subghz_transmitter`)
 
 Asynchronous queue-based transmitter. Converts signed pulse timings to RMT symbols and transmits via CC1101 GDO2 in async mode.

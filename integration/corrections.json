@@ -1120,6 +1120,20 @@
       "reason": "Require fresh X25519 and transcript-bound PSK proofs, device token confirmation and signed key activation before companion commands",
       "pre_format_sha256": "573c2def14f0d2af91538521aa8778044c597065025b473d55819c8fd0d6cd88",
       "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/SubGhz/subghz_receiver.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "b1dc03390c17b56caa44eb0861d8fc6d695cd1930cf4c5b6d411467f1c11bc5d",
+      "after_sha256": "a59f895e14f9eb68f265a0be4c46e81ed4ae4292ebd600f68b6e90ba3b8dcb5a",
+      "reason": "Retain Sub-GHz RX radio ownership and DMA buffers through successful RMT disable/delete; atomically preserve startup cancellation, reject competing starts and check queue/result allocation.",
+      "pre_format_sha256": "70bf01b2ae2da5bb18c1934759598a841d211221d88a00080637998d4c4d2207",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/SubGhz/include/subghz_receiver.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "8c9891585c5a8fa5a90d6080edf4314a099a9072ad0b7d13e43a911a685a7b6c",
+      "after_sha256": "010097c5801083afefa27822349613bc45c45dce2bbc3fa1beef88166a59a9a0",
+      "reason": "Retain Sub-GHz RX radio ownership and DMA buffers through successful RMT disable/delete; atomically preserve startup cancellation, reject competing starts and check queue/result allocation."
     }
   }
 }
