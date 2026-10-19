@@ -832,6 +832,30 @@
       "before_sha256": "15c7869f1145eb6a78b540dd9c4003914c7bbbb98db9af36ed4ddd38e35d23bf",
       "after_sha256": "8fde0cfcb8fe0b6ecfa2ed3ebc09ede10ae7a6e9429f0cdbed37a0e8538724aa",
       "reason": "Enforce shared, conservative LoRa airtime pacing before all native TX operations, retaining debit across configuration and protocol changes."
+    },
+    "firmware_p4/components/Applications/LoRa/rnode/rnode.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "d6b0383b6a57fdb2f5259954e49e8d169451754e9d69d6636d1c0bb4cc84aabd",
+      "after_sha256": "d50abbd5d209ee915d4b5047b0e60c68e719dcbbd7471333914560c11458d4ef",
+      "reason": "Reject the inherited RNode S3 UART on the P4 before claiming SDMMC pins or initializing the radio, and align tutorial text with the actual receive-only lab."
+    },
+    "firmware_p4/components/Applications/LoRa/rnode/rnode_serial.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "c18a1688444e67f5c8ae670b2f4d6b5a24ad7120d5cd9243173af0afe4eb73f0",
+      "after_sha256": "9b77e2281520d0a045ff1a852d042e31bdcf005d71c7954c336ce4a388543cb4",
+      "reason": "Reject the inherited RNode S3 UART on the P4 before claiming SDMMC pins or initializing the radio, and align tutorial text with the actual receive-only lab."
+    },
+    "firmware_p4/components/Applications/LoRa/rnode/include/rnode_serial.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "c18d2c84e1caf3318f46dc4efafbe3c9a93acca6807375a9bf10dc46b562ec18",
+      "after_sha256": "48d53cc772b23f3fb184b2f03b8085438bb60045da381b3cd232237248d8cea9",
+      "reason": "Reject the inherited RNode S3 UART on the P4 before claiming SDMMC pins or initializing the radio, and align tutorial text with the actual receive-only lab."
+    },
+    "firmware_p4/components/Applications/ui/components/tutorial/screen_tips.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "14133c42887734860c7f7a270e6eff39759a0dc648dc32fe19a6288e148eabc6",
+      "after_sha256": "7009f9eb5d8ba0c6b3d35f922b59b7b9f352f7a5ab129da348824ed6eda2c4ac",
+      "reason": "Reject the inherited RNode S3 UART on the P4 before claiming SDMMC pins or initializing the radio, and align tutorial text with the actual receive-only lab."
     }
   }
 }

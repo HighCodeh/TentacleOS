@@ -17,6 +17,7 @@
 
 #include "driver/uart.h"
 #include "esp_log.h"
+#include "sdkconfig.h"
 
 static const char *TAG = "RNODE_SERIAL";
 
@@ -27,7 +28,19 @@ static const char *TAG = "RNODE_SERIAL";
 #define RNODE_UART_RX_BUF 2048
 #define RNODE_UART_TX_BUF 2048
 
+bool rnode_serial_is_supported(void) {
+#ifdef CONFIG_IDF_TARGET_ESP32P4
+  return false;
+#else
+  return true;
+#endif
+}
+
 esp_err_t rnode_serial_init(void) {
+  if (!rnode_serial_is_supported()) {
+    ESP_LOGE(TAG, "Legacy UART transport conflicts with P4 SDMMC pins");
+    return ESP_ERR_NOT_SUPPORTED;
+  }
   uart_config_t cfg = {
       .baud_rate = RNODE_UART_BAUD,
       .data_bits = UART_DATA_8_BITS,
@@ -70,6 +83,9 @@ esp_err_t rnode_serial_init(void) {
 }
 
 int rnode_serial_write(const uint8_t *data, size_t len) {
+  if (!rnode_serial_is_supported()) {
+    return -1;
+  }
   if (data == NULL || len == 0) {
     return 0;
   }
@@ -78,6 +94,9 @@ int rnode_serial_write(const uint8_t *data, size_t len) {
 }
 
 int rnode_serial_read(uint8_t *out, size_t cap) {
+  if (!rnode_serial_is_supported()) {
+    return -1;
+  }
   if (out == NULL || cap == 0) {
     return 0;
   }

@@ -185,7 +185,7 @@ static const tip_entry_t TIPS[] = {
 
     {SCREEN_LORA_CHAT,
      "LORA MESH",
-     "The SX1262 radio supports real LoRa packets plus MeshCore, Meshtastic and RNode workflows. "
+     "The SX1262 radio supports real LoRa reception plus MeshCore and Meshtastic workflows. "
      "Range depends on antenna, frequency plan and matching."},
     {SCREEN_LORA_SECURE_DM,
      "ENCRYPTED DM",
@@ -195,9 +195,9 @@ static const tip_entry_t TIPS[] = {
      "MESH TRACEROUTE",
      "Want your message's path? Traceroute maps every hop and shows the SNR of each leg."},
     {SCREEN_LORA_RNODE,
-     "RNODE / KISS",
-     "In RNode mode the radio becomes a KISS modem: set frequency, SF and power, count raw RX/TX "
-     "packets."},
+     "LORA RADIO LAB",
+     "Receive-only SX1262 diagnostics: select a frequency and inspect RSSI, packet counters and "
+     "capture data. Legacy RNode UART is unavailable on this P4 board."},
     {SCREEN_LORA_MQTT,
      "MQTT BRIDGE",
      "The MQTT bridge links your mesh to the internet: set broker, user and password, then "

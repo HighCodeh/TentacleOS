@@ -241,7 +241,7 @@ const rnode_radio_cfg_t *rnode_get_radio_cfg(void);
 const rnode_stats_t     *rnode_get_stats(void);
 ```
 
-Defaults: 915 MHz, BW 125 kHz, SF8, CR 4/5, +17 dBm. The on-device screen is `lora_rnode_ui`.
+Defaults: 915 MHz, BW 125 kHz, SF8, CR 4/5, +17 dBm. The legacy-named `lora_rnode_ui` screen currently runs the receive-only radio lab.
 
 ## Native radio laboratory
 
@@ -260,3 +260,16 @@ messages. A denied transmission returns `ESP_ERR_TIMEOUT`; this does not imply a
 packet was emitted. Existing mesh send/retry behavior handles that failure, with
 no new claim of guaranteed delivery. MQTT subscription and RNode launcher wiring
 remain separate pending work in #145.
+
+## RNode transport decision for High Boy P4
+
+RNode/KISS remains unavailable in this board profile until a separate transport
+is implemented and validated. The inherited S3 UART0 transport hardcodes
+GPIO43/44, which are **P4 SDMMC CLK/CMD**, and cannot be activated safely here.
+`rnode_serial_is_supported()` returns false on P4; init/read/write fail before
+accessing UART, and `rnode_init()` rejects before touching the SX1262. The native
+USB companion interface is already framed/authenticated and cannot simply be
+reassigned to raw KISS. No alternate pins are guessed. Other target behavior is
+preserved. The radio-lab screen remains receive-only, with corrected tutorial
+text. This resolves the immediate transport choice; enabling a usable P4 RNode
+endpoint remains pending implementation and hardware acceptance.

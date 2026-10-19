@@ -13,17 +13,21 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
 
 #include "esp_err.h"
+
+/** False on P4: legacy UART GPIO43/44 are the SDMMC clock/command pins. */
+bool rnode_serial_is_supported(void);
 
 /**
  * @brief Initialize UART0 in raw mode for the KISS protocol.
  *
  * ESP32-S3 default pins: TX=GPIO43, RX=GPIO44. 115200 8N1 no flow control.
  *
- * @return ESP_OK on success, error code otherwise.
+ * @return ESP_OK on success, ESP_ERR_NOT_SUPPORTED on P4, other errors otherwise.
  */
 esp_err_t rnode_serial_init(void);
 
@@ -41,7 +45,7 @@ int rnode_serial_write(const uint8_t *data, size_t len);
  *
  * @param out  Destination buffer.
  * @param cap  Destination capacity.
- * @return Bytes read (>= 0), 0 if nothing available.
+ * @return Bytes read (>= 0), 0 if nothing available, -1 if unsupported.
  */
 int rnode_serial_read(uint8_t *out, size_t cap);
 
