@@ -303,3 +303,12 @@ ownership on the persistent worker. Local work uses an internal queue flag;
 wire ingress always initializes that flag to false. It does not bypass the wire
 MAC/generation checks or send a companion response. Session reconciliation still
 runs before and after queued work, and the worker alone owns retained RF cleanup.
+
+## Trusted local infrared calls
+
+The existing local-call gate also routes decoded IR receive/send requests from
+ABI 1.11 to a persistent-worker backend. IR uses a separate task-owned peripheral
+lease and preserves native UI/companion ownership. These are internal queued
+calls, not new unauthenticated wire commands; `IR_RX_FRAME` identifies the local
+one-shot receive request only on the trusted queue. The wire handler retains
+its existing stream semantics. See [IR ownership](../ir/README.md#app-worker-lease).

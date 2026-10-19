@@ -750,12 +750,16 @@
     "firmware_p4/components/Service/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "a5ab5cef02299410f4ba0c4ae7baac2b4840b1f42947372c35c57fa54a0c33a0",
-      "after_sha256": "9dc73e1f27c51b2c4418df140b12338dfaebd916fd199a16ea3f4d038769f535",
-      "reason": "Select a build-local app-signing public key and reject development identity in explicit production builds; preserve default development and paired firmware behavior.",
+      "after_sha256": "a55fe6a5b9b567303860501d01468de6a7c3a36647177f3e96c4b149bf7c7c43",
+      "reason": "Publish decoded IR through the shared app ABI and persistent worker, with native contention guards and retained hardware cleanup",
       "review_history": [
         {
           "after_sha256": "716fa05eb0709ed37e2dcd95c196820071cf8c0ee169ced2bae247442307494f",
           "reason": "Register bounded JavaScript/Lua engines and an SD worker; compact P4 applications, services and LVGL layout without changing partitions, drivers, standalone emulator flags or paired SPI v8."
+        },
+        {
+          "after_sha256": "9dc73e1f27c51b2c4418df140b12338dfaebd916fd199a16ea3f4d038769f535",
+          "reason": "Select a build-local app-signing public key and reject development identity in explicit production builds; preserve default development and paired firmware behavior."
         }
       ]
     },
@@ -1060,6 +1064,14 @@
       "before_sha256": "e7b11984c5d5572d2a71e1905592e281230ca00fa68005a85ed4b8f0a7a672f6",
       "after_sha256": "90ef47b2d5b5e7e293942a8a0cfb908b2b844cd1dd9cbfb1cdd4d6b4ef2b897f",
       "reason": "Implement bounded remote GATT discovery and reads over paired SPI, native UI routing, lease expiry and NimBLE ownership-safe teardown"
+    },
+    "firmware_p4/components/Service/ir/ir.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "8b64a79cc9738d55580735d774672a3060d2942347637b075406b63adbddfceb",
+      "after_sha256": "884e399183aaed09878a1d84a2569f6cec31d0926cf9eeb9f1431c444eff464d",
+      "reason": "Publish decoded IR through the shared app ABI and persistent worker, with native contention guards and retained hardware cleanup",
+      "pre_format_sha256": "bbff8803e4174d08f3b529e03ef5cf7b71628ab3eb6bfc5ab43fab84b5676e2e",
+      "formatter": "clang-format version 22.1.5"
     }
   }
 }

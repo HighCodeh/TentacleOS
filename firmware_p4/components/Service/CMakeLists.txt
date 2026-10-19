@@ -60,6 +60,7 @@ idf_component_register(SRCS
   ${STORAGE_ASSETS_SRCS}
 
   "ir/ir.c"
+  "ir/ir_lease.c"
   "ir/ir_file.c"
   "ir/ir_ac.c"
   "ir/ir_ac_coolix.c"

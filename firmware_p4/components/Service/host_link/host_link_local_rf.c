@@ -9,9 +9,11 @@
 #include "freertos/semphr.h"
 
 #include "host_link.h"
+#include "host_link_local_ir.h"
 #include "spi_protocol.h"
 
-#define LOCAL_RF_PAYLOAD_MAX 2
+#define LOCAL_RF_PAYLOAD_MAX        HOST_LOCAL_IR_CODE_SIZE
+#define LOCAL_RF_LEGACY_PAYLOAD_MAX 2
 
 static const char *TAG = "LOCAL_RF";
 static SemaphoreHandle_t s_call_lock;
@@ -20,6 +22,7 @@ static host_rf_request_t s_request;
 static uint8_t s_payload[LOCAL_RF_PAYLOAD_MAX];
 static uint8_t s_output[HOST_RF_RESPONSE_MAX];
 static uint8_t s_status;
+static esp_err_t s_local_error;
 
 esp_err_t host_local_rf_init(void) {
   if (s_call_lock == NULL)
@@ -45,6 +48,8 @@ void host_local_rf_unlock(void) {
 esp_err_t host_local_rf_execute(host_rf_request_t *request) {
   if (request == NULL || request->length > LOCAL_RF_PAYLOAD_MAX || request->out == NULL ||
       request->capacity < HOST_RF_RESPONSE_MAX ||
+      (!host_local_ir_is_command(request->command) &&
+       request->length > LOCAL_RF_LEGACY_PAYLOAD_MAX) ||
       (request->length != 0 && request->payload == NULL)) {
     return ESP_ERR_INVALID_ARG;
   }
@@ -65,6 +70,8 @@ esp_err_t host_local_rf_execute(host_rf_request_t *request) {
     return error;
   // The kill path takes s_call_lock before deleting a native app task.
   xSemaphoreTake(s_done, portMAX_DELAY);
+  if (s_local_error != ESP_OK)
+    return s_local_error;
   if (s_status == SPI_STATUS_BUSY)
     return ESP_ERR_INVALID_STATE;
   if (s_status != SPI_STATUS_OK)
@@ -77,6 +84,13 @@ esp_err_t host_local_rf_execute(host_rf_request_t *request) {
 }
 
 void host_local_rf_process(void) {
+  s_local_error = ESP_OK;
+  if (host_local_ir_is_command(s_request.command)) {
+    s_local_error = host_local_ir_execute(&s_request);
+    s_status = SPI_STATUS_OK;
+    xSemaphoreGive(s_done);
+    return;
+  }
   if (s_request.command == SPI_ID_NFC_READ || s_request.command == SPI_ID_RFID_READ)
     host_rf_stop();
   s_status = host_rf_handle(&s_request);

@@ -239,3 +239,26 @@ and RAW signals to 8192 pulses. Invalid fields reject the parse and free signals
 appended by that call while preserving preexisting entries. Transmission rejects
 RAW durations outside 1–32767 us, totals above 900000 us and carriers outside
 10–100 kHz. Rejected timings are not truncated to fit RMT fields.
+
+## App-worker lease
+
+The [IR app ABI](../app_sdk/README.md#native-ir-api-abi-111) uses the persistent
+host worker and the local-call force-kill gate. An internal task-owned lease is
+acquired only while native channels, torch and in-flight native operations are
+idle. While held, other tasks cannot initialize, receive, transmit, prime or
+deinitialize the shared IR peripheral. Existing native UI/companion sessions are
+refused rather than reused. Nested calls from the owning worker remain valid.
+
+Decoded app RX is bounded to 1–1000 ms; decoded TX uses the existing RMT wait.
+Both paths release channels and the lease before returning. If RMT disable,
+channel deletion or encoder deletion fails, the driver retains the corresponding
+handle and resource grant. The worker retains its lease, blocking conflicting
+callers; a later local IR operation retries cleanup before starting new work.
+Init failures use the same checked teardown. No new app-created hardware task
+or firmware-pointer access is introduced.
+
+`tools/ir_api/test_ir_api.py` compiles production lease code, lifecycle wrappers,
+teardown functions, local backend and ABI with explicit RMT/RTOS fakes. It covers
+native/app contention, foreign teardown rejection, protocol conversion, stop,
+timeout and retained RX/TX/encoder cleanup. Actual optical operation remains
+part of physical acceptance.
