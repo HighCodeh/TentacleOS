@@ -13,7 +13,8 @@ set(EXTRA_COMPONENT_DIRS
     "${CMAKE_CURRENT_LIST_DIR}/components/Applications/doom"
     "${CMAKE_CURRENT_LIST_DIR}/components/Core/resource_mgr"
     "${CMAKE_CURRENT_LIST_DIR}/components/Service/fatfs"
-    "${CMAKE_CURRENT_LIST_DIR}/components/Service/highboy_muse")
+    "${CMAKE_CURRENT_LIST_DIR}/components/Service/highboy_muse"
+    "${CMAKE_CURRENT_LIST_DIR}/components/Service/script_engine")
 
 list(APPEND EXTRA_COMPONENT_DIRS
     "${CMAKE_CURRENT_LIST_DIR}/vendor/esp-libhelix-mp3"
@@ -59,3 +60,10 @@ idf_build_set_property(COMPILE_OPTIONS "-Wno-error=maybe-uninitialized" APPEND)
 project(TentacleOS_P4)
 
 # APP-only: assets, SD, c5fw and boot metadata are untouched.
+
+# Compact LVGL control/layout code while retaining optimized rasterizers.
+idf_component_get_property(HIGHBOY_LVGL_LIB lvgl COMPONENT_LIB)
+target_compile_options(${HIGHBOY_LVGL_LIB} PRIVATE -Os -flto=2 -ffat-lto-objects)
+file(GLOB_RECURSE HIGHBOY_LVGL_DRAW "${CMAKE_CURRENT_LIST_DIR}/vendor/lvgl/src/draw/*.c")
+set_source_files_properties(${HIGHBOY_LVGL_DRAW}
+    DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/vendor/lvgl" PROPERTIES COMPILE_OPTIONS "-O2")

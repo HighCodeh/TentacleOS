@@ -632,6 +632,24 @@
       "before_sha256": "baf51cd7e32432972ea93a30e38fcb4df967eb8f0049dee7546bdace11592db8",
       "after_sha256": "d84f6d55d5d9ec52df5447d12d2cdd4ebfb32a00fe49e7f11952ace1f6f4457e",
       "reason": "Describe native BLE services accurately and label the static GATT reference without synthesized read values."
+    },
+    "firmware_p4/CMakeLists.txt": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "0f1227039a8fd707409aaebc1ba720212788503eb26421c5ded3947f10e67323",
+      "after_sha256": "3f9e37605262ba8cd5c3e25d94f57f660c010e6baea480103d8fe554f58d4eef",
+      "reason": "Register bounded JavaScript/Lua engines and an SD worker; compact P4 applications, services and LVGL layout without changing partitions, drivers, standalone emulator flags or paired SPI v8."
+    },
+    "firmware_p4/components/Applications/CMakeLists.txt": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "da11f270bf3ffb612ef0469030d722884b5eb81f62f1c50223df2c526b8054a5",
+      "after_sha256": "539b7c5858f4c83c2f3c4cac2fd27e23aedd3106dffd606058dafc50fd33ac2c",
+      "reason": "Register bounded JavaScript/Lua engines and an SD worker; compact P4 applications, services and LVGL layout without changing partitions, drivers, standalone emulator flags or paired SPI v8."
+    },
+    "firmware_p4/components/Service/CMakeLists.txt": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "a5ab5cef02299410f4ba0c4ae7baac2b4840b1f42947372c35c57fa54a0c33a0",
+      "after_sha256": "716fa05eb0709ed37e2dcd95c196820071cf8c0ee169ced2bae247442307494f",
+      "reason": "Register bounded JavaScript/Lua engines and an SD worker; compact P4 applications, services and LVGL layout without changing partitions, drivers, standalone emulator flags or paired SPI v8."
     }
   }
 }

@@ -161,3 +161,6 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE C5_FIRMWARE_EMBEDDED=0)
 target_compile_definitions(${COMPONENT_LIB} PRIVATE C5_ROM_IMAGES_EMBEDDED=0)
 
 set_source_files_properties("muse/hb_muse_p4_service.c" PROPERTIES COMPILE_OPTIONS "-Os;-flto=2;-ffat-lto-objects")
+
+# Size optimization and LTO keep both script engines in the existing OTA slots.
+target_compile_options(${COMPONENT_LIB} PRIVATE -Os -flto=2 -ffat-lto-objects)

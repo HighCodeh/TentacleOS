@@ -41,6 +41,7 @@ file(GLOB MESHTASTIC_APP_SRCS "LoRa/meshtastic/*.c")
 file(GLOB LORA_SESSION_SRCS "LoRa/session/*.c")
 
 idf_component_register(SRCS
+  "scripts/script_runner.c"
   ${UI_SRCS}
   ${WIFI_APP_SRCS}
   ${NFC_APP_SRCS}
@@ -55,6 +56,7 @@ idf_component_register(SRCS
 
   INCLUDE_DIRS
   # --- application (non-ui) ---
+  "scripts/include"
   "wifi/include"
   "nfc/include"
   "nfc/protocols/common/include"
@@ -139,6 +141,7 @@ idf_component_register(SRCS
   "ui/components/waves/include"
 
   REQUIRES
+  script_engine
   driver
   esp_driver_tsens
   esp_driver_jpeg
@@ -187,3 +190,6 @@ set_source_files_properties(
   "ui/screens/connect_wifi/connect_wifi_ui.c"
   ${HIGHBOY_SIZE_NFC_UI}
   PROPERTIES COMPILE_OPTIONS "-Os")
+
+# Size optimization and LTO keep both script engines in the existing OTA slots.
+target_compile_options(${COMPONENT_LIB} PRIVATE -Os -flto=2 -ffat-lto-objects)
