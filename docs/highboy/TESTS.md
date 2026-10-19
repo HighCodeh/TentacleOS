@@ -344,3 +344,44 @@ flash or SD card was accessed. This validates configuration and compilation;
 it does not add cryptographic certification, Secure Boot, key custody or physical
 acceptance. Issue #149 remains open for radio API publication/teardown and the
 real production identity. See [trust configuration](../app_sdk/README.md#keys--trust-store).
+
+## Shared airtime and native RF ABI build record
+
+Validated on 2026-10-19 after automatic hook formatting, from firmware commit
+`555742ec`. Both pinned SDK builds and `tools/highboy/test.command` passed.
+
+| Target | Application bytes | Slot bytes | Free bytes | SHA-256 |
+| --- | ---: | ---: | ---: | --- |
+| P4 | 2,927,584 | 2,949,120 | 21,536 | `d3d572fca9dc815b4a487ed845f6b3a223ba8cd3015300d34325222dce87b894` |
+| C5 | 2,016,048 | 2,097,152 | 81,104 | `a87bc198e273af8e44838873f009a4d7b534f96cf76924a1dab2179e41b48cd1` |
+
+This batch adds shared SX1262 airtime pacing, the P4 legacy-RNode transport gate,
+portable SDK byte counts and header-matched bundle ABI versions, and native
+NFC/RFID discovery in ABI 1.10 with JavaScript/Lua bindings. The local broker runs
+on the persistent RF worker; native force-kill waits for local operations and a
+failed kill claim no longer leaves natural app exit permanently suspended.
+
+New tests cover airtime vectors, occupied-bandwidth/cooldown boundaries and
+concurrent debits; rejection of P4 UART access; actual SDK script execution with
+paths containing spaces; RF capabilities, cancellation, time bounds, A/B/F/V and
+LF result conversion; broker copies, queue failure and force-kill quiescence;
+production wire/local routing separation; and cleanup retry. Real interpreters
+exercise both RF bindings and reject older ABI tables before accessing appended
+pointers. Existing preservation, RF/NFC/IR, Muse, Sub-GHz, USB and DOOM tests pass.
+
+The unchanged vendored libsodium 1.0.22 was also configured in a temporary host
+build with `CFLAGS=-Os`, assembly disabled and `make check`: **101/101 passed**,
+no skips. P4 now compiles that backend with `-Os`, recovering 23,408 bytes against
+the same airtime-guarded candidate before ABI additions. The final P4 retains
+21,536 free bytes. This changes code-size policy, not algorithms or vendor files;
+physical crypto throughput, stack headroom and timing remain unmeasured.
+C5 memory settings, SPI v8, partition sizes, existing driver/render/emulator
+optimization flags and trust keys are preserved. Existing build warnings remain.
+
+All eight SDK examples, including `rfread`, compiled as RV32 ET_REL objects with
+the pinned compiler and no undefined external symbols. Commitlint and whitespace
+checks passed. Example compilation and host fixtures do not prove card capture,
+network throughput, field shutdown or a completed integration matrix. No device,
+SD, flash, real production key or eFuse was accessed. The [matrix](MATRIX.md) and
+[field guide](FIELD.md) identify missing implementations and physical acceptance;
+no remaining issue is claimed fully closed by this batch.

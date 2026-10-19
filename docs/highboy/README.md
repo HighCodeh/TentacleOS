@@ -191,3 +191,8 @@ not a claim of improved cryptographic throughput or side-channel certification.
 The vendored libsodium 1.0.22 host suite was built separately with `CFLAGS=-Os`
 and assembly disabled: all 101 tests passed, without skips. Device performance,
 stack usage and timing acceptance remain pending under #157.
+
+The current [peripheral interface matrix](MATRIX.md) distinguishes implemented
+paths from missing adapters and physical acceptance. The [field guide](FIELD.md)
+records the evidence needed for restoration, bench work and a later consumer
+handoff; it does not claim this app-only candidate can restore the erased P4.
