@@ -83,8 +83,23 @@ static int poll_mesh(tos_lora_msg_t *out) {
   return has_new ? 1 : 0;
 }
 
+static esp_err_t send_mesh_text(const char *text) {
+  if (text == NULL)
+    return ESP_ERR_INVALID_ARG;
+  if (!tos_app_cap_check(TOS_CAP_RADIO_TX))
+    return ESP_ERR_NOT_SUPPORTED;
+  if (tos_api_get()->should_stop() || !host_local_rf_is_ready())
+    return ESP_ERR_INVALID_STATE;
+  if (!host_local_rf_lock(RADIO_VIEW_LOCK_MS))
+    return ESP_ERR_TIMEOUT;
+  esp_err_t error =
+      tos_api_get()->should_stop() ? ESP_ERR_INVALID_STATE : lora_session_send_text(text);
+  host_local_rf_unlock();
+  return error;
+}
+
 extern esp_err_t tos_api_subghz_receive(tos_subghz_signal_t *, uint32_t, uint8_t, uint32_t);
 extern esp_err_t tos_api_subghz_tx_raw(const int32_t *, int, uint32_t);
 const tos_subghz_api_t tos_subghz_api_impl = {
     .rx_poll = poll_subghz, .receive = tos_api_subghz_receive, .tx_raw = tos_api_subghz_tx_raw};
-const tos_lora_api_t tos_lora_api_impl = {.mesh_poll = poll_mesh};
+const tos_lora_api_t tos_lora_api_impl = {.mesh_poll = poll_mesh, .mesh_send_text = send_mesh_text};

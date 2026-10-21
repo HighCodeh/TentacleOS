@@ -522,3 +522,26 @@ The native API rechecks limits after copying the timings. Each method requires
 its per-run RX/TX approval and rejects an ABI older than 1.13 before accessing
 the new capture field. `rx_start`, replay/file/raw-read, retune and spectrum
 session methods remain NULL; LoRa remains observation-only under #149/#156.
+
+
+## Queued LoRa mesh text (ABI 1.14)
+
+Check ABI minor >= 14 and `api->lora->mesh_send_text != NULL` before calling
+`api->lora->mesh_send_text("hello")`. The app needs `TOS_CAP_RADIO_TX`; RX
+permission remains separately required for `mesh_poll`. The native session must
+already be running Meshtastic or MeshCore. No mesh or radio is started by this call.
+
+The call copies 1..159 bytes into the shared four-entry native text queue under
+the app cancellation gate. `ESP_OK` means accepted, not emitted or delivered;
+`ESP_ERR_INVALID_ARG` rejects invalid text, `ESP_ERR_INVALID_STATE` covers an
+inactive mesh, unavailable gate or stopping app, and `ESP_ERR_TIMEOUT` covers a
+busy gate/chat lock or full queue. Capability denial is `ESP_ERR_NOT_SUPPORTED`.
+A native poll worker consumes each item once. Backend failure is logged and
+omits the outgoing chat record. App termination cannot leave dangling pointers;
+an accepted item continues independently of the app. The native session persists
+until reboot. Raw PHY/start/stop/node/RNode entries remain NULL. See the
+[native queue contract](../LoRa/README.md#queued-mesh-text-submission-abi-114).
+
+The `tools/app_sdk/mesh_text` example requests only TX capability (`0x04`) and
+queues `Hello from High Boy`. Start the native mesh first. Its log reports
+queue acceptance only; it does not claim delivery.

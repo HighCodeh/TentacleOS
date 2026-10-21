@@ -15,7 +15,8 @@ esp_err_t tos_api_subghz_tx_raw(const int32_t *timings,int count,uint32_t freq) 
 extern const tos_subghz_api_t tos_subghz_api_impl;
 extern const tos_lora_api_t tos_lora_api_impl;
 static bool s_allowed, s_stopped, s_ready, s_timeout, s_stop_after_lock, s_locked;
-static unsigned s_locks, s_reads;
+static unsigned s_locks, s_reads, s_sent;
+static esp_err_t s_send_error;
 static tos_app_ctx_t s_apps[2];
 static tos_app_ctx_t *s_current;
 static uint32_t s_capture_sequence=1;
@@ -23,7 +24,7 @@ static bool s_has_capture=true;
 static int should_stop(void) { return s_stopped; }
 static const tos_api_t s_api={.should_stop=should_stop};
 const tos_api_t *tos_api_get(void) { return &s_api; }
-bool tos_app_cap_check(uint32_t cap) { assert(cap==TOS_CAP_RADIO_RX); return s_allowed; }
+bool tos_app_cap_check(uint32_t cap) { assert(cap==TOS_CAP_RADIO_RX || cap==TOS_CAP_RADIO_TX); return s_allowed; }
 bool host_local_rf_is_ready(void) { return s_ready; }
 bool host_local_rf_lock(uint32_t timeout) {
   assert(timeout==100 && !s_locked); ++s_locks;
@@ -48,28 +49,43 @@ uint16_t lora_session_msg_since(uint32_t *sequence,lora_msg_t *out,uint16_t max)
   return 1;
 }
 
+esp_err_t lora_session_send_text(const char *text) {
+  assert(s_locked && strcmp(text,"hello")==0); ++s_sent; return s_send_error;
+}
 int main(void) {
   tos_subghz_signal_t signal;
   tos_lora_msg_t message;
   assert(tos_subghz_api_impl.rx_start==NULL && tos_subghz_api_impl.session_stop==NULL);
   assert(tos_subghz_api_impl.tx_raw!=NULL && tos_subghz_api_impl.receive!=NULL && tos_subghz_api_impl.spectrum_start==NULL);
-  assert(tos_lora_api_impl.mesh_start==NULL && tos_lora_api_impl.mesh_send_text==NULL);
+  assert(tos_lora_api_impl.mesh_start==NULL && tos_lora_api_impl.mesh_send_text!=NULL);
   assert(tos_lora_api_impl.configure==NULL && tos_lora_api_impl.rx_start==NULL);
   assert(tos_subghz_api_impl.rx_poll(NULL)==-ESP_ERR_INVALID_ARG);
   assert(tos_lora_api_impl.mesh_poll(NULL)==-ESP_ERR_INVALID_ARG);
   assert(tos_subghz_api_impl.rx_poll(&signal)==-ESP_ERR_NOT_SUPPORTED);
   assert(tos_lora_api_impl.mesh_poll(&message)==-ESP_ERR_NOT_SUPPORTED);
   assert(s_reads==0 && s_locks==0);
+  assert(tos_lora_api_impl.mesh_send_text(NULL)==ESP_ERR_INVALID_ARG);
+  assert(tos_lora_api_impl.mesh_send_text("hello")==ESP_ERR_NOT_SUPPORTED && s_sent==0);
   s_allowed=true;
   assert(tos_subghz_api_impl.rx_poll(&signal)==-ESP_ERR_INVALID_STATE);
+  assert(tos_lora_api_impl.mesh_send_text("hello")==ESP_ERR_INVALID_STATE);
   s_ready=true; s_stopped=true;
   assert(tos_lora_api_impl.mesh_poll(&message)==-ESP_ERR_INVALID_STATE);
+  assert(tos_lora_api_impl.mesh_send_text("hello")==ESP_ERR_INVALID_STATE);
   s_stopped=false; s_timeout=true;
+  assert(tos_lora_api_impl.mesh_send_text("hello")==ESP_ERR_TIMEOUT);
   assert(tos_subghz_api_impl.rx_poll(&signal)==-ESP_ERR_TIMEOUT);
   s_timeout=false; s_stop_after_lock=true;
   assert(tos_lora_api_impl.mesh_poll(&message)==-ESP_ERR_INVALID_STATE);
   assert(!s_locked && s_reads==0);
+  s_stopped=false;
+  assert(tos_lora_api_impl.mesh_send_text("hello")==ESP_ERR_INVALID_STATE && s_sent==0);
   s_stop_after_lock=false; s_stopped=false;
+  assert(tos_lora_api_impl.mesh_send_text("hello")==ESP_OK && s_sent==1 && !s_locked);
+  s_send_error=ESP_ERR_TIMEOUT;
+  assert(tos_lora_api_impl.mesh_send_text("hello")==ESP_ERR_TIMEOUT && !s_locked);
+  s_send_error=ESP_ERR_INVALID_STATE;
+  assert(tos_lora_api_impl.mesh_send_text("hello")==ESP_ERR_INVALID_STATE && !s_locked);
   for(unsigned app=0;app<2;++app) {
     s_current=&s_apps[app];
     assert(tos_subghz_api_impl.rx_poll(&signal)==1);

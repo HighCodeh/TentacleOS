@@ -58,6 +58,7 @@ typedef struct host_link_handler host_link_handler_t; // opaque to apps
 #endif
 
 #define TOS_ABI_VERSION_MAJOR 1
+// 1.14 = queued text submission to an already active native LoRa mesh.
 // 1.13 = bounded Sub-GHz capture and raw transmission.
 // 1.12 = read-only native Sub-GHz results and LoRa chat history.
 // 1.11 = decoded IR receive/send.
@@ -66,7 +67,7 @@ typedef struct host_link_handler host_link_handler_t; // opaque to apps
 // 1.8 = read-only fs subsystem. NOTE: 1.7 was briefly a (removed) IMU subsystem in
 // dev; fs took a fresh minor so a firmware built during the IMU era rejects an
 // fs app at the load gate instead of mismatching its api->fs pointer.
-#define TOS_ABI_VERSION_MINOR 13
+#define TOS_ABI_VERSION_MINOR 14
 
 /** Log levels; values match esp_log_level_t so they pass straight through. */
 typedef enum {
@@ -495,10 +496,10 @@ typedef struct {
 
 /**
  * LoRa (SX1262). Single radio owner: the raw PHY, either mesh stack, and the
- * RNode TNC are mutually exclusive; hold one via its session and stop it before
- * switching. Raw mode = configure + send + rx_start/rx_poll. Mesh mode =
- * mesh_start(proto) then send_text / poll / node list. RNode mode hands the radio
- * to a host over the KISS serial bridge and runs until session_stop.
+ * RNode TNC are mutually exclusive. ABI 1.14 publishes mesh_poll and
+ * mesh_send_text against an already active native session. Startup, teardown,
+ * raw PHY, node access and RNode entries remain NULL. Switching mesh protocols
+ * requires a reboot; applications do not own the native session.
  */
 typedef struct tos_lora_api {
   // Raw PHY.
@@ -508,7 +509,8 @@ typedef struct tos_lora_api {
   int (*rx_poll)(tos_lora_packet_t *out);              ///< 1 = packet dequeued, 0 = none
   // Mesh chat (Meshtastic / MeshCore).
   esp_err_t (*mesh_start)(uint8_t proto, uint32_t *out_session); ///< tos_lora_mesh_t; radio-tx
-  esp_err_t (*mesh_send_text)(const char *text);                 ///< radio-tx; broadcast
+  esp_err_t (*mesh_send_text)(
+      const char *text); ///< minor 14+; radio-tx; queue 1..159 bytes; ESP_OK = accepted
   int (*mesh_poll)(tos_lora_msg_t *out); ///< 1 = new message, 0 = none, <0 = -esp_err_t
   int (*mesh_node_count)(void);
   esp_err_t (*mesh_node_get)(int index, tos_lora_node_t *out);
@@ -557,7 +559,7 @@ typedef struct tos_api {
   const tos_rfid_api_t *rfid;     ///< native LF capture (minor 10+); needs TOS_CAP_RADIO_RX
   const tos_ir_api_t *ir;         ///< decoded infrared (minor 11+); receive/send capabilities
   const tos_subghz_api_t *subghz; ///< captured results only (minor 12+); radio-rx
-  const tos_lora_api_t *lora;     ///< native chat history only (minor 12+); radio-rx
+  const tos_lora_api_t *lora;     ///< chat history (minor 12+), queued text (minor 14+); RX/TX caps
 } tos_api_t;
 
 /** @brief The shared, const host API table handed to every app at entry. */
