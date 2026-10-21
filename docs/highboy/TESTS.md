@@ -569,3 +569,34 @@ Nine issues remain in this scope (#135, #143, #148, #149, #152, #153, #156,
 but does not complete active radio control/teardown, production trust identity,
 physical acceptance or a reviewed restore package. No device, SD, private
 production key, flash or eFuse was accessed.
+
+## P4 portable crypto LTO checkpoint
+
+Validated on 2026-10-21 against the working tree based on `0085b5a3`, including
+pending ESP SCAN/updater changes. The baseline and selected P4 builds use the
+same sources except for the libsodium compile policy. The original P4 slot
+margin grows from 16 to 10,320 bytes: **10,304 bytes recovered**. The utility
+translation unit stays outside LTO to keep wiping/comparison calls opaque.
+See the [full size/static RAM comparison](SIZE.md).
+
+The selected paired build uses P4 IDF v5.5.3 and C5 IDF v6.0.1:
+
+| Target | Application bytes | Slot bytes | Free bytes | SHA-256 |
+| --- | ---: | ---: | ---: | --- |
+| P4 | 2,938,800 | 2,949,120 | 10,320 | `a14aa59e25799b325185c8941b2b9e2ac4e27e26410235d650635d11ab5e78d3` |
+| C5 | 2,050,752 | 2,097,152 | 46,400 | `74a92a2f34fcecb58e2e7c6d11f4a8ce4806b4e64250ccb86a15993c0b4600e3` |
+
+Both application builds and the complete offline runner passed, including the
+pending Wi-Fi scan tests, paired SPI v8 and C5 memory contracts. The isolated
+portable libsodium `-Os`/LTO build, with final `-fno-lto` for its utility object,
+passed **101/101 tests**, zero skips/failures. Real C/Python companion pairing
+also passed against that library with host LTO enabled, including vectors,
+confirmation, expiry/replay and forged-response rejection. The usual full
+suite uses its existing host dependency configuration. No vendor algorithm,
+production identity, partition, driver or emulator policy was changed.
+
+Static P4 DIRAM falls from 402,222 to 402,074 linked bytes; this 148-byte
+reduction does not measure live heap or performance. The ELF and effective
+compile commands were inspected for the utility LTO exclusion. No physical
+bench/flash/eFuse action was performed. #157 remains open for runtime and
+reviewed OTA/assets/recovery acceptance; no additional issue is closed.

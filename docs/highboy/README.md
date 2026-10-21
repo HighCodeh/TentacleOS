@@ -196,3 +196,12 @@ The current [peripheral interface matrix](MATRIX.md) distinguishes implemented
 paths from missing adapters and physical acceptance. The [field guide](FIELD.md)
 records the evidence needed for restoration, bench work and a later consumer
 handoff; it does not claim this app-only candidate can restore the erased P4.
+
+## P4 portable crypto LTO checkpoint
+
+The [2026-10-21 size comparison](SIZE.md) extends the earlier `-Os` policy with
+P4 libsodium LTO while keeping `sodium/utils.c` outside LTO. On the current
+ESP SCAN candidate this recovers 10,304 bytes, increasing the original app-slot
+margin from 16 to 10,320 bytes. Vendor sources, partitions, keys and C5 policy
+are unchanged. This supersedes the optimization policy above; runtime timing,
+heap/stack and recovery-package acceptance remain open under #157.
