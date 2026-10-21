@@ -23,6 +23,8 @@ static uint8_t s_payload[LOCAL_RF_PAYLOAD_MAX];
 static uint8_t s_output[HOST_RF_RESPONSE_MAX];
 static uint8_t s_status;
 static esp_err_t s_local_error;
+static host_local_rf_cb_t s_callback;
+static void *s_callback_context;
 
 esp_err_t host_local_rf_init(void) {
   if (s_call_lock == NULL)
@@ -66,6 +68,7 @@ esp_err_t host_local_rf_execute(host_rf_request_t *request) {
   if (request->length != 0)
     memcpy(s_payload, request->payload, request->length);
   s_request = *request;
+  s_callback = NULL;
   s_request.payload = s_payload;
   s_request.out = s_output;
   s_request.capacity = sizeof(s_output);
@@ -87,7 +90,34 @@ esp_err_t host_local_rf_execute(host_rf_request_t *request) {
   return ESP_OK;
 }
 
+esp_err_t host_local_rf_call(host_local_rf_cb_t callback, void *context) {
+  if (callback == NULL)
+    return ESP_ERR_INVALID_ARG;
+  if (!host_local_rf_is_ready())
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = host_link_start_worker();
+  if (error != ESP_OK)
+    return error;
+  s_callback = callback;
+  s_callback_context = context;
+  error = host_link_schedule_local_rf();
+  if (error != ESP_OK) {
+    s_callback = NULL;
+    s_callback_context = NULL;
+    return error;
+  }
+  xSemaphoreTake(s_done, portMAX_DELAY);
+  return s_local_error;
+}
+
 void host_local_rf_process(void) {
+  if (s_callback != NULL) {
+    s_local_error = s_callback(s_callback_context);
+    s_callback = NULL;
+    s_callback_context = NULL;
+    xSemaphoreGive(s_done);
+    return;
+  }
   s_local_error = ESP_OK;
   if (host_local_ir_is_command(s_request.command)) {
     s_local_error = host_local_ir_execute(&s_request);

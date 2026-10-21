@@ -89,6 +89,10 @@ static void *caller(void *unused) {
   assert(request.out_length==2 && output[0]==1 && output[1]==0x42);
   host_local_rf_unlock(); return NULL;
 }
+static esp_err_t local_callback(void *context) {
+  assert(pthread_equal(pthread_self(),s_worker));
+  unsigned *calls=context;++*calls;return ESP_ERR_NOT_FOUND;
+}
 int main(void) {
   assert(host_local_rf_init()==ESP_OK);
   assert(host_local_rf_init()==ESP_OK && s_semaphore_count==2);
@@ -115,6 +119,14 @@ int main(void) {
   assert(host_local_rf_execute(&request)==ESP_OK && request.out_length==0);
   s_ir_error=ESP_ERR_TIMEOUT;
   assert(host_local_rf_execute(&request)==ESP_ERR_TIMEOUT);
+  unsigned calls=0;
+  assert(host_local_rf_call(NULL,&calls)==ESP_ERR_INVALID_ARG);
+  s_schedule_error=ESP_ERR_TIMEOUT;
+  assert(host_local_rf_call(local_callback,&calls)==ESP_ERR_TIMEOUT && calls==0);
+  s_schedule_error=ESP_OK;
+  assert(host_local_rf_call(local_callback,&calls)==ESP_ERR_NOT_FOUND && calls==1);
+  request.command=SPI_ID_RFID_READ;request.payload=payload;request.length=sizeof(payload);
+  assert(host_local_rf_execute(&request)==ESP_OK && calls==1 && request.out_length==2);
   host_local_rf_unlock();
   pthread_mutex_lock(&s_queue_lock); s_exit=true;
   pthread_cond_signal(&s_queue_ready); pthread_mutex_unlock(&s_queue_lock);

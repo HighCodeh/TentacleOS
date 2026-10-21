@@ -19,6 +19,9 @@ bool host_local_rf_lock(uint32_t timeout_ms);
 void host_local_rf_unlock(void);
 /** Caller holds the local RF lock until this synchronous call returns. */
 esp_err_t host_local_rf_execute(host_rf_request_t *request);
+typedef esp_err_t (*host_local_rf_cb_t)(void *context);
+/** Firmware callback only. Caller holds the kill gate until the worker returns. */
+esp_err_t host_local_rf_call(host_local_rf_cb_t callback, void *context);
 /** Host core worker only; queued local work never emits a transport response. */
 void host_local_rf_process(void);
 /** Queue a trusted local RF operation; used only by the internal broker. */

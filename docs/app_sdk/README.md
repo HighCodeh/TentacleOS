@@ -420,8 +420,8 @@ SDK `build.sh` now signs bundles with the ABI version of the header it compiled
 against; manual packers must specify `--abi-minor 10` for these calls.
 JavaScript and Lua expose the same calls through `tos.call("nfc.poll", 500)` and
 `tos.call("rfid.read", 500)`, with per-run receive permission and typed records.
-Sub-GHz and LoRa observations are published in ABI 1.12 below; active radio
-control still needs ownership adapters.
+Sub-GHz and LoRa observations are published in ABI 1.12 below. ABI 1.13 adds
+bounded Sub-GHz RX/TX; active LoRa and asynchronous radio control remain pending.
 
 ## Native IR API (ABI 1.11)
 
@@ -454,8 +454,8 @@ The appended `api->subghz` and `api->lora` tables expose **only**
 `subghz->rx_poll(&signal)` and `lora->mesh_poll(&message)`. Both require
 `TOS_CAP_RADIO_RX`, return 1 for a copied record, 0 for no new record, or a
 negative `esp_err_t` on denial, cancellation or synchronization failure.
-Check ABI minor >= 12 before accessing these appended pointers. All other
-entries in these two tables are NULL.
+Check ABI minor >= 12 before accessing these appended pointers. In ABI 1.12 all other entries in these tables are NULL. ABI 1.13 adds the
+bounded Sub-GHz operations documented below; LoRa remains observation-only.
 
 These functions observe captures/chat already produced by native services.
 Start the receiver or mesh through its native interface first; polling alone
@@ -468,11 +468,57 @@ Protocol restarts preserve the Sub-GHz capture sequence. Strings are bounded,
 owned copies; no driver pointers escape into apps.
 
 The shared local RF gate prevents force-kill while the native result/ring mutex
-is held. Polling is unavailable until that gate has been initialized. Active
-Sub-GHz capture/transmission, spectrum control, raw LoRa and mesh startup/send
-are still unpublished pending ownership and teardown work under #149/#156.
+is held. Polling is unavailable until that gate has been initialized. ABI 1.13 adds bounded Sub-GHz capture/transmission below. Asynchronous Sub-GHz
+sessions, spectrum control, raw LoRa and mesh startup/send remain unpublished
+pending ownership and teardown work under #149/#156.
 
 Scripts use `tos.call("subghz.rx_poll")` and `tos.call("lora.mesh_poll")` through
 the same tables, with RX approval. They return the signal/message record or
 `null` (JavaScript) / `nil` (Lua) if there is no new record. Adapter errors raise
 the normal ABI error. No production signing identity is provisioned by this API.
+
+## Bounded Sub-GHz API (ABI 1.13)
+
+Check `api->abi_minor >= 13` and the function pointer before calling the newly
+appended `api->subghz->receive(&signal, frequency_hz, preset, timeout_ms)`.
+It requires `TOS_CAP_RADIO_RX` and captures once, with a 1–1000 ms RMT wait.
+The result uses `tos_subghz_signal_t`; an unrecognized nonempty capture has
+`decoded=false`, empty protocol and the selected frequency. No capture/pulses
+returns `ESP_ERR_NOT_FOUND`; a receive wait expiry returns `ESP_ERR_TIMEOUT`.
+Errors leave the output record zeroed. There is no raw-timing output yet.
+
+`api->subghz->tx_raw(timings, count, frequency_hz)` requires `TOS_CAP_RADIO_TX`.
+It copies 1–512 signed pulse durations: +mark/-space, 1–32767 microseconds each,
+with at most 2,000,000 microseconds total. Zero, excessive counts/durations and
+`INT32_MIN` are rejected. It uses the native OOK 800 kHz preset (ID 6) and waits
+for RMT completion, with a 2100 ms wait limit. It does not queue a background
+session or report an unfinished enqueue as successful transmission.
+
+Both functions accept frequencies in the existing CC1101 hardware bands:
+300–348, 387–464 or 779–928 MHz. This is a hardware-range check, not a regional
+transmission policy. Receive preset IDs are 1=OOK270, 2=OOK650, 3=2FSK2,
+4=2FSK47, 5=2FSK95, 6=OOK800; IDLE/unknown presets are refused.
+
+Calls hold the local RF kill gate and execute hardware on the existing permanent
+radio worker. The internal CC1101 lease refuses a busy native RX/TX/spectrum or
+in-flight driver call. Failed cleanup keeps RMT buffers/handles, the no-sleep
+hold and radio reservation on that worker; a later call retries cleanup first.
+Unrelated commands, including companion commands using the same worker, cannot
+reuse a retained lease. App exit does not leave pointers into its stack attached
+to hardware. Setup, SPI waits and recovery add to the RX/TX wait limits above;
+whole-call latency and electrical behavior still require device acceptance.
+
+JS/Lua use the same API:
+
+```text
+tos.call("subghz.receive", 433920000, 6, 500)
+tos.call("subghz.tx_raw", 433920000, "350,-700,350")
+```
+
+Capture returns the same record as `subghz.rx_poll`. Raw TX uses a strict comma
+separated decimal string, at most 128 pulses within the script string limit;
+empty items, spaces, trailing commas, zero or out-of-range values are errors.
+The native API rechecks limits after copying the timings. Each method requires
+its per-run RX/TX approval and rejects an ABI older than 1.13 before accessing
+the new capture field. `rx_start`, replay/file/raw-read, retune and spectrum
+session methods remain NULL; LoRa remains observation-only under #149/#156.

@@ -978,8 +978,8 @@
     "firmware_p4/components/Service/app_runtime/include/tos_api.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "9c2020f1c91901d7b2335daccc2055d14c8646b20094bab14fc8bdd3a83b0b5d",
-      "after_sha256": "4b21ca4c1253514c1f97ed1c1f92599f6d0babb4cdd754e6ccb0631d67b3ecc3",
-      "reason": "Publish bounded RX-only native radio observations with per-app cursors and kill quiescence; synchronize chat ring first use and sequence wrap, preserve capture IDs across restarts.",
+      "after_sha256": "7e9fb70c0dfceda83a1ca17ed5fe97a3551a56d01f6dd5072862c19f5020ddaf",
+      "reason": "Publish bounded Sub-GHz receive/raw TX with a scoped CC1101 lease and persistent worker; serialize native TX/spectrum lifetimes and retain resources through RMT/SPI/power cleanup failures.",
       "review_history": [
         {
           "after_sha256": "ef540914e454c49228b43f64b0605a2094d3ac153b992d56ca51a2292a1f1a34",
@@ -992,9 +992,15 @@
           "reason": "Publish decoded IR through the shared app ABI and persistent worker, with native contention guards and retained hardware cleanup",
           "pre_format_sha256": "e411cf3168e49fbe94ffeb332c5cf74a987e67fd66e00fce4e12e0752a156eb2",
           "formatter": "clang-format version 22.1.5"
+        },
+        {
+          "after_sha256": "4b21ca4c1253514c1f97ed1c1f92599f6d0babb4cdd754e6ccb0631d67b3ecc3",
+          "reason": "Publish bounded RX-only native radio observations with per-app cursors and kill quiescence; synchronize chat ring first use and sequence wrap, preserve capture IDs across restarts.",
+          "pre_format_sha256": "561c81878f19abd63df5f5938c247240b90ebfae514dafc2c739825d67127a0c",
+          "formatter": "clang-format version 22.1.5"
         }
       ],
-      "pre_format_sha256": "561c81878f19abd63df5f5938c247240b90ebfae514dafc2c739825d67127a0c",
+      "pre_format_sha256": "ea835caed95a238ec35356378ce54bd0c8a9716865b95e85461095cb8b509588",
       "formatter": "clang-format version 22.1.5"
     },
     "firmware_c5/CMakeLists.txt": {

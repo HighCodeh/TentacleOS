@@ -58,6 +58,7 @@ typedef struct host_link_handler host_link_handler_t; // opaque to apps
 #endif
 
 #define TOS_ABI_VERSION_MAJOR 1
+// 1.13 = bounded Sub-GHz capture and raw transmission.
 // 1.12 = read-only native Sub-GHz results and LoRa chat history.
 // 1.11 = decoded IR receive/send.
 // 1.10 = native NFC discovery and LF RFID reads (optional unsupported NFC calls are NULL).
@@ -65,7 +66,7 @@ typedef struct host_link_handler host_link_handler_t; // opaque to apps
 // 1.8 = read-only fs subsystem. NOTE: 1.7 was briefly a (removed) IMU subsystem in
 // dev; fs took a fresh minor so a firmware built during the IMU era rejects an
 // fs app at the load gate instead of mismatching its api->fs pointer.
-#define TOS_ABI_VERSION_MINOR 12
+#define TOS_ABI_VERSION_MINOR 13
 
 /** Log levels; values match esp_log_level_t so they pass straight through. */
 typedef enum {
@@ -321,6 +322,11 @@ typedef struct tos_subghz_api {
                               uint32_t *out_session); ///< radio-rx
   int (*spectrum_poll)(uint32_t *out_start_hz, uint32_t *out_step_hz, float *dbm, int max);
   esp_err_t (*session_stop)(uint32_t session);
+  // Minor 13+: capture once; 1..1000 ms, explicit frequency/preset. No persistent session.
+  esp_err_t (*receive)(tos_subghz_signal_t *out,
+                       uint32_t freq_hz,
+                       uint8_t preset,
+                       uint32_t timeout_ms);
 } tos_subghz_api_t;
 
 /** Infrared remote protocols (index matches the firmware decoder table). */

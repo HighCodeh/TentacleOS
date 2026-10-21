@@ -410,7 +410,8 @@ ABI 1.12 publishes read-only `subghz.rx_poll` for signed apps and JS/Lua,
 requiring RX permission. Each app/run has a private cursor over the latest
 native capture snapshot; sequence IDs persist across receiver restarts.
 Polling never starts or stops the receiver and does not expose raw timings.
-Active control and spectrum entries remain NULL pending their ownership adapters.
+ABI 1.13 adds the bounded active operations below; asynchronous session and
+spectrum entries remain NULL.
 See the [ABI contract](../app_sdk/README.md#native-radio-observations-abi-112).
 
 ## Native radio worker ownership
@@ -430,3 +431,20 @@ releases the grant. A cancelled partial sweep is discarded instead of publishing
 uninitialized bins; the grant is released by the worker after its final radio
 access. UI/companion callers can encounter a busy radio and must retry after
 shutdown. These changes preserve the existing pins, presets and task priorities.
+
+## Bounded app RX/TX (ABI 1.13)
+
+`subghz.receive` performs one capture with an explicit frequency, preset and
+1–1000 ms capture wait. `subghz.tx_raw` sends a bounded OOK pulse train and waits
+for completion. Signed apps and JS/Lua use the same capability-gated tables and
+persistent RF worker. These functions do not start the native continuous RX/TX
+workers or create app-owned background sessions. Captures are returned directly;
+they are not auto-saved or published into the UI's latest-capture snapshot.
+See the [ABI bounds and script examples](../app_sdk/README.md#bounded-sub-ghz-api-abi-113).
+
+`python3 tools/subghz_api/test_subghz_api.py` compiles production backend, lease,
+driver wrappers, native TX and spectrum code with ASan/UBSan and explicit
+RMT/SPI/RTOS fixtures. Native TX tests use a real host worker thread. No RF is
+received or transmitted by these tests; real frequency/timing/teardown acceptance
+remains under #156. RX capture timeout and TX wait limits exclude driver setup,
+bus-lock waits and recovery; they are not hard deadlines for the complete call.

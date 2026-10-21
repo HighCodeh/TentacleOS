@@ -33,7 +33,7 @@ def main():
             "#pragma once\ntypedef int esp_err_t;\n#define ESP_OK 0\n#define ESP_FAIL -1\n"
             "#define ESP_ERR_INVALID_ARG 0x102\n#define ESP_ERR_INVALID_STATE 0x103\n"
             "#define ESP_ERR_INVALID_SIZE 0x104\n#define ESP_ERR_TIMEOUT 0x107\n"
-            "#define ESP_ERR_NO_MEM 0x101\n")
+            "#define ESP_ERR_NO_MEM 0x101\n#define ESP_ERR_NOT_FOUND 0x105\n")
         (directory / "esp_log.h").write_text('#define ESP_LOGE(tag, ...) ((void)(tag))\n')
         (directory / "freertos/FreeRTOS.h").write_text(
             '#pragma once\n#include <stdint.h>\n#include <stdbool.h>\n'

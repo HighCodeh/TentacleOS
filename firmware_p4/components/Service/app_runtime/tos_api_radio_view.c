@@ -83,5 +83,8 @@ static int poll_mesh(tos_lora_msg_t *out) {
   return has_new ? 1 : 0;
 }
 
-const tos_subghz_api_t tos_subghz_api_impl = {.rx_poll = poll_subghz};
+extern esp_err_t tos_api_subghz_receive(tos_subghz_signal_t *, uint32_t, uint8_t, uint32_t);
+extern esp_err_t tos_api_subghz_tx_raw(const int32_t *, int, uint32_t);
+const tos_subghz_api_t tos_subghz_api_impl = {
+    .rx_poll = poll_subghz, .receive = tos_api_subghz_receive, .tx_raw = tos_api_subghz_tx_raw};
 const tos_lora_api_t tos_lora_api_impl = {.mesh_poll = poll_mesh};
