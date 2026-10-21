@@ -73,14 +73,20 @@ esp_err_t lora_session_start(lora_proto_t proto);
 lora_proto_t lora_session_active(void);
 
 /**
- * @brief Send a broadcast / public-channel text on the active protocol.
+ * @brief Queue a broadcast / public-channel text on the active protocol.
  *
- * The message is also appended to the local chat ring as outgoing.
+ * Copies 1..159 UTF-8 bytes into a four-entry queue. ESP_OK means accepted,
+ * not transmitted or delivered. The native poll task consumes one entry per
+ * iteration; only successful backend submissions enter the outgoing chat ring.
  *
  * @param text  UTF-8 text to send.
- * @return ESP_OK on success, ESP_ERR_INVALID_STATE if no stack is running.
+ * @return ESP_OK on acceptance, ESP_ERR_INVALID_STATE if no stack is running,
+ *         ESP_ERR_TIMEOUT if the queue/lock is busy, ESP_ERR_INVALID_ARG for invalid text.
  */
 esp_err_t lora_session_send_text(const char *text);
+
+/** @brief Native stack poll task only: consume at most one queued message. */
+void lora_session_process_tx(lora_proto_t proto);
 
 /** @brief Number of messages currently held in the local chat ring. */
 uint16_t lora_session_msg_count(void);

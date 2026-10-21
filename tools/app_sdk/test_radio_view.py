@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test real read-only radio adapters and native chat-ring synchronization."""
+"""Test real radio adapters and native chat-ring synchronization."""
 import os
 from pathlib import Path
 import shlex
@@ -29,7 +29,7 @@ def main():
         subprocess.run([str(binary)], check=True, timeout=30)
 
         source = (APPS / 'LoRa/session/lora_session.c').read_text()
-        prefix = source[:source.index('esp_err_t lora_session_start(')]
+        prefix = source[:source.index('static esp_err_t start_protocol(')]
         prefix = '\n'.join(line for line in prefix.splitlines() if not line.startswith('#include'))
         def function(signature):
             start = source.index(signature)
@@ -45,6 +45,16 @@ def main():
             'void lora_session_on_rx_text('))
         (work / 'ring.c').write_text(test.replace('/* NATIVE_RING */', native))
         subprocess.run([*command, '-pthread', '-Wno-unused-variable', str(work / 'ring.c'),
+                        '-o', str(binary)], check=True)
+        subprocess.run([str(binary)], check=True, timeout=30)
+
+        tx = (ROOT / 'tools/app_sdk/tests/test_chat_tx.c').read_text()
+        native_tx = prefix + '\n' + '\n'.join(function(signature) for signature in (
+            'static esp_err_t start_protocol(', 'esp_err_t lora_session_start(',
+            'lora_proto_t lora_session_active(', 'static esp_err_t send_text(',
+            'esp_err_t lora_session_send_text(', 'void lora_session_process_tx('))
+        (work / 'tx.c').write_text(tx.replace('/* NATIVE_TX */', native_tx))
+        subprocess.run([*command, '-pthread', '-Wno-unused-variable', str(work / 'tx.c'),
                         '-o', str(binary)], check=True)
         subprocess.run([str(binary)], check=True, timeout=30)
 

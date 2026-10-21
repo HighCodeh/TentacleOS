@@ -169,6 +169,7 @@ static void poll_task(void *pv) {
   const TickType_t period = pdMS_TO_TICKS(MC_POLL_PERIOD_MS);
   while (1) {
     meshcore_poll();
+    lora_session_process_tx(LORA_PROTO_MESHCORE);
     vTaskDelay(period);
   }
 }

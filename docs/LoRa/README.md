@@ -63,7 +63,7 @@ esp_err_t    lora_session_app_connect(void);
 ```
 
 - `lora_session_start` is idempotent for the same protocol; a request for a different protocol while one is running returns `ESP_ERR_INVALID_STATE`.
-- `lora_session_send_text` sends a broadcast/public-channel text on the active stack (Meshtastic `0xFFFFFFFF`, MeshCore public channel `0`) and, on success, appends it to the ring as outgoing ("me").
+- `lora_session_send_text` queues a broadcast/public-channel text on the active stack (Meshtastic `0xFFFFFFFF`, MeshCore public channel `0`) and, on success, appends it to the ring as outgoing ("me").
 - `lora_session_msg_since` copies messages newer than a caller-held cursor under a single lock; passing `*io_seq == 0` snaps to the oldest retained message.
 - `lora_session_on_rx_text` is called by the backend RX taps from the mesh poll task (not the LVGL thread).
 - `lora_session_app_connected` maps to the active stack's **`_is_subscribed()`** predicate (linked, not merely connected). `lora_session_app_connect` maps to `_phone_bridge_ble_start()`.
@@ -290,6 +290,32 @@ ABI 1.12 publishes read-only `lora.mesh_poll` for signed apps and JS/Lua,
 requiring RX permission. It copies the native 24-record chat ring with a private
 cursor per app/run. Its first mutex publication is atomic across UI, mesh and
 app callers; overwritten records are skipped and sequence wrap is handled.
-Polling does not start a mesh or claim the SX1262. Every active-control entry
-in the app table remains NULL until ownership/teardown adapters are implemented.
+Polling does not start a mesh or claim the SX1262. ABI 1.14 adds queued text
+submission to an already active session as described below. Startup, teardown,
+raw PHY, node access and RNode app entries remain NULL.
 See the [ABI contract](../app_sdk/README.md#native-radio-observations-abi-112).
+
+
+## Queued mesh text submission (ABI 1.14)
+
+Native chat, companion chat and signed apps now submit copied text through the
+same four-entry queue. Messages contain 1..159 bytes plus the terminator;
+empty, unterminated within 160 bytes or longer text is rejected. A full queue or
+busy chat mutex returns `ESP_ERR_TIMEOUT` without dropping an older message.
+The active protocol is published atomically only after startup succeeds, and
+concurrent mesh startup calls are refused while a start is in progress.
+
+Only the selected protocol's native poll task consumes the queue, at most one
+message per iteration, outside the chat mutex. App memory is never retained by
+the radio or mesh task. Backend submission failure consumes the item, logs the
+error and creates no outgoing chat record; it is not retried automatically.
+Success appends a chat record using the existing backend semantics. In
+particular, Meshtastic success means admission to its own TX queue, not airtime
+or delivery. All actual transmissions retain the shared SX1262 airtime guard.
+
+`lora.mesh_send_text` requires TX capability and an already started native
+Meshtastic or MeshCore session. `ESP_OK` means queue acceptance, including for
+the native UI and companion command. Stopping an app does not retract an
+accepted message or stop the native mesh. Starting/switching/stopping protocols,
+raw LoRa control and shared-radio startup/cleanup arbitration remain separate
+work under #149; this queue does not resolve those existing lifecycle limits.

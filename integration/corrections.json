@@ -1176,8 +1176,14 @@
     "firmware_p4/components/Applications/LoRa/session/lora_session.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "2cf75d8f29faf5e8b6f940a20a7d28778d18ca89a38c71c84286e62b8c782f6b",
-      "after_sha256": "f2ca6b65f96612e8179e25a668608ae160cc2e78f6569f5c6ad6fbab8661657e",
-      "reason": "Publish bounded RX-only native radio observations with per-app cursors and kill quiescence; synchronize chat ring first use and sequence wrap, preserve capture IDs across restarts."
+      "after_sha256": "25db8f2a2a8ef2bd4dd6785cc1ce36bf61571870ec0441a907fbe4d88e8d255d",
+      "reason": "Bounded copied LoRa text queue owned by native mesh poll tasks; atomic protocol publication/start serialization and capability/cancellation-gated ABI 1.14 plus JS/Lua binding.",
+      "review_history": [
+        {
+          "after_sha256": "f2ca6b65f96612e8179e25a668608ae160cc2e78f6569f5c6ad6fbab8661657e",
+          "reason": "Publish bounded RX-only native radio observations with per-app cursors and kill quiescence; synchronize chat ring first use and sequence wrap, preserve capture IDs across restarts."
+        }
+      ]
     },
     "firmware_p4/components/Drivers/cc1101/cc1101.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -1202,6 +1208,24 @@
       "reason": "Publish bounded Sub-GHz receive/raw TX with a scoped CC1101 lease and persistent worker; serialize native TX/spectrum lifetimes and retain resources through RMT/SPI/power cleanup failures.",
       "pre_format_sha256": "84bbdaded0b8bc3b9e1e03360e54e8d9852f1b844616424df536e89097bafab4",
       "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/LoRa/meshcore/meshcore_app.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "b025658b2daf9daff6a5ef9c4c09df1476a3b5f165967159c06419720060d313",
+      "after_sha256": "90f6265de5892268a2dda45ca2a4fb6dd110ee10993a004f774629e68bf4bd82",
+      "reason": "Bounded copied LoRa text queue owned by native mesh poll tasks; atomic protocol publication/start serialization and capability/cancellation-gated ABI 1.14 plus JS/Lua binding."
+    },
+    "firmware_p4/components/Applications/LoRa/meshtastic/meshtastic_app.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "5476205ca9a429ab0bbaf8eaa574b61b829505511ce98931e241baa398ac5dbe",
+      "after_sha256": "0470670d9a290198fdaf4306413067bc8105fd968a60e40e01d4c4335a2930f9",
+      "reason": "Bounded copied LoRa text queue owned by native mesh poll tasks; atomic protocol publication/start serialization and capability/cancellation-gated ABI 1.14 plus JS/Lua binding."
+    },
+    "firmware_p4/components/Applications/LoRa/session/include/lora_session.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "61f23bbb23b0260f106bc112ea7df41641bb92476a4ddddbd25b88af6f297d26",
+      "after_sha256": "4de4b2787b338edcccacf51349d2e1fcf64700f14c0ac38258d560772faf87c9",
+      "reason": "Bounded copied LoRa text queue owned by native mesh poll tasks; atomic protocol publication/start serialization and capability/cancellation-gated ABI 1.14 plus JS/Lua binding."
     }
   }
 }

@@ -20,6 +20,7 @@
 #include "freertos/task.h"
 #include "sys_prio.h"
 
+#include "lora_session.h"
 #include "meshtastic_mesh.h"
 #include "meshtastic_nodedb.h"
 #include "meshtastic_nvs.h"
@@ -183,6 +184,7 @@ static void poll_task(void *pv) {
   uint32_t tick_counter = 0;
   while (1) {
     meshtastic_mesh_poll();
+    lora_session_process_tx(LORA_PROTO_MESHTASTIC);
     if (++tick_counter >= ticks_per_module_tick) {
       tick_counter = 0;
       mt_modules_tick();

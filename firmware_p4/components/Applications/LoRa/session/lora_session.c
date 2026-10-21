@@ -34,6 +34,7 @@
 #include "power_manager.h"
 #include "sx1262.h"
 
+#define TX_QUEUE_DEPTH 4
 #define MSG_RING       24
 #define MT_BROADCAST   0xFFFFFFFFu
 #define MC_PUBLIC_CHAN 0
@@ -41,13 +42,17 @@
 
 static const char *TAG = "LORA_SESSION";
 
-static lora_proto_t s_proto = LORA_PROTO_NONE;
+static _Atomic(lora_proto_t) s_proto = LORA_PROTO_NONE;
 EXT_RAM_BSS_ATTR static lora_msg_t s_msgs[MSG_RING];
 static uint16_t s_head = 0;
 static uint16_t s_count = 0;
 static uint32_t s_total = 0;
 static _Atomic(SemaphoreHandle_t) s_lock;
 static bool s_no_sleep_held = false;
+static atomic_flag s_is_starting = ATOMIC_FLAG_INIT;
+EXT_RAM_BSS_ATTR static char s_tx_text[TX_QUEUE_DEPTH][sizeof(((lora_msg_t *)0)->text)];
+static uint16_t s_tx_head;
+static uint16_t s_tx_count;
 
 static SemaphoreHandle_t ring_mutex(void) {
   SemaphoreHandle_t mutex = atomic_load(&s_lock);
@@ -97,7 +102,7 @@ static void ring_push(bool outgoing, const char *who, const char *text) {
   ring_unlock();
 }
 
-esp_err_t lora_session_start(lora_proto_t proto) {
+static esp_err_t start_protocol(lora_proto_t proto) {
   if (ring_mutex() == NULL)
     return ESP_ERR_NO_MEM;
 
@@ -147,11 +152,21 @@ esp_err_t lora_session_start(lora_proto_t proto) {
   return err;
 }
 
+esp_err_t lora_session_start(lora_proto_t proto) {
+  if (proto != LORA_PROTO_MESHTASTIC && proto != LORA_PROTO_MESHCORE)
+    return ESP_ERR_INVALID_ARG;
+  if (atomic_flag_test_and_set(&s_is_starting))
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = start_protocol(proto);
+  atomic_flag_clear(&s_is_starting);
+  return error;
+}
+
 lora_proto_t lora_session_active(void) {
   return s_proto;
 }
 
-esp_err_t lora_session_send_text(const char *text) {
+static esp_err_t send_text(const char *text) {
   if (text == NULL || text[0] == '\0')
     return ESP_ERR_INVALID_ARG;
 
@@ -170,6 +185,45 @@ esp_err_t lora_session_send_text(const char *text) {
   if (err == ESP_OK)
     ring_push(true, "me", text);
   return err;
+}
+
+esp_err_t lora_session_send_text(const char *text) {
+  if (text == NULL)
+    return ESP_ERR_INVALID_ARG;
+  size_t length = strnlen(text, sizeof(s_tx_text[0]));
+  if (length == 0 || length == sizeof(s_tx_text[0]))
+    return ESP_ERR_INVALID_ARG;
+  if (s_proto == LORA_PROTO_NONE)
+    return ESP_ERR_INVALID_STATE;
+  if (!ring_lock())
+    return ESP_ERR_TIMEOUT;
+  esp_err_t error = ESP_ERR_TIMEOUT;
+  if (s_tx_count < TX_QUEUE_DEPTH) {
+    uint16_t slot = (s_tx_head + s_tx_count) % TX_QUEUE_DEPTH;
+    memcpy(s_tx_text[slot], text, length + 1);
+    s_tx_count++;
+    error = ESP_OK;
+  }
+  ring_unlock();
+  return error;
+}
+
+void lora_session_process_tx(lora_proto_t proto) {
+  if (proto == LORA_PROTO_NONE || s_proto != proto || !ring_lock())
+    return;
+  char text[sizeof(s_tx_text[0])];
+  bool has_text = s_tx_count != 0;
+  if (has_text) {
+    memcpy(text, s_tx_text[s_tx_head], sizeof(text));
+    s_tx_head = (s_tx_head + 1) % TX_QUEUE_DEPTH;
+    s_tx_count--;
+  }
+  ring_unlock();
+  if (has_text) {
+    esp_err_t error = send_text(text);
+    if (error != ESP_OK)
+      ESP_LOGW(TAG, "Queued text failed: %s", esp_err_to_name(error));
+  }
 }
 
 uint16_t lora_session_msg_count(void) {

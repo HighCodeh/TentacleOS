@@ -32,7 +32,7 @@ retunes the radio live (coding rate 4/5).
 |----|------|---------|----------|
 | `0x10` | `LORACHAT_START` | optional node `name` (<= 23 bytes) | `[local_node_id u32]` (`BUSY` if a session is already up) |
 | `0x11` | `LORACHAT_STOP` | none | none |
-| `0x12` | `LORACHAT_SEND` | UTF-8 `text` (<= 191 bytes) | none |
+| `0x12` | `LORACHAT_SEND` | UTF-8 `text` (1..159 bytes; queue acceptance) | none |
 
 `0x60` (`LORACHAT_RX`) is the op tag on pushed `STREAM` frames, not a command.
 
@@ -64,3 +64,14 @@ Editing a broker or pressing Connect does not establish a connection or display
 a successful connection notification. The P4 MQTT client has no active C5 IP
 transport; the publish implementation is not a working mesh MQTT bridge. Receive
 subscription, transport integration and end-to-end validation remain pending.
+
+
+### Queued chat submission
+
+`CHAT_SEND` now shares the native mesh text queue: the message must contain
+1..159 bytes, and success confirms only that a copied message was accepted into
+the four-entry queue. An inactive session, full queue, busy lock or invalid text
+returns the existing error status. Submission is asynchronous; native backend
+failure is logged and is not a delivery confirmation. Other chat/configuration
+commands retain their existing contract. See the
+[LoRa queue semantics](../LoRa/README.md#queued-mesh-text-submission-abi-114).
