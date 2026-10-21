@@ -600,3 +600,51 @@ reduction does not measure live heap or performance. The ELF and effective
 compile commands were inspected for the utility LTO exclusion. No physical
 bench/flash/eFuse action was performed. #157 remains open for runtime and
 reviewed OTA/assets/recovery acceptance; no additional issue is closed.
+
+## Bounded Sub-GHz ABI and native shutdown build record
+
+Validated on 2026-10-21 after automatic hook formatting, implementation
+`2229f227`, against the working tree including its pre-existing ESP SCAN/updater
+changes. Both pinned application builds and the full offline suite passed.
+Original app slots, paired SPI v8 and all eight C5 memory settings are preserved.
+
+| Target | Application bytes | Slot bytes | Free bytes | SHA-256 |
+| --- | ---: | ---: | ---: | --- |
+| P4 | 2,940,784 | 2,949,120 | 8,336 | `f88bf946fe2c2694d6983155c443b51e8c092cf527c64e05488ff737d97b8971` |
+| C5 | 2,050,752 | 2,097,152 | 46,400 | `9b846dc57c217765884faa1785ad513346019cc31fcd6c007cb53ff0a1b2d25b` |
+
+ABI 1.13 adds one-shot Sub-GHz capture and bounded raw OOK transmission to signed
+apps and JS/Lua. The shared RF worker owns hardware and retained failed cleanup;
+no app-owned asynchronous task or new SPI operation is introduced. The existing
+latest-capture observer and LoRa chat observer remain available. Async/file/raw
+read/spectrum app methods and active LoRa remain unpublished under #149/#156.
+
+The CC1101 lease reserves the radio without preemption and gates all 29 public
+hardware/state operations. SPI errors are latched across legacy void setters.
+Failed RMT/SPI/power cleanup retains buffers/handles and the reservation, while
+pausing driver access even for unrelated commands on the same worker. A later
+local call resumes ownership solely to retry cleanup before new hardware work.
+Native TX now owns initialization and cleanup in its worker, waits for in-flight
+senders, handles INT32_MIN conversion and retains active symbols until RMT is
+quiescent. Native spectrum reserves the radio and discards partial sweeps.
+
+New ASan/UBSan tests exercise the actual backend, lease, all driver wrappers,
+SPI transaction helpers, native TX worker and spectrum against explicit hardware/
+RTOS fixtures. Native TX uses a real host thread, covering stop during startup
+and active transmission, setup/allocation failures, transmit timeout and repeated
+channel/encoder cleanup failure. Other cases cover capture bounds, zero/corrupt
+records, error latching, native contention/acquisition races, paused owner access,
+no-sleep cleanup failure, invalid pulses and recovery of retained resources.
+
+The real JS/Lua engines pass RX/TX approval, records, malformed/overflow CSV and
+older-ABI rejection tests. Broker tests check typed callback scheduling/error
+propagation and return to ordinary RF requests, retaining the legacy wire/local
+routing boundary. Existing Wi-Fi, NFC/RFID, IR, MQTT, GATT, crypto/pairing, Muse,
+USB, DOOM and preservation tests pass. Commitlint and whitespace checks pass.
+The RX-only `subghz_capture` SDK example compiles to a RISC-V object with no
+unresolved symbols; this does not prove installation or radio capture.
+
+No physical radio, serial, SD, flash, production key or eFuse was accessed. RMT
+wait limits exclude hardware setup, bus locks and recovery; target latency and
+RF/power behavior remain physical acceptance. No additional issue is closed;
+#149/#156 still include missing interfaces and production/device requirements.

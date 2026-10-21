@@ -48,8 +48,10 @@ updated clients; #151 is implemented. The `rfread` app and [JavaScript/Lua calls
 use the same receive capability and native backend. Do not interpret unavailable
 functions as connected/working features. MQTT and remote GATT have native software
 paths but still require real broker/peer acceptance; RNode/KISS is unsupported on
-this profile. App Sub-GHz/LoRa interfaces currently observe existing capture/chat
-records; they do not start or transmit through those radios.
+this profile. ABI 1.13 adds bounded app Sub-GHz capture/raw transmission through the shared
+persistent RF worker. LoRa remains observation-only; asynchronous/file/spectrum
+app sessions are still unavailable. Check capabilities, selected frequency/preset
+and cleanup results when exercising the implemented paths.
 
 For #157, record `free`, `stack` and `tasks` at idle and after each exercised
 feature, including repeated start/stop cycles. Retain minimum internal-heap and

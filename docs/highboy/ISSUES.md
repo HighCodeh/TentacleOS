@@ -138,3 +138,17 @@ GitHub was rechecked after #151 closure: nine issues remain in scope (#135,
 #143, #148, #149, #152, #153, #156, #157, #158), plus excluded HID #64. Active
 radio control and teardown still require code; physical tests, production
 provisioning and the reviewed restore/consumer package are not complete.
+
+## Bounded Sub-GHz follow-up
+
+The [ABI 1.13 paired build record](TESTS.md#bounded-sub-ghz-abi-and-native-shutdown-build-record)
+validates active, bounded capture/raw TX in signed apps and JS/Lua, CC1101
+ownership/SPI error propagation and retained cleanup. Native TX and spectrum
+workers now keep their reservations through shutdown. The final P4 candidate
+has 8,336 bytes free in its original slot; hardware behavior is unverified.
+
+This completes that bounded Sub-GHz implementation subset. Asynchronous/file/
+spectrum app control, active LoRa, the production identity and physical matrix
+still prevent closing #149/#156. The nine-issue balance is unchanged; HID #64,
+HLE and haptics remain excluded. Pre-existing Wi-Fi and updater changes were
+preserved outside this batch's commits.
