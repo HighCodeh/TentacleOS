@@ -42,10 +42,20 @@ python3 tools/host_link/cli.py list
 
 When using an approved running device, its authenticated NFC/RFID command
 contract and current CLI examples are in [RF commands](../host_link/rf-commands.md).
-Pairing is currently the PSK handshake; ephemeral ECDH and device confirmation
-remain #151. The `rfread` app and [JavaScript/Lua calls](../scripts/README.md#nfcrfid-discovery-bindings)
+Pairing uses handshake v2: fresh X25519, PSK-authenticated transcript proofs and
+matching-code confirmation on the device before commands are accepted. Use the
+updated clients; #151 is implemented. The `rfread` app and [JavaScript/Lua calls](../scripts/README.md#nfcrfid-discovery-bindings)
 use the same receive capability and native backend. Do not interpret unavailable
-MQTT, GATT or RNode functions as connected/working features.
+functions as connected/working features. MQTT and remote GATT have native software
+paths but still require real broker/peer acceptance; RNode/KISS is unsupported on
+this profile. App Sub-GHz/LoRa interfaces currently observe existing capture/chat
+records; they do not start or transmit through those radios.
+
+For #157, record `free`, `stack` and `tasks` at idle and after each exercised
+feature, including repeated start/stop cycles. Retain minimum internal-heap and
+stack-watermark readings alongside UI/radio latency and bytes/time measurements.
+The [build-size checkpoint](SIZE.md) is static evidence and does not replace
+these runtime measurements.
 
 ## Production handoff still required
 
