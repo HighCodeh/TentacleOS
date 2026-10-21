@@ -10,7 +10,9 @@
 #include "driver/rmt_encoder.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "rom/ets_sys.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "freertos/queue.h"
 
 #include "cc1101.h"
@@ -21,30 +23,39 @@
 #include "subghz_protocol_registry.h"
 #include "tos_app_ctx.h"
 
-#define SUBGHZ_SYMBOLS_MAX       512
-#define SUBGHZ_PULSES_PER_SYMBOL 2
-#define SUBGHZ_PULSES_MAX        512
-#define SUBGHZ_RMT_HZ            1000000
-#define SUBGHZ_RMT_RX_BLOCK      256
-#define SUBGHZ_RMT_TX_BLOCK      64
-#define SUBGHZ_DMA_ALIGNMENT     64
-#define SUBGHZ_RX_MIN_NS         1000
-#define SUBGHZ_RX_MAX_NS         10000000
-#define SUBGHZ_FILTER_US         15
-#define SUBGHZ_RX_TIMEOUT_MAX_MS 1000
-#define SUBGHZ_TX_MAX_US         2000000
-#define SUBGHZ_TX_WAIT_MS        2100
-#define SUBGHZ_PULSE_MAX_US      32767
-#define SUBGHZ_LOCK_MS           3000
-#define SUBGHZ_BAND1_MIN_HZ      300000000
-#define SUBGHZ_BAND1_MAX_HZ      348000000
-#define SUBGHZ_BAND2_MIN_HZ      387000000
-#define SUBGHZ_BAND2_MAX_HZ      464000000
-#define SUBGHZ_BAND3_MIN_HZ      779000000
-#define SUBGHZ_BAND3_MAX_HZ      928000000
+#define SUBGHZ_SPECTRUM_SPAN_MAX_HZ 20000000
+#define SUBGHZ_SPECTRUM_SETTLE_US   400
+#define SUBGHZ_SPECTRUM_SAMPLE_US   20
+#define SUBGHZ_SPECTRUM_SAMPLES     3
+#define SUBGHZ_SPECTRUM_MIN_DBM     (-130.0f)
+#define SUBGHZ_SPECTRUM_DIVISOR     2
+#define SUBGHZ_STATUS_READ          0x40
+#define SUBGHZ_SYMBOLS_MAX          512
+#define SUBGHZ_PULSES_PER_SYMBOL    2
+#define SUBGHZ_PULSES_MAX           512
+#define SUBGHZ_RMT_HZ               1000000
+#define SUBGHZ_RMT_RX_BLOCK         256
+#define SUBGHZ_RMT_TX_BLOCK         64
+#define SUBGHZ_DMA_ALIGNMENT        64
+#define SUBGHZ_RX_MIN_NS            1000
+#define SUBGHZ_RX_MAX_NS            10000000
+#define SUBGHZ_FILTER_US            15
+#define SUBGHZ_RX_TIMEOUT_MAX_MS    1000
+#define SUBGHZ_TX_MAX_US            2000000
+#define SUBGHZ_TX_WAIT_MS           2100
+#define SUBGHZ_PULSE_MAX_US         32767
+#define SUBGHZ_LOCK_MS              3000
+#define SUBGHZ_BAND1_MIN_HZ         300000000
+#define SUBGHZ_BAND1_MAX_HZ         348000000
+#define SUBGHZ_BAND2_MIN_HZ         387000000
+#define SUBGHZ_BAND2_MAX_HZ         464000000
+#define SUBGHZ_BAND3_MIN_HZ         779000000
+#define SUBGHZ_BAND3_MAX_HZ         928000000
 
 typedef struct {
   tos_subghz_signal_t *out_signal;
+  tos_subghz_spectrum_t *out_spectrum;
+  uint32_t span_hz;
   const int32_t *timings;
   uint32_t frequency;
   uint32_t timeout_ms;
@@ -226,6 +237,35 @@ static esp_err_t transmit_once(tos_api_subghz_request_t *request) {
   return error == ESP_OK ? rmt_tx_wait_all_done(s_channel, SUBGHZ_TX_WAIT_MS) : error;
 }
 
+static esp_err_t sweep_once(tos_api_subghz_request_t *request) {
+  tos_subghz_spectrum_t *spectrum = request->out_spectrum;
+  spectrum->start_hz = request->frequency - request->span_hz / SUBGHZ_SPECTRUM_DIVISOR;
+  spectrum->step_hz = request->span_hz / TOS_SUBGHZ_SPECTRUM_BINS;
+  for (uint32_t i = 0; i < TOS_SUBGHZ_SPECTRUM_BINS; ++i) {
+    cc1101_strobe(CC1101_SIDLE);
+    cc1101_set_frequency(spectrum->start_hz + i * spectrum->step_hz);
+    cc1101_strobe(CC1101_SRX);
+    esp_err_t error = cc1101_lease_take_error();
+    if (error != ESP_OK)
+      return error;
+    ets_delay_us(SUBGHZ_SPECTRUM_SETTLE_US);
+    float peak = SUBGHZ_SPECTRUM_MIN_DBM;
+    for (uint32_t sample = 0; sample < SUBGHZ_SPECTRUM_SAMPLES; ++sample) {
+      uint8_t raw = cc1101_read_reg(CC1101_RSSI | SUBGHZ_STATUS_READ);
+      error = cc1101_lease_take_error();
+      if (error != ESP_OK)
+        return error;
+      float dbm = cc1101_convert_rssi(raw);
+      if (dbm > peak)
+        peak = dbm;
+      ets_delay_us(SUBGHZ_SPECTRUM_SAMPLE_US);
+    }
+    spectrum->dbm[i] = peak;
+    vTaskDelay(1);
+  }
+  return ESP_OK;
+}
+
 static esp_err_t run_operation(void *context) {
   tos_api_subghz_request_t *request = context;
   esp_err_t error = cc1101_lease_acquire();
@@ -248,7 +288,10 @@ static esp_err_t run_operation(void *context) {
   error = cc1101_lease_take_error();
   if (error != ESP_OK)
     goto cleanup;
-  error = request->out_signal != NULL ? receive_once(request) : transmit_once(request);
+  if (request->out_spectrum != NULL)
+    error = sweep_once(request);
+  else
+    error = request->out_signal != NULL ? receive_once(request) : transmit_once(request);
 cleanup:;
   esp_err_t cleanup_error = cleanup_hardware();
   if (cleanup_error == ESP_OK)
@@ -327,6 +370,36 @@ esp_err_t tos_api_subghz_tx_raw(const int32_t *timings, int count, uint32_t freq
   error = host_local_rf_call(run_operation, &request);
 cleanup:
   free(copy);
+  host_local_rf_unlock();
+  return error;
+}
+
+esp_err_t tos_api_subghz_spectrum_capture(tos_subghz_spectrum_t *out_spectrum,
+                                          uint32_t center_hz,
+                                          uint32_t span_hz) {
+  if (out_spectrum == NULL)
+    return ESP_ERR_INVALID_ARG;
+  memset(out_spectrum, 0, sizeof(*out_spectrum));
+  if (!valid_frequency(center_hz) || span_hz < TOS_SUBGHZ_SPECTRUM_BINS ||
+      span_hz > SUBGHZ_SPECTRUM_SPAN_MAX_HZ)
+    return ESP_ERR_INVALID_ARG;
+  uint32_t start = center_hz - span_hz / SUBGHZ_SPECTRUM_DIVISOR;
+  uint32_t end = start + span_hz;
+  if (!((start >= SUBGHZ_BAND1_MIN_HZ && end <= SUBGHZ_BAND1_MAX_HZ) ||
+        (start >= SUBGHZ_BAND2_MIN_HZ && end <= SUBGHZ_BAND2_MAX_HZ) ||
+        (start >= SUBGHZ_BAND3_MIN_HZ && end <= SUBGHZ_BAND3_MAX_HZ)))
+    return ESP_ERR_INVALID_ARG;
+  esp_err_t error = begin_call(TOS_CAP_RADIO_RX);
+  if (error != ESP_OK)
+    return error;
+  tos_subghz_spectrum_t spectrum = {0};
+  tos_api_subghz_request_t request = {.out_spectrum = &spectrum,
+                                      .frequency = center_hz,
+                                      .span_hz = span_hz,
+                                      .preset = CC1101_PRESET_OOK_800KHZ};
+  error = host_local_rf_call(run_operation, &request);
+  if (error == ESP_OK)
+    *out_spectrum = spectrum;
   host_local_rf_unlock();
   return error;
 }

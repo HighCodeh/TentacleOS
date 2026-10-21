@@ -978,8 +978,8 @@
     "firmware_p4/components/Service/app_runtime/include/tos_api.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "9c2020f1c91901d7b2335daccc2055d14c8646b20094bab14fc8bdd3a83b0b5d",
-      "after_sha256": "f14cafa9b218d437699f25715f6ec3468a33e7da468f6fba3331281ca2a55d4d",
-      "reason": "Bounded copied LoRa text queue owned by native mesh poll tasks; atomic protocol publication/start serialization and capability/cancellation-gated ABI 1.14 plus JS/Lua binding.",
+      "after_sha256": "ed03868adf9546ce07973a5b37b2fb01de9933ce4f596d726b5d14264a427718",
+      "reason": "Publish additive ABI 1.15 bounded Sub-GHz spectrum result and one-shot capture pointer; preserve all existing offsets and optional asynchronous contracts.",
       "review_history": [
         {
           "after_sha256": "ef540914e454c49228b43f64b0605a2094d3ac153b992d56ca51a2292a1f1a34",
@@ -1004,10 +1004,14 @@
           "reason": "Publish bounded Sub-GHz receive/raw TX with a scoped CC1101 lease and persistent worker; serialize native TX/spectrum lifetimes and retain resources through RMT/SPI/power cleanup failures.",
           "pre_format_sha256": "ea835caed95a238ec35356378ce54bd0c8a9716865b95e85461095cb8b509588",
           "formatter": "clang-format version 22.1.5"
+        },
+        {
+          "after_sha256": "f14cafa9b218d437699f25715f6ec3468a33e7da468f6fba3331281ca2a55d4d",
+          "reason": "Bounded copied LoRa text queue owned by native mesh poll tasks; atomic protocol publication/start serialization and capability/cancellation-gated ABI 1.14 plus JS/Lua binding.",
+          "pre_format_sha256": "8e5d5095df5e8a4c21cf8f80087dc841df3d87d8408184ba6cac21951373c03b",
+          "formatter": "clang-format version 22.1.5"
         }
-      ],
-      "pre_format_sha256": "8e5d5095df5e8a4c21cf8f80087dc841df3d87d8408184ba6cac21951373c03b",
-      "formatter": "clang-format version 22.1.5"
+      ]
     },
     "firmware_c5/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",

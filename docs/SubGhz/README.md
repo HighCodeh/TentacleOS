@@ -448,3 +448,21 @@ RMT/SPI/RTOS fixtures. Native TX tests use a real host worker thread. No RF is
 received or transmitted by these tests; real frequency/timing/teardown acceptance
 remains under #156. RX capture timeout and TX wait limits exclude driver setup,
 bus-lock waits and recovery; they are not hard deadlines for the complete call.
+
+
+## Bounded app spectrum (ABI 1.15)
+
+`spectrum_capture` performs a complete 80-bin RSSI sweep through the existing
+persistent app RF worker. It requires RX permission and an entire span inside
+one supported CC1101 band, reserves `RES_SUBGHZ` without preemption, and yields
+between bins. Native RX/TX/spectrum and other radio owners block acquisition.
+Any SPI or cleanup error discards the whole result; retained cleanup keeps the
+radio reserved. It does not start or overwrite the continuous native spectrum
+worker or its UI snapshot. Asynchronous spectrum/session entry points remain
+unpublished. Bounds, sampling and result layout are specified in the
+[ABI contract](../app_sdk/README.md#bounded-sub-ghz-spectrum-abi-115).
+
+The production backend host tests cover exact tuning/sample order, peak RSSI,
+minimum/maximum/odd spans, all band edges, invalid and overflowing requests,
+permissions/cancellation, contention, partial SPI failure and retained idle/power
+cleanup. These explicit SPI/RTOS fixtures do not validate RF on the device.

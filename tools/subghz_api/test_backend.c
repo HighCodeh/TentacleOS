@@ -22,13 +22,16 @@ static size_t copy_text(char *out,const char *text,size_t size) {
 typedef enum { NORMAL, FAIL_CHANNEL, FAIL_QUEUE, FAIL_ALLOC, FAIL_CALLBACK, FAIL_ENABLE,
   FAIL_RECEIVE, RX_TIMEOUT, RX_EMPTY, RX_TOO_LARGE, RX_BAD_POINTER, RX_UNKNOWN,
   FAIL_RECOVER, FAIL_PRESET, FAIL_POWER, FAIL_POWER_RELEASE, FAIL_DISABLE, FAIL_DELETE,
-  FAIL_ENCODER, FAIL_ENCODER_DELETE, FAIL_TRANSMIT, FAIL_TX_WAIT, FAIL_IDLE } fault_t;
+  FAIL_ENCODER, FAIL_ENCODER_DELETE, FAIL_TRANSMIT, FAIL_TX_WAIT, FAIL_IDLE,
+  FAIL_TUNE, FAIL_RSSI, FAIL_SWEEP_CLEANUP } fault_t;
 static fault_t s_fault;
 static unsigned s_allocations,s_fail_allocation,s_calls,s_callbacks;
 static bool s_allowed=true,s_stopped,s_stop_locked,s_lock_timeout,s_ready=true,s_gate;
 static bool s_resource_busy,s_resource_live,s_channel_live,s_channel_enabled,s_encoder_live,s_queue_live;
 static unsigned s_power;
 static uintptr_t s_task=1;
+static unsigned s_tunes,s_reads,s_settles,s_sample_delays,s_yields,s_sweep_phase;
+static uint32_t s_expected_start=433420000,s_expected_step=12500;
 static const rmt_rx_event_callbacks_t *s_callbacks_ptr;
 static rmt_rx_event_callbacks_t s_callbacks_copy;
 static TaskHandle_t worker(void) { return (void *)2; }
@@ -84,8 +87,27 @@ void cc1101_set_preset(cc1101_preset_t preset,uint32_t freq) {
   assert_worker();if(s_fault==FAIL_PRESET)cc1101_lease_record_error(ESP_ERR_TIMEOUT);
 }
 void cc1101_strobe(uint8_t command) {
-  assert_worker();assert(command==CC1101_SIDLE);if(s_fault==FAIL_IDLE)cc1101_lease_record_error(ESP_ERR_TIMEOUT);
+  assert_worker();assert(command==CC1101_SIDLE || command==CC1101_SRX);
+  if(command==CC1101_SIDLE)s_sweep_phase=0;else {assert(s_sweep_phase==1);s_sweep_phase=2;}if(s_fault==FAIL_IDLE || (s_fault==FAIL_SWEEP_CLEANUP && s_reads==240))cc1101_lease_record_error(ESP_ERR_TIMEOUT);
 }
+void cc1101_set_frequency(uint32_t frequency) {
+  assert_worker();assert(s_power==1);
+  assert(s_sweep_phase==0);s_sweep_phase=1;
+  assert(frequency==s_expected_start+s_tunes*s_expected_step);++s_tunes;
+  if(s_fault==FAIL_TUNE && s_tunes==17)cc1101_lease_record_error(ESP_FAIL);
+}
+uint8_t cc1101_read_reg(uint8_t reg) {
+  assert_worker();assert(s_sweep_phase==3 && reg==(CC1101_RSSI|0x40));
+  const uint8_t values[]={30,32,31};uint8_t value=values[s_reads%3];++s_reads;
+  if(s_fault==FAIL_RSSI && s_reads==32)cc1101_lease_record_error(ESP_FAIL);
+  return value;
+}
+float cc1101_convert_rssi(uint8_t raw) { return (float)raw-100; }
+void ets_delay_us(uint32_t delay) {
+  assert_worker();if(delay==400){assert(s_sweep_phase==2);s_sweep_phase=3;++s_settles;}
+  else {assert(s_sweep_phase==3 && delay==20);++s_sample_delays;}
+}
+void vTaskDelay(TickType_t ticks) { assert_worker();assert(s_sweep_phase==3 && ticks==1 && s_reads%3==0);++s_yields; }
 void cc1101_enter_tx_mode(void) { assert_worker(); }
 esp_err_t rmt_new_rx_channel(const rmt_rx_channel_config_t *config,rmt_channel_handle_t *out) {
   assert_worker();assert(!s_channel_live && config->flags.with_dma && config->gpio_num==GPIO_CC1101_GDO0_PIN);
@@ -217,5 +239,65 @@ int main(void) {
   assert(tos_api_subghz_tx_raw(timings,3,433920000)==ESP_ERR_NO_MEM);clean();
   s_fail_allocation=2;s_allocations=0;
   assert(tos_api_subghz_tx_raw(timings,3,433920000)==ESP_ERR_NO_MEM);clean();
+  tos_subghz_spectrum_t spectrum;
+  assert(tos_api_subghz_spectrum_capture(NULL,433920000,1000000)==ESP_ERR_INVALID_ARG);
+  const uint32_t invalid_ranges[][2]={{433920000,0},{433920000,79},{433920000,20000001},
+    {300000000,80},{348000000,80},{387000000,1000},{464000000,1000},
+    {779000000,1000},{928000000,1000},{350000000,1000000},{UINT32_MAX,UINT32_MAX}};
+  calls=s_calls;
+  for(unsigned i=0;i<sizeof(invalid_ranges)/sizeof(invalid_ranges[0]);++i) {
+    memset(&spectrum,0xff,sizeof(spectrum));
+    assert(tos_api_subghz_spectrum_capture(&spectrum,invalid_ranges[i][0],invalid_ranges[i][1])==ESP_ERR_INVALID_ARG);
+    assert(spectrum.start_hz==0);
+  }
+  assert(s_calls==calls);
+  s_allowed=false;
+  assert(tos_api_subghz_spectrum_capture(&spectrum,433920000,1000000)==ESP_ERR_NOT_SUPPORTED);
+  s_allowed=true;s_stopped=true;
+  assert(tos_api_subghz_spectrum_capture(&spectrum,433920000,1000000)==ESP_ERR_INVALID_STATE);
+  s_stopped=false;s_ready=false;
+  assert(tos_api_subghz_spectrum_capture(&spectrum,433920000,1000000)==ESP_ERR_INVALID_STATE);
+  s_ready=true;s_lock_timeout=true;
+  assert(tos_api_subghz_spectrum_capture(&spectrum,433920000,1000000)==ESP_ERR_TIMEOUT);
+  s_lock_timeout=false;s_stop_locked=true;
+  assert(tos_api_subghz_spectrum_capture(&spectrum,433920000,1000000)==ESP_ERR_INVALID_STATE);
+  s_stop_locked=false;s_stopped=false;assert(!s_gate && s_calls==calls);
+  s_resource_busy=true;
+  assert(tos_api_subghz_spectrum_capture(&spectrum,433920000,1000000)==ESP_ERR_INVALID_STATE);
+  s_resource_busy=false;
+  const fault_t sweep_faults[]={NORMAL,FAIL_TUNE,FAIL_RSSI,FAIL_SWEEP_CLEANUP,FAIL_POWER_RELEASE};
+  for(unsigned i=0;i<sizeof(sweep_faults)/sizeof(sweep_faults[0]);++i) {
+    s_fault=sweep_faults[i];s_tunes=s_reads=s_settles=s_sample_delays=s_yields=0;
+    memset(&spectrum,0xff,sizeof(spectrum));
+    esp_err_t error=tos_api_subghz_spectrum_capture(&spectrum,433920000,1000000);
+    if(s_fault==NORMAL) {
+      assert(error==ESP_OK && spectrum.start_hz==433420000 && spectrum.step_hz==12500);
+      assert(s_tunes==80 && s_reads==240 && s_settles==80 && s_sample_delays==240 && s_yields==80);
+      for(unsigned bin=0;bin<80;++bin)assert(spectrum.dbm[bin]==-68.0f);
+    } else {
+      assert(error!=ESP_OK);
+      const tos_subghz_spectrum_t zero={0};assert(memcmp(&zero,&spectrum,sizeof(zero))==0);
+      if(s_fault==FAIL_TUNE)assert(s_tunes==17 && s_reads==48);
+      if(s_fault==FAIL_RSSI)assert(s_tunes==11 && s_reads==32);
+    }
+    if(s_fault==FAIL_SWEEP_CLEANUP || s_fault==FAIL_POWER_RELEASE) {
+      assert(s_resource_live && s_power==1 && !cc1101_lease_enter());
+      s_fault=NORMAL;s_tunes=s_reads=s_settles=s_sample_delays=s_yields=0;
+      assert(tos_api_subghz_spectrum_capture(&spectrum,433920000,1000000)==ESP_OK);
+    }
+    clean();
+  }
+  const uint32_t valid_ranges[][2]={{300000040,80},{347999960,80},{387000040,81},
+    {463999960,80},{779000040,80},{927999960,80},{433920000,20000000}};
+  s_fault=NORMAL;
+  for(unsigned i=0;i<sizeof(valid_ranges)/sizeof(valid_ranges[0]);++i) {
+    s_expected_start=valid_ranges[i][0]-valid_ranges[i][1]/2;
+    s_expected_step=valid_ranges[i][1]/80;
+    s_tunes=s_reads=s_settles=s_sample_delays=s_yields=0;
+    assert(tos_api_subghz_spectrum_capture(&spectrum,valid_ranges[i][0],valid_ranges[i][1])==ESP_OK);
+    assert(spectrum.start_hz==s_expected_start && spectrum.step_hz==s_expected_step);
+    assert(s_tunes==80 && s_reads==240);clean();
+  }
+  puts("PASS: 80-bin spectrum, exact tuning/sample grid, range/capability/cancellation gates, no partial output, retained SPI/power cleanup");
   puts("PASS: bounded Sub-GHz RX/TX, capabilities, cancellation, native contention, errors and retained RMT/SPI/power cleanup");
 }

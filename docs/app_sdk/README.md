@@ -545,3 +545,32 @@ until reboot. Raw PHY/start/stop/node/RNode entries remain NULL. See the
 The `tools/app_sdk/mesh_text` example requests only TX capability (`0x04`) and
 queues `Hello from High Boy`. Start the native mesh first. Its log reports
 queue acceptance only; it does not claim delivery.
+
+
+## Bounded Sub-GHz spectrum (ABI 1.15)
+
+Check ABI minor >= 15 and `api->subghz->spectrum_capture != NULL`, then call
+`api->subghz->spectrum_capture(&spectrum, center_hz, span_hz)` with RX permission.
+The result is `tos_subghz_spectrum_t`: `start_hz`, `step_hz` and 80 copied `dbm`
+values. Bin i is `start_hz + i * step_hz`; start is center minus floor(span/2)
+and step is floor(span/80). The upper span endpoint is excluded from sampling.
+The span is 80 Hz..20 MHz and its entire closed interval must fit inside one
+supported band: 300–348, 387–464 or 779–928 MHz. These are driver bounds, not a
+claim of regulatory eligibility or spectral resolution.
+
+The persistent RF worker reserves the CC1101 without preemption, recovers it and
+uses OOK/800 kHz preset 6. Each bin retunes in idle, enters RX, settles 400 us,
+and returns the peak of three RSSI samples separated by 20 us. It yields one
+RTOS tick per bin. This is one synchronous sweep with no app-owned background
+session. SPI/power cleanup must succeed before output is copied; every failure
+leaves the caller's result zero. A native RX/TX/spectrum reservation blocks the
+call. RX permission and app cancellation/readiness gates match bounded capture.
+
+Failure codes follow the native broker/driver: invalid range/output is
+`ESP_ERR_INVALID_ARG`, missing capability is `ESP_ERR_NOT_SUPPORTED`, stopping/
+unready app or busy radio is `ESP_ERR_INVALID_STATE`, and lock/SPI failures are
+propagated. Failed cleanup retains the worker's grant and power hold with paused
+driver access until a later bounded operation can retry. Retuning/setup, bus
+locks and recovery are not a hard deadline. Native spectrum snapshots are not
+modified; asynchronous `spectrum_start`/`spectrum_poll` and session stop remain
+NULL. No raw IQ capture, calibrated resolution or device RF acceptance is implied.

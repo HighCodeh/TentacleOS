@@ -58,6 +58,7 @@ typedef struct host_link_handler host_link_handler_t; // opaque to apps
 #endif
 
 #define TOS_ABI_VERSION_MAJOR 1
+// 1.15 = bounded Sub-GHz spectrum sweep.
 // 1.14 = queued text submission to an already active native LoRa mesh.
 // 1.13 = bounded Sub-GHz capture and raw transmission.
 // 1.12 = read-only native Sub-GHz results and LoRa chat history.
@@ -67,7 +68,7 @@ typedef struct host_link_handler host_link_handler_t; // opaque to apps
 // 1.8 = read-only fs subsystem. NOTE: 1.7 was briefly a (removed) IMU subsystem in
 // dev; fs took a fresh minor so a firmware built during the IMU era rejects an
 // fs app at the load gate instead of mismatching its api->fs pointer.
-#define TOS_ABI_VERSION_MINOR 14
+#define TOS_ABI_VERSION_MINOR 15
 
 /** Log levels; values match esp_log_level_t so they pass straight through. */
 typedef enum {
@@ -301,6 +302,15 @@ typedef struct {
   uint8_t btn; ///< decoded button/command nibble
 } tos_subghz_signal_t;
 
+#define TOS_SUBGHZ_SPECTRUM_BINS 80
+
+/** One complete bounded RSSI sweep; bin i is start_hz + i * step_hz. */
+typedef struct {
+  uint32_t start_hz;
+  uint32_t step_hz;
+  float dbm[TOS_SUBGHZ_SPECTRUM_BINS];
+} tos_subghz_spectrum_t;
+
 /**
  * Sub-GHz (CC1101). Capture on a frequency/preset, read decoded results or raw
  * timings, and transmit raw pulse trains or replay a saved capture. Decoded
@@ -328,6 +338,8 @@ typedef struct tos_subghz_api {
                        uint32_t freq_hz,
                        uint8_t preset,
                        uint32_t timeout_ms);
+  // Minor 15+: one full 80-bin sweep; span 80 Hz..20 MHz within one supported band.
+  esp_err_t (*spectrum_capture)(tos_subghz_spectrum_t *out, uint32_t center_hz, uint32_t span_hz);
 } tos_subghz_api_t;
 
 /** Infrared remote protocols (index matches the firmware decoder table). */
