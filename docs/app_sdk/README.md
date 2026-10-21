@@ -575,3 +575,25 @@ driver access until a later bounded operation can retry. Retuning/setup, bus
 locks and recovery are not a hard deadline. Native spectrum snapshots are not
 modified; asynchronous `spectrum_start`/`spectrum_poll` and session stop remain
 NULL. No raw IQ capture, calibrated resolution or device RF acceptance is implied.
+
+
+## Publication and signing acceptance
+
+The published ABI includes self-contained Wi-Fi/BLE/NFC/RFID/IR/Sub-GHz/LoRa
+records and versioned optional tables. Callers check both the minimum minor
+version and the function pointer; NULL means unsupported. Publishing a type
+does not promise every prospective raw/file/session operation. The current
+[interface matrix](../highboy/MATRIX.md) tracks those independent additions.
+
+`tools/app_sdk/test_signed_bundle.py` compiles the actual `tos_hb_open` with the
+actual CMake-generated custom store and with the default development store. Real
+libsodium verification is checked against independent Python Ed25519 signatures
+using public RFC 8032 test seeds and the checked-in throwaway development seed. Tests cover v2/v3, signed header capabilities/
+name, ELF bytes, v3 metadata, every signature byte, foreign identities and
+truncation/length errors. Payload fixtures are never loaded or executed as apps.
+No real production private/public identity is read, generated or installed.
+
+This completes #149's publication and agreed configuration-first signing scope.
+The deferred production app identity/custody and package acceptance remain #157;
+optional cross-interface adapters and device acceptance remain #156. Secure Boot
+and Flash Encryption use separate provisioning and remain #152.

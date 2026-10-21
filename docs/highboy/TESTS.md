@@ -726,3 +726,43 @@ remain unmeasured. Sampling bounds exclude setup, bus locks and recovery.
 This completes the bounded spectrum subset of #149. Asynchronous/file Sub-GHz,
 raw LoRa and native mesh lifecycle/node app adapters, production identity and
 physical acceptance remain pending. No additional issue is closed.
+
+
+## ABI publication and signing acceptance (#149)
+
+Validated on 2026-10-21 after automatic hook formatting, implementation
+`5027cf7d`, against the working tree including its pre-existing ESP SCAN/updater
+changes. Both pinned SDK application builds and the full offline suite passed.
+Original slots, paired SPI v8 and the C5 memory policy are unchanged.
+
+| Target | Application bytes | Slot bytes | Free bytes | SHA-256 |
+| --- | ---: | ---: | ---: | --- |
+| P4 | 2,942,368 | 2,949,120 | 6,752 | `9cf241d5da379bea6ca0db11f95a074d1e052fa21ba8b1ed920f0637f7009488` |
+| C5 | 2,050,752 | 2,097,152 | 46,400 | `44fa545d1ef604947a87fa4da28c1c111efe5182e4115da79a4a5b9d9c3d91e5` |
+
+The original #149 asks for radio structures in the ABI and production app trust.
+Wi-Fi/BLE/NFC/RFID/IR/Sub-GHz/LoRa types and optional tables are published through
+ABI 1.15. Their supported native/script operations are covered by the existing
+capability, cancellation, ownership and older-ABI regression suites. Missing
+optional operations stay NULL and are listed as further #156 interface work;
+publishing a structure is not an assertion that all prospective endpoints exist.
+
+The user explicitly deferred the actual production identity and requested
+configuration support first. CMake selection replaces the development trust
+store and rejects missing/malformed/zero/development keys in production mode.
+The new signed-bundle test uses real generated trust headers, the unchanged
+production `tos_hb_open`, real libsodium verification and independent Python
+Ed25519 signatures. Public RFC 8032 seeds and the checked-in throwaway dev seed
+are test fixtures, not production identities. All **158 checks** pass: selected
+identity acceptance, default-dev acceptance, cross-store/dev/foreign rejection,
+v2/v3 formats, capability/name/ELF/metadata/signature tampering and truncated or
+invalid-length bundles. Fixtures are never loaded or executed as native apps.
+The stale opener-header description was corrected to distinguish verified full
+opening from unverified launcher scans; no firmware behavior was changed.
+
+Full offline regressions, commitlint and whitespace checks pass. The real app
+identity/custody remains a #157 release prerequisite; Secure Boot/Flash Encryption
+remain #152, and cross-interface implementation/device acceptance remain #156.
+No production identity, serial/device, RF, SD, flash or eFuse was accessed.
+This reconciles #149 with the agreed configuration-first scope, superseding the
+earlier notes that expanded it to all optional radio operations and physical tests.

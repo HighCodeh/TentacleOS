@@ -18,6 +18,8 @@ this work. No device was flashed or exercised.
 | [#145](https://github.com/HighCodeh/TentacleOS/issues/145) | Shared SX1262 airtime pacing covers both meshes; real MQTT subscription/publication and bounded chat reception run through C5. The requested RNode decision is to leave the inherited UART endpoint unsupported on P4 because GPIO43/44 conflict with SDMMC; the menu is a receive-only lab. A future KISS endpoint requires a separate transport design. Physical acceptance remains #156. |
 | [#151](https://github.com/HighCodeh/TentacleOS/issues/151) | Companion handshake v2 now uses fresh X25519, transcript-bound PSK proofs and physical token confirmation before signed FINISH/READY activates commands. Updated clients verify response MACs/replay counters; real-crypto C/Python interoperability, UI handler tests and paired builds pass. Physical USB/BLE/button acceptance remains #156. |
 
+| [#149](https://github.com/HighCodeh/TentacleOS/issues/149) | Self-contained Wi-Fi/BLE/NFC/RFID/IR/Sub-GHz/LoRa types and versioned tables are published through ABI 1.15; supported operations use capability/cancellation/ownership adapters and JS/Lua bindings. Build-local public-key replacement and production rejection of missing/development keys are implemented. Real Ed25519 bundle verification is host-tested. The user explicitly deferred the real production identity and requested configuration support first. Optional unpublished adapters remain in #156; production identity/custody is a release prerequisite in #157. See the scope reconciliation below. |
+
 ## Still open
 
 | Issue | Remaining work |
@@ -25,11 +27,10 @@ this work. No device was flashed or exercised.
 | [#135](https://github.com/HighCodeh/TentacleOS/issues/135) | Battery ADC diagnostics exist. Light-sleep is disabled; audit UART/USB and peripheral wake/locking before enabling and measuring it on hardware. |
 | [#143](https://github.com/HighCodeh/TentacleOS/issues/143) | Companion Wi-Fi dispatch exists. Measure actual throughput and validate complete scan/connect/session flows on the paired device. |
 | [#148](https://github.com/HighCodeh/TentacleOS/issues/148) | Physical NFC card test with recorded hardware, card types, read/write/emulation results and field shutdown. |
-| [#149](https://github.com/HighCodeh/TentacleOS/issues/149) | NFC discovery and native LF RFID read tables are published in ABI 1.10, including JS/Lua bindings, stable-worker ownership, capability checks and force-kill quiescence. IR decoded receive/send is now published in ABI 1.11 with JS/Lua bindings and a shared worker lease. ABI 1.12 now publishes read-only Sub-GHz capture and LoRa chat observations, including JS/Lua and private cursors. ABI 1.13 adds bounded Sub-GHz capture/raw TX with shared JS/Lua bindings, a CC1101 lease and retained cleanup. Asynchronous/file/spectrum app control and active LoRa remain pending. Build-local public-key selection and production rejection of the shipped dev key are implemented and host-tested. A real production identity remains unprovisioned; the user requested configuration support first. Remaining radio publication and teardown remain open. |
 | [#152](https://github.com/HighCodeh/TentacleOS/issues/152) | Production Secure Boot v2 and Flash Encryption provisioning for both chips, including keys, recovery and irreversible eFuse review. Both remain disabled. |
 | [#153](https://github.com/HighCodeh/TentacleOS/issues/153) | Existing boot-loop/safe-mode/WDT/coredump mechanisms need fault-injection and recovery acceptance on hardware. The boot-sound crash workaround remains. |
 | [#156](https://github.com/HighCodeh/TentacleOS/issues/156) | The [source matrix](MATRIX.md) now identifies implemented and missing UI / `.hb` / companion paths. Missing adapters and the physical cross-interface acceptance still need completion. |
-| [#157](https://github.com/HighCodeh/TentacleOS/issues/157) | Measure performance/internal RAM and prepare a reviewed OTA/asset/restore package. P4 portable-crypto size optimization recovered 23,408 bytes before the RF ABI additions, with all 101 libsodium host tests passing; The 2026-10-21 LTO follow-up recovers another 10,304 P4 bytes on the current ESP SCAN candidate, with the utility translation unit excluded from LTO; 10,320 app-slot bytes remain. Device timing remains unmeasured and app-only builds are not a release candidate package. |
+| [#157](https://github.com/HighCodeh/TentacleOS/issues/157) | Measure performance/internal RAM and prepare a reviewed OTA/asset/restore package. P4 portable-crypto size optimization recovered 23,408 bytes before the RF ABI additions, with all 101 libsodium host tests passing; The 2026-10-21 LTO follow-up recovers another 10,304 P4 bytes on the current ESP SCAN candidate, with the utility translation unit excluded from LTO; 10,320 app-slot bytes remain. Device timing remains unmeasured and app-only builds are not a release candidate package. The real app-signing public identity/custody is also required before a production release; configuration support is complete under #149. |
 | [#158](https://github.com/HighCodeh/TentacleOS/issues/158) | Fixed a reproduced BSD/macOS SDK build bug (`stat -c%s` is GNU-only), with an isolated shell regression. The original unnamed Bash report remains unidentified: the user no longer recalls the command and the explanation is on another PC. All reviewed shell files pass syntax checks. The [field guide](FIELD.md) documents current capabilities, bench evidence and the app-only boundary. A supported consumer installation procedure still needs the approved deployment/recovery package. |
 
 ## Validation of this correction batch
@@ -180,3 +181,29 @@ This completes the bounded spectrum subset. Asynchronous/file Sub-GHz, raw LoRa,
 mesh lifecycle/node adapters and production/physical requirements remain under
 #149/#156. None of the nine in-scope issues is closed by this batch; HID, HLE and
 haptics remain excluded.
+
+
+## App ABI and trust scope reconciliation (#149)
+
+The original GitHub issue was re-read on 2026-10-21: its title is
+“.hb platform - 100 publish radio structs to the ABI + production trust-key”,
+with an empty body and no comments. Both requested implementation surfaces are
+present. The user separately chose **configuration support first**, deferring
+the real production identity. No production key is generated or provisioned here.
+
+Earlier follow-ups in this audit incorrectly made every optional radio table
+entry and device acceptance a condition of #149. That expanded the scope beyond
+publishing the ABI. The published contract explicitly supports NULL optional
+pointers. Missing raw/file/async/session/node adapters remain honestly listed in
+[MATRIX.md](MATRIX.md) under #156; no supported endpoint is inferred from a type
+being declared. No RNode endpoint or clean mesh teardown is advertised.
+
+The selected production trust store replaces the development key instead of
+adding to it, and CMake rejects missing, malformed, zero or development keys in
+production mode. The new offline test uses the real CMake generator, the real
+`tos_hb_open`, libsodium verification and independent Python Ed25519 signing with
+public RFC 8032 fixtures and the checked-in throwaway development seed. All 158 v2/v3 trust/tampering/truncation checks
+pass, alongside the existing configuration and radio/script regression suites.
+The actual identity, custody and signed release package remain #157; Secure Boot
+and Flash Encryption remain the distinct #152 requirement. This resolves #149's
+agreed implementation scope and supersedes its earlier “still open” notes.

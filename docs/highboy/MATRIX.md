@@ -11,9 +11,9 @@ High Boy. HID layouts, haptics and HLE remain excluded by request.
 | NFC A/B/F/V identification | Native reader screens | `nfc.poll`, JS/Lua `nfc.poll` | READ / STATUS / RECOVER | Real cards, antenna shutdown and transport tests (#148, #156) |
 | NFC block write / emulation | Native services and UI | Unpublished optional pointers are NULL | Not implemented | Add explicit sessions/ownership and acceptance; discovery coverage does not imply writes |
 | LF RFID EM4100/EM4102 read | Native LF worker | `rfid.read`, JS/Lua `rfid.read` | READ / STATUS / RECOVER | Physical field/capture validation; no write/clone ABI |
-| Infrared capture / send / library | Native RMT and bundled/SD library | ABI 1.11 decoded receive/send; JS/Lua bindings | Native capture / transmit commands | Shared app-worker lease and retained cleanup implemented; raw/file/AC API and physical acceptance remain outside the published subset (#149, #156) |
-| Sub-GHz receive / raw replay / spectrum | Native CC1101 | ABI 1.15 bounded spectrum; ABI 1.13 receive/raw TX and latest-capture observation; JS/Lua | Native handlers and streams | Asynchronous/file app adapters and physical RX/TX/spectrum (#149, #156) |
-| LoRa MeshCore / Meshtastic | Native mesh sessions | ABI 1.12 chat observation + 1.14 queued text; JS/Lua | Native chat/configuration bridge | Raw PHY/start/stop/node adapters and clean protocol ownership/teardown (#149); live mesh acceptance |
+| Infrared capture / send / library | Native RMT and bundled/SD library | ABI 1.11 decoded receive/send; JS/Lua bindings | Native capture / transmit commands | Shared app-worker lease and retained cleanup implemented; raw/file/AC API and physical acceptance remain outside the published subset (#156) |
+| Sub-GHz receive / raw replay / spectrum | Native CC1101 | ABI 1.15 bounded spectrum; ABI 1.13 receive/raw TX and latest-capture observation; JS/Lua | Native handlers and streams | Asynchronous/file app adapters and physical RX/TX/spectrum (#156) |
+| LoRa MeshCore / Meshtastic | Native mesh sessions | ABI 1.12 chat observation + 1.14 queued text; JS/Lua | Native chat/configuration bridge | Raw PHY/start/stop/node adapters and clean protocol ownership/teardown (#156); live mesh acceptance |
 | LoRa airtime pacing | Shared SX1262 transmit guard | Future adapters inherit the driver guard | Existing TX callers inherit the driver guard | Host timing/concurrency tests pass; physical airtime/regional acceptance pending (#156) |
 | LoRa MQTT subscription | Native Meshtastic MQTT screen | Not published | No companion MQTT API; C5 owns the network client | Bounded SPI transport, confirmed subscription and chat reception implemented; real broker and paired-device acceptance pending (#156) |
 | RNode / KISS | Legacy screen is receive-only radio lab | Not published | No usable P4 KISS endpoint | Decision under #145: unsupported on this P4 profile because GPIO43/44 are SDMMC; a future endpoint needs a separate transport design |
@@ -60,3 +60,14 @@ The [ephemeral pairing implementation](../host_link/pairing.md) now requires
 X25519 transcript proofs and physical code confirmation for USB/BLE. The actual
 clients verify reply MACs/counters. Real-crypto host tests and paired builds pass;
 transport/button/entropy acceptance remains physical work under #156.
+
+
+## ABI publication scope
+
+#149 publishes self-contained radio types/versioned optional tables and supplies
+build-local app-signing trust selection with production configuration gates.
+Optional NULL entries in this matrix are further feature work under #156, rather
+than unimplemented type publication. The real production app identity was
+explicitly deferred by the user; selecting it and establishing custody remain
+requirements of the #157 release handoff. Neither that identity nor Secure Boot/
+Flash Encryption (#152) is implied by a successful ABI test.
