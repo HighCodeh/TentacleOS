@@ -89,7 +89,16 @@ static int poll_mesh_view(tos_lora_msg_t *out) {
   *out=(tos_lora_msg_t){.who="peer",.text="hello"};
   return s_view_count;
 }
-static const tos_subghz_api_t subghz={.rx_poll=poll_subghz_view};
+static unsigned s_subghz_calls;
+static esp_err_t capture_subghz(tos_subghz_signal_t *out,uint32_t freq,uint8_t preset,uint32_t timeout) {
+  assert(freq==433920000 && preset==6 && timeout==500);++s_subghz_calls;
+  *out=(tos_subghz_signal_t){.protocol="CAME",.decoded=true,.value=42};return ESP_OK;
+}
+static esp_err_t transmit_subghz(const int32_t *pulses,int count,uint32_t freq) {
+  assert(freq==433920000 && count==3 && pulses[0]==350 && pulses[1]==-700 && pulses[2]==350);
+  ++s_subghz_calls;return ESP_OK;
+}
+static const tos_subghz_api_t subghz={.rx_poll=poll_subghz_view,.receive=capture_subghz,.tx_raw=transmit_subghz};
 static const tos_lora_api_t lora={.mesh_poll=poll_mesh_view};
 static const tos_ir_api_t ir={.receive=receive_ir,.send=send_ir};
 static const tos_rfid_api_t rfid={.read=read_rfid};
@@ -119,6 +128,10 @@ static void test_bindings(void) {
     assert(s_scans==scans);
     assert(run(language,"tos.call('no.such.method')")==SCRIPT_ENGINE_ERROR);
     assert(run(language,"tos.call('fs.open','/sdcard/test')")==SCRIPT_ENGINE_ERROR);
+    unsigned subghz_calls=s_subghz_calls;
+    assert(run(language,"tos.call('subghz.receive',433920000,6,500)")==SCRIPT_ENGINE_ERROR);
+    assert(run(language,"tos.call('subghz.tx_raw',433920000,'350,-700,350')")==SCRIPT_ENGINE_ERROR);
+    assert(subghz_calls==s_subghz_calls);
     unsigned views=s_view_calls;
     assert(run(language,"tos.call('subghz.rx_poll')")==SCRIPT_ENGINE_ERROR);
     assert(run(language,"tos.call('lora.mesh_poll')")==SCRIPT_ENGINE_ERROR);
@@ -129,6 +142,20 @@ static void test_bindings(void) {
     assert(s_rf_reads==rf_reads);
     bindings.caps=SCRIPT_BINDINGS_CAPS;
     s_view_count=1;
+    assert(run(language,"print(tos.call('subghz.receive',433920000,6,500).value)")==SCRIPT_ENGINE_OK);
+    assert(strcmp(s_output_text,"42\n")==0);
+    assert(run(language,"tos.call('subghz.tx_raw',433920000,'350,-700,350')")==SCRIPT_ENGINE_OK);
+    const char *bad_pulses[]={"", "0", "350,", "350,,700", "350 700", "32768", "-32768", "2147483648", "x", " 350", "+", "-"};
+    subghz_calls=s_subghz_calls;
+    for(unsigned bad=0;bad<sizeof(bad_pulses)/sizeof(bad_pulses[0]);++bad) {
+      char code[256];snprintf(code,sizeof(code),"tos.call('subghz.tx_raw',433920000,'%s')",bad_pulses[bad]);
+      assert(run(language,code)==SCRIPT_ENGINE_ERROR);
+    }
+    assert(subghz_calls==s_subghz_calls);
+    tos_api_t old_capture_api=api;old_capture_api.abi_minor=12;bindings.api=&old_capture_api;
+    assert(run(language,"tos.call('subghz.receive',433920000,6,500)")==SCRIPT_ENGINE_ERROR);
+    assert(run(language,"tos.call('subghz.tx_raw',433920000,'350,-700,350')")==SCRIPT_ENGINE_ERROR);
+    assert(subghz_calls==s_subghz_calls);bindings.api=&api;
     assert(run(language,"print(tos.call('subghz.rx_poll').value)")==SCRIPT_ENGINE_OK);
     assert(strcmp(s_output_text,"42\n")==0);
     assert(run(language,"print(tos.call('lora.mesh_poll').text)")==SCRIPT_ENGINE_OK);

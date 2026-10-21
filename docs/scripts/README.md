@@ -237,3 +237,14 @@ they do not activate a radio. Sub-GHz returns
 Cursors are independent for each app/run; retained history and overwritten
 backlog follow the [native observation contract](../app_sdk/README.md#native-radio-observations-abi-112).
 Older ABI tables are rejected before their appended pointers are accessed.
+
+## Bounded Sub-GHz bindings
+
+ABI 1.13 adds `tos.call("subghz.receive", frequency_hz, preset, timeout_ms)`
+with RX permission and `tos.call("subghz.tx_raw", frequency_hz, timings_csv)`
+with TX permission. Capture returns a copied signal record; TX returns zero
+only after completion. Both use the shared persistent-worker backend and
+[bounded native contract](../app_sdk/README.md#bounded-sub-ghz-api-abi-113).
+For example, `"350,-700,350"` represents three microsecond durations. Script
+CSV input is limited to 128 pulses and the normal string limit; invalid or empty
+items are rejected before a native call. No persistent session is created.

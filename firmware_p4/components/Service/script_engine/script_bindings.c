@@ -27,6 +27,10 @@
 #define SCRIPT_RF_ABI_MINOR         10
 #define SCRIPT_IR_ABI_MINOR         11
 #define SCRIPT_RADIO_VIEW_ABI_MINOR 12
+#define SCRIPT_SUBGHZ_ABI_MINOR     13
+#define SCRIPT_SUBGHZ_PULSES_MAX    128
+#define SCRIPT_SUBGHZ_PULSE_MAX_US  32767
+#define SCRIPT_DECIMAL_BASE         10
 
 static const char *TAG = "SCRIPT_BINDINGS";
 
@@ -102,6 +106,8 @@ typedef enum {
   SCRIPT_BINDINGS_IR_SEND,
   SCRIPT_BINDINGS_SUBGHZ_POLL,
   SCRIPT_BINDINGS_LORA_MESH_POLL,
+  SCRIPT_BINDINGS_SUBGHZ_RECEIVE,
+  SCRIPT_BINDINGS_SUBGHZ_TX_RAW,
   SCRIPT_BINDINGS_METHOD_COUNT
 } script_bindings_method_id_t;
 
@@ -183,6 +189,8 @@ static const script_bindings_method_t METHODS[] = {
     {"ir.send", "yuub", TOS_CAP_RADIO_TX},
     {"subghz.rx_poll", "", TOS_CAP_RADIO_RX},
     {"lora.mesh_poll", "", TOS_CAP_RADIO_RX},
+    {"subghz.receive", "uyu", TOS_CAP_RADIO_RX},
+    {"subghz.tx_raw", "us", TOS_CAP_RADIO_TX},
 };
 #define SCRIPT_METHOD_COUNT (sizeof(METHODS) / sizeof(METHODS[0]))
 _Static_assert(SCRIPT_METHOD_COUNT == SCRIPT_BINDINGS_METHOD_COUNT,
@@ -1024,18 +1032,28 @@ esp_err_t script_bindings_call(script_bindings_t *bindings, script_bindings_call
       err = api->ir->send(&code);
       break;
     }
-    case SCRIPT_BINDINGS_SUBGHZ_POLL: {
-      if (api->abi_minor < SCRIPT_RADIO_VIEW_ABI_MINOR || api->subghz == NULL ||
-          api->subghz->rx_poll == NULL)
+    case SCRIPT_BINDINGS_SUBGHZ_POLL:
+    case SCRIPT_BINDINGS_SUBGHZ_RECEIVE: {
+      if (api->abi_minor < SCRIPT_RADIO_VIEW_ABI_MINOR || api->subghz == NULL)
         return ESP_ERR_NOT_SUPPORTED;
       tos_subghz_signal_t signal = {0};
-      int count = api->subghz->rx_poll(&signal);
-      if (count < 0)
-        return -count;
-      if (count == 0) {
-        call->result = cJSON_CreateNull();
-        REQUIRE_JSON(call->result);
-        break;
+      if (method == SCRIPT_BINDINGS_SUBGHZ_RECEIVE) {
+        if (api->abi_minor < SCRIPT_SUBGHZ_ABI_MINOR || api->subghz->receive == NULL)
+          return ESP_ERR_NOT_SUPPORTED;
+        err = api->subghz->receive(&signal, n[0], n[1], n[2]);
+        if (err != ESP_OK)
+          break;
+      } else {
+        if (api->subghz->rx_poll == NULL)
+          return ESP_ERR_NOT_SUPPORTED;
+        int count = api->subghz->rx_poll(&signal);
+        if (count < 0)
+          return -count;
+        if (count == 0) {
+          call->result = cJSON_CreateNull();
+          REQUIRE_JSON(call->result);
+          break;
+        }
       }
       signal.protocol[sizeof(signal.protocol) - 1] = '\0';
       call->result = cJSON_CreateObject();
@@ -1047,6 +1065,32 @@ esp_err_t script_bindings_call(script_bindings_t *bindings, script_bindings_call
       REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "serial", signal.serial));
       REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "bit_count", signal.bit_count));
       REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "btn", signal.btn));
+      break;
+    }
+    case SCRIPT_BINDINGS_SUBGHZ_TX_RAW: {
+      if (api->abi_minor < SCRIPT_SUBGHZ_ABI_MINOR || api->subghz == NULL ||
+          api->subghz->tx_raw == NULL)
+        return ESP_ERR_NOT_SUPPORTED;
+      int32_t pulses[SCRIPT_SUBGHZ_PULSES_MAX];
+      uint32_t count = 0;
+      const char *text = s[1];
+      while (*text != '\0') {
+        if (count == SCRIPT_SUBGHZ_PULSES_MAX ||
+            (*text != '-' && *text != '+' && (*text < '0' || *text > '9')))
+          return ESP_ERR_INVALID_ARG;
+        char *end;
+        long pulse = strtol(text, &end, SCRIPT_DECIMAL_BASE);
+        if (end == text || pulse == 0 || pulse < -SCRIPT_SUBGHZ_PULSE_MAX_US ||
+            pulse > SCRIPT_SUBGHZ_PULSE_MAX_US || (*end != '\0' && *end != ','))
+          return ESP_ERR_INVALID_ARG;
+        pulses[count++] = (int32_t)pulse;
+        text = *end == ',' ? end + 1 : end;
+        if (*end == ',' && *text == '\0')
+          return ESP_ERR_INVALID_ARG;
+      }
+      if (count == 0)
+        return ESP_ERR_INVALID_ARG;
+      err = api->subghz->tx_raw(pulses, count, n[0]);
       break;
     }
     case SCRIPT_BINDINGS_LORA_MESH_POLL: {
