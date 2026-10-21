@@ -560,7 +560,8 @@ claim of regulatory eligibility or spectral resolution.
 
 The persistent RF worker reserves the CC1101 without preemption, recovers it and
 uses OOK/800 kHz preset 6. Each bin retunes in idle, enters RX, settles 400 us,
-and returns the peak of three RSSI samples separated by 20 us. It yields one
+and returns the peak of three RSSI samples separated by 20 us, floored at
+-130 dBm as in the native spectrum. It yields one
 RTOS tick per bin. This is one synchronous sweep with no app-owned background
 session. SPI/power cleanup must succeed before output is copied; every failure
 leaves the caller's result zero. A native RX/TX/spectrum reservation blocks the

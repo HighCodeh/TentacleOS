@@ -166,3 +166,17 @@ This completes the bounded mesh-text subset of #149. Raw LoRa/configuration,
 mesh startup/teardown/node adapters, remaining asynchronous/file/spectrum
 Sub-GHz calls, production identity and physical cross-interface acceptance are
 still pending. None of the nine in-scope issues is closed by this batch.
+
+
+## Bounded Sub-GHz spectrum follow-up
+
+The [ABI 1.15 build record](TESTS.md#bounded-sub-ghz-spectrum-build-record)
+validates complete 80-bin RSSI sweeps from signed apps and JS/Lua through the
+retained RF worker. Band/span checks, capability/cancellation, SPI error
+propagation and whole-result cleanup semantics are implemented and host-tested.
+No device RF behavior is inferred from these fixtures.
+
+This completes the bounded spectrum subset. Asynchronous/file Sub-GHz, raw LoRa,
+mesh lifecycle/node adapters and production/physical requirements remain under
+#149/#156. None of the nine in-scope issues is closed by this batch; HID, HLE and
+haptics remain excluded.

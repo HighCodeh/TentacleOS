@@ -685,3 +685,44 @@ Static queue storage adds 640 PSRAM bytes plus counters/flags; runtime heap,
 stack, latency and airtime acceptance are unmeasured. Raw LoRa, startup/teardown/
 node app methods, asynchronous/file/spectrum Sub-GHz and production/device
 requirements remain open. This batch closes no additional issue.
+
+
+## Bounded Sub-GHz spectrum build record
+
+Validated on 2026-10-21 after automatic hook formatting, implementation
+`7d128603`, against the working tree including its pre-existing ESP SCAN/updater
+changes. P4 IDF v5.5.3 and C5 IDF v6.0.1 application builds and the full offline
+suite passed. Original slots, paired SPI v8 and C5 memory policy are preserved.
+
+| Target | Application bytes | Slot bytes | Free bytes | SHA-256 |
+| --- | ---: | ---: | ---: | --- |
+| P4 | 2,942,368 | 2,949,120 | 6,752 | `bf96f5122546ffb72eb46e9212a2ef1b3148ca4edc3f484b0a861403dd65bd76` |
+| C5 | 2,050,752 | 2,097,152 | 46,400 | `fa3dec8fc911fd3e7e89a7a65429d1909c7ceac3c6c4f34872af25cf53e48129` |
+
+ABI 1.15 appends one-shot `subghz.spectrum_capture`: 80 RSSI bins, 80 Hz..20 MHz
+span entirely inside one supported band, RX capability, existing persistent RF
+worker and non-preempting CC1101 lease. It uses preset 6, 400 us settle, three
+RSSI samples 20 us apart with the native -130 dBm floor, and one tick yield per
+bin. Results contain copied start/step frequency and 80 values. The call neither
+starts the native spectrum worker nor overwrites its snapshot. SPI or cleanup
+failure returns a zero result; failed cleanup retains ownership/power until a
+later bounded operation retries successfully. No app pointer is retained.
+
+ASan/UBSan tests exercise the actual backend/lease against explicit SPI/RTOS
+fakes: exact idle/tune/RX/settle/sample/yield order, all bins and peak values,
+minimum/maximum/odd spans, three-band boundaries, invalid/overflowing ranges,
+capability/cancellation/readiness gates, contention, mid-sweep tune/read failure,
+no partial publication and retained idle/power cleanup with recovery. Existing
+native RX/TX/spectrum and CC1101 wrapper tests also pass.
+
+Real JS/Lua tests cover 80-element records and each language's array indexing,
+RX approval, backend error propagation, ABI 1.14 rejection and allocation-failure
+cleanup across the JSON object/array/number path. The complete preservation,
+crypto/pairing, NFC/RFID, IR, LoRa, Wi-Fi/BLE, Muse, USB and emulator suite passed.
+Commitlint/whitespace checks pass. No physical radio, serial, SD, flash, key or
+eFuse was accessed; RF resolution, latency, runtime heap/stack and interoperability
+remain unmeasured. Sampling bounds exclude setup, bus locks and recovery.
+
+This completes the bounded spectrum subset of #149. Asynchronous/file Sub-GHz,
+raw LoRa and native mesh lifecycle/node app adapters, production identity and
+physical acceptance remain pending. No additional issue is closed.
