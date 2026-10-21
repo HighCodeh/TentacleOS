@@ -14,8 +14,8 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 // Opener for the .hb app bundle (HighBoy App). The container carries a small
-// fixed header then the raw ELF. Signature verification (Phase 5) is not here
-// yet; for now this only parses and bounds-checks.
+// fixed header, ELF, optional metadata and Ed25519 signature. Full opening verifies
+// the signed span against the selected trust store; launcher header scans do not.
 
 #ifndef TOS_HB_H
 #define TOS_HB_H
@@ -72,7 +72,9 @@ esp_err_t tos_hb_open(const uint8_t *buf, size_t len, tos_hb_t *out);
  * @param out_elf_len   receives the ELF length.
  * @param out_meta_len  receives the meta-block length (0 for v2 / no meta).
  */
-esp_err_t tos_hb_read_header(const uint8_t *hdr, tos_hb_t *out, uint32_t *out_elf_len,
+esp_err_t tos_hb_read_header(const uint8_t *hdr,
+                             tos_hb_t *out,
+                             uint32_t *out_elf_len,
                              uint32_t *out_meta_len);
 
 /**

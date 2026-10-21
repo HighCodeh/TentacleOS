@@ -1236,6 +1236,14 @@
       "before_sha256": "61f23bbb23b0260f106bc112ea7df41641bb92476a4ddddbd25b88af6f297d26",
       "after_sha256": "4de4b2787b338edcccacf51349d2e1fcf64700f14c0ac38258d560772faf87c9",
       "reason": "Bounded copied LoRa text queue owned by native mesh poll tasks; atomic protocol publication/start serialization and capability/cancellation-gated ABI 1.14 plus JS/Lua binding."
+    },
+    "firmware_p4/components/Service/app_runtime/include/tos_hb.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "948967e401695255c5f150b8508d3200c13077a541b44a3c74416cdfd61b19b7",
+      "after_sha256": "1d3859c54ee962c6b143d1bc21b33d036e64e0bc55e239d3183ff71e2c59333b",
+      "reason": "Correct the public bundle-header description: tos_hb_open already verifies Ed25519 signatures; only launcher header scans are unverified.",
+      "pre_format_sha256": "f42b8d355bcacdb231039e174aba674fc7b66580a4d2aa6d9ca2e8f9844ded76",
+      "formatter": "clang-format version 22.1.5"
     }
   }
 }
