@@ -28,6 +28,7 @@
 #define SCRIPT_IR_ABI_MINOR         11
 #define SCRIPT_RADIO_VIEW_ABI_MINOR 12
 #define SCRIPT_SUBGHZ_ABI_MINOR     13
+#define SCRIPT_LORA_TX_ABI_MINOR    14
 #define SCRIPT_SUBGHZ_PULSES_MAX    128
 #define SCRIPT_SUBGHZ_PULSE_MAX_US  32767
 #define SCRIPT_DECIMAL_BASE         10
@@ -108,6 +109,7 @@ typedef enum {
   SCRIPT_BINDINGS_LORA_MESH_POLL,
   SCRIPT_BINDINGS_SUBGHZ_RECEIVE,
   SCRIPT_BINDINGS_SUBGHZ_TX_RAW,
+  SCRIPT_BINDINGS_LORA_MESH_SEND_TEXT,
   SCRIPT_BINDINGS_METHOD_COUNT
 } script_bindings_method_id_t;
 
@@ -191,6 +193,7 @@ static const script_bindings_method_t METHODS[] = {
     {"lora.mesh_poll", "", TOS_CAP_RADIO_RX},
     {"subghz.receive", "uyu", TOS_CAP_RADIO_RX},
     {"subghz.tx_raw", "us", TOS_CAP_RADIO_TX},
+    {"lora.mesh_send_text", "s", TOS_CAP_RADIO_TX},
 };
 #define SCRIPT_METHOD_COUNT (sizeof(METHODS) / sizeof(METHODS[0]))
 _Static_assert(SCRIPT_METHOD_COUNT == SCRIPT_BINDINGS_METHOD_COUNT,
@@ -1091,6 +1094,13 @@ esp_err_t script_bindings_call(script_bindings_t *bindings, script_bindings_call
       if (count == 0)
         return ESP_ERR_INVALID_ARG;
       err = api->subghz->tx_raw(pulses, count, n[0]);
+      break;
+    }
+    case SCRIPT_BINDINGS_LORA_MESH_SEND_TEXT: {
+      if (api->abi_minor < SCRIPT_LORA_TX_ABI_MINOR || api->lora == NULL ||
+          api->lora->mesh_send_text == NULL)
+        return ESP_ERR_NOT_SUPPORTED;
+      err = api->lora->mesh_send_text(s[0]);
       break;
     }
     case SCRIPT_BINDINGS_LORA_MESH_POLL: {

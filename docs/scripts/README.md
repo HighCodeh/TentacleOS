@@ -248,3 +248,15 @@ only after completion. Both use the shared persistent-worker backend and
 For example, `"350,-700,350"` represents three microsecond durations. Script
 CSV input is limited to 128 pulses and the normal string limit; invalid or empty
 items are rejected before a native call. No persistent session is created.
+
+
+## Queued LoRa mesh text binding
+
+ABI 1.14 adds `tos.call("lora.mesh_send_text", "hello")` in JavaScript and Lua,
+requiring TX approval. Zero means acceptance into the same native four-entry
+queue used by `.hb`, the native UI and companion chat. Messages are 1..159 bytes;
+the native mesh must already be active. Full/busy queue, inactive session,
+capability denial and older ABI versions fail the script call. Acceptance is
+independent of script lifetime and does not confirm airtime or delivery. No
+startup, protocol switch, raw PHY or shutdown binding is published. See the
+[ABI contract](../app_sdk/README.md#queued-lora-mesh-text-abi-114).

@@ -99,7 +99,12 @@ static esp_err_t transmit_subghz(const int32_t *pulses,int count,uint32_t freq) 
   ++s_subghz_calls;return ESP_OK;
 }
 static const tos_subghz_api_t subghz={.rx_poll=poll_subghz_view,.receive=capture_subghz,.tx_raw=transmit_subghz};
-static const tos_lora_api_t lora={.mesh_poll=poll_mesh_view};
+static unsigned s_mesh_sends;
+static esp_err_t s_mesh_error;
+static esp_err_t send_mesh(const char *text) {
+  assert(strcmp(text,"hello")==0);++s_mesh_sends;return s_mesh_error;
+}
+static const tos_lora_api_t lora={.mesh_poll=poll_mesh_view,.mesh_send_text=send_mesh};
 static const tos_ir_api_t ir={.receive=receive_ir,.send=send_ir};
 static const tos_rfid_api_t rfid={.read=read_rfid};
 static const tos_nfc_api_t nfc={.poll=poll_nfc};
@@ -128,6 +133,9 @@ static void test_bindings(void) {
     assert(s_scans==scans);
     assert(run(language,"tos.call('no.such.method')")==SCRIPT_ENGINE_ERROR);
     assert(run(language,"tos.call('fs.open','/sdcard/test')")==SCRIPT_ENGINE_ERROR);
+    unsigned mesh_sends=s_mesh_sends;
+    assert(run(language,"tos.call('lora.mesh_send_text','hello')")==SCRIPT_ENGINE_ERROR);
+    assert(mesh_sends==s_mesh_sends);
     unsigned subghz_calls=s_subghz_calls;
     assert(run(language,"tos.call('subghz.receive',433920000,6,500)")==SCRIPT_ENGINE_ERROR);
     assert(run(language,"tos.call('subghz.tx_raw',433920000,'350,-700,350')")==SCRIPT_ENGINE_ERROR);
@@ -141,6 +149,15 @@ static void test_bindings(void) {
     assert(run(language,"tos.call('rfid.read',500)")==SCRIPT_ENGINE_ERROR);
     assert(s_rf_reads==rf_reads);
     bindings.caps=SCRIPT_BINDINGS_CAPS;
+    assert(run(language,"tos.call('lora.mesh_send_text','hello')")==SCRIPT_ENGINE_OK);
+    assert(s_mesh_sends==mesh_sends+1);
+    s_mesh_error=ESP_ERR_TIMEOUT;
+    assert(run(language,"tos.call('lora.mesh_send_text','hello')")==SCRIPT_ENGINE_ERROR);
+    s_mesh_error=ESP_OK;
+    tos_api_t old_mesh_api=api;old_mesh_api.abi_minor=13;bindings.api=&old_mesh_api;
+    mesh_sends=s_mesh_sends;
+    assert(run(language,"tos.call('lora.mesh_send_text','hello')")==SCRIPT_ENGINE_ERROR);
+    assert(mesh_sends==s_mesh_sends);bindings.api=&api;
     s_view_count=1;
     assert(run(language,"print(tos.call('subghz.receive',433920000,6,500).value)")==SCRIPT_ENGINE_OK);
     assert(strcmp(s_output_text,"42\n")==0);
