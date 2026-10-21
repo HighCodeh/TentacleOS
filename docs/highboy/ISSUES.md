@@ -152,3 +152,17 @@ spectrum app control, active LoRa, the production identity and physical matrix
 still prevent closing #149/#156. The nine-issue balance is unchanged; HID #64,
 HLE and haptics remain excluded. Pre-existing Wi-Fi and updater changes were
 preserved outside this batch's commits.
+
+
+## Queued LoRa text follow-up
+
+The [ABI 1.14 build record](TESTS.md#queued-lora-mesh-text-build-record) validates
+copied four-entry text submission to an already active native mesh from signed
+apps and JS/Lua. Native UI and companion chat use the same queue and the selected
+native poll task consumes it. Success means acceptance, not RF emission or
+delivery; backend failure is logged without an outgoing chat record.
+
+This completes the bounded mesh-text subset of #149. Raw LoRa/configuration,
+mesh startup/teardown/node adapters, remaining asynchronous/file/spectrum
+Sub-GHz calls, production identity and physical cross-interface acceptance are
+still pending. None of the nine in-scope issues is closed by this batch.

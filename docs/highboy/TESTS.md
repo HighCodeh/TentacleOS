@@ -648,3 +648,40 @@ No physical radio, serial, SD, flash, production key or eFuse was accessed. RMT
 wait limits exclude hardware setup, bus locks and recovery; target latency and
 RF/power behavior remain physical acceptance. No additional issue is closed;
 #149/#156 still include missing interfaces and production/device requirements.
+
+
+## Queued LoRa mesh text build record
+
+Validated on 2026-10-21 after automatic hook formatting, implementation
+`91b6e18e`, against the working tree including its pre-existing ESP SCAN/updater
+changes. P4 IDF v5.5.3 and C5 IDF v6.0.1 application builds and the full offline
+suite passed. Original slots, paired SPI v8 and C5 memory policy are preserved.
+
+| Target | Application bytes | Slot bytes | Free bytes | SHA-256 |
+| --- | ---: | ---: | ---: | --- |
+| P4 | 2,941,584 | 2,949,120 | 7,536 | `c9244d44e1b637a275bc29ca39f93f973eb0da047372e9a5f1324fa3e670e212` |
+| C5 | 2,050,752 | 2,097,152 | 46,400 | `004e8227350a9c13ac963de488d722131e8e7176ebd89e2200ef99a069ebd516` |
+
+ABI 1.14 publishes `lora.mesh_send_text` for signed apps and JS/Lua with TX
+permission. It submits copied 1..159-byte text to the same four-entry queue used
+by native and companion chat. Only the active protocol's native poll task drains
+it, at most one item per iteration. Acceptance does not prove transmission or
+delivery, and accepted messages survive the submitting app. Backend failures
+consume the item, log an error and omit the outgoing chat record. Actual radio
+operations continue through the existing shared airtime guard.
+
+ASan/UBSan tests exercise production queue/ring/start functions with real host
+threads: concurrent startup/producers, atomic protocol publication, failed start
+recovery, bounded copied storage, FIFO order, queue saturation, wrong-protocol
+consumer, backend failure and both mesh dispatch paths. Adapter tests verify TX
+capability, unavailable/held cancellation gates, stop-after-lock and native error
+propagation. Real JS/Lua engines verify approval, successful submission, backend
+errors and ABI 1.13 rejection. All existing offline preservation and subsystem
+tests pass. The TX-only `mesh_text` example compiles to a RISC-V object with no
+unresolved symbols; no signed app installation or RF result is inferred.
+
+No physical radio, serial, SD, flash, production key or eFuse was accessed.
+Static queue storage adds 640 PSRAM bytes plus counters/flags; runtime heap,
+stack, latency and airtime acceptance are unmeasured. Raw LoRa, startup/teardown/
+node app methods, asynchronous/file/spectrum Sub-GHz and production/device
+requirements remain open. This batch closes no additional issue.

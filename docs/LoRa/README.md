@@ -63,7 +63,7 @@ esp_err_t    lora_session_app_connect(void);
 ```
 
 - `lora_session_start` is idempotent for the same protocol; a request for a different protocol while one is running returns `ESP_ERR_INVALID_STATE`.
-- `lora_session_send_text` queues a broadcast/public-channel text on the active stack (Meshtastic `0xFFFFFFFF`, MeshCore public channel `0`) and, on success, appends it to the ring as outgoing ("me").
+- `lora_session_send_text` queues a broadcast/public-channel text on the active stack (Meshtastic `0xFFFFFFFF`, MeshCore public channel `0`) and appends it to the ring as outgoing ("me") only when the native worker successfully submits it to the backend.
 - `lora_session_msg_since` copies messages newer than a caller-held cursor under a single lock; passing `*io_seq == 0` snaps to the oldest retained message.
 - `lora_session_on_rx_text` is called by the backend RX taps from the mesh poll task (not the LVGL thread).
 - `lora_session_app_connected` maps to the active stack's **`_is_subscribed()`** predicate (linked, not merely connected). `lora_session_app_connect` maps to `_phone_bridge_ble_start()`.
