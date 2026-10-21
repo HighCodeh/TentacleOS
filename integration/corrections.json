@@ -942,8 +942,14 @@
     "firmware_p4/components/Drivers/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "15c7869f1145eb6a78b540dd9c4003914c7bbbb98db9af36ed4ddd38e35d23bf",
-      "after_sha256": "8fde0cfcb8fe0b6ecfa2ed3ebc09ede10ae7a6e9429f0cdbed37a0e8538724aa",
-      "reason": "Enforce shared, conservative LoRa airtime pacing before all native TX operations, retaining debit across configuration and protocol changes."
+      "after_sha256": "ddd1f5b511d6966d80e3b937342b3aaed530a45afd9abc6d6ac1528799c8e788",
+      "reason": "Publish bounded Sub-GHz receive/raw TX with a scoped CC1101 lease and persistent worker; serialize native TX/spectrum lifetimes and retain resources through RMT/SPI/power cleanup failures.",
+      "review_history": [
+        {
+          "after_sha256": "8fde0cfcb8fe0b6ecfa2ed3ebc09ede10ae7a6e9429f0cdbed37a0e8538724aa",
+          "reason": "Enforce shared, conservative LoRa airtime pacing before all native TX operations, retaining debit across configuration and protocol changes."
+        }
+      ]
     },
     "firmware_p4/components/Applications/LoRa/rnode/rnode.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -1166,6 +1172,30 @@
       "before_sha256": "2cf75d8f29faf5e8b6f940a20a7d28778d18ca89a38c71c84286e62b8c782f6b",
       "after_sha256": "f2ca6b65f96612e8179e25a668608ae160cc2e78f6569f5c6ad6fbab8661657e",
       "reason": "Publish bounded RX-only native radio observations with per-app cursors and kill quiescence; synchronize chat ring first use and sequence wrap, preserve capture IDs across restarts."
+    },
+    "firmware_p4/components/Drivers/cc1101/cc1101.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "e144814e5084186b64f81f53b4c6238e29bcbcce6d8c6a1aab013275fca983b6",
+      "after_sha256": "9e9f2d8e633a168551133786fb83c21bdfac8fe54f8c9053dfe4eb984af8f16f",
+      "reason": "Publish bounded Sub-GHz receive/raw TX with a scoped CC1101 lease and persistent worker; serialize native TX/spectrum lifetimes and retain resources through RMT/SPI/power cleanup failures.",
+      "pre_format_sha256": "b97baccee6432e92411906a30d6b4b62f9d94f615cfac96b8759b53da4939747",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/SubGhz/subghz_transmitter.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "e8cf7b425533c3503c165696f51e3d5ed13c80b86ed056bba61b5eee8b5f8b70",
+      "after_sha256": "ea1a2946a0ab53eba19369d99ea568dd8527b93da2d793555d15692a925cf579",
+      "reason": "Publish bounded Sub-GHz receive/raw TX with a scoped CC1101 lease and persistent worker; serialize native TX/spectrum lifetimes and retain resources through RMT/SPI/power cleanup failures.",
+      "pre_format_sha256": "d95e2b92037c8835b10456f410fbb73b63a4cac813f5148f6088f00123676381",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/SubGhz/subghz_spectrum.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "7591493560b4f6a0e0e428dd640a3c530807bb20756b929f1eefd15f9fa3233c",
+      "after_sha256": "fc450fd57162d5c5f427d2a5f2dd4d019e4127a9762d4574ed894c1006f0c57b",
+      "reason": "Publish bounded Sub-GHz receive/raw TX with a scoped CC1101 lease and persistent worker; serialize native TX/spectrum lifetimes and retain resources through RMT/SPI/power cleanup failures.",
+      "pre_format_sha256": "84bbdaded0b8bc3b9e1e03360e54e8d9852f1b844616424df536e89097bafab4",
+      "formatter": "clang-format version 22.1.5"
     }
   }
 }

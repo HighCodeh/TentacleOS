@@ -25,6 +25,7 @@ idf_component_register(SRCS
   "bq25896/bq25896_ext.c"
   "bq25896/battery_service.c"
   "cc1101/cc1101.c"
+  "cc1101/cc1101_lease.c"
   "st7789/st7789.c"
   "led/led_control.c"
   "spi/spi.c"
@@ -71,6 +72,7 @@ idf_component_register(SRCS
   "rf_frontend/include"
 
   REQUIRES
+  resource_mgr
   driver
   esp_driver_i2s
   Service

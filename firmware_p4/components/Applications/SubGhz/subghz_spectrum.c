@@ -16,6 +16,7 @@
 #include "subghz_spectrum.h"
 
 #include <string.h>
+#include <stdatomic.h>
 #include "rom/ets_sys.h"
 
 #include "esp_log.h"
@@ -26,42 +27,47 @@
 #include "freertos/semphr.h"
 
 #include "cc1101.h"
+#include "resource_mgr.h"
 
 static const char *TAG = "SUBGHZ_SPECTRUM";
 
-#define STABILIZATION_DELAY_US 400
-#define RSSI_SAMPLE_DELAY_US   20
-#define RSSI_SAMPLE_COUNT      3
-#define RSSI_MIN_DBM           (-130.0f)
-#define YIELD_INTERVAL         1
-#define SWEEP_DELAY_MS         15
-#define MUTEX_TIMEOUT_MS       10
-#define GET_LINE_TIMEOUT_MS    5
-#define SPECTRUM_TASK_STACK    4096
-#define SPECTRUM_TASK_PRIORITY SYS_PRIO_BACKGROUND_LO
-#define SPECTRUM_TASK_CORE     SYS_CORE_RADIO
+#define STABILIZATION_DELAY_US  400
+#define RSSI_SAMPLE_DELAY_US    20
+#define RSSI_SAMPLE_COUNT       3
+#define RSSI_MIN_DBM            (-130.0f)
+#define YIELD_INTERVAL          1
+#define SWEEP_DELAY_MS          15
+#define MUTEX_TIMEOUT_MS        10
+#define GET_LINE_TIMEOUT_MS     5
+#define SPECTRUM_TASK_STACK     4096
+#define SPECTRUM_CENTER_DIVISOR 2
+#define SPECTRUM_TASK_PRIORITY  SYS_PRIO_BACKGROUND_LO
+#define SPECTRUM_TASK_CORE      SYS_CORE_RADIO
 
-static TaskHandle_t s_spectrum_task_handle = NULL;
-static SemaphoreHandle_t s_spectrum_mutex = NULL;
-static volatile bool s_stop_requested = false;
-static volatile bool s_is_running = false;
+typedef enum {
+  SUBGHZ_SPECTRUM_IDLE = 0,
+  SUBGHZ_SPECTRUM_RUNNING,
+  SUBGHZ_SPECTRUM_STOPPING,
+} subghz_spectrum_state_t;
+
+static _Atomic(SemaphoreHandle_t) s_spectrum_mutex;
+static atomic_uint s_state;
+static res_handle_t s_grant;
 
 static subghz_spectrum_line_t s_latest_line = {0};
 
 static void subghz_spectrum_task(void *pvParameters) {
-  s_is_running = true;
-
   uint32_t center = 0;
   uint32_t span = 0;
 
-  if (xSemaphoreTake(s_spectrum_mutex, pdMS_TO_TICKS(MUTEX_TIMEOUT_MS)) == pdTRUE) {
-    center = s_latest_line.center_freq;
-    span = s_latest_line.span_hz;
-    xSemaphoreGive(s_spectrum_mutex);
-  }
+  if (xSemaphoreTake(s_spectrum_mutex, pdMS_TO_TICKS(MUTEX_TIMEOUT_MS)) != pdTRUE)
+    goto cleanup;
+  center = s_latest_line.center_freq;
+  span = s_latest_line.span_hz;
+  xSemaphoreGive(s_spectrum_mutex);
 
   uint32_t step = span / SPECTRUM_SAMPLES;
-  uint32_t start = center - (span / 2);
+  uint32_t start = center - (span / SPECTRUM_CENTER_DIVISOR);
 
   ESP_LOGI(TAG,
            "Spectrum Task Started: Center=%lu, Span=%lu, Step=%lu",
@@ -69,11 +75,11 @@ static void subghz_spectrum_task(void *pvParameters) {
            (unsigned long)span,
            (unsigned long)step);
 
-  while (s_stop_requested == false) {
+  while (s_state == SUBGHZ_SPECTRUM_RUNNING) {
     float current_sweep[SPECTRUM_SAMPLES];
 
     for (int i = 0; i < SPECTRUM_SAMPLES; i++) {
-      if (s_stop_requested) {
+      if (s_state != SUBGHZ_SPECTRUM_RUNNING) {
         break;
       }
 
@@ -101,6 +107,9 @@ static void subghz_spectrum_task(void *pvParameters) {
       }
     }
 
+    if (s_state != SUBGHZ_SPECTRUM_RUNNING)
+      break;
+
     if (xSemaphoreTake(s_spectrum_mutex, pdMS_TO_TICKS(MUTEX_TIMEOUT_MS)) == pdTRUE) {
       memcpy(s_latest_line.dbm_values, current_sweep, sizeof(current_sweep));
       s_latest_line.timestamp = esp_timer_get_time();
@@ -112,13 +121,24 @@ static void subghz_spectrum_task(void *pvParameters) {
     vTaskDelay(pdMS_TO_TICKS(SWEEP_DELAY_MS));
   }
 
+cleanup:
   cc1101_strobe(CC1101_SIDLE);
-  s_is_running = false;
+  resource_release(s_grant);
+  s_grant = RES_HANDLE_NONE;
+  s_state = SUBGHZ_SPECTRUM_IDLE;
   vTaskDelete(NULL);
 }
 
 void subghz_spectrum_start(uint32_t center_freq, uint32_t span_hz) {
-  if (s_is_running) {
+  if (span_hz < SPECTRUM_SAMPLES || center_freq < span_hz / SPECTRUM_CENTER_DIVISOR)
+    return;
+  unsigned int expected = SUBGHZ_SPECTRUM_IDLE;
+  if (!atomic_compare_exchange_strong(&s_state, &expected, SUBGHZ_SPECTRUM_RUNNING))
+    return;
+  res_request_t request = {
+      .id = RES_SUBGHZ, .lane = RES_LANE_MAIN, .owner_kind = RES_OWNER_UI, .allow_preempt = false};
+  if (resource_acquire(&request, &s_grant) != ESP_OK) {
+    s_state = SUBGHZ_SPECTRUM_IDLE;
     return;
   }
 
@@ -126,27 +146,37 @@ void subghz_spectrum_start(uint32_t center_freq, uint32_t span_hz) {
     s_spectrum_mutex = xSemaphoreCreateMutex();
   }
 
-  if (xSemaphoreTake(s_spectrum_mutex, pdMS_TO_TICKS(MUTEX_TIMEOUT_MS)) == pdTRUE) {
-    s_latest_line.center_freq = center_freq;
-    s_latest_line.span_hz = span_hz;
-    xSemaphoreGive(s_spectrum_mutex);
+  if (s_spectrum_mutex == NULL ||
+      xSemaphoreTake(s_spectrum_mutex, pdMS_TO_TICKS(MUTEX_TIMEOUT_MS)) != pdTRUE) {
+    ESP_LOGE(TAG, "Cannot initialize spectrum snapshot");
+    resource_release(s_grant);
+    s_grant = RES_HANDLE_NONE;
+    s_state = SUBGHZ_SPECTRUM_IDLE;
+    return;
   }
+  memset(&s_latest_line, 0, sizeof(s_latest_line));
+  s_latest_line.center_freq = center_freq;
+  s_latest_line.span_hz = span_hz;
+  xSemaphoreGive(s_spectrum_mutex);
 
-  s_stop_requested = false;
-
-  xTaskCreatePinnedToCore(subghz_spectrum_task,
-                          "subghz_spectrum",
-                          SPECTRUM_TASK_STACK,
-                          NULL,
-                          SPECTRUM_TASK_PRIORITY,
-                          &s_spectrum_task_handle,
-                          SPECTRUM_TASK_CORE);
+  BaseType_t created = xTaskCreatePinnedToCore(subghz_spectrum_task,
+                                               "subghz_spectrum",
+                                               SPECTRUM_TASK_STACK,
+                                               NULL,
+                                               SPECTRUM_TASK_PRIORITY,
+                                               NULL,
+                                               SPECTRUM_TASK_CORE);
+  if (created != pdPASS) {
+    ESP_LOGE(TAG, "Cannot start spectrum worker");
+    resource_release(s_grant);
+    s_grant = RES_HANDLE_NONE;
+    s_state = SUBGHZ_SPECTRUM_IDLE;
+  }
 }
 
 void subghz_spectrum_stop(void) {
-  if (s_is_running) {
-    s_stop_requested = true;
-  }
+  unsigned int expected = SUBGHZ_SPECTRUM_RUNNING;
+  atomic_compare_exchange_strong(&s_state, &expected, SUBGHZ_SPECTRUM_STOPPING);
 }
 
 bool subghz_spectrum_get_line(subghz_spectrum_line_t *out_line) {

@@ -412,3 +412,21 @@ native capture snapshot; sequence IDs persist across receiver restarts.
 Polling never starts or stops the receiver and does not expose raw timings.
 Active control and spectrum entries remain NULL pending their ownership adapters.
 See the [ABI contract](../app_sdk/README.md#native-radio-observations-abi-112).
+
+## Native radio worker ownership
+
+Native TX now creates RMT hardware inside its worker and reports startup through
+a per-call signal. Stop waits up to 2500 ms for the worker; a timeout leaves the
+grant busy rather than freeing live RMT state. The worker waits for in-flight
+queue senders, retains its current symbols through transmit/cleanup failure,
+and retries disable/channel-delete/encoder-delete until successful. Only then
+are pending timings, queue and grant released. Concurrent reinitialization is
+rejected while starting/draining. Pulse conversion handles `INT32_MIN` without
+signed overflow, preserving the existing maximum-duration clamping.
+
+Native spectrum now reserves `RES_SUBGHZ`, publishes its running state before
+spawning the task and preserves startup cancellation. Failed mutex/task setup
+releases the grant. A cancelled partial sweep is discarded instead of publishing
+uninitialized bins; the grant is released by the worker after its final radio
+access. UI/companion callers can encounter a busy radio and must retry after
+shutdown. These changes preserve the existing pins, presets and task priorities.
