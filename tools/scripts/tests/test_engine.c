@@ -98,7 +98,15 @@ static esp_err_t transmit_subghz(const int32_t *pulses,int count,uint32_t freq) 
   assert(freq==433920000 && count==3 && pulses[0]==350 && pulses[1]==-700 && pulses[2]==350);
   ++s_subghz_calls;return ESP_OK;
 }
-static const tos_subghz_api_t subghz={.rx_poll=poll_subghz_view,.receive=capture_subghz,.tx_raw=transmit_subghz};
+static unsigned s_spectrum_calls;
+static esp_err_t s_spectrum_error;
+static esp_err_t capture_spectrum(tos_subghz_spectrum_t *out,uint32_t center,uint32_t span) {
+  assert(center==433920000 && span==1000000);++s_spectrum_calls;
+  out->start_hz=433420000;out->step_hz=12500;
+  for(unsigned i=0;i<TOS_SUBGHZ_SPECTRUM_BINS;++i)out->dbm[i]=-100.0f+(float)i;
+  return s_spectrum_error;
+}
+static const tos_subghz_api_t subghz={.rx_poll=poll_subghz_view,.receive=capture_subghz,.tx_raw=transmit_subghz,.spectrum_capture=capture_spectrum};
 static unsigned s_mesh_sends;
 static esp_err_t s_mesh_error;
 static esp_err_t send_mesh(const char *text) {
@@ -133,6 +141,9 @@ static void test_bindings(void) {
     assert(s_scans==scans);
     assert(run(language,"tos.call('no.such.method')")==SCRIPT_ENGINE_ERROR);
     assert(run(language,"tos.call('fs.open','/sdcard/test')")==SCRIPT_ENGINE_ERROR);
+    unsigned spectrum_calls=s_spectrum_calls;
+    assert(run(language,"tos.call('subghz.spectrum_capture',433920000,1000000)")==SCRIPT_ENGINE_ERROR);
+    assert(spectrum_calls==s_spectrum_calls);
     unsigned mesh_sends=s_mesh_sends;
     assert(run(language,"tos.call('lora.mesh_send_text','hello')")==SCRIPT_ENGINE_ERROR);
     assert(mesh_sends==s_mesh_sends);
@@ -158,6 +169,16 @@ static void test_bindings(void) {
     mesh_sends=s_mesh_sends;
     assert(run(language,"tos.call('lora.mesh_send_text','hello')")==SCRIPT_ENGINE_ERROR);
     assert(mesh_sends==s_mesh_sends);bindings.api=&api;
+    assert(run(language,language==SCRIPT_ENGINE_JS
+      ? "var x=tos.call('subghz.spectrum_capture',433920000,1000000);if(x.start_hz!==433420000 || x.step_hz!==12500 || x.dbm.length!==80 || x.dbm[79]!==-21) throw new Error('spectrum');"
+      : "local x=tos.call('subghz.spectrum_capture',433920000,1000000);assert(x.start_hz==433420000 and x.step_hz==12500 and #x.dbm==80 and x.dbm[80]==-21)")==SCRIPT_ENGINE_OK);
+    s_spectrum_error=ESP_ERR_TIMEOUT;
+    assert(run(language,"tos.call('subghz.spectrum_capture',433920000,1000000)")==SCRIPT_ENGINE_ERROR);
+    s_spectrum_error=ESP_OK;
+    tos_api_t old_spectrum_api=api;old_spectrum_api.abi_minor=14;bindings.api=&old_spectrum_api;
+    spectrum_calls=s_spectrum_calls;
+    assert(run(language,"tos.call('subghz.spectrum_capture',433920000,1000000)")==SCRIPT_ENGINE_ERROR);
+    assert(spectrum_calls==s_spectrum_calls);bindings.api=&api;
     s_view_count=1;
     assert(run(language,"print(tos.call('subghz.receive',433920000,6,500).value)")==SCRIPT_ENGINE_OK);
     assert(strcmp(s_output_text,"42\n")==0);
@@ -240,6 +261,13 @@ static void test_bindings(void) {
       script_engine_result_t result=run(language,"print(tos.call('wifi.ap_get',0).ssid)");
       assert(result==SCRIPT_ENGINE_OK || result==SCRIPT_ENGINE_ERROR);
       if(result==SCRIPT_ENGINE_OK) assert(strcmp(s_output_text,"example\n")==0);
+    }
+  }
+  for(unsigned fail=1;fail<180;++fail) {
+    for(int language=0;language<SCRIPT_ENGINE_LANGUAGE_COUNT;++language) {
+      s_json_calls=0;s_json_fail=fail;
+      script_engine_result_t result=run(language,"tos.call('subghz.spectrum_capture',433920000,1000000)");
+      assert(result==SCRIPT_ENGINE_OK || result==SCRIPT_ENGINE_ERROR);
     }
   }
   cJSON_InitHooks(NULL);

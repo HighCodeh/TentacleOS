@@ -260,3 +260,14 @@ capability denial and older ABI versions fail the script call. Acceptance is
 independent of script lifetime and does not confirm airtime or delivery. No
 startup, protocol switch, raw PHY or shutdown binding is published. See the
 [ABI contract](../app_sdk/README.md#queued-lora-mesh-text-abi-114).
+
+
+## Bounded Sub-GHz spectrum binding
+
+ABI 1.15 adds `tos.call("subghz.spectrum_capture", 433920000, 1000000)` with RX
+approval. It returns `{start_hz, step_hz, dbm}` with exactly 80 RSSI numbers;
+JavaScript indexes `dbm` from 0 and Lua from 1. The native
+[range and sampling contract](../app_sdk/README.md#bounded-sub-ghz-spectrum-abi-115)
+applies. Older ABI versions, missing permissions, busy radio and SPI/cleanup
+errors fail the call without a partial record. This reads one sweep and creates
+no persistent script session. RF acceptance still requires hardware.

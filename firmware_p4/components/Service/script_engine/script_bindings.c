@@ -29,6 +29,7 @@
 #define SCRIPT_RADIO_VIEW_ABI_MINOR 12
 #define SCRIPT_SUBGHZ_ABI_MINOR     13
 #define SCRIPT_LORA_TX_ABI_MINOR    14
+#define SCRIPT_SPECTRUM_ABI_MINOR   15
 #define SCRIPT_SUBGHZ_PULSES_MAX    128
 #define SCRIPT_SUBGHZ_PULSE_MAX_US  32767
 #define SCRIPT_DECIMAL_BASE         10
@@ -110,6 +111,7 @@ typedef enum {
   SCRIPT_BINDINGS_SUBGHZ_RECEIVE,
   SCRIPT_BINDINGS_SUBGHZ_TX_RAW,
   SCRIPT_BINDINGS_LORA_MESH_SEND_TEXT,
+  SCRIPT_BINDINGS_SUBGHZ_SPECTRUM_CAPTURE,
   SCRIPT_BINDINGS_METHOD_COUNT
 } script_bindings_method_id_t;
 
@@ -194,6 +196,7 @@ static const script_bindings_method_t METHODS[] = {
     {"subghz.receive", "uyu", TOS_CAP_RADIO_RX},
     {"subghz.tx_raw", "us", TOS_CAP_RADIO_TX},
     {"lora.mesh_send_text", "s", TOS_CAP_RADIO_TX},
+    {"subghz.spectrum_capture", "uu", TOS_CAP_RADIO_RX},
 };
 #define SCRIPT_METHOD_COUNT (sizeof(METHODS) / sizeof(METHODS[0]))
 _Static_assert(SCRIPT_METHOD_COUNT == SCRIPT_BINDINGS_METHOD_COUNT,
@@ -1094,6 +1097,30 @@ esp_err_t script_bindings_call(script_bindings_t *bindings, script_bindings_call
       if (count == 0)
         return ESP_ERR_INVALID_ARG;
       err = api->subghz->tx_raw(pulses, count, n[0]);
+      break;
+    }
+    case SCRIPT_BINDINGS_SUBGHZ_SPECTRUM_CAPTURE: {
+      if (api->abi_minor < SCRIPT_SPECTRUM_ABI_MINOR || api->subghz == NULL ||
+          api->subghz->spectrum_capture == NULL)
+        return ESP_ERR_NOT_SUPPORTED;
+      tos_subghz_spectrum_t spectrum = {0};
+      err = api->subghz->spectrum_capture(&spectrum, n[0], n[1]);
+      if (err != ESP_OK)
+        break;
+      call->result = cJSON_CreateObject();
+      REQUIRE_JSON(call->result);
+      REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "start_hz", spectrum.start_hz));
+      REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "step_hz", spectrum.step_hz));
+      cJSON *bins = cJSON_AddArrayToObject(call->result, "dbm");
+      REQUIRE_JSON(bins);
+      for (uint32_t i = 0; i < TOS_SUBGHZ_SPECTRUM_BINS; ++i) {
+        cJSON *bin = cJSON_CreateNumber(spectrum.dbm[i]);
+        REQUIRE_JSON(bin);
+        if (!cJSON_AddItemToArray(bins, bin)) {
+          cJSON_Delete(bin);
+          goto no_memory;
+        }
+      }
       break;
     }
     case SCRIPT_BINDINGS_LORA_MESH_SEND_TEXT: {
