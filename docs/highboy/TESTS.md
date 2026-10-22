@@ -859,3 +859,66 @@ watchdog/cross-interface/runtime-performance acceptance, production identity and
 reviewed two-chip security/restore deployment remain outstanding. The original
 Bash report still lacks its command/error reproduction. No issue is closed by
 this build record.
+
+
+## Shared IR/NFC and offline security/recovery preparation build record
+
+Validated on 2026-10-22 after implementation commit `53788e90`. This working tree
+also includes the preserved, pre-existing Wi-Fi/updater changes: the manifest
+records `source_dirty=true` and fingerprints actual firmware inputs. No clean
+commit-only or hardware-tested release is claimed.
+
+Both pinned SDK lanes passed with SPI v8, the original slots and C5 memory
+overlay preserved:
+
+| Target | SDK | Application bytes | Slot bytes | Free bytes | SHA-256 |
+| --- | --- | ---: | ---: | ---: | --- |
+| P4 | v5.5.3 | 2,946,368 | 2,949,120 | 2,752 | `9a5f16878047a2dce8e140518812257ef22570a79b704b9d08274acfc3165b12` |
+| C5 | v6.0.1 | 2,051,056 | 2,097,152 | 46,096 | `b70efec9cb046be4237c29758933a0059d015627c365a6b2769b00321f884f66` |
+
+The complete offline runner passed after hook formatting, including the expanded
+IR native lease/raw/file/AC tests, actual JS/Lua ABI 1.16/1.17 dispatch, native
+Classic 1K block operations and authenticated routing/CLI tests. Host IR tests
+exercise signed timing bounds, carrier/total duration, retained symbol buffers
+across RMT failure, native contention, SD path/approval checks, real file parsing
+and HEAT/DRY enum conversion. NFC fixtures exercise authentication/IO/readback
+failures, manufacturer/trailer protection, unsupported card geometry, malformed
+wire payloads and retained field/power cleanup. Hardware and protocol IO remain
+explicit fakes; these tests do not prove RF/card behavior.
+
+Five security-auditor tests and real `kconfgen` resolution/auditing on both pinned
+SDKs passed. The generated profiles are isolated review artifacts, with no
+private signing-key selection or development configuration changes. No signed
+secure application/bootloader or production identity was produced. The current
+baseline-only projection with 64 KiB secure padding plus a 4 KiB signature sector
+is 2,953,216 P4 bytes and 2,101,248 C5 bytes: each exceeds its original slot by
+4,096 bytes. A real secure build can change size further; this remains a code-size
+and release-preparation gate rather than a request to enlarge partitions.
+
+Six private-recovery tests passed, covering paired backup hashes/maps, strict
+OTA state, private permissions, malformed/tampered/fabricated metadata, missing
+peers, symlinks, candidate corruption and image-validator failures. The additional
+`test_recovery_images.py` passed with real esptool and both actual candidate apps
+in synthetic full-flash fixtures. Boot containers are deliberately non-bootable
+and asset bytes deliberately are not a filesystem; recovery approval, identity,
+security and healthy-assets flags remain false. No actual device backup was read.
+
+The packager completed both builds and all offline regressions and published:
+
+`integration/release/candidate_9a5f16878047_b70efec9cb04_4d3774f2eff1/`
+
+Standalone candidate verification passed. This is still an app-only candidate;
+the recovery tool separately prepares private review bundles from explicit full
+backups and has no flash execution path. The production/security/asset/restore
+and runtime acceptance boundaries remain in [RECOVERY.md](RECOVERY.md) and
+[the issue audit](ISSUES.md). Firmware commits use Conventional Commit titles
+only, without coauthors; whitespace and commitlint checks passed. Pending user
+files/proofs were checked against snapshots and preserved. Both protocol copies
+remain identical; only the shared NFC IDs were committed, leaving the prior
+pending Wi-Fi extension outside these commits.
+
+No serial port, RF device, live SD/NVS/flash, production key or eFuse was accessed.
+No issue is closed by this record. Optional NFC emulation/session, asynchronous/
+file Sub-GHz and raw/session/node LoRa adapters remain code work under #156;
+release size/identities/restoration and the original Bash reproduction remain
+separate unfinished requirements. #163, #64, HLE and haptics remain excluded.

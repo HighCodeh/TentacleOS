@@ -61,3 +61,21 @@ builds are recorded in [TESTS.md](TESTS.md#p4-portable-crypto-lto-checkpoint).
 Issue #157 remains open for runtime performance, internal heap/stack acceptance
 and the reviewed OTA/assets/recovery package. No hardware, flash, production key
 or eFuse was accessed during this optimization.
+
+
+## ABI 1.17 development and secure-size boundary
+
+The 2026-10-22 pair after `53788e90` uses the existing optimization policies and
+original partitions. P4 is 2,946,368 / 2,949,120 bytes (2,752 free); C5 remains
+2,051,056 / 2,097,152 bytes (46,096 free). Current IR/NFC adapters fit, without
+claiming additional space for all optional APIs. See [the current build record](TESTS.md#shared-irnfc-and-offline-securityrecovery-preparation-build-record).
+
+The new isolated security resolver makes a separate baseline-only projection:
+default 64 KiB secure padding followed by a 4 KiB signature sector would require
+2,953,216 bytes on P4 and 2,101,248 on C5, exceeding each preserved slot by 4,096.
+That is a signing/padding footprint, not a claim that removing only 4 KiB of code
+is sufficient: reaching the preceding padding page can require a larger code
+reduction. A real secure build may also change dependencies and image size.
+No secure binary, partition enlargement or short-partition exception was selected.
+The normal pair remains a development candidate; physical performance and
+internal heap/stack acceptance are still unmeasured.

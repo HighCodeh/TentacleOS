@@ -27,10 +27,10 @@ this work. Feature request #163 is also excluded by user request. No device was 
 | [#135](https://github.com/HighCodeh/TentacleOS/issues/135) | Battery ADC diagnostics exist. PM initialization now acquires a guard before configuring sleep, serializes USB/client holds, preserves failed cleanup and retries failed input transitions. Enabled/disabled host fault-injection passes. Light-sleep remains disabled; UART/USB and peripheral wake/current must be verified on hardware before enabling. |
 | [#143](https://github.com/HighCodeh/TentacleOS/issues/143) | Companion Wi-Fi dispatch exists. Measure actual throughput and validate complete scan/connect/session flows on the paired device. |
 | [#148](https://github.com/HighCodeh/TentacleOS/issues/148) | Physical NFC card test with recorded hardware, card types, read/write/emulation results and field shutdown. |
-| [#152](https://github.com/HighCodeh/TentacleOS/issues/152) | Production Secure Boot v2 and Flash Encryption provisioning for both chips, including keys, recovery and irreversible eFuse review. Both remain disabled. |
+| [#152](https://github.com/HighCodeh/TentacleOS/issues/152) | Isolated paired Secure Boot v2 / release Flash Encryption profiles and an SDK resolver/auditor exist. Real signing identities, signed secure builds fitting the original slots, per-device encryption custody and reviewed two-chip eFuse/recovery provisioning remain. Normal development builds keep both disabled. |
 | [#153](https://github.com/HighCodeh/TentacleOS/issues/153) | Boot-loop/safe-mode/WDT/coredump mechanisms exist. Retained dumps no longer inflate abnormal-reset totals; NVS failures and counter overflow are handled, and the boot-loop decision survives the stable timer. Real-module host fault-injection covers RTC/NVS/timer/heap paths. Physical fault-injection/recovery acceptance and the boot-sound crash workaround remain. |
 | [#156](https://github.com/HighCodeh/TentacleOS/issues/156) | The [source matrix](MATRIX.md) now identifies implemented and missing UI / `.hb` / companion paths. Missing adapters and the physical cross-interface acceptance still need completion. |
-| [#157](https://github.com/HighCodeh/TentacleOS/issues/157) | Measure performance/internal RAM and prepare a reviewed OTA/asset/restore package. P4 portable-crypto size optimization recovered 23,408 bytes before the RF ABI additions, with all 101 libsodium host tests passing; The 2026-10-21 LTO follow-up recovers another 10,304 P4 bytes on the current ESP SCAN candidate, with the utility translation unit excluded from LTO; 10,320 app-slot bytes remain. Device timing remains unmeasured and app-only builds are not a release candidate package. The real app-signing public identity/custody is also required before a production release; configuration support is complete under #149. |
+| [#157](https://github.com/HighCodeh/TentacleOS/issues/157) | App-only candidates and private paired recovery preparation/verification are implemented. Current sizes/hashes are in the latest [validation record](TESTS.md#shared-irnfc-and-offline-securityrecovery-preparation-build-record). The unsigned pair fits; the baseline secure-padding/signature projection exceeds both slots. Further size work, runtime performance/internal heap/stack evidence, production identity/custody and a reviewed deployable asset/restore/release package remain. |
 | [#158](https://github.com/HighCodeh/TentacleOS/issues/158) | Fixed a reproduced BSD/macOS SDK build bug (`stat -c%s` is GNU-only), with an isolated shell regression. The original unnamed Bash report remains unidentified: the user no longer recalls the command and the explanation is on another PC. All reviewed shell files pass syntax checks. The [field guide](FIELD.md) documents current capabilities, bench evidence and the app-only boundary. A supported consumer installation procedure still needs the approved deployment/recovery package. |
 
 ## Validation of this correction batch
@@ -243,3 +243,43 @@ card (#148), throughput (#143), wake/current (#135), watchdog/recovery (#153),
 cross-interface/performance (#156/#157), production identity/eFuse review (#152)
 and missing original Bash reproduction/consumer restoration (#158) cannot be
 reported as passed by substituting host fixtures. #163 and #64 remain excluded.
+
+
+## Shared IR/NFC and offline production-preparation follow-up
+
+ABI 1.16 implements every published IR entry: decoded RX/TX, bounded signed raw
+capture/replay, single-signal SD-file replay and AC state encoding. The native
+app table and JS/Lua bindings share capability/kill-gate checks and persistent
+worker ownership. Symbol storage survives a timed-out RMT operation until
+owned teardown succeeds. The native HEAT/DRY enum difference is translated.
+
+ABI 1.17 adds Classic 1K Key A block read and verified data-block writes for
+four-byte UIDs/SAK 08/88 through native apps, JS/Lua and authenticated companion
+operations 04/05. Manufacturer/trailer writes are rejected; errors and failed
+antenna/power cleanup are shared by STATUS/RECOVER and disconnect cleanup. The
+two hand-maintained protocol-v8 headers reserve identical IDs in the same commit;
+pending user Wi-Fi extensions remain outside those commits.
+
+For #152, `tools/highboy/security.py` resolves/audits isolated production review
+profiles using each actual pinned SDK. Secure Boot v2 RSA-3072 and release-mode
+XTS-AES-128 are selected only in those review outputs; external signing, real
+identities/custody, secure builds/slot checks and physical provisioning remain
+required. Normal development defaults are unchanged. The baseline padding/
+signature projection exceeds both original slots, so more size work is required
+before a secure release; a configuration-resolution pass is not deployment proof.
+
+For #157/#158, `tools/highboy/recovery.py` prepares/verifies private paired
+recovery review bundles from complete capture-hashed backups and a checked
+app-only candidate. It checks maps, chip/image integrity, OTA metadata, slot
+limits, asset presence and copied content before atomic publication. It contains
+no device-write action. Its synthetic tests and real esptool/built-app tests do
+not prove a healthy assets filesystem, a bootable restored pair or physical
+identity/security acceptance. See [the procedure](RECOVERY.md).
+
+These are concrete software deliveries, not closure of all eight issues.
+NFC emulation/session adapters, asynchronous/file Sub-GHz and raw/session/node
+LoRa adapters remain code work under #156. A signed production build fitting the
+original slots and a reviewed deployable restore/release package remain #157;
+the original Bash reproduction is still missing under #158. Physical acceptance
+and production identities remain distinct requirements. No device was accessed,
+no production key was generated and no eFuse was changed by this batch.
