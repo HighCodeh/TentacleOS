@@ -922,3 +922,40 @@ No issue is closed by this record. Optional NFC emulation/session, asynchronous/
 file Sub-GHz and raw/session/node LoRa adapters remain code work under #156;
 release size/identities/restoration and the original Bash reproduction remain
 separate unfinished requirements. #163, #64, HLE and haptics remain excluded.
+
+
+## Sub-GHz shared raw and file replay build record
+
+2026-10-22, code revision `ff4574cf318b743bcc9ccd6fb4e486018e130339`, ABI 1.19.
+The final documentation-only follow-up does not alter firmware sources.
+The packaged worktree includes the user's pending Wi-Fi/UI work, so the
+manifest truthfully records `source_dirty=true`.
+
+App-only candidate: `integration/release/candidate_65ccced3011b_07e0744a04a4_c625be1a2f71/`.
+
+| Target | Application bytes | Original slot bytes | Free bytes | SHA-256 |
+| --- | ---: | ---: | ---: | --- |
+| P4 | 2,947,888 | 2,949,120 | 1,232 | `65ccced3011bc85649b4c321b57dc75c2925ec41e91503a2bd025d2b0667e0c8` |
+| C5 | 2,051,056 | 2,097,152 | 46,096 | `07e0744a04a4f2de265715a6812bac39c5090cbea0ae4eda382710c7f7eab27d` |
+
+`tools/highboy/package.py` passed the full offline runner and both pinned IDF
+builds (P4 5.5.3, C5 6.0.1), then verified and atomically published this pair.
+The standalone package verifier and real-esptool recovery image tests also
+passed. The latter uses synthetic boot containers/assets with the actual built
+apps; it does not certify boot or a real device backup.
+
+Targeted tests cover global complete raw snapshots, missing/short capacity,
+capability/stop gates, failed-cleanup history preservation, RAW/decoded replay,
+legacy and long-name encoders, strict metadata/key overflow, excess pulses,
+malformed paths, NUL/oversize files, allocation failures and retained RMT/SPI
+cleanup. Both actual JS/Lua interpreters cover the new bindings, older ABI
+rejection and combined TX/filesystem approval. The radio-table fixture was
+updated for the newly published entries. Import preservation and commitlint
+passed; formatting was performed only by the pre-commit hook.
+
+Paired SPI remains v8 with matching headers and the C5 memory overlay preserved.
+A balanced-LTO experiment produced `0x2d3220` bytes on P4, exceeding the original
+slot by `0x3220`; it was fully reverted. The selected pair retains the previous
+compiler policy. No physical RF/SD/flash test or production provisioning ran.
+Remaining async Sub-GHz, NFC emulation and full LoRa lifecycle adapters are code
+work, not host-test acceptance or issue closure.

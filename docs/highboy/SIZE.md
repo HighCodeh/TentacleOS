@@ -79,3 +79,22 @@ reduction. A real secure build may also change dependencies and image size.
 No secure binary, partition enlargement or short-partition exception was selected.
 The normal pair remains a development candidate; physical performance and
 internal heap/stack acceptance are still unmeasured.
+
+
+## ABI 1.19 raw capture and file replay checkpoint
+
+The verified app-only pair at code revision `ff4574cf` uses the unchanged selected
+compiler policy and original slots. P4 is **2,947,888 bytes**, leaving **1,232**;
+C5 is **2,051,056 bytes**, leaving **46,096**. Shared raw snapshots, strict RAW
+and decoded parsing and worker-owned file replay add 1,520 P4 bytes compared
+with the ABI 1.17 checkpoint. No component/feature or partition was removed.
+
+An experiment changing only the final LTO partition policy from `one` to
+`balanced` increased P4 to `0x2d3220` (12,832 bytes beyond its slot), so that
+change was rejected and the CMake file restored byte-for-byte. The full offline
+suite, pinned paired builds and candidate verifier passed with the original
+policy. See the [complete build record](TESTS.md#sub-ghz-shared-raw-and-file-replay-build-record).
+
+The 1,232-byte development margin does not solve the secure-padding boundary or
+reserve space for all missing session adapters. #157 remains open for that code
+size work and its performance/release requirements.

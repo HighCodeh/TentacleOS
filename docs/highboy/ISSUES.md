@@ -283,3 +283,28 @@ original slots and a reviewed deployable restore/release package remain #157;
 the original Bash reproduction is still missing under #158. Physical acceptance
 and production identities remain distinct requirements. No device was accessed,
 no production key was generated and no eFuse was changed by this batch.
+
+
+## Sub-GHz shared raw and file replay follow-up
+
+ABI 1.18 exposes the complete last successful bounded capture via `get_raw`,
+including undecoded signals. ABI 1.19 exposes SD-file replay through the same
+persistent RF worker used by raw transmission. Both are available to native
+apps and JavaScript/Lua with explicit version/capability checks. RX snapshots
+are globally bounded to one PSRAM buffer and survive failed captures/cleanup;
+short output capacity returns an error without copying a prefix.
+
+The UI and ABI now share the actual RAW/decoded capture parser and registry
+encoders. Numeric overflow, malformed/duplicate metadata, oversized keys,
+truncated pulse trains and unsupported encoders fail. App replay validates the
+complete file, path, supported band, preset, pulse count and duration before
+touching the radio, and retains in-flight RMT storage if teardown fails.
+The native replay parser runs before stopping an existing receiver.
+
+This implements the remaining file/raw-retrieval portion of #156. Its async
+Sub-GHz session lifecycle, NFC emulation/session and LoRa raw/session/node
+adapters still require code. These changes do not close #156 or certify the
+physical cross-interface matrix. #157 still needs substantial size work for
+secure signing and further adapters; no partition was enlarged. An experiment
+with balanced LTO increased P4 beyond its slot and was fully reverted. No radio,
+SD card, device flash or production identity was accessed by the host tests.
