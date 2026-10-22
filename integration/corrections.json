@@ -1272,6 +1272,24 @@
       "before_sha256": "1c163305a1326773815d9dbe472cd68e2642375572abc207bb178602018bc32f",
       "after_sha256": "7fa3ddcf726d182238a6b228d24b2a8aeb3f1340b42acaa2b23478c2eb35b0c3",
       "reason": "Serialize USB/client wake holds, acquire a guard before enabling PM, retry unchanged failed input transitions and retain failed initialization cleanup; keep the integrated PM-disabled policy unchanged."
+    },
+    "firmware_p4/components/Service/ota/ota_service.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "9e0087e954fd2501d62a591bf918d9b127c440671bd4d9de9f14f1158459a0ae",
+      "after_sha256": "d316eb63f50518adffd3e266d0a797ffc2fbd06ac16b9cf9a31c852213633314",
+      "reason": "Harden native P4 OTA preflight/ownership/cleanup and P4/C5 confirmation errors; connect the actual SD update UI to native workers/progress instead of fabricated versions and timed reboot."
+    },
+    "firmware_p4/components/Service/ota/include/ota_service.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "0c1f74e2159e079043a17352a34c87ce35b4a376e720f9c82b4f82981944dd3b",
+      "after_sha256": "80b20cd9c9a8cc0cd2bfdeeb0244d383ab2c362d6fec64e693595158a12c415a",
+      "reason": "Harden native P4 OTA preflight/ownership/cleanup and P4/C5 confirmation errors; connect the actual SD update UI to native workers/progress instead of fabricated versions and timed reboot."
+    },
+    "firmware_c5/components/Service/ota/ota_service.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "13c42b9a04596dae27bba3e016b8b54070a1ad9a708ee93e1a3dd966fec107c6",
+      "after_sha256": "cbe5bff51fa17eb9018e2895c91be125377fe0b18aba247ddc849ffd7adc2e0f",
+      "reason": "Harden native P4 OTA preflight/ownership/cleanup and P4/C5 confirmation errors; connect the actual SD update UI to native workers/progress instead of fabricated versions and timed reboot."
     }
   }
 }

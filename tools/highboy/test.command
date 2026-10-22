@@ -4,6 +4,7 @@ set -euo pipefail
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 python3 "$repo/tools/highboy/check_contracts.py"
 python3 "$repo/tools/highboy/test_contracts.py"
+python3 "$repo/tools/ota/test_ota.py"
 python3 "$repo/tools/boot_report/test_boot_report.py"
 python3 "$repo/tools/power_policy/test_power_policy.py"
 python3 "$repo/tools/app_sdk/test_trust_config.py"
