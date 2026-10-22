@@ -28,6 +28,8 @@ def main():
                             str(HERE / 'test_boot_report.c'), '-o', str(binary)], check=True)
             subprocess.run([str(binary)], check=True, timeout=30)
 
+    subprocess.run([os.sys.executable, str(HERE/'test_operations.py')], check=True, timeout=120)
+
 
 if __name__ == '__main__':
     main()

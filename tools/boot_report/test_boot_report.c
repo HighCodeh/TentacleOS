@@ -75,6 +75,7 @@ esp_err_t esp_timer_delete(esp_timer_handle_t timer) {
 static void reset_boot(esp_reset_reason_t reason) {
   assert(!s_open && s_allocations==0);s_reason=reason;s_crash_captured=false;
   memset(&s_crash,0,sizeof(s_crash));s_boot_total=s_panic_total=0;
+  boot_report_reset();
   s_is_bootloop=false;s_stable_timer=NULL;s_timer_live=false;
   s_no_memory=false;s_fail_get=s_fail_set=0;
   s_open_error=s_commit_error=s_summary_error=s_erase_error=ESP_OK;
@@ -129,7 +130,14 @@ int main(void) {
   reset_boot(ESP_RST_PANIC);boot_report_track_bootloop();assert(boot_report_abnormal_boots()==1 && !boot_report_in_bootloop());
   reset_boot(ESP_RST_INT_WDT);boot_report_track_bootloop();assert(boot_report_abnormal_boots()==2 && !boot_report_in_bootloop());
   reset_boot(ESP_RST_BROWNOUT);boot_report_track_bootloop();assert(boot_report_abnormal_boots()==3 && boot_report_in_bootloop());
-  s_timer_args.callback(s_timer_args.arg);assert(boot_report_abnormal_boots()==0 && boot_report_in_bootloop());
+  boot_report_complete();boot_report_mark_healthy();assert(boot_report_abnormal_boots()==3);
+  boot_report_reset();s_timer_args.callback(s_timer_args.arg);
+  assert(boot_report_abnormal_boots()==3 && boot_report_in_bootloop());
+  boot_report_mark_healthy();assert(boot_report_abnormal_boots()==3);
+  boot_report_record("lvgl",true,ESP_FAIL);boot_report_complete();boot_report_mark_healthy();
+  assert(boot_report_abnormal_boots()==3);
+  boot_report_reset();boot_report_complete();boot_report_mark_healthy();
+  assert(boot_report_abnormal_boots()==0 && boot_report_in_bootloop());
   pthread_t task;assert(pthread_create(&task,NULL,clear_stable,NULL)==0);
   for(unsigned i=0;i<10000;++i){(void)boot_report_abnormal_boots();assert(boot_report_in_bootloop());}
   assert(pthread_join(task,NULL)==0);
@@ -138,6 +146,7 @@ int main(void) {
   assert(boot_report_abnormal_boots()==UINT32_MAX && boot_report_in_bootloop());
   reset_boot(ESP_RST_SW);boot_report_track_bootloop();assert(boot_report_abnormal_boots()==0 && !boot_report_in_bootloop());
   reset_boot(ESP_RST_PANIC);s_create_error=ESP_FAIL;boot_report_track_bootloop();assert(s_stable_timer==NULL && s_warnings>0);
+  boot_report_complete();boot_report_mark_healthy();assert(boot_report_abnormal_boots()==1);
   reset_boot(ESP_RST_PANIC);s_start_error=ESP_FAIL;boot_report_track_bootloop();assert(s_stable_timer==NULL && !s_timer_live);
   reset_boot(ESP_RST_PANIC);s_start_error=s_delete_error=ESP_FAIL;boot_report_track_bootloop();
   assert(s_stable_timer!=NULL && s_timer_live && boot_report_in_bootloop());
