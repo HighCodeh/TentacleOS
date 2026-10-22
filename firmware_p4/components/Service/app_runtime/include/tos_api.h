@@ -576,7 +576,7 @@ typedef struct tos_api {
   const tos_rfid_api_t *rfid;     ///< native LF capture (minor 10+); needs TOS_CAP_RADIO_RX
   const tos_ir_api_t *ir;         ///< decoded infrared (minor 11+); receive/send capabilities
   const tos_subghz_api_t *subghz; ///< captured results only (minor 12+); radio-rx
-  const tos_lora_api_t *lora;     ///< chat history (minor 12+), queued text (minor 14+); RX/TX caps
+  const tos_lora_api_t *lora;     ///< chat/text; copied nodes (minor 20+); per-call RX/TX caps
 } tos_api_t;
 
 /** @brief The shared, const host API table handed to every app at entry. */

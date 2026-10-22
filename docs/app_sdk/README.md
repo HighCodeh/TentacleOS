@@ -540,7 +540,7 @@ busy gate/chat lock or full queue. Capability denial is `ESP_ERR_NOT_SUPPORTED`.
 A native poll worker consumes each item once. Backend failure is logged and
 omits the outgoing chat record. App termination cannot leave dangling pointers;
 an accepted item continues independently of the app. The native session persists
-until reboot. Raw PHY/start/stop/node/RNode entries remain NULL. See the
+until reboot. Raw PHY/start/stop/RNode entries remain NULL; ABI 1.20 adds copied node access below. See the
 [native queue contract](../LoRa/README.md#queued-mesh-text-submission-abi-114).
 
 The `tools/app_sdk/mesh_text` example requests only TX capability (`0x04`) and

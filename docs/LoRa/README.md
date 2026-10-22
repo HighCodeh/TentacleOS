@@ -292,7 +292,7 @@ cursor per app/run. Its first mutex publication is atomic across UI, mesh and
 app callers; overwritten records are skipped and sequence wrap is handled.
 Polling does not start a mesh or claim the SX1262. ABI 1.14 adds queued text
 submission to an already active session as described below. Startup, teardown,
-raw PHY, node access and RNode app entries remain NULL.
+raw PHY and RNode app entries remain NULL; ABI 1.20 adds copied node access below.
 See the [ABI contract](../app_sdk/README.md#native-radio-observations-abi-112).
 
 

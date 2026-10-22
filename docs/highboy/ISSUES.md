@@ -308,3 +308,36 @@ physical cross-interface matrix. #157 still needs substantial size work for
 secure signing and further adapters; no partition was enlarged. An experiment
 with balanced LTO increased P4 beyond its slot and was fully reverted. No radio,
 SD card, device flash or production identity was accessed by the host tests.
+
+
+## LoRa copied node observations and receive parsing follow-up
+
+ABI 1.20 implements the remaining LoRa node-count/get entries for native apps
+and JavaScript/Lua. They share the native database-copy path now used by UI
+node lists and companion sender lookup. Writers and snapshots use a separate
+atomically published mutex; lock/allocation errors propagate through the new
+API instead of returning borrowed entries. Node indices can change between
+count/get. MeshCore contacts do not store RSSI/SNR and explicitly report zero;
+Meshtastic uses its actual stored metrics and bounded name/ID.
+
+The same change closes concrete receive-parser defects: MeshCore checks group,
+direct and path ciphertext size against destination buffers before decrypting,
+and direct-message ACK hashing uses a length-bounded scan. Meshtastic validates
+remaining length before copying length-delimited fields and advancing fixed32
+fields. Host ASan/UBSan cases cover oversized/non-terminated payloads and
+malformed User protobufs. The actual databases are stressed with concurrent
+readers/writers. Crypto/NVS/radio calls in those tests remain explicit fixtures.
+MeshCore routing copies contacts and updates paths by public key under the
+writer lock, preventing writes to an unrelated reused database slot.
+
+For #157, compact `Core`/`resource_mgr` compilation recovers 2,464 bytes on the
+held ABI 1.19 tree. With the new LoRa code, the final P4 build retains 2,256 free
+bytes, a net 1,024-byte gain over the start of this batch. Drivers, emulators,
+C5, crypto utility opacity, protocol v8 and original app slots are unchanged.
+This is development margin, not completion of the secure signing-size work.
+
+These changes advance #153/#156/#157. The remaining #156 code includes async
+Sub-GHz lifecycle, NFC emulation/session ownership and LoRa raw/start/stop
+adapters. No new app radio session is claimed by node observations. Hardware
+acceptance and production release requirements are not replaced by these tests;
+no issue was closed by this batch.

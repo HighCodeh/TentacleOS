@@ -115,3 +115,18 @@ opaque to LTO. Original OTA slots and features are preserved. These are linked
 application sizes, not live heap/stack or hardware performance measurements.
 The following LoRa node adapters consume part of this recovered margin; their
 final paired build record supersedes the control-only measurement.
+
+
+## ABI 1.20 LoRa node checkpoint
+
+After the new copied node observations and receive-parser fixes, the verified
+P4 is **2,946,864 bytes**, leaving **2,256** in its unchanged 2,949,120-byte slot.
+C5 remains **2,051,056 bytes**, leaving **46,096**. Relative to the ABI 1.19
+starting pair, this batch recovers a net **1,024 P4 bytes** while adding the node
+adapters. Full tests, hashes and source status are recorded in
+[TESTS.md](TESTS.md#lora-copied-nodes-and-bounded-receive-build-record).
+
+This remains development margin. It does not cross the previously documented
+secure-padding boundary or reserve all space needed for async/session adapters.
+No driver/emulator/crypto implementation or partition map was changed to obtain
+these measurements; runtime memory/performance acceptance remains separate.

@@ -174,8 +174,7 @@ esp_err_t mc_db_init(void);
 const meshcore_channel_t *mc_channels_array(void);
 
 /**
- * @brief Mutable access to the contacts array for internal writes
- *        (process_path_payload, etc).
+ * @brief Update the current contact matching a public key under the writer lock.
  */
 esp_err_t
 mc_contact_update_path(const uint8_t pub_key[32], uint8_t encoded_length, const uint8_t *path);

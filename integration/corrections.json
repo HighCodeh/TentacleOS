@@ -990,8 +990,8 @@
     "firmware_p4/components/Service/app_runtime/include/tos_api.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "9c2020f1c91901d7b2335daccc2055d14c8646b20094bab14fc8bdd3a83b0b5d",
-      "after_sha256": "99f4f7cb6c9309a1663dd81a39a3b980fe2b24d9148809cd991cec14e7837d8f",
-      "reason": "feat(lora): expose copied mesh nodes through the shared app and script ABI",
+      "after_sha256": "8e2efff7acc0f8bf17e9e6bb6f59e1175f676545cd055264bc094b0e98d0d6f2",
+      "reason": "docs(lora): record copied node contracts and paired validation",
       "review_history": [
         {
           "after_sha256": "ef540914e454c49228b43f64b0605a2094d3ac153b992d56ca51a2292a1f1a34",
@@ -1048,10 +1048,14 @@
           "reason": "feat(subghz): replay validated capture files through the shared RF worker",
           "pre_format_sha256": "8063fca5279e7aafcc923c4bf0a467a1867b8a3e82440942d792216ba982cfe0",
           "formatter": "clang-format version 22.1.5"
+        },
+        {
+          "after_sha256": "99f4f7cb6c9309a1663dd81a39a3b980fe2b24d9148809cd991cec14e7837d8f",
+          "reason": "feat(lora): expose copied mesh nodes through the shared app and script ABI",
+          "pre_format_sha256": "1aaef5cf74f556291a177393dd4a91d38edfd32a81369fefad29b02bb36a7597",
+          "formatter": "clang-format version 22.1.5"
         }
-      ],
-      "pre_format_sha256": "1aaef5cf74f556291a177393dd4a91d38edfd32a81369fefad29b02bb36a7597",
-      "formatter": "clang-format version 22.1.5"
+      ]
     },
     "firmware_c5/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -1434,10 +1438,16 @@
     "firmware_p4/components/Applications/LoRa/meshcore/include/meshcore_internal.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "9c80498d9324376f6daacb66160be7a8071c387809957a521981c6e6da141cae",
-      "after_sha256": "3ac7ee7cf62945b4bf08118bb9dc92bfbbd843a1629c987fb63f21ce92c0d7b2",
-      "reason": "fix(lora): synchronize node snapshots and bound mesh receive parsing",
-      "pre_format_sha256": "e74e5ef9272fa729ebdf7cfd22b4a58a1497210a92aa89bed91ec7cd268bc08a",
-      "formatter": "clang-format version 22.1.5"
+      "after_sha256": "b4d9bad85123a0b587239d817b37dd9cdfd0a7581153077255748d74f9f73b49",
+      "reason": "docs(lora): record copied node contracts and paired validation",
+      "review_history": [
+        {
+          "after_sha256": "3ac7ee7cf62945b4bf08118bb9dc92bfbbd843a1629c987fb63f21ce92c0d7b2",
+          "reason": "fix(lora): synchronize node snapshots and bound mesh receive parsing",
+          "pre_format_sha256": "e74e5ef9272fa729ebdf7cfd22b4a58a1497210a92aa89bed91ec7cd268bc08a",
+          "formatter": "clang-format version 22.1.5"
+        }
+      ]
     }
   }
 }

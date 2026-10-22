@@ -959,3 +959,46 @@ slot by `0x3220`; it was fully reverted. The selected pair retains the previous
 compiler policy. No physical RF/SD/flash test or production provisioning ran.
 Remaining async Sub-GHz, NFC emulation and full LoRa lifecycle adapters are code
 work, not host-test acceptance or issue closure.
+
+
+## LoRa copied nodes and bounded receive build record
+
+2026-10-22, executable source revision `6d3ce5e7e7b7adb952ac18244fecacf7f5adf373`,
+ABI 1.20. The documentation follow-up changes prose/header comments only; no
+executable declarations/statements change. Pending user Wi-Fi/UI changes remain
+in the worktree and the manifest correctly reports `source_dirty=true`.
+
+App-only candidate: `integration/release/candidate_558a33d25d9c_bc26ce7b2fab_b29382bb7d99/`.
+
+| Target | Application bytes | Original slot bytes | Free bytes | SHA-256 |
+| --- | ---: | ---: | ---: | --- |
+| P4 | 2,946,864 | 2,949,120 | 2,256 | `558a33d25d9c6f7f18ab9bfaa7fbaa6de5f1e1922ee0ac5e1cc78a4335541fb8` |
+| C5 | 2,051,056 | 2,097,152 | 46,096 | `bc26ce7b2fabbd4bb7f0b5a9e33af22a4e5978c91ff38c03ea657245f35e3660` |
+
+`tools/highboy/package.py` passed the full offline suite and the pinned P4
+5.5.3 / C5 6.0.1 builds before atomic publication. The standalone verifier and
+real-esptool recovery image tests passed with this pair too. Recovery fixtures
+use synthetic boot containers/assets with the actual built apps, not real
+device backups or boot acceptance.
+
+The new `tools/lora_nodes/test_nodes.py` compiles the actual Meshtastic/MeshCore
+databases, session copy routines and receive handlers with ASan/UBSan. Concurrent
+readers/writers verify whole-record copies and bounded/terminated names; cases
+cover mutex allocation/timeouts, removed contacts/path updates, malformed
+protobuf lengths, non-terminated DM plaintext and oversized group/direct/path
+payloads. Crypto, NVS, FreeRTOS and radio operations are explicit fakes.
+Actual JS/Lua tests and native API tests cover node/count results, capabilities,
+old ABI rejection, invalid/missing indices and backend errors. Existing native
+chat startup/queue/ring and resource-manager tests remain passing.
+
+Generated compile commands confirm final `-Os -flto=2 -ffat-lto-objects` for
+Core/resource_mgr and the unchanged `-O2` CC1101 policy. Crypto utility compilation
+still ends with `-fno-lto`. Emulators, C5 policy, shared protocol v8 and all eight
+C5 memory settings remain preserved. Core-only optimization recovers 2,464 bytes;
+the final batch retains 1,024 more P4 bytes than its starting ABI 1.19 pair.
+A link-only no-inline-once experiment did not help and was fully removed.
+
+Import preservation and Conventional Commit checks passed. Only the pre-commit
+hook formatted firmware. No device, production identity, eFuse or serial port
+was accessed. This remains an app-only development candidate; async Sub-GHz,
+NFC emulation/session and LoRa raw/start/stop adapters remain code work.
