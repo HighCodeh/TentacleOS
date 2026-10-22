@@ -79,7 +79,7 @@ Bring-up derives `node_num` from the MAC, loads persisted preset/region (default
 ```c
 esp_err_t meshtastic_mesh_init(uint32_t node_num);
 esp_err_t meshtastic_mesh_start(void);
-void      meshtastic_mesh_stop(void);
+esp_err_t meshtastic_mesh_stop(void);
 esp_err_t meshtastic_mesh_send(const uint8_t *pb_data, uint16_t pb_len);
 void      meshtastic_mesh_poll(void);
 esp_err_t meshtastic_mesh_send_nodeinfo(void);
@@ -198,7 +198,7 @@ void      meshcore_phoneapi_push_path_updated(const meshcore_contact_t *contact)
 
 ```c
 esp_err_t meshcore_phone_bridge_init(const char *name_prefix);  // NULL -> "Highboy-MC"
-void      meshcore_phone_bridge_stop(void);
+esp_err_t meshcore_phone_bridge_stop(void);
 esp_err_t meshcore_phone_bridge_ble_start(void);
 esp_err_t meshcore_phone_bridge_ble_stop(void);
 bool      meshcore_phone_bridge_is_connected(void);   // ble_connected
@@ -292,7 +292,9 @@ cursor per app/run. Its first mutex publication is atomic across UI, mesh and
 app callers; overwritten records are skipped and sequence wrap is handled.
 Polling does not start a mesh or claim the SX1262. ABI 1.14 adds queued text
 submission to an already active session as described below. Startup, teardown,
-raw PHY and RNode app entries remain NULL; ABI 1.20 adds copied node access below.
+At that checkpoint raw PHY and RNode entries remained NULL; ABI 1.20 adds copied
+node access below, and ABI 1.23 implements raw/mesh lifecycle while retaining
+the explicit P4 RNode exclusion.
 See the [ABI contract](../app_sdk/README.md#native-radio-observations-abi-112).
 
 

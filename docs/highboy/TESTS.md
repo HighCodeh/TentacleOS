@@ -1057,3 +1057,49 @@ Commitlint, whitespace and import-preservation checks passed. Firmware formattin
 was performed only by the pre-commit hook. The tiny P4 margin does not solve
 secure padding or reserve room for remaining NFC/LoRa adapters; no physical
 acceptance or issue closure is claimed by this batch.
+
+
+## NFC and LoRa owned lifecycle build record
+
+Executable source: `9fbbd97d0a271bae32636d215b60329f17923fd2`, ABI 1.23.
+The package includes the preserved pre-existing Wi-Fi/UI/updater work and records
+`source_dirty=true`. Subsequent documentation-only commits do not change these
+binaries. Verified app-only candidate:
+`integration/release/candidate_96dd00e16235_ef9b35adf7d0_d6622488c52e/`.
+
+| Target | SDK | App bytes | Original slot | Free | SHA-256 |
+| --- | --- | ---: | ---: | ---: | --- |
+| P4 | v5.5.3 | 2,942,224 | 2,949,120 | 6,896 | `96dd00e1623589415765a169b09a81b49a719797f70e48f64e8c2a27206635db` |
+| C5 | v6.0.1 | 2,051,056 | 2,097,152 | 46,096 | `ef9b35adf7d0b8362dd9e42ded137dec3fdda922b933dd6138b669c5dcb5316f` |
+
+`tools/highboy/package.py` passed both exact pinned builds, the complete offline
+suite, original app-slot and eight-setting C5 overlay checks, paired protocol-v8
+headers, linked preservation checks and atomic package publication. The unchanged
+runner fingerprint is
+`3b7ab188670d774171e88207e63b57a8b1b425838e3e3562bc30ad5c0747a4bc`;
+its existing RF/radio ABI runners now invoke the new production lifecycle tests.
+The standalone package verifier and real-esptool recovery-image fixture tests
+also passed. The expected wrong-chip warning belongs to a negative fixture;
+synthetic boot/assets fixtures are not physical boot/restoration evidence.
+
+New ASan/UBSan tests execute production NFC app/listener startup, cancellation,
+foreign/stale owners, retained failed-OFF cleanup, task creation and setup failure,
+and SPI/IRQ failure injection at every target configure/listen/start operation.
+Production LoRa raw/mesh wrappers cover parameter/capability rejection, valid
+packet copies, corrupted-packet filtering, actual TxDone versus TX timeout,
+preflight transmit refusal, native-owner refusal, cancellation and retained HAL
+cleanup. Actual native session stop/owner functions, poll/TX/IRQ stop routines,
+phone-bridge stop functions and the stream barrier run against delayed/failing
+acknowledgement fixtures. Context bind/rebind/unbind checks all three cancellation
+hooks. Real JavaScript/Lua tests exercise the new NFC/LoRa methods, typed results,
+empty polls, permissions, bad hex/power and older-ABI rejection.
+
+Commitlint and commit-range whitespace checks passed. Pre-commit formatting was
+performed by the configured hook, never by a manually invoked formatter. All
+pre-existing user files and correction proofs were hash-audited as preserved;
+the SPI/TESTS documentation appends were staged separately from user edits.
+No push, device access, flash, production signing identity or provisioning was
+performed. Physical RF/mesh, C5 transport, memory/stack and timing acceptance
+remain unverified. #156 completes the requested source/interface matrix without
+waiting for physical acceptance; this is not a production release or resolution
+of #152/#153/#157.

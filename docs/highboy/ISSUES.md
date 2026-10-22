@@ -20,6 +20,8 @@ this work. Feature request #163 is also excluded by user request. No device was 
 
 | [#149](https://github.com/HighCodeh/TentacleOS/issues/149) | Self-contained Wi-Fi/BLE/NFC/RFID/IR/Sub-GHz/LoRa types and versioned tables are published through ABI 1.15; supported operations use capability/cancellation/ownership adapters and JS/Lua bindings. Build-local public-key replacement and production rejection of missing/development keys are implemented. Real Ed25519 bundle verification is host-tested. The user explicitly deferred the real production identity and requested configuration support first. Optional unpublished adapters remain in #156; production identity/custody is a release prerequisite in #157. See the scope reconciliation below. |
 
+| [#156](https://github.com/HighCodeh/TentacleOS/issues/156) | The [source/interface matrix](MATRIX.md) is complete at the requested code boundary. ABI 1.22 supplies owned NFC UID emulation; ABI 1.23 supplies raw LoRa and complete owned mesh startup/teardown, shared with JS/Lua. Native ownership, callback/worker drainage and retained failed cleanup pass host tests and both pinned builds. The user requested completion without waiting for physical acceptance; device tests remain unverified, and P4 RNode retains the explicit #145 exclusion. |
+
 ## Still open
 
 | Issue | Remaining work |
@@ -29,7 +31,6 @@ this work. Feature request #163 is also excluded by user request. No device was 
 | [#148](https://github.com/HighCodeh/TentacleOS/issues/148) | Physical NFC card test with recorded hardware, card types, read/write/emulation results and field shutdown. |
 | [#152](https://github.com/HighCodeh/TentacleOS/issues/152) | Isolated paired Secure Boot v2 / release Flash Encryption profiles and an SDK resolver/auditor exist. Real signing identities, signed secure builds fitting the original slots, per-device encryption custody and reviewed two-chip eFuse/recovery provisioning remain. Normal development builds keep both disabled. |
 | [#153](https://github.com/HighCodeh/TentacleOS/issues/153) | Boot-loop/safe-mode/WDT/coredump mechanisms exist. Retained dumps no longer inflate abnormal-reset totals; NVS failures and counter overflow are handled, and the boot-loop decision survives the stable timer. Real-module host fault-injection covers RTC/NVS/timer/heap paths. Physical fault-injection/recovery acceptance and the boot-sound crash workaround remain. |
-| [#156](https://github.com/HighCodeh/TentacleOS/issues/156) | The [source matrix](MATRIX.md) now identifies implemented and missing UI / `.hb` / companion paths. Missing adapters and the physical cross-interface acceptance still need completion. |
 | [#157](https://github.com/HighCodeh/TentacleOS/issues/157) | App-only candidates and private paired recovery preparation/verification are implemented. Current sizes/hashes are in the latest [validation record](TESTS.md#shared-irnfc-and-offline-securityrecovery-preparation-build-record). The unsigned pair fits; the baseline secure-padding/signature projection exceeds both slots. Further size work, runtime performance/internal heap/stack evidence, production identity/custody and a reviewed deployable asset/restore/release package remain. |
 | [#158](https://github.com/HighCodeh/TentacleOS/issues/158) | Fixed a reproduced BSD/macOS SDK build bug (`stat -c%s` is GNU-only), with an isolated shell regression. The original unnamed Bash report remains unidentified: the user no longer recalls the command and the explanation is on another PC. All reviewed shell files pass syntax checks. The [field guide](FIELD.md) documents current capabilities, bench evidence and the app-only boundary. A supported consumer installation procedure still needs the approved deployment/recovery package. |
 
@@ -378,3 +379,26 @@ The remaining #156 code is NFC emulation/session ownership and LoRa raw/start/
 stop adapters. Production identities, release/restoration work, original Bash
 reproduction and physical acceptance for the other issues remain distinct.
 No issue was closed and no device or production key was accessed in this batch.
+
+
+## Issue 156 code completion
+
+The remaining NFC emulation and LoRa raw/mesh lifecycle adapters are implemented
+and published, with matching JavaScript/Lua bindings, canonical subsystem docs
+and the updated peripheral matrix. NFC app and native listener workers reserve
+the antenna across startup, use and retained failed cleanup. Every NFC target
+startup SPI/IRQ error now propagates. LoRa raw, native mesh, receive lab and
+console diagnostics share a single radio reservation. Private native owner tokens
+prevent adoption or stale teardown of another stack. Mesh stop acknowledges poll/
+TX workers, drains stream callbacks, confirms C5 transport stop, and waits for
+IRQ completion and checked standby/HAL removal before releasing the radio.
+
+The [paired validation record](TESTS.md#nfc-and-lora-owned-lifecycle-build-record)
+records the exact candidate and host/hardware boundary. The user explicitly
+requested finishing without waiting for physical testing. #156 is therefore
+implementation-complete at that source/interface scope; no card, RF transmission,
+mesh interoperability, electrical shutdown or live transport result is claimed.
+RNode remains unsupported under #145, while HID layouts, haptics, HLE and feature
+request #163 remain excluded. The other seven in-scope issues retain their own
+code, production, reproduction and device requirements. No firmware was pushed
+or flashed as part of this completion.
