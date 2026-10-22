@@ -1065,3 +1065,6 @@ pytest_embedded_log/
 
 # Claude Code
 CLAUDE.md
+
+# Private paired recovery review bundles contain per-device flash data.
+integration/recovery_candidates/

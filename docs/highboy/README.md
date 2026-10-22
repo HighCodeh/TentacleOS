@@ -245,3 +245,20 @@ writer. It updates P4 only. C5 uses its independent existing update path. A devi
 with another partition map, missing assets or an erased boot/app still requires
 an approved restoration/migration package. Package verification alone does not
 make those states eligible for either update path. See [OTA](../ota/README.md).
+
+
+## Private recovery review bundles
+
+`tools/highboy/recovery.py` prepares and verifies a private paired review bundle
+from two explicit, complete guarded-updater backups and a verified app-only
+candidate. It checks capture hashes, both exact partition maps, boot/application
+image checksums/digests/chip IDs, OTA selection, slot sizes and asset presence
+before atomically publishing anything. The bundle retains full snapshots and
+per-chip candidate offsets; no device or flash action is implemented.
+
+This supplies recovery preparation for #157/#158, not a deployable public release.
+Full snapshots can contain per-device credentials/identities; bundles are private
+and must not be committed or uploaded. Inside this checkout, output is restricted
+to ignored `integration/recovery_candidates/`. Asset presence does not establish
+filesystem health, and physical identity/security/paired boot/full-restore review
+remain explicit false gates. See [the recovery procedure](RECOVERY.md).
