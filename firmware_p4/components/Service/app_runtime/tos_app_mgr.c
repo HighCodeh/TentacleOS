@@ -215,6 +215,17 @@ esp_err_t tos_app_mgr_start(const uint8_t *hb, size_t len, const tos_api_t *api)
   return ESP_OK;
 }
 
+static esp_err_t pause_for_cleanup(TaskHandle_t task) {
+  vTaskSuspend(task);
+  for (uint32_t elapsed = 0; elapsed < APP_KILL_QUIESCE_MS; elapsed += APP_CLEANUP_RETRY_MS) {
+    if (eTaskGetState(task) == eSuspended)
+      return ESP_OK;
+    vTaskDelay(pdMS_TO_TICKS(APP_CLEANUP_RETRY_MS));
+  }
+  vTaskResume(task);
+  return ESP_ERR_TIMEOUT;
+}
+
 esp_err_t tos_app_mgr_stop(const char *name, uint32_t timeout_ms) {
   if (name == NULL || s_mtx == NULL)
     return ESP_ERR_INVALID_ARG;
@@ -232,6 +243,8 @@ esp_err_t tos_app_mgr_stop(const char *name, uint32_t timeout_ms) {
     return ESP_ERR_NOT_FOUND;
 
   a->stop = true; // cooperative: the app polls api->should_stop and returns
+  if (a->task == xTaskGetCurrentTaskHandle())
+    return ESP_ERR_INVALID_STATE;
   uint32_t waited = 0;
   while (a->active && waited < timeout_ms) {
     vTaskDelay(pdMS_TO_TICKS(20));
@@ -276,11 +289,23 @@ esp_err_t tos_app_mgr_stop(const char *name, uint32_t timeout_ms) {
         a->cleaning = false;
         return ESP_ERR_TIMEOUT;
       }
-      vTaskDelete(a->task);
+      TaskHandle_t task = a->task;
+      if (pause_for_cleanup(task) != ESP_OK) {
+        spi_bridge_unlock();
+        host_local_rf_unlock();
+        if (ui_app)
+          lvgl_glue_unlock();
+        a->cleaning = false;
+        return ESP_ERR_TIMEOUT;
+      }
       spi_bridge_unlock();
       host_local_rf_unlock();
       if (ui_app)
         lvgl_glue_unlock();
+      // Keep the task identity allocated until bindings and grants are detached.
+      finish_slot(a);
+      vTaskDelete(task);
+      return ESP_OK;
     }
     finish_slot(a);
     return ESP_OK;

@@ -838,17 +838,23 @@
     "firmware_p4/components/Service/app_runtime/tos_app_mgr.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "77fc8cbac19cdf12a532df413e4f19bd2f0d68a952a23eea6f60031ca580b505",
-      "after_sha256": "cee2e944ac1fb8169c2eda6bd2ffee1c0e5cefc0ae0e8bcebfc5318621807c97",
-      "reason": "Publish native NFC discovery and LF RFID reads additively through the shared ABI, execute on the stable RF worker, and quiesce local operations before forced app deletion.",
+      "after_sha256": "d0452998d5fbfe8c504f20e9035b29dba1a0eaae6699e3263bd9c0549b0119b1",
+      "reason": "fix(apps): clean suspended app ownership before releasing task identities",
       "review_history": [
         {
           "after_sha256": "f32b2c66885c8f4a9e12c09c54abd78123ba856e3afaa5b0c624be6fdbff5a94",
           "reason": "Bind native and interpreted callers safely to the shared ABI, synchronize script lifecycle flags and retain the correct launcher on UI teardown.",
           "pre_format_sha256": "1ac25a1fbabde63c7e686a69abe03c1e8c115b5b188adb351d509aff3b1eb497",
           "formatter": "clang-format version 22.1.5"
+        },
+        {
+          "after_sha256": "cee2e944ac1fb8169c2eda6bd2ffee1c0e5cefc0ae0e8bcebfc5318621807c97",
+          "reason": "Publish native NFC discovery and LF RFID reads additively through the shared ABI, execute on the stable RF worker, and quiesce local operations before forced app deletion.",
+          "pre_format_sha256": "f03635de996a3a80ce4f496ddacbc7073cda332d40a3835bb7a0df75b3fa7bbd",
+          "formatter": "clang-format version 22.1.5"
         }
       ],
-      "pre_format_sha256": "f03635de996a3a80ce4f496ddacbc7073cda332d40a3835bb7a0df75b3fa7bbd",
+      "pre_format_sha256": "35a5ccc12dcd9f5e7ff3572fd8cf8adfc4c397f3e8cf537383a0c118fe6619ac",
       "formatter": "clang-format version 22.1.5"
     },
     "firmware_p4/components/Drivers/lf_rfid/lf_rfid.c": {
@@ -1468,6 +1474,14 @@
           "formatter": "clang-format version 22.1.5"
         }
       ]
+    },
+    "firmware_p4/components/Service/app_runtime/include/tos_app_mgr.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "b9849875f0f38cd25c9fd61ed91e6270fbee8d205799a9340547dff68ce5eef4",
+      "after_sha256": "42bfa5f957fdc191c0cb6dfd395bed33b6e74398ca74ae6d742eed748c70be4a",
+      "reason": "fix(apps): clean suspended app ownership before releasing task identities",
+      "pre_format_sha256": "5189b6988da20c98931d930bf5fa130952d3ad415d33ab836988334aad9b137a",
+      "formatter": "clang-format version 22.1.5"
     }
   }
 }

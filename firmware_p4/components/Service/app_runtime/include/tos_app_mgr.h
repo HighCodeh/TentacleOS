@@ -32,7 +32,7 @@ extern "C" {
 
 #include "tos_api.h"
 
-#define TOS_APP_MAX      4  // apps that may run concurrently
+#define TOS_APP_MAX      4 // apps that may run concurrently
 #define TOS_APP_NAME_CAP 16
 
 /**
@@ -43,7 +43,9 @@ esp_err_t tos_app_mgr_start(const uint8_t *hb, size_t len, const tos_api_t *api)
 
 /**
  * @brief Ask the app named @p name to stop and wait up to @p timeout_ms for a
- *        cooperative exit, then force-kill it. ESP_ERR_NOT_FOUND if no such app.
+ *        cooperative exit, then attempt guarded suspension/cleanup/deletion.
+ * @return ESP_ERR_NOT_FOUND if absent, ESP_ERR_TIMEOUT if quiescence fails,
+ *         ESP_ERR_INVALID_STATE for self-stop (cooperative flag is still set).
  */
 esp_err_t tos_app_mgr_stop(const char *name, uint32_t timeout_ms);
 

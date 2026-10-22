@@ -98,6 +98,18 @@ def main():
         kill = manager[manager.index("esp_err_t tos_app_mgr_stop"):]
         assert kill.index("host_local_rf_lock") < kill.index("spi_bridge_lock") < kill.index("vTaskDelete")
         assert "host_local_rf_unlock();\n        ESP_LOGE(TAG, \"bridge busy" in kill
+        def manager_function(signature):
+            start=manager.index(signature);opening=manager.index('{',start);depth=1;end=opening+1
+            while depth:
+                depth+=(manager[end]=='{')-(manager[end]=='}');end+=1
+            return manager[start:end]
+        forced=(ROOT/'tools/app_sdk/tests/test_force_stop.c').read_text()
+        forced=forced.replace('/* MANAGER */',manager_function('static esp_err_t pause_for_cleanup(')+'\n'+manager_function('esp_err_t tos_app_mgr_stop('))
+        (directory/'forced.c').write_text(forced)
+        subprocess.run([*shlex.split(os.environ.get('CC','cc')),'-std=c11','-Wall','-Wextra',
+                        '-Werror','-fsanitize=address,undefined','-I',str(SERVICE/'app_runtime/include'),
+                        str(directory/'forced.c'),'-o',str(executable)],check=True)
+        subprocess.run([str(executable)],check=True,timeout=30)
         print("PASS: natural exit retries a released kill claim instead of remaining suspended")
 
 

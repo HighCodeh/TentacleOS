@@ -731,3 +731,21 @@ Native failure sets resource_lost; a successful new start clears it. Session IDs
 are task-scoped, nonzero and never reused before reboot; stale/foreign IDs fail.
 Separate calls do not freeze snapshots. Full lifecycle details and host-test
 limits are in the [subsystem documentation](../SubGhz/README.md#owned-app-sessions-abi-121).
+
+
+## Forced teardown and task identity
+
+The manager quiesces UI/local-RF/SPI calls before suspending an unresponsive app.
+It waits for `eTaskGetState` to confirm suspension, including cross-core yield,
+then releases those locks and removes the context, sessions, grants, registrations
+and app memory **before** deleting the task. Keeping its task identity allocated
+until cleanup prevents an immediate task-handle reuse from receiving old cleanup.
+If suspension cannot be confirmed, the manager resumes the task, releases the
+locks and cleanup claim, and reports timeout without freeing the app. A stop
+requested from the target's own task sets its cooperative stop flag and returns
+invalid-state instead of trying to suspend/delete itself.
+
+`tools/app_sdk/tests/test_force_stop.c` executes the production stop/helper code
+with scheduler/UI/RF/SPI fixtures, including delayed suspension acknowledgement,
+lock/suspension failures, self-stop and immediate task-identity reuse. Host tests
+verify the ordering and rollback contract, not physical scheduler timing.
