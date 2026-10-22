@@ -1,3 +1,20 @@
+<!--
+SPDX-License-Identifier: GPL-3.0-or-later
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # TentacleOS — Agent Instructions
 
 ## Local integrated branch exception
@@ -96,6 +113,27 @@ decision, or the project, consult its `docs/<component>/README.md` first (each
 component's in-tree README points back to it) instead of guessing from the code.
 Always keep it up to date: when you change a subsystem's behavior, contract, or
 interface, update its doc in the same change.
+
+## License headers — mandatory for every file
+
+Every first-party file you create or modify MUST carry the project's license
+notice at the top. This applies to source files, headers, scripts, tests, build
+files, CI workflows, configuration files and documentation, not only `.c`/`.h`.
+Use the existing TentacleOS GPL-3.0-or-later notice and include
+`SPDX-License-Identifier: GPL-3.0-or-later`; do not copy a different license from
+an illustrative example or invent copyright holders.
+
+Use the format's native comments (`//`, `#`, or HTML comments in Markdown).
+A required shebang or format declaration stays first; the license follows
+immediately. For JSON, binaries or other formats that cannot contain comments,
+place the notice in an adjacent `<filename>.license` file instead of breaking
+the format. Generated artifacts must receive notices through their generator,
+never through manual edits. Preserve third-party copyright/license notices and
+their actual licenses; do not replace them with the project's license. Do not
+alter the text of existing license documents such as `LICENSE`.
+
+Check these notices before finishing a change. Missing license headers are a
+project standards violation, including in scripts and test fixtures.
 
 ## Coding Standards
 
