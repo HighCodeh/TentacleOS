@@ -84,7 +84,7 @@ set_property(SOURCE "${CMAKE_CURRENT_LIST_DIR}/vendor/libsodium/libsodium/src/li
     APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
 
 # Compact system control and arbitration without changing radio timing paths.
-foreach(HIGHBOY_CONTROL_COMPONENT Core resource_mgr)
+foreach(HIGHBOY_CONTROL_COMPONENT Core resource_mgr console argtable3 nvs_flash esp_partition vfs wear_levelling app_update esp_app_format)
     idf_component_get_property(HIGHBOY_CONTROL_LIB ${HIGHBOY_CONTROL_COMPONENT} COMPONENT_LIB)
     target_compile_options(${HIGHBOY_CONTROL_LIB} PRIVATE -Os -flto=2 -ffat-lto-objects)
 endforeach()

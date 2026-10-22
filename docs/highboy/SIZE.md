@@ -165,3 +165,16 @@ on context teardown and the manager's confirmed-suspension cleanup ordering.
 The 528-byte margin remains inadequate for further large adapters and the secure
 signing/padding boundary. Runtime stack/heap/timing, NFC emulation and LoRa
 raw/lifecycle work remain separate; no release readiness is implied.
+
+
+## NFC/LoRa lifecycle compiler policy
+
+The P4 control policy also covers the pinned SDK console, argtable3, NVS,
+partition/VFS/wear-level control, app update and app-format components with
+`-Os -flto=2 -ffat-lto-objects`. SDK implementations, features and original partitions are unchanged. C5, radio
+timing, rasterizer/emulator compiler policies and the opaque sodium utility
+object retain their prior settings. On the held initial NFC tree, adding only console/
+argtable3 recovered 5,344 bytes (2,951,024 to 2,945,680). Later lifecycle code and
+additional control compilation supersede those intermediate image sizes; final
+paired sizes/hashes are recorded in TESTS.md. Host tests and successful builds
+do not establish runtime storage/console/OTA latency or hardware performance.
