@@ -14,10 +14,18 @@
     "firmware_c5/components/Core/sys_monitor.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "7f408eeb8966ddbd0e7af74347292043603816cdac39da85b1c71ad01a936960",
-      "after_sha256": "807cf2b44ab073d76e325261ff68bc17638b672ef0e2c883f40b1c524a1258c3",
-      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
-      "pre_format_sha256": "3c881da0d2747fda79cf8aaad334e57bf10519901338ea18134a81810b214677",
-      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+      "after_sha256": "57ef37c370b5a499518b308db0ba028b5463a0413165b257f027b6b71e3d5a0e",
+      "reason": "fix(monitor): preserve panic diagnostics and require healthy boot progress",
+      "review_history": [
+        {
+          "after_sha256": "807cf2b44ab073d76e325261ff68bc17638b672ef0e2c883f40b1c524a1258c3",
+          "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+          "pre_format_sha256": "3c881da0d2747fda79cf8aaad334e57bf10519901338ea18134a81810b214677",
+          "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+        }
+      ],
+      "pre_format_sha256": "0ec62010da109b0952de43ac588b821e7c7725c02b88c12d4f9b632cd375451c",
+      "formatter": "clang-format version 22.1.5"
     },
     "firmware_c5/components/Service/grok_wifi/grok_wifi.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -1398,16 +1406,28 @@
     "firmware_p4/components/Service/boot_report/boot_report.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "03d9c6877473866c273042a41cd67bbc4ef2ed1f9ec7cb0d0319443bfbc28c02",
-      "after_sha256": "64f9d8d2aa942d8064bb03e0d6b2d0438ad0256e2ba3e9827c81885c1054d941",
-      "reason": "Harden boot diagnostics: count only new abnormal reset reasons, preserve counters on NVS errors, saturate totals/RTC, latch current boot-loop decision, handle summary/timer failures, and document the actual integrated recovery layout.",
-      "pre_format_sha256": "516670eb4b9208848458156739ae05d95884a5091c4c7ed515d5dda47885bf2b",
-      "formatter": "clang-format version 22.1.5"
+      "after_sha256": "723eb15a051d4a341c4ba0f4f8f4ec700d9ba92ebf98f89e8d10a8b20fb0b949",
+      "reason": "fix(monitor): preserve panic diagnostics and require healthy boot progress",
+      "review_history": [
+        {
+          "after_sha256": "64f9d8d2aa942d8064bb03e0d6b2d0438ad0256e2ba3e9827c81885c1054d941",
+          "reason": "Harden boot diagnostics: count only new abnormal reset reasons, preserve counters on NVS errors, saturate totals/RTC, latch current boot-loop decision, handle summary/timer failures, and document the actual integrated recovery layout.",
+          "pre_format_sha256": "516670eb4b9208848458156739ae05d95884a5091c4c7ed515d5dda47885bf2b",
+          "formatter": "clang-format version 22.1.5"
+        }
+      ]
     },
     "firmware_p4/components/Service/boot_report/include/boot_report.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "2b3718f473d94fd6434804909251521325a908e8c341e3b492f69b9e419fced0",
-      "after_sha256": "4fb77490bc4b7012b0da073f6e7b41bfe340386f0c83edb1485d26129146e7b0",
-      "reason": "Harden boot diagnostics: count only new abnormal reset reasons, preserve counters on NVS errors, saturate totals/RTC, latch current boot-loop decision, handle summary/timer failures, and document the actual integrated recovery layout."
+      "after_sha256": "295bd0a71db68d9a9d6fe045d62c83096022ae5701e28031be91096e7ff89d84",
+      "reason": "fix(monitor): preserve panic diagnostics and require healthy boot progress",
+      "review_history": [
+        {
+          "after_sha256": "4fb77490bc4b7012b0da073f6e7b41bfe340386f0c83edb1485d26129146e7b0",
+          "reason": "Harden boot diagnostics: count only new abnormal reset reasons, preserve counters on NVS errors, saturate totals/RTC, latch current boot-loop decision, handle summary/timer failures, and document the actual integrated recovery layout."
+        }
+      ]
     },
     "firmware_p4/components/Service/power_manager/power_manager.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -1640,6 +1660,34 @@
       "before_sha256": "4bfdb2bc9e0eb3021aca1e00f3fa14cf3eef77ee3b822d335aa7c21d70e113c3",
       "after_sha256": "799481fcddd506e2007fc4e5fc3a2c88cd89217617214de99301d92df6624e7a",
       "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown"
+    },
+    "firmware_p4/components/Core/sys_monitor.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "dad83e1d5e99fcc1adfff6e107faf88cb85e8bdaae7e880cc66e06b3a8634ee1",
+      "after_sha256": "927b1de7f3cd88a2b440372a679b3ac7bcd2d8dc31b19817d7e67302bf6c062d",
+      "reason": "fix(monitor): preserve panic diagnostics and require healthy boot progress",
+      "pre_format_sha256": "b41b38e95db49affadbb5dda7998040af0829ba7942382e38d7ee4fa6ecdd04b",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Core/include/sys_monitor.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "c40cca78196e9681f0e47203236ad74ecb36256ebd995eabab072edad587fadb",
+      "after_sha256": "e9dfe9993c218ad8f3e49d9f04f7d47a432daf2481d00f15501e6daea157f8ff",
+      "reason": "fix(monitor): preserve panic diagnostics and require healthy boot progress",
+      "pre_format_sha256": "eb859710cf927ce8b40ee0ec5748de3dc0802b2d9183da72b1790a74736ce27a",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Core/include/sys_monitor.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "cb5ee4523183332d65aaf2518711681e3bcf3e0331b8c1181c2d931a92f78989",
+      "after_sha256": "21a67c2691169f38ba08639658c463b02b2796c7f7b7a0b1c9dab07c2156172a",
+      "reason": "fix(monitor): preserve panic diagnostics and require healthy boot progress"
+    },
+    "firmware_c5/components/Core/kernel.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "83882fd1dfd6447c0c3238bf0aa789cfc95b90be317cb127021315ef2e15852a",
+      "after_sha256": "ddbb508edf90b1ce75fe7659b84e9d62898d79fd75fae738ac5da55b6b6eb690",
+      "reason": "fix(monitor): preserve panic diagnostics and require healthy boot progress"
     }
   }
 }

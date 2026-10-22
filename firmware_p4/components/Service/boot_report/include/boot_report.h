@@ -100,8 +100,8 @@ const char *boot_report_reason_str(esp_reset_reason_t reason);
  * Reads esp_reset_reason() and keeps a counter in RTC_NOINIT memory (survives a
  * reset but not a power cycle, so it never touches flash). An abnormal reason
  * (panic / watchdog / brownout / lockup) increments it; a clean reset or a
- * fresh power-on clears it. Also arms a one-shot timer that clears the counter
- * once the device has been up long enough to be considered stable.
+ * fresh power-on clears it. A one-shot timer permits a later healthy monitor
+ * cycle to clear the counter; elapsed time alone never proves stability.
  */
 void boot_report_track_bootloop(void);
 
@@ -116,6 +116,12 @@ uint32_t boot_report_panic_total(void);
 
 /** @brief Total boots recorded across power cycles (persisted in NVS). */
 uint32_t boot_report_boot_count(void);
+
+/** @brief Publish completion of kernel initialization before stability can be reported. */
+void boot_report_complete(void);
+
+/** @brief Report a healthy monitor cycle; clears the count only after the stable window. */
+void boot_report_mark_healthy(void);
 
 /** @brief Clear the abnormal-boot counter now (a stable boot was reached). */
 void boot_report_mark_stable(void);

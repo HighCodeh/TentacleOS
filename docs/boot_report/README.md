@@ -33,7 +33,10 @@ when the SD is mounted), `assets` (required), `battery` (optional), `audio`
 (optional), `display` (required), `lvgl` (required, recorded only when the panel
 came up). A **required** failure makes `kernel_init` drop into
 [safe mode](../recovery/README.md) instead of booting blind, and the function
-returns `ESP_FAIL`.
+returns `ESP_FAIL`. Manual/boot-loop recovery also returns `ESP_FAIL`, so
+`app_main` never confirms a pending OTA or synchronizes asset version metadata
+from a recovery boot. Monitor creation failure is fatal; console creation failure
+is recorded as optional. NVS initialization errors preserve the existing partition.
 
 Viewer: **View boot map** in the developer menu (`SCREEN_BOOT_MAP`) and in the
 safe-mode menu. Each row shows the stage name (`*` marks required) and its state
@@ -95,7 +98,9 @@ bool boot_report_in_bootloop(void);
 uint32_t boot_report_abnormal_boots(void);
 uint32_t boot_report_panic_total(void);
 uint32_t boot_report_boot_count(void);
-void boot_report_mark_stable(void);
+void boot_report_complete(void);       // kernel finished initialization
+void boot_report_mark_healthy(void);   // healthy monitor cycle
+void boot_report_mark_stable(void);    // explicit counter clear
 ```
 
 - `boot_report_track_bootloop` runs **first in `app_main`** (before
@@ -105,14 +110,14 @@ void boot_report_mark_stable(void);
   distinguishes a real count from the garbage RTC RAM holds after power-on. An
   abnormal reason (panic / task-WDT / int-WDT / WDT / lockup / brownout)
   increments it with saturation at `UINT32_MAX`; a clean reset or power-on clears it.
-- It arms a one-shot `esp_timer` (20 s) that calls `boot_report_mark_stable` to
-  zero the atomic RTC counter once the device has been up long enough to be
-  considered stable, so a single crash never accumulates toward the threshold.
-  The current boot-loop decision is latched before arming that timer: even a
-  delayed kernel initialization still sees the boot-loop condition after 20 s.
-  The timer clears only the count used by subsequent resets, not this boot
-  decision. Timer create/start/delete failures are logged; a failed arm never
-  clears the count.
+- A one-shot `esp_timer` (20 s) permits a later healthy monitor cycle to clear
+  the counter. Time alone never clears it. `boot_report_complete()` must first
+  publish completed kernel initialization, every required stage must have
+  succeeded, and the monitor must observe task-stack, heap and render progress.
+  Failed task snapshots, a stuck first render or failed required initialization
+  cannot be certified stable. The current boot-loop decision remains latched
+  until reset even after a healthy recovery clears the counter for the next boot.
+  Timer create/start/delete failures are logged; a failed arm never clears it.
 - At **3 consecutive abnormal boots** (`BOOT_REPORT_BOOTLOOP_THRESHOLD`),
   `boot_report_in_bootloop()` is true and `kernel_init` drops into
   [safe mode](../recovery/README.md) - the degraded target (no radios, no SD
@@ -150,4 +155,9 @@ summary allocation/read, dump erase errors, timer allocation/arming/deletion
 failures, delayed boot-loop decisions and concurrent stable-counter reads.
 Required-stage failure remains visible even after the bounded boot map fills.
 These tests do not exercise real reset hardware, flash writes or a watchdog
-panic. Device fault-injection and recovery acceptance remain pending under #153.
+panic. The runner also exercises production P4/C5 monitors, the P4 kernel, bounded boot
+audio, I2S writes and factory-reset paths with explicit scheduler/HAL/decoder
+fakes. Monitor failures enter panic recovery, preserving abnormal-reset
+classification and the configured core dump instead of a clean software restart.
+These source-level checks complete #153 at the user-requested code boundary;
+physical watchdog firing, flash-dump integrity and device recovery remain unverified.

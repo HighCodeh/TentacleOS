@@ -22,16 +22,22 @@ extern "C" {
 
 #include <stdbool.h>
 
+#include "esp_err.h"
+
 /**
  * @brief Start the background system monitor task.
  *
  * Feeds the Task Watchdog, watches every task's stack high-watermark, and does a
- * controlled restart (never a vTaskDelete) when a task stays critically low for
- * several consecutive cycles. On the P4 it also watches LVGL render liveness.
+ * panic recovery (never a vTaskDelete) when a task stays critically low for
+ * several consecutive cycles. On the P4 it also watches LVGL render liveness. Duplicate starts are
+ * harmless; task creation failures return ESP_ERR_NO_MEM.
  *
  * @param is_verbose  Log RAM usage every cycle when true.
  */
-void sys_monitor_start(bool is_verbose);
+esp_err_t sys_monitor_start(bool is_verbose);
+
+/** @brief Disable renderer supervision only when display/LVGL never initialized. */
+void sys_monitor_expect_ui(bool is_expected);
 
 #ifdef __cplusplus
 }

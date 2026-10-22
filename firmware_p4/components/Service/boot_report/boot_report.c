@@ -31,7 +31,7 @@ static const char *TAG = "BOOT_REPORT";
 // cycle, and never writes flash. A magic word tells a real count from the
 // garbage RTC RAM holds after power-on.
 #define BOOTLOOP_MAGIC      0x7005B007u
-#define STABLE_UPTIME_US    (20 * 1000 * 1000) // clear the counter after 20 s up
+#define STABLE_UPTIME_US    (20 * 1000 * 1000) // permit a healthy cycle after 20 s up
 #define NVS_NAMESPACE       "boot_report"
 #define NVS_KEY_LAST_REASON "last_reason"
 #define NVS_KEY_PANIC_TOTAL "panic_total"
@@ -40,19 +40,22 @@ static const char *TAG = "BOOT_REPORT";
 static RTC_NOINIT_ATTR uint32_t s_rtc_magic;
 static RTC_NOINIT_ATTR _Atomic(uint32_t) s_rtc_abnormal_count;
 static bool s_is_bootloop;
+static atomic_bool s_can_mark_stable;
 
 static esp_timer_handle_t s_stable_timer = NULL;
 static uint32_t s_panic_total = 0;
 static uint32_t s_boot_total = 0;
 
 static boot_stage_t s_stages[BOOT_REPORT_MAX_STAGES];
-static int s_stage_count = 0;
-static bool s_required_ok = true;
+static atomic_int s_stage_count;
+static atomic_bool s_required_ok = true;
+static atomic_bool s_is_complete;
 
 static crash_info_t s_crash;
 static bool s_crash_captured = false;
 
 void boot_report_reset(void) {
+  atomic_store(&s_is_complete, false);
   s_stage_count = 0;
   s_required_ok = true;
   memset(s_stages, 0, sizeof(s_stages));
@@ -264,10 +267,11 @@ esp_err_t boot_report_clear_crash(void) {
 
 static void stable_timer_cb(void *arg) {
   (void)arg;
-  boot_report_mark_stable();
+  atomic_store(&s_can_mark_stable, true);
 }
 
 void boot_report_track_bootloop(void) {
+  atomic_store(&s_can_mark_stable, false);
   esp_reset_reason_t reason = esp_reset_reason();
 
   // RTC RAM is undefined after a power cycle: a wrong magic means "fresh start".
@@ -288,8 +292,7 @@ void boot_report_track_bootloop(void) {
 
   s_is_bootloop = s_rtc_abnormal_count >= BOOT_REPORT_BOOTLOOP_THRESHOLD;
 
-  // Clear the counter once we have stayed up long enough to call this boot
-  // stable, so a single crash does not accumulate toward the loop threshold.
+  // Elapsed time alone cannot prove that initialization or the renderer made progress.
   const esp_timer_create_args_t args = {
       .callback = stable_timer_cb,
       .name = "boot_stable",
@@ -330,4 +333,15 @@ void boot_report_mark_stable(void) {
   if (previous != 0) {
     ESP_LOGI(TAG, "Boot stable: clearing abnormal-boot counter (was %lu)", (unsigned long)previous);
   }
+}
+
+void boot_report_mark_healthy(void) {
+  if (atomic_load(&s_can_mark_stable) && atomic_load(&s_is_complete) &&
+      boot_report_all_required_ok()) {
+    boot_report_mark_stable();
+  }
+}
+
+void boot_report_complete(void) {
+  atomic_store(&s_is_complete, true);
 }
