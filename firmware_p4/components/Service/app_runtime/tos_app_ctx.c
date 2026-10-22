@@ -23,6 +23,7 @@
 #include "freertos/task.h"
 
 #include "host_link_dispatch.h"
+#include "tos_api_subghz.h"
 
 // One binding per running app task, plus headroom for handoffs.
 #define TOS_MAX_APP_BINDINGS 8
@@ -39,6 +40,7 @@ esp_err_t tos_app_ctx_bind(void *task, tos_app_ctx_t *ctx) {
   if (task == NULL || ctx == NULL)
     return ESP_ERR_INVALID_ARG;
 
+  tos_api_subghz_cancel_owner(task);
   esp_err_t err = ESP_ERR_NO_MEM;
   portENTER_CRITICAL(&s_lock);
   int free_slot = -1;
@@ -65,6 +67,7 @@ out:
 void tos_app_ctx_unbind(void *task) {
   if (task == NULL)
     return;
+  tos_api_subghz_cancel_owner(task);
   portENTER_CRITICAL(&s_lock);
   for (int i = 0; i < TOS_MAX_APP_BINDINGS; i++) {
     if (s_bindings[i].task == task) {

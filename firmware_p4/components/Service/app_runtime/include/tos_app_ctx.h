@@ -82,10 +82,10 @@ void tos_app_regs_record_hostlink(tos_app_regs_t *regs, uint8_t category, uint8_
 /** @brief Unregister everything the app registered (call on app exit). */
 void tos_app_regs_teardown(tos_app_regs_t *regs);
 
-/** @brief Bind a FreeRTOS task (TaskHandle_t) to an app context. */
+/** Bind a task to an app context; cancels prior Sub-GHz work for that task. */
 esp_err_t tos_app_ctx_bind(void *task, tos_app_ctx_t *ctx);
 
-/** @brief Remove the binding for a task. */
+/** Remove a binding and request session cancellation; firmware retains pending hardware cleanup. */
 void tos_app_ctx_unbind(void *task);
 
 /** @brief Context bound to the calling task, or NULL if the caller is firmware. */

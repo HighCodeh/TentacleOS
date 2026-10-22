@@ -21,6 +21,23 @@ int tos_api_subghz_get_raw(int32_t *out,int max) {
 esp_err_t tos_api_subghz_replay(const char *path) {
   (void)path;return ESP_ERR_NOT_SUPPORTED;
 }
+esp_err_t tos_api_subghz_rx_start(uint32_t f,uint8_t p,uint32_t *out) {
+  (void)f;(void)p;(void)out;return ESP_ERR_NOT_SUPPORTED;
+}
+esp_err_t tos_api_subghz_spectrum_start(uint32_t f,uint32_t s,uint32_t *out) {
+  (void)f;(void)s;(void)out;return ESP_ERR_NOT_SUPPORTED;
+}
+int tos_api_subghz_spectrum_poll(uint32_t *f,uint32_t *s,float *out,int max) {
+  (void)f;(void)s;(void)out;(void)max;return -ESP_ERR_NOT_SUPPORTED;
+}
+esp_err_t tos_api_subghz_set_frequency(uint32_t f) {(void)f;return ESP_ERR_NOT_SUPPORTED;}
+esp_err_t tos_api_subghz_session_stop(uint32_t id) {(void)id;return ESP_ERR_NOT_SUPPORTED;}
+static bool s_has_session;
+int tos_api_subghz_session_poll(tos_subghz_signal_t *out,bool *out_owned) {
+  *out_owned=s_has_session;
+  if(s_has_session){*out=(tos_subghz_signal_t){.value=123};return 1;}
+  return 0;
+}
 extern const tos_subghz_api_t tos_subghz_api_impl;
 extern const tos_lora_api_t tos_lora_api_impl;
 static bool s_allowed, s_stopped, s_ready, s_timeout, s_stop_after_lock, s_locked;
@@ -75,8 +92,8 @@ esp_err_t lora_session_nodes_snapshot(uint16_t index,lora_node_t *out,uint16_t *
 int main(void) {
   tos_subghz_signal_t signal;
   tos_lora_msg_t message;tos_lora_node_t node;
-  assert(tos_subghz_api_impl.rx_start==NULL && tos_subghz_api_impl.session_stop==NULL);
-  assert(tos_subghz_api_impl.tx_raw!=NULL && tos_subghz_api_impl.receive!=NULL && tos_subghz_api_impl.spectrum_start==NULL && tos_subghz_api_impl.spectrum_capture!=NULL);
+  assert(tos_subghz_api_impl.rx_start!=NULL && tos_subghz_api_impl.session_stop!=NULL);
+  assert(tos_subghz_api_impl.tx_raw!=NULL && tos_subghz_api_impl.receive!=NULL && tos_subghz_api_impl.spectrum_start!=NULL && tos_subghz_api_impl.spectrum_capture!=NULL);
   assert(tos_subghz_api_impl.get_raw!=NULL && tos_subghz_api_impl.replay!=NULL);
   assert(tos_lora_api_impl.mesh_start==NULL && tos_lora_api_impl.mesh_send_text!=NULL);
   assert(tos_lora_api_impl.configure==NULL && tos_lora_api_impl.rx_start==NULL);
@@ -142,6 +159,9 @@ int main(void) {
   assert(tos_subghz_api_impl.rx_poll(&signal)==1);
   assert(tos_subghz_api_impl.rx_poll(&signal)==0);
   assert(tos_lora_api_impl.mesh_poll(&message)==1);
+  s_has_session=true;
+  assert(tos_subghz_api_impl.rx_poll(&signal)==1 && signal.value==123);
+  s_has_session=false;
   puts("Radio view: capability/cancellation gates, private cursors, bounded snapshots passed");
   return 0;
 }

@@ -116,7 +116,7 @@ while (!api->should_stop() && !api->resource_lost()) {
 
 ## 4. The host API (`tos_api_t`)
 
-The full contract is `Service/app_runtime/include/tos_api.h`. ABI version 1.20.
+The full contract is `Service/app_runtime/include/tos_api.h`. ABI version 1.21.
 
 | Call | Capability | Notes |
 |------|-----------|-------|
@@ -695,3 +695,39 @@ list can change between calls, so callers must handle `ESP_ERR_NOT_FOUND`.
 There is no retained app session or borrowed pointer, and these calls do not
 start a mesh, claim the radio, or provide a stable database traversal token.
 Startup/stop/raw PHY entries remain optional and NULL in this implementation.
+
+
+## Owned Sub-GHz sessions (ABI 1.21)
+
+| Entry | Contract |
+| --- | --- |
+| `rx_start(freq, preset, &id)` | RX approval; same band/preset bounds as receive; one owned windowed RX session |
+| `rx_poll(&signal)` | One complete latest signal (1), none (0), or negative error; native UI observation fallback when caller has no session |
+| `set_frequency(freq)` | RX approval; only the owning running RX task; next window uses the frequency and old pending result is discarded |
+| `spectrum_start(center, span, &id)` | RX approval; same full-band/span validation as spectrum_capture |
+| `spectrum_poll(&start, &step, dbm, max)` | Only owning spectrum task; max at least 80; complete frame (80), none (0), or negative error; no partial copy |
+| `session_stop(id)` | RX approval and same task/id; may be called while should_stop is set; zero after teardown, timeout while cleanup remains pending |
+
+One global session is available. Startup returns only after the first completed
+window/sweep or setup failure; failed startup leaves id zero and firmware-owned
+cleanup continues if necessary. RX uses repeated 100 ms windows and yields
+between them; spectrum publishes complete 80-bin sweeps. Hardware setup, recovery
+and teardown add time. This is not a gap-free capture or a full-call deadline.
+Both startup/stop use a 3000 ms observation wait; a timeout retains ownership.
+
+Polls coalesce to the latest complete result. Empty windows preserve an unread
+previous frame. Errors are negative (including generic ESP_FAIL); discard output
+on error. Spectrum outputs stay untouched on empty/error/insufficient capacity.
+`rx_poll` clears its output first. The list of raw timings remains the global
+last successful bounded/background capture, independent of a consumed poll.
+Calls to bounded app receive/TX/file replay/sweep are rejected while any app
+session is starting/running/draining. Other native radio services may take the
+physical radio between windows; the app then receives an error/resource_lost.
+
+Task binding teardown/rebind cancels the session without waiting on hardware.
+All requests, callbacks and buffers belong to firmware, so app unload does not
+free in-flight DMA storage. Failed cleanup is retried before allowing reuse.
+Native failure sets resource_lost; a successful new start clears it. Session IDs
+are task-scoped, nonzero and never reused before reboot; stale/foreign IDs fail.
+Separate calls do not freeze snapshots. Full lifecycle details and host-test
+limits are in the [subsystem documentation](../SubGhz/README.md#owned-app-sessions-abi-121).

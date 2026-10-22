@@ -45,6 +45,10 @@ typedef int esp_err_t;
                         str(APPS/'subghz_protocol_serializer.c'),
                         '-o',str(binary)],check=True)
         subprocess.run([str(binary)],check=True,timeout=30)
+        subprocess.run([*command,'-DSUBGHZ_TEST_SESSIONS','-Wno-unused-function',
+                        str(HERE/'test_backend.c'),str(DRIVER/'cc1101_lease.c'),
+                        str(APPS/'subghz_protocol_serializer.c'),'-o',str(binary)],check=True)
+        subprocess.run([str(binary)],check=True,timeout=30)
         source=(DRIVER/'cc1101.c').read_text()
         start=source.index('static void write_burst_impl(')
         end=source.index('static long linear_map',start)

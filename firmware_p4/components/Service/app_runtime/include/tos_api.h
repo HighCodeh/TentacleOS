@@ -58,6 +58,7 @@ typedef struct host_link_handler host_link_handler_t; // opaque to apps
 #endif
 
 #define TOS_ABI_VERSION_MAJOR 1
+// 1.21 = owned windowed Sub-GHz RX/spectrum sessions and teardown.
 // 1.15 = bounded Sub-GHz spectrum sweep.
 // 1.14 = queued text submission to an already active native LoRa mesh.
 // 1.13 = bounded Sub-GHz capture and raw transmission.
@@ -68,7 +69,7 @@ typedef struct host_link_handler host_link_handler_t; // opaque to apps
 // 1.8 = read-only fs subsystem. NOTE: 1.7 was briefly a (removed) IMU subsystem in
 // dev; fs took a fresh minor so a firmware built during the IMU era rejects an
 // fs app at the load gate instead of mismatching its api->fs pointer.
-#define TOS_ABI_VERSION_MINOR 20
+#define TOS_ABI_VERSION_MINOR 21
 
 /** Log levels; values match esp_log_level_t so they pass straight through. */
 typedef enum {
@@ -320,21 +321,23 @@ typedef struct {
  * +mark / -space.
  */
 typedef struct tos_subghz_api {
-  esp_err_t (*rx_start)(uint32_t freq_hz, uint8_t preset, uint32_t *out_session); ///< radio-rx
-  int (*rx_poll)(tos_subghz_signal_t *out); ///< 1 = new snapshot, 0 = none, <0 = -esp_err_t
+  esp_err_t (*rx_start)(uint32_t freq_hz,
+                        uint8_t preset,
+                        uint32_t *out_session); ///< minor 21+: windowed async RX; radio-rx
+  int (*rx_poll)(tos_subghz_signal_t *out);     ///< 1 = new snapshot, 0 = none, <0 = -esp_err_t
   int (*get_raw)(int32_t *out,
-                 int max); ///< minor 18+: last bounded receive; max 1..1024, count or <0
+                 int max); ///< minor 18+: last successful capture; max 1..1024, count or <0
   esp_err_t (*tx_raw)(const int32_t *timings, int count, uint32_t freq_hz); ///< radio-tx
   esp_err_t (*replay)(
       const char *path); ///< minor 19+: radio-tx + fs-read; saved capture under /sdcard
-  esp_err_t (*set_frequency)(uint32_t freq_hz);
-  // Spectrum sweep. Poll fills dbm[] (up to `max`, hardware caps at 80 bins) and
-  // reports the start frequency and per-bin step; returns the sample count or 0.
+  esp_err_t (*set_frequency)(uint32_t freq_hz); ///< minor 21+: retune owned RX at next window
+  // Minor 21+: periodic complete sweeps. Poll requires space for all 80 bins and
+  // returns 80, zero if no new frame, or a negative error; no partial copies.
   esp_err_t (*spectrum_start)(uint32_t center_hz,
                               uint32_t span_hz,
                               uint32_t *out_session); ///< radio-rx
   int (*spectrum_poll)(uint32_t *out_start_hz, uint32_t *out_step_hz, float *dbm, int max);
-  esp_err_t (*session_stop)(uint32_t session);
+  esp_err_t (*session_stop)(uint32_t session); ///< owner-only; retries retain failed cleanup
   // Minor 13+: capture once; 1..1000 ms, explicit frequency/preset. No persistent session.
   esp_err_t (*receive)(tos_subghz_signal_t *out,
                        uint32_t freq_hz,
@@ -570,13 +573,14 @@ typedef struct tos_api {
   // Subsystem namespaces (each its own sub-struct; per-call capability gating).
   const tos_wifi_api_t *wifi;
   const tos_ble_api_t *ble;
-  const tos_ui_api_t *ui;         ///< on-device screen (minor 5+); needs TOS_CAP_UI
-  const tos_fs_api_t *fs;         ///< read-only SD access (minor 8+); needs TOS_CAP_FS_READ
-  const tos_nfc_api_t *nfc;       ///< native discovery (minor 10+); needs TOS_CAP_RADIO_RX
-  const tos_rfid_api_t *rfid;     ///< native LF capture (minor 10+); needs TOS_CAP_RADIO_RX
-  const tos_ir_api_t *ir;         ///< decoded infrared (minor 11+); receive/send capabilities
-  const tos_subghz_api_t *subghz; ///< captured results only (minor 12+); radio-rx
-  const tos_lora_api_t *lora;     ///< chat/text; copied nodes (minor 20+); per-call RX/TX caps
+  const tos_ui_api_t *ui;     ///< on-device screen (minor 5+); needs TOS_CAP_UI
+  const tos_fs_api_t *fs;     ///< read-only SD access (minor 8+); needs TOS_CAP_FS_READ
+  const tos_nfc_api_t *nfc;   ///< native discovery (minor 10+); needs TOS_CAP_RADIO_RX
+  const tos_rfid_api_t *rfid; ///< native LF capture (minor 10+); needs TOS_CAP_RADIO_RX
+  const tos_ir_api_t *ir;     ///< decoded infrared (minor 11+); receive/send capabilities
+  const tos_subghz_api_t
+      *subghz; ///< native observations and owned sessions (minor 21+); per-call RX/TX caps
+  const tos_lora_api_t *lora; ///< chat/text; copied nodes (minor 20+); per-call RX/TX caps
 } tos_api_t;
 
 /** @brief The shared, const host API table handed to every app at entry. */

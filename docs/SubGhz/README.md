@@ -458,8 +458,7 @@ one supported CC1101 band, reserves `RES_SUBGHZ` without preemption, and yields
 between bins. Native RX/TX/spectrum and other radio owners block acquisition.
 Any SPI or cleanup error discards the whole result; retained cleanup keeps the
 radio reserved. It does not start or overwrite the continuous native spectrum
-worker or its UI snapshot. Asynchronous spectrum/session entry points remain
-unpublished. Bounds, sampling and result layout are specified in the
+worker or its UI snapshot. ABI 1.21 adds the asynchronous session interfaces described below. Bounds, sampling and result layout are specified in the
 [ABI contract](../app_sdk/README.md#bounded-sub-ghz-spectrum-abi-115).
 
 The production backend host tests cover exact tuning/sample order, peak RSSI,
@@ -499,3 +498,61 @@ the file was complete; embedded NUL is rejected too. App replay independently
 checks the complete file up to 8192 bytes and bounds the resulting transmission.
 See the [ABI contract](../app_sdk/README.md#sub-ghz-file-replay-abi-119) for path,
 frequency, duration, capability and hardware ownership requirements.
+
+
+## Owned app sessions (ABI 1.21)
+
+All published `api->subghz` entries are implemented. `rx_start` and
+`spectrum_start` create one task-owned background session. This uses the bounded
+app backend rather than the native UI receiver, which automatically saves
+captures: an RX-only app must not inherit those SD writes. There is one global
+app session, a persistent 4096-byte service worker on `SYS_CORE_RADIO` at
+`SYS_PRIO_SERVICE_LO`, and one latest complete copied result.
+
+RX repeats 100 ms receive windows; spectrum repeats full 80-bin sweeps. Each
+iteration uses the persistent RF worker, exclusive CC1101 lease, checked power
+hold and normal RMT teardown, then yields for 10 ms. Setup/recovery/cleanup add
+time: this is asynchronous **windowed** capture with gaps, not a gap-free RF
+receiver or a sample-rate guarantee. No capture is automatically saved to SD
+or injected into the native UI's history. Native UI/companion services remain
+independent and share physical ownership through the existing lease.
+
+Startup waits for the first completed window/sweep or an actual setup error
+(up to 3000 ms to observe readiness). An empty RX window is normal only if its
+cleanup completed; a SPI/setup/cleanup timeout fails the session. Error results
+remain negative even for ESP_FAIL. Failed startup returns session zero and
+requests background cleanup. Timeout does not assert that the hardware stopped.
+
+Only the originating task can retune, stop or poll its session. IDs are never
+reused before reboot; exhaustion fails. `set_frequency` applies to the next RX
+window and discards the pending old-frequency record. Spectrum must be stopped
+and restarted to change its range. `rx_poll` observes the owned session when
+one exists; other callers retain the previous native UI observation contract.
+`get_raw` remains the global last successful app-backend capture, now including
+background windows. It is not a per-app history or an atomic pair with rx_poll.
+
+`session_stop` works even when the caller's should_stop flag is set. It waits up
+to 3000 ms for cleanup, without holding a mutex across that wait. A timeout
+retains the worker, lease and buffers; the firmware retries cleanup. While a
+background session is starting/running/draining, bounded app receive/TX/replay/
+sweep calls fail busy. Poll and raw-copy calls remain available. A native radio
+owner winning a gap terminates the app session with an error; terminal failures
+set resource_lost, and a successful new startup clears it.
+
+Binding/rebinding/unbinding a task cancels its previous session. This covers
+natural exit, script completion/deadline and forced app teardown through the
+existing context paths. Cancellation is nonblocking: the app/ELF/context can
+be unloaded because the firmware owns all pending requests, callbacks, snapshots
+and hardware buffers. The stored task handle is an identity value, never a
+pointer dereferenced after teardown. Failed hardware cleanup prevents reuse
+until the persistent RF worker confirms release. Binding teardown acquires the
+session lock before the binding lock; terminal-error notification uses that
+same order, and callbacks must remain nonblocking.
+
+See the [native contract](../app_sdk/README.md#owned-sub-ghz-sessions-abi-121) and
+[script calls](../scripts/README.md#sub-ghz-session-bindings-abi-121).
+The production backend tests run the actual service task on a host thread and
+cover RX/spectrum start, retune, short buffers, startup RF-gate starvation/busy
+radio, foreign/stale owners, cancellation, generic/SPI errors, retained teardown
+and ID exhaustion. RMT, SPI and scheduler calls remain explicit fixtures; they
+do not establish RF timing, device stack headroom or reception quality.

@@ -19,6 +19,7 @@
 #define pdMS_TO_TICKS(ms) (ms)
 #define SYS_PRIO_BACKGROUND_LO 2
 #define SYS_PRIO_SERVICE_HI 5
+#define SYS_PRIO_SERVICE_LO 4
 #define portMAX_DELAY UINT32_MAX
 #define SYS_CORE_RADIO 0
 #define portMUX_TYPE pthread_mutex_t
@@ -73,6 +74,8 @@ BaseType_t xSemaphoreTake(SemaphoreHandle_t, TickType_t);
 void xSemaphoreGive(SemaphoreHandle_t);
 BaseType_t xTaskCreatePinnedToCore(void (*)(void *), const char *, uint32_t, void *, int, TaskHandle_t *, int);
 void vTaskDelete(TaskHandle_t);
+uint32_t ulTaskNotifyTake(BaseType_t, TickType_t);
+void xTaskNotifyGive(TaskHandle_t);
 void vTaskDelay(TickType_t);
 void ets_delay_us(uint32_t);
 int64_t esp_timer_get_time(void);

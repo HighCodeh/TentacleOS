@@ -10,6 +10,7 @@
 #include "lora_session.h"
 #include "subghz_receiver.h"
 #include "tos_app_ctx.h"
+#include "tos_api_subghz.h"
 
 #define RADIO_VIEW_LOCK_MS 100
 
@@ -35,6 +36,10 @@ static int poll_subghz(tos_subghz_signal_t *out) {
   if (out == NULL)
     return -ESP_ERR_INVALID_ARG;
   memset(out, 0, sizeof(*out));
+  bool has_session = false;
+  int session_result = tos_api_subghz_session_poll(out, &has_session);
+  if (has_session)
+    return session_result;
   esp_err_t error = acquire_view();
   if (error != ESP_OK) {
     ESP_LOGD(TAG, "Radio view unavailable: %s", esp_err_to_name(error));
@@ -130,12 +135,12 @@ static esp_err_t get_mesh_node(int index, tos_lora_node_t *out) {
   return error;
 }
 
-extern esp_err_t tos_api_subghz_replay(const char *);
-extern int tos_api_subghz_get_raw(int32_t *, int);
-extern esp_err_t tos_api_subghz_receive(tos_subghz_signal_t *, uint32_t, uint8_t, uint32_t);
-extern esp_err_t tos_api_subghz_tx_raw(const int32_t *, int, uint32_t);
-extern esp_err_t tos_api_subghz_spectrum_capture(tos_subghz_spectrum_t *, uint32_t, uint32_t);
 const tos_subghz_api_t tos_subghz_api_impl = {.spectrum_capture = tos_api_subghz_spectrum_capture,
+                                              .rx_start = tos_api_subghz_rx_start,
+                                              .set_frequency = tos_api_subghz_set_frequency,
+                                              .spectrum_start = tos_api_subghz_spectrum_start,
+                                              .spectrum_poll = tos_api_subghz_spectrum_poll,
+                                              .session_stop = tos_api_subghz_session_stop,
                                               .rx_poll = poll_subghz,
                                               .get_raw = tos_api_subghz_get_raw,
                                               .replay = tos_api_subghz_replay,

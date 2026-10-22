@@ -780,14 +780,18 @@
     "firmware_p4/components/Service/app_runtime/include/tos_app_ctx.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "86058eb58523dd6f13b6e676762caf28f746eee677b00ba28c2a78bb917f5d0f",
-      "after_sha256": "fd5fec68b3b8cb4717fa5a761da30369ca325ca16c74cd4726f7c6369a9cc808",
-      "reason": "Publish bounded RX-only native radio observations with per-app cursors and kill quiescence; synchronize chat ring first use and sequence wrap, preserve capture IDs across restarts.",
+      "after_sha256": "c5b0ab264a21d69dfb4cbe8f7f1d2d10f1f427dd066a8d2710e28ce66cb8cdd6",
+      "reason": "feat(subghz): add owned RX and spectrum sessions with automatic teardown",
       "review_history": [
         {
           "after_sha256": "81dc099a607b02df7f23da19c330ed28411ff9862ad2c6fdf5749eb28294523a",
           "reason": "Bind native and interpreted callers safely to the shared ABI, synchronize script lifecycle flags and retain the correct launcher on UI teardown.",
           "pre_format_sha256": "4d0fffea4963376334574e6fd4228d6970b19611430fe3c5dd54689ccffc0c2b",
           "formatter": "clang-format version 22.1.5"
+        },
+        {
+          "after_sha256": "fd5fec68b3b8cb4717fa5a761da30369ca325ca16c74cd4726f7c6369a9cc808",
+          "reason": "Publish bounded RX-only native radio observations with per-app cursors and kill quiescence; synchronize chat ring first use and sequence wrap, preserve capture IDs across restarts."
         }
       ]
     },
@@ -822,8 +826,14 @@
     "firmware_p4/components/Service/app_runtime/tos_app_ctx.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "e27c2001b9b95ae4b54ab53a3a99082a680f846a0f1e9147d755cb43c0527f92",
-      "after_sha256": "08991fb0fcd93493a8d394354f93636ab18098090a9102c427a6c07ced7fbe74",
-      "reason": "Bind native and interpreted callers safely to the shared ABI, synchronize script lifecycle flags and retain the correct launcher on UI teardown."
+      "after_sha256": "8ab6ff6bf8b95bfdf5cc7ab4b507ba0e001a9c60639dd2835966b0ab7a5ee5db",
+      "reason": "feat(subghz): add owned RX and spectrum sessions with automatic teardown",
+      "review_history": [
+        {
+          "after_sha256": "08991fb0fcd93493a8d394354f93636ab18098090a9102c427a6c07ced7fbe74",
+          "reason": "Bind native and interpreted callers safely to the shared ABI, synchronize script lifecycle flags and retain the correct launcher on UI teardown."
+        }
+      ]
     },
     "firmware_p4/components/Service/app_runtime/tos_app_mgr.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -994,8 +1004,8 @@
     "firmware_p4/components/Service/app_runtime/include/tos_api.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "9c2020f1c91901d7b2335daccc2055d14c8646b20094bab14fc8bdd3a83b0b5d",
-      "after_sha256": "8e2efff7acc0f8bf17e9e6bb6f59e1175f676545cd055264bc094b0e98d0d6f2",
-      "reason": "docs(lora): record copied node contracts and paired validation",
+      "after_sha256": "4aa0cf042b125a9112fa8a165ba193e4143ef206fba7a927f3ea68ac55854cc9",
+      "reason": "feat(subghz): add owned RX and spectrum sessions with automatic teardown",
       "review_history": [
         {
           "after_sha256": "ef540914e454c49228b43f64b0605a2094d3ac153b992d56ca51a2292a1f1a34",
@@ -1058,8 +1068,14 @@
           "reason": "feat(lora): expose copied mesh nodes through the shared app and script ABI",
           "pre_format_sha256": "1aaef5cf74f556291a177393dd4a91d38edfd32a81369fefad29b02bb36a7597",
           "formatter": "clang-format version 22.1.5"
+        },
+        {
+          "after_sha256": "8e2efff7acc0f8bf17e9e6bb6f59e1175f676545cd055264bc094b0e98d0d6f2",
+          "reason": "docs(lora): record copied node contracts and paired validation"
         }
-      ]
+      ],
+      "pre_format_sha256": "a372d518554ae54f42c3cc83744aee7ddbc5f157e30ea67b761ba6fb4f2aff3c",
+      "formatter": "clang-format version 22.1.5"
     },
     "firmware_c5/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",

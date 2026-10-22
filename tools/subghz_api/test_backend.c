@@ -1,4 +1,6 @@
 #include "test_platform.h"
+#include <stdatomic.h>
+#include <time.h>
 #include "resource_mgr.h"
 #include "cc1101_lease.h"
 #include "tos_api.h"
@@ -27,12 +29,17 @@ typedef enum { NORMAL, FAIL_CHANNEL, FAIL_QUEUE, FAIL_ALLOC, FAIL_CALLBACK, FAIL
   FAIL_RECOVER, FAIL_PRESET, FAIL_POWER, FAIL_POWER_RELEASE, FAIL_DISABLE, FAIL_DELETE,
   FAIL_ENCODER, FAIL_ENCODER_DELETE, FAIL_TRANSMIT, FAIL_TX_WAIT, FAIL_IDLE,
   FAIL_TUNE, FAIL_RSSI, FAIL_SWEEP_CLEANUP } fault_t;
-static fault_t s_fault;
-static unsigned s_allocations,s_fail_allocation,s_calls,s_callbacks;
-static bool s_allowed=true,s_stopped,s_stop_locked,s_lock_timeout,s_ready=true,s_gate;
-static bool s_resource_busy,s_resource_live,s_channel_live,s_channel_enabled,s_encoder_live,s_queue_live;
+static _Atomic(fault_t) s_fault;
+static unsigned s_allocations,s_fail_allocation,s_callbacks;
+static atomic_uint s_calls;
+static atomic_bool s_allowed=true,s_stopped,s_stop_locked,s_lock_timeout,s_ready=true;
+static bool s_gate;
+static atomic_bool s_pause_session;
+static pthread_mutex_t s_gate_mutex=PTHREAD_MUTEX_INITIALIZER;
+static atomic_bool s_resource_busy;
+static bool s_resource_live,s_channel_live,s_channel_enabled,s_encoder_live,s_queue_live;
 static unsigned s_power;
-static uintptr_t s_task=1;
+static _Thread_local uintptr_t s_task=1;
 static unsigned s_tunes,s_reads,s_settles,s_sample_delays,s_yields,s_sweep_phase;
 static uint32_t s_expected_start=433420000,s_expected_step=12500;
 static const rmt_rx_event_callbacks_t *s_callbacks_ptr;
@@ -58,16 +65,20 @@ void *heap_caps_malloc(size_t size,unsigned caps) { return allocate(size); }
 static int should_stop(void) { return s_stopped; }
 static const tos_api_t s_api={.should_stop=should_stop};
 const tos_api_t *tos_api_get(void) { return &s_api; }
+static atomic_uint s_lost_events,s_clear_events;
+void tos_app_ctx_signal_resource_lost(void *task) { assert(task==(void *)1 || task==(void *)4);++s_lost_events; }
+void tos_app_ctx_clear_resource_lost(void) { ++s_clear_events; }
 bool tos_app_cap_check(uint32_t cap) { assert(cap==TOS_CAP_RADIO_RX || cap==TOS_CAP_RADIO_TX || cap==(TOS_CAP_RADIO_TX|TOS_CAP_FS_READ));return s_allowed; }
 bool host_local_rf_is_ready(void) { return s_ready; }
 bool host_local_rf_lock(uint32_t timeout) {
-  assert(!s_gate);if(s_lock_timeout)return false;s_gate=true;
+  if(s_lock_timeout || (s_task==3 && s_pause_session))return false;
+  assert(pthread_mutex_lock(&s_gate_mutex)==0);assert(!s_gate);s_gate=true;
   if(s_stop_locked)s_stopped=true;return true;
 }
-void host_local_rf_unlock(void) { assert(s_gate);s_gate=false; }
+void host_local_rf_unlock(void) { assert(s_gate);s_gate=false;assert(pthread_mutex_unlock(&s_gate_mutex)==0); }
 esp_err_t host_local_rf_call(host_local_rf_cb_t callback,void *context) {
-  assert(s_gate && s_task==1);++s_calls;s_task=2;
-  esp_err_t error=callback(context);s_task=1;return error;
+  assert(s_gate && (s_task==1 || s_task==3));++s_calls;uintptr_t caller=s_task;s_task=2;
+  esp_err_t error=callback(context);s_task=caller;return error;
 }
 esp_err_t resource_acquire(const res_request_t *request,res_handle_t *out) {
   assert(request->id==RES_SUBGHZ && request->owner_kind==RES_OWNER_SYSTEM && !request->allow_preempt);
@@ -87,7 +98,11 @@ esp_err_t power_manager_no_sleep_release(void) {
 }
 esp_err_t cc1101_recover(void) { assert_worker();return s_fault==FAIL_RECOVER?ESP_FAIL:ESP_OK; }
 void cc1101_set_preset(cc1101_preset_t preset,uint32_t freq) {
-  assert_worker();if(s_fault==FAIL_PRESET)cc1101_lease_record_error(ESP_ERR_TIMEOUT);
+  assert_worker();
+#ifdef SUBGHZ_TEST_SESSIONS
+  s_tunes=s_reads=s_settles=s_sample_delays=s_yields=0;
+#endif
+  if(s_fault==FAIL_PRESET)cc1101_lease_record_error(ESP_ERR_TIMEOUT);
 }
 void cc1101_strobe(uint8_t command) {
   assert_worker();assert(command==CC1101_SIDLE || command==CC1101_SRX);
@@ -110,7 +125,13 @@ void ets_delay_us(uint32_t delay) {
   assert_worker();if(delay==400){assert(s_sweep_phase==2);s_sweep_phase=3;++s_settles;}
   else {assert(s_sweep_phase==3 && delay==20);++s_sample_delays;}
 }
-void vTaskDelay(TickType_t ticks) { assert_worker();assert(s_sweep_phase==3 && ticks==1 && s_reads%3==0);++s_yields; }
+void vTaskDelay(TickType_t ticks) {
+  if(s_task!=2) {
+    assert(ticks==SUBGHZ_SESSION_RETRY_MS);
+    struct timespec delay={.tv_nsec=1000000};nanosleep(&delay,NULL);return;
+  }
+  assert_worker();assert(s_sweep_phase==3 && ticks==1 && s_reads%3==0);++s_yields;
+}
 void cc1101_enter_tx_mode(void) { assert_worker(); }
 esp_err_t rmt_new_rx_channel(const rmt_rx_channel_config_t *config,rmt_channel_handle_t *out) {
   assert_worker();assert(!s_channel_live && config->flags.with_dma && config->gpio_num==GPIO_CC1101_GDO0_PIN);
@@ -148,6 +169,9 @@ BaseType_t xQueueSendFromISR(QueueHandle_t queue,const void *event,BaseType_t *w
 }
 BaseType_t xQueueReceive(QueueHandle_t queue,void *output,TickType_t timeout) {
   assert_worker();assert(s_channel_enabled && timeout>0 && timeout<=1000);
+#ifdef SUBGHZ_TEST_SESSIONS
+  struct timespec delay={.tv_nsec=1000000};nanosleep(&delay,NULL);
+#endif
   if(s_fault==RX_TIMEOUT)return pdFALSE;
   for(unsigned i=0;i<3;++i)s_symbols[i]=(rmt_symbol_word_t){.duration0=350,.level0=true,.duration1=700,.level1=false};
   rmt_rx_done_event_data_t event={.received_symbols=s_symbols,.num_symbols=3};
@@ -182,6 +206,10 @@ esp_err_t rmt_tx_wait_all_done(rmt_channel_handle_t channel,int timeout) {
   assert(timeout==SUBGHZ_TX_WAIT_MS);return s_fault==FAIL_TX_WAIT?ESP_ERR_TIMEOUT:ESP_OK;
 }
 static void clean(void) {
+#ifdef SUBGHZ_TEST_SESSIONS
+  assert(pthread_mutex_lock(&s_gate_mutex)==0);
+  assert(pthread_mutex_unlock(&s_gate_mutex)==0);
+#endif
   assert(!s_resource_live && !s_channel_live && !s_encoder_live && !s_queue_live && !s_gate && s_power==0);
   assert(s_symbols==NULL && s_pulses==NULL);
 }
@@ -265,6 +293,15 @@ static void test_replay(void) {
   assert(s_resource_live && s_symbols!=NULL);
   s_fault=NORMAL;assert(tos_api_subghz_replay("/sdcard/one.sub")==ESP_OK);clean();
 }
+#ifndef SUBGHZ_TEST_SESSIONS
+BaseType_t xTaskCreatePinnedToCore(void (*task)(void *),const char *name,uint32_t stack,void *arg,
+                                   int priority,TaskHandle_t *out,int core) {
+  (void)task;(void)name;(void)stack;(void)arg;(void)priority;(void)out;(void)core;return 0;
+}
+uint32_t ulTaskNotifyTake(BaseType_t clear,TickType_t timeout) {(void)clear;(void)timeout;return 0;}
+void xTaskNotifyGive(TaskHandle_t task) {(void)task;}
+#endif
+#ifndef SUBGHZ_TEST_SESSIONS
 int main(void) {
   tos_subghz_signal_t out;int32_t timings[]={350,-700,350};
   int32_t raw[1024];memset(raw,0x5a,sizeof(raw));
@@ -388,3 +425,7 @@ int main(void) {
   free(s_last_raw);s_last_raw=NULL;s_last_raw_count=0;
   puts("PASS: bounded Sub-GHz RX/TX, capabilities, cancellation, native contention, errors and retained RMT/SPI/power cleanup");
 }
+
+#else
+#include "test_sessions.c"
+#endif
