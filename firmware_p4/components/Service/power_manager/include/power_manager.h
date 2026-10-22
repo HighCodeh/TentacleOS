@@ -24,8 +24,8 @@
 extern "C" {
 #endif
 
-// System power manager. Owns esp_pm: dynamic frequency scaling (CPU drops clock
-// when idle) plus automatic light sleep. Light sleep only actually engages when
+// System power manager. With CONFIG_PM_ENABLE, owns fixed-frequency esp_pm and
+// automatic light sleep. The integrated profile keeps PM disabled. Sleep requires
 // nobody holds the shared NO_LIGHT_SLEEP lock AND all tasks are blocked, so it
 // happens when the device is genuinely idle (screen off, no active resource).
 //
@@ -35,17 +35,18 @@ extern "C" {
 // Applications reach Service.
 
 /**
- * @brief Configure esp_pm (DFS + light sleep) and create the shared lock.
+ * @brief Create and hold a wake guard before configuring fixed-frequency light sleep.
  *
- * Call once early in boot. Does not acquire the lock; owners that need the CPU
- * fully awake acquire it themselves (screen on, USB session, active radio, ...).
+ * Call early in boot; repeated successful initialization is idempotent. The initial
+ * guard becomes the USB hold or is released. Failures log and retain pending cleanup
+ * for a later init retry. Active resource owners acquire their own balanced holds.
  */
 void power_manager_init(void);
 
 /**
  * @brief Hold the CPU out of light sleep. Ref-counted: every acquire needs a
  *        matching release. While the count is > 0 the system never light-sleeps
- *        (DFS still scales frequency). Resource owners call this while active.
+ *        (frequency remains pinned). Resource owners call this while active.
  */
 esp_err_t power_manager_no_sleep_acquire(void);
 

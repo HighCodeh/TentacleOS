@@ -1258,6 +1258,20 @@
       "before_sha256": "2b3718f473d94fd6434804909251521325a908e8c341e3b492f69b9e419fced0",
       "after_sha256": "4fb77490bc4b7012b0da073f6e7b41bfe340386f0c83edb1485d26129146e7b0",
       "reason": "Harden boot diagnostics: count only new abnormal reset reasons, preserve counters on NVS errors, saturate totals/RTC, latch current boot-loop decision, handle summary/timer failures, and document the actual integrated recovery layout."
+    },
+    "firmware_p4/components/Service/power_manager/power_manager.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "37c9ed37fbb3ab60be599c3d484c35da24affc5003e0e38d619047253f92b672",
+      "after_sha256": "e195a270b68b749a31c6cea88773c1e5fcfe9f479d5ec3837d14dfa893401110",
+      "reason": "Serialize USB/client wake holds, acquire a guard before enabling PM, retry unchanged failed input transitions and retain failed initialization cleanup; keep the integrated PM-disabled policy unchanged.",
+      "pre_format_sha256": "814f99209e8bae3affbc8ece5fce924a1cecabdb242cf461a5cd473cc6a18b06",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/power_manager/include/power_manager.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "1c163305a1326773815d9dbe472cd68e2642375572abc207bb178602018bc32f",
+      "after_sha256": "7fa3ddcf726d182238a6b228d24b2a8aeb3f1340b42acaa2b23478c2eb35b0c3",
+      "reason": "Serialize USB/client wake holds, acquire a guard before enabling PM, retry unchanged failed input transitions and retain failed initialization cleanup; keep the integrated PM-disabled policy unchanged."
     }
   }
 }
