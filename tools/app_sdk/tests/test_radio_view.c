@@ -15,6 +15,12 @@ esp_err_t tos_api_subghz_tx_raw(const int32_t *timings,int count,uint32_t freq) 
 esp_err_t tos_api_subghz_spectrum_capture(tos_subghz_spectrum_t *out,uint32_t center,uint32_t span) {
   (void)out;(void)center;(void)span;return ESP_ERR_NOT_SUPPORTED;
 }
+int tos_api_subghz_get_raw(int32_t *out,int max) {
+  (void)out;(void)max;return -ESP_ERR_NOT_SUPPORTED;
+}
+esp_err_t tos_api_subghz_replay(const char *path) {
+  (void)path;return ESP_ERR_NOT_SUPPORTED;
+}
 extern const tos_subghz_api_t tos_subghz_api_impl;
 extern const tos_lora_api_t tos_lora_api_impl;
 static bool s_allowed, s_stopped, s_ready, s_timeout, s_stop_after_lock, s_locked;
@@ -60,6 +66,7 @@ int main(void) {
   tos_lora_msg_t message;
   assert(tos_subghz_api_impl.rx_start==NULL && tos_subghz_api_impl.session_stop==NULL);
   assert(tos_subghz_api_impl.tx_raw!=NULL && tos_subghz_api_impl.receive!=NULL && tos_subghz_api_impl.spectrum_start==NULL && tos_subghz_api_impl.spectrum_capture!=NULL);
+  assert(tos_subghz_api_impl.get_raw!=NULL && tos_subghz_api_impl.replay!=NULL);
   assert(tos_lora_api_impl.mesh_start==NULL && tos_lora_api_impl.mesh_send_text!=NULL);
   assert(tos_lora_api_impl.configure==NULL && tos_lora_api_impl.rx_start==NULL);
   assert(tos_subghz_api_impl.rx_poll(NULL)==-ESP_ERR_INVALID_ARG);

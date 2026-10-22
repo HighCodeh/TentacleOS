@@ -98,6 +98,7 @@ static esp_err_t send_mesh_text(const char *text) {
   return error;
 }
 
+extern esp_err_t tos_api_subghz_replay(const char *);
 extern int tos_api_subghz_get_raw(int32_t *, int);
 extern esp_err_t tos_api_subghz_receive(tos_subghz_signal_t *, uint32_t, uint8_t, uint32_t);
 extern esp_err_t tos_api_subghz_tx_raw(const int32_t *, int, uint32_t);
@@ -105,6 +106,7 @@ extern esp_err_t tos_api_subghz_spectrum_capture(tos_subghz_spectrum_t *, uint32
 const tos_subghz_api_t tos_subghz_api_impl = {.spectrum_capture = tos_api_subghz_spectrum_capture,
                                               .rx_poll = poll_subghz,
                                               .get_raw = tos_api_subghz_get_raw,
+                                              .replay = tos_api_subghz_replay,
                                               .receive = tos_api_subghz_receive,
                                               .tx_raw = tos_api_subghz_tx_raw};
 const tos_lora_api_t tos_lora_api_impl = {.mesh_poll = poll_mesh, .mesh_send_text = send_mesh_text};

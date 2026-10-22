@@ -26,6 +26,13 @@
 #include "esp_log.h"
 
 #include "cc1101.h"
+#include "subghz_protocol_registry.h"
+
+#define CAPTURE_PROTOCOL_MAX   40
+#define CAPTURE_KEY_BYTES      8
+#define CAPTURE_KEY_HIGH_BYTES 4
+#define CAPTURE_BYTE_BITS      8
+#define CAPTURE_KEY_RADIX      16
 
 static const char *TAG = "SUBGHZ_SERIALIZER";
 
@@ -193,4 +200,90 @@ size_t subghz_protocol_parse_raw(const char *content,
       *out_preset = (uint8_t)preset;
   }
   return count;
+}
+
+static bool parse_key(const char *text, uint32_t *out) {
+  if (text == NULL)
+    return false;
+  uint32_t key = 0;
+  for (size_t i = 0; i < CAPTURE_KEY_BYTES; ++i) {
+    while (*text == ' ' || *text == '\t')
+      ++text;
+    if (!isxdigit((unsigned char)*text))
+      return false;
+    errno = 0;
+    char *end;
+    unsigned long value = strtoul(text, &end, CAPTURE_KEY_RADIX);
+    if (errno != 0 || value > UINT8_MAX || (i < CAPTURE_KEY_HIGH_BYTES && value != 0))
+      return false;
+    if (i >= CAPTURE_KEY_HIGH_BYTES)
+      key = (key << CAPTURE_BYTE_BITS) | (uint32_t)value;
+    if (i + 1 < CAPTURE_KEY_BYTES && *end != ' ' && *end != '\t')
+      return false;
+    text = end;
+  }
+  while (*text == ' ' || *text == '\t' || *text == '\r')
+    ++text;
+  if (*text != '\0' && *text != '\n')
+    return false;
+  *out = key;
+  return true;
+}
+
+esp_err_t subghz_protocol_parse_capture(const char *content,
+                                        int32_t *out_pulses,
+                                        size_t capacity,
+                                        size_t *out_count,
+                                        uint32_t *out_frequency,
+                                        uint8_t *out_preset) {
+  if (content == NULL || out_pulses == NULL || capacity == 0 || out_count == NULL ||
+      out_frequency == NULL || out_preset == NULL)
+    return ESP_ERR_INVALID_ARG;
+  *out_count = 0;
+  uint32_t frequency = 0, preset = CC1101_PRESET_OOK_800KHZ;
+  size_t count = 0;
+  if (find_field(content, RAW_DATA_KEY) != NULL) {
+    uint8_t raw_preset = 0;
+    count = subghz_protocol_parse_raw(content, out_pulses, capacity, &frequency, &raw_preset);
+    if (count == 0)
+      return ESP_ERR_INVALID_ARG;
+    preset = raw_preset;
+  } else {
+    const char *name = find_field(content, "Protocol: ");
+    if (name == NULL)
+      return ESP_ERR_INVALID_ARG;
+    char protocol[CAPTURE_PROTOCOL_MAX];
+    size_t length = strcspn(name, "\r\n");
+    if (length == 0 || length >= sizeof(protocol))
+      return ESP_ERR_INVALID_ARG;
+    memcpy(protocol, name, length);
+    protocol[length] = '\0';
+    const subghz_protocol_t *encoder = subghz_protocol_registry_get_by_name(protocol);
+    if (encoder == NULL || encoder->encode == NULL)
+      return ESP_ERR_NOT_SUPPORTED;
+    uint32_t bits = 0, serial = 0, button = 0, key = 0;
+    if (!parse_metadata(content, FREQ_KEY, UINT32_MAX, &frequency) ||
+        !parse_metadata(content, "Bit: ", UINT8_MAX, &bits) ||
+        !parse_key(find_field(content, "Key: "), &key))
+      return ESP_ERR_INVALID_ARG;
+    serial = key;
+    if ((strstr(content, "Preset:") != NULL &&
+         !parse_metadata(content, PRESET_KEY, UINT8_MAX, &preset)) ||
+        (strstr(content, "Serial:") != NULL &&
+         !parse_metadata(content, "Serial: ", UINT32_MAX, &serial)) ||
+        (strstr(content, "Btn:") != NULL && !parse_metadata(content, "Btn: ", UINT8_MAX, &button)))
+      return ESP_ERR_INVALID_ARG;
+    subghz_data_t data = {.protocol_name = protocol,
+                          .raw_value = key,
+                          .serial = serial,
+                          .bit_count = (uint8_t)bits,
+                          .btn = (uint8_t)button};
+    count = subghz_protocol_registry_encode(protocol, &data, out_pulses, capacity);
+    if (count == 0)
+      return ESP_ERR_NOT_SUPPORTED;
+  }
+  *out_count = count;
+  *out_frequency = frequency;
+  *out_preset = (uint8_t)preset;
+  return ESP_OK;
 }

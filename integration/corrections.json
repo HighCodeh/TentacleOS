@@ -986,8 +986,8 @@
     "firmware_p4/components/Service/app_runtime/include/tos_api.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "9c2020f1c91901d7b2335daccc2055d14c8646b20094bab14fc8bdd3a83b0b5d",
-      "after_sha256": "1a64ccba79bf11a48e7d37ea96bd3830ea4d0299483dbee94599de936c580169",
-      "reason": "feat(subghz): expose complete bounded raw captures through the shared ABI",
+      "after_sha256": "c5d62fb70136cbd4bbfe67c7916091dbcc4049b84358537ed72e3ad7c475bf0b",
+      "reason": "feat(subghz): replay validated capture files through the shared RF worker",
       "review_history": [
         {
           "after_sha256": "ef540914e454c49228b43f64b0605a2094d3ac153b992d56ca51a2292a1f1a34",
@@ -1032,9 +1032,15 @@
         {
           "after_sha256": "0a34cf1a9cf994e62ec93a666273769c89bf6bb5a87ff8f01bcefc238e0b0bd8",
           "reason": "Publish bounded Classic 1K Key A block read/verified data writes through native ABI, JS/Lua and authenticated companion; retain antenna/power cleanup and reject protected blocks."
+        },
+        {
+          "after_sha256": "1a64ccba79bf11a48e7d37ea96bd3830ea4d0299483dbee94599de936c580169",
+          "reason": "feat(subghz): expose complete bounded raw captures through the shared ABI",
+          "pre_format_sha256": "23b1f56ea7594e70e5b1caa187139393c9cae85d7da1035b7ee4a21571ed91a1",
+          "formatter": "clang-format version 22.1.5"
         }
       ],
-      "pre_format_sha256": "23b1f56ea7594e70e5b1caa187139393c9cae85d7da1035b7ee4a21571ed91a1",
+      "pre_format_sha256": "8063fca5279e7aafcc923c4bf0a467a1867b8a3e82440942d792216ba982cfe0",
       "formatter": "clang-format version 22.1.5"
     },
     "firmware_c5/CMakeLists.txt": {
@@ -1332,9 +1338,33 @@
     "firmware_p4/components/Applications/SubGhz/subghz_protocol_serializer.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "71df4bbd9d940b4bfa6e0e0b262e0d5c48e011564305975ae42ae68f2fb2156a",
-      "after_sha256": "d12360334636bd8463dcf91cc8f6d3edf6041efdaaa89c9e4239de00644322eb",
-      "reason": "fix(subghz): reject truncated and malformed raw capture files",
-      "pre_format_sha256": "fae1258ed87ce023a75a73a0619e8397ea2fb7d45b6003d28d13ee050d853cd1",
+      "after_sha256": "46e16106eb30798bdf2a77b6195c4a8e03ff2c4697c95ed3c4be76b1acab66d4",
+      "reason": "feat(subghz): replay validated capture files through the shared RF worker",
+      "review_history": [
+        {
+          "after_sha256": "d12360334636bd8463dcf91cc8f6d3edf6041efdaaa89c9e4239de00644322eb",
+          "reason": "fix(subghz): reject truncated and malformed raw capture files",
+          "pre_format_sha256": "fae1258ed87ce023a75a73a0619e8397ea2fb7d45b6003d28d13ee050d853cd1",
+          "formatter": "clang-format version 22.1.5"
+        }
+      ],
+      "pre_format_sha256": "386a1896e882a461dbaf8f34e3c96562ad54a6e7473a75e68b5127410a4e101a",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/SubGhz/include/subghz_protocol_serializer.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "1d14954fef4ceb480629c15eb4abbc7cffbe31c52f291f183116633be2325ac6",
+      "after_sha256": "bc93a4f680e7fcb41d21bb9f0a35d14a3230d7aaf00a18b734f0dfa8fc38f8d2",
+      "reason": "feat(subghz): replay validated capture files through the shared RF worker",
+      "pre_format_sha256": "86049994a26b57e047d52b541da805cd21400c0eb5661a4b612caa6a373d6bae",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/SubGhz/subghz_replay.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "6cd72e852b6b3e36fb3cfdc73a4c904f76f7716fcdd628f6effdec6a7bb1b163",
+      "after_sha256": "ef11c27ea232d9a9ba55e467bc78e957401d30a253fca859d94ec5f175b3d885",
+      "reason": "feat(subghz): replay validated capture files through the shared RF worker",
+      "pre_format_sha256": "c13d4a594b238a8fed32473f87d13d64299281e3228078181d7902de8e476a81",
       "formatter": "clang-format version 22.1.5"
     }
   }

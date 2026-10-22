@@ -42,6 +42,7 @@ typedef int esp_err_t;
             command+=['-I',str(folder)]
         binary=temp/'test'
         subprocess.run([*command,str(HERE/'test_backend.c'),str(DRIVER/'cc1101_lease.c'),
+                        str(APPS/'subghz_protocol_serializer.c'),
                         '-o',str(binary)],check=True)
         subprocess.run([str(binary)],check=True,timeout=30)
         source=(DRIVER/'cc1101.c').read_text()

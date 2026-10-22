@@ -3,6 +3,7 @@
 #include "cc1101_lease.h"
 #include "tos_api.h"
 #include "host_link_local_rf.h"
+static FILE *open_capture(const char *,const char *);
 static void *allocate(size_t);
 static void *allocate_zero(size_t,size_t);
 static void release(void *);
@@ -14,7 +15,9 @@ static size_t copy_text(char *out,const char *text,size_t size) {
 #define calloc allocate_zero
 #define free release
 #define strlcpy copy_text
+#define fopen open_capture
 #include "tos_api_subghz.c"
+#undef fopen
 #undef malloc
 #undef calloc
 #undef free
@@ -55,7 +58,7 @@ void *heap_caps_malloc(size_t size,unsigned caps) { return allocate(size); }
 static int should_stop(void) { return s_stopped; }
 static const tos_api_t s_api={.should_stop=should_stop};
 const tos_api_t *tos_api_get(void) { return &s_api; }
-bool tos_app_cap_check(uint32_t cap) { assert(cap==TOS_CAP_RADIO_RX || cap==TOS_CAP_RADIO_TX);return s_allowed; }
+bool tos_app_cap_check(uint32_t cap) { assert(cap==TOS_CAP_RADIO_RX || cap==TOS_CAP_RADIO_TX || cap==(TOS_CAP_RADIO_TX|TOS_CAP_FS_READ));return s_allowed; }
 bool host_local_rf_is_ready(void) { return s_ready; }
 bool host_local_rf_lock(uint32_t timeout) {
   assert(!s_gate);if(s_lock_timeout)return false;s_gate=true;
@@ -198,6 +201,70 @@ static void receive_case(fault_t fault,bool retained) {
   }
   clean();
 }
+uint8_t cc1101_get_active_preset_id(void) { return 6; }
+static size_t encode_capture(const subghz_data_t *data,int32_t *out,size_t capacity) {
+  assert(data->raw_value==42 && data->bit_count==12 && capacity>=3);
+  out[0]=350;out[1]=-700;out[2]=350;return 3;
+}
+const subghz_protocol_t *subghz_protocol_registry_get_by_name(const char *name) {
+  static const subghz_protocol_t protocol={.encode=encode_capture};
+  return strcmp(name,"CAME")==0?&protocol:NULL;
+}
+size_t subghz_protocol_registry_encode(const char *name,const subghz_data_t *data,int32_t *out,size_t capacity) {
+  return encode_capture(data,out,capacity);
+}
+static FILE *open_capture(const char *path,const char *mode) {
+  assert(s_gate && strcmp(mode,"rb")==0);
+  if(strcmp(path,"/sdcard/missing.sub")==0)return NULL;
+  FILE *file=tmpfile();assert(file!=NULL);
+  if(strcmp(path,"/sdcard/large.sub")==0) {
+    for(unsigned i=0;i<8193;++i)fputc('x',file);
+  } else if(strcmp(path,"/sdcard/nul.sub")==0) {
+    fwrite("xx\0xx",1,5,file);
+  } else if(strcmp(path,"/sdcard/decoded.sub")==0) {
+    fputs("Frequency: 433920000\nPreset: 6\nProtocol: CAME\nBit: 12\nKey: 00 00 00 00 00 00 00 2A\n",file);
+  } else if(strcmp(path,"/sdcard/band.sub")==0) {
+    fputs("Frequency: 350000000\nPreset: 6\nRAW_Data: 350 -700 350\n",file);
+  } else if(strcmp(path,"/sdcard/preset.sub")==0) {
+    fputs("Frequency: 433920000\nPreset: 255\nRAW_Data: 350 -700 350\n",file);
+  } else if(strcmp(path,"/sdcard/pulses.sub")==0) {
+    fputs("Frequency: 433920000\nPreset: 6\nRAW_Data: 99999\n",file);
+  } else if(strcmp(path,"/sdcard/too-many.sub")==0) {
+    fputs("Frequency: 433920000\nPreset: 6\nRAW_Data:",file);
+    for(unsigned i=0;i<513;++i)fputs(" 350",file);
+  } else {
+    fputs("Frequency: 433920000\nPreset: 6\nRAW_Data: 350 -700 350\n",file);
+  }
+  rewind(file);return file;
+}
+static void test_replay(void) {
+  s_fault=NORMAL;
+  unsigned calls=s_calls;
+  const char *bad_paths[]={NULL,"/sdcard/","/sdcard//one.sub","/sdcard/../one.sub",
+    "/sdcard/a/./one.sub","/sdcard/a/","/sdcard/a\\one.sub","/other/one.sub"};
+  for(unsigned i=0;i<sizeof(bad_paths)/sizeof(bad_paths[0]);++i)
+    assert(tos_api_subghz_replay(bad_paths[i])==ESP_ERR_INVALID_ARG);
+  s_allowed=false;assert(tos_api_subghz_replay("/sdcard/one.sub")==ESP_ERR_NOT_SUPPORTED);
+  s_allowed=true;s_stopped=true;assert(tos_api_subghz_replay("/sdcard/one.sub")==ESP_ERR_INVALID_STATE);
+  s_stopped=false;
+  assert(tos_api_subghz_replay("/sdcard/missing.sub")==ESP_ERR_NOT_FOUND);
+  assert(tos_api_subghz_replay("/sdcard/large.sub")==ESP_ERR_INVALID_SIZE);
+  assert(tos_api_subghz_replay("/sdcard/nul.sub")==ESP_ERR_INVALID_ARG);
+  assert(tos_api_subghz_replay("/sdcard/band.sub")==ESP_ERR_INVALID_ARG);
+  assert(tos_api_subghz_replay("/sdcard/preset.sub")==ESP_ERR_INVALID_ARG);
+  assert(tos_api_subghz_replay("/sdcard/pulses.sub")==ESP_ERR_INVALID_ARG);
+  assert(tos_api_subghz_replay("/sdcard/too-many.sub")==ESP_ERR_INVALID_ARG);
+  assert(s_calls==calls);clean();
+  for(unsigned i=1;i<=2;++i) {
+    s_fault=FAIL_ALLOC;s_fail_allocation=i;s_allocations=0;
+    assert(tos_api_subghz_replay("/sdcard/one.sub")==ESP_ERR_NO_MEM);clean();
+  }
+  s_fault=NORMAL;assert(tos_api_subghz_replay("/sdcard/one.sub")==ESP_OK);clean();
+  assert(tos_api_subghz_replay("/sdcard/decoded.sub")==ESP_OK);clean();
+  s_fault=FAIL_DISABLE;assert(tos_api_subghz_replay("/sdcard/one.sub")!=ESP_OK);
+  assert(s_resource_live && s_symbols!=NULL);
+  s_fault=NORMAL;assert(tos_api_subghz_replay("/sdcard/one.sub")==ESP_OK);clean();
+}
 int main(void) {
   tos_subghz_signal_t out;int32_t timings[]={350,-700,350};
   int32_t raw[1024];memset(raw,0x5a,sizeof(raw));
@@ -317,6 +384,7 @@ int main(void) {
     assert(s_tunes==80 && s_reads==240);clean();
   }
   puts("PASS: 80-bin spectrum, exact tuning/sample grid, range/capability/cancellation gates, no partial output, retained SPI/power cleanup");
+  test_replay();
   free(s_last_raw);s_last_raw=NULL;s_last_raw_count=0;
   puts("PASS: bounded Sub-GHz RX/TX, capabilities, cancellation, native contention, errors and retained RMT/SPI/power cleanup");
 }

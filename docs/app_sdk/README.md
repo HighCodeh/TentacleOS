@@ -116,7 +116,7 @@ while (!api->should_stop() && !api->resource_lost()) {
 
 ## 4. The host API (`tos_api_t`)
 
-The full contract is `Service/app_runtime/include/tos_api.h`. ABI version 1.17.
+The full contract is `Service/app_runtime/include/tos_api.h`. ABI version 1.19.
 
 | Call | Capability | Notes |
 |------|-----------|-------|
@@ -655,3 +655,24 @@ not per-app storage and not the native asynchronous receiver's snapshot. Failed
 receive/cleanup and spectrum/TX calls preserve the previous successful snapshot.
 Storage is bounded to one PSRAM capture; DMA storage remains owned by the worker
 until RMT teardown succeeds.
+
+
+## Sub-GHz file replay (ABI 1.19)
+
+`subghz.replay(path)` requires radio-tx **and** fs-read. It reads one complete
+file under `/sdcard/` (path less than 192 bytes, no empty/dot/parent/backslash
+components), at most 8192 bytes without embedded NUL. RAW and decoded captures
+share the native parser; decoded replay requires a registered encoder, including
+the existing decorated protocol names. Missing decoded preset uses OOK 800 kHz
+for legacy files. Numeric fields must fit their destination types; decoded keys
+use eight bytes with the upper four zero, matching the stored 32-bit ABI value.
+
+The complete pulse train must fit 512 timings, each 1..32767 us in magnitude and
+at most 2 seconds total. Frequency must fit a CC1101 supported band and preset
+must be non-idle and within the native enum. Oversize, malformed or unsupported
+input fails before acquiring radio hardware. No prefix transmission or hidden
+repeats are performed. The persistent worker owns the lease, TX completion and
+retained RMT cleanup exactly as for `tx_raw`; no app session survives the call.
+File parsing and hardware failures propagate. Return zero means native transmit
+completion, not reception by a remote device. No TE-based rescaling is applied;
+decoded captures use their native protocol encoder's timing policy.

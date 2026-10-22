@@ -309,3 +309,13 @@ history returns an empty array. A capture larger than max fails without returnin
 a truncated signal. Call bounded `subghz.receive` first; this does not read the
 native UI receiver's history. Older/missing ABI entries fail before dispatch.
 See the [native snapshot contract](../app_sdk/README.md#sub-ghz-raw-snapshot-abi-118).
+
+
+## Sub-GHz file replay binding (ABI 1.19)
+
+`tos.call("subghz.replay", "/sdcard/capture.sub")` uses the shared native replay
+adapter in JavaScript and Lua. Both TX and filesystem-read approvals are required.
+Zero indicates native transmit completion. Missing/old ABI, malformed input,
+unsupported encoder, radio contention and cleanup errors fail the script call.
+The [native file and pulse limits](../app_sdk/README.md#sub-ghz-file-replay-abi-119)
+apply; the script does not create an asynchronous session.

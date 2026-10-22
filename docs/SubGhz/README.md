@@ -484,3 +484,18 @@ zero/overflow/malformed timings and rejects additional pulses beyond capacity.
 Frequency/preset outputs are published only after complete success; discard
 pulse output on error. The saved metadata remains subject to radio validation
 before transmission.
+
+
+## Shared file replay parser
+
+`subghz_protocol_parse_capture` parses RAW or decoded files without touching the
+radio. The native replay UI and ABI 1.19 use this same parser and native encoder
+registry. Complete metadata is validated before stopping the native receiver or
+starting TX; malformed fields and over-capacity pulses fail. Legacy fixed-code
+files may omit Serial/Btn/Preset (key-derived serial, button zero, OOK 800 kHz).
+Decoded keys with nonzero upper four bytes are rejected instead of truncated.
+Native storage replay rejects a full 8191-byte read because that API cannot prove
+the file was complete; embedded NUL is rejected too. App replay independently
+checks the complete file up to 8192 bytes and bounds the resulting transmission.
+See the [ABI contract](../app_sdk/README.md#sub-ghz-file-replay-abi-119) for path,
+frequency, duration, capability and hardware ownership requirements.

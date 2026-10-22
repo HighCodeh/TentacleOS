@@ -21,24 +21,25 @@
     if (!(value))           \
       goto no_memory;       \
   } while (0)
-#define SCRIPT_MAC_TEXT             18
-#define SCRIPT_HEX_RADIX            16
-#define SCRIPT_DELAY_MAX_MS         30000
-#define SCRIPT_RF_ABI_MINOR         10
-#define SCRIPT_IR_ABI_MINOR         11
-#define SCRIPT_RADIO_VIEW_ABI_MINOR 12
-#define SCRIPT_SUBGHZ_ABI_MINOR     13
-#define SCRIPT_LORA_TX_ABI_MINOR    14
-#define SCRIPT_SPECTRUM_ABI_MINOR   15
-#define SCRIPT_IR_EXT_ABI_MINOR     16
-#define SCRIPT_NFC_BLOCK_ABI_MINOR  17
-#define SCRIPT_SUBGHZ_RAW_ABI_MINOR 18
-#define SCRIPT_NFC_KEY_BYTES        6
-#define SCRIPT_NFC_BLOCK_BYTES      16
-#define SCRIPT_BYTE_HEX_DIGITS      2
-#define SCRIPT_SUBGHZ_PULSES_MAX    128
-#define SCRIPT_SUBGHZ_PULSE_MAX_US  32767
-#define SCRIPT_DECIMAL_BASE         10
+#define SCRIPT_MAC_TEXT                18
+#define SCRIPT_HEX_RADIX               16
+#define SCRIPT_DELAY_MAX_MS            30000
+#define SCRIPT_RF_ABI_MINOR            10
+#define SCRIPT_IR_ABI_MINOR            11
+#define SCRIPT_RADIO_VIEW_ABI_MINOR    12
+#define SCRIPT_SUBGHZ_ABI_MINOR        13
+#define SCRIPT_LORA_TX_ABI_MINOR       14
+#define SCRIPT_SPECTRUM_ABI_MINOR      15
+#define SCRIPT_IR_EXT_ABI_MINOR        16
+#define SCRIPT_NFC_BLOCK_ABI_MINOR     17
+#define SCRIPT_SUBGHZ_RAW_ABI_MINOR    18
+#define SCRIPT_SUBGHZ_REPLAY_ABI_MINOR 19
+#define SCRIPT_NFC_KEY_BYTES           6
+#define SCRIPT_NFC_BLOCK_BYTES         16
+#define SCRIPT_BYTE_HEX_DIGITS         2
+#define SCRIPT_SUBGHZ_PULSES_MAX       128
+#define SCRIPT_SUBGHZ_PULSE_MAX_US     32767
+#define SCRIPT_DECIMAL_BASE            10
 
 static const char *TAG = "SCRIPT_BINDINGS";
 
@@ -125,6 +126,7 @@ typedef enum {
   SCRIPT_BINDINGS_NFC_READ_BLOCK,
   SCRIPT_BINDINGS_NFC_WRITE_BLOCK,
   SCRIPT_BINDINGS_SUBGHZ_GET_RAW,
+  SCRIPT_BINDINGS_SUBGHZ_REPLAY,
   SCRIPT_BINDINGS_METHOD_COUNT
 } script_bindings_method_id_t;
 
@@ -217,6 +219,7 @@ static const script_bindings_method_t METHODS[] = {
     {"nfc.read_block", "ys", TOS_CAP_RADIO_RX},
     {"nfc.write_block", "yss", TOS_CAP_RADIO_TX},
     {"subghz.get_raw", "u", TOS_CAP_RADIO_RX},
+    {"subghz.replay", "s", TOS_CAP_RADIO_TX | TOS_CAP_FS_READ},
 };
 #define SCRIPT_METHOD_COUNT (sizeof(METHODS) / sizeof(METHODS[0]))
 _Static_assert(SCRIPT_METHOD_COUNT == SCRIPT_BINDINGS_METHOD_COUNT,
@@ -1202,6 +1205,12 @@ esp_err_t script_bindings_call(script_bindings_t *bindings, script_bindings_call
       }
       break;
     }
+    case SCRIPT_BINDINGS_SUBGHZ_REPLAY:
+      if (api->abi_minor < SCRIPT_SUBGHZ_REPLAY_ABI_MINOR || api->subghz == NULL ||
+          api->subghz->replay == NULL)
+        return ESP_ERR_NOT_SUPPORTED;
+      err = api->subghz->replay(s[0]);
+      break;
     case SCRIPT_BINDINGS_IR_SEND_FILE:
       if (api->abi_minor < SCRIPT_IR_EXT_ABI_MINOR || api->ir == NULL || api->ir->send_file == NULL)
         return ESP_ERR_NOT_SUPPORTED;

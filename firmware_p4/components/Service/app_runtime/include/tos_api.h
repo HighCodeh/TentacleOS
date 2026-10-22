@@ -68,7 +68,7 @@ typedef struct host_link_handler host_link_handler_t; // opaque to apps
 // 1.8 = read-only fs subsystem. NOTE: 1.7 was briefly a (removed) IMU subsystem in
 // dev; fs took a fresh minor so a firmware built during the IMU era rejects an
 // fs app at the load gate instead of mismatching its api->fs pointer.
-#define TOS_ABI_VERSION_MINOR 18
+#define TOS_ABI_VERSION_MINOR 19
 
 /** Log levels; values match esp_log_level_t so they pass straight through. */
 typedef enum {
@@ -314,9 +314,9 @@ typedef struct {
 /**
  * Sub-GHz (CC1101). Capture on a frequency/preset, read decoded results or raw
  * timings, and transmit raw pulse trains or replay a saved capture. Decoded
- * replay is only possible for protocols with an encoder (CAME, RCSwitch); the
+ * replay is only possible for protocols with a registered encoder; the
  * others are decode-only and replay() returns ESP_ERR_NOT_SUPPORTED for them,
- * while RAW replay and tx_raw always work. Timings are microseconds, signed:
+ * while RAW replay and tx_raw use bounded pulse validation. Timings are microseconds, signed:
  * +mark / -space.
  */
 typedef struct tos_subghz_api {
@@ -325,7 +325,8 @@ typedef struct tos_subghz_api {
   int (*get_raw)(int32_t *out,
                  int max); ///< minor 18+: last bounded receive; max 1..1024, count or <0
   esp_err_t (*tx_raw)(const int32_t *timings, int count, uint32_t freq_hz); ///< radio-tx
-  esp_err_t (*replay)(const char *path); ///< radio-tx; saved capture under /sdcard
+  esp_err_t (*replay)(
+      const char *path); ///< minor 19+: radio-tx + fs-read; saved capture under /sdcard
   esp_err_t (*set_frequency)(uint32_t freq_hz);
   // Spectrum sweep. Poll fills dbm[] (up to `max`, hardware caps at 80 bins) and
   // reports the start frequency and per-bin step; returns the sample count or 0.
