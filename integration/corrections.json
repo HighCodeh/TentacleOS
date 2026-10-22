@@ -238,26 +238,50 @@
     "firmware_p4/components/Applications/doom/doomgeneric_highboy.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "69801b7ad906a19626a1143874f3f0ed37c5e7cabfd1efe0ce4c507d44c92b80",
-      "after_sha256": "4e05aa40fd91a0c9174575daf872a0a4b2944f62780bd4c6435d512116ebbc8b",
-      "reason": "Pass central scheduling macros directly and pin affected first-party tasks."
+      "after_sha256": "b1e16eda92e929ccc3e6d076ce15b7fbb8b2595e2570a8afdf8ded07175f25d0",
+      "reason": "chore(p4): add license notices to applications and drivers",
+      "review_history": [
+        {
+          "after_sha256": "4e05aa40fd91a0c9174575daf872a0a4b2944f62780bd4c6435d512116ebbc8b",
+          "reason": "Pass central scheduling macros directly and pin affected first-party tasks."
+        }
+      ]
     },
     "firmware_p4/components/Applications/gameboy/include/gb_input_mapping.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "57c2e5d5ec513cef4e81bedd15932a1e30f855e4917001da347b110ffa2fb341",
-      "after_sha256": "439e60c5dc975237156221ab0c6460ab0feca48a8cf260c23cb6dd0e93b229d2",
-      "reason": "Use project include guards and C++ linkage for new first-party headers."
+      "after_sha256": "590c551598ea6ee72cc3c501ae462b8f335f14f9eb88cc8c8b507540a226ffe5",
+      "reason": "chore(p4): add license notices to applications and drivers",
+      "review_history": [
+        {
+          "after_sha256": "439e60c5dc975237156221ab0c6460ab0feca48a8cf260c23cb6dd0e93b229d2",
+          "reason": "Use project include guards and C++ linkage for new first-party headers."
+        }
+      ]
     },
     "firmware_p4/components/Applications/gameboy/include/gb_rom_validation.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "6e41a2ae7a8a393123532d632e5b9ea80e2a2e6760fffa54a452df65aac8c2f5",
-      "after_sha256": "ae642f9ea6188d447c634ac2e6ff90040fd778c7fcc620bb553f1663ee81d4e8",
-      "reason": "Use project include guards and C++ linkage for new first-party headers."
+      "after_sha256": "37e5c5fd13d5e84b68724f834f2ac9f085f6097ce1817eda58f6c516dffc751b",
+      "reason": "chore(p4): add license notices to applications and drivers",
+      "review_history": [
+        {
+          "after_sha256": "ae642f9ea6188d447c634ac2e6ff90040fd778c7fcc620bb553f1663ee81d4e8",
+          "reason": "Use project include guards and C++ linkage for new first-party headers."
+        }
+      ]
     },
     "firmware_p4/components/Applications/gameboy/include/gb_save_io.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "121fed5af7da13356d1ea3a919a02d46db01219c84fd71ecd08ba2cda274082b",
-      "after_sha256": "dfd01cfcece83c48b2a90c7c23ae6d787ce7b3597e98c82998cfeeff3b797307",
-      "reason": "Use project include guards and C++ linkage for new first-party headers."
+      "after_sha256": "715a855f1cbf00ece55a014c9a292b62a935f767e65d30052da10b2cd3c4c8cc",
+      "reason": "chore(p4): add license notices to applications and drivers",
+      "review_history": [
+        {
+          "after_sha256": "dfd01cfcece83c48b2a90c7c23ae6d787ce7b3597e98c82998cfeeff3b797307",
+          "reason": "Use project include guards and C++ linkage for new first-party headers."
+        }
+      ]
     },
     "firmware_p4/components/Applications/ui/components/feedback/ui_feedback.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -276,8 +300,14 @@
     "firmware_p4/components/Applications/ui/include/muse_ui.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "46e528c81a85ce5d2b8e71d159ef2b1ec27ca49d79d88fed25a46ed03e11ce74",
-      "after_sha256": "48c9069ce559c73d58f0b4530ca148ec8ebb5d495bdd92b520b3a0b77972977d",
-      "reason": "Use project include guards and C++ linkage for new first-party headers."
+      "after_sha256": "4a9a5d3cb72698198818d0a80a6ea1e529554e571673c3eff1f8192d2adf87d7",
+      "reason": "chore(p4): add license notices to applications and drivers",
+      "review_history": [
+        {
+          "after_sha256": "48c9069ce559c73d58f0b4530ca148ec8ebb5d495bdd92b520b3a0b77972977d",
+          "reason": "Use project include guards and C++ linkage for new first-party headers."
+        }
+      ]
     },
     "firmware_p4/components/Applications/ui/screens/audio/micrec_ui.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -468,20 +498,38 @@
     "firmware_p4/components/Drivers/grok_usb_audio/include/grok_tusb_config.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "29bdf0f6931afafe23c3d630f8eb34592898287ecba12734455fe5245f162db4",
-      "after_sha256": "698b88b6260bfdc77495d98e4a3cddce7d2bbaaf18bb27450dd4d7b75a3e222a",
-      "reason": "Use project include guards and C++ linkage for new first-party headers."
+      "after_sha256": "7f42bfbcc3c91e62cb82181f89005824479d6556c6c22e438233983fcc18be33",
+      "reason": "chore(p4): add license notices to applications and drivers",
+      "review_history": [
+        {
+          "after_sha256": "698b88b6260bfdc77495d98e4a3cddce7d2bbaaf18bb27450dd4d7b75a3e222a",
+          "reason": "Use project include guards and C++ linkage for new first-party headers."
+        }
+      ]
     },
     "firmware_p4/components/Drivers/grok_usb_audio/include/grok_uac_wire.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "51e53b810e388151313a1972da19b5fd4a93e4c95416e52d5291821dac15112f",
-      "after_sha256": "1fb8061ee4fa7ab6617e6a418d07a026ed32b9cb05e6eaf6c1eef1036331bb3c",
-      "reason": "Use project include guards and C++ linkage for new first-party headers."
+      "after_sha256": "2b19e943d9fc8aa8722383dd8e2b026f34728113b426aa069a5b381d5cac510a",
+      "reason": "chore(p4): add license notices to applications and drivers",
+      "review_history": [
+        {
+          "after_sha256": "1fb8061ee4fa7ab6617e6a418d07a026ed32b9cb05e6eaf6c1eef1036331bb3c",
+          "reason": "Use project include guards and C++ linkage for new first-party headers."
+        }
+      ]
     },
     "firmware_p4/components/Drivers/grok_usb_audio/include/grok_usb_audio.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "4240f43e524ab8b0751274c4f8a7ffc15924d7abc7676dac1395ce33213fd9c1",
-      "after_sha256": "43642cd21e627f0b04f2d962fb730d3b494c784560e58593b782dae12da304c8",
-      "reason": "Use project include guards and C++ linkage for new first-party headers."
+      "after_sha256": "94447ad8f9dd9d4bd60d3068946754d4304317a9ec240f45c382d9010542a5cb",
+      "reason": "chore(p4): add license notices to applications and drivers",
+      "review_history": [
+        {
+          "after_sha256": "43642cd21e627f0b04f2d962fb730d3b494c784560e58593b782dae12da304c8",
+          "reason": "Use project include guards and C++ linkage for new first-party headers."
+        }
+      ]
     },
     "firmware_p4/components/Drivers/rf_frontend/include/rf_frontend.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -2046,6 +2094,66 @@
       "before_sha256": "d4c359cebfbb23b08a373c891bf748986a56c34cfa9d2c742fb02f31d96d7b61",
       "after_sha256": "77b524733ff9256b9d0ef95533c4d27019cfebcaff1a34b53b034105c41a0cf6",
       "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_p4/components/Applications/doom/CMakeLists.txt": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "587029e0a9d7ba8f64cbf383d82516b38b35950a0a08fcf286bc1b25fec9e86a",
+      "after_sha256": "2801e9fa43c40a85640d30093bb3f97a78ccb3d34d53a1f4063791e6c09c20ba",
+      "reason": "chore(p4): add license notices to applications and drivers"
+    },
+    "firmware_p4/components/Applications/doom/doom_sound_highboy.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "95aa9f40b1ae08c0be1763bb1b49576f3e2016f3a2f5f1e02c4b96d0d9db6578",
+      "after_sha256": "97acc2507349bc790c7f63a9ba35ab3fe9930fa319f87c1d4928595ddb7de780",
+      "reason": "chore(p4): add license notices to applications and drivers"
+    },
+    "firmware_p4/components/Applications/doom/include/doom_highboy.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "6a8f7954e279a338fe82834932de94470f2b50f458a79e368a9dfe947080d944",
+      "after_sha256": "309df8f7b549a2b0aeac7327dce8752f28da50d20e6ee05477f21877bb2702f5",
+      "reason": "chore(p4): add license notices to applications and drivers"
+    },
+    "firmware_p4/components/Applications/doom/linker.lf": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "16467a2243dac60d38ef6403880b8eb36928a0031c094856ec135cfc47804938",
+      "after_sha256": "68d8b66af6175e6b7e1b7d7d94ac13f274b8eee9e57f7b7cb4332ef069f05392",
+      "reason": "chore(p4): add license notices to applications and drivers"
+    },
+    "firmware_p4/components/Applications/ui/screens/apps/muse_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "c2c0441895e6f42d9a715ee5bb30672c8f5ebc390b24fd14deafc989d275f624",
+      "after_sha256": "7e4e9695c2b8c5981c3bfe240e3d19afd7652ba8ccf2756b99f0f27c3602a18f",
+      "reason": "chore(p4): add license notices to applications and drivers"
+    },
+    "firmware_p4/components/Applications/ui/screens/bluetooth/ble_beacon_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "542f81eb55ed4525c2f6d68d4a2550de75e3b8c4828e913c40493d8697c5171d",
+      "after_sha256": "5ac5b8e83fbf2f52b293d96e1b280330433e82853a7ecabdaf36aa09703ae189",
+      "reason": "chore(p4): add license notices to applications and drivers"
+    },
+    "firmware_p4/components/Applications/ui/screens/connect_bluetooth/connect_bt_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "79f1b85f3ff5aed87397ed6af4c5baab0de06aaf24854c47b341a4abd002a4aa",
+      "after_sha256": "03fecb91f77804dfa2c2d9b00b30fe4ec780ecf4b5b7f5a7d164c41cf615d84a",
+      "reason": "chore(p4): add license notices to applications and drivers"
+    },
+    "firmware_p4/components/Drivers/bq25896/bq25896_ext.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "d6276bb87bea1ae69c7860eafb16ed3493507e7519777a2c17bada9394febdd5",
+      "after_sha256": "9384dd40dbc10b73c2339612fc8ec32cea0bad965bb60fcb91d0dd4a5293a2f9",
+      "reason": "chore(p4): add license notices to applications and drivers"
+    },
+    "firmware_p4/components/Drivers/grok_usb_audio/grok_usb_audio.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "946d4036aa158f3c3dc7ff1af72e23f1b29793289935cb33798fa830db7be3da",
+      "after_sha256": "275f8917b1bede41c63f2b4fb381108603f9b86b64d8978b8384757c9c4aae11",
+      "reason": "chore(p4): add license notices to applications and drivers"
+    },
+    "firmware_p4/components/Drivers/spi_bridge_phy/CMakeLists.txt": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "140c6ca1aa2d154626ee247d52007fc5439bcb73fc8b5dff3b3f0d3d539c0ab9",
+      "after_sha256": "5e640ecbb521a50d757d43b7b1312990b2dda95e429c400bafdf102e97aa3a4a",
+      "reason": "chore(p4): add license notices to applications and drivers"
     }
   }
 }
