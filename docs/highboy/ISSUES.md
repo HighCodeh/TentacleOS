@@ -24,6 +24,8 @@ this work. Feature request #163 is also excluded by user request. No device was 
 
 | [#153](https://github.com/HighCodeh/TentacleOS/issues/153) | Checked P4/C5 monitor creation and WDT APIs now enter the configured panic/coredump path on failure. Healthy completed boots alone clear the RTC loop counter. Recovery preserves NVS, skips configuration/SD startup, gates UI/OTA on successful initialization, and reports reset failures without rebooting. Bounded internal-stack boot MP3/serialized I2S replaces the disabled crash guard. Production-code host fault injection and both pinned builds pass; physical fault injection, core-dump flash integrity and audio remain unverified at the user-requested code closure boundary. |
 
+| [#152](https://github.com/HighCodeh/TentacleOS/issues/152) | Both pinned SDK lanes now build and audit real factory-security bootloaders/apps with Secure Boot v2 RSA-3072, release Flash Encryption and encrypted NVS/assets/coredump. Real signatures and full-image XTS round-trips pass with temporary fixture keys; app and bootloader signature sectors fit. The separate factory layout relocates metadata while preserving both app slots and assets. User-requested software closure does not certify a provisioned device; production identities, approved installation/migration and physical secure recovery remain #157 release prerequisites. See [security](../security/README.md). |
+
 ## Still open
 
 | Issue | Remaining work |
@@ -31,8 +33,7 @@ this work. Feature request #163 is also excluded by user request. No device was 
 | [#135](https://github.com/HighCodeh/TentacleOS/issues/135) | Battery ADC diagnostics exist. PM initialization now acquires a guard before configuring sleep, serializes USB/client holds, preserves failed cleanup and retries failed input transitions. Enabled/disabled host fault-injection passes. Light-sleep remains disabled; UART/USB and peripheral wake/current must be verified on hardware before enabling. |
 | [#143](https://github.com/HighCodeh/TentacleOS/issues/143) | Companion Wi-Fi dispatch exists. Measure actual throughput and validate complete scan/connect/session flows on the paired device. |
 | [#148](https://github.com/HighCodeh/TentacleOS/issues/148) | Physical NFC card test with recorded hardware, card types, read/write/emulation results and field shutdown. |
-| [#152](https://github.com/HighCodeh/TentacleOS/issues/152) | Isolated paired Secure Boot v2 / release Flash Encryption profiles and an SDK resolver/auditor exist. Real signing identities, signed secure builds fitting the original slots, per-device encryption custody and reviewed two-chip eFuse/recovery provisioning remain. Normal development builds keep both disabled. |
-| [#157](https://github.com/HighCodeh/TentacleOS/issues/157) | App-only candidates and private paired recovery preparation/verification are implemented. Current sizes/hashes are in the latest [validation record](TESTS.md#shared-irnfc-and-offline-securityrecovery-preparation-build-record). The unsigned pair fits; the baseline secure-padding/signature projection exceeds both slots. Further size work, runtime performance/internal heap/stack evidence, production identity/custody and a reviewed deployable asset/restore/release package remain. |
+| [#157](https://github.com/HighCodeh/TentacleOS/issues/157) | Normal app-only candidates and private paired recovery review are implemented. Actual factory-security builds now fit the unchanged app slots with their signature sectors, using explicitly relocated metadata; they are not compatible with the installed development map/updater. Production identities/key custody, approved metadata reset/migration and assets handling, runtime performance/heap/stack evidence, paired device boot and a reviewed deployable restore/release package remain. |
 | [#158](https://github.com/HighCodeh/TentacleOS/issues/158) | Fixed a reproduced BSD/macOS SDK build bug (`stat -c%s` is GNU-only), with an isolated shell regression. The original unnamed Bash report remains unidentified: the user no longer recalls the command and the explanation is on another PC. All reviewed shell files pass syntax checks. The [field guide](FIELD.md) documents current capabilities, bench evidence and the app-only boundary. A supported consumer installation procedure still needs the approved deployment/recovery package. |
 
 ## Validation of this correction batch
@@ -437,3 +438,38 @@ flash core-dump capture/decoding, cache behavior or audible playback is certifie
 No device was accessed or flashed, and no changes were pushed. The six other
 in-scope issues keep their own remaining requirements; the feature request, HID
 layouts, HLE and haptics remain excluded.
+
+
+## Issue 152 software completion
+
+Secure Boot v2 RSA-3072, signed boot/update validation, release XTS-AES-128,
+runtime encryption checks and secure ROM download mode are resolved and compiled
+for P4 v5.5.3 and C5 v6.0.1. New isolated factory profiles select encrypted NVS
+with a flash-protected key partition and encrypted assets/coredump. Per-device
+keys are not supplied or generated by the preparation tools. Host regression
+fixtures generate temporary identities only and never select firmware trust.
+
+Actual secure bootloaders cannot fit the installed 24 KiB region with their
+signature sectors. The explicit factory-review layout moves the table/NVS/OTA/
+PHY metadata into the available pre-app region and adds encrypted NVS keys.
+Original app, assets and coredump offsets/sizes remain unchanged. The development
+profiles, updater, partition files, protocol v8 and C5 memory overlay are kept.
+Existing plaintext NVS is not migrated in place: installation requires reviewed
+settings export/reseed or reset and both compatible signed images/assets.
+
+The new builder uses a fresh output outside the checkout, audits real image
+chip/checksum/SHA/config/table data and reserves the actual 4 KiB signature sector
+in both app and bootloader capacities. It rejects failed/incomplete reviews.
+A separate verifier consumes external signed images plus a public RSA PEM,
+rejects private/foreign keys or altered/truncated inputs, records the actual
+Secure Boot public-key digest and publishes complete reviews atomically.
+Production identity/custody, deployment, eFuse and hardware gates remain false.
+
+The [validation record](TESTS.md#paired-factory-security-build-and-crypto-record)
+records real builds, full-image RSA/XTS tests, ordinary paired builds and the
+complete offline regression suite. CI now runs the factory builds and actual
+image crypto tests in the corresponding SDK matrix lanes; remote CI execution
+is not claimed by local checks. This completes #152 at the user's requested
+software boundary. Actual device provisioning, approved migration/installation,
+production keys and physical secure recovery remain release prerequisites under
+#157. No device was accessed, no eFuse was written and no changes were pushed.

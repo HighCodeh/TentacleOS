@@ -1148,3 +1148,85 @@ remain unverified. Optional `/assets/storage/ghost_cyberpunk_boot.mp3` is not
 installed by this package. Recovery/low-heap/missing-file cases skip boot audio.
 No device was accessed, flashed or provisioned, and no changes were pushed.
 User Wi-Fi/deployment changes and their provenance were preserved separately.
+
+
+## Paired factory-security build and crypto record
+
+Issue #152 is software-complete at the requested boundary without physical
+provisioning. Commits `d19f58bd`, `ab804ef8`, `5c102eaf` and `ebe7d5c2` deliver the
+isolated factory profiles/build auditor, external signature verifier, real-image
+RSA/XTS tests and pinned-lane CI integration. This documentation commit changes
+no executable source. No production signing identity was supplied or generated.
+
+Actual factory builds used P4 ESP-IDF v5.5.3 and C5 v6.0.1. Their reports record
+base source `2e5bfe3ee699a0031902c91d67c5776467329a63`, `source_dirty=true`, including
+the pre-existing user changes and the security-profile implementation now
+committed above. Reviewed outputs remain outside the checkout:
+`/private/tmp/tentacleos-152/p4-factory-v2/` and
+`/private/tmp/tentacleos-152/c5-factory-v2/`.
+
+| Target/image | Actual padded unsigned bytes | Bytes with signature sector | Capacity | Signed free bytes |
+| --- | ---: | ---: | ---: | ---: |
+| P4 app | 2,883,584 | 2,887,680 | 2,949,120 | 61,440 |
+| C5 app | 1,900,544 | 1,904,640 | 2,097,152 | 192,512 |
+| P4 bootloader | 40,960 | 45,056 | 57,344 | 12,288 |
+| C5 bootloader | 40,960 | 45,056 | 57,344 | 12,288 |
+
+The real-image tests append and verify actual RSA-3072 signature sectors, not
+only size projections. Fixture signatures are randomized and removed with their
+temporary keys; these are not production artifacts. Unsigned source hashes:
+
+| Target | App SHA-256 | Bootloader SHA-256 | Factory table SHA-256 |
+| --- | --- | --- | --- |
+| P4 | `07b2819bd6c2f1732b7bfeb72657ccd645f3a01752254810b239470f7dd1e861` | `e2e1b7f59856451d7b06497853609bac1344c605f04bc0034085be3be05ae4d7` | `0ac4b47148174d0496574239447459aaba4a446be2bc3c30507f7ebc950e5d72` |
+| C5 | `6ed5257ee269ce20612188d019b7af44fb3b4c1fea0c080c29517438219f1385` | `ad4f2164d50e921f00b22d938ef86377fca4a642304f8acd1487a23c2bcda7c8` | `6bede11b183ca33d0ccc17a504293fd5fc64d58f1e3871e553acd4d6c38c8fe5` |
+
+The installed development layout cannot accommodate secure bootloaders and their
+signature sectors. The [factory-review layout](../security/README.md) moves only
+pre-app metadata/table regions and adds encrypted NVS keys. Original app, assets
+and coredump offsets/sizes remain; assets/coredump gain encryption flags. NVS
+uses its separate encrypted storage scheme. Runtime encryption checks and secure
+ROM mode are enforced; validation skips and insecure options fail the auditor.
+Factory SDK code uses size optimization with active silent assertions, retaining
+P4 peripheral `-O2`, C5 peripheral/Muse `-Og`, existing per-file policy and emulator
+`-O2`. C5 memory settings and protocol v8 remain intact. P4 `.hb` trust stayed in
+development mode because no production Ed25519 identity was supplied.
+
+Validation completed locally:
+
+- `test_security.py`: 11 config/layout/signature-space/failed-review tests pass.
+- Both `secure_build.py verify` commands pass against actual SDK-produced images
+  and tables, including checksums, SHA, chip IDs and signed-capacity reservations.
+- Both matching SDK Pythons run `test_security_images.py` successfully. Official
+  `espsecure` verifies actual app/bootloader signatures and public-key digests;
+  wrong/private/undersized keys, payload/signature tampering, truncation, changed
+  review content and output overwrite are rejected. Both actual signed images
+  round-trip through XTS encryption/decryption at their intended addresses;
+  wrong keys and addresses do not reproduce the plaintext.
+- The ordinary paired build and complete offline regression suite pass through
+  `package.py`. YAML/shell syntax, commitlint and whitespace checks pass. New CI
+  steps are configured; a remote GitHub Actions run is not claimed.
+
+Ordinary app-only candidate:
+`integration/release/candidate_f30c4e873a2c_ed159f236e7e_19d7131d3761/`.
+Its source report is `5c102eaf6d983aa8a27c93756eb90b5d1abf5799`, dirty for user
+changes. Later CSV whitespace/documentation commits do not change executable
+behavior. App sizes/margins remain unchanged from the #153 candidate:
+P4 2,946,960 bytes / 2,160 free; C5 2,051,664 bytes / 45,488 free.
+
+Normal P4 SHA-256: `f30c4e873a2c36ec3e61950053b467c25ff1776867f1c18f077f2b3e1c8bdd26`.
+Normal C5 SHA-256: `ed159f236e7ec64fa3f23812f984eebed7b34c3cff4821eea4f83d9917087e39`.
+
+`verify_package.py` and real-esptool recovery-image checks pass for this ordinary
+candidate. It keeps the original development table/configuration and does not
+contain factory bootloaders or security provisioning. The full host-runner
+fingerprint remains `3b7ab188670d774171e88207e63b57a8b1b425838e3e3562bc30ad5c0747a4bc`.
+
+No flash, serial device, eFuse, production key or installed filesystem was
+accessed. Temporary host fixture keys alone exercised crypto. Factory metadata
+export/reseed/reset, production identities/independent per-device key custody,
+assets compatibility, paired first boot, hardware encryption/signature enforcement
+and physical secure recovery remain installation/release prerequisites under
+#157. All review deployment/provisioning/hardware gates stay false. The factory
+layout is not an ordinary app-only update and existing plaintext NVS is not
+migrated in place. No changes were pushed; user changes/provenance are preserved.
