@@ -112,7 +112,30 @@ static esp_err_t replay_subghz(const char *path) {
 static int subghz_raw(int32_t *out,int max) {
   assert(max==6);out[0]=350;out[1]=-700;return 2;
 }
-static const tos_subghz_api_t subghz={.replay=replay_subghz,.get_raw=subghz_raw,.rx_poll=poll_subghz_view,.receive=capture_subghz,.tx_raw=transmit_subghz,.spectrum_capture=capture_spectrum};
+static unsigned s_session_calls;
+static esp_err_t s_session_error;
+static bool s_session_empty;
+static esp_err_t start_subghz(uint32_t frequency,uint8_t preset,uint32_t *out) {
+  assert(frequency==433920000 && preset==6);++s_session_calls;*out=73;return s_session_error;
+}
+static esp_err_t start_sweep(uint32_t frequency,uint32_t span,uint32_t *out) {
+  assert(frequency==433920000 && span==1000000);++s_session_calls;*out=74;return s_session_error;
+}
+static esp_err_t retune_subghz(uint32_t frequency) {
+  assert(frequency==315000000);++s_session_calls;return s_session_error;
+}
+static esp_err_t stop_subghz(uint32_t id) {
+  assert(id==73 || id==74);++s_session_calls;return s_session_error;
+}
+static int poll_sweep(uint32_t *start,uint32_t *step,float *out,int max) {
+  assert(max==80);++s_session_calls;
+  if(s_session_error!=ESP_OK)return -s_session_error;
+  if(s_session_empty)return 0;
+  *start=433420000;*step=12500;
+  for(unsigned i=0;i<80;++i)out[i]=-68;
+  return 80;
+}
+static const tos_subghz_api_t subghz={.rx_start=start_subghz,.set_frequency=retune_subghz,.session_stop=stop_subghz,.spectrum_start=start_sweep,.spectrum_poll=poll_sweep,.replay=replay_subghz,.get_raw=subghz_raw,.rx_poll=poll_subghz_view,.receive=capture_subghz,.tx_raw=transmit_subghz,.spectrum_capture=capture_spectrum};
 static unsigned s_mesh_sends;
 static esp_err_t s_mesh_error;
 static esp_err_t send_mesh(const char *text) {
@@ -199,7 +222,28 @@ static void test_bindings(void) {
     assert(run(language,"tos.call('lora.mesh_node_count')")==SCRIPT_ENGINE_ERROR);
     assert(run(language,"tos.call('lora.mesh_node_get',0)")==SCRIPT_ENGINE_ERROR);
     assert(s_node_calls==node_calls);
+    const char *session_code[]={"tos.call('subghz.rx_start',433920000,6)",
+      "tos.call('subghz.set_frequency',315000000)","tos.call('subghz.session_stop',73)",
+      "tos.call('subghz.spectrum_start',433920000,1000000)","tos.call('subghz.spectrum_poll')"};
+    unsigned session_calls=s_session_calls;
+    for(unsigned i=0;i<5;++i)assert(run(language,session_code[i])==SCRIPT_ENGINE_ERROR);
+    assert(s_session_calls==session_calls);
     bindings.caps=SCRIPT_BINDINGS_CAPS;
+    assert(run(language,language==SCRIPT_ENGINE_JS
+      ? "if(tos.call('subghz.rx_start',433920000,6)!==73) throw new Error('id');tos.call('subghz.set_frequency',315000000);tos.call('subghz.session_stop',73);if(tos.call('subghz.spectrum_start',433920000,1000000)!==74) throw new Error('sweep id');var p=tos.call('subghz.spectrum_poll');if(p.start_hz!==433420000||p.step_hz!==12500||p.dbm.length!==80||p.dbm[79]!==-68) throw new Error('sweep');tos.call('subghz.session_stop',74);"
+      : "assert(tos.call('subghz.rx_start',433920000,6)==73);tos.call('subghz.set_frequency',315000000);tos.call('subghz.session_stop',73);assert(tos.call('subghz.spectrum_start',433920000,1000000)==74);local p=tos.call('subghz.spectrum_poll');assert(p.start_hz==433420000 and p.step_hz==12500 and #p.dbm==80 and p.dbm[80]==-68);tos.call('subghz.session_stop',74)")==SCRIPT_ENGINE_OK);
+    s_session_empty=true;
+    assert(run(language,language==SCRIPT_ENGINE_JS
+      ? "if(tos.call('subghz.spectrum_poll')!==null) throw new Error('empty');"
+      : "assert(tos.call('subghz.spectrum_poll')==nil)")==SCRIPT_ENGINE_OK);
+    s_session_empty=false;
+    tos_api_t session_old=api;session_old.abi_minor=20;bindings.api=&session_old;
+    session_calls=s_session_calls;
+    for(unsigned i=0;i<5;++i)assert(run(language,session_code[i])==SCRIPT_ENGINE_ERROR);
+    assert(s_session_calls==session_calls);bindings.api=&api;
+    s_session_error=ESP_ERR_TIMEOUT;
+    for(unsigned i=0;i<5;++i)assert(run(language,session_code[i])==SCRIPT_ENGINE_ERROR);
+    s_session_error=ESP_OK;
     assert(run(language,language==SCRIPT_ENGINE_JS
       ? "if(tos.call('lora.mesh_node_count')!==2) throw new Error('count');var n=tos.call('lora.mesh_node_get',0);if(n.name!=='peer'||n.rssi_dbm!==-80||n.snr_db!==3.5) throw new Error('node');"
       : "assert(tos.call('lora.mesh_node_count')==2);local n=tos.call('lora.mesh_node_get',0);assert(n.name=='peer' and n.rssi_dbm==-80 and n.snr_db==3.5)")==SCRIPT_ENGINE_OK);

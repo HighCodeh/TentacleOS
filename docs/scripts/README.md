@@ -330,3 +330,28 @@ JavaScript and Lua. Missing records, inactive mesh, old/missing ABI and backend
 lock errors fail the call. Names/metrics follow the
 [copied-node ABI contract](../app_sdk/README.md#copied-lora-node-observations-abi-120).
 The list may change between count and get; these calls do not start a session.
+
+
+## Sub-GHz session bindings (ABI 1.21)
+
+JavaScript and Lua share the owned session API, requiring RX approval:
+
+```text
+tos.call("subghz.rx_start", 433920000, 6)         -> session ID
+tos.call("subghz.rx_poll")                       -> signal or null/nil
+tos.call("subghz.set_frequency", 315000000)      -> zero
+tos.call("subghz.session_stop", session)         -> zero
+tos.call("subghz.spectrum_start", 433920000, 1000000) -> session ID
+tos.call("subghz.spectrum_poll")                 -> {start_hz, step_hz, dbm} or null/nil
+```
+
+`dbm` contains exactly 80 values (JS from index 0, Lua from 1). Empty windows
+return no new signal; errors fail the script call. Version/pointer guards reject
+older firmware before dispatch. The session belongs to the script runner task,
+and normal completion, cancellation or deadline unbinds that task and requests
+firmware cleanup. No hardware callback references script memory after exit.
+
+These are windowed background captures, with gaps and coalesced latest results.
+Startup waits for readiness and stop waits for cleanup; timeouts may leave
+firmware-owned cleanup pending. See the
+[ABI limits](../app_sdk/README.md#owned-sub-ghz-sessions-abi-121).

@@ -21,26 +21,27 @@
     if (!(value))           \
       goto no_memory;       \
   } while (0)
-#define SCRIPT_MAC_TEXT                18
-#define SCRIPT_HEX_RADIX               16
-#define SCRIPT_DELAY_MAX_MS            30000
-#define SCRIPT_RF_ABI_MINOR            10
-#define SCRIPT_IR_ABI_MINOR            11
-#define SCRIPT_RADIO_VIEW_ABI_MINOR    12
-#define SCRIPT_SUBGHZ_ABI_MINOR        13
-#define SCRIPT_LORA_TX_ABI_MINOR       14
-#define SCRIPT_SPECTRUM_ABI_MINOR      15
-#define SCRIPT_IR_EXT_ABI_MINOR        16
-#define SCRIPT_NFC_BLOCK_ABI_MINOR     17
-#define SCRIPT_SUBGHZ_RAW_ABI_MINOR    18
-#define SCRIPT_SUBGHZ_REPLAY_ABI_MINOR 19
-#define SCRIPT_LORA_NODES_ABI_MINOR    20
-#define SCRIPT_NFC_KEY_BYTES           6
-#define SCRIPT_NFC_BLOCK_BYTES         16
-#define SCRIPT_BYTE_HEX_DIGITS         2
-#define SCRIPT_SUBGHZ_PULSES_MAX       128
-#define SCRIPT_SUBGHZ_PULSE_MAX_US     32767
-#define SCRIPT_DECIMAL_BASE            10
+#define SCRIPT_MAC_TEXT                 18
+#define SCRIPT_HEX_RADIX                16
+#define SCRIPT_DELAY_MAX_MS             30000
+#define SCRIPT_RF_ABI_MINOR             10
+#define SCRIPT_IR_ABI_MINOR             11
+#define SCRIPT_RADIO_VIEW_ABI_MINOR     12
+#define SCRIPT_SUBGHZ_ABI_MINOR         13
+#define SCRIPT_LORA_TX_ABI_MINOR        14
+#define SCRIPT_SPECTRUM_ABI_MINOR       15
+#define SCRIPT_IR_EXT_ABI_MINOR         16
+#define SCRIPT_NFC_BLOCK_ABI_MINOR      17
+#define SCRIPT_SUBGHZ_RAW_ABI_MINOR     18
+#define SCRIPT_SUBGHZ_REPLAY_ABI_MINOR  19
+#define SCRIPT_LORA_NODES_ABI_MINOR     20
+#define SCRIPT_SUBGHZ_SESSION_ABI_MINOR 21
+#define SCRIPT_NFC_KEY_BYTES            6
+#define SCRIPT_NFC_BLOCK_BYTES          16
+#define SCRIPT_BYTE_HEX_DIGITS          2
+#define SCRIPT_SUBGHZ_PULSES_MAX        128
+#define SCRIPT_SUBGHZ_PULSE_MAX_US      32767
+#define SCRIPT_DECIMAL_BASE             10
 
 static const char *TAG = "SCRIPT_BINDINGS";
 
@@ -130,6 +131,11 @@ typedef enum {
   SCRIPT_BINDINGS_SUBGHZ_REPLAY,
   SCRIPT_BINDINGS_LORA_NODE_COUNT,
   SCRIPT_BINDINGS_LORA_NODE_GET,
+  SCRIPT_BINDINGS_SUBGHZ_RX_START,
+  SCRIPT_BINDINGS_SUBGHZ_SPECTRUM_START,
+  SCRIPT_BINDINGS_SUBGHZ_SPECTRUM_POLL,
+  SCRIPT_BINDINGS_SUBGHZ_SET_FREQUENCY,
+  SCRIPT_BINDINGS_SUBGHZ_SESSION_STOP,
   SCRIPT_BINDINGS_METHOD_COUNT
 } script_bindings_method_id_t;
 
@@ -225,6 +231,11 @@ static const script_bindings_method_t METHODS[] = {
     {"subghz.replay", "s", TOS_CAP_RADIO_TX | TOS_CAP_FS_READ},
     {"lora.mesh_node_count", "", TOS_CAP_RADIO_RX},
     {"lora.mesh_node_get", "u", TOS_CAP_RADIO_RX},
+    {"subghz.rx_start", "uy", TOS_CAP_RADIO_RX},
+    {"subghz.spectrum_start", "uu", TOS_CAP_RADIO_RX},
+    {"subghz.spectrum_poll", "", TOS_CAP_RADIO_RX},
+    {"subghz.set_frequency", "u", TOS_CAP_RADIO_RX},
+    {"subghz.session_stop", "u", TOS_CAP_RADIO_RX},
 };
 #define SCRIPT_METHOD_COUNT (sizeof(METHODS) / sizeof(METHODS[0]))
 _Static_assert(SCRIPT_METHOD_COUNT == SCRIPT_BINDINGS_METHOD_COUNT,
@@ -1229,14 +1240,66 @@ esp_err_t script_bindings_call(script_bindings_t *bindings, script_bindings_call
       err = api->ir->send_ac(&state);
       break;
     }
-    case SCRIPT_BINDINGS_SUBGHZ_SPECTRUM_CAPTURE: {
-      if (api->abi_minor < SCRIPT_SPECTRUM_ABI_MINOR || api->subghz == NULL ||
-          api->subghz->spectrum_capture == NULL)
+    case SCRIPT_BINDINGS_SUBGHZ_RX_START:
+    case SCRIPT_BINDINGS_SUBGHZ_SPECTRUM_START: {
+      if (api->abi_minor < SCRIPT_SUBGHZ_SESSION_ABI_MINOR || api->subghz == NULL)
         return ESP_ERR_NOT_SUPPORTED;
-      tos_subghz_spectrum_t spectrum = {0};
-      err = api->subghz->spectrum_capture(&spectrum, n[0], n[1]);
+      uint32_t session = 0;
+      if (method == SCRIPT_BINDINGS_SUBGHZ_RX_START) {
+        if (api->subghz->rx_start == NULL)
+          return ESP_ERR_NOT_SUPPORTED;
+        err = api->subghz->rx_start(n[0], n[1], &session);
+      } else {
+        if (api->subghz->spectrum_start == NULL)
+          return ESP_ERR_NOT_SUPPORTED;
+        err = api->subghz->spectrum_start(n[0], n[1], &session);
+      }
       if (err != ESP_OK)
         break;
+      call->result = cJSON_CreateNumber(session);
+      REQUIRE_JSON(call->result);
+      break;
+    }
+    case SCRIPT_BINDINGS_SUBGHZ_SET_FREQUENCY:
+    case SCRIPT_BINDINGS_SUBGHZ_SESSION_STOP:
+      if (api->abi_minor < SCRIPT_SUBGHZ_SESSION_ABI_MINOR || api->subghz == NULL)
+        return ESP_ERR_NOT_SUPPORTED;
+      if (method == SCRIPT_BINDINGS_SUBGHZ_SET_FREQUENCY) {
+        if (api->subghz->set_frequency == NULL)
+          return ESP_ERR_NOT_SUPPORTED;
+        err = api->subghz->set_frequency(n[0]);
+      } else {
+        if (api->subghz->session_stop == NULL)
+          return ESP_ERR_NOT_SUPPORTED;
+        err = api->subghz->session_stop(n[0]);
+      }
+      break;
+    case SCRIPT_BINDINGS_SUBGHZ_SPECTRUM_POLL:
+    case SCRIPT_BINDINGS_SUBGHZ_SPECTRUM_CAPTURE: {
+      tos_subghz_spectrum_t spectrum = {0};
+      if (method == SCRIPT_BINDINGS_SUBGHZ_SPECTRUM_POLL) {
+        if (api->abi_minor < SCRIPT_SUBGHZ_SESSION_ABI_MINOR || api->subghz == NULL ||
+            api->subghz->spectrum_poll == NULL)
+          return ESP_ERR_NOT_SUPPORTED;
+        int count = api->subghz->spectrum_poll(
+            &spectrum.start_hz, &spectrum.step_hz, spectrum.dbm, TOS_SUBGHZ_SPECTRUM_BINS);
+        if (count < 0)
+          return -count;
+        if (count == 0) {
+          call->result = cJSON_CreateNull();
+          REQUIRE_JSON(call->result);
+          break;
+        }
+        if (count != TOS_SUBGHZ_SPECTRUM_BINS)
+          return ESP_ERR_INVALID_SIZE;
+      } else {
+        if (api->abi_minor < SCRIPT_SPECTRUM_ABI_MINOR || api->subghz == NULL ||
+            api->subghz->spectrum_capture == NULL)
+          return ESP_ERR_NOT_SUPPORTED;
+        err = api->subghz->spectrum_capture(&spectrum, n[0], n[1]);
+        if (err != ESP_OK)
+          break;
+      }
       call->result = cJSON_CreateObject();
       REQUIRE_JSON(call->result);
       REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "start_hz", spectrum.start_hz));
