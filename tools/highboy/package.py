@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """Package checked app binaries with source/link evidence, never a flash command."""
 import hashlib
+import re
+import tempfile
 import json
 from pathlib import Path
 import shlex
 import shutil
 import subprocess
 import check_contracts
+import verify_package
 
 ROOT = Path(__file__).resolve().parents[2]
-PARTITION_SHA = {
-    "p4": "bb76257d010de4925ddf8925b46a2f89e0512a2a858e0c4939d705c74a1e51bd",
-    "c5": "236a9c2e19bf6373b94589e0683c3a588523c026a1a21dae141ed2deda97c7a1",
-}
+PARTITION_SHA = {chip.lower(): profile['partition_table_sha256']
+                 for chip, profile in verify_package.PROFILE.items()}
 REQUIRED = {
     "p4": (
         "app_main", "kernel_init", "ui_muse_open", "hb_muse_p4_key",
@@ -38,19 +39,79 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def linked_symbols(names, required):
+    resolved = {}
+    for name in required:
+        matches = sorted(symbol for symbol in names if symbol == name or
+                         re.fullmatch(re.escape(name) + r"(?:\.(?:constprop|isra|part|lto_priv)\.[0-9]+)+", symbol))
+        if matches:
+            resolved[name] = {"kind": "symbol", "linked": matches}
+        elif name == "subghz_protocol_registry_selftest" and "cmd_subghz" in names:
+            resolved[name] = {"kind": "inlined_console_selftest", "linked": ["cmd_subghz"],
+                              "host_test": "tools/highboy/test_subghz.py"}
+        else:
+            raise ValueError("Missing linked preservation symbol: " + name)
+    return resolved
+
+
+def app_signing_configuration(project, build):
+    cache = {}
+    for line in (build / "CMakeCache.txt").read_text().splitlines():
+        if ":" in line and "=" in line and not line.startswith(("#", "//")):
+            key, value = line.split("=", 1)
+            cache[key.split(":", 1)[0]] = value
+    production = cache.get("TOS_APP_PRODUCTION") == "ON"
+    custom = bool(cache.get("TOS_APP_TRUST_PUBLIC_KEY"))
+    if production and not custom:
+        raise ValueError("Production app-signing configuration has no selected key")
+    header = build / "esp-idf/Service/generated/tos_build_trust_keys.h" if custom else project / "components/Service/app_runtime/include/tos_trust_keys.h"
+    return {"production_mode": production, "custom_public_key": custom,
+            "key_custody_verified": False, "trust_store_sha256": digest(header)}
+
+
+def write_package(report, images, destination):
+    verify_package.validate_report(report)
+    verify_package.require(set(images) == set(verify_package.PROFILE), 'Missing or unexpected image inputs')
+    payload = (json.dumps(report, indent=2) + "\n").encode()
+    identity = hashlib.sha256(payload).hexdigest()[:12]
+    name = "candidate_" + "_".join(report["targets"][chip]["sha256"][:12]
+                                  for chip in ("P4", "C5")) + "_" + identity
+    destination = Path(destination)
+    destination.mkdir(parents=True, exist_ok=True)
+    final = destination / name
+    if final.exists():
+        verify_package.verify(final)
+        if (final / "manifest.json").read_bytes() != payload:
+            raise ValueError("Existing candidate manifest differs")
+        return final
+    with tempfile.TemporaryDirectory(prefix=".candidate-", dir=destination) as temporary:
+        staging = Path(temporary) / "package"
+        staging.mkdir()
+        for chip, source in images.items():
+            shutil.copyfile(source, staging / report["targets"][chip]["file"])
+        (staging / "manifest.json").write_bytes(payload)
+        verify_package.verify(staging)
+        staging.rename(final)
+    return final
+
+
 def main():
     subprocess.run(["bash", str(ROOT / "tools/highboy/build.command")], check=True)
     subprocess.run(["bash", str(ROOT / "tools/highboy/test.command")], check=True)
     check_contracts.main()
+    images = {}
     report = {
+        "app_signing": app_signing_configuration(ROOT / "firmware_p4", ROOT / "firmware_p4/build_highboy"),
+        "schema_version": 1, "protocol_version": 8, "app_only": True,
         "status": "compiled_candidate_requires_hardware_acceptance",
         "upstream": "011ed7da4c750b7777fd6dbad8ce4541304c6898",
         "targets": {}, "flashed": False, "assets_rebuilt": False,
         "runtime_validated": False, "partition_migration": False,
-        "host_test_suites": ["preservation_and_muse", "subghz", "usb_msc", "doom_dma"],
+        "host_test_runner_sha256": digest(ROOT / "tools/highboy/test.command"),
+        "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+        "source_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)),
         "host_tests_passed": True,
-        "speaker_reply_implemented": False,
-        "deployment_warning": "No flash authorization in this package. The physical P4 PS1 erase requires a separately reviewed asset/boot restore. C5 must remain protocol8/Muse-compatible.",
+        "deployment_warning": "App-only candidate for matching existing installations. It contains no bootloader/assets, production provisioning or full restoration. Both chips must remain protocol8/Muse-compatible.",
     }
     for chip in ("p4", "c5"):
         project = ROOT / ("firmware_" + chip)
@@ -68,15 +129,13 @@ def main():
         nm = compiler.with_name("riscv32-esp-elf-nm")
         symbols = subprocess.check_output([str(nm), "--defined-only", str(elf)], text=True)
         names = {line.split()[-1] for line in symbols.splitlines() if line.split()}
-        missing = set(REQUIRED[chip]) - names
-        if missing:
-            raise SystemExit(chip + " missing linked preservation symbols: " + str(sorted(missing)))
+        symbols = linked_symbols(names, REQUIRED[chip])
         if chip == "p4" and {"ui_grok_bot_open", "grok_client_start", "hb_muse_setup_set_local_token"} & names:
             raise SystemExit("Unexpected cloud Grok or C5 credential entrypoint on P4")
         if chip == "p4" and "protocol_rossi" in names:
             raise SystemExit("Unvalidated Rossi stub must not be linked into the registry")
         inputs = []
-        for parent in (project / "components", project / "main"):
+        for parent in (project / "components", project / "main", ROOT / "common/metadata"):
             for path in sorted(parent.rglob("*")):
                 if path.is_file():
                     inputs.append((str(path.relative_to(ROOT)), digest(path)))
@@ -87,19 +146,12 @@ def main():
             "partition_csv_sha256": digest(project / "partitions.csv"),
             "partition_table_sha256": digest(table),
             "source_sha256": hashlib.sha256(json.dumps(inputs).encode()).hexdigest(),
-            "linked_preservation_symbols": list(REQUIRED[chip]),
+            "linked_preservation_symbols": symbols,
+            "idf_version": verify_package.PROFILE[chip.upper()]["idf_version"],
+            "compile_commands_sha256": digest(build / "compile_commands.json"),
         }
-    name = "candidate_" + "_".join(report["targets"][c]["sha256"][:12] for c in ("P4", "C5"))
-    dest = ROOT / "integration/release" / name
-    dest.mkdir(parents=True, exist_ok=True)
-    for chip in ("p4", "c5"):
-        meta = report["targets"][chip.upper()]
-        src = ROOT / ("firmware_" + chip) / "build_highboy" / meta["file"]
-        out = dest / meta["file"]
-        if out.exists() and digest(out) != meta["sha256"]:
-            raise SystemExit("Existing release content differs")
-        shutil.copyfile(src, out)
-    (dest / "manifest.json").write_text(json.dumps(report, indent=2) + "\n")
+        images[chip.upper()] = app
+    dest = write_package(report, images, ROOT / "integration/release")
     print(json.dumps(report, indent=2))
     print("Package:", dest)
 

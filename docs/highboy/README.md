@@ -205,3 +205,43 @@ ESP SCAN candidate this recovers 10,304 bytes, increasing the original app-slot
 margin from 16 to 10,320 bytes. Vendor sources, partitions, keys and C5 policy
 are unchanged. This supersedes the optimization policy above; runtime timing,
 heap/stack and recovery-package acceptance remain open under #157.
+
+
+## Verifiable app-only candidates
+
+`python3 tools/highboy/package.py` rebuilds both pinned applications, runs the
+complete offline suite and checks source/partition/memory contracts. It now
+recognizes reviewed compiler-generated LTO symbol clones and the inlined Sub-GHz
+console self-test (whose codec cases are covered by the host suite). It records
+the actual linked evidence instead of requiring an optimized-away entry name.
+
+The output is an immutable content-addressed directory under `integration/release`
+with the P4/C5 application binaries and `manifest.json`. Files are copied into a
+private staging directory, checked, then published by rename; failed copies or
+changed source artifacts cannot leave a visible partial candidate. Repeated
+identical packaging preserves the existing directory. The manifest records image
+sizes/hashes/margins, SDK lanes, protocol 8, partition hashes, source revision and
+dirty state, compile-command fingerprints and the actual test runner fingerprint.
+App-signing mode and the selected public trust-header fingerprint are recorded;
+key custody and hardware acceptance remain unverified.
+
+Verify a received directory with Python's standard library only:
+
+```sh
+python3 tools/highboy/verify_package.py integration/release/<candidate-directory>
+```
+
+Verification checks both images, exact profile, slots and SHA-256 values. It
+rejects mismatched SDK/protocol/partition settings, missing/corrupt/swapped images,
+symlinked files and fabricated runtime/provisioning acceptance. This is an
+integrity/profile check, not signature authentication or a production release.
+No bootloader, asset image, private credential or production key is included.
+
+For an already running matching integrated installation, the P4 SD update path is
+`/sdcard/update/tentacleos.bin`, selected from the candidate's P4 application.
+The native P4 Update screen now checks the real file, displays the installed
+runtime version and runs actual OTA on OK; its progress and error come from the
+writer. It updates P4 only. C5 uses its independent existing update path. A device
+with another partition map, missing assets or an erased boot/app still requires
+an approved restoration/migration package. Package verification alone does not
+make those states eligible for either update path. See [OTA](../ota/README.md).
