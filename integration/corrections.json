@@ -634,8 +634,14 @@
     "firmware_p4/components/Service/grok_client/include/grok_wire.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "0d3e031ac3fa0c892938b433d0b333619e4afc24f127b0800e89a593cc2a0edb",
-      "after_sha256": "c5dc188dba4ed1a1c24816d1969f8d2709aed4825a0d28aa3ce23c134aff4f1b",
-      "reason": "Use project include guards and C++ linkage for new first-party headers."
+      "after_sha256": "2fbcd003fc6e362fc0bbdce27e0326550cf54891ed35b7f4e361dda6e8fa971d",
+      "reason": "chore(p4): add missing service license notices",
+      "review_history": [
+        {
+          "after_sha256": "c5dc188dba4ed1a1c24816d1969f8d2709aed4825a0d28aa3ce23c134aff4f1b",
+          "reason": "Use project include guards and C++ linkage for new first-party headers."
+        }
+      ]
     },
     "firmware_p4/components/Service/host_link/host_link_ble.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -688,16 +694,28 @@
     "firmware_p4/components/Service/muse/hb_muse_p4_service.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "eabb101bc7a9c07b620a4692771e35ab348436c5e16bbd65dc76642ef8969bb4",
-      "after_sha256": "b56704c4f5186b06a818d3b42e416c05a0c0806317b15efcc8e62b7adbd064ee",
-      "reason": "Use central task policy, module-prefixed types, grouped RPC input and allocation/task error logs.",
-      "pre_format_sha256": "559573f14dd79051fda48026ddd4e0f5443493201c3278051f9fb96a63475074",
-      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+      "after_sha256": "cbb92685fe73b1e71e364e5b4226f489dacb711122a8c940498c68de0983ba5d",
+      "reason": "chore(p4): add missing service license notices",
+      "review_history": [
+        {
+          "after_sha256": "b56704c4f5186b06a818d3b42e416c05a0c0806317b15efcc8e62b7adbd064ee",
+          "reason": "Use central task policy, module-prefixed types, grouped RPC input and allocation/task error logs.",
+          "pre_format_sha256": "559573f14dd79051fda48026ddd4e0f5443493201c3278051f9fb96a63475074",
+          "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+        }
+      ]
     },
     "firmware_p4/components/Service/muse/hb_muse_p4_service.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "25f2a3a4ad65064619ad3db5a170acac50b762388c54bfd7d132f766ff8e9f14",
-      "after_sha256": "8cf3cdfbd825c99816e93c53c5999970e5474eb1a84bd3deb927a74f635b7bf0",
-      "reason": "Use central task policy, module-prefixed types, portable header linkage and allocation error logs."
+      "after_sha256": "761fe3f3b2db83cb13d0c53e60b88094914da2b4bccad40d0d801d653cfa4c47",
+      "reason": "chore(p4): add missing service license notices",
+      "review_history": [
+        {
+          "after_sha256": "8cf3cdfbd825c99816e93c53c5999970e5474eb1a84bd3deb927a74f635b7bf0",
+          "reason": "Use central task policy, module-prefixed types, portable header linkage and allocation error logs."
+        }
+      ]
     },
     "firmware_p4/components/Service/spi_bridge/spi_bridge.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -2154,6 +2172,114 @@
       "before_sha256": "140c6ca1aa2d154626ee247d52007fc5439bcb73fc8b5dff3b3f0d3d539c0ab9",
       "after_sha256": "5e640ecbb521a50d757d43b7b1312990b2dda95e429c400bafdf102e97aa3a4a",
       "reason": "chore(p4): add license notices to applications and drivers"
+    },
+    "firmware_p4/components/Service/highboy_muse/CMakeLists.txt": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "81adb047dbda317c3254e8afd84662a6e83eb52514334c79f1e36d39731dc340",
+      "after_sha256": "6cf465ff3330d1d9d93eae5a4ae02f92f91bd6cd7f70f6b99eb12b00cab5a9da",
+      "reason": "chore(p4): add missing service license notices"
+    },
+    "firmware_p4/components/Service/highboy_muse/core/hb_muse_core.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "d614a5c4c45fa1bb674cf834debc699c510ed88c216c1935f101cc53372a1e12",
+      "after_sha256": "0f5f778ebc272ca2335d9e3d7453c32216834ecc0ec2ab7cbd0571d80c160723",
+      "reason": "chore(p4): add missing service license notices"
+    },
+    "firmware_p4/components/Service/highboy_muse/core/hb_muse_core.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "c1087a1a9f4fa1690c8240867496885a711bc9ba789753b0f9293c5848342c58",
+      "after_sha256": "777722c11173a64a6991b4e6fabd01897b68f3cb61f839b3ec18ebad78537c94",
+      "reason": "chore(p4): add missing service license notices"
+    },
+    "firmware_p4/components/Service/highboy_muse/p4_app/hb_muse_app.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "ed11cf52cd792becc44eeec275f68857f0e9a17296e3b2da8b2a2642d543e55a",
+      "after_sha256": "fb46eb68e05f32ed7b6fcc7ec0ec2011f6b26227b3dafead428f8ba5054cd434",
+      "reason": "chore(p4): add missing service license notices"
+    },
+    "firmware_p4/components/Service/highboy_muse/p4_app/hb_muse_app.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "0ef226a99fdf8f14ca9823f244b793d5d790f9eb4d3ba9faaa84f0d49d7ceb65",
+      "after_sha256": "23d815e1941853b68a6784c43e91c8094e294354097a4dd07d7434e87cfda1cc",
+      "reason": "chore(p4): add missing service license notices"
+    },
+    "firmware_p4/components/Service/highboy_muse/sdk_adapter/hb_muse_pcm_adapter.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "51fdad712ebbb03cd4da9267ffd890b2c413eab5b055d68659ee9e9d80a5ee1a",
+      "after_sha256": "793af018b15f3f6049f6e45cee7356c2ecd8738bf2db6473bf2f4c8f77b6b0b9",
+      "reason": "chore(p4): add missing service license notices"
+    },
+    "firmware_p4/components/Service/highboy_muse/sdk_adapter/hb_muse_sdk_binding.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "9da68ef847c12b37389db19728b264da1bbd5cfa606eb5d0564a1222fbb9c7c8",
+      "after_sha256": "006418963ddbce26ab53b66135051a3f535ca69e782c3fe86c6fe7111a307bd7",
+      "reason": "chore(p4): add missing service license notices"
+    },
+    "firmware_p4/components/Service/highboy_muse/sdk_adapter/hb_muse_sdk_port.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "c32e9f82d57ebc6df8f5c0707d994eda710b7d85f38113f7c300f894f8403c6f",
+      "after_sha256": "f40c0a5eaaed03df1212a7d0691544ba59eb717bcf37b938bf1a550a6471f7fe",
+      "reason": "chore(p4): add missing service license notices"
+    },
+    "firmware_p4/components/Service/highboy_muse/transport/hb_muse_endpoint.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "af47b56eca9c92e4c7091d2ba71074ca3230ad81bbae224d4ef319a2d48d89f8",
+      "after_sha256": "d67b03a17ffd526180e8bd6af655c39015b02e504e5d4853e0b59a44f524d592",
+      "reason": "chore(p4): add missing service license notices"
+    },
+    "firmware_p4/components/Service/highboy_muse/transport/hb_muse_wire.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "d5362d0a57935cbcbb8d16b71433d913de51d8850c00e5e0abe0364c5489816c",
+      "after_sha256": "b5a7cc1fbb2602987942de49c2fc49bbac96d15b89ba5002ea969a93bc53a9b8",
+      "reason": "chore(p4): add missing service license notices"
+    },
+    "firmware_p4/components/Service/highboy_muse/transport/hb_muse_wire.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "1ddf71696d68821dbdaa872ad48b421faf861453ec8a496005c202f5dbb9d45f",
+      "after_sha256": "161a6d239bc4e7f34b93f439675b2962b6c32854f1049a0975ae92e46f69c008",
+      "reason": "chore(p4): add missing service license notices"
+    },
+    "firmware_p4/components/Service/highboy_muse/transport/hb_muse_wire_client.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "15441a7e8c5e48c9bdd0e1c4f1269a0ffde7c8d4ffb4802eaa73abf6330102d1",
+      "after_sha256": "80528e087494df2fd4e44cac6806319a861c8fb2847a1239eb11139b50b71b92",
+      "reason": "chore(p4): add missing service license notices"
+    },
+    "firmware_p4/components/Service/highboy_muse/transport/hb_muse_wire_client.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "00aba9adb50a1682e82159e7952b4305f8a2f244ee5c87d5eb2ebc597c3fa7c8",
+      "after_sha256": "7c3383464a5c30265b27100d13d2be9afb117bd599d9973e75071faad0a2a8c7",
+      "reason": "chore(p4): add missing service license notices"
+    },
+    "firmware_p4/components/Service/sd_card/include/sd_card_file.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "b445e4acb42a15f982324304d8e6926f344fd6e558c16d2ee005ba128f29bd63",
+      "after_sha256": "bfa425ea6fd27675825bf19f1a0320203d4f70790ce61301fef7aeea0c7765f0",
+      "reason": "chore(p4): add missing service license notices"
+    },
+    "firmware_p4/components/Service/sd_card/include/sd_card_info.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "bb76af523c8dcb44ce574301858d6ffd354c2b3af32622e10b62fb7fee7d058f",
+      "after_sha256": "d388c4b15b28c67b064566a5ae24122dc69495d8bc2770ce98b3df098a718869",
+      "reason": "chore(p4): add missing service license notices"
+    },
+    "firmware_p4/components/Service/sd_card/include/sd_card_read.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "0cf42ec149ca1d903f87bd9f30b8ef4e829ee067b7b5c4dd00935f158e2a5b41",
+      "after_sha256": "4faa7c233b05da906eded2fcda9f696978e9da289c609b43cb36dee93395a832",
+      "reason": "chore(p4): add missing service license notices"
+    },
+    "firmware_p4/components/Service/sd_card/include/sd_card_write.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "fe3f595759215a69b45fb0abbd9f14410801d2dbaeabab07b98beb5ad21b7a11",
+      "after_sha256": "89f020fc23684548273081a7a091c12edb3f3ef3b26e04633e8db37ce93dfbc9",
+      "reason": "chore(p4): add missing service license notices"
+    },
+    "firmware_p4/components/Service/spi_bridge/muse_response_realign.inc": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "2549e2e904cfd7cb22e4ad775e215c46f957c1317066d00921ddc7dd5832890c",
+      "after_sha256": "2d28e6027ffe79f6d1e432a5562b3ff53815757d83bb4ab38a912194f9e4fbe6",
+      "reason": "chore(p4): add missing service license notices"
     }
   }
 }
