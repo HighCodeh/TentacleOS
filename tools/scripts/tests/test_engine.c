@@ -118,7 +118,15 @@ static esp_err_t s_mesh_error;
 static esp_err_t send_mesh(const char *text) {
   assert(strcmp(text,"hello")==0);++s_mesh_sends;return s_mesh_error;
 }
-static const tos_lora_api_t lora={.mesh_poll=poll_mesh_view,.mesh_send_text=send_mesh};
+static unsigned s_node_calls;
+static esp_err_t s_node_error;
+static int count_nodes(void) {++s_node_calls;return s_node_error!=ESP_OK?-s_node_error:2;}
+static esp_err_t get_node(int index,tos_lora_node_t *out) {
+  ++s_node_calls;if(s_node_error!=ESP_OK)return s_node_error;
+  if(index!=0)return ESP_ERR_NOT_FOUND;
+  *out=(tos_lora_node_t){.name="peer",.rssi_dbm=-80,.snr_db=3.5f};return ESP_OK;
+}
+static const tos_lora_api_t lora={.mesh_node_count=count_nodes,.mesh_node_get=get_node,.mesh_poll=poll_mesh_view,.mesh_send_text=send_mesh};
 static unsigned s_ir_extended_calls;
 static esp_err_t send_ir_raw(const int32_t *pulses,int count,uint32_t carrier) {
  assert(carrier==38000 && count==3 && pulses[0]==350 && pulses[1]==-700 && pulses[2]==350);
@@ -187,7 +195,26 @@ static void test_bindings(void) {
     assert(run(language,"tos.call('nfc.poll',500)")==SCRIPT_ENGINE_ERROR);
     assert(run(language,"tos.call('rfid.read',500)")==SCRIPT_ENGINE_ERROR);
     assert(s_rf_reads==rf_reads);
+    unsigned node_calls=s_node_calls;
+    assert(run(language,"tos.call('lora.mesh_node_count')")==SCRIPT_ENGINE_ERROR);
+    assert(run(language,"tos.call('lora.mesh_node_get',0)")==SCRIPT_ENGINE_ERROR);
+    assert(s_node_calls==node_calls);
     bindings.caps=SCRIPT_BINDINGS_CAPS;
+    assert(run(language,language==SCRIPT_ENGINE_JS
+      ? "if(tos.call('lora.mesh_node_count')!==2) throw new Error('count');var n=tos.call('lora.mesh_node_get',0);if(n.name!=='peer'||n.rssi_dbm!==-80||n.snr_db!==3.5) throw new Error('node');"
+      : "assert(tos.call('lora.mesh_node_count')==2);local n=tos.call('lora.mesh_node_get',0);assert(n.name=='peer' and n.rssi_dbm==-80 and n.snr_db==3.5)")==SCRIPT_ENGINE_OK);
+    assert(run(language,"tos.call('lora.mesh_node_get',1)")==SCRIPT_ENGINE_ERROR);
+    node_calls=s_node_calls;
+    assert(run(language,"tos.call('lora.mesh_node_get',65536)")==SCRIPT_ENGINE_ERROR);
+    assert(s_node_calls==node_calls);
+    tos_api_t node_old=api;node_old.abi_minor=19;bindings.api=&node_old;
+    assert(run(language,"tos.call('lora.mesh_node_count')")==SCRIPT_ENGINE_ERROR);
+    assert(run(language,"tos.call('lora.mesh_node_get',0)")==SCRIPT_ENGINE_ERROR);
+    assert(s_node_calls==node_calls);bindings.api=&api;
+    s_node_error=ESP_ERR_TIMEOUT;
+    assert(run(language,"tos.call('lora.mesh_node_count')")==SCRIPT_ENGINE_ERROR);
+    assert(run(language,"tos.call('lora.mesh_node_get',0)")==SCRIPT_ENGINE_ERROR);
+    s_node_error=ESP_OK;
     assert(run(language,"tos.call('lora.mesh_send_text','hello')")==SCRIPT_ENGINE_OK);
     assert(s_mesh_sends==mesh_sends+1);
     s_mesh_error=ESP_ERR_TIMEOUT;

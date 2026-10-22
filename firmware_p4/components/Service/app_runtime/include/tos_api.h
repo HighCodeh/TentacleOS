@@ -68,7 +68,7 @@ typedef struct host_link_handler host_link_handler_t; // opaque to apps
 // 1.8 = read-only fs subsystem. NOTE: 1.7 was briefly a (removed) IMU subsystem in
 // dev; fs took a fresh minor so a firmware built during the IMU era rejects an
 // fs app at the load gate instead of mismatching its api->fs pointer.
-#define TOS_ABI_VERSION_MINOR 19
+#define TOS_ABI_VERSION_MINOR 20
 
 /** Log levels; values match esp_log_level_t so they pass straight through. */
 typedef enum {
@@ -515,8 +515,8 @@ typedef struct {
  * LoRa (SX1262). Single radio owner: the raw PHY, either mesh stack, and the
  * RNode TNC are mutually exclusive. ABI 1.14 publishes mesh_poll and
  * mesh_send_text against an already active native session. Startup, teardown,
- * raw PHY, node access and RNode entries remain NULL. Switching mesh protocols
- * requires a reboot; applications do not own the native session.
+ * raw PHY and RNode entries remain NULL. ABI 1.20 adds copied node observations. Switching mesh
+ * protocols requires a reboot; applications do not own the native session.
  */
 typedef struct tos_lora_api {
   // Raw PHY.
@@ -529,8 +529,8 @@ typedef struct tos_lora_api {
   esp_err_t (*mesh_send_text)(
       const char *text); ///< minor 14+; radio-tx; queue 1..159 bytes; ESP_OK = accepted
   int (*mesh_poll)(tos_lora_msg_t *out); ///< 1 = new message, 0 = none, <0 = -esp_err_t
-  int (*mesh_node_count)(void);
-  esp_err_t (*mesh_node_get)(int index, tos_lora_node_t *out);
+  int (*mesh_node_count)(void);          ///< minor 20+: count or -esp_err_t; radio-rx
+  esp_err_t (*mesh_node_get)(int index, tos_lora_node_t *out); ///< minor 20+: copied node; radio-rx
   // RNode KISS TNC bridge.
   esp_err_t (*rnode_start)(uint32_t *out_session); ///< radio-tx
   esp_err_t (*session_stop)(uint32_t session);

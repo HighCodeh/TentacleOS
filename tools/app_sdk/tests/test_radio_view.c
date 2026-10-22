@@ -61,9 +61,20 @@ uint16_t lora_session_msg_since(uint32_t *sequence,lora_msg_t *out,uint16_t max)
 esp_err_t lora_session_send_text(const char *text) {
   assert(s_locked && strcmp(text,"hello")==0); ++s_sent; return s_send_error;
 }
+static esp_err_t s_node_error;
+esp_err_t lora_session_nodes_snapshot(uint16_t index,lora_node_t *out,uint16_t *out_count) {
+  assert(s_locked);++s_reads;
+  if(s_node_error!=ESP_OK)return s_node_error;
+  *out_count=2;
+  if(out!=NULL) {
+    if(index>=2)return ESP_ERR_NOT_FOUND;
+    memset(out->name,'x',sizeof(out->name));out->rssi=-80;out->snr=3.5f;
+  }
+  return ESP_OK;
+}
 int main(void) {
   tos_subghz_signal_t signal;
-  tos_lora_msg_t message;
+  tos_lora_msg_t message;tos_lora_node_t node;
   assert(tos_subghz_api_impl.rx_start==NULL && tos_subghz_api_impl.session_stop==NULL);
   assert(tos_subghz_api_impl.tx_raw!=NULL && tos_subghz_api_impl.receive!=NULL && tos_subghz_api_impl.spectrum_start==NULL && tos_subghz_api_impl.spectrum_capture!=NULL);
   assert(tos_subghz_api_impl.get_raw!=NULL && tos_subghz_api_impl.replay!=NULL);
@@ -76,6 +87,12 @@ int main(void) {
   assert(s_reads==0 && s_locks==0);
   assert(tos_lora_api_impl.mesh_send_text(NULL)==ESP_ERR_INVALID_ARG);
   assert(tos_lora_api_impl.mesh_send_text("hello")==ESP_ERR_NOT_SUPPORTED && s_sent==0);
+  assert(tos_lora_api_impl.mesh_node_count()==-ESP_ERR_NOT_SUPPORTED);
+  memset(&node,0xff,sizeof(node));
+  assert(tos_lora_api_impl.mesh_node_get(0,&node)==ESP_ERR_NOT_SUPPORTED && node.name[0]==0);
+  assert(tos_lora_api_impl.mesh_node_get(-1,&node)==ESP_ERR_INVALID_ARG);
+  assert(tos_lora_api_impl.mesh_node_get(65536,&node)==ESP_ERR_INVALID_ARG);
+  assert(tos_lora_api_impl.mesh_node_get(0,NULL)==ESP_ERR_INVALID_ARG);
   s_allowed=true;
   assert(tos_subghz_api_impl.rx_poll(&signal)==-ESP_ERR_INVALID_STATE);
   assert(tos_lora_api_impl.mesh_send_text("hello")==ESP_ERR_INVALID_STATE);
@@ -96,6 +113,14 @@ int main(void) {
   assert(tos_lora_api_impl.mesh_send_text("hello")==ESP_ERR_TIMEOUT && !s_locked);
   s_send_error=ESP_ERR_INVALID_STATE;
   assert(tos_lora_api_impl.mesh_send_text("hello")==ESP_ERR_INVALID_STATE && !s_locked);
+  assert(tos_lora_api_impl.mesh_node_count()==2);
+  assert(tos_lora_api_impl.mesh_node_get(1,&node)==ESP_OK && node.name[31]==0 && node.rssi_dbm==-80 && node.snr_db==3.5f);
+  assert(tos_lora_api_impl.mesh_node_get(2,&node)==ESP_ERR_NOT_FOUND && node.name[0]==0);
+  s_node_error=ESP_ERR_TIMEOUT;
+  assert(tos_lora_api_impl.mesh_node_count()==-ESP_ERR_TIMEOUT);
+  assert(tos_lora_api_impl.mesh_node_get(0,&node)==ESP_ERR_TIMEOUT && node.name[0]==0);
+  s_node_error=ESP_ERR_INVALID_STATE;
+  assert(tos_lora_api_impl.mesh_node_count()==-ESP_ERR_INVALID_STATE);s_node_error=ESP_OK;
   for(unsigned app=0;app<2;++app) {
     s_current=&s_apps[app];
     assert(tos_subghz_api_impl.rx_poll(&signal)==1);

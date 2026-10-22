@@ -990,8 +990,8 @@
     "firmware_p4/components/Service/app_runtime/include/tos_api.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "9c2020f1c91901d7b2335daccc2055d14c8646b20094bab14fc8bdd3a83b0b5d",
-      "after_sha256": "c5d62fb70136cbd4bbfe67c7916091dbcc4049b84358537ed72e3ad7c475bf0b",
-      "reason": "feat(subghz): replay validated capture files through the shared RF worker",
+      "after_sha256": "99f4f7cb6c9309a1663dd81a39a3b980fe2b24d9148809cd991cec14e7837d8f",
+      "reason": "feat(lora): expose copied mesh nodes through the shared app and script ABI",
       "review_history": [
         {
           "after_sha256": "ef540914e454c49228b43f64b0605a2094d3ac153b992d56ca51a2292a1f1a34",
@@ -1042,9 +1042,15 @@
           "reason": "feat(subghz): expose complete bounded raw captures through the shared ABI",
           "pre_format_sha256": "23b1f56ea7594e70e5b1caa187139393c9cae85d7da1035b7ee4a21571ed91a1",
           "formatter": "clang-format version 22.1.5"
+        },
+        {
+          "after_sha256": "c5d62fb70136cbd4bbfe67c7916091dbcc4049b84358537ed72e3ad7c475bf0b",
+          "reason": "feat(subghz): replay validated capture files through the shared RF worker",
+          "pre_format_sha256": "8063fca5279e7aafcc923c4bf0a467a1867b8a3e82440942d792216ba982cfe0",
+          "formatter": "clang-format version 22.1.5"
         }
       ],
-      "pre_format_sha256": "8063fca5279e7aafcc923c4bf0a467a1867b8a3e82440942d792216ba982cfe0",
+      "pre_format_sha256": "1aaef5cf74f556291a177393dd4a91d38edfd32a81369fefad29b02bb36a7597",
       "formatter": "clang-format version 22.1.5"
     },
     "firmware_c5/CMakeLists.txt": {

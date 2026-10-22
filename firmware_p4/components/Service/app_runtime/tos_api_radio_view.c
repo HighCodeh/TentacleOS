@@ -98,6 +98,38 @@ static esp_err_t send_mesh_text(const char *text) {
   return error;
 }
 
+static int count_mesh_nodes(void) {
+  esp_err_t error = acquire_view();
+  if (error != ESP_OK)
+    return -error;
+  uint16_t count = 0;
+  error = lora_session_nodes_snapshot(0, NULL, &count);
+  host_local_rf_unlock();
+  return error == ESP_OK ? count : -error;
+}
+
+static esp_err_t get_mesh_node(int index, tos_lora_node_t *out) {
+  if (out == NULL)
+    return ESP_ERR_INVALID_ARG;
+  memset(out, 0, sizeof(*out));
+  if (index < 0 || index > UINT16_MAX)
+    return ESP_ERR_INVALID_ARG;
+  esp_err_t error = acquire_view();
+  if (error != ESP_OK)
+    return error;
+  lora_node_t node;
+  uint16_t count;
+  error = lora_session_nodes_snapshot((uint16_t)index, &node, &count);
+  if (error == ESP_OK) {
+    memcpy(out->name, node.name, sizeof(out->name));
+    out->name[sizeof(out->name) - 1] = '\0';
+    out->rssi_dbm = node.rssi;
+    out->snr_db = node.snr;
+  }
+  host_local_rf_unlock();
+  return error;
+}
+
 extern esp_err_t tos_api_subghz_replay(const char *);
 extern int tos_api_subghz_get_raw(int32_t *, int);
 extern esp_err_t tos_api_subghz_receive(tos_subghz_signal_t *, uint32_t, uint8_t, uint32_t);
@@ -109,4 +141,7 @@ const tos_subghz_api_t tos_subghz_api_impl = {.spectrum_capture = tos_api_subghz
                                               .replay = tos_api_subghz_replay,
                                               .receive = tos_api_subghz_receive,
                                               .tx_raw = tos_api_subghz_tx_raw};
-const tos_lora_api_t tos_lora_api_impl = {.mesh_poll = poll_mesh, .mesh_send_text = send_mesh_text};
+const tos_lora_api_t tos_lora_api_impl = {.mesh_poll = poll_mesh,
+                                          .mesh_send_text = send_mesh_text,
+                                          .mesh_node_count = count_mesh_nodes,
+                                          .mesh_node_get = get_mesh_node};

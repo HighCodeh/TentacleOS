@@ -319,3 +319,14 @@ Zero indicates native transmit completion. Missing/old ABI, malformed input,
 unsupported encoder, radio contention and cleanup errors fail the script call.
 The [native file and pulse limits](../app_sdk/README.md#sub-ghz-file-replay-abi-119)
 apply; the script does not create an asynchronous session.
+
+
+## LoRa node observation bindings (ABI 1.20)
+
+`tos.call("lora.mesh_node_count")` returns a number;
+`tos.call("lora.mesh_node_get", 0)` returns `{name, rssi_dbm, snr_db}`. Both require
+RX approval and a running native mesh. The node index is zero-based in **both**
+JavaScript and Lua. Missing records, inactive mesh, old/missing ABI and backend
+lock errors fail the call. Names/metrics follow the
+[copied-node ABI contract](../app_sdk/README.md#copied-lora-node-observations-abi-120).
+The list may change between count and get; these calls do not start a session.

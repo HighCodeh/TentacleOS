@@ -116,7 +116,7 @@ while (!api->should_stop() && !api->resource_lost()) {
 
 ## 4. The host API (`tos_api_t`)
 
-The full contract is `Service/app_runtime/include/tos_api.h`. ABI version 1.19.
+The full contract is `Service/app_runtime/include/tos_api.h`. ABI version 1.20.
 
 | Call | Capability | Notes |
 |------|-----------|-------|
@@ -676,3 +676,22 @@ retained RMT cleanup exactly as for `tx_raw`; no app session survives the call.
 File parsing and hardware failures propagate. Return zero means native transmit
 completion, not reception by a remote device. No TE-based rescaling is applied;
 decoded captures use their native protocol encoder's timing policy.
+
+
+## Copied LoRa node observations (ABI 1.20)
+
+`lora.mesh_node_count()` returns an active native mesh's node count or
+`-esp_err_t`. `lora.mesh_node_get(index, out)` returns a copied summary, requiring
+radio-rx. Each call checks stop/host availability around the RF kill gate and
+uses the backend writer lock for the copy. Errors propagate: inactive native
+mesh, lock/allocation failure, invalid index and missing record are distinct.
+`out` is zero on failure (when non-NULL), and successful names are terminated.
+Indices are zero-based and must fit uint16.
+
+Meshtastic summaries use long name or fallback node ID with native RSSI/SNR.
+MeshCore summaries use the contact name; RSSI/SNR are zero because those values
+are not stored in its contact records. Count/get are separate observations: a
+list can change between calls, so callers must handle `ESP_ERR_NOT_FOUND`.
+There is no retained app session or borrowed pointer, and these calls do not
+start a mesh, claim the radio, or provide a stable database traversal token.
+Startup/stop/raw PHY entries remain optional and NULL in this implementation.

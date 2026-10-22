@@ -34,6 +34,7 @@
 #define SCRIPT_NFC_BLOCK_ABI_MINOR     17
 #define SCRIPT_SUBGHZ_RAW_ABI_MINOR    18
 #define SCRIPT_SUBGHZ_REPLAY_ABI_MINOR 19
+#define SCRIPT_LORA_NODES_ABI_MINOR    20
 #define SCRIPT_NFC_KEY_BYTES           6
 #define SCRIPT_NFC_BLOCK_BYTES         16
 #define SCRIPT_BYTE_HEX_DIGITS         2
@@ -127,6 +128,8 @@ typedef enum {
   SCRIPT_BINDINGS_NFC_WRITE_BLOCK,
   SCRIPT_BINDINGS_SUBGHZ_GET_RAW,
   SCRIPT_BINDINGS_SUBGHZ_REPLAY,
+  SCRIPT_BINDINGS_LORA_NODE_COUNT,
+  SCRIPT_BINDINGS_LORA_NODE_GET,
   SCRIPT_BINDINGS_METHOD_COUNT
 } script_bindings_method_id_t;
 
@@ -220,6 +223,8 @@ static const script_bindings_method_t METHODS[] = {
     {"nfc.write_block", "yss", TOS_CAP_RADIO_TX},
     {"subghz.get_raw", "u", TOS_CAP_RADIO_RX},
     {"subghz.replay", "s", TOS_CAP_RADIO_TX | TOS_CAP_FS_READ},
+    {"lora.mesh_node_count", "", TOS_CAP_RADIO_RX},
+    {"lora.mesh_node_get", "u", TOS_CAP_RADIO_RX},
 };
 #define SCRIPT_METHOD_COUNT (sizeof(METHODS) / sizeof(METHODS[0]))
 _Static_assert(SCRIPT_METHOD_COUNT == SCRIPT_BINDINGS_METHOD_COUNT,
@@ -1253,6 +1258,35 @@ esp_err_t script_bindings_call(script_bindings_t *bindings, script_bindings_call
           api->lora->mesh_send_text == NULL)
         return ESP_ERR_NOT_SUPPORTED;
       err = api->lora->mesh_send_text(s[0]);
+      break;
+    }
+    case SCRIPT_BINDINGS_LORA_NODE_COUNT: {
+      if (api->abi_minor < SCRIPT_LORA_NODES_ABI_MINOR || api->lora == NULL ||
+          api->lora->mesh_node_count == NULL)
+        return ESP_ERR_NOT_SUPPORTED;
+      int count = api->lora->mesh_node_count();
+      if (count < 0)
+        return -count;
+      call->result = cJSON_CreateNumber(count);
+      REQUIRE_JSON(call->result);
+      break;
+    }
+    case SCRIPT_BINDINGS_LORA_NODE_GET: {
+      if (api->abi_minor < SCRIPT_LORA_NODES_ABI_MINOR || api->lora == NULL ||
+          api->lora->mesh_node_get == NULL)
+        return ESP_ERR_NOT_SUPPORTED;
+      if (n[0] > UINT16_MAX)
+        return ESP_ERR_INVALID_ARG;
+      tos_lora_node_t node = {0};
+      err = api->lora->mesh_node_get((int)n[0], &node);
+      if (err != ESP_OK)
+        break;
+      node.name[sizeof(node.name) - 1] = '\0';
+      call->result = cJSON_CreateObject();
+      REQUIRE_JSON(call->result);
+      REQUIRE_JSON(cJSON_AddStringToObject(call->result, "name", node.name));
+      REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "rssi_dbm", node.rssi_dbm));
+      REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "snr_db", node.snr_db));
       break;
     }
     case SCRIPT_BINDINGS_LORA_MESH_POLL: {
