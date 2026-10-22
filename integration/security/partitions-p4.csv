@@ -1,10 +1,10 @@
 # Factory-security review only; normal installed layout is unchanged.
 # Name, Type, SubType, Offset, Size, Flags
-nvs, data, nvs, 0x11000, 24K, 
-otadata, data, ota, 0x17000, 8K, 
-phy_init, data, phy, 0x19000, 4K, 
+nvs, data, nvs, 0x11000, 24K,
+otadata, data, ota, 0x17000, 8K,
+phy_init, data, phy, 0x19000, 4K,
 nvs_keys, data, nvs_keys, 0x1a000, 4K, encrypted
-ota_0, app, ota_0, 0x20000, 0x2D0000, 
-ota_1, app, ota_1, 0x2F0000, 0x2D0000, 
+ota_0, app, ota_0, 0x20000, 0x2D0000,
+ota_1, app, ota_1, 0x2F0000, 0x2D0000,
 coredump, data, coredump, 0x5C0000, 64K, encrypted
 assets, data, littlefs, 0x5D0000, 0x230000, encrypted
