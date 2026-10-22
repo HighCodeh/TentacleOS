@@ -36,6 +36,12 @@
 #define SCRIPT_SUBGHZ_REPLAY_ABI_MINOR  19
 #define SCRIPT_LORA_NODES_ABI_MINOR     20
 #define SCRIPT_SUBGHZ_SESSION_ABI_MINOR 21
+#define SCRIPT_NFC_SESSION_ABI_MINOR    22
+#define SCRIPT_LORA_SESSION_ABI_MINOR   23
+#define SCRIPT_LORA_DATA_MAX            UINT8_MAX
+#define SCRIPT_LORA_POWER_MIN_DBM       (-9)
+#define SCRIPT_LORA_POWER_MAX_DBM       22
+#define SCRIPT_NFC_UID_BYTES            4
 #define SCRIPT_NFC_KEY_BYTES            6
 #define SCRIPT_NFC_BLOCK_BYTES          16
 #define SCRIPT_BYTE_HEX_DIGITS          2
@@ -136,6 +142,14 @@ typedef enum {
   SCRIPT_BINDINGS_SUBGHZ_SPECTRUM_POLL,
   SCRIPT_BINDINGS_SUBGHZ_SET_FREQUENCY,
   SCRIPT_BINDINGS_SUBGHZ_SESSION_STOP,
+  SCRIPT_BINDINGS_NFC_EMULATE_START,
+  SCRIPT_BINDINGS_NFC_SESSION_STOP,
+  SCRIPT_BINDINGS_LORA_CONFIGURE,
+  SCRIPT_BINDINGS_LORA_SEND,
+  SCRIPT_BINDINGS_LORA_RX_START,
+  SCRIPT_BINDINGS_LORA_RX_POLL,
+  SCRIPT_BINDINGS_LORA_MESH_START,
+  SCRIPT_BINDINGS_LORA_SESSION_STOP,
   SCRIPT_BINDINGS_METHOD_COUNT
 } script_bindings_method_id_t;
 
@@ -236,6 +250,14 @@ static const script_bindings_method_t METHODS[] = {
     {"subghz.spectrum_poll", "", TOS_CAP_RADIO_RX},
     {"subghz.set_frequency", "u", TOS_CAP_RADIO_RX},
     {"subghz.session_stop", "u", TOS_CAP_RADIO_RX},
+    {"nfc.emulate_start", "s", TOS_CAP_RADIO_TX},
+    {"nfc.session_stop", "u", TOS_CAP_RADIO_TX},
+    {"lora.configure", "uyyyi", 0},
+    {"lora.send", "s", TOS_CAP_RADIO_TX},
+    {"lora.rx_start", "", TOS_CAP_RADIO_RX},
+    {"lora.rx_poll", "", TOS_CAP_RADIO_RX},
+    {"lora.mesh_start", "y", TOS_CAP_RADIO_TX},
+    {"lora.session_stop", "u", 0},
 };
 #define SCRIPT_METHOD_COUNT (sizeof(METHODS) / sizeof(METHODS[0]))
 _Static_assert(SCRIPT_METHOD_COUNT == SCRIPT_BINDINGS_METHOD_COUNT,
@@ -1077,6 +1099,27 @@ esp_err_t script_bindings_call(script_bindings_t *bindings, script_bindings_call
       }
       break;
     }
+    case SCRIPT_BINDINGS_NFC_EMULATE_START: {
+      if (api->abi_minor < SCRIPT_NFC_SESSION_ABI_MINOR || api->nfc == NULL ||
+          api->nfc->emulate_start == NULL)
+        return ESP_ERR_NOT_SUPPORTED;
+      uint8_t uid[SCRIPT_NFC_UID_BYTES];
+      uint32_t session = 0;
+      if (!parse_hex_bytes(s[0], uid, sizeof(uid)))
+        return ESP_ERR_INVALID_ARG;
+      err = api->nfc->emulate_start(uid, sizeof(uid), &session);
+      if (err != ESP_OK)
+        break;
+      call->result = cJSON_CreateNumber(session);
+      REQUIRE_JSON(call->result);
+      break;
+    }
+    case SCRIPT_BINDINGS_NFC_SESSION_STOP:
+      if (api->abi_minor < SCRIPT_NFC_SESSION_ABI_MINOR || api->nfc == NULL ||
+          api->nfc->session_stop == NULL)
+        return ESP_ERR_NOT_SUPPORTED;
+      err = api->nfc->session_stop(n[0]);
+      break;
     case SCRIPT_BINDINGS_NFC_READ_BLOCK:
     case SCRIPT_BINDINGS_NFC_WRITE_BLOCK: {
       if (api->abi_minor < SCRIPT_NFC_BLOCK_ABI_MINOR || api->nfc == NULL)
@@ -1311,6 +1354,89 @@ esp_err_t script_bindings_call(script_bindings_t *bindings, script_bindings_call
         REQUIRE_JSON(bin);
         if (!cJSON_AddItemToArray(bins, bin)) {
           cJSON_Delete(bin);
+          goto no_memory;
+        }
+      }
+      break;
+    }
+
+    case SCRIPT_BINDINGS_LORA_CONFIGURE: {
+      if (api->abi_minor < SCRIPT_LORA_SESSION_ABI_MINOR || api->lora == NULL ||
+          api->lora->configure == NULL ||
+          (bindings->caps & (TOS_CAP_RADIO_RX | TOS_CAP_RADIO_TX)) == 0)
+        return ESP_ERR_NOT_SUPPORTED;
+      int32_t power = (int32_t)n[4];
+      if (power < SCRIPT_LORA_POWER_MIN_DBM || power > SCRIPT_LORA_POWER_MAX_DBM)
+        return ESP_ERR_INVALID_ARG;
+      tos_lora_cfg_t config = {
+          .freq_hz = n[0], .sf = n[1], .bw = n[2], .cr = n[3], .tx_power_dbm = power};
+      err = api->lora->configure(&config);
+      break;
+    }
+    case SCRIPT_BINDINGS_LORA_SEND: {
+      if (api->abi_minor < SCRIPT_LORA_SESSION_ABI_MINOR || api->lora == NULL ||
+          api->lora->send == NULL)
+        return ESP_ERR_NOT_SUPPORTED;
+      size_t length = strlen(s[0]);
+      if (length == 0 || length > SCRIPT_LORA_DATA_MAX * SCRIPT_BYTE_HEX_DIGITS ||
+          length % SCRIPT_BYTE_HEX_DIGITS != 0)
+        return ESP_ERR_INVALID_ARG;
+      uint8_t data[SCRIPT_LORA_DATA_MAX];
+      length /= SCRIPT_BYTE_HEX_DIGITS;
+      if (!parse_hex_bytes(s[0], data, length))
+        return ESP_ERR_INVALID_ARG;
+      err = api->lora->send(data, length);
+      break;
+    }
+    case SCRIPT_BINDINGS_LORA_RX_START:
+    case SCRIPT_BINDINGS_LORA_MESH_START:
+      if (api->abi_minor < SCRIPT_LORA_SESSION_ABI_MINOR || api->lora == NULL)
+        return ESP_ERR_NOT_SUPPORTED;
+      if (method == SCRIPT_BINDINGS_LORA_RX_START) {
+        if (api->lora->rx_start == NULL)
+          return ESP_ERR_NOT_SUPPORTED;
+        err = api->lora->rx_start(&session);
+      } else {
+        if (api->lora->mesh_start == NULL)
+          return ESP_ERR_NOT_SUPPORTED;
+        err = api->lora->mesh_start(n[0], &session);
+      }
+      if (err != ESP_OK)
+        break;
+      call->result = cJSON_CreateNumber(session);
+      REQUIRE_JSON(call->result);
+      break;
+    case SCRIPT_BINDINGS_LORA_SESSION_STOP:
+      if (api->abi_minor < SCRIPT_LORA_SESSION_ABI_MINOR || api->lora == NULL ||
+          api->lora->session_stop == NULL ||
+          (bindings->caps & (TOS_CAP_RADIO_RX | TOS_CAP_RADIO_TX)) == 0)
+        return ESP_ERR_NOT_SUPPORTED;
+      err = api->lora->session_stop(n[0]);
+      break;
+    case SCRIPT_BINDINGS_LORA_RX_POLL: {
+      if (api->abi_minor < SCRIPT_LORA_SESSION_ABI_MINOR || api->lora == NULL ||
+          api->lora->rx_poll == NULL)
+        return ESP_ERR_NOT_SUPPORTED;
+      tos_lora_packet_t packet;
+      int count = api->lora->rx_poll(&packet);
+      if (count < 0)
+        return count == ESP_FAIL ? ESP_FAIL : -count;
+      if (count == 0) {
+        call->result = cJSON_CreateNull();
+        REQUIRE_JSON(call->result);
+        break;
+      }
+      call->result = cJSON_CreateObject();
+      REQUIRE_JSON(call->result);
+      REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "rssi_dbm", packet.rssi_dbm));
+      REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "snr_db", packet.snr_db));
+      cJSON *data = cJSON_AddArrayToObject(call->result, "data");
+      REQUIRE_JSON(data);
+      for (size_t i = 0; i < packet.len; ++i) {
+        cJSON *byte = cJSON_CreateNumber(packet.data[i]);
+        REQUIRE_JSON(byte);
+        if (!cJSON_AddItemToArray(data, byte)) {
+          cJSON_Delete(byte);
           goto no_memory;
         }
       }

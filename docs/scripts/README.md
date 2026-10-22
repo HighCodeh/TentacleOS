@@ -355,3 +355,34 @@ These are windowed background captures, with gaps and coalesced latest results.
 Startup waits for readiness and stop waits for cleanup; timeouts may leave
 firmware-owned cleanup pending. See the
 [ABI limits](../app_sdk/README.md#owned-sub-ghz-sessions-abi-121).
+
+
+## NFC and LoRa owned sessions
+
+ABI 1.22 adds `nfc.emulate_start("DEADBEEF") -> id` and
+`nfc.session_stop(id)`, both requiring radio-tx. This emulates selection of a
+four-byte UID using a zero-filled volatile Classic 1K image with unknown keys;
+it does not load a saved card dump. See [NFC](../nfc/README.md#owned-emulation-abi-122).
+
+ABI 1.23 adds these calls to both real interpreters:
+
+| Call | Result / permission |
+| --- | --- |
+| `lora.configure(freq_hz, sf, bw_index, cr, power_dbm)` | 0; RX or TX; reserves raw PHY |
+| `lora.send("010203")` | 0 after actual TxDone; TX; 1..128 payload bytes as hex |
+| `lora.rx_start()` | session ID; RX |
+| `lora.rx_poll()` | `{data, rssi_dbm, snr_db}`, or null/nil; RX |
+| `lora.mesh_start(0 or 1)` | session ID; TX; 0 Meshtastic, 1 MeshCore |
+| `lora.session_stop(id)` | 0; RX or TX; ID 0 selects caller's current raw session |
+
+The shared script argument limit bounds the hex send string to 256 characters;
+native `.hb` sends support 1..255 payload bytes. Packet arrays use JS zero-based
+and Lua one-based indexing. BW is the SX1262 raw index (4 is 125 kHz), CR is 5..8,
+and signed power is -9..22 dBm. Fixed CRC/private sync/explicit headers and a
+12-symbol preamble match the native adapter. SF6 requires an absent fixed-length
+implicit-header contract and is rejected. Configuration cannot change while RX
+is active. Stop retains a failed radio/transport teardown for firmware retry;
+scripts cannot adopt another session. Normal exit, error, deadline and forced
+termination use context unbind to cancel owned NFC/LoRa sessions. Unsupported
+older ABI versions or missing optional functions fail before native dispatch.
+Hardware RF/transport performance is not established by interpreter tests.

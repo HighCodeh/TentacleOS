@@ -149,7 +149,15 @@ static esp_err_t get_node(int index,tos_lora_node_t *out) {
   if(index!=0)return ESP_ERR_NOT_FOUND;
   *out=(tos_lora_node_t){.name="peer",.rssi_dbm=-80,.snr_db=3.5f};return ESP_OK;
 }
-static const tos_lora_api_t lora={.mesh_node_count=count_nodes,.mesh_node_get=get_node,.mesh_poll=poll_mesh_view,.mesh_send_text=send_mesh};
+static unsigned s_lora_sessions;
+static int s_raw_lora_count=1;
+static esp_err_t lora_configure(const tos_lora_cfg_t *c) { assert(c->freq_hz==868000000 && c->sf==7 && c->bw==4 && c->cr==5 && c->tx_power_dbm==-9);++s_lora_sessions;return ESP_OK; }
+static esp_err_t lora_send(const uint8_t *data,uint8_t len) { assert(len==3 && data[0]==1 && data[2]==3);++s_lora_sessions;return ESP_OK; }
+static esp_err_t lora_rx_start(uint32_t *out) { *out=92;++s_lora_sessions;return ESP_OK; }
+static int lora_rx_poll(tos_lora_packet_t *out) { *out=(tos_lora_packet_t){.data={0xCA,0xFE},.len=2,.rssi_dbm=-70,.snr_db=5};++s_lora_sessions;return s_raw_lora_count; }
+static esp_err_t lora_mesh_start(uint8_t proto,uint32_t *out) { assert(proto==1);*out=93;++s_lora_sessions;return ESP_OK; }
+static esp_err_t lora_session_stop(uint32_t id) { assert(id==92 || id==93 || id==0);++s_lora_sessions;return ESP_OK; }
+static const tos_lora_api_t lora={.configure=lora_configure,.send=lora_send,.rx_start=lora_rx_start,.rx_poll=lora_rx_poll,.mesh_start=lora_mesh_start,.session_stop=lora_session_stop,.mesh_node_count=count_nodes,.mesh_node_get=get_node,.mesh_poll=poll_mesh_view,.mesh_send_text=send_mesh};
 static unsigned s_ir_extended_calls;
 static esp_err_t send_ir_raw(const int32_t *pulses,int count,uint32_t carrier) {
  assert(carrier==38000 && count==3 && pulses[0]==350 && pulses[1]==-700 && pulses[2]==350);
@@ -174,7 +182,12 @@ static esp_err_t read_nfc_block(uint8_t block,const uint8_t key[6],uint8_t data[
 static esp_err_t write_nfc_block(uint8_t block,const uint8_t key[6],const uint8_t data[16]) {
  assert(block==4 && key[0]==0xFF && key[5]==0xFF && data[0]==0xCA && data[15]==0xCA);++s_nfc_blocks;return ESP_OK;
 }
-static const tos_nfc_api_t nfc={.poll=poll_nfc,.read_block=read_nfc_block,.write_block=write_nfc_block};
+static unsigned s_nfc_sessions;
+static esp_err_t start_nfc(const uint8_t *uid,uint8_t len,uint32_t *out) {
+ assert(len==4 && uid[0]==0xDE && uid[3]==0xEF);++s_nfc_sessions;*out=91;return ESP_OK;
+}
+static esp_err_t stop_nfc(uint32_t id) { assert(id==91);++s_nfc_sessions;return ESP_OK; }
+static const tos_nfc_api_t nfc={.poll=poll_nfc,.read_block=read_nfc_block,.write_block=write_nfc_block,.emulate_start=start_nfc,.session_stop=stop_nfc};
 static const tos_wifi_api_t wifi={.scan=scan,.ap_get=ap_get};
 static const tos_ble_api_t ble={.hid_send_key=send_key};
 static const tos_fs_api_t fs={.open=open_file,.read=read_file,.close=close_file};
@@ -353,6 +366,39 @@ static void test_bindings(void) {
     assert(run(language,"tos.call('ir.get_last_raw',3)")==SCRIPT_ENGINE_ERROR);
     assert(run(language,"tos.call('ir.send_file','/sdcard/one.ir')")==SCRIPT_ENGINE_ERROR);
     assert(s_ir_extended_calls==extended+4);bindings.api=&api;
+    unsigned lora_sessions=s_lora_sessions;
+    assert(run(language,"tos.call('lora.configure',868000000,7,4,5,-9)")==SCRIPT_ENGINE_OK);
+    assert(run(language,"tos.call('lora.send','010203')")==SCRIPT_ENGINE_OK);
+    assert(run(language,"print(tos.call('lora.rx_start'))")==SCRIPT_ENGINE_OK);
+    assert(run(language,language==SCRIPT_ENGINE_JS ? "var p=tos.call('lora.rx_poll');if(p.data[0]!==202 || p.rssi_dbm!==-70)throw new Error('packet');" : "local p=tos.call('lora.rx_poll');assert(p.data[1]==202 and p.rssi_dbm==-70)")==SCRIPT_ENGINE_OK);
+    assert(run(language,"tos.call('lora.session_stop',92)")==SCRIPT_ENGINE_OK);
+    assert(run(language,"print(tos.call('lora.mesh_start',1))")==SCRIPT_ENGINE_OK);
+    assert(run(language,"tos.call('lora.session_stop',93)")==SCRIPT_ENGINE_OK);
+    assert(s_lora_sessions==lora_sessions+7);
+    s_raw_lora_count=0;
+    assert(run(language,language==SCRIPT_ENGINE_JS ? "if(tos.call('lora.rx_poll')!==null)throw new Error('empty');" : "assert(tos.call('lora.rx_poll')==nil)")==SCRIPT_ENGINE_OK);
+    s_raw_lora_count=-ESP_ERR_TIMEOUT;assert(run(language,"tos.call('lora.rx_poll')")==SCRIPT_ENGINE_ERROR);s_raw_lora_count=1;
+    assert(run(language,"tos.call('lora.configure',868000000,7,4,5,247)")==SCRIPT_ENGINE_ERROR);
+    assert(run(language,"tos.call('lora.send','01020')")==SCRIPT_ENGINE_ERROR);
+    tos_api_t lora_old=api;lora_old.abi_minor=22;bindings.api=&lora_old;
+    assert(run(language,"tos.call('lora.configure',868000000,7,4,5,-9)")==SCRIPT_ENGINE_ERROR);
+    assert(run(language,"tos.call('lora.mesh_start',1)")==SCRIPT_ENGINE_ERROR);
+    bindings.api=&api;bindings.caps &= ~(TOS_CAP_RADIO_RX|TOS_CAP_RADIO_TX);
+    assert(run(language,"tos.call('lora.configure',868000000,7,4,5,-9)")==SCRIPT_ENGINE_ERROR);
+    assert(run(language,"tos.call('lora.session_stop',0)")==SCRIPT_ENGINE_ERROR);
+    bindings.caps |= TOS_CAP_RADIO_RX|TOS_CAP_RADIO_TX;
+    unsigned nfc_sessions=s_nfc_sessions;
+    assert(run(language,"print(tos.call('nfc.emulate_start','DEADBEEF'))")==SCRIPT_ENGINE_OK);
+    assert(run(language,"tos.call('nfc.session_stop',91)")==SCRIPT_ENGINE_OK);
+    assert(run(language,"tos.call('nfc.emulate_start','DEAD')")==SCRIPT_ENGINE_ERROR);
+    tos_api_t nfc_old=api;nfc_old.abi_minor=21;bindings.api=&nfc_old;
+    assert(run(language,"tos.call('nfc.emulate_start','DEADBEEF')")==SCRIPT_ENGINE_ERROR);
+    assert(run(language,"tos.call('nfc.session_stop',91)")==SCRIPT_ENGINE_ERROR);
+    bindings.api=&api;bindings.caps &= ~TOS_CAP_RADIO_TX;
+    assert(run(language,"tos.call('nfc.emulate_start','DEADBEEF')")==SCRIPT_ENGINE_ERROR);
+    assert(run(language,"tos.call('nfc.session_stop',91)")==SCRIPT_ENGINE_ERROR);
+    bindings.caps |= TOS_CAP_RADIO_TX;
+    assert(s_nfc_sessions==nfc_sessions+2);
     unsigned blocks=s_nfc_blocks;
     assert(run(language,language==SCRIPT_ENGINE_JS ? "print(tos.call('nfc.read_block',4,'FFFFFFFFFFFF')[0])" : "print(tos.call('nfc.read_block',4,'ffffffffffff')[1])")==SCRIPT_ENGINE_OK);
     assert(strcmp(s_output_text,"202\n")==0);
