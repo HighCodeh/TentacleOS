@@ -2280,6 +2280,14 @@
       "before_sha256": "2549e2e904cfd7cb22e4ad775e215c46f957c1317066d00921ddc7dd5832890c",
       "after_sha256": "2d28e6027ffe79f6d1e432a5562b3ff53815757d83bb4ab38a912194f9e4fbe6",
       "reason": "chore(p4): add missing service license notices"
+    },
+    "firmware_p4/components/Service/app_runtime/include/tos_trust_keys.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "165adb04d324b281c5b77d9acd24f5396048e06a21e47c0e832322f7b9279227",
+      "after_sha256": "21873af6f872e93ec9d17f6c3abbf2ab66908b8b1ed936e509c75fae4d3dfb76",
+      "reason": "fix(app-sdk): retain license notices in generated trust headers",
+      "pre_format_sha256": "d4058d48dce767c730e4bcbe5c30ed1b868a4e1bceb47121c1dbd2878e889bff",
+      "formatter": "clang-format version 22.1.5"
     }
   }
 }
