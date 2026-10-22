@@ -88,3 +88,9 @@ foreach(HIGHBOY_CONTROL_COMPONENT Core resource_mgr console argtable3 nvs_flash 
     idf_component_get_property(HIGHBOY_CONTROL_LIB ${HIGHBOY_CONTROL_COMPONENT} COMPONENT_LIB)
     target_compile_options(${HIGHBOY_CONTROL_LIB} PRIVATE -Os -flto=2 -ffat-lto-objects)
 endforeach()
+
+# A factory security profile compacts SDK code while preserving peripheral policy.
+if(CONFIG_SECURE_BOOT AND CONFIG_SECURE_FLASH_ENC_ENABLED)
+    idf_component_get_property(HIGHBOY_SECURE_DRIVERS Drivers COMPONENT_LIB)
+    target_compile_options(${HIGHBOY_SECURE_DRIVERS} PRIVATE -O2)
+endif()

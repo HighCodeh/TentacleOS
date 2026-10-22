@@ -760,8 +760,8 @@
     "firmware_p4/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "0f1227039a8fd707409aaebc1ba720212788503eb26421c5ded3947f10e67323",
-      "after_sha256": "bf58c09879769d409b4c887414b204159825a4c4d4a9bc67ee94d5cbc2bc0f5d",
-      "reason": "build(p4): compact SDK control services for NFC and LoRa lifecycle adapters",
+      "after_sha256": "3d239414151e666228f6ef511f69ee1f39920c8a16e4b34c849e31a5787ad907",
+      "reason": "build(security): add isolated factory profiles and audited signed-image capacity",
       "review_history": [
         {
           "after_sha256": "3f9e37605262ba8cd5c3e25d94f57f660c010e6baea480103d8fe554f58d4eef",
@@ -782,6 +782,10 @@
         {
           "after_sha256": "2bc6552382b8548e46fb4a7ac05aadc9e7f6e60d4b5067c033a32eacb6681245",
           "reason": "build(p4): compact system control and resource arbitration with LTO"
+        },
+        {
+          "after_sha256": "bf58c09879769d409b4c887414b204159825a4c4d4a9bc67ee94d5cbc2bc0f5d",
+          "reason": "build(p4): compact SDK control services for NFC and LoRa lifecycle adapters"
         }
       ]
     },
@@ -1150,8 +1154,14 @@
     "firmware_c5/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "423dcada91e6ab2caa676d189fa06e48c1fab966756784d79a68170adcc52a3d",
-      "after_sha256": "4e7151e0676dc6ffa2890a8ed14765c91106c23d27b0a8e14d8696e1c8fd1b5e",
-      "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership"
+      "after_sha256": "49823176bbb8261b7dba6c73f4526e6c670cdb6084ba98689cae5158902336b8",
+      "reason": "build(security): add isolated factory profiles and audited signed-image capacity",
+      "review_history": [
+        {
+          "after_sha256": "4e7151e0676dc6ffa2890a8ed14765c91106c23d27b0a8e14d8696e1c8fd1b5e",
+          "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership"
+        }
+      ]
     },
     "firmware_c5/sdkconfig.defaults": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",

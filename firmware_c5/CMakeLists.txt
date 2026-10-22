@@ -25,3 +25,11 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(TentacleOS_C5)
 
 # Compile-only: no assets/temp staging or filesystem image.
+
+# A factory security profile compacts SDK code while preserving peripheral policy.
+if(CONFIG_SECURE_BOOT AND CONFIG_SECURE_FLASH_ENC_ENABLED)
+    idf_component_get_property(HIGHBOY_SECURE_DRIVERS Drivers COMPONENT_LIB)
+    target_compile_options(${HIGHBOY_SECURE_DRIVERS} PRIVATE -Og)
+    idf_component_get_property(HIGHBOY_SECURE_MUSE highboy_muse COMPONENT_LIB)
+    target_compile_options(${HIGHBOY_SECURE_MUSE} PRIVATE -Og)
+endif()
