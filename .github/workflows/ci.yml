@@ -78,6 +78,13 @@ jobs:
         run: bash tools/build.sh "${{ matrix.target }}"
         shell: bash
 
+      - name: Check internal RAM budget and critical compiler policies
+        shell: bash
+        run: |
+          python tools/highboy/build_evidence.py --target "${{ matrix.target }}" \
+            --build "firmware_${{ matrix.target }}/build_highboy" \
+            --out "firmware_${{ matrix.target }}/build_highboy/build-evidence.json"
+
       - name: Build isolated factory-security review and test real image crypto
         shell: bash
         run: |
@@ -113,6 +120,7 @@ jobs:
             firmware_${{ matrix.target }}/build_highboy/${{ matrix.project }}.map
             firmware_${{ matrix.target }}/build_highboy/sdkconfig
             firmware_${{ matrix.target }}/build_highboy/partition_table/partition-table.bin
+            firmware_${{ matrix.target }}/build_highboy/build-evidence.json
 
   host-tests:
     name: High Boy offline regression tests (${{ matrix.compiler }})
