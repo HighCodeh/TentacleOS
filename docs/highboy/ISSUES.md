@@ -218,3 +218,28 @@ physical reset/watchdog/flash and sleep/wake/current acceptance remain pending.
 Feature request #163 is excluded by user request, as are HID #64, HLE and haptics.
 No diagnostic counters, user files, device flash, production identity or eFuses
 were modified on a live device.
+
+
+## OTA and app-only delivery follow-up
+
+The P4 update UI was still a timed simulation; it now probes the actual SD image
+and invokes native OTA through a pinned worker, with truthful version/progress/
+error and deletion-safe snapshots. P4 updates are exclusive, check file reads and
+partition preflight, and retain failed abort/power cleanup. P4/C5 now propagate
+SDK state/confirmation errors instead of announcing a failed confirmation as
+success. Host file/flash/LVGL fixtures validate the production paths.
+
+The app-only packager previously rejected optimized-away names under the current
+LTO build. It now records reviewed clone/inlined-console evidence, validates each
+pair before atomic publication, and provides a standalone integrity/profile
+verifier. Versioned metadata records the SDK/protocol/slots, dirty source,
+selected public app-trust configuration and host-test runner fingerprint.
+It does not certify production custody, physical results or full restoration.
+These changes advance #153/#156/#157/#158; those acceptance requirements remain.
+
+Only macOS debug/Bluetooth serial endpoints were visible when this batch checked
+port names; no High Boy target port was available or opened. The remaining real
+card (#148), throughput (#143), wake/current (#135), watchdog/recovery (#153),
+cross-interface/performance (#156/#157), production identity/eFuse review (#152)
+and missing original Bash reproduction/consumer restoration (#158) cannot be
+reported as passed by substituting host fixtures. #163 and #64 remain excluded.

@@ -812,3 +812,50 @@ preserved; the runner commits contain only the new suite lines. No device,
 serial, RF, live NVS/SD/flash, production identity or eFuse was accessed. #135
 and #153 remain open for real sleep/wake/current and reset/watchdog/recovery
 acceptance. No issue is closed by this record.
+
+
+## Native OTA and verified app-only candidate build record
+
+Validated on 2026-10-22 after implementation commit `22a3e7a9`. The working tree
+also contains the pre-existing ESP SCAN/updater changes; `source_dirty` is true,
+and the manifest fingerprints the actual inputs. This is not a clean-commit
+release or evidence that those pending user changes were committed.
+
+Both pinned SDK lanes, paired SPI v8 and original app slots passed:
+
+| Target | SDK | Application bytes | Slot bytes | Free bytes | SHA-256 |
+| --- | --- | ---: | ---: | ---: | --- |
+| P4 | v5.5.3 | 2,942,848 | 2,949,120 | 6,272 | `e57d701db3312112ac40db144c39e3d03f86a4ecf280f4a0693331cae423855c` |
+| C5 | v6.0.1 | 2,051,056 | 2,097,152 | 46,096 | `2e47806f35d64036dc546adf4c039c3e9693a50911b8fc9a951d2976efd4d667` |
+
+`tools/highboy/package.py` completed both builds and the complete offline test
+runner after the commit hook formatted the firmware. New ASan/UBSan fixtures
+exercise actual P4 OTA file/flash/power failure paths, exclusivity, retained
+abort/release cleanup and version metadata writes. Extracted actual C5 post-boot
+validation covers bridge-health deadlines, state reads, confirmation and rollback
+errors. Native update UI tests exercise worker/UI separation, allocation failures,
+native progress/errors and deferred deletion/reopen; SDK/LVGL calls are explicit
+fakes and do not prove device behavior.
+
+Eight package tests cover partial publication, source corruption, immutable
+existing candidates, invalid profiles/metadata, duplicate JSON, symlinks, reviewed
+LTO symbol clones and selected public trust-header fingerprints. The standalone
+verifier passed on:
+
+`integration/release/candidate_e57d701db331_2e47806f35d6_0f23fac77384/`
+
+The package contains P4/C5 applications and a manifest, with no bootloader,
+restored assets, production provisioning or partition migration. Hash/profile
+verification is not signature authentication, production custody or hardware
+acceptance. The build selected the existing development app identity. Whitespace
+and Conventional Commit checks passed for the implementation commits. Pending
+user files and unrelated correction proofs were checked against initial hashes.
+
+GitHub still lists eight in-scope issues: #135, #143, #148, #152, #153, #156,
+#157 and #158. #163 and #64 remain excluded. No High Boy serial endpoint was
+available; no target port was opened, no firmware was flashed and no live
+SD/NVS/eFuse/security setting was changed. Real card/throughput/current/reset/
+watchdog/cross-interface/runtime-performance acceptance, production identity and
+reviewed two-chip security/restore deployment remain outstanding. The original
+Bash report still lacks its command/error reproduction. No issue is closed by
+this build record.

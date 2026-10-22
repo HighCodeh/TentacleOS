@@ -49,8 +49,9 @@ use the same receive capability and native backend. Do not interpret unavailable
 functions as connected/working features. MQTT and remote GATT have native software
 paths but still require real broker/peer acceptance; RNode/KISS is unsupported on
 this profile. ABI 1.13 adds bounded app Sub-GHz capture/raw transmission through the shared
-persistent RF worker. LoRa remains observation-only; asynchronous/file/spectrum
-app sessions are still unavailable. Check capabilities, selected frequency/preset
+persistent RF worker. ABI 1.14 adds copied text submission to an already active
+native LoRa mesh, and ABI 1.15 adds a bounded 80-bin Sub-GHz RSSI sweep.
+Asynchronous/file app sessions remain unavailable. Check capabilities, selected frequency/preset
 and cleanup results when exercising the implemented paths.
 
 For #157, record `free`, `stack` and `tasks` at idle and after each exercised
@@ -67,3 +68,14 @@ asset/boot restoration, paired transport results and performance/internal-RAM
 measurements. The development trust key, a successful host suite or a fitting
 application image does not satisfy those items. No eFuse provisioning, device
 access or factory-reset action was performed for this work.
+
+
+## Candidate integrity before an installed-device update
+
+Build/package with `python3 tools/highboy/package.py` and verify its output using
+`python3 tools/highboy/verify_package.py <candidate-directory>`. The package is
+app-only and records the working tree's dirty state; it does not restore assets,
+select production identities, provision security or certify a release. The P4
+Update screen now performs native OTA from the actual SD file, replacing the old
+mock version/progress/reboot. Matching installed boot/partition/assets and actual
+rollback acceptance remain prerequisites. See the [candidate procedure](README.md#verifiable-app-only-candidates).
