@@ -178,3 +178,26 @@ argtable3 recovered 5,344 bytes (2,951,024 to 2,945,680). Later lifecycle code a
 additional control compilation supersede those intermediate image sizes; final
 paired sizes/hashes are recorded in TESTS.md. Host tests and successful builds
 do not establish runtime storage/console/OTA latency or hardware performance.
+
+
+## Issue 157 software completion checkpoint
+
+The 2026-10-22 paired rebuild at `5ed9e505` retains the prior firmware/compiler
+policies and original slots: P4 2,946,960 bytes (2,160 free), C5 2,051,664 bytes
+(45,488 free). This batch adds reporting and regression gates; it does not claim
+an additional firmware size or timing improvement.
+
+The actual matching SDK reports P4 DIRAM 403,144 / 576,464 bytes (173,320 linker
+headroom) and C5 HP SRAM 255,243 / 320,928 bytes (65,685 headroom). The reviewed
+regression floors are 163,840 and 61,440 bytes respectively. Main internal RAM is
+accounted independently from flash, PSRAM and LP RAM. Existing allocation/stack
+policies remain unchanged; linker headroom is not measured runtime free heap.
+
+The [new release procedure](RELEASE.md) binds these reports and selected critical
+compiler/LTO policies to each candidate, enforces them in CI, and exports paired
+SD OTA inputs. Full build/test/artifact evidence is in
+[TESTS.md](TESTS.md#issue-157-paired-ramcompiler-evidence-and-sd-ota-packaging).
+This supersedes earlier statements that #157 still lacks software packaging or
+signed-image capacity evidence. Runtime performance, heap/stack, actual update/
+rollback and production installation remain unmeasured release gates after
+software closure. No release version, device firmware or eFuse was changed.

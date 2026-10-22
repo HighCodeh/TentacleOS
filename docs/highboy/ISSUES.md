@@ -18,13 +18,15 @@ this work. Feature request #163 is also excluded by user request. No device was 
 | [#145](https://github.com/HighCodeh/TentacleOS/issues/145) | Shared SX1262 airtime pacing covers both meshes; real MQTT subscription/publication and bounded chat reception run through C5. The requested RNode decision is to leave the inherited UART endpoint unsupported on P4 because GPIO43/44 conflict with SDMMC; the menu is a receive-only lab. A future KISS endpoint requires a separate transport design. Physical acceptance remains #156. |
 | [#151](https://github.com/HighCodeh/TentacleOS/issues/151) | Companion handshake v2 now uses fresh X25519, transcript-bound PSK proofs and physical token confirmation before signed FINISH/READY activates commands. Updated clients verify response MACs/replay counters; real-crypto C/Python interoperability, UI handler tests and paired builds pass. Physical USB/BLE/button acceptance remains #156. |
 
-| [#149](https://github.com/HighCodeh/TentacleOS/issues/149) | Self-contained Wi-Fi/BLE/NFC/RFID/IR/Sub-GHz/LoRa types and versioned tables are published through ABI 1.15; supported operations use capability/cancellation/ownership adapters and JS/Lua bindings. Build-local public-key replacement and production rejection of missing/development keys are implemented. Real Ed25519 bundle verification is host-tested. The user explicitly deferred the real production identity and requested configuration support first. Optional unpublished adapters remain in #156; production identity/custody is a release prerequisite in #157. See the scope reconciliation below. |
+| [#149](https://github.com/HighCodeh/TentacleOS/issues/149) | Self-contained Wi-Fi/BLE/NFC/RFID/IR/Sub-GHz/LoRa types and versioned tables are published through ABI 1.15; supported operations use capability/cancellation/ownership adapters and JS/Lua bindings. Build-local public-key replacement and production rejection of missing/development keys are implemented. Real Ed25519 bundle verification is host-tested. The user explicitly deferred the real production identity and requested configuration support first. Optional unpublished adapters remain in #156; production identity/custody remains a prerequisite in [the release checklist](RELEASE.md#acceptance-outside-software-closure). See the scope reconciliation below. |
 
 | [#156](https://github.com/HighCodeh/TentacleOS/issues/156) | The [source/interface matrix](MATRIX.md) is complete at the requested code boundary. ABI 1.22 supplies owned NFC UID emulation; ABI 1.23 supplies raw LoRa and complete owned mesh startup/teardown, shared with JS/Lua. Native ownership, callback/worker drainage and retained failed cleanup pass host tests and both pinned builds. The user requested completion without waiting for physical acceptance; device tests remain unverified, and P4 RNode retains the explicit #145 exclusion. |
 
 | [#153](https://github.com/HighCodeh/TentacleOS/issues/153) | Checked P4/C5 monitor creation and WDT APIs now enter the configured panic/coredump path on failure. Healthy completed boots alone clear the RTC loop counter. Recovery preserves NVS, skips configuration/SD startup, gates UI/OTA on successful initialization, and reports reset failures without rebooting. Bounded internal-stack boot MP3/serialized I2S replaces the disabled crash guard. Production-code host fault injection and both pinned builds pass; physical fault injection, core-dump flash integrity and audio remain unverified at the user-requested code closure boundary. |
 
-| [#152](https://github.com/HighCodeh/TentacleOS/issues/152) | Both pinned SDK lanes now build and audit real factory-security bootloaders/apps with Secure Boot v2 RSA-3072, release Flash Encryption and encrypted NVS/assets/coredump. Real signatures and full-image XTS round-trips pass with temporary fixture keys; app and bootloader signature sectors fit. The separate factory layout relocates metadata while preserving both app slots and assets. User-requested software closure does not certify a provisioned device; production identities, approved installation/migration and physical secure recovery remain #157 release prerequisites. See [security](../security/README.md). |
+| [#152](https://github.com/HighCodeh/TentacleOS/issues/152) | Both pinned SDK lanes now build and audit real factory-security bootloaders/apps with Secure Boot v2 RSA-3072, release Flash Encryption and encrypted NVS/assets/coredump. Real signatures and full-image XTS round-trips pass with temporary fixture keys; app and bootloader signature sectors fit. The separate factory layout relocates metadata while preserving both app slots and assets. User-requested software closure does not certify a provisioned device; production identities, approved installation/migration and physical secure recovery remain [release prerequisites](RELEASE.md#acceptance-outside-software-closure). See [security](../security/README.md). |
+
+| [#157](https://github.com/HighCodeh/TentacleOS/issues/157) | Existing optimization policies now have paired, hash-bound SDK internal-RAM reports and CI regression floors (160 KiB P4 / 60 KiB C5 linker headroom), plus guards on selected critical compiler/LTO policies. Verified SD OTA export supplies both existing update paths with immutable publication and corruption tests. Completed at the user-requested software boundary; runtime heap/stack/timing, actual paired OTA/rollback and production installation/security remain unmeasured release prerequisites in [RELEASE.md](RELEASE.md), not successful device results. |
 
 ## Still open
 
@@ -33,7 +35,6 @@ this work. Feature request #163 is also excluded by user request. No device was 
 | [#135](https://github.com/HighCodeh/TentacleOS/issues/135) | Battery ADC diagnostics exist. PM initialization now acquires a guard before configuring sleep, serializes USB/client holds, preserves failed cleanup and retries failed input transitions. Enabled/disabled host fault-injection passes. Light-sleep remains disabled; UART/USB and peripheral wake/current must be verified on hardware before enabling. |
 | [#143](https://github.com/HighCodeh/TentacleOS/issues/143) | Companion Wi-Fi dispatch exists. Measure actual throughput and validate complete scan/connect/session flows on the paired device. |
 | [#148](https://github.com/HighCodeh/TentacleOS/issues/148) | Physical NFC card test with recorded hardware, card types, read/write/emulation results and field shutdown. |
-| [#157](https://github.com/HighCodeh/TentacleOS/issues/157) | Normal app-only candidates and private paired recovery review are implemented. Actual factory-security builds now fit the unchanged app slots with their signature sectors, using explicitly relocated metadata; they are not compatible with the installed development map/updater. Production identities/key custody, approved metadata reset/migration and assets handling, runtime performance/heap/stack evidence, paired device boot and a reviewed deployable restore/release package remain. |
 | [#158](https://github.com/HighCodeh/TentacleOS/issues/158) | Fixed a reproduced BSD/macOS SDK build bug (`stat -c%s` is GNU-only), with an isolated shell regression. The original unnamed Bash report remains unidentified: the user no longer recalls the command and the explanation is on another PC. All reviewed shell files pass syntax checks. The [field guide](FIELD.md) documents current capabilities, bench evidence and the app-only boundary. A supported consumer installation procedure still needs the approved deployment/recovery package. |
 
 ## Validation of this correction batch
@@ -473,3 +474,21 @@ is not claimed by local checks. This completes #152 at the user's requested
 software boundary. Actual device provisioning, approved migration/installation,
 production keys and physical secure recovery remain release prerequisites under
 #157. No device was accessed, no eFuse was written and no changes were pushed.
+
+
+## Issue 157 software closure
+
+Current paired builds and the complete offline suite pass with linked memory/
+compiler evidence in each candidate. The static main-internal-RAM gate retains
+at least 160 KiB linker headroom on P4 and 60 KiB on C5; selected radio/audio/
+render/emulator and opaque-crypto compilation policies are checked without
+changing them. Immutable SD OTA export verifies both existing target paths,
+artifact binding and exact copied bytes. See the [build record](TESTS.md#issue-157-paired-ramcompiler-evidence-and-sd-ota-packaging)
+and [release procedure](RELEASE.md).
+
+The user requested issue closure without waiting for device validation. Closing
+#157 therefore records software completion, not v1.0-rc publication or production
+approval. Runtime measurements, paired physical OTA/rollback, keys/custody and
+approved assets/restoration/security migration remain release prerequisites;
+older issue references to #157 do not assert those prerequisites were fulfilled.
+No manual version change, physical write or push was performed.

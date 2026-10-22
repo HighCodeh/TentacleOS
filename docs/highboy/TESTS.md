@@ -1230,3 +1230,76 @@ and physical secure recovery remain installation/release prerequisites under
 #157. All review deployment/provisioning/hardware gates stay false. The factory
 layout is not an ordinary app-only update and existing plaintext NVS is not
 migrated in place. No changes were pushed; user changes/provenance are preserved.
+
+
+## Issue 157 paired RAM/compiler evidence and SD OTA packaging
+
+The 2026-10-22 software checkpoint at code revision `5ed9e5052cd19da8287c9b62acbae3f972339328` passed the normal
+P4 IDF v5.5.3 / C5 IDF v6.0.1 builds and the complete offline runner. The source
+was dirty, including the user's existing ESP SCAN/guarded-updater work. All 47
+initial worktree/provenance files were retained; the runner gained only the
+release regression invocation for this change.
+
+The 12 new release tests cover both SDK size formats, flash/LP exclusion,
+internal RAM regression floors, malformed counts, effective compiler/LTO
+ordering, missing/duplicate critical sources, candidate/evidence binding,
+fabricated acceptance, missing evidence, correct paired SD paths, corruption,
+symlinks, extra payloads, atomic failure handling and immutable repetition.
+Existing package/security/recovery and firmware/ABI/OTA fault-injection tests
+also passed. These are explicit host fixtures, not physical acceptance.
+
+| Target | Application bytes | Original slot bytes | Free bytes | SHA-256 |
+| --- | ---: | ---: | ---: | --- |
+| P4 | 2,946,960 | 2,949,120 | 2,160 | `fae6c29bddeec6dc852c45e910e8c1c92c9f86671e4ef9a0fd826a9405e778ab` |
+| C5 | 2,051,664 | 2,097,152 | 45,488 | `340a2825c8aa7479f09ca37c6c8e687eaddc4d78ecb1515659d2cf578f5dc7ab` |
+
+The source/compiler policies and application lengths remain unchanged from the
+#152 normal-build checkpoint. Hashes differ because the rebuilt descriptors
+include the newer source revision; byte-identical binaries are not claimed.
+
+| Main internal region | Total bytes | Linked bytes | Linker headroom bytes | Minimum headroom bytes |
+| --- | ---: | ---: | ---: | ---: |
+| P4 DIRAM | 576,464 | 403,144 | 173,320 | 163,840 |
+| C5 HP SRAM | 320,928 | 255,243 | 65,685 | 61,440 |
+
+The matching SDK's actual size tool supplied these counts (P4 legacy JSON,
+C5 JSON2 1.2). They include linked text/data in main internal RAM and are not
+live heap, minimum heap, available DMA memory or stack measurements. Native
+size reports and selected effective compiler policies are embedded in the
+candidate manifest and bound to these build artifacts:
+
+- P4 elf_sha256: `2c9acf357e7cb53274b4cfc4972032ddcfa961ba36695a71e08508da1e038ae9`
+- P4 map_sha256: `5467bb04f9352d65783ac02a88223d61b4e6d2891633dbf65ec97390851d68b3`
+- P4 sdkconfig_sha256: `0c4b61f6047777a83b2a87efadd031f319887d49a1921fcf3da39d2b1aad102f`
+- P4 compile_commands_sha256: `9c6bb094358e47ff9dcc5261521652f0be493fb911f3571749361b6c01f10338`
+
+- C5 elf_sha256: `36adff31d38a933df88a30303287a3acc0127d48e145f1d38686eda4b3ad0319`
+- C5 map_sha256: `0a7165262e1320a91bfd24a7f55844816d8c61706906412c8ec29a5c48f2cf61`
+- C5 sdkconfig_sha256: `42acb53bf0ca79e3d1f5d1ff246e64e573cd61cce58221d9d5288f4e9893aab2`
+- C5 compile_commands_sha256: `aeb07da4aaf018f8a84412f51f35971a88a07655c13ce609cde6359f7f44ffcd`
+
+Runner SHA-256: `e84ac2d85bb17660b55e5cafecefc31980cd0d0784fcc4cdd537ab7458df85e1`.
+
+Verified app-only candidate:
+`integration/release/candidate_fae6c29bddee_340a2825c8aa_9337e07a5118`.
+
+Candidate manifest SHA-256: `9337e07a5118354944c00fb2167ebbec6ac2023895a95d2b52bf3a9dc66d1f0e`.
+
+Verified SD OTA package:
+`integration/release/ota_9337e07a5118354944c0`.
+
+Both SD copies match their candidate application hashes. Preparing the identical
+package again returned the same verified immutable directory. The real esptool
+image regression passed checksum/digest/chip checks on the newly built pair;
+its deliberately wrong-chip case emits an expected warning. Boot containers
+and assets in that test are synthetic; no actual restoration or boot is inferred.
+CI YAML and every shell step passed parsing/syntax checks. Local collection
+exercised the same new memory/compiler gate that CI will run; no remote Actions
+success is asserted before push.
+
+Issue #157 is software-complete at the user's requested boundary. The
+[release procedure](RELEASE.md) keeps production identities/key custody,
+approved restoration/migration/assets, real paired OTA/rollback and runtime
+performance/heap/stack acceptance as unfulfilled release gates. No manual
+version change, public release, device access, security activation, flash/eFuse
+write or push occurred.

@@ -40,7 +40,7 @@ installation requires an approved export/reseed or reset of those settings,
 matching installed assets, OTA metadata and both signed images. The ordinary
 updater and private development recovery tool deliberately reject this layout.
 Production installation/recovery and device-data handling remain release work
-under #157; no migration or first boot is performed by these tools.
+in the [release checklist](../highboy/RELEASE.md#acceptance-outside-software-closure); no migration or first boot is performed by these tools.
 
 ## Resolve configuration only
 
