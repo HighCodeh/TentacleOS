@@ -536,7 +536,11 @@ esp_err_t tos_factory_reset_all(void);    // config + user data + NVS
   icons/html/fonts survive) and **never** touches the on-SD C5 firmware image
   (`/sdcard/c5`), so the device and its C5-recovery path stay bootable.
 
-Callers are expected to reboot afterwards.
+Reset is an explicit destructive action. If SD is unmounted, these APIs try to
+mount it on request; safe-mode boot itself skips SD startup. Missing assets, SD
+mount errors, inaccessible paths, failed deletes and NVS erase/re-init errors
+propagate. A failure may follow partial deletion. Recovery shows a retryable
+error and reboots only after success. Shipped assets are never formatted.
 
 ---
 

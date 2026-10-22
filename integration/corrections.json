@@ -372,10 +372,18 @@
     "firmware_p4/components/Core/kernel.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "c8d39b8b3c65406bcdfbd5855e4a32d3c1950fdaabbdbd1a80f554019fa592bb",
-      "after_sha256": "f91d1326f7c91e4c5619e97241fcf9f7ac47abbcf0706a7a592de38184191c51",
-      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
-      "pre_format_sha256": "a2c4915e6270da8f92175d5459ddc716618f531b13fa082bf15d066c9c3fc985",
-      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+      "after_sha256": "67ac9dabe449e8fb4e543e12a4a22dacc582e366841a4db1a56c9d6479c7511d",
+      "reason": "fix(recovery): preserve NVS and gate boot and reset completion on checked results",
+      "review_history": [
+        {
+          "after_sha256": "f91d1326f7c91e4c5619e97241fcf9f7ac47abbcf0706a7a592de38184191c51",
+          "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+          "pre_format_sha256": "a2c4915e6270da8f92175d5459ddc716618f531b13fa082bf15d066c9c3fc985",
+          "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+        }
+      ],
+      "pre_format_sha256": "8376cfd4b3a9a9ac6c06429c905dff192c67be8da44d010119b5d08aaf68fed4",
+      "formatter": "clang-format version 22.1.5"
     },
     "firmware_p4/components/Drivers/bq25896/battery_service.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -1709,6 +1717,38 @@
       "after_sha256": "f60eac58f8a0895d1e1adbf9cbc908102fdbc5f88bfe58520e3ea27cfcc0ca8d",
       "reason": "fix(audio): bound boot MP3 work and serialize I2S playback cleanup",
       "pre_format_sha256": "ed9765a075307280e26a35712e929bb7ee1376f70414855b9264ad444c14ed3d",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Core/include/kernel.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "e1ec055e4286912f1bbd565b3bb881ff0ab335a7cee75cd171073dc2d88a6c8f",
+      "after_sha256": "6ad48966603fde206ab79635c12d82452348839f70fc1c88875e7cefea3a7d67",
+      "reason": "fix(recovery): preserve NVS and gate boot and reset completion on checked results"
+    },
+    "firmware_p4/main/main.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "8360603f465421579239990407aedcf2ddf77540eff491ac8d301fd40f571dc7",
+      "after_sha256": "ec140159458a0726da39b32f4ea77941e1773b87b28a1a4b39618d87f793320b",
+      "reason": "fix(recovery): preserve NVS and gate boot and reset completion on checked results"
+    },
+    "firmware_p4/components/Service/storage_api/tos_factory_reset.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "b2f940146ca1231a170cefb010250fd462586be52a637256fe11ac367c7db3dd",
+      "after_sha256": "e1e73c9b95c7ca1960a645e9499522dfd90f5b4f190a85114ba209d8274ab1d2",
+      "reason": "fix(recovery): preserve NVS and gate boot and reset completion on checked results"
+    },
+    "firmware_p4/components/Service/storage_api/include/tos_factory_reset.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "12e8918298826bb566819a75243efb4578cd6ee3d6cde8a6b25a5131b7e25964",
+      "after_sha256": "415b862226bb57bfd8de53a198c2248f118e7ae6e709a62bee50e12f582fa69c",
+      "reason": "fix(recovery): preserve NVS and gate boot and reset completion on checked results"
+    },
+    "firmware_p4/components/Applications/ui/screens/safe_mode/safe_mode_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "3605cf8163cc5346009963ad8d14d9ae0c10e21ebec5295863fb8858d1581600",
+      "after_sha256": "e413ef7617998ec50c2512048c26004920cc40bb1d43cd741e9b63142bb18a51",
+      "reason": "fix(recovery): preserve NVS and gate boot and reset completion on checked results",
+      "pre_format_sha256": "ee7603ffc777ab27406e6074ee0790a91540d654793ad376403d5385396220aa",
       "formatter": "clang-format version 22.1.5"
     }
   }

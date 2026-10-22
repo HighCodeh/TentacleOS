@@ -16,12 +16,15 @@
 #include "tos_factory_reset.h"
 
 #include <dirent.h>
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "nvs_flash.h"
 
 #include "storage_assets.h"
@@ -67,12 +70,25 @@ static const char *const SD_USER_DIRS[] = {
 static esp_err_t delete_files_recursive(const char *dir) {
   DIR *d = opendir(dir);
   if (d == NULL) {
-    return ESP_OK; // absent path: nothing to clear
+    if (errno == ENOENT)
+      return ESP_OK;
+    ESP_LOGW(TAG, "Cannot open reset directory: %s", dir);
+    return ESP_FAIL;
   }
 
   esp_err_t result = ESP_OK;
   struct dirent *entry;
-  while ((entry = readdir(d)) != NULL) {
+  while (true) {
+    errno = 0;
+    entry = readdir(d);
+    if (entry == NULL) {
+      if (errno != 0) {
+        ESP_LOGW(TAG, "Cannot enumerate reset directory: %s", dir);
+        result = ESP_FAIL;
+      }
+      break;
+    }
+    vTaskDelay(1);
     if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
       continue;
     }
@@ -87,6 +103,8 @@ static esp_err_t delete_files_recursive(const char *dir) {
 
     struct stat st;
     if (stat(path, &st) != 0) {
+      ESP_LOGW(TAG, "Cannot inspect reset target: %s", path);
+      result = ESP_FAIL;
       continue;
     }
 
@@ -100,7 +118,8 @@ static esp_err_t delete_files_recursive(const char *dir) {
     }
   }
 
-  closedir(d);
+  if (closedir(d) != 0)
+    result = ESP_FAIL;
   return result;
 }
 
@@ -108,8 +127,17 @@ esp_err_t tos_factory_reset_config(void) {
   ESP_LOGW(TAG, "Resetting configuration to factory defaults");
 
   esp_err_t result = ESP_OK;
+  // Recovery skips SD startup; mount only after the user explicitly requests a reset.
+  if (!storage_is_mounted()) {
+    result = storage_init();
+    if (result != ESP_OK) {
+      ESP_LOGW(TAG, "SD reset unavailable: %s", esp_err_to_name(result));
+    }
+  }
 
-  if (storage_assets_is_mounted()) {
+  if (!storage_assets_is_mounted()) {
+    result = ESP_ERR_INVALID_STATE;
+  } else {
     if (delete_files_recursive(FLASH_CONFIG_DIR) != ESP_OK) {
       result = ESP_FAIL;
     }
@@ -120,7 +148,8 @@ esp_err_t tos_factory_reset_config(void) {
       result = ESP_FAIL;
     }
     // Drop the first-boot marker so defaults are re-seeded on the next boot.
-    unlink(TOS_PATH_SETUP_MARKER);
+    if (unlink(TOS_PATH_SETUP_MARKER) != 0 && errno != ENOENT)
+      result = ESP_FAIL;
   }
 
   ESP_LOGW(
@@ -148,7 +177,8 @@ esp_err_t tos_factory_reset_all(void) {
         result = ESP_FAIL;
       }
     }
-    unlink(TOS_PATH_FAVORITES);
+    if (unlink(TOS_PATH_FAVORITES) != 0 && errno != ENOENT)
+      result = ESP_FAIL;
   }
 
   // NVS: erase and re-init so the system is usable if the caller does not reboot

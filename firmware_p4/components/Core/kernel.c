@@ -15,6 +15,8 @@
 
 #include "kernel.h"
 
+#include <stdlib.h>
+
 #include "driver/gpio.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -33,6 +35,7 @@
 #include "buttons_gpio.h"
 #include "lf_rfid.h"
 #include "audio_i2s.h"
+#include "boot_sound.h"
 #include "input_manager.h"
 #include "bridge_manager.h"
 #include "config_sync.h"
@@ -63,6 +66,7 @@
 static const char *TAG = "KERNEL";
 
 #define CONSOLE_TASK_STACK     8192
+#define BOOT_SOUND_PATH        "/assets/storage/ghost_cyberpunk_boot.mp3"
 #define BOOT_SETTLE_MS         1500
 #define DISPLAY_RETRY_DELAY_MS 100
 
@@ -74,6 +78,7 @@ static const char *TAG = "KERNEL";
 #define SAFE_MODE_POLL_MS    50
 
 static void console_task(void *pvParameters) {
+  (void)pvParameters;
   console_service_init();
   vTaskDelete(NULL);
 }
@@ -95,18 +100,40 @@ static bool detect_safe_mode_combo(void) {
   return true;
 }
 
-static void kernel_init_safe_mode(void) {
-  led_rgb_init();
-  led_signal_error(); // safe mode: fault indicator
-  bq25896_init();
-
-  st7789_init();
-  lvgl_glue_init();
+static bool init_display(void) {
+  esp_err_t result = st7789_init();
+  if (result != ESP_OK) {
+    vTaskDelay(pdMS_TO_TICKS(DISPLAY_RETRY_DELAY_MS));
+    result = st7789_init();
+  }
+  boot_report_record("display", true, result);
+  if (result != ESP_OK) {
+    sys_monitor_expect_ui(false);
+    return false;
+  }
+  result = lvgl_glue_init();
+  boot_report_record("lvgl", true, result);
+  if (result != ESP_OK) {
+    sys_monitor_expect_ui(false);
+    return false;
+  }
   lv_port_indev_init();
-  ui_init_safe_mode();
+  sys_monitor_expect_ui(true);
+  return true;
+}
 
-  sys_monitor_start(false);
+static void init_safe_mode(void) {
+  led_rgb_init();
+  led_signal_error();
+  boot_report_record("battery", false, bq25896_init());
+  if (init_display()) {
+    ui_init_safe_mode();
+  } else {
+    ESP_LOGE(TAG, "Recovery display unavailable; preserving diagnostics without starting services");
+  }
+  ESP_ERROR_CHECK(sys_monitor_start(false));
   vTaskDelay(pdMS_TO_TICKS(BOOT_SETTLE_MS));
+  boot_report_complete();
 }
 
 // Fires on any heap_caps allocation failure with the size, caps and caller -
@@ -125,13 +152,6 @@ esp_err_t kernel_init(void) {
 
   // 1. NVS
   esp_err_t ret = nvs_flash_init();
-  if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    esp_err_t erase_ret = nvs_flash_erase();
-    if (erase_ret != ESP_OK) {
-      ESP_LOGE(TAG, "nvs erase failed: %s", esp_err_to_name(erase_ret));
-    }
-    ret = nvs_flash_init();
-  }
   boot_report_record("nvs", true, ret);
 
   sys_time_init();
@@ -164,28 +184,29 @@ esp_err_t kernel_init(void) {
   spi_init();
   boot_report_record("i2c", false, init_i2c());
 
-  // 3. Storage. SD is optional (may be absent); the assets LittleFS is required
-  // for icons/config/fonts, so its failure drops us into safe mode below.
-  boot_report_record("sd-storage", false, storage_init());
-  if (storage_is_mounted()) {
-    esp_err_t sd_health = storage_check_health();
-    if (sd_health != ESP_OK) {
-      ESP_LOGW(TAG, "SD health check failed; remounting");
-      storage_remount();
-      sd_health = storage_check_health();
+  input_manager_init();
+  bool is_safe_mode =
+      boot_report_in_bootloop() || !boot_report_all_required_ok() || detect_safe_mode_combo();
+  if (!is_safe_mode) {
+    boot_report_record("sd-storage", false, storage_init());
+    if (storage_is_mounted()) {
+      esp_err_t sd_health = storage_check_health();
+      if (sd_health != ESP_OK) {
+        ESP_LOGW(TAG, "SD health check failed; remounting");
+        sd_health = storage_remount();
+        if (sd_health == ESP_OK) {
+          sd_health = storage_check_health();
+        }
+      }
+      boot_report_record("sd-health", false, sd_health);
     }
-    boot_report_record("sd-health", false, sd_health);
   }
   boot_report_record("assets", true, storage_assets_init());
   storage_assets_print_info();
-
-  // Safe-mode entry: a boot loop was detected, a required subsystem already
-  // failed, or the OK + BACK combo is held. Checked before radios/themes/services
-  // so recovery comes up minimal. input_manager_init is idempotent; buttons_init
-  // below is a no-op re-init on the normal path.
-  input_manager_init();
-  bool safe_mode =
-      boot_report_in_bootloop() || !boot_report_all_required_ok() || detect_safe_mode_combo();
+  if (is_safe_mode || !boot_report_all_required_ok()) {
+    init_safe_mode();
+    return ESP_FAIL;
+  }
 
   // 4. Configuration, theme
   tos_first_boot_setup();
@@ -202,13 +223,16 @@ esp_err_t kernel_init(void) {
   // small (4 KB) driver tasks. Crash forensics now come from the coredump
   // partition (see Service/boot_report) only.
 
-  if (safe_mode) {
-    kernel_init_safe_mode();
-    return boot_report_all_required_ok() ? ESP_OK : ESP_FAIL;
-  }
-
   tos_theme_load_from_sd();
   ESP_LOGI(TAG, "TentacleOS booted successfully");
+
+  if (!init_display()) {
+    led_rgb_init();
+    led_signal_error();
+    ESP_ERROR_CHECK(sys_monitor_start(false));
+    boot_report_complete();
+    return ESP_FAIL;
+  }
 
   // 5. Peripherals
   led_rgb_init();
@@ -232,32 +256,13 @@ esp_err_t kernel_init(void) {
   boot_report_record("audio", false, audio_i2s_init());
   audio_i2s_set_volume((uint8_t)g_config_system.volume);
 
-  // 6. Display + LVGL + UI. st7789_init sets up the panel handles; lvgl_glue_init
-  // brings LVGL up over esp_lvgl_port (it calls lv_init and registers the
-  // display); then the keypad indev and UI lock against the glue.
-  esp_err_t panel_ret = st7789_init();
-  if (panel_ret != ESP_OK) {
-    ESP_LOGE(TAG, "display panel init failed (%s); retrying once", esp_err_to_name(panel_ret));
-    vTaskDelay(pdMS_TO_TICKS(DISPLAY_RETRY_DELAY_MS));
-    panel_ret = st7789_init();
-  }
-  boot_report_record("display", true, panel_ret);
-  if (panel_ret == ESP_OK) {
-    boot_report_record("lvgl", true, lvgl_glue_init());
-    lv_port_indev_init();
-    ui_init();
-    // The asynchronous MP3 boot task is disabled until its decoder/I2S crash is
-    // fixed.  A failure here happened after the display was initialized and
-    // caused a white screen followed by the boot-loop recovery UI.
-    ESP_LOGW(TAG, "Boot sound disabled (boot_sound crash guard)");
-    if (g_config_screen.rotation == 2 && !lvgl_glue_is_landscape())
-      lvgl_glue_toggle_rotation();
-  } else {
-    ESP_LOGE(TAG, "display unavailable after retry; booting headless for diagnostics");
+  ui_init();
+  if (g_config_screen.rotation == 2 && !lvgl_glue_is_landscape()) {
+    lvgl_glue_toggle_rotation();
   }
 
   // 7. Services
-  sys_monitor_start(false);
+  ESP_ERROR_CHECK(sys_monitor_start(false));
   wifi_service_init();
   if (g_config_wifi.enabled)
     wifi_service_start();
@@ -285,13 +290,14 @@ esp_err_t kernel_init(void) {
   // + redirects stdout). Do it after all the boot logging above so the takeover
   // does not race concurrent writes on UART0 (that race left UART0 dead: output
   // died right at host_link_log_init and the REPL prompt never appeared).
-  xTaskCreatePinnedToCore(console_task,
-                          "console_task",
-                          CONSOLE_TASK_STACK,
-                          NULL,
-                          SYS_PRIO_SERVICE_HI,
-                          NULL,
-                          SYS_CORE_RADIO);
+  BaseType_t console_result = xTaskCreatePinnedToCore(console_task,
+                                                      "console_task",
+                                                      CONSOLE_TASK_STACK,
+                                                      NULL,
+                                                      SYS_PRIO_SERVICE_HI,
+                                                      NULL,
+                                                      SYS_CORE_RADIO);
+  boot_report_record("console", false, console_result == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
   // C5-dependent host-link pieces disabled with the bridge: the C5 log relay and
   // the BLE relay status poller (SPI_ID_HOST_STATUS) both talk to the C5.
   // host_link_c5log_init(); // relay C5 logs (SPI_ID_SYSTEM_LOG) as source=C5 LOG frames
@@ -306,6 +312,10 @@ esp_err_t kernel_init(void) {
   } else {
     led_signal_info(); // booted clean: idle / OK indicator
   }
+  if (required_ok && g_config_system.ui_sound_fx) {
+    boot_report_record("boot-sound", false, boot_sound_play(BOOT_SOUND_PATH));
+  }
+  boot_report_complete();
   return required_ok ? ESP_OK : ESP_FAIL;
 }
 
@@ -314,7 +324,7 @@ esp_err_t kernel_init(void) {
 void safeguard_alert(const char *title, const char *message) {
   ESP_LOGE(TAG, "ALERT: %s - %s", title, message);
 
-  if (ui_acquire()) {
+  if (lvgl_glue_is_ready() && ui_acquire()) {
     msgbox_open(LV_SYMBOL_WARNING, message, "OK", NULL, NULL);
     ui_release();
   }
@@ -323,6 +333,7 @@ void safeguard_alert(const char *title, const char *message) {
 void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {
   (void)xTask;
   ESP_LOGE(TAG, "STACK OVERFLOW in task [%s]", pcTaskName);
+  abort();
 }
 
 void vApplicationMallocFailedHook(void) {

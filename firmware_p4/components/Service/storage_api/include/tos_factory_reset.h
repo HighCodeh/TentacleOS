@@ -26,14 +26,15 @@ extern "C" {
  * @brief Wipe user configuration back to factory defaults.
  *
  * Deletes every config file under the config directories on both storages
- * (the assets LittleFS partition and the SD card, when mounted) and removes the
+ * (the mounted assets LittleFS partition and the SD card mounted on request) and removes the
  * first-boot marker so tos_first_boot_setup re-seeds defaults on the next boot.
  * Directory skeletons are preserved so config saves keep working immediately.
  *
  * Does NOT touch NVS, user captures/loot, themes or shipped assets. The caller
  * is expected to reboot afterwards.
  *
- * @return ESP_OK if all reachable targets were cleared.
+ * @return ESP_OK on success; mount, missing-assets, deletion and NVS failures
+ * return an error. Some targets may already have been cleared before failure.
  */
 esp_err_t tos_factory_reset_config(void);
 
@@ -46,7 +47,8 @@ esp_err_t tos_factory_reset_config(void);
  * the device and its C5-recovery path stay bootable. The caller is expected to
  * reboot afterwards.
  *
- * @return ESP_OK if all reachable targets were cleared.
+ * @return ESP_OK on success; mount, missing-assets, deletion and NVS failures
+ * return an error. Some targets may already have been cleared before failure.
  */
 esp_err_t tos_factory_reset_all(void);
 
