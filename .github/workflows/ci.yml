@@ -85,6 +85,13 @@ jobs:
             --build "firmware_${{ matrix.target }}/build_highboy" \
             --out "firmware_${{ matrix.target }}/build_highboy/build-evidence.json"
 
+      - name: Test UART line editing with the pinned SDK source
+        if: matrix.target == 'p4'
+        shell: bash
+        run: |
+          python tools/console/test_console.py --idf "$IDF_PATH" \
+            --build firmware_p4/build_highboy
+
       - name: Build isolated factory-security review and test real image crypto
         shell: bash
         run: |
