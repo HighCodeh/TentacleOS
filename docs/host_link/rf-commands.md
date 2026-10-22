@@ -96,3 +96,30 @@ and authentication/generation routing with explicit hardware/crypto fakes.
 `python3 tools/highboy/test_rf_ownership.py` covers concurrent reservations and
 retained failed-OFF behavior. Hardware card capture and live USB/BLE transport
 remain physical acceptance work; these tests do not certify electrical shutdown.
+
+
+## Classic 1K block access
+
+Protocol v8 reserves NFC operation `04` for block read and `05` for verified data
+write in both chip headers. They terminate on P4 after the existing authenticated
+MAC/replay/session checks; no SPI relay or unauthenticated shortcut is added.
+
+- READ_BLOCK request: block u8 + six Key A bytes (7 bytes); success: 16 block bytes.
+- WRITE_BLOCK request: block u8 + six Key A bytes + 16 data bytes (23 bytes); success: empty.
+
+Both support only Classic 1K/four-byte UID, SAK 08/88 and blocks 0..63. Writes
+reject block 0 and every sector trailer, then read back and compare the data.
+Unsupported geometry maps to UNSUPPORTED, malformed/protected blocks to
+INVALID_ARG, contention to BUSY and native/verification/cleanup failure to ERROR.
+The worker owns the complete bounded operation and retains failed field/power
+cleanup; STATUS/RECOVER and disconnect cleanup use that same state.
+
+CLI commands after physical companion approval:
+
+```text
+nfc read-block 4 FFFFFFFFFFFF
+nfc write-block 4 FFFFFFFFFFFF CACACACACACACACACACACACACACACACA
+```
+
+ABI 1.17 and JS/Lua call this same backend with per-operation RX/TX capability
+checks. No card write was exercised on hardware during host validation.

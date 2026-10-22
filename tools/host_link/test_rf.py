@@ -33,6 +33,7 @@ typedef int esp_err_t;
 #define ESP_ERR_INVALID_SIZE 0x104
 #define ESP_ERR_NOT_FOUND 0x105
 #define ESP_ERR_TIMEOUT 0x107
+#define ESP_ERR_NOT_SUPPORTED 0x106
 ''')
         (directory / 'esp_rom_crc.h').write_text('''#include <stdint.h>
 #include <stddef.h>
@@ -66,7 +67,7 @@ esp_err_t power_manager_no_sleep_release(void);
                    '-Werror', '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
                    '-I', str(directory)]
         for relative in ('Drivers/rf_frontend', 'Drivers/lf_rfid', 'Drivers/st25r3916',
-                         'Service/spi_bridge', 'Service/host_link', 'Applications/nfc'):
+                         'Service/spi_bridge', 'Service/host_link', 'Applications/nfc', 'Applications/nfc/protocols/mifare'):
             command += ['-I', str(COMPONENTS / relative / 'include')]
         executable = directory / 'test'
         command += [str(COMPONENTS / 'Drivers/rf_frontend/rf_frontend.c'),

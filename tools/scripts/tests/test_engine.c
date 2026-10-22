@@ -130,7 +130,14 @@ static esp_err_t send_ir_ac(const tos_ir_ac_t *state) {
 }
 static const tos_ir_api_t ir={.receive=receive_ir,.send=send_ir,.send_raw=send_ir_raw,.get_last_raw=get_ir_raw,.send_file=send_ir_file,.send_ac=send_ir_ac};
 static const tos_rfid_api_t rfid={.read=read_rfid};
-static const tos_nfc_api_t nfc={.poll=poll_nfc};
+static unsigned s_nfc_blocks;
+static esp_err_t read_nfc_block(uint8_t block,const uint8_t key[6],uint8_t data[16]) {
+ assert(block==4 && key[0]==0xFF && key[5]==0xFF);memset(data,0xCA,16);++s_nfc_blocks;return ESP_OK;
+}
+static esp_err_t write_nfc_block(uint8_t block,const uint8_t key[6],const uint8_t data[16]) {
+ assert(block==4 && key[0]==0xFF && key[5]==0xFF && data[0]==0xCA && data[15]==0xCA);++s_nfc_blocks;return ESP_OK;
+}
+static const tos_nfc_api_t nfc={.poll=poll_nfc,.read_block=read_nfc_block,.write_block=write_nfc_block};
 static const tos_wifi_api_t wifi={.scan=scan,.ap_get=ap_get};
 static const tos_ble_api_t ble={.hid_send_key=send_key};
 static const tos_fs_api_t fs={.open=open_file,.read=read_file,.close=close_file};
@@ -257,6 +264,20 @@ static void test_bindings(void) {
     assert(run(language,"tos.call('ir.get_last_raw',3)")==SCRIPT_ENGINE_ERROR);
     assert(run(language,"tos.call('ir.send_file','/sdcard/one.ir')")==SCRIPT_ENGINE_ERROR);
     assert(s_ir_extended_calls==extended+4);bindings.api=&api;
+    unsigned blocks=s_nfc_blocks;
+    assert(run(language,language==SCRIPT_ENGINE_JS ? "print(tos.call('nfc.read_block',4,'FFFFFFFFFFFF')[0])" : "print(tos.call('nfc.read_block',4,'ffffffffffff')[1])")==SCRIPT_ENGINE_OK);
+    assert(strcmp(s_output_text,"202\n")==0);
+    assert(run(language,"tos.call('nfc.write_block',4,'FFFFFFFFFFFF','CACACACACACACACACACACACACACACACA')")==SCRIPT_ENGINE_OK);
+    assert(run(language,"tos.call('nfc.read_block',4,'FF')")==SCRIPT_ENGINE_ERROR);
+    assert(run(language,"tos.call('nfc.read_block',4,'GGFFFFFFFFFF')")==SCRIPT_ENGINE_ERROR);
+    assert(run(language,"tos.call('nfc.write_block',4,'FFFFFFFFFFFF','CA')")==SCRIPT_ENGINE_ERROR);
+    bindings.caps &= ~TOS_CAP_RADIO_TX;
+    assert(run(language,"tos.call('nfc.write_block',4,'FFFFFFFFFFFF','CACACACACACACACACACACACACACACACA')")==SCRIPT_ENGINE_ERROR);
+    bindings.caps |= TOS_CAP_RADIO_TX;
+    tos_api_t old_block_api=api;old_block_api.abi_minor=16;bindings.api=&old_block_api;
+    assert(run(language,"tos.call('nfc.read_block',4,'FFFFFFFFFFFF')")==SCRIPT_ENGINE_ERROR);
+    assert(run(language,"tos.call('nfc.write_block',4,'FFFFFFFFFFFF','CACACACACACACACACACACACACACACACA')")==SCRIPT_ENGINE_ERROR);
+    assert(s_nfc_blocks==blocks+2);bindings.api=&api;
     tos_api_t old_ir_api=api; old_ir_api.abi_minor=10; bindings.api=&old_ir_api;
     assert(run(language,"tos.call('ir.receive',500)")==SCRIPT_ENGINE_ERROR);
     bindings.api=&api;

@@ -9,6 +9,7 @@
 #include "highboy_nfc.h"
 #include "lf_rfid.h"
 #include "nfc_manager.h"
+#include "mf_classic.h"
 #include "power_manager.h"
 #include "rf_frontend.h"
 #include "spi_protocol.h"
@@ -16,6 +17,9 @@
 #define HOST_RF_OP_READ              1
 #define HOST_RF_OP_RECOVER           2
 #define HOST_RF_OP_STATUS            3
+#define HOST_RF_OP_READ_BLOCK        4
+#define HOST_RF_OP_WRITE_BLOCK       5
+#define HOST_RF_BLOCK_PAYLOAD_SIZE   (1 + HOST_RF_NFC_KEY_SIZE)
 #define HOST_RF_OP_MASK              0xFF
 #define HOST_RF_CATEGORY_SHIFT       8
 #define HOST_RF_TIMEOUT_MIN_MS       40
@@ -33,6 +37,12 @@
 #define HOST_RF_TECH_OFFSET          1
 #define HOST_RF_PROTOCOL_OFFSET      2
 #define HOST_RF_UID_LENGTH_OFFSET    3
+
+#define HOST_RF_NFC_CLASSIC_1K_SAK     0x08
+#define HOST_RF_NFC_CLASSIC_1K_INF_SAK 0x88
+#define HOST_RF_NFC_CLASSIC_UID_SIZE   4
+#define HOST_RF_NFC_BLOCKS_PER_SECTOR  4
+#define HOST_RF_NFC_TRAILER_INDEX      3
 
 static const char *TAG = "HOST_LINK_RF";
 
@@ -160,6 +170,31 @@ uint8_t host_rf_handle(host_rf_request_t *request) {
       return SPI_STATUS_BUSY;
     return release_antenna() == ESP_OK ? SPI_STATUS_OK : SPI_STATUS_ERROR;
   }
+  if (category == SPI_CAT_NFC &&
+      (operation == HOST_RF_OP_READ_BLOCK || operation == HOST_RF_OP_WRITE_BLOCK)) {
+    bool is_write = operation == HOST_RF_OP_WRITE_BLOCK;
+    uint16_t expected = HOST_RF_BLOCK_PAYLOAD_SIZE + (is_write ? HOST_RF_NFC_BLOCK_SIZE : 0);
+    if (request->length != expected)
+      return SPI_STATUS_INVALID_ARG;
+    host_rf_nfc_block_t block = {.block = request->payload[0], .is_write = is_write};
+    memcpy(block.key, request->payload + 1, sizeof(block.key));
+    if (is_write)
+      memcpy(block.data, request->payload + HOST_RF_BLOCK_PAYLOAD_SIZE, sizeof(block.data));
+    esp_err_t error = host_rf_nfc_block(&block);
+    if (error == ESP_ERR_INVALID_ARG)
+      return SPI_STATUS_INVALID_ARG;
+    if (error == ESP_ERR_INVALID_STATE)
+      return SPI_STATUS_BUSY;
+    if (error == ESP_ERR_NOT_SUPPORTED)
+      return SPI_STATUS_UNSUPPORTED;
+    if (error != ESP_OK)
+      return SPI_STATUS_ERROR;
+    if (!is_write) {
+      memcpy(request->out, block.data, sizeof(block.data));
+      request->out_length = sizeof(block.data);
+    }
+    return SPI_STATUS_OK;
+  }
   if (operation != HOST_RF_OP_READ)
     return SPI_STATUS_UNSUPPORTED;
   if (category == SPI_CAT_NFC) {
@@ -191,4 +226,63 @@ uint8_t host_rf_handle(host_rf_request_t *request) {
   if (error == ESP_ERR_NOT_FOUND)
     request->out_length = 1;
   return SPI_STATUS_OK;
+}
+
+esp_err_t host_rf_nfc_block(host_rf_nfc_block_t *request) {
+  if (request == NULL || request->block >= MF_BLOCKS_1K ||
+      (request->is_write &&
+       (request->block == 0 ||
+        request->block % HOST_RF_NFC_BLOCKS_PER_SECTOR == HOST_RF_NFC_TRAILER_INDEX)))
+    return ESP_ERR_INVALID_ARG;
+  esp_err_t error = release_antenna();
+  if (error != ESP_OK)
+    return error;
+  error = rf_frontend_reserve(RF_FRONTEND_NFC_13MHZ);
+  if (error != ESP_OK)
+    return error;
+  s_reserved_mode = RF_FRONTEND_NFC_13MHZ;
+  hb_nfc_card_data_t card = {0};
+  mf_classic_key_t key = {0};
+  uint8_t data[HOST_RF_NFC_BLOCK_SIZE] = {0};
+  error = power_manager_no_sleep_acquire();
+  if (error != ESP_OK)
+    goto cleanup;
+  s_has_no_sleep = true;
+  highboy_nfc_config_t config = HIGHBOY_NFC_CONFIG_DEFAULT();
+  error = highboy_nfc_init(&config);
+  if (error != ESP_OK)
+    goto cleanup;
+  error = nfc_manager_poll(NFC_MANAGER_TECH_A, &card);
+  if (error != ESP_OK)
+    goto cleanup;
+  if (card.protocol != HB_PROTO_MF_CLASSIC ||
+      card.iso14443a.uid_len != HOST_RF_NFC_CLASSIC_UID_SIZE ||
+      (card.iso14443a.sak != HOST_RF_NFC_CLASSIC_1K_SAK &&
+       card.iso14443a.sak != HOST_RF_NFC_CLASSIC_1K_INF_SAK)) {
+    error = ESP_ERR_NOT_SUPPORTED;
+    goto cleanup;
+  }
+  memcpy(key.data, request->key, sizeof(key.data));
+  mf_classic_reset_auth();
+  error = mf_classic_auth(request->block, MF_KEY_A, &key, card.iso14443a.uid);
+  if (error != ESP_OK)
+    goto cleanup;
+  if (request->is_write) {
+    error = mf_classic_write_block(request->block, request->data);
+    if (error != ESP_OK)
+      goto cleanup;
+  }
+  error = mf_classic_read_block(request->block, data);
+  if (error == ESP_OK && request->is_write && memcmp(data, request->data, sizeof(data)) != 0)
+    error = ESP_FAIL;
+cleanup:
+  mf_classic_reset_auth();
+  {
+    esp_err_t cleanup_error = release_antenna();
+    if (cleanup_error != ESP_OK)
+      error = cleanup_error;
+  }
+  if (error == ESP_OK && !request->is_write)
+    memcpy(request->data, data, sizeof(data));
+  return error;
 }

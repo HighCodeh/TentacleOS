@@ -888,8 +888,8 @@
     "firmware_p4/components/Service/spi_bridge/include/spi_protocol.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "44e794090bdddda5f999a29dbbb55f907c89cb001a9284a0abd94c631987c342",
-      "after_sha256": "82122fadbc59f6f66f3568a19062dff9076ffc2d0046e8a5d4f11761348b277c",
-      "reason": "Implement bounded remote GATT discovery and reads over paired SPI, native UI routing, lease expiry and NimBLE ownership-safe teardown",
+      "after_sha256": "ad8640685025717fceb015471b863b374723cfb96afd4cb221d5560fc85ce171",
+      "reason": "Reserve identical P4-local authenticated NFC Classic block operations 04/05 in both paired protocol-v8 headers.",
       "review_history": [
         {
           "after_sha256": "4b6bbe13c0511b1b89ba0e2a4e257ed57c14ae8ce0cde04ae41e4a6d3709132a",
@@ -900,16 +900,20 @@
           "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership",
           "pre_format_sha256": "9d960b693e0fbc8869e9ea28942a57b7fde628eaab3b6a98c2dac8274082a0e1",
           "formatter": "clang-format version 22.1.5"
+        },
+        {
+          "after_sha256": "82122fadbc59f6f66f3568a19062dff9076ffc2d0046e8a5d4f11761348b277c",
+          "reason": "Implement bounded remote GATT discovery and reads over paired SPI, native UI routing, lease expiry and NimBLE ownership-safe teardown",
+          "pre_format_sha256": "942dbcc7c87b3b5918765a41aa320d73c8b0ec18b8ea92c55fc21574127f5622",
+          "formatter": "clang-format version 22.1.5"
         }
-      ],
-      "pre_format_sha256": "942dbcc7c87b3b5918765a41aa320d73c8b0ec18b8ea92c55fc21574127f5622",
-      "formatter": "clang-format version 22.1.5"
+      ]
     },
     "firmware_c5/components/Service/spi_bridge/include/spi_protocol.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "44e794090bdddda5f999a29dbbb55f907c89cb001a9284a0abd94c631987c342",
-      "after_sha256": "82122fadbc59f6f66f3568a19062dff9076ffc2d0046e8a5d4f11761348b277c",
-      "reason": "Implement bounded remote GATT discovery and reads over paired SPI, native UI routing, lease expiry and NimBLE ownership-safe teardown",
+      "after_sha256": "ad8640685025717fceb015471b863b374723cfb96afd4cb221d5560fc85ce171",
+      "reason": "Reserve identical P4-local authenticated NFC Classic block operations 04/05 in both paired protocol-v8 headers.",
       "review_history": [
         {
           "after_sha256": "4b6bbe13c0511b1b89ba0e2a4e257ed57c14ae8ce0cde04ae41e4a6d3709132a",
@@ -920,10 +924,14 @@
           "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership",
           "pre_format_sha256": "9d960b693e0fbc8869e9ea28942a57b7fde628eaab3b6a98c2dac8274082a0e1",
           "formatter": "clang-format version 22.1.5"
+        },
+        {
+          "after_sha256": "82122fadbc59f6f66f3568a19062dff9076ffc2d0046e8a5d4f11761348b277c",
+          "reason": "Implement bounded remote GATT discovery and reads over paired SPI, native UI routing, lease expiry and NimBLE ownership-safe teardown",
+          "pre_format_sha256": "942dbcc7c87b3b5918765a41aa320d73c8b0ec18b8ea92c55fc21574127f5622",
+          "formatter": "clang-format version 22.1.5"
         }
-      ],
-      "pre_format_sha256": "942dbcc7c87b3b5918765a41aa320d73c8b0ec18b8ea92c55fc21574127f5622",
-      "formatter": "clang-format version 22.1.5"
+      ]
     },
     "firmware_p4/components/Service/app_runtime/tos_hb.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -978,8 +986,8 @@
     "firmware_p4/components/Service/app_runtime/include/tos_api.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "9c2020f1c91901d7b2335daccc2055d14c8646b20094bab14fc8bdd3a83b0b5d",
-      "after_sha256": "1357e0e76197fb5e6180e8e701897391f53e0cda29721cc19efa4a775249a8eb",
-      "reason": "Expose bounded native IR raw capture/replay, single-signal SD replay and AC encoding through the common ABI/JS/Lua, with explicit enum conversion and persistent-worker retained symbol cleanup.",
+      "after_sha256": "0a34cf1a9cf994e62ec93a666273769c89bf6bb5a87ff8f01bcefc238e0b0bd8",
+      "reason": "Publish bounded Classic 1K Key A block read/verified data writes through native ABI, JS/Lua and authenticated companion; retain antenna/power cleanup and reject protected blocks.",
       "review_history": [
         {
           "after_sha256": "ef540914e454c49228b43f64b0605a2094d3ac153b992d56ca51a2292a1f1a34",
@@ -1014,10 +1022,14 @@
         {
           "after_sha256": "ed03868adf9546ce07973a5b37b2fb01de9933ce4f596d726b5d14264a427718",
           "reason": "Publish additive ABI 1.15 bounded Sub-GHz spectrum result and one-shot capture pointer; preserve all existing offsets and optional asynchronous contracts."
+        },
+        {
+          "after_sha256": "1357e0e76197fb5e6180e8e701897391f53e0cda29721cc19efa4a775249a8eb",
+          "reason": "Expose bounded native IR raw capture/replay, single-signal SD replay and AC encoding through the common ABI/JS/Lua, with explicit enum conversion and persistent-worker retained symbol cleanup.",
+          "pre_format_sha256": "5f07f4f8fc2da7fb0b47f6188cf620ce7e1a7a778f7f20936664c71ce4b1ac6a",
+          "formatter": "clang-format version 22.1.5"
         }
-      ],
-      "pre_format_sha256": "5f07f4f8fc2da7fb0b47f6188cf620ce7e1a7a778f7f20936664c71ce4b1ac6a",
-      "formatter": "clang-format version 22.1.5"
+      ]
     },
     "firmware_c5/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -1310,22 +1322,6 @@
       "before_sha256": "f49f0c4dee194d1f7dd27d5f3811169e64eb77a7e4df59dd42a2c92399247edb",
       "after_sha256": "668861dc94d6694405d2f76942031bcef8459147ae9f9c1c3daca45f5b9c27e7",
       "reason": "Harden native P4 OTA preflight/ownership/cleanup and P4/C5 confirmation errors; connect the actual SD update UI to native workers/progress instead of fabricated versions and timed reboot."
-    },
-    "firmware_p4/components/Service/app_runtime/tos_api_ir.c": {
-      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
-      "before_sha256": "8ea07ebab4b40e71feb6aa3e5f88a45e05bab98b86e46b2b18c23a62eef458a0",
-      "after_sha256": "bffbead54ebeb51248759fac154332cd54fc8eff3c8e26ddc633c69da7c64db7",
-      "reason": "Expose bounded native IR raw capture/replay, single-signal SD replay and AC encoding through the common ABI/JS/Lua, with explicit enum conversion and persistent-worker retained symbol cleanup.",
-      "pre_format_sha256": "97635491b0e42a6e65b07596b8f97c3659ee83b898b5ca0f7ffb2cfe464c3eed",
-      "formatter": "clang-format version 22.1.5"
-    },
-    "firmware_p4/components/Service/script_engine/script_bindings.c": {
-      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
-      "before_sha256": "4accb6f73905aab43df13caffbf472f3f88f7374603d2df8be7fe126c45f2df3",
-      "after_sha256": "57174a972fec106564985bc134a06e741c8b17316d8a062ac9deb35de5009756",
-      "reason": "Expose bounded native IR raw capture/replay, single-signal SD replay and AC encoding through the common ABI/JS/Lua, with explicit enum conversion and persistent-worker retained symbol cleanup.",
-      "pre_format_sha256": "1bc3312adfc89bc777aa8362def8edd5fccaff1db7cee4bba848c41aaf39f29f",
-      "formatter": "clang-format version 22.1.5"
     }
   }
 }

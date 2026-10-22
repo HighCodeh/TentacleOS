@@ -31,6 +31,10 @@
 #define SCRIPT_LORA_TX_ABI_MINOR    14
 #define SCRIPT_SPECTRUM_ABI_MINOR   15
 #define SCRIPT_IR_EXT_ABI_MINOR     16
+#define SCRIPT_NFC_BLOCK_ABI_MINOR  17
+#define SCRIPT_NFC_KEY_BYTES        6
+#define SCRIPT_NFC_BLOCK_BYTES      16
+#define SCRIPT_BYTE_HEX_DIGITS      2
 #define SCRIPT_SUBGHZ_PULSES_MAX    128
 #define SCRIPT_SUBGHZ_PULSE_MAX_US  32767
 #define SCRIPT_DECIMAL_BASE         10
@@ -117,6 +121,8 @@ typedef enum {
   SCRIPT_BINDINGS_IR_SEND_RAW,
   SCRIPT_BINDINGS_IR_SEND_FILE,
   SCRIPT_BINDINGS_IR_SEND_AC,
+  SCRIPT_BINDINGS_NFC_READ_BLOCK,
+  SCRIPT_BINDINGS_NFC_WRITE_BLOCK,
   SCRIPT_BINDINGS_METHOD_COUNT
 } script_bindings_method_id_t;
 
@@ -206,10 +212,35 @@ static const script_bindings_method_t METHODS[] = {
     {"ir.send_raw", "us", TOS_CAP_RADIO_TX},
     {"ir.send_file", "s", TOS_CAP_RADIO_TX | TOS_CAP_FS_READ},
     {"ir.send_ac", "ybyyy", TOS_CAP_RADIO_TX},
+    {"nfc.read_block", "ys", TOS_CAP_RADIO_RX},
+    {"nfc.write_block", "yss", TOS_CAP_RADIO_TX},
 };
 #define SCRIPT_METHOD_COUNT (sizeof(METHODS) / sizeof(METHODS[0]))
 _Static_assert(SCRIPT_METHOD_COUNT == SCRIPT_BINDINGS_METHOD_COUNT,
                "ABI dispatch metadata mismatch");
+
+static bool parse_hex_bytes(const char *text, uint8_t *out, size_t size) {
+  if (strlen(text) != size * SCRIPT_BYTE_HEX_DIGITS)
+    return false;
+  for (size_t i = 0; i < size; ++i) {
+    uint32_t byte = 0;
+    for (size_t j = 0; j < SCRIPT_BYTE_HEX_DIGITS; ++j) {
+      char value = text[i * SCRIPT_BYTE_HEX_DIGITS + j];
+      uint32_t nibble;
+      if (value >= '0' && value <= '9')
+        nibble = value - '0';
+      else if (value >= 'a' && value <= 'f')
+        nibble = value - 'a' + SCRIPT_HEX_LETTER_OFFSET;
+      else if (value >= 'A' && value <= 'F')
+        nibble = value - 'A' + SCRIPT_HEX_LETTER_OFFSET;
+      else
+        return false;
+      byte = byte * SCRIPT_HEX_RADIX + nibble;
+    }
+    out[i] = byte;
+  }
+  return true;
+}
 
 static bool parse_mac(const char *text, uint8_t *out_mac) {
   if (strlen(text) != SCRIPT_MAC_TEXT - 1)
@@ -1021,6 +1052,31 @@ esp_err_t script_bindings_call(script_bindings_t *bindings, script_bindings_call
           cJSON_Delete(byte);
           goto no_memory;
         }
+      }
+      break;
+    }
+    case SCRIPT_BINDINGS_NFC_READ_BLOCK:
+    case SCRIPT_BINDINGS_NFC_WRITE_BLOCK: {
+      if (api->abi_minor < SCRIPT_NFC_BLOCK_ABI_MINOR || api->nfc == NULL)
+        return ESP_ERR_NOT_SUPPORTED;
+      bool is_write = method == SCRIPT_BINDINGS_NFC_WRITE_BLOCK;
+      if ((is_write && api->nfc->write_block == NULL) ||
+          (!is_write && api->nfc->read_block == NULL))
+        return ESP_ERR_NOT_SUPPORTED;
+      uint8_t key[SCRIPT_NFC_KEY_BYTES], data[SCRIPT_NFC_BLOCK_BYTES];
+      if (!parse_hex_bytes(s[1], key, sizeof(key)) ||
+          (is_write && !parse_hex_bytes(s[2], data, sizeof(data))))
+        return ESP_ERR_INVALID_ARG;
+      err =
+          is_write ? api->nfc->write_block(n[0], key, data) : api->nfc->read_block(n[0], key, data);
+      if (err != ESP_OK || is_write)
+        break;
+      call->result = cJSON_CreateArray();
+      REQUIRE_JSON(call->result);
+      for (size_t i = 0; i < sizeof(data); ++i) {
+        cJSON *byte = cJSON_CreateNumber(data[i]);
+        REQUIRE_JSON(byte);
+        cJSON_AddItemToArray(call->result, byte);
       }
       break;
     }

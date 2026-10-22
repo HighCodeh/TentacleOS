@@ -67,6 +67,21 @@ def main():
                 else:
                     raise AssertionError('malformed response accepted')
             function(FakeLink(status=1, response=b''), [])
+    with contextlib.redirect_stdout(output):
+        key='FFFFFFFFFFFF';data='CA'*16
+        link=FakeLink(response=bytes.fromhex(data));cli.nfc_block(link,['4',key])
+        assert link.calls==[(0x12,4,b'\x04'+bytes.fromhex(key))]
+        link=FakeLink(response=b'');cli.nfc_block(link,['4',key,data],True)
+        assert link.calls==[(0x12,5,b'\x04'+bytes.fromhex(key+data))]
+        for args,is_write in [(['64',key],False),(['4','FF'],False),(['3',key,data],True),(['0',key,data],True),(['4',key,'CA'],True)]:
+            link=FakeLink()
+            try: cli.nfc_block(link,args,is_write)
+            except ValueError: pass
+            else: raise AssertionError('invalid block request accepted')
+            assert not link.calls
+        try: cli.nfc_block(FakeLink(response=b''),['4',key])
+        except ValueError: pass
+        else: raise AssertionError('short block accepted')
     assert 'no card found' in output.getvalue()
     assert 'samples=4660' in output.getvalue()
     print('PASS: NFC/RFID CLI encodes bounded requests and rejects malformed results without device access')

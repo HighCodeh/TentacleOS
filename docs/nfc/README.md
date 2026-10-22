@@ -222,3 +222,15 @@ an exclusive RF reservation and a no-sleep reference.
 Native apps and scripts can now use the [ABI 1.10 discovery calls](../app_sdk/README.md#native-nfcrfid-api-abi-110).
 They reuse the native poll and stable RF worker, while block operations and
 emulation remain unpublished in the app ABI. UI functionality is unchanged.
+
+
+## Shared Classic block operations
+
+ABI 1.17 and authenticated companion operations 04/05 expose bounded Classic 1K
+Key A block access through `host_rf_nfc_block`. Native apps and JS/Lua use the
+same worker and antenna/power cleanup. Writes preserve manufacturer/trailer
+blocks and read back data before success. Four-byte UID/SAK 08/88 support is
+explicit; discovery alone does not imply support for a different card geometry.
+See [the app contract](../app_sdk/README.md#nfc-classic-block-access-abi-117)
+and [companion protocol](../host_link/rf-commands.md). Emulation/session adapters
+remain separate work, and electrical/card acceptance remains unverified.

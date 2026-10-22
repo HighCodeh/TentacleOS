@@ -690,6 +690,13 @@ LED_CMDS = {
 RF_READ = 0x01
 RF_RECOVER = 0x02
 RF_STATUS = 0x03
+NFC_READ_BLOCK = 0x04
+NFC_WRITE_BLOCK = 0x05
+NFC_KEY_BYTES = 6
+NFC_BLOCK_BYTES = 16
+NFC_CLASSIC_1K_BLOCKS = 64
+NFC_BLOCKS_PER_SECTOR = 4
+NFC_TRAILER_INDEX = 3
 NFC_TECHNOLOGIES = {"a": 0, "b": 1, "f": 2, "v": 3}
 NFC_RESPONSE_SIZE = 17
 RFID_RESPONSE_SIZE = 9
@@ -717,6 +724,31 @@ def nfc_read(link, args):
     print(f"  NFC-{tech.upper()} id={uid} protocol={data[2]}")
     if tech == "a":
         print(f"  ATQA={data[14:16].hex()} SAK={data[16]:02x}")
+
+
+def nfc_block(link, args, is_write=False):
+    expected = 3 if is_write else 2
+    if len(args) != expected:
+        raise ValueError("nfc read-block BLOCK KEY_HEX / write-block BLOCK KEY_HEX DATA_HEX")
+    block = int(args[0], 0)
+    if not 0 <= block < NFC_CLASSIC_1K_BLOCKS or (is_write and (block == 0 or block % NFC_BLOCKS_PER_SECTOR == NFC_TRAILER_INDEX)):
+        raise ValueError("invalid or protected Classic 1K block")
+    key = bytes.fromhex(args[1])
+    if len(args[1]) != NFC_KEY_BYTES * 2 or len(key) != NFC_KEY_BYTES:
+        raise ValueError("Key A must contain exactly 12 hex characters")
+    payload = bytes([block]) + key
+    if is_write:
+        data = bytes.fromhex(args[2])
+        if len(args[2]) != NFC_BLOCK_BYTES * 2 or len(data) != NFC_BLOCK_BYTES:
+            raise ValueError("data must contain exactly 32 hex characters")
+        payload += data
+    status, response = link.cmd(CAT_NFC, NFC_WRITE_BLOCK if is_write else NFC_READ_BLOCK, payload)
+    if status != 0:
+        print(f"  {STATUS.get(status, status)}")
+        return
+    if len(response) != (0 if is_write else NFC_BLOCK_BYTES):
+        raise ValueError("malformed NFC block response")
+    print("  write verified" if is_write else "  " + response.hex())
 
 
 def rfid_read(link, args):
@@ -748,6 +780,8 @@ def rf_status(link, category):
 
 
 NFC_CMDS = {
+    "read-block": (nfc_block, "read-block BLOCK KEY_HEX — Classic 1K Key A read"),
+    "write-block": (lambda link, args: nfc_block(link, args, True), "write-block BLOCK KEY_HEX DATA_HEX — verified data-block write"),
     "read": (nfc_read, "read [a|b|f|v] — one card-identification attempt"),
     "status": (lambda link, args: rf_status(link, CAT_NFC), "antenna / retained cleanup state"),
     "recover": (_simple(CAT_NFC, RF_RECOVER), "retry failed NFC field shutdown"),

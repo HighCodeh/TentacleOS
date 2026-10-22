@@ -288,3 +288,14 @@ Raw CSV uses the existing bounded signed-timing parser (at most 128 timings,
 subject to script string size). Empty/trailing items, overflow and old/missing
 ABI entries are rejected. See the [native IR limits](../app_sdk/README.md#complete-ir-adapters-abi-116)
 for carrier, durations, file selection and retained cleanup.
+
+
+## NFC block bindings (ABI 1.17)
+
+`tos.call("nfc.read_block", 4, "FFFFFFFFFFFF")` returns 16 byte values, requiring
+radio-rx. `tos.call("nfc.write_block", 4, "FFFFFFFFFFFF",
+"CACACACACACACACACACACACACACACACA")` performs a verified data-block write with
+radio-tx. Keys/data use exactly 12/32 hex characters, case-insensitive, without
+separators. Bad input, old/missing tables and capability denial fail before the
+native call. The [bounded Classic 1K contract](../app_sdk/README.md#nfc-classic-block-access-abi-117)
+applies equally to JavaScript, Lua, native apps and companion commands.

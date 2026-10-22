@@ -126,5 +126,49 @@ static esp_err_t poll_nfc(tos_nfc_tag_t *out, uint32_t timeout_ms) {
   return ESP_ERR_NOT_FOUND;
 }
 
-const tos_nfc_api_t tos_nfc_api_impl = {.poll = poll_nfc};
+static esp_err_t block_worker(void *context) {
+  return host_rf_nfc_block(context);
+}
+
+static esp_err_t access_block(host_rf_nfc_block_t *request) {
+  uint32_t caps = request->is_write ? TOS_CAP_RADIO_TX : TOS_CAP_RADIO_RX;
+  if (!tos_app_cap_check(caps))
+    return ESP_ERR_NOT_SUPPORTED;
+  if (tos_api_get()->should_stop())
+    return ESP_ERR_INVALID_STATE;
+  if (!host_local_rf_lock(RF_LOCK_WAIT_MS))
+    return ESP_ERR_TIMEOUT;
+  esp_err_t error = tos_api_get()->should_stop() ? ESP_ERR_INVALID_STATE
+                                                 : host_local_rf_call(block_worker, request);
+  host_local_rf_unlock();
+  return error;
+}
+
+static esp_err_t read_block(uint8_t block,
+                            const uint8_t key[HOST_RF_NFC_KEY_SIZE],
+                            uint8_t out[HOST_RF_NFC_BLOCK_SIZE]) {
+  if (key == NULL || out == NULL)
+    return ESP_ERR_INVALID_ARG;
+  memset(out, 0, HOST_RF_NFC_BLOCK_SIZE);
+  host_rf_nfc_block_t request = {.block = block};
+  memcpy(request.key, key, sizeof(request.key));
+  esp_err_t error = access_block(&request);
+  if (error == ESP_OK)
+    memcpy(out, request.data, sizeof(request.data));
+  return error;
+}
+
+static esp_err_t write_block(uint8_t block,
+                             const uint8_t key[HOST_RF_NFC_KEY_SIZE],
+                             const uint8_t data[HOST_RF_NFC_BLOCK_SIZE]) {
+  if (key == NULL || data == NULL)
+    return ESP_ERR_INVALID_ARG;
+  host_rf_nfc_block_t request = {.block = block, .is_write = true};
+  memcpy(request.key, key, sizeof(request.key));
+  memcpy(request.data, data, sizeof(request.data));
+  return access_block(&request);
+}
+
+const tos_nfc_api_t tos_nfc_api_impl = {
+    .poll = poll_nfc, .read_block = read_block, .write_block = write_block};
 const tos_rfid_api_t tos_rfid_api_impl = {.read = read_rfid};

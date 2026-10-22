@@ -68,7 +68,7 @@ typedef struct host_link_handler host_link_handler_t; // opaque to apps
 // 1.8 = read-only fs subsystem. NOTE: 1.7 was briefly a (removed) IMU subsystem in
 // dev; fs took a fresh minor so a firmware built during the IMU era rejects an
 // fs app at the load gate instead of mismatching its api->fs pointer.
-#define TOS_ABI_VERSION_MINOR 16
+#define TOS_ABI_VERSION_MINOR 17
 
 /** Log levels; values match esp_log_level_t so they pass straight through. */
 typedef enum {
@@ -437,8 +437,9 @@ typedef struct {
 /**
  * NFC (ST25R3916, 13.56 MHz). poll scans A/B/F/V once, until timeout_ms
  * (1..2000) is reached between native probes. A probe already running may finish
- * after the deadline. Unpublished read/write/emulation entries are NULL; callers
- * must check a function pointer before using it.
+ * after the deadline. Minor 17+: read/write are bounded Classic 1K Key A
+ * operations on a four-byte UID; writes preserve manufacturer/trailer blocks.
+ * Emulation/session entries remain NULL; check optional function pointers.
  */
 typedef struct tos_nfc_api {
   esp_err_t (*poll)(tos_nfc_tag_t *out, uint32_t timeout_ms);                    ///< radio-rx

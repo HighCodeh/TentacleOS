@@ -9,6 +9,7 @@
 #include "highboy_nfc.h"
 #include "lf_rfid.h"
 #include "nfc_manager.h"
+#include "mf_classic.h"
 #include "power_manager.h"
 #include "rf_frontend.h"
 #include "spi_protocol.h"
@@ -16,7 +17,22 @@
 static _Thread_local unsigned s_identity;
 void *xTaskGetCurrentTaskHandle(void) { return &s_identity; }
 static esp_err_t s_init_error, s_poll_error, s_off_error, s_pm_error, s_pm_release_error;
-static bool s_is_bad_uid;
+static bool s_is_bad_uid, s_is_classic;
+static esp_err_t s_auth_error,s_block_error,s_write_error;
+static bool s_bad_verify;
+static uint8_t s_block_data[16];
+static unsigned s_writes,s_auths;
+void mf_classic_reset_auth(void) {}
+hb_nfc_err_t mf_classic_auth(uint8_t block,mf_key_type_t type,const mf_classic_key_t *key,const uint8_t uid[4]) {
+ assert(block==4 && type==MF_KEY_A && key->data[0]==0xFF && memcmp(uid,"1234",4)==0 && rf_frontend_get_mode()==RF_FRONTEND_NFC_13MHZ);
+ ++s_auths;return s_auth_error;
+}
+hb_nfc_err_t mf_classic_read_block(uint8_t block,uint8_t data[16]) {
+ assert(block==4);memcpy(data,s_block_data,16);if(s_bad_verify)data[0]^=1;return s_block_error;
+}
+hb_nfc_err_t mf_classic_write_block(uint8_t block,const uint8_t data[16]) {
+ assert(block==4);++s_writes;if(s_write_error)return s_write_error;memcpy(s_block_data,data,16);return ESP_OK;
+}
 static unsigned s_locks, s_reads, s_stops;
 
 esp_err_t power_manager_no_sleep_acquire(void) {
@@ -46,8 +62,8 @@ esp_err_t nfc_manager_poll(nfc_manager_tech_t tech, hb_nfc_card_data_t *out_card
   memset(out_card,0,sizeof(*out_card));
   switch(tech) {
   case NFC_MANAGER_TECH_A:
-    out_card->protocol=HB_PROTO_ISO14443_3A;
-    out_card->iso14443a.uid_len=s_is_bad_uid ? 11 : 7;
+    out_card->protocol=s_is_classic?HB_PROTO_MF_CLASSIC:HB_PROTO_ISO14443_3A;
+    out_card->iso14443a.uid_len=s_is_bad_uid ? 11 : s_is_classic ? 4 : 7;
     memcpy(out_card->iso14443a.uid,"1234567",7);
     out_card->iso14443a.atqa[0]=0x44;
     out_card->iso14443a.sak=0x08;
@@ -136,5 +152,35 @@ int main(void) {
   assert(rf_frontend_reserve(RF_FRONTEND_LF_125KHZ)==ESP_OK);
   assert(rf_frontend_unreserve(RF_FRONTEND_LF_125KHZ)==ESP_OK);
   assert(s_stops>0 && s_reads>0);
+  host_rf_nfc_block_t block={.block=4,.key={0xFF,0xFF,0xFF,0xFF,0xFF,0xFF}};
+  assert(host_rf_nfc_block(NULL)==ESP_ERR_INVALID_ARG);
+  assert(host_rf_nfc_block(&block)==ESP_ERR_NOT_SUPPORTED && !s_locks);
+  s_is_classic=true;memset(s_block_data,0xCA,16);
+  assert(host_rf_nfc_block(&block)==ESP_OK && block.data[0]==0xCA && !s_locks);
+  block.is_write=true;memset(block.data,0xAB,16);
+  assert(host_rf_nfc_block(&block)==ESP_OK && s_writes==1 && s_block_data[0]==0xAB && !s_locks);
+  block.block=0;assert(host_rf_nfc_block(&block)==ESP_ERR_INVALID_ARG);
+  block.block=3;assert(host_rf_nfc_block(&block)==ESP_ERR_INVALID_ARG);
+  block.block=64;assert(host_rf_nfc_block(&block)==ESP_ERR_INVALID_ARG);block.block=4;
+  s_auth_error=ESP_FAIL;assert(host_rf_nfc_block(&block)==ESP_FAIL && s_writes==1 && !s_locks);s_auth_error=0;
+  s_write_error=ESP_ERR_TIMEOUT;assert(host_rf_nfc_block(&block)==ESP_ERR_TIMEOUT && !s_locks);s_write_error=0;
+  s_bad_verify=true;assert(host_rf_nfc_block(&block)==ESP_FAIL && !s_locks);s_bad_verify=false;
+  s_block_error=ESP_ERR_TIMEOUT;assert(host_rf_nfc_block(&block)==ESP_ERR_TIMEOUT && !s_locks);s_block_error=0;
+  s_off_error=ESP_FAIL;assert(host_rf_nfc_block(&block)==ESP_FAIL && s_locks==1);
+  unsigned writes=s_writes;assert(host_rf_nfc_block(&block)==ESP_FAIL && s_writes==writes);
+  s_off_error=0;assert(host_rf_nfc_block(&block)==ESP_OK && !s_locks);
+  s_pm_release_error=ESP_FAIL;assert(host_rf_nfc_block(&block)==ESP_FAIL && s_locks==1);
+  s_pm_release_error=0;host_rf_stop();assert(!s_locks);
+  assert(rf_frontend_claim(RF_FRONTEND_LF_125KHZ)==ESP_OK);
+  assert(host_rf_nfc_block(&block)==ESP_ERR_INVALID_STATE);rf_frontend_release(RF_FRONTEND_LF_125KHZ);
+  uint8_t wire[1+6+16]={4,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
+  request.command=SPI_ID_NFC_READ_BLOCK;request.payload=wire;request.length=7;
+  assert(host_rf_handle(&request)==SPI_STATUS_OK && request.out_length==16 && memcmp(output,s_block_data,16)==0);
+  request.length=6;assert(host_rf_handle(&request)==SPI_STATUS_INVALID_ARG && request.out_length==0);
+  request.command=SPI_ID_NFC_WRITE_BLOCK;request.length=23;memset(wire+7,0xAD,16);
+  assert(host_rf_handle(&request)==SPI_STATUS_OK && request.out_length==0 && s_block_data[0]==0xAD);
+  wire[0]=3;assert(host_rf_handle(&request)==SPI_STATUS_INVALID_ARG);wire[0]=4;
+  s_is_classic=false;assert(host_rf_handle(&request)==SPI_STATUS_UNSUPPORTED);
+  puts("PASS: bounded Classic 1K Key A block access, protected blocks, readback verification, errors and retained field/power cleanup");
   puts("PASS: NFC A/B/F/V and LF wire results, strict bounds, contention, cleanup and retained failed-OFF/no-sleep recovery");
 }

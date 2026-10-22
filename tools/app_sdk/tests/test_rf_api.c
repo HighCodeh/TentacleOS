@@ -16,7 +16,7 @@ static esp_err_t s_error;
 static bool s_bad_result;
 static int should_stop(void) { return s_stopped; }
 const tos_api_t *tos_api_get(void) { static const tos_api_t api={.should_stop=should_stop}; return &api; }
-bool tos_app_cap_check(uint32_t cap) { assert(cap==TOS_CAP_RADIO_RX); return s_has_cap; }
+bool tos_app_cap_check(uint32_t cap) { assert(cap==TOS_CAP_RADIO_RX || cap==TOS_CAP_RADIO_TX); return s_has_cap; }
 bool host_local_rf_lock(uint32_t wait) {
   assert(wait==3000); if(!s_can_lock) return false;
   assert(s_locked==0); s_locked=1; if(s_stop_on_lock) s_stopped=true; return true;
@@ -44,6 +44,13 @@ esp_err_t host_local_rf_execute(host_rf_request_t *request) {
   if(s_bad_result) request->out_length=2;
   return ESP_OK;
 }
+esp_err_t host_local_rf_call(host_local_rf_cb_t callback,void *context) {assert(s_locked);return callback(context);}
+esp_err_t host_rf_nfc_block(host_rf_nfc_block_t *request) {
+ assert(s_locked && request->block==4 && request->key[0]==0xFF);++s_calls;
+ if(s_error)return s_error;
+ if(request->is_write)assert(request->data[0]==0xCA);
+ else memset(request->data,0xCA,sizeof(request->data));return ESP_OK;
+}
 int main(void) {
   tos_rfid_tag_t rfid; tos_nfc_tag_t nfc;
   assert(tos_rfid_api_impl.read(&rfid,500)==ESP_ERR_NOT_SUPPORTED && s_calls==0);
@@ -68,7 +75,12 @@ int main(void) {
     assert(nfc.uid_len==4 && memcmp(nfc.uid,"ABCD",4)==0 && nfc.protocol==expected[tech]);
     assert(nfc.atqa[0]==0x44 && nfc.sak==0x20 && s_locked==0);
   }
-  assert(tos_nfc_api_impl.read_block==NULL && tos_nfc_api_impl.write_block==NULL);
+  uint8_t key[6]={0xFF},data[16]={0};
+  assert(tos_nfc_api_impl.read_block(4,key,data)==ESP_OK && data[0]==0xCA);
+  assert(tos_nfc_api_impl.write_block(4,key,data)==ESP_OK);
+  s_error=ESP_FAIL;assert(tos_nfc_api_impl.read_block(4,key,data)==ESP_FAIL && data[0]==0);s_error=0;
+  s_has_cap=false;assert(tos_nfc_api_impl.write_block(4,key,data)==ESP_ERR_NOT_SUPPORTED);s_has_cap=true;
+  assert(tos_nfc_api_impl.read_block(4,NULL,data)==ESP_ERR_INVALID_ARG);
   assert(tos_nfc_api_impl.emulate_start==NULL && tos_nfc_api_impl.session_stop==NULL);
   s_found_tech=-1; int calls=s_calls;
   assert(tos_nfc_api_impl.poll(&nfc,500)==ESP_ERR_NOT_FOUND && s_calls==calls+4);

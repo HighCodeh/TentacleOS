@@ -116,7 +116,7 @@ while (!api->should_stop() && !api->resource_lost()) {
 
 ## 4. The host API (`tos_api_t`)
 
-The full contract is `Service/app_runtime/include/tos_api.h`. ABI version 1.10.
+The full contract is `Service/app_runtime/include/tos_api.h`. ABI version 1.17.
 
 | Call | Capability | Notes |
 |------|-----------|-------|
@@ -394,8 +394,8 @@ rather than running with the privileges of an unbound firmware task.
 is 1–2000 ms and is checked between native probes; an in-flight probe may finish
 after that deadline. It returns `ESP_ERR_NOT_FOUND` when no tag was found.
 `tag.protocol` uses `tos_nfc_proto_t`, including appended `TOS_NFC_FELICA`;
-UID, ATQA and SAK are copied from the native result. NFC block read/write and
-emulation/session fields remain NULL: check optional function pointers before
+UID, ATQA and SAK are copied from the native result. ABI 1.17 adds the bounded Classic 1K block read/write adapter documented below.
+Emulation/session fields remain NULL: check optional function pointers before
 calling them. Their on-device screens use separate native services.
 
 `api->rfid->read(&tag, timeout_ms)` captures EM4100/EM4102 with a 40–500 ms sampling
@@ -432,7 +432,8 @@ all older table offsets. Protocol values use `tos_ir_proto_t` (NEC=0 through
 NEC42=11); the adapter maps to the native decoder's UNKNOWN-prefixed enum.
 The code carries protocol, address, command and repeat. Extended NEC and explicit
 Sony bit-count selection are not represented by this API. Raw, file and AC send
-pointers remain NULL; callers must check optional pointers.
+pointers were NULL in ABI 1.11; ABI 1.16 adds the raw/file/AC adapters below.
+Callers must check optional pointers.
 
 Operations check capability and cancellation before entering the local-call lock
 and again after it. Hardware executes on the persistent firmware worker, so
@@ -625,3 +626,19 @@ the native IR lease, check capability/stop around the kill gate, propagate
 hardware errors and retain symbol storage when RMT teardown fails. Subsequent
 extended calls retry teardown before reusing storage. This is implementation and
 host-test evidence, not electrical acceptance.
+
+
+## NFC Classic block access (ABI 1.17)
+
+`nfc.read_block(block, key_a, out)` and `nfc.write_block(block, key_a, data)`
+now use the same persistent-worker backend as the companion block commands.
+The bounded implementation supports Classic 1K with four-byte UIDs, SAK 08/88,
+Key A (six bytes), blocks 0..63 and 16-byte payloads. Other card technologies,
+UID geometries and key types are not inferred. Each call initializes/selects,
+authenticates, performs one block operation and releases its antenna/power hold.
+Writes reject block 0 and sector trailers before touching hardware, then read
+back and compare all 16 bytes. Read requires radio-rx; write requires radio-tx.
+Errors propagate, read output is zero on failure and no session is created.
+Failed field-OFF/power release retains ownership for the next call or companion
+RECOVER; it cannot free another UI/LF owner's reservation. Emulation/session
+pointers remain NULL and need their own lifecycle implementation.
