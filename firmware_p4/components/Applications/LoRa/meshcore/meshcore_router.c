@@ -30,6 +30,11 @@
 
 static const char *TAG = "MC_ROUTER";
 
+#define MC_TEXT_PLAINTEXT_MAX  160
+#define MC_PATH_PLAINTEXT_MAX  200
+#define MC_GROUP_PREFIX_BYTES  1
+#define MC_DIRECT_PREFIX_BYTES 2
+
 typedef struct {
   bool is_used;
   uint32_t tx_at_ms;
@@ -397,7 +402,8 @@ static void process_advert(const meshcore_packet_view_t *pkt) {
 }
 
 static void process_grp_txt(const meshcore_packet_view_t *pkt) {
-  if (pkt->payload_len < 1 + 2 + 16) {
+  if (pkt->payload_len < MC_GROUP_PREFIX_BYTES + MC_CIPHER_MAC_SIZE + MC_CIPHER_BLOCK ||
+      pkt->payload_len > MC_GROUP_PREFIX_BYTES + MC_CIPHER_MAC_SIZE + MC_TEXT_PLAINTEXT_MAX) {
     ESP_LOGW(TAG, "GRP_TXT too short (%u)", pkt->payload_len);
     return;
   }
@@ -414,7 +420,7 @@ static void process_grp_txt(const meshcore_packet_view_t *pkt) {
     memset(shared, 0, 32);
     memcpy(shared, channels[idx].secret, 16);
 
-    uint8_t plaintext[160];
+    uint8_t plaintext[MC_TEXT_PLAINTEXT_MAX];
     int pt_len =
         meshcore_crypto_mac_decrypt(shared, plaintext, pkt->payload + 1, pkt->payload_len - 1);
     if (pt_len <= 5)
@@ -446,7 +452,8 @@ static void process_grp_txt(const meshcore_packet_view_t *pkt) {
 }
 
 static void process_txt_msg(const meshcore_packet_view_t *pkt) {
-  if (pkt->payload_len < 1 + 1 + 2 + 16) {
+  if (pkt->payload_len < MC_DIRECT_PREFIX_BYTES + MC_CIPHER_MAC_SIZE + MC_CIPHER_BLOCK ||
+      pkt->payload_len > MC_DIRECT_PREFIX_BYTES + MC_CIPHER_MAC_SIZE + MC_TEXT_PLAINTEXT_MAX) {
     ESP_LOGW(TAG, "TXT_MSG too short (%u)", pkt->payload_len);
     return;
   }
@@ -458,17 +465,18 @@ static void process_txt_msg(const meshcore_packet_view_t *pkt) {
     return;
   }
 
-  meshcore_contact_t *contacts = mc_contacts_array_mut();
+  meshcore_contact_t contact;
+  uint16_t contact_count;
   for (int i = 0; i < MESHCORE_MAX_CONTACTS; i++) {
-    if (!contacts[i].is_used)
-      continue;
-    if (contacts[i].pub_key[0] != src_hash)
+    if (meshcore_contacts_snapshot((uint16_t)i, &contact, &contact_count) != ESP_OK)
+      break;
+    if (contact.pub_key[0] != src_hash)
       continue;
 
     uint8_t shared[32];
-    mc_x25519(shared, contacts[i].pub_key, id->priv_key);
+    mc_x25519(shared, contact.pub_key, id->priv_key);
 
-    uint8_t plaintext[160];
+    uint8_t plaintext[MC_TEXT_PLAINTEXT_MAX];
     int pt_len =
         meshcore_crypto_mac_decrypt(shared, plaintext, pkt->payload + 2, pkt->payload_len - 2);
     if (pt_len <= 5)
@@ -503,29 +511,30 @@ static void process_txt_msg(const meshcore_packet_view_t *pkt) {
 
     ESP_LOGI(TAG,
              "DM RX from %02X%02X%02X%02X txt_type=%u: \"%s\"",
-             contacts[i].pub_key[0],
-             contacts[i].pub_key[1],
-             contacts[i].pub_key[2],
-             contacts[i].pub_key[3],
+             contact.pub_key[0],
+             contact.pub_key[1],
+             contact.pub_key[2],
+             contact.pub_key[3],
              txt_type,
              text);
 
     uint8_t crc_text_off = 5;
     if (txt_type == MC_TXT_TYPE_SIGNED_PLAIN)
       crc_text_off = 9;
-    int crc_text_len = (int)strlen((char *)&plaintext[crc_text_off]);
+    int crc_text_len =
+        (int)strnlen((char *)&plaintext[crc_text_off], (size_t)(pt_len - crc_text_off));
     if (crc_text_len > pt_len - crc_text_off)
       crc_text_len = pt_len - crc_text_off;
 
     uint32_t ack_crc;
     mc_sha256_two(
-        (uint8_t *)&ack_crc, 4, plaintext, crc_text_off + crc_text_len, contacts[i].pub_key, 32);
+        (uint8_t *)&ack_crc, 4, plaintext, crc_text_off + crc_text_len, contact.pub_key, 32);
 
     s_is_packet_consumed = true;
 
     const meshcore_callbacks_t *cbs = mc_get_callbacks();
     if (cbs->on_direct_msg != NULL) {
-      cbs->on_direct_msg(contacts[i].pub_key,
+      cbs->on_direct_msg(contact.pub_key,
                          text,
                          ts,
                          txt_type,
@@ -536,7 +545,7 @@ static void process_txt_msg(const meshcore_packet_view_t *pkt) {
     }
 
     if (pkt->route_type == MC_RT_FLOOD || pkt->route_type == MC_RT_TRANSPORT_FLOOD) {
-      mc_send_path_return(contacts[i].pub_key,
+      mc_send_path_return(contact.pub_key,
                           pkt->path,
                           pkt->path_count,
                           pkt->hash_size,
@@ -575,7 +584,8 @@ static void process_ack(const meshcore_packet_view_t *pkt) {
 }
 
 static void process_path_payload(const meshcore_packet_view_t *pkt) {
-  if (pkt->payload_len < 4 + 16)
+  if (pkt->payload_len < MC_DIRECT_PREFIX_BYTES + MC_CIPHER_MAC_SIZE + MC_CIPHER_BLOCK ||
+      pkt->payload_len > MC_DIRECT_PREFIX_BYTES + MC_CIPHER_MAC_SIZE + MC_PATH_PLAINTEXT_MAX)
     return;
   uint8_t dst_hash = pkt->payload[0];
   uint8_t src_hash = pkt->payload[1];
@@ -584,17 +594,18 @@ static void process_path_payload(const meshcore_packet_view_t *pkt) {
   if (dst_hash != id->pub_key[0])
     return;
 
-  meshcore_contact_t *contacts = mc_contacts_array_mut();
+  meshcore_contact_t contact;
+  uint16_t contact_count;
   for (int i = 0; i < MESHCORE_MAX_CONTACTS; i++) {
-    if (!contacts[i].is_used)
-      continue;
-    if (contacts[i].pub_key[0] != src_hash)
+    if (meshcore_contacts_snapshot((uint16_t)i, &contact, &contact_count) != ESP_OK)
+      break;
+    if (contact.pub_key[0] != src_hash)
       continue;
 
     uint8_t shared[32];
-    mc_x25519(shared, contacts[i].pub_key, id->priv_key);
+    mc_x25519(shared, contact.pub_key, id->priv_key);
 
-    uint8_t plaintext[200];
+    uint8_t plaintext[MC_PATH_PLAINTEXT_MAX];
     int pt_len =
         meshcore_crypto_mac_decrypt(shared, plaintext, pkt->payload + 2, pkt->payload_len - 2);
     if (pt_len <= 0)
@@ -612,27 +623,26 @@ static void process_path_payload(const meshcore_packet_view_t *pkt) {
     if (path_bytes_total > MESHCORE_MAX_PATH)
       continue;
 
-    contacts[i].out_path_len = pl_byte;
-    memset(contacts[i].out_path, 0, MESHCORE_MAX_PATH);
-    if (path_bytes_total > 0) {
-      memcpy(contacts[i].out_path, &plaintext[1], path_bytes_total);
-    }
-    contacts[i].lastmod = meshcore_get_unix_time();
-    mc_contacts_persist();
+    contact.out_path_len = pl_byte;
+    memset(contact.out_path, 0, MESHCORE_MAX_PATH);
+    memcpy(contact.out_path, &plaintext[1], path_bytes_total);
+    if (mc_contact_update_path(contact.pub_key, pl_byte, contact.out_path) != ESP_OK)
+      return;
+    contact.lastmod = meshcore_get_unix_time();
     s_is_packet_consumed = true;
 
     ESP_LOGI(TAG,
              "PATH inbound: %02X%02X%02X%02X learned (count=%u size=%u)",
-             contacts[i].pub_key[0],
-             contacts[i].pub_key[1],
-             contacts[i].pub_key[2],
-             contacts[i].pub_key[3],
+             contact.pub_key[0],
+             contact.pub_key[1],
+             contact.pub_key[2],
+             contact.pub_key[3],
              hash_count,
              hash_size);
 
     const meshcore_callbacks_t *cbs = mc_get_callbacks();
     if (cbs->on_path_update != NULL) {
-      cbs->on_path_update(&contacts[i], cbs->ctx);
+      cbs->on_path_update(&contact, cbs->ctx);
     }
 
     int extras_off = 1 + path_bytes_total;

@@ -34,11 +34,11 @@
 #include "power_manager.h"
 #include "sx1262.h"
 
-#define TX_QUEUE_DEPTH 4
-#define MSG_RING       24
-#define MT_BROADCAST   0xFFFFFFFFu
-#define MC_PUBLIC_CHAN 0
-#define RING_LOCK_MS   50
+#define TX_QUEUE_DEPTH  4
+#define MSG_RING        24
+#define MT_BROADCAST    0xFFFFFFFFu
+#define MC_PUBLIC_CHAN  0
+#define SESSION_LOCK_MS 50
 
 static const char *TAG = "LORA_SESSION";
 
@@ -48,31 +48,47 @@ static uint16_t s_head = 0;
 static uint16_t s_count = 0;
 static uint32_t s_total = 0;
 static _Atomic(SemaphoreHandle_t) s_lock;
+static _Atomic(SemaphoreHandle_t) s_nodes_lock;
 static bool s_no_sleep_held = false;
 static atomic_flag s_is_starting = ATOMIC_FLAG_INIT;
 EXT_RAM_BSS_ATTR static char s_tx_text[TX_QUEUE_DEPTH][sizeof(((lora_msg_t *)0)->text)];
 static uint16_t s_tx_head;
 static uint16_t s_tx_count;
 
-static SemaphoreHandle_t ring_mutex(void) {
-  SemaphoreHandle_t mutex = atomic_load(&s_lock);
+static SemaphoreHandle_t ensure_mutex(_Atomic(SemaphoreHandle_t) *slot) {
+  SemaphoreHandle_t mutex = atomic_load(slot);
   if (mutex != NULL)
     return mutex;
   SemaphoreHandle_t candidate = xSemaphoreCreateMutex();
   if (candidate == NULL) {
-    ESP_LOGE(TAG, "Failed to allocate chat ring mutex");
+    ESP_LOGE(TAG, "Failed to allocate session mutex");
     return NULL;
   }
-  if (!atomic_compare_exchange_strong(&s_lock, &mutex, candidate)) {
+  if (!atomic_compare_exchange_strong(slot, &mutex, candidate)) {
     vSemaphoreDelete(candidate);
     return mutex;
   }
   return candidate;
 }
 
+static SemaphoreHandle_t ring_mutex(void) {
+  return ensure_mutex(&s_lock);
+}
+
+esp_err_t lora_session_nodes_acquire(void) {
+  SemaphoreHandle_t mutex = ensure_mutex(&s_nodes_lock);
+  if (mutex == NULL)
+    return ESP_ERR_NO_MEM;
+  return xSemaphoreTake(mutex, pdMS_TO_TICKS(SESSION_LOCK_MS)) == pdTRUE ? ESP_OK : ESP_ERR_TIMEOUT;
+}
+
+void lora_session_nodes_release(void) {
+  xSemaphoreGive(atomic_load(&s_nodes_lock));
+}
+
 static bool ring_lock(void) {
   SemaphoreHandle_t mutex = ring_mutex();
-  return mutex != NULL && xSemaphoreTake(mutex, pdMS_TO_TICKS(RING_LOCK_MS)) == pdTRUE;
+  return mutex != NULL && xSemaphoreTake(mutex, pdMS_TO_TICKS(SESSION_LOCK_MS)) == pdTRUE;
 }
 
 static void ring_unlock(void) {
@@ -255,50 +271,46 @@ uint16_t lora_session_msg_since(uint32_t *io_seq, lora_msg_t *out, uint16_t max)
   return copied;
 }
 
-uint16_t lora_session_node_count(void) {
-  switch (s_proto) {
-    case LORA_PROTO_MESHTASTIC:
-      return mt_nodedb_count();
-    case LORA_PROTO_MESHCORE:
-      return (uint16_t)meshcore_contacts_count();
-    default:
-      return 0;
+esp_err_t lora_session_nodes_snapshot(uint16_t index, lora_node_t *out, uint16_t *out_count) {
+  if (out_count == NULL)
+    return ESP_ERR_INVALID_ARG;
+  *out_count = 0;
+  if (out != NULL)
+    memset(out, 0, sizeof(*out));
+  if (s_proto == LORA_PROTO_MESHTASTIC) {
+    mt_node_entry_t entry;
+    esp_err_t error = mt_nodedb_snapshot(index, out != NULL ? &entry : NULL, out_count);
+    if (error == ESP_OK && out != NULL) {
+      const char *name = entry.long_name[0] != '\0' ? entry.long_name : entry.id;
+      size_t capacity = name == entry.id ? sizeof(entry.id) : sizeof(entry.long_name);
+      size_t length = strnlen(name, capacity);
+      if (length >= sizeof(out->name))
+        length = sizeof(out->name) - 1;
+      memcpy(out->name, name, length);
+      out->rssi = entry.rssi;
+      out->snr = entry.snr;
+    }
+    return error;
   }
+  if (s_proto == LORA_PROTO_MESHCORE) {
+    meshcore_contact_t entry;
+    esp_err_t error = meshcore_contacts_snapshot(index, out != NULL ? &entry : NULL, out_count);
+    if (error == ESP_OK && out != NULL)
+      memcpy(out->name, entry.name, sizeof(out->name) - 1);
+    return error;
+  }
+  return ESP_ERR_INVALID_STATE;
+}
+
+uint16_t lora_session_node_count(void) {
+  uint16_t count = 0;
+  (void)lora_session_nodes_snapshot(0, NULL, &count);
+  return count;
 }
 
 bool lora_session_node_get(uint16_t idx, lora_node_t *out) {
-  if (out == NULL)
-    return false;
-  memset(out, 0, sizeof(*out));
-
-  if (s_proto == LORA_PROTO_MESHTASTIC) {
-    const mt_node_entry_t *n = mt_nodedb_get_by_index(idx);
-    if (n == NULL)
-      return false;
-    snprintf(out->name, sizeof(out->name), "%s", (n->long_name[0] != '\0') ? n->long_name : n->id);
-    out->rssi = n->rssi;
-    out->snr = n->snr;
-    return true;
-  }
-
-  if (s_proto == LORA_PROTO_MESHCORE) {
-    const meshcore_contact_t *arr = meshcore_contacts_array();
-    if (arr == NULL)
-      return false;
-    uint16_t seen = 0;
-    for (uint16_t i = 0; i < MESHCORE_MAX_CONTACTS; i++) {
-      if (!arr[i].is_used)
-        continue;
-      if (seen == idx) {
-        snprintf(out->name, sizeof(out->name), "%s", arr[i].name);
-        return true;
-      }
-      seen++;
-    }
-    return false;
-  }
-
-  return false;
+  uint16_t count;
+  return out != NULL && lora_session_nodes_snapshot(idx, out, &count) == ESP_OK;
 }
 
 void lora_session_on_rx_text(const char *who, const char *text) {

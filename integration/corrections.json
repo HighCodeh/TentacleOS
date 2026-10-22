@@ -1220,14 +1220,20 @@
     "firmware_p4/components/Applications/LoRa/session/lora_session.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "2cf75d8f29faf5e8b6f940a20a7d28778d18ca89a38c71c84286e62b8c782f6b",
-      "after_sha256": "25db8f2a2a8ef2bd4dd6785cc1ce36bf61571870ec0441a907fbe4d88e8d255d",
-      "reason": "Bounded copied LoRa text queue owned by native mesh poll tasks; atomic protocol publication/start serialization and capability/cancellation-gated ABI 1.14 plus JS/Lua binding.",
+      "after_sha256": "1f9709800ddbe6f9bc85533d409f09b9730858b22ce47672084584f41e3d3d17",
+      "reason": "fix(lora): synchronize node snapshots and bound mesh receive parsing",
       "review_history": [
         {
           "after_sha256": "f2ca6b65f96612e8179e25a668608ae160cc2e78f6569f5c6ad6fbab8661657e",
           "reason": "Publish bounded RX-only native radio observations with per-app cursors and kill quiescence; synchronize chat ring first use and sequence wrap, preserve capture IDs across restarts."
+        },
+        {
+          "after_sha256": "25db8f2a2a8ef2bd4dd6785cc1ce36bf61571870ec0441a907fbe4d88e8d255d",
+          "reason": "Bounded copied LoRa text queue owned by native mesh poll tasks; atomic protocol publication/start serialization and capability/cancellation-gated ABI 1.14 plus JS/Lua binding."
         }
-      ]
+      ],
+      "pre_format_sha256": "71a8b0e5c0455de5b44c4a2dbb49bcf8ca1e8a7ebf26a65417bed02718a9ecdd",
+      "formatter": "clang-format version 22.1.5"
     },
     "firmware_p4/components/Drivers/cc1101/cc1101.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -1268,8 +1274,14 @@
     "firmware_p4/components/Applications/LoRa/session/include/lora_session.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "61f23bbb23b0260f106bc112ea7df41641bb92476a4ddddbd25b88af6f297d26",
-      "after_sha256": "4de4b2787b338edcccacf51349d2e1fcf64700f14c0ac38258d560772faf87c9",
-      "reason": "Bounded copied LoRa text queue owned by native mesh poll tasks; atomic protocol publication/start serialization and capability/cancellation-gated ABI 1.14 plus JS/Lua binding."
+      "after_sha256": "53c1d81bb27953e7fa7ffe96c70f325cde5eff706680a346c9b94b4b9dbb1faf",
+      "reason": "fix(lora): synchronize node snapshots and bound mesh receive parsing",
+      "review_history": [
+        {
+          "after_sha256": "4de4b2787b338edcccacf51349d2e1fcf64700f14c0ac38258d560772faf87c9",
+          "reason": "Bounded copied LoRa text queue owned by native mesh poll tasks; atomic protocol publication/start serialization and capability/cancellation-gated ABI 1.14 plus JS/Lua binding."
+        }
+      ]
     },
     "firmware_p4/components/Service/app_runtime/include/tos_hb.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -1369,6 +1381,56 @@
       "after_sha256": "ef11c27ea232d9a9ba55e467bc78e957401d30a253fca859d94ec5f175b3d885",
       "reason": "feat(subghz): replay validated capture files through the shared RF worker",
       "pre_format_sha256": "c13d4a594b238a8fed32473f87d13d64299281e3228078181d7902de8e476a81",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/LoRa/meshtastic/meshtastic_nodedb.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "a5c964d51d2c781267acce653e347aeb7464b46ed433155708518fd2966b676e",
+      "after_sha256": "cd60de901457aaf2c784524912acbada6f4f1d8d62f6a5368b2a10778ab8578f",
+      "reason": "fix(lora): synchronize node snapshots and bound mesh receive parsing",
+      "pre_format_sha256": "7ba69efd4476643c719f4986468207df73da90b518fd550edf47338bbe672089",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/LoRa/meshtastic/include/meshtastic_nodedb.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "2db246416883b65abde7f1b4075192a29135c772d099a68c91ef63378b06771a",
+      "after_sha256": "58d137d796eac673bb038cc8cb21a4261687c194ea9c524343f5b85abef25edc",
+      "reason": "fix(lora): synchronize node snapshots and bound mesh receive parsing"
+    },
+    "firmware_p4/components/Applications/LoRa/meshcore/meshcore_db.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "e748c7b35aef533d0b7b950318515a8c68f06fe5539c6b3b934fc3071334fef5",
+      "after_sha256": "1abd130044a2a3ff98975ad541c3fc769f0455be6178131053209e5682aee617",
+      "reason": "fix(lora): synchronize node snapshots and bound mesh receive parsing",
+      "pre_format_sha256": "80796acf9a5c1a183b70bdf559cf93a0e7d0ed13f5856e48f1c1e844650cf1f9",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/LoRa/meshcore/meshcore.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "c981e70705b59159811dfded04b1203b42ca58ceb7d6a9ab7ae1aada68189684",
+      "after_sha256": "3fa62e0ff74eeb7fd612447144e34693f60c8d78457cb2c7b7141d9dfbb47f9b",
+      "reason": "fix(lora): synchronize node snapshots and bound mesh receive parsing"
+    },
+    "firmware_p4/components/Applications/LoRa/meshcore/meshcore_router.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "c302d3a6a01c527cf5a05f2bc88059f06db4554585f1e47bf54ee090d5bfd3f7",
+      "after_sha256": "6a0124cf9fed85fdcd0ae560f4250b9669831df77afdba27d9f03cdb361ba4cc",
+      "reason": "fix(lora): synchronize node snapshots and bound mesh receive parsing",
+      "pre_format_sha256": "8d6f7cf06a1fe5556d9fe1e01c2b3d9598fbf1101903ec297d738c0baa9bd68b",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/LoRa/meshcore/include/meshcore.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "f3dc505b5d1e2b4c2c30cb8d925304e9397947533e26ebd4bc4abf61a59eb897",
+      "after_sha256": "c328e127c6d20aa64088dfd78a153266aff42acaf05a0fa11518a4c38d983673",
+      "reason": "fix(lora): synchronize node snapshots and bound mesh receive parsing"
+    },
+    "firmware_p4/components/Applications/LoRa/meshcore/include/meshcore_internal.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "9c80498d9324376f6daacb66160be7a8071c387809957a521981c6e6da141cae",
+      "after_sha256": "3ac7ee7cf62945b4bf08118bb9dc92bfbbd843a1629c987fb63f21ce92c0d7b2",
+      "reason": "fix(lora): synchronize node snapshots and bound mesh receive parsing",
+      "pre_format_sha256": "e74e5ef9272fa729ebdf7cfd22b4a58a1497210a92aa89bed91ec7cd268bc08a",
       "formatter": "clang-format version 22.1.5"
     }
   }

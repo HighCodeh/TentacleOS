@@ -165,7 +165,7 @@ bool mc_pendings_match(uint32_t crc, uint8_t out_peer[32]);
  * @brief Initializes dedup, pendings, channels and contacts structures.
  *        Called by meshcore_init.
  */
-void mc_db_init(void);
+esp_err_t mc_db_init(void);
 
 /**
  * @brief Read-only access to the channels array (use meshcore_channel_get
@@ -177,7 +177,8 @@ const meshcore_channel_t *mc_channels_array(void);
  * @brief Mutable access to the contacts array for internal writes
  *        (process_path_payload, etc).
  */
-meshcore_contact_t *mc_contacts_array_mut(void);
+esp_err_t
+mc_contact_update_path(const uint8_t pub_key[32], uint8_t encoded_length, const uint8_t *path);
 
 /**
  * @brief Looks up a contact and returns a mutable pointer (NULL if not found).

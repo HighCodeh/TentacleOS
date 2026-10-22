@@ -319,3 +319,44 @@ the native UI and companion command. Stopping an app does not retract an
 accepted message or stop the native mesh. Starting/switching/stopping protocols,
 raw LoRa control and shared-radio startup/cleanup arbitration remain separate
 work under #149; this queue does not resolve those existing lifecycle limits.
+
+
+## Copied mesh node observations (ABI 1.20)
+
+The native node list now uses `lora_session_nodes_snapshot` instead of borrowing
+a mutable backend entry. Meshtastic and MeshCore writers and copy operations
+share a separate, atomically published database mutex (50 ms acquisition limit),
+independent of the chat ring lock. Count and one record are read together under
+the database lock. The existing telemetry/chat UI and companion sender lookup
+inherit these copied summaries. Borrowed backend pointer getters remain native
+owner-thread interfaces; they are not the app-facing contract.
+
+ABI 1.20 adds RX-gated `mesh_node_count` and `mesh_node_get`, also available in
+JavaScript/Lua. They require an active native mesh and do not start or stop one.
+Names are bounded and terminated even for non-terminated persisted data.
+Meshtastic supplies its native RSSI/SNR; MeshCore contact summaries have no
+stored RSSI/SNR and report zero for those fields. Separate calls do not freeze
+the database: node indices may change after insertion/removal. See the
+[ABI contract](../app_sdk/README.md#copied-lora-node-observations-abi-120).
+
+MeshCore direct-message/path processing now decrypts against copied contact
+records. Path updates re-resolve the public key while locked, so removal or
+replacement cannot redirect an update to a reused slot. Callbacks execute after
+the database lock is released. Init allocation/lock failures propagate from
+`mc_db_init` through `meshcore_init`.
+
+## Mesh receive parser bounds
+
+Group/direct text and path ciphertext lengths are checked against their actual
+160/200-byte plaintext buffers **before** calling the existing crypto helper.
+Direct-message ACK hashing bounds its text scan to the decrypted length instead
+of requiring an incoming NUL. Meshtastic User parsing checks length-delimited
+fields using remaining input length and checks fixed32 availability before
+advancing, preventing arithmetic wrap and reads beyond malformed protobuf data.
+No cipher, key, wire format or airtime policy changed.
+
+`python3 tools/lora_nodes/test_nodes.py` compiles the actual databases, session
+copy routines and receive handlers with ASan/UBSan and concurrent readers/writers.
+NVS, cryptography, radio and FreeRTOS calls are explicit host fixtures; these
+tests establish parser/ownership boundaries, not RF or cryptographic acceptance.
+Startup/teardown/raw PHY app adapters remain separate code work.

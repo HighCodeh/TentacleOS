@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "lora_session.h"
+#include "tos_api.h"
 #define EXT_RAM_BSS_ATTR
 #define ESP_LOGE(tag, ...) ((void)(tag))
 #define pdTRUE 1

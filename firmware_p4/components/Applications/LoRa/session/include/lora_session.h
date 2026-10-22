@@ -88,6 +88,13 @@ esp_err_t lora_session_send_text(const char *text);
 /** @brief Native stack poll task only: consume at most one queued message. */
 void lora_session_process_tx(lora_proto_t proto);
 
+/** Copy a node or count (out may be NULL); inactive session and lock errors propagate. */
+esp_err_t lora_session_nodes_snapshot(uint16_t index, lora_node_t *out, uint16_t *out_count);
+
+/** Internal database guard; never call callbacks while held. */
+esp_err_t lora_session_nodes_acquire(void);
+void lora_session_nodes_release(void);
+
 /** @brief Number of messages currently held in the local chat ring. */
 uint16_t lora_session_msg_count(void);
 

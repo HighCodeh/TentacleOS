@@ -23,6 +23,7 @@
 #include "freertos/task.h"
 
 #include "meshtastic_nvs.h"
+#include "lora_session.h"
 
 static const char *TAG = "MT_NODEDB";
 
@@ -30,6 +31,156 @@ static const char *TAG = "MT_NODEDB";
 
 EXT_RAM_BSS_ATTR static mt_node_entry_t s_nodes[MT_NODEDB_MAX_NODES];
 static uint16_t s_count = 0;
+
+static uint64_t dec_varint(const uint8_t *buf, uint16_t max_len, uint16_t *out_used);
+static int find_slot(uint32_t num);
+static int alloc_slot(uint32_t num);
+static void parse_user_into(mt_node_entry_t *e, const uint8_t *buf, uint16_t len);
+static esp_err_t init_db(void);
+static bool upsert_from_user(uint32_t num,
+                             const uint8_t *user_bytes,
+                             uint16_t user_len,
+                             float snr,
+                             int16_t rssi,
+                             uint8_t hops_away);
+static const mt_node_entry_t *get_node(uint32_t num);
+static const mt_node_entry_t *get_by_index(uint16_t idx);
+static uint16_t count_nodes(void);
+static bool set_favorite(uint32_t num, bool fav);
+static bool set_ignored(uint32_t num, bool ign);
+static bool toggle_muted(uint32_t num);
+static void learn_next_hop(uint32_t num, uint8_t relay_byte);
+static uint8_t get_next_hop(uint32_t num);
+static void record_next_hop_failure(uint32_t num);
+static bool remove_node(uint32_t num);
+static esp_err_t save_db(void);
+
+esp_err_t mt_nodedb_init(void) {
+  esp_err_t error = lora_session_nodes_acquire();
+  if (error != ESP_OK)
+    return error;
+  esp_err_t result = init_db();
+  lora_session_nodes_release();
+  return result;
+}
+
+bool mt_nodedb_upsert_from_user(uint32_t num,
+                                const uint8_t *user_bytes,
+                                uint16_t user_len,
+                                float snr,
+                                int16_t rssi,
+                                uint8_t hops_away) {
+  if (lora_session_nodes_acquire() != ESP_OK)
+    return false;
+  bool result = upsert_from_user(num, user_bytes, user_len, snr, rssi, hops_away);
+  lora_session_nodes_release();
+  return result;
+}
+
+const mt_node_entry_t *mt_nodedb_get(uint32_t num) {
+  if (lora_session_nodes_acquire() != ESP_OK)
+    return NULL;
+  const mt_node_entry_t *result = get_node(num);
+  lora_session_nodes_release();
+  return result;
+}
+
+const mt_node_entry_t *mt_nodedb_get_by_index(uint16_t idx) {
+  if (lora_session_nodes_acquire() != ESP_OK)
+    return NULL;
+  const mt_node_entry_t *result = get_by_index(idx);
+  lora_session_nodes_release();
+  return result;
+}
+
+uint16_t mt_nodedb_count(void) {
+  if (lora_session_nodes_acquire() != ESP_OK)
+    return 0;
+  uint16_t result = count_nodes();
+  lora_session_nodes_release();
+  return result;
+}
+
+bool mt_nodedb_set_favorite(uint32_t num, bool fav) {
+  if (lora_session_nodes_acquire() != ESP_OK)
+    return false;
+  bool result = set_favorite(num, fav);
+  lora_session_nodes_release();
+  return result;
+}
+
+bool mt_nodedb_set_ignored(uint32_t num, bool ign) {
+  if (lora_session_nodes_acquire() != ESP_OK)
+    return false;
+  bool result = set_ignored(num, ign);
+  lora_session_nodes_release();
+  return result;
+}
+
+bool mt_nodedb_toggle_muted(uint32_t num) {
+  if (lora_session_nodes_acquire() != ESP_OK)
+    return false;
+  bool result = toggle_muted(num);
+  lora_session_nodes_release();
+  return result;
+}
+
+void mt_nodedb_learn_next_hop(uint32_t num, uint8_t relay_byte) {
+  if (lora_session_nodes_acquire() != ESP_OK)
+    return;
+  learn_next_hop(num, relay_byte);
+  lora_session_nodes_release();
+}
+
+uint8_t mt_nodedb_get_next_hop(uint32_t num) {
+  if (lora_session_nodes_acquire() != ESP_OK)
+    return 0;
+  uint8_t result = get_next_hop(num);
+  lora_session_nodes_release();
+  return result;
+}
+
+void mt_nodedb_record_next_hop_failure(uint32_t num) {
+  if (lora_session_nodes_acquire() != ESP_OK)
+    return;
+  record_next_hop_failure(num);
+  lora_session_nodes_release();
+}
+
+bool mt_nodedb_remove(uint32_t num) {
+  if (lora_session_nodes_acquire() != ESP_OK)
+    return false;
+  bool result = remove_node(num);
+  lora_session_nodes_release();
+  return result;
+}
+
+esp_err_t mt_nodedb_save(void) {
+  esp_err_t error = lora_session_nodes_acquire();
+  if (error != ESP_OK)
+    return error;
+  esp_err_t result = save_db();
+  lora_session_nodes_release();
+  return result;
+}
+
+esp_err_t mt_nodedb_snapshot(uint16_t index, mt_node_entry_t *out, uint16_t *out_count) {
+  if (out_count == NULL)
+    return ESP_ERR_INVALID_ARG;
+  esp_err_t error = lora_session_nodes_acquire();
+  if (error != ESP_OK)
+    return error;
+  *out_count = s_count;
+  if (out != NULL) {
+    const mt_node_entry_t *entry = get_by_index(index);
+    if (entry == NULL)
+      error = ESP_ERR_NOT_FOUND;
+    else
+      *out = *entry;
+  }
+  lora_session_nodes_release();
+  return error;
+}
 
 static uint64_t dec_varint(const uint8_t *buf, uint16_t max_len, uint16_t *out_used) {
   uint64_t value = 0;
@@ -114,7 +265,7 @@ static void parse_user_into(mt_node_entry_t *e, const uint8_t *buf, uint16_t len
       uint16_t lused = 0;
       uint32_t length = (uint32_t)dec_varint(&buf[i], len - i, &lused);
       i += lused;
-      if (i + length > len)
+      if (length > (uint32_t)(len - i))
         break;
 
       uint32_t copy;
@@ -166,14 +317,16 @@ static void parse_user_into(mt_node_entry_t *e, const uint8_t *buf, uint16_t len
           break;
       }
     } else if (wire_type == 5) {
-      i += 4;
+      if (len - i < sizeof(uint32_t))
+        break;
+      i += sizeof(uint32_t);
     } else {
       break;
     }
   }
 }
 
-esp_err_t mt_nodedb_init(void) {
+static esp_err_t init_db(void) {
   memset(s_nodes, 0, sizeof(s_nodes));
   s_count = 0;
 
@@ -196,12 +349,14 @@ esp_err_t mt_nodedb_init(void) {
   return ESP_OK;
 }
 
-bool mt_nodedb_upsert_from_user(uint32_t num,
-                                const uint8_t *user_bytes,
-                                uint16_t user_len,
-                                float snr,
-                                int16_t rssi,
-                                uint8_t hops_away) {
+static bool upsert_from_user(uint32_t num,
+                             const uint8_t *user_bytes,
+                             uint16_t user_len,
+                             float snr,
+                             int16_t rssi,
+                             uint8_t hops_away) {
+  if (user_bytes == NULL && user_len != 0)
+    return false;
   int idx = alloc_slot(num);
   if (idx < 0)
     return false;
@@ -232,12 +387,12 @@ bool mt_nodedb_upsert_from_user(uint32_t num,
   return true;
 }
 
-const mt_node_entry_t *mt_nodedb_get(uint32_t num) {
+static const mt_node_entry_t *get_node(uint32_t num) {
   int idx = find_slot(num);
   return (idx >= 0) ? &s_nodes[idx] : NULL;
 }
 
-const mt_node_entry_t *mt_nodedb_get_by_index(uint16_t idx) {
+static const mt_node_entry_t *get_by_index(uint16_t idx) {
   uint16_t counted = 0;
   for (int i = 0; i < MT_NODEDB_MAX_NODES; i++) {
     if (!s_nodes[i].in_use)
@@ -249,11 +404,11 @@ const mt_node_entry_t *mt_nodedb_get_by_index(uint16_t idx) {
   return NULL;
 }
 
-uint16_t mt_nodedb_count(void) {
+static uint16_t count_nodes(void) {
   return s_count;
 }
 
-bool mt_nodedb_set_favorite(uint32_t num, bool fav) {
+static bool set_favorite(uint32_t num, bool fav) {
   int idx = find_slot(num);
   if (idx < 0)
     return false;
@@ -261,11 +416,11 @@ bool mt_nodedb_set_favorite(uint32_t num, bool fav) {
     return true;
   s_nodes[idx].is_favorite = fav;
   ESP_LOGI(TAG, "favorite 0x%08lX = %s", (unsigned long)num, fav ? "yes" : "no");
-  mt_nodedb_save();
+  save_db();
   return true;
 }
 
-bool mt_nodedb_set_ignored(uint32_t num, bool ign) {
+static bool set_ignored(uint32_t num, bool ign) {
   int idx = find_slot(num);
   if (idx < 0)
     return false;
@@ -273,21 +428,21 @@ bool mt_nodedb_set_ignored(uint32_t num, bool ign) {
     return true;
   s_nodes[idx].is_ignored = ign;
   ESP_LOGI(TAG, "ignored 0x%08lX = %s", (unsigned long)num, ign ? "yes" : "no");
-  mt_nodedb_save();
+  save_db();
   return true;
 }
 
-bool mt_nodedb_toggle_muted(uint32_t num) {
+static bool toggle_muted(uint32_t num) {
   int idx = find_slot(num);
   if (idx < 0)
     return false;
   s_nodes[idx].is_muted = !s_nodes[idx].is_muted;
   ESP_LOGI(TAG, "muted 0x%08lX = %s", (unsigned long)num, s_nodes[idx].is_muted ? "yes" : "no");
-  mt_nodedb_save();
+  save_db();
   return true;
 }
 
-void mt_nodedb_learn_next_hop(uint32_t num, uint8_t relay_byte) {
+static void learn_next_hop(uint32_t num, uint8_t relay_byte) {
   if (relay_byte == 0)
     return;
   int idx = find_slot(num);
@@ -304,14 +459,14 @@ void mt_nodedb_learn_next_hop(uint32_t num, uint8_t relay_byte) {
   s_nodes[idx].next_hop_failures = 0;
 }
 
-uint8_t mt_nodedb_get_next_hop(uint32_t num) {
+static uint8_t get_next_hop(uint32_t num) {
   int idx = find_slot(num);
   if (idx < 0)
     return 0;
   return s_nodes[idx].next_hop;
 }
 
-void mt_nodedb_record_next_hop_failure(uint32_t num) {
+static void record_next_hop_failure(uint32_t num) {
   int idx = find_slot(num);
   if (idx < 0)
     return;
@@ -327,18 +482,18 @@ void mt_nodedb_record_next_hop_failure(uint32_t num) {
   }
 }
 
-bool mt_nodedb_remove(uint32_t num) {
+static bool remove_node(uint32_t num) {
   int idx = find_slot(num);
   if (idx < 0)
     return false;
   memset(&s_nodes[idx], 0, sizeof(mt_node_entry_t));
   s_count--;
   ESP_LOGI(TAG, "removed 0x%08lX", (unsigned long)num);
-  mt_nodedb_save();
+  save_db();
   return true;
 }
 
-esp_err_t mt_nodedb_save(void) {
+static esp_err_t save_db(void) {
   esp_err_t ret = mt_nvs_set_blob(MT_NODEDB_NVS_KEY, s_nodes, sizeof(s_nodes));
   if (ret != ESP_OK) {
     ESP_LOGW(TAG, "save failed: %s", esp_err_to_name(ret));
