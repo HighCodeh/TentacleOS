@@ -86,3 +86,11 @@ idf_component_register(SRCS
 # Airtime policy is not a radio timing path; keep its accounting compact.
 set_source_files_properties("sx1262/sx1262_airtime.c" PROPERTIES
   COMPILE_OPTIONS "-Os;-flto=2;-ffat-lto-objects")
+
+# Compact control services; retain interrupt, pulse-timing and radio-transfer policies.
+set_source_files_properties(
+  "cc1101/cc1101_lease.c" "rf_frontend/rf_frontend.c"
+  "bq25896/battery_service.c" "bq25896/bq25896_ext.c" "bq25896/bq25896.c"
+  "st25r3916/st25r3916_core.c" "st25r3916/highboy_nfc.c"
+  "buttons_gpio/buttons_gpio.c" "input_manager/input_manager.c"
+  PROPERTIES COMPILE_OPTIONS "-Os")

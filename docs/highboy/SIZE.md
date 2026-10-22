@@ -130,3 +130,20 @@ This remains development margin. It does not cross the previously documented
 secure-padding boundary or reserve all space needed for async/session adapters.
 No driver/emulator/crypto implementation or partition map was changed to obtain
 these measurements; runtime memory/performance acceptance remains separate.
+
+
+## Peripheral control size policy for owned Sub-GHz sessions
+
+The new session lifecycle requires more room than the ABI 1.20 development
+margin. Selected P4 control sources use a final `-Os` without LTO: CC1101 lease,
+RF frontend, charger register/telemetry/battery service, NFC core/public wrapper,
+and button/input services. Their source implementations, pins, task priorities,
+periods and hardware settings are unchanged. Peripheral SPI/FIFO/IRQ/HAL, LF pulse
+timing, CC1101 transfers, audio, emulators, C5 and crypto policies are preserved.
+No feature or partition is removed.
+
+An RF ownership LTO trial still exceeded the original slot and was rejected. The selected
+policy stays outside whole-program optimization for those driver objects. The
+final paired validation record gives the source-matched control-only baseline
+and selected application sizes. These are build measurements, not hardware
+latency/stack/power acceptance.

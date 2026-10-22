@@ -954,12 +954,16 @@
     "firmware_p4/components/Drivers/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "15c7869f1145eb6a78b540dd9c4003914c7bbbb98db9af36ed4ddd38e35d23bf",
-      "after_sha256": "ddd1f5b511d6966d80e3b937342b3aaed530a45afd9abc6d6ac1528799c8e788",
-      "reason": "Publish bounded Sub-GHz receive/raw TX with a scoped CC1101 lease and persistent worker; serialize native TX/spectrum lifetimes and retain resources through RMT/SPI/power cleanup failures.",
+      "after_sha256": "635a949c1464ba6d8b4eff8cf2f91d26dfecb89d1b64d004f47badb999e9dec7",
+      "reason": "build(p4): compact peripheral control services without changing radio timing paths",
       "review_history": [
         {
           "after_sha256": "8fde0cfcb8fe0b6ecfa2ed3ebc09ede10ae7a6e9429f0cdbed37a0e8538724aa",
           "reason": "Enforce shared, conservative LoRa airtime pacing before all native TX operations, retaining debit across configuration and protocol changes."
+        },
+        {
+          "after_sha256": "ddd1f5b511d6966d80e3b937342b3aaed530a45afd9abc6d6ac1528799c8e788",
+          "reason": "Publish bounded Sub-GHz receive/raw TX with a scoped CC1101 lease and persistent worker; serialize native TX/spectrum lifetimes and retain resources through RMT/SPI/power cleanup failures."
         }
       ]
     },
