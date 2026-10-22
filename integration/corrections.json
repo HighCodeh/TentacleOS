@@ -1290,6 +1290,20 @@
       "before_sha256": "13c42b9a04596dae27bba3e016b8b54070a1ad9a708ee93e1a3dd966fec107c6",
       "after_sha256": "cbe5bff51fa17eb9018e2895c91be125377fe0b18aba247ddc849ffd7adc2e0f",
       "reason": "Harden native P4 OTA preflight/ownership/cleanup and P4/C5 confirmation errors; connect the actual SD update UI to native workers/progress instead of fabricated versions and timed reboot."
+    },
+    "firmware_p4/components/Applications/ui/screens/settings/system_update_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "91574a81e5cd7f3af291e007ea89104052a946a308b9eeee3e3119ff64d34426",
+      "after_sha256": "d6aac65ba16ea846998b7e954486a77389311204ec84fbe796faf68f68026640",
+      "reason": "Harden native P4 OTA preflight/ownership/cleanup and P4/C5 confirmation errors; connect the actual SD update UI to native workers/progress instead of fabricated versions and timed reboot.",
+      "pre_format_sha256": "1c7451171f0781158e71c26410714ec75d644f313e6ae8d2117a7a024739f739",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/settings/include/system_update_ui.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "f49f0c4dee194d1f7dd27d5f3811169e64eb77a7e4df59dd42a2c92399247edb",
+      "after_sha256": "668861dc94d6694405d2f76942031bcef8459147ae9f9c1c3daca45f5b9c27e7",
+      "reason": "Harden native P4 OTA preflight/ownership/cleanup and P4/C5 confirmation errors; connect the actual SD update UI to native workers/progress instead of fabricated versions and timed reboot."
     }
   }
 }

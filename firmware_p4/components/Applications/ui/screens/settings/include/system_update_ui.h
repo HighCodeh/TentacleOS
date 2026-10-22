@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-/** @brief Open the system update screen (mock SD firmware image flash). */
+/** @brief Open the P4 SD-update screen with native OTA progress and error reporting. */
 void ui_system_update_open(void);
 
 #ifdef __cplusplus

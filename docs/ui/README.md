@@ -324,3 +324,13 @@ Affected screen and boot worker creation sites use `SYS_PRIO_*` and
 field cleanup remains with the reader task; see the
 [RF frontend reference](../rf_frontend/README.md). The native Muse PTT owner and
 its recording/control split are documented in [Muse](../muse/README.md).
+
+
+## Native P4 application update
+
+The P4 Update screen now checks the actual SD image and installed firmware version.
+A pinned native worker performs the SD check/update and publishes bounded status;
+the UI timer only renders it. The screen has no simulated version, simulated
+progress or UI-triggered reboot. Only successful native OTA selects/reboots the
+image. Reopen/delete does not leave a worker with LVGL pointers. See the
+[OTA behavior and validation](../ota/README.md#native-p4-update-screen-and-failure-handling).
