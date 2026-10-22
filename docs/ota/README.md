@@ -1,5 +1,10 @@
 # OTA Update Service
 
+The [paired SD candidate exporter](../highboy/RELEASE.md#paired-sd-package) places
+both verified applications at their existing OTA input paths and retains linked
+memory/compiler evidence. It prepares files only; it performs no update or eFuse
+operation and does not restore bootloaders/assets or an erased device.
+
 Handles independent P4/C5 application updates. The integrated High Boy profile
 uses its existing A/B app slots; neither app update restores bootloaders, assets
 or an erased device. See the [deployment contract](../highboy/README.md#flash-and-storage-boundary).
