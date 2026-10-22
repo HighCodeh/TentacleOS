@@ -11,6 +11,7 @@
 #include "host_link_local_rf.h"
 #include "spi_protocol.h"
 #include "tos_app_ctx.h"
+#include "tos_api_nfc_session.h"
 
 #define RF_LOCK_WAIT_MS        3000
 #define RF_RFID_TIMEOUT_MIN_MS 40
@@ -169,6 +170,9 @@ static esp_err_t write_block(uint8_t block,
   return access_block(&request);
 }
 
-const tos_nfc_api_t tos_nfc_api_impl = {
-    .poll = poll_nfc, .read_block = read_block, .write_block = write_block};
+const tos_nfc_api_t tos_nfc_api_impl = {.poll = poll_nfc,
+                                        .read_block = read_block,
+                                        .write_block = write_block,
+                                        .emulate_start = tos_api_nfc_session_start,
+                                        .session_stop = tos_api_nfc_session_stop};
 const tos_rfid_api_t tos_rfid_api_impl = {.read = read_rfid};

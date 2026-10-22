@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import shlex
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -111,6 +112,8 @@ def main():
                         str(directory/'forced.c'),'-o',str(executable)],check=True)
         subprocess.run([str(executable)],check=True,timeout=30)
         print("PASS: natural exit retries a released kill claim instead of remaining suspended")
+    subprocess.run([sys.executable, str(ROOT / "tools/nfc_api/test_sessions.py")], check=True)
+    subprocess.run([sys.executable, str(ROOT / "tools/nfc_api/test_startup.py")], check=True)
 
 
 if __name__ == "__main__":

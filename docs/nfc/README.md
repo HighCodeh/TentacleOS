@@ -220,8 +220,7 @@ bounded [capture commands](../host_link/rf-commands.md) call this interface unde
 an exclusive RF reservation and a no-sleep reference.
 
 Native apps and scripts can now use the [ABI 1.10 discovery calls](../app_sdk/README.md#native-nfcrfid-api-abi-110).
-They reuse the native poll and stable RF worker, while block operations and
-emulation remain unpublished in the app ABI. UI functionality is unchanged.
+They reuse the native poll and stable RF worker, while later ABI revisions add bounded block operations and owned emulation. UI functionality is unchanged.
 
 
 ## Shared Classic block operations
@@ -232,5 +231,29 @@ same worker and antenna/power cleanup. Writes preserve manufacturer/trailer
 blocks and read back data before success. Four-byte UID/SAK 08/88 support is
 explicit; discovery alone does not imply support for a different card geometry.
 See [the app contract](../app_sdk/README.md#nfc-classic-block-access-abi-117)
-and [companion protocol](../host_link/rf-commands.md). Emulation/session adapters
-remain separate work, and electrical/card acceptance remains unverified.
+and [companion protocol](../host_link/rf-commands.md). Owned emulation follows in ABI 1.22 below; electrical/card acceptance remains unverified.
+
+
+## Owned emulation (ABI 1.22)
+
+`nfc.emulate_start(uid, 4, &session)` copies a four-byte UID into a volatile,
+zero-filled Classic 1K image with ATQA 04/00, SAK 08 and unknown keys. It exposes
+UID/selection emulation, not a saved dump or a clone of card contents. It never
+reads profiles or persists writes. Start/stop require radio-tx; session IDs belong
+to the originating app/script task and are not reused before reboot. Binding
+teardown cancels the session without retaining app buffers or callbacks.
+
+A persistent firmware worker reserves the shared antenna for its whole lifetime,
+including failed startup/shutdown. Failed OFF/deinit retains that reservation and
+the no-sleep reference until cleanup succeeds. Foreign/stale IDs fail. Stop is
+permitted after cooperative cancellation; timeout leaves cleanup running.
+
+The native listener now also copies its card into firmware storage and owns its
+antenna, initialization, emulation and cleanup on one persistent task. This
+prevents a UI listener and app emulator from overwriting one another. The legacy
+void stop waits up to three seconds; `nfc_listener_is_active()` remains true while
+startup or cleanup is pending. Native target configuration/listen/start checks
+all SPI/IRQ operations; foreign emulator mutations are rejected before changing
+shared state. Host tests cover ownership, cancellation, retained cleanup and
+fault injection at each target startup operation. Physical RF acceptance remains
+unverified.

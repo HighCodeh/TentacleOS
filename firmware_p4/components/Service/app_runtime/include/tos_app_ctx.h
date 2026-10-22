@@ -82,7 +82,7 @@ void tos_app_regs_record_hostlink(tos_app_regs_t *regs, uint8_t category, uint8_
 /** @brief Unregister everything the app registered (call on app exit). */
 void tos_app_regs_teardown(tos_app_regs_t *regs);
 
-/** Bind a task to an app context; cancels prior Sub-GHz work for that task. */
+/** Bind a task to an app context; cancels prior radio sessions for that task. */
 esp_err_t tos_app_ctx_bind(void *task, tos_app_ctx_t *ctx);
 
 /** Remove a binding and request session cancellation; firmware retains pending hardware cleanup. */

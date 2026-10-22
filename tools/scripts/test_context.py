@@ -39,7 +39,10 @@ typedef pthread_mutex_t portMUX_TYPE;
 _Thread_local void *g_test_task;
 static atomic_uint s_ready;
 static atomic_uint s_cancels;
+static atomic_uint s_nfc_cancels;
 void tos_api_subghz_cancel_owner(void *task) { assert(task!=NULL);atomic_fetch_add(&s_cancels,1); }
+void tos_api_nfc_session_cancel_owner(void *task) { assert(task!=NULL);atomic_fetch_add(&s_nfc_cancels,1); }
+void tos_api_lora_cancel_owner(void *task) { assert(task!=NULL); }
 static atomic_bool s_exit;
 static atomic_bool s_lost;
 static void mark_lost(void *ctx, bool is_lost) { assert(ctx==(void *)1); atomic_store(&s_lost,is_lost); }
@@ -77,7 +80,7 @@ int main(void) {
   tos_app_ctx_unbind(g_test_task);
   assert(tos_app_cap_check(1));
   assert(tos_app_ctx_bind(NULL,&context)==ESP_ERR_INVALID_ARG);
-  assert(atomic_load(&s_cancels)==19);
+  assert(atomic_load(&s_cancels)==19 && atomic_load(&s_nfc_cancels)==19);
   return 0;
 }
 ''')

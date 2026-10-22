@@ -81,7 +81,7 @@ int main(void) {
   s_error=ESP_FAIL;assert(tos_nfc_api_impl.read_block(4,key,data)==ESP_FAIL && data[0]==0);s_error=0;
   s_has_cap=false;assert(tos_nfc_api_impl.write_block(4,key,data)==ESP_ERR_NOT_SUPPORTED);s_has_cap=true;
   assert(tos_nfc_api_impl.read_block(4,NULL,data)==ESP_ERR_INVALID_ARG);
-  assert(tos_nfc_api_impl.emulate_start==NULL && tos_nfc_api_impl.session_stop==NULL);
+  assert(tos_nfc_api_impl.emulate_start!=NULL && tos_nfc_api_impl.session_stop!=NULL);
   s_found_tech=-1; int calls=s_calls;
   assert(tos_nfc_api_impl.poll(&nfc,500)==ESP_ERR_NOT_FOUND && s_calls==calls+4);
   calls=s_calls;
@@ -93,3 +93,6 @@ int main(void) {
   assert(tos_rfid_api_impl.read(&rfid,500)==ESP_FAIL && s_locked==0);
   puts("PASS: native RF ABI capabilities, cancellation, time bounds, A/B/F/V mapping and LF records");
 }
+
+esp_err_t tos_api_nfc_session_start(const uint8_t *uid, uint8_t len, uint32_t *out) { (void)uid; (void)len; (void)out; return ESP_ERR_NOT_SUPPORTED; }
+esp_err_t tos_api_nfc_session_stop(uint32_t id) { (void)id; return ESP_ERR_NOT_SUPPORTED; }

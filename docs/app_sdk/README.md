@@ -749,3 +749,17 @@ invalid-state instead of trying to suspend/delete itself.
 with scheduler/UI/RF/SPI fixtures, including delayed suspension acknowledgement,
 lock/suspension failures, self-stop and immediate task-identity reuse. Host tests
 verify the ordering and rollback contract, not physical scheduler timing.
+
+
+## NFC owned emulation (ABI 1.22)
+
+The optional `nfc.emulate_start(uid, uid_len, &session)` and
+`nfc.session_stop(session)` entries require radio-tx. This contract accepts only
+four-byte UIDs and creates a zero-filled volatile Classic 1K image with unknown
+keys, ATQA 04/00 and SAK 08; it does not load a saved dump or copy card contents.
+The UID is copied before return. The originating task owns the ID; another task
+or a stale ID cannot stop it. Context bind/rebind/unbind cancels the old owner's
+session. Start returns an ID only after native startup succeeds. A nominal
+three-second timeout leaves teardown with the persistent firmware worker, which
+retains antenna/power ownership until checked shutdown succeeds. Stop remains
+available after `should_stop()` becomes true.

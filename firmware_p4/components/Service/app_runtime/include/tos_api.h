@@ -69,7 +69,7 @@ typedef struct host_link_handler host_link_handler_t; // opaque to apps
 // 1.8 = read-only fs subsystem. NOTE: 1.7 was briefly a (removed) IMU subsystem in
 // dev; fs took a fresh minor so a firmware built during the IMU era rejects an
 // fs app at the load gate instead of mismatching its api->fs pointer.
-#define TOS_ABI_VERSION_MINOR 21
+#define TOS_ABI_VERSION_MINOR 22
 
 /** Log levels; values match esp_log_level_t so they pass straight through. */
 typedef enum {
@@ -444,7 +444,9 @@ typedef struct {
  * (1..2000) is reached between native probes. A probe already running may finish
  * after the deadline. Minor 17+: read/write are bounded Classic 1K Key A
  * operations on a four-byte UID; writes preserve manufacturer/trailer blocks.
- * Emulation/session entries remain NULL; check optional function pointers.
+ * Minor 22+: task-owned four-byte UID Classic 1K emulation with a zero-filled
+ * volatile image, unknown keys and no persistence. This is not a saved-card clone.
+ * Failed shutdown retains the firmware reservation until cleanup completes.
  */
 typedef struct tos_nfc_api {
   esp_err_t (*poll)(tos_nfc_tag_t *out, uint32_t timeout_ms);                    ///< radio-rx
