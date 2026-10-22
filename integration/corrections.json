@@ -50,76 +50,142 @@
     "firmware_c5/components/Service/highboy_muse/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "37129d32242ba12b38675b505ec1ba77a3668fa5086f8f205d02ee7094478603",
-      "after_sha256": "5e7ec68d7bb0fa5de27d947b09e9519573e90af3e777cc40f9e42c7c87ddab36",
-      "reason": "Expose central C5 scheduling header privately without a component dependency cycle."
+      "after_sha256": "7a23cb8ed5d8ad0faf32cd0ea5f432524a9e7c357866dfbcd5fa6d5722bc57a9",
+      "reason": "chore(c5): add missing first-party component license notices",
+      "review_history": [
+        {
+          "after_sha256": "5e7ec68d7bb0fa5de27d947b09e9519573e90af3e777cc40f9e42c7c87ddab36",
+          "reason": "Expose central C5 scheduling header privately without a component dependency cycle."
+        }
+      ]
     },
     "firmware_c5/components/Service/highboy_muse/bridge/hb_muse_rpc.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "0d21c35790f67af9e5cf8d08ea815e99501d1826b0eb9f65bd6268ade1633a24",
-      "after_sha256": "2a34293ce956736965a992c6643b5f391a68f38869cfe23d86c046f1ede04cb0",
-      "reason": "Use project include guards and C++ linkage for new first-party headers."
+      "after_sha256": "7aa99a1d3ad3acfc65d8b4e5e2199460315cecba309b9cfd12f6e0ade8fcadf1",
+      "reason": "chore(c5): add missing first-party component license notices",
+      "review_history": [
+        {
+          "after_sha256": "2a34293ce956736965a992c6643b5f391a68f38869cfe23d86c046f1ede04cb0",
+          "reason": "Use project include guards and C++ linkage for new first-party headers."
+        }
+      ]
     },
     "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_pairing_fragments.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "122ca3a200c2ce0bc9558c19612a9d97061f5e4ebceedd6a4172626a27a33f46",
-      "after_sha256": "7435aa231e3cd2e680be1caa3d34fd434d988e19a99e0c94223f29b3882f8b2c",
-      "reason": "Use project include guards and C++ linkage for new first-party headers."
+      "after_sha256": "353e0f07812a752cab6b2262446df6e72e6ae24cda4243205f7fd98025e65fd0",
+      "reason": "chore(c5): add missing first-party component license notices",
+      "review_history": [
+        {
+          "after_sha256": "7435aa231e3cd2e680be1caa3d34fd434d988e19a99e0c94223f29b3882f8b2c",
+          "reason": "Use project include guards and C++ linkage for new first-party headers."
+        }
+      ]
     },
     "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_pairing_gatt.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "238a776fee2b5baf6cc64ef78925a215cbf3d9f9c023a67205c4117e64284dff",
-      "after_sha256": "0dfdea67bb96f450071d9c3ed5aa059445f04668f85176f82dc3165ce408cf02",
-      "reason": "Use project include guards and C++ linkage for new first-party headers."
+      "after_sha256": "dfeac059c8e0df214b6a608f98eb79ab5e36b1345d3bc974099cc79e661f756d",
+      "reason": "chore(c5): add missing first-party component license notices",
+      "review_history": [
+        {
+          "after_sha256": "0dfdea67bb96f450071d9c3ed5aa059445f04668f85176f82dc3165ce408cf02",
+          "reason": "Use project include guards and C++ linkage for new first-party headers."
+        }
+      ]
     },
     "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_setup.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "f302c1f6d4c331f3627719bb96254502c9e9b53aec503cdf5458c15ee2605132",
-      "after_sha256": "87c4d7706677d82affb0df740dd78f73e5be7a8aef91c839e0afa03ffa778638",
-      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
-      "pre_format_sha256": "e3cf60627c5831d21565b826440b307475bc62de9fca2c65a417b989b0fadcdb",
-      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+      "after_sha256": "5a1d23c5749667f4e4dd8d1d8e5c71a2614a354a02badad40584fb17f452baeb",
+      "reason": "chore(c5): add missing first-party component license notices",
+      "review_history": [
+        {
+          "after_sha256": "87c4d7706677d82affb0df740dd78f73e5be7a8aef91c839e0afa03ffa778638",
+          "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+          "pre_format_sha256": "e3cf60627c5831d21565b826440b307475bc62de9fca2c65a417b989b0fadcdb",
+          "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+        }
+      ]
     },
     "firmware_c5/components/Service/highboy_muse/platform/hb_muse_account_worker.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "b06015ba8bc57652baf0f78f8a67aa22a76ac8a7a90229e1b15800d5b112d9d3",
-      "after_sha256": "cfb9e373fef68a7f05c34e9dfa531369b01ba9672f24e3fae0aa1113ce7e988f",
-      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
-      "pre_format_sha256": "4dc54a21cc6da1ca56c47202635b95ff46935bab1d9c3db98d121994d04edf89",
-      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+      "after_sha256": "e2e45d860963574f7564e24196af9170c1cb9692c7667fed8706d962879926a3",
+      "reason": "chore(c5): add missing first-party component license notices",
+      "review_history": [
+        {
+          "after_sha256": "cfb9e373fef68a7f05c34e9dfa531369b01ba9672f24e3fae0aa1113ce7e988f",
+          "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+          "pre_format_sha256": "4dc54a21cc6da1ca56c47202635b95ff46935bab1d9c3db98d121994d04edf89",
+          "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+        }
+      ]
     },
     "firmware_c5/components/Service/highboy_muse/runtime/hb_muse_runtime.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "980d6504a88876176d3dee435516bdadd1bbd9dd017a516af1cfeb8ce84e2d82",
-      "after_sha256": "7bf63b3a6df36f954831e5b67fb2bee0b0e0d63b18fff33c4768b390ce908df1",
-      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
-      "pre_format_sha256": "ca7db346bafc1594c97c45144009f16803c1043eb73e79f804b84d80687ca09d",
-      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+      "after_sha256": "507f9988ff7b53c48880e429c9940eba8c5b1f7502f877d1bb53ca5924a4d9f4",
+      "reason": "chore(c5): add missing first-party component license notices",
+      "review_history": [
+        {
+          "after_sha256": "7bf63b3a6df36f954831e5b67fb2bee0b0e0d63b18fff33c4768b390ce908df1",
+          "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+          "pre_format_sha256": "ca7db346bafc1594c97c45144009f16803c1043eb73e79f804b84d80687ca09d",
+          "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+        }
+      ]
     },
     "firmware_c5/components/Service/highboy_muse/token_uart/hb_muse_token_frame.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "1d48ac6c51172e08df2d5d14cf122d8507d6224de8e39e74589fd8433754389b",
-      "after_sha256": "b781301e24ef3e76578a3e15fee56d72fbd2cdcd81e5ebc3dc9ecf3dc5a08191",
-      "reason": "Use project include guards and C++ linkage for new first-party headers."
+      "after_sha256": "23dd5b8fa464baee627d557ae3e49c01e664282079d674567936e468b28ea1c5",
+      "reason": "chore(c5): add missing first-party component license notices",
+      "review_history": [
+        {
+          "after_sha256": "b781301e24ef3e76578a3e15fee56d72fbd2cdcd81e5ebc3dc9ecf3dc5a08191",
+          "reason": "Use project include guards and C++ linkage for new first-party headers."
+        }
+      ]
     },
     "firmware_c5/components/Service/highboy_muse/token_uart/hb_muse_token_uart.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "6d135f8b6be978dde4c45c9f363e795ccd5d90e9ebdca3a1e69ffe33ef528a51",
-      "after_sha256": "f2c94aa468c2d8d273d161cabd7eaebb5611722f43efe9288cab89b4c111e0d8",
-      "reason": "Pin token UART worker using central policy and release its capability-allocated task stack.",
-      "pre_format_sha256": "3251fce58faaa4bbffdef389dc35ce2bca763d00f2af99c9b601ad7442cb6c46",
-      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+      "after_sha256": "67464c0ac332dafa35aaf55e9cda3434032c441de239fd4df8db88883dcfb9de",
+      "reason": "chore(c5): add missing first-party component license notices",
+      "review_history": [
+        {
+          "after_sha256": "f2c94aa468c2d8d273d161cabd7eaebb5611722f43efe9288cab89b4c111e0d8",
+          "reason": "Pin token UART worker using central policy and release its capability-allocated task stack.",
+          "pre_format_sha256": "3251fce58faaa4bbffdef389dc35ce2bca763d00f2af99c9b601ad7442cb6c46",
+          "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+        }
+      ]
     },
     "firmware_c5/components/Service/highboy_muse/token_uart/hb_muse_token_uart.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "a5cf73a884518a4533fadf6018e1c5ff48c7a6b53e730f1d9cbaee431d06dd1f",
-      "after_sha256": "a4034a681b4962e0f7dc3574166738577656df4ddca2c134a4c317ca5843f60c",
-      "reason": "Use project include guards and C++ linkage for new first-party headers."
+      "after_sha256": "344d2eabae57d55a103fc48151b80b38c90382cf6ac89ada3e6558d94ac406d8",
+      "reason": "chore(c5): add missing first-party component license notices",
+      "review_history": [
+        {
+          "after_sha256": "a4034a681b4962e0f7dc3574166738577656df4ddca2c134a4c317ca5843f60c",
+          "reason": "Use project include guards and C++ linkage for new first-party headers."
+        }
+      ]
     },
     "firmware_c5/components/Service/spi_bridge/hb_muse_c5_service.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "a9deb8e11b647668590a4ecfa88640878ee972114eea7624f6d0176e4c6ce647",
-      "after_sha256": "0098597231f7967ab287926ce73d36a4a00a7da4dfab7b915896d33674c0a1e0",
-      "reason": "Use project include guards and C++ linkage for new first-party headers."
+      "after_sha256": "283a2060d09a58732a4823b489b17adbb8444340de9a0faf77742b2dc55f6ac3",
+      "reason": "chore(c5): add missing first-party component license notices",
+      "review_history": [
+        {
+          "after_sha256": "0098597231f7967ab287926ce73d36a4a00a7da4dfab7b915896d33674c0a1e0",
+          "reason": "Use project include guards and C++ linkage for new first-party headers."
+        }
+      ]
     },
     "firmware_c5/components/Service/spi_bridge/session_manager.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -144,8 +210,14 @@
     "firmware_c5/components/Service/wifi/hb_muse_wifi_json_bound.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "2b9a8996b9f47f95fa6a620b9dead6f94061fc2e4ee352777ddc587b2ba80d7b",
-      "after_sha256": "79335ce0be1c319860418a58f7b666f0fb937991c7f9c70e8bd0796a5b237219",
-      "reason": "Use project include guards and C++ linkage for new first-party headers."
+      "after_sha256": "0c9ddeae4ae88639728cc12442f8760d59032b91ea579a2632b2280c8204df8e",
+      "reason": "chore(c5): add missing first-party component license notices",
+      "review_history": [
+        {
+          "after_sha256": "79335ce0be1c319860418a58f7b666f0fb937991c7f9c70e8bd0796a5b237219",
+          "reason": "Use project include guards and C++ linkage for new first-party headers."
+        }
+      ]
     },
     "firmware_c5/components/Service/wifi/wifi_service.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -1190,12 +1262,16 @@
     "firmware_c5/components/Service/spi_bridge/hb_muse_c5_service.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "339da1e33f7bc54bbe041c091373a3a98b1f7b5e3d1be495a6d255c7182242df",
-      "after_sha256": "d07a56dbdfeaa5b6eee81338315e9dba77a0f0fc509448eeda1b40f0c096252b",
-      "reason": "Permit GATT cancellation and status while Muse setup owns radio controls",
+      "after_sha256": "5c50c5ddf7eaa0ee30e82c6075472b4a8d6002164f88699e348e4864373cbff6",
+      "reason": "chore(c5): add missing first-party component license notices",
       "review_history": [
         {
           "after_sha256": "afcf5047e37043ecf184feca8b39a5152ca7f4f966ad2c77aea612191cea2ae2",
           "reason": "Honor Muse setup reservations for MQTT while retaining status and cancellation access"
+        },
+        {
+          "after_sha256": "d07a56dbdfeaa5b6eee81338315e9dba77a0f0fc509448eeda1b40f0c096252b",
+          "reason": "Permit GATT cancellation and status while Muse setup owns radio controls"
         }
       ]
     },
@@ -1772,6 +1848,204 @@
       "reason": "fix(recovery): preserve NVS and gate boot and reset completion on checked results",
       "pre_format_sha256": "ee7603ffc777ab27406e6074ee0790a91540d654793ad376403d5385396220aa",
       "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Drivers/spi_slave/CMakeLists.txt": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "b7dbcbba834ebf37384b4bbfa15bbe2187f2274a6cb9c9a71ea6d9091306347b",
+      "after_sha256": "a0325309a5bfb40cf9bb4acac1afaa6e72c86df38eb100d83bec5e275a0f3d20",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/Kconfig": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "b3cf121f9d87272b36d9debf1b76b61edb1b9a6846c9a8086bb9fec7f530d5f7",
+      "after_sha256": "17460e82c67b4088c25e021e3c83c4a09e66e69111611d3ae7de21856d1a29f8",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/bridge/hb_muse_rpc.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "bc584faec2dbfdd6a5e4ef74e8f42a7a5d50bc7508e59d9d2ba98aa6559b9b2d",
+      "after_sha256": "f39a95ce3bed0c8e89cd3eae0fc7bfadeb2de3e31784a45b7f61760a01ef3338",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/core/hb_muse_core.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "d614a5c4c45fa1bb674cf834debc699c510ed88c216c1935f101cc53372a1e12",
+      "after_sha256": "0f5f778ebc272ca2335d9e3d7453c32216834ecc0ec2ab7cbd0571d80c160723",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/core/hb_muse_core.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "c1087a1a9f4fa1690c8240867496885a711bc9ba789753b0f9293c5848342c58",
+      "after_sha256": "777722c11173a64a6991b4e6fabd01897b68f3cb61f839b3ec18ebad78537c94",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/diagnostic/hb_muse_alloc_trace.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "d0467ef020d4f8991c5f1d32a9b6960124e61a33e2e004955e865e5b869c444f",
+      "after_sha256": "07b0635d1f76d25d071238fbb9f0774accdbfb012b10dfc4c960a9198f7228b6",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_pairing.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "012bc9b614f8d0b19d91cd422010ae9b35cfb7d2005b65b831f4011c2db36a6c",
+      "after_sha256": "39737999d76c9b12d0f95db993c1eb0513400da19740be95a73a9392981eda27",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_pairing.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "74e71048c7a4e21ea35684e31e0acbee44a04af72a8ccf5b69d948f736b62fcf",
+      "after_sha256": "bf4dfa2d6c5a560e3fb6c02fa7d3b16f149a88d5d52a11661c4a9f295736f09f",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_pairing_fragments.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "7c7e1a2cccb152a716f5f4bc1dfa4fa616ff6fe856e1aa46a1457237d1046aa8",
+      "after_sha256": "f6441821f8a817be656c4a5c04b1504e0a78633ff2b894a4d2c952cad0d8d853",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_pairing_gatt.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "75a7e98dfea56bbf8c5b7709d535b21c754a89815bece673162d0e479383067a",
+      "after_sha256": "8fce95024d1c9e3ba5eda46e54e695f47823aa628a62e661fc4f1224588ae81f",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_setup.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "26e5a419cd7fbf015add88862f510be054d5b6027d8ad039035c800d50f3d547",
+      "after_sha256": "3a11567a00c17c36a532e158ade6e2933faad656c90f3cc33a9af570f69a6c7b",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/platform/hb_muse_account_fetch.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "c95ddca1f2c9d6f649f1c8c99c7f60b0fa992ce521380c633635f1db0c354026",
+      "after_sha256": "8a24ea12e4c168a09c964c7d55c5ef541996d7d028c012e2b157993221e8bf83",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/platform/hb_muse_account_fetch.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "bbe16a255cd797d2d48e994b558cb25458a3d0509bf9329367042b180fd0e35a",
+      "after_sha256": "0079013a700affc97f2fdaec539d02451241b86119a6b9fa7adca484509c5b74",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/platform/hb_muse_account_worker.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "9eb6e97a46e93ebacb146ac752023abda1f3ff5681aeeb3245471916e19d92a3",
+      "after_sha256": "d95a81844911ab133f4a3cc171a176ac5dd27cb3f516923037140bb7bed3d290",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/platform/hb_muse_platform.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "5d8a872a3c13a4f7edab04c3164b28f59b9aa958d8c356d16743d021ea24079c",
+      "after_sha256": "c875936e4464f49442dd2d7864835b0e5707f8a745a66b7e3cc6166a5f17246b",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/platform/hb_muse_platform.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "024d931be5242f6df1b40b036e18fec5bbc0133890c64a2407e2ef0f9cb76ffe",
+      "after_sha256": "67766485270b5ee24910e2a1b2b5c6f7e9a6ad7c80f1b0d2344db413a11ce184",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/platform/hb_muse_store.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "b4cb09e6688a9a4475fce9de642298365e4d19020b3b0d11320ce3188360d233",
+      "after_sha256": "14ebdd8dffdf182bafb911588a84296801d291308710bbd80b9c33b4df0358dc",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/platform/hb_muse_store.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "8a22d3ce8b68e310c3d4afaf0354c2230dff54b76711ca6b6eb7321c610ecf8d",
+      "after_sha256": "3c4645d23857c2e081503011fa1a2218620512e7d98dbafa31a06c913fe6cca1",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/runtime/hb_muse_runtime.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "fe17a0f0ef5f1b638bf1bd5e94ff03f0b11e630942d65355ddc5d519ae8785f2",
+      "after_sha256": "72ce834129c7635339cea57c2dfaedf250151aeb6fe407f59911daf272cb7cb3",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/sdk/hb_muse_sdk_port.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "f66c9f50da4ee1e6129fbf95f2c96f6347ba26e2724f0746fc4e431bc8089746",
+      "after_sha256": "38e0c92d4077439f5245b0f1edcba412d8345673f92effeb35562dce5e7c442d",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/sdk_adapter/hb_muse_pcm_adapter.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "eab00ec2d7b6d9202353c1eb548cf09aa1064cd7b145a249a232c64c860dfc76",
+      "after_sha256": "a208fa410655545bd98db9e16d7cd1ed22588dee803fbcf29c2d20a347d5de42",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/sdk_adapter/hb_muse_pcm_adapter.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "51fdad712ebbb03cd4da9267ffd890b2c413eab5b055d68659ee9e9d80a5ee1a",
+      "after_sha256": "793af018b15f3f6049f6e45cee7356c2ecd8738bf2db6473bf2f4c8f77b6b0b9",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/sdk_adapter/hb_muse_sdk_binding.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "b8add284a383911e078c6039ece72b2a04f5e4a898f09225cc52cb7e117879db",
+      "after_sha256": "1a37386eb73e3eb178676f0c505c6529c67dea6778cdebdf3b5dbec2f8a86860",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/sdk_adapter/hb_muse_sdk_binding.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "9da68ef847c12b37389db19728b264da1bbd5cfa606eb5d0564a1222fbb9c7c8",
+      "after_sha256": "006418963ddbce26ab53b66135051a3f535ca69e782c3fe86c6fe7111a307bd7",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/sdk_adapter/hb_muse_sdk_port.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "c32e9f82d57ebc6df8f5c0707d994eda710b7d85f38113f7c300f894f8403c6f",
+      "after_sha256": "f40c0a5eaaed03df1212a7d0691544ba59eb717bcf37b938bf1a550a6471f7fe",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/sdk_adapter/hb_muse_sdk_port.inc": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "034ccd2850b334f4820e58217e1229dabefe406824d34322ddfae2462f147e74",
+      "after_sha256": "ba873312c0977b754ffb5e518d9e1030f3ad08ee78395c784b1047e20de6af07",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/token_uart/hb_muse_token_frame.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "6abd389341e3a521a8b74e613f74658c929f25c0b9f0f4e47cb8480215372bd1",
+      "after_sha256": "ef008723bff0013abb2f57d4e7de3416f7d221d3ca3be06482095e28b1c30882",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/transport/hb_muse_endpoint.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "6204a6021fcd1ca88a1ddd1195913aefa14fb7aaa6ce583eee99feb37cabf9c9",
+      "after_sha256": "3f88fa3762c60ef539bb36348dea3d214f84f38da8e26c3b8a68a8d8fd728d3d",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/transport/hb_muse_endpoint.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "af47b56eca9c92e4c7091d2ba71074ca3230ad81bbae224d4ef319a2d48d89f8",
+      "after_sha256": "d67b03a17ffd526180e8bd6af655c39015b02e504e5d4853e0b59a44f524d592",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/transport/hb_muse_wire.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "d5362d0a57935cbcbb8d16b71433d913de51d8850c00e5e0abe0364c5489816c",
+      "after_sha256": "b5a7cc1fbb2602987942de49c2fc49bbac96d15b89ba5002ea969a93bc53a9b8",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/highboy_muse/transport/hb_muse_wire.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "1ddf71696d68821dbdaa872ad48b421faf861453ec8a496005c202f5dbb9d45f",
+      "after_sha256": "161a6d239bc4e7f34b93f439675b2962b6c32854f1049a0975ae92e46f69c008",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/wifi/hb_muse_wifi_guard.inc": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "6b555b4f26cb879f7629c3241a103c5bbdfed483f260b977c003e0eb035786bf",
+      "after_sha256": "8ca56901217a006f8ddbe07d3c2da05ce985820981b34a9cdc90bc65f4a77e0f",
+      "reason": "chore(c5): add missing first-party component license notices"
+    },
+    "firmware_c5/components/Service/wifi/hb_muse_wifi_scan.inc": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "d4c359cebfbb23b08a373c891bf748986a56c34cfa9d2c742fb02f31d96d7b61",
+      "after_sha256": "77b524733ff9256b9d0ef95533c4d27019cfebcaff1a34b53b034105c41a0cf6",
+      "reason": "chore(c5): add missing first-party component license notices"
     }
   }
 }
