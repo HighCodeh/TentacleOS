@@ -59,6 +59,8 @@ idf_build_set_property(COMPILE_OPTIONS "-Wno-error=maybe-uninitialized" APPEND)
 
 project(TentacleOS_P4)
 
+include("${CMAKE_CURRENT_LIST_DIR}/../tools/cmake/highboy_console.cmake")
+
 # APP-only: assets, SD, c5fw and boot metadata are untouched.
 
 # Compact LVGL control/layout code while retaining optimized rasterizers.

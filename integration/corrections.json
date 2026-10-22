@@ -760,8 +760,8 @@
     "firmware_p4/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "0f1227039a8fd707409aaebc1ba720212788503eb26421c5ded3947f10e67323",
-      "after_sha256": "3d239414151e666228f6ef511f69ee1f39920c8a16e4b34c849e31a5787ad907",
-      "reason": "build(security): add isolated factory profiles and audited signed-image capacity",
+      "after_sha256": "20c4a056810ec2dd041892036da8e610f7b35ecf7cfd163ec91d6e8c88a67ba8",
+      "reason": "fix(console): preserve editing keys during rapid UART input",
       "review_history": [
         {
           "after_sha256": "3f9e37605262ba8cd5c3e25d94f57f660c010e6baea480103d8fe554f58d4eef",
@@ -786,6 +786,10 @@
         {
           "after_sha256": "bf58c09879769d409b4c887414b204159825a4c4d4a9bc67ee94d5cbc2bc0f5d",
           "reason": "build(p4): compact SDK control services for NFC and LoRa lifecycle adapters"
+        },
+        {
+          "after_sha256": "3d239414151e666228f6ef511f69ee1f39920c8a16e4b34c849e31a5787ad907",
+          "reason": "build(security): add isolated factory profiles and audited signed-image capacity"
         }
       ]
     },

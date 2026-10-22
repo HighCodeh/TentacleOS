@@ -14,6 +14,41 @@ Connect the Highboy to a computer via USB. Use a serial terminal program (e.g., 
 
 The prompt `highboy>` indicates the system is ready.
 
+## Editing UART input
+
+This is an ESP-IDF command console with line editing, history and command
+completion. It does not implement Bash/zsh syntax, pipelines or shell scripts.
+Use an ANSI/VT100-capable serial terminal with local echo disabled.
+
+Backspace accepts both BS (`0x08`) and DEL (`0x7f`). Repeated Backspace, arrows,
+Home/End and Ctrl editing keys follow the editor path even when UART bytes
+arrive together. The fast-paste path is reserved for printable bytes inserted
+at the end of the line; printable input in the middle uses ordinary insertion.
+The existing 512-byte command-line buffer retains its 511-byte text limit.
+
+The pinned P4 SDK's original timing heuristic treated any non-Enter byte read
+within 30 ms as pasted text. It could insert repeated Backspace/control bytes
+literally and drop text inserted in the middle of a line. P4 CMake now selects
+a generated, narrowly patched copy of that one SDK source. The installed SDK
+is not modified; its exact original SHA-256 is required before generation,
+and only the console component's source entry is replaced. Original third-party
+notices are retained. This also applies to the isolated P4 security build;
+it does not change security settings or the C5's separate Muse console.
+
+```sh
+python3 tools/console/test_console.py --idf "$HIGHBOY_P4_IDF_PATH" \
+  --build firmware_p4/build_highboy
+```
+
+The host test first reproduces the unmodified SDK's rapid-DEL failure, then
+runs the actual corrected editor with ASan/UBSan: fast and slow BS/DEL,
+deletion past empty/full lines, arrows, middle insertion, Home/End, Ctrl editing
+and bounded pastes. Its UART bytes, timing and output are explicit fixtures;
+The optional `--build` check also requires the compilation database to select
+exactly the generated corrected source. CI runs both checks in the P4 build job.
+Physical terminal/adapter
+behavior and asynchronous log interference still require device acceptance.
+
 ## Available Commands
 
 ### System Commands
