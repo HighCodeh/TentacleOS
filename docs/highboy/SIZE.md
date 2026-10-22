@@ -147,3 +147,21 @@ policy stays outside whole-program optimization for those driver objects. The
 final paired validation record gives the source-matched control-only baseline
 and selected application sizes. These are build measurements, not hardware
 latency/stack/power acceptance.
+
+
+## ABI 1.21 complete Sub-GHz session checkpoint
+
+With executable source frozen at `5dda6710`, the prior control-source policy
+produces a **2,950,272-byte P4**, overflowing the original slot by **1,152**.
+The selected final `-Os` policy for the nine control sources produces
+**2,948,592 bytes**, saves **1,680**, and leaves **528 bytes**. The comparison
+changes only that Drivers CMake source policy; both builds use the same code.
+The oversized baseline is comparison-only and was not packaged. C5 remains
+**2,051,056 bytes**, with **46,096** free. See the
+[full build and test record](TESTS.md#owned-sub-ghz-sessions-and-forced-teardown-build-record).
+
+This includes all published Sub-GHz entries, JS/Lua session bindings, cancellation
+on context teardown and the manager's confirmed-suspension cleanup ordering.
+The 528-byte margin remains inadequate for further large adapters and the secure
+signing/padding boundary. Runtime stack/heap/timing, NFC emulation and LoRa
+raw/lifecycle work remain separate; no release readiness is implied.

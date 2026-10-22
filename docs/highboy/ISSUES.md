@@ -341,3 +341,40 @@ Sub-GHz lifecycle, NFC emulation/session ownership and LoRa raw/start/stop
 adapters. No new app radio session is claimed by node observations. Hardware
 acceptance and production release requirements are not replaced by these tests;
 no issue was closed by this batch.
+
+
+## Owned Sub-GHz sessions and safe forced app teardown follow-up
+
+ABI 1.21 fills every published Sub-GHz function pointer. Native apps and JS/Lua
+can start task-owned windowed RX or periodic complete spectrum sweeps, retune RX,
+poll copied results and stop. The single persistent service worker uses the
+existing RF backend/lease and performs no automatic SD writes. Empty windows
+are distinguished from SPI/setup/cleanup timeouts. Generic ESP_FAIL remains a
+negative poll error rather than becoming a successful count.
+
+Binding/rebinding/unbinding cancels the originating task's session. Pending
+requests, callbacks and buffers remain firmware-owned after app/script unload.
+Failed teardown retains ownership and is retried before reuse. Foreign/stale
+IDs fail; task-handle reuse cannot inherit a previous binding's session. Terminal
+failures set resource_lost and successful startup clears it. This delivers the
+remaining asynchronous Sub-GHz code under #156; reception is windowed with gaps,
+not a claim of gap-free sampling or physical RF acceptance.
+
+For #153, force-stop now confirms suspension and detaches context, sessions,
+grants and app memory while the task identity is still allocated, then deletes
+the task. The old delete-before-cleanup order could let an immediately reused
+identity receive old teardown. Quiescence/suspension failures roll back without
+freeing the live app; self-stop requests remain cooperative. Production manager
+code is tested with delayed acknowledgement, failure and immediate reuse cases.
+
+For #157, the source-matched control compilation comparison recovers 1,680 bytes,
+leaving a verified 528-byte P4 margin with the new session and teardown code.
+Original partitions, features, C5 overlay, radio transfer/IRQ/pulse policies and
+crypto opacity remain preserved. The normal paired candidate passes the full
+offline suite; the oversized comparison is deliberately rejected by the slot
+check. This does not solve secure-signing size or runtime acceptance.
+
+The remaining #156 code is NFC emulation/session ownership and LoRa raw/start/
+stop adapters. Production identities, release/restoration work, original Bash
+reproduction and physical acceptance for the other issues remain distinct.
+No issue was closed and no device or production key was accessed in this batch.

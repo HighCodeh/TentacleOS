@@ -1002,3 +1002,58 @@ Import preservation and Conventional Commit checks passed. Only the pre-commit
 hook formatted firmware. No device, production identity, eFuse or serial port
 was accessed. This remains an app-only development candidate; async Sub-GHz,
 NFC emulation/session and LoRa raw/start/stop adapters remain code work.
+
+
+## Owned Sub-GHz sessions and forced teardown build record
+
+2026-10-22, executable source `5dda671042bb4b1066f393cc37242a0063dd98ee`, ABI 1.21.
+The follow-up documentation commit changes no firmware source. Pending user
+Wi-Fi/UI/guarded-updater work is present; `source_dirty=true` is intentional.
+
+App-only candidate: `integration/release/candidate_0661c47417cc_1c811f394882_f1054f1ddbf6/`.
+
+| Target | Application bytes | Original slot bytes | Free bytes | SHA-256 |
+| --- | ---: | ---: | ---: | --- |
+| P4 | 2,948,592 | 2,949,120 | 528 | `0661c47417cc573717d733229530b99029be82e67e92e95d6488ae2261dd02aa` |
+| C5 | 2,051,056 | 2,097,152 | 46,096 | `1c811f39488227d622d5b9695b484ac6e8c08acedfacc3957736c099aee106a8` |
+
+The packager passed both pinned builds (P4 IDF 5.5.3, C5 6.0.1), the complete
+offline runner and profile/integrity verification before atomic publication.
+The standalone verifier and real-esptool recovery image tests passed. The latter
+uses synthetic boot containers/assets with actual built apps, not real device
+backups or boot acceptance. Protocol v8, paired headers and all eight C5 memory
+settings remain aligned. No flash, radio, SD card, production identity or eFuse
+was accessed.
+
+The actual Sub-GHz backend/service task runs on a host thread with ASan/UBSan
+and explicit RMT/SPI/FreeRTOS fixtures. Tests cover empty RX readiness, unread
+frame preservation across empty windows, RX/spectrum polling, retune, short
+buffers, foreign/stale/reused task identities, ID exhaustion, startup starvation
+and busy radio, stop while should_stop is set, permission errors, generic/SPI
+errors, no partial sweep, non-owner cancellation and retained cleanup retries.
+Context tests verify bind/unbind cancellation hooks across concurrent task bindings.
+Actual JS/Lua tests cover all five session bindings, result records/empty polls,
+old ABI rejection, permissions and native errors.
+
+Forced-stop tests execute the production manager/helper with scheduler and
+UI/RF/SPI fixtures. They verify cross-core suspension acknowledgement, lock and
+suspension rollback, self-stop rejection, and context/grant cleanup before
+task deletion with immediate identity reuse. Natural-exit retry tests remain
+passing. The pinned IDF task implementation was checked locally: its state
+query reports a task running on either core before returning suspended. This
+supports the software ordering; hardware timing remains unmeasured.
+
+The source-matched comparison restored only the prior Drivers CMake options,
+held executable source at the same commit, built, recorded the image and then
+restored the selected options in a finally block. Baseline P4 is 2,950,272
+bytes (1,152 over the original slot), SHA-256 `ee900e7e34aa3efe67f2277b032032b0a4415df46187f901f517b9b3adf34b77`; its size check
+correctly fails and it was never packaged. The selected final `-Os` control
+policy saves **1,680 bytes**, producing the 528-byte development margin above.
+Generated compile commands confirm no LTO for those nine control sources, while
+CC1101 transfers, NFC IRQ/SPI HAL and crypto utility opacity retain their prior
+flags. No feature or partition was removed.
+
+Commitlint, whitespace and import-preservation checks passed. Firmware formatting
+was performed only by the pre-commit hook. The tiny P4 margin does not solve
+secure padding or reserve room for remaining NFC/LoRa adapters; no physical
+acceptance or issue closure is claimed by this batch.
