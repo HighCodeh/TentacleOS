@@ -52,6 +52,7 @@ README.md, separated by `---`.
 | `pins` | [README.md](pins/README.md) - board pin assignment definitions |
 | `power_manager` | [README.md](power_manager/README.md) - battery and power-state management service |
 | `recovery` | [README.md](recovery/README.md)  |
+| `security` | [README.md](security/README.md) - isolated paired security configuration and provisioning boundary |
 | `sd_card` | [README.md](sd_card/README.md)  |
 | `spi` | [README.md](spi/README.md)  |
 | `spi_bridge` | [README.md](spi_bridge/README.md)  |

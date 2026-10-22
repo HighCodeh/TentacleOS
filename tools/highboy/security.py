@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""Resolve and audit a review-only security configuration; no serial or key operations."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import verify_package
+
+ROOT = Path(__file__).resolve().parents[2]
+VERSIONS = {'p4': 'v5.5.3', 'c5': 'v6.0.1'}
+REQUIRED = {
+    'SECURE_BOOT': 'y', 'SECURE_BOOT_V2_ENABLED': 'y',
+    'SECURE_SIGNED_APPS_RSA_SCHEME': 'y', 'SECURE_SIGNED_ON_BOOT': 'y',
+    'SECURE_SIGNED_ON_UPDATE': 'y', 'SECURE_FLASH_ENC_ENABLED': 'y',
+    'SECURE_FLASH_ENCRYPTION_AES128': 'y', 'SECURE_FLASH_ENCRYPTION_MODE_RELEASE': 'y',
+}
+FORBIDDEN = ('SECURE_BOOT_BUILD_SIGNED_BINARIES', 'SECURE_BOOT_FLASH_BOOTLOADER_DEFAULT',
+             'SECURE_BOOT_INSECURE', 'SECURE_BOOT_ALLOW_JTAG', 'SECURE_BOOT_ALLOW_SHORT_APP_PARTITION',
+             'SECURE_BOOT_ENABLE_AGGRESSIVE_KEY_REVOKE', 'SECURE_BOOT_V2_ALLOW_EFUSE_RD_DIS',
+             'SECURE_FLASH_ENCRYPTION_MODE_DEVELOPMENT', 'EFUSE_VIRTUAL', 'EFUSE_VIRTUAL_KEEP_IN_FLASH')
+
+
+def digest(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def config_values(path):
+    result = {}
+    for line in Path(path).read_text().splitlines():
+        if line.startswith('CONFIG_') and '=' in line:
+            name, value = line.split('=', 1)
+            name = name.removeprefix('CONFIG_')
+            if name in result:
+                raise ValueError('Duplicate config field: ' + name)
+            result[name] = value
+    return result
+
+
+def audit(target, config, baseline=None):
+    if target not in VERSIONS:
+        raise ValueError('Unsupported target')
+    if config.get('IDF_TARGET') != json.dumps('esp32' + target):
+        raise ValueError('Wrong configuration target')
+    for name, expected in REQUIRED.items():
+        if config.get(name) != expected:
+            raise ValueError('Missing security requirement: ' + name)
+    for name in FORBIDDEN:
+        if config.get(name, 'n') != 'n':
+            raise ValueError('Disallowed security setting: ' + name)
+    if config.get('SECURE_BOOT_SIGNING_KEY', '""') not in ('""', 'n'):
+        raise ValueError('External signing profile must not select a private key')
+    if baseline is not None:
+        # Preserve every explicit board overlay selection, including the C5 memory policy.
+        overlay = ROOT / ('firmware_' + target) / ('sdkconfig.muse' if target == 'p4' else 'sdkconfig.baseline')
+        for name in config_values(overlay):
+            if config.get(name) != baseline.get(name):
+                raise ValueError('Board overlay changed: ' + name)
+        for name in ('PARTITION_TABLE_OFFSET', 'PARTITION_TABLE_CUSTOM_FILENAME',
+                     'ESPTOOLPY_FLASHSIZE', 'ESP_REV_MIN_FULL'):
+            if config.get(name) != baseline.get(name):
+                raise ValueError('Installed profile changed: ' + name)
+    return {'target': target, 'idf_version': VERSIONS[target],
+            'status': 'resolved_security_configuration_requires_signing_and_provisioning_review',
+            'secure_boot_scheme': 'RSA-3072', 'flash_encryption': 'XTS-AES-128',
+            'signing': 'external_required', 'production_keys_provisioned': False,
+            'efuses_written': False, 'hardware_validated': False,
+            'normal_app_updater_supported': False}
+
+
+def resolve(target, idf, python, build, output):
+    idf, build, output = Path(idf).resolve(), Path(build).resolve(), Path(output).absolute()
+    version = subprocess.check_output(['git', '-C', str(idf), 'describe', '--tags', '--exact-match'], text=True).strip()
+    if version != VERSIONS[target]:
+        raise ValueError('Wrong SDK lane: ' + version)
+    baseline = config_values(build / 'sdkconfig')
+    if baseline.get('IDF_TARGET') != json.dumps('esp32' + target):
+        raise ValueError('Wrong baseline target')
+    environment = json.loads((build / 'config.env').read_text())
+    if Path(environment.get('IDF_PATH', '')).resolve() != idf:
+        raise ValueError('Baseline references another SDK')
+    if output.exists() or output.is_symlink():
+        raise ValueError('Output already exists; refusing to overwrite')
+    output.parent.mkdir(parents=True, exist_ok=True)
+    profile = ROOT / 'integration/security' / (target + '.defaults')
+    with tempfile.TemporaryDirectory(prefix='.security-', dir=output.parent) as temp:
+        staging = Path(temp) / 'review'
+        staging.mkdir(mode=0o700)
+        config = staging / 'sdkconfig'
+        env = dict(os.environ, IDF_PATH=str(idf))
+        command = [str(python), '-m', 'kconfgen', '--list-separator=semicolon',
+                   '--kconfig', str(idf / 'Kconfig'), '--sdkconfig-rename', str(idf / 'sdkconfig.rename'),
+                   '--config', str(config), '--defaults', str(build / 'sdkconfig'),
+                   '--defaults', str(profile), '--env-file', str(build / 'config.env'),
+                   '--env', 'IDF_TARGET=esp32' + target, '--env', 'IDF_TOOLCHAIN=gcc',
+                   '--env', 'IDF_ENV_FPGA=', '--env', 'IDF_INIT_VERSION=' + version[1:],
+                   '--env', 'IDF_MINIMAL_BUILD=n', '--dont-write-deprecated', '--output', 'config', str(config)]
+        subprocess.run(command, cwd=ROOT, env=env, check=True, timeout=120)
+        report = audit(target, config_values(config), baseline)
+        image = build / ('TentacleOS_' + target.upper() + '.bin')
+        if image.is_file():
+            # Baseline-only projection; the secure configuration must still be built.
+            page = 65536
+            sector = 4096
+            projected = ((image.stat().st_size + page - 1) // page) * page + sector
+            slot = verify_package.PROFILE[target.upper()]['slot_bytes']
+            report['baseline_size_projection'] = {'unsigned_bytes': image.stat().st_size,
+                'unsigned_sha256': digest(image), 'mmu_page_bytes': page,
+                'signed_padded_bytes': projected, 'slot_bytes': slot,
+                'over_slot_bytes': max(0, projected - slot), 'secure_build_validated': False}
+        report.update(profile_sha256=digest(profile), sdkconfig_sha256=digest(config),
+                      baseline_sdkconfig_sha256=digest(build / 'sdkconfig'))
+        (staging / 'review.json').write_text(json.dumps(report, indent=2) + '\n')
+        staging.rename(output)
+    return output
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--target', choices=VERSIONS, required=True)
+    parser.add_argument('--idf', type=Path, required=True)
+    parser.add_argument('--python', type=Path, required=True)
+    parser.add_argument('--build', type=Path, required=True, help='Existing matching development build, read only')
+    parser.add_argument('--out', type=Path, required=True, help='New isolated review directory')
+    args = parser.parse_args()
+    try:
+        result = resolve(args.target, args.idf, args.python, args.build, args.out)
+    except (ValueError, OSError, subprocess.SubprocessError) as error:
+        raise SystemExit('Security preparation failed: ' + str(error)) from error
+    print('Security configuration resolved and audited:', result)
+    print('Review only: no keys generated/read, firmware compiled/signed, serial access or eFuse operations.')
+
+
+if __name__ == '__main__':
+    main()
