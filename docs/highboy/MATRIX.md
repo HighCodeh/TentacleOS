@@ -17,7 +17,7 @@ High Boy. HID layouts, haptics and HLE remain excluded by request.
 | LoRa airtime pacing | Shared SX1262 transmit guard | Future adapters inherit the driver guard | Existing TX callers inherit the driver guard | Host timing/concurrency tests pass; physical airtime/regional acceptance pending (#156) |
 | LoRa MQTT subscription | Native Meshtastic MQTT screen | Not published | No companion MQTT API; C5 owns the network client | Bounded SPI transport, confirmed subscription and chat reception implemented; real broker and paired-device acceptance pending (#156) |
 | RNode / KISS | Legacy screen is receive-only radio lab | Not published | No usable P4 KISS endpoint | Decision under #145: unsupported on this P4 profile because GPIO43/44 are SDMMC; a future endpoint needs a separate transport design |
-| Power / recovery | Native diagnostics / safe mode | No power-control ABI | Existing system diagnostics | Sleep/wake, current draw, watchdog/crash and recovery acceptance (#135, #153) |
+| Power / recovery | Native diagnostics / safe mode | No power-control ABI | Existing system diagnostics | Sleep/wake/current (#135); physical watchdog/crash/recovery unverified (software completion: #153) |
 
 ## Evidence and limits
 

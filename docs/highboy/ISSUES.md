@@ -22,6 +22,8 @@ this work. Feature request #163 is also excluded by user request. No device was 
 
 | [#156](https://github.com/HighCodeh/TentacleOS/issues/156) | The [source/interface matrix](MATRIX.md) is complete at the requested code boundary. ABI 1.22 supplies owned NFC UID emulation; ABI 1.23 supplies raw LoRa and complete owned mesh startup/teardown, shared with JS/Lua. Native ownership, callback/worker drainage and retained failed cleanup pass host tests and both pinned builds. The user requested completion without waiting for physical acceptance; device tests remain unverified, and P4 RNode retains the explicit #145 exclusion. |
 
+| [#153](https://github.com/HighCodeh/TentacleOS/issues/153) | Checked P4/C5 monitor creation and WDT APIs now enter the configured panic/coredump path on failure. Healthy completed boots alone clear the RTC loop counter. Recovery preserves NVS, skips configuration/SD startup, gates UI/OTA on successful initialization, and reports reset failures without rebooting. Bounded internal-stack boot MP3/serialized I2S replaces the disabled crash guard. Production-code host fault injection and both pinned builds pass; physical fault injection, core-dump flash integrity and audio remain unverified at the user-requested code closure boundary. |
+
 ## Still open
 
 | Issue | Remaining work |
@@ -30,7 +32,6 @@ this work. Feature request #163 is also excluded by user request. No device was 
 | [#143](https://github.com/HighCodeh/TentacleOS/issues/143) | Companion Wi-Fi dispatch exists. Measure actual throughput and validate complete scan/connect/session flows on the paired device. |
 | [#148](https://github.com/HighCodeh/TentacleOS/issues/148) | Physical NFC card test with recorded hardware, card types, read/write/emulation results and field shutdown. |
 | [#152](https://github.com/HighCodeh/TentacleOS/issues/152) | Isolated paired Secure Boot v2 / release Flash Encryption profiles and an SDK resolver/auditor exist. Real signing identities, signed secure builds fitting the original slots, per-device encryption custody and reviewed two-chip eFuse/recovery provisioning remain. Normal development builds keep both disabled. |
-| [#153](https://github.com/HighCodeh/TentacleOS/issues/153) | Boot-loop/safe-mode/WDT/coredump mechanisms exist. Retained dumps no longer inflate abnormal-reset totals; NVS failures and counter overflow are handled, and the boot-loop decision survives the stable timer. Real-module host fault-injection covers RTC/NVS/timer/heap paths. Physical fault-injection/recovery acceptance and the boot-sound crash workaround remain. |
 | [#157](https://github.com/HighCodeh/TentacleOS/issues/157) | App-only candidates and private paired recovery preparation/verification are implemented. Current sizes/hashes are in the latest [validation record](TESTS.md#shared-irnfc-and-offline-securityrecovery-preparation-build-record). The unsigned pair fits; the baseline secure-padding/signature projection exceeds both slots. Further size work, runtime performance/internal heap/stack evidence, production identity/custody and a reviewed deployable asset/restore/release package remain. |
 | [#158](https://github.com/HighCodeh/TentacleOS/issues/158) | Fixed a reproduced BSD/macOS SDK build bug (`stat -c%s` is GNU-only), with an isolated shell regression. The original unnamed Bash report remains unidentified: the user no longer recalls the command and the explanation is on another PC. All reviewed shell files pass syntax checks. The [field guide](FIELD.md) documents current capabilities, bench evidence and the app-only boundary. A supported consumer installation procedure still needs the approved deployment/recovery package. |
 
@@ -402,3 +403,37 @@ RNode remains unsupported under #145, while HID layouts, haptics, HLE and featur
 request #163 remain excluded. The other seven in-scope issues retain their own
 code, production, reproduction and device requirements. No firmware was pushed
 or flashed as part of this completion.
+
+
+## Issue 153 operational code completion
+
+Both monitors check task creation, watchdog subscription and every feed. Sustained
+critical stack/heap or missing first/subsequent UI progress enters the configured
+panic handler rather than a clean software reset, preserving diagnostic context
+and abnormal-reset classification. The stack watch uses task handle plus number,
+removes obsolete entries before reuse, and escalates a full critical-task table.
+P4 stability requires completed kernel initialization, successful required stages,
+a healthy monitor cycle and the elapsed stable window; the timer alone cannot
+hide a stalled boot. The current recovery decision remains latched until reset.
+
+P4 recovery no longer erases NVS on initialization failure, seeds/loads config
+before deciding recovery, calls UI after failed LVGL initialization, or confirms
+a pending OTA from recovery. Headless recovery supervises WDT/heap/stacks without
+calling LVGL alerts/cache. Explicit factory reset mounts SD on request, preserves
+assets/C5 firmware, yields during deletion, and propagates filesystem/NVS failures.
+The recovery UI checks worker creation and only reboots after a successful reset.
+
+The old unconditional boot-sound disable is removed. Normal boot optionally runs
+a single guarded internal-stack worker with bounded file size, decoding time and
+output duration, checked allocations and monotonic decoder progress. It plays
+owned mono PCM through the serialized I2S path, with volume and short-write/drain
+handling; recovery and low-heap/missing-file cases skip the optional sound.
+The [validation record](TESTS.md#operational-recovery-and-bounded-boot-audio-build-record)
+distinguishes production control code from fake scheduler/HAL/decoder behavior.
+
+This completes #153 at the requested software scope without waiting for physical
+acceptance. No actual watchdog firing, device crash reproduction, Helix execution,
+flash core-dump capture/decoding, cache behavior or audible playback is certified.
+No device was accessed or flashed, and no changes were pushed. The six other
+in-scope issues keep their own remaining requirements; the feature request, HID
+layouts, HLE and haptics remain excluded.

@@ -1103,3 +1103,48 @@ performed. Physical RF/mesh, C5 transport, memory/stack and timing acceptance
 remain unverified. #156 completes the requested source/interface matrix without
 waiting for physical acceptance; this is not a production release or resolution
 of #152/#153/#157.
+
+
+## Operational recovery and bounded boot audio build record
+
+Issue #153 is complete at the user-requested software boundary, without waiting
+for physical acceptance. Executable source is `7ae39a52a770eb054ba2762a3bad89f23cc8587d`;
+the worktree includes the pre-existing user changes (`source_dirty=true`). The
+four modular source/test commits are `f09f5f5a`, `b37af0d2`, `e60793df` and
+`7ae39a52`. The final documentation commit does not change executable source.
+
+The paired pinned builds, full offline host suite and preservation checks pass.
+Immutable app-only candidate:
+`integration/release/candidate_7a4792d488ec_f813339e1fc9_6cd1c5f3be7a/`.
+
+| Target | Pinned SDK | App bytes | Original slot | Free bytes | SHA-256 |
+| --- | --- | ---: | ---: | ---: | --- |
+| P4 | v5.5.3 | 2,946,960 | 2,949,120 | 2,160 | `7a4792d488ec34da03abac1aad84ab65ba1dd54350997b6b02273f2a5dc572d2` |
+| C5 | v6.0.1 | 2,051,664 | 2,097,152 | 45,488 | `f813339e1fc9059baa6e8b3a1e4eb95975e32722599b7c5defcd0272884a6057` |
+
+`verify_package.py` validates exact hashes/profile/slots. The real-esptool recovery
+image tests pass, including the deliberate wrong-chip rejection. Commitlint and
+whitespace checks pass; source formatting ran only through the pre-commit hook.
+Paired protocol v8, original partitions and the C5 memory overlay are preserved.
+The P4 slot remains nearly full; this is an unsigned development candidate, not
+completion of the secure signing/release-size work in #152/#157.
+
+`tools/boot_report/test_boot_report.py` remains part of the existing full runner
+(fingerprint `3b7ab188670d774171e88207e63b57a8b1b425838e3e3562bc30ad5c0747a4bc`).
+It now runs ASan/UBSan checks against production P4/C5 monitor code, boot report,
+P4 kernel/app entry, bounded boot sound, I2S control and factory reset/recovery
+functions. Explicit fakes inject scheduler/task/WDT/HAL/NVS/decoder failures.
+Tests cover healthy-completion/stable-timer gating, first-render stalls, task
+identity reuse, checked WDT APIs, panic escalation, NVS preservation, headless
+UI gating, no recovery OTA confirmation, bounded decoder progress/format/size,
+low heap, missing file, PCM volume, short/zero/odd DMA writes, bounded drainage,
+failed stream-stop retention, SD mount-on-request, filesystem/NVS reset errors,
+failed worker creation and failure without reboot. Temporary host directories
+alone supply file fixtures; no installed assets, card, NVS or flash are touched.
+
+Physical watchdog timing, a reproduced device crash, flash-coredump capture and
+offline decoding, cache behavior, actual Helix decoding and audible playback
+remain unverified. Optional `/assets/storage/ghost_cyberpunk_boot.mp3` is not
+installed by this package. Recovery/low-heap/missing-file cases skip boot audio.
+No device was accessed, flashed or provisioned, and no changes were pushed.
+User Wi-Fi/deployment changes and their provenance were preserved separately.
