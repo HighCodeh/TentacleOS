@@ -63,6 +63,11 @@ def validate_report(report):
         require(type(free) is int and free == expected['slot_bytes'] - size, f'{chip} invalid slot margin')
         checksum = target.get('sha256')
         require(isinstance(checksum, str) and re.fullmatch('[0-9a-f]{64}', checksum), f'{chip} invalid digest')
+        if 'build_evidence' in target:
+            import build_evidence
+            require(isinstance(target['build_evidence'], dict), 'Invalid build evidence')
+            require(target['build_evidence'].get('target') == chip, 'Crossed build evidence')
+            build_evidence.validate(target['build_evidence'], target)
 
 
 def reject_constant(value):

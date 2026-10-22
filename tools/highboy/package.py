@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import check_contracts
 import verify_package
+import build_evidence
 
 ROOT = Path(__file__).resolve().parents[2]
 PARTITION_SHA = {chip.lower(): profile['partition_table_sha256']
@@ -150,6 +151,7 @@ def main():
             "idf_version": verify_package.PROFILE[chip.upper()]["idf_version"],
             "compile_commands_sha256": digest(build / "compile_commands.json"),
         }
+        report["targets"][chip.upper()]["build_evidence"] = build_evidence.collect(chip, build)
         images[chip.upper()] = app
     dest = write_package(report, images, ROOT / "integration/release")
     print(json.dumps(report, indent=2))

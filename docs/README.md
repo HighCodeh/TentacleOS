@@ -8,6 +8,7 @@ README.md, separated by `---`.
 ## Featured
 
 - [highboy/](highboy/README.md) - integrated dev + local Muse pair, build lanes, preservation and deployment gates
+- [High Boy release candidates](highboy/RELEASE.md) - internal RAM/compiler gates and paired SD OTA packaging
 
 - [host_link/](host_link/README.md) - companion app link: overview, [app implementation guide](host_link/app-guide.md), [protocol spec](host_link/protocol.md), [NFC/RFID commands](host_link/rf-commands.md), per-firmware sections
 - [spi_bridge/](spi_bridge/README.md) - P4<->C5 SPI bridge: architecture + per-firmware sections
