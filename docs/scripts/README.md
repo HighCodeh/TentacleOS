@@ -271,3 +271,20 @@ JavaScript indexes `dbm` from 0 and Lua from 1. The native
 applies. Older ABI versions, missing permissions, busy radio and SPI/cleanup
 errors fail the call without a partial record. This reads one sweep and creates
 no persistent script session. RF acceptance still requires hardware.
+
+
+## Complete IR bindings (ABI 1.16)
+
+JavaScript and Lua now expose the same raw/file/AC ABI adapters:
+
+| Call | Approval | Result |
+| --- | --- | --- |
+| `tos.call("ir.get_last_raw", max)` | radio-rx | signed timing array; max 1..128 |
+| `tos.call("ir.send_raw", 38000, "350,-700,350")` | radio-tx | zero after native completion |
+| `tos.call("ir.send_file", "/sdcard/one.ir")` | radio-tx + fs-read | zero after single-signal replay |
+| `tos.call("ir.send_ac", 5, true, 2, 23, 3)` | radio-tx | HAIER, on, HEAT, 23 C, high fan |
+
+Raw CSV uses the existing bounded signed-timing parser (at most 128 timings,
+subject to script string size). Empty/trailing items, overflow and old/missing
+ABI entries are rejected. See the [native IR limits](../app_sdk/README.md#complete-ir-adapters-abi-116)
+for carrier, durations, file selection and retained cleanup.

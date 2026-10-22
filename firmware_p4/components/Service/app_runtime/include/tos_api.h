@@ -68,7 +68,7 @@ typedef struct host_link_handler host_link_handler_t; // opaque to apps
 // 1.8 = read-only fs subsystem. NOTE: 1.7 was briefly a (removed) IMU subsystem in
 // dev; fs took a fresh minor so a firmware built during the IMU era rejects an
 // fs app at the load gate instead of mismatching its api->fs pointer.
-#define TOS_ABI_VERSION_MINOR 15
+#define TOS_ABI_VERSION_MINOR 16
 
 /** Log levels; values match esp_log_level_t so they pass straight through. */
 typedef enum {
@@ -408,9 +408,11 @@ typedef struct {
 typedef struct tos_ir_api {
   esp_err_t (*receive)(tos_ir_code_t *out, uint32_t timeout_ms); ///< radio-rx; blocks
   esp_err_t (*send)(const tos_ir_code_t *code);                  ///< radio-tx
-  int (*get_last_raw)(int32_t *out, int max); ///< last capture's pulses; count, or <0
+  // Minor 16+: raw/file/AC adapters. Count errors are -esp_err_t; discard output on error.
+  int (*get_last_raw)(int32_t *out, int max); ///< global last capture; max 1..1024; count, or <0
   esp_err_t (*send_raw)(const int32_t *pulses, int count, uint32_t carrier_hz); ///< radio-tx
-  esp_err_t (*send_file)(const char *path);    ///< radio-tx; .ir under /sdcard
+  esp_err_t (*send_file)(
+      const char *path); ///< radio-tx + fs-read; exactly one signal under /sdcard
   esp_err_t (*send_ac)(const tos_ir_ac_t *ac); ///< radio-tx
 } tos_ir_api_t;
 

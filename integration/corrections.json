@@ -978,8 +978,8 @@
     "firmware_p4/components/Service/app_runtime/include/tos_api.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "9c2020f1c91901d7b2335daccc2055d14c8646b20094bab14fc8bdd3a83b0b5d",
-      "after_sha256": "ed03868adf9546ce07973a5b37b2fb01de9933ce4f596d726b5d14264a427718",
-      "reason": "Publish additive ABI 1.15 bounded Sub-GHz spectrum result and one-shot capture pointer; preserve all existing offsets and optional asynchronous contracts.",
+      "after_sha256": "1357e0e76197fb5e6180e8e701897391f53e0cda29721cc19efa4a775249a8eb",
+      "reason": "Expose bounded native IR raw capture/replay, single-signal SD replay and AC encoding through the common ABI/JS/Lua, with explicit enum conversion and persistent-worker retained symbol cleanup.",
       "review_history": [
         {
           "after_sha256": "ef540914e454c49228b43f64b0605a2094d3ac153b992d56ca51a2292a1f1a34",
@@ -1010,8 +1010,14 @@
           "reason": "Bounded copied LoRa text queue owned by native mesh poll tasks; atomic protocol publication/start serialization and capability/cancellation-gated ABI 1.14 plus JS/Lua binding.",
           "pre_format_sha256": "8e5d5095df5e8a4c21cf8f80087dc841df3d87d8408184ba6cac21951373c03b",
           "formatter": "clang-format version 22.1.5"
+        },
+        {
+          "after_sha256": "ed03868adf9546ce07973a5b37b2fb01de9933ce4f596d726b5d14264a427718",
+          "reason": "Publish additive ABI 1.15 bounded Sub-GHz spectrum result and one-shot capture pointer; preserve all existing offsets and optional asynchronous contracts."
         }
-      ]
+      ],
+      "pre_format_sha256": "5f07f4f8fc2da7fb0b47f6188cf620ce7e1a7a778f7f20936664c71ce4b1ac6a",
+      "formatter": "clang-format version 22.1.5"
     },
     "firmware_c5/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -1304,6 +1310,22 @@
       "before_sha256": "f49f0c4dee194d1f7dd27d5f3811169e64eb77a7e4df59dd42a2c92399247edb",
       "after_sha256": "668861dc94d6694405d2f76942031bcef8459147ae9f9c1c3daca45f5b9c27e7",
       "reason": "Harden native P4 OTA preflight/ownership/cleanup and P4/C5 confirmation errors; connect the actual SD update UI to native workers/progress instead of fabricated versions and timed reboot."
+    },
+    "firmware_p4/components/Service/app_runtime/tos_api_ir.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "8ea07ebab4b40e71feb6aa3e5f88a45e05bab98b86e46b2b18c23a62eef458a0",
+      "after_sha256": "bffbead54ebeb51248759fac154332cd54fc8eff3c8e26ddc633c69da7c64db7",
+      "reason": "Expose bounded native IR raw capture/replay, single-signal SD replay and AC encoding through the common ABI/JS/Lua, with explicit enum conversion and persistent-worker retained symbol cleanup.",
+      "pre_format_sha256": "97635491b0e42a6e65b07596b8f97c3659ee83b898b5ca0f7ffb2cfe464c3eed",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/script_engine/script_bindings.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "4accb6f73905aab43df13caffbf472f3f88f7374603d2df8be7fe126c45f2df3",
+      "after_sha256": "57174a972fec106564985bc134a06e741c8b17316d8a062ac9deb35de5009756",
+      "reason": "Expose bounded native IR raw capture/replay, single-signal SD replay and AC encoding through the common ABI/JS/Lua, with explicit enum conversion and persistent-worker retained symbol cleanup.",
+      "pre_format_sha256": "1bc3312adfc89bc777aa8362def8edd5fccaff1db7cee4bba848c41aaf39f29f",
+      "formatter": "clang-format version 22.1.5"
     }
   }
 }

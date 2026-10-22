@@ -262,3 +262,14 @@ teardown functions, local backend and ABI with explicit RMT/RTOS fakes. It cover
 native/app contention, foreign teardown rejection, protocol conversion, stop,
 timeout and retained RX/TX/encoder cleanup. Actual optical operation remains
 part of physical acceptance.
+
+
+## App and script adapters
+
+ABI 1.16 exposes decoded RX/TX, signed raw capture/replay, single-signal SD-file
+replay and AC state encoding through the shared app table and JS/Lua bindings.
+Extended calls execute under the persistent host worker's IR lease; heap symbol
+storage survives failed RMT teardown and is reclaimed only after cleanup succeeds.
+This avoids freeing replay/AC symbols while a timed-out transmit may still use
+them. See the [app contract](../app_sdk/README.md#complete-ir-adapters-abi-116)
+and [script calls](../scripts/README.md#complete-ir-bindings-abi-116).

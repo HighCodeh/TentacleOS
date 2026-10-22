@@ -113,7 +113,22 @@ static esp_err_t send_mesh(const char *text) {
   assert(strcmp(text,"hello")==0);++s_mesh_sends;return s_mesh_error;
 }
 static const tos_lora_api_t lora={.mesh_poll=poll_mesh_view,.mesh_send_text=send_mesh};
-static const tos_ir_api_t ir={.receive=receive_ir,.send=send_ir};
+static unsigned s_ir_extended_calls;
+static esp_err_t send_ir_raw(const int32_t *pulses,int count,uint32_t carrier) {
+ assert(carrier==38000 && count==3 && pulses[0]==350 && pulses[1]==-700 && pulses[2]==350);
+ ++s_ir_extended_calls;return ESP_OK;
+}
+static int get_ir_raw(int32_t *out,int max) {
+ assert(max==3);out[0]=350;out[1]=-700;out[2]=350;++s_ir_extended_calls;return 3;
+}
+static esp_err_t send_ir_file(const char *path) {
+ assert(strcmp(path,"/sdcard/one.ir")==0);++s_ir_extended_calls;return ESP_OK;
+}
+static esp_err_t send_ir_ac(const tos_ir_ac_t *state) {
+ assert(state->protocol==TOS_IR_AC_HAIER && state->mode==TOS_IR_AC_MODE_HEAT && state->power && state->temp_c==23 && state->fan==TOS_IR_AC_FAN_HIGH);
+ ++s_ir_extended_calls;return ESP_OK;
+}
+static const tos_ir_api_t ir={.receive=receive_ir,.send=send_ir,.send_raw=send_ir_raw,.get_last_raw=get_ir_raw,.send_file=send_ir_file,.send_ac=send_ir_ac};
 static const tos_rfid_api_t rfid={.read=read_rfid};
 static const tos_nfc_api_t nfc={.poll=poll_nfc};
 static const tos_wifi_api_t wifi={.scan=scan,.ap_get=ap_get};
@@ -224,6 +239,24 @@ static void test_bindings(void) {
     assert(run(language,"tos.call('ir.send',0,42,7,false)")==SCRIPT_ENGINE_ERROR);
     bindings.caps |= TOS_CAP_RADIO_TX;
     assert(run(language,"tos.call('ir.send',0,42,7,false)")==SCRIPT_ENGINE_OK);
+    unsigned extended=s_ir_extended_calls;
+    assert(run(language,"tos.call('ir.send_raw',38000,'350,-700,350')")==SCRIPT_ENGINE_OK);
+    assert(run(language,language==SCRIPT_ENGINE_JS ? "print(tos.call('ir.get_last_raw',3)[1])" : "print(tos.call('ir.get_last_raw',3)[2])")==SCRIPT_ENGINE_OK);
+    assert(strcmp(s_output_text,"-700\n")==0);
+    assert(run(language,"tos.call('ir.send_ac',5,true,2,23,3)")==SCRIPT_ENGINE_OK);
+    bindings.caps &= ~TOS_CAP_FS_READ;
+    assert(run(language,"tos.call('ir.send_file','/sdcard/one.ir')")==SCRIPT_ENGINE_ERROR);
+    bindings.caps |= TOS_CAP_FS_READ;
+    assert(run(language,"tos.call('ir.send_file','/sdcard/one.ir')")==SCRIPT_ENGINE_OK);
+    assert(s_ir_extended_calls==extended+4);
+    assert(run(language,"tos.call('ir.send_raw',38000,'350,')")==SCRIPT_ENGINE_ERROR);
+    assert(run(language,"tos.call('ir.get_last_raw',129)")==SCRIPT_ENGINE_ERROR);
+    tos_api_t old_extended_api=api;old_extended_api.abi_minor=15;bindings.api=&old_extended_api;
+    assert(run(language,"tos.call('ir.send_ac',5,true,2,23,3)")==SCRIPT_ENGINE_ERROR);
+    assert(run(language,"tos.call('ir.send_raw',38000,'350,-700,350')")==SCRIPT_ENGINE_ERROR);
+    assert(run(language,"tos.call('ir.get_last_raw',3)")==SCRIPT_ENGINE_ERROR);
+    assert(run(language,"tos.call('ir.send_file','/sdcard/one.ir')")==SCRIPT_ENGINE_ERROR);
+    assert(s_ir_extended_calls==extended+4);bindings.api=&api;
     tos_api_t old_ir_api=api; old_ir_api.abi_minor=10; bindings.api=&old_ir_api;
     assert(run(language,"tos.call('ir.receive',500)")==SCRIPT_ENGINE_ERROR);
     bindings.api=&api;

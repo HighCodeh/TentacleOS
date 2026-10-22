@@ -30,6 +30,7 @@
 #define SCRIPT_SUBGHZ_ABI_MINOR     13
 #define SCRIPT_LORA_TX_ABI_MINOR    14
 #define SCRIPT_SPECTRUM_ABI_MINOR   15
+#define SCRIPT_IR_EXT_ABI_MINOR     16
 #define SCRIPT_SUBGHZ_PULSES_MAX    128
 #define SCRIPT_SUBGHZ_PULSE_MAX_US  32767
 #define SCRIPT_DECIMAL_BASE         10
@@ -112,6 +113,10 @@ typedef enum {
   SCRIPT_BINDINGS_SUBGHZ_TX_RAW,
   SCRIPT_BINDINGS_LORA_MESH_SEND_TEXT,
   SCRIPT_BINDINGS_SUBGHZ_SPECTRUM_CAPTURE,
+  SCRIPT_BINDINGS_IR_GET_RAW,
+  SCRIPT_BINDINGS_IR_SEND_RAW,
+  SCRIPT_BINDINGS_IR_SEND_FILE,
+  SCRIPT_BINDINGS_IR_SEND_AC,
   SCRIPT_BINDINGS_METHOD_COUNT
 } script_bindings_method_id_t;
 
@@ -197,6 +202,10 @@ static const script_bindings_method_t METHODS[] = {
     {"subghz.tx_raw", "us", TOS_CAP_RADIO_TX},
     {"lora.mesh_send_text", "s", TOS_CAP_RADIO_TX},
     {"subghz.spectrum_capture", "uu", TOS_CAP_RADIO_RX},
+    {"ir.get_last_raw", "u", TOS_CAP_RADIO_RX},
+    {"ir.send_raw", "us", TOS_CAP_RADIO_TX},
+    {"ir.send_file", "s", TOS_CAP_RADIO_TX | TOS_CAP_FS_READ},
+    {"ir.send_ac", "ybyyy", TOS_CAP_RADIO_TX},
 };
 #define SCRIPT_METHOD_COUNT (sizeof(METHODS) / sizeof(METHODS[0]))
 _Static_assert(SCRIPT_METHOD_COUNT == SCRIPT_BINDINGS_METHOD_COUNT,
@@ -1073,9 +1082,15 @@ esp_err_t script_bindings_call(script_bindings_t *bindings, script_bindings_call
       REQUIRE_JSON(cJSON_AddNumberToObject(call->result, "btn", signal.btn));
       break;
     }
+    case SCRIPT_BINDINGS_IR_SEND_RAW:
     case SCRIPT_BINDINGS_SUBGHZ_TX_RAW: {
-      if (api->abi_minor < SCRIPT_SUBGHZ_ABI_MINOR || api->subghz == NULL ||
-          api->subghz->tx_raw == NULL)
+      bool is_ir = method == SCRIPT_BINDINGS_IR_SEND_RAW;
+      if (is_ir) {
+        if (api->abi_minor < SCRIPT_IR_EXT_ABI_MINOR || api->ir == NULL ||
+            api->ir->send_raw == NULL)
+          return ESP_ERR_NOT_SUPPORTED;
+      } else if (api->abi_minor < SCRIPT_SUBGHZ_ABI_MINOR || api->subghz == NULL ||
+                 api->subghz->tx_raw == NULL)
         return ESP_ERR_NOT_SUPPORTED;
       int32_t pulses[SCRIPT_SUBGHZ_PULSES_MAX];
       uint32_t count = 0;
@@ -1096,7 +1111,42 @@ esp_err_t script_bindings_call(script_bindings_t *bindings, script_bindings_call
       }
       if (count == 0)
         return ESP_ERR_INVALID_ARG;
-      err = api->subghz->tx_raw(pulses, count, n[0]);
+      err =
+          is_ir ? api->ir->send_raw(pulses, count, n[0]) : api->subghz->tx_raw(pulses, count, n[0]);
+      break;
+    }
+    case SCRIPT_BINDINGS_IR_GET_RAW: {
+      if (api->abi_minor < SCRIPT_IR_EXT_ABI_MINOR || api->ir == NULL ||
+          api->ir->get_last_raw == NULL)
+        return ESP_ERR_NOT_SUPPORTED;
+      if (n[0] == 0 || n[0] > SCRIPT_SUBGHZ_PULSES_MAX)
+        return ESP_ERR_INVALID_ARG;
+      int32_t pulses[SCRIPT_SUBGHZ_PULSES_MAX];
+      int count = api->ir->get_last_raw(pulses, n[0]);
+      if (count < 0)
+        return -count;
+      if ((uint32_t)count > n[0])
+        return ESP_ERR_INVALID_SIZE;
+      call->result = cJSON_CreateArray();
+      REQUIRE_JSON(call->result);
+      for (int i = 0; i < count; ++i) {
+        cJSON *pulse = cJSON_CreateNumber(pulses[i]);
+        REQUIRE_JSON(pulse);
+        cJSON_AddItemToArray(call->result, pulse);
+      }
+      break;
+    }
+    case SCRIPT_BINDINGS_IR_SEND_FILE:
+      if (api->abi_minor < SCRIPT_IR_EXT_ABI_MINOR || api->ir == NULL || api->ir->send_file == NULL)
+        return ESP_ERR_NOT_SUPPORTED;
+      err = api->ir->send_file(s[0]);
+      break;
+    case SCRIPT_BINDINGS_IR_SEND_AC: {
+      if (api->abi_minor < SCRIPT_IR_EXT_ABI_MINOR || api->ir == NULL || api->ir->send_ac == NULL)
+        return ESP_ERR_NOT_SUPPORTED;
+      tos_ir_ac_t state = {
+          .protocol = n[0], .power = n[1] != 0, .mode = n[2], .temp_c = n[3], .fan = n[4]};
+      err = api->ir->send_ac(&state);
       break;
     }
     case SCRIPT_BINDINGS_SUBGHZ_SPECTRUM_CAPTURE: {

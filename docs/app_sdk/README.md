@@ -597,3 +597,31 @@ This completes #149's publication and agreed configuration-first signing scope.
 The deferred production app identity/custody and package acceptance remain #157;
 optional cross-interface adapters and device acceptance remain #156. Secure Boot
 and Flash Encryption use separate provisioning and remain #152.
+
+
+## Complete IR adapters (ABI 1.16)
+
+All six `api->ir` entries are now implemented. `send_raw` accepts 1..1024 signed
+microsecond timings (`+mark/-space`), each 1..32767 us in magnitude, total at most
+900000 us. Carrier is zero (unmodulated) or 10..100 kHz. Odd final pulses are
+preserved. `get_last_raw(out, max)` returns the native global last-capture
+snapshot as signed timings, not a per-app history; max is 1..1024. An undersized
+buffer returns `-ESP_ERR_INVALID_SIZE` rather than a truncated success. Discard
+output on error. It does not itself wait for a new frame.
+
+`send_file(path)` requires both RX-independent `radio-tx` and `fs-read` approval.
+The path must be below `/sdcard/`, less than 192 bytes, without empty, dot,
+parent or backslash components. Input is bounded to 512 KiB, must contain no
+embedded NUL, and must parse to exactly one supported IR signal; multi-signal
+remote catalogs must be selected/exported as a single signal before replay.
+Raw file signals accept at most 8192 alternating mark/space durations with the
+same per-duration/total limits and a 10..100 kHz carrier. Decoded signals use
+the native protocol encoder.
+
+`send_ac` maps the ABI's six vendors and AUTO/COOL/HEAT/DRY/FAN modes explicitly
+to the native enums (the native HEAT/DRY indices differ). Native encoders retain
+their per-vendor temperature policy. All calls use the persistent RF worker and
+the native IR lease, check capability/stop around the kill gate, propagate
+hardware errors and retain symbol storage when RMT teardown fails. Subsequent
+extended calls retry teardown before reusing storage. This is implementation and
+host-test evidence, not electrical acceptance.
