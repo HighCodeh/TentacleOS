@@ -2,7 +2,7 @@
 
 Initial audit against `dev` source through `cee87c22`; follow-up sections and
 the linked validation records document later implementations. HID layouts (#64), HLE and haptics are outside
-this work. No device was flashed or exercised.
+this work. Feature request #163 is also excluded by user request. No device was flashed or exercised.
 
 ## Implementation complete
 
@@ -24,11 +24,11 @@ this work. No device was flashed or exercised.
 
 | Issue | Remaining work |
 | --- | --- |
-| [#135](https://github.com/HighCodeh/TentacleOS/issues/135) | Battery ADC diagnostics exist. Light-sleep is disabled; audit UART/USB and peripheral wake/locking before enabling and measuring it on hardware. |
+| [#135](https://github.com/HighCodeh/TentacleOS/issues/135) | Battery ADC diagnostics exist. PM initialization now acquires a guard before configuring sleep, serializes USB/client holds, preserves failed cleanup and retries failed input transitions. Enabled/disabled host fault-injection passes. Light-sleep remains disabled; UART/USB and peripheral wake/current must be verified on hardware before enabling. |
 | [#143](https://github.com/HighCodeh/TentacleOS/issues/143) | Companion Wi-Fi dispatch exists. Measure actual throughput and validate complete scan/connect/session flows on the paired device. |
 | [#148](https://github.com/HighCodeh/TentacleOS/issues/148) | Physical NFC card test with recorded hardware, card types, read/write/emulation results and field shutdown. |
 | [#152](https://github.com/HighCodeh/TentacleOS/issues/152) | Production Secure Boot v2 and Flash Encryption provisioning for both chips, including keys, recovery and irreversible eFuse review. Both remain disabled. |
-| [#153](https://github.com/HighCodeh/TentacleOS/issues/153) | Existing boot-loop/safe-mode/WDT/coredump mechanisms need fault-injection and recovery acceptance on hardware. The boot-sound crash workaround remains. |
+| [#153](https://github.com/HighCodeh/TentacleOS/issues/153) | Boot-loop/safe-mode/WDT/coredump mechanisms exist. Retained dumps no longer inflate abnormal-reset totals; NVS failures and counter overflow are handled, and the boot-loop decision survives the stable timer. Real-module host fault-injection covers RTC/NVS/timer/heap paths. Physical fault-injection/recovery acceptance and the boot-sound crash workaround remain. |
 | [#156](https://github.com/HighCodeh/TentacleOS/issues/156) | The [source matrix](MATRIX.md) now identifies implemented and missing UI / `.hb` / companion paths. Missing adapters and the physical cross-interface acceptance still need completion. |
 | [#157](https://github.com/HighCodeh/TentacleOS/issues/157) | Measure performance/internal RAM and prepare a reviewed OTA/asset/restore package. P4 portable-crypto size optimization recovered 23,408 bytes before the RF ABI additions, with all 101 libsodium host tests passing; The 2026-10-21 LTO follow-up recovers another 10,304 P4 bytes on the current ESP SCAN candidate, with the utility translation unit excluded from LTO; 10,320 app-slot bytes remain. Device timing remains unmeasured and app-only builds are not a release candidate package. The real app-signing public identity/custody is also required before a production release; configuration support is complete under #149. |
 | [#158](https://github.com/HighCodeh/TentacleOS/issues/158) | Fixed a reproduced BSD/macOS SDK build bug (`stat -c%s` is GNU-only), with an isolated shell regression. The original unnamed Bash report remains unidentified: the user no longer recalls the command and the explanation is on another PC. All reviewed shell files pass syntax checks. The [field guide](FIELD.md) documents current capabilities, bench evidence and the app-only boundary. A supported consumer installation procedure still needs the approved deployment/recovery package. |
@@ -207,3 +207,14 @@ pass, alongside the existing configuration and radio/script regression suites.
 The actual identity, custody and signed release package remain #157; Secure Boot
 and Flash Encryption remain the distinct #152 requirement. This resolves #149's
 agreed implementation scope and supersedes its earlier “still open” notes.
+
+
+## Recovery and power hardening follow-up
+
+The next correction batch addresses #153 diagnostic accounting, boot-loop latching
+and NVS/timer/summary failure paths, plus #135 PM initialization and USB/client hold
+accounting. Real-module host fault-injection is included in the offline runner;
+physical reset/watchdog/flash and sleep/wake/current acceptance remain pending.
+Feature request #163 is excluded by user request, as are HID #64, HLE and haptics.
+No diagnostic counters, user files, device flash, production identity or eFuses
+were modified on a live device.

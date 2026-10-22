@@ -766,3 +766,49 @@ remain #152, and cross-interface implementation/device acceptance remain #156.
 No production identity, serial/device, RF, SD, flash or eFuse was accessed.
 This reconciles #149 with the agreed configuration-first scope, superseding the
 earlier notes that expanded it to all optional radio operations and physical tests.
+
+
+## Recovery and power-policy hardening build record
+
+Validated on 2026-10-22 after automatic hook formatting, implementation
+`0d8d0b13` (recovery `f4662b33`), against the working tree including pre-existing
+ESP SCAN/updater changes. P4 IDF v5.5.3 and C5 IDF v6.0.1 application builds and
+the full offline suite passed. Original slots, paired SPI v8 and C5 memory
+policy are preserved. Feature request #163 is excluded by user request.
+
+| Target | Application bytes | Slot bytes | Free bytes | SHA-256 |
+| --- | ---: | ---: | ---: | --- |
+| P4 | 2,943,120 | 2,949,120 | 6,000 | `a95bd0f4feba516ef39b7d027efc4df000d3a8a69cb1756a98f22b7a7ebd58fb` |
+| C5 | 2,050,752 | 2,097,152 | 46,400 | `0cd33546b8dc0243d0bd6869c67512de7e04d234d37f67b9f47af41f715923c3` |
+
+#153 fixes retained-dump recounting, NVS error handling, saturated counters,
+atomic RTC count access, a boot-loop decision latched before the stable timer,
+and core-summary/timer failure handling. A valid old coredump stays visible on
+clean reboot without becoming a new abnormal reset. NVS read failures do not
+create fabricated replacement values; write/commit failures are logged. Existing
+historical totals are preserved, and multi-key persistence is best-effort rather
+than a transactional guarantee. The recovery document now reflects the actual
+integrated partition layout and guarded deployment contract.
+
+#135 fixes initialization without a wake guard, lost pre-init USB/VBUS inputs,
+false applied-hold state after errors, concurrent hold accounting and client
+release of the manager's hold. Failed init cleanup remains owned for a later
+retry; repeated inputs retry failed transitions. The integrated profile remains
+PM-disabled. The enabled power-manager module also compiles with the real P4
+compiler/includes; this is an isolated object check, not a PM-enabled firmware
+or hardware sleep test.
+
+New ASan/UBSan suites compile the actual modules with explicit NVS/RTC/timer/PM/
+heap fakes, with coredumps and PM each enabled/disabled. Recovery cases include
+stale dumps across clean/abnormal reset sequences, allocation/summary/erase and
+NVS open/read/set/commit failures, overflow, timer create/start/delete failures,
+delayed boot-loop decisions and real host-thread stable-count reads. Power cases
+include guard/configure/cleanup failures and recovery, input retry, reference
+overflow/over-release, and concurrent initialization/USB/client threads.
+
+Both new suites, all existing offline regressions, preservation, commitlint and
+whitespace checks pass. Source/proof snapshots confirm pending user edits were
+preserved; the runner commits contain only the new suite lines. No device,
+serial, RF, live NVS/SD/flash, production identity or eFuse was accessed. #135
+and #153 remain open for real sleep/wake/current and reset/watchdog/recovery
+acceptance. No issue is closed by this record.
