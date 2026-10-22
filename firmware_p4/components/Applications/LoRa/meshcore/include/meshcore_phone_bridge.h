@@ -58,7 +58,7 @@ esp_err_t meshcore_phone_bridge_init(const char *name_prefix);
 /**
  * @brief Tear down the bridge and stop the status task.
  */
-void meshcore_phone_bridge_stop(void);
+esp_err_t meshcore_phone_bridge_stop(void);
 
 /**
  * @brief Ask the C5 to bring up the MeshCore BLE NUS peripheral.

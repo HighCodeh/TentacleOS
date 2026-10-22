@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import shlex
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -30,7 +31,7 @@ def main():
 
         source = (APPS / 'LoRa/session/lora_session.c').read_text()
         prefix = source[:source.index('static esp_err_t start_protocol(')]
-        prefix = '\n'.join(line for line in prefix.splitlines() if not line.startswith('#include'))
+        prefix = '\n'.join(line for line in prefix.splitlines() if not line.startswith('#include') and not line.startswith('static esp_err_t stop_protocol('))
         def function(signature):
             start = source.index(signature)
             opening = source.index('{', start)
@@ -49,8 +50,12 @@ def main():
         subprocess.run([str(binary)], check=True, timeout=30)
 
         tx = (ROOT / 'tools/app_sdk/tests/test_chat_tx.c').read_text()
-        native_tx = prefix + '\n' + '\n'.join(function(signature) for signature in (
-            'static esp_err_t start_protocol(', 'esp_err_t lora_session_start(',
+        native_tx = prefix + '\nstatic esp_err_t stop_protocol(lora_proto_t proto);\n' + '\n'.join(function(signature) for signature in (
+            'static esp_err_t start_protocol(', 'static esp_err_t start_session(',
+            'esp_err_t lora_session_start(', 'esp_err_t lora_session_start_owned(',
+            'esp_err_t lora_session_radio_reserve(', 'esp_err_t lora_session_radio_release(',
+            'static esp_err_t stop_session(', 'esp_err_t lora_session_stop(',
+            'esp_err_t lora_session_stop_owned(', 'static esp_err_t stop_protocol(lora_proto_t proto) {',
             'lora_proto_t lora_session_active(', 'static esp_err_t send_text(',
             'esp_err_t lora_session_send_text(', 'void lora_session_process_tx('))
         (work / 'tx.c').write_text(tx.replace('/* NATIVE_TX */', native_tx))
@@ -58,6 +63,8 @@ def main():
                         '-o', str(binary)], check=True)
         subprocess.run([str(binary)], check=True, timeout=30)
 
+    subprocess.run([sys.executable, str(ROOT / "tools/lora_api/test_sessions.py")], check=True)
+    subprocess.run([sys.executable, str(ROOT / "tools/lora_api/test_teardown.py")], check=True)
 
 if __name__ == '__main__':
     main()

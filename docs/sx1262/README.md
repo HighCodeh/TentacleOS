@@ -192,3 +192,16 @@ recommendation](https://docdb.cept.org/document/845) for the applicable framewor
 Host tests cover known SF7/SF12 vectors, occupied-bandwidth boundaries, cooldown
 edges, concurrent reservations, cross-frequency debit retention and unguarded
 frequencies. Physical airtime and regional acceptance remain pending.
+
+
+## Checked teardown for app lifecycle
+
+`sx1262_deinit()` now waits for the actual IRQ task to leave its loop; an unrelated
+caller notification cannot acknowledge shutdown. A timeout keeps the task/HAL
+allocated. A successful standby command and SPI-device removal are required
+before HAL/config/callback pointers are cleared. Failed removal retains the SPI
+handle and mutex. RX/IRQ subsystems are invalidated after successful teardown,
+so later calls cannot use freed transport state. The shared SPI3 bus remains
+owned by the system/display. Native mesh, diagnostic/lab and app starts use the
+[session radio reservation](../lora/README.md#app-ownership-and-raw-phy-abi-123).
+These software acknowledgements do not replace electrical acceptance.

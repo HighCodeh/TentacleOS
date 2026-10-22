@@ -5,6 +5,7 @@
 
 #include <limits.h>
 #include <string.h>
+#include <stdatomic.h>
 
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
@@ -30,8 +31,8 @@ static const char *TAG = "LORA_LAB";
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 static lora_lab_snapshot_t s_snapshot = {0};
 static sx1262_config_t s_config = {0};
-static volatile bool s_stop_requested = false;
-static volatile TaskHandle_t s_task = NULL;
+static atomic_bool s_stop_requested = false;
+static _Atomic(TaskHandle_t) s_task;
 static bool s_no_sleep_held = false;
 static int64_t s_rssi_sum = 0;
 
@@ -42,16 +43,21 @@ static void snapshot_set_failure(esp_err_t error) {
   portEXIT_CRITICAL(&s_lock);
 }
 
-static void lab_cleanup(void) {
+static esp_err_t lab_cleanup(void) {
   if (sx1262_is_running()) {
     sx1262_stop_rx();
   }
-  (void)sx1262_deinit();
+  esp_err_t error = sx1262_deinit();
+  if (error != ESP_OK)
+    return error;
   if (s_no_sleep_held) {
-    (void)power_manager_no_sleep_release();
+    error = power_manager_no_sleep_release();
+    if (error != ESP_OK)
+      return error;
     s_no_sleep_held = false;
   }
   memset(&s_config, 0, sizeof(s_config));
+  return lora_session_radio_release(&s_config);
 }
 
 static void on_rx_done(const sx1262_packet_t *packet, void *ctx) {
@@ -149,7 +155,8 @@ static void lab_task(void *ctx) {
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "bring-up failed: %s", esp_err_to_name(err));
     snapshot_set_failure(err);
-    lab_cleanup();
+    while (lab_cleanup() != ESP_OK)
+      vTaskDelay(pdMS_TO_TICKS(LORA_LAB_SAMPLE_MS));
     s_task = NULL;
     vTaskDelete(NULL);
     return;
@@ -164,7 +171,8 @@ static void lab_task(void *ctx) {
   if (err != ESP_OK || !chip_status_valid(status, device_errors)) {
     ESP_LOGE(TAG, "chip validation failed status=0x%02X errors=0x%04X", status, device_errors);
     snapshot_set_failure((err != ESP_OK) ? err : ESP_FAIL);
-    lab_cleanup();
+    while (lab_cleanup() != ESP_OK)
+      vTaskDelay(pdMS_TO_TICKS(LORA_LAB_SAMPLE_MS));
     s_task = NULL;
     vTaskDelete(NULL);
     return;
@@ -174,7 +182,8 @@ static void lab_task(void *ctx) {
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "RX start failed: %s", esp_err_to_name(err));
     snapshot_set_failure(err);
-    lab_cleanup();
+    while (lab_cleanup() != ESP_OK)
+      vTaskDelay(pdMS_TO_TICKS(LORA_LAB_SAMPLE_MS));
     s_task = NULL;
     vTaskDelete(NULL);
     return;
@@ -216,7 +225,8 @@ static void lab_task(void *ctx) {
     vTaskDelay(pdMS_TO_TICKS(LORA_LAB_SAMPLE_MS));
   }
 
-  lab_cleanup();
+  while (lab_cleanup() != ESP_OK)
+    vTaskDelay(pdMS_TO_TICKS(LORA_LAB_SAMPLE_MS));
   portENTER_CRITICAL(&s_lock);
   s_snapshot.state = LORA_LAB_IDLE;
   s_snapshot.error = ESP_OK;
@@ -233,6 +243,9 @@ esp_err_t lora_lab_start(uint32_t frequency_hz) {
     return ESP_ERR_INVALID_STATE;
   }
 
+  esp_err_t error = lora_session_radio_reserve(&s_config);
+  if (error != ESP_OK)
+    return error;
   s_stop_requested = false;
   portENTER_CRITICAL(&s_lock);
   memset(&s_snapshot, 0, sizeof(s_snapshot));
@@ -251,6 +264,7 @@ esp_err_t lora_lab_start(uint32_t frequency_hz) {
                               SYS_PRIO_BACKGROUND,
                               &task,
                               SYS_CORE_RADIO) != pdPASS) {
+    (void)lora_session_radio_release(&s_config);
     snapshot_set_failure(ESP_ERR_NO_MEM);
     return ESP_ERR_NO_MEM;
   }

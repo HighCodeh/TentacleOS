@@ -1042,3 +1042,14 @@ Category `0x14` carries the [bounded MQTT bridge](../mqtt/README.md) between P4
 and C5, including configuration, status, fragmented packets and explicit RX ACK.
 Both hand-maintained headers retain version 8. The C5 owns the MQTT/TLS client;
 the P4 owns Meshtastic decoding and chat delivery. Muse category `0x11` is unchanged.
+
+
+## Stream teardown barrier
+
+P4 callback registry publication/lookups/removal now share a critical section.
+After unregistering a callback, `spi_bridge_stream_barrier(timeout_ms)` waits
+until the persistent stream worker reaches its next loop boundary. A callback
+already fetched before removal therefore finishes before native mesh state is
+reset. The barrier refuses self-wait on the stream worker and reports timeout
+without claiming quiescence. MeshCore/Meshtastic stop retain ownership when the
+barrier or C5 transport stop fails. This changes no protocol-v8 wire fields.

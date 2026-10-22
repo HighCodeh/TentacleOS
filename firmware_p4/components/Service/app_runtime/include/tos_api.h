@@ -69,7 +69,7 @@ typedef struct host_link_handler host_link_handler_t; // opaque to apps
 // 1.8 = read-only fs subsystem. NOTE: 1.7 was briefly a (removed) IMU subsystem in
 // dev; fs took a fresh minor so a firmware built during the IMU era rejects an
 // fs app at the load gate instead of mismatching its api->fs pointer.
-#define TOS_ABI_VERSION_MINOR 22
+#define TOS_ABI_VERSION_MINOR 23
 
 /** Log levels; values match esp_log_level_t so they pass straight through. */
 typedef enum {
@@ -517,11 +517,16 @@ typedef struct {
 } tos_lora_node_t;
 
 /**
- * LoRa (SX1262). Single radio owner: the raw PHY, either mesh stack, and the
- * RNode TNC are mutually exclusive. ABI 1.14 publishes mesh_poll and
- * mesh_send_text against an already active native session. Startup, teardown,
- * raw PHY and RNode entries remain NULL. ABI 1.20 adds copied node observations. Switching mesh
- * protocols requires a reboot; applications do not own the native session.
+ * LoRa (SX1262). Minor 23+: task-owned raw PHY and mesh lifecycle, mutually
+ * exclusive with native mesh, diagnostics and the receive lab. configure reserves
+ * the raw radio for the caller; session_stop(0) releases its current raw session.
+ * SF6 is rejected because this API has no fixed implicit-header payload length.
+ * CRC/private sync/explicit headers and a 12-symbol preamble are fixed.
+ * RX/TX/mesh buffers and callbacks remain firmware-owned across app unload.
+ * Cleanup failures retain ownership and are retried by firmware. A mesh start
+ * refuses adoption of an existing native stack; stop drains the complete stack.
+ * RNode remains NULL on this P4 profile (GPIO43/44 conflict with SDMMC).
+ * Minor 14+: queued mesh text; minor 20+: copied node observations.
  */
 typedef struct tos_lora_api {
   // Raw PHY.
@@ -538,7 +543,7 @@ typedef struct tos_lora_api {
   esp_err_t (*mesh_node_get)(int index, tos_lora_node_t *out); ///< minor 20+: copied node; radio-rx
   // RNode KISS TNC bridge.
   esp_err_t (*rnode_start)(uint32_t *out_session); ///< radio-tx
-  esp_err_t (*session_stop)(uint32_t session);
+  esp_err_t (*session_stop)(uint32_t session);     ///< 0 selects caller's current raw session
 } tos_lora_api_t;
 
 /**

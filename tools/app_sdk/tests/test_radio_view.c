@@ -95,8 +95,8 @@ int main(void) {
   assert(tos_subghz_api_impl.rx_start!=NULL && tos_subghz_api_impl.session_stop!=NULL);
   assert(tos_subghz_api_impl.tx_raw!=NULL && tos_subghz_api_impl.receive!=NULL && tos_subghz_api_impl.spectrum_start!=NULL && tos_subghz_api_impl.spectrum_capture!=NULL);
   assert(tos_subghz_api_impl.get_raw!=NULL && tos_subghz_api_impl.replay!=NULL);
-  assert(tos_lora_api_impl.mesh_start==NULL && tos_lora_api_impl.mesh_send_text!=NULL);
-  assert(tos_lora_api_impl.configure==NULL && tos_lora_api_impl.rx_start==NULL);
+  assert(tos_lora_api_impl.mesh_start!=NULL && tos_lora_api_impl.mesh_send_text!=NULL);
+  assert(tos_lora_api_impl.configure!=NULL && tos_lora_api_impl.rx_start!=NULL);
   assert(tos_subghz_api_impl.rx_poll(NULL)==-ESP_ERR_INVALID_ARG);
   assert(tos_lora_api_impl.mesh_poll(NULL)==-ESP_ERR_INVALID_ARG);
   assert(tos_subghz_api_impl.rx_poll(&signal)==-ESP_ERR_NOT_SUPPORTED);
@@ -165,3 +165,10 @@ int main(void) {
   puts("Radio view: capability/cancellation gates, private cursors, bounded snapshots passed");
   return 0;
 }
+
+esp_err_t tos_api_lora_configure(const tos_lora_cfg_t *c) { (void)c;return ESP_ERR_NOT_SUPPORTED; }
+esp_err_t tos_api_lora_send(const uint8_t *d,uint8_t n) { (void)d;(void)n;return ESP_ERR_NOT_SUPPORTED; }
+esp_err_t tos_api_lora_rx_start(uint32_t *out) { (void)out;return ESP_ERR_NOT_SUPPORTED; }
+int tos_api_lora_rx_poll(tos_lora_packet_t *out) { (void)out;return -ESP_ERR_NOT_SUPPORTED; }
+esp_err_t tos_api_lora_mesh_start(uint8_t p,uint32_t *out) { (void)p;(void)out;return ESP_ERR_NOT_SUPPORTED; }
+esp_err_t tos_api_lora_session_stop(uint32_t id) { (void)id;return ESP_ERR_NOT_SUPPORTED; }

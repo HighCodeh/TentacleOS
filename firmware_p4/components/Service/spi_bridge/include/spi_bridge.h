@@ -187,6 +187,9 @@ void spi_bridge_register_stream_cb(spi_id_t id, spi_stream_cb_t cb);
  */
 void spi_bridge_unregister_stream_cb(spi_id_t id);
 
+/** After unregister, wait for callbacks already dispatched by the stream worker. */
+esp_err_t spi_bridge_stream_barrier(uint32_t timeout_ms);
+
 #ifdef __cplusplus
 }
 #endif

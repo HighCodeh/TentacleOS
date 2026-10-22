@@ -16,6 +16,7 @@
 #include "meshtastic_mesh.h"
 
 #include <string.h>
+#include <stdatomic.h>
 
 #include "esp_log.h"
 #include "esp_random.h"
@@ -44,6 +45,8 @@
 #include "meshtastic_pki.h"
 #include "meshtastic_pkt_history.h"
 #include "meshtastic_roles.h"
+
+#define MESH_STOP_WAIT_MS 10000
 
 static const char *TAG = "MESH_RADIO";
 
@@ -88,8 +91,8 @@ static mesh_tx_entry_t s_tx_queue[MESH_TX_QUEUE_SIZE];
 static SemaphoreHandle_t s_tx_mutex = NULL;
 
 static uint32_t s_node_num = 0;
-static volatile bool s_is_running = false;
-static TaskHandle_t s_mesh_task_handle = NULL;
+static atomic_bool s_is_running = false;
+static _Atomic(TaskHandle_t) s_mesh_task_handle;
 
 #define CAD_NOTIFY_BUSY        (1U << 0)
 #define CAD_NOTIFY_CLEAR       (1U << 1)
@@ -1369,25 +1372,30 @@ esp_err_t meshtastic_mesh_start(void) {
 
   s_is_running = true;
 
+  TaskHandle_t task = NULL;
   BaseType_t ok = xTaskCreatePinnedToCore(
-      mesh_task, "mesh_tx", 4096, NULL, SYS_PRIO_BACKGROUND, &s_mesh_task_handle, SYS_CORE_RADIO);
+      mesh_task, "mesh_tx", 4096, NULL, SYS_PRIO_BACKGROUND, &task, SYS_CORE_RADIO);
   if (ok != pdPASS) {
     s_is_running = false;
     ESP_LOGE(TAG, "Failed to create mesh task");
     return ESP_ERR_NO_MEM;
   }
 
+  atomic_store(&s_mesh_task_handle, task);
   ESP_LOGI(TAG, "Mesh start: RX continuous + TX task active");
   return ESP_OK;
 }
 
-void meshtastic_mesh_stop(void) {
-  if (!s_is_running)
-    return;
+esp_err_t meshtastic_mesh_stop(void) {
   s_is_running = false;
+  TickType_t started = xTaskGetTickCount();
+  while (atomic_load(&s_mesh_task_handle) != NULL) {
+    if (xTaskGetTickCount() - started >= pdMS_TO_TICKS(MESH_STOP_WAIT_MS))
+      return ESP_ERR_TIMEOUT;
+    vTaskDelay(1);
+  }
   sx1262_stop_rx();
-
-  ESP_LOGI(TAG, "Mesh stop requested");
+  return ESP_OK;
 }
 
 void meshtastic_mesh_poll(void) {

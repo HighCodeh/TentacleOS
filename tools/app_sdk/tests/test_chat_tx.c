@@ -29,6 +29,9 @@ static atomic_bool s_start_entered, s_start_release;
 static unsigned s_start_calls, s_power_holds, s_deinits, s_backend_calls;
 static esp_err_t s_start_error, s_backend_error;
 static char s_last_text[160];
+static esp_err_t s_stop_error;
+static esp_err_t meshtastic_app_stop(void) { return s_stop_error; }
+static esp_err_t meshcore_app_stop(void) { return s_stop_error; }
 static esp_err_t meshtastic_app_start(void) {
   ++s_start_calls;s_start_entered=true;
   while(!s_start_release) {}
@@ -108,6 +111,25 @@ int main(void) {
   assert(lora_session_send_text("meshcore")==ESP_OK);
   lora_session_process_tx(LORA_PROTO_MESHCORE);
   assert(strcmp(s_last_text,"meshcore")==0 && s_tx_count==0);
+  bool owned=true;
+  assert(lora_session_start_owned(LORA_PROTO_MESHCORE,&owned,&owned)==ESP_ERR_INVALID_STATE && !owned);
+  s_stop_error=ESP_ERR_TIMEOUT;
+  assert(lora_session_stop(LORA_PROTO_MESHCORE)==ESP_ERR_TIMEOUT);
+  assert(lora_session_active()==LORA_PROTO_NONE && s_power_holds==1);
+  assert(lora_session_radio_reserve(&owned)==ESP_ERR_INVALID_STATE);
+  assert(lora_session_send_text("stopped")==ESP_ERR_INVALID_STATE);
+  s_stop_error=ESP_OK;
+  assert(lora_session_stop(LORA_PROTO_MESHCORE)==ESP_OK && s_power_holds==0);
+  assert(lora_session_radio_reserve(&owned)==ESP_OK);
+  assert(lora_session_start(LORA_PROTO_MESHTASTIC)==ESP_ERR_INVALID_STATE);
+  assert(lora_session_radio_release(&owned)==ESP_OK);
+  assert(lora_session_start_owned(LORA_PROTO_MESHTASTIC,&owned,&owned)==ESP_OK && owned);
+  assert(lora_session_stop(LORA_PROTO_MESHTASTIC)==ESP_ERR_NOT_FOUND);
+  assert(lora_session_start(LORA_PROTO_MESHTASTIC)==ESP_ERR_INVALID_STATE);
+  assert(lora_session_stop_owned(LORA_PROTO_MESHTASTIC,&s_start_error)==ESP_ERR_NOT_FOUND);
+  assert(lora_session_stop_owned(LORA_PROTO_MESHTASTIC,&owned)==ESP_OK);
+  assert(lora_session_start_owned(LORA_PROTO_MESHCORE,&owned,&owned)==ESP_OK && owned);
+  assert(lora_session_stop_owned(LORA_PROTO_MESHCORE,&owned)==ESP_OK);
   vSemaphoreDelete(s_lock);s_lock=NULL;
   puts("LoRa queued TX: concurrent startup/producers, copied bounds, saturation, FIFO, backend failure and native dispatch passed");
   return 0;

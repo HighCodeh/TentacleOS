@@ -16,6 +16,7 @@
 #include "sx1262.h"
 
 #include <string.h>
+#include <stdatomic.h>
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -32,12 +33,12 @@ static const char *TAG = "SX1262";
 
 static sx1262_config_t s_config;
 static sx1262_callbacks_t s_callbacks = {0};
-static bool s_is_running = false;
+static atomic_bool s_is_running = false;
 static bool s_is_initialized = false;
-static TaskHandle_t s_irq_task_handle = NULL;
-static TaskHandle_t s_stop_caller_handle = NULL;
+static _Atomic(TaskHandle_t) s_irq_task_handle;
 
 #define SX1262_IRQ_TASK_STACK 4096
+#define SX1262_STOP_WAIT_MS   500
 
 #define SX1262_INIT_MAX_ATTEMPTS 3
 #define SX1262_IRQ_FAIL_RECOVER  5
@@ -356,6 +357,8 @@ esp_err_t sx1262_get_status(uint8_t *out_status) {
     return ESP_ERR_INVALID_ARG;
   }
 
+  if (!s_is_initialized)
+    return ESP_ERR_INVALID_STATE;
   sx1262_hal_t *hal = &s_config.hal;
 
   uint8_t tx[2] = {SX1262_OP_GET_STATUS, 0x00};
@@ -386,6 +389,8 @@ esp_err_t sx1262_get_device_errors(uint16_t *out_errors) {
     return ESP_ERR_INVALID_ARG;
   }
 
+  if (!s_is_initialized)
+    return ESP_ERR_INVALID_STATE;
   sx1262_hal_t *hal = &s_config.hal;
   uint8_t buf[2] = {0};
 
@@ -399,7 +404,7 @@ esp_err_t sx1262_get_device_errors(uint16_t *out_errors) {
 }
 
 esp_err_t sx1262_start(void) {
-  if (s_is_running) {
+  if (s_is_running || atomic_load(&s_irq_task_handle) != NULL) {
     ESP_LOGE(TAG, "Already running");
     return ESP_ERR_INVALID_STATE;
   }
@@ -414,44 +419,56 @@ esp_err_t sx1262_start(void) {
    * xTaskCreatePinnedToCore()
    * returns to this task. */
   s_is_running = true;
+  TaskHandle_t task = NULL;
   BaseType_t xret = xTaskCreatePinnedToCore(irq_task,
                                             "sx1262_irq",
                                             SX1262_IRQ_TASK_STACK,
                                             NULL,
                                             SYS_PRIO_REALTIME,
-                                            &s_irq_task_handle,
+                                            &task,
                                             SYS_CORE_RADIO);
 
-  if (xret != pdPASS || s_irq_task_handle == NULL) {
+  if (xret != pdPASS || task == NULL) {
     s_is_running = false;
     ESP_LOGE(TAG, "Failed to create IRQ task");
     return ESP_ERR_NO_MEM;
   }
 
+  atomic_store(&s_irq_task_handle, task);
   ESP_LOGI(TAG, "IRQ task started");
   return ESP_OK;
 }
 
 void sx1262_stop(void) {
-  if (!s_is_running) {
-    return;
-  }
-  s_stop_caller_handle = xTaskGetCurrentTaskHandle();
   s_is_running = false;
-  if (s_irq_task_handle != NULL) {
-    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(500));
-    s_irq_task_handle = NULL;
+  TickType_t started = xTaskGetTickCount();
+  while (atomic_load(&s_irq_task_handle) != NULL) {
+    if (xTaskGetTickCount() - started >= pdMS_TO_TICKS(SX1262_STOP_WAIT_MS))
+      return;
+    vTaskDelay(1);
   }
-  s_stop_caller_handle = NULL;
-  s_config.hal.set_antenna(s_config.hal.ctx, SX1262_ANT_OFF);
-  ESP_LOGI(TAG, "Stopped");
 }
 
 esp_err_t sx1262_deinit(void) {
   sx1262_stop();
-  esp_err_t ret = sx1262_hal_destroy();
+  if (atomic_load(&s_irq_task_handle) != NULL)
+    return ESP_ERR_TIMEOUT;
+  if (s_config.hal.spi_transfer != NULL) {
+    uint8_t standby = SX1262_STDBY_RC;
+    esp_err_t error = sx1262_cmd_write(&s_config.hal, SX1262_OP_SET_STANDBY, &standby, 1);
+    if (error != ESP_OK)
+      return error;
+    s_config.hal.set_antenna(s_config.hal.ctx, SX1262_ANT_OFF);
+  }
+  esp_err_t error = sx1262_hal_destroy();
+  if (error != ESP_OK)
+    return error;
   s_is_initialized = false;
-  return ret;
+  sx1262_radio_init(NULL, NULL);
+  sx1262_irq_init(NULL, NULL, NULL);
+  memset(&s_callbacks, 0, sizeof(s_callbacks));
+  memset(&s_config, 0, sizeof(s_config));
+  return ESP_OK;
 }
 
 esp_err_t sx1262_set_callbacks(const sx1262_callbacks_t *cbs) {
@@ -548,9 +565,7 @@ static void irq_task(void *arg) {
 
   ESP_LOGI(TAG, "IRQ task exiting");
 
-  if (s_stop_caller_handle != NULL) {
-    xTaskNotifyGive(s_stop_caller_handle);
-  }
+  atomic_store(&s_irq_task_handle, NULL);
   vTaskDelete(NULL);
 }
 

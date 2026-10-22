@@ -15,6 +15,7 @@
 
 #include "spi_bridge.h"
 
+#include <stdatomic.h>
 #include <string.h>
 
 #include "esp_log.h"
@@ -68,6 +69,8 @@ static StaticTask_t *s_stream_tcb = NULL;
 static volatile bool s_is_command_in_flight = false;
 static volatile bool s_bridge_alive = true;
 static volatile bool s_suspended = false;
+static atomic_uint s_stream_epoch;
+static portMUX_TYPE s_stream_cb_lock = portMUX_INITIALIZER_UNLOCKED;
 static stream_cb_slot_t s_stream_cbs[SPI_STREAM_CB_SLOTS] = {0};
 static spi_bridge_mode_t s_bridge_mode = SPI_BRIDGE_MODE_IRQ;
 // Accessed only while the bridge mutex is held. Diagnostics identify receive
@@ -356,9 +359,11 @@ void spi_bridge_register_stream_cb(spi_id_t id, spi_stream_cb_t cb) {
   }
 
   int free_slot = -1;
+  portENTER_CRITICAL(&s_stream_cb_lock);
   for (int i = 0; i < SPI_STREAM_CB_SLOTS; i++) {
     if (s_stream_cbs[i].cb != NULL && s_stream_cbs[i].id == id) {
       s_stream_cbs[i].cb = cb;
+      portEXIT_CRITICAL(&s_stream_cb_lock);
       return;
     }
     if (s_stream_cbs[i].cb == NULL && free_slot < 0) {
@@ -366,12 +371,14 @@ void spi_bridge_register_stream_cb(spi_id_t id, spi_stream_cb_t cb) {
     }
   }
   if (free_slot < 0) {
+    portEXIT_CRITICAL(&s_stream_cb_lock);
     ESP_LOGE(TAG, "No free stream cb slot for id 0x%04X", id);
     led_signal_error();
     return;
   }
   s_stream_cbs[free_slot].id = id;
   s_stream_cbs[free_slot].cb = cb;
+  portEXIT_CRITICAL(&s_stream_cb_lock);
 
   if (s_stream_task_handle == NULL) {
     if (s_spi_mutex == NULL) {
@@ -405,13 +412,30 @@ void spi_bridge_register_stream_cb(spi_id_t id, spi_stream_cb_t cb) {
 }
 
 void spi_bridge_unregister_stream_cb(spi_id_t id) {
+  portENTER_CRITICAL(&s_stream_cb_lock);
   for (int i = 0; i < SPI_STREAM_CB_SLOTS; i++) {
     if (s_stream_cbs[i].cb != NULL && s_stream_cbs[i].id == id) {
       s_stream_cbs[i].cb = NULL;
       s_stream_cbs[i].id = 0;
-      return;
+      break;
     }
   }
+  portEXIT_CRITICAL(&s_stream_cb_lock);
+}
+
+esp_err_t spi_bridge_stream_barrier(uint32_t timeout_ms) {
+  if (s_stream_task_handle == NULL)
+    return ESP_OK;
+  if (xTaskGetCurrentTaskHandle() == s_stream_task_handle)
+    return ESP_ERR_INVALID_STATE;
+  unsigned epoch = atomic_load(&s_stream_epoch);
+  TickType_t started = xTaskGetTickCount();
+  while (atomic_load(&s_stream_epoch) == epoch) {
+    if (xTaskGetTickCount() - started >= pdMS_TO_TICKS(timeout_ms))
+      return ESP_ERR_TIMEOUT;
+    vTaskDelay(1);
+  }
+  return ESP_OK;
 }
 
 void spi_bridge_set_alive(bool alive) {
@@ -621,21 +645,29 @@ void spi_bridge_unlock(void) {
 // Static functions
 
 static spi_stream_cb_t get_stream_cb(spi_id_t id) {
+  spi_stream_cb_t callback = NULL;
+  portENTER_CRITICAL(&s_stream_cb_lock);
   for (int i = 0; i < SPI_STREAM_CB_SLOTS; i++) {
     if (s_stream_cbs[i].cb != NULL && s_stream_cbs[i].id == id) {
-      return s_stream_cbs[i].cb;
+      callback = s_stream_cbs[i].cb;
+      break;
     }
   }
-  return NULL;
+  portEXIT_CRITICAL(&s_stream_cb_lock);
+  return callback;
 }
 
 static bool has_any_stream_cb(void) {
+  bool has_callback = false;
+  portENTER_CRITICAL(&s_stream_cb_lock);
   for (int i = 0; i < SPI_STREAM_CB_SLOTS; i++) {
     if (s_stream_cbs[i].cb != NULL) {
-      return true;
+      has_callback = true;
+      break;
     }
   }
-  return false;
+  portEXIT_CRITICAL(&s_stream_cb_lock);
+  return has_callback;
 }
 
 // Fetches one batched stream frame. On ESP_OK, *out_records points into a
@@ -708,6 +740,7 @@ static esp_err_t fetch_stream(const uint8_t **out_records, uint16_t *out_batch_l
 
 static void stream_task(void *arg) {
   while (1) {
+    atomic_fetch_add(&s_stream_epoch, 1);
     if (!has_any_stream_cb()) {
       vTaskDelay(pdMS_TO_TICKS(SPI_STREAM_IDLE_MS)); // persist and idle; never self-delete
       continue;

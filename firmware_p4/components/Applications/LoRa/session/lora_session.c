@@ -43,6 +43,9 @@
 static const char *TAG = "LORA_SESSION";
 
 static _Atomic(lora_proto_t) s_proto = LORA_PROTO_NONE;
+static _Atomic(void *) s_radio_owner;
+static atomic_bool s_is_ready;
+static void *s_stack_owner;
 EXT_RAM_BSS_ATTR static lora_msg_t s_msgs[MSG_RING];
 static uint16_t s_head = 0;
 static uint16_t s_count = 0;
@@ -118,26 +121,34 @@ static void ring_push(bool outgoing, const char *who, const char *text) {
   ring_unlock();
 }
 
+static esp_err_t stop_protocol(lora_proto_t proto);
+
 static esp_err_t start_protocol(lora_proto_t proto) {
   if (ring_mutex() == NULL)
     return ESP_ERR_NO_MEM;
 
   if (s_proto != LORA_PROTO_NONE) {
-    if (s_proto == proto)
+    if (s_proto == proto && atomic_load(&s_is_ready))
       return ESP_OK;
-    ESP_LOGW(TAG, "Radio owned by proto %d; reboot to switch", (int)s_proto);
+    ESP_LOGW(TAG, "Radio owned by proto %d; stop it before switching", (int)s_proto);
     return ESP_ERR_INVALID_STATE;
   }
+
+  esp_err_t ownership_error = lora_session_radio_reserve(&s_proto);
+  if (ownership_error != ESP_OK)
+    return ownership_error;
 
   if (!s_no_sleep_held) {
     esp_err_t pm_err = power_manager_no_sleep_acquire();
     if (pm_err != ESP_OK) {
       ESP_LOGE(TAG, "Cannot hold radio power state: %s", esp_err_to_name(pm_err));
+      lora_session_radio_release(&s_proto);
       return pm_err;
     }
     s_no_sleep_held = true;
   }
 
+  s_proto = proto;
   esp_err_t err;
   switch (proto) {
     case LORA_PROTO_MESHTASTIC:
@@ -155,31 +166,108 @@ static esp_err_t start_protocol(lora_proto_t proto) {
   }
 
   if (err == ESP_OK) {
-    s_proto = proto;
+    atomic_store(&s_is_ready, true);
     ESP_LOGI(TAG, "Started proto %d", (int)proto);
   } else {
     ESP_LOGE(TAG, "Start proto %d failed: %s", (int)proto, esp_err_to_name(err));
-    sx1262_deinit();
-    if (s_no_sleep_held) {
-      (void)power_manager_no_sleep_release();
-      s_no_sleep_held = false;
-    }
+    (void)stop_protocol(proto);
   }
   return err;
 }
 
-esp_err_t lora_session_start(lora_proto_t proto) {
+static esp_err_t start_session(lora_proto_t proto, void *owner, bool *out_owned) {
+  if (out_owned != NULL)
+    *out_owned = false;
   if (proto != LORA_PROTO_MESHTASTIC && proto != LORA_PROTO_MESHCORE)
     return ESP_ERR_INVALID_ARG;
   if (atomic_flag_test_and_set(&s_is_starting))
     return ESP_ERR_INVALID_STATE;
-  esp_err_t error = start_protocol(proto);
+  bool is_existing = s_proto != LORA_PROTO_NONE;
+  if (!is_existing)
+    s_stack_owner = owner;
+  esp_err_t error = is_existing && (out_owned != NULL || s_stack_owner != NULL)
+                        ? ESP_ERR_INVALID_STATE
+                        : start_protocol(proto);
+  if (s_proto == LORA_PROTO_NONE)
+    s_stack_owner = NULL;
+  if (!is_existing && out_owned != NULL)
+    *out_owned = s_proto == proto;
   atomic_flag_clear(&s_is_starting);
   return error;
 }
 
+esp_err_t lora_session_start(lora_proto_t proto) {
+  return start_session(proto, NULL, NULL);
+}
+
+esp_err_t lora_session_start_owned(lora_proto_t proto, void *owner, bool *out_owned) {
+  if (out_owned == NULL || owner == NULL)
+    return ESP_ERR_INVALID_ARG;
+  return start_session(proto, owner, out_owned);
+}
+
+esp_err_t lora_session_radio_reserve(void *owner) {
+  if (owner == NULL)
+    return ESP_ERR_INVALID_ARG;
+  void *expected = NULL;
+  return atomic_compare_exchange_strong(&s_radio_owner, &expected, owner) ? ESP_OK
+                                                                          : ESP_ERR_INVALID_STATE;
+}
+
+esp_err_t lora_session_radio_release(void *owner) {
+  if (owner == NULL)
+    return ESP_ERR_INVALID_ARG;
+  void *expected = owner;
+  return atomic_compare_exchange_strong(&s_radio_owner, &expected, NULL) ? ESP_OK
+                                                                         : ESP_ERR_INVALID_STATE;
+}
+
+static esp_err_t stop_session(lora_proto_t proto, void *owner) {
+  if (atomic_flag_test_and_set(&s_is_starting))
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = proto != LORA_PROTO_NONE && s_proto == proto && s_stack_owner == owner
+                        ? stop_protocol(proto)
+                        : ESP_ERR_NOT_FOUND;
+  atomic_flag_clear(&s_is_starting);
+  return error;
+}
+
+esp_err_t lora_session_stop(lora_proto_t proto) {
+  return stop_session(proto, NULL);
+}
+
+esp_err_t lora_session_stop_owned(lora_proto_t proto, void *owner) {
+  if (owner == NULL)
+    return ESP_ERR_INVALID_ARG;
+  return stop_session(proto, owner);
+}
+
+static esp_err_t stop_protocol(lora_proto_t proto) {
+  atomic_store(&s_is_ready, false);
+  esp_err_t error = proto == LORA_PROTO_MESHTASTIC ? meshtastic_app_stop() : meshcore_app_stop();
+  if (error != ESP_OK)
+    return error;
+  error = sx1262_deinit();
+  if (error != ESP_OK)
+    return error;
+  if (s_no_sleep_held) {
+    error = power_manager_no_sleep_release();
+    if (error != ESP_OK)
+      return error;
+    s_no_sleep_held = false;
+  }
+  if (!ring_lock())
+    return ESP_ERR_TIMEOUT;
+  s_tx_head = 0;
+  s_tx_count = 0;
+  ring_unlock();
+  s_proto = LORA_PROTO_NONE;
+  s_stack_owner = NULL;
+  return lora_session_radio_release(&s_proto);
+}
+
 lora_proto_t lora_session_active(void) {
-  return s_proto;
+  return atomic_load(&s_is_ready) ? s_proto : LORA_PROTO_NONE;
 }
 
 static esp_err_t send_text(const char *text) {
@@ -209,7 +297,7 @@ esp_err_t lora_session_send_text(const char *text) {
   size_t length = strnlen(text, sizeof(s_tx_text[0]));
   if (length == 0 || length == sizeof(s_tx_text[0]))
     return ESP_ERR_INVALID_ARG;
-  if (s_proto == LORA_PROTO_NONE)
+  if (s_proto == LORA_PROTO_NONE || !atomic_load(&s_is_ready))
     return ESP_ERR_INVALID_STATE;
   if (!ring_lock())
     return ESP_ERR_TIMEOUT;

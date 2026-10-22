@@ -763,3 +763,34 @@ session. Start returns an ID only after native startup succeeds. A nominal
 three-second timeout leaves teardown with the persistent firmware worker, which
 retains antenna/power ownership until checked shutdown succeeds. Stop remains
 available after `should_stop()` becomes true.
+
+
+## LoRa owned raw and mesh sessions (ABI 1.23)
+
+Every published LoRa entry is now implemented except the deliberately unsupported
+P4 RNode endpoint (#145). `configure` requires RX or TX and reserves the radio
+for the caller. CR uses 5..8, BW uses native SX1262 indices, power is -9..22 dBm,
+and frequency is 150..960 MHz. CRC/private sync/explicit headers and a 12-symbol
+preamble are fixed. SF6 is rejected because the table has no fixed implicit-header
+payload length; SF5/BW500 is also rejected. Retune/reconfigure during RX is
+refused. `send(data, len)` requires TX and waits for actual TxDone (1..255 bytes,
+nominal 60-second maximum plus native scheduling/SPI work); native airtime pacing
+can refuse a transmission before submission. Owned RX resumes after successful
+TX or a preflight refusal. A submitted TX that fails enters retained cleanup.
+
+`rx_start(&id)` and `rx_poll(&packet)` require RX. Poll copies a valid complete
+packet, returns zero for an empty ring and negative errors; corrupted packets
+are skipped. `mesh_start(proto, &id)` requires TX and refuses adoption of an
+already existing native stack. Private firmware tokens protect underlying mesh
+ownership as well as the public per-task session IDs. Full mesh stop waits for
+poll/TX workers, companion callback/transport teardown and IRQ/HAL acknowledgement
+before another protocol can start. A failed cleanup retains ownership for retry.
+
+`session_stop(id)` accepts RX or TX and remains available during cooperative
+stop. Zero selects only the caller's current raw session, including TX-only
+configuration; mesh requires the returned nonzero ID. Bind/rebind/unbind cancels
+all prior NFC/LoRa/Sub-GHz sessions for that task. Workers and copied requests
+remain in firmware, so app/script unload cannot leave app callbacks or buffers
+attached to a peripheral. An unrelated task, stale ID or reused binding cannot
+inherit or stop those sessions. See [LoRa](../LoRa/README.md#app-ownership-and-raw-phy-abi-123)
+for the native lifecycle and validation boundary.

@@ -18,6 +18,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdatomic.h>
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -54,9 +55,9 @@ typedef struct {
 } bridge_reassembly_t;
 
 static bool s_is_initialized = false;
-static volatile bool s_is_running = false;
+static atomic_bool s_is_running = false;
 static uint32_t s_node_num = 0;
-static TaskHandle_t s_notify_task = NULL;
+static _Atomic(TaskHandle_t) s_notify_task;
 static SemaphoreHandle_t s_status_mutex = NULL;
 static spi_mesh_status_t s_cached_status = {0};
 static uint8_t s_tx_seq = 0;
@@ -114,12 +115,13 @@ esp_err_t meshtastic_phone_bridge_init(uint32_t node_num) {
   spi_bridge_register_stream_cb(SPI_ID_MESH_TORADIO_STREAM, on_toradio_stream);
 
   s_is_running = true;
+  TaskHandle_t task = NULL;
   BaseType_t ok = xTaskCreatePinnedToCore(notify_task,
                                           "mesh_bridge",
                                           BRIDGE_NOTIFY_TASK_STACK,
                                           NULL,
                                           BRIDGE_NOTIFY_TASK_PRIO,
-                                          &s_notify_task,
+                                          &task,
                                           SYS_CORE_RADIO);
   if (ok != pdPASS) {
     s_is_running = false;
@@ -132,24 +134,38 @@ esp_err_t meshtastic_phone_bridge_init(uint32_t node_num) {
 
   s_prev_vprintf = esp_log_set_vprintf(log_vprintf);
 
+  atomic_store(&s_notify_task, task);
   s_is_initialized = true;
   ESP_LOGI(TAG, "Initialized — node 0x%08lX", (unsigned long)node_num);
   return ESP_OK;
 }
 
-void meshtastic_phone_bridge_stop(void) {
-  if (!s_is_initialized) {
-    return;
+esp_err_t meshtastic_phone_bridge_stop(void) {
+  if (!s_is_initialized)
+    return ESP_OK;
+  s_is_running = false;
+  spi_bridge_unregister_stream_cb(SPI_ID_MESH_TORADIO_STREAM);
+  TickType_t started = xTaskGetTickCount();
+  while (atomic_load(&s_notify_task) != NULL) {
+    if (xTaskGetTickCount() - started >= pdMS_TO_TICKS(BRIDGE_SPI_TIMEOUT_MS))
+      return ESP_ERR_TIMEOUT;
+    vTaskDelay(1);
   }
-
+  esp_err_t error = spi_bridge_stream_barrier(BRIDGE_SPI_TIMEOUT_MS);
+  if (error != ESP_OK)
+    return error;
+  error = meshtastic_phone_bridge_ble_stop();
+  esp_err_t wifi_error = meshtastic_phone_bridge_wifi_stop();
+  if (error == ESP_OK)
+    error = wifi_error;
+  if (error != ESP_OK)
+    return error;
   if (s_prev_vprintf != NULL) {
     esp_log_set_vprintf(s_prev_vprintf);
     s_prev_vprintf = NULL;
   }
-
-  s_is_running = false;
-  spi_bridge_unregister_stream_cb(SPI_ID_MESH_TORADIO_STREAM);
   s_is_initialized = false;
+  return ESP_OK;
 }
 
 esp_err_t meshtastic_phone_bridge_ble_start(void) {

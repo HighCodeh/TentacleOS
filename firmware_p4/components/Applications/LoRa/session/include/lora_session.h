@@ -68,6 +68,14 @@ typedef struct {
  *         an esp_err_t from the stack on failure.
  */
 esp_err_t lora_session_start(lora_proto_t proto);
+esp_err_t lora_session_stop(lora_proto_t proto);
+/** Refuse adoption; out_owned is true until a newly started stack is fully stopped. */
+esp_err_t lora_session_start_owned(lora_proto_t proto, void *owner, bool *out_owned);
+esp_err_t lora_session_stop_owned(lora_proto_t proto, void *owner);
+
+/** Firmware owner tokens outlive workers; release only after checked hardware cleanup. */
+esp_err_t lora_session_radio_reserve(void *owner);
+esp_err_t lora_session_radio_release(void *owner);
 
 /** @brief Protocol currently owning the radio, or LORA_PROTO_NONE. */
 lora_proto_t lora_session_active(void);

@@ -12,7 +12,7 @@ This component implements the LoRa mesh application layer on top of the `sx1262`
 
 ## Single-Owner Radio
 
-The SX1262 is a single-owner resource. Meshtastic, MeshCore, and RNode each register their own radio callbacks and cannot run at the same time; whichever stack starts first owns the radio. **Switching protocols requires a reboot** - there is no clean whole-stack teardown. The session manager enforces this: once a protocol is running, starting a different one is refused.
+The SX1262 is a single-owner resource. Meshtastic, MeshCore, and RNode each register their own radio callbacks and cannot run at the same time; whichever stack starts first owns the radio. Switching protocols requires a successful whole-stack stop. The session manager refuses another owner until poll/TX workers, companion callbacks/transports and the SX1262 have acknowledged teardown. A failed stop retains the reservation for retry.
 
 ## Split-Chip Architecture (P4 + C5)
 
@@ -360,3 +360,42 @@ copy routines and receive handlers with ASan/UBSan and concurrent readers/writer
 NVS, cryptography, radio and FreeRTOS calls are explicit host fixtures; these
 tests establish parser/ownership boundaries, not RF or cryptographic acceptance.
 Startup/teardown/raw PHY app adapters remain separate code work.
+
+
+## App ownership and raw PHY (ABI 1.23)
+
+Native mesh, the receive lab, console diagnostics and app raw PHY now reserve a
+single radio token before initialization. An app mesh start refuses adoption of
+an existing native stack, including the same protocol. Its private firmware
+owner token prevents native/stale cleanup from stopping a different stack.
+`lora_session_stop_owned` validates that token; a completed stop permits switching
+MeshCore/Meshtastic without reboot. The original native start remains idempotent
+only for the same ready native-owned stack.
+
+Teardown stops the stack poll worker, unregisters/drains companion stream
+callbacks, waits for the transport reconciliation worker, and confirms C5 BLE/
+TCP stop before clearing bridge state. Meshtastic also waits for its separate TX
+worker. SX1262 teardown waits for the actual IRQ-task acknowledgement and a
+successful standby command before removing its SPI device. Failed acknowledgement,
+SPI removal, transport stop or power release retains ownership for retry. The
+native lab and console diagnostics use this same reservation.
+
+The app `lora.configure` entry reserves a raw session with explicit headers,
+CRC, private sync and a 12-symbol preamble. Frequency is 150..960 MHz, CR 5..8,
+power -9..22 dBm, and BW uses SX1262 indices. SF5 and SF7..12 are supported;
+SF6 needs a fixed implicit-header length absent from this ABI and is rejected.
+SF5/BW500 is also rejected by the native driver contract. Configuration requires
+RX or TX permission; sending requires TX, and continuous RX/polling requires RX.
+Native airtime pacing is preserved. `send` waits for actual TxDone, or reports
+failure/timeout (at most 60 seconds plus native scheduling/SPI work); it resumes
+owned RX after a completed TX or a preflight refusal. Accepted TX that later
+fails enters checked cleanup. Poll copies one valid packet (1..255 bytes), skips
+CRC/header failures, returns zero for no packet, and propagates native errors.
+
+`rx_start` and `mesh_start` return task-owned IDs. `session_stop(0)` selects the
+caller's current raw session, including a configured TX-only session. A mesh stop
+requires its nonzero ID. App/script unbind detaches ownership and schedules
+firmware cleanup; no app code or borrowed buffer remains registered with the
+radio. The unsupported P4 RNode transport remains unpublished (#145).
+Host tests use explicit HAL/IRQ/C5 fixtures and real thread synchronization;
+paired hardware RF/mesh/transport performance remains unverified.

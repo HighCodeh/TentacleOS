@@ -246,7 +246,9 @@ esp_err_t sx1262_hal_create(sx1262_hal_t *out_hal) {
   s_ctx.spi_mutex = xSemaphoreCreateMutex();
   if (s_ctx.spi_mutex == NULL) {
     ESP_LOGE(TAG, "Failed to create SPI mutex");
-    spi_bus_remove_device(s_ctx.spi);
+    esp_err_t error = spi_bus_remove_device(s_ctx.spi);
+    if (error != ESP_OK)
+      return error;
     s_ctx.spi = NULL;
     return ESP_ERR_NO_MEM;
   }
@@ -282,7 +284,9 @@ esp_err_t sx1262_hal_destroy(void) {
   }
 
   if (s_ctx.spi != NULL) {
-    spi_bus_remove_device(s_ctx.spi);
+    esp_err_t error = spi_bus_remove_device(s_ctx.spi);
+    if (error != ESP_OK)
+      return error;
     s_ctx.spi = NULL;
   }
   if (s_ctx.spi_mutex != NULL) {

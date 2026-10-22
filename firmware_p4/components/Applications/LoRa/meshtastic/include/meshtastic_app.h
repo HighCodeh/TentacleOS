@@ -57,6 +57,7 @@ extern "C" {
  *   - ESP_ERR_NO_MEM if the poll task cannot be spawned
  */
 esp_err_t meshtastic_app_start(void);
+esp_err_t meshtastic_app_stop(void);
 
 #ifdef __cplusplus
 }

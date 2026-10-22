@@ -11,6 +11,7 @@
 #include "subghz_receiver.h"
 #include "tos_app_ctx.h"
 #include "tos_api_subghz.h"
+#include "tos_api_lora.h"
 
 #define RADIO_VIEW_LOCK_MS 100
 
@@ -146,7 +147,13 @@ const tos_subghz_api_t tos_subghz_api_impl = {.spectrum_capture = tos_api_subghz
                                               .replay = tos_api_subghz_replay,
                                               .receive = tos_api_subghz_receive,
                                               .tx_raw = tos_api_subghz_tx_raw};
-const tos_lora_api_t tos_lora_api_impl = {.mesh_poll = poll_mesh,
+const tos_lora_api_t tos_lora_api_impl = {.configure = tos_api_lora_configure,
+                                          .send = tos_api_lora_send,
+                                          .rx_start = tos_api_lora_rx_start,
+                                          .rx_poll = tos_api_lora_rx_poll,
+                                          .mesh_start = tos_api_lora_mesh_start,
+                                          .session_stop = tos_api_lora_session_stop,
+                                          .mesh_poll = poll_mesh,
                                           .mesh_send_text = send_mesh_text,
                                           .mesh_node_count = count_mesh_nodes,
                                           .mesh_node_get = get_mesh_node};

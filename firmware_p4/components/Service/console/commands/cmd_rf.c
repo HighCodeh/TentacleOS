@@ -78,16 +78,24 @@
 static sx1262_config_t s_lora_diag_cfg;
 static bool s_lora_diag_pm_held = false;
 
+static bool s_lora_diag_has_radio;
+
 static void lora_diag_end(void) {
+  if (!s_lora_diag_has_radio)
+    return;
   if (sx1262_is_running()) {
     sx1262_stop_rx();
   }
-  (void)sx1262_deinit();
+  if (sx1262_deinit() != ESP_OK)
+    return;
   if (s_lora_diag_pm_held) {
-    (void)power_manager_no_sleep_release();
+    if (power_manager_no_sleep_release() != ESP_OK)
+      return;
     s_lora_diag_pm_held = false;
   }
   memset(&s_lora_diag_cfg, 0, sizeof(s_lora_diag_cfg));
+  (void)lora_session_radio_release(&s_lora_diag_cfg);
+  s_lora_diag_has_radio = false;
 }
 
 static esp_err_t lora_diag_begin(uint32_t frequency_hz) {
@@ -105,8 +113,15 @@ static esp_err_t lora_diag_begin(uint32_t frequency_hz) {
   }
 
   lora_diag_end();
-  esp_err_t err = power_manager_no_sleep_acquire();
+  if (s_lora_diag_has_radio)
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t err = lora_session_radio_reserve(&s_lora_diag_cfg);
+  if (err != ESP_OK)
+    return err;
+  s_lora_diag_has_radio = true;
+  err = power_manager_no_sleep_acquire();
   if (err != ESP_OK) {
+    lora_diag_end();
     return err;
   }
   s_lora_diag_pm_held = true;

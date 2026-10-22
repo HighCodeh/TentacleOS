@@ -466,10 +466,18 @@
     "firmware_p4/components/Drivers/sx1262/sx1262.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "0f97146d0e4eb4857083744ef960a44413f5146375e2c88b80afa06a86b0776d",
-      "after_sha256": "30ca8422b99599d8cdb10d5194715b93d5966e918689e67fbc068950d1f571fb",
-      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
-      "pre_format_sha256": "17d8ba2d3b0996717b30e0e922b7b3e7db93abd2103b0673d514d3f23a0764fb",
-      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+      "after_sha256": "ff985fc3842a901aefac4fc0d32c8dccd2b2bb760ad8070a694032921b61bf3d",
+      "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown",
+      "review_history": [
+        {
+          "after_sha256": "30ca8422b99599d8cdb10d5194715b93d5966e918689e67fbc068950d1f571fb",
+          "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+          "pre_format_sha256": "17d8ba2d3b0996717b30e0e922b7b3e7db93abd2103b0673d514d3f23a0764fb",
+          "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+        }
+      ],
+      "pre_format_sha256": "77ddeaf33a36eff5e92257b3b0de58b425b1e7b10a7d8abff4fc47380d30d017",
+      "formatter": "clang-format version 22.1.5"
     },
     "firmware_p4/components/Service/boot_sound/boot_sound.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -550,8 +558,14 @@
     "firmware_p4/components/Service/spi_bridge/spi_bridge.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "1ef59a43717e39cba25100f091dbea9d5f40f19e7497efbd42e0ff9f53996436",
-      "after_sha256": "a4c6f6bae37ced00af33093e833a715e9a13918c26051d5f81545a7b61be2a9c",
-      "reason": "Pass central scheduling macros directly and pin affected first-party tasks."
+      "after_sha256": "c486b041623be7856e4863df24d24a90a382fb4a3e7ff934251a6fbc14349584",
+      "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown",
+      "review_history": [
+        {
+          "after_sha256": "a4c6f6bae37ced00af33093e833a715e9a13918c26051d5f81545a7b61be2a9c",
+          "reason": "Pass central scheduling macros directly and pin affected first-party tasks."
+        }
+      ]
     },
     "firmware_p4/components/Service/spi_bridge/spi_session.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -834,8 +848,8 @@
     "firmware_p4/components/Service/app_runtime/tos_app_ctx.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "e27c2001b9b95ae4b54ab53a3a99082a680f846a0f1e9147d755cb43c0527f92",
-      "after_sha256": "78830503d2bc6125ac600cf84635913ac07f8c2c8ca5c46bd077b753ce21a1f9",
-      "reason": "feat(nfc): add owned app emulation and retain antenna ownership through teardown",
+      "after_sha256": "a578caf183a02c536f940f160a73d0387e56b27b14df786871c20b40515a4a28",
+      "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown",
       "review_history": [
         {
           "after_sha256": "08991fb0fcd93493a8d394354f93636ab18098090a9102c427a6c07ced7fbe74",
@@ -844,6 +858,10 @@
         {
           "after_sha256": "8ab6ff6bf8b95bfdf5cc7ab4b507ba0e001a9c60639dd2835966b0ab7a5ee5db",
           "reason": "feat(subghz): add owned RX and spectrum sessions with automatic teardown"
+        },
+        {
+          "after_sha256": "78830503d2bc6125ac600cf84635913ac07f8c2c8ca5c46bd077b753ce21a1f9",
+          "reason": "feat(nfc): add owned app emulation and retain antenna ownership through teardown"
         }
       ]
     },
@@ -1022,8 +1040,8 @@
     "firmware_p4/components/Service/app_runtime/include/tos_api.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "9c2020f1c91901d7b2335daccc2055d14c8646b20094bab14fc8bdd3a83b0b5d",
-      "after_sha256": "36c6988b0bf0ed92d380b11f1232dcb189ecd05f5d0c88b4245488f2cb5d4242",
-      "reason": "feat(nfc): add owned app emulation and retain antenna ownership through teardown",
+      "after_sha256": "70412220c36418d8b51fe2ee536d7d82e769f7da6bccbd3d05d78ef09acedf84",
+      "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown",
       "review_history": [
         {
           "after_sha256": "ef540914e454c49228b43f64b0605a2094d3ac153b992d56ca51a2292a1f1a34",
@@ -1096,8 +1114,14 @@
           "reason": "feat(subghz): add owned RX and spectrum sessions with automatic teardown",
           "pre_format_sha256": "a372d518554ae54f42c3cc83744aee7ddbc5f157e30ea67b761ba6fb4f2aff3c",
           "formatter": "clang-format version 22.1.5"
+        },
+        {
+          "after_sha256": "36c6988b0bf0ed92d380b11f1232dcb189ecd05f5d0c88b4245488f2cb5d4242",
+          "reason": "feat(nfc): add owned app emulation and retain antenna ownership through teardown"
         }
-      ]
+      ],
+      "pre_format_sha256": "c74de9675ea83ded1da41dd0a206c47fc4f89076b22ab0a7c199ca5bdf27fe63",
+      "formatter": "clang-format version 22.1.5"
     },
     "firmware_c5/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -1152,8 +1176,14 @@
     "firmware_p4/components/Applications/LoRa/meshtastic/meshtastic_mesh.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "1c3dc2d211c18b183e7d6b0fc0269357004f2e6a601efc73e8c7d8bf83d4e2b2",
-      "after_sha256": "0ad82cb0f13888a8058cb58a0be7ed229eaa9af87336528c5edaf09e7a48bef8",
-      "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership"
+      "after_sha256": "9e554c21bda4e868852b222153d6b635e1bded3fcad4bda0357c14cbfd4dc399",
+      "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown",
+      "review_history": [
+        {
+          "after_sha256": "0ad82cb0f13888a8058cb58a0be7ed229eaa9af87336528c5edaf09e7a48bef8",
+          "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership"
+        }
+      ]
     },
     "firmware_p4/components/Applications/ui/screens/lora/lora_chat_ui.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -1272,8 +1302,8 @@
     "firmware_p4/components/Applications/LoRa/session/lora_session.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "2cf75d8f29faf5e8b6f940a20a7d28778d18ca89a38c71c84286e62b8c782f6b",
-      "after_sha256": "1f9709800ddbe6f9bc85533d409f09b9730858b22ce47672084584f41e3d3d17",
-      "reason": "fix(lora): synchronize node snapshots and bound mesh receive parsing",
+      "after_sha256": "34f3d29f51a93742bec8962000ea9f625a014b0aa57377653919c994164bb936",
+      "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown",
       "review_history": [
         {
           "after_sha256": "f2ca6b65f96612e8179e25a668608ae160cc2e78f6569f5c6ad6fbab8661657e",
@@ -1282,9 +1312,15 @@
         {
           "after_sha256": "25db8f2a2a8ef2bd4dd6785cc1ce36bf61571870ec0441a907fbe4d88e8d255d",
           "reason": "Bounded copied LoRa text queue owned by native mesh poll tasks; atomic protocol publication/start serialization and capability/cancellation-gated ABI 1.14 plus JS/Lua binding."
+        },
+        {
+          "after_sha256": "1f9709800ddbe6f9bc85533d409f09b9730858b22ce47672084584f41e3d3d17",
+          "reason": "fix(lora): synchronize node snapshots and bound mesh receive parsing",
+          "pre_format_sha256": "71a8b0e5c0455de5b44c4a2dbb49bcf8ca1e8a7ebf26a65417bed02718a9ecdd",
+          "formatter": "clang-format version 22.1.5"
         }
       ],
-      "pre_format_sha256": "71a8b0e5c0455de5b44c4a2dbb49bcf8ca1e8a7ebf26a65417bed02718a9ecdd",
+      "pre_format_sha256": "588c069e38e08269e1558c07e9093df0da0fa32623dce536db441e2d390459ac",
       "formatter": "clang-format version 22.1.5"
     },
     "firmware_p4/components/Drivers/cc1101/cc1101.c": {
@@ -1314,24 +1350,40 @@
     "firmware_p4/components/Applications/LoRa/meshcore/meshcore_app.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "b025658b2daf9daff6a5ef9c4c09df1476a3b5f165967159c06419720060d313",
-      "after_sha256": "90f6265de5892268a2dda45ca2a4fb6dd110ee10993a004f774629e68bf4bd82",
-      "reason": "Bounded copied LoRa text queue owned by native mesh poll tasks; atomic protocol publication/start serialization and capability/cancellation-gated ABI 1.14 plus JS/Lua binding."
+      "after_sha256": "603fc11b994cabba355b598c2ffc08501ddf38b2765ff00a945b39d296a20582",
+      "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown",
+      "review_history": [
+        {
+          "after_sha256": "90f6265de5892268a2dda45ca2a4fb6dd110ee10993a004f774629e68bf4bd82",
+          "reason": "Bounded copied LoRa text queue owned by native mesh poll tasks; atomic protocol publication/start serialization and capability/cancellation-gated ABI 1.14 plus JS/Lua binding."
+        }
+      ]
     },
     "firmware_p4/components/Applications/LoRa/meshtastic/meshtastic_app.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "5476205ca9a429ab0bbaf8eaa574b61b829505511ce98931e241baa398ac5dbe",
-      "after_sha256": "0470670d9a290198fdaf4306413067bc8105fd968a60e40e01d4c4335a2930f9",
-      "reason": "Bounded copied LoRa text queue owned by native mesh poll tasks; atomic protocol publication/start serialization and capability/cancellation-gated ABI 1.14 plus JS/Lua binding."
+      "after_sha256": "923968fb0ef73c7ce9949ead5586ba036ea7518f5253507da168d89dccb7ed8b",
+      "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown",
+      "review_history": [
+        {
+          "after_sha256": "0470670d9a290198fdaf4306413067bc8105fd968a60e40e01d4c4335a2930f9",
+          "reason": "Bounded copied LoRa text queue owned by native mesh poll tasks; atomic protocol publication/start serialization and capability/cancellation-gated ABI 1.14 plus JS/Lua binding."
+        }
+      ]
     },
     "firmware_p4/components/Applications/LoRa/session/include/lora_session.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "61f23bbb23b0260f106bc112ea7df41641bb92476a4ddddbd25b88af6f297d26",
-      "after_sha256": "53c1d81bb27953e7fa7ffe96c70f325cde5eff706680a346c9b94b4b9dbb1faf",
-      "reason": "fix(lora): synchronize node snapshots and bound mesh receive parsing",
+      "after_sha256": "496ab5b517459fd2def37bfa50638a5771ecc8b50aca2ef9d9114458cc917e4d",
+      "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown",
       "review_history": [
         {
           "after_sha256": "4de4b2787b338edcccacf51349d2e1fcf64700f14c0ac38258d560772faf87c9",
           "reason": "Bounded copied LoRa text queue owned by native mesh poll tasks; atomic protocol publication/start serialization and capability/cancellation-gated ABI 1.14 plus JS/Lua binding."
+        },
+        {
+          "after_sha256": "53c1d81bb27953e7fa7ffe96c70f325cde5eff706680a346c9b94b4b9dbb1faf",
+          "reason": "fix(lora): synchronize node snapshots and bound mesh receive parsing"
         }
       ]
     },
@@ -1520,6 +1572,74 @@
       "reason": "feat(nfc): add owned app emulation and retain antenna ownership through teardown",
       "pre_format_sha256": "11b8ebc703b87f9d99cf1c4e99735d6c6a8548e3794bec1884b75299ee689648",
       "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/LoRa/meshcore/include/meshcore_app.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "43aacae76d43869e5591564d4a335b38d7fbe7b392285afc951ed031b81708cf",
+      "after_sha256": "e7cce155a9c81c31c77d33cc85bb92cef68d6bad7f075e0ae6d9fedbae7e9ebd",
+      "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown"
+    },
+    "firmware_p4/components/Applications/LoRa/meshcore/include/meshcore_phone_bridge.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "a9d036f3ad5f7360d27c0ce59fb53fd09730f5cdcab6cf0a364f5c54cb8403a2",
+      "after_sha256": "c330bc15548e188fc2b711e1514f5ebee767ca365131aa2c4743f4a84232b186",
+      "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown"
+    },
+    "firmware_p4/components/Applications/LoRa/meshcore/meshcore_phone_bridge.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "6cf218a2fa1846b9950689cf9ced7ac819f42350d5b63c03f46e18ef8dd69bd9",
+      "after_sha256": "04ba065161b655069f1fb5c7ae8b4311b2a514e60548bc1711b5049605fec1a4",
+      "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown",
+      "pre_format_sha256": "6176808abe274b373330bc9498e6598a9aef0fc620fe1b1d45e190b1dd49afbf",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/LoRa/meshtastic/include/meshtastic_app.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "efb580dccb2dd6954b63e67895982ac52447ab084dacc41210ccec77141e2bf2",
+      "after_sha256": "cbdc81393246d2bc1bad3a138294bac6801f36b0f0ad7f61f77afa331ea7040e",
+      "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown"
+    },
+    "firmware_p4/components/Applications/LoRa/meshtastic/include/meshtastic_mesh.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "6c2ca0d40fc158d5f6f344f0bdab46fa769fa9981fb8b41d7699a0f4d155183e",
+      "after_sha256": "f11eedf4c68557491c314ecf4d158ad954205f4bfbe01f746921bba0c7b50473",
+      "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown"
+    },
+    "firmware_p4/components/Applications/LoRa/meshtastic/include/meshtastic_phone_bridge.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "1f50f71616b4bea63a79ee8f5804d614c234377143ed488d5b07f83f3c505f8c",
+      "after_sha256": "c2f91a2654789893bb91b934222a62dd1efc70ca3a5d4efe8247b3f37e6c395f",
+      "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown"
+    },
+    "firmware_p4/components/Applications/LoRa/meshtastic/meshtastic_phone_bridge.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "d490726e665d2cd1aa1c3eb413471c0b6cdb6c01f8aede5844d417b2c319bda3",
+      "after_sha256": "1083dfa6c086f4817eb5620b26691adb233b7113b99b390f5e99fc4047b37cf5",
+      "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown"
+    },
+    "firmware_p4/components/Applications/LoRa/session/lora_lab.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "dce0e999eaa995d3fc988453e6e157315d72b0987c0e96a6b65a46672e0a839e",
+      "after_sha256": "ab249702396224e23b40b7a78db512b8b4c310a29f85489e3fae4d6b7e6be864",
+      "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown"
+    },
+    "firmware_p4/components/Drivers/sx1262/sx1262_hal.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "edd0d97205fc265d8187f427ce2c4fb649779006962113e4eaf0662c189e37c2",
+      "after_sha256": "5bf9236e9fe9aefdf10c621d4791db7b7e1bbddb4e7c09c64b435f975aa2d0e2",
+      "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown"
+    },
+    "firmware_p4/components/Service/console/commands/cmd_rf.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "7861b4acf9d0299e0e82554fe0ea7d06041d2588d6d4275e00858a60c8bbf85b",
+      "after_sha256": "f44398e2a3dceb9b3ac69124c79320ae1546eb350e0a95fc4b4a7224be3ea36a",
+      "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown"
+    },
+    "firmware_p4/components/Service/spi_bridge/include/spi_bridge.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "4bfdb2bc9e0eb3021aca1e00f3fa14cf3eef77ee3b822d335aa7c21d70e113c3",
+      "after_sha256": "799481fcddd506e2007fc4e5fc3a2c88cd89217617214de99301d92df6624e7a",
+      "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown"
     }
   }
 }
