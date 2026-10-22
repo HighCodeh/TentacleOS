@@ -28,6 +28,8 @@ this work. Feature request #163 is also excluded by user request. No device was 
 
 | [#157](https://github.com/HighCodeh/TentacleOS/issues/157) | Existing optimization policies now have paired, hash-bound SDK internal-RAM reports and CI regression floors (160 KiB P4 / 60 KiB C5 linker headroom), plus guards on selected critical compiler/LTO policies. Verified SD OTA export supplies both existing update paths with immutable publication and corruption tests. Completed at the user-requested software boundary; runtime heap/stack/timing, actual paired OTA/rollback and production installation/security remain unmeasured release prerequisites in [RELEASE.md](RELEASE.md), not successful device results. |
 
+| [#158](https://github.com/HighCodeh/TentacleOS/issues/158) | The user clarified the original report as UART command-line corruption while holding Backspace. The pinned SDK rapid-input heuristic reproduced literal DEL insertion; the P4 build now uses a hash-pinned generated editor fix that routes control keys through editing and preserves middle insertion. Forty actual-editor host cases pass with ASan/UBSan, and CI checks the compiled source selection. This completes the reported code defect without claiming physical terminal acceptance or Bash/zsh compatibility. |
+
 ## Still open
 
 | Issue | Remaining work |
@@ -35,7 +37,6 @@ this work. Feature request #163 is also excluded by user request. No device was 
 | [#135](https://github.com/HighCodeh/TentacleOS/issues/135) | Battery ADC diagnostics exist. PM initialization now acquires a guard before configuring sleep, serializes USB/client holds, preserves failed cleanup and retries failed input transitions. Enabled/disabled host fault-injection passes. Light-sleep remains disabled; UART/USB and peripheral wake/current must be verified on hardware before enabling. |
 | [#143](https://github.com/HighCodeh/TentacleOS/issues/143) | Companion Wi-Fi dispatch exists. Measure actual throughput and validate complete scan/connect/session flows on the paired device. |
 | [#148](https://github.com/HighCodeh/TentacleOS/issues/148) | Physical NFC card test with recorded hardware, card types, read/write/emulation results and field shutdown. |
-| [#158](https://github.com/HighCodeh/TentacleOS/issues/158) | Fixed a reproduced BSD/macOS SDK build bug (`stat -c%s` is GNU-only), with an isolated shell regression. The original unnamed Bash report remains unidentified: the user no longer recalls the command and the explanation is on another PC. All reviewed shell files pass syntax checks. The [field guide](FIELD.md) documents current capabilities, bench evidence and the app-only boundary. A supported consumer installation procedure still needs the approved deployment/recovery package. |
 
 ## Validation of this correction batch
 
@@ -492,3 +493,20 @@ approval. Runtime measurements, paired physical OTA/rollback, keys/custody and
 approved assets/restoration/security migration remain release prerequisites;
 older issue references to #157 do not assert those prerequisites were fulfilled.
 No manual version change, physical write or push was performed.
+
+
+## Issue 158 UART reproduction replaces the unidentified Bash report
+
+The user identified repeated Backspace corruption in the UART console. The
+actual pinned SDK editor reproduces literal DEL insertion on rapid input; a
+hash-pinned build-local correction restores control-key handling and middle
+insertion without editing the SDK. Forty real-editor host cases with explicit
+UART/clock/output fixtures pass ASan/UBSan. Both pinned builds, the complete
+offline suite, selected compiler/internal-RAM gates and paired SD candidate
+verification pass. See [the build record](TESTS.md#issue-158-uart-backspace-reproduction-and-editor-correction)
+and [console documentation](../console/README.md#editing-uart-input).
+
+This supersedes earlier statements that the original #158 reproduction remains
+unidentified. The reported code defect is completed; physical serial behavior,
+log interference and consumer restoration/production release gates remain
+unverified. No shell interpreter, physical flash/eFuse write or push was added.

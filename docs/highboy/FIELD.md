@@ -79,3 +79,20 @@ select production identities, provision security or certify a release. The P4
 Update screen now performs native OTA from the actual SD file, replacing the old
 mock version/progress/reboot. Matching installed boot/partition/assets and actual
 rollback acceptance remain prerequisites. See the [candidate procedure](README.md#verifiable-app-only-candidates).
+
+
+## UART console report clarified — issue 158
+
+The user identified the original “bash bug” as UART line-editing corruption
+while holding Backspace. It is no longer an unidentified shell-script report.
+The actual pinned SDK editor reproduces this: its under-30-ms paste path
+inserts DEL/control bytes as text and skips normal middle insertion. The P4
+build selects a hash-pinned generated correction, without modifying ESP-IDF.
+See [console editing and host regression](../console/README.md#editing-uart-input).
+
+Forty fast/slow actual-editor host cases pass using explicit UART/time/output
+fixtures and ASan/UBSan. This establishes software behavior, not physical
+terminal/adapter/log-interference acceptance. The firmware provides an ESP-IDF
+command console, not Bash/zsh syntax. Consumer restoration, production identity
+and physical release requirements remain in [the release procedure](RELEASE.md);
+closing the reported console defect does not satisfy those separate gates.

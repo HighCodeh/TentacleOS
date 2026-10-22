@@ -1303,3 +1303,65 @@ approved restoration/migration/assets, real paired OTA/rollback and runtime
 performance/heap/stack acceptance as unfulfilled release gates. No manual
 version change, public release, device access, security activation, flash/eFuse
 write or push occurred.
+
+
+## Issue 158 UART Backspace reproduction and editor correction
+
+The user clarified the original “bash bug”: holding Backspace in the UART
+console corrupts editable input. ESP-IDF v5.5.3's actual editor reproduced it
+without a device: bytes read within 30 ms bypassed normal control handling and
+were inserted as pasted text, including DEL. Its fast path also silently dropped
+input when the cursor was in the middle of the line.
+
+The generated P4 console source now limits that fast path to printable bytes
+at the line end. BS/DEL, ANSI escapes and Ctrl keys reach the normal editor;
+printable middle insertion uses ordinary insertion/redraw. SDK sources remain
+unchanged. Generation requires this original SDK SHA-256:
+`38753ab0df3140232ed65a9b412ba670497eaebe424a45098eaaebb2dc5c4fce`.
+
+Actual compiled generated-source SHA-256:
+`1129f072405bf3236065cd5536e4ee2ffef0a9e0af0a1ed3e483c43b48158f91`.
+
+`test_console.py --idf <pinned-idf> --build firmware_p4/build_highboy` first
+confirmed that the unmodified editor fails the rapid-DEL expected-result case.
+With the fix, all **40** fast/slow real-editor cases passed ASan/UBSan: both
+Backspace encodings, over-deletion, arrows, middle editing, Delete, ANSI/SS3
+Home/End, Ctrl editing, long paste and 511-byte bounds. UART reads, clock,
+terminal-query replies and output are explicit host fixtures. The test also
+rejects an altered SDK source and checks that the real compilation database
+selects exactly the generated corrected file. No actual UART or serial terminal
+was opened. CI runs this separately in the P4 SDK build job; it is not silently
+claimed as part of the SDK-free host runner.
+
+The paired rebuild at `30ef9f85deaeecadfb9663babd92e4dce6561559` and complete offline runner passed, including
+source/provenance, memory/compiler-policy, package/security/recovery, native
+firmware/ABI and OTA regressions. The working tree was dirty with the user's
+retained ESP SCAN/updater work. Application byte lengths and original slots
+remain unchanged from the #157 checkpoint; hashes reflect rebuilt descriptors
+and the corrected P4 editor, not byte-identical artifacts.
+
+| Target | Application bytes | Original slot free bytes | SHA-256 |
+| --- | ---: | ---: | --- |
+| P4 | 2,946,960 | 2,160 | `22a6069de3b3c7e082507b09122a5f3ca1b715d5a5827d4db217bfccf6757972` |
+| C5 | 2,051,664 | 45,488 | `0ee960c5e4c10c9f9923f83a1d31cb69956b1c870576f4fcfa5322a73c2f4ab9` |
+
+- P4: 403,144 linked internal bytes; 173,320 linker headroom bytes.
+- C5: 255,243 linked internal bytes; 65,685 linker headroom bytes.
+
+These are static SDK linker measurements, not runtime heap/stack acceptance.
+Runner SHA-256: `e84ac2d85bb17660b55e5cafecefc31980cd0d0784fcc4cdd537ab7458df85e1`.
+
+Verified candidate:
+`integration/release/candidate_22a6069de3b3_0ee960c5e4c1_2ed165544e64`.
+
+Verified paired SD export:
+`integration/release/ota_2ed165544e648c56013a`.
+
+Candidate/SD verification passed. CI YAML and all shell steps parse; remote
+Actions have not been run before push. The installed SDK retained its original
+source hash. The reported console defect is software-complete under #158;
+physical terminal/adapter behavior and asynchronous-log interference remain
+unmeasured. The console is the existing ESP-IDF CLI; shell-language compatibility
+was not added. Consumer restoration/production requirements remain documented
+release gates, not completed device results. No firmware/eFuse write or push
+was performed.

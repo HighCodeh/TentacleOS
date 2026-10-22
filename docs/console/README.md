@@ -43,11 +43,11 @@ python3 tools/console/test_console.py --idf "$HIGHBOY_P4_IDF_PATH" \
 The host test first reproduces the unmodified SDK's rapid-DEL failure, then
 runs the actual corrected editor with ASan/UBSan: fast and slow BS/DEL,
 deletion past empty/full lines, arrows, middle insertion, Home/End, Ctrl editing
-and bounded pastes. Its UART bytes, timing and output are explicit fixtures;
+and bounded pastes. Its UART bytes, timing and output are explicit fixtures.
 The optional `--build` check also requires the compilation database to select
 exactly the generated corrected source. CI runs both checks in the P4 build job.
-Physical terminal/adapter
-behavior and asynchronous log interference still require device acceptance.
+Physical terminal/adapter behavior and asynchronous log interference still
+require device acceptance.
 
 ## Available Commands
 
