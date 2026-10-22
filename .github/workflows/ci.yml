@@ -78,6 +78,30 @@ jobs:
         run: bash tools/build.sh "${{ matrix.target }}"
         shell: bash
 
+      - name: Build isolated factory-security review and test real image crypto
+        shell: bash
+        run: |
+          source "$IDF_PATH/export.sh" >/dev/null
+          review="/tmp/highboy-factory-${{ matrix.target }}"
+          python tools/highboy/secure_build.py build --target "${{ matrix.target }}" \
+            --idf "$IDF_PATH" --python "$IDF_PYTHON_ENV_PATH/bin/python" \
+            --tools "${IDF_TOOLS_PATH:-$HOME/.espressif}" \
+            --baseline "firmware_${{ matrix.target }}/build_highboy" --out "$review"
+          python tools/highboy/test_security_images.py "$review"
+
+      - name: Upload factory-security review evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: highboy-${{ matrix.target }}-factory-security-review
+          if-no-files-found: error
+          path: |
+            /tmp/highboy-factory-${{ matrix.target }}/app.bin
+            /tmp/highboy-factory-${{ matrix.target }}/bootloader.bin
+            /tmp/highboy-factory-${{ matrix.target }}/partition-table.bin
+            /tmp/highboy-factory-${{ matrix.target }}/sdkconfig
+            /tmp/highboy-factory-${{ matrix.target }}/baseline-sdkconfig
+            /tmp/highboy-factory-${{ matrix.target }}/build.json
+
       - name: Upload app-only build evidence
         uses: actions/upload-artifact@v4
         with:
