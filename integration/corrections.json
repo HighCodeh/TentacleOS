@@ -490,10 +490,18 @@
     "firmware_p4/components/Service/boot_sound/boot_sound.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "e71dab7c80f90f093c219b574898c7b2162de4f1aa7840a77bc52bb63a0bf3e8",
-      "after_sha256": "10c5de11ca34921efdaa16fa00178836c6893d97bbd9b0f9ca372c53f382d918",
-      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
-      "pre_format_sha256": "9c2ffd7f319e69046649f8b3183950aef55d5e6179a69937ba86ac74c3aec7ae",
-      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+      "after_sha256": "e4b2eba103fd154b4e791d215f79fecadd0aba6322b2648ea3923d300639ab58",
+      "reason": "fix(audio): bound boot MP3 work and serialize I2S playback cleanup",
+      "review_history": [
+        {
+          "after_sha256": "10c5de11ca34921efdaa16fa00178836c6893d97bbd9b0f9ca372c53f382d918",
+          "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+          "pre_format_sha256": "9c2ffd7f319e69046649f8b3183950aef55d5e6179a69937ba86ac74c3aec7ae",
+          "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+        }
+      ],
+      "pre_format_sha256": "d094a69700cc4e54079a036ed84c9d8677ec9c8fd832da10b2fe65444bfd2ea3",
+      "formatter": "clang-format version 22.1.5"
     },
     "firmware_p4/components/Service/grok_client/include/grok_wire.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -1688,6 +1696,20 @@
       "before_sha256": "83882fd1dfd6447c0c3238bf0aa789cfc95b90be317cb127021315ef2e15852a",
       "after_sha256": "ddbb508edf90b1ce75fe7659b84e9d62898d79fd75fae738ac5da55b6b6eb690",
       "reason": "fix(monitor): preserve panic diagnostics and require healthy boot progress"
+    },
+    "firmware_p4/components/Service/boot_sound/include/boot_sound.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "10e5b62010abd200e3f02c16e6a8f6bf8b54bdfd8320f3b53b05d2c7e161c0ad",
+      "after_sha256": "ebdb792b49faa18d3b792fa6e0fbe9e0780926d93305180e80bcb75bea86530c",
+      "reason": "fix(audio): bound boot MP3 work and serialize I2S playback cleanup"
+    },
+    "firmware_p4/components/Drivers/audio_i2s/audio_i2s.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "3078375a6c3b0ccb9220306cfec3b127192ef94e4401adec8ecb0f73f55bd964",
+      "after_sha256": "f60eac58f8a0895d1e1adbf9cbc908102fdbc5f88bfe58520e3ea27cfcc0ca8d",
+      "reason": "fix(audio): bound boot MP3 work and serialize I2S playback cleanup",
+      "pre_format_sha256": "ed9765a075307280e26a35712e929bb7ee1376f70414855b9264ad444c14ed3d",
+      "formatter": "clang-format version 22.1.5"
     }
   }
 }

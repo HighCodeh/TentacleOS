@@ -25,18 +25,21 @@ extern "C" {
 /**
  * @brief Play an MP3 file once on a dedicated task.
  *
- * Decodes @p path with the Helix MP3 decoder and streams it to the I2S amp
+ * Decodes a bounded @p path with Helix into owned PSRAM, then plays via I2S
  * without blocking the caller. Intended for the boot sound: call it after
  * @c audio_i2s_init() and after the filesystem holding @p path is mounted.
  * Only one boot sound runs at a time; a second call while one is playing is
- * rejected. The task frees all resources and exits on end-of-file.
+ * rejected. Files up to 256 KiB and 10 seconds of mono/stereo audio are accepted.
+ * A 5-second decode budget and internal stack bound malformed-input work.
+ * Missing files, low heap and playback errors skip this optional sound.
+ * The task frees all resources on every exit.
  *
  * @param path  Absolute VFS path to the .mp3, e.g. "/assets/storage/ghost_cyberpunk_boot.mp3".
  * @return
  *   - ESP_OK if the playback task was started
- *   - ESP_ERR_INVALID_ARG if @p path is NULL
+ *   - ESP_ERR_INVALID_ARG if @p path is NULL, relative or too long
  *   - ESP_ERR_INVALID_STATE if a boot sound is already playing
- *   - ESP_ERR_NO_MEM if the task could not be created
+ *   - ESP_ERR_NO_MEM if internal heap is low or the task could not be created
  */
 esp_err_t boot_sound_play(const char *path);
 
