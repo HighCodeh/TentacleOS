@@ -98,3 +98,20 @@ policy. See the [complete build record](TESTS.md#sub-ghz-shared-raw-and-file-rep
 The 1,232-byte development margin does not solve the secure-padding boundary or
 reserve space for all missing session adapters. #157 remains open for that code
 size work and its performance/release requirements.
+
+
+## Compact Core and resource manager control code
+
+With the ABI 1.19 tree held constant, compiling only the `Core` and
+`resource_mgr` components with `-Os -flto=2 -ffat-lto-objects` reduces P4 from
+2,947,888 to **2,945,424 bytes**, recovering **2,464 bytes** and leaving 3,696.
+The final link remains `-flto-partition=one`. A separate experiment adding
+`-fno-inline-functions-called-once` at the link produced no size improvement
+and was removed.
+
+The selected control-code policy leaves all driver, emulator, C5 and portable
+crypto compilation settings unchanged. In particular, `sodium/utils.c` stays
+opaque to LTO. Original OTA slots and features are preserved. These are linked
+application sizes, not live heap/stack or hardware performance measurements.
+The following LoRa node adapters consume part of this recovered margin; their
+final paired build record supersedes the control-only measurement.

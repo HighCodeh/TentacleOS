@@ -82,3 +82,9 @@ target_compile_options(${HIGHBOY_SODIUM_LIB} PRIVATE -Os -flto=2 -ffat-lto-objec
 set_property(SOURCE "${CMAKE_CURRENT_LIST_DIR}/vendor/libsodium/libsodium/src/libsodium/sodium/utils.c"
     DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/vendor/libsodium"
     APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+
+# Compact system control and arbitration without changing radio timing paths.
+foreach(HIGHBOY_CONTROL_COMPONENT Core resource_mgr)
+    idf_component_get_property(HIGHBOY_CONTROL_LIB ${HIGHBOY_CONTROL_COMPONENT} COMPONENT_LIB)
+    target_compile_options(${HIGHBOY_CONTROL_LIB} PRIVATE -Os -flto=2 -ffat-lto-objects)
+endforeach()
