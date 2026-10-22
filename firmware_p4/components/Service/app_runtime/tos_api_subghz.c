@@ -69,6 +69,8 @@ static rmt_encoder_handle_t s_encoder;
 static QueueHandle_t s_queue;
 static rmt_symbol_word_t *s_symbols;
 static int32_t *s_pulses;
+static int32_t *s_last_raw;
+static size_t s_last_raw_count;
 static bool s_is_enabled;
 static bool s_has_radio;
 static bool s_has_power_hold;
@@ -179,6 +181,7 @@ static esp_err_t receive_once(tos_api_subghz_request_t *request) {
   }
   if (count == 0)
     return ESP_ERR_NOT_FOUND;
+  request->count = count;
   subghz_data_t data = {0};
   tos_subghz_signal_t *out = request->out_signal;
   out->freq_hz = request->frequency;
@@ -268,6 +271,7 @@ static esp_err_t sweep_once(tos_api_subghz_request_t *request) {
 
 static esp_err_t run_operation(void *context) {
   tos_api_subghz_request_t *request = context;
+  int32_t *capture = NULL;
   esp_err_t error = cc1101_lease_acquire();
   if (error != ESP_OK)
     return error;
@@ -293,12 +297,23 @@ static esp_err_t run_operation(void *context) {
   else
     error = request->out_signal != NULL ? receive_once(request) : transmit_once(request);
 cleanup:;
+  if (error == ESP_OK && request->out_signal != NULL) {
+    capture = s_pulses;
+    s_pulses = NULL;
+  }
   esp_err_t cleanup_error = cleanup_hardware();
   if (cleanup_error == ESP_OK)
     cleanup_error = cc1101_lease_release();
   if (cleanup_error != ESP_OK) {
     cc1101_lease_pause();
     ESP_LOGE(TAG, "Cleanup pending on persistent RF worker: %s", esp_err_to_name(cleanup_error));
+  }
+  if (capture != NULL && error == ESP_OK && cleanup_error == ESP_OK) {
+    free(s_last_raw);
+    s_last_raw = capture;
+    s_last_raw_count = request->count;
+  } else {
+    free(capture);
   }
   return cleanup_error != ESP_OK ? cleanup_error : error;
 }
@@ -402,4 +417,21 @@ esp_err_t tos_api_subghz_spectrum_capture(tos_subghz_spectrum_t *out_spectrum,
     *out_spectrum = spectrum;
   host_local_rf_unlock();
   return error;
+}
+
+int tos_api_subghz_get_raw(int32_t *out, int max) {
+  if (out == NULL || max <= 0 || max > SUBGHZ_SYMBOLS_MAX * SUBGHZ_PULSES_PER_SYMBOL)
+    return -ESP_ERR_INVALID_ARG;
+  esp_err_t error = begin_call(TOS_CAP_RADIO_RX);
+  if (error != ESP_OK)
+    return -error;
+  int count = 0;
+  if (s_last_raw_count > (size_t)max) {
+    count = -ESP_ERR_INVALID_SIZE;
+  } else if (s_last_raw_count != 0) {
+    memcpy(out, s_last_raw, s_last_raw_count * sizeof(*out));
+    count = (int)s_last_raw_count;
+  }
+  host_local_rf_unlock();
+  return count;
 }

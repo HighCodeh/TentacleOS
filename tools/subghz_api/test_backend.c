@@ -193,13 +193,22 @@ static void receive_case(fault_t fault,bool retained) {
   if(retained) {
     assert(s_resource_live && !cc1101_lease_enter());
     s_task=2;assert(!cc1101_lease_enter());s_task=1;
-    if(s_channel_live)assert(s_symbols!=NULL && s_pulses!=NULL && s_queue_live);
+    if(s_channel_live)assert(s_symbols!=NULL && s_queue_live);
     s_fault=NORMAL;assert(tos_api_subghz_receive(&out,433920000,6,500)==ESP_OK);
   }
   clean();
 }
 int main(void) {
   tos_subghz_signal_t out;int32_t timings[]={350,-700,350};
+  int32_t raw[1024];memset(raw,0x5a,sizeof(raw));
+  assert(tos_api_subghz_get_raw(raw,1024)==0);
+  assert(tos_api_subghz_get_raw(NULL,1)==-ESP_ERR_INVALID_ARG);
+  assert(tos_api_subghz_get_raw(raw,0)==-ESP_ERR_INVALID_ARG);
+  assert(tos_api_subghz_get_raw(raw,1025)==-ESP_ERR_INVALID_ARG);
+  s_allowed=false;assert(tos_api_subghz_get_raw(raw,6)==-ESP_ERR_NOT_SUPPORTED);
+  s_allowed=true;s_stopped=true;assert(tos_api_subghz_get_raw(raw,6)==-ESP_ERR_INVALID_STATE);
+  s_stopped=false;
+
   assert(tos_api_subghz_receive(NULL,433920000,6,500)==ESP_ERR_INVALID_ARG);
   assert(tos_api_subghz_receive(&out,350000000,6,500)==ESP_ERR_INVALID_ARG);
   assert(tos_api_subghz_receive(&out,433920000,0,500)==ESP_ERR_INVALID_ARG);
@@ -218,6 +227,15 @@ int main(void) {
     receive_case(f,retained);
   }
   receive_case(FAIL_IDLE,true);
+  assert(tos_api_subghz_get_raw(raw,5)==-ESP_ERR_INVALID_SIZE);
+  assert(raw[0]==0x5a5a5a5a);
+  assert(tos_api_subghz_get_raw(raw,6)==6);
+  for(unsigned i=0;i<6;++i)assert(raw[i]==(i%2==0?350:-700));
+  int32_t *previous=s_last_raw;
+  s_fault=FAIL_DISABLE;
+  assert(tos_api_subghz_receive(&out,433920000,6,500)!=ESP_OK);
+  assert(s_last_raw==previous && tos_api_subghz_get_raw(raw,6)==6);
+  s_fault=NORMAL;assert(tos_api_subghz_receive(&out,433920000,6,500)==ESP_OK);clean();
   for(fault_t f=NORMAL;f<=FAIL_IDLE;++f) {
     if(f!=NORMAL && f!=FAIL_ENCODER && f!=FAIL_ENCODER_DELETE && f!=FAIL_TRANSMIT && f!=FAIL_TX_WAIT && f!=FAIL_DISABLE && f!=FAIL_DELETE)continue;
     s_fault=f;
@@ -299,5 +317,6 @@ int main(void) {
     assert(s_tunes==80 && s_reads==240);clean();
   }
   puts("PASS: 80-bin spectrum, exact tuning/sample grid, range/capability/cancellation gates, no partial output, retained SPI/power cleanup");
+  free(s_last_raw);s_last_raw=NULL;s_last_raw_count=0;
   puts("PASS: bounded Sub-GHz RX/TX, capabilities, cancellation, native contention, errors and retained RMT/SPI/power cleanup");
 }

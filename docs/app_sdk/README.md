@@ -642,3 +642,16 @@ Errors propagate, read output is zero on failure and no session is created.
 Failed field-OFF/power release retains ownership for the next call or companion
 RECOVER; it cannot free another UI/LF owner's reservation. Emulation/session
 pointers remain NULL and need their own lifecycle implementation.
+
+
+## Sub-GHz raw snapshot (ABI 1.18)
+
+`subghz.get_raw(out, max)` copies the last **successful bounded `receive`**
+capture, including undecoded frames. It requires radio-rx, accepts max 1..1024,
+returns zero before the first capture, a positive timing count on success, or
+`-esp_err_t`. A short output buffer fails with `-ESP_ERR_INVALID_SIZE` without
+copying a prefix. This is one global snapshot, serialized by the RF kill gate,
+not per-app storage and not the native asynchronous receiver's snapshot. Failed
+receive/cleanup and spectrum/TX calls preserve the previous successful snapshot.
+Storage is bounded to one PSRAM capture; DMA storage remains owned by the worker
+until RMT teardown succeeds.

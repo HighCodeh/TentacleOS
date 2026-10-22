@@ -106,7 +106,10 @@ static esp_err_t capture_spectrum(tos_subghz_spectrum_t *out,uint32_t center,uin
   for(unsigned i=0;i<TOS_SUBGHZ_SPECTRUM_BINS;++i)out->dbm[i]=-100.0f+(float)i;
   return s_spectrum_error;
 }
-static const tos_subghz_api_t subghz={.rx_poll=poll_subghz_view,.receive=capture_subghz,.tx_raw=transmit_subghz,.spectrum_capture=capture_spectrum};
+static int subghz_raw(int32_t *out,int max) {
+  assert(max==6);out[0]=350;out[1]=-700;return 2;
+}
+static const tos_subghz_api_t subghz={.get_raw=subghz_raw,.rx_poll=poll_subghz_view,.receive=capture_subghz,.tx_raw=transmit_subghz,.spectrum_capture=capture_spectrum};
 static unsigned s_mesh_sends;
 static esp_err_t s_mesh_error;
 static esp_err_t send_mesh(const char *text) {
@@ -202,6 +205,12 @@ static void test_bindings(void) {
     assert(run(language,"tos.call('subghz.spectrum_capture',433920000,1000000)")==SCRIPT_ENGINE_ERROR);
     assert(spectrum_calls==s_spectrum_calls);bindings.api=&api;
     s_view_count=1;
+    assert(run(language,language==SCRIPT_ENGINE_JS
+      ? "var r=tos.call('subghz.get_raw',6);if(r.length!==2 || r[0]!==350 || r[1]!==-700) throw new Error('raw');"
+      : "local r=tos.call('subghz.get_raw',6);assert(#r==2 and r[1]==350 and r[2]==-700)")==SCRIPT_ENGINE_OK);
+    tos_api_t raw_old=api;raw_old.abi_minor=17;bindings.api=&raw_old;
+    assert(run(language,"tos.call('subghz.get_raw',6)")==SCRIPT_ENGINE_ERROR);
+    bindings.api=&api;
     assert(run(language,"print(tos.call('subghz.receive',433920000,6,500).value)")==SCRIPT_ENGINE_OK);
     assert(strcmp(s_output_text,"42\n")==0);
     assert(run(language,"tos.call('subghz.tx_raw',433920000,'350,-700,350')")==SCRIPT_ENGINE_OK);

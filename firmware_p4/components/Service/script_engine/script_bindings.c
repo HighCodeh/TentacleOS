@@ -32,6 +32,7 @@
 #define SCRIPT_SPECTRUM_ABI_MINOR   15
 #define SCRIPT_IR_EXT_ABI_MINOR     16
 #define SCRIPT_NFC_BLOCK_ABI_MINOR  17
+#define SCRIPT_SUBGHZ_RAW_ABI_MINOR 18
 #define SCRIPT_NFC_KEY_BYTES        6
 #define SCRIPT_NFC_BLOCK_BYTES      16
 #define SCRIPT_BYTE_HEX_DIGITS      2
@@ -123,6 +124,7 @@ typedef enum {
   SCRIPT_BINDINGS_IR_SEND_AC,
   SCRIPT_BINDINGS_NFC_READ_BLOCK,
   SCRIPT_BINDINGS_NFC_WRITE_BLOCK,
+  SCRIPT_BINDINGS_SUBGHZ_GET_RAW,
   SCRIPT_BINDINGS_METHOD_COUNT
 } script_bindings_method_id_t;
 
@@ -214,6 +216,7 @@ static const script_bindings_method_t METHODS[] = {
     {"ir.send_ac", "ybyyy", TOS_CAP_RADIO_TX},
     {"nfc.read_block", "ys", TOS_CAP_RADIO_RX},
     {"nfc.write_block", "yss", TOS_CAP_RADIO_TX},
+    {"subghz.get_raw", "u", TOS_CAP_RADIO_RX},
 };
 #define SCRIPT_METHOD_COUNT (sizeof(METHODS) / sizeof(METHODS[0]))
 _Static_assert(SCRIPT_METHOD_COUNT == SCRIPT_BINDINGS_METHOD_COUNT,
@@ -1171,14 +1174,21 @@ esp_err_t script_bindings_call(script_bindings_t *bindings, script_bindings_call
           is_ir ? api->ir->send_raw(pulses, count, n[0]) : api->subghz->tx_raw(pulses, count, n[0]);
       break;
     }
+    case SCRIPT_BINDINGS_SUBGHZ_GET_RAW:
     case SCRIPT_BINDINGS_IR_GET_RAW: {
-      if (api->abi_minor < SCRIPT_IR_EXT_ABI_MINOR || api->ir == NULL ||
-          api->ir->get_last_raw == NULL)
+      bool is_subghz = method == SCRIPT_BINDINGS_SUBGHZ_GET_RAW;
+      if (is_subghz) {
+        if (api->abi_minor < SCRIPT_SUBGHZ_RAW_ABI_MINOR || api->subghz == NULL ||
+            api->subghz->get_raw == NULL)
+          return ESP_ERR_NOT_SUPPORTED;
+      } else if (api->abi_minor < SCRIPT_IR_EXT_ABI_MINOR || api->ir == NULL ||
+                 api->ir->get_last_raw == NULL)
         return ESP_ERR_NOT_SUPPORTED;
       if (n[0] == 0 || n[0] > SCRIPT_SUBGHZ_PULSES_MAX)
         return ESP_ERR_INVALID_ARG;
       int32_t pulses[SCRIPT_SUBGHZ_PULSES_MAX];
-      int count = api->ir->get_last_raw(pulses, n[0]);
+      int count =
+          is_subghz ? api->subghz->get_raw(pulses, n[0]) : api->ir->get_last_raw(pulses, n[0]);
       if (count < 0)
         return -count;
       if ((uint32_t)count > n[0])

@@ -299,3 +299,13 @@ radio-tx. Keys/data use exactly 12/32 hex characters, case-insensitive, without
 separators. Bad input, old/missing tables and capability denial fail before the
 native call. The [bounded Classic 1K contract](../app_sdk/README.md#nfc-classic-block-access-abi-117)
 applies equally to JavaScript, Lua, native apps and companion commands.
+
+
+## Sub-GHz raw snapshot binding (ABI 1.18)
+
+`tos.call("subghz.get_raw", max)` returns a signed microsecond timing array in
+JavaScript and Lua. RX approval is required; max is 1..128 in scripts. Empty
+history returns an empty array. A capture larger than max fails without returning
+a truncated signal. Call bounded `subghz.receive` first; this does not read the
+native UI receiver's history. Older/missing ABI entries fail before dispatch.
+See the [native snapshot contract](../app_sdk/README.md#sub-ghz-raw-snapshot-abi-118).

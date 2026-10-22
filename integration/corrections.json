@@ -986,8 +986,8 @@
     "firmware_p4/components/Service/app_runtime/include/tos_api.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "9c2020f1c91901d7b2335daccc2055d14c8646b20094bab14fc8bdd3a83b0b5d",
-      "after_sha256": "0a34cf1a9cf994e62ec93a666273769c89bf6bb5a87ff8f01bcefc238e0b0bd8",
-      "reason": "Publish bounded Classic 1K Key A block read/verified data writes through native ABI, JS/Lua and authenticated companion; retain antenna/power cleanup and reject protected blocks.",
+      "after_sha256": "1a64ccba79bf11a48e7d37ea96bd3830ea4d0299483dbee94599de936c580169",
+      "reason": "feat(subghz): expose complete bounded raw captures through the shared ABI",
       "review_history": [
         {
           "after_sha256": "ef540914e454c49228b43f64b0605a2094d3ac153b992d56ca51a2292a1f1a34",
@@ -1028,8 +1028,14 @@
           "reason": "Expose bounded native IR raw capture/replay, single-signal SD replay and AC encoding through the common ABI/JS/Lua, with explicit enum conversion and persistent-worker retained symbol cleanup.",
           "pre_format_sha256": "5f07f4f8fc2da7fb0b47f6188cf620ce7e1a7a778f7f20936664c71ce4b1ac6a",
           "formatter": "clang-format version 22.1.5"
+        },
+        {
+          "after_sha256": "0a34cf1a9cf994e62ec93a666273769c89bf6bb5a87ff8f01bcefc238e0b0bd8",
+          "reason": "Publish bounded Classic 1K Key A block read/verified data writes through native ABI, JS/Lua and authenticated companion; retain antenna/power cleanup and reject protected blocks."
         }
-      ]
+      ],
+      "pre_format_sha256": "23b1f56ea7594e70e5b1caa187139393c9cae85d7da1035b7ee4a21571ed91a1",
+      "formatter": "clang-format version 22.1.5"
     },
     "firmware_c5/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
