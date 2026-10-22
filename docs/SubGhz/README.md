@@ -466,3 +466,21 @@ The production backend host tests cover exact tuning/sample order, peak RSSI,
 minimum/maximum/odd spans, all band edges, invalid and overflowing requests,
 permissions/cancellation, contention, partial SPI failure and retained idle/power
 cleanup. These explicit SPI/RTOS fixtures do not validate RF on the device.
+
+
+## Bounded shared raw capture
+
+ABI 1.18 publishes the most recent successful bounded app-worker receive as
+`subghz.get_raw`; JavaScript and Lua use `tos.call("subghz.get_raw", max)`.
+This global snapshot is independent of native asynchronous UI RX history.
+Failed capture or hardware cleanup preserves the previous complete capture.
+The [ABI contract](../app_sdk/README.md#sub-ghz-raw-snapshot-abi-118) defines
+capacity, permissions and short-buffer behavior.
+
+RAW serialization/parsing rejects truncation: insufficient output capacity
+returns zero rather than a shorter successful pulse train. Parsing requires
+unique line-anchored frequency/preset fields, checks numeric range, rejects
+zero/overflow/malformed timings and rejects additional pulses beyond capacity.
+Frequency/preset outputs are published only after complete success; discard
+pulse output on error. The saved metadata remains subject to radio validation
+before transmission.

@@ -1328,6 +1328,14 @@
       "before_sha256": "f49f0c4dee194d1f7dd27d5f3811169e64eb77a7e4df59dd42a2c92399247edb",
       "after_sha256": "668861dc94d6694405d2f76942031bcef8459147ae9f9c1c3daca45f5b9c27e7",
       "reason": "Harden native P4 OTA preflight/ownership/cleanup and P4/C5 confirmation errors; connect the actual SD update UI to native workers/progress instead of fabricated versions and timed reboot."
+    },
+    "firmware_p4/components/Applications/SubGhz/subghz_protocol_serializer.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "71df4bbd9d940b4bfa6e0e0b262e0d5c48e011564305975ae42ae68f2fb2156a",
+      "after_sha256": "d12360334636bd8463dcf91cc8f6d3edf6041efdaaa89c9e4239de00644322eb",
+      "reason": "fix(subghz): reject truncated and malformed raw capture files",
+      "pre_format_sha256": "fae1258ed87ce023a75a73a0619e8397ea2fb7d45b6003d28d13ee050d853cd1",
+      "formatter": "clang-format version 22.1.5"
     }
   }
 }

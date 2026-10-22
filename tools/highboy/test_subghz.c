@@ -151,6 +151,34 @@ static void test_serialization_replay(void) {
   assert(s_sent_count == 0);
 }
 
+static void test_raw_validation(void) {
+  int32_t pulses[4];uint32_t frequency=7;uint8_t preset=8;
+  const char *bad[]={"1 2 3 4 5", "350,-700", "350junk", "0", "2147483648",
+    "-2147483649", "99999999999999999999999999999", "350 -700\nRAW_Data: 9"};
+  for(size_t i=0;i<sizeof(bad)/sizeof(bad[0]);++i) {
+    snprintf(s_capture,sizeof(s_capture),"Frequency: 433920000\nPreset: 6\nRAW_Data: %s\n",bad[i]);
+    assert(subghz_protocol_parse_raw(s_capture,pulses,4,&frequency,&preset)==0);
+    assert(frequency==7 && preset==8);
+  }
+  const char *bad_header[]={"Frequency: -1\nPreset: 6", "Frequency: 4294967296\nPreset: 6",
+    "Frequency: 433920000x\nPreset: 6", "Frequency: 433920000\nPreset: 256",
+    "Frequency: 433920000\nPreset: -1", "Frequency: 1\nFrequency: 2\nPreset: 6",
+    "XFrequency: 1\nPreset: 6"};
+  for(size_t i=0;i<sizeof(bad_header)/sizeof(bad_header[0]);++i) {
+    snprintf(s_capture,sizeof(s_capture),"%s\nRAW_Data: 350 -700\n",bad_header[i]);
+    assert(subghz_protocol_parse_raw(s_capture,pulses,4,&frequency,&preset)==0);
+  }
+  const int32_t raw[]={350,-700,700,-350};
+  assert(subghz_protocol_serialize_raw(raw,4,TEST_FREQUENCY_HZ,s_capture,sizeof(s_capture))>0);
+  size_t length=strlen(s_capture);
+  char short_buffer[TEST_TEXT_CAPACITY];
+  assert(subghz_protocol_serialize_raw(raw,4,TEST_FREQUENCY_HZ,short_buffer,length)==0);
+  assert(short_buffer[0]=='\0');
+  assert(subghz_protocol_parse_raw(s_capture,pulses,3,&frequency,&preset)==0);
+  assert(subghz_protocol_parse_raw(s_capture,pulses,4,&frequency,&preset)==4);
+  assert(frequency==TEST_FREQUENCY_HZ && preset==TEST_PRESET && memcmp(raw,pulses,sizeof(raw))==0);
+}
+
 static void test_keeloq_vectors(void) {
   /* Synthetic in-memory fixture; no SD manufacturer keys or hardware are read. */
   char report[TEST_TEXT_CAPACITY];
@@ -190,6 +218,7 @@ int main(void) {
   test_registry();
   test_pwm_vector();
   test_serialization_replay();
+  test_raw_validation();
   test_keeloq_vectors();
   puts("PASS: 12 protocol round-trips, lookup/bounds, fixed PWM vector, serialization/replay,");
   puts("      cipher/frame vectors and synthetic long-name KeeLoq replay (no physical radio).");

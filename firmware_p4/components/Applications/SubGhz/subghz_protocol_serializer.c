@@ -15,6 +15,10 @@
 
 #include "subghz_protocol_serializer.h"
 
+#include <ctype.h>
+#include <errno.h>
+#include <limits.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -74,7 +78,7 @@ size_t subghz_protocol_serialize_decoded(
 
 size_t subghz_protocol_serialize_raw(
     const int32_t *pulses, size_t count, uint32_t frequency, char *out_buf, size_t out_size) {
-  if (pulses == NULL || out_buf == NULL) {
+  if (pulses == NULL || count == 0 || out_buf == NULL || out_size == 0) {
     return 0;
   }
 
@@ -90,6 +94,7 @@ size_t subghz_protocol_serialize_raw(
                          (unsigned int)subghz_protocol_get_preset_id());
 
   if (written < 0 || (size_t)written >= out_size) {
+    out_buf[0] = '\0';
     return 0;
   }
 
@@ -97,7 +102,8 @@ size_t subghz_protocol_serialize_raw(
   for (size_t i = 0; i < count; i++) {
     int val_len = snprintf(out_buf + offset, out_size - offset, " %ld", (long)pulses[i]);
     if (val_len < 0 || offset + (size_t)val_len >= out_size - 1) {
-      break;
+      out_buf[0] = '\0';
+      return 0;
     }
     offset += (size_t)val_len;
   }
@@ -111,42 +117,80 @@ size_t subghz_protocol_serialize_raw(
   return offset;
 }
 
+static const char *find_field(const char *content, const char *key) {
+  size_t length = strlen(key);
+  const char *found = NULL;
+  for (const char *line = content; *line != '\0';) {
+    if (strncmp(line, key, length) == 0) {
+      if (found != NULL)
+        return NULL;
+      found = line + length;
+    }
+    const char *next = strchr(line, '\n');
+    if (next == NULL)
+      break;
+    line = next + 1;
+  }
+  return found;
+}
+
+static bool parse_metadata(const char *content, const char *key, uint32_t limit, uint32_t *out) {
+  const char *text = find_field(content, key);
+  if (text == NULL)
+    return false;
+  while (*text == ' ' || *text == '\t')
+    ++text;
+  if (!isdigit((unsigned char)*text))
+    return false;
+  errno = 0;
+  char *end;
+  unsigned long value = strtoul(text, &end, 10);
+  if (errno != 0 || value > limit)
+    return false;
+  while (*end == ' ' || *end == '\t' || *end == '\r')
+    ++end;
+  if (*end != '\0' && *end != '\n')
+    return false;
+  *out = (uint32_t)value;
+  return true;
+}
+
 size_t subghz_protocol_parse_raw(const char *content,
                                  int32_t *out_pulses,
                                  size_t max_count,
                                  uint32_t *out_frequency,
                                  uint8_t *out_preset) {
-  if (content == NULL || out_pulses == NULL || max_count == 0) {
+  if (content == NULL || out_pulses == NULL || max_count == 0)
     return 0;
-  }
-
-  const char *freq_ptr = strstr(content, FREQ_KEY);
-  if (freq_ptr != NULL && out_frequency != NULL) {
-    *out_frequency = (uint32_t)strtoul(freq_ptr + strlen(FREQ_KEY), NULL, 10);
-  }
-
-  const char *preset_ptr = strstr(content, PRESET_KEY);
-  if (preset_ptr != NULL && out_preset != NULL) {
-    *out_preset = (uint8_t)strtoul(preset_ptr + strlen(PRESET_KEY), NULL, 10);
-  }
-
-  const char *raw_ptr = strstr(content, RAW_DATA_KEY);
-  if (raw_ptr == NULL) {
+  uint32_t frequency, preset;
+  if (!parse_metadata(content, FREQ_KEY, UINT32_MAX, &frequency) ||
+      !parse_metadata(content, PRESET_KEY, UINT8_MAX, &preset))
     return 0;
-  }
-
-  raw_ptr += strlen(RAW_DATA_KEY);
-  size_t parsed_count = 0;
-  char *end_ptr;
-
-  while (parsed_count < max_count) {
-    long val = strtol(raw_ptr, &end_ptr, 10);
-    if (raw_ptr == end_ptr) {
+  const char *text = find_field(content, RAW_DATA_KEY);
+  if (text == NULL)
+    return 0;
+  size_t count = 0;
+  while (true) {
+    while (isspace((unsigned char)*text))
+      ++text;
+    if (*text == '\0')
       break;
-    }
-    out_pulses[parsed_count++] = (int32_t)val;
-    raw_ptr = end_ptr;
+    if (count == max_count)
+      return 0;
+    errno = 0;
+    char *end;
+    long value = strtol(text, &end, 10);
+    if (end == text || errno != 0 || value < INT32_MIN || value > INT32_MAX || value == 0 ||
+        (*end != '\0' && !isspace((unsigned char)*end)))
+      return 0;
+    out_pulses[count++] = (int32_t)value;
+    text = end;
   }
-
-  return parsed_count;
+  if (count != 0) {
+    if (out_frequency != NULL)
+      *out_frequency = frequency;
+    if (out_preset != NULL)
+      *out_preset = (uint8_t)preset;
+  }
+  return count;
 }
