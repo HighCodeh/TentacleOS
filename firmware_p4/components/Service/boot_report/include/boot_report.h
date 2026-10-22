@@ -105,13 +105,13 @@ const char *boot_report_reason_str(esp_reset_reason_t reason);
  */
 void boot_report_track_bootloop(void);
 
-/** @brief True when the abnormal-boot counter has reached the threshold. */
+/** @brief This boot reached the abnormal-reset threshold; latched until reset. */
 bool boot_report_in_bootloop(void);
 
 /** @brief Current consecutive-abnormal-boot count. */
 uint32_t boot_report_abnormal_boots(void);
 
-/** @brief Total panics recorded across power cycles (persisted in NVS). */
+/** @brief Best-effort persisted abnormal-reset total; retained dumps are not new resets. */
 uint32_t boot_report_panic_total(void);
 
 /** @brief Total boots recorded across power cycles (persisted in NVS). */

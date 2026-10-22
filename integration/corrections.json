@@ -1244,6 +1244,20 @@
       "reason": "Correct the public bundle-header description: tos_hb_open already verifies Ed25519 signatures; only launcher header scans are unverified.",
       "pre_format_sha256": "f42b8d355bcacdb231039e174aba674fc7b66580a4d2aa6d9ca2e8f9844ded76",
       "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/boot_report/boot_report.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "03d9c6877473866c273042a41cd67bbc4ef2ed1f9ec7cb0d0319443bfbc28c02",
+      "after_sha256": "64f9d8d2aa942d8064bb03e0d6b2d0438ad0256e2ba3e9827c81885c1054d941",
+      "reason": "Harden boot diagnostics: count only new abnormal reset reasons, preserve counters on NVS errors, saturate totals/RTC, latch current boot-loop decision, handle summary/timer failures, and document the actual integrated recovery layout.",
+      "pre_format_sha256": "516670eb4b9208848458156739ae05d95884a5091c4c7ed515d5dda47885bf2b",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/boot_report/include/boot_report.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "2b3718f473d94fd6434804909251521325a908e8c341e3b492f69b9e419fced0",
+      "after_sha256": "4fb77490bc4b7012b0da073f6e7b41bfe340386f0c83edb1485d26129146e7b0",
+      "reason": "Harden boot diagnostics: count only new abnormal reset reasons, preserve counters on NVS errors, saturate totals/RTC, latch current boot-loop decision, handle summary/timer failures, and document the actual integrated recovery layout."
     }
   }
 }
