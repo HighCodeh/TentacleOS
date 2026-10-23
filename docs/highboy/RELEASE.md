@@ -110,6 +110,13 @@ and ASan/UBSan enabled. The radio-view harness explicitly requests POSIX.1-2008
 declarations while retaining C11, since `strnlen` is not an ISO C11 function.
 OTA fault fixtures use explicit conditional blocks accepted by GCC's
 `-Wmisleading-indentation`; the warning remains enabled.
+The script-context harness uses a private string-copy helper so its compatibility
+implementation cannot collide with libc's own `strlcpy` declaration.
+
+The host runner executes every test group and reports failed groups at the end.
+Any failed group still makes the runner exit unsuccessfully. Its own regression
+test checks that an early failure does not prevent the final group from running
+and that the aggregate exit status preserves the failure.
 
 The IDF container job explicitly adds only `GITHUB_WORKSPACE` to Git's global
 `safe.directory` list and verifies `HEAD` before building. This is needed when

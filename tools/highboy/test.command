@@ -17,42 +17,55 @@
 # Public-source host tests only; no device or account access.
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
-python3 "$repo/tools/highboy/check_contracts.py"
-python3 "$repo/tools/highboy/test_contracts.py"
-python3 "$repo/tools/highboy/test_package.py"
-python3 "$repo/tools/highboy/test_release.py"
-python3 "$repo/tools/highboy/test_security.py"
-python3 "$repo/tools/highboy/test_recovery.py"
-python3 "$repo/tools/ota/test_ota.py"
-python3 "$repo/tools/ota/test_update_ui.py"
-python3 "$repo/tools/boot_report/test_boot_report.py"
-python3 "$repo/tools/power_policy/test_power_policy.py"
-python3 "$repo/tools/app_sdk/test_trust_config.py"
-python3 "$repo/tools/app_sdk/test_signed_bundle.py"
-python3 "$repo/tools/app_sdk/test_build.py"
-python3 "$repo/tools/app_sdk/test_rf_api.py"
-python3 "$repo/tools/app_sdk/test_radio_view.py"
-python3 "$repo/tools/lora_nodes/test_nodes.py"
-python3 "$repo/tools/subghz_api/test_subghz_api.py"
-python3 "$repo/tools/highboy/test_subghz.py"
-python3 "$repo/tools/highboy/test_subghz_lifecycle.py"
-python3 "$repo/tools/highboy/test_lora_airtime.py"
-python3 "$repo/tools/highboy/test_lora_transport.py"
-python3 "$repo/tools/highboy/test_rf_ownership.py"
-python3 "$repo/tools/mqtt/test_mqtt.py"
-python3 "$repo/tools/gatt/test_gatt.py"
-python3 "$repo/tools/host_link/test_pairing.py"
-python3 "$repo/tools/host_link/test_rf.py"
-python3 "$repo/tools/host_link/test_rf_cli.py"
-python3 "$repo/tools/highboy/test_nfc_screen_owners.py"
-python3 "$repo/tools/highboy/test_ir_library.py"
-python3 "$repo/tools/ir_api/test_ir_api.py"
-python3 "$repo/tools/scripts/generate_js_stdlib.py" --check
-python3 "$repo/tools/scripts/test_engine.py"
-python3 "$repo/tools/scripts/test_runner.py"
-python3 "$repo/tools/scripts/test_context.py"
-python3 "$repo/tools/scripts/test_ui.py"
-python3 "$repo/tools/highboy/test_muse_native.py"
-python3 "$repo/tools/highboy/test_preservation.py"
-node --test "$repo/tools/highboy/tests/test_usb_msc.mjs" \
+test_failures=0
+run_test() {
+  if "$@"; then
+    return 0
+  fi
+  printf 'FAILED host test group: %s\n' "$*" >&2
+  test_failures=$((test_failures + 1))
+}
+run_test python3 "$repo/tools/ci/test_host_test_runner.py"
+run_test python3 "$repo/tools/highboy/check_contracts.py"
+run_test python3 "$repo/tools/highboy/test_contracts.py"
+run_test python3 "$repo/tools/highboy/test_package.py"
+run_test python3 "$repo/tools/highboy/test_release.py"
+run_test python3 "$repo/tools/highboy/test_security.py"
+run_test python3 "$repo/tools/highboy/test_recovery.py"
+run_test python3 "$repo/tools/ota/test_ota.py"
+run_test python3 "$repo/tools/ota/test_update_ui.py"
+run_test python3 "$repo/tools/boot_report/test_boot_report.py"
+run_test python3 "$repo/tools/power_policy/test_power_policy.py"
+run_test python3 "$repo/tools/app_sdk/test_trust_config.py"
+run_test python3 "$repo/tools/app_sdk/test_signed_bundle.py"
+run_test python3 "$repo/tools/app_sdk/test_build.py"
+run_test python3 "$repo/tools/app_sdk/test_rf_api.py"
+run_test python3 "$repo/tools/app_sdk/test_radio_view.py"
+run_test python3 "$repo/tools/lora_nodes/test_nodes.py"
+run_test python3 "$repo/tools/subghz_api/test_subghz_api.py"
+run_test python3 "$repo/tools/highboy/test_subghz.py"
+run_test python3 "$repo/tools/highboy/test_subghz_lifecycle.py"
+run_test python3 "$repo/tools/highboy/test_lora_airtime.py"
+run_test python3 "$repo/tools/highboy/test_lora_transport.py"
+run_test python3 "$repo/tools/highboy/test_rf_ownership.py"
+run_test python3 "$repo/tools/mqtt/test_mqtt.py"
+run_test python3 "$repo/tools/gatt/test_gatt.py"
+run_test python3 "$repo/tools/host_link/test_pairing.py"
+run_test python3 "$repo/tools/host_link/test_rf.py"
+run_test python3 "$repo/tools/host_link/test_rf_cli.py"
+run_test python3 "$repo/tools/highboy/test_nfc_screen_owners.py"
+run_test python3 "$repo/tools/highboy/test_ir_library.py"
+run_test python3 "$repo/tools/ir_api/test_ir_api.py"
+run_test python3 "$repo/tools/scripts/generate_js_stdlib.py" --check
+run_test python3 "$repo/tools/scripts/test_engine.py"
+run_test python3 "$repo/tools/scripts/test_runner.py"
+run_test python3 "$repo/tools/scripts/test_context.py"
+run_test python3 "$repo/tools/scripts/test_ui.py"
+run_test python3 "$repo/tools/highboy/test_muse_native.py"
+run_test python3 "$repo/tools/highboy/test_preservation.py"
+run_test node --test "$repo/tools/highboy/tests/test_usb_msc.mjs" \
   "$repo/tools/highboy/tests/test_doom_dma.mjs"
+if [ "$test_failures" -ne 0 ]; then
+  printf '%s host test group(s) failed.\n' "$test_failures" >&2
+  exit 1
+fi
