@@ -1,4 +1,19 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 # Build the integrated application pair only. Never access a device or API.
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -76,8 +91,16 @@ if [ "$target" = c5 ]; then
     components/spiffs/spiffs components/unity/unity components/cmock/CMock \
     components/protobuf-c/protobuf-c | \
     awk 'substr($0,1,1)!=" " {bad=1} END {if(NR!=13 || bad) exit 1}'
-  export IDF_SKIP_CHECK_SUBMODULES=1
+else
+  # P4 uses the C5 radio over SPI; unrelated radio libraries are not build inputs.
+  git -C "$IDF_PATH" submodule status -- \
+    components/lwip/lwip components/mbedtls/mbedtls components/heap/tlsf \
+    components/bootloader/subproject/components/micro-ecc/micro-ecc \
+    components/spiffs/spiffs components/unity/unity components/cmock/CMock \
+    components/protobuf-c/protobuf-c | \
+    awk 'substr($0,1,1)!=" " {bad=1} END {if(NR!=8 || bad) exit 1}'
 fi
+export IDF_SKIP_CHECK_SUBMODULES=1
 source "$IDF_PATH/export.sh" >/dev/null
 export IDF_TARGET="esp32$target"
 project="$repo/firmware_$target"
