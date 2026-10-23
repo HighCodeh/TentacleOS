@@ -121,6 +121,10 @@ The host runner executes every test group and reports failed groups at the end.
 Any failed group still makes the runner exit unsuccessfully. Its own regression
 test checks that an early failure does not prevent the final group from running
 and that the aggregate exit status preserves the failure.
+Run the complete suite after changing imported firmware sources: their correction
+seals in `integration/corrections.json` must match the reviewed bytes in the same
+commit. Preserve earlier hashes and reasons in `review_history`; do not relax the
+preservation gate to accept an unrecorded change.
 
 The IDF container job explicitly adds only `GITHUB_WORKSPACE` to Git's global
 `safe.directory` list and verifies `HEAD` before building. This is needed when

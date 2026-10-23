@@ -1690,10 +1690,16 @@
     "firmware_p4/components/Applications/LoRa/meshtastic/meshtastic_nodedb.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "a5c964d51d2c781267acce653e347aeb7464b46ed433155708518fd2966b676e",
-      "after_sha256": "cd60de901457aaf2c784524912acbada6f4f1d8d62f6a5368b2a10778ab8578f",
-      "reason": "fix(lora): synchronize node snapshots and bound mesh receive parsing",
-      "pre_format_sha256": "7ba69efd4476643c719f4986468207df73da90b518fd550edf47338bbe672089",
-      "formatter": "clang-format version 22.1.5"
+      "after_sha256": "8b701133b0aed2986936dc6b9446391d1e859a7d183c24fcdf0d313e06e1a884",
+      "reason": "Preserve synchronized node parsing; compare remaining protobuf bytes with an unsigned size and add the SPDX identifier.",
+      "review_history": [
+        {
+          "after_sha256": "cd60de901457aaf2c784524912acbada6f4f1d8d62f6a5368b2a10778ab8578f",
+          "reason": "fix(lora): synchronize node snapshots and bound mesh receive parsing",
+          "pre_format_sha256": "7ba69efd4476643c719f4986468207df73da90b518fd550edf47338bbe672089",
+          "formatter": "clang-format version 22.1.5"
+        }
+      ]
     },
     "firmware_p4/components/Applications/LoRa/meshtastic/include/meshtastic_nodedb.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
