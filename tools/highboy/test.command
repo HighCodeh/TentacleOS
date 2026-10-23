@@ -27,6 +27,7 @@ run_test() {
 }
 run_test python3 "$repo/tools/ci/test_host_test_runner.py"
 run_test python3 "$repo/tools/highboy/check_contracts.py"
+run_test python3 "$repo/tools/wifi_quick_scan/test_quick_scan.py"
 run_test python3 "$repo/tools/highboy/test_contracts.py"
 run_test python3 "$repo/tools/highboy/test_package.py"
 run_test python3 "$repo/tools/highboy/test_release.py"

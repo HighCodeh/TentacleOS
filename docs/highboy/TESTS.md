@@ -17,6 +17,16 @@ along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 # Offline preservation and Muse regressions
 
+## Running the offline suites
+
+The ESP SCAN screen was subsequently routed through the existing normal C5 AP
+scan, with P4-local OUI/RSSI classification and no monitor-mode or radio
+STOP/START commands. The existing Espressif prefixes are compiled as a compact
+P4 lookup. Six sanitizer groups, 34 preservation tests and contract checks passed.
+The P4 build on IDF 5.5.3 fits at 2,948,880 / 2,949,120 bytes (240 free).
+This route requires only the P4 update when C5's normal AP scan is available;
+no device access or physical scan was performed for the routing change.
+
 Run from the canonical repository root:
 
 ```sh
