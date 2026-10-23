@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 #include "test_ui_platform.h"
 #include "system_update_ui.c"
 theme_t current_theme;
@@ -34,7 +49,14 @@ void ui_input_set_screen_handler(void (*cb)(const input_event_t *,void *),void *
 void ui_switch_screen(int screen) {assert(screen==SCREEN_DEV_MENU);++s_exits;}
 int xTaskCreatePinnedToCore(void (*fn)(void *),const char *name,uint32_t stack,void *arg,int priority,void *out,int core) {
   (void)out;assert(strcmp(name,"p4_update")==0 && stack==6144 && priority==SYS_PRIO_SERVICE_LO && core==SYS_CORE_RADIO);
-  if(s_fail_task)return 0;assert(!s_worker_fn);s_worker_fn=fn;s_worker_arg=arg;++s_jobs;return pdPASS;
+  if (s_fail_task) {
+    return 0;
+  }
+  assert(!s_worker_fn);
+  s_worker_fn = fn;
+  s_worker_arg = arg;
+  ++s_jobs;
+  return pdPASS;
 }
 void vTaskDelete(void *task) {assert(!s_is_ui && task==NULL);}
 const char *esp_err_to_name(esp_err_t error) {(void)error;return "actual error";}
