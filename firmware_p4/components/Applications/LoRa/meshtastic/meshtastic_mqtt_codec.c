@@ -266,7 +266,7 @@ static bool read_field(mt_mqtt_cursor_t *cursor, mt_mqtt_field_t *out) {
     ESP_LOGD(TAG, "Unsupported protobuf wire type");
     return false;
   }
-  if (length > cursor->length - cursor->offset)
+  if (length > (uint64_t)(cursor->length - cursor->offset))
     return false;
   out->bytes = cursor->data + cursor->offset;
   out->length = (uint16_t)length;

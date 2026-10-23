@@ -1,4 +1,5 @@
 // Copyright (c) 2025 HIGH CODE LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
 // TentacleOS is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -317,7 +318,7 @@ static void parse_user_into(mt_node_entry_t *e, const uint8_t *buf, uint16_t len
           break;
       }
     } else if (wire_type == 5) {
-      if (len - i < sizeof(uint32_t))
+      if ((size_t)(len - i) < sizeof(uint32_t))
         break;
       i += sizeof(uint32_t);
     } else {
