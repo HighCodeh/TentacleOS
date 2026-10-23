@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 #include "test_platform.h"
 #include <stdatomic.h>
 #include <time.h>
@@ -73,7 +88,10 @@ bool host_local_rf_is_ready(void) { return s_ready; }
 bool host_local_rf_lock(uint32_t timeout) {
   if(s_lock_timeout || (s_task==3 && s_pause_session))return false;
   assert(pthread_mutex_lock(&s_gate_mutex)==0);assert(!s_gate);s_gate=true;
-  if(s_stop_locked)s_stopped=true;return true;
+  if (s_stop_locked) {
+    s_stopped = true;
+  }
+  return true;
 }
 void host_local_rf_unlock(void) { assert(s_gate);s_gate=false;assert(pthread_mutex_unlock(&s_gate_mutex)==0); }
 esp_err_t host_local_rf_call(host_local_rf_cb_t callback,void *context) {
@@ -94,7 +112,11 @@ esp_err_t power_manager_no_sleep_acquire(void) {
 }
 esp_err_t power_manager_no_sleep_release(void) {
   assert_worker();assert(s_power==1 && !s_channel_live && !s_encoder_live);
-  if(s_fault==FAIL_POWER_RELEASE)return ESP_FAIL;--s_power;return ESP_OK;
+  if (s_fault == FAIL_POWER_RELEASE) {
+    return ESP_FAIL;
+  }
+  --s_power;
+  return ESP_OK;
 }
 esp_err_t cc1101_recover(void) { assert_worker();return s_fault==FAIL_RECOVER?ESP_FAIL:ESP_OK; }
 void cc1101_set_preset(cc1101_preset_t preset,uint32_t freq) {
@@ -135,7 +157,10 @@ void vTaskDelay(TickType_t ticks) {
 void cc1101_enter_tx_mode(void) { assert_worker(); }
 esp_err_t rmt_new_rx_channel(const rmt_rx_channel_config_t *config,rmt_channel_handle_t *out) {
   assert_worker();assert(!s_channel_live && config->flags.with_dma && config->gpio_num==GPIO_CC1101_GDO0_PIN);
-  if(s_fault==FAIL_CHANNEL)return ESP_FAIL;s_channel_live=true;*out=(void *)3;return ESP_OK;
+  if (s_fault == FAIL_CHANNEL) {
+    return ESP_FAIL;
+  }
+  s_channel_live=true;*out=(void *)3;return ESP_OK;
 }
 esp_err_t rmt_new_tx_channel(const rmt_tx_channel_config_t *config,rmt_channel_handle_t *out) {
   assert_worker();assert(!s_channel_live);if(s_fault==FAIL_CHANNEL)return ESP_FAIL;
@@ -161,7 +186,10 @@ esp_err_t rmt_del_channel(rmt_channel_handle_t channel) {
   s_channel_live=false;return ESP_OK;
 }
 QueueHandle_t xQueueCreate(unsigned count,size_t size) {
-  if(s_fault==FAIL_QUEUE)return NULL;s_queue_live=true;return (void *)4;
+  if (s_fault == FAIL_QUEUE) {
+    return NULL;
+  }
+  s_queue_live=true;return (void *)4;
 }
 void vQueueDelete(QueueHandle_t queue) { assert(!s_channel_live && !s_channel_enabled);s_queue_live=false; }
 BaseType_t xQueueSendFromISR(QueueHandle_t queue,const void *event,BaseType_t *wake) {
@@ -190,7 +218,10 @@ bool subghz_protocol_registry_decode_all(const int32_t *pulses,size_t count,subg
   return s_fault!=RX_UNKNOWN;
 }
 esp_err_t rmt_new_copy_encoder(const rmt_copy_encoder_config_t *config,rmt_encoder_handle_t *out) {
-  if(s_fault==FAIL_ENCODER)return ESP_FAIL;s_encoder_live=true;*out=(void *)5;return ESP_OK;
+  if (s_fault == FAIL_ENCODER) {
+    return ESP_FAIL;
+  }
+  s_encoder_live=true;*out=(void *)5;return ESP_OK;
 }
 esp_err_t rmt_del_encoder(rmt_encoder_handle_t encoder) {
   assert(!s_channel_live && !s_channel_enabled);if(s_fault==FAIL_ENCODER_DELETE)return ESP_FAIL;

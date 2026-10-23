@@ -112,6 +112,10 @@ OTA fault fixtures use explicit conditional blocks accepted by GCC's
 `-Wmisleading-indentation`; the warning remains enabled.
 The script-context harness uses a private string-copy helper so its compatibility
 implementation cannot collide with libc's own `strlcpy` declaration.
+Boot-report, power-policy, RF and MQTT fixtures keep conditional and loop bodies
+explicit; the PM-disabled case also checks that initialization logs no errors.
+The Meshtastic parsers compare remaining byte counts with unsigned lengths, and
+the Sub-GHz ABI converts both pulse polarities to signed durations explicitly.
 
 The host runner executes every test group and reports failed groups at the end.
 Any failed group still makes the runner exit unsuccessfully. Its own regression

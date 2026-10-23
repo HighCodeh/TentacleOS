@@ -536,9 +536,9 @@ static esp_err_t receive_once(tos_api_subghz_request_t *request) {
   for (size_t i = 0; i < event.num_symbols; ++i) {
     rmt_symbol_word_t symbol = s_symbols[i];
     if (symbol.duration0 >= SUBGHZ_FILTER_US)
-      s_pulses[count++] = symbol.level0 ? symbol.duration0 : -(int32_t)symbol.duration0;
+      s_pulses[count++] = symbol.level0 ? (int32_t)symbol.duration0 : -(int32_t)symbol.duration0;
     if (symbol.duration1 >= SUBGHZ_FILTER_US)
-      s_pulses[count++] = symbol.level1 ? symbol.duration1 : -(int32_t)symbol.duration1;
+      s_pulses[count++] = symbol.level1 ? (int32_t)symbol.duration1 : -(int32_t)symbol.duration1;
   }
   if (count == 0) {
     request->has_no_signal = true;
