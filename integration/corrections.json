@@ -2370,8 +2370,18 @@
     "firmware_p4/components/Service/spi_bridge/muse_response_realign.inc": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "2549e2e904cfd7cb22e4ad775e215c46f957c1317066d00921ddc7dd5832890c",
-      "after_sha256": "2d28e6027ffe79f6d1e432a5562b3ff53815757d83bb4ab38a912194f9e4fbe6",
-      "reason": "chore(p4): add missing service license notices"
+      "after_sha256": "5462ac196680f2aed2fbcda7f026c179818629967b9d08eeece936b7000764e7",
+      "reason": "Add missing project license notice only; preserve all existing bytes and line endings.",
+      "review_history": [
+        {
+          "after_sha256": "c12f95726092ab275908ee0b326d30e137c2f42d840b16869af0809a6c729966",
+          "reason": "Extend the existing unique, complete, CRC-checked byte-aligned response recovery allowlist to Quick Scan commands 0x0151-0x0155 after a field START response arrived at byte offset 11; preserve Muse recovery and rejection of ambiguous, truncated or corrupt frames without command replay."
+        },
+        {
+          "after_sha256": "c464efa05061cdbb53f1aecc79ebf0522bf26f89e11696db949d324a1b682e63",
+          "reason": "Extend existing complete unique CRC-checked response realignment to normal AP scan/status/data replies used by ESP SCAN; preserve other allowlist entries and rejection of ambiguous, truncated or corrupt frames."
+        }
+      ]
     },
     "firmware_p4/components/Service/app_runtime/include/tos_trust_keys.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",

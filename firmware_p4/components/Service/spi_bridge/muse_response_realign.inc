@@ -13,10 +13,13 @@
 // You should have received a copy of the GNU General Public License
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-/* Recover only a complete, unique, byte-aligned Muse reply within this
+/* Recover only a complete, unique, byte-aligned Muse or Wi-Fi scan reply within this
  * transfer. Never replay a command, combine polls, or repair payload/CRC. */
 static bool muse_response_realign(uint8_t *buf, size_t size, uint16_t cmd) {
-  if ((SPI_CMD_CAT(cmd) != 0x11 && cmd != 0x0001 && cmd != 0x000d && cmd != 0x1003) ||
+  if ((SPI_CMD_CAT(cmd) != 0x11 && cmd != 0x0001 && cmd != 0x000d && cmd != 0x1003 &&
+       cmd != SPI_ID_WIFI_APP_SCAN_AP && cmd != SPI_ID_WIFI_SCAN_STATUS &&
+       cmd != SPI_ID_SYSTEM_DATA &&
+       (cmd < SPI_ID_WIFI_QUICK_START || cmd > SPI_ID_WIFI_QUICK_WHITELIST)) ||
       size != SPI_FRAME_SIZE) return false;
   size_t found = 0, bytes = 0;
   for (size_t off = 1; off + sizeof(spi_header_t) < size; ++off) {

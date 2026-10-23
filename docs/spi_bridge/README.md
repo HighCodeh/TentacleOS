@@ -1,3 +1,20 @@
+<!--
+SPDX-License-Identifier: GPL-3.0-or-later
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # TentacleOS - P4 ↔ C5 SPI Bridge
 
 How the two microcontrollers in TentacleOS talk to each other.
@@ -187,6 +204,15 @@ is identical either way. Both ends must be initialized in the **same** mode.
   slave answers with a valid frame. Used on boards without an IRQ trace (the
   HighBoy V2 PCB has `GPIO_BRIDGE_IRQ_PIN == -1`, so `bridge_manager` initializes
   the master in POLL mode).
+
+The integrated profile can recover a complete, unique, byte-aligned response
+found later in the same fixed-size poll transfer for the existing Muse/startup
+allowlist, Wi-Fi Quick Scan IDs `0x0151`–`0x0155`, and the existing normal AP
+scan/status/data replies used by ESP SCAN. The command ID, response
+type, bounded payload and CRC must all match. An observed Quick Scan START reply
+at byte offset 11 is covered by host regression tests. Recovery never replays
+a command, combines transfers or repairs truncated/corrupt data; ambiguous
+candidates are rejected. This does not establish electrical link reliability.
 
 ```c
 esp_err_t spi_bridge_master_init(void);                          // == IRQ mode
