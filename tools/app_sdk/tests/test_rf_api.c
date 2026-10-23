@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -48,8 +63,12 @@ esp_err_t host_local_rf_call(host_local_rf_cb_t callback,void *context) {assert(
 esp_err_t host_rf_nfc_block(host_rf_nfc_block_t *request) {
  assert(s_locked && request->block==4 && request->key[0]==0xFF);++s_calls;
  if(s_error)return s_error;
- if(request->is_write)assert(request->data[0]==0xCA);
- else memset(request->data,0xCA,sizeof(request->data));return ESP_OK;
+ if (request->is_write) {
+   assert(request->data[0]==0xCA);
+ } else {
+   memset(request->data,0xCA,sizeof(request->data));
+ }
+ return ESP_OK;
 }
 int main(void) {
   tos_rfid_tag_t rfid; tos_nfc_tag_t nfc;

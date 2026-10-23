@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 #include <assert.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -268,7 +283,10 @@ static void test_adapter(void) {
   assert(strcmp(envelope.channel,"LongFast")==0 && strcmp(envelope.gateway,"!22334455")==0);
   // Echo from this gateway must not enter chat.
   event(MQTT_EVENT_DATA,0,(char *)s_published,s_published_length,s_published_length,0); UNLOCK();
-  for(unsigned i=0;i<20;++i) pause_ms(); LOCK(); assert(s_chat_messages==0); UNLOCK();
+  for (unsigned i=0;i<20;++i) {
+    pause_ms();
+  }
+  LOCK(); assert(s_chat_messages==0); UNLOCK();
   radio[4]=0x78; radio[5]=0x56; radio[6]=0x34; radio[7]=0x12; radio[8]=1;
   uint8_t packet[512],message[512]; uint16_t packet_length,size;
   assert(mt_mqtt_encode_radio(radio,sizeof(radio),packet,&packet_length)==ESP_OK);
@@ -280,7 +298,10 @@ static void test_adapter(void) {
   for(unsigned i=0;i<1000;++i) { LOCK(); bool done=s_chat_messages!=0; UNLOCK(); if(done) break; pause_ms(); }
   LOCK(); assert(s_chat_messages==1 && strcmp(s_chat,"hello")==0 && strcmp(s_who,"mqtt:!12345678")==0);
   event(MQTT_EVENT_DATA,0,(char *)message,size,size,0); UNLOCK();
-  for(unsigned i=0;i<20;++i) pause_ms(); LOCK(); assert(s_chat_messages==1); UNLOCK();
+  for (unsigned i=0;i<20;++i) {
+    pause_ms();
+  }
+  LOCK(); assert(s_chat_messages==1); UNLOCK();
   atomic_store(&s_fail_stop,1); meshtastic_mqtt_stop(); wait_state(MT_MQTT_STOPPED);
   LOCK(); assert(!s_allocated && !s_running); UNLOCK();
   // A lost START response must still cause remote cleanup when cancelled.

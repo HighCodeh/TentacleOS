@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 #include "test_platform.h"
 static void *test_allocate(size_t);
 static void test_release(void *);
@@ -35,10 +50,17 @@ esp_err_t esp_core_dump_get_summary(esp_core_dump_summary_t *out) {
   return ESP_OK;
 }
 esp_err_t esp_core_dump_image_erase(void) {
-  if(s_erase_error==ESP_OK)s_has_dump=false;return s_erase_error;
+  if (s_erase_error == ESP_OK) {
+    s_has_dump = false;
+  }
+  return s_erase_error;
 }
 static void *test_allocate(size_t size) {
-  if(s_no_memory)return NULL;++s_allocations;return malloc(size);
+  if (s_no_memory) {
+    return NULL;
+  }
+  ++s_allocations;
+  return malloc(size);
 }
 static void test_release(void *p) {if(p){assert(s_allocations>0);--s_allocations;}free(p);}
 esp_err_t nvs_open(const char *name,int mode,nvs_handle_t *out) {

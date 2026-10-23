@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 #include "test_platform.h"
 #include "power_manager.c"
 static unsigned s_pm_holds,s_configures,s_creates;
@@ -20,13 +35,19 @@ esp_err_t esp_pm_lock_release(esp_pm_lock_handle_t handle) {
 }
 esp_err_t esp_pm_lock_delete(esp_pm_lock_handle_t handle) {
   assert(s_live && handle==(void *)1 && s_pm_holds==0);
-  if(s_delete_error==ESP_OK)s_live=false;return s_delete_error;
+  if (s_delete_error == ESP_OK) {
+    s_live = false;
+  }
+  return s_delete_error;
 }
 esp_err_t esp_pm_configure(const esp_pm_config_t *cfg) {
   assert(s_live && s_pm_holds==1 && cfg->light_sleep_enable);
   assert(cfg->min_freq_mhz==360 && cfg->max_freq_mhz==360);++s_configures;
   s_config_entered=true;while(!s_config_release) {}
-  if(s_configure_error==ESP_OK)s_sleep=true;return s_configure_error;
+  if (s_configure_error == ESP_OK) {
+    s_sleep = true;
+  }
+  return s_configure_error;
 }
 #if CONFIG_PM_ENABLE
 static void reset(void) {
@@ -86,7 +107,7 @@ int main(void) {
   reset();s_release_error=ESP_FAIL;power_manager_init();assert(s_sleep && s_usb_hold && s_pm_holds==1);
   s_release_error=ESP_OK;power_manager_set_usb_suspended(true);assert(!s_usb_hold && s_pm_holds==0);
 #else
-  power_manager_init();assert(s_configures==0 && !s_live);
+  power_manager_init();assert(s_configures==0 && !s_live && s_errors==0);
   power_manager_set_external_power(true);assert(power_manager_external_power());
   power_manager_set_usb_suspended(true);power_manager_set_external_power(false);
   assert(!power_manager_external_power() && s_pm_holds==0);
