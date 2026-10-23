@@ -1,4 +1,5 @@
 // Copyright (c) 2025 HIGH CODE LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
 // TentacleOS is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -40,6 +41,7 @@
 #include "wifi_flood.h"
 #include "wifi_service.h"
 #include "wifi_sniffer.h"
+#include "wifi_quick_scan.h"
 
 static const char *TAG = "WIFI_DISPATCHER";
 
@@ -354,7 +356,76 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
     }
   }
 
+  spi_wifi_quick_status_t quick_status;
+  if (wifi_quick_scan_get_status(&quick_status) == ESP_OK &&
+      quick_status.state == SPI_WIFI_QUICK_RUNNING && id != SPI_ID_WIFI_QUICK_STATUS &&
+      id != SPI_ID_WIFI_QUICK_STOP) {
+    return SPI_STATUS_BUSY;
+  }
+
   switch (id) {
+    case SPI_ID_WIFI_QUICK_START: {
+      if (len != 0 && len != sizeof(spi_wifi_quick_config_t)) {
+        return SPI_STATUS_INVALID_ARG;
+      }
+      if (spi_bridge_async_scan_busy() || session_manager_is_active()) {
+        return SPI_STATUS_BUSY;
+      }
+      spi_wifi_quick_config_t config;
+      if (len != 0) {
+        memcpy(&config, payload, sizeof(config));
+      }
+      esp_err_t err = wifi_quick_scan_start(len == 0 ? NULL : &config);
+      return err == ESP_OK                  ? SPI_STATUS_OK
+             : err == ESP_ERR_INVALID_ARG   ? SPI_STATUS_INVALID_ARG
+             : err == ESP_ERR_INVALID_STATE ? SPI_STATUS_BUSY
+                                            : SPI_STATUS_ERROR;
+    }
+    case SPI_ID_WIFI_QUICK_STATUS: {
+      spi_wifi_quick_status_t status;
+      if (wifi_quick_scan_get_status(&status) != ESP_OK) {
+        return SPI_STATUS_ERROR;
+      }
+      memcpy(out_resp_payload, &status, sizeof(status));
+      *out_resp_len = sizeof(status);
+      return SPI_STATUS_OK;
+    }
+    case SPI_ID_WIFI_QUICK_STOP:
+      return wifi_quick_scan_stop() == ESP_OK ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+    case SPI_ID_WIFI_QUICK_RECORD: {
+      if (len != sizeof(spi_wifi_quick_record_req_t)) {
+        return SPI_STATUS_INVALID_ARG;
+      }
+      spi_wifi_quick_record_req_t request;
+      memcpy(&request, payload, sizeof(request));
+      if (request.include_authorized > 1) {
+        return SPI_STATUS_INVALID_ARG;
+      }
+      spi_wifi_quick_record_t record;
+      esp_err_t err =
+          wifi_quick_scan_get_record(request.index, request.include_authorized, &record);
+      if (err != ESP_OK) {
+        return err == ESP_ERR_NOT_FOUND ? SPI_STATUS_INVALID_ARG : SPI_STATUS_ERROR;
+      }
+      memcpy(out_resp_payload, &record, sizeof(record));
+      *out_resp_len = sizeof(record);
+      return SPI_STATUS_OK;
+    }
+    case SPI_ID_WIFI_QUICK_WHITELIST: {
+      if (len != sizeof(spi_wifi_quick_whitelist_req_t)) {
+        return SPI_STATUS_INVALID_ARG;
+      }
+      spi_wifi_quick_whitelist_req_t request;
+      memcpy(&request, payload, sizeof(request));
+      if (request.is_authorized > 1) {
+        return SPI_STATUS_INVALID_ARG;
+      }
+      esp_err_t err = wifi_quick_scan_set_authorized(request.mac, request.is_authorized);
+      return err == ESP_OK                ? SPI_STATUS_OK
+             : err == ESP_ERR_INVALID_ARG ? SPI_STATUS_INVALID_ARG
+                                          : SPI_STATUS_ERROR;
+    }
+
     case SPI_ID_WIFI_SCAN:
       if (spi_bridge_async_scan_busy())
         return SPI_STATUS_BUSY;

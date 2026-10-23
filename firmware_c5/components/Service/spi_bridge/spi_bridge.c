@@ -1,4 +1,5 @@
 // Copyright (c) 2025 HIGH CODE LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
 // TentacleOS is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -45,6 +46,7 @@
 #include "signal_monitor.h"
 #include "spi_slave_driver.h"
 #include "wifi_dispatcher.h"
+#include "wifi_quick_scan.h"
 #include "wifi_service.h"
 #include "wifi_sniffer.h"
 
@@ -245,6 +247,9 @@ esp_err_t spi_bridge_slave_init_mode(spi_bridge_mode_t mode) {
     return ret;
   hb_muse_c5_service_register(); // only callbacks; default disabled
   session_manager_init();
+  if (wifi_quick_scan_init() != ESP_OK) {
+    ESP_LOGW(TAG, "Quick scan unavailable: initialization failed");
+  }
   xTaskCreatePinnedToCore(bridge_task,
                           "spi_bridge_task",
                           SPI_BRIDGE_TASK_STACK,

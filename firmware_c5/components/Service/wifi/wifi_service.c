@@ -1,4 +1,5 @@
 // Copyright (c) 2025 HIGH CODE LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
 // TentacleOS is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -24,6 +25,7 @@
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_netif.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -53,6 +55,10 @@ static const char *TAG = "WIFI_SERVICE";
 #define WIFI_CMD_TIMEOUT_MS     100
 #define SCAN_DWELL_MIN_MS       20
 #define SCAN_DWELL_MAX_MS       1500
+#define CAPTURE_BAND_2G         1
+#define CAPTURE_BAND_5G         2
+#define CAPTURE_CHANNEL_2G_MAX  14
+#define CAPTURE_US_PER_MS       1000
 
 static wifi_ap_record_t s_stored_aps[WIFI_SCAN_LIST_SIZE];
 static uint16_t s_stored_ap_count = 0;
@@ -716,6 +722,174 @@ static const uint8_t HOP_CHANNELS_2G[] = {1, 6, 11, 3, 9, 13, 2, 4, 5, 7, 8, 10,
 static const uint8_t HOP_CHANNELS_5G[] = {36, 40, 44, 48, 149, 153, 157, 161, 165};
 static const uint8_t HOP_CHANNELS_DUAL[] = {1,   36, 6,   40, 11,  44, 3,   48, 9, 149, 13,
                                             153, 2,  157, 4,  161, 5,  165, 7,  8, 10,  12};
+static const uint8_t CAPTURE_CHANNELS_5G[] = {
+    36,  40,  44,  48,  52,  56,  60,  64,  100, 104, 108, 112, 116, 120,
+    124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165, 169, 173, 177,
+};
+#define CAPTURE_CHANNELS_5G_COUNT (sizeof(CAPTURE_CHANNELS_5G) / sizeof(CAPTURE_CHANNELS_5G[0]))
+
+esp_err_t wifi_service_capture_passive(const wifi_service_capture_config_t *config,
+                                       wifi_promiscuous_cb_t rx_cb) {
+  if (config == NULL || rx_cb == NULL || config->tick_cb == NULL || config->duration_ms == 0 ||
+      config->band > CAPTURE_BAND_5G) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  if (s_mutex == NULL || xSemaphoreTake(s_mutex, 0) != pdTRUE) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  esp_err_t err = ESP_ERR_INVALID_STATE;
+  wifi_mode_t previous_mode;
+  wifi_band_mode_t previous_band;
+  wifi_promiscuous_filter_t previous_filter;
+  bool is_started = false;
+  bool has_mode = false;
+  bool has_filter = false;
+  bool is_promiscuous = false;
+  uint8_t channels[CAPTURE_CHANNEL_2G_MAX + CAPTURE_CHANNELS_5G_COUNT];
+  size_t channel_count = 0;
+  size_t index = 0;
+  const char *stage = "ownership";
+  if (s_is_active || s_is_connected || s_promiscuous_active || s_hopper_task_handle != NULL) {
+    goto cleanup;
+  }
+  stage = "read mode";
+  if ((err = esp_wifi_get_mode(&previous_mode)) != ESP_OK) {
+    goto cleanup;
+  }
+  has_mode = true;
+  stage = "read band";
+  if ((err = esp_wifi_get_band_mode(&previous_band)) != ESP_OK) {
+    goto cleanup;
+  }
+  stage = "read promiscuous state";
+  if ((err = esp_wifi_get_promiscuous(&is_promiscuous)) != ESP_OK || is_promiscuous) {
+    err = ESP_ERR_INVALID_STATE;
+    goto cleanup;
+  }
+  stage = "read filter";
+  if ((err = esp_wifi_get_promiscuous_filter(&previous_filter)) != ESP_OK) {
+    goto cleanup;
+  }
+  has_filter = true;
+  wifi_country_t country;
+  stage = "read country";
+  if ((err = esp_wifi_get_country(&country)) != ESP_OK) {
+    goto cleanup;
+  }
+  if (config->band != CAPTURE_BAND_5G) {
+    for (size_t i = 0; i <= sizeof(HOP_CHANNELS_2G); i++) {
+      uint8_t channel = i < sizeof(HOP_CHANNELS_2G) ? HOP_CHANNELS_2G[i] : CAPTURE_CHANNEL_2G_MAX;
+      if (channel >= country.schan && (uint16_t)channel < (uint16_t)country.schan + country.nchan) {
+        channels[channel_count++] = channel;
+      }
+    }
+  }
+  if (config->band != CAPTURE_BAND_2G) {
+    for (size_t i = 0; i < CAPTURE_CHANNELS_5G_COUNT; i++) {
+      if (country.policy != WIFI_COUNTRY_POLICY_MANUAL || country.wifi_5g_channel_mask == 0 ||
+          (country.wifi_5g_channel_mask & (1u << (i + 1))) != 0) {
+        channels[channel_count++] = CAPTURE_CHANNELS_5G[i];
+      }
+    }
+  }
+  stage = "set NULL mode";
+  if ((err = esp_wifi_set_mode(WIFI_MODE_NULL)) != ESP_OK) {
+    goto cleanup;
+  }
+  stage = "start driver";
+  if ((err = esp_wifi_start()) != ESP_OK) {
+    goto cleanup;
+  }
+  is_started = true;
+  // Band selection requires a started driver, including NULL-mode captures.
+  stage = "select band";
+  if ((err = esp_wifi_set_band_mode(band_mode_from_selector(config->band))) != ESP_OK) {
+    goto cleanup;
+  }
+  wifi_promiscuous_filter_t filter = {
+      .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA |
+                     WIFI_PROMIS_FILTER_MASK_CTRL,
+  };
+  stage = "configure capture";
+  if ((err = esp_wifi_set_promiscuous_filter(&filter)) != ESP_OK ||
+      (err = esp_wifi_set_promiscuous_rx_cb(rx_cb)) != ESP_OK) {
+    goto cleanup;
+  }
+  // Unsupported/regulatory-disallowed channels never consume a capture dwell.
+  stage = "tune initial channel";
+  for (; index < channel_count; index++) {
+    if (esp_wifi_set_channel(channels[index], WIFI_SECOND_CHAN_NONE) == ESP_OK) {
+      break;
+    }
+  }
+  if (index == channel_count) {
+    err = ESP_ERR_NOT_SUPPORTED;
+    goto cleanup;
+  }
+  stage = "enable promiscuous mode";
+  if ((err = esp_wifi_set_promiscuous(true)) != ESP_OK) {
+    goto cleanup;
+  }
+  int64_t start_us = esp_timer_get_time();
+  stage = "capture channels";
+  while ((uint64_t)(esp_timer_get_time() - start_us) / CAPTURE_US_PER_MS < config->duration_ms) {
+    vTaskDelay(pdMS_TO_TICKS(HOPPER_DELAY_MS));
+    if (!config->tick_cb(config->ctx)) {
+      break;
+    }
+    size_t attempts = 0;
+    do {
+      index = (index + 1) % channel_count;
+      err = esp_wifi_set_channel(channels[index], WIFI_SECOND_CHAN_NONE);
+      attempts++;
+    } while (err != ESP_OK && attempts < channel_count);
+    if (err != ESP_OK) {
+      break;
+    }
+  }
+cleanup:
+  if (is_started) {
+    esp_err_t cleanup_err = esp_wifi_set_promiscuous(false);
+    if (err == ESP_OK) {
+      err = cleanup_err;
+    }
+    cleanup_err = esp_wifi_set_promiscuous_rx_cb(NULL);
+    if (err == ESP_OK) {
+      err = cleanup_err;
+    }
+    cleanup_err = esp_wifi_set_band_mode(previous_band);
+    if (err == ESP_OK && cleanup_err != ESP_OK) {
+      stage = "restore band";
+      err = cleanup_err;
+    }
+    cleanup_err = esp_wifi_stop();
+    if (cleanup_err != ESP_OK) {
+      // Keep NULL mode if stopping fails; restoring AP/STA could transmit.
+      has_mode = false;
+      s_is_active = true;
+    }
+    if (err == ESP_OK) {
+      err = cleanup_err;
+    }
+  }
+  if (has_filter) {
+    esp_err_t cleanup_err = esp_wifi_set_promiscuous_filter(&previous_filter);
+    if (err == ESP_OK) {
+      err = cleanup_err;
+    }
+  }
+  if (has_mode) {
+    esp_err_t cleanup_err = esp_wifi_set_mode(previous_mode);
+    if (err == ESP_OK) {
+      err = cleanup_err;
+    }
+  }
+  xSemaphoreGive(s_mutex);
+  if (err != ESP_OK) {
+    ESP_LOGW(TAG, "Passive capture ended at %s: %s", stage, esp_err_to_name(err));
+  }
+  return err;
+}
 
 static void channel_hopper_task(void *pvParameters) {
   (void)pvParameters;

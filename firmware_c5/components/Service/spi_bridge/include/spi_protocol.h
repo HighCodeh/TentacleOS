@@ -1,4 +1,5 @@
 // Copyright (c) 2025 HIGH CODE LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
 // TentacleOS is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -311,6 +312,11 @@ typedef enum {
   SPI_ID_WIFI_PORT_SCAN_STOP = SPI_CMD(SPI_CAT_WIFI, 0x4D),
   SPI_ID_WIFI_GET_MAC = SPI_CMD(SPI_CAT_WIFI, 0x4E),
   SPI_ID_WIFI_GET_IP_INFO = SPI_CMD(SPI_CAT_WIFI, 0x4F),
+  SPI_ID_WIFI_QUICK_START = SPI_CMD(SPI_CAT_WIFI, 0x51),
+  SPI_ID_WIFI_QUICK_STATUS = SPI_CMD(SPI_CAT_WIFI, 0x52),
+  SPI_ID_WIFI_QUICK_STOP = SPI_CMD(SPI_CAT_WIFI, 0x53),
+  SPI_ID_WIFI_QUICK_RECORD = SPI_CMD(SPI_CAT_WIFI, 0x54),
+  SPI_ID_WIFI_QUICK_WHITELIST = SPI_CMD(SPI_CAT_WIFI, 0x55),
   SPI_ID_WIFI_EVIL_TWIN_TMPL_BEGIN = SPI_CMD(SPI_CAT_WIFI, 0xA0),
   SPI_ID_WIFI_EVIL_TWIN_TMPL_CHUNK = SPI_CMD(SPI_CAT_WIFI, 0xA1),
 
@@ -714,6 +720,79 @@ typedef struct __attribute__((packed)) {
 // Rounded up to a multiple of 4 bytes: SPI DMA transfers must be word-aligned
 // in length, and the 7-byte header would otherwise make the frame size odd.
 #define SPI_FRAME_SIZE (((sizeof(spi_header_t) + SPI_MAX_PAYLOAD) + 3u) & ~3u)
+
+#define SPI_WIFI_QUICK_DEFAULT_SECONDS 45
+#define SPI_WIFI_QUICK_MAC_LEN         6
+#define SPI_WIFI_QUICK_VENDOR_LEN      20
+#define SPI_WIFI_QUICK_SSID_LEN        33
+#define SPI_WIFI_QUICK_SSID_UNKNOWN    0
+#define SPI_WIFI_QUICK_SSID_HIDDEN     1
+#define SPI_WIFI_QUICK_SSID_KNOWN      2
+#define SPI_WIFI_QUICK_BEACON          (1u << 0)
+#define SPI_WIFI_QUICK_PROBE           (1u << 1)
+#define SPI_WIFI_QUICK_OTHER           (1u << 2)
+#define SPI_WIFI_QUICK_ESPRESSIF_OUI   (1u << 3)
+#define SPI_WIFI_QUICK_ESPNOW          (1u << 4)
+#define SPI_WIFI_QUICK_LOCAL_MAC       (1u << 5)
+
+typedef enum {
+  SPI_WIFI_QUICK_IDLE = 0,
+  SPI_WIFI_QUICK_RUNNING,
+  SPI_WIFI_QUICK_DONE,
+  SPI_WIFI_QUICK_CANCELLED,
+  SPI_WIFI_QUICK_ERROR,
+  SPI_WIFI_QUICK_STATE_COUNT
+} spi_wifi_quick_state_t;
+
+/** Additive v8 extension; new callers must handle unsupported commands on older peers. */
+typedef struct __attribute__((packed)) {
+  uint8_t duration_seconds; // 30, 45 or 60; zero selects 45
+  uint8_t band;             // SPI_WIFI_BAND_*; zero includes both bands, 2.4 GHz first
+} spi_wifi_quick_config_t;
+
+typedef struct __attribute__((packed)) {
+  uint8_t state;
+  uint32_t elapsed_ms;
+  uint32_t error; // esp_err_t from capture/setup/cleanup
+  uint32_t dropped_observations;
+  uint32_t overflow_observations; // capacity reached; not a unique-device count
+  uint16_t total_count;
+  uint16_t unknown_count;
+} spi_wifi_quick_status_t;
+
+typedef struct __attribute__((packed)) {
+  uint8_t mac[SPI_WIFI_QUICK_MAC_LEN];
+  char vendor[SPI_WIFI_QUICK_VENDOR_LEN];
+  uint32_t frames;
+  uint32_t first_seen_ms;
+  uint32_t last_seen_ms;
+  uint16_t evidence;
+  int8_t rssi_avg;
+  int8_t rssi_min;
+  int8_t rssi_max;
+  uint8_t channel; // last observed channel
+  uint8_t observation_windows;
+  uint8_t oui_points;
+  uint8_t fingerprint_points;
+  uint8_t proximity_points;
+  uint8_t persistence_points;
+  uint8_t score; // priority index, never a probability
+  uint8_t is_authorized;
+  uint8_t should_investigate;
+  uint8_t bssid[SPI_WIFI_QUICK_MAC_LEN];
+  char ssid[SPI_WIFI_QUICK_SSID_LEN];
+  uint8_t ssid_state; // derived only from observed beacon/probe response, never probe requests
+} spi_wifi_quick_record_t;
+
+typedef struct __attribute__((packed)) {
+  uint16_t index;
+  uint8_t include_authorized;
+} spi_wifi_quick_record_req_t;
+
+typedef struct __attribute__((packed)) {
+  uint8_t mac[SPI_WIFI_QUICK_MAC_LEN];
+  uint8_t is_authorized; // upsert/remove exact MAC; RAM-only, max 32 entries
+} spi_wifi_quick_whitelist_req_t;
 
 // Larger fixed transfer size used ONLY by the SYSTEM_STREAM response, which
 // batches many stream records into one transfer to amortize per-frame overhead.

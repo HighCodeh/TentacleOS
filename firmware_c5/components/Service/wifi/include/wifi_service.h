@@ -1,4 +1,5 @@
 // Copyright (c) 2025 HIGH CODE LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
 // TentacleOS is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -25,6 +26,20 @@ extern "C" {
 
 #include "esp_err.h"
 #include "esp_wifi.h"
+
+/** Capture in WIFI_MODE_NULL; caller must stop normal Wi-Fi first.
+ * Runs on the calling worker and holds the scan mutex until cleanup.
+ * tick_cb runs once per dwell and returns false to cancel; no payload is retained.
+ */
+typedef bool (*wifi_service_capture_tick_cb_t)(void *ctx);
+typedef struct {
+  uint32_t duration_ms;
+  uint8_t band;
+  wifi_service_capture_tick_cb_t tick_cb;
+  void *ctx;
+} wifi_service_capture_config_t;
+esp_err_t wifi_service_capture_passive(const wifi_service_capture_config_t *config,
+                                       wifi_promiscuous_cb_t rx_cb);
 
 #define WIFI_SCAN_LIST_SIZE      64
 #define WIFI_AP_CONFIG_FILE      "config/wifi/wifi_ap.conf"

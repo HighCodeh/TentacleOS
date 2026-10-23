@@ -196,16 +196,24 @@
     "firmware_c5/components/Service/spi_bridge/spi_bridge.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "502217de323db0a1f9431ba2da16ffe4302019902f060b22493071dbd0334153",
-      "after_sha256": "b7cf0ae240f85cb8b7ebd1a126e8808f91ce02997b36b6042ab510403279456c",
-      "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership",
+      "after_sha256": "8fa0e31e5c5b286ca4e5a19e5bf824ec8e87bc5d619b47b95b5b24cc76418ba0",
+      "reason": "Initialize bounded headless Quick Scan state before accepting SPI commands; retain the existing Muse registration and session lifecycle.",
       "review_history": [
         {
           "after_sha256": "4b6e7f8b9cc7402047718773549def5febb1b3b19136013e127b218d59ea0344",
           "reason": "Pass central scheduling macros directly and pin affected first-party tasks."
+        },
+        {
+          "after_sha256": "b7cf0ae240f85cb8b7ebd1a126e8808f91ce02997b36b6042ab510403279456c",
+          "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership",
+          "pre_format_sha256": "a4a68b438142b4688ddbcf08b5fd16b2dadea4354912873ff547b5e3df49ef2b",
+          "formatter": "clang-format version 22.1.5"
+        },
+        {
+          "after_sha256": "65831bd6313331b0f7a11d979b42bfb6d4798d6a6078e0e1f2ac3476ffc5c765",
+          "reason": "Initialize bounded headless Quick Scan state before accepting SPI commands; retain the existing Muse registration and session lifecycle."
         }
-      ],
-      "pre_format_sha256": "a4a68b438142b4688ddbcf08b5fd16b2dadea4354912873ff547b5e3df49ef2b",
-      "formatter": "clang-format version 22.1.5"
+      ]
     },
     "firmware_c5/components/Service/wifi/hb_muse_wifi_json_bound.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -222,10 +230,28 @@
     "firmware_c5/components/Service/wifi/wifi_service.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "13718f544db0bfb4647a2a3295d5928d133937d57c9d93059d91ff4697a4ec95",
-      "after_sha256": "f3e8603e0a6a4d9276bcbd1cc02bd873a6758c4731a9b2bd9708c91a19d65f00",
-      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
-      "pre_format_sha256": "1522b7a88f1d35a054354f11007d28f193aea233d8f4913837a421537b094022",
-      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+      "after_sha256": "bfbb6053d5fa36e21503d90dbe7652d5e673ad30f045eb5bc445860d6763fb8a",
+      "reason": "Start the NULL-mode Wi-Fi driver before selecting the capture band and restore the saved band before stopping it, matching the C5 SDK started-driver requirement; log the failing capture stage. Preserve the scan mutex, cleanup ownership and prior normal Wi-Fi behavior.",
+      "review_history": [
+        {
+          "after_sha256": "f3e8603e0a6a4d9276bcbd1cc02bd873a6758c4731a9b2bd9708c91a19d65f00",
+          "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+          "pre_format_sha256": "1522b7a88f1d35a054354f11007d28f193aea233d8f4913837a421537b094022",
+          "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+        },
+        {
+          "after_sha256": "de81eecc52e0c112febd1e3e385010357662ec0aa54f8ff527656cdf52516873",
+          "reason": "Add scan-mutex-owned NULL-mode capture using the regional channel plan, checked setup/cleanup and cancellation; retain NULL mode and reject reuse if stopping fails. Existing scan, Muse guards and normal Wi-Fi behavior are preserved."
+        },
+        {
+          "after_sha256": "6a602d0428a0af10395d79bad605529ee81fe3287435dc173f438d9c70bb9ee2",
+          "reason": "Start the NULL-mode Wi-Fi driver before selecting the capture band and restore the saved band before stopping it, matching the C5 SDK started-driver requirement; log the failing capture stage. Preserve the scan mutex, cleanup ownership and prior normal Wi-Fi behavior."
+        },
+        {
+          "after_sha256": "5bc80b658ac99050f2363959dc02b517d739250e73094986d559ec765da04fde",
+          "reason": "Start the NULL-mode Wi-Fi driver before selecting the capture band and restore the saved band before stopping it, matching the C5 SDK started-driver requirement; log the failing capture stage. Preserve the scan mutex, cleanup ownership and prior normal Wi-Fi behavior."
+        }
+      ]
     },
     "firmware_p4/components/Applications/bluetooth/ble_scanner.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -1112,8 +1138,8 @@
     "firmware_p4/components/Service/spi_bridge/include/spi_protocol.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "44e794090bdddda5f999a29dbbb55f907c89cb001a9284a0abd94c631987c342",
-      "after_sha256": "ad8640685025717fceb015471b863b374723cfb96afd4cb221d5560fc85ce171",
-      "reason": "Reserve identical P4-local authenticated NFC Classic block operations 04/05 in both paired protocol-v8 headers.",
+      "after_sha256": "5b563a9072d2bc94ded4b85e9c24520b6a7daab2ec521b376cf09634dfc532df",
+      "reason": "Extend the paired v8 Quick Scan record with observed BSSID, bounded SSID and known/hidden/unknown network state for the ESP SCAN UI; retain the existing Quick Scan command IDs and all other layouts. Also reserve paired NFC Classic block operations 04/05; retain the pending user Wi-Fi protocol changes.",
       "review_history": [
         {
           "after_sha256": "4b6bbe13c0511b1b89ba0e2a4e257ed57c14ae8ce0cde04ae41e4a6d3709132a",
@@ -1130,14 +1156,30 @@
           "reason": "Implement bounded remote GATT discovery and reads over paired SPI, native UI routing, lease expiry and NimBLE ownership-safe teardown",
           "pre_format_sha256": "942dbcc7c87b3b5918765a41aa320d73c8b0ec18b8ea92c55fc21574127f5622",
           "formatter": "clang-format version 22.1.5"
+        },
+        {
+          "after_sha256": "0f19b8cb0f634748a8675b423afb90c841f90763ed072c5c416dcf8050fdbf83",
+          "reason": "Reserve matching additive v8 Quick Scan IDs and bounded configuration/status/result/whitelist payloads; retain existing operation IDs, layouts and Muse category."
+        },
+        {
+          "after_sha256": "ba89bf1568efa082bb6a2a45d5862cd80b96604f556fdca2b76bef8a2335b67d",
+          "reason": "Extend the paired v8 Quick Scan record with observed BSSID, bounded SSID and known/hidden/unknown network state for the ESP SCAN UI; retain the existing Quick Scan command IDs and all other layouts."
+        },
+        {
+          "after_sha256": "b98c6e4da6b6183efed3a88bb08d182e804bbb286e509360a34dbe61355f5979",
+          "reason": "Extend the paired v8 Quick Scan record with observed BSSID, bounded SSID and known/hidden/unknown network state for the ESP SCAN UI; retain the existing Quick Scan command IDs and all other layouts. Also reserve paired NFC Classic block operations 04/05; retain the pending user Wi-Fi protocol changes."
+        },
+        {
+          "after_sha256": "5c35873e1b0b9f48663836d15af635ca946c0f46c4996bd88f07c40a934d8d63",
+          "reason": "Extend the paired v8 Quick Scan record with observed BSSID, bounded SSID and known/hidden/unknown network state for the ESP SCAN UI; retain the existing Quick Scan command IDs and all other layouts. Also reserve paired NFC Classic block operations 04/05; retain the pending user Wi-Fi protocol changes."
         }
       ]
     },
     "firmware_c5/components/Service/spi_bridge/include/spi_protocol.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "44e794090bdddda5f999a29dbbb55f907c89cb001a9284a0abd94c631987c342",
-      "after_sha256": "ad8640685025717fceb015471b863b374723cfb96afd4cb221d5560fc85ce171",
-      "reason": "Reserve identical P4-local authenticated NFC Classic block operations 04/05 in both paired protocol-v8 headers.",
+      "after_sha256": "5b563a9072d2bc94ded4b85e9c24520b6a7daab2ec521b376cf09634dfc532df",
+      "reason": "Extend the paired v8 Quick Scan record with observed BSSID, bounded SSID and known/hidden/unknown network state for the ESP SCAN UI; retain the existing Quick Scan command IDs and all other layouts. Also reserve paired NFC Classic block operations 04/05; retain the pending user Wi-Fi protocol changes.",
       "review_history": [
         {
           "after_sha256": "4b6bbe13c0511b1b89ba0e2a4e257ed57c14ae8ce0cde04ae41e4a6d3709132a",
@@ -1154,6 +1196,22 @@
           "reason": "Implement bounded remote GATT discovery and reads over paired SPI, native UI routing, lease expiry and NimBLE ownership-safe teardown",
           "pre_format_sha256": "942dbcc7c87b3b5918765a41aa320d73c8b0ec18b8ea92c55fc21574127f5622",
           "formatter": "clang-format version 22.1.5"
+        },
+        {
+          "after_sha256": "0f19b8cb0f634748a8675b423afb90c841f90763ed072c5c416dcf8050fdbf83",
+          "reason": "Reserve matching additive v8 Quick Scan IDs and bounded configuration/status/result/whitelist payloads; retain existing operation IDs, layouts and Muse category."
+        },
+        {
+          "after_sha256": "ba89bf1568efa082bb6a2a45d5862cd80b96604f556fdca2b76bef8a2335b67d",
+          "reason": "Extend the paired v8 Quick Scan record with observed BSSID, bounded SSID and known/hidden/unknown network state for the ESP SCAN UI; retain the existing Quick Scan command IDs and all other layouts."
+        },
+        {
+          "after_sha256": "b98c6e4da6b6183efed3a88bb08d182e804bbb286e509360a34dbe61355f5979",
+          "reason": "Extend the paired v8 Quick Scan record with observed BSSID, bounded SSID and known/hidden/unknown network state for the ESP SCAN UI; retain the existing Quick Scan command IDs and all other layouts. Also reserve paired NFC Classic block operations 04/05; retain the pending user Wi-Fi protocol changes."
+        },
+        {
+          "after_sha256": "5c35873e1b0b9f48663836d15af635ca946c0f46c4996bd88f07c40a934d8d63",
+          "reason": "Extend the paired v8 Quick Scan record with observed BSSID, bounded SSID and known/hidden/unknown network state for the ESP SCAN UI; retain the existing Quick Scan command IDs and all other layouts. Also reserve paired NFC Classic block operations 04/05; retain the pending user Wi-Fi protocol changes."
         }
       ]
     },
@@ -2294,6 +2352,54 @@
       "reason": "fix(app-sdk): retain license notices in generated trust headers",
       "pre_format_sha256": "d4058d48dce767c730e4bcbe5c30ed1b868a4e1bceb47121c1dbd2878e889bff",
       "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/spi_bridge/wifi_dispatcher.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "3c163dbe390ba8ef759fe8546532483496410559ff52125413dd528d3154bf74",
+      "after_sha256": "699636d22530aa1956c4d96b6c552237cae4ebbbdf10e8f4c49677431b8f4733",
+      "reason": "Route additive Quick Scan start/status/cancel/record/whitelist operations and reject overlapping Wi-Fi mutations while a timed capture owns the radio; preserve the Muse voice ownership gate.",
+      "review_history": [
+        {
+          "after_sha256": "1b391e352274f9cc1afa236be7c7f70140682ce864887ab1d065f9e8f518d89d",
+          "reason": "Route additive Quick Scan start/status/cancel/record/whitelist operations and reject overlapping Wi-Fi mutations while a timed capture owns the radio; preserve the Muse voice ownership gate."
+        },
+        {
+          "after_sha256": "f93d58572d54ae73a3e5a413ce5b1484cc9251014ab9f758ad2f2237ad57f366",
+          "reason": "Route additive Quick Scan start/status/cancel/record/whitelist operations and reject overlapping Wi-Fi mutations while a timed capture owns the radio; preserve the Muse voice ownership gate."
+        }
+      ]
+    },
+    "firmware_c5/components/Service/wifi/include/wifi_service.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "0324deb91f82d4c006756c565fc9484fdce03bfbc1272c25fdaa3d676ca5a74b",
+      "after_sha256": "6b4ae54d1e0bf9fb2373bfb0e0aad81af1f794108b5071f563f8c0949c74466a",
+      "reason": "Expose a scoped passive capture API for an explicitly invoked worker, with bounded duration, channel selection and cooperative cancellation.",
+      "review_history": [
+        {
+          "after_sha256": "4c0408bc0245f2c30882203cb489e9b53568284eaec5653759423421eb27d21c",
+          "reason": "Expose a scoped passive capture API for an explicitly invoked worker, with bounded duration, channel selection and cooperative cancellation."
+        },
+        {
+          "after_sha256": "9c9ea178781284c1bd54d452710665f7593fe2caee111f116b332e34712b6c97",
+          "reason": "Expose a scoped passive capture API for an explicitly invoked worker, with bounded duration, channel selection and cooperative cancellation."
+        }
+      ]
+    },
+    "firmware_c5/components/Service/wifi/mac_vendor.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "31ea0d847750762154664f585f60080b37b8f3879ce5c0b6589f84238eb7d13a",
+      "after_sha256": "e0aa1faf7be43264eef1851707915d3088a0ce54a20a30e2a129cda8944cfbda",
+      "reason": "Recognize Espressif OUI 10:BD:A3 missing from the offline lookup, confirmed in Nmap manufacturer data and observed C5 AP logs; retain local-MAC exclusion and existing prefixes. Add regression coverage for the reported MAC and ensure SSID alone never earns OUI points.",
+      "review_history": [
+        {
+          "after_sha256": "122b93cb69e967f44597138a5d27bf9772ad3815d6cfce4446b284b55ef2f055",
+          "reason": "Recognize Espressif OUI 10:BD:A3 missing from the offline lookup, confirmed in Nmap manufacturer data and observed C5 AP logs; retain local-MAC exclusion and existing prefixes. Add regression coverage for the reported MAC and ensure SSID alone never earns OUI points."
+        },
+        {
+          "after_sha256": "12aa3ea8344f665de963650a7ca8ec2f37d36a9657406b3ae5dcf6f984e70123",
+          "reason": "Recognize Espressif OUI 10:BD:A3 missing from the offline lookup, confirmed in Nmap manufacturer data and observed C5 AP logs; retain local-MAC exclusion and existing prefixes. Add regression coverage for the reported MAC and ensure SSID alone never earns OUI points."
+        }
+      ]
     }
   }
 }
