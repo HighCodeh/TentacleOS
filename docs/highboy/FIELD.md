@@ -19,8 +19,12 @@ along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 This checkout currently produces paired **app-only development candidates**.
 The physical P4 was erased for a separate test; runtime assets/settings and an
-approved full restore package have not been established. There is no supported
-consumer installation procedure for this candidate yet. Use the
+approved full restore package have not been established. That erase is a
+historical record, not a diagnosis of the currently connected P4. A guarded
+app-only update of an already installed P4 or C5 is documented in the
+[update procedure](README.md#updating-an-installed-p4); it does not restore an
+erased device or update the other chip. There is no supported full consumer restoration
+procedure for this candidate yet. Use the
 [deployment boundary](README.md#flash-and-storage-boundary) before any restoration;
 the generic upstream flashing commands do not apply here.
 

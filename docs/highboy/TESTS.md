@@ -17,6 +17,25 @@ along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 # Offline preservation and Muse regressions
 
+## P4 app updater validation (2026-10-20)
+
+`test_flash.py` passed 16 offline cases covering OTA selection, mismatched maps,
+blank assets, truncated flash, security refusal, backup-only behavior, selected
+slot writes, backup timeout/short reads and reset attempts after failed checks.
+The existing 34 preservation tests also passed; shell syntax and diff whitespace
+checks passed. No firmware sources changed for this updater.
+
+Read-only serial checks identified the P4 on `/dev/cu.usbserial-01FDB4221` as
+ESP32-P4 revision v1.3 with 8 MB flash, Secure Boot disabled and Flash Encryption
+disabled. The installed partition payload matched the built local table
+(`bb76257d010de4925ddf8925b46a2f89e0512a2a858e0c4939d705c74a1e51bd`).
+An initial monolithic backup was interrupted after more than 12 minutes at 21%;
+no complete backup was produced. A subsequent 4 KiB table read completed and
+issued a hard reset. The updater now uses bounded 512 KiB reads. Reconnection
+for that full check failed with `No serial data received`; chunked backup,
+existing app/boot/assets validation, app writing and physical boot acceptance
+remain unverified. No flash bytes were written and C5 was not accessed.
+
 ## Running the offline suites
 
 The ESP SCAN screen was subsequently routed through the existing normal C5 AP
@@ -26,6 +45,13 @@ P4 lookup. Six sanitizer groups, 34 preservation tests and contract checks passe
 The P4 build on IDF 5.5.3 fits at 2,948,880 / 2,949,120 bytes (240 free).
 This route requires only the P4 update when C5's normal AP scan is available;
 no device access or physical scan was performed for the routing change.
+
+The updater was subsequently extended to select P4 or C5 explicitly. All 20
+offline deployment tests passed, covering C5's 2 MiB slot map, C5 backup-only
+mode, selected second-slot writes and explicit `esp32c5`/`--no-stub` arguments,
+with the existing P4 guards retained. The actual built C5 image also passed
+checksum/SHA256 validation under the C5 Python environment. Neither chip was
+accessed or flashed while adding C5 support; physical C5 acceptance is pending.
 
 Run from the canonical repository root:
 

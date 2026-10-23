@@ -1,3 +1,20 @@
+<!--
+SPDX-License-Identifier: GPL-3.0-or-later
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # High Boy integrated development branch
 
 This checkout combines TentacleOS `dev` revision
@@ -66,6 +83,11 @@ select separate installed tools and Python environments; otherwise IDF uses its
 active/default environment. No personal filesystem paths are built into the
 script.
 
+An `eim shell` activated with another release, such as v6.1, does not change these
+requirements. Configure the target-specific `HIGHBOY_*` paths below and use
+`bash tools/build.sh p4` rather than a direct `idf.py build` from that shell. The
+wrapper activates the selected target's pinned SDK and Python environment.
+
 These variables may be placed in the ignored repository file
 `.highboy-build.env` (or a file selected by `HIGHBOY_BUILD_ENV`). This file is
 sourced as local shell configuration: use a trusted file containing toolchain
@@ -73,6 +95,10 @@ paths only, never account credentials. Explicit exported `HIGHBOY_*` toolchain
 variables take precedence over that file. Install IDF/tools and initialize their
 required submodules before building. Firmware dependencies are vendored,
 component-manager resolution is disabled, and the build does not install tools.
+Before configuration, the build verifies the pinned revisions of the target's
+required SDK submodules: eight shared libraries for P4 and thirteen libraries
+including the radio stack for C5. ESP-IDF's generic all-target submodule download
+is then disabled, so a P4 build does not fetch unused Wi-Fi/Bluetooth libraries.
 Build products live in `firmware_{p4,c5}/build_highboy`, not the previous build
 directories.
 
@@ -84,6 +110,27 @@ Flash Encryption or provision eFuses. See [SDK trust configuration](../app_sdk/R
 Build only produces applications. It does not access serial ports, flash, SD,
 microphone, token storage or any live Muse API. It does not regenerate runtime
 assets, embed a different C5 recovery image or migrate security eFuses.
+
+### P4 ESP-IDF v6.1 compatibility trial
+
+An isolated app build with the installed v6.1 tag was attempted on 2026-10-20,
+using a separate build directory and generated configuration. Configuration
+succeeded, but compilation stopped in TF-PSA-Crypto because this project enables
+`MBEDTLS_DES_C`, which that dependency explicitly rejects as removed.
+
+Compiler checks using the same v6.1 compilation database also failed on missing
+legacy headers in three existing subsystems:
+
+- NFC `protocols/common/nfc_crypto.c`: `mbedtls/aes.h`; the NFC implementation
+  also uses DES/3DES primitives.
+- Meshtastic `meshtastic_channels.c`: `mbedtls/sha256.h`.
+- Companion link `host_link_sec.c`: `mbedtls/hkdf.h`.
+
+This is a cryptography API migration rather than a version-guard adjustment.
+No v6.1 application binary was produced, no firmware source was adapted for this
+trial, and the P4 v5.5.3 / C5 v6.0.1 build lanes remain selected. A future migration
+must preserve NFC authentication, Meshtastic cryptography and companion key
+derivation and validate the resulting application size and hardware behavior.
 
 ### Continuous integration and release boundary
 
@@ -144,15 +191,80 @@ P4 **2,944,624 / 2,949,120 bytes** (4,496 free), C5
 hashes and limits. These app-only builds do not authorize device restoration.
 
 Do **not** use generic `idf.py flash`, generated `flash_args`, or an old hash-pinned
-flashing wrapper for this candidate. `tools/flash.sh` deliberately stops before
-device access. A deployment needs the actual target identities, installed
-partition table, OTA selection and approved candidate hashes.
+flashing wrapper for this candidate. The guarded app updater below checks the
+actual P4, installed partition table, OTA selection and candidate hashes.
 
-The current physical P4 was previously erased for the standalone PS1 test.
-An app-only return cannot restore erased runtime assets/settings. A separately
-reviewed restore package is required; this source update does not pretend those
-assets are present. The C5 and microSD are not touched here. Stock public assets
-remain in the repository as references, not a verified recovery image.
+An earlier record reports a P4 erase for the standalone PS1 test; this is not
+evidence of the currently connected device's state or recovery mode. An app-only
+update cannot restore erased runtime assets/settings. A separately reviewed full
+restore package is still required for an erased device or partition migration.
+Stock public assets remain references, not a verified recovery image.
+
+### Updating an installed P4
+
+Build the current applications with `bash tools/build.sh`. Select the P4 serial
+port explicitly (Linux example: `/dev/ttyUSB1`; macOS example below):
+
+```sh
+# Backup and inspect only. This resets the device, but writes no flash bytes.
+bash tools/flash.sh p4 -p /dev/cu.usbserial-01FDB4221 --check
+# Backup, validate, update the selected app partition and verify its bytes.
+bash tools/flash.sh p4 -p /dev/cu.usbserial-01FDB4221
+```
+
+The updater uses the P4 Python/IDF paths from `.highboy-build.env`, explicit
+`HIGHBOY_P4_IDF_PATH` / `HIGHBOY_P4_PYTHON_ENV`, or the active IDF environment.
+`-b 115200` selects a slower serial baud rate if needed. It reads security flags,
+rejects enabled Secure Boot/Flash Encryption, and backs up the entire flash in
+`integration/device_backups/p4_<UTC>/flash.bin` before any write. These ignored,
+private directories can contain device settings; keep the backup locally.
+The reviewed profile requires an 8 MB flash device. Backup reads use 512 KiB
+blocks with progress and a 120-second limit per serial command; a failed or
+partial backup cannot reach the write step.
+
+The installed partition table must exactly match `build_highboy`, including the
+preserved local offsets. The existing bootloader and OTA-selected app must have
+valid P4 image checksums/SHA256; ambiguous or pending OTA state is rejected.
+An entirely blank assets partition is rejected. This is only a presence check,
+not proof of a healthy filesystem or complete assets. A successful update writes
+only the selected app partition, keeping OTA selection, bootloader, partitions,
+assets, NVS and SD unchanged. The adjacent manifest records backup/candidate
+hashes, chosen slot and write/verification status. Interrupted in-place updates
+can require recovery from backup; this is not an automatic rollback mechanism.
+If a check fails, no migration or full restoration is attempted. A failed serial
+operation can leave the device in the ROM loader; reset it to resume normal boot.
+
+**C5 is not embedded or flashed by this integrated P4 build.** The dedicated
+Quick Scan capture backend requires the matching C5 app. ESP SCAN uses the
+existing AP-scan commands and only needs a P4 update when C5 already supports
+those commands. To update C5 separately:
+
+```sh
+# Close any IDF serial monitor using the C5 port first (Ctrl+]).
+bash tools/flash.sh c5 -p /dev/cu.usbserial-01FDB4220 --check
+bash tools/flash.sh c5 -p /dev/cu.usbserial-01FDB4220
+```
+
+The C5 target selects `firmware_c5/build_highboy/TentacleOS_C5.bin`, its own
+partition table, 2 MiB app slots and the C5 SDK/Python environment. Paths come
+from `HIGHBOY_C5_IDF_PATH` / `HIGHBOY_C5_PYTHON_ENV`, the local build environment
+file or the active IDF environment. It explicitly selects `esp32c5` and uses
+`--no-stub`, matching this profile's C5 flasher configuration. P4 uses
+`esp32p4` and its existing stub path. All other backup, security, image-integrity,
+OTA-selection and data-preservation gates apply to both targets. C5 backups go
+under `integration/device_backups/c5_<UTC>/`. The port is always explicit; the
+macOS C5 example is the port previously used by this environment's C5 monitor,
+not an automatic selection rule. A C5 update does not touch P4, and vice versa.
+The C5 updater passed host tests and validated the built C5 image; physical
+backup/write acceptance remains pending.
+
+Offline guard tests (SDK partition parser required):
+
+```sh
+python3 tools/highboy/test_flash.py "$IDF_PATH"
+```
+
+Serial and physical boot acceptance must be recorded separately from host tests.
 
 ## Validation limits
 
@@ -195,7 +307,7 @@ stack usage and timing acceptance remain pending under #157.
 The current [peripheral interface matrix](MATRIX.md) distinguishes implemented
 paths from missing adapters and physical acceptance. The [field guide](FIELD.md)
 records the evidence needed for restoration, bench work and a later consumer
-handoff; it does not claim this app-only candidate can restore the erased P4.
+handoff; an app-only candidate cannot restore an erased P4.
 
 ## P4 portable crypto LTO checkpoint
 

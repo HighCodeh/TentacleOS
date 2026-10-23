@@ -24,12 +24,17 @@ This checkout includes the verified High Boy Muse integration. Read
 `tools/build.sh` routes to an offline app-only build: P4 uses IDF v5.5.3, C5 uses
 IDF v6.0.1 for its Muse integration. Preserve the paired protocol v8 headers and
 the C5 memory overlay. Do not run older external `prepare.py` generators here.
-`tools/flash.sh` is intentionally gated pending a reviewed restore package;
-upstream's generic flash commands below are not valid for this local candidate.
+`tools/flash.sh p4|c5 -p PORT` performs a guarded single-chip app-only update: full flash backup,
+matching installed partition map and valid existing boot/app images are required.
+Use `--check` for backup and validation without writing. It does not update the
+other chip or restore assets. Full restoration/migration remains gated; upstream's generic flash
+commands below are not valid for this local candidate.
 
 ## Project Overview
 
-Embedded firmware for the High Boy platform (ESP32-S3/P4/C5). Dual-firmware architecture: ESP32-C5 is the co-processor, ESP32-P4 is the master that embeds the C5 binary at build time.
+The device this firmware runs on is named **Highboy** or **High Boy**; both names refer to the same device.
+
+Embedded firmware for the High Boy platform (ESP32-S3/P4/C5). Dual-firmware architecture: ESP32-C5 is the co-processor and ESP32-P4 is the master. This integrated profile builds separate applications; flashing P4 does not program C5.
 
 ## Build & Flash
 
@@ -39,7 +44,7 @@ ESP-IDF v5.5.3 is the pinned version. Source the environment before any build co
 . $HOME/esp/v5.5.3/esp-idf/export.sh   # or rely on $IDF_PATH
 ```
 
-Full build (C5 then P4, in order — P4 embeds the C5 binary):
+Full paired build (C5 then P4):
 
 ```bash
 ./tools/build.sh
@@ -52,10 +57,11 @@ cd firmware_c5 && idf.py -DIDF_TARGET=esp32c5 build
 cd firmware_p4 && idf.py -DIDF_TARGET=esp32p4 build
 ```
 
-Flash (P4 only, which also programs C5):
+Update an installed P4 (C5 is not programmed):
 
 ```bash
-./tools/flash.sh
+./tools/flash.sh p4 -p /dev/your-p4-port
+./tools/flash.sh c5 -p /dev/your-c5-port
 ```
 
 ## Formatting
