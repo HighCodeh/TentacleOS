@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 # Copyright (c) 2025 HIGH CODE LLC
 #
@@ -18,9 +19,7 @@
 
 PROJECT_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." &> /dev/null && pwd)
 if [ -f "$PROJECT_ROOT/integration/import.json" ]; then
-    echo 'This integrated checkout is build-only. Review the paired release manifest and device layout before flashing.' >&2
-    echo 'No firmware or assets were written. See docs/highboy/README.md.' >&2
-    exit 2
+    exec bash "$PROJECT_ROOT/tools/highboy/flash.command" "$@"
 fi
 P4_DIR="$PROJECT_ROOT/firmware_p4"
 
