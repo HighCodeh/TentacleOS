@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 """Exercise production app context bindings, including concurrent first use."""
 import os
 from pathlib import Path
@@ -85,13 +100,12 @@ int main(void) {
 }
 ''')
         (directory / 'string_compat.h').write_text('''#include <string.h>
-#if defined(__linux__)
-static inline size_t strlcpy(char *dst,const char *src,size_t size) {
+static inline size_t script_test_strlcpy(char *dst,const char *src,size_t size) {
   size_t length=strlen(src);
   if(size!=0) { size_t count=length<size-1 ? length : size-1; memcpy(dst,src,count); dst[count]=0; }
   return length;
 }
-#endif
+#define strlcpy script_test_strlcpy
 ''')
         executable = directory / 'test'
         subprocess.run([*shlex.split(os.environ.get('CC', 'cc')), '-std=gnu11', '-Wall', '-Wextra',
