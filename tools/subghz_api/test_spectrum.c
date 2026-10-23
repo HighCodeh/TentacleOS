@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 #include "test_platform.h"
 #include "cc1101.h"
 #include "resource_mgr.h"
@@ -7,7 +22,10 @@ static unsigned s_samples,s_strobes;
 static void (*s_worker)(void *);
 esp_err_t resource_acquire(const res_request_t *request,res_handle_t *out) {
   assert(request->id==RES_SUBGHZ && !request->allow_preempt);
-  if(s_is_busy || s_has_grant)return ESP_ERR_INVALID_STATE;s_has_grant=true;*out=42;return ESP_OK;
+  if (s_is_busy || s_has_grant) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  s_has_grant=true;*out=42;return ESP_OK;
 }
 esp_err_t resource_release(res_handle_t grant) { assert(s_has_grant && grant==42);s_has_grant=false;return ESP_OK; }
 SemaphoreHandle_t xSemaphoreCreateMutex(void) { return s_fail_mutex?NULL:(void *)1; }
@@ -15,7 +33,13 @@ BaseType_t xSemaphoreTake(SemaphoreHandle_t mutex,TickType_t timeout) { assert(m
 void xSemaphoreGive(SemaphoreHandle_t mutex) { assert(mutex!=NULL); }
 BaseType_t xTaskCreatePinnedToCore(void (*task)(void *),const char *name,uint32_t stack,void *argument,int priority,TaskHandle_t *handle,int core) {
   assert(s_has_grant && priority==SYS_PRIO_BACKGROUND_LO && core==SYS_CORE_RADIO);
-  if(s_cancel_start)subghz_spectrum_stop();if(s_fail_task)return pdFALSE;s_worker=task;return pdPASS;
+  if (s_cancel_start) {
+    subghz_spectrum_stop();
+  }
+  if (s_fail_task) {
+    return pdFALSE;
+  }
+  s_worker=task;return pdPASS;
 }
 void vTaskDelete(TaskHandle_t task) { assert(!s_has_grant); }
 void cc1101_strobe(uint8_t command) { assert(s_has_grant);++s_strobes; }

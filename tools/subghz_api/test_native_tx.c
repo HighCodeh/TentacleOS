@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 #include "test_platform.h"
 #include <stdatomic.h>
 #include <time.h>
@@ -98,7 +113,10 @@ esp_err_t rmt_new_tx_channel(const rmt_tx_channel_config_t *config,rmt_channel_h
   assert(s_grant_live);s_start_entered=true;while(s_hold_start)pause_tick();if(s_fault==4)return ESP_FAIL;s_channel_live=true;*out=(void *)3;return ESP_OK;
 }
 esp_err_t rmt_new_copy_encoder(const rmt_copy_encoder_config_t *config,rmt_encoder_handle_t *out) {
-  if(s_fault==5)return ESP_FAIL;s_encoder_live=true;*out=(void *)4;return ESP_OK;
+  if (s_fault == 5) {
+    return ESP_FAIL;
+  }
+  s_encoder_live=true;*out=(void *)4;return ESP_OK;
 }
 esp_err_t rmt_enable(rmt_channel_handle_t channel) { if(s_fault==6)return ESP_FAIL;s_enabled=true;return ESP_OK; }
 esp_err_t rmt_disable(rmt_channel_handle_t channel) {
@@ -117,7 +135,10 @@ esp_err_t rmt_transmit(rmt_channel_handle_t channel,rmt_encoder_handle_t encoder
 }
 esp_err_t rmt_tx_wait_all_done(rmt_channel_handle_t channel,int wait) {
   while(s_hold_tx)pause_tick();
-  if(s_fault==8)return ESP_ERR_TIMEOUT;s_dma_pending=false;return ESP_OK;
+  if (s_fault == 8) {
+    return ESP_ERR_TIMEOUT;
+  }
+  s_dma_pending=false;return ESP_OK;
 }
 static void join_worker(void) { if(s_thread_created){assert(pthread_join(s_thread,NULL)==0);s_thread_created=false;}assert(s_state==SUBGHZ_TX_IDLE && !s_grant_live); }
 static void *initialize_tx(void *unused) { s_start_error=subghz_tx_init();return NULL; }
@@ -125,7 +146,10 @@ int main(void) {
   for(s_fault=1;s_fault<=6;++s_fault) { assert(subghz_tx_init()!=ESP_OK);join_worker(); }
   s_fault=0;s_hold_start=true;s_start_entered=false;
   pthread_t initializer;assert(pthread_create(&initializer,NULL,initialize_tx,NULL)==0);
-  while(!s_start_entered)pause_tick();subghz_tx_stop();
+  while (!s_start_entered) {
+    pause_tick();
+  }
+  subghz_tx_stop();
   assert(s_state==SUBGHZ_TX_STOPPING && s_grant_live);s_hold_start=false;
   assert(pthread_join(initializer,NULL)==0 && s_start_error==ESP_ERR_INVALID_STATE);join_worker();
   s_fault=0;s_alloc_count=0;s_fail_alloc=1;assert(subghz_tx_init()==ESP_OK);
@@ -134,16 +158,25 @@ int main(void) {
   for(s_fault=0;s_fault<=8;s_fault+=7) {
     s_tx_entered=false;s_alloc_count=0;assert(subghz_tx_init()==ESP_OK);
     assert(subghz_tx_send_raw(timings,3)==ESP_OK);
-    while(!s_tx_entered)pause_tick();subghz_tx_stop();join_worker();
+    while (!s_tx_entered) {
+      pause_tick();
+    }
+    subghz_tx_stop();join_worker();
   }
   s_fault=8;s_tx_entered=false;s_hold_tx=true;s_retries=0;s_disable_fail=s_delete_fail=s_encoder_delete_fail=2;
   assert(subghz_tx_init()==ESP_OK);assert(subghz_tx_send_raw(timings,3)==ESP_OK);
-  while(!s_tx_entered)pause_tick();subghz_tx_stop();
+  while (!s_tx_entered) {
+    pause_tick();
+  }
+  subghz_tx_stop();
   assert(s_state==SUBGHZ_TX_STOPPING && s_grant_live && s_channel_live && s_dma_pending);
   assert(subghz_tx_send_raw(timings,3)==ESP_ERR_INVALID_STATE && subghz_tx_init()==ESP_ERR_INVALID_STATE);
   s_hold_tx=false;join_worker();assert(s_retries==6);
   s_fault=0;s_fail_alloc=2;s_alloc_count=0;s_received=0;
   assert(subghz_tx_init()==ESP_OK);assert(subghz_tx_send_raw(timings,3)==ESP_OK);
-  while(!s_received)pause_tick();subghz_tx_stop();join_worker();
+  while (!s_received) {
+    pause_tick();
+  }
+  subghz_tx_stop();join_worker();
   puts("PASS: real native TX worker, startup errors, in-flight stop, RMT cleanup retries, allocation and INT32_MIN");
 }
