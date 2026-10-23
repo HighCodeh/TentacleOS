@@ -103,6 +103,25 @@ in this OTA package. It cannot restore an erased device or install the separate
 factory-security partition map. Preparing it never opens a serial port or SD
 device and never writes firmware.
 
+## CI host and container requirements
+
+The Linux host matrix keeps both GCC and Clang with warnings treated as errors
+and ASan/UBSan enabled. The radio-view harness explicitly requests POSIX.1-2008
+declarations while retaining C11, since `strnlen` is not an ISO C11 function.
+OTA fault fixtures use explicit conditional blocks accepted by GCC's
+`-Wmisleading-indentation`; the warning remains enabled.
+
+The IDF container job explicitly adds only `GITHUB_WORKSPACE` to Git's global
+`safe.directory` list and verifies `HEAD` before building. This is needed when
+the mounted checkout and container process have different ownership. It avoids
+the `dubious ownership` failure when recording factory-build provenance after
+compilation. Other repositories are not trusted by this step; it uses no wildcard.
+
+Run host regressions from a clean checkout of the published revision when
+diagnosing Actions, so pending local firmware changes cannot hide a failure.
+A passing local macOS/Clang suite and GCC syntax checks do not certify the full
+Linux matrix; final Actions acceptance requires a run containing the fixes.
+
 ## Acceptance outside software closure
 
 No hardware was accessed for this work. Runtime latency, radio throughput,

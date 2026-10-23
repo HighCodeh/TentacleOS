@@ -89,6 +89,12 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Trust the checkout in the build container
+        shell: bash
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git rev-parse --verify HEAD
+
       - name: Build
         run: bash tools/build.sh "${{ matrix.target }}"
         shell: bash
