@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 #include "test_platform.h"
 static FILE *test_open(const char *,const char *);
 static int test_stat(const char *,struct stat *);
@@ -54,7 +69,11 @@ static int test_stat(const char *path,struct stat *out) {
 }
 static FILE *test_open(const char *path,const char *mode) {
   assert(strcmp(path,OTA_UPDATE_PATH)==0 && strcmp(mode,"rb")==0 && !s_file_open && s_power==1);
-  if(s_fault==OPEN_ERROR)return NULL;s_file_open=true;return (FILE *)1;
+  if (s_fault == OPEN_ERROR) {
+    return NULL;
+  }
+  s_file_open = true;
+  return (FILE *)1;
 }
 static int test_seek(FILE *file,long offset,int whence) {
   assert(file==(FILE *)1 && offset==0);
@@ -73,7 +92,11 @@ static int test_close(FILE *file) {assert(file==(FILE *)1 && s_file_open);s_file
 static int test_remove(const char *path) {assert(strcmp(path,OTA_UPDATE_PATH)==0 && !s_file_open && !s_buffer);++s_removes;return 0;}
 static void *test_allocate(size_t size) {
   assert(size==4096 && !s_handle_live && !s_buffer);
-  if(s_fault==NO_MEMORY)return NULL;s_buffer=malloc(size);return s_buffer;
+  if (s_fault == NO_MEMORY) {
+    return NULL;
+  }
+  s_buffer = malloc(size);
+  return s_buffer;
 }
 static void test_free(void *p) {if(p==s_buffer)s_buffer=NULL;free(p);}
 esp_err_t power_manager_no_sleep_acquire(void) {assert(s_power==0);if(s_fault==POWER_ERROR)return ESP_FAIL;++s_power;return ESP_OK;}
@@ -82,11 +105,20 @@ const esp_partition_t *esp_ota_get_next_update_partition(const void *p) {(void)p
 const esp_partition_t *esp_ota_get_running_partition(void) {return s_fault==NO_RUNNING?NULL:&RUNNING;}
 esp_err_t esp_ota_begin(const esp_partition_t *part,size_t size,esp_ota_handle_t *out) {
   assert(part==&NEXT && size==OTA_WITH_SEQUENTIAL_WRITES && s_buffer && !s_handle_live && s_power==1);++s_begins;
-  if(s_fault==BEGIN_ERROR)return ESP_FAIL;s_handle_live=true;*out=1;return ESP_OK;
+  if (s_fault == BEGIN_ERROR) {
+    return ESP_FAIL;
+  }
+  s_handle_live = true;
+  *out = 1;
+  return ESP_OK;
 }
 esp_err_t esp_ota_write(esp_ota_handle_t handle,const void *data,size_t size) {
   assert(handle==1 && s_handle_live && s_power==1 && data==s_buffer);++s_writes;
-  if(s_fault==WRITE_ERROR || s_fault==ABORT_ERROR)return ESP_FAIL;s_written+=size;return ESP_OK;
+  if (s_fault == WRITE_ERROR || s_fault == ABORT_ERROR) {
+    return ESP_FAIL;
+  }
+  s_written += size;
+  return ESP_OK;
 }
 esp_err_t esp_ota_end(esp_ota_handle_t handle) {
   assert(handle==1 && s_handle_live && s_written==8205);++s_ends;s_handle_live=false;
@@ -94,7 +126,11 @@ esp_err_t esp_ota_end(esp_ota_handle_t handle) {
 }
 esp_err_t esp_ota_abort(esp_ota_handle_t handle) {
   assert(handle==1 && s_handle_live && s_power==1);++s_aborts;
-  if(s_fault==ABORT_ERROR)return ESP_FAIL;s_handle_live=false;return ESP_OK;
+  if (s_fault == ABORT_ERROR) {
+    return ESP_FAIL;
+  }
+  s_handle_live = false;
+  return ESP_OK;
 }
 esp_err_t esp_ota_set_boot_partition(const esp_partition_t *part) {
   assert(part==&NEXT && !s_handle_live && s_ends==1);++s_boots;return s_fault==BOOT_ERROR?ESP_FAIL:ESP_OK;
