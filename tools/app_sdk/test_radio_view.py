@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 """Test real radio adapters and native chat-ring synchronization."""
 import os
 from pathlib import Path
@@ -18,7 +33,8 @@ def main():
         (work / 'esp_err.h').write_text('#pragma once\ntypedef int esp_err_t;\n')
         (work / 'esp_log.h').write_text('#define ESP_LOGD(tag, ...) ((void)(tag))\n')
         (work / 'cc1101.h').write_text('#pragma once\ntypedef int cc1101_preset_t;\n')
-        command = [*shlex.split(os.environ.get('CC', 'cc')), '-std=c11', '-Wall', '-Wextra',
+        command = [*shlex.split(os.environ.get('CC', 'cc')), '-std=c11',
+                   '-D_POSIX_C_SOURCE=200809L', '-Wall', '-Wextra',
                    '-Werror', '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
                    '-I', str(work), '-I', str(SERVICE / 'app_runtime/include'),
                    '-I', str(SERVICE / 'host_link/include'),
