@@ -1,4 +1,5 @@
 // Copyright (c) 2025 HIGH CODE LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
 // TentacleOS is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -48,6 +49,7 @@
 #include "home_ui.h"
 #include "menu_ui.h"
 #include "wifi_ui.h"
+#include "ui_wifi_esp_scan.h"
 #include "wifi_channel_ui.h"
 #include "wifi_client_ui.h"
 #include "wifi_scan_ui.h"
@@ -370,6 +372,8 @@ typedef void (*ui_close_fn_t)(void);
 
 static ui_close_fn_t screen_close_fn(screen_id_t s) {
   switch (s) {
+    case SCREEN_WIFI_ESP_SCAN:
+      return ui_wifi_esp_scan_stop;
     case SCREEN_SCRIPTS:
       return ui_scripts_stop;
     case SCREEN_SUBGHZ_READ:
@@ -420,6 +424,8 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
 
 static ui_open_fn_t screen_open_fn(screen_id_t s) {
   switch (s) {
+    case SCREEN_WIFI_ESP_SCAN:
+      return ui_wifi_esp_scan_open;
     case SCREEN_HOME:
       return ui_home_open;
     case SCREEN_MENU:
@@ -676,6 +682,8 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
 }
 
 bool ui_screen_shows_chrome(screen_id_t s) {
+  if (s == SCREEN_WIFI_ESP_SCAN)
+    return false;
   if (s == SCREEN_NONE)
     return false;
   switch (s) {

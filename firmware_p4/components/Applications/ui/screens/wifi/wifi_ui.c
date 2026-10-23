@@ -1,4 +1,5 @@
 // Copyright (c) 2025 HIGH CODE LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
 // TentacleOS is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -32,6 +33,7 @@ static const struct {
   const char *icon;
   int target;
 } MENU_ITEMS[] = {
+    {"ESP SCAN", "/assets/icons/wifi_find.bin", SCREEN_WIFI_ESP_SCAN},
     {"WIFI SURVEY", "/assets/icons/wifi_find.bin", SCREEN_WIFI_SCAN_MENU},
     {"PACKET LAB", "/assets/icons/download.bin", SCREEN_WIFI_PACKETS_MENU},
     {"CHANNEL ANALYZER", "/assets/icons/graphic_eq.bin", SCREEN_WIFI_CHANNELS},

@@ -1,3 +1,20 @@
+<!--
+SPDX-License-Identifier: GPL-3.0-or-later
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # ui_manager
 
 The integrated High Boy build uses `-Os` for theme loading and the Home, Menu,
@@ -6,6 +23,18 @@ application slots. This changes compiler sizing only: no screen or feature is
 removed. NFC protocol/driver code, radio processing, audio and game engines keep
 their existing optimization settings. Muse/Grok layout retains its previous
 localized LTO policy. Physical UI timing still needs acceptance testing.
+
+Wi-Fi > **ESP SCAN** uses isolated black pages for starting, scanning and viewing
+one full-screen result at a time. The existing waves component animates the scan;
+results show a circular heuristic-percent indicator, SSID, MAC, OUI, manufacturer
+and RSSI with colored text. Other screens retain their existing styling.
+Its P4 proxy, session worker and screen
+use `-Oz` to fit the same app slots; P4 remains on IDF v5.5.3. No LVGL callback
+performs SPI calls. It now reuses one existing AP scan and ranks BSSID/OUI/RSSI
+snapshots locally, with no monitor-mode session or duration selector. The screen
+close hook requests local cancellation and removes the refresh timer; the worker
+waits for the shared scan to finish before exiting. See the
+[current ESP SCAN behavior](../wifi/quick_scan.md).
 
 Step-by-step process for adding a new screen (feature) to TentacleOS using the
 `ui_manager` architecture. Source of truth: `ui/ui_manager.c`,

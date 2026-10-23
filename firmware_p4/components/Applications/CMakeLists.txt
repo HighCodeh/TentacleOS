@@ -1,4 +1,5 @@
 # Copyright (c) 2025 HIGH CODE LLC
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # TentacleOS is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -192,3 +193,7 @@ set_source_files_properties(
 
 # Size optimization and LTO keep both script engines in the existing OTA slots.
 target_compile_options(${COMPONENT_LIB} PRIVATE -Os -flto=2 -ffat-lto-objects)
+
+set_source_files_properties("ui/screens/wifi/ui_wifi_esp_scan.c"
+                           "wifi/wifi_scan_view.c" "wifi/wifi_quick_scan.c"
+                           PROPERTIES COMPILE_OPTIONS "-Oz")

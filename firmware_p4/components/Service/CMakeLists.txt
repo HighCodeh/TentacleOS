@@ -1,4 +1,5 @@
 # Copyright (c) 2025 HIGH CODE LLC
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # TentacleOS is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -47,6 +48,7 @@ idf_component_register(SRCS
   "font/font.c"
   "icons/icons.c"
   "wifi/wifi_service.c"
+  "wifi/mac_vendor.c"
   "boot_report/boot_report.c"
   "boot_sound/boot_sound.c"
   "fly_link/fly_link.c"
@@ -167,6 +169,9 @@ set_source_files_properties("muse/hb_muse_p4_service.c" PROPERTIES COMPILE_OPTIO
 
 # Size optimization and LTO keep both script engines in the existing OTA slots.
 target_compile_options(${COMPONENT_LIB} PRIVATE -Os -flto=2 -ffat-lto-objects)
+
+set_source_files_properties("wifi/mac_vendor.c" PROPERTIES
+    COMPILE_OPTIONS "-Oz" COMPILE_DEFINITIONS "MAC_VENDOR_ESPRESSIF_ONLY=1")
 
 if(TOS_APP_HAS_CUSTOM_TRUST)
   target_compile_definitions(${COMPONENT_LIB} PRIVATE TOS_APP_HAS_CUSTOM_TRUST=1)

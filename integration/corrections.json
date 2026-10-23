@@ -470,8 +470,8 @@
     "firmware_p4/components/Applications/ui/ui_manager.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "938b509321c8ef23ed8cf0f6f5ff2644fdabaea3a84ca1b544428c4c2c2eeba2",
-      "after_sha256": "fe251ea78d7c9f45d014f55cd4c20630abd76b502cfbd6e2d76bef52bd60bcfc",
-      "reason": "Implement bounded remote GATT discovery and reads over paired SPI, native UI routing, lease expiry and NimBLE ownership-safe teardown",
+      "after_sha256": "c9b653caec9e7440637f3fa53f21cb51f1a40c18088dbd68e36ecf8a6379f007",
+      "reason": "Route ESP SCAN, suppress its global operation chrome and register cooperative cancellation/timer teardown on all screen exits; retain existing screen IDs and radio routes.",
       "review_history": [
         {
           "after_sha256": "00c83c4094432fb613e43f0e325440d51b97346e02837d4aff968510c8fb549e",
@@ -494,6 +494,14 @@
         {
           "after_sha256": "c5f1c18aca8c4768ee76a7ecd1e078f73e2e1c9826a06a00f7c466773b88696e",
           "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership"
+        },
+        {
+          "after_sha256": "fe251ea78d7c9f45d014f55cd4c20630abd76b502cfbd6e2d76bef52bd60bcfc",
+          "reason": "Implement bounded remote GATT discovery and reads over paired SPI, native UI routing, lease expiry and NimBLE ownership-safe teardown"
+        },
+        {
+          "after_sha256": "ed0ea7fcbfceed2b402c6a2c6cba638ed86888e68a44ab42a897fcf5db30173f",
+          "reason": "Route ESP SCAN, suppress its global operation chrome and register cooperative cancellation/timer teardown on all screen exits; retain existing screen IDs and radio routes."
         }
       ]
     },
@@ -964,20 +972,28 @@
     "firmware_p4/components/Applications/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "da11f270bf3ffb612ef0469030d722884b5eb81f62f1c50223df2c526b8054a5",
-      "after_sha256": "06b57e8a7b43f7ff04a6ad760598725905b2bc716b6f333bfc55d53b68bde322",
-      "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership",
+      "after_sha256": "ef60e164790ce245abdbcbf1e4db6f2ca87ab5ba63805940f499f60832dcc071",
+      "reason": "Use size optimization only for the new ESP SCAN screen, local UI session worker and Quick Scan proxy so the added screen fits the existing P4 application slots.",
       "review_history": [
         {
           "after_sha256": "539b7c5858f4c83c2f3c4cac2fd27e23aedd3106dffd606058dafc50fd33ac2c",
           "reason": "Register bounded JavaScript/Lua engines and an SD worker; compact P4 applications, services and LVGL layout without changing partitions, drivers, standalone emulator flags or paired SPI v8."
+        },
+        {
+          "after_sha256": "06b57e8a7b43f7ff04a6ad760598725905b2bc716b6f333bfc55d53b68bde322",
+          "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership"
+        },
+        {
+          "after_sha256": "3e41f3e0a406e9cec07bc6fdd7ab08d4fd2b7dd8c706a94778bef428a4c2647e",
+          "reason": "Use size optimization only for the new ESP SCAN screen, local UI session worker and Quick Scan proxy so the added screen fits the existing P4 application slots."
         }
       ]
     },
     "firmware_p4/components/Service/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "a5ab5cef02299410f4ba0c4ae7baac2b4840b1f42947372c35c57fa54a0c33a0",
-      "after_sha256": "a55fe6a5b9b567303860501d01468de6a7c3a36647177f3e96c4b149bf7c7c43",
-      "reason": "Publish decoded IR through the shared app ABI and persistent worker, with native contention guards and retained hardware cleanup",
+      "after_sha256": "239748a1086d1c9f92e2477a28935b726c4f37300f63d40379ef6d1f0fb2b730",
+      "reason": "Register the existing MAC vendor source with a compact Espressif-only build option for AP snapshot classification; retain original app partitions and all other service sources and policies.",
       "review_history": [
         {
           "after_sha256": "716fa05eb0709ed37e2dcd95c196820071cf8c0ee169ced2bae247442307494f",
@@ -986,6 +1002,18 @@
         {
           "after_sha256": "9dc73e1f27c51b2c4418df140b12338dfaebd916fd199a16ea3f4d038769f535",
           "reason": "Select a build-local app-signing public key and reject development identity in explicit production builds; preserve default development and paired firmware behavior."
+        },
+        {
+          "after_sha256": "a55fe6a5b9b567303860501d01468de6a7c3a36647177f3e96c4b149bf7c7c43",
+          "reason": "Publish decoded IR through the shared app ABI and persistent worker, with native contention guards and retained hardware cleanup"
+        },
+        {
+          "after_sha256": "68650e4396aa0129e2b7f5608683fd5b6df9d6105e5c62f9fc1de7e409b9fed1",
+          "reason": "Register the existing P4 MAC vendor lookup for local AP snapshot classification, preserving all other service sources and build policies."
+        },
+        {
+          "after_sha256": "5d8d428562613bc5f340d0a8f5c89b28a938daf664d9e4fbeb313808150fd5e2",
+          "reason": "Register the existing MAC vendor source with a compact Espressif-only build option for AP snapshot classification; retain original app partitions and all other service sources and policies."
         }
       ]
     },
@@ -2397,6 +2425,50 @@
         },
         {
           "after_sha256": "12aa3ea8344f665de963650a7ca8ec2f37d36a9657406b3ae5dcf6f984e70123",
+          "reason": "Recognize Espressif OUI 10:BD:A3 missing from the offline lookup, confirmed in Nmap manufacturer data and observed C5 AP logs; retain local-MAC exclusion and existing prefixes. Add regression coverage for the reported MAC and ensure SSID alone never earns OUI points."
+        }
+      ]
+    },
+    "firmware_p4/components/Applications/ui/include/ui_manager.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "3377234e4d42e9755ccfe0d9b2393628b27e8d8c1d6adec0a9b4e8fcaa52dc35",
+      "after_sha256": "3cab0b95eee55a2b1f6e6d8ec6cbf11d752e428cf26aaacc6cf577fdcde341d9",
+      "reason": "Append ESP SCAN before SCREEN_COUNT without renumbering any existing screen identifier.",
+      "review_history": [
+        {
+          "after_sha256": "cee44dea14bad3a19de89273ea639f762226b0002ecca03fa9161dd40bb5b225",
+          "reason": "Append ESP SCAN before SCREEN_COUNT without renumbering any existing screen identifier."
+        }
+      ]
+    },
+    "firmware_p4/components/Applications/ui/screens/wifi/wifi_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "e8994cc85331a14e1de3e1656dff629e0623de3547d97b0d4d67879d4a1f183f",
+      "after_sha256": "3f34fec1a971303aa65f75be775790889a7caafb36ea4b77968195e65429c92f",
+      "reason": "Expose ESP SCAN directly in the existing Wi-Fi menu using the existing Wi-Fi scan icon.",
+      "review_history": [
+        {
+          "after_sha256": "439973b1dd87bd1876d8557538ba090c8bf4f2e8868e8d6179024a355734feaa",
+          "reason": "Expose ESP SCAN directly in the existing Wi-Fi menu using the existing Wi-Fi scan icon."
+        }
+      ]
+    },
+    "firmware_p4/components/Service/wifi/mac_vendor.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "31ea0d847750762154664f585f60080b37b8f3879ce5c0b6589f84238eb7d13a",
+      "after_sha256": "18516c55a70f919579278891713ab6c2bfef737497c0768e290b36025688e63a",
+      "reason": "Recognize Espressif OUI 10:BD:A3 missing from the offline lookup, confirmed in Nmap manufacturer data and observed C5 AP logs; retain local-MAC exclusion and existing prefixes. Add regression coverage for the reported MAC and ensure SSID alone never earns OUI points.",
+      "review_history": [
+        {
+          "after_sha256": "bea6328c956e067e5e931aaf5b09b594239c9f19646576d9c9d0c8c9937d5012",
+          "reason": "Provide a compact optional Espressif-only lookup using the same existing OUI entries for the AP heuristic; retain the complete vendor table and original behavior when the option is absent."
+        },
+        {
+          "after_sha256": "6508c977017a9b179509abf9200eafe7da401ea18d9a74140745cc9cc818a779",
+          "reason": "Recognize Espressif OUI 10:BD:A3 missing from the offline lookup, confirmed in Nmap manufacturer data and observed C5 AP logs; retain local-MAC exclusion and existing prefixes. Add regression coverage for the reported MAC and ensure SSID alone never earns OUI points."
+        },
+        {
+          "after_sha256": "d4167debc759344485ae3ed36ff8dca6e06a6b8dd109d669d66d0d0018dbb9cb",
           "reason": "Recognize Espressif OUI 10:BD:A3 missing from the offline lookup, confirmed in Nmap manufacturer data and observed C5 AP logs; retain local-MAC exclusion and existing prefixes. Add regression coverage for the reported MAC and ensure SSID alone never earns OUI points."
         }
       ]
