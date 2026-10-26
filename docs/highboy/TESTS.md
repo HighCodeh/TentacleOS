@@ -1486,3 +1486,29 @@ Both isolated factory-security builds and their real image signature/encryption
 regressions passed with fixture identities. No device, eFuse, production signing
 identity or remote GitHub Actions execution was used. CI now also runs the PSA
 host test from the pinned SDK in its P4 build job.
+
+## CI checkout corrections — 2026-10-26
+
+Actions run `40274783654` exposed three test-environment defects after the PSA
+migration. Both host compiler lanes failed because the MeshCore test assumed a
+single-line function signature and the Lua provenance inventory referenced an
+upstream `src/Makefile` excluded by the global Makefile ignore rule. The P4 job
+compiled successfully but failed at the subsequent PSA test because its Python
+interpreter lacked `cryptography`.
+
+The MeshCore extractor now accepts whitespace between the return type and name.
+The unchanged upstream Lua Makefile is included through a narrowly scoped ignore
+exception, preserving its recorded SHA-256. The P4 PSA step explicitly installs
+`tools/crypto/requirements.txt` using the same Python interpreter as the test.
+These changes do not relax assertions or change firmware behavior.
+
+Local validation includes the real SDK v6.1 software PSA vectors with ASan/UBSan,
+Lua upstream Makefile hash verification, and CI YAML/shell syntax checks. Remote
+GCC/Clang acceptance still requires a new Actions run; this macOS environment
+has Clang but no native GCC installation.
+
+The complete `tools/highboy/test.command` suite also passed with Clang from a
+snapshot containing tracked files plus the proposed changes, without local
+ignored source files. The snapshot used the already resolved managed cJSON
+sources and native libsodium/OpenSSL installations. No firmware rebuild or
+hardware operation was needed for these test-only corrections.
