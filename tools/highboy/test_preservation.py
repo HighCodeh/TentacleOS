@@ -332,7 +332,7 @@ class PreservationTests(unittest.TestCase):
         left = (ROOT / "firmware_p4" / relative).read_bytes()
         right = (ROOT / "firmware_c5" / relative).read_bytes()
         self.assertTrue(left == right, "P4/C5 SPI headers differ")
-        self.assertTrue(re.search(rb"#define\s+SPI_PROTOCOL_VERSION\s+8\b", left))
+        self.assertTrue(re.search(rb"#define\s+SPI_PROTOCOL_VERSION\s+2\b", left))
         for marker in (b"SPI_CAT_FLY = 0x0F", b"SPI_CAT_GROK = 0x10",
                        b"SPI_ID_BT_HID_SEND_MOUSE", b"SPI_WIFI_SPECTRUM_BIN_COUNT 39"):
             self.assertTrue(marker in left, "Local protocol extension removed")

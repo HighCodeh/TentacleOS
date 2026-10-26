@@ -176,7 +176,7 @@ Applications, Service, interpreters and cJSON marshalling use `-Os` and LTO.
 The final link uses one LTO optimization unit for these components. LVGL uses
 the same size policy with its draw/rasterizer sources explicitly retaining `-O2`. Drivers,
 standalone Game Boy/DOOM components, pinned SDKs, C5 memory settings and paired
-SPI v8 remain unchanged. This changes the optimization policy for P4 application
+SPI v2 remain unchanged. This changes the optimization policy for P4 application
 and service code: responsiveness and peripheral throughput still need device
 acceptance; host tests cannot establish those measurements.
 

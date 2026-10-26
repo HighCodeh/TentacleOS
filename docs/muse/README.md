@@ -38,7 +38,7 @@ text replies; spoken speaker replies are not implemented. USB voice remains
 disabled. Offline Grok menu animation is a separate feature.
 
 See [integration/build limits](../highboy/README.md) and
-[canonical host tests](../highboy/TESTS.md) for the preserved protocol v8,
+[canonical host tests](../highboy/TESTS.md) for the preserved protocol v2,
 C5 memory overlay, exact dependency versions and device acceptance boundary.
 
 The native P4 RPC helper groups payload data and length in a typed input record.

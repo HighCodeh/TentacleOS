@@ -1446,8 +1446,8 @@
     "firmware_p4/components/Service/spi_bridge/include/spi_protocol.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "44e794090bdddda5f999a29dbbb55f907c89cb001a9284a0abd94c631987c342",
-      "after_sha256": "66d14c78923fc1e755d31d2a12b04cdbabf78c3dc85662a9fddfe21d71209d6b",
-      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses.",
+      "after_sha256": "3b746d8118c67a594c392a50c8668bdace1b6d51e65c595538b5feda672cbf3e",
+      "reason": "Renumber the paired SPI contract from v8 to v2 at maintainer request; align package metadata and version validation.",
       "review_history": [
         {
           "after_sha256": "4b6bbe13c0511b1b89ba0e2a4e257ed57c14ae8ce0cde04ae41e4a6d3709132a",
@@ -1484,14 +1484,18 @@
         {
           "after_sha256": "5b563a9072d2bc94ded4b85e9c24520b6a7daab2ec521b376cf09634dfc532df",
           "reason": "Extend the paired v8 Quick Scan record with observed BSSID, bounded SSID and known/hidden/unknown network state for the ESP SCAN UI; retain the existing Quick Scan command IDs and all other layouts. Also reserve paired NFC Classic block operations 04/05; retain the pending user Wi-Fi protocol changes."
+        },
+        {
+          "after_sha256": "66d14c78923fc1e755d31d2a12b04cdbabf78c3dc85662a9fddfe21d71209d6b",
+          "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
         }
       ]
     },
     "firmware_c5/components/Service/spi_bridge/include/spi_protocol.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "44e794090bdddda5f999a29dbbb55f907c89cb001a9284a0abd94c631987c342",
-      "after_sha256": "66d14c78923fc1e755d31d2a12b04cdbabf78c3dc85662a9fddfe21d71209d6b",
-      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses.",
+      "after_sha256": "3b746d8118c67a594c392a50c8668bdace1b6d51e65c595538b5feda672cbf3e",
+      "reason": "Renumber the paired SPI contract from v8 to v2 at maintainer request; align package metadata and version validation.",
       "review_history": [
         {
           "after_sha256": "4b6bbe13c0511b1b89ba0e2a4e257ed57c14ae8ce0cde04ae41e4a6d3709132a",
@@ -1528,6 +1532,10 @@
         {
           "after_sha256": "5b563a9072d2bc94ded4b85e9c24520b6a7daab2ec521b376cf09634dfc532df",
           "reason": "Extend the paired v8 Quick Scan record with observed BSSID, bounded SSID and known/hidden/unknown network state for the ESP SCAN UI; retain the existing Quick Scan command IDs and all other layouts. Also reserve paired NFC Classic block operations 04/05; retain the pending user Wi-Fi protocol changes."
+        },
+        {
+          "after_sha256": "66d14c78923fc1e755d31d2a12b04cdbabf78c3dc85662a9fddfe21d71209d6b",
+          "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
         }
       ]
     },

@@ -129,7 +129,7 @@ assets, embed a different C5 recovery image or migrate security eFuses.
 ### ESP-IDF v6.1 compatibility
 
 The normal builds and packaging checks now select v6.1 for both chips. Existing
-SPI v8, partition maps, C5 memory policy and app-only update boundaries remain.
+SPI v2, partition maps, C5 memory policy and app-only update boundaries remain.
 C5 `esp_hw_support`, `esp_libc` and `mbedtls` use `-Os`; driver and radio
 compiler policies remain checked separately.
 The UART line-editor patch is rebased to the v6.1 source and tested against the
@@ -357,7 +357,7 @@ with the P4/C5 application binaries and `manifest.json`. Files are copied into a
 private staging directory, checked, then published by rename; failed copies or
 changed source artifacts cannot leave a visible partial candidate. Repeated
 identical packaging preserves the existing directory. The manifest records image
-sizes/hashes/margins, SDK lanes, protocol 8, partition hashes, source revision and
+sizes/hashes/margins, SDK lanes, protocol 2, partition hashes, source revision and
 dirty state, compile-command fingerprints and the actual test runner fingerprint.
 App-signing mode and the selected public trust-header fingerprint are recorded;
 key custody and hardware acceptance remain unverified.

@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # System command reference (host link)
 
 Byte-level contract for the **System category** (`category = 0x00`,
@@ -150,7 +167,7 @@ typedef struct {
 | `0x06` | `SYSTEM_STREAM` | internal stream-batch envelope, not a command |
 | `0x07` | `SYSTEM_LOG` | C5->P4 log stream; you receive these as `LOG` frames, you don't request them |
 | `0x08` | `SYSTEM_ENTER_DOWNLOAD` | reboots the C5 into ROM serial-flash mode (wired recovery) |
-| `0x0D` | `SYSTEM_PROTO_VERSION` | P4<->C5 SPI protocol version check (`SPI_PROTOCOL_VERSION`, currently `6`); the app uses the host-link `VER`, not this |
+| `0x0D` | `SYSTEM_PROTO_VERSION` | P4<->C5 SPI protocol version check (`SPI_PROTOCOL_VERSION`, currently `2`); the app uses the host-link `VER`, not this |
 | `0x4A` | `SYSTEM_POWER_STATE` | P4->C5 power hint so the C5 can drop its radio when the P4 sleeps |
 | `0x50`-`0x53` | `SYSTEM_CFG_HASH`/`BEGIN`/`CHUNK`/`COMMIT` | P4->C5 config cache: the P4 pushes its master config files to the C5, hash-gated (CRC32) so unchanged files are never re-sent |
 

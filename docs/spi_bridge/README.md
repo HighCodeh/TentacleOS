@@ -345,6 +345,11 @@ command):
   up. Bump `SPI_PROTOCOL_VERSION` in **both** copies of `spi_protocol.h` on any
   change to the contract (an id, a struct, or the header layout).
 
+The integrated P4/C5 contract is numbered **v2**. This renumbers the previous
+v8 identifier without changing command IDs, payload structures or framing.
+Update both chips as a pair; a chip still running v8 will report a mismatch.
+The number does not establish compatibility with older firmware also named v2.
+
 ### Update path
 
 The everyday update is an **app OTA**: the C5 keeps running its app and receives a

@@ -45,7 +45,7 @@ extern "C" {
 // struct, or the header layout). The P4 reads the C5's value at bridge init via
 // SPI_ID_SYSTEM_PROTO_VERSION and flags a mismatch loudly, so two copies of this
 // header that drifted are caught at boot instead of silently misparsing frames.
-#define SPI_PROTOCOL_VERSION 8
+#define SPI_PROTOCOL_VERSION 2
 
 #define SPI_BT_SPAM_ITEM_LEN          32
 #define SPI_BT_SPAM_LIST_MAX          64

@@ -51,7 +51,7 @@ def validate_report(report):
     require(type(report.get('schema_version')) is int and report['schema_version'] == 1,
             'Unsupported manifest schema')
     require(report.get('status') == 'compiled_candidate_requires_hardware_acceptance', 'Wrong candidate status')
-    require(type(report.get('protocol_version')) is int and report['protocol_version'] == 8,
+    require(type(report.get('protocol_version')) is int and report['protocol_version'] == 2,
             'Wrong paired protocol')
     for field, value in {'app_only': True, 'flashed': False, 'assets_rebuilt': False,
                          'runtime_validated': False, 'partition_migration': False,

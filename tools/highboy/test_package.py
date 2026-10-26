@@ -31,7 +31,7 @@ class PackageTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root=Path(temporary.name)
         self.images={}
-        self.report={'schema_version':1,'protocol_version':8,'app_only':True,
+        self.report={'schema_version':1,'protocol_version':2,'app_only':True,
             'status':'compiled_candidate_requires_hardware_acceptance','flashed':False,
             'assets_rebuilt':False,'runtime_validated':False,'partition_migration':False,
             'host_tests_passed':True,'targets':{},'app_signing':{'production_mode':False,
@@ -72,7 +72,7 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(list((self.root/'packages').iterdir()),[])
 
     def test_reject_wrong_profile_and_fabricated_acceptance(self):
-        changes=[('schema_version',2),('protocol_version',7),('runtime_validated',True),
+        changes=[('schema_version',2),('protocol_version',7),('protocol_version',8),('runtime_validated',True),
                  ('host_tests_passed',False),('app_only',False),('flashed',True),
                  ('assets_rebuilt',True),('partition_migration',True)]
         for field,value in changes:
@@ -90,7 +90,7 @@ class PackageTests(unittest.TestCase):
 
     def test_duplicate_manifest_and_symlinked_image_rejected(self):
         directory=self.write();manifest=directory/'manifest.json';original=manifest.read_text()
-        manifest.write_text(original.replace('"protocol_version": 8','"protocol_version": 8, "protocol_version": 7'))
+        manifest.write_text(original.replace('"protocol_version": 2','"protocol_version": 2, "protocol_version": 7'))
         with self.assertRaisesRegex(ValueError,'Duplicate'):verify_package.verify(directory)
         manifest.write_text(original)
         image=directory/'TentacleOS_C5.bin';image.unlink();image.symlink_to(self.images['C5'])

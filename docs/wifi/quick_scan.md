@@ -140,7 +140,7 @@ scoped `wifi_service_capture_passive()` remain available in source for dedicated
 frame-capture callers. **ESP SCAN no longer calls them.** Their stricter ownership
 rules and frame-derived scoring are separate from the AP snapshot above. Previous
 monitor-mode initialization failures do not describe the new screen path.
-The paired v8 headers remain identical. Existing bounded, unique, CRC-checked
+The paired v2 headers remain identical. Existing bounded, unique, CRC-checked
 byte-aligned reply recovery now covers the normal AP scan, scan-status and generic
 data replies used here; corrupt, ambiguous and truncated replies remain rejected.
 

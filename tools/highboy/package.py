@@ -118,7 +118,7 @@ def main():
     images = {}
     report = {
         "app_signing": app_signing_configuration(ROOT / "firmware_p4", ROOT / "firmware_p4/build_highboy"),
-        "schema_version": 1, "protocol_version": 8, "app_only": True,
+        "schema_version": 1, "protocol_version": 2, "app_only": True,
         "status": "compiled_candidate_requires_hardware_acceptance",
         "upstream": "011ed7da4c750b7777fd6dbad8ce4541304c6898",
         "targets": {}, "flashed": False, "assets_rebuilt": False,
@@ -127,7 +127,7 @@ def main():
         "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "source_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)),
         "host_tests_passed": True,
-        "deployment_warning": "App-only candidate for matching existing installations. It contains no bootloader/assets, production provisioning or full restoration. Both chips must remain protocol8/Muse-compatible.",
+        "deployment_warning": "App-only candidate for matching existing installations. It contains no bootloader/assets, production provisioning or full restoration. Both chips must remain protocol2/Muse-compatible.",
     }
     for chip in ("p4", "c5"):
         project = ROOT / ("firmware_" + chip)

@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # NFC and native LF RFID companion commands
 
 Authenticated USB CDC and BLE sessions can identify NFC-A/B/F/V cards and read
@@ -5,7 +22,7 @@ EM4100/EM4102 LF tags through the P4's native drivers. These commands do not
 modify cards, start emulation or synthesize results. Haptics remains deferred.
 
 The integrated Muse RPC already occupies category `0x11`. NFC uses `0x12` and
-LF RFID uses `0x13`; both are reserved in the identical P4/C5 SPI v8 headers.
+LF RFID uses `0x13`; both are reserved in the identical P4/C5 SPI v2 headers.
 The P4 intercepts them after authentication and session-generation checks. They
 are never forwarded to the C5, including unknown operations in these categories.
 The host envelope remains version 1. Payloads below exclude the usual RESP

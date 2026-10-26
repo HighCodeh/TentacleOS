@@ -22,7 +22,7 @@ along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 This checkout includes the verified High Boy Muse integration. Read
 `docs/highboy/README.md` before changing build, protocol or deployment paths.
 `tools/build.sh` routes to an app-only build with the IDF Component Manager enabled:
-Both P4 and C5 use ESP-IDF v6.1. Preserve the paired protocol v8 headers and
+Both P4 and C5 use ESP-IDF v6.1. Preserve the paired protocol v2 headers and
 the C5 memory overlay. Do not run older external `prepare.py` generators here.
 `tools/flash.sh p4|c5 -p PORT` performs a guarded single-chip app-only update: full flash backup,
 matching installed partition map and valid existing boot/app images are required.

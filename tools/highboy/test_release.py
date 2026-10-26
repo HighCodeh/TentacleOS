@@ -104,7 +104,7 @@ class OtaPackageTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(prefix='highboy-release-test-')
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        self.report = {'schema_version': 1, 'protocol_version': 8, 'app_only': True,
+        self.report = {'schema_version': 1, 'protocol_version': 2, 'app_only': True,
                        'status': 'compiled_candidate_requires_hardware_acceptance',
                        'flashed': False, 'assets_rebuilt': False, 'runtime_validated': False,
                        'partition_migration': False, 'host_tests_passed': True, 'targets': {},
