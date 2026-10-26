@@ -106,6 +106,13 @@ jobs:
             --build "firmware_${{ matrix.target }}/build_highboy" \
             --out "firmware_${{ matrix.target }}/build_highboy/build-evidence.json"
 
+      - name: Test generated FatFS and exFAT lifecycle
+        if: matrix.target == 'p4'
+        shell: bash
+        run: |
+          source "$IDF_PATH/export.sh" >/dev/null
+          python tools/fatfs/test_fatfs.py --idf "$IDF_PATH"
+
       - name: Test public PSA crypto with the pinned SDK source
         if: matrix.target == 'p4'
         shell: bash

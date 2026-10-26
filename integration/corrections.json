@@ -1132,8 +1132,8 @@
     "firmware_p4/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "0f1227039a8fd707409aaebc1ba720212788503eb26421c5ded3947f10e67323",
-      "after_sha256": "c423b5c8dbe2bb975c1937c8ce4b307601a577d047f037f79875ee587a61b2bb",
-      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses.",
+      "after_sha256": "0f3372d68b5269f50c4a9dc38c2a8987c75bb20a2deaf1245774d3222b0b1033",
+      "reason": "Generate the FatFS override from verified ESP-IDF v6.1 sources and a reviewed exFAT patch inside each build directory; preserve SDK sources and installed partition layouts.",
       "review_history": [
         {
           "after_sha256": "3f9e37605262ba8cd5c3e25d94f57f660c010e6baea480103d8fe554f58d4eef",
@@ -1190,6 +1190,10 @@
         {
           "after_sha256": "3bd7ba3ad3f0226e39a865e1ad6e850dc945f555824a66273a789a11eb5b7aa6",
           "reason": "Compile the script adapter and interpreters within Service, retain source-specific compiler settings, and remove the standalone script_engine dependency."
+        },
+        {
+          "after_sha256": "c423b5c8dbe2bb975c1937c8ce4b307601a577d047f037f79875ee587a61b2bb",
+          "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
         }
       ]
     },

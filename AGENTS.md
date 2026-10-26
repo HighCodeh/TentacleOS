@@ -109,7 +109,9 @@ add a new top-level component directly in `components/`. When a piece of code mu
 be its own component (to break a dependency cycle, or to override an IDF component),
 nest it under the matching root and register it via `EXTRA_COMPONENT_DIRS` in the
 project `CMakeLists.txt`. Existing examples: `Applications/gameboy`,
-`Applications/doom`, `Service/fatfs` (vendored IDF override), `Core/resource_mgr`.
+`Applications/doom`, `Core/resource_mgr`. The FatFS override is generated beneath
+`<build>/components/Service/fatfs`; its tracked patch metadata remains in
+`firmware_p4/components/Service/fatfs`.
 
 ## Third-party dependencies
 
@@ -130,10 +132,12 @@ Keep it under the appropriate architecture root and register it explicitly in
 CMake. The Lua and MicroQuickJS integrations live under `Service/script_engine`;
 their restricted build and local adaptation are documented in `docs/scripts/README.md`.
 
-The P4 `components/Service/fatfs` override is one such exception: it is copied
-from ESP-IDF v5.5.3 and modified for microSD exFAT support. Its same-name CMake
-registration replaces the SDK's built-in `fatfs`; it is not downloaded from
-GitHub during the build. Preserve its third-party notices and local exFAT changes.
+The P4 `components/Service/fatfs` directory is one such exception: it contains a
+reviewed patch and hash manifest for the SDK v6.1 FatFS component. During CMake
+configuration, `tools/fatfs/prepare.py` generates the exFAT override beneath the
+selected build directory without modifying the SDK or downloading sources.
+Never edit the generated copy. Read `docs/fatfs/README.md` before changing this
+integration; retain upstream notices and the source/patch verification gates.
 The NFC legacy DES primitive is another scoped exception: IDF 6.1 removed it,
 but NFC card protocols require it. Its upstream origin and isolated adaptation
 are documented under `Applications/nfc/protocols/common/legacy_des`.

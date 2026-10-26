@@ -33,206 +33,6 @@
       "normalized_local_sha256": "e4477d00852f3a39a20e4c511e401f1d1efca8c53820f7b418a98872b9cf51a9"
     },
     {
-      "target": "firmware_p4/components/Service/fatfs/CMakeLists.txt",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/CMakeLists.txt",
-      "local_sha256": "007c88dab43adaf0a23a83b898276ac4d046ba748dedbc4ac0f0048ab914a5e0",
-      "upstream_sha256": "007c88dab43adaf0a23a83b898276ac4d046ba748dedbc4ac0f0048ab914a5e0",
-      "action": "upstream_equivalent",
-      "normalized_local_sha256": "007c88dab43adaf0a23a83b898276ac4d046ba748dedbc4ac0f0048ab914a5e0"
-    },
-    {
-      "target": "firmware_p4/components/Service/fatfs/Kconfig",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/Kconfig",
-      "local_sha256": "19fdce4ffdf8d53f0dfd6bccddce702103b931deb7ede0c750136d560b49ce57",
-      "upstream_sha256": "6340a411ad698eb5e3165c9730a15b98b685df3c519a1b2b62e13ef2578fa6a2",
-      "action": "upstream_equivalent",
-      "normalized_local_sha256": "6340a411ad698eb5e3165c9730a15b98b685df3c519a1b2b62e13ef2578fa6a2"
-    },
-    {
-      "target": "firmware_p4/components/Service/fatfs/project_include.cmake",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/project_include.cmake",
-      "local_sha256": "f437952f7d7e5fb6a19c09548037bcc670b9b6838b24f47066d209dd037ac0df",
-      "upstream_sha256": "f437952f7d7e5fb6a19c09548037bcc670b9b6838b24f47066d209dd037ac0df",
-      "action": "upstream_equivalent",
-      "normalized_local_sha256": "f437952f7d7e5fb6a19c09548037bcc670b9b6838b24f47066d209dd037ac0df"
-    },
-    {
-      "target": "firmware_p4/components/Service/fatfs/vfs/esp_vfs_fat.h",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/vfs/esp_vfs_fat.h",
-      "local_sha256": "e9a8251120f9260cb1e4e5eb56697e7f209c6e7e7fc207602290f7d24faec5c8",
-      "upstream_sha256": "f840818e5ad70a9cbb95c612f50bfed60cedc9054fee3bb8ea785eb7ccd1ebd6",
-      "action": "preserve_local_overlay",
-      "normalized_local_sha256": "fdbdc1da41bb1b79980a5abeda86b86a0fed3823f20cff6aff238f17aa3ccc8a"
-    },
-    {
-      "target": "firmware_p4/components/Service/fatfs/vfs/vfs_fat.c",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/vfs/vfs_fat.c",
-      "local_sha256": "125ec1e040301ced150718b828a1d68be89df3de83fc65741ee09ebcfb7c44ca",
-      "upstream_sha256": "97411f533ce03985611d3a7b714e6c81183e3cd72309b035863c97fa06164d07",
-      "action": "upstream_equivalent",
-      "normalized_local_sha256": "97411f533ce03985611d3a7b714e6c81183e3cd72309b035863c97fa06164d07"
-    },
-    {
-      "target": "firmware_p4/components/Service/fatfs/vfs/vfs_fat_internal.h",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/vfs/vfs_fat_internal.h",
-      "local_sha256": "30e2b2049b0b7a8ef74ef87fbb1c9b7f744919e8c962838d0a8871292f4bb871",
-      "upstream_sha256": "4f9b2be65bfe0a7ce6ef12fbff9caceac487ba3e28aaf387c9c49dbc7f244769",
-      "action": "upstream_equivalent",
-      "normalized_local_sha256": "4f9b2be65bfe0a7ce6ef12fbff9caceac487ba3e28aaf387c9c49dbc7f244769"
-    },
-    {
-      "target": "firmware_p4/components/Service/fatfs/vfs/vfs_fat_sdmmc.c",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/vfs/vfs_fat_sdmmc.c",
-      "local_sha256": "cd3cef2936ea4bb355f1ed4103edfc83dbee25894acc3f95663a25da1174d462",
-      "upstream_sha256": "8513f6b47d00d85d564b4017026bd00c70d40aff4e37eb685464d3fac7228813",
-      "action": "preserve_local_overlay",
-      "normalized_local_sha256": "d64fb652285736d01e17680f19ab065afba5a089beb0b47bd5c9a363d297a8d2"
-    },
-    {
-      "target": "firmware_p4/components/Service/fatfs/vfs/vfs_fat_spiflash.c",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/vfs/vfs_fat_spiflash.c",
-      "local_sha256": "836a39302947abfec776f752f9e07d27281547dbc326b2ab4308dc51b8228795",
-      "upstream_sha256": "0da1186fee9b8e79521d6abf10955f3e5b5fee34a1c02032637a4cf475df6fcd",
-      "action": "upstream_equivalent",
-      "normalized_local_sha256": "0da1186fee9b8e79521d6abf10955f3e5b5fee34a1c02032637a4cf475df6fcd"
-    },
-    {
-      "target": "firmware_p4/components/Service/fatfs/diskio/diskio.c",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/diskio/diskio.c",
-      "local_sha256": "4b1a3b81d49aea7c1d04a1b266b1de0efdcf60dffadaf05e96489484e7696db7",
-      "upstream_sha256": "733c3b78d9fd605a7caa6d9912b6d84ba5d0f8614b80fd38eebe91416e8fbd4b",
-      "action": "upstream_equivalent",
-      "normalized_local_sha256": "733c3b78d9fd605a7caa6d9912b6d84ba5d0f8614b80fd38eebe91416e8fbd4b"
-    },
-    {
-      "target": "firmware_p4/components/Service/fatfs/diskio/diskio_impl.h",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/diskio/diskio_impl.h",
-      "local_sha256": "d6bf1dd3d0daf0f5f2a647a4992811e7ef427478e9db6961b81765e6813b0f72",
-      "upstream_sha256": "b14ddbcedfe06e0668f8040eaec993c5ea076d71dbd30aaf53cd8485c93036bf",
-      "action": "upstream_equivalent",
-      "normalized_local_sha256": "b14ddbcedfe06e0668f8040eaec993c5ea076d71dbd30aaf53cd8485c93036bf"
-    },
-    {
-      "target": "firmware_p4/components/Service/fatfs/diskio/diskio_rawflash.c",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/diskio/diskio_rawflash.c",
-      "local_sha256": "d5d9be38cdbd2d257d75cf037473a21762d05d28ef542dd312fd32ff6e9a446f",
-      "upstream_sha256": "c9503c6e8b6e83cba5adf491f3b9f5cc5255515a3df05fdf2961d583eb2f4624",
-      "action": "upstream_equivalent",
-      "normalized_local_sha256": "c9503c6e8b6e83cba5adf491f3b9f5cc5255515a3df05fdf2961d583eb2f4624"
-    },
-    {
-      "target": "firmware_p4/components/Service/fatfs/diskio/diskio_rawflash.h",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/diskio/diskio_rawflash.h",
-      "local_sha256": "8f9ed92acb408b512359b62d378d5d87777b77ab14faae757370b1cfed0a8301",
-      "upstream_sha256": "5a8a44bf20e83a4e8db8a2d7cfe05d8ad847bad33523d7b9392b443e6b1dcf01",
-      "action": "upstream_equivalent",
-      "normalized_local_sha256": "5a8a44bf20e83a4e8db8a2d7cfe05d8ad847bad33523d7b9392b443e6b1dcf01"
-    },
-    {
-      "target": "firmware_p4/components/Service/fatfs/diskio/diskio_sdmmc.c",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/diskio/diskio_sdmmc.c",
-      "local_sha256": "c25d44ca96fb5e043d0f475eebbd18555aadd3c37989c689352c025bc8d0de31",
-      "upstream_sha256": "63b039b6b79715efd8c3de91d3c7099fbcd5c426ce834b0c70e167811447f83f",
-      "action": "upstream_equivalent",
-      "normalized_local_sha256": "63b039b6b79715efd8c3de91d3c7099fbcd5c426ce834b0c70e167811447f83f"
-    },
-    {
-      "target": "firmware_p4/components/Service/fatfs/diskio/diskio_sdmmc.h",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/diskio/diskio_sdmmc.h",
-      "local_sha256": "d725e43891cb939c519d622aeff1382f8d9acd5cf73d0b635ebeebc941d9ad60",
-      "upstream_sha256": "0cfdabcb8548dfb8e1f46ca6413e78a23b0f7cb3b676d6a97a659e8be10bdfd1",
-      "action": "upstream_equivalent",
-      "normalized_local_sha256": "0cfdabcb8548dfb8e1f46ca6413e78a23b0f7cb3b676d6a97a659e8be10bdfd1"
-    },
-    {
-      "target": "firmware_p4/components/Service/fatfs/diskio/diskio_wl.c",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/diskio/diskio_wl.c",
-      "local_sha256": "547545e3e5cb1f82f97a63aaaaccc8c27f6e2751dd797948b60dcf4f55cfb9fd",
-      "upstream_sha256": "84c0ab7552d592ec88528cdc2740b7bfeb1327c9438029686524cffb064f3b7d",
-      "action": "upstream_equivalent",
-      "normalized_local_sha256": "84c0ab7552d592ec88528cdc2740b7bfeb1327c9438029686524cffb064f3b7d"
-    },
-    {
-      "target": "firmware_p4/components/Service/fatfs/diskio/diskio_wl.h",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/diskio/diskio_wl.h",
-      "local_sha256": "adc256c7efab72b4e6458b2e43018821818306faa11cfda29325bf30655087b8",
-      "upstream_sha256": "1ccea0718ee9cfd0e045c11b03762b5376fb3b6502e2c97f69e4fda0ef409500",
-      "action": "upstream_equivalent",
-      "normalized_local_sha256": "1ccea0718ee9cfd0e045c11b03762b5376fb3b6502e2c97f69e4fda0ef409500"
-    },
-    {
-      "target": "firmware_p4/components/Service/fatfs/port/freertos/ffsystem.c",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/port/freertos/ffsystem.c",
-      "local_sha256": "7d1d25df36da80a8ed9ba3b9d5c7753a32bad1ba58833fb36f9d93374955a59e",
-      "upstream_sha256": "17a29aa226ee74b0947eb5e5f471599e091a732d923a31800799fd6c85971c75",
-      "action": "upstream_equivalent",
-      "normalized_local_sha256": "17a29aa226ee74b0947eb5e5f471599e091a732d923a31800799fd6c85971c75"
-    },
-    {
-      "target": "firmware_p4/components/Service/fatfs/port/linux/ffsystem.c",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/port/linux/ffsystem.c",
-      "local_sha256": "42bfcff83b763d2ee5fc378f9133bdab7bbf0f6543a5cbff5ea7e1b6e3ce6b4b",
-      "upstream_sha256": "4cde69e6e02c4664a1640c11d4cdf8efae2c3a1948653ebbf3aa1c35f0019a0b",
-      "action": "upstream_equivalent",
-      "normalized_local_sha256": "4cde69e6e02c4664a1640c11d4cdf8efae2c3a1948653ebbf3aa1c35f0019a0b"
-    },
-    {
-      "target": "firmware_p4/components/Service/fatfs/src/diskio.c",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/src/diskio.c",
-      "local_sha256": "f9b330722fcac03ff850353674344d49ead2f10ce1a0eae9187b594019a76486",
-      "upstream_sha256": "5b4273e37d96de7618a6d970b91f736f04722030fb5e31c375e6fc3db974ea4a",
-      "action": "upstream_equivalent",
-      "normalized_local_sha256": "5b4273e37d96de7618a6d970b91f736f04722030fb5e31c375e6fc3db974ea4a"
-    },
-    {
-      "target": "firmware_p4/components/Service/fatfs/src/diskio.h",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/src/diskio.h",
-      "local_sha256": "c8e4cda34fc44cd7398e6d52d205eb77793c4b33a2ca3efec6212d43088faa6f",
-      "upstream_sha256": "60beaaca712a9d5126f41362fa68ce7f30e26e115b310a20d79e5639b6fcc3b5",
-      "action": "upstream_equivalent",
-      "normalized_local_sha256": "60beaaca712a9d5126f41362fa68ce7f30e26e115b310a20d79e5639b6fcc3b5"
-    },
-    {
-      "target": "firmware_p4/components/Service/fatfs/src/ff.c",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/src/ff.c",
-      "local_sha256": "7995b156bfa62528e42db58e1387bc0252d47e85268bd0c3974361d233a9a261",
-      "upstream_sha256": "b6511bc0102f42b941897cd9f96f75206b6851fedbebc6dcb17c220cb1d4bede",
-      "action": "upstream_equivalent",
-      "normalized_local_sha256": "b6511bc0102f42b941897cd9f96f75206b6851fedbebc6dcb17c220cb1d4bede"
-    },
-    {
-      "target": "firmware_p4/components/Service/fatfs/src/ff.h",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/src/ff.h",
-      "local_sha256": "a4b531fde646e638c14ccbcee6b47164d54c2e9b11ab27e0dcfd29e49a628765",
-      "upstream_sha256": "7bae240d9934c35599b1e49431b6bec65a7269d09284aca40191c8c5fd3be475",
-      "action": "upstream_equivalent",
-      "normalized_local_sha256": "7bae240d9934c35599b1e49431b6bec65a7269d09284aca40191c8c5fd3be475"
-    },
-    {
-      "target": "firmware_p4/components/Service/fatfs/src/ffconf.h",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/src/ffconf.h",
-      "local_sha256": "6ee078f54ae4338afc8886db9458577ed977983e69929bbfcb7bbb13235738bb",
-      "upstream_sha256": "c80279670a8504dfb86836e00c0d81d106ae33ea341b8c3f47bd7e034456ca23",
-      "action": "upstream_equivalent",
-      "normalized_local_sha256": "c80279670a8504dfb86836e00c0d81d106ae33ea341b8c3f47bd7e034456ca23"
-    },
-    {
-      "target": "firmware_p4/components/Service/fatfs/src/ffsystem.c",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/src/ffsystem.c",
-      "local_sha256": "6946d2263bbcfe3b2abcc439f3ce334ca447fdcf2f4b07b65d6102cab58f7341",
-      "upstream_sha256": "68e6d533645c81e053ffc9fa6c293a0aa3162d6439151404866931c64f423dd3",
-      "action": "upstream_equivalent",
-      "normalized_local_sha256": "68e6d533645c81e053ffc9fa6c293a0aa3162d6439151404866931c64f423dd3"
-    },
-    {
-      "target": "firmware_p4/components/Service/fatfs/src/ffunicode.c",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/src/ffunicode.c",
-      "local_sha256": "892b9a0f4e4c4c4525000dae8fac012c784f1183de53753632959a36b28bdfdf",
-      "upstream_sha256": "f2e03e97fccd9d7b0614b48ee02b7e49fb21c5196d3ff77ba5d8e4558a064d5d",
-      "action": "upstream_equivalent",
-      "normalized_local_sha256": "f2e03e97fccd9d7b0614b48ee02b7e49fb21c5196d3ff77ba5d8e4558a064d5d"
-    },
-    {
       "target": "firmware_p4/components/Drivers/CMakeLists.txt",
       "local_path": "work/highboy_muse_port/integrated_p4/source/components/Drivers/CMakeLists.txt",
       "local_sha256": "15c7869f1145eb6a78b540dd9c4003914c7bbbb98db9af36ed4ddd38e35d23bf",
@@ -12245,5 +12045,213 @@
       "normalized_local_sha256": "b3cf121f9d87272b36d9debf1b76b61edb1b9a6846c9a8086bb9fec7f530d5f7"
     }
   ],
-  "reviewed_delta_count": 23
+  "reviewed_delta_count": 23,
+  "generated_components": {
+    "fatfs": {
+      "manifest": "firmware_p4/components/Service/fatfs/patch_manifest.json",
+      "reason": "Generate the exFAT override from the pinned ESP-IDF v6.1 source during configuration; retained import records describe the retired v5.5.3 copy.",
+      "replaced_imports": [
+        {
+          "target": "firmware_p4/components/Service/fatfs/CMakeLists.txt",
+          "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/CMakeLists.txt",
+          "local_sha256": "007c88dab43adaf0a23a83b898276ac4d046ba748dedbc4ac0f0048ab914a5e0",
+          "upstream_sha256": "007c88dab43adaf0a23a83b898276ac4d046ba748dedbc4ac0f0048ab914a5e0",
+          "action": "upstream_equivalent",
+          "normalized_local_sha256": "007c88dab43adaf0a23a83b898276ac4d046ba748dedbc4ac0f0048ab914a5e0"
+        },
+        {
+          "target": "firmware_p4/components/Service/fatfs/Kconfig",
+          "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/Kconfig",
+          "local_sha256": "19fdce4ffdf8d53f0dfd6bccddce702103b931deb7ede0c750136d560b49ce57",
+          "upstream_sha256": "6340a411ad698eb5e3165c9730a15b98b685df3c519a1b2b62e13ef2578fa6a2",
+          "action": "upstream_equivalent",
+          "normalized_local_sha256": "6340a411ad698eb5e3165c9730a15b98b685df3c519a1b2b62e13ef2578fa6a2"
+        },
+        {
+          "target": "firmware_p4/components/Service/fatfs/project_include.cmake",
+          "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/project_include.cmake",
+          "local_sha256": "f437952f7d7e5fb6a19c09548037bcc670b9b6838b24f47066d209dd037ac0df",
+          "upstream_sha256": "f437952f7d7e5fb6a19c09548037bcc670b9b6838b24f47066d209dd037ac0df",
+          "action": "upstream_equivalent",
+          "normalized_local_sha256": "f437952f7d7e5fb6a19c09548037bcc670b9b6838b24f47066d209dd037ac0df"
+        },
+        {
+          "target": "firmware_p4/components/Service/fatfs/vfs/esp_vfs_fat.h",
+          "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/vfs/esp_vfs_fat.h",
+          "local_sha256": "e9a8251120f9260cb1e4e5eb56697e7f209c6e7e7fc207602290f7d24faec5c8",
+          "upstream_sha256": "f840818e5ad70a9cbb95c612f50bfed60cedc9054fee3bb8ea785eb7ccd1ebd6",
+          "action": "preserve_local_overlay",
+          "normalized_local_sha256": "fdbdc1da41bb1b79980a5abeda86b86a0fed3823f20cff6aff238f17aa3ccc8a"
+        },
+        {
+          "target": "firmware_p4/components/Service/fatfs/vfs/vfs_fat.c",
+          "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/vfs/vfs_fat.c",
+          "local_sha256": "125ec1e040301ced150718b828a1d68be89df3de83fc65741ee09ebcfb7c44ca",
+          "upstream_sha256": "97411f533ce03985611d3a7b714e6c81183e3cd72309b035863c97fa06164d07",
+          "action": "upstream_equivalent",
+          "normalized_local_sha256": "97411f533ce03985611d3a7b714e6c81183e3cd72309b035863c97fa06164d07"
+        },
+        {
+          "target": "firmware_p4/components/Service/fatfs/vfs/vfs_fat_internal.h",
+          "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/vfs/vfs_fat_internal.h",
+          "local_sha256": "30e2b2049b0b7a8ef74ef87fbb1c9b7f744919e8c962838d0a8871292f4bb871",
+          "upstream_sha256": "4f9b2be65bfe0a7ce6ef12fbff9caceac487ba3e28aaf387c9c49dbc7f244769",
+          "action": "upstream_equivalent",
+          "normalized_local_sha256": "4f9b2be65bfe0a7ce6ef12fbff9caceac487ba3e28aaf387c9c49dbc7f244769"
+        },
+        {
+          "target": "firmware_p4/components/Service/fatfs/vfs/vfs_fat_sdmmc.c",
+          "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/vfs/vfs_fat_sdmmc.c",
+          "local_sha256": "cd3cef2936ea4bb355f1ed4103edfc83dbee25894acc3f95663a25da1174d462",
+          "upstream_sha256": "8513f6b47d00d85d564b4017026bd00c70d40aff4e37eb685464d3fac7228813",
+          "action": "preserve_local_overlay",
+          "normalized_local_sha256": "d64fb652285736d01e17680f19ab065afba5a089beb0b47bd5c9a363d297a8d2"
+        },
+        {
+          "target": "firmware_p4/components/Service/fatfs/vfs/vfs_fat_spiflash.c",
+          "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/vfs/vfs_fat_spiflash.c",
+          "local_sha256": "836a39302947abfec776f752f9e07d27281547dbc326b2ab4308dc51b8228795",
+          "upstream_sha256": "0da1186fee9b8e79521d6abf10955f3e5b5fee34a1c02032637a4cf475df6fcd",
+          "action": "upstream_equivalent",
+          "normalized_local_sha256": "0da1186fee9b8e79521d6abf10955f3e5b5fee34a1c02032637a4cf475df6fcd"
+        },
+        {
+          "target": "firmware_p4/components/Service/fatfs/diskio/diskio.c",
+          "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/diskio/diskio.c",
+          "local_sha256": "4b1a3b81d49aea7c1d04a1b266b1de0efdcf60dffadaf05e96489484e7696db7",
+          "upstream_sha256": "733c3b78d9fd605a7caa6d9912b6d84ba5d0f8614b80fd38eebe91416e8fbd4b",
+          "action": "upstream_equivalent",
+          "normalized_local_sha256": "733c3b78d9fd605a7caa6d9912b6d84ba5d0f8614b80fd38eebe91416e8fbd4b"
+        },
+        {
+          "target": "firmware_p4/components/Service/fatfs/diskio/diskio_impl.h",
+          "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/diskio/diskio_impl.h",
+          "local_sha256": "d6bf1dd3d0daf0f5f2a647a4992811e7ef427478e9db6961b81765e6813b0f72",
+          "upstream_sha256": "b14ddbcedfe06e0668f8040eaec993c5ea076d71dbd30aaf53cd8485c93036bf",
+          "action": "upstream_equivalent",
+          "normalized_local_sha256": "b14ddbcedfe06e0668f8040eaec993c5ea076d71dbd30aaf53cd8485c93036bf"
+        },
+        {
+          "target": "firmware_p4/components/Service/fatfs/diskio/diskio_rawflash.c",
+          "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/diskio/diskio_rawflash.c",
+          "local_sha256": "d5d9be38cdbd2d257d75cf037473a21762d05d28ef542dd312fd32ff6e9a446f",
+          "upstream_sha256": "c9503c6e8b6e83cba5adf491f3b9f5cc5255515a3df05fdf2961d583eb2f4624",
+          "action": "upstream_equivalent",
+          "normalized_local_sha256": "c9503c6e8b6e83cba5adf491f3b9f5cc5255515a3df05fdf2961d583eb2f4624"
+        },
+        {
+          "target": "firmware_p4/components/Service/fatfs/diskio/diskio_rawflash.h",
+          "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/diskio/diskio_rawflash.h",
+          "local_sha256": "8f9ed92acb408b512359b62d378d5d87777b77ab14faae757370b1cfed0a8301",
+          "upstream_sha256": "5a8a44bf20e83a4e8db8a2d7cfe05d8ad847bad33523d7b9392b443e6b1dcf01",
+          "action": "upstream_equivalent",
+          "normalized_local_sha256": "5a8a44bf20e83a4e8db8a2d7cfe05d8ad847bad33523d7b9392b443e6b1dcf01"
+        },
+        {
+          "target": "firmware_p4/components/Service/fatfs/diskio/diskio_sdmmc.c",
+          "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/diskio/diskio_sdmmc.c",
+          "local_sha256": "c25d44ca96fb5e043d0f475eebbd18555aadd3c37989c689352c025bc8d0de31",
+          "upstream_sha256": "63b039b6b79715efd8c3de91d3c7099fbcd5c426ce834b0c70e167811447f83f",
+          "action": "upstream_equivalent",
+          "normalized_local_sha256": "63b039b6b79715efd8c3de91d3c7099fbcd5c426ce834b0c70e167811447f83f"
+        },
+        {
+          "target": "firmware_p4/components/Service/fatfs/diskio/diskio_sdmmc.h",
+          "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/diskio/diskio_sdmmc.h",
+          "local_sha256": "d725e43891cb939c519d622aeff1382f8d9acd5cf73d0b635ebeebc941d9ad60",
+          "upstream_sha256": "0cfdabcb8548dfb8e1f46ca6413e78a23b0f7cb3b676d6a97a659e8be10bdfd1",
+          "action": "upstream_equivalent",
+          "normalized_local_sha256": "0cfdabcb8548dfb8e1f46ca6413e78a23b0f7cb3b676d6a97a659e8be10bdfd1"
+        },
+        {
+          "target": "firmware_p4/components/Service/fatfs/diskio/diskio_wl.c",
+          "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/diskio/diskio_wl.c",
+          "local_sha256": "547545e3e5cb1f82f97a63aaaaccc8c27f6e2751dd797948b60dcf4f55cfb9fd",
+          "upstream_sha256": "84c0ab7552d592ec88528cdc2740b7bfeb1327c9438029686524cffb064f3b7d",
+          "action": "upstream_equivalent",
+          "normalized_local_sha256": "84c0ab7552d592ec88528cdc2740b7bfeb1327c9438029686524cffb064f3b7d"
+        },
+        {
+          "target": "firmware_p4/components/Service/fatfs/diskio/diskio_wl.h",
+          "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/diskio/diskio_wl.h",
+          "local_sha256": "adc256c7efab72b4e6458b2e43018821818306faa11cfda29325bf30655087b8",
+          "upstream_sha256": "1ccea0718ee9cfd0e045c11b03762b5376fb3b6502e2c97f69e4fda0ef409500",
+          "action": "upstream_equivalent",
+          "normalized_local_sha256": "1ccea0718ee9cfd0e045c11b03762b5376fb3b6502e2c97f69e4fda0ef409500"
+        },
+        {
+          "target": "firmware_p4/components/Service/fatfs/port/freertos/ffsystem.c",
+          "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/port/freertos/ffsystem.c",
+          "local_sha256": "7d1d25df36da80a8ed9ba3b9d5c7753a32bad1ba58833fb36f9d93374955a59e",
+          "upstream_sha256": "17a29aa226ee74b0947eb5e5f471599e091a732d923a31800799fd6c85971c75",
+          "action": "upstream_equivalent",
+          "normalized_local_sha256": "17a29aa226ee74b0947eb5e5f471599e091a732d923a31800799fd6c85971c75"
+        },
+        {
+          "target": "firmware_p4/components/Service/fatfs/port/linux/ffsystem.c",
+          "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/port/linux/ffsystem.c",
+          "local_sha256": "42bfcff83b763d2ee5fc378f9133bdab7bbf0f6543a5cbff5ea7e1b6e3ce6b4b",
+          "upstream_sha256": "4cde69e6e02c4664a1640c11d4cdf8efae2c3a1948653ebbf3aa1c35f0019a0b",
+          "action": "upstream_equivalent",
+          "normalized_local_sha256": "4cde69e6e02c4664a1640c11d4cdf8efae2c3a1948653ebbf3aa1c35f0019a0b"
+        },
+        {
+          "target": "firmware_p4/components/Service/fatfs/src/diskio.c",
+          "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/src/diskio.c",
+          "local_sha256": "f9b330722fcac03ff850353674344d49ead2f10ce1a0eae9187b594019a76486",
+          "upstream_sha256": "5b4273e37d96de7618a6d970b91f736f04722030fb5e31c375e6fc3db974ea4a",
+          "action": "upstream_equivalent",
+          "normalized_local_sha256": "5b4273e37d96de7618a6d970b91f736f04722030fb5e31c375e6fc3db974ea4a"
+        },
+        {
+          "target": "firmware_p4/components/Service/fatfs/src/diskio.h",
+          "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/src/diskio.h",
+          "local_sha256": "c8e4cda34fc44cd7398e6d52d205eb77793c4b33a2ca3efec6212d43088faa6f",
+          "upstream_sha256": "60beaaca712a9d5126f41362fa68ce7f30e26e115b310a20d79e5639b6fcc3b5",
+          "action": "upstream_equivalent",
+          "normalized_local_sha256": "60beaaca712a9d5126f41362fa68ce7f30e26e115b310a20d79e5639b6fcc3b5"
+        },
+        {
+          "target": "firmware_p4/components/Service/fatfs/src/ff.c",
+          "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/src/ff.c",
+          "local_sha256": "7995b156bfa62528e42db58e1387bc0252d47e85268bd0c3974361d233a9a261",
+          "upstream_sha256": "b6511bc0102f42b941897cd9f96f75206b6851fedbebc6dcb17c220cb1d4bede",
+          "action": "upstream_equivalent",
+          "normalized_local_sha256": "b6511bc0102f42b941897cd9f96f75206b6851fedbebc6dcb17c220cb1d4bede"
+        },
+        {
+          "target": "firmware_p4/components/Service/fatfs/src/ff.h",
+          "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/src/ff.h",
+          "local_sha256": "a4b531fde646e638c14ccbcee6b47164d54c2e9b11ab27e0dcfd29e49a628765",
+          "upstream_sha256": "7bae240d9934c35599b1e49431b6bec65a7269d09284aca40191c8c5fd3be475",
+          "action": "upstream_equivalent",
+          "normalized_local_sha256": "7bae240d9934c35599b1e49431b6bec65a7269d09284aca40191c8c5fd3be475"
+        },
+        {
+          "target": "firmware_p4/components/Service/fatfs/src/ffconf.h",
+          "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/src/ffconf.h",
+          "local_sha256": "6ee078f54ae4338afc8886db9458577ed977983e69929bbfcb7bbb13235738bb",
+          "upstream_sha256": "c80279670a8504dfb86836e00c0d81d106ae33ea341b8c3f47bd7e034456ca23",
+          "action": "upstream_equivalent",
+          "normalized_local_sha256": "c80279670a8504dfb86836e00c0d81d106ae33ea341b8c3f47bd7e034456ca23"
+        },
+        {
+          "target": "firmware_p4/components/Service/fatfs/src/ffsystem.c",
+          "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/src/ffsystem.c",
+          "local_sha256": "6946d2263bbcfe3b2abcc439f3ce334ca447fdcf2f4b07b65d6102cab58f7341",
+          "upstream_sha256": "68e6d533645c81e053ffc9fa6c293a0aa3162d6439151404866931c64f423dd3",
+          "action": "upstream_equivalent",
+          "normalized_local_sha256": "68e6d533645c81e053ffc9fa6c293a0aa3162d6439151404866931c64f423dd3"
+        },
+        {
+          "target": "firmware_p4/components/Service/fatfs/src/ffunicode.c",
+          "local_path": "work/highboy_muse_port/integrated_p4/source/components/fatfs/src/ffunicode.c",
+          "local_sha256": "892b9a0f4e4c4c4525000dae8fac012c784f1183de53753632959a36b28bdfdf",
+          "upstream_sha256": "f2e03e97fccd9d7b0614b48ee02b7e49fb21c5196d3ff77ba5d8e4558a064d5d",
+          "action": "upstream_equivalent",
+          "normalized_local_sha256": "f2e03e97fccd9d7b0614b48ee02b7e49fb21c5196d3ff77ba5d8e4558a064d5d"
+        }
+      ]
+    }
+  }
 }

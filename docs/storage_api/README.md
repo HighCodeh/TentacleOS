@@ -1018,3 +1018,6 @@ fit. Writable output is empty on failure. Inputs must be NUL-terminated strings
 and must not overlap the output. It does not resolve `..`, enforce a filesystem
 root, or treat an absolute `name` as a replacement for `base`; callers choose
 an empty base when resolving absolute paths.
+
+The microSD filesystem override is generated from a verified SDK patch; see
+[FatFS](../fatfs/README.md) for the source and validation process.

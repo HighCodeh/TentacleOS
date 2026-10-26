@@ -38,7 +38,7 @@ their versions are declared in the firmware manifests.
 - P4 Muse board integration: `components/Service/muse`.
 - C5 Noise and MP3 dependencies: `components/Service/noise_core` and `minimp3`.
 - Resource arbitration: `firmware_p4/components/Core/resource_mgr`.
-- exFAT override: `firmware_p4/components/Service/fatfs`.
+- exFAT patch metadata: `firmware_p4/components/Service/fatfs`; generated override under the build directory.
 - Managed third-party dependencies: each target's `main/idf_component.yml`.
 
 Only the four upstream architecture roots are used under `components`.
@@ -99,9 +99,10 @@ each manifest. The C5 MQTT Git revision preserves the previous source. C5 LED
 strip compilation force-includes `esp_heap_caps.h` for IDF 6 compatibility
 without modifying downloaded sources. Lua and MicroQuickJS stay inside
 `Service/script_engine` for their restricted integration and local adaptation.
-The P4 `components/Service/fatfs` override is copied from ESP-IDF v5.5.3 and
-modified for exFAT, as described in its in-tree README; it remains registered as
-the local `fatfs` component. The isolated factory-security review also uses the manager and the same
+The P4 `components/Service/fatfs` directory now holds a pinned patch and manifest.
+CMake generates the exFAT-enabled SDK v6.1 component inside each build directory;
+see [FatFS](../fatfs/README.md). No SDK installation or managed component is edited.
+The isolated factory-security review also uses the manager and the same
 project manifests; first-time dependency resolution may require network access.
 Before configuration, the build verifies the pinned revisions of the target's
 required SDK submodules: eight shared libraries for P4 and thirteen libraries

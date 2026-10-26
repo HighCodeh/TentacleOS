@@ -28,10 +28,10 @@ set(EXTRA_COMPONENT_DIRS
     "${CMAKE_CURRENT_LIST_DIR}/components/Applications/gameboy"
     "${CMAKE_CURRENT_LIST_DIR}/components/Applications/doom"
     "${CMAKE_CURRENT_LIST_DIR}/components/Core/resource_mgr"
-    "${CMAKE_CURRENT_LIST_DIR}/components/Service/fatfs"
     "${CMAKE_CURRENT_LIST_DIR}/components/Service/muse_port")
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+include("${CMAKE_CURRENT_LIST_DIR}/../tools/cmake/highboy_fatfs.cmake")
 
 # Runtime opt-in USB headset; can be compiled out if a release cannot afford it.
 option(HIGH_BOY_USB_VOICE "Build experimental High Boy USB audio mode" OFF)

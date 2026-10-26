@@ -88,3 +88,5 @@ README.md, separated by `---`.
 | `ui` | [README.md](ui/README.md) [input-migration.md](ui/input-migration.md)  |
 | `wifi` | [README.md](wifi/README.md)  |
 | `ys_rfid2` | [README.md](ys_rfid2/README.md) - YS-RFID2 125 kHz RFID reader driver |
+
+- [FatFS exFAT override](fatfs/README.md) — verified SDK patch generation and filesystem tests.

@@ -1,0 +1,160 @@
+--- a/src/ffconf.h
++++ b/src/ffconf.h
+@@ -52,7 +52,11 @@
+ /  (0:Disable or 1:Enable) Also FF_FS_READONLY needs to be 0 to enable this option. */
+ 
+ 
+-#define FF_USE_LABEL	CONFIG_FATFS_USE_LABEL
++#ifdef CONFIG_FATFS_USE_LABEL
++#define FF_USE_LABEL	1
++#else
++#define FF_USE_LABEL	0
++#endif
+ /* This option switches volume label API functions, f_getlabel() and f_setlabel().
+ /  (0:Disable or 1:Enable) */
+ 
+@@ -291,7 +295,7 @@
+ /  buffer in the filesystem object (FATFS) is used for the file data transfer. */
+ 
+ 
+-#define FF_FS_EXFAT		0
++#define FF_FS_EXFAT		1
+ /* This option switches support for exFAT filesystem. (0:Disable or 1:Enable)
+ /  To enable exFAT, also LFN needs to be enabled. (FF_USE_LFN >= 1)
+ /  Note that enabling exFAT discards ANSI C (C89) compatibility. */
+--- a/vfs/vfs_fat_sdmmc.c
++++ b/vfs/vfs_fat_sdmmc.c
+@@ -491,10 +491,18 @@
+     return err;
+ }
+ 
+-esp_err_t esp_vfs_fat_sdcard_format_cfg(const char *base_path, sdmmc_card_t *card, esp_vfs_fat_mount_config_t *cfg)
++bool esp_vfs_fat_sdcard_is_mounted(const char *base_path, const sdmmc_card_t *card)
++{
++    uint32_t id = FF_VOLUMES;
++    return base_path && card && s_get_context_id_by_card(card, &id) &&
++           strcmp(base_path, s_ctx[id]->base_path) == 0 &&
++           s_ctx[id]->fs && s_ctx[id]->fs->fs_type != 0;
++}
++
++static esp_err_t format_card_fm(const char *base_path, sdmmc_card_t *card, esp_vfs_fat_mount_config_t *cfg, BYTE fmt_kind)
+ {
+     esp_err_t ret = ESP_OK;
+-    if (!card) {
++    if (!base_path || !card) {
+         ESP_LOGE(TAG, "card not initialized");
+         return ESP_ERR_INVALID_STATE;
+     }
+@@ -505,41 +513,63 @@
+         return ESP_ERR_INVALID_STATE;
+     }
+ 
+-    //unmount
++    uint32_t id = FF_VOLUMES;
++    if (!s_get_context_id_by_card(card, &id) ||
++        strcmp(base_path, s_ctx[id]->base_path) != 0 || !s_ctx[id]->fs) {
++        return ESP_ERR_INVALID_STATE;
++    }
++
++    // Allocate before changing the mounted filesystem. OOM must not detach it.
++    const size_t workbuf_size = 4096;
++    void *workbuf = ff_memalloc(workbuf_size);
++    if (workbuf == NULL) {
++        return ESP_ERR_NO_MEM;
++    }
++
+     char drv[3] = {(char)('0' + pdrv), ':', 0};
+     FRESULT res = f_mount(0, drv, 0);
+     if (res != FR_OK) {
++        free(workbuf);
+         ESP_LOGE(TAG, "f_mount unmount failed (%d)", res);
+         return ESP_FAIL;
+     }
+ 
+-    //format
+-    uint32_t id = FF_VOLUMES;
+-
+-    {
+-        const bool found = s_get_context_id_by_card(card, &id);
+-        (void)found;
+-        assert(found);
+-    }
+-
+     if (cfg) {
+         s_ctx[id]->mount_config = *cfg;
+     }
+ 
+-    ret = esp_vfs_fat_format_drive(pdrv, &s_ctx[id]->mount_config);
+-    if (ret != ESP_OK) {
+-        ESP_LOGE(TAG, "esp_vfs_fat_format_drive failed");
+-        return ret;
+-    }
+-
+-    //mount back
+-    esp_err_t err = s_f_mount(card, s_ctx[id]->fs, pdrv, &s_ctx[id]->mount_config, NULL);
+-    if (err != ESP_OK) {
+-        unmount_card_core(base_path, card);
+-        ESP_LOGE(TAG, "failed to format, resources recycled, please mount again");
++    size_t alloc_unit_size = esp_vfs_fat_get_allocation_unit_size(
++                card->csd.sector_size,
++                s_ctx[id]->mount_config.allocation_unit_size);
++    ESP_LOGI(TAG, "Formatting card, allocation unit size=%zu", alloc_unit_size);
++    const MKFS_PARM opt = {fmt_kind, (s_ctx[id]->mount_config.use_one_fat ? 1 : 2), 0, 0, alloc_unit_size};
++    res = f_mkfs(drv, &opt, workbuf, workbuf_size);
++    free(workbuf);
++    if (res != FR_OK) {
++        ret = ESP_FAIL;
++        ESP_LOGD(TAG, "f_mkfs failed (%d)", res);
++    }
++
++    // Exactly one non-destructive remount attempt; never auto-format again.
++    // Keep ownership of the registered card/context unchanged even on failure.
++    // The caller can query the state, then explicitly unmount and retry later.
++    res = f_mount(s_ctx[id]->fs, drv, 1);
++    if (res != FR_OK) {
++        ESP_LOGE(TAG, "format remount failed (%d); card handle retained", res);
++        return ESP_FAIL;
+     }
+ 
+     return ret;
++}
++
++esp_err_t esp_vfs_fat_sdcard_format_cfg(const char *base_path, sdmmc_card_t *card, esp_vfs_fat_mount_config_t *cfg)
++{
++    return format_card_fm(base_path, card, cfg, (BYTE)FM_ANY);
++}
++
++esp_err_t esp_vfs_fat_sdcard_format_exfat(const char *base_path, sdmmc_card_t *card)
++{
++    return format_card_fm(base_path, card, NULL, (BYTE)FM_EXFAT);
+ }
+ 
+ esp_err_t esp_vfs_fat_sdcard_format(const char *base_path, sdmmc_card_t *card) {
+--- a/vfs/esp_vfs_fat.h
++++ b/vfs/esp_vfs_fat.h
+@@ -283,6 +283,25 @@
+  *        - ESP_FAIL: fail to format it, or fail to mount back
+  */
+ esp_err_t esp_vfs_fat_sdcard_format(const char *base_path, sdmmc_card_t *card);
++
++/**
++ * @brief Format the card as exFAT specifically (TentacleOS addition).
++ *
++ * Same as esp_vfs_fat_sdcard_format() but forces FM_EXFAT instead of FM_ANY, so
++ * even a small card that FM_ANY would make FAT32 is written as exFAT. Requires
++ * FF_FS_EXFAT == 1 (see the TentacleOS FatFS patch documentation).
++ */
++esp_err_t esp_vfs_fat_sdcard_format_exfat(const char *base_path, sdmmc_card_t *card);
++
++/**
++ * @brief Inspect registered FAT mount state without reading or writing the card.
++ *
++ * Formatting retains the card handle on failure. If its final remount failed,
++ * this returns false; call esp_vfs_fat_sdcard_unmount to release the handle.
++ * This is a state snapshot, not a physical card-health or concurrency guarantee.
++ */
++bool esp_vfs_fat_sdcard_is_mounted(const char *base_path, const sdmmc_card_t *card);
++
+ #endif
+ 
+ /**
