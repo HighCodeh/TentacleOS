@@ -28,16 +28,18 @@ This is an editable source repository, not another generated `integrated_*/sourc
 snapshot. Edit these files directly. Do not run the old Muse `prepare.py --refresh`
 against this checkout. `integration/import.json` records the one-time import,
 source hashes, upstream hashes and relocated paths; it is provenance, not a claim
-that subsequent edits are identical to the import.
+that subsequent edits are identical to the import. Libraries migrated to the
+Component Manager are no longer part of the local source-preservation inventory;
+their versions are declared in the firmware manifests.
 
 - User interfaces and emulators: `firmware_p4/components/Applications`.
 - Hardware drivers: each target's `components/Drivers`.
-- Muse controller, wire protocol and SDK adapters: `components/Service/highboy_muse`.
+- Muse controller, wire protocol and SDK adapters: `components/Service/muse_port`.
 - P4 Muse board integration: `components/Service/muse`.
 - C5 Noise and MP3 dependencies: `components/Service/noise_core` and `minimp3`.
 - Resource arbitration: `firmware_p4/components/Core/resource_mgr`.
 - exFAT override: `firmware_p4/components/Service/fatfs`.
-- Offline, pinned third-party dependencies: each target's `vendor` directory.
+- Managed third-party dependencies: each target's `main/idf_component.yml`.
 
 Only the four upstream architecture roots are used under `components`.
 Independent nested components are registered explicitly through CMake.
@@ -49,7 +51,7 @@ Independent nested components are registered explicitly through CMake.
 | DOOM | Upstream internal-DMA strips, retaining local input hygiene and LVGL lock order. |
 | USB microSD | New TinyUSB storage-handle API and no automatic formatting; safe handling of deferred writes during teardown. |
 | Sub-GHz | Restore upstream protocol encoders, decorated-name lookup, serialization and offline self-test; retain local RF hardware configuration. |
-| Dependencies | Apply upstream LVGL `<9.6` constraint; retain the reviewed offline vendors and DES support. |
+| Dependencies | Apply upstream LVGL `<9.6` constraint; pin managed library versions and retain DES support. |
 | Muse / Grok | Preserve voice-note/PTT + text replies, official Muse menu mark, and the separate offline-only Grok animation. |
 | NFC / RFID / LoRa / IR | Preserve local hardware drivers, read/write/APDU features, memory placement and UI changes rather than replacing them with older upstream implementations. |
 | Wi-Fi / BLE / SPI | Preserve the local dual-band analysis, HID mouse, memory, transaction and session fixes. |
@@ -71,36 +73,48 @@ bash tools/highboy/test.command
 python3 tools/highboy/package.py   # rebuild, retest, then package app binaries
 ```
 
-The integrated build intentionally has two toolchain lanes: P4 uses ESP-IDF
-**v5.5.3**, while the existing Muse-enabled C5 requires **v6.0.1**. Do not build the
-C5 with the generic upstream 5.5.3 container and assume it is equivalent.
-For a single target, activate the matching installed IDF and run its build. The
-script checks that the IDF checkout is exactly the lane's release tag. For a
-two-target build, set `HIGHBOY_P4_IDF_PATH` and `HIGHBOY_C5_IDF_PATH` to their
-respective installed checkouts. Optional `HIGHBOY_P4_TOOLS_PATH` /
-`HIGHBOY_C5_TOOLS_PATH` and `HIGHBOY_P4_PYTHON_ENV` / `HIGHBOY_C5_PYTHON_ENV`
-select separate installed tools and Python environments; otherwise IDF uses its
-active/default environment. No personal filesystem paths are built into the
-script.
-
-An `eim shell` activated with another release, such as v6.1, does not change these
-requirements. Configure the target-specific `HIGHBOY_*` paths below and use
-`bash tools/build.sh p4` rather than a direct `idf.py build` from that shell. The
-wrapper activates the selected target's pinned SDK and Python environment.
+Both targets use the pinned **ESP-IDF v6.1** release. Set `IDF_PATH` to an
+installed v6.1 checkout, or configure `HIGHBOY_P4_IDF_PATH` and
+`HIGHBOY_C5_IDF_PATH` to that same checkout. Optional per-target
+`HIGHBOY_*_TOOLS_PATH` and `HIGHBOY_*_PYTHON_ENV` variables select the installed
+tools and Python environment. The wrapper accepts the standard SDK layout and
+EIM's `activate_idf_v6.1.sh -e` environment output, without changing EIM's selected
+installation or modifying SDK sources. No personal paths are tracked.
 
 These variables may be placed in the ignored repository file
 `.highboy-build.env` (or a file selected by `HIGHBOY_BUILD_ENV`). This file is
 sourced as local shell configuration: use a trusted file containing toolchain
 paths only, never account credentials. Explicit exported `HIGHBOY_*` toolchain
 variables take precedence over that file. Install IDF/tools and initialize their
-required submodules before building. Firmware dependencies are vendored,
-component-manager resolution is disabled, and the build does not install tools.
+required submodules before building. The normal build enables the IDF Component
+Manager with `IDF_COMPONENT_MANAGER=1`, allowing dependency resolution from
+`idf_component.yml` into `managed_components/`. This is an environment setting,
+not a `sdkconfig.defaults` option. Dependency resolution may access the network;
+the build does not install SDK toolchains or Python packages.
+
+Third-party libraries should use version-constrained manifest dependencies.
+The Component Manager downloads libraries into ignored `managed_components/`
+directories; no `vendor/` overrides remain. Dependency versions are fixed in
+each manifest. The C5 MQTT Git revision preserves the previous source. C5 LED
+strip compilation force-includes `esp_heap_caps.h` for IDF 6 compatibility
+without modifying downloaded sources. Lua and MicroQuickJS stay inside
+`Service/script_engine` for their restricted integration and local adaptation.
+The P4 `components/Service/fatfs` override is copied from ESP-IDF v5.5.3 and
+modified for exFAT, as described in its in-tree README; it remains registered as
+the local `fatfs` component. The isolated factory-security review also uses the manager and the same
+project manifests; first-time dependency resolution may require network access.
 Before configuration, the build verifies the pinned revisions of the target's
 required SDK submodules: eight shared libraries for P4 and thirteen libraries
 including the radio stack for C5. ESP-IDF's generic all-target submodule download
 is then disabled, so a P4 build does not fetch unused Wi-Fi/Bluetooth libraries.
 Build products live in `firmware_{p4,c5}/build_highboy`, not the previous build
 directories.
+
+P4 loads only `firmware_p4/sdkconfig.defaults`, including its installed partition
+offset and development-security settings. The former `sdkconfig.muse` overlay
+has been merged into that file. C5 still loads `sdkconfig.defaults` followed by
+`sdkconfig.baseline` to preserve its memory policy. Factory-security review
+profiles remain separate from these normal development defaults.
 
 The P4 app-signing trust store can be selected with `TOS_APP_TRUST_PUBLIC_KEY`
 (64 public-key hex characters). `TOS_APP_PRODUCTION=ON` requires an explicit key
@@ -111,26 +125,36 @@ Build only produces applications. It does not access serial ports, flash, SD,
 microphone, token storage or any live Muse API. It does not regenerate runtime
 assets, embed a different C5 recovery image or migrate security eFuses.
 
-### P4 ESP-IDF v6.1 compatibility trial
+### ESP-IDF v6.1 compatibility
 
-An isolated app build with the installed v6.1 tag was attempted on 2026-10-20,
-using a separate build directory and generated configuration. Configuration
-succeeded, but compilation stopped in TF-PSA-Crypto because this project enables
-`MBEDTLS_DES_C`, which that dependency explicitly rejects as removed.
+The normal builds and packaging checks now select v6.1 for both chips. Existing
+SPI v8, partition maps, C5 memory policy and app-only update boundaries remain.
+C5 `esp_hw_support`, `esp_libc` and `mbedtls` use `-Os`; driver and radio
+compiler policies remain checked separately.
+The UART line-editor patch is rebased to the v6.1 source and tested against the
+actual SDK editor. C5 Muse is compiled for size to retain the installed OTA slots.
 
-Compiler checks using the same v6.1 compilation database also failed on missing
-legacy headers in three existing subsystems:
+Active firmware crypto uses public PSA APIs for AES, SHA-256, HMAC, HKDF and
+Meshtastic X25519 / Muse P-256 agreement. Shared checked operations live in
+`common/crypto`, registered as `Service/firmware_crypto` in both firmwares.
+Volatile PSA keys and operations are destroyed/aborted after use; wire formats
+and existing persistent key encodings remain unchanged. Noise already selects
+its PSA backend; its unused upstream Mbed TLS backend is not built.
 
-- NFC `protocols/common/nfc_crypto.c`: `mbedtls/aes.h`; the NFC implementation
-  also uses DES/3DES primitives.
-- Meshtastic `meshtastic_channels.c`: `mbedtls/sha256.h`.
-- Companion link `host_link_sec.c`: `mbedtls/hkdf.h`.
+The pinned v6.1 hardware AES PSA configuration advertises CCM but its AEAD
+driver only accepts GCM. P4 therefore disables `CONFIG_MBEDTLS_HARDWARE_AES`
+to use the supported software PSA implementation for Meshtastic CCM and NFC
+CMAC. This also makes other P4 AES operations software-backed; runtime cost
+requires device measurement. C5 retains hardware AES. Revisit the P4 setting
+when an SDK driver supports the required algorithms, with crypto vectors and
+hardware checks before re-enabling it.
 
-This is a cryptography API migration rather than a version-guard adjustment.
-No v6.1 application binary was produced, no firmware source was adapted for this
-trial, and the P4 v5.5.3 / C5 v6.0.1 build lanes remain selected. A future migration
-must preserve NFC authentication, Meshtastic cryptography and companion key
-derivation and validate the resulting application size and hardware behavior.
+NFC's DES/3DES implementation remains isolated from SDK configuration, with
+upstream licenses and vectors preserved; see [NFC](../nfc/README.md).
+`tools/crypto/test_psa.py --idf "$IDF_PATH"` builds the actual SDK software PSA
+backend on the host and tests the production adapter and NFC crypto against
+independent vectors, including authentication rejection and key cleanup.
+The P4 CI job runs it separately from the SDK-free offline suite.
 
 ### Continuous integration and release boundary
 

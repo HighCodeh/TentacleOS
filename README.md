@@ -1,9 +1,26 @@
+<!--
+SPDX-License-Identifier: GPL-3.0-or-later
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # Integrated High Boy development checkout
 
 This local branch preserves the customized Muse-enabled P4/C5 firmware while
 integrating `dev` at `011ed7d`. Read [the integration guide](docs/highboy/README.md)
 before building or deploying. The upstream instructions below are background;
-the integrated C5 uses its separate IDF 6.0.1 lane. No automatic flash is enabled.
+both integrated targets use ESP-IDF v6.1. No automatic flash is enabled.
 
 <p align="center">
   <img src="pics/banner.png" alt="HighBoy Banner" width="1000"/>

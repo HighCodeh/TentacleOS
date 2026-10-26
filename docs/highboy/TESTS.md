@@ -137,8 +137,8 @@ workflow changes still require a committed push or PR to execute on GitHub Actio
 ## Canonical-source host tests
 
 The runner compiles the actual relocated production sources under
-`firmware_c5/components/Service/highboy_muse` and
-`firmware_p4/components/Service/highboy_muse`, using strict C11 warnings and
+`firmware_c5/components/Service/muse_port` and
+`firmware_p4/components/Service/muse_port`, using strict C11 warnings and
 UndefinedBehaviorSanitizer. Exactly 15 established public fixture/fake files
 are included under `tools/highboy/fixtures/muse_port`; no legacy production
 source, entire legacy directory, runtime asset, or account data is copied.
@@ -151,7 +151,7 @@ those whitelisted paths and rejects reviews on other fixtures. The fixture
 inventory and current original-or-reviewed hashes are checked before compilation.
 Fixtures are then copied to a temporary directory so quoted includes resolve
 to canonical headers rather than adjacent legacy production headers. Pairing
-tests use canonical vendored cJSON.
+tests use managed cJSON at the version declared by both firmware manifests.
 
 | Host suite | Coverage |
 |---|---|
@@ -182,7 +182,16 @@ a shell), so GCC and Clang CI jobs compile the same canonical sources and strict
 warning/UBSan flags. All source, fixture,
 normalization and license references are contained in this repository; the
 tests do not depend on a sibling workspace or an absolute user-directory path.
-No dependency is downloaded. `--skip-host` explicitly runs only the
+Prepare the managed cJSON source before the first run (or after a version change):
+
+```sh
+python3 -m pip install -r tools/dependencies/requirements.txt
+python3 tools/dependencies/prepare_host.py
+```
+
+Preparation uses network access as needed; the tests themselves stay offline.
+The preparation step resolves only cJSON with IDF version metadata, without
+installing or compiling an SDK. `--skip-host` explicitly runs only the
 source/configuration gates; skipped host tests are visible in the test summary.
 
 License checks establish that the preserved license/provenance files exist and
@@ -464,7 +473,8 @@ truncated protobufs, 20,000 malformed inputs, invalid UTF-8, allocation/register
 start failures, matching/denied SUBACK, disconnect state, bounded fragmented RX,
 head ACK, full queues, duplicate TX, encrypted-envelope chat routing, self-echo
 filtering, stop retries and a lost START response followed by cancellation.
-The vendored source hashes and native screen routing are also checked.
+Native screen routing is also checked; MQTT dependency resolution is controlled
+by the firmware manifest rather than a test-time source hash inventory.
 
 Network, SPI, RTOS and AES implementations in this host harness are explicit
 fakes. The AES fake checks key size and nonce layout, not cryptographic output.
@@ -1418,3 +1428,61 @@ unmeasured. The console is the existing ESP-IDF CLI; shell-language compatibilit
 was not added. Consumer restoration/production requirements remain documented
 release gates, not completed device results. No firmware/eFuse write or push
 was performed.
+
+
+## Local ESP-IDF v6.1 migration — 2026-10-26
+
+Both normal applications built with the locally installed ESP-IDF tag `v6.1`.
+The original partition maps, paired SPI v8 contract and C5 memory overlay remain
+in place. Build evidence passed the existing compiler-policy and RAM thresholds.
+
+| Target | Application bytes | Original slot free bytes | Internal RAM headroom bytes |
+| --- | ---: | ---: | ---: |
+| P4 | 2,896,096 | 53,024 | 180,520 |
+| C5 | 2,084,784 | 12,368 | 62,807 |
+
+Both factory-security application builds and real image cryptography regressions
+passed with fixture identities. These are build/test artifacts, not provisioned
+production images. No flashing or eFuse writes were performed.
+
+Local checks passed for package/release/security policy, SDK console editing
+(40 cases), legacy DES/3DES (12 upstream vectors), real companion pairing,
+JS/Lua engines and MeshCore key agreement with real libsodium. The offline
+aggregate passed its other groups; its preservation check initially observed
+concurrent source edits and passed separately after the correction ledger was
+updated. The preserved-source suite covers 34 tests.
+
+RAM figures are static linker headroom, not measured runtime heap. This record
+does not assert hardware acceptance or a remote GitHub Actions result. The v6.1
+crypto compatibility path uses pinned private SDK primitive headers and must be
+revalidated on subsequent SDK upgrades.
+
+
+## Public PSA migration — 2026-10-26
+
+Active NFC/LoRa, companion and Muse pairing paths now use the public PSA
+interface for the migrated primitives. Noise already selects its PSA backend;
+DES/3DES remains isolated for legacy NFC. See [crypto](../crypto/README.md).
+
+The final paired app builds and compiler/RAM evidence checks passed on IDF v6.1.
+Partition layouts and SPI v8 remain unchanged. P4 uses software AES to avoid the
+pinned SDK's missing PSA hardware CCM implementation; hardware timing and
+throughput have not been measured.
+
+| Target | Application bytes | Original slot free bytes | Internal RAM headroom bytes | SHA-256 |
+| --- | ---: | ---: | ---: | --- |
+| P4 | 2,927,664 | 21,456 | 180,240 | `cdadead97ff6e65d4e082da45b1e08b6a738b5980b4f7a154800e77eaff292ef` |
+| C5 | 2,085,536 | 11,616 | 62,927 | `420f67033ac27b0e13f703d577bde591bba4b526be64141343994798b6b93177` |
+
+The complete offline runner passed after updating LoRa fixtures for explicit
+crypto error returns. The real SDK software PSA test passed with ASan/UBSan:
+SHA/HMAC/HKDF, AES ECB/CBC/CTR/CMAC/GCM/CCM, NFC chaining IVs, partial/empty
+messages, tampered tags, RFC 7748, P-256 encoding/agreement and repeated volatile
+key cleanup. Python cryptography supplies independent expected results. Host
+companion interoperability retains its explicit OpenSSL/libsodium adapter and
+OS/NVS/UI fakes; it is not presented as a hardware PSA test.
+
+Both isolated factory-security builds and their real image signature/encryption
+regressions passed with fixture identities. No device, eFuse, production signing
+identity or remote GitHub Actions execution was used. CI now also runs the PSA
+host test from the pinned SDK in its P4 build job.
