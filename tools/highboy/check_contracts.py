@@ -60,6 +60,7 @@ def main():
                for chip in ("p4", "c5")]
     require(headers[0] == headers[1], "P4/C5 SPI contract mismatch")
     require(re.search(rb"#define\s+SPI_PROTOCOL_VERSION\s+2\b", headers[0]), "Unexpected SPI version")
+    require(re.search(rb"#define\s+SPI_TRANSPORT_REVISION\s+1\b", headers[0]), "Unexpected SPI transport revision")
     for chip, slot in (("p4", 0x2d0000), ("c5", 0x200000)):
         project = ROOT / f"firmware_{chip}"
         roots = {p.name for p in (project / "components").iterdir() if p.is_dir()}
@@ -92,7 +93,7 @@ def main():
                 for key, expected in C5_MEMORY.items():
                     require(effective.get(key) == expected, f"C5 generated configuration mismatch: {key}")
             print(f"{chip} generated configuration verified.")
-    print("Offline contracts OK: paired SPI v2, architecture roots, original app slots, C5 memory policy.")
+    print("Offline contracts OK: paired SPI v2/transport 1, architecture roots, original app slots, C5 memory policy.")
 
 
 if __name__ == "__main__":

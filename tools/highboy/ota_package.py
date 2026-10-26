@@ -27,7 +27,7 @@ import verify_package
 
 SD_FILES = {'P4': 'sdcard/update/tentacleos.bin', 'C5': 'sdcard/c5/TentacleOS_C5.bin'}
 BOUNDARY = {'schema_version': 1, 'status': 'paired_sd_ota_candidate',
-            'app_only': True, 'protocol_version': 2, 'flashed': False,
+            'app_only': True, 'protocol_version': 2, 'spi_transport_revision': 1, 'flashed': False,
             'hardware_validated': False, 'runtime_performance_measured': False,
             'production_release': False, 'security_provisioned': False,
             'efuses_written': False, 'restores_assets': False, 'partition_migration': False,
@@ -79,7 +79,7 @@ def verify(directory):
 def instructions():
     return (
         'High Boy paired SD OTA development candidate\n\n'
-        'Use only on an already running matching integrated installation: protocol 2,\n'
+        'Use only on an already running matching integrated installation: protocol 2 / SPI transport revision 1,\n'
         'P4 IDF v6.1 / C5 IDF v6.1, original partition maps and intact assets.\n'
         'This package does not restore an erased device or migrate any partition map.\n'
         'It contains no bootloader, production identity, security provisioning or eFuse action.\n'

@@ -19,7 +19,7 @@ class RecoveryTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.candidate = self.root / 'candidate'
         self.candidate.mkdir()
-        self.report = {'schema_version':1,'protocol_version':2,'app_only':True,
+        self.report = {'schema_version':1,'protocol_version':2,'spi_transport_revision':1,'app_only':True,
             'status':'compiled_candidate_requires_hardware_acceptance','flashed':False,
             'assets_rebuilt':False,'runtime_validated':False,'partition_migration':False,
             'host_tests_passed':True,'targets':{},'app_signing':{'production_mode':False,

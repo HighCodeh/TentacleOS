@@ -53,6 +53,8 @@ def validate_report(report):
     require(report.get('status') == 'compiled_candidate_requires_hardware_acceptance', 'Wrong candidate status')
     require(type(report.get('protocol_version')) is int and report['protocol_version'] == 2,
             'Wrong paired protocol')
+    require(type(report.get('spi_transport_revision')) is int and report['spi_transport_revision'] == 1,
+            'Wrong SPI transport revision')
     for field, value in {'app_only': True, 'flashed': False, 'assets_rebuilt': False,
                          'runtime_validated': False, 'partition_migration': False,
                          'host_tests_passed': True}.items():
