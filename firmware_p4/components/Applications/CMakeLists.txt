@@ -61,6 +61,7 @@ idf_component_register(SRCS
   "wifi/include"
   "nfc/include"
   "nfc/protocols/common/include"
+  "nfc/protocols/common"
   "nfc/protocols/emv/include"
   "nfc/protocols/felica/include"
   "nfc/protocols/iso14443a/include"
@@ -142,6 +143,10 @@ idf_component_register(SRCS
   "ui/components/waves/include"
 
   REQUIRES
+  firmware_crypto
+  esp_driver_jpeg
+  esp_driver_tsens
+  esp_driver_rmt
   script_engine
   driver
   esp_driver_tsens
@@ -161,7 +166,7 @@ idf_component_register(SRCS
   esp-dsp
   esp-libhelix-mp3
   resource_mgr
-  highboy_muse
+  muse_port
 )
 target_link_libraries(${COMPONENT_LIB} -Wl,-zmuldefs)
 target_compile_definitions(${COMPONENT_LIB} PRIVATE MESH_HEADLESS=0)

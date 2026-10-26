@@ -24,20 +24,18 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(IDF_TARGET "esp32c5")
 
 set(EXTRA_COMPONENT_DIRS
-    "${CMAKE_CURRENT_LIST_DIR}/components/Service/highboy_muse"
+    "${CMAKE_CURRENT_LIST_DIR}/components/Service/firmware_crypto"
+    "${CMAKE_CURRENT_LIST_DIR}/components/Service/muse_port"
     "${CMAKE_CURRENT_LIST_DIR}/components/Service/noise_core"
     "${CMAKE_CURRENT_LIST_DIR}/components/Service/minimp3"
-    "${CMAKE_CURRENT_LIST_DIR}/vendor/argtable3"
-    "${CMAKE_CURRENT_LIST_DIR}/vendor/cjson"
-    "${CMAKE_CURRENT_LIST_DIR}/vendor/led_strip"
-    "${CMAKE_CURRENT_LIST_DIR}/vendor/mdns"
-    "${CMAKE_CURRENT_LIST_DIR}/vendor/mqtt"
-    "${CMAKE_CURRENT_LIST_DIR}/vendor/littlefs"
-    "${CMAKE_CURRENT_LIST_DIR}/vendor/lvgl"
 )
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 project(TentacleOS_C5)
+
+# IDF 6 no longer supplies heap declarations through the SPI driver headers.
+idf_component_get_property(LED_STRIP_LIB espressif__led_strip COMPONENT_LIB)
+target_compile_options(${LED_STRIP_LIB} PRIVATE -include esp_heap_caps.h)
 
 # Compile-only: no assets/temp staging or filesystem image.
 
@@ -45,6 +43,12 @@ project(TentacleOS_C5)
 if(CONFIG_SECURE_BOOT AND CONFIG_SECURE_FLASH_ENC_ENABLED)
     idf_component_get_property(HIGHBOY_SECURE_DRIVERS Drivers COMPONENT_LIB)
     target_compile_options(${HIGHBOY_SECURE_DRIVERS} PRIVATE -Og)
-    idf_component_get_property(HIGHBOY_SECURE_MUSE highboy_muse COMPONENT_LIB)
+    idf_component_get_property(HIGHBOY_SECURE_MUSE muse_port COMPONENT_LIB)
     target_compile_options(${HIGHBOY_SECURE_MUSE} PRIVATE -Og)
 endif()
+
+# Retain internal RAM headroom as SDK support code grows in IDF 6.1.
+foreach(SUPPORT_COMPONENT esp_hw_support esp_libc mbedtls)
+    idf_component_get_property(SUPPORT_LIB ${SUPPORT_COMPONENT} COMPONENT_LIB)
+    target_compile_options(${SUPPORT_LIB} PRIVATE -Os)
+endforeach()

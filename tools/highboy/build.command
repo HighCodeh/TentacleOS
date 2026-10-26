@@ -50,15 +50,15 @@ case "$target" in
     selected_idf="${HIGHBOY_P4_IDF_PATH:-${IDF_PATH:-}}"
     selected_tools="${HIGHBOY_P4_TOOLS_PATH:-}"
     selected_python="${HIGHBOY_P4_PYTHON_ENV:-}"
-    expected_tag=v5.5.3
-    overlay=sdkconfig.muse
+    expected_tag=v6.1
+    overlay=
     ;;
   c5)
     idf_override=HIGHBOY_C5_IDF_PATH
     selected_idf="${HIGHBOY_C5_IDF_PATH:-${IDF_PATH:-}}"
     selected_tools="${HIGHBOY_C5_TOOLS_PATH:-}"
     selected_python="${HIGHBOY_C5_PYTHON_ENV:-}"
-    expected_tag=v6.0.1
+    expected_tag=v6.1
     overlay=sdkconfig.baseline
     ;;
   *) echo 'Usage: build.command [all|p4|c5]' >&2; exit 2 ;;
@@ -80,7 +80,7 @@ if [ -n "$selected_python" ]; then
   export PATH="$IDF_PYTHON_ENV_PATH/bin:$PATH"
 fi
 unset SDKCONFIG SDKCONFIG_DEFAULTS IDF_TARGET EXTRA_COMPONENT_DIRS
-export IDF_COMPONENT_MANAGER=0 PIP_NO_INDEX=1 PYTHONDONTWRITEBYTECODE=1 CCACHE_DISABLE=1
+export IDF_COMPONENT_MANAGER=1 PIP_NO_INDEX=1 PYTHONDONTWRITEBYTECODE=1 CCACHE_DISABLE=1
 if [ "$target" = c5 ]; then
   git -C "$IDF_PATH" submodule status -- \
     components/esp_wifi/lib components/esp_phy/lib components/esp_coex/lib \
@@ -101,11 +101,25 @@ else
     awk 'substr($0,1,1)!=" " {bad=1} END {if(NR!=8 || bad) exit 1}'
 fi
 export IDF_SKIP_CHECK_SUBMODULES=1
-source "$IDF_PATH/export.sh" >/dev/null
+activation="${IDF_TOOLS_PATH:-}/activate_idf_${expected_tag}.sh"
+if [ -f "$activation" ]; then
+  eim_environment="$(bash "$activation" -e)"
+  while IFS='=' read -r name value; do
+    case "$name" in
+      PATH) export PATH="$value:$PATH" ;;
+      IDF_*|ESP_*|OPENOCD_SCRIPTS) export "$name=$value" ;;
+    esac
+  done <<< "$eim_environment"
+else
+  source "$IDF_PATH/export.sh" >/dev/null
+fi
 export IDF_TARGET="esp32$target"
 project="$repo/firmware_$target"
 build="$project/build_highboy"
-export SDKCONFIG_DEFAULTS="$project/sdkconfig.defaults;$project/$overlay"
+export SDKCONFIG_DEFAULTS="$project/sdkconfig.defaults"
+if [ -n "$overlay" ]; then
+  SDKCONFIG_DEFAULTS+=";$project/$overlay"
+fi
 python "$repo/tools/highboy/check_contracts.py"
 configure_args=(-D "HIGH_BOY_USB_VOICE=OFF")
 if [ "$target" = p4 ]; then

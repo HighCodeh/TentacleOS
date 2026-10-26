@@ -24,30 +24,14 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(IDF_TARGET "esp32p4")
 
 set(EXTRA_COMPONENT_DIRS
+    "${CMAKE_CURRENT_LIST_DIR}/components/Service/firmware_crypto"
     "${CMAKE_CURRENT_LIST_DIR}/components/Applications/gameboy"
     "${CMAKE_CURRENT_LIST_DIR}/components/Applications/doom"
     "${CMAKE_CURRENT_LIST_DIR}/components/Core/resource_mgr"
     "${CMAKE_CURRENT_LIST_DIR}/components/Service/fatfs"
-    "${CMAKE_CURRENT_LIST_DIR}/components/Service/highboy_muse"
+    "${CMAKE_CURRENT_LIST_DIR}/components/Service/muse_port"
     "${CMAKE_CURRENT_LIST_DIR}/components/Service/script_engine")
 
-list(APPEND EXTRA_COMPONENT_DIRS
-    "${CMAKE_CURRENT_LIST_DIR}/vendor/esp-libhelix-mp3"
-    "${CMAKE_CURRENT_LIST_DIR}/vendor/argtable3"
-    "${CMAKE_CURRENT_LIST_DIR}/vendor/cjson"
-    "${CMAKE_CURRENT_LIST_DIR}/vendor/esp-dsp"
-    "${CMAKE_CURRENT_LIST_DIR}/vendor/esp-serial-flasher"
-    "${CMAKE_CURRENT_LIST_DIR}/vendor/esp_lvgl_port"
-    "${CMAKE_CURRENT_LIST_DIR}/vendor/esp_tinyusb"
-    "${CMAKE_CURRENT_LIST_DIR}/vendor/led_strip"
-    "${CMAKE_CURRENT_LIST_DIR}/vendor/libsodium"
-    "${CMAKE_CURRENT_LIST_DIR}/vendor/tinyusb"
-    "${CMAKE_CURRENT_LIST_DIR}/vendor/usb_host_cdc_acm"
-    "${CMAKE_CURRENT_LIST_DIR}/vendor/usb_host_ch34x_vcp"
-    "${CMAKE_CURRENT_LIST_DIR}/vendor/usb_host_cp210x_vcp"
-    "${CMAKE_CURRENT_LIST_DIR}/vendor/littlefs"
-    "${CMAKE_CURRENT_LIST_DIR}/vendor/lvgl"
-)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 # Runtime opt-in USB headset; can be compiled out if a release cannot afford it.
@@ -74,34 +58,40 @@ idf_build_set_property(COMPILE_OPTIONS "-Wno-error=maybe-uninitialized" APPEND)
 
 project(TentacleOS_P4)
 
+# IDF 6 no longer supplies heap declarations through the SPI driver headers.
+idf_component_get_property(LED_STRIP_LIB espressif__led_strip COMPONENT_LIB)
+target_compile_options(${LED_STRIP_LIB} PRIVATE -include esp_heap_caps.h)
+
 include("${CMAKE_CURRENT_LIST_DIR}/../tools/cmake/highboy_console.cmake")
 
 # APP-only: assets, SD, c5fw and boot metadata are untouched.
 
 # Compact LVGL control/layout code while retaining optimized rasterizers.
-idf_component_get_property(HIGHBOY_LVGL_LIB lvgl COMPONENT_LIB)
+idf_component_get_property(HIGHBOY_LVGL_LIB lvgl__lvgl COMPONENT_LIB)
 target_compile_options(${HIGHBOY_LVGL_LIB} PRIVATE -Os -flto=2 -ffat-lto-objects)
-file(GLOB_RECURSE HIGHBOY_LVGL_DRAW "${CMAKE_CURRENT_LIST_DIR}/vendor/lvgl/src/draw/*.c")
+idf_component_get_property(HIGHBOY_LVGL_DIR lvgl__lvgl COMPONENT_DIR)
+file(GLOB_RECURSE HIGHBOY_LVGL_DRAW "${HIGHBOY_LVGL_DIR}/src/draw/*.c")
 set_source_files_properties(${HIGHBOY_LVGL_DRAW}
-    DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/vendor/lvgl" PROPERTIES COMPILE_OPTIONS "-O2")
+    DIRECTORY "${HIGHBOY_LVGL_DIR}" PROPERTIES COMPILE_OPTIONS "-O2")
 
 # Shared script ABI marshalling must fit the paired OTA slots.
-idf_component_get_property(HIGHBOY_CJSON_LIB cjson COMPONENT_LIB)
+idf_component_get_property(HIGHBOY_CJSON_LIB espressif__cjson COMPONENT_LIB)
 target_compile_options(${HIGHBOY_CJSON_LIB} PRIVATE -Os -flto=2 -ffat-lto-objects)
 
 # Keep the shared ABI and interpreter adapters in one LTO optimization unit.
 target_link_options(${CMAKE_PROJECT_NAME}.elf PRIVATE -flto-partition=one)
 
 # Compact portable cryptographic routines without changing their implementations.
-idf_component_get_property(HIGHBOY_SODIUM_LIB libsodium COMPONENT_LIB)
+idf_component_get_property(HIGHBOY_SODIUM_LIB espressif__libsodium COMPONENT_LIB)
 target_compile_options(${HIGHBOY_SODIUM_LIB} PRIVATE -Os -flto=2 -ffat-lto-objects)
 # Keep wiping and constant-time utility calls opaque to whole-program optimization.
-set_property(SOURCE "${CMAKE_CURRENT_LIST_DIR}/vendor/libsodium/libsodium/src/libsodium/sodium/utils.c"
-    DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/vendor/libsodium"
+idf_component_get_property(HIGHBOY_SODIUM_DIR espressif__libsodium COMPONENT_DIR)
+set_property(SOURCE "${HIGHBOY_SODIUM_DIR}/libsodium/src/libsodium/sodium/utils.c"
+    DIRECTORY "${HIGHBOY_SODIUM_DIR}"
     APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
 
 # Compact system control and arbitration without changing radio timing paths.
-foreach(HIGHBOY_CONTROL_COMPONENT Core resource_mgr console argtable3 nvs_flash esp_partition vfs wear_levelling app_update esp_app_format)
+foreach(HIGHBOY_CONTROL_COMPONENT Core resource_mgr console espressif__argtable3 nvs_flash esp_partition vfs wear_levelling app_update esp_app_format)
     idf_component_get_property(HIGHBOY_CONTROL_LIB ${HIGHBOY_CONTROL_COMPONENT} COMPONENT_LIB)
     target_compile_options(${HIGHBOY_CONTROL_LIB} PRIVATE -Os -flto=2 -ffat-lto-objects)
 endforeach()

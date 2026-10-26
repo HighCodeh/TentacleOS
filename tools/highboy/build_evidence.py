@@ -35,8 +35,8 @@ POLICIES = {
         'components/Drivers/spi_bridge_phy/spi_bridge_phy.c': ('-O2', False),
         'components/Applications/doom/d_main.c': ('-O2', False),
         'components/Applications/gameboy/gb_highboy.c': ('-O2', False),
-        'vendor/lvgl/src/draw/sw/blend/lv_draw_sw_blend.c': ('-O2', True),
-        'vendor/libsodium/libsodium/src/libsodium/sodium/utils.c': ('-Os', False),
+        'managed_components/lvgl__lvgl/src/draw/sw/blend/lv_draw_sw_blend.c': ('-O2', True),
+        'managed_components/espressif__libsodium/libsodium/src/libsodium/sodium/utils.c': ('-Os', False),
         'components/Service/app_runtime/tos_app_mgr.c': ('-Os', True),
     },
     'C5': {
@@ -54,18 +54,18 @@ def digest(path):
 
 def normalize_memory(chip, raw):
     require(chip in POLICIES and isinstance(raw, dict), 'Invalid SDK memory report')
-    if chip == 'P4':
+    if chip == 'P4' and 'diram_total' in raw:
         require({'diram_total', 'used_diram', 'diram_remain'} <= raw.keys(), 'Missing DIRAM counts')
         regions = [{'name': 'DIRAM', 'total_bytes': raw['diram_total'],
                     'used_bytes': raw['used_diram'], 'linker_free_bytes': raw['diram_remain']}]
     else:
-        require(raw.get('version') == '1.2', 'Unsupported C5 size-report schema')
+        require(raw.get('version') == '1.2', 'Unsupported SDK size-report schema')
         require(isinstance(raw.get('layout'), list) and all(isinstance(item, dict) and
                 {'name', 'total', 'used', 'free'} <= item.keys() for item in raw['layout']),
                 'Invalid C5 memory layout')
         regions = [{'name': item['name'], 'total_bytes': item['total'],
                     'used_bytes': item['used'], 'linker_free_bytes': item['free']}
-                   for item in raw['layout'] if item['name'] == 'HP SRAM']
+                   for item in raw['layout'] if item['name'] == ('DIRAM' if chip == 'P4' else 'HP SRAM')]
     require(len(regions) == 1, 'Missing or duplicate main internal RAM region')
     memory = regions[0]
     for name in ('total_bytes', 'used_bytes', 'linker_free_bytes'):
@@ -156,9 +156,7 @@ def collect(chip, build):
              'compile_commands_sha256': build / 'compile_commands.json',
              'partition_table_sha256': build / 'partition_table/partition-table.bin'}
     before = {key: digest(path) for key, path in paths.items()}
-    command = [str(python), '-m', 'esp_idf_size', '--format', 'json' if chip == 'P4' else 'json2']
-    if chip == 'P4':
-        command += ['--target', 'esp32p4']
+    command = [str(python), '-m', 'esp_idf_size', '--format', 'json2']
     raw = json.loads(subprocess.check_output(command + [str(paths['map_sha256'])], text=True))
     commands = json.loads(paths['compile_commands_sha256'].read_text())
     report = {'schema_version': 1, 'target': chip, 'idf_version': version,

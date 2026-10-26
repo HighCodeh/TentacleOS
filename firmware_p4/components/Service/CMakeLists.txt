@@ -126,8 +126,11 @@ idf_component_register(SRCS
 
 
 
-  REQUIRES 
+  REQUIRES firmware_crypto
     sdmmc
+    esp_driver_rmt
+    esp_driver_sdmmc
+    esp_driver_sdspi
     driver  
     vfs
     fatfs
@@ -154,7 +157,7 @@ idf_component_register(SRCS
     esp_mm
     libsodium
     resource_mgr
-    highboy_muse
+    muse_port
     esp-libhelix-mp3
 )
 

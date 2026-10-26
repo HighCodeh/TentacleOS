@@ -80,7 +80,7 @@ def instructions():
     return (
         'High Boy paired SD OTA development candidate\n\n'
         'Use only on an already running matching integrated installation: protocol 8,\n'
-        'P4 IDF v5.5.3 / C5 IDF v6.0.1, original partition maps and intact assets.\n'
+        'P4 IDF v6.1 / C5 IDF v6.1, original partition maps and intact assets.\n'
         'This package does not restore an erased device or migrate any partition map.\n'
         'It contains no bootloader, production identity, security provisioning or eFuse action.\n'
         'Verify with: python3 tools/highboy/ota_package.py verify <this-directory>\n'

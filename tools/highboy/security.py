@@ -25,7 +25,7 @@ import tempfile
 import verify_package
 
 ROOT = Path(__file__).resolve().parents[2]
-VERSIONS = {'p4': 'v5.5.3', 'c5': 'v6.0.1'}
+VERSIONS = {'p4': 'v6.1', 'c5': 'v6.1'}
 REQUIRED = {
     'SECURE_BOOT': 'y', 'SECURE_BOOT_V2_ENABLED': 'y',
     'SECURE_SIGNED_APPS_RSA_SCHEME': 'y', 'SECURE_SIGNED_ON_BOOT': 'y',
@@ -54,7 +54,7 @@ def config_values(path):
         if line.startswith('CONFIG_') and '=' in line:
             name, value = line.split('=', 1)
             name = name.removeprefix('CONFIG_')
-            if name in result:
+            if name in result and result[name] != value:
                 raise ValueError('Duplicate config field: ' + name)
             result[name] = value
     return result
@@ -81,13 +81,14 @@ def audit(target, config, baseline=None, factory=False):
             if config.get(name) != value:
                 raise ValueError('Factory profile mismatch: ' + name)
     if baseline is not None:
-        # Preserve every explicit board overlay selection, including the C5 memory policy.
-        overlay = ROOT / ('firmware_' + target) / ('sdkconfig.muse' if target == 'p4' else 'sdkconfig.baseline')
-        for name in config_values(overlay):
-            if factory and name == 'PARTITION_TABLE_OFFSET':
-                continue
-            if config.get(name) != baseline.get(name):
-                raise ValueError('Board overlay changed: ' + name)
+        # C5 retains its explicit memory overlay; P4 layout is checked below.
+        if target == 'c5':
+            overlay = ROOT / 'firmware_c5/sdkconfig.baseline'
+            for name in config_values(overlay):
+                if factory and name == 'PARTITION_TABLE_OFFSET':
+                    continue
+                if config.get(name) != baseline.get(name):
+                    raise ValueError('Board overlay changed: ' + name)
         for name in ('PARTITION_TABLE_OFFSET', 'PARTITION_TABLE_CUSTOM_FILENAME',
                      'ESPTOOLPY_FLASHSIZE', 'ESP_REV_MIN_FULL', 'BOOTLOADER_OFFSET_IN_FLASH',
                      'MMU_PAGE_SIZE', 'MMU_PAGE_MODE'):

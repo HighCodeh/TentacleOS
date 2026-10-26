@@ -174,7 +174,9 @@ def build(args):
     version = subprocess.check_output(['git', '-C', str(idf), 'describe', '--tags', '--exact-match'], text=True).strip()
     require(version == security.VERSIONS[target], 'Wrong SDK lane')
     verify_sdk(idf, target)
-    require(python.is_file() and (Path(args.tools)/'tools').is_dir(), 'Missing installed Python/toolchain')
+    tools_root = Path(args.tools)
+    has_tools = (tools_root/'tools').is_dir() or (tools_root/'activate_idf_v6.1.sh').is_file()
+    require(python.is_file() and has_tools, 'Missing installed Python/toolchain')
     output.mkdir(mode=0o700, parents=True)
     report = {'status': 'building', 'target': target, 'deployment_approved': False}
     (output/'build.json').write_text(json.dumps(report, indent=2)+'\n')
@@ -182,7 +184,7 @@ def build(args):
         security.resolve(target, idf, python, baseline, output/'configuration', factory=True)
         environment = dict(os.environ, IDF_PATH=str(idf), IDF_TOOLS_PATH=str(Path(args.tools).resolve()),
                            IDF_PYTHON_ENV_PATH=str(python.parent.parent), IDF_TARGET='esp32'+target,
-                           IDF_COMPONENT_MANAGER='0', PIP_NO_INDEX='1', PYTHONDONTWRITEBYTECODE='1',
+                           IDF_COMPONENT_MANAGER='1', PIP_NO_INDEX='1', PYTHONDONTWRITEBYTECODE='1',
                            CCACHE_DISABLE='1', IDF_SKIP_CHECK_SUBMODULES='1')
         for name in ('SDKCONFIG', 'SDKCONFIG_DEFAULTS', 'EXTRA_COMPONENT_DIRS', 'EXTRA_CFLAGS',
                      'EXTRA_CXXFLAGS', 'EXTRA_CPPFLAGS', 'EXTRA_LDFLAGS', 'CFLAGS', 'CXXFLAGS', 'CPPFLAGS', 'LDFLAGS',
@@ -198,7 +200,7 @@ def build(args):
             command += ['-D', 'TOS_APP_PRODUCTION='+('ON' if args.app_production else 'OFF'),
                         '-D', 'TOS_APP_TRUST_PUBLIC_KEY='+(args.app_public_key or '')]
         # Positional shell parameters keep toolchain paths out of executable shell text.
-        script = 'set -euo pipefail; source "$1/export.sh" >/dev/null; shift; exec "$@"'
+        script = 'set -euo pipefail\nactivation="${IDF_TOOLS_PATH}/activate_idf_v6.1.sh"\nif [ -f "$activation" ]; then\n  eim_environment="$(bash "$activation" -e)"\n  while IFS=\'=\' read -r name value; do\n    case "$name" in\n      PATH) export PATH="$value:$PATH" ;;\n      IDF_*|ESP_*|OPENOCD_SCRIPTS) export "$name=$value" ;;\n    esac\n  done <<< "$eim_environment"\nelse\n  source "$1/export.sh" >/dev/null\nfi\nshift\nexec "$@"\n'
         subprocess.run(['bash', '-c', script, 'secure-build', str(idf), *command, 'reconfigure'],
                        cwd=ROOT, env=environment, check=True, timeout=300)
         subprocess.run(['bash', '-c', script, 'secure-build', str(idf), 'cmake', '--build', str(work),

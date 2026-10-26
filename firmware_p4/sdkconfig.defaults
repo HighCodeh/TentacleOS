@@ -1,3 +1,18 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 # Chip target (also set in CMakeLists.txt; kept here so a bare cmake/extension
 # configure can't fall back to the esp32 default)
 CONFIG_IDF_TARGET="esp32p4"
@@ -10,6 +25,13 @@ CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
 # Custom partition table (with OTA)
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# Explicit preservation of existing boot/partition/security layout.
+CONFIG_PARTITION_TABLE_OFFSET=0x8000
+# CONFIG_SECURE_BOOT is not set
+# CONFIG_SECURE_FLASH_ENC_ENABLED is not set
+# CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT is not set
+# CONFIG_NVS_ENCRYPTION is not set
 
 # OTA rollback support in bootloader
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
@@ -92,7 +114,7 @@ CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 # HKDF for the companion host-link key derivation (disabled by default in IDF)
 CONFIG_MBEDTLS_HKDF_C=y
 # DES/3DES is required for MIFARE Ultralight-C authentication.
-CONFIG_MBEDTLS_DES_C=y
+# Legacy NFC DES is isolated from the SDK crypto configuration.
 
 # LVGL QR code widget — companion pairing screen renders the PSK as a QR
 CONFIG_LV_USE_QRCODE=y
@@ -129,3 +151,9 @@ CONFIG_ESP_COREDUMP_STACK_SIZE=1792
 # debugging can read it instead of it scrolling past with the next boot.
 CONFIG_ESP_SYSTEM_PANIC_REBOOT_DELAY_SECONDS=2
 
+
+# IDF v6.1 PSA hardware AES advertises CCM without a CCM driver.
+CONFIG_MBEDTLS_HARDWARE_AES=n
+
+# DES/3DES is isolated in NFC; TF-PSA-Crypto rejects the SDK legacy option.
+CONFIG_MBEDTLS_DES_C=n

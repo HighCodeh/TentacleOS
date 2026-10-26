@@ -1,6 +1,0 @@
-# Explicit preservation of existing boot/partition/security layout.
-CONFIG_PARTITION_TABLE_OFFSET=0x8000
-# CONFIG_SECURE_BOOT is not set
-# CONFIG_SECURE_FLASH_ENC_ENABLED is not set
-# CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT is not set
-# CONFIG_NVS_ENCRYPTION is not set

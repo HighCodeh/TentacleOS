@@ -19,7 +19,7 @@ import argparse
 import hashlib
 from pathlib import Path
 
-SOURCE_SHA256 = '38753ab0df3140232ed65a9b412ba670497eaebe424a45098eaaebb2dc5c4fce'
+SOURCE_SHA256 = '07a402902a665eb49e65140db116438ed3c69191ccfc8ae469853690c1a7f6ab'
 ORIGINAL = b'if ( (getMillis() - t1) < LINENOISE_PASTE_KEY_DELAY && c != ENTER) {'
 CORRECTED = b'''if ((getMillis() - t1) < LINENOISE_PASTE_KEY_DELAY &&
             (unsigned char)c >= ' ' && (unsigned char)c != BACKSPACE &&
@@ -28,7 +28,7 @@ CORRECTED = b'''if ((getMillis() - t1) < LINENOISE_PASTE_KEY_DELAY &&
 
 def patched_source(source):
     if hashlib.sha256(source).hexdigest() != SOURCE_SHA256 or source.count(ORIGINAL) != 1:
-        raise ValueError('Unreviewed linenoise source; expected the pinned ESP-IDF v5.5.3 file')
+        raise ValueError('Unreviewed linenoise source; expected the pinned ESP-IDF v6.1 file')
     return source.replace(ORIGINAL, CORRECTED)
 
 

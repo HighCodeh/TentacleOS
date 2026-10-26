@@ -1,4 +1,19 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 
 # Copyright (c) 2025 HIGH CODE LLC
 #
@@ -33,10 +48,10 @@ NC='\033[0m'
 # Source ESP-IDF environment (supports local install and Docker container)
 if [ -n "$IDF_PATH" ] && [ -f "$IDF_PATH/export.sh" ]; then
     source "$IDF_PATH/export.sh"
-elif [ -f "$HOME/esp/v5.5.3/esp-idf/export.sh" ]; then
-    source "$HOME/esp/v5.5.3/esp-idf/export.sh"
+elif [ -f "$HOME/esp/v6.1/esp-idf/export.sh" ]; then
+    source "$HOME/esp/v6.1/esp-idf/export.sh"
 else
-    echo -e "${RED}Error: ESP-IDF not found. Set IDF_PATH or install at ~/esp/v5.5.3/esp-idf/${NC}"
+    echo -e "${RED}Error: ESP-IDF not found. Set IDF_PATH or install at ~/esp/v6.1/esp-idf/${NC}"
     exit 1
 fi
 

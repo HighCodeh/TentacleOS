@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (c) 2025 HIGH CODE LLC
 #
 # TentacleOS is free software: you can redistribute it and/or modify
@@ -75,6 +76,12 @@ idf_component_register(SRCS
   resource_mgr
   driver
   esp_driver_i2s
+  esp_driver_gpio
+  esp_driver_i2c
+  esp_driver_ledc
+  esp_driver_pcnt
+  esp_driver_spi
+  esp_driver_uart
   Service
   esp_lcd
   PRIV_REQUIRES

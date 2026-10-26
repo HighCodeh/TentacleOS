@@ -76,10 +76,10 @@ jobs:
       matrix:
         include:
           - target: p4
-            idf: v5.5.3
+            idf: v6.1
             project: TentacleOS_P4
           - target: c5
-            idf: v6.0.1
+            idf: v6.1
             project: TentacleOS_C5
     container:
       image: espressif/idf:${{ matrix.idf }}
@@ -105,6 +105,12 @@ jobs:
           python tools/highboy/build_evidence.py --target "${{ matrix.target }}" \
             --build "firmware_${{ matrix.target }}/build_highboy" \
             --out "firmware_${{ matrix.target }}/build_highboy/build-evidence.json"
+
+      - name: Test public PSA crypto with the pinned SDK source
+        if: matrix.target == 'p4'
+        shell: bash
+        run: |
+          python tools/crypto/test_psa.py --idf "$IDF_PATH"
 
       - name: Test UART line editing with the pinned SDK source
         if: matrix.target == 'p4'
@@ -173,6 +179,10 @@ jobs:
           python-version: "3.13"
       - name: Install companion test dependencies
         run: python3 -m pip install -r tools/host_link/requirements.txt
+      - name: Prepare managed host-test dependencies
+        run: |
+          python3 -m pip install -r tools/dependencies/requirements.txt
+          python3 tools/dependencies/prepare_host.py
       - name: Run source contracts and host regressions
         run: bash tools/highboy/test.command
 
