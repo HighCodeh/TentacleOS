@@ -862,7 +862,8 @@ static bool connect_once(char *err, size_t err_cap, int *http_status)
     cfg.timeout_ms = 15000;
     int64_t t0 = now_us();
     if (esp_tls_conn_new_sync(s_host, strlen(s_host), NOISE_PORT, &cfg, c.tls) != 1) {
-        snprintf(err, err_cap, "Can't reach %s", s_host);
+        strlcpy(err, "Can't reach ", err_cap);
+        strlcat(err, s_host, err_cap);
         return false;
     }
 #if CONFIG_HOMEHUB_HEADLESS_CHAT

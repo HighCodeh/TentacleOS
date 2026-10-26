@@ -45,7 +45,10 @@ idf_component_register(SRCS
   INCLUDE_DIRS "core" "sdk_adapter" "transport" "platform" "runtime" "bridge" "pairing" "token_uart" "sdk"
   PRIV_INCLUDE_DIRS "../../Drivers/sys_prio/include"
   EMBED_FILES "sdk/test_reply.mp3"
-  REQUIRES esp_timer esp_http_client esp-tls mbedtls nvs_flash esp_psram cjson noise_core minimp3 bt esp_driver_uart efuse
+  REQUIRES firmware_crypto esp_timer esp_http_client esp-tls mbedtls nvs_flash esp_psram cjson noise_core minimp3 bt esp_driver_uart efuse
 )
 target_compile_definitions(${COMPONENT_LIB} PRIVATE HB_MUSE_PLATFORM_CHECK_SDK_HEADERS=1)
 target_link_libraries(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=heap_caps_malloc" "-Wl,--wrap=heap_caps_calloc" "-Wl,--wrap=bt_osi_mem_malloc_internal" "-Wl,--wrap=bt_osi_mem_calloc_internal")
+
+# Keep the IDF 6.1 application inside the existing OTA slots.
+target_compile_options(${COMPONENT_LIB} PRIVATE -Os)

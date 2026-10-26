@@ -1,3 +1,20 @@
+<!--
+SPDX-License-Identifier: GPL-3.0-or-later
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # Meshtastic MQTT bridge
 
 The P4 owns Meshtastic packet encoding and the chat inbox. The C5 owns the
@@ -69,9 +86,9 @@ traffic and clears the backend password; the UI form remains available for edits
 The persistent P4 worker blocks when stopped. START/STOP and SPI operations stay
 outside the LVGL thread.
 
-The unchanged ESP-MQTT source is pinned in `third_party/esp-mqtt.json`, including
-its Apache-2.0 license and per-file hashes. It is built locally on the C5; P4 has
-no direct MQTT socket dependency.
+ESP-MQTT is fetched by the Component Manager from the Git revision declared in
+`firmware_c5/main/idf_component.yml`, retaining its upstream Apache-2.0 license. P4 has no direct MQTT socket dependency. Regression tests
+exercise bridge and codec behavior without requiring a per-file hash inventory.
 
 ## Validation and limits
 

@@ -23,15 +23,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MBEDTLS_DECLARE_PRIVATE_IDENTIFIERS
 #include "mbedtls/base64.h"
-#include "mbedtls/bignum.h"
-#include "mbedtls/ecp.h"
-#include "mbedtls/md.h"
-#include "mbedtls/private/gcm.h"
 #include "mbedtls/platform_util.h"
 
 #include "psa/crypto.h"
+#include "firmware_crypto.h"
 #include "psa_crypto_driver_esp_ecdsa.h"
 #include "psa_crypto_driver_esp_ecdsa_contexts.h"
 
@@ -86,9 +82,7 @@ static const char *s_device_id = "";
 static const char *s_mac = "";
 static const char *s_firmware_version = "";
 
-static mbedtls_ecp_group s_group;
-static mbedtls_mpi s_device_priv;
-static mbedtls_ecp_point s_device_pub_point;
+static psa_key_id_t s_device_key;
 
 static uint8_t s_mobile_pub[P256_POINT_BYTES];
 static uint8_t s_device_pub[P256_POINT_BYTES];
@@ -111,12 +105,6 @@ static int64_t s_deadline_us;
 static uint64_t s_rx_counter;
 static uint64_t s_tx_counter;
 
-static int rng_cb(void *ctx, unsigned char *out, size_t len) {
-    (void)ctx;
-    esp_fill_random(out, len);
-    return 0;
-}
-
 static void lock_take(void) {
     if (s_lock) xSemaphoreTake(s_lock, portMAX_DELAY);
 }
@@ -126,10 +114,9 @@ static void lock_give(void) {
 }
 
 static void clear_session_locked(void) {
-    mbedtls_mpi_free(&s_device_priv);
-    mbedtls_ecp_point_free(&s_device_pub_point);
-    mbedtls_mpi_init(&s_device_priv);
-    mbedtls_ecp_point_init(&s_device_pub_point);
+    if (psa_destroy_key(s_device_key) != PSA_SUCCESS)
+        ESP_LOGE(TAG, "Cannot destroy pairing key");
+    s_device_key = 0;
     mbedtls_platform_zeroize(s_mobile_pub, sizeof(s_mobile_pub));
     mbedtls_platform_zeroize(s_device_pub, sizeof(s_device_pub));
     mbedtls_platform_zeroize(s_mobile_nonce, sizeof(s_mobile_nonce));
@@ -219,48 +206,33 @@ static bool session_confirmed_locked(void) {
     return s_state == PAIRING_READY || s_state == PAIRING_PROVISIONING;
 }
 
-static const mbedtls_md_info_t *sha256_info(void) {
-    return mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
-}
-
 static bool sha256_bytes(const uint8_t *data, size_t len, uint8_t out[HASH_BYTES]) {
-    const mbedtls_md_info_t *md = sha256_info();
-    return md && mbedtls_md(md, data, len, out) == 0;
+    return firmware_crypto_sha256((firmware_crypto_span_t){data, len}, out) == ESP_OK;
 }
 
 static bool hmac_sha256(const uint8_t *key, size_t key_len,
                         const uint8_t *data, size_t data_len,
                         uint8_t out[HASH_BYTES]) {
-    const mbedtls_md_info_t *md = sha256_info();
-    return md && mbedtls_md_hmac(md, key, key_len, data, data_len, out) == 0;
+    return firmware_crypto_mac((firmware_crypto_span_t){key, key_len},
+                               (firmware_crypto_span_t){data, data_len},
+                               PSA_ALG_HMAC(PSA_ALG_SHA_256), out) == ESP_OK;
 }
 
 static bool hkdf32(const uint8_t *ikm, size_t ikm_len,
                    const uint8_t *salt, size_t salt_len,
                    const uint8_t *info, size_t info_len,
                    uint8_t out[KEY_BYTES]) {
-    uint8_t prk[HASH_BYTES];
-    uint8_t block[HASH_BYTES + 128 + 1];
-    if (info_len > 128) return false;
-    if (!hmac_sha256(salt, salt_len, ikm, ikm_len, prk)) return false;
-    memcpy(block, info, info_len);
-    block[info_len] = 1;
-    bool ok = hmac_sha256(prk, sizeof(prk), block, info_len + 1, out);
-    mbedtls_platform_zeroize(prk, sizeof(prk));
-    mbedtls_platform_zeroize(block, sizeof(block));
-    return ok;
+    firmware_crypto_hkdf_t params = {
+        .secret = {ikm, ikm_len}, .salt = {salt, salt_len}, .info = {info, info_len}};
+    return firmware_crypto_hkdf(&params, out, KEY_BYTES) == ESP_OK;
 }
 
 static bool hkdf_expand32(const uint8_t prk[KEY_BYTES],
                           const uint8_t *info, size_t info_len,
                           uint8_t out[KEY_BYTES]) {
-    uint8_t block[128 + 1];
-    if (info_len > 128) return false;
-    memcpy(block, info, info_len);
-    block[info_len] = 1;
-    bool ok = hmac_sha256(prk, KEY_BYTES, block, info_len + 1, out);
-    mbedtls_platform_zeroize(block, sizeof(block));
-    return ok;
+    firmware_crypto_hkdf_t params = {
+        .secret = {prk, KEY_BYTES}, .info = {info, info_len}, .is_expand_only = true};
+    return firmware_crypto_hkdf(&params, out, KEY_BYTES) == ESP_OK;
 }
 
 static bool base64url_encode(const uint8_t *data, size_t len, char *out, size_t out_cap) {
@@ -548,17 +520,12 @@ static bool aes_gcm_encrypt(const uint8_t *key, const uint8_t *plain, size_t pla
     char aad[128];
     build_nonce(direction, counter, nonce);
     if (!build_aad(direction, counter, aad, sizeof(aad))) return false;
-    mbedtls_gcm_context gcm;
-    mbedtls_gcm_init(&gcm);
-    int rc = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, key, KEY_BYTES * 8);
-    if (rc == 0) {
-        rc = mbedtls_gcm_crypt_and_tag(&gcm, MBEDTLS_GCM_ENCRYPT, plain_len,
-                                       nonce, sizeof(nonce),
-                                       (const uint8_t *)aad, strlen(aad),
-                                       plain, cipher, GCM_TAG_BYTES, tag);
-    }
-    mbedtls_gcm_free(&gcm);
-    return rc == 0;
+    firmware_crypto_aead_t params = {
+        .cipher = {.key = {key, KEY_BYTES}, .iv = {nonce, sizeof(nonce)},
+                   .algorithm = PSA_ALG_GCM, .is_encrypt = true},
+        .aad = {(const uint8_t *)aad, strlen(aad)},
+        .tag = tag, .tag_size = GCM_TAG_BYTES};
+    return firmware_crypto_aead(&params, (firmware_crypto_span_t){plain, plain_len}, cipher) == ESP_OK;
 }
 
 static bool aes_gcm_decrypt(const uint8_t *key, const uint8_t *cipher, size_t cipher_len,
@@ -569,16 +536,12 @@ static bool aes_gcm_decrypt(const uint8_t *key, const uint8_t *cipher, size_t ci
     char aad[128];
     build_nonce(direction, counter, nonce);
     if (!build_aad(direction, counter, aad, sizeof(aad))) return false;
-    mbedtls_gcm_context gcm;
-    mbedtls_gcm_init(&gcm);
-    int rc = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, key, KEY_BYTES * 8);
-    if (rc == 0) {
-        rc = mbedtls_gcm_auth_decrypt(&gcm, cipher_len, nonce, sizeof(nonce),
-                                      (const uint8_t *)aad, strlen(aad),
-                                      tag, GCM_TAG_BYTES, cipher, plain);
-    }
-    mbedtls_gcm_free(&gcm);
-    return rc == 0;
+    firmware_crypto_aead_t params = {
+        .cipher = {.key = {key, KEY_BYTES}, .iv = {nonce, sizeof(nonce)},
+                   .algorithm = PSA_ALG_GCM, .is_encrypt = false},
+        .aad = {(const uint8_t *)aad, strlen(aad)},
+        .tag = (uint8_t *)tag, .tag_size = GCM_TAG_BYTES};
+    return firmware_crypto_aead(&params, (firmware_crypto_span_t){cipher, cipher_len}, plain) == ESP_OK;
 }
 
 static char *make_envelope(const char *kind, uint64_t counter,
@@ -612,24 +575,15 @@ static char *make_envelope(const char *kind, uint64_t counter,
 }
 
 static bool derive_session_keys(void) {
-    mbedtls_ecp_point peer;
-    mbedtls_ecp_point shared;
-    mbedtls_ecp_point_init(&peer);
-    mbedtls_ecp_point_init(&shared);
-    int rc = mbedtls_ecp_point_read_binary(&s_group, &peer,
-                                           s_mobile_pub, sizeof(s_mobile_pub));
-    if (rc == 0) rc = mbedtls_ecp_check_pubkey(&s_group, &peer);
-    if (rc == 0) rc = mbedtls_ecp_mul(&s_group, &shared, &s_device_priv,
-                                      &peer, rng_cb, NULL);
-
     uint8_t ecdh[KEY_BYTES];
-    if (rc == 0) {
-        rc = mbedtls_mpi_write_binary(&shared.MBEDTLS_PRIVATE(X),
-                                      ecdh, sizeof(ecdh));
+    size_t written = 0;
+    psa_status_t status = psa_raw_key_agreement(PSA_ALG_ECDH, s_device_key,
+                                               s_mobile_pub, sizeof(s_mobile_pub),
+                                               ecdh, sizeof(ecdh), &written);
+    if (status != PSA_SUCCESS || written != sizeof(ecdh)) {
+        firmware_crypto_wipe(ecdh, sizeof(ecdh));
+        return false;
     }
-    mbedtls_ecp_point_free(&peer);
-    mbedtls_ecp_point_free(&shared);
-    if (rc != 0) return false;
 
     uint8_t salt_input[NONCE_BYTES * 2 + HASH_BYTES];
     memcpy(salt_input, s_mobile_nonce, NONCE_BYTES);
@@ -685,13 +639,9 @@ void link_pairing_init(const char *node_id, const char *device_id,
     s_firmware_version = firmware_version ? firmware_version : "unknown";
     s_sdk_token = sdk_token && *sdk_token ? sdk_token : NULL;
     if (!s_initialized) {
-        mbedtls_ecp_group_init(&s_group);
-        mbedtls_mpi_init(&s_device_priv);
-        mbedtls_ecp_point_init(&s_device_pub_point);
-        if (mbedtls_ecp_group_load(&s_group, MBEDTLS_ECP_DP_SECP256R1) != 0) {
-            ESP_LOGE(TAG, "P-256 group unavailable");
-        }
-        s_initialized = true;
+        s_initialized = psa_crypto_init() == PSA_SUCCESS;
+        if (!s_initialized)
+            ESP_LOGE(TAG, "PSA initialization failed");
     }
     (void)pairing_signer();
     reset_locked();
@@ -752,26 +702,24 @@ const char *link_pairing_handle_client_hello(cJSON *root, char **response_json) 
         return "error_pairing_invalid_hello";
     }
 
-    mbedtls_ecp_point peer;
-    mbedtls_ecp_point_init(&peer);
-    int rc = mbedtls_ecp_point_read_binary(&s_group, &peer,
-                                           s_mobile_pub, sizeof(s_mobile_pub));
-    if (rc == 0) rc = mbedtls_ecp_check_pubkey(&s_group, &peer);
-    mbedtls_ecp_point_free(&peer);
-    if (rc != 0
-        || mbedtls_ecp_gen_keypair(&s_group, &s_device_priv,
-                                   &s_device_pub_point, rng_cb, NULL) != 0) {
-        reset_locked();
-        lock_give();
-        return "error_pairing_invalid_hello";
-    }
-
+    psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
+    psa_key_id_t peer_key = 0;
+    psa_set_key_type(&attributes, PSA_KEY_TYPE_ECC_PUBLIC_KEY(PSA_ECC_FAMILY_SECP_R1));
+    psa_set_key_bits(&attributes, KEY_BYTES * 8);
+    psa_status_t status = psa_import_key(&attributes, s_mobile_pub, sizeof(s_mobile_pub), &peer_key);
+    psa_status_t cleanup_status = psa_destroy_key(peer_key);
+    if (status == PSA_SUCCESS)
+        status = cleanup_status;
+    psa_set_key_type(&attributes, PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1));
+    psa_set_key_algorithm(&attributes, PSA_ALG_ECDH);
+    psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_DERIVE);
+    if (status == PSA_SUCCESS)
+        status = psa_generate_key(&attributes, &s_device_key);
+    psa_reset_key_attributes(&attributes);
     size_t pub_len = 0;
-    if (mbedtls_ecp_point_write_binary(&s_group, &s_device_pub_point,
-                                       MBEDTLS_ECP_PF_UNCOMPRESSED,
-                                       &pub_len, s_device_pub,
-                                       sizeof(s_device_pub)) != 0
-        || pub_len != P256_POINT_BYTES) {
+    if (status == PSA_SUCCESS)
+        status = psa_export_public_key(s_device_key, s_device_pub, sizeof(s_device_pub), &pub_len);
+    if (status != PSA_SUCCESS || pub_len != P256_POINT_BYTES) {
         reset_locked();
         lock_give();
         return "error_pairing_invalid_hello";
