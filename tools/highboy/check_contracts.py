@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 """Offline source contract gates; no device access and no credentials read."""
 import argparse
 from pathlib import Path
@@ -56,8 +71,10 @@ def main():
         value = ota[0][4].strip()
         size = int(value[:-1]) * 1024**2 if value.endswith("M") else int(value, 0)
         require(size == slot, "Unexpected partition migration")
-        overlay = "sdkconfig.muse" if chip == "p4" else "sdkconfig.baseline"
-        defaults = config_values([project / "sdkconfig.defaults", project / overlay])
+        default_paths = [project / "sdkconfig.defaults"]
+        if chip == "c5":
+            default_paths.append(project / "sdkconfig.baseline")
+        defaults = config_values(default_paths)
         require(defaults.get("CONFIG_PARTITION_TABLE_OFFSET") == "0x8000", "Unexpected partition offset")
         if chip == "c5":
             for key, expected in C5_MEMORY.items():

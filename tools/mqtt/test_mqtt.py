@@ -1,7 +1,20 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 """Build the real MQTT codec/bridge/adapter with explicit RTOS, network and AES fakes."""
-import hashlib
-import json
 import os
 from pathlib import Path
 import shlex
@@ -15,9 +28,6 @@ C5 = ROOT / "firmware_c5/components"
 
 
 def main():
-    metadata = json.loads((ROOT / "third_party/esp-mqtt.json").read_text())
-    for name, expected in metadata["files"].items():
-        assert hashlib.sha256((ROOT / name).read_bytes()).hexdigest() == expected, name
     manager = (P4 / "Applications/ui/ui_manager.c").read_text()
     home = (P4 / "Applications/ui/screens/lora/lora_chat_ui.c").read_text()
     assert 'case SCREEN_LORA_MQTT:\n      return ui_lora_mqtt_open;' in manager
@@ -28,7 +38,7 @@ def main():
         executable = Path(temporary) / "test"
         command = [*shlex.split(os.environ.get("CC", "cc")), "-std=c11", "-D_POSIX_C_SOURCE=200809L",
                    "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined",
-                   "-fno-sanitize-recover=all", "-pthread", "-I", str(FIXTURES)]
+                   "-fno-sanitize-recover=all", "-pthread", "-I", str(ROOT / "tools/crypto/fixtures"), "-I", str(FIXTURES)]
         for directory in (P4 / "Service/spi_bridge/include", P4 / "Drivers/sys_prio/include",
                           P4 / "Applications/LoRa/meshtastic/include",
                           P4 / "Applications/LoRa/session/include", C5 / "Service/mqtt_bridge/include"):

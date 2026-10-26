@@ -52,6 +52,16 @@ def evidence(chip, target):
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_p4_idf61_json2_memory(self):
+        raw = {'version': '1.2', 'layout': [
+            {'name': 'Flash', 'total': 0, 'used': 1000000, 'free': 0},
+            {'name': 'DIRAM', 'total': 524288, 'used': 327680, 'free': 196608}]}
+        result = build_evidence.normalize_memory('P4', raw)
+        self.assertEqual(result['linker_free_bytes'], 196608)
+        raw['layout'][1]['name'] = 'External RAM'
+        with self.assertRaises(ValueError):
+            build_evidence.normalize_memory('P4', raw)
+
     def test_normalizes_both_sdk_formats_without_counting_flash_or_lp_as_heap(self):
         for chip in ('P4', 'C5'):
             memory = build_evidence.normalize_memory(chip, raw_memory(chip))
@@ -136,7 +146,7 @@ class OtaPackageTests(unittest.TestCase):
         for field, value in [('sha256', '9' * 64), ('elf_sha256', '9' * 64),
                              ('sdkconfig_sha256', '9' * 64), ('target', 'C5'),
                              ('hardware_validated', True), ('runtime_performance_measured', True),
-                             ('efuses_written', True), ('idf_version', 'v6.1')]:
+                             ('efuses_written', True), ('idf_version', 'v0.0.0')]:
             report = copy.deepcopy(self.report)
             report['targets']['P4']['build_evidence'][field] = value
             with self.subTest(field=field), self.assertRaises(ValueError):

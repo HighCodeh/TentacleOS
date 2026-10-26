@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 """Production P4 OTA and C5 confirmation against explicit file/flash/OS fakes."""
 import os
 from pathlib import Path
@@ -28,9 +43,9 @@ def main():
         command=[*shlex.split(os.environ.get('CC','cc')),'-std=gnu11','-Wall','-Wextra','-Werror',
                  '-Wno-deprecated-declarations','-fsanitize=address,undefined','-fno-sanitize-recover=all',
                  '-pthread','-I',str(work),'-I',str(HERE),'-I',str(P4),'-I',str(P4/'include'),
-                 '-I',str(ROOT/'firmware_p4/vendor/cjson/cJSON')]
+                 '-I',str(ROOT/'tools/dependencies/build/managed_components/espressif__cjson/cJSON')]
         binary=work/'p4'
-        subprocess.run([*command,str(HERE/'test_p4.c'),str(ROOT/'firmware_p4/vendor/cjson/cJSON/cJSON.c'),
+        subprocess.run([*command,str(HERE/'test_p4.c'),str(ROOT/'tools/dependencies/build/managed_components/espressif__cjson/cJSON/cJSON.c'),
                         '-o',str(binary)],check=True)
         subprocess.run([str(binary)],check=True,timeout=30)
         c5=(ROOT/'firmware_c5/components/Service/ota/ota_service.c').read_text()

@@ -47,19 +47,27 @@
       "after_sha256": "62797d5b990741225e1ca443f90cabad29bc22b3e8711a39442f5ce5749bfd4a",
       "reason": "Use project include guards and C++ linkage for new first-party headers."
     },
-    "firmware_c5/components/Service/highboy_muse/CMakeLists.txt": {
+    "firmware_c5/components/Service/muse_port/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "37129d32242ba12b38675b505ec1ba77a3668fa5086f8f205d02ee7094478603",
-      "after_sha256": "7a23cb8ed5d8ad0faf32cd0ea5f432524a9e7c357866dfbcd5fa6d5722bc57a9",
-      "reason": "chore(c5): add missing first-party component license notices",
+      "after_sha256": "3b84ce9ed38b74ea44e7b9e8d01b1148a3d602d0c30011554a0f068f0ba4d955",
+      "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation.",
       "review_history": [
         {
           "after_sha256": "5e7ec68d7bb0fa5de27d947b09e9519573e90af3e777cc40f9e42c7c87ddab36",
           "reason": "Expose central C5 scheduling header privately without a component dependency cycle."
+        },
+        {
+          "after_sha256": "7a23cb8ed5d8ad0faf32cd0ea5f432524a9e7c357866dfbcd5fa6d5722bc57a9",
+          "reason": "chore(c5): add missing first-party component license notices"
+        },
+        {
+          "after_sha256": "66e9e0a7daba5af136f310f97b378cdeaa61124ea6103df22eb025a11a7edbdf",
+          "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts."
         }
       ]
     },
-    "firmware_c5/components/Service/highboy_muse/bridge/hb_muse_rpc.h": {
+    "firmware_c5/components/Service/muse_port/bridge/hb_muse_rpc.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "0d21c35790f67af9e5cf8d08ea815e99501d1826b0eb9f65bd6268ade1633a24",
       "after_sha256": "7aa99a1d3ad3acfc65d8b4e5e2199460315cecba309b9cfd12f6e0ade8fcadf1",
@@ -71,7 +79,7 @@
         }
       ]
     },
-    "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_pairing_fragments.h": {
+    "firmware_c5/components/Service/muse_port/pairing/hb_muse_pairing_fragments.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "122ca3a200c2ce0bc9558c19612a9d97061f5e4ebceedd6a4172626a27a33f46",
       "after_sha256": "353e0f07812a752cab6b2262446df6e72e6ae24cda4243205f7fd98025e65fd0",
@@ -83,7 +91,7 @@
         }
       ]
     },
-    "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_pairing_gatt.h": {
+    "firmware_c5/components/Service/muse_port/pairing/hb_muse_pairing_gatt.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "238a776fee2b5baf6cc64ef78925a215cbf3d9f9c023a67205c4117e64284dff",
       "after_sha256": "dfeac059c8e0df214b6a608f98eb79ab5e36b1345d3bc974099cc79e661f756d",
@@ -95,7 +103,7 @@
         }
       ]
     },
-    "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_setup.c": {
+    "firmware_c5/components/Service/muse_port/pairing/hb_muse_setup.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "f302c1f6d4c331f3627719bb96254502c9e9b53aec503cdf5458c15ee2605132",
       "after_sha256": "5a1d23c5749667f4e4dd8d1d8e5c71a2614a354a02badad40584fb17f452baeb",
@@ -109,7 +117,7 @@
         }
       ]
     },
-    "firmware_c5/components/Service/highboy_muse/platform/hb_muse_account_worker.c": {
+    "firmware_c5/components/Service/muse_port/platform/hb_muse_account_worker.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "b06015ba8bc57652baf0f78f8a67aa22a76ac8a7a90229e1b15800d5b112d9d3",
       "after_sha256": "e2e45d860963574f7564e24196af9170c1cb9692c7667fed8706d962879926a3",
@@ -123,7 +131,7 @@
         }
       ]
     },
-    "firmware_c5/components/Service/highboy_muse/runtime/hb_muse_runtime.c": {
+    "firmware_c5/components/Service/muse_port/runtime/hb_muse_runtime.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "980d6504a88876176d3dee435516bdadd1bbd9dd017a516af1cfeb8ce84e2d82",
       "after_sha256": "507f9988ff7b53c48880e429c9940eba8c5b1f7502f877d1bb53ca5924a4d9f4",
@@ -137,7 +145,7 @@
         }
       ]
     },
-    "firmware_c5/components/Service/highboy_muse/token_uart/hb_muse_token_frame.h": {
+    "firmware_c5/components/Service/muse_port/token_uart/hb_muse_token_frame.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "1d48ac6c51172e08df2d5d14cf122d8507d6224de8e39e74589fd8433754389b",
       "after_sha256": "23dd5b8fa464baee627d557ae3e49c01e664282079d674567936e468b28ea1c5",
@@ -149,7 +157,7 @@
         }
       ]
     },
-    "firmware_c5/components/Service/highboy_muse/token_uart/hb_muse_token_uart.c": {
+    "firmware_c5/components/Service/muse_port/token_uart/hb_muse_token_uart.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "6d135f8b6be978dde4c45c9f363e795ccd5d90e9ebdca3a1e69ffe33ef528a51",
       "after_sha256": "67464c0ac332dafa35aaf55e9cda3434032c441de239fd4df8db88883dcfb9de",
@@ -163,7 +171,7 @@
         }
       ]
     },
-    "firmware_c5/components/Service/highboy_muse/token_uart/hb_muse_token_uart.h": {
+    "firmware_c5/components/Service/muse_port/token_uart/hb_muse_token_uart.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "a5cf73a884518a4533fadf6018e1c5ff48c7a6b53e730f1d9cbaee431d06dd1f",
       "after_sha256": "344d2eabae57d55a103fc48151b80b38c90382cf6ac89ada3e6558d94ac406d8",
@@ -932,8 +940,8 @@
     "firmware_p4/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "0f1227039a8fd707409aaebc1ba720212788503eb26421c5ded3947f10e67323",
-      "after_sha256": "7ec8c572c82dadccd27d00dda2fd7663cbc0114245c536c27a95eaccfb7655e0",
-      "reason": "chore(tooling): add license notices to build and regression tools",
+      "after_sha256": "1e22dbcef22886b9d83856eb1bfe29854c79356f5486c5f9a7eb230fdb4105e2",
+      "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation.",
       "review_history": [
         {
           "after_sha256": "3f9e37605262ba8cd5c3e25d94f57f660c010e6baea480103d8fe554f58d4eef",
@@ -966,14 +974,30 @@
         {
           "after_sha256": "20c4a056810ec2dd041892036da8e610f7b35ecf7cfd163ec91d6e8c88a67ba8",
           "reason": "fix(console): preserve editing keys during rapid UART input"
+        },
+        {
+          "after_sha256": "7ec8c572c82dadccd27d00dda2fd7663cbc0114245c536c27a95eaccfb7655e0",
+          "reason": "chore(tooling): add license notices to build and regression tools"
+        },
+        {
+          "after_sha256": "8ffad6acecddfca7ba2f4fa1026f7e473702d1efb25a557d8e2546986b8b19f4",
+          "reason": "Rename the Muse component to muse_port and update CMake dependencies."
+        },
+        {
+          "after_sha256": "05454243b6b3e2acdcaae5161143e2e6ea20a373af2b93db507aabf030c3a2a8",
+          "reason": "Replace vendor copies with pinned Component Manager dependencies while preserving optimization and IDF 6 LED-strip compatibility."
+        },
+        {
+          "after_sha256": "41a4f9ae513c225142cbc17ced141cc342e71718370aa28141111c8c763c7083",
+          "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts."
         }
       ]
     },
     "firmware_p4/components/Applications/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "da11f270bf3ffb612ef0469030d722884b5eb81f62f1c50223df2c526b8054a5",
-      "after_sha256": "ef60e164790ce245abdbcbf1e4db6f2ca87ab5ba63805940f499f60832dcc071",
-      "reason": "Use size optimization only for the new ESP SCAN screen, local UI session worker and Quick Scan proxy so the added screen fits the existing P4 application slots.",
+      "after_sha256": "03543180e5aa9c4ed47b67ceed3eccbc73a117454b5b5e997d886495b6c86b7d",
+      "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation.",
       "review_history": [
         {
           "after_sha256": "539b7c5858f4c83c2f3c4cac2fd27e23aedd3106dffd606058dafc50fd33ac2c",
@@ -986,14 +1010,26 @@
         {
           "after_sha256": "3e41f3e0a406e9cec07bc6fdd7ab08d4fd2b7dd8c706a94778bef428a4c2647e",
           "reason": "Use size optimization only for the new ESP SCAN screen, local UI session worker and Quick Scan proxy so the added screen fits the existing P4 application slots."
+        },
+        {
+          "after_sha256": "ef60e164790ce245abdbcbf1e4db6f2ca87ab5ba63805940f499f60832dcc071",
+          "reason": "Use size optimization only for the new ESP SCAN screen, local UI session worker and Quick Scan proxy so the added screen fits the existing P4 application slots."
+        },
+        {
+          "after_sha256": "9ffa06ad0a313dcae5cc77861ccc6341eeab03f166a0b2fefda3c912159a0d36",
+          "reason": "Rename the Muse component to muse_port and update CMake dependencies."
+        },
+        {
+          "after_sha256": "291d14aee3a00054fbf4664f6b94f4aefc6c3133e8128ebfb976fcfe4f46513a",
+          "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts."
         }
       ]
     },
     "firmware_p4/components/Service/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "a5ab5cef02299410f4ba0c4ae7baac2b4840b1f42947372c35c57fa54a0c33a0",
-      "after_sha256": "239748a1086d1c9f92e2477a28935b726c4f37300f63d40379ef6d1f0fb2b730",
-      "reason": "Register the existing MAC vendor source with a compact Espressif-only build option for AP snapshot classification; retain original app partitions and all other service sources and policies.",
+      "after_sha256": "830bf66729339a1ba49125b0974e8e1d57e9357e981de3810816ecd4ecba1002",
+      "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation.",
       "review_history": [
         {
           "after_sha256": "716fa05eb0709ed37e2dcd95c196820071cf8c0ee169ced2bae247442307494f",
@@ -1014,6 +1050,18 @@
         {
           "after_sha256": "5d8d428562613bc5f340d0a8f5c89b28a938daf664d9e4fbeb313808150fd5e2",
           "reason": "Register the existing MAC vendor source with a compact Espressif-only build option for AP snapshot classification; retain original app partitions and all other service sources and policies."
+        },
+        {
+          "after_sha256": "239748a1086d1c9f92e2477a28935b726c4f37300f63d40379ef6d1f0fb2b730",
+          "reason": "Register the existing MAC vendor source with a compact Espressif-only build option for AP snapshot classification; retain original app partitions and all other service sources and policies."
+        },
+        {
+          "after_sha256": "360668c216b1dc46c0bbcea7d2191c61254eb8d0601db4abbe0ee08e6ef75180",
+          "reason": "Rename the Muse component to muse_port and update CMake dependencies."
+        },
+        {
+          "after_sha256": "d4cd71cafe4f046eaab10f0f57ee2d2159d30c2ac36c25e35f0289f9fff15244",
+          "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts."
         }
       ]
     },
@@ -1260,8 +1308,8 @@
     "firmware_p4/components/Drivers/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "15c7869f1145eb6a78b540dd9c4003914c7bbbb98db9af36ed4ddd38e35d23bf",
-      "after_sha256": "635a949c1464ba6d8b4eff8cf2f91d26dfecb89d1b64d004f47badb999e9dec7",
-      "reason": "build(p4): compact peripheral control services without changing radio timing paths",
+      "after_sha256": "2339d8600d9f038a5795f638f995e8a12df2e1d6df3c62af396737ed4e111c94",
+      "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts. Preserve the mandatory SPDX license identifier.",
       "review_history": [
         {
           "after_sha256": "8fde0cfcb8fe0b6ecfa2ed3ebc09ede10ae7a6e9429f0cdbed37a0e8538724aa",
@@ -1270,6 +1318,14 @@
         {
           "after_sha256": "ddd1f5b511d6966d80e3b937342b3aaed530a45afd9abc6d6ac1528799c8e788",
           "reason": "Publish bounded Sub-GHz receive/raw TX with a scoped CC1101 lease and persistent worker; serialize native TX/spectrum lifetimes and retain resources through RMT/SPI/power cleanup failures."
+        },
+        {
+          "after_sha256": "635a949c1464ba6d8b4eff8cf2f91d26dfecb89d1b64d004f47badb999e9dec7",
+          "reason": "build(p4): compact peripheral control services without changing radio timing paths"
+        },
+        {
+          "after_sha256": "15b7090a40e5986a371033f63d68488d754b361c0dcc5ca43f28a4d92d2368f0",
+          "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts."
         }
       ]
     },
@@ -1386,8 +1442,8 @@
     "firmware_c5/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "423dcada91e6ab2caa676d189fa06e48c1fab966756784d79a68170adcc52a3d",
-      "after_sha256": "b28a434d4841a428978cd779e862a83c3db30a19d119fa1b39e6058556a8a7cc",
-      "reason": "chore(tooling): add license notices to build and regression tools",
+      "after_sha256": "6b8915179093f2f8add16ee07825da3dee2af3a98f114e268b5d52ed2330b2b6",
+      "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation.",
       "review_history": [
         {
           "after_sha256": "4e7151e0676dc6ffa2890a8ed14765c91106c23d27b0a8e14d8696e1c8fd1b5e",
@@ -1396,6 +1452,22 @@
         {
           "after_sha256": "49823176bbb8261b7dba6c73f4526e6c670cdb6084ba98689cae5158902336b8",
           "reason": "build(security): add isolated factory profiles and audited signed-image capacity"
+        },
+        {
+          "after_sha256": "b28a434d4841a428978cd779e862a83c3db30a19d119fa1b39e6058556a8a7cc",
+          "reason": "chore(tooling): add license notices to build and regression tools"
+        },
+        {
+          "after_sha256": "181a0394bbbd94487ca0b2bd45a2d1230690ab27fbdd7461d7d6886e5e7c898c",
+          "reason": "Rename the Muse component to muse_port and update CMake dependencies."
+        },
+        {
+          "after_sha256": "c15a1745932579043c12497af9e48f5a87ae39d36d3a532a8c961a0fddcda93e",
+          "reason": "Replace vendor copies with pinned Component Manager dependencies while preserving optimization and IDF 6 LED-strip compatibility."
+        },
+        {
+          "after_sha256": "aa2dd73532021eeafe05a00c941de134271b4e2b3990377f59feead2e1f98102",
+          "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts."
         }
       ]
     },
@@ -1408,8 +1480,14 @@
     "firmware_c5/components/Service/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "81b7ed6cab0098e875aa3e27d5c6a8782292eee000c09d1a0c0de2275cf2af68",
-      "after_sha256": "6b810a2105fc7603c98de27eaf2882202291c5fa77fa9f2cba941a4d4b5a3276",
-      "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership"
+      "after_sha256": "9ee20e3f6a0e0aeff076954c5eb4cef63a911719d09adb97aabe2201b6804e84",
+      "reason": "Rename the Muse component to muse_port and update CMake dependencies.",
+      "review_history": [
+        {
+          "after_sha256": "6b810a2105fc7603c98de27eaf2882202291c5fa77fa9f2cba941a4d4b5a3276",
+          "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership"
+        }
+      ]
     },
     "firmware_c5/components/Service/spi_bridge/hb_muse_c5_service.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -1436,28 +1514,48 @@
     "firmware_p4/components/Applications/LoRa/meshtastic/meshtastic_mqtt.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "f8e7aec66df5a024cfeeb8b46253646513d45052c7767e3818f9877dd3b5fd94",
-      "after_sha256": "585295d219f4150f553ed363bf33223f08d137f691b0017403781e36134827f5",
-      "reason": "Check each MQTT topic formatting result before configuring the C5 client",
+      "after_sha256": "786fc189438a9a997dcc0a7be1511fda8c5c04adc305ede4fe511ababcffd96c",
+      "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation.",
       "review_history": [
         {
           "after_sha256": "a4c5d7acf5a410a3afa99e4dd6bf517957ec2f4200fc095be753bc06f50145f4",
           "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership",
           "pre_format_sha256": "c276193029de5ada5a9a491dc4183511de121d4ba2443abd2fd4cc0ed2f43c9d",
           "formatter": "clang-format version 22.1.5"
+        },
+        {
+          "after_sha256": "585295d219f4150f553ed363bf33223f08d137f691b0017403781e36134827f5",
+          "reason": "Check each MQTT topic formatting result before configuring the C5 client"
+        },
+        {
+          "after_sha256": "7d02df57838ce748cff0cd36b567ec0f9aff6722eaece2434e49421fcda76a8c",
+          "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts."
         }
-      ]
+      ],
+      "pre_format_sha256": "c9772439504ad8f4e3148a4db205907c13ac5b1fc525ea590e98b79b1b29dd6b",
+      "formatter": "clang-format version 22.1.5"
     },
     "firmware_p4/components/Applications/LoRa/meshtastic/meshtastic_mesh.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "1c3dc2d211c18b183e7d6b0fc0269357004f2e6a601efc73e8c7d8bf83d4e2b2",
-      "after_sha256": "9e554c21bda4e868852b222153d6b635e1bded3fcad4bda0357c14cbfd4dc399",
-      "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown",
+      "after_sha256": "a3362a4cb4e3a6946bccf369f37be463942bcdd705a2f507c5eb810a1f2fc7e9",
+      "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation.",
       "review_history": [
         {
           "after_sha256": "0ad82cb0f13888a8058cb58a0be7ed229eaa9af87336528c5edaf09e7a48bef8",
           "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership"
+        },
+        {
+          "after_sha256": "9e554c21bda4e868852b222153d6b635e1bded3fcad4bda0357c14cbfd4dc399",
+          "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown"
+        },
+        {
+          "after_sha256": "13749d1d78ad1d3b993393359c36441144a2b8933a808e51f59e5306e66ca670",
+          "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts."
         }
-      ]
+      ],
+      "pre_format_sha256": "4254403282954abe7d2a1e9063876946537125297bef339f7023f12174a0b070",
+      "formatter": "clang-format version 22.1.5"
     },
     "firmware_p4/components/Applications/ui/screens/lora/lora_chat_ui.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -1532,10 +1630,20 @@
     "firmware_p4/components/Service/host_link/host_link_sec.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "185f5eb3e8e748ed61f7f1d3996dc6799e77391f6d56845bba71bcca91ae6a21",
-      "after_sha256": "ea18bdd6153f4d6ce00e952e82126aff6053751e314b8b0720efb3aa83ac3481",
-      "reason": "Require fresh X25519 and transcript-bound PSK proofs, device token confirmation and signed key activation before companion commands",
-      "pre_format_sha256": "a9b79fea64d0819839df118a300b9b1a032a541264c407e14bc93bfc1b625c45",
-      "formatter": "clang-format version 22.1.5"
+      "after_sha256": "7e71762e43d3e7b3685f719eaa7bc83b0f99c8c578c45c535904eed22fe0c26b",
+      "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation.",
+      "pre_format_sha256": "3bd61c38c37227a28eb7bee328d33c55b9b042f33a365462548f2571bb8e90b0",
+      "formatter": "clang-format version 22.1.5",
+      "review_history": [
+        {
+          "after_sha256": "ea18bdd6153f4d6ce00e952e82126aff6053751e314b8b0720efb3aa83ac3481",
+          "reason": "Require fresh X25519 and transcript-bound PSK proofs, device token confirmation and signed key activation before companion commands"
+        },
+        {
+          "after_sha256": "4e3d89fc761da03a2910f3a50fcb9623ea5af788d72c2f58237559e0351acaad",
+          "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts."
+        }
+      ]
     },
     "firmware_p4/components/Service/host_link/include/host_link.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -1796,10 +1904,16 @@
     "firmware_p4/components/Applications/LoRa/meshcore/meshcore_db.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "e748c7b35aef533d0b7b950318515a8c68f06fe5539c6b3b934fc3071334fef5",
-      "after_sha256": "1abd130044a2a3ff98975ad541c3fc769f0455be6178131053209e5682aee617",
-      "reason": "fix(lora): synchronize node snapshots and bound mesh receive parsing",
+      "after_sha256": "11a0599df9db7b626bc5256736cd60fe9bfe2933348faa9ba9f3592b938816f9",
+      "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation.",
       "pre_format_sha256": "80796acf9a5c1a183b70bdf559cf93a0e7d0ed13f5856e48f1c1e844650cf1f9",
-      "formatter": "clang-format version 22.1.5"
+      "formatter": "clang-format version 22.1.5",
+      "review_history": [
+        {
+          "after_sha256": "1abd130044a2a3ff98975ad541c3fc769f0455be6178131053209e5682aee617",
+          "reason": "fix(lora): synchronize node snapshots and bound mesh receive parsing"
+        }
+      ]
     },
     "firmware_p4/components/Applications/LoRa/meshcore/meshcore.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -1810,10 +1924,20 @@
     "firmware_p4/components/Applications/LoRa/meshcore/meshcore_router.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "c302d3a6a01c527cf5a05f2bc88059f06db4554585f1e47bf54ee090d5bfd3f7",
-      "after_sha256": "6a0124cf9fed85fdcd0ae560f4250b9669831df77afdba27d9f03cdb361ba4cc",
-      "reason": "fix(lora): synchronize node snapshots and bound mesh receive parsing",
-      "pre_format_sha256": "8d6f7cf06a1fe5556d9fe1e01c2b3d9598fbf1101903ec297d738c0baa9bd68b",
-      "formatter": "clang-format version 22.1.5"
+      "after_sha256": "81a9dd0069baa490ff3495e66c0e68ad0a75f4e656f2e3773fa46d2c1536c4f8",
+      "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation.",
+      "pre_format_sha256": "21d6b92beb92bfd105618d6befe62a0e41639e0099f5f55ff664df8a23d47252",
+      "formatter": "clang-format version 22.1.5",
+      "review_history": [
+        {
+          "after_sha256": "6a0124cf9fed85fdcd0ae560f4250b9669831df77afdba27d9f03cdb361ba4cc",
+          "reason": "fix(lora): synchronize node snapshots and bound mesh receive parsing"
+        },
+        {
+          "after_sha256": "a1bee27d22724dd4aa8cc9d7d4107ed89e5441402ad3850a14fe9abba2259335",
+          "reason": "Finish IDF v6.1 migration: reject failed MeshCore key agreements and use the SDK architecture flags for P4 LTO."
+        }
+      ]
     },
     "firmware_p4/components/Applications/LoRa/meshcore/include/meshcore.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -1824,16 +1948,26 @@
     "firmware_p4/components/Applications/LoRa/meshcore/include/meshcore_internal.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "9c80498d9324376f6daacb66160be7a8071c387809957a521981c6e6da141cae",
-      "after_sha256": "b4d9bad85123a0b587239d817b37dd9cdfd0a7581153077255748d74f9f73b49",
-      "reason": "docs(lora): record copied node contracts and paired validation",
+      "after_sha256": "810a5389cb5b0c4b87347255a4e37ac000c2ea52805c07a8733abe7f8c6d202c",
+      "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation.",
       "review_history": [
         {
           "after_sha256": "3ac7ee7cf62945b4bf08118bb9dc92bfbbd843a1629c987fb63f21ce92c0d7b2",
           "reason": "fix(lora): synchronize node snapshots and bound mesh receive parsing",
           "pre_format_sha256": "e74e5ef9272fa729ebdf7cfd22b4a58a1497210a92aa89bed91ec7cd268bc08a",
           "formatter": "clang-format version 22.1.5"
+        },
+        {
+          "after_sha256": "b4d9bad85123a0b587239d817b37dd9cdfd0a7581153077255748d74f9f73b49",
+          "reason": "docs(lora): record copied node contracts and paired validation"
+        },
+        {
+          "after_sha256": "10f9f2c547f999160bc6d55595f37f6ba164bd0b32490ee21a1f514397042335",
+          "reason": "Finish IDF v6.1 migration: reject failed MeshCore key agreements and use the SDK architecture flags for P4 LTO."
         }
-      ]
+      ],
+      "pre_format_sha256": "378077a7376638f61c0203c9d68c1dd1586e06e664a830dbc4948a957d174312",
+      "formatter": "clang-format version 22.1.5"
     },
     "firmware_p4/components/Service/app_runtime/include/tos_app_mgr.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -1918,8 +2052,14 @@
     "firmware_p4/components/Drivers/sx1262/sx1262_hal.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "edd0d97205fc265d8187f427ce2c4fb649779006962113e4eaf0662c189e37c2",
-      "after_sha256": "5bf9236e9fe9aefdf10c621d4791db7b7e1bbddb4e7c09c64b435f975aa2d0e2",
-      "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown"
+      "after_sha256": "48f1a0ec642e4be4624c66c18d0afab76c457fdf52e3958aa0f27c1ae63bfe67",
+      "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts.",
+      "review_history": [
+        {
+          "after_sha256": "5bf9236e9fe9aefdf10c621d4791db7b7e1bbddb4e7c09c64b435f975aa2d0e2",
+          "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown"
+        }
+      ]
     },
     "firmware_p4/components/Service/console/commands/cmd_rf.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -2013,181 +2153,181 @@
       "after_sha256": "a0325309a5bfb40cf9bb4acac1afaa6e72c86df38eb100d83bec5e275a0f3d20",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/Kconfig": {
+    "firmware_c5/components/Service/muse_port/Kconfig": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "b3cf121f9d87272b36d9debf1b76b61edb1b9a6846c9a8086bb9fec7f530d5f7",
       "after_sha256": "17460e82c67b4088c25e021e3c83c4a09e66e69111611d3ae7de21856d1a29f8",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/bridge/hb_muse_rpc.c": {
+    "firmware_c5/components/Service/muse_port/bridge/hb_muse_rpc.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "bc584faec2dbfdd6a5e4ef74e8f42a7a5d50bc7508e59d9d2ba98aa6559b9b2d",
       "after_sha256": "f39a95ce3bed0c8e89cd3eae0fc7bfadeb2de3e31784a45b7f61760a01ef3338",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/core/hb_muse_core.c": {
+    "firmware_c5/components/Service/muse_port/core/hb_muse_core.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "d614a5c4c45fa1bb674cf834debc699c510ed88c216c1935f101cc53372a1e12",
       "after_sha256": "0f5f778ebc272ca2335d9e3d7453c32216834ecc0ec2ab7cbd0571d80c160723",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/core/hb_muse_core.h": {
+    "firmware_c5/components/Service/muse_port/core/hb_muse_core.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "c1087a1a9f4fa1690c8240867496885a711bc9ba789753b0f9293c5848342c58",
       "after_sha256": "777722c11173a64a6991b4e6fabd01897b68f3cb61f839b3ec18ebad78537c94",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/diagnostic/hb_muse_alloc_trace.c": {
+    "firmware_c5/components/Service/muse_port/diagnostic/hb_muse_alloc_trace.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "d0467ef020d4f8991c5f1d32a9b6960124e61a33e2e004955e865e5b869c444f",
       "after_sha256": "07b0635d1f76d25d071238fbb9f0774accdbfb012b10dfc4c960a9198f7228b6",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_pairing.c": {
+    "firmware_c5/components/Service/muse_port/pairing/hb_muse_pairing.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "012bc9b614f8d0b19d91cd422010ae9b35cfb7d2005b65b831f4011c2db36a6c",
       "after_sha256": "39737999d76c9b12d0f95db993c1eb0513400da19740be95a73a9392981eda27",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_pairing.h": {
+    "firmware_c5/components/Service/muse_port/pairing/hb_muse_pairing.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "74e71048c7a4e21ea35684e31e0acbee44a04af72a8ccf5b69d948f736b62fcf",
       "after_sha256": "bf4dfa2d6c5a560e3fb6c02fa7d3b16f149a88d5d52a11661c4a9f295736f09f",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_pairing_fragments.c": {
+    "firmware_c5/components/Service/muse_port/pairing/hb_muse_pairing_fragments.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "7c7e1a2cccb152a716f5f4bc1dfa4fa616ff6fe856e1aa46a1457237d1046aa8",
       "after_sha256": "f6441821f8a817be656c4a5c04b1504e0a78633ff2b894a4d2c952cad0d8d853",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_pairing_gatt.c": {
+    "firmware_c5/components/Service/muse_port/pairing/hb_muse_pairing_gatt.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "75a7e98dfea56bbf8c5b7709d535b21c754a89815bece673162d0e479383067a",
       "after_sha256": "8fce95024d1c9e3ba5eda46e54e695f47823aa628a62e661fc4f1224588ae81f",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_setup.h": {
+    "firmware_c5/components/Service/muse_port/pairing/hb_muse_setup.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "26e5a419cd7fbf015add88862f510be054d5b6027d8ad039035c800d50f3d547",
       "after_sha256": "3a11567a00c17c36a532e158ade6e2933faad656c90f3cc33a9af570f69a6c7b",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/platform/hb_muse_account_fetch.c": {
+    "firmware_c5/components/Service/muse_port/platform/hb_muse_account_fetch.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "c95ddca1f2c9d6f649f1c8c99c7f60b0fa992ce521380c633635f1db0c354026",
       "after_sha256": "8a24ea12e4c168a09c964c7d55c5ef541996d7d028c012e2b157993221e8bf83",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/platform/hb_muse_account_fetch.h": {
+    "firmware_c5/components/Service/muse_port/platform/hb_muse_account_fetch.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "bbe16a255cd797d2d48e994b558cb25458a3d0509bf9329367042b180fd0e35a",
       "after_sha256": "0079013a700affc97f2fdaec539d02451241b86119a6b9fa7adca484509c5b74",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/platform/hb_muse_account_worker.h": {
+    "firmware_c5/components/Service/muse_port/platform/hb_muse_account_worker.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "9eb6e97a46e93ebacb146ac752023abda1f3ff5681aeeb3245471916e19d92a3",
       "after_sha256": "d95a81844911ab133f4a3cc171a176ac5dd27cb3f516923037140bb7bed3d290",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/platform/hb_muse_platform.c": {
+    "firmware_c5/components/Service/muse_port/platform/hb_muse_platform.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "5d8a872a3c13a4f7edab04c3164b28f59b9aa958d8c356d16743d021ea24079c",
       "after_sha256": "c875936e4464f49442dd2d7864835b0e5707f8a745a66b7e3cc6166a5f17246b",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/platform/hb_muse_platform.h": {
+    "firmware_c5/components/Service/muse_port/platform/hb_muse_platform.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "024d931be5242f6df1b40b036e18fec5bbc0133890c64a2407e2ef0f9cb76ffe",
       "after_sha256": "67766485270b5ee24910e2a1b2b5c6f7e9a6ad7c80f1b0d2344db413a11ce184",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/platform/hb_muse_store.c": {
+    "firmware_c5/components/Service/muse_port/platform/hb_muse_store.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "b4cb09e6688a9a4475fce9de642298365e4d19020b3b0d11320ce3188360d233",
       "after_sha256": "14ebdd8dffdf182bafb911588a84296801d291308710bbd80b9c33b4df0358dc",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/platform/hb_muse_store.h": {
+    "firmware_c5/components/Service/muse_port/platform/hb_muse_store.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "8a22d3ce8b68e310c3d4afaf0354c2230dff54b76711ca6b6eb7321c610ecf8d",
       "after_sha256": "3c4645d23857c2e081503011fa1a2218620512e7d98dbafa31a06c913fe6cca1",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/runtime/hb_muse_runtime.h": {
+    "firmware_c5/components/Service/muse_port/runtime/hb_muse_runtime.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "fe17a0f0ef5f1b638bf1bd5e94ff03f0b11e630942d65355ddc5d519ae8785f2",
       "after_sha256": "72ce834129c7635339cea57c2dfaedf250151aeb6fe407f59911daf272cb7cb3",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/sdk/hb_muse_sdk_port.h": {
+    "firmware_c5/components/Service/muse_port/sdk/hb_muse_sdk_port.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "f66c9f50da4ee1e6129fbf95f2c96f6347ba26e2724f0746fc4e431bc8089746",
       "after_sha256": "38e0c92d4077439f5245b0f1edcba412d8345673f92effeb35562dce5e7c442d",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/sdk_adapter/hb_muse_pcm_adapter.c": {
+    "firmware_c5/components/Service/muse_port/sdk_adapter/hb_muse_pcm_adapter.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "eab00ec2d7b6d9202353c1eb548cf09aa1064cd7b145a249a232c64c860dfc76",
       "after_sha256": "a208fa410655545bd98db9e16d7cd1ed22588dee803fbcf29c2d20a347d5de42",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/sdk_adapter/hb_muse_pcm_adapter.h": {
+    "firmware_c5/components/Service/muse_port/sdk_adapter/hb_muse_pcm_adapter.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "51fdad712ebbb03cd4da9267ffd890b2c413eab5b055d68659ee9e9d80a5ee1a",
       "after_sha256": "793af018b15f3f6049f6e45cee7356c2ecd8738bf2db6473bf2f4c8f77b6b0b9",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/sdk_adapter/hb_muse_sdk_binding.c": {
+    "firmware_c5/components/Service/muse_port/sdk_adapter/hb_muse_sdk_binding.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "b8add284a383911e078c6039ece72b2a04f5e4a898f09225cc52cb7e117879db",
       "after_sha256": "1a37386eb73e3eb178676f0c505c6529c67dea6778cdebdf3b5dbec2f8a86860",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/sdk_adapter/hb_muse_sdk_binding.h": {
+    "firmware_c5/components/Service/muse_port/sdk_adapter/hb_muse_sdk_binding.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "9da68ef847c12b37389db19728b264da1bbd5cfa606eb5d0564a1222fbb9c7c8",
       "after_sha256": "006418963ddbce26ab53b66135051a3f535ca69e782c3fe86c6fe7111a307bd7",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/sdk_adapter/hb_muse_sdk_port.h": {
+    "firmware_c5/components/Service/muse_port/sdk_adapter/hb_muse_sdk_port.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "c32e9f82d57ebc6df8f5c0707d994eda710b7d85f38113f7c300f894f8403c6f",
       "after_sha256": "f40c0a5eaaed03df1212a7d0691544ba59eb717bcf37b938bf1a550a6471f7fe",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/sdk_adapter/hb_muse_sdk_port.inc": {
+    "firmware_c5/components/Service/muse_port/sdk_adapter/hb_muse_sdk_port.inc": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "034ccd2850b334f4820e58217e1229dabefe406824d34322ddfae2462f147e74",
       "after_sha256": "ba873312c0977b754ffb5e518d9e1030f3ad08ee78395c784b1047e20de6af07",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/token_uart/hb_muse_token_frame.c": {
+    "firmware_c5/components/Service/muse_port/token_uart/hb_muse_token_frame.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "6abd389341e3a521a8b74e613f74658c929f25c0b9f0f4e47cb8480215372bd1",
       "after_sha256": "ef008723bff0013abb2f57d4e7de3416f7d221d3ca3be06482095e28b1c30882",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/transport/hb_muse_endpoint.c": {
+    "firmware_c5/components/Service/muse_port/transport/hb_muse_endpoint.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "6204a6021fcd1ca88a1ddd1195913aefa14fb7aaa6ce583eee99feb37cabf9c9",
       "after_sha256": "3f88fa3762c60ef539bb36348dea3d214f84f38da8e26c3b8a68a8d8fd728d3d",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/transport/hb_muse_endpoint.h": {
+    "firmware_c5/components/Service/muse_port/transport/hb_muse_endpoint.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "af47b56eca9c92e4c7091d2ba71074ca3230ad81bbae224d4ef319a2d48d89f8",
       "after_sha256": "d67b03a17ffd526180e8bd6af655c39015b02e504e5d4853e0b59a44f524d592",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/transport/hb_muse_wire.c": {
+    "firmware_c5/components/Service/muse_port/transport/hb_muse_wire.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "d5362d0a57935cbcbb8d16b71433d913de51d8850c00e5e0abe0364c5489816c",
       "after_sha256": "b5a7cc1fbb2602987942de49c2fc49bbac96d15b89ba5002ea969a93bc53a9b8",
       "reason": "chore(c5): add missing first-party component license notices"
     },
-    "firmware_c5/components/Service/highboy_muse/transport/hb_muse_wire.h": {
+    "firmware_c5/components/Service/muse_port/transport/hb_muse_wire.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "1ddf71696d68821dbdaa872ad48b421faf861453ec8a496005c202f5dbb9d45f",
       "after_sha256": "161a6d239bc4e7f34b93f439675b2962b6c32854f1049a0975ae92e46f69c008",
@@ -2265,79 +2405,85 @@
       "after_sha256": "5e640ecbb521a50d757d43b7b1312990b2dda95e429c400bafdf102e97aa3a4a",
       "reason": "chore(p4): add license notices to applications and drivers"
     },
-    "firmware_p4/components/Service/highboy_muse/CMakeLists.txt": {
+    "firmware_p4/components/Service/muse_port/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "81adb047dbda317c3254e8afd84662a6e83eb52514334c79f1e36d39731dc340",
-      "after_sha256": "6cf465ff3330d1d9d93eae5a4ae02f92f91bd6cd7f70f6b99eb12b00cab5a9da",
-      "reason": "chore(p4): add missing service license notices"
+      "after_sha256": "1d23ddd866589cab6230e107e388cdc4fec853dbdee8fe24d1d8c81039be897a",
+      "reason": "Finish IDF v6.1 migration: reject failed MeshCore key agreements and use the SDK architecture flags for P4 LTO.",
+      "review_history": [
+        {
+          "after_sha256": "6cf465ff3330d1d9d93eae5a4ae02f92f91bd6cd7f70f6b99eb12b00cab5a9da",
+          "reason": "chore(p4): add missing service license notices"
+        }
+      ]
     },
-    "firmware_p4/components/Service/highboy_muse/core/hb_muse_core.c": {
+    "firmware_p4/components/Service/muse_port/core/hb_muse_core.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "d614a5c4c45fa1bb674cf834debc699c510ed88c216c1935f101cc53372a1e12",
       "after_sha256": "0f5f778ebc272ca2335d9e3d7453c32216834ecc0ec2ab7cbd0571d80c160723",
       "reason": "chore(p4): add missing service license notices"
     },
-    "firmware_p4/components/Service/highboy_muse/core/hb_muse_core.h": {
+    "firmware_p4/components/Service/muse_port/core/hb_muse_core.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "c1087a1a9f4fa1690c8240867496885a711bc9ba789753b0f9293c5848342c58",
       "after_sha256": "777722c11173a64a6991b4e6fabd01897b68f3cb61f839b3ec18ebad78537c94",
       "reason": "chore(p4): add missing service license notices"
     },
-    "firmware_p4/components/Service/highboy_muse/p4_app/hb_muse_app.c": {
+    "firmware_p4/components/Service/muse_port/p4_app/hb_muse_app.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "ed11cf52cd792becc44eeec275f68857f0e9a17296e3b2da8b2a2642d543e55a",
       "after_sha256": "fb46eb68e05f32ed7b6fcc7ec0ec2011f6b26227b3dafead428f8ba5054cd434",
       "reason": "chore(p4): add missing service license notices"
     },
-    "firmware_p4/components/Service/highboy_muse/p4_app/hb_muse_app.h": {
+    "firmware_p4/components/Service/muse_port/p4_app/hb_muse_app.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "0ef226a99fdf8f14ca9823f244b793d5d790f9eb4d3ba9faaa84f0d49d7ceb65",
       "after_sha256": "23d815e1941853b68a6784c43e91c8094e294354097a4dd07d7434e87cfda1cc",
       "reason": "chore(p4): add missing service license notices"
     },
-    "firmware_p4/components/Service/highboy_muse/sdk_adapter/hb_muse_pcm_adapter.h": {
+    "firmware_p4/components/Service/muse_port/sdk_adapter/hb_muse_pcm_adapter.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "51fdad712ebbb03cd4da9267ffd890b2c413eab5b055d68659ee9e9d80a5ee1a",
       "after_sha256": "793af018b15f3f6049f6e45cee7356c2ecd8738bf2db6473bf2f4c8f77b6b0b9",
       "reason": "chore(p4): add missing service license notices"
     },
-    "firmware_p4/components/Service/highboy_muse/sdk_adapter/hb_muse_sdk_binding.h": {
+    "firmware_p4/components/Service/muse_port/sdk_adapter/hb_muse_sdk_binding.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "9da68ef847c12b37389db19728b264da1bbd5cfa606eb5d0564a1222fbb9c7c8",
       "after_sha256": "006418963ddbce26ab53b66135051a3f535ca69e782c3fe86c6fe7111a307bd7",
       "reason": "chore(p4): add missing service license notices"
     },
-    "firmware_p4/components/Service/highboy_muse/sdk_adapter/hb_muse_sdk_port.h": {
+    "firmware_p4/components/Service/muse_port/sdk_adapter/hb_muse_sdk_port.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "c32e9f82d57ebc6df8f5c0707d994eda710b7d85f38113f7c300f894f8403c6f",
       "after_sha256": "f40c0a5eaaed03df1212a7d0691544ba59eb717bcf37b938bf1a550a6471f7fe",
       "reason": "chore(p4): add missing service license notices"
     },
-    "firmware_p4/components/Service/highboy_muse/transport/hb_muse_endpoint.h": {
+    "firmware_p4/components/Service/muse_port/transport/hb_muse_endpoint.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "af47b56eca9c92e4c7091d2ba71074ca3230ad81bbae224d4ef319a2d48d89f8",
       "after_sha256": "d67b03a17ffd526180e8bd6af655c39015b02e504e5d4853e0b59a44f524d592",
       "reason": "chore(p4): add missing service license notices"
     },
-    "firmware_p4/components/Service/highboy_muse/transport/hb_muse_wire.c": {
+    "firmware_p4/components/Service/muse_port/transport/hb_muse_wire.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "d5362d0a57935cbcbb8d16b71433d913de51d8850c00e5e0abe0364c5489816c",
       "after_sha256": "b5a7cc1fbb2602987942de49c2fc49bbac96d15b89ba5002ea969a93bc53a9b8",
       "reason": "chore(p4): add missing service license notices"
     },
-    "firmware_p4/components/Service/highboy_muse/transport/hb_muse_wire.h": {
+    "firmware_p4/components/Service/muse_port/transport/hb_muse_wire.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "1ddf71696d68821dbdaa872ad48b421faf861453ec8a496005c202f5dbb9d45f",
       "after_sha256": "161a6d239bc4e7f34b93f439675b2962b6c32854f1049a0975ae92e46f69c008",
       "reason": "chore(p4): add missing service license notices"
     },
-    "firmware_p4/components/Service/highboy_muse/transport/hb_muse_wire_client.c": {
+    "firmware_p4/components/Service/muse_port/transport/hb_muse_wire_client.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "15441a7e8c5e48c9bdd0e1c4f1269a0ffde7c8d4ffb4802eaa73abf6330102d1",
       "after_sha256": "80528e087494df2fd4e44cac6806319a861c8fb2847a1239eb11139b50b71b92",
       "reason": "chore(p4): add missing service license notices"
     },
-    "firmware_p4/components/Service/highboy_muse/transport/hb_muse_wire_client.h": {
+    "firmware_p4/components/Service/muse_port/transport/hb_muse_wire_client.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "00aba9adb50a1682e82159e7952b4305f8a2f244ee5c87d5eb2ebc597c3fa7c8",
       "after_sha256": "7c3383464a5c30265b27100d13d2be9afb117bd599d9973e75071faad0a2a8c7",
@@ -2482,6 +2628,180 @@
           "reason": "Recognize Espressif OUI 10:BD:A3 missing from the offline lookup, confirmed in Nmap manufacturer data and observed C5 AP logs; retain local-MAC exclusion and existing prefixes. Add regression coverage for the reported MAC and ensure SSID alone never earns OUI points."
         }
       ]
+    },
+    "firmware_p4/sdkconfig.defaults": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "c84ffeeba7a7e639ba7ee826eb5c9281520d82fc79c943432666ba64dc1a877e",
+      "after_sha256": "22e36beae24c1115807e8b3eff268193297c066f4c2a923259d23d9b5ae1728b",
+      "reason": "Explicitly disable the removed SDK DES implementation; retain NFC DES compatibility through its isolated legacy module and software P4 PSA AES.",
+      "review_history": [
+        {
+          "after_sha256": "7ed39b0c656fa0c763f7eb6d87340df0a8824e8ad32804069085abd5cbbb5e24",
+          "reason": "Merge the five installed-layout and development-security settings from sdkconfig.muse into sdkconfig.defaults; preserve effective P4 configuration and add the project license notice."
+        },
+        {
+          "after_sha256": "87a9ca35ea82c55ab587c0bf8f4b5461ad37706c0a93a74e9a994f5ec226a2b7",
+          "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts."
+        },
+        {
+          "after_sha256": "ce64d03c806f049602c265a1adfec50a903dff357771dbe6526977593e5e61fe",
+          "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation."
+        }
+      ]
+    },
+    "firmware_p4/main/idf_component.yml": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "0707acd59be0d156fc9dbd880f69c784b9524a964ab9a5b54b06822c10e35a60",
+      "after_sha256": "affa5d6246569ad9f5120edee4136302d825bd83b2cd84a0292da78bcb54bdd9",
+      "reason": "Replace vendor copies with pinned Component Manager dependencies while preserving optimization and IDF 6 LED-strip compatibility."
+    },
+    "firmware_c5/main/idf_component.yml": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "39eb04166750ac75447f626e784355c106e94527d24bd22d91905b5af1d58b23",
+      "after_sha256": "36b3f5091acda09c1987de190a572500f9bf3f0b26e792856474c79a7d3f14b8",
+      "reason": "Replace vendor copies with pinned Component Manager dependencies while preserving optimization and IDF 6 LED-strip compatibility."
+    },
+    "firmware_c5/components/Service/muse_port/sdk/link_pairing.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "73191a1bbd056515422b7d261bfe54810a29d2776cbe347a1821f5563a5acc9e",
+      "after_sha256": "8204d2afdf0aa007a57757cba874e5c6a32b16c3b9ee935930f7bded1d8fa1d2",
+      "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation.",
+      "review_history": [
+        {
+          "after_sha256": "d220950c07bc59dc5b5e9bac4480140a116f63ae656c013d7e37605a814c3f7e",
+          "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts."
+        }
+      ]
+    },
+    "firmware_c5/components/Service/muse_port/sdk/muse_chat_session.cpp": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "fc0f9a35437a43d705412c7febda1844e48ffbe18ae6655c3b7874025be30e03",
+      "after_sha256": "a1a4e72cf610b4a3723a8ca42245d7bcf1a185a5d723e9a5b7542c82592be662",
+      "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts."
+    },
+    "firmware_p4/components/Applications/LoRa/meshcore/meshcore_crypto.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "5ea46a7dd3dfe25a7adc8155ff075efd6b9e6fc5b0870d85ca2edca84720b66d",
+      "after_sha256": "6978b7f208626eb6d108ea0c3ad4b144a20944e8374eb8030c1b42e6e2542f99",
+      "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation.",
+      "review_history": [
+        {
+          "after_sha256": "a82c1e99cf6683c7d9b5816ae6b3a4ec9f6f47bea20f89e6f2eef1c0498740bf",
+          "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts."
+        },
+        {
+          "after_sha256": "65442ac0ba75364a52b012d296580f578cc439458c51302b90bc6a17ce7ca913",
+          "reason": "Finish IDF v6.1 migration: reject failed MeshCore key agreements and use the SDK architecture flags for P4 LTO."
+        }
+      ],
+      "pre_format_sha256": "64e78b041bb0d7c51dd2d79c1edcc85acc42ff8c0f4eb318f5fc8375d0159dc2",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/LoRa/meshtastic/meshtastic_channels.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "94fce630683170fc92ab98ccf60b61117f974cc3cfd823c082f03a3bbd5bc820",
+      "after_sha256": "61e5bc0aed7e2bcca8d051216b83e57f6467140d86fe3cd6817edeffc0de9a15",
+      "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation.",
+      "review_history": [
+        {
+          "after_sha256": "d3de21de58b81a63ad9d25549e2756d3228ba274c37293823d99e0bb072a80ed",
+          "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts."
+        }
+      ]
+    },
+    "firmware_p4/components/Applications/LoRa/meshtastic/meshtastic_crypto_pki.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "ec08609334921deaa536a31b35642bec498772ea4f16da46b94812116f25df58",
+      "after_sha256": "05ee07f9a7f0959811cd7c73fddb8ea4e2b0817cbf5ea00aa095f56dbc266fd1",
+      "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation.",
+      "review_history": [
+        {
+          "after_sha256": "b17ad9c3a2ff82e105cafc004a83286fd8f330649a7e7f3084d34e042a69b219",
+          "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts."
+        }
+      ],
+      "pre_format_sha256": "10a75a497d99acddc8833d7041eaa68c05746ec211a07a13d332790b9ac9a9c3",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/LoRa/meshtastic/meshtastic_pki.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "a496109af29348d9b5f447f1e3156b039bada0d50639e9bc659472b484e9e9e4",
+      "after_sha256": "161144a6059118f412c512be11368e8059efd02d8d3c614ddfa8b49dea38abf5",
+      "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation.",
+      "review_history": [
+        {
+          "after_sha256": "36f15fff07b891528e819afecacd743f79092505621385403775813b909638c4",
+          "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts."
+        }
+      ]
+    },
+    "firmware_p4/components/Applications/LoRa/meshtastic/mt_mod_keyverify.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "a332867a47f3ab3bb6c4b5bffa4f75db8d8035b97ec040ffd7daf81beed06c28",
+      "after_sha256": "da3ea35a33de95d03aa59e7f9f21eac75b2836253a8df3556bc1b2c7026506fe",
+      "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation.",
+      "review_history": [
+        {
+          "after_sha256": "12c822fa476401b92c8e0c3a27e2b155b9cf8b4b80a3106e3b0c98fb616aba74",
+          "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts."
+        }
+      ],
+      "pre_format_sha256": "d736e84ecca3e85e64017aa6c8f60d952bbc54cfcb62ea0bfed88f516bad73e4",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/protocols/common/nfc_crypto.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "144c7fb07f594f576527f594c76f2a0e429831407c660d2c2dc4afa3f0a0c3dd",
+      "after_sha256": "a6e705aa98749d52d899acce9e8119ff706e77d0e106f417cd070d884f15d886",
+      "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation.",
+      "review_history": [
+        {
+          "after_sha256": "f83d687428470e9de00a75140f2d02c8d5c6ff1815f89b86578a79dcf5b11a96",
+          "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts."
+        }
+      ],
+      "pre_format_sha256": "2b51c8fe604d4a3b6b388242c7664f1c50fe7af0b05c1e730b853b2d72bd67de",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/protocols/mifare/mf_classic.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "a8184554b1ab3db60cf4435a3eae62c0b24a52f88d9848ba4ef5c54c86b03139",
+      "after_sha256": "261bd4755b3c8193cbd12497e0071386e3f2c010b479285e65acf2a924984478",
+      "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts."
+    },
+    "firmware_p4/components/Applications/nfc/protocols/mifare/mf_desfire.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "bc78a645ee427504e7c5d5f6c6cbd8d11fe180e5b4b63b5bdb1db7c19ab9f8d7",
+      "after_sha256": "676d6c8021ee0af4fbc6cedc77d2efddf2bd6d0e50b0f186f04b27b86adf117c",
+      "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation.",
+      "review_history": [
+        {
+          "after_sha256": "8e91a002ae628faa58690aec79f67a5936a0d1fa0a8ecbec4672db10fd915c81",
+          "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts."
+        }
+      ],
+      "pre_format_sha256": "4fcdd7542ee723f2fe90174aa5ee6d07e00b8c280e8b33f325785cde9e228770",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/protocols/mifare/mf_nested.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "6b8b162fecf43676147b3f4b0d12f98529893c5d8e3e53113f1a3bb12a8a0086",
+      "after_sha256": "63f6c0c8e583123ffe838109596cae5c773af5df7639fa5eaf2abc2d2aaaeb52",
+      "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts.",
+      "pre_format_sha256": "d830b83bbd54caf14a824856786cb52fcdc3c5529e67fdbd1cd9d92818a4c397",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/protocols/mifare/mf_ultralight.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "f95129b4b01445dd43b53e55de564dbe9a1e72a84316b50e544fe6fc1a5ea2ab",
+      "after_sha256": "37b68baa8ab8cd531869ed2bba1aabb3e23dd7ee0d5da92d7e9b8ae062fe3cbd",
+      "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts."
+    },
+    "firmware_p4/components/Applications/nfc/protocols/t2t/t2t_emu.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "9b7abfaca76fe7528112b278730af6f7a3acdb0fd568a011cb6147979a9bb140",
+      "after_sha256": "7e62e3f6f5762102a6f0429ea2fdb39d2394debfb315ad773a13dcf58a9eddc6",
+      "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts."
     }
   }
 }

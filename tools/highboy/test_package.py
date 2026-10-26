@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 """Package/verification regressions with explicit artifact fixtures; no device access."""
 import copy
 import json
@@ -64,7 +79,7 @@ class PackageTests(unittest.TestCase):
             with self.subTest(field=field):
                 report=copy.deepcopy(self.report);report[field]=value
                 with self.assertRaises(ValueError):self.write(report)
-        for field,value in [('file','../image.bin'),('idf_version','v6.1'),('slot_bytes',0x300000),
+        for field,value in [('file','../image.bin'),('idf_version','v0.0.0'),('slot_bytes',0x300000),
                             ('free_bytes',0),('bytes',True),('partition_table_sha256','0'*64),
                             ('sha256','0'*64)]:
             with self.subTest(field=field):

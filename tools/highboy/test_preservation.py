@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 """Offline import-preservation gates and canonical-source Muse host regressions.
 
 Only public source, the import manifest and named non-secret build settings are
@@ -23,8 +38,8 @@ from check_contracts import C5_MEMORY
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "tools/highboy/fixtures/muse_port"
-C5 = ROOT / "firmware_c5/components/Service/highboy_muse"
-P4 = ROOT / "firmware_p4/components/Service/highboy_muse"
+C5 = ROOT / "firmware_c5/components/Service/muse_port"
+P4 = ROOT / "firmware_p4/components/Service/muse_port"
 RUN_HOST = True
 
 # These are intentional integration changes, NOT assertions of byte preservation.
@@ -36,7 +51,7 @@ REVIEWED_MERGES = {
     "firmware_p4/sdkconfig.defaults",
     "firmware_p4/main/idf_component.yml",
     "firmware_p4/components/Service/app_runtime/include/tos_api.h",
-    "firmware_p4/components/Service/highboy_muse/p4_app/hb_muse_app.c",
+    "firmware_p4/components/Service/muse_port/p4_app/hb_muse_app.c",
     "firmware_p4/components/Applications/doom/doomgeneric_highboy.c",
     "firmware_p4/components/Service/storage_vfs/usb_msc.c",
     "firmware_p4/components/Service/console/commands/cmd_subghz.c",
@@ -205,6 +220,19 @@ class PreservationTests(unittest.TestCase):
         for target, item in self.records.items():
             with self.subTest(target=target):
                 path = contained(ROOT, target)
+                if target == "firmware_p4/sdkconfig.muse":
+                    # Retain import provenance for the overlay merged into P4 defaults.
+                    self.assertFalse(path.exists(), "Retired P4 overlay must not be restored")
+                    self.assertEqual(item["local_sha256"],
+                                     "18e1d4f1b13e7ab3c18489d735846099bd35585d3dec0363d88e5088de428328")
+                    merged = (ROOT / "firmware_p4/sdkconfig.defaults").read_text().splitlines()
+                    for setting in ("CONFIG_PARTITION_TABLE_OFFSET=0x8000",
+                                    "# CONFIG_SECURE_BOOT is not set",
+                                    "# CONFIG_SECURE_FLASH_ENC_ENABLED is not set",
+                                    "# CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT is not set",
+                                    "# CONFIG_NVS_ENCRYPTION is not set"):
+                        self.assertIn(setting, merged)
+                    continue
                 if not path.is_file():
                     failures.append(target + " (missing)")
                     continue
@@ -283,11 +311,11 @@ class PreservationTests(unittest.TestCase):
             "firmware_c5/components/Service/wifi/hb_muse_wifi_guard.inc",
             "firmware_c5/components/Service/wifi/hb_muse_wifi_scan.inc",
             "firmware_c5/components/Service/bluetooth/bluetooth_service.c",
-            "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_pairing.c",
-            "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_setup.c",
-            "firmware_c5/components/Service/highboy_muse/runtime/hb_muse_runtime.c",
-            "firmware_c5/components/Service/highboy_muse/bridge/hb_muse_rpc.c",
-            "firmware_p4/components/Service/highboy_muse/p4_app/hb_muse_app.c",
+            "firmware_c5/components/Service/muse_port/pairing/hb_muse_pairing.c",
+            "firmware_c5/components/Service/muse_port/pairing/hb_muse_setup.c",
+            "firmware_c5/components/Service/muse_port/runtime/hb_muse_runtime.c",
+            "firmware_c5/components/Service/muse_port/bridge/hb_muse_rpc.c",
+            "firmware_p4/components/Service/muse_port/p4_app/hb_muse_app.c",
         ]
         for target in required:
             with self.subTest(target=target):
@@ -342,16 +370,16 @@ class PreservationTests(unittest.TestCase):
         else:
             print("C5 effective configuration unavailable; defaults verified, build check pending.")
 
-    def test_upstream_and_third_party_metadata(self):
+    def test_upstream_metadata_and_dependency_licenses(self):
         self.assertEqual(self.manifest["upstream"], "011ed7da4c750b7777fd6dbad8ce4541304c6898")
         for key in ("credentials_copied", "runtime_assets_copied", "flashed"):
             self.assertIs(self.manifest[key], False, key)
-        sdk_license = ROOT / "third_party/muse_sdk/LICENSE"
+        sdk_license = ROOT / "firmware_c5/components/Service/muse_port/LICENSE"
         self.assertTrue(sdk_license.is_file(), "Muse SDK license missing")
         self.assertEqual(digest(sdk_license.read_bytes()),
                          "0353a8ae950232a70f0379a4b8a10b661b2f3e3a598e9411332fc0d4f98947fa",
                          "Pinned SDK Apache license changed")
-        self.assertTrue((ROOT / "third_party/muse_sdk/README.md").is_file(), "SDK provenance missing")
+        self.assertTrue((ROOT / "firmware_c5/components/Service/muse_port/README.md").is_file(), "SDK provenance missing")
         self.assertTrue((ROOT / "firmware_c5/components/Service/minimp3/LICENSE").is_file())
         self.assertTrue((ROOT / "LICENSE").is_file(), "TentacleOS license missing")
 
@@ -549,14 +577,14 @@ class CanonicalHostTests(unittest.TestCase):
                          includes=[FIXTURES / "pairing/gatt_fakes"])
 
     def test_pairing(self):
-        cjson = ROOT / "firmware_c5/vendor/cjson/cJSON"
+        cjson = ROOT / "tools/dependencies/build/managed_components/espressif__cjson/cJSON"
         self.run_fixture("pairing/test_pairing.c", [C5 / "pairing/hb_muse_pairing.c", cjson / "cJSON.c"],
                          includes=[cjson], scenarios=True)
 
     def test_setup(self):
         self.run_fixture("pairing/test_setup.c", [C5 / "pairing/hb_muse_setup.c",
                                                  C5 / "pairing/hb_muse_pairing_fragments.c"],
-                         includes=[FIXTURES / "pairing", ROOT / "firmware_c5/vendor/cjson/cJSON"],
+                         includes=[FIXTURES / "pairing", ROOT / "tools/dependencies/build/managed_components/espressif__cjson/cJSON"],
                          defines=["HB_MUSE_SETUP_HOST_TEST"], scenarios=True)
 
     def test_rpc(self):

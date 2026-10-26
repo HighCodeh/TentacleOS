@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 """Exercise generated configuration gates without modifying build outputs."""
 import contextlib
 import io
@@ -18,11 +33,14 @@ class ContractTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(prefix="highboy-contract-test-")
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        for chip, overlay in (("p4", "sdkconfig.muse"), ("c5", "sdkconfig.baseline")):
+        for chip in ("p4", "c5"):
             project = self.root / f"firmware_{chip}"
             project.mkdir()
-            for name in ("sdkconfig.defaults", overlay, "partitions.csv",
-                         "components/Service/spi_bridge/include/spi_protocol.h"):
+            names = ["sdkconfig.defaults", "partitions.csv",
+                     "components/Service/spi_bridge/include/spi_protocol.h"]
+            if chip == "c5":
+                names.append("sdkconfig.baseline")
+            for name in names:
                 target = project / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(REPO / f"firmware_{chip}" / name, target)

@@ -56,177 +56,177 @@
       "before_sha256": "8bd3449952d7cada1d0f3718f0a9d4de3618f2a19ea2258d57c24a70c445b5c1",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/bridge/hb_muse_rpc.c": {
+    "firmware_c5/components/Service/muse_port/bridge/hb_muse_rpc.c": {
       "after_sha256": "bc584faec2dbfdd6a5e4ef74e8f42a7a5d50bc7508e59d9d2ba98aa6559b9b2d",
       "before_sha256": "f58c7eb6db6692ecc697698ef00e5942f54a9dc6350418db9b8d059943fd0d91",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/bridge/hb_muse_rpc.h": {
+    "firmware_c5/components/Service/muse_port/bridge/hb_muse_rpc.h": {
       "after_sha256": "0d21c35790f67af9e5cf8d08ea815e99501d1826b0eb9f65bd6268ade1633a24",
       "before_sha256": "dddc7c9495fa4ba5087eb5bf5719dcae304bac5d8b9b1902baff06bd5d3989da",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/core/hb_muse_core.c": {
+    "firmware_c5/components/Service/muse_port/core/hb_muse_core.c": {
       "after_sha256": "d614a5c4c45fa1bb674cf834debc699c510ed88c216c1935f101cc53372a1e12",
       "before_sha256": "44f5a293f83d6254c35d269b88a32e12fda54f469dbb35cdf030bde1de86412a",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/core/hb_muse_core.h": {
+    "firmware_c5/components/Service/muse_port/core/hb_muse_core.h": {
       "after_sha256": "c1087a1a9f4fa1690c8240867496885a711bc9ba789753b0f9293c5848342c58",
       "before_sha256": "6854221aba0741bcae8a89c6cb54d469f1e12101a6b97f171694c11f394d6078",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/diagnostic/hb_muse_alloc_trace.c": {
+    "firmware_c5/components/Service/muse_port/diagnostic/hb_muse_alloc_trace.c": {
       "after_sha256": "d0467ef020d4f8991c5f1d32a9b6960124e61a33e2e004955e865e5b869c444f",
       "before_sha256": "68ff6a669fb96002001da1dc78498a3fcceccf58f13eeee33536e63fb051aa6a",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_pairing.c": {
+    "firmware_c5/components/Service/muse_port/pairing/hb_muse_pairing.c": {
       "after_sha256": "012bc9b614f8d0b19d91cd422010ae9b35cfb7d2005b65b831f4011c2db36a6c",
       "before_sha256": "0d2c154e500401fbe694c7815d3f6727736c3a1add212a272231b2b3036689c8",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_pairing.h": {
+    "firmware_c5/components/Service/muse_port/pairing/hb_muse_pairing.h": {
       "after_sha256": "74e71048c7a4e21ea35684e31e0acbee44a04af72a8ccf5b69d948f736b62fcf",
       "before_sha256": "795b4e8b4981fe28db6b874ecb1601049f7e2cd044ecf495f557c00e3d98830d",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_pairing_fragments.c": {
+    "firmware_c5/components/Service/muse_port/pairing/hb_muse_pairing_fragments.c": {
       "after_sha256": "7c7e1a2cccb152a716f5f4bc1dfa4fa616ff6fe856e1aa46a1457237d1046aa8",
       "before_sha256": "1faf12060894cf6f345987de693a83f8ff07e15d071ec604fdc18bc802e02047",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_pairing_fragments.h": {
+    "firmware_c5/components/Service/muse_port/pairing/hb_muse_pairing_fragments.h": {
       "after_sha256": "122ca3a200c2ce0bc9558c19612a9d97061f5e4ebceedd6a4172626a27a33f46",
       "before_sha256": "896c99f7f05602d0cab2beeec968abaa74a4c9a025e22fc9ff21e1129b7f5b01",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_pairing_gatt.c": {
+    "firmware_c5/components/Service/muse_port/pairing/hb_muse_pairing_gatt.c": {
       "after_sha256": "75a7e98dfea56bbf8c5b7709d535b21c754a89815bece673162d0e479383067a",
       "before_sha256": "e061affffac6f148fcef2666e0ab8f5f3c44febf26c9ecd199aec2776f7e6d28",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_pairing_gatt.h": {
+    "firmware_c5/components/Service/muse_port/pairing/hb_muse_pairing_gatt.h": {
       "after_sha256": "238a776fee2b5baf6cc64ef78925a215cbf3d9f9c023a67205c4117e64284dff",
       "before_sha256": "01426d31e34aa3657a71b2c79959d4551ea16fcd6b60181a100aba61d4fb785a",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_setup.c": {
+    "firmware_c5/components/Service/muse_port/pairing/hb_muse_setup.c": {
       "after_sha256": "f302c1f6d4c331f3627719bb96254502c9e9b53aec503cdf5458c15ee2605132",
       "before_sha256": "a2cd98fe4104f3be8f4e6a12d2487e77cc147122b09bbe00ac527d141d013996",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/pairing/hb_muse_setup.h": {
+    "firmware_c5/components/Service/muse_port/pairing/hb_muse_setup.h": {
       "after_sha256": "26e5a419cd7fbf015add88862f510be054d5b6027d8ad039035c800d50f3d547",
       "before_sha256": "3b3d242c9325d7b069ef9e38f70b5e58194c2e84f45cce35cff1e20b1b71a915",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/platform/hb_muse_account_fetch.c": {
+    "firmware_c5/components/Service/muse_port/platform/hb_muse_account_fetch.c": {
       "after_sha256": "c95ddca1f2c9d6f649f1c8c99c7f60b0fa992ce521380c633635f1db0c354026",
       "before_sha256": "1fe57c653ce3c8fa489e8178311a5daccda6efe75ff861f8aceff51f8770d6c6",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/platform/hb_muse_account_fetch.h": {
+    "firmware_c5/components/Service/muse_port/platform/hb_muse_account_fetch.h": {
       "after_sha256": "bbe16a255cd797d2d48e994b558cb25458a3d0509bf9329367042b180fd0e35a",
       "before_sha256": "e6f0702308e44ae468daa186fd88bcf9727b6afde8cf8eec7a75fe3146e2e863",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/platform/hb_muse_account_worker.c": {
+    "firmware_c5/components/Service/muse_port/platform/hb_muse_account_worker.c": {
       "after_sha256": "b06015ba8bc57652baf0f78f8a67aa22a76ac8a7a90229e1b15800d5b112d9d3",
       "before_sha256": "7cf46beb836153d73743fa3d1ba410f7ecdcee7b07092af56595f52ecddbcd0b",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/platform/hb_muse_account_worker.h": {
+    "firmware_c5/components/Service/muse_port/platform/hb_muse_account_worker.h": {
       "after_sha256": "9eb6e97a46e93ebacb146ac752023abda1f3ff5681aeeb3245471916e19d92a3",
       "before_sha256": "5c73868d8de88cadd20d2393f1ff64fdba3faeafd7e4fe952f7ef4eedf034e4b",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/platform/hb_muse_platform.c": {
+    "firmware_c5/components/Service/muse_port/platform/hb_muse_platform.c": {
       "after_sha256": "5d8a872a3c13a4f7edab04c3164b28f59b9aa958d8c356d16743d021ea24079c",
       "before_sha256": "ea31567e8f231a55ab62079a5f959252199b84148683a0f96211f62194b44071",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/platform/hb_muse_platform.h": {
+    "firmware_c5/components/Service/muse_port/platform/hb_muse_platform.h": {
       "after_sha256": "024d931be5242f6df1b40b036e18fec5bbc0133890c64a2407e2ef0f9cb76ffe",
       "before_sha256": "6e968c820a4d178910d68f260922f934f88f577ebccb9da9ebdb888d156d42ba",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/platform/hb_muse_store.c": {
+    "firmware_c5/components/Service/muse_port/platform/hb_muse_store.c": {
       "after_sha256": "b4cb09e6688a9a4475fce9de642298365e4d19020b3b0d11320ce3188360d233",
       "before_sha256": "1e76083c12949a8806eb5211cf9fde304aaf5c96404d57c225b08497331da6d2",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/platform/hb_muse_store.h": {
+    "firmware_c5/components/Service/muse_port/platform/hb_muse_store.h": {
       "after_sha256": "8a22d3ce8b68e310c3d4afaf0354c2230dff54b76711ca6b6eb7321c610ecf8d",
       "before_sha256": "a8bf568d14ba89e49928635353989efb8350ec289e2ba57321d15c4e487e7ece",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/runtime/hb_muse_runtime.c": {
+    "firmware_c5/components/Service/muse_port/runtime/hb_muse_runtime.c": {
       "after_sha256": "980d6504a88876176d3dee435516bdadd1bbd9dd017a516af1cfeb8ce84e2d82",
       "before_sha256": "1d2bb2ec72e9420da06ec6ebb4011376c730cec568e644367431a3385ac91e8e",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/runtime/hb_muse_runtime.h": {
+    "firmware_c5/components/Service/muse_port/runtime/hb_muse_runtime.h": {
       "after_sha256": "fe17a0f0ef5f1b638bf1bd5e94ff03f0b11e630942d65355ddc5d519ae8785f2",
       "before_sha256": "aab5b73cb7beb2e55c444e0dea66b00e9b64deeeab03d681165621b796d34a86",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/sdk_adapter/hb_muse_pcm_adapter.c": {
+    "firmware_c5/components/Service/muse_port/sdk_adapter/hb_muse_pcm_adapter.c": {
       "after_sha256": "eab00ec2d7b6d9202353c1eb548cf09aa1064cd7b145a249a232c64c860dfc76",
       "before_sha256": "03d003f10bbe0b5b57325139420fefe0f2d9e2d837ff03dfd3b15c91cff38434",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/sdk_adapter/hb_muse_pcm_adapter.h": {
+    "firmware_c5/components/Service/muse_port/sdk_adapter/hb_muse_pcm_adapter.h": {
       "after_sha256": "51fdad712ebbb03cd4da9267ffd890b2c413eab5b055d68659ee9e9d80a5ee1a",
       "before_sha256": "e5fa7764659ab1083cfeeea126b65785e6b333619486408219d807ebf2266c2e",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/sdk_adapter/hb_muse_sdk_binding.c": {
+    "firmware_c5/components/Service/muse_port/sdk_adapter/hb_muse_sdk_binding.c": {
       "after_sha256": "b8add284a383911e078c6039ece72b2a04f5e4a898f09225cc52cb7e117879db",
       "before_sha256": "9544dd51ebd24577817565ed2f4209b1936818f2a3a2624b54d87996d121fd4e",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/sdk_adapter/hb_muse_sdk_binding.h": {
+    "firmware_c5/components/Service/muse_port/sdk_adapter/hb_muse_sdk_binding.h": {
       "after_sha256": "9da68ef847c12b37389db19728b264da1bbd5cfa606eb5d0564a1222fbb9c7c8",
       "before_sha256": "e4cd81dfdb339752c386fe92124c5b1b4663001ff99a8874f7c4e6d90bf739ea",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/sdk_adapter/hb_muse_sdk_port.h": {
+    "firmware_c5/components/Service/muse_port/sdk_adapter/hb_muse_sdk_port.h": {
       "after_sha256": "c32e9f82d57ebc6df8f5c0707d994eda710b7d85f38113f7c300f894f8403c6f",
       "before_sha256": "f66c9f50da4ee1e6129fbf95f2c96f6347ba26e2724f0746fc4e431bc8089746",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/token_uart/hb_muse_token_frame.c": {
+    "firmware_c5/components/Service/muse_port/token_uart/hb_muse_token_frame.c": {
       "after_sha256": "6abd389341e3a521a8b74e613f74658c929f25c0b9f0f4e47cb8480215372bd1",
       "before_sha256": "538c11224f6c67782a5100b5e5b4491977f9c353b6272ac8159641f0e14557c4",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/token_uart/hb_muse_token_frame.h": {
+    "firmware_c5/components/Service/muse_port/token_uart/hb_muse_token_frame.h": {
       "after_sha256": "1d48ac6c51172e08df2d5d14cf122d8507d6224de8e39e74589fd8433754389b",
       "before_sha256": "a4b43f33905f76415560b839071e7484aa357a34c236731d637939b7dc99b421",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/token_uart/hb_muse_token_uart.c": {
+    "firmware_c5/components/Service/muse_port/token_uart/hb_muse_token_uart.c": {
       "after_sha256": "6d135f8b6be978dde4c45c9f363e795ccd5d90e9ebdca3a1e69ffe33ef528a51",
       "before_sha256": "53aca5f11dfc852dbc8c4fd780d3b1c390e5be35f93a13fec97cbe7d02c8a93e",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/transport/hb_muse_endpoint.c": {
+    "firmware_c5/components/Service/muse_port/transport/hb_muse_endpoint.c": {
       "after_sha256": "6204a6021fcd1ca88a1ddd1195913aefa14fb7aaa6ce583eee99feb37cabf9c9",
       "before_sha256": "c15d58b77f31585f48e5b4a0646c99f1f38a32bcaf8c5bea2f16f7e836c81b1c",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/transport/hb_muse_endpoint.h": {
+    "firmware_c5/components/Service/muse_port/transport/hb_muse_endpoint.h": {
       "after_sha256": "af47b56eca9c92e4c7091d2ba71074ca3230ad81bbae224d4ef319a2d48d89f8",
       "before_sha256": "c356ac1f7c08d88c29d51b375949ba44241b4129bce3ae0830aae843f9aef312",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/transport/hb_muse_wire.c": {
+    "firmware_c5/components/Service/muse_port/transport/hb_muse_wire.c": {
       "after_sha256": "d5362d0a57935cbcbb8d16b71433d913de51d8850c00e5e0abe0364c5489816c",
       "before_sha256": "3cd54ff3884bb43f10138da9b8033a8bd4b610231efbe91785b2fa94609080f3",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_c5/components/Service/highboy_muse/transport/hb_muse_wire.h": {
+    "firmware_c5/components/Service/muse_port/transport/hb_muse_wire.h": {
       "after_sha256": "1ddf71696d68821dbdaa872ad48b421faf861453ec8a496005c202f5dbb9d45f",
       "before_sha256": "2ead5de47b7f12100eb2e883954a5a418377ef168ef0ee4150ba0abf2ac48904",
       "formatter": "clang-format version 22.1.5"
@@ -1186,77 +1186,77 @@
       "before_sha256": "3a63098ae0bc5e5c2d20d32656777637575051593df48266d17041a46da2c9f7",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_p4/components/Service/highboy_muse/core/hb_muse_core.c": {
+    "firmware_p4/components/Service/muse_port/core/hb_muse_core.c": {
       "after_sha256": "d614a5c4c45fa1bb674cf834debc699c510ed88c216c1935f101cc53372a1e12",
       "before_sha256": "44f5a293f83d6254c35d269b88a32e12fda54f469dbb35cdf030bde1de86412a",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_p4/components/Service/highboy_muse/core/hb_muse_core.h": {
+    "firmware_p4/components/Service/muse_port/core/hb_muse_core.h": {
       "after_sha256": "c1087a1a9f4fa1690c8240867496885a711bc9ba789753b0f9293c5848342c58",
       "before_sha256": "6854221aba0741bcae8a89c6cb54d469f1e12101a6b97f171694c11f394d6078",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_p4/components/Service/highboy_muse/official/muse_pixel.c": {
+    "firmware_p4/components/Service/muse_port/official/muse_pixel.c": {
       "after_sha256": "d7c1bcd1b6aeb133efa11bfb73c0c610b146ae84669cb9e4b58f0fd1251b9861",
       "before_sha256": "72369c740fb9450a11491a9e5e71a5e031f3a835ab037bf03a2c17914b3fb915",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_p4/components/Service/highboy_muse/official/muse_pixel.h": {
+    "firmware_p4/components/Service/muse_port/official/muse_pixel.h": {
       "after_sha256": "e5bfed174f5b4953056096de337a4d6f41c5b2b3e9a5c452317e6e6d1697d5a9",
       "before_sha256": "ce62194bd26e364056dfb507c25b3dce3266a32459764b8cc3479d8ab8f6be97",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_p4/components/Service/highboy_muse/official/muse_state.h": {
+    "firmware_p4/components/Service/muse_port/official/muse_state.h": {
       "after_sha256": "635ba7100c0dc72f3bc838b3a8baf92ff68ca9788ee596449e4c81f4b00e29a3",
       "before_sha256": "ae174e801b829fa4f71ac0282c1bb53ea59e9e2b085876ab248eddcebd23f8a9",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_p4/components/Service/highboy_muse/p4_app/hb_muse_app.c": {
+    "firmware_p4/components/Service/muse_port/p4_app/hb_muse_app.c": {
       "after_sha256": "ed11cf52cd792becc44eeec275f68857f0e9a17296e3b2da8b2a2642d543e55a",
       "before_sha256": "7cbf714a444476003ca14fb439dd0af7b72722b811c86a51a29cceed249abe9a",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_p4/components/Service/highboy_muse/p4_app/hb_muse_app.h": {
+    "firmware_p4/components/Service/muse_port/p4_app/hb_muse_app.h": {
       "after_sha256": "0ef226a99fdf8f14ca9823f244b793d5d790f9eb4d3ba9faaa84f0d49d7ceb65",
       "before_sha256": "979a7d28244c77ce99c90461c3f8fbd687777fc1f24d683d5e6a287296f92ec6",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_p4/components/Service/highboy_muse/sdk_adapter/hb_muse_pcm_adapter.h": {
+    "firmware_p4/components/Service/muse_port/sdk_adapter/hb_muse_pcm_adapter.h": {
       "after_sha256": "51fdad712ebbb03cd4da9267ffd890b2c413eab5b055d68659ee9e9d80a5ee1a",
       "before_sha256": "e5fa7764659ab1083cfeeea126b65785e6b333619486408219d807ebf2266c2e",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_p4/components/Service/highboy_muse/sdk_adapter/hb_muse_sdk_binding.h": {
+    "firmware_p4/components/Service/muse_port/sdk_adapter/hb_muse_sdk_binding.h": {
       "after_sha256": "9da68ef847c12b37389db19728b264da1bbd5cfa606eb5d0564a1222fbb9c7c8",
       "before_sha256": "e4cd81dfdb339752c386fe92124c5b1b4663001ff99a8874f7c4e6d90bf739ea",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_p4/components/Service/highboy_muse/sdk_adapter/hb_muse_sdk_port.h": {
+    "firmware_p4/components/Service/muse_port/sdk_adapter/hb_muse_sdk_port.h": {
       "after_sha256": "c32e9f82d57ebc6df8f5c0707d994eda710b7d85f38113f7c300f894f8403c6f",
       "before_sha256": "f66c9f50da4ee1e6129fbf95f2c96f6347ba26e2724f0746fc4e431bc8089746",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_p4/components/Service/highboy_muse/transport/hb_muse_endpoint.h": {
+    "firmware_p4/components/Service/muse_port/transport/hb_muse_endpoint.h": {
       "after_sha256": "af47b56eca9c92e4c7091d2ba71074ca3230ad81bbae224d4ef319a2d48d89f8",
       "before_sha256": "c356ac1f7c08d88c29d51b375949ba44241b4129bce3ae0830aae843f9aef312",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_p4/components/Service/highboy_muse/transport/hb_muse_wire.c": {
+    "firmware_p4/components/Service/muse_port/transport/hb_muse_wire.c": {
       "after_sha256": "d5362d0a57935cbcbb8d16b71433d913de51d8850c00e5e0abe0364c5489816c",
       "before_sha256": "3cd54ff3884bb43f10138da9b8033a8bd4b610231efbe91785b2fa94609080f3",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_p4/components/Service/highboy_muse/transport/hb_muse_wire.h": {
+    "firmware_p4/components/Service/muse_port/transport/hb_muse_wire.h": {
       "after_sha256": "1ddf71696d68821dbdaa872ad48b421faf861453ec8a496005c202f5dbb9d45f",
       "before_sha256": "2ead5de47b7f12100eb2e883954a5a418377ef168ef0ee4150ba0abf2ac48904",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_p4/components/Service/highboy_muse/transport/hb_muse_wire_client.c": {
+    "firmware_p4/components/Service/muse_port/transport/hb_muse_wire_client.c": {
       "after_sha256": "15441a7e8c5e48c9bdd0e1c4f1269a0ffde7c8d4ffb4802eaa73abf6330102d1",
       "before_sha256": "7a07ba511ab9985abe309f7c9215cd97e149dce3c4cc712e3a1265fd0d5abf3d",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_p4/components/Service/highboy_muse/transport/hb_muse_wire_client.h": {
+    "firmware_p4/components/Service/muse_port/transport/hb_muse_wire_client.h": {
       "after_sha256": "00aba9adb50a1682e82159e7952b4305f8a2f244ee5c87d5eb2ebc597c3fa7c8",
       "before_sha256": "6651dc07864322b2a06cce237cc4f462b5f650aa19dfb80caa2514fb29a55226",
       "formatter": "clang-format version 22.1.5"

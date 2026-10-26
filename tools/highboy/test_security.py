@@ -60,6 +60,12 @@ class SecurityAuditTests(unittest.TestCase):
         config['SPIRAM_MALLOC_RESERVE_INTERNAL'] = '0'
         with self.assertRaisesRegex(ValueError, 'overlay'): security.audit('c5', config, baseline)
 
+    def test_identical_sdk_alias_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'sdkconfig'
+            path.write_text('CONFIG_ESP32_WIFI_STATIC_RX_BUFFER_NUM=4\n' * 2)
+            self.assertEqual(security.config_values(path), {'ESP32_WIFI_STATIC_RX_BUFFER_NUM': '4'})
+
     def test_duplicate_active_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'sdkconfig'
