@@ -39,7 +39,6 @@ static const game_t GAMES[] = {
     {"DOOM", "/assets/icons/sports_esports.bin", "doom", "Requires SD WAD", SCREEN_GAME_DOOM},
     {"Snake", "/assets/icons/game_snake.bin", NULL, "Quick arcade", SCREEN_GAME_SNAKE},
     {"Breakout", "/assets/icons/game_brk.bin", NULL, "Brick breaker", SCREEN_GAME_BREAKOUT},
-    {"Mosca", "/assets/icons/sports_esports.bin", NULL, "3D fly", SCREEN_FLY},
     {"Muse", "/assets/icons/animation.bin", NULL, "Voice notes", SCREEN_MUSE},
     {"Grok Bot", "/assets/icons/animation.bin", NULL, "Offline animation", SCREEN_GROK_IDLE},
 };

@@ -646,31 +646,6 @@
       "before_sha256": "9b484f469c2d446bf51a2ab6deb6050f6e5f06fce8447dcde0020dc6313aeffb",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_p4/components/Applications/ui/screens/games/fly_local3d.c": {
-      "after_sha256": "63e103d8b86e49fa26789d3c345666e4dbbe6cf5c5fc8268741058007e8ab930",
-      "before_sha256": "b7c0d992b65ffe9841e43942c3168497f244b79213ba81c9eaed5caddb0fa0ce",
-      "formatter": "clang-format version 22.1.5"
-    },
-    "firmware_p4/components/Applications/ui/screens/games/fly_local3d.h": {
-      "after_sha256": "77a53bcd1815316a4cd6cc18fa046b7911130ec689f5ab8c135cdf80ac645cf6",
-      "before_sha256": "099dd459fc4b98dea8be04ace697424fc9b647fc421c8a905d92d62f45b8b002",
-      "formatter": "clang-format version 22.1.5"
-    },
-    "firmware_p4/components/Applications/ui/screens/games/fly_menu_texture.c": {
-      "after_sha256": "ca53b626161da8f25db80e1d8ebfe67dc5bd77cd3b3e556531dd71a107ac0b74",
-      "before_sha256": "99e6bc932bd7b0203e296edcbbac78537676ddd534510fbd85db2e403ec7309a",
-      "formatter": "clang-format version 22.1.5"
-    },
-    "firmware_p4/components/Applications/ui/screens/games/fly_menu_texture.h": {
-      "after_sha256": "720b7e4f8499857413a21c705d337f64c3bc4d6d9d9fbf7f36eeeac75ffdc65f",
-      "before_sha256": "a685824b44a69041cdfd314afa0241b8309aa8e636ef5780dd729ba301e2e97e",
-      "formatter": "clang-format version 22.1.5"
-    },
-    "firmware_p4/components/Applications/ui/screens/games/fly_ui.c": {
-      "after_sha256": "b758d0182e30df082f6ca1d5b19dc62f4955d1102d99b29f92cec33e4c1a2420",
-      "before_sha256": "0795f8409409e494d2b5ce6dbbbe992018dfe4ec47c88e19fef3c5d56d0a7b66",
-      "formatter": "clang-format version 22.1.5"
-    },
     "firmware_p4/components/Applications/ui/screens/games/game_cover.c": {
       "after_sha256": "d8b206b2bd1a4b62188abcd2cc4ab7f073824f15b0a7fd868c6fd8f14f5b07df",
       "before_sha256": "5cd76bd69d5367907c6ac3cc1cc12bd369abf2daa8b5efe3685f8537e5e47a37",
@@ -1171,16 +1146,6 @@
       "before_sha256": "a02e9387ce46971b4eddada1db3656eb7dc29a0775c8a5e60a09d538f17bb9e7",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_p4/components/Service/fly_link/fly_link.c": {
-      "after_sha256": "68a5006dd079f1026e4c249194db287d6c59f475504c6f3f495f1b5f20d0cf73",
-      "before_sha256": "2e96b946d6c5513882db39f32b6ee87a58dc7d5f823dd2b5c67feda1d84c6b5c",
-      "formatter": "clang-format version 22.1.5"
-    },
-    "firmware_p4/components/Service/fly_link/include/fly_link.h": {
-      "after_sha256": "b69b163502f65025998c43cab96acbe33df10571c6df2d8201f023c4cf9b7e93",
-      "before_sha256": "8ea5708586c27d696329705c2ed1d608eff49fec8ab827c56498ce01ac742a65",
-      "formatter": "clang-format version 22.1.5"
-    },
     "firmware_p4/components/Service/grok_client/include/grok_wire.h": {
       "after_sha256": "0d3e031ac3fa0c892938b433d0b333619e4afc24f127b0800e89a593cc2a0edb",
       "before_sha256": "3a63098ae0bc5e5c2d20d32656777637575051593df48266d17041a46da2c9f7",
@@ -1276,11 +1241,6 @@
       "before_sha256": "a2bb9ca4a3522b2e26259954089107852b49c23796897036301bbc2cad823c65",
       "formatter": "clang-format version 22.1.5"
     },
-    "firmware_p4/components/Service/host_link/host_link_fly.c": {
-      "after_sha256": "61e29ab65980549f335317c6537c313549f08cb558f06edca5470032259070f4",
-      "before_sha256": "29a4273fb030971efa8a29f199c1da2489214c82912518ca67bd582d66a4a380",
-      "formatter": "clang-format version 22.1.5"
-    },
     "firmware_p4/components/Service/host_link/host_link_ir.c": {
       "after_sha256": "d33be518785106082ae3f94f70638d1b478cda933bf2b9ce703b70e7cedc652c",
       "before_sha256": "25fcbff23310aba33681482b7adbd285438fa5c27175e925f977d1a2ed63ad72",
@@ -1314,11 +1274,6 @@
     "firmware_p4/components/Service/host_link/include/host_link.h": {
       "after_sha256": "0371bf7f1b571cfb7b11f9386a34aa9ecee1d91f7331d7bc0b76d6aa4c963348",
       "before_sha256": "14156bdd6cfcec2d0a65c8ebf503a6fe7ba7e42d268ddfdec1e1936449f28288",
-      "formatter": "clang-format version 22.1.5"
-    },
-    "firmware_p4/components/Service/host_link/include/host_link_fly.h": {
-      "after_sha256": "969841347c85eeea13d28497a59abd274b23071d2d5470f802b2a44cf188f58b",
-      "before_sha256": "33aad626419a53bf382f971f9c641f115b2541a04c8ffa4194b95c9d37ac9979",
       "formatter": "clang-format version 22.1.5"
     },
     "firmware_p4/components/Service/host_link/include/host_link_sec.h": {
@@ -1439,6 +1394,53 @@
     "firmware_p4/components/Service/wifi/wifi_service.c": {
       "after_sha256": "df866fe72e17883547cabc900d80df76cbd5ffcfb5def41a34b6c32b8cec61a3",
       "before_sha256": "4693a1bda25562ec2199888a02d79d389e4e308be8aa750b1bbe164221ae5aed",
+      "formatter": "clang-format version 22.1.5"
+    }
+  },
+  "retired_files": {
+    "firmware_p4/components/Applications/ui/screens/games/fly_local3d.c": {
+      "after_sha256": "63e103d8b86e49fa26789d3c345666e4dbbe6cf5c5fc8268741058007e8ab930",
+      "before_sha256": "b7c0d992b65ffe9841e43942c3168497f244b79213ba81c9eaed5caddb0fa0ce",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/games/fly_local3d.h": {
+      "after_sha256": "77a53bcd1815316a4cd6cc18fa046b7911130ec689f5ab8c135cdf80ac645cf6",
+      "before_sha256": "099dd459fc4b98dea8be04ace697424fc9b647fc421c8a905d92d62f45b8b002",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/games/fly_menu_texture.c": {
+      "after_sha256": "ca53b626161da8f25db80e1d8ebfe67dc5bd77cd3b3e556531dd71a107ac0b74",
+      "before_sha256": "99e6bc932bd7b0203e296edcbbac78537676ddd534510fbd85db2e403ec7309a",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/games/fly_menu_texture.h": {
+      "after_sha256": "720b7e4f8499857413a21c705d337f64c3bc4d6d9d9fbf7f36eeeac75ffdc65f",
+      "before_sha256": "a685824b44a69041cdfd314afa0241b8309aa8e636ef5780dd729ba301e2e97e",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/games/fly_ui.c": {
+      "after_sha256": "b758d0182e30df082f6ca1d5b19dc62f4955d1102d99b29f92cec33e4c1a2420",
+      "before_sha256": "0795f8409409e494d2b5ce6dbbbe992018dfe4ec47c88e19fef3c5d56d0a7b66",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/fly_link/fly_link.c": {
+      "after_sha256": "68a5006dd079f1026e4c249194db287d6c59f475504c6f3f495f1b5f20d0cf73",
+      "before_sha256": "2e96b946d6c5513882db39f32b6ee87a58dc7d5f823dd2b5c67feda1d84c6b5c",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/fly_link/include/fly_link.h": {
+      "after_sha256": "b69b163502f65025998c43cab96acbe33df10571c6df2d8201f023c4cf9b7e93",
+      "before_sha256": "8ea5708586c27d696329705c2ed1d608eff49fec8ab827c56498ce01ac742a65",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/host_link/host_link_fly.c": {
+      "after_sha256": "61e29ab65980549f335317c6537c313549f08cb558f06edca5470032259070f4",
+      "before_sha256": "29a4273fb030971efa8a29f199c1da2489214c82912518ca67bd582d66a4a380",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/host_link/include/host_link_fly.h": {
+      "after_sha256": "969841347c85eeea13d28497a59abd274b23071d2d5470f802b2a44cf188f58b",
+      "before_sha256": "33aad626419a53bf382f971f9c641f115b2541a04c8ffa4194b95c9d37ac9979",
       "formatter": "clang-format version 22.1.5"
     }
   }

@@ -31,8 +31,6 @@
 #include "host_link_config.h"
 #include "host_link_dispatch.h"
 #include "host_link_files.h"
-#include "host_link_fly.h"
-#include "fly_link.h"
 #include "host_link_ir.h"
 #include "host_link_rf.h"
 #include "host_link_local_rf.h"
@@ -132,7 +130,6 @@ esp_err_t host_link_init(void) {
     return err;
   }
 
-  fly_link_init();
   register_builtins();
   s_initialized = true;
 #ifdef HOST_LINK_TEST
@@ -291,7 +288,6 @@ static void teardown_session(void) {
   host_subghz_stop();
   host_lora_stop();
   host_rf_stop();
-  fly_link_transport_lost();
 }
 
 static void reconcile_session(void) {
@@ -752,7 +748,6 @@ static void register_builtins(void) {
       {SPI_CAT_BADUSB, 0x00, 0xFF, HOST_FILE_DATA_MAX, host_badusb_handle, "badusb"},
       {SPI_CAT_LORACFG, 0x00, 0xFF, HOST_FILE_DATA_MAX, host_lora_handle, "loracfg"},
       {SPI_CAT_LORACHAT, 0x00, 0xFF, HOST_FILE_DATA_MAX, host_lora_handle, "lorachat"},
-      {SPI_CAT_FLY, 0x00, 0xFF, FLY_LINK_RESPONSE_MAX, host_fly_handle, "fly"},
   };
   for (size_t i = 0; i < sizeof(builtins) / sizeof(builtins[0]); i++) {
     esp_err_t err = host_link_register(&builtins[i]);

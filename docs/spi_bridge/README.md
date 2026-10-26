@@ -346,7 +346,8 @@ command):
   change to the contract (an id, a struct, or the header layout).
 
 The integrated P4/C5 contract is numbered **v2**. This renumbers the previous
-v8 identifier without changing command IDs, payload structures or framing.
+v8 identifier. Retained command IDs, payload structures and framing are unchanged;
+the removed experimental app category `0x0F` stays reserved and has no handler.
 Update both chips as a pair; a chip still running v8 will report a mismatch.
 The number does not establish compatibility with older firmware also named v2.
 

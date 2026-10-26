@@ -32,7 +32,7 @@ def is_first_party(path):
         "/Service/script_engine/lua/", "/Service/script_engine/mquickjs/",
         "/legacy_des/des.c", "/legacy_des/des.h",
         "/Service/noise_core/", "/Service/minimp3/", "/Service/fatfs/",
-    )) and not path.endswith("/fly_highboy_mesh.h")
+    ))
 
 
 def main():

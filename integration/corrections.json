@@ -467,30 +467,6 @@
       "pre_format_sha256": "91ef4d9eb54e1b82b49823e69aa62cbc4adb17ef7a1885ff4d13fff9a9b8e66b",
       "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
     },
-    "firmware_p4/components/Applications/ui/screens/games/fly_local3d.h": {
-      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
-      "before_sha256": "77a53bcd1815316a4cd6cc18fa046b7911130ec689f5ab8c135cdf80ac645cf6",
-      "after_sha256": "2ef98c688a0313f31183b16a42ebedd58b619ee76c7b4ba733fcf801ff4db555",
-      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses.",
-      "review_history": [
-        {
-          "after_sha256": "416b1267a75df9ba7d26d570fdf9df0daab2e27972cd4ad54c3856923aeb8a18",
-          "reason": "Use project include guards and C++ linkage for new first-party headers."
-        }
-      ]
-    },
-    "firmware_p4/components/Applications/ui/screens/games/fly_menu_texture.h": {
-      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
-      "before_sha256": "720b7e4f8499857413a21c705d337f64c3bc4d6d9d9fbf7f36eeeac75ffdc65f",
-      "after_sha256": "4ade47e5679f94add559601ddb5997b76b95f1b8438039be47309183f0628d1e",
-      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses.",
-      "review_history": [
-        {
-          "after_sha256": "b560dfbb3141836e3f11beccf76718930ea5455b5f7c7ecdb4f455c28266abbf",
-          "reason": "Use project include guards and C++ linkage for new first-party headers."
-        }
-      ]
-    },
     "firmware_p4/components/Applications/ui/screens/games/include/game_cover.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "90603615e452b16206c60fe06fa741e4f81067b2c7ec9c4165eb61b55f224cd1",
@@ -620,8 +596,8 @@
     "firmware_p4/components/Applications/ui/ui_manager.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "938b509321c8ef23ed8cf0f6f5ff2644fdabaea3a84ca1b544428c4c2c2eeba2",
-      "after_sha256": "ed0ea7fcbfceed2b402c6a2c6cba638ed86888e68a44ab42a897fcf5db30173f",
-      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses.",
+      "after_sha256": "6e5782396296b33d75d330c348c4f3fad0a16c01734b1e877e6ee0e81eb20ee0",
+      "reason": "Remove the experimental app, its menu/screen dispatch, host service and paired protocol commands at maintainer request; retain other app and transport behavior.",
       "review_history": [
         {
           "after_sha256": "00c83c4094432fb613e43f0e325440d51b97346e02837d4aff968510c8fb549e",
@@ -656,6 +632,10 @@
         {
           "after_sha256": "c9b653caec9e7440637f3fa53f21cb51f1a40c18088dbd68e36ecf8a6379f007",
           "reason": "Route ESP SCAN, suppress its global operation chrome and register cooperative cancellation/timer teardown on all screen exits; retain existing screen IDs and radio routes."
+        },
+        {
+          "after_sha256": "ed0ea7fcbfceed2b402c6a2c6cba638ed86888e68a44ab42a897fcf5db30173f",
+          "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
         }
       ]
     },
@@ -1252,8 +1232,8 @@
     "firmware_p4/components/Service/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "a5ab5cef02299410f4ba0c4ae7baac2b4840b1f42947372c35c57fa54a0c33a0",
-      "after_sha256": "5102e1c3a2e3ab6d419a4fe864b0399ea2b618b702a247ad05dfb92d058e91fd",
-      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses.",
+      "after_sha256": "efdc9136c08bf39b852d73bb3316194b96f5bac22a137ff7c6d78282f0a8545f",
+      "reason": "Remove the experimental app, its menu/screen dispatch, host service and paired protocol commands at maintainer request; retain other app and transport behavior.",
       "review_history": [
         {
           "after_sha256": "716fa05eb0709ed37e2dcd95c196820071cf8c0ee169ced2bae247442307494f",
@@ -1294,6 +1274,10 @@
         {
           "after_sha256": "1c2111b3947cd8eaa04bddd1872507bd83c71e4616796b4383c005123aab8f52",
           "reason": "Compile the script adapter and interpreters within Service, retain source-specific compiler settings, and remove the standalone script_engine dependency."
+        },
+        {
+          "after_sha256": "5102e1c3a2e3ab6d419a4fe864b0399ea2b618b702a247ad05dfb92d058e91fd",
+          "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
         }
       ]
     },
@@ -1434,8 +1418,8 @@
     "firmware_p4/components/Service/host_link/host_link.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "6fa28c9bb162cfad719c14b75c53124217b6d877887ba3d8ff4efd7524673cd4",
-      "after_sha256": "30489aba83b015aadba984db3512d8bd5b85d5dd33fcaa18e24f1790cfad017c",
-      "reason": "Require fresh X25519 and transcript-bound PSK proofs, device token confirmation and signed key activation before companion commands",
+      "after_sha256": "40fa52a1398682622f9935c55eff7bf78eb853ab84992f6943a1bc9eab8ac27a",
+      "reason": "Remove the experimental app, its menu/screen dispatch, host service and paired protocol commands at maintainer request; retain other app and transport behavior.",
       "review_history": [
         {
           "after_sha256": "1f02ab60182bde330a6f8b11149c141c539df09904c5a14a99f946d1658804eb",
@@ -1446,14 +1430,18 @@
         {
           "after_sha256": "f6cf043463c8bb2a22250ff6faf69baf58cf2662028935e7215931a34d93535a",
           "reason": "Publish native NFC discovery and LF RFID reads additively through the shared ABI, execute on the stable RF worker, and quiesce local operations before forced app deletion."
+        },
+        {
+          "after_sha256": "30489aba83b015aadba984db3512d8bd5b85d5dd33fcaa18e24f1790cfad017c",
+          "reason": "Require fresh X25519 and transcript-bound PSK proofs, device token confirmation and signed key activation before companion commands"
         }
       ]
     },
     "firmware_p4/components/Service/spi_bridge/include/spi_protocol.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "44e794090bdddda5f999a29dbbb55f907c89cb001a9284a0abd94c631987c342",
-      "after_sha256": "3b746d8118c67a594c392a50c8668bdace1b6d51e65c595538b5feda672cbf3e",
-      "reason": "Renumber the paired SPI contract from v8 to v2 at maintainer request; align package metadata and version validation.",
+      "after_sha256": "1ba8f047701786c00751c59c18d50fb4d8579135fcb1bc2c50eb197082f0e229",
+      "reason": "Remove the experimental app, its menu/screen dispatch, host service and paired protocol commands at maintainer request; retain other app and transport behavior.",
       "review_history": [
         {
           "after_sha256": "4b6bbe13c0511b1b89ba0e2a4e257ed57c14ae8ce0cde04ae41e4a6d3709132a",
@@ -1494,14 +1482,20 @@
         {
           "after_sha256": "66d14c78923fc1e755d31d2a12b04cdbabf78c3dc85662a9fddfe21d71209d6b",
           "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
+        },
+        {
+          "after_sha256": "3b746d8118c67a594c392a50c8668bdace1b6d51e65c595538b5feda672cbf3e",
+          "reason": "Renumber the paired SPI contract from v8 to v2 at maintainer request without changing command IDs, payloads, frame layout or runtime version comparison."
         }
-      ]
+      ],
+      "pre_format_sha256": "dc62cab42b8e2a0465814e9bf6d70a7ad619ce879008863902c2cc8c753972e6",
+      "formatter": "clang-format version 22.1.5"
     },
     "firmware_c5/components/Service/spi_bridge/include/spi_protocol.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "44e794090bdddda5f999a29dbbb55f907c89cb001a9284a0abd94c631987c342",
-      "after_sha256": "3b746d8118c67a594c392a50c8668bdace1b6d51e65c595538b5feda672cbf3e",
-      "reason": "Renumber the paired SPI contract from v8 to v2 at maintainer request; align package metadata and version validation.",
+      "after_sha256": "1ba8f047701786c00751c59c18d50fb4d8579135fcb1bc2c50eb197082f0e229",
+      "reason": "Remove the experimental app, its menu/screen dispatch, host service and paired protocol commands at maintainer request; retain other app and transport behavior.",
       "review_history": [
         {
           "after_sha256": "4b6bbe13c0511b1b89ba0e2a4e257ed57c14ae8ce0cde04ae41e4a6d3709132a",
@@ -1542,8 +1536,14 @@
         {
           "after_sha256": "66d14c78923fc1e755d31d2a12b04cdbabf78c3dc85662a9fddfe21d71209d6b",
           "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
+        },
+        {
+          "after_sha256": "3b746d8118c67a594c392a50c8668bdace1b6d51e65c595538b5feda672cbf3e",
+          "reason": "Renumber the paired SPI contract from v8 to v2 at maintainer request without changing command IDs, payloads, frame layout or runtime version comparison."
         }
-      ]
+      ],
+      "pre_format_sha256": "dc62cab42b8e2a0465814e9bf6d70a7ad619ce879008863902c2cc8c753972e6",
+      "formatter": "clang-format version 22.1.5"
     },
     "firmware_p4/components/Service/app_runtime/tos_hb.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -3312,8 +3312,8 @@
     "firmware_p4/components/Applications/ui/include/ui_manager.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "3377234e4d42e9755ccfe0d9b2393628b27e8d8c1d6adec0a9b4e8fcaa52dc35",
-      "after_sha256": "cee44dea14bad3a19de89273ea639f762226b0002ecca03fa9161dd40bb5b225",
-      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses.",
+      "after_sha256": "f5da50e05eeba567d7f890b8fd9076860467734fb041fcb3e186260a82fba651",
+      "reason": "Remove the experimental app, its menu/screen dispatch, host service and paired protocol commands at maintainer request; retain other app and transport behavior.",
       "review_history": [
         {
           "after_sha256": "cee44dea14bad3a19de89273ea639f762226b0002ecca03fa9161dd40bb5b225",
@@ -3322,6 +3322,10 @@
         {
           "after_sha256": "3cab0b95eee55a2b1f6e6d8ec6cbf11d752e428cf26aaacc6cf577fdcde341d9",
           "reason": "Append ESP SCAN before SCREEN_COUNT without renumbering any existing screen identifier."
+        },
+        {
+          "after_sha256": "cee44dea14bad3a19de89273ea639f762226b0002ecca03fa9161dd40bb5b225",
+          "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
         }
       ]
     },
@@ -3727,29 +3731,17 @@
       "after_sha256": "9f1cbb3ce8a095fce1454d0fe903f130376a8f2011da3e0f68c066c4e9dca446",
       "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
     },
-    "firmware_p4/components/Applications/ui/screens/games/fly_local3d.c": {
-      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
-      "before_sha256": "63e103d8b86e49fa26789d3c345666e4dbbe6cf5c5fc8268741058007e8ab930",
-      "after_sha256": "b6db4868181d179571e363061d74617b5c6c4f3044ce1886f441c2a8b81c999b",
-      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
-    },
-    "firmware_p4/components/Applications/ui/screens/games/fly_menu_texture.c": {
-      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
-      "before_sha256": "ca53b626161da8f25db80e1d8ebfe67dc5bd77cd3b3e556531dd71a107ac0b74",
-      "after_sha256": "2afd358c0ad2eeacd4ee872d238b8e68c6f2085ffc2728f7fca8493f697bd727",
-      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
-    },
-    "firmware_p4/components/Applications/ui/screens/games/fly_ui.c": {
-      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
-      "before_sha256": "b758d0182e30df082f6ca1d5b19dc62f4955d1102d99b29f92cec33e4c1a2420",
-      "after_sha256": "81c7305ba11a7727a41fb12b4f2cdd712510945b1af0d5b2b14d9a09b9c17d1c",
-      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
-    },
     "firmware_p4/components/Applications/ui/screens/games/games_menu_ui.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "385d7590afe55b75f4df2c2db2691112f8711dbd341f076d658efbd4264a196d",
-      "after_sha256": "dec3d8050a8c05f750ef00fa24d08c55149c6e5acbf986204e0a363ed84bac5d",
-      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
+      "after_sha256": "59254809676d4cb20c922420a541114a7910384ea24eb4afe6cf67d0d4325fd2",
+      "reason": "Remove the experimental app, its menu/screen dispatch, host service and paired protocol commands at maintainer request; retain other app and transport behavior.",
+      "review_history": [
+        {
+          "after_sha256": "dec3d8050a8c05f750ef00fa24d08c55149c6e5acbf986204e0a363ed84bac5d",
+          "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
+        }
+      ]
     },
     "firmware_p4/components/Applications/ui/screens/games/gb_ui.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -3761,12 +3753,6 @@
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "81a7d960b65e6c4a8fae41f6bfd2f16536922881987733831aa8cba4b8f9c952",
       "after_sha256": "30c92cd78442121d3ce44d2312eb717a7fdcffe5266c422387bc6af1bccfb3fd",
-      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
-    },
-    "firmware_p4/components/Applications/ui/screens/games/include/fly_ui.h": {
-      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
-      "before_sha256": "5a90f598f00580e7ff9029190f0fa669135bb438bcfc0a2360fd81b3d38bb5ce",
-      "after_sha256": "bbb4f644cf16b5b246ee4ba78e695abd9dccbeecf6f1298b59d7078569994bfe",
       "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
     },
     "firmware_p4/components/Applications/ui/screens/infrared/include/ir_ac_request.h": {
@@ -3901,30 +3887,6 @@
       "after_sha256": "1da7122b82240a062a9e277f735b5d63fa86cf7f98f7d58efa529f78715440bf",
       "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
     },
-    "firmware_p4/components/Service/fly_link/fly_link.c": {
-      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
-      "before_sha256": "68a5006dd079f1026e4c249194db287d6c59f475504c6f3f495f1b5f20d0cf73",
-      "after_sha256": "dec027bbd102cb3b1bc39f3bb3ae9ae5675923ae35ee0827e671f008835be916",
-      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
-    },
-    "firmware_p4/components/Service/fly_link/include/fly_link.h": {
-      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
-      "before_sha256": "b69b163502f65025998c43cab96acbe33df10571c6df2d8201f023c4cf9b7e93",
-      "after_sha256": "44725ce65635c7aa26d4c5e96131bab9b66d08676fad60de83b5b5d764c83a37",
-      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
-    },
-    "firmware_p4/components/Service/host_link/host_link_fly.c": {
-      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
-      "before_sha256": "61e29ab65980549f335317c6537c313549f08cb558f06edca5470032259070f4",
-      "after_sha256": "4bd00cab1852ca043b7ff86c75f446facea42d5dec3ae1e86152bba76bdacf26",
-      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
-    },
-    "firmware_p4/components/Service/host_link/include/host_link_fly.h": {
-      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
-      "before_sha256": "969841347c85eeea13d28497a59abd274b23071d2d5470f802b2a44cf188f58b",
-      "after_sha256": "c4a9caa47019309c4a6c949a10827916b2f2cf2778ed59100c7803477ff4ec5e",
-      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
-    },
     "firmware_p4/components/Applications/ui/screens/apps/grok_idle_ui.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "123105a3de5bdd6b54c6b69d529f607702aa0c9e8f7afb6350212fa6633d89a8",
@@ -3990,6 +3952,80 @@
       "before_sha256": "5cdfa14ba768fff7d5316bd924208ba189bf90442ef54d1d3ac3f1b89e4524cd",
       "after_sha256": "56ea78b3b70af211109ad3c8d7d9e52c41d515612f72456412ee4d360d87ef72",
       "reason": "Display the mounted SD filesystem in the connection dialog and animate indeterminate formatting activity with overlay-owned lifetime and no fabricated percentage."
+    }
+  },
+  "retired_files": {
+    "firmware_p4/components/Applications/ui/screens/games/fly_local3d.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "77a53bcd1815316a4cd6cc18fa046b7911130ec689f5ab8c135cdf80ac645cf6",
+      "after_sha256": "2ef98c688a0313f31183b16a42ebedd58b619ee76c7b4ba733fcf801ff4db555",
+      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses.",
+      "review_history": [
+        {
+          "after_sha256": "416b1267a75df9ba7d26d570fdf9df0daab2e27972cd4ad54c3856923aeb8a18",
+          "reason": "Use project include guards and C++ linkage for new first-party headers."
+        }
+      ]
+    },
+    "firmware_p4/components/Applications/ui/screens/games/fly_menu_texture.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "720b7e4f8499857413a21c705d337f64c3bc4d6d9d9fbf7f36eeeac75ffdc65f",
+      "after_sha256": "4ade47e5679f94add559601ddb5997b76b95f1b8438039be47309183f0628d1e",
+      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses.",
+      "review_history": [
+        {
+          "after_sha256": "b560dfbb3141836e3f11beccf76718930ea5455b5f7c7ecdb4f455c28266abbf",
+          "reason": "Use project include guards and C++ linkage for new first-party headers."
+        }
+      ]
+    },
+    "firmware_p4/components/Applications/ui/screens/games/fly_local3d.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "63e103d8b86e49fa26789d3c345666e4dbbe6cf5c5fc8268741058007e8ab930",
+      "after_sha256": "b6db4868181d179571e363061d74617b5c6c4f3044ce1886f441c2a8b81c999b",
+      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
+    },
+    "firmware_p4/components/Applications/ui/screens/games/fly_menu_texture.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "ca53b626161da8f25db80e1d8ebfe67dc5bd77cd3b3e556531dd71a107ac0b74",
+      "after_sha256": "2afd358c0ad2eeacd4ee872d238b8e68c6f2085ffc2728f7fca8493f697bd727",
+      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
+    },
+    "firmware_p4/components/Applications/ui/screens/games/fly_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "b758d0182e30df082f6ca1d5b19dc62f4955d1102d99b29f92cec33e4c1a2420",
+      "after_sha256": "81c7305ba11a7727a41fb12b4f2cdd712510945b1af0d5b2b14d9a09b9c17d1c",
+      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
+    },
+    "firmware_p4/components/Applications/ui/screens/games/include/fly_ui.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "5a90f598f00580e7ff9029190f0fa669135bb438bcfc0a2360fd81b3d38bb5ce",
+      "after_sha256": "bbb4f644cf16b5b246ee4ba78e695abd9dccbeecf6f1298b59d7078569994bfe",
+      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
+    },
+    "firmware_p4/components/Service/fly_link/fly_link.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "68a5006dd079f1026e4c249194db287d6c59f475504c6f3f495f1b5f20d0cf73",
+      "after_sha256": "dec027bbd102cb3b1bc39f3bb3ae9ae5675923ae35ee0827e671f008835be916",
+      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
+    },
+    "firmware_p4/components/Service/fly_link/include/fly_link.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "b69b163502f65025998c43cab96acbe33df10571c6df2d8201f023c4cf9b7e93",
+      "after_sha256": "44725ce65635c7aa26d4c5e96131bab9b66d08676fad60de83b5b5d764c83a37",
+      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
+    },
+    "firmware_p4/components/Service/host_link/host_link_fly.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "61e29ab65980549f335317c6537c313549f08cb558f06edca5470032259070f4",
+      "after_sha256": "4bd00cab1852ca043b7ff86c75f446facea42d5dec3ae1e86152bba76bdacf26",
+      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
+    },
+    "firmware_p4/components/Service/host_link/include/host_link_fly.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "969841347c85eeea13d28497a59abd274b23071d2d5470f802b2a44cf188f58b",
+      "after_sha256": "c4a9caa47019309c4a6c949a10827916b2f2cf2778ed59100c7803477ff4ec5e",
+      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
     }
   }
 }

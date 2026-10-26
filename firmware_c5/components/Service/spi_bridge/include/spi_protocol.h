@@ -148,12 +148,12 @@ typedef enum {
   SPI_CAT_BADUSB = 0x0C,   // P4-native BadUSB (USB-HID); companion host-link only
   SPI_CAT_LORACFG = 0x0D,  // P4-native LoRa radio config; companion host-link only
   SPI_CAT_LORACHAT = 0x0E, // P4-native LoRa chat; companion host-link only
-  SPI_CAT_FLY = 0x0F,      // P4-native Mosca TEST world; authenticated host link
-  SPI_CAT_GROK = 0x10,     // Explicitly started, paired TLS LAN voice transport
-  SPI_CAT_MUSE = 0x11,     // Existing integrated Muse RPC category
-  SPI_CAT_NFC = 0x12,      // P4-local companion NFC capture
-  SPI_CAT_RFID = 0x13,     // P4-local companion LF RFID capture
-  SPI_CAT_MQTT = 0x14,     // C5-owned on-demand MQTT network bridge
+  // Category 0x0F is reserved and must not be reused.
+  SPI_CAT_GROK = 0x10, // Explicitly started, paired TLS LAN voice transport
+  SPI_CAT_MUSE = 0x11, // Existing integrated Muse RPC category
+  SPI_CAT_NFC = 0x12,  // P4-local companion NFC capture
+  SPI_CAT_RFID = 0x13, // P4-local companion LF RFID capture
+  SPI_CAT_MQTT = 0x14, // C5-owned on-demand MQTT network bridge
   SPI_CAT_SESSION = 0xFF
 } spi_cat_t;
 
@@ -456,10 +456,6 @@ typedef enum {
   SPI_ID_LORACHAT_STOP = SPI_CMD(SPI_CAT_LORACHAT, 0x11),
   SPI_ID_LORACHAT_SEND = SPI_CMD(SPI_CAT_LORACHAT, 0x12),
   SPI_ID_LORACHAT_RX = SPI_CMD(SPI_CAT_LORACHAT, 0x60),
-
-  SPI_ID_FLY_CONFIG = SPI_CMD(SPI_CAT_FLY, 0x01),
-  SPI_ID_FLY_EXCHANGE = SPI_CMD(SPI_CAT_FLY, 0x02),
-  SPI_ID_FLY_STOP = SPI_CMD(SPI_CAT_FLY, 0x03),
 
   SPI_ID_GROK_START = SPI_CMD(SPI_CAT_GROK, 0x01),
   SPI_ID_GROK_STOP = SPI_CMD(SPI_CAT_GROK, 0x02),

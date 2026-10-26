@@ -388,3 +388,7 @@ The UI blocks further storage actions until completion, reports success only
 after a successful remount, then rebuilds the displayed filesystem and capacity.
 Failure is reported without claiming completion. The bar belongs to the overlay
 and is discarded when its screen is deleted; the worker never accesses LVGL.
+
+The built-in games menu no longer includes the experimental 3D scene. Its
+renderer, embedded mesh/texture, host service and startup hooks are removed.
+Game Boy, Doom and external app discovery retain their existing behavior.

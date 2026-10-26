@@ -34,7 +34,7 @@ REQUIRED = {
     "p4": (
         "app_main", "kernel_init", "ui_muse_open", "hb_muse_p4_key",
         "ui_grok_idle_open", "ui_games_menu_open", "D_DoomMain", "gb_init",
-        "fly_local3d_render", "nfc_apdu_lab_start", "nfc_listener_start_emu",
+        "nfc_apdu_lab_start", "nfc_listener_start_emu",
         "ui_nfc_write_open", "st25r3916_core_init", "lf_rfid_read_em4100",
         "tud_hid_n_mouse_report", "tud_hid_n_keyboard_report",
         "tinyusb_msc_new_storage_sdmmc", "ui_usb_storage_open", "f_mount",

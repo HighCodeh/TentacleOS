@@ -82,7 +82,7 @@ if [ -n "$BASE_REF" ]; then
 
   while IFS= read -r -d '' path; do
     case "$path" in
-      */Applications/doom/*|*/Service/muse_port/sdk/*|*/Service/noise_core/*|*/Service/minimp3/*|*/Service/fatfs/*|*/legacy_des/des.[ch]|*/Service/script_engine/lua/*|*/Service/script_engine/mquickjs/*|*/fly_highboy_mesh.h) ;; # third-party or generated source
+      */Applications/doom/*|*/Service/muse_port/sdk/*|*/Service/noise_core/*|*/Service/minimp3/*|*/Service/fatfs/*|*/legacy_des/des.[ch]|*/Service/script_engine/lua/*|*/Service/script_engine/mquickjs/*) ;; # third-party or generated source
       *.c|*.h) FILES+=("$REPO_ROOT/$path") ;;
     esac
   done < <(git -C "$REPO_ROOT" diff --name-only -z --diff-filter=ACMR \
@@ -108,7 +108,7 @@ else
     -not -path "*/Service/noise_core/*" -not -path "*/Service/minimp3/*" \
     -not -path "*/legacy_des/des.c" -not -path "*/legacy_des/des.h" \
     -not -path "*/Service/fatfs/*" -not -path "*/Service/script_engine/lua/*" \
-    -not -path "*/Service/script_engine/mquickjs/*" -not -name 'fly_highboy_mesh.h' -print0)
+    -not -path "*/Service/script_engine/mquickjs/*" -print0)
 fi
 
 COUNT="${#FILES[@]}"

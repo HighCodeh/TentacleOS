@@ -3058,54 +3058,6 @@
       "normalized_local_sha256": "ff3a43d5dd107b2dd85fd7026d0f0ac9703b4dc68ecf382150d5b32396f1c54e"
     },
     {
-      "target": "firmware_p4/components/Applications/ui/screens/games/fly_highboy_mesh.h",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/Applications/ui/screens/games/fly_highboy_mesh.h",
-      "local_sha256": "61f4192cb6d066b70f6c113dfc9fceca6d5100a60400e5688bb766ce029b390f",
-      "upstream_sha256": null,
-      "action": "preserve_local_overlay",
-      "normalized_local_sha256": "61f4192cb6d066b70f6c113dfc9fceca6d5100a60400e5688bb766ce029b390f"
-    },
-    {
-      "target": "firmware_p4/components/Applications/ui/screens/games/fly_local3d.c",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/Applications/ui/screens/games/fly_local3d.c",
-      "local_sha256": "b7c0d992b65ffe9841e43942c3168497f244b79213ba81c9eaed5caddb0fa0ce",
-      "upstream_sha256": null,
-      "action": "preserve_local_overlay",
-      "normalized_local_sha256": "b7c0d992b65ffe9841e43942c3168497f244b79213ba81c9eaed5caddb0fa0ce"
-    },
-    {
-      "target": "firmware_p4/components/Applications/ui/screens/games/fly_local3d.h",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/Applications/ui/screens/games/fly_local3d.h",
-      "local_sha256": "099dd459fc4b98dea8be04ace697424fc9b647fc421c8a905d92d62f45b8b002",
-      "upstream_sha256": null,
-      "action": "preserve_local_overlay",
-      "normalized_local_sha256": "099dd459fc4b98dea8be04ace697424fc9b647fc421c8a905d92d62f45b8b002"
-    },
-    {
-      "target": "firmware_p4/components/Applications/ui/screens/games/fly_menu_texture.c",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/Applications/ui/screens/games/fly_menu_texture.c",
-      "local_sha256": "99e6bc932bd7b0203e296edcbbac78537676ddd534510fbd85db2e403ec7309a",
-      "upstream_sha256": null,
-      "action": "preserve_local_overlay",
-      "normalized_local_sha256": "99e6bc932bd7b0203e296edcbbac78537676ddd534510fbd85db2e403ec7309a"
-    },
-    {
-      "target": "firmware_p4/components/Applications/ui/screens/games/fly_menu_texture.h",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/Applications/ui/screens/games/fly_menu_texture.h",
-      "local_sha256": "a685824b44a69041cdfd314afa0241b8309aa8e636ef5780dd729ba301e2e97e",
-      "upstream_sha256": null,
-      "action": "preserve_local_overlay",
-      "normalized_local_sha256": "a685824b44a69041cdfd314afa0241b8309aa8e636ef5780dd729ba301e2e97e"
-    },
-    {
-      "target": "firmware_p4/components/Applications/ui/screens/games/fly_ui.c",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/Applications/ui/screens/games/fly_ui.c",
-      "local_sha256": "0795f8409409e494d2b5ce6dbbbe992018dfe4ec47c88e19fef3c5d56d0a7b66",
-      "upstream_sha256": null,
-      "action": "preserve_local_overlay",
-      "normalized_local_sha256": "0795f8409409e494d2b5ce6dbbbe992018dfe4ec47c88e19fef3c5d56d0a7b66"
-    },
-    {
       "target": "firmware_p4/components/Applications/ui/screens/games/game_cover.c",
       "local_path": "work/highboy_muse_port/integrated_p4/source/components/Applications/ui/screens/games/game_cover.c",
       "local_sha256": "5cd76bd69d5367907c6ac3cc1cc12bd369abf2daa8b5efe3685f8537e5e47a37",
@@ -3192,14 +3144,6 @@
       "upstream_sha256": "6d3d549a2287f748cfaf760180de47a8ee2c6bda6ee0ac69eb9a26fedd30c28f",
       "action": "upstream_equivalent",
       "normalized_local_sha256": "6d3d549a2287f748cfaf760180de47a8ee2c6bda6ee0ac69eb9a26fedd30c28f"
-    },
-    {
-      "target": "firmware_p4/components/Applications/ui/screens/games/include/fly_ui.h",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/Applications/ui/screens/games/include/fly_ui.h",
-      "local_sha256": "5a90f598f00580e7ff9029190f0fa669135bb438bcfc0a2360fd81b3d38bb5ce",
-      "upstream_sha256": null,
-      "action": "preserve_local_overlay",
-      "normalized_local_sha256": "5a90f598f00580e7ff9029190f0fa669135bb438bcfc0a2360fd81b3d38bb5ce"
     },
     {
       "target": "firmware_p4/components/Applications/ui/screens/games/include/game_cover.h",
@@ -8506,22 +8450,6 @@
       "normalized_local_sha256": "2b3718f473d94fd6434804909251521325a908e8c341e3b492f69b9e419fced0"
     },
     {
-      "target": "firmware_p4/components/Service/fly_link/fly_link.c",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/Service/fly_link/fly_link.c",
-      "local_sha256": "2e96b946d6c5513882db39f32b6ee87a58dc7d5f823dd2b5c67feda1d84c6b5c",
-      "upstream_sha256": null,
-      "action": "preserve_local_overlay",
-      "normalized_local_sha256": "2e96b946d6c5513882db39f32b6ee87a58dc7d5f823dd2b5c67feda1d84c6b5c"
-    },
-    {
-      "target": "firmware_p4/components/Service/fly_link/include/fly_link.h",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/Service/fly_link/include/fly_link.h",
-      "local_sha256": "8ea5708586c27d696329705c2ed1d608eff49fec8ab827c56498ce01ac742a65",
-      "upstream_sha256": null,
-      "action": "preserve_local_overlay",
-      "normalized_local_sha256": "8ea5708586c27d696329705c2ed1d608eff49fec8ab827c56498ce01ac742a65"
-    },
-    {
       "target": "firmware_p4/components/Service/host_link/host_link.c",
       "local_path": "work/highboy_muse_port/integrated_p4/source/components/Service/host_link/host_link.c",
       "local_sha256": "d2893c03f1b11a5d86f361742bb3ebf04fd0020fd9692bb83fe1a5843ecd84f0",
@@ -8600,14 +8528,6 @@
       "upstream_sha256": "7dbf00206e4dbdfac919e672c7544ff66aa7e6f2ed6778d767f03a19d9a52e8a",
       "action": "upstream_equivalent",
       "normalized_local_sha256": "7dbf00206e4dbdfac919e672c7544ff66aa7e6f2ed6778d767f03a19d9a52e8a"
-    },
-    {
-      "target": "firmware_p4/components/Service/host_link/host_link_fly.c",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/Service/host_link/host_link_fly.c",
-      "local_sha256": "29a4273fb030971efa8a29f199c1da2489214c82912518ca67bd582d66a4a380",
-      "upstream_sha256": null,
-      "action": "preserve_local_overlay",
-      "normalized_local_sha256": "29a4273fb030971efa8a29f199c1da2489214c82912518ca67bd582d66a4a380"
     },
     {
       "target": "firmware_p4/components/Service/host_link/host_link_ir.c",
@@ -8744,14 +8664,6 @@
       "upstream_sha256": "9f6639a3c1b449fa42d2c8745cb7a19169bd9d5ff90005e79a2b143a20fe7df9",
       "action": "upstream_equivalent",
       "normalized_local_sha256": "9f6639a3c1b449fa42d2c8745cb7a19169bd9d5ff90005e79a2b143a20fe7df9"
-    },
-    {
-      "target": "firmware_p4/components/Service/host_link/include/host_link_fly.h",
-      "local_path": "work/highboy_muse_port/integrated_p4/source/components/Service/host_link/include/host_link_fly.h",
-      "local_sha256": "33aad626419a53bf382f971f9c641f115b2541a04c8ffa4194b95c9d37ac9979",
-      "upstream_sha256": null,
-      "action": "preserve_local_overlay",
-      "normalized_local_sha256": "33aad626419a53bf382f971f9c641f115b2541a04c8ffa4194b95c9d37ac9979"
     },
     {
       "target": "firmware_p4/components/Service/host_link/include/host_link_ir.h",
@@ -12253,5 +12165,95 @@
         }
       ]
     }
-  }
+  },
+  "retired_files": [
+    {
+      "target": "firmware_p4/components/Applications/ui/screens/games/fly_highboy_mesh.h",
+      "local_path": "work/highboy_muse_port/integrated_p4/source/components/Applications/ui/screens/games/fly_highboy_mesh.h",
+      "local_sha256": "61f4192cb6d066b70f6c113dfc9fceca6d5100a60400e5688bb766ce029b390f",
+      "upstream_sha256": null,
+      "action": "preserve_local_overlay",
+      "normalized_local_sha256": "61f4192cb6d066b70f6c113dfc9fceca6d5100a60400e5688bb766ce029b390f"
+    },
+    {
+      "target": "firmware_p4/components/Applications/ui/screens/games/fly_local3d.c",
+      "local_path": "work/highboy_muse_port/integrated_p4/source/components/Applications/ui/screens/games/fly_local3d.c",
+      "local_sha256": "b7c0d992b65ffe9841e43942c3168497f244b79213ba81c9eaed5caddb0fa0ce",
+      "upstream_sha256": null,
+      "action": "preserve_local_overlay",
+      "normalized_local_sha256": "b7c0d992b65ffe9841e43942c3168497f244b79213ba81c9eaed5caddb0fa0ce"
+    },
+    {
+      "target": "firmware_p4/components/Applications/ui/screens/games/fly_local3d.h",
+      "local_path": "work/highboy_muse_port/integrated_p4/source/components/Applications/ui/screens/games/fly_local3d.h",
+      "local_sha256": "099dd459fc4b98dea8be04ace697424fc9b647fc421c8a905d92d62f45b8b002",
+      "upstream_sha256": null,
+      "action": "preserve_local_overlay",
+      "normalized_local_sha256": "099dd459fc4b98dea8be04ace697424fc9b647fc421c8a905d92d62f45b8b002"
+    },
+    {
+      "target": "firmware_p4/components/Applications/ui/screens/games/fly_menu_texture.c",
+      "local_path": "work/highboy_muse_port/integrated_p4/source/components/Applications/ui/screens/games/fly_menu_texture.c",
+      "local_sha256": "99e6bc932bd7b0203e296edcbbac78537676ddd534510fbd85db2e403ec7309a",
+      "upstream_sha256": null,
+      "action": "preserve_local_overlay",
+      "normalized_local_sha256": "99e6bc932bd7b0203e296edcbbac78537676ddd534510fbd85db2e403ec7309a"
+    },
+    {
+      "target": "firmware_p4/components/Applications/ui/screens/games/fly_menu_texture.h",
+      "local_path": "work/highboy_muse_port/integrated_p4/source/components/Applications/ui/screens/games/fly_menu_texture.h",
+      "local_sha256": "a685824b44a69041cdfd314afa0241b8309aa8e636ef5780dd729ba301e2e97e",
+      "upstream_sha256": null,
+      "action": "preserve_local_overlay",
+      "normalized_local_sha256": "a685824b44a69041cdfd314afa0241b8309aa8e636ef5780dd729ba301e2e97e"
+    },
+    {
+      "target": "firmware_p4/components/Applications/ui/screens/games/fly_ui.c",
+      "local_path": "work/highboy_muse_port/integrated_p4/source/components/Applications/ui/screens/games/fly_ui.c",
+      "local_sha256": "0795f8409409e494d2b5ce6dbbbe992018dfe4ec47c88e19fef3c5d56d0a7b66",
+      "upstream_sha256": null,
+      "action": "preserve_local_overlay",
+      "normalized_local_sha256": "0795f8409409e494d2b5ce6dbbbe992018dfe4ec47c88e19fef3c5d56d0a7b66"
+    },
+    {
+      "target": "firmware_p4/components/Applications/ui/screens/games/include/fly_ui.h",
+      "local_path": "work/highboy_muse_port/integrated_p4/source/components/Applications/ui/screens/games/include/fly_ui.h",
+      "local_sha256": "5a90f598f00580e7ff9029190f0fa669135bb438bcfc0a2360fd81b3d38bb5ce",
+      "upstream_sha256": null,
+      "action": "preserve_local_overlay",
+      "normalized_local_sha256": "5a90f598f00580e7ff9029190f0fa669135bb438bcfc0a2360fd81b3d38bb5ce"
+    },
+    {
+      "target": "firmware_p4/components/Service/fly_link/fly_link.c",
+      "local_path": "work/highboy_muse_port/integrated_p4/source/components/Service/fly_link/fly_link.c",
+      "local_sha256": "2e96b946d6c5513882db39f32b6ee87a58dc7d5f823dd2b5c67feda1d84c6b5c",
+      "upstream_sha256": null,
+      "action": "preserve_local_overlay",
+      "normalized_local_sha256": "2e96b946d6c5513882db39f32b6ee87a58dc7d5f823dd2b5c67feda1d84c6b5c"
+    },
+    {
+      "target": "firmware_p4/components/Service/fly_link/include/fly_link.h",
+      "local_path": "work/highboy_muse_port/integrated_p4/source/components/Service/fly_link/include/fly_link.h",
+      "local_sha256": "8ea5708586c27d696329705c2ed1d608eff49fec8ab827c56498ce01ac742a65",
+      "upstream_sha256": null,
+      "action": "preserve_local_overlay",
+      "normalized_local_sha256": "8ea5708586c27d696329705c2ed1d608eff49fec8ab827c56498ce01ac742a65"
+    },
+    {
+      "target": "firmware_p4/components/Service/host_link/host_link_fly.c",
+      "local_path": "work/highboy_muse_port/integrated_p4/source/components/Service/host_link/host_link_fly.c",
+      "local_sha256": "29a4273fb030971efa8a29f199c1da2489214c82912518ca67bd582d66a4a380",
+      "upstream_sha256": null,
+      "action": "preserve_local_overlay",
+      "normalized_local_sha256": "29a4273fb030971efa8a29f199c1da2489214c82912518ca67bd582d66a4a380"
+    },
+    {
+      "target": "firmware_p4/components/Service/host_link/include/host_link_fly.h",
+      "local_path": "work/highboy_muse_port/integrated_p4/source/components/Service/host_link/include/host_link_fly.h",
+      "local_sha256": "33aad626419a53bf382f971f9c641f115b2541a04c8ffa4194b95c9d37ac9979",
+      "upstream_sha256": null,
+      "action": "preserve_local_overlay",
+      "normalized_local_sha256": "33aad626419a53bf382f971f9c641f115b2541a04c8ffa4194b95c9d37ac9979"
+    }
+  ]
 }

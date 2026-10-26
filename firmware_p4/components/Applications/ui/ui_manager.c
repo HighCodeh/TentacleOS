@@ -95,7 +95,6 @@
 #include "breakout_ui.h"
 #include "gb_ui.h"
 #include "doom_real_ui.h"
-#include "fly_ui.h"
 #include "muse_ui.h"
 #include "grok_idle_ui.h"
 #include "octobit_status_ui.h"
@@ -410,8 +409,6 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
       return ui_usb_mouse_stop;
     case SCREEN_RFID_MENU:
       return ui_rfid_menu_stop;
-    case SCREEN_FLY:
-      return ui_fly_stop;
     case SCREEN_MUSE:
       return ui_muse_stop;
     case SCREEN_GROK_IDLE:
@@ -525,8 +522,6 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_gb_open;
     case SCREEN_GAME_DOOM:
       return ui_doom_real_open;
-    case SCREEN_FLY:
-      return ui_fly_open;
     case SCREEN_MUSE:
       return ui_muse_open;
     case SCREEN_GROK_IDLE:
@@ -744,7 +739,6 @@ bool ui_screen_shows_chrome(screen_id_t s) {
     case SCREEN_SYSTEM_UPDATE:
     case SCREEN_TIME:
     case SCREEN_APP_RUNNING:
-    case SCREEN_FLY:
     case SCREEN_MUSE:
     case SCREEN_GROK_IDLE:
       return false;

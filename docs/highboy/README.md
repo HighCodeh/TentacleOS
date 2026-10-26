@@ -55,7 +55,7 @@ Independent nested components are registered explicitly through CMake.
 | Muse / Grok | Preserve voice-note/PTT + text replies, official Muse menu mark, and the separate offline-only Grok animation. |
 | NFC / RFID / LoRa / IR | Preserve local hardware drivers, read/write/APDU features, memory placement and UI changes rather than replacing them with older upstream implementations. |
 | Wi-Fi / BLE / SPI | Preserve the local dual-band analysis, HID mouse, memory, transaction and session fixes. |
-| Apps / games / power | Preserve glass-style Apps menu, covers, Game Boy controls, DOOM, Fly/Musca, brightness and display-hold behavior. |
+| Apps / games / power | Preserve glass-style Apps menu, covers, Game Boy controls, DOOM, brightness and display-hold behavior. |
 
 Upstream's C5 tree is identical between the previous upstream snapshot and this
 revision. Replacing our C5 with the stock image would remove Muse and regress the
