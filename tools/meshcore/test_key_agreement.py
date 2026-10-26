@@ -17,6 +17,7 @@
 """Check production MeshCore key agreement against real libsodium."""
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import tempfile
@@ -26,7 +27,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def main():
     source = (ROOT / "firmware_p4/components/Applications/LoRa/meshcore/meshcore_crypto.c").read_text()
-    start = source.index("esp_err_t mc_x25519(")
+    signature = re.search(r"\besp_err_t\s+mc_x25519\s*\(", source)
+    if signature is None:
+        raise RuntimeError("Production mc_x25519 definition not found")
+    start = signature.start()
     end = source.index("\n}", start) + 2
     flags = shlex.split(os.environ.get("HOST_LINK_TEST_CFLAGS", ""))
     libs = shlex.split(os.environ.get("HOST_LINK_TEST_LDFLAGS", ""))
