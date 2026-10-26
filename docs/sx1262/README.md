@@ -1,3 +1,20 @@
+<!--
+SPDX-License-Identifier: GPL-3.0-or-later
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # SX1262 LoRa Transceiver Driver
 
 This component provides a driver for the Semtech SX1262 sub-GHz LoRa transceiver. It handles the full SX1262 command set over SPI, LoRa modulation/packet configuration, TX/RX (single, continuous, and duty-cycle), Channel Activity Detection (CAD), sleep/wake power management, and interrupt-driven packet reception with a ring buffer.
@@ -205,3 +222,7 @@ so later calls cannot use freed transport state. The shared SPI3 bus remains
 owned by the system/display. Native mesh, diagnostic/lab and app starts use the
 [session radio reservation](../lora/README.md#app-ownership-and-raw-phy-abi-123).
 These software acknowledgements do not replace electrical acceptance.
+
+The IDF v6.1 build declares its GPIO/SPI driver dependencies explicitly.
+Optional disconnected GPIOs contribute a zero mask before any bit shift,
+retaining the board pin mapping while avoiding GCC 15 negative-shift diagnostics.

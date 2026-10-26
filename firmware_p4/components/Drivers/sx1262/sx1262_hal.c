@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2025 HIGH CODE LLC
 //
 // TentacleOS is free software: you can redistribute it and/or modify
@@ -156,6 +157,10 @@ static void hal_set_antenna(void *ctx, uint8_t mode) {
   }
 }
 
+static uint64_t pin_mask(gpio_num_t pin) {
+  return pin >= 0 && pin < GPIO_NUM_MAX ? UINT64_C(1) << (uint32_t)pin : 0;
+}
+
 esp_err_t sx1262_hal_create(sx1262_hal_t *out_hal) {
   if (out_hal == NULL) {
     return ESP_ERR_INVALID_ARG;
@@ -166,15 +171,15 @@ esp_err_t sx1262_hal_create(sx1262_hal_t *out_hal) {
     goto fill_hal;
   }
 
-  uint64_t out_mask = (1ULL << PIN_NSS);
+  uint64_t out_mask = pin_mask(PIN_NSS);
   if (PIN_NRST >= 0) {
-    out_mask |= (1ULL << PIN_NRST);
+    out_mask |= pin_mask(PIN_NRST);
   }
   if (PIN_TXEN >= 0) {
-    out_mask |= (1ULL << PIN_TXEN);
+    out_mask |= pin_mask(PIN_TXEN);
   }
   if (PIN_RXEN >= 0) {
-    out_mask |= (1ULL << PIN_RXEN);
+    out_mask |= pin_mask(PIN_RXEN);
   }
   gpio_config_t out_conf = {
       .pin_bit_mask = out_mask,
