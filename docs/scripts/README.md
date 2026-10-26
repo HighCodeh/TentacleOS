@@ -1,3 +1,20 @@
+<!--
+SPDX-License-Identifier: GPL-3.0-or-later
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # JavaScript and Lua scripts
 
 Developer → Scripts runs plain `.js` and `.lua` source files from
@@ -165,17 +182,24 @@ acceptance; host tests cannot establish those measurements.
 
 ## Sources, generation and tests
 
-Interpreter sources and licenses are included under `firmware_p4/vendor` for
-offline builds. Their provenance records pin source hashes. MicroQuickJS has one
+Interpreter sources and licenses live inside `Service/script_engine/lua` and
+`Service/script_engine/mquickjs`. These are local integration exceptions: Lua is
+built with a restricted module set and call-depth limit, and MicroQuickJS uses
+our generated ABI tables plus the portability correction described below. Their provenance records pin source hashes. MicroQuickJS has one
 recorded portability patch to encode negative tagged integers without an
-undefined signed shift. Its sources force-include standard `<stddef.h>` to use
+undefined signed shift. The constant-pool length guard also rejects a full
+16-bit pool before incrementing; GCC 15 exposed the old unreachable comparison. Its sources force-include standard `<stddef.h>` to use
 standard `offsetof`; only vendor format/dangling-pointer warning classes are
 demoted. First-party interpreter code retains the project's warning policy.
 
 The native adapter is the nested `Service/script_engine` component. The worker
 is in `Applications/scripts`, and the screen is in `ui/screens/dev`.
 
+Prepare the managed host-test cJSON dependency first:
+
 ```sh
+python3 -m pip install -r tools/dependencies/requirements.txt
+python3 tools/dependencies/prepare_host.py
 python3 tools/scripts/generate_js_stdlib.py --check
 python3 tools/scripts/test_engine.py
 python3 tools/scripts/test_runner.py

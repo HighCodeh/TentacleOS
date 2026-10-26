@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 """Pre-commit formatter for first-party sources, with local import-format evidence."""
 import hashlib
 import json
@@ -13,7 +28,9 @@ def is_first_party(path):
     if not path.endswith((".c", ".h")):
         return False
     return not any(part in path for part in (
-        "/Applications/doom/", "/Service/highboy_muse/sdk/",
+        "/Applications/doom/", "/Service/muse_port/sdk/",
+        "/Service/script_engine/lua/", "/Service/script_engine/mquickjs/",
+        "/legacy_des/des.c", "/legacy_des/des.h",
         "/Service/noise_core/", "/Service/minimp3/", "/Service/fatfs/",
     )) and not path.endswith("/fly_highboy_mesh.h")
 

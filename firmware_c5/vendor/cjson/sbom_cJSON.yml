@@ -1,9 +1,0 @@
-name: cJSON
-version: "1.7.19"
-cpe:
- - cpe:2.3:a:cjson_project:cjson:{}:*:*:*:*:*:*:*
- - cpe:2.3:a:davegamble:cjson:{}:*:*:*:*:*:*:*
-supplier: 'Person: Dave Gamble'
-description: "cJSON: Ultralightweight JSON parser in ANSI C"
-url: https://github.com/DaveGamble/cJSON
-hash: b2890c8d76bbb64e710585ebc0a917196b9c67e7

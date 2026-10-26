@@ -1,4 +1,0 @@
-dependencies:
-  idf: ">=5.0"
-  esp_littlefs:
-    path: "../../"

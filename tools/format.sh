@@ -1,4 +1,19 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 
 # Copyright (c) 2025 HIGH CODE LLC
 #
@@ -83,7 +98,7 @@ if [ -n "$BASE_REF" ]; then
 
   while IFS= read -r -d '' path; do
     case "$path" in
-      */Applications/doom/*|*/Service/highboy_muse/sdk/*|*/Service/noise_core/*|*/Service/minimp3/*|*/Service/fatfs/*|*/fly_highboy_mesh.h) ;; # third-party or generated source
+      */Applications/doom/*|*/Service/muse_port/sdk/*|*/Service/noise_core/*|*/Service/minimp3/*|*/Service/fatfs/*|*/legacy_des/des.[ch]|*/Service/script_engine/lua/*|*/Service/script_engine/mquickjs/*|*/fly_highboy_mesh.h) ;; # third-party or generated source
       *.c|*.h) FILES+=("$REPO_ROOT/$path") ;;
     esac
   done < <(git -C "$REPO_ROOT" diff --name-only -z --diff-filter=ACMR \
@@ -105,9 +120,11 @@ else
     FILES+=("$path")
   done < <(find "${EXISTING_TARGETS[@]}" -type f \( -name "*.c" -o -name "*.h" \) \
     -not -path "*/managed_components/*" -not -path "*/build/*" \
-    -not -path "*/Applications/doom/*" -not -path "*/Service/highboy_muse/sdk/*" \
+    -not -path "*/Applications/doom/*" -not -path "*/Service/muse_port/sdk/*" \
     -not -path "*/Service/noise_core/*" -not -path "*/Service/minimp3/*" \
-    -not -path "*/Service/fatfs/*" -not -name 'fly_highboy_mesh.h' -print0)
+    -not -path "*/legacy_des/des.c" -not -path "*/legacy_des/des.h" \
+    -not -path "*/Service/fatfs/*" -not -path "*/Service/script_engine/lua/*" \
+    -not -path "*/Service/script_engine/mquickjs/*" -not -name 'fly_highboy_mesh.h' -print0)
 fi
 
 COUNT="${#FILES[@]}"

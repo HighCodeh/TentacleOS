@@ -1,7 +1,0 @@
-name: esp-serial-flasher
-
-build:
-  settings:
-    dts_root: zephyr
-  cmake: zephyr/drivers/misc/esp_loader
-  kconfig: zephyr/Kconfig

@@ -1,0 +1,31 @@
+{
+  "repository": "https://github.com/bellard/mquickjs",
+  "commit": "6d4d7eb6b99011d5aab6e88a9b99e8fd4d86c6e9",
+  "files": {
+    "mquickjs.c": "05ba65fb6265f3ca11c442ae7f5a08037177fd1ba3ee1f03d4831677dc4254cd",
+    "mquickjs.h": "c228d89acc4a4770020f222259ab06fbab96621948d9af66d14b2f60d57bb75b",
+    "mquickjs_priv.h": "5f91ccecfd27737c5259fbcbd3a5b2c0dbe34c15d8f785d85b26637c503990b9",
+    "mquickjs_opcode.h": "2364fcfe308f2fc1993cc4238a2842990a9edaf398e8f43d97b53cd01072e4d0",
+    "mquickjs_build.c": "bc5b680a58dcb5ca3702899e822b79d1b2a25afb82d99e21a8a82e9f6705ad08",
+    "mquickjs_build.h": "c5578d2ce533e47640c65835535228985f3218a6b8b86ad8846e9e4697473af6",
+    "cutils.c": "670ec34d25203c0273c399206e02a6cc329b260ce88441abce73259af554edb1",
+    "cutils.h": "2f5ff3551a7088b1399c03dd93b2a16f54e2ecf2946486c2dde5bf6dcdec22c7",
+    "dtoa.c": "7bd70f32bb4a490736d4f450f3474bfde81237b75f61398ee10838f944b2096c",
+    "dtoa.h": "a3ad6c1568726245df7d5597aac8a9fcd203eca2cd4717b7bb07e839cde93ad7",
+    "libm.c": "ea464b9395b8d74c0f28dc66e00f85413dd32dd7847ff0814ef4d030d3c78b09",
+    "libm.h": "ef460e2ff7455b9880683e9909332e5f10c6255dd259317a49a7d6ab6bf65d24",
+    "softfp_template.h": "537bdf6e02bb632a6646bf81efca0aeb5e2ff93c0e1ed15bff1e99c45a0e2d4b",
+    "softfp_template_icvt.h": "6e17a27a248e70c2b065c956e472c40bae0120359356d6d5dccbc9873084c4af",
+    "LICENSE": "f0b6460337202760cd679ce327ad883985e198c9d82f1cacd080af8dbf7ed673",
+    "README.md": "389445d812580eaf5cba81c1e8319e276a28dfdbf49a11d40c473788678523dd",
+    "mqjs_stdlib.c": "461ae310027970c829859e1777ddb5e72bdbd33b207c1cf809fbaf94fb2d5326",
+    "list.h": "484a604d8996a9c23c23d453ec5017af05b2c74de4bb34da8abcd5f5b5880f3e"
+  },
+  "local_patches": {
+    "mquickjs.c": {
+      "before_sha256": "05ba65fb6265f3ca11c442ae7f5a08037177fd1ba3ee1f03d4831677dc4254cd",
+      "after_sha256": "d09b4db319db83a8039d16d7b8ae8f509d855d28666d964a1e269ad1e38a367c",
+      "reason": "Encode negative tagged integers through an unsigned shift while retaining the upstream sign-extended bit pattern; avoid undefined signed left shift under UBSan. Reject a full uint16_t constant pool before incrementing its length; GCC 15 detects the previous unreachable >65535 guard."
+    }
+  }
+}

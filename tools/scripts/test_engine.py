@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 """Run the real vendored interpreters and production adapter on the host."""
 import hashlib
 import json
@@ -10,8 +25,8 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 ENGINE = ROOT / 'firmware_p4/components/Service/script_engine'
-JS = ROOT / 'firmware_p4/vendor/mquickjs'
-LUA = ROOT / 'firmware_p4/vendor/lua/src'
+JS = ROOT / 'firmware_p4/components/Service/script_engine/mquickjs'
+LUA = ROOT / 'firmware_p4/components/Service/script_engine/lua/src'
 LUA_SOURCES = '''lapi lcode lctype ldebug ldo ldump lfunc lgc llex lmem lobject lopcodes
 lparser lstate lstring ltable ltm lundump lvm lzio lauxlib lbaselib ltablib lstrlib
 lmathlib lutf8lib'''.split()
@@ -43,8 +58,8 @@ def main():
                    '-I', str(JS), '-I', str(JS / 'generated'), '-I', str(LUA),
                    str(ENGINE / 'script_engine.c'), str(ROOT / 'tools/scripts/tests/test_engine.c')]
         command += ['-I', str(ROOT / 'firmware_p4/components/Service/app_runtime/include'),
-                    '-I', str(ROOT / 'firmware_p4/vendor/cjson/cJSON'),
-                    str(ROOT / 'firmware_p4/vendor/cjson/cJSON/cJSON.c'),
+                    '-I', str(ROOT / 'tools/dependencies/build/managed_components/espressif__cjson/cJSON'),
+                    str(ROOT / 'tools/dependencies/build/managed_components/espressif__cjson/cJSON/cJSON.c'),
                     str(ENGINE / 'script_bindings.c')]
         command += [str(JS / (name + '.c')) for name in ('mquickjs', 'dtoa', 'libm', 'cutils')]
         command += [str(LUA / (name + '.c')) for name in LUA_SOURCES]

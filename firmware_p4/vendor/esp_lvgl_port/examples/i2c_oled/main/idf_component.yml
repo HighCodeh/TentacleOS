@@ -1,6 +1,0 @@
-dependencies:
-  esp_lcd_sh1107:
-    version: ^1
-  esp_lvgl_port:
-    version: '*'
-  idf: '>=5.2'

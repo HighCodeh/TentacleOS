@@ -1,4 +1,0 @@
-dependencies:
-  espressif/libsodium:
-    version: "*"
-    override_path: "../.."

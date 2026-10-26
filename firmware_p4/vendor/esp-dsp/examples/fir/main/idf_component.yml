@@ -1,3 +1,0 @@
-dependencies:
-  espressif/esp-dsp:
-    version: '*'

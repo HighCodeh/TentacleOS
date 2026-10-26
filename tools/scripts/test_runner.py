@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 """Run the production worker and real engines with file/task/clock device fakes."""
 import os
 from pathlib import Path
@@ -68,8 +83,8 @@ static int xTaskCreatePinnedToCoreWithCaps(void (*task)(void *), const char *nam
                    '-I', str(ROOT / 'firmware_p4/components/Drivers/sys_prio/include'),
                    str(ENGINE / 'script_engine.c'), str(ROOT / 'tools/scripts/tests/test_runner.c')]
         command += ['-I', str(ROOT / 'firmware_p4/components/Service/app_runtime/include'),
-                    '-I', str(ROOT / 'firmware_p4/vendor/cjson/cJSON'),
-                    str(ROOT / 'firmware_p4/vendor/cjson/cJSON/cJSON.c'),
+                    '-I', str(ROOT / 'tools/dependencies/build/managed_components/espressif__cjson/cJSON'),
+                    str(ROOT / 'tools/dependencies/build/managed_components/espressif__cjson/cJSON/cJSON.c'),
                     str(ENGINE / 'script_bindings.c')]
         command += [str(JS / (name + '.c')) for name in ('mquickjs', 'dtoa', 'libm', 'cutils')]
         command += [str(LUA / (name + '.c')) for name in LUA_SOURCES]
