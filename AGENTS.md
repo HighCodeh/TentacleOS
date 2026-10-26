@@ -21,8 +21,8 @@ along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 This checkout includes the verified High Boy Muse integration. Read
 `docs/highboy/README.md` before changing build, protocol or deployment paths.
-`tools/build.sh` routes to an offline app-only build: P4 uses IDF v5.5.3, C5 uses
-IDF v6.0.1 for its Muse integration. Preserve the paired protocol v8 headers and
+`tools/build.sh` routes to an app-only build with the IDF Component Manager enabled:
+Both P4 and C5 use ESP-IDF v6.1. Preserve the paired protocol v8 headers and
 the C5 memory overlay. Do not run older external `prepare.py` generators here.
 `tools/flash.sh p4|c5 -p PORT` performs a guarded single-chip app-only update: full flash backup,
 matching installed partition map and valid existing boot/app images are required.
@@ -38,10 +38,10 @@ Embedded firmware for the High Boy platform (ESP32-S3/P4/C5). Dual-firmware arch
 
 ## Build & Flash
 
-ESP-IDF v5.5.3 is the pinned version. Source the environment before any build command:
+ESP-IDF v6.1 is the pinned version. Source the environment before any build command:
 
 ```bash
-. $HOME/esp/v5.5.3/esp-idf/export.sh   # or rely on $IDF_PATH
+. $HOME/esp/v6.1/esp-idf/export.sh   # or rely on $IDF_PATH
 ```
 
 Full paired build (C5 then P4):
@@ -110,6 +110,33 @@ be its own component (to break a dependency cycle, or to override an IDF compone
 nest it under the matching root and register it via `EXTRA_COMPONENT_DIRS` in the
 project `CMakeLists.txt`. Existing examples: `Applications/gameboy`,
 `Applications/doom`, `Service/fatfs` (vendored IDF override), `Core/resource_mgr`.
+
+## Third-party dependencies
+
+Use the IDF Component Manager for third-party libraries. Declare dependencies
+in the consuming component's `idf_component.yml` (the existing project manifests
+are `firmware_p4/main/idf_component.yml` and `firmware_c5/main/idf_component.yml`).
+Use explicit compatible version constraints; for Git sources, pin a revision.
+Let the manager populate `managed_components/`. Do not edit generated dependency
+sources or add copies to `vendor/` merely to avoid dependency resolution.
+
+The normal build enables the manager with `IDF_COMPONENT_MANAGER=1`.
+This is a build environment setting, not a `sdkconfig.defaults` option.
+
+A local override is an exception requiring a concrete technical reason, such
+as necessary source changes unavailable upstream. Document its origin/revision,
+license, local changes and update procedure in the subsystem documentation.
+Keep it under the appropriate architecture root and register it explicitly in
+CMake. The Lua and MicroQuickJS integrations live under `Service/script_engine`;
+their restricted build and local adaptation are documented in `docs/scripts/README.md`.
+
+The P4 `components/Service/fatfs` override is one such exception: it is copied
+from ESP-IDF v5.5.3 and modified for microSD exFAT support. Its same-name CMake
+registration replaces the SDK's built-in `fatfs`; it is not downloaded from
+GitHub during the build. Preserve its third-party notices and local exFAT changes.
+The NFC legacy DES primitive is another scoped exception: IDF 6.1 removed it,
+but NFC card protocols require it. Its upstream origin and isolated adaptation
+are documented under `Applications/nfc/protocols/common/legacy_des`.
 
 ## Documentation
 
@@ -180,7 +207,7 @@ This sets `core.hooksPath` to `.githooks/` (pre-commit: clang-format, commit-msg
 GitHub Actions runs on PRs to `main`/`dev`:
 1. **Format check** — `./tools/format.sh --check`
 2. **Commitlint** — validates all commits in PR
-3. **Build** — both targets inside `espressif/idf:v5.5.3` container via `./tools/build.sh`
+3. **Build** — both targets inside `espressif/idf:v6.1` container via `./tools/build.sh`
 
 All must pass before merge.
 
