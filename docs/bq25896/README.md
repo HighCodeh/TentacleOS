@@ -127,6 +127,10 @@ void battery_service_init(void);
 ```
 Idempotent. Requires `bq25896_init()` first. Takes one synchronous reading so the first UI paint has real data, then polls in the background.
 
+Background polling does not print routine telemetry, including state changes.
+Use the `battery` console command for diagnostics. Startup messages and
+telemetry/ADC recovery warnings remain enabled.
+
 #### `battery_service_get`
 ```c
 bool battery_service_get(battery_snapshot_t *out);

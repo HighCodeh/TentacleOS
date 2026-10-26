@@ -140,48 +140,6 @@ static void battery_task(void *arg) {
       s_snap.valid = true;
       xSemaphoreGive(s_mtx);
     }
-
-    // Log only when a meaningful field changes — the old per-poll dump was 1 Hz
-    // spam. vbat jitters by tens of mV so it isn't a trigger; it just rides
-    // along in the line when a real change (SoC / charge state / vbus / fault)
-    // fires. vbat==2304 => ADC register is 0 (not converting); vbat==0 => I2C
-    // read failed; chg_stat: 0 not-charging, 1 pre, 2 fast, 3 done.
-    static int last_soc = -1, last_charging = -1, last_vbus = -1, last_chg = -1, last_fault = -1,
-               last_ntc = -1, last_thermal = -1, last_idpm = -1, last_vdpm = -1;
-    if (soc != last_soc || (int)t.charging != last_charging || (int)t.power_good != last_vbus ||
-        (int)t.chg != last_chg || (int)t.fault != last_fault || (int)t.ntc_state != last_ntc ||
-        (int)t.thermal_regulation != last_thermal || (int)t.input_current_dpm != last_idpm ||
-        (int)t.input_voltage_dpm != last_vdpm) {
-      ESP_LOGI(TAG,
-               "vbat=%u vsys=%u vbus=%u ichg=%umA temp=%d.%dC soc=%d%% src=%d "
-               "pg=%d chg=%d/%d "
-               "dpm=%d/%d therm=%d ntc=%d fault=0x%02X",
-               t.vbat_mv,
-               t.vsys_mv,
-               t.vbus_mv,
-               t.ichg_ma,
-               t.temperature_decic / 10,
-               t.temperature_decic < 0 ? -(t.temperature_decic % 10) : t.temperature_decic % 10,
-               soc,
-               (int)t.vbus,
-               (int)t.power_good,
-               (int)t.charging,
-               (int)t.chg,
-               (int)t.input_current_dpm,
-               (int)t.input_voltage_dpm,
-               (int)t.thermal_regulation,
-               (int)t.ntc_state,
-               t.fault);
-      last_soc = soc;
-      last_charging = (int)t.charging;
-      last_vbus = (int)t.power_good;
-      last_chg = (int)t.chg;
-      last_fault = (int)t.fault;
-      last_ntc = (int)t.ntc_state;
-      last_thermal = (int)t.thermal_regulation;
-      last_idpm = (int)t.input_current_dpm;
-      last_vdpm = (int)t.input_voltage_dpm;
-    }
   }
 }
 

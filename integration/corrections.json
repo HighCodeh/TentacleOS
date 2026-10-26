@@ -678,10 +678,16 @@
     "firmware_p4/components/Drivers/bq25896/battery_service.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "59327b6da36c5500101cfffc6054e81b3262179e924d13022072757e28f5e419",
-      "after_sha256": "db173b86295e9ecf7bb2adb76483e2bdf71282d0fbcce23cbf0e36273260b49d",
-      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
-      "pre_format_sha256": "8b4ea486019f738ceb16a77026d579a3e7bccc3421271a1f28e47e05a5523487",
-      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+      "after_sha256": "dcec3156455c5bcf6214d1b52759c910d2fe3b19c050dee6ddfd7473329cffc3",
+      "reason": "Remove routine background battery telemetry logging and its logging-only change cache; retain sampling, UI snapshots, recovery warnings and the battery console command.",
+      "pre_format_sha256": "4a41c58648e5db4f14637d875b2bc2ab4fcaa314234f52fcba5f652d4e1bc977",
+      "formatter": "clang-format (project pre-commit hook)",
+      "review_history": [
+        {
+          "after_sha256": "db173b86295e9ecf7bb2adb76483e2bdf71282d0fbcce23cbf0e36273260b49d",
+          "reason": "Pass central scheduling macros directly and pin affected first-party tasks."
+        }
+      ]
     },
     "firmware_p4/components/Drivers/grok_usb_audio/include/grok_tusb_config.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
