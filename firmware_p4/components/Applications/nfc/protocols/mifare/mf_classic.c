@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2025 HIGH CODE LLC
 //
 // TentacleOS is free software: you can redistribute it and/or modify
@@ -13,6 +12,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 /**
  * @file mf_classic.c
  * @brief MIFARE Classic authentication, read, and write operations.

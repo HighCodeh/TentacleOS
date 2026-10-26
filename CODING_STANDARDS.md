@@ -1,5 +1,5 @@
 <!--
-SPDX-License-Identifier: GPL-3.0-or-later
+Copyright (c) 2025 HIGH CODE LLC
 
 TentacleOS is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -33,7 +33,8 @@ This set is not final. If you want to change something, open a ticket.
 ## General Rules
 
 - Every first-party file created or modified must start with the project's
-  GPL-3.0-or-later license notice, including its SPDX identifier. This includes
+  full GPL-3.0-or-later notice with `Copyright (c) 2025 HIGH CODE LLC`,
+  exactly as shown in `AGENTS.md`. An SPDX-only header is insufficient. This includes
   scripts, tests, build/CI/configuration files and documentation. Keep required
   shebangs/declarations first and put the notice immediately after them. Use
   native comments, or an adjacent `<filename>.license` for formats without
@@ -297,8 +298,18 @@ components/
 ```c
 // Copyright (c) 2025 HIGH CODE LLC
 //
-// SPDX-License-Identifier: GPL-3.0-or-later
-// ...
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #ifndef MODULE_NAME_H
 #define MODULE_NAME_H
@@ -428,8 +439,18 @@ void module_name_result_free(module_name_result_t *result);
 ```c
 // Copyright (c) 2025 HIGH CODE LLC
 //
-// SPDX-License-Identifier: GPL-3.0-or-later
-// ...
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "module_name.h"
 

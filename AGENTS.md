@@ -1,5 +1,5 @@
 <!--
-SPDX-License-Identifier: GPL-3.0-or-later
+Copyright (c) 2025 HIGH CODE LLC
 
 TentacleOS is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -152,9 +152,26 @@ interface, update its doc in the same change.
 Every first-party file you create or modify MUST carry the project's license
 notice at the top. This applies to source files, headers, scripts, tests, build
 files, CI workflows, configuration files and documentation, not only `.c`/`.h`.
-Use the existing TentacleOS GPL-3.0-or-later notice and include
-`SPDX-License-Identifier: GPL-3.0-or-later`; do not copy a different license from
-an illustrative example or invent copyright holders.
+Use the exact full notice below, including `Copyright (c) 2025 HIGH CODE LLC`.
+Do not replace it with an SPDX-only header, change the year, abbreviate the text,
+or copy a license from an illustrative example. Adapt only comment delimiters.
+
+```c
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+```
 
 Use the format's native comments (`//`, `#`, or HTML comments in Markdown).
 A required shebang or format declaration stays first; the license follows
