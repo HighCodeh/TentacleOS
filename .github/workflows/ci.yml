@@ -110,6 +110,7 @@ jobs:
         if: matrix.target == 'p4'
         shell: bash
         run: |
+          source "$IDF_PATH/export.sh" >/dev/null
           python -m pip install -r tools/crypto/requirements.txt
           python tools/crypto/test_psa.py --idf "$IDF_PATH"
 
