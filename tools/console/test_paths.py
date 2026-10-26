@@ -16,6 +16,7 @@
 
 """Exercise production path handling with explicit filesystem/UI/HID fakes."""
 import os
+import re
 from pathlib import Path
 import shlex
 import subprocess
@@ -28,7 +29,11 @@ NOTICE = (SERVICE / "storage_api/include/tos_path.h").read_text().split("#ifndef
 
 
 def function(source, signature):
-    start = source.index(signature)
+    pattern = r"\s+".join(re.escape(token) for token in signature.split())
+    match = re.search(pattern, source)
+    if match is None:
+        raise AssertionError("Production function not found: " + signature)
+    start = match.start()
     opening = source.index("{", start)
     end, depth = opening + 1, 1
     while depth:
