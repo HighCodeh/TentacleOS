@@ -54,6 +54,11 @@ static const char *TAG = "STORAGE_UI";
 #define ACT_COUNT      4
 #define FMT_TASK_STACK 8192
 #define FMT_POLL_MS    50
+#define FMT_BOX_W      200
+#define FMT_BOX_H      124
+#define FMT_BAR_MAX    100
+#define FMT_BAR_SPAN   25
+#define FMT_BAR_STEP   5
 
 #define LIST_LEFT      6
 #define LIST_TOP_Y     46
@@ -70,6 +75,8 @@ static lv_obj_t *s_act[ACT_COUNT];
 static lv_obj_t *s_col = NULL;
 static lv_obj_t *s_thumb = NULL;
 static lv_obj_t *s_fmt_overlay = NULL;
+static lv_obj_t *s_fmt_bar = NULL;
+static int32_t s_fmt_phase = 0;
 static int s_sel = 0;
 static bool s_formatting = false;
 static bool s_format_exfat = false;
@@ -263,8 +270,10 @@ static void update_selection(void) {
 }
 
 static void overlay_deleted_cb(lv_event_t *event) {
-  if (lv_event_get_target(event) == s_fmt_overlay)
+  if (lv_event_get_target(event) == s_fmt_overlay) {
     s_fmt_overlay = NULL;
+    s_fmt_bar = NULL;
+  }
 }
 
 static void screen_deleted_cb(lv_event_t *event) {
@@ -289,7 +298,7 @@ static void show_fmt_overlay(void) {
   lv_obj_set_style_border_width(s_fmt_overlay, 0, 0);
 
   lv_obj_t *box = lv_obj_create(s_fmt_overlay);
-  lv_obj_set_size(box, 190, 96);
+  lv_obj_set_size(box, FMT_BOX_W, FMT_BOX_H);
   lv_obj_center(box);
   lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_color(box, current_theme.bg_secondary, 0);
@@ -307,6 +316,15 @@ static void show_fmt_overlay(void) {
   lv_obj_set_style_text_font(t, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(t, current_theme.border_accent, 0);
 
+  s_fmt_bar = lv_bar_create(box);
+  lv_obj_set_size(s_fmt_bar, lv_pct(100), BAR_H);
+  lv_bar_set_range(s_fmt_bar, 0, FMT_BAR_MAX);
+  lv_bar_set_mode(s_fmt_bar, LV_BAR_MODE_RANGE);
+  lv_obj_set_style_bg_color(s_fmt_bar, current_theme.screen_base, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(s_fmt_bar, current_theme.border_accent, LV_PART_INDICATOR);
+  s_fmt_phase = FMT_BAR_SPAN;
+  lv_bar_set_value(s_fmt_bar, s_fmt_phase, LV_ANIM_OFF);
+
   lv_obj_t *m = lv_label_create(box);
   lv_label_set_text(m, "Do not remove the card.");
   lv_obj_set_style_text_font(m, &lv_font_montserrat_12, 0);
@@ -314,8 +332,16 @@ static void show_fmt_overlay(void) {
 }
 
 static void format_done_poll(lv_timer_t *timer) {
-  if (!atomic_load_explicit(&s_format_done, memory_order_acquire))
+  if (!atomic_load_explicit(&s_format_done, memory_order_acquire)) {
+    // FatFS has no progress callback: animate activity, never invent a percentage.
+    if (s_fmt_bar != NULL) {
+      s_fmt_phase = (s_fmt_phase + FMT_BAR_STEP) % (FMT_BAR_MAX + FMT_BAR_SPAN);
+      lv_bar_set_start_value(s_fmt_bar, 0, LV_ANIM_OFF);
+      lv_bar_set_value(s_fmt_bar, LV_MIN(s_fmt_phase, FMT_BAR_MAX), LV_ANIM_OFF);
+      lv_bar_set_start_value(s_fmt_bar, LV_MAX(0, s_fmt_phase - FMT_BAR_SPAN), LV_ANIM_OFF);
+    }
     return;
+  }
   const esp_err_t r = s_format_result;
   lv_timer_delete(timer);
   s_format_poll_timer = NULL;
@@ -376,6 +402,8 @@ static void fmt_confirm_cb(bool confirm) {
 }
 
 static void fire_action(int idx) {
+  if (s_formatting)
+    return;
   if (idx == ACT_HEALTH) {
     ui_feedback(UI_FB_SELECT);
     ui_switch_screen(SCREEN_SD_HEALTH);
@@ -444,6 +472,7 @@ static void build_screen(void) {
   (void)TAG;
   // Any old overlay belongs to prev; its delete callback must not clear a new one.
   s_fmt_overlay = NULL;
+  s_fmt_bar = NULL;
 
   s_screen = lv_obj_create(NULL);
   ++s_screen_generation;

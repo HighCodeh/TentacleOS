@@ -374,3 +374,17 @@ oversized name without reading files, changing colors or unloading assets.
 The existing flash fallback for a missing valid SD theme is retained.
 Companion theme commands reject oversized names and embedded NUL bytes before
 saving or scheduling a reload; an optional final NUL is accepted.
+
+## microSD filesystem and formatting
+
+The card-connected dialog reads the mounted filesystem type from the VFS, just
+as Storage and SD Health do; it does not assume FAT32. Under Settings > Storage,
+**Format SD: exFAT** explicitly selects exFAT, while **Format SD (auto)** lets
+FatFS select the type. Both require confirmation that all files will be erased.
+
+Formatting runs in the existing background worker. An indeterminate activity
+bar keeps moving while the worker runs: FatFS provides no percentage callback.
+The UI blocks further storage actions until completion, reports success only
+after a successful remount, then rebuilds the displayed filesystem and capacity.
+Failure is reported without claiming completion. The bar belongs to the overlay
+and is discarded when its screen is deleted; the worker never accesses LVGL.

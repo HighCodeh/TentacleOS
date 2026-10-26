@@ -558,10 +558,16 @@
     "firmware_p4/components/Applications/ui/screens/settings/storage_settings_ui.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "ff01c0ee0421402743707d2beca3786af8c0f47937d4c5e40fa2bec1a0c0c44b",
-      "after_sha256": "eb6cfd139d1dae564c9b966d8b4eea1187cc84a14ba597765b10fa789429d34f",
-      "reason": "Pass central scheduling macros directly and pin affected first-party tasks.",
+      "after_sha256": "c81805c7fd165d2d3e3e688d7286768ebbd6f509ce13dba13afc3377904b28ee",
+      "reason": "Display the mounted SD filesystem in the connection dialog and animate indeterminate formatting activity with overlay-owned lifetime and no fabricated percentage.",
       "pre_format_sha256": "ca965c9c57a59451a241578f538b821aee6f280325db19b8851fe2bc9bb6dec8",
-      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)",
+      "review_history": [
+        {
+          "after_sha256": "eb6cfd139d1dae564c9b966d8b4eea1187cc84a14ba597765b10fa789429d34f",
+          "reason": "Pass central scheduling macros directly and pin affected first-party tasks."
+        }
+      ]
     },
     "firmware_p4/components/Applications/ui/screens/wifi/wifi_channel_ui.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -3964,6 +3970,12 @@
       "before_sha256": "5ff331e5169ee2d575d9dfaa5d97ef41ded7e27048b9b429d73b33d0c90a4184",
       "after_sha256": "aa754c321847aae25aad4f7008f836193b809e4e36e436c0192151584495e7bb",
       "reason": "Reject oversized console, theme and BadUSB paths before filesystem or transport side effects; preserve complete selected names and report invalid sizes."
+    },
+    "firmware_p4/components/Applications/ui/components/header/header_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "5cdfa14ba768fff7d5316bd924208ba189bf90442ef54d1d3ac3f1b89e4524cd",
+      "after_sha256": "56ea78b3b70af211109ad3c8d7d9e52c41d515612f72456412ee4d360d87ef72",
+      "reason": "Display the mounted SD filesystem in the connection dialog and animate indeterminate formatting activity with overlay-owned lifetime and no fabricated percentage."
     }
   }
 }
