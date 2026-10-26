@@ -163,3 +163,9 @@ Example payloads ship in the asset partition under `firmware_p4/assets/storage/b
 - `rickroll.txt`
 - `amiga.txt`
 
+
+The payload browser only stores complete paths (at most 191 bytes excluding
+NUL). Entries or subdirectories exceeding that limit are skipped with a warning;
+no shortened path is opened or executed. Display labels may be shortened, but
+the full stored path remains the execution target. Console asset paths are
+validated before transport initialization; see [console limits](../console/README.md#file-path-limits).

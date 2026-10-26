@@ -26,6 +26,7 @@ run_test() {
   test_failures=$((test_failures + 1))
 }
 run_test python3 "$repo/tools/ci/test_host_test_runner.py"
+run_test python3 "$repo/tools/console/test_paths.py"
 run_test python3 "$repo/tools/highboy/check_contracts.py"
 run_test python3 "$repo/tools/wifi_quick_scan/test_quick_scan.py"
 run_test python3 "$repo/tools/highboy/test_contracts.py"

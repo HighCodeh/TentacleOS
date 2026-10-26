@@ -23,6 +23,7 @@ extern "C" {
 #include <stdint.h>
 
 #include "lvgl.h"
+#include "esp_err.h"
 
 /** @brief Theme color configuration for the UI. */
 typedef struct {
@@ -68,7 +69,8 @@ void ui_theme_init(void);
 void ui_theme_load_idx(int color_idx);
 
 /** @brief Load a theme by name from SD or flash. */
-void ui_theme_load_from_name(const char *theme_name);
+// Returns ESP_ERR_INVALID_SIZE without changing the theme when the name cannot fit.
+esp_err_t ui_theme_load_from_name(const char *theme_name);
 
 /** @brief Load theme from the stored config file. */
 void ui_theme_load_from_sd(void);

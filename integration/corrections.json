@@ -3912,6 +3912,54 @@
       "before_sha256": "d8b206b2bd1a4b62188abcd2cc4ab7f073824f15b0a7fd868c6fd8f14f5b07df",
       "after_sha256": "97a292c8727341b110b870217d29aba9252cb3337c076a7a1a0cf2f93d82abfe",
       "reason": "Replace the abbreviated project notice with the exact full 2025 HIGH CODE LLC GPL notice supplied by the maintainer."
+    },
+    "firmware_p4/components/Applications/ui/include/ui_theme.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "5deea569531cf849286a9de4be80b4f1ffebdd9f4de1189c3cb83bcf886eb918",
+      "after_sha256": "ab97bb34cf0447410e98b2d9b6f8aa439cf901007c2d34d18f75cc8284dfce53",
+      "reason": "Reject oversized console, theme and BadUSB paths before filesystem or transport side effects; preserve complete selected names and report invalid sizes."
+    },
+    "firmware_p4/components/Applications/ui/screens/badusb/badusb_menu_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "5eeb685c0058c9f40b482201f36f9067232a41457da21dd46b27a688e6c3cbd9",
+      "after_sha256": "f58131ab318a54fa4ca341b4f77716b6d7965818f61005bf97fe14b7acbef0fa",
+      "reason": "Reject oversized console, theme and BadUSB paths before filesystem or transport side effects; preserve complete selected names and report invalid sizes."
+    },
+    "firmware_p4/components/Applications/ui/screens/theme/theme_selector_ui.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "7c7b0cfc6af3f183284dac6b4cf60ad6cfd558ec2dcd49871aacc3284003599c",
+      "after_sha256": "8c5ca180a5031d1182969fdd30f64cf67b999f01da4512aaf54577a6d0000916",
+      "reason": "Reject oversized console, theme and BadUSB paths before filesystem or transport side effects; preserve complete selected names and report invalid sizes.",
+      "pre_format_sha256": "7cfb53eae35c35b27ee21cb6ea81944054c73674bdb1cff7a09f7a3ada23bd65",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/ui_theme.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "65a9061fc404fdaed57144756ca1bfb89d78c851b4c8efd58f28a977e8b468e9",
+      "after_sha256": "520ae4e7a8bb246989826f7ef0d840358bba115b663eba42152b8a63c5bf24f0",
+      "reason": "Reject oversized console, theme and BadUSB paths before filesystem or transport side effects; preserve complete selected names and report invalid sizes."
+    },
+    "firmware_p4/components/Service/console/commands/cmd_badusb.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "2a18767b4eb5ab9d3fd103a4790597e3d4c68f651eba45ea48dc9692082f537f",
+      "after_sha256": "bb407258e40a1f75124277a97c85cce2131974021691bfa18d0c55680b7a374d",
+      "reason": "Reject oversized console, theme and BadUSB paths before filesystem or transport side effects; preserve complete selected names and report invalid sizes.",
+      "pre_format_sha256": "c4295a33fb6dc06f61257dc45b9da0d9b700e815abd6a0526a10200d113e0f02",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/console/commands/cmd_fs.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "1e3d6196849d0f9aa9b55c9ebb918a1212b67c2be14794a81c0a2b25c9c1cd07",
+      "after_sha256": "a04b709a76a6610709fe75e4d43a013d073c8f8158b077ebc3644e844ed5f13b",
+      "reason": "Reject oversized console, theme and BadUSB paths before filesystem or transport side effects; preserve complete selected names and report invalid sizes.",
+      "pre_format_sha256": "e1ed649384d554576d60c219ea355f2a3355923b20ad54e58b774ec20e5f3442",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/host_link/host_link_theme.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "5ff331e5169ee2d575d9dfaa5d97ef41ded7e27048b9b429d73b33d0c90a4184",
+      "after_sha256": "aa754c321847aae25aad4f7008f836193b809e4e36e436c0192151584495e7bb",
+      "reason": "Reject oversized console, theme and BadUSB paths before filesystem or transport side effects; preserve complete selected names and report invalid sizes."
     }
   }
 }

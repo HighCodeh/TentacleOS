@@ -25,6 +25,7 @@
 #include "cJSON.h"
 #include "storage_assets.h"
 #include "tos_config.h"
+#include "tos_path.h"
 
 #include "tos_flash_paths.h"
 #define THEME_CONFIG_PATH     FLASH_CONFIG_THEMES
@@ -372,22 +373,35 @@ static char *read_file_alloc(const char *path) {
   return data;
 }
 
-void ui_theme_load_from_name(const char *theme_name) {
+esp_err_t ui_theme_load_from_name(const char *theme_name) {
   if (theme_name == NULL) {
     ui_theme_load_idx(0);
-    return;
+    return ESP_OK;
   }
+
+  if (strnlen(theme_name, sizeof(g_config_screen.theme)) >= sizeof(g_config_screen.theme)) {
+    ESP_LOGW(TAG, "Theme name too long");
+    return ESP_ERR_INVALID_SIZE;
+  }
+  char directory[THEME_PATH_MAX];
+  esp_err_t err = tos_path_join("/sdcard/themes", theme_name, directory, sizeof(directory));
+  if (err != ESP_OK)
+    return err;
 
   char path[THEME_PATH_MAX];
   char *data = NULL;
   int is_conf = 0;
 
-  snprintf(path, sizeof(path), "/sdcard/themes/%s/theme.conf", theme_name);
+  err = tos_path_join(directory, "theme.conf", path, sizeof(path));
+  if (err != ESP_OK)
+    return err;
   data = read_file_alloc(path);
   if (data) {
     is_conf = 1;
   } else {
-    snprintf(path, sizeof(path), "/sdcard/themes/%s/theme.json", theme_name);
+    err = tos_path_join(directory, "theme.json", path, sizeof(path));
+    if (err != ESP_OK)
+      return err;
     data = read_file_alloc(path);
   }
 
@@ -401,7 +415,7 @@ void ui_theme_load_from_name(const char *theme_name) {
       }
     }
     ui_theme_load_idx(idx);
-    return;
+    return ESP_OK;
   }
 
   ESP_LOGI(TAG, "Loading theme from SD: %s (%s)", theme_name, is_conf ? ".conf" : ".json");
@@ -426,22 +440,31 @@ void ui_theme_load_from_name(const char *theme_name) {
   char asset_dir[ASSET_DIR_PATH_MAX];
   int total = 0;
 
-  snprintf(asset_dir, sizeof(asset_dir), "/sdcard/themes/%s/icons", theme_name);
+  err = tos_path_join(directory, "icons", asset_dir, sizeof(asset_dir));
+  if (err != ESP_OK)
+    return err;
   total += assets_load_from_sd(asset_dir, "/assets/icons");
 
-  snprintf(asset_dir, sizeof(asset_dir), "/sdcard/themes/%s/frames", theme_name);
+  err = tos_path_join(directory, "frames", asset_dir, sizeof(asset_dir));
+  if (err != ESP_OK)
+    return err;
   total += assets_load_from_sd(asset_dir, "/assets/frames");
 
-  snprintf(asset_dir, sizeof(asset_dir), "/sdcard/themes/%s/fonts", theme_name);
+  err = tos_path_join(directory, "fonts", asset_dir, sizeof(asset_dir));
+  if (err != ESP_OK)
+    return err;
   total += assets_load_from_sd(asset_dir, "/assets/fonts");
 
-  snprintf(asset_dir, sizeof(asset_dir), "/sdcard/themes/%s/img", theme_name);
+  err = tos_path_join(directory, "img", asset_dir, sizeof(asset_dir));
+  if (err != ESP_OK)
+    return err;
   total += assets_load_from_sd(asset_dir, "/assets/img");
 
   if (total > 0) {
     assets_manager_warm("/assets/frames");
     ESP_LOGI(TAG, "Theme '%s': loaded %d SD asset override(s)", theme_name, total);
   }
+  return ESP_OK;
 }
 
 void ui_theme_set_protocol(protocol_id_t protocol) {

@@ -30,6 +30,7 @@
 #include "reboot_ui.h"
 #include "st7789.h"
 #include "tos_config.h"
+#include "tos_path.h"
 #include "tos_storage_paths.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
@@ -117,25 +118,42 @@ static void anim_done_cb(lv_anim_t *a) {
   s_animating = false;
 }
 
+static esp_err_t
+theme_file_path(const char *name, const char *file, char *out_path, size_t capacity) {
+  char directory[THEME_PATH_MAX];
+  esp_err_t err = tos_path_join(THEMES_DIR, name, directory, sizeof(directory));
+  if (err != ESP_OK) {
+    if (out_path != NULL && capacity > 0)
+      out_path[0] = '\0';
+    return err;
+  }
+  return tos_path_join(directory, file, out_path, capacity);
+}
+
 static bool has_theme_file(const char *name) {
   char path[THEME_PATH_MAX];
   struct stat st;
-  snprintf(path, sizeof(path), "%s/%s/%s", THEMES_DIR, name, THEME_FILE_JSON);
+  if (theme_file_path(name, THEME_FILE_JSON, path, sizeof(path)) != ESP_OK) {
+    ESP_LOGW(TAG, "Theme path too long");
+    return false;
+  }
   if (stat(path, &st) == 0 && S_ISREG(st.st_mode))
     return true;
-  snprintf(path, sizeof(path), "%s/%s/%s", THEMES_DIR, name, THEME_FILE_CONF);
+  if (theme_file_path(name, THEME_FILE_CONF, path, sizeof(path)) != ESP_OK) {
+    ESP_LOGW(TAG, "Theme path too long");
+    return false;
+  }
   return (stat(path, &st) == 0 && S_ISREG(st.st_mode));
 }
 
 static uint32_t read_sd_accent(const char *name) {
   char path[THEME_PATH_MAX];
   for (int variant = 0; variant < 2; variant++) {
-    snprintf(path,
-             sizeof(path),
-             "%s/%s/%s",
-             THEMES_DIR,
-             name,
-             variant == 0 ? THEME_FILE_JSON : THEME_FILE_CONF);
+    if (theme_file_path(
+            name, variant == 0 ? THEME_FILE_JSON : THEME_FILE_CONF, path, sizeof(path)) != ESP_OK) {
+      ESP_LOGW(TAG, "Theme path too long");
+      return DEFAULT_CARD_ACCENT;
+    }
     FILE *f = fopen(path, "rb");
     if (f == NULL)
       continue;
@@ -172,6 +190,11 @@ static void build_entries(void) {
     while ((de = readdir(dir)) != NULL && s_count < MAX_THEMES) {
       if (de->d_name[0] == '.')
         continue;
+      if (strnlen(de->d_name, TNAME_MAX) >= TNAME_MAX ||
+          strnlen(de->d_name, sizeof(g_config_screen.theme)) >= sizeof(g_config_screen.theme)) {
+        ESP_LOGW(TAG, "Skipping theme: name too long");
+        continue;
+      }
       bool dup = false;
       for (int i = 0; i < THEME_COUNT; i++)
         if (strcmp(de->d_name, theme_names[i]) == 0)

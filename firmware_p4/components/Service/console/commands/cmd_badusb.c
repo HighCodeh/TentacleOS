@@ -21,11 +21,16 @@
 #include "argtable3/argtable3.h"
 #include "esp_console.h"
 #include "esp_err.h"
+#include "esp_log.h"
+
+#include "tos_path.h"
 
 #include "bad_ble.h"
 #include "bad_usb.h"
 #include "ducky_parser.h"
 #include "tinyusb.h"
+
+static const char *TAG = "CMD_BADUSB";
 
 #define BADUSB_TYPE_BUF_SIZE  256
 #define BADUSB_ASSET_DIR      "storage/bad_usb_scripts/"
@@ -77,6 +82,15 @@ static int subcmd_run(int argc, char **argv) {
     return 1;
   }
 
+  char asset_path[BADUSB_ASSET_PATH_MAX];
+  if (s_run_args.asset->count > 0 &&
+      tos_path_join(BADUSB_ASSET_DIR, s_run_args.asset->sval[0], asset_path, sizeof(asset_path)) !=
+          ESP_OK) {
+    ESP_LOGW(TAG, "Asset path too long");
+    printf("Error: Asset path too long.\n");
+    return 1;
+  }
+
   bool use_ble = (s_run_args.ble->count > 0);
   if (use_ble) {
     if (!start_ble_target())
@@ -91,8 +105,6 @@ static int subcmd_run(int argc, char **argv) {
 
   esp_err_t err;
   if (s_run_args.asset->count > 0) {
-    char asset_path[BADUSB_ASSET_PATH_MAX];
-    snprintf(asset_path, sizeof(asset_path), "%s%s", BADUSB_ASSET_DIR, s_run_args.asset->sval[0]);
     printf("Running asset script '%s'...\n", asset_path);
     err = ducky_run_from_assets(asset_path);
   } else {

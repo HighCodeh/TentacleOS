@@ -363,3 +363,14 @@ the UI timer only renders it. The screen has no simulated version, simulated
 progress or UI-triggered reboot. Only successful native OTA selects/reboots the
 image. Reopen/delete does not leave a worker with LVGL pointers. See the
 [OTA behavior and validation](../ota/README.md#native-p4-update-screen-and-failure-handling).
+
+## Theme path limits
+
+SD theme names must fit the persistent 32-byte theme field (31 bytes plus NUL).
+The selector skips longer names with a warning instead of saving a shortened
+name that could identify another directory. Theme file and asset paths use
+checked joins. `ui_theme_load_from_name()` returns `ESP_ERR_INVALID_SIZE` for an
+oversized name without reading files, changing colors or unloading assets.
+The existing flash fallback for a missing valid SD theme is retained.
+Companion theme commands reject oversized names and embedded NUL bytes before
+saving or scheduling a reload; an optional final NUL is accepted.

@@ -37,6 +37,7 @@
 #include "sys_prio.h"
 #include "tos_flash_paths.h"
 #include "tos_storage_paths.h"
+#include "tos_path.h"
 #include "tusb_desc.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
@@ -314,21 +315,20 @@ static void scan_dir_into_depth(const char *dir, bool is_asset, int depth) {
   while ((ent = readdir(d)) != NULL && s_pl_count < MAX_PAYLOADS) {
     if (ent->d_name[0] == '.')
       continue;
-    if (strlen(dir) + 1 + strlen(ent->d_name) >= PL_PATH_LEN)
+    char path[PL_PATH_LEN];
+    if (tos_path_join(dir, ent->d_name, path, sizeof(path)) != ESP_OK) {
+      ESP_LOGW(TAG, "Skipping script entry: path too long");
       continue;
+    }
     if (ent->d_type == DT_DIR) {
       if (depth + 1 < BADUSB_SCAN_MAX_DEPTH) {
-        char sub[PL_PATH_LEN];
-        snprintf(sub, sizeof(sub), "%s/%s", dir, ent->d_name);
-        scan_dir_into_depth(sub, is_asset, depth + 1);
+        scan_dir_into_depth(path, is_asset, depth + 1);
       }
       continue;
     }
     if (!is_ducky_script(ent->d_name))
       continue;
-    strlcpy(s_pl_path[s_pl_count], dir, PL_PATH_LEN);
-    strlcat(s_pl_path[s_pl_count], "/", PL_PATH_LEN);
-    strlcat(s_pl_path[s_pl_count], ent->d_name, PL_PATH_LEN);
+    memcpy(s_pl_path[s_pl_count], path, strlen(path) + 1);
     strlcpy(s_pl_name[s_pl_count], ent->d_name, PL_NAME_LEN);
     s_pl_is_asset[s_pl_count] = is_asset;
     s_pl_count++;

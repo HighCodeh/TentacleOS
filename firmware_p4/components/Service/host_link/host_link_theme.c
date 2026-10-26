@@ -52,9 +52,14 @@ uint8_t host_theme_handle(uint16_t cmd,
   if (payload == NULL || plen == 0)
     return SPI_STATUS_INVALID_ARG;
 
-  uint16_t n = plen < sizeof(s_theme_name) - 1 ? plen : (uint16_t)(sizeof(s_theme_name) - 1);
-  memcpy(s_theme_name, payload, n);
-  s_theme_name[n] = '\0';
+  size_t name_len = plen;
+  if (payload[name_len - 1] == '\0')
+    name_len--;
+  if (name_len == 0 || name_len >= sizeof(s_theme_name) ||
+      name_len >= sizeof(g_config_screen.theme) || memchr(payload, '\0', name_len) != NULL)
+    return SPI_STATUS_INVALID_ARG;
+  memcpy(s_theme_name, payload, name_len);
+  s_theme_name[name_len] = '\0';
 
   strlcpy(g_config_screen.theme, s_theme_name, sizeof(g_config_screen.theme));
   tos_config_save(TOS_PATH_CONFIG_SCREEN, "screen");

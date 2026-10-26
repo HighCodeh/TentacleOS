@@ -223,3 +223,16 @@ void register_echo_command(void) {
 }
 ```
 
+
+## File path limits
+
+`cd`, `ls` and `cat` reject resolved paths longer than 511 bytes with a nonzero
+command result before accessing the filesystem. Relative paths include the
+current directory and separator in this limit. Failed `cd` leaves the current
+directory unchanged; `/`, `.`, `..` and `ls` without an argument remain supported.
+Listing also fails cleanly if an entry path cannot fit or its metadata cannot
+be read, rather than reporting uninitialized metadata.
+
+`badusb run -a` rejects an oversized asset path before USB/BLE initialization.
+The 128-byte asset buffer accepts at most 127 path bytes including its prefix.
+Host regression: `python3 tools/console/test_paths.py` (managed cJSON required).
