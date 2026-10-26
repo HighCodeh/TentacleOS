@@ -22,6 +22,7 @@
 
 #include "tos_elf.h"
 
+#include <stdbool.h>
 #include <string.h>
 
 #include "esp_cache.h"
@@ -55,17 +56,17 @@ typedef struct {
   int32_t r_addend;
 } elf32_rela_t;
 
-#define ET_REL           1
-#define EM_RISCV         243
-#define SHT_PROGBITS     1
-#define SHT_SYMTAB       2
-#define SHT_RELA         4
-#define SHT_NOBITS       8
-#define SHF_WRITE        0x1
-#define SHF_ALLOC        0x2
-#define SHF_EXECINSTR    0x4
-#define SHN_UNDEF        0
-#define SHN_ABS          0xfff1
+#define ET_REL        1
+#define EM_RISCV      243
+#define SHT_PROGBITS  1
+#define SHT_SYMTAB    2
+#define SHT_RELA      4
+#define SHT_NOBITS    8
+#define SHF_WRITE     0x1
+#define SHF_ALLOC     0x2
+#define SHF_EXECINSTR 0x4
+#define SHN_UNDEF     0
+#define SHN_ABS       0xfff1
 
 #define R_RISCV_32       1
 #define R_RISCV_BRANCH   16
@@ -78,14 +79,14 @@ typedef struct {
 #define R_RISCV_ALIGN    43
 #define R_RISCV_RELAX    51
 
-#define ELF32_R_SYM(i)  ((i) >> 8)
-#define ELF32_R_TYPE(i) ((i) & 0xff)
+#define ELF32_R_SYM(i)   ((i) >> 8)
+#define ELF32_R_TYPE(i)  ((i) & 0xff)
 #define ELF32_ST_TYPE(i) ((i) & 0xf)
-#define STT_SECTION 3
+#define STT_SECTION      3
 
-#define REGION_EXEC 0
-#define REGION_DATA 1
-#define MAX_SECTIONS 96
+#define REGION_EXEC    0
+#define REGION_DATA    1
+#define MAX_SECTIONS   96
 #define ALIGN_UP(v, a) (((v) + ((a) - 1)) & ~((size_t)(a) - 1))
 
 typedef int (*app_entry_fn)(const tos_api_t *api, int argc, char **argv);
@@ -98,6 +99,7 @@ typedef struct {
 
 typedef struct {
   const uint8_t *elf;
+  size_t elf_len;
   const elf32_shdr_t *sh;
   uint16_t shnum;
   sec_meta_t meta[MAX_SECTIONS];
@@ -106,6 +108,47 @@ typedef struct {
   // data region: one R/W mapping (run == write).
   uint32_t data_run;
 } loader_t;
+
+// True if the byte range [offset, offset + size) an untrusted section header
+// claims lies fully inside the elf_len-byte input buffer.
+static bool sec_range_valid(size_t elf_len, uint32_t offset, uint32_t size) {
+  return offset <= elf_len && size <= elf_len - offset;
+}
+
+// True if strtab[str_off] starts a string that is NUL-terminated within the
+// strtab_size-byte string table, so reading it as a C string cannot run past it.
+static bool str_in_bounds(const char *strtab, uint32_t strtab_size, uint32_t str_off) {
+  if (str_off >= strtab_size)
+    return false;
+  return memchr(strtab + str_off, '\0', strtab_size - str_off) != NULL;
+}
+
+typedef struct {
+  const elf32_sym_t *symtab;
+  uint32_t nsym;
+  const char *strtab;
+  uint32_t strtab_size;
+} symstr_t;
+
+// Validates and resolves the symbol table symsh points at, together with the
+// string table it links to. Fails if any offset, size, or link index reaches
+// outside the ELF buffer or the section header table.
+static bool resolve_symstr(const loader_t *l, const elf32_shdr_t *symsh, symstr_t *out) {
+  if (symsh->sh_entsize != sizeof(elf32_sym_t))
+    return false;
+  if (!sec_range_valid(l->elf_len, symsh->sh_offset, symsh->sh_size))
+    return false;
+  if (symsh->sh_link >= l->shnum)
+    return false;
+  const elf32_shdr_t *strsh = &l->sh[symsh->sh_link];
+  if (!sec_range_valid(l->elf_len, strsh->sh_offset, strsh->sh_size))
+    return false;
+  out->symtab = (const elf32_sym_t *)(l->elf + symsh->sh_offset);
+  out->nsym = symsh->sh_size / symsh->sh_entsize;
+  out->strtab = (const char *)(l->elf + strsh->sh_offset);
+  out->strtab_size = strsh->sh_size;
+  return true;
+}
 
 static uint32_t sec_run(const loader_t *l, uint16_t i) {
   return (l->meta[i].region == REGION_EXEC ? l->exec_run : l->data_run) + l->meta[i].off;
@@ -176,8 +219,17 @@ static esp_err_t apply_one_rela(loader_t *l,
                                 const elf32_rela_t *r,
                                 uint32_t p_write,
                                 uint32_t p_run) {
-  const elf32_sym_t *symtab = (const elf32_sym_t *)(l->elf + symsh->sh_offset);
-  const elf32_sym_t *sym = &symtab[ELF32_R_SYM(r->r_info)];
+  symstr_t ss;
+  if (!resolve_symstr(l, symsh, &ss)) {
+    ESP_LOGE(TAG, "relocation symbol/string table out of bounds");
+    return ESP_ERR_INVALID_SIZE;
+  }
+  uint32_t sym_idx = ELF32_R_SYM(r->r_info);
+  if (sym_idx >= ss.nsym) {
+    ESP_LOGE(TAG, "relocation references out-of-range symbol %u", (unsigned)sym_idx);
+    return ESP_ERR_INVALID_SIZE;
+  }
+  const elf32_sym_t *sym = &ss.symtab[sym_idx];
   uint32_t type = ELF32_R_TYPE(r->r_info);
 
   // An undefined named symbol is an external the compiler expects the runtime to
@@ -185,8 +237,11 @@ static esp_err_t apply_one_rela(loader_t *l,
   // provide it, fail the load with the name instead of silently writing a call to 0.
   uint32_t base;
   if (sym->st_shndx == SHN_UNDEF && sym->st_name != 0) {
-    const char *strtab = (const char *)(l->elf + l->sh[symsh->sh_link].sh_offset);
-    const char *name = strtab + sym->st_name;
+    if (!str_in_bounds(ss.strtab, ss.strtab_size, sym->st_name)) {
+      ESP_LOGE(TAG, "symbol name out of bounds");
+      return ESP_ERR_INVALID_SIZE;
+    }
+    const char *name = ss.strtab + sym->st_name;
     base = resolve_extern(name);
     if (base == 0) {
       ESP_LOGE(TAG, "unresolved external symbol '%s' (app links no libc)", name);
@@ -251,7 +306,11 @@ esp_err_t tos_elf_load(const uint8_t *elf, size_t elf_len, tos_elf_image_t *out)
     return ESP_ERR_INVALID_ARG;
 
   const elf32_ehdr_t *eh = (const elf32_ehdr_t *)elf;
-  if (memcmp(eh->e_ident, "\x7f""ELF", 4) != 0 || eh->e_ident[4] != 1 || eh->e_ident[5] != 1) {
+  if (memcmp(eh->e_ident,
+             "\x7f"
+             "ELF",
+             4) != 0 ||
+      eh->e_ident[4] != 1 || eh->e_ident[5] != 1) {
     ESP_LOGE(TAG, "not a little-endian 32-bit ELF");
     return ESP_ERR_NOT_SUPPORTED;
   }
@@ -259,7 +318,7 @@ esp_err_t tos_elf_load(const uint8_t *elf, size_t elf_len, tos_elf_image_t *out)
     ESP_LOGE(TAG, "need a RISC-V ET_REL object (machine=%u type=%u)", eh->e_machine, eh->e_type);
     return ESP_ERR_NOT_SUPPORTED;
   }
-  if (eh->e_shnum > MAX_SECTIONS ||
+  if (eh->e_shnum > MAX_SECTIONS || eh->e_shentsize != sizeof(elf32_shdr_t) ||
       (size_t)eh->e_shoff + (size_t)eh->e_shnum * eh->e_shentsize > elf_len) {
     ESP_LOGE(TAG, "bad/too many section headers");
     return ESP_ERR_INVALID_SIZE;
@@ -267,6 +326,7 @@ esp_err_t tos_elf_load(const uint8_t *elf, size_t elf_len, tos_elf_image_t *out)
 
   loader_t l = {0};
   l.elf = elf;
+  l.elf_len = elf_len;
   l.sh = (const elf32_shdr_t *)(elf + eh->e_shoff);
   l.shnum = eh->e_shnum;
 
@@ -279,6 +339,10 @@ esp_err_t tos_elf_load(const uint8_t *elf, size_t elf_len, tos_elf_image_t *out)
       symsh = s;
     if (!(s->sh_flags & SHF_ALLOC) || s->sh_size == 0)
       continue;
+    if (s->sh_type != SHT_NOBITS && !sec_range_valid(elf_len, s->sh_offset, s->sh_size)) {
+      ESP_LOGE(TAG, "section %u data out of bounds", (unsigned)i);
+      return ESP_ERR_INVALID_SIZE;
+    }
     size_t align = s->sh_addralign ? s->sh_addralign : 1;
     if (s->sh_flags & SHF_WRITE) {
       data_total = ALIGN_UP(data_total, align);
@@ -318,8 +382,12 @@ esp_err_t tos_elf_load(const uint8_t *elf, size_t elf_len, tos_elf_image_t *out)
   err = esp_mmu_vaddr_to_paddr(exec_owner, &paddr, &tgt);
   if (err != ESP_OK)
     goto out;
-  err = esp_mmu_map(paddr, exec_map, MMU_TARGET_PSRAM0, MMU_MEM_CAP_EXEC | MMU_MEM_CAP_READ,
-                    ESP_MMU_MMAP_FLAG_PADDR_SHARED, &exec_image);
+  err = esp_mmu_map(paddr,
+                    exec_map,
+                    MMU_TARGET_PSRAM0,
+                    MMU_MEM_CAP_EXEC | MMU_MEM_CAP_READ,
+                    ESP_MMU_MMAP_FLAG_PADDR_SHARED,
+                    &exec_image);
   if (err != ESP_OK || exec_image == NULL) {
     ESP_LOGE(TAG, "esp_mmu_map exec alias: %s", esp_err_to_name(err));
     goto out;
@@ -349,10 +417,25 @@ esp_err_t tos_elf_load(const uint8_t *elf, size_t elf_len, tos_elf_image_t *out)
     uint16_t target = rs->sh_info;
     if (target >= l.shnum || !l.meta[target].placed)
       continue;
+    if (!sec_range_valid(elf_len, rs->sh_offset, rs->sh_size)) {
+      ESP_LOGE(TAG, "rela section %u data out of bounds", (unsigned)i);
+      err = ESP_ERR_INVALID_SIZE;
+      goto out_unmap;
+    }
+    if (rs->sh_link >= l.shnum) {
+      ESP_LOGE(TAG, "rela section %u has a bad symtab link", (unsigned)i);
+      err = ESP_ERR_INVALID_SIZE;
+      goto out_unmap;
+    }
+    if (rs->sh_entsize != sizeof(elf32_rela_t)) {
+      ESP_LOGE(TAG, "rela section %u has a bad entry size", (unsigned)i);
+      err = ESP_ERR_INVALID_SIZE;
+      goto out_unmap;
+    }
     const elf32_shdr_t *tsym = &l.sh[rs->sh_link]; // symtab for this rela
     uint32_t twrite = sec_write(&l, target);
     uint32_t trun = sec_run(&l, target);
-    uint32_t n = rs->sh_entsize ? (rs->sh_size / rs->sh_entsize) : 0;
+    uint32_t n = rs->sh_size / rs->sh_entsize;
     const elf32_rela_t *tbl = (const elf32_rela_t *)(elf + rs->sh_offset);
     for (uint32_t k = 0; k < n; k++) {
       const elf32_rela_t *r = &tbl[k];
@@ -365,12 +448,16 @@ esp_err_t tos_elf_load(const uint8_t *elf, size_t elf_len, tos_elf_image_t *out)
   // Resolve app_main from the symbol table.
   uint32_t entry_addr = 0;
   {
-    const elf32_sym_t *symtab = (const elf32_sym_t *)(elf + symsh->sh_offset);
-    const char *strtab = (const char *)(elf + l.sh[symsh->sh_link].sh_offset);
-    uint32_t nsym = symsh->sh_entsize ? (symsh->sh_size / symsh->sh_entsize) : 0;
-    for (uint32_t k = 0; k < nsym; k++) {
-      if (strcmp(strtab + symtab[k].st_name, "app_main") == 0) {
-        entry_addr = sym_run_addr(&l, &symtab[k]);
+    symstr_t ss;
+    if (!resolve_symstr(&l, symsh, &ss)) {
+      ESP_LOGE(TAG, "symbol/string table out of bounds");
+      err = ESP_ERR_INVALID_SIZE;
+      goto out_unmap;
+    }
+    for (uint32_t k = 0; k < ss.nsym; k++) {
+      if (str_in_bounds(ss.strtab, ss.strtab_size, ss.symtab[k].st_name) &&
+          strcmp(ss.strtab + ss.symtab[k].st_name, "app_main") == 0) {
+        entry_addr = sym_run_addr(&l, &ss.symtab[k]);
         break;
       }
     }
@@ -383,14 +470,18 @@ esp_err_t tos_elf_load(const uint8_t *elf, size_t elf_len, tos_elf_image_t *out)
 
   // Publish the exec region's writes and drop stale instruction-cache lines.
   esp_cache_msync(exec_owner, exec_map, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
-  esp_cache_msync(exec_image, exec_map, ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_TYPE_INST);
+  esp_cache_msync(
+      exec_image, exec_map, ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_TYPE_INST);
 
   out->exec_image = exec_image;
   out->exec_owner = exec_owner;
   out->data_region = data_region;
   out->exec_map = exec_map;
   out->entry = entry_addr;
-  ESP_LOGI(TAG, "loaded app: exec=%p data=%p entry=0x%08x", exec_image, data_region,
+  ESP_LOGI(TAG,
+           "loaded app: exec=%p data=%p entry=0x%08x",
+           exec_image,
+           data_region,
            (unsigned)entry_addr);
   return ESP_OK;
 
