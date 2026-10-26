@@ -797,6 +797,80 @@ typedef struct __attribute__((packed)) {
 // and `record` data is exactly what session_manager queued (meta + payload).
 #define SPI_STREAM_FRAME_SIZE 2048
 
+// SPI-only envelope. USB/BLE retain spi_header_t and their existing framing.
+#define SPI_TRANSPORT_MAGIC              UINT32_C(0x32505354)
+#define SPI_TRANSPORT_REVISION           1
+#define SPI_TRANSPORT_HELLO              1
+#define SPI_TRANSPORT_REQUEST            2
+#define SPI_TRANSPORT_RESPONSE           3
+#define SPI_TRANSPORT_FETCH              4
+#define SPI_TRANSPORT_RECOVER            5
+#define SPI_TRANSPORT_RECOVERY_PAUSE_MS  50
+#define SPI_TRANSPORT_RECOVERY_BROADCAST UINT64_MAX
+#define SPI_TRANSPORT_HEADER_SIZE        32
+#define SPI_TRANSPORT_FRAME_SIZE         (SPI_FRAME_SIZE + SPI_TRANSPORT_HEADER_SIZE)
+#define SPI_TRANSPORT_STREAM_SIZE        (SPI_STREAM_FRAME_SIZE + SPI_TRANSPORT_HEADER_SIZE)
+
+typedef struct __attribute__((packed)) {
+  uint32_t magic;
+  uint8_t revision;
+  uint8_t kind;
+  uint16_t frame_size;
+  uint64_t master_session;
+  uint64_t slave_session;
+  uint32_t sequence;
+  uint16_t crc;
+  uint16_t reserved;
+} spi_transport_header_t;
+
+static inline uint16_t spi_transport_crc(const uint8_t *packet, uint16_t frame_size) {
+  uint16_t crc = esp_rom_crc16_le(0xFFFF, packet, SPI_TRANSPORT_HEADER_SIZE - 4);
+  return esp_rom_crc16_le(crc, packet + SPI_TRANSPORT_HEADER_SIZE, frame_size);
+}
+
+static inline void spi_transport_seal(uint8_t *packet,
+                                      uint16_t frame_size,
+                                      uint8_t kind,
+                                      uint64_t master,
+                                      uint64_t slave,
+                                      uint32_t sequence) {
+  spi_transport_header_t header = {.magic = SPI_TRANSPORT_MAGIC,
+                                   .revision = SPI_TRANSPORT_REVISION,
+                                   .kind = kind,
+                                   .frame_size = frame_size,
+                                   .master_session = master,
+                                   .slave_session = slave,
+                                   .sequence = sequence};
+  memcpy(packet, &header, sizeof(header));
+  header.crc = spi_transport_crc(packet, frame_size);
+  memcpy(packet, &header, sizeof(header));
+}
+
+static inline bool
+spi_transport_valid(const uint8_t *packet, size_t available, spi_transport_header_t *out_header) {
+  if (!packet || !out_header || available < SPI_TRANSPORT_HEADER_SIZE)
+    return false;
+  spi_transport_header_t header;
+  memcpy(&header, packet, sizeof(header));
+  if (header.magic != SPI_TRANSPORT_MAGIC || header.revision != SPI_TRANSPORT_REVISION ||
+      header.reserved || !header.master_session || !header.sequence ||
+      (header.frame_size != SPI_FRAME_SIZE && header.frame_size != SPI_STREAM_FRAME_SIZE) ||
+      header.frame_size > available - SPI_TRANSPORT_HEADER_SIZE ||
+      header.kind < SPI_TRANSPORT_HELLO || header.kind > SPI_TRANSPORT_RECOVER ||
+      header.crc != spi_transport_crc(packet, header.frame_size))
+    return false;
+  *out_header = header;
+  return true;
+}
+
+static inline bool spi_transport_matches(const spi_transport_header_t *header,
+                                         uint64_t master,
+                                         uint64_t slave,
+                                         uint32_t sequence) {
+  return header->kind == SPI_TRANSPORT_RESPONSE && header->master_session == master &&
+         header->slave_session == slave && header->sequence == sequence;
+}
+
 /**
  * @brief WiFi connect request payload.
  */

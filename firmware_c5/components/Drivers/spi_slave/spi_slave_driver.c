@@ -22,9 +22,11 @@
 #include "driver/spi_slave.h"
 #include "esp_attr.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "esp_memory_utils.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
+#include "freertos/task.h"
 #include "hal/gpio_ll.h"
 #include "sdkconfig.h"
 #include "soc/soc_caps.h"
@@ -41,10 +43,72 @@ static const char *TAG = "SPI_SLAVE_DRV";
 #error "SPI paired publication requires single-core C5 without internal-memory cache"
 #endif
 
-#define SPI_PAIR_MAX_BYTES 2048u
+#define SPI_PAIR_MAX_BYTES 2080u
 static portMUX_TYPE s_pair_lock = portMUX_INITIALIZER_UNLOCKED;
 static DRAM_ATTR portMUX_TYPE s_setup_diag_lock = portMUX_INITIALIZER_UNLOCKED;
 static DRAM_ATTR spi_slave_setup_diag_t s_setup_diag;
+
+#define SPI_PENDING_COUNT    3
+#define SPI_RECOVERY_POLL_MS 10
+static spi_slave_transaction_t *s_pending[SPI_PENDING_COUNT];
+static bool s_has_unknown_owner;
+
+static bool has_pending(void) {
+  for (size_t i = 0; i < SPI_PENDING_COUNT; ++i)
+    if (s_pending[i])
+      return true;
+  return false;
+}
+
+static bool release_pending(spi_slave_transaction_t *trans) {
+  for (size_t i = 0; i < SPI_PENDING_COUNT; ++i) {
+    if (trans && s_pending[i] == trans) {
+      s_pending[i] = NULL;
+      return true;
+    }
+  }
+  s_has_unknown_owner = true;
+  return false;
+}
+
+static esp_err_t queue_tracked(spi_slave_transaction_t *trans) {
+  if (s_has_unknown_owner)
+    return ESP_ERR_INVALID_STATE;
+  size_t slot = SPI_PENDING_COUNT;
+  for (size_t i = 0; i < SPI_PENDING_COUNT; ++i) {
+    if (s_pending[i] == trans)
+      return ESP_ERR_INVALID_STATE;
+    if (!s_pending[i])
+      slot = i;
+  }
+  if (slot == SPI_PENDING_COUNT)
+    return ESP_ERR_NO_MEM;
+  esp_err_t ret = spi_slave_queue_trans(SPI2_HOST, trans, 0);
+  if (ret == ESP_OK)
+    s_pending[slot] = trans;
+  return ret;
+}
+
+esp_err_t spi_slave_driver_recover(uint32_t timeout_ms) {
+  if (s_has_unknown_owner)
+    return ESP_ERR_INVALID_STATE;
+  int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * 1000;
+  while (has_pending()) {
+    if (esp_timer_get_time() >= deadline)
+      return ESP_ERR_TIMEOUT;
+    spi_slave_transaction_t *result = NULL;
+    esp_err_t ret = spi_slave_get_trans_result(SPI2_HOST, &result, 0);
+    if (ret == ESP_ERR_TIMEOUT) {
+      vTaskDelay(pdMS_TO_TICKS(SPI_RECOVERY_POLL_MS));
+      continue;
+    }
+    if (ret != ESP_OK)
+      return ret;
+    if (!release_pending(result))
+      return ESP_ERR_INVALID_RESPONSE;
+  }
+  return ESP_OK;
+}
 
 static void IRAM_ATTR post_setup_observe(spi_slave_transaction_t *trans) {
   if (!trans)
@@ -145,16 +209,21 @@ esp_err_t spi_slave_driver_queue(spi_slave_transaction_t *trans,
                                  const uint8_t *tx_data,
                                  uint8_t *rx_data,
                                  size_t len) {
+  if (!trans || has_pending() || s_has_unknown_owner)
+    return ESP_ERR_INVALID_STATE;
   memset(trans, 0, sizeof(*trans));
   trans->length = len * 8;
   trans->tx_buffer = tx_data;
   trans->rx_buffer = rx_data;
-  return spi_slave_queue_trans(SPI2_HOST, trans, portMAX_DELAY);
+  return queue_tracked(trans);
 }
 
 esp_err_t spi_slave_driver_wait(void) {
   spi_slave_transaction_t *result = NULL;
-  return spi_slave_get_trans_result(SPI2_HOST, &result, portMAX_DELAY);
+  esp_err_t ret = spi_slave_get_trans_result(SPI2_HOST, &result, portMAX_DELAY);
+  if (ret == ESP_OK && !release_pending(result))
+    return ESP_ERR_INVALID_RESPONSE;
+  return ret;
 }
 
 esp_err_t spi_slave_driver_queue_response_and_receive(spi_slave_transaction_t *tx_trans,
@@ -175,6 +244,8 @@ esp_err_t spi_slave_driver_queue_response_and_receive(spi_slave_transaction_t *t
       (rx_addr < tx_addr && tx_addr - rx_addr < rx_len))
     return ESP_ERR_INVALID_ARG;
 
+  if (has_pending() || s_has_unknown_owner)
+    return ESP_ERR_INVALID_STATE;
   memset(tx_trans, 0, sizeof(*tx_trans));
   memset(rx_trans, 0, sizeof(*rx_trans));
   tx_trans->length = tx_len * 8;
@@ -186,21 +257,21 @@ esp_err_t spi_slave_driver_queue_response_and_receive(spi_slave_transaction_t *t
   // expose the response before the next receive has been queued. These are
   // strictly nonblocking calls; never use portMAX_DELAY within this section.
   portENTER_CRITICAL(&s_pair_lock);
-  esp_err_t ret = spi_slave_queue_trans(SPI2_HOST, tx_trans, 0);
+  esp_err_t ret = queue_tracked(tx_trans);
   if (ret == ESP_OK)
-    ret = spi_slave_queue_trans(SPI2_HOST, rx_trans, 0);
+    ret = queue_tracked(rx_trans);
   portEXIT_CRITICAL(&s_pair_lock);
   return ret;
 }
 
-esp_err_t spi_slave_driver_wait_for(spi_slave_transaction_t *expected) {
+esp_err_t spi_slave_driver_wait_for_ticks(spi_slave_transaction_t *expected, TickType_t ticks) {
   if (!expected)
     return ESP_ERR_INVALID_ARG;
   spi_slave_transaction_t *result = NULL;
-  esp_err_t ret = spi_slave_get_trans_result(SPI2_HOST, &result, portMAX_DELAY);
+  esp_err_t ret = spi_slave_get_trans_result(SPI2_HOST, &result, ticks);
   if (ret != ESP_OK)
     return ret;
-  if (result != expected)
+  if (!release_pending(result) || result != expected)
     return ESP_ERR_INVALID_RESPONSE;
   if (result->trans_len != expected->length)
     return ESP_ERR_INVALID_SIZE;
@@ -209,4 +280,8 @@ esp_err_t spi_slave_driver_wait_for(spi_slave_transaction_t *expected) {
 
 void spi_slave_driver_set_irq(int level) {
   gpio_set_level(GPIO_BRIDGE_IRQ_PIN, level);
+}
+
+esp_err_t spi_slave_driver_wait_for(spi_slave_transaction_t *expected) {
+  return spi_slave_driver_wait_for_ticks(expected, portMAX_DELAY);
 }

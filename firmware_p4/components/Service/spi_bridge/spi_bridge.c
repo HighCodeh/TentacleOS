@@ -19,6 +19,8 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_random.h"
+#include "esp_attr.h"
 #include "led_control.h"
 #include "esp_heap_caps.h"
 #include "esp_rom_sys.h"
@@ -44,7 +46,7 @@ static const char *TAG = "SPI_BRIDGE_P4";
 // POLL-mode handshake: re-clock the bus until the slave answers. The first few
 // tries spin tight (low latency for fast commands); after that we yield so a
 // long slave op (e.g. a ~27 s WiFi scan) does not hog the CPU.
-#define SPI_POLL_FAST_TRIES 32
+#define SPI_POLL_FAST_TRIES 4
 #define SPI_POLL_FAST_US    150
 #define SPI_POLL_SLOW_MS    2
 // Wait before the first response poll so the slave has time to finish processing
@@ -53,6 +55,129 @@ static const char *TAG = "SPI_BRIDGE_P4";
 // OTA_DATA) desyncs it, and the response is then read as garbage for the whole
 // timeout - which was making the C5 OTA fall back to slow per-chunk resyncs.
 #define SPI_POLL_PREWAIT_US 400
+
+// All transport state and DMA scratch are owned by the bridge mutex.
+static uint64_t s_master_session;
+static uint64_t s_slave_session;
+static uint32_t s_transaction;
+static bool s_transport_ready;
+static int64_t s_recovery_quiet_until;
+static DMA_ATTR uint8_t s_wire_tx[SPI_TRANSPORT_STREAM_SIZE];
+static DMA_ATTR uint8_t s_wire_rx[SPI_TRANSPORT_STREAM_SIZE];
+
+static uint64_t new_session(void) {
+  uint64_t session;
+  do {
+    esp_fill_random(&session, sizeof(session));
+  } while (!session);
+  return session;
+}
+
+static bool transport_recovery(const spi_transport_header_t *reply) {
+  if (reply->kind != SPI_TRANSPORT_RECOVER || reply->frame_size != SPI_FRAME_SIZE ||
+      (reply->master_session != s_master_session &&
+       reply->master_session != SPI_TRANSPORT_RECOVERY_BROADCAST))
+    return false;
+  s_transport_ready = false;
+  s_recovery_quiet_until = esp_timer_get_time() + SPI_TRANSPORT_RECOVERY_PAUSE_MS * 1000;
+  return true;
+}
+
+static esp_err_t transport_sync(int64_t deadline) {
+  while (esp_timer_get_time() < s_recovery_quiet_until) {
+    if (deadline <= s_recovery_quiet_until)
+      return ESP_ERR_TIMEOUT;
+    vTaskDelay(pdMS_TO_TICKS(SPI_POLL_SLOW_MS));
+  }
+  if (!s_master_session || s_transaction == UINT32_MAX) {
+    s_master_session = new_session();
+    s_transaction = 0;
+    s_transport_ready = false;
+  }
+  if (s_transport_ready)
+    return ESP_OK;
+  const uint32_t sequence = ++s_transaction;
+  s_slave_session = 0;
+  while (esp_timer_get_time() < deadline) {
+    memset(s_wire_tx, 0, SPI_TRANSPORT_FRAME_SIZE);
+    spi_transport_seal(
+        s_wire_tx, SPI_FRAME_SIZE, SPI_TRANSPORT_HELLO, s_master_session, 0, sequence);
+    esp_err_t ret = spi_bridge_phy_transmit(s_wire_tx, NULL, SPI_TRANSPORT_FRAME_SIZE);
+    if (ret != ESP_OK)
+      return ret;
+    // Only HELLO is retried. It cannot dispatch an application command.
+    vTaskDelay(pdMS_TO_TICKS(SPI_POLL_SLOW_MS));
+    if (esp_timer_get_time() >= deadline)
+      break;
+    memset(s_wire_tx, 0, SPI_TRANSPORT_FRAME_SIZE);
+    memset(s_wire_rx, 0, SPI_TRANSPORT_FRAME_SIZE);
+    ret = spi_bridge_phy_transmit(s_wire_tx, s_wire_rx, SPI_TRANSPORT_FRAME_SIZE);
+    if (ret != ESP_OK)
+      return ret;
+    spi_transport_header_t reply;
+    if (spi_transport_valid(s_wire_rx, SPI_TRANSPORT_FRAME_SIZE, &reply) &&
+        transport_recovery(&reply))
+      return ESP_ERR_INVALID_STATE;
+    if (spi_transport_valid(s_wire_rx, SPI_TRANSPORT_FRAME_SIZE, &reply) &&
+        reply.frame_size == SPI_FRAME_SIZE && reply.slave_session &&
+        spi_transport_matches(&reply, s_master_session, reply.slave_session, sequence)) {
+      s_slave_session = reply.slave_session;
+      s_transport_ready = true;
+      return ESP_OK;
+    }
+    vTaskDelay(pdMS_TO_TICKS(SPI_POLL_SLOW_MS));
+  }
+  return ESP_ERR_TIMEOUT;
+}
+
+static esp_err_t transport_send(const uint8_t *frame, int64_t deadline) {
+  esp_err_t ret = transport_sync(deadline);
+  if (ret != ESP_OK)
+    return ret;
+  if (esp_timer_get_time() >= deadline)
+    return ESP_ERR_TIMEOUT;
+  if (s_transaction == UINT32_MAX) {
+    s_transport_ready = false;
+    return ESP_ERR_INVALID_STATE;
+  }
+  ++s_transaction;
+  memcpy(s_wire_tx + SPI_TRANSPORT_HEADER_SIZE, frame, SPI_FRAME_SIZE);
+  spi_transport_seal(s_wire_tx,
+                     SPI_FRAME_SIZE,
+                     SPI_TRANSPORT_REQUEST,
+                     s_master_session,
+                     s_slave_session,
+                     s_transaction);
+  ret = spi_bridge_phy_transmit(s_wire_tx, NULL, SPI_TRANSPORT_FRAME_SIZE);
+  if (ret != ESP_OK)
+    s_transport_ready = false;
+  return ret;
+}
+
+static esp_err_t transport_read(uint8_t *out_frame, size_t frame_size) {
+  const size_t wire_size = frame_size + SPI_TRANSPORT_HEADER_SIZE;
+  memset(s_wire_tx, 0, wire_size);
+  spi_transport_seal(s_wire_tx,
+                     SPI_FRAME_SIZE,
+                     SPI_TRANSPORT_FETCH,
+                     s_master_session,
+                     s_slave_session,
+                     s_transaction);
+  memset(s_wire_rx, 0, wire_size);
+  memset(out_frame, 0, frame_size);
+  esp_err_t ret = spi_bridge_phy_transmit(s_wire_tx, s_wire_rx, wire_size);
+  if (ret != ESP_OK) {
+    s_transport_ready = false;
+    return ret;
+  }
+  spi_transport_header_t reply;
+  if (spi_transport_valid(s_wire_rx, wire_size, &reply) && transport_recovery(&reply))
+    return ESP_ERR_INVALID_STATE;
+  if (spi_transport_valid(s_wire_rx, wire_size, &reply) && reply.frame_size <= frame_size &&
+      spi_transport_matches(&reply, s_master_session, s_slave_session, s_transaction))
+    memcpy(out_frame, s_wire_rx + SPI_TRANSPORT_HEADER_SIZE, reply.frame_size);
+  return ESP_OK;
+}
 
 typedef struct {
   spi_id_t id;
@@ -177,7 +302,7 @@ static esp_err_t recv_frame(uint8_t *tx_buf,
                             size_t frame_size,
                             uint16_t expect_cmd,
                             bool match_cmd,
-                            uint32_t timeout_ms);
+                            int64_t deadline);
 static spi_stream_cb_t get_stream_cb(spi_id_t id);
 static bool has_any_stream_cb(void);
 
@@ -205,6 +330,7 @@ esp_err_t spi_bridge_master_init(void) {
 
 esp_err_t spi_bridge_master_init_mode(spi_bridge_mode_t mode) {
   s_bridge_mode = mode;
+  s_transport_ready = false;
   if (s_spi_mutex == NULL) {
     s_spi_mutex = xSemaphoreCreateMutex();
   }
@@ -253,19 +379,22 @@ static esp_err_t recv_frame(uint8_t *tx_buf,
                             size_t frame_size,
                             uint16_t expect_cmd,
                             bool match_cmd,
-                            uint32_t timeout_ms) {
+                            int64_t deadline) {
   rx_diag_t diag = {.serial = ++s_rx_serial, .started = esp_timer_get_time()};
   memset(tx_buf, 0, frame_size);
 
   if (s_bridge_mode == SPI_BRIDGE_MODE_IRQ) {
-    esp_err_t ret = spi_bridge_phy_wait_irq(timeout_ms);
+    int64_t remaining = deadline - esp_timer_get_time();
+    if (remaining <= 0)
+      return ESP_ERR_TIMEOUT;
+    esp_err_t ret = spi_bridge_phy_wait_irq((uint32_t)(remaining / 1000));
     if (ret != ESP_OK) {
       log_rx_failure(&diag, expect_cmd, ret);
       return ret;
     }
     memset(rx_buf, 0, frame_size);
     diag.polls++;
-    ret = spi_bridge_phy_transmit(tx_buf, rx_buf, frame_size);
+    ret = transport_read(rx_buf, frame_size);
     if (ret != ESP_OK)
       log_rx_failure(&diag, expect_cmd, ret);
     else
@@ -275,12 +404,11 @@ static esp_err_t recv_frame(uint8_t *tx_buf,
 
   // POLL mode.
   esp_rom_delay_us(SPI_POLL_PREWAIT_US); // let the slave arm its response first
-  int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * 1000;
   uint32_t tries = 0;
-  do {
+  while (esp_timer_get_time() < deadline) {
     memset(rx_buf, 0, frame_size);
     diag.polls++;
-    esp_err_t ret = spi_bridge_phy_transmit(tx_buf, rx_buf, frame_size);
+    esp_err_t ret = transport_read(rx_buf, frame_size);
     if (ret != ESP_OK) {
       log_rx_failure(&diag, expect_cmd, ret);
       return ret;
@@ -346,8 +474,9 @@ static esp_err_t recv_frame(uint8_t *tx_buf,
     } else {
       vTaskDelay(pdMS_TO_TICKS(SPI_POLL_SLOW_MS));
     }
-  } while (esp_timer_get_time() < deadline);
+  }
 
+  s_transport_ready = false;
   log_rx_failure(&diag, expect_cmd, ESP_ERR_TIMEOUT);
   return ESP_ERR_TIMEOUT;
 }
@@ -510,13 +639,20 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
                                   uint8_t *out_payload,
                                   size_t out_capacity,
                                   uint32_t timeout_ms) {
+  const int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * 1000;
+  if ((!payload && len) || !timeout_ms)
+    return ESP_ERR_INVALID_ARG;
   if (s_suspended || !s_bridge_alive) {
     return ESP_ERR_INVALID_STATE;
   }
   if (s_spi_mutex == NULL) {
     s_spi_mutex = xSemaphoreCreateMutex();
   }
-  if (xSemaphoreTake(s_spi_mutex, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
+  if (!s_spi_mutex)
+    return ESP_ERR_NO_MEM;
+  int64_t remaining = deadline - esp_timer_get_time();
+  if (remaining <= 0 ||
+      xSemaphoreTake(s_spi_mutex, pdMS_TO_TICKS((uint32_t)(remaining / 1000))) != pdTRUE) {
     return ESP_ERR_TIMEOUT;
   }
   if (s_suspended || !s_bridge_alive) {
@@ -540,16 +676,17 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
   }
   spi_frame_seal((spi_header_t *)tx_buf, len);
 
-  esp_err_t ret = spi_bridge_phy_transmit(tx_buf, NULL, SPI_FRAME_SIZE);
+  esp_err_t ret = transport_send(tx_buf, deadline);
   if (ret != ESP_OK) {
     s_is_command_in_flight = false;
     xSemaphoreGive(s_spi_mutex);
     return ret;
   }
 
-  ret = recv_frame(tx_buf, rx_buf, SPI_FRAME_SIZE, id, true, timeout_ms);
+  ret = recv_frame(tx_buf, rx_buf, SPI_FRAME_SIZE, id, true, deadline);
   if (ret != ESP_OK) {
-    ESP_LOGW(TAG, "Command 0x%04X timeout", id);
+    s_transport_ready = false;
+    ESP_LOGW(TAG, "Command 0x%04X response failed; result may be unknown", id);
     led_signal_warning();
     s_is_command_in_flight = false;
     xSemaphoreGive(s_spi_mutex);
@@ -675,6 +812,7 @@ static bool has_any_stream_cb(void) {
 // *out_batch_len is its length in bytes (0 = no data pending). The returned
 // pointer is valid until the next fetch_stream call (single consumer task).
 static esp_err_t fetch_stream(const uint8_t **out_records, uint16_t *out_batch_len) {
+  const int64_t deadline = esp_timer_get_time() + (int64_t)SPI_IRQ_WAIT_MS * 1000;
   if (s_suspended || !s_bridge_alive) {
     return ESP_ERR_INVALID_STATE;
   }
@@ -692,19 +830,17 @@ static esp_err_t fetch_stream(const uint8_t **out_records, uint16_t *out_batch_l
   memcpy(cmd_tx, &header, sizeof(header));
   spi_frame_seal((spi_header_t *)cmd_tx, 0);
 
-  esp_err_t ret = spi_bridge_phy_transmit(cmd_tx, NULL, SPI_FRAME_SIZE);
+  esp_err_t ret = transport_send(cmd_tx, deadline);
   if (ret != ESP_OK)
     return ret;
 
   // Accept either a STREAM frame (data or empty) or a RESP (error status).
-  ret = recv_frame(s_stream_tx,
-                   s_stream_rx,
-                   SPI_STREAM_FRAME_SIZE,
-                   SPI_ID_SYSTEM_STREAM,
-                   false,
-                   SPI_IRQ_WAIT_MS);
-  if (ret != ESP_OK)
+  ret = recv_frame(
+      s_stream_tx, s_stream_rx, SPI_STREAM_FRAME_SIZE, SPI_ID_SYSTEM_STREAM, true, deadline);
+  if (ret != ESP_OK) {
+    s_transport_ready = false;
     return ret;
+  }
 
   spi_header_t *resp = (spi_header_t *)s_stream_rx;
   if (resp->sync != SPI_SYNC_BYTE)

@@ -27,6 +27,92 @@ side-specific detail and migration recipes see the component READMEs:
 
 ---
 
+
+## Current SPI-only transport revision 1
+
+The paired command protocol remains v2. The physical P4/C5 link now wraps the
+existing frame in a **32-byte envelope**; USB/BLE keep their existing framing.
+Older v2 firmware without this envelope is incompatible: update both chips as
+a pair. Package manifests require `spi_transport_revision: 1`; matching only
+the protocol number is insufficient. Existing partition layouts are unchanged.
+
+The envelope contains a magic, transport revision, message kind, inner frame
+size, a 64-bit P4 session, a 64-bit C5 boot session, a 32-bit transaction number,
+a CRC-16 and zero reserved bytes. Both sessions and the transaction number are
+covered by the CRC. Sessions are random nonzero identifiers, not authentication
+keys. CRC detects accidental corruption; it does not authenticate a hostile peer.
+Normal transfers are **296 bytes** and stream reads **2080 bytes**, both DMA
+word-aligned. The 264/2048-byte layouts below describe the inner frames.
+
+- `HELLO` establishes the peer boot/session before application traffic. Only this
+  side-effect-free negotiation is automatically retransmitted during resync.
+- `REQUEST` carries a command exactly once. The C5 checks the session and a
+  strictly newer transaction number before dispatching it. An exact duplicate
+  of the latest request returns its cached response; changed bytes with the
+  same number and older requests are rejected.
+- `FETCH` asks only for the cached response matching the current sessions and
+  transaction. Polling therefore recovers a damaged/lost response without
+  repeating the command or consuming another stream batch.
+- `RECOVER` asks the P4 to stop clocking for 50 ms and invalidate its session.
+  The pause is honored under the bridge mutex, including across calls; a short
+  caller deadline fails rather than extending the deadline to finish the pause.
+- `RESPONSE` is accepted only for the current peer sessions and transaction,
+  even if a stale response has a valid inner CRC and the same command ID.
+
+The master uses one absolute deadline for command lock acquisition, session
+negotiation and response polling. A synchronous hardware transaction already
+started may finish after that deadline; this is not a hard peripheral watchdog.
+After timeout the next request first resynchronizes with HELLO. The timed-out
+command is **not** replayed: its effects may already have happened, so callers
+must reconcile application state rather than assuming timeout means no effect.
+Counter exhaustion negotiates a new P4 session before reusing transaction IDs.
+A C5 restart requires negotiation of its new boot session before more commands.
+
+C5 keeps static DMA buffers and descriptors alive until completion. A short TX
+whose descriptor was returned no longer halts the bridge: the next RX is already
+queued and the response remains cached for FETCH. Invalid/short RX is discarded
+without dispatch. Every accepted descriptor is tracked until the driver returns
+that exact descriptor, including when only the TX half of a pair was accepted.
+Response completion has a 2-second limit; an idle RX may wait indefinitely.
+
+On failure the sole bridge task drains tracked completions for at most 2 seconds.
+P4 polling supplies the clocks; received bytes during draining are discarded, never
+dispatched. Buffers and descriptors are not touched while still owned by DMA.
+Once all ownership is returned, C5 sends RECOVER, waits at most 2 seconds for its
+completion, clears the old cache/session and rearms RX with a fresh C5 session.
+The P4 then resumes with HELLO. A lost/corrupt recovery notice can delay negotiation,
+but cannot cause command replay. The pause helps scheduling; safety does not depend
+on the C5 running inside a particular timed window. This path never calls queue
+reset, frees the driver or reallocates DMA memory while clocks might be present.
+
+There are at most three recovery attempts per C5 boot. Unknown descriptor ownership,
+a stalled drain/notice, or exhaustion escalates to an ESP-IDF software restart of
+C5, temporarily interrupting its services. Two automatic recovery restarts are
+allowed; a checked RTC counter survives software resets. Power-on or a non-software
+reset starts a fresh budget. Successful traffic does not erase the restart budget.
+After exhaustion the task parks with static buffers retained and logs that a
+power-cycle is required. The P4 has no wired C5 reset pin; it cannot recover a C5
+whose CPU itself is no longer executing. Application commands with unknown outcomes
+remain the caller's responsibility, including across C5 restarts.
+
+There is still no electrical ready signal on the polling boards. The 100 us CS
+idle gap and initial 400 us response delay are scheduling margins, not readiness
+guarantees. Four fast polls use 150 us gaps, then polling yields for 2 ms.
+Framing/CRC/session checks and cached-response retrieval contain missed readiness
+windows; they cannot guarantee timing under arbitrarily delayed interrupts.
+
+Validation: `python tools/spi_transport/test_transport.py` executes the production
+codec, master transport helpers and C5 admission logic with an explicit fake PHY
+and clock, under ASan/UBSan. It covers duplicate requests, late replies, changed
+requests with a reused ID, restarts, counter exhaustion, corruption, bounds,
+response retrieval, bounded negotiation and the recovery pause. The separate
+`python tools/spi_transport/test_recovery.py` executes the production ownership
+tracker and supervisor against a fake IDF queue, including partial enqueue,
+returned/unknown descriptors, short completion, stuck DMA, deadlines and retained
+restart budgets, also with ASan/UBSan. Physical qualification still needs
+SCLK/CS capture under radio and flash load, including peer resets and removed
+power; host tests cannot establish electrical reliability or throughput.
+
 ## 1. Roles
 
 TentacleOS runs on two chips with a clean split of responsibilities:

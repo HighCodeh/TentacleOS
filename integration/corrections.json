@@ -266,8 +266,8 @@
     "firmware_c5/components/Service/spi_bridge/spi_bridge.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "502217de323db0a1f9431ba2da16ffe4302019902f060b22493071dbd0334153",
-      "after_sha256": "65831bd6313331b0f7a11d979b42bfb6d4798d6a6078e0e1f2ac3476ffc5c765",
-      "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses.",
+      "after_sha256": "1823524e260ed27a2b5e07737d9236c1f26bbacb424d101a81833614d2d8c5ba",
+      "reason": "Track SPI DMA ownership, drain partial queues without resetting active hardware, negotiate a recovery pause/new session and bound C5 software restarts with retained RTC budget.",
       "review_history": [
         {
           "after_sha256": "4b6e7f8b9cc7402047718773549def5febb1b3b19136013e127b218d59ea0344",
@@ -286,8 +286,18 @@
         {
           "after_sha256": "8fa0e31e5c5b286ca4e5a19e5bf824ec8e87bc5d619b47b95b5b24cc76418ba0",
           "reason": "Initialize bounded headless Quick Scan state before accepting SPI commands; retain the existing Muse registration and session lifecycle."
+        },
+        {
+          "after_sha256": "65831bd6313331b0f7a11d979b42bfb6d4798d6a6078e0e1f2ac3476ffc5c765",
+          "reason": "Replace the project license header with the exact full 2025 HIGH CODE LLC notice supplied by the maintainer; preserve executable source and third-party licenses."
+        },
+        {
+          "after_sha256": "c5f4489550d57d565c5c868f54101e3f3f65d9ab1ab4ea5fe271621ddfe8f4e0",
+          "reason": "Add SPI-only session/transaction envelopes, cached-response fetch and duplicate rejection, bounded master resynchronization and non-replaying short-TX recovery; preserve USB/BLE framing and DMA ownership."
         }
-      ]
+      ],
+      "pre_format_sha256": "eeeed6c833dddbbcd0d20b29b7a2c05cf22dac1c831a0039b4759fc0fdbf2872",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
     },
     "firmware_c5/components/Service/wifi/hb_muse_wifi_json_bound.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -930,14 +940,24 @@
     "firmware_p4/components/Service/spi_bridge/spi_bridge.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "1ef59a43717e39cba25100f091dbea9d5f40f19e7497efbd42e0ff9f53996436",
-      "after_sha256": "c486b041623be7856e4863df24d24a90a382fb4a3e7ff934251a6fbc14349584",
-      "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown",
+      "after_sha256": "ac9c6649ee0228c21637e9c924e4e73082e985015a658ff3bdd376883c97516e",
+      "reason": "Track SPI DMA ownership, drain partial queues without resetting active hardware, negotiate a recovery pause/new session and bound C5 software restarts with retained RTC budget.",
       "review_history": [
         {
           "after_sha256": "a4c6f6bae37ced00af33093e833a715e9a13918c26051d5f81545a7b61be2a9c",
           "reason": "Pass central scheduling macros directly and pin affected first-party tasks."
+        },
+        {
+          "after_sha256": "c486b041623be7856e4863df24d24a90a382fb4a3e7ff934251a6fbc14349584",
+          "reason": "feat(lora): add owned raw and mesh sessions with acknowledged radio teardown"
+        },
+        {
+          "after_sha256": "7457da454c22f72cfd83fdfd6c0cf82386b8c95b1d02f1039e025408fe1e8e4e",
+          "reason": "Add SPI-only session/transaction envelopes, cached-response fetch and duplicate rejection, bounded master resynchronization and non-replaying short-TX recovery; preserve USB/BLE framing and DMA ownership."
         }
-      ]
+      ],
+      "pre_format_sha256": "22a2edcaca0655d34487d27e97c4e0dfe98239e0afe71d71e6e96383c69f25a5",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
     },
     "firmware_p4/components/Service/spi_bridge/spi_session.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -1440,8 +1460,8 @@
     "firmware_p4/components/Service/spi_bridge/include/spi_protocol.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "44e794090bdddda5f999a29dbbb55f907c89cb001a9284a0abd94c631987c342",
-      "after_sha256": "1ba8f047701786c00751c59c18d50fb4d8579135fcb1bc2c50eb197082f0e229",
-      "reason": "Remove the experimental app, its menu/screen dispatch, host service and paired protocol commands at maintainer request; retain other app and transport behavior.",
+      "after_sha256": "980d5e6cb6c500b210fa39ed38199c8d4d29aafc2d6ed9067e953fe23aa5ce20",
+      "reason": "Track SPI DMA ownership, drain partial queues without resetting active hardware, negotiate a recovery pause/new session and bound C5 software restarts with retained RTC budget.",
       "review_history": [
         {
           "after_sha256": "4b6bbe13c0511b1b89ba0e2a4e257ed57c14ae8ce0cde04ae41e4a6d3709132a",
@@ -1486,16 +1506,26 @@
         {
           "after_sha256": "3b746d8118c67a594c392a50c8668bdace1b6d51e65c595538b5feda672cbf3e",
           "reason": "Renumber the paired SPI contract from v8 to v2 at maintainer request without changing command IDs, payloads, frame layout or runtime version comparison."
+        },
+        {
+          "after_sha256": "1ba8f047701786c00751c59c18d50fb4d8579135fcb1bc2c50eb197082f0e229",
+          "reason": "Remove the experimental app, its menu/screen dispatch, host service and paired protocol commands at maintainer request; retain other app and transport behavior."
+        },
+        {
+          "after_sha256": "4042db4118b5a3b384136c79dbe4cd921d51382c35f5a8e0553022c01d4fbee1",
+          "reason": "Add SPI-only session/transaction envelopes, cached-response fetch and duplicate rejection, bounded master resynchronization and non-replaying short-TX recovery; preserve USB/BLE framing and DMA ownership.",
+          "pre_format_sha256": "dc62cab42b8e2a0465814e9bf6d70a7ad619ce879008863902c2cc8c753972e6",
+          "formatter": "clang-format version 22.1.5"
         }
       ],
-      "pre_format_sha256": "dc62cab42b8e2a0465814e9bf6d70a7ad619ce879008863902c2cc8c753972e6",
-      "formatter": "clang-format version 22.1.5"
+      "pre_format_sha256": "37bbe4dc90ed1c6a22276d2cdb9f9999454be7b26820345df13393eccb275a5e",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
     },
     "firmware_c5/components/Service/spi_bridge/include/spi_protocol.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "44e794090bdddda5f999a29dbbb55f907c89cb001a9284a0abd94c631987c342",
-      "after_sha256": "1ba8f047701786c00751c59c18d50fb4d8579135fcb1bc2c50eb197082f0e229",
-      "reason": "Remove the experimental app, its menu/screen dispatch, host service and paired protocol commands at maintainer request; retain other app and transport behavior.",
+      "after_sha256": "980d5e6cb6c500b210fa39ed38199c8d4d29aafc2d6ed9067e953fe23aa5ce20",
+      "reason": "Track SPI DMA ownership, drain partial queues without resetting active hardware, negotiate a recovery pause/new session and bound C5 software restarts with retained RTC budget.",
       "review_history": [
         {
           "after_sha256": "4b6bbe13c0511b1b89ba0e2a4e257ed57c14ae8ce0cde04ae41e4a6d3709132a",
@@ -1540,10 +1570,20 @@
         {
           "after_sha256": "3b746d8118c67a594c392a50c8668bdace1b6d51e65c595538b5feda672cbf3e",
           "reason": "Renumber the paired SPI contract from v8 to v2 at maintainer request without changing command IDs, payloads, frame layout or runtime version comparison."
+        },
+        {
+          "after_sha256": "1ba8f047701786c00751c59c18d50fb4d8579135fcb1bc2c50eb197082f0e229",
+          "reason": "Remove the experimental app, its menu/screen dispatch, host service and paired protocol commands at maintainer request; retain other app and transport behavior."
+        },
+        {
+          "after_sha256": "4042db4118b5a3b384136c79dbe4cd921d51382c35f5a8e0553022c01d4fbee1",
+          "reason": "Add SPI-only session/transaction envelopes, cached-response fetch and duplicate rejection, bounded master resynchronization and non-replaying short-TX recovery; preserve USB/BLE framing and DMA ownership.",
+          "pre_format_sha256": "dc62cab42b8e2a0465814e9bf6d70a7ad619ce879008863902c2cc8c753972e6",
+          "formatter": "clang-format version 22.1.5"
         }
       ],
-      "pre_format_sha256": "dc62cab42b8e2a0465814e9bf6d70a7ad619ce879008863902c2cc8c753972e6",
-      "formatter": "clang-format version 22.1.5"
+      "pre_format_sha256": "37bbe4dc90ed1c6a22276d2cdb9f9999454be7b26820345df13393eccb275a5e",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
     },
     "firmware_p4/components/Service/app_runtime/tos_hb.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -3952,6 +3992,28 @@
       "before_sha256": "5cdfa14ba768fff7d5316bd924208ba189bf90442ef54d1d3ac3f1b89e4524cd",
       "after_sha256": "56ea78b3b70af211109ad3c8d7d9e52c41d515612f72456412ee4d360d87ef72",
       "reason": "Display the mounted SD filesystem in the connection dialog and animate indeterminate formatting activity with overlay-owned lifetime and no fabricated percentage."
+    },
+    "firmware_c5/components/Drivers/spi_slave/spi_slave_driver.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "0045c7763f87b08ffebd527e83ac827b3045e79a52d94db2fc97cbd7fdaa11e8",
+      "after_sha256": "8e6d4ddacf534b1af5bbd71319d70fcddb2a03a7b3ee13461ef6c38ef98b88b6",
+      "reason": "Track SPI DMA ownership, drain partial queues without resetting active hardware, negotiate a recovery pause/new session and bound C5 software restarts with retained RTC budget.",
+      "review_history": [
+        {
+          "after_sha256": "297d20584f4751ff016d4488fe7f5efbbe334d146caee4b0f4b43e6b947d2efd",
+          "reason": "Add SPI-only session/transaction envelopes, cached-response fetch and duplicate rejection, bounded master resynchronization and non-replaying short-TX recovery; preserve USB/BLE framing and DMA ownership."
+        }
+      ],
+      "pre_format_sha256": "d807e434ab72fd72da04977fccbc4868d6298e8fd216e208d9665b1ef9812810",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_c5/components/Drivers/spi_slave/include/spi_slave_driver.h": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "7ca66976071776b5992731a06c017a362c12543811e46fc0bf9681dd680809ba",
+      "after_sha256": "c1d5ac96f17a8ced5dffb9895b2571b1542417cf2e8f9668fa3d22abf02d6937",
+      "reason": "Track SPI DMA ownership, drain partial queues without resetting active hardware, negotiate a recovery pause/new session and bound C5 software restarts with retained RTC budget.",
+      "pre_format_sha256": "43cdb39dd269c9eb0c92092dd845baf583611b464536aac440011df2abb48aa2",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
     }
   },
   "retired_files": {

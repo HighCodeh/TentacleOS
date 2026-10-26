@@ -23,6 +23,7 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 
+#include "freertos/FreeRTOS.h"
 #include "driver/spi_slave.h"
 #include "esp_err.h"
 
@@ -104,20 +105,19 @@ esp_err_t spi_slave_driver_wait(void);
  *
  * C5-only:
  * both DMA buffers must be word aligned, nonempty, distinct and at
- * most 2048 bytes, with lengths
+ * most 2080 bytes, with
+ * lengths
  * divisible by four. Descriptors are prepared
- * before the critical section; both queue calls use
- * zero wait. No transaction
- * may remain queued/in flight on entry. The caller is the sole queue
- * producer.
+ * before the critical section; both queue
+ * calls use zero wait. No transaction
+ * may remain queued/in flight on entry. The caller is the
+ * sole queue producer.
  *
- * On ANY error the caller must fail closed and retain BOTH descriptors/buffers:
+ * On error retain descriptors/buffers until spi_slave_driver_recover
+ * succeeds.
+ * It drains tracked completions without resetting the queue or replaying commands.
  *
- * the first descriptor may already belong to the driver. Do not retry, reset,
- * free or reuse
- * them. This closes the task-preemption publication gap, not all
- * hardware/interruption timing
- * gaps in a polling protocol without a ready pin.
+ * These APIs have one task owner; recovery must run on that same task.
  */
 esp_err_t spi_slave_driver_queue_response_and_receive(spi_slave_transaction_t *tx_trans,
                                                       const uint8_t *tx_data,
@@ -137,6 +137,12 @@ esp_err_t spi_slave_driver_queue_response_and_receive(spi_slave_transaction_t *t
  * closed.
  */
 esp_err_t spi_slave_driver_wait_for(spi_slave_transaction_t *expected);
+
+/** Bounded completion wait; timeout leaves ownership with the driver. */
+esp_err_t spi_slave_driver_wait_for_ticks(spi_slave_transaction_t *expected, TickType_t ticks);
+
+/** Drain owned descriptors within the deadline; never reset an active DMA queue. */
+esp_err_t spi_slave_driver_recover(uint32_t timeout_ms);
 
 /**
  * @brief Set the IRQ output level to signal the master.

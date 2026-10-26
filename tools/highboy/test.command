@@ -28,6 +28,8 @@ run_test() {
 run_test python3 "$repo/tools/ci/test_host_test_runner.py"
 run_test python3 "$repo/tools/console/test_paths.py"
 run_test python3 "$repo/tools/storage_ui/test_storage_ui.py"
+run_test python3 "$repo/tools/spi_transport/test_transport.py"
+run_test python3 "$repo/tools/spi_transport/test_recovery.py"
 run_test python3 "$repo/tools/highboy/check_contracts.py"
 run_test python3 "$repo/tools/wifi_quick_scan/test_quick_scan.py"
 run_test python3 "$repo/tools/highboy/test_contracts.py"

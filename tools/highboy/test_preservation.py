@@ -337,9 +337,9 @@ class PreservationTests(unittest.TestCase):
                        b"SPI_ID_BT_HID_SEND_MOUSE", b"SPI_WIFI_SPECTRUM_BIN_COUNT 39"):
             self.assertTrue(marker in left, "Local protocol extension removed")
         bridge = (ROOT / "firmware_c5/components/Service/spi_bridge/spi_bridge.c").read_text()
-        for marker in ("static DMA_ATTR uint8_t rx_buf", "static DMA_ATTR uint8_t tx_buf",
+        for marker in ("static DMA_ATTR uint8_t rx_wire", "static DMA_ATTR uint8_t tx_wire",
                        "static spi_slave_transaction_t rx_trans", "case 0x11:",
-                       "spi_slave_driver_queue_response_and_receive", "bridge_transport_fault"):
+                       "spi_slave_driver_queue_response_and_receive", "recover_transport"):
             self.assertTrue(marker in bridge, "C5 transport preservation marker missing")
         phy = (ROOT / "firmware_c5/components/Drivers/spi_slave/spi_slave_driver.c").read_text()
         for marker in ("SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE", "esp_ptr_dma_capable",

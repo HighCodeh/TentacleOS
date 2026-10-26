@@ -25,6 +25,7 @@
 #include "esp_chip_info.h"
 #include "esp_mac.h"
 #include "esp_system.h"
+#include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
 #include "freertos/task.h"
@@ -292,25 +293,111 @@ static uint16_t stream_pop_into(uint8_t *buf, uint16_t offset, uint16_t cap) {
   return written;
 }
 
-// A partially queued transfer may still be owned by the ISR. Do not reset the
-// queue or replay a consuming command after an ambiguous transport failure.
-static void bridge_transport_fault(const char *stage, esp_err_t error, uint16_t cmd) {
+#define SPI_RECOVERY_TIMEOUT_MS   2000
+#define SPI_RECOVERY_MAX_ATTEMPTS 3
+#define SPI_RECOVERY_MAX_RESTARTS 2
+#define SPI_RECOVERY_RTC_MAGIC    UINT32_C(0x53504952)
+static RTC_NOINIT_ATTR uint32_t s_recovery_magic;
+static RTC_NOINIT_ATTR uint32_t s_recovery_restarts;
+static RTC_NOINIT_ATTR uint32_t s_recovery_check;
+static uint32_t s_recovery_attempts;
+
+static void recovery_budget_init(void) {
+  if (esp_reset_reason() != ESP_RST_SW || s_recovery_magic != SPI_RECOVERY_RTC_MAGIC ||
+      s_recovery_check != ~s_recovery_restarts || s_recovery_restarts > SPI_RECOVERY_MAX_RESTARTS) {
+    s_recovery_magic = SPI_RECOVERY_RTC_MAGIC;
+    s_recovery_restarts = 0;
+    s_recovery_check = ~s_recovery_restarts;
+  }
+}
+
+static bool recover_transport(const char *stage, esp_err_t error, uint64_t master) {
+  static DMA_ATTR uint8_t notice[SPI_TRANSPORT_FRAME_SIZE];
+  static spi_slave_transaction_t notice_trans;
+  s_is_restart_pending = false;
+  s_is_download_pending = false;
+  ESP_LOGW(TAG,
+           "transport recovery stage=%s error=0x%x attempt=%lu",
+           stage,
+           (unsigned)error,
+           (unsigned long)(s_recovery_attempts + 1));
+  if (++s_recovery_attempts <= SPI_RECOVERY_MAX_ATTEMPTS &&
+      spi_slave_driver_recover(SPI_RECOVERY_TIMEOUT_MS) == ESP_OK) {
+    // All old DMA ownership has returned. No queue reset or command replay.
+    memset(notice, 0, sizeof(notice));
+    spi_transport_seal(notice,
+                       SPI_FRAME_SIZE,
+                       SPI_TRANSPORT_RECOVER,
+                       master ? master : SPI_TRANSPORT_RECOVERY_BROADCAST,
+                       0,
+                       UINT32_MAX);
+    esp_err_t ret = spi_slave_driver_queue(&notice_trans, notice, NULL, sizeof(notice));
+    if (ret == ESP_OK)
+      ret = spi_slave_driver_wait_for_ticks(&notice_trans, pdMS_TO_TICKS(SPI_RECOVERY_TIMEOUT_MS));
+    if (ret == ESP_OK || ret == ESP_ERR_INVALID_SIZE)
+      return true;
+  }
   grok_wifi_stop();
   hb_muse_c5_service_revoke();
-  ESP_LOGE(TAG,
-           "transport halted stage=%s cmd=0x%04x error=0x%x; power-cycle required",
-           stage,
-           (unsigned)cmd,
-           (unsigned)error);
+  if (s_recovery_restarts < SPI_RECOVERY_MAX_RESTARTS) {
+    ++s_recovery_restarts;
+    s_recovery_check = ~s_recovery_restarts;
+    ESP_LOGE(
+        TAG, "transport restarting C5; recovery restart=%lu", (unsigned long)s_recovery_restarts);
+    esp_restart();
+  }
+  ESP_LOGE(TAG, "transport halted: recovery budget exhausted; power-cycle required");
   vTaskDelete(NULL);
+  return false;
+}
+
+typedef enum {
+  SPI_TRANSPORT_DROP,
+  SPI_TRANSPORT_SYNC,
+  SPI_TRANSPORT_EXECUTE,
+  SPI_TRANSPORT_CACHED,
+} spi_transport_action_t;
+
+static spi_transport_action_t transport_classify(const uint8_t *packet,
+                                                 uint64_t master,
+                                                 uint64_t slave,
+                                                 uint32_t sequence,
+                                                 const uint8_t *cached_request,
+                                                 size_t cached_size,
+                                                 spi_transport_header_t *out_request) {
+  if (!spi_transport_valid(packet, SPI_TRANSPORT_FRAME_SIZE, out_request) ||
+      out_request->frame_size != SPI_FRAME_SIZE)
+    return SPI_TRANSPORT_DROP;
+  if (cached_size && out_request->kind == SPI_TRANSPORT_FETCH &&
+      out_request->master_session == master && out_request->slave_session == slave &&
+      out_request->sequence == sequence)
+    return SPI_TRANSPORT_CACHED;
+  if (cached_size && !memcmp(cached_request, packet, SPI_TRANSPORT_FRAME_SIZE))
+    return SPI_TRANSPORT_CACHED;
+  if (out_request->kind == SPI_TRANSPORT_HELLO && !out_request->slave_session &&
+      (out_request->master_session != master || out_request->sequence > sequence))
+    return SPI_TRANSPORT_SYNC;
+  if (out_request->kind == SPI_TRANSPORT_REQUEST && out_request->master_session == master &&
+      out_request->slave_session == slave && out_request->sequence > sequence)
+    return SPI_TRANSPORT_EXECUTE;
+  return SPI_TRANSPORT_DROP;
 }
 
 static void bridge_task(void *pvParameters) {
   // Static (this is the only task touching them) so the larger stream TX buffer
   // does not blow the task stack. RX/command stays at SPI_FRAME_SIZE; only the
   // stream response uses the larger SPI_STREAM_FRAME_SIZE buffer.
-  static DMA_ATTR uint8_t rx_buf[SPI_FRAME_SIZE];
-  static DMA_ATTR uint8_t tx_buf[SPI_STREAM_FRAME_SIZE];
+  static DMA_ATTR uint8_t rx_wire[SPI_TRANSPORT_FRAME_SIZE];
+  uint8_t *rx_buf = rx_wire + SPI_TRANSPORT_HEADER_SIZE;
+  static DMA_ATTR uint8_t tx_wire[SPI_TRANSPORT_STREAM_SIZE];
+  uint8_t *tx_buf = tx_wire + SPI_TRANSPORT_HEADER_SIZE;
+  static uint8_t last_request[SPI_TRANSPORT_FRAME_SIZE];
+  uint64_t master_session = 0, slave_session;
+  uint32_t last_sequence = 0;
+  size_t cached_size = 0;
+  do {
+    esp_fill_random(&slave_session, sizeof(slave_session));
+  } while (!slave_session);
   // Static descriptors remain valid even if the task parks after a partial
   // enqueue. Never delete stack-owned descriptors while the driver owns them.
   static spi_slave_transaction_t rx_trans;
@@ -322,17 +409,19 @@ static void bridge_task(void *pvParameters) {
   int64_t next_setup_log_us = 0;
   uint32_t last_tx_low = 0, last_rx_low = 0;
   uint16_t last_cmd = 0;
+  const char *fault_stage = NULL;
+  recovery_budget_init();
 
   // The response/next-RX pair below is published atomically on single-core C5.
   // Hardware still needs its completion ISR between transfers; this is not a
   // guarantee against electrical corruption or an arbitrarily delayed ISR.
-  memset(rx_buf, 0, sizeof(rx_buf));
-  esp_err_t transfer = spi_slave_driver_queue(&rx_trans, NULL, rx_buf, SPI_FRAME_SIZE);
+  memset(rx_wire, 0, sizeof(rx_wire));
+  esp_err_t transfer = spi_slave_driver_queue(&rx_trans, NULL, rx_wire, SPI_TRANSPORT_FRAME_SIZE);
   if (transfer != ESP_OK) {
-    bridge_transport_fault("initial_rx", transfer, 0);
-    return;
+    fault_stage = "initial_rx";
+    goto recover_transport;
   }
-  ESP_LOGI(TAG, "transport=atomic-pair-v1; protocol unchanged; no command replay");
+  ESP_LOGI(TAG, "transport=session-cache-v1; paired protocol v2; no command replay");
 
   while (1) {
     transfer = spi_slave_driver_wait_for(&rx_trans);
@@ -350,28 +439,46 @@ static void bridge_task(void *pvParameters) {
                  (unsigned)last_cmd);
         next_bad_log_us = now + 1000000;
       }
-      memset(rx_buf, 0, sizeof(rx_buf));
-      transfer = spi_slave_driver_queue(&rx_trans, NULL, rx_buf, SPI_FRAME_SIZE);
+      memset(rx_wire, 0, sizeof(rx_wire));
+      transfer = spi_slave_driver_queue(&rx_trans, NULL, rx_wire, SPI_TRANSPORT_FRAME_SIZE);
       if (transfer != ESP_OK) {
-        bridge_transport_fault("short_rx_rearm", transfer, last_cmd);
-        return;
+        fault_stage = "short_rx_rearm";
+        goto recover_transport;
       }
       continue;
     }
     if (transfer != ESP_OK) {
-      bridge_transport_fault("rx_completion", transfer, last_cmd);
-      return;
+      fault_stage = "rx_completion";
+      goto recover_transport;
     }
 
+    spi_transport_header_t request;
+    spi_transport_action_t action = transport_classify(
+        rx_wire, master_session, slave_session, last_sequence, last_request, cached_size, &request);
+    spi_status_t status = SPI_STATUS_OK;
+    uint16_t cmd = 0;
+    bool trace = false;
+    int64_t command_started = 0;
+    size_t tx_size = SPI_FRAME_SIZE;
+    if (action == SPI_TRANSPORT_CACHED) {
+      tx_size = cached_size;
+      goto queue_response;
+    }
+    if (action == SPI_TRANSPORT_SYNC) {
+      master_session = request.master_session;
+      last_sequence = request.sequence;
+      memset(tx_buf, 0, SPI_FRAME_SIZE);
+      goto publish_response;
+    }
     spi_header_t *header = (spi_header_t *)rx_buf;
     // Drop framing-invalid or bus-corrupted commands: bad sync/type, or a CRC
     // mismatch. Dropping (rather than acting) means the master gets no response
     // and its command times out, so a corrupted op/payload is never executed.
-    if (header->sync != SPI_SYNC_BYTE || header->type != SPI_TYPE_CMD ||
-        !spi_frame_valid(header, header->length)) {
+    if (action != SPI_TRANSPORT_EXECUTE || header->sync != SPI_SYNC_BYTE ||
+        header->type != SPI_TYPE_CMD || !spi_frame_valid(header, header->length)) {
       bool dummy = true;
-      for (size_t i = 0; i < sizeof(rx_buf); ++i) {
-        if (rx_buf[i]) {
+      for (size_t i = 0; i < sizeof(rx_wire); ++i) {
+        if (rx_wire[i]) {
           dummy = false;
           break;
         }
@@ -394,29 +501,28 @@ static void bridge_task(void *pvParameters) {
           next_bad_log_us = now + 1000000;
         }
       }
-      memset(rx_buf, 0, sizeof(rx_buf));
-      transfer = spi_slave_driver_queue(&rx_trans, NULL, rx_buf, SPI_FRAME_SIZE);
+      memset(rx_wire, 0, sizeof(rx_wire));
+      transfer = spi_slave_driver_queue(&rx_trans, NULL, rx_wire, SPI_TRANSPORT_FRAME_SIZE);
       if (transfer != ESP_OK) {
-        bridge_transport_fault("invalid_rx_rearm", transfer, last_cmd);
-        return;
+        fault_stage = "invalid_rx_rearm";
+        goto recover_transport;
       }
       continue;
     }
 
+    last_sequence = request.sequence;
     s_commands_processed++;
 
-    spi_status_t status = SPI_STATUS_OK;
     uint8_t resp_payload[SPI_MAX_PAYLOAD];
     uint8_t resp_len = 0;
-    bool tx_ready = false;           // set when the case already built a complete tx_buf frame
-    size_t tx_size = SPI_FRAME_SIZE; // bytes the master will clock for the response
+    bool tx_ready = false; // set when the case already built a complete tx_buf frame
 
-    uint16_t cmd = spi_header_cmd(header);
+    cmd = spi_header_cmd(header);
     last_cmd = cmd;
     if (cmd == SPI_ID_GROK_START)
       trace_budget = 6;
-    bool trace = header->category == SPI_CAT_GROK && (trace_budget != 0 || cmd == SPI_ID_GROK_STOP);
-    int64_t command_started = trace ? esp_timer_get_time() : 0;
+    trace = header->category == SPI_CAT_GROK && (trace_budget != 0 || cmd == SPI_ID_GROK_STOP);
+    command_started = trace ? esp_timer_get_time() : 0;
     const uint8_t *cmd_payload = rx_buf + sizeof(spi_header_t);
 
     if (!hb_muse_c5_service_allows(cmd))
@@ -698,22 +804,43 @@ static void bridge_task(void *pvParameters) {
       spi_frame_seal((spi_header_t *)tx_buf, resp_header.length);
     }
 
+publish_response:
+    memcpy(last_request, rx_wire, sizeof(last_request));
+    cached_size = tx_size;
+    spi_transport_seal(tx_wire,
+                       (uint16_t)tx_size,
+                       SPI_TRANSPORT_RESPONSE,
+                       request.master_session,
+                       slave_session,
+                       request.sequence);
+queue_response:
     // Publish both descriptors before the SPI ISR can expose the response.
     // No task-preemption gap between response TX and next-command RX queueing.
     // tx_size is SPI_STREAM_FRAME_SIZE for a batched stream frame, else SPI_FRAME_SIZE.
-    memset(rx_buf, 0, sizeof(rx_buf));
-    transfer = spi_slave_driver_queue_response_and_receive(
-        &tx_trans, tx_buf, tx_size, &rx_trans, rx_buf, SPI_FRAME_SIZE);
+    memset(rx_wire, 0, sizeof(rx_wire));
+    transfer = spi_slave_driver_queue_response_and_receive(&tx_trans,
+                                                           tx_wire,
+                                                           tx_size + SPI_TRANSPORT_HEADER_SIZE,
+                                                           &rx_trans,
+                                                           rx_wire,
+                                                           SPI_TRANSPORT_FRAME_SIZE);
     if (transfer != ESP_OK) {
-      bridge_transport_fault("queue_pair", transfer, cmd);
-      return;
+      fault_stage = "queue_pair";
+      goto recover_transport;
     }
     spi_bridge_notify_master();
 
-    transfer = spi_slave_driver_wait_for(&tx_trans);
+    transfer = spi_slave_driver_wait_for_ticks(&tx_trans, pdMS_TO_TICKS(SPI_RECOVERY_TIMEOUT_MS));
+    if (transfer == ESP_ERR_INVALID_SIZE) {
+      // Ownership returned; next RX is already queued. Keep the cached response,
+      // never replay the operation and let HELLO recover framing after timeout.
+      s_is_restart_pending = false;
+      s_is_download_pending = false;
+      continue;
+    }
     if (transfer != ESP_OK) {
-      bridge_transport_fault("tx_completion", transfer, cmd);
-      return;
+      fault_stage = "tx_completion";
+      goto recover_transport;
     }
     replies++;
     // Sample outside the ISR, after the response completes. Print at most
@@ -761,5 +888,22 @@ static void bridge_task(void *pvParameters) {
       vTaskDelay(pdMS_TO_TICKS(SPI_RESTART_DELAY_MS));
       esp_restart();
     }
+    continue;
+
+recover_transport:
+    do {
+      if (!recover_transport(fault_stage, transfer, master_session))
+        return;
+      master_session = 0;
+      last_sequence = 0;
+      cached_size = 0;
+      do {
+        esp_fill_random(&slave_session, sizeof(slave_session));
+      } while (!slave_session);
+      memset(rx_wire, 0, sizeof(rx_wire));
+      transfer = spi_slave_driver_queue(&rx_trans, NULL, rx_wire, sizeof(rx_wire));
+      fault_stage = "recovery_rearm";
+    } while (transfer != ESP_OK);
+    ESP_LOGI(TAG, "transport recovered; awaiting new session");
   }
 }
