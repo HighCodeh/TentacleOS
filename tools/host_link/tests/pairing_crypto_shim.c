@@ -1,3 +1,20 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
+
 /* Real OpenSSL HKDF/HMAC + real libsodium X25519; explicit NVS/RTOS/RNG fakes. */
 #include <assert.h>
 #include <pthread.h>
@@ -8,6 +25,7 @@
 #include <openssl/hmac.h>
 #include <openssl/kdf.h>
 #include "esp_err.h"
+#include "firmware_crypto.h"
 #include "mbedtls/md.h"
 #include "nvs.h"
 #include "host_link_sec.h"
@@ -39,24 +57,40 @@ esp_err_t nvs_set_blob(nvs_handle_t h,const char *key,const void *data,size_t si
 }
 esp_err_t nvs_commit(nvs_handle_t h) {(void)h;return s_persist_error;}
 void nvs_close(nvs_handle_t h) {(void)h;}
-const mbedtls_md_info_t *mbedtls_md_info_from_type(int type) {static mbedtls_md_info_t info;assert(type==1);return &info;}
-int mbedtls_md_hmac(const mbedtls_md_info_t *info,const uint8_t *key,size_t key_length,
-                   const uint8_t *input,size_t length,uint8_t *out) {
- assert(info);unsigned size=0;return HMAC(EVP_sha256(),key,(int)key_length,input,length,out,&size)&&size==32?0:-1;
+esp_err_t firmware_crypto_mac(firmware_crypto_span_t key, firmware_crypto_span_t input,
+                             psa_algorithm_t algorithm, uint8_t *out) {
+ assert(algorithm==PSA_ALG_HMAC(PSA_ALG_SHA_256));
+ unsigned size=0;
+ return HMAC(EVP_sha256(),key.data,(int)key.size,input.data,input.size,out,&size)&&size==32 ? ESP_OK : ESP_FAIL;
 }
-int mbedtls_hkdf(const mbedtls_md_info_t *info,const uint8_t *salt,size_t salt_length,
-                const uint8_t *key,size_t key_length,const uint8_t *label,size_t label_length,
-                uint8_t *out,size_t length) {
- assert(info);EVP_PKEY_CTX *context=EVP_PKEY_CTX_new_id(EVP_PKEY_HKDF,NULL);if(!context)return -1;
+esp_err_t firmware_crypto_hkdf(const firmware_crypto_hkdf_t *params,uint8_t *out,size_t length) {
+ assert(!params->is_expand_only);
+ EVP_PKEY_CTX *context=EVP_PKEY_CTX_new_id(EVP_PKEY_HKDF,NULL);if(!context)return ESP_FAIL;
  int ok=EVP_PKEY_derive_init(context)>0 && EVP_PKEY_CTX_set_hkdf_md(context,EVP_sha256())>0 &&
-   EVP_PKEY_CTX_set1_hkdf_salt(context,salt,(int)salt_length)>0 &&
-   EVP_PKEY_CTX_set1_hkdf_key(context,key,(int)key_length)>0 &&
-   EVP_PKEY_CTX_add1_hkdf_info(context,label,(int)label_length)>0 &&
+   EVP_PKEY_CTX_set1_hkdf_salt(context,params->salt.data,(int)params->salt.size)>0 &&
+   EVP_PKEY_CTX_set1_hkdf_key(context,params->secret.data,(int)params->secret.size)>0 &&
+   EVP_PKEY_CTX_add1_hkdf_info(context,params->info.data,(int)params->info.size)>0 &&
    EVP_PKEY_derive(context,out,&length)>0;
- EVP_PKEY_CTX_free(context);return ok?0:-1;
+ EVP_PKEY_CTX_free(context);return ok ? ESP_OK : ESP_FAIL;
 }
 void mbedtls_platform_zeroize(void *buffer,size_t length) {volatile uint8_t *p=buffer;while(length--)*p++=0;}
 void pairing_test_clock(int64_t now) {s_now=now;}
 void pairing_test_fail_mac(int error) {s_mac_error=error;}
 void pairing_test_fail_persist(int error) {s_persist_error=error;}
 void pairing_test_boot(void) {for(unsigned i=0;i<sizeof(s_psk);++i)s_psk[i]=(uint8_t)(i+1);assert(host_link_sec_init()==ESP_OK);}
+
+const mbedtls_md_info_t *mbedtls_md_info_from_type(int type) {
+ static mbedtls_md_info_t info;assert(type==1);return &info;
+}
+int mbedtls_md_hmac(const mbedtls_md_info_t *info,const uint8_t *key,size_t key_length,
+                   const uint8_t *input,size_t length,uint8_t *out) {
+ assert(info);unsigned size=0;
+ return HMAC(EVP_sha256(),key,(int)key_length,input,length,out,&size)&&size==32?0:-1;
+}
+int mbedtls_hkdf(const mbedtls_md_info_t *info,const uint8_t *salt,size_t salt_length,
+                const uint8_t *key,size_t key_length,const uint8_t *label,size_t label_length,
+                uint8_t *out,size_t length) {
+ assert(info);
+ firmware_crypto_hkdf_t params={.secret={key,key_length},.salt={salt,salt_length},.info={label,label_length}};
+ return firmware_crypto_hkdf(&params,out,length);
+}

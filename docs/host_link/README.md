@@ -1,3 +1,20 @@
+<!--
+SPDX-License-Identifier: GPL-3.0-or-later
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # Host Link - unified overview
 
 End-to-end companion-app link, spanning **both firmwares**. This document is the
@@ -158,7 +175,7 @@ the wire spec; the end-to-end (app↔P4↔C5) picture is in the unified overview
 | `host_link.c` | Core: reassembly, frame encode/decode, dispatch, single-session arbitration, `emit_frame` (RESP/LOG/STREAM). |
 | `host_link_cdc.c` | USB CDC-ACM transport (TinyUSB composite). Claims the session on DTR; drops bytes when no app is attached. |
 | `host_link_ble.c` | BLE transport relay: chunks frames to the C5 (`SPI_ID_HOST_TX`), reassembles inbound (`SPI_ID_HOST_RX` stream), drives the C5 GATT on/off and connection status. |
-| `host_link_sec.c` | Security: PSK in NVS, ephemeral X25519, physical confirmation, HKDF direction keys and MAC/replay checks; libsodium + mbedTLS. |
+| `host_link_sec.c` | Security: PSK in NVS, ephemeral X25519, physical confirmation, HKDF direction keys and MAC/replay checks; libsodium + public PSA Crypto. |
 | `host_link_log.c` | P4 log tee (`esp_log_set_vprintf`): ANSI strip, level, drop-oldest ring, worker → `LOG` frames `source=P4`. |
 | `host_link_c5log.c` | Consumes the `SPI_ID_SYSTEM_LOG` stream from the C5 → `LOG` frames `source=C5`. |
 | `host_link_files.c` | P4-local `FILE_*` ops over `/assets`, `/littlefs`, `/sdcard` (POSIX VFS), path-sandboxed, chunked. |
@@ -314,3 +331,11 @@ lease and preserves native UI/companion ownership. These are internal queued
 calls, not new unauthenticated wire commands; `IR_RX_FRAME` identifies the local
 one-shot receive request only on the trusted queue. The wire handler retains
 its existing stream semantics. See [IR ownership](../ir/README.md#app-worker-lease).
+
+## ESP-IDF v6.1 compatibility
+
+HMAC-SHA256 and the fixed 32-byte HKDF-SHA256 direction keys now use public
+PSA APIs. PSK salt, transcript labels, truncation and wire encoding are unchanged.
+The existing companion interoperability tests use real OpenSSL/libsodium at
+an explicit adapter boundary; `tools/crypto/test_psa.py` separately validates
+the production adapter against the actual SDK software PSA backend.

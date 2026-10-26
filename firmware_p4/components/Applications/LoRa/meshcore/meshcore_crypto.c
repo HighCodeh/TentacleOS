@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2025 HIGH CODE LLC
 //
 // TentacleOS is free software: you can redistribute it and/or modify
@@ -15,32 +16,30 @@
 
 #include "meshcore_internal.h"
 
+#include "firmware_crypto.h"
+
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
-#include "mbedtls/aes.h"
-#include "mbedtls/md.h"
-#include "mbedtls/sha256.h"
+#include "esp_log.h"
+
 #include "sodium.h"
+
+static const char *TAG = "MESHCORE_CRYPTO";
 
 static int
 aes_ecb_encrypt_pad(const uint8_t key[16], uint8_t *dest, const uint8_t *src, int src_len);
 static int aes_ecb_decrypt(const uint8_t key[16], uint8_t *dest, const uint8_t *src, int src_len);
-static void hmac_sha256_trunc(const uint8_t *key,
+static bool hmac_sha256_trunc(const uint8_t *key,
                               size_t key_len,
                               const uint8_t *data,
                               size_t data_len,
                               uint8_t *mac_out,
                               size_t mac_len);
 
-void meshcore_crypto_sha256(const uint8_t *data, size_t len, uint8_t out[32]) {
-  mbedtls_sha256_context ctx;
-  mbedtls_sha256_init(&ctx);
-  mbedtls_sha256_starts(&ctx, 0);
-  mbedtls_sha256_update(&ctx, data, len);
-  mbedtls_sha256_finish(&ctx, out);
-  mbedtls_sha256_free(&ctx);
+esp_err_t meshcore_crypto_sha256(const uint8_t *data, size_t len, uint8_t out[32]) {
+  return firmware_crypto_sha256((firmware_crypto_span_t){data, len}, out);
 }
 
 int meshcore_crypto_encrypt_mac(const uint8_t *shared_secret,
@@ -48,12 +47,13 @@ int meshcore_crypto_encrypt_mac(const uint8_t *shared_secret,
                                 const uint8_t *src,
                                 int src_len) {
   int enc_len = aes_ecb_encrypt_pad(shared_secret, dest + MC_CIPHER_MAC_SIZE, src, src_len);
-  hmac_sha256_trunc(shared_secret,
-                    MC_HMAC_KEY_SIZE,
-                    dest + MC_CIPHER_MAC_SIZE,
-                    enc_len,
-                    dest,
-                    MC_CIPHER_MAC_SIZE);
+  if (enc_len == 0 || !hmac_sha256_trunc(shared_secret,
+                                         MC_HMAC_KEY_SIZE,
+                                         dest + MC_CIPHER_MAC_SIZE,
+                                         enc_len,
+                                         dest,
+                                         MC_CIPHER_MAC_SIZE))
+    return 0;
   return MC_CIPHER_MAC_SIZE + enc_len;
 }
 
@@ -66,12 +66,13 @@ int meshcore_crypto_mac_decrypt(const uint8_t *shared_secret,
   int ct_len = src_len - MC_CIPHER_MAC_SIZE;
 
   uint8_t expected_mac[MC_CIPHER_MAC_SIZE];
-  hmac_sha256_trunc(shared_secret,
-                    MC_HMAC_KEY_SIZE,
-                    src + MC_CIPHER_MAC_SIZE,
-                    ct_len,
-                    expected_mac,
-                    MC_CIPHER_MAC_SIZE);
+  if (!hmac_sha256_trunc(shared_secret,
+                         MC_HMAC_KEY_SIZE,
+                         src + MC_CIPHER_MAC_SIZE,
+                         ct_len,
+                         expected_mac,
+                         MC_CIPHER_MAC_SIZE))
+    return 0;
 
   if (memcmp(expected_mac, src, MC_CIPHER_MAC_SIZE) != 0) {
     return 0;
@@ -216,19 +217,23 @@ uint16_t meshcore_packet_build_grp_txt(uint8_t channel_hash,
   out[pos++] = channel_hash;
 
   int enc_written = meshcore_crypto_encrypt_mac(channel_secret, &out[pos], plaintext, pt_len);
+  if (enc_written == 0)
+    return 0;
   pos += enc_written;
   return pos;
 }
 
-void meshcore_packet_hash(const meshcore_packet_view_t *pkt, uint8_t out[8]) {
+esp_err_t meshcore_packet_hash(const meshcore_packet_view_t *pkt, uint8_t out[8]) {
   uint8_t buf[MESHCORE_MAX_RAW + 1];
   buf[0] = pkt->payload_type;
   if (pkt->payload_len > MESHCORE_MAX_RAW)
-    return;
+    return ESP_ERR_INVALID_SIZE;
   memcpy(&buf[1], pkt->payload, pkt->payload_len);
   uint8_t full[32];
-  meshcore_crypto_sha256(buf, pkt->payload_len + 1, full);
-  memcpy(out, full, 8);
+  esp_err_t error = meshcore_crypto_sha256(buf, pkt->payload_len + 1, full);
+  if (error == ESP_OK)
+    memcpy(out, full, 8);
+  return error;
 }
 
 uint8_t mc_build_header(uint8_t ver, uint8_t ptype, uint8_t route) {
@@ -252,81 +257,93 @@ uint8_t mc_parse_hash_size(uint8_t sel) {
   }
 }
 
-void mc_x25519(uint8_t out_shared[32], const uint8_t peer_pub_key[32], const uint8_t my_sk[64]) {
+esp_err_t
+mc_x25519(uint8_t out_shared[32], const uint8_t peer_pub_key[32], const uint8_t my_sk[64]) {
+  if (out_shared == NULL || peer_pub_key == NULL || my_sk == NULL)
+    return ESP_ERR_INVALID_ARG;
   uint8_t curve_sk[crypto_scalarmult_SCALARBYTES];
   uint8_t curve_pk[crypto_scalarmult_BYTES];
-  crypto_sign_ed25519_sk_to_curve25519(curve_sk, my_sk);
-  crypto_sign_ed25519_pk_to_curve25519(curve_pk, peer_pub_key);
-  crypto_scalarmult(out_shared, curve_sk, curve_pk);
+  int rc = crypto_sign_ed25519_sk_to_curve25519(curve_sk, my_sk);
+  if (rc == 0)
+    rc = crypto_sign_ed25519_pk_to_curve25519(curve_pk, peer_pub_key);
+  if (rc == 0)
+    rc = crypto_scalarmult(out_shared, curve_sk, curve_pk);
+  if (rc != 0) {
+    ESP_LOGW(TAG, "Peer key agreement failed");
+    sodium_memzero(out_shared, crypto_scalarmult_BYTES);
+  }
   sodium_memzero(curve_sk, sizeof(curve_sk));
   sodium_memzero(curve_pk, sizeof(curve_pk));
+  return rc == 0 ? ESP_OK : ESP_ERR_INVALID_ARG;
 }
 
-void mc_sha256_two(
+esp_err_t mc_sha256_two(
     uint8_t *out, size_t out_len, const uint8_t *a, size_t a_len, const uint8_t *b, size_t b_len) {
-  uint8_t full[32];
-  mbedtls_sha256_context ctx;
-  mbedtls_sha256_init(&ctx);
-  mbedtls_sha256_starts(&ctx, 0);
-  mbedtls_sha256_update(&ctx, a, a_len);
-  mbedtls_sha256_update(&ctx, b, b_len);
-  mbedtls_sha256_finish(&ctx, full);
-  mbedtls_sha256_free(&ctx);
-  memcpy(out, full, out_len);
+  uint8_t full[FIRMWARE_CRYPTO_SHA256_SIZE];
+  size_t written = 0;
+  psa_hash_operation_t operation = PSA_HASH_OPERATION_INIT;
+  psa_status_t status = psa_hash_setup(&operation, PSA_ALG_SHA_256);
+  if (status == PSA_SUCCESS)
+    status = psa_hash_update(&operation, a, a_len);
+  if (status == PSA_SUCCESS)
+    status = psa_hash_update(&operation, b, b_len);
+  if (status == PSA_SUCCESS)
+    status = psa_hash_finish(&operation, full, sizeof(full), &written);
+  (void)psa_hash_abort(&operation);
+  if (status == PSA_SUCCESS && written == sizeof(full) && out_len <= sizeof(full))
+    memcpy(out, full, out_len);
+  else {
+    ESP_LOGW(TAG, "Hash failed");
+    memset(out, 0, out_len);
+  }
+  firmware_crypto_wipe(full, sizeof(full));
+  return status == PSA_SUCCESS && written == sizeof(full) && out_len <= sizeof(full) ? ESP_OK
+                                                                                     : ESP_FAIL;
 }
 
 static int
 aes_ecb_encrypt_pad(const uint8_t key[16], uint8_t *dest, const uint8_t *src, int src_len) {
-  mbedtls_aes_context ctx;
-  mbedtls_aes_init(&ctx);
-  mbedtls_aes_setkey_enc(&ctx, key, 128);
-
-  int out = 0;
-  while (src_len >= 16) {
-    mbedtls_aes_crypt_ecb(&ctx, MBEDTLS_AES_ENCRYPT, src, dest);
-    src += 16;
-    dest += 16;
-    src_len -= 16;
-    out += 16;
-  }
-  if (src_len > 0) {
-    uint8_t tmp[16] = {0};
-    memcpy(tmp, src, src_len);
-    mbedtls_aes_crypt_ecb(&ctx, MBEDTLS_AES_ENCRYPT, tmp, dest);
-    out += 16;
-  }
-  mbedtls_aes_free(&ctx);
-  return out;
+  if (src_len <= 0 || src_len > MESHCORE_MAX_RAW)
+    return 0;
+  uint8_t padded[MESHCORE_MAX_RAW + FIRMWARE_CRYPTO_AES_BLOCK_SIZE] = {0};
+  size_t size = ((size_t)src_len + FIRMWARE_CRYPTO_AES_BLOCK_SIZE - 1) &
+                ~(FIRMWARE_CRYPTO_AES_BLOCK_SIZE - 1);
+  memcpy(padded, src, src_len);
+  firmware_crypto_cipher_t params = {.key = {key, FIRMWARE_CRYPTO_AES_BLOCK_SIZE},
+                                     .algorithm = PSA_ALG_ECB_NO_PADDING,
+                                     .is_encrypt = true};
+  esp_err_t error = firmware_crypto_cipher(&params, (firmware_crypto_span_t){padded, size}, dest);
+  firmware_crypto_wipe(padded, sizeof(padded));
+  return error == ESP_OK ? (int)size : 0;
 }
 
 static int aes_ecb_decrypt(const uint8_t key[16], uint8_t *dest, const uint8_t *src, int src_len) {
-  if (src_len % 16 != 0)
+  if (src_len <= 0 || src_len % FIRMWARE_CRYPTO_AES_BLOCK_SIZE != 0)
     return 0;
-
-  mbedtls_aes_context ctx;
-  mbedtls_aes_init(&ctx);
-  mbedtls_aes_setkey_dec(&ctx, key, 128);
-
-  int out = 0;
-  while (src_len >= 16) {
-    mbedtls_aes_crypt_ecb(&ctx, MBEDTLS_AES_DECRYPT, src, dest);
-    src += 16;
-    dest += 16;
-    src_len -= 16;
-    out += 16;
-  }
-  mbedtls_aes_free(&ctx);
-  return out;
+  firmware_crypto_cipher_t params = {.key = {key, FIRMWARE_CRYPTO_AES_BLOCK_SIZE},
+                                     .algorithm = PSA_ALG_ECB_NO_PADDING,
+                                     .is_encrypt = false};
+  return firmware_crypto_cipher(&params, (firmware_crypto_span_t){src, (size_t)src_len}, dest) ==
+                 ESP_OK
+             ? src_len
+             : 0;
 }
 
-static void hmac_sha256_trunc(const uint8_t *key,
+static bool hmac_sha256_trunc(const uint8_t *key,
                               size_t key_len,
                               const uint8_t *data,
                               size_t data_len,
                               uint8_t *mac_out,
                               size_t mac_len) {
-  uint8_t full_mac[32];
-  const mbedtls_md_info_t *info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
-  mbedtls_md_hmac(info, key, key_len, data, data_len, full_mac);
-  memcpy(mac_out, full_mac, mac_len);
+  uint8_t full_mac[FIRMWARE_CRYPTO_SHA256_SIZE];
+  if (mac_len > sizeof(full_mac))
+    return false;
+  esp_err_t error = firmware_crypto_mac((firmware_crypto_span_t){key, key_len},
+                                        (firmware_crypto_span_t){data, data_len},
+                                        PSA_ALG_HMAC(PSA_ALG_SHA_256),
+                                        full_mac);
+  if (error == ESP_OK)
+    memcpy(mac_out, full_mac, mac_len);
+  firmware_crypto_wipe(full_mac, sizeof(full_mac));
+  return error == ESP_OK;
 }

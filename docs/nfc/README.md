@@ -1,3 +1,20 @@
+<!--
+SPDX-License-Identifier: GPL-3.0-or-later
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # NFC Application
 
 The NFC feature has two halves in the tree:
@@ -257,3 +274,34 @@ all SPI/IRQ operations; foreign emulator mutations are rejected before changing
 shared state. Host tests cover ownership, cancellation, retained cleanup and
 fault injection at each target startup operation. Physical RF acceptance remains
 unverified.
+
+## IDF v6.1 cryptography
+
+TF-PSA-Crypto removed DES, including 3DES, as obsolete algorithms; this was not
+a header rename. Migrating to the public PSA Crypto API does not restore them.
+See the upstream [migration guide](https://github.com/Mbed-TLS/TF-PSA-Crypto/blob/tf-psa-crypto-1.0.0/docs/1.0-migration-guide.md#removed-obsolete-cryptographic-mechanisms).
+
+Legacy NFC card protocols still require DES/3DES. Substituting AES locally would
+break interoperability: the card and its selected authentication protocol must
+also support AES. DES/3DES is therefore retained only for legacy compatibility,
+not as the choice for new cryptographic protocols.
+
+The firmware uses the isolated Mbed TLS v3.6.6 DES/3DES module in
+`protocols/common/legacy_des`, preserving its upstream license notices. This
+does not bring back an older TLS stack or enable DES in the SDK configuration.
+Its [provenance and maintenance instructions](../../firmware_p4/components/Applications/nfc/protocols/common/legacy_des/README.md)
+document the source and local adaptations. The host regression
+`python3 tools/nfc/test_legacy_des.py` checks 12 upstream DES/3DES ECB/CBC vectors;
+these checks do not replace physical card interoperability tests.
+
+NFC AES-ECB, AES-CBC and AES-CMAC now use the public PSA Crypto API through
+`Service/firmware_crypto`. CBC retains the protocol's explicit IV, no-padding
+semantics and output chaining IV, including in-place decryption. CMAC errors
+are propagated instead of reporting a successful MAC. The active NFC path no
+longer includes private SDK primitive headers. P4 uses software AES because of
+the pinned SDK's incomplete PSA hardware algorithm coverage; see
+[SDK compatibility](../highboy/README.md#esp-idf-v61-compatibility).
+
+`python3 tools/crypto/test_psa.py --idf "$IDF_PATH"` validates the production
+NFC AES/CMAC code and CBC chaining against independent vectors with the actual
+SDK software PSA backend. DES/3DES remains covered by its separate legacy test.

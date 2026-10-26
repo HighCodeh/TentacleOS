@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "meshtastic_mqtt.h"
 
+#include "firmware_crypto.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -10,7 +12,6 @@
 #include "esp_mac.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "mbedtls/aes.h"
 
 #include "lora_session.h"
 #include "meshtastic_channels.h"
@@ -488,17 +489,15 @@ static void accept_message(const mt_mqtt_config_t *config, const mt_mqtt_queued_
     if (packet.id != 0 && s_seen[index].from == packet.from && s_seen[index].id == packet.id)
       return;
   uint8_t clear[MT_MQTT_RADIO_MAX];
-  uint8_t nonce[MQTT_AES_BLOCK] = {0}, stream[MQTT_AES_BLOCK] = {0};
+  uint8_t nonce[MQTT_AES_BLOCK] = {0};
   write_u32(nonce, packet.id);
   write_u32(nonce + MQTT_NONCE_NODE_OFFSET, packet.from);
-  size_t offset = 0;
-  mbedtls_aes_context aes;
-  mbedtls_aes_init(&aes);
-  int result = mbedtls_aes_setkey_enc(&aes, config->key, MQTT_AES_BITS);
-  if (result == 0)
-    result =
-        mbedtls_aes_crypt_ctr(&aes, packet.length, &offset, nonce, stream, packet.payload, clear);
-  mbedtls_aes_free(&aes);
+  firmware_crypto_cipher_t params = {.key = {config->key, sizeof(config->key)},
+                                     .iv = {nonce, sizeof(nonce)},
+                                     .algorithm = PSA_ALG_CTR,
+                                     .is_encrypt = false};
+  int result = firmware_crypto_cipher(
+      &params, (firmware_crypto_span_t){packet.payload, packet.length}, clear);
   char text[MT_MQTT_TEXT_MAX];
   if (result != 0 || mt_mqtt_parse_text(clear, packet.length, text) != ESP_OK)
     return;

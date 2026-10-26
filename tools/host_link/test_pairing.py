@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 """Compile production security with real sodium/OpenSSL crypto and explicit OS/NVS fakes."""
 import ctypes
 import importlib.util
@@ -33,8 +48,9 @@ def fixtures(path):
       'mbedtls/md.h': '#pragma once\n#include <stdint.h>\n#include <stddef.h>\ntypedef struct {int unused;} mbedtls_md_info_t;\n#define MBEDTLS_MD_SHA256 1\nconst mbedtls_md_info_t *mbedtls_md_info_from_type(int);\nint mbedtls_md_hmac(const mbedtls_md_info_t *,const uint8_t *,size_t,const uint8_t *,size_t,uint8_t *);\n',
       'mbedtls/hkdf.h': '#pragma once\n#include "mbedtls/md.h"\nint mbedtls_hkdf(const mbedtls_md_info_t *,const uint8_t *,size_t,const uint8_t *,size_t,const uint8_t *,size_t,uint8_t *,size_t);\n',
       'mbedtls/platform_util.h': '#pragma once\n#include <stddef.h>\nvoid mbedtls_platform_zeroize(void *,size_t);\n'}
+    files['firmware_crypto.h'] = (ROOT / 'tools/crypto/fixtures/firmware_crypto.h').read_text()
     for name,text in files.items():
-        dest=path/name;dest.parent.mkdir(parents=True,exist_ok=True);dest.write_text(text)
+        dest=path/name;dest.parent.mkdir(parents=True,exist_ok=True);dest.write_text((ROOT / "common/crypto/firmware_crypto.h").read_text().split("#ifndef", 1)[0] + text)
 
 def interop(path):
     lib=ctypes.CDLL(str(path))

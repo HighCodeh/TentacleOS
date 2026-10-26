@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2025 HIGH CODE LLC
 //
 // TentacleOS is free software: you can redistribute it and/or modify
@@ -133,12 +134,14 @@ esp_err_t meshcore_send_direct_msg(const uint8_t peer_pub_key[32],
   int pt_len = 5 + text_len + 1;
 
   uint32_t ack_crc;
-  mc_sha256_two((uint8_t *)&ack_crc, 4, plaintext, 5 + text_len, id->pub_key, 32);
+  if (mc_sha256_two((uint8_t *)&ack_crc, 4, plaintext, 5 + text_len, id->pub_key, 32) != ESP_OK)
+    return ESP_FAIL;
   if (out_expected_ack != NULL)
     *out_expected_ack = ack_crc;
 
   uint8_t shared[32];
-  mc_x25519(shared, peer_pub_key, id->priv_key);
+  if (mc_x25519(shared, peer_pub_key, id->priv_key) != ESP_OK)
+    return ESP_ERR_INVALID_ARG;
 
   const meshcore_contact_t *c = meshcore_contact_find(peer_pub_key);
   bool has_path = (c != NULL && c->out_path_len != MESHCORE_OUT_PATH_UNKNOWN);
@@ -163,6 +166,8 @@ esp_err_t meshcore_send_direct_msg(const uint8_t peer_pub_key[32],
   buf[pos++] = id->pub_key[0];
 
   int enc_written = meshcore_crypto_encrypt_mac(shared, &buf[pos], plaintext, pt_len);
+  if (enc_written == 0)
+    return ESP_FAIL;
   pos += enc_written;
 
   mc_pendings_add(ack_crc, peer_pub_key);
@@ -233,7 +238,8 @@ esp_err_t mc_transmit_raw(const uint8_t *raw, uint16_t len) {
   meshcore_packet_view_t self_view;
   if (meshcore_packet_parse(raw, len, &self_view)) {
     uint8_t self_hash[8];
-    meshcore_packet_hash(&self_view, self_hash);
+    if (meshcore_packet_hash(&self_view, self_hash) != ESP_OK)
+      return ESP_FAIL;
     mc_dedup_check_add(self_hash);
   }
 
@@ -279,7 +285,8 @@ esp_err_t mc_send_path_return(const uint8_t peer_pub_key[32],
   const meshcore_identity_t *id = mc_get_identity();
 
   uint8_t shared[32];
-  mc_x25519(shared, peer_pub_key, id->priv_key);
+  if (mc_x25519(shared, peer_pub_key, id->priv_key) != ESP_OK)
+    return ESP_ERR_INVALID_ARG;
 
   uint8_t plaintext[2 + MESHCORE_MAX_PATH + 1 + 16];
   int pt_len = 0;
@@ -307,6 +314,8 @@ esp_err_t mc_send_path_return(const uint8_t peer_pub_key[32],
   buf[pos++] = peer_pub_key[0];
   buf[pos++] = id->pub_key[0];
   int enc_written = meshcore_crypto_encrypt_mac(shared, &buf[pos], plaintext, pt_len);
+  if (enc_written == 0)
+    return ESP_FAIL;
   pos += enc_written;
 
   ESP_LOGI(TAG,
@@ -474,7 +483,8 @@ static void process_txt_msg(const meshcore_packet_view_t *pkt) {
       continue;
 
     uint8_t shared[32];
-    mc_x25519(shared, contact.pub_key, id->priv_key);
+    if (mc_x25519(shared, contact.pub_key, id->priv_key) != ESP_OK)
+      continue;
 
     uint8_t plaintext[MC_TEXT_PLAINTEXT_MAX];
     int pt_len =
@@ -527,8 +537,10 @@ static void process_txt_msg(const meshcore_packet_view_t *pkt) {
       crc_text_len = pt_len - crc_text_off;
 
     uint32_t ack_crc;
-    mc_sha256_two(
-        (uint8_t *)&ack_crc, 4, plaintext, crc_text_off + crc_text_len, contact.pub_key, 32);
+    if (mc_sha256_two(
+            (uint8_t *)&ack_crc, 4, plaintext, crc_text_off + crc_text_len, contact.pub_key, 32) !=
+        ESP_OK)
+      return;
 
     s_is_packet_consumed = true;
 
@@ -603,7 +615,8 @@ static void process_path_payload(const meshcore_packet_view_t *pkt) {
       continue;
 
     uint8_t shared[32];
-    mc_x25519(shared, contact.pub_key, id->priv_key);
+    if (mc_x25519(shared, contact.pub_key, id->priv_key) != ESP_OK)
+      continue;
 
     uint8_t plaintext[MC_PATH_PLAINTEXT_MAX];
     int pt_len =
@@ -689,7 +702,8 @@ static void on_rx_done(const sx1262_packet_t *pkt, void *ctx) {
   view.snr_db = pkt->snr_pkt_db;
 
   uint8_t hash[8];
-  meshcore_packet_hash(&view, hash);
+  if (meshcore_packet_hash(&view, hash) != ESP_OK)
+    return;
   if (mc_dedup_check_add(hash))
     return;
 

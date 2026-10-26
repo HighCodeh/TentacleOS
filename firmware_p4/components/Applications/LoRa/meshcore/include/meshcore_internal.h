@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2025 HIGH CODE LLC
 //
 // TentacleOS is free software: you can redistribute it and/or modify
@@ -87,7 +88,7 @@ uint8_t mc_parse_hash_size(uint8_t sel);
 /**
  * @brief Plain SHA-256 of an arbitrary buffer.
  */
-void meshcore_crypto_sha256(const uint8_t *data, size_t len, uint8_t out[32]);
+esp_err_t meshcore_crypto_sha256(const uint8_t *data, size_t len, uint8_t out[32]);
 
 /**
  * @brief AES-ECB encrypt + HMAC-SHA256 truncated MAC prefix.
@@ -113,7 +114,7 @@ bool meshcore_packet_parse(const uint8_t *raw, uint16_t raw_len, meshcore_packet
 /**
  * @brief 8-byte content hash used for dedup.
  */
-void meshcore_packet_hash(const meshcore_packet_view_t *pkt, uint8_t out[8]);
+esp_err_t meshcore_packet_hash(const meshcore_packet_view_t *pkt, uint8_t out[8]);
 
 /**
  * @brief Build a self-advert wire packet (signed). Returns packet length, 0 on error.
@@ -140,7 +141,7 @@ uint16_t meshcore_packet_build_grp_txt(uint8_t channel_hash,
 /**
  * @brief sha256(a || b)[:out_len]. Used for ACK CRC.
  */
-void mc_sha256_two(
+esp_err_t mc_sha256_two(
     uint8_t *out, size_t out_len, const uint8_t *a, size_t a_len, const uint8_t *b, size_t b_len);
 
 /**
@@ -153,7 +154,8 @@ void mc_sha256_two(
  * @param      peer_pub_key Peer's 32-byte Ed25519 public key.
  * @param      my_sk        Local 64-byte Ed25519 secret key (libsodium format).
  */
-void mc_x25519(uint8_t out_shared[32], const uint8_t peer_pub_key[32], const uint8_t my_sk[64]);
+esp_err_t
+mc_x25519(uint8_t out_shared[32], const uint8_t peer_pub_key[32], const uint8_t my_sk[64]);
 
 /* DB internal (meshcore_db.c) */
 bool mc_dedup_check_add(const uint8_t hash[8]);

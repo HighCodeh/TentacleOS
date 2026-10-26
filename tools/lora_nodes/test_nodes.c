@@ -1,3 +1,20 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
+
 #include <assert.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -46,8 +63,8 @@ esp_err_t mc_nvs_set_blob(const char *key,const void *in,size_t size) {
 }
 uint32_t mc_now_ms(void) {return 1000;}
 uint32_t meshcore_get_unix_time(void) {return 1000;}
-void meshcore_crypto_sha256(const uint8_t *data,size_t size,uint8_t out[32]) {
-  (void)data;(void)size;memset(out,7,32);
+esp_err_t meshcore_crypto_sha256(const uint8_t *data,size_t size,uint8_t out[32]) {
+  (void)data;(void)size;memset(out,7,32);return ESP_OK;
 }
 uint8_t mc_parse_hash_size(uint8_t selector) {
   const uint8_t values[]={1,2,3,0};return selector<4?values[selector]:0;
@@ -71,8 +88,8 @@ const meshcore_callbacks_t *mc_get_callbacks(void) {
   static const meshcore_callbacks_t callbacks={.on_grp_txt=group_message,.on_direct_msg=direct_message};
   return &callbacks;
 }
-void mc_x25519(uint8_t shared[32],const uint8_t pub[32],const uint8_t private_key[64]) {
-  (void)pub;(void)private_key;memset(shared,0,32);
+esp_err_t mc_x25519(uint8_t shared[32],const uint8_t pub[32],const uint8_t private_key[64]) {
+  (void)pub;(void)private_key;memset(shared,0,32);return ESP_OK;
 }
 int meshcore_crypto_mac_decrypt(const uint8_t *key,uint8_t *out,const uint8_t *in,int size) {
   (void)key;(void)in;++s_decrypt_calls;
@@ -83,9 +100,9 @@ int meshcore_crypto_mac_decrypt(const uint8_t *key,uint8_t *out,const uint8_t *i
   else out[4]=0;
   return count;
 }
-void mc_sha256_two(uint8_t *out,size_t out_len,const uint8_t *a,size_t a_len,
+esp_err_t mc_sha256_two(uint8_t *out,size_t out_len,const uint8_t *a,size_t a_len,
                     const uint8_t *b,size_t b_len) {
-  (void)a;(void)b;(void)b_len;assert(a_len<=160);memset(out,0,out_len);
+  (void)a;(void)b;(void)b_len;assert(a_len<=160);memset(out,0,out_len);return ESP_OK;
 }
 uint8_t mc_build_header(uint8_t version,uint8_t type,uint8_t route) {
   (void)version;(void)type;(void)route;return 0;

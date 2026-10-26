@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2025 HIGH CODE LLC
 //
 // TentacleOS is free software: you can redistribute it and/or modify
@@ -23,7 +24,7 @@
 
 #include "esp_log.h"
 #include "esp_random.h"
-#include "mbedtls/des.h"
+#include "legacy_des/des.h"
 
 #include "nfc_poller.h"
 #include "nfc_common.h"

@@ -1,3 +1,20 @@
+<!--
+SPDX-License-Identifier: GPL-3.0-or-later
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # LoRa Application
 
 This component implements the LoRa mesh application layer on top of the `sx1262` driver. It hosts two full mesh protocol stacks - **Meshtastic** and **MeshCore** - behind a unified session manager, plus an **RNode**-compatible KISS modem. It also bridges a companion phone app over BLE and drives the on-device chat UI.
@@ -401,3 +418,22 @@ firmware cleanup; no app code or borrowed buffer remains registered with the
 radio. The unsupported P4 RNode transport remains unpublished (#145).
 Host tests use explicit HAL/IRQ/C5 fixtures and real thread synchronization;
 paired hardware RF/mesh/transport performance remains unverified.
+
+## ESP-IDF v6.1 compatibility
+
+Meshtastic and MeshCore retain their existing wire cryptography while using
+public PSA APIs for AES, SHA-256 and HMAC. Meshtastic X25519 now uses PSA key
+agreement instead of a handwritten big-integer ladder, retaining raw 32-byte
+key encoding and SHA-256 of the shared secret. Its CCM nonce, shortened tag
+and extra-nonce fields are unchanged. MeshCore retains libsodium for Ed25519
+and its Ed25519-to-X25519 conversion. Crypto failures abort affected sends or
+receive processing instead of forwarding unencrypted or unauthenticated data.
+
+P4 disables hardware AES on the pinned v6.1 SDK because its PSA driver does not
+implement the advertised CCM operation. The software PSA backend is exercised
+by `tools/crypto/test_psa.py`; device timing remains to be measured.
+
+MeshCore key agreement rejects invalid peer points, clears failed output and
+propagates failure to senders; receive matching skips invalid contacts. The host
+regression checks shared-secret agreement and invalid/null input handling using
+real libsodium.

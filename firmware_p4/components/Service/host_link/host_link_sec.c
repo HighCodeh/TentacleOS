@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2025 HIGH CODE LLC
 //
 // TentacleOS is free software: you can redistribute it and/or modify
@@ -15,6 +16,8 @@
 
 #include "host_link_sec.h"
 
+#include "firmware_crypto.h"
+
 #include <string.h>
 
 #include "esp_log.h"
@@ -22,8 +25,6 @@
 #include "esp_random.h"
 #include "esp_timer.h"
 #include "sodium.h"
-#include "mbedtls/hkdf.h"
-#include "mbedtls/md.h"
 #include "mbedtls/platform_util.h"
 #include "nvs.h"
 
@@ -75,15 +76,14 @@ static uint8_t s_k_d2a[HOST_LINK_KEY_SIZE];
 static uint32_t s_rx_counter = 0;
 static bool s_rx_valid = false;
 
-static const mbedtls_md_info_t *md_sha256(void) {
-  return mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
-}
-
 // HMAC-SHA256 truncated to HL_MAC_SIZE.
 static bool hmac_trunc(
     const uint8_t *key, size_t key_len, const uint8_t *data, size_t data_len, uint8_t *out_mac) {
   uint8_t full[32] = {0};
-  int rc = mbedtls_md_hmac(md_sha256(), key, key_len, data, data_len, full);
+  int rc = firmware_crypto_mac((firmware_crypto_span_t){key, key_len},
+                               (firmware_crypto_span_t){data, data_len},
+                               PSA_ALG_HMAC(PSA_ALG_SHA_256),
+                               full);
   if (rc == 0)
     memcpy(out_mac, full, HL_MAC_SIZE);
   else
@@ -178,15 +178,10 @@ derive_key(const uint8_t *secret, const uint8_t *transcript, const char *label, 
     return -1;
   memcpy(info, label, prefix);
   memcpy(info + prefix, transcript, HL_TRANSCRIPT_SIZE);
-  return mbedtls_hkdf(md_sha256(),
-                      s_psk,
-                      sizeof(s_psk),
-                      secret,
-                      HOST_LINK_ECDH_SIZE,
-                      info,
-                      prefix + HL_TRANSCRIPT_SIZE,
-                      out,
-                      HOST_LINK_KEY_SIZE);
+  firmware_crypto_hkdf_t params = {.secret = {secret, HOST_LINK_ECDH_SIZE},
+                                   .salt = {s_psk, sizeof(s_psk)},
+                                   .info = {info, prefix + HL_TRANSCRIPT_SIZE}};
+  return firmware_crypto_hkdf(&params, out, HOST_LINK_KEY_SIZE);
 }
 
 static void expire_pairing(void) {

@@ -24,7 +24,7 @@
 #include "esp_crt_bundle.h"
 #include "freertos/task.h"
 #include "lora_session.h"
-#include "mbedtls/aes.h"
+#include "firmware_crypto.h"
 #include "meshtastic_channels.h"
 #include "meshtastic_mqtt.h"
 #include "meshtastic_mqtt_codec.h"
@@ -226,16 +226,13 @@ void lora_session_on_rx_text(const char *who,const char *text) {
   LOCK(); snprintf(s_who,sizeof(s_who),"%s",who); snprintf(s_chat,sizeof(s_chat),"%s",text);
   ++s_chat_messages; UNLOCK();
 }
-void mbedtls_aes_init(mbedtls_aes_context *ctx) { memset(ctx,0,sizeof(*ctx)); }
-void mbedtls_aes_free(mbedtls_aes_context *ctx) { memset(ctx,0,sizeof(*ctx)); }
-int mbedtls_aes_setkey_enc(mbedtls_aes_context *ctx,const uint8_t *key,unsigned bits) {
-  assert(bits==128); memcpy(ctx->key,key,16); return 0;
-}
-int mbedtls_aes_crypt_ctr(mbedtls_aes_context *ctx,size_t length,size_t *offset,
-    uint8_t nonce[16],uint8_t stream[16],const uint8_t *in,uint8_t *out) {
-  (void)stream; assert(ctx->key[0]==1 && *offset==0 && length<=239);
+esp_err_t firmware_crypto_cipher(const firmware_crypto_cipher_t *params,
+                                firmware_crypto_span_t input, uint8_t *out) {
+  const uint8_t *nonce=params->iv.data;
+  assert(params->algorithm==PSA_ALG_CTR && params->key.size==16 && params->iv.size==16);
+  assert(params->key.data[0]==1 && input.size<=239);
   assert(u32(nonce)==1 && u32(nonce+4)==0 && u32(nonce+8)==0x12345678 && u32(nonce+12)==0);
-  memcpy(out,in,length); return 0; // Explicit AES fixture, not a cryptographic validation.
+  memcpy(out,input.data,input.size); return ESP_OK; // Explicit fixture, not cryptographic validation.
 }
 esp_err_t spi_bridge_send_command(spi_id_t id,const uint8_t *payload,uint8_t length,
     spi_header_t *header,uint8_t *out,size_t capacity,uint32_t timeout) {

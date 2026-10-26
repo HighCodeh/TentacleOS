@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2025 HIGH CODE LLC
 //
 // TentacleOS is free software: you can redistribute it and/or modify
@@ -60,15 +61,8 @@ static const char *TAG = "mf_classic";
 #define MF_SECTORS_MINI 5
 #define MF_SECTORS_1K   16
 #define MF_SECTORS_4K   40
-#define MF_BLOCKS_MINI  20
-#define MF_BLOCKS_1K    64
-#define MF_BLOCKS_4K    256
 
 /* 4K layout: first 32 sectors have 4 blocks; remaining 8 have 16 blocks. */
-#define MF_SMALL_BLOCK_COUNT   4
-#define MF_4K_BIG_SECTOR_START 32
-#define MF_4K_BIG_BLOCK_COUNT  16
-#define MF_4K_BIG_BLOCK_BASE   128
 
 /* Trailer block layout: GPB is at byte 9. Reference: MF1S50YYX_V1 §8.6. */
 #define MF_TRAILER_GPB_OFFSET 9

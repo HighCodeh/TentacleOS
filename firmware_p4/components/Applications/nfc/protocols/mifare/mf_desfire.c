@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2025 HIGH CODE LLC
 //
 // TentacleOS is free software: you can redistribute it and/or modify
@@ -14,12 +15,13 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 #include "mf_desfire.h"
 
+#include "firmware_crypto.h"
+
 #include <string.h>
 
 #include "esp_log.h"
 #include "esp_random.h"
-#include "mbedtls/aes.h"
-#include "mbedtls/des.h"
+#include "legacy_des/des.h"
 
 #include "iso_dep.h"
 #include "nfc_crypto.h"
@@ -111,26 +113,8 @@ static bool aes_cbc_crypt(bool encrypt,
                           size_t len,
                           uint8_t *out,
                           uint8_t iv_out[16]) {
-  if (key == NULL || iv_in == NULL || in == NULL || out == NULL || (len % AES_BLOCK_SIZE) != 0)
-    return false;
-
-  mbedtls_aes_context ctx;
-  mbedtls_aes_init(&ctx);
-  int rc = encrypt ? mbedtls_aes_setkey_enc(&ctx, key, AES_KEY_SIZE_BITS)
-                   : mbedtls_aes_setkey_dec(&ctx, key, AES_KEY_SIZE_BITS);
-  if (rc != 0) {
-    mbedtls_aes_free(&ctx);
-    return false;
-  }
-
-  uint8_t iv[AES_BLOCK_SIZE];
-  memcpy(iv, iv_in, AES_BLOCK_SIZE);
-  rc = mbedtls_aes_crypt_cbc(
-      &ctx, encrypt ? MBEDTLS_AES_ENCRYPT : MBEDTLS_AES_DECRYPT, len, iv, in, out);
-  if (iv_out)
-    memcpy(iv_out, iv, AES_BLOCK_SIZE);
-  mbedtls_aes_free(&ctx);
-  return rc == 0;
+  nfc_cbc_params_t params = {.key = key, .iv_in = iv_in, .iv_out = iv_out, .encrypt = encrypt};
+  return nfc_aes_cbc_crypt(&params, in, len, out);
 }
 
 static int desfire_send_native_once(mf_desfire_session_t *session,

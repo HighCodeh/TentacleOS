@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2025 HIGH CODE LLC
 //
 // TentacleOS is free software: you can redistribute it and/or modify
@@ -77,7 +78,7 @@ static size_t count_contacts(void);
 static bool upsert_contact(const meshcore_contact_t *src);
 static bool remove_contact(const uint8_t pub_key[32]);
 static bool reset_path(const uint8_t pub_key[32]);
-static void channel_compute_hash(meshcore_channel_t *ch);
+static bool channel_compute_hash(meshcore_channel_t *ch);
 static void channels_persist(void);
 static void channels_load_or_default(void);
 static void contacts_load(void);
@@ -118,7 +119,8 @@ bool meshcore_channel_set(uint8_t idx, const char *name, const uint8_t secret[16
       strncpy(s_channels[idx].name, name, MESHCORE_NAME_MAX - 1);
       s_channels[idx].name[MESHCORE_NAME_MAX - 1] = 0;
     }
-    channel_compute_hash(&s_channels[idx]);
+    if (!channel_compute_hash(&s_channels[idx]))
+      return false;
   }
 
   channels_persist();
@@ -377,10 +379,14 @@ static bool reset_path(const uint8_t pub_key[32]) {
   return false;
 }
 
-static void channel_compute_hash(meshcore_channel_t *ch) {
+static bool channel_compute_hash(meshcore_channel_t *ch) {
   uint8_t h[32];
-  meshcore_crypto_sha256(ch->secret, 16, h);
+  if (meshcore_crypto_sha256(ch->secret, 16, h) != ESP_OK) {
+    ch->is_used = false;
+    return false;
+  }
   ch->hash = h[0];
+  return true;
 }
 
 static void channels_persist(void) {
@@ -398,7 +404,8 @@ static void channels_load_or_default(void) {
   s_channels[0].is_used = true;
   memcpy(s_channels[0].secret, MC_PUBLIC_CHANNEL_SECRET, 16);
   strcpy(s_channels[0].name, "Public");
-  channel_compute_hash(&s_channels[0]);
+  if (!channel_compute_hash(&s_channels[0]))
+    return;
   channels_persist();
   ESP_LOGI(TAG, "Channels: Public default in slot 0 (hash=0x%02X)", s_channels[0].hash);
 }

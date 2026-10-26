@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2025 HIGH CODE LLC
 //
 // TentacleOS is free software: you can redistribute it and/or modify
@@ -15,6 +16,8 @@
 
 #include "meshtastic_mesh.h"
 
+#include "firmware_crypto.h"
+
 #include <string.h>
 #include <stdatomic.h>
 
@@ -24,7 +27,6 @@
 #include "freertos/task.h"
 #include "sys_prio.h"
 #include "freertos/semphr.h"
-#include "mbedtls/aes.h"
 
 #include "sx1262.h"
 #include "sx1262_regs.h"
@@ -133,7 +135,7 @@ static void on_rx_done(const sx1262_packet_t *pkt, void *ctx);
 static void on_tx_done(void *ctx);
 static void on_timeout(void *ctx);
 static void mesh_task(void *arg);
-static void mesh_crypt(uint32_t from_node, uint32_t packet_id, uint8_t *data, size_t len);
+static bool mesh_crypt(uint32_t from_node, uint32_t packet_id, uint8_t *data, size_t len);
 static void dedup_add(uint32_t from, uint32_t id);
 static void process_rx_packet(const sx1262_packet_t *pkt);
 static bool tx_queue_push(const uint8_t *buf, uint16_t len, uint8_t priority, uint32_t delay_ms);
@@ -181,7 +183,7 @@ static uint16_t enc_field_bytes(uint8_t *buf, uint8_t fn, const uint8_t *data, u
   return pos + len;
 }
 
-static void mesh_crypt_with_psk(
+static bool mesh_crypt_with_psk(
     const uint8_t *psk, uint32_t from_node, uint32_t packet_id, uint8_t *data, size_t len) {
   if (psk == NULL)
     psk = mt_channel_primary_psk();
@@ -192,25 +194,15 @@ static void mesh_crypt_with_psk(
   memcpy(nonce, &pid64, 8);
   memcpy(nonce + 8, &from_node, 4);
 
-  mbedtls_aes_context ctx;
-  mbedtls_aes_init(&ctx);
-  mbedtls_aes_setkey_enc(&ctx, psk, 128);
-
-  uint8_t stream_block[16];
-  size_t nc_off = 0;
-  uint8_t nonce_counter[16];
-  memcpy(nonce_counter, nonce, 16);
-  memset(stream_block, 0, 16);
-
-  uint8_t output[256];
-  mbedtls_aes_crypt_ctr(&ctx, len, &nc_off, nonce_counter, stream_block, data, output);
-  memcpy(data, output, len);
-
-  mbedtls_aes_free(&ctx);
+  firmware_crypto_cipher_t params = {.key = {psk, MT_PSK_SIZE},
+                                     .iv = {nonce, sizeof(nonce)},
+                                     .algorithm = PSA_ALG_CTR,
+                                     .is_encrypt = true};
+  return firmware_crypto_cipher(&params, (firmware_crypto_span_t){data, len}, data) == ESP_OK;
 }
 
-static void mesh_crypt(uint32_t from_node, uint32_t packet_id, uint8_t *data, size_t len) {
-  mesh_crypt_with_psk(NULL, from_node, packet_id, data, len);
+static bool mesh_crypt(uint32_t from_node, uint32_t packet_id, uint8_t *data, size_t len) {
+  return mesh_crypt_with_psk(NULL, from_node, packet_id, data, len);
 }
 
 static void dedup_add(uint32_t from, uint32_t id) {
@@ -597,7 +589,8 @@ static void process_rx_packet(const sx1262_packet_t *pkt) {
       psk = mt_channel_primary_psk();
     }
     memcpy(decrypted, pkt->buf + MT_HEADER_SIZE, payload_len);
-    mesh_crypt_with_psk(psk, hdr.from, hdr.id, decrypted, payload_len);
+    if (!mesh_crypt_with_psk(psk, hdr.from, hdr.id, decrypted, payload_len))
+      return;
   }
   payload_len = dec_len;
 
@@ -764,7 +757,8 @@ static uint16_t build_wire_packet(uint8_t *out,
     }
   } else {
     memcpy(encrypted, payload, payload_len);
-    mesh_crypt(s_node_num, pkt_id, encrypted, payload_len);
+    if (!mesh_crypt(s_node_num, pkt_id, encrypted, payload_len))
+      return 0;
   }
 
   memcpy(out, &hdr, MT_HEADER_SIZE);
@@ -1161,7 +1155,8 @@ esp_err_t meshtastic_mesh_send(const uint8_t *mp_data, uint16_t mp_len) {
   memcpy(wire, &hdr, MT_HEADER_SIZE);
   memcpy(wire + MT_HEADER_SIZE, payload_src, payload_len);
   if (needs_encrypt) {
-    mesh_crypt(from, pkt_id, wire + MT_HEADER_SIZE, payload_len);
+    if (!mesh_crypt(from, pkt_id, wire + MT_HEADER_SIZE, payload_len))
+      return ESP_FAIL;
   }
   uint16_t wire_len = MT_HEADER_SIZE + payload_len;
 

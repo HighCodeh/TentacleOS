@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2025 HIGH CODE LLC
 //
 // TentacleOS is free software: you can redistribute it and/or modify
@@ -15,11 +16,12 @@
 
 #include "mt_mod_keyverify.h"
 
+#include "firmware_crypto.h"
+
 #include <string.h>
 
 #include "esp_log.h"
 #include "esp_random.h"
-#include "mbedtls/sha256.h"
 
 #include "meshtastic_mesh.h"
 #include "meshtastic_nodedb.h"
@@ -94,19 +96,19 @@ static void reset_state(void) {
   memset(s_hash2, 0, sizeof(s_hash2));
 }
 
-static void compute_hash2(uint8_t out[32], uint64_t nonce, const uint8_t *remote_pub) {
+static bool compute_hash2(uint8_t out[32], uint64_t nonce, const uint8_t *remote_pub) {
   uint8_t buf[8 + 32 + 32];
   memcpy(buf, &nonce, 8);
   memcpy(buf + 8, mt_pki_get_pubkey(), 32);
   memcpy(buf + 40, remote_pub, 32);
-  mbedtls_sha256(buf, sizeof(buf), out, 0);
+  return firmware_crypto_sha256((firmware_crypto_span_t){buf, sizeof(buf)}, out) == ESP_OK;
 }
 
-static void compute_hash1(uint8_t out[32], const uint8_t hash2[32], uint32_t security_number) {
+static bool compute_hash1(uint8_t out[32], const uint8_t hash2[32], uint32_t security_number) {
   uint8_t buf[32 + 4];
   memcpy(buf, hash2, 32);
   memcpy(buf + 32, &security_number, 4);
-  mbedtls_sha256(buf, sizeof(buf), out, 0);
+  return firmware_crypto_sha256((firmware_crypto_span_t){buf, sizeof(buf)}, out) == ESP_OK;
 }
 
 static void
@@ -188,7 +190,10 @@ void mt_mod_keyverify_on_received(const mt_packet_meta_t *meta,
     s_state = KV_STATE_RECEIVER_AWAITING_H1;
     s_remote_node = meta->from;
     s_nonce = nonce;
-    compute_hash2(s_hash2, nonce, e->public_key);
+    if (!compute_hash2(s_hash2, nonce, e->public_key)) {
+      reset_state();
+      return;
+    }
     send_kv_packet(meta->from, nonce, NULL, s_hash2);
     ESP_LOGI(TAG, "Sent hash2 -> 0x%08lX, awaiting hash1", (unsigned long)meta->from);
     return;
@@ -243,7 +248,10 @@ void mt_mod_keyverify_handle_admin(uint32_t remote_nodenum,
         ESP_LOGW(TAG, "PROVIDE_SECURITY invalid state/nonce");
         return;
       }
-      compute_hash1(s_hash1, s_hash2, security_number);
+      if (!compute_hash1(s_hash1, s_hash2, security_number)) {
+        reset_state();
+        return;
+      }
       send_kv_packet(s_remote_node, s_nonce, s_hash1, NULL);
       ESP_LOGI(TAG,
                "Sent hash1 -> 0x%08lX with code=%lu",

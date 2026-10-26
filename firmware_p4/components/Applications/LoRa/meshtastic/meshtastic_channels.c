@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2025 HIGH CODE LLC
 //
 // TentacleOS is free software: you can redistribute it and/or modify
@@ -15,10 +16,11 @@
 
 #include "meshtastic_channels.h"
 
+#include "firmware_crypto.h"
+
 #include <string.h>
 
 #include "esp_log.h"
-#include "mbedtls/sha256.h"
 
 #include "meshtastic_nvs.h"
 
@@ -47,10 +49,12 @@ static const uint8_t DEFAULT_PSK[MT_PSK_SIZE] = {
 
 static mt_channel_t s_channels[MT_MAX_CHANNELS];
 
-static uint8_t compute_hash(const uint8_t *psk) {
+static bool compute_hash(const uint8_t *psk, uint8_t *out_hash) {
   uint8_t digest[32];
-  mbedtls_sha256(psk, MT_PSK_SIZE, digest, 0);
-  return digest[0];
+  if (firmware_crypto_sha256((firmware_crypto_span_t){psk, MT_PSK_SIZE}, digest) != ESP_OK)
+    return false;
+  *out_hash = digest[0];
+  return true;
 }
 
 static void persist(void) {
@@ -67,7 +71,10 @@ void mt_channels_init(void) {
     s_channels[0].is_used = true;
     s_channels[0].role = MT_CH_PRIMARY;
     memcpy(s_channels[0].psk, DEFAULT_PSK, MT_PSK_SIZE);
-    s_channels[0].hash = compute_hash(DEFAULT_PSK);
+    if (!compute_hash(DEFAULT_PSK, &s_channels[0].hash)) {
+      s_channels[0].is_used = false;
+      return;
+    }
     strcpy(s_channels[0].name, "LongFast");
     persist();
   }
@@ -97,7 +104,10 @@ void mt_channel_set(uint8_t idx, const char *name, const uint8_t *psk, mt_channe
 
   if (psk != NULL) {
     memcpy(s_channels[idx].psk, psk, MT_PSK_SIZE);
-    s_channels[idx].hash = compute_hash(psk);
+    if (!compute_hash(psk, &s_channels[idx].hash)) {
+      s_channels[idx].is_used = false;
+      return;
+    }
   }
   if (name != NULL) {
     strncpy(s_channels[idx].name, name, sizeof(s_channels[idx].name) - 1);
