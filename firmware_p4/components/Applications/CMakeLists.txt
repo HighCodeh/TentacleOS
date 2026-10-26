@@ -147,7 +147,6 @@ idf_component_register(SRCS
   esp_driver_jpeg
   esp_driver_tsens
   esp_driver_rmt
-  script_engine
   driver
   esp_driver_tsens
   esp_driver_jpeg

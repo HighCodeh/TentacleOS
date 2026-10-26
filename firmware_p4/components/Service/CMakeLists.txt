@@ -44,7 +44,23 @@ file(GLOB_RECURSE STORAGE_API_SRCS "storage_api/*.c")
 file(GLOB_RECURSE STORAGE_VFS_SRCS "storage_vfs/*.c")
 file(GLOB_RECURSE STORAGE_ASSETS_SRCS "storage_assets/*.c")
 
+set(SCRIPT_JS_DIR "${CMAKE_CURRENT_LIST_DIR}/script_engine/mquickjs")
+set(SCRIPT_LUA_DIR "${CMAKE_CURRENT_LIST_DIR}/script_engine/lua/src")
+set(SCRIPT_LUA_SRCS
+    lapi.c lcode.c lctype.c ldebug.c ldo.c ldump.c lfunc.c lgc.c llex.c
+    lmem.c lobject.c lopcodes.c lparser.c lstate.c lstring.c ltable.c
+    ltm.c lundump.c lvm.c lzio.c lauxlib.c lbaselib.c ltablib.c
+    lstrlib.c lmathlib.c lutf8lib.c)
+list(TRANSFORM SCRIPT_LUA_SRCS PREPEND "${SCRIPT_LUA_DIR}/")
+set(SCRIPT_JS_SRCS
+    "${SCRIPT_JS_DIR}/mquickjs.c" "${SCRIPT_JS_DIR}/dtoa.c"
+    "${SCRIPT_JS_DIR}/libm.c" "${SCRIPT_JS_DIR}/cutils.c")
+set(SCRIPT_ENGINE_SRCS
+    "script_engine/script_engine.c" "script_engine/script_bindings.c"
+    ${SCRIPT_LUA_SRCS} ${SCRIPT_JS_SRCS})
+
 idf_component_register(SRCS
+  ${SCRIPT_ENGINE_SRCS}
   "font/font.c"
   "icons/icons.c"
   "wifi/wifi_service.c"
@@ -98,6 +114,7 @@ idf_component_register(SRCS
   "ota/ota_service.c"
 
   INCLUDE_DIRS
+  "script_engine/include"
   "font/include"
   "icons/include"
   "wifi/include"
@@ -179,3 +196,10 @@ set_source_files_properties("wifi/mac_vendor.c" PROPERTIES
 if(TOS_APP_HAS_CUSTOM_TRUST)
   target_compile_definitions(${COMPONENT_LIB} PRIVATE TOS_APP_HAS_CUSTOM_TRUST=1)
 endif()
+
+set_source_files_properties(${SCRIPT_ENGINE_SRCS} PROPERTIES
+    INCLUDE_DIRECTORIES "${SCRIPT_JS_DIR};${SCRIPT_JS_DIR}/generated;${SCRIPT_LUA_DIR}"
+    COMPILE_OPTIONS "-fno-math-errno;-fno-trapping-math"
+    COMPILE_DEFINITIONS "_GNU_SOURCE;LUAI_MAXCCALLS=32")
+set_property(SOURCE ${SCRIPT_JS_SRCS} APPEND PROPERTY COMPILE_OPTIONS
+    -include stddef.h -Wno-error=format -Wno-error=dangling-pointer)

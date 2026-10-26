@@ -29,8 +29,7 @@ set(EXTRA_COMPONENT_DIRS
     "${CMAKE_CURRENT_LIST_DIR}/components/Applications/doom"
     "${CMAKE_CURRENT_LIST_DIR}/components/Core/resource_mgr"
     "${CMAKE_CURRENT_LIST_DIR}/components/Service/fatfs"
-    "${CMAKE_CURRENT_LIST_DIR}/components/Service/muse_port"
-    "${CMAKE_CURRENT_LIST_DIR}/components/Service/script_engine")
+    "${CMAKE_CURRENT_LIST_DIR}/components/Service/muse_port")
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 

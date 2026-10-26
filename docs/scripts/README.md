@@ -192,8 +192,12 @@ undefined signed shift. The constant-pool length guard also rejects a full
 standard `offsetof`; only vendor format/dangling-pointer warning classes are
 demoted. First-party interpreter code retains the project's warning policy.
 
-The native adapter is the nested `Service/script_engine` component. The worker
-is in `Applications/scripts`, and the screen is in `ui/screens/dev`.
+The native adapter remains in `Service/script_engine`, compiled by the parent
+`Service/CMakeLists.txt` as part of Service. Interpreter headers, math options,
+Lua call-depth definitions and MicroQuickJS warning exceptions are scoped to
+the corresponding sources; they do not change other Service files. Consumers
+use the Service dependency and its exported `script_engine/include` directory.
+The worker is in `Applications/scripts`, and the screen is in `ui/screens/dev`.
 
 Prepare the managed host-test cJSON dependency first:
 

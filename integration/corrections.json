@@ -940,8 +940,8 @@
     "firmware_p4/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "0f1227039a8fd707409aaebc1ba720212788503eb26421c5ded3947f10e67323",
-      "after_sha256": "1e22dbcef22886b9d83856eb1bfe29854c79356f5486c5f9a7eb230fdb4105e2",
-      "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation.",
+      "after_sha256": "3bd7ba3ad3f0226e39a865e1ad6e850dc945f555824a66273a789a11eb5b7aa6",
+      "reason": "Compile the script adapter and interpreters within Service, retain source-specific compiler settings, and remove the standalone script_engine dependency.",
       "review_history": [
         {
           "after_sha256": "3f9e37605262ba8cd5c3e25d94f57f660c010e6baea480103d8fe554f58d4eef",
@@ -990,14 +990,18 @@
         {
           "after_sha256": "41a4f9ae513c225142cbc17ced141cc342e71718370aa28141111c8c763c7083",
           "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts."
+        },
+        {
+          "after_sha256": "1e22dbcef22886b9d83856eb1bfe29854c79356f5486c5f9a7eb230fdb4105e2",
+          "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation."
         }
       ]
     },
     "firmware_p4/components/Applications/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "da11f270bf3ffb612ef0469030d722884b5eb81f62f1c50223df2c526b8054a5",
-      "after_sha256": "03543180e5aa9c4ed47b67ceed3eccbc73a117454b5b5e997d886495b6c86b7d",
-      "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation.",
+      "after_sha256": "a9c5cbbbbe65852c83f095473d18ec99b1f1984baf22bcf163b8059f2a3b2d34",
+      "reason": "Compile the script adapter and interpreters within Service, retain source-specific compiler settings, and remove the standalone script_engine dependency.",
       "review_history": [
         {
           "after_sha256": "539b7c5858f4c83c2f3c4cac2fd27e23aedd3106dffd606058dafc50fd33ac2c",
@@ -1022,14 +1026,18 @@
         {
           "after_sha256": "291d14aee3a00054fbf4664f6b94f4aefc6c3133e8128ebfb976fcfe4f46513a",
           "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts."
+        },
+        {
+          "after_sha256": "03543180e5aa9c4ed47b67ceed3eccbc73a117454b5b5e997d886495b6c86b7d",
+          "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation."
         }
       ]
     },
     "firmware_p4/components/Service/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "a5ab5cef02299410f4ba0c4ae7baac2b4840b1f42947372c35c57fa54a0c33a0",
-      "after_sha256": "830bf66729339a1ba49125b0974e8e1d57e9357e981de3810816ecd4ecba1002",
-      "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation.",
+      "after_sha256": "1c2111b3947cd8eaa04bddd1872507bd83c71e4616796b4383c005123aab8f52",
+      "reason": "Compile the script adapter and interpreters within Service, retain source-specific compiler settings, and remove the standalone script_engine dependency.",
       "review_history": [
         {
           "after_sha256": "716fa05eb0709ed37e2dcd95c196820071cf8c0ee169ced2bae247442307494f",
@@ -1062,6 +1070,10 @@
         {
           "after_sha256": "d4cd71cafe4f046eaab10f0f57ee2d2159d30c2ac36c25e35f0289f9fff15244",
           "reason": "Adapt the pinned ESP-IDF v6.1 build: explicit drivers, retained primitive headers, isolated NFC DES, fixed HKDF output and compiler diagnostics; preserve the installed protocol and partition layouts."
+        },
+        {
+          "after_sha256": "830bf66729339a1ba49125b0974e8e1d57e9357e981de3810816ecd4ecba1002",
+          "reason": "Migrate active crypto operations to public PSA APIs, preserve protocol encodings and DES compatibility, propagate failures, and select software P4 AES for the SDK CCM driver limitation."
         }
       ]
     },
