@@ -51,7 +51,6 @@ case "$target" in
     selected_tools="${HIGHBOY_P4_TOOLS_PATH:-}"
     selected_python="${HIGHBOY_P4_PYTHON_ENV:-}"
     expected_tag=v6.1
-    overlay=
     ;;
   c5)
     idf_override=HIGHBOY_C5_IDF_PATH
@@ -59,7 +58,6 @@ case "$target" in
     selected_tools="${HIGHBOY_C5_TOOLS_PATH:-}"
     selected_python="${HIGHBOY_C5_PYTHON_ENV:-}"
     expected_tag=v6.1
-    overlay=sdkconfig.baseline
     ;;
   *) echo 'Usage: build.command [all|p4|c5]' >&2; exit 2 ;;
 esac
@@ -117,9 +115,6 @@ export IDF_TARGET="esp32$target"
 project="$repo/firmware_$target"
 build="$project/build_highboy"
 export SDKCONFIG_DEFAULTS="$project/sdkconfig.defaults"
-if [ -n "$overlay" ]; then
-  SDKCONFIG_DEFAULTS+=";$project/$overlay"
-fi
 python "$repo/tools/highboy/check_contracts.py"
 configure_args=(-D "HIGH_BOY_USB_VOICE=OFF")
 if [ "$target" = p4 ]; then

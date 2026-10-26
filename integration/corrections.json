@@ -1776,8 +1776,14 @@
     "firmware_c5/sdkconfig.defaults": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "8918a4a1ec1f79811a3c2a1796952970de955f0e2c09d85d9d18be2f0298f923",
-      "after_sha256": "5f76eb1fc4a69f39d6b9ad57557c669a2f3e8d599e1a633356ed4f660c19ce01",
-      "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership"
+      "after_sha256": "c11b34e6660a4c359a3e5ef5f66a05d80bdfeca1a0a42f4b5b6a1c2e7355f435",
+      "reason": "Merge the C5 baseline overlay into sdkconfig.defaults, preserving every effective setting and adding the mandatory full project license notice.",
+      "review_history": [
+        {
+          "after_sha256": "5f76eb1fc4a69f39d6b9ad57557c669a2f3e8d599e1a633356ed4f660c19ce01",
+          "reason": "Implement bounded C5-owned MQTT transport, mirrored SPI contract and reachable Meshtastic publication/subscription UI; preserve Muse and radio ownership"
+        }
+      ]
     },
     "firmware_c5/components/Service/CMakeLists.txt": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",

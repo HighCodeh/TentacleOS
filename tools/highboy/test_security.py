@@ -50,15 +50,15 @@ class SecurityAuditTests(unittest.TestCase):
         config = self.config(); config['SECURE_BOOT_SIGNING_KEY'] = '"private.pem"'
         with self.assertRaises(ValueError): security.audit('p4', config)
 
-    def test_swapped_target_and_board_overlay(self):
+    def test_swapped_target_and_board_policy(self):
         with self.assertRaises(ValueError): security.audit('c5', self.config())
         config = self.config('c5')
-        baseline = security.config_values(security.ROOT / 'firmware_c5/sdkconfig.baseline')
+        baseline = security.config_values(security.ROOT / 'firmware_c5/sdkconfig.defaults')
         baseline.update(config)
         config.update(baseline)
         security.audit('c5', config, baseline)
         config['SPIRAM_MALLOC_RESERVE_INTERNAL'] = '0'
-        with self.assertRaisesRegex(ValueError, 'overlay'): security.audit('c5', config, baseline)
+        with self.assertRaisesRegex(ValueError, 'board policy'): security.audit('c5', config, baseline)
 
     def test_identical_sdk_alias_values(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -117,10 +117,11 @@ class FactoryBuildAuditTests(unittest.TestCase):
                 with self.subTest(name=name), self.assertRaises(ValueError):
                     security.audit(target, bad, factory=True)
 
-    def test_factory_preserves_every_c5_overlay_setting(self):
+    def test_factory_preserves_every_c5_board_setting(self):
         baseline = dict(security.REQUIRED, IDF_TARGET='"esp32c5"',
                         PARTITION_TABLE_OFFSET='0x8000', PARTITION_TABLE_CUSTOM_FILENAME='"partitions.csv"')
-        overlay = security.config_values(security.ROOT/'firmware_c5/sdkconfig.baseline')
+        overlay = security.config_values(security.ROOT/'firmware_c5/sdkconfig.defaults')
+        overlay = {name: overlay[name] for name in security.C5_BOARD_SETTINGS}
         baseline.update(overlay)
         config = dict(baseline, PARTITION_TABLE_OFFSET='0x10000',
                       PARTITION_TABLE_CUSTOM_FILENAME='"../integration/security/partitions-c5.csv"',
@@ -129,7 +130,7 @@ class FactoryBuildAuditTests(unittest.TestCase):
         for name, value in overlay.items():
             if name == 'PARTITION_TABLE_OFFSET':continue
             bad=dict(config);bad[name]='n' if value=='y' else '0'
-            with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'overlay'):
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'board policy'):
                 security.audit('c5', bad, baseline, factory=True)
 
     def test_failed_or_approved_review_is_not_accepted(self):

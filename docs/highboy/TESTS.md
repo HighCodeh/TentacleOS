@@ -109,15 +109,14 @@ lifetime, the absence of automatic NVS erasure in existing initialization paths,
 the C5 memory policy, and SDK/license provenance metadata. Source markers are
 preservation guards, not proofs of runtime behavior or hardware timing.
 
-The C5 configuration check first applies `sdkconfig.defaults` followed by
-`sdkconfig.baseline`, then verifies the effective
+The C5 configuration check reads the unified `sdkconfig.defaults`, then verifies the effective
 `firmware_c5/build_highboy/sdkconfig` when present. A missing generated
 configuration is reported as pending, never as a successful build validation.
 The build wrapper separately invokes `check_contracts.py --require-built <target>`
 after configuration and after compilation, requiring the generated configuration
 and enforcing the shared `C5_MEMORY` policy in the C5 build job itself.
 `test_contracts.py` covers missing outputs, missing/incorrect/disabled C5 settings,
-overlay overrides, valid configurations and prohibited security changes using
+defaults overrides, valid configurations and prohibited security changes using
 temporary files. It never edits the actual generated build configuration.
 
 Commit validation regressions run in their CI job after `npm ci --ignore-scripts`:
@@ -584,7 +583,7 @@ private production key or eFuse was accessed. Commitlint and whitespace checks p
 
 Validated on 2026-10-19 after automatic hook formatting, firmware `e10ba682`.
 Both pinned SDK builds and the complete offline suite passed. Paired SPI v8,
-the C5 memory overlay and original app slots are unchanged. Commitlint and
+the C5 memory policy in `sdkconfig.defaults` and original app slots are unchanged. Commitlint and
 whitespace checks passed for the implementation commits.
 
 | Target | Application bytes | Slot bytes | Free bytes | SHA-256 |
@@ -1016,7 +1015,7 @@ rejection and combined TX/filesystem approval. The radio-table fixture was
 updated for the newly published entries. Import preservation and commitlint
 passed; formatting was performed only by the pre-commit hook.
 
-Paired SPI remains v8 with matching headers and the C5 memory overlay preserved.
+Paired SPI remains v8 with matching headers and the C5 memory policy in `sdkconfig.defaults` preserved.
 A balanced-LTO experiment produced `0x2d3220` bytes on P4, exceeding the original
 slot by `0x3220`; it was fully reverted. The selected pair retains the previous
 compiler policy. No physical RF/SD/flash test or production provisioning ran.
@@ -1188,7 +1187,7 @@ Immutable app-only candidate:
 `verify_package.py` validates exact hashes/profile/slots. The real-esptool recovery
 image tests pass, including the deliberate wrong-chip rejection. Commitlint and
 whitespace checks pass; source formatting ran only through the pre-commit hook.
-Paired protocol v8, original partitions and the C5 memory overlay are preserved.
+Paired protocol v8, original partitions and the C5 memory policy in `sdkconfig.defaults` are preserved.
 The P4 slot remains nearly full; this is an unsigned development candidate, not
 completion of the secure signing/release-size work in #152/#157.
 

@@ -73,8 +73,6 @@ def main():
         size = int(value[:-1]) * 1024**2 if value.endswith("M") else int(value, 0)
         require(size == slot, "Unexpected partition migration")
         default_paths = [project / "sdkconfig.defaults"]
-        if chip == "c5":
-            default_paths.append(project / "sdkconfig.baseline")
         defaults = config_values(default_paths)
         require(defaults.get("CONFIG_PARTITION_TABLE_OFFSET") == "0x8000", "Unexpected partition offset")
         if chip == "c5":

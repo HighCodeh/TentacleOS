@@ -38,8 +38,6 @@ class ContractTests(unittest.TestCase):
             project.mkdir()
             names = ["sdkconfig.defaults", "partitions.csv",
                      "components/Service/spi_bridge/include/spi_protocol.h"]
-            if chip == "c5":
-                names.append("sdkconfig.baseline")
             for name in names:
                 target = project / name
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -96,9 +94,9 @@ class ContractTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL"):
             self.run_check("--require-built", "c5")
 
-    def test_overlay_cannot_override_memory_policy(self):
-        overlay = self.root / "firmware_c5/sdkconfig.baseline"
-        with overlay.open("a") as output:
+    def test_defaults_cannot_override_memory_policy(self):
+        defaults = self.root / "firmware_c5/sdkconfig.defaults"
+        with defaults.open("a") as output:
             output.write("\nCONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=1\n")
         with self.assertRaisesRegex(SystemExit, "C5 defaults mismatch"):
             self.run_check()

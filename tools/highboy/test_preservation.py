@@ -220,6 +220,10 @@ class PreservationTests(unittest.TestCase):
         for target, item in self.records.items():
             with self.subTest(target=target):
                 path = contained(ROOT, target)
+                if target == "firmware_c5/sdkconfig.baseline":
+                    self.assertFalse(path.exists(), "Merged C5 overlay must not be restored")
+                    self.assertEqual(item["local_sha256"], "e30e8d686fdd22cdf5f6b5210acf3b62703239a8fff2f4c9e43c73b30bc78a7a")
+                    continue
                 if target == "firmware_p4/sdkconfig.muse":
                     # Retain import provenance for the overlay merged into P4 defaults.
                     self.assertFalse(path.exists(), "Retired P4 overlay must not be restored")
@@ -357,7 +361,7 @@ class PreservationTests(unittest.TestCase):
 
     def test_c5_memory_defaults_and_effective_build(self):
         project = ROOT / "firmware_c5"
-        configured = config_values([project / "sdkconfig.defaults", project / "sdkconfig.baseline"])
+        configured = config_values([project / "sdkconfig.defaults"])
         for key, expected in C5_MEMORY.items():
             if key != "CONFIG_IDF_TARGET":
                 self.assertEqual(configured.get(key), expected, key)

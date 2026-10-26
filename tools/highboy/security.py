@@ -44,6 +44,13 @@ FORBIDDEN = ('SECURE_BOOT_BUILD_SIGNED_BINARIES', 'SECURE_BOOT_FLASH_BOOTLOADER_
              'BOOTLOADER_SKIP_VALIDATE_IN_DEEP_SLEEP', 'NVS_COMPATIBLE_PRE_V4_3_ENCRYPTION_FLAG')
 
 
+C5_BOARD_SETTINGS = (
+    'PARTITION_TABLE_OFFSET', 'LIBC_NEWLIB', 'FREERTOS_HZ',
+    'BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL', 'SPIRAM_MALLOC_RESERVE_INTERNAL',
+    'SPIRAM_MALLOC_ALWAYSINTERNAL', 'ESP_WIFI_STATIC_RX_BUFFER_NUM', 'ESP_WIFI_RX_BA_WIN',
+)
+
+
 def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
@@ -81,14 +88,13 @@ def audit(target, config, baseline=None, factory=False):
             if config.get(name) != value:
                 raise ValueError('Factory profile mismatch: ' + name)
     if baseline is not None:
-        # C5 retains its explicit memory overlay; P4 layout is checked below.
+        # Preserve the C5 board policy independently of the security profile.
         if target == 'c5':
-            overlay = ROOT / 'firmware_c5/sdkconfig.baseline'
-            for name in config_values(overlay):
+            for name in C5_BOARD_SETTINGS:
                 if factory and name == 'PARTITION_TABLE_OFFSET':
                     continue
                 if config.get(name) != baseline.get(name):
-                    raise ValueError('Board overlay changed: ' + name)
+                    raise ValueError('C5 board policy changed: ' + name)
         for name in ('PARTITION_TABLE_OFFSET', 'PARTITION_TABLE_CUSTOM_FILENAME',
                      'ESPTOOLPY_FLASHSIZE', 'ESP_REV_MIN_FULL', 'BOOTLOADER_OFFSET_IN_FLASH',
                      'MMU_PAGE_SIZE', 'MMU_PAGE_MODE'):

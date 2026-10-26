@@ -113,8 +113,8 @@ directories.
 
 P4 loads only `firmware_p4/sdkconfig.defaults`, including its installed partition
 offset and development-security settings. The former `sdkconfig.muse` overlay
-has been merged into that file. C5 still loads `sdkconfig.defaults` followed by
-`sdkconfig.baseline` to preserve its memory policy. Factory-security review
+has been merged into that file. C5 also loads only `sdkconfig.defaults`, including its memory and scheduling
+policy; the former baseline overlay has been merged into that file. Factory-security review
 profiles remain separate from these normal development defaults.
 
 The P4 app-signing trust store can be selected with `TOS_APP_TRUST_PUBLIC_KEY`
