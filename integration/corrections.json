@@ -266,8 +266,8 @@
     "firmware_c5/components/Service/spi_bridge/spi_bridge.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "502217de323db0a1f9431ba2da16ffe4302019902f060b22493071dbd0334153",
-      "after_sha256": "1823524e260ed27a2b5e07737d9236c1f26bbacb424d101a81833614d2d8c5ba",
-      "reason": "Track SPI DMA ownership, drain partial queues without resetting active hardware, negotiate a recovery pause/new session and bound C5 software restarts with retained RTC budget.",
+      "after_sha256": "16bf3849a01486c48c948e8ece9c1e242a18fc6625e8258f38f20837e2aa128a",
+      "reason": "Echo SPI_ID_SYSTEM_STREAM in stream response headers so strict P4 command matching accepts empty and populated batches instead of timing out.",
       "review_history": [
         {
           "after_sha256": "4b6e7f8b9cc7402047718773549def5febb1b3b19136013e127b218d59ea0344",
@@ -294,10 +294,14 @@
         {
           "after_sha256": "c5f4489550d57d565c5c868f54101e3f3f65d9ab1ab4ea5fe271621ddfe8f4e0",
           "reason": "Add SPI-only session/transaction envelopes, cached-response fetch and duplicate rejection, bounded master resynchronization and non-replaying short-TX recovery; preserve USB/BLE framing and DMA ownership."
+        },
+        {
+          "after_sha256": "1823524e260ed27a2b5e07737d9236c1f26bbacb424d101a81833614d2d8c5ba",
+          "reason": "Track SPI DMA ownership, drain partial queues without resetting active hardware, negotiate a recovery pause/new session and bound C5 software restarts with retained RTC budget.",
+          "pre_format_sha256": "eeeed6c833dddbbcd0d20b29b7a2c05cf22dac1c831a0039b4759fc0fdbf2872",
+          "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
         }
-      ],
-      "pre_format_sha256": "eeeed6c833dddbbcd0d20b29b7a2c05cf22dac1c831a0039b4759fc0fdbf2872",
-      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+      ]
     },
     "firmware_c5/components/Service/wifi/hb_muse_wifi_json_bound.h": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",

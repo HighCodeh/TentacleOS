@@ -27,6 +27,14 @@
 #define ESP_ERR_TIMEOUT -2
 #define ESP_ERR_INVALID_STATE -3
 #define SPI_POLL_SLOW_MS 2
+#define SPI_POLL_FAST_TRIES 4
+#define SPI_POLL_FAST_US 150
+#define SPI_POLL_PREWAIT_US 400
+#define SPI_BRIDGE_MODE_IRQ 1
+static int s_bridge_mode;
+static unsigned last_wrong_id, stream_pops;
+static bool stream_reply, wrong_stream_id;
+static uint16_t stream_bytes;
 #define pdMS_TO_TICKS(x) (x)
 typedef int esp_err_t;
 static int64_t clock_us;
@@ -41,6 +49,13 @@ static void esp_fill_random(void *out,size_t n) {assert(n==8);random_value++;mem
 static void vTaskDelay(uint32_t ms) {clock_us+=(int64_t)ms*1000;}
 static esp_err_t spi_bridge_phy_transmit(const uint8_t *,uint8_t *,size_t);
 
+static void esp_rom_delay_us(unsigned us){clock_us+=us;}
+static esp_err_t spi_bridge_phy_wait_irq(uint32_t ms){(void)ms;return ESP_FAIL;}
+static bool muse_response_realign(uint8_t *p,size_t n,uint16_t cmd){(void)p;(void)n;(void)cmd;return false;}
+static uint16_t stream_pop_into(uint8_t *out,uint16_t used,uint16_t cap){
+  if(used || !stream_bytes)return 0;
+  assert(stream_bytes<=cap);memset(out,0x42,stream_bytes);stream_pops++;return stream_bytes;
+}
 uint16_t esp_rom_crc16_le(uint16_t crc,const uint8_t *bytes,uint32_t length) {
   crc=(uint16_t)~crc;
   for(uint32_t i=0;i<length;i++) {
@@ -94,7 +109,12 @@ static esp_err_t spi_bridge_phy_transmit(const uint8_t *tx,uint8_t *rx,size_t n)
   reply->type=SPI_TYPE_RESP;reply->length=1;
   peer_response[SPI_TRANSPORT_HEADER_SIZE+sizeof(*reply)]=0;
   spi_frame_seal(reply,1);
-  spi_transport_seal(peer_response,SPI_FRAME_SIZE,SPI_TRANSPORT_RESPONSE,peer_master,peer_boot,peer_seq);
+  if(stream_reply && action==SPI_TRANSPORT_EXECUTE) {
+    produce_stream(peer_response+SPI_TRANSPORT_HEADER_SIZE);
+    peer_cached_size=SPI_STREAM_FRAME_SIZE;
+    if(wrong_stream_id){reply->op=0;spi_frame_seal(reply,(uint16_t)(2+stream_bytes));}
+  }
+  spi_transport_seal(peer_response,(uint16_t)peer_cached_size,SPI_TRANSPORT_RESPONSE,peer_master,peer_boot,peer_seq);
   pending=true;
   return ESP_OK;
 }
@@ -153,6 +173,30 @@ int main(void) {
   assert(transport_send(frame,clock_us+100000)==ESP_OK);
   assert(clock_us>=quiet_start+SPI_TRANSPORT_RECOVERY_PAUSE_MS*1000);
   transport_read(reply,sizeof(reply));
+  // Execute the actual C5 stream encoder and P4 receive loop, including empty batches.
+  uint8_t stream_rx[SPI_STREAM_FRAME_SIZE], stream_tx[SPI_STREAM_FRAME_SIZE];
+  spi_header_t *cmd_header=(spi_header_t *)frame;
+  cmd_header->category=SPI_CMD_CAT(SPI_ID_SYSTEM_STREAM);cmd_header->op=SPI_CMD_OP(SPI_ID_SYSTEM_STREAM);
+  spi_frame_seal(cmd_header,0);stream_reply=true;
+  for(unsigned batch=0;batch<2;batch++) {
+    stream_bytes=batch?12:0;
+    assert(transport_send(frame,clock_us+100000)==ESP_OK);
+    assert(recv_frame(stream_tx,stream_rx,sizeof(stream_rx),SPI_ID_SYSTEM_STREAM,true,clock_us+100000)==ESP_OK);
+    assert(spi_header_cmd((spi_header_t *)stream_rx)==SPI_ID_SYSTEM_STREAM);
+    assert(stream_rx[sizeof(spi_header_t)]==stream_bytes);
+  }
+  // A damaged stream response must be fetched from cache without consuming another batch.
+  corrupt_reply=true;unsigned pops=stream_pops;
+  assert(transport_send(frame,clock_us+100000)==ESP_OK);
+  assert(recv_frame(stream_tx,stream_rx,sizeof(stream_rx),SPI_ID_SYSTEM_STREAM,true,clock_us+100000)==ESP_OK);
+  assert(stream_pops==pops+1);
+  // Preserve strict command matching: reproduce the previous zero-ID regression.
+  wrong_stream_id=true;
+  assert(transport_send(frame,clock_us+100000)==ESP_OK);
+  assert(recv_frame(stream_tx,stream_rx,sizeof(stream_rx),SPI_ID_SYSTEM_STREAM,true,clock_us+100000)==ESP_ERR_TIMEOUT);
+  assert(last_wrong_id>0);
+  wrong_stream_id=false;stream_reply=false;stream_bytes=0;command(frame);
+  assert(transport_send(frame,clock_us+100000)==ESP_OK);transport_read(reply,sizeof(reply));
   // Corrupt and truncated packets cannot pass CRC/bounds validation.
   memcpy(saved,peer_cache,sizeof(saved));
   for(size_t i=0;i<sizeof(saved);i++) {

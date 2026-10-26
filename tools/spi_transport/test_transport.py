@@ -31,7 +31,12 @@ def main():
     helpers = master[master.index("// All transport state"):master.index("typedef struct {\n  spi_id_t id;")]
     classifier = slave[slave.index("typedef enum {\n  SPI_TRANSPORT_DROP"):slave.index("static void bridge_task(void *pvParameters) {")]
     fixture = (HERE / "test_transport.c").read_text()
-    fixture = fixture.replace("/* PRODUCTION */", classifier + helpers)
+    stream = slave[slave.index("            uint8_t *recs = tx_buf"):slave.index("          } else if (cmd == SPI_ID_SYSTEM_CFG_HASH)")]
+    stream = "static void produce_stream(uint8_t *tx_buf) {\n size_t tx_size=0; bool tx_ready=false;\n" + stream + "\n assert(tx_ready && tx_size==SPI_STREAM_FRAME_SIZE);\n}\n"
+    diag = master[master.index("typedef struct {\n  uint32_t serial"):master.index("typedef struct {\n  unsigned headers")]
+    receiver = master[master.rindex("static esp_err_t recv_frame(uint8_t *tx_buf,"):master.index("void spi_bridge_register_stream_cb(")]
+    glue = "static uint32_t s_rx_serial,s_rx_success;\nstatic void log_rx_failure(const rx_diag_t *d,uint16_t cmd,esp_err_t error){(void)cmd;(void)error;last_wrong_id=d->wrong_id;}\n"
+    fixture = fixture.replace("/* PRODUCTION */", classifier + helpers + stream + diag + glue + receiver)
     with tempfile.TemporaryDirectory(prefix="spi-transport-") as tmp:
         source = Path(tmp) / "test.c"
         binary = Path(tmp) / "test"

@@ -58,6 +58,8 @@ word-aligned. The 264/2048-byte layouts below describe the inner frames.
   caller deadline fails rather than extending the deadline to finish the pause.
 - `RESPONSE` is accepted only for the current peer sessions and transaction,
   even if a stale response has a valid inner CRC and the same command ID.
+  STREAM inner headers also echo `SPI_ID_SYSTEM_STREAM` (`0x0006`), including
+  empty batches; a zero command ID is invalid and cannot satisfy that request.
 
 The master uses one absolute deadline for command lock acquisition, session
 negotiation and response polling. A synchronous hardware transaction already

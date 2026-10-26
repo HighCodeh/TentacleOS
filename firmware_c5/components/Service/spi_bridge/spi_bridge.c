@@ -674,8 +674,8 @@ static void bridge_task(void *pvParameters) {
 
             spi_header_t stream_header = {.sync = SPI_SYNC_BYTE,
                                           .type = SPI_TYPE_STREAM,
-                                          .category = 0,
-                                          .op = 0,
+                                          .category = SPI_CMD_CAT(SPI_ID_SYSTEM_STREAM),
+                                          .op = SPI_CMD_OP(SPI_ID_SYSTEM_STREAM),
                                           .length = 0};
             memcpy(tx_buf, &stream_header, sizeof(stream_header));
             tx_buf[sizeof(spi_header_t)] = (uint8_t)(batch_len & 0xFF);
