@@ -19,11 +19,10 @@ along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 How the two microcontrollers in TentacleOS talk to each other.
 
-This is the **architecture overview** that ties both sides together. For
-side-specific detail and migration recipes see the component READMEs:
-- `firmware_p4/components/Service/spi_bridge/README.md` (master, protocol spec,
-  command reference, session lifecycle, stream transport)
-- `firmware_c5/components/Service/spi_bridge/README.md` (slave)
+This document contains the **architecture overview** and the details for both
+sides. For side-specific detail and migration recipes see:
+- [P4 master](#p4): protocol spec, command reference, session lifecycle and stream transport.
+- [C5 slave](#c5): dispatching, result delivery and session responsibilities.
 
 ---
 
@@ -1127,7 +1126,7 @@ lines to the companion's C5 console.
 ## Session Lifecycle (Long-Running Operations)
 
 For full design and migration recipe, see the
-[P4 README "Session Lifecycle" section](../../../../firmware_p4/components/Service/spi_bridge/README.md#session-lifecycle-long-running-operations).
+[P4 "Session Lifecycle" section](#session-lifecycle-long-running-operations).
 The two sides share `spi_protocol.h` so the wire format is identical.
 
 ### Slave responsibilities (this side)
