@@ -1,0 +1,67 @@
+# Copyright (c) 2025 HIGH CODE LLC
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
+# Install as .github/workflows/sync-docs.yml in HighCodeh/TentacleOS.
+name: Publish documentation mirror
+on:
+  push:
+    branches: [dev, main]
+    paths: ['docs/**', '.github/workflows/sync-docs.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: documentation-mirror
+  cancel-in-progress: false
+jobs:
+  sync:
+    if: github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.ref_name }}
+          path: source
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: HighCodeh/Docs-TentacleOs
+          ref: main
+          token: ${{ secrets.DOCS_MIRROR_TOKEN }}
+          path: site
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - name: Synchronize and validate
+        working-directory: site
+        env:
+          MIRROR_REF: ${{ github.ref_name }}
+        run: |
+          npm ci
+          npm run sync:docs -- ../source "$MIRROR_REF"
+          npm test
+          npm audit --audit-level=high
+          npm run build
+      - name: Commit changed documentation
+        working-directory: site
+        run: |
+          git add docs versioned_docs docs-source*.json
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'docs: sync TentacleOS documentation'
+          git push origin HEAD:main

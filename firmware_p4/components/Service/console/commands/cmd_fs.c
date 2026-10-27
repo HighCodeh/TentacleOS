@@ -17,6 +17,7 @@
 
 #include <dirent.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 
@@ -25,30 +26,19 @@
 #include "esp_log.h"
 
 #include "cJSON.h"
+#include "tos_path.h"
 
 static const char *TAG = "CMD_FS";
 
-static char s_cwd[512] = "/assets";
+#define FS_PATH_CAPACITY       512
+#define FS_ENTRY_PATH_CAPACITY 1024
 
-// Helper to resolve path (absolute or relative to cwd)
-static void resolve_path(const char *input, char *output, size_t max_len) {
-  if (input == NULL || strlen(input) == 0) {
-    strncpy(output, s_cwd, max_len);
-    return;
-  }
+static char s_cwd[FS_PATH_CAPACITY] = "/assets";
 
-  if (input[0] == '/') {
-    strncpy(output, input, max_len);
-  } else {
-    snprintf(output, max_len, "%s/%s", s_cwd, input);
-  }
-
-  // Basic normalization could be added here (handling ..),
-  // but standard VFS might not support complex normalization automatically.
-  // For now, let's keep it simple or implement manual .. handling if needed.
-  // Simple manual .. handling:
-  // This is a naive implementation.
-  // If input is "..", we strip last component from cwd (if not absolute input).
+static esp_err_t resolve_path(const char *input, char *out_path, size_t capacity) {
+  if (input == NULL || input[0] == '\0')
+    return tos_path_join("", s_cwd, out_path, capacity);
+  return tos_path_join(input[0] == '/' ? "" : s_cwd, input, out_path, capacity);
 }
 
 // LS Args
@@ -83,11 +73,14 @@ static int cmd_cd(int argc, char **argv) {
     return 1;
   }
   const char *target = s_cd_args.path->sval[0];
-  char new_path[512];
+  char new_path[FS_PATH_CAPACITY];
 
   // Handle special case ".." manually because typical MCU VFS is dumb
   if (strcmp(target, "..") == 0) {
-    strncpy(new_path, s_cwd, sizeof(new_path));
+    if (resolve_path(NULL, new_path, sizeof(new_path)) != ESP_OK) {
+      printf("Error: Path too long.\n");
+      return 1;
+    }
     char *last_slash = strrchr(new_path, '/');
     if (last_slash && last_slash != new_path) {
       *last_slash = '\0'; // Truncate
@@ -97,13 +90,16 @@ static int cmd_cd(int argc, char **argv) {
   } else if (strcmp(target, ".") == 0) {
     return 0;
   } else {
-    resolve_path(target, new_path, sizeof(new_path));
+    if (resolve_path(target, new_path, sizeof(new_path)) != ESP_OK) {
+      printf("Error: Path too long.\n");
+      return 1;
+    }
   }
 
   // Verify if directory exists
   struct stat st;
   if (stat(new_path, &st) == 0 && S_ISDIR(st.st_mode)) {
-    strncpy(s_cwd, new_path, sizeof(s_cwd));
+    memcpy(s_cwd, new_path, strlen(new_path) + 1);
     size_t len = strlen(s_cwd);
     if (len > 1 && s_cwd[len - 1] == '/') {
       s_cwd[len - 1] = '\0';
@@ -123,9 +119,12 @@ static int cmd_ls(int argc, char **argv) {
     printf("Usage: ls [-j] [path]\n");
     return 1;
   }
-  char path[512];
+  char path[FS_PATH_CAPACITY];
   const char *input_path = (s_ls_args.path->count > 0) ? s_ls_args.path->sval[0] : NULL;
-  resolve_path(input_path, path, sizeof(path));
+  if (resolve_path(input_path, path, sizeof(path)) != ESP_OK) {
+    printf("Error: Path too long.\n");
+    return 1;
+  }
 
   bool use_json = (s_ls_args.json->count > 0);
 
@@ -142,11 +141,21 @@ static int cmd_ls(int argc, char **argv) {
     printf("Directory: %s\n", path);
 
   while ((entry = readdir(dir)) != NULL) {
-    char full_path[1024]; // Increased buffer
-    snprintf(full_path, sizeof(full_path), "%s/%s", path, entry->d_name);
+    char full_path[FS_ENTRY_PATH_CAPACITY];
+    if (tos_path_join(path, entry->d_name, full_path, sizeof(full_path)) != ESP_OK) {
+      printf("Error: Path too long.\n");
+      closedir(dir);
+      cJSON_Delete(root);
+      return 1;
+    }
 
     struct stat st;
-    stat(full_path, &st);
+    if (stat(full_path, &st) != 0) {
+      printf("Error: Cannot stat '%s'\n", full_path);
+      closedir(dir);
+      cJSON_Delete(root);
+      return 1;
+    }
 
     if (use_json) {
       cJSON *item = cJSON_CreateObject();
@@ -180,8 +189,11 @@ static int cmd_cat(int argc, char **argv) {
     printf("Usage: cat <file>\n");
     return 1;
   }
-  char path[512];
-  resolve_path(s_cat_args.path->sval[0], path, sizeof(path));
+  char path[FS_PATH_CAPACITY];
+  if (resolve_path(s_cat_args.path->sval[0], path, sizeof(path)) != ESP_OK) {
+    printf("Error: Path too long.\n");
+    return 1;
+  }
 
   FILE *f = fopen(path, "r");
   if (f == NULL) {

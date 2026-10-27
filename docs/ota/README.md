@@ -1,6 +1,30 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # OTA Update Service
 
-Handles firmware updates for TentacleOS via MicroSD card. Uses A/B OTA partitions with automatic rollback and dual-chip synchronization (ESP32-P4 + ESP32-C5).
+The [paired SD candidate exporter](../highboy/RELEASE.md#paired-sd-package) places
+both verified applications at their existing OTA input paths and retains linked
+memory/compiler evidence. It prepares files only; it performs no update or eFuse
+operation and does not restore bootloaders/assets or an erased device.
+
+Handles independent P4/C5 application updates. The integrated High Boy profile
+uses its existing A/B app slots; neither app update restores bootloaders, assets
+or an erased device. See the [deployment contract](../highboy/README.md#flash-and-storage-boundary).
 
 ## How It Works
 
@@ -89,13 +113,14 @@ confirmation depends only on **local** health (see below) and never on the C5.
 
 ### Partition Table
 
-See [boot_report](../boot_report/README.md) for the full current layout (the OTA
-slots were resized to `0x270000` to make room for a `coredump` partition).
+See [boot_report](../boot_report/README.md) for the integrated current layout.
+P4 app slots stay at `0x2D0000`; C5 app slots stay at `0x200000`. No map migration
+or generic full-flash procedure is part of an app update.
 
 | Name | Type | Size |
 |---|---|---|
-| ota_0 | app | 0x270000 |
-| ota_1 | app | 0x270000 |
+| P4 ota_0 | app | 0x2D0000 |
+| P4 ota_1 | app | 0x2D0000 |
 | coredump | data | 64K |
 | otadata | data | 8K |
 
@@ -164,3 +189,37 @@ CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 - `ui_liveness` (local health: LVGL render beat)
 - `sd_card_init` (SD mount status)
 - `cJSON` (JSON parsing)
+
+
+## Native P4 update screen and failure handling
+
+The developer P4 Update screen checks the actual SD file on a worker pinned to
+the radio core and displays the installed runtime version. It no longer invents
+a new version, advances progress on a timer or reboots without an update. OK on
+an available image invokes `ota_start_update`; progress/errors are copied into
+a bounded snapshot and rendered by the UI timer. Probe/write workers never touch
+LVGL. While writing/rebooting, input cannot launch another update. Deleting a
+screen removes its timer; an in-flight native operation owns no screen pointers.
+Task/timer failures show an error and do not report a successful update.
+
+The P4 service serializes update calls and holds wake power during preflight and
+writes. It checks seek/size/partition conditions, refuses the running partition,
+allocates the chunk before beginning flash operations, and rejects short/error
+reads. SDK finalization must succeed before selecting the new boot partition.
+On error the file/buffer are closed/freed. Failed abort retains the handle and
+wake hold; a later call retries cleanup before new work. A failed power release
+also retains its hold. The successful reboot path retains wake power until reset.
+
+Both targets propagate OTA-state read errors, treating only `ESP_ERR_NOT_FOUND`
+as absent OTA metadata. SDK confirmation errors are returned and logged instead
+of announcing acceptance. P4 version metadata is synced only after successful
+confirmation (or an ordinary boot); metadata write failure is logged and does
+not undo a valid image. C5 confirmation still needs P4 bridge activity; timeout
+requests rollback and reports a failed rollback API call. Physical rollback and
+SD/flash behavior remain to be validated on an installed device.
+
+`python3 tools/ota/test_ota.py` runs the actual P4 service, actual UI and extracted
+C5 confirmation function with ASan/UBSan and explicit file/flash/OS/LVGL fixtures.
+It tests SD/partition/allocation/read/write/finalization failures, exclusivity,
+retained cleanup and retry, health/confirmation/rollback errors, task/timer
+failures and deletion-safe UI callbacks. These fixtures never flash a device.

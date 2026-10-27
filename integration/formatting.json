@@ -1,0 +1,1447 @@
+{
+  "schema_version": 1,
+  "files": {
+    "firmware_c5/components/Applications/bluetooth/ble_hid_keyboard.c": {
+      "after_sha256": "de0032b6316b631d2978b80526ae479ad7b6bbe951cf188f013b35095ae3d5ca",
+      "before_sha256": "e4675251f2df15cf87b01ac1bf45d416f37132adddbd7588dc24b2f936d21db2",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Applications/bluetooth/include/ble_hid_keyboard.h": {
+      "after_sha256": "51ac91987dde4124afd25c64b5562f4fa142f6f394a41c19c37273c29523e1ac",
+      "before_sha256": "a2d54a82fa296b11a5c4b7ed1290bc61c06218d4977932cd8cb093e653bc56f0",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Applications/wifi/wifi_sniffer.c": {
+      "after_sha256": "f6be9e84511f7a3678f4dde37ffcfbd791c4b22d971402dd2637230b7e8c6345",
+      "before_sha256": "930993e81b62b6785c847ef13c50baa90697f74a01e76dc081ea4d63cbf2b21b",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Core/sys_monitor.c": {
+      "after_sha256": "7f408eeb8966ddbd0e7af74347292043603816cdac39da85b1c71ad01a936960",
+      "before_sha256": "a64f7ef03a6b721c9f089209a12c8ea6acb481900775b7304892ac7bbed3e9c0",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Drivers/spi_slave/include/spi_slave_driver.h": {
+      "after_sha256": "7ca66976071776b5992731a06c017a362c12543811e46fc0bf9681dd680809ba",
+      "before_sha256": "053c5f7bdbd5ade4a35f2d89fc699b6b5318a26114a2141b2d1a9cf31d0d4b5e",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Drivers/spi_slave/spi_slave_driver.c": {
+      "after_sha256": "0045c7763f87b08ffebd527e83ac827b3045e79a52d94db2fc97cbd7fdaa11e8",
+      "before_sha256": "44c0a13609ab29fc5e1119cee4a0c634357d20ec26b3220d05ce6621625929ea",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/bluetooth/bluetooth_service.c": {
+      "after_sha256": "abc5361d597c422ed1d6cc48f9a56759721b04376f06dd45ea8b6c8d74eade5b",
+      "before_sha256": "de5206870d638ff1361d904590802d176b4cf76e6a965fcf2cbfc842adc9fd6a",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/grok_wifi/grok_wifi.c": {
+      "after_sha256": "ef1836c275bb6dab522ff1edf0488956e992ff23f78150ff011dff801db1ff4f",
+      "before_sha256": "837e936c4be5a9f7f173d96202eb0959a0ad8e139f1f862b45d4dfb322ce15c4",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/grok_wifi/grok_wifi_core.c": {
+      "after_sha256": "ceeffcd6e9d72a3263db3cc0410f1fe7e3b6cd8963c7a0f3bc82563001a66a37",
+      "before_sha256": "bc4244896bce478ab23d5d2123b26656da6e83b209ced1e0f5e600f0eab454cd",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/grok_wifi/include/grok_wifi.h": {
+      "after_sha256": "b67d47ae22b0bdf0ee5cb876af4dace55672640cdc2483705aa6c21b85870eba",
+      "before_sha256": "f58f8520ffe04892a80117c806cae33acfabad2fad112335028f9a3ed46c28d1",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/grok_wifi/include/grok_wifi_core.h": {
+      "after_sha256": "5136b7f7b8f7aeef1d4c7eec8c38b01090ca71b229d57fae7f957b6901087efa",
+      "before_sha256": "8bd3449952d7cada1d0f3718f0a9d4de3618f2a19ea2258d57c24a70c445b5c1",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/bridge/hb_muse_rpc.c": {
+      "after_sha256": "bc584faec2dbfdd6a5e4ef74e8f42a7a5d50bc7508e59d9d2ba98aa6559b9b2d",
+      "before_sha256": "f58c7eb6db6692ecc697698ef00e5942f54a9dc6350418db9b8d059943fd0d91",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/bridge/hb_muse_rpc.h": {
+      "after_sha256": "0d21c35790f67af9e5cf8d08ea815e99501d1826b0eb9f65bd6268ade1633a24",
+      "before_sha256": "dddc7c9495fa4ba5087eb5bf5719dcae304bac5d8b9b1902baff06bd5d3989da",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/core/hb_muse_core.c": {
+      "after_sha256": "d614a5c4c45fa1bb674cf834debc699c510ed88c216c1935f101cc53372a1e12",
+      "before_sha256": "44f5a293f83d6254c35d269b88a32e12fda54f469dbb35cdf030bde1de86412a",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/core/hb_muse_core.h": {
+      "after_sha256": "c1087a1a9f4fa1690c8240867496885a711bc9ba789753b0f9293c5848342c58",
+      "before_sha256": "6854221aba0741bcae8a89c6cb54d469f1e12101a6b97f171694c11f394d6078",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/diagnostic/hb_muse_alloc_trace.c": {
+      "after_sha256": "d0467ef020d4f8991c5f1d32a9b6960124e61a33e2e004955e865e5b869c444f",
+      "before_sha256": "68ff6a669fb96002001da1dc78498a3fcceccf58f13eeee33536e63fb051aa6a",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/pairing/hb_muse_pairing.c": {
+      "after_sha256": "012bc9b614f8d0b19d91cd422010ae9b35cfb7d2005b65b831f4011c2db36a6c",
+      "before_sha256": "0d2c154e500401fbe694c7815d3f6727736c3a1add212a272231b2b3036689c8",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/pairing/hb_muse_pairing.h": {
+      "after_sha256": "74e71048c7a4e21ea35684e31e0acbee44a04af72a8ccf5b69d948f736b62fcf",
+      "before_sha256": "795b4e8b4981fe28db6b874ecb1601049f7e2cd044ecf495f557c00e3d98830d",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/pairing/hb_muse_pairing_fragments.c": {
+      "after_sha256": "7c7e1a2cccb152a716f5f4bc1dfa4fa616ff6fe856e1aa46a1457237d1046aa8",
+      "before_sha256": "1faf12060894cf6f345987de693a83f8ff07e15d071ec604fdc18bc802e02047",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/pairing/hb_muse_pairing_fragments.h": {
+      "after_sha256": "122ca3a200c2ce0bc9558c19612a9d97061f5e4ebceedd6a4172626a27a33f46",
+      "before_sha256": "896c99f7f05602d0cab2beeec968abaa74a4c9a025e22fc9ff21e1129b7f5b01",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/pairing/hb_muse_pairing_gatt.c": {
+      "after_sha256": "75a7e98dfea56bbf8c5b7709d535b21c754a89815bece673162d0e479383067a",
+      "before_sha256": "e061affffac6f148fcef2666e0ab8f5f3c44febf26c9ecd199aec2776f7e6d28",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/pairing/hb_muse_pairing_gatt.h": {
+      "after_sha256": "238a776fee2b5baf6cc64ef78925a215cbf3d9f9c023a67205c4117e64284dff",
+      "before_sha256": "01426d31e34aa3657a71b2c79959d4551ea16fcd6b60181a100aba61d4fb785a",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/pairing/hb_muse_setup.c": {
+      "after_sha256": "f302c1f6d4c331f3627719bb96254502c9e9b53aec503cdf5458c15ee2605132",
+      "before_sha256": "a2cd98fe4104f3be8f4e6a12d2487e77cc147122b09bbe00ac527d141d013996",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/pairing/hb_muse_setup.h": {
+      "after_sha256": "26e5a419cd7fbf015add88862f510be054d5b6027d8ad039035c800d50f3d547",
+      "before_sha256": "3b3d242c9325d7b069ef9e38f70b5e58194c2e84f45cce35cff1e20b1b71a915",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/platform/hb_muse_account_fetch.c": {
+      "after_sha256": "c95ddca1f2c9d6f649f1c8c99c7f60b0fa992ce521380c633635f1db0c354026",
+      "before_sha256": "1fe57c653ce3c8fa489e8178311a5daccda6efe75ff861f8aceff51f8770d6c6",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/platform/hb_muse_account_fetch.h": {
+      "after_sha256": "bbe16a255cd797d2d48e994b558cb25458a3d0509bf9329367042b180fd0e35a",
+      "before_sha256": "e6f0702308e44ae468daa186fd88bcf9727b6afde8cf8eec7a75fe3146e2e863",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/platform/hb_muse_account_worker.c": {
+      "after_sha256": "b06015ba8bc57652baf0f78f8a67aa22a76ac8a7a90229e1b15800d5b112d9d3",
+      "before_sha256": "7cf46beb836153d73743fa3d1ba410f7ecdcee7b07092af56595f52ecddbcd0b",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/platform/hb_muse_account_worker.h": {
+      "after_sha256": "9eb6e97a46e93ebacb146ac752023abda1f3ff5681aeeb3245471916e19d92a3",
+      "before_sha256": "5c73868d8de88cadd20d2393f1ff64fdba3faeafd7e4fe952f7ef4eedf034e4b",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/platform/hb_muse_platform.c": {
+      "after_sha256": "5d8a872a3c13a4f7edab04c3164b28f59b9aa958d8c356d16743d021ea24079c",
+      "before_sha256": "ea31567e8f231a55ab62079a5f959252199b84148683a0f96211f62194b44071",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/platform/hb_muse_platform.h": {
+      "after_sha256": "024d931be5242f6df1b40b036e18fec5bbc0133890c64a2407e2ef0f9cb76ffe",
+      "before_sha256": "6e968c820a4d178910d68f260922f934f88f577ebccb9da9ebdb888d156d42ba",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/platform/hb_muse_store.c": {
+      "after_sha256": "b4cb09e6688a9a4475fce9de642298365e4d19020b3b0d11320ce3188360d233",
+      "before_sha256": "1e76083c12949a8806eb5211cf9fde304aaf5c96404d57c225b08497331da6d2",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/platform/hb_muse_store.h": {
+      "after_sha256": "8a22d3ce8b68e310c3d4afaf0354c2230dff54b76711ca6b6eb7321c610ecf8d",
+      "before_sha256": "a8bf568d14ba89e49928635353989efb8350ec289e2ba57321d15c4e487e7ece",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/runtime/hb_muse_runtime.c": {
+      "after_sha256": "980d6504a88876176d3dee435516bdadd1bbd9dd017a516af1cfeb8ce84e2d82",
+      "before_sha256": "1d2bb2ec72e9420da06ec6ebb4011376c730cec568e644367431a3385ac91e8e",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/runtime/hb_muse_runtime.h": {
+      "after_sha256": "fe17a0f0ef5f1b638bf1bd5e94ff03f0b11e630942d65355ddc5d519ae8785f2",
+      "before_sha256": "aab5b73cb7beb2e55c444e0dea66b00e9b64deeeab03d681165621b796d34a86",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/sdk_adapter/hb_muse_pcm_adapter.c": {
+      "after_sha256": "eab00ec2d7b6d9202353c1eb548cf09aa1064cd7b145a249a232c64c860dfc76",
+      "before_sha256": "03d003f10bbe0b5b57325139420fefe0f2d9e2d837ff03dfd3b15c91cff38434",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/sdk_adapter/hb_muse_pcm_adapter.h": {
+      "after_sha256": "51fdad712ebbb03cd4da9267ffd890b2c413eab5b055d68659ee9e9d80a5ee1a",
+      "before_sha256": "e5fa7764659ab1083cfeeea126b65785e6b333619486408219d807ebf2266c2e",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/sdk_adapter/hb_muse_sdk_binding.c": {
+      "after_sha256": "b8add284a383911e078c6039ece72b2a04f5e4a898f09225cc52cb7e117879db",
+      "before_sha256": "9544dd51ebd24577817565ed2f4209b1936818f2a3a2624b54d87996d121fd4e",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/sdk_adapter/hb_muse_sdk_binding.h": {
+      "after_sha256": "9da68ef847c12b37389db19728b264da1bbd5cfa606eb5d0564a1222fbb9c7c8",
+      "before_sha256": "e4cd81dfdb339752c386fe92124c5b1b4663001ff99a8874f7c4e6d90bf739ea",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/sdk_adapter/hb_muse_sdk_port.h": {
+      "after_sha256": "c32e9f82d57ebc6df8f5c0707d994eda710b7d85f38113f7c300f894f8403c6f",
+      "before_sha256": "f66c9f50da4ee1e6129fbf95f2c96f6347ba26e2724f0746fc4e431bc8089746",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/token_uart/hb_muse_token_frame.c": {
+      "after_sha256": "6abd389341e3a521a8b74e613f74658c929f25c0b9f0f4e47cb8480215372bd1",
+      "before_sha256": "538c11224f6c67782a5100b5e5b4491977f9c353b6272ac8159641f0e14557c4",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/token_uart/hb_muse_token_frame.h": {
+      "after_sha256": "1d48ac6c51172e08df2d5d14cf122d8507d6224de8e39e74589fd8433754389b",
+      "before_sha256": "a4b43f33905f76415560b839071e7484aa357a34c236731d637939b7dc99b421",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/token_uart/hb_muse_token_uart.c": {
+      "after_sha256": "6d135f8b6be978dde4c45c9f363e795ccd5d90e9ebdca3a1e69ffe33ef528a51",
+      "before_sha256": "53aca5f11dfc852dbc8c4fd780d3b1c390e5be35f93a13fec97cbe7d02c8a93e",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/transport/hb_muse_endpoint.c": {
+      "after_sha256": "6204a6021fcd1ca88a1ddd1195913aefa14fb7aaa6ce583eee99feb37cabf9c9",
+      "before_sha256": "c15d58b77f31585f48e5b4a0646c99f1f38a32bcaf8c5bea2f16f7e836c81b1c",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/transport/hb_muse_endpoint.h": {
+      "after_sha256": "af47b56eca9c92e4c7091d2ba71074ca3230ad81bbae224d4ef319a2d48d89f8",
+      "before_sha256": "c356ac1f7c08d88c29d51b375949ba44241b4129bce3ae0830aae843f9aef312",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/transport/hb_muse_wire.c": {
+      "after_sha256": "d5362d0a57935cbcbb8d16b71433d913de51d8850c00e5e0abe0364c5489816c",
+      "before_sha256": "3cd54ff3884bb43f10138da9b8033a8bd4b610231efbe91785b2fa94609080f3",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/muse_port/transport/hb_muse_wire.h": {
+      "after_sha256": "1ddf71696d68821dbdaa872ad48b421faf861453ec8a496005c202f5dbb9d45f",
+      "before_sha256": "2ead5de47b7f12100eb2e883954a5a418377ef168ef0ee4150ba0abf2ac48904",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/meshtastic/meshtastic_gatt.c": {
+      "after_sha256": "7c8fb1cdb5e1904075a7033071d50f7a8620d2db568349c6c1d3c88f873d9948",
+      "before_sha256": "23674df7c6c1f67582e25e56fe898a5ec6d88c359e466fae5306bdbf1379515b",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/spi_bridge/bt_dispatcher.c": {
+      "after_sha256": "60c6780d4de9447a65780d77f9d3c5f18a6c3b37bf736d5e1b353b9538f097ff",
+      "before_sha256": "473a8dc44e1a1bff7e9c2f505e23b84712ee7ef5328ed114c85e6c88c481e34b",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/spi_bridge/config_cache.c": {
+      "after_sha256": "e53f370d93d5642a1986523f2ef936bd3c8a7b55fad4ff6b07ac025057458352",
+      "before_sha256": "9ddd0f969d3ef424e2394acfccf51901cab7e399a914d5099fdf5d68b0f9bb44",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/spi_bridge/hb_muse_c5_service.c": {
+      "after_sha256": "339da1e33f7bc54bbe041c091373a3a98b1f7b5e3d1be495a6d255c7182242df",
+      "before_sha256": "6c8dfef934abd1fde06d1979fa29a3ec9de85547b97b151dc9ec77171175fb39",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/spi_bridge/hb_muse_c5_service.h": {
+      "after_sha256": "a9deb8e11b647668590a4ecfa88640878ee972114eea7624f6d0176e4c6ce647",
+      "before_sha256": "df6ae6dfad3d23ebb9ffb0083cf1cfa2c32e61b7d63472b6107c763d451b513c",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/spi_bridge/include/spi_protocol.h": {
+      "after_sha256": "44e794090bdddda5f999a29dbbb55f907c89cb001a9284a0abd94c631987c342",
+      "before_sha256": "05e1460793e4d8e0f563557e6c68d59e772211b270115576bbbeb5598cd030c7",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/spi_bridge/spi_bridge.c": {
+      "after_sha256": "502217de323db0a1f9431ba2da16ffe4302019902f060b22493071dbd0334153",
+      "before_sha256": "6f7e11787f210a7b8f95ff4d9e47ee308b4d4906fd600c3fa4f027e93fcdaaab",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/spi_bridge/wifi_dispatcher.c": {
+      "after_sha256": "3c163dbe390ba8ef759fe8546532483496410559ff52125413dd528d3154bf74",
+      "before_sha256": "75e3cec2164619c31c570a549738aaa25f829e0b9c5bbc5f9b2d1a16c64e4ae4",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/wifi/hb_muse_wifi_json_bound.h": {
+      "after_sha256": "2b9a8996b9f47f95fa6a620b9dead6f94061fc2e4ee352777ddc587b2ba80d7b",
+      "before_sha256": "8fb11831bf01594da81ad6da00ec316eccc125ff5e9f6ab8ccdd487c6d30cfbc",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/wifi/include/wifi_service.h": {
+      "after_sha256": "0324deb91f82d4c006756c565fc9484fdce03bfbc1272c25fdaa3d676ca5a74b",
+      "before_sha256": "0ce0292416e4683172d4c0e7d806dc7796fbde9cd491214117f934fd9dd81778",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_c5/components/Service/wifi/wifi_service.c": {
+      "after_sha256": "13718f544db0bfb4647a2a3295d5928d133937d57c9d93059d91ff4697a4ec95",
+      "before_sha256": "ec434e7fe46e47d21461afc9c90986530996087d29c1f70509dde69685902904",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/LoRa/session/lora_lab.c": {
+      "after_sha256": "dce0e999eaa995d3fc988453e6e157315d72b0987c0e96a6b65a46672e0a839e",
+      "before_sha256": "9312fd1296145d3222d70b246d050f7445c691758b8dcad6c1d708e076151743",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/LoRa/session/lora_session.c": {
+      "after_sha256": "2cf75d8f29faf5e8b6f940a20a7d28778d18ca89a38c71c84286e62b8c782f6b",
+      "before_sha256": "5c0b07e643096d5e55f11f6398e729be14c69bbf7981ba19247641e1ec3fa580",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/SubGhz/subghz_protocol_serializer.c": {
+      "after_sha256": "71df4bbd9d940b4bfa6e0e0b262e0d5c48e011564305975ae42ae68f2fb2156a",
+      "before_sha256": "886d872d61a8bdda1f13bc8a0ff06256dd92283a1945fe5f4d71dfc9121ec5bd",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/bluetooth/ble_hid_keyboard.c": {
+      "after_sha256": "e78163e43b321fef3128dfaa6d807dcfe9c66eaf8b7581d79348f87109b35f9d",
+      "before_sha256": "4b992556918f3bff546d46c04c0855d803ac86952d47d464308bc914c2d0f606",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/bluetooth/ble_scanner.c": {
+      "after_sha256": "ac3978b97481caca67e434efdfb64dad7bd19396f8d3cf499815f7c39ab764b4",
+      "before_sha256": "a608b70b59c7b0241bc7f2b3324a4d1074ae0f55b4f24d9eb1314abae959fa29",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/bluetooth/include/ble_hid_keyboard.h": {
+      "after_sha256": "fb32962bd56c9536f4b5d35b8c0bc551e721c042351389d7c8dbbf63976a6aa0",
+      "before_sha256": "832811086c04888bf8be19d0a2bc6adb8155095d524a34b9203322655743a2b2",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/bluetooth/include/ble_scanner.h": {
+      "after_sha256": "afae653d4e6bd8f973c896891f809d5d6143482ef11cbfa56863d89b2055ce2b",
+      "before_sha256": "cbad117ccd0477cb90d65218d345354ce430a07b5038c7d128000b27be400c58",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/gameboy/gb_highboy.c": {
+      "after_sha256": "0b590c6c84b7360ff16af9cf773e9fd24ff6a4a1d2bf1c15922837cf3232efdb",
+      "before_sha256": "2ba22e2e1b12203d5e084863749bef0d120979bcf43ddd8a57d3c8c84a977899",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/gameboy/include/gb_highboy.h": {
+      "after_sha256": "d5478e580715532e96012149555cf1cbb5dceb843edcc5cfe7ea3b4c9e23d3a5",
+      "before_sha256": "7da523e5e78a6d44e6b335a17e3a25df4d40877c6e7cc8674a2f084d40b68983",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/gameboy/include/gb_input_mapping.h": {
+      "after_sha256": "57c2e5d5ec513cef4e81bedd15932a1e30f855e4917001da347b110ffa2fb341",
+      "before_sha256": "1d1e736578be388e4688844b45d4a46748f707e19548fb98cf13da9102d5a891",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/gameboy/include/gb_rom_validation.h": {
+      "after_sha256": "6e41a2ae7a8a393123532d632e5b9ea80e2a2e6760fffa54a452df65aac8c2f5",
+      "before_sha256": "5b45ace2a271c54d16ce4163bd6e314a3f0da0a67620f2f85635f96829acddc9",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/gameboy/include/gb_save_io.h": {
+      "after_sha256": "121fed5af7da13356d1ea3a919a02d46db01219c84fd71ecd08ba2cda274082b",
+      "before_sha256": "0139471faaf30edb51e53f29fa43b530c623fd148017601893497334a846d321",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/include/nfc_apdu_lab.h": {
+      "after_sha256": "0033ab59f0b8828bd4a3860065eab0643cb1d27108b0490d065de2f451f929b4",
+      "before_sha256": "915dd262ddb8bd571f15d55d78405d738a23634914ae00c69656792db7eb0a85",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/include/nfc_mfc_dump.h": {
+      "after_sha256": "2db4e6f491f51d417f3f6e98752bb0330525abceddefb83982553bdcfa9c65e7",
+      "before_sha256": "b1d5ed27231169356b74558de63d740df9c74919dd384fe123a2386a151854cb",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/include/nfc_mfc_ndef.h": {
+      "after_sha256": "19cf11ddd4be6e7c5dcb9d25e3ede8c67bdd96ae70a73b2125d49e344a85322a",
+      "before_sha256": "ee58d8abde411c87efe1a4fd1ba5b8cfdf0b025294a01af4df4a9dcfe2ff1dcd",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/include/nfc_scanner.h": {
+      "after_sha256": "df3f92669f9c8b008dfbd5a09ceda24dfea1d544373c66d5cec0930bfa4bd91c",
+      "before_sha256": "a7bc1ee1477278c309f7b3014e16946a699e69f7da6915064717f5014d55bad4",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/include/nfc_store.h": {
+      "after_sha256": "b4b1e640b676f37a8552c560753c2e35dfdc5a208ebac340094cd447fdbdb683",
+      "before_sha256": "f66a981654c9988cc80380c7625feb770550b05d96a2edfaf1d57b12c80dd375",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/nfc_apdu_lab.c": {
+      "after_sha256": "722374e435aff91ac55e07a10999d158f9f115742148c33b3fdb01a68cb720fa",
+      "before_sha256": "30e37d18e4d929ec1f0eb45eb1b01f6d09b84a0a08b227be31555ba857f3e08d",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/nfc_capabilities.c": {
+      "after_sha256": "e170797a8dc59702d0ee440a5fcba835f54f46f2e6d910b3d73fe56fb815f25f",
+      "before_sha256": "77fff3e98f97097e71bb34ace059e0c74f0463149ae9f63a701738a723b77ecb",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/nfc_device.c": {
+      "after_sha256": "7c3ad36d139dcd7ec701282daf55f14cdf1e136a8f1ec4f3c3b6d66b919fa095",
+      "before_sha256": "c08bff654ecfaf192adbbe6c57101b27b8921da06c334ea66c9908cc4326f416",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/nfc_listener.c": {
+      "after_sha256": "9ee9037ce2ae04acd78f6240e3175235397d4e71a8e84b00325aec8df9a77517",
+      "before_sha256": "6adc66474b2af14a68e3d144682461f36034f9e9c1cb3ee734b3018403694659",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/nfc_manager.c": {
+      "after_sha256": "7ce2e5b8e50a5134909325ace1bb77b6ebe8acd7598b47a4ea9623aff898c8bb",
+      "before_sha256": "c5e06e71edbbd9a3662844b9552aed25c77e12b7bbc63b63c8681e08630ca223",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/nfc_mfc_dump.c": {
+      "after_sha256": "047c0bd3008155fb069af5572dbef64500ce38d4a2545d464a087217fa3ae59e",
+      "before_sha256": "ecaae001af40158e7877ab7739b19f8e0aa4e1cd2af5dbe7bc7a9936150f80a1",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/nfc_mfc_ndef.c": {
+      "after_sha256": "bc976fe5061f4a2f2a0b2201cd96080324b4fcd0953474f13d76f2877a1d6e66",
+      "before_sha256": "4c2a03ba1d4153797b81e7ee7d97760c348081b4a81bb7a70e22a28d1b8d617d",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/nfc_mfc_write.c": {
+      "after_sha256": "8c0ee7688db83a48ca330dfef26993b2405e22201dc0a589b941e6f93dae9280",
+      "before_sha256": "96423f6886887e1ffd0c34a02bb93aded56c208c6871073375c7413f10bb2c90",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/nfc_p2p_service.c": {
+      "after_sha256": "5acd354a44d3a7c34fec9f1bace94ea920add62600a063475ecab22a7eb77407",
+      "before_sha256": "948a961226db7d148729dd5b1ea08964719144f7581786302b287aefda1bc801",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/nfc_protocol_service.c": {
+      "after_sha256": "5642694a6e3b71eecbe4957ba8fb4f0350d48507245ad69b6cba0765f6c0e354",
+      "before_sha256": "a4e4052e67749839d6c47fe07a1190db925c9999920bc850fbda7f4421afc8c5",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/nfc_reader.c": {
+      "after_sha256": "9e3edf9789aaf3aecf9cb56a9cb30fbe13d703a01c4944e34c26f90fe757577d",
+      "before_sha256": "452f499c20126e6fc9d105776289e24c43346446230003f6b6d5bd1d0c7febaa",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/nfc_scanner.c": {
+      "after_sha256": "0ee903e6c2e03b9c3ed3e11d95f2b9a5dbd1a23fa4398c27a56a6a45a909f483",
+      "before_sha256": "7e3c3550f8b225848fb016cf48663d1cc41c433567cb5193f0a893ea67508902",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/nfc_store.c": {
+      "after_sha256": "93fb4202d7d3d40a46ca906199fc3b7e6c3f69a512542380709573c2077fd8c3",
+      "before_sha256": "4575883943c2a95112aa5d0ca79bcf3ef9a8371110dfa7bac51cb297c7a3841a",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/protocols/common/include/nfc_apdu.h": {
+      "after_sha256": "d6a90e3bc16b64d38bc7eed9f5e93cc28284eeed2d71f5fd63cf0042e1372689",
+      "before_sha256": "b1e7579290413111fe0bd9bbd044bda4ca29ba0aa4e76f1af8ff4b7f88f30fb1",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/protocols/common/nfc_apdu.c": {
+      "after_sha256": "ed59ef982300f51c084ee89646ad2cb7e58abbfec30a5a76bc0bc476f6e1e507",
+      "before_sha256": "27d9af999737363ba63c3a8fbeffecc69b03b6b817dd446c5cee291ad58c84a3",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/protocols/iso14443a/iso_dep.c": {
+      "after_sha256": "91fbddbf2695ee8a7ccaa6ab0601b5330035f83fa03ed67f857b1406a2992dac",
+      "before_sha256": "23e118ff2b4867dc7ffbeae6f384507385b60565eec36c2f03deae765fff312d",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/protocols/iso14443a/nfc_poller.c": {
+      "after_sha256": "3f3fbd6cc02ecb704a9df15be2ee601290741e6e27ebd63fe9cdfe715a8f89f0",
+      "before_sha256": "9b3f0a57c5b7bad11bf2bbaff1019da7715c074de75afd8fa93a77ee3f33691a",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/protocols/iso14443a/poller.c": {
+      "after_sha256": "e2d971f7686006cc3b4b1c8af81038678c25067a2e256634d251933a4241488c",
+      "before_sha256": "d70316149bfb5c494a9b775fadd9a53a81f70f0740a17dba7c10ee5bb2a8eeb8",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/protocols/iso14443b/iso14443b.c": {
+      "after_sha256": "55dd4be7704f22135a333b5ec7989afc7326557f538f6cf1fdd1a41b91eb4aa4",
+      "before_sha256": "69defaa9895b3fa0b86110ca04f75f08ed55facb7a15c9d6d6e5aed614727f17",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/protocols/mifare/include/mf_key_dict.h": {
+      "after_sha256": "afe72d22fc9c1a902b44ff6f38ad1f90fe7032cd6c2037aef3fc0a688c4be26e",
+      "before_sha256": "9d91aa37c0d315a43e5861681cefafe27e31eb232df886e1281f9afcbd27538b",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/protocols/mifare/mf_classic.c": {
+      "after_sha256": "a8184554b1ab3db60cf4435a3eae62c0b24a52f88d9848ba4ef5c54c86b03139",
+      "before_sha256": "1e41cc6a0babd8a8fd81d8b9cd28eb75c1324170af188c279676768e9682c687",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/protocols/mifare/mf_classic_emu.c": {
+      "after_sha256": "fe9b1331d04eb2b98b4d4a76ed958130af9a63f76c748412e83f931a7ac51090",
+      "before_sha256": "f5dc90c2452ca0ab22c79f87fbd4c671f3f106951be016e9a326e88707ee5617",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/protocols/mifare/mf_desfire.c": {
+      "after_sha256": "bc78a645ee427504e7c5d5f6c6cbd8d11fe180e5b4b63b5bdb1db7c19ab9f8d7",
+      "before_sha256": "d6ebc6f61fcb12700c872858071e68522ba787f5e0d706adaacb58910ffef075",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/protocols/mifare/mf_key_cache.c": {
+      "after_sha256": "aa9311251fe704df233014434dc36e8c01f56257a944b16653073d2ae01b4166",
+      "before_sha256": "df6960d96b856a3ec71a84602387450a1cbf9efa330825cd1481731bf41c0d71",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/protocols/mifare/mf_key_dict.c": {
+      "after_sha256": "eed897aded519a9c4b1b2b0945ac7d8e8dcae2f6bd4620c1a99179347c182fa3",
+      "before_sha256": "357fad474c01885268c2f7f2fab30f96f13a00238252929d514287858f15ac97",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/nfc/protocols/mifare/mf_plus.c": {
+      "after_sha256": "5b5888e85ecb1bcf50159cc931f7a5eacd9f030b095acdfea841567ccc122228",
+      "before_sha256": "95b847919c8a6c1d962bf24e20888bad41e6512194e79ddc807443b893097b26",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/components/capture_result/capture_result_ui.c": {
+      "after_sha256": "f5549e3ab812ac0b46cc9d15b467a7d015662e9cc0fe89c16c959969e1f619b7",
+      "before_sha256": "b63b61173b1efcfcd3f54b1216a83a91b62289ece86f072e1a6cfe25ac0a588c",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/components/capture_result/include/capture_result_ui.h": {
+      "after_sha256": "7078ee606dde5941229b8c8dda96b9a7bb8c6204465b1ec9ee5287c477b12068",
+      "before_sha256": "f7ace29b5a2dad447e12366edcd9fa0fd58a90f1e1250ea2a993b06a8d7cb89d",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/components/dropdown/dropdown_ui.c": {
+      "after_sha256": "6de10cb43d5fc977f334716278cca49e93a6180eecfa6edafe5405d8e8b86dfb",
+      "before_sha256": "c683fb5ea669adce7e49a4bba2704edfa9cbd272559d72dc7ab7eed8a5e9ee54",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/components/feedback/ui_feedback.c": {
+      "after_sha256": "7c5c39e78e68cd62ed23202d37b30c5e73799973fc352346d1d14f7d5f26ff73",
+      "before_sha256": "3a4084d6c6b6ad1133118ba763cd555fd9dc045801e94bc865f53fa493b8c4e7",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/components/hb_viz/hb_signal.c": {
+      "after_sha256": "de6d688aa5620f40324e0e56218e83dc7549bd2dfe9fb21d5445cbd64239346b",
+      "before_sha256": "48215ea0f02048f1b5e5609a9954de6b7264e81c027c30f0200d9bac1a8d8112",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/components/hb_viz/hb_spectrum.c": {
+      "after_sha256": "4bdba59f4c19ccd0603d8caa4a06d6b47b15129b1e166adf903064c21a659c45",
+      "before_sha256": "5893b838b47f5c59201f1f22f89656ccd9dc97e924ff137c7475f315fdf587b1",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/components/hb_viz/include/hb_spectrum.h": {
+      "after_sha256": "e342e3ddee710b96fa2d579b9f585d0785fd3542205c1cae1f4b671d641beb69",
+      "before_sha256": "40e7f1027a03c437fe2d49585465d405181dabc9708debe41f19797d1c0d63cd",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/components/menu_component/menu_component_ui.c": {
+      "after_sha256": "08c585ac34f6cbf0b619a5a8d0ddb7774f076b2d63c56f972f4eb1bb2ef3835e",
+      "before_sha256": "799fe806e3d65b5154fa9d4fd0d37dc5b9488623ef68b29739675dc84a10299c",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/components/message_box/include/msgbox_ui.h": {
+      "after_sha256": "7b34d30b4bbb108b41ecc840e175ca1d4cc5f43b130558da5987f173e60efac2",
+      "before_sha256": "a485a15e15fa915df5984c36c39b3f2fc5847db0b57fd23ccbc564897c5d61e2",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/components/message_box/msgbox_ui.c": {
+      "after_sha256": "f190ce0906d82c865e5b5d4a208631cd6066b692c067f5eaa3bd44d6d646b640",
+      "before_sha256": "baf507d9e74f52ccd95011a2148cc22780d3fc0b2011f01542b709f13a490bcc",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/components/power_policy/include/power_policy.h": {
+      "after_sha256": "5ed411b07bb6d3613aa22ea7579c94eb9fbd3139907c3c97c9eb65cf42543269",
+      "before_sha256": "1eac3d51b599e627d52cd2027f76759b1daec9abdd1c14a5e54b10ef7705ccb2",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/components/power_policy/power_policy.c": {
+      "after_sha256": "0a0549ca96f0342db2a42736d0db0e03ab351ef81154c580c09c3f84b0a3a20c",
+      "before_sha256": "719c6706e91bde5dfd86edfcf8a8c4f818441655214c2644cfaa3466ee609a8c",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/components/tutorial/screen_tips.c": {
+      "after_sha256": "14133c42887734860c7f7a270e6eff39759a0dc648dc32fe19a6288e148eabc6",
+      "before_sha256": "d04d2493ca210cb1f080d3d0a3eafb30ba313a117a22b41046d96c9883b3c112",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/include/ui_manager.h": {
+      "after_sha256": "3377234e4d42e9755ccfe0d9b2393628b27e8d8c1d6adec0a9b4e8fcaa52dc35",
+      "before_sha256": "84b3f3f88651fcec0dc9c0215e223d3d25d5a78604b77abc820314c3f24240d2",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/apps/apps_ui.c": {
+      "after_sha256": "712d82aa5f52decca459757e8eacd79d1f70090c0672ba8f9c571e14586b1b13",
+      "before_sha256": "fb021966ac6fc752ff658094b38e99113f42fa5f8459098ad4eb24d3514bd045",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/apps/grok_idle_ui.c": {
+      "after_sha256": "123105a3de5bdd6b54c6b69d529f607702aa0c9e8f7afb6350212fa6633d89a8",
+      "before_sha256": "7b3f27f3373e3133009db15d6269bb56fb1320a891f302a6526a851b15b99058",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/apps/muse_ui.c": {
+      "after_sha256": "c2c0441895e6f42d9a715ee5bb30672c8f5ebc390b24fd14deafc989d275f624",
+      "before_sha256": "0fc1949dd0f675bb68af05b23dea578288c4be1b3357a1692e90a650b31f5d4a",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/badusb/badusb_menu_ui.c": {
+      "after_sha256": "5eeb685c0058c9f40b482201f36f9067232a41457da21dd46b27a688e6c3cbd9",
+      "before_sha256": "bab5f483886838ed95aad3de7cd5951d333387214d79e9a74a490f8e10324803",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/badusb/include/usb_mouse_ui.h": {
+      "after_sha256": "20c4c4d52dc333a5bb72009aaaa4422ff45280f01ea30d75e64ac5b5f182e759",
+      "before_sha256": "95c86a7c5e9139ed7f4409a85c74a4ba87d8883f9e328f7d16dbab913a9112f0",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/badusb/usb_mouse_ui.c": {
+      "after_sha256": "c93c00356dd165fe65cbf0f1539436d857e015ce3873cb701618ab966d1f34ea",
+      "before_sha256": "b55e6086a24c42254d6b549e52a8abb3b75e3709e39a2158adc52cd917b38363",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/bluetooth/ble_beacon_ui.c": {
+      "after_sha256": "542f81eb55ed4525c2f6d68d4a2550de75e3b8c4828e913c40493d8697c5171d",
+      "before_sha256": "f76a55e0339065fdb818a6e303872f0c2f08cb56e49d3ee905945b2c279b5e47",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/bluetooth/ble_detect_ui.c": {
+      "after_sha256": "e7b11984c5d5572d2a71e1905592e281230ca00fa68005a85ed4b8f0a7a672f6",
+      "before_sha256": "c475f31fe1d197c75ac06b6bd61f4dfcb8f4b2e7aa322d59d6c891b56efaf83f",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/bluetooth/ble_mouse_ui.c": {
+      "after_sha256": "0cafa65f429024b36dd25541d36441b518692cc4e4541b73ef70f81e90ffb670",
+      "before_sha256": "6f7052b65db969de118ca4fe87743c1e249bcdb39c5ea1edd147e5eba31453c0",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/bluetooth/ble_scan_ui.c": {
+      "after_sha256": "c974a9d1d5ce353e17815518a9ff2dbd0634af40680b7f39a093c1654833429f",
+      "before_sha256": "61bce82ff5d3477eb14bd037fd119a41604143856c542edab9e4e15cb5f36b17",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/bluetooth/ui_ble_menu.c": {
+      "after_sha256": "18117437212ba2c949e4cf10a106ac246c79f010b960ee15240bd1dd92759e3b",
+      "before_sha256": "39e114cef4146eb7d1a3b8be4b9870111eeea701f4e1d36edd5de6815a397d44",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/connect_bluetooth/connect_bt_ui.c": {
+      "after_sha256": "79f1b85f3ff5aed87397ed6af4c5baab0de06aaf24854c47b341a4abd002a4aa",
+      "before_sha256": "1459f7f9b682e48dd2e5d3335863802408c5ff200e751d9ddd7ef38b453ad973",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/connect_wifi/connect_wifi_ui.c": {
+      "after_sha256": "0e20ea1e9fe47828ecaf84c99927c35d3484db27196891bd58d74f9c5495ab3d",
+      "before_sha256": "4286035f0826a02ff1573d4034f362d83be36a2835bcd1ac37d76fa67293e4af",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/connection_settings/connection_settings_ui.c": {
+      "after_sha256": "f1dfe97d70beea3734fa27ce705867a17bdd43c9c10d25fbe90fa2c8d8325176",
+      "before_sha256": "5dd0e55df8adf3f0fdf920addf873b2ac1aa5e9e5dde4720b4bdf7aff9b5fea2",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/dev/dev_menu_ui.c": {
+      "after_sha256": "88e2b94c2bac537e0991f17d9f330ac4a0517b529497397e3992e75056bdaf7b",
+      "before_sha256": "9b484f469c2d446bf51a2ab6deb6050f6e5f06fce8447dcde0020dc6313aeffb",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/games/game_cover.c": {
+      "after_sha256": "d8b206b2bd1a4b62188abcd2cc4ab7f073824f15b0a7fd868c6fd8f14f5b07df",
+      "before_sha256": "5cd76bd69d5367907c6ac3cc1cc12bd369abf2daa8b5efe3685f8537e5e47a37",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/games/games_menu_ui.c": {
+      "after_sha256": "385d7590afe55b75f4df2c2db2691112f8711dbd341f076d658efbd4264a196d",
+      "before_sha256": "5f19d60f5a0aed378a0f9afe9ab9f10a6bba58c61c0061368010bce214b634f8",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/games/gb_ui.c": {
+      "after_sha256": "fe3eba63358578a26b1c6d3028b589f2d7bb688d3a35c4cbc0e8090cf0b89b51",
+      "before_sha256": "25b0bb5f7df27f9ca4bbf08579c20095911abd298008c72de3290574d4f77916",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/games/muse_menu_icon.h": {
+      "after_sha256": "fd296b8b26ae13f1647abd2e6cd276983826d3a7cea9155f410536ed02235109",
+      "before_sha256": "3bd2dcaed6b662bc3c2ee02618d5157d34b9256897646f41194f80470821dc79",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/infrared/include/ir_ac_request.h": {
+      "after_sha256": "3420e50c9e630089f448e038ec4084e6dccc08f420d9ac8f03190ff8953af369",
+      "before_sha256": "c991946fefe2d42503ce002bae0c042c85b8f31df58f4438ebb3088c55eeebff",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/infrared/include/ir_store.h": {
+      "after_sha256": "f2273a5019a020225dc0e1f67ea317705dc527211aa44c58ba4b3aa945d8760b",
+      "before_sha256": "42d55e2f409e0adf885041d234a75fd77c8e2ccdfcdc1b25819a5de13ae8a474",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/infrared/ir_controller_ui.c": {
+      "after_sha256": "badbe00354b4a0f4995bf21eb9e5f3334e58d1d6a56505ca2e58d12f4d4a55d4",
+      "before_sha256": "0c508fd562046bf20a5a7c344078c6e711792681c8baa158453335f2ed399078",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/infrared/ir_library_ui.c": {
+      "after_sha256": "f2e6cb99c34362fed45e7da1fabf9e2ed4a1a3a61531282aca39b38a11d027d7",
+      "before_sha256": "f8bfd767840ac9a049053735ba5cc04192c4a47e211dd88e7ba289ce40a9a300",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/infrared/ir_menu_ui.c": {
+      "after_sha256": "b130ecc8bd1d6243c4a3a60e03c4fb650ad4f128406d22786c60cb3445b226b2",
+      "before_sha256": "c8c2e1894676cbabdbac21f3a81ef2f238d755304be777bdd4029f670109389c",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/infrared/ir_store.c": {
+      "after_sha256": "1bf83f9c8576e24b2ae0f93426b19b3e53f69ebb5357892a519fc6e25959a917",
+      "before_sha256": "a7a78b9615106680cab16cfea569fca7c7e5e110b65d65c258a6cbb1a576f2e9",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/lora/include/lora_rnode_ui.h": {
+      "after_sha256": "a4b5983b3f79174e004ed6853c48b20dd4c5206fc3e7cdacd4e4e5aad8a9d958",
+      "before_sha256": "d2a082eadd577553a5d51ac78494bb364cf1016809062f6a8c919c42ccd00c1d",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/lora/lora_rnode_ui.c": {
+      "after_sha256": "5191fae6b5c5042b3cfeaeabb7355671d998ff966a2a0e3977a3333dc8b8c6a5",
+      "before_sha256": "00ae669c4ff3b44b114807bf950b5fc0b777fb953c4f422811ead8b183998e93",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/menu/include/menu_ui.h": {
+      "after_sha256": "83c33d5b011d35956cc3b86eea1470c94b8bb0e413ff4ddd3e2ee7b4b8e0e88f",
+      "before_sha256": "f98c9c482f50cbc6a3b9cb0aba5cfa032a553d390dde0eeef715b962fafc5fd1",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/menu/menu_ui.c": {
+      "after_sha256": "a787db4ec548fd443cf9943d36662b3e920f93a1449a4eeec8e7461c7c7ecf9f",
+      "before_sha256": "68a0ff986177af4604cd3990b140b61d08ab7a9573d0b7d1524cad6c19734a0a",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/nfc/include/nfc_bankcard_ui.h": {
+      "after_sha256": "4c24eb8d7fd09e48e9c0aa08154b00b1998721afa6cb5f148e5d35ab0fe1d2c2",
+      "before_sha256": "2ed5731da4e18f0ab88ab5981a9637184889dd63bb845b590cf79693c7f98fd0",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/nfc/include/nfc_config_ui.h": {
+      "after_sha256": "53999dadbc6f505f2fa34d067c11355153eb1b67d3bbdee71149d761120b0c0f",
+      "before_sha256": "c030949f9a6094bae89dadd9de8fb47c2397eff534406b2b7f5b40e4124e4d20",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/nfc/include/nfc_emulate_ui.h": {
+      "after_sha256": "336186fe3586c3402ea2a7c9d1bbb657d71e3c8bbb62609ab0e61f42746ee8a7",
+      "before_sha256": "b4dd3f0e929573fc968362e5d3105349b687e8534f50181985410aa8f5f93888",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/nfc/include/nfc_p2p_ui.h": {
+      "after_sha256": "21185218fa0612f589639f5379f486757cd23686e7c3331e3b206f0a99503381",
+      "before_sha256": "82fe4c635185faaac7f1ab51d36d6abe5ca1f16c1ca80a2fca3def6cb711d727",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/nfc/include/nfc_read_ui.h": {
+      "after_sha256": "4ffbe4f425e002fe016d237ca7518a7a3c501c4b82228cb32fa4f052f7080f0d",
+      "before_sha256": "26adcda184f1d0d585e847e9e7e17cc92877fa1dbfdc9e496c95bb6f7a91b958",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/nfc/include/nfc_scan_ui.h": {
+      "after_sha256": "b373ea475d33f8ed539c96af5d3f0976387a570c6754aaf4524b9181498c3a56",
+      "before_sha256": "10f03a26011c7886fc7f61fc229ca7a4b53499fc59b8ecba33b58a8f26f0f9a2",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/nfc/include/nfc_sim.h": {
+      "after_sha256": "66428f862f909bfb248749808e4953dfaf1a1d915c9c15e39274841d3991f1d7",
+      "before_sha256": "4d7c80c1d1f5cf54c11072cce8816d3bb1827aca9afc5f8327a72d604312f5a5",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/nfc/include/nfc_write_ui.h": {
+      "after_sha256": "142e315b28f37fcfc31c702050bfd51f9b15397d9a0c432b5dca17d0bb048483",
+      "before_sha256": "f99cfcf92d7b3f626b1d81120f6368890aae7514510d16af7e0e70cbe93ad740",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/nfc/nfc_apdu_ui.c": {
+      "after_sha256": "e4e7d171bf4ff97075b61bb35fb3d6a407309a9aaf67180fd2e40bb607ccbe89",
+      "before_sha256": "77f15cb1b90579f5dc63b20ec126634c23b5c7789aca1af454ed2bf2873b898b",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/nfc/nfc_bankcard_ui.c": {
+      "after_sha256": "e5d599d7fd048df22822fe949581aa1d60a53f82a5161a1f86a47610d5450787",
+      "before_sha256": "53857e9dda97fd5b185e598ccafa71097f8bdaae376a83ce626e9c6197512690",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/nfc/nfc_config_ui.c": {
+      "after_sha256": "54f4747e02775129be97932f413629dfa5655b0144400f13374123b9e43cbf80",
+      "before_sha256": "e07bb594584021eb23652ae3950052cb4ecadd72166ddeeb5f15389e6021861d",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/nfc/nfc_emulate_ui.c": {
+      "after_sha256": "639d5cf8378dce897ad6ecfb523a02853b8e41d2a75e85d16b91132865f0643a",
+      "before_sha256": "59956d39866735515b34467a74b7051524bf89daa518927fedb93f9e350118f9",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/nfc/nfc_keydict_ui.c": {
+      "after_sha256": "1cde6d8b86c713d034ba94707f28b5cbbaa8f5fa7cbb0fe1a0b0492c6c37ca29",
+      "before_sha256": "dc979f1ad8f166850d1bef3cea87cca114adf4c420370994e27413e804cb6755",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/nfc/nfc_menu_ui.c": {
+      "after_sha256": "2938566e0e6a36dd8d4b82e05335cd70ace82809bf5981eddcdcee4c9688a5c7",
+      "before_sha256": "b0f0fccb590d424e42615bab3e90f32ce1023e34c4c1c66cbef0aa6a3a8c27d2",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/nfc/nfc_p2p_ui.c": {
+      "after_sha256": "b21f941b0cfbf3e0e79928f105c56ccd5ffec61caf2b31c9f4384de6a3fb52ec",
+      "before_sha256": "8d80da206f6813a736e1d419633bb5d7dbadd42b121877b7afd0899bd317a7af",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/nfc/nfc_protocol_lab_ui.c": {
+      "after_sha256": "76b83b3b1683cc508a78c2ed41eed869a58b8b033c8d150b75db9695182e0fad",
+      "before_sha256": "b8e0e447d7d3ed4972cee0ab9ec43c3141735c8570aab46a96c8d9f9c510fb87",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/nfc/nfc_read_ui.c": {
+      "after_sha256": "e8110f853926d7c9eaafb3d9aa7a33814744e4bba619569398ef3115e563aa8f",
+      "before_sha256": "a6035b2391c6c338f8f45780a72061cc431f9cfb8cedaed9fca21ed46ea71137",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/nfc/nfc_scan_ui.c": {
+      "after_sha256": "36132a8081d4fb1cbf94b9f9fefb1ddc9138f323d2b32c0af667a76fd8a579c9",
+      "before_sha256": "09d9d01653c386af1586400ccf28dcd3485150d9520389ddc79c62fe030069ae",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/nfc/nfc_sim.c": {
+      "after_sha256": "438f813afcbc283364cd692829faa026a401cf8984ccb0d7a92f59f2b85d7586",
+      "before_sha256": "e928c81d50e3b046586ec43ce25fb29728b96bc6fc003f921c5e1502a8844d04",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/nfc/nfc_write_ui.c": {
+      "after_sha256": "b87846ebdbdd58addd47efade750924d7ff7e683f697ab539a76f9e6ac5fe4de",
+      "before_sha256": "f16a430a01d5021c911a6601b6b639f2ab61cee00dc21d26108b2aa2a074a409",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/octobit/include/octobit_status_ui.h": {
+      "after_sha256": "b7f927dd98d7a3905ad96baf4d7252dfc6656dbe4862a11aaaa21c7e38b4de40",
+      "before_sha256": "9168bc6d011ab562c9e6ef1000a94afe263f7f8fe861e3391087790fd476533a",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/octobit/octobit_status_ui.c": {
+      "after_sha256": "4bafb40e4c96c5a9d5f7193ac3e73f5d7d4d9dcdd4c76be64dde6c4cc15c0ff7",
+      "before_sha256": "4578454537a68b6f9ba41b4919110d28350495da4b3e625a9db8117707944f10",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/power/power_ui.c": {
+      "after_sha256": "3a3bc8331a2622cbc2b2e358754a9dacbe292b7592eef67ece881c534398a005",
+      "before_sha256": "bc611adef64eb628ab5e48e1cd02ad030cf1320cea2542f6c19b4cf05fc2ed91",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/rfid/include/rfid_menu_ui.h": {
+      "after_sha256": "49d4a0e8cb044a0a7810beb93de2567490d84f3705d09135769a79f1e91997fc",
+      "before_sha256": "e583e1086c4359fb744fbcafd76c1bbbc1c5d268cdcacee50ea8e2befa2f7816",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/rfid/rfid_menu_ui.c": {
+      "after_sha256": "215aadfbfea3c66807e3f93b9b035f27ee3108a5007af071fd0b298697a299fd",
+      "before_sha256": "495eaa68cb0a421ce8366e6da2bbae2bbc88960fd6a98b66612f939063746552",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/settings/c5_console_ui.c": {
+      "after_sha256": "3ed95d42b4bb2ee3883673830a87ee2531e908e61b0dde5499bf1b0865dbafee",
+      "before_sha256": "54dc72a8afd481e601450ae6d5bfad8d91b9ff427f3c21f9a34f5ad6b4403f59",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/settings/c5_status_ui.c": {
+      "after_sha256": "439cdced02bb811ea05c2bf73d03d4d94f0b522d020b5efe149d60184508e722",
+      "before_sha256": "c52aafc9f0883c3ae766879c3c3229c9678e1cbec0bedba2578f9c838382a8a3",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/settings/display_settings_ui.c": {
+      "after_sha256": "977f6c351422bcde3f225fc9b103b7cd9947b5ee404c29de32806da79fd900ee",
+      "before_sha256": "469ea0c6aec1e70d83064cfc25a06b3e2e62ab4ad4391bc417a5a457d20a5003",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/settings/interface_settings_ui.c": {
+      "after_sha256": "9044b8aced5edcde10051d1cf58adff493e1b13ba588f7619fa77f41430801f8",
+      "before_sha256": "66e37c8d155821388e0f75afaaf0bc6a2143aa9e10c28653471bb9282c7aa3e1",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/settings/sd_health_ui.c": {
+      "after_sha256": "89551645145c9c57cf24ae25ed59d5d7c8ca27871ff3102950bcb8151e7ba125",
+      "before_sha256": "862440dfeb384bfb4dd2bcaf86408d3ebaaea367a5ea75300631b09750773a04",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/settings/settings_ui.c": {
+      "after_sha256": "7180479fe893f52929655c6ee57b86fbc584b2a5f777dc8eaa7cb6dd748b3603",
+      "before_sha256": "a0474cf4b09ec261307e05883e199864d20e6926cc4e3d97aab454c0136b2068",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/settings/sound_settings_ui.c": {
+      "after_sha256": "ae2c737629ded8caff15d2b4de7d523a117c2e5b656d75ed0ba3f5c1c2f02da1",
+      "before_sha256": "529437f1f5eb22abdec1fc1e5c394b144d6b0c01f4c3a32381dc58ddb88e1a71",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/settings/storage_settings_ui.c": {
+      "after_sha256": "ff01c0ee0421402743707d2beca3786af8c0f47937d4c5e40fa2bec1a0c0c44b",
+      "before_sha256": "aca66a5fd37afaeaec4f08b0481aa8a397c291a5e74b69a56788cbc5116c4195",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/subghz/subghz_menu_ui.c": {
+      "after_sha256": "0f023ba044e44081de1b055b0ad03f842f72c862622f15e23ed04c32196e375d",
+      "before_sha256": "871091931cd21316be49e1c0110c96b42e6740619c01df155566c1360dc496b2",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/subghz/subghz_send_ui.c": {
+      "after_sha256": "889e1081dbd23827811c4ba334d74372f90b1e1b6cd4bdca637b0085ff235612",
+      "before_sha256": "b0640d3972824019cbec761dddaf31f89842d247e719d759b9a6f973c66ba2fb",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/wifi/wifi_channel_ui.c": {
+      "after_sha256": "575a4636a4f1ad94a7f61439aa5239f71d88aae064066b743cd60e440ae7568d",
+      "before_sha256": "2658710ecab926e861fe94adbe8929474a28bc2895443a228fc08ca0574e2552",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/wifi/wifi_hotspot_ui.c": {
+      "after_sha256": "52c9975b37428a4a268f4c125b76f8feed22bf5d210a9713ef19f6fa19b10706",
+      "before_sha256": "d51818c3b61f2f8fd2ebb3cc32995291bbf527636128fea694f3d7f39aeb0e5e",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/wifi/wifi_packets_ui.c": {
+      "after_sha256": "f1a31e4d77d1062f9105592f5de025cff7c0219d8c6183c9c31f9b36bda274f1",
+      "before_sha256": "da1c0f2baa28171a07b09e3f9c34a4e16da42b617c00671be962554932955edd",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/wifi/wifi_port_scan_ui.c": {
+      "after_sha256": "94ef6aa2e033f3ca7e1c08851fcddd759d77cc7f9b6c87928c1eb16ad13c4a54",
+      "before_sha256": "038c883206e0db9b6a44bb4fe441f40fc68a8d4c5ad0fad83f4ce1949f409a41",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/wifi/wifi_scan_ui.c": {
+      "after_sha256": "c53a4a7d6c64a88bcc5a8c09400a18fb310fbe57153a8a5966af275bce0ad45f",
+      "before_sha256": "90a497ea9c034c055c63e4321aa0abe973eb83e9750844abd271e598cc8cc40b",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/wifi/wifi_ui.c": {
+      "after_sha256": "e8994cc85331a14e1de3e1656dff629e0623de3547d97b0d4d67879d4a1f183f",
+      "before_sha256": "2fd0f0c65ad5fffbfa6b52f4f60a353b4640306503230638f87691ca3af241b7",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/ui_manager.c": {
+      "after_sha256": "938b509321c8ef23ed8cf0f6f5ff2644fdabaea3a84ca1b544428c4c2c2eeba2",
+      "before_sha256": "f100b117cc13a1537d54d5826c68b55dd2f08b536111ea5c4ebdc85faa4790de",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/wifi/include/wifi_sniffer.h": {
+      "after_sha256": "6478424eefda5e2383f6663fe0d315f8931af0df54f910aa919997223a843094",
+      "before_sha256": "84ed429323e4f7f838de20f990fce4e85da2ce461945c7c342af7bc97a9ac05f",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/wifi/wifi_sniffer.c": {
+      "after_sha256": "bb1ff834f29fd414800002b981d96eba023aff2c6b62fd003d9a0e5ce4db6b04",
+      "before_sha256": "98ca636fc06a5d030a80a3fc2cf946a50561c03c2e1f8f3e2817d76d62b8b9d9",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Core/kernel.c": {
+      "after_sha256": "c8d39b8b3c65406bcdfbd5855e4a32d3c1950fdaabbdbd1a80f554019fa592bb",
+      "before_sha256": "aa22b02a50355a33990952a177e56bf5595da0e621bd6de6e82e87b2136b5f71",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Core/resource_mgr/include/resource_mgr.h": {
+      "after_sha256": "b3a9495e72e836c28743cba7f9cffc60f61e8c0c8a287840e670c9d1754af0ad",
+      "before_sha256": "53328729e6535e5c031ec7457579fb08f56b00162067a0fe3263c08123df6928",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/bq25896/battery_service.c": {
+      "after_sha256": "59327b6da36c5500101cfffc6054e81b3262179e924d13022072757e28f5e419",
+      "before_sha256": "9e2659f90b09492784ad65dbe391ca7ad2a7ce6b71a44c85a5b837109d1cc1e4",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/bq25896/bq25896.c": {
+      "after_sha256": "ce860428335d1325788a9b1c9e3524c1f045dbd60c2bac34d0154eb59d38cdbd",
+      "before_sha256": "50429183ca37ea05af6ac1714914a47f690b3845c63a12bc6e6fe2a3fb5b0f1e",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/bq25896/include/bq25896.h": {
+      "after_sha256": "e13eaa7697e80251c2f2fd1d08b0fc6a5606a134a97b312c9788ba23db8369b7",
+      "before_sha256": "44a4baa96798e39de120944b21c71676e6d381c9b4c6806b1b0dfe577196afac",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/cc1101/cc1101.c": {
+      "after_sha256": "e144814e5084186b64f81f53b4c6238e29bcbcce6d8c6a1aab013275fca983b6",
+      "before_sha256": "63c20fd4342d10989ebd468a186ed76c63e5ca59e48911b3e06187662983f426",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/cc1101/include/cc1101.h": {
+      "after_sha256": "e67804652a6007d2bfbb7704d02e7e3312c6d12aacbfaba599c88a3600c3c6a3",
+      "before_sha256": "2598ed3f393fcbe6be6ba578258456d6e0f9eb07a58eec7a456d6bd81d2a4c84",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/grok_usb_audio/grok_usb_audio.c": {
+      "after_sha256": "946d4036aa158f3c3dc7ff1af72e23f1b29793289935cb33798fa830db7be3da",
+      "before_sha256": "4c865b401e6ce929aaab8dc3812197f1b89013656e6dcae679f7dcbe924cb716",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/grok_usb_audio/include/grok_tusb_config.h": {
+      "after_sha256": "29bdf0f6931afafe23c3d630f8eb34592898287ecba12734455fe5245f162db4",
+      "before_sha256": "9d216f8459008e3c8f6e89b6312dd01675d8b47b938f9a9d492268646b7bf426",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/grok_usb_audio/include/grok_uac_wire.h": {
+      "after_sha256": "51e53b810e388151313a1972da19b5fd4a93e4c95416e52d5291821dac15112f",
+      "before_sha256": "1fb6fe72852a0a6faaeccfdf55708517ff71442650fa98009d9d8cfbe7a4d80b",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/lf_rfid/include/lf_rfid.h": {
+      "after_sha256": "2f7fae276637160f66ec28e18c42b961e883004eeda111a60546dfd2a15788e5",
+      "before_sha256": "c506c1ebc4df404987c6099396a0a42df3935c3f60b4909d6b4db3d029d33f35",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/lf_rfid/lf_rfid.c": {
+      "after_sha256": "79e60a9796b7ec4abb6f87e47b8d0945d56d86337f435cec0b41c8a4024553c3",
+      "before_sha256": "74ca0d96cff8af62ffa9ef622aa9377a6e030f910d376e08e1c3b374887ae9d6",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/pins/include/pin_def.h": {
+      "after_sha256": "eeae10fa86506af55c780543a472536b1eb0b87bc6d6bf63b484733f5139fdc2",
+      "before_sha256": "0d98451c0f9debce75052d7ca255a005736434d68999ae07c9991da2432057dc",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/qmi8658a/qmi8658a.c": {
+      "after_sha256": "f534c423b4653f9e5d226a89fd76841faac32320a448ecef0a96b2a27b7b672c",
+      "before_sha256": "fee258c223ef6df78abf8af529d7065dd1db38c4b7e77933ca797a574b7d869b",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/spi/include/spi.h": {
+      "after_sha256": "5ffaba1827a17d29e2f1228ad3f574a49ab6dcdb22713cca5926e61313f62ca2",
+      "before_sha256": "62a284dee1f2002b9eec81f741395ce31da5ff3abc2f18bed35e8522d0e9ab7b",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/spi/spi.c": {
+      "after_sha256": "b79abbfab4fbfccae358e87f4d324cee9e3b57d425b2ceb1e8cf587fdf74bd80",
+      "before_sha256": "8d8d2141f79ca4f1987f82d045ba3cae25f464ab9ed37b1c607020a36cb48e2a",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/spi_bridge_phy/include/spi_bridge_phy.h": {
+      "after_sha256": "1a804e5ac50ec3abe734355b20d15a27af3e7d493f2ea7a81f8261d5cdf95f4c",
+      "before_sha256": "e0f199c1b05b7c23f621efa3ec5f7353d7aacb2a1337ec934eabc8570cef7af6",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/spi_bridge_phy/spi_bridge_phy.c": {
+      "after_sha256": "81e800009462cdb2fb05778bec9e17cb742ae395b2c0b00889994d971d5b0185",
+      "before_sha256": "5caf0ae2c2fe5dd13b71f401d12122022f0dcab9c88c24dfcf7d17defed4081f",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/st25r3916/hal/hb_nfc_spi.c": {
+      "after_sha256": "319a2d6d4c49908cc33a8135a2c58a89626196ce9276a534299883827d036c33",
+      "before_sha256": "9c8ede8bb8eec561349ef23225e4369a465b9f7c0711047d0e1fc8d081301f23",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/st25r3916/hal/include/hb_nfc_spi.h": {
+      "after_sha256": "714d6848b161983f89696f9e6300b204babf0d355a56da619c7bcaa433241edf",
+      "before_sha256": "bceefa702dde02ba50d8f14729de547e604f4fe2500f9a8788fa41c3c117e51f",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/st25r3916/highboy_nfc.c": {
+      "after_sha256": "6da169994d144e7a75abfc06009803fe7943b6657f3e5c91763f34b5db3267cb",
+      "before_sha256": "c681eb7c6d4dfec27883d80cf3ed21cdd9780eadf5d15a379063d07d9dea6abf",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/st25r3916/include/highboy_nfc.h": {
+      "after_sha256": "06167ffe8e79b86418a1f3062d0982d8f35bb9f15c7bcca8cead4854f145923c",
+      "before_sha256": "7a8c3a428cdd000e0225d1165ce94ce02ff9cb2a4034ddea028f98a3cf5ef54b",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/st25r3916/include/highboy_nfc_compat.h": {
+      "after_sha256": "6b32184080ef08f0e62f9741e8c6b44a59e83cd24355efba59e82f9bced75467",
+      "before_sha256": "5e5489e65b170a44520063b92a45bfdc4ba59814242d70c2213667c9068923af",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/st25r3916/include/highboy_nfc_types.h": {
+      "after_sha256": "d16d1a2990b711e4f3a83fe3836e0331b92292f33655a757485eeff5a5ffc0d8",
+      "before_sha256": "e930fb6c8d2dd822e55a0d806e573b5ffb7e5a88968da71e3bc005f0409e5f75",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/st25r3916/include/st25r3916_cmd.h": {
+      "after_sha256": "2e0755ddba4d303ab2008441d4793d1f58a8bc2bb0a8ba3eed1e2ebf4a9de188",
+      "before_sha256": "0aef1c8049ce9754b9ebeb022a8c28350e1c379afa1716a03bc04cf14c56a062",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/st25r3916/include/st25r3916_irq.h": {
+      "after_sha256": "8f1c8e4dc443f6e7373a3fdc4041fe4381faacf3fa97184839ca57b0c1763d2d",
+      "before_sha256": "4985eba6084303531f3d82fed1685db16960615ee237831eaa72b26dacc6ca9c",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/st25r3916/include/st25r3916_reg.h": {
+      "after_sha256": "d1c5068e4af6cfc4ec42f7589acf9cdf9f189fd4eb8085614ba2831635531dab",
+      "before_sha256": "f4534b9ec2990fab5f9ad081e8d71c1bacdaf32ea7bbac9f46c9f797686cbcec",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/st25r3916/st25r3916_core.c": {
+      "after_sha256": "94cd34024dd524eccaeb7abb59cd55785e0e8026c871f9ec6cf25eaa14bef5bb",
+      "before_sha256": "cff468689a408e15bc66683706bb8a53060c068f7d21e0ae141452b6cc20d369",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/st25r3916/st25r3916_irq.c": {
+      "after_sha256": "e6020e07e565140b11438a8ef7b7e37eba56dbe0c771771d18f97b30865787f3",
+      "before_sha256": "66a79ff98d0d4f729c6f9c29720724ac588e4d04d25c0fc021283aad2ad2daea",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/sx1262/sx1262.c": {
+      "after_sha256": "0f97146d0e4eb4857083744ef960a44413f5146375e2c88b80afa06a86b0776d",
+      "before_sha256": "69ad9d079e6cc3771dd6f04f4f1bcbf4a76892090cc39c257cf706364d50aeb4",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/sx1262/sx1262_irq.c": {
+      "after_sha256": "fbe21c2676db63e17ed605d9aabc1ba2c15cd7ee70adb254a0939446a3365e3c",
+      "before_sha256": "6903675267bfee79897293cc6d899745cfa8fa9f619550b3ab8753a5e710978e",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/tusb_desc/include/tusb_desc.h": {
+      "after_sha256": "1dc356309664c921cd16ff89b980067e20bb0d1f16e7ba201c8a896d6b6ac678",
+      "before_sha256": "dc1f398ee7a5eb3a30ab83cc20414db497de4bb5cd473f3d7bd5577d93779592",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Drivers/tusb_desc/tusb_desc.c": {
+      "after_sha256": "0217f5f1a891ad5ef183dfe1616782bde5532de9388a249d77e985e2175b1df9",
+      "before_sha256": "be4f87c56abb5f784a39472809cd7da4dc153b31132f492f488aaec764fd9867",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/app_runtime/include/tos_api.h": {
+      "after_sha256": "9c2020f1c91901d7b2335daccc2055d14c8646b20094bab14fc8bdd3a83b0b5d",
+      "before_sha256": "860ce4ba7a17ed5ae8ba40b66afd266ecc60e97562b382a8a5dfc4696d856ee4",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/boot_sound/boot_sound.c": {
+      "after_sha256": "e71dab7c80f90f093c219b574898c7b2162de4f1aa7840a77bc52bb63a0bf3e8",
+      "before_sha256": "11de9656271ac48dc1ebdc22148a53ef3a681334abc013bc6d549a9ebbad4ea0",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/console/commands/cmd_battery.c": {
+      "after_sha256": "f8a2f604f2cf2c3e3d7ebc2597f4f728e891a1e046353091c564dbaf70d4b848",
+      "before_sha256": "8499f16da7cef555715a41338bf89e86f834b5c03569f80c0ec4b2654aa54a0d",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/console/commands/cmd_rf.c": {
+      "after_sha256": "7861b4acf9d0299e0e82554fe0ea7d06041d2588d6d4275e00858a60c8bbf85b",
+      "before_sha256": "93532ac4e59f8ec0dd33d91358a8d899580bb8a9b0ad86225612166287c64b57",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/console/commands/cmd_screen.c": {
+      "after_sha256": "46348b985399b3f78da461bfa57c0c286f0c7f7fd39b71338e0bc613acdd3b38",
+      "before_sha256": "cd6f31804431da827a0e969d64d8ae40d29ed7251f417fcbb5bcfe982b4e2709",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/console/commands/cmd_subghz.c": {
+      "after_sha256": "ee8f0e2eae4b70f516b4085ccea29c1088ea867ac14631e025409ed5a88e30c1",
+      "before_sha256": "310c2631d45f0e23f46a7bf6cf16601723256e05d9cea0e34915452d9cc7f681",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/console/commands/cmd_system.c": {
+      "after_sha256": "6b96d49343b71637f7836325472c019348acceeaaea682137fea8f892c02e11d",
+      "before_sha256": "078e68777dd78388c1d0614b3fbab2fea6f1187e1dc7b431a574bc72d114c53d",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/console/console_service.c": {
+      "after_sha256": "d2c675f5256bc55f514d19385801e41e05cb4053921379d588d3b92dd5c121fd",
+      "before_sha256": "a721fee9136a45e3d79a0124f1955de7c17409993d7e457a5f372d7286bf53bd",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/console/include/console_service.h": {
+      "after_sha256": "b29720716c953c6e20b2222617263de559cc8a9beba3abd35639baca02e60cb1",
+      "before_sha256": "a02e9387ce46971b4eddada1db3656eb7dc29a0775c8a5e60a09d538f17bb9e7",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/grok_client/include/grok_wire.h": {
+      "after_sha256": "0d3e031ac3fa0c892938b433d0b333619e4afc24f127b0800e89a593cc2a0edb",
+      "before_sha256": "3a63098ae0bc5e5c2d20d32656777637575051593df48266d17041a46da2c9f7",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/muse_port/core/hb_muse_core.c": {
+      "after_sha256": "d614a5c4c45fa1bb674cf834debc699c510ed88c216c1935f101cc53372a1e12",
+      "before_sha256": "44f5a293f83d6254c35d269b88a32e12fda54f469dbb35cdf030bde1de86412a",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/muse_port/core/hb_muse_core.h": {
+      "after_sha256": "c1087a1a9f4fa1690c8240867496885a711bc9ba789753b0f9293c5848342c58",
+      "before_sha256": "6854221aba0741bcae8a89c6cb54d469f1e12101a6b97f171694c11f394d6078",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/muse_port/official/muse_pixel.c": {
+      "after_sha256": "d7c1bcd1b6aeb133efa11bfb73c0c610b146ae84669cb9e4b58f0fd1251b9861",
+      "before_sha256": "72369c740fb9450a11491a9e5e71a5e031f3a835ab037bf03a2c17914b3fb915",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/muse_port/official/muse_pixel.h": {
+      "after_sha256": "e5bfed174f5b4953056096de337a4d6f41c5b2b3e9a5c452317e6e6d1697d5a9",
+      "before_sha256": "ce62194bd26e364056dfb507c25b3dce3266a32459764b8cc3479d8ab8f6be97",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/muse_port/official/muse_state.h": {
+      "after_sha256": "635ba7100c0dc72f3bc838b3a8baf92ff68ca9788ee596449e4c81f4b00e29a3",
+      "before_sha256": "ae174e801b829fa4f71ac0282c1bb53ea59e9e2b085876ab248eddcebd23f8a9",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/muse_port/p4_app/hb_muse_app.c": {
+      "after_sha256": "ed11cf52cd792becc44eeec275f68857f0e9a17296e3b2da8b2a2642d543e55a",
+      "before_sha256": "7cbf714a444476003ca14fb439dd0af7b72722b811c86a51a29cceed249abe9a",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/muse_port/p4_app/hb_muse_app.h": {
+      "after_sha256": "0ef226a99fdf8f14ca9823f244b793d5d790f9eb4d3ba9faaa84f0d49d7ceb65",
+      "before_sha256": "979a7d28244c77ce99c90461c3f8fbd687777fc1f24d683d5e6a287296f92ec6",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/muse_port/sdk_adapter/hb_muse_pcm_adapter.h": {
+      "after_sha256": "51fdad712ebbb03cd4da9267ffd890b2c413eab5b055d68659ee9e9d80a5ee1a",
+      "before_sha256": "e5fa7764659ab1083cfeeea126b65785e6b333619486408219d807ebf2266c2e",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/muse_port/sdk_adapter/hb_muse_sdk_binding.h": {
+      "after_sha256": "9da68ef847c12b37389db19728b264da1bbd5cfa606eb5d0564a1222fbb9c7c8",
+      "before_sha256": "e4cd81dfdb339752c386fe92124c5b1b4663001ff99a8874f7c4e6d90bf739ea",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/muse_port/sdk_adapter/hb_muse_sdk_port.h": {
+      "after_sha256": "c32e9f82d57ebc6df8f5c0707d994eda710b7d85f38113f7c300f894f8403c6f",
+      "before_sha256": "f66c9f50da4ee1e6129fbf95f2c96f6347ba26e2724f0746fc4e431bc8089746",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/muse_port/transport/hb_muse_endpoint.h": {
+      "after_sha256": "af47b56eca9c92e4c7091d2ba71074ca3230ad81bbae224d4ef319a2d48d89f8",
+      "before_sha256": "c356ac1f7c08d88c29d51b375949ba44241b4129bce3ae0830aae843f9aef312",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/muse_port/transport/hb_muse_wire.c": {
+      "after_sha256": "d5362d0a57935cbcbb8d16b71433d913de51d8850c00e5e0abe0364c5489816c",
+      "before_sha256": "3cd54ff3884bb43f10138da9b8033a8bd4b610231efbe91785b2fa94609080f3",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/muse_port/transport/hb_muse_wire.h": {
+      "after_sha256": "1ddf71696d68821dbdaa872ad48b421faf861453ec8a496005c202f5dbb9d45f",
+      "before_sha256": "2ead5de47b7f12100eb2e883954a5a418377ef168ef0ee4150ba0abf2ac48904",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/muse_port/transport/hb_muse_wire_client.c": {
+      "after_sha256": "15441a7e8c5e48c9bdd0e1c4f1269a0ffde7c8d4ffb4802eaa73abf6330102d1",
+      "before_sha256": "7a07ba511ab9985abe309f7c9215cd97e149dce3c4cc712e3a1265fd0d5abf3d",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/muse_port/transport/hb_muse_wire_client.h": {
+      "after_sha256": "00aba9adb50a1682e82159e7952b4305f8a2f244ee5c87d5eb2ebc597c3fa7c8",
+      "before_sha256": "6651dc07864322b2a06cce237cc4f462b5f650aa19dfb80caa2514fb29a55226",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/host_link/host_link.c": {
+      "after_sha256": "6fa28c9bb162cfad719c14b75c53124217b6d877887ba3d8ff4efd7524673cd4",
+      "before_sha256": "d2893c03f1b11a5d86f361742bb3ebf04fd0020fd9692bb83fe1a5843ecd84f0",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/host_link/host_link_ble.c": {
+      "after_sha256": "c6e287b9815da24cb53c66db34895dbe248ca0d198f1420274502886f286ddec",
+      "before_sha256": "817a7f5a6bf4d26c8edc1397646eae29a17114e19fbab43a410431ee47a307f1",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/host_link/host_link_cdc.c": {
+      "after_sha256": "3def64439f60f22e3ea8e8de7a9ce3be2e986f25976a064dd0530b03bd3fd9f6",
+      "before_sha256": "a2bb9ca4a3522b2e26259954089107852b49c23796897036301bbc2cad823c65",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/host_link/host_link_ir.c": {
+      "after_sha256": "d33be518785106082ae3f94f70638d1b478cda933bf2b9ce703b70e7cedc652c",
+      "before_sha256": "25fcbff23310aba33681482b7adbd285438fa5c27175e925f977d1a2ed63ad72",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/host_link/host_link_log.c": {
+      "after_sha256": "95e91d93cc3bcd01cc7d8e730b873b45e8b4b66609d4c3cb475c956be0d45cb0",
+      "before_sha256": "f205b7400875413b550b621e44081978d20fb2ca4f83ec2d7b60f36c0a6ba41a",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/host_link/host_link_lora.c": {
+      "after_sha256": "2279a48354327f363e7d9c5720521b8a00b6ae85a6b33adcc95bedae387558d8",
+      "before_sha256": "3b2baf44539d5bc4cc6862f53cc634ab786dfaa3bef2d74671a8cc29b379d5a5",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/host_link/host_link_sec.c": {
+      "after_sha256": "185f5eb3e8e748ed61f7f1d3996dc6799e77391f6d56845bba71bcca91ae6a21",
+      "before_sha256": "89df49594e1803b5923417c4ea6b458fd197169afc3de7c7979c081fc5c021d0",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/host_link/host_link_stream.c": {
+      "after_sha256": "5984f7e6bfe7cf52538ecc5b326b217d8153c94cfe91b363188fbf54cc1f0428",
+      "before_sha256": "dfefe88dcf3ffc772259769983ef31f9fd17f2f407a63b8d115a72a800506fea",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/host_link/host_link_subghz.c": {
+      "after_sha256": "64155ec9d70f3e568ea48e2f3c5f12e28117bccf6a17150272b26525267fc32a",
+      "before_sha256": "5197d51d1419a553c6f62270b3eaa25226d312f1d5ef0f0c2689620a26033ed6",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/host_link/include/host_link.h": {
+      "after_sha256": "0371bf7f1b571cfb7b11f9386a34aa9ecee1d91f7331d7bc0b76d6aa4c963348",
+      "before_sha256": "14156bdd6cfcec2d0a65c8ebf503a6fe7ba7e42d268ddfdec1e1936449f28288",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/host_link/include/host_link_sec.h": {
+      "after_sha256": "d4e4b314f3df9cd9c9a9a8ed53f0e9060e5e95d88776a6d8e3858683dbb14b58",
+      "before_sha256": "3e7056cc1b39e3ca7b99be6131c11b2fb732c80faa52332264681ede1977f7cb",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/ir/include/ir_file.h": {
+      "after_sha256": "61325de2bed22e794c8d393392cf44186ab2b24b066217f32a1983a40bd4bd72",
+      "before_sha256": "a7fc0ee248bf8460a9cc0271b18278b61943255b43f8ee837bf13bd7ea26bb17",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/ir/ir_file.c": {
+      "after_sha256": "4ab3c4f6f48133265d9bc55ce22744da1c48c0f6ef2cce3ec758ede6c9905404",
+      "before_sha256": "fc4b18c447007e9c54358842f47ccec4456e3fa51725713197e3c04b1a29d42c",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/lvgl/lvgl_glue.c": {
+      "after_sha256": "49f2b797b990f4554881745c68bed165d0aef147ad48fe7c3df0e02c986c20f0",
+      "before_sha256": "729ea30752a7793a8f5226fd8d4de11a58864d3c2cfa0b42b443997ac5f63fbc",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/lvgl/lvgl_screen_share.c": {
+      "after_sha256": "91358cf3c170fee931c0e3658a86e7be02ae143e6218365246154550e58eceef",
+      "before_sha256": "fd84f0e34a92a0a0565671fda250392e1f7c31b49da3c320bca659bcdbcef80f",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/muse/hb_muse_p4_service.c": {
+      "after_sha256": "eabb101bc7a9c07b620a4692771e35ab348436c5e16bbd65dc76642ef8969bb4",
+      "before_sha256": "b2d9c90b4dc689c1f9f28c9037aba2896e0e8c347ea214909f1144f7fd220d1a",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/muse/hb_muse_p4_service.h": {
+      "after_sha256": "25f2a3a4ad65064619ad3db5a170acac50b762388c54bfd7d132f766ff8e9f14",
+      "before_sha256": "0f453303a15b2d57d012695b3e644600651a78e92bc4cf60cc2a08c232f3a07e",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/sd_card/sd_card_info.c": {
+      "after_sha256": "e062d85c9ba02756c34f235eb8d9b3322505d8699858d03cf02228bf2714368e",
+      "before_sha256": "1ed0818de88b22b770e887d8fd76aebc0173a4ff1eb58b25306517c502277464",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/spi_bridge/config_sync.c": {
+      "after_sha256": "6a7181d0a9dde9a92673cffcf606ad82b2efaa784be18b2c20e4b5f0ffc26684",
+      "before_sha256": "6b0023bbad6d6b08d739d339ce2e3c702d3533212d187691866c7632bcadae04",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/spi_bridge/include/config_sync.h": {
+      "after_sha256": "9afffb2bbcac0261e02bf3e1e38524666b923246e246e5eb6343bcd6bac6b1af",
+      "before_sha256": "9b516a89925ddba12a69c65488c17997aecca04ce966530927289b2edd5f09d8",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/spi_bridge/include/spi_bridge.h": {
+      "after_sha256": "4bfdb2bc9e0eb3021aca1e00f3fa14cf3eef77ee3b822d335aa7c21d70e113c3",
+      "before_sha256": "c81f548f9bb302d4c9ff954d731d49a74d9a10749a17ee3a068b2ca8059995cd",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/spi_bridge/include/spi_protocol.h": {
+      "after_sha256": "44e794090bdddda5f999a29dbbb55f907c89cb001a9284a0abd94c631987c342",
+      "before_sha256": "05e1460793e4d8e0f563557e6c68d59e772211b270115576bbbeb5598cd030c7",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/spi_bridge/include/spi_session.h": {
+      "after_sha256": "3ed7eb5210eb27f6270808abb5ee5736419115b7a944eff061fc3d7d6ca05fd1",
+      "before_sha256": "49576320b922972eb7d2d7d81a6ca52a48533fa3f968a2f1b302097ba0d747c6",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/spi_bridge/spi_bridge.c": {
+      "after_sha256": "1ef59a43717e39cba25100f091dbea9d5f40f19e7497efbd42e0ff9f53996436",
+      "before_sha256": "5dad7cece83580173ca46f102aea57f319d2695a4a4e1a36e66f19386aec72e6",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/spi_bridge/spi_session.c": {
+      "after_sha256": "38c28511781f871c823bc91096ceab839c262ebd075c709e41b837c568c2a83a",
+      "before_sha256": "2e901d3ee86744877e26422197b6b57cd637756c2168e0b22fed2065a507f630",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/storage_api/include/tos_config.h": {
+      "after_sha256": "876a252a16cc309267771a65adfd7efbd542fce037a1b1c68b2efe204293178e",
+      "before_sha256": "7c23bd6f9f418b4234fa380b0e6c4808b9db7ff601f1a1eeb6129d7ac00c4e1a",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/storage_api/include/tos_storage_paths.h": {
+      "after_sha256": "9c46c001dc93426fd4d4f31ec2770eec8f607f4e1478cf1d14c0d51c795d77ee",
+      "before_sha256": "bdeb375ff51cc76f96b8bd11cc3f749b4de5b814cf0b9aefa1a71ad22017e283",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/storage_api/tos_config.c": {
+      "after_sha256": "f4a03da2de21faaf0422f5ed5fdab44a89119aae826183eb99c3673ff19a8a3a",
+      "before_sha256": "6e891da99a6bbc36269dba856e8f3ef2e9eb2b5d28753ff378d87e8fc9174308",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/storage_api/tos_first_boot.c": {
+      "after_sha256": "dc711f3912593d6f72144a2c41d1d0344ce69feabc20d33c84903472dfde559b",
+      "before_sha256": "d157bef49ac06f0bc9bb5fd8ee65dfd1b4fe98f5c759a2c96700d7b76b42ff95",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/storage_vfs/include/vfs_sdcard.h": {
+      "after_sha256": "d5c76c04103569ba311957875cf9a79d0729437129394bf0206d9aed6ef8713f",
+      "before_sha256": "fdb2f49e2cbd9d8d59aabfcfa9ea710a330b980b1b71d2989b92419627c8588b",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/storage_vfs/vfs_core.c": {
+      "after_sha256": "11f7230662753017808464887f2ed75e480c92f3051f62011b100b40ad4726ac",
+      "before_sha256": "b71c79bc5fa3262db286fdb592956cc65919fd609f8384604c1f39661680b635",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/storage_vfs/vfs_sdcard.c": {
+      "after_sha256": "cb0fec3845e50f5ea659b62679a30ece12f63b4bd688265b6eb03385eb69cdd6",
+      "before_sha256": "bbf2799a07fc3c119acdddb5fe962b00fe5a922b4c068a89794b94206b0f48d0",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/wifi/include/wifi_service.h": {
+      "after_sha256": "ffe82e029ac77b4513d08866db881a521370a97b12ad2c19831cdc3c99e14dc4",
+      "before_sha256": "75c919f0316eb6a8469e02ddb92d3080e20bcb047f77dc3314934f0c385a9c61",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/wifi/wifi_service.c": {
+      "after_sha256": "df866fe72e17883547cabc900d80df76cbd5ffcfb5def41a34b6c32b8cec61a3",
+      "before_sha256": "4693a1bda25562ec2199888a02d79d389e4e308be8aa750b1bbe164221ae5aed",
+      "formatter": "clang-format version 22.1.5"
+    }
+  },
+  "retired_files": {
+    "firmware_p4/components/Applications/ui/screens/games/fly_local3d.c": {
+      "after_sha256": "63e103d8b86e49fa26789d3c345666e4dbbe6cf5c5fc8268741058007e8ab930",
+      "before_sha256": "b7c0d992b65ffe9841e43942c3168497f244b79213ba81c9eaed5caddb0fa0ce",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/games/fly_local3d.h": {
+      "after_sha256": "77a53bcd1815316a4cd6cc18fa046b7911130ec689f5ab8c135cdf80ac645cf6",
+      "before_sha256": "099dd459fc4b98dea8be04ace697424fc9b647fc421c8a905d92d62f45b8b002",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/games/fly_menu_texture.c": {
+      "after_sha256": "ca53b626161da8f25db80e1d8ebfe67dc5bd77cd3b3e556531dd71a107ac0b74",
+      "before_sha256": "99e6bc932bd7b0203e296edcbbac78537676ddd534510fbd85db2e403ec7309a",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/games/fly_menu_texture.h": {
+      "after_sha256": "720b7e4f8499857413a21c705d337f64c3bc4d6d9d9fbf7f36eeeac75ffdc65f",
+      "before_sha256": "a685824b44a69041cdfd314afa0241b8309aa8e636ef5780dd729ba301e2e97e",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Applications/ui/screens/games/fly_ui.c": {
+      "after_sha256": "b758d0182e30df082f6ca1d5b19dc62f4955d1102d99b29f92cec33e4c1a2420",
+      "before_sha256": "0795f8409409e494d2b5ce6dbbbe992018dfe4ec47c88e19fef3c5d56d0a7b66",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/fly_link/fly_link.c": {
+      "after_sha256": "68a5006dd079f1026e4c249194db287d6c59f475504c6f3f495f1b5f20d0cf73",
+      "before_sha256": "2e96b946d6c5513882db39f32b6ee87a58dc7d5f823dd2b5c67feda1d84c6b5c",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/fly_link/include/fly_link.h": {
+      "after_sha256": "b69b163502f65025998c43cab96acbe33df10571c6df2d8201f023c4cf9b7e93",
+      "before_sha256": "8ea5708586c27d696329705c2ed1d608eff49fec8ab827c56498ce01ac742a65",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/host_link/host_link_fly.c": {
+      "after_sha256": "61e29ab65980549f335317c6537c313549f08cb558f06edca5470032259070f4",
+      "before_sha256": "29a4273fb030971efa8a29f199c1da2489214c82912518ca67bd582d66a4a380",
+      "formatter": "clang-format version 22.1.5"
+    },
+    "firmware_p4/components/Service/host_link/include/host_link_fly.h": {
+      "after_sha256": "969841347c85eeea13d28497a59abd274b23071d2d5470f802b2a44cf188f58b",
+      "before_sha256": "33aad626419a53bf382f971f9c641f115b2541a04c8ffa4194b95c9d37ac9979",
+      "formatter": "clang-format version 22.1.5"
+    }
+  }
+}

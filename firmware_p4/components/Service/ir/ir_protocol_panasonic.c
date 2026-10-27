@@ -50,13 +50,17 @@ bool ir_protocol_panasonic_decode(const rmt_symbol_word_t *symbols,
   if (byte3 != (uint8_t)(byte0 ^ byte1 ^ byte2))
     return false;
 
-  uint16_t device = (((byte0 >> PANASONIC_NIBBLE_SHIFT) & PANASONIC_NIBBLE_MASK) |
-                     ((uint16_t)byte1 << PANASONIC_NIBBLE_SHIFT)) &
-                    KASEIKYO_ADDR_MASK;
+  uint8_t genre1 = byte0 >> PANASONIC_NIBBLE_SHIFT;
+  uint8_t genre2 = byte1 & PANASONIC_NIBBLE_MASK;
+  uint16_t payload = (uint16_t)(byte1 >> PANASONIC_NIBBLE_SHIFT) |
+                     ((uint16_t)(byte2 & KASEIKYO_DATA_HI_MASK) << PANASONIC_NIBBLE_SHIFT);
+  uint8_t id = byte2 >> KASEIKYO_ID_SHIFT;
 
   out_data->protocol = IR_PROTO_PANASONIC;
-  out_data->address = ((uint32_t)device << KASEIKYO_ADDR_SHIFT) | vendor;
-  out_data->command = byte2;
+  out_data->address = ((uint32_t)id << KASEIKYO_ID_ADDR_SHIFT) |
+                      ((uint32_t)vendor << PANASONIC_BYTE_SHIFT) |
+                      ((uint32_t)genre1 << PANASONIC_NIBBLE_SHIFT) | genre2;
+  out_data->command = payload;
   out_data->repeat = false;
   return true;
 }
@@ -65,18 +69,22 @@ size_t ir_protocol_panasonic_encode(const ir_data_t *data, rmt_symbol_word_t *sy
   if (data == NULL || symbols == NULL || max == 0)
     return 0;
 
-  uint16_t vendor = data->address & PANASONIC_VENDOR_MASK;
+  uint16_t vendor = (data->address >> PANASONIC_BYTE_SHIFT) & PANASONIC_VENDOR_MASK;
   if (vendor == 0)
     vendor = PANASONIC_VENDOR_ID;
-  uint16_t device = (data->address >> KASEIKYO_ADDR_SHIFT) & KASEIKYO_ADDR_MASK;
+  uint8_t genre1 = (data->address >> PANASONIC_NIBBLE_SHIFT) & PANASONIC_NIBBLE_MASK;
+  uint8_t genre2 = data->address & PANASONIC_NIBBLE_MASK;
+  uint8_t id = (data->address >> KASEIKYO_ID_ADDR_SHIFT) & KASEIKYO_ID_MASK;
+  uint16_t payload = data->command & KASEIKYO_DATA_MASK;
 
-  uint8_t vp = vendor ^ (vendor >> PANASONIC_BYTE_SHIFT);
+  uint8_t vp = (vendor & 0xFF) ^ (vendor >> PANASONIC_BYTE_SHIFT);
   vp = (vp ^ (vp >> PANASONIC_NIBBLE_SHIFT)) & PANASONIC_NIBBLE_MASK;
 
-  uint8_t byte0 =
-      (vp & PANASONIC_NIBBLE_MASK) | ((device & PANASONIC_NIBBLE_MASK) << PANASONIC_NIBBLE_SHIFT);
-  uint8_t byte1 = (device >> PANASONIC_NIBBLE_SHIFT) & 0xFF;
-  uint8_t byte2 = data->command & 0xFF;
+  uint8_t byte0 = (vp & PANASONIC_NIBBLE_MASK) | (genre1 << PANASONIC_NIBBLE_SHIFT);
+  uint8_t byte1 = (genre2 & PANASONIC_NIBBLE_MASK) |
+                  ((payload & PANASONIC_NIBBLE_MASK) << PANASONIC_NIBBLE_SHIFT);
+  uint8_t byte2 =
+      ((payload >> PANASONIC_NIBBLE_SHIFT) & KASEIKYO_DATA_HI_MASK) | (id << KASEIKYO_ID_SHIFT);
   uint8_t byte3 = byte0 ^ byte1 ^ byte2;
 
   uint64_t raw = (uint64_t)vendor | ((uint64_t)byte0 << PANASONIC_BYTE0_SHIFT) |

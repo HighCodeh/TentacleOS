@@ -82,5 +82,11 @@ protocol_nice_flo_decode(const int32_t *raw_data, size_t count, subghz_data_t *o
   return false;
 }
 
+static size_t
+protocol_nice_flo_encode(const subghz_data_t *data, int32_t *pulses, size_t max_count) {
+  return subghz_pwm_encode(
+      data->raw_value, data->bit_count, NICE_FLO_SHORT_US, NICE_FLO_LONG_US, pulses, max_count);
+}
+
 subghz_protocol_t protocol_nice_flo = {
-    .name = "Nice Flo", .decode = protocol_nice_flo_decode, .encode = NULL};
+    .name = "Nice Flo", .decode = protocol_nice_flo_decode, .encode = protocol_nice_flo_encode};

@@ -16,6 +16,8 @@
 file(GLOB_RECURSE ST25R3916_SRCS "st25r3916/*.c")
 file(GLOB_RECURSE YS_RFID2_SRCS "ys_rfid2/*.c")
 file(GLOB_RECURSE SX1262_SRCS "sx1262/*.c")
+file(GLOB_RECURSE LF_RFID_SRCS "lf_rfid/*.c")
+file(GLOB_RECURSE RF_FRONTEND_SRCS "rf_frontend/*.c")
 
 
 idf_component_register(SRCS
@@ -23,19 +25,25 @@ idf_component_register(SRCS
   "bq25896/bq25896_ext.c"
   "bq25896/battery_service.c"
   "cc1101/cc1101.c"
+  "cc1101/cc1101_lease.c"
   "st7789/st7789.c"
   "led/led_control.c"
   "spi/spi.c"
   "i2c_init/i2c_init.c"
   "tusb_desc/tusb_desc.c"
   "buttons_gpio/buttons_gpio.c"
+  "gpio_header/gpio_header.c"
   "input_manager/input_manager.c"
   "spi_bridge_phy/spi_bridge_phy.c"
   "audio_i2s/audio_i2s.c"
+  "grok_usb_audio/grok_usb_audio.c"
   "drv2605l/drv2605l.c"
+  "qmi8658a/qmi8658a.c"
   ${ST25R3916_SRCS}
   ${YS_RFID2_SRCS}
   ${SX1262_SRCS}
+  ${LF_RFID_SRCS}
+  ${RF_FRONTEND_SRCS}
 
   INCLUDE_DIRS
   "sys_prio/include"
@@ -49,21 +57,46 @@ idf_component_register(SRCS
   "i2c_init/include"
   "tusb_desc/include"
   "buttons_gpio/include"
+  "gpio_header/include"
   "spi_bridge_phy/include"
   "audio_i2s/include"
+  "grok_usb_audio/include"
   "drv2605l/include"
+  "qmi8658a/include"
   "st25r3916/include"
   "st25r3916/hal/include"
   "ys_rfid2/include"
   "ys_rfid2/hal/include"
   "sx1262/include"
+  "lf_rfid/include"
+  "rf_frontend/include"
 
   REQUIRES
+  resource_mgr
   driver
   esp_driver_i2s
+  esp_driver_gpio
+  esp_driver_i2c
+  esp_driver_ledc
+  esp_driver_pcnt
+  esp_driver_spi
+  esp_driver_uart
   Service
   esp_lcd
   PRIV_REQUIRES
+  esp_timer
   esp_tinyusb
   soc
-  "espressif__led_strip")
+  "led_strip")
+
+# Airtime policy is not a radio timing path; keep its accounting compact.
+set_source_files_properties("sx1262/sx1262_airtime.c" PROPERTIES
+  COMPILE_OPTIONS "-Os;-flto=2;-ffat-lto-objects")
+
+# Compact control services; retain interrupt, pulse-timing and radio-transfer policies.
+set_source_files_properties(
+  "cc1101/cc1101_lease.c" "rf_frontend/rf_frontend.c"
+  "bq25896/battery_service.c" "bq25896/bq25896_ext.c" "bq25896/bq25896.c"
+  "st25r3916/st25r3916_core.c" "st25r3916/highboy_nfc.c"
+  "buttons_gpio/buttons_gpio.c" "input_manager/input_manager.c"
+  PROPERTIES COMPILE_OPTIONS "-Os")

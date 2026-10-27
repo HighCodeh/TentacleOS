@@ -7,7 +7,7 @@ kills tasks.
 - **Location:** `components/Core/sys_monitor.c`
 - **Task:** `SysMonitor`, priority `SYS_PRIO_MONITOR` (1), pinned to
   `SYS_CORE_RADIO` (core 0). See [sys_prio](../sys_prio/README.md).
-- **Start:** `sys_monitor_start(bool is_verbose)` from `kernel_init`.
+- **Start:** `esp_err_t sys_monitor_start(bool is_verbose)` from `kernel_init`.
 
 ## What it does each cycle (2 s)
 
@@ -19,9 +19,14 @@ kills tasks.
    without it).
 4. Tracks how many **consecutive** cycles each task stays critical. Only after
    `STACK_ESCALATE_CYCLES` (5, so ~10 s) does it perform a **controlled restart**
-   (`esp_restart()`), preceded by a log, a UI alert and a short grace delay.
+   (`abort()` through the configured panic/coredump handler), preceded by a log,
+   a UI alert and a short grace delay. This retains abnormal-reset accounting
+   instead of classifying a detected operational fault as a clean restart.
 5. Tasks that recover or exit drop out of the table, so a fresh dip starts a new
-   streak instead of inheriting a stale one.
+   streak instead of inheriting a stale one. Identity uses both task handle and
+   FreeRTOS task number, so reused handles or duplicate names cannot inherit
+   another task's streak. A full critical-task table escalates instead of
+   leaving additional critical tasks unsupervised.
 6. **Heap watch** (`check_heap()`): reads internal free and the largest
    contiguous internal block. When either drops low
    (`HEAP_WARN_FREE_B` / `HEAP_WARN_LARGEST_B`) it warns once, evicts the image
@@ -42,7 +47,8 @@ kills tasks.
    restart. The tolerance is intentionally generous: a legitimately slow but
    blocking op on the UI thread (e.g. a multi-second `wifi scan` run under the
    LVGL lock) freezes the renderer for a few seconds without being deadlocked, so
-   only a genuinely stuck UI should reboot. This replaces the old "watch a task
+   only sustained lack of progress should reboot. The first beat is supervised
+   too; a UI that never starts can no longer evade the monitor. This replaces the old "watch a task
    called `UI Task` by name" logic - it watches the renderer's actual progress,
    not a task name.
 
@@ -91,14 +97,34 @@ The C5 runs the same observe / report / escalate monitor
 - **Headless, so "report" is log-only.** The C5 `safeguard_alert()` just logs
   (there is no UI), so low-stack warnings and the recovery notice go to the log
   (which the host link forwards to the P4). Everything else - the per-task
-  persistence table, `STACK_ESCALATE_CYCLES`, the controlled `esp_restart()` - is
+  persistence table, `STACK_ESCALATE_CYCLES`, the panic/coredump recovery - is
   identical.
-- **Entry point is `sys_monitor(bool show_ram_logs)`**, started from
+- **Entry point is `esp_err_t sys_monitor_start(bool is_verbose)`**, started from
   `kernel_init`, and the task runs at `SYS_PRIO_MONITOR` on the single core.
 - The bus most dangerous to strand with a stray `vTaskDelete` here is the **SPI
   bridge to the P4**, which is exactly why the C5 monitor no longer kills tasks.
-- **The monitor loop is the C5 watchdog heartbeat** (the P4 uses its UI task for
-  this). It subscribes with `esp_task_wdt_add(NULL)` and calls
+- **The monitor loop is the watchdog heartbeat on both targets**. It subscribes with `esp_task_wdt_add(NULL)` and calls
   `esp_task_wdt_reset()` each cycle, so with `CONFIG_ESP_TASK_WDT_PANIC=y` a
   stuck monitor - or a task that starves the single core past the 5 s timeout -
   reboots instead of only logging a warning.
+
+## Startup and stability contract
+
+The pinned monitor task is created once, with no separately allocated parameter
+block. Repeated starts are idempotent; task-creation failure returns
+`ESP_ERR_NO_MEM` and permits retry. Both kernels check this result. Watchdog
+subscription and every feed are checked with `ESP_ERROR_CHECK`; a failed WDT
+API cannot leave a silently unwatched supervisor running.
+
+P4 calls `sys_monitor_expect_ui(false)` only when the display/LVGL could not
+initialize. Headless recovery therefore keeps heap/stack/WDT supervision without
+claiming a render heartbeat or invoking the LVGL cache. Kernel alerts also
+check LVGL readiness before attempting to create a message box. Every UI-capable boot supervises the initial zero
+beat as well as later stalls. A healthy monitor cycle clears the boot-loop
+counter only after `boot_report_complete()`, the stable-time gate and all
+required stages succeed. SD/I2C remain optional diagnostics.
+
+`python3 tools/boot_report/test_boot_report.py` runs production-code fault
+injection with ASan/UBSan, fake scheduler/WDT/HAL and both chip monitors. This
+verifies error handling, identity reuse and escalation selection; it does not
+measure physical watchdog timing or certify a captured flash core dump.

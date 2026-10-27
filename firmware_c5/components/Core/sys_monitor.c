@@ -15,6 +15,10 @@
 
 #include "sys_monitor.h"
 
+#include <stdatomic.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "esp_heap_caps.h"
@@ -32,8 +36,6 @@ static const char *TAG = "SYS_MONITOR";
 
 #define MONITOR_INTERVAL_MS      2000
 #define MONITOR_STACK_SIZE       4096
-#define MONITOR_PRIORITY         SYS_PRIO_MONITOR
-#define MONITOR_CORE             SYS_CORE_MAIN
 #define CRITICAL_STACK_THRESHOLD 256  // free stack (bytes); below this a task is at risk
 #define STACK_ESCALATE_CYCLES    5    // consecutive critical cycles before a controlled restart
 #define STACK_WATCH_MAX          8    // distinct critical tasks tracked for persistence
@@ -48,10 +50,6 @@ static const char *TAG = "SYS_MONITOR";
 #define HEAP_CRIT_FREE_B    8192  // sustained below this -> controlled restart
 #define HEAP_CRIT_CYCLES    3
 
-typedef struct {
-  bool is_verbose;
-} sys_monitor_params_t;
-
 // The monitor observes and reports; it never deletes tasks. Deleting a task
 // mid-transaction leaks the peripheral bus mutex (I2C/SPI) and wedges the driver
 // until reboot, turning a tight stack into a dead peripheral. On the C5 the SPI
@@ -63,30 +61,32 @@ typedef struct {
 //
 // The C5 is headless, so "report" means logging: safeguard_alert() just logs.
 typedef struct {
+  TaskHandle_t task;
+  UBaseType_t number;
   char name[configMAX_TASK_NAME_LEN];
   uint32_t streak; // consecutive monitor cycles this task has been critical
   bool alerted;    // alert already emitted for the current streak
   bool seen;       // matched in the cycle currently being processed
-} stack_watch_t;
+} sys_monitor_stack_watch_t;
 
-static stack_watch_t s_watch[STACK_WATCH_MAX];
+static sys_monitor_stack_watch_t s_watch[STACK_WATCH_MAX];
 static uint32_t s_watch_count;
+static atomic_bool s_is_started;
 
-static stack_watch_t *watch_find(const char *name) {
+static sys_monitor_stack_watch_t *watch_find(const TaskStatus_t *task) {
   for (uint32_t i = 0; i < s_watch_count; i++) {
-    if (strcmp(s_watch[i].name, name) == 0) {
+    if (s_watch[i].task == task->xHandle && s_watch[i].number == task->xTaskNumber) {
       return &s_watch[i];
     }
   }
   return NULL;
 }
 
-// TODO(item 31): flush the filesystem and radios via a graceful shutdown hook
-// here once it exists, before the restart.
+// Panic recovery retains abnormal-reset accounting and the configured core dump.
 static void controlled_restart(const char *title, const char *message) {
   safeguard_alert(title, message);
   vTaskDelay(pdMS_TO_TICKS(REBOOT_GRACE_MS));
-  esp_restart();
+  abort();
 }
 
 static void escalate_stack_restart(const char *name, uint32_t watermark) {
@@ -101,10 +101,20 @@ static void escalate_stack_restart(const char *name, uint32_t watermark) {
   controlled_restart("SYSTEM RECOVERY", msg_buf);
 }
 
-static void check_task_stacks(const TaskStatus_t *tasks, uint32_t count) {
-  for (uint32_t i = 0; i < s_watch_count; i++) {
-    s_watch[i].seen = false;
+static bool check_task_stacks(const TaskStatus_t *tasks, uint32_t count) {
+  bool is_healthy = true;
+  uint32_t retained = 0;
+  for (uint32_t i = 0; i < s_watch_count; ++i) {
+    for (uint32_t j = 0; j < count; ++j) {
+      if (s_watch[i].task == tasks[j].xHandle && s_watch[i].number == tasks[j].xTaskNumber &&
+          tasks[j].usStackHighWaterMark < CRITICAL_STACK_THRESHOLD) {
+        s_watch[i].seen = false;
+        s_watch[retained++] = s_watch[i];
+        break;
+      }
+    }
   }
+  s_watch_count = retained;
 
   for (uint32_t i = 0; i < count; i++) {
     uint32_t watermark = tasks[i].usStackHighWaterMark;
@@ -112,6 +122,7 @@ static void check_task_stacks(const TaskStatus_t *tasks, uint32_t count) {
       continue;
     }
 
+    is_healthy = false;
     const char *name = tasks[i].pcTaskName;
     ESP_LOGW(TAG,
              "Low stack in task [%s]: %lu B free (threshold %d B)",
@@ -119,12 +130,14 @@ static void check_task_stacks(const TaskStatus_t *tasks, uint32_t count) {
              (unsigned long)watermark,
              CRITICAL_STACK_THRESHOLD);
 
-    stack_watch_t *w = watch_find(name);
+    sys_monitor_stack_watch_t *w = watch_find(&tasks[i]);
     if (w == NULL) {
       if (s_watch_count >= STACK_WATCH_MAX) {
-        continue; // table full; the condition is still logged above
+        controlled_restart("SYSTEM RECOVERY", "Too many tasks with critical stack headroom");
       }
       w = &s_watch[s_watch_count++];
+      w->task = tasks[i].xHandle;
+      w->number = tasks[i].xTaskNumber;
       strncpy(w->name, name, sizeof(w->name) - 1);
       w->name[sizeof(w->name) - 1] = '\0';
       w->streak = 0;
@@ -160,9 +173,10 @@ static void check_task_stacks(const TaskStatus_t *tasks, uint32_t count) {
     }
   }
   s_watch_count = kept;
+  return is_healthy;
 }
 
-static void check_heap(void) {
+static bool check_heap(void) {
   static bool warned = false;
   static uint32_t crit_streak = 0;
 
@@ -173,10 +187,18 @@ static void check_heap(void) {
     if (!warned) {
       warned = true;
       ESP_LOGW(TAG,
-               "Low heap: %lu B free, largest block %lu B (min ever %lu B)",
+               "Low internal heap: %lu B free, largest block %lu B (min internal %lu B)",
                (unsigned long)free_int,
                (unsigned long)largest,
-               (unsigned long)esp_get_minimum_free_heap_size());
+               (unsigned long)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
+      // Do not compare an internal-RAM warning with the total/default heap's
+      // historical minimum: that pool also includes the much larger PSRAM.
+      const uint32_t external_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+      ESP_LOGW(TAG,
+               "PSRAM heap: %lu B free, largest block %lu B (min PSRAM %lu B)",
+               (unsigned long)heap_caps_get_free_size(external_caps),
+               (unsigned long)heap_caps_get_largest_free_block(external_caps),
+               (unsigned long)heap_caps_get_minimum_free_size(external_caps));
       char msg[ALERT_MSG_SIZE];
       snprintf(msg,
                sizeof(msg),
@@ -200,12 +222,11 @@ static void check_heap(void) {
   } else {
     crit_streak = 0;
   }
+  return free_int >= HEAP_WARN_FREE_B && largest >= HEAP_WARN_LARGEST_B;
 }
 
-static void sys_monitor_task(void *pvParameters) {
-  sys_monitor_params_t *params = (sys_monitor_params_t *)pvParameters;
-  bool is_verbose = params->is_verbose;
-  vPortFree(params);
+static void monitor_task(void *pvParameters) {
+  bool is_verbose = (uintptr_t)pvParameters != 0;
 
   ESP_LOGI(TAG, "System monitor started (verbose: %s)", is_verbose ? "enabled" : "disabled");
 
@@ -213,10 +234,10 @@ static void sys_monitor_task(void *pvParameters) {
   // it subscribes to the Task Watchdog and feeds it each cycle. With
   // CONFIG_ESP_TASK_WDT_PANIC=y a stuck monitor, or a task that starves the
   // single core for longer than the timeout, reboots instead of only warning.
-  esp_task_wdt_add(NULL);
+  ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
   while (1) {
-    esp_task_wdt_reset();
+    ESP_ERROR_CHECK(esp_task_wdt_reset());
 
     if (is_verbose) {
       uint32_t free_heap = esp_get_free_heap_size();
@@ -231,36 +252,42 @@ static void sys_monitor_task(void *pvParameters) {
     }
 
     uint32_t task_count = uxTaskGetNumberOfTasks();
-    TaskStatus_t *task_array = pvPortMalloc(task_count * sizeof(TaskStatus_t));
+    bool is_healthy = false;
+    TaskStatus_t *task_array = NULL;
+    if (task_count > 0 && sizeof(TaskStatus_t) <= SIZE_MAX / task_count) {
+      task_array = pvPortMalloc(task_count * sizeof(TaskStatus_t));
+    }
 
     if (task_array != NULL) {
       task_count = uxTaskGetSystemState(task_array, task_count, NULL);
-      check_task_stacks(task_array, task_count);
+      is_healthy = task_count > 0 && check_task_stacks(task_array, task_count);
       vPortFree(task_array);
     } else {
       ESP_LOGE(TAG, "Failed to allocate task status array");
     }
 
+    (void)is_healthy;
     check_heap();
 
     vTaskDelay(pdMS_TO_TICKS(MONITOR_INTERVAL_MS));
   }
 }
 
-void sys_monitor_start(bool is_verbose) {
-  sys_monitor_params_t *params = pvPortMalloc(sizeof(sys_monitor_params_t));
-  if (params == NULL) {
-    ESP_LOGE(TAG, "Failed to allocate monitor parameters");
-    return;
+esp_err_t sys_monitor_start(bool is_verbose) {
+  bool is_started = false;
+  if (!atomic_compare_exchange_strong(&s_is_started, &is_started, true)) {
+    return ESP_OK;
   }
-
-  params->is_verbose = is_verbose;
-
-  xTaskCreatePinnedToCore(sys_monitor_task,
-                          "SysMonitor",
-                          MONITOR_STACK_SIZE,
-                          (void *)params,
-                          MONITOR_PRIORITY,
-                          NULL,
-                          MONITOR_CORE);
+  if (xTaskCreatePinnedToCore(monitor_task,
+                              "SysMonitor",
+                              MONITOR_STACK_SIZE,
+                              (void *)(uintptr_t)is_verbose,
+                              SYS_PRIO_MONITOR,
+                              NULL,
+                              SYS_CORE_MAIN) != pdPASS) {
+    atomic_store(&s_is_started, false);
+    ESP_LOGE(TAG, "Failed to create system monitor");
+    return ESP_ERR_NO_MEM;
+  }
+  return ESP_OK;
 }

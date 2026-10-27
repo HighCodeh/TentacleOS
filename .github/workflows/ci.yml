@@ -1,6 +1,23 @@
+# Copyright (c) 2025 HIGH CODE LLC
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 name: CI
 
 on:
+  push:
+    branches: [dev]
   pull_request:
     branches: [main, dev]
 
@@ -17,10 +34,16 @@ jobs:
           fetch-depth: 0
 
       - name: Install clang-format
-        run: pip install clang-format==22.1.3
+        run: pip install clang-format==22.1.5
 
       - name: Run format check
-        run: bash tools/format.sh --check-changed "${{ github.event.pull_request.base.sha }}"
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = 0000000000000000000000000000000000000000 ]; then
+            BASE_SHA=$(git rev-parse HEAD^)
+          fi
+          bash tools/format.sh --check-changed "$BASE_SHA"
 
   commitlint:
     name: Validate Commits
@@ -34,29 +57,147 @@ jobs:
         with:
           node-version: 22
 
-      - run: npm install --save-dev @commitlint/cli @commitlint/config-conventional
+      - run: npm ci --ignore-scripts --no-audit --no-fund
 
-      - run: npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }}
+      - name: Test commit validation
+        run: node --test tools/ci/test_commitlint.mjs
+
+      - name: Validate incoming commits
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bash tools/ci/lint_commits.sh "$BASE_SHA" "$HEAD_SHA"
 
   build:
-    name: Build Firmware
+    name: Build ${{ matrix.target }} application
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: p4
+            idf: v6.1
+            project: TentacleOS_P4
+          - target: c5
+            idf: v6.1
+            project: TentacleOS_C5
     container:
-      image: espressif/idf:v5.5.3
+      image: espressif/idf:${{ matrix.idf }}
 
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Build
-        run: bash tools/build.sh
+      - name: Trust the checkout in the build container
         shell: bash
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git rev-parse --verify HEAD
+
+      - name: Build
+        run: bash tools/build.sh "${{ matrix.target }}"
+        shell: bash
+
+      - name: Check internal RAM budget and critical compiler policies
+        shell: bash
+        run: |
+          python tools/highboy/build_evidence.py --target "${{ matrix.target }}" \
+            --build "firmware_${{ matrix.target }}/build_highboy" \
+            --out "firmware_${{ matrix.target }}/build_highboy/build-evidence.json"
+
+      - name: Test generated FatFS and exFAT lifecycle
+        if: matrix.target == 'p4'
+        shell: bash
+        run: |
+          source "$IDF_PATH/export.sh" >/dev/null
+          python tools/fatfs/test_fatfs.py --idf "$IDF_PATH"
+
+      - name: Test public PSA crypto with the pinned SDK source
+        if: matrix.target == 'p4'
+        shell: bash
+        run: |
+          source "$IDF_PATH/export.sh" >/dev/null
+          python -m pip install -r tools/crypto/requirements.txt
+          python tools/crypto/test_psa.py --idf "$IDF_PATH"
+
+      - name: Test UART line editing with the pinned SDK source
+        if: matrix.target == 'p4'
+        shell: bash
+        run: |
+          python tools/console/test_console.py --idf "$IDF_PATH" \
+            --build firmware_p4/build_highboy
+
+      - name: Build isolated factory-security review and test real image crypto
+        shell: bash
+        run: |
+          source "$IDF_PATH/export.sh" >/dev/null
+          review="/tmp/highboy-factory-${{ matrix.target }}"
+          python tools/highboy/secure_build.py build --target "${{ matrix.target }}" \
+            --idf "$IDF_PATH" --python "$IDF_PYTHON_ENV_PATH/bin/python" \
+            --tools "${IDF_TOOLS_PATH:-$HOME/.espressif}" \
+            --baseline "firmware_${{ matrix.target }}/build_highboy" --out "$review"
+          python tools/highboy/test_security_images.py "$review"
+
+      - name: Upload factory-security review evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: highboy-${{ matrix.target }}-factory-security-review
+          if-no-files-found: error
+          path: |
+            /tmp/highboy-factory-${{ matrix.target }}/app.bin
+            /tmp/highboy-factory-${{ matrix.target }}/bootloader.bin
+            /tmp/highboy-factory-${{ matrix.target }}/partition-table.bin
+            /tmp/highboy-factory-${{ matrix.target }}/sdkconfig
+            /tmp/highboy-factory-${{ matrix.target }}/baseline-sdkconfig
+            /tmp/highboy-factory-${{ matrix.target }}/build.json
+
+      - name: Upload app-only build evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: highboy-${{ matrix.target }}-app-only
+          if-no-files-found: error
+          path: |
+            firmware_${{ matrix.target }}/build_highboy/${{ matrix.project }}.bin
+            firmware_${{ matrix.target }}/build_highboy/${{ matrix.project }}.elf
+            firmware_${{ matrix.target }}/build_highboy/${{ matrix.project }}.map
+            firmware_${{ matrix.target }}/build_highboy/sdkconfig
+            firmware_${{ matrix.target }}/build_highboy/partition_table/partition-table.bin
+            firmware_${{ matrix.target }}/build_highboy/build-evidence.json
+
+  host-tests:
+    name: High Boy offline regression tests (${{ matrix.compiler }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    env:
+      CC: ${{ matrix.compiler }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install host compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang pkg-config libsodium-dev libssl-dev
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install companion test dependencies
+        run: python3 -m pip install -r tools/host_link/requirements.txt
+      - name: Prepare managed host-test dependencies
+        run: |
+          python3 -m pip install -r tools/dependencies/requirements.txt
+          python3 tools/dependencies/prepare_host.py
+      - name: Run source contracts and host regressions
+        run: bash tools/highboy/test.command
 
   hle-tests:
     name: HLE Tests
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -66,7 +207,7 @@ jobs:
           sudo apt-get install -y libsdl2-dev
 
       - name: Configure
-        run: cmake -B build -S tools/hle
+        run: cmake -B build -S tools/hle -DHLE_BUILD_INTERACTIVE=OFF
         env:
           SDL_VIDEODRIVER: dummy
 

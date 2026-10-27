@@ -22,6 +22,11 @@
 #include "esp_log.h"
 #include "esp_err.h"
 
+#include "spi.h"
+#include "rf_frontend.h"
+#include "st25r3916_reg.h"
+#include "st25r3916_cmd.h"
+
 static const char *TAG = "hb_nfc_spi";
 
 /* ST25R3916 SPI framing constants (datasheet DocID 031020 Rev 3, Sec. 6). */
@@ -39,6 +44,7 @@ static const char *TAG = "hb_nfc_spi";
 
 static spi_device_handle_t s_spi = NULL;
 static bool s_is_init = false;
+static int s_spi_host = -1;
 
 static esp_err_t transmit(spi_transaction_t *t);
 
@@ -48,34 +54,30 @@ esp_err_t hb_nfc_spi_init(const hb_nfc_spi_config_t *config) {
   if (s_is_init)
     return ESP_OK;
 
-  spi_bus_config_t bus = {
-      .mosi_io_num = config->pin_mosi,
-      .miso_io_num = config->pin_miso,
-      .sclk_io_num = config->pin_sclk,
-      .quadwp_io_num = GPIO_NUM_NC,
-      .quadhd_io_num = GPIO_NUM_NC,
-  };
-  esp_err_t ret = spi_bus_initialize(config->spi_host, &bus, SPI_DMA_CH_AUTO);
+  esp_err_t ret = spi_bus_init(
+      (spi_host_device_t)config->spi_host, config->pin_mosi, config->pin_miso, config->pin_sclk);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "bus init fail: %s", esp_err_to_name(ret));
-    return ESP_FAIL;
+    return ret;
   }
 
-  spi_device_interface_config_t dev = {
+  spi_device_config_t dev = {
       .clock_speed_hz = config->clock_hz,
       .mode = config->mode,
-      .spics_io_num = config->pin_cs,
+      .cs_pin = config->pin_cs,
       .queue_size = 1,
-      .cs_ena_pretrans = 1,
-      .cs_ena_posttrans = 1,
   };
-  ret = spi_bus_add_device(config->spi_host, &dev, &s_spi);
+  ret = spi_add_device((spi_host_device_t)config->spi_host, SPI_DEVICE_NFC, &dev);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "add device fail: %s", esp_err_to_name(ret));
-    spi_bus_free(config->spi_host);
+    return ret;
+  }
+  s_spi = spi_get_handle(SPI_DEVICE_NFC);
+  if (s_spi == NULL) {
     return ESP_FAIL;
   }
 
+  s_spi_host = config->spi_host;
   s_is_init = true;
   ESP_LOGI(TAG,
            "SPI OK: mode=%u clk=%lu cs=%d",
@@ -89,9 +91,10 @@ void hb_nfc_spi_deinit(void) {
   if (!s_is_init)
     return;
   if (s_spi != NULL) {
-    spi_bus_remove_device(s_spi);
+    spi_remove_device(SPI_DEVICE_NFC);
     s_spi = NULL;
   }
+  s_spi_host = -1;
   s_is_init = false;
 }
 
@@ -116,9 +119,60 @@ esp_err_t hb_nfc_spi_reg_read(uint8_t addr, uint8_t *out_value) {
 }
 
 esp_err_t hb_nfc_spi_reg_write(uint8_t addr, uint8_t value) {
+  const bool controls_field = (addr & HB_NFC_SPI_ADDR_MASK) == ST25R3916_REG_OP_CTRL;
+  const bool enables_tx = controls_field && (value & ST25R3916_OP_CTRL_TX_EN) != 0;
+  if (enables_tx) {
+    esp_err_t claim = rf_frontend_claim(RF_FRONTEND_NFC_13MHZ);
+    if (claim != ESP_OK) {
+      ESP_LOGW(TAG, "refusing NFC TX: shared antenna is busy");
+      return claim;
+    }
+  }
+
   uint8_t tx[2] = {(uint8_t)(addr & HB_NFC_SPI_ADDR_MASK), value};
   spi_transaction_t t = {
       .length = HB_NFC_SPI_REG_XFER_BITS,
+      .tx_buffer = tx,
+  };
+  esp_err_t err = transmit(&t);
+  if (controls_field && !enables_tx && err == ESP_OK) {
+    rf_frontend_release(RF_FRONTEND_NFC_13MHZ);
+  }
+  return err;
+}
+
+esp_err_t hb_nfc_spi_reg_read_b(uint8_t addr, uint8_t *out_value) {
+  if (out_value == NULL)
+    return ESP_ERR_INVALID_ARG;
+
+  uint8_t tx[3] = {
+      ST25R3916_SPI_SPACE_B,
+      (uint8_t)(HB_NFC_SPI_READ_FLAG | (addr & HB_NFC_SPI_ADDR_MASK)),
+      0x00,
+  };
+  uint8_t rx[3] = {0};
+  spi_transaction_t t = {
+      .length = 24,
+      .tx_buffer = tx,
+      .rx_buffer = rx,
+  };
+  esp_err_t err = transmit(&t);
+  if (err != ESP_OK) {
+    *out_value = 0;
+    return err;
+  }
+  *out_value = rx[2];
+  return ESP_OK;
+}
+
+esp_err_t hb_nfc_spi_reg_write_b(uint8_t addr, uint8_t value) {
+  uint8_t tx[3] = {
+      ST25R3916_SPI_SPACE_B,
+      (uint8_t)(addr & HB_NFC_SPI_ADDR_MASK),
+      value,
+  };
+  spi_transaction_t t = {
+      .length = 24,
       .tx_buffer = tx,
   };
   return transmit(&t);
@@ -226,10 +280,27 @@ esp_err_t hb_nfc_spi_raw_xfer(const uint8_t *tx, uint8_t *rx, size_t len) {
 }
 
 static esp_err_t transmit(spi_transaction_t *t) {
+  if (!rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ))
+    return ESP_ERR_INVALID_STATE;
   if (s_spi == NULL || t == NULL)
     return ESP_FAIL;
 
+  const bool shared_lock = s_spi_host == SPI3_HOST;
+  bool locked = !shared_lock || spi_bus_lock_take(100);
+  if (!locked) {
+    ESP_LOGW(TAG, "shared SPI bus lock timeout");
+    return ESP_ERR_TIMEOUT;
+  }
+
+  if (!rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ)) {
+    if (shared_lock)
+      spi_bus_lock_give();
+    return ESP_ERR_INVALID_STATE;
+  }
   esp_err_t ret = spi_device_transmit(s_spi, t);
+  if (shared_lock) {
+    spi_bus_lock_give();
+  }
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "spi transmit fail: %s", esp_err_to_name(ret));
     return ESP_FAIL;

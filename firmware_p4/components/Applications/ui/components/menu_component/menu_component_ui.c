@@ -48,10 +48,7 @@
 #define DEFAULT_HINT \
   LV_SYMBOL_UP LV_SYMBOL_DOWN "  Nav    " LV_SYMBOL_OK "  OK    " LV_SYMBOL_LEFT "  Back"
 
-static lv_obj_t *make_icon(lv_obj_t *parent, const char *icon_path) {
-  if (!icon_path)
-    return NULL;
-  lv_image_dsc_t *dsc = assets_get(icon_path);
+static lv_obj_t *make_icon_dsc(lv_obj_t *parent, const lv_image_dsc_t *dsc) {
   if (!dsc)
     return NULL;
   lv_obj_t *img = lv_image_create(parent);
@@ -59,6 +56,12 @@ static lv_obj_t *make_icon(lv_obj_t *parent, const char *icon_path) {
   lv_obj_set_size(img, ICON_CELL, ICON_CELL);
   lv_image_set_inner_align(img, LV_IMAGE_ALIGN_CONTAIN);
   return img;
+}
+
+static lv_obj_t *make_icon(lv_obj_t *parent, const char *icon_path) {
+  if (!icon_path)
+    return NULL;
+  return make_icon_dsc(parent, assets_get(icon_path));
 }
 
 static bool list_overflows(menu_component_t *m) {
@@ -113,6 +116,11 @@ static void update_selection(menu_component_t *m) {
   for (int i = 0; i < m->item_count; i++) {
     if (i == m->selected) {
       lv_obj_set_style_border_color(m->items[i], SEL_BORDER, 0);
+      lv_obj_set_style_bg_opa(m->items[i], LV_OPA_COVER, 0);
+      lv_obj_set_style_shadow_width(m->items[i], 12, 0);
+      lv_obj_set_style_shadow_color(m->items[i], SEL_BORDER, 0);
+      lv_obj_set_style_shadow_opa(m->items[i], LV_OPA_30, 0);
+      lv_obj_set_style_shadow_spread(m->items[i], -3, 0);
       bool has_widget = m->has_toggle[i] || m->has_intensity[i] || m->val_labels[i];
       if (m->sel_dots[i]) {
         if (has_widget)
@@ -122,6 +130,8 @@ static void update_selection(menu_component_t *m) {
       }
     } else {
       lv_obj_set_style_border_color(m->items[i], ITEM_BORDER, 0);
+      lv_obj_set_style_bg_opa(m->items[i], LV_OPA_90, 0);
+      lv_obj_set_style_shadow_width(m->items[i], 0, 0);
       if (m->sel_dots[i])
         lv_obj_add_flag(m->sel_dots[i], LV_OBJ_FLAG_HIDDEN);
     }
@@ -144,6 +154,8 @@ menu_component_create(lv_obj_t *parent, const char *title, const char *title_ico
   lv_obj_align(m.screen, LV_ALIGN_TOP_LEFT, 0, 0);
   lv_obj_remove_flag(m.screen, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_color(m.screen, current_theme.screen_base, 0);
+  lv_obj_set_style_bg_grad_color(m.screen, current_theme.bg_primary, 0);
+  lv_obj_set_style_bg_grad_dir(m.screen, LV_GRAD_DIR_VER, 0);
   lv_obj_set_style_bg_opa(m.screen, LV_OPA_COVER, 0);
   lv_obj_set_style_pad_all(m.screen, 0, 0);
   lv_obj_set_style_border_width(m.screen, 0, 0);
@@ -241,19 +253,19 @@ menu_component_create(lv_obj_t *parent, const char *title, const char *title_ico
   return m;
 }
 
-lv_obj_t *
-menu_component_add_item(menu_component_t *menu, const char *icon_path, const char *label) {
-  if (!menu || menu->item_count >= MENU_COMP_MAX_ITEMS)
-    return NULL;
-
+// Build the item container (styling + flex). The icon (if any) is created by the
+// caller next, so it lands before the label in flex order; then item_finish adds
+// the label, the selection pointer, and registers the row.
+static lv_obj_t *item_begin(menu_component_t *menu) {
   lv_obj_t *item = lv_obj_create(menu->items_cont);
   lv_obj_set_width(item, lv_pct(100));
   lv_obj_set_height(item, ITEM_H);
   lv_obj_remove_flag(item, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_radius(item, 10, 0);
-  lv_obj_set_style_bg_opa(item, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(item, ITEM_BG, 0);
-  lv_obj_set_style_bg_grad_dir(item, LV_GRAD_DIR_NONE, 0);
+  lv_obj_set_style_bg_opa(item, LV_OPA_90, 0);
+  lv_obj_set_style_bg_color(item, current_theme.bg_item_top, 0);
+  lv_obj_set_style_bg_grad_color(item, current_theme.bg_item_bot, 0);
+  lv_obj_set_style_bg_grad_dir(item, LV_GRAD_DIR_VER, 0);
   lv_obj_set_style_border_width(item, 2, 0);
   lv_obj_set_style_border_color(item, ITEM_BORDER, 0);
   lv_obj_set_style_pad_left(item, 6, 0);
@@ -261,9 +273,10 @@ menu_component_add_item(menu_component_t *menu, const char *icon_path, const cha
   lv_obj_set_flex_flow(item, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(item, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_column(item, 8, 0);
+  return item;
+}
 
-  make_icon(item, icon_path);
-
+static lv_obj_t *item_finish(menu_component_t *menu, lv_obj_t *item, const char *label) {
   lv_obj_t *lbl = lv_label_create(item);
   lv_label_set_text(lbl, label ? label : "");
   lv_obj_set_style_text_color(lbl, current_theme.text_main, 0);
@@ -297,6 +310,24 @@ menu_component_add_item(menu_component_t *menu, const char *icon_path, const cha
   update_scroll_state(menu);
 
   return item;
+}
+
+lv_obj_t *
+menu_component_add_item(menu_component_t *menu, const char *icon_path, const char *label) {
+  if (!menu || menu->item_count >= MENU_COMP_MAX_ITEMS)
+    return NULL;
+  lv_obj_t *item = item_begin(menu);
+  make_icon(item, icon_path);
+  return item_finish(menu, item, label);
+}
+
+lv_obj_t *
+menu_component_add_item_dsc(menu_component_t *menu, const lv_image_dsc_t *dsc, const char *label) {
+  if (!menu || menu->item_count >= MENU_COMP_MAX_ITEMS)
+    return NULL;
+  lv_obj_t *item = item_begin(menu);
+  make_icon_dsc(item, dsc);
+  return item_finish(menu, item, label);
 }
 
 lv_obj_t *menu_component_add_selector(menu_component_t *menu,

@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-/** @brief BLE connection-flood run screen (MOCK); climbs a sent counter with a mode toggle. */
+/** @brief BLE connection/L2CAP run screen backed by the C5 services. */
 void ui_ble_flood_open(void);
 
 #ifdef __cplusplus

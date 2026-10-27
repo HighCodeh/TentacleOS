@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # Host Link - unified overview
 
 End-to-end companion-app link, spanning **both firmwares**. This document is the
@@ -7,6 +24,19 @@ the component READMEs, and the byte-level wire format lives in the protocol spec
 
 - Companion app implementation guide: [`app-guide.md`](./app-guide.md)
 - Wire spec: [`protocol.md`](./protocol.md)
+- Ephemeral pairing and physical confirmation: [`pairing.md`](./pairing.md)
+- WiFi command reference (per-command payloads): [`wifi-commands.md`](./wifi-commands.md)
+- Bluetooth command reference (per-command payloads): [`bluetooth-commands.md`](./bluetooth-commands.md)
+- System command reference (housekeeping, data pipe, OTA): [`system-commands.md`](./system-commands.md)
+- IR command reference (transmit/capture/torch): [`ir-commands.md`](./ir-commands.md)
+- Sub-GHz command reference (CC1101 rx/tx/spectrum): [`subghz-commands.md`](./subghz-commands.md)
+- Audio command reference (speaker/tone/chime): [`audio-commands.md`](./audio-commands.md)
+- LED command reference (RGB status LED): [`led-commands.md`](./led-commands.md)
+- BadUSB command reference (Ducky script run/abort/status): [`badusb-commands.md`](./badusb-commands.md)
+- LoRa command reference (radio config + broadcast chat): [`lora-commands.md`](./lora-commands.md)
+- App manager command reference (install/list/start/stop/remove/grant): [`app-commands.md`](./app-commands.md)
+- NFC/RFID capture reference (native P4 antenna ownership): [`rf-commands.md`](./rf-commands.md)
+- Reference tester (all groups over USB CDC): `tools/host_link/cli.py`
 - SPI bridge (P4↔C5 transport this rides on): [`../spi_bridge/README.md`](../spi_bridge/README.md)
 - P4 component reference: the [`# P4`](#p4) section below.
 - C5 component reference: the [`# C5`](#c5) section below.
@@ -43,18 +73,19 @@ BODY = [type][category][op][payload]
 
 `category`/`op` reuse the `spi_protocol.h` ids (`SPI_CMD(cat, op)`) - one HAL
 shared by app, P4 and C5. Types: `CMD`, `RESP`, `STREAM`, `LOG`, `HELLO`,
-`HELLO_ACK`. Full field semantics: see the wire spec.
+`HELLO_ACK`, `HELLO_FINISH`, `HELLO_READY`. Full field semantics: see the wire spec.
 
 ## Security (P4 only)
 
-- PSK (32 B) in NVS, auto-generated on first boot. Provisioned out-of-band: QR +
-  hex on the P4 pairing screen (Settings → PAIRING) or the `hostlink psk` console
-  command.
-- `HELLO`/`HELLO_ACK` handshake → per-direction HKDF keys (`a2d`/`d2a`) + counter
-  reset. Per-frame HMAC-SHA256 (truncated 16 B, mbedTLS) verified before any body
-  parse; monotonic counter rejects replays. Only `HELLO` is accepted unauthenticated.
-- BLE bonding is "just works" (LE Secure Connections, no MITM) on top of the PSK
-  envelope - the PSK is the real trust boundary.
+The [v2 pairing contract](pairing.md) combines the existing out-of-band PSK with
+fresh X25519 keys and transcript-bound HKDF direction keys. Every connection
+requires a matching six-digit code and physical OK on the Companion screen,
+followed by signed FINISH/READY. Pending keys do not authorize commands or logs.
+The window and pending exchange expire; cancellation invalidates the transport
+generation. Both USB reference clients verify response MACs and replay counters.
+
+The HMAC frame envelope remains version 1 and provides integrity; payloads remain
+visible on the underlying transport. BLE Secure Connections is separate.
 
 ## Module map
 
@@ -144,7 +175,7 @@ the wire spec; the end-to-end (app↔P4↔C5) picture is in the unified overview
 | `host_link.c` | Core: reassembly, frame encode/decode, dispatch, single-session arbitration, `emit_frame` (RESP/LOG/STREAM). |
 | `host_link_cdc.c` | USB CDC-ACM transport (TinyUSB composite). Claims the session on DTR; drops bytes when no app is attached. |
 | `host_link_ble.c` | BLE transport relay: chunks frames to the C5 (`SPI_ID_HOST_TX`), reassembles inbound (`SPI_ID_HOST_RX` stream), drives the C5 GATT on/off and connection status. |
-| `host_link_sec.c` | Security: PSK in NVS (auto-generated), `HELLO`/`HELLO_ACK` handshake, HKDF per-direction keys, per-frame MAC verify/sign, counter replay rejection. mbedTLS. |
+| `host_link_sec.c` | Security: PSK in NVS, ephemeral X25519, physical confirmation, HKDF direction keys and MAC/replay checks; libsodium + public PSA Crypto. |
 | `host_link_log.c` | P4 log tee (`esp_log_set_vprintf`): ANSI strip, level, drop-oldest ring, worker → `LOG` frames `source=P4`. |
 | `host_link_c5log.c` | Consumes the `SPI_ID_SYSTEM_LOG` stream from the C5 → `LOG` frames `source=C5`. |
 | `host_link_files.c` | P4-local `FILE_*` ops over `/assets`, `/littlefs`, `/sdcard` (POSIX VFS), path-sandboxed, chunked. |
@@ -166,8 +197,8 @@ After authentication, `process_frame` routes each `CMD` by id:
 
 - Only `HELLO` is accepted before keys exist. Every other inbound frame must be
   authenticated (valid MAC, fresh counter) or it is dropped + logged.
-- Per-direction HKDF keys (`a2d`/`d2a`) prevent reflection; fresh nonces per
-  handshake prevent cross-session replay.
+- Per-direction HKDF keys bind both ephemeral public keys, nonces and device
+  identity; physical confirmation and signed FINISH are required. See [pairing](pairing.md).
 - The PSK is provisioned out-of-band: shown as a QR + hex on the P4 pairing
   screen (Settings → PAIRING) and via the `hostlink psk` console command.
 - BLE bonding is "just works" (LE Secure Connections, no MITM) on top of the PSK
@@ -256,3 +287,55 @@ not at boot, so it doesn't hog NimBLE from the BLE attack features.
 - The C5 log stream is always enabled on this side; the P4 drops the resulting
   `LOG` frames when no companion session is active, and the **log-over-BLE**
   toggle (P4) gates BLE delivery. Build-validated; **not yet hardware-tested**.
+
+## Integrated session generations and asynchronous ingress
+
+P4 transport callbacks enqueue bounded input chunks; the host-link worker owns
+frame reassembly, dispatch and teardown. Disconnect, reset and a new HELLO
+invalidate the old session generation. Output producers retain their origin
+generation, preventing late responses or stream frames from entering a new
+session. Receive-queue overflow invalidates that session rather than splicing
+incomplete frames. TX and security operations use recursive mutexes with the
+TX-before-security lock order; transport callbacks do not wait for teardown.
+
+`host_link_init()` defers worker startup until transport use. Workers use the
+central scheduling macros, with radio/transport tasks on `SYS_CORE_RADIO`.
+Canonical Muse tests do not execute the host-link transports; physical USB/BLE
+streaming, reconnects and authorization require separate acceptance tests.
+
+## Native NFC and LF RFID capture
+
+Categories NFC `0x12` and RFID `0x13` are P4-local authenticated commands with
+bounded synchronous capture and task-owned antenna reservations. The existing
+Muse category `0x11` is explicitly reserved. READ, STATUS and RECOVER wire layouts,
+cleanup behavior and CLI examples are in [rf-commands.md](./rf-commands.md).
+These categories are dispatched before the generic handler registry, preserving
+the existing native app registration ABI. Disconnect/reset/HELLO cleanup also
+retries any retained RF shutdown through the core worker.
+
+## Trusted local RF callers
+
+The existing core worker also executes queued internal NFC/RFID reads from the
+native app ABI. The [local broker](../app_sdk/README.md#native-nfcrfid-api-abi-110)
+copies its bounded request/response, serializes local calls and keeps antenna
+ownership on the persistent worker. Local work uses an internal queue flag;
+wire ingress always initializes that flag to false. It does not bypass the wire
+MAC/generation checks or send a companion response. Session reconciliation still
+runs before and after queued work, and the worker alone owns retained RF cleanup.
+
+## Trusted local infrared calls
+
+The existing local-call gate also routes decoded IR receive/send requests from
+ABI 1.11 to a persistent-worker backend. IR uses a separate task-owned peripheral
+lease and preserves native UI/companion ownership. These are internal queued
+calls, not new unauthenticated wire commands; `IR_RX_FRAME` identifies the local
+one-shot receive request only on the trusted queue. The wire handler retains
+its existing stream semantics. See [IR ownership](../ir/README.md#app-worker-lease).
+
+## ESP-IDF v6.1 compatibility
+
+HMAC-SHA256 and the fixed 32-byte HKDF-SHA256 direction keys now use public
+PSA APIs. PSK salt, transcript labels, truncation and wire encoding are unchanged.
+The existing companion interoperability tests use real OpenSSL/libsodium at
+an explicit adapter boundary; `tools/crypto/test_psa.py` separately validates
+the production adapter against the actual SDK software PSA backend.

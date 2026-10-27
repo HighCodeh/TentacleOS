@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # Console Service Component
 
 The Console Service provides an interactive command-line interface (CLI) for the TentacleOS Highboy. It allows users to manage files, configure system settings, and execute Wi-Fi attacks directly via USB Serial or UART.
@@ -14,6 +31,41 @@ Connect the Highboy to a computer via USB. Use a serial terminal program (e.g., 
 
 The prompt `highboy>` indicates the system is ready.
 
+## Editing UART input
+
+This is an ESP-IDF command console with line editing, history and command
+completion. It does not implement Bash/zsh syntax, pipelines or shell scripts.
+Use an ANSI/VT100-capable serial terminal with local echo disabled.
+
+Backspace accepts both BS (`0x08`) and DEL (`0x7f`). Repeated Backspace, arrows,
+Home/End and Ctrl editing keys follow the editor path even when UART bytes
+arrive together. The fast-paste path is reserved for printable bytes inserted
+at the end of the line; printable input in the middle uses ordinary insertion.
+The existing 512-byte command-line buffer retains its 511-byte text limit.
+
+The pinned P4 SDK's original timing heuristic treated any non-Enter byte read
+within 30 ms as pasted text. It could insert repeated Backspace/control bytes
+literally and drop text inserted in the middle of a line. P4 CMake now selects
+a generated, narrowly patched copy of that one SDK source. The installed SDK
+is not modified; its exact original SHA-256 is required before generation,
+and only the console component's source entry is replaced. Original third-party
+notices are retained. This also applies to the isolated P4 security build;
+it does not change security settings or the C5's separate Muse console.
+
+```sh
+python3 tools/console/test_console.py --idf "$HIGHBOY_P4_IDF_PATH" \
+  --build firmware_p4/build_highboy
+```
+
+The host test first reproduces the unmodified SDK's rapid-DEL failure, then
+runs the actual corrected editor with ASan/UBSan: fast and slow BS/DEL,
+deletion past empty/full lines, arrows, middle insertion, Home/End, Ctrl editing
+and bounded pastes. Its UART bytes, timing and output are explicit fixtures.
+The optional `--build` check also requires the compilation database to select
+exactly the generated corrected source. CI runs both checks in the P4 build job.
+Physical terminal/adapter behavior and asynchronous log interference still
+require device acceptance.
+
 ## Available Commands
 
 ### System Commands
@@ -26,7 +78,7 @@ The prompt `highboy>` indicates the system is ready.
 | `stack` | Stack budget report: allocated vs high-water free per task, with reclaim/low flags. | `stack` |
 | `date` | Shows the UTC wall-clock (with sync state and source), or sets it. | `date [<YYYY-MM-DD> <HH:MM:SS>]` |
 | `ip` | Shows current network interfaces (IP, Mask, GW, MAC) for STA and AP. | `ip` |
-| `restart` | Reboots the system. | `restart` |
+| `reboot` | Reboots the Highboy (P4). | `reboot` |
 | `firstboot` | Clears the first-boot onboarding + screen-tips flags so they run on the next reset. | `firstboot` |
 | `capprep` | Skips onboarding (wizard + tips) and restarts clean, for screen capture. | `capprep` |
 
@@ -65,7 +117,7 @@ HID injection via DuckyScript. Hint: `badusb <run|type|layout|stop|status> ...`.
 
 | Subcommand | Description | Arguments | Example |
 | :--- | :--- | :--- | :--- |
-| `run` | Runs a DuckyScript. | `-a <name>`: internal asset (under `bad_usb_scripts/`)<br>`-f <path>`: script from SD card | `badusb run -a rickroll.txt` |
+| `run` | Runs a DuckyScript. | `-a <name>`: internal asset (under `bad_usb_scripts/`)<br>`-f <path>`: script from SD card<br>`-b`: send over Bluetooth HID instead of USB (waits for a host to pair) | `badusb run -a rickroll.txt`<br>`badusb run -f /sdcard/p.txt -b` |
 | `type` | Types a literal string over HID. | `<text...>` | `badusb type hello world` |
 | `layout` | Sets the keyboard layout. | `<us\|abnt2>` | `badusb layout abnt2` |
 | `stop` | Aborts the running script (stops at the next line). | None | `badusb stop` |
@@ -92,6 +144,7 @@ Manages the C5 radio co-processor over the SPI bridge (and UART for recovery).
 | `ping` | Pings the running C5 over the SPI bridge. | `c5 ping` |
 | `info` | Reads the C5 chip info over the SPI bridge. | `c5 info` |
 | `sync` | Re-probes and reconnects the bridge (e.g. after a C5 reboot). | `c5 sync` |
+| `reboot` | Reboots the running C5 over the SPI bridge (deferred ack; run `c5 sync` after). | `c5 reboot` |
 | `download` | Asks the running C5 to enter ROM download mode (over SPI). | `c5 download` |
 | `rom` | Serial-flashes a C5 already in download mode (recovery). | `c5 rom` |
 | `passthrough` | Bridges host `esptool` to the C5 (never returns; reboot/BACK exits). | `c5 passthrough` |
@@ -170,3 +223,16 @@ void register_echo_command(void) {
 }
 ```
 
+
+## File path limits
+
+`cd`, `ls` and `cat` reject resolved paths longer than 511 bytes with a nonzero
+command result before accessing the filesystem. Relative paths include the
+current directory and separator in this limit. Failed `cd` leaves the current
+directory unchanged; `/`, `.`, `..` and `ls` without an argument remain supported.
+Listing also fails cleanly if an entry path cannot fit or its metadata cannot
+be read, rather than reporting uninitialized metadata.
+
+`badusb run -a` rejects an oversized asset path before USB/BLE initialization.
+The 128-byte asset buffer accepts at most 127 path bytes including its prefix.
+Host regression: `python3 tools/console/test_paths.py` (managed cJSON required).

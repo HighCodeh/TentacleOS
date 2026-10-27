@@ -1,3 +1,18 @@
+# Copyright (c) 2025 HIGH CODE LLC
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 # For more information about build system see
 # https://docs.espressif.com/projects/esp-idf/en/latest/api-guides/build-system.html
 # The following five lines of boilerplate have to be in your project's
@@ -8,28 +23,32 @@ cmake_minimum_required(VERSION 3.16)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(IDF_TARGET "esp32c5")
 
+set(EXTRA_COMPONENT_DIRS
+    "${CMAKE_CURRENT_LIST_DIR}/components/Service/firmware_crypto"
+    "${CMAKE_CURRENT_LIST_DIR}/components/Service/muse_port"
+    "${CMAKE_CURRENT_LIST_DIR}/components/Service/noise_core"
+    "${CMAKE_CURRENT_LIST_DIR}/components/Service/minimp3"
+)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 project(TentacleOS_C5)
 
-# The C5 is headless: its assets are plain config/html/storage files (no PNG
-# icons or fonts), so there is no png->bin conversion step like the P4 has. The
-# assets/ tree is staged into temp/ so the build can stamp the current version
-# into firmware.json before imaging, without dirtying the source tree.
-# The `storage` partition holds runtime captures (evil twin passwords, pcaps,
-# GATT dumps, espnow chat) and is formatted on first boot (VFS_FORMAT_ON_FAIL).
-execute_process(
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${CMAKE_CURRENT_LIST_DIR}/assets" "${CMAKE_CURRENT_LIST_DIR}/temp"
-)
+# IDF 6 no longer supplies heap declarations through the SPI driver headers.
+idf_component_get_property(LED_STRIP_LIB espressif__led_strip COMPONENT_LIB)
+target_compile_options(${LED_STRIP_LIB} PRIVATE -include esp_heap_caps.h)
 
-file(STRINGS "${CMAKE_CURRENT_LIST_DIR}/../common/metadata/version_info.txt" FW_VERSION LIMIT_COUNT 1)
-string(STRIP "${FW_VERSION}" FW_VERSION)
-set(FW_JSON "${CMAKE_CURRENT_LIST_DIR}/temp/config/OTA/firmware.json")
-if(EXISTS "${FW_JSON}")
-    file(READ "${FW_JSON}" _fw_json)
-    string(REGEX REPLACE "\"version\"[ \t]*:[ \t]*\"[^\"]*\"" "\"version\": \"${FW_VERSION}\"" _fw_json "${_fw_json}")
-    file(WRITE "${FW_JSON}" "${_fw_json}")
+# Compile-only: no assets/temp staging or filesystem image.
+
+# A factory security profile compacts SDK code while preserving peripheral policy.
+if(CONFIG_SECURE_BOOT AND CONFIG_SECURE_FLASH_ENC_ENABLED)
+    idf_component_get_property(HIGHBOY_SECURE_DRIVERS Drivers COMPONENT_LIB)
+    target_compile_options(${HIGHBOY_SECURE_DRIVERS} PRIVATE -Og)
+    idf_component_get_property(HIGHBOY_SECURE_MUSE muse_port COMPONENT_LIB)
+    target_compile_options(${HIGHBOY_SECURE_MUSE} PRIVATE -Og)
 endif()
 
-littlefs_create_partition_image(assets temp FLASH_IN_PROJECT)
+# Retain internal RAM headroom as SDK support code grows in IDF 6.1.
+foreach(SUPPORT_COMPONENT esp_hw_support esp_libc mbedtls)
+    idf_component_get_property(SUPPORT_LIB ${SUPPORT_COMPONENT} COMPONENT_LIB)
+    target_compile_options(${SUPPORT_LIB} PRIVATE -Os)
+endforeach()

@@ -30,13 +30,13 @@
 #include "sys_prio.h"
 
 #include "host_link.h"
+#include "resource_mgr.h"
 #include "spi_bridge.h"
 #include "spi_protocol.h"
 
 static const char *TAG = "HOST_LINK_BLE";
 
 #define BLE_TASK_STACK         4096
-#define BLE_TASK_PRIO          SYS_PRIO_SERVICE_HI
 #define BLE_STATUS_TICK_MS     200
 #define BLE_SPI_TIMEOUT_MS     1000
 #define BLE_RX_FRAME_MAX       512 // one C5 BLE-write worth; host_link_feed reframes
@@ -51,6 +51,7 @@ typedef struct {
   uint8_t total_chunks;
   uint8_t next_chunk_idx;
   uint16_t accumulated_len;
+  uint32_t generation;
   uint8_t buf[BLE_RX_FRAME_MAX];
 } ble_reassembly_t;
 
@@ -64,10 +65,13 @@ static volatile bool s_want_ble_active = false;
 static bool s_ble_active_on_c5 = false;
 static uint16_t s_reconcile_ticks_remaining = BLE_RECONCILE_INTERVAL;
 static bool s_was_connected = false;
+// RES_BLE held while the companion wants the BLE transport, so an app BLE attack
+// gets BUSY instead of tearing down the companion's GATT on the C5.
+static res_handle_t s_ble_res = RES_HANDLE_NONE;
 
 static void status_task(void *pvParameters);
 static void on_rx_stream(spi_id_t id, const uint8_t *payload, uint8_t len);
-static void ble_write(const uint8_t *frame, size_t len);
+static void ble_write(uint32_t generation, const uint8_t *frame, size_t len);
 static esp_err_t fetch_status(spi_host_status_t *out_status);
 static esp_err_t request_ble_init(void);
 static esp_err_t request_ble_stop(void);
@@ -77,6 +81,9 @@ esp_err_t host_link_ble_init(void) {
   if (s_is_initialized) {
     return ESP_ERR_INVALID_STATE;
   }
+  esp_err_t core_err = host_link_start_worker();
+  if (core_err != ESP_OK)
+    return core_err;
 
   memset(&s_rx, 0, sizeof(s_rx));
   s_tx_seq = 0;
@@ -99,7 +106,7 @@ esp_err_t host_link_ble_init(void) {
                               "hl_ble",
                               BLE_TASK_STACK,
                               NULL,
-                              BLE_TASK_PRIO,
+                              SYS_PRIO_SERVICE_HI,
                               &s_status_task,
                               SYS_CORE_RADIO) != pdPASS) {
     s_is_running = false;
@@ -117,11 +124,24 @@ esp_err_t host_link_ble_init(void) {
 
 esp_err_t host_link_ble_start(void) {
   s_want_ble_active = true;
+  // Reserve the BLE radio for the companion. Preempts an app BLE attack (its
+  // session is stopped) so the control channel wins; apps then get BUSY.
+  if (s_ble_res == RES_HANDLE_NONE) {
+    res_request_t req = {.id = RES_BLE,
+                         .lane = RES_LANE_MAIN,
+                         .owner_kind = RES_OWNER_COMPANION,
+                         .owner_task = NULL,
+                         .allow_preempt = true};
+    resource_acquire(&req, &s_ble_res);
+  }
   return request_ble_init();
 }
 
 esp_err_t host_link_ble_stop(void) {
   s_want_ble_active = false;
+  host_link_session_release(ble_write);
+  resource_release(s_ble_res);
+  s_ble_res = RES_HANDLE_NONE;
   return request_ble_stop();
 }
 
@@ -135,6 +155,7 @@ bool host_link_ble_is_active(void) {
 
 static void status_task(void *pvParameters) {
   (void)pvParameters;
+  unsigned failures = 0;
 
   while (s_is_running) {
     vTaskDelay(pdMS_TO_TICKS(BLE_STATUS_TICK_MS));
@@ -148,8 +169,13 @@ static void status_task(void *pvParameters) {
 
     spi_host_status_t status = {0};
     if (fetch_status(&status) != ESP_OK) {
+      if (++failures >= 3) {
+        host_link_session_release(ble_write);
+        s_was_connected = false;
+      }
       continue;
     }
+    failures = 0;
 
     bool is_connected = (status.ble_connected != 0);
     if (is_connected && !s_was_connected) {
@@ -169,7 +195,7 @@ static void status_task(void *pvParameters) {
 
 // Host-link writer for BLE: chunk the frame and push each chunk to the C5,
 // which reassembles and notifies the companion. Runs under the host-link lock.
-static void ble_write(const uint8_t *frame, size_t len) {
+static void ble_write(uint32_t generation, const uint8_t *frame, size_t len) {
   if (frame == NULL || len == 0) {
     return;
   }
@@ -192,6 +218,8 @@ static void ble_write(const uint8_t *frame, size_t len) {
   uint16_t offset = 0;
 
   for (uint8_t idx = 0; idx < total_chunks; idx++) {
+    if (!host_link_generation_matches(ble_write, generation))
+      return;
     uint16_t remaining = (uint16_t)(len - offset);
     uint16_t this_chunk = remaining > BLE_CHUNK_PAYLOAD_MAX ? BLE_CHUNK_PAYLOAD_MAX : remaining;
 
@@ -206,6 +234,7 @@ static void ble_write(const uint8_t *frame, size_t len) {
     uint8_t cmd_len = (uint8_t)(sizeof(hdr) + this_chunk);
     if (spi_bridge_send_command(SPI_ID_HOST_TX, buf, cmd_len, NULL, NULL, 0, BLE_SPI_TIMEOUT_MS) !=
         ESP_OK) {
+      host_link_session_release_generation(ble_write, generation);
       return;
     }
     offset += this_chunk;
@@ -228,6 +257,13 @@ static void on_rx_stream(spi_id_t id, const uint8_t *payload, uint8_t len) {
   }
 
   if (hdr.chunk_idx == 0) {
+    // Only the status task may acquire BLE after observing a connection. Old
+    // SPI RX chunks must not resurrect ownership after a disconnect/USB take.
+    s_rx.generation = host_link_session_generation(ble_write);
+    if (s_rx.generation == 0) {
+      s_rx.is_active = false;
+      return;
+    }
     s_rx.is_active = true;
     s_rx.seq = hdr.seq;
     s_rx.total_chunks = hdr.total_chunks;
@@ -238,7 +274,8 @@ static void on_rx_stream(spi_id_t id, const uint8_t *payload, uint8_t len) {
   }
 
   if (hdr.seq != s_rx.seq || hdr.chunk_idx != s_rx.next_chunk_idx ||
-      hdr.total_chunks != s_rx.total_chunks) {
+      hdr.total_chunks != s_rx.total_chunks ||
+      !host_link_generation_matches(ble_write, s_rx.generation)) {
     s_rx.is_active = false;
     return;
   }
@@ -253,15 +290,7 @@ static void on_rx_stream(spi_id_t id, const uint8_t *payload, uint8_t len) {
   s_rx.next_chunk_idx++;
 
   if (s_rx.next_chunk_idx >= s_rx.total_chunks) {
-    // Claim the session for BLE on the first inbound bytes if it is free (the
-    // HELLO that establishes the session must not be dropped to a connect-edge
-    // race). If another transport already owns it, acquire fails and we drop.
-    if (!host_link_session_owns(ble_write)) {
-      host_link_session_acquire(ble_write);
-    }
-    if (host_link_session_owns(ble_write)) {
-      host_link_feed(s_rx.buf, s_rx.accumulated_len);
-    }
+    host_link_feed(ble_write, s_rx.generation, s_rx.buf, s_rx.accumulated_len);
     s_rx.is_active = false;
   }
 }

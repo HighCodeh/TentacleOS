@@ -21,6 +21,8 @@
 #include "lvgl.h"
 
 #include "capture_result_ui.h"
+#include "ir.h"
+#include "ir_ac.h"
 #include "ir_store.h"
 #include "notify_ui.h"
 #include "sigwave_ui.h"
@@ -94,6 +96,8 @@ static uint32_t s_captured_at = 0;
 static bool s_saved = false;
 static bool s_listening = false;
 static ir_data_t s_captured = {0};
+static ir_ac_state_t s_ac = {0};
+static bool s_is_ac = false;
 static char s_card_text[48];
 static rmt_symbol_word_t s_raw_buf[IR_MAX_SYMBOLS];
 
@@ -182,15 +186,26 @@ static void build_captured_card(void) {
   lv_obj_set_style_pad_all(s_card, 6, 0);
 
   lv_obj_t *info = lv_label_create(s_card);
-  if (s_captured.protocol != IR_PROTO_UNKNOWN)
+  if (s_is_ac) {
+    snprintf(s_card_text,
+             sizeof(s_card_text),
+             LV_SYMBOL_OK " %s\n%s %dC  %s  %s",
+             ir_ac_protocol_name(s_ac.protocol),
+             ir_ac_mode_name(s_ac.mode),
+             (int)s_ac.temp_c,
+             ir_ac_fan_name(s_ac.fan),
+             s_ac.power ? "ON" : "OFF");
+    lv_obj_set_style_text_align(info, LV_TEXT_ALIGN_CENTER, 0);
+  } else if (s_captured.protocol != IR_PROTO_UNKNOWN) {
     snprintf(s_card_text,
              sizeof(s_card_text),
              LV_SYMBOL_OK "  %s   0x%02lX / 0x%02lX",
              ir_protocol_name(s_captured.protocol),
              (unsigned long)s_captured.address,
              (unsigned long)s_captured.command);
-  else
+  } else {
     snprintf(s_card_text, sizeof(s_card_text), LV_SYMBOL_OK "  RAW signal");
+  }
   lv_label_set_text(info, s_card_text);
   lv_obj_set_style_text_color(info, current_theme.text_main, 0);
   lv_obj_set_style_text_font(info, &lv_font_montserrat_12, 0);
@@ -251,7 +266,16 @@ static void show_options(void) {
 
   static char sub[24];
   static char val[32];
-  if (s_captured.protocol != IR_PROTO_UNKNOWN) {
+  if (s_is_ac) {
+    snprintf(sub, sizeof(sub), "%s A/C", ir_ac_protocol_name(s_ac.protocol));
+    snprintf(val,
+             sizeof(val),
+             "%s %dC %s %s",
+             ir_ac_mode_name(s_ac.mode),
+             (int)s_ac.temp_c,
+             ir_ac_fan_name(s_ac.fan),
+             s_ac.power ? "ON" : "OFF");
+  } else if (s_captured.protocol != IR_PROTO_UNKNOWN) {
     snprintf(sub, sizeof(sub), "%s protocol", ir_protocol_name(s_captured.protocol));
     snprintf(val,
              sizeof(val),
@@ -288,6 +312,7 @@ void ui_ir_receive_open(void) {
   s_state = ST_IDLE;
   s_saved = false;
   s_captured = (ir_data_t){0};
+  s_is_ac = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -364,6 +389,9 @@ static void poll_capture(void) {
   ir_cap_status_t st = ir_capture_poll(&d);
   if (st == IR_CAP_GOT) {
     s_captured = d;
+    size_t nsym = 0;
+    s_is_ac = (ir_get_last_raw(s_raw_buf, IR_MAX_SYMBOLS, &nsym) == ESP_OK && nsym > 0 &&
+               ir_ac_decode(s_raw_buf, nsym, &s_ac));
     build_captured_card();
   } else if (st == IR_CAP_TIMEOUT && s_listening) {
     // Nothing yet — re-arm and keep listening until a signal or the user cancels.

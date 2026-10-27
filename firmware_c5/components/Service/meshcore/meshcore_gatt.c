@@ -112,10 +112,8 @@ esp_err_t meshcore_gatt_init(const char *name_prefix, uint32_t pin) {
   }
 
   ret = nvs_flash_init();
-  if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    nvs_flash_erase();
-    ret = nvs_flash_init();
-  }
+  // Integrated build: never erase existing NVS on an init error.
+  // Fail closed below; migration/recovery requires a separate reviewed action.
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "NVS init failed: %s", esp_err_to_name(ret));
     return ret;

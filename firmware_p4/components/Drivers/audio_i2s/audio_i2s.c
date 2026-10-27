@@ -32,6 +32,7 @@
 #include "audio_i2s.h"
 
 #include <math.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -73,7 +74,10 @@ static const char *TAG = "AUDIO_I2S";
 
 // Ceiling on how long a caller waits for the shared TX channel. Bounds the
 // worst-case UI stall; past this the sound is dropped.
-#define TX_LOCK_WAIT_MS 250
+#define TX_LOCK_WAIT_MS     250
+#define TX_DRAIN_WAIT_MS    300
+#define TX_DRAIN_MAX_WRITES (AUDIO_DMA_DESC_NUM * 2)
+#define TX_WRITE_WAIT_MS    500
 // Queued UI effects are disposable: never let one wait behind a melody.
 #define FX_TX_WAIT_MS 0
 
@@ -100,11 +104,11 @@ static SemaphoreHandle_t s_tx_mux = NULL;
 static QueueHandle_t s_fx_q = NULL;
 static int16_t *s_chunk_buf = NULL;
 static bool s_ready = false;
-static volatile bool s_streaming = false;
+static atomic_bool s_streaming;
 
 static i2s_chan_handle_t s_rx_stream = NULL;
 
-static float s_play_vol = 1.0f;
+static _Atomic(float) s_play_vol = 1.0f;
 
 void audio_i2s_set_volume(uint8_t pct) {
   if (pct > 100)
@@ -153,16 +157,24 @@ static void amp_enable(void) {
  * i2s_channel_disable() does xQueueReset() on the TX queue and throws away
  * whatever had not gone out yet.
  */
-static void tx_drain(void) {
+static esp_err_t tx_drain(void) {
   const int dma_samples = AUDIO_DMA_DESC_NUM * AUDIO_DMA_FRAME_NUM;
   memset(s_chunk_buf, 0, CHUNK_SAMPLES * sizeof(int16_t));
+  uint32_t attempts = 0;
   for (int p = 0; p < dma_samples;) {
+    if (++attempts > TX_DRAIN_MAX_WRITES)
+      return ESP_ERR_TIMEOUT;
     int n = (dma_samples - p > CHUNK_SAMPLES) ? CHUNK_SAMPLES : (dma_samples - p);
     size_t w = 0;
-    if (i2s_channel_write(s_tx, s_chunk_buf, n * sizeof(int16_t), &w, pdMS_TO_TICKS(300)) != ESP_OK)
-      return;
-    p += n;
+    size_t bytes = (size_t)n * sizeof(int16_t);
+    esp_err_t result = i2s_channel_write(s_tx, s_chunk_buf, bytes, &w, TX_DRAIN_WAIT_MS);
+    if (result != ESP_OK)
+      return result;
+    if (w == 0 || w > bytes || w % sizeof(int16_t) != 0)
+      return ESP_FAIL;
+    p += (int)(w / sizeof(int16_t));
   }
+  return ESP_OK;
 }
 
 /**
@@ -177,7 +189,9 @@ static esp_err_t tx_set_rate(uint32_t rate) {
     return ESP_OK;
 
   if (s_tx_enabled) {
-    tx_drain();
+    esp_err_t drain = tx_drain();
+    if (drain != ESP_OK)
+      return drain;
     esp_err_t stop = i2s_channel_disable(s_tx);
     if (stop != ESP_OK)
       return stop;
@@ -224,8 +238,8 @@ static esp_err_t tx_begin(uint32_t rate) {
  * written straight behind it - which is what running one sound into the next
  * sounded like.
  */
-static void tx_end(void) {
-  tx_drain();
+static esp_err_t tx_end(void) {
+  return tx_drain();
 }
 
 /**
@@ -240,7 +254,9 @@ static int write_all(const int16_t *buf, int n_samples) {
   while (done < n_samples) {
     size_t w = 0;
     esp_err_t err = i2s_channel_write(
-        s_tx, &buf[done], (n_samples - done) * sizeof(int16_t), &w, pdMS_TO_TICKS(500));
+        s_tx, &buf[done], (n_samples - done) * sizeof(int16_t), &w, TX_WRITE_WAIT_MS);
+    if (w > (size_t)(n_samples - done) * sizeof(int16_t) || w % sizeof(int16_t) != 0)
+      break;
     done += (int)(w / sizeof(int16_t));
     if (err != ESP_OK || w == 0)
       break; // stalled or disabled underneath us: give up rather than spin
@@ -463,12 +479,18 @@ esp_err_t audio_i2s_play_tone(float freq_hz, int dur_ms, float amp) {
   if (!tx_lock(pdMS_TO_TICKS(TX_LOCK_WAIT_MS)))
     return ESP_ERR_TIMEOUT; // busy: drop the sound, never stall the caller
 
+  if (s_streaming) {
+    tx_unlock();
+    return ESP_OK;
+  }
   esp_err_t err = tx_begin(SAMPLE_RATE_HZ);
   if (err == ESP_OK) {
     write_silence(SAMPLE_RATE_HZ, 8);
     render_note(freq_hz, dur_ms, amp);
     write_silence(SAMPLE_RATE_HZ, 8);
-    tx_end();
+    esp_err_t drain = tx_end();
+    if (err == ESP_OK)
+      err = drain;
   }
   tx_unlock();
   return err;
@@ -483,10 +505,16 @@ esp_err_t audio_i2s_play_song_cb(
   if (!tx_lock(pdMS_TO_TICKS(TX_LOCK_WAIT_MS)))
     return ESP_ERR_TIMEOUT;
 
+  if (s_streaming) {
+    tx_unlock();
+    return ESP_OK;
+  }
   esp_err_t err = tx_begin(SAMPLE_RATE_HZ);
   if (err == ESP_OK) {
     play_notes_locked(notes, count, amp, cb, ctx);
-    tx_end();
+    esp_err_t drain = tx_end();
+    if (err == ESP_OK)
+      err = drain;
   }
   tx_unlock();
   return err;
@@ -504,12 +532,20 @@ esp_err_t audio_i2s_play_pcm(const int16_t *pcm, size_t n_samples, uint32_t samp
   if (!tx_lock(pdMS_TO_TICKS(TX_LOCK_WAIT_MS)))
     return ESP_ERR_TIMEOUT;
 
+  if (s_streaming) {
+    tx_unlock();
+    return ESP_OK;
+  }
   esp_err_t err = tx_begin(sample_rate);
   if (err == ESP_OK) {
     size_t off = 0;
     while (off < n_samples) {
       size_t chunk = (n_samples - off > CHUNK_SAMPLES) ? CHUNK_SAMPLES : (n_samples - off);
-      int wrote = write_all(&pcm[off], (int)chunk);
+      float volume = atomic_load(&s_play_vol);
+      for (size_t i = 0; i < chunk; ++i) {
+        s_chunk_buf[i] = (int16_t)(pcm[off + i] * volume);
+      }
+      int wrote = write_all(s_chunk_buf, (int)chunk);
       if (wrote != (int)chunk) {
         ESP_LOGE(TAG, "play_pcm: short write @ %u (%d/%u)", (unsigned)off, wrote, (unsigned)chunk);
         err = ESP_FAIL;
@@ -518,7 +554,9 @@ esp_err_t audio_i2s_play_pcm(const int16_t *pcm, size_t n_samples, uint32_t samp
       off += chunk;
     }
     write_silence((int)sample_rate, 20); // tail so the amp settles on silence
-    tx_end();
+    esp_err_t drain = tx_end();
+    if (err == ESP_OK)
+      err = drain;
   }
   tx_unlock();
   return err;
@@ -527,13 +565,15 @@ esp_err_t audio_i2s_play_pcm(const int16_t *pcm, size_t n_samples, uint32_t samp
 esp_err_t audio_i2s_stream_start(uint32_t sample_rate) {
   if (!s_ready)
     return ESP_ERR_INVALID_STATE;
-  if (s_streaming)
-    audio_i2s_stream_stop();
 
   // Held only long enough to claim the channel; the stream then owns it via
   // s_streaming until stream_stop(), which every one-shot path checks.
   if (!tx_lock(pdMS_TO_TICKS(TX_LOCK_WAIT_MS)))
     return ESP_ERR_TIMEOUT;
+  if (s_streaming) {
+    tx_unlock();
+    return ESP_ERR_INVALID_STATE;
+  }
   esp_err_t err = tx_begin(sample_rate);
   if (err == ESP_OK)
     s_streaming = true;
@@ -549,6 +589,10 @@ int audio_i2s_stream_write(const int16_t *pcm, int n_samples) {
   if (!tx_lock(pdMS_TO_TICKS(TX_LOCK_WAIT_MS)))
     return 0;
 
+  if (!s_streaming) {
+    tx_unlock();
+    return -1;
+  }
   int done = 0;
   while (done < n_samples) {
     int n = (n_samples - done > CHUNK_SAMPLES) ? CHUNK_SAMPLES : (n_samples - done);
@@ -572,13 +616,23 @@ int audio_i2s_stream_write(const int16_t *pcm, int n_samples) {
 void audio_i2s_stream_stop(void) {
   if (!s_streaming)
     return;
-  s_streaming = false;
   if (!tx_lock(pdMS_TO_TICKS(TX_LOCK_WAIT_MS)))
     return;
   // Drain rather than a short tail: the last chunk of the track is still
   // sitting in the DMA queue at this point and would be lost on the next
   // rate change (which disables the channel).
-  tx_drain();
+  esp_err_t result = tx_drain();
+  if (result != ESP_OK) {
+    ESP_LOGE(TAG, "Stream drain failed: %s", esp_err_to_name(result));
+    result = i2s_channel_disable(s_tx);
+    if (result != ESP_OK) {
+      ESP_LOGE(TAG, "Stream disable failed: %s", esp_err_to_name(result));
+      tx_unlock();
+      return;
+    }
+    s_tx_enabled = false;
+  }
+  s_streaming = false;
   tx_unlock();
 }
 

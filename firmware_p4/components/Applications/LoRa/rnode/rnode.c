@@ -150,6 +150,9 @@ esp_err_t rnode_radio_transmit(const uint8_t *data, size_t len) {
 }
 
 esp_err_t rnode_init(const sx1262_hal_t *hal) {
+  if (!rnode_serial_is_supported()) {
+    return ESP_ERR_NOT_SUPPORTED;
+  }
   if (s_is_initialized) {
     return ESP_ERR_INVALID_STATE;
   }

@@ -281,7 +281,6 @@ static void wifi_deauth_detector_input(const input_event_t *ev, void *ctx) {
 
   switch (ev->button) {
     case INPUT_BTN_BACK:
-    case INPUT_BTN_LEFT:
       if (press) {
         stop_detection();
         ui_switch_screen(SCREEN_WIFI_MENU);

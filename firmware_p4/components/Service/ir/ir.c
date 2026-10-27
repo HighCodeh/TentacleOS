@@ -28,6 +28,9 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 
+#include "resource_mgr.h"
+#include "ir_lease.h"
+
 static const char *TAG = "IR";
 
 static rmt_channel_handle_t s_rx_chan;
@@ -45,6 +48,11 @@ static SemaphoreHandle_t s_mutex = NULL;
 
 static bool s_is_rx_inited = false;
 static bool s_is_tx_inited = false;
+
+// RES_IR grants. TX and RX share the one IR front end, so they are mutually
+// exclusive: whichever inits first holds it; the other init returns BUSY.
+static res_handle_t s_rx_res = RES_HANDLE_NONE;
+static res_handle_t s_tx_res = RES_HANDLE_NONE;
 // True while the RX channel is armed for a frame. A one-shot rmt_receive() is
 // consumed by every frame (including NEC repeat frames), so if a frame lands
 // while no one is in ir_receive(), the channel goes idle — ir_rx_prime() re-arms
@@ -58,7 +66,121 @@ static bool rx_callback(rmt_channel_handle_t ch, const rmt_rx_done_event_data_t 
 static esp_err_t set_carrier(uint32_t freq_hz);
 static esp_err_t transmit(const rmt_symbol_word_t *symbols, size_t count, uint32_t carrier_hz);
 
+static bool s_has_torch;
+
+static esp_err_t rx_init_impl(void);
+static void rx_prime_impl(void);
+static void rx_deinit_impl(void);
+static esp_err_t tx_init_impl(void);
+static void tx_deinit_impl(void);
+static esp_err_t flash_on_impl(void);
+static esp_err_t flash_off_impl(void);
+static esp_err_t receive_impl(ir_data_t *out_data, uint32_t timeout_ms);
+static esp_err_t send_impl(const ir_data_t *data);
+static esp_err_t send_raw_impl(const rmt_symbol_word_t *symbols, size_t count, uint32_t carrier_hz);
+static esp_err_t get_last_raw_impl(rmt_symbol_word_t *out_buf, size_t buf_max, size_t *out_count);
+
 esp_err_t ir_rx_init(void) {
+  if (!ir_lease_enter())
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = rx_init_impl();
+  ir_lease_leave(s_rx_chan != NULL || s_tx_chan != NULL || s_tx_encoder != NULL ||
+                 s_rx_queue != NULL || s_has_torch);
+  return error;
+}
+
+void ir_rx_prime(void) {
+  if (!ir_lease_enter())
+    return;
+  rx_prime_impl();
+  ir_lease_leave(s_rx_chan != NULL || s_tx_chan != NULL || s_tx_encoder != NULL ||
+                 s_rx_queue != NULL || s_has_torch);
+}
+
+void ir_rx_deinit(void) {
+  if (!ir_lease_enter())
+    return;
+  rx_deinit_impl();
+  ir_lease_leave(s_rx_chan != NULL || s_tx_chan != NULL || s_tx_encoder != NULL ||
+                 s_rx_queue != NULL || s_has_torch);
+}
+
+esp_err_t ir_tx_init(void) {
+  if (!ir_lease_enter())
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = tx_init_impl();
+  ir_lease_leave(s_rx_chan != NULL || s_tx_chan != NULL || s_tx_encoder != NULL ||
+                 s_rx_queue != NULL || s_has_torch);
+  return error;
+}
+
+void ir_tx_deinit(void) {
+  if (!ir_lease_enter())
+    return;
+  tx_deinit_impl();
+  ir_lease_leave(s_rx_chan != NULL || s_tx_chan != NULL || s_tx_encoder != NULL ||
+                 s_rx_queue != NULL || s_has_torch);
+}
+
+esp_err_t ir_flash_on(void) {
+  if (!ir_lease_enter())
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = flash_on_impl();
+  if (error == ESP_OK)
+    s_has_torch = true;
+  ir_lease_leave(s_rx_chan != NULL || s_tx_chan != NULL || s_tx_encoder != NULL ||
+                 s_rx_queue != NULL || s_has_torch);
+  return error;
+}
+
+esp_err_t ir_flash_off(void) {
+  if (!ir_lease_enter())
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = flash_off_impl();
+  if (error == ESP_OK)
+    s_has_torch = false;
+  ir_lease_leave(s_rx_chan != NULL || s_tx_chan != NULL || s_tx_encoder != NULL ||
+                 s_rx_queue != NULL || s_has_torch);
+  return error;
+}
+
+esp_err_t ir_receive(ir_data_t *out_data, uint32_t timeout_ms) {
+  if (!ir_lease_enter())
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = receive_impl(out_data, timeout_ms);
+  ir_lease_leave(s_rx_chan != NULL || s_tx_chan != NULL || s_tx_encoder != NULL ||
+                 s_rx_queue != NULL || s_has_torch);
+  return error;
+}
+
+esp_err_t ir_send(const ir_data_t *data) {
+  if (!ir_lease_enter())
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = send_impl(data);
+  ir_lease_leave(s_rx_chan != NULL || s_tx_chan != NULL || s_tx_encoder != NULL ||
+                 s_rx_queue != NULL || s_has_torch);
+  return error;
+}
+
+esp_err_t ir_send_raw(const rmt_symbol_word_t *symbols, size_t count, uint32_t carrier_hz) {
+  if (!ir_lease_enter())
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = send_raw_impl(symbols, count, carrier_hz);
+  ir_lease_leave(s_rx_chan != NULL || s_tx_chan != NULL || s_tx_encoder != NULL ||
+                 s_rx_queue != NULL || s_has_torch);
+  return error;
+}
+
+esp_err_t ir_get_last_raw(rmt_symbol_word_t *out_buf, size_t buf_max, size_t *out_count) {
+  if (!ir_lease_enter())
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = get_last_raw_impl(out_buf, buf_max, out_count);
+  ir_lease_leave(s_rx_chan != NULL || s_tx_chan != NULL || s_tx_encoder != NULL ||
+                 s_rx_queue != NULL || s_has_torch);
+  return error;
+}
+
+static esp_err_t rx_init_impl(void) {
   if (s_is_rx_inited)
     return ESP_OK;
 
@@ -88,6 +210,17 @@ esp_err_t ir_rx_init(void) {
     ESP_LOGE(TAG, "rmt_new_rx_channel failed: %s", esp_err_to_name(ret));
     s_rx_chan = NULL;
     return ret;
+  }
+
+  res_request_t res_req = {.id = RES_IR,
+                           .lane = RES_LANE_MAIN,
+                           .owner_kind = RES_OWNER_UI,
+                           .owner_task = NULL,
+                           .allow_preempt = false};
+  if (resource_acquire(&res_req, &s_rx_res) != ESP_OK) {
+    ESP_LOGW(TAG, "IR busy; RX not started");
+    ret = ESP_ERR_INVALID_STATE;
+    goto fail;
   }
 
   s_rx_queue = xQueueCreate(1, sizeof(rmt_rx_done_event_data_t));
@@ -122,18 +255,11 @@ esp_err_t ir_rx_init(void) {
   return ESP_OK;
 
 fail:
-  if (s_rx_chan != NULL) {
-    rmt_del_channel(s_rx_chan);
-    s_rx_chan = NULL;
-  }
-  if (s_rx_queue != NULL) {
-    vQueueDelete(s_rx_queue);
-    s_rx_queue = NULL;
-  }
+  ir_rx_deinit();
   return ret;
 }
 
-void ir_rx_prime(void) {
+static void rx_prime_impl(void) {
   // Drop any stale/ambient frame, then re-arm the channel if a frame consumed the
   // one-shot receive while nobody was in ir_receive(). Flush first so a frame that
   // arrives after we re-arm isn't discarded.
@@ -145,15 +271,23 @@ void ir_rx_prime(void) {
   }
 }
 
-void ir_rx_deinit(void) {
-  if (!s_is_rx_inited)
+static void rx_deinit_impl(void) {
+  if (!s_is_rx_inited && s_rx_chan == NULL && s_rx_queue == NULL)
     return;
 
   // Disable before delete: rmt_del_channel rejects an enabled channel. The
   // one-shot receive pending from init/re-arm is dropped by the disable.
   if (s_rx_chan != NULL) {
-    rmt_disable(s_rx_chan);
-    rmt_del_channel(s_rx_chan);
+    esp_err_t error = rmt_disable(s_rx_chan);
+    if (error != ESP_OK && error != ESP_ERR_INVALID_STATE) {
+      ESP_LOGE(TAG, "Cannot disable IR RX: %s", esp_err_to_name(error));
+      return;
+    }
+    error = rmt_del_channel(s_rx_chan);
+    if (error != ESP_OK) {
+      ESP_LOGE(TAG, "Cannot delete IR RX: %s", esp_err_to_name(error));
+      return;
+    }
     s_rx_chan = NULL;
   }
   if (s_rx_queue != NULL) {
@@ -162,10 +296,12 @@ void ir_rx_deinit(void) {
   }
   s_rx_armed = false;
   s_is_rx_inited = false;
+  resource_release(s_rx_res);
+  s_rx_res = RES_HANDLE_NONE;
   ESP_LOGI(TAG, "IR RX released");
 }
 
-esp_err_t ir_tx_init(void) {
+static esp_err_t tx_init_impl(void) {
   if (s_is_tx_inited)
     return ESP_OK;
 
@@ -194,6 +330,17 @@ esp_err_t ir_tx_init(void) {
     return ret;
   }
 
+  res_request_t res_req = {.id = RES_IR,
+                           .lane = RES_LANE_MAIN,
+                           .owner_kind = RES_OWNER_UI,
+                           .owner_task = NULL,
+                           .allow_preempt = false};
+  if (resource_acquire(&res_req, &s_tx_res) != ESP_OK) {
+    ESP_LOGW(TAG, "IR busy; TX not started");
+    ret = ESP_ERR_INVALID_STATE;
+    goto fail;
+  }
+
   rmt_copy_encoder_config_t enc_cfg = {};
   ret = rmt_new_copy_encoder(&enc_cfg, &s_tx_encoder);
   if (ret != ESP_OK) {
@@ -212,38 +359,44 @@ esp_err_t ir_tx_init(void) {
   return ESP_OK;
 
 fail:
-  // Release the channel/encoder so a failed init doesn't leak a TX channel.
-  if (s_tx_encoder != NULL) {
-    rmt_del_encoder(s_tx_encoder);
-    s_tx_encoder = NULL;
-  }
-  if (s_tx_chan != NULL) {
-    rmt_del_channel(s_tx_chan);
-    s_tx_chan = NULL;
-  }
+  ir_tx_deinit();
   return ret;
 }
 
-void ir_tx_deinit(void) {
-  if (!s_is_tx_inited)
+static void tx_deinit_impl(void) {
+  if (!s_is_tx_inited && s_tx_chan == NULL && s_tx_encoder == NULL)
     return;
 
   // Disable before delete: rmt_del_channel rejects an enabled channel.
   if (s_tx_chan != NULL) {
-    rmt_disable(s_tx_chan);
-    rmt_del_channel(s_tx_chan);
+    esp_err_t error = rmt_disable(s_tx_chan);
+    if (error != ESP_OK && error != ESP_ERR_INVALID_STATE) {
+      ESP_LOGE(TAG, "Cannot disable IR TX: %s", esp_err_to_name(error));
+      return;
+    }
+    error = rmt_del_channel(s_tx_chan);
+    if (error != ESP_OK) {
+      ESP_LOGE(TAG, "Cannot delete IR TX: %s", esp_err_to_name(error));
+      return;
+    }
     s_tx_chan = NULL;
   }
   if (s_tx_encoder != NULL) {
-    rmt_del_encoder(s_tx_encoder);
+    esp_err_t error = rmt_del_encoder(s_tx_encoder);
+    if (error != ESP_OK) {
+      ESP_LOGE(TAG, "Cannot delete IR encoder: %s", esp_err_to_name(error));
+      return;
+    }
     s_tx_encoder = NULL;
   }
   s_current_carrier = 0;
   s_is_tx_inited = false;
+  resource_release(s_tx_res);
+  s_tx_res = RES_HANDLE_NONE;
   ESP_LOGI(TAG, "IR TX released");
 }
 
-esp_err_t ir_flash_on(void) {
+static esp_err_t flash_on_impl(void) {
   // Full-power DC drive: bypass the RMT carrier and hold the emitter gate high,
   // so the LED stays lit instead of pulsing at the 38 kHz duty. Release the RMT
   // TX channel first so it does not also own GPIO_IR_TX_PIN.
@@ -270,7 +423,7 @@ esp_err_t ir_flash_on(void) {
   return ESP_OK;
 }
 
-esp_err_t ir_flash_off(void) {
+static esp_err_t flash_off_impl(void) {
   // Keep the pin a plain output at low: matches the R90 pull-down resting state,
   // and a later ir_tx_init() re-routes it to the RMT peripheral as needed.
   gpio_config_t io = {
@@ -294,7 +447,7 @@ esp_err_t ir_flash_off(void) {
   return ESP_OK;
 }
 
-esp_err_t ir_receive(ir_data_t *out_data, uint32_t timeout_ms) {
+static esp_err_t receive_impl(ir_data_t *out_data, uint32_t timeout_ms) {
   if (out_data == NULL)
     return ESP_ERR_INVALID_ARG;
 
@@ -328,7 +481,7 @@ esp_err_t ir_receive(ir_data_t *out_data, uint32_t timeout_ms) {
   return is_decoded ? ESP_OK : ESP_ERR_NOT_FOUND;
 }
 
-esp_err_t ir_send(const ir_data_t *data) {
+static esp_err_t send_impl(const ir_data_t *data) {
   if (data == NULL)
     return ESP_ERR_INVALID_ARG;
 
@@ -341,13 +494,14 @@ esp_err_t ir_send(const ir_data_t *data) {
   return r;
 }
 
-esp_err_t ir_send_raw(const rmt_symbol_word_t *symbols, size_t count, uint32_t carrier_hz) {
+static esp_err_t
+send_raw_impl(const rmt_symbol_word_t *symbols, size_t count, uint32_t carrier_hz) {
   if (symbols == NULL || count == 0)
     return ESP_ERR_INVALID_ARG;
   return transmit(symbols, count, carrier_hz);
 }
 
-esp_err_t ir_get_last_raw(rmt_symbol_word_t *out_buf, size_t buf_max, size_t *out_count) {
+static esp_err_t get_last_raw_impl(rmt_symbol_word_t *out_buf, size_t buf_max, size_t *out_count) {
   if (out_buf == NULL || buf_max == 0)
     return ESP_ERR_INVALID_ARG;
 

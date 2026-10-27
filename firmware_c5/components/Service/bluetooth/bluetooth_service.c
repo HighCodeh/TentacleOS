@@ -34,6 +34,7 @@
 #include "services/gap/ble_svc_gap.h"
 
 #include "cJSON.h"
+#include "gatt_explorer.h"
 #include "storage_assets.h"
 #include "storage_write.h"
 
@@ -59,6 +60,7 @@ static const char *TAG = "BLE_SERVICE";
 static uint8_t s_own_addr_type;
 static bool s_is_initialized = false;
 static bool s_is_running = false;
+static bool s_adv_requested = false;
 static SemaphoreHandle_t s_hs_synced_sem = NULL;
 static uint16_t s_conn_handles[MAX_BLE_CONNECTIONS];
 static int s_conn_count = 0;
@@ -84,10 +86,8 @@ esp_err_t bluetooth_service_init(void) {
   }
 
   esp_err_t ret = nvs_flash_init();
-  if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    ESP_ERROR_CHECK(nvs_flash_erase());
-    ret = nvs_flash_init();
-  }
+  // Integrated build: never erase existing NVS on an init error.
+  // Fail closed below; migration/recovery requires a separate reviewed action.
   ESP_ERROR_CHECK(ret);
 
   ret = nimble_port_init();
@@ -144,6 +144,8 @@ esp_err_t bluetooth_service_start(void) {
 }
 
 esp_err_t bluetooth_service_stop(void) {
+  if (gatt_explorer_is_busy())
+    return ESP_ERR_INVALID_STATE;
   if (!s_is_running) {
     ESP_LOGW(TAG, "BLE not running");
     return ESP_OK;
@@ -162,14 +164,21 @@ esp_err_t bluetooth_service_stop(void) {
 
 esp_err_t bluetooth_service_deinit(void) {
   if (s_is_running) {
-    bluetooth_service_stop();
+    esp_err_t stopped = bluetooth_service_stop();
+    if (stopped != ESP_OK)
+      return stopped;
   }
   if (!s_is_initialized) {
     ESP_LOGW(TAG, "BLE not initialized");
     return ESP_OK;
   }
 
-  nimble_port_deinit();
+  esp_err_t explorer_error = gatt_explorer_deinit();
+  if (explorer_error != ESP_OK)
+    return explorer_error;
+  esp_err_t deinitialized = nimble_port_deinit();
+  if (deinitialized != ESP_OK)
+    return deinitialized;
 
   if (s_hs_synced_sem != NULL) {
     vSemaphoreDelete(s_hs_synced_sem);
@@ -257,6 +266,9 @@ esp_err_t bluetooth_service_connect(const uint8_t *addr,
   memcpy(target_addr.val, addr, BLE_MAC_LEN);
   target_addr.type = addr_type;
 
+  if (cb == NULL)
+    cb = gap_event;
+
   struct ble_gap_conn_params conn_params;
   memset(&conn_params, 0, sizeof(conn_params));
   conn_params.scan_itvl = BLE_SCAN_ITVL;
@@ -282,6 +294,12 @@ esp_err_t bluetooth_service_start_advertising(void) {
   if (!s_is_initialized) {
     ESP_LOGE(TAG, "BLE not initialized");
     return ESP_FAIL;
+  }
+
+  s_adv_requested = true;
+  if (ble_gap_adv_active()) {
+    ESP_LOGI(TAG, "Advertising already active");
+    return ESP_OK;
   }
 
   struct ble_gap_adv_params adv_params;
@@ -312,6 +330,7 @@ esp_err_t bluetooth_service_start_advertising(void) {
 
   rc = ble_gap_adv_start(s_own_addr_type, NULL, BLE_HS_FOREVER, &adv_params, gap_event, NULL);
   if (rc != 0) {
+    s_adv_requested = false;
     ESP_LOGE(TAG, "Error starting advertisement: rc=%d", rc);
     return ESP_FAIL;
   }
@@ -321,6 +340,7 @@ esp_err_t bluetooth_service_start_advertising(void) {
 }
 
 esp_err_t bluetooth_service_stop_advertising(void) {
+  s_adv_requested = false;
   if (!s_is_initialized) {
     ESP_LOGE(TAG, "BLE not initialized");
     return ESP_FAIL;
@@ -611,7 +631,7 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         if (s_conn_count < MAX_BLE_CONNECTIONS) {
           s_conn_handles[s_conn_count++] = event->connect.conn_handle;
         }
-      } else {
+      } else if (s_adv_requested) {
         bluetooth_service_start_advertising();
       }
       break;
@@ -627,12 +647,14 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
           break;
         }
       }
-      bluetooth_service_start_advertising();
+      if (s_adv_requested)
+        bluetooth_service_start_advertising();
       break;
 
     case BLE_GAP_EVENT_ADV_COMPLETE:
       ESP_LOGI(TAG, "Advertising complete");
-      bluetooth_service_start_advertising();
+      if (s_adv_requested)
+        bluetooth_service_start_advertising();
       break;
 
     case BLE_GAP_EVENT_DISC: {

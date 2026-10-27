@@ -1,18 +1,31 @@
+# Copyright (c) 2025 HIGH CODE LLC
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 dependencies:
-  espressif/led_strip: ^2.5.1
-  espressif/tinyusb: '*'
-  espressif/esp_tinyusb: '*'
-  joltwallet/littlefs: ^1.14.8
-  lvgl/lvgl: ^9.4.0
-  espressif/cjson: ^1.7.19
-  espressif/argtable3: ^3.3
-  espressif/libsodium: ^1.0.22
-  espressif/esp-serial-flasher: ^2.0.0
-  # Cap below 2.9.0: it uses esp_lcd_dpi_panel_event_callbacks_t::on_frame_buf_complete
-  # behind an `ESP_IDF_VERSION >= 5.5.0` guard, but that DSI member only exists on IDF
-  # master/v6.0 — on 5.5.x the DPI struct still has on_refresh_done, so 2.9.0 fails to
-  # compile. Revisit when upstream fixes the guard or we move to IDF 6.
-  espressif/esp_lvgl_port: '>=2.0.0,<2.9.0'
-  espressif/esp-dsp: ^1.5.0
-  # Helix fixed-point MP3 decoder (classic MP3* API via mp3dec.h) for the player.
-  chmorgan/esp-libhelix-mp3: "^1.0.3"
+  espressif/argtable3: "==3.3.1~1"
+  espressif/cjson: "==1.7.19~2"
+  espressif/esp-dsp: "==1.8.2"
+  chmorgan/esp-libhelix-mp3: "==1.0.3"
+  espressif/esp-serial-flasher: "==2.0.0"
+  espressif/esp_lvgl_port: "==2.8.0~1"
+  espressif/esp_tinyusb: "==2.2.0"
+  espressif/led_strip: "==2.5.5"
+  espressif/libsodium: "==1.0.22~1"
+  joltwallet/littlefs: "==1.22.1"
+  lvgl/lvgl: "==9.4.0"
+  espressif/tinyusb: "==0.19.0~3"
+  espressif/usb_host_cdc_acm: "==2.4.0"
+  espressif/usb_host_ch34x_vcp: "==2.2.0"
+  espressif/usb_host_cp210x_vcp: "==2.2.0"

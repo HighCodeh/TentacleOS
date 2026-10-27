@@ -57,13 +57,15 @@ size_t ir_protocol_sony_encode(const ir_data_t *data, rmt_symbol_word_t *symbols
   if (data == NULL || symbols == NULL || max == 0)
     return 0;
 
-  size_t num_bits;
-  if (data->address > SONY_SIRC15_ADDR_MAX)
-    num_bits = SONY_SIRC20_BITS;
-  else if (data->address > SONY_SIRC12_ADDR_MAX)
-    num_bits = SONY_SIRC15_BITS;
-  else
-    num_bits = SONY_SIRC12_BITS;
+  size_t num_bits = data->nbits;
+  if (num_bits == 0) {
+    if (data->address > SONY_SIRC15_ADDR_MAX)
+      num_bits = SONY_SIRC20_BITS;
+    else if (data->address > SONY_SIRC12_ADDR_MAX)
+      num_bits = SONY_SIRC15_BITS;
+    else
+      num_bits = SONY_SIRC12_BITS;
+  }
 
   uint64_t raw = (data->command & SONY_CMD_MASK) | ((uint64_t)(data->address) << SONY_ADDR_SHIFT);
 

@@ -36,6 +36,17 @@ typedef enum {
   NFC_MANAGER_STATE_COUNT
 } nfc_manager_state_t;
 
+typedef enum {
+  NFC_MANAGER_TECH_A = 0,
+  NFC_MANAGER_TECH_B,
+  NFC_MANAGER_TECH_F,
+  NFC_MANAGER_TECH_V,
+  NFC_MANAGER_TECH_COUNT,
+} nfc_manager_tech_t;
+
+// Caller initializes hardware, owns the antenna and turns the field off after this probe.
+esp_err_t nfc_manager_poll(nfc_manager_tech_t tech, hb_nfc_card_data_t *out_card);
+
 /**
  * @brief Callback invoked when a card is found.
  *

@@ -12,6 +12,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 /**
  * @file mf_classic.c
  * @brief MIFARE Classic authentication, read, and write operations.
@@ -60,15 +61,8 @@ static const char *TAG = "mf_classic";
 #define MF_SECTORS_MINI 5
 #define MF_SECTORS_1K   16
 #define MF_SECTORS_4K   40
-#define MF_BLOCKS_MINI  20
-#define MF_BLOCKS_1K    64
-#define MF_BLOCKS_4K    256
 
 /* 4K layout: first 32 sectors have 4 blocks; remaining 8 have 16 blocks. */
-#define MF_SMALL_BLOCK_COUNT   4
-#define MF_4K_BIG_SECTOR_START 32
-#define MF_4K_BIG_BLOCK_COUNT  16
-#define MF_4K_BIG_BLOCK_BASE   128
 
 /* Trailer block layout: GPB is at byte 9. Reference: MF1S50YYX_V1 §8.6. */
 #define MF_TRAILER_GPB_OFFSET 9
@@ -177,7 +171,12 @@ static hb_nfc_err_t transceive_encrypted(crypto1_state_t *st,
   hb_nfc_spi_reg_read(ST25R3916_REG_ISO14443A, &iso);
   hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, (uint8_t)(iso | ISOA_NO_TX_PAR | ISOA_NO_RX_PAR));
 
+  hb_nfc_spi_direct_cmd(ST25R3916_CMD_STOP_ALL);
   st25r3916_fifo_clear();
+  if (st25r3916_irq_clear() != ESP_OK) {
+    hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
+    return HB_NFC_ERR_INTERNAL;
+  }
   st25r3916_fifo_set_tx_bytes((uint16_t)(tx_bits / 8U), (uint8_t)(tx_bits % 8U));
   st25r3916_fifo_load(tx_buf, tx_bytes);
   hb_nfc_spi_direct_cmd(ST25R3916_CMD_TX_WO_CRC);
@@ -264,7 +263,12 @@ static hb_nfc_err_t tx_encrypted_with_ack(crypto1_state_t *st,
   hb_nfc_spi_reg_read(ST25R3916_REG_ISO14443A, &iso);
   hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, (uint8_t)(iso | ISOA_NO_TX_PAR | ISOA_NO_RX_PAR));
 
+  hb_nfc_spi_direct_cmd(ST25R3916_CMD_STOP_ALL);
   st25r3916_fifo_clear();
+  if (st25r3916_irq_clear() != ESP_OK) {
+    hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
+    return HB_NFC_ERR_INTERNAL;
+  }
   st25r3916_fifo_set_tx_bytes((uint16_t)(tx_bits / 8U), (uint8_t)(tx_bits % 8U));
   st25r3916_fifo_load(tx_buf, tx_bytes);
   hb_nfc_spi_direct_cmd(ST25R3916_CMD_TX_WO_CRC);
@@ -376,7 +380,12 @@ hb_nfc_err_t mf_classic_auth(uint8_t block,
   hb_nfc_spi_reg_read(ST25R3916_REG_ISO14443A, &iso);
   hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, (uint8_t)(iso | ISOA_NO_TX_PAR | ISOA_NO_RX_PAR));
 
+  hb_nfc_spi_direct_cmd(ST25R3916_CMD_STOP_ALL);
   st25r3916_fifo_clear();
+  if (st25r3916_irq_clear() != ESP_OK) {
+    hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
+    return HB_NFC_ERR_INTERNAL;
+  }
   st25r3916_fifo_set_tx_bytes((uint16_t)(tx_total_bits / 8U), (uint8_t)(tx_total_bits % 8U));
   st25r3916_fifo_load(tx_buf, tx_total_bytes);
   hb_nfc_spi_direct_cmd(ST25R3916_CMD_TX_WO_CRC);

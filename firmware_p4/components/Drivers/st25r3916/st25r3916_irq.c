@@ -40,6 +40,17 @@ esp_err_t st25r3916_irq_read(st25r3916_irq_status_t *out_status) {
   return ESP_OK;
 }
 
+esp_err_t st25r3916_irq_clear(void) {
+  uint8_t ignored = 0;
+  if (hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &ignored) != ESP_OK ||
+      hb_nfc_spi_reg_read(ST25R3916_REG_TIMER_NFC_INT, &ignored) != ESP_OK ||
+      hb_nfc_spi_reg_read(ST25R3916_REG_ERROR_INT, &ignored) != ESP_OK ||
+      hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &ignored) != ESP_OK) {
+    return ESP_FAIL;
+  }
+  return ESP_OK;
+}
+
 void st25r3916_irq_log(const char *ctx, uint16_t fifo_count) {
   if (ctx == NULL) {
     return;
@@ -60,26 +71,80 @@ void st25r3916_irq_log(const char *ctx, uint16_t fifo_count) {
 }
 
 esp_err_t st25r3916_irq_wait_txe(void) {
+  uint8_t seen_main = 0;
+  uint8_t seen_error = 0;
   for (int i = 0; i < ST25R3916_IRQ_TX_POLL_MAX; i++) {
-    if (hb_nfc_gpio_irq_level()) {
-      st25r3916_irq_status_t status = {0};
-      if (st25r3916_irq_read(&status) != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to read IRQ status");
-        return ESP_FAIL;
-      }
-
-      if (status.main & ST25R3916_IRQ_MAIN_TXE) {
-        return ESP_OK;
-      }
-
-      if (status.error != 0) {
-        ESP_LOGW(TAG, "TX error: ERR=0x%02X", status.error);
-        return ESP_FAIL;
-      }
+    uint8_t main = 0;
+    uint8_t error = 0;
+    if (hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &main) != ESP_OK ||
+        hb_nfc_spi_reg_read(ST25R3916_REG_ERROR_INT, &error) != ESP_OK) {
+      ESP_LOGE(TAG, "Failed to read IRQ status");
+      return ESP_FAIL;
     }
+    seen_main |= main;
+    seen_error |= error;
+
+    if (main & ST25R3916_IRQ_MAIN_TXE) {
+      return ESP_OK;
+    }
+
+    /* ERROR_INT reports receive CRC/parity/framing and wake-up events, not a
+     * transmitter failure. A delayed receive indication may arrive while we
+     * are waiting for TXE, so retain it for timeout diagnostics but do not
+     * abort a valid transmission. */
     hb_nfc_timer_delay_us(ST25R3916_IRQ_TX_POLL_US);
   }
 
-  ESP_LOGW(TAG, "TX timeout");
+  uint8_t op_ctrl = 0;
+  uint8_t mode = 0;
+  uint8_t aux = 0;
+  hb_nfc_spi_reg_read(ST25R3916_REG_OP_CTRL, &op_ctrl);
+  hb_nfc_spi_reg_read(ST25R3916_REG_MODE, &mode);
+  hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux);
+  ESP_LOGW(TAG,
+           "TX timeout: OP=0x%02X MODE=0x%02X AUX=0x%02X IRQ=0x%02X ERR=0x%02X pin=%d",
+           op_ctrl,
+           mode,
+           aux,
+           seen_main,
+           seen_error,
+           hb_nfc_gpio_irq_level());
+  return ESP_ERR_TIMEOUT;
+}
+
+esp_err_t st25r3916_irq_wait_rxe(int32_t timeout_ms, st25r3916_irq_status_t *out_status) {
+  st25r3916_irq_status_t seen = {0};
+  int32_t iterations = (timeout_ms * 1000) / ST25R3916_FIFO_WAIT_POLL_US;
+  if (iterations == 0 && timeout_ms > 0) {
+    iterations = 1;
+  }
+
+  for (int32_t i = 0; i < iterations; i++) {
+    st25r3916_irq_status_t current = {0};
+    if (st25r3916_irq_read(&current) != ESP_OK) {
+      if (out_status != NULL) {
+        *out_status = seen;
+      }
+      return ESP_FAIL;
+    }
+
+    seen.main |= current.main;
+    seen.timer |= current.timer;
+    seen.error |= current.error;
+    seen.target |= current.target;
+    seen.collision |= current.collision;
+
+    if ((seen.main & ST25R3916_IRQ_MAIN_RXE) != 0U) {
+      if (out_status != NULL) {
+        *out_status = seen;
+      }
+      return ESP_OK;
+    }
+    hb_nfc_timer_delay_us(ST25R3916_FIFO_WAIT_POLL_US);
+  }
+
+  if (out_status != NULL) {
+    *out_status = seen;
+  }
   return ESP_ERR_TIMEOUT;
 }

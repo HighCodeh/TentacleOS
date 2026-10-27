@@ -1,4 +1,25 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # Wi-Fi service
+
+The [ESP SCAN screen](quick_scan.md) reuses the existing normal AP scan and MAC
+vendor table, ranking BSSID/OUI/RSSI snapshots locally on P4. It does not invoke
+the separate headless monitor-mode capture backend.
 
 Split across **both firmwares**. The **C5 owns the real radio** (the full esp-idf
 Wi-Fi stack, AP/STA, scanning, promiscuous capture, config persistence). The **P4
@@ -376,3 +397,16 @@ to preserve internal RAM.
 `strncpy` plus explicit NUL-termination.
 </content>
 </invoke>
+
+## Integrated dual-band analysis
+
+The integrated C5 enables automatic 2.4/5 GHz band selection and provides
+`wifi_service_scan_ex()` for explicit band, passive/active mode and dwell times.
+P4 survey screens use SPI proxy results rather than local radio access. Scan band
+selection is scoped to the scan and restored afterward. Packet analysis supports
+band-constrained capture and counter-only monitors.
+
+C5 channel-hopping and sniffer stream tasks are pinned to `SYS_CORE_MAIN`;
+P4 proxy/UI workers use the central `sys_prio.h` policy. Availability of bands and
+channels still depends on the configured radio and region. Source/host validation
+does not establish physical reception or packet-capture reliability.

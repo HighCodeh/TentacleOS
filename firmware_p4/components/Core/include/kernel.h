@@ -28,17 +28,17 @@ extern "C" {
  * Boot sequence:
  *   1. NVS flash
  *   2. SPI / I2C buses
- *   3. Storage (SD card + assets)
- *   4. Configuration, theme, logging
+ *   3. Recovery selection, storage/assets
+ *   4. Configuration, theme and checked display/LVGL
  *   5. Peripherals (LED, battery, CC1101, bridge)
- *   6. Display + LVGL + UI
+ *   6. UI
  *   7. Wi-Fi, console, system monitor
  *
  * Each subsystem is recorded in the boot map (boot_report). If a required
  * subsystem fails, the boot aborts to safe mode instead of continuing blind.
  *
- * @return ESP_OK on a normal boot, ESP_FAIL when a required subsystem failed
- *         and the device fell back to safe mode.
+ * @return ESP_OK on a normal boot, ESP_FAIL on any recovery boot, including
+ *         manual/boot-loop entry and headless display/LVGL failure.
  */
 esp_err_t kernel_init(void);
 

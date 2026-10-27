@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # LoRa Application
 
 This component implements the LoRa mesh application layer on top of the `sx1262` driver. It hosts two full mesh protocol stacks - **Meshtastic** and **MeshCore** - behind a unified session manager, plus an **RNode**-compatible KISS modem. It also bridges a companion phone app over BLE and drives the on-device chat UI.
@@ -12,7 +29,7 @@ This component implements the LoRa mesh application layer on top of the `sx1262`
 
 ## Single-Owner Radio
 
-The SX1262 is a single-owner resource. Meshtastic, MeshCore, and RNode each register their own radio callbacks and cannot run at the same time; whichever stack starts first owns the radio. **Switching protocols requires a reboot** - there is no clean whole-stack teardown. The session manager enforces this: once a protocol is running, starting a different one is refused.
+The SX1262 is a single-owner resource. Meshtastic, MeshCore, and RNode each register their own radio callbacks and cannot run at the same time; whichever stack starts first owns the radio. Switching protocols requires a successful whole-stack stop. The session manager refuses another owner until poll/TX workers, companion callbacks/transports and the SX1262 have acknowledged teardown. A failed stop retains the reservation for retry.
 
 ## Split-Chip Architecture (P4 + C5)
 
@@ -63,7 +80,7 @@ esp_err_t    lora_session_app_connect(void);
 ```
 
 - `lora_session_start` is idempotent for the same protocol; a request for a different protocol while one is running returns `ESP_ERR_INVALID_STATE`.
-- `lora_session_send_text` sends a broadcast/public-channel text on the active stack (Meshtastic `0xFFFFFFFF`, MeshCore public channel `0`) and, on success, appends it to the ring as outgoing ("me").
+- `lora_session_send_text` queues a broadcast/public-channel text on the active stack (Meshtastic `0xFFFFFFFF`, MeshCore public channel `0`) and appends it to the ring as outgoing ("me") only when the native worker successfully submits it to the backend.
 - `lora_session_msg_since` copies messages newer than a caller-held cursor under a single lock; passing `*io_seq == 0` snaps to the oldest retained message.
 - `lora_session_on_rx_text` is called by the backend RX taps from the mesh poll task (not the LVGL thread).
 - `lora_session_app_connected` maps to the active stack's **`_is_subscribed()`** predicate (linked, not merely connected). `lora_session_app_connect` maps to `_phone_bridge_ble_start()`.
@@ -79,7 +96,7 @@ Bring-up derives `node_num` from the MAC, loads persisted preset/region (default
 ```c
 esp_err_t meshtastic_mesh_init(uint32_t node_num);
 esp_err_t meshtastic_mesh_start(void);
-void      meshtastic_mesh_stop(void);
+esp_err_t meshtastic_mesh_stop(void);
 esp_err_t meshtastic_mesh_send(const uint8_t *pb_data, uint16_t pb_len);
 void      meshtastic_mesh_poll(void);
 esp_err_t meshtastic_mesh_send_nodeinfo(void);
@@ -153,7 +170,7 @@ bool      meshtastic_phone_bridge_is_subscribed(void);  // ble_subscribed || tcp
 - **Pairing PIN:** for Meshtastic the passkey is generated randomly on the C5 per pairing (display-only IO capability, MITM + bonding) and logged there. It is **not** shown on the P4 chat screen.
 - **Linked-on-subscribe gating:** `_is_connected()` is true at the raw BLE link; `_is_subscribed()` is true only after the phone subscribes (CCCD notify enabled on the FromNum characteristic, after encryption). Fromradio data is only pushed to the phone while a BLE client is connected or a TCP client is present.
 
-Other module surfaces (used by the UI/config screens): `meshtastic_mqtt` (`_init/_publish/_is_connected`), `meshtastic_wifi`, region/preset/role selection (`mt_region_*`, `mt_preset_*`, `mt_role_*` with `MT_ROLE_ROUTER` / `MT_ROLE_CLIENT`).
+Other module surfaces (used by the UI/config screens): `meshtastic_mqtt` (`_init/_publish/_is_connected/_get_snapshot/_stop`; see [MQTT](../mqtt/README.md)), `meshtastic_wifi`, region/preset/role selection (`mt_region_*`, `mt_preset_*`, `mt_role_*` with `MT_ROLE_ROUTER` / `MT_ROLE_CLIENT`).
 
 ## MeshCore Stack (`meshcore/`)
 
@@ -198,7 +215,7 @@ void      meshcore_phoneapi_push_path_updated(const meshcore_contact_t *contact)
 
 ```c
 esp_err_t meshcore_phone_bridge_init(const char *name_prefix);  // NULL -> "Highboy-MC"
-void      meshcore_phone_bridge_stop(void);
+esp_err_t meshcore_phone_bridge_stop(void);
 esp_err_t meshcore_phone_bridge_ble_start(void);
 esp_err_t meshcore_phone_bridge_ble_stop(void);
 bool      meshcore_phone_bridge_is_connected(void);   // ble_connected
@@ -219,7 +236,7 @@ void ui_lora_chat_open(void);        // opens on the protocol picker
 void ui_lora_chat_open_chat(void);   // opens directly on the chat conversation
 ```
 
-Views: **Protocol picker** (MeshCore / Meshtastic) -> **Home** -> { Connect App, Nodes, Chat, Configs }. Home also links out to the sibling screens: Channels, Position, Telemetry, Secure DM, Traceroute (each its own screen under `ui/screens/lora/`).
+Views: **Protocol picker** (MeshCore / Meshtastic) -> **Home** -> { Connect App, Nodes, Chat, Configs }. Home also links out to the sibling screens: Channels, Position, Telemetry, Secure DM, Traceroute and MQTT (Meshtastic only; each its own screen under `ui/screens/lora/`).
 
 - **Home** shows region + preset (Meshtastic only) and a status banner driven by the linked state.
 - **Nodes** shows either a radial "map" of node pins with RSSI-colored links or a scrolling list, both fed by `lora_session_node_count()` / `lora_session_node_get()`.
@@ -241,4 +258,182 @@ const rnode_radio_cfg_t *rnode_get_radio_cfg(void);
 const rnode_stats_t     *rnode_get_stats(void);
 ```
 
-Defaults: 915 MHz, BW 125 kHz, SF8, CR 4/5, +17 dBm. The on-device screen is `lora_rnode_ui`.
+Defaults: 915 MHz, BW 125 kHz, SF8, CR 4/5, +17 dBm. The legacy-named `lora_rnode_ui` screen currently runs the receive-only radio lab.
+
+## Native radio laboratory
+
+`session/lora_lab` provides a receive-only SX1262 engineering session with
+SF7/BW125/CR4/5 and a private sync word. It validates the chip, samples RSSI,
+counts packets and CRC/header errors, and exposes bounded packet prefixes to the
+UI. It does not transmit. Starting is refused while a protocol session, lab
+worker or SX1262 owner is active. The worker uses `SYS_PRIO_BACKGROUND` on
+`SYS_CORE_RADIO` and releases its power lock during cleanup.
+
+## Mesh transmit pacing
+
+Both meshes now pass through the driver's [shared airtime guard](../sx1262/README.md#shared-transmit-airtime-guard).
+Relays, retries and acknowledgements consume the same budget as locally generated
+messages. A denied transmission returns `ESP_ERR_TIMEOUT`; this does not imply a
+packet was emitted. Existing mesh send/retry behavior handles that failure, with
+no new claim of guaranteed delivery. The [MQTT bridge](../mqtt/README.md) now
+runs over the C5 station and feeds validated inbound text into chat. A usable
+P4 RNode transport is explicitly unsupported in this board profile; see the
+transport decision below.
+
+## RNode transport decision for High Boy P4
+
+RNode/KISS remains unavailable in this board profile until a separate transport
+is implemented and validated. The inherited S3 UART0 transport hardcodes
+GPIO43/44, which are **P4 SDMMC CLK/CMD**, and cannot be activated safely here.
+`rnode_serial_is_supported()` returns false on P4; init/read/write fail before
+accessing UART, and `rnode_init()` rejects before touching the SX1262. The native
+USB companion interface is already framed/authenticated and cannot simply be
+reassigned to raw KISS. No alternate pins are guessed. Other target behavior is
+preserved. The radio-lab screen remains receive-only, with corrected tutorial
+text. This resolves the immediate transport choice; enabling a usable P4 RNode
+endpoint remains pending implementation and hardware acceptance.
+
+The decision requested by #145 is to keep the inherited UART RNode endpoint
+disabled on High Boy P4. GPIO43/44 belong to SDMMC, so enabling that endpoint
+would conflict with storage. The existing menu remains a receive-only radio lab;
+it does not advertise KISS/Reticulum support. Adding a future usable endpoint
+requires a separate board-safe USB or other transport design and validation.
+The current issue scope does not imply that such an endpoint is already usable.
+Physical airtime, MQTT/network and shared-radio acceptance remain #156.
+
+## App chat observations
+
+ABI 1.12 publishes read-only `lora.mesh_poll` for signed apps and JS/Lua,
+requiring RX permission. It copies the native 24-record chat ring with a private
+cursor per app/run. Its first mutex publication is atomic across UI, mesh and
+app callers; overwritten records are skipped and sequence wrap is handled.
+Polling does not start a mesh or claim the SX1262. ABI 1.14 adds queued text
+submission to an already active session as described below. Startup, teardown,
+At that checkpoint raw PHY and RNode entries remained NULL; ABI 1.20 adds copied
+node access below, and ABI 1.23 implements raw/mesh lifecycle while retaining
+the explicit P4 RNode exclusion.
+See the [ABI contract](../app_sdk/README.md#native-radio-observations-abi-112).
+
+
+## Queued mesh text submission (ABI 1.14)
+
+Native chat, companion chat and signed apps now submit copied text through the
+same four-entry queue. Messages contain 1..159 bytes plus the terminator;
+empty, unterminated within 160 bytes or longer text is rejected. A full queue or
+busy chat mutex returns `ESP_ERR_TIMEOUT` without dropping an older message.
+The active protocol is published atomically only after startup succeeds, and
+concurrent mesh startup calls are refused while a start is in progress.
+
+Only the selected protocol's native poll task consumes the queue, at most one
+message per iteration, outside the chat mutex. App memory is never retained by
+the radio or mesh task. Backend submission failure consumes the item, logs the
+error and creates no outgoing chat record; it is not retried automatically.
+Success appends a chat record using the existing backend semantics. In
+particular, Meshtastic success means admission to its own TX queue, not airtime
+or delivery. All actual transmissions retain the shared SX1262 airtime guard.
+
+`lora.mesh_send_text` requires TX capability and an already started native
+Meshtastic or MeshCore session. `ESP_OK` means queue acceptance, including for
+the native UI and companion command. Stopping an app does not retract an
+accepted message or stop the native mesh. Starting/switching/stopping protocols,
+raw LoRa control and shared-radio startup/cleanup arbitration remain separate
+work under #149; this queue does not resolve those existing lifecycle limits.
+
+
+## Copied mesh node observations (ABI 1.20)
+
+The native node list now uses `lora_session_nodes_snapshot` instead of borrowing
+a mutable backend entry. Meshtastic and MeshCore writers and copy operations
+share a separate, atomically published database mutex (50 ms acquisition limit),
+independent of the chat ring lock. Count and one record are read together under
+the database lock. The existing telemetry/chat UI and companion sender lookup
+inherit these copied summaries. Borrowed backend pointer getters remain native
+owner-thread interfaces; they are not the app-facing contract.
+
+ABI 1.20 adds RX-gated `mesh_node_count` and `mesh_node_get`, also available in
+JavaScript/Lua. They require an active native mesh and do not start or stop one.
+Names are bounded and terminated even for non-terminated persisted data.
+Meshtastic supplies its native RSSI/SNR; MeshCore contact summaries have no
+stored RSSI/SNR and report zero for those fields. Separate calls do not freeze
+the database: node indices may change after insertion/removal. See the
+[ABI contract](../app_sdk/README.md#copied-lora-node-observations-abi-120).
+
+MeshCore direct-message/path processing now decrypts against copied contact
+records. Path updates re-resolve the public key while locked, so removal or
+replacement cannot redirect an update to a reused slot. Callbacks execute after
+the database lock is released. Init allocation/lock failures propagate from
+`mc_db_init` through `meshcore_init`.
+
+## Mesh receive parser bounds
+
+Group/direct text and path ciphertext lengths are checked against their actual
+160/200-byte plaintext buffers **before** calling the existing crypto helper.
+Direct-message ACK hashing bounds its text scan to the decrypted length instead
+of requiring an incoming NUL. Meshtastic User parsing checks length-delimited
+fields using remaining input length and checks fixed32 availability before
+advancing, preventing arithmetic wrap and reads beyond malformed protobuf data.
+No cipher, key, wire format or airtime policy changed.
+
+`python3 tools/lora_nodes/test_nodes.py` compiles the actual databases, session
+copy routines and receive handlers with ASan/UBSan and concurrent readers/writers.
+NVS, cryptography, radio and FreeRTOS calls are explicit host fixtures; these
+tests establish parser/ownership boundaries, not RF or cryptographic acceptance.
+Startup/teardown/raw PHY app adapters remain separate code work.
+
+
+## App ownership and raw PHY (ABI 1.23)
+
+Native mesh, the receive lab, console diagnostics and app raw PHY now reserve a
+single radio token before initialization. An app mesh start refuses adoption of
+an existing native stack, including the same protocol. Its private firmware
+owner token prevents native/stale cleanup from stopping a different stack.
+`lora_session_stop_owned` validates that token; a completed stop permits switching
+MeshCore/Meshtastic without reboot. The original native start remains idempotent
+only for the same ready native-owned stack.
+
+Teardown stops the stack poll worker, unregisters/drains companion stream
+callbacks, waits for the transport reconciliation worker, and confirms C5 BLE/
+TCP stop before clearing bridge state. Meshtastic also waits for its separate TX
+worker. SX1262 teardown waits for the actual IRQ-task acknowledgement and a
+successful standby command before removing its SPI device. Failed acknowledgement,
+SPI removal, transport stop or power release retains ownership for retry. The
+native lab and console diagnostics use this same reservation.
+
+The app `lora.configure` entry reserves a raw session with explicit headers,
+CRC, private sync and a 12-symbol preamble. Frequency is 150..960 MHz, CR 5..8,
+power -9..22 dBm, and BW uses SX1262 indices. SF5 and SF7..12 are supported;
+SF6 needs a fixed implicit-header length absent from this ABI and is rejected.
+SF5/BW500 is also rejected by the native driver contract. Configuration requires
+RX or TX permission; sending requires TX, and continuous RX/polling requires RX.
+Native airtime pacing is preserved. `send` waits for actual TxDone, or reports
+failure/timeout (at most 60 seconds plus native scheduling/SPI work); it resumes
+owned RX after a completed TX or a preflight refusal. Accepted TX that later
+fails enters checked cleanup. Poll copies one valid packet (1..255 bytes), skips
+CRC/header failures, returns zero for no packet, and propagates native errors.
+
+`rx_start` and `mesh_start` return task-owned IDs. `session_stop(0)` selects the
+caller's current raw session, including a configured TX-only session. A mesh stop
+requires its nonzero ID. App/script unbind detaches ownership and schedules
+firmware cleanup; no app code or borrowed buffer remains registered with the
+radio. The unsupported P4 RNode transport remains unpublished (#145).
+Host tests use explicit HAL/IRQ/C5 fixtures and real thread synchronization;
+paired hardware RF/mesh/transport performance remains unverified.
+
+## ESP-IDF v6.1 compatibility
+
+Meshtastic and MeshCore retain their existing wire cryptography while using
+public PSA APIs for AES, SHA-256 and HMAC. Meshtastic X25519 now uses PSA key
+agreement instead of a handwritten big-integer ladder, retaining raw 32-byte
+key encoding and SHA-256 of the shared secret. Its CCM nonce, shortened tag
+and extra-nonce fields are unchanged. MeshCore retains libsodium for Ed25519
+and its Ed25519-to-X25519 conversion. Crypto failures abort affected sends or
+receive processing instead of forwarding unencrypted or unauthenticated data.
+
+P4 disables hardware AES on the pinned v6.1 SDK because its PSA driver does not
+implement the advertised CCM operation. The software PSA backend is exercised
+by `tools/crypto/test_psa.py`; device timing remains to be measured.
+
+MeshCore key agreement rejects invalid peer points, clears failed output and
+propagates failure to senders; receive matching skips invalid contacts. The host
+regression checks shared-secret agreement and invalid/null input handling using
+real libsodium.

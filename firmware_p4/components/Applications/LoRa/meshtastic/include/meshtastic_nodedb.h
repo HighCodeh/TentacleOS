@@ -152,6 +152,9 @@ void mt_nodedb_record_next_hop_failure(uint32_t num);
  */
 esp_err_t mt_nodedb_save(void);
 
+/** Copy one entry/count under the writer lock; out may be NULL for count only. */
+esp_err_t mt_nodedb_snapshot(uint16_t index, mt_node_entry_t *out, uint16_t *out_count);
+
 #ifdef __cplusplus
 }
 #endif

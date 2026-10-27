@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-/** @brief Open the BLE skimmer-detector screen (mock HC-05/RNBT scan). */
+/** @brief Open the BLE skimmer detector using observed device records. */
 void ui_ble_skimmer_open(void);
 
 #ifdef __cplusplus

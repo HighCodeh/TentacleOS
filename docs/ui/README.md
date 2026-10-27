@@ -1,4 +1,40 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # ui_manager
+
+The integrated High Boy build uses `-Os` for theme loading and the Home, Menu,
+Connect Wi-Fi, NFC presentation and Settings screens to fit the existing P4
+application slots. This changes compiler sizing only: no screen or feature is
+removed. NFC protocol/driver code, radio processing, audio and game engines keep
+their existing optimization settings. Muse/Grok layout retains its previous
+localized LTO policy. Physical UI timing still needs acceptance testing.
+
+Wi-Fi > **ESP SCAN** uses isolated black pages for starting, scanning and viewing
+one full-screen result at a time. The existing waves component animates the scan;
+results show a circular heuristic-percent indicator, SSID, MAC, OUI, manufacturer
+and RSSI with colored text. Other screens retain their existing styling.
+Its P4 proxy, session worker and screen
+use `-Oz` to fit the same app slots; P4 remains on IDF v5.5.3. No LVGL callback
+performs SPI calls. It now reuses one existing AP scan and ranks BSSID/OUI/RSSI
+snapshots locally, with no monitor-mode session or duration selector. The screen
+close hook requests local cancellation and removes the refresh timer; the worker
+waits for the shared scan to finish before exiting. See the
+[current ESP SCAN behavior](../wifi/quick_scan.md).
 
 Step-by-step process for adding a new screen (feature) to TentacleOS using the
 `ui_manager` architecture. Source of truth: `ui/ui_manager.c`,
@@ -309,3 +345,50 @@ through `tos_config`, which is the sole writer of the `screen` config file.
   - Loads the screen with `ui_screen_load_owned(&s_screen, scr)`.
 
 **Done: the new screen is integrated, safe and navigable.**
+
+## Integrated background workers
+
+Affected screen and boot worker creation sites use `SYS_PRIO_*` and
+`SYS_CORE_*` directly. Native RFID cancellation/results are synchronized and
+field cleanup remains with the reader task; see the
+[RF frontend reference](../rf_frontend/README.md). The native Muse PTT owner and
+its recording/control split are documented in [Muse](../muse/README.md).
+
+
+## Native P4 application update
+
+The P4 Update screen now checks the actual SD image and installed firmware version.
+A pinned native worker performs the SD check/update and publishes bounded status;
+the UI timer only renders it. The screen has no simulated version, simulated
+progress or UI-triggered reboot. Only successful native OTA selects/reboots the
+image. Reopen/delete does not leave a worker with LVGL pointers. See the
+[OTA behavior and validation](../ota/README.md#native-p4-update-screen-and-failure-handling).
+
+## Theme path limits
+
+SD theme names must fit the persistent 32-byte theme field (31 bytes plus NUL).
+The selector skips longer names with a warning instead of saving a shortened
+name that could identify another directory. Theme file and asset paths use
+checked joins. `ui_theme_load_from_name()` returns `ESP_ERR_INVALID_SIZE` for an
+oversized name without reading files, changing colors or unloading assets.
+The existing flash fallback for a missing valid SD theme is retained.
+Companion theme commands reject oversized names and embedded NUL bytes before
+saving or scheduling a reload; an optional final NUL is accepted.
+
+## microSD filesystem and formatting
+
+The card-connected dialog reads the mounted filesystem type from the VFS, just
+as Storage and SD Health do; it does not assume FAT32. Under Settings > Storage,
+**Format SD: exFAT** explicitly selects exFAT, while **Format SD (auto)** lets
+FatFS select the type. Both require confirmation that all files will be erased.
+
+Formatting runs in the existing background worker. An indeterminate activity
+bar keeps moving while the worker runs: FatFS provides no percentage callback.
+The UI blocks further storage actions until completion, reports success only
+after a successful remount, then rebuilds the displayed filesystem and capacity.
+Failure is reported without claiming completion. The bar belongs to the overlay
+and is discarded when its screen is deleted; the worker never accesses LVGL.
+
+The built-in games menu no longer includes the experimental 3D scene. Its
+renderer, embedded mesh/texture, host service and startup hooks are removed.
+Game Boy, Doom and external app discovery retain their existing behavior.

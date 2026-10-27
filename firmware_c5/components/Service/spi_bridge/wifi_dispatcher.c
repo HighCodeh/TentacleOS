@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_netif.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -28,7 +29,9 @@
 #include "deauther_detector.h"
 #include "session_manager.h"
 #include "evil_twin.h"
+#include "grok_wifi.h"
 #include "meshtastic_tcp.h"
+#include "port_scan.h"
 #include "probe_monitor.h"
 #include "signal_monitor.h"
 #include "spi_bridge.h"
@@ -37,12 +40,55 @@
 #include "wifi_flood.h"
 #include "wifi_service.h"
 #include "wifi_sniffer.h"
+#include "wifi_quick_scan.h"
 
 static const char *TAG = "WIFI_DISPATCHER";
 
 // Compact scan results for the companion app (SPI_ID_WIFI_APP_SCAN_AP). Built
 // from the raw scan once, then served through the generic data pipe.
 static spi_wifi_scan_record_t s_app_scan_records[WIFI_SCAN_LIST_SIZE];
+static spi_wifi_scan_record_ex_t s_app_scan_records_ex[WIFI_SCAN_LIST_SIZE];
+static spi_wifi_scan_config_t s_scan_cfg = {
+    .band = SPI_WIFI_BAND_DUAL,
+    .passive = 0,
+    .dwell_min_ms = 0,
+    .dwell_max_ms = 0,
+};
+
+// Port scan runs on the shared async runner so the SPI bridge (and the UI/app
+// link it carries) never blocks for the seconds-to-minutes a sweep can take.
+// The handler parses the request into s_port_scan_req and kicks the runner; the
+// runner does the blocking scan, then publishes results via the generic data
+// pipe. Callers poll SPI_ID_WIFI_SCAN_STATUS (the shared async-scan busy flag)
+// and fetch results once it clears.
+#define PORT_SCAN_MAX_RESULTS   32
+#define PORT_SCAN_PORT_LIST_MAX 128 // fits a common-ports list within one SPI frame
+
+typedef enum {
+  PORT_SCAN_KIND_TARGET_RANGE,
+  PORT_SCAN_KIND_TARGET_LIST,
+  PORT_SCAN_KIND_NET_RANGE,
+  PORT_SCAN_KIND_NET_LIST,
+  PORT_SCAN_KIND_CIDR_RANGE,
+  PORT_SCAN_KIND_CIDR_LIST,
+} port_scan_kind_t;
+
+typedef struct {
+  port_scan_kind_t kind;
+  char ip[16];
+  char end_ip[16];
+  uint8_t cidr;
+  int start_port;
+  int end_port;
+  int ports[PORT_SCAN_PORT_LIST_MAX];
+  int list_size;
+  int max_results;
+} port_scan_dispatch_req_t;
+
+static port_scan_dispatch_req_t s_port_scan_req;
+static port_scan_result_t s_port_scan_raw[PORT_SCAN_MAX_RESULTS];
+static spi_port_scan_result_t s_port_scan_records[PORT_SCAN_MAX_RESULTS];
+static uint16_t s_port_scan_count; // live count served by the dynamic data pipe
 
 #define WIFI_SSID_MAX_LEN         32
 #define WIFI_PASSWORD_MAX_LEN     64
@@ -120,7 +166,8 @@ static spi_status_t open_session(spi_id_t op_id,
 // Each does the blocking scan and provides the results; the SPI handler returns
 // immediately so the bridge stays free.
 static void scan_fn_wifi_scan(void) {
-  wifi_service_scan();
+  wifi_service_scan_ex(
+      s_scan_cfg.band, s_scan_cfg.passive != 0, s_scan_cfg.dwell_min_ms, s_scan_cfg.dwell_max_ms);
   spi_bridge_provide_results(
       wifi_service_get_ap_record(0), wifi_service_get_ap_count(), sizeof(wifi_ap_record_t));
 }
@@ -150,6 +197,38 @@ static void scan_fn_app_ap(void) {
   spi_bridge_provide_results(s_app_scan_records, count, sizeof(spi_wifi_scan_record_t));
 }
 
+static void scan_fn_app_ap_detail(void) {
+  wifi_service_scan();
+  uint16_t count = wifi_service_get_ap_count();
+  if (count > WIFI_SCAN_LIST_SIZE)
+    count = WIFI_SCAN_LIST_SIZE;
+  for (uint16_t i = 0; i < count; i++) {
+    spi_wifi_scan_record_ex_t *rec = &s_app_scan_records_ex[i];
+    memset(rec, 0, sizeof(*rec));
+    const wifi_ap_record_t *ap = wifi_service_get_ap_record(i);
+    if (ap == NULL)
+      continue;
+    memcpy(rec->bssid, ap->bssid, sizeof(rec->bssid));
+    rec->rssi = ap->rssi;
+    rec->channel = ap->primary;
+    rec->second = (uint8_t)ap->second;
+    rec->authmode = (uint8_t)ap->authmode;
+    rec->pairwise_cipher = (uint8_t)ap->pairwise_cipher;
+    rec->group_cipher = (uint8_t)ap->group_cipher;
+    rec->phy =
+        (uint8_t)((ap->phy_11b ? 0x01 : 0) | (ap->phy_11g ? 0x02 : 0) | (ap->phy_11n ? 0x04 : 0) |
+                  (ap->phy_11ax ? 0x08 : 0) | (ap->phy_lr ? 0x10 : 0) | (ap->wps ? 0x20 : 0));
+    memcpy(rec->country, ap->country.cc, sizeof(rec->country));
+    size_t j = 0;
+    for (; j < sizeof(rec->ssid) - 1 && ap->ssid[j] != '\0'; j++) {
+      uint8_t c = ap->ssid[j];
+      rec->ssid[j] = (c < 0x20 || c > 0x7E) ? '?' : c;
+    }
+    rec->ssid[j] = '\0';
+  }
+  spi_bridge_provide_results(s_app_scan_records_ex, count, sizeof(spi_wifi_scan_record_ex_t));
+}
+
 static void scan_fn_app_client(void) {
   if (!client_scanner_start())
     return;
@@ -165,6 +244,98 @@ static void scan_fn_app_client(void) {
   spi_bridge_provide_results(results, count, sizeof(client_scanner_record_t));
 }
 
+// Async runner body: run the scan captured in s_port_scan_req, convert the raw
+// results to the wire record, and publish them through the data pipe.
+// Live-publish each open port the instant it is found: convert the raw hit to
+// the wire record and bump the count the data pipe exposes. A full sweep can run
+// for minutes, so publishing only at the end would let the caller's poll time
+// out and return nothing; with live publishing the P4 can fetch whatever has
+// been found so far at any point.
+static void port_scan_hit(const port_scan_result_t *hit, void *ctx) {
+  (void)ctx;
+  if (s_port_scan_count >= PORT_SCAN_MAX_RESULTS)
+    return;
+  spi_port_scan_result_t *dst = &s_port_scan_records[s_port_scan_count];
+  memset(dst, 0, sizeof(*dst));
+  strncpy(dst->ip_str, hit->ip_str, sizeof(dst->ip_str) - 1);
+  dst->port = (uint16_t)hit->port;
+  dst->protocol = (uint8_t)hit->protocol;
+  dst->status = (uint8_t)hit->status;
+  strncpy(dst->banner, hit->banner, sizeof(dst->banner) - 1);
+  s_port_scan_count++; // bump last: the P4 only reads indices below the count
+}
+
+static void scan_fn_port_scan(void) {
+  const port_scan_dispatch_req_t *r = &s_port_scan_req;
+  switch (r->kind) {
+    case PORT_SCAN_KIND_TARGET_RANGE:
+      port_scan_target_range(r->ip, r->start_port, r->end_port, s_port_scan_raw, r->max_results);
+      break;
+    case PORT_SCAN_KIND_TARGET_LIST:
+      port_scan_target_list(r->ip, r->ports, r->list_size, s_port_scan_raw, r->max_results);
+      break;
+    case PORT_SCAN_KIND_NET_RANGE:
+      port_scan_network_range_using_port_range(
+          r->ip, r->end_ip, r->start_port, r->end_port, s_port_scan_raw, r->max_results);
+      break;
+    case PORT_SCAN_KIND_NET_LIST:
+      port_scan_network_range_using_port_list(
+          r->ip, r->end_ip, r->ports, r->list_size, s_port_scan_raw, r->max_results);
+      break;
+    case PORT_SCAN_KIND_CIDR_RANGE:
+      port_scan_cidr_using_port_range(
+          r->ip, r->cidr, r->start_port, r->end_port, s_port_scan_raw, r->max_results);
+      break;
+    case PORT_SCAN_KIND_CIDR_LIST:
+      port_scan_cidr_using_port_list(
+          r->ip, r->cidr, r->ports, r->list_size, s_port_scan_raw, r->max_results);
+      break;
+  }
+  // Results were published live via port_scan_hit; nothing to do at the end.
+}
+
+// Kick the port scan off on the shared async runner. Rejects if a scan (AP,
+// client, or port) is already running. Publishes results through the dynamic
+// data pipe so the P4 can read partial results while the sweep is still running.
+static spi_status_t start_port_scan(void) {
+  if (spi_bridge_async_scan_busy())
+    return SPI_STATUS_BUSY;
+  s_port_scan_count = 0;
+  port_scan_reset_abort();
+  port_scan_set_hit_cb(port_scan_hit, NULL);
+  spi_bridge_provide_results_dynamic(
+      s_port_scan_records, &s_port_scan_count, sizeof(spi_port_scan_result_t));
+  return spi_bridge_async_scan_start(scan_fn_port_scan) ? SPI_STATUS_OK : SPI_STATUS_BUSY;
+}
+
+// Parse a packed port list: [max_results u16][count u16][ports u16 * count].
+// Returns false if the payload is malformed. Clamps count to the static cap.
+static bool parse_port_list(const uint8_t *p, uint8_t len, size_t offset) {
+  if (len < offset + 4)
+    return false;
+  uint16_t max_res = (uint16_t)(p[offset] | (p[offset + 1] << 8));
+  uint16_t count = (uint16_t)(p[offset + 2] | (p[offset + 3] << 8));
+  offset += 4;
+  if (count > PORT_SCAN_PORT_LIST_MAX)
+    count = PORT_SCAN_PORT_LIST_MAX;
+  if (len < offset + (size_t)count * 2)
+    return false;
+  for (uint16_t i = 0; i < count; i++) {
+    s_port_scan_req.ports[i] = (uint16_t)(p[offset] | (p[offset + 1] << 8));
+    offset += 2;
+  }
+  s_port_scan_req.list_size = count;
+  s_port_scan_req.max_results =
+      (max_res == 0 || max_res > PORT_SCAN_MAX_RESULTS) ? PORT_SCAN_MAX_RESULTS : max_res;
+  return true;
+}
+
+static int clamp_max_results(uint16_t requested) {
+  if (requested == 0 || requested > PORT_SCAN_MAX_RESULTS)
+    return PORT_SCAN_MAX_RESULTS;
+  return requested;
+}
+
 spi_status_t wifi_dispatcher_execute(spi_id_t id,
                                      const uint8_t *payload,
                                      uint8_t len,
@@ -173,8 +344,100 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
   (void)TAG;
   *out_resp_len = 0;
 
+  // Voice owns the current STA channel while its TLS worker is alive. Do not
+  // retune it for scans/captures or replace its network behind the user's back.
+  // Explicit Wi-Fi stop/disconnect remains available and closes voice first.
+  if (grok_wifi_is_active()) {
+    if (id == SPI_ID_WIFI_STOP || id == SPI_ID_WIFI_DISCONNECT) {
+      grok_wifi_stop();
+    } else if (id != SPI_ID_WIFI_GET_STA_INFO && id != SPI_ID_WIFI_SCAN_STATUS) {
+      return SPI_STATUS_BUSY;
+    }
+  }
+
+  spi_wifi_quick_status_t quick_status;
+  if (wifi_quick_scan_get_status(&quick_status) == ESP_OK &&
+      quick_status.state == SPI_WIFI_QUICK_RUNNING && id != SPI_ID_WIFI_QUICK_STATUS &&
+      id != SPI_ID_WIFI_QUICK_STOP) {
+    return SPI_STATUS_BUSY;
+  }
+
   switch (id) {
+    case SPI_ID_WIFI_QUICK_START: {
+      if (len != 0 && len != sizeof(spi_wifi_quick_config_t)) {
+        return SPI_STATUS_INVALID_ARG;
+      }
+      if (spi_bridge_async_scan_busy() || session_manager_is_active()) {
+        return SPI_STATUS_BUSY;
+      }
+      spi_wifi_quick_config_t config;
+      if (len != 0) {
+        memcpy(&config, payload, sizeof(config));
+      }
+      esp_err_t err = wifi_quick_scan_start(len == 0 ? NULL : &config);
+      return err == ESP_OK                  ? SPI_STATUS_OK
+             : err == ESP_ERR_INVALID_ARG   ? SPI_STATUS_INVALID_ARG
+             : err == ESP_ERR_INVALID_STATE ? SPI_STATUS_BUSY
+                                            : SPI_STATUS_ERROR;
+    }
+    case SPI_ID_WIFI_QUICK_STATUS: {
+      spi_wifi_quick_status_t status;
+      if (wifi_quick_scan_get_status(&status) != ESP_OK) {
+        return SPI_STATUS_ERROR;
+      }
+      memcpy(out_resp_payload, &status, sizeof(status));
+      *out_resp_len = sizeof(status);
+      return SPI_STATUS_OK;
+    }
+    case SPI_ID_WIFI_QUICK_STOP:
+      return wifi_quick_scan_stop() == ESP_OK ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+    case SPI_ID_WIFI_QUICK_RECORD: {
+      if (len != sizeof(spi_wifi_quick_record_req_t)) {
+        return SPI_STATUS_INVALID_ARG;
+      }
+      spi_wifi_quick_record_req_t request;
+      memcpy(&request, payload, sizeof(request));
+      if (request.include_authorized > 1) {
+        return SPI_STATUS_INVALID_ARG;
+      }
+      spi_wifi_quick_record_t record;
+      esp_err_t err =
+          wifi_quick_scan_get_record(request.index, request.include_authorized, &record);
+      if (err != ESP_OK) {
+        return err == ESP_ERR_NOT_FOUND ? SPI_STATUS_INVALID_ARG : SPI_STATUS_ERROR;
+      }
+      memcpy(out_resp_payload, &record, sizeof(record));
+      *out_resp_len = sizeof(record);
+      return SPI_STATUS_OK;
+    }
+    case SPI_ID_WIFI_QUICK_WHITELIST: {
+      if (len != sizeof(spi_wifi_quick_whitelist_req_t)) {
+        return SPI_STATUS_INVALID_ARG;
+      }
+      spi_wifi_quick_whitelist_req_t request;
+      memcpy(&request, payload, sizeof(request));
+      if (request.is_authorized > 1) {
+        return SPI_STATUS_INVALID_ARG;
+      }
+      esp_err_t err = wifi_quick_scan_set_authorized(request.mac, request.is_authorized);
+      return err == ESP_OK                ? SPI_STATUS_OK
+             : err == ESP_ERR_INVALID_ARG ? SPI_STATUS_INVALID_ARG
+                                          : SPI_STATUS_ERROR;
+    }
+
     case SPI_ID_WIFI_SCAN:
+      if (spi_bridge_async_scan_busy())
+        return SPI_STATUS_BUSY;
+      s_scan_cfg = (spi_wifi_scan_config_t){
+          .band = SPI_WIFI_BAND_DUAL,
+          .passive = 0,
+          .dwell_min_ms = 0,
+          .dwell_max_ms = 0,
+      };
+      if (len >= sizeof(spi_wifi_scan_config_t))
+        memcpy(&s_scan_cfg, payload, sizeof(s_scan_cfg));
+      if (s_scan_cfg.band > SPI_WIFI_BAND_5G)
+        return SPI_STATUS_INVALID_ARG;
       return spi_bridge_async_scan_start(scan_fn_wifi_scan) ? SPI_STATUS_OK : SPI_STATUS_BUSY;
 
     case SPI_ID_WIFI_SCAN_STATUS:
@@ -285,6 +548,9 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
     case SPI_ID_WIFI_APP_SCAN_AP:
       return spi_bridge_async_scan_start(scan_fn_app_ap) ? SPI_STATUS_OK : SPI_STATUS_BUSY;
 
+    case SPI_ID_WIFI_APP_SCAN_AP_DETAIL:
+      return spi_bridge_async_scan_start(scan_fn_app_ap_detail) ? SPI_STATUS_OK : SPI_STATUS_BUSY;
+
     case SPI_ID_WIFI_APP_SCAN_CLIENT:
       return spi_bridge_async_scan_start(scan_fn_app_client) ? SPI_STATUS_OK : SPI_STATUS_BUSY;
 
@@ -353,12 +619,15 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
       // it omits the args, default to RAW + channel 0 (hopping) instead of
       // rejecting, so an empty START still streams something useful.
       // payload[0]: sniffer type, payload[1]: channel (0 = hop all).
-      // payload[2] (optional): monitor_mode flag — when set, buffer recycles
-      // on overflow and packet counter keeps growing (used by Packet Monitor).
+      // payload[2] (optional): monitor_mode flag — counter/statistics only.
+      // payload[3] (optional): band selector (dual/2.4/5 GHz).
       wifi_sniffer_type_t type =
           (len >= 1) ? (wifi_sniffer_type_t)payload[0] : WIFI_SNIFFER_TYPE_RAW;
       uint8_t channel = (len >= 2) ? payload[1] : 0;
       bool monitor_mode = (len >= 3) && (payload[2] != 0);
+      uint8_t band = (len >= 4) ? payload[3] : SPI_WIFI_BAND_DUAL;
+      if (band > SPI_WIFI_BAND_5G || wifi_service_set_analysis_band(band) != ESP_OK)
+        return SPI_STATUS_INVALID_ARG;
       wifi_sniffer_set_monitor_mode(monitor_mode);
       spi_bridge_stream_enable(SPI_ID_WIFI_APP_SNIFFER, true);
       if (!wifi_sniffer_start(type, channel)) {
@@ -384,7 +653,9 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
       char ssid[WIFI_SSID_BUF_LEN] = {0};
       uint8_t copy_len = (len > WIFI_SSID_MAX_LEN) ? WIFI_SSID_MAX_LEN : len;
       memcpy(ssid, payload, copy_len);
-      evil_twin_start_attack(ssid);
+      // Async: the portal bring-up (~1.5 s) runs on a task so this returns the
+      // session id immediately and the P4 can start heartbeating right away.
+      evil_twin_start_attack_async(ssid, NULL);
       return open_session(SPI_ID_WIFI_APP_EVIL_TWIN,
                           killed_evil_twin,
                           out_resp_payload,
@@ -609,7 +880,7 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
             (template_len >= sizeof(template_path)) ? (sizeof(template_path) - 1) : template_len;
         memcpy(template_path, payload + 1 + ssid_len + 1, copy_len);
       }
-      evil_twin_start_attack_with_template(ssid, template_path);
+      evil_twin_start_attack_async(ssid, template_path);
       return SPI_STATUS_OK;
     }
 
@@ -656,6 +927,122 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
 
     case SPI_ID_WIFI_AP_SAVE_SD:
       return ap_scanner_save_results_to_sd_card() ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+
+    case SPI_ID_WIFI_PORT_SCAN_TARGET_RANGE: {
+      if (len < sizeof(spi_port_scan_range_req_t))
+        return SPI_STATUS_INVALID_ARG;
+      const spi_port_scan_range_req_t *req = (const spi_port_scan_range_req_t *)payload;
+      memset(&s_port_scan_req, 0, sizeof(s_port_scan_req));
+      s_port_scan_req.kind = PORT_SCAN_KIND_TARGET_RANGE;
+      memcpy(s_port_scan_req.ip, req->ip, sizeof(s_port_scan_req.ip));
+      s_port_scan_req.ip[sizeof(s_port_scan_req.ip) - 1] = '\0';
+      s_port_scan_req.start_port = req->start_port;
+      s_port_scan_req.end_port = req->end_port;
+      s_port_scan_req.max_results = clamp_max_results(req->max_results);
+      return start_port_scan();
+    }
+
+    case SPI_ID_WIFI_PORT_SCAN_TARGET_LIST: {
+      // Packed: ip[16][max_results u16][count u16][ports u16 * count].
+      if (len < 16)
+        return SPI_STATUS_INVALID_ARG;
+      memset(&s_port_scan_req, 0, sizeof(s_port_scan_req));
+      s_port_scan_req.kind = PORT_SCAN_KIND_TARGET_LIST;
+      memcpy(s_port_scan_req.ip, payload, sizeof(s_port_scan_req.ip));
+      s_port_scan_req.ip[sizeof(s_port_scan_req.ip) - 1] = '\0';
+      if (!parse_port_list(payload, len, 16))
+        return SPI_STATUS_INVALID_ARG;
+      return start_port_scan();
+    }
+
+    case SPI_ID_WIFI_PORT_SCAN_NETWORK: {
+      // Range and list share this id; a payload the exact size of the range
+      // struct is the range variant, anything else is the packed list variant.
+      memset(&s_port_scan_req, 0, sizeof(s_port_scan_req));
+      if (len == sizeof(spi_port_scan_network_req_t)) {
+        const spi_port_scan_network_req_t *req = (const spi_port_scan_network_req_t *)payload;
+        s_port_scan_req.kind = PORT_SCAN_KIND_NET_RANGE;
+        memcpy(s_port_scan_req.ip, req->start_ip, sizeof(s_port_scan_req.ip));
+        s_port_scan_req.ip[sizeof(s_port_scan_req.ip) - 1] = '\0';
+        memcpy(s_port_scan_req.end_ip, req->end_ip, sizeof(s_port_scan_req.end_ip));
+        s_port_scan_req.end_ip[sizeof(s_port_scan_req.end_ip) - 1] = '\0';
+        s_port_scan_req.start_port = req->start_port;
+        s_port_scan_req.end_port = req->end_port;
+        s_port_scan_req.max_results = clamp_max_results(req->max_results);
+      } else {
+        // Packed list: start_ip[16] end_ip[16] [max u16][count u16][ports...].
+        if (len < 32)
+          return SPI_STATUS_INVALID_ARG;
+        s_port_scan_req.kind = PORT_SCAN_KIND_NET_LIST;
+        memcpy(s_port_scan_req.ip, payload, sizeof(s_port_scan_req.ip));
+        s_port_scan_req.ip[sizeof(s_port_scan_req.ip) - 1] = '\0';
+        memcpy(s_port_scan_req.end_ip, payload + 16, sizeof(s_port_scan_req.end_ip));
+        s_port_scan_req.end_ip[sizeof(s_port_scan_req.end_ip) - 1] = '\0';
+        if (!parse_port_list(payload, len, 32))
+          return SPI_STATUS_INVALID_ARG;
+      }
+      return start_port_scan();
+    }
+
+    case SPI_ID_WIFI_PORT_SCAN_CIDR: {
+      // Range and list share this id; disambiguated by payload size as above.
+      memset(&s_port_scan_req, 0, sizeof(s_port_scan_req));
+      if (len == sizeof(spi_port_scan_cidr_req_t)) {
+        const spi_port_scan_cidr_req_t *req = (const spi_port_scan_cidr_req_t *)payload;
+        s_port_scan_req.kind = PORT_SCAN_KIND_CIDR_RANGE;
+        memcpy(s_port_scan_req.ip, req->base_ip, sizeof(s_port_scan_req.ip));
+        s_port_scan_req.ip[sizeof(s_port_scan_req.ip) - 1] = '\0';
+        s_port_scan_req.cidr = req->cidr;
+        s_port_scan_req.start_port = req->start_port;
+        s_port_scan_req.end_port = req->end_port;
+        s_port_scan_req.max_results = clamp_max_results(req->max_results);
+      } else {
+        // Packed list: base_ip[16][cidr u8][max u16][count u16][ports...].
+        if (len < 17)
+          return SPI_STATUS_INVALID_ARG;
+        s_port_scan_req.kind = PORT_SCAN_KIND_CIDR_LIST;
+        memcpy(s_port_scan_req.ip, payload, sizeof(s_port_scan_req.ip));
+        s_port_scan_req.ip[sizeof(s_port_scan_req.ip) - 1] = '\0';
+        s_port_scan_req.cidr = payload[16];
+        if (!parse_port_list(payload, len, 17))
+          return SPI_STATUS_INVALID_ARG;
+      }
+      return start_port_scan();
+    }
+
+    case SPI_ID_WIFI_PORT_SCAN_STOP:
+      port_scan_request_abort();
+      return SPI_STATUS_OK;
+
+    case SPI_ID_WIFI_GET_MAC: {
+      uint8_t iface = (len >= 1) ? payload[0] : 0;
+      wifi_interface_t wif = (iface == 1) ? WIFI_IF_AP : WIFI_IF_STA;
+      uint8_t mac[WIFI_MAC_LEN] = {0};
+      if (esp_wifi_get_mac(wif, mac) != ESP_OK)
+        return SPI_STATUS_ERROR;
+      memcpy(out_resp_payload, mac, sizeof(mac));
+      *out_resp_len = sizeof(mac);
+      return SPI_STATUS_OK;
+    }
+
+    case SPI_ID_WIFI_GET_IP_INFO: {
+      uint8_t iface = (len >= 1) ? payload[0] : 0;
+      const char *key = (iface == 1) ? "WIFI_AP_DEF" : "WIFI_STA_DEF";
+      esp_netif_t *netif = esp_netif_get_handle_from_ifkey(key);
+      if (netif == NULL)
+        return SPI_STATUS_ERROR;
+      esp_netif_ip_info_t ip = {0};
+      esp_netif_get_ip_info(netif, &ip);
+      spi_wifi_ip_info_t info = {0};
+      info.interface = iface;
+      esp_wifi_get_mac((iface == 1) ? WIFI_IF_AP : WIFI_IF_STA, info.mac);
+      info.ip = ip.ip.addr;
+      info.netmask = ip.netmask.addr;
+      info.gw = ip.gw.addr;
+      memcpy(out_resp_payload, &info, sizeof(info));
+      *out_resp_len = sizeof(info);
+      return SPI_STATUS_OK;
+    }
 
     case SPI_ID_MESH_WIFI_INIT: {
       if (len < sizeof(spi_mesh_init_t)) {

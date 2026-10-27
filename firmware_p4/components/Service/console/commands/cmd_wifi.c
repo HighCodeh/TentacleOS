@@ -26,6 +26,7 @@
 #include "client_scanner.h"
 #include "deauther_detector.h"
 #include "evil_twin.h"
+#include "common_ports.h"
 #include "port_scan.h"
 #include "probe_monitor.h"
 #include "signal_monitor.h"
@@ -479,6 +480,7 @@ static struct {
   struct arg_str *ip;
   struct arg_int *min;
   struct arg_int *max;
+  struct arg_lit *common;
   struct arg_end *end;
 } s_port_args;
 
@@ -495,19 +497,28 @@ static int subcmd_portscan(int argc, char **argv) {
   }
 
   const char *ip = s_port_args.ip->sval[0];
+  bool common = s_port_args.common->count > 0;
   int min = (s_port_args.min->count > 0) ? s_port_args.min->ival[0] : 1;
   int max = (s_port_args.max->count > 0) ? s_port_args.max->ival[0] : 1024;
 
-  printf("Starting Port Scan on %s (%d-%d). This block the console...\n", ip, min, max);
+  int ports[COMMON_PORTS_MAX];
+  int nports = 0;
+  if (common) {
+    nports = common_ports_load(ports, COMMON_PORTS_MAX);
+    printf("Starting Port Scan on %s (%d common ports). This block the console...\n", ip, nports);
+  } else {
+    printf("Starting Port Scan on %s (%d-%d). This block the console...\n", ip, min, max);
+  }
 
-  // Allocate results on heap to avoid stack overflow
-  port_scan_result_t *results = malloc(sizeof(port_scan_result_t) * 20);
+  // Allocate results on heap to avoid stack overflow (C5 caps at 32 hits).
+  port_scan_result_t *results = malloc(sizeof(port_scan_result_t) * 32);
   if (results == NULL) {
     printf("Memory error.\n");
     return 1;
   }
 
-  int count = port_scan_target_range(ip, min, max, results, 20);
+  int count = common ? port_scan_target_list(ip, ports, nports, results, 32)
+                      : port_scan_target_range(ip, min, max, results, 32);
 
   printf("Scan finished. Found %d open ports:\n", count);
   for (int i = 0; i < count; i++) {
@@ -693,7 +704,8 @@ void register_wifi_commands(void) {
   s_port_args.ip = arg_str1("i", "ip", "<ip>", "Target IP");
   s_port_args.min = arg_int0(NULL, "min", "<port>", "Start Port");
   s_port_args.max = arg_int0(NULL, "max", "<port>", "End Port");
-  s_port_args.end = arg_end(1);
+  s_port_args.common = arg_lit0(NULL, "common-ports", "Scan only the common ports");
+  s_port_args.end = arg_end(2);
 
   const esp_console_cmd_t wifi_cmd = {.command = "wifi",
                                       .help = "Wi-Fi Management & Attacks",

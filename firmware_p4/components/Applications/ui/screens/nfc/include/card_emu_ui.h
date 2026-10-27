@@ -16,10 +16,15 @@
 #ifndef CARD_EMU_UI_H
 #define CARD_EMU_UI_H
 
-/**
- * @brief Advanced card emulator (main-menu CARD EMU): flip through saved cards
- *        as big card panels, create a custom card, and emulate the selected one.
- */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/** @brief Open the native NFC emulation screen using saved MIFARE dumps. */
 void ui_card_emu_open(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // CARD_EMU_UI_H

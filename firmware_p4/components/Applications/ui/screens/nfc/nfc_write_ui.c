@@ -15,18 +15,23 @@
 
 #include "nfc_write_ui.h"
 
+#include <dirent.h>
 #include <stdio.h>
+#include <string.h>
 
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "lvgl.h"
+#include "sys_prio.h"
 
-#include "st7789.h"
-
-#include "assets_manager.h"
+#include "highboy_nfc.h"
 #include "keyboard_ui.h"
 #include "msgbox_ui.h"
+#include "nfc_mfc_ndef.h"
+#include "nfc_mfc_write.h"
 #include "nfc_sim.h"
 #include "nfc_ui_common.h"
-#include "page_dots_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -34,419 +39,495 @@
 #include "ui_semantic.h"
 #include "ui_theme.h"
 
-#define WR_TICK_MS 33
-#define WRITE_ICON "/assets/icons/edit.bin"
+#define WRITE_ICON       "/assets/icons/edit.bin"
+#define MFC_DUMP_DIR     "/sdcard/nfc/dumps"
+#define MFC1K_DUMP_BYTES 1024L
+#define WRITE_MAX_DUMPS  10
+#define WRITE_REFRESH_MS 50
+#define WRITE_TASK_STACK 8192
 
-#define MAX_CARDS    10
-#define CARD_PANEL_H 122
-#define SRC_Y        4
-#define ARROW_Y      (SRC_Y + CARD_PANEL_H + 4)
-#define SLOT_W       150
-#define SLOT_H       72
-#define SLOT_Y       (ARROW_Y + 26)
-#define SLOT_X       ((ui_screen_w() - SLOT_W) / 2)
+typedef enum {
+  WRITE_STATE_SELECT,
+  WRITE_STATE_RUNNING,
+  WRITE_STATE_DONE,
+  WRITE_STATE_ERROR,
+} write_state_t;
 
-enum { WR_NONE, WR_PLACE, WR_WRITING, WR_DONE };
-#define T_PLACE   1300
-#define T_WRITING 1600
-#define T_DONE    1000
+typedef struct {
+  nfc_sim_card_t card;
+  char path[128];
+} write_dump_entry_t;
 
-static lv_obj_t *s_screen = NULL;
-static lv_obj_t *s_body = NULL;
-static page_dots_t s_dots;
-static int s_sel = 0;
-static int s_count = 0;
-static lv_timer_t *s_wr_timer = NULL;
-static bool s_empty = false;
+static const char *TAG = "NFC_WRITE_UI";
 
-static lv_obj_t *s_ov = NULL;
-static lv_obj_t *s_ov_status = NULL;
-static lv_obj_t *s_ov_footer = NULL;
-static lv_obj_t *s_ov_card = NULL;
-static lv_obj_t *s_ov_prog = NULL;
-static lv_obj_t *s_ov_bar = NULL;
-static lv_obj_t *s_ov_ok = NULL;
-static nfc_ui_field_t s_ov_field;
-static nfc_sim_card_t s_card;
-static int s_wr = WR_NONE;
-static uint32_t s_wr_start = 0;
+static lv_obj_t *s_screen;
+static lv_obj_t *s_body;
+static lv_obj_t *s_card_panel;
+static lv_obj_t *s_status;
+static lv_obj_t *s_detail;
+static lv_obj_t *s_progress;
+static lv_obj_t *s_footer;
+static lv_timer_t *s_timer;
 
-static void transy_cb(void *var, int32_t v) {
-  lv_obj_set_style_translate_y((lv_obj_t *)var, v, 0);
+static write_dump_entry_t s_dumps[WRITE_MAX_DUMPS];
+static int s_count;
+static int s_selected;
+static write_state_t s_state;
+static char s_message[NFC_MFC_NDEF_TEXT_MAX + 1U];
+static int s_progress_max = NFC_MFC_WRITE_DATA_BLOCKS;
+
+static TaskHandle_t s_task;
+static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
+static bool s_cancel;
+static bool s_result_ready;
+static nfc_mfc_write_progress_t s_write_progress;
+static nfc_mfc_write_result_t s_write_result;
+
+static bool selected_is_text(void) {
+  return s_selected == 0;
 }
 
-static void card_rise(lv_obj_t *o) {
-  lv_anim_t a;
-  lv_anim_init(&a);
-  lv_anim_set_var(&a, o);
-  lv_anim_set_exec_cb(&a, transy_cb);
-  lv_anim_set_values(&a, 26, 0);
-  lv_anim_set_duration(&a, 300);
-  lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
-  lv_anim_start(&a);
+static int selected_dump_index(void) {
+  return s_selected - 1;
 }
 
-static lv_obj_t *lit_panel(lv_obj_t *parent, int w, int h) {
-  lv_obj_t *p = lv_obj_create(parent);
-  lv_obj_remove_flag(p, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(p, w, h);
-  lv_obj_set_style_radius(p, 13, 0);
-  lv_obj_set_style_bg_color(p, current_theme.bg_secondary, 0);
-  lv_obj_set_style_bg_opa(p, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_grad_dir(p, LV_GRAD_DIR_NONE, 0);
-  lv_obj_set_style_border_width(p, 1, 0);
-  lv_obj_set_style_border_color(p, current_theme.border_accent, 0);
-  lv_obj_set_style_shadow_color(p, current_theme.border_accent, 0);
-  lv_obj_set_style_shadow_width(p, 16, 0);
-  lv_obj_set_style_shadow_opa(p, LV_OPA_40, 0);
-  lv_obj_set_style_shadow_spread(p, -4, 0);
-  return p;
+static int source_count(void) {
+  return s_count + 1; /* Text writer plus every saved dump. */
 }
 
-static void build_empty(const char *icon, const char *title, const char *sub) {
-  lv_obj_t *card = lit_panel(s_screen, 200, 104);
-  lv_obj_align(card, LV_ALIGN_CENTER, 0, 6);
-  lv_obj_set_style_pad_all(card, 10, 0);
-  lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_align(card, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_style_pad_row(card, 6, 0);
+static bool inspect_dump(const char *path, nfc_sim_card_t *card) {
+  FILE *fp = fopen(path, "rb");
+  if (fp == NULL)
+    return false;
+  uint8_t block0[16] = {0};
+  bool valid = fread(block0, 1, sizeof(block0), fp) == sizeof(block0) &&
+               fseek(fp, 0, SEEK_END) == 0 && ftell(fp) == MFC1K_DUMP_BYTES;
+  fclose(fp);
+  if (!valid)
+    return false;
 
-  lv_image_dsc_t *dsc = assets_get(icon);
-  if (dsc != NULL) {
-    lv_obj_t *img = lv_image_create(card);
-    lv_image_set_src(img, dsc);
-    lv_obj_set_style_image_recolor(img, current_theme.text_main, 0);
-    lv_obj_set_style_image_recolor_opa(img, LV_OPA_COVER, 0);
+  memset(card, 0, sizeof(*card));
+  memcpy(card->uid, block0, 4);
+  card->uid_len = 4;
+  card->atqa = 0x0400;
+  card->sak = 0x08;
+  snprintf(card->name,
+           sizeof(card->name),
+           "MFC %02X%02X%02X%02X",
+           block0[0],
+           block0[1],
+           block0[2],
+           block0[3]);
+  snprintf(card->type, sizeof(card->type), "MIFARE Classic 1K dump");
+  return true;
+}
+
+static int scan_dumps(void) {
+  memset(s_dumps, 0, sizeof(s_dumps));
+  DIR *dir = opendir(MFC_DUMP_DIR);
+  if (dir == NULL)
+    return 0;
+
+  int count = 0;
+  struct dirent *entry;
+  while ((entry = readdir(dir)) != NULL && count < WRITE_MAX_DUMPS) {
+    size_t len = strlen(entry->d_name);
+    if (len < 8 || strncmp(entry->d_name, "mf_", 3) != 0 ||
+        strcmp(entry->d_name + len - 4, ".bin") != 0) {
+      continue;
+    }
+    int n = snprintf(
+        s_dumps[count].path, sizeof(s_dumps[count].path), MFC_DUMP_DIR "/%s", entry->d_name);
+    if (n <= 0 || (size_t)n >= sizeof(s_dumps[count].path) ||
+        !inspect_dump(s_dumps[count].path, &s_dumps[count].card)) {
+      continue;
+    }
+    count++;
   }
-
-  lv_obj_t *t = lv_label_create(card);
-  lv_label_set_text(t, title);
-  lv_obj_set_style_text_font(t, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_text_color(t, current_theme.text_main, 0);
-
-  lv_obj_t *s = lv_label_create(card);
-  lv_label_set_text(s, sub);
-  lv_obj_set_style_text_font(s, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(s, current_theme.text_secondary, 0);
+  closedir(dir);
+  return count;
 }
 
-static lv_obj_t *dash_line(lv_obj_t *parent, lv_point_precise_t *pts, int x, int y) {
-  lv_obj_t *ln = lv_line_create(parent);
-  lv_line_set_points(ln, pts, 2);
-  lv_obj_set_pos(ln, x, y);
-  lv_obj_set_style_line_color(ln, current_theme.border_accent, 0);
-  lv_obj_set_style_line_opa(ln, LV_OPA_80, 0);
-  lv_obj_set_style_line_width(ln, 2, 0);
-  lv_obj_set_style_line_dash_width(ln, 4, 0);
-  lv_obj_set_style_line_dash_gap(ln, 4, 0);
-  return ln;
-}
-
-static void bench_build(void) {
-  static lv_point_precise_t top_pts[2], bot_pts[2], lft_pts[2], rgt_pts[2];
-
+static void rebuild_source(void) {
   if (s_body != NULL) {
     lv_obj_del(s_body);
     s_body = NULL;
   }
+  s_card_panel = NULL;
+  s_status = NULL;
+  s_detail = NULL;
+  s_progress = NULL;
 
   s_body = lv_obj_create(s_screen);
   lv_obj_remove_flag(s_body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(s_body, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(s_body, lv_pct(100), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_size(s_body, ui_screen_w(), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
   lv_obj_align(s_body, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(s_body, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(s_body, 0, 0);
   lv_obj_set_style_pad_all(s_body, 0, 0);
 
-  const int body_h = ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H;
-  const int slot_y = LV_MIN(SLOT_Y, body_h - SLOT_H);
-  const int arrow_y = LV_MIN(ARROW_Y, slot_y - 26);
-
-  lv_obj_t *src = nfc_ui_card_panel(s_body, nfc_sim_saved_get(s_sel));
-  lv_obj_align(src, LV_ALIGN_TOP_MID, 0, SRC_Y);
-  card_rise(src);
-
-  lv_obj_t *arrow = lv_label_create(s_body);
-  lv_label_set_text(arrow, LV_SYMBOL_DOWN);
-  lv_obj_set_style_text_font(arrow, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_text_color(arrow, current_theme.border_accent, 0);
-  lv_obj_align(arrow, LV_ALIGN_TOP_MID, 0, arrow_y);
-
-  top_pts[0].x = 0;
-  top_pts[0].y = 0;
-  top_pts[1].x = SLOT_W;
-  top_pts[1].y = 0;
-  bot_pts[0].x = 0;
-  bot_pts[0].y = 0;
-  bot_pts[1].x = SLOT_W;
-  bot_pts[1].y = 0;
-  lft_pts[0].x = 0;
-  lft_pts[0].y = 0;
-  lft_pts[1].x = 0;
-  lft_pts[1].y = SLOT_H;
-  rgt_pts[0].x = 0;
-  rgt_pts[0].y = 0;
-  rgt_pts[1].x = 0;
-  rgt_pts[1].y = SLOT_H;
-  dash_line(s_body, top_pts, SLOT_X, slot_y);
-  dash_line(s_body, bot_pts, SLOT_X, slot_y + SLOT_H);
-  dash_line(s_body, lft_pts, SLOT_X, slot_y);
-  dash_line(s_body, rgt_pts, SLOT_X + SLOT_W, slot_y);
-
-  lv_obj_t *slot_lbl = lv_label_create(s_body);
-  lv_label_set_text(slot_lbl, "place blank tag\nto write");
-  lv_obj_set_style_text_align(slot_lbl, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_set_style_text_font(slot_lbl, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(slot_lbl, current_theme.border_accent, 0);
-  lv_obj_align(slot_lbl, LV_ALIGN_TOP_MID, 0, slot_y + 20);
-
-  s_dots = page_dots_create(s_body, s_count, LV_ALIGN_BOTTOM_MID, 0, -2);
-  page_dots_set(&s_dots, s_sel);
-}
-
-static void rings_show(bool show) {
-  for (int i = 0; i < 3; i++) {
-    if (!s_ov_field.ring[i])
-      continue;
-    if (show)
-      lv_obj_remove_flag(s_ov_field.ring[i], LV_OBJ_FLAG_HIDDEN);
-    else
-      lv_obj_add_flag(s_ov_field.ring[i], LV_OBJ_FLAG_HIDDEN);
-  }
-}
-
-static void overlay_close(void) {
-  if (s_ov) {
-    lv_obj_del(s_ov);
-    s_ov = NULL;
-  }
-  s_ov_status = NULL;
-  s_ov_footer = NULL;
-  s_ov_card = NULL;
-  s_ov_prog = NULL;
-  s_ov_bar = NULL;
-  s_ov_ok = NULL;
-  for (int i = 0; i < 3; i++)
-    s_ov_field.ring[i] = NULL;
-  s_wr = WR_NONE;
-}
-
-static void overlay_start(const nfc_sim_card_t *card) {
-  s_card = *card;
-
-  s_ov = lv_obj_create(s_screen);
-  lv_obj_set_size(s_ov, lv_pct(100), lv_pct(100));
-  lv_obj_center(s_ov);
-  lv_obj_remove_flag(s_ov, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_color(s_ov, lv_color_black(), 0);
-  lv_obj_set_style_bg_opa(s_ov, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_width(s_ov, 0, 0);
-  lv_obj_set_style_pad_all(s_ov, 0, 0);
-
-  ui_chrome_header_overlay(s_ov, "WRITE TAG", WRITE_ICON);
-  s_ov_footer = ui_chrome_footer(s_ov, "BACK  Cancel");
-
-  s_ov_status = lv_label_create(s_ov);
-  lv_label_set_text(s_ov_status, "Place blank tag");
-  lv_obj_set_style_text_font(s_ov_status, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_text_color(s_ov_status, current_theme.text_main, 0);
-  lv_obj_align(s_ov_status, LV_ALIGN_TOP_MID, 0, 52);
-
-  nfc_ui_field_create(&s_ov_field, s_ov, ui_theme_get_accent());
-
-  s_wr = WR_PLACE;
-  s_wr_start = lv_tick_get();
-}
-
-static void begin_writing(void) {
-  rings_show(false);
-
-  s_ov_card = nfc_ui_card_panel(s_ov, &s_card);
-  lv_obj_align(s_ov_card, LV_ALIGN_CENTER, 0, -14);
-  lv_obj_fade_in(s_ov_card, 280, 0);
-  card_rise(s_ov_card);
-
-  s_ov_prog = lit_panel(s_ov, 200, 28);
-  lv_obj_align(s_ov_prog, LV_ALIGN_CENTER, 0, 78);
-  lv_obj_set_style_pad_all(s_ov_prog, 0, 0);
-
-  s_ov_bar = lv_bar_create(s_ov_prog);
-  lv_obj_set_size(s_ov_bar, 176, 10);
-  lv_obj_center(s_ov_bar);
-  lv_bar_set_range(s_ov_bar, 0, 100);
-  lv_bar_set_value(s_ov_bar, 0, LV_ANIM_OFF);
-  lv_obj_set_style_bg_color(s_ov_bar, lv_color_hex(0x202028), LV_PART_MAIN);
-  lv_obj_set_style_bg_color(s_ov_bar, current_theme.border_accent, LV_PART_INDICATOR);
-  lv_obj_set_style_radius(s_ov_bar, 4, LV_PART_MAIN);
-  lv_obj_set_style_radius(s_ov_bar, 4, LV_PART_INDICATOR);
-
-  lv_label_set_text(s_ov_status, "Writing");
-  ui_chrome_footer_set_text(s_ov_footer, "Writing...");
-}
-
-static void finish_write(void) {
-  lv_obj_set_style_text_color(s_ov_status, lv_color_hex(UI_COL_SUCCESS), 0);
-  lv_label_set_text(s_ov_status, "Written!");
-  if (s_ov_bar) {
-    lv_bar_set_value(s_ov_bar, 100, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(s_ov_bar, lv_color_hex(UI_COL_SUCCESS), LV_PART_INDICATOR);
-  }
-  if (s_ov_card) {
-    s_ov_ok = lv_obj_create(s_ov);
-    lv_obj_remove_flag(s_ov_ok, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(s_ov_ok, 30, 30);
-    lv_obj_set_style_radius(s_ov_ok, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(s_ov_ok, lv_color_hex(UI_COL_SUCCESS), 0);
-    lv_obj_set_style_bg_opa(s_ov_ok, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(s_ov_ok, 0, 0);
-    lv_obj_align_to(s_ov_ok, s_ov_card, LV_ALIGN_TOP_RIGHT, -8, 8);
-    lv_obj_t *chk = lv_label_create(s_ov_ok);
-    lv_label_set_text(chk, LV_SYMBOL_OK);
-    lv_obj_set_style_text_color(chk, lv_color_hex(0x0A0220), 0);
-    lv_obj_center(chk);
-    lv_obj_fade_in(s_ov_ok, 200, 0);
-  }
-  ui_chrome_footer_set_text(s_ov_footer, "BACK  Exit");
-  ui_feedback(UI_FB_WRITE);
-  nfc_ui_play_sound(NFC_SND_SAVE);
-}
-
-static void write_tick(void) {
-  uint32_t el = lv_tick_get() - s_wr_start;
-  if (s_wr == WR_PLACE) {
-    nfc_ui_field_tick(&s_ov_field, el);
-    int dots = (el / 350) % 4;
-    char buf[28];
-    snprintf(buf,
-             sizeof(buf),
-             "Place blank tag%s",
-             dots == 1   ? "."
-             : dots == 2 ? ".."
-             : dots == 3 ? "..."
-                         : "");
-    lv_label_set_text(s_ov_status, buf);
-    if (el >= T_PLACE) {
-      begin_writing();
-      s_wr = WR_WRITING;
-      s_wr_start = lv_tick_get();
-    }
-  } else if (s_wr == WR_WRITING) {
-    int pct = (int)((uint64_t)el * 100 / T_WRITING);
-    if (pct > 100)
-      pct = 100;
-    if (s_ov_bar)
-      lv_bar_set_value(s_ov_bar, pct, LV_ANIM_OFF);
-    if (el >= T_WRITING) {
-      finish_write();
-      s_wr = WR_DONE;
-      s_wr_start = lv_tick_get();
-    }
-  } else if (s_wr == WR_DONE) {
-    if (el >= T_DONE)
-      overlay_close();
-  }
-}
-
-static void write_tick_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_wr_timer = NULL;
+  if (selected_is_text()) {
+    s_status = lv_label_create(s_body);
+    lv_label_set_text(s_status, "NDEF TEXT MESSAGE");
+    lv_obj_set_style_text_font(s_status, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(s_status, current_theme.border_accent, 0);
+    lv_obj_align(s_status, LV_ALIGN_CENTER, 0, -30);
+    s_detail = lv_label_create(s_body);
+    lv_label_set_text(s_detail,
+                      s_message[0] != '\0'
+                          ? s_message
+                          : "Press OK to type a message\nUID and keys stay unchanged");
+    lv_obj_set_width(s_detail, ui_screen_w() - 28);
+    lv_label_set_long_mode(s_detail, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(s_detail, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(s_detail, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(s_detail, current_theme.text_secondary, 0);
+    lv_obj_align(s_detail, LV_ALIGN_CENTER, 0, 12);
+    ui_chrome_footer_set_text(s_footer,
+                              s_count > 0 ? "DOWN Dumps   OK Type message   BACK"
+                                          : "OK Type message   BACK Exit");
     return;
   }
-  if (s_wr != WR_NONE && !(msgbox_is_open() || keyboard_is_open() || ui_input_is_locked()))
-    write_tick();
+
+  const int dump_index = selected_dump_index();
+  s_card_panel = nfc_ui_card_panel(s_body, &s_dumps[dump_index].card);
+  lv_obj_align(s_card_panel, LV_ALIGN_TOP_MID, 0, 4);
+
+  s_status = lv_label_create(s_body);
+  lv_label_set_text_fmt(s_status, "SAVED DUMP %d/%d", dump_index + 1, s_count);
+  lv_obj_set_style_text_font(s_status, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(s_status, current_theme.border_accent, 0);
+  lv_obj_align(s_status, LV_ALIGN_TOP_MID, 0, 134);
+
+  s_detail = lv_label_create(s_body);
+  lv_label_set_text(s_detail, "47 data blocks | UID and keys protected");
+  lv_obj_set_style_text_font(s_detail, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(s_detail, current_theme.text_secondary, 0);
+  lv_obj_align(s_detail, LV_ALIGN_TOP_MID, 0, 154);
+
+  ui_chrome_footer_set_text(s_footer, "UP/DOWN Source   OK Write dump   BACK");
 }
 
-static void nfc_write_input(const input_event_t *ev, void *ctx) {
+static bool cancel_cb(void *ctx) {
   (void)ctx;
-  const bool press = (ev->action == INPUT_ACTION_PRESS);
-  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
+  bool cancel;
+  portENTER_CRITICAL(&s_mux);
+  cancel = s_cancel;
+  portEXIT_CRITICAL(&s_mux);
+  return cancel;
+}
 
-  if (s_wr != WR_NONE) {
-    if (ev->button == INPUT_BTN_BACK && press && s_wr != WR_DONE)
-      overlay_close();
+static void progress_cb(const nfc_mfc_write_progress_t *progress, void *ctx) {
+  (void)ctx;
+  portENTER_CRITICAL(&s_mux);
+  s_write_progress = *progress;
+  portEXIT_CRITICAL(&s_mux);
+}
+
+static void write_task(void *arg) {
+  (void)arg;
+  nfc_mfc_write_result_t result = {0};
+
+  if (!highboy_nfc_is_initialized()) {
+    highboy_nfc_config_t cfg = HIGHBOY_NFC_CONFIG_DEFAULT();
+    if (highboy_nfc_init(&cfg) != ESP_OK) {
+      result.err = HB_NFC_ERR_INTERNAL;
+      goto done;
+    }
+  }
+
+  if (selected_is_text()) {
+    result.err = nfc_mfc_write_text_1k(s_message, cancel_cb, progress_cb, NULL, &result);
+  } else {
+    result.err = nfc_mfc_write_data_1k(
+        s_dumps[selected_dump_index()].path, cancel_cb, progress_cb, NULL, &result);
+  }
+
+done:
+  portENTER_CRITICAL(&s_mux);
+  s_write_result = result;
+  s_result_ready = true;
+  s_task = NULL;
+  portEXIT_CRITICAL(&s_mux);
+  vTaskDelete(NULL);
+}
+
+static void build_write_view(void) {
+  if (s_body != NULL) {
+    lv_obj_del(s_body);
+    s_body = NULL;
+  }
+  s_card_panel = NULL;
+
+  s_body = lv_obj_create(s_screen);
+  lv_obj_remove_flag(s_body, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(
+      s_body, ui_screen_w() - 16, ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_align(s_body, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
+  lv_obj_set_style_bg_opa(s_body, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(s_body, 0, 0);
+  lv_obj_set_style_pad_all(s_body, 8, 0);
+  lv_obj_set_style_pad_row(s_body, 12, 0);
+  lv_obj_set_flex_flow(s_body, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(s_body, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+  s_status = lv_label_create(s_body);
+  lv_label_set_text(s_status,
+                    selected_is_text() ? "Place target MIFARE Classic 1K"
+                                       : "Place target MIFARE Classic 1K");
+  lv_obj_set_width(s_status, lv_pct(100));
+  lv_label_set_long_mode(s_status, LV_LABEL_LONG_WRAP);
+  lv_obj_set_style_text_align(s_status, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_set_style_text_font(s_status, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(s_status, current_theme.text_main, 0);
+
+  s_detail = lv_label_create(s_body);
+  lv_label_set_text(s_detail,
+                    selected_is_text() ? "Preparing MAD + NDEF text..." : "Finding target keys...");
+  lv_obj_set_style_text_font(s_detail, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(s_detail, current_theme.text_secondary, 0);
+
+  s_progress = lv_bar_create(s_body);
+  lv_obj_set_size(s_progress, 200, 14);
+  lv_bar_set_range(s_progress, 0, s_progress_max);
+  lv_bar_set_value(s_progress, 0, LV_ANIM_OFF);
+  lv_obj_set_style_bg_color(s_progress, lv_color_hex(0x202028), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(s_progress, current_theme.border_accent, LV_PART_INDICATOR);
+
+  ui_chrome_footer_set_text(s_footer, "Keep tag still   BACK Cancel");
+}
+
+static void start_write(void) {
+  if (s_task != NULL || (selected_is_text() && s_message[0] == '\0'))
+    return;
+  s_progress_max =
+      selected_is_text() ? nfc_mfc_ndef_text_blocks_required(s_message) : NFC_MFC_WRITE_DATA_BLOCKS;
+  if (s_progress_max <= 0)
+    return;
+  portENTER_CRITICAL(&s_mux);
+  s_cancel = false;
+  s_result_ready = false;
+  memset(&s_write_progress, 0, sizeof(s_write_progress));
+  memset(&s_write_result, 0, sizeof(s_write_result));
+  portEXIT_CRITICAL(&s_mux);
+
+  s_state = WRITE_STATE_RUNNING;
+  build_write_view();
+  if (xTaskCreatePinnedToCore(write_task,
+                              "nfc_write",
+                              WRITE_TASK_STACK,
+                              NULL,
+                              SYS_PRIO_SERVICE_HI,
+                              &s_task,
+                              SYS_CORE_RADIO) != pdPASS) {
+    s_task = NULL;
+    s_state = WRITE_STATE_ERROR;
+    lv_label_set_text(s_status, "Could not start writer task");
+    ui_chrome_footer_set_text(s_footer, "OK Retry   BACK Exit");
+  }
+}
+
+static void confirm_cb(bool confirmed) {
+  if (confirmed)
+    start_write();
+}
+
+static void ask_confirmation(void) {
+  char message[180];
+  if (selected_is_text()) {
+    snprintf(message,
+             sizeof(message),
+             "Write NDEF text to %d data blocks? Existing data in those blocks will be replaced. "
+             "UID and keys stay unchanged.",
+             nfc_mfc_ndef_text_blocks_required(s_message));
+  } else {
+    snprintf(message,
+             sizeof(message),
+             "Write 47 data blocks from this dump? UID and keys stay unchanged.");
+  }
+  msgbox_open_ex(LV_SYMBOL_WARNING, message, "Write", "Cancel", confirm_cb, false);
+}
+
+static void message_submit(const char *text, void *ctx) {
+  (void)ctx;
+  if (text == NULL || text[0] == '\0') {
+    if (s_status != NULL)
+      lv_label_set_text(s_status, "Message cannot be empty");
+    return;
+  }
+  const size_t len = strlen(text);
+  if (len > NFC_MFC_NDEF_TEXT_MAX) {
+    if (s_status != NULL)
+      lv_label_set_text(s_status, "Message is too long");
+    return;
+  }
+  memcpy(s_message, text, len + 1U);
+  rebuild_source();
+  ask_confirmation();
+}
+
+static void execute_selected(void) {
+  if (selected_is_text()) {
+    keyboard_open(NULL, message_submit, NULL);
+  } else {
+    ask_confirmation();
+  }
+}
+
+static void show_result(void) {
+  if (s_write_result.err == HB_NFC_OK) {
+    const int expected =
+        s_write_result.blocks_expected > 0 ? s_write_result.blocks_expected : s_progress_max;
+    s_state = WRITE_STATE_DONE;
+    lv_label_set_text(s_status,
+                      selected_is_text() ? "NDEF message written + verified"
+                                         : "Write verified successfully");
+    lv_obj_set_style_text_color(s_status, lv_color_hex(UI_COL_SUCCESS), 0);
+    lv_label_set_text_fmt(
+        s_detail, "%d/%d blocks read back and matched", s_write_result.blocks_verified, expected);
+    lv_bar_set_value(s_progress, expected, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(s_progress, lv_color_hex(UI_COL_SUCCESS), LV_PART_INDICATOR);
+    ui_chrome_footer_set_text(s_footer, "OK Write again   BACK Exit");
+    ui_feedback(UI_FB_WRITE);
+    nfc_ui_play_sound(NFC_SND_SAVE);
     return;
   }
 
-  switch (ev->button) {
-    case INPUT_BTN_BACK:
-    case INPUT_BTN_LEFT:
-      if (press)
-        ui_switch_screen(SCREEN_NFC_MENU);
-      break;
-    case INPUT_BTN_DOWN:
-      if (nav && !s_empty) {
-        s_sel = (s_sel + 1) % s_count;
-        bench_build();
-        ui_feedback(UI_FB_NAV);
-      }
-      break;
-    case INPUT_BTN_UP:
-      if (nav && !s_empty) {
-        s_sel = (s_sel == 0) ? s_count - 1 : s_sel - 1;
-        bench_build();
-        ui_feedback(UI_FB_NAV);
-      }
-      break;
-    case INPUT_BTN_OK:
-    case INPUT_BTN_RIGHT:
-      if (press && !s_empty) {
-        const nfc_sim_card_t *c = nfc_sim_saved_get(s_sel);
-        if (c != NULL) {
-          ui_feedback(UI_FB_SELECT);
-          overlay_start(c);
-        }
-      }
-      break;
-    default:
-      break;
+  s_state = WRITE_STATE_ERROR;
+  lv_obj_set_style_text_color(s_status, lv_color_hex(0xFFB300), 0);
+  if (s_write_result.cancelled) {
+    lv_label_set_text(s_status, "Write cancelled safely");
+  } else if (s_write_result.target.uid_len == 0) {
+    lv_label_set_text(s_status, "No target tag found");
+  } else if (s_write_result.target.sak != 0x08 && s_write_result.target.sak != 0x88) {
+    lv_label_set_text(s_status, "Target is not MIFARE Classic 1K");
+  } else {
+    lv_label_set_text_fmt(s_status, "Partial write: block %d failed", s_write_result.failed_block);
   }
+  lv_label_set_text_fmt(s_detail,
+                        "%d/%d written | %d verified | %d sectors unlocked",
+                        s_write_result.blocks_written,
+                        s_write_result.blocks_expected,
+                        s_write_result.blocks_verified,
+                        s_write_result.sectors_unlocked);
+  ui_chrome_footer_set_text(s_footer, "OK Retry   BACK Exit");
+}
+
+static void refresh_cb(lv_timer_t *timer) {
+  (void)timer;
+  if (s_screen == NULL || lv_screen_active() != s_screen)
+    return;
+  if (s_state != WRITE_STATE_RUNNING)
+    return;
+
+  bool ready;
+  nfc_mfc_write_progress_t progress;
+  portENTER_CRITICAL(&s_mux);
+  ready = s_result_ready;
+  if (ready)
+    s_result_ready = false;
+  progress = s_write_progress;
+  portEXIT_CRITICAL(&s_mux);
+
+  if (ready) {
+    show_result();
+    return;
+  }
+
+  const char *phase = progress.phase == NFC_MFC_WRITE_PHASE_FIND_KEY ? "Unlocking"
+                      : progress.phase == NFC_MFC_WRITE_PHASE_WRITE  ? "Writing"
+                                                                     : "Verifying";
+  lv_label_set_text_fmt(
+      s_status, "%s sector %02d block %02d", phase, progress.sector, progress.block);
+  lv_label_set_text_fmt(s_detail,
+                        "%d written | %d verified | %d sectors",
+                        progress.blocks_written,
+                        progress.blocks_verified,
+                        progress.sectors_unlocked);
+  lv_bar_set_value(s_progress, progress.blocks_verified, LV_ANIM_OFF);
+}
+
+static void write_input(const input_event_t *event, void *ctx) {
+  (void)ctx;
+  const bool press = event->action == INPUT_ACTION_PRESS;
+  const bool nav = press || event->action == INPUT_ACTION_REPEAT;
+
+  if (event->button == INPUT_BTN_BACK && press) {
+    if (s_state == WRITE_STATE_RUNNING) {
+      portENTER_CRITICAL(&s_mux);
+      s_cancel = true;
+      portEXIT_CRITICAL(&s_mux);
+      lv_label_set_text(s_status, "Stopping after current RF command...");
+      return;
+    }
+    ui_switch_screen(SCREEN_NFC_MENU);
+    return;
+  }
+
+  if (s_state == WRITE_STATE_RUNNING)
+    return;
+  if ((s_state == WRITE_STATE_DONE || s_state == WRITE_STATE_ERROR) &&
+      (event->button == INPUT_BTN_OK || event->button == INPUT_BTN_RIGHT) && press) {
+    execute_selected();
+    return;
+  }
+  if (s_state != WRITE_STATE_SELECT)
+    return;
+
+  if (event->button == INPUT_BTN_DOWN && nav) {
+    s_selected = (s_selected + 1) % source_count();
+    rebuild_source();
+    ui_feedback(UI_FB_NAV);
+  } else if (event->button == INPUT_BTN_UP && nav) {
+    s_selected = (s_selected + source_count() - 1) % source_count();
+    rebuild_source();
+    ui_feedback(UI_FB_NAV);
+  } else if ((event->button == INPUT_BTN_OK || event->button == INPUT_BTN_RIGHT) && press) {
+    execute_selected();
+  }
+}
+
+void ui_nfc_write_stop(void) {
+  portENTER_CRITICAL(&s_mux);
+  s_cancel = true;
+  portEXIT_CRITICAL(&s_mux);
+  while (s_task != NULL)
+    vTaskDelay(pdMS_TO_TICKS(10));
+  if (s_timer != NULL) {
+    lv_timer_del(s_timer);
+    s_timer = NULL;
+  }
+  if (keyboard_is_open())
+    keyboard_close();
+  if (msgbox_is_open())
+    msgbox_close();
 }
 
 void ui_nfc_write_open(void) {
-  nfc_sim_init();
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
   }
-  s_ov = NULL;
-  s_ov_status = NULL;
-  s_ov_footer = NULL;
-  s_ov_card = NULL;
-  s_ov_prog = NULL;
-  s_ov_bar = NULL;
-  s_ov_ok = NULL;
-  s_body = NULL;
-  s_sel = 0;
-  s_count = 0;
-  for (int i = 0; i < 3; i++)
-    s_ov_field.ring[i] = NULL;
-  s_wr = WR_NONE;
+
+  s_count = scan_dumps();
+  s_selected = 0;
+  s_state = WRITE_STATE_SELECT;
+  s_message[0] = '\0';
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_border_width(s_screen, 0, 0);
+  lv_obj_set_style_pad_all(s_screen, 0, 0);
 
-  int n = nfc_sim_saved_count();
-  s_empty = (n == 0);
+  ui_chrome_header(s_screen, "WRITE MFC / NDEF", WRITE_ICON);
+  s_footer = ui_chrome_footer(s_screen, "BACK Exit");
+  rebuild_source();
 
-  if (s_empty) {
-    ui_chrome_header(s_screen, "WRITE", WRITE_ICON);
-    ui_chrome_footer(s_screen, "BACK  Back");
-    build_empty(WRITE_ICON, "Nothing to write", "Read a tag first");
-  } else {
-    ui_chrome_header(s_screen, "WRITE TAG", WRITE_ICON);
-    ui_chrome_footer(s_screen, LV_SYMBOL_UP LV_SYMBOL_DOWN " Source   OK Write   BACK Exit");
-    s_count = n > MAX_CARDS ? MAX_CARDS : n;
-    s_sel = 0;
-    bench_build();
-  }
-
-  if (s_wr_timer == NULL)
-    s_wr_timer = lv_timer_create(write_tick_cb, WR_TICK_MS, NULL);
-  ui_input_set_screen_handler(nfc_write_input, NULL);
-
+  ui_input_set_screen_handler(write_input, NULL);
   ui_screen_load_owned(&s_screen, s_screen);
+  s_timer = lv_timer_create(refresh_cb, WRITE_REFRESH_MS, NULL);
+  ESP_LOGI(TAG, "NDEF text writer ready with %d saved source dumps", s_count);
 }

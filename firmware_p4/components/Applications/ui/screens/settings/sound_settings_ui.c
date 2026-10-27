@@ -30,10 +30,8 @@ static const char *TAG = "SOUND_SETTINGS_UI";
 
 #define ENTRY_FADE_MS 200
 
-#define ROW_VOLUME  0
-#define ROW_ALERT   1
-#define ROW_KEYBEEP 2
-#define ROW_STARTUP 3
+#define ROW_VOLUME    0
+#define ROW_UI_SOUNDS 1
 
 #define VOL_STEPS INTENSITY_BAR_STEPS
 
@@ -54,23 +52,11 @@ static int vol_pct_from_level(int lvl) {
   return lvl * 100 / VOL_STEPS;
 }
 
-static const char *const ALERT_OPTS[] = {"Beep", "Chirp", "Blip", "Off"};
-#define ALERT_COUNT ((int)(sizeof(ALERT_OPTS) / sizeof(ALERT_OPTS[0])))
-
-static int s_alert_idx = 0;
 static bool s_vol_changed = false;
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
 static bool s_changed = false;
-
-static void cycle_selector(int sel, int dir) {
-  if (sel == ROW_ALERT) {
-    s_alert_idx = (s_alert_idx + dir + ALERT_COUNT) % ALERT_COUNT;
-    menu_component_set_selector_value(&s_menu, sel, ALERT_OPTS[s_alert_idx]);
-    s_changed = true;
-  }
-}
 
 static void sound_settings_input(const input_event_t *ev, void *ctx) {
   (void)ctx;
@@ -91,6 +77,8 @@ static void sound_settings_input(const input_event_t *ev, void *ctx) {
         int sel = menu_component_get_selected(&s_menu);
         if (sel >= 0 && s_menu.has_toggle[sel]) {
           menu_component_toggle_item(&s_menu, sel);
+          if (sel == ROW_UI_SOUNDS)
+            g_config_system.ui_sound_fx = menu_component_get_toggle(&s_menu, sel);
           s_changed = true;
         }
       }
@@ -107,8 +95,6 @@ static void sound_settings_input(const input_event_t *ev, void *ctx) {
                   (uint8_t)vol_pct_from_level(menu_component_get_intensity(&s_menu, ROW_VOLUME)));
               s_vol_changed = true;
             }
-          } else if (s_menu.val_labels[sel] != NULL) {
-            cycle_selector(sel, -1);
           }
         }
       }
@@ -125,23 +111,20 @@ static void sound_settings_input(const input_event_t *ev, void *ctx) {
                   (uint8_t)vol_pct_from_level(menu_component_get_intensity(&s_menu, ROW_VOLUME)));
               s_vol_changed = true;
             }
-          } else if (s_menu.val_labels[sel] != NULL) {
-            cycle_selector(sel, +1);
           }
         }
       }
       break;
     case INPUT_BTN_BACK:
       if (press) {
-        if (s_vol_changed) {
+        if (s_vol_changed)
           g_config_system.volume =
               vol_pct_from_level(menu_component_get_intensity(&s_menu, ROW_VOLUME));
+        if (s_changed || s_vol_changed) {
           if (tos_config_save(TOS_PATH_CONFIG_SYSTEM, "system") == ESP_OK)
             notify(NOTIFY_SAVED, "Sound settings saved");
           else
             notify(NOTIFY_WARNING, "Save failed (no SD?)");
-        } else if (s_changed) {
-          notify(NOTIFY_INFO, "Sound settings applied");
         }
         ui_switch_screen(SCREEN_SETTINGS);
       }
@@ -157,7 +140,6 @@ void ui_sound_settings_open(void) {
     s_screen = NULL;
   }
 
-  s_alert_idx = 0;
   s_changed = false;
   s_vol_changed = false;
 
@@ -169,10 +151,8 @@ void ui_sound_settings_open(void) {
   s_menu = menu_component_create(s_screen, "SOUND", "/assets/icons/volume_up.bin");
   menu_component_add_intensity(
       &s_menu, "/assets/icons/volume_up.bin", "Volume", vol_level_from_pct(g_config_system.volume));
-  menu_component_add_selector(
-      &s_menu, "/assets/icons/notifications_active.bin", "Alert tone", ALERT_OPTS[s_alert_idx]);
-  menu_component_add_toggle(&s_menu, "/assets/icons/keyboard.bin", "Key beeps", true);
-  menu_component_add_toggle(&s_menu, "/assets/icons/music_note.bin", "Startup sound", false);
+  menu_component_add_toggle(
+      &s_menu, "/assets/icons/keyboard.bin", "UI sounds", g_config_system.ui_sound_fx);
 
   if (s_menu.items_cont != NULL)
     lv_obj_fade_in(s_menu.items_cont, ENTRY_FADE_MS, 0);

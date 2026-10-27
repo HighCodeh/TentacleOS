@@ -31,6 +31,15 @@ static httpd_handle_t s_server = NULL;
 esp_err_t start_web_server(void) {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.lru_purge_enable = true;
+  // Wildcard matching lets a single "/*" handler answer every path (needed so a
+  // captive portal serves its page on the OS probe URLs like /generate_204).
+  config.uri_match_fn = httpd_uri_match_wildcard;
+  // Short recv/send timeouts free a stalled client's socket fast so captive-portal
+  // probes are not left waiting behind it. Socket count stays at the default:
+  // internal DRAM is scarce, and the DNS honeypot keeps only a few clients talking
+  // to us, so more sockets would just cost RAM the HTTP server needs.
+  config.recv_wait_timeout = 3;
+  config.send_wait_timeout = 3;
 
   if (httpd_start(&s_server, &config) == ESP_OK) {
     ESP_LOGI(TAG, "Serviço HTTP iniciado.");
@@ -47,6 +56,14 @@ esp_err_t http_service_register_uri(const httpd_uri_t *uri_handler) {
   }
   ESP_LOGE(TAG, "Servidor não iniciado, impossível registrar URI '%s'", uri_handler->uri);
   return ESP_FAIL;
+}
+
+esp_err_t http_service_register_404_handler(httpd_err_handler_func_t fn) {
+  if (s_server == NULL) {
+    ESP_LOGE(TAG, "Servidor não iniciado, impossível registrar handler 404");
+    return ESP_FAIL;
+  }
+  return httpd_register_err_handler(s_server, HTTPD_404_NOT_FOUND, fn);
 }
 
 esp_err_t stop_http_server(void) {

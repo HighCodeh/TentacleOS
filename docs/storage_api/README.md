@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # P4
 
 The **Storage API** provides a unified, backend-agnostic interface for file system operations in the Highboy project. It abstracts the underlying storage mechanism (LittleFS, SD Card, etc.), allowing developers to perform file and directory operations using a consistent set of functions without worrying about low-level details or mount points.
@@ -78,7 +95,7 @@ On first boot, `tos_first_boot_setup()` creates the full directory tree on the S
 ├── badusb/assets/     - DuckyScript payloads + keyboard layouts
 ├── themes/            - Custom themes (*/theme.conf)
 ├── ringtones/         - Custom sounds
-├── apps/              - External apps (.tap)
+├── apps/              - External apps (.hb)
 ├── apps_data/         - App persistence
 ├── scripts/           - User scripts
 ├── logs/              - System logs
@@ -536,7 +553,11 @@ esp_err_t tos_factory_reset_all(void);    // config + user data + NVS
   icons/html/fonts survive) and **never** touches the on-SD C5 firmware image
   (`/sdcard/c5`), so the device and its C5-recovery path stay bootable.
 
-Callers are expected to reboot afterwards.
+Reset is an explicit destructive action. If SD is unmounted, these APIs try to
+mount it on request; safe-mode boot itself skips SD startup. Missing assets, SD
+mount errors, inaccessible paths, failed deletes and NVS erase/re-init errors
+propagate. A failure may follow partial deletion. Recovery shows a retryable
+error and reboots only after success. Shipped assets are never formatted.
 
 ---
 
@@ -989,3 +1010,14 @@ if (ret != ESP_OK) {
     ESP_LOGE(TAG, "Write failed: %s", esp_err_to_name(ret));
 }
 ```
+## Checked path construction
+
+`tos_path_join(base, name, out_path, capacity)` joins with one separator when
+needed and returns `ESP_ERR_INVALID_SIZE` if the complete path plus NUL cannot
+fit. Writable output is empty on failure. Inputs must be NUL-terminated strings
+and must not overlap the output. It does not resolve `..`, enforce a filesystem
+root, or treat an absolute `name` as a replacement for `base`; callers choose
+an empty base when resolving absolute paths.
+
+The microSD filesystem override is generated from a verified SDK patch; see
+[FatFS](../fatfs/README.md) for the source and validation process.

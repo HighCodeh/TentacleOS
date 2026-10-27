@@ -29,7 +29,7 @@ extern "C" {
 // Host-link frame envelope (see docs/host_link/protocol.md):
 //   [MAGIC 'H''B'][VER u8][FLAGS u8][COUNTER u32][LEN u16][BODY LEN][MAC 16 if FLAGS.auth]
 // BODY = [type u8][category u8][op u8][payload...]
-// Phase 1: no crypto — FLAGS.auth is 0 and no MAC is present/verified.
+// HELLO/ACK are unauthenticated. All other frames require a fresh keyed MAC.
 
 #define HOST_LINK_MAGIC0 0x48 // 'H'
 #define HOST_LINK_MAGIC1 0x42 // 'B'
@@ -40,17 +40,18 @@ extern "C" {
 
 #define HOST_LINK_FLAG_AUTH 0x01
 
-// BODY type (mirrors spi_type_t, plus LOG for pushed log text and the two
-// pre-auth handshake frames). Handshake frames always travel unauthenticated
+// BODY type (mirrors spi_type_t, plus LOG for pushed log text and the initial
+// handshake frames). HELLO and HELLO_ACK travel unauthenticated
 // (FLAGS.auth = 0, no envelope MAC); their proof is the mac_psk in the payload.
 typedef enum {
   HOST_TYPE_CMD = 0x01,
   HOST_TYPE_RESP = 0x02,
   HOST_TYPE_STREAM = 0x03,
   HOST_TYPE_LOG = 0x04,
-  HOST_TYPE_HELLO = 0x10, // app → device: { host_ver, client_nonce[16] }
-  HOST_TYPE_HELLO_ACK =
-      0x11, // device → app: { host_ver, server_nonce[16], device_id[6], mac_psk[16] }
+  HOST_TYPE_HELLO = 0x10,     // app → device: v2 nonce, ephemeral public key, PSK proof
+  HOST_TYPE_HELLO_ACK = 0x11, // device → app: v2 transcript-bound proof
+  HOST_TYPE_HELLO_FINISH = 0x12,
+  HOST_TYPE_HELLO_READY = 0x13,
 } host_type_t;
 
 #define HOST_LINK_NONCE_SIZE     16
@@ -72,12 +73,14 @@ typedef enum {
 } host_log_level_t;
 
 // Transport write callback: emit one fully-framed host frame (CDC/BLE owns it).
-typedef void (*host_link_writer_t)(const uint8_t *frame, size_t len);
+typedef void (*host_link_writer_t)(uint32_t generation, const uint8_t *frame, size_t len);
 
 /**
  * @brief Initialize the host-link layer (reassembly + dispatch state).
  */
 esp_err_t host_link_init(void);
+// Start ingress resources from a transport INIT task, never from a callback.
+esp_err_t host_link_start_worker(void);
 
 /**
  * @brief Claim the single companion session for a transport's writer.
@@ -91,24 +94,54 @@ esp_err_t host_link_init(void);
 bool host_link_session_acquire(host_link_writer_t writer);
 
 /**
- * @brief Release the session if @p writer owns it; resets crypto + reassembly
- *        so a reconnecting app must re-handshake.
+ * @brief Callback-safe invalidation if @p writer owns it. Crypto, reassembly
+ *        and producer
+ * teardown are deferred to the core worker. Never waits
+ *        for a handler, TX, crypto or SPI
+ * operation.
  */
 void host_link_session_release(host_link_writer_t writer);
+// Fail a specific transfer only, without revoking a newer reuse of the writer.
+void host_link_session_release_generation(host_link_writer_t writer, uint32_t generation);
 
 /** @brief True if @p writer currently owns the session. */
 bool host_link_session_owns(host_link_writer_t writer);
 
 /**
- * @brief Feed received transport bytes. May contain partial or multiple frames;
- *        complete frames are reassembled, dispatched, and answered via the
- *        registered writer.
+ * @brief Queue received transport bytes without waiting. Only the core worker
+ *
+ * reassembles/dispatches. On overflow invalidate this generation, never
+ *        splice across a
+ * lost chunk. Callers must retry with a fresh HELLO.
  */
-void host_link_feed(const uint8_t *data, size_t len);
+// Callback-safe, nonblocking ingress. A generation is captured BEFORE reading
+// transport bytes, never looked up later when draining a queue.
+uint32_t host_link_session_generation(host_link_writer_t writer);
+bool host_link_generation_matches(host_link_writer_t writer, uint32_t generation);
+bool host_link_feed(host_link_writer_t writer,
+                    uint32_t generation,
+                    const uint8_t *data,
+                    size_t len);
+
+// Capture when an asynchronous operation/log is STARTED, retain with its data.
+// Zero means no authenticated, ready owner. Never retag old data on emission.
+uint32_t host_link_output_generation(void);
+void host_link_emit_stream_generation(
+    uint32_t generation, uint8_t category, uint8_t op, const uint8_t *data, uint16_t len);
+void host_link_emit_log_generation(uint32_t generation,
+                                   host_log_source_t source,
+                                   host_log_level_t level,
+                                   const char *text,
+                                   size_t text_len);
+
+#ifdef HOST_LINK_TEST
+bool host_link_test_pump(void);
+#endif
 
 /**
- * @brief Discard any partially-reassembled frame. Call when the transport drops
- *        so stale bytes don't bleed into the next session.
+ * @brief Invalidate the transcript while retaining transport ownership. The
+ *        worker
+ * discards RX and keys asynchronously; requires a fresh HELLO.
  */
 void host_link_reset_rx(void);
 
@@ -160,6 +193,8 @@ void host_link_emit_stream(uint8_t category, uint8_t op, const uint8_t *data, ui
  *        log-over-BLE toggle can gate background logs on BLE only.
  */
 void host_link_mark_ble_writer(host_link_writer_t writer);
+/** True while BLE owns the single companion session. */
+bool host_link_is_ble_transport(void);
 
 /**
  * @brief Install the P4 log tee: hooks esp_log_set_vprintf (preserving the local

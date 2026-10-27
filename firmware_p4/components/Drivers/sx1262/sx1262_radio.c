@@ -19,6 +19,7 @@
 
 #include "esp_log.h"
 
+#include "sx1262_airtime.h"
 #include "sx1262_regs.h"
 #include "sx1262_cmd.h"
 #include "sx1262_fsm.h"
@@ -54,6 +55,11 @@ esp_err_t sx1262_radio_transmit(const uint8_t *data, uint8_t len, uint32_t timeo
   if (s_needs_reinit) {
     ESP_LOGE(TAG, "transmit: re-init required after cold sleep");
     return ESP_ERR_INVALID_STATE;
+  }
+
+  esp_err_t budget_err = sx1262_airtime_reserve(s_config, len);
+  if (budget_err != ESP_OK) {
+    return budget_err;
   }
 
   sx1262_state_t current = sx1262_fsm_get_state();

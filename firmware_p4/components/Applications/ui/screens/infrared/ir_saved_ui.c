@@ -434,7 +434,6 @@ static void ir_saved_input(const input_event_t *ev, void *ctx) {
         }
         break;
       case INPUT_BTN_BACK:
-      case INPUT_BTN_LEFT:
         if (press) {
           s_level = LEVEL_FILES;
           build_screen();
@@ -478,7 +477,6 @@ static void ir_saved_input(const input_event_t *ev, void *ctx) {
         }
         break;
       case INPUT_BTN_BACK:
-      case INPUT_BTN_LEFT:
         if (press)
           ui_switch_screen(SCREEN_IR_MENU);
         break;
@@ -512,7 +510,6 @@ static void ir_saved_input(const input_event_t *ev, void *ctx) {
       }
       break;
     case INPUT_BTN_BACK:
-    case INPUT_BTN_LEFT:
       if (press) {
         s_level = LEVEL_PROTOCOLS;
         build_screen();

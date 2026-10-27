@@ -18,7 +18,10 @@ The service manages the web server lifecycle (start/stop), route registration (U
 ```c
 esp_err_t start_web_server(void);
 ```
-Starts the HTTP server with default configurations, enabling `lru_purge_enable` to manage old connections.
+Starts the HTTP server. Beyond the defaults it enables:
+- `lru_purge_enable` - recycle the oldest connection when the socket pool is full.
+- `uri_match_fn = httpd_uri_match_wildcard` - lets a single handler match a URI pattern (used by the captive portal).
+- `recv_wait_timeout` / `send_wait_timeout = 3s` - free a stalled client's socket fast so captive-portal probes are not left waiting behind it.
 
 #### `stop_http_server`
 ```c
@@ -31,6 +34,12 @@ Stops the HTTP server if it is running and frees associated resources.
 esp_err_t http_service_register_uri(const httpd_uri_t *uri_handler);
 ```
 Registers a URI handler (route) on the active server. Returns an error if the server is not started.
+
+#### `http_service_register_404_handler`
+```c
+esp_err_t http_service_register_404_handler(httpd_err_handler_func_t fn);
+```
+Installs a handler for unmatched requests (`HTTPD_404_NOT_FOUND`); pass `NULL` to clear. The captive portal uses this to funnel every OS connectivity probe (`/generate_204`, `/hotspot-detect.html`, ...) to the portal: the handler replies `303 See Other` to `/` with a short body. Returns an error if the server is not started.
 
 ### Request and Response Handling
 

@@ -1,0 +1,335 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
+#include "tos_app_mgr.h"
+
+#include <string.h>
+
+#include "esp_heap_caps.h"
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
+
+#include "host_link_local_rf.h"
+#include "led_control.h"
+#include "lvgl_glue.h"
+#include "resource_mgr.h"
+#include "spi_bridge.h"
+#include "sys_prio.h"
+#include "tos_api_ui.h"
+#include "tos_app_ctx.h"
+#include "tos_arena.h"
+#include "tos_elf.h"
+#include "tos_grants.h"
+#include "tos_hb.h"
+
+static const char *TAG = "TOS_APP_MGR";
+
+#define APP_TASK_STACK       8192
+#define APP_ARENA_BUDGET     (1024 * 1024) // 1 MB per app
+#define APP_CLEANUP_RETRY_MS 20
+#define APP_KILL_QUIESCE_MS  3000 // wait out an in-flight SPI before force-kill
+
+typedef struct {
+  volatile bool active;
+  volatile bool stop;
+  volatile bool res_lost;
+  volatile bool cleaning;
+  bool has_img;
+  TaskHandle_t task;
+  const tos_api_t *api;
+  uint8_t *hb_copy;
+  const uint8_t *elf;
+  size_t elf_len;
+  uint32_t caps;
+  tos_arena_t *arena;
+  tos_elf_image_t img;
+  tos_app_regs_t regs;
+  char name[TOS_APP_NAME_CAP];
+} app_slot_t;
+
+static app_slot_t s_apps[TOS_APP_MAX];
+static SemaphoreHandle_t s_mtx = NULL;
+
+static bool ensure_mtx(void) {
+  if (s_mtx == NULL)
+    s_mtx = xSemaphoreCreateMutex();
+  return s_mtx != NULL;
+}
+
+// Exactly one of {natural exit, force-kill} tears a slot down. The winner sets
+// its cleaning flag; the loser must not touch it.
+static bool claim_cleanup(app_slot_t *a) {
+  bool won = false;
+  xSemaphoreTake(s_mtx, portMAX_DELAY);
+  if (!a->cleaning) {
+    a->cleaning = true;
+    won = true;
+  }
+  xSemaphoreGive(s_mtx);
+  return won;
+}
+
+// Reverts everything the app touched. Runs once per app, from the app task
+// (natural exit) or the killer (force-kill).
+static void finish_slot(app_slot_t *a) {
+  tos_app_ctx_unbind(a->task);          // covers force-kill, which never unbinds itself
+  resource_release_owner_task(a->task); // stop any radio the app left running
+  tos_app_regs_teardown(&a->regs);
+  if (a->caps & TOS_CAP_UI) {
+    tos_ui_app_teardown(a->task); // delete any screen it created, return to launcher
+    led_clear();                  // only if this app could have driven the LED
+  }
+  size_t leaked = tos_arena_used(a->arena);
+  if (leaked > 0)
+    ESP_LOGW(TAG, "app '%s' leaked %u bytes; reclaiming", a->name, (unsigned)leaked);
+  tos_arena_destroy(a->arena);
+  a->arena = NULL;
+  if (a->has_img) {
+    tos_elf_unload(&a->img);
+    a->has_img = false;
+  }
+  heap_caps_free(a->hb_copy);
+  a->hb_copy = NULL;
+  a->task = NULL;
+  a->cleaning = false;
+  a->active = false; // last: frees the slot
+}
+
+static void cleanup_current_app(app_slot_t *app) {
+  // A failed force-kill must let natural exit reclaim the slot on its next try.
+  while (!claim_cleanup(app))
+    vTaskDelay(pdMS_TO_TICKS(APP_CLEANUP_RETRY_MS));
+  finish_slot(app);
+}
+
+static void app_task(void *arg) {
+  app_slot_t *a = (app_slot_t *)arg;
+  tos_app_ctx_t ctx = {.granted_caps = a->caps,
+                       .id = a->name,
+                       .stop = &a->stop,
+                       .res_lost = &a->res_lost,
+                       .arena = a->arena,
+                       .regs = &a->regs};
+  esp_err_t e = tos_app_ctx_bind(xTaskGetCurrentTaskHandle(), &ctx);
+  if (e == ESP_OK)
+    e = tos_elf_load(a->elf, a->elf_len, &a->img);
+  if (e == ESP_OK) {
+    a->has_img = true;
+    int ret = tos_elf_call(&a->img, a->api);
+    ESP_LOGI(TAG, "app '%s' exited (ret=%d)", a->name, ret);
+  } else {
+    ESP_LOGE(TAG, "app '%s' load failed: %s", a->name, esp_err_to_name(e));
+  }
+
+  cleanup_current_app(a);
+  vTaskDelete(NULL);
+}
+
+esp_err_t tos_app_mgr_start(const uint8_t *hb, size_t len, const tos_api_t *api) {
+  if (hb == NULL || api == NULL)
+    return ESP_ERR_INVALID_ARG;
+  if (!ensure_mtx())
+    return ESP_ERR_NO_MEM;
+
+  tos_hb_t meta;
+  esp_err_t e = tos_hb_open(hb, len, &meta); // verifies the signature
+  if (e != ESP_OK)
+    return e;
+  if (meta.abi_major != TOS_ABI_VERSION_MAJOR)
+    return ESP_ERR_INVALID_VERSION;
+  // MINOR is additive-only: an app requiring a newer minor than we provide would
+  // dereference ABI fields this firmware's tos_api_t does not have (OOB read past
+  // the shared struct). Refuse it at load — the documented "requires minor >=" rule.
+  if (meta.abi_minor > TOS_ABI_VERSION_MINOR)
+    return ESP_ERR_INVALID_VERSION;
+
+  // Reserve a free slot (name set now so a concurrent list sees it).
+  app_slot_t *a = NULL;
+  xSemaphoreTake(s_mtx, portMAX_DELAY);
+  for (int i = 0; i < TOS_APP_MAX; i++) {
+    if (!s_apps[i].active) {
+      a = &s_apps[i];
+      a->active = true;
+      a->stop = false;
+      a->res_lost = false;
+      a->cleaning = false;
+      a->has_img = false;
+      a->arena = NULL;
+      a->hb_copy = NULL;
+      a->regs.count = 0;
+      strlcpy(a->name, meta.name, sizeof(a->name));
+      break;
+    }
+  }
+  xSemaphoreGive(s_mtx);
+  if (a == NULL)
+    return ESP_ERR_INVALID_STATE; // all app slots in use
+
+  uint8_t *copy = heap_caps_malloc(len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (copy == NULL) {
+    a->active = false;
+    return ESP_ERR_NO_MEM;
+  }
+  memcpy(copy, hb, len);
+  tos_hb_open(copy, len, &meta);
+
+  tos_arena_t *arena = tos_arena_create(APP_ARENA_BUDGET);
+  if (arena == NULL) {
+    heap_caps_free(copy);
+    a->active = false;
+    return ESP_ERR_NO_MEM;
+  }
+
+  a->api = api;
+  a->hb_copy = copy;
+  a->elf = meta.elf;
+  a->elf_len = meta.elf_len;
+  a->caps = meta.caps & tos_grants_get(a->name); // only what the user approved
+  a->arena = arena;
+
+  BaseType_t ok = xTaskCreatePinnedToCore(
+      app_task, a->name, APP_TASK_STACK, a, SYS_PRIO_BACKGROUND, &a->task, SYS_CORE_RADIO);
+  if (ok != pdPASS) {
+    heap_caps_free(copy);
+    tos_arena_destroy(arena);
+    a->hb_copy = NULL;
+    a->arena = NULL;
+    a->active = false;
+    return ESP_ERR_NO_MEM;
+  }
+  ESP_LOGI(TAG, "started app '%s' (caps=0x%lx)", a->name, (unsigned long)a->caps);
+  return ESP_OK;
+}
+
+static esp_err_t pause_for_cleanup(TaskHandle_t task) {
+  vTaskSuspend(task);
+  for (uint32_t elapsed = 0; elapsed < APP_KILL_QUIESCE_MS; elapsed += APP_CLEANUP_RETRY_MS) {
+    if (eTaskGetState(task) == eSuspended)
+      return ESP_OK;
+    vTaskDelay(pdMS_TO_TICKS(APP_CLEANUP_RETRY_MS));
+  }
+  vTaskResume(task);
+  return ESP_ERR_TIMEOUT;
+}
+
+esp_err_t tos_app_mgr_stop(const char *name, uint32_t timeout_ms) {
+  if (name == NULL || s_mtx == NULL)
+    return ESP_ERR_INVALID_ARG;
+
+  app_slot_t *a = NULL;
+  xSemaphoreTake(s_mtx, portMAX_DELAY);
+  for (int i = 0; i < TOS_APP_MAX; i++) {
+    if (s_apps[i].active && strcmp(s_apps[i].name, name) == 0) {
+      a = &s_apps[i];
+      break;
+    }
+  }
+  xSemaphoreGive(s_mtx);
+  if (a == NULL)
+    return ESP_ERR_NOT_FOUND;
+
+  a->stop = true; // cooperative: the app polls api->should_stop and returns
+  if (a->task == xTaskGetCurrentTaskHandle())
+    return ESP_ERR_INVALID_STATE;
+  uint32_t waited = 0;
+  while (a->active && waited < timeout_ms) {
+    vTaskDelay(pdMS_TO_TICKS(20));
+    waited += 20;
+  }
+  if (!a->active)
+    return ESP_OK;
+
+  if (claim_cleanup(a)) {
+    ESP_LOGW(TAG, "force-killing unresponsive app '%s'", a->name);
+    if (a->task != NULL) {
+      // Deleting a task that holds the SPI bridge mutex corrupts it. Quiesce the
+      // bridge first (waits out any in-flight app SPI); only then is the delete
+      // safe. If the bridge won't quiesce the C5 is wedged, so drop the claim and
+      // leave the app rather than corrupt the bridge - it self-cleans once its
+      // SPI returns, or a later stop/reboot handles it.
+      // Both locks must be held at the delete so the app holds neither: the SPI
+      // bridge (else deleting mid-transfer corrupts the bridge mutex) and, for a UI
+      // app, the LVGL lock (else deleting mid-LVGL-call strands the recursive render
+      // lock and freezes the display). Order is LVGL-then-bridge to match the only
+      // other nesting in the system — a UI timer that talks to the C5 takes the LVGL
+      // lock first; the bridge never takes the LVGL lock — so there is no inversion.
+      // If either won't come free the subsystem is wedged; drop the claim rather
+      // than corrupt/strand it (the app self-cleans once its call returns).
+      bool ui_app = (a->caps & TOS_CAP_UI) != 0;
+      if (ui_app && !lvgl_glue_lock(APP_KILL_QUIESCE_MS)) {
+        ESP_LOGE(TAG, "UI busy; not force-killing '%s' to avoid corruption", a->name);
+        a->cleaning = false;
+        return ESP_ERR_TIMEOUT;
+      }
+      if (!host_local_rf_lock(APP_KILL_QUIESCE_MS)) {
+        if (ui_app)
+          lvgl_glue_unlock();
+        a->cleaning = false;
+        return ESP_ERR_TIMEOUT;
+      }
+      if (spi_bridge_lock(APP_KILL_QUIESCE_MS) != ESP_OK) {
+        host_local_rf_unlock();
+        ESP_LOGE(TAG, "bridge busy; not force-killing '%s' to avoid corruption", a->name);
+        if (ui_app)
+          lvgl_glue_unlock();
+        a->cleaning = false;
+        return ESP_ERR_TIMEOUT;
+      }
+      TaskHandle_t task = a->task;
+      if (pause_for_cleanup(task) != ESP_OK) {
+        spi_bridge_unlock();
+        host_local_rf_unlock();
+        if (ui_app)
+          lvgl_glue_unlock();
+        a->cleaning = false;
+        return ESP_ERR_TIMEOUT;
+      }
+      spi_bridge_unlock();
+      host_local_rf_unlock();
+      if (ui_app)
+        lvgl_glue_unlock();
+      // Keep the task identity allocated until bindings and grants are detached.
+      finish_slot(a);
+      vTaskDelete(task);
+      return ESP_OK;
+    }
+    finish_slot(a);
+    return ESP_OK;
+  }
+  waited = 0;
+  while (a->active && waited < 500) {
+    vTaskDelay(pdMS_TO_TICKS(20));
+    waited += 20;
+  }
+  return ESP_OK;
+}
+
+int tos_app_mgr_list(char names[][TOS_APP_NAME_CAP], int max) {
+  int n = 0;
+  if (s_mtx == NULL)
+    return 0;
+  xSemaphoreTake(s_mtx, portMAX_DELAY);
+  for (int i = 0; i < TOS_APP_MAX; i++) {
+    if (s_apps[i].active) {
+      if (n < max)
+        strlcpy(names[n], s_apps[i].name, TOS_APP_NAME_CAP);
+      n++;
+    }
+  }
+  xSemaphoreGive(s_mtx);
+  return n;
+}

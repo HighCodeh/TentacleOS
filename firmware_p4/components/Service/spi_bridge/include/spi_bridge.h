@@ -58,6 +58,26 @@ esp_err_t spi_bridge_master_init(void);
 esp_err_t spi_bridge_master_init_mode(spi_bridge_mode_t mode);
 
 /**
+ * Select a diagnostic bridge clock of 2, 4 or 10 MHz. Serializes the complete
+ * PHY
+ * switch/rollback with all bridge traffic (1000 ms lock timeout). No wire
+ * protocol change,
+ * command replay, persisted setting or chip reset. Refuses
+ * changes during a suspended/legacy
+ * session. A missing PHY after failed
+ * rollback marks the bridge dead; normal requests then fail
+ * closed.
+ */
+esp_err_t spi_bridge_set_clock_hz(uint32_t hz);
+
+/**
+ * Current configured clock; zero if no normal PHY or the snapshot lock times
+ * out (1000 ms).
+ * Must not be called by a task already holding the bridge lock.
+ */
+uint32_t spi_bridge_get_clock_hz(void);
+
+/**
  * @brief Return the timeout (ms) for a given SPI command ID.
  *
  * Returns SPI_TIMEOUT_DEFAULT_MS unless the command is in the override
@@ -139,6 +159,20 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
                                   uint32_t timeout_ms);
 
 /**
+ * @brief Acquire the bridge transaction lock, waiting up to @p timeout_ms for any
+ *        in-flight command to finish. While held, no command runs. Intended for a
+ *        caller that must safely stop a task which may be mid-transaction (e.g.
+ *        force-killing an app): lock, delete the task, unlock. Do NOT call
+ *        spi_bridge_send_command while holding it (it would deadlock). Must be
+ *        unlocked from the same task.
+ * @return ESP_OK if acquired, ESP_ERR_TIMEOUT otherwise.
+ */
+esp_err_t spi_bridge_lock(uint32_t timeout_ms);
+
+/** @brief Release the bridge transaction lock taken with spi_bridge_lock. */
+void spi_bridge_unlock(void);
+
+/**
  * @brief Register a callback for stream frames with the given SPI ID.
  *
  * @param id  SPI function identifier to listen for.
@@ -152,6 +186,9 @@ void spi_bridge_register_stream_cb(spi_id_t id, spi_stream_cb_t cb);
  * @param id  SPI function identifier to stop listening for.
  */
 void spi_bridge_unregister_stream_cb(spi_id_t id);
+
+/** After unregister, wait for callbacks already dispatched by the stream worker. */
+esp_err_t spi_bridge_stream_barrier(uint32_t timeout_ms);
 
 #ifdef __cplusplus
 }

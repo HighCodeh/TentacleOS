@@ -1,0 +1,704 @@
+====================================
+  Flipper SubGhz KeeLoq Mfcodes
+  Decrypted by SubGhz Toolkit
+  RocketGod | betaskynet.com
+====================================
+
+Total Keys: 116
+
+Manufacturer: DoorHan
+Key (Hex):    8455F43584941223
+Key (Dec):    9535796296721633827
+Type:         1
+------------------------------------
+
+Manufacturer: Beninca_ARC
+Key (Hex):    6EB6AE4815C63ED2
+Key (Dec):    7977755414559604434
+Type:         9
+------------------------------------
+
+Manufacturer: Kingates_Stylo4k
+Key (Hex):    414C455831393830
+Key (Dec):    4705211955780597808
+Type:         10
+------------------------------------
+
+Manufacturer: Jarolift
+Key (Hex):    27193A9B117C0835
+Key (Dec):    2817347479584639029
+Type:         11
+------------------------------------
+
+Manufacturer: FAAC_SLH
+Key (Hex):    53696C7669618C14
+Key (Dec):    6010454433532578836
+Type:         5
+------------------------------------
+
+Manufacturer: BFT
+Key (Hex):    4C6D4D7A55644F76
+Key (Dec):    5507143107157970806
+Type:         3
+------------------------------------
+
+Manufacturer: Stilmatic
+Key (Hex):    0123456789ABCDEF
+Key (Dec):    81985529216486895
+Type:         2
+------------------------------------
+
+Manufacturer: Mongoose
+Key (Hex):    D5A5E7B2A7C1A0BA
+Key (Dec):    15394965655740588218
+Type:         2
+------------------------------------
+
+Manufacturer: NICE_Smilo
+Key (Hex):    54524D534543494E
+Key (Dec):    6076003867315882318
+Type:         1
+------------------------------------
+
+Manufacturer: NICE_MHOUSE
+Key (Hex):    484D6C6D73545253
+Key (Dec):    5209939561279672915
+Type:         1
+------------------------------------
+
+Manufacturer: Dea_Mio
+Key (Hex):    08AEDAABAA981903
+Key (Dec):    625677829087435011
+Type:         1
+------------------------------------
+
+Manufacturer: Genius_Bravo
+Key (Hex):    FAAC05600002FAAC
+Key (Dec):    18062818115351411372
+Type:         2
+------------------------------------
+
+Manufacturer: FAAC_RC,XT
+Key (Hex):    FAAC05600001FAAC
+Key (Dec):    18062818115351345836
+Type:         2
+------------------------------------
+
+Manufacturer: Came_Space
+Key (Hex):    96638C36C99C2C9B
+Key (Dec):    10836659295322123419
+Type:         1
+------------------------------------
+
+Manufacturer: DTM_Neo
+Key (Hex):    FC4DE22CD5370320
+Key (Dec):    18180435952948151072
+Type:         1
+------------------------------------
+
+Manufacturer: GSN
+Key (Hex):    A9748532B7655297
+Key (Dec):    12210530942579987095
+Type:         2
+------------------------------------
+
+Manufacturer: Beninca
+Key (Hex):    CEB6AE48B5C63ED2
+Key (Dec):    14895284444885040850
+Type:         4
+------------------------------------
+
+Manufacturer: Elmes_Poland
+Key (Hex):    9C61FD3A47B8E25C
+Key (Dec):    11268566169410921052
+Type:         2
+------------------------------------
+
+Manufacturer: IronLogic
+Key (Hex):    0102030410203040
+Key (Dec):    72623859976646720
+Type:         1
+------------------------------------
+
+Manufacturer: IL-100(Smart)
+Key (Hex):    4030201004030201
+Key (Dec):    4625232070468370945
+Type:         1
+------------------------------------
+
+Manufacturer: Comunello
+Key (Hex):    F1A3E552C8647E55
+Key (Dec):    17412012728056577621
+Type:         2
+------------------------------------
+
+Manufacturer: Sommer
+Key (Hex):    7BCBEED4376EDCBF
+Key (Dec):    8920486082167889087
+Type:         2
+------------------------------------
+
+Manufacturer: Zero_Simple
+Key (Hex):    0000000000000000
+Key (Dec):    0
+Type:         1
+------------------------------------
+
+Manufacturer: Zero_Normal
+Key (Hex):    0000000000000000
+Key (Dec):    0
+Type:         2
+------------------------------------
+
+Manufacturer: FFFF_Simple
+Key (Hex):    FFFFFFFFFFFFFFFF
+Key (Dec):    18446744073709551615
+Type:         1
+------------------------------------
+
+Manufacturer: FFFF_Normal
+Key (Hex):    FFFFFFFFFFFFFFFF
+Key (Dec):    18446744073709551615
+Type:         2
+------------------------------------
+
+Manufacturer: Normstahl
+Key (Hex):    9DA08153CF312BA7
+Key (Dec):    11358220457186765735
+Type:         1
+------------------------------------
+
+Manufacturer: KEY
+Key (Hex):    30317B307D794471
+Key (Dec):    3472692235873109105
+Type:         1
+------------------------------------
+
+Manufacturer: JCM_Tech
+Key (Hex):    89146E59537903B7
+Key (Dec):    9877641212661924791
+Type:         1
+------------------------------------
+
+Manufacturer: Novoferm
+Key (Hex):    314C3865304E3961
+Key (Dec):    3552276213341763937
+Type:         1
+------------------------------------
+
+Manufacturer: EcoStar
+Key (Hex):    8607427861394E30
+Key (Dec):    9657761010713972272
+Type:         2
+------------------------------------
+
+Manufacturer: Gibidi
+Key (Hex):    2626991902991902
+Key (Dec):    2749052955253086466
+Type:         1
+------------------------------------
+
+Manufacturer: Aprimatic
+Key (Hex):    4772736565734769
+Key (Dec):    5148304203368843113
+Type:         1
+------------------------------------
+
+Manufacturer: Jolly_Motors
+Key (Hex):    BBEE9EDDAAF97ECC
+Key (Dec):    13541935804443098828
+Type:         1
+------------------------------------
+
+Manufacturer: Centurion
+Key (Hex):    188B0544A9B1DF14
+Key (Dec):    1768513071135973140
+Type:         2
+------------------------------------
+
+Manufacturer: Monarch
+Key (Hex):    4292903083134583
+Key (Dec):    4797055091134907779
+Type:         2
+------------------------------------
+
+Manufacturer: Rosh
+Key (Hex):    05AEDAABAA981903
+Key (Dec):    409505046973651203
+Type:         1
+------------------------------------
+
+Manufacturer: Pecinin
+Key (Hex):    352BABACA5F4DFE0
+Key (Dec):    3831344666015752160
+Type:         1
+------------------------------------
+
+Manufacturer: Rossi
+Key (Hex):    FADA12FADA34F0DA
+Key (Dec):    18075780923016933594
+Type:         1
+------------------------------------
+
+Manufacturer: Merlin
+Key (Hex):    3E461AB4F76DA19B
+Key (Dec):    4487303443268870555
+Type:         2
+------------------------------------
+
+Manufacturer: Motorline
+Key (Hex):    572768229476CAFF
+Key (Dec):    6280102703120435967
+Type:         2
+------------------------------------
+
+Manufacturer: Steelmate
+Key (Hex):    B3E5625A8CCD7139
+Key (Dec):    12962875243504693561
+Type:         2
+------------------------------------
+
+Manufacturer: Cardin_S449
+Key (Hex):    207DBBE59D386F44
+Key (Dec):    2341233976162152260
+Type:         2
+------------------------------------
+
+Manufacturer: Miserere
+Key (Hex):    6D69736572657265
+Key (Dec):    7883959502236906085
+Type:         2
+------------------------------------
+
+Manufacturer: Clemsa_Mutancode
+Key (Hex):    A1B58921A3A738AA
+Key (Dec):    11652370388463597738
+Type:         2
+------------------------------------
+
+Manufacturer: Genius
+Key (Hex):    53696C7669611804
+Key (Dec):    6010454433532549124
+Type:         5
+------------------------------------
+
+Manufacturer: Erreka
+Key (Hex):    6982697565021997
+Key (Dec):    7602755073881545111
+Type:         12
+------------------------------------
+
+Manufacturer: Pujol
+Key (Hex):    FFCC583618522154
+Key (Dec):    18432204364280111444
+Type:         13
+------------------------------------
+
+Manufacturer: Wisniowski
+Key (Hex):    CDAB896745ABCDAD
+Key (Dec):    14820090075436273069
+Type:         2
+------------------------------------
+
+Manufacturer: Doormatic
+Key (Hex):    28D8818108815987
+Key (Dec):    2943244747680078215
+Type:         2
+------------------------------------
+
+Manufacturer: Elvox
+Key (Hex):    BD4D5939A5C2E9B6
+Key (Dec):    13640656950504122806
+Type:         2
+------------------------------------
+
+Manufacturer: ET_Blue
+Key (Hex):    1961195819891992
+Key (Dec):    1828770789865363858
+Type:         2
+------------------------------------
+
+Manufacturer: ET_Blue_Mix
+Key (Hex):    1679171218241925
+Key (Dec):    1619350907498273061
+Type:         2
+------------------------------------
+
+Manufacturer: ATA_PTX4
+Key (Hex):    69D885C147ECE6B7
+Key (Dec):    7626993034133825207
+Type:         2
+------------------------------------
+
+Manufacturer: Verex
+Key (Hex):    554D495F49543942
+Key (Dec):    6146649740031572290
+Type:         2
+------------------------------------
+
+Manufacturer: Mc_Garcia
+Key (Hex):    6CF2248AD50B75EF
+Key (Dec):    7850377279158580719
+Type:         1
+------------------------------------
+
+Manufacturer: Fadini
+Key (Hex):    37C6A58F497402B1
+Key (Dec):    4019081752305992369
+Type:         1
+------------------------------------
+
+Manufacturer: Pujol_Vario
+Key (Hex):    89146E1A537903B7
+Key (Dec):    9877640942078985143
+Type:         1
+------------------------------------
+
+Manufacturer: Seav
+Key (Hex):    472369229077CAFE
+Key (Dec):    5126056398051330814
+Type:         2
+------------------------------------
+
+Manufacturer: AERF_Otros
+Key (Hex):    00D64C6900BBC55B
+Key (Dec):    60319658883663195
+Type:         14
+------------------------------------
+
+Manufacturer: AERF_Collbaix
+Key (Hex):    0AD64C69A0BBC55B
+Key (Dec):    780895601947297115
+Type:         14
+------------------------------------
+
+Manufacturer: AERF_Hy_dom
+Key (Hex):    0ED64C69E0BBC55B
+Key (Dec):    1069125979172750683
+Type:         14
+------------------------------------
+
+Manufacturer: AERF_Medva
+Key (Hex):    10D64C6901BBC55B
+Key (Dec):    1213241163507287387
+Type:         14
+------------------------------------
+
+Manufacturer: AERF_VDS
+Key (Hex):    12D64C6921BBC55B
+Key (Dec):    1357356352120014171
+Type:         14
+------------------------------------
+
+Manufacturer: AERF_Temp
+Key (Hex):    15D64C6951BBC55B
+Key (Dec):    1573529135039104347
+Type:         14
+------------------------------------
+
+Manufacturer: AERF_Sabutom
+Key (Hex):    17D64C6971BBC55B
+Key (Dec):    1717644323651831131
+Type:         14
+------------------------------------
+
+Manufacturer: AERF_Motorgate
+Key (Hex):    4FD64C69F4BBC55B
+Key (Dec):    5752869591973610843
+Type:         14
+------------------------------------
+
+Manufacturer: JCM1G_EMFA
+Key (Hex):    89146EF9537903B7
+Key (Dec):    9877641899856692151
+Type:         15
+------------------------------------
+
+Manufacturer: JCM1G_DMIL
+Key (Hex):    89146E00537903B7
+Key (Dec):    9877640830409835447
+Type:         15
+------------------------------------
+
+Manufacturer: JCM1G_Antonio_Meca
+Key (Hex):    89146E88537903B7
+Key (Dec):    9877641414525387703
+Type:         15
+------------------------------------
+
+Manufacturer: JCM1G_Hy_dom
+Key (Hex):    89146E4B537903B7
+Key (Dec):    9877641152532382647
+Type:         15
+------------------------------------
+
+Manufacturer: JCM1G_Baleato
+Key (Hex):    89146EC3537903B7
+Key (Dec):    9877641667928458167
+Type:         15
+------------------------------------
+
+Manufacturer: JCM1G_Cas
+Key (Hex):    89146E78537903B7
+Key (Dec):    9877641345805910967
+Type:         15
+------------------------------------
+
+Manufacturer: JCM1G_Cubells
+Key (Hex):    89146E41537903B7
+Key (Dec):    9877641109582709687
+Type:         15
+------------------------------------
+
+Manufacturer: JCM1G_Cyacsa
+Key (Hex):    89146E11537903B7
+Key (Dec):    9877640903424279479
+Type:         15
+------------------------------------
+
+Manufacturer: JCM1G_Forsa
+Key (Hex):    89146ED1537903B7
+Key (Dec):    9877641728058000311
+Type:         15
+------------------------------------
+
+Manufacturer: JCM1G_Gandara
+Key (Hex):    89146EA0537903B7
+Key (Dec):    9877641517604602807
+Type:         15
+------------------------------------
+
+Manufacturer: JCM1G_Pujol
+Key (Hex):    89146E53537903B7
+Key (Dec):    9877641186892121015
+Type:         15
+------------------------------------
+
+Manufacturer: JCM1G_Gibidi
+Key (Hex):    89146E60537903B7
+Key (Dec):    9877641242726695863
+Type:         15
+------------------------------------
+
+Manufacturer: JCM1G_Gibidi2
+Key (Hex):    89146E30537903B7
+Key (Dec):    9877641036568265655
+Type:         15
+------------------------------------
+
+Manufacturer: JCM1G_Hybrid
+Key (Hex):    89146E71537903B7
+Key (Dec):    9877641315741139895
+Type:         15
+------------------------------------
+
+Manufacturer: JCM1G_Tech
+Key (Hex):    89146E7B537903B7
+Key (Dec):    9877641358690812855
+Type:         15
+------------------------------------
+
+Manufacturer: JCM1G_Norton
+Key (Hex):    89146E0A537903B7
+Key (Dec):    9877640873359508407
+Type:         15
+------------------------------------
+
+Manufacturer: JCM1G_Nueva_Castilla
+Key (Hex):    89146EA9537903B7
+Key (Dec):    9877641556259308471
+Type:         15
+------------------------------------
+
+Manufacturer: JCM1G_Puertas_Lorenzo
+Key (Hex):    89146EB8537903B7
+Key (Dec):    9877641620683817911
+Type:         15
+------------------------------------
+
+Manufacturer: JCM1G_Serviparking
+Key (Hex):    89146E21537903B7
+Key (Dec):    9877640972143756215
+Type:         15
+------------------------------------
+
+Manufacturer: JCM1G_Zibor
+Key (Hex):    89146E03537903B7
+Key (Dec):    9877640843294737335
+Type:         15
+------------------------------------
+
+Manufacturer: Alligator
+Key (Hex):    EEF3D4B2626C5578
+Key (Dec):    17218339662988072312
+Type:         1
+------------------------------------
+
+Manufacturer: SL_A6-A9/Tomahawk_9010
+Key (Hex):    5504045708301203
+Key (Dec):    6126026164976751107
+Type:         1
+------------------------------------
+
+Manufacturer: Pantera
+Key (Hex):    4D41474E64796E65
+Key (Dec):    5566809016425344613
+Type:         1
+------------------------------------
+
+Manufacturer: SL_A2-A4
+Key (Hex):    9BF7F89BF8FE78DA
+Key (Dec):    11238724743907408090
+Type:         1
+------------------------------------
+
+Manufacturer: Cenmax_St-5
+Key (Hex):    AAFBFBA8F7CFEDFC
+Key (Dec):    12320717908732800508
+Type:         1
+------------------------------------
+
+Manufacturer: SL_B6,B9_dop
+Key (Hex):    F6E5D4B32ABADCFE
+Key (Dec):    17790859768978136318
+Type:         1
+------------------------------------
+
+Manufacturer: Harpoon
+Key (Hex):    2587010764070864
+Key (Dec):    2704131232513853540
+Type:         1
+------------------------------------
+
+Manufacturer: Tomahawk_TZ-9030
+Key (Hex):    6408076407018725
+Key (Dec):    7208019329802143525
+Type:         1
+------------------------------------
+
+Manufacturer: Tomahawk_Z,X_3-5
+Key (Hex):    6F5E4D3B2AABCDEF
+Key (Dec):    8024936502535114223
+Type:         1
+------------------------------------
+
+Manufacturer: Cenmax_St-7
+Key (Hex):    66B446B980AC752B
+Key (Dec):    7400617850218247467
+Type:         1
+------------------------------------
+
+Manufacturer: Sheriff
+Key (Hex):    12332594A9189478
+Key (Dec):    1311433236917294200
+Type:         1
+------------------------------------
+
+Manufacturer: Pantera_CLK
+Key (Hex):    4130850A82610A14
+Key (Dec):    4697400691530992148
+Type:         1
+------------------------------------
+
+Manufacturer: Cenmax
+Key (Hex):    1234567890123456
+Key (Dec):    1311768467284833366
+Type:         1
+------------------------------------
+
+Manufacturer: Alligator_S-275
+Key (Hex):    54365CB7676284F9
+Key (Dec):    6068139490711602425
+Type:         1
+------------------------------------
+
+Manufacturer: Guard_RF-311A
+Key (Hex):    1961DAC2EB198847
+Key (Dec):    1828983454391961671
+Type:         2
+------------------------------------
+
+Manufacturer: Partisan_RX
+Key (Hex):    AD3C12A17028F11E
+Key (Dec):    12482872751744938270
+Type:         1
+------------------------------------
+
+Manufacturer: APS-1100_APS-2550
+Key (Hex):    68732C5056334728
+Key (Dec):    7526408125821437736
+Type:         1
+------------------------------------
+
+Manufacturer: Pantera_XS/Jaguar
+Key (Hex):    67732C5056334627
+Key (Dec):    7454350531783509543
+Type:         1
+------------------------------------
+
+Manufacturer: KGB/Subaru
+Key (Hex):    0000000023304758
+Key (Dec):    590366552
+Type:         6
+------------------------------------
+
+Manufacturer: Magic_1
+Key (Hex):    0000000023304758
+Key (Dec):    590366552
+Type:         7
+------------------------------------
+
+Manufacturer: Magic_2
+Key (Hex):    0000000033205748
+Key (Dec):    857757512
+Type:         7
+------------------------------------
+
+Manufacturer: Magic_3
+Key (Hex):    AC35BB2759000000
+Key (Dec):    12409030125960560640
+Type:         8
+------------------------------------
+
+Manufacturer: Magic_4
+Key (Hex):    9804655AA5000000
+Key (Dec):    10953991633661591552
+Type:         8
+------------------------------------
+
+Manufacturer: Teco
+Key (Hex):    B51526E8F126D1D7
+Key (Dec):    13048378277296001495
+Type:         0
+------------------------------------
+
+Manufacturer: Mutanco_Mutancode
+Key (Hex):    AA38A7A32189B5A1
+Key (Dec):    12265737904227726753
+Type:         0
+------------------------------------
+
+Manufacturer: Leopard
+Key (Hex):    1067DC33E7D88A46
+Key (Dec):    1182155542699215430
+Type:         0
+------------------------------------
+
+Manufacturer: Faraon
+Key (Hex):    8A326438B62287F5
+Key (Dec):    9958131920806250485
+Type:         0
+------------------------------------
+
+Manufacturer: Reff
+Key (Hex):    6912FA557DC2418A
+Key (Dec):    7571389168652272010
+Type:         0
+------------------------------------
+
+Manufacturer: ZX-730-750-1055
+Key (Hex):    B51A7AAB27351596
+Key (Dec):    13049877745775220118
+Type:         0
+------------------------------------
+

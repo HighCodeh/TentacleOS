@@ -1,7 +1,25 @@
+# Copyright (c) 2025 HIGH CODE LLC
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 dependencies:
-  espressif/led_strip: ^2.5.1
-  espressif/mdns: ^1.4.0
-  joltwallet/littlefs: ^1.14.8
-  lvgl/lvgl: ^9.4.0
-  espressif/cjson: ^1.7.19
-  espressif/argtable3: ^3.3
+  espressif/argtable3: "==3.3.1~1"
+  espressif/cjson: "==1.7.19~2"
+  espressif/led_strip: "==2.5.5"
+  joltwallet/littlefs: "==1.22.1"
+  lvgl/lvgl: "==9.4.0"
+  espressif/mdns: "==1.11.1"
+  mqtt:
+    git: https://github.com/espressif/esp-mqtt.git
+    version: 6af4446a48ea7fa54948edc4e62277ed70abb6e1

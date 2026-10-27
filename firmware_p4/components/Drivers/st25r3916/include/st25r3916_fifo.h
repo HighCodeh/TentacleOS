@@ -34,7 +34,7 @@ extern "C" {
 uint16_t st25r3916_fifo_get_count(void);
 
 /**
- * @brief Clear the FIFO via ST25R3916_CMD_CLEAR direct command.
+ * @brief Clear the FIFO via ST25R3916_CMD_CLEAR_FIFO direct command.
  */
 void st25r3916_fifo_clear(void);
 

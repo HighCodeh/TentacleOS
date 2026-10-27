@@ -1,6 +1,6 @@
 # Host Link Protocol - Companion App ↔ TentacleOS
 
-**Status: CONFIRMED v1 (firmware-owned).**
+**Status: frame envelope v1, physical/X25519 pairing v2 (firmware-owned).**
 The **firmware is the source of truth** for the wire protocol; the desktop/web
 companion app only follows it. This document is the agreed contract - the
 `[FW]` decisions from the original proposal are resolved below. A few hardware
@@ -136,36 +136,18 @@ Pre-auth handshake frames (`HELLO` / `HELLO_ACK`, §6) travel with
 
 ---
 
-## 6. Security
+## 6. Authentication and physical pairing
 
-The internal SPI trace is trusted; **USB and especially BLE are not.** The device
-drives real RF/USB attack hardware, so command authenticity + replay protection
-are mandatory.
+The initial PSK-only handshake is superseded by **handshake v2**. The frame
+header remains version 1. Fresh X25519 keys, PSK-authenticated transcript proofs,
+HKDF direction keys and physical confirmation are required for every connection.
+HELLO/ACK remain unauthenticated envelopes; signed FINISH and READY complete the
+exchange. Only then are commands and application output authorized.
 
-### 6.1 Handshake (on every connect)
-Dedicated pre-auth frames (unauthenticated):
-1. App → device: `HELLO { host_ver, client_nonce[16] }`.
-2. Device → app: `HELLO_ACK { host_ver, server_nonce[16], device_id, mac_psk }`
-   where `mac_psk = HMAC(PSK, client_nonce || server_nonce)` (proves the device
-   holds the PSK - mutual auth).
-3. Both derive per-direction session keys and reset counters:
-   - `K_a2d = HKDF(PSK, client_nonce || server_nonce, "a2d")`
-   - `K_d2a = HKDF(PSK, client_nonce || server_nonce, "d2a")`
-4. All later frames carry `FLAGS.authenticated = 1`, the sender's direction key,
-   and a monotonic counter.
-
-Per-direction keys prevent reflection; fresh nonces prevent cross-session replay.
-
-### 6.2 PSK provisioning - QR/code on the P4 display
-First-time pairing: the user authorizes a new app; the **P4 shows a QR/code on
-its display**, the app reads it (or the user types it), and both derive the PSK.
-Works identically for USB and BLE. App-side, the PSK is stored in the OS keystore
-(Keychain / Credential Manager / libsecret) - never plaintext, never logged.
-
-### 6.3 Alignment
-OWASP 2021: A02 (HMAC-SHA256/HKDF, BLE LE Secure Connections), A07 (session keys,
-re-auth on reconnect), A08 (per-frame integrity), A01 (only the paired app
-commands the device).
+The complete fixed-size payloads, proof/derivation labels, counter rules,
+window/token behavior and limits are in [pairing.md](pairing.md). Legacy HELLO
+payloads are rejected, and the updated CLI and file-transfer tool implement v2.
+The command categories and P4/C5 relay framing remain unchanged.
 
 ---
 
@@ -368,3 +350,10 @@ Service/host_link/README.md` and `firmware_c5/components/Service/host_link/READM
   consoles, file viewer/editor, device-status indicators).
 
 The backend is the trust boundary; the UI layer only ever sees validated state.
+
+## Native NFC/RFID categories (integrated v8)
+
+Muse RPC retains category `0x11`. NFC `0x12` and LF RFID `0x13` expose bounded
+READ, STATUS and RECOVER operations, intercepted by the P4 after normal
+authentication and generation validation. See [rf-commands.md](./rf-commands.md).
+No host envelope version or existing command identity changes.

@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_log.h"
 
 static const char *TAG = "VFS_CORE";
@@ -44,7 +45,9 @@ static struct {
 #define MAX_OPEN_FILES 32
 #define COPY_BUF_SIZE  512
 
-static vfs_file_descriptor_t s_fd_table[MAX_OPEN_FILES] = {0};
+// Path bookkeeping for the SD-backed VFS is CPU-only. The table is 8.5 KB and
+// does not need scarce DMA-capable internal RAM.
+EXT_RAM_BSS_ATTR static vfs_file_descriptor_t s_fd_table[MAX_OPEN_FILES];
 
 static const vfs_backend_config_t *find_backend_by_mount(const char *path) {
   if (path == NULL)

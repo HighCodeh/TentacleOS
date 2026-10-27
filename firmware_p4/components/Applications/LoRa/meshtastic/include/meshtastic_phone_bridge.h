@@ -57,7 +57,7 @@ esp_err_t meshtastic_phone_bridge_init(uint32_t node_num);
 /**
  * @brief Tear down the bridge and stop the notify task.
  */
-void meshtastic_phone_bridge_stop(void);
+esp_err_t meshtastic_phone_bridge_stop(void);
 
 /**
  * @brief Ask the C5 to bring up the Meshtastic BLE GATT peripheral.

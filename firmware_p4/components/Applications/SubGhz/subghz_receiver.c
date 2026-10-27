@@ -16,6 +16,7 @@
 #include "subghz_receiver.h"
 
 #include <string.h>
+#include <stdatomic.h>
 
 #include "driver/gpio.h"
 #include "driver/rmt_rx.h"
@@ -34,8 +35,12 @@
 #include "subghz_analyzer.h"
 #include "subghz_storage.h"
 #include "subghz_transmitter.h"
+#include "resource_mgr.h"
 
 static const char *TAG = "SUBGHZ_RX";
+
+// Only the worker releases this grant, after RMT and DMA have stopped.
+static res_handle_t s_rx_res = RES_HANDLE_NONE;
 
 #define RMT_RESOLUTION_HZ     1000000
 #define RX_BUFFER_SIZE        1024
@@ -56,6 +61,7 @@ static const char *TAG = "SUBGHZ_RX";
 #define MAX_HEX_BYTES         32
 #define RAW_PREVIEW_COUNT     20
 #define DEFAULT_FREQ          433920000
+#define CLEANUP_RETRY_MS      100
 
 static const uint32_t HOP_FREQUENCIES[] = {433920000,
                                            868350000,
@@ -71,8 +77,13 @@ static const uint32_t HOP_FREQUENCIES[] = {433920000,
                                            318000000};
 #define HOP_FREQUENCIES_COUNT (sizeof(HOP_FREQUENCIES) / sizeof(HOP_FREQUENCIES[0]))
 
-static TaskHandle_t s_rx_task_handle = NULL;
-static volatile bool s_is_running = false;
+typedef enum {
+  SUBGHZ_RX_IDLE = 0,
+  SUBGHZ_RX_RUNNING,
+  SUBGHZ_RX_STOPPING,
+} subghz_rx_state_t;
+
+static atomic_uint s_state;
 static subghz_mode_t s_rx_mode = SUBGHZ_MODE_SCAN;
 static cc1101_preset_t s_rx_preset = CC1101_PRESET_OOK_800KHZ;
 static uint32_t s_rx_freq = DEFAULT_FREQ;
@@ -84,7 +95,7 @@ static rmt_channel_handle_t s_rx_channel = NULL;
 static QueueHandle_t s_rx_queue = NULL;
 
 #define RESULT_LOCK_TIMEOUT_MS 20
-static SemaphoreHandle_t s_result_mutex = NULL;
+static _Atomic(SemaphoreHandle_t) s_result_mutex;
 static subghz_rx_result_t s_latest;
 static uint32_t s_result_seq = 0;
 
@@ -98,6 +109,8 @@ static void publish_rx_result(bool decoded,
     return;
 
   s_result_seq++;
+  if (s_result_seq == 0)
+    ++s_result_seq;
   s_latest.seq = s_result_seq;
   s_latest.decoded = decoded;
   s_latest.freq = s_rx_freq;
@@ -272,6 +285,7 @@ static void subghz_rx_task(void *pvParameters) {
   rmt_symbol_word_t *raw_symbols = NULL;
   int32_t *decode_buffer = NULL;
   esp_err_t err = ESP_OK;
+  bool is_channel_enabled = false;
 
   rmt_rx_channel_config_t rx_channel_cfg = {
       .clk_src = RMT_CLK_SRC_DEFAULT,
@@ -289,6 +303,10 @@ static void subghz_rx_task(void *pvParameters) {
   }
 
   s_rx_queue = xQueueCreate(RX_QUEUE_DEPTH, sizeof(rmt_rx_done_event_data_t));
+  if (s_rx_queue == NULL) {
+    ESP_LOGE(TAG, "Failed to allocate RX queue");
+    goto cleanup;
+  }
   rmt_rx_event_callbacks_t cbs = {
       .on_recv_done = subghz_rx_done_callback,
   };
@@ -302,10 +320,13 @@ static void subghz_rx_task(void *pvParameters) {
     ESP_LOGE(TAG, "rmt_enable failed: %s", esp_err_to_name(err));
     goto cleanup;
   }
+  is_channel_enabled = true;
+
+  if (s_state != SUBGHZ_RX_RUNNING)
+    goto cleanup;
 
   cc1101_set_preset(s_rx_preset, s_rx_freq);
 
-  s_is_running = true;
   ESP_LOGI(TAG, "Waiting for signals...");
 
   rmt_receive_config_t receive_config = {
@@ -338,7 +359,7 @@ static void subghz_rx_task(void *pvParameters) {
   TickType_t last_hop_time = xTaskGetTickCount();
   const TickType_t hop_interval = pdMS_TO_TICKS(HOP_INTERVAL_MS);
 
-  while (s_is_running) {
+  while (s_state == SUBGHZ_RX_RUNNING) {
     handle_frequency_hopping(&last_hop_time, hop_interval);
 
     if (xQueueReceive(s_rx_queue, &rx_data, pdMS_TO_TICKS(RX_QUEUE_TIMEOUT_MS)) != pdPASS) {
@@ -346,7 +367,7 @@ static void subghz_rx_task(void *pvParameters) {
     }
 
     if (rx_data.num_symbols == 0) {
-      if (s_is_running &&
+      if (s_state == SUBGHZ_RX_RUNNING &&
           rmt_receive(s_rx_channel, raw_symbols, raw_symbols_size, &receive_config) != ESP_OK) {
         ESP_LOGE(TAG, "rmt_receive failed; stopping RX");
         break;
@@ -367,7 +388,7 @@ static void subghz_rx_task(void *pvParameters) {
       }
     }
 
-    if (s_is_running &&
+    if (s_state == SUBGHZ_RX_RUNNING &&
         rmt_receive(s_rx_channel, raw_symbols, raw_symbols_size, &receive_config) != ESP_OK) {
       ESP_LOGE(TAG, "rmt_receive failed; stopping RX");
       break;
@@ -375,42 +396,72 @@ static void subghz_rx_task(void *pvParameters) {
   }
 
 cleanup:
+  s_state = SUBGHZ_RX_STOPPING;
+  cc1101_strobe(CC1101_SIDLE);
+  while (s_rx_channel != NULL) {
+    err = is_channel_enabled ? rmt_disable(s_rx_channel) : ESP_OK;
+    if (err == ESP_OK) {
+      is_channel_enabled = false;
+      err = rmt_del_channel(s_rx_channel);
+      if (err == ESP_OK) {
+        s_rx_channel = NULL;
+        break;
+      }
+    }
+    ESP_LOGE(TAG, "RMT cleanup failed; retaining RX buffers and radio: %s", esp_err_to_name(err));
+    vTaskDelay(pdMS_TO_TICKS(CLEANUP_RETRY_MS));
+  }
   if (raw_symbols != NULL) {
     free(raw_symbols);
   }
   if (decode_buffer != NULL) {
     free(decode_buffer);
   }
-  cc1101_strobe(CC1101_SIDLE);
-  if (s_rx_channel != NULL) {
-    rmt_disable(s_rx_channel);
-    rmt_del_channel(s_rx_channel);
-    s_rx_channel = NULL;
-  }
   if (s_rx_queue != NULL) {
     vQueueDelete(s_rx_queue);
     s_rx_queue = NULL;
   }
-  s_is_running = false;
-  s_rx_task_handle = NULL;
+  resource_release(s_rx_res); // covers a self-exit that never went through _stop
+  s_rx_res = RES_HANDLE_NONE;
+  s_state = SUBGHZ_RX_IDLE;
   vTaskDelete(NULL);
 }
 
 esp_err_t subghz_receiver_start(subghz_mode_t mode, cc1101_preset_t preset, uint32_t freq) {
-  if (s_is_running) {
+  if (mode < SUBGHZ_MODE_SCAN || mode >= SUBGHZ_MODE_COUNT)
+    return ESP_ERR_INVALID_ARG;
+  unsigned int expected = SUBGHZ_RX_IDLE;
+  if (!atomic_compare_exchange_strong(&s_state, &expected, SUBGHZ_RX_RUNNING)) {
     return ESP_ERR_INVALID_STATE;
   }
 
   subghz_tx_stop();
+
+  res_request_t res_req = {.id = RES_SUBGHZ,
+                           .lane = RES_LANE_MAIN,
+                           .owner_kind = RES_OWNER_UI,
+                           .owner_task = NULL,
+                           .allow_preempt = false};
+  if (resource_acquire(&res_req, &s_rx_res) != ESP_OK) {
+    ESP_LOGW(TAG, "SubGhz radio busy; RX not started");
+    s_state = SUBGHZ_RX_IDLE;
+    return ESP_ERR_INVALID_STATE;
+  }
 
   s_rx_mode = mode;
   s_rx_preset = preset;
 
   if (s_result_mutex == NULL)
     s_result_mutex = xSemaphoreCreateMutex();
+  if (s_result_mutex == NULL) {
+    ESP_LOGE(TAG, "Failed to allocate RX result mutex");
+    resource_release(s_rx_res);
+    s_rx_res = RES_HANDLE_NONE;
+    s_state = SUBGHZ_RX_IDLE;
+    return ESP_ERR_NO_MEM;
+  }
   if (s_result_mutex != NULL &&
       xSemaphoreTake(s_result_mutex, pdMS_TO_TICKS(RESULT_LOCK_TIMEOUT_MS)) == pdTRUE) {
-    s_result_seq = 0;
     memset(&s_latest, 0, sizeof(s_latest));
     xSemaphoreGive(s_result_mutex);
   }
@@ -424,15 +475,13 @@ esp_err_t subghz_receiver_start(subghz_mode_t mode, cc1101_preset_t preset, uint
     s_rx_freq = freq;
   }
 
-  BaseType_t ret = xTaskCreatePinnedToCore(subghz_rx_task,
-                                           "subghz_rx",
-                                           RX_TASK_STACK_SIZE,
-                                           NULL,
-                                           RX_TASK_PRIORITY,
-                                           &s_rx_task_handle,
-                                           RX_TASK_CORE);
+  BaseType_t ret = xTaskCreatePinnedToCore(
+      subghz_rx_task, "subghz_rx", RX_TASK_STACK_SIZE, NULL, RX_TASK_PRIORITY, NULL, RX_TASK_CORE);
   if (ret != pdPASS) {
     ESP_LOGE(TAG, "Failed to create RX task");
+    resource_release(s_rx_res);
+    s_rx_res = RES_HANDLE_NONE;
+    s_state = SUBGHZ_RX_IDLE;
     return ESP_ERR_NO_MEM;
   }
 
@@ -440,11 +489,12 @@ esp_err_t subghz_receiver_start(subghz_mode_t mode, cc1101_preset_t preset, uint
 }
 
 void subghz_receiver_stop(void) {
-  s_is_running = false;
+  unsigned int expected = SUBGHZ_RX_RUNNING;
+  atomic_compare_exchange_strong(&s_state, &expected, SUBGHZ_RX_STOPPING);
 }
 
 bool subghz_receiver_is_running(void) {
-  return s_is_running;
+  return s_state != SUBGHZ_RX_IDLE;
 }
 
 bool subghz_receiver_get_result(subghz_rx_result_t *out) {

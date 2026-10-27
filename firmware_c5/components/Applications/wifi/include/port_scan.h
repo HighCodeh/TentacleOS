@@ -161,6 +161,34 @@ int port_scan_cidr_using_port_list(const char *base_ip,
                                    port_scan_result_t *results,
                                    int max_results);
 
+/**
+ * @brief Callback invoked for each open port as it is found.
+ *
+ * Lets the caller publish results live (e.g. through the SPI data pipe) instead
+ * of only after the whole sweep finishes, so a long scan still returns what it
+ * found if the requester's poll times out. @p hit is only valid for the call.
+ */
+typedef void (*port_scan_hit_cb_t)(const port_scan_result_t *hit, void *ctx);
+
+/**
+ * @brief Register a per-hit callback (NULL to clear). Not thread-safe; set it
+ * before starting a scan.
+ */
+void port_scan_set_hit_cb(port_scan_hit_cb_t cb, void *ctx);
+
+/**
+ * @brief Request an in-flight scan to abort at the next port boundary.
+ *
+ * The scans run on the shared async runner; this lets a STOP command cut a long
+ * range/network sweep short without blocking. Loops check the flag between ports.
+ */
+void port_scan_request_abort(void);
+
+/**
+ * @brief Clear the abort flag before starting a new scan.
+ */
+void port_scan_reset_abort(void);
+
 #ifdef __cplusplus
 }
 #endif

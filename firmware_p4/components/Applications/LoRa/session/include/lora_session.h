@@ -68,19 +68,40 @@ typedef struct {
  *         an esp_err_t from the stack on failure.
  */
 esp_err_t lora_session_start(lora_proto_t proto);
+esp_err_t lora_session_stop(lora_proto_t proto);
+/** Refuse adoption; out_owned is true until a newly started stack is fully stopped. */
+esp_err_t lora_session_start_owned(lora_proto_t proto, void *owner, bool *out_owned);
+esp_err_t lora_session_stop_owned(lora_proto_t proto, void *owner);
+
+/** Firmware owner tokens outlive workers; release only after checked hardware cleanup. */
+esp_err_t lora_session_radio_reserve(void *owner);
+esp_err_t lora_session_radio_release(void *owner);
 
 /** @brief Protocol currently owning the radio, or LORA_PROTO_NONE. */
 lora_proto_t lora_session_active(void);
 
 /**
- * @brief Send a broadcast / public-channel text on the active protocol.
+ * @brief Queue a broadcast / public-channel text on the active protocol.
  *
- * The message is also appended to the local chat ring as outgoing.
+ * Copies 1..159 UTF-8 bytes into a four-entry queue. ESP_OK means accepted,
+ * not transmitted or delivered. The native poll task consumes one entry per
+ * iteration; only successful backend submissions enter the outgoing chat ring.
  *
  * @param text  UTF-8 text to send.
- * @return ESP_OK on success, ESP_ERR_INVALID_STATE if no stack is running.
+ * @return ESP_OK on acceptance, ESP_ERR_INVALID_STATE if no stack is running,
+ *         ESP_ERR_TIMEOUT if the queue/lock is busy, ESP_ERR_INVALID_ARG for invalid text.
  */
 esp_err_t lora_session_send_text(const char *text);
+
+/** @brief Native stack poll task only: consume at most one queued message. */
+void lora_session_process_tx(lora_proto_t proto);
+
+/** Copy a node or count (out may be NULL); inactive session and lock errors propagate. */
+esp_err_t lora_session_nodes_snapshot(uint16_t index, lora_node_t *out, uint16_t *out_count);
+
+/** Internal database guard; never call callbacks while held. */
+esp_err_t lora_session_nodes_acquire(void);
+void lora_session_nodes_release(void);
 
 /** @brief Number of messages currently held in the local chat ring. */
 uint16_t lora_session_msg_count(void);

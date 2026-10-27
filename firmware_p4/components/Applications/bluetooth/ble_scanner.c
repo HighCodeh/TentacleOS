@@ -21,6 +21,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h"
 #include "freertos/task.h"
 #include "sys_prio.h"
 
@@ -32,13 +33,10 @@
 
 static const char *TAG = "BLE_SCANNER";
 
-#define SCANNER_STACK_SIZE    4096
-#define SCANNER_TASK_PRIORITY SYS_PRIO_SERVICE_HI
-#define SCAN_DURATION_MS      10000
+#define SCANNER_STACK_SIZE 4096
+#define SCAN_DURATION_MS   10000
 
 static TaskHandle_t s_scanner_task_handle = NULL;
-static StackType_t *s_scanner_task_stack = NULL;
-static StaticTask_t *s_scanner_task_tcb = NULL;
 
 static bluetooth_service_scan_result_t *s_scan_results = NULL;
 static uint16_t s_scan_count = 0;
@@ -53,42 +51,34 @@ bool ble_scanner_start(void) {
     return false;
   }
 
-  if (s_scanner_task_stack == NULL) {
-    s_scanner_task_stack = (StackType_t *)heap_caps_malloc(SCANNER_STACK_SIZE * sizeof(StackType_t),
-                                                           MALLOC_CAP_SPIRAM);
-  }
-  if (s_scanner_task_tcb == NULL) {
-    s_scanner_task_tcb = (StaticTask_t *)heap_caps_malloc(sizeof(StaticTask_t),
-                                                          MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-  }
-
-  if (s_scanner_task_stack == NULL || s_scanner_task_tcb == NULL) {
-    ESP_LOGE(TAG, "Failed to allocate scanner task memory in PSRAM!");
-    free(s_scanner_task_stack);
-    s_scanner_task_stack = NULL;
-    free(s_scanner_task_tcb);
-    s_scanner_task_tcb = NULL;
+  s_is_scanning = true;
+  BaseType_t created = xTaskCreatePinnedToCoreWithCaps(scanner_task,
+                                                       "ble_scan_task",
+                                                       SCANNER_STACK_SIZE,
+                                                       NULL,
+                                                       SYS_PRIO_SERVICE_HI,
+                                                       &s_scanner_task_handle,
+                                                       SYS_CORE_RADIO,
+                                                       MALLOC_CAP_SPIRAM);
+  if (created != pdPASS) {
+    s_is_scanning = false;
+    s_scanner_task_handle = NULL;
+    ESP_LOGE(TAG, "Failed to create BLE scanner task in PSRAM");
     return false;
   }
+  return true;
+}
 
-  s_is_scanning = true;
-  s_scanner_task_handle = xTaskCreateStaticPinnedToCore(scanner_task,
-                                                        "ble_scan_task",
-                                                        SCANNER_STACK_SIZE,
-                                                        NULL,
-                                                        SCANNER_TASK_PRIORITY,
-                                                        s_scanner_task_stack,
-                                                        s_scanner_task_tcb,
-                                                        SYS_CORE_RADIO);
-
-  return (s_scanner_task_handle != NULL);
+bool ble_scanner_is_scanning(void) {
+  return s_is_scanning;
 }
 
 bluetooth_service_scan_result_t *ble_scanner_get_results(uint16_t *out_count) {
   if (s_is_scanning) {
     return NULL;
   }
-  *out_count = s_scan_count;
+  if (out_count != NULL)
+    *out_count = s_scan_count;
   return s_scan_results;
 }
 
@@ -98,17 +88,6 @@ void ble_scanner_free_results(void) {
     s_scan_results = NULL;
   }
   s_scan_count = 0;
-
-  if (!s_is_scanning) {
-    if (s_scanner_task_stack != NULL) {
-      free(s_scanner_task_stack);
-      s_scanner_task_stack = NULL;
-    }
-    if (s_scanner_task_tcb != NULL) {
-      free(s_scanner_task_tcb);
-      s_scanner_task_tcb = NULL;
-    }
-  }
 }
 
 static bool save_results_to_loot(void) {
@@ -180,7 +159,7 @@ static void scanner_task(void *pvParameters) {
     ESP_LOGE(TAG, "BLE not available on C5; aborting scan");
     s_is_scanning = false;
     s_scanner_task_handle = NULL;
-    vTaskDelete(NULL);
+    vTaskDeleteWithCaps(NULL);
     return;
   }
 
@@ -218,5 +197,5 @@ static void scanner_task(void *pvParameters) {
 
   s_is_scanning = false;
   s_scanner_task_handle = NULL;
-  vTaskDelete(NULL);
+  vTaskDeleteWithCaps(NULL);
 }

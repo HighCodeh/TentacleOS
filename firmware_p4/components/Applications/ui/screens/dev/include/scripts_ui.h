@@ -20,13 +20,9 @@
 extern "C" {
 #endif
 
-/** @brief Open the Scripts app: a mock JS-script runner.
- *
- * Browse a static list of mock scripts (each with capability badges and a
- * green terminal preview), grant permission for dangerous capabilities, then
- * watch a mock streaming run finish in a success or error state. All data is
- * mock; no real script engine or backend is involved. */
+/** @brief Browse and execute JavaScript and Lua scripts from SD. */
 void ui_scripts_open(void);
+void ui_scripts_stop(void);
 
 #ifdef __cplusplus
 }

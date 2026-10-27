@@ -30,6 +30,7 @@
 #include "lvgl_glue.h"
 #include "lv_port_indev.h"
 #include "msgbox_ui.h"
+#include "resource_mgr.h"
 #include "notify_ui.h"
 #include "power_policy.h"
 #include "screen_tips.h"
@@ -47,6 +48,7 @@
 #include "home_ui.h"
 #include "menu_ui.h"
 #include "wifi_ui.h"
+#include "ui_wifi_esp_scan.h"
 #include "wifi_channel_ui.h"
 #include "wifi_client_ui.h"
 #include "wifi_scan_ui.h"
@@ -54,6 +56,7 @@
 #include "connect_wifi_ui.h"
 #include "ui_ble_menu.h"
 #include "ble_scan_ui.h"
+#include "gatt_explorer_ui.h"
 #include "ble_mouse_ui.h"
 #include "connect_bt_ui.h"
 #include "nfc_menu_ui.h"
@@ -86,13 +89,17 @@
 #include "wav_library_ui.h"
 #include "spectrum_ui.h"
 #include "lora_chat_ui.h"
+#include "apps_ui.h"
 #include "games_menu_ui.h"
 #include "snake_ui.h"
 #include "breakout_ui.h"
 #include "gb_ui.h"
 #include "doom_real_ui.h"
+#include "muse_ui.h"
+#include "grok_idle_ui.h"
 #include "octobit_status_ui.h"
 #include "dev_menu_ui.h"
+#include "scripts_ui.h"
 #include "subghz_menu_ui.h"
 #include "subghz_brute_ui.h"
 #include "rfid_menu_ui.h"
@@ -102,7 +109,6 @@
 #include "ble_tracker_ui.h"
 #include "ble_skimmer_ui.h"
 #include "ble_exposure_ui.h"
-#include "gatt_explorer_ui.h"
 #include "ble_keyboard_ui.h"
 #include "ble_flood_ui.h"
 #include "ble_radio_ui.h"
@@ -116,12 +122,12 @@
 #include "nfc_scan_ui.h"
 #include "subghz_send_ui.h"
 #include "system_update_ui.h"
+#include "c5_console_ui.h"
 #include "c5_status_ui.h"
 #include "led_ctrl_ui.h"
 #include "lora_traceroute_ui.h"
 #include "lora_rnode_ui.h"
 #include "lora_mqtt_ui.h"
-#include "scripts_ui.h"
 #include "dev_console_ui.h"
 #include "dev_diag_ui.h"
 #include "nfc_bankcard_ui.h"
@@ -132,6 +138,8 @@
 #include "nfc_felica_ui.h"
 #include "nfc_p2p_ui.h"
 #include "nfc_keydict_ui.h"
+#include "nfc_apdu_ui.h"
+#include "nfc_protocol_lab_ui.h"
 #include "subghz_config_ui.h"
 #include "ir_raw_ui.h"
 #include "lora_channels_ui.h"
@@ -163,8 +171,6 @@
 static const char *TAG = "UI_MANAGER";
 
 #define UI_BOOT_TASK_STACK_SIZE (4096 * 4)
-#define UI_BOOT_TASK_PRIORITY   SYS_PRIO_SERVICE_LO
-#define UI_BOOT_TASK_CORE       SYS_CORE_UI
 #define INPUT_LOCK_MS           500
 #define BOOT_SPLASH_DURATION_MS 5000
 #define RENDER_BEAT_MS          250
@@ -292,9 +298,9 @@ void ui_init(void) {
                           "ui_boot",
                           UI_BOOT_TASK_STACK_SIZE,
                           NULL,
-                          UI_BOOT_TASK_PRIORITY,
+                          SYS_PRIO_SERVICE_LO,
                           NULL,
-                          UI_BOOT_TASK_CORE);
+                          SYS_CORE_UI);
 
   ESP_LOGI(TAG, "UI Manager initialized successfully.");
 }
@@ -350,7 +356,7 @@ static void clear_current_screen(void) {
 }
 
 bool ui_input_is_locked(void) {
-  return (int32_t)(lv_tick_get() - input_lock_until) < 0;
+  return (int32_t)(lv_tick_get() - input_lock_until) < 0 || power_policy_is_asleep();
 }
 
 void ui_input_lock(uint32_t ms) {
@@ -364,11 +370,33 @@ typedef void (*ui_close_fn_t)(void);
 
 static ui_close_fn_t screen_close_fn(screen_id_t s) {
   switch (s) {
+    case SCREEN_WIFI_ESP_SCAN:
+      return ui_wifi_esp_scan_stop;
+    case SCREEN_SCRIPTS:
+      return ui_scripts_stop;
     case SCREEN_SUBGHZ_READ:
       return subghz_receiver_stop;
     case SCREEN_NFC_READ:
+      return ui_nfc_read_stop;
+    case SCREEN_NFC_WRITE:
+      return ui_nfc_write_stop;
     case SCREEN_NFC_EMULATE:
-      return nfc_manager_stop;
+    case SCREEN_CARD_EMU:
+      return ui_nfc_emulate_stop;
+    case SCREEN_NFC_SCAN:
+      return ui_nfc_scan_stop;
+    case SCREEN_NFC_BANKCARD:
+      return ui_nfc_bankcard_stop;
+    case SCREEN_NFC_APDU:
+      return ui_nfc_apdu_stop;
+    case SCREEN_NFC_P2P:
+      return ui_nfc_p2p_stop;
+    case SCREEN_NFC_DESFIRE:
+    case SCREEN_NFC_ISO15693:
+    case SCREEN_NFC_ULTRALIGHT:
+    case SCREEN_NFC_NDEF:
+    case SCREEN_NFC_FELICA:
+      return ui_nfc_protocol_lab_stop;
     case SCREEN_WAV_PLAYER:
       return ui_wav_player_stop;
     case SCREEN_MP3_PLAYER:
@@ -377,6 +405,14 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
       return ui_image_viewer_stop;
     case SCREEN_USB_STORAGE:
       return ui_usb_storage_stop;
+    case SCREEN_USB_MOUSE:
+      return ui_usb_mouse_stop;
+    case SCREEN_RFID_MENU:
+      return ui_rfid_menu_stop;
+    case SCREEN_MUSE:
+      return ui_muse_stop;
+    case SCREEN_GROK_IDLE:
+      return ui_grok_idle_stop;
     default:
       return NULL;
   }
@@ -384,6 +420,8 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
 
 static ui_open_fn_t screen_open_fn(screen_id_t s) {
   switch (s) {
+    case SCREEN_WIFI_ESP_SCAN:
+      return ui_wifi_esp_scan_open;
     case SCREEN_HOME:
       return ui_home_open;
     case SCREEN_MENU:
@@ -404,6 +442,8 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_ble_menu_open;
     case SCREEN_BLE_SCAN:
       return ui_ble_scan_open;
+    case SCREEN_GATT_EXPLORER:
+      return ui_gatt_explorer_open;
     case SCREEN_BLE_MOUSE_PAIRING:
       return ui_ble_mouse_pairing_open;
     case SCREEN_BLE_MOUSE:
@@ -470,6 +510,10 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_lora_chat_open;
     case SCREEN_GAMES_MENU:
       return ui_games_menu_open;
+    case SCREEN_APPS:
+      return ui_apps_open;
+    case SCREEN_SCRIPTS:
+      return ui_scripts_open;
     case SCREEN_GAME_SNAKE:
       return ui_snake_open;
     case SCREEN_GAME_BREAKOUT:
@@ -478,6 +522,10 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_gb_open;
     case SCREEN_GAME_DOOM:
       return ui_doom_real_open;
+    case SCREEN_MUSE:
+      return ui_muse_open;
+    case SCREEN_GROK_IDLE:
+      return ui_grok_idle_open;
     case SCREEN_OCTOBIT_STATUS:
       return ui_octobit_status_open;
     case SCREEN_DEV_MENU:
@@ -536,8 +584,6 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_ble_skimmer_open;
     case SCREEN_BLE_EXPOSURE:
       return ui_ble_exposure_open;
-    case SCREEN_GATT_EXPLORER:
-      return ui_gatt_explorer_open;
     case SCREEN_BLE_KEYBOARD:
       return ui_ble_keyboard_open;
     case SCREEN_BLE_FLOOD:
@@ -566,6 +612,8 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_system_update_open;
     case SCREEN_C5_STATUS:
       return ui_c5_status_open;
+    case SCREEN_C5_CONSOLE:
+      return ui_c5_console_open;
     case SCREEN_LED_CTRL:
       return ui_led_ctrl_open;
     case SCREEN_LORA_TRACEROUTE:
@@ -574,8 +622,6 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_lora_rnode_open;
     case SCREEN_LORA_MQTT:
       return ui_lora_mqtt_open;
-    case SCREEN_SCRIPTS:
-      return ui_scripts_open;
     case SCREEN_DEV_CONSOLE:
       return ui_dev_console_open;
     case SCREEN_DEV_DIAG:
@@ -600,6 +646,8 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_nfc_p2p_open;
     case SCREEN_NFC_KEYDICT:
       return ui_nfc_keydict_open;
+    case SCREEN_NFC_APDU:
+      return ui_nfc_apdu_open;
     case SCREEN_SUBGHZ_CONFIG:
       return ui_subghz_config_open;
     case SCREEN_IR_RAW:
@@ -628,6 +676,8 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
 }
 
 bool ui_screen_shows_chrome(screen_id_t s) {
+  if (s == SCREEN_WIFI_ESP_SCAN)
+    return false;
   if (s == SCREEN_NONE)
     return false;
   switch (s) {
@@ -661,6 +711,7 @@ bool ui_screen_shows_chrome(screen_id_t s) {
     case SCREEN_CARD_EMU:
     case SCREEN_NFC_SCAN:
     case SCREEN_NFC_P2P:
+    case SCREEN_NFC_APDU:
     case SCREEN_IR_RECEIVE:
     case SCREEN_IR_SEND:
     case SCREEN_IR_BURST:
@@ -678,6 +729,7 @@ bool ui_screen_shows_chrome(screen_id_t s) {
     case SCREEN_MIC_REC:
     case SCREEN_LORA_RNODE:
     case SCREEN_LORA_TELEMETRY:
+    case SCREEN_LORA_MQTT:
     case SCREEN_USB_MOUSE:
     case SCREEN_IMU_MONITOR:
     case SCREEN_DEV_CONSOLE:
@@ -685,8 +737,10 @@ bool ui_screen_shows_chrome(screen_id_t s) {
     case SCREEN_BOOT_MAP:
     case SCREEN_CRASH_REPORT:
     case SCREEN_SYSTEM_UPDATE:
-    case SCREEN_SCRIPTS:
     case SCREEN_TIME:
+    case SCREEN_APP_RUNNING:
+    case SCREEN_MUSE:
+    case SCREEN_GROK_IDLE:
       return false;
     default:
       return true;
@@ -701,15 +755,64 @@ static bool is_lora_screen(screen_id_t s) {
     case SCREEN_LORA_CHAT:
     case SCREEN_LORA_TRACEROUTE:
     case SCREEN_LORA_RNODE:
-    case SCREEN_LORA_MQTT:
     case SCREEN_LORA_CHANNELS:
     case SCREEN_LORA_POSITION:
     case SCREEN_LORA_TELEMETRY:
     case SCREEN_LORA_SECURE_DM:
+    case SCREEN_LORA_MQTT:
       return true;
     default:
       return false;
   }
+}
+
+// Display lease (RES_DISPLAY). The UI holds it while a native firmware screen is
+// foreground; a running app holds it while its own screen is up. When a native
+// screen returns to the foreground the UI re-claims the lane, which preempts a
+// running app (UI prio 20 > app prio 10) and fires the app's on_revoke ->
+// resource_lost(). Handing the panel to an app (ui_app_screen_enter) releases the
+// UI's grant so the app's screen_open can take it.
+static res_handle_t s_ui_display = RES_HANDLE_NONE;
+
+static void ui_display_ui_revoked(void *user) {
+  (void)user; // nothing higher than the UI takes the panel today; keep the slot sane
+  s_ui_display = RES_HANDLE_NONE;
+}
+
+static void ui_display_claim_ui(void) {
+  if (resource_handle_valid(s_ui_display))
+    return; // already ours
+  res_request_t req = {
+      .id = RES_DISPLAY,
+      .lane = RES_LANE_MAIN,
+      .owner_kind = RES_OWNER_UI,
+      .owner_task = NULL,
+      .priority = 0, // default: UI = 20
+      .allow_preempt = true,
+      .on_revoke = ui_display_ui_revoked,
+      .user = NULL,
+  };
+  if (resource_acquire(&req, &s_ui_display) != ESP_OK)
+    s_ui_display = RES_HANDLE_NONE; // degrade: no clean preemption, UI still draws
+}
+
+static void ui_display_release_ui(void) {
+  resource_release(s_ui_display);
+  s_ui_display = RES_HANDLE_NONE;
+}
+
+void ui_prepare_shutdown(void) {
+  screen_id_t closing = current_screen_id;
+  ui_close_fn_t close_fn = screen_close_fn(closing);
+  if (close_fn != NULL)
+    close_fn();
+  if (is_lora_screen(closing))
+    sx1262_stop_rx();
+  // A native shutdown screen must own the panel even if an ELF app was active.
+  ui_display_claim_ui();
+  clear_current_screen();
+  ui_chrome_set_status_enabled(false);
+  current_screen_id = SCREEN_NONE;
 }
 
 void ui_switch_screen(screen_id_t new_screen) {
@@ -722,6 +825,9 @@ void ui_switch_screen(screen_id_t new_screen) {
   input_lock_until = lv_tick_get() + INPUT_LOCK_MS;
 
   if (ui_acquire()) {
+    // A native screen is coming to the foreground: (re)claim the panel for the UI.
+    // If an app held it, this preempts the app and fires its resource_lost().
+    ui_display_claim_ui();
     screen_id_t from = current_screen_id;
     lv_obj_t *outgoing = lv_screen_active();
     ui_close_fn_t close_fn = screen_close_fn(current_screen_id);
@@ -743,6 +849,24 @@ void ui_switch_screen(screen_id_t new_screen) {
     screen_tips_hook(new_screen);
     ui_release();
   }
+}
+
+void ui_app_screen_enter(lv_obj_t *scr, ui_input_handler_t handler, void *ctx) {
+  if (scr == NULL)
+    return;
+  ui_display_release_ui(); // drop the panel so the app's screen_open can lease it
+  input_lock_until = lv_tick_get() + INPUT_LOCK_MS;
+  lv_obj_t *outgoing = lv_screen_active();
+  ui_close_fn_t close_fn = screen_close_fn(current_screen_id);
+  if (close_fn != NULL)
+    close_fn();
+  clear_current_screen();
+  ui_chrome_set_status_enabled(false);
+  lv_screen_load(scr);
+  current_screen_id = SCREEN_APP_RUNNING;
+  ui_input_set_screen_handler(handler, ctx);
+  if (outgoing != NULL && outgoing != scr && lv_obj_is_valid(outgoing))
+    lv_obj_del_async(outgoing);
 }
 
 bool ui_acquire(void) {

@@ -109,7 +109,11 @@ esp_err_t audio_i2s_stream_start(uint32_t sample_rate);
 int       audio_i2s_stream_write(const int16_t *pcm, int n_samples);
 void      audio_i2s_stream_stop(void);
 ```
-Begins a continuous 16-bit mono TX stream (e.g. WAV playback), reusing the shared TX channel and suppressing UI chimes/clicks for its duration. `stream_write` applies global volume, blocks and paces to real time via the I2S DMA, and returns samples written (or -1 if the stream is not active). `stream_stop` drains the DMA, restores the default clock and re-enables UI sounds; safe when not started.
+Begins a continuous 16-bit mono TX stream (e.g. WAV playback), reusing the shared TX channel and suppressing UI chimes/clicks for its duration. `stream_write` applies global volume, blocks and paces to real time via the I2S DMA, and returns samples written (or -1 if the stream is not active). `stream_stop` takes the TX mutex before draining and publishing idle; the next
+caller selects its clock. A failed drain attempts a checked channel disable;
+if disable also fails, the stream remains claimed for a later stop attempt.
+Starting another active stream returns `ESP_ERR_INVALID_STATE`. This inherited
+stream API is global and does not provide per-caller session ownership.
 
 ### PDM Microphone Capture
 
@@ -149,3 +153,36 @@ void audio_click(void);
 Queues a short click (~30 ms, ~2 kHz). Non-blocking; dropped if the queue already holds pending entries so rapid button presses never pile up.
 </content>
 </invoke>
+
+
+## Bounded boot sound
+
+Normal boot launches `boot_sound_play()` only when UI sound effects are enabled.
+Recovery never launches it. The optional installed file is
+`/assets/storage/ghost_cyberpunk_boot.mp3`; an app-only update does not install it.
+A missing file is logged and skipped. Launch success means a worker started,
+not that playback completed.
+
+The worker uses an internal 8 KiB stack for VFS/flash operations; input, decoded
+frames and final PCM use checked PSRAM allocations. It accepts at most 256 KiB,
+8–48 kHz mono/stereo, a constant sample rate and ten seconds of output. A
+five-second decode budget, input-progress checks and bounded output reject
+malformed or excessive work. The complete file is read before decoding, so an
+underflow cannot repeatedly retry the same unrefilled input. It releases all
+owned resources on every exit. Low internal heap (64 KiB total / 10 KiB largest
+block), allocation failure or decoder/playback error skips this optional sound.
+
+Decoded mono PCM uses the existing blocking, mutex-held playback call; it never
+steals an active stream. PCM now applies the global volume. One-shot paths
+recheck the streaming flag after taking the mutex. Shared streaming/volume flags
+are atomic. DMA drain advances by actual written bytes, rejects zero/odd writes
+uses the IDF API's millisecond timeout units and caps drain attempts at 16. Short writes and drain failures
+propagate through PCM playback. The original always-disabled boot-sound guard is
+replaced by these bounded software paths. Physical audio/cache behavior remains
+unverified; no particular historical device crash is claimed reproduced.
+
+`python3 tools/boot_report/test_boot_report.py` exercises the real worker and I2S
+control functions with ASan/UBSan and explicit decoder/scheduler/I2S fakes. It
+covers malformed/no-progress decoder results, format changes, missing/oversized
+files, heap/task failures, claim races, short writes and failed cleanup. These
+fixtures do not execute the Helix decoder or actual I2S DMA.

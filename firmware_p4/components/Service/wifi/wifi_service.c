@@ -95,6 +95,20 @@ esp_err_t wifi_service_scan(void) {
   return spi_bridge_run_scan(SPI_ID_WIFI_SCAN, SPI_ID_WIFI_SCAN_STATUS, NULL, 0);
 }
 
+esp_err_t
+wifi_service_scan_ex(uint8_t band, bool passive, uint16_t dwell_min_ms, uint16_t dwell_max_ms) {
+  if (band > SPI_WIFI_BAND_5G)
+    return ESP_ERR_INVALID_ARG;
+  spi_wifi_scan_config_t cfg = {
+      .band = band,
+      .passive = passive ? 1 : 0,
+      .dwell_min_ms = dwell_min_ms,
+      .dwell_max_ms = dwell_max_ms,
+  };
+  return spi_bridge_run_scan(
+      SPI_ID_WIFI_SCAN, SPI_ID_WIFI_SCAN_STATUS, (const uint8_t *)&cfg, sizeof(cfg));
+}
+
 uint16_t wifi_service_get_ap_count(void) {
   spi_header_t resp;
   uint8_t payload[2];
@@ -181,6 +195,28 @@ const char *wifi_service_get_connected_ssid(void) {
 
 bool wifi_service_is_active(void) {
   return s_status_active;
+}
+
+esp_err_t wifi_service_get_ip(uint8_t interface, uint8_t out_ip[4]) {
+  if (out_ip == NULL || interface > 1)
+    return ESP_ERR_INVALID_ARG;
+
+  spi_header_t resp;
+  spi_wifi_ip_info_t info = {0};
+  esp_err_t err = spi_bridge_send_command(SPI_ID_WIFI_GET_IP_INFO,
+                                          &interface,
+                                          1,
+                                          &resp,
+                                          (uint8_t *)&info,
+                                          sizeof(info),
+                                          spi_bridge_get_timeout(SPI_ID_WIFI_GET_IP_INFO));
+  if (err != ESP_OK)
+    return err;
+  out_ip[0] = (uint8_t)(info.ip & 0xFF);
+  out_ip[1] = (uint8_t)((info.ip >> 8) & 0xFF);
+  out_ip[2] = (uint8_t)((info.ip >> 16) & 0xFF);
+  out_ip[3] = (uint8_t)((info.ip >> 24) & 0xFF);
+  return ESP_OK;
 }
 
 void wifi_service_change_to_hotspot(const char *new_ssid) {

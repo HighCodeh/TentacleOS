@@ -1,0 +1,25 @@
+# Copyright (c) 2025 HIGH CODE LLC
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
+# Factory-security review only; normal installed layout is unchanged.
+# Name, Type, SubType, Offset, Size, Flags
+nvs, data, nvs, 0x11000, 24K,
+otadata, data, ota, 0x17000, 8K,
+phy_init, data, phy, 0x19000, 4K,
+nvs_keys, data, nvs_keys, 0x1a000, 4K, encrypted
+ota_0, app, ota_0, 0x20000, 0x2D0000,
+ota_1, app, ota_1, 0x2F0000, 0x2D0000,
+coredump, data, coredump, 0x5C0000, 64K, encrypted
+assets, data, littlefs, 0x5D0000, 0x230000, encrypted

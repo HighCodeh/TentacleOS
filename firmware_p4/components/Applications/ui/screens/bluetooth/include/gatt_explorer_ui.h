@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-/** @brief GATT explorer (MOCK); drills fake services down into their characteristics. */
+/** @brief Static GATT reference catalog; does not read a connected device. */
 void ui_gatt_explorer_open(void);
 
 #ifdef __cplusplus

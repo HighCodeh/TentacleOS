@@ -23,11 +23,14 @@
 #include "esp_log.h"
 
 #include "meshcore_nvs.h"
+#include "lora_session.h"
 
 static const char *TAG = "MC_DB";
 
 #define MC_NVS_KEY_CHANNELS "channels"
 #define MC_NVS_KEY_CONTACTS "contacts"
+#define MC_PATH_HASH_SHIFT  6
+#define MC_PATH_COUNT_MASK  0x3f
 
 static const uint8_t MC_PUBLIC_CHANNEL_SECRET[16] = {
     0x8b,
@@ -69,19 +72,16 @@ static uint16_t s_dedup_idx = 0;
 
 static mc_pending_t s_pendings[MC_PENDINGS_SIZE];
 
-static void channel_compute_hash(meshcore_channel_t *ch);
+static void init_db(void);
+static size_t count_contacts(void);
+static bool upsert_contact(const meshcore_contact_t *src);
+static bool remove_contact(const uint8_t pub_key[32]);
+static bool reset_path(const uint8_t pub_key[32]);
+static bool channel_compute_hash(meshcore_channel_t *ch);
+static void channels_persist(void);
 static void channels_load_or_default(void);
 static void contacts_load(void);
-static void channels_persist(void);
 static meshcore_contact_t *contact_alloc_slot(const uint8_t pub_key[32]);
-
-void mc_db_init(void) {
-  memset(s_dedup, 0, sizeof(s_dedup));
-  s_dedup_idx = 0;
-  memset(s_pendings, 0, sizeof(s_pendings));
-  channels_load_or_default();
-  contacts_load();
-}
 
 const meshcore_channel_t *meshcore_channel_get(uint8_t idx) {
   if (idx >= MESHCORE_MAX_CHANNELS)
@@ -118,7 +118,8 @@ bool meshcore_channel_set(uint8_t idx, const char *name, const uint8_t secret[16
       strncpy(s_channels[idx].name, name, MESHCORE_NAME_MAX - 1);
       s_channels[idx].name[MESHCORE_NAME_MAX - 1] = 0;
     }
-    channel_compute_hash(&s_channels[idx]);
+    if (!channel_compute_hash(&s_channels[idx]))
+      return false;
   }
 
   channels_persist();
@@ -136,19 +137,6 @@ const meshcore_channel_t *mc_channels_array(void) {
 
 const meshcore_contact_t *meshcore_contacts_array(void) {
   return s_contacts;
-}
-
-meshcore_contact_t *mc_contacts_array_mut(void) {
-  return s_contacts;
-}
-
-size_t meshcore_contacts_count(void) {
-  size_t n = 0;
-  for (int i = 0; i < MESHCORE_MAX_CONTACTS; i++) {
-    if (s_contacts[i].is_used)
-      n++;
-  }
-  return n;
 }
 
 const meshcore_contact_t *meshcore_contact_find(const uint8_t pub_key[32]) {
@@ -171,57 +159,6 @@ meshcore_contact_t *mc_contact_find_mut(const uint8_t pub_key[32]) {
     }
   }
   return NULL;
-}
-
-bool meshcore_contact_upsert(const meshcore_contact_t *src) {
-  if (src == NULL)
-    return false;
-  meshcore_contact_t *slot = contact_alloc_slot(src->pub_key);
-  if (slot == NULL)
-    return false;
-
-  bool is_keep_path = (src->out_path_len == MESHCORE_OUT_PATH_UNKNOWN && slot->is_used &&
-                       slot->out_path_len != MESHCORE_OUT_PATH_UNKNOWN);
-  uint8_t old_path[MESHCORE_MAX_PATH];
-  uint8_t old_path_len = 0;
-  if (is_keep_path) {
-    old_path_len = slot->out_path_len;
-    memcpy(old_path, slot->out_path, MESHCORE_MAX_PATH);
-  }
-  *slot = *src;
-  slot->is_used = true;
-  if (is_keep_path) {
-    slot->out_path_len = old_path_len;
-    memcpy(slot->out_path, old_path, MESHCORE_MAX_PATH);
-  }
-  if (slot->lastmod == 0)
-    slot->lastmod = meshcore_get_unix_time();
-  mc_contacts_persist();
-  return true;
-}
-
-bool meshcore_contact_remove(const uint8_t pub_key[32]) {
-  for (int i = 0; i < MESHCORE_MAX_CONTACTS; i++) {
-    if (s_contacts[i].is_used && memcmp(s_contacts[i].pub_key, pub_key, 32) == 0) {
-      memset(&s_contacts[i], 0, sizeof(meshcore_contact_t));
-      mc_contacts_persist();
-      return true;
-    }
-  }
-  return false;
-}
-
-bool meshcore_contact_reset_path(const uint8_t pub_key[32]) {
-  for (int i = 0; i < MESHCORE_MAX_CONTACTS; i++) {
-    if (s_contacts[i].is_used && memcmp(s_contacts[i].pub_key, pub_key, 32) == 0) {
-      s_contacts[i].out_path_len = MESHCORE_OUT_PATH_UNKNOWN;
-      memset(s_contacts[i].out_path, 0, MESHCORE_MAX_PATH);
-      s_contacts[i].lastmod = meshcore_get_unix_time();
-      mc_contacts_persist();
-      return true;
-    }
-  }
-  return false;
 }
 
 void mc_contacts_persist(void) {
@@ -285,10 +222,170 @@ bool mc_pendings_match(uint32_t crc, uint8_t out_peer[32]) {
   return false;
 }
 
-static void channel_compute_hash(meshcore_channel_t *ch) {
+esp_err_t mc_db_init(void) {
+  esp_err_t error = lora_session_nodes_acquire();
+  if (error != ESP_OK)
+    return error;
+  init_db();
+  lora_session_nodes_release();
+  return ESP_OK;
+}
+
+bool meshcore_contact_upsert(const meshcore_contact_t *src) {
+  if (lora_session_nodes_acquire() != ESP_OK)
+    return false;
+  bool result = upsert_contact(src);
+  lora_session_nodes_release();
+  return result;
+}
+
+bool meshcore_contact_remove(const uint8_t pub_key[32]) {
+  if (lora_session_nodes_acquire() != ESP_OK)
+    return false;
+  bool result = remove_contact(pub_key);
+  lora_session_nodes_release();
+  return result;
+}
+
+bool meshcore_contact_reset_path(const uint8_t pub_key[32]) {
+  if (lora_session_nodes_acquire() != ESP_OK)
+    return false;
+  bool result = reset_path(pub_key);
+  lora_session_nodes_release();
+  return result;
+}
+
+size_t meshcore_contacts_count(void) {
+  if (lora_session_nodes_acquire() != ESP_OK)
+    return 0;
+  size_t result = count_contacts();
+  lora_session_nodes_release();
+  return result;
+}
+
+esp_err_t meshcore_contacts_snapshot(uint16_t index, meshcore_contact_t *out, uint16_t *out_count) {
+  if (out_count == NULL)
+    return ESP_ERR_INVALID_ARG;
+  esp_err_t error = lora_session_nodes_acquire();
+  if (error != ESP_OK)
+    return error;
+  uint16_t count = 0;
+  bool has_entry = false;
+  for (size_t i = 0; i < MESHCORE_MAX_CONTACTS; ++i) {
+    if (!s_contacts[i].is_used)
+      continue;
+    if (out != NULL && count == index) {
+      *out = s_contacts[i];
+      has_entry = true;
+    }
+    ++count;
+  }
+  *out_count = count;
+  lora_session_nodes_release();
+  return out != NULL && !has_entry ? ESP_ERR_NOT_FOUND : ESP_OK;
+}
+
+esp_err_t
+mc_contact_update_path(const uint8_t pub_key[32], uint8_t encoded_length, const uint8_t *path) {
+  if (pub_key == NULL || path == NULL)
+    return ESP_ERR_INVALID_ARG;
+  uint8_t hash_size = mc_parse_hash_size(encoded_length >> MC_PATH_HASH_SHIFT);
+  size_t length = (encoded_length & MC_PATH_COUNT_MASK) * hash_size;
+  if (hash_size == 0 || length > MESHCORE_MAX_PATH)
+    return ESP_ERR_INVALID_ARG;
+  esp_err_t error = lora_session_nodes_acquire();
+  if (error != ESP_OK)
+    return error;
+  meshcore_contact_t *contact = mc_contact_find_mut(pub_key);
+  if (contact == NULL) {
+    error = ESP_ERR_NOT_FOUND;
+  } else {
+    contact->out_path_len = encoded_length;
+    memset(contact->out_path, 0, sizeof(contact->out_path));
+    memcpy(contact->out_path, path, length);
+    contact->lastmod = meshcore_get_unix_time();
+    mc_contacts_persist();
+  }
+  lora_session_nodes_release();
+  return error;
+}
+
+static void init_db(void) {
+  memset(s_dedup, 0, sizeof(s_dedup));
+  s_dedup_idx = 0;
+  memset(s_pendings, 0, sizeof(s_pendings));
+  channels_load_or_default();
+  contacts_load();
+}
+
+static size_t count_contacts(void) {
+  size_t n = 0;
+  for (int i = 0; i < MESHCORE_MAX_CONTACTS; i++) {
+    if (s_contacts[i].is_used)
+      n++;
+  }
+  return n;
+}
+
+static bool upsert_contact(const meshcore_contact_t *src) {
+  if (src == NULL)
+    return false;
+  meshcore_contact_t *slot = contact_alloc_slot(src->pub_key);
+  if (slot == NULL)
+    return false;
+
+  bool is_keep_path = (src->out_path_len == MESHCORE_OUT_PATH_UNKNOWN && slot->is_used &&
+                       slot->out_path_len != MESHCORE_OUT_PATH_UNKNOWN);
+  uint8_t old_path[MESHCORE_MAX_PATH];
+  uint8_t old_path_len = 0;
+  if (is_keep_path) {
+    old_path_len = slot->out_path_len;
+    memcpy(old_path, slot->out_path, MESHCORE_MAX_PATH);
+  }
+  *slot = *src;
+  slot->is_used = true;
+  if (is_keep_path) {
+    slot->out_path_len = old_path_len;
+    memcpy(slot->out_path, old_path, MESHCORE_MAX_PATH);
+  }
+  if (slot->lastmod == 0)
+    slot->lastmod = meshcore_get_unix_time();
+  mc_contacts_persist();
+  return true;
+}
+
+static bool remove_contact(const uint8_t pub_key[32]) {
+  for (int i = 0; i < MESHCORE_MAX_CONTACTS; i++) {
+    if (s_contacts[i].is_used && memcmp(s_contacts[i].pub_key, pub_key, 32) == 0) {
+      memset(&s_contacts[i], 0, sizeof(meshcore_contact_t));
+      mc_contacts_persist();
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool reset_path(const uint8_t pub_key[32]) {
+  for (int i = 0; i < MESHCORE_MAX_CONTACTS; i++) {
+    if (s_contacts[i].is_used && memcmp(s_contacts[i].pub_key, pub_key, 32) == 0) {
+      s_contacts[i].out_path_len = MESHCORE_OUT_PATH_UNKNOWN;
+      memset(s_contacts[i].out_path, 0, MESHCORE_MAX_PATH);
+      s_contacts[i].lastmod = meshcore_get_unix_time();
+      mc_contacts_persist();
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool channel_compute_hash(meshcore_channel_t *ch) {
   uint8_t h[32];
-  meshcore_crypto_sha256(ch->secret, 16, h);
+  if (meshcore_crypto_sha256(ch->secret, 16, h) != ESP_OK) {
+    ch->is_used = false;
+    return false;
+  }
   ch->hash = h[0];
+  return true;
 }
 
 static void channels_persist(void) {
@@ -306,7 +403,8 @@ static void channels_load_or_default(void) {
   s_channels[0].is_used = true;
   memcpy(s_channels[0].secret, MC_PUBLIC_CHANNEL_SECRET, 16);
   strcpy(s_channels[0].name, "Public");
-  channel_compute_hash(&s_channels[0]);
+  if (!channel_compute_hash(&s_channels[0]))
+    return;
   channels_persist();
   ESP_LOGI(TAG, "Channels: Public default in slot 0 (hash=0x%02X)", s_channels[0].hash);
 }

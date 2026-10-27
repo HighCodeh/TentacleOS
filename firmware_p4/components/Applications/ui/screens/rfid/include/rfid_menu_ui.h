@@ -23,6 +23,9 @@ extern "C" {
 /** @brief Open the RFID menu screen. */
 void ui_rfid_menu_open(void);
 
+/** @brief Stop a pending LF read and force the 125 kHz field off. */
+void ui_rfid_menu_stop(void);
+
 #ifdef __cplusplus
 }
 #endif

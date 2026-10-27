@@ -56,13 +56,15 @@ static void style_row(capture_result_t *cr, int i, bool sel) {
   lv_obj_set_style_shadow_width(cr->rows[i], sel ? 14 : 0, 0);
   lv_obj_set_style_shadow_color(cr->rows[i], cr->accent, 0);
   lv_obj_set_style_shadow_spread(cr->rows[i], sel ? -3 : 0, 0);
-  if (!(cr->saved && i == CAP_ACT_SAVE))
+  if (!cr->done[i])
     lv_obj_set_style_text_color(cr->icons[i], sel ? cr->accent : current_theme.text_secondary, 0);
 }
 
 static void refresh(capture_result_t *cr) {
   for (int i = 0; i < cr->count; i++)
     style_row(cr, i, i == cr->sel);
+  if (cr->count > CAP_ACT_MAX && cr->rows[cr->sel] != NULL)
+    lv_obj_scroll_to_view(cr->rows[cr->sel], LV_ANIM_ON);
 }
 
 static void make_card(capture_result_t *cr, lv_obj_t *root, const capture_result_cfg_t *cfg) {
@@ -138,7 +140,12 @@ static void make_card(capture_result_t *cr, lv_obj_t *root, const capture_result
   }
 }
 
-static void make_action(capture_result_t *cr, lv_obj_t *root, int i, const char *label) {
+static void make_action(capture_result_t *cr,
+                        lv_obj_t *root,
+                        int i,
+                        int action_id,
+                        const char *symbol,
+                        const char *label) {
   lv_obj_t *row = lv_obj_create(root);
   lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
@@ -153,7 +160,7 @@ static void make_action(capture_result_t *cr, lv_obj_t *root, int i, const char 
   lv_obj_set_style_pad_column(row, 11, 0);
 
   lv_obj_t *ic = lv_label_create(row);
-  lv_label_set_text(ic, ACTION_SYM[i]);
+  lv_label_set_text(ic, symbol ? symbol : LV_SYMBOL_RIGHT);
   lv_obj_set_width(ic, 18);
   lv_obj_set_style_text_align(ic, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_font(ic, &lv_font_montserrat_14, 0);
@@ -167,13 +174,19 @@ static void make_action(capture_result_t *cr, lv_obj_t *root, int i, const char 
   cr->rows[i] = row;
   cr->icons[i] = ic;
   cr->labels[i] = lbl;
+  cr->action_ids[i] = action_id;
 }
 
-capture_result_t capture_result_create(lv_obj_t *parent, const capture_result_cfg_t *cfg) {
+capture_result_t capture_result_create_custom(lv_obj_t *parent,
+                                              const capture_result_cfg_t *cfg,
+                                              const capture_result_action_cfg_t *actions,
+                                              int action_count) {
   capture_result_t cr = {0};
   cr.accent = cfg->accent;
-  cr.count = CAP_ACT_MAX;
-  cr.sel = CAP_ACT_PRIMARY;
+  cr.count = actions == NULL || action_count < 0 ? 0 : action_count;
+  if (cr.count > CAP_RESULT_MAX_ACTIONS)
+    cr.count = CAP_RESULT_MAX_ACTIONS;
+  cr.sel = 0;
   cr.saved = false;
 
   lv_obj_t *root = bare(parent);
@@ -184,17 +197,34 @@ capture_result_t capture_result_create(lv_obj_t *parent, const capture_result_cf
   lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(root, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
   lv_obj_set_style_pad_row(root, GAP, 0);
+  if (cr.count > CAP_ACT_MAX) {
+    lv_obj_add_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(root, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(root, LV_SCROLLBAR_MODE_OFF);
+  }
   cr.root = root;
 
   make_card(&cr, root, cfg);
 
-  make_action(&cr, root, CAP_ACT_PRIMARY, cfg->primary_label ? cfg->primary_label : "Send");
-  make_action(&cr, root, CAP_ACT_SAVE, "Save to library");
-  make_action(&cr, root, CAP_ACT_AGAIN, cfg->again_label ? cfg->again_label : "Capture again");
-  make_action(&cr, root, CAP_ACT_DISCARD, "Discard");
+  for (int i = 0; i < cr.count; i++)
+    make_action(&cr, root, i, actions[i].id, actions[i].symbol, actions[i].label);
 
   refresh(&cr);
   return cr;
+}
+
+capture_result_t capture_result_create(lv_obj_t *parent, const capture_result_cfg_t *cfg) {
+  const capture_result_action_cfg_t actions[CAP_ACT_MAX] = {
+      {.id = CAP_ACT_PRIMARY,
+       .symbol = ACTION_SYM[CAP_ACT_PRIMARY],
+       .label = cfg->primary_label ? cfg->primary_label : "Send"},
+      {.id = CAP_ACT_SAVE, .symbol = ACTION_SYM[CAP_ACT_SAVE], .label = "Save to library"},
+      {.id = CAP_ACT_AGAIN,
+       .symbol = ACTION_SYM[CAP_ACT_AGAIN],
+       .label = cfg->again_label ? cfg->again_label : "Capture again"},
+      {.id = CAP_ACT_DISCARD, .symbol = ACTION_SYM[CAP_ACT_DISCARD], .label = "Discard"},
+  };
+  return capture_result_create_custom(parent, cfg, actions, CAP_ACT_MAX);
 }
 
 void capture_result_next(capture_result_t *cr) {
@@ -212,16 +242,34 @@ void capture_result_prev(capture_result_t *cr) {
 }
 
 capture_action_t capture_result_selected(const capture_result_t *cr) {
-  return (capture_action_t)cr->sel;
+  return (capture_action_t)capture_result_selected_id(cr);
+}
+
+int capture_result_selected_id(const capture_result_t *cr) {
+  if (cr == NULL || cr->count <= 0 || cr->sel < 0 || cr->sel >= cr->count)
+    return -1;
+  return cr->action_ids[cr->sel];
 }
 
 void capture_result_mark_saved(capture_result_t *cr) {
-  if (!cr->root || cr->saved)
+  capture_result_mark_action_done(cr, CAP_ACT_SAVE, "Saved");
+  if (cr != NULL)
+    cr->saved = true;
+}
+
+void capture_result_mark_action_done(capture_result_t *cr, int action_id, const char *label) {
+  if (cr == NULL || cr->root == NULL)
     return;
-  cr->saved = true;
-  lv_label_set_text(cr->icons[CAP_ACT_SAVE], LV_SYMBOL_OK);
-  lv_obj_set_style_text_color(cr->icons[CAP_ACT_SAVE], lv_color_hex(0x00E676), 0);
-  lv_label_set_text(cr->labels[CAP_ACT_SAVE], "Saved");
+  for (int i = 0; i < cr->count; i++) {
+    if (cr->action_ids[i] != action_id)
+      continue;
+    cr->done[i] = true;
+    lv_label_set_text(cr->icons[i], LV_SYMBOL_OK);
+    lv_obj_set_style_text_color(cr->icons[i], lv_color_hex(0x00E676), 0);
+    if (label != NULL)
+      lv_label_set_text(cr->labels[i], label);
+    return;
+  }
 }
 
 void capture_result_destroy(capture_result_t *cr) {

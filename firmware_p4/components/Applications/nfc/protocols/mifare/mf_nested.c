@@ -36,11 +36,6 @@ static const char *TAG = "NFC_MF_NESTED";
 #define ISOA_NO_TX_PAR (1U << 7)
 #define ISOA_NO_RX_PAR (1U << 6)
 
-#define MF_SMALL_BLOCK_COUNT   4
-#define MF_4K_BIG_SECTOR_START 32
-#define MF_4K_BIG_BLOCK_COUNT  16
-#define MF_4K_BIG_BLOCK_BASE   128
-
 #define MF_NESTED_RX_TIMEOUT_MS 20
 #define MF_PRNG_AR_ADVANCE      64
 #define MF_NESTED_NR_BASE       0xDEAD0000U

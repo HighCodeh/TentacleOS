@@ -16,9 +16,11 @@
 #include "menu_ui.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include "esp_log.h"
 #include "lvgl.h"
+#include "draw/lv_image_decoder_private.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -218,6 +220,169 @@ static int32_t carousel_slot(size_t item_idx) {
     d -= n;
   int32_t slot = CAROUSEL_CENTER + d;
   return (slot >= 0 && slot < CAROUSEL_SLOTS) ? slot : -1;
+}
+
+/* Independent, noninteractive mirror of the real carousel. Only its objects
+ * and static label
+ * storage belong to the preview; asset descriptors remain
+ * owned by assets_manager, exactly as
+ * for the normal menu. */
+struct menu_ui_preview {
+  lv_obj_t *root, *label, *badge;
+  lv_obj_t *bases[CAROUSEL_SLOTS], *icons[CAROUSEL_SLOTS];
+  lv_image_dsc_t *icon_dscs[MENU_ITEM_COUNT][MENU_ITEM_FRAME_COUNT];
+  lv_image_dsc_t *base_dscs[MENU_ITEM_COUNT][MENU_ITEM_FRAME_COUNT];
+  lv_image_decoder_dsc_t decoded[CAROUSEL_SLOTS * 2];
+  unsigned decoded_count;
+  page_dots_t dots;
+  char label_text[96];
+};
+
+static void preview_close_decoders(menu_ui_preview_t *preview) {
+  while (preview->decoded_count != 0)
+    lv_image_decoder_close(&preview->decoded[--preview->decoded_count]);
+}
+
+static void preview_static_dots(page_dots_t *dots, unsigned selected) {
+  /* page_dots_set applies its native final sizes immediately to hidden dots.
+   * Remove creation
+   * animations and hide first: no animation timer survives. */
+  for (int i = 0; i < dots->total; ++i) {
+    lv_anim_delete(dots->dots[i], NULL);
+    lv_obj_add_flag(dots->dots[i], LV_OBJ_FLAG_HIDDEN);
+  }
+  page_dots_set(dots, (int)selected);
+}
+
+void menu_ui_preview_destroy(menu_ui_preview_t *preview) {
+  if (preview == NULL)
+    return;
+  if (preview->root != NULL)
+    lv_obj_delete(preview->root);
+  preview_close_decoders(preview);
+  lv_free(preview);
+}
+
+lv_obj_t *menu_ui_preview_root(menu_ui_preview_t *preview) {
+  return preview != NULL ? preview->root : NULL;
+}
+
+bool menu_ui_preview_select(menu_ui_preview_t *preview, unsigned index) {
+  if (preview == NULL || preview->root == NULL || index >= MENU_ITEM_COUNT)
+    return false;
+  preview_close_decoders(preview);
+  snprintf(preview->label_text,
+           sizeof(preview->label_text),
+           LV_SYMBOL_LEFT "   %s   " LV_SYMBOL_RIGHT,
+           s_menu_data[index].name);
+  lv_label_set_text_static(preview->label, preview->label_text);
+  bool fav = favorites_is(s_menu_data[index].target);
+  lv_label_set_text_static(preview->badge,
+                           fav ? LV_SYMBOL_OK "  FAVORITED" : "hold OK to favorite");
+  lv_obj_set_style_text_color(
+      preview->badge, fav ? lv_color_hex(FAV_ACCENT) : current_theme.text_secondary, 0);
+  preview_static_dots(&preview->dots, index);
+
+  for (unsigned slot = 0; slot < CAROUSEL_SLOTS; ++slot) {
+    unsigned item = (index + MENU_ITEM_COUNT + slot - CAROUSEL_CENTER) % MENU_ITEM_COUNT;
+    unsigned frame = slot < CAROUSEL_CENTER ? 1 : slot > CAROUSEL_CENTER ? 2 : 0;
+    const lv_image_dsc_t *base = preview->base_dscs[item][frame];
+    const lv_image_dsc_t *icon = preview->icon_dscs[item][frame];
+    if (base == NULL || icon == NULL)
+      goto failed;
+    /* Decode and pin the visible native images. A file with only a valid
+     * header but
+     * missing/corrupt pixels must disable the screen, not produce
+     * an invented or partly
+     * blank substitute. The cache owns decoded pixels;
+     * these ten bounded decoder handles
+     * release their refs on select/close. */
+    const lv_image_dsc_t *sources[] = {base, icon};
+    for (unsigned n = 0; n < 2; ++n) {
+      lv_image_decoder_dsc_t *decoder = &preview->decoded[preview->decoded_count];
+      if (lv_image_decoder_open(decoder, sources[n], NULL) != LV_RESULT_OK)
+        goto failed;
+      preview->decoded_count++;
+      if (decoder->decoded == NULL)
+        goto failed;
+    }
+    lv_image_set_src(preview->bases[slot], base);
+    lv_image_set_src(preview->icons[slot], icon);
+    lv_obj_t *objects[] = {preview->bases[slot], preview->icons[slot]};
+    for (unsigned n = 0; n < 2; ++n) {
+      lv_obj_align(objects[n], LV_ALIGN_CENTER, CAROUSEL_PX[slot], CAROUSEL_PY[slot]);
+      lv_image_set_scale(objects[n], CAROUSEL_SC[slot]);
+      lv_obj_set_style_opa(objects[n], CAROUSEL_OP[slot], 0);
+      lv_obj_set_style_image_opa(objects[n], LV_OPA_COVER, 0);
+    }
+  }
+  /* Same native z order: distant items, neighbors, selected center. */
+  for (int z = 0; z <= CAROUSEL_Z[CAROUSEL_CENTER]; ++z)
+    for (unsigned slot = 0; slot < CAROUSEL_SLOTS; ++slot)
+      if (CAROUSEL_Z[slot] == z) {
+        lv_obj_move_foreground(preview->bases[slot]);
+        lv_obj_move_foreground(preview->icons[slot]);
+      }
+  return true;
+failed:
+  preview_close_decoders(preview);
+  return false;
+}
+
+menu_ui_preview_t *menu_ui_preview_create(void) {
+  menu_ui_preview_t *preview = lv_malloc(sizeof(*preview));
+  if (preview == NULL)
+    return NULL;
+  memset(preview, 0, sizeof(*preview));
+  /* Resolve all actual native paths once, not on the frame/rendering loop.
+   * Missing assets
+   * disable the miniature instead of inventing a replacement. */
+  for (unsigned item = 0; item < MENU_ITEM_COUNT; ++item)
+    for (unsigned frame = 0; frame < MENU_ITEM_FRAME_COUNT; ++frame) {
+      preview->icon_dscs[item][frame] = assets_get(s_menu_data[item].icon_frames[frame]);
+      preview->base_dscs[item][frame] = assets_get(s_menu_data[item].base_frames[frame]);
+      if (preview->icon_dscs[item][frame] == NULL || preview->base_dscs[item][frame] == NULL)
+        goto failed;
+    }
+  preview->root = lv_obj_create(NULL);
+  if (preview->root == NULL)
+    goto failed;
+  lv_obj_set_size(preview->root, 240, 320);
+  lv_obj_set_style_bg_color(preview->root, lv_color_hex(0x000000), 0);
+  lv_obj_set_style_bg_opa(preview->root, LV_OPA_COVER, 0);
+  lv_obj_remove_flag(preview->root, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+  for (unsigned slot = 0; slot < CAROUSEL_SLOTS; ++slot) {
+    preview->bases[slot] = lv_image_create(preview->root);
+    preview->icons[slot] = lv_image_create(preview->root);
+    if (preview->bases[slot] == NULL || preview->icons[slot] == NULL)
+      goto failed;
+    lv_image_set_antialias(preview->bases[slot], false);
+    lv_image_set_antialias(preview->icons[slot], false);
+  }
+  /* Snapshot helper reads cached state, never rebinds the singleton header. */
+  header_ui_create_snapshot(preview->root);
+  preview->label = lv_label_create(preview->root);
+  preview->badge = lv_label_create(preview->root);
+  if (preview->label == NULL || preview->badge == NULL)
+    goto failed;
+  lv_obj_align(preview->label, LV_ALIGN_BOTTOM_MID, 0, LABEL_OFFSET_Y);
+  lv_obj_set_style_text_color(preview->label, current_theme.text_main, 0);
+  lv_obj_set_style_text_font(preview->label, &lv_font_montserrat_14, 0);
+  lv_obj_align(preview->badge, LV_ALIGN_TOP_MID, 0, FAV_BADGE_Y);
+  lv_obj_set_style_text_font(preview->badge, &lv_font_montserrat_12, 0);
+  preview->dots =
+      page_dots_create(preview->root, MENU_ITEM_COUNT, LV_ALIGN_BOTTOM_MID, 0, DOTS_OFFSET_Y);
+  if (preview->dots.container == NULL)
+    goto failed;
+  for (int i = 0; i < preview->dots.total; ++i)
+    if (preview->dots.dots[i] == NULL)
+      goto failed;
+  if (!menu_ui_preview_select(preview, 0))
+    goto failed;
+  return preview;
+failed:
+  menu_ui_preview_destroy(preview);
+  return NULL;
 }
 
 static void on_anim_done(lv_anim_t *a) {

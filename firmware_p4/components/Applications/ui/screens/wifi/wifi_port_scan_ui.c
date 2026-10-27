@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sys_prio.h"
@@ -40,7 +41,6 @@ static const char *SCAN_ICON = "/assets/icons/wifi_find.bin";
 #define SCAN_END_PORT     1024
 #define COLOR_OPEN        0x00E676
 #define TASK_STACK_SIZE   8192
-#define TASK_PRIORITY     SYS_PRIO_SERVICE_LO
 #define CAPTION_Y_OFS     78
 #define WAVES_Y_OFS       -6
 #define PORT_MAX          32
@@ -54,7 +54,7 @@ static scan_state_t s_state = SCAN_RUNNING;
 static bool s_scanning = false;
 static bool s_connected = false;
 static int s_count = 0;
-static port_scan_result_t s_results[PORT_MAX];
+EXT_RAM_BSS_ATTR static port_scan_result_t s_results[PORT_MAX];
 
 static void wifi_port_scan_input(const input_event_t *ev, void *ctx);
 
@@ -174,7 +174,6 @@ static void wifi_port_scan_input(const input_event_t *ev, void *ctx) {
         menu_component_prev(&s_menu);
       break;
     case INPUT_BTN_BACK:
-    case INPUT_BTN_LEFT:
       if (press)
         ui_switch_screen(SCREEN_WIFI_MENU);
       break;
@@ -195,9 +194,13 @@ void ui_wifi_port_scan_open(void) {
   build_screen();
   if (!s_scanning) {
     s_scanning = true;
-    if (xTaskCreatePinnedToCore(
-            scan_task, "port_scan", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL, SYS_CORE_RADIO) !=
-        pdPASS) {
+    if (xTaskCreatePinnedToCore(scan_task,
+                                "port_scan",
+                                TASK_STACK_SIZE,
+                                NULL,
+                                SYS_PRIO_SERVICE_LO,
+                                NULL,
+                                SYS_CORE_RADIO) != pdPASS) {
       s_scanning = false;
       s_state = SCAN_DONE;
       build_screen();

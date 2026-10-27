@@ -18,8 +18,15 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "st7789.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
+#include "st7789.h"
+#include "sys_prio.h"
+
+#include "c5_console_ui.h"
+#include "c5_flasher.h"
+#include "msgbox_ui.h"
 #include "notify_ui.h"
 #include "ota_version.h"
 #include "spi_bridge.h"
@@ -41,32 +48,37 @@
 #define ROW_GAP      6
 #define ROW_STEP     (ROW_H + ROW_GAP)
 
-#define COL_RAISE 0x170A28
-
 #define HDR_ICON  "/assets/icons/developer_board.bin"
 #define HDR_TITLE "C5 STATUS"
 
 #define C5_VER_TIMEOUT_MS 500
 #define C5_VER_BUF_LEN    24
 
+#define C5_OP_TASK_STACK 4096
+
+#define C5_REBOOT_LABEL      LV_SYMBOL_REFRESH "  Rebooting C5..."
+#define C5_REBOOT_TEXT_COLOR 0x8A8594
+#define C5_RELINK_ATTEMPTS   10
+#define C5_RELINK_DELAY_MS   500
+
 enum {
-  ACT_DOWNLOAD = 0,
-  ACT_PING,
-  ACT_INFO,
+  ACT_CONSOLE = 0,
+  ACT_SYNC,
+  ACT_REBOOT,
+  ACT_DOWNLOAD,
   ACT_COUNT,
 };
 
 typedef struct {
   const char *sym;
   const char *name;
-  notify_type_t toast_type;
-  const char *toast_text;
 } action_def_t;
 
 static const action_def_t ACTIONS[ACT_COUNT] = {
-    {LV_SYMBOL_DOWNLOAD, "Enter Download", NOTIFY_INFO, "C5 entering download mode"},
-    {LV_SYMBOL_REFRESH, "Legacy Ping", NOTIFY_INFO, "C5 ping: pong in 12 ms"},
-    {LV_SYMBOL_LIST, "Get Info", NOTIFY_SAVED, "C5 v0.9.1  heap 41 KB free"},
+    {LV_SYMBOL_LIST, "C5 Console"},
+    {LV_SYMBOL_REFRESH, "Sync Link"},
+    {LV_SYMBOL_REFRESH, "Reboot C5"},
+    {LV_SYMBOL_DOWNLOAD, "ROM Bootloader"},
 };
 
 static lv_obj_t *s_screen = NULL;
@@ -75,6 +87,8 @@ static lv_obj_t *s_act_icon[ACT_COUNT];
 static lv_obj_t *s_act_name[ACT_COUNT];
 
 static int s_sel = 0;
+static bool s_is_busy = false;
+static int s_pending = -1;
 
 static lv_obj_t *info_row(lv_obj_t *card, int index, const char *tag_txt, const char *val_txt) {
   lv_obj_t *tag = lv_label_create(card);
@@ -98,7 +112,9 @@ static void build_info_card(void) {
   lv_obj_set_size(card, CONTENT_W, INFO_H);
   lv_obj_align(card, LV_ALIGN_TOP_MID, 0, INFO_Y);
   lv_obj_set_style_radius(card, 12, 0);
-  lv_obj_set_style_bg_color(card, current_theme.bg_secondary, 0);
+  lv_obj_set_style_bg_color(card, current_theme.bg_item_top, 0);
+  lv_obj_set_style_bg_grad_color(card, current_theme.bg_item_bot, 0);
+  lv_obj_set_style_bg_grad_dir(card, LV_GRAD_DIR_VER, 0);
   lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
   lv_obj_set_style_border_color(card, current_theme.border_accent, 0);
   lv_obj_set_style_border_width(card, 1, 0);
@@ -174,12 +190,115 @@ static void refresh_selection(void) {
     lv_obj_set_style_border_color(s_act_row[i], sel ? accent : current_theme.border_inactive, 0);
     lv_obj_set_style_border_opa(s_act_row[i], sel ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
     lv_obj_set_style_bg_color(
-        s_act_row[i], sel ? lv_color_hex(COL_RAISE) : current_theme.bg_secondary, 0);
+        s_act_row[i], sel ? current_theme.bg_primary : current_theme.bg_item_top, 0);
+    lv_obj_set_style_bg_grad_color(
+        s_act_row[i], sel ? current_theme.bg_secondary : current_theme.bg_item_bot, 0);
+    lv_obj_set_style_bg_grad_dir(s_act_row[i], LV_GRAD_DIR_VER, 0);
     lv_obj_set_style_shadow_width(s_act_row[i], sel ? 14 : 0, 0);
     lv_obj_set_style_shadow_color(s_act_row[i], accent, 0);
     lv_obj_set_style_shadow_spread(s_act_row[i], sel ? -3 : 0, 0);
     lv_obj_set_style_text_color(s_act_icon[i], sel ? accent : dim, 0);
     lv_obj_set_style_text_color(s_act_name[i], sel ? current_theme.text_main : dim, 0);
+  }
+}
+
+static void c5_op_done(void *data) {
+  esp_err_t r = (esp_err_t)(intptr_t)data;
+  s_is_busy = false;
+  if (s_pending == ACT_REBOOT) {
+    ui_switch_screen(SCREEN_C5_STATUS);
+    notify(r == ESP_OK ? NOTIFY_SAVED : NOTIFY_WARNING,
+           r == ESP_OK ? "C5 rebooted and linked" : "C5 reboot/link failed");
+    return;
+  }
+  if (s_pending == ACT_SYNC) {
+    ui_switch_screen(SCREEN_C5_STATUS);
+    notify(r == ESP_OK ? NOTIFY_SAVED : NOTIFY_WARNING,
+           r == ESP_OK ? "C5 link is alive" : "C5 did not answer");
+    return;
+  }
+  if (r != ESP_OK) {
+    notify(NOTIFY_WARNING, "C5 ROM boot failed");
+    return;
+  }
+  spi_bridge_set_alive(false);
+  msgbox_open_info(NULL,
+                   "C5 ROM BOOT ACTIVE",
+                   "Flash through the C5 USB serial port. After flashing, power-cycle the board "
+                   "once to clear forced ROM boot.",
+                   current_theme.border_accent);
+}
+
+static void c5_op_task(void *arg) {
+  (void)arg;
+  esp_err_t r = ESP_FAIL;
+  if (s_pending == ACT_SYNC) {
+    r = c5_flasher_sync();
+  } else if (s_pending == ACT_REBOOT) {
+    r = c5_flasher_reboot();
+    if (r == ESP_OK) {
+      spi_bridge_set_alive(false);
+      for (int attempt = 0; attempt < C5_RELINK_ATTEMPTS; attempt++) {
+        vTaskDelay(pdMS_TO_TICKS(C5_RELINK_DELAY_MS));
+        r = c5_flasher_sync();
+        if (r == ESP_OK)
+          break;
+      }
+    }
+  } else if (s_pending == ACT_DOWNLOAD) {
+    r = c5_flasher_enter_download();
+  }
+  ui_async_call(c5_op_done, (void *)(intptr_t)r);
+  vTaskDelete(NULL);
+}
+
+static void c5_reboot_input(const input_event_t *ev, void *ctx) {
+  (void)ev;
+  (void)ctx;
+}
+
+static void c5_reboot_overlay_show(void) {
+  lv_obj_t *scr = lv_obj_create(NULL);
+  lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+  lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_t *lbl = lv_label_create(scr);
+  lv_label_set_text(lbl, C5_REBOOT_LABEL);
+  lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(lbl, lv_color_hex(C5_REBOOT_TEXT_COLOR), 0);
+  lv_obj_center(lbl);
+
+  ui_input_set_screen_handler(c5_reboot_input, NULL);
+  ui_screen_load(scr);
+}
+
+static void on_op_confirm(bool confirm) {
+  if (!confirm || s_is_busy)
+    return;
+  s_is_busy = true;
+  if (xTaskCreatePinnedToCore(
+          c5_op_task, "c5_op", C5_OP_TASK_STACK, NULL, SYS_PRIO_SERVICE_HI, NULL, SYS_CORE_RADIO) !=
+      pdPASS) {
+    s_is_busy = false;
+    notify(NOTIFY_WARNING, "C5 busy, try again");
+    return;
+  }
+  if (s_pending == ACT_REBOOT) {
+    c5_reboot_overlay_show();
+  }
+}
+
+static void start_operation(int operation) {
+  if (s_is_busy)
+    return;
+  s_pending = operation;
+  s_is_busy = true;
+  if (xTaskCreatePinnedToCore(
+          c5_op_task, "c5_op", C5_OP_TASK_STACK, NULL, SYS_PRIO_SERVICE_HI, NULL, SYS_CORE_RADIO) !=
+      pdPASS) {
+    s_is_busy = false;
+    notify(NOTIFY_WARNING, "C5 busy, try again");
   }
 }
 
@@ -190,7 +309,6 @@ static void c5_status_input(const input_event_t *ev, void *ctx) {
 
   switch (ev->button) {
     case INPUT_BTN_BACK:
-    case INPUT_BTN_LEFT:
       if (press)
         ui_switch_screen(SCREEN_SETTINGS_DEV);
       break;
@@ -210,8 +328,23 @@ static void c5_status_input(const input_event_t *ev, void *ctx) {
       break;
     case INPUT_BTN_OK:
       if (press) {
-        notify(ACTIONS[s_sel].toast_type, ACTIONS[s_sel].toast_text);
         ui_feedback(UI_FB_SELECT);
+        if (s_sel == ACT_CONSOLE) {
+          ui_switch_screen(SCREEN_C5_CONSOLE);
+        } else if (s_sel == ACT_SYNC) {
+          notify(NOTIFY_INFO, "Synchronizing C5...");
+          start_operation(ACT_SYNC);
+        } else if (s_sel == ACT_REBOOT) {
+          s_pending = ACT_REBOOT;
+          msgbox_open(NULL, "Reboot C5 and verify its link?", "Reboot", "Cancel", on_op_confirm);
+        } else {
+          s_pending = ACT_DOWNLOAD;
+          msgbox_open(NULL,
+                      "Enter C5 ROM bootloader?\nThe radio and SPI link stop until rebooted.",
+                      "ROM Boot",
+                      "Cancel",
+                      on_op_confirm);
+        }
       }
       break;
     default:
@@ -228,6 +361,8 @@ void ui_c5_status_open(void) {
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
+  lv_obj_set_style_bg_grad_color(s_screen, current_theme.bg_primary, 0);
+  lv_obj_set_style_bg_grad_dir(s_screen, LV_GRAD_DIR_VER, 0);
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 

@@ -64,6 +64,14 @@ menu_component_create(lv_obj_t *parent, const char *title, const char *title_ico
 lv_obj_t *menu_component_add_item(menu_component_t *menu, const char *icon_path, const char *label);
 
 /**
+ * @brief Add a menu item whose icon is an in-RAM image descriptor (not an asset
+ *        path). Used for icons embedded in .hb app bundles. The descriptor and
+ *        its pixels must outlive the menu (the caller owns that memory).
+ */
+lv_obj_t *menu_component_add_item_dsc(menu_component_t *menu, const lv_image_dsc_t *dsc,
+                                      const char *label);
+
+/**
  * @brief Add a centered, non-selectable group header (e.g. "Sound & Vibration")
  *        into the list. Navigation skips it; it just visually groups the items
  *        added after it. Call it before the items that belong to the group.

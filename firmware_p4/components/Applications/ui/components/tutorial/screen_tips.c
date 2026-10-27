@@ -108,8 +108,8 @@ static const tip_entry_t TIPS[] = {
 
     {SCREEN_NFC_MENU,
      "NFC",
-     "The whole 13.56 MHz NFC world: read tags, write, emulate and store your cards. Heads-up: "
-     "mocked for now due to a hardware issue."},
+     "13.56 MHz tools for identifying, reading, writing supported tags, APDU work and tested "
+     "emulation. RF performance depends on the NFC matching-network rework."},
     {SCREEN_CARD_EMU,
      "CARD EMULATION",
      "Build a card from scratch or pick a saved one, and the High Boy broadcasts it as the real "
@@ -145,8 +145,8 @@ static const tip_entry_t TIPS[] = {
 
     {SCREEN_SUBGHZ_MENU,
      "SUB-GHZ",
-     "The Sub-GHz radio: capture, analyze and replay remote signals on 433, 868 and 315 MHz. "
-     "Heads-up: mocked for now due to a hardware issue."},
+     "The CC1101 radio can capture, analyze and replay supported signals. Choose a legal "
+     "frequency for your region and only test equipment you own."},
     {SCREEN_SUBGHZ_BRUTE,
      "CODE BRUTE FORCE",
      "Brute Force fires thousands of codes across a range until one pops the gate - no key "
@@ -157,8 +157,8 @@ static const tip_entry_t TIPS[] = {
      "rate and key."},
     {SCREEN_RFID_MENU,
      "RFID 125 kHz",
-     "RFID reads LF 125 kHz tags: read, emulate, add one by hand, even clone a whole access badge. "
-     "Heads-up: mocked for now due to a hardware issue."},
+     "The LF front end now drives a real 125 kHz field and decodes EM4100 tags. Transmit and "
+     "T5577 writing stay unavailable until a verified encoder path exists."},
     {SCREEN_SUBGHZ_CONFIG,
      "RADIO CONFIG",
      "For the tough ones, Radio Config tunes modulation, bandwidth, data rate and preset before "
@@ -185,8 +185,8 @@ static const tip_entry_t TIPS[] = {
 
     {SCREEN_LORA_CHAT,
      "LORA MESH",
-     "Step into the LoRa mesh: pick MeshCore or Meshtastic, see the nodes on the map and chat "
-     "off-grid. Heads-up: mocked for now due to a hardware issue."},
+     "The SX1262 radio supports real LoRa reception plus MeshCore and Meshtastic workflows. "
+     "Range depends on antenna, frequency plan and matching."},
     {SCREEN_LORA_SECURE_DM,
      "ENCRYPTED DM",
      "Direct messages with per-contact X25519 keys. Compare fingerprints to be sure who is on the "
@@ -195,9 +195,9 @@ static const tip_entry_t TIPS[] = {
      "MESH TRACEROUTE",
      "Want your message's path? Traceroute maps every hop and shows the SNR of each leg."},
     {SCREEN_LORA_RNODE,
-     "RNODE / KISS",
-     "In RNode mode the radio becomes a KISS modem: set frequency, SF and power, count raw RX/TX "
-     "packets."},
+     "LORA RADIO LAB",
+     "Receive-only SX1262 diagnostics: select a frequency and inspect RSSI, packet counters and "
+     "capture data. Legacy RNode UART is unavailable on this P4 board."},
     {SCREEN_LORA_MQTT,
      "MQTT BRIDGE",
      "The MQTT bridge links your mesh to the internet: set broker, user and password, then "

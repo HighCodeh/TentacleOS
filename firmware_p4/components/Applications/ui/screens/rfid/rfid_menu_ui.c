@@ -16,11 +16,17 @@
 #include "rfid_menu_ui.h"
 
 #include <stdio.h>
+#include <stdint.h>
+#include <string.h>
 
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "lvgl.h"
 
+#include "lf_rfid.h"
 #include "st7789.h"
+#include "sys_prio.h"
 
 #include "assets_manager.h"
 #include "button_ui.h"
@@ -41,6 +47,9 @@ static const char *TAG = "RFID_UI";
 
 #define TICK_MS   50
 #define REVEAL_MS 3000
+
+#define RFID_READER_STACK_BYTES 6144
+#define RFID_READER_POLL_MS     500
 
 #define COL_DANGER 0xFF5470
 
@@ -189,17 +198,13 @@ static const struct {
 } RFID_ITEMS[] = {
     {"Read", RADAR_ICON},
     {"Saved", SAVED_ICON},
-    {"Emulate", EMULATE_ICON},
-    {"Clone", COPY_ICON},
     {"Add Manually", WRITE_ICON},
 };
 #define RFID_ITEM_COUNT ((int)(sizeof(RFID_ITEMS) / sizeof(RFID_ITEMS[0])))
 
-#define IDX_READ    0
-#define IDX_SAVED   1
-#define IDX_EMULATE 2
-#define IDX_CLONE   3
-#define IDX_ADD     4
+#define IDX_READ  0
+#define IDX_SAVED 1
+#define IDX_ADD   2
 
 typedef struct {
   char name[24];
@@ -208,14 +213,7 @@ typedef struct {
   char bits[28];
 } rfid_card_t;
 
-static const rfid_card_t SAVED_CARDS[] = {
-    {"Office_Badge", "EM4100", "1A 2B 3C 4D 55", "64-bit  |  Read-only"},
-    {"Garage_Fob", "HIDProx", "20 06 EC 0C 86", "44-bit  |  Read-only"},
-    {"Gym_Tag", "Indala", "A0 00 1C FE 49", "64-bit  |  Read-only"},
-    {"Locker_03", "EM4100", "09 FB 2D 77 11", "64-bit  |  Read-only"},
-};
-#define SAVED_CARD_COUNT ((int)(sizeof(SAVED_CARDS) / sizeof(SAVED_CARDS[0])))
-#define RFID_MAX_CARDS   16
+#define RFID_MAX_CARDS 16
 
 static rfid_card_t s_cards[RFID_MAX_CARDS];
 static int s_card_count = 0;
@@ -260,6 +258,16 @@ static bool s_card_revealed = false;
 static bool s_saved = false;
 static capture_result_t s_cr = {0};
 static uint32_t s_revealed_at = 0;
+static rfid_card_t s_last_card;
+static char s_capture_line[40];
+
+static portMUX_TYPE s_reader_lock = portMUX_INITIALIZER_UNLOCKED;
+static bool s_is_reader_running;
+static bool s_is_reader_cancelled;
+static bool s_is_reader_ready;
+static esp_err_t s_reader_result = ESP_OK;
+static uint32_t s_reader_generation;
+static lf_rfid_em4100_t s_reader_tag;
 
 static button_ui_t s_info_emulate;
 static button_ui_t s_info_delete;
@@ -291,14 +299,117 @@ static char s_add_uid[24] = "";
 static void rfid_tick_cb(lv_timer_t *t);
 static void rfid_menu_input(const input_event_t *ev, void *ctx);
 static void build_screen(void);
+static void reader_start(void);
 
 static void store_init(void) {
   if (s_store_ready)
     return;
   s_card_count = 0;
-  for (int i = 0; i < SAVED_CARD_COUNT && s_card_count < RFID_MAX_CARDS; i++)
-    s_cards[s_card_count++] = SAVED_CARDS[i];
+  memset(&s_last_card, 0, sizeof(s_last_card));
   s_store_ready = true;
+}
+
+static bool reader_is_current(uint32_t generation) {
+  portENTER_CRITICAL(&s_reader_lock);
+  bool is_current = !s_is_reader_cancelled && generation == s_reader_generation;
+  portEXIT_CRITICAL(&s_reader_lock);
+  return is_current;
+}
+
+static bool reader_can_start(void) {
+  portENTER_CRITICAL(&s_reader_lock);
+  bool can_start = !s_is_reader_running && !s_is_reader_ready;
+  portEXIT_CRITICAL(&s_reader_lock);
+  return can_start;
+}
+
+static bool reader_take_result(esp_err_t *out_result, lf_rfid_em4100_t *out_tag) {
+  portENTER_CRITICAL(&s_reader_lock);
+  bool is_ready = s_is_reader_ready;
+  if (is_ready) {
+    *out_result = s_reader_result;
+    *out_tag = s_reader_tag;
+    s_is_reader_ready = false;
+  }
+  portEXIT_CRITICAL(&s_reader_lock);
+  return is_ready;
+}
+
+static void reader_task(void *arg) {
+  const uint32_t generation = (uint32_t)(uintptr_t)arg;
+  lf_rfid_em4100_t tag = {0};
+  bool has_field = false;
+  esp_err_t result = ESP_OK;
+  if (reader_is_current(generation)) {
+    result = lf_rfid_init();
+    if (result == ESP_OK && reader_is_current(generation)) {
+      result = lf_rfid_field_start(LF_RFID_NOMINAL_HZ, LF_RFID_DEFAULT_DUTY_PERMILLE);
+      has_field = result == ESP_OK;
+    }
+  }
+
+  while (has_field && reader_is_current(generation) && result == ESP_OK) {
+    result = lf_rfid_read_em4100(RFID_READER_POLL_MS, &tag);
+    if (result == ESP_OK) {
+      break;
+    }
+    if (result == ESP_ERR_NOT_FOUND) {
+      result = ESP_OK;
+      continue;
+    }
+    break;
+  }
+
+  if (has_field) {
+    lf_rfid_field_stop();
+  }
+  portENTER_CRITICAL(&s_reader_lock);
+  if (!s_is_reader_cancelled && generation == s_reader_generation) {
+    s_reader_tag = tag;
+    s_reader_result = result;
+    s_is_reader_ready = true;
+  }
+  s_is_reader_running = false;
+  portEXIT_CRITICAL(&s_reader_lock);
+  vTaskDelete(NULL);
+}
+
+static void reader_start(void) {
+  portENTER_CRITICAL(&s_reader_lock);
+  if (s_is_reader_running) {
+    s_reader_result = ESP_ERR_INVALID_STATE;
+    s_is_reader_ready = true;
+    portEXIT_CRITICAL(&s_reader_lock);
+    return;
+  }
+  s_is_reader_cancelled = false;
+  s_is_reader_ready = false;
+  s_reader_result = ESP_OK;
+  s_is_reader_running = true;
+  const uint32_t generation = ++s_reader_generation;
+  portEXIT_CRITICAL(&s_reader_lock);
+  if (xTaskCreatePinnedToCore(reader_task,
+                              "rfid_em4100",
+                              RFID_READER_STACK_BYTES,
+                              (void *)(uintptr_t)generation,
+                              SYS_PRIO_SERVICE_LO,
+                              NULL,
+                              SYS_CORE_RADIO) != pdPASS) {
+    ESP_LOGE(TAG, "Failed to create RFID reader task");
+    portENTER_CRITICAL(&s_reader_lock);
+    s_is_reader_running = false;
+    s_reader_result = ESP_ERR_NO_MEM;
+    s_is_reader_ready = !s_is_reader_cancelled && generation == s_reader_generation;
+    portEXIT_CRITICAL(&s_reader_lock);
+  }
+}
+
+void ui_rfid_menu_stop(void) {
+  portENTER_CRITICAL(&s_reader_lock);
+  s_is_reader_cancelled = true;
+  s_is_reader_ready = false;
+  ++s_reader_generation;
+  portEXIT_CRITICAL(&s_reader_lock);
 }
 
 static void stop_scan_timers(void) {
@@ -589,26 +700,10 @@ static void reveal_captured_card(void) {
     lv_obj_set_style_text_color(s_status_lbl, lv_color_hex(UI_COL_SUCCESS), 0);
   }
 
-  lv_obj_t *card =
-      build_data_card(s_screen, CARD_TITLE, CARD_SUBTITLE, CARD_LINE, CARD_META, true, true);
+  lv_obj_t *card = build_data_card(
+      s_screen, s_last_card.proto, CARD_SUBTITLE, s_capture_line, s_last_card.bits, true, true);
   lv_obj_align(card, LV_ALIGN_CENTER, 0, CARD_Y_READ);
   card_rise(card);
-}
-
-static void scan_done_cb(lv_timer_t *t) {
-  (void)t;
-  s_scan_timer = NULL;
-  if (lv_screen_active() != s_screen)
-    return;
-
-  s_card_revealed = true;
-  s_revealed_at = lv_tick_get();
-  reveal_captured_card();
-  ESP_LOGI(TAG, "mock rfid capture: %s %s", CARD_TITLE, CARD_LINE);
-  ui_feedback(UI_FB_READ);
-
-  if (s_hint != NULL)
-    ui_chrome_footer_set_text(s_hint, HINT_SHOW);
 }
 
 static void build_read(void) {
@@ -634,9 +729,7 @@ static void build_read(void) {
   build_scan_field();
 
   s_hint = ui_chrome_footer(s_screen, HINT_SCAN);
-
-  s_scan_timer = lv_timer_create(scan_done_cb, SCAN_MS, NULL);
-  lv_timer_set_repeat_count(s_scan_timer, 1);
+  reader_start();
 }
 
 static void build_saved_empty(void) {
@@ -1167,9 +1260,10 @@ static void add_manual_commit(void) {
   s_card_count++;
 
   ui_feedback(UI_FB_WRITE);
-  ESP_LOGI(TAG, "mock rfid manual add: %s %s", c->name, c->uid);
-  notify(NOTIFY_SAVED, "Card added");
-  msgbox_open_info(CARD_ICON, "Saved", "Card added to library", current_theme.border_accent);
+  ESP_LOGI(TAG, "RFID manual entry added for this session: %s %s", c->name, c->uid);
+  notify(NOTIFY_SAVED, "Saved for this session");
+  msgbox_open_info(
+      CARD_ICON, "Session saved", "Kept until the next reboot", current_theme.border_accent);
   s_pending_view = VIEW_SAVED;
 }
 
@@ -1224,8 +1318,8 @@ static void build_screen(void) {
           .accent = current_theme.border_accent,
           .card_icon = CARD_ICON,
           .card_title = "Tag captured",
-          .card_sub = CARD_TITLE,
-          .card_value = CARD_LINE,
+          .card_sub = s_last_card.proto,
+          .card_value = s_capture_line,
           .primary_label = "Emulate",
           .again_label = "Read again",
       };
@@ -1238,12 +1332,6 @@ static void build_screen(void) {
       break;
     case VIEW_SAVED_INFO:
       build_saved_info();
-      break;
-    case VIEW_EMULATE:
-      build_emulate();
-      break;
-    case VIEW_CLONE:
-      build_clone();
       break;
     case VIEW_ADD:
       build_add_manual();
@@ -1270,11 +1358,46 @@ static void read_tick(void) {
   if (!s_card_revealed) {
     if (s_status_lbl != NULL)
       status_dots(s_status_lbl, READ_STATUS_BUSY, now - s_scan_start);
-    if (s_hex_lbl != NULL && (now - s_hex_stamp) >= HEX_UPDATE_MS) {
-      s_hex_stamp = now;
-      char hex[HEX_BUF_LEN];
-      scramble_hex(hex, sizeof(hex), now);
-      lv_label_set_text(s_hex_lbl, hex);
+    if (s_hex_lbl != NULL)
+      lv_label_set_text(s_hex_lbl, "FIELD ON | EM4100");
+
+    esp_err_t result = ESP_OK;
+    lf_rfid_em4100_t tag = {0};
+    if (reader_take_result(&result, &tag)) {
+      if (result == ESP_OK) {
+        snprintf(s_last_card.name,
+                 sizeof(s_last_card.name),
+                 "EM4100_%02X%02X",
+                 tag.bytes[3],
+                 tag.bytes[4]);
+        snprintf(s_last_card.proto, sizeof(s_last_card.proto), "EM4100");
+        snprintf(s_last_card.uid,
+                 sizeof(s_last_card.uid),
+                 "%02X %02X %02X %02X %02X",
+                 tag.bytes[0],
+                 tag.bytes[1],
+                 tag.bytes[2],
+                 tag.bytes[3],
+                 tag.bytes[4]);
+        snprintf(s_last_card.bits, sizeof(s_last_card.bits), "64-bit  |  parity OK");
+        snprintf(s_capture_line, sizeof(s_capture_line), "UID  %s", s_last_card.uid);
+        s_card_revealed = true;
+        s_revealed_at = now;
+        reveal_captured_card();
+        ESP_LOGI(TAG, "real EM4100 capture: %s", s_last_card.uid);
+        ui_feedback(UI_FB_READ);
+        if (s_hint != NULL)
+          ui_chrome_footer_set_text(s_hint, HINT_SHOW);
+      } else {
+        if (s_status_lbl != NULL) {
+          lv_label_set_text(s_status_lbl,
+                            result == ESP_ERR_INVALID_STATE ? "RFID busy - press OK"
+                                                            : "RFID hardware error");
+          lv_obj_set_style_text_color(s_status_lbl, lv_color_hex(COL_DANGER), 0);
+        }
+        if (s_hint != NULL)
+          ui_chrome_footer_set_text(s_hint, "OK Retry   BACK Exit");
+      }
     }
   }
 }
@@ -1305,10 +1428,6 @@ static void rfid_tick_cb(lv_timer_t *t) {
       s_view = VIEW_OPTIONS;
       build_screen();
     }
-  } else if (s_view == VIEW_EMULATE) {
-    emu_tick();
-  } else if (s_view == VIEW_CLONE) {
-    clone_tick();
   }
 }
 
@@ -1341,13 +1460,6 @@ static void rfid_menu_input(const input_event_t *ev, void *ctx) {
               s_saved_sel = 0;
               s_view = VIEW_SAVED;
               build_screen();
-            } else if (sel == IDX_EMULATE) {
-              seed_emulate_default();
-              s_view = VIEW_EMULATE;
-              build_screen();
-            } else if (sel == IDX_CLONE) {
-              s_view = VIEW_CLONE;
-              build_screen();
             } else if (sel == IDX_ADD) {
               s_add_proto = 0;
               s_add_bits = 1;
@@ -1367,7 +1479,12 @@ static void rfid_menu_input(const input_event_t *ev, void *ctx) {
       break;
 
     case VIEW_READ:
-      if (ev->button == INPUT_BTN_BACK && press) {
+      if (ev->button == INPUT_BTN_OK && press && !s_card_revealed && reader_can_start()) {
+        ui_rfid_menu_stop();
+        s_view = VIEW_READ;
+        build_screen();
+      } else if (ev->button == INPUT_BTN_BACK && press) {
+        ui_rfid_menu_stop();
         s_view = VIEW_LIST;
         build_screen();
       }
@@ -1391,17 +1508,23 @@ static void rfid_menu_input(const input_event_t *ev, void *ctx) {
           if (press) {
             switch (capture_result_selected(&s_cr)) {
               case CAP_ACT_PRIMARY:
-                seed_emulate_default();
-                s_view = VIEW_EMULATE;
-                build_screen();
+                msgbox_open_info(CARD_ICON,
+                                 "RFID TX unavailable",
+                                 "Captured data is valid; RF encoding is not implemented",
+                                 current_theme.border_accent);
                 break;
               case CAP_ACT_SAVE:
                 if (!s_saved) {
-                  s_saved = true;
-                  capture_result_mark_saved(&s_cr);
-                  ESP_LOGI(TAG, "mock rfid saved: %s", CARD_TITLE);
-                  ui_feedback(UI_FB_WRITE);
-                  notify(NOTIFY_SAVED, "RFID tag saved");
+                  if (s_card_count < RFID_MAX_CARDS) {
+                    s_cards[s_card_count++] = s_last_card;
+                    s_saved = true;
+                    capture_result_mark_saved(&s_cr);
+                    ESP_LOGI(TAG, "RFID saved for this session: %s", s_last_card.uid);
+                    ui_feedback(UI_FB_WRITE);
+                    notify(NOTIFY_SAVED, "Saved for this session");
+                  } else {
+                    notify(NOTIFY_WARNING, "Session library full");
+                  }
                 }
                 break;
               case CAP_ACT_AGAIN:
@@ -1483,9 +1606,10 @@ static void rfid_menu_input(const input_event_t *ev, void *ctx) {
           if (press) {
             ui_feedback(UI_FB_SELECT);
             if (s_info_sel == 0) {
-              seed_emulate_from_card(&s_cards[s_saved_sel]);
-              s_view = VIEW_EMULATE;
-              build_screen();
+              msgbox_open_info(CARD_ICON,
+                               "RFID TX unavailable",
+                               "Saved data is readable; no RF was transmitted",
+                               current_theme.border_accent);
             } else {
               char msg[40];
               snprintf(msg, sizeof(msg), "Delete %s?", s_cards[s_saved_sel].name);
@@ -1501,20 +1625,6 @@ static void rfid_menu_input(const input_event_t *ev, void *ctx) {
           break;
         default:
           break;
-      }
-      break;
-
-    case VIEW_EMULATE:
-      if (ev->button == INPUT_BTN_BACK && press) {
-        s_view = VIEW_LIST;
-        build_screen();
-      }
-      break;
-
-    case VIEW_CLONE:
-      if (ev->button == INPUT_BTN_BACK && press) {
-        s_view = VIEW_LIST;
-        build_screen();
       }
       break;
 

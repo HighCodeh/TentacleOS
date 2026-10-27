@@ -33,6 +33,15 @@ extern "C" {
  */
 esp_err_t ble_hid_init(void);
 
+/** Register the composite HID service before the NimBLE host starts. */
+esp_err_t ble_hid_register_services(void);
+
+/** Return whether the HID service belongs to the current NimBLE instance. */
+bool ble_hid_services_registered(void);
+
+/** Clear HID runtime state after the shared Bluetooth stack is deinitialized. */
+void ble_hid_stack_reset(void);
+
 /**
  * @brief Stop the HID service and disconnect.
  *
@@ -55,6 +64,9 @@ bool ble_hid_is_connected(void);
  * @param modifier Modifier flags (Shift, Ctrl, Alt, GUI).
  */
 void ble_hid_send_key(uint8_t keycode, uint8_t modifier);
+
+/** Send a relative mouse input report through the composite HID service. */
+void ble_hid_send_mouse(int8_t x, int8_t y, uint8_t buttons, int8_t wheel);
 
 #ifdef __cplusplus
 }

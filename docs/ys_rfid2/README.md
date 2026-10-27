@@ -1,5 +1,9 @@
 # YS-RFID2 UART RFID Reader Driver
 
+The integrated High Boy V2 boot and RFID read screen use the
+[native LF driver and shared RF frontend](../rf_frontend/README.md). This page
+describes the retained optional UART driver, which is not the active native path.
+
 This component drives the YS-RFID2 serial RFID reader module. It reads the module's ASCII output over UART, parses the "card number" frames into card IDs, and delivers card-detected / card-removed events to the application through a callback. It is `firmware_p4` only.
 
 ## Overview

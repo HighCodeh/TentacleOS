@@ -15,12 +15,13 @@
 
 #include "nfc_crypto.h"
 
+#include "firmware_crypto.h"
+
 #include <string.h>
 #include <stdlib.h>
 
 #include "esp_log.h"
-#include "mbedtls/aes.h"
-#include "mbedtls/des.h"
+#include "legacy_des/des.h"
 
 static const char *TAG = "NFC_CRYPTO";
 
@@ -63,97 +64,43 @@ int nfc_memcmp_ct(const void *a, const void *b, size_t n) {
 }
 
 bool nfc_aes_ecb_encrypt(const uint8_t key[16], const uint8_t in[16], uint8_t out[16]) {
-  if (key == NULL || in == NULL || out == NULL)
-    return false;
-  mbedtls_aes_context ctx;
-  mbedtls_aes_init(&ctx);
-  int rc = mbedtls_aes_setkey_enc(&ctx, key, AES_KEY_SIZE_BITS);
-  if (rc != 0) {
-    mbedtls_aes_free(&ctx);
-    return false;
-  }
-  rc = mbedtls_aes_crypt_ecb(&ctx, MBEDTLS_AES_ENCRYPT, in, out);
-  mbedtls_aes_free(&ctx);
-  return rc == 0;
+  firmware_crypto_cipher_t params = {
+      .key = {key, AES_BLOCK_SIZE}, .algorithm = PSA_ALG_ECB_NO_PADDING, .is_encrypt = true};
+  return firmware_crypto_cipher(&params, (firmware_crypto_span_t){in, AES_BLOCK_SIZE}, out) ==
+         ESP_OK;
 }
 
 bool nfc_aes_cbc_crypt(const nfc_cbc_params_t *p, const uint8_t *in, size_t len, uint8_t *out) {
   if (p == NULL || p->key == NULL || p->iv_in == NULL || in == NULL || out == NULL ||
-      (len % AES_BLOCK_SIZE) != 0)
+      len % AES_BLOCK_SIZE != 0)
     return false;
-
-  mbedtls_aes_context ctx;
-  mbedtls_aes_init(&ctx);
-  int rc = p->encrypt ? mbedtls_aes_setkey_enc(&ctx, p->key, AES_KEY_SIZE_BITS)
-                      : mbedtls_aes_setkey_dec(&ctx, p->key, AES_KEY_SIZE_BITS);
-  if (rc != 0) {
-    mbedtls_aes_free(&ctx);
+  uint8_t next_iv[AES_BLOCK_SIZE];
+  memcpy(next_iv, p->iv_in, AES_BLOCK_SIZE);
+  if (!p->encrypt && len != 0)
+    memcpy(next_iv, in + len - AES_BLOCK_SIZE, AES_BLOCK_SIZE);
+  firmware_crypto_cipher_t params = {.key = {p->key, AES_BLOCK_SIZE},
+                                     .iv = {p->iv_in, AES_BLOCK_SIZE},
+                                     .algorithm = PSA_ALG_CBC_NO_PADDING,
+                                     .is_encrypt = p->encrypt};
+  if (firmware_crypto_cipher(&params, (firmware_crypto_span_t){in, len}, out) != ESP_OK)
     return false;
-  }
-
-  uint8_t iv[AES_BLOCK_SIZE];
-  memcpy(iv, p->iv_in, AES_BLOCK_SIZE);
-  rc = mbedtls_aes_crypt_cbc(
-      &ctx, p->encrypt ? MBEDTLS_AES_ENCRYPT : MBEDTLS_AES_DECRYPT, len, iv, in, out);
-  if (p->iv_out)
-    memcpy(p->iv_out, iv, AES_BLOCK_SIZE);
-  mbedtls_aes_free(&ctx);
-  return rc == 0;
-}
-
-static void leftshift_onebit_128(const uint8_t *in, uint8_t *out) {
-  for (int i = 0; i < AES_BLOCK_SIZE - 1; i++) {
-    out[i] = (uint8_t)((in[i] << 1) | (in[i + 1] >> 7));
-  }
-  out[AES_BLOCK_SIZE - 1] = (uint8_t)(in[AES_BLOCK_SIZE - 1] << 1);
-}
-
-static void aes_cmac_subkeys(const uint8_t *key, uint8_t *k1, uint8_t *k2) {
-  static const uint8_t zero16[AES_BLOCK_SIZE] = {0};
-  uint8_t L[AES_BLOCK_SIZE];
-  (void)nfc_aes_ecb_encrypt(key, zero16, L);
-
-  leftshift_onebit_128(L, k1);
-  if (L[0] & CMAC_MSB_MASK)
-    k1[AES_BLOCK_SIZE - 1] ^= AES_CMAC_RB;
-
-  leftshift_onebit_128(k1, k2);
-  if (k1[0] & CMAC_MSB_MASK)
-    k2[AES_BLOCK_SIZE - 1] ^= AES_CMAC_RB;
+  if (p->encrypt && len != 0)
+    memcpy(next_iv, out + len - AES_BLOCK_SIZE, AES_BLOCK_SIZE);
+  if (p->iv_out != NULL)
+    memcpy(p->iv_out, next_iv, AES_BLOCK_SIZE);
+  return true;
 }
 
 int nfc_aes_cmac(
     const uint8_t *key, size_t key_len, const uint8_t *msg, size_t msg_len, uint8_t tag[16]) {
-  if (key == NULL || msg == NULL || tag == NULL || key_len != AES_BLOCK_SIZE)
+  if (key_len != AES_BLOCK_SIZE)
     return -1;
-
-  uint8_t k1[AES_BLOCK_SIZE], k2[AES_BLOCK_SIZE];
-  aes_cmac_subkeys(key, k1, k2);
-
-  int n = (msg_len == 0) ? 1 : (int)((msg_len + AES_BLOCK_SIZE - 1) / AES_BLOCK_SIZE);
-  bool padded = (msg_len == 0) || (msg_len % AES_BLOCK_SIZE != 0);
-
-  uint8_t X[AES_BLOCK_SIZE] = {0};
-  uint8_t Y[AES_BLOCK_SIZE];
-
-  for (int i = 0; i < n - 1; i++) {
-    for (int j = 0; j < (int)AES_BLOCK_SIZE; j++)
-      Y[j] = msg[i * AES_BLOCK_SIZE + j] ^ X[j];
-    (void)nfc_aes_ecb_encrypt(key, Y, X);
-  }
-
-  uint8_t last[AES_BLOCK_SIZE] = {0};
-  size_t last_len = (msg_len == 0) ? 0 : (msg_len - (size_t)(n - 1) * AES_BLOCK_SIZE);
-  if (last_len > 0)
-    memcpy(last, msg + (size_t)(n - 1) * AES_BLOCK_SIZE, last_len);
-  if (padded)
-    last[last_len] = ISO9797_PAD_BYTE;
-
-  const uint8_t *subkey = padded ? k2 : k1;
-  for (int j = 0; j < (int)AES_BLOCK_SIZE; j++)
-    Y[j] = (uint8_t)(last[j] ^ subkey[j] ^ X[j]);
-  (void)nfc_aes_ecb_encrypt(key, Y, tag);
-  return 0;
+  return firmware_crypto_mac((firmware_crypto_span_t){key, key_len},
+                             (firmware_crypto_span_t){msg, msg_len},
+                             PSA_ALG_CMAC,
+                             tag) == ESP_OK
+             ? 0
+             : -1;
 }
 
 static bool
@@ -401,8 +348,10 @@ int nfc_ev2_compute_cmd_mac(const nfc_ev2_mac_ctx_t *ctx,
 
   size_t buf_len = EV2_MAC_HEADER_SIZE + cmd->hdr_len + cmd->data_len;
   uint8_t *buf = (uint8_t *)malloc(buf_len);
-  if (buf == NULL)
+  if (buf == NULL) {
+    ESP_LOGE(TAG, "Cannot allocate MAC input");
     return -1;
+  }
 
   buf[0] = ctx->ins;
   buf[1] = (uint8_t)(ctx->cmd_ctr & 0xFF);
@@ -414,10 +363,13 @@ int nfc_ev2_compute_cmd_mac(const nfc_ev2_mac_ctx_t *ctx,
     memcpy(buf + EV2_MAC_HEADER_SIZE + cmd->hdr_len, cmd->data, cmd->data_len);
 
   uint8_t cmac[AES_BLOCK_SIZE];
-  (void)nfc_aes_cmac(ctx->ses_mac_key, AES_BLOCK_SIZE, buf, buf_len, cmac);
-  nfc_ev2_mac_truncate(cmac, mac8);
+  int result = nfc_aes_cmac(ctx->ses_mac_key, AES_BLOCK_SIZE, buf, buf_len, cmac);
+  if (result == 0)
+    nfc_ev2_mac_truncate(cmac, mac8);
+  else
+    memset(mac8, 0, DES_BLOCK_SIZE);
   free(buf);
-  return 0;
+  return result;
 }
 
 int nfc_ev2_compute_resp_mac(const nfc_ev2_mac_ctx_t *ctx,
@@ -429,8 +381,10 @@ int nfc_ev2_compute_resp_mac(const nfc_ev2_mac_ctx_t *ctx,
 
   size_t buf_len = EV2_MAC_HEADER_SIZE + resp_len;
   uint8_t *buf = (uint8_t *)malloc(buf_len);
-  if (buf == NULL)
+  if (buf == NULL) {
+    ESP_LOGE(TAG, "Cannot allocate MAC input");
     return -1;
+  }
 
   buf[0] = ctx->ins;
   buf[1] = (uint8_t)(ctx->cmd_ctr & 0xFF);
@@ -440,10 +394,13 @@ int nfc_ev2_compute_resp_mac(const nfc_ev2_mac_ctx_t *ctx,
     memcpy(buf + EV2_MAC_HEADER_SIZE, resp_data, resp_len);
 
   uint8_t cmac[AES_BLOCK_SIZE];
-  (void)nfc_aes_cmac(ctx->ses_mac_key, AES_BLOCK_SIZE, buf, buf_len, cmac);
-  nfc_ev2_mac_truncate(cmac, mac8);
+  int result = nfc_aes_cmac(ctx->ses_mac_key, AES_BLOCK_SIZE, buf, buf_len, cmac);
+  if (result == 0)
+    nfc_ev2_mac_truncate(cmac, mac8);
+  else
+    memset(mac8, 0, DES_BLOCK_SIZE);
   free(buf);
-  return 0;
+  return result;
 }
 
 void nfc_ev2_build_iv_cmd(const uint8_t ses_enc[16],

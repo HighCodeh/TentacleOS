@@ -21,7 +21,7 @@
 #include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "mbedtls/des.h"
+#include "legacy_des/des.h"
 
 #include "st25r3916_core.h"
 #include "st25r3916_reg.h"

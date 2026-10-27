@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_log.h"
 #include "lvgl.h"
 #include "st7789.h"
@@ -123,7 +124,7 @@ static const struct {
 #define IDX_CONFIG   6
 
 #define SAVED_MAX 64
-static subghz_storage_entry_t s_saved[SAVED_MAX];
+EXT_RAM_BSS_ATTR static subghz_storage_entry_t s_saved[SAVED_MAX];
 static int s_saved_count = 0;
 
 static void fmt_mhz(uint32_t hz, char *out, size_t n) {
@@ -179,9 +180,9 @@ static lv_obj_t *s_info_labels[INFO_ACTION_COUNT];
 static int s_info_sel = 0;
 
 static lv_obj_t *s_sig_cont = NULL;
-static lv_obj_t *s_sig_row[SAVED_MAX];
-static lv_obj_t *s_sig_name[SAVED_MAX];
-static lv_obj_t *s_sig_val[SAVED_MAX];
+EXT_RAM_BSS_ATTR static lv_obj_t *s_sig_row[SAVED_MAX];
+EXT_RAM_BSS_ATTR static lv_obj_t *s_sig_name[SAVED_MAX];
+EXT_RAM_BSS_ATTR static lv_obj_t *s_sig_val[SAVED_MAX];
 static lv_obj_t *s_sig_thumb = NULL;
 static lv_obj_t *s_spec_bars[BAR_COUNT];
 

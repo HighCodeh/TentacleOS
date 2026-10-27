@@ -221,3 +221,55 @@ ir flash <on|off>                         drive the emitter at full power (torch
 - `ir rx` calls `ir_rx_init` + `ir_rx_prime`, waits for a frame, prints protocol/address/command (and `[repeat]`), then `ir_rx_deinit`. Reports timeout and undecoded-frame cases distinctly.
 - `ir send` resolves the protocol name (case-insensitive), parses `addr`/`cmd` (0x hex accepted), inits TX, sends, then deinits TX.
 - `ir flash on` drives the emitter to full power (`ir_flash_on`); `ir flash off` turns it off. The output is infrared - check with a phone camera.
+
+## Integrated IR library and validation
+
+The IR menu opens a native browser with two sources: `/sdcard/ir/library` for
+user remotes and `/assets/ir` for the bundled `tv.ir`, `audio.ir` and `ac.ir`
+collections. If the SD library is missing or empty, it opens the built-in source.
+A source selector at the root switches between them without copying or writing
+files. The built-in source requires the runtime assets to be installed; an
+app-only build does not restore them. It lists up
+to 48 short names per directory, uses pages of 16 entries and bounds directory
+depth to eight levels. Selecting an `.ir` file loads supported signals; selecting
+a signal transmits it through `ir_store_send_signal()`.
+
+`ir_file_parse()` reads full lines from a PSRAM buffer, limits input to 512 KiB
+and RAW signals to 8192 pulses. Invalid fields reject the parse and free signals
+appended by that call while preserving preexisting entries. Transmission rejects
+RAW durations outside 1–32767 us, totals above 900000 us and carriers outside
+10–100 kHz. Rejected timings are not truncated to fit RMT fields.
+
+## App-worker lease
+
+The [IR app ABI](../app_sdk/README.md#native-ir-api-abi-111) uses the persistent
+host worker and the local-call force-kill gate. An internal task-owned lease is
+acquired only while native channels, torch and in-flight native operations are
+idle. While held, other tasks cannot initialize, receive, transmit, prime or
+deinitialize the shared IR peripheral. Existing native UI/companion sessions are
+refused rather than reused. Nested calls from the owning worker remain valid.
+
+Decoded app RX is bounded to 1–1000 ms; decoded TX uses the existing RMT wait.
+Both paths release channels and the lease before returning. If RMT disable,
+channel deletion or encoder deletion fails, the driver retains the corresponding
+handle and resource grant. The worker retains its lease, blocking conflicting
+callers; a later local IR operation retries cleanup before starting new work.
+Init failures use the same checked teardown. No new app-created hardware task
+or firmware-pointer access is introduced.
+
+`tools/ir_api/test_ir_api.py` compiles production lease code, lifecycle wrappers,
+teardown functions, local backend and ABI with explicit RMT/RTOS fakes. It covers
+native/app contention, foreign teardown rejection, protocol conversion, stop,
+timeout and retained RX/TX/encoder cleanup. Actual optical operation remains
+part of physical acceptance.
+
+
+## App and script adapters
+
+ABI 1.16 exposes decoded RX/TX, signed raw capture/replay, single-signal SD-file
+replay and AC state encoding through the shared app table and JS/Lua bindings.
+Extended calls execute under the persistent host worker's IR lease; heap symbol
+storage survives failed RMT teardown and is reclaimed only after cleanup succeeds.
+This avoids freeing replay/AC symbols while a timed-out transmit may still use
+them. See the [app contract](../app_sdk/README.md#complete-ir-adapters-abi-116)
+and [script calls](../scripts/README.md#complete-ir-bindings-abi-116).

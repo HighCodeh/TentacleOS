@@ -16,10 +16,15 @@
 #include "ir_controller_ui.h"
 
 #include <stdio.h>
+#include <stdatomic.h>
 #include <strings.h>
 
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "sys_prio.h"
 
+#include "ir_ac_request.h"
 #include "ir_store.h"
 #include "notify_ui.h"
 #include "ui_chrome.h"
@@ -38,21 +43,26 @@ static const char *TAG = "IR_CTRL_UI";
 
 #define FLASH_MS 150
 
-#define AC_FIELD_COUNT 4
+#define AC_FIELD_COUNT 5
 #define AC_F_POWER     0
 #define AC_F_MODE      1
 #define AC_F_TEMP      2
 #define AC_F_FAN       3
+#define AC_F_BRAND     4
 
-#define AC_TEMP_MIN     16
-#define AC_TEMP_MAX     30
-#define AC_TEMP_DEFAULT 22
-#define AC_FAN_DEFAULT  1
-#define AC_ON_COLOR     0x00E676
+#define AC_TEMP_MIN       16
+#define AC_TEMP_MAX       30
+#define AC_TEMP_DEFAULT   22
+#define AC_MODE_DEFAULT   IR_AC_MODE_COOL
+#define AC_FAN_DEFAULT    IR_AC_FAN_AUTO
+#define AC_ON_COLOR       0x00E676
+#define AC_TX_TASK_STACK  6144
+#define AC_TX_POLL_MS     50
+#define AC_TX_MESSAGE_LEN 80
 
 #define AC_ROW_W      210
-#define AC_ROW_H      48
-#define AC_ROW_GAP    10
+#define AC_ROW_H      42
+#define AC_ROW_GAP    4
 #define AC_ROW_RADIUS 10
 #define AC_ROW_PAD    16
 #define AC_ROW_BORDER 2
@@ -121,10 +131,10 @@ static const rc_layout_t LAYOUTS[] = {
 };
 #define LAYOUT_COUNT ((int)(sizeof(LAYOUTS) / sizeof(LAYOUTS[0])))
 
-static const char *const AC_LABELS[AC_FIELD_COUNT] = {"Power", "Mode", "Temp", "Fan"};
-static const char *const AC_MODES[] = {"Cool", "Heat", "Fan", "Auto"};
+static const char *const AC_LABELS[AC_FIELD_COUNT] = {"Power", "Mode", "Temp", "Fan", "Brand"};
+static const char *const AC_MODES[] = {"Auto", "Cool", "Dry", "Heat", "Fan"};
 #define AC_MODE_COUNT ((int)(sizeof(AC_MODES) / sizeof(AC_MODES[0])))
-static const char *const AC_FANS[] = {"Low", "Med", "High", "Auto"};
+static const char *const AC_FANS[] = {"Auto", "Low", "Med", "High"};
 #define AC_FAN_COUNT ((int)(sizeof(AC_FANS) / sizeof(AC_FANS[0])))
 
 static ir_device_t s_device = IR_DEV_TV;
@@ -141,9 +151,16 @@ static lv_obj_t *s_ac_rows[AC_FIELD_COUNT];
 static lv_obj_t *s_ac_vals[AC_FIELD_COUNT];
 static int s_ac_sel = 0;
 static bool s_ac_power = true;
-static int s_ac_mode = 0;
+static int s_ac_mode = AC_MODE_DEFAULT;
 static int s_ac_temp = AC_TEMP_DEFAULT;
 static int s_ac_fan = AC_FAN_DEFAULT;
+static int s_ac_brand = IR_AC_PROTO_UNKNOWN;
+static bool s_is_ac_tx_busy = false;
+static atomic_bool s_is_ac_tx_done = false;
+static ir_ac_state_t s_ac_tx_state;
+static esp_err_t s_ac_tx_result;
+static uint32_t s_screen_generation = 0;
+static uint32_t s_ac_tx_generation = 0;
 
 static void ir_controller_input(const input_event_t *ev, void *ctx);
 
@@ -151,6 +168,12 @@ static const char *const UNIVERSAL_FILE[] = {
     [IR_DEV_TV] = "/sdcard/ir/tv.ir",
     [IR_DEV_SOUND] = "/sdcard/ir/audio.ir",
     [IR_DEV_AC] = "/sdcard/ir/ac.ir",
+};
+
+static const char *const UNIVERSAL_FILE_BUNDLED[] = {
+    [IR_DEV_TV] = "/assets/ir/tv.ir",
+    [IR_DEV_SOUND] = "/assets/ir/audio.ir",
+    [IR_DEV_AC] = "/assets/ir/ac.ir",
 };
 
 static ir_file_t s_uni = {0};
@@ -167,8 +190,17 @@ static void load_universal(ir_device_t dev) {
   ir_file_free(&s_uni);
   s_uni_loaded = false;
   ir_file_init(&s_uni);
-  if ((int)dev >= 0 && (int)dev < LAYOUT_COUNT && UNIVERSAL_FILE[dev] != NULL) {
-    if (ir_store_load(UNIVERSAL_FILE[dev], &s_uni) == ESP_OK && s_uni.count > 0)
+  if ((int)dev < 0 || (int)dev >= LAYOUT_COUNT || dev == IR_DEV_AC)
+    return;
+  if (UNIVERSAL_FILE[dev] != NULL && ir_store_load(UNIVERSAL_FILE[dev], &s_uni) == ESP_OK &&
+      s_uni.count > 0) {
+    s_uni_loaded = true;
+    return;
+  }
+  if (UNIVERSAL_FILE_BUNDLED[dev] != NULL) {
+    ir_file_free(&s_uni);
+    ir_file_init(&s_uni);
+    if (ir_store_load(UNIVERSAL_FILE_BUNDLED[dev], &s_uni) == ESP_OK && s_uni.count > 0)
       s_uni_loaded = true;
   }
 }
@@ -214,22 +246,6 @@ static void uni_send(const char *name) {
   if (s_send_timer != NULL)
     lv_timer_delete(s_send_timer);
   s_send_timer = lv_timer_create(uni_send_tick, 90, NULL);
-}
-
-static const char *ac_universal_name(void) {
-  if (!s_ac_power)
-    return "Off";
-  bool hi = s_ac_temp >= 24;
-  switch (s_ac_mode) {
-    case 0:
-      return hi ? "Cool_hi" : "Cool_lo";
-    case 1:
-      return hi ? "Heat_hi" : "Heat_lo";
-    case 2:
-      return "Dh";
-    default:
-      return hi ? "Cool_hi" : "Cool_lo";
-  }
 }
 
 void ui_ir_controller_set_device(ir_device_t dev) {
@@ -301,6 +317,10 @@ static void ac_update_values(void) {
   lv_label_set_text(s_ac_vals[AC_F_MODE], AC_MODES[s_ac_mode]);
   lv_label_set_text(s_ac_vals[AC_F_TEMP], temp_buf);
   lv_label_set_text(s_ac_vals[AC_F_FAN], AC_FANS[s_ac_fan]);
+  lv_label_set_text(s_ac_vals[AC_F_BRAND],
+                    s_ac_brand == IR_AC_PROTO_UNKNOWN
+                        ? "Select"
+                        : ir_ac_protocol_name((ir_ac_protocol_t)s_ac_brand));
 
   lv_color_t active = current_theme.border_accent;
   lv_color_t idle = current_theme.text_secondary;
@@ -310,6 +330,7 @@ static void ac_update_values(void) {
   lv_obj_set_style_text_color(s_ac_vals[AC_F_MODE], body, 0);
   lv_obj_set_style_text_color(s_ac_vals[AC_F_TEMP], body, 0);
   lv_obj_set_style_text_color(s_ac_vals[AC_F_FAN], body, 0);
+  lv_obj_set_style_text_color(s_ac_vals[AC_F_BRAND], active, 0);
 }
 
 static void flash_restore_cb(lv_timer_t *t) {
@@ -341,7 +362,10 @@ static void flash_focus(void) {
 static lv_obj_t *ac_make_row(const char *label, lv_obj_t **out_val) {
   lv_obj_t *row = lv_obj_create(s_keypad);
   lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(row, AC_ROW_W, AC_ROW_H);
+  lv_obj_set_size(
+      row,
+      AC_ROW_W,
+      LV_MIN(AC_ROW_H, (KEYPAD_H - (AC_FIELD_COUNT - 1) * AC_ROW_GAP) / AC_FIELD_COUNT));
   lv_obj_set_style_radius(row, AC_ROW_RADIUS, 0);
   lv_obj_set_style_bg_grad_dir(row, LV_GRAD_DIR_NONE, 0);
   lv_obj_set_style_pad_top(row, 0, 0);
@@ -404,25 +428,77 @@ static void ac_set_sel(int idx) {
   ui_feedback(UI_FB_NAV);
 }
 
-static void ac_send(void) {
+static void ac_tx_task(void *arg) {
+  (void)arg;
+  s_ac_tx_result = ir_store_send_ac(&s_ac_tx_state);
+  atomic_store_explicit(&s_is_ac_tx_done, true, memory_order_release);
+  vTaskDelete(NULL);
+}
+
+static void ac_tx_poll(lv_timer_t *timer) {
+  if (!atomic_load_explicit(&s_is_ac_tx_done, memory_order_acquire))
+    return;
+  s_is_ac_tx_busy = false;
+  lv_timer_delete(timer);
+  if (s_screen_generation != s_ac_tx_generation || !s_is_ac || s_screen == NULL ||
+      lv_screen_active() != s_screen)
+    return;
+  char message[AC_TX_MESSAGE_LEN];
+  if (s_ac_tx_result != ESP_OK) {
+    snprintf(message, sizeof(message), "AC TX failed: %s", esp_err_to_name(s_ac_tx_result));
+    notify(NOTIFY_WARNING, message);
+    return;
+  }
   ui_feedback(UI_FB_EMULATE);
   ac_flash();
-  uni_send(ac_universal_name());
-  char buf[48];
-  snprintf(buf,
-           sizeof(buf),
-           "AC  %s  %s  %d C  %s",
-           s_ac_power ? "On" : "Off",
-           AC_MODES[s_ac_mode],
-           s_ac_temp,
-           AC_FANS[s_ac_fan]);
-  notify(NOTIFY_INFO, buf);
-  ESP_LOGI(TAG,
-           "AC send: power=%d mode=%s temp=%d fan=%s",
-           s_ac_power,
-           AC_MODES[s_ac_mode],
-           s_ac_temp,
-           AC_FANS[s_ac_fan]);
+  snprintf(message,
+           sizeof(message),
+           "%s IR sent; no device ACK",
+           ir_ac_protocol_name(s_ac_tx_state.protocol));
+  notify(NOTIFY_INFO, message);
+}
+
+static void ac_send(void) {
+  if (s_is_ac_tx_busy) {
+    notify(NOTIFY_INFO, "AC transmit in progress");
+    return;
+  }
+  ir_ac_state_t state = {
+      .protocol = (ir_ac_protocol_t)s_ac_brand,
+      .power = s_ac_power,
+      .mode = (ir_ac_mode_t)s_ac_mode,
+      .temp_c = (uint8_t)s_ac_temp,
+      .fan = (ir_ac_fan_t)s_ac_fan,
+  };
+  const char *reason = ir_ac_request_error(&state);
+  if (reason != NULL) {
+    notify(NOTIFY_WARNING, reason);
+    return;
+  }
+  lv_timer_t *timer = lv_timer_create(ac_tx_poll, AC_TX_POLL_MS, NULL);
+  if (timer == NULL) {
+    ESP_LOGE(TAG, "AC completion timer allocation failed");
+    notify(NOTIFY_WARNING, "Not enough memory for AC TX");
+    return;
+  }
+  s_ac_tx_state = state;
+  s_ac_tx_generation = s_screen_generation;
+  atomic_store_explicit(&s_is_ac_tx_done, false, memory_order_relaxed);
+  s_is_ac_tx_busy = true;
+  if (xTaskCreatePinnedToCore(ac_tx_task,
+                              "ir_ac_tx",
+                              AC_TX_TASK_STACK,
+                              NULL,
+                              SYS_PRIO_SERVICE_LO,
+                              NULL,
+                              SYS_CORE_RADIO) != pdPASS) {
+    s_is_ac_tx_busy = false;
+    lv_timer_delete(timer);
+    ESP_LOGE(TAG, "AC transmit task allocation failed");
+    notify(NOTIFY_WARNING, "Not enough memory for AC TX");
+    return;
+  }
+  notify(NOTIFY_INFO, "Sending selected AC protocol...");
 }
 
 static void ac_change(int dir) {
@@ -443,11 +519,13 @@ static void ac_change(int dir) {
     case AC_F_FAN:
       s_ac_fan = (s_ac_fan + dir + AC_FAN_COUNT) % AC_FAN_COUNT;
       break;
+    case AC_F_BRAND:
+      s_ac_brand = (s_ac_brand + dir + IR_AC_PROTO_COUNT) % IR_AC_PROTO_COUNT;
+      break;
     default:
       break;
   }
   ac_update_values();
-  ac_send();
 }
 
 static int neighbor(int dir) {
@@ -515,6 +593,7 @@ static lv_obj_t *make_button(const rc_btn_t *def) {
 }
 
 void ui_ir_controller_open(void) {
+  ++s_screen_generation;
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
@@ -548,9 +627,10 @@ void ui_ir_controller_open(void) {
 
   if (s_is_ac) {
     s_ac_power = true;
-    s_ac_mode = 0;
+    s_ac_mode = AC_MODE_DEFAULT;
     s_ac_temp = AC_TEMP_DEFAULT;
     s_ac_fan = AC_FAN_DEFAULT;
+    s_ac_brand = IR_AC_PROTO_UNKNOWN;
     build_ac_panel();
   } else {
     for (int i = 0; i < s_lay->count && i < MAX_BTNS; i++)
@@ -598,7 +678,7 @@ static void ir_controller_input(const input_event_t *ev, void *ctx) {
         break;
       case INPUT_BTN_OK:
         if (press)
-          ac_change(1);
+          ac_send();
         break;
       default:
         break;

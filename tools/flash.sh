@@ -1,5 +1,4 @@
 #!/bin/bash
-
 # Copyright (c) 2025 HIGH CODE LLC
 #
 # TentacleOS is free software: you can redistribute it and/or modify
@@ -15,18 +14,20 @@
 # You should have received a copy of the GNU General Public License
 # along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-
 PROJECT_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." &> /dev/null && pwd)
+if [ -f "$PROJECT_ROOT/integration/import.json" ]; then
+    exec bash "$PROJECT_ROOT/tools/highboy/flash.command" "$@"
+fi
 P4_DIR="$PROJECT_ROOT/firmware_p4"
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-if [ -f "$HOME/esp/v5.5.3/esp-idf/export.sh" ]; then
-    source "$HOME/esp/v5.5.3/esp-idf/export.sh"
+if [ -f "$HOME/esp/v6.1/esp-idf/export.sh" ]; then
+    source "$HOME/esp/v6.1/esp-idf/export.sh"
 else
-    echo -e "${RED}Error: ESP-IDF export.sh not found at ~/esp/v5.5.3/esp-idf/export.sh${NC}"
+    echo -e "${RED}Error: ESP-IDF export.sh not found at ~/esp/v6.1/esp-idf/export.sh${NC}"
     exit 1
 fi
 

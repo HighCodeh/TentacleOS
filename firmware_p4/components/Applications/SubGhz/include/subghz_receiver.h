@@ -71,14 +71,14 @@ bool subghz_receiver_get_result(subghz_rx_result_t *out);
 esp_err_t subghz_receiver_start(subghz_mode_t mode, cc1101_preset_t preset, uint32_t freq);
 
 /**
- * @brief Stop the Sub-GHz receiver.
+ * @brief Request receiver shutdown; its worker retains the radio until RMT cleanup succeeds.
  */
 void subghz_receiver_stop(void);
 
 /**
  * @brief Check whether the receiver is currently running.
  *
- * @return true if the receiver is active, false otherwise.
+ * @return true while starting, receiving or draining hardware; false only once released.
  */
 bool subghz_receiver_is_running(void);
 

@@ -70,6 +70,34 @@ typedef struct {
 } highboy_nfc_iso15693_t;
 
 /**
+ * @brief FeliCa (NFC-F) polling data.
+ */
+typedef struct {
+  uint8_t idm[8];
+  uint8_t pmm[8];
+  uint8_t system_code[2];
+  bool system_code_valid;
+} highboy_nfc_felica_t;
+
+/**
+ * @brief RF measurements captured while the card is still in the field.
+ *
+ * The ST25R3916
+ * amplitude value is an uncalibrated ADC result. It is useful
+ * for comparing placement and
+ * matching changes on the same High Boy, but it
+ * must not be presented as an absolute
+ * field-strength measurement.
+ */
+typedef struct {
+  uint8_t amplitude;
+  uint16_t regulator_mv;
+  bool valid;
+  bool regulator_manual;
+  bool current_limit;
+} highboy_nfc_rf_metrics_t;
+
+/**
  * @brief MIFARE Classic authentication key types.
  */
 typedef enum {
@@ -107,7 +135,9 @@ typedef struct {
     highboy_nfc_iso_dep_t iso_dep;
     highboy_nfc_iso14443b_t iso14443b;
     highboy_nfc_iso15693_t iso15693;
+    highboy_nfc_felica_t felica;
   } data;
+  highboy_nfc_rf_metrics_t rf;
 } highboy_nfc_card_t;
 
 #ifdef __cplusplus

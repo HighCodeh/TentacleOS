@@ -20,6 +20,8 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "spi_bridge.h"
 #include "spi_protocol.h"
@@ -27,8 +29,72 @@
 static const char *TAG = "PORT_SCANNER";
 
 #define PORT_SCAN_TIMEOUT_MS 20000
+#define PORT_SCAN_POLL_MS    200
+
+// The C5 runs the scan on its async runner (non-blocking so the SPI/UI link
+// never stalls) and publishes each open port live through the data pipe. The
+// START command returns immediately; poll the shared async-scan busy flag until
+// the sweep finishes. A big range can take far longer than the poll budget, so
+// on timeout we STOP the C5 scan and keep whatever it found so far instead of
+// returning nothing.
+static uint16_t fetch_live_count(void) {
+  spi_header_t h;
+  uint8_t buf[SPI_MAX_PAYLOAD];
+  uint16_t index = SPI_DATA_INDEX_COUNT;
+  if (spi_bridge_send_command(
+          SPI_ID_SYSTEM_DATA, (const uint8_t *)&index, sizeof(index), &h, buf, sizeof(buf), 1000) ==
+      ESP_OK) {
+    uint16_t n = 0;
+    memcpy(&n, buf, sizeof(n));
+    return n;
+  }
+  return 0;
+}
+
+static bool wait_for_scan_idle(void) {
+  spi_header_t resp_hdr;
+  uint8_t resp_buf[SPI_MAX_PAYLOAD];
+  int waited = 0;
+  ESP_LOGI(TAG, "Scanning...");
+  while (waited < PORT_SCAN_TIMEOUT_MS) {
+    // spi_bridge_send_command strips the status byte (it becomes the esp_err);
+    // resp_buf[0] is the busy flag itself, not a status byte.
+    esp_err_t ret = spi_bridge_send_command(
+        SPI_ID_WIFI_SCAN_STATUS, NULL, 0, &resp_hdr, resp_buf, sizeof(resp_buf), 2000);
+    if (ret == ESP_OK && resp_buf[0] == 0)
+      return true; // scan finished on its own
+    if (waited > 0 && (waited % 2000) == 0)
+      ESP_LOGI(TAG, "Scanning... %u open so far", fetch_live_count());
+    vTaskDelay(pdMS_TO_TICKS(PORT_SCAN_POLL_MS));
+    waited += PORT_SCAN_POLL_MS;
+  }
+  return false; // exceeded the budget
+}
+
+static void wait_scan_idle(void) {
+  if (wait_for_scan_idle())
+    return;
+
+  // Took too long: abort the C5 scan and keep the partial results. Wait briefly
+  // for the abort to unwind (the current port's connect can take up to 1 s) so
+  // the live result count is stable before we read it.
+  ESP_LOGW(TAG, "Scan exceeded %d ms; stopping, returning partial results", PORT_SCAN_TIMEOUT_MS);
+  spi_header_t resp_hdr;
+  uint8_t resp_buf[SPI_MAX_PAYLOAD];
+  spi_bridge_send_command(
+      SPI_ID_WIFI_PORT_SCAN_STOP, NULL, 0, &resp_hdr, resp_buf, sizeof(resp_buf), 2000);
+  for (int i = 0; i < 15; i++) {
+    esp_err_t ret = spi_bridge_send_command(
+        SPI_ID_WIFI_SCAN_STATUS, NULL, 0, &resp_hdr, resp_buf, sizeof(resp_buf), 2000);
+    if (ret == ESP_OK && resp_buf[0] == 0)
+      break;
+    vTaskDelay(pdMS_TO_TICKS(200));
+  }
+}
 
 static int fetch_results(port_scan_result_t *results, int max_results) {
+  wait_scan_idle();
+
   spi_header_t resp_hdr;
   uint8_t resp_buf[SPI_MAX_PAYLOAD];
 
@@ -41,13 +107,16 @@ static int fetch_results(port_scan_result_t *results, int max_results) {
                                           sizeof(resp_buf),
                                           5000);
 
-  if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
+  // send_command already strips the status byte (conveyed via ret); resp_buf is
+  // pure data. The data-pipe count is the whole payload: [count u16].
+  if (ret != ESP_OK) {
     ESP_LOGE(TAG, "Failed to fetch result count");
     led_signal_error();
     return 0;
   }
 
-  uint16_t total = resp_buf[1] | (resp_buf[2] << 8);
+  uint16_t total = 0;
+  memcpy(&total, resp_buf, sizeof(total));
   if (total > max_results)
     total = max_results;
 
@@ -63,12 +132,12 @@ static int fetch_results(port_scan_result_t *results, int max_results) {
                                   sizeof(resp_buf),
                                   2000);
 
-    if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
+    if (ret != ESP_OK) {
       ESP_LOGW(TAG, "Failed to fetch result %d", i);
       continue;
     }
 
-    spi_port_scan_result_t *rec = (spi_port_scan_result_t *)&resp_buf[1];
+    spi_port_scan_result_t *rec = (spi_port_scan_result_t *)resp_buf;
     strncpy(results[count].ip_str, rec->ip_str, 16);
     results[count].port = rec->port;
     results[count].protocol = (rec->protocol == 0) ? PORT_SCAN_PROTO_TCP : PORT_SCAN_PROTO_UDP;
@@ -104,7 +173,7 @@ int port_scan_target_range(const char *target_ip,
                                           sizeof(resp_buf),
                                           PORT_SCAN_TIMEOUT_MS);
 
-  if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
+  if (ret != ESP_OK) {
     ESP_LOGE(TAG, "Target range scan failed");
     return 0;
   }
@@ -155,7 +224,7 @@ int port_scan_target_list(const char *target_ip,
                                           sizeof(resp_buf),
                                           PORT_SCAN_TIMEOUT_MS);
 
-  if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
+  if (ret != ESP_OK) {
     ESP_LOGE(TAG, "Target list scan failed");
     return 0;
   }
@@ -188,7 +257,7 @@ int port_scan_network_range_using_port_range(const char *start_ip,
                                           sizeof(resp_buf),
                                           PORT_SCAN_TIMEOUT_MS);
 
-  if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
+  if (ret != ESP_OK) {
     ESP_LOGE(TAG, "Network range scan failed");
     return 0;
   }
@@ -241,7 +310,7 @@ int port_scan_network_range_using_port_list(const char *start_ip,
                                           sizeof(resp_buf),
                                           PORT_SCAN_TIMEOUT_MS);
 
-  if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
+  if (ret != ESP_OK) {
     ESP_LOGE(TAG, "Network list scan failed");
     return 0;
   }
@@ -274,7 +343,7 @@ int port_scan_cidr_using_port_range(const char *base_ip,
                                           sizeof(resp_buf),
                                           PORT_SCAN_TIMEOUT_MS);
 
-  if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
+  if (ret != ESP_OK) {
     ESP_LOGE(TAG, "CIDR range scan failed");
     return 0;
   }
@@ -327,7 +396,7 @@ int port_scan_cidr_using_port_list(const char *base_ip,
                                           sizeof(resp_buf),
                                           PORT_SCAN_TIMEOUT_MS);
 
-  if (ret != ESP_OK || resp_buf[0] != SPI_STATUS_OK) {
+  if (ret != ESP_OK) {
     ESP_LOGE(TAG, "CIDR list scan failed");
     return 0;
   }

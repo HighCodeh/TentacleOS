@@ -32,11 +32,11 @@ typedef struct {
 
 static const ui_ble_menu_item_t MENU_ITEMS[] = {
     {"Companion App", "/assets/icons/app_shortcut.bin", SCREEN_COMPANION_PAIRING},
-    {"MouseAir", "/assets/icons/mouse.bin", SCREEN_BLE_MOUSE_PAIRING},
     {"Device Spam", "/assets/icons/broadcast_on_personal.bin", SCREEN_BLE_SPAM_SELECT},
-    {"Beacon Spam", "/assets/icons/sensors.bin", SCREEN_BLE_BEACON_SPAM},
+    {"BLE Advertiser", "/assets/icons/sensors.bin", SCREEN_BLE_BEACON_SPAM},
     {"Detect Devices", "/assets/icons/bluetooth_searching.bin", SCREEN_BLE_DETECT_MENU},
     {"HID Keyboard", "/assets/icons/keyboard.bin", SCREEN_BLE_KEYBOARD},
+    {"HID Mouse", "/assets/icons/mouse.bin", SCREEN_BLE_MOUSE_PAIRING},
     {"BLE Flood", "/assets/icons/bolt.bin", SCREEN_BLE_FLOOD},
     {"Radio / Identity", "/assets/icons/settings.bin", SCREEN_BLE_RADIO},
 };
@@ -82,7 +82,6 @@ static void ble_menu_input(const input_event_t *ev, void *ctx) {
         menu_component_prev(&s_menu);
       break;
     case INPUT_BTN_BACK:
-    case INPUT_BTN_LEFT:
       if (press)
         ui_switch_screen(SCREEN_MENU);
       break;

@@ -1,3 +1,18 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 // HighBoy (ESP32-P4) platform layer for doomgeneric.
 //
 // Implements the six DG_* hooks + a launcher that runs DOOM in its own task:
@@ -28,6 +43,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sys_prio.h"
 #include "freertos/idf_additions.h"   // xTaskCreatePinnedToCoreWithCaps
 #include "esp_timer.h"
 #include "esp_log.h"
@@ -37,6 +53,7 @@
 
 #include "st7789.h"          // extern panel_handle
 #include "buttons_gpio.h"    // *_button_is_down()
+#include "input_manager.h"
 #include "lvgl_glue.h"       // lvgl_glue_direct_begin()
 #include "storage_init.h"    // storage_is_mounted(), storage_init()
 
@@ -48,10 +65,13 @@ static const char *TAG = "DOOM";
 #define PANEL_W 320                // ST7789 in landscape (swap_xy)
 #define PANEL_H 240
 #define Y_OFF   ((PANEL_H - DG_H) / 2)   // 20px letterbox top/bottom
-#define STRIP   20                 // blit height per SPI burst (avoid corruption)
+#define STRIP   20                 // max blit height per SPI burst
+#define FLUSH_WAIT_MS 100
+#define ALLOC_FAIL_DELAY_MS 50
 
-static uint16_t *s_fb[2];          // double-buffered RGB565 (big-endian) frames
-static int s_fb_sel;
+// Internal DMA avoids per-transfer bounce allocations for PSRAM pixels.
+static uint16_t *s_strip;
+static int s_strip_rows;
 
 // Pulsed once per frame to keep the sys_monitor render-liveness beat alive while
 // DOOM owns the panel and the LVGL task is parked (see doom_main_task).
@@ -101,6 +121,7 @@ static void doom_input_task(void *arg) {
   bool ok_c = 0, bk_c = 0;          // OK / BACK committed as their own key
   bool ok_sw = 0, bk_sw = 0;        // swallow until physical release (post-chord)
   bool chord = 0;                   // ESC chord active
+  bool wait_release = true;        // The launch OK must not become FIRE/ENTER.
   int64_t t_ok = 0, t_bk = 0, t_chord = 0;
 
   for (;;) {
@@ -108,6 +129,24 @@ static void doom_input_task(void *arg) {
     bool l  = left_button_is_down(), r = right_button_is_down();
     bool ok = ok_button_is_down(),  bk = back_button_is_down();
     int64_t now = esp_timer_get_time() / 1000;
+
+    // Only this game owns input while LVGL is parked. Avoid stale menu events
+    // and queue-full warnings; held states remain available to this poller.
+    input_event_t discarded;
+    while (input_get_event(&discarded, 0)) {}
+    for (input_button_t b = 0; b < INPUT_BTN_COUNT; ++b)
+      (void)input_consume_press(b);
+    if (wait_release) {
+      if (!(up || dn || l || r || ok || bk))
+        wait_release = false;
+      else {
+        vTaskDelay(pdMS_TO_TICKS(15));
+        continue;
+      }
+    }
+    // Ignore impossible opposite directions; preserve diagonals.
+    if (up && dn) up = dn = false;
+    if (l && r) l = r = false;
 
     // D-pad rotated 90° for landscape play (device held sideways):
     edge(up, &p_up, KEY_LEFTARROW);   // physical UP    -> game LEFT
@@ -165,44 +204,53 @@ static inline uint16_t argb_to_565be(uint32_t p) {
   return (uint16_t)((c >> 8) | (c << 8));  // ST7789 wants big-endian RGB565
 }
 
-static void panel_clear_black(void) {
-  // Fill the whole 320x240 landscape panel black once (letterbox stays black).
-  uint16_t *row = heap_caps_malloc(PANEL_W * STRIP * sizeof(uint16_t),
-                                   MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
-  if (!row) return;
-  memset(row, 0, PANEL_W * STRIP * sizeof(uint16_t));
-  for (int y = 0; y < PANEL_H; y += STRIP) {
-    int rows = (y + STRIP <= PANEL_H) ? STRIP : (PANEL_H - y);
-    esp_lcd_panel_draw_bitmap(panel_handle, 0, y, PANEL_W, y + rows, row);
+static bool strip_alloc(void) {
+  int rows = STRIP;
+  size_t avail = heap_caps_get_largest_free_block(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+  while (rows > 1 && (size_t)PANEL_W * rows * sizeof(uint16_t) > avail)
+    rows >>= 1;
+  for (; rows >= 1 && s_strip == NULL; rows >>= 1) {
+    s_strip = heap_caps_malloc((size_t)PANEL_W * rows * sizeof(uint16_t),
+                               MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    if (s_strip != NULL)
+      s_strip_rows = rows;
   }
-  vTaskDelay(pdMS_TO_TICKS(30));  // let the blits drain before freeing
-  heap_caps_free(row);
+  if (s_strip == NULL)
+    ESP_LOGE(TAG, "Unable to allocate even one internal DMA row");
+  return s_strip != NULL;
+}
+
+static void panel_clear_black(void) {
+  memset(s_strip, 0, (size_t)PANEL_W * s_strip_rows * sizeof(uint16_t));
+  for (int y = 0; y < PANEL_H; y += s_strip_rows) {
+    int rows = (y + s_strip_rows <= PANEL_H) ? s_strip_rows : (PANEL_H - y);
+    esp_lcd_panel_draw_bitmap(panel_handle, 0, y, PANEL_W, y + rows, s_strip);
+    lvgl_glue_wait_flush(FLUSH_WAIT_MS);
+  }
 }
 
 void DG_Init(void) {
-  for (int i = 0; i < 2; i++)
-    s_fb[i] = heap_caps_malloc(DG_W * DG_H * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
-  ESP_LOGW(TAG, "DG_Init: fb0=%p fb1=%p (%d bytes each)", s_fb[0], s_fb[1],
-           DG_W * DG_H * (int)sizeof(uint16_t));
   // Input runs in its own task (DOOM's loop blocks this task via Create()).
   // Stack in PSRAM — internal RAM is scarce (~30 KB free after full boot).
-  xTaskCreatePinnedToCoreWithCaps(doom_input_task, "doom_in", 4096, NULL, 6, NULL, 0,
-                                  MALLOC_CAP_SPIRAM);
+  xTaskCreatePinnedToCoreWithCaps(doom_input_task,
+                                "doom_in",
+                                4096,
+                                NULL,
+                                SYS_PRIO_SERVICE_HI,
+                                NULL,
+                                SYS_CORE_UI,
+                                MALLOC_CAP_SPIRAM);
 }
 
 void DG_DrawFrame(void) {
-  uint16_t *fb = s_fb[s_fb_sel];
-  if (!fb) return;
-  s_fb_sel ^= 1;  // ping-pong so the previous frame's DMA can still be in flight
-
   const uint32_t *src = (const uint32_t *)DG_ScreenBuffer;
-  const int n = DG_W * DG_H;
-  for (int i = 0; i < n; i++) fb[i] = argb_to_565be(src[i]);
-
-  for (int y = 0; y < DG_H; y += STRIP) {
-    int rows = (y + STRIP <= DG_H) ? STRIP : (DG_H - y);
-    esp_lcd_panel_draw_bitmap(panel_handle, 0, Y_OFF + y, DG_W, Y_OFF + y + rows,
-                              &fb[y * DG_W]);
+  for (int y = 0; y < DG_H; y += s_strip_rows) {
+    int rows = (y + s_strip_rows <= DG_H) ? s_strip_rows : (DG_H - y);
+    const uint32_t *strip_src = src + (size_t)y * DG_W;
+    for (int i = 0; i < rows * DG_W; i++)
+      s_strip[i] = argb_to_565be(strip_src[i]);
+    esp_lcd_panel_draw_bitmap(panel_handle, 0, Y_OFF + y, DG_W, Y_OFF + y + rows, s_strip);
+    lvgl_glue_wait_flush(FLUSH_WAIT_MS);
   }
 }
 
@@ -259,9 +307,20 @@ static void doom_main_task(void *arg) {
   // it never flushes or fights DOOM for the SPI3 bus. The sys_monitor render beat
   // is fed by s_beat_kick() in the loop instead of by LVGL. Quitting reboots, so
   // the lock is never released.
-  lvgl_glue_direct_begin();
   lvgl_glue_lock(-1);
+  lvgl_glue_direct_begin();
   ESP_LOGW(TAG, "doom_main_task: panel owned (LVGL parked)");
+
+  if (!strip_alloc()) {
+    ESP_LOGE(TAG,
+             "blit strip alloc failed (int dma largest=%u) - rebooting",
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL));
+    vTaskDelay(pdMS_TO_TICKS(ALLOC_FAIL_DELAY_MS));
+    esp_restart();
+    return;
+  }
+  ESP_LOGI(TAG, "blit strip: %d rows (%u B internal DMA)", s_strip_rows,
+           (unsigned)(PANEL_W * s_strip_rows * sizeof(uint16_t)));
 
   // Landscape 320x240 so DOOM's 320-wide frame fits (portrait is only 240 wide).
   esp_lcd_panel_swap_xy(panel_handle, true);
@@ -306,7 +365,7 @@ void highboy_doom_start(void (*render_beat_kick)(void)) {
   // RAM is nearly exhausted after boot (~30 KB), so an internal stack can't be
   // allocated. WithCaps puts the stack in the ample 32 MB PSRAM.
   BaseType_t ok = xTaskCreatePinnedToCoreWithCaps(
-      doom_main_task, "doom", 49152, NULL, 5, NULL, 1, MALLOC_CAP_SPIRAM);
+      doom_main_task, "doom", 49152, NULL, SYS_PRIO_SERVICE_HI, NULL, SYS_CORE_UI, MALLOC_CAP_SPIRAM);
   ESP_LOGW(TAG, "highboy_doom_start: task create -> %s",
            ok == pdPASS ? "OK" : "FAILED");
 }

@@ -16,6 +16,7 @@
 #include "kernel.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "driver/gpio.h"
 #include "driver/i2c.h"
@@ -54,10 +55,8 @@ void kernel_init(void) {
   heap_caps_register_failed_alloc_callback(heap_alloc_failed_cb);
 
   esp_err_t ret = nvs_flash_init();
-  if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    ESP_ERROR_CHECK(nvs_flash_erase());
-    ret = nvs_flash_init();
-  }
+  // Integrated build: never erase existing NVS on an init error.
+  // Fail closed below; migration/recovery requires a separate reviewed action.
   ESP_ERROR_CHECK(ret);
 
   init_i2c();
@@ -77,7 +76,7 @@ void kernel_init(void) {
   // OTA is triggered on demand over SPI (SPI_ID_SYSTEM_START_UART_OTA); UART0 is
   // the console until then. No always-on UART receiver here anymore.
 
-  sys_monitor_start(false);
+  ESP_ERROR_CHECK(sys_monitor_start(false));
 
   wifi_service_init();
 
@@ -91,9 +90,11 @@ void safeguard_alert(const char *title, const char *message) {
 }
 
 void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {
+  (void)xTask;
   ESP_LOGE(TAG, "!!! CRITICAL STACK OVERFLOW DETECTED !!!");
   ESP_LOGE(TAG, "Task Name: [%s]", pcTaskName);
   ESP_LOGE(TAG, "Task attempted to use more memory than was allocated.");
+  abort();
 }
 
 void vApplicationMallocFailedHook(void) {

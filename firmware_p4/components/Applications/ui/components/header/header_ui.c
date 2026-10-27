@@ -225,7 +225,7 @@ static bool sd_try_mount(void) {
     snprintf(s_sd_free, sizeof(s_sd_free), "-");
     s_sd_used_pct = 0;
   }
-  snprintf(s_sd_fmt, sizeof(s_sd_fmt), "FAT32");
+  snprintf(s_sd_fmt, sizeof(s_sd_fmt), "%s", vfs_sdcard_fs_type());
   return true;
 }
 

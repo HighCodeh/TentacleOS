@@ -15,7 +15,9 @@
 
 #include "octobit_status_ui.h"
 
+#include <dirent.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "esp_heap_caps.h"
 #include "esp_littlefs.h"
@@ -27,6 +29,9 @@
 #include "assets_manager.h"
 #include "boot_report.h"
 #include "bq25896.h"
+#include "bluetooth_service.h"
+#include "nfc_sim.h"
+#include "tos_storage_paths.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -46,10 +51,6 @@
 #define VIS       4
 
 #define AVATAR_ASSET "/assets/img/octobit_portrait.bin"
-
-#define OCTO_LEVEL  7
-#define OCTO_XP     1240
-#define OCTO_XP_MAX 2000
 
 #define COL_RAISE 0x170A28
 
@@ -74,9 +75,9 @@ typedef struct {
 
 static const stat_def_t STAT_DEFS[ST_COUNT] = {
     {LV_SYMBOL_REFRESH, "Uptime"},
-    {LV_SYMBOL_EYE_OPEN, "Scans"},
-    {LV_SYMBOL_SD_CARD, "Cards saved"},
-    {LV_SYMBOL_WIFI, "Signals"},
+    {LV_SYMBOL_EYE_OPEN, "BLE nearby"},
+    {LV_SYMBOL_SD_CARD, "NFC saved"},
+    {LV_SYMBOL_WIFI, "RF saved"},
     {LV_SYMBOL_POWER, "Boots"},
     {LV_SYMBOL_CHARGE, "Battery"},
     {LV_SYMBOL_DRIVE, "Storage"},
@@ -95,6 +96,25 @@ static int s_sel = 0;
 
 static uint32_t s_boots = 0;
 static bool s_boots_read = false;
+static int s_nfc_saved = 0;
+static int s_rf_saved = 0;
+
+static int count_suffix(const char *dir, const char *suffix) {
+  DIR *d = opendir(dir);
+  if (d == NULL)
+    return 0;
+  int count = 0;
+  const size_t suffix_len = strlen(suffix);
+  struct dirent *ent;
+  while ((ent = readdir(d)) != NULL) {
+    const size_t len = strlen(ent->d_name);
+    if (ent->d_name[0] != '.' && len > suffix_len &&
+        strcmp(ent->d_name + len - suffix_len, suffix) == 0)
+      count++;
+  }
+  closedir(d);
+  return count;
+}
 
 static void read_boots_once(void) {
   if (s_boots_read)
@@ -110,6 +130,15 @@ static void set_val(int i, const char *text) {
 
 static void refresh_values(void) {
   char b[64];
+
+  snprintf(b, sizeof(b), "%u", (unsigned)bluetooth_service_get_scan_count());
+  set_val(ST_SCANS, b);
+
+  snprintf(b, sizeof(b), "%d", s_nfc_saved);
+  set_val(ST_CARDS, b);
+
+  snprintf(b, sizeof(b), "%d", s_rf_saved);
+  set_val(ST_SIGNALS, b);
 
   uint32_t s = (uint32_t)(esp_timer_get_time() / 1000000LL);
   if (s >= 86400)
@@ -259,7 +288,7 @@ static void build_top_card(void) {
   }
 
   lv_obj_t *badge = lv_label_create(card);
-  lv_label_set_text_fmt(badge, "Lv %d", OCTO_LEVEL);
+  lv_label_set_text(badge, "LIVE");
   lv_obj_set_style_text_font(badge, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(badge, current_theme.screen_base, 0);
   lv_obj_set_style_bg_color(badge, current_theme.border_accent, 0);
@@ -274,13 +303,16 @@ static void build_top_card(void) {
   const int col_w = CONTENT_W - col_x - 12;
 
   lv_obj_t *xp_tag = lv_label_create(card);
-  lv_label_set_text(xp_tag, "XP");
+  lv_label_set_text(xp_tag, "RAM");
   lv_obj_set_style_text_font(xp_tag, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(xp_tag, current_theme.text_secondary, 0);
   lv_obj_align(xp_tag, LV_ALIGN_LEFT_MID, col_x, -12);
 
   lv_obj_t *xp_val = lv_label_create(card);
-  lv_label_set_text_fmt(xp_val, "%d / %d", OCTO_XP, OCTO_XP_MAX);
+  const size_t heap_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+  const size_t heap_total = heap_caps_get_total_size(MALLOC_CAP_INTERNAL);
+  lv_label_set_text_fmt(
+      xp_val, "%u / %u KB", (unsigned)(heap_free / 1024), (unsigned)(heap_total / 1024));
   lv_obj_set_style_text_font(xp_val, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(xp_val, current_theme.text_secondary, 0);
   lv_obj_set_width(xp_val, col_w);
@@ -303,7 +335,7 @@ static void build_top_card(void) {
   lv_obj_t *fill = lv_obj_create(bar);
   lv_obj_remove_flag(fill, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(fill, LV_OBJ_FLAG_CLICKABLE);
-  int pct = OCTO_XP_MAX > 0 ? (OCTO_XP * 100 / OCTO_XP_MAX) : 0;
+  int pct = heap_total > 0 ? (int)(heap_free * 100 / heap_total) : 0;
   lv_obj_set_size(fill, lv_pct(pct), lv_pct(100));
   lv_obj_align(fill, LV_ALIGN_LEFT_MID, 0, 0);
   lv_obj_set_style_radius(fill, 4, 0);
@@ -400,6 +432,9 @@ void ui_octobit_status_open(void) {
     s_screen = NULL;
   }
   s_sel = 0;
+  nfc_sim_init();
+  s_nfc_saved = nfc_sim_saved_count();
+  s_rf_saved = count_suffix(TOS_PATH_SUBGHZ, ".sub") + count_suffix(TOS_PATH_IR, ".ir");
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -413,9 +448,6 @@ void ui_octobit_status_open(void) {
 
   ui_chrome_footer(s_screen, "UP/DOWN  navigate     BACK  home");
 
-  set_val(ST_SCANS, "1,204");
-  set_val(ST_CARDS, "37");
-  set_val(ST_SIGNALS, "82");
   read_boots_once();
   {
     char b[16];

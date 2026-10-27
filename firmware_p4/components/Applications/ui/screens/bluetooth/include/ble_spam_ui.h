@@ -20,10 +20,10 @@
 extern "C" {
 #endif
 
-/** @brief Device-spam profile selection menu (MOCK). */
+/** @brief Device advertising-profile selection menu. */
 void ui_ble_spam_select_open(void);
 
-/** @brief BLE spam "running" screen (MOCK); auto-starts a packet counter. */
+/** @brief Advertising run screen backed by the C5 spam service. */
 void ui_ble_spam_open(void);
 
 #ifdef __cplusplus

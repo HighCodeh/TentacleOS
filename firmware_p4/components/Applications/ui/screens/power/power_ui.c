@@ -22,6 +22,7 @@
 
 #include "bq25896.h"
 #include "msgbox_ui.h"
+#include "power_policy.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_semantic.h"
@@ -305,11 +306,6 @@ static void i2c_scan_fill(void) {
     snprintf(s_scan_msg, sizeof(s_scan_msg), "No I2C devices found");
 }
 
-static void poweroff_cb(bool confirm) {
-  if (confirm)
-    bq25896_power_off();
-}
-
 static void do_action(int act) {
   if (act == ACT_CHARGE) {
     bq25896_set_charge_enable(!bq25896_get_charge_enable());
@@ -326,7 +322,8 @@ static void do_action(int act) {
                                           : "TS in range (OK)";
     snprintf(s_scan_msg,
              sizeof(s_scan_msg),
-             "TS %d.%d%% (~50 ok)\n%s\n0B:%02X 0C:%02X NTC:%X\n00:%02X 04:%02X 0D:%02X",
+             "TS %d.%d%% (~50 ok)\n%s\n0B:%02X 0C:%02X NTC:%X\n00:%02X 04:%02X "
+             "0D:%02X",
              tsx10 / 10,
              tsx10 % 10,
              ts_hint,
@@ -338,11 +335,7 @@ static void do_action(int act) {
              bq25896_reg_raw(0x0D));
     msgbox_open(LV_SYMBOL_SETTINGS, s_scan_msg, NULL, NULL, NULL);
   } else if (act == ACT_OFF) {
-    msgbox_open(LV_SYMBOL_POWER,
-                "Power off the HighBoy?\n(unplug USB to stay off)",
-                "Off",
-                "Cancel",
-                poweroff_cb);
+    power_policy_show_shutdown_dialog();
   }
 }
 

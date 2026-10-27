@@ -15,316 +15,142 @@
 
 #include "imu_monitor_ui.h"
 
+#include "esp_err.h"
 #include "lvgl.h"
 
+#include "qmi8658a.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define SCOPE_TICK_MS 60
-#define PHASE_STEP    6
+#define SAMPLE_MS 100
 
-#define HDR_TITLE  "MOTION / IMU"
-#define HDR_ICON   "/assets/icons/sensors.bin"
-#define FOOTER_TXT "OK ZERO   R RATE   BACK"
+#define HDR_TITLE "MOTION / IMU"
+#define HDR_ICON  "/assets/icons/sensors.bin"
 
-#define MX        8
-#define CONTENT_W (240 - 2 * MX)
+static const uint8_t ODR_BITS[] = {8, 7, 6, 5};
+static const char *const ODR_NAMES[] = {"28 Hz", "56 Hz", "112 Hz", "224 Hz"};
+#define ODR_COUNT 4
 
-#define COL_CYAN 0x37E0A8
-#define COL_WARN 0xFFC23D
-#define COL_ACC2 0xB89AFF
-#define COL_ZERO 0x3A3350
+static lv_obj_t *s_screen;
+static lv_timer_t *s_timer;
+static lv_obj_t *s_status;
+static lv_obj_t *s_rate;
+static lv_obj_t *s_accel[3];
+static lv_obj_t *s_gyro[3];
+static lv_obj_t *s_temp;
 
-#define ACCEL_LBL_Y  46
-#define SCOPE_CARD_Y 68
-#define SCOPE_CARD_H 90
-#define SCOPE_PAD    6
+static qmi8658a_sample_t s_last;
+static bool s_have_sample;
+static float s_accel_zero[3];
+static float s_gyro_zero[3];
+static int s_odr_idx = 2;
 
-#define WAVE_W         (CONTENT_W - 2 * SCOPE_PAD - 2)
-#define WAVE_H         58
-#define WAVE_N         24
-#define SCOPE_CENTER_Y 29
-#define Z_BASE_Y       10
-#define VAL_ROW_Y      (WAVE_H + 4)
-
-#define AMP_X  4
-#define AMP_Y  15
-#define AMP_Z  3
-#define SPD_X  11
-#define SPD_Y  7
-#define SPD_Z  5
-#define STEP_X 48
-#define STEP_Y 62
-#define STEP_Z 37
-
-#define GYRO_LBL_Y  165
-#define GYRO_CARD_Y 187
-#define GYRO_CARD_H 82
-#define GYRO_PAD    9
-
-#define GY_CONTENT_W (CONTENT_W - 2 * GYRO_PAD - 2)
-#define GY_LBL_W     18
-#define GY_VAL_W     46
-#define GY_GAP       6
-#define GY_TRACK_X   (GY_LBL_W + GY_GAP)
-#define GY_TRACK_W   (GY_CONTENT_W - GY_LBL_W - GY_VAL_W - 2 * GY_GAP)
-#define GY_VAL_X     (GY_TRACK_X + GY_TRACK_W + GY_GAP)
-#define GY_TRACK_H   8
-#define GY_FILL_H    6
-#define GY_ROW_STEP  22
-#define GY_ROW0_Y    2
-
-#define RATE_COUNT 4
-
-typedef struct {
-  const char *label;
-  int pct;
-  bool right;
-  uint32_t color;
-  const char *val;
-} gyro_def_t;
-
-static const gyro_def_t GYRO_ROWS[] = {
-    {"gX", 12, true, 0, "+0.62"},
-    {"gY", 24, false, COL_WARN, "-1.14"},
-    {"gZ", 4, true, COL_ACC2, "+0.08"},
-};
-#define GYRO_COUNT ((int)(sizeof(GYRO_ROWS) / sizeof(GYRO_ROWS[0])))
-
-static const int RATES[RATE_COUNT] = {104, 208, 416, 833};
-
-static lv_obj_t *s_screen = NULL;
-static lv_timer_t *s_scope_timer = NULL;
-
-static lv_obj_t *s_xline = NULL;
-static lv_obj_t *s_yline = NULL;
-static lv_obj_t *s_zline = NULL;
-static lv_obj_t *s_rate_lbl = NULL;
-static lv_obj_t *s_gyro_fill[GYRO_COUNT];
-static lv_obj_t *s_gyro_val[GYRO_COUNT];
-
-static lv_point_precise_t s_xpts[WAVE_N];
-static lv_point_precise_t s_ypts[WAVE_N];
-static lv_point_precise_t s_zpts[WAVE_N];
-
-static int s_phase = 0;
-static int s_rate_idx = RATE_COUNT - 1;
-static bool s_zeroed = false;
-
-static void fill_traces(void) {
-  for (int i = 0; i < WAVE_N; i++) {
-    int x = i * WAVE_W / (WAVE_N - 1);
-    int yx, yy, yz;
-    if (s_zeroed) {
-      yx = SCOPE_CENTER_Y;
-      yy = SCOPE_CENTER_Y;
-      yz = SCOPE_CENTER_Y;
-    } else {
-      yx = SCOPE_CENTER_Y -
-           (AMP_X * lv_trigo_sin((int16_t)((s_phase * SPD_X + i * STEP_X) % 360))) / 32767;
-      yy = SCOPE_CENTER_Y -
-           (AMP_Y * lv_trigo_sin((int16_t)((s_phase * SPD_Y + i * STEP_Y) % 360))) / 32767;
-      yz = Z_BASE_Y -
-           (AMP_Z * lv_trigo_sin((int16_t)((s_phase * SPD_Z + i * STEP_Z) % 360))) / 32767;
-    }
-    s_xpts[i].x = x;
-    s_xpts[i].y = yx;
-    s_ypts[i].x = x;
-    s_ypts[i].y = yy;
-    s_zpts[i].x = x;
-    s_zpts[i].y = yz;
-  }
-  if (s_xline)
-    lv_line_set_points(s_xline, s_xpts, WAVE_N);
-  if (s_yline)
-    lv_line_set_points(s_yline, s_ypts, WAVE_N);
-  if (s_zline)
-    lv_line_set_points(s_zline, s_zpts, WAVE_N);
-}
-
-static void refresh_gyro(void) {
-  for (int i = 0; i < GYRO_COUNT; i++) {
-    int pct = s_zeroed ? 0 : GYRO_ROWS[i].pct;
-    int w = pct * GY_TRACK_W / 100;
-    int half = GY_TRACK_W / 2;
-    int x = GYRO_ROWS[i].right ? half : half - w;
-    if (s_gyro_fill[i]) {
-      lv_obj_set_width(s_gyro_fill[i], w);
-      lv_obj_align(s_gyro_fill[i], LV_ALIGN_LEFT_MID, x, 0);
-    }
-    if (s_gyro_val[i])
-      lv_label_set_text(s_gyro_val[i], s_zeroed ? "+0.00" : GYRO_ROWS[i].val);
-  }
-}
-
-static lv_obj_t *make_mono_label(lv_obj_t *parent, const char *text, uint32_t color, int x, int y) {
-  lv_obj_t *lbl = lv_label_create(parent);
-  lv_label_set_text(lbl, text);
-  lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(lbl, lv_color_hex(color), 0);
-  lv_obj_align(lbl, LV_ALIGN_TOP_LEFT, x, y);
-  return lbl;
-}
-
-static lv_obj_t *make_card(int y, int h) {
+static lv_obj_t *make_card(int y, int h, const char *title) {
   lv_obj_t *card = lv_obj_create(s_screen);
   lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(card, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(card, CONTENT_W, h);
+  lv_obj_set_size(card, 224, h);
   lv_obj_align(card, LV_ALIGN_TOP_MID, 0, y);
   lv_obj_set_style_radius(card, 10, 0);
   lv_obj_set_style_bg_color(card, current_theme.bg_secondary, 0);
   lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
   lv_obj_set_style_border_color(card, current_theme.border_accent, 0);
   lv_obj_set_style_border_width(card, 1, 0);
-  lv_obj_set_style_pad_all(card, 0, 0);
+  lv_obj_set_style_pad_all(card, 8, 0);
+
+  lv_obj_t *label = lv_label_create(card);
+  lv_label_set_text(label, title);
+  lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(label, current_theme.border_accent, 0);
+  lv_obj_align(label, LV_ALIGN_TOP_LEFT, 0, 0);
   return card;
 }
 
-static void build_scope_card(void) {
-  lv_obj_t *card = make_card(SCOPE_CARD_Y, SCOPE_CARD_H);
-  lv_obj_set_style_pad_all(card, SCOPE_PAD, 0);
-
-  lv_obj_t *zero = lv_obj_create(card);
-  lv_obj_remove_flag(zero, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(zero, WAVE_W, 1);
-  lv_obj_align(zero, LV_ALIGN_TOP_LEFT, 0, SCOPE_CENTER_Y);
-  lv_obj_set_style_border_width(zero, 0, 0);
-  lv_obj_set_style_radius(zero, 0, 0);
-  lv_obj_set_style_bg_color(zero, lv_color_hex(COL_ZERO), 0);
-  lv_obj_set_style_bg_opa(zero, LV_OPA_COVER, 0);
-
-  s_zline = lv_line_create(card);
-  lv_obj_align(s_zline, LV_ALIGN_TOP_LEFT, 0, 0);
-  lv_obj_set_style_line_width(s_zline, 2, 0);
-  lv_obj_set_style_line_color(s_zline, lv_color_hex(COL_WARN), 0);
-  lv_obj_set_style_line_rounded(s_zline, true, 0);
-
-  s_yline = lv_line_create(card);
-  lv_obj_align(s_yline, LV_ALIGN_TOP_LEFT, 0, 0);
-  lv_obj_set_style_line_width(s_yline, 2, 0);
-  lv_obj_set_style_line_color(s_yline, lv_color_hex(COL_CYAN), 0);
-  lv_obj_set_style_line_rounded(s_yline, true, 0);
-
-  s_xline = lv_line_create(card);
-  lv_obj_align(s_xline, LV_ALIGN_TOP_LEFT, 0, 0);
-  lv_obj_set_style_line_width(s_xline, 2, 0);
-  lv_obj_set_style_line_color(s_xline, current_theme.border_accent, 0);
-  lv_obj_set_style_line_rounded(s_xline, true, 0);
-
-  fill_traces();
-
-  lv_obj_t *xval =
-      make_mono_label(card, "X -0.01", 0x8A8594, 0, VAL_ROW_Y); // TODO: not themed (raw hex arg)
-  lv_obj_set_style_text_color(xval, current_theme.border_accent, 0);
-  make_mono_label(card, "Y +0.05", COL_CYAN, 80, VAL_ROW_Y);
-  make_mono_label(card, "Z +1.00", COL_WARN, 158, VAL_ROW_Y);
+static lv_obj_t *make_value(lv_obj_t *card, int x, int y) {
+  lv_obj_t *label = lv_label_create(card);
+  lv_label_set_text(label, "--");
+  lv_obj_set_width(label, 66);
+  lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_LEFT, 0);
+  lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(label, current_theme.text_main, 0);
+  lv_obj_align(label, LV_ALIGN_TOP_LEFT, x, y);
+  return label;
 }
 
-static void build_gyro_card(void) {
-  lv_obj_t *card = make_card(GYRO_CARD_Y, GYRO_CARD_H);
-  lv_obj_set_style_pad_all(card, GYRO_PAD, 0);
-
-  for (int i = 0; i < GYRO_COUNT; i++) {
-    int row_y = GY_ROW0_Y + i * GY_ROW_STEP;
-
-    lv_obj_t *lbl = lv_label_create(card);
-    lv_label_set_text(lbl, GYRO_ROWS[i].label);
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(lbl, current_theme.text_secondary, 0);
-    lv_obj_align(lbl, LV_ALIGN_TOP_LEFT, 0, row_y);
-
-    lv_obj_t *track = lv_obj_create(card);
-    lv_obj_remove_flag(track, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(track, GY_TRACK_W, GY_TRACK_H);
-    lv_obj_align(track, LV_ALIGN_TOP_LEFT, GY_TRACK_X, row_y + 4);
-    lv_obj_set_style_radius(track, 4, 0);
-    lv_obj_set_style_pad_all(track, 0, 0);
-    lv_obj_set_style_bg_color(track, current_theme.bg_primary, 0);
-    lv_obj_set_style_bg_opa(track, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(track, current_theme.text_secondary, 0);
-    lv_obj_set_style_border_opa(track, LV_OPA_40, 0);
-    lv_obj_set_style_border_width(track, 1, 0);
-    lv_obj_set_style_clip_corner(track, true, 0);
-
-    lv_obj_t *tick = lv_obj_create(track);
-    lv_obj_remove_flag(tick, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(tick, 1, GY_TRACK_H);
-    lv_obj_align(tick, LV_ALIGN_LEFT_MID, GY_TRACK_W / 2, 0);
-    lv_obj_set_style_border_width(tick, 0, 0);
-    lv_obj_set_style_radius(tick, 0, 0);
-    lv_obj_set_style_bg_color(tick, lv_color_hex(COL_ZERO), 0);
-    lv_obj_set_style_bg_opa(tick, LV_OPA_COVER, 0);
-
-    lv_obj_t *fill = lv_obj_create(track);
-    lv_obj_remove_flag(fill, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(fill, 0, GY_FILL_H);
-    lv_obj_set_style_radius(fill, 2, 0);
-    lv_obj_set_style_border_width(fill, 0, 0);
-    lv_obj_set_style_pad_all(fill, 0, 0);
-    lv_obj_set_style_bg_color(fill,
-                              GYRO_ROWS[i].color ? lv_color_hex(GYRO_ROWS[i].color)
-                                                 : current_theme.border_accent,
-                              0);
-    lv_obj_set_style_bg_opa(fill, LV_OPA_COVER, 0);
-    s_gyro_fill[i] = fill;
-
-    lv_obj_t *val = lv_label_create(card);
-    lv_label_set_text(val, GYRO_ROWS[i].val);
-    lv_obj_set_style_text_font(val, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(val, current_theme.text_main, 0);
-    lv_obj_set_width(val, GY_VAL_W);
-    lv_obj_set_style_text_align(val, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_align(val, LV_ALIGN_TOP_LEFT, GY_VAL_X, row_y);
-    s_gyro_val[i] = val;
-  }
-  refresh_gyro();
-}
-
-static void set_rate_label(void) {
-  if (!s_rate_lbl)
+static void show_error(esp_err_t err) {
+  if (s_status == NULL)
     return;
-  char buf[16];
-  lv_snprintf(buf, sizeof(buf), "%d Hz", RATES[s_rate_idx]);
-  lv_label_set_text(s_rate_lbl, buf);
+  if (err == ESP_ERR_NOT_FOUND)
+    lv_label_set_text(s_status, "QMI8658A NOT DETECTED");
+  else
+    lv_label_set_text_fmt(s_status, "IMU ERROR 0x%X", (unsigned)err);
+  lv_obj_set_style_text_color(s_status, lv_color_hex(0xFF5470), 0);
 }
 
-static void scope_tick_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_scope_timer = NULL;
+static void refresh_sample(void) {
+  qmi8658a_sample_t sample;
+  esp_err_t err = qmi8658a_read(&sample);
+  if (err != ESP_OK) {
+    show_error(err);
     return;
   }
-  if (s_zeroed)
-    return;
-  s_phase = (s_phase + PHASE_STEP) % 360;
-  fill_traces();
+  s_last = sample;
+  s_have_sample = true;
+
+  lv_label_set_text_fmt(s_accel[0], "X %+1.3f g", sample.accel_g[0] - s_accel_zero[0]);
+  lv_label_set_text_fmt(s_accel[1], "Y %+1.3f g", sample.accel_g[1] - s_accel_zero[1]);
+  lv_label_set_text_fmt(s_accel[2], "Z %+1.3f g", sample.accel_g[2] - s_accel_zero[2]);
+  lv_label_set_text_fmt(s_gyro[0], "X %+1.1f", sample.gyro_dps[0] - s_gyro_zero[0]);
+  lv_label_set_text_fmt(s_gyro[1], "Y %+1.1f", sample.gyro_dps[1] - s_gyro_zero[1]);
+  lv_label_set_text_fmt(s_gyro[2], "Z %+1.1f", sample.gyro_dps[2] - s_gyro_zero[2]);
+  lv_label_set_text_fmt(s_temp, "DIE  %.1f C", sample.temperature_c);
+  lv_label_set_text_fmt(s_status,
+                        "LIVE ID 05 REV %02X %s",
+                        qmi8658a_revision(),
+                        (sample.status & 0x03) == 0x03 ? "DRDY" : "WAIT");
+  lv_obj_set_style_text_color(s_status, lv_color_hex(0x37E0A8), 0);
 }
 
-static void imu_monitor_input(const input_event_t *ev, void *ctx) {
+static void sample_timer_cb(lv_timer_t *timer) {
+  (void)timer;
+  if (lv_screen_active() == s_screen)
+    refresh_sample();
+}
+
+static void screen_delete_cb(lv_event_t *event) {
+  (void)event;
+  if (s_timer != NULL) {
+    lv_timer_delete(s_timer);
+    s_timer = NULL;
+  }
+  (void)qmi8658a_stop();
+  s_screen = NULL;
+}
+
+static void imu_input(const input_event_t *event, void *ctx) {
   (void)ctx;
-  const bool press = (ev->action == INPUT_ACTION_PRESS);
-  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
-  switch (ev->button) {
+  if (event->action != INPUT_ACTION_PRESS)
+    return;
+  switch (event->button) {
     case INPUT_BTN_BACK:
-    case INPUT_BTN_LEFT:
-      if (press)
-        ui_switch_screen(SCREEN_MENU);
+      ui_switch_screen(SCREEN_SETTINGS);
       break;
     case INPUT_BTN_OK:
-      if (press) {
-        s_zeroed = !s_zeroed;
-        fill_traces();
-        refresh_gyro();
+      if (s_have_sample) {
+        s_accel_zero[0] = s_last.accel_g[0];
+        s_accel_zero[1] = s_last.accel_g[1];
+        s_accel_zero[2] = s_last.accel_g[2] - (s_last.accel_g[2] >= 0.0f ? 1.0f : -1.0f);
+        for (int i = 0; i < 3; i++)
+          s_gyro_zero[i] = s_last.gyro_dps[i];
         ui_feedback(UI_FB_SELECT);
+        refresh_sample();
       }
       break;
     case INPUT_BTN_RIGHT:
-      if (nav) {
-        s_rate_idx = (s_rate_idx + 1) % RATE_COUNT;
-        set_rate_label();
+      s_odr_idx = (s_odr_idx + 1) % ODR_COUNT;
+      if (qmi8658a_set_odr(ODR_BITS[s_odr_idx]) == ESP_OK) {
+        lv_label_set_text(s_rate, ODR_NAMES[s_odr_idx]);
         ui_feedback(UI_FB_NAV);
       }
       break;
@@ -334,23 +160,19 @@ static void imu_monitor_input(const input_event_t *ev, void *ctx) {
 }
 
 void ui_imu_monitor_open(void) {
-  if (s_scope_timer != NULL) {
-    lv_timer_delete(s_scope_timer);
-    s_scope_timer = NULL;
+  if (s_timer != NULL) {
+    lv_timer_delete(s_timer);
+    s_timer = NULL;
   }
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
   }
-  s_xline = s_yline = s_zline = NULL;
-  s_rate_lbl = NULL;
-  for (int i = 0; i < GYRO_COUNT; i++) {
-    s_gyro_fill[i] = NULL;
-    s_gyro_val[i] = NULL;
+  s_have_sample = false;
+  for (int i = 0; i < 3; i++) {
+    s_accel_zero[i] = 0.0f;
+    s_gyro_zero[i] = 0.0f;
   }
-  s_phase = 0;
-  s_rate_idx = RATE_COUNT - 1;
-  s_zeroed = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -358,36 +180,43 @@ void ui_imu_monitor_open(void) {
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_border_width(s_screen, 0, 0);
   lv_obj_set_style_pad_all(s_screen, 0, 0);
+  lv_obj_add_event_cb(s_screen, screen_delete_cb, LV_EVENT_DELETE, NULL);
 
   ui_chrome_header(s_screen, HDR_TITLE, HDR_ICON);
 
-  lv_obj_t *acc_lbl = lv_label_create(s_screen);
-  lv_label_set_text(acc_lbl, "ACCEL - SCOPE g");
-  lv_obj_set_style_text_font(acc_lbl, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(acc_lbl, current_theme.border_accent, 0);
-  lv_obj_align(acc_lbl, LV_ALIGN_TOP_LEFT, MX, ACCEL_LBL_Y);
+  s_status = lv_label_create(s_screen);
+  lv_label_set_text(s_status, "PROBING QMI8658A...");
+  lv_obj_set_style_text_font(s_status, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(s_status, current_theme.text_secondary, 0);
+  lv_obj_align(s_status, LV_ALIGN_TOP_LEFT, 8, 48);
 
-  s_rate_lbl = lv_label_create(s_screen);
-  lv_obj_set_style_text_font(s_rate_lbl, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(s_rate_lbl, lv_color_hex(COL_CYAN), 0);
-  lv_obj_align(s_rate_lbl, LV_ALIGN_TOP_RIGHT, -MX, ACCEL_LBL_Y);
-  set_rate_label();
+  s_rate = lv_label_create(s_screen);
+  lv_label_set_text(s_rate, ODR_NAMES[s_odr_idx]);
+  lv_obj_set_style_text_font(s_rate, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(s_rate, current_theme.border_accent, 0);
+  lv_obj_align(s_rate, LV_ALIGN_TOP_RIGHT, -8, 48);
 
-  build_scope_card();
+  lv_obj_t *accel = make_card(70, 78, "ACCELEROMETER");
+  lv_obj_t *gyro = make_card(155, 78, "GYROSCOPE  dps");
+  for (int i = 0; i < 3; i++) {
+    s_accel[i] = make_value(accel, i * 69, 30);
+    s_gyro[i] = make_value(gyro, i * 69, 30);
+  }
 
-  lv_obj_t *gyro_lbl = lv_label_create(s_screen);
-  lv_label_set_text(gyro_lbl, "GYRO - dps");
-  lv_obj_set_style_text_font(gyro_lbl, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(gyro_lbl, lv_color_hex(COL_CYAN), 0);
-  lv_obj_align(gyro_lbl, LV_ALIGN_TOP_LEFT, MX, GYRO_LBL_Y);
+  lv_obj_t *temp_card = make_card(240, 38, "");
+  s_temp = make_value(temp_card, 0, 3);
+  lv_obj_set_width(s_temp, 180);
 
-  build_gyro_card();
-
-  ui_chrome_footer(s_screen, FOOTER_TXT);
-
-  s_scope_timer = lv_timer_create(scope_tick_cb, SCOPE_TICK_MS, NULL);
-
-  ui_input_set_screen_handler(imu_monitor_input, NULL);
-
+  ui_chrome_footer(s_screen, "OK Zero   RIGHT Rate   BACK");
+  ui_input_set_screen_handler(imu_input, NULL);
   ui_screen_load_owned(&s_screen, s_screen);
+
+  esp_err_t err = qmi8658a_start();
+  if (err == ESP_OK) {
+    (void)qmi8658a_set_odr(ODR_BITS[s_odr_idx]);
+    refresh_sample();
+    s_timer = lv_timer_create(sample_timer_cb, SAMPLE_MS, NULL);
+  } else {
+    show_error(err);
+  }
 }

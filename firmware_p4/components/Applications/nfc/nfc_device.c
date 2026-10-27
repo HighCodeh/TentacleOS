@@ -15,6 +15,7 @@
 
 #include "nfc_device.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "esp_log.h"
@@ -458,14 +459,86 @@ int nfc_device_get_active(void) {
 }
 
 hb_nfc_err_t nfc_device_save_generic(const char *name, const hb_nfc_card_data_t *card) {
-  (void)name;
-  (void)card;
-  return HB_NFC_ERR_INTERNAL;
+  if (!s_initialized && nfc_device_init() != HB_NFC_OK)
+    return HB_NFC_ERR_INTERNAL;
+  if (name == NULL || card == NULL)
+    return HB_NFC_ERR_PARAM;
+
+  const uint8_t *uid = card->iso14443a.uid;
+  uint8_t uid_len = card->iso14443a.uid_len;
+  uint8_t atqa[2] = {card->iso14443a.atqa[0], card->iso14443a.atqa[1]};
+  uint8_t sak = card->iso14443a.sak;
+
+  if (card->protocol == HB_PROTO_ISO14443_3B || card->protocol == HB_PROTO_ISO14443_4B) {
+    uid = card->data.iso14443b.pupi;
+    uid_len = sizeof(card->data.iso14443b.pupi);
+    memset(atqa, 0, sizeof(atqa));
+    sak = 0;
+  } else if (card->protocol == HB_PROTO_FELICA) {
+    uid = card->data.felica.idm;
+    uid_len = sizeof(card->data.felica.idm);
+    memset(atqa, 0, sizeof(atqa));
+    sak = 0;
+  } else if (card->protocol == HB_PROTO_ISO15693 || card->protocol == HB_PROTO_SLIX) {
+    uid = card->data.iso15693.uid;
+    uid_len = sizeof(card->data.iso15693.uid);
+    memset(atqa, 0, sizeof(atqa));
+    sak = 0;
+  }
+
+  if (uid_len == 0 || uid_len > HIGHBOY_NFC_UID_MAX_LEN)
+    return HB_NFC_ERR_PARAM;
+
+  const nfc_store_card_t stored = {
+      .name = name,
+      .protocol = card->protocol,
+      .uid = uid,
+      .uid_len = uid_len,
+      .atqa = {atqa[0], atqa[1]},
+      .sak = sak,
+      .payload = (const uint8_t *)card,
+      .payload_len = sizeof(*card),
+  };
+  return nfc_store_save(&stored);
 }
 
 hb_nfc_err_t nfc_device_load_generic(const char *name, hb_nfc_card_data_t *card) {
-  (void)name;
-  (void)card;
+  if (!s_initialized && nfc_device_init() != HB_NFC_OK)
+    return HB_NFC_ERR_INTERNAL;
+  if (name == NULL || card == NULL)
+    return HB_NFC_ERR_PARAM;
+
+  const int count = nfc_store_count();
+  for (int i = 0; i < count; i++) {
+    nfc_store_info_t info = {0};
+    if (nfc_store_get_info(i, &info) != HB_NFC_OK || strcmp(info.name, name) != 0)
+      continue;
+
+    nfc_store_entry_t *entry = malloc(sizeof(*entry));
+    if (entry == NULL)
+      return ESP_ERR_NO_MEM;
+    hb_nfc_err_t err = nfc_store_load(i, entry);
+    if (err == HB_NFC_OK && entry->payload_len == sizeof(*card)) {
+      memcpy(card, entry->payload, sizeof(*card));
+    } else if (err == HB_NFC_OK) {
+      memset(card, 0, sizeof(*card));
+      card->protocol = entry->protocol;
+      if (entry->protocol == HB_PROTO_ISO14443_3B || entry->protocol == HB_PROTO_ISO14443_4B) {
+        memcpy(card->data.iso14443b.pupi, entry->uid, 4);
+      } else if (entry->protocol == HB_PROTO_FELICA) {
+        memcpy(card->data.felica.idm, entry->uid, 8);
+      } else if (entry->protocol == HB_PROTO_ISO15693 || entry->protocol == HB_PROTO_SLIX) {
+        memcpy(card->data.iso15693.uid, entry->uid, 8);
+      } else {
+        card->iso14443a.uid_len = entry->uid_len;
+        memcpy(card->iso14443a.uid, entry->uid, entry->uid_len);
+        memcpy(card->iso14443a.atqa, entry->atqa, sizeof(entry->atqa));
+        card->iso14443a.sak = entry->sak;
+      }
+    }
+    free(entry);
+    return err;
+  }
   return HB_NFC_ERR_NOT_FOUND;
 }
 

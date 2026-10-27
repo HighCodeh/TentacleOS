@@ -493,7 +493,7 @@ static void lora_traceroute_input(const input_event_t *ev, void *ctx) {
   const bool press = (ev->action == INPUT_ACTION_PRESS);
   const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
-  if ((ev->button == INPUT_BTN_BACK || ev->button == INPUT_BTN_LEFT) && press) {
+  if ((ev->button == INPUT_BTN_BACK) && press) {
     ui_switch_screen(SCREEN_LORA_CHAT);
     return;
   }

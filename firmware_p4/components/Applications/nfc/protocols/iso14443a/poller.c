@@ -80,7 +80,14 @@ static void set_antcl(bool enable) {
  */
 static int req_cmd(uint8_t cmd, uint8_t atqa[FIFO_ATQA_LEN]) {
   set_antcl(false);
-  st25r3916_fifo_clear();
+  /* ST reference sequence: stop/clear, reset RX gain, clear partial-byte count,
+   * then issue the
+   * dedicated 7-bit REQA or WUPA command. */
+  hb_nfc_spi_direct_cmd(ST25R3916_CMD_STOP_ALL);
+  hb_nfc_spi_direct_cmd(ST25R3916_CMD_RESET_RX_GAIN);
+  hb_nfc_spi_reg_write(ST25R3916_REG_NUM_TX_BYTES2, 0x00);
+  if (st25r3916_irq_clear() != ESP_OK)
+    return 0;
   hb_nfc_spi_direct_cmd(cmd);
 
   if (st25r3916_irq_wait_txe() != ESP_OK)
@@ -206,7 +213,8 @@ hb_nfc_err_t iso14443a_poller_select(nfc_iso14443a_data_t *card) {
 }
 
 hb_nfc_err_t iso14443a_poller_reselect(nfc_iso14443a_data_t *card) {
-  st25r3916_core_field_cycle();
+  if (st25r3916_core_field_cycle() != ESP_OK)
+    return HB_NFC_ERR_FIELD;
 
   uint8_t atqa[2];
   hb_nfc_err_t err = iso14443a_poller_activate(atqa);

@@ -66,6 +66,75 @@ extern "C" {
 #define APDU_MAX_GET_RESP    8     /**< Max GET RESPONSE chaining retries. */
 #define APDU_FCI_TAG_DF_NAME 0x84U /**< FCI template: DF name tag. */
 
+#define NFC_APDU_MAX_COMMAND       1024U /**< Largest command accepted by the workbench. */
+#define NFC_APDU_DEFAULT_EXCHANGES 16U   /**< Default automatic exchange limit. */
+
+/** ISO/IEC 7816-4 command APDU encoding case. */
+typedef enum {
+  NFC_APDU_CASE_INVALID = 0,
+  NFC_APDU_CASE_1,
+  NFC_APDU_CASE_2_SHORT,
+  NFC_APDU_CASE_3_SHORT,
+  NFC_APDU_CASE_4_SHORT,
+  NFC_APDU_CASE_2_EXTENDED,
+  NFC_APDU_CASE_3_EXTENDED,
+  NFC_APDU_CASE_4_EXTENDED,
+} nfc_apdu_case_t;
+
+/** Safety classification used by interactive APDU clients. */
+typedef enum {
+  NFC_APDU_RISK_READ_ONLY = 0,
+  NFC_APDU_RISK_AUTHENTICATION,
+  NFC_APDU_RISK_MUTATING,
+  NFC_APDU_RISK_PAYMENT,
+  NFC_APDU_RISK_UNKNOWN,
+} nfc_apdu_risk_t;
+
+/** Parsed command APDU view. Pointers reference the original command buffer. */
+typedef struct {
+  uint8_t cla;
+  uint8_t ins;
+  uint8_t p1;
+  uint8_t p2;
+  nfc_apdu_case_t apdu_case;
+  const uint8_t *data;
+  size_t lc;
+  bool le_present;
+  uint32_t le; /**< 1..65536 when present (zero encoded value means maximum). */
+  size_t le_offset;
+  uint8_t le_size;
+  bool extended;
+} nfc_apdu_cmd_info_t;
+
+/** Parameters for a generic command builder. */
+typedef struct {
+  uint8_t cla;
+  uint8_t ins;
+  uint8_t p1;
+  uint8_t p2;
+  const uint8_t *data;
+  size_t lc;
+  bool le_present;
+  uint32_t le; /**< 1..65536; 256/65536 are encoded as zero. */
+  bool force_extended;
+} nfc_apdu_command_t;
+
+/** Automatic response handling policy. */
+typedef struct {
+  bool auto_correct_le;   /**< Retry a 6Cxx response with the suggested Le. */
+  bool auto_get_response; /**< Follow 61xx responses using GET RESPONSE. */
+  bool accept_9f_more;    /**< Also treat legacy 9Fxx as more data. */
+  uint8_t max_exchanges;  /**< Includes retries and GET RESPONSE commands. */
+} nfc_apdu_options_t;
+
+#define NFC_APDU_OPTIONS_DEFAULT()                 \
+  ((nfc_apdu_options_t){                           \
+      .auto_correct_le = true,                     \
+      .auto_get_response = true,                   \
+      .accept_9f_more = false,                     \
+      .max_exchanges = NFC_APDU_DEFAULT_EXCHANGES, \
+  })
+
 /**
  * @brief APDU output buffer descriptor.
  *
@@ -101,10 +170,14 @@ typedef struct {
  * Groups output buffer, length, and status word for APDU responses.
  */
 typedef struct {
-  uint8_t *buf; /**< Response data buffer. */
-  size_t max;   /**< Buffer capacity in bytes. */
-  size_t len;   /**< Actual response data length (excluding SW). */
-  uint16_t sw;  /**< ISO 7816-4 status word. */
+  uint8_t *buf;        /**< Response data buffer. */
+  size_t max;          /**< Buffer capacity in bytes. */
+  size_t len;          /**< Actual response data length (excluding SW). */
+  uint16_t sw;         /**< ISO 7816-4 status word. */
+  bool truncated;      /**< Response data did not fit in buf. */
+  bool le_corrected;   /**< A 6Cxx retry was performed. */
+  uint8_t exchanges;   /**< Number of physical APDU exchanges. */
+  uint32_t elapsed_us; /**< Total exchange duration. */
 } nfc_apdu_resp_t;
 
 /**
@@ -122,6 +195,32 @@ typedef struct {
  * @return Pointer to a static string describing the status word.
  */
 const char *nfc_apdu_sw_str(uint16_t sw);
+
+/** Format a detailed ISO 7816 status description into a caller buffer. */
+void nfc_apdu_sw_format(uint16_t sw, char *out, size_t out_size);
+
+/** Return a short instruction name for common ISO 7816 commands. */
+const char *nfc_apdu_ins_name(uint8_t cla, uint8_t ins);
+
+/** Classify an APDU before interactive transmission. */
+nfc_apdu_risk_t nfc_apdu_classify(const nfc_apdu_cmd_info_t *cmd);
+
+/** Return a stable display name for a safety classification. */
+const char *nfc_apdu_risk_name(nfc_apdu_risk_t risk);
+
+/** Parse and strictly validate a short or extended command APDU. */
+bool nfc_apdu_parse_command(const uint8_t *apdu, size_t apdu_len, nfc_apdu_cmd_info_t *out);
+
+/** Build a short or extended command APDU. */
+size_t nfc_apdu_build_command(nfc_apdu_buf_t dst, const nfc_apdu_command_t *cmd);
+
+/** Decode hexadecimal text; spaces, colons, dashes and underscores are accepted. */
+bool nfc_apdu_hex_decode(
+    const char *text, uint8_t *out, size_t out_max, size_t *out_len, size_t *error_pos);
+
+/** Encode bytes as uppercase hexadecimal text with an optional separator. */
+size_t nfc_apdu_hex_encode(
+    const uint8_t *data, size_t data_len, char separator, char *out, size_t out_size);
 
 /**
  * @brief Map a status word to a coarse NFC error code.
@@ -149,6 +248,13 @@ hb_nfc_err_t nfc_apdu_transceive(const nfc_apdu_channel_t *ch,
                                  const uint8_t *apdu,
                                  size_t apdu_len,
                                  nfc_apdu_resp_t *resp);
+
+/** Transceive using an explicit automatic response handling policy. */
+hb_nfc_err_t nfc_apdu_transceive_ex(const nfc_apdu_channel_t *ch,
+                                    const uint8_t *apdu,
+                                    size_t apdu_len,
+                                    const nfc_apdu_options_t *options,
+                                    nfc_apdu_resp_t *resp);
 
 /**
  * @brief Send an APDU command and receive the response.

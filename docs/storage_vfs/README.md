@@ -563,11 +563,43 @@ void            usb_msc_exit(void);         // blocking - run on a worker task
 - `usb_msc_enter()` detaches the app's `/sdcard` FAT, exposes the raw card to the
   host, and switches the USB mux to native. On failure the SD is restored and the
   state goes to `USB_MSC_ERROR`.
+- The MSC driver is installed with `auto_mount_off`, so the firmware is the sole
+  owner of the card: the esp_tinyusb layer never auto-remounts or formats the FAT
+  on host connect/eject. The host eject flush is served as raw-sector writes;
+  without this the eject-time remount fights our handoff and reboots the device,
+  dropping the just-copied files.
+- esp_tinyusb allocates the whole MSC storage object (which embeds a
+  `CONFIG_TINYUSB_MSC_BUFSIZE` buffer) from `MALLOC_CAP_DMA`, i.e. internal RAM on
+  the P4. That RAM is tight by the time the Files UI is up, so the buffer is kept
+  at 1024 B; a `USB_MSC: MSC storage init failed` after an
+  `heap_caps_aligned_alloc` failure means it must drop further (512 B).
 - `usb_msc_exit()` stops exposing the card, remounts `/sdcard`, and routes the USB
   connector back to the UART bridge. It resumes without a reboot; only a failed
   remount forces a reboot to recover.
+- Storage deletion can report pending deferred writes. Exit retries for up to
+  100 attempts with 10 ms delays; the card and storage handle remain owned by
+  MSC until deletion succeeds. If deletion still fails, MSC is exposed again
+  and the state returns to `USB_MSC_ACTIVE`. The Files screen remains open and
+  BACK can retry eject. The firmware never frees or remounts a live MSC card.
+- Entry failures restore the app mount only after any created storage instance
+  has been deleted. A failed rollback remount uses the same controlled reboot
+  recovery as a failed exit remount. A USB mux failure is logged and rolled back.
+- Atomic state transitions reject overlapping enter/exit workers. The UI's
+  connected indicator checks USB enumeration with `tud_mounted()` while active;
+  it never queries a potentially deleted storage handle. This indicates a USB
+  connection, not proof that the host OS has mounted a filesystem.
 - Both `usb_msc_enter()` and `usb_msc_exit()` are **blocking** - never call them
   from the LVGL thread; drive them from a worker task and poll `usb_msc_get_state()`.
+
+### Host regression tests
+
+Run `node --test tools/highboy/tests/test_usb_msc.mjs` from the repository root.
+The test compiles the actual `usb_msc.c` with the host C compiler and mocks only
+hardware/library interfaces. It covers normal and repeated cycles, deferred
+writes, persistent deletion failure, failed entry/rollback/remount, overlapping
+calls and mux failures. No firmware build, attached device or card is used.
+Real USB enumeration, eject timing and filesystem integrity still need device
+validation with a disposable test card.
 
 ### Raw SD handoff (`vfs_sdcard.h`)
 

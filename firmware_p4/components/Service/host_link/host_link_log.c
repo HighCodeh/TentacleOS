@@ -35,9 +35,9 @@
 #define HOST_LOG_LINE_MAX    240  // bytes of stripped text kept per line
 #define HOST_LOG_QUEUE_DEPTH 24   // ring slots (drop-oldest beyond this)
 #define HOST_LOG_TASK_STK    6144 // emit -> ble_write -> SPI command chain is deep
-#define HOST_LOG_TASK_PRIO   SYS_PRIO_BACKGROUND
 
 typedef struct {
+  uint32_t generation;
   uint8_t level;
   uint16_t len;
   char text[HOST_LOG_LINE_MAX];
@@ -91,6 +91,9 @@ static uint16_t strip_ansi(const char *src, int src_len, char *dst, uint16_t dst
 // stack (some driver tasks are only 4 KB), so it must stay tiny on the common
 // path or it overflows them just by being entered.
 static __attribute__((noinline)) void queue_relay_line(const char *fmt, va_list args) {
+  uint32_t generation = host_link_output_generation();
+  if (generation == 0)
+    return;
   char raw[HOST_LOG_LINE_MAX * 2];
   int raw_len = vsnprintf(raw, sizeof(raw), fmt, args);
   if (raw_len <= 0)
@@ -99,6 +102,7 @@ static __attribute__((noinline)) void queue_relay_line(const char *fmt, va_list 
     raw_len = (int)sizeof(raw) - 1;
 
   log_line_t line;
+  line.generation = generation;
   line.len = strip_ansi(raw, raw_len, line.text, sizeof(line.text));
   if (line.len == 0)
     return;
@@ -146,7 +150,7 @@ static int log_vprintf(const char *fmt, va_list args) {
   // authenticated. Skipping this keeps this frame tiny on the common path (no
   // companion): the render buffers below would otherwise be reserved on entry
   // and overflow small driver tasks (TinyUSB / wifi_status) just by logging.
-  if (s_log_queue != NULL && host_link_sec_is_authenticated())
+  if (s_log_queue != NULL && host_link_output_generation() != 0)
     queue_relay_line(fmt, args);
 
   in_hook = false;
@@ -158,7 +162,8 @@ static void log_task(void *arg) {
   log_line_t line;
   for (;;) {
     if (xQueueReceive(s_log_queue, &line, portMAX_DELAY) == pdTRUE) {
-      host_link_emit_log(HOST_LOG_SRC_P4, (host_log_level_t)line.level, line.text, line.len);
+      host_link_emit_log_generation(
+          line.generation, HOST_LOG_SRC_P4, (host_log_level_t)line.level, line.text, line.len);
     }
   }
 }
@@ -175,7 +180,7 @@ esp_err_t host_link_log_init(void) {
                               "hl_log",
                               HOST_LOG_TASK_STK,
                               NULL,
-                              HOST_LOG_TASK_PRIO,
+                              SYS_PRIO_BACKGROUND,
                               &s_log_task,
                               SYS_CORE_RADIO) != pdPASS) {
     vQueueDelete(s_log_queue);

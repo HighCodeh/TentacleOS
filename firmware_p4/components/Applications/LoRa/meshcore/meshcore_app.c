@@ -17,6 +17,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <stdatomic.h>
+
 #include "esp_log.h"
 #include "esp_random.h"
 #include "freertos/FreeRTOS.h"
@@ -43,6 +45,11 @@ static const char *TAG = "MC_APP";
 #define MC_POLL_TASK_STACK 12288
 #define MC_POLL_TASK_PRIO  SYS_PRIO_BACKGROUND
 #define MC_POLL_PERIOD_MS  50
+
+#define APP_STOP_WAIT_MS 10000
+#define APP_STOP_POLL_MS 10
+static _Atomic(TaskHandle_t) s_poll_task;
+static atomic_bool s_is_polling;
 
 static void poll_task(void *pv);
 static void
@@ -144,16 +151,21 @@ esp_err_t meshcore_app_start(void) {
     return ret;
   }
 
+  atomic_store(&s_is_polling, true);
+  TaskHandle_t task = NULL;
   if (xTaskCreatePinnedToCore(poll_task,
                               "mc_poll",
                               MC_POLL_TASK_STACK,
                               NULL,
                               MC_POLL_TASK_PRIO,
-                              NULL,
+                              &task,
                               SYS_CORE_RADIO) != pdPASS) {
+    atomic_store(&s_is_polling, false);
     ESP_LOGE(TAG, "Failed to spawn poll task");
     return ESP_ERR_NO_MEM;
   }
+
+  atomic_store(&s_poll_task, task);
 
   ret = meshcore_phone_bridge_ble_start();
   if (ret != ESP_OK) {
@@ -164,13 +176,31 @@ esp_err_t meshcore_app_start(void) {
   return ESP_OK;
 }
 
+esp_err_t meshcore_app_stop(void) {
+  atomic_store(&s_is_polling, false);
+  TickType_t started = xTaskGetTickCount();
+  while (atomic_load(&s_poll_task) != NULL) {
+    if (xTaskGetTickCount() - started >= pdMS_TO_TICKS(APP_STOP_WAIT_MS))
+      return ESP_ERR_TIMEOUT;
+    vTaskDelay(pdMS_TO_TICKS(APP_STOP_POLL_MS));
+  }
+  esp_err_t error = meshcore_phone_bridge_stop();
+  if (error != ESP_OK)
+    return error;
+  meshcore_stop();
+  return ESP_OK;
+}
+
 static void poll_task(void *pv) {
   (void)pv;
   const TickType_t period = pdMS_TO_TICKS(MC_POLL_PERIOD_MS);
-  while (1) {
+  while (atomic_load(&s_is_polling)) {
     meshcore_poll();
+    lora_session_process_tx(LORA_PROTO_MESHCORE);
     vTaskDelay(period);
   }
+  atomic_store(&s_poll_task, NULL);
+  vTaskDelete(NULL);
 }
 
 static void

@@ -15,7 +15,10 @@
 
 #include "meshtastic_mesh.h"
 
+#include "firmware_crypto.h"
+
 #include <string.h>
+#include <stdatomic.h>
 
 #include "esp_log.h"
 #include "esp_random.h"
@@ -23,7 +26,6 @@
 #include "freertos/task.h"
 #include "sys_prio.h"
 #include "freertos/semphr.h"
-#include "mbedtls/aes.h"
 
 #include "sx1262.h"
 #include "sx1262_regs.h"
@@ -38,11 +40,14 @@
 
 #include "mt_modules.h"
 #include "meshtastic_channels.h"
+#include "meshtastic_mqtt.h"
 #include "meshtastic_crypto_pki.h"
 #include "meshtastic_nodedb.h"
 #include "meshtastic_pki.h"
 #include "meshtastic_pkt_history.h"
 #include "meshtastic_roles.h"
+
+#define MESH_STOP_WAIT_MS 10000
 
 static const char *TAG = "MESH_RADIO";
 
@@ -87,8 +92,8 @@ static mesh_tx_entry_t s_tx_queue[MESH_TX_QUEUE_SIZE];
 static SemaphoreHandle_t s_tx_mutex = NULL;
 
 static uint32_t s_node_num = 0;
-static volatile bool s_is_running = false;
-static TaskHandle_t s_mesh_task_handle = NULL;
+static atomic_bool s_is_running = false;
+static _Atomic(TaskHandle_t) s_mesh_task_handle;
 
 #define CAD_NOTIFY_BUSY        (1U << 0)
 #define CAD_NOTIFY_CLEAR       (1U << 1)
@@ -129,7 +134,7 @@ static void on_rx_done(const sx1262_packet_t *pkt, void *ctx);
 static void on_tx_done(void *ctx);
 static void on_timeout(void *ctx);
 static void mesh_task(void *arg);
-static void mesh_crypt(uint32_t from_node, uint32_t packet_id, uint8_t *data, size_t len);
+static bool mesh_crypt(uint32_t from_node, uint32_t packet_id, uint8_t *data, size_t len);
 static void dedup_add(uint32_t from, uint32_t id);
 static void process_rx_packet(const sx1262_packet_t *pkt);
 static bool tx_queue_push(const uint8_t *buf, uint16_t len, uint8_t priority, uint32_t delay_ms);
@@ -177,7 +182,7 @@ static uint16_t enc_field_bytes(uint8_t *buf, uint8_t fn, const uint8_t *data, u
   return pos + len;
 }
 
-static void mesh_crypt_with_psk(
+static bool mesh_crypt_with_psk(
     const uint8_t *psk, uint32_t from_node, uint32_t packet_id, uint8_t *data, size_t len) {
   if (psk == NULL)
     psk = mt_channel_primary_psk();
@@ -188,25 +193,15 @@ static void mesh_crypt_with_psk(
   memcpy(nonce, &pid64, 8);
   memcpy(nonce + 8, &from_node, 4);
 
-  mbedtls_aes_context ctx;
-  mbedtls_aes_init(&ctx);
-  mbedtls_aes_setkey_enc(&ctx, psk, 128);
-
-  uint8_t stream_block[16];
-  size_t nc_off = 0;
-  uint8_t nonce_counter[16];
-  memcpy(nonce_counter, nonce, 16);
-  memset(stream_block, 0, 16);
-
-  uint8_t output[256];
-  mbedtls_aes_crypt_ctr(&ctx, len, &nc_off, nonce_counter, stream_block, data, output);
-  memcpy(data, output, len);
-
-  mbedtls_aes_free(&ctx);
+  firmware_crypto_cipher_t params = {.key = {psk, MT_PSK_SIZE},
+                                     .iv = {nonce, sizeof(nonce)},
+                                     .algorithm = PSA_ALG_CTR,
+                                     .is_encrypt = true};
+  return firmware_crypto_cipher(&params, (firmware_crypto_span_t){data, len}, data) == ESP_OK;
 }
 
-static void mesh_crypt(uint32_t from_node, uint32_t packet_id, uint8_t *data, size_t len) {
-  mesh_crypt_with_psk(NULL, from_node, packet_id, data, len);
+static bool mesh_crypt(uint32_t from_node, uint32_t packet_id, uint8_t *data, size_t len) {
+  return mesh_crypt_with_psk(NULL, from_node, packet_id, data, len);
 }
 
 static void dedup_add(uint32_t from, uint32_t id) {
@@ -560,6 +555,8 @@ static void process_rx_packet(const sx1262_packet_t *pkt) {
     ESP_LOGD(TAG, "RX upgrade: hop %u higher than seen before - reprocessing", hop_limit);
   }
 
+  meshtastic_mqtt_publish_radio(pkt->buf, pkt->len);
+
   uint8_t decrypted[MT_MAX_PAYLOAD];
   uint16_t dec_len = payload_len;
   bool pki_decrypted = false;
@@ -591,7 +588,8 @@ static void process_rx_packet(const sx1262_packet_t *pkt) {
       psk = mt_channel_primary_psk();
     }
     memcpy(decrypted, pkt->buf + MT_HEADER_SIZE, payload_len);
-    mesh_crypt_with_psk(psk, hdr.from, hdr.id, decrypted, payload_len);
+    if (!mesh_crypt_with_psk(psk, hdr.from, hdr.id, decrypted, payload_len))
+      return;
   }
   payload_len = dec_len;
 
@@ -758,7 +756,8 @@ static uint16_t build_wire_packet(uint8_t *out,
     }
   } else {
     memcpy(encrypted, payload, payload_len);
-    mesh_crypt(s_node_num, pkt_id, encrypted, payload_len);
+    if (!mesh_crypt(s_node_num, pkt_id, encrypted, payload_len))
+      return 0;
   }
 
   memcpy(out, &hdr, MT_HEADER_SIZE);
@@ -1155,7 +1154,8 @@ esp_err_t meshtastic_mesh_send(const uint8_t *mp_data, uint16_t mp_len) {
   memcpy(wire, &hdr, MT_HEADER_SIZE);
   memcpy(wire + MT_HEADER_SIZE, payload_src, payload_len);
   if (needs_encrypt) {
-    mesh_crypt(from, pkt_id, wire + MT_HEADER_SIZE, payload_len);
+    if (!mesh_crypt(from, pkt_id, wire + MT_HEADER_SIZE, payload_len))
+      return ESP_FAIL;
   }
   uint16_t wire_len = MT_HEADER_SIZE + payload_len;
 
@@ -1291,6 +1291,7 @@ static void mesh_task(void *arg) {
                  (unsigned long)pre_jitter,
                  channel_clear ? " LBT" : "");
         tx_ok = true;
+        meshtastic_mqtt_publish_radio(tx.buf, tx.len);
       }
 
       for (int i = 0; i < 500; i++) {
@@ -1365,25 +1366,30 @@ esp_err_t meshtastic_mesh_start(void) {
 
   s_is_running = true;
 
+  TaskHandle_t task = NULL;
   BaseType_t ok = xTaskCreatePinnedToCore(
-      mesh_task, "mesh_tx", 4096, NULL, SYS_PRIO_BACKGROUND, &s_mesh_task_handle, SYS_CORE_RADIO);
+      mesh_task, "mesh_tx", 4096, NULL, SYS_PRIO_BACKGROUND, &task, SYS_CORE_RADIO);
   if (ok != pdPASS) {
     s_is_running = false;
     ESP_LOGE(TAG, "Failed to create mesh task");
     return ESP_ERR_NO_MEM;
   }
 
+  atomic_store(&s_mesh_task_handle, task);
   ESP_LOGI(TAG, "Mesh start: RX continuous + TX task active");
   return ESP_OK;
 }
 
-void meshtastic_mesh_stop(void) {
-  if (!s_is_running)
-    return;
+esp_err_t meshtastic_mesh_stop(void) {
   s_is_running = false;
+  TickType_t started = xTaskGetTickCount();
+  while (atomic_load(&s_mesh_task_handle) != NULL) {
+    if (xTaskGetTickCount() - started >= pdMS_TO_TICKS(MESH_STOP_WAIT_MS))
+      return ESP_ERR_TIMEOUT;
+    vTaskDelay(1);
+  }
   sx1262_stop_rx();
-
-  ESP_LOGI(TAG, "Mesh stop requested");
+  return ESP_OK;
 }
 
 void meshtastic_mesh_poll(void) {

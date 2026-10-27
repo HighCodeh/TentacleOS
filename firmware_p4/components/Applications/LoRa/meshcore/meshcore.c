@@ -88,7 +88,9 @@ esp_err_t meshcore_init(const meshcore_identity_t *identity, const meshcore_call
     s_cbs = *cbs;
   }
 
-  mc_db_init();
+  esp_err_t db_error = mc_db_init();
+  if (db_error != ESP_OK)
+    return db_error;
   mc_router_init();
 
   ESP_LOGI(TAG,

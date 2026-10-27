@@ -47,7 +47,7 @@ esp_err_t meshtastic_mesh_start(void);
 /**
  * @brief Stop mesh processing.
  */
-void meshtastic_mesh_stop(void);
+esp_err_t meshtastic_mesh_stop(void);
 
 /**
  * @brief Process a ToRadio MeshPacket from the app.

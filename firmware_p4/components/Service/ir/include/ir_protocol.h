@@ -50,6 +50,9 @@ extern "C" {
 /** @brief Carrier frequency in Hz for Pioneer. */
 #define IR_CARRIER_HZ_PIONEER 40000
 
+/** @brief Carrier frequency in Hz for RCA. */
+#define IR_CARRIER_HZ_RCA 56000
+
 /**
  * @brief Supported IR protocols.
  */
@@ -78,6 +81,8 @@ typedef struct {
   uint32_t address;
   uint32_t command;
   bool repeat;
+  bool extended; ///< NEC: emit a literal 16-bit address (no complement) even if it fits in 8 bits.
+  uint8_t nbits; ///< Sony: SIRC data-bit count (12/15/20); 0 lets the encoder infer from address.
 } ir_data_t;
 
 /**

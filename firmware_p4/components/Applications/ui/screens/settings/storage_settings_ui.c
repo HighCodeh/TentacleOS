@@ -16,6 +16,8 @@
 #include "storage_settings_ui.h"
 
 #include <stdio.h>
+#include <stdint.h>
+#include <stdatomic.h>
 
 #include "esp_littlefs.h"
 #include "freertos/FreeRTOS.h"
@@ -47,28 +49,42 @@ static const char *TAG = "STORAGE_UI";
 #define DANGER_COLOR   0xFF5470
 #define ACT_EJECT      0
 #define ACT_FORMAT     1
-#define ACT_HEALTH     2
-#define ACT_COUNT      3
+#define ACT_EXFAT      2
+#define ACT_HEALTH     3
+#define ACT_COUNT      4
 #define FMT_TASK_STACK 8192
-#define FMT_TASK_PRIO  SYS_PRIO_SERVICE_HI
+#define FMT_POLL_MS    50
+#define FMT_BOX_W      200
+#define FMT_BOX_H      124
+#define FMT_BAR_MAX    100
+#define FMT_BAR_SPAN   25
+#define FMT_BAR_STEP   5
 
-#define LIST_LEFT     6
-#define LIST_TOP_Y    46
-#define LIST_W        (ui_screen_w() - LIST_LEFT - 16)
-#define LIST_H        (ui_screen_h() - LIST_TOP_Y - 26)
-#define SB_TRACK_X    (ui_screen_w() - 13)
-#define SB_TRACK_Y    54
-#define SB_TRACK_LEN  (ui_screen_h() - SB_TRACK_Y - 34)
-#define SB_THUMB_H    45
-#define SB_THUMB_ICON "/assets/icons/drag_indicator.bin"
+#define LIST_LEFT      6
+#define LIST_TOP_Y     46
+#define LIST_W         (ui_screen_w() - LIST_LEFT - 16)
+#define STORAGE_LIST_H (ui_screen_h() - LIST_TOP_Y - 26)
+#define SB_TRACK_X     (ui_screen_w() - 13)
+#define SB_TRACK_Y     54
+#define SB_TRACK_LEN   (ui_screen_h() - SB_TRACK_Y - 34)
+#define SB_THUMB_H     45
+#define SB_THUMB_ICON  "/assets/icons/drag_indicator.bin"
 
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_act[ACT_COUNT];
 static lv_obj_t *s_col = NULL;
 static lv_obj_t *s_thumb = NULL;
 static lv_obj_t *s_fmt_overlay = NULL;
+static lv_obj_t *s_fmt_bar = NULL;
+static int32_t s_fmt_phase = 0;
 static int s_sel = 0;
-static volatile bool s_formatting = false;
+static bool s_formatting = false;
+static bool s_format_exfat = false;
+static atomic_bool s_format_done = false;
+static esp_err_t s_format_result = ESP_FAIL;
+static lv_timer_t *s_format_poll_timer = NULL;
+static uint32_t s_screen_generation = 0;
+static uint32_t s_format_view_generation = 0;
 
 static void build_screen(void);
 
@@ -238,11 +254,12 @@ static void update_selection(void) {
     if (s_act[i] == NULL)
       continue;
     bool sel = (i == s_sel);
-    lv_obj_set_style_border_color(
-        s_act[i],
-        sel ? current_theme.border_accent
-            : (i == ACT_FORMAT ? lv_color_hex(DANGER_COLOR) : current_theme.border_inactive),
-        0);
+    lv_obj_set_style_border_color(s_act[i],
+                                  sel ? current_theme.border_accent
+                                      : ((i == ACT_FORMAT || i == ACT_EXFAT)
+                                             ? lv_color_hex(DANGER_COLOR)
+                                             : current_theme.border_inactive),
+                                  0);
     lv_obj_set_style_bg_opa(s_act[i], sel ? LV_OPA_COVER : LV_OPA_80, 0);
   }
   if (s_col != NULL && s_act[s_sel] != NULL) {
@@ -252,10 +269,27 @@ static void update_selection(void) {
   move_thumb();
 }
 
+static void overlay_deleted_cb(lv_event_t *event) {
+  if (lv_event_get_target(event) == s_fmt_overlay) {
+    s_fmt_overlay = NULL;
+    s_fmt_bar = NULL;
+  }
+}
+
+static void screen_deleted_cb(lv_event_t *event) {
+  if (lv_event_get_target(event) != s_screen)
+    return;
+  s_col = NULL;
+  s_thumb = NULL;
+  for (int i = 0; i < ACT_COUNT; ++i)
+    s_act[i] = NULL;
+}
+
 static void show_fmt_overlay(void) {
   if (s_fmt_overlay != NULL)
     return;
   s_fmt_overlay = lv_obj_create(s_screen);
+  lv_obj_add_event_cb(s_fmt_overlay, overlay_deleted_cb, LV_EVENT_DELETE, NULL);
   lv_obj_set_size(s_fmt_overlay, LV_PCT(100), LV_PCT(100));
   lv_obj_center(s_fmt_overlay);
   lv_obj_remove_flag(s_fmt_overlay, LV_OBJ_FLAG_SCROLLABLE);
@@ -264,7 +298,7 @@ static void show_fmt_overlay(void) {
   lv_obj_set_style_border_width(s_fmt_overlay, 0, 0);
 
   lv_obj_t *box = lv_obj_create(s_fmt_overlay);
-  lv_obj_set_size(box, 190, 96);
+  lv_obj_set_size(box, FMT_BOX_W, FMT_BOX_H);
   lv_obj_center(box);
   lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_color(box, current_theme.bg_secondary, 0);
@@ -278,9 +312,18 @@ static void show_fmt_overlay(void) {
   lv_obj_set_style_pad_row(box, 6, 0);
 
   lv_obj_t *t = lv_label_create(box);
-  lv_label_set_text(t, LV_SYMBOL_SD_CARD "  FORMATTING");
+  lv_label_set_text(t, s_format_exfat ? "FORMATTING exFAT" : "FORMATTING SD");
   lv_obj_set_style_text_font(t, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(t, current_theme.border_accent, 0);
+
+  s_fmt_bar = lv_bar_create(box);
+  lv_obj_set_size(s_fmt_bar, lv_pct(100), BAR_H);
+  lv_bar_set_range(s_fmt_bar, 0, FMT_BAR_MAX);
+  lv_bar_set_mode(s_fmt_bar, LV_BAR_MODE_RANGE);
+  lv_obj_set_style_bg_color(s_fmt_bar, current_theme.screen_base, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(s_fmt_bar, current_theme.border_accent, LV_PART_INDICATOR);
+  s_fmt_phase = FMT_BAR_SPAN;
+  lv_bar_set_value(s_fmt_bar, s_fmt_phase, LV_ANIM_OFF);
 
   lv_obj_t *m = lv_label_create(box);
   lv_label_set_text(m, "Do not remove the card.");
@@ -288,39 +331,79 @@ static void show_fmt_overlay(void) {
   lv_obj_set_style_text_color(m, current_theme.text_main, 0);
 }
 
-static void format_done_cb(void *data) {
-  esp_err_t r = (esp_err_t)(intptr_t)data;
+static void format_done_poll(lv_timer_t *timer) {
+  if (!atomic_load_explicit(&s_format_done, memory_order_acquire)) {
+    // FatFS has no progress callback: animate activity, never invent a percentage.
+    if (s_fmt_bar != NULL) {
+      s_fmt_phase = (s_fmt_phase + FMT_BAR_STEP) % (FMT_BAR_MAX + FMT_BAR_SPAN);
+      lv_bar_set_start_value(s_fmt_bar, 0, LV_ANIM_OFF);
+      lv_bar_set_value(s_fmt_bar, LV_MIN(s_fmt_phase, FMT_BAR_MAX), LV_ANIM_OFF);
+      lv_bar_set_start_value(s_fmt_bar, LV_MAX(0, s_fmt_phase - FMT_BAR_SPAN), LV_ANIM_OFF);
+    }
+    return;
+  }
+  const esp_err_t r = s_format_result;
+  lv_timer_delete(timer);
+  s_format_poll_timer = NULL;
   s_formatting = false;
   if (s_fmt_overlay != NULL) {
     lv_obj_del(s_fmt_overlay);
     s_fmt_overlay = NULL;
   }
-  if (r == ESP_OK)
-    notify(NOTIFY_SAVED, "SD formatted (FAT32)");
-  else
+  if (s_screen == NULL || lv_screen_active() != s_screen ||
+      s_screen_generation != s_format_view_generation)
+    return;
+  if (r == ESP_OK) {
+    char msg[32];
+    snprintf(msg, sizeof(msg), "SD formatted (%s)", vfs_sdcard_fs_type());
+    notify(NOTIFY_SAVED, msg);
+  } else {
     notify(NOTIFY_WARNING, "Format failed");
+  }
   build_screen();
 }
 
 static void format_task(void *arg) {
-  (void)arg;
-  esp_err_t r = vfs_sdcard_format();
+  bool exfat = (bool)(uintptr_t)arg;
+  esp_err_t r = exfat ? vfs_sdcard_format_exfat() : vfs_sdcard_format();
   if (r == ESP_OK && !vfs_sdcard_is_mounted())
-    vfs_sdcard_init();
-  ui_async_call(format_done_cb, (void *)(intptr_t)r);
+    r = ESP_ERR_INVALID_STATE;
+  s_format_result = r;
+  atomic_store_explicit(&s_format_done, true, memory_order_release);
   vTaskDelete(NULL);
 }
 
 static void fmt_confirm_cb(bool confirm) {
-  if (!confirm || s_formatting)
+  if (!confirm || s_formatting || s_screen == NULL || lv_screen_active() != s_screen)
     return;
+  s_format_poll_timer = lv_timer_create(format_done_poll, FMT_POLL_MS, NULL);
+  if (s_format_poll_timer == NULL) {
+    notify(NOTIFY_WARNING, "Not enough memory to format");
+    return;
+  }
+  atomic_store_explicit(&s_format_done, false, memory_order_relaxed);
   s_formatting = true;
+  s_format_view_generation = s_screen_generation;
   show_fmt_overlay();
-  xTaskCreatePinnedToCore(
-      format_task, "sd_format", FMT_TASK_STACK, NULL, FMT_TASK_PRIO, NULL, SYS_CORE_RADIO);
+  if (xTaskCreatePinnedToCore(format_task,
+                              "sd_format",
+                              FMT_TASK_STACK,
+                              (void *)(uintptr_t)s_format_exfat,
+                              SYS_PRIO_SERVICE_HI,
+                              NULL,
+                              SYS_CORE_RADIO) != pdPASS) {
+    s_formatting = false;
+    lv_timer_delete(s_format_poll_timer);
+    s_format_poll_timer = NULL;
+    lv_obj_del(s_fmt_overlay);
+    s_fmt_overlay = NULL;
+    notify(NOTIFY_WARNING, "Not enough memory to format");
+  }
 }
 
 static void fire_action(int idx) {
+  if (s_formatting)
+    return;
   if (idx == ACT_HEALTH) {
     ui_feedback(UI_FB_SELECT);
     ui_switch_screen(SCREEN_SD_HEALTH);
@@ -335,12 +418,17 @@ static void fire_action(int idx) {
     ui_feedback(UI_FB_SELECT);
     notify(NOTIFY_INFO, "SD card ejected");
     build_screen();
-  } else if (idx == ACT_FORMAT) {
-    msgbox_open("/assets/icons/warning.bin",
-                "Format SD as FAT32?\nAll files will be erased.",
-                "FORMAT",
-                "Cancel",
-                fmt_confirm_cb);
+  } else if (idx == ACT_FORMAT || idx == ACT_EXFAT) {
+    s_format_exfat = (idx == ACT_EXFAT);
+    msgbox_open_ex(
+        "/assets/icons/warning.bin",
+        s_format_exfat
+            ? "Format SD as exFAT?\nALL files will be erased.\nBack up the card first."
+            : "Format SD (automatic type)?\nALL files will be erased.\nBack up the card first.",
+        "FORMAT",
+        "Cancel",
+        fmt_confirm_cb,
+        false);
   }
 }
 
@@ -382,11 +470,26 @@ static void storage_settings_input(const input_event_t *ev, void *ctx) {
 static void build_screen(void) {
   lv_obj_t *prev = s_screen;
   (void)TAG;
+  // Any old overlay belongs to prev; its delete callback must not clear a new one.
+  s_fmt_overlay = NULL;
+  s_fmt_bar = NULL;
 
   s_screen = lv_obj_create(NULL);
+  ++s_screen_generation;
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
+
+  if (s_formatting) {
+    // The worker owns SD access until completion; rebuilding must not inspect it.
+    s_col = NULL;
+    s_thumb = NULL;
+    for (int i = 0; i < ACT_COUNT; ++i)
+      s_act[i] = NULL;
+    s_format_view_generation = s_screen_generation;
+    show_fmt_overlay();
+    goto load_screen;
+  }
 
   ui_chrome_header(s_screen, "STORAGE", "/assets/icons/storage.bin");
   ui_chrome_footer(s_screen,
@@ -396,7 +499,7 @@ static void build_screen(void) {
   lv_obj_t *col = lv_obj_create(s_screen);
   s_col = col;
   lv_obj_remove_style_all(col);
-  lv_obj_set_size(col, LIST_W, LIST_H);
+  lv_obj_set_size(col, LIST_W, STORAGE_LIST_H);
   lv_obj_align(col, LV_ALIGN_TOP_LEFT, LIST_LEFT, LIST_TOP_Y);
   lv_obj_add_flag(col, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scroll_dir(col, LV_DIR_VER);
@@ -416,7 +519,7 @@ static void build_screen(void) {
     }
     char name[24];
     const char *nm = vfs_sdcard_get_name(name, sizeof(name)) && name[0] ? name : "SD Card";
-    add_volume(col, "/assets/icons/sd_card.bin", nm, "FAT32", used, total);
+    add_volume(col, "/assets/icons/sd_card.bin", nm, vfs_sdcard_fs_type(), used, total);
   } else {
     lv_obj_t *card = lv_obj_create(col);
     lv_obj_remove_style_all(card);
@@ -447,7 +550,8 @@ static void build_screen(void) {
              (uint64_t)at + dt);
 
   s_act[ACT_EJECT] = make_action(col, "/assets/icons/eject.bin", "Eject SD", false);
-  s_act[ACT_FORMAT] = make_action(col, "/assets/icons/warning.bin", "Format SD", true);
+  s_act[ACT_FORMAT] = make_action(col, "/assets/icons/warning.bin", "Format SD (auto)", true);
+  s_act[ACT_EXFAT] = make_action(col, "/assets/icons/warning.bin", "Format SD: exFAT", true);
   s_act[ACT_HEALTH] = make_action(col, "/assets/icons/troubleshoot.bin", "SD Health", false);
 
   static lv_point_precise_t sb_pts[2];
@@ -474,22 +578,21 @@ static void build_screen(void) {
   lv_obj_update_layout(col);
   update_selection();
 
+load_screen:
   ui_input_set_screen_handler(storage_settings_input, NULL);
-
-  ui_screen_load_owned(&s_screen, s_screen);
+  lv_obj_t *current = s_screen;
+  lv_screen_load(current);
   if (prev != NULL)
     lv_obj_del(prev);
+  // Register the new owner only after the old owner's delete callback has run.
+  s_screen = current;
+  lv_obj_add_event_cb(current, screen_deleted_cb, LV_EVENT_DELETE, NULL);
+  ui_screen_load_owned(&s_screen, current);
 }
 
 void ui_storage_settings_open(void) {
   s_sel = 0;
-  s_formatting = false;
-  s_fmt_overlay = NULL;
   s_col = NULL;
   s_thumb = NULL;
-  if (s_screen != NULL) {
-    lv_obj_del(s_screen);
-    s_screen = NULL;
-  }
   build_screen();
 }

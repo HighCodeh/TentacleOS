@@ -223,7 +223,7 @@ size_t mfp_sl3_encrypt(
 
 size_t mfp_sl3_decrypt(
     mfp_session_t *session, const uint8_t *enc, size_t enc_len, uint8_t *out, size_t out_max) {
-  if (session == NULL || session->authenticated == NULL || enc == NULL || out == NULL)
+  if (session == NULL || !session->authenticated || enc == NULL || out == NULL)
     return 0;
   if ((enc_len % MFP_AES_BLOCK_SIZE) != 0 || enc_len > out_max)
     return 0;

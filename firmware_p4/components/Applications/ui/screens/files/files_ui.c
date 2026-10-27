@@ -1159,7 +1159,6 @@ static void files_input(const input_event_t *ev, void *ctx) {
           lv_obj_scroll_by_bounded(s_vbody, 0, SCROLL_STEP, LV_ANIM_ON);
         break;
       case INPUT_BTN_BACK:
-      case INPUT_BTN_LEFT:
         if (press)
           do_back();
         break;
@@ -1184,7 +1183,6 @@ static void files_input(const input_event_t *ev, void *ctx) {
           do_enter();
         break;
       case INPUT_BTN_BACK:
-      case INPUT_BTN_LEFT:
         if (press)
           do_back();
         break;

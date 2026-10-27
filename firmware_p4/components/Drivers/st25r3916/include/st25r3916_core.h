@@ -33,9 +33,10 @@ extern "C" {
 esp_err_t st25r3916_core_init(const highboy_nfc_config_t *config);
 
 /**
- * @brief Deinitialize the driver.
+ * @brief Deinitialize after disabling the field; retain the driver on failure.
+ * @return ESP_OK on success, or the field-off transport error.
  */
-void st25r3916_core_deinit(void);
+esp_err_t st25r3916_core_deinit(void);
 
 /**
  * @brief Read and validate the chip IC identity.

@@ -42,11 +42,12 @@ extern "C" {
 
 #define TOS_PATH_IR_ASSETS TOS_PATH_IR "/assets"
 
-#define TOS_PATH_WIFI_ASSETS      TOS_PATH_WIFI "/assets"
-#define TOS_PATH_WIFI_LOOT        TOS_PATH_WIFI "/loot"
-#define TOS_PATH_WIFI_LOOT_HS     TOS_PATH_WIFI "/loot/handshakes"
-#define TOS_PATH_WIFI_LOOT_PCAPS  TOS_PATH_WIFI "/loot/pcaps"
-#define TOS_PATH_WIFI_LOOT_DEAUTH TOS_PATH_WIFI "/loot/deauth_logs"
+#define TOS_PATH_WIFI_ASSETS       TOS_PATH_WIFI "/assets"
+#define TOS_PATH_WIFI_LOOT         TOS_PATH_WIFI "/loot"
+#define TOS_PATH_WIFI_LOOT_HS      TOS_PATH_WIFI "/loot/handshakes"
+#define TOS_PATH_WIFI_LOOT_PCAPS   TOS_PATH_WIFI "/loot/pcaps"
+#define TOS_PATH_WIFI_LOOT_DEAUTH  TOS_PATH_WIFI "/loot/deauth_logs"
+#define TOS_PATH_WIFI_LOOT_SURVEYS TOS_PATH_WIFI "/loot/surveys"
 
 #define TOS_PATH_BLE_ASSETS TOS_PATH_BLE "/assets"
 #define TOS_PATH_BLE_LOOT   TOS_PATH_BLE "/loot"

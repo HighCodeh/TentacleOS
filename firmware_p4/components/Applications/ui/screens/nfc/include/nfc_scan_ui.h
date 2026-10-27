@@ -20,12 +20,11 @@
 extern "C" {
 #endif
 
-/**
- * @brief Simulated NFC "Identify" screen (MOCK): a lit card lists the NFC-A/B/F/V
- *        technologies while a sweeping highlight polls each row, marking one
- *        present (ISO14443A + UID) and the rest absent, ending on a summary.
- */
+/** @brief Open the real NFC-A/B/F/V technology scanner. */
 void ui_nfc_scan_open(void);
+
+/** @brief Stop the scanner task before leaving the screen. */
+void ui_nfc_scan_stop(void);
 
 #ifdef __cplusplus
 }

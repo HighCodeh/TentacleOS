@@ -60,6 +60,10 @@ void c5_flasher_progress(uint32_t *sent, uint32_t *total);
 // Returns ESP_OK if the C5 acked before rebooting.
 esp_err_t c5_flasher_enter_download(void);
 
+// Ask the running C5 to reboot (SPI_ID_SYSTEM_REBOOT). The C5 acks then restarts;
+// the bridge link monitor re-links once it is back. Returns ESP_OK on ack.
+esp_err_t c5_flasher_reboot(void);
+
 // Release the P4's C5-UART lines: delete the UART1 driver (if installed) and
 // tri-state GPIO_C5_UART_TX_PIN (38) and GPIO_C5_UART_RX_PIN (39) as floating
 // inputs, so an external USB-serial programmer can own the C5 UART. Reboot the

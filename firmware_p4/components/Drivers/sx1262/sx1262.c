@@ -16,6 +16,7 @@
 #include "sx1262.h"
 
 #include <string.h>
+#include <stdatomic.h>
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -32,14 +33,12 @@ static const char *TAG = "SX1262";
 
 static sx1262_config_t s_config;
 static sx1262_callbacks_t s_callbacks = {0};
-static bool s_is_running = false;
+static atomic_bool s_is_running = false;
 static bool s_is_initialized = false;
-static TaskHandle_t s_irq_task_handle = NULL;
-static TaskHandle_t s_stop_caller_handle = NULL;
+static _Atomic(TaskHandle_t) s_irq_task_handle;
 
 #define SX1262_IRQ_TASK_STACK 4096
-#define SX1262_IRQ_TASK_PRIO  SYS_PRIO_REALTIME
-#define SX1262_IRQ_TASK_CORE  SYS_CORE_RADIO
+#define SX1262_STOP_WAIT_MS   500
 
 #define SX1262_INIT_MAX_ATTEMPTS 3
 #define SX1262_IRQ_FAIL_RECOVER  5
@@ -120,30 +119,30 @@ static esp_err_t sx1262_hw_bringup(const sx1262_config_t *config) {
     return ret;
   }
 
-  uint8_t reg_mode = SX1262_REGULATOR_DCDC;
+  /* High Boy V2 implements the SX1262 LDO-only supply option: VREG and
+   * DCC_SW have no external
+   * 15 uH / 47 nH buck network on the schematic.
+   * Selecting DC-DC on this assembly makes the
+   * following calibration assert
+   * BUSY indefinitely. */
+  uint8_t reg_mode = SX1262_REGULATOR_LDO;
   ret = sx1262_cmd_write(hal, SX1262_OP_SET_REGULATOR_MODE, &reg_mode, 1);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "SetRegulatorMode failed");
     return ret;
   }
 
-  uint8_t cal_param = SX1262_CALIBRATE_ALL;
-  ret = sx1262_cmd_write(hal, SX1262_OP_CALIBRATE, &cal_param, 1);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Calibrate failed");
-    return ret;
-  }
+  /* POR already calibrates RC64k, RC13M, PLL and ADC.  On both High Boy V2
+   * prototypes, issuing
+   * Calibrate(0x89, 0x7F) wedges BUSY indefinitely; with
+   * NRESET not routed to the P4, that can
+   * only be recovered by removing all
+   * power.  Keep command calibration out of the base
+   * SPI/configuration
+   * bring-up.  CalibrateImage is deliberately deferred to a separate lab
 
-  ret = sx1262_cmd_wait_busy(hal, SX1262_WAIT_BUSY_TIMEOUT_MS);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "BUSY timeout after Calibrate");
-    return ret;
-  }
-
-  ret = calibrate_image(hal, config->frequency_hz);
-  if (ret != ESP_OK) {
-    return ret;
-  }
+   * * step after register readback and XOSC behavior have been proven. */
+  ESP_LOGI(TAG, "Using POR calibration; command/image calibration deferred");
 
   ret = apply_workaround_w2(hal);
   if (ret != ESP_OK) {
@@ -358,6 +357,8 @@ esp_err_t sx1262_get_status(uint8_t *out_status) {
     return ESP_ERR_INVALID_ARG;
   }
 
+  if (!s_is_initialized)
+    return ESP_ERR_INVALID_STATE;
   sx1262_hal_t *hal = &s_config.hal;
 
   uint8_t tx[2] = {SX1262_OP_GET_STATUS, 0x00};
@@ -370,9 +371,14 @@ esp_err_t sx1262_get_status(uint8_t *out_status) {
 
   hal->lock(hal->ctx);
   hal->cs_low(hal->ctx);
-  hal->spi_transfer(hal->ctx, tx, rx, 2);
+  int spi_ret = hal->spi_transfer(hal->ctx, tx, rx, 2);
   hal->cs_high(hal->ctx);
   hal->unlock(hal->ctx);
+
+  if (spi_ret < 0) {
+    ESP_LOGE(TAG, "GetStatus SPI transfer failed: %d", spi_ret);
+    return ESP_FAIL;
+  }
 
   *out_status = rx[1];
   return ESP_OK;
@@ -383,6 +389,8 @@ esp_err_t sx1262_get_device_errors(uint16_t *out_errors) {
     return ESP_ERR_INVALID_ARG;
   }
 
+  if (!s_is_initialized)
+    return ESP_ERR_INVALID_STATE;
   sx1262_hal_t *hal = &s_config.hal;
   uint8_t buf[2] = {0};
 
@@ -396,7 +404,7 @@ esp_err_t sx1262_get_device_errors(uint16_t *out_errors) {
 }
 
 esp_err_t sx1262_start(void) {
-  if (s_is_running) {
+  if (s_is_running || atomic_load(&s_irq_task_handle) != NULL) {
     ESP_LOGE(TAG, "Already running");
     return ESP_ERR_INVALID_STATE;
   }
@@ -405,44 +413,62 @@ esp_err_t sx1262_start(void) {
     return ESP_ERR_INVALID_STATE;
   }
 
+  /* Publish the running state before the high-priority task can be scheduled.
+   * Otherwise
+   * irq_task() may run immediately, observe false and exit before
+   * xTaskCreatePinnedToCore()
+   * returns to this task. */
+  s_is_running = true;
+  TaskHandle_t task = NULL;
   BaseType_t xret = xTaskCreatePinnedToCore(irq_task,
                                             "sx1262_irq",
                                             SX1262_IRQ_TASK_STACK,
                                             NULL,
-                                            SX1262_IRQ_TASK_PRIO,
-                                            &s_irq_task_handle,
-                                            SX1262_IRQ_TASK_CORE);
+                                            SYS_PRIO_REALTIME,
+                                            &task,
+                                            SYS_CORE_RADIO);
 
-  if (xret != pdPASS || s_irq_task_handle == NULL) {
+  if (xret != pdPASS || task == NULL) {
+    s_is_running = false;
     ESP_LOGE(TAG, "Failed to create IRQ task");
     return ESP_ERR_NO_MEM;
   }
 
-  s_is_running = true;
+  atomic_store(&s_irq_task_handle, task);
   ESP_LOGI(TAG, "IRQ task started");
   return ESP_OK;
 }
 
 void sx1262_stop(void) {
-  if (!s_is_running) {
-    return;
-  }
-  s_stop_caller_handle = xTaskGetCurrentTaskHandle();
   s_is_running = false;
-  if (s_irq_task_handle != NULL) {
-    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(500));
-    s_irq_task_handle = NULL;
+  TickType_t started = xTaskGetTickCount();
+  while (atomic_load(&s_irq_task_handle) != NULL) {
+    if (xTaskGetTickCount() - started >= pdMS_TO_TICKS(SX1262_STOP_WAIT_MS))
+      return;
+    vTaskDelay(1);
   }
-  s_stop_caller_handle = NULL;
-  s_config.hal.set_antenna(s_config.hal.ctx, SX1262_ANT_OFF);
-  ESP_LOGI(TAG, "Stopped");
 }
 
 esp_err_t sx1262_deinit(void) {
   sx1262_stop();
-  esp_err_t ret = sx1262_hal_destroy();
+  if (atomic_load(&s_irq_task_handle) != NULL)
+    return ESP_ERR_TIMEOUT;
+  if (s_config.hal.spi_transfer != NULL) {
+    uint8_t standby = SX1262_STDBY_RC;
+    esp_err_t error = sx1262_cmd_write(&s_config.hal, SX1262_OP_SET_STANDBY, &standby, 1);
+    if (error != ESP_OK)
+      return error;
+    s_config.hal.set_antenna(s_config.hal.ctx, SX1262_ANT_OFF);
+  }
+  esp_err_t error = sx1262_hal_destroy();
+  if (error != ESP_OK)
+    return error;
   s_is_initialized = false;
-  return ret;
+  sx1262_radio_init(NULL, NULL);
+  sx1262_irq_init(NULL, NULL, NULL);
+  memset(&s_callbacks, 0, sizeof(s_callbacks));
+  memset(&s_config, 0, sizeof(s_config));
+  return ESP_OK;
 }
 
 esp_err_t sx1262_set_callbacks(const sx1262_callbacks_t *cbs) {
@@ -539,9 +565,7 @@ static void irq_task(void *arg) {
 
   ESP_LOGI(TAG, "IRQ task exiting");
 
-  if (s_stop_caller_handle != NULL) {
-    xTaskNotifyGive(s_stop_caller_handle);
-  }
+  atomic_store(&s_irq_task_handle, NULL);
   vTaskDelete(NULL);
 }
 
@@ -653,13 +677,37 @@ static esp_err_t hw_reset(sx1262_hal_t *hal) {
   hal->reset_write(hal->ctx, 1);
   hal->delay_ms(hal->ctx, SX1262_RESET_WAIT_MS);
 
+  /* High Boy V2 leaves NRESET unconnected, so an ESP32-P4 reset does not
+   * necessarily reset the
+   * SX1262.  It may still be in sleep from an earlier
+   * firmware session.  Wake it exactly as
+   * the Semtech reference board does:
+   * assert NSS without waiting on BUSY, allow the wake edge
+   * to settle, clock
+   * GetStatus, release NSS, then wait for BUSY.  The same sequence is
+   * harmless
+   * on boards where a real hardware reset was just performed. */
+  uint8_t wake_tx[2] = {SX1262_OP_GET_STATUS, 0x00};
+  uint8_t wake_rx[2] = {0};
+  hal->lock(hal->ctx);
+  hal->cs_low(hal->ctx);
+  hal->delay_ms(hal->ctx, 1);
+  int wake_spi = hal->spi_transfer(hal->ctx, wake_tx, wake_rx, sizeof(wake_tx));
+  hal->cs_high(hal->ctx);
+  hal->unlock(hal->ctx);
+  if (wake_spi < 0) {
+    ESP_LOGE(TAG, "NSS wake-up SPI transfer failed: %d", wake_spi);
+    return ESP_FAIL;
+  }
+  hal->delay_ms(hal->ctx, 1);
+
   esp_err_t ret = sx1262_cmd_wait_busy(hal, SX1262_WAIT_BUSY_TIMEOUT_MS);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "BUSY did not go LOW after reset");
     return ret;
   }
 
-  ESP_LOGI(TAG, "Hardware reset complete");
+  ESP_LOGI(TAG, "Hardware reset/NSS wake complete (raw status %02X %02X)", wake_rx[0], wake_rx[1]);
   return ESP_OK;
 }
 

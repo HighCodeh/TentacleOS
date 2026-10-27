@@ -32,20 +32,21 @@ static const struct {
   const char *icon;
   int target;
 } MENU_ITEMS[] = {
-    {"SCAN NETWORKS", "/assets/icons/wifi_find.bin", SCREEN_WIFI_SCAN_MENU},
-    {"EDIT NETWORKS", "/assets/icons/edit.bin", SCREEN_WIFI_NAMES},
-    {"CHANNEL ANALYSIS", "/assets/icons/graphic_eq.bin", SCREEN_WIFI_CHANNELS},
-    {"SCAN CLIENTS", "/assets/icons/devices.bin", SCREEN_WIFI_CLIENTS},
-    {"ATTACKS", "/assets/icons/bolt.bin", SCREEN_WIFI_ATTACK_MENU},
-    {"PACKETS CAPTURE", "/assets/icons/download.bin", SCREEN_WIFI_PACKETS_MENU},
-    {"EVIL-TWIN", "/assets/icons/wifi_tethering.bin", SCREEN_WIFI_EVIL_TWIN},
-    {"PORT SCANNER", "/assets/icons/troubleshoot.bin", SCREEN_WIFI_PORT_SCAN},
-    {"PROBE MONITOR", "/assets/icons/wifi_find.bin", SCREEN_WIFI_PROBE_MON},
-    {"TARGET CLIENTS", "/assets/icons/devices.bin", SCREEN_WIFI_TARGET_CLIENTS},
-    {"DEAUTH DETECTOR", "/assets/icons/monitoring.bin", SCREEN_WIFI_DEAUTH_DETECTOR},
-    {"SIGNAL LOCATOR", "/assets/icons/graphic_eq.bin", SCREEN_WIFI_SIGNAL_LOCATOR},
-    {"HANDSHAKE / PMKID", "/assets/icons/download.bin", SCREEN_WIFI_HANDSHAKE},
+    {"ESP SCAN", "/assets/icons/wifi_find.bin", SCREEN_WIFI_ESP_SCAN},
+    {"WIFI SURVEY", "/assets/icons/wifi_find.bin", SCREEN_WIFI_SCAN_MENU},
+    {"PACKET LAB", "/assets/icons/download.bin", SCREEN_WIFI_PACKETS_MENU},
+    {"CHANNEL ANALYZER", "/assets/icons/graphic_eq.bin", SCREEN_WIFI_CHANNELS},
+    {"SIGNAL LOCATOR", "/assets/icons/cell_tower.bin", SCREEN_WIFI_SIGNAL_LOCATOR},
+    {"CLIENT INVENTORY", "/assets/icons/devices.bin", SCREEN_WIFI_CLIENTS},
+    {"PROBE OBSERVER", "/assets/icons/wifi_find.bin", SCREEN_WIFI_PROBE_MON},
+    {"DEAUTH WATCH", "/assets/icons/monitoring.bin", SCREEN_WIFI_DEAUTH_DETECTOR},
+    {"TARGET OBSERVER", "/assets/icons/devices.bin", SCREEN_WIFI_TARGET_CLIENTS},
+    {"KNOWN NETWORKS", "/assets/icons/edit.bin", SCREEN_WIFI_NAMES},
     {"HOTSPOT (AP)", "/assets/icons/wifi_tethering.bin", SCREEN_WIFI_HOTSPOT},
+    {"PORT SCANNER", "/assets/icons/troubleshoot.bin", SCREEN_WIFI_PORT_SCAN},
+    {"HANDSHAKE LAB", "/assets/icons/key.bin", SCREEN_WIFI_HANDSHAKE},
+    {"AUTHORIZED TESTS", "/assets/icons/bolt.bin", SCREEN_WIFI_ATTACK_MENU},
+    {"CAPTIVE PORTAL LAB", "/assets/icons/wifi_tethering.bin", SCREEN_WIFI_EVIL_TWIN},
 };
 
 #define MENU_ITEMS_COUNT (sizeof(MENU_ITEMS) / sizeof(MENU_ITEMS[0]))
@@ -64,7 +65,6 @@ static void wifi_menu_input(const input_event_t *ev, void *ctx) {
         menu_component_prev(&s_menu);
       break;
     case INPUT_BTN_BACK:
-    case INPUT_BTN_LEFT:
       if (press)
         ui_switch_screen(SCREEN_MENU);
       break;

@@ -2,6 +2,10 @@
 
 System power manager for `firmware_p4`. It owns `esp_pm` and drives automatic light sleep gated by a shared `NO_LIGHT_SLEEP` lock, so the CPU only powers off when the device is genuinely idle (screen off, no active resource, not plugged in).
 
+The integrated High Boy profile currently keeps `CONFIG_PM_ENABLE` disabled
+because UART/USB wake-up is not validated. The enabled branch below is host-tested
+policy support, not permission to enable sleep or a claim of device acceptance.
+
 ## Overview
 
 - **Location:** `firmware_p4/components/Service/power_manager/`
@@ -39,7 +43,7 @@ The internal rule is `want = external_power && !usb_suspended`. When that transi
 ```c
 void power_manager_init(void);
 ```
-Call once early in boot. Configures `esp_pm` (pinned frequency + light sleep) and creates the shared `NO_LIGHT_SLEEP` lock. Does not acquire the lock. No-op when `CONFIG_PM_ENABLE` is off.
+Call early in boot. Creates and acquires the shared guard before enabling fixed-frequency light sleep. The guard becomes the USB hold when required, or is released after publication. Repeated successful init is idempotent. Failed release/delete keeps a pending handle for a later init retry. No-op when `CONFIG_PM_ENABLE` is off.
 
 ### `power_manager_no_sleep_acquire`
 ```c
@@ -77,3 +81,29 @@ True while external power (VBUS) is present. Always valid regardless of `CONFIG_
 |--------|----------|-------|---------|
 | `PM_FREQ_MHZ` | `power_manager.c` | `360` | Pinned CPU frequency (min == max, no DFS). |
 | `CONFIG_PM_ENABLE` | sdkconfig | - | Master gate. Off: all calls are inert no-ops. |
+
+
+## Hold accounting and failure behavior
+
+USB/VBUS inputs, the applied USB hold and client reference counts are serialized
+with one critical section. The IDF PM acquire/release operations are ISR-safe;
+creation/configuration/deletion and logs remain outside that critical section.
+Input values received before init are retained and reconciled after configuration.
+The applied USB hold changes only after a successful PM operation. Repeating the
+same input retries a failed operation instead of silently treating it as applied.
+Clients cannot release the manager's USB/initial guard: a release without an
+outstanding client acquire returns `ESP_ERR_INVALID_STATE`. Failed operations
+preserve their reference counts, and reference overflow is rejected.
+
+An acquire failure leaves the prior applied state unchanged and logs the error;
+it is not reported as a successful wake hold. A failed initial guard acquisition
+prevents light-sleep configuration. Init failure releases/deletes only resources
+it owns, retains failed cleanup, and retries it before another configuration.
+This does not validate UART/peripheral wake sources or enable PM in this profile.
+
+`python3 tools/power_policy/test_power_policy.py` tests the real manager with
+ASan/UBSan, PM enabled/disabled and real concurrent host threads. Coverage includes
+pre-init inputs, init/guard/configure failures, retained cleanup/retry, USB input
+retry, client balance, concurrent USB/client transitions and the disabled no-op
+contract. Actual sleep/wake, USB/UART behavior and current draw remain #135 bench
+acceptance.

@@ -60,6 +60,9 @@ bool ota_update_available(void);
  * the target OTA partition size, writes it in chunks, sets the boot
  * partition, removes the update file, and reboots.
  *
+ * One caller owns the update until reboot or cleanup; concurrent calls fail.
+ * A wake hold covers preflight/write/finalization. Failed abort/release retains
+ * the handle/hold for a later call to retry before starting another update.
  * This function does not return on success (calls esp_restart).
  *
  * @param progress_cb  Optional callback for progress reporting (NULL to disable).
@@ -84,6 +87,7 @@ esp_err_t ota_start_update(ota_progress_cb_t progress_cb);
  * @return
  *   - ESP_OK when confirmed or on a normal boot
  *   - ESP_FAIL when the local health check failed (rollback pending)
+ *   - SDK state-read or confirmation errors; failed confirmation is not reported as success
  */
 esp_err_t ota_post_boot_check(void);
 

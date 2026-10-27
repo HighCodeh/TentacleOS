@@ -47,7 +47,6 @@ static const char *TAG = "BLE_SCAN_UI";
 #define BLE_DEV_ICON          "/assets/icons/bluetooth.bin"
 #define BLE_SEARCH_ICON       "/assets/icons/bluetooth_searching.bin"
 #define BLE_SCAN_TASK_STACK   8192
-#define BLE_SCAN_TASK_PRIO    SYS_PRIO_SERVICE_LO
 #define HERO_CARD_W           200
 #define HERO_CARD_H           108
 
@@ -438,14 +437,13 @@ static void ble_scan_task(void *arg) {
     return;
   }
 
-  uint16_t dummy = 0;
   uint32_t waited = 0;
-  while (ble_scanner_get_results(&dummy) == NULL && waited < SCAN_TIMEOUT_MS) {
+  while (ble_scanner_is_scanning() && waited < SCAN_TIMEOUT_MS) {
     vTaskDelay(pdMS_TO_TICKS(SCAN_POLL_MS));
     waited += SCAN_POLL_MS;
   }
 
-  if (waited >= SCAN_TIMEOUT_MS) {
+  if (ble_scanner_is_scanning()) {
     ble_scanner_free_results();
     s_dev_count = 0;
     s_scan_state = SCAN_FAIL;
@@ -505,8 +503,6 @@ static void ble_scan_input(const input_event_t *ev, void *ctx) {
   }
 
   if (s_scan_state == SCAN_RUNNING) {
-    if (ev->button == INPUT_BTN_LEFT && press)
-      ui_switch_screen(SCREEN_BLE_MENU);
     return;
   }
 
@@ -533,10 +529,6 @@ static void ble_scan_input(const input_event_t *ev, void *ctx) {
   }
 
   switch (ev->button) {
-    case INPUT_BTN_LEFT:
-      if (press)
-        ui_switch_screen(SCREEN_BLE_MENU);
-      break;
     case INPUT_BTN_RIGHT:
       if (press && !s_scanning)
         ui_ble_scan_open();
@@ -557,7 +549,7 @@ void ui_ble_scan_open(void) {
                                 "ble_scan",
                                 BLE_SCAN_TASK_STACK,
                                 NULL,
-                                BLE_SCAN_TASK_PRIO,
+                                SYS_PRIO_SERVICE_LO,
                                 NULL,
                                 SYS_CORE_RADIO) != pdPASS) {
       s_scanning = false;

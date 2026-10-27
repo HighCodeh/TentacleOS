@@ -1,5 +1,4 @@
 #!/bin/bash
-
 # Copyright (c) 2025 HIGH CODE LLC
 #
 # TentacleOS is free software: you can redistribute it and/or modify
@@ -15,9 +14,11 @@
 # You should have received a copy of the GNU General Public License
 # along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-
 # Configuration
 PROJECT_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." &> /dev/null && pwd)
+if [ -f "$PROJECT_ROOT/integration/import.json" ]; then
+    exec bash "$PROJECT_ROOT/tools/highboy/build.command" "$@"
+fi
 C5_DIR="$PROJECT_ROOT/firmware_c5"
 P4_DIR="$PROJECT_ROOT/firmware_p4"
 
@@ -30,10 +31,10 @@ NC='\033[0m'
 # Source ESP-IDF environment (supports local install and Docker container)
 if [ -n "$IDF_PATH" ] && [ -f "$IDF_PATH/export.sh" ]; then
     source "$IDF_PATH/export.sh"
-elif [ -f "$HOME/esp/v5.5.3/esp-idf/export.sh" ]; then
-    source "$HOME/esp/v5.5.3/esp-idf/export.sh"
+elif [ -f "$HOME/esp/v6.1/esp-idf/export.sh" ]; then
+    source "$HOME/esp/v6.1/esp-idf/export.sh"
 else
-    echo -e "${RED}Error: ESP-IDF not found. Set IDF_PATH or install at ~/esp/v5.5.3/esp-idf/${NC}"
+    echo -e "${RED}Error: ESP-IDF not found. Set IDF_PATH or install at ~/esp/v6.1/esp-idf/${NC}"
     exit 1
 fi
 

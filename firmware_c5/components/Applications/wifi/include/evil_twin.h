@@ -40,6 +40,18 @@ void evil_twin_start_attack(const char *ssid);
 void evil_twin_start_attack_with_template(const char *ssid, const char *template_path);
 
 /**
+ * @brief Start an evil twin attack on a background task (non-blocking).
+ *
+ * Returns immediately; the ~1.5 s Wi-Fi/AP switch and DNS/HTTP bring-up run on a
+ * task so the SPI dispatch is not blocked (which would time out the P4's start
+ * command and let the session watchdog kill the portal).
+ *
+ * @param ssid           SSID to broadcast for the rogue access point.
+ * @param template_path  Custom portal template path, or NULL for the default.
+ */
+void evil_twin_start_attack_async(const char *ssid, const char *template_path);
+
+/**
  * @brief Stop the evil twin attack and release resources.
  */
 void evil_twin_stop_attack(void);

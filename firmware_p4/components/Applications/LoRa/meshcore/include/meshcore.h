@@ -516,6 +516,9 @@ void meshcore_get_advert_latlon(int32_t *out_lat_e6, int32_t *out_lon_e6, bool *
  */
 uint8_t meshcore_get_adv_type(void);
 
+/** Copy one entry/count under the writer lock; out may be NULL for count only. */
+esp_err_t meshcore_contacts_snapshot(uint16_t index, meshcore_contact_t *out, uint16_t *out_count);
+
 #ifdef __cplusplus
 }
 #endif

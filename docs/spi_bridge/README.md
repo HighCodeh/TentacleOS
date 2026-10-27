@@ -1,14 +1,118 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # TentacleOS - P4 ↔ C5 SPI Bridge
 
 How the two microcontrollers in TentacleOS talk to each other.
 
-This is the **architecture overview** that ties both sides together. For
-side-specific detail and migration recipes see the component READMEs:
-- `firmware_p4/components/Service/spi_bridge/README.md` (master, protocol spec,
-  command reference, session lifecycle, stream transport)
-- `firmware_c5/components/Service/spi_bridge/README.md` (slave)
+This document contains the **architecture overview** and the details for both
+sides. For side-specific detail and migration recipes see:
+- [P4 master](#p4): protocol spec, command reference, session lifecycle and stream transport.
+- [C5 slave](#c5): dispatching, result delivery and session responsibilities.
 
 ---
+
+
+## Current SPI-only transport revision 1
+
+The paired command protocol remains v2. The physical P4/C5 link now wraps the
+existing frame in a **32-byte envelope**; USB/BLE keep their existing framing.
+Older v2 firmware without this envelope is incompatible: update both chips as
+a pair. Package manifests require `spi_transport_revision: 1`; matching only
+the protocol number is insufficient. Existing partition layouts are unchanged.
+
+The envelope contains a magic, transport revision, message kind, inner frame
+size, a 64-bit P4 session, a 64-bit C5 boot session, a 32-bit transaction number,
+a CRC-16 and zero reserved bytes. Both sessions and the transaction number are
+covered by the CRC. Sessions are random nonzero identifiers, not authentication
+keys. CRC detects accidental corruption; it does not authenticate a hostile peer.
+Normal transfers are **296 bytes** and stream reads **2080 bytes**, both DMA
+word-aligned. The 264/2048-byte layouts below describe the inner frames.
+
+- `HELLO` establishes the peer boot/session before application traffic. Only this
+  side-effect-free negotiation is automatically retransmitted during resync.
+- `REQUEST` carries a command exactly once. The C5 checks the session and a
+  strictly newer transaction number before dispatching it. An exact duplicate
+  of the latest request returns its cached response; changed bytes with the
+  same number and older requests are rejected.
+- `FETCH` asks only for the cached response matching the current sessions and
+  transaction. Polling therefore recovers a damaged/lost response without
+  repeating the command or consuming another stream batch.
+- `RECOVER` asks the P4 to stop clocking for 50 ms and invalidate its session.
+  The pause is honored under the bridge mutex, including across calls; a short
+  caller deadline fails rather than extending the deadline to finish the pause.
+- `RESPONSE` is accepted only for the current peer sessions and transaction,
+  even if a stale response has a valid inner CRC and the same command ID.
+  STREAM inner headers also echo `SPI_ID_SYSTEM_STREAM` (`0x0006`), including
+  empty batches; a zero command ID is invalid and cannot satisfy that request.
+
+The master uses one absolute deadline for command lock acquisition, session
+negotiation and response polling. A synchronous hardware transaction already
+started may finish after that deadline; this is not a hard peripheral watchdog.
+After timeout the next request first resynchronizes with HELLO. The timed-out
+command is **not** replayed: its effects may already have happened, so callers
+must reconcile application state rather than assuming timeout means no effect.
+Counter exhaustion negotiates a new P4 session before reusing transaction IDs.
+A C5 restart requires negotiation of its new boot session before more commands.
+
+C5 keeps static DMA buffers and descriptors alive until completion. A short TX
+whose descriptor was returned no longer halts the bridge: the next RX is already
+queued and the response remains cached for FETCH. Invalid/short RX is discarded
+without dispatch. Every accepted descriptor is tracked until the driver returns
+that exact descriptor, including when only the TX half of a pair was accepted.
+Response completion has a 2-second limit; an idle RX may wait indefinitely.
+
+On failure the sole bridge task drains tracked completions for at most 2 seconds.
+P4 polling supplies the clocks; received bytes during draining are discarded, never
+dispatched. Buffers and descriptors are not touched while still owned by DMA.
+Once all ownership is returned, C5 sends RECOVER, waits at most 2 seconds for its
+completion, clears the old cache/session and rearms RX with a fresh C5 session.
+The P4 then resumes with HELLO. A lost/corrupt recovery notice can delay negotiation,
+but cannot cause command replay. The pause helps scheduling; safety does not depend
+on the C5 running inside a particular timed window. This path never calls queue
+reset, frees the driver or reallocates DMA memory while clocks might be present.
+
+There are at most three recovery attempts per C5 boot. Unknown descriptor ownership,
+a stalled drain/notice, or exhaustion escalates to an ESP-IDF software restart of
+C5, temporarily interrupting its services. Two automatic recovery restarts are
+allowed; a checked RTC counter survives software resets. Power-on or a non-software
+reset starts a fresh budget. Successful traffic does not erase the restart budget.
+After exhaustion the task parks with static buffers retained and logs that a
+power-cycle is required. The P4 has no wired C5 reset pin; it cannot recover a C5
+whose CPU itself is no longer executing. Application commands with unknown outcomes
+remain the caller's responsibility, including across C5 restarts.
+
+There is still no electrical ready signal on the polling boards. The 100 us CS
+idle gap and initial 400 us response delay are scheduling margins, not readiness
+guarantees. Four fast polls use 150 us gaps, then polling yields for 2 ms.
+Framing/CRC/session checks and cached-response retrieval contain missed readiness
+windows; they cannot guarantee timing under arbitrarily delayed interrupts.
+
+Validation: `python tools/spi_transport/test_transport.py` executes the production
+codec, master transport helpers and C5 admission logic with an explicit fake PHY
+and clock, under ASan/UBSan. It covers duplicate requests, late replies, changed
+requests with a reused ID, restarts, counter exhaustion, corruption, bounds,
+response retrieval, bounded negotiation and the recovery pause. The separate
+`python tools/spi_transport/test_recovery.py` executes the production ownership
+tracker and supervisor against a fake IDF queue, including partial enqueue,
+returned/unknown descriptors, short completion, stuck DMA, deadlines and retained
+restart budgets, also with ASan/UBSan. Physical qualification still needs
+SCLK/CS capture under radio and flash load, including peer resets and removed
+power; host tests cannot establish electrical reliability or throughput.
 
 ## 1. Roles
 
@@ -127,17 +231,22 @@ alone; `op` selects the operation within it.
 | `SPI_CAT_SYSTEM`  | `0x00` | inline system handlers |
 | `SPI_CAT_WIFI`    | `0x01` | `wifi_dispatcher` |
 | `SPI_CAT_BT`      | `0x02` | `bt_dispatcher` |
-| `SPI_CAT_LORA`    | `0x03` | (lora) |
+| `SPI_CAT_LORA`    | `0x03` | reserved for future raw LoRa (not yet handled on either chip) |
 | `SPI_CAT_MESH`    | `0x04` | meshtastic (split BLE/WiFi transport) |
 | `SPI_CAT_MCORE`   | `0x05` | meshcore → `bt_dispatcher` |
 | `SPI_CAT_HOST`    | `0x06` | companion host-link BLE relay → `bt_dispatcher` |
 | `SPI_CAT_SCREEN`  | `0x07` | P4-native screen sharing over the USB host link (handled locally, never relayed) |
+| `SPI_CAT_IR`      | `0x08` | P4-native IR (handled locally by `host_link_ir`, never relayed) |
+| `SPI_CAT_SUBGHZ`  | `0x09` | P4-native Sub-GHz (handled locally by `host_link_subghz`, never relayed) |
+| `SPI_CAT_AUDIO`   | `0x0A` | P4-native audio (handled locally by `host_link_audio`, never relayed) |
+| `SPI_CAT_LED`     | `0x0B` | P4-native status LED (handled locally by `host_link_led`, never relayed) |
 | `SPI_CAT_SESSION` | `0xFF` | inline session handlers |
 
 In C, the `SPI_ID_*` constants stay single named values (e.g.
 `SPI_ID_WIFI_SCAN = SPI_CMD(SPI_CAT_WIFI, 0x10) = 0x0110`), so call sites and
 dispatcher `case` labels are unchanged - only the wire carries the two bytes.
-The full command table lives in the P4 component README.
+The full command table is `spi_protocol.h`; the app-facing per-command payloads
+are in [`../host_link/`](../host_link/) (`wifi`/`bluetooth`/`system`/`ir`/`subghz`/`audio`/`led-commands.md`).
 
 ### Response status
 
@@ -182,6 +291,15 @@ is identical either way. Both ends must be initialized in the **same** mode.
   slave answers with a valid frame. Used on boards without an IRQ trace (the
   HighBoy V2 PCB has `GPIO_BRIDGE_IRQ_PIN == -1`, so `bridge_manager` initializes
   the master in POLL mode).
+
+The integrated profile can recover a complete, unique, byte-aligned response
+found later in the same fixed-size poll transfer for the existing Muse/startup
+allowlist, Wi-Fi Quick Scan IDs `0x0151`–`0x0155`, and the existing normal AP
+scan/status/data replies used by ESP SCAN. The command ID, response
+type, bounded payload and CRC must all match. An observed Quick Scan START reply
+at byte offset 11 is covered by host regression tests. Recovery never replays
+a command, combines transfers or repairs truncated/corrupt data; ambiguous
+candidates are rejected. This does not establish electrical link reliability.
 
 ```c
 esp_err_t spi_bridge_master_init(void);                          // == IRQ mode
@@ -313,6 +431,12 @@ command):
   meaning). A mismatch logs loudly and lights the error LED but keeps the bridge
   up. Bump `SPI_PROTOCOL_VERSION` in **both** copies of `spi_protocol.h` on any
   change to the contract (an id, a struct, or the header layout).
+
+The integrated P4/C5 contract is numbered **v2**. This renumbers the previous
+v8 identifier. Retained command IDs, payload structures and framing are unchanged;
+the removed experimental app category `0x0F` stays reserved and has no handler.
+Update both chips as a pair; a chip still running v8 will report a mismatch.
+The number does not establish compatibility with older firmware also named v2.
 
 ### Update path
 
@@ -1002,7 +1126,7 @@ lines to the companion's C5 console.
 ## Session Lifecycle (Long-Running Operations)
 
 For full design and migration recipe, see the
-[P4 README "Session Lifecycle" section](../../../../firmware_p4/components/Service/spi_bridge/README.md#session-lifecycle-long-running-operations).
+[P4 "Session Lifecycle" section](#session-lifecycle-long-running-operations).
 The two sides share `spi_protocol.h` so the wire format is identical.
 
 ### Slave responsibilities (this side)
@@ -1030,3 +1154,21 @@ References:
 - Streaming pattern: `wifi_sniffer.c`, `ble_sniffer.c`.
 - Non-streaming pattern: see the `killed_*` static functions plus the
   `open_session()` / `bt_open_session()` helpers in the dispatchers.
+
+## Meshtastic MQTT category
+
+Category `0x14` carries the [bounded MQTT bridge](../mqtt/README.md) between P4
+and C5, including configuration, status, fragmented packets and explicit RX ACK.
+Both hand-maintained headers retain version 8. The C5 owns the MQTT/TLS client;
+the P4 owns Meshtastic decoding and chat delivery. Muse category `0x11` is unchanged.
+
+
+## Stream teardown barrier
+
+P4 callback registry publication/lookups/removal now share a critical section.
+After unregistering a callback, `spi_bridge_stream_barrier(timeout_ms)` waits
+until the persistent stream worker reaches its next loop boundary. A callback
+already fetched before removal therefore finishes before native mesh state is
+reset. The barrier refuses self-wait on the stream worker and reports timeout
+without claiming quiescence. MeshCore/Meshtastic stop retain ownership when the
+barrier or C5 transport stop fails. This changes no protocol-v8 wire fields.

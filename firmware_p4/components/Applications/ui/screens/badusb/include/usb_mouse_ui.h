@@ -23,6 +23,9 @@ extern "C" {
 /** @brief Open the HID mouse screen (trackpad, scroll rail, click buttons). */
 void ui_usb_mouse_open(void);
 
+/** @brief Stop mouse reports and restore the USB-UART data path. */
+void ui_usb_mouse_stop(void);
+
 #ifdef __cplusplus
 }
 #endif

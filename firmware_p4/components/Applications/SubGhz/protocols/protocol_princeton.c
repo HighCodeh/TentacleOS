@@ -82,5 +82,11 @@ protocol_princeton_decode(const int32_t *raw_data, size_t count, subghz_data_t *
   return false;
 }
 
+static size_t
+protocol_princeton_encode(const subghz_data_t *data, int32_t *pulses, size_t max_count) {
+  return subghz_pwm_encode(
+      data->raw_value, data->bit_count, PRINCETON_SHORT_US, PRINCETON_LONG_US, pulses, max_count);
+}
+
 subghz_protocol_t protocol_princeton = {
-    .name = "Princeton", .decode = protocol_princeton_decode, .encode = NULL};
+    .name = "Princeton", .decode = protocol_princeton_decode, .encode = protocol_princeton_encode};

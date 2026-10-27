@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-/** @brief Open the BLE tracker-detector screen (mock AirTag/Tile scan). */
+/** @brief Open the tracker detector using observed BLE advertisements. */
 void ui_ble_tracker_open(void);
 
 #ifdef __cplusplus

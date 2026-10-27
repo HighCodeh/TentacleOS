@@ -85,10 +85,6 @@ static bool path_ok(const uint8_t *src, uint16_t src_len, char *out, size_t out_
   return false;
 }
 
-bool host_files_is_file_op(uint16_t cmd) {
-  return cmd >= SPI_ID_FILE_LIST && cmd <= SPI_ID_FILE_MKDIR;
-}
-
 static uint8_t do_list(const char *path, uint8_t *out, uint16_t cap, uint16_t *out_len) {
   DIR *dir = opendir(path);
   if (dir == NULL) {
@@ -237,10 +233,14 @@ uint8_t host_files_handle(uint16_t cmd,
     case SPI_ID_FILE_WRITE:
       return do_write(payload, plen, out_data, out_len);
 
-    case SPI_ID_FILE_DELETE:
+    case SPI_ID_FILE_DELETE: {
       if (!path_ok(payload, plen, path, sizeof(path)))
         return SPI_STATUS_INVALID_ARG;
+      struct stat st = {0};
+      if (stat(path, &st) == 0 && S_ISDIR(st.st_mode))
+        return (rmdir(path) == 0) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
       return (remove(path) == 0) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+    }
 
     case SPI_ID_FILE_MKDIR:
       if (!path_ok(payload, plen, path, sizeof(path)))

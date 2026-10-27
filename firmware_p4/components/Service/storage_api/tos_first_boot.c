@@ -239,6 +239,14 @@ static const asset_copy_t FIRST_BOOT_ASSETS[] = {
     // BadUSB example scripts
     {FLASH_STORAGE_BADUSB "/rickroll.txt", TOS_PATH_BADUSB_ASSETS "/rickroll.txt"},
 
+    // Large optional resources live primarily on the microSD. The flash copy
+    // remains a factory/fallback source so a blank card can self-provision.
+    {FLASH_MOUNT "/storage/ghost_cyberpunk_boot.mp3",
+     TOS_PATH_RINGTONES "/ghost_cyberpunk_boot.mp3"},
+    {FLASH_MOUNT "/ir/ac.ir", TOS_PATH_IR_ASSETS "/ac.ir"},
+    {FLASH_MOUNT "/ir/audio.ir", TOS_PATH_IR_ASSETS "/audio.ir"},
+    {FLASH_MOUNT "/ir/tv.ir", TOS_PATH_IR_ASSETS "/tv.ir"},
+
     {FLASH_NFC_DICT "/mf_classic_default.dic", TOS_PATH_NFC_DICT "/mf_classic_default.dic"},
     {FLASH_NFC_DICT "/mf_classic_user.dic", TOS_PATH_NFC_DICT "/mf_classic_user.dic"},
     {FLASH_NFC_DICT "/mf_ulc_default.dic", TOS_PATH_NFC_DICT "/mf_ulc_default.dic"},
@@ -303,16 +311,10 @@ esp_err_t tos_first_boot_setup(void) {
     return ESP_ERR_INVALID_STATE;
   }
 
-  if (setup_already_done()) {
-    ESP_LOGI(TAG, "Setup already done, skipping");
-    return ESP_OK;
-  }
-
-  ESP_LOGI(TAG, "First boot detected — creating folder structure");
-
+  // Always reconcile the directory tree.  Older cards may already carry the
+  // setup marker but not directories introduced by a newer firmware release.
   int created = 0;
   int failed = 0;
-
   for (int i = 0; FIRST_BOOT_DIRS[i] != NULL; i++) {
     esp_err_t ret = storage_mkdir_recursive(FIRST_BOOT_DIRS[i]);
     if (ret == ESP_OK) {
@@ -322,6 +324,16 @@ esp_err_t tos_first_boot_setup(void) {
       failed++;
     }
   }
+
+  if (setup_already_done()) {
+    // Firmware updates can add new SD-first resources after .setup_done was
+    // created. Re-run the idempotent, never-overwrite copy list every boot.
+    copy_flash_assets_to_sd();
+    ESP_LOGI(TAG, "Setup already done; directory tree and SD-first assets checked");
+    return (failed == 0) ? ESP_OK : ESP_FAIL;
+  }
+
+  ESP_LOGI(TAG, "First boot detected — creating folder structure");
 
   ESP_LOGI(TAG, "Folders: %d created, %d failed", created, failed);
 

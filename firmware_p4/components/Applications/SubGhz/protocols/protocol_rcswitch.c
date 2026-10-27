@@ -171,9 +171,16 @@ protocol_rcswitch_decode(const int32_t *raw_data, size_t count, subghz_data_t *o
 
 static size_t
 protocol_rcswitch_encode(const subghz_data_t *data, int32_t *pulses, size_t max_count) {
+  if (data == NULL || pulses == NULL || data->bit_count == 0 ||
+      data->bit_count > RCSWITCH_MAX_DECODE_BITS) {
+    return 0;
+  }
   int p_idx = -1;
   if (data->protocol_name != NULL &&
       sscanf(data->protocol_name, "RCSwitch(P%d)", &p_idx) == RCSWITCH_SSCANF_EXPECTED) {
+    if (p_idx <= 0 || p_idx > (int)RCSWITCH_PROTOCOLS_COUNT) {
+      return 0;
+    }
     p_idx -= 1;
   }
 

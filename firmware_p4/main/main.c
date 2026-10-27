@@ -16,7 +16,8 @@ void app_main(void) {
   // kernel_init aborts to safe mode on a required-subsystem failure or a boot
   // loop, and reports it via the return code; the boot map records the details.
   if (kernel_init() != ESP_OK) {
-    ESP_LOGE("MAIN", "Boot degraded: a required subsystem failed, running in safe mode");
+    ESP_LOGW("MAIN", "Recovery boot: leaving pending OTA unconfirmed and assets unchanged");
+    return;
   }
 
   // Confirm a pending OTA image AFTER the system is up, using local health

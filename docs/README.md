@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # Documentation hub
 
 Aggregated, canonical copies of the project documentation, one directory per
@@ -7,8 +24,13 @@ README.md, separated by `---`.
 
 ## Featured
 
-- [host_link/](host_link/README.md) - companion app link: overview, [app implementation guide](host_link/app-guide.md), [protocol spec](host_link/protocol.md), per-firmware sections
+- [highboy/](highboy/README.md) - integrated dev + local Muse pair, build lanes, preservation and deployment gates
+- [High Boy release candidates](highboy/RELEASE.md) - internal RAM/compiler gates and paired SD OTA packaging
+
+- [host_link/](host_link/README.md) - companion app link: overview, [app implementation guide](host_link/app-guide.md), [protocol spec](host_link/protocol.md), [NFC/RFID commands](host_link/rf-commands.md), per-firmware sections
 - [spi_bridge/](spi_bridge/README.md) - P4<->C5 SPI bridge: architecture + per-firmware sections
+- [scripts/](scripts/README.md) - execute JavaScript and Lua source files from SD
+- [app_sdk/](app_sdk/README.md) - **write an app for the device**: build, sign, install and run signed `.hb` bundles from SD
 
 ## All components
 
@@ -28,7 +50,11 @@ README.md, separated by `---`.
 | `drv2605l` | [README.md](drv2605l/README.md) - TI DRV2605L haptic motor driver |
 | `esp_now` | [README.md](esp_now/README.md)  |
 | `espnow_chat` | [README.md](espnow_chat/README.md)  |
+| `gatt` | [README.md](gatt/README.md) - remote BLE service discovery and characteristic reads |
 | `gameboy` | [README.md](gameboy/README.md) - Game Boy emulator application |
+| `doom` | [README.md](doom/README.md) - DOOM input and internal-DMA strip rendering |
+| `hle` | [README.md](hle/README.md) - host simulator compatibility and SPI CRC regression tests |
+| `firmware_crypto` | [README.md](crypto/README.md) - shared public PSA cryptography |
 | `host_link` | [app-guide.md](host_link/app-guide.md) [protocol.md](host_link/protocol.md) [README.md](host_link/README.md)  |
 | `http_server` | [README.md](http_server/README.md)  |
 | `i2c_init` | [README.md](i2c_init/README.md) - shared I2C bus initialization driver |
@@ -37,11 +63,15 @@ README.md, separated by `---`.
 | `led` | [README.md](led/README.md) - status/RGB LED driver |
 | `LoRa` | [README.md](LoRa/README.md) - LoRa messaging application |
 | `lvgl` | [README.md](lvgl/README.md)  |
+| `mqtt` | [README.md](mqtt/README.md) - C5 MQTT transport and Meshtastic UI integration |
+| `muse` | [README.md](muse/README.md) - P4 PTT and C5 pairing/runtime integration |
+| `rf_frontend` | [README.md](rf_frontend/README.md) - shared NFC/LF antenna and native RFID ownership |
 | `nfc` | [README.md](nfc/README.md) - NFC read/write application |
 | `ota` | [README.md](ota/README.md)  |
 | `pins` | [README.md](pins/README.md) - board pin assignment definitions |
 | `power_manager` | [README.md](power_manager/README.md) - battery and power-state management service |
 | `recovery` | [README.md](recovery/README.md)  |
+| `security` | [README.md](security/README.md) - isolated paired security configuration and provisioning boundary |
 | `sd_card` | [README.md](sd_card/README.md)  |
 | `spi` | [README.md](spi/README.md)  |
 | `spi_bridge` | [README.md](spi_bridge/README.md)  |
@@ -58,3 +88,5 @@ README.md, separated by `---`.
 | `ui` | [README.md](ui/README.md) [input-migration.md](ui/input-migration.md)  |
 | `wifi` | [README.md](wifi/README.md)  |
 | `ys_rfid2` | [README.md](ys_rfid2/README.md) - YS-RFID2 125 kHz RFID reader driver |
+
+- [FatFS exFAT override](fatfs/README.md) — verified SDK patch generation and filesystem tests.

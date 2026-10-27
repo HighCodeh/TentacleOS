@@ -92,15 +92,18 @@ static int log_vprintf(const char *fmt, va_list args) {
   if (s_log_queue == NULL)
     return ret;
 
-  char raw[C5_LOG_TEXT_MAX * 2];
-  int raw_len = vsnprintf(raw, sizeof(raw), fmt, args);
+  // This hook runs on the CALLER's stack, including the small (2304B) system
+  // event task, so it must stay stack-light: format straight into the queued
+  // line and strip ANSI in place (the strip only ever compacts, dst index <=
+  // src index, so an in-place pass is safe). Avoids a second large stack buffer.
+  log_line_t line;
+  int raw_len = vsnprintf(line.text, sizeof(line.text), fmt, args);
   if (raw_len <= 0)
     return ret;
-  if (raw_len > (int)sizeof(raw) - 1)
-    raw_len = (int)sizeof(raw) - 1;
+  if (raw_len > (int)sizeof(line.text) - 1)
+    raw_len = (int)sizeof(line.text) - 1;
 
-  log_line_t line;
-  line.len = strip_ansi(raw, raw_len, line.text, sizeof(line.text));
+  line.len = strip_ansi(line.text, raw_len, line.text, sizeof(line.text));
   if (line.len == 0)
     return ret;
   line.level = level_from_letter(line.text[0]);

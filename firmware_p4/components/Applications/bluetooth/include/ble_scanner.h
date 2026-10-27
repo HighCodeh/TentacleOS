@@ -32,6 +32,9 @@ extern "C" {
  */
 bool ble_scanner_start(void);
 
+/** @brief Return true while the C5 scan worker is still running. */
+bool ble_scanner_is_scanning(void);
+
 /**
  * @brief Get the scan results.
  *

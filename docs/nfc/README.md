@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # NFC Application
 
 The NFC feature has two halves in the tree:
@@ -8,13 +25,11 @@ The NFC feature has two halves in the tree:
    `st25r3916` driver (`components/Drivers/st25r3916/`, "HighBoy NFC").
 2. An on-device UI suite under `components/Applications/ui/screens/nfc/`.
 
-**Important:** the shipping UI currently runs as a **simulation**. As documented
-in `nfc_sim.h`, the ST25R3916 shares the SPI3 bus whose MISO line is tied to
-LCD-RST by a board jumper and cannot be read reliably, so the NFC screens use a
-faithful simulation model (`nfc_sim`) instead of driving the radio. The protocol
-stack and driver are compiled and complete, but the current screens do not call
-them (the only wiring is a defensive `nfc_manager_stop` close-hook registered in
-`ui_manager.c`).
+The integrated High Boy profile drives the ST25R3916 through native read,
+scan, write, emulation, protocol-laboratory and APDU services. `nfc_sim` remains
+as a shared card/library representation; its name does not mean that the native
+screens synthesize hardware results. Physical RF operation still requires board
+acceptance testing. See [High Boy integration](../highboy/README.md).
 
 ## Overview
 
@@ -22,37 +37,20 @@ them (the only wiring is a defensive `nfc_manager_stop` close-hook registered in
 - **UI location:** `components/Applications/ui/screens/nfc/`
 - **Driver:** `components/Drivers/st25r3916/` (`highboy_nfc_*`)
 - **Target IC:** ST25R3916 / ST25R3916B (SPI mode 1, clock <= 6 MHz)
-- **Simulation model:** `ui/screens/nfc/nfc_sim.c` (saved library persisted in NVS)
+- **Card/library model:** `ui/screens/nfc/nfc_sim.c` (saved library persisted in NVS)
 
 ## Architecture
 
+```text
+NFC UI -> manager / reader / listener / protocol service / APDU lab
+       -> ST25R3916 core -> shared SPI bus
+       -> RF frontend arbitration with native LF RFID
 ```
-┌──────────────────────────────────────────────────────────┐
-│              UI suite (ui/screens/nfc/*)                 │
-│  Menu + Read / Identify / Emulate / Write / Saved /      │
-│  Config / per-family detail screens                      │
-│  event-driven input, rotation-aware layout               │
-│                    │                                     │
-│                    ▼ (currently) nfc_sim model + NVS     │
-│         ┌───────────────────────────┐                    │
-│         │ nfc_sim: card model +     │                    │
-│         │ saved library (NVS)       │                    │
-│         └───────────────────────────┘                    │
-└──────────────────────────────────────────────────────────┘
-      · · · · · · (not wired in current UI) · · · · · · · · ·
-┌──────────────────────────────────────────────────────────┐
-│              NFC stack (Applications/nfc/)               │
-│  manager (state machine + scan task)                     │
-│  scanner · reader · listener (emulation)                 │
-│  device / store (NVS card profiles + entries)            │
-│  protocols/  (see table below)                           │
-└───────────────────────────┬──────────────────────────────┘
-                            ▼
-┌──────────────────────────────────────────────────────────┐
-│        st25r3916 driver (highboy_nfc, SPI2/SPI3)         │
-│  core · fifo · irq · aat + HAL (gpio / spi / timer)      │
-└──────────────────────────────────────────────────────────┘
-```
+
+The APDU workbench provides bounded command/response history and optional SD
+traces. DESFire, NFC-V, NDEF and FeliCa screens use the shared protocol laboratory.
+Their presence in the UI is not a claim that every operation has passed physical
+acceptance tests.
 
 ## UI Suite (`ui/screens/nfc/`)
 
@@ -63,7 +61,7 @@ switches to the matching screen via the `screen_id_t` enum in `ui_manager.h`.
 |-----------|--------|------|
 | READ TAGS | `SCREEN_NFC_READ` | `nfc_read_ui.c` |
 | SCAN / IDENTIFY | `SCREEN_NFC_SCAN` | `nfc_scan_ui.c` |
-| EMULATE | `SCREEN_CARD_EMU` | `card_emu_ui.c` |
+| EMULATE | `SCREEN_NFC_EMULATE` | `nfc_emulate_ui.c` |
 | WRITE | `SCREEN_NFC_WRITE` | `nfc_write_ui.c` |
 | CONFIGURATIONS | `SCREEN_NFC_CONFIG` | `nfc_config_ui.c` |
 | SAVED | `SCREEN_NFC_SAVED` | `nfc_saved_ui.c` |
@@ -75,10 +73,15 @@ switches to the matching screen via the `screen_id_t` enum in `ui_manager.h`.
 | FELICA | `SCREEN_NFC_FELICA` | `nfc_felica_ui.c` |
 | SHARE (P2P) | `SCREEN_NFC_P2P` | `nfc_p2p_ui.c` |
 | KEY DICTIONARY | `SCREEN_NFC_KEYDICT` | `nfc_keydict_ui.c` |
+| APDU WORKBENCH | `SCREEN_NFC_APDU` | `nfc_apdu_ui.c` |
 
-There is also a dedicated emulate screen (`nfc_emulate_ui.c`,
-`SCREEN_NFC_EMULATE`) reached from the read flow. All of these screens are driven
-by the `nfc_sim` model and LVGL animations; none currently drive the ST25R3916.
+The dedicated emulate screen (`nfc_emulate_ui.c`, `SCREEN_NFC_EMULATE`) uses
+saved MIFARE dumps. The legacy `SCREEN_CARD_EMU` entry opens that same native
+screen rather than animating a simulated card. Read, write, scan, bank-card and
+emulation screens each register their own stop handler with the screen manager,
+so navigation or resource preemption stops the owning worker.
+Native operations run in background services and publish results to the UI.
+The `nfc_sim` model carries card metadata and saved-library entries.
 
 ### Event-driven input
 
@@ -107,7 +110,7 @@ fire-and-forget speaker cues (`nfc_ui_play_sound`: a rising blip on tag found, a
 tick on save). The Identify screen animates a per-technology checklist
 (NFC-A / NFC-B / NFC-F / NFC-V).
 
-### Simulation model (`nfc_sim`)
+### Card/library model (`nfc_sim`)
 
 `nfc_sim.c` is the shared card record (`nfc_sim_card_t`: name, type, UID, ATQA,
 SAK) plus a saved "library" (up to `NFC_SIM_MAX_SAVED` = 16 cards) persisted in
@@ -207,3 +210,98 @@ bool      highboy_nfc_field_detected(uint8_t *out_aux_display);
   (`hal/hb_nfc_gpio.c`, `hb_nfc_spi.c`, `hb_nfc_timer.c`).
 - Capacity constants live in `highboy_nfc_types.h` (UID up to 10 bytes for
   triple cascade, ATS up to 64 bytes, 512-byte hardware FIFO).
+
+## Shared antenna and failed shutdown
+
+NFC and native LF RFID share a physical antenna. The [RF frontend](../rf_frontend/README.md)
+arbitrates the stages using a statically initialized critical section.
+An unsuccessful NFC ON or OFF transfer may leave TX active. The core keeps the
+antenna reserved and marks the field uncertain until an OFF write succeeds.
+Further field-on requests fail with `ESP_ERR_INVALID_STATE` while uncertain.
+Oscillator and RX-gain startup failures use the same checked OFF recovery.
+`st25r3916_core_deinit()` now returns `esp_err_t`; it retains the initialized
+transport when OFF fails so callers can retry. The public `highboy_nfc_deinit()`
+wrapper retains its initialized flag on that failure. A successful SPI transfer
+is the software confirmation boundary; electrical field-off still needs hardware
+validation.
+
+## Synchronous companion discovery
+
+`nfc_manager_poll(technology, out_card)` reuses the manager's A/B/F/V probes
+without starting the scanner task. The caller initializes the driver, owns the
+antenna and performs field shutdown. Its output is a native card descriptor;
+setup errors propagate, discovery timeout/no-card maps to `ESP_ERR_NOT_FOUND`,
+and optional activation/geometry failures retain the original discovered card.
+The background manager uses the same probe implementations. The companion's
+bounded [capture commands](../host_link/rf-commands.md) call this interface under
+an exclusive RF reservation and a no-sleep reference.
+
+Native apps and scripts can now use the [ABI 1.10 discovery calls](../app_sdk/README.md#native-nfcrfid-api-abi-110).
+They reuse the native poll and stable RF worker, while later ABI revisions add bounded block operations and owned emulation. UI functionality is unchanged.
+
+
+## Shared Classic block operations
+
+ABI 1.17 and authenticated companion operations 04/05 expose bounded Classic 1K
+Key A block access through `host_rf_nfc_block`. Native apps and JS/Lua use the
+same worker and antenna/power cleanup. Writes preserve manufacturer/trailer
+blocks and read back data before success. Four-byte UID/SAK 08/88 support is
+explicit; discovery alone does not imply support for a different card geometry.
+See [the app contract](../app_sdk/README.md#nfc-classic-block-access-abi-117)
+and [companion protocol](../host_link/rf-commands.md). Owned emulation follows in ABI 1.22 below; electrical/card acceptance remains unverified.
+
+
+## Owned emulation (ABI 1.22)
+
+`nfc.emulate_start(uid, 4, &session)` copies a four-byte UID into a volatile,
+zero-filled Classic 1K image with ATQA 04/00, SAK 08 and unknown keys. It exposes
+UID/selection emulation, not a saved dump or a clone of card contents. It never
+reads profiles or persists writes. Start/stop require radio-tx; session IDs belong
+to the originating app/script task and are not reused before reboot. Binding
+teardown cancels the session without retaining app buffers or callbacks.
+
+A persistent firmware worker reserves the shared antenna for its whole lifetime,
+including failed startup/shutdown. Failed OFF/deinit retains that reservation and
+the no-sleep reference until cleanup succeeds. Foreign/stale IDs fail. Stop is
+permitted after cooperative cancellation; timeout leaves cleanup running.
+
+The native listener now also copies its card into firmware storage and owns its
+antenna, initialization, emulation and cleanup on one persistent task. This
+prevents a UI listener and app emulator from overwriting one another. The legacy
+void stop waits up to three seconds; `nfc_listener_is_active()` remains true while
+startup or cleanup is pending. Native target configuration/listen/start checks
+all SPI/IRQ operations; foreign emulator mutations are rejected before changing
+shared state. Host tests cover ownership, cancellation, retained cleanup and
+fault injection at each target startup operation. Physical RF acceptance remains
+unverified.
+
+## IDF v6.1 cryptography
+
+TF-PSA-Crypto removed DES, including 3DES, as obsolete algorithms; this was not
+a header rename. Migrating to the public PSA Crypto API does not restore them.
+See the upstream [migration guide](https://github.com/Mbed-TLS/TF-PSA-Crypto/blob/tf-psa-crypto-1.0.0/docs/1.0-migration-guide.md#removed-obsolete-cryptographic-mechanisms).
+
+Legacy NFC card protocols still require DES/3DES. Substituting AES locally would
+break interoperability: the card and its selected authentication protocol must
+also support AES. DES/3DES is therefore retained only for legacy compatibility,
+not as the choice for new cryptographic protocols.
+
+The firmware uses the isolated Mbed TLS v3.6.6 DES/3DES module in
+`protocols/common/legacy_des`, preserving its upstream license notices. This
+does not bring back an older TLS stack or enable DES in the SDK configuration.
+Its [provenance and maintenance instructions](../../firmware_p4/components/Applications/nfc/protocols/common/legacy_des/README.md)
+document the source and local adaptations. The host regression
+`python3 tools/nfc/test_legacy_des.py` checks 12 upstream DES/3DES ECB/CBC vectors;
+these checks do not replace physical card interoperability tests.
+
+NFC AES-ECB, AES-CBC and AES-CMAC now use the public PSA Crypto API through
+`Service/firmware_crypto`. CBC retains the protocol's explicit IV, no-padding
+semantics and output chaining IV, including in-place decryption. CMAC errors
+are propagated instead of reporting a successful MAC. The active NFC path no
+longer includes private SDK primitive headers. P4 uses software AES because of
+the pinned SDK's incomplete PSA hardware algorithm coverage; see
+[SDK compatibility](../highboy/README.md#esp-idf-v61-compatibility).
+
+`python3 tools/crypto/test_psa.py --idf "$IDF_PATH"` validates the production
+NFC AES/CMAC code and CBC chaining against independent vectors with the actual
+SDK software PSA backend. DES/3DES remains covered by its separate legacy test.

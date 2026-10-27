@@ -14,6 +14,9 @@
 # along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 set(VERSION_META_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../common/metadata")
+if(NOT EXISTS "${VERSION_META_DIR}/version_info.txt")
+  set(VERSION_META_DIR "${CMAKE_CURRENT_LIST_DIR}/../../common/metadata")
+endif()
 set(VERSION_INFO_FILE "${VERSION_META_DIR}/version_info.txt")
 file(STRINGS "${VERSION_INFO_FILE}" FW_VERSION LIMIT_COUNT 1)
 string(STRIP "${FW_VERSION}" FW_VERSION)
@@ -21,6 +24,8 @@ set(GENERATED_VERSION_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 configure_file("${VERSION_META_DIR}/ota_version.h.in"
                "${GENERATED_VERSION_DIR}/ota_version.h" @ONLY)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${VERSION_INFO_FILE}")
+
+include("${CMAKE_CURRENT_LIST_DIR}/app_runtime/trust_keys.cmake")
 
 file(GLOB_RECURSE SD_CARD_SERVICE_SRCS "sd_card/*.c")
 file(GLOB_RECURSE CONSOLE_SERVICE_SRCS "console/*.c")
@@ -31,17 +36,37 @@ file(GLOB_RECURSE SPI_BRIDGE_SRCS "spi_bridge/*.c")
 file(GLOB_RECURSE BRIDGE_MANAGER_SRCS "bridge_manager/*.c")
 file(GLOB_RECURSE BT_SERVICE_SRCS "bluetooth/*.c")
 file(GLOB_RECURSE HOST_LINK_SRCS "host_link/*.c")
+file(GLOB_RECURSE APP_RUNTIME_SRCS "app_runtime/*.c")
 file(GLOB_RECURSE STORAGE_API_SRCS "storage_api/*.c")
 # storage_vfs/*.c includes usb_msc.c (expose the SD as a USB drive). NOTE: adding
 # a new .c under storage_vfs requires a CMake reconfigure to re-run this glob.
 file(GLOB_RECURSE STORAGE_VFS_SRCS "storage_vfs/*.c")
 file(GLOB_RECURSE STORAGE_ASSETS_SRCS "storage_assets/*.c")
 
+set(SCRIPT_JS_DIR "${CMAKE_CURRENT_LIST_DIR}/script_engine/mquickjs")
+set(SCRIPT_LUA_DIR "${CMAKE_CURRENT_LIST_DIR}/script_engine/lua/src")
+set(SCRIPT_LUA_SRCS
+    lapi.c lcode.c lctype.c ldebug.c ldo.c ldump.c lfunc.c lgc.c llex.c
+    lmem.c lobject.c lopcodes.c lparser.c lstate.c lstring.c ltable.c
+    ltm.c lundump.c lvm.c lzio.c lauxlib.c lbaselib.c ltablib.c
+    lstrlib.c lmathlib.c lutf8lib.c)
+list(TRANSFORM SCRIPT_LUA_SRCS PREPEND "${SCRIPT_LUA_DIR}/")
+set(SCRIPT_JS_SRCS
+    "${SCRIPT_JS_DIR}/mquickjs.c" "${SCRIPT_JS_DIR}/dtoa.c"
+    "${SCRIPT_JS_DIR}/libm.c" "${SCRIPT_JS_DIR}/cutils.c")
+set(SCRIPT_ENGINE_SRCS
+    "script_engine/script_engine.c" "script_engine/script_bindings.c"
+    ${SCRIPT_LUA_SRCS} ${SCRIPT_JS_SRCS})
+
 idf_component_register(SRCS
+  ${SCRIPT_ENGINE_SRCS}
   "font/font.c"
   "icons/icons.c"
   "wifi/wifi_service.c"
+  "wifi/mac_vendor.c"
   "boot_report/boot_report.c"
+  "boot_sound/boot_sound.c"
+  "muse/hb_muse_p4_service.c"
   "sys_time/sys_time.c"
   "power_manager/power_manager.c"
   "power_manager/power_manager_usb.c"
@@ -51,6 +76,7 @@ idf_component_register(SRCS
   ${STORAGE_ASSETS_SRCS}
 
   "ir/ir.c"
+  "ir/ir_lease.c"
   "ir/ir_file.c"
   "ir/ir_ac.c"
   "ir/ir_ac_coolix.c"
@@ -81,14 +107,18 @@ idf_component_register(SRCS
   ${BRIDGE_MANAGER_SRCS}
   ${BT_SERVICE_SRCS}
   ${HOST_LINK_SRCS}
+  ${APP_RUNTIME_SRCS}
 
   "ota/ota_service.c"
 
   INCLUDE_DIRS
+  "script_engine/include"
   "font/include"
   "icons/include"
   "wifi/include"
   "boot_report/include"
+  "boot_sound/include"
+  "muse"
   "sys_time/include"
   "power_manager/include"
   "ir/include"
@@ -100,6 +130,7 @@ idf_component_register(SRCS
   "console/include"
   "spi_bridge/include"
   "host_link/include"
+  "app_runtime/include"
   "c5_flasher/include"
   "bridge_manager/include"
   "bluetooth/include"
@@ -109,8 +140,11 @@ idf_component_register(SRCS
 
 
 
-  REQUIRES 
+  REQUIRES firmware_crypto
     sdmmc
+    esp_driver_rmt
+    esp_driver_sdmmc
+    esp_driver_sdspi
     driver  
     vfs
     fatfs
@@ -134,6 +168,11 @@ idf_component_register(SRCS
     esp_hw_support
     espcoredump
     esp_pm
+    esp_mm
+    libsodium
+    resource_mgr
+    muse_port
+    esp-libhelix-mp3
 )
 
 # C5 firmware is NOT embedded in the P4 binary anymore. c5_flasher.c streams the
@@ -142,3 +181,22 @@ idf_component_register(SRCS
 # ROM-recovery path (c5_rom_flasher.c) compiles to its graceful stub.
 target_compile_definitions(${COMPONENT_LIB} PRIVATE C5_FIRMWARE_EMBEDDED=0)
 target_compile_definitions(${COMPONENT_LIB} PRIVATE C5_ROM_IMAGES_EMBEDDED=0)
+
+set_source_files_properties("muse/hb_muse_p4_service.c" PROPERTIES COMPILE_OPTIONS "-Os;-flto=2;-ffat-lto-objects")
+
+# Size optimization and LTO keep both script engines in the existing OTA slots.
+target_compile_options(${COMPONENT_LIB} PRIVATE -Os -flto=2 -ffat-lto-objects)
+
+set_source_files_properties("wifi/mac_vendor.c" PROPERTIES
+    COMPILE_OPTIONS "-Oz" COMPILE_DEFINITIONS "MAC_VENDOR_ESPRESSIF_ONLY=1")
+
+if(TOS_APP_HAS_CUSTOM_TRUST)
+  target_compile_definitions(${COMPONENT_LIB} PRIVATE TOS_APP_HAS_CUSTOM_TRUST=1)
+endif()
+
+set_source_files_properties(${SCRIPT_ENGINE_SRCS} PROPERTIES
+    INCLUDE_DIRECTORIES "${SCRIPT_JS_DIR};${SCRIPT_JS_DIR}/generated;${SCRIPT_LUA_DIR}"
+    COMPILE_OPTIONS "-fno-math-errno;-fno-trapping-math"
+    COMPILE_DEFINITIONS "_GNU_SOURCE;LUAI_MAXCCALLS=32")
+set_property(SOURCE ${SCRIPT_JS_SRCS} APPEND PROPERTY COMPILE_OPTIONS
+    -include stddef.h -Wno-error=format -Wno-error=dangling-pointer)

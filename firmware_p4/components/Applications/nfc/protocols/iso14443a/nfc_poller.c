@@ -28,6 +28,7 @@
 #include "st25r3916_cmd.h"
 #include "st25r3916_fifo.h"
 #include "st25r3916_irq.h"
+#include "st25r3916_reg.h"
 #include "hb_nfc_spi.h"
 #include "hb_nfc_timer.h"
 #include "nfc_rf.h"
@@ -74,7 +75,14 @@ int nfc_poller_transceive(const uint8_t *tx,
 
   int64_t t0 = esp_timer_get_time();
 
+  hb_nfc_spi_direct_cmd(ST25R3916_CMD_STOP_ALL);
+  hb_nfc_spi_direct_cmd(ST25R3916_CMD_RESET_RX_GAIN);
   st25r3916_fifo_clear();
+
+  if (st25r3916_irq_clear() != ESP_OK) {
+    ESP_LOGW(TAG, "Could not clear stale IRQ status");
+    return 0;
+  }
 
   st25r3916_fifo_set_tx_bytes((uint16_t)tx_len, 0);
 
@@ -87,8 +95,9 @@ int nfc_poller_transceive(const uint8_t *tx,
     return 0;
   }
 
-  uint16_t count = 0;
-  (void)st25r3916_fifo_wait(rx_min, timeout_ms, &count);
+  st25r3916_irq_status_t rx_irq = {0};
+  esp_err_t rx_wait = st25r3916_irq_wait_rxe(timeout_ms, &rx_irq);
+  uint16_t count = st25r3916_fifo_get_count();
 
   int64_t t1 = esp_timer_get_time();
   if (t1 > t0) {
@@ -98,13 +107,22 @@ int nfc_poller_transceive(const uint8_t *tx,
     }
   }
 
-  if (count < rx_min) {
+  bool rx_error = rx_irq.error != 0U || (rx_irq.main & ST25R3916_IRQ_MAIN_COL) != 0U;
+  if (rx_wait != ESP_OK || count < rx_min || rx_error) {
     if (count > 0) {
       size_t to_read = (count > rx_max) ? rx_max : count;
       st25r3916_fifo_read(rx, to_read);
       nfc_log_hex(" RX partial:", rx, to_read);
     }
-    st25r3916_irq_log("RX fail", count);
+    ESP_LOGW(TAG,
+             "RX fail: wait=%s MAIN=0x%02X ERR=0x%02X TMR=0x%02X TGT=0x%02X COL=0x%02X FIFO=%u",
+             esp_err_to_name(rx_wait),
+             rx_irq.main,
+             rx_irq.error,
+             rx_irq.timer,
+             rx_irq.target,
+             rx_irq.collision,
+             count);
     return 0;
   }
 

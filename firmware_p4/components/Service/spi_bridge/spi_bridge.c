@@ -15,10 +15,14 @@
 
 #include "spi_bridge.h"
 
+#include <stdatomic.h>
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_random.h"
+#include "esp_attr.h"
 #include "led_control.h"
+#include "esp_heap_caps.h"
 #include "esp_rom_sys.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -32,7 +36,6 @@
 static const char *TAG = "SPI_BRIDGE_P4";
 
 #define SPI_STREAM_TASK_STACK 16384
-#define SPI_STREAM_TASK_PRIO  SYS_PRIO_SERVICE_HI
 #define SPI_MUTEX_TIMEOUT_MS  50
 #define SPI_STREAM_POLL_MS    10
 #define SPI_STREAM_IDLE_MS    20
@@ -43,7 +46,7 @@ static const char *TAG = "SPI_BRIDGE_P4";
 // POLL-mode handshake: re-clock the bus until the slave answers. The first few
 // tries spin tight (low latency for fast commands); after that we yield so a
 // long slave op (e.g. a ~27 s WiFi scan) does not hog the CPU.
-#define SPI_POLL_FAST_TRIES 32
+#define SPI_POLL_FAST_TRIES 4
 #define SPI_POLL_FAST_US    150
 #define SPI_POLL_SLOW_MS    2
 // Wait before the first response poll so the slave has time to finish processing
@@ -53,6 +56,129 @@ static const char *TAG = "SPI_BRIDGE_P4";
 // timeout - which was making the C5 OTA fall back to slow per-chunk resyncs.
 #define SPI_POLL_PREWAIT_US 400
 
+// All transport state and DMA scratch are owned by the bridge mutex.
+static uint64_t s_master_session;
+static uint64_t s_slave_session;
+static uint32_t s_transaction;
+static bool s_transport_ready;
+static int64_t s_recovery_quiet_until;
+static DMA_ATTR uint8_t s_wire_tx[SPI_TRANSPORT_STREAM_SIZE];
+static DMA_ATTR uint8_t s_wire_rx[SPI_TRANSPORT_STREAM_SIZE];
+
+static uint64_t new_session(void) {
+  uint64_t session;
+  do {
+    esp_fill_random(&session, sizeof(session));
+  } while (!session);
+  return session;
+}
+
+static bool transport_recovery(const spi_transport_header_t *reply) {
+  if (reply->kind != SPI_TRANSPORT_RECOVER || reply->frame_size != SPI_FRAME_SIZE ||
+      (reply->master_session != s_master_session &&
+       reply->master_session != SPI_TRANSPORT_RECOVERY_BROADCAST))
+    return false;
+  s_transport_ready = false;
+  s_recovery_quiet_until = esp_timer_get_time() + SPI_TRANSPORT_RECOVERY_PAUSE_MS * 1000;
+  return true;
+}
+
+static esp_err_t transport_sync(int64_t deadline) {
+  while (esp_timer_get_time() < s_recovery_quiet_until) {
+    if (deadline <= s_recovery_quiet_until)
+      return ESP_ERR_TIMEOUT;
+    vTaskDelay(pdMS_TO_TICKS(SPI_POLL_SLOW_MS));
+  }
+  if (!s_master_session || s_transaction == UINT32_MAX) {
+    s_master_session = new_session();
+    s_transaction = 0;
+    s_transport_ready = false;
+  }
+  if (s_transport_ready)
+    return ESP_OK;
+  const uint32_t sequence = ++s_transaction;
+  s_slave_session = 0;
+  while (esp_timer_get_time() < deadline) {
+    memset(s_wire_tx, 0, SPI_TRANSPORT_FRAME_SIZE);
+    spi_transport_seal(
+        s_wire_tx, SPI_FRAME_SIZE, SPI_TRANSPORT_HELLO, s_master_session, 0, sequence);
+    esp_err_t ret = spi_bridge_phy_transmit(s_wire_tx, NULL, SPI_TRANSPORT_FRAME_SIZE);
+    if (ret != ESP_OK)
+      return ret;
+    // Only HELLO is retried. It cannot dispatch an application command.
+    vTaskDelay(pdMS_TO_TICKS(SPI_POLL_SLOW_MS));
+    if (esp_timer_get_time() >= deadline)
+      break;
+    memset(s_wire_tx, 0, SPI_TRANSPORT_FRAME_SIZE);
+    memset(s_wire_rx, 0, SPI_TRANSPORT_FRAME_SIZE);
+    ret = spi_bridge_phy_transmit(s_wire_tx, s_wire_rx, SPI_TRANSPORT_FRAME_SIZE);
+    if (ret != ESP_OK)
+      return ret;
+    spi_transport_header_t reply;
+    if (spi_transport_valid(s_wire_rx, SPI_TRANSPORT_FRAME_SIZE, &reply) &&
+        transport_recovery(&reply))
+      return ESP_ERR_INVALID_STATE;
+    if (spi_transport_valid(s_wire_rx, SPI_TRANSPORT_FRAME_SIZE, &reply) &&
+        reply.frame_size == SPI_FRAME_SIZE && reply.slave_session &&
+        spi_transport_matches(&reply, s_master_session, reply.slave_session, sequence)) {
+      s_slave_session = reply.slave_session;
+      s_transport_ready = true;
+      return ESP_OK;
+    }
+    vTaskDelay(pdMS_TO_TICKS(SPI_POLL_SLOW_MS));
+  }
+  return ESP_ERR_TIMEOUT;
+}
+
+static esp_err_t transport_send(const uint8_t *frame, int64_t deadline) {
+  esp_err_t ret = transport_sync(deadline);
+  if (ret != ESP_OK)
+    return ret;
+  if (esp_timer_get_time() >= deadline)
+    return ESP_ERR_TIMEOUT;
+  if (s_transaction == UINT32_MAX) {
+    s_transport_ready = false;
+    return ESP_ERR_INVALID_STATE;
+  }
+  ++s_transaction;
+  memcpy(s_wire_tx + SPI_TRANSPORT_HEADER_SIZE, frame, SPI_FRAME_SIZE);
+  spi_transport_seal(s_wire_tx,
+                     SPI_FRAME_SIZE,
+                     SPI_TRANSPORT_REQUEST,
+                     s_master_session,
+                     s_slave_session,
+                     s_transaction);
+  ret = spi_bridge_phy_transmit(s_wire_tx, NULL, SPI_TRANSPORT_FRAME_SIZE);
+  if (ret != ESP_OK)
+    s_transport_ready = false;
+  return ret;
+}
+
+static esp_err_t transport_read(uint8_t *out_frame, size_t frame_size) {
+  const size_t wire_size = frame_size + SPI_TRANSPORT_HEADER_SIZE;
+  memset(s_wire_tx, 0, wire_size);
+  spi_transport_seal(s_wire_tx,
+                     SPI_FRAME_SIZE,
+                     SPI_TRANSPORT_FETCH,
+                     s_master_session,
+                     s_slave_session,
+                     s_transaction);
+  memset(s_wire_rx, 0, wire_size);
+  memset(out_frame, 0, frame_size);
+  esp_err_t ret = spi_bridge_phy_transmit(s_wire_tx, s_wire_rx, wire_size);
+  if (ret != ESP_OK) {
+    s_transport_ready = false;
+    return ret;
+  }
+  spi_transport_header_t reply;
+  if (spi_transport_valid(s_wire_rx, wire_size, &reply) && transport_recovery(&reply))
+    return ESP_ERR_INVALID_STATE;
+  if (spi_transport_valid(s_wire_rx, wire_size, &reply) && reply.frame_size <= frame_size &&
+      spi_transport_matches(&reply, s_master_session, s_slave_session, s_transaction))
+    memcpy(out_frame, s_wire_rx + SPI_TRANSPORT_HEADER_SIZE, reply.frame_size);
+  return ESP_OK;
+}
+
 typedef struct {
   spi_id_t id;
   spi_stream_cb_t cb;
@@ -60,11 +186,114 @@ typedef struct {
 
 static SemaphoreHandle_t s_spi_mutex = NULL;
 static TaskHandle_t s_stream_task_handle = NULL;
+// The stream task's stack lives in PSRAM (16 KB) and is allocated once, so its
+// creation never competes for scarce internal RAM. The task is persistent: it
+// idles instead of self-deleting, so it is created exactly once and reused.
+static StackType_t *s_stream_stack = NULL;
+static StaticTask_t *s_stream_tcb = NULL;
 static volatile bool s_is_command_in_flight = false;
 static volatile bool s_bridge_alive = true;
 static volatile bool s_suspended = false;
+static atomic_uint s_stream_epoch;
+static portMUX_TYPE s_stream_cb_lock = portMUX_INITIALIZER_UNLOCKED;
 static stream_cb_slot_t s_stream_cbs[SPI_STREAM_CB_SLOTS] = {0};
 static spi_bridge_mode_t s_bridge_mode = SPI_BRIDGE_MODE_IRQ;
+// Accessed only while the bridge mutex is held. Diagnostics identify receive
+// attempts, not credentials or wire replay sequences.
+static uint32_t s_rx_serial = 0;
+static uint32_t s_rx_success = 0;
+
+typedef struct {
+  uint32_t serial, polls, zero, ones, bad_sync, bad_type, bad_len, bad_crc, wrong_id;
+  int64_t started;
+  // Only the first nonblank bad-sync command frame. Analyse after failure,
+  // never during polling; these bytes are transient and are never logged.
+  uint32_t sample_poll, sample_us;
+  uint8_t sample[SPI_FRAME_SIZE];
+} rx_diag_t;
+
+typedef struct {
+  unsigned headers, complete, crc_ok;
+  int first_header_bit, first_crc_bit;
+} rx_shape_t;
+
+// Diagnostic only: look for a COMPLETE expected response already present at
+// a later bit offset in a rejected frame. No bits are invented, no tail is
+// padded, no response is accepted and no command is repeated. A negative
+// result cannot distinguish truncation, lost leading bits and arbitrary noise.
+static uint8_t sample_byte(const uint8_t *raw, size_t bit) {
+  size_t at = bit / 8;
+  unsigned shift = bit % 8;
+  return shift ? (uint8_t)((raw[at] << shift) | (raw[at + 1] >> (8 - shift))) : raw[at];
+}
+
+static rx_shape_t classify_rx_shape(const uint8_t *raw, size_t bytes, uint16_t cmd) {
+  rx_shape_t result = {.first_header_bit = -1, .first_crc_bit = -1};
+  if (!raw || bytes < sizeof(spi_header_t) || bytes > SPI_FRAME_SIZE)
+    return result;
+  const size_t bits = bytes * 8;
+  uint8_t candidate[SPI_FRAME_SIZE];
+  for (size_t bit = 0; bit + sizeof(spi_header_t) * 8 <= bits; ++bit) {
+    if (sample_byte(raw, bit) != SPI_SYNC_BYTE)
+      continue;
+    for (size_t i = 0; i < sizeof(spi_header_t); ++i)
+      candidate[i] = sample_byte(raw, bit + i * 8);
+    const spi_header_t *h = (const spi_header_t *)candidate;
+    if (h->type != SPI_TYPE_RESP || spi_header_cmd(h) != cmd || h->length < SPI_RESP_STATUS_SIZE)
+      continue;
+    result.headers++;
+    if (result.first_header_bit < 0)
+      result.first_header_bit = (int)bit;
+    size_t total = sizeof(spi_header_t) + h->length;
+    if (bit + total * 8 > bits)
+      continue;
+    result.complete++;
+    for (size_t i = sizeof(spi_header_t); i < total; ++i)
+      candidate[i] = sample_byte(raw, bit + i * 8);
+    if (!spi_frame_valid(h, h->length))
+      continue;
+    result.crc_ok++;
+    if (result.first_crc_bit < 0)
+      result.first_crc_bit = (int)bit;
+  }
+  return result;
+}
+
+static void log_rx_failure(const rx_diag_t *d, uint16_t cmd, esp_err_t error) {
+  // One bounded summary per failed receive. Never print raw frames, payloads,
+  // pairing material, SSIDs or audio; blank polls stay silent individually.
+  ESP_LOGW(TAG,
+           "rx_fail cmd=0x%04x serial=%lu ok=%lu hz=%lu err=0x%x ms=%lu "
+           "polls=%lu zero=%lu ones=%lu sync=%lu type=%lu len=%lu crc=%lu other=%lu",
+           (unsigned)cmd,
+           (unsigned long)d->serial,
+           (unsigned long)s_rx_success,
+           (unsigned long)spi_bridge_phy_get_clock_hz(),
+           (unsigned)error,
+           (unsigned long)((esp_timer_get_time() - d->started) / 1000),
+           (unsigned long)d->polls,
+           (unsigned long)d->zero,
+           (unsigned long)d->ones,
+           (unsigned long)d->bad_sync,
+           (unsigned long)d->bad_type,
+           (unsigned long)d->bad_len,
+           (unsigned long)d->bad_crc,
+           (unsigned long)d->wrong_id);
+  if (d->sample_poll) {
+    rx_shape_t shape = classify_rx_shape(d->sample, sizeof(d->sample), cmd);
+    ESP_LOGW(TAG,
+             "rx_shape cmd=0x%04x sample_poll=%lu sample_us=%lu "
+             "headers=%u complete=%u crc_ok=%u first_header_bit=%d first_crc_bit=%d",
+             (unsigned)cmd,
+             (unsigned long)d->sample_poll,
+             (unsigned long)d->sample_us,
+             shape.headers,
+             shape.complete,
+             shape.crc_ok,
+             shape.first_header_bit,
+             shape.first_crc_bit);
+  }
+}
 
 static void stream_task(void *arg);
 static esp_err_t fetch_stream(const uint8_t **out_records, uint16_t *out_batch_len);
@@ -73,7 +302,7 @@ static esp_err_t recv_frame(uint8_t *tx_buf,
                             size_t frame_size,
                             uint16_t expect_cmd,
                             bool match_cmd,
-                            uint32_t timeout_ms);
+                            int64_t deadline);
 static spi_stream_cb_t get_stream_cb(spi_id_t id);
 static bool has_any_stream_cb(void);
 
@@ -101,10 +330,39 @@ esp_err_t spi_bridge_master_init(void) {
 
 esp_err_t spi_bridge_master_init_mode(spi_bridge_mode_t mode) {
   s_bridge_mode = mode;
+  s_transport_ready = false;
   if (s_spi_mutex == NULL) {
     s_spi_mutex = xSemaphoreCreateMutex();
   }
   return spi_bridge_phy_init_ex(mode == SPI_BRIDGE_MODE_IRQ);
+}
+
+esp_err_t spi_bridge_set_clock_hz(uint32_t hz) {
+  if (hz != 2000000u && hz != 4000000u && hz != 10000000u)
+    return ESP_ERR_INVALID_ARG;
+  if (s_suspended || s_spi_mutex == NULL)
+    return ESP_ERR_INVALID_STATE;
+  if (xSemaphoreTake(s_spi_mutex, pdMS_TO_TICKS(1000)) != pdTRUE)
+    return ESP_ERR_TIMEOUT;
+  // Recheck after waiting: a legacy owner could have suspended the bridge
+  // while this caller was waiting for the last transaction to finish.
+  if (s_suspended) {
+    xSemaphoreGive(s_spi_mutex);
+    return ESP_ERR_INVALID_STATE;
+  }
+  esp_err_t ret = spi_bridge_phy_set_clock_hz(hz);
+  if (ret != ESP_OK && spi_bridge_phy_get_clock_hz() == 0)
+    s_bridge_alive = false;
+  xSemaphoreGive(s_spi_mutex);
+  return ret;
+}
+
+uint32_t spi_bridge_get_clock_hz(void) {
+  if (s_spi_mutex == NULL || xSemaphoreTake(s_spi_mutex, pdMS_TO_TICKS(1000)) != pdTRUE)
+    return 0;
+  uint32_t hz = spi_bridge_phy_get_clock_hz();
+  xSemaphoreGive(s_spi_mutex);
+  return hz;
 }
 
 // Read one response/stream frame from the slave into rx_buf.
@@ -113,38 +371,71 @@ esp_err_t spi_bridge_master_init_mode(spi_bridge_mode_t mode) {
 //              match_cmd, the expected category/op) comes back. While the slave
 //              is still busy it has no TX armed and reads back as junk, so we
 //              retry until it answers or the timeout elapses.
+#include "muse_response_realign.inc"
+
 // tx_buf is used as the (zeroed) outgoing dummy; frame_size is the transfer size.
 static esp_err_t recv_frame(uint8_t *tx_buf,
                             uint8_t *rx_buf,
                             size_t frame_size,
                             uint16_t expect_cmd,
                             bool match_cmd,
-                            uint32_t timeout_ms) {
+                            int64_t deadline) {
+  rx_diag_t diag = {.serial = ++s_rx_serial, .started = esp_timer_get_time()};
   memset(tx_buf, 0, frame_size);
 
   if (s_bridge_mode == SPI_BRIDGE_MODE_IRQ) {
-    esp_err_t ret = spi_bridge_phy_wait_irq(timeout_ms);
+    int64_t remaining = deadline - esp_timer_get_time();
+    if (remaining <= 0)
+      return ESP_ERR_TIMEOUT;
+    esp_err_t ret = spi_bridge_phy_wait_irq((uint32_t)(remaining / 1000));
     if (ret != ESP_OK) {
+      log_rx_failure(&diag, expect_cmd, ret);
       return ret;
     }
     memset(rx_buf, 0, frame_size);
-    return spi_bridge_phy_transmit(tx_buf, rx_buf, frame_size);
+    diag.polls++;
+    ret = transport_read(rx_buf, frame_size);
+    if (ret != ESP_OK)
+      log_rx_failure(&diag, expect_cmd, ret);
+    else
+      s_rx_success++;
+    return ret;
   }
 
   // POLL mode.
   esp_rom_delay_us(SPI_POLL_PREWAIT_US); // let the slave arm its response first
-  int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * 1000;
   uint32_t tries = 0;
-  do {
+  while (esp_timer_get_time() < deadline) {
     memset(rx_buf, 0, frame_size);
-    esp_err_t ret = spi_bridge_phy_transmit(tx_buf, rx_buf, frame_size);
+    diag.polls++;
+    esp_err_t ret = transport_read(rx_buf, frame_size);
     if (ret != ESP_OK) {
+      log_rx_failure(&diag, expect_cmd, ret);
       return ret;
     }
     const spi_header_t *resp = (const spi_header_t *)rx_buf;
     bool armed = false;
-    if ((resp->sync == SPI_SYNC_BYTE) &&
-        (resp->type == SPI_TYPE_RESP || resp->type == SPI_TYPE_STREAM)) {
+    if (resp->sync != SPI_SYNC_BYTE) {
+      bool zero = rx_buf[0] == 0, ones = rx_buf[0] == 0xff;
+      for (size_t i = 1; i < frame_size && (zero || ones); ++i) {
+        zero = zero && rx_buf[i] == 0;
+        ones = ones && rx_buf[i] == 0xff;
+      }
+      if (zero)
+        diag.zero++;
+      else if (ones)
+        diag.ones++;
+      else {
+        diag.bad_sync++;
+        if (!diag.sample_poll && match_cmd && frame_size == SPI_FRAME_SIZE) {
+          memcpy(diag.sample, rx_buf, SPI_FRAME_SIZE);
+          diag.sample_poll = diag.polls;
+          diag.sample_us = (uint32_t)(esp_timer_get_time() - diag.started);
+        }
+      }
+    } else if (resp->type != SPI_TYPE_RESP && resp->type != SPI_TYPE_STREAM) {
+      diag.bad_type++;
+    } else {
       // sync + type is only 16 bits of recognition, so junk on the bus (while the
       // slave has no TX armed) can clear it by chance and stop the poll on a false
       // frame. Confirm with the CRC before accepting: a frame that fails it is not
@@ -160,21 +451,33 @@ static esp_err_t recv_frame(uint8_t *tx_buf,
       } else {
         data_len = resp->length;
       }
-      if (data_len <= (uint32_t)(frame_size - sizeof(spi_header_t)) &&
-          spi_frame_valid(resp, (uint16_t)data_len)) {
+      if (data_len > (uint32_t)(frame_size - sizeof(spi_header_t))) {
+        diag.bad_len++;
+      } else if (!spi_frame_valid(resp, (uint16_t)data_len)) {
+        diag.bad_crc++;
+      } else {
         armed = true;
       }
     }
     if (armed && (!match_cmd || spi_header_cmd(resp) == expect_cmd)) {
+      s_rx_success++;
       return ESP_OK;
     }
+    if (!armed && match_cmd && muse_response_realign(rx_buf, frame_size, expect_cmd)) {
+      s_rx_success++;
+      return ESP_OK;
+    }
+    if (armed)
+      diag.wrong_id++;
     if (tries++ < SPI_POLL_FAST_TRIES) {
       esp_rom_delay_us(SPI_POLL_FAST_US);
     } else {
       vTaskDelay(pdMS_TO_TICKS(SPI_POLL_SLOW_MS));
     }
-  } while (esp_timer_get_time() < deadline);
+  }
 
+  s_transport_ready = false;
+  log_rx_failure(&diag, expect_cmd, ESP_ERR_TIMEOUT);
   return ESP_ERR_TIMEOUT;
 }
 
@@ -185,9 +488,11 @@ void spi_bridge_register_stream_cb(spi_id_t id, spi_stream_cb_t cb) {
   }
 
   int free_slot = -1;
+  portENTER_CRITICAL(&s_stream_cb_lock);
   for (int i = 0; i < SPI_STREAM_CB_SLOTS; i++) {
     if (s_stream_cbs[i].cb != NULL && s_stream_cbs[i].id == id) {
       s_stream_cbs[i].cb = cb;
+      portEXIT_CRITICAL(&s_stream_cb_lock);
       return;
     }
     if (s_stream_cbs[i].cb == NULL && free_slot < 0) {
@@ -195,26 +500,40 @@ void spi_bridge_register_stream_cb(spi_id_t id, spi_stream_cb_t cb) {
     }
   }
   if (free_slot < 0) {
+    portEXIT_CRITICAL(&s_stream_cb_lock);
     ESP_LOGE(TAG, "No free stream cb slot for id 0x%04X", id);
     led_signal_error();
     return;
   }
   s_stream_cbs[free_slot].id = id;
   s_stream_cbs[free_slot].cb = cb;
+  portEXIT_CRITICAL(&s_stream_cb_lock);
 
   if (s_stream_task_handle == NULL) {
     if (s_spi_mutex == NULL) {
       s_spi_mutex = xSemaphoreCreateMutex();
     }
-    BaseType_t created = xTaskCreatePinnedToCore(stream_task,
-                                                 "spi_stream",
-                                                 SPI_STREAM_TASK_STACK,
-                                                 NULL,
-                                                 SPI_STREAM_TASK_PRIO,
-                                                 &s_stream_task_handle,
-                                                 SYS_CORE_RADIO);
-    if (created != pdPASS) {
-      s_stream_task_handle = NULL;
+    if (s_stream_stack == NULL)
+      s_stream_stack =
+          heap_caps_malloc(SPI_STREAM_TASK_STACK * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
+    // The stack may live in PSRAM, but the TCB must be in internal RAM (the
+    // scheduler touches it with the cache off) - it is only a few hundred bytes.
+    if (s_stream_tcb == NULL)
+      s_stream_tcb = heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (s_stream_stack == NULL || s_stream_tcb == NULL) {
+      ESP_LOGE(TAG, "Failed to allocate SPI stream task PSRAM stack");
+      led_signal_error();
+      return;
+    }
+    s_stream_task_handle = xTaskCreateStaticPinnedToCore(stream_task,
+                                                         "spi_stream",
+                                                         SPI_STREAM_TASK_STACK,
+                                                         NULL,
+                                                         SYS_PRIO_SERVICE_HI,
+                                                         s_stream_stack,
+                                                         s_stream_tcb,
+                                                         SYS_CORE_RADIO);
+    if (s_stream_task_handle == NULL) {
       ESP_LOGE(TAG, "Failed to create SPI stream task");
       led_signal_error();
     }
@@ -222,13 +541,30 @@ void spi_bridge_register_stream_cb(spi_id_t id, spi_stream_cb_t cb) {
 }
 
 void spi_bridge_unregister_stream_cb(spi_id_t id) {
+  portENTER_CRITICAL(&s_stream_cb_lock);
   for (int i = 0; i < SPI_STREAM_CB_SLOTS; i++) {
     if (s_stream_cbs[i].cb != NULL && s_stream_cbs[i].id == id) {
       s_stream_cbs[i].cb = NULL;
       s_stream_cbs[i].id = 0;
-      return;
+      break;
     }
   }
+  portEXIT_CRITICAL(&s_stream_cb_lock);
+}
+
+esp_err_t spi_bridge_stream_barrier(uint32_t timeout_ms) {
+  if (s_stream_task_handle == NULL)
+    return ESP_OK;
+  if (xTaskGetCurrentTaskHandle() == s_stream_task_handle)
+    return ESP_ERR_INVALID_STATE;
+  unsigned epoch = atomic_load(&s_stream_epoch);
+  TickType_t started = xTaskGetTickCount();
+  while (atomic_load(&s_stream_epoch) == epoch) {
+    if (xTaskGetTickCount() - started >= pdMS_TO_TICKS(timeout_ms))
+      return ESP_ERR_TIMEOUT;
+    vTaskDelay(1);
+  }
+  return ESP_OK;
 }
 
 void spi_bridge_set_alive(bool alive) {
@@ -303,14 +639,25 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
                                   uint8_t *out_payload,
                                   size_t out_capacity,
                                   uint32_t timeout_ms) {
+  const int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * 1000;
+  if ((!payload && len) || !timeout_ms)
+    return ESP_ERR_INVALID_ARG;
   if (s_suspended || !s_bridge_alive) {
     return ESP_ERR_INVALID_STATE;
   }
   if (s_spi_mutex == NULL) {
     s_spi_mutex = xSemaphoreCreateMutex();
   }
-  if (xSemaphoreTake(s_spi_mutex, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
+  if (!s_spi_mutex)
+    return ESP_ERR_NO_MEM;
+  int64_t remaining = deadline - esp_timer_get_time();
+  if (remaining <= 0 ||
+      xSemaphoreTake(s_spi_mutex, pdMS_TO_TICKS((uint32_t)(remaining / 1000))) != pdTRUE) {
     return ESP_ERR_TIMEOUT;
+  }
+  if (s_suspended || !s_bridge_alive) {
+    xSemaphoreGive(s_spi_mutex);
+    return ESP_ERR_INVALID_STATE;
   }
   s_is_command_in_flight = true;
 
@@ -329,16 +676,17 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
   }
   spi_frame_seal((spi_header_t *)tx_buf, len);
 
-  esp_err_t ret = spi_bridge_phy_transmit(tx_buf, NULL, SPI_FRAME_SIZE);
+  esp_err_t ret = transport_send(tx_buf, deadline);
   if (ret != ESP_OK) {
     s_is_command_in_flight = false;
     xSemaphoreGive(s_spi_mutex);
     return ret;
   }
 
-  ret = recv_frame(tx_buf, rx_buf, SPI_FRAME_SIZE, id, true, timeout_ms);
+  ret = recv_frame(tx_buf, rx_buf, SPI_FRAME_SIZE, id, true, deadline);
   if (ret != ESP_OK) {
-    ESP_LOGW(TAG, "Command 0x%04X timeout", id);
+    s_transport_ready = false;
+    ESP_LOGW(TAG, "Command 0x%04X response failed; result may be unknown", id);
     led_signal_warning();
     s_is_command_in_flight = false;
     xSemaphoreGive(s_spi_mutex);
@@ -417,24 +765,46 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
   return out;
 }
 
+esp_err_t spi_bridge_lock(uint32_t timeout_ms) {
+  if (s_spi_mutex == NULL)
+    s_spi_mutex = xSemaphoreCreateMutex();
+  if (s_spi_mutex == NULL)
+    return ESP_ERR_NO_MEM;
+  return (xSemaphoreTake(s_spi_mutex, pdMS_TO_TICKS(timeout_ms)) == pdTRUE) ? ESP_OK
+                                                                            : ESP_ERR_TIMEOUT;
+}
+
+void spi_bridge_unlock(void) {
+  if (s_spi_mutex != NULL)
+    xSemaphoreGive(s_spi_mutex);
+}
+
 // Static functions
 
 static spi_stream_cb_t get_stream_cb(spi_id_t id) {
+  spi_stream_cb_t callback = NULL;
+  portENTER_CRITICAL(&s_stream_cb_lock);
   for (int i = 0; i < SPI_STREAM_CB_SLOTS; i++) {
     if (s_stream_cbs[i].cb != NULL && s_stream_cbs[i].id == id) {
-      return s_stream_cbs[i].cb;
+      callback = s_stream_cbs[i].cb;
+      break;
     }
   }
-  return NULL;
+  portEXIT_CRITICAL(&s_stream_cb_lock);
+  return callback;
 }
 
 static bool has_any_stream_cb(void) {
+  bool has_callback = false;
+  portENTER_CRITICAL(&s_stream_cb_lock);
   for (int i = 0; i < SPI_STREAM_CB_SLOTS; i++) {
     if (s_stream_cbs[i].cb != NULL) {
-      return true;
+      has_callback = true;
+      break;
     }
   }
-  return false;
+  portEXIT_CRITICAL(&s_stream_cb_lock);
+  return has_callback;
 }
 
 // Fetches one batched stream frame. On ESP_OK, *out_records points into a
@@ -442,7 +812,8 @@ static bool has_any_stream_cb(void) {
 // *out_batch_len is its length in bytes (0 = no data pending). The returned
 // pointer is valid until the next fetch_stream call (single consumer task).
 static esp_err_t fetch_stream(const uint8_t **out_records, uint16_t *out_batch_len) {
-  if (s_suspended) {
+  const int64_t deadline = esp_timer_get_time() + (int64_t)SPI_IRQ_WAIT_MS * 1000;
+  if (s_suspended || !s_bridge_alive) {
     return ESP_ERR_INVALID_STATE;
   }
   static uint8_t s_stream_tx[SPI_STREAM_FRAME_SIZE]; // stays zero; master clocks zeros out
@@ -459,14 +830,17 @@ static esp_err_t fetch_stream(const uint8_t **out_records, uint16_t *out_batch_l
   memcpy(cmd_tx, &header, sizeof(header));
   spi_frame_seal((spi_header_t *)cmd_tx, 0);
 
-  esp_err_t ret = spi_bridge_phy_transmit(cmd_tx, NULL, SPI_FRAME_SIZE);
+  esp_err_t ret = transport_send(cmd_tx, deadline);
   if (ret != ESP_OK)
     return ret;
 
   // Accept either a STREAM frame (data or empty) or a RESP (error status).
-  ret = recv_frame(s_stream_tx, s_stream_rx, SPI_STREAM_FRAME_SIZE, 0, false, SPI_IRQ_WAIT_MS);
-  if (ret != ESP_OK)
+  ret = recv_frame(
+      s_stream_tx, s_stream_rx, SPI_STREAM_FRAME_SIZE, SPI_ID_SYSTEM_STREAM, true, deadline);
+  if (ret != ESP_OK) {
+    s_transport_ready = false;
     return ret;
+  }
 
   spi_header_t *resp = (spi_header_t *)s_stream_rx;
   if (resp->sync != SPI_SYNC_BYTE)
@@ -502,10 +876,10 @@ static esp_err_t fetch_stream(const uint8_t **out_records, uint16_t *out_batch_l
 
 static void stream_task(void *arg) {
   while (1) {
+    atomic_fetch_add(&s_stream_epoch, 1);
     if (!has_any_stream_cb()) {
-      s_stream_task_handle = NULL;
-      vTaskDelete(NULL);
-      return;
+      vTaskDelay(pdMS_TO_TICKS(SPI_STREAM_IDLE_MS)); // persist and idle; never self-delete
+      continue;
     }
 
     if (s_is_command_in_flight) {

@@ -57,6 +57,17 @@ esp_err_t stop_web_server(void);
 esp_err_t http_service_register_uri(const httpd_uri_t *uri_handler);
 
 /**
+ * @brief Install a handler for unmatched requests (HTTP 404).
+ *
+ * A captive portal uses this to redirect every OS connectivity probe
+ * (generate_204, ncsi.txt, connecttest.txt, ...) to the portal page.
+ *
+ * @param fn 404 handler, or NULL to clear.
+ * @return ESP_OK on success, ESP_FAIL if the server is not started.
+ */
+esp_err_t http_service_register_404_handler(httpd_err_handler_func_t fn);
+
+/**
  * @brief Stop the HTTP server (alias).
  *
  * @return ESP_OK on success.

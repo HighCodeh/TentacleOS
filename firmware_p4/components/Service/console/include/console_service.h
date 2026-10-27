@@ -84,6 +84,39 @@ void register_battery_commands(void);
  */
 void register_i2c_commands(void);
 
+/**
+ * @brief Register RGB status-LED commands (led).
+ */
+void register_led_commands(void);
+
+/**
+ * @brief Register audio commands (audio: volume/tone/chime/click).
+ */
+void register_audio_commands(void);
+
+/**
+ * @brief Register Sub-GHz commands (subghz: rx/tx/spectrum/list/replay).
+ */
+void register_subghz_commands(void);
+
+/**
+ * @brief Register the app loader commands (apprun, appstop, apps, appgrant).
+ */
+void register_apprun_commands(void);
+
+/**
+ * @brief Register the resource arbitration command (resources).
+ */
+void register_resource_commands(void);
+
+/**
+ * @brief Register SD card commands (sd: status, toexfat).
+ */
+void register_sd_commands(void);
+
+/** Register LF RFID, NFC, CC1101 and LoRa engineering commands. */
+void register_rf_commands(void);
+
 #ifdef __cplusplus
 }
 #endif

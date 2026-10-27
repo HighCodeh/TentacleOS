@@ -26,9 +26,9 @@
 
 #include "audio_i2s.h"
 #include "drv2605l.h"
+#include "tos_config.h"
 
 #define FB_TASK_STACK_SIZE 3072
-#define FB_TASK_PRIORITY   SYS_PRIO_SERVICE_LO
 
 /** @brief Single pending slot. Feedback is a reaction to an input that already
  *         happened - a stale one is worthless, so we drop instead of queueing.
@@ -113,7 +113,7 @@ void ui_feedback_init(void) {
   // UI core - a full-frame redraw would preempt it long enough to starve the
   // sample feed. Same reason the driver's own FX task lives there.
   if (xTaskCreatePinnedToCore(
-          fb_task, "ui_fb", FB_TASK_STACK_SIZE, NULL, FB_TASK_PRIORITY, NULL, SYS_CORE_RADIO) !=
+          fb_task, "ui_fb", FB_TASK_STACK_SIZE, NULL, SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_RADIO) !=
       pdPASS) {
     vQueueDelete(s_fb_q);
     s_fb_q = NULL;
@@ -167,9 +167,9 @@ static void fb_task(void *arg) {
 
     // s_playing was already set by the producer that claimed this slot.
     const fb_def_t *d = &DEFS[k];
-    if (d->haptic)
+    if (d->haptic && g_config_system.vibration)
       (void)drv2605l_play_effect(d->haptic);
-    if (d->notes && d->count > 0)
+    if (d->notes && d->count > 0 && g_config_system.ui_sound_fx)
       (void)audio_i2s_play_song(d->notes, d->count, d->amp);
 
     // play_song only returns once the samples have actually reached the amp

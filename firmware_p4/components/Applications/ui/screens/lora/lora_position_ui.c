@@ -305,14 +305,13 @@ static void lora_position_input(const input_event_t *ev, void *ctx) {
   const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
   if (s_proto == LORA_PROTO_NONE) {
-    if ((ev->button == INPUT_BTN_BACK || ev->button == INPUT_BTN_LEFT) && press)
+    if ((ev->button == INPUT_BTN_BACK) && press)
       ui_switch_screen(SCREEN_LORA_CHAT);
     return;
   }
 
   switch (ev->button) {
     case INPUT_BTN_BACK:
-    case INPUT_BTN_LEFT:
       if (press)
         ui_switch_screen(SCREEN_LORA_CHAT);
       break;

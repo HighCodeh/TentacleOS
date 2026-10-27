@@ -16,9 +16,10 @@
 #ifndef NFC_WRITE_UI_H
 #define NFC_WRITE_UI_H
 
-/**
- * @brief Simulated tag writer: pick a saved card, animate place->write->done.
- */
+/** @brief Open the verified MIFARE Classic data writer. */
 void ui_nfc_write_open(void);
+
+/** @brief Cancel an active write and release RF resources. */
+void ui_nfc_write_stop(void);
 
 #endif // NFC_WRITE_UI_H

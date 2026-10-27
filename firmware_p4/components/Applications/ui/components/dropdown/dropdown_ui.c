@@ -42,10 +42,11 @@
 #include "vfs_sdcard.h"
 #include "wifi_service.h"
 
-#define GREEN    0x00E676
-#define CHIP_BG  current_theme.screen_base
-#define PANEL_BG current_theme.bg_secondary
-#define SL_STEP  10
+#define GREEN              0x00E676
+#define CHIP_BG            current_theme.screen_base
+#define PANEL_BG           current_theme.bg_secondary
+#define SL_STEP            10
+#define BRIGHTNESS_MIN_PCT 20
 
 #define SLIDE_ANIM_MS       300
 #define SLIDE_BTN_POLL_MS   50
@@ -83,8 +84,9 @@ static lv_obj_t *bat_chip_fill = NULL;
 static int bat_anim_pct = 0;
 static uint32_t bat_last_anim = 0;
 
-#define SLIDER_COUNT 2
-#define SLIDER_SOUND 1
+#define SLIDER_COUNT  2
+#define SLIDER_BRIGHT 0
+#define SLIDER_SOUND  1
 static lv_obj_t *sl_track[SLIDER_COUNT] = {NULL};
 static lv_obj_t *sl_fill[SLIDER_COUNT] = {NULL};
 static lv_obj_t *sl_knob[SLIDER_COUNT] = {NULL};
@@ -92,6 +94,7 @@ static lv_obj_t *sl_icon[SLIDER_COUNT] = {NULL};
 static lv_obj_t *sl_val[SLIDER_COUNT] = {NULL};
 static int sl_value[SLIDER_COUNT] = {80, 45};
 static bool s_vol_dirty = false;
+static bool s_brightness_dirty = false;
 
 static lv_obj_t *slide_panel = NULL;
 static int s_panel_h = 0;
@@ -201,6 +204,8 @@ static void set_slider(int s, int v) {
     return;
   if (v < 0)
     v = 0;
+  if (s == SLIDER_BRIGHT && v < BRIGHTNESS_MIN_PCT)
+    v = BRIGHTNESS_MIN_PCT;
   if (v > 100)
     v = 100;
   sl_value[s] = v;
@@ -211,6 +216,9 @@ static void set_slider(int s, int v) {
   if (s == SLIDER_SOUND) {
     audio_i2s_set_volume((uint8_t)v);
     g_config_system.volume = v;
+  } else {
+    lcd_apply_brightness((uint8_t)v);
+    g_config_screen.brightness = v;
   }
 }
 
@@ -243,13 +251,17 @@ static void dropdown_open(void) {
   // lists via the LVGL group) stops navigating while the panel is up.
   lv_port_indev_set_suppressed(true);
 
-  focus_row = ROW_BADGES;
+  // Brightness is the most frequently needed quick control. Opening directly
+  // on this row makes LEFT/RIGHT work immediately after holding UP.
+  focus_row = ROW_BRIGHT;
   badge_sel = 0;
   sd_disarm();
   badge_on[BADGE_WIFI] = g_config_wifi.enabled;
   badge_on[BADGE_BLE] = g_config_ble.enabled;
   s_sd_present_last = badge_is_enabled(BADGE_SD);
+  set_slider(SLIDER_BRIGHT, g_config_screen.brightness);
   set_slider(SLIDER_SOUND, g_config_system.volume);
+  s_brightness_dirty = false;
   refresh_sd_status();
   battery_tick();
   refresh_focus();
@@ -277,6 +289,12 @@ static void dropdown_close(void) {
   if (s_vol_dirty) {
     (void)tos_config_save(TOS_PATH_CONFIG_SYSTEM, "system");
     s_vol_dirty = false;
+  }
+  if (s_brightness_dirty) {
+    lcd_set_brightness((uint8_t)sl_value[SLIDER_BRIGHT]);
+    if (vfs_sdcard_is_mounted())
+      (void)tos_config_save(TOS_PATH_CONFIG_SCREEN, "screen");
+    s_brightness_dirty = false;
   }
   slide_animating = true;
   slide_open = false;
@@ -410,6 +428,8 @@ static void slide_btn_timer_cb(lv_timer_t *timer) {
         set_slider(s, sl_value[s] - SL_STEP);
         if (s == SLIDER_SOUND)
           s_vol_dirty = true;
+        else
+          s_brightness_dirty = true;
       }
     }
     if (right && !btn_right_last) {
@@ -422,6 +442,8 @@ static void slide_btn_timer_cb(lv_timer_t *timer) {
         set_slider(s, sl_value[s] + SL_STEP);
         if (s == SLIDER_SOUND)
           s_vol_dirty = true;
+        else
+          s_brightness_dirty = true;
       }
     }
     if (ok && !btn_ok_last && focus_row == ROW_BADGES) {
@@ -790,7 +812,7 @@ void dropdown_ui_create(lv_obj_t *parent) {
   lv_obj_set_style_text_opa(hint, LV_OPA_50, 0);
   lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
 
-  focus_row = ROW_BADGES;
+  focus_row = ROW_BRIGHT;
   badge_sel = 0;
   refresh_focus();
 

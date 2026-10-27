@@ -22,6 +22,7 @@
 #include <strings.h>
 #include <sys/stat.h>
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -29,6 +30,7 @@
 #include "sys_prio.h"
 
 #include "ir_protocol.h"
+#include "ir_ac_request.h"
 #include "storage_mkdir.h"
 #include "tos_storage_paths.h"
 
@@ -38,7 +40,6 @@ static const char *TAG = "IR_STORE";
 #define IR_STORE_FILE_MAX (512 * 1024)
 #define IR_SERIALIZE_MAX  16384
 #define IR_CAP_TASK_STACK 8192
-#define IR_CAP_TASK_PRIO  SYS_PRIO_SERVICE_HI
 
 // ----------------------------------------------------------------------------
 // Path helpers
@@ -144,7 +145,7 @@ esp_err_t ir_store_load(const char *path, ir_file_t *file) {
     return ESP_ERR_INVALID_SIZE;
   }
 
-  char *buf = malloc((size_t)sz + 1);
+  char *buf = heap_caps_malloc((size_t)sz + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (buf == NULL) {
     fclose(f);
     return ESP_ERR_NO_MEM;
@@ -321,6 +322,20 @@ esp_err_t ir_store_send_raw(const rmt_symbol_word_t *symbols, size_t count, uint
   return r;
 }
 
+esp_err_t ir_store_send_ac(const ir_ac_state_t *state) {
+  const char *reason = ir_ac_request_error(state);
+  if (reason != NULL) {
+    ESP_LOGW(TAG, "AC request rejected: %s", reason);
+    return state == NULL ? ESP_ERR_INVALID_ARG : ESP_ERR_NOT_SUPPORTED;
+  }
+  esp_err_t result = tx_ready();
+  if (result != ESP_OK)
+    return result;
+  result = ir_ac_send(state);
+  ESP_LOGI(TAG, "send AC %s -> %s", ir_ac_protocol_name(state->protocol), esp_err_to_name(result));
+  return result;
+}
+
 int ir_store_send_named(const ir_file_t *file, const char *name) {
   if (file == NULL || name == NULL)
     return 0;
@@ -384,7 +399,7 @@ esp_err_t ir_capture_start(uint32_t timeout_ms) {
                               "ir_capture",
                               IR_CAP_TASK_STACK,
                               (void *)(uintptr_t)timeout_ms,
-                              IR_CAP_TASK_PRIO,
+                              SYS_PRIO_SERVICE_HI,
                               NULL,
                               SYS_CORE_RADIO) != pdPASS) {
     s_cap_running = false;

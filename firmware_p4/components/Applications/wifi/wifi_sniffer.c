@@ -32,6 +32,11 @@
 
 static const char *TAG = "WIFI_SNIFFER";
 
+_Static_assert(WIFI_SPECTRUM_BIN_COUNT == SPI_WIFI_SPECTRUM_BIN_COUNT,
+               "P4/C5 spectrum bin count mismatch");
+_Static_assert(sizeof(spi_sniffer_stats_t) <= SPI_MAX_PAYLOAD,
+               "sniffer statistics exceed one SPI payload");
+
 #define WIFI_SNIFFER_PATH_MAX     256
 #define WIFI_SNIFFER_PCAP_SNAPLEN 65535
 
@@ -68,6 +73,7 @@ static uint16_t channel_to_freq(uint8_t channel) {
 static spi_sniffer_stats_t s_cached_stats;
 static wifi_sniffer_cb_t s_stream_cb = NULL;
 static storage_stream_t s_capture_stream = NULL;
+static char s_capture_path[WIFI_SNIFFER_PATH_MAX];
 static uint32_t s_session_id = SPI_SESSION_INVALID_ID;
 
 static uint8_t s_reasm_buf[SPI_WIFI_SNIFFER_FRAME_MAX];
@@ -195,24 +201,30 @@ static void session_lost_cb(uint32_t session_id, spi_id_t op_id) {
   }
 }
 
-static void update_stats(void) {
+static bool update_stats(void) {
   spi_header_t resp;
   uint16_t magic_stats = SPI_DATA_INDEX_STATS;
-  spi_bridge_send_command(SPI_ID_SYSTEM_DATA,
-                          (uint8_t *)&magic_stats,
-                          2,
-                          &resp,
-                          (uint8_t *)&s_cached_stats,
-                          sizeof(s_cached_stats),
-                          1000);
+  return spi_bridge_send_command(SPI_ID_SYSTEM_DATA,
+                                 (uint8_t *)&magic_stats,
+                                 2,
+                                 &resp,
+                                 (uint8_t *)&s_cached_stats,
+                                 sizeof(s_cached_stats),
+                                 1000) == ESP_OK;
 }
 
-static bool
-start_internal(wifi_sniffer_type_t type, uint8_t channel, bool monitor_mode, wifi_sniffer_cb_t cb) {
-  uint8_t payload[3];
+static bool start_internal(wifi_sniffer_type_t type,
+                           uint8_t channel,
+                           bool monitor_mode,
+                           wifi_analysis_band_t band,
+                           wifi_sniffer_cb_t cb) {
+  if (band > WIFI_ANALYSIS_BAND_5G)
+    return false;
+  uint8_t payload[4];
   payload[0] = (uint8_t)type;
   payload[1] = channel;
   payload[2] = monitor_mode ? 1 : 0;
+  payload[3] = (uint8_t)band;
   memset(&s_cached_stats, 0, sizeof(s_cached_stats));
   s_stream_cb = cb;
   reasm_reset();
@@ -222,7 +234,9 @@ start_internal(wifi_sniffer_type_t type, uint8_t channel, bool monitor_mode, wif
 
   // Persist to the SD card by default, whoever starts the sniffer (UI, console,
   // ...). A caller that already opened an explicit file keeps its own path.
-  if (s_capture_stream == NULL) {
+  if (monitor_mode) {
+    s_capture_path[0] = '\0';
+  } else if (s_capture_stream == NULL) {
     char path[WIFI_SNIFFER_PATH_MAX];
     auto_capture_path(type, monitor_mode, path, sizeof(path));
     wifi_sniffer_start_capture(path);
@@ -241,15 +255,23 @@ start_internal(wifi_sniffer_type_t type, uint8_t channel, bool monitor_mode, wif
 }
 
 bool wifi_sniffer_start(wifi_sniffer_type_t type, uint8_t channel) {
-  return start_internal(type, channel, false, NULL);
+  return start_internal(type, channel, false, WIFI_ANALYSIS_BAND_DUAL, NULL);
+}
+
+bool wifi_sniffer_start_band(wifi_sniffer_type_t type, uint8_t channel, wifi_analysis_band_t band) {
+  return start_internal(type, channel, false, band, NULL);
 }
 
 bool wifi_sniffer_start_stream(wifi_sniffer_type_t type, uint8_t channel, wifi_sniffer_cb_t cb) {
-  return start_internal(type, channel, false, cb);
+  return start_internal(type, channel, false, WIFI_ANALYSIS_BAND_DUAL, cb);
 }
 
 bool wifi_sniffer_start_monitor(uint8_t channel) {
-  return start_internal(WIFI_SNIFFER_TYPE_RAW, channel, true, NULL);
+  return start_internal(WIFI_SNIFFER_TYPE_RAW, channel, true, WIFI_ANALYSIS_BAND_DUAL, NULL);
+}
+
+bool wifi_sniffer_start_monitor_band(uint8_t channel, wifi_analysis_band_t band) {
+  return start_internal(WIFI_SNIFFER_TYPE_RAW, channel, true, band, NULL);
 }
 
 void wifi_sniffer_stop(void) {
@@ -265,6 +287,32 @@ void wifi_sniffer_stop(void) {
 uint32_t wifi_sniffer_get_packet_count(void) {
   update_stats();
   return s_cached_stats.packets;
+}
+
+bool wifi_sniffer_get_stats(wifi_sniffer_stats_t *out) {
+  if (out == NULL || !update_stats())
+    return false;
+  *out = (wifi_sniffer_stats_t){
+      .packets = s_cached_stats.packets,
+      .deauths = s_cached_stats.deauths,
+      .buffer_usage = s_cached_stats.buffer_usage,
+      .beacons = s_cached_stats.beacons,
+      .probe_reqs = s_cached_stats.probe_reqs,
+      .probe_resps = s_cached_stats.probe_resps,
+      .data_frames = s_cached_stats.data_frames,
+      .ctrl_frames = s_cached_stats.ctrl_frames,
+      .mgmt_frames = s_cached_stats.mgmt_frames,
+      .pkts_2ghz = s_cached_stats.pkts_2ghz,
+      .pkts_5ghz = s_cached_stats.pkts_5ghz,
+      .unique_aps = s_cached_stats.unique_aps,
+      .channel = s_cached_stats.channel,
+      .last_rssi = s_cached_stats.last_rssi,
+      .handshake_captured = s_cached_stats.handshake_captured,
+      .pmkid_captured = s_cached_stats.pmkid_captured,
+  };
+  memcpy(out->channel_packets, s_cached_stats.channel_packets, sizeof(out->channel_packets));
+  memcpy(out->channel_peak_rssi, s_cached_stats.channel_peak_rssi, sizeof(out->channel_peak_rssi));
+  return true;
 }
 
 uint32_t wifi_sniffer_get_deauth_count(void) {
@@ -309,8 +357,15 @@ bool wifi_sniffer_start_capture(const char *path) {
   };
   storage_stream_write(s_capture_stream, &header, sizeof(header));
 
+  strncpy(s_capture_path, path, sizeof(s_capture_path) - 1);
+  s_capture_path[sizeof(s_capture_path) - 1] = '\0';
+
   ESP_LOGI(TAG, "Capture started: %s", path);
   return true;
+}
+
+const char *wifi_sniffer_get_capture_path(void) {
+  return s_capture_path;
 }
 
 bool wifi_sniffer_stop_capture(void) {

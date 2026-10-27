@@ -17,247 +17,412 @@
 
 #include <string.h>
 
-#include "cJSON.h"
-#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
-#include "freertos/task.h"
-#include "sys_prio.h"
 #include "host/ble_gatt.h"
 #include "host/ble_hs.h"
+#include "nimble/nimble_port.h"
+#include "os/os_mbuf.h"
 
 #include "bluetooth_service.h"
-#include "storage_write.h"
-#include "tos_flash_paths.h"
-#include "uuid_lookup.h"
+
+#define EXPLORER_LEASE_MS       60000
+#define EXPLORER_LOCK_MS        1000
+#define EXPLORER_CLOSE_RETRY_MS 1000
+#define EXPLORER_ADDRESS_SIZE   6
+#define EXPLORER_NO_CONNECTION  BLE_HS_CONN_HANDLE_NONE
+#define EXPLORER_STOP_REASON    BLE_ERR_REM_USER_CONN_TERM
+#define EXPLORER_UUID16_SIZE    2
+#define EXPLORER_UUID32_SIZE    4
 
 static const char *TAG = "GATT_EXPLORER";
+static SemaphoreHandle_t s_lock;
+static struct ble_npl_event s_command;
+static struct ble_npl_callout s_lease;
+static spi_gatt_status_t s_status;
+static spi_gatt_record_t s_records[SPI_GATT_RECORD_MAX];
+static uint16_t s_connection = EXPLORER_NO_CONNECTION;
+static uint8_t s_address[EXPLORER_ADDRESS_SIZE], s_address_type;
+static uint8_t s_service_index;
+static uint16_t s_read_handle;
+static uint32_t s_generation;
+static bool s_has_start, s_has_stop, s_has_read, s_has_npl;
 
-#define MAX_DISCOVERED_SVCS    16
-#define EXPLORER_STACK_SIZE    6144
-#define EXPLORER_TASK_PRIORITY SYS_PRIO_SERVICE_HI
-#define EXPLORER_TIMEOUT_MS    60000
-#define ADDR_STR_LEN           18
-#define SVC_NAME_MAX_LEN       64
-#define UUID_STR_MAX_LEN       48
-
-typedef struct {
-  uint16_t start_handle;
-  uint16_t end_handle;
-  ble_uuid_any_t uuid;
-  char name[SVC_NAME_MAX_LEN];
-} gatt_explorer_svc_t;
-
-static gatt_explorer_svc_t s_svcs[MAX_DISCOVERED_SVCS];
-static int s_svc_count = 0;
-static int s_current_svc_idx = 0;
-
-static cJSON *s_root_json = NULL;
-static cJSON *s_svcs_json = NULL;
-static uint16_t s_conn_handle = 0;
-static bool s_is_busy = false;
-
-static TaskHandle_t s_explorer_task_handle = NULL;
-static StackType_t *s_explorer_task_stack = NULL;
-static StaticTask_t *s_explorer_task_tcb = NULL;
-
-static int on_disc_chr(uint16_t conn_handle,
-                       const struct ble_gatt_error *error,
-                       const struct ble_gatt_chr *chr,
-                       void *arg);
-static void explorer_task(void *pvParameters);
-
-static void signal_save_and_exit(void) {
-  if (s_explorer_task_handle != NULL) {
-    xTaskNotify(s_explorer_task_handle, 1, eSetBits);
-  }
-}
-
-static int on_disc_svc(uint16_t conn_h,
-                       const struct ble_gatt_error *error,
-                       const struct ble_gatt_svc *svc,
-                       void *arg) {
-  if (error->status == BLE_HS_EDONE) {
-    if (s_svc_count > 0) {
-      s_current_svc_idx = 0;
-      ble_gattc_disc_all_chrs(s_conn_handle,
-                              s_svcs[s_current_svc_idx].start_handle,
-                              s_svcs[s_current_svc_idx].end_handle,
-                              on_disc_chr,
-                              NULL);
-    } else {
-      signal_save_and_exit();
-    }
-    return 0;
-  }
-
-  if (error->status != 0) {
-    ESP_LOGE(TAG, "Service discovery error: %d", error->status);
-    signal_save_and_exit();
-    return 0;
-  }
-
-  if (s_svc_count < MAX_DISCOVERED_SVCS) {
-    s_svcs[s_svc_count].start_handle = svc->start_handle;
-    s_svcs[s_svc_count].end_handle = svc->end_handle;
-    memcpy(&s_svcs[s_svc_count].uuid, &svc->uuid, sizeof(ble_uuid_any_t));
-    strncpy(s_svcs[s_svc_count].name, uuid_get_name(&svc->uuid.u), SVC_NAME_MAX_LEN - 1);
-
-    cJSON *s = cJSON_CreateObject();
-    char uuid_str[UUID_STR_MAX_LEN];
-    ble_uuid_to_str(&svc->uuid.u, uuid_str);
-    cJSON_AddStringToObject(s, "uuid", uuid_str);
-    cJSON_AddStringToObject(s, "name", s_svcs[s_svc_count].name);
-    cJSON_AddItemToArray(s_svcs_json, s);
-    cJSON_AddItemToObject(s, "characteristics", cJSON_CreateArray());
-
-    s_svc_count++;
-  }
-  return 0;
-}
-
-static int on_disc_chr(uint16_t conn_h,
-                       const struct ble_gatt_error *error,
-                       const struct ble_gatt_chr *chr,
-                       void *arg) {
-  if (error->status == BLE_HS_EDONE) {
-    s_current_svc_idx++;
-    if (s_current_svc_idx < s_svc_count) {
-      ble_gattc_disc_all_chrs(s_conn_handle,
-                              s_svcs[s_current_svc_idx].start_handle,
-                              s_svcs[s_current_svc_idx].end_handle,
-                              on_disc_chr,
-                              NULL);
-    } else {
-      signal_save_and_exit();
-    }
-    return 0;
-  }
-
-  cJSON *s = cJSON_GetArrayItem(s_svcs_json, s_current_svc_idx);
-  cJSON *chrs = cJSON_GetObjectItem(s, "characteristics");
-  cJSON *c = cJSON_CreateObject();
-  char uuid_str[UUID_STR_MAX_LEN];
-  ble_uuid_to_str(&chr->uuid.u, uuid_str);
-  cJSON_AddStringToObject(c, "uuid", uuid_str);
-  cJSON_AddStringToObject(c, "name", uuid_get_name(&chr->uuid.u));
-  cJSON_AddNumberToObject(c, "handle", chr->val_handle);
-  cJSON_AddNumberToObject(c, "properties", chr->properties);
-  cJSON_AddItemToArray(chrs, c);
-
-  return 0;
-}
-
-static int gap_event(struct ble_gap_event *event, void *arg) {
-  if (event->type == BLE_GAP_EVENT_CONNECT) {
-    if (event->connect.status == 0) {
-      s_conn_handle = event->connect.conn_handle;
-      ESP_LOGI(TAG, "Connected. Discovering services...");
-      ble_gattc_disc_all_svcs(s_conn_handle, on_disc_svc, NULL);
-    } else {
-      ESP_LOGE(TAG, "Connection failed: %d", event->connect.status);
-      signal_save_and_exit();
-    }
-  } else if (event->type == BLE_GAP_EVENT_DISCONNECT) {
-    ESP_LOGI(TAG, "Disconnected.");
-    // If disconnected unexpectedly, save what we have
-    signal_save_and_exit();
-  }
-  return 0;
-}
+static int on_service(uint16_t connection,
+                      const struct ble_gatt_error *error,
+                      const struct ble_gatt_svc *service,
+                      void *arg);
+static int on_characteristic(uint16_t connection,
+                             const struct ble_gatt_error *error,
+                             const struct ble_gatt_chr *characteristic,
+                             void *arg);
+static int on_read(uint16_t connection,
+                   const struct ble_gatt_error *error,
+                   struct ble_gatt_attr *attribute,
+                   void *arg);
+static int on_gap(struct ble_gap_event *event, void *arg);
+static void on_command(struct ble_npl_event *event);
+static void on_lease(struct ble_npl_event *event);
+static void discover_next(void);
+static void fail(uint16_t error);
+static void close_connection(void);
+static void copy_uuid(spi_gatt_record_t *out, const ble_uuid_any_t *uuid);
 
 bool gatt_explorer_start(const uint8_t *addr, uint8_t addr_type) {
-  if (s_is_busy)
+  if (addr == NULL || addr_type > BLE_ADDR_RANDOM_ID || !bluetooth_service_is_running())
     return false;
-  s_is_busy = true;
-  s_svc_count = 0;
-
-  s_root_json = cJSON_CreateObject();
-  char addr_str[ADDR_STR_LEN];
-  snprintf(addr_str,
-           ADDR_STR_LEN,
-           "%02x:%02x:%02x:%02x:%02x:%02x",
-           addr[5],
-           addr[4],
-           addr[3],
-           addr[2],
-           addr[1],
-           addr[0]);
-  cJSON_AddStringToObject(s_root_json, "target", addr_str);
-  s_svcs_json = cJSON_AddArrayToObject(s_root_json, "services");
-
-  s_explorer_task_stack =
-      (StackType_t *)heap_caps_malloc(EXPLORER_STACK_SIZE * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
-  s_explorer_task_tcb = (StaticTask_t *)heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_SPIRAM);
-
-  if (s_explorer_task_stack == NULL || s_explorer_task_tcb == NULL) {
-    ESP_LOGE(TAG, "Failed to allocate PSRAM for GATT Task");
-    free(s_explorer_task_stack);
-    free(s_explorer_task_tcb);
-    s_explorer_task_stack = NULL;
-    s_explorer_task_tcb = NULL;
-    cJSON_Delete(s_root_json);
-    s_is_busy = false;
-    return false;
+  if (s_lock == NULL) {
+    s_lock = xSemaphoreCreateRecursiveMutex();
+    if (s_lock == NULL) {
+      ESP_LOGE(TAG, "Cannot allocate GATT lock");
+      return false;
+    }
   }
-
-  s_explorer_task_handle = xTaskCreateStatic(explorer_task,
-                                             "gatt_task",
-                                             EXPLORER_STACK_SIZE,
-                                             NULL,
-                                             EXPLORER_TASK_PRIORITY,
-                                             s_explorer_task_stack,
-                                             s_explorer_task_tcb);
-
-  if (bluetooth_service_connect(addr, addr_type, gap_event) != ESP_OK) {
-    xTaskNotify(s_explorer_task_handle, 0, eNoAction);
-    signal_save_and_exit();
+  if (xSemaphoreTakeRecursive(s_lock, pdMS_TO_TICKS(EXPLORER_LOCK_MS)) != pdTRUE)
     return false;
+  if (!s_has_npl) {
+    ble_npl_event_init(&s_command, on_command, NULL);
+    if (ble_npl_callout_init(&s_lease, nimble_port_get_dflt_eventq(), on_lease, NULL) != 0) {
+      ble_npl_event_deinit(&s_command);
+      xSemaphoreGiveRecursive(s_lock);
+      ESP_LOGE(TAG, "Cannot allocate GATT lease timer");
+      return false;
+    }
+    s_has_npl = true;
   }
-  return true;
+  bool can_start = s_connection == EXPLORER_NO_CONNECTION &&
+                   (s_status.state == SPI_GATT_IDLE || s_status.state == SPI_GATT_ERROR);
+  if (can_start) {
+    if (++s_generation == 0)
+      ++s_generation;
+    s_status = (spi_gatt_status_t){.state = SPI_GATT_CONNECTING};
+    memset(s_records, 0, sizeof(s_records));
+    memcpy(s_address, addr, sizeof(s_address));
+    s_address_type = addr_type;
+    s_has_start = true;
+    s_has_stop = s_has_read = false;
+    ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &s_command);
+  }
+  xSemaphoreGiveRecursive(s_lock);
+  return can_start;
 }
 
 bool gatt_explorer_is_busy(void) {
-  return s_is_busy;
+  if (s_lock == NULL)
+    return false;
+  if (xSemaphoreTakeRecursive(s_lock, pdMS_TO_TICKS(EXPLORER_LOCK_MS)) != pdTRUE)
+    return true;
+  bool is_busy = (s_status.state != SPI_GATT_IDLE && s_status.state != SPI_GATT_ERROR) ||
+                 s_has_start || s_has_stop || s_has_read;
+  xSemaphoreGiveRecursive(s_lock);
+  return is_busy;
 }
 
-static void explorer_task(void *pvParameters) {
-  uint32_t notification_value = 0;
+esp_err_t gatt_explorer_deinit(void) {
+  if (s_lock == NULL)
+    return ESP_OK;
+  if (xSemaphoreTakeRecursive(s_lock, pdMS_TO_TICKS(EXPLORER_LOCK_MS)) != pdTRUE)
+    return ESP_ERR_TIMEOUT;
+  esp_err_t error = ESP_OK;
+  if (gatt_explorer_is_busy()) {
+    error = ESP_ERR_INVALID_STATE;
+  } else if (s_has_npl) {
+    ble_npl_eventq_remove(nimble_port_get_dflt_eventq(), &s_command);
+    ble_npl_callout_deinit(&s_lease);
+    ble_npl_event_deinit(&s_command);
+    s_has_npl = false;
+  }
+  xSemaphoreGiveRecursive(s_lock);
+  return error;
+}
 
-  if (xTaskNotifyWait(0, 0, &notification_value, pdMS_TO_TICKS(EXPLORER_TIMEOUT_MS)) == pdTRUE) {
-    if (notification_value & 1) {
-      if (s_root_json != NULL) {
-        ESP_LOGI(TAG, "Saving GATT results to storage...");
-        char *json_str = cJSON_Print(s_root_json);
-        if (json_str != NULL) {
-          storage_write_string(FLASH_STORAGE_BLE_GATT, json_str);
-          free(json_str);
-        }
-        cJSON_Delete(s_root_json);
-        s_root_json = NULL;
-      }
+esp_err_t gatt_explorer_get_status(spi_gatt_status_t *out) {
+  if (out == NULL)
+    return ESP_ERR_INVALID_ARG;
+  if (s_lock == NULL) {
+    memset(out, 0, sizeof(*out));
+    return ESP_OK;
+  }
+  if (xSemaphoreTakeRecursive(s_lock, pdMS_TO_TICKS(EXPLORER_LOCK_MS)) != pdTRUE)
+    return ESP_ERR_TIMEOUT;
+  *out = s_status;
+  xSemaphoreGiveRecursive(s_lock);
+  return ESP_OK;
+}
+
+esp_err_t gatt_explorer_get_record(uint8_t index, spi_gatt_record_t *out) {
+  if (out == NULL || s_lock == NULL)
+    return ESP_ERR_INVALID_ARG;
+  if (xSemaphoreTakeRecursive(s_lock, pdMS_TO_TICKS(EXPLORER_LOCK_MS)) != pdTRUE)
+    return ESP_ERR_TIMEOUT;
+  esp_err_t result = index < s_status.count ? ESP_OK : ESP_ERR_INVALID_ARG;
+  if (result == ESP_OK)
+    *out = s_records[index];
+  xSemaphoreGiveRecursive(s_lock);
+  return result;
+}
+
+esp_err_t gatt_explorer_read(uint16_t handle) {
+  if (s_lock == NULL)
+    return ESP_ERR_INVALID_STATE;
+  if (xSemaphoreTakeRecursive(s_lock, pdMS_TO_TICKS(EXPLORER_LOCK_MS)) != pdTRUE)
+    return ESP_ERR_TIMEOUT;
+  bool can_read = false;
+  if (s_status.state == SPI_GATT_READY) {
+    for (uint8_t index = 0; index < s_status.count; ++index)
+      if (s_records[index].kind == SPI_GATT_CHARACTERISTIC &&
+          s_records[index].value_handle == handle &&
+          (s_records[index].properties & SPI_GATT_PROPERTY_READ) != 0)
+        can_read = true;
+  }
+  if (can_read) {
+    s_read_handle = handle;
+    s_status.value_length = 0;
+    s_status.value_handle = handle;
+    s_status.error = 0;
+    s_status.state = SPI_GATT_READING;
+    s_has_read = true;
+    ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &s_command);
+  }
+  xSemaphoreGiveRecursive(s_lock);
+  return can_read ? ESP_OK : ESP_ERR_INVALID_STATE;
+}
+
+esp_err_t gatt_explorer_stop(void) {
+  if (s_lock == NULL)
+    return ESP_OK;
+  if (xSemaphoreTakeRecursive(s_lock, pdMS_TO_TICKS(EXPLORER_LOCK_MS)) != pdTRUE)
+    return ESP_ERR_TIMEOUT;
+  if (s_status.state != SPI_GATT_IDLE && s_status.state != SPI_GATT_ERROR) {
+    s_status.state = SPI_GATT_STOPPING;
+    s_has_stop = true;
+    ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &s_command);
+  }
+  xSemaphoreGiveRecursive(s_lock);
+  return ESP_OK;
+}
+
+static void on_command(struct ble_npl_event *event) {
+  (void)event;
+  xSemaphoreTakeRecursive(s_lock, portMAX_DELAY);
+  if (s_has_stop) {
+    s_has_stop = s_has_read = false;
+    if (s_has_start) {
+      s_has_start = false;
+      s_status.state = SPI_GATT_IDLE;
+    } else {
+      close_connection();
+    }
+  } else if (s_has_start) {
+    s_has_start = false;
+    int timer_error =
+        ble_npl_callout_reset(&s_lease, ble_npl_time_ms_to_ticks32(EXPLORER_LEASE_MS));
+    if (timer_error != 0) {
+      s_status.error = BLE_HS_EOS;
+      s_status.state = SPI_GATT_ERROR;
+      xSemaphoreGiveRecursive(s_lock);
+      return;
+    }
+    esp_err_t error = bluetooth_service_connect(s_address, s_address_type, on_gap);
+    if (error != ESP_OK)
+      fail(BLE_HS_ENOTCONN);
+  } else if (s_has_read) {
+    s_has_read = false;
+    if (s_status.state != SPI_GATT_READING) {
+      xSemaphoreGiveRecursive(s_lock);
+      return;
+    }
+    int error =
+        ble_gattc_read(s_connection, s_read_handle, on_read, (void *)(uintptr_t)s_generation);
+    if (error != 0) {
+      s_status.error = error;
+      s_status.state = SPI_GATT_READY;
+    }
+  }
+  xSemaphoreGiveRecursive(s_lock);
+}
+
+static void on_lease(struct ble_npl_event *event) {
+  (void)event;
+  xSemaphoreTakeRecursive(s_lock, portMAX_DELAY);
+  if (s_status.state != SPI_GATT_IDLE && s_status.state != SPI_GATT_ERROR) {
+    if (s_status.state != SPI_GATT_STOPPING)
+      s_status.error = BLE_HS_ETIMEOUT;
+    close_connection();
+  }
+  xSemaphoreGiveRecursive(s_lock);
+}
+
+static void close_connection(void) {
+  ble_npl_callout_stop(&s_lease);
+  s_status.state = SPI_GATT_STOPPING;
+  if (s_connection != EXPLORER_NO_CONNECTION) {
+    int error = ble_gap_terminate(s_connection, EXPLORER_STOP_REASON);
+    if (error == BLE_HS_ENOTCONN) {
+      s_connection = EXPLORER_NO_CONNECTION;
+      s_status.state = s_status.error == 0 ? SPI_GATT_IDLE : SPI_GATT_ERROR;
     }
   } else {
-    ESP_LOGE(TAG, "GATT Exploration Timed Out.");
-    if (s_root_json != NULL) {
-      cJSON_Delete(s_root_json);
-      s_root_json = NULL;
+    int error = ble_gap_conn_cancel();
+    if (error == BLE_HS_EALREADY)
+      s_status.state = s_status.error == 0 ? SPI_GATT_IDLE : SPI_GATT_ERROR;
+  }
+  if (s_status.state == SPI_GATT_STOPPING)
+    ble_npl_callout_reset(&s_lease, ble_npl_time_ms_to_ticks32(EXPLORER_CLOSE_RETRY_MS));
+}
+
+static void fail(uint16_t error) {
+  s_status.error = error;
+  ESP_LOGW(TAG, "Remote GATT failed: %u", (unsigned)error);
+  close_connection();
+}
+
+static int on_gap(struct ble_gap_event *event, void *arg) {
+  (void)arg;
+  xSemaphoreTakeRecursive(s_lock, portMAX_DELAY);
+  if (event->type == BLE_GAP_EVENT_CONNECT) {
+    if (event->connect.status != 0) {
+      s_connection = EXPLORER_NO_CONNECTION;
+      if (s_status.state != SPI_GATT_STOPPING)
+        s_status.error = event->connect.status;
+      s_status.state = s_status.error == 0 ? SPI_GATT_IDLE : SPI_GATT_ERROR;
+      ble_npl_callout_stop(&s_lease);
+    } else {
+      s_connection = event->connect.conn_handle;
+      if (s_status.state == SPI_GATT_STOPPING) {
+        close_connection();
+      } else {
+        s_status.state = SPI_GATT_DISCOVERING;
+        int error =
+            ble_gattc_disc_all_svcs(s_connection, on_service, (void *)(uintptr_t)s_generation);
+        if (error != 0)
+          fail(error);
+      }
     }
+  } else if (event->type == BLE_GAP_EVENT_DISCONNECT &&
+             event->disconnect.conn.conn_handle == s_connection) {
+    s_connection = EXPLORER_NO_CONNECTION;
+    if (s_status.state != SPI_GATT_STOPPING)
+      s_status.error = BLE_HS_ENOTCONN;
+    s_status.state = s_status.error == 0 ? SPI_GATT_IDLE : SPI_GATT_ERROR;
+    ble_npl_callout_stop(&s_lease);
   }
+  xSemaphoreGiveRecursive(s_lock);
+  return 0;
+}
 
-  bluetooth_service_disconnect_all();
+static void copy_uuid(spi_gatt_record_t *out, const ble_uuid_any_t *uuid) {
+  out->uuid_type = uuid->u.type;
+  if (uuid->u.type == BLE_UUID_TYPE_16)
+    memcpy(out->uuid, &uuid->u16.value, EXPLORER_UUID16_SIZE);
+  else if (uuid->u.type == BLE_UUID_TYPE_32)
+    memcpy(out->uuid, &uuid->u32.value, EXPLORER_UUID32_SIZE);
+  else
+    memcpy(out->uuid, uuid->u128.value, sizeof(out->uuid));
+}
 
-  s_is_busy = false;
-
-  if (s_explorer_task_stack != NULL) {
-    free(s_explorer_task_stack);
-    s_explorer_task_stack = NULL;
+static int on_service(uint16_t connection,
+                      const struct ble_gatt_error *error,
+                      const struct ble_gatt_svc *service,
+                      void *arg) {
+  (void)arg;
+  xSemaphoreTakeRecursive(s_lock, portMAX_DELAY);
+  if ((uintptr_t)arg != s_generation || connection != s_connection ||
+      s_status.state != SPI_GATT_DISCOVERING)
+    goto cleanup;
+  if (error->status == BLE_HS_EDONE) {
+    s_service_index = 0;
+    discover_next();
+  } else if (error->status != 0 || service == NULL) {
+    fail(error->status != 0 ? error->status : BLE_HS_EINVAL);
+  } else if (s_status.count == SPI_GATT_RECORD_MAX) {
+    s_status.is_truncated = true;
+  } else {
+    spi_gatt_record_t *record = &s_records[s_status.count++];
+    record->kind = SPI_GATT_SERVICE;
+    record->start_handle = service->start_handle;
+    record->end_handle = service->end_handle;
+    copy_uuid(record, &service->uuid);
   }
-  if (s_explorer_task_tcb != NULL) {
-    free(s_explorer_task_tcb);
-    s_explorer_task_tcb = NULL;
+cleanup:
+  xSemaphoreGiveRecursive(s_lock);
+  return 0;
+}
+
+static void discover_next(void) {
+  while (s_service_index < s_status.count && s_records[s_service_index].kind != SPI_GATT_SERVICE)
+    ++s_service_index;
+  if (s_service_index == s_status.count) {
+    s_status.state = SPI_GATT_READY;
+    return;
   }
-  s_explorer_task_handle = NULL;
-  vTaskDelete(NULL);
+  const spi_gatt_record_t *record = &s_records[s_service_index];
+  int error = ble_gattc_disc_all_chrs(s_connection,
+                                      record->start_handle,
+                                      record->end_handle,
+                                      on_characteristic,
+                                      (void *)(uintptr_t)s_generation);
+  if (error != 0)
+    fail(error);
+}
+
+static int on_characteristic(uint16_t connection,
+                             const struct ble_gatt_error *error,
+                             const struct ble_gatt_chr *characteristic,
+                             void *arg) {
+  (void)arg;
+  xSemaphoreTakeRecursive(s_lock, portMAX_DELAY);
+  if ((uintptr_t)arg != s_generation || connection != s_connection ||
+      s_status.state != SPI_GATT_DISCOVERING)
+    goto cleanup;
+  if (error->status == BLE_HS_EDONE) {
+    ++s_service_index;
+    discover_next();
+  } else if (error->status != 0 || characteristic == NULL) {
+    fail(error->status != 0 ? error->status : BLE_HS_EINVAL);
+  } else if (s_status.count == SPI_GATT_RECORD_MAX) {
+    s_status.is_truncated = true;
+  } else {
+    spi_gatt_record_t *record = &s_records[s_status.count++];
+    record->kind = SPI_GATT_CHARACTERISTIC;
+    record->start_handle = s_records[s_service_index].start_handle;
+    record->end_handle = s_records[s_service_index].end_handle;
+    record->value_handle = characteristic->val_handle;
+    record->properties = characteristic->properties;
+    copy_uuid(record, &characteristic->uuid);
+  }
+cleanup:
+  xSemaphoreGiveRecursive(s_lock);
+  return 0;
+}
+
+static int on_read(uint16_t connection,
+                   const struct ble_gatt_error *error,
+                   struct ble_gatt_attr *attribute,
+                   void *arg) {
+  (void)arg;
+  xSemaphoreTakeRecursive(s_lock, portMAX_DELAY);
+  if ((uintptr_t)arg == s_generation && connection == s_connection &&
+      s_status.state == SPI_GATT_READING) {
+    s_status.error = error->status;
+    s_status.value_length = 0;
+    if (error->status == 0 && attribute != NULL && attribute->om != NULL &&
+        attribute->handle == s_read_handle) {
+      uint16_t length = OS_MBUF_PKTLEN(attribute->om);
+      if (length > sizeof(s_status.value)) {
+        length = sizeof(s_status.value);
+        s_status.error = BLE_HS_EMSGSIZE;
+      }
+      if (os_mbuf_copydata(attribute->om, 0, length, s_status.value) == 0)
+        s_status.value_length = length;
+      else
+        s_status.error = BLE_HS_EBADDATA;
+    } else if (error->status == 0) {
+      s_status.error = BLE_HS_EBADDATA;
+    }
+    s_status.state = SPI_GATT_READY;
+  }
+  xSemaphoreGiveRecursive(s_lock);
+  return 0;
 }

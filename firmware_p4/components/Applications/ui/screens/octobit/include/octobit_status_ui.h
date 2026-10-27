@@ -23,9 +23,9 @@ extern "C" {
 /**
  * @brief Open the Octobit status screen (reached with LEFT from home).
  *
- * Top: the octobit "character sheet" — portrait avatar + level badge + XP bar.
- * Below: a statistics selector navigated with UP/DOWN. A subset of the stats is
- * live (uptime, battery, heap, storage, boot count); the rest are mock.
+ * Top: the octobit portrait plus live internal-RAM usage.
+ * Below: real runtime, saved-item,
+ * battery, storage, boot, and heap statistics.
  * BACK or RIGHT returns to home.
  */
 void ui_octobit_status_open(void);

@@ -97,13 +97,13 @@ bool mf_key_cache_lookup(
   const mf_key_cache_entry_t *entry = &s_cache[idx];
 
   if (type == MF_KEY_A) {
-    if (entry->key_a_known[sector] == NULL) {
+    if (!entry->key_a_known[sector]) {
       return false;
     }
     memcpy(key_out, entry->key_a[sector], MF_KEY_SIZE);
     return true;
   } else {
-    if (entry->key_b_known[sector] == NULL) {
+    if (!entry->key_b_known[sector]) {
       return false;
     }
     memcpy(key_out, entry->key_b[sector], MF_KEY_SIZE);

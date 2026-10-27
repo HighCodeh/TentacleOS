@@ -31,12 +31,12 @@ typedef struct {
 } ui_ble_detect_item_t;
 
 static const ui_ble_detect_item_t MENU_ITEMS[] = {
+    {"GATT Explorer", "/assets/icons/bluetooth_searching.bin", SCREEN_GATT_EXPLORER},
     {"Scan Devices", "/assets/icons/bluetooth_searching.bin", SCREEN_BLE_SCAN},
     {"Sniffer", "/assets/icons/monitoring.bin", SCREEN_BLE_SNIFFER},
     {"Tracker Detector", "/assets/icons/troubleshoot.bin", SCREEN_BLE_TRACKER},
     {"Skimmer Detector", "/assets/icons/warning.bin", SCREEN_BLE_SKIMMER},
     {"Exposure Beacons", "/assets/icons/broadcast_on_personal.bin", SCREEN_BLE_EXPOSURE},
-    {"GATT Explorer", "/assets/icons/hub.bin", SCREEN_GATT_EXPLORER},
     {"Track Device", "/assets/icons/sensors.bin", SCREEN_BLE_TRACK_DEVICE},
 };
 #define MENU_ITEMS_COUNT (sizeof(MENU_ITEMS) / sizeof(MENU_ITEMS[0]))
@@ -75,7 +75,6 @@ static void ble_detect_input(const input_event_t *ev, void *ctx) {
 
   switch (ev->button) {
     case INPUT_BTN_BACK:
-    case INPUT_BTN_LEFT:
       if (press)
         ui_switch_screen(SCREEN_BLE_MENU);
       break;

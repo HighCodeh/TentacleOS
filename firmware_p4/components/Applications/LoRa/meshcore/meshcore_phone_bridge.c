@@ -16,6 +16,7 @@
 #include "meshcore_phone_bridge.h"
 
 #include <string.h>
+#include <stdatomic.h>
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -49,9 +50,9 @@ typedef struct {
 } bridge_reassembly_t;
 
 static bool s_is_initialized = false;
-static volatile bool s_is_running = false;
+static atomic_bool s_is_running = false;
 static char s_name_prefix[BRIDGE_NAME_PREFIX_MAX] = "Highboy-MC";
-static TaskHandle_t s_status_task = NULL;
+static _Atomic(TaskHandle_t) s_status_task;
 static SemaphoreHandle_t s_status_mutex = NULL;
 static SemaphoreHandle_t s_tx_mutex = NULL;
 static spi_mcore_status_t s_cached_status = {0};
@@ -107,13 +108,9 @@ esp_err_t meshcore_phone_bridge_init(const char *name_prefix) {
   meshcore_phoneapi_set_outbound(on_phoneapi_outbound, NULL);
 
   s_is_running = true;
-  BaseType_t ok = xTaskCreatePinnedToCore(status_task,
-                                          "mc_bridge",
-                                          BRIDGE_TASK_STACK,
-                                          NULL,
-                                          BRIDGE_TASK_PRIO,
-                                          &s_status_task,
-                                          SYS_CORE_RADIO);
+  TaskHandle_t task = NULL;
+  BaseType_t ok = xTaskCreatePinnedToCore(
+      status_task, "mc_bridge", BRIDGE_TASK_STACK, NULL, BRIDGE_TASK_PRIO, &task, SYS_CORE_RADIO);
   if (ok != pdPASS) {
     s_is_running = false;
     meshcore_phoneapi_set_outbound(NULL, NULL);
@@ -126,19 +123,32 @@ esp_err_t meshcore_phone_bridge_init(const char *name_prefix) {
     return ESP_ERR_NO_MEM;
   }
 
+  atomic_store(&s_status_task, task);
   s_is_initialized = true;
   ESP_LOGI(TAG, "Initialized — prefix='%s'", s_name_prefix);
   return ESP_OK;
 }
 
-void meshcore_phone_bridge_stop(void) {
-  if (!s_is_initialized) {
-    return;
-  }
+esp_err_t meshcore_phone_bridge_stop(void) {
+  if (!s_is_initialized)
+    return ESP_OK;
   s_is_running = false;
-  meshcore_phoneapi_set_outbound(NULL, NULL);
   spi_bridge_unregister_stream_cb(SPI_ID_MCORE_RX_STREAM);
+  TickType_t started = xTaskGetTickCount();
+  while (atomic_load(&s_status_task) != NULL) {
+    if (xTaskGetTickCount() - started >= pdMS_TO_TICKS(BRIDGE_SPI_TIMEOUT_MS))
+      return ESP_ERR_TIMEOUT;
+    vTaskDelay(1);
+  }
+  esp_err_t error = spi_bridge_stream_barrier(BRIDGE_SPI_TIMEOUT_MS);
+  if (error != ESP_OK)
+    return error;
+  error = meshcore_phone_bridge_ble_stop();
+  if (error != ESP_OK)
+    return error;
+  meshcore_phoneapi_set_outbound(NULL, NULL);
   s_is_initialized = false;
+  return ESP_OK;
 }
 
 esp_err_t meshcore_phone_bridge_ble_start(void) {

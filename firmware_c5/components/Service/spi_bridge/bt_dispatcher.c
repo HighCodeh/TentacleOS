@@ -20,9 +20,12 @@
 #include "esp_log.h"
 
 #include "ble_connect_flood.h"
+#include "ble_hid_keyboard.h"
+#include "ble_l2cap_flood.h"
 #include "ble_scanner.h"
 #include "ble_sniffer.h"
 #include "canned_spam.h"
+#include "gatt_explorer.h"
 #include "session_manager.h"
 #include "bluetooth_service.h"
 #include "host_link_gatt.h"
@@ -39,8 +42,14 @@ static const char *TAG = "BT_DISPATCHER";
 
 #define BT_SCAN_DEFAULT_DURATION_MS 5000
 #define BT_CONNECT_MIN_PAYLOAD      7
-#define BT_GET_INFO_RESP_LEN        7
 #define BT_MAC_LEN                  6
+#define BT_SPAM_ITEM_STAGE_MIN      2 // [index u16] prefix on a spam-list item
+
+// Staging buffer for the spam name list: reused for LOAD (served through the
+// data pipe) and for BEGIN/ITEM/COMMIT (accumulate then persist). Only one of
+// those flows runs at a time.
+static char s_bt_spam_items[SPI_BT_SPAM_LIST_MAX][SPI_BT_SPAM_ITEM_LEN];
+static uint16_t s_bt_spam_staged; // total announced by BEGIN
 
 static void killed_ble_flood(spi_id_t id) {
   (void)id;
@@ -74,12 +83,47 @@ static bool bt_ensure_service_ready(void) {
   return true;
 }
 
+static bool bt_prepare_hid_service(void) {
+  if (meshcore_gatt_is_running())
+    meshcore_gatt_stop();
+  if (host_link_gatt_is_running())
+    host_link_gatt_stop();
+  if (meshtastic_gatt_is_running())
+    meshtastic_gatt_stop();
+
+  // HID is an exclusive GATT mode. Its service table must be present before
+  // nimble_port_run() starts, otherwise a central can see the advertisement
+  // but discover no keyboard/mouse reports.
+  if (!ble_hid_services_registered()) {
+    if (bluetooth_service_is_initialized()) {
+      if (bluetooth_service_deinit() != ESP_OK)
+        return false;
+      ble_hid_stack_reset();
+    }
+    if (bluetooth_service_init() != ESP_OK)
+      return false;
+    if (ble_hid_register_services() != ESP_OK) {
+      bluetooth_service_deinit();
+      ble_hid_stack_reset();
+      return false;
+    }
+  }
+
+  if (!bluetooth_service_is_running() && bluetooth_service_start() != ESP_OK)
+    return false;
+  bluetooth_service_stop_advertising();
+  return true;
+}
+
 static spi_status_t bt_release_service_for_gatt(void) {
   if (!bluetooth_service_is_initialized())
     return SPI_STATUS_OK;
   if (spi_bridge_async_scan_busy() || session_manager_is_active())
     return SPI_STATUS_BUSY;
-  return (bluetooth_service_deinit() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+  esp_err_t err = bluetooth_service_deinit();
+  if (err == ESP_OK)
+    ble_hid_stack_reset();
+  return (err == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
 }
 
 static spi_status_t bt_open_session(spi_id_t op_id,
@@ -117,6 +161,9 @@ spi_status_t bt_dispatcher_execute(spi_id_t id,
                                    uint8_t *out_resp_len) {
   (void)TAG;
   *out_resp_len = 0;
+  if (gatt_explorer_is_busy() && id != SPI_ID_BT_GATT_STATUS && id != SPI_ID_BT_GATT_RECORD &&
+      id != SPI_ID_BT_GATT_READ && id != SPI_ID_BT_GATT_STOP)
+    return SPI_STATUS_BUSY;
 
   switch (id) {
     case SPI_ID_BT_INIT:
@@ -129,13 +176,15 @@ spi_status_t bt_dispatcher_execute(spi_id_t id,
       return (bluetooth_service_init() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
 
     case SPI_ID_BT_DEINIT:
-      return (bluetooth_service_deinit() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+    case SPI_ID_BT_STOP: {
+      esp_err_t err = bluetooth_service_deinit();
+      if (err == ESP_OK)
+        ble_hid_stack_reset();
+      return (err == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+    }
 
     case SPI_ID_BT_START:
       return (bluetooth_service_start() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
-
-    case SPI_ID_BT_STOP:
-      return (bluetooth_service_deinit() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
 
     case SPI_ID_BT_SCAN: {
       uint32_t duration = BT_SCAN_DEFAULT_DURATION_MS;
@@ -163,11 +212,177 @@ spi_status_t bt_dispatcher_execute(spi_id_t id,
       return SPI_STATUS_OK;
 
     case SPI_ID_BT_GET_INFO: {
-      bluetooth_service_get_mac(out_resp_payload);
-      out_resp_payload[BT_MAC_LEN] = bluetooth_service_is_running() ? 1 : 0;
-      *out_resp_len = BT_GET_INFO_RESP_LEN;
+      spi_bt_info_t info = {0};
+      bluetooth_service_get_mac(info.mac);
+      info.running = bluetooth_service_is_running() ? 1 : 0;
+      info.initialized = bluetooth_service_is_initialized() ? 1 : 0;
+      info.connected_count = (uint16_t)bluetooth_service_get_connected_count();
+      memcpy(out_resp_payload, &info, sizeof(info));
+      *out_resp_len = sizeof(info);
       return SPI_STATUS_OK;
     }
+
+    case SPI_ID_BT_SET_RANDOM_MAC:
+      return (bluetooth_service_set_random_mac() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+
+    case SPI_ID_BT_START_ADV:
+      return (bluetooth_service_start_advertising() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+
+    case SPI_ID_BT_STOP_ADV:
+      return (bluetooth_service_stop_advertising() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+
+    case SPI_ID_BT_SET_MAX_POWER:
+      return (bluetooth_service_set_max_power() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+
+    case SPI_ID_BT_GET_ADDR_TYPE:
+      out_resp_payload[0] = bluetooth_service_get_own_addr_type();
+      *out_resp_len = 1;
+      return SPI_STATUS_OK;
+
+    case SPI_ID_BT_TRACKER_START:
+      if (len < BT_MAC_LEN)
+        return SPI_STATUS_INVALID_ARG;
+      return (bluetooth_service_start_tracker(payload, NULL) == ESP_OK) ? SPI_STATUS_OK
+                                                                        : SPI_STATUS_ERROR;
+
+    case SPI_ID_BT_TRACKER_STOP:
+      bluetooth_service_stop_tracker();
+      return SPI_STATUS_OK;
+
+    case SPI_ID_BT_SAVE_ANNOUNCE_CFG: {
+      if (len < sizeof(spi_bt_announce_config_t))
+        return SPI_STATUS_INVALID_ARG;
+      spi_bt_announce_config_t cfg;
+      memcpy(&cfg, payload, sizeof(cfg));
+      cfg.name[sizeof(cfg.name) - 1] = '\0';
+      return (bluetooth_service_save_announce_config(cfg.name, cfg.max_conn) == ESP_OK)
+                 ? SPI_STATUS_OK
+                 : SPI_STATUS_ERROR;
+    }
+
+    case SPI_ID_BT_APP_GATT_EXP: {
+      if (len != BT_CONNECT_MIN_PAYLOAD)
+        return SPI_STATUS_INVALID_ARG;
+      if (meshcore_gatt_is_running() || host_link_gatt_is_running() || meshtastic_gatt_is_running())
+        return SPI_STATUS_BUSY;
+      if (!bt_ensure_service_ready())
+        return SPI_STATUS_ERROR;
+      return gatt_explorer_start(payload, payload[BT_MAC_LEN]) ? SPI_STATUS_OK : SPI_STATUS_BUSY;
+    }
+
+    case SPI_ID_BT_GATT_STATUS: {
+      if (len != 0)
+        return SPI_STATUS_INVALID_ARG;
+      spi_gatt_status_t status;
+      if (gatt_explorer_get_status(&status) != ESP_OK)
+        return SPI_STATUS_ERROR;
+      memcpy(out_resp_payload, &status, sizeof(status));
+      *out_resp_len = sizeof(status);
+      return SPI_STATUS_OK;
+    }
+    case SPI_ID_BT_GATT_RECORD: {
+      if (len != 1)
+        return SPI_STATUS_INVALID_ARG;
+      spi_gatt_record_t record;
+      if (gatt_explorer_get_record(payload[0], &record) != ESP_OK)
+        return SPI_STATUS_INVALID_ARG;
+      memcpy(out_resp_payload, &record, sizeof(record));
+      *out_resp_len = sizeof(record);
+      return SPI_STATUS_OK;
+    }
+    case SPI_ID_BT_GATT_READ: {
+      if (len != sizeof(uint16_t))
+        return SPI_STATUS_INVALID_ARG;
+      uint16_t handle;
+      memcpy(&handle, payload, sizeof(handle));
+      return gatt_explorer_read(handle) == ESP_OK ? SPI_STATUS_OK : SPI_STATUS_BUSY;
+    }
+    case SPI_ID_BT_GATT_STOP:
+      if (len != 0)
+        return SPI_STATUS_INVALID_ARG;
+      return gatt_explorer_stop() == ESP_OK ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+
+    case SPI_ID_BT_SPAM_LIST_LOAD: {
+      char **list = NULL;
+      size_t count = 0;
+      if (bluetooth_service_load_spam_list(&list, &count) != ESP_OK)
+        return SPI_STATUS_ERROR;
+      uint16_t served = (count > SPI_BT_SPAM_LIST_MAX) ? SPI_BT_SPAM_LIST_MAX : (uint16_t)count;
+      for (uint16_t i = 0; i < served; i++) {
+        memset(s_bt_spam_items[i], 0, SPI_BT_SPAM_ITEM_LEN);
+        if (list[i] != NULL)
+          strncpy(s_bt_spam_items[i], list[i], SPI_BT_SPAM_ITEM_LEN - 1);
+      }
+      bluetooth_service_free_spam_list(list, count);
+      spi_bridge_provide_results(s_bt_spam_items, served, SPI_BT_SPAM_ITEM_LEN);
+      return SPI_STATUS_OK;
+    }
+
+    case SPI_ID_BT_SPAM_LIST_BEGIN: {
+      if (len < 2)
+        return SPI_STATUS_INVALID_ARG;
+      uint16_t total = (uint16_t)(payload[0] | (payload[1] << 8));
+      if (total > SPI_BT_SPAM_LIST_MAX)
+        total = SPI_BT_SPAM_LIST_MAX;
+      s_bt_spam_staged = total;
+      memset(s_bt_spam_items, 0, sizeof(s_bt_spam_items));
+      return SPI_STATUS_OK;
+    }
+
+    case SPI_ID_BT_SPAM_LIST_ITEM: {
+      if (len < BT_SPAM_ITEM_STAGE_MIN)
+        return SPI_STATUS_INVALID_ARG;
+      uint16_t idx = (uint16_t)(payload[0] | (payload[1] << 8));
+      if (idx >= s_bt_spam_staged)
+        return SPI_STATUS_INVALID_ARG;
+      uint8_t name_len = (uint8_t)(len - BT_SPAM_ITEM_STAGE_MIN);
+      if (name_len >= SPI_BT_SPAM_ITEM_LEN)
+        name_len = SPI_BT_SPAM_ITEM_LEN - 1;
+      memset(s_bt_spam_items[idx], 0, SPI_BT_SPAM_ITEM_LEN);
+      memcpy(s_bt_spam_items[idx], payload + BT_SPAM_ITEM_STAGE_MIN, name_len);
+      return SPI_STATUS_OK;
+    }
+
+    case SPI_ID_BT_SPAM_LIST_COMMIT: {
+      const char *ptrs[SPI_BT_SPAM_LIST_MAX];
+      for (uint16_t i = 0; i < s_bt_spam_staged; i++)
+        ptrs[i] = s_bt_spam_items[i];
+      esp_err_t err = bluetooth_service_save_spam_list(ptrs, s_bt_spam_staged);
+      return (err == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+    }
+
+    case SPI_ID_BT_HID_INIT:
+      // Bring the NimBLE host up first (and tear down mesh/host GATT). Without
+      // this, HID_INIT after the stack was deinitialised (e.g. companion BLE
+      // turned off) runs ble_gatts_count_cfg on a dead host and crashes.
+      if (!bt_prepare_hid_service())
+        return SPI_STATUS_ERROR;
+      return (ble_hid_init() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+
+    case SPI_ID_BT_HID_DEINIT:
+      return (ble_hid_deinit() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+
+    case SPI_ID_BT_HID_IS_CONNECTED:
+      out_resp_payload[0] = ble_hid_is_connected() ? 1 : 0;
+      *out_resp_len = 1;
+      return SPI_STATUS_OK;
+
+    case SPI_ID_BT_HID_SEND_KEY:
+      if (len < 2)
+        return SPI_STATUS_INVALID_ARG;
+      ble_hid_send_key(payload[1], payload[0]); // payload = [modifier][keycode]
+      return SPI_STATUS_OK;
+
+    case SPI_ID_BT_HID_SEND_MOUSE:
+      if (len < 4)
+        return SPI_STATUS_INVALID_ARG;
+      ble_hid_send_mouse((int8_t)payload[1], (int8_t)payload[2], payload[0], (int8_t)payload[3]);
+      return SPI_STATUS_OK;
+
+    case SPI_ID_BT_L2CAP_STATUS:
+      out_resp_payload[0] = ble_l2cap_flood_is_running() ? 1 : 0;
+      *out_resp_len = 1;
+      return SPI_STATUS_OK;
 
     case SPI_ID_BT_APP_SCANNER:
       if (!bt_ensure_service_ready())

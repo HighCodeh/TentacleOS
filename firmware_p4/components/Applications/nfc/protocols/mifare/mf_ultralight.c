@@ -12,6 +12,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 /**
  * @file mf_ultralight.c
  * @brief MIFARE Ultralight / Ultralight-C read, write, and auth operations.
@@ -23,7 +24,7 @@
 
 #include "esp_log.h"
 #include "esp_random.h"
-#include "mbedtls/des.h"
+#include "legacy_des/des.h"
 
 #include "nfc_poller.h"
 #include "nfc_common.h"

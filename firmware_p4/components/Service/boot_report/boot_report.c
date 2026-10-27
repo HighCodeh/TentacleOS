@@ -15,6 +15,7 @@
 
 #include "boot_report.h"
 
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -30,27 +31,31 @@ static const char *TAG = "BOOT_REPORT";
 // cycle, and never writes flash. A magic word tells a real count from the
 // garbage RTC RAM holds after power-on.
 #define BOOTLOOP_MAGIC      0x7005B007u
-#define STABLE_UPTIME_US    (20 * 1000 * 1000) // clear the counter after 20 s up
+#define STABLE_UPTIME_US    (20 * 1000 * 1000) // permit a healthy cycle after 20 s up
 #define NVS_NAMESPACE       "boot_report"
 #define NVS_KEY_LAST_REASON "last_reason"
 #define NVS_KEY_PANIC_TOTAL "panic_total"
 #define NVS_KEY_BOOT_TOTAL  "boot_total"
 
 static RTC_NOINIT_ATTR uint32_t s_rtc_magic;
-static RTC_NOINIT_ATTR uint32_t s_rtc_abnormal_count;
+static RTC_NOINIT_ATTR _Atomic(uint32_t) s_rtc_abnormal_count;
+static bool s_is_bootloop;
+static atomic_bool s_can_mark_stable;
 
 static esp_timer_handle_t s_stable_timer = NULL;
 static uint32_t s_panic_total = 0;
 static uint32_t s_boot_total = 0;
 
 static boot_stage_t s_stages[BOOT_REPORT_MAX_STAGES];
-static int s_stage_count = 0;
-static bool s_required_ok = true;
+static atomic_int s_stage_count;
+static atomic_bool s_required_ok = true;
+static atomic_bool s_is_complete;
 
 static crash_info_t s_crash;
 static bool s_crash_captured = false;
 
 void boot_report_reset(void) {
+  atomic_store(&s_is_complete, false);
   s_stage_count = 0;
   s_required_ok = true;
   memset(s_stages, 0, sizeof(s_stages));
@@ -135,32 +140,80 @@ static bool reason_is_abnormal(esp_reset_reason_t reason) {
          reason == ESP_RST_WDT || reason == ESP_RST_CPU_LOCKUP || reason == ESP_RST_BROWNOUT;
 }
 
-// Persist the boot summary. Called once per boot from capture_crash, which runs
-// after nvs_flash_init. The total boot counter is bumped every boot (one write);
-// the panic total + last reason are written only on abnormal boots.
-static void persist_summary(esp_reset_reason_t reason, bool abnormal) {
+static uint32_t increment_counter(uint32_t value) {
+  return value == UINT32_MAX ? value : value + 1;
+}
+
+static esp_err_t read_counter(nvs_handle_t nvs, const char *key, uint32_t *out_value) {
+  esp_err_t error = nvs_get_u32(nvs, key, out_value);
+  if (error == ESP_ERR_NVS_NOT_FOUND) {
+    *out_value = 0;
+    return ESP_OK;
+  }
+  return error;
+}
+
+static void persist_summary(esp_reset_reason_t reason, bool is_abnormal) {
   nvs_handle_t nvs;
-  if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs) != ESP_OK) {
+  esp_err_t error = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs);
+  if (error != ESP_OK) {
+    ESP_LOGW(TAG, "Cannot open boot counters: %s", esp_err_to_name(error));
     return;
   }
-
-  uint32_t boots = 0;
-  nvs_get_u32(nvs, NVS_KEY_BOOT_TOTAL, &boots);
-  boots++;
-  nvs_set_u32(nvs, NVS_KEY_BOOT_TOTAL, boots);
+  uint32_t boots = 0, panics = 0;
+  error = read_counter(nvs, NVS_KEY_BOOT_TOTAL, &boots);
+  if (error != ESP_OK)
+    goto cleanup;
+  error = read_counter(nvs, NVS_KEY_PANIC_TOTAL, &panics);
+  if (error != ESP_OK)
+    goto cleanup;
   s_boot_total = boots;
-
-  uint32_t total = 0;
-  nvs_get_u32(nvs, NVS_KEY_PANIC_TOTAL, &total);
-  if (abnormal) {
-    total++;
-    nvs_set_u32(nvs, NVS_KEY_PANIC_TOTAL, total);
-    nvs_set_u32(nvs, NVS_KEY_LAST_REASON, (uint32_t)reason);
+  s_panic_total = panics;
+  boots = increment_counter(boots);
+  error = nvs_set_u32(nvs, NVS_KEY_BOOT_TOTAL, boots);
+  if (error != ESP_OK)
+    goto cleanup;
+  if (is_abnormal) {
+    panics = increment_counter(panics);
+    error = nvs_set_u32(nvs, NVS_KEY_PANIC_TOTAL, panics);
+    if (error != ESP_OK)
+      goto cleanup;
+    error = nvs_set_u32(nvs, NVS_KEY_LAST_REASON, (uint32_t)reason);
+    if (error != ESP_OK)
+      goto cleanup;
   }
-  s_panic_total = total;
-
-  nvs_commit(nvs);
+  error = nvs_commit(nvs);
+  if (error == ESP_OK) {
+    s_boot_total = boots;
+    s_panic_total = panics;
+  }
+cleanup:
+  if (error != ESP_OK)
+    ESP_LOGW(TAG, "Cannot persist boot counters: %s", esp_err_to_name(error));
   nvs_close(nvs);
+}
+
+static void capture_dump_summary(void) {
+#if CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH && CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF
+  esp_core_dump_summary_t *summary = malloc(sizeof(*summary));
+  if (summary == NULL) {
+    ESP_LOGE(TAG, "Cannot allocate core dump summary");
+    goto cleanup;
+  }
+  esp_err_t error = esp_core_dump_get_summary(summary);
+  if (error != ESP_OK) {
+    ESP_LOGW(TAG, "Cannot read core dump summary: %s", esp_err_to_name(error));
+    goto cleanup;
+  }
+  strlcpy(s_crash.task, summary->exc_task, sizeof(s_crash.task));
+  s_crash.pc = summary->exc_pc;
+  s_crash.mcause = summary->ex_info.mcause;
+  s_crash.mtval = summary->ex_info.mtval;
+  s_crash.ra = summary->ex_info.ra;
+  s_crash.sp = summary->ex_info.sp;
+cleanup:
+  free(summary);
+#endif
 }
 
 void boot_report_capture_crash(void) {
@@ -175,26 +228,14 @@ void boot_report_capture_crash(void) {
   // A valid image in the coredump partition means the previous run panicked.
   s_crash.has_coredump = (esp_core_dump_image_check() == ESP_OK);
 
-#if CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH && CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF
-  if (s_crash.has_coredump) {
-    esp_core_dump_summary_t *summary = malloc(sizeof(esp_core_dump_summary_t));
-    if (summary != NULL && esp_core_dump_get_summary(summary) == ESP_OK) {
-      strlcpy(s_crash.task, summary->exc_task, sizeof(s_crash.task));
-      s_crash.pc = summary->exc_pc;
-      s_crash.mcause = summary->ex_info.mcause;
-      s_crash.mtval = summary->ex_info.mtval;
-      s_crash.ra = summary->ex_info.ra;
-      s_crash.sp = summary->ex_info.sp;
-    }
-    free(summary);
-  }
-#endif
+  if (s_crash.has_coredump)
+    capture_dump_summary();
 
   s_crash.crash = s_crash.has_coredump || reason_is_abnormal(s_crash.reason);
 
   // NVS is up by now (kernel_init ran nvs_flash_init before this): keep a
   // persistent summary and cache the running panic total.
-  persist_summary(s_crash.reason, s_crash.crash);
+  persist_summary(s_crash.reason, reason_is_abnormal(s_crash.reason));
 
   if (s_crash.crash) {
     ESP_LOGW(TAG,
@@ -226,10 +267,11 @@ esp_err_t boot_report_clear_crash(void) {
 
 static void stable_timer_cb(void *arg) {
   (void)arg;
-  boot_report_mark_stable();
+  atomic_store(&s_can_mark_stable, true);
 }
 
 void boot_report_track_bootloop(void) {
+  atomic_store(&s_can_mark_stable, false);
   esp_reset_reason_t reason = esp_reset_reason();
 
   // RTC RAM is undefined after a power cycle: a wrong magic means "fresh start".
@@ -239,7 +281,7 @@ void boot_report_track_bootloop(void) {
   }
 
   if (reason_is_abnormal(reason)) {
-    s_rtc_abnormal_count++;
+    s_rtc_abnormal_count = increment_counter(atomic_load(&s_rtc_abnormal_count));
     ESP_LOGW(TAG,
              "Abnormal boot #%lu: %s",
              (unsigned long)s_rtc_abnormal_count,
@@ -248,19 +290,30 @@ void boot_report_track_bootloop(void) {
     s_rtc_abnormal_count = 0; // a clean reset / power-on breaks the loop
   }
 
-  // Clear the counter once we have stayed up long enough to call this boot
-  // stable, so a single crash does not accumulate toward the loop threshold.
+  s_is_bootloop = s_rtc_abnormal_count >= BOOT_REPORT_BOOTLOOP_THRESHOLD;
+
+  // Elapsed time alone cannot prove that initialization or the renderer made progress.
   const esp_timer_create_args_t args = {
       .callback = stable_timer_cb,
       .name = "boot_stable",
   };
-  if (esp_timer_create(&args, &s_stable_timer) == ESP_OK) {
-    esp_timer_start_once(s_stable_timer, STABLE_UPTIME_US);
+  esp_err_t error = esp_timer_create(&args, &s_stable_timer);
+  if (error == ESP_OK) {
+    error = esp_timer_start_once(s_stable_timer, STABLE_UPTIME_US);
+    if (error != ESP_OK) {
+      esp_err_t delete_error = esp_timer_delete(s_stable_timer);
+      if (delete_error == ESP_OK)
+        s_stable_timer = NULL;
+      else
+        ESP_LOGW(TAG, "Cannot delete stable timer: %s", esp_err_to_name(delete_error));
+    }
   }
+  if (error != ESP_OK)
+    ESP_LOGW(TAG, "Stable timer unavailable: %s", esp_err_to_name(error));
 }
 
 bool boot_report_in_bootloop(void) {
-  return s_rtc_magic == BOOTLOOP_MAGIC && s_rtc_abnormal_count >= BOOT_REPORT_BOOTLOOP_THRESHOLD;
+  return s_is_bootloop;
 }
 
 uint32_t boot_report_abnormal_boots(void) {
@@ -276,10 +329,19 @@ uint32_t boot_report_boot_count(void) {
 }
 
 void boot_report_mark_stable(void) {
-  if (s_rtc_abnormal_count != 0) {
-    ESP_LOGI(TAG,
-             "Boot stable: clearing abnormal-boot counter (was %lu)",
-             (unsigned long)s_rtc_abnormal_count);
+  uint32_t previous = atomic_exchange(&s_rtc_abnormal_count, 0);
+  if (previous != 0) {
+    ESP_LOGI(TAG, "Boot stable: clearing abnormal-boot counter (was %lu)", (unsigned long)previous);
   }
-  s_rtc_abnormal_count = 0;
+}
+
+void boot_report_mark_healthy(void) {
+  if (atomic_load(&s_can_mark_stable) && atomic_load(&s_is_complete) &&
+      boot_report_all_required_ok()) {
+    boot_report_mark_stable();
+  }
+}
+
+void boot_report_complete(void) {
+  atomic_store(&s_is_complete, true);
 }

@@ -15,6 +15,10 @@
 
 #include "sys_monitor.h"
 
+#include <stdatomic.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "esp_log.h"
@@ -26,6 +30,7 @@
 
 #include "sys_prio.h"
 
+#include "boot_report.h"
 #include "assets_manager.h"
 #include "i2c_init.h"
 #include "kernel.h"
@@ -61,10 +66,6 @@ static const char *TAG = "SYS_MONITOR";
 #define HEAP_CRIT_FREE_B    8192  // sustained below this -> controlled restart
 #define HEAP_CRIT_CYCLES    3
 
-typedef struct {
-  bool is_verbose;
-} sys_monitor_params_t;
-
 // The monitor observes and reports; it never deletes tasks. Deleting a task
 // mid-transaction leaks the peripheral bus mutex (I2C/SPI) and wedges the driver
 // until reboot, turning a tight stack into a dead peripheral. When a task stays
@@ -73,18 +74,22 @@ typedef struct {
 // stack ever seen), so a persistent streak means the task is alive and running
 // with dangerously little headroom, not a past transient.
 typedef struct {
+  TaskHandle_t task;
+  UBaseType_t number;
   char name[configMAX_TASK_NAME_LEN];
   uint32_t streak; // consecutive monitor cycles this task has been critical
   bool alerted;    // UI warning already shown for the current streak
   bool seen;       // matched in the cycle currently being processed
-} stack_watch_t;
+} sys_monitor_stack_watch_t;
 
-static stack_watch_t s_watch[STACK_WATCH_MAX];
+static sys_monitor_stack_watch_t s_watch[STACK_WATCH_MAX];
 static uint32_t s_watch_count;
+static atomic_bool s_is_started;
+static atomic_bool s_is_ui_expected = true;
 
-static stack_watch_t *watch_find(const char *name) {
+static sys_monitor_stack_watch_t *watch_find(const TaskStatus_t *task) {
   for (uint32_t i = 0; i < s_watch_count; i++) {
-    if (strcmp(s_watch[i].name, name) == 0) {
+    if (s_watch[i].task == task->xHandle && s_watch[i].number == task->xTaskNumber) {
       return &s_watch[i];
     }
   }
@@ -96,7 +101,7 @@ static stack_watch_t *watch_find(const char *name) {
 static void controlled_restart(const char *title, const char *message) {
   safeguard_alert(title, message);
   vTaskDelay(pdMS_TO_TICKS(REBOOT_GRACE_MS));
-  esp_restart();
+  abort();
 }
 
 static void escalate_stack_restart(const char *name, uint32_t watermark) {
@@ -111,10 +116,20 @@ static void escalate_stack_restart(const char *name, uint32_t watermark) {
   controlled_restart("SYSTEM RECOVERY", msg_buf);
 }
 
-static void check_task_stacks(const TaskStatus_t *tasks, uint32_t count) {
-  for (uint32_t i = 0; i < s_watch_count; i++) {
-    s_watch[i].seen = false;
+static bool check_task_stacks(const TaskStatus_t *tasks, uint32_t count) {
+  bool is_healthy = true;
+  uint32_t retained = 0;
+  for (uint32_t i = 0; i < s_watch_count; ++i) {
+    for (uint32_t j = 0; j < count; ++j) {
+      if (s_watch[i].task == tasks[j].xHandle && s_watch[i].number == tasks[j].xTaskNumber &&
+          tasks[j].usStackHighWaterMark < CRITICAL_STACK_THRESHOLD) {
+        s_watch[i].seen = false;
+        s_watch[retained++] = s_watch[i];
+        break;
+      }
+    }
   }
+  s_watch_count = retained;
 
   for (uint32_t i = 0; i < count; i++) {
     uint32_t watermark = tasks[i].usStackHighWaterMark;
@@ -122,6 +137,7 @@ static void check_task_stacks(const TaskStatus_t *tasks, uint32_t count) {
       continue;
     }
 
+    is_healthy = false;
     const char *name = tasks[i].pcTaskName;
     ESP_LOGW(TAG,
              "Low stack in task [%s]: %lu B free (threshold %d B)",
@@ -129,12 +145,14 @@ static void check_task_stacks(const TaskStatus_t *tasks, uint32_t count) {
              (unsigned long)watermark,
              CRITICAL_STACK_THRESHOLD);
 
-    stack_watch_t *w = watch_find(name);
+    sys_monitor_stack_watch_t *w = watch_find(&tasks[i]);
     if (w == NULL) {
       if (s_watch_count >= STACK_WATCH_MAX) {
-        continue; // table full; the condition is still logged above
+        controlled_restart("SYSTEM RECOVERY", "Too many tasks with critical stack headroom");
       }
       w = &s_watch[s_watch_count++];
+      w->task = tasks[i].xHandle;
+      w->number = tasks[i].xTaskNumber;
       strncpy(w->name, name, sizeof(w->name) - 1);
       w->name[sizeof(w->name) - 1] = '\0';
       w->streak = 0;
@@ -170,45 +188,31 @@ static void check_task_stacks(const TaskStatus_t *tasks, uint32_t count) {
     }
   }
   s_watch_count = kept;
+  return is_healthy;
 }
 
-// UI liveness. The LVGL renderer runs in a managed task that cannot be watched
-// by name, and its stack watermark says nothing about progress. Instead we poll
-// ui_render_beat(), a counter bumped by an lv_timer inside that task. We arm
-// only after the beat first advances (UI is up), then a beat that does not move
-// for UI_STALL_ESCALATE_CYCLES cycles means the renderer is frozen (lock
-// deadlock, runaway callback, or a dead task) and gets the same controlled
-// restart as a critical stack. No task-name matching anywhere.
-static void check_ui_liveness(void) {
-  static bool armed = false;
-  static uint32_t last_beat = 0;
-  static uint32_t stall_streak = 0;
-
-  uint32_t beat = ui_render_beat();
-
-  if (!armed) {
-    if (beat != 0) {
-      armed = true;
-      last_beat = beat;
-    }
-    return;
+static bool check_ui_liveness(void) {
+  static uint32_t last_beat;
+  static uint32_t stall_streak;
+  if (!atomic_load(&s_is_ui_expected)) {
+    last_beat = ui_render_beat();
+    stall_streak = 0;
+    return true;
   }
-
+  uint32_t beat = ui_render_beat();
   if (beat != last_beat) {
     last_beat = beat;
     stall_streak = 0;
-    return;
+    return true;
   }
-
   if (++stall_streak >= UI_STALL_ESCALATE_CYCLES) {
-    ESP_LOGE(TAG,
-             "LVGL renderer stalled for %d cycles (no progress); controlled restart",
-             UI_STALL_ESCALATE_CYCLES);
-    controlled_restart("SYSTEM RECOVERY", "UI renderer stalled.\nRestarting to recover.");
+    ESP_LOGE(TAG, "LVGL renderer made no progress for %d cycles", UI_STALL_ESCALATE_CYCLES);
+    controlled_restart("SYSTEM RECOVERY", "UI renderer stalled. Restarting to recover.");
   }
+  return false;
 }
 
-static void check_heap(void) {
+static bool check_heap(void) {
   static bool warned = false;
   static uint32_t crit_streak = 0;
 
@@ -223,7 +227,9 @@ static void check_heap(void) {
                (unsigned long)free_int,
                (unsigned long)largest,
                (unsigned long)esp_get_minimum_free_heap_size());
-      assets_manager_evict_cache(); // reclaim the image cache before alerting
+      if (atomic_load(&s_is_ui_expected)) {
+        assets_manager_evict_cache();
+      }
       char msg[ALERT_MSG_SIZE];
       snprintf(msg,
                sizeof(msg),
@@ -247,6 +253,7 @@ static void check_heap(void) {
   } else {
     crit_streak = 0;
   }
+  return free_int >= HEAP_WARN_FREE_B && largest >= HEAP_WARN_LARGEST_B;
 }
 
 static void check_storage_health(void) {
@@ -267,22 +274,20 @@ static void check_i2c_health(void) {
   }
 }
 
-static void sys_monitor_task(void *pvParameters) {
-  sys_monitor_params_t *params = (sys_monitor_params_t *)pvParameters;
-  bool is_verbose = params->is_verbose;
-  vPortFree(params);
+static void monitor_task(void *pvParameters) {
+  bool is_verbose = (uintptr_t)pvParameters != 0;
 
   ESP_LOGI(TAG, "System monitor started (verbose: %s)", is_verbose ? "enabled" : "disabled");
 
   // The monitor is the single supervisor: it feeds the Task Watchdog (so a stuck
   // monitor or a core-starving task panic-reboots), watches every task's stack,
   // and watches UI render liveness. Same role as on the C5, minus the UI check.
-  esp_task_wdt_add(NULL);
+  ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
   uint32_t storage_cycle = 0;
 
   while (1) {
-    esp_task_wdt_reset();
+    ESP_ERROR_CHECK(esp_task_wdt_reset());
 
     if (is_verbose) {
       uint32_t free_heap = esp_get_free_heap_size();
@@ -297,18 +302,25 @@ static void sys_monitor_task(void *pvParameters) {
     }
 
     uint32_t task_count = uxTaskGetNumberOfTasks();
-    TaskStatus_t *task_array = pvPortMalloc(task_count * sizeof(TaskStatus_t));
+    bool is_healthy = false;
+    TaskStatus_t *task_array = NULL;
+    if (task_count > 0 && sizeof(TaskStatus_t) <= SIZE_MAX / task_count) {
+      task_array = pvPortMalloc(task_count * sizeof(TaskStatus_t));
+    }
 
     if (task_array != NULL) {
       task_count = uxTaskGetSystemState(task_array, task_count, NULL);
-      check_task_stacks(task_array, task_count);
+      is_healthy = task_count > 0 && check_task_stacks(task_array, task_count);
       vPortFree(task_array);
     } else {
       ESP_LOGE(TAG, "Failed to allocate task status array");
     }
 
-    check_ui_liveness();
-    check_heap();
+    is_healthy = check_ui_liveness() && is_healthy;
+    is_healthy = check_heap() && is_healthy;
+    if (is_healthy) {
+      boot_report_mark_healthy();
+    }
     check_i2c_health();
 
     if (++storage_cycle >= STORAGE_CHECK_CYCLES) {
@@ -320,20 +332,25 @@ static void sys_monitor_task(void *pvParameters) {
   }
 }
 
-void sys_monitor_start(bool is_verbose) {
-  sys_monitor_params_t *params = pvPortMalloc(sizeof(sys_monitor_params_t));
-  if (params == NULL) {
-    ESP_LOGE(TAG, "Failed to allocate monitor parameters");
-    return;
+esp_err_t sys_monitor_start(bool is_verbose) {
+  bool is_started = false;
+  if (!atomic_compare_exchange_strong(&s_is_started, &is_started, true)) {
+    return ESP_OK;
   }
+  if (xTaskCreatePinnedToCore(monitor_task,
+                              "SysMonitor",
+                              MONITOR_STACK_SIZE,
+                              (void *)(uintptr_t)is_verbose,
+                              SYS_PRIO_MONITOR,
+                              NULL,
+                              SYS_CORE_RADIO) != pdPASS) {
+    atomic_store(&s_is_started, false);
+    ESP_LOGE(TAG, "Failed to create system monitor");
+    return ESP_ERR_NO_MEM;
+  }
+  return ESP_OK;
+}
 
-  params->is_verbose = is_verbose;
-
-  xTaskCreatePinnedToCore(sys_monitor_task,
-                          "SysMonitor",
-                          MONITOR_STACK_SIZE,
-                          (void *)params,
-                          MONITOR_PRIORITY,
-                          NULL,
-                          MONITOR_CORE);
+void sys_monitor_expect_ui(bool is_expected) {
+  atomic_store(&s_is_ui_expected, is_expected);
 }

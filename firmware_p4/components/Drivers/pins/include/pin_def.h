@@ -119,8 +119,8 @@ extern "C" {
 /** @brief Haptic driver (AW8623, I2C + trigger). */
 #define GPIO_HAPTIC_TRIG_PIN 32
 
-/** @brief Battery charger (BQ25896, I2C) OTG/CE control. */
-#define GPIO_CHARGER_CE_PIN 33
+/** @brief BQ25896 OTG enable (U4 pin 8). U4 /CE pin 9 is tied to GND. */
+#define GPIO_CHARGER_OTG_PIN 33
 
 /** @brief USB D+/D- mux (TS3USB221). */
 #define GPIO_USB_MUX_SEL_PIN 19

@@ -55,9 +55,18 @@ static void conn_toggle(int sel) {
   if (sel == IDX_USB_NATIVE) {
     menu_component_toggle_item(&s_menu, IDX_USB_NATIVE);
     bool native = menu_component_get_toggle(&s_menu, IDX_USB_NATIVE);
-    usb_mux_set_native(native);
-    if (native) {
-      host_link_cdc_init();
+    esp_err_t err = usb_mux_set_native(native);
+    if (err == ESP_OK && native) {
+      err = host_link_cdc_init();
+    }
+    if (err != ESP_OK) {
+      // Do not show a working native connection or retain its sleep guard
+      // when the CDC service could not start (e.g. allocation failure).
+      usb_mux_set_native(false);
+      if (menu_component_get_toggle(&s_menu, IDX_USB_NATIVE))
+        menu_component_toggle_item(&s_menu, IDX_USB_NATIVE);
+      notify(NOTIFY_WARNING, "Falha USB NATIVE | tente novamente");
+      return;
     }
     if (native && !s_usb_no_sleep_held) {
       power_manager_no_sleep_acquire();

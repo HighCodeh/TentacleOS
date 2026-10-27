@@ -20,6 +20,8 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
+
 #include "highboy_nfc_error.h"
 #include "highboy_nfc_compat.h"
 #include "highboy_nfc_types.h"
@@ -53,6 +55,10 @@ hb_nfc_err_t nfc_listener_start_emu(const mfc_emu_card_data_t *emu);
  * @brief Stop card emulation.
  */
 void nfc_listener_stop(void);
+
+/** Firmware retains the antenna while startup or cleanup is pending. */
+bool nfc_listener_is_active(void);
+bool nfc_listener_is_running(void);
 
 #ifdef __cplusplus
 }

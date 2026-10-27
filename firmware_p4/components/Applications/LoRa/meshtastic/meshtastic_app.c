@@ -14,12 +14,15 @@
 
 #include "meshtastic_app.h"
 
+#include <stdatomic.h>
+
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sys_prio.h"
 
+#include "lora_session.h"
 #include "meshtastic_mesh.h"
 #include "meshtastic_nodedb.h"
 #include "meshtastic_nvs.h"
@@ -43,6 +46,11 @@ static const char *TAG = "MT_APP";
 #define MT_DEFAULT_PREAMBLE_LEN 16
 #define MT_PRIMARY_CHANNEL      19
 #define MT_CR_TO_SX1262(cr)     ((uint8_t)((cr) - 4))
+
+#define APP_STOP_WAIT_MS 10000
+#define APP_STOP_POLL_MS 10
+static _Atomic(TaskHandle_t) s_poll_task;
+static atomic_bool s_is_polling;
 
 static uint32_t derive_node_num(void);
 static void poll_task(void *pv);
@@ -148,16 +156,21 @@ esp_err_t meshtastic_app_start(void) {
     return ret;
   }
 
+  atomic_store(&s_is_polling, true);
+  TaskHandle_t task = NULL;
   if (xTaskCreatePinnedToCore(poll_task,
                               "mt_poll",
                               MT_POLL_TASK_STACK,
                               NULL,
                               MT_POLL_TASK_PRIO,
-                              NULL,
+                              &task,
                               SYS_CORE_RADIO) != pdPASS) {
+    atomic_store(&s_is_polling, false);
     ESP_LOGE(TAG, "Failed to spawn poll task");
     return ESP_ERR_NO_MEM;
   }
+
+  atomic_store(&s_poll_task, task);
 
   ret = meshtastic_phone_bridge_ble_start();
   if (ret != ESP_OK) {
@@ -167,6 +180,20 @@ esp_err_t meshtastic_app_start(void) {
 
   ESP_LOGI(TAG, "Meshtastic stack online -- waiting for phone");
   return ESP_OK;
+}
+
+esp_err_t meshtastic_app_stop(void) {
+  atomic_store(&s_is_polling, false);
+  TickType_t started = xTaskGetTickCount();
+  while (atomic_load(&s_poll_task) != NULL) {
+    if (xTaskGetTickCount() - started >= pdMS_TO_TICKS(APP_STOP_WAIT_MS))
+      return ESP_ERR_TIMEOUT;
+    vTaskDelay(pdMS_TO_TICKS(APP_STOP_POLL_MS));
+  }
+  esp_err_t error = meshtastic_phone_bridge_stop();
+  if (error != ESP_OK)
+    return error;
+  return meshtastic_mesh_stop();
 }
 
 static uint32_t derive_node_num(void) {
@@ -181,12 +208,15 @@ static void poll_task(void *pv) {
   const TickType_t poll_period = pdMS_TO_TICKS(MT_POLL_PERIOD_MS);
   const uint32_t ticks_per_module_tick = MT_TICK_PERIOD_MS / MT_POLL_PERIOD_MS;
   uint32_t tick_counter = 0;
-  while (1) {
+  while (atomic_load(&s_is_polling)) {
     meshtastic_mesh_poll();
+    lora_session_process_tx(LORA_PROTO_MESHTASTIC);
     if (++tick_counter >= ticks_per_module_tick) {
       tick_counter = 0;
       mt_modules_tick();
     }
     vTaskDelay(poll_period);
   }
+  atomic_store(&s_poll_task, NULL);
+  vTaskDelete(NULL);
 }

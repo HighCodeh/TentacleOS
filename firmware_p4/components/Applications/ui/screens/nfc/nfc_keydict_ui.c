@@ -15,219 +15,151 @@
 
 #include "nfc_keydict_ui.h"
 
-#include "lvgl.h"
-#include "st7789.h"
+#include <ctype.h>
+#include <stdio.h>
 
+#include "keyboard_ui.h"
+#include "lvgl.h"
+#include "mf_key_dict.h"
+#include "notify_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
-#include "ui_metrics.h"
 #include "ui_theme.h"
 
-#define MX        8
-#define BODY_H    (ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
-#define CONTENT_W (ui_screen_w() - 2 * MX)
-#define ROW_GAP   5
+#define VISIBLE_KEYS 5
 
-#define KEY_COUNT 4
-#define ROW_H     28
-#define ROW_RAD   8
+static lv_obj_t *s_screen;
+static lv_obj_t *s_count_label;
+static lv_obj_t *s_rows[VISIBLE_KEYS];
+static lv_obj_t *s_keys[VISIBLE_KEYS];
+static lv_obj_t *s_indexes[VISIBLE_KEYS];
+static int s_count;
+static int s_selected;
 
-#define CHIP_H   16
-#define CHIP_RAD 8
-#define CHIP_PAD 6
-#define TAG_H    14
-#define TAG_PAD  5
-
-#define HDR_TITLE   "KEY DICTIONARY"
-#define HDR_ICON    "/assets/icons/nfc.bin"
-#define FOOTER_HINT "OK load   UP/DOWN key   +/- edit"
-
-#define TXT_COUNT "1024 keys"
-#define TXT_SRC   "mfc_default"
-
-#define ACT_ADD LV_SYMBOL_PLUS " add"
-#define ACT_RM  LV_SYMBOL_TRASH " remove"
-#define ACT_SD  LV_SYMBOL_SD_CARD " SD"
-
-typedef struct {
-  const char *hex;
-  const char *tag;
-  bool tag_chip;
-} key_def_t;
-
-static const key_def_t KEYS[KEY_COUNT] = {
-    {"FF FF FF FF FF FF", "default", true},
-    {"A0 A1 A2 A3 A4 A5", "MAD", false},
-    {"D3 F7 D3 F7 D3 F7", "NDEF", false},
-    {"00 00 00 00 00 00", "blank", false},
-};
-
-static lv_obj_t *s_screen = NULL;
-static lv_obj_t *s_row[KEY_COUNT];
-static lv_obj_t *s_hex[KEY_COUNT];
-
-static int s_sel = 0;
-
-static void make_chip(lv_obj_t *parent, const char *txt, bool sel) {
-  lv_obj_t *chip = lv_obj_create(parent);
-  lv_obj_remove_flag(chip, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_height(chip, CHIP_H);
-  lv_obj_set_width(chip, LV_SIZE_CONTENT);
-  lv_obj_set_style_radius(chip, CHIP_RAD, 0);
-  lv_obj_set_style_pad_hor(chip, CHIP_PAD, 0);
-  lv_obj_set_style_pad_ver(chip, 0, 0);
-  lv_obj_set_style_bg_color(chip, current_theme.border_accent, 0);
-  lv_obj_set_style_bg_opa(chip, sel ? LV_OPA_30 : LV_OPA_10, 0);
-  lv_obj_set_style_border_color(chip, current_theme.border_accent, 0);
-  lv_obj_set_style_border_width(chip, sel ? 1 : 0, 0);
-
-  lv_obj_t *l = lv_label_create(chip);
-  lv_label_set_text(l, txt);
-  lv_obj_set_style_text_font(l, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(
-      l, sel ? current_theme.border_accent : current_theme.text_secondary, 0);
-  lv_obj_center(l);
+static int hex_nibble(char c) {
+  if (c >= '0' && c <= '9')
+    return c - '0';
+  c = (char)toupper((unsigned char)c);
+  if (c >= 'A' && c <= 'F')
+    return c - 'A' + 10;
+  return -1;
 }
 
-static lv_obj_t *make_row(lv_obj_t *parent, int i) {
-  lv_obj_t *row = lv_obj_create(parent);
-  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_width(row, lv_pct(100));
-  lv_obj_set_height(row, ROW_H);
-  lv_obj_set_style_radius(row, ROW_RAD, 0);
-  lv_obj_set_style_bg_color(row, current_theme.bg_secondary, 0);
-  lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_width(row, 2, 0);
-  lv_obj_set_style_pad_left(row, 8, 0);
-  lv_obj_set_style_pad_right(row, 8, 0);
-  lv_obj_set_style_pad_ver(row, 0, 0);
-  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(
-      row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-
-  lv_obj_t *hex = lv_label_create(row);
-  lv_label_set_text(hex, KEYS[i].hex);
-  lv_obj_set_style_text_font(hex, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(hex, current_theme.text_main, 0);
-  lv_obj_set_flex_grow(hex, 1);
-
-  if (KEYS[i].tag_chip) {
-    lv_obj_t *tag = lv_obj_create(row);
-    lv_obj_remove_flag(tag, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_height(tag, TAG_H);
-    lv_obj_set_width(tag, LV_SIZE_CONTENT);
-    lv_obj_set_style_radius(tag, CHIP_RAD, 0);
-    lv_obj_set_style_pad_hor(tag, TAG_PAD, 0);
-    lv_obj_set_style_pad_ver(tag, 0, 0);
-    lv_obj_set_style_bg_color(tag, current_theme.border_accent, 0);
-    lv_obj_set_style_bg_opa(tag, LV_OPA_20, 0);
-    lv_obj_set_style_border_width(tag, 0, 0);
-    lv_obj_t *tl = lv_label_create(tag);
-    lv_label_set_text(tl, KEYS[i].tag);
-    lv_obj_set_style_text_font(tl, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(tl, current_theme.border_accent, 0);
-    lv_obj_center(tl);
-  } else {
-    lv_obj_t *tag = lv_label_create(row);
-    lv_label_set_text(tag, KEYS[i].tag);
-    lv_obj_set_style_text_font(tag, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(tag, current_theme.text_secondary, 0);
+static bool parse_key(const char *text, uint8_t key[6]) {
+  int nibble_count = 0;
+  uint8_t nibbles[12];
+  if (text == NULL)
+    return false;
+  for (const char *p = text; *p != '\0'; p++) {
+    const int value = hex_nibble(*p);
+    if (value >= 0) {
+      if (nibble_count >= 12)
+        return false;
+      nibbles[nibble_count++] = (uint8_t)value;
+    } else if (!isspace((unsigned char)*p) && *p != ':' && *p != '-') {
+      return false;
+    }
   }
-
-  s_hex[i] = hex;
-  return row;
+  if (nibble_count != 12)
+    return false;
+  for (int i = 0; i < 6; i++)
+    key[i] = (uint8_t)((nibbles[i * 2] << 4) | nibbles[i * 2 + 1]);
+  return true;
 }
 
-static void refresh_selection(void) {
-  for (int i = 0; i < KEY_COUNT; i++) {
-    bool sel = (i == s_sel);
+static void refresh(void) {
+  char count[40];
+  snprintf(count, sizeof(count), "%d real keys loaded", s_count);
+  lv_label_set_text(s_count_label, count);
+  int first = s_selected - VISIBLE_KEYS / 2;
+  if (first < 0)
+    first = 0;
+  if (first > s_count - VISIBLE_KEYS)
+    first = s_count > VISIBLE_KEYS ? s_count - VISIBLE_KEYS : 0;
+
+  for (int row = 0; row < VISIBLE_KEYS; row++) {
+    const int index = first + row;
+    const bool valid = index < s_count;
+    const bool selected = valid && index == s_selected;
+    char index_text[12];
+    char key_text[28];
+    if (valid) {
+      uint8_t key[6] = {0};
+      mf_key_dict_get(index, key);
+      snprintf(index_text, sizeof(index_text), "#%03d", index);
+      snprintf(key_text,
+               sizeof(key_text),
+               "%02X %02X %02X %02X %02X %02X",
+               key[0],
+               key[1],
+               key[2],
+               key[3],
+               key[4],
+               key[5]);
+    } else {
+      index_text[0] = '\0';
+      key_text[0] = '\0';
+    }
+    lv_label_set_text(s_indexes[row], index_text);
+    lv_label_set_text(s_keys[row], key_text);
     lv_obj_set_style_border_color(
-        s_row[i], sel ? current_theme.border_accent : current_theme.border_inactive, 0);
-    lv_obj_set_style_border_opa(s_row[i], sel ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+        s_rows[row], selected ? current_theme.border_accent : current_theme.border_inactive, 0);
+    lv_obj_set_style_border_opa(s_rows[row], selected ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
     lv_obj_set_style_bg_color(
-        s_row[i], sel ? current_theme.bg_primary : current_theme.bg_secondary, 0);
-    lv_obj_set_style_shadow_width(s_row[i], sel ? 12 : 0, 0);
-    lv_obj_set_style_shadow_color(s_row[i], current_theme.border_accent, 0);
-    lv_obj_set_style_shadow_spread(s_row[i], sel ? -3 : 0, 0);
+        s_rows[row], selected ? current_theme.bg_primary : current_theme.bg_secondary, 0);
     lv_obj_set_style_text_color(
-        s_hex[i], sel ? current_theme.border_accent : current_theme.text_main, 0);
+        s_keys[row], selected ? current_theme.border_accent : current_theme.text_main, 0);
   }
 }
 
-static void build_body(lv_obj_t *parent) {
-  lv_obj_t *chips = lv_obj_create(parent);
-  lv_obj_remove_flag(chips, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_width(chips, lv_pct(100));
-  lv_obj_set_height(chips, LV_SIZE_CONTENT);
-  lv_obj_set_style_bg_opa(chips, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(chips, 0, 0);
-  lv_obj_set_style_pad_all(chips, 0, 0);
-  lv_obj_set_style_pad_column(chips, 5, 0);
-  lv_obj_set_flex_flow(chips, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(chips, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  make_chip(chips, TXT_COUNT, true);
-  make_chip(chips, TXT_SRC, false);
-
-  for (int i = 0; i < KEY_COUNT; i++)
-    s_row[i] = make_row(parent, i);
-  refresh_selection();
-
-  lv_obj_t *actions = lv_obj_create(parent);
-  lv_obj_remove_flag(actions, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_width(actions, lv_pct(100));
-  lv_obj_set_height(actions, LV_SIZE_CONTENT);
-  lv_obj_set_style_bg_opa(actions, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(actions, 0, 0);
-  lv_obj_set_style_pad_all(actions, 0, 0);
-  lv_obj_set_style_pad_column(actions, 6, 0);
-  lv_obj_set_flex_flow(actions, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(actions, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  make_chip(actions, ACT_ADD, false);
-  make_chip(actions, ACT_RM, false);
-  make_chip(actions, ACT_SD, false);
+static void add_key_submit(const char *text, void *ctx) {
+  (void)ctx;
+  uint8_t key[6];
+  if (!parse_key(text, key)) {
+    notify(NOTIFY_WARNING, "Enter exactly 12 hexadecimal digits");
+    return;
+  }
+  const bool existed = mf_key_dict_contains(key);
+  hb_nfc_err_t err = mf_key_dict_add(key);
+  if (err == HB_NFC_OK) {
+    s_count = mf_key_dict_count();
+    if (!existed)
+      s_selected = s_count - 1;
+    refresh();
+    notify(NOTIFY_SAVED, existed ? "Key already in dictionary" : "Key saved to user dictionary");
+  } else {
+    notify(NOTIFY_WARNING, "Could not persist key to SD card");
+  }
 }
 
-static void nfc_keydict_input(const input_event_t *ev, void *ctx) {
+static void input_cb(const input_event_t *event, void *ctx) {
   (void)ctx;
-  const bool press = (ev->action == INPUT_ACTION_PRESS);
-  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
-
-  switch (ev->button) {
-    case INPUT_BTN_BACK:
-      if (press)
-        ui_switch_screen(SCREEN_NFC_MENU);
-      break;
-    case INPUT_BTN_DOWN:
-      if (nav) {
-        s_sel = (s_sel + 1) % KEY_COUNT;
-        refresh_selection();
-        ui_feedback(UI_FB_NAV);
-      }
-      break;
-    case INPUT_BTN_UP:
-      if (nav) {
-        s_sel = (s_sel - 1 + KEY_COUNT) % KEY_COUNT;
-        refresh_selection();
-        ui_feedback(UI_FB_NAV);
-      }
-      break;
-    case INPUT_BTN_OK:
-      if (press)
-        ui_feedback(UI_FB_SELECT);
-      break;
-    default:
-      break;
+  const bool press = event->action == INPUT_ACTION_PRESS;
+  const bool nav = press || event->action == INPUT_ACTION_REPEAT;
+  if ((event->button == INPUT_BTN_BACK || event->button == INPUT_BTN_LEFT) && press) {
+    ui_switch_screen(SCREEN_NFC_MENU);
+  } else if (event->button == INPUT_BTN_DOWN && nav && s_count > 0) {
+    s_selected = (s_selected + 1) % s_count;
+    refresh();
+    ui_feedback(UI_FB_NAV);
+  } else if (event->button == INPUT_BTN_UP && nav && s_count > 0) {
+    s_selected = (s_selected - 1 + s_count) % s_count;
+    refresh();
+    ui_feedback(UI_FB_NAV);
+  } else if (event->button == INPUT_BTN_OK && press) {
+    keyboard_open(NULL, add_key_submit, NULL);
   }
 }
 
 void ui_nfc_keydict_open(void) {
+  mf_key_dict_init();
+  s_count = mf_key_dict_count();
+  s_selected = 0;
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
   }
-  s_sel = 0;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -235,25 +167,44 @@ void ui_nfc_keydict_open(void) {
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_border_width(s_screen, 0, 0);
   lv_obj_set_style_pad_all(s_screen, 0, 0);
-
-  ui_chrome_header(s_screen, HDR_TITLE, HDR_ICON);
+  ui_chrome_header(s_screen, "KEY DICTIONARY", "/assets/icons/key.bin");
 
   lv_obj_t *body = lv_obj_create(s_screen);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(body, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(body, ui_screen_w(), BODY_H);
+  lv_obj_set_size(body, lv_pct(100), 176);
   lv_obj_align(body, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(body, 0, 0);
-  lv_obj_set_style_pad_all(body, MX, 0);
-  lv_obj_set_style_pad_row(body, ROW_GAP, 0);
+  lv_obj_set_style_pad_all(body, 8, 0);
+  lv_obj_set_style_pad_row(body, 4, 0);
   lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
 
-  build_body(body);
+  s_count_label = lv_label_create(body);
+  lv_obj_set_style_text_font(s_count_label, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(s_count_label, current_theme.border_accent, 0);
 
-  ui_chrome_footer(s_screen, FOOTER_HINT);
+  for (int i = 0; i < VISIBLE_KEYS; i++) {
+    s_rows[i] = lv_obj_create(body);
+    lv_obj_remove_flag(s_rows[i], LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(s_rows[i], lv_pct(100), 25);
+    lv_obj_set_style_radius(s_rows[i], 7, 0);
+    lv_obj_set_style_bg_color(s_rows[i], current_theme.bg_secondary, 0);
+    lv_obj_set_style_bg_opa(s_rows[i], LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(s_rows[i], 1, 0);
+    lv_obj_set_style_pad_hor(s_rows[i], 6, 0);
+    lv_obj_set_style_pad_ver(s_rows[i], 0, 0);
+    lv_obj_set_flex_flow(s_rows[i], LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(
+        s_rows[i], LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-  ui_input_set_screen_handler(nfc_keydict_input, NULL);
-
+    s_indexes[i] = lv_label_create(s_rows[i]);
+    lv_obj_set_style_text_font(s_indexes[i], &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(s_indexes[i], current_theme.text_secondary, 0);
+    s_keys[i] = lv_label_create(s_rows[i]);
+    lv_obj_set_style_text_font(s_keys[i], &lv_font_montserrat_12, 0);
+  }
+  refresh();
+  ui_chrome_footer(s_screen, "UP/DOWN browse   OK add key   BACK");
+  ui_input_set_screen_handler(input_cb, NULL);
   ui_screen_load_owned(&s_screen, s_screen);
 }

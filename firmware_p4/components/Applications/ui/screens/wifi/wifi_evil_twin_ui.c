@@ -259,7 +259,6 @@ static void wifi_evil_twin_input(const input_event_t *ev, void *ctx) {
         menu_component_prev(&s_menu);
       break;
     case INPUT_BTN_BACK:
-    case INPUT_BTN_LEFT:
       if (press) {
         if (s_state == ET_ATTACK)
           s_is_stop_requested = true;

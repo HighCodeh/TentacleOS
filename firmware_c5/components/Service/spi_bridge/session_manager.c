@@ -26,13 +26,13 @@
 #include "sys_prio.h"
 
 #include "spi_bridge.h"
+#include "hb_muse_c5_service.h"
 
 static const char *TAG = "SESSION_MGR";
 
 #define SESSION_TIMEOUT_MS  5000
 #define WATCHDOG_PERIOD_MS  1000
 #define WATCHDOG_STACK_SIZE 3072
-#define WATCHDOG_PRIO       SYS_PRIO_SERVICE_HI
 #define DROP_LOG_INTERVAL   1000
 
 typedef struct {
@@ -82,6 +82,7 @@ static void close_active_locked(const char *reason) {
 }
 
 static void emit_session_lost(uint32_t session_id, spi_id_t op_id) {
+  hb_muse_c5_service_revoke(); // local session loss revokes cloud permission
   spi_session_lost_t payload = {.session_id = session_id, .cmd = (uint16_t)op_id};
   spi_bridge_stream_push(SPI_ID_SESSION_LOST, (const uint8_t *)&payload, sizeof(payload));
 }
@@ -112,7 +113,13 @@ void session_manager_init(void) {
   if (s_mutex != NULL)
     return;
   s_mutex = xSemaphoreCreateMutex();
-  xTaskCreate(watchdog_task, "session_wdt", WATCHDOG_STACK_SIZE, NULL, WATCHDOG_PRIO, NULL);
+  xTaskCreatePinnedToCore(watchdog_task,
+                          "session_wdt",
+                          WATCHDOG_STACK_SIZE,
+                          NULL,
+                          SYS_PRIO_SERVICE_HI,
+                          NULL,
+                          SYS_CORE_MAIN);
   ESP_LOGI(TAG,
            "Session manager started (timeout %dms, window %u)",
            SESSION_TIMEOUT_MS,

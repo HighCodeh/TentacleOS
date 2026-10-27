@@ -35,9 +35,7 @@
 static const char *TAG = "WIFI_CHAN_UI";
 
 #define MAX_ROWS        12
-#define CHAN_MAX        14
 #define TASK_STACK_SIZE 8192
-#define TASK_PRIORITY   SYS_PRIO_SERVICE_LO
 
 #define COLOR_QUIET_HEX   0x00E676
 #define COLOR_BUSY_HEX    0xFFC107
@@ -76,14 +74,15 @@ static const char *TAG = "WIFI_CHAN_UI";
 
 typedef enum { SCAN_RUNNING, SCAN_DONE, SCAN_FAIL } scan_state_t;
 
-static const uint8_t REC_CANDIDATES[] = {1, 6, 11};
-#define REC_CANDIDATE_COUNT (sizeof(REC_CANDIDATES) / sizeof(REC_CANDIDATES[0]))
+static const uint8_t REC_CANDIDATES_2G[] = {1, 6, 11};
+static const uint8_t REC_CANDIDATES_5G[] = {36, 40, 44, 48, 149, 153, 157, 161};
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
 
 static scan_state_t s_scan_state = SCAN_RUNNING;
 static bool s_scanning = false;
+static uint8_t s_band = 1; // 1 = 2.4 GHz, 2 = 5 GHz
 static int s_row_count = 0;
 static uint8_t s_row_channel[MAX_ROWS];
 static uint8_t s_row_ap_count[MAX_ROWS];
@@ -103,7 +102,11 @@ static uint32_t color_for_count(int count) {
 }
 
 static int channel_center_x(int channel) {
-  int cx = (channel - 1) * SPEC_INNER_W / SPEC_CHAN_SPAN;
+  int cx;
+  if (s_band == 2)
+    cx = (channel - 36) * SPEC_INNER_W / (165 - 36);
+  else
+    cx = (channel - 1) * SPEC_INNER_W / SPEC_CHAN_SPAN;
   if (cx < 0)
     cx = 0;
   if (cx > SPEC_INNER_W)
@@ -121,16 +124,19 @@ static int crowded_row(void) {
 }
 
 static int recommended_channel(void) {
-  int best_ch = REC_CANDIDATES[0];
+  const uint8_t *candidates = s_band == 2 ? REC_CANDIDATES_5G : REC_CANDIDATES_2G;
+  size_t candidate_count = s_band == 2 ? sizeof(REC_CANDIDATES_5G) / sizeof(REC_CANDIDATES_5G[0])
+                                       : sizeof(REC_CANDIDATES_2G) / sizeof(REC_CANDIDATES_2G[0]);
+  int best_ch = candidates[0];
   int best_load = -1;
-  for (size_t c = 0; c < REC_CANDIDATE_COUNT; c++) {
-    int cand = REC_CANDIDATES[c];
+  for (size_t c = 0; c < candidate_count; c++) {
+    int cand = candidates[c];
     int load = 0;
     for (int i = 0; i < s_row_count; i++) {
       int d = (int)s_row_channel[i] - cand;
       if (d < 0)
         d = -d;
-      if (d <= REC_CANDIDATE_SPAN)
+      if ((s_band == 2 && d == 0) || (s_band == 1 && d <= REC_CANDIDATE_SPAN))
         load += s_row_ap_count[i];
     }
     if (best_load < 0 || load < best_load) {
@@ -187,7 +193,9 @@ static void build_hump(lv_obj_t *panel, int row) {
 }
 
 static void build_spectrum(void) {
-  ui_chrome_header(s_screen, "Channels", "/assets/icons/graphic_eq.bin");
+  ui_chrome_header(s_screen,
+                   s_band == 2 ? "Channels 5 GHz" : "Channels 2.4 GHz",
+                   "/assets/icons/graphic_eq.bin");
 
   lv_obj_t *panel = lv_obj_create(s_screen);
   lv_obj_set_size(panel, SPEC_PANEL_W, SPEC_PANEL_H);
@@ -225,7 +233,7 @@ static void build_spectrum(void) {
   lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, SPEC_HINT_Y);
 
-  ui_chrome_footer(s_screen, LV_SYMBOL_LEFT "  Back   " LV_SYMBOL_OK "  Rescan");
+  ui_chrome_footer(s_screen, "LEFT/RIGHT band   OK rescan");
 }
 
 static void build_screen(void) {
@@ -242,7 +250,9 @@ static void build_screen(void) {
   s_menu = (menu_component_t){0};
 
   if (s_scan_state == SCAN_RUNNING) {
-    ui_chrome_header(s_screen, "Channels", "/assets/icons/graphic_eq.bin");
+    ui_chrome_header(s_screen,
+                     s_band == 2 ? "Channels 5 GHz" : "Channels 2.4 GHz",
+                     "/assets/icons/graphic_eq.bin");
     waves_create(s_screen,
                  LV_ALIGN_CENTER,
                  0,
@@ -284,7 +294,7 @@ static void wifi_channel_task(void *arg) {
   (void)arg;
 
   wifi_service_start();
-  esp_err_t err = wifi_service_scan();
+  esp_err_t err = wifi_service_scan_ex(s_band, false, 45, 90);
   if (err != ESP_OK) {
     s_row_count = 0;
     s_scan_state = SCAN_FAIL;
@@ -294,34 +304,50 @@ static void wifi_channel_task(void *arg) {
     return;
   }
 
-  uint8_t chan_ap_count[CHAN_MAX + 1] = {0};
-  int8_t chan_best_rssi[CHAN_MAX + 1];
-  for (int c = 0; c <= CHAN_MAX; c++)
-    chan_best_rssi[c] = -128;
-
+  int rows = 0;
   uint16_t count = wifi_service_get_ap_count();
   for (uint16_t i = 0; i < count; i++) {
     wifi_ap_record_t *rec = wifi_service_get_ap_record(i);
     if (rec == NULL)
       continue;
     uint8_t ch = rec->primary;
-    if (ch < 1 || ch > CHAN_MAX)
+    if ((s_band == 1 && (ch < 1 || ch > 14)) || (s_band == 2 && ch < 15))
       continue;
-    if (chan_ap_count[ch] < 255)
-      chan_ap_count[ch]++;
-    if (rec->rssi > chan_best_rssi[ch])
-      chan_best_rssi[ch] = rec->rssi;
+    int row = -1;
+    for (int j = 0; j < rows; j++) {
+      if (s_row_channel[j] == ch) {
+        row = j;
+        break;
+      }
+    }
+    if (row < 0) {
+      if (rows >= MAX_ROWS)
+        continue;
+      row = rows++;
+      s_row_channel[row] = ch;
+      s_row_ap_count[row] = 0;
+      s_row_rssi[row] = -128;
+    }
+    if (s_row_ap_count[row] < 255)
+      s_row_ap_count[row]++;
+    if (rec->rssi > s_row_rssi[row])
+      s_row_rssi[row] = rec->rssi;
   }
-
-  int rows = 0;
-  for (int ch = 1; ch <= CHAN_MAX && rows < MAX_ROWS; ch++) {
-    if (chan_ap_count[ch] == 0)
-      continue;
-    s_row_channel[rows] = (uint8_t)ch;
-    s_row_ap_count[rows] = chan_ap_count[ch];
-    s_row_rssi[rows] = chan_best_rssi[ch];
-    s_row_color[rows] = color_for_count(chan_ap_count[ch]);
-    rows++;
+  for (int i = 0; i < rows; i++) {
+    for (int j = i + 1; j < rows; j++) {
+      if (s_row_channel[j] < s_row_channel[i]) {
+        uint8_t ch = s_row_channel[i];
+        uint8_t aps = s_row_ap_count[i];
+        int8_t rssi = s_row_rssi[i];
+        s_row_channel[i] = s_row_channel[j];
+        s_row_ap_count[i] = s_row_ap_count[j];
+        s_row_rssi[i] = s_row_rssi[j];
+        s_row_channel[j] = ch;
+        s_row_ap_count[j] = aps;
+        s_row_rssi[j] = rssi;
+      }
+    }
+    s_row_color[i] = color_for_count(s_row_ap_count[i]);
   }
 
   s_row_count = rows;
@@ -346,12 +372,17 @@ static void wifi_channel_input(const input_event_t *ev, void *ctx) {
         menu_component_prev(&s_menu);
       break;
     case INPUT_BTN_BACK:
-    case INPUT_BTN_LEFT:
       if (press)
         ui_switch_screen(SCREEN_WIFI_MENU);
       break;
-    case INPUT_BTN_OK:
+    case INPUT_BTN_LEFT:
     case INPUT_BTN_RIGHT:
+      if (press && !s_scanning) {
+        s_band = s_band == 1 ? 2 : 1;
+        ui_wifi_channel_open();
+      }
+      break;
+    case INPUT_BTN_OK:
       if (press && !s_scanning)
         ui_wifi_channel_open();
       break;
@@ -371,7 +402,7 @@ void ui_wifi_channel_open(void) {
                                 "wifi_chan",
                                 TASK_STACK_SIZE,
                                 NULL,
-                                TASK_PRIORITY,
+                                SYS_PRIO_SERVICE_LO,
                                 NULL,
                                 SYS_CORE_RADIO) != pdPASS) {
       s_scanning = false;

@@ -73,6 +73,20 @@ bool subghz_receiver_is_running(void);
 - Returns `ESP_OK` on success, `ESP_ERR_INVALID_STATE` if already running, `ESP_ERR_NO_MEM` on task creation failure.
 - Task stack: 8192 bytes, priority 5, Core 1.
 
+Shutdown is asynchronous: `subghz_receiver_stop()` requests cancellation and
+`subghz_receiver_is_running()` remains true through startup and hardware cleanup.
+The worker owns the resource grant until RMT disable and channel deletion succeed.
+Failed cleanup retries while retaining the DMA buffer, callback queue and radio
+grant; callers cannot start another RX worker during this interval. A cancellation
+before the worker starts is preserved. Queue/result-mutex allocation failures
+abort without publishing an unusable receiver.
+
+`python3 tools/highboy/test_subghz_lifecycle.py` exercises the production worker
+with explicit hardware/RTOS fakes and Address/UndefinedBehaviorSanitizer. It covers
+startup cancellation, competing starts, allocation/setup errors, and repeated
+disable/delete failures with a late callback. It does not prove physical RF or
+DMA behavior on the board.
+
 ### Transmitter (`subghz_transmitter`)
 
 Asynchronous queue-based transmitter. Converts signed pulse timings to RMT symbols and transmits via CC1101 GDO2 in async mode.
@@ -248,7 +262,26 @@ typedef struct {
 | Holtek       | OOK/PWM    | Remote controls              |
 | LiftMaster   | OOK/PWM    | Garage door openers          |
 | Linear       | OOK/PWM    | Gate/access control          |
-| Rossi        | OOK/PWM    | Gate remotes                 |
+| KeeLoq       | OOK/PWM    | HCS301 rolling-code remotes   |
+| GateTX       | OOK/PWM    | Gate remotes (24-bit)        |
+| Holtek_HT12X | OOK/PWM    | HT12E DIP remotes (12-bit)   |
+
+RCSwitch, CAME and the fixed-code plugins (Ansonic, Chamberlain, Holtek,
+LiftMaster, Linear, Nice FLO, Princeton) also transmit: each has a real `.encode`
+(shared `subghz_pwm_encode` helper), verified by `subghz selftest`. KeeLoq is the
+rolling-code plugin (see the KeeLoq section below); it replaced the old Rossi stub.
+
+The HighBoy merge retains `protocol_rossi.c` as unregistered legacy source only.
+It is not a usable decoder: its broad pulse heuristic fabricated the serial
+`0xDEADBEEF` and returned no captured value. It must not shadow the KeeLoq decoder.
+The existing custom UI and PSRAM layout are unchanged by this codec merge.
+
+Registry lookup accepts an exact name first, then a leading registered name
+followed by a space or `(`. This preserves saved names such as `CAME 12bit`,
+`Nice Flo 12bit`, `RCSwitch(P1)` and `KeeLoq <manufacturer>` without accepting
+arbitrary substring matches. Replay uses that same registry encoder.
+RCSwitch rejects zero or wider-than-32-bit input and out-of-range protocol
+indices before any shift or index adjustment.
 
 ### Utility Functions (`subghz_protocol_utils.h`)
 
@@ -266,6 +299,97 @@ bool subghz_protocol_registry_decode_all(const int32_t *pulses, size_t count, su
 const subghz_protocol_t *subghz_protocol_registry_get_by_name(const char *name);
 ```
 
+## KeeLoq Rolling Code (`subghz_keeloq`)
+
+HCS301 rolling-code support, surfaced as the `KeeLoq` protocol plugin (which
+replaced the old Rossi stub). Manufacturer keys load at runtime from the SD asset
+`config/subghz/keeloq_mfcodes.txt` (Flipper mfcodes format, 116 keys).
+
+- **Decode (capture):** `subghz_keeloq_identify(fix, hop, ...)` brute-forces every
+  loaded manufacturer key: derives the per-device key, decrypts the 32-bit hop, and
+  on a discrimination + button match recovers serial / button / counter / maker.
+  The plugin reports it as `KeeLoq <manufacturer>` with the serial and counter in
+  `subghz_data_t`.
+- **Encode (replay):** `subghz_keeloq_encode(...)` transmits the NEXT code
+  (counter + 1) — the rolling-code prediction attack — reached from the normal
+  replay path (`subghz_replay_file` → registry encode).
+- **Key derivation:** ported verbatim from Momentum firmware (GPLv3,
+  `lib/subghz/protocols/keeloq_common.c`). Deterministic schemes — SIMPLE, NORMAL,
+  MAGIC_XOR, MAGIC_SERIAL 1/2/3, PUJOL, SIMPLE_JCM — support decode **and** rolling
+  TX; AERF is decode-only (derived-key decrypt, no encrypt inverse). Adding
+  UNKNOWN (multi-scheme brute: simple / normal / byte-reversed key) and SECURE
+  (serial-derived or zero seed fallback) brings decode coverage to ~110 of the 116
+  keys. The remaining ~6 are separate protocols upstream — FAAC SLH, KINGGATES,
+  JAROLIFT — plus ERREKA (needs the seed) and the reserved Beninca_ARC; those need
+  their own frame decoders ported and a real capture to validate.
+- **Framing:** the 64-bit key is transmitted LSB-first, so decode bit-reverses it
+  to cipher order (`subghz_keeloq_decode_key`); the discrimination is the low
+  **8 bits** of the fixed part (HCS200/HCS300 common), not 10.
+- **Self-test:** `subghz selftest` runs the cipher inverse (checked against a
+  published KeeLoq test vector), a full encode→PWM→decode round-trip, and three
+  **real golden captures** from `FlipperZero-Subghz-DB` (DoorHan, Elmes_Poland,
+  JCM_Tech) that must decode to the right maker + counter. The cipher, disc,
+  reversal and learnings are validated against real remotes this way; only the
+  on-air RF (does the transmitted signal open a real gate) still needs an SDR.
+
+The decoded save format carries extra `Serial:` and `Btn:` lines so a saved KeeLoq
+capture replays with the correct rolling counter.
+
+Legacy fixed-code files without these fields remain readable: serial falls back
+to the stored key value and button defaults to zero. Replay accepts the full
+40-byte protocol-label buffer used by the KeeLoq adapter; longer labels are
+rejected rather than truncated. Decoded serialization returns zero and clears
+the output on insufficient buffer space, never a length beyond the buffer.
+
+### Offline merge regression tests
+
+Run `python3 -B tools/highboy/test_subghz.py` from the repository root. It compiles
+the actual protocol, registry, serializer, replay and KeeLoq sources with strict
+C11 warnings and UndefinedBehaviorSanitizer. Radio, FreeRTOS and storage calls
+are RAM-only test doubles; it opens no device, SD assets, or private key files.
+
+Coverage includes all 12 fixed-code self-test vectors, an independent expected
+PWM pulse vector, exact/decorated name lookup, invalid/small buffers, decoded and
+raw file replay, legacy files, cipher inverse/frame round-trips, and a synthetic
+long manufacturer name through serialization and replay. The synthetic key is
+a public test constant, not a key read from a device. Golden manufacturer-capture
+identification is skipped without the real public asset and is not claimed by
+this host test. Neither host tests nor `subghz selftest` transmit RF or establish
+electrical, modulation-tolerance, or real-device interoperability.
+
+## TODO / Not Yet Supported
+
+Tracked against `FlipperZero-Subghz-DB` (validation vectors) and Momentum firmware
+(reference decoders). Ordered by how blocked each item is.
+
+**Portable + validatable (do next).** Fixed-code protocols present in the DB with
+plenty of captures, but with a non-PWM encoding so they need a custom decoder (not
+the shared `subghz_pwm_encode` helper):
+- **MegaCode** — pulse-position (te_short == te_long, fixed slots), 24-bit. ~10 DB captures.
+- **SMC5326** — tri-state (0/1/float), te 300/900, 25-bit. ~5 DB captures.
+- **Firefly (Allstar)** — long inter-bit gap (te 600/4000), 18-bit. ~3 DB captures.
+
+**Separate rolling-code protocols (own frame + crypto).** Need their own decoder
+ported from Momentum:
+- **Security+ 2.0** (Chamberlain rolling) — ~4 DB captures.
+- **Somfy Telis (RTS)** — 1 DB capture.
+
+**KeeLoq makers needing a separate protocol decoder.** These are NOT KeeLoq
+learning types — Momentum implements them as standalone protocols (different frame).
+There are **zero captures in this DB**, so a port could not be validated yet:
+- **FAAC SLH**, **KINGGATES (Stylo 4k)**, **JAROLIFT**.
+
+**KeeLoq makers needing data we do not have:**
+- **AN-Motors** — uses standard KeeLoq, but its manufacturer key is not in our
+  `keeloq_mfcodes.txt`; the `.sub` is encrypted with that key, so it cannot be
+  recovered from the capture. Need the key.
+- **Beninca_ARC** — reserved even upstream (Momentum leaves type 9 unimplemented).
+- **ERREKA** — needs the seed carried in an extended frame we do not parse.
+
+**Cross-cutting:** over-the-air RF validation (does a transmitted frame open a real
+gate; does the pwm bit order match a real remote) still needs an SDR / real target.
+New fixed protocols are validated only by encode↔decode round-trip today.
+
 ## Common Types (`subghz_types.h`)
 
 ```c
@@ -279,3 +403,156 @@ typedef struct {
 ```
 
 Shared data structure used across decoder, serializer, storage, and UI layers.
+
+## App capture observations
+
+ABI 1.12 publishes read-only `subghz.rx_poll` for signed apps and JS/Lua,
+requiring RX permission. Each app/run has a private cursor over the latest
+native capture snapshot; sequence IDs persist across receiver restarts.
+Polling never starts or stops the receiver and does not expose raw timings.
+ABI 1.13 adds the bounded active operations below; asynchronous session and
+spectrum entries remain NULL.
+See the [ABI contract](../app_sdk/README.md#native-radio-observations-abi-112).
+
+## Native radio worker ownership
+
+Native TX now creates RMT hardware inside its worker and reports startup through
+a per-call signal. Stop waits up to 2500 ms for the worker; a timeout leaves the
+grant busy rather than freeing live RMT state. The worker waits for in-flight
+queue senders, retains its current symbols through transmit/cleanup failure,
+and retries disable/channel-delete/encoder-delete until successful. Only then
+are pending timings, queue and grant released. Concurrent reinitialization is
+rejected while starting/draining. Pulse conversion handles `INT32_MIN` without
+signed overflow, preserving the existing maximum-duration clamping.
+
+Native spectrum now reserves `RES_SUBGHZ`, publishes its running state before
+spawning the task and preserves startup cancellation. Failed mutex/task setup
+releases the grant. A cancelled partial sweep is discarded instead of publishing
+uninitialized bins; the grant is released by the worker after its final radio
+access. UI/companion callers can encounter a busy radio and must retry after
+shutdown. These changes preserve the existing pins, presets and task priorities.
+
+## Bounded app RX/TX (ABI 1.13)
+
+`subghz.receive` performs one capture with an explicit frequency, preset and
+1–1000 ms capture wait. `subghz.tx_raw` sends a bounded OOK pulse train and waits
+for completion. Signed apps and JS/Lua use the same capability-gated tables and
+persistent RF worker. These functions do not start the native continuous RX/TX
+workers or create app-owned background sessions. Captures are returned directly;
+they are not auto-saved or published into the UI's latest-capture snapshot.
+See the [ABI bounds and script examples](../app_sdk/README.md#bounded-sub-ghz-api-abi-113).
+
+`python3 tools/subghz_api/test_subghz_api.py` compiles production backend, lease,
+driver wrappers, native TX and spectrum code with ASan/UBSan and explicit
+RMT/SPI/RTOS fixtures. Native TX tests use a real host worker thread. No RF is
+received or transmitted by these tests; real frequency/timing/teardown acceptance
+remains under #156. RX capture timeout and TX wait limits exclude driver setup,
+bus-lock waits and recovery; they are not hard deadlines for the complete call.
+
+
+## Bounded app spectrum (ABI 1.15)
+
+`spectrum_capture` performs a complete 80-bin RSSI sweep through the existing
+persistent app RF worker. It requires RX permission and an entire span inside
+one supported CC1101 band, reserves `RES_SUBGHZ` without preemption, and yields
+between bins. Native RX/TX/spectrum and other radio owners block acquisition.
+Any SPI or cleanup error discards the whole result; retained cleanup keeps the
+radio reserved. It does not start or overwrite the continuous native spectrum
+worker or its UI snapshot. ABI 1.21 adds the asynchronous session interfaces described below. Bounds, sampling and result layout are specified in the
+[ABI contract](../app_sdk/README.md#bounded-sub-ghz-spectrum-abi-115).
+
+The production backend host tests cover exact tuning/sample order, peak RSSI,
+minimum/maximum/odd spans, all band edges, invalid and overflowing requests,
+permissions/cancellation, contention, partial SPI failure and retained idle/power
+cleanup. These explicit SPI/RTOS fixtures do not validate RF on the device.
+
+
+## Bounded shared raw capture
+
+ABI 1.18 publishes the most recent successful bounded app-worker receive as
+`subghz.get_raw`; JavaScript and Lua use `tos.call("subghz.get_raw", max)`.
+This global snapshot is independent of native asynchronous UI RX history.
+Failed capture or hardware cleanup preserves the previous complete capture.
+The [ABI contract](../app_sdk/README.md#sub-ghz-raw-snapshot-abi-118) defines
+capacity, permissions and short-buffer behavior.
+
+RAW serialization/parsing rejects truncation: insufficient output capacity
+returns zero rather than a shorter successful pulse train. Parsing requires
+unique line-anchored frequency/preset fields, checks numeric range, rejects
+zero/overflow/malformed timings and rejects additional pulses beyond capacity.
+Frequency/preset outputs are published only after complete success; discard
+pulse output on error. The saved metadata remains subject to radio validation
+before transmission.
+
+
+## Shared file replay parser
+
+`subghz_protocol_parse_capture` parses RAW or decoded files without touching the
+radio. The native replay UI and ABI 1.19 use this same parser and native encoder
+registry. Complete metadata is validated before stopping the native receiver or
+starting TX; malformed fields and over-capacity pulses fail. Legacy fixed-code
+files may omit Serial/Btn/Preset (key-derived serial, button zero, OOK 800 kHz).
+Decoded keys with nonzero upper four bytes are rejected instead of truncated.
+Native storage replay rejects a full 8191-byte read because that API cannot prove
+the file was complete; embedded NUL is rejected too. App replay independently
+checks the complete file up to 8192 bytes and bounds the resulting transmission.
+See the [ABI contract](../app_sdk/README.md#sub-ghz-file-replay-abi-119) for path,
+frequency, duration, capability and hardware ownership requirements.
+
+
+## Owned app sessions (ABI 1.21)
+
+All published `api->subghz` entries are implemented. `rx_start` and
+`spectrum_start` create one task-owned background session. This uses the bounded
+app backend rather than the native UI receiver, which automatically saves
+captures: an RX-only app must not inherit those SD writes. There is one global
+app session, a persistent 4096-byte service worker on `SYS_CORE_RADIO` at
+`SYS_PRIO_SERVICE_LO`, and one latest complete copied result.
+
+RX repeats 100 ms receive windows; spectrum repeats full 80-bin sweeps. Each
+iteration uses the persistent RF worker, exclusive CC1101 lease, checked power
+hold and normal RMT teardown, then yields for 10 ms. Setup/recovery/cleanup add
+time: this is asynchronous **windowed** capture with gaps, not a gap-free RF
+receiver or a sample-rate guarantee. No capture is automatically saved to SD
+or injected into the native UI's history. Native UI/companion services remain
+independent and share physical ownership through the existing lease.
+
+Startup waits for the first completed window/sweep or an actual setup error
+(up to 3000 ms to observe readiness). An empty RX window is normal only if its
+cleanup completed; a SPI/setup/cleanup timeout fails the session. Error results
+remain negative even for ESP_FAIL. Failed startup returns session zero and
+requests background cleanup. Timeout does not assert that the hardware stopped.
+
+Only the originating task can retune, stop or poll its session. IDs are never
+reused before reboot; exhaustion fails. `set_frequency` applies to the next RX
+window and discards the pending old-frequency record. Spectrum must be stopped
+and restarted to change its range. `rx_poll` observes the owned session when
+one exists; other callers retain the previous native UI observation contract.
+`get_raw` remains the global last successful app-backend capture, now including
+background windows. It is not a per-app history or an atomic pair with rx_poll.
+
+`session_stop` works even when the caller's should_stop flag is set. It waits up
+to 3000 ms for cleanup, without holding a mutex across that wait. A timeout
+retains the worker, lease and buffers; the firmware retries cleanup. While a
+background session is starting/running/draining, bounded app receive/TX/replay/
+sweep calls fail busy. Poll and raw-copy calls remain available. A native radio
+owner winning a gap terminates the app session with an error; terminal failures
+set resource_lost, and a successful new startup clears it.
+
+Binding/rebinding/unbinding a task cancels its previous session. This covers
+natural exit, script completion/deadline and forced app teardown through the
+existing context paths. Cancellation is nonblocking: the app/ELF/context can
+be unloaded because the firmware owns all pending requests, callbacks, snapshots
+and hardware buffers. The stored task handle is an identity value, never a
+pointer dereferenced after teardown. Failed hardware cleanup prevents reuse
+until the persistent RF worker confirms release. Binding teardown acquires the
+session lock before the binding lock; terminal-error notification uses that
+same order, and callbacks must remain nonblocking.
+
+See the [native contract](../app_sdk/README.md#owned-sub-ghz-sessions-abi-121) and
+[script calls](../scripts/README.md#sub-ghz-session-bindings-abi-121).
+The production backend tests run the actual service task on a host thread and
+cover RX/spectrum start, retune, short buffers, startup RF-gate starvation/busy
+radio, foreign/stale owners, cancellation, generic/SPI errors, retained teardown
+and ID exhaustion. RMT, SPI and scheduler calls remain explicit fixtures; they
+do not establish RF timing, device stack headroom or reception quality.

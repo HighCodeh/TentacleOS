@@ -185,3 +185,23 @@ void cc1101_write_burst(uint8_t reg, const uint8_t *buf, uint8_t len);
 void cc1101_read_burst(uint8_t reg, uint8_t *buf, uint8_t len);
 ```
 Direct SPI register access: single read/write, burst read/write, and strobe commands.
+
+## Persistent app-worker lease
+
+Bounded app RX/TX uses a task-owned lease and a non-preempting SYSTEM grant on
+`RES_SUBGHZ`. Existing native RX, TX and spectrum grants prevent acquisition.
+All 29 hardware/state-facing public CC1101 functions check that lease; foreign
+callers cannot initialize, recover, read, retune or transmit while it is held.
+In-flight native calls also prevent acquisition. Pure RSSI conversion remains
+available. Rejected burst reads zero their caller's output.
+
+SPI errors during a leased operation are latched so legacy void setters cannot
+turn a failed configuration into a successful app call. Failed RMT/SPI/power
+cleanup retains buffers, handles and the grant on the persistent worker. Its
+access scope is then paused: even unrelated companion commands on that same
+worker cannot use the retained lease. A later bounded app operation reopens the
+scope and retries cleanup before touching a new capture/transmission.
+
+This lease is internal, not an app-visible raw driver API. See
+[Sub-GHz ABI](../app_sdk/README.md#bounded-sub-ghz-api-abi-113) for bounds and
+[Sub-GHz](../SubGhz/README.md) for native worker shutdown.

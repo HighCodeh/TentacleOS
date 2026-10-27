@@ -182,3 +182,30 @@ The service maintains an internal array (`connection_handles`) of active peers. 
 ### Configuration Files
 - `assets/config/bluetooth/ble_announce.conf`: Device name and connection limits.
 - `assets/config/bluetooth/beacon_list.conf`: Payload list for BLE spam functions.
+
+## Integrated HID and radio ownership
+
+C5 HID supports keyboard and mouse input reports with separate report IDs and
+report-reference descriptors. HID services must be registered before starting
+the NimBLE host; repeated registration in the same lifecycle is idempotent.
+The implementation advertises Report Protocol rather than providing Boot
+Protocol. Service ownership must be released before another BLE application,
+including Muse pairing or host-link BLE, takes over the stack.
+
+P4 scanning workers remain pinned to `SYS_CORE_RADIO` using `sys_prio.h`.
+HID interoperability, pairing and switching between owners require device tests.
+
+The native mouse UI calls `ble_hid_send_mouse()` on P4. The bridge sends the
+buttons, signed X/Y deltas and wheel to `SPI_ID_BT_HID_SEND_MOUSE`; C5 dispatches
+them to the NimBLE HID mouse report. The companion screen starts host-link BLE
+on demand and marks the session linked only after
+`host_link_sec_is_authenticated()` succeeds. Its [v2 pairing](../host_link/pairing.md) uses ephemeral X25519, transcript-bound
+PSK proofs and a physical code-confirmation flow before authentication.
+
+The [remote GATT explorer](../gatt/README.md) now scans real targets, discovers
+remote services/characteristics and reads permitted attributes through C5.
+Its P4 UI uses a background worker and bounded snapshots. C5 performs operations
+on its NimBLE queue, rejects competing radio operations while owned, expires the
+connection lease and releases NPL resources before port deinitialization.
+The previous static reference catalog and C5 JSON-only result path are replaced.
+Device interoperability and the physical integration matrix remain unverified.

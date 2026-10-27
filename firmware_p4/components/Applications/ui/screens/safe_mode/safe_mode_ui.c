@@ -15,6 +15,7 @@
 
 #include "safe_mode_ui.h"
 
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
 
@@ -57,6 +58,7 @@ typedef enum {
   SM_CONFIRM_CONFIG,
   SM_CONFIRM_ALL,
   SM_WORKING,
+  SM_ERROR,
 } sm_state_t;
 
 typedef enum {
@@ -67,15 +69,33 @@ typedef enum {
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
 static sm_state_t s_state = SM_MENU;
+static atomic_bool s_has_reset_error;
 
 static void safe_mode_input(const input_event_t *ev, void *ctx);
+static void build_message(const char *title, const char *body, const char *hint, lv_color_t accent);
+
+static void show_reset_error(void) {
+  atomic_store(&s_has_reset_error, false);
+  s_state = SM_ERROR;
+  build_message("RESET FAILED",
+                "Some data could not be cleared.\nCheck storage and retry.",
+                "BACK return",
+                lv_palette_main(LV_PALETTE_RED));
+}
 
 static void factory_task(void *pv) {
   sm_action_t action = (sm_action_t)(intptr_t)pv;
-  if (action == ACTION_RESET_ALL) {
-    tos_factory_reset_all();
-  } else {
-    tos_factory_reset_config();
+  esp_err_t result =
+      action == ACTION_RESET_ALL ? tos_factory_reset_all() : tos_factory_reset_config();
+  if (result != ESP_OK) {
+    ESP_LOGE(TAG, "Factory reset failed: %s", esp_err_to_name(result));
+    atomic_store(&s_has_reset_error, true);
+    if (ui_acquire()) {
+      show_reset_error();
+      ui_release();
+    }
+    vTaskDelete(NULL);
+    return;
   }
   vTaskDelay(pdMS_TO_TICKS(REBOOT_DELAY_MS));
   esp_restart();
@@ -165,17 +185,22 @@ static void start_reset(sm_action_t action) {
                 NULL,
                 ui_theme_get_accent());
   // Run the wipe off the LVGL task so file deletion never stalls the renderer.
-  xTaskCreatePinnedToCore(factory_task,
-                          "factory_reset",
-                          FACTORY_TASK_STACK,
-                          (void *)(intptr_t)action,
-                          SYS_PRIO_SERVICE_HI,
-                          NULL,
-                          SYS_CORE_UI);
+  if (xTaskCreatePinnedToCore(factory_task,
+                              "factory_reset",
+                              FACTORY_TASK_STACK,
+                              (void *)(intptr_t)action,
+                              SYS_PRIO_SERVICE_HI,
+                              NULL,
+                              SYS_CORE_RADIO) != pdPASS) {
+    ESP_LOGE(TAG, "Cannot create factory reset worker");
+    show_reset_error();
+  }
 }
 
 static void safe_mode_input(const input_event_t *ev, void *ctx) {
   (void)ctx;
+  if (atomic_load(&s_has_reset_error))
+    show_reset_error();
   const bool press = (ev->action == INPUT_ACTION_PRESS);
   const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
@@ -235,6 +260,11 @@ static void safe_mode_input(const input_event_t *ev, void *ctx) {
       } else if (press && ev->button == INPUT_BTN_BACK) {
         build_menu();
       }
+      break;
+
+    case SM_ERROR:
+      if (press && ev->button == INPUT_BTN_BACK)
+        build_menu();
       break;
 
     case SM_WORKING:

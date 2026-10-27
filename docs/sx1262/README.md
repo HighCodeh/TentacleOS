@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # SX1262 LoRa Transceiver Driver
 
 This component provides a driver for the Semtech SX1262 sub-GHz LoRa transceiver. It handles the full SX1262 command set over SPI, LoRa modulation/packet configuration, TX/RX (single, continuous, and duty-cycle), Channel Activity Detection (CAD), sleep/wake power management, and interrupt-driven packet reception with a ring buffer.
@@ -162,3 +179,50 @@ esp_err_t sx1262_process_irq(void);
 ## Chip Workarounds
 
 The driver applies the datasheet errata workarounds automatically: **W1** (BW500 sensitivity, before each TX), **W2** (TX clamp config, during bring-up), **W3** (implicit-header RX, when `is_implicit_hdr`), and **W4** (IQ polarity, on every `config_lora`).
+
+## Shared transmit airtime guard
+
+Every `sx1262_transmit()` path reserves estimated airtime before changing radio
+state or writing TX hardware. This covers MeshCore, Meshtastic (including relay,
+ACK and retry traffic), RNode and raw callers. `ESP_ERR_TIMEOUT` means the shared
+budget is busy; callers must defer or report failure, never assume transmission.
+Failed hardware attempts retain their debit, and reinitialization/configuration
+changes do not reset it. A static lock admits only one concurrent reservation.
+
+The estimate uses actual payload length, preamble, CRC/header, SF, coding rate,
+bandwidth and the same LDRO rule programmed by this driver. Integer rounding is
+upward, including the SX126x SF5/SF6 adjustments. The reference is the [Semtech
+SX126x time-on-air implementation](https://github.com/Lora-net/sx126x_driver/blob/master/src/sx126x.c).
+The guard uses microsecond monotonic time, including uptime beyond 32-bit millis.
+
+This is a conservative software pacing policy for occupied bandwidth overlapping
+433.05–434.79 MHz or 863–870 MHz. It spaces starts by airtime × duty divisor:
+10% for the 433 MHz range and frames wholly inside 869.4–869.65 MHz; 1% for frames
+wholly inside 865–868.6 MHz; 0.1% elsewhere in the guarded 868 MHz range. All these
+ranges share one next-start timestamp, so changing subbands cannot clear a debit.
+No regional pacing is imposed on other frequencies. A single frame larger than
+its one-hour allowance is rejected. Debits are volatile and reset on reboot;
+this is not a persistent regulatory ledger or certification of power, channel
+access, national allocations or deployment compliance. See the [CEPT SRD
+recommendation](https://docdb.cept.org/document/845) for the applicable framework.
+
+Host tests cover known SF7/SF12 vectors, occupied-bandwidth boundaries, cooldown
+edges, concurrent reservations, cross-frequency debit retention and unguarded
+frequencies. Physical airtime and regional acceptance remain pending.
+
+
+## Checked teardown for app lifecycle
+
+`sx1262_deinit()` now waits for the actual IRQ task to leave its loop; an unrelated
+caller notification cannot acknowledge shutdown. A timeout keeps the task/HAL
+allocated. A successful standby command and SPI-device removal are required
+before HAL/config/callback pointers are cleared. Failed removal retains the SPI
+handle and mutex. RX/IRQ subsystems are invalidated after successful teardown,
+so later calls cannot use freed transport state. The shared SPI3 bus remains
+owned by the system/display. Native mesh, diagnostic/lab and app starts use the
+[session radio reservation](../lora/README.md#app-ownership-and-raw-phy-abi-123).
+These software acknowledgements do not replace electrical acceptance.
+
+The IDF v6.1 build declares its GPIO/SPI driver dependencies explicitly.
+Optional disconnected GPIOs contribute a zero mask before any bit shift,
+retaining the board pin mapping while avoiding GCC 15 negative-shift diagnostics.

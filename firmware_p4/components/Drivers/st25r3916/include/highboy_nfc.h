@@ -26,6 +26,7 @@ extern "C" {
 #include "esp_err.h"
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
+#include "pin_def.h"
 
 /**
  * @brief Hardware and bus configuration for library initialization.
@@ -40,22 +41,22 @@ typedef struct {
   gpio_num_t pin_irq;    /**< ST25R3916 IRQ output pin. */
   int spi_host;          /**< ESP-IDF SPI host index (e.g., SPI2_HOST). */
   uint8_t spi_mode;      /**< SPI mode (ST25R3916 requires Mode 1). */
-  uint32_t spi_clock_hz; /**< SPI clock frequency (Max 6MHz). */
+  uint32_t spi_clock_hz; /**< SPI clock frequency (ST25R3916B max 10 MHz). */
 } highboy_nfc_config_t;
 
 /**
- * @brief Default configuration based on ESP32-P4 reference wiring.
+ * @brief Default configuration for the High Boy V2 P4_RATO schematic.
  */
 #define HIGHBOY_NFC_CONFIG_DEFAULT() \
   {                                  \
-      .pin_mosi = GPIO_NUM_18,       \
-      .pin_miso = GPIO_NUM_19,       \
-      .pin_sclk = GPIO_NUM_17,       \
-      .pin_cs = GPIO_NUM_3,          \
-      .pin_irq = GPIO_NUM_8,         \
-      .spi_host = SPI2_HOST,         \
+      .pin_mosi = GPIO_SPI_MOSI_PIN, \
+      .pin_miso = GPIO_SPI_MISO_PIN, \
+      .pin_sclk = GPIO_SPI_SCLK_PIN, \
+      .pin_cs = GPIO_NFC_CS_PIN,     \
+      .pin_irq = GPIO_NFC_IRQ_PIN,   \
+      .spi_host = SPI3_HOST,         \
       .spi_mode = 1,                 \
-      .spi_clock_hz = 500000,        \
+      .spi_clock_hz = 5000000,       \
   }
 
 /**
@@ -72,8 +73,11 @@ esp_err_t highboy_nfc_init(const highboy_nfc_config_t *config);
 
 /**
  * @brief Deinitialize the library and power down the RF field.
+ * Retains initialized state if field-off fails so shutdown can be retried.
  */
 void highboy_nfc_deinit(void);
+
+bool highboy_nfc_is_initialized(void);
 
 /**
  * @brief Ping the chip to verify communication.
@@ -109,6 +113,18 @@ uint8_t highboy_nfc_measure_amplitude(void);
  * @return true if field detected, false otherwise.
  */
 bool highboy_nfc_field_detected(uint8_t *out_aux_display);
+
+/** Configure the 3.3 V-mode RF regulator manually (2400..3400 mV, 100 mV steps). */
+esp_err_t highboy_nfc_set_regulator_mv(uint16_t millivolts);
+
+/** Return the RF regulator to the ST25R3916B automatic adjustment mode. */
+esp_err_t highboy_nfc_adjust_regulator_auto(void);
+
+/** Read the effective RF regulator voltage and current-limit indication. */
+esp_err_t highboy_nfc_get_regulator(uint16_t *out_millivolts,
+                                    bool *out_current_limit,
+                                    bool *out_manual,
+                                    uint8_t *out_raw_display);
 
 #ifdef __cplusplus
 }

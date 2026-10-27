@@ -15,6 +15,8 @@
 
 #include "ota_service.h"
 
+#include <stdatomic.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -28,6 +30,7 @@
 
 #include "cJSON.h"
 #include "ota_version.h"
+#include "power_manager.h"
 #include "sd_card_init.h"
 #include "storage_assets.h"
 #include "ui_liveness.h"
@@ -47,7 +50,11 @@ static const char *TAG = "OTA_SERVICE";
 #define OTA_VALIDATE_LVGL_MS        3000
 #define OTA_VALIDATE_LVGL_MIN_TICKS 4
 
-static ota_state_t s_state = OTA_STATE_IDLE;
+static _Atomic(ota_state_t) s_state = OTA_STATE_IDLE;
+static atomic_flag s_is_updating = ATOMIC_FLAG_INIT;
+static esp_ota_handle_t s_pending_handle;
+static bool s_has_pending_handle;
+static bool s_has_power_hold;
 
 const char *ota_get_current_version(void) {
   return FIRMWARE_VERSION;
@@ -72,11 +79,18 @@ void ota_sync_version_to_assets(void) {
 
   cJSON *version = cJSON_GetObjectItem(root, "version");
   if (cJSON_IsString(version) && strcmp(version->valuestring, FIRMWARE_VERSION) != 0) {
-    cJSON_SetValuestring(version, FIRMWARE_VERSION);
+    if (cJSON_SetValuestring(version, FIRMWARE_VERSION) == NULL) {
+      ESP_LOGW(TAG, "Cannot allocate firmware version string");
+      cJSON_Delete(root);
+      return;
+    }
     char *updated_json = cJSON_PrintUnformatted(root);
     if (updated_json != NULL) {
-      storage_assets_write_file(VERSION_JSON_PATH, updated_json);
-      ESP_LOGI(TAG, "Updated firmware.json to v%s", FIRMWARE_VERSION);
+      esp_err_t error = storage_assets_write_file(VERSION_JSON_PATH, updated_json);
+      if (error == ESP_OK)
+        ESP_LOGI(TAG, "Updated firmware.json to v%s", FIRMWARE_VERSION);
+      else
+        ESP_LOGW(TAG, "Cannot sync firmware version: %s", esp_err_to_name(error));
       free(updated_json);
     }
   }
@@ -90,30 +104,64 @@ bool ota_update_available(void) {
   }
 
   struct stat st;
-  return (stat(OTA_UPDATE_PATH, &st) == 0 && st.st_size > 0);
+  return (stat(OTA_UPDATE_PATH, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0);
+}
+
+static esp_err_t cleanup_pending(void) {
+  if (s_has_pending_handle) {
+    esp_err_t error = esp_ota_abort(s_pending_handle);
+    if (error != ESP_OK)
+      return error;
+    s_has_pending_handle = false;
+  }
+  if (s_has_power_hold) {
+    esp_err_t error = power_manager_no_sleep_release();
+    if (error != ESP_OK)
+      return error;
+    s_has_power_hold = false;
+  }
+  return ESP_OK;
 }
 
 esp_err_t ota_start_update(ota_progress_cb_t progress_cb) {
+  if (atomic_flag_test_and_set(&s_is_updating))
+    return ESP_ERR_INVALID_STATE;
   esp_err_t ret = ESP_OK;
   FILE *f = NULL;
   uint8_t *buffer = NULL;
   esp_ota_handle_t ota_handle = 0;
   bool ota_begun = false;
+  ret = cleanup_pending();
+  if (ret != ESP_OK)
+    goto cleanup;
+  ret = power_manager_no_sleep_acquire();
+  if (ret != ESP_OK)
+    goto cleanup;
+  s_has_power_hold = true;
+  s_state = OTA_STATE_VALIDATING;
 
   if (!ota_update_available()) {
     ESP_LOGE(TAG, "No update file found at %s", OTA_UPDATE_PATH);
-    return ESP_ERR_NOT_FOUND;
+    ret = ESP_ERR_NOT_FOUND;
+    goto cleanup;
   }
 
   f = fopen(OTA_UPDATE_PATH, "rb");
   if (f == NULL) {
     ESP_LOGE(TAG, "Failed to open update file");
-    return ESP_FAIL;
+    ret = ESP_FAIL;
+    goto cleanup;
   }
 
-  fseek(f, 0, SEEK_END);
+  if (fseek(f, 0, SEEK_END) != 0) {
+    ret = ESP_FAIL;
+    goto cleanup;
+  }
   long file_size = ftell(f);
-  fseek(f, 0, SEEK_SET);
+  if (fseek(f, 0, SEEK_SET) != 0) {
+    ret = ESP_FAIL;
+    goto cleanup;
+  }
 
   if (file_size <= 0) {
     ESP_LOGE(TAG, "Invalid update file size");
@@ -136,6 +184,12 @@ esp_err_t ota_start_update(ota_progress_cb_t progress_cb) {
     goto cleanup;
   }
 
+  const esp_partition_t *running = esp_ota_get_running_partition();
+  if (running == NULL || running->address == update_partition->address) {
+    ret = ESP_ERR_INVALID_STATE;
+    goto cleanup;
+  }
+
   if (file_size > (long)update_partition->size) {
     ESP_LOGE(TAG,
              "Update file (%ld) exceeds partition size (%ld)",
@@ -150,6 +204,13 @@ esp_err_t ota_start_update(ota_progress_cb_t progress_cb) {
            update_partition->label,
            (long)update_partition->address);
 
+  buffer = malloc(OTA_CHUNK_SIZE);
+  if (buffer == NULL) {
+    ESP_LOGE(TAG, "Failed to allocate read buffer");
+    ret = ESP_ERR_NO_MEM;
+    goto cleanup;
+  }
+
   // Begin OTA write
   s_state = OTA_STATE_WRITING;
   if (progress_cb != NULL) {
@@ -163,13 +224,6 @@ esp_err_t ota_start_update(ota_progress_cb_t progress_cb) {
   }
   ota_begun = true;
 
-  buffer = malloc(OTA_CHUNK_SIZE);
-  if (buffer == NULL) {
-    ESP_LOGE(TAG, "Failed to allocate read buffer");
-    ret = ESP_ERR_NO_MEM;
-    goto cleanup;
-  }
-
   // Write in chunks
   long bytes_written = 0;
   int last_percent = 0;
@@ -180,7 +234,7 @@ esp_err_t ota_start_update(ota_progress_cb_t progress_cb) {
                          : (size_t)(file_size - bytes_written);
 
     size_t bytes_read = fread(buffer, 1, to_read, f);
-    if (bytes_read == 0) {
+    if (bytes_read != to_read || ferror(f)) {
       ESP_LOGE(TAG, "Failed to read from update file");
       ret = ESP_FAIL;
       goto cleanup;
@@ -234,7 +288,8 @@ esp_err_t ota_start_update(ota_progress_cb_t progress_cb) {
 
   free(buffer);
   fclose(f);
-  remove(OTA_UPDATE_PATH);
+  if (remove(OTA_UPDATE_PATH) != 0)
+    ESP_LOGW(TAG, "Updated image source could not be removed");
   esp_restart();
 
   return ESP_OK; // Never reached
@@ -242,12 +297,19 @@ esp_err_t ota_start_update(ota_progress_cb_t progress_cb) {
 cleanup:
   s_state = OTA_STATE_ERROR;
   if (ota_begun) {
-    esp_ota_abort(ota_handle);
+    s_pending_handle = ota_handle;
+    s_has_pending_handle = true;
+  }
+  esp_err_t cleanup_error = cleanup_pending();
+  if (cleanup_error != ESP_OK) {
+    ESP_LOGE(TAG, "OTA cleanup retained: %s", esp_err_to_name(cleanup_error));
+    ret = cleanup_error;
   }
   free(buffer);
   if (f != NULL) {
     fclose(f);
   }
+  atomic_flag_clear(&s_is_updating);
   return ret;
 }
 
@@ -288,7 +350,11 @@ esp_err_t ota_post_boot_check(void) {
   esp_ota_img_states_t ota_state;
   esp_err_t ret = esp_ota_get_state_partition(running, &ota_state);
 
-  if (ret != ESP_OK || ota_state != ESP_OTA_IMG_PENDING_VERIFY) {
+  if (ret != ESP_OK && ret != ESP_ERR_NOT_FOUND) {
+    ESP_LOGE(TAG, "Cannot read OTA state: %s", esp_err_to_name(ret));
+    return ret;
+  }
+  if (ret == ESP_ERR_NOT_FOUND || ota_state != ESP_OTA_IMG_PENDING_VERIFY) {
     ESP_LOGI(TAG, "Normal boot (no pending OTA verification)");
     ota_sync_version_to_assets(); // assets is mounted now (runs after kernel_init)
     return ESP_OK;
@@ -303,7 +369,11 @@ esp_err_t ota_post_boot_check(void) {
     return ESP_FAIL;
   }
 
-  esp_ota_mark_app_valid_cancel_rollback();
+  ret = esp_ota_mark_app_valid_cancel_rollback();
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "OTA confirmation failed: %s", esp_err_to_name(ret));
+    return ret;
+  }
   ESP_LOGI(TAG, "Firmware update confirmed: v%s", FIRMWARE_VERSION);
   ota_sync_version_to_assets();
   return ESP_OK;

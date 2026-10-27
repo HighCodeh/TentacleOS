@@ -15,6 +15,7 @@
 
 #include "lora_session.h"
 
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -30,27 +31,67 @@
 #include "meshtastic_mesh.h"
 #include "meshtastic_nodedb.h"
 #include "meshtastic_phone_bridge.h"
+#include "power_manager.h"
+#include "sx1262.h"
 
-#define MSG_RING       24
-#define MT_BROADCAST   0xFFFFFFFFu
-#define MC_PUBLIC_CHAN 0
-#define RING_LOCK_MS   50
+#define TX_QUEUE_DEPTH  4
+#define MSG_RING        24
+#define MT_BROADCAST    0xFFFFFFFFu
+#define MC_PUBLIC_CHAN  0
+#define SESSION_LOCK_MS 50
 
 static const char *TAG = "LORA_SESSION";
 
-static lora_proto_t s_proto = LORA_PROTO_NONE;
+static _Atomic(lora_proto_t) s_proto = LORA_PROTO_NONE;
+static _Atomic(void *) s_radio_owner;
+static atomic_bool s_is_ready;
+static void *s_stack_owner;
 EXT_RAM_BSS_ATTR static lora_msg_t s_msgs[MSG_RING];
 static uint16_t s_head = 0;
 static uint16_t s_count = 0;
 static uint32_t s_total = 0;
-static SemaphoreHandle_t s_lock = NULL;
+static _Atomic(SemaphoreHandle_t) s_lock;
+static _Atomic(SemaphoreHandle_t) s_nodes_lock;
+static bool s_no_sleep_held = false;
+static atomic_flag s_is_starting = ATOMIC_FLAG_INIT;
+EXT_RAM_BSS_ATTR static char s_tx_text[TX_QUEUE_DEPTH][sizeof(((lora_msg_t *)0)->text)];
+static uint16_t s_tx_head;
+static uint16_t s_tx_count;
+
+static SemaphoreHandle_t ensure_mutex(_Atomic(SemaphoreHandle_t) *slot) {
+  SemaphoreHandle_t mutex = atomic_load(slot);
+  if (mutex != NULL)
+    return mutex;
+  SemaphoreHandle_t candidate = xSemaphoreCreateMutex();
+  if (candidate == NULL) {
+    ESP_LOGE(TAG, "Failed to allocate session mutex");
+    return NULL;
+  }
+  if (!atomic_compare_exchange_strong(slot, &mutex, candidate)) {
+    vSemaphoreDelete(candidate);
+    return mutex;
+  }
+  return candidate;
+}
+
+static SemaphoreHandle_t ring_mutex(void) {
+  return ensure_mutex(&s_lock);
+}
+
+esp_err_t lora_session_nodes_acquire(void) {
+  SemaphoreHandle_t mutex = ensure_mutex(&s_nodes_lock);
+  if (mutex == NULL)
+    return ESP_ERR_NO_MEM;
+  return xSemaphoreTake(mutex, pdMS_TO_TICKS(SESSION_LOCK_MS)) == pdTRUE ? ESP_OK : ESP_ERR_TIMEOUT;
+}
+
+void lora_session_nodes_release(void) {
+  xSemaphoreGive(atomic_load(&s_nodes_lock));
+}
 
 static bool ring_lock(void) {
-  if (s_lock == NULL)
-    s_lock = xSemaphoreCreateMutex();
-  if (s_lock == NULL)
-    return false;
-  return xSemaphoreTake(s_lock, pdMS_TO_TICKS(RING_LOCK_MS)) == pdTRUE;
+  SemaphoreHandle_t mutex = ring_mutex();
+  return mutex != NULL && xSemaphoreTake(mutex, pdMS_TO_TICKS(SESSION_LOCK_MS)) == pdTRUE;
 }
 
 static void ring_unlock(void) {
@@ -80,17 +121,34 @@ static void ring_push(bool outgoing, const char *who, const char *text) {
   ring_unlock();
 }
 
-esp_err_t lora_session_start(lora_proto_t proto) {
-  if (s_lock == NULL)
-    s_lock = xSemaphoreCreateMutex();
+static esp_err_t stop_protocol(lora_proto_t proto);
+
+static esp_err_t start_protocol(lora_proto_t proto) {
+  if (ring_mutex() == NULL)
+    return ESP_ERR_NO_MEM;
 
   if (s_proto != LORA_PROTO_NONE) {
-    if (s_proto == proto)
+    if (s_proto == proto && atomic_load(&s_is_ready))
       return ESP_OK;
-    ESP_LOGW(TAG, "Radio owned by proto %d; reboot to switch", (int)s_proto);
+    ESP_LOGW(TAG, "Radio owned by proto %d; stop it before switching", (int)s_proto);
     return ESP_ERR_INVALID_STATE;
   }
 
+  esp_err_t ownership_error = lora_session_radio_reserve(&s_proto);
+  if (ownership_error != ESP_OK)
+    return ownership_error;
+
+  if (!s_no_sleep_held) {
+    esp_err_t pm_err = power_manager_no_sleep_acquire();
+    if (pm_err != ESP_OK) {
+      ESP_LOGE(TAG, "Cannot hold radio power state: %s", esp_err_to_name(pm_err));
+      lora_session_radio_release(&s_proto);
+      return pm_err;
+    }
+    s_no_sleep_held = true;
+  }
+
+  s_proto = proto;
   esp_err_t err;
   switch (proto) {
     case LORA_PROTO_MESHTASTIC:
@@ -100,23 +158,119 @@ esp_err_t lora_session_start(lora_proto_t proto) {
       err = meshcore_app_start();
       break;
     default:
+      if (s_no_sleep_held) {
+        (void)power_manager_no_sleep_release();
+        s_no_sleep_held = false;
+      }
       return ESP_ERR_INVALID_ARG;
   }
 
   if (err == ESP_OK) {
-    s_proto = proto;
+    atomic_store(&s_is_ready, true);
     ESP_LOGI(TAG, "Started proto %d", (int)proto);
   } else {
     ESP_LOGE(TAG, "Start proto %d failed: %s", (int)proto, esp_err_to_name(err));
+    (void)stop_protocol(proto);
   }
   return err;
 }
 
-lora_proto_t lora_session_active(void) {
-  return s_proto;
+static esp_err_t start_session(lora_proto_t proto, void *owner, bool *out_owned) {
+  if (out_owned != NULL)
+    *out_owned = false;
+  if (proto != LORA_PROTO_MESHTASTIC && proto != LORA_PROTO_MESHCORE)
+    return ESP_ERR_INVALID_ARG;
+  if (atomic_flag_test_and_set(&s_is_starting))
+    return ESP_ERR_INVALID_STATE;
+  bool is_existing = s_proto != LORA_PROTO_NONE;
+  if (!is_existing)
+    s_stack_owner = owner;
+  esp_err_t error = is_existing && (out_owned != NULL || s_stack_owner != NULL)
+                        ? ESP_ERR_INVALID_STATE
+                        : start_protocol(proto);
+  if (s_proto == LORA_PROTO_NONE)
+    s_stack_owner = NULL;
+  if (!is_existing && out_owned != NULL)
+    *out_owned = s_proto == proto;
+  atomic_flag_clear(&s_is_starting);
+  return error;
 }
 
-esp_err_t lora_session_send_text(const char *text) {
+esp_err_t lora_session_start(lora_proto_t proto) {
+  return start_session(proto, NULL, NULL);
+}
+
+esp_err_t lora_session_start_owned(lora_proto_t proto, void *owner, bool *out_owned) {
+  if (out_owned == NULL || owner == NULL)
+    return ESP_ERR_INVALID_ARG;
+  return start_session(proto, owner, out_owned);
+}
+
+esp_err_t lora_session_radio_reserve(void *owner) {
+  if (owner == NULL)
+    return ESP_ERR_INVALID_ARG;
+  void *expected = NULL;
+  return atomic_compare_exchange_strong(&s_radio_owner, &expected, owner) ? ESP_OK
+                                                                          : ESP_ERR_INVALID_STATE;
+}
+
+esp_err_t lora_session_radio_release(void *owner) {
+  if (owner == NULL)
+    return ESP_ERR_INVALID_ARG;
+  void *expected = owner;
+  return atomic_compare_exchange_strong(&s_radio_owner, &expected, NULL) ? ESP_OK
+                                                                         : ESP_ERR_INVALID_STATE;
+}
+
+static esp_err_t stop_session(lora_proto_t proto, void *owner) {
+  if (atomic_flag_test_and_set(&s_is_starting))
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = proto != LORA_PROTO_NONE && s_proto == proto && s_stack_owner == owner
+                        ? stop_protocol(proto)
+                        : ESP_ERR_NOT_FOUND;
+  atomic_flag_clear(&s_is_starting);
+  return error;
+}
+
+esp_err_t lora_session_stop(lora_proto_t proto) {
+  return stop_session(proto, NULL);
+}
+
+esp_err_t lora_session_stop_owned(lora_proto_t proto, void *owner) {
+  if (owner == NULL)
+    return ESP_ERR_INVALID_ARG;
+  return stop_session(proto, owner);
+}
+
+static esp_err_t stop_protocol(lora_proto_t proto) {
+  atomic_store(&s_is_ready, false);
+  esp_err_t error = proto == LORA_PROTO_MESHTASTIC ? meshtastic_app_stop() : meshcore_app_stop();
+  if (error != ESP_OK)
+    return error;
+  error = sx1262_deinit();
+  if (error != ESP_OK)
+    return error;
+  if (s_no_sleep_held) {
+    error = power_manager_no_sleep_release();
+    if (error != ESP_OK)
+      return error;
+    s_no_sleep_held = false;
+  }
+  if (!ring_lock())
+    return ESP_ERR_TIMEOUT;
+  s_tx_head = 0;
+  s_tx_count = 0;
+  ring_unlock();
+  s_proto = LORA_PROTO_NONE;
+  s_stack_owner = NULL;
+  return lora_session_radio_release(&s_proto);
+}
+
+lora_proto_t lora_session_active(void) {
+  return atomic_load(&s_is_ready) ? s_proto : LORA_PROTO_NONE;
+}
+
+static esp_err_t send_text(const char *text) {
   if (text == NULL || text[0] == '\0')
     return ESP_ERR_INVALID_ARG;
 
@@ -137,6 +291,45 @@ esp_err_t lora_session_send_text(const char *text) {
   return err;
 }
 
+esp_err_t lora_session_send_text(const char *text) {
+  if (text == NULL)
+    return ESP_ERR_INVALID_ARG;
+  size_t length = strnlen(text, sizeof(s_tx_text[0]));
+  if (length == 0 || length == sizeof(s_tx_text[0]))
+    return ESP_ERR_INVALID_ARG;
+  if (s_proto == LORA_PROTO_NONE || !atomic_load(&s_is_ready))
+    return ESP_ERR_INVALID_STATE;
+  if (!ring_lock())
+    return ESP_ERR_TIMEOUT;
+  esp_err_t error = ESP_ERR_TIMEOUT;
+  if (s_tx_count < TX_QUEUE_DEPTH) {
+    uint16_t slot = (s_tx_head + s_tx_count) % TX_QUEUE_DEPTH;
+    memcpy(s_tx_text[slot], text, length + 1);
+    s_tx_count++;
+    error = ESP_OK;
+  }
+  ring_unlock();
+  return error;
+}
+
+void lora_session_process_tx(lora_proto_t proto) {
+  if (proto == LORA_PROTO_NONE || s_proto != proto || !ring_lock())
+    return;
+  char text[sizeof(s_tx_text[0])];
+  bool has_text = s_tx_count != 0;
+  if (has_text) {
+    memcpy(text, s_tx_text[s_tx_head], sizeof(text));
+    s_tx_head = (s_tx_head + 1) % TX_QUEUE_DEPTH;
+    s_tx_count--;
+  }
+  ring_unlock();
+  if (has_text) {
+    esp_err_t error = send_text(text);
+    if (error != ESP_OK)
+      ESP_LOGW(TAG, "Queued text failed: %s", esp_err_to_name(error));
+  }
+}
+
 uint16_t lora_session_msg_count(void) {
   uint16_t n = 0;
   if (ring_lock()) {
@@ -153,9 +346,9 @@ uint16_t lora_session_msg_since(uint32_t *io_seq, lora_msg_t *out, uint16_t max)
   uint16_t copied = 0;
   if (ring_lock()) {
     uint32_t oldest = s_total - s_count;
-    if (*io_seq < oldest)
+    if ((uint32_t)(s_total - *io_seq) > s_count)
       *io_seq = oldest;
-    while (*io_seq < s_total && copied < max) {
+    while (*io_seq != s_total && copied < max) {
       uint16_t rel = (uint16_t)(*io_seq - oldest);
       out[copied] = s_msgs[(s_head + rel) % MSG_RING];
       copied++;
@@ -166,50 +359,46 @@ uint16_t lora_session_msg_since(uint32_t *io_seq, lora_msg_t *out, uint16_t max)
   return copied;
 }
 
-uint16_t lora_session_node_count(void) {
-  switch (s_proto) {
-    case LORA_PROTO_MESHTASTIC:
-      return mt_nodedb_count();
-    case LORA_PROTO_MESHCORE:
-      return (uint16_t)meshcore_contacts_count();
-    default:
-      return 0;
+esp_err_t lora_session_nodes_snapshot(uint16_t index, lora_node_t *out, uint16_t *out_count) {
+  if (out_count == NULL)
+    return ESP_ERR_INVALID_ARG;
+  *out_count = 0;
+  if (out != NULL)
+    memset(out, 0, sizeof(*out));
+  if (s_proto == LORA_PROTO_MESHTASTIC) {
+    mt_node_entry_t entry;
+    esp_err_t error = mt_nodedb_snapshot(index, out != NULL ? &entry : NULL, out_count);
+    if (error == ESP_OK && out != NULL) {
+      const char *name = entry.long_name[0] != '\0' ? entry.long_name : entry.id;
+      size_t capacity = name == entry.id ? sizeof(entry.id) : sizeof(entry.long_name);
+      size_t length = strnlen(name, capacity);
+      if (length >= sizeof(out->name))
+        length = sizeof(out->name) - 1;
+      memcpy(out->name, name, length);
+      out->rssi = entry.rssi;
+      out->snr = entry.snr;
+    }
+    return error;
   }
+  if (s_proto == LORA_PROTO_MESHCORE) {
+    meshcore_contact_t entry;
+    esp_err_t error = meshcore_contacts_snapshot(index, out != NULL ? &entry : NULL, out_count);
+    if (error == ESP_OK && out != NULL)
+      memcpy(out->name, entry.name, sizeof(out->name) - 1);
+    return error;
+  }
+  return ESP_ERR_INVALID_STATE;
+}
+
+uint16_t lora_session_node_count(void) {
+  uint16_t count = 0;
+  (void)lora_session_nodes_snapshot(0, NULL, &count);
+  return count;
 }
 
 bool lora_session_node_get(uint16_t idx, lora_node_t *out) {
-  if (out == NULL)
-    return false;
-  memset(out, 0, sizeof(*out));
-
-  if (s_proto == LORA_PROTO_MESHTASTIC) {
-    const mt_node_entry_t *n = mt_nodedb_get_by_index(idx);
-    if (n == NULL)
-      return false;
-    snprintf(out->name, sizeof(out->name), "%s", (n->long_name[0] != '\0') ? n->long_name : n->id);
-    out->rssi = n->rssi;
-    out->snr = n->snr;
-    return true;
-  }
-
-  if (s_proto == LORA_PROTO_MESHCORE) {
-    const meshcore_contact_t *arr = meshcore_contacts_array();
-    if (arr == NULL)
-      return false;
-    uint16_t seen = 0;
-    for (uint16_t i = 0; i < MESHCORE_MAX_CONTACTS; i++) {
-      if (!arr[i].is_used)
-        continue;
-      if (seen == idx) {
-        snprintf(out->name, sizeof(out->name), "%s", arr[i].name);
-        return true;
-      }
-      seen++;
-    }
-    return false;
-  }
-
-  return false;
+  uint16_t count;
+  return out != NULL && lora_session_nodes_snapshot(idx, out, &count) == ESP_OK;
 }
 
 void lora_session_on_rx_text(const char *who, const char *text) {

@@ -76,6 +76,21 @@ extern "C" {
 /** @brief Bit mask for the 16-bit vendor ID field in the Panasonic frame word. */
 #define PANASONIC_VENDOR_MASK 0xFFFF
 
+/** @brief Bit mask for the 10-bit Kaseikyo data (command) field. */
+#define KASEIKYO_DATA_MASK 0x3FF
+
+/** @brief Bit mask for the high 6 bits of the Kaseikyo data field carried in frame byte 4. */
+#define KASEIKYO_DATA_HI_MASK 0x3F
+
+/** @brief Bit mask for the 2-bit Kaseikyo id field. */
+#define KASEIKYO_ID_MASK 0x03
+
+/** @brief Bit position of the id field within frame byte 4. */
+#define KASEIKYO_ID_SHIFT 6
+
+/** @brief Bit position of the id field within the packed address. */
+#define KASEIKYO_ID_ADDR_SHIFT 24
+
 /**
  * @brief Decode a Panasonic IR frame from RMT symbols.
  *

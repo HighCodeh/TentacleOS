@@ -259,8 +259,12 @@ esp_err_t ota_post_boot_check(void) {
   }
 
   esp_ota_img_states_t ota_state;
-  if (esp_ota_get_state_partition(running, &ota_state) != ESP_OK ||
-      ota_state != ESP_OTA_IMG_PENDING_VERIFY) {
+  esp_err_t error = esp_ota_get_state_partition(running, &ota_state);
+  if (error != ESP_OK && error != ESP_ERR_NOT_FOUND) {
+    ESP_LOGE(TAG, "Cannot read OTA state: %s", esp_err_to_name(error));
+    return error;
+  }
+  if (error == ESP_ERR_NOT_FOUND || ota_state != ESP_OTA_IMG_PENDING_VERIFY) {
     return ESP_OK;
   }
 
@@ -273,7 +277,11 @@ esp_err_t ota_post_boot_check(void) {
   int64_t deadline = esp_timer_get_time() + (int64_t)OTA_VALIDATE_TIMEOUT_MS * 1000;
   while (esp_timer_get_time() < deadline) {
     if (spi_bridge_commands_processed() > 0) {
-      esp_ota_mark_app_valid_cancel_rollback();
+      error = esp_ota_mark_app_valid_cancel_rollback();
+      if (error != ESP_OK) {
+        ESP_LOGE(TAG, "OTA confirmation failed: %s", esp_err_to_name(error));
+        return error;
+      }
       ESP_LOGI(TAG, "Bridge confirmed by P4; firmware update accepted");
       return ESP_OK;
     }
@@ -281,6 +289,8 @@ esp_err_t ota_post_boot_check(void) {
   }
 
   ESP_LOGE(TAG, "P4 did not use the bridge in %d ms; rolling back", OTA_VALIDATE_TIMEOUT_MS);
-  esp_ota_mark_app_invalid_rollback_and_reboot();
-  return ESP_FAIL;
+  error = esp_ota_mark_app_invalid_rollback_and_reboot();
+  if (error != ESP_OK)
+    ESP_LOGE(TAG, "OTA rollback request failed: %s", esp_err_to_name(error));
+  return error != ESP_OK ? error : ESP_FAIL;
 }

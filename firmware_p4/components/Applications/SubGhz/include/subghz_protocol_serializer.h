@@ -19,6 +19,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "esp_err.h"
+
 #include "subghz_types.h"
 
 #ifdef __cplusplus
@@ -73,6 +75,14 @@ size_t subghz_protocol_parse_raw(const char *content,
                                  size_t max_count,
                                  uint32_t *out_frequency,
                                  uint8_t *out_preset);
+
+/** Parse a complete RAW or encodable decoded capture. Discard pulse output on error. */
+esp_err_t subghz_protocol_parse_capture(const char *content,
+                                        int32_t *out_pulses,
+                                        size_t capacity,
+                                        size_t *out_count,
+                                        uint32_t *out_frequency,
+                                        uint8_t *out_preset);
 
 #ifdef __cplusplus
 }

@@ -20,8 +20,11 @@
 extern "C" {
 #endif
 
-/** @brief Open the NFC P2P share screen (link diagram + SNEP handshake ladder). */
+/** @brief Open the real NFC-DEP/LLCP/SNEP share screen. */
 void ui_nfc_p2p_open(void);
+
+/** @brief Stop an active P2P radio task before leaving the screen. */
+void ui_nfc_p2p_stop(void);
 
 #ifdef __cplusplus
 }

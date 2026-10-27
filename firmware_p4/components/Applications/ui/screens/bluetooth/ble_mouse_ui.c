@@ -17,10 +17,14 @@
 
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "lvgl.h"
 #include "st7789.h"
 
+#include "ble_hid_keyboard.h"
 #include "buttons_gpio.h"
+#include "notify_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -32,9 +36,12 @@
 static const char *TAG = "BLE_MOUSE_UI";
 
 #define NAV_TIMER_INTERVAL_MS 50
-#define PAIRING_DURATION_US   1800000
+#define CONNECTION_POLL_US    500000
 #define FOUND_DWELL_US        600000
 #define DOT_CYCLE_US          350000
+#define RIGHT_CLICK_HOLD_US   700000
+#define SCROLL_REPEAT_US      140000
+#define MOUSE_MOVE_STEP       7
 
 #define COL_RAISE 0x170A28
 
@@ -72,6 +79,7 @@ static lv_obj_t *s_pair_status = NULL;
 static lv_timer_t *s_pair_timer = NULL;
 static int64_t s_pair_start = 0;
 static int64_t s_pair_found_at = 0;
+static int64_t s_pair_last_query = 0;
 static int s_pair_state = PAIR_WAIT;
 static bool s_pair_back_last = false;
 
@@ -103,6 +111,7 @@ static void pair_timer_cb(lv_timer_t *t) {
 
   bool back = back_button_is_down();
   if (back && !s_pair_back_last) {
+    ble_hid_deinit();
     ui_switch_screen(SCREEN_BLE_MENU);
     return;
   }
@@ -116,8 +125,11 @@ static void pair_timer_cb(lv_timer_t *t) {
                       : dots == 2 ? "Pairing.."
                       : dots == 3 ? "Pairing..."
                                   : "Pairing");
-    if (now - s_pair_start >= PAIRING_DURATION_US)
-      pair_reveal();
+    if (now - s_pair_last_query >= CONNECTION_POLL_US) {
+      s_pair_last_query = now;
+      if (ble_hid_is_connected())
+        pair_reveal();
+    }
   } else {
     if (now - s_pair_found_at >= FOUND_DWELL_US)
       ui_switch_screen(SCREEN_BLE_MOUSE);
@@ -147,7 +159,12 @@ void ui_ble_mouse_pairing_open(void) {
   s_pair_state = PAIR_WAIT;
   s_pair_start = esp_timer_get_time();
   s_pair_found_at = 0;
+  s_pair_last_query = 0;
   s_pair_back_last = false;
+  if (ble_hid_init() != ESP_OK) {
+    lv_label_set_text(s_pair_status, "HID init failed (C5?)");
+    lv_obj_set_style_text_color(s_pair_status, lv_color_hex(UI_COL_DANGER), 0);
+  }
   if (s_pair_timer == NULL)
     s_pair_timer = lv_timer_create(pair_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
 
@@ -185,6 +202,11 @@ static bool s_m_left_last = false;
 static bool s_m_right_last = false;
 static bool s_m_ok_last = false;
 static bool s_m_back_last = false;
+static int64_t s_ok_down_at = 0;
+static int64_t s_last_scroll_at = 0;
+static int64_t s_last_conn_query = 0;
+static bool s_ok_right_sent = false;
+static bool s_ok_chord = false;
 
 static void mouse_apply_focus(lv_obj_t *btn, bool focused) {
   lv_obj_set_style_border_color(
@@ -231,6 +253,12 @@ static lv_obj_t *mouse_make_button(lv_obj_t *parent, const char *text) {
   return btn;
 }
 
+static void mouse_click(uint8_t button_mask) {
+  ble_hid_send_mouse(0, 0, button_mask, 0);
+  vTaskDelay(pdMS_TO_TICKS(18));
+  ble_hid_send_mouse(0, 0, 0, 0);
+}
+
 static void mouse_timer_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_mouse_screen) {
     lv_timer_delete(t);
@@ -244,6 +272,7 @@ static void mouse_timer_cb(lv_timer_t *t) {
   bool right = right_button_is_down();
   bool ok = ok_button_is_down();
   bool back = back_button_is_down();
+  int64_t now = esp_timer_get_time();
 
   if (ui_input_is_locked()) {
     s_m_up_last = up;
@@ -256,22 +285,63 @@ static void mouse_timer_cb(lv_timer_t *t) {
   }
 
   if (back && !s_m_back_last) {
+    ble_hid_send_mouse(0, 0, 0, 0);
+    ble_hid_deinit();
     ui_switch_screen(SCREEN_BLE_MENU);
     return;
   }
 
-  if (up && !s_m_up_last)
-    mouse_set_focus(MOUSE_BTNS[s_mouse_focus].up);
-  if (down && !s_m_down_last)
-    mouse_set_focus(MOUSE_BTNS[s_mouse_focus].down);
-  if (left && !s_m_left_last)
-    mouse_set_focus(MOUSE_BTNS[s_mouse_focus].left);
-  if (right && !s_m_right_last)
-    mouse_set_focus(MOUSE_BTNS[s_mouse_focus].right);
+  if (now - s_last_conn_query >= 1000000) {
+    s_last_conn_query = now;
+    if (!ble_hid_is_connected()) {
+      notify(NOTIFY_WARNING, "HID mouse disconnected");
+      ui_switch_screen(SCREEN_BLE_MOUSE_PAIRING);
+      return;
+    }
+  }
 
   if (ok && !s_m_ok_last) {
+    s_ok_down_at = now;
+    s_ok_right_sent = false;
+    s_ok_chord = false;
+    s_last_scroll_at = 0;
+  }
+
+  if (ok && (up || down)) {
+    s_ok_chord = true;
+    if (s_last_scroll_at == 0 || now - s_last_scroll_at >= SCROLL_REPEAT_US) {
+      s_last_scroll_at = now;
+      int8_t wheel = up ? 1 : -1;
+      ble_hid_send_mouse(0, 0, 0, wheel);
+      mouse_set_focus(up ? M_SCRL_UP : M_SCRL_DN);
+    }
+  } else if (ok && !s_ok_right_sent && !s_ok_chord && now - s_ok_down_at >= RIGHT_CLICK_HOLD_US) {
+    mouse_click(0x02);
+    s_ok_right_sent = true;
+    mouse_set_focus(M_RCLICK);
     ui_feedback(UI_FB_SELECT);
-    ESP_LOGI(TAG, "press: %s", MOUSE_BTNS[s_mouse_focus].text);
+  } else if (!ok) {
+    int8_t dx = 0;
+    int8_t dy = 0;
+    if (left)
+      dx -= MOUSE_MOVE_STEP;
+    if (right)
+      dx += MOUSE_MOVE_STEP;
+    if (up)
+      dy -= MOUSE_MOVE_STEP;
+    if (down)
+      dy += MOUSE_MOVE_STEP;
+    if (dx != 0 || dy != 0)
+      ble_hid_send_mouse(dx, dy, 0, 0);
+  }
+
+  if (!ok && s_m_ok_last) {
+    if (!s_ok_right_sent && !s_ok_chord) {
+      mouse_click(0x01);
+      mouse_set_focus(M_LCLICK);
+      ui_feedback(UI_FB_SELECT);
+    }
+    s_ok_down_at = 0;
   }
 
   s_m_up_last = up;
@@ -289,6 +359,11 @@ void ui_ble_mouse_open(void) {
   }
   s_m_up_last = s_m_down_last = s_m_left_last = false;
   s_m_right_last = s_m_ok_last = s_m_back_last = false;
+  s_ok_down_at = 0;
+  s_last_scroll_at = 0;
+  s_last_conn_query = esp_timer_get_time();
+  s_ok_right_sent = false;
+  s_ok_chord = false;
 
   s_mouse_screen = make_screen_root();
   ui_chrome_header(s_mouse_screen, "MouseAir", "/assets/icons/mouse.bin");
@@ -349,7 +424,7 @@ void ui_ble_mouse_open(void) {
   s_mouse_focus = M_LCLICK;
   mouse_apply_focus(s_mouse_objs[s_mouse_focus], true);
 
-  ui_chrome_footer(s_mouse_screen, "Arrows Move   OK Press   BACK Exit");
+  ui_chrome_footer(s_mouse_screen, "Arrows move  OK click/hold right  BACK exit");
 
   if (s_mouse_timer == NULL)
     s_mouse_timer = lv_timer_create(mouse_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);

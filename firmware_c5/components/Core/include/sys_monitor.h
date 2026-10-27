@@ -22,16 +22,18 @@ extern "C" {
 
 #include <stdbool.h>
 
+#include "esp_err.h"
+
 /**
  * @brief Start the background system monitor task.
  *
  * Feeds the Task Watchdog, watches every task's stack high-watermark, and does a
- * controlled restart (never a vTaskDelete) when a task stays critically low for
+ * panic recovery (never a vTaskDelete) when a task stays critically low for
  * several consecutive cycles.
  *
  * @param is_verbose  Log RAM usage every cycle when true.
  */
-void sys_monitor_start(bool is_verbose);
+esp_err_t sys_monitor_start(bool is_verbose);
 
 #ifdef __cplusplus
 }

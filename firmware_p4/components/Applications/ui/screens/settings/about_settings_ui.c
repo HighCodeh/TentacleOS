@@ -30,7 +30,7 @@
 static const char *TAG = "ABOUT_SETTINGS_UI";
 
 #define ENTRY_FADE_MS  240
-#define HERO_RING      86
+#define HERO_IMG       56
 #define CHIP_RADIUS    10
 #define CONTENT_WIDTH  214
 #define CHIP_ROW_WIDTH 210
@@ -88,29 +88,18 @@ void ui_about_settings_open(void) {
   lv_obj_t *col = lv_obj_create(s_screen);
   lv_obj_remove_style_all(col);
   lv_obj_set_size(col, CONTENT_WIDTH, LV_SIZE_CONTENT);
-  lv_obj_align(col, LV_ALIGN_CENTER, 0, (UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H) / 2);
+  lv_obj_align(col, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H + 14);
   lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(col, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_row(col, 4, 0);
 
-  lv_obj_t *ring = lv_obj_create(col);
-  lv_obj_remove_style_all(ring);
-  lv_obj_set_size(ring, HERO_RING, HERO_RING);
-  lv_obj_remove_flag(ring, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_bg_color(ring, current_theme.bg_secondary, 0);
-  lv_obj_set_style_bg_opa(ring, LV_OPA_40, 0);
-  lv_obj_set_style_border_width(ring, 2, 0);
-  lv_obj_set_style_border_color(ring, current_theme.border_accent, 0);
-
   lv_image_dsc_t *octobit = assets_get("/assets/img/octobit_portrait.bin");
   if (octobit != NULL) {
-    lv_obj_t *img = lv_image_create(ring);
+    lv_obj_t *img = lv_image_create(col);
     lv_image_set_src(img, octobit);
     lv_image_set_inner_align(img, LV_IMAGE_ALIGN_CONTAIN);
-    lv_obj_set_size(img, 48, 48);
-    lv_obj_center(img);
+    lv_obj_set_size(img, HERO_IMG, HERO_IMG);
   }
 
   lv_obj_t *name = lv_label_create(col);
