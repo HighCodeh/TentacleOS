@@ -177,12 +177,14 @@ legacy history. Invalid or unavailable nonzero refs fail validation. Commitlint
 uses exact package versions and the root `package-lock.json` through
 `npm ci --ignore-scripts`; its accepted types match `AGENTS.md`.
 
-The legacy automatic `main` release is deliberately stopped before
-semantic-release when this integrated profile is present. That pipeline assumes
-one SDK, older output paths and a complete deployable firmware. It must not
-publish these app-only candidates under those assumptions. Enabling a public
-release requires a separately reviewed paired deployment and asset/partition
-migration package.
+The automatic `main` release runs semantic-release for versioning and changelog
+publication. Its build job checks out the exact release tag, builds both chips
+with ESP-IDF v6.1 and checks their internal-RAM/compiler policies. It uploads
+explicitly named `app-only.bin` files, per-chip build evidence, SHA-256 checksums
+and [application update instructions](APP_UPDATE.md). Build failure prevents
+asset upload; the version/changelog release may already exist at that point.
+These application assets do not include bootloaders, partitions or filesystem
+images and do not authorize full restoration or production provisioning.
 
 ## Flash and storage boundary
 
