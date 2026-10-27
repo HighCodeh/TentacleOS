@@ -15,13 +15,6 @@ You should have received a copy of the GNU General Public License
 along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 -->
 
-# Integrated High Boy development checkout
-
-This local branch preserves the customized Muse-enabled P4/C5 firmware while
-integrating `dev` at `011ed7d`. Read [the integration guide](docs/highboy/README.md)
-before building or deploying. The upstream instructions below are background;
-both integrated targets use ESP-IDF v6.1. No automatic flash is enabled.
-
 <p align="center">
   <img src="pics/banner.png" alt="HighBoy Banner" width="1000"/>
 </p>
