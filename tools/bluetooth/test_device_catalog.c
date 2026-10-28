@@ -29,6 +29,10 @@
 #include "samsung_spam.c"
 #undef TAG
 
+#define TAG swift_tag
+#include "swift_pair_spam.c"
+#undef TAG
+
 #define ARRAY_COUNT(a) (sizeof(a) / sizeof((a)[0]))
 #define GUARD_BYTE 0xA5
 #define TEST_BUFFER_SIZE 33
@@ -37,7 +41,7 @@
 #define TEST_MODEL_HIGH_BITS 16
 
 typedef int (*payload_cb_t)(uint8_t *, size_t);
-static uint32_t s_random_values[3];
+static uint32_t s_random_values[32];
 static size_t s_random_pos;
 
 uint32_t esp_random(void) {
@@ -75,7 +79,40 @@ static void check_bounds(payload_cb_t generate, uint32_t first, uint32_t second,
   }
 }
 
+static void check_swift_pair(void) {
+  static const char alphabet[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  for (size_t seed = 0; seed < sizeof(alphabet) - 1; ++seed) {
+    for (size_t capacity = 0; capacity < TEST_BUFFER_SIZE; ++capacity) {
+      uint8_t buffer[TEST_BUFFER_SIZE + 1];
+      memset(buffer, GUARD_BYTE, sizeof(buffer));
+      reset_random(seed, seed);
+      for (size_t i = 1; i < ARRAY_COUNT(s_random_values); ++i)
+        s_random_values[i] = seed;
+      int length = generate_swift_pair_payload(buffer + 1, capacity);
+      assert(buffer[0] == GUARD_BYTE);
+      if (capacity < 7) {
+        assert(length == 0);
+      } else {
+        size_t name_len = seed % 10 + 1;
+        if (name_len > capacity - 7)
+          name_len = capacity - 7;
+        assert(length == (int)(7 + name_len));
+        uint8_t header[] = {6 + name_len, 0xFF, 0x06, 0x00, 0x03, 0x00, 0x80};
+        assert(memcmp(buffer + 1, header, sizeof(header)) == 0);
+        for (size_t i = 0; i < name_len; ++i)
+          assert(buffer[1 + sizeof(header) + i] == alphabet[seed]);
+      }
+      for (size_t i = 1 + length; i < sizeof(buffer); ++i)
+        assert(buffer[i] == GUARD_BYTE);
+    }
+  }
+  reset_random(0, 0);
+  assert(generate_swift_pair_payload(NULL, ADVERTISING_LIMIT) == 0);
+}
+
 int main(void) {
+  check_swift_pair();
+  assert(sizeof(ANDROID_MODELS) == ARRAY_COUNT(expected_fastpair) * 3);
   assert(ANDROID_MODELS_COUNT == ARRAY_COUNT(expected_fastpair));
   assert(WATCH_MODELS_COUNT == ARRAY_COUNT(expected_watch));
   assert(BUDS_MODELS_COUNT == ARRAY_COUNT(expected_buds));

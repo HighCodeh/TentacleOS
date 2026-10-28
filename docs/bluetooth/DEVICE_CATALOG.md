@@ -48,6 +48,25 @@ this document, and run `python3 tools/bluetooth/test_device_catalog.py` before
 building both targets. The local clone is not a build or test dependency. Host
 tests validate bytes/bounds; receiver behavior still requires device testing.
 
+## Generator memory and buffer behavior
+
+Fast Pair IDs are stored as three bytes in wire order: the 498-entry table uses
+1,494 bytes instead of 1,992 bytes. The generator copies a constant packet
+header and the selected ID directly to the caller's buffer. Invalid or short
+buffers are rejected before obtaining random values.
+
+Swift Pair writes its random name directly into the caller's buffer, without a
+shared writable name buffer, a string-length scan or a second name copy. Names
+retain the existing 1–10 character range and alphabet, truncated to available
+space. Capacities below the seven-byte header are rejected without writes;
+a capacity of seven produces the existing empty-name packet. This avoids the
+previous unsigned subtraction underflow for undersized buffers.
+
+The host suite checks every catalog ID and Swift Pair name length/character,
+including undersized buffers and untouched guard bytes under ASan/UBSan.
+Radio timing, power, device selection policy and session handling are unchanged.
+These are memory/code-path improvements, not a measured radio throughput gain.
+
 ## Fast Pair
 
 | ID | Device |

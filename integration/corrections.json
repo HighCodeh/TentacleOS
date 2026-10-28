@@ -4028,8 +4028,16 @@
     "firmware_p4/components/Applications/bluetooth/android_spam.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "bfe89d5430e8f1b8fc4202dfe1e01ab8a7d9b972ee37bee47cf9c3af91d3dd95",
-      "after_sha256": "c7f535bba87f96a9adb1cf0632be393d2088e70efa52c7b368d1f1688cbfc974",
-      "reason": "Extend BLE device catalogs from RogueMaster 13ed5ca8d82cbe6c681e27f0a5e1200a2c0f03ae; add Samsung Buds encoding and full Apple model IDs without changing radio scheduling."
+      "after_sha256": "c9e73bb17af7c657d20ffb0ab0aee47462c1c23d1dbe0b125f937eff15f798eb",
+      "reason": "Store Fast Pair IDs as three wire-order bytes; generate Swift Pair names directly in validated caller buffers without shared writable state.",
+      "review_history": [
+        {
+          "after_sha256": "c7f535bba87f96a9adb1cf0632be393d2088e70efa52c7b368d1f1688cbfc974",
+          "reason": "Extend BLE device catalogs from RogueMaster 13ed5ca8d82cbe6c681e27f0a5e1200a2c0f03ae; add Samsung Buds encoding and full Apple model IDs without changing radio scheduling."
+        }
+      ],
+      "pre_format_sha256": "91f2c52685c7ab7995687dcf5aeed56613975565979ba0d98839a292cd711dbe",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
     },
     "firmware_p4/components/Applications/bluetooth/samsung_spam.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -4050,8 +4058,16 @@
     "firmware_c5/components/Applications/bluetooth/android_spam.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
       "before_sha256": "bfe89d5430e8f1b8fc4202dfe1e01ab8a7d9b972ee37bee47cf9c3af91d3dd95",
-      "after_sha256": "c7f535bba87f96a9adb1cf0632be393d2088e70efa52c7b368d1f1688cbfc974",
-      "reason": "Extend BLE device catalogs from RogueMaster 13ed5ca8d82cbe6c681e27f0a5e1200a2c0f03ae; add Samsung Buds encoding and full Apple model IDs without changing radio scheduling."
+      "after_sha256": "c9e73bb17af7c657d20ffb0ab0aee47462c1c23d1dbe0b125f937eff15f798eb",
+      "reason": "Store Fast Pair IDs as three wire-order bytes; generate Swift Pair names directly in validated caller buffers without shared writable state.",
+      "review_history": [
+        {
+          "after_sha256": "c7f535bba87f96a9adb1cf0632be393d2088e70efa52c7b368d1f1688cbfc974",
+          "reason": "Extend BLE device catalogs from RogueMaster 13ed5ca8d82cbe6c681e27f0a5e1200a2c0f03ae; add Samsung Buds encoding and full Apple model IDs without changing radio scheduling."
+        }
+      ],
+      "pre_format_sha256": "91f2c52685c7ab7995687dcf5aeed56613975565979ba0d98839a292cd711dbe",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
     },
     "firmware_c5/components/Applications/bluetooth/samsung_spam.c": {
       "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
@@ -4067,6 +4083,22 @@
       "after_sha256": "79cb775acf7441041c21b8806c95dad76795add81305c13bec391676869d806a",
       "reason": "Extend BLE device catalogs from RogueMaster 13ed5ca8d82cbe6c681e27f0a5e1200a2c0f03ae; add Samsung Buds encoding and full Apple model IDs without changing radio scheduling.",
       "pre_format_sha256": "576441a2acba9ec565b662c1740e749d455636edebe482fb660d93b6b2c1c252",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_p4/components/Applications/bluetooth/swift_pair_spam.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "12e634392a60cc9bd1cf9e4211672bf7198d94f80c782cb08b9e22ac5d03f2c1",
+      "after_sha256": "754b093990a051466a4108043c6f5424c462a0ea21ea7d7c500c1d9d3e20e88a",
+      "reason": "Store Fast Pair IDs as three wire-order bytes; generate Swift Pair names directly in validated caller buffers without shared writable state.",
+      "pre_format_sha256": "746a4cb6e7ce99c7aa4859ed24ed0c9c7187531565047e110c69d83a91cbd515",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_c5/components/Applications/bluetooth/swift_pair_spam.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "12e634392a60cc9bd1cf9e4211672bf7198d94f80c782cb08b9e22ac5d03f2c1",
+      "after_sha256": "754b093990a051466a4108043c6f5424c462a0ea21ea7d7c500c1d9d3e20e88a",
+      "reason": "Store Fast Pair IDs as three wire-order bytes; generate Swift Pair names directly in validated caller buffers without shared writable state.",
+      "pre_format_sha256": "746a4cb6e7ce99c7aa4859ed24ed0c9c7187531565047e110c69d83a91cbd515",
       "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
     }
   },
