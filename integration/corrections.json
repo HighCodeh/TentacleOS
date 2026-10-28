@@ -4024,6 +4024,50 @@
       "reason": "Track SPI DMA ownership, drain partial queues without resetting active hardware, negotiate a recovery pause/new session and bound C5 software restarts with retained RTC budget.",
       "pre_format_sha256": "43cdb39dd269c9eb0c92092dd845baf583611b464536aac440011df2abb48aa2",
       "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_p4/components/Applications/bluetooth/android_spam.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "bfe89d5430e8f1b8fc4202dfe1e01ab8a7d9b972ee37bee47cf9c3af91d3dd95",
+      "after_sha256": "c7f535bba87f96a9adb1cf0632be393d2088e70efa52c7b368d1f1688cbfc974",
+      "reason": "Extend BLE device catalogs from RogueMaster 13ed5ca8d82cbe6c681e27f0a5e1200a2c0f03ae; add Samsung Buds encoding and full Apple model IDs without changing radio scheduling."
+    },
+    "firmware_p4/components/Applications/bluetooth/samsung_spam.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "5c41aa5824cbd8a0661d419cbea1664a64a4b0679a26af7cf44cc5ac432c8c40",
+      "after_sha256": "98650d91bdee225797ce1e2a558e1fee4922f47f885b0b48bf405f6e5b5d5894",
+      "reason": "Extend BLE device catalogs from RogueMaster 13ed5ca8d82cbe6c681e27f0a5e1200a2c0f03ae; add Samsung Buds encoding and full Apple model IDs without changing radio scheduling.",
+      "pre_format_sha256": "f7bdda1c960fe419b68954cbd93defd3e5603ea38fb9f9286d6e7e381c5dfd34",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_p4/components/Applications/bluetooth/apple_juice_spam.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "381736d7098b11783b894a1c8bf857b624a5e23f01d80f343c0575418024e786",
+      "after_sha256": "79cb775acf7441041c21b8806c95dad76795add81305c13bec391676869d806a",
+      "reason": "Extend BLE device catalogs from RogueMaster 13ed5ca8d82cbe6c681e27f0a5e1200a2c0f03ae; add Samsung Buds encoding and full Apple model IDs without changing radio scheduling.",
+      "pre_format_sha256": "576441a2acba9ec565b662c1740e749d455636edebe482fb660d93b6b2c1c252",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_c5/components/Applications/bluetooth/android_spam.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "bfe89d5430e8f1b8fc4202dfe1e01ab8a7d9b972ee37bee47cf9c3af91d3dd95",
+      "after_sha256": "c7f535bba87f96a9adb1cf0632be393d2088e70efa52c7b368d1f1688cbfc974",
+      "reason": "Extend BLE device catalogs from RogueMaster 13ed5ca8d82cbe6c681e27f0a5e1200a2c0f03ae; add Samsung Buds encoding and full Apple model IDs without changing radio scheduling."
+    },
+    "firmware_c5/components/Applications/bluetooth/samsung_spam.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "5c41aa5824cbd8a0661d419cbea1664a64a4b0679a26af7cf44cc5ac432c8c40",
+      "after_sha256": "98650d91bdee225797ce1e2a558e1fee4922f47f885b0b48bf405f6e5b5d5894",
+      "reason": "Extend BLE device catalogs from RogueMaster 13ed5ca8d82cbe6c681e27f0a5e1200a2c0f03ae; add Samsung Buds encoding and full Apple model IDs without changing radio scheduling.",
+      "pre_format_sha256": "f7bdda1c960fe419b68954cbd93defd3e5603ea38fb9f9286d6e7e381c5dfd34",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
+    },
+    "firmware_c5/components/Applications/bluetooth/apple_juice_spam.c": {
+      "base_commit": "2b7614d3ce6bf1a2cad8e34ed5d27fd849208ed4",
+      "before_sha256": "381736d7098b11783b894a1c8bf857b624a5e23f01d80f343c0575418024e786",
+      "after_sha256": "79cb775acf7441041c21b8806c95dad76795add81305c13bec391676869d806a",
+      "reason": "Extend BLE device catalogs from RogueMaster 13ed5ca8d82cbe6c681e27f0a5e1200a2c0f03ae; add Samsung Buds encoding and full Apple model IDs without changing radio scheduling.",
+      "pre_format_sha256": "576441a2acba9ec565b662c1740e749d455636edebe482fb660d93b6b2c1c252",
+      "formatter": "clang-format version 22.1.5 (automatic pre-commit hook)"
     }
   },
   "retired_files": {

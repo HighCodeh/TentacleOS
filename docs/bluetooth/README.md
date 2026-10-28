@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # Bluetooth Service Component Documentation
 
 This component manages the Bluetooth Low Energy (BLE) functionality of the device using the Apache NimBLE stack. It provides a high-level API for initialization, lifecycle management, scanning, advertising, connection handling, and address randomization.
@@ -209,3 +226,9 @@ on its NimBLE queue, rejects competing radio operations while owned, expires the
 connection lease and releases NPL resources before port deinitialization.
 The previous static reference catalog and C5 JSON-only result path are replaced.
 Device interoperability and the physical integration matrix remain unverified.
+
+## BLE advertising device catalogs
+
+The existing BLE advertising generators use the [device catalog](DEVICE_CATALOG.md)
+for Fast Pair, Samsung Watch/Buds and Apple Proximity Pair. The catalog documents
+upstream attribution, packet compatibility and the offline regression command.
