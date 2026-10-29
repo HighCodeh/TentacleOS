@@ -17,6 +17,14 @@ along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 # Offline preservation and Muse regressions
 
+The historical import manifests under `integration/` are optional local files,
+not repository inputs. Without all three manifests, a fresh clone skips the four
+import-history checks explicitly; protocol, DMA, license, memory, fixture and
+functional host checks still run. If only part of the local audit exists, the
+suite fails instead of accepting incomplete provenance. Existing historical
+paths and reports below describe the original local review artifacts.
+
+
 ## P4 app updater validation (2026-10-20)
 
 `test_flash.py` passed 16 offline cases covering OTA selection, mismatched maps,

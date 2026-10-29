@@ -189,7 +189,14 @@ def verify_fixture_inventory():
 class PreservationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.manifest = json.loads((ROOT / "integration/import.json").read_text())
+        paths = [ROOT / "integration" / name for name in
+                 ("import.json", "formatting.json", "corrections.json")]
+        cls.has_local_import = any(path.is_file() for path in paths)
+        if not cls.has_local_import:
+            return
+        if not all(path.is_file() for path in paths):
+            raise ValueError("Incomplete local import audit: expected all three manifests")
+        cls.manifest = json.loads(paths[0].read_text())
         cls.records = {item["target"]: item for item in cls.manifest["files"]}
         cls.format_manifest = json.loads((ROOT / "integration/formatting.json").read_text())
         if cls.format_manifest.get("schema_version") != 1:
@@ -205,6 +212,8 @@ class PreservationTests(unittest.TestCase):
             raise ValueError("Invalid correction inventory")
 
     def test_correction_provenance(self):
+        if not self.has_local_import:
+            self.skipTest("Local import history is not part of the repository")
         for target, proof in self.corrections.items():
             with self.subTest(target=target):
                 self.assertIn(target, self.records, "Correction has no original import evidence")
@@ -213,6 +222,8 @@ class PreservationTests(unittest.TestCase):
                     self.records[target], actual_hash, self.formatting.get(target), proof), target)
 
     def test_imports_preserved_except_explicit_rebases(self):
+        if not self.has_local_import:
+            self.skipTest("Local import history is not part of the repository")
         self.assertEqual(len(self.records), len(self.manifest["files"]), "Duplicate import target")
         self.assertGreater(len(self.records), 1000, "Unexpectedly incomplete import inventory")
         failures, rebased = [], []
@@ -282,6 +293,8 @@ class PreservationTests(unittest.TestCase):
               f"{len(self.corrections)} explicit post-import corrections.")
 
     def test_formatting_provenance(self):
+        if not self.has_local_import:
+            self.skipTest("Local import history is not part of the repository")
         for target, proof in self.formatting.items():
             with self.subTest(target=target):
                 self.assertIsInstance(proof, dict)
@@ -305,6 +318,8 @@ class PreservationTests(unittest.TestCase):
         self.assertEqual(verify_fixture_inventory(), 15)
 
     def test_critical_paths_are_manifest_pinned(self):
+        if not self.has_local_import:
+            self.skipTest("Local import history is not part of the repository")
         required = [
             "firmware_c5/components/Drivers/spi_slave/spi_slave_driver.c",
             "firmware_p4/components/Drivers/spi_bridge_phy/spi_bridge_phy.c",
@@ -375,9 +390,10 @@ class PreservationTests(unittest.TestCase):
             print("C5 effective configuration unavailable; defaults verified, build check pending.")
 
     def test_upstream_metadata_and_dependency_licenses(self):
-        self.assertEqual(self.manifest["upstream"], "011ed7da4c750b7777fd6dbad8ce4541304c6898")
-        for key in ("credentials_copied", "runtime_assets_copied", "flashed"):
-            self.assertIs(self.manifest[key], False, key)
+        if self.has_local_import:
+            self.assertEqual(self.manifest["upstream"], "011ed7da4c750b7777fd6dbad8ce4541304c6898")
+            for key in ("credentials_copied", "runtime_assets_copied", "flashed"):
+                self.assertIs(self.manifest[key], False, key)
         sdk_license = ROOT / "firmware_c5/components/Service/muse_port/LICENSE"
         self.assertTrue(sdk_license.is_file(), "Muse SDK license missing")
         self.assertEqual(digest(sdk_license.read_bytes()),

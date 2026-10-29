@@ -27,7 +27,11 @@ The former sources and packaged binaries remain unchanged outside this checkout.
 This is an editable source repository, not another generated `integrated_*/source`
 snapshot. Edit these files directly. Do not run the old Muse `prepare.py --refresh`
 against this checkout. `integration/import.json` records the one-time import,
-source hashes, upstream hashes and relocated paths; it is provenance, not a claim
+source hashes, upstream hashes and relocated paths. The entire `integration/`
+directory is local and ignored by Git; a fresh clone does not contain this audit
+history, device backups or release artifacts. Build and guarded flash routing do
+not depend on its presence. Factory security inputs are versioned under
+`tools/highboy/security_profiles/`. The local import history is provenance, not a claim
 that subsequent edits are identical to the import. Libraries migrated to the
 Component Manager are no longer part of the local source-preservation inventory;
 their versions are declared in the firmware manifests.

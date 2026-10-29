@@ -34,7 +34,7 @@ The installed table is at `0x8000`, leaving 24 KiB after the bootloader offset
 `0x2000`. Actual secure builds exceed that region; even compact trials that fit
 an unsigned bootloader leave no room for its required 4 KiB signature sector.
 Moving a check or weakening signature validation cannot make that installation
-compatible. The new `integration/security/partitions-{p4,c5}.csv` files are selected
+compatible. The new `tools/highboy/security_profiles/partitions-{p4,c5}.csv` files are selected
 only through explicit factory profiles:
 
 | Region | Development offset | Factory-review offset | Size |
@@ -61,7 +61,7 @@ in the [release checklist](../highboy/RELEASE.md#acceptance-outside-software-clo
 
 ## Resolve configuration only
 
-The original `integration/security/{p4,c5}.defaults` still resolve against the
+The original `tools/highboy/security_profiles/{p4,c5}.defaults` still resolve against the
 installed development layout for comparison. `security.py --factory-review`
 additionally applies `{target}.factory.defaults`. SDK tags, the complete explicit
 board overlay, C5 memory policy, flash size, minimum revision, bootloader offset
