@@ -339,3 +339,22 @@ PSA APIs. PSK salt, transcript labels, truncation and wire encoding are unchange
 The existing companion interoperability tests use real OpenSSL/libsodium at
 an explicit adapter boundary; `tools/crypto/test_psa.py` separately validates
 the production adapter against the actual SDK software PSA backend.
+
+## PC Monitor
+
+SYSTEM `0x4E` accepts PC telemetry on P4 over USB or the existing C5 BLE relay. See [setup and wire format](../pc_monitor/README.md).
+
+## BLE handshake diagnostics
+
+The C5 logs the first accepted write per connection as `First RX queued to P4`.
+A write with an invalid length, failed mbuf copy or failed SPI enqueue returns
+an ATT error instead of acknowledging bytes it could not relay. Queue acceptance
+is not an acknowledgement of delivery to the P4; clients must still wait for
+`HELLO_ACK` and must not replay a partially queued write automatically.
+
+The P4 logs `BLE session acquired` and the first received chunk group per Host
+Link generation as `First RX queued to Host Link`. Missing ownership or a full
+Host Link receive queue produces a warning. These diagnostics include lengths
+only, never PSKs or packet contents. A later `HELLO rejected` message identifies
+security validation failure. BLE relay initialization is idempotent so reopening
+PC Monitor can restart advertising after the screen previously stopped it.

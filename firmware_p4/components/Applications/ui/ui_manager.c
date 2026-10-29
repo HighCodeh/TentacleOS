@@ -130,6 +130,7 @@
 #include "lora_mqtt_ui.h"
 #include "dev_console_ui.h"
 #include "dev_diag_ui.h"
+#include "pc_monitor_ui.h"
 #include "nfc_bankcard_ui.h"
 #include "nfc_desfire_ui.h"
 #include "nfc_iso15693_ui.h"
@@ -370,6 +371,8 @@ typedef void (*ui_close_fn_t)(void);
 
 static ui_close_fn_t screen_close_fn(screen_id_t s) {
   switch (s) {
+    case SCREEN_PC_MONITOR:
+      return pc_monitor_ui_stop;
     case SCREEN_WIFI_ESP_SCAN:
       return ui_wifi_esp_scan_stop;
     case SCREEN_SCRIPTS:
@@ -624,6 +627,8 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_lora_mqtt_open;
     case SCREEN_DEV_CONSOLE:
       return ui_dev_console_open;
+    case SCREEN_PC_MONITOR:
+      return pc_monitor_ui_open;
     case SCREEN_DEV_DIAG:
       return ui_dev_diag_open;
     case SCREEN_BOOT_MAP:
@@ -734,6 +739,7 @@ bool ui_screen_shows_chrome(screen_id_t s) {
     case SCREEN_IMU_MONITOR:
     case SCREEN_DEV_CONSOLE:
     case SCREEN_DEV_DIAG:
+    case SCREEN_PC_MONITOR:
     case SCREEN_BOOT_MAP:
     case SCREEN_CRASH_REPORT:
     case SCREEN_SYSTEM_UPDATE:

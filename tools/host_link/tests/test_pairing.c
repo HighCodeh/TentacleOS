@@ -1,3 +1,18 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -60,6 +75,7 @@ int main(void) {
  sign(d2a,command,sizeof(command),mac);assert(!host_link_sec_verify_inbound(command,sizeof(command),mac,2));
  sign(a2d,command,sizeof(command),mac);assert(host_link_sec_verify_inbound(command,sizeof(command),mac,2));
  assert(!host_link_sec_verify_inbound(command,sizeof(command),mac,2));
+ host_link_sec_pairing_window(true);host_link_sec_pairing_refresh();assert(host_link_sec_is_authenticated());
  host_link_sec_pairing_window(false);assert(host_link_sec_is_authenticated());
  host_link_sec_reset();host_link_sec_pairing_window(true);assert(!host_link_sec_is_authenticated() && !host_link_sec_sign_outbound(finish,sizeof(finish),expected));
  assert(host_link_sec_handle_hello(hello,65,ack,sizeof(ack),&length)==ESP_OK);assert(host_link_sec_pairing_get(&pairing));
@@ -69,6 +85,18 @@ int main(void) {
  pairing_test_clock(60000002);assert(host_link_sec_handle_hello(hello,65,ack,sizeof(ack),&length)==ESP_ERR_INVALID_STATE);
  host_link_sec_pairing_window(true);assert(host_link_sec_handle_hello(hello,65,ack,sizeof(ack),&length)==ESP_OK);
  host_link_sec_pairing_window(false);assert(!host_link_sec_pairing_get(&pairing) && !pairing.can_pair);
+ host_link_sec_pairing_refresh();assert(!host_link_sec_pairing_get(&pairing) && !pairing.can_pair);
+ host_link_sec_pairing_window(true);
+ pairing_test_clock(110000002);host_link_sec_pairing_refresh();
+ pairing_test_clock(160000002);host_link_sec_pairing_refresh();
+ assert(host_link_sec_handle_hello(hello,65,ack,sizeof(ack),&length)==ESP_OK);
+ assert(host_link_sec_pairing_get(&pairing));uint32_t refreshed_token=pairing.token;
+ host_link_sec_pairing_refresh();assert(host_link_sec_pairing_get(&pairing) && pairing.token==refreshed_token);
+ pairing_test_clock(190000003);host_link_sec_pairing_refresh();
+ assert(!host_link_sec_pairing_get(&pairing) && pairing.can_pair);
+ assert(host_link_sec_pairing_confirm(refreshed_token,true)==ESP_ERR_INVALID_STATE);
+ host_link_sec_pairing_window(false);host_link_sec_pairing_refresh();
+ assert(!host_link_sec_pairing_get(&pairing) && !pairing.can_pair);
  pairing_test_fail_persist(ESP_FAIL);assert(host_link_sec_regenerate_psk()!=ESP_OK && !host_link_sec_is_authenticated());
  puts("PASS: real X25519/HMAC/HKDF, RFC 7748 public vector, PSK/transcript proofs, physical approval, replay and expiry");
  return 0;

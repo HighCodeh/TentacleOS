@@ -36,6 +36,7 @@ static const struct {
     {"Apps", "/assets/icons/description.bin", SCREEN_APPS},
     {"Scripts", "/assets/icons/developer_board.bin", SCREEN_SCRIPTS},
     {"Console", "/assets/icons/monitoring.bin", SCREEN_DEV_CONSOLE},
+    {"PC Monitor", "/assets/icons/monitoring.bin", SCREEN_PC_MONITOR},
     {"P4 Update", "/assets/icons/system_update.bin", SCREEN_SYSTEM_UPDATE},
     {"Diagnostics", "/assets/icons/troubleshoot.bin", SCREEN_DEV_DIAG},
     {"Boot map", "/assets/icons/storage.bin", SCREEN_BOOT_MAP},

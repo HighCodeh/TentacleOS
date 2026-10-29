@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # Companion ephemeral pairing (handshake v2)
 
 Open **Companion** on the device, obtain its existing PSK and start the client.
@@ -107,3 +124,23 @@ These tests do not prove physical button operation, USB/BLE interoperability,
 RNG entropy quality or resistance to hardware fault injection. Paired-device
 acceptance remains in the cross-interface matrix (#156). Muse pairing remains
 its separate protocol and is unchanged.
+
+## PC Monitor waiting screen
+
+PC Monitor refreshes an explicitly opened waiting window while visible using
+`host_link_sec_pairing_refresh()`. This operation is serialized with HELLO and
+confirmation: it never clears an active transcript, extends a pending code
+deadline, reopens a closed window, or resets an authenticated session. The usual
+30-second pending approval expiry and physical confirmation remain enforced.
+Leaving the screen closes the window. Companion retains its existing behavior.
+
+### Core HELLO validation
+
+The core handler validates the payload with `HOST_LINK_HELLO_SIZE` (65 bytes)
+and `HOST_LINK_PAIR_VERSION` (2) before entering the security implementation.
+The outer Host Link envelope remains version 1; its version must not be used
+to validate the pairing payload. A complete v2 HELLO is 78 bytes on the wire.
+Legacy 17-byte v1 payloads remain rejected. The host regression suite exercises
+the production core HELLO handler with real cryptography and verifies ACK
+generation and the pending physical confirmation code, in addition to testing
+the security API directly.

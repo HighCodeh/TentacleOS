@@ -179,6 +179,7 @@ typedef enum {
   SCREEN_MUSE,
   SCREEN_GROK_IDLE,
   SCREEN_WIFI_ESP_SCAN,
+  SCREEN_PC_MONITOR,
   SCREEN_COUNT
 } screen_id_t;
 

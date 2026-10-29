@@ -24,6 +24,9 @@ README.md, separated by `---`.
 
 ## Featured
 
+- [pc_monitor/](pc_monitor/README.md) - computer telemetry over authenticated USB/BLE
+
+
 - [highboy/](highboy/README.md) - integrated dev + local Muse pair, build lanes, preservation and deployment gates
 - [High Boy release candidates](highboy/RELEASE.md) - internal RAM/compiler gates and paired SD OTA packaging
 

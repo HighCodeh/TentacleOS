@@ -233,6 +233,7 @@ typedef enum {
   // config (tos_config), applied live. Payload begins with a spi_config_section_t.
   SPI_ID_SYSTEM_CONFIG_GET = SPI_CMD(SPI_CAT_SYSTEM, 0x4B),
   SPI_ID_SYSTEM_CONFIG_SET = SPI_CMD(SPI_CAT_SYSTEM, 0x4D),
+  SPI_ID_SYSTEM_PC_MONITOR = SPI_CMD(SPI_CAT_SYSTEM, 0x4E),
 
   // P4-local app manager over the companion link (host_link). Payload is the app
   // name (bytes) unless noted; see docs/host_link/app-commands.md.

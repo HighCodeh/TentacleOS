@@ -61,6 +61,7 @@ static uint16_t s_tx_attr_handle = 0;
 static uint8_t s_own_addr_type = 0;
 static char s_device_name[HOST_DEVICE_NAME_LEN] = {0};
 static uint8_t s_rx_buf[HOST_RX_FRAME_MAX];
+static bool s_has_rx_write;
 
 static void advertise_start(void);
 static int gap_event(struct ble_gap_event *event, void *arg);
@@ -241,10 +242,19 @@ static int rx_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt *
   }
   uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
   if (len == 0 || len > sizeof(s_rx_buf)) {
-    return 0;
+    return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
   }
-  os_mbuf_copydata(ctxt->om, 0, len, s_rx_buf);
-  host_transport_send_to_p4(s_rx_buf, len);
+  if (os_mbuf_copydata(ctxt->om, 0, len, s_rx_buf) != 0) {
+    return BLE_ATT_ERR_UNLIKELY;
+  }
+  if (!host_transport_send_to_p4(s_rx_buf, len)) {
+    ESP_LOGW(TAG, "RX relay rejected bytes=%u", (unsigned)len);
+    return BLE_ATT_ERR_INSUFFICIENT_RES;
+  }
+  if (!s_has_rx_write) {
+    s_has_rx_write = true;
+    ESP_LOGI(TAG, "First RX queued to P4 bytes=%u", (unsigned)len);
+  }
   return 0;
 }
 
@@ -262,6 +272,7 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
     case BLE_GAP_EVENT_CONNECT:
       if (event->connect.status == 0) {
         s_conn_handle = event->connect.conn_handle;
+        s_has_rx_write = false;
         s_is_connected = true;
         s_is_subscribed = false;
         ESP_LOGI(TAG, "Companion connected handle=%u", s_conn_handle);

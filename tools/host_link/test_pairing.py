@@ -176,6 +176,78 @@ int main(void) {
     subprocess.run([str(tmp/'ui')],check=True,timeout=30)
     print('PASS: production physical OK/BACK handler confirms only a displayed token and cancels unlinked pairing')
 
+
+def core_hello_test(command, ldflags, tmp):
+    source = (SERVICE / 'host_link/host_link.c').read_text()
+    start = source.index('static void handle_hello(const uint8_t *payload, uint16_t plen) {')
+    handler = source[start:source.index('static void dispatch_cmd(', start)]
+    fixture = r"""
+#include <assert.h>
+#include <string.h>
+#include "host_link_sec.h"
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#define HOST_LINK_VER 1
+#define HOST_TYPE_HELLO_ACK 0x11
+#define portENTER_CRITICAL(lock) ((void)(lock))
+#define portEXIT_CRITICAL(lock) ((void)(lock))
+static const char *TAG = "CORE_TEST";
+static uint32_t s_generation, s_dispatch_generation, s_ready_generation;
+static uint32_t s_worker_generation, s_tx_counter;
+static size_t s_acc_len;
+static int s_state_lock;
+static void *s_writer;
+static void *s_lock;
+static uint8_t s_ack[HOST_LINK_HELLO_ACK_SIZE];
+static size_t s_ack_len;
+static void teardown_session(void) {}
+static void emit_frame(uint32_t generation, uint8_t type, uint8_t category,
+                       uint8_t op, const uint8_t *payload, uint16_t length) {
+  assert(generation == s_generation && type == HOST_TYPE_HELLO_ACK);
+  assert(category == 0 && op == 0 && length == sizeof(s_ack));
+  memcpy(s_ack, payload, length); s_ack_len = length;
+}
+"""
+    wrapper = r"""
+size_t core_test_hello(const uint8_t *payload, uint16_t length, uint8_t *ack) {
+  if (!s_lock) s_lock = xSemaphoreCreateRecursiveMutex();
+  s_generation = s_dispatch_generation = 1;
+  s_writer = &s_state_lock; s_ack_len = 0;
+  handle_hello(payload, length);
+  if (s_ack_len) {
+    assert(s_ready_generation == s_generation && s_dispatch_generation == 0);
+    memcpy(ack, s_ack, s_ack_len);
+  }
+  return s_ack_len;
+}
+"""
+    (tmp / 'core_hello.c').write_text(source.split('#include')[0] + fixture + handler + wrapper)
+    subprocess.run([*command, str(tmp / 'core_hello.c'), '-shared', '-fPIC', *ldflags,
+                    '-o', str(tmp / 'core_hello.so')], check=True, timeout=60)
+    lib = ctypes.CDLL(str(tmp / 'core_hello.so'))
+    lib.pairing_test_boot()
+    lib.core_test_hello.argtypes = [ctypes.c_void_p, ctypes.c_uint16, ctypes.c_void_p]
+    lib.core_test_hello.restype = ctypes.c_size_t
+    lib.host_link_sec_pairing_get.argtypes = [ctypes.POINTER(Pairing)]
+    lib.host_link_sec_pairing_get.restype = ctypes.c_bool
+    ack = ctypes.create_string_buffer(71)
+    client = Handshake(bytes(range(1, 33)))
+    for payload in (bytes([1]) + bytes(16), client.hello[:-1], bytes([1]) + client.hello[1:]):
+        lib.host_link_sec_reset(); lib.host_link_sec_pairing_window(True)
+        assert lib.core_test_hello(payload, len(payload), ack) == 0
+        assert not lib.host_link_sec_pairing_get(ctypes.byref(Pairing()))
+    lib.host_link_sec_pairing_window(False)
+    assert lib.core_test_hello(client.hello, len(client.hello), ack) == 0
+    lib.host_link_sec_pairing_window(True)
+    assert lib.core_test_hello(client.hello, len(client.hello), ack) == 71, 'production core discarded v2 HELLO'
+    client.accept(ack.raw)
+    pairing = Pairing()
+    assert lib.host_link_sec_pairing_get(ctypes.byref(pairing))
+    assert pairing.code == client.code and not pairing.is_approved
+    print('PASS: production HELLO handler reaches real v2 crypto, emits ACK and exposes matching pending code')
+
+
 def main():
     cflags=shlex.split(os.environ.get('HOST_LINK_TEST_CFLAGS',''))
     ldflags=shlex.split(os.environ.get('HOST_LINK_TEST_LDFLAGS',''))
@@ -191,6 +263,7 @@ def main():
                        str(ROOT/'tools/host_link/tests/test_pairing.c'),*ldflags,'-o',str(tmp/'test')],check=True,timeout=60)
         subprocess.run([str(tmp/'test')],check=True,timeout=30)
         subprocess.run([*command,'-shared','-fPIC',*ldflags,'-o',str(tmp/'pairing.so')],check=True,timeout=60)
+        core_hello_test(command, ldflags, tmp)
         interop(tmp/'pairing.so')
         clients(ctypes.CDLL(str(tmp/'pairing.so')))
         ui_test(command,tmp)
