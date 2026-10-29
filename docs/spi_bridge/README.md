@@ -51,7 +51,12 @@ word-aligned. The 264/2048-byte layouts below describe the inner frames.
   same number and older requests are rejected.
 - `FETCH` asks only for the cached response matching the current sessions and
   transaction. Polling therefore recovers a damaged/lost response without
-  repeating the command or consuming another stream batch.
+  repeating the command or consuming another stream batch. After an invalid
+  long stream read, P4 sends a command-sized FETCH (296 bytes) before the next
+  2080-byte read: C5 has rearmed a 296-byte command RX and rejects oversized
+  transfers before cache lookup. If a delayed response is still armed, this
+  short transfer can truncate it; C5 retains the cache and subsequent FETCH/read
+  cycles recover it without redispatch. The original absolute deadline applies.
 - `RECOVER` asks the P4 to stop clocking for 50 ms and invalidate its session.
   The pause is honored under the bridge mutex, including across calls; a short
   caller deadline fails rather than extending the deadline to finish the pause.
@@ -106,7 +111,11 @@ Validation: `python tools/spi_transport/test_transport.py` executes the producti
 codec, master transport helpers and C5 admission logic with an explicit fake PHY
 and clock, under ASan/UBSan. It covers duplicate requests, late replies, changed
 requests with a reused ID, restarts, counter exhaustion, corruption, bounds,
-response retrieval, bounded negotiation and the recovery pause. The separate
+response retrieval, bounded negotiation and the recovery pause. The fake PHY
+requires exact command RX sizes, including during cache retrieval. Regressions
+cover a corrupt stream response and a delayed response truncated by a short
+FETCH, with both empty and populated batches, and assert no command reexecution
+or second batch consumption. The separate
 `python tools/spi_transport/test_recovery.py` executes the production ownership
 tracker and supervisor against a fake IDF queue, including partial enqueue,
 returned/unknown descriptors, short completion, stuck DMA, deadlines and retained
@@ -1172,3 +1181,7 @@ already fetched before removal therefore finishes before native mesh state is
 reset. The barrier refuses self-wait on the stream worker and reports timeout
 without claiming quiescence. MeshCore/Meshtastic stop retain ownership when the
 barrier or C5 transport stop fails. This changes no protocol-v8 wire fields.
+
+The C5 `arm_diag` counters are logged at debug level. They report CS observations
+after hardware setup, not confirmed transfer failures. Invalid transfer lengths
+and transport failures retain their warning/error diagnostics.

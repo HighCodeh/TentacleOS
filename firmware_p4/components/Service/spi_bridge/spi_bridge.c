@@ -469,6 +469,16 @@ static esp_err_t recv_frame(uint8_t *tx_buf,
     }
     if (armed)
       diag.wrong_id++;
+    if (frame_size > SPI_FRAME_SIZE && esp_timer_get_time() < deadline) {
+      // C5 rearms a command-sized RX after TX. A long stream poll cannot
+      // request its cache; send a short FETCH before the next long read.
+      uint8_t fetch_reply[SPI_FRAME_SIZE];
+      ret = transport_read(fetch_reply, sizeof(fetch_reply));
+      if (ret != ESP_OK) {
+        log_rx_failure(&diag, expect_cmd, ret);
+        return ret;
+      }
+    }
     if (tries++ < SPI_POLL_FAST_TRIES) {
       esp_rom_delay_us(SPI_POLL_FAST_US);
     } else {

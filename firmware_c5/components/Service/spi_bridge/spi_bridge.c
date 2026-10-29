@@ -853,7 +853,7 @@ queue_response:
          setup.rx_cs_low_after_setup != last_rx_low)) {
       int64_t now = esp_timer_get_time();
       if (now >= next_setup_log_us) {
-        ESP_LOGW(TAG,
+        ESP_LOGD(TAG,
                  "arm_diag tx=%lu tx_low_after_start=%lu rx=%lu rx_low_after_start=%lu",
                  (unsigned long)setup.tx_armed,
                  (unsigned long)setup.tx_cs_low_after_setup,

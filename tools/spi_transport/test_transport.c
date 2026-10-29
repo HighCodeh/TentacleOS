@@ -33,6 +33,7 @@
 #define SPI_BRIDGE_MODE_IRQ 1
 static int s_bridge_mode;
 static unsigned last_wrong_id, stream_pops;
+static unsigned blank_reads, short_stream_reads, cache_fetches;
 static bool stream_reply, wrong_stream_id;
 static uint16_t stream_bytes;
 #define pdMS_TO_TICKS(x) (x)
@@ -71,6 +72,8 @@ static esp_err_t spi_bridge_phy_transmit(const uint8_t *tx,uint8_t *rx,size_t n)
   if(rx)memset(rx,0,n);
   if(suppress_peer)return ESP_OK;
   if(pending) {
+    if(blank_reads){blank_reads--;return ESP_OK;}
+    if(n<SPI_TRANSPORT_HEADER_SIZE+peer_cached_size)short_stream_reads++;
     if(rx) {
       size_t count=SPI_TRANSPORT_HEADER_SIZE+peer_cached_size;
       memcpy(rx,peer_response,count<n?count:n);
@@ -89,12 +92,12 @@ static esp_err_t spi_bridge_phy_transmit(const uint8_t *tx,uint8_t *rx,size_t n)
     pending=false;
     return ESP_OK;
   }
-  if(n<SPI_TRANSPORT_FRAME_SIZE)return ESP_OK;
+  if(n!=SPI_TRANSPORT_FRAME_SIZE)return ESP_OK;
   spi_transport_header_t request;
   spi_transport_action_t action=transport_classify(tx,peer_master,peer_boot,peer_seq,
                                                    peer_cache,peer_cached_size,&request);
   if(action==SPI_TRANSPORT_DROP)return ESP_OK;
-  if(action==SPI_TRANSPORT_CACHED){pending=true;return ESP_OK;}
+  if(action==SPI_TRANSPORT_CACHED){cache_fetches++;pending=true;return ESP_OK;}
   if(action==SPI_TRANSPORT_EXECUTE) {
     commands_sent++;
     if(drop_request){drop_request=false;return ESP_OK;}
@@ -186,10 +189,22 @@ int main(void) {
     assert(stream_rx[sizeof(spi_header_t)]==stream_bytes);
   }
   // A damaged stream response must be fetched from cache without consuming another batch.
-  corrupt_reply=true;unsigned pops=stream_pops;
+  corrupt_reply=true;unsigned pops=stream_pops, before_executions=executions, fetches=cache_fetches;
   assert(transport_send(frame,clock_us+100000)==ESP_OK);
   assert(recv_frame(stream_tx,stream_rx,sizeof(stream_rx),SPI_ID_SYSTEM_STREAM,true,clock_us+100000)==ESP_OK);
-  assert(stream_pops==pops+1);
+  assert(stream_pops==pops+1 && executions==before_executions+1 && cache_fetches>fetches);
+  // A delayed TX can be consumed by the short FETCH. Its cache must still recover.
+  for(unsigned batch=0;batch<2;batch++) {
+    stream_bytes=batch?12:0;
+    pops=stream_pops;before_executions=executions;fetches=cache_fetches;
+    unsigned truncated=short_stream_reads;
+    assert(transport_send(frame,clock_us+100000)==ESP_OK);
+    blank_reads=1;
+    assert(recv_frame(stream_tx,stream_rx,sizeof(stream_rx),SPI_ID_SYSTEM_STREAM,true,clock_us+100000)==ESP_OK);
+    assert(executions==before_executions+1 && stream_pops==pops+(batch?1:0));
+    assert(short_stream_reads==truncated+1 && cache_fetches>fetches);
+    assert(stream_rx[sizeof(spi_header_t)]==stream_bytes);
+  }
   // Preserve strict command matching: reproduce the previous zero-ID regression.
   wrong_stream_id=true;
   assert(transport_send(frame,clock_us+100000)==ESP_OK);
