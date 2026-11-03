@@ -17,8 +17,8 @@
  * @file game_fx.h
  * @brief Shared sound and haptic cues for the mini-games.
  *
- * Each cue plays a short melody on the speaker (off-thread, self-contained I2S)
- * and fires a DRV2605L haptic effect. Safe to call from the LVGL/game-loop
+ * Each cue plays a short melody on the speaker (off-thread, self-contained I2S).
+ * Haptic feedback requests a bounded AW8623 ERM pulse. Safe to call from the LVGL/game-loop
  * thread.
  */
 

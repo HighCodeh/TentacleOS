@@ -22,6 +22,7 @@ import subprocess
 import tempfile
 ROOT=Path(__file__).resolve().parents[2]
 HERE=Path(__file__).resolve().parent
+NOTICE=(HERE/'test_p4.c').read_text().split('#include')[0]
 P4=ROOT/'firmware_p4/components/Service/ota'
 
 
@@ -37,9 +38,9 @@ def main():
         work=Path(temporary)
         for header in ('freertos/FreeRTOS.h','freertos/task.h','esp_log.h','esp_ota_ops.h',
                        'esp_system.h','ota_version.h','sd_card_init.h','storage_assets.h',
-                       'ui_liveness.h','power_manager.h','esp_err.h'):
+                       'ui_liveness.h','power_manager.h','spi_bridge.h','esp_err.h'):
             path=work/header;path.parent.mkdir(parents=True,exist_ok=True)
-            path.write_text('#include "test_platform.h"\n')
+            path.write_text(NOTICE+'#include "test_platform.h"\n')
         command=[*shlex.split(os.environ.get('CC','cc')),'-std=gnu11','-Wall','-Wextra','-Werror',
                  '-Wno-deprecated-declarations','-fsanitize=address,undefined','-fno-sanitize-recover=all',
                  '-pthread','-I',str(work),'-I',str(HERE),'-I',str(P4),'-I',str(P4/'include'),

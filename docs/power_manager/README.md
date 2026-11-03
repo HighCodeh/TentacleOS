@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # Power Manager - P4 (esp_pm DFS / light-sleep)
 
 System power manager for `firmware_p4`. It owns `esp_pm` and drives automatic light sleep gated by a shared `NO_LIGHT_SLEEP` lock, so the CPU only powers off when the device is genuinely idle (screen off, no active resource, not plugged in).
@@ -107,3 +124,11 @@ pre-init inputs, init/guard/configure failures, retained cleanup/retry, USB inpu
 retry, client balance, concurrent USB/client transitions and the disabled no-op
 contract. Actual sleep/wake, USB/UART behavior and current draw remain #135 bench
 acceptance.
+
+## V2.03 shutdown and C5 recovery
+
+The UI power-off path acquires the bridge maintenance guard before arming the
+BATFET cut. If recovery already owns the bridge, shutdown is deferred and can
+be retried; an I2C power-off failure releases the guard. Successful shutdown
+retains it. The restart/shutdown hook additionally disables new automatic C5
+recovery. See [bridge manager](../bridge_manager/README.md).

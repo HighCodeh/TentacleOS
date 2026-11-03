@@ -17,12 +17,16 @@
 
 #include <stdint.h>
 
+#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sys_prio.h"
 
 #include "audio_i2s.h"
-#include "drv2605l.h"
+#include "haptic.h"
+#include "tos_config.h"
+
+static const char *TAG = "GAME_FX";
 
 #define FX_AMP            0.42f
 #define SND_TASK_STACK    8192
@@ -38,25 +42,24 @@ static const audio_note_t SND_START[] = {{1046, 55}, {1318, 55}, {1568, 85}};
 typedef struct {
   const audio_note_t *notes;
   int count;
-  uint8_t effect;
 } cue_t;
 
 static cue_t cue_for(game_fx_t k) {
   switch (k) {
     case GFX_FLAP:
-      return (cue_t){SND_FLAP, 1, 7};
+      return (cue_t){SND_FLAP, 1};
     case GFX_SCORE:
-      return (cue_t){SND_SCORE, 2, 10};
+      return (cue_t){SND_SCORE, 2};
     case GFX_EAT:
-      return (cue_t){SND_EAT, 2, 1};
+      return (cue_t){SND_EAT, 2};
     case GFX_BOUNCE:
-      return (cue_t){SND_BOUNCE, 1, 5};
+      return (cue_t){SND_BOUNCE, 1};
     case GFX_CRASH:
-      return (cue_t){SND_CRASH, 2, 16};
+      return (cue_t){SND_CRASH, 2};
     case GFX_START:
-      return (cue_t){SND_START, 3, 4};
+      return (cue_t){SND_START, 3};
     default:
-      return (cue_t){SND_FLAP, 1, 7};
+      return (cue_t){SND_FLAP, 1};
   }
 }
 
@@ -74,7 +77,8 @@ static void snd_task(void *arg) {
 void game_fx(game_fx_t kind) {
   cue_t c = cue_for(kind);
 
-  drv2605l_play_effect(c.effect);
+  if (g_config_system.vibration)
+    (void)haptic_play(HAPTIC_FEEDBACK_INTENSITY, HAPTIC_FEEDBACK_MS);
 
   if (s_snd_busy)
     return;

@@ -61,17 +61,17 @@ extern "C" {
 #define SPI_MQTT_TOPIC_MAX         96
 #define SPI_MQTT_PACKET_MAX        512
 #define SPI_MQTT_CHUNK_HEADER_SIZE 8
-#define SPI_MQTT_CHUNK_MAX    (SPI_MAX_PAYLOAD - SPI_RESP_STATUS_SIZE - SPI_MQTT_CHUNK_HEADER_SIZE)
-#define SPI_MQTT_STATUS_SIZE  13
-#define SPI_MQTT_FLAG_RUNNING 0x01
-#define SPI_MQTT_FLAG_CONNECTED  0x02
-#define SPI_MQTT_FLAG_SUBSCRIBED 0x04
-#define SPI_MQTT_FLAG_ERROR      0x08
-#define SPI_MQTT_FIELD_URI       1
-#define SPI_MQTT_FIELD_USERNAME  2
-#define SPI_MQTT_FIELD_PASSWORD  3
-#define SPI_MQTT_FIELD_SUBSCRIBE 4
-#define SPI_MQTT_FIELD_PUBLISH   5
+#define SPI_MQTT_CHUNK_MAX         (SPI_MAX_PAYLOAD - SPI_RESP_STATUS_SIZE - SPI_MQTT_CHUNK_HEADER_SIZE)
+#define SPI_MQTT_STATUS_SIZE       13
+#define SPI_MQTT_FLAG_RUNNING      0x01
+#define SPI_MQTT_FLAG_CONNECTED    0x02
+#define SPI_MQTT_FLAG_SUBSCRIBED   0x04
+#define SPI_MQTT_FLAG_ERROR        0x08
+#define SPI_MQTT_FIELD_URI         1
+#define SPI_MQTT_FIELD_USERNAME    2
+#define SPI_MQTT_FIELD_PASSWORD    3
+#define SPI_MQTT_FIELD_SUBSCRIBE   4
+#define SPI_MQTT_FIELD_PUBLISH     5
 
 /**
  * @brief SPI message types.
@@ -200,6 +200,11 @@ typedef enum {
       SPI_CMD(SPI_CAT_SYSTEM, 0x0C), // P4→C5: read chip info. Response payload = spi_sys_info_t.
   SPI_ID_SYSTEM_PROTO_VERSION = SPI_CMD(
       SPI_CAT_SYSTEM, 0x0D), // P4→C5: read the C5's SPI_PROTOCOL_VERSION. Response payload = u16.
+
+  SPI_ID_BOARD_NEGOTIATE = SPI_CMD(SPI_CAT_SYSTEM, 0x0E),
+  SPI_ID_BOARD_STATE = SPI_CMD(SPI_CAT_SYSTEM, 0x0F),
+  SPI_ID_BOARD_SET = SPI_CMD(SPI_CAT_SYSTEM, 0x10),
+  SPI_ID_IR_REMOTE = SPI_CMD(SPI_CAT_SYSTEM, 0x11),
 
   // Companion file ops. P4-local host-link commands (the P4 owns flash + SD);
   // listed here only so the app and P4 share one id space. Never relayed to C5.
@@ -611,6 +616,129 @@ typedef struct __attribute__((packed)) {
   uint32_t size;     ///< Image size in bytes.
   uint8_t transport; ///< spi_ota_transport_t
 } spi_ota_begin_t;
+
+// V2.03 board extension: fixed-width little-endian fields, reserved bytes zero.
+// IR backend revision 1. Integers are little-endian; symbol words are explicitly
+// encoded as two u16 values: duration_us bits 0..14, level bit 15.
+#define SPI_IR_REVISION      1
+#define SPI_IR_HEADER_SIZE   24
+#define SPI_IR_SYMBOL_BYTES  4
+#define SPI_IR_CHUNK_SYMBOLS 56
+#define SPI_IR_TX_SYMBOLS    4096
+#define SPI_IR_RX_SYMBOLS    512
+#define SPI_IR_MAX_US        900000
+#define SPI_IR_CARRIER_MIN   10000
+#define SPI_IR_CARRIER_MAX   100000
+#define SPI_IR_LEASE_MS      2000
+#define SPI_IR_TORCH_MS      1000
+#define SPI_IR_RX_TIMEOUT_MS 60000
+#define SPI_IR_DURATION_MASK 0x7fff
+#define SPI_IR_LEVEL_SHIFT   15
+
+typedef enum {
+  SPI_IR_OPEN = 0,
+  SPI_IR_STATUS,
+  SPI_IR_BEGIN,
+  SPI_IR_UPLOAD,
+  SPI_IR_COMMIT,
+  SPI_IR_CAPTURE,
+  SPI_IR_FETCH,
+  SPI_IR_CANCEL,
+  SPI_IR_CLOSE,
+  SPI_IR_TORCH,
+  SPI_IR_ACTION_COUNT,
+} spi_ir_action_t;
+
+typedef enum {
+  SPI_IR_CLOSED = 0,
+  SPI_IR_IDLE,
+  SPI_IR_UPLOADING,
+  SPI_IR_TX_PENDING,
+  SPI_IR_TX_RUNNING,
+  SPI_IR_RX_PENDING,
+  SPI_IR_RX_RUNNING,
+  SPI_IR_TORCH_PENDING,
+  SPI_IR_TORCH_RUNNING,
+  SPI_IR_STOPPING,
+  SPI_IR_DONE,
+  SPI_IR_STATE_COUNT,
+} spi_ir_state_t;
+
+typedef struct __attribute__((packed)) {
+  uint64_t epoch; // OPEN: client nonce; other actions: server epoch
+  uint32_t operation;
+  uint8_t action;
+  uint8_t revision;
+  uint16_t count;  // BEGIN: total; UPLOAD/FETCH: chunk size
+  uint16_t offset; // symbols, not bytes
+  uint16_t reserved;
+  uint32_t value; // BEGIN: carrier Hz; CAPTURE: timeout ms
+} spi_ir_request_t;
+
+typedef struct __attribute__((packed)) {
+  uint64_t epoch;
+  uint32_t operation;
+  int32_t result; // operation esp_err_t, NOT_FINISHED until teardown completes
+  uint8_t state;
+  uint8_t revision;
+  uint16_t count;  // captured/expected total symbols
+  uint16_t offset; // uploaded symbols, or FETCH chunk offset
+  uint16_t reserved;
+} spi_ir_reply_t;
+
+#define SPI_BOARD_REVISION          2
+#define SPI_BOARD_MODEL_V203        0x0203
+#define SPI_BOARD_LEASE_MS          5000
+#define SPI_BOARD_CAP_AMP           (1U << 0)
+#define SPI_BOARD_CAP_HAPTIC        (1U << 1)
+#define SPI_BOARD_CAP_USB           (1U << 2)
+#define SPI_BOARD_CAP_HAPTIC_INPUT  (1U << 3)
+#define SPI_BOARD_OUTPUT_MASK       (SPI_BOARD_CAP_AMP | SPI_BOARD_CAP_HAPTIC | SPI_BOARD_CAP_USB)
+#define SPI_BOARD_CAPS              (SPI_BOARD_OUTPUT_MASK | SPI_BOARD_CAP_HAPTIC_INPUT)
+#define SPI_BOARD_SAFE_VALUES       SPI_BOARD_CAP_USB
+#define SPI_BOARD_AMP               0
+#define SPI_BOARD_HAPTIC            1
+#define SPI_BOARD_USB               2
+#define SPI_BOARD_CONTROL_COUNT     3
+#define SPI_BOARD_INPUT_INT_HIGH    1
+#define SPI_BOARD_INPUT_IRQ_PENDING 2
+
+typedef struct __attribute__((packed)) {
+  uint16_t protocol;
+  uint16_t revision;
+  uint16_t model;
+  uint16_t reserved;
+  uint64_t client;
+} spi_board_negotiate_t;
+
+typedef struct __attribute__((packed)) {
+  uint16_t protocol;
+  uint16_t revision;
+  uint16_t model;
+  uint16_t reserved;
+  uint32_t capabilities;
+  uint32_t lease_ms;
+  uint64_t epoch;
+} spi_board_caps_t;
+
+typedef struct __attribute__((packed)) {
+  uint64_t epoch;
+} spi_board_query_t;
+
+typedef struct __attribute__((packed)) {
+  uint64_t epoch;
+  uint16_t revision;
+  uint8_t control;
+  uint8_t value;
+} spi_board_set_t;
+
+typedef struct __attribute__((packed)) {
+  uint64_t epoch;
+  uint8_t values;
+  uint8_t valid;
+  uint8_t inputs;
+  uint8_t reserved;
+} spi_board_state_t;
 
 /** @brief SPI_ID_SYSTEM_INFO response payload: C5 chip identity. */
 typedef struct __attribute__((packed)) {

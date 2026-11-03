@@ -62,6 +62,13 @@ static void IRAM_ATTR irq_handler(void *arg) {
 }
 #endif
 
+bool spi_bridge_phy_is_idle(void) {
+  if (s_legacy_handle != NULL || spi_get_handle(SPI_DEVICE_BRIDGE) == NULL)
+    return false;
+  // Enable readback without disconnecting the peripheral output matrix.
+  return gpio_input_enable(GPIO_BRIDGE_CS_PIN) == ESP_OK && gpio_get_level(GPIO_BRIDGE_CS_PIN) == 1;
+}
+
 esp_err_t spi_bridge_phy_init(void) {
   return spi_bridge_phy_init_ex(true);
 }

@@ -32,7 +32,9 @@ file(GLOB_RECURSE MESHCORE_SRCS "meshcore/*.c")
 file(GLOB_RECURSE HOST_LINK_SRCS "host_link/*.c")
 
 
-idf_component_register(SRCS 
+idf_component_register(SRCS
+  "board_service/board_service.c"
+  "ir_remote/ir_remote.c"
   "mqtt_bridge/mqtt_bridge.c"
   "wifi/wifi_service.c"
   "wifi/mac_vendor.c"
@@ -61,6 +63,8 @@ idf_component_register(SRCS
   ${MESHCORE_SRCS}
   ${HOST_LINK_SRCS}
   INCLUDE_DIRS
+  "board_service/include"
+  "ir_remote/include"
   "mqtt_bridge/include"
   "wifi/include"
   "grok_wifi/include"
@@ -86,6 +90,7 @@ idf_component_register(SRCS
     mqtt
     sdmmc
     driver
+    esp_driver_rmt
     esp_driver_uart
     muse_port
     vfs
@@ -106,3 +111,7 @@ idf_component_register(SRCS
     cjson
     mdns
 )
+
+# Keep the remote IR backend and service code within the existing OTA slot.
+# Hardware Drivers retain their existing optimization and memory policy.
+target_compile_options(${COMPONENT_LIB} PRIVATE -Os)

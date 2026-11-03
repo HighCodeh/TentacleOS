@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "kernel.h"
+#include "board_pins.h"
 
 #include <stdlib.h>
 
@@ -35,6 +36,8 @@
 #include "buttons_gpio.h"
 #include "lf_rfid.h"
 #include "audio_i2s.h"
+#include "board_service.h"
+#include "husb320.h"
 #include "boot_sound.h"
 #include "input_manager.h"
 #include "bridge_manager.h"
@@ -125,7 +128,6 @@ static bool init_display(void) {
 static void init_safe_mode(void) {
   led_rgb_init();
   led_signal_error();
-  boot_report_record("battery", false, bq25896_init());
   if (init_display()) {
     ui_init_safe_mode();
   } else {
@@ -147,8 +149,15 @@ static void heap_alloc_failed_cb(size_t size, uint32_t caps, const char *functio
 }
 
 esp_err_t kernel_init(void) {
+  ESP_ERROR_CHECK(board_pins_init());
   boot_report_reset();
   heap_caps_register_failed_alloc_callback(heap_alloc_failed_cb);
+
+  // Configure the power path before flash/storage activity and peripheral startup.
+  esp_err_t i2c_result = init_i2c();
+  boot_report_record("i2c", false, i2c_result);
+  boot_report_record("battery", false, i2c_result == ESP_OK ? bq25896_init() : i2c_result);
+  boot_report_record("usb-typec", false, i2c_result == ESP_OK ? husb320_init() : i2c_result);
 
   // 1. NVS
   esp_err_t ret = nvs_flash_init();
@@ -179,10 +188,7 @@ esp_err_t kernel_init(void) {
   // the antenna is never energized during boot.
   boot_report_record("rfid-lf", false, lf_rfid_init());
 
-  // 2. Buses. I2C failure degrades the charger/haptic/LED but not the whole boot,
-  // so it is reported (item 8) without forcing safe mode.
   spi_init();
-  boot_report_record("i2c", false, init_i2c());
 
   input_manager_init();
   bool is_safe_mode =
@@ -236,23 +242,22 @@ esp_err_t kernel_init(void) {
 
   // 5. Peripherals
   led_rgb_init();
-  boot_report_record("battery", false, bq25896_init());
   battery_service_init();
-  // Haptic not initialized: the board's chip is an AW8623 (schematic sheet 6 +
-  // pin_def), not the DRV2605L this driver targets, so its init NACKs. Left off
-  // until the AW8623 driver lands; play_effect() no-ops while uninitialized.
+  // AW8623 stays in remote reset until the haptic worker owns an operation.
   cc1101_init();
   // C5 radio coprocessor bridge (SPI2, POLL mode to match the C5 slave). Inits
   // the bridge bus, starts the link monitor, and probes the C5 version. If the
   // C5 is absent this marks the bridge down and the monitor re-probes until it
   // appears, so a late-booting C5 is still picked up. Never blocks the boot.
   bridge_manager_init();
+  audio_i2s_bind_controls(board_service_controls());
+  usb_mux_bind_controls(board_service_controls());
+  usb_mux_init();
   config_sync_start(); // push changed config files to the C5 (hash-gated, background)
   buttons_init();
   // Creates the TX mutex that serializes access to the single I2S_NUM_0 TX
-  // channel, plus the UI-sound FX task. Playback still works without this (the
-  // amp enable and the channel open are both lazy), but with no serialization:
-  // concurrent play_* calls then fight over the channel and the loser fails.
+  // channel and queued UI effects. Amplifier negotiation happens in playback
+  // workers; microphone capture does not depend on the remote amplifier.
   boot_report_record("audio", false, audio_i2s_init());
   audio_i2s_set_volume((uint8_t)g_config_system.volume);
 
@@ -274,10 +279,6 @@ esp_err_t kernel_init(void) {
   } else {
     bluetooth_service_stop();
   }
-
-  // USB-C data mux defaults to the CP2105 UART bridge (serial console / flash).
-  // The user switches to native P4 USB at runtime from Connection settings.
-  usb_mux_init();
 
   // Companion host link (USB CDC). Bridge must be up first (commands relay to C5).
   host_link_state_init();  // load toggle settings before the link comes up

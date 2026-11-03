@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # P4
 
 Central button input for the P4. One periodic sampler debounces all six buttons,
@@ -113,3 +130,8 @@ and `input_is_down()` for screens that need a continuous held state (e.g. games)
 **Migrating the existing screens:** 7 are done; ~91 still poll. The step-by-step
 recipe, gotchas and reference examples are in
 [ui/input-migration.md](../ui/input-migration.md).
+
+## V2.03
+
+See the [button mapping and gesture contract](../buttons_gpio/README.md#v203-mapping-and-gestures).
+B2/OK is GPIO32; hardware reset is OK+DOWN, while firmware recovery is OK+BACK.

@@ -36,10 +36,10 @@ CONFIG_PARTITION_TABLE_OFFSET=0x8000
 # OTA rollback support in bootloader
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
-# Chip revision — this silicon is v1.3, so target the <v3.0 P4 family
-# (rev <3.0 and >=3.0 are mutually exclusive in IDF). Range becomes v1.0–v1.99.
-CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
-CONFIG_ESP32P4_REV_MIN_100=y
+# V2.03 uses P4 silicon v3.2. IDF v6.1 exposes v3.1 as the latest minimum;
+# this selects the compatible v3.1-v3.99 family (no support for pre-v3 chips).
+# CONFIG_ESP32P4_SELECTS_REV_LESS_V3 is not set
+CONFIG_ESP32P4_REV_MIN_301=y
 
 # CPU 360MHz (P4 maximum)
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_360=y

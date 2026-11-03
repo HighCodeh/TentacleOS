@@ -21,6 +21,10 @@ file(GLOB_RECURSE RF_FRONTEND_SRCS "rf_frontend/*.c")
 
 
 idf_component_register(SRCS
+  "pins/board_pins.c"
+  "pins/board_control.c"
+  "husb320/husb320.c"
+  "tusb_desc/usb_mux.c"
   "bq25896/bq25896.c"
   "bq25896/bq25896_ext.c"
   "bq25896/battery_service.c"
@@ -37,7 +41,7 @@ idf_component_register(SRCS
   "spi_bridge_phy/spi_bridge_phy.c"
   "audio_i2s/audio_i2s.c"
   "grok_usb_audio/grok_usb_audio.c"
-  "drv2605l/drv2605l.c"
+  "aw8623/aw8623.c"
   "qmi8658a/qmi8658a.c"
   ${ST25R3916_SRCS}
   ${YS_RFID2_SRCS}
@@ -53,6 +57,7 @@ idf_component_register(SRCS
   "st7789/include"
   "led/include"
   "pins/include"
+  "husb320/include"
   "spi/include"
   "i2c_init/include"
   "tusb_desc/include"
@@ -61,7 +66,7 @@ idf_component_register(SRCS
   "spi_bridge_phy/include"
   "audio_i2s/include"
   "grok_usb_audio/include"
-  "drv2605l/include"
+  "aw8623/include"
   "qmi8658a/include"
   "st25r3916/include"
   "st25r3916/hal/include"

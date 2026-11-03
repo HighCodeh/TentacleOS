@@ -40,6 +40,7 @@ static const char *TAG = "IR_STORE";
 #define IR_STORE_FILE_MAX (512 * 1024)
 #define IR_SERIALIZE_MAX  16384
 #define IR_CAP_TASK_STACK 8192
+#define IR_CAP_CLEANUP_MS 100
 
 // ----------------------------------------------------------------------------
 // Path helpers
@@ -283,6 +284,9 @@ esp_err_t ir_store_send_data(const ir_data_t *data) {
   if (r != ESP_OK)
     return r;
   r = ir_send(data);
+  esp_err_t cleanup = ir_close();
+  if (r == ESP_OK)
+    r = cleanup;
   ESP_LOGI(TAG,
            "send %s 0x%lX/0x%lX -> %s",
            ir_protocol_name(data->protocol),
@@ -299,6 +303,9 @@ esp_err_t ir_store_send_signal(const ir_signal_t *signal) {
   if (r != ESP_OK)
     return r;
   r = ir_file_send(signal);
+  esp_err_t cleanup = ir_close();
+  if (r == ESP_OK)
+    r = cleanup;
   ESP_LOGI(TAG,
            "send '%s' (%s) -> %s",
            signal->name,
@@ -314,6 +321,9 @@ esp_err_t ir_store_send_raw(const rmt_symbol_word_t *symbols, size_t count, uint
   if (r != ESP_OK)
     return r;
   r = ir_send_raw(symbols, count, freq);
+  esp_err_t cleanup = ir_close();
+  if (r == ESP_OK)
+    r = cleanup;
   ESP_LOGI(TAG,
            "send raw %u sym @%luHz -> %s",
            (unsigned)count,
@@ -332,6 +342,9 @@ esp_err_t ir_store_send_ac(const ir_ac_state_t *state) {
   if (result != ESP_OK)
     return result;
   result = ir_ac_send(state);
+  esp_err_t cleanup = ir_close();
+  if (result == ESP_OK)
+    result = cleanup;
   ESP_LOGI(TAG, "send AC %s -> %s", ir_ac_protocol_name(state->protocol), esp_err_to_name(result));
   return result;
 }
@@ -348,6 +361,8 @@ int ir_store_send_named(const ir_file_t *file, const char *name) {
         sent++;
     }
   }
+  if (ir_close() != ESP_OK)
+    sent = 0;
   ESP_LOGI(TAG, "send named '%s' -> %d code(s)", name, sent);
   return sent;
 }
@@ -375,8 +390,10 @@ static void capture_task(void *arg) {
   } else {
     ir_rx_prime(); // drop stale frame + re-arm if a frame left the channel idle
     msg.status = ir_receive(&msg.data, timeout_ms);
+    // Keep the worker alive while remote teardown is unconfirmed.
+    while (ir_close() != ESP_OK)
+      vTaskDelay(pdMS_TO_TICKS(IR_CAP_CLEANUP_MS));
   }
-
   xQueueOverwrite(s_cap_q, &msg);
   s_cap_running = false;
   vTaskDelete(NULL);

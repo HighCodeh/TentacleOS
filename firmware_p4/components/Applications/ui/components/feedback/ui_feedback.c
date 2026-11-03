@@ -25,7 +25,7 @@
 #include "sys_prio.h"
 
 #include "audio_i2s.h"
-#include "drv2605l.h"
+#include "haptic.h"
 #include "tos_config.h"
 
 #define FB_TASK_STACK_SIZE 3072
@@ -46,15 +46,10 @@
  * cleanly instead of running the sounds together. */
 #define FB_MIN_GAP_MS 120
 
-#define DRV_EFFECT_STRONG_CLICK 1
-#define DRV_EFFECT_SHARP_CLICK  4
-#define DRV_EFFECT_DOUBLE_CLICK 10
-
 typedef struct {
   const audio_note_t *notes;
   int count;
   float amp;
-  uint8_t haptic;
 } fb_def_t;
 
 static const audio_note_t SND_NAV[] = {{2000, 32}};
@@ -67,14 +62,14 @@ static const audio_note_t SND_SD_IN[] = {{1046, 45}, {1568, 55}, {2093, 80}};
 static const audio_note_t SND_SD_OUT[] = {{2093, 45}, {1568, 55}, {1046, 80}};
 
 static const fb_def_t DEFS[UI_FB_COUNT] = {
-    [UI_FB_NAV] = {SND_NAV, 1, 0.30f, 0},
-    [UI_FB_SELECT] = {SND_SELECT, 1, 0.32f, 0},
-    [UI_FB_READ] = {SND_READ, 2, 0.40f, DRV_EFFECT_STRONG_CLICK},
-    [UI_FB_WRITE] = {SND_WRITE, 2, 0.40f, DRV_EFFECT_DOUBLE_CLICK},
-    [UI_FB_EMULATE] = {SND_EMULATE, 2, 0.40f, DRV_EFFECT_SHARP_CLICK},
-    [UI_FB_BOOT] = {SND_BOOT, 3, 0.35f, 0},
-    [UI_FB_SD_CONNECT] = {SND_SD_IN, 3, 0.40f, DRV_EFFECT_STRONG_CLICK},
-    [UI_FB_SD_DISCONNECT] = {SND_SD_OUT, 3, 0.35f, 0},
+    [UI_FB_NAV] = {SND_NAV, 1, 0.30f},
+    [UI_FB_SELECT] = {SND_SELECT, 1, 0.32f},
+    [UI_FB_READ] = {SND_READ, 2, 0.40f},
+    [UI_FB_WRITE] = {SND_WRITE, 2, 0.40f},
+    [UI_FB_EMULATE] = {SND_EMULATE, 2, 0.40f},
+    [UI_FB_BOOT] = {SND_BOOT, 3, 0.35f},
+    [UI_FB_SD_CONNECT] = {SND_SD_IN, 3, 0.40f},
+    [UI_FB_SD_DISCONNECT] = {SND_SD_OUT, 3, 0.35f},
 };
 
 /** @brief True from the moment a burst is ACCEPTED until the worker has fully
@@ -167,8 +162,9 @@ static void fb_task(void *arg) {
 
     // s_playing was already set by the producer that claimed this slot.
     const fb_def_t *d = &DEFS[k];
-    if (d->haptic && g_config_system.vibration)
-      (void)drv2605l_play_effect(d->haptic);
+    if (g_config_system.vibration &&
+        (k == UI_FB_READ || k == UI_FB_WRITE || k == UI_FB_EMULATE || k == UI_FB_SD_CONNECT))
+      (void)haptic_play(HAPTIC_FEEDBACK_INTENSITY, HAPTIC_FEEDBACK_MS);
     if (d->notes && d->count > 0 && g_config_system.ui_sound_fx)
       (void)audio_i2s_play_song(d->notes, d->count, d->amp);
 

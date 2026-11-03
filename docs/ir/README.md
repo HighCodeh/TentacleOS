@@ -1,113 +1,161 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # IR TX/RX Service
 
-This component provides the infrared transmit/receive service for TentacleOS on the ESP32-P4. It drives the IR emitter and detector through the RMT peripheral, ships a full protocol decode/encode library (consumer remotes and air-conditioner state frames), a Flipper-Zero-compatible file format, a console command, and a full-power torch (flashlight) mode.
+## V2.03 ownership
 
-## Overview
+The P4 owns codecs, AC state encoders, files, UI, permissions and the public
+`ir.h` API. `firmware_c5/components/Service/ir_remote` owns the physical RMT
+channels and emitter. P4 GPIO0/1 are C5 reset/boot controls and are never used
+for IR. Update both applications for this backend; an older C5 returns an
+unsupported-command error. Protocol v2 and transport envelope revision 1 remain
+unchanged; the IR extension has its own revision 1.
 
-- **Location:** `firmware_p4/components/Service/ir/`
-- **Target:** `firmware_p4` only (ESP32-P4)
-- **Main header:** `include/ir.h`
-- **Companion headers:** `include/ir_protocol.h` (remote protocols), `include/ir_ac.h` (air-conditioner protocols), `include/ir_file.h` (Flipper IR file format)
-- **Dependencies:** `pin_def`, `led_control`, `driver/rmt_tx`, `driver/rmt_rx`, `driver/rmt_encoder`, `driver/gpio`, `freertos`
-- **Peripheral:** RMT (one RX channel + one TX channel), non-DMA
-- **Console command:** `ir` (registered in `Service/console/commands/cmd_ir.c`)
+| Connection | V2.03 owner |
+| --- | --- |
+| Emitter / T7 gate | C5 GPIO6, active high, idle low |
+| TSOP75338TR receiver | C5 GPIO10, active low |
+| Optical mark on the wire and in raw API | level 1 |
 
-The service is brought up lazily - there is no boot-time init. Callers init the RX or TX channel on demand and release it when done, so RMT channels are not held for the whole session.
+RX uses RMT input inversion to normalize the receiver polarity. The receiver's
+active-low output is specified in [Vishay document 82495, figure 1](https://www.vishay.com/docs/82495/tsop753.pdf).
+The schematic connects its output directly to C5 GPIO10. TX uses 33% carrier
+duty, 1 MHz duration resolution and ends low. Carrier 0 disables modulation;
+other carriers must be 10–100 kHz. Optical sensitivity of the 38 kHz receiver is
+not a guarantee that every carrier in the encoder library can be captured.
 
-## Hardware / Bus
+## SPI contract and lifecycle
 
-| Item | Value | Source |
-|------|-------|--------|
-| TX pin | `GPIO_IR_TX_PIN` = GPIO 0 | `pin_def.h` |
-| RX pin | `GPIO_IR_RX_PIN` = GPIO 1 | `pin_def.h` |
-| RMT resolution | 1 MHz (1 tick = 1 us) | `IR_RMT_RESOLUTION_HZ` |
-| TX carrier duty | 0.33 | `IR_CARRIER_DUTY_CYCLE` |
-| Default carrier | 38 kHz (protocol-dependent) | `ir_carrier_freq()` |
+`SPI_ID_IR_REMOTE` (`0x0011`) carries the internal backend RPC. Existing
+`SPI_CAT_IR` companion operations remain P4-local and are not forwarded verbatim.
+All scalar fields are fixed-width little-endian. Neither chip copies an RMT
+bitfield struct onto the wire.
 
-The emitter is infrared and invisible to the eye: verify output with a phone camera. The TX pin rests low via an external pull-down (R90).
+Request header (24 bytes): `epoch:u64`, `operation:u32`, `action:u8`,
+`revision:u8`, `count:u16`, `offset:u16`, `reserved:u16`, `value:u32`.
+Reply header (24 bytes): `epoch:u64`, `operation:u32`, `result:i32`, `state:u8`,
+`revision:u8`, `count:u16`, `offset:u16`, `reserved:u16`.
+Reserved fields must be zero. SPI status reports request admission; `result`
+reports asynchronous operation completion using `esp_err_t`.
 
-### RMT tuning constants (`ir.h`)
+Each serialized symbol is two little-endian u16 pulses. Bits 0–14 hold duration
+in microseconds; bit 15 holds the level. Up to 56 symbols fit in one chunk.
+Offsets/counts are in symbols. A zero second duration is permitted only on the
+last TX symbol; a zero first duration is invalid.
 
-| Constant | Value | Meaning |
-|----------|-------|---------|
-| `IR_RMT_MEM_SYMBOLS` | 128 | Encode buffer size for a single frame |
-| `IR_MAX_SYMBOLS` | 512 | User RX/last-frame buffer depth |
-| `IR_RX_MEM_BLOCK_SYMBOLS` | 96 | Non-DMA RX FIFO depth (2x the P4 48-word block) |
-| `IR_TX_MEM_BLOCK_SYMBOLS` | 64 | TX channel FIFO (2 P4 channels) |
-| `IR_RX_MIN_NS` / `IR_RX_MAX_NS` | 1250 / 12000000 | RX glitch/timeout window |
-| `IR_TX_QUEUE_DEPTH` | 4 | TX transaction queue depth |
-| `IR_TX_WAIT_MS` | 1000 | Blocking wait for a transmit to finish |
-| `IR_PRINT_MAX_SYMBOLS` | 40 | Cap on symbols logged by `ir_print_raw` |
+| Action | Contract |
+| --- | --- |
+| OPEN | Nonzero client nonce in `epoch`, other fields zero; creates a random server epoch after old hardware is released. Same nonce does not restart the session. |
+| STATUS | Observe state/result, including a changed epoch after reset; does not restart any operation. |
+| BEGIN | New, monotonically increasing operation ID, total symbols in `count`, carrier in `value`; allocates upload storage. |
+| UPLOAD | Same epoch/ID, offset/count plus explicit symbols; sequential chunks, identical duplicates accepted, changed duplicates/gaps rejected. |
+| COMMIT | Starts TX only after the complete frame passes validation. Repeated commit for that ID never transmits again, including after completion/cancel. |
+| CAPTURE | New operation ID, timeout in `value`; starts a one-shot capture on the worker. |
+| FETCH | Read an immutable completed capture by ID, offset and count. |
+| CANCEL | Stops the current operation; its ID remains a tombstone. |
+| CLOSE | Cancels, releases RMT/encoder/buffers and then reports CLOSED. |
+| TORCH | New operation ID; bounded DC emission, no automatic renewal. |
 
-RX and TX are non-DMA on this board: DMA-backed `rmt_receive()` failed here, so the RX channel uses a ping-ponged FIFO into the `IR_MAX_SYMBOLS` user buffer.
+BEGIN/CAPTURE/TORCH reject old IDs. The P4 never resends a COMMIT with an unknown
+outcome: it polls STATUS. A C5 restart or changed SPI master session invalidates
+the epoch and cancels old work. Idle sessions and incomplete uploads expire
+after 2 seconds without a valid owning request. Foreign STATUS requests do not
+renew the owner's lease. OPEN cannot take over until cleanup succeeds.
 
-## API Reference
+The C5 SPI dispatcher never waits for optical TX/RX. A core-0 worker at
+`SYS_PRIO_SERVICE_HI` polls every 10 ms and owns all RMT lifecycle calls. The
+short mutex uses nonblocking admission; callers may receive BUSY while the
+worker is configuring/tearing down hardware. Each direction uses one 48-symbol
+C5 RMT block without DMA. TX queue depth is one. Upload memory is owned by C5,
+not by the SPI receive buffer or P4 caller.
 
-### Channel lifecycle
+Completion is published only after checked disable/delete/encoder cleanup.
+Failed cleanup retains handles and storage and is retried by the worker; no
+new operation can reuse them. The P4 similarly retains its resource/lease
+until CLOSED or a safely closed replacement epoch is observed.
 
-#### `ir_rx_init` / `ir_rx_deinit`
-```c
-esp_err_t ir_rx_init(void);
-void      ir_rx_deinit(void);
-```
-`ir_rx_init` creates the RMT RX channel on `GPIO_IR_RX_PIN`, its event queue and callback, enables it, and arms a one-shot receive. Returns `ESP_OK` (idempotent if already inited), `ESP_ERR_NO_MEM` on mutex/queue failure, or an RMT error. `ir_rx_deinit` disables and deletes the channel and queue (no-op if RX was never inited).
+## Bounds
 
-#### `ir_rx_prime`
-```c
-void ir_rx_prime(void);
-```
-Resets the RX queue (drops a stale/ambient frame) and re-arms the one-shot receive if a prior frame left it idle. Call at the start of every capture: a one-shot `rmt_receive()` is consumed by every frame, including NEC repeat frames, so without priming the next `ir_receive()` could wait forever.
+- TX: up to 4096 symbols (8192 pulses), total duration at most 900000 us.
+- RX: up to 512 symbols. The C5 allocates one extra sentinel symbol; a full
+  buffer is reported as `ESP_ERR_INVALID_SIZE` (overflow), never a valid prefix.
+- RX timeout: 1–60000 ms; 1.25 us glitch filter and 12 ms idle delimiter.
+  Long protocols containing larger gaps may require multiple captures.
+- C5 TX completion deadline: 1200 ms. P4 completion reconciliation: 1500 ms.
+- Control RPC: 250 ms per exchange; session open/close have a 1500 ms retry bound.
+- Torch: hard **1000 ms maximum**, followed by closure even if polling continues.
+  A fresh off/on cycle is required. This is a software containment limit, not
+  an electrically validated continuous-current rating. Validate the populated
+  LEDs, resistors and transistor before using DC mode on hardware.
 
-#### `ir_tx_init` / `ir_tx_deinit`
-```c
-esp_err_t ir_tx_init(void);
-void      ir_tx_deinit(void);
-```
-`ir_tx_init` creates the RMT TX channel on `GPIO_IR_TX_PIN`, a copy encoder, and enables the channel. Returns `ESP_OK` (idempotent) or an RMT error. `ir_tx_deinit` disables and deletes the channel and encoder and resets the cached carrier (no-op if TX was never inited).
+Deadlines are task-scheduled, not independent hardware watchdogs. A stalled CPU
+cannot be made safe by a software timer; boot GPIO initialization and the gate
+pull-down supply the reset/off defaults.
 
-### Receive / decode
+## Public API
 
-#### `ir_receive`
-```c
-esp_err_t ir_receive(ir_data_t *out_data, uint32_t timeout_ms);
-```
-Waits up to `timeout_ms` for a frame, snapshots the raw symbols (for `ir_get_last_raw`), decodes with `ir_decode`, and re-arms the channel. Signals the RGB LED (info on decode, warning on timeout/undecoded). Returns `ESP_OK` on decode, `ESP_ERR_TIMEOUT` if nothing arrived, `ESP_ERR_NOT_FOUND` if a frame arrived but did not decode, or an RMT error.
+`ir_rx_init()` and `ir_tx_init()` acquire the resource and negotiate the remote
+session. The initiating task owns it until release; a different task cannot
+send, receive or tear it down. RX, TX and torch are mutually exclusive. App and
+script calls also retain the existing `ir_lease`/persistent-worker permission
+boundary. UI sends release after each operation. UI capture and companion RX
+workers keep running until teardown is confirmed rather than exiting with an
+orphaned owner.
 
-#### `ir_get_last_raw`
-```c
-esp_err_t ir_get_last_raw(rmt_symbol_word_t *out_buf, size_t buf_max, size_t *out_count);
-```
-Copies the raw RMT symbols from the most recent received frame (mutex-guarded). `out_count` may be NULL. Returns `ESP_ERR_INVALID_ARG` on a NULL/zero buffer, `ESP_ERR_TIMEOUT` if the mutex could not be taken.
+`ir_rx_prime()` is retained for compatibility. Capture is armed by each
+`ir_receive()` call, so ambient frames between calls do not consume the next
+capture. `ir_receive()` returns decoded success, `ESP_ERR_NOT_FOUND` for an
+undecoded complete frame, timeout, explicit overflow, or a transport/backend
+error. Raw cache is cleared at capture start and only published after all
+fragments validate.
 
-### Transmit / encode
+`ir_get_last_raw()` reads that P4 cache without opening hardware. A destination
+smaller than the complete frame returns `ESP_ERR_INVALID_SIZE`; it never silently
+truncates. Cache remains available after closing the capture session.
 
-#### `ir_send`
-```c
-esp_err_t ir_send(const ir_data_t *data);
-```
-Encodes `data` with `ir_encode` and transmits it at the protocol's carrier frequency. Requires `ir_tx_init`. Returns `ESP_ERR_INVALID_ARG` if encoding produced no symbols, else the transmit result.
+`ir_send()` and `ir_send_raw()` upload a full frame, commit once and wait for
+confirmed completion. Codecs, AC and file adapters call the same backend.
+`ir_close()` returns a checked release result. Legacy `ir_rx_deinit()` and
+`ir_tx_deinit()` remain void wrappers; app workers detect retained ownership
+through `ir_lease_release()` and retry cleanup before another operation.
+`ir_flash_on()` waits for confirmed activation; `ir_flash_off()` closes the
+owning torch session. Diagnostic printing remains local.
 
-#### `ir_send_raw`
-```c
-esp_err_t ir_send_raw(const rmt_symbol_word_t *symbols, size_t count, uint32_t carrier_hz);
-```
-Transmits a raw symbol array. Pass `carrier_hz = 0` to disable the carrier. Returns `ESP_ERR_INVALID_ARG` on a NULL/empty array.
+## Build and validation
 
-### Torch / flashlight
+C5 `Service`, `esp_driver_rmt` and `esp_hal_rmt` compile with `-Os` to accommodate
+this backend in the existing 2 MiB OTA slots. The other hardware Drivers and
+C5 `sdkconfig.defaults` memory policy are unchanged. No generated dependency or
+SDK source is patched. Heap buffers are allocated only for active uploads or
+captures; the worker uses a fixed 4096-byte stack.
 
-#### `ir_flash_on` / `ir_flash_off`
-```c
-esp_err_t ir_flash_on(void);
-esp_err_t ir_flash_off(void);
-```
-`ir_flash_on` drives the emitter fully on as DC with no carrier: it releases the RMT TX channel (`ir_tx_deinit`) so it does not fight for the pin, reconfigures `GPIO_IR_TX_PIN` as a plain output, and holds it high at full power. This is continuous full-power drive - use it for tests or short bursts, do not leave it on long. `ir_flash_off` drives the pin low again (a later `ir_tx_init` re-routes it back to RMT). Both return `ESP_OK` or a GPIO driver error.
+`python3 tools/ir_remote/test_remote.py` links the production P4 client, C5
+backend, lease and codecs against a fake SPI/RMT HAL under ASan/UBSan. It covers
+lost commit responses, duplicate commits, capture/replay, full-size raw upload,
+AC signals, contention, invalid/missing/changed fragments, timeout, overflow,
+failed teardown, session loss, torch expiry and incomplete-upload cleanup.
+`tools/ir_api/test_ir_api.py` separately covers the production app/host-worker
+adapters and permission checks against a fault-injected IR service.
 
-### Logging helpers
-
-```c
-void ir_print_raw(const rmt_symbol_word_t *symbols, size_t count); // DEBUG level, capped at IR_PRINT_MAX_SYMBOLS
-void ir_print_data(const ir_data_t *data);                         // INFO level: protocol, address, command, repeat
-```
+Physical acceptance remains pending: optical replay/capture, carrier and mark
+polarity on a logic analyzer, long AC frames, cancellation/reset while active,
+DC current/temperature and simultaneous Wi-Fi/BLE/SPI load. Host tests cannot
+establish RMT interrupt latency, optical range or the electrical torch limit.
 
 ## Decoded Frame (`ir_data_t`)
 
@@ -210,12 +258,12 @@ Buffer ownership: `ir_file_parse` and `ir_file_add_raw` allocate the raw buffers
 
 ## Console Command
 
-Registered by `register_ir_commands()` in `Service/console/commands/cmd_ir.c`. The `rx` and `send` subcommands are one-shot: they init the RMT channel on demand and release it when done. `flash` is the exception - it stays on until `flash off`.
+Registered by `register_ir_commands()` in `Service/console/commands/cmd_ir.c`. The `rx` and `send` subcommands are one-shot remote operations. Torch expires after 1000 ms even without `flash off`.
 
 ```
 ir rx [timeout_ms]                        wait for one frame and decode it (default 5000 ms)
 ir send <proto> <addr> <cmd> [repeat]     transmit a code (addr/cmd accept 0x hex)
-ir flash <on|off>                         drive the emitter at full power (torch) / off
+ir flash <on|off>                         bounded DC torch (1000 ms maximum) / off
 ```
 
 - `ir rx` calls `ir_rx_init` + `ir_rx_prime`, waits for a frame, prints protocol/address/command (and `[repeat]`), then `ir_rx_deinit`. Reports timeout and undecoded-frame cases distinctly.
@@ -257,11 +305,10 @@ callers; a later local IR operation retries cleanup before starting new work.
 Init failures use the same checked teardown. No new app-created hardware task
 or firmware-pointer access is introduced.
 
-`tools/ir_api/test_ir_api.py` compiles production lease code, lifecycle wrappers,
-teardown functions, local backend and ABI with explicit RMT/RTOS fakes. It covers
-native/app contention, foreign teardown rejection, protocol conversion, stop,
-timeout and retained RX/TX/encoder cleanup. Actual optical operation remains
-part of physical acceptance.
+`tools/ir_api/test_ir_api.py` compiles production lease, host worker and ABI
+adapters against a fake IR service. Actual remote lifecycle and RMT retention
+are exercised separately by `tools/ir_remote/test_remote.py`. Optical operation
+remains part of physical acceptance.
 
 
 ## App and script adapters

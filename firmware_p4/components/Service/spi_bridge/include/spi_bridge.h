@@ -110,6 +110,19 @@ spi_bridge_run_scan(spi_id_t scan_id, spi_id_t status_id, const uint8_t *payload
  */
 void spi_bridge_set_alive(bool alive);
 
+// Recovery excludes all callers except its supervisor until finish. Begin drains
+// the blocking master transaction; failure never authorizes a hardware reset.
+esp_err_t spi_bridge_recovery_begin(uint32_t timeout_ms);
+void spi_bridge_recovery_finish(bool alive);
+uint32_t spi_bridge_link_generation(void);
+// Scoped maintenance excludes automatic recovery, but permits normal SPI OTA.
+bool spi_bridge_recovery_permitted(void);
+// Permanent until P4 restart: shutdown, ROM programming or uncertain OTA state.
+void spi_bridge_recovery_disable(void);
+bool spi_bridge_recovery_is_disabled(void);
+esp_err_t spi_bridge_maintenance_begin(void);
+void spi_bridge_maintenance_end(void);
+
 /**
  * @brief Whether the bridge is currently marked alive.
  *

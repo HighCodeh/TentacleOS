@@ -15,11 +15,9 @@
 
 
 idf_component_register(SRCS
+  "pins/board_pins.c"
   "led/led_control.c"
-  "spi/spi.c"
   "spi_slave/spi_slave_driver.c"
-  "i2c_init/i2c_init.c"
-  "buttons_gpio/buttons_gpio.c"
 
   INCLUDE_DIRS
   "sys_prio/include"

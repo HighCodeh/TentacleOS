@@ -25,9 +25,13 @@ extern "C" {
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "board_control.h"
+
+// Bind once at boot, before audio_i2s_init().
+void audio_i2s_bind_controls(const board_control_ops_t *ops);
 
 /**
- * @brief Bring up I2S_NUM_0 on the MAX98357 amp pins and start the audio
+ * @brief Bring up I2S_NUM_0 on the NS4168 amp pins and start the audio
  *        playback task. Idempotent - safe to call multiple times.
  */
 esp_err_t audio_i2s_init(void);
@@ -35,7 +39,7 @@ esp_err_t audio_i2s_init(void);
 /**
  * @brief Global output volume (0..100), applied on top of each sound's own
  *        amplitude. Perceptual (square-law) curve so the slider feels linear.
- *        Hardware gain on the MAX98357A is fixed, so this is digital scaling.
+ *        Hardware gain on the NS4168 is fixed, so this is digital scaling.
  */
 void audio_i2s_set_volume(uint8_t pct);
 

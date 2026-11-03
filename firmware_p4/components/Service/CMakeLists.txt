@@ -59,6 +59,8 @@ set(SCRIPT_ENGINE_SRCS
     ${SCRIPT_LUA_SRCS} ${SCRIPT_JS_SRCS})
 
 idf_component_register(SRCS
+  "board_service/board_service.c"
+  "haptic/haptic.c"
   ${SCRIPT_ENGINE_SRCS}
   "font/font.c"
   "icons/icons.c"
@@ -112,6 +114,7 @@ idf_component_register(SRCS
   "ota/ota_service.c"
 
   INCLUDE_DIRS
+  "board_service/include"
   "script_engine/include"
   "font/include"
   "icons/include"
@@ -122,6 +125,7 @@ idf_component_register(SRCS
   "sys_time/include"
   "power_manager/include"
   "ir/include"
+  "haptic/include"
   "storage_api/include"
   "storage_vfs/include"
   "storage_assets/include"

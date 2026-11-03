@@ -1,5 +1,20 @@
 #!/usr/bin/env python3
-"""Test production IR leasing, lifecycle wrappers, local worker backend and ABI."""
+# Copyright (c) 2025 HIGH CODE LLC
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
+"""Test production IR leasing, local worker backend and ABI against a mocked IR service."""
 import os
 from pathlib import Path
 import shlex
@@ -8,23 +23,8 @@ import tempfile
 ROOT=Path(__file__).resolve().parents[2]
 SERVICE=ROOT/'firmware_p4/components/Service'
 
-def function(source, signature):
-    start=source.index(signature)
-    opening=source.index('{',start)
-    depth,end=1,opening+1
-    while depth:
-        depth+=(source[end]=='{')-(source[end]=='}')
-        end+=1
-    return source[start:end]
-
 def main():
-    driver=(SERVICE/'ir/ir.c').read_text()
-    start=driver.index('static bool s_has_torch;')
-    end=driver.index('static esp_err_t rx_init_impl(void) {')
     harness=(ROOT/'tools/ir_api/test_ir_api.c').read_text()
-    harness=harness.replace('/* PRODUCTION_WRAPPERS */',driver[start:end])
-    for kind in ('RX','TX'):
-        harness=harness.replace('/* PRODUCTION_'+kind+'_DEINIT */',function(driver,'static void '+kind.lower()+'_deinit_impl(void) {'))
     with tempfile.TemporaryDirectory(prefix='tos-ir-api-') as tmp:
         tmp=Path(tmp);(tmp/'test.c').write_text(harness)
         production=(SERVICE/'app_runtime/tos_api_ir.c').read_text()

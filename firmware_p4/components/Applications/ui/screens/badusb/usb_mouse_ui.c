@@ -91,6 +91,7 @@ static int s_jig_ang = 0;
 static bool s_jiggle = false;
 static bool s_prev_mux_native = false;
 static bool s_usb_init_ok = false;
+static bool s_hid_initialized;
 static bool s_usb_ready = false;
 static bool s_ok_last = false;
 static int64_t s_ok_down_ms = 0;
@@ -126,12 +127,22 @@ static void refresh_chip(void) {
 }
 
 static void refresh_usb_status(void) {
-  bool ready = s_usb_init_ok && tud_mounted();
+  if (s_usb_init_ok && !s_hid_initialized && usb_mux_result() == ESP_OK && usb_mux_is_native()) {
+    esp_err_t ret = bad_usb_init();
+    s_hid_initialized = ret == ESP_OK || ret == ESP_ERR_INVALID_STATE;
+    s_usb_init_ok = s_hid_initialized;
+  }
+  bool ready = s_hid_initialized && s_usb_init_ok && usb_mux_result() == ESP_OK &&
+               usb_mux_is_native() && tud_mounted();
   if (ready == s_usb_ready && s_status_lbl != NULL)
     return;
   s_usb_ready = ready;
 
-  const char *text = !s_usb_init_ok ? "USB HID ERROR" : ready ? "USB HID READY" : "CONNECT USB...";
+  const char *text =
+      (!s_usb_init_ok || (usb_mux_result() != ESP_OK && usb_mux_result() != ESP_ERR_NOT_FINISHED))
+          ? "USB HID ERROR"
+      : ready ? "USB HID READY"
+              : "CONNECT USB...";
   lv_color_t color = !s_usb_init_ok ? lv_color_hex(UI_COL_DANGER)
                      : ready        ? lv_color_hex(UI_COL_SUCCESS)
                                     : current_theme.border_accent;
@@ -400,7 +411,7 @@ void ui_usb_mouse_stop(void) {
     s_jiggle_timer = NULL;
   }
   if (usb_mux_is_native() != s_prev_mux_native)
-    (void)usb_mux_set_native(s_prev_mux_native);
+    (void)usb_mux_request_native(s_prev_mux_native);
   s_usb_ready = false;
 }
 
@@ -429,14 +440,10 @@ void ui_usb_mouse_open(void) {
   s_ok_chord = false;
   s_jiggle_chord_latched = false;
 
+  s_hid_initialized = false;
   s_prev_mux_native = usb_mux_is_native();
-  esp_err_t usb_err = usb_mux_set_native(true);
-  if (usb_err == ESP_OK) {
-    esp_err_t hid_err = bad_usb_init();
-    s_usb_init_ok = hid_err == ESP_OK || hid_err == ESP_ERR_INVALID_STATE;
-  } else {
-    s_usb_init_ok = false;
-  }
+  esp_err_t usb_err = usb_mux_request_native(true);
+  s_usb_init_ok = usb_err == ESP_OK;
   s_usb_ready = false;
 
   s_screen = lv_obj_create(NULL);

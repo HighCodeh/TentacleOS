@@ -192,8 +192,30 @@ static TaskHandle_t s_stream_task_handle = NULL;
 static StackType_t *s_stream_stack = NULL;
 static StaticTask_t *s_stream_tcb = NULL;
 static volatile bool s_is_command_in_flight = false;
-static volatile bool s_bridge_alive = true;
-static volatile bool s_suspended = false;
+static atomic_bool s_bridge_alive = true;
+static atomic_bool s_suspended = false;
+#define SPI_RECOVERY_BOOT_GRACE_MS 10000
+static atomic_uint s_maintenance_end_ms;
+static atomic_bool s_recovery_disabled;
+static atomic_int s_maintenance_count;
+static _Atomic(TaskHandle_t) s_recovery_owner;
+static atomic_uint s_link_generation;
+
+static bool recovery_allows_traffic(void) {
+  return atomic_load(&s_maintenance_count) >= 0 ||
+         atomic_load(&s_recovery_owner) == xTaskGetCurrentTaskHandle();
+}
+
+static bool recovery_allows_command(spi_id_t id) {
+  if (atomic_load(&s_maintenance_count) >= 0)
+    return true;
+  if (!recovery_allows_traffic())
+    return false;
+  return id == SPI_ID_SYSTEM_PING || id == SPI_ID_SYSTEM_VERSION ||
+         id == SPI_ID_SYSTEM_PROTO_VERSION || id == SPI_ID_BOARD_NEGOTIATE ||
+         id == SPI_ID_BOARD_STATE;
+}
+
 static atomic_uint s_stream_epoch;
 static portMUX_TYPE s_stream_cb_lock = portMUX_INITIALIZER_UNLOCKED;
 static stream_cb_slot_t s_stream_cbs[SPI_STREAM_CB_SLOTS] = {0};
@@ -340,13 +362,13 @@ esp_err_t spi_bridge_master_init_mode(spi_bridge_mode_t mode) {
 esp_err_t spi_bridge_set_clock_hz(uint32_t hz) {
   if (hz != 2000000u && hz != 4000000u && hz != 10000000u)
     return ESP_ERR_INVALID_ARG;
-  if (s_suspended || s_spi_mutex == NULL)
+  if (!recovery_allows_traffic() || s_suspended || s_spi_mutex == NULL)
     return ESP_ERR_INVALID_STATE;
   if (xSemaphoreTake(s_spi_mutex, pdMS_TO_TICKS(1000)) != pdTRUE)
     return ESP_ERR_TIMEOUT;
   // Recheck after waiting: a legacy owner could have suspended the bridge
   // while this caller was waiting for the last transaction to finish.
-  if (s_suspended) {
+  if (!recovery_allows_traffic() || s_suspended) {
     xSemaphoreGive(s_spi_mutex);
     return ESP_ERR_INVALID_STATE;
   }
@@ -585,6 +607,81 @@ bool spi_bridge_is_alive(void) {
   return s_bridge_alive;
 }
 
+void spi_bridge_recovery_disable(void) {
+  atomic_store(&s_recovery_disabled, true);
+}
+bool spi_bridge_recovery_is_disabled(void) {
+  return atomic_load(&s_recovery_disabled);
+}
+
+bool spi_bridge_recovery_permitted(void) {
+  uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+  return !s_suspended && !spi_bridge_recovery_is_disabled() &&
+         atomic_load(&s_maintenance_count) == 0 &&
+         now - atomic_load(&s_maintenance_end_ms) >= SPI_RECOVERY_BOOT_GRACE_MS;
+}
+
+esp_err_t spi_bridge_maintenance_begin(void) {
+  int count = atomic_load(&s_maintenance_count);
+  while (count >= 0) {
+    if (atomic_compare_exchange_weak(&s_maintenance_count, &count, count + 1))
+      return ESP_OK;
+  }
+  return ESP_ERR_INVALID_STATE;
+}
+
+void spi_bridge_maintenance_end(void) {
+  atomic_store(&s_maintenance_end_ms, (uint32_t)(esp_timer_get_time() / 1000));
+  int count = atomic_load(&s_maintenance_count);
+  while (count > 0 && !atomic_compare_exchange_weak(&s_maintenance_count, &count, count - 1)) {}
+}
+
+uint32_t spi_bridge_link_generation(void) {
+  return atomic_load(&s_link_generation);
+}
+
+esp_err_t spi_bridge_recovery_begin(uint32_t timeout_ms) {
+  if (!spi_bridge_recovery_permitted())
+    return ESP_ERR_INVALID_STATE;
+  int expected = 0;
+  if (!atomic_compare_exchange_strong(&s_maintenance_count, &expected, -1))
+    return ESP_ERR_INVALID_STATE;
+  atomic_store(&s_recovery_owner, xTaskGetCurrentTaskHandle());
+  esp_err_t ret = spi_bridge_lock(timeout_ms);
+  if (ret == ESP_OK) {
+    uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    if (s_suspended || spi_bridge_recovery_is_disabled() ||
+        now_ms - atomic_load(&s_maintenance_end_ms) < SPI_RECOVERY_BOOT_GRACE_MS ||
+        !spi_bridge_phy_is_idle())
+      ret = ESP_ERR_INVALID_STATE;
+    else {
+      s_bridge_alive = false;
+      s_transport_ready = false;
+      s_master_session = 0;
+      s_slave_session = 0;
+      s_transaction = 0;
+      s_recovery_quiet_until = 0;
+      atomic_fetch_add(&s_link_generation, 1);
+    }
+    spi_bridge_unlock();
+    if (ret == ESP_OK)
+      ret = spi_bridge_stream_barrier(timeout_ms);
+  }
+  if (ret != ESP_OK) {
+    atomic_store(&s_recovery_owner, NULL);
+    atomic_store(&s_maintenance_count, 0);
+  }
+  return ret;
+}
+
+void spi_bridge_recovery_finish(bool alive) {
+  if (atomic_load(&s_recovery_owner) != xTaskGetCurrentTaskHandle())
+    return;
+  s_bridge_alive = alive;
+  atomic_store(&s_recovery_owner, NULL);
+  atomic_store(&s_maintenance_count, 0);
+}
+
 void spi_bridge_suspend(bool suspended) {
   s_suspended = suspended;
   if (suspended && s_spi_mutex != NULL) {
@@ -652,7 +749,9 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
   const int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * 1000;
   if ((!payload && len) || !timeout_ms)
     return ESP_ERR_INVALID_ARG;
-  if (s_suspended || !s_bridge_alive) {
+  if (s_suspended || !recovery_allows_command(id) ||
+      (!s_bridge_alive && id != SPI_ID_SYSTEM_PING &&
+       atomic_load(&s_recovery_owner) != xTaskGetCurrentTaskHandle())) {
     return ESP_ERR_INVALID_STATE;
   }
   if (s_spi_mutex == NULL) {
@@ -665,7 +764,9 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
       xSemaphoreTake(s_spi_mutex, pdMS_TO_TICKS((uint32_t)(remaining / 1000))) != pdTRUE) {
     return ESP_ERR_TIMEOUT;
   }
-  if (s_suspended || !s_bridge_alive) {
+  if (s_suspended || !recovery_allows_command(id) ||
+      (!s_bridge_alive && id != SPI_ID_SYSTEM_PING &&
+       atomic_load(&s_recovery_owner) != xTaskGetCurrentTaskHandle())) {
     xSemaphoreGive(s_spi_mutex);
     return ESP_ERR_INVALID_STATE;
   }
@@ -823,7 +924,7 @@ static bool has_any_stream_cb(void) {
 // pointer is valid until the next fetch_stream call (single consumer task).
 static esp_err_t fetch_stream(const uint8_t **out_records, uint16_t *out_batch_len) {
   const int64_t deadline = esp_timer_get_time() + (int64_t)SPI_IRQ_WAIT_MS * 1000;
-  if (s_suspended || !s_bridge_alive) {
+  if (s_suspended || !recovery_allows_traffic() || !s_bridge_alive) {
     return ESP_ERR_INVALID_STATE;
   }
   static uint8_t s_stream_tx[SPI_STREAM_FRAME_SIZE]; // stays zero; master clocks zeros out
@@ -902,6 +1003,7 @@ static void stream_task(void *arg) {
       continue;
     }
 
+    uint32_t generation = spi_bridge_link_generation();
     const uint8_t *records = NULL;
     uint16_t batch_len = 0;
     esp_err_t ret = fetch_stream(&records, &batch_len);
@@ -915,6 +1017,8 @@ static void stream_task(void *arg) {
     // exactly as if it had arrived in its own frame.
     uint16_t off = 0;
     while (off + 3u <= batch_len) {
+      if (generation != spi_bridge_link_generation())
+        break;
       uint16_t op = (uint16_t)records[off] | ((uint16_t)records[off + 1] << 8);
       uint8_t rec_len = records[off + 2];
       if ((uint32_t)off + 3u + rec_len > batch_len)

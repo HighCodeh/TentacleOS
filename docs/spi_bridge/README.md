@@ -17,6 +17,16 @@ along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 # TentacleOS - P4 ↔ C5 SPI Bridge
 
+## V2.03 pin ownership
+
+Bridge pins are unchanged. There is no IRQ connection: C5 defaults to POLL,
+rejects other modes with `ESP_ERR_NOT_SUPPORTED`, and never configures GPIO3
+for IRQ. The compatibility IRQ setter does not access GPIO. P4 initializes
+GPIO0/1 low to release the C5 reset/boot transistors before starting services.
+This stage does not implement automatic hardware recovery or change the v2
+command contract / transport revision 1. See [pins](../pins/README.md).
+
+
 How the two microcontrollers in TentacleOS talk to each other.
 
 This document contains the **architecture overview** and the details for both
@@ -26,6 +36,16 @@ sides. For side-specific detail and migration recipes see:
 
 ---
 
+
+## V2.03 remote IR extension
+
+`SPI_ID_IR_REMOTE` (system 0x11) carries revision-1 IR backend requests. It is
+separate from P4-local companion `SPI_CAT_IR` operations. Full frames are
+uploaded before commit; IDs and session epochs prevent duplicate optical TX.
+C5 dispatch is nonblocking; RMT execution/teardown belongs to the IR worker.
+A new SPI master session or transport recovery cancels the old IR session.
+Same-master HELLO/FETCH recovery does not repeat a commit. See [IR](../ir/README.md)
+for serialization, limits, capture fragments and release acknowledgement.
 
 ## Current SPI-only transport revision 1
 
@@ -1185,3 +1205,22 @@ barrier or C5 transport stop fails. This changes no protocol-v8 wire fields.
 The C5 `arm_diag` counters are logged at debug level. They report CS observations
 after hardware setup, not confirmed transfer failures. Invalid transfer lengths
 and transport failures retain their warning/error diagnostics.
+
+## V2.03 remote controls
+
+The negotiated [board control service](../board_control/README.md) owns remote
+amplifier enable, haptic reset and USB `/OE`, with explicit capability checks,
+state reconciliation and a C5 safe-state lease. Driver consumer integration
+continues in the subsequent migration stages.
+
+The V2.03 board-control extension now negotiates revision 2: STATE input bit 1
+reports the latched haptic INTN event. See [AW8623](../aw8623/README.md).
+
+## V2.03 physical recovery
+
+The [P4 supervisor](../bridge_manager/README.md) now coordinates bounded external
+C5 reset with transport exclusion, CS readback and callback draining. Recovery
+creates a fresh transport session and link generation; old session starts and
+stream batches are discarded. It does not change mode, clock, polling, CRC,
+FETCH size or DMA ownership. OTA/programming/shutdown guards and the P4-lifetime
+reset budget are described in the supervisor documentation.

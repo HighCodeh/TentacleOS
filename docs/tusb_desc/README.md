@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # TinyUSB Descriptors (HID + CDC + optional MSC Composite)
 
 This component defines the USB descriptors required to enumerate the ESP32-P4 as a USB composite device and provides the initialization routine for the TinyUSB driver. The composite is HID (Keyboard + Mouse, for BadUSB) plus a CDC-ACM interface (the companion host link), with an optional mass-storage (MSC) interface exposed only while the SD card is handed to the host.
@@ -106,52 +123,65 @@ therefore exposed only while the SD is actually handed to the host (mass-storage
 mode) and hidden again on exit. Only compiled in when `CFG_TUD_MSC` is set; a
 no-op otherwise.
 
-### `usb_mux_init`
-```c
-void usb_mux_init(void);
-```
-Configures the mux select pin as an output and defaults it to the UART bridge.
-Called once at boot from `kernel_init`.
+## V2.03 USB routing
 
-### `usb_mux_set_native`
-```c
-esp_err_t usb_mux_set_native(bool native);
-```
-Switches the USB-C data lines at runtime (no reset). `true` = P4 native USB
-(brings the TinyUSB composite up first, then routes the connector); `false` =
-CP2105 UART bridge.
+Descriptors and the native High Speed PHY remain unchanged. GPIO24/25 belong
+to the separate J15 debug connector; they are not the muxed native data pair.
+J12 routes through U13 (TPG3USB221YP): P4 GPIO19 low selects CP2105, high selects
+native P4. C5 GPIO4 owns active-low `/OE`. Boot preloads GPIO19 low and C5 GPIO4
+low, preserving CP2105 access without an operational SPI link. P4 also preloads
+charger OTG GPIO33 low.
 
-### `usb_mux_is_native`
-```c
-bool usb_mux_is_native(void);
-```
-Current mux state.
+The CP2105 ECI channel carries P4 UART0 (TX38/RX37); SCI carries C5 UART.
+Identify channels from USB interface metadata or boot logs, not a fixed OS port
+name or discovery order. This does not reinstate a direct P4-to-C5 UART flasher.
 
-## USB-C data mux (TS3USB221)
+`usb_mux_bind_controls()` injects the board interface once before
+`usb_mux_init()`. The mux worker and blocking worker API serialize the full
+sequence: prepare TinyUSB, confirm `/OE` disabled, wait 100 ms for detach, check
+session continuity, select GPIO19, then confirm `/OE` enabled in the same epoch.
+Only then does `usb_mux_is_native()` report true; enumeration still requires a
+host/cable. That getter also checks current remote validity and epoch.
 
-The HighBoy V2 has a **single Type-C connector** whose `D+/D-` are muxed by a
-**TS3USB221 (U13)** between two destinations, selected by
-`GPIO_USB_MUX_SEL_PIN` (GPIO19):
+- `usb_mux_request_native(bool)` is the UI-safe asynchronous API. ESP_OK means
+  accepted. `usb_mux_result()` reports NOT_FINISHED, completion or error.
+- `usb_mux_set_native(bool)` is the blocking worker API, used by MSC and USB
+  voice/session workers. It returns an error if another transition owns the mux.
+- Connection settings and mouse screens enqueue changes. The toggle follows
+  confirmation, and HID reports require a confirmed native route plus mount.
+- Failed/ambiguous switching selects CP2105 and schedules `/OE` restoration.
+  The worker retries recovery, including after a late disconnect ACK. A UI
+  request for CP2105 is retained even when a transition is busy.
+- On C5 restart/loss, the worker returns GPIO19 to CP2105. The C5 boot/lease safe
+  state also enables `/OE`; reconnection does not restore native automatically.
 
-| Select (GPIO19) | Route | Use |
-|-----------------|-------|-----|
-| LOW (default, 10k pulldown) | CP2105 USB-UART bridge | serial console + flashing |
-| HIGH | ESP32-P4 native USB PHY | TinyUSB composite (BadUSB HID + companion CDC) |
+Confirmation is bounded to 1200 ms per remote level assignment. The worker
+checks recovery every 100 ms when not busy. Failed physical GPIO writes cannot
+be guaranteed recovered by software; they remain errors and are retried.
+Recovery boot keeps the boot-selected CP2105 route and does not start native USB.
 
-Only one path is live at a time - they share the connector. Because the pin has
-a hardware pulldown, the board powers up on the **UART bridge**, so the serial
-console and flashing work by default. Flashing is unaffected either way: the ROM
-download mode runs before the app drives the pin.
+## Type-C role and power
 
-**Runtime toggle:** Settings -> Connection -> **USB NATIVE**. Turning it on calls
-`usb_mux_set_native(true)`; the switch is immediate and needs no reset, but the
-USB-serial console over that connector goes away until it is turned off (or the
-device resets, which returns to the UART default). BadUSB and the companion CDC
-only enumerate while the mux is on native.
+U2 HUSB320-BA000 has ADDR strapped low through R26 (910 kΩ), selecting `0x42`;
+PORT is floating (DRP default), EN_N is grounded, and INT/ID are not routed to
+firmware inputs. The new `Drivers/husb320` boot initializer checks DEVICE_TYPE,
+sets PORTROLE to sink-only with Try/accessory modes disabled, enables CONTROL1,
+and reads both settings back. It runs after I²C initialization even in recovery.
+No automatic source/OTG or VBUS discharge command is issued. Charger current
+policy remains with BQ25896; this driver does not infer a current budget from CC.
 
-> Earlier the firmware defined `GPIO_USB_MUX_SEL_PIN` but never drove it, so the
-> mux stayed on the UART bridge and native USB never enumerated. That was the
-> root cause of "only USB-UART works".
+Register definitions and enable behavior follow the manufacturer's
+[HUSB320 datasheet, tables 21 and 23](https://en.hynetek.com/uploadfiles/site/219/news/cd136f46-0b6d-43db-81da-3750dd522663.pdf).
+Initialization failures are recorded in the boot report; USB attachment is not
+claimed working in that case. A role change may cause a brief detach at startup.
+Before firmware runs, the hardware strap still determines the role: guaranteed
+sink-only operation in ROM/power-off requires a hardware PORT strap change, not
+an application patch. Validate both cable orientations, cold boot, recovery,
+P4/C5 resets, J15, UART/native enumeration and shutdown with/without VBUS on V2.03.
+
+`tools/board_control/test_consumers.py` exercises the production mux and HUSB320
+code with fault injection, including GPIO failure, lost/late acknowledgement,
+reboot during detach, readback mismatch and every I²C transaction failure.
 
 ## TinyUSB Callbacks
 

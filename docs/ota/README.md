@@ -223,3 +223,11 @@ C5 confirmation function with ASan/UBSan and explicit file/flash/OS/LVGL fixture
 It tests SD/partition/allocation/read/write/finalization failures, exclusivity,
 retained cleanup and retry, health/confirmation/rollback errors, task/timer
 failures and deletion-safe UI callbacks. These fixtures never flash a device.
+
+## V2.03 C5 recovery exclusion
+
+P4 OTA acquires the bridge maintenance guard before validation/flash operations
+and retains it through successful restart. Failed updates release it after cleanup;
+uncertain cleanup also latches automatic C5 reset off until P4 restarts. An active
+physical recovery rejects OTA startup before flash writes. See the
+[supervisor contract](../bridge_manager/README.md).

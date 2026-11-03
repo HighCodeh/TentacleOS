@@ -15,7 +15,7 @@
 
 /**
  * @file pin_def.h
- * @brief Central GPIO pin assignments for the ESP32-P4 (HighBoy V2 board).
+ * @brief Central GPIO pin assignments for the ESP32-P4 (High Boy V2.03 board).
  *
  * All hardware pin numbers are defined here. No driver should hardcode GPIO
  * numbers - use these defines instead.
@@ -55,14 +55,14 @@ extern "C" {
 #define GPIO_BTN_RIGHT_PIN 13
 #define GPIO_BTN_UP_PIN    3
 #define GPIO_BTN_DOWN_PIN  7
-#define GPIO_BTN_OK_PIN    25
+#define GPIO_BTN_OK_PIN    32
 #define GPIO_BTN_BACK_PIN  6
 
 /** @brief IMU QMI8658 (SPI shared). */
 #define GPIO_QMI8658A_CS_PIN 36
 
 /** @brief NFC ST25R3916 (SPI shared). */
-#define GPIO_NFC_CS_PIN  24
+#define GPIO_NFC_CS_PIN  49
 #define GPIO_NFC_IRQ_PIN 10
 
 /** @brief 125 kHz LF RFID. */
@@ -70,10 +70,6 @@ extern "C" {
 #define GPIO_RFID_LF_DATA_PIN    16
 #define GPIO_RFID_LF_MOD_PIN     11
 #define GPIO_RFID_LF_COIL_PIN    2
-
-/** @brief IR (TSOP receiver + LED). */
-#define GPIO_IR_TX_PIN 0
-#define GPIO_IR_RX_PIN 1
 
 /** @brief SX1262 LoRa (SPI shared). */
 #define GPIO_LORA_SCLK_PIN  21
@@ -102,12 +98,11 @@ extern "C" {
 #define GPIO_BRIDGE_CS_PIN   48
 #define GPIO_BRIDGE_IRQ_PIN  (-1)
 
-/** @brief C5 reset/boot (driven by the CP2105, not the P4). */
-#define GPIO_C5_RESET_PIN (-1)
-#define GPIO_C5_BOOT_PIN  (-1)
+/** @brief Inverting C5 reset/boot controls: low releases, high asserts. */
+#define GPIO_C5_RESET_PIN 0
+#define GPIO_C5_BOOT_PIN  1
 
 /** @brief Audio amplifier (I2S, NS4168). */
-#define GPIO_AUDIO_EN_PIN    49
 #define GPIO_AUDIO_LRCLK_PIN 29
 #define GPIO_AUDIO_BCLK_PIN  28
 #define GPIO_AUDIO_DIN_PIN   27
@@ -116,16 +111,13 @@ extern "C" {
 #define GPIO_MIC_PDM_CLK_PIN  54
 #define GPIO_MIC_PDM_DATA_PIN 53
 
-/** @brief Haptic driver (AW8623, I2C + trigger). */
-#define GPIO_HAPTIC_TRIG_PIN 32
-
 /** @brief BQ25896 OTG enable (U4 pin 8). U4 /CE pin 9 is tied to GND. */
 #define GPIO_CHARGER_OTG_PIN 33
 
-/** @brief USB D+/D- mux (TS3USB221). */
+/** @brief USB D+/D- mux (TPG3USB221YP). */
 #define GPIO_USB_MUX_SEL_PIN 19
 
-/** @brief P4 console UART0 (to CP2105 SCI). */
+/** @brief P4 console UART0 (to CP2105 ECI). */
 #define GPIO_P4_UART0_RX_PIN 37
 #define GPIO_P4_UART0_TX_PIN 38
 
@@ -136,19 +128,9 @@ extern "C" {
 #define GPIO_LED_RGB_PIN (-1)
 #define LED_COUNT        1
 
-/** @brief Legacy V1 pins - drivers not yet ported to V2 (c5_flasher UART push,
- *  ys_rfid2 UART reader). Kept so those V1 drivers still build. @todo port/exclude.
- *
- *  WARNING: on the HighBoy V2 there is NO direct P4<->C5 UART. The schematic
- *  routes the P4 UART0 (GPIO37/38 = RXD1/TXD1) and the C5 UART0 (GPIO11/12 =
- *  RXD2/TXD2) to two SEPARATE channels of the CP2105 USB bridge - they never
- *  meet. GPIO38 here is actually the P4's own console TX to the CP2105 (SCI),
- *  not a wire to the C5. So 'c5 ota uart' cannot reach the C5 (it just writes to
- *  the P4's USB serial); the only P4<->C5 data path is the SPI bridge. */
-#define GPIO_C5_UART_TX_PIN   38
-#define GPIO_C5_UART_RX_PIN   39
-#define GPIO_RFID_UART_TX_PIN 24
-#define GPIO_RFID_UART_RX_PIN 25
+/** @brief Debug USB connector J15. */
+#define GPIO_USB_DEBUG_DM_PIN 24
+#define GPIO_USB_DEBUG_DP_PIN 25
 
 #ifdef __cplusplus
 }

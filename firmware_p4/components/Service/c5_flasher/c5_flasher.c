@@ -20,13 +20,14 @@
 #include <string.h>
 
 #include "driver/gpio.h"
-#include "driver/uart.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "board_pins.h"
 #include "pin_def.h"
+#include "spi_session.h"
 #include "spi_bridge.h"
 #include "spi_protocol.h"
 
@@ -42,16 +43,10 @@ void c5_flasher_progress(uint32_t *sent, uint32_t *total) {
     *total = s_ota_total;
 }
 
-#define OTA_UART UART_NUM_1
-
-#define OTA_BAUD     115200
-#define OTA_UART_BUF 4096
-
-#define OTA_SPI_CHUNK         240   // firmware bytes per OTA_DATA command (fits the u8 length)
-#define OTA_DATA_TIMEOUT_MS   300   // per-chunk OTA_DATA timeout; short so a lost ack recovers fast
-#define OTA_CHUNK_DEADLINE_MS 5000  // total time to land one chunk (retries BUSY / lost acks)
-#define OTA_MAX_BLOCK         4096  // block buffer (UART writes; SPI uses OTA_SPI_CHUNK of it)
-#define OTA_UART_WINDOW       12288 // bytes the P4 may run ahead of the C5 (< its 16KB ring buffer)
+#define OTA_SPI_CHUNK         240  // firmware bytes per OTA_DATA command (fits the u8 length)
+#define OTA_DATA_TIMEOUT_MS   300  // per-chunk OTA_DATA timeout; short so a lost ack recovers fast
+#define OTA_CHUNK_DEADLINE_MS 5000 // total time to land one chunk (retries BUSY / lost acks)
+#define OTA_MAX_BLOCK         4096 // SD read buffer for SPI OTA
 
 #define C5_SD_FW_PATH "/sdcard/c5/TentacleOS_C5.bin"
 
@@ -65,61 +60,54 @@ void c5_flasher_progress(uint32_t *sent, uint32_t *total) {
 #define C5_REBOOT_TIMEOUT_MS      2000
 
 esp_err_t c5_flasher_init(void) {
-  const uart_config_t cfg = {
-      .baud_rate = OTA_BAUD,
-      .data_bits = UART_DATA_8_BITS,
-      .parity = UART_PARITY_DISABLE,
-      .stop_bits = UART_STOP_BITS_1,
-      .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-      .source_clk = UART_SCLK_DEFAULT,
-  };
-  if (!uart_is_driver_installed(OTA_UART)) {
-    esp_err_t err = uart_driver_install(OTA_UART, OTA_UART_BUF, 0, 0, NULL, 0);
-    if (err != ESP_OK) {
-      ESP_LOGE(TAG, "uart_driver_install: %s", esp_err_to_name(err));
-      return err;
-    }
-  }
-  esp_err_t cfg_err = uart_param_config(OTA_UART, &cfg);
-  if (cfg_err != ESP_OK) {
-    ESP_LOGE(TAG, "uart_param_config: %s", esp_err_to_name(cfg_err));
-    return cfg_err;
-  }
-  esp_err_t pin_err = uart_set_pin(
-      OTA_UART, GPIO_C5_UART_TX_PIN, GPIO_C5_UART_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-  if (pin_err != ESP_OK) {
-    ESP_LOGE(TAG, "uart_set_pin: %s", esp_err_to_name(pin_err));
-    return pin_err;
-  }
-  ESP_LOGI(TAG,
-           "C5 OTA UART ready: UART%d @ %d baud, TX=GPIO%d -> C5 RX, RX=GPIO%d <- C5 TX",
-           OTA_UART,
-           OTA_BAUD,
-           GPIO_C5_UART_TX_PIN,
-           GPIO_C5_UART_RX_PIN);
-  return ESP_OK;
+  return ESP_OK; // SPI transport needs no UART GPIO setup.
 }
 
 esp_err_t c5_flasher_enter_download(void) {
+  esp_err_t guard = spi_bridge_maintenance_begin();
+  if (guard != ESP_OK)
+    return guard;
   ESP_LOGW(TAG, "Requesting C5 to enter ROM download mode over SPI...");
 
   spi_header_t resp = {0};
   esp_err_t ret = spi_bridge_send_command(
       SPI_ID_SYSTEM_ENTER_DOWNLOAD, NULL, 0, &resp, NULL, 0, ENTER_DOWNLOAD_TIMEOUT_MS);
   if (ret == ESP_OK || ret == ESP_ERR_TIMEOUT) {
+    spi_bridge_recovery_disable();
+    spi_bridge_maintenance_end();
     vTaskDelay(pdMS_TO_TICKS(300));
     return ESP_OK;
   }
+  spi_bridge_maintenance_end();
   ESP_LOGE(TAG, "enter-download command failed: %s", esp_err_to_name(ret));
   return ret;
 }
 
+esp_err_t c5_flasher_enter_download_physical(void) {
+  esp_err_t ret = spi_bridge_recovery_begin(ENTER_DOWNLOAD_TIMEOUT_MS);
+  if (ret != ESP_OK)
+    return ret;
+  spi_bridge_recovery_disable();
+  spi_session_link_lost();
+  spi_bridge_suspend(true);
+  ret = board_pins_download_c5();
+  spi_bridge_recovery_finish(false);
+  if (ret == ESP_OK) {
+    ESP_LOGI(TAG, "C5 BOOT asserted and reset pulsed; use its CP2105 port, then power-cycle");
+  }
+  return ret;
+}
+
 esp_err_t c5_flasher_reboot(void) {
+  esp_err_t guard = spi_bridge_maintenance_begin();
+  if (guard != ESP_OK)
+    return guard;
   ESP_LOGW(TAG, "Requesting C5 reboot over SPI...");
 
   spi_header_t resp = {0};
   esp_err_t ret =
       spi_bridge_send_command(SPI_ID_SYSTEM_REBOOT, NULL, 0, &resp, NULL, 0, C5_REBOOT_TIMEOUT_MS);
+  spi_bridge_maintenance_end();
   if (ret == ESP_OK || ret == ESP_ERR_TIMEOUT) {
     return ESP_OK;
   }
@@ -128,20 +116,7 @@ esp_err_t c5_flasher_reboot(void) {
 }
 
 void c5_flasher_release_uart(void) {
-  if (uart_is_driver_installed(OTA_UART))
-    uart_driver_delete(OTA_UART);
-
-  gpio_reset_pin(GPIO_C5_UART_TX_PIN);
-  gpio_reset_pin(GPIO_C5_UART_RX_PIN);
-  gpio_set_direction(GPIO_C5_UART_TX_PIN, GPIO_MODE_INPUT);
-  gpio_set_direction(GPIO_C5_UART_RX_PIN, GPIO_MODE_INPUT);
-  gpio_set_pull_mode(GPIO_C5_UART_TX_PIN, GPIO_FLOATING);
-  gpio_set_pull_mode(GPIO_C5_UART_RX_PIN, GPIO_FLOATING);
-  ESP_LOGW(TAG,
-           "C5 UART lines released: GPIO%d/GPIO%d now hi-Z inputs.",
-           GPIO_C5_UART_TX_PIN,
-           GPIO_C5_UART_RX_PIN);
-  ESP_LOGW(TAG, "External USB-serial can now own the C5 UART. Reboot P4 to restore.");
+  ESP_LOGI(TAG, "C5 UART is independently connected to CP2105");
 }
 
 // Poll the C5's OTA progress over SPI. Fills @p st on success.
@@ -154,49 +129,51 @@ static esp_err_t c5_ota_poll(spi_ota_status_t *st) {
 esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size, uint8_t transport) {
   FILE *f = NULL;
   uint8_t *block = NULL;
+  bool ota_attempted = false;
+  bool ota_terminal = false;
   esp_err_t result = ESP_FAIL;
-  // NOTE: SPI_OTA_TRANSPORT_UART does NOT work on the HighBoy V2 - there is no
-  // direct P4<->C5 UART on this board. The schematic wires the P4 UART0 and the
-  // C5 UART0 to two separate CP2105 channels (they only meet over USB), so the
-  // bytes we write on GPIO38 go to the P4's own USB serial, never to the C5, and
-  // the C5's receiver stalls. It is kept for a future board that routes a real
-  // P4->C5 UART; on V2 use SPI_OTA_TRANSPORT_SPI. See GPIO_C5_UART_* in pin_def.h.
-  const bool uart = (transport == SPI_OTA_TRANSPORT_UART);
+  if (transport != SPI_OTA_TRANSPORT_SPI)
+    return ESP_ERR_NOT_SUPPORTED;
+  result = spi_bridge_maintenance_begin();
+  if (result != ESP_OK)
+    return result;
+  result = ESP_FAIL;
 
   if (bin_data == NULL) {
     f = fopen(C5_SD_FW_PATH, "rb");
     if (f == NULL) {
       ESP_LOGE(TAG, "C5 firmware not on SD: %s (is the card inserted?)", C5_SD_FW_PATH);
-      return ESP_ERR_NOT_FOUND;
+      result = ESP_ERR_NOT_FOUND;
+      goto cleanup;
     }
     fseek(f, 0, SEEK_END);
     long fsz = ftell(f);
     fseek(f, 0, SEEK_SET);
     if (fsz <= 0) {
       ESP_LOGE(TAG, "C5 firmware on SD is empty: %s", C5_SD_FW_PATH);
-      fclose(f);
-      return ESP_ERR_INVALID_SIZE;
+      result = ESP_ERR_INVALID_SIZE;
+      goto cleanup;
     }
     bin_size = (uint32_t)fsz;
   }
   if (bin_size == 0) {
     ESP_LOGE(TAG, "Invalid image size");
-    return ESP_ERR_INVALID_ARG;
+    result = ESP_ERR_INVALID_ARG;
+    goto cleanup;
   }
 
   block = malloc(OTA_MAX_BLOCK);
   if (block == NULL) {
     ESP_LOGE(TAG, "no memory for OTA block buffer");
-    if (f != NULL)
-      fclose(f);
-    return ESP_ERR_NO_MEM;
+    result = ESP_ERR_NO_MEM;
+    goto cleanup;
   }
 
   ESP_LOGI(TAG,
            "C5 OTA: pushing %lu bytes (%s) over %s",
            (unsigned long)bin_size,
            (f != NULL) ? "SD image" : "caller image",
-           uart ? "UART (control on SPI)" : "SPI");
+           "SPI");
 
   // Control is on SPI regardless of transport. Tell the C5 to begin (size +
   // transport); it erases the target partition, then receives the image over the
@@ -208,6 +185,7 @@ esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size, uint8_t 
   bool started = false;
   for (int attempt = 1; attempt <= OTA_SYNC_ATTEMPTS && !started; attempt++) {
     spi_header_t sresp = {0};
+    ota_attempted = true;
     spi_bridge_send_command(SPI_ID_SYSTEM_OTA_BEGIN,
                             (const uint8_t *)&begin_req,
                             sizeof(begin_req),
@@ -222,6 +200,7 @@ esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size, uint8_t 
         break;
       }
       if (st.state == SPI_OTA_STATE_ERROR) {
+        ota_terminal = true;
         ESP_LOGE(TAG, "C5 reported ERROR on OTA begin");
         goto cleanup;
       }
@@ -245,6 +224,7 @@ esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size, uint8_t 
         break;
       }
       if (st.state == SPI_OTA_STATE_ERROR) {
+        ota_terminal = true;
         ESP_LOGE(TAG, "C5 reported ERROR before streaming");
         goto cleanup;
       }
@@ -259,13 +239,13 @@ esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size, uint8_t 
   ESP_LOGI(TAG,
            "C5 erased its OTA slot - streaming %lu bytes over %s...",
            (unsigned long)bin_size,
-           uart ? "UART" : "SPI");
+           "SPI");
 
   uint32_t off = 0;
   uint32_t t_stream0 = xTaskGetTickCount();
   s_ota_total = bin_size;
   s_ota_sent = 0;
-  const uint32_t block_sz = uart ? OTA_MAX_BLOCK : OTA_SPI_CHUNK;
+  const uint32_t block_sz = OTA_SPI_CHUNK;
   while (off < bin_size) {
     uint32_t chunk = (bin_size - off > block_sz) ? block_sz : bin_size - off;
     const uint8_t *src;
@@ -284,30 +264,7 @@ esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size, uint8_t 
       src = bin_data + off;
     }
 
-    if (uart) {
-      // UART transport: write the block raw, then pace to the C5's committed
-      // count so we never run past its ring buffer, and catch a reported ERROR.
-      int w = uart_write_bytes(OTA_UART, (const char *)src, chunk);
-      if (w < 0) {
-        ESP_LOGE(TAG, "uart_write_bytes failed @ %lu", (unsigned long)off);
-        goto cleanup;
-      }
-      uart_wait_tx_done(OTA_UART, pdMS_TO_TICKS(2000));
-      off += chunk;
-      int64_t bdl = esp_timer_get_time() + (int64_t)OTA_CHUNK_DEADLINE_MS * 1000;
-      while (esp_timer_get_time() < bdl) {
-        if (c5_ota_poll(&st) == ESP_OK) {
-          if (st.state == SPI_OTA_STATE_ERROR) {
-            ESP_LOGE(TAG, "C5 reported ERROR @ %lu", (unsigned long)off);
-            goto cleanup;
-          }
-          if (off - st.bytes_written <= OTA_UART_WINDOW) {
-            break; // enough headroom in the C5's ring buffer to keep going
-          }
-        }
-        vTaskDelay(pdMS_TO_TICKS(2));
-      }
-    } else {
+    {
       // SPI transport: OTA_DATA chunk. The C5 buffers it and acks at once (a
       // writer task does the flash). OK -> advance; BUSY -> writer behind, wait
       // and resend; TIMEOUT -> ack lost, ask bytes_written (off or off+chunk,
@@ -326,6 +283,7 @@ esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size, uint8_t 
         } else if (dr == ESP_ERR_TIMEOUT) {
           if (c5_ota_poll(&st) == ESP_OK) {
             if (st.state == SPI_OTA_STATE_ERROR) {
+              ota_terminal = true;
               ESP_LOGE(TAG, "C5 reported ERROR @ %lu", (unsigned long)off);
               goto cleanup;
             }
@@ -367,11 +325,13 @@ esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size, uint8_t 
   while (esp_timer_get_time() < deadline) {
     if (c5_ota_poll(&st) == ESP_OK) {
       if (st.state == SPI_OTA_STATE_DONE) {
+        ota_terminal = true;
         ESP_LOGI(TAG, "C5 DONE - OTA applied, C5 rebooting into new firmware");
         result = ESP_OK;
         break;
       }
       if (st.state == SPI_OTA_STATE_ERROR) {
+        ota_terminal = true;
         ESP_LOGE(TAG, "C5 ERROR - OTA rejected (image invalid or write failure)");
         break;
       }
@@ -390,6 +350,11 @@ esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size, uint8_t 
   }
 
 cleanup:
+  if (ota_attempted && !ota_terminal) {
+    spi_bridge_recovery_disable();
+    ESP_LOGW(TAG, "C5 OTA state unknown; automatic reset disabled until P4 restart");
+  }
+  spi_bridge_maintenance_end();
   free(block);
   if (f != NULL)
     fclose(f);

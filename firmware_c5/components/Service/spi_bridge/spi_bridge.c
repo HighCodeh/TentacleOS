@@ -34,6 +34,8 @@
 #include "soc/soc.h"
 
 #include "mqtt_bridge.h"
+#include "board_service.h"
+#include "ir_remote.h"
 #include "bt_dispatcher.h"
 #include "config_cache.h"
 #include "grok_wifi.h"
@@ -237,11 +239,14 @@ static void enter_download_mode(void) {
 }
 
 esp_err_t spi_bridge_slave_init(void) {
-  return spi_bridge_slave_init_mode(SPI_BRIDGE_MODE_IRQ);
+  return spi_bridge_slave_init_mode(SPI_BRIDGE_MODE_POLL);
 }
 
 esp_err_t spi_bridge_slave_init_mode(spi_bridge_mode_t mode) {
-  s_use_irq = (mode == SPI_BRIDGE_MODE_IRQ);
+  if (mode != SPI_BRIDGE_MODE_POLL) {
+    return ESP_ERR_NOT_SUPPORTED;
+  }
+  s_use_irq = false;
   esp_err_t ret = spi_slave_driver_init();
   if (ret != ESP_OK)
     return ret;
@@ -465,6 +470,8 @@ static void bridge_task(void *pvParameters) {
       goto queue_response;
     }
     if (action == SPI_TRANSPORT_SYNC) {
+      if (master_session != request.master_session)
+        ir_remote_disconnect();
       master_session = request.master_session;
       last_sequence = request.sequence;
       memset(tx_buf, 0, SPI_FRAME_SIZE);
@@ -530,7 +537,15 @@ static void bridge_task(void *pvParameters) {
     else
       switch (header->category) {
         case SPI_CAT_SYSTEM:
-          if (cmd == SPI_ID_SYSTEM_PING) {
+          if (cmd == SPI_ID_IR_REMOTE) {
+            status = ir_remote_dispatch(cmd_payload, header->length, resp_payload, &resp_len);
+          } else if (cmd == SPI_ID_BOARD_NEGOTIATE || cmd == SPI_ID_BOARD_STATE ||
+                     cmd == SPI_ID_BOARD_SET) {
+            board_service_reply_t reply = {0};
+            status = board_service_dispatch(cmd, cmd_payload, header->length, &reply);
+            resp_len = reply.length;
+            memcpy(resp_payload, reply.data, reply.length);
+          } else if (cmd == SPI_ID_SYSTEM_PING) {
             status = SPI_STATUS_OK;
           } else if (cmd == SPI_ID_SYSTEM_REBOOT) {
             status = SPI_STATUS_OK;
@@ -894,6 +909,7 @@ recover_transport:
     do {
       if (!recover_transport(fault_stage, transfer, master_session))
         return;
+      ir_remote_disconnect();
       master_session = 0;
       last_sequence = 0;
       cached_size = 0;

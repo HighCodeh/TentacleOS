@@ -14,22 +14,21 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "kernel.h"
+#include "board_pins.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 
 #include "driver/gpio.h"
-#include "driver/i2c.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
 
-#include "buttons_gpio.h"
+#include "board_service.h"
+#include "ir_remote.h"
 #include "c5_log.h"
-#include "i2c_init.h"
-#include "led_control.h"
 #include "ota_service.h"
 #include "pin_def.h"
 #include "spi_bridge.h"
@@ -52,6 +51,7 @@ static void heap_alloc_failed_cb(size_t size, uint32_t caps, const char *functio
 }
 
 void kernel_init(void) {
+  ESP_ERROR_CHECK(board_pins_init());
   heap_caps_register_failed_alloc_callback(heap_alloc_failed_cb);
 
   esp_err_t ret = nvs_flash_init();
@@ -59,7 +59,6 @@ void kernel_init(void) {
   // Fail closed below; migration/recovery requires a separate reviewed action.
   ESP_ERROR_CHECK(ret);
 
-  init_i2c();
   // Only the assets partition is mounted: it holds P4-editable config (AP name,
   // password, captive-portal HTML, chat config, known networks). Captured data
   // (passwords, pcaps, scans) is NOT persisted on the C5 - it streams to the P4
@@ -71,6 +70,8 @@ void kernel_init(void) {
   // The BQ25896 charger and RGB LED live on the P4 and are managed there; the C5
   // has no battery/charger driver at all (it is not on the C5's I2C bus).
   // V2 PCB has no bridge IRQ trace: run the slave in POLL mode (matches the P4).
+  ESP_ERROR_CHECK(board_service_init());
+  ESP_ERROR_CHECK(ir_remote_init());
   spi_bridge_slave_init_mode(SPI_BRIDGE_MODE_POLL);
   c5_log_init(); // tee C5 logs to the P4 over SPI for the companion console
   // OTA is triggered on demand over SPI (SPI_ID_SYSTEM_START_UART_OTA); UART0 is

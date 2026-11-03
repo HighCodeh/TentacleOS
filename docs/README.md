@@ -71,6 +71,8 @@ README.md, separated by `---`.
 | `rf_frontend` | [README.md](rf_frontend/README.md) - shared NFC/LF antenna and native RFID ownership |
 | `nfc` | [README.md](nfc/README.md) - NFC read/write application |
 | `ota` | [README.md](ota/README.md)  |
+| `husb320` | [Type-C policy](tusb_desc/README.md#type-c-role-and-power) - V2.03 sink-only initialization |
+| `board_control` | [README.md](board_control/README.md) - V2.03 remote amp, haptic reset and USB enable |
 | `pins` | [README.md](pins/README.md) - board pin assignment definitions |
 | `power_manager` | [README.md](power_manager/README.md) - battery and power-state management service |
 | `recovery` | [README.md](recovery/README.md)  |
@@ -93,3 +95,7 @@ README.md, separated by `---`.
 | `ys_rfid2` | [README.md](ys_rfid2/README.md) - YS-RFID2 125 kHz RFID reader driver |
 
 - [FatFS exFAT override](fatfs/README.md) — verified SDK patch generation and filesystem tests.
+
+V2.03 C5 backend: [remote IR lifecycle and wire contract](ir/README.md).
+
+- [AW8623 ERM playback, diagnostics and migration status](aw8623/README.md)

@@ -23,6 +23,7 @@ extern "C" {
 #include <stdbool.h>
 
 #include "esp_err.h"
+#include "board_control.h"
 #include "tinyusb.h"
 
 // Composite device interfaces: HID (BadUSB) + CDC-ACM (companion host link).
@@ -87,14 +88,18 @@ bool busb_msc_is_exposed(void);
  * (serial console / flashing available by default).
  */
 void usb_mux_init(void);
+void usb_mux_bind_controls(const board_control_ops_t *ops);
+// UI-safe enqueue. Poll result; ESP_OK here means accepted, not connected.
+esp_err_t usb_mux_request_native(bool native);
+esp_err_t usb_mux_result(void);
 
 /**
- * @brief Switch the USB-C data lines at runtime (no reset needed).
+ * @brief Switch the USB-C data lines; blocking worker-only API. UI uses request_native.
  *
  * @param native  true = P4 native USB (TinyUSB HID + CDC); false = CP2105
  *                USB-UART bridge. Selecting native brings the TinyUSB composite
  *                up first. Only one path is live at a time (shared connector).
- * @return ESP_OK, or the TinyUSB install error when switching to native.
+ * @return ESP_OK after confirmed switching, or a control/transport/TinyUSB error.
  */
 esp_err_t usb_mux_set_native(bool native);
 

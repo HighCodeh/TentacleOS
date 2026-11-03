@@ -1,3 +1,18 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 #ifndef TEST_PLATFORM_H
 #define TEST_PLATFORM_H
 #include <assert.h>
@@ -46,4 +61,7 @@ esp_err_t storage_assets_write_file(const char *,const char *);
 uint32_t ui_render_beat(void);
 esp_err_t power_manager_no_sleep_acquire(void);
 esp_err_t power_manager_no_sleep_release(void);
+esp_err_t spi_bridge_maintenance_begin(void);
+void spi_bridge_maintenance_end(void);
+void spi_bridge_recovery_disable(void);
 #endif

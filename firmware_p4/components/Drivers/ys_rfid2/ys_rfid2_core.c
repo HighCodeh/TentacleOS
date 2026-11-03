@@ -62,8 +62,8 @@ ys_rfid2_config_t ys_rfid2_default_config(void) {
   ys_rfid2_config_t config = {
       .uart_port = UART_NUM_2,
       .baud_rate = RFID_DEFAULT_BAUD,
-      .tx_pin = GPIO_RFID_UART_TX_PIN,
-      .rx_pin = GPIO_RFID_UART_RX_PIN,
+      .tx_pin = UART_PIN_NO_CHANGE,
+      .rx_pin = UART_PIN_NO_CHANGE,
       .debounce_ms = RFID_DEFAULT_DEBOUNCE_MS,
       .removal_timeout_ms = RFID_DEFAULT_REMOVAL_MS,
   };
@@ -71,44 +71,9 @@ ys_rfid2_config_t ys_rfid2_default_config(void) {
 }
 
 esp_err_t ys_rfid2_init(const ys_rfid2_config_t *config) {
-  if (s_rfid.state != YS_RFID2_STATE_UNINITIALIZED) {
-    return ESP_ERR_INVALID_STATE;
-  }
-
-  if (config != NULL) {
-    s_rfid.config = *config;
-  } else {
-    s_rfid.config = ys_rfid2_default_config();
-  }
-
-  s_rfid.mutex = xSemaphoreCreateMutex();
-  if (s_rfid.mutex == NULL) {
-    ESP_LOGE(TAG, "Failed to create mutex");
-    return ESP_ERR_NO_MEM;
-  }
-
-  ys_rfid2_hal_uart_config_t hal_config = {
-      .port = s_rfid.config.uart_port,
-      .baud_rate = s_rfid.config.baud_rate,
-      .tx_pin = s_rfid.config.tx_pin,
-      .rx_pin = s_rfid.config.rx_pin,
-  };
-
-  esp_err_t ret = ys_rfid2_hal_uart_init(&hal_config);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to init HAL UART: %s", esp_err_to_name(ret));
-    vSemaphoreDelete(s_rfid.mutex);
-    s_rfid.mutex = NULL;
-    return ret;
-  }
-
-  s_rfid.state = YS_RFID2_STATE_IDLE;
-  s_rfid.has_last_card = false;
-
-  ESP_LOGI(
-      TAG, "Initialized — port: %d, baud: %d", s_rfid.config.uart_port, s_rfid.config.baud_rate);
-
-  return ESP_OK;
+  (void)config;
+  ESP_LOGW(TAG, "V2.03 uses native LF RFID, not UART RFID");
+  return ESP_ERR_NOT_SUPPORTED;
 }
 
 esp_err_t ys_rfid2_deinit(void) {

@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # Boot Report: Boot Map & Crash Forensics
 
 On-device diagnostics for the ESP32-P4 covering two things: **why the last run
@@ -26,12 +43,27 @@ const boot_stage_t *boot_report_stages(int *out_count);
 bool boot_report_all_required_ok(void);
 ```
 
-Recorded stages with their real return codes, in the order `kernel_init` runs
-them: `nvs` (required), `i2c` (optional, degrades charger/haptic/LED only),
-`sd-storage` (optional, absent SD is fine), `sd-health` (optional, recorded only
-when the SD is mounted), `assets` (required), `battery` (optional), `audio`
-(optional), `display` (required), `lvgl` (required, recorded only when the panel
-came up). A **required** failure makes `kernel_init` drop into
+The P4 initializes safe GPIO levels, then I2C, the BQ25896 charger and the
+HUSB320 Type-C controller before NVS, SD, assets or display startup. The power
+stages are optional: failures remain visible in the boot map. If I2C fails,
+charger and Type-C initialization are not attempted; their stages report the
+bus error. A charger failure does not prevent the independent Type-C attempt.
+Safe mode uses the same early power initialization without resetting the charger
+again. Battery telemetry starts later during normal peripheral initialization.
+
+Recorded stages in startup order: `i2c`, `battery`, `usb-typec` (optional),
+`nvs` (required), `rfid-lf` (optional), `sd-storage` (optional), `sd-health`
+(optional, only when SD is mounted), `assets` (required), `display` and `lvgl`
+(required; LVGL only after panel success), `audio`, `console` and `boot-sound`
+(optional, when their initialization paths are reached).
+
+This sequence configures the existing power policy earlier; it does not raise
+current limits or disable brownout detection. Resets inside the ROM/bootloader
+occur before this sequence can run. The C5 retains its startup order: safe pins,
+NVS/assets, board controls, SPI bridge, then Wi-Fi. There is no cross-chip power
+readiness handshake.
+
+A **required** failure makes `kernel_init` drop into
 [safe mode](../recovery/README.md) instead of booting blind, and the function
 returns `ESP_FAIL`. Manual/boot-loop recovery also returns `ESP_FAIL`, so
 `app_main` never confirms a pending OTA or synchronizes asset version metadata

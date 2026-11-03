@@ -1,71 +1,120 @@
-# Bridge Manager - P4
+<!--
+Copyright (c) 2025 HIGH CODE LLC
 
-The **P4-side lifecycle / link manager for the P4<->C5 SPI bridge**. It brings the
-bridge up in the right handshake mode, checks that the two chips agree on the wire
-contract, keeps the link status honest while the C5 comes and goes, and is the
-entry point that triggers a C5 firmware update.
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
 
-- Location: `firmware_p4/components/Service/bridge_manager/`
-- Transport it drives: [`../spi_bridge/README.md`](../spi_bridge/README.md)
-- Update path it triggers: [`../c5_flasher/README.md`](../c5_flasher/README.md)
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
 
-## API
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
 
-```c
-esp_err_t bridge_manager_init(void);         // bring up the bridge + run the boot checks
-esp_err_t bridge_manager_force_update(void); // push a C5 app OTA (SD image, SPI transport)
-```
+# Bridge manager — V2.03 physical recovery
 
-## What `bridge_manager_init()` does
+The P4 supervisor initializes the SPI bridge in polling mode and monitors C5
+availability. Default SPI remains 4 MHz, mode 0, protocol v2 / transport revision 1.
+CRC, response caching, FETCH sizing and DMA ownership are unchanged.
 
-1. **Bridge init (POLL mode).** The HighBoy V2 PCB has no bridge IRQ trace
-   (`GPIO_BRIDGE_IRQ_PIN == -1`), so the master polls the bus instead of waiting
-   on an IRQ: `spi_bridge_master_init_mode(SPI_BRIDGE_MODE_POLL)`. The C5 slave
-   must be initialized in the matching mode.
-2. **App-version check.** Reads the C5 firmware version (`SPI_ID_SYSTEM_VERSION`)
-   and compares it against the P4's expected `FIRMWARE_VERSION` (generated from
-   `common/metadata/version_info.txt`, currently **1.4.0**). This is
-   **detection-only**: a mismatch just logs "update available" and a silent C5
-   marks the bridge down - the P4 never auto-flashes. The user updates explicitly
-   with the `c5` console command.
-3. **Proto-version match check (SPI-2).** `check_c5_protocol()` reads the C5's
-   `SPI_ID_SYSTEM_PROTO_VERSION` and compares it against `SPI_PROTOCOL_VERSION`
-   (**2**). This is the second integrity layer, distinct from the per-frame CRC
-   (SPI-1): a drifted `spi_protocol.h` leaves the bytes intact but makes the two
-   ends assign them different meaning, which the CRC cannot catch. On mismatch
-   (or an older C5 that answers `UNSUPPORTED`) it logs loudly and calls
-   `led_signal_error()`, but keeps the bridge up - detection, not enforcement.
-4. **Starts the C5 link monitor task** (below).
+`bridge_manager_init()` initializes the bridge and board controls, checks the C5
+application/protocol version and starts one monitor task. Application version
+mismatch is informational; no automatic firmware update occurs.
+`bridge_manager_force_update()` is the explicit C5 SPI OTA entry point.
 
-## C5 link monitor
+## Detection and budget
 
-A background task (`c5_link_monitor`), pinned to `SYS_CORE_RADIO` at
-`SYS_PRIO_SERVICE_LO`, that re-detects a C5 which booted late or rebooted after an
-OTA:
+After a ten-second boot/maintenance grace period, the monitor sends a read-only
+PING every 1.5 seconds, with a 500 ms deadline. Three consecutive transport
+failures are required before considering a physical reset. A successful PING
+clears the consecutive-failure counter. Local allocation errors, suspension and
+maintenance do not count as reasons to reset C5. A responding but incompatible
+peer stays unavailable instead of entering a reset loop.
 
-- Idles while `spi_bridge_is_alive()` - it never pokes the bus once the link is up.
-- While the bridge is dead, every ~1.5 s it optimistically probes
-  `SPI_ID_SYSTEM_VERSION` (500 ms timeout). On success it marks the bridge alive,
-  calls `led_signal_info()` to clear the degraded indicator, and re-runs
-  `check_c5_protocol()`. On failure it drops back to dead and retries later.
+P4 permits at most **two physical reset attempts per P4 boot**, at least **30
+seconds apart**. Attempts include uncertain GPIO failures. Neither a successful
+probe nor a C5 reboot/epoch change replenishes this budget. This bounds external
+restarts independently of C5's existing internal recovery/restart budget.
+After exhaustion, read-only probes continue; a peer that later recovers can be
+negotiated without another reset. Restarting P4 creates a new budget.
 
-## C5-link LED signalling
+## Exclusive recovery sequence
 
-The manager reflects bridge health on the status LED via `led_control`:
+1. Atomically reserve recovery against maintenance holders. Other tasks cannot
+   start commands, stream fetches or diagnostic clock changes during recovery.
+   Only the supervisor's PING/version/protocol and BOARD_NEGOTIATE/STATE commands
+   are admitted; callbacks cannot start an operation using the supervisor's task.
+2. Drain the blocking master transaction under its mutex (500 ms acquisition
+   limit). Confirm a normal PHY, no legacy session and inactive CS. CS readback
+   explicitly enables its input buffer without replacing the peripheral output.
+   **A stuck transaction/DMA or active CS refuses reset**; buffers are not freed
+   and DMA is not forcibly aborted.
+3. Invalidate transport sessions/sequence and advance the P4 link generation.
+   Drain stream callbacks through the existing barrier (500 ms). Old fetched
+   batches and late session-start results are rejected by generation checks.
+4. Invalidate the active SPI application session, release its radio grant and
+   invoke its existing lost callback. No unknown command is replayed.
+5. For physical reset, drive P4 GPIO1 low to release C5 BOOT through T14; wait
+   10 ms. Drive GPIO0 high through T13 to assert C5 reset for 20 ms, then low to
+   release it. Always attempt release after an assertion error. These are project
+   timing margins; validate them against the assembled reset circuit.
+6. Wait 2 seconds before the first negotiation attempt. This is a boot settling
+   delay, not proof of readiness. Fresh transport HELLO, protocol check and board
+   capability/state negotiation must succeed before admitting normal traffic.
+   If boot takes longer, subsequent PING probes can reestablish the link without
+   another physical reset.
+7. Board reconciliation cancels old pending intents and reports the new epoch and
+   confirmed safe outputs. Old remote handles/uploads disappear on C5 reset;
+   IR and peripheral clients reject their old epoch. Other consumers receive
+   bridge errors and retain their existing timeout/lost-session handling.
 
-- `led_signal_error()` on a proto-version mismatch / unavailable (headers out of
-  sync - reflash both).
-- `led_signal_info()` when the link is (re)established, clearing the warning state.
+A failed drain or callback barrier never authorizes GPIO reset. A failed
+negotiation leaves the bridge down. There is no restore of old effects, radio
+operations or upload data after reconnecting.
 
-## OTA triggering
+## OTA, programming and shutdown
 
-`bridge_manager_force_update()` runs `c5_flasher_init()` then
-`c5_flasher_update(NULL, 0, SPI_OTA_TRANSPORT_SPI)` - i.e. the C5 app OTA streamed
-from the SD image over the SPI transport (control always on the bridge). See the
-c5_flasher doc for the OTA flow.
+`spi_bridge_maintenance_begin/end()` provide nested reset exclusion while still
+allowing normal SPI traffic. P4 OTA, C5 OTA, explicit reboot and power-off acquire
+it before their side effects. An already running recovery rejects a new OTA or
+power-off request; the caller can retry. A ten-second grace period follows the
+last maintenance release. Power-off retains its hold; the restart/shutdown hook
+also permanently disables new automatic recovery.
 
-## Safe reads (out_capacity clamp)
+`spi_bridge_recovery_disable()` latches automatic recovery off until P4 restarts.
+Explicit ROM-download requests latch it even when their acknowledgement is lost.
+An uncertain C5 OTA result, or failed P4 OTA cleanup, also latches it. This keeps
+a silent ROM loader/flash writer from being mistaken for a hung app. Definitive
+C5 DONE/ERROR and preflight failures release the scoped maintenance hold.
+Manual SPI commands/updates remain available when recovery is disabled.
 
-Every `spi_bridge_send_command()` call passes an explicit `out_capacity` equal to
-the receiving buffer's `sizeof`, so a slave that announces (or a corrupted length
-that inflates) more bytes than the buffer holds is clamped and cannot overflow it.
+External programming uses C5's independent CP2105 port. Before deliberate external
+programming with P4 running, explicitly enter download mode through the firmware
+so recovery is inhibited, or keep P4 off. P4 cannot observe an external programmer's
+intent. No UART P4→C5 flasher or automatic bootloader entry is implemented.
+
+## Validation
+
+`python3 tools/spi_transport/test_supervisor.py` executes production supervisor,
+exclusion-gate and C5 updater code with ASan/UBSan fault injection. Cases include
+isolated/persistent failure, local memory pressure, lock/CS/barrier refusal,
+maintenance nesting, owner-only negotiation, generation invalidation, reset
+failure, cooldown, nonrenewable budget, incompatible peers, unknown OTA outcome,
+preflight cleanup and intentional ROM entry.
+
+The GPIO suite tests reset polarity/order/delays and every GPIO failure; the board
+suite tests safe renegotiation and discarded haptic intent. Existing transport
+and DMA suites cover delayed replies, bad CRC, duplicates, lost replies, restart
+and ownership. P4 OTA tests check the hold before flash writes and until restart.
+These tests and builds do not qualify electrical timing. Bench acceptance still
+requires logic-analyzer captures under radio/BLE/IR/audio load and fault injection.
+See the [migration plan](../highboy/V2_03_MIGRATION_PLAN.md),
+[SPI transport](../spi_bridge/README.md) and [board controls](../board_control/README.md).
+
+Paired ESP-IDF v6.1 build passed on 2026-11-03: P4 `0x2c8110` bytes
+(`0x7ef0` free), C5 `0x1fee30` bytes (`0x11d0` free). Original partitions,
+paired protocol headers and C5 memory policy are preserved. No flashing was performed.

@@ -101,8 +101,7 @@ static size_t s_raw_count = 0;
 
 static void compute_stats(void) {
   s_raw_count = 0;
-  if (ir_rx_init() == ESP_OK)
-    ir_get_last_raw(s_raw, IR_MAX_SYMBOLS, &s_raw_count);
+  ir_get_last_raw(s_raw, IR_MAX_SYMBOLS, &s_raw_count);
 
   uint32_t total = 0, peak = 0;
   for (size_t i = 0; i < s_raw_count; i++) {

@@ -19,13 +19,17 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sys_prio.h"
 
 #include "audio_i2s.h"
-#include "drv2605l.h"
+#include "haptic.h"
+#include "tos_config.h"
 #include "ui_theme.h"
+
+static const char *TAG = "NFC_UI_COMMON";
 
 #define RING_MIN    26
 #define RING_MAX    116
@@ -33,9 +37,8 @@
 
 #define NFC_SND_AMP 0.40f
 
-#define NFC_SND_TASK_STACK_SIZE      8192
-#define NFC_SND_TASK_PRIORITY        SYS_PRIO_SERVICE_LO
-#define DRV2605L_EFFECT_DOUBLE_CLICK 10
+#define NFC_SND_TASK_STACK_SIZE 8192
+#define NFC_SND_TASK_PRIORITY   SYS_PRIO_SERVICE_LO
 
 static const audio_note_t SND_FOUND_NOTES[] = {
     {1318, 70},
@@ -50,11 +53,11 @@ static volatile bool s_snd_busy = false;
 
 static void nfc_snd_task(void *arg) {
   nfc_ui_sound_t kind = (nfc_ui_sound_t)(intptr_t)arg;
+  if (g_config_system.vibration)
+    (void)haptic_play(HAPTIC_FEEDBACK_INTENSITY, HAPTIC_FEEDBACK_MS);
   if (kind == NFC_SND_SAVE) {
-    (void)drv2605l_play_effect(DRV2605L_EFFECT_DOUBLE_CLICK);
     audio_i2s_play_song(SND_SAVE_NOTES, 2, NFC_SND_AMP);
   } else {
-    (void)drv2605l_play_effect(1);
     audio_i2s_play_song(SND_FOUND_NOTES, 2, NFC_SND_AMP);
   }
   s_snd_busy = false;

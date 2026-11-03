@@ -1,4 +1,45 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # Audio I2S Driver (P4)
+
+## V2.03 control sequence
+
+The amplifier CTRL is C5 GPIO0; P4 GPIO49 is exclusively NFC CS. The kernel
+injects `board_service_controls()` through `audio_i2s_bind_controls()` before
+initialization. Only the enable level crosses SPI; PCM, volume, I2S and PDM
+capture stay local. Initialization allocates TX resources without enabling the
+amp or waiting for the C5, so an unavailable C5 does not block microphone use.
+
+Blocking playback APIs run in audio/media workers, not LVGL callbacks. Before
+playback, the driver confirms amp off, sets/enables the I2S clock, flushes old
+DMA samples with silence, and confirms amp on in the same negotiated session.
+Each PCM write checks that session and the known enable state. After a C5 reboot
+or stale snapshot, writes stop with an error; old playback is not resumed.
+Stopping drains silence and requests confirmed mute. A later explicit playback
+request can reconcile the new session. The idle audio worker also retries mute
+after an ambiguous/late enable result. Hardware click/pop performance is still
+a bench acceptance item; host tests validate ordering and error paths only.
+
+The confirmation helper has a 1200 ms maximum wait, is task-only, and never
+calls SPI itself; the board service owns transport. UI feedback remains queued.
+Uninitialized/busy one-shot playback now returns INVALID_STATE rather than
+reporting a sound as successful. Microphone functions have no amp dependency.
+
 
 This component drives the on-board audio path of the HighBoy V2 (ESP32-P4 firmware only): a class-D speaker amplifier for playback (TX) and a PDM microphone for capture (RX), both on a single I2S port. It owns one persistent TX channel used for UI chimes, tones, melodies, raw PCM and continuous streaming, and opens independent PDM-RX channels for mic recording and live streaming.
 
@@ -10,7 +51,7 @@ This component drives the on-board audio path of the HighBoy V2 (ESP32-P4 firmwa
 - **Dependencies:** `driver/i2s_std`, `driver/i2s_pdm`, `driver/gpio`, `freertos`, `pin_def`, `sys_prio`
 - **I2S port:** `I2S_NUM_0` (master role). The single TX channel and the PDM-RX channels share this one port.
 
-> **Part naming note:** the public header docstrings refer to a **MAX98357A** amplifier, while the driver source (`audio_i2s.c`) and the pin map (`pin_def.h`) name an **NS4168** amp and an **MSM261** PDM mic. The code and pin comments are the authoritative wiring reference; the amplifier is enabled by taking its shutdown pin high, and its hardware gain is fixed, so volume is applied digitally.
+> **Part naming note:** the public header docstrings refer to a **MAX98357A** amplifier, while the driver source (`audio_i2s.c`) and the pin map (`pin_def.h`) name an **NS4168** amp and an **MSM261** PDM mic. The V2.03 schematic identifies the amp as NS4168 and the mic as LMD3526B21-0FA01; the amplifier is enabled by taking its shutdown pin high, and its hardware gain is fixed, so volume is applied digitally.
 
 ## Signal Path
 
@@ -22,7 +63,7 @@ This component drives the on-board audio path of the HighBoy V2 (ESP32-P4 firmwa
 - **DMA depth:** `AUDIO_DMA_DESC_NUM` = 8 descriptors x `AUDIO_DMA_FRAME_NUM` = 256 frames (~46 ms, ~8 KB internal RAM), deeper than the IDF default for underrun slack.
 - **Underrun behaviour:** `auto_clear = true`, so a starved channel emits zeros instead of looping the stale buffer.
 - **Anti-click:** each note gets a raised-cosine attack (`ENV_ATTACK_MS` = 4 ms) / release (`ENV_RELEASE_MS` = 8 ms) envelope, and playback brackets sounds with short silence; melodies use a continuous phase accumulator for gapless rendering.
-- **Amp enable:** `GPIO_AUDIO_EN_PIN` is driven high (out of shutdown) at init; idempotent.
+- **Amp enable:** confirmed remotely on C5 GPIO0 through the injected board interface.
 
 ### RX (PDM microphone)
 
@@ -43,7 +84,7 @@ This component drives the on-board audio path of the HighBoy V2 (ESP32-P4 firmwa
 
 | Signal | Define | GPIO |
 | :--- | :--- | :--- |
-| Amp enable / shutdown | `GPIO_AUDIO_EN_PIN` | 49 |
+| Amp enable / shutdown | C5 `GPIO_AUDIO_EN_PIN` | C5 0 |
 | I2S bit clock (BCLK) | `GPIO_AUDIO_BCLK_PIN` | 28 |
 | I2S word select (LRCLK / WS) | `GPIO_AUDIO_LRCLK_PIN` | 29 |
 | I2S data out (DOUT) | `GPIO_AUDIO_DIN_PIN` | 27 |
@@ -74,7 +115,7 @@ Sets global output volume (0..100), clamped. Applied as a perceptual (square-law
 ```c
 esp_err_t audio_i2s_play_tone(float freq_hz, int dur_ms, float amp);
 ```
-Plays a single blocking sine tone at 44.1 kHz mono. `amp` is in [0..1]. Returns `ESP_ERR_TIMEOUT` if the channel is busy (sound dropped), `ESP_OK` otherwise (also when not ready or a stream is active).
+Plays a single blocking sine tone at 44.1 kHz mono. `amp` is in [0..1]. Returns `ESP_ERR_TIMEOUT` if the channel is busy (sound dropped), an explicit error when unavailable/busy, and `ESP_OK` on completed playback.
 
 #### `audio_i2s_play_song` / `audio_i2s_play_song_cb`
 ```c
@@ -151,8 +192,6 @@ Queues a 3-note boot chime (C5 -> E5 -> G5, ~130-180 ms each). Non-blocking; dro
 void audio_click(void);
 ```
 Queues a short click (~30 ms, ~2 kHz). Non-blocking; dropped if the queue already holds pending entries so rapid button presses never pile up.
-</content>
-</invoke>
 
 
 ## Bounded boot sound

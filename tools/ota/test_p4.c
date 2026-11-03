@@ -14,6 +14,15 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "test_platform.h"
+static unsigned recovery_holds;
+static bool recovery_busy, recovery_disabled;
+void spi_bridge_recovery_disable(void) { recovery_disabled = true; }
+esp_err_t spi_bridge_maintenance_begin(void) {
+  if (recovery_busy) return ESP_ERR_INVALID_STATE;
+  recovery_holds++;
+  return ESP_OK;
+}
+void spi_bridge_maintenance_end(void) { assert(recovery_holds); recovery_holds--; }
 static FILE *test_open(const char *,const char *);
 static int test_stat(const char *,struct stat *);
 static int test_seek(FILE *,long,int);
@@ -104,6 +113,7 @@ esp_err_t power_manager_no_sleep_release(void) {assert(s_power==1 && !s_handle_l
 const esp_partition_t *esp_ota_get_next_update_partition(const void *p) {(void)p;return s_fault==NO_PARTITION?NULL:s_fault==SAME_PARTITION?&RUNNING:&NEXT;}
 const esp_partition_t *esp_ota_get_running_partition(void) {return s_fault==NO_RUNNING?NULL:&RUNNING;}
 esp_err_t esp_ota_begin(const esp_partition_t *part,size_t size,esp_ota_handle_t *out) {
+  assert(recovery_holds == 1);
   assert(part==&NEXT && size==OTA_WITH_SEQUENTIAL_WRITES && s_buffer && !s_handle_live && s_power==1);++s_begins;
   if (s_fault == BEGIN_ERROR) {
     return ESP_FAIL;
@@ -135,7 +145,7 @@ esp_err_t esp_ota_abort(esp_ota_handle_t handle) {
 esp_err_t esp_ota_set_boot_partition(const esp_partition_t *part) {
   assert(part==&NEXT && !s_handle_live && s_ends==1);++s_boots;return s_fault==BOOT_ERROR?ESP_FAIL:ESP_OK;
 }
-void esp_restart(void) {assert(s_boots==1 && s_power==1 && !s_file_open && !s_buffer && !s_handle_live);++s_restarts;}
+void esp_restart(void) {assert(recovery_holds == 1);assert(s_boots==1 && s_power==1 && !s_file_open && !s_buffer && !s_handle_live);++s_restarts;}
 void vTaskDelay(uint32_t ticks) {
   if(ticks==1){++s_yields;return;}
   assert(ticks==3000);++s_health_waits;if(s_renderer)s_beat+=4;
@@ -156,6 +166,7 @@ static void progress(int percent,const char *message) {
   if(s_reenter){s_reenter=false;assert(ota_start_update(NULL)==ESP_ERR_INVALID_STATE);}
 }
 static void reset(void) {
+  recovery_holds = 0; recovery_busy = recovery_disabled = false;
   assert(!s_handle_live && !s_file_open && !s_buffer);s_fault=NORMAL;s_power=0;
   s_begins=s_writes=s_ends=s_aborts=s_boots=s_restarts=s_closes=s_removes=s_yields=s_syncs=0;
   s_confirms=s_health_waits=0;s_written=s_file_offset=0;
@@ -163,6 +174,8 @@ static void reset(void) {
   s_state_error=s_confirm_error=ESP_OK;s_assets=s_renderer=true;s_ota_state=ESP_OTA_IMG_VALID;s_beat=0;
 }
 int main(void) {
+  reset(); recovery_busy = true;
+  assert(ota_start_update(NULL) == ESP_ERR_INVALID_STATE && s_begins == 0 && recovery_holds == 0);
   for(fault_t fault=NORMAL;fault<=POWER_RELEASE_ERROR;++fault) {
     reset();s_fault=fault;
     if(fault==POWER_RELEASE_ERROR)s_is_available=false;
@@ -170,6 +183,7 @@ int main(void) {
     esp_err_t error=ota_start_update(progress);
     if(fault==NORMAL){assert(error==ESP_OK && s_written==8205 && s_writes==3 && s_yields==3 && s_removes==1 && s_restarts==1);assert(ota_get_state()==OTA_STATE_REBOOTING);}
     else {assert(error!=ESP_OK && s_restarts==0 && s_removes==0 && ota_get_state()==OTA_STATE_ERROR);}
+    assert(recovery_holds == (fault == NORMAL ? 1U : 0U));
     if(fault==SHORT_READ || fault==READ_ERROR)assert(s_writes==0 && s_aborts==1);
     if(fault==NO_MEMORY)assert(s_begins==0);
     if(fault==ABORT_ERROR){assert(s_handle_live && s_has_pending_handle && s_has_power_hold && !s_buffer && !s_file_open);s_fault=NORMAL;s_is_available=false;assert(ota_start_update(NULL)==ESP_ERR_NOT_FOUND);assert(!s_handle_live && s_power==0);}

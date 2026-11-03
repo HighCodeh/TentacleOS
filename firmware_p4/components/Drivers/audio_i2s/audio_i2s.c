@@ -128,19 +128,23 @@ static void tx_unlock(void) {
     (void)xSemaphoreGive(s_tx_mux);
 }
 
-/**
- * @brief Take the NS4168 out of shutdown (CTRL/EN high). Idempotent.
- */
-static void amp_enable(void) {
-  gpio_config_t en_cfg = {
-      .mode = GPIO_MODE_OUTPUT,
-      .pin_bit_mask = 1ULL << GPIO_AUDIO_EN_PIN,
-      .intr_type = GPIO_INTR_DISABLE,
-      .pull_up_en = GPIO_PULLUP_DISABLE,
-      .pull_down_en = GPIO_PULLDOWN_DISABLE,
-  };
-  gpio_config(&en_cfg);
-  gpio_set_level(GPIO_AUDIO_EN_PIN, 1);
+static const board_control_ops_t *s_controls;
+static uint64_t s_amp_epoch;
+static esp_err_t s_play_error;
+
+void audio_i2s_bind_controls(const board_control_ops_t *ops) {
+  s_controls = ops;
+}
+
+static esp_err_t amp_set(bool enabled) {
+  return board_control_apply(s_controls, BOARD_CONTROL_AMP, enabled, enabled ? &s_amp_epoch : NULL);
+}
+
+static bool amp_confirmed(void) {
+  board_control_status_t state;
+  return s_controls != NULL && s_controls->get_status(&state) == ESP_OK && state.is_compatible &&
+         state.epoch == s_amp_epoch && state.outputs[BOARD_CONTROL_AMP].is_known &&
+         state.outputs[BOARD_CONTROL_AMP].confirmed;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,6 +162,8 @@ static void amp_enable(void) {
  * whatever had not gone out yet.
  */
 static esp_err_t tx_drain(void) {
+  if (s_chunk_buf == NULL || s_tx == NULL)
+    return ESP_ERR_INVALID_STATE;
   const int dma_samples = AUDIO_DMA_DESC_NUM * AUDIO_DMA_FRAME_NUM;
   memset(s_chunk_buf, 0, CHUNK_SAMPLES * sizeof(int16_t));
   uint32_t attempts = 0;
@@ -210,7 +216,11 @@ static esp_err_t tx_set_rate(uint32_t rate) {
 
 /** @brief Set the rate and make sure the channel is running. */
 static esp_err_t tx_begin(uint32_t rate) {
-  esp_err_t err = tx_set_rate(rate);
+  s_play_error = ESP_OK;
+  esp_err_t err = amp_set(false);
+  if (err != ESP_OK)
+    return err;
+  err = tx_set_rate(rate);
   if (err != ESP_OK)
     return err;
   if (!s_tx_enabled) {
@@ -221,7 +231,11 @@ static esp_err_t tx_begin(uint32_t rate) {
     }
     s_tx_enabled = true;
   }
-  return ESP_OK;
+  // Clear any old DMA audio while the amplifier is confirmed muted.
+  err = tx_drain();
+  if (err == ESP_OK)
+    err = amp_set(true);
+  return err;
 }
 
 /**
@@ -239,7 +253,13 @@ static esp_err_t tx_begin(uint32_t rate) {
  * sounded like.
  */
 static esp_err_t tx_end(void) {
-  return tx_drain();
+  esp_err_t ret = tx_drain();
+  esp_err_t mute = amp_set(false);
+  if (ret != ESP_OK)
+    return ret;
+  if (s_play_error != ESP_OK)
+    return s_play_error;
+  return mute;
 }
 
 /**
@@ -252,14 +272,22 @@ static esp_err_t tx_end(void) {
 static int write_all(const int16_t *buf, int n_samples) {
   int done = 0;
   while (done < n_samples) {
+    if (!amp_confirmed()) {
+      s_play_error = ESP_ERR_INVALID_STATE;
+      break;
+    }
     size_t w = 0;
     esp_err_t err = i2s_channel_write(
         s_tx, &buf[done], (n_samples - done) * sizeof(int16_t), &w, TX_WRITE_WAIT_MS);
-    if (w > (size_t)(n_samples - done) * sizeof(int16_t) || w % sizeof(int16_t) != 0)
+    if (w > (size_t)(n_samples - done) * sizeof(int16_t) || w % sizeof(int16_t) != 0) {
+      s_play_error = ESP_ERR_INVALID_RESPONSE;
       break;
+    }
     done += (int)(w / sizeof(int16_t));
-    if (err != ESP_OK || w == 0)
-      break; // stalled or disabled underneath us: give up rather than spin
+    if (err != ESP_OK || w == 0) {
+      s_play_error = err == ESP_OK ? ESP_FAIL : err;
+      break;
+    } // stalled or disabled underneath us: give up rather than spin
   }
   return done;
 }
@@ -332,8 +360,15 @@ static void audio_task(void *arg) {
   (void)arg;
   fx_t fx;
   while (true) {
-    if (xQueueReceive(s_fx_q, &fx, portMAX_DELAY) != pdTRUE)
+    if (xQueueReceive(s_fx_q, &fx, pdMS_TO_TICKS(TX_LOCK_WAIT_MS)) != pdTRUE) {
+      // Reconcile a late enable ACK after a failed start without replaying audio.
+      if (!s_streaming && tx_lock(0)) {
+        if (!s_streaming)
+          (void)amp_set(false);
+        tx_unlock();
+      }
       continue;
+    }
     if (s_streaming)
       continue;
     if (!tx_lock(pdMS_TO_TICKS(FX_TX_WAIT_MS)))
@@ -352,8 +387,6 @@ static void audio_task(void *arg) {
 esp_err_t audio_i2s_init(void) {
   if (s_ready)
     return ESP_OK;
-
-  amp_enable();
 
   i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
   chan_cfg.dma_desc_num = AUDIO_DMA_DESC_NUM;
@@ -439,8 +472,7 @@ esp_err_t audio_i2s_init(void) {
 
   s_ready = true;
   ESP_LOGI(TAG,
-           "audio I2S ready (EN=%d BCLK=%d WS=%d DOUT=%d @ %d Hz)",
-           GPIO_AUDIO_EN_PIN,
+           "audio I2S ready (BCLK=%d WS=%d DOUT=%d @ %d Hz)",
            GPIO_AUDIO_BCLK_PIN,
            GPIO_AUDIO_LRCLK_PIN,
            GPIO_AUDIO_DIN_PIN,
@@ -475,13 +507,13 @@ void audio_click(void) {
 
 esp_err_t audio_i2s_play_tone(float freq_hz, int dur_ms, float amp) {
   if (!s_ready || s_streaming)
-    return ESP_OK;
+    return ESP_ERR_INVALID_STATE;
   if (!tx_lock(pdMS_TO_TICKS(TX_LOCK_WAIT_MS)))
     return ESP_ERR_TIMEOUT; // busy: drop the sound, never stall the caller
 
   if (s_streaming) {
     tx_unlock();
-    return ESP_OK;
+    return ESP_ERR_INVALID_STATE;
   }
   esp_err_t err = tx_begin(SAMPLE_RATE_HZ);
   if (err == ESP_OK) {
@@ -501,13 +533,13 @@ esp_err_t audio_i2s_play_song_cb(
   if (notes == NULL || count <= 0)
     return ESP_ERR_INVALID_ARG;
   if (!s_ready || s_streaming)
-    return ESP_OK;
+    return ESP_ERR_INVALID_STATE;
   if (!tx_lock(pdMS_TO_TICKS(TX_LOCK_WAIT_MS)))
     return ESP_ERR_TIMEOUT;
 
   if (s_streaming) {
     tx_unlock();
-    return ESP_OK;
+    return ESP_ERR_INVALID_STATE;
   }
   esp_err_t err = tx_begin(SAMPLE_RATE_HZ);
   if (err == ESP_OK) {
@@ -528,13 +560,13 @@ esp_err_t audio_i2s_play_pcm(const int16_t *pcm, size_t n_samples, uint32_t samp
   if (pcm == NULL || n_samples == 0)
     return ESP_ERR_INVALID_ARG;
   if (!s_ready || s_streaming)
-    return ESP_OK;
+    return ESP_ERR_INVALID_STATE;
   if (!tx_lock(pdMS_TO_TICKS(TX_LOCK_WAIT_MS)))
     return ESP_ERR_TIMEOUT;
 
   if (s_streaming) {
     tx_unlock();
-    return ESP_OK;
+    return ESP_ERR_INVALID_STATE;
   }
   esp_err_t err = tx_begin(sample_rate);
   if (err == ESP_OK) {
@@ -609,6 +641,8 @@ int audio_i2s_stream_write(const int16_t *pcm, int n_samples) {
     if (wrote != n)
       break; // channel stalled mid-stream
   }
+  if (done == 0 && s_play_error != ESP_OK)
+    done = -1;
   tx_unlock();
   return done;
 }
@@ -621,7 +655,7 @@ void audio_i2s_stream_stop(void) {
   // Drain rather than a short tail: the last chunk of the track is still
   // sitting in the DMA queue at this point and would be lost on the next
   // rate change (which disables the channel).
-  esp_err_t result = tx_drain();
+  esp_err_t result = tx_end();
   if (result != ESP_OK) {
     ESP_LOGE(TAG, "Stream drain failed: %s", esp_err_to_name(result));
     result = i2s_channel_disable(s_tx);

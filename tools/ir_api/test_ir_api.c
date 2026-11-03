@@ -1,3 +1,18 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -13,33 +28,50 @@
 
 static bool s_locked;
 static void *s_caller=(void *)1;
-static void *s_rx_chan,*s_tx_chan,*s_tx_encoder,*s_rx_queue;
-static bool s_is_rx_inited,s_is_tx_inited;
-static int s_rx_res,s_tx_res;
-#define RES_HANDLE_NONE 0
-static uint32_t s_current_carrier;
-static bool s_rx_armed;
-static bool s_fail_delete,s_fail_encoder;
-static unsigned s_queue_freed,s_resources_freed,s_transmits;
+// ABI tests use a fault-injectable IR service; paired hardware ownership is
+// exercised against production code by tools/ir_remote/test_remote.py.
+static void *s_rx_chan, *s_tx_chan, *s_tx_encoder;
+static bool s_has_torch;
+static bool s_fail_delete, s_fail_encoder;
+static unsigned s_queue_freed, s_resources_freed, s_transmits;
 static esp_err_t s_receive_error;
 static ir_data_t s_sent;
-static esp_err_t rmt_disable(void *channel) {assert(channel);return ESP_OK;}
-static esp_err_t rmt_del_channel(void *channel) {assert(channel);return s_fail_delete?ESP_FAIL:ESP_OK;}
-static esp_err_t rmt_del_encoder(void *encoder) {assert(encoder);return s_fail_encoder?ESP_FAIL:ESP_OK;}
-static void vQueueDelete(void *queue) {assert(queue);++s_queue_freed;}
-static void resource_release(int handle) {if(handle)++s_resources_freed;}
-#define ESP_LOGE(tag,...) ((void)0)
-#define ESP_LOGI(tag,...) ((void)0)
-const char *esp_err_to_name(esp_err_t e) {(void)e;return "fixture";}
-TaskHandle_t xTaskGetCurrentTaskHandle(void) {return s_caller;}
-/* PRODUCTION_WRAPPERS */
-/* PRODUCTION_RX_DEINIT */
-/* PRODUCTION_TX_DEINIT */
-static esp_err_t rx_init_impl(void) {s_rx_chan=(void *)1;s_rx_queue=(void *)2;s_rx_res=1;s_is_rx_inited=true;return ESP_OK;}
-static void rx_prime_impl(void) {}
-static esp_err_t tx_init_impl(void) {s_tx_chan=(void *)3;s_tx_encoder=(void *)4;s_tx_res=2;s_is_tx_inited=true;return ESP_OK;}
-static esp_err_t flash_on_impl(void) {return ESP_OK;}
-static esp_err_t flash_off_impl(void) {return ESP_OK;}
+const char *esp_err_to_name(esp_err_t e) { (void)e; return "fixture"; }
+TaskHandle_t xTaskGetCurrentTaskHandle(void) { return s_caller; }
+static esp_err_t finish(esp_err_t result) {
+  ir_lease_leave(s_rx_chan || s_tx_chan || s_tx_encoder || s_has_torch);
+  return result;
+}
+esp_err_t ir_rx_init(void) {
+  if (!ir_lease_enter()) return ESP_ERR_INVALID_STATE;
+  s_rx_chan = (void *)1;
+  return finish(ESP_OK);
+}
+esp_err_t ir_tx_init(void) {
+  if (!ir_lease_enter()) return ESP_ERR_INVALID_STATE;
+  s_tx_chan = (void *)2; s_tx_encoder = (void *)3;
+  return finish(ESP_OK);
+}
+void ir_rx_prime(void) {}
+void ir_rx_deinit(void) {
+  if (!ir_lease_enter()) return;
+  if (s_rx_chan && !s_fail_delete) { s_rx_chan = NULL; s_queue_freed++; s_resources_freed++; }
+  (void)finish(ESP_OK);
+}
+void ir_tx_deinit(void) {
+  if (!ir_lease_enter()) return;
+  if (s_tx_chan && !s_fail_delete) { s_tx_chan = NULL; s_resources_freed++; }
+  if (!s_tx_chan && !s_fail_encoder) s_tx_encoder = NULL;
+  (void)finish(ESP_OK);
+}
+esp_err_t ir_flash_on(void) {
+  if (!ir_lease_enter()) return ESP_ERR_INVALID_STATE;
+  s_has_torch = true; return finish(ESP_OK);
+}
+esp_err_t ir_flash_off(void) {
+  if (!ir_lease_enter()) return ESP_ERR_INVALID_STATE;
+  s_has_torch = false; return finish(ESP_OK);
+}
 static esp_err_t receive_impl(ir_data_t *out,uint32_t timeout) {
  assert(s_rx_chan && timeout==500);void *saved=s_caller;s_caller=(void *)3;
  assert(ir_tx_init()==ESP_ERR_INVALID_STATE);ir_rx_deinit();assert(s_rx_chan);s_caller=saved;
@@ -57,6 +89,22 @@ static esp_err_t send_raw_impl(const rmt_symbol_word_t *p,size_t n,uint32_t hz) 
 static esp_err_t get_last_raw_impl(rmt_symbol_word_t *p,size_t max,size_t *count) {
  assert(max>=2);p[0]=(rmt_symbol_word_t){.duration0=350,.level0=1,.duration1=700};
  p[1]=(rmt_symbol_word_t){.duration0=350,.level0=1};*count=2;return ESP_OK;
+}
+esp_err_t ir_receive(ir_data_t *out, uint32_t timeout) {
+  if (!ir_lease_enter()) return ESP_ERR_INVALID_STATE;
+  return finish(receive_impl(out, timeout));
+}
+esp_err_t ir_send(const ir_data_t *data) {
+  if (!ir_lease_enter()) return ESP_ERR_INVALID_STATE;
+  return finish(send_impl(data));
+}
+esp_err_t ir_send_raw(const rmt_symbol_word_t *p, size_t n, uint32_t hz) {
+  if (!ir_lease_enter()) return ESP_ERR_INVALID_STATE;
+  return finish(send_raw_impl(p, n, hz));
+}
+esp_err_t ir_get_last_raw(rmt_symbol_word_t *p, size_t n, size_t *out) {
+  if (!ir_lease_enter()) return ESP_ERR_INVALID_STATE;
+  return finish(get_last_raw_impl(p, n, out));
 }
 static ir_ac_state_t s_ac;
 size_t ir_ac_encode(const ir_ac_state_t *state,rmt_symbol_word_t *symbols,size_t max) {
@@ -153,7 +201,7 @@ int main(void) {
  assert(tos_ir_api_impl.send_raw(pulses,3,0)==ESP_OK);
  s_caps=0;assert(tos_ir_api_impl.send_raw(pulses,3,38000)==ESP_ERR_NOT_SUPPORTED);
  assert(tos_ir_api_impl.get_last_raw(received,8)==-ESP_ERR_NOT_SUPPORTED);
- puts("PASS: bounded raw IR, signed timings, AC enum conversion, SD path/capability checks and retained RMT cleanup");
- puts("PASS: production IR lease/wrappers, native contention, typed ABI, protocol conversion, stop, timeout and retained cleanup");
+ puts("PASS: bounded raw IR, signed timings, AC enum conversion, SD path/capability checks and retained backend cleanup");
+ puts("PASS: production IR lease and ABI, mocked native contention, typed ABI, protocol conversion, stop, timeout and retained cleanup");
  return 0;
 }
