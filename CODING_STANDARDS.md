@@ -18,7 +18,10 @@ along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 # TentacleOS — Coding Standards
 
 This guide can't cover everything, but it covers the rules we enforce on PR reviews.
-Formatting is handled automatically by `.clang-format` — run it before committing.
+Formatting is handled automatically by the pre-commit hook using
+`clang-format 22.1.5`, the same version pinned in CI. Install it with
+`python3 -m pip install clang-format==22.1.5` and put its executable on `PATH`.
+The hook rejects other versions before modifying files.
 3rd party libraries and managed components are not our concern.
 
 This set is not final. If you want to change something, open a ticket.
