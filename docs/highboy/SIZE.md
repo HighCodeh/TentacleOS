@@ -218,3 +218,12 @@ This supersedes earlier statements that #157 still lacks software packaging or
 signed-image capacity evidence. Runtime performance, heap/stack, actual update/
 rollback and production installation remain unmeasured release gates after
 software closure. No release version, device firmware or eFuse was changed.
+
+## V2.03 CI memory and compiler policy
+
+C5 config staging uses a lazy, reusable 4097-byte PSRAM allocation instead of
+static internal RAM. Allocation failure rejects BEGIN and permits retry; no
+internal fallback is used. The 61,440-byte linker headroom floor is unchanged.
+Service code uses `-Os` for the original OTA slot, while `hb_muse_c5_service.c`
+and `wifi_service.c` explicitly retain the reviewed `-Og` policy, as does the
+SPI slave driver. No DMA or task-stack allocation policy changes.

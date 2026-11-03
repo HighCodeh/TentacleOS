@@ -115,3 +115,7 @@ idf_component_register(SRCS
 # Keep the remote IR backend and service code within the existing OTA slot.
 # Hardware Drivers retain their existing optimization and memory policy.
 target_compile_options(${COMPONENT_LIB} PRIVATE -Os)
+
+# Preserve the reviewed radio/Muse compilation boundary checked by build evidence.
+set_property(SOURCE "spi_bridge/hb_muse_c5_service.c" "wifi/wifi_service.c"
+             APPEND PROPERTY COMPILE_OPTIONS "-Og")

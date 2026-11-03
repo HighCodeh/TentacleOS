@@ -1224,3 +1224,13 @@ creates a fresh transport session and link generation; old session starts and
 stream batches are discarded. It does not change mode, clock, polling, CRC,
 FETCH size or DMA ownership. OTA/programming/shutdown guards and the P4-lifetime
 reset budget are described in the supervisor documentation.
+
+## C5 configuration staging memory
+
+The serialized config-cache receiver allocates its 4097-byte staging buffer in
+PSRAM on the first BEGIN and reuses it thereafter. Allocation failure returns
+`ESP_ERR_NO_MEM` without accepting a transaction; a subsequent BEGIN can retry.
+There is no internal-RAM fallback. Bounds, text termination and credential
+zeroization on completion/rejection are retained. This recovers approximately
+4 KiB of static internal RAM without lowering the CI headroom floor or changing
+DMA buffers, task stacks or `sdkconfig.defaults`.

@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "nvs.h"
 #include "mbedtls/platform_util.h"
 
@@ -39,7 +40,7 @@ static const char *const s_cfg_paths[SPI_CFG_COUNT] = {
     [SPI_CFG_GROK] = "config/grok.json",
 };
 
-static uint8_t s_stage[CFG_STAGE_MAX + 1];
+static uint8_t *s_stage;
 static uint32_t s_stage_size;
 static uint32_t s_stage_hash;
 static uint8_t s_stage_id = 0xFF;
@@ -49,7 +50,7 @@ static uint8_t s_stage_id = 0xFF;
 static void discard_grok_stage(void) {
   if (s_stage_id != SPI_CFG_GROK)
     return;
-  mbedtls_platform_zeroize(s_stage, sizeof(s_stage));
+  mbedtls_platform_zeroize(s_stage, CFG_STAGE_MAX + 1);
   s_stage_id = 0xFF;
   s_stage_size = 0;
   s_stage_hash = 0;
@@ -83,15 +84,22 @@ esp_err_t config_cache_begin(uint8_t id, uint32_t size, uint32_t hash) {
     return ESP_ERR_INVALID_ARG;
   }
   discard_grok_stage();
+  if (s_stage == NULL) {
+    s_stage = heap_caps_calloc(CFG_STAGE_MAX + 1, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (s_stage == NULL) {
+      ESP_LOGE(TAG, "Config staging PSRAM allocation failed");
+      return ESP_ERR_NO_MEM;
+    }
+  }
   s_stage_id = id;
   s_stage_size = size;
   s_stage_hash = hash;
-  memset(s_stage, 0, sizeof(s_stage));
+  memset(s_stage, 0, CFG_STAGE_MAX + 1);
   return ESP_OK;
 }
 
 esp_err_t config_cache_chunk(uint8_t id, uint32_t offset, const uint8_t *data, uint16_t len) {
-  if (id != s_stage_id || data == NULL) {
+  if (s_stage == NULL || id != s_stage_id || data == NULL) {
     discard_grok_stage();
     return ESP_ERR_INVALID_STATE;
   }
@@ -105,7 +113,7 @@ esp_err_t config_cache_chunk(uint8_t id, uint32_t offset, const uint8_t *data, u
 }
 
 esp_err_t config_cache_commit(uint8_t id) {
-  if (id != s_stage_id || id >= SPI_CFG_COUNT) {
+  if (s_stage == NULL || id != s_stage_id || id >= SPI_CFG_COUNT) {
     discard_grok_stage();
     return ESP_ERR_INVALID_STATE;
   }
