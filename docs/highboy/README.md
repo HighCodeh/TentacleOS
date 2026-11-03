@@ -68,6 +68,13 @@ upstream currently has version 6. The Muse extension remains a separate category
 
 ## Build
 
+Both builds also generate their own `assets.bin`. P4 uses the existing
+`tools/png_to_bin/` conversion scripts, including rotated frames; C5 packages
+its configuration/data directory directly. Standard `idf.py flash` now includes
+the assets partition; `assets-flash` writes only that filesystem. The guarded
+`tools/flash.sh` path remains app-only. See [assets](../storage_assets/README.md#v203-p4-assets-build-and-flash).
+
+
 ```sh
 bash tools/build.sh       # C5, then P4
 bash tools/build.sh p4    # P4 only

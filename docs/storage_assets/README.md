@@ -1,3 +1,67 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
+## V2.03 P4 assets build and flash
+
+The P4 CMake build invokes the original platform converter in `tools/png_to_bin/`:
+`png_conversor_to_bin.sh` on Linux/macOS and `.ps1` on Windows. It copies source
+assets to `<build>/temp`, generates rotated frames and converts PNGs to LVGL 9
+ARGB8888 `.bin` images using the official LVGL v9.4.0 converter. Converter and
+Python dependencies are cached in the ignored tools directory; first use needs
+network access. Conversion errors stop the build. Source assets remain unchanged.
+
+`tools/build.sh p4` generates both the app and `assets.bin`. `idf.py build`
+generates the filesystem too, and `idf.py flash` includes it automatically.
+To populate only assets on an already flashed P4:
+
+```sh
+cd firmware_p4
+idf.py -B build_highboy -D SDKCONFIG=build_highboy/sdkconfig -p PORT assets-flash
+```
+
+`assets-flash` replaces the entire assets filesystem, including any runtime
+configuration stored there. The partition offset and size come from the selected
+partition table: V2.03 P4 uses 0x230000 bytes at 0x5D0000. Older layouts below are
+historical and are not flash instructions for this board. The LittleFS generator
+rejects files that exceed the partition capacity.
+
+The guarded `tools/flash.sh` updater remains application-only. Asset generation
+does not provision the microSD. Optional audio missing from the source tree is
+not synthesized.
+
+## V2.03 C5 assets build and flash
+
+C5 CMake generates LittleFS directly from `firmware_c5/assets`: these files are
+configuration, HTML and other data and require no PNG conversion. Both
+`tools/build.sh c5` and `idf.py build` generate `assets.bin`; `idf.py flash`
+includes it automatically. The C5 partition is 0x1E0000 bytes at 0x420000,
+independent of the P4 image and partition.
+
+To replace only the C5 assets filesystem (including runtime configuration):
+
+```sh
+cd firmware_c5
+idf.py -B build_highboy -D SDKCONFIG=build_highboy/sdkconfig -p C5_PORT assets-flash
+```
+
+If necessary, first enter C5 download using `c5 boot physical` in the P4 console.
+After writing, power-cycle the board to release the physical BOOT assertion.
+Never use the P4 assets image or port for this operation.
+
 # P4
 
 This component provides read-only access to a dedicated LittleFS partition for storing static application assets like images, fonts, configuration files, and other resources that are flashed with the firmware.

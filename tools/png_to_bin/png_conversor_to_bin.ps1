@@ -17,6 +17,8 @@
 # LVGL Image Conversion Automation Script (Windows Version)
 # ==============================================================================
 
+$ErrorActionPreference = "Stop"
+
 # Terminal Color Configuration
 $Yellow = "$([char]27)[1;33m"
 $Green  = "$([char]27)[0;32m"
@@ -30,22 +32,25 @@ $PYTHON_SCRIPT = Join-Path $SCRIPT_DIR "LVGLImage.py"
 
 $WORKING_DIR = Get-Location
 $ASSETS_DIR = Join-Path $WORKING_DIR "assets"
-$TEMP_DIR = Join-Path $WORKING_DIR "temp"
+$TEMP_DIR = if ($env:HIGHBOY_ASSETS_OUTPUT) { $env:HIGHBOY_ASSETS_OUTPUT } else { Join-Path $WORKING_DIR "temp" }
 
 Write-Host "`n${Yellow}>>> Starting LVGL Assets Automation${NC}"
 
 if (-not (Test-Path $PYTHON_EXE)) {
     Write-Host "${Yellow}Virtual environment 'lvgl-env' not found in $SCRIPT_DIR. Creating...${NC}"
-    python -m venv "$VENV_DIR"
+    $HOST_PYTHON = if ($env:HIGHBOY_ASSETS_PYTHON) { $env:HIGHBOY_ASSETS_PYTHON } else { "python" }
+    & $HOST_PYTHON -m venv "$VENV_DIR"
     if ($LASTEXITCODE -ne 0) {
         Write-Host "${Red}Critical Error: Failed to create Python virtual environment.${NC}"
         exit 1
     }
 }
 
-if (-not (Test-Path $PYTHON_SCRIPT)) {
+$EXPECTED_SHA256 = "cf02850de3b4b8ae89f8ae5a52c4d682cc6efac4d4e9d61d94681e2710af4ee8"
+if ((-not (Test-Path $PYTHON_SCRIPT)) -or
+    ((Get-FileHash $PYTHON_SCRIPT -Algorithm SHA256).Hash -ne $EXPECTED_SHA256)) {
     Write-Host "Downloading LVGLImage.py to $SCRIPT_DIR..."
-    $URL = "https://raw.githubusercontent.com/lvgl/lvgl/master/scripts/LVGLImage.py"
+    $URL = "https://raw.githubusercontent.com/lvgl/lvgl/v9.4.0/scripts/LVGLImage.py"
     try {
         Invoke-WebRequest -Uri $URL -OutFile $PYTHON_SCRIPT -ErrorAction Stop
     } catch {
@@ -54,9 +59,15 @@ if (-not (Test-Path $PYTHON_SCRIPT)) {
     }
 }
 
+if ((Get-FileHash $PYTHON_SCRIPT -Algorithm SHA256).Hash -ne $EXPECTED_SHA256) {
+    throw "LVGL v9.4.0 converter checksum mismatch"
+}
 Write-Host "Checking dependencies (Pillow, PyPNG, LZ4, and NumPy)..."
-& "$PYTHON_EXE" -m pip install --upgrade pip -q
-& "$PYTHON_EXE" -m pip install Pillow pypng lz4 numpy -q
+& "$PYTHON_EXE" -c 'import PIL, png, lz4, numpy'
+if ($LASTEXITCODE -ne 0) {
+    & "$PYTHON_EXE" -m pip install Pillow pypng lz4 numpy -q
+    if ($LASTEXITCODE -ne 0) { exit 1 }
+}
 
 if (Test-Path $TEMP_DIR) {
     Write-Host "${Yellow}Removing existing temp directory...${NC}"
@@ -77,7 +88,8 @@ if ((Test-Path $ROTATE_SCRIPT) -and (Test-Path $TEMP_FRAMES_DIR)) {
     Write-Host "${Yellow}Generating rotated frames...${NC}"
     & "$PYTHON_EXE" "$ROTATE_SCRIPT" "$TEMP_FRAMES_DIR"
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "${Red}Warning: Frame rotation failed. Continuing...${NC}"
+        Write-Host "${Red}Error: Frame rotation failed.${NC}"
+        exit 1
     }
 }
 
@@ -101,6 +113,7 @@ foreach ($dir in $TARGET_DIRS) {
         } else {
             Write-Host "${Red}Conversion error in $dir :${NC}"
             Write-Host $errorOut
+            exit 1
         }
     }
 }

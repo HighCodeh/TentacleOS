@@ -125,6 +125,7 @@ python "$IDF_PATH/tools/idf.py" -C "$project" -B "$build" \
   -D "SDKCONFIG=$build/sdkconfig" -D "SDKCONFIG_DEFAULTS=$SDKCONFIG_DEFAULTS" \
   "${configure_args[@]}" reconfigure
 python "$repo/tools/highboy/check_contracts.py" --require-built "$target"
-cmake --build "$build" --target app --parallel "${HIGHBOY_BUILD_JOBS:-2}"
+build_targets=(app littlefs_assets_bin)
+env -u PIP_NO_INDEX cmake --build "$build" --target "${build_targets[@]}" --parallel "${HIGHBOY_BUILD_JOBS:-2}"
 python "$repo/tools/highboy/check_contracts.py" --require-built "$target"
-echo "$target application built. No assets, flash, hardware, microphone or cloud session accessed."
+echo "$target application and assets.bin built. No device was flashed."

@@ -1,5 +1,4 @@
 #!/bin/bash
-
 # Copyright (c) 2025 HIGH CODE LLC
 #
 # TentacleOS is free software: you can redistribute it and/or modify
@@ -20,6 +19,8 @@
 # LVGL Image Conversion Automation Script (Linux/macOS Version)
 # ==============================================================================
 
+set -euo pipefail
+
 # Cores para o terminal
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -31,19 +32,19 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 VENV_DIR="$SCRIPT_DIR/lvgl-env"
 PYTHON_BIN="$VENV_DIR/bin/python3"
 LVGL_IMAGE_PY="$SCRIPT_DIR/LVGLImage.py"
-SCRIPT_URL="https://raw.githubusercontent.com/lvgl/lvgl/master/scripts/LVGLImage.py"
+SCRIPT_URL="https://raw.githubusercontent.com/lvgl/lvgl/v9.4.0/scripts/LVGLImage.py"
 
 # Caminhos de trabalho (baseados no diretório de execução do CMake)
 WORKING_DIR=$(pwd)
 ASSETS_DIR="$WORKING_DIR/assets"
-TEMP_DIR="$WORKING_DIR/temp"
+TEMP_DIR="${HIGHBOY_ASSETS_OUTPUT:-$WORKING_DIR/temp}"
 
 echo -e "\n${YELLOW}>>> Starting LVGL Assets Automation (Linux/Mac)${NC}"
 
 if [ ! -f "$PYTHON_BIN" ]; then
   echo -e "${YELLOW}Virtual environment 'lvgl-env' not found in $SCRIPT_DIR. Creating...${NC}"
   rm -rf "$VENV_DIR"
-  python3 -m venv "$VENV_DIR"
+  "${HIGHBOY_ASSETS_PYTHON:-python3}" -m venv "$VENV_DIR"
 
   if [ $? -ne 0 ]; then
     echo -e "${RED}Critical Error: Failed to create Python virtual environment.${NC}"
@@ -62,19 +63,30 @@ if [ ! -f "$PYTHON_BIN" ]; then
   fi
 fi
 
-if [ ! -f "$LVGL_IMAGE_PY" ]; then
+EXPECTED_SHA256="cf02850de3b4b8ae89f8ae5a52c4d682cc6efac4d4e9d61d94681e2710af4ee8"
+verify_converter() {
+  "$PYTHON_BIN" -c 'import hashlib,sys; sys.exit(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest() != sys.argv[2])' "$LVGL_IMAGE_PY" "$EXPECTED_SHA256"
+}
+if [ ! -f "$LVGL_IMAGE_PY" ] || ! verify_converter; then
   echo "Downloading LVGLImage.py to $SCRIPT_DIR..."
-  wget -q "$SCRIPT_URL" -O "$LVGL_IMAGE_PY" || curl -s "$SCRIPT_URL" -o "$LVGL_IMAGE_PY"
+  curl --fail --location --silent --show-error "$SCRIPT_URL" -o "$LVGL_IMAGE_PY"
 
-  if [ ! -f "$LVGL_IMAGE_PY" ]; then
+  EXPECTED_SHA256="cf02850de3b4b8ae89f8ae5a52c4d682cc6efac4d4e9d61d94681e2710af4ee8"
+verify_converter() {
+  "$PYTHON_BIN" -c 'import hashlib,sys; sys.exit(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest() != sys.argv[2])' "$LVGL_IMAGE_PY" "$EXPECTED_SHA256"
+}
+if [ ! -f "$LVGL_IMAGE_PY" ] || ! verify_converter; then
     echo -e "${RED}Error: Failed to download the conversion script.${NC}"
     exit 1
   fi
 fi
 
+verify_converter
+
 echo "Checking dependencies (Pillow, PyPNG, LZ4, and NumPy)..."
-"$PYTHON_BIN" -m pip install --upgrade pip -q
-"$PYTHON_BIN" -m pip install Pillow pypng lz4 numpy -q
+if ! "$PYTHON_BIN" -c 'import PIL, png, lz4, numpy' 2>/dev/null; then
+  "$PYTHON_BIN" -m pip install Pillow pypng lz4 numpy -q
+fi
 
 if [ -d "$TEMP_DIR" ]; then
   echo -e "${YELLOW}Removing existing temp directory...${NC}"
@@ -98,7 +110,8 @@ if [ -f "$ROTATE_SCRIPT" ] && [ -d "$TEMP_FRAMES_DIR" ]; then
   echo -e "${YELLOW}Generating rotated frames...${NC}"
   "$PYTHON_BIN" "$ROTATE_SCRIPT" "$TEMP_FRAMES_DIR"
   if [ $? -ne 0 ]; then
-    echo -e "${RED}Warning: Frame rotation failed. Continuing...${NC}"
+    echo -e "${RED}Error: Frame rotation failed.${NC}"
+    exit 1
   fi
 fi
 
@@ -125,6 +138,7 @@ for dir in "${TARGET_DIRS[@]}"; do
       find "$FULL_PATH" -name "*.png" -type f -delete
     else
       echo -e "${RED}Conversion error in $dir.${NC}"
+      exit 1
     fi
   fi
 done

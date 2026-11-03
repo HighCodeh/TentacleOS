@@ -37,7 +37,8 @@ project(TentacleOS_C5)
 idf_component_get_property(LED_STRIP_LIB espressif__led_strip COMPONENT_LIB)
 target_compile_options(${LED_STRIP_LIB} PRIVATE -include esp_heap_caps.h)
 
-# Compile-only: no assets/temp staging or filesystem image.
+# C5 assets are configuration/data files; no image conversion is required.
+littlefs_create_partition_image(assets "${CMAKE_CURRENT_LIST_DIR}/assets" FLASH_IN_PROJECT)
 
 # A factory security profile compacts SDK code while preserving peripheral policy.
 if(CONFIG_SECURE_BOOT AND CONFIG_SECURE_FLASH_ENC_ENABLED)
@@ -48,7 +49,7 @@ if(CONFIG_SECURE_BOOT AND CONFIG_SECURE_FLASH_ENC_ENABLED)
 endif()
 
 # Retain internal RAM headroom as SDK support code grows in IDF 6.1.
-foreach(SUPPORT_COMPONENT esp_hw_support esp_libc mbedtls)
+foreach(SUPPORT_COMPONENT esp_hw_support esp_libc mbedtls esp_driver_rmt esp_hal_rmt)
     idf_component_get_property(SUPPORT_LIB ${SUPPORT_COMPONENT} COMPONENT_LIB)
     target_compile_options(${SUPPORT_LIB} PRIVATE -Os)
 endforeach()

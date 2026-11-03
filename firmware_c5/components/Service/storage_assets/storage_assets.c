@@ -84,9 +84,7 @@ static void storage_assets_list_files(void) {
   if (file_count == 0 && dir_count == 0) {
     ESP_LOGW(TAG, "  (empty - partition has no files!)");
     ESP_LOGW(TAG, "  Make sure to flash the assets partition:");
-    ESP_LOGW(TAG, "  > idf.py flash");
-    ESP_LOGW(TAG, "  Or manually:");
-    ESP_LOGW(TAG, "  > esptool.py write_flash 0xYOUR_OFFSET build/assets.bin");
+    ESP_LOGW(TAG, "  > idf.py -B build_highboy -p PORT assets-flash");
   } else {
     ESP_LOGI(TAG, "Total: %d file(s), %d dir(s)", file_count, dir_count);
   }
