@@ -29,7 +29,7 @@ from test_board_control import MOCKS, NOTICE
 MOCKS = dict(MOCKS)
 MOCKS["esp_err.h"] = MOCKS["esp_err.h"].replace("ESP_ERR_NOT_FINISHED", "ESP_ERR_INVALID_SIZE, ESP_ERR_INVALID_CRC, ESP_ERR_NOT_FOUND, ESP_ERR_NOT_FINISHED") + '\nconst char *esp_err_to_name(esp_err_t);\n'
 MOCKS["esp_log.h"] += '#define ESP_LOGI(tag, ...) ((void)(tag))\n#define ESP_LOGD(tag, ...) ((void)(tag))\n'
-MOCKS["freertos/task.h"] = MOCKS["freertos/task.h"].replace('*h = (void *)1;', 'if (h) *h = (void *)1;') + '\nvoid vTaskDelay(unsigned ticks);\nTaskHandle_t xTaskGetCurrentTaskHandle(void);\n'
+MOCKS["freertos/task.h"] = MOCKS["freertos/task.h"].replace('*h = (void *)1;', 'if (h) { *h = (void *)1; }') + '\nvoid vTaskDelay(unsigned ticks);\nTaskHandle_t xTaskGetCurrentTaskHandle(void);\n'
 MOCKS["sys_prio.h"] += '#define SYS_PRIO_SERVICE_HI 5\n#define SYS_CORE_MAIN 0\n'
 MOCKS["pin_def.h"] = '#define GPIO_IR_TX_PIN 6\n#define GPIO_IR_RX_PIN 10\n'
 MOCKS["soc/soc_caps.h"] = '#define SOC_RMT_MEM_WORDS_PER_CHANNEL 48\n'
