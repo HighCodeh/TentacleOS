@@ -17,6 +17,7 @@
 """Check real encrypted target TX bit counts with the real Crypto1 implementation."""
 from pathlib import Path
 import os
+import re
 import shlex
 import subprocess
 import tempfile
@@ -26,7 +27,11 @@ MIFARE = ROOT / "firmware_p4/components/Applications/nfc/protocols/mifare"
 
 
 def extract(source, signature):
-    start = source.index(signature)
+    pattern = r"\s+".join(re.escape(part) for part in signature.split())
+    match = re.search(pattern, source)
+    if match is None:
+        raise ValueError("Function signature not found: " + signature)
+    start = match.start()
     opening = source.index("{", start)
     depth, end = 1, opening + 1
     while depth:
