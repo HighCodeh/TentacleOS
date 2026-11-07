@@ -22,8 +22,8 @@ from pathlib import Path
 import re
 
 PROFILE = {
-    'P4': {'file': 'TentacleOS_P4.bin', 'slot_bytes': 0x2d0000, 'idf_version': 'v6.1',
-           'partition_table_sha256': 'bb76257d010de4925ddf8925b46a2f89e0512a2a858e0c4939d705c74a1e51bd'},
+    'P4': {'file': 'TentacleOS_P4.bin', 'slot_bytes': 0x2f0000, 'idf_version': 'v6.1',
+           'partition_table_sha256': '12cf75b2e15d1dfe7f9f56bf0f59aaa2b7bc387c5db6dbf4d45532d3a4c0d35e'},
     'C5': {'file': 'TentacleOS_C5.bin', 'slot_bytes': 0x200000, 'idf_version': 'v6.1',
            'partition_table_sha256': '236a9c2e19bf6373b94589e0683c3a588523c026a1a21dae141ed2deda97c7a1'},
 }

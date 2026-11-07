@@ -68,8 +68,8 @@ static esp_ota_img_states_t s_ota_state=ESP_OTA_IMG_VALID;
 static esp_err_t s_state_error,s_confirm_error;
 static uint32_t s_beat;
 static bool s_reenter;
-static const esp_partition_t RUNNING={.address=0x20000,.size=0x2d0000,.label="ota_0"};
-static const esp_partition_t NEXT={.address=0x2f0000,.size=0x2d0000,.label="ota_1"};
+static const esp_partition_t RUNNING={.address=0x20000,.size=0x2f0000,.label="ota_0"};
+static const esp_partition_t NEXT={.address=0x310000,.size=0x2f0000,.label="ota_1"};
 const char *esp_err_to_name(esp_err_t error) {(void)error;return "fixture error";}
 bool sd_is_mounted(void) {return s_fault!=NO_SD;}
 static int test_stat(const char *path,struct stat *out) {
@@ -89,7 +89,7 @@ static int test_seek(FILE *file,long offset,int whence) {
   return (s_fault==SEEK_END_ERROR && whence==SEEK_END) || (s_fault==SEEK_SET_ERROR && whence==SEEK_SET)?-1:0;
 }
 static long test_tell(FILE *file) {
-  assert(file==(FILE *)1);return s_fault==TELL_ERROR?-1:s_fault==EMPTY?0:s_fault==LARGE?0x2d0001:8205;
+  assert(file==(FILE *)1);return s_fault==TELL_ERROR?-1:s_fault==EMPTY?0:s_fault==LARGE?(long)NEXT.size+1:8205;
 }
 static size_t test_read(void *out,size_t size,size_t count,FILE *file) {
   assert(file==(FILE *)1 && s_handle_live && s_power==1 && out==s_buffer && size==1);

@@ -23,6 +23,13 @@ that same source tree; the changed P4 libsodium compile policy is the comparison
 variable. Existing partitions, features, trust identities and vendor sources
 are unchanged. This is build evidence, not runtime performance acceptance.
 
+## Later partition migration
+
+The measurements below are historical. The V2.03 NFC expansion changes each P4
+slot to `0x2F0000` bytes and assets to `0x1F0000` bytes. See the current
+[layout and measured headroom](README.md#flash-and-storage-boundary). This is an
+explicit installation migration, not a change to the historical optimization results.
+
 ## Selected policy
 
 P4 libsodium uses `-Os -flto=2 -ffat-lto-objects`, joining the existing final

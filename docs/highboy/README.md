@@ -199,21 +199,36 @@ images and do not authorize full restoration or production provisioning.
 
 ## Flash and storage boundary
 
-The previously used **local High Boy map** is retained: P4 app slots are
-`0x2D0000` bytes; C5 app slots are 2 MiB. This is not the current upstream P4 map:
+The V2.03 NFC expansion layout reallocates 256 KiB from P4 assets to the two
+OTA slots, adding 128 KiB to each. C5 remains unchanged. Both P4 OTA slots and
+rollback are retained; NVS, PHY and OTA metadata keep their offsets.
 
-| P4 region | Upstream `011ed7d` | Integrated local profile |
+| P4 region | Previous local profile | NFC expansion profile |
 | --- | --- | --- |
-| `ota_0` offset / size | `0x20000` / `0x2E0000` | `0x20000` / `0x2D0000` |
-| `ota_1` offset / size | `0x300000` / `0x2E0000` | `0x2F0000` / `0x2D0000` |
-| `coredump` offset | `0x5E0000` | `0x5C0000` |
-| `assets` offset / size | `0x5F0000` / `0x210000` | `0x5D0000` / `0x230000` |
+| `ota_0` offset / size | `0x20000` / `0x2D0000` | `0x20000` / `0x2F0000` |
+| `ota_1` offset / size | `0x2F0000` / `0x2D0000` | `0x310000` / `0x2F0000` |
+| `coredump` offset / size | `0x5C0000` / `0x10000` | `0x600000` / `0x10000` |
+| `assets` offset / size | `0x5D0000` / `0x230000` | `0x610000` / `0x1F0000` |
 
-NVS, OTA metadata and PHY offsets are the same, but an upstream-installed device
-still needs an explicit migration review. Do not apply the local profile's
-offsets or assets image to it blindly. No partition is enlarged merely to pass
-the app size check. The previous local P4 image had only 1,840 bytes of margin,
-so the final linked size is an explicit release gate.
+This changes installation compatibility. The guarded app-only updater rejects the
+previous table; it cannot migrate it. Package verification, recovery review and
+the separate factory-security partition profile use the new geometry. Historic
+packages/backups must be handled with their matching revision's tools.
+
+Migration requires a backup and a serial flash of the new partition table,
+initial OTA metadata selecting `ota_0`, application and rebuilt assets together.
+Do not perform an app-only OTA or an assets-only flash to migrate. The old
+`ota_1`, assets and coredump locations overlap the new layout and cannot be kept
+as valid images. Preserve any configuration stored in the old assets filesystem
+before replacing it. NVS offsets and the SD card are unchanged; no erase-all or
+eFuse changes are required by this layout. This source change performs no device
+write. After migration, app-only updates again require an exact table match.
+
+The first rebuilt candidate measured 2,943,392 bytes in a 3,080,192-byte slot:
+136,800 bytes free. The rebuilt LittleFS image is 2,031,616 bytes; mounting it
+with littlefs-python reports 1,671,168 allocated bytes and 360,448 bytes free.
+The 15 unused PNG sources and their generated rotated frames are absent.
+These are build/image checks, not physical migration or NFC RF acceptance.
 
 The last built baseline (`2b7614d3`) fit: P4 **2,943,520 / 2,949,120 bytes** (5,600 free),
 C5 **2,016,096 / 2,097,152 bytes** (81,056 free). Layout/control screens use size

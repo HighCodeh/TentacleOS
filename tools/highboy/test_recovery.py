@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025 HIGH CODE LLC
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 """Private review-bundle integrity tests with explicit synthetic flash/image fixtures."""
 import binascii
 import json
@@ -9,6 +24,7 @@ import unittest
 from unittest.mock import patch
 
 import recovery
+import secure_build
 from fixtures.recovery_tables import TABLES
 
 
@@ -31,7 +47,7 @@ class RecoveryTests(unittest.TestCase):
             self.report['targets'][chip] = dict(profile, bytes=len(image), free_bytes=profile['slot_bytes']-len(image), sha256=recovery.digest(image))
             directory = self.root / chip; directory.mkdir()
             flash = bytearray(b'\xff' * recovery.FLASH_SIZE)
-            flash[recovery.TABLE_OFFSET:recovery.TABLE_OFFSET + recovery.TABLE_SIZE] = TABLES[chip]
+            flash[recovery.TABLE_OFFSET:recovery.TABLE_OFFSET + recovery.TABLE_SIZE] = secure_build.partition_table(recovery.ROOT / f"firmware_{chip.lower()}/partitions.csv")[0]
             assets, _ = recovery.ASSETS[chip]; flash[assets] = 0x42
             backup = directory / 'flash.bin'; backup.write_bytes(flash); self.backups[chip] = backup
             self.metadata(chip)
@@ -39,6 +55,12 @@ class RecoveryTests(unittest.TestCase):
         # Real esptool validation is exercised separately against actual built images.
         self.images = patch.object(recovery, 'verify_image', side_effect=self.image_fixture)
         self.images.start(); self.addCleanup(self.images.stop)
+
+    def test_previous_p4_map_requires_migration(self):
+        data = bytearray(self.backups['P4'].read_bytes())
+        data[recovery.TABLE_OFFSET:recovery.TABLE_OFFSET + recovery.TABLE_SIZE] = TABLES['P4']
+        with self.assertRaisesRegex(ValueError, 'installed map differs'):
+            recovery.validate_flash(data, 'P4', b'P4 candidate')
 
     def image_fixture(self, data, chip):
         self.assertIn(chip, ('P4','C5'))

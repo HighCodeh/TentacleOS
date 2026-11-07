@@ -24,9 +24,11 @@ use command protocol v2 and SPI transport revision 1. Updating P4 does not updat
 
 These files are for matching existing installations. They contain no bootloader,
 partition table, filesystem/assets image or security provisioning. They cannot
-restore an erased device or migrate a different partition layout. The preserved
-P4 application slot is 0x2D0000 bytes; the C5 slot is 0x200000 bytes. Slot size
-alone does not establish installation compatibility.
+restore an erased device or migrate a different partition layout. The current
+P4 application slot is 0x2F0000 bytes; the C5 slot is 0x200000 bytes. Slot size
+alone does not establish installation compatibility. The earlier P4 layout with
+0x2D0000-byte slots requires a serial partition/assets migration before using
+these packages. See [the layout comparison](README.md#flash-and-storage-boundary).
 
 Verify the downloaded files against `SHA256SUMS` before use. The per-chip
 `build-evidence.json` reports bind the binaries to their build outputs and static

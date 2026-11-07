@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025 HIGH CODE LLC
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 """Prepare/verify a private paired recovery review bundle; never accesses a device."""
 import argparse
 import binascii
@@ -19,7 +34,7 @@ TABLE_SIZE = 0xc00
 SECTOR_SIZE = 0x1000
 OTA_OFFSET = 0xf000
 APP_OFFSET = 0x20000
-ASSETS = {'P4': (0x5d0000, 0x230000), 'C5': (0x420000, 0x1e0000)}
+ASSETS = {'P4': (0x610000, 0x1f0000), 'C5': (0x420000, 0x1e0000)}
 BOUNDARY = {'schema_version': 1, 'status': 'private_recovery_review_only',
             'contains_private_device_data': True, 'deployment_approved': False,
             'device_identity_verified': False, 'security_state_verified': False,
@@ -84,7 +99,7 @@ def validate_flash(flash, chip, candidate):
     require(digest(table) == profile['partition_table_sha256'], chip + ' installed map differs from the integrated profile')
     verify_image(flash[BOOT_OFFSET:TABLE_OFFSET], chip)
     slot = active_slot(flash[OTA_OFFSET:OTA_OFFSET + 2 * SECTOR_SIZE])
-    offset = APP_OFFSET if slot == 0 else (0x2f0000 if chip == 'P4' else 0x220000)
+    offset = APP_OFFSET if slot == 0 else (0x310000 if chip == 'P4' else 0x220000)
     verify_image(flash[offset:offset + profile['slot_bytes']], chip)
     require(0 < len(candidate) <= profile['slot_bytes'], chip + ' candidate exceeds its slot')
     verify_image(candidate, chip)

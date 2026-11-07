@@ -82,7 +82,15 @@ class LayoutTests(LayoutFixture, unittest.TestCase):
         self.data[0xF000:0x11000] = ota_entry(3) + ota_entry(4)
         with patch.object(flash, 'image_valid'):
             slot = flash.validate_device(self.data, self.table, self.gen)
-        self.assertEqual(slot.offset, 0x2F0000)
+        self.assertEqual(slot.offset, 0x310000)
+
+    def test_previous_p4_layout_is_rejected(self):
+        from fixtures.recovery_tables import TABLES
+        self.data[flash.TABLE_OFFSET:flash.TABLE_OFFSET + flash.TABLE_SIZE] = TABLES['P4']
+        with patch.object(flash, 'image_valid') as verify:
+            with self.assertRaisesRegex(ValueError, 'No migration or write performed'):
+                flash.validate_device(self.data, self.table, self.gen)
+            verify.assert_not_called()
 
     def test_layout_mismatch_precedes_image_checks(self):
         self.data[flash.TABLE_OFFSET] ^= 1
@@ -92,7 +100,7 @@ class LayoutTests(LayoutFixture, unittest.TestCase):
         verify.assert_not_called()
 
     def test_erased_assets_rejected(self):
-        self.data[0x5D0000:0x5D0004] = b'\xff' * 4
+        self.data[0x610000:0x610004] = b'\xff' * 4
         with patch.object(flash, 'image_valid'):
             with self.assertRaisesRegex(ValueError, 'Assets partition is empty'):
                 flash.validate_device(self.data, self.table, self.gen)
@@ -161,7 +169,7 @@ class FlowTests(LayoutFixture, unittest.TestCase):
         self.assertEqual([command[0] for command, _ in commands],
                          ['get_security_info', 'flash_id'] + ['read_flash'] * chunks +
                          ['verify_flash', 'write_flash', 'verify_flash', 'read_mac'])
-        self.assertEqual(commands[-3][0][1], '0x2f0000')
+        self.assertEqual(commands[-3][0][1], '0x310000')
         self.assertFalse(commands[-3][1])
         self.assertTrue(commands[-1][1])
         self.assertEqual(report['status'], 'written_and_verified')
