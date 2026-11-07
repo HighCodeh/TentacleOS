@@ -371,6 +371,27 @@ typedef void (*ui_close_fn_t)(void);
 
 static ui_close_fn_t screen_close_fn(screen_id_t s) {
   switch (s) {
+    case SCREEN_BLE_BEACON_SPAM:
+      return ui_beacon_spam_stop;
+    case SCREEN_BLE_MOUSE_PAIRING:
+    case SCREEN_BLE_MOUSE:
+      return ui_ble_mouse_stop;
+    case SCREEN_BLE_KEYBOARD:
+      return ui_ble_keyboard_stop;
+    case SCREEN_BLE_SNIFFER:
+      return ui_ble_sniffer_stop;
+    case SCREEN_BLE_TRACKER:
+      return ui_ble_tracker_stop;
+    case SCREEN_BLE_SKIMMER:
+      return ui_ble_skimmer_stop;
+    case SCREEN_BLE_EXPOSURE:
+      return ui_ble_exposure_stop;
+    case SCREEN_BLE_TRACK_DEVICE:
+      return ui_ble_track_device_stop;
+    case SCREEN_BLE_SPAM:
+      return ui_ble_spam_stop;
+    case SCREEN_BLE_FLOOD:
+      return ui_ble_flood_stop;
     case SCREEN_PC_MONITOR:
       return pc_monitor_ui_stop;
     case SCREEN_WIFI_ESP_SCAN:
@@ -861,7 +882,10 @@ void ui_switch_screen(screen_id_t new_screen) {
     screen_id_t from = current_screen_id;
     lv_obj_t *outgoing = lv_screen_active();
     ui_close_fn_t close_fn = screen_close_fn(current_screen_id);
-    if (close_fn != NULL) {
+    const bool mouse_transition =
+        (from == SCREEN_BLE_MOUSE || from == SCREEN_BLE_MOUSE_PAIRING) &&
+        (new_screen == SCREEN_BLE_MOUSE || new_screen == SCREEN_BLE_MOUSE_PAIRING);
+    if (close_fn != NULL && !mouse_transition) {
       close_fn();
     }
     clear_current_screen();

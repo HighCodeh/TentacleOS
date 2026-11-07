@@ -74,7 +74,7 @@ esp_err_t ble_sniffer_start(void) {
   if (s_sniffer_task_handle != NULL)
     return ESP_OK;
 
-  ESP_LOGI(TAG, "Starting BLE Packet Sniffer...");
+  ESP_LOGD(TAG, "Starting BLE Packet Sniffer...");
 
   s_sniffer_task_stack = (StackType_t *)heap_caps_malloc(
       SNIFFER_TASK_STACK_SIZE * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
@@ -143,7 +143,7 @@ void ble_sniffer_stop(void) {
   }
   s_sniffer_queue = NULL;
 
-  ESP_LOGI(TAG, "BLE Packet Sniffer Stopped.");
+  ESP_LOGD(TAG, "BLE Packet Sniffer Stopped.");
 }
 
 static void sniffer_task(void *pvParameters) {

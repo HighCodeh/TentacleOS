@@ -163,6 +163,7 @@ esp_err_t bluetooth_service_stop(void) {
 }
 
 esp_err_t bluetooth_service_deinit(void) {
+  s_adv_requested = false;
   if (s_is_running) {
     esp_err_t stopped = bluetooth_service_stop();
     if (stopped != ESP_OK)
@@ -187,6 +188,8 @@ esp_err_t bluetooth_service_deinit(void) {
 
   s_is_initialized = false;
   s_is_running = false;
+  s_sniffer_cb = NULL;
+  s_tracker_cb = NULL;
   ESP_LOGI(TAG, "BLE deinitialized");
   return ESP_OK;
 }
@@ -578,7 +581,7 @@ esp_err_t bluetooth_service_start_tracker(const uint8_t *addr, bluetooth_service
 }
 
 void bluetooth_service_stop_tracker(void) {
-  if (ble_gap_disc_active()) {
+  if (s_is_initialized && ble_gap_disc_active()) {
     ble_gap_disc_cancel();
   }
   s_tracker_cb = NULL;

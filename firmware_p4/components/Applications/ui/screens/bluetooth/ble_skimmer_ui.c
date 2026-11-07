@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ble_skimmer_ui.h"
+#include "bluetooth_service.h"
 
 #include <stdio.h>
 
@@ -64,12 +65,14 @@ static void poll_cb(lv_timer_t *timer);
 static void build_scanning_view(void);
 static void build_results_view(void);
 
-static void stop_detector(void) {
+void ui_ble_skimmer_stop(void) {
   if (s_scan_timer != NULL) {
     lv_timer_delete(s_scan_timer);
     s_scan_timer = NULL;
   }
   skimmer_detector_stop();
+  if (bluetooth_service_deinit() != ESP_OK)
+    ESP_LOGW(TAG, "BLE shutdown failed");
 }
 
 static lv_obj_t *body_container(void) {
@@ -225,12 +228,12 @@ void ui_ble_skimmer_open(void) {
   }
 
   ui_screen_load_owned(&s_screen, s_screen);
-  ESP_LOGI(TAG, "BLE skimmer screen opened");
+  ESP_LOGD(TAG, "BLE skimmer screen opened");
 }
 
 static void poll_cb(lv_timer_t *timer) {
   if (lv_screen_active() != s_screen) {
-    stop_detector();
+    ui_ble_skimmer_stop();
     return;
   }
 
@@ -254,7 +257,7 @@ static void ble_skimmer_input(const input_event_t *ev, void *ctx) {
   switch (ev->button) {
     case INPUT_BTN_BACK:
       if (press) {
-        stop_detector();
+        ui_ble_skimmer_stop();
         ui_switch_screen(SCREEN_BLE_DETECT_MENU);
       }
       break;

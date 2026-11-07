@@ -23,6 +23,8 @@ extern "C" {
 /** @brief Open the BLE beacon-spam broadcast screen. */
 void ui_beacon_spam_open(void);
 
+void ui_beacon_spam_stop(void);
+
 #ifdef __cplusplus
 }
 #endif

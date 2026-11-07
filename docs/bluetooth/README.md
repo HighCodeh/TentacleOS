@@ -232,3 +232,29 @@ Device interoperability and the physical integration matrix remain unverified.
 The existing BLE advertising generators use the [device catalog](DEVICE_CATALOG.md)
 for Fast Pair, Samsung Watch/Buds and Apple Proximity Pair. The catalog documents
 upstream attribution, packet compatibility and the offline regression command.
+
+## Screen shutdown on High Boy
+
+Sniffer, tracker, skimmer, exposure, device tracking, spam, flood and keyboard
+screens register their stop functions with the UI manager. Stop now runs on
+normal navigation, shutdown and application handover, rather than relying only
+on BACK or a later timer tick. The affected passive/session screens remove their
+timers, stop their operation and request BLE deinitialization; a failed shutdown
+is logged. Keyboard shutdown also removes both UI timers.
+
+The standalone scanner releases a stack it initialized after copying the scan
+results, including startup failure. A stack already initialized by another user
+is retained. C5 refuses generic STOP/DEINIT during an active session or async
+scan, preventing late cleanup from tearing down an operation that now owns BLE.
+HID DEINIT stops advertising/connections and releases the generic stack/service
+table when idle. The P4 cached running indicator is cleared after successful
+deinitialization. Radio settings remain an explicit persistent control.
+
+The advertiser waits for its startup worker to finish before teardown; it no
+longer launches an independent stop task that can race the next screen. Mouse
+cleanup removes both timers and releases HID, except when moving between its
+pairing and control screens, which intentionally share the connection. C5
+clears advertising intent and old scan callbacks during deinit. Routine BLE
+startup/result-list diagnostics are DEBUG to preserve P4 flash space.
+Run `python3 tools/bluetooth/test_screen_cleanup.py` for timer/operation cleanup
+and repeated-stop regression checks.

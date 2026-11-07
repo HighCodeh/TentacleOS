@@ -23,6 +23,8 @@ extern "C" {
 /** @brief Open the BLE exposure-notification monitor using captured advertisements. */
 void ui_ble_exposure_open(void);
 
+void ui_ble_exposure_stop(void);
+
 #ifdef __cplusplus
 }
 #endif

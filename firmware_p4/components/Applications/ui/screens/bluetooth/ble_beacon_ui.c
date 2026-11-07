@@ -16,6 +16,7 @@
 // Copyright (c) 2025 HIGH CODE LLC
 
 #include "ble_beacon_ui.h"
+#include "esp_log.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -38,7 +39,11 @@
 static lv_obj_t *s_screen;
 static lv_obj_t *s_status;
 static lv_obj_t *s_details;
+static const char *TAG = "BLE_BEACON_UI";
+
 static volatile bool s_adv_active;
+static volatile bool s_adv_starting;
+#define ADV_STOP_POLL_MS 10
 static volatile esp_err_t s_adv_result;
 static char s_mac[18];
 
@@ -87,15 +92,18 @@ static void advertiser_start_task(void *arg) {
     s_adv_active = true;
   }
   s_adv_result = err;
+  s_adv_starting = false;
   ui_async_call(advertiser_started_cb, NULL);
   vTaskDelete(NULL);
 }
 
-static void advertiser_stop_task(void *arg) {
-  (void)arg;
+void ui_beacon_spam_stop(void) {
+  while (s_adv_starting)
+    vTaskDelay(pdMS_TO_TICKS(ADV_STOP_POLL_MS));
   bluetooth_service_stop_advertising();
+  if (bluetooth_service_deinit() != ESP_OK)
+    ESP_LOGW(TAG, "BLE advertiser shutdown failed");
   s_adv_active = false;
-  vTaskDelete(NULL);
 }
 
 void ui_beacon_spam_open(void) {
@@ -135,6 +143,7 @@ void ui_beacon_spam_open(void) {
   ui_input_set_screen_handler(advertiser_input, NULL);
   ui_screen_load_owned(&s_screen, s_screen);
 
+  s_adv_starting = true;
   if (xTaskCreatePinnedToCore(advertiser_start_task,
                               "ble_adv",
                               ADV_TASK_STACK,
@@ -142,6 +151,7 @@ void ui_beacon_spam_open(void) {
                               SYS_PRIO_SERVICE_LO,
                               NULL,
                               SYS_CORE_RADIO) != pdPASS) {
+    s_adv_starting = false;
     s_adv_result = ESP_ERR_NO_MEM;
     advertiser_started_cb(NULL);
   }
@@ -152,14 +162,5 @@ static void advertiser_input(const input_event_t *ev, void *ctx) {
   if (ev->button != INPUT_BTN_BACK || ev->action != INPUT_ACTION_PRESS)
     return;
 
-  if (s_adv_active) {
-    xTaskCreatePinnedToCore(advertiser_stop_task,
-                            "ble_adv_stop",
-                            ADV_TASK_STACK,
-                            NULL,
-                            SYS_PRIO_SERVICE_LO,
-                            NULL,
-                            SYS_CORE_RADIO);
-  }
   ui_switch_screen(SCREEN_BLE_MENU);
 }

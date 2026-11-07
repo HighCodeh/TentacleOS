@@ -23,6 +23,8 @@ extern "C" {
 /** @brief BLE HID keyboard pairing and input through the C5 HID service. */
 void ui_ble_keyboard_open(void);
 
+void ui_ble_keyboard_stop(void);
+
 #ifdef __cplusplus
 }
 #endif

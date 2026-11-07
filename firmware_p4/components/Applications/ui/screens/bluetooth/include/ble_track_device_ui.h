@@ -23,6 +23,8 @@ extern "C" {
 /** @brief BLE RSSI locator using scan results and the C5 tracker. */
 void ui_ble_track_device_open(void);
 
+void ui_ble_track_device_stop(void);
+
 #ifdef __cplusplus
 }
 #endif

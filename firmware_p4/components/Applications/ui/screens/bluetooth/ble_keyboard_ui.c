@@ -304,7 +304,7 @@ static void cursor_timer_cb(lv_timer_t *timer) {
   update_terminal();
 }
 
-static void stop_timers(void) {
+void ui_ble_keyboard_stop(void) {
   if (s_phase_timer != NULL) {
     lv_timer_delete(s_phase_timer);
     s_phase_timer = NULL;
@@ -313,6 +313,8 @@ static void stop_timers(void) {
     lv_timer_delete(s_cursor_timer);
     s_cursor_timer = NULL;
   }
+  ble_hid_deinit();
+  s_connected = false;
 }
 
 static void keyboard_input(const input_event_t *ev, void *ctx) {
@@ -322,9 +324,7 @@ static void keyboard_input(const input_event_t *ev, void *ctx) {
   switch (ev->button) {
     case INPUT_BTN_BACK:
       if (press) {
-        stop_timers();
-        ble_hid_deinit();
-        s_connected = false;
+        ui_ble_keyboard_stop();
         ui_switch_screen(SCREEN_BLE_MENU);
       }
       break;

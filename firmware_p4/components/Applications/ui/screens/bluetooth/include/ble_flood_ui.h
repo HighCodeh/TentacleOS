@@ -23,6 +23,8 @@ extern "C" {
 /** @brief BLE connection/L2CAP run screen backed by the C5 services. */
 void ui_ble_flood_open(void);
 
+void ui_ble_flood_stop(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ble_flood_ui.h"
+#include "bluetooth_service.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -93,13 +94,15 @@ static esp_err_t flood_mode_start(void) {
                                 : ble_connect_flood_start(s_target_addr, s_target_type);
 }
 
-static void stop_all(void) {
+void ui_ble_flood_stop(void) {
   if (s_flood_timer != NULL) {
     lv_timer_delete(s_flood_timer);
     s_flood_timer = NULL;
   }
   if (s_phase == PHASE_FLOOD)
     flood_mode_stop();
+  if (bluetooth_service_deinit() != ESP_OK)
+    ESP_LOGW(TAG, "BLE shutdown failed");
 }
 
 static lv_obj_t *lit_card(lv_obj_t *parent, int w, int h) {
@@ -244,7 +247,7 @@ static void begin_flood(void) {
 
 static void flood_tick_cb(lv_timer_t *timer) {
   if (lv_screen_active() != s_screen) {
-    stop_all();
+    ui_ble_flood_stop();
     return;
   }
 
@@ -282,7 +285,7 @@ static void ble_flood_input(const input_event_t *ev, void *ctx) {
   switch (ev->button) {
     case INPUT_BTN_BACK:
       if (press) {
-        stop_all();
+        ui_ble_flood_stop();
         ui_switch_screen(SCREEN_BLE_MENU);
       }
       break;

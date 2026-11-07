@@ -26,6 +26,8 @@ void ui_ble_spam_select_open(void);
 /** @brief Advertising run screen backed by the C5 spam service. */
 void ui_ble_spam_open(void);
 
+void ui_ble_spam_stop(void);
+
 #ifdef __cplusplus
 }
 #endif

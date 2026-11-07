@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ble_spam_ui.h"
+#include "bluetooth_service.h"
 
 #include <stdio.h>
 
@@ -240,7 +241,7 @@ static bool s_is_run_active = false;
 static void ble_spam_run_input(const input_event_t *ev, void *ctx);
 static void run_spam_tick_cb(lv_timer_t *timer);
 
-static void run_stop(void) {
+void ui_ble_spam_stop(void) {
   if (s_run_spam_timer != NULL) {
     lv_timer_delete(s_run_spam_timer);
     s_run_spam_timer = NULL;
@@ -249,6 +250,8 @@ static void run_stop(void) {
     spam_stop();
     s_is_run_active = false;
   }
+  if (bluetooth_service_deinit() != ESP_OK)
+    ESP_LOGW(TAG, "BLE shutdown failed");
 }
 
 void ui_ble_spam_open(void) {
@@ -337,7 +340,7 @@ void ui_ble_spam_open(void) {
 
 static void run_spam_tick_cb(lv_timer_t *timer) {
   if (lv_screen_active() != s_run_screen) {
-    run_stop();
+    ui_ble_spam_stop();
     return;
   }
   if (s_run_count_label == NULL)
@@ -352,7 +355,7 @@ static void ble_spam_run_input(const input_event_t *ev, void *ctx) {
   switch (ev->button) {
     case INPUT_BTN_BACK:
       if (press) {
-        run_stop();
+        ui_ble_spam_stop();
         ui_switch_screen(SCREEN_BLE_SPAM_SELECT);
       }
       break;

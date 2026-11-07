@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ble_track_device_ui.h"
+#include "bluetooth_service.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -73,13 +74,15 @@ static char s_target_name[NAME_LEN];
 static void ble_track_device_input(const input_event_t *ev, void *ctx);
 static void track_timer_cb(lv_timer_t *t);
 
-static void stop_all(void) {
+void ui_ble_track_device_stop(void) {
   if (s_timer != NULL) {
     lv_timer_delete(s_timer);
     s_timer = NULL;
   }
   if (s_phase == PHASE_TRACK)
     ble_tracker_stop();
+  if (bluetooth_service_deinit() != ESP_OK)
+    ESP_LOGW(TAG, "BLE shutdown failed");
 }
 
 static int rssi_to_pct(int rssi) {
@@ -223,7 +226,7 @@ static bool select_target(void) {
 
 static void track_timer_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen) {
-    stop_all();
+    ui_ble_track_device_stop();
     return;
   }
 
@@ -273,7 +276,7 @@ static void ble_track_device_input(const input_event_t *ev, void *ctx) {
   switch (ev->button) {
     case INPUT_BTN_BACK:
       if (press) {
-        stop_all();
+        ui_ble_track_device_stop();
         ui_switch_screen(SCREEN_BLE_DETECT_MENU);
       }
       break;

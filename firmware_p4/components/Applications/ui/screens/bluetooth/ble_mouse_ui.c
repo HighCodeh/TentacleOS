@@ -431,3 +431,15 @@ void ui_ble_mouse_open(void) {
 
   ui_screen_load_owned(&s_mouse_screen, s_mouse_screen);
 }
+
+void ui_ble_mouse_stop(void) {
+  if (s_pair_timer != NULL) {
+    lv_timer_delete(s_pair_timer);
+    s_pair_timer = NULL;
+  }
+  if (s_mouse_timer != NULL) {
+    lv_timer_delete(s_mouse_timer);
+    s_mouse_timer = NULL;
+  }
+  ble_hid_deinit();
+}

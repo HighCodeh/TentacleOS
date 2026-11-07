@@ -65,7 +65,7 @@ void ui_ble_detect_open(void) {
   ui_input_set_screen_handler(ble_detect_input, NULL);
 
   ui_screen_load_owned(&s_screen, s_screen);
-  ESP_LOGI(TAG, "BLE detect menu opened");
+  ESP_LOGD(TAG, "BLE detect menu opened");
 }
 
 static void ble_detect_input(const input_event_t *ev, void *ctx) {

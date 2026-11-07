@@ -148,15 +148,18 @@ static bool save_results_to_loot(void) {
     return false;
   }
 
-  ESP_LOGI(TAG, "Scan results saved to %s", path);
+  ESP_LOGD(TAG, "Scan results saved to %s", path);
   return true;
 }
 
 static void scanner_task(void *pvParameters) {
-  ESP_LOGI(TAG, "Starting BLE Scan Task (PSRAM)...");
+  ESP_LOGD(TAG, "Starting BLE Scan Task (PSRAM)...");
 
+  const bool owns_service = !bluetooth_service_is_initialized();
   if (bluetooth_service_init() != ESP_OK || bluetooth_service_start() != ESP_OK) {
     ESP_LOGE(TAG, "BLE not available on C5; aborting scan");
+    if (owns_service)
+      bluetooth_service_deinit();
     s_is_scanning = false;
     s_scanner_task_handle = NULL;
     vTaskDeleteWithCaps(NULL);
@@ -166,7 +169,7 @@ static void scanner_task(void *pvParameters) {
   bluetooth_service_scan(SCAN_DURATION_MS);
 
   uint16_t dev_num = bluetooth_service_get_scan_count();
-  ESP_LOGI(TAG, "Scan completed. Service found %d devices.", dev_num);
+  ESP_LOGD(TAG, "Scan completed. Service found %d devices.", dev_num);
 
   if (s_scan_results != NULL) {
     free(s_scan_results);
@@ -183,10 +186,10 @@ static void scanner_task(void *pvParameters) {
         bluetooth_service_scan_result_t *rec = bluetooth_service_get_scan_result(i);
         if (rec != NULL) {
           memcpy(&s_scan_results[i], rec, sizeof(bluetooth_service_scan_result_t));
-          ESP_LOGI(TAG, "[%d] Name: %s | RSSI: %d", i, rec->name, rec->rssi);
+          ESP_LOGD(TAG, "[%d] Name: %s | RSSI: %d", i, rec->name, rec->rssi);
         }
       }
-      ESP_LOGI(TAG, "Results copied to PSRAM.");
+      ESP_LOGD(TAG, "Results copied to PSRAM.");
 
       save_results_to_loot();
 
@@ -195,6 +198,8 @@ static void scanner_task(void *pvParameters) {
     }
   }
 
+  if (owns_service && bluetooth_service_deinit() != ESP_OK)
+    ESP_LOGW(TAG, "BLE scan cleanup failed");
   s_is_scanning = false;
   s_scanner_task_handle = NULL;
   vTaskDeleteWithCaps(NULL);

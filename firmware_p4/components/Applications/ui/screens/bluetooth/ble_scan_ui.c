@@ -392,7 +392,7 @@ static void scan_done_cb(void *unused) {
   build_screen();
   if (s_scan_state == SCAN_DONE && s_dev_count > 0)
     ui_feedback(UI_FB_READ);
-  ESP_LOGI(TAG, "scan finished: state=%d, %d device(s)", (int)s_scan_state, s_dev_count);
+  ESP_LOGD(TAG, "scan finished: state=%d, %d device(s)", (int)s_scan_state, s_dev_count);
 }
 
 static void collect_results(void) {
@@ -559,5 +559,5 @@ void ui_ble_scan_open(void) {
     }
   }
 
-  ESP_LOGI(TAG, "BLE scan screen opened");
+  ESP_LOGD(TAG, "BLE scan screen opened");
 }

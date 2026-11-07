@@ -46,7 +46,10 @@ esp_err_t bluetooth_service_init(void) {
 }
 
 esp_err_t bluetooth_service_deinit(void) {
-  return spi_bridge_send_command(SPI_ID_BT_DEINIT, NULL, 0, NULL, NULL, 0, SPI_TIMEOUT_MS);
+  esp_err_t err = spi_bridge_send_command(SPI_ID_BT_DEINIT, NULL, 0, NULL, NULL, 0, SPI_TIMEOUT_MS);
+  if (err == ESP_OK)
+    s_running_cached = false;
+  return err;
 }
 
 esp_err_t bluetooth_service_start(void) {
