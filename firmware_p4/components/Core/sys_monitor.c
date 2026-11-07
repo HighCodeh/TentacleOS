@@ -226,7 +226,7 @@ static bool check_heap(void) {
                "Low heap: %lu B free, largest block %lu B (min ever %lu B)",
                (unsigned long)free_int,
                (unsigned long)largest,
-               (unsigned long)esp_get_minimum_free_heap_size());
+               (unsigned long)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
       if (atomic_load(&s_is_ui_expected)) {
         assets_manager_evict_cache();
       }
