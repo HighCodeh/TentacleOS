@@ -66,6 +66,8 @@ static const char *protocol_name(hb_nfc_protocol_t protocol) {
       return "MIFARE Plus";
     case HB_PROTO_MF_DESFIRE:
       return "MIFARE DESFire";
+    case HB_PROTO_TEXKOM:
+      return "Texkom";
     case HB_PROTO_ST25TB:
       return "ST25TB";
     case HB_PROTO_SLIX:

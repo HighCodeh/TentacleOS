@@ -43,14 +43,14 @@ extern "C" {
 #define FELICA_BLOCK_SIZE 16
 #define FELICA_MAX_BLOCKS 32
 
-#define FELICA_CMD_SENSF_REQ    0x04U
-#define FELICA_CMD_SENSF_RES    0x05U
+#define FELICA_CMD_SENSF_REQ    0x00U
+#define FELICA_CMD_SENSF_RES    0x01U
 #define FELICA_CMD_READ_WO_ENC  0x06U
 #define FELICA_CMD_READ_RESP    0x07U
 #define FELICA_CMD_WRITE_WO_ENC 0x08U
 #define FELICA_CMD_WRITE_RESP   0x09U
 
-#define FELICA_SC_COMMON 0x88B4U /**< wildcard system code             */
+#define FELICA_SC_COMMON 0xFFFFU /**< wildcard system code             */
 #define FELICA_SC_NDEF   0x0003U /**< NDEF system code                 */
 
 #define FELICA_RCF_NONE        0x00U /**< no system code in response       */
@@ -60,9 +60,9 @@ extern "C" {
 #define FELICA_AM_MOD_PERCENT 10 /**< AM modulation %, ST25R3916 spec */
 
 /* SENSF_REQ Protocol (Polling) */
-#define FELICA_SENSF_REQ_LENGTH      0x07U /**< Total packet byte count */
+#define FELICA_SENSF_REQ_LENGTH      0x06U /**< Total packet byte count */
 #define FELICA_SENSF_TIME_SLOT_MASK  0x0FU /**< 4-bit time slot field mask */
-#define FELICA_SENSF_RES_MIN_LEN     17    /**< Minimum valid response length */
+#define FELICA_SENSF_RES_MIN_LEN     18    /**< Minimum valid response length */
 #define FELICA_SENSF_RES_WITH_RD_LEN 20    /**< Min length to include RD field */
 #define FELICA_SENSF_TIMEOUT_MS      20    /**< RF transceive timeout */
 #define FELICA_SENSF_RES_IDM_OFFSET  2     /**< IDm position in SENSF_RES */
@@ -91,7 +91,7 @@ extern "C" {
 #define FELICA_WRITE_CMD_BUFFER_SIZE 64 /**< TX buffer for WRITE command */
 #define FELICA_WRITE_RES_BUFFER_SIZE 32 /**< RX buffer for WRITE response */
 #define FELICA_WRITE_TIMEOUT_MS      50 /**< RF transceive timeout (longer) */
-#define FELICA_WRITE_RES_MIN_LEN     11 /**< Minimum valid response length */
+#define FELICA_WRITE_RES_MIN_LEN     12 /**< Minimum valid response length */
 #define FELICA_WRITE_RES_IDM_OFFSET  2  /**< IDm position in WRITE_RESP */
 #define FELICA_WRITE_RES_STATUS1_POS 10 /**< Status1 position in WRITE_RESP */
 #define FELICA_WRITE_RES_STATUS2_POS 11 /**< Status2 position in WRITE_RESP */

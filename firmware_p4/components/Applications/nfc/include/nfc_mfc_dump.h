@@ -91,7 +91,8 @@ hb_nfc_err_t nfc_mfc_dump_read_1k(nfc_iso14443a_data_t *card,
  * @brief Save a complete 1K dump and its key report without overwriting files.
  *
  * The binary is a raw 1024-byte image suitable for Proxmark3 `hf mf eload`.
- * Known keys are reconstructed into each sector trailer.
+ * Known keys are reconstructed into each sector trailer. Complete profiles
+ * with both keys for every sector also produce a Flipper .nfc file.
  */
 esp_err_t nfc_mfc_dump_save(const nfc_iso14443a_data_t *card, nfc_mfc_dump_result_t *dump);
 

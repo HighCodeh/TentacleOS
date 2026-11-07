@@ -16,11 +16,14 @@
 #include "st25r3916_fifo.h"
 
 #include "esp_log.h"
+#include "esp_timer.h"
 
 #include "st25r3916_reg.h"
 #include "st25r3916_cmd.h"
 #include "hb_nfc_spi.h"
 #include "hb_nfc_timer.h"
+
+#define FIFO_US_PER_MS 1000
 
 static const char *TAG = "ST25R3916_FIFO";
 
@@ -65,12 +68,9 @@ esp_err_t st25r3916_fifo_wait(size_t min_bytes, int32_t timeout_ms, uint16_t *ou
   uint16_t current_count = 0;
   esp_err_t ret = ESP_ERR_TIMEOUT;
 
-  int32_t iterations = (timeout_ms * 1000) / ST25R3916_FIFO_WAIT_POLL_US;
-  if (iterations == 0 && timeout_ms > 0) {
-    iterations = 1;
-  }
+  const int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * FIFO_US_PER_MS;
 
-  for (int32_t i = 0; i < iterations; i++) {
+  while (esp_timer_get_time() < deadline) {
     current_count = st25r3916_fifo_get_count();
     if (current_count >= min_bytes) {
       ret = ESP_OK;

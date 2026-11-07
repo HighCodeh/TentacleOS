@@ -21,6 +21,7 @@
 #include "nfc_mfc_dump.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 
@@ -30,6 +31,7 @@
 #include "power_manager.h"
 
 #include "mf_classic.h"
+#include "nfc_flipper_file.h"
 #include "mf_key_cache.h"
 #include "mf_key_dict.h"
 #include "nfc_poller.h"
@@ -405,7 +407,9 @@ static esp_err_t choose_paths(const nfc_iso14443a_data_t *card, nfc_mfc_dump_res
       snprintf(seqbuf, sizeof(seqbuf), "%02d", seq);
     snprintf(
         dump->bin_path, sizeof(dump->bin_path), DUMP_DIR "/mf_%s%s%s.bin", uid, suffix, seqbuf);
-    if (!path_exists(dump->bin_path)) {
+    char nfc_path[NFC_MFC_PATH_MAX];
+    snprintf(nfc_path, sizeof(nfc_path), DUMP_DIR "/mf_%s%s%s.nfc", uid, suffix, seqbuf);
+    if (!path_exists(dump->bin_path) && !path_exists(nfc_path)) {
       snprintf(dump->keys_path,
                sizeof(dump->keys_path),
                DUMP_DIR "/mf_%s%s%s.keys",
@@ -452,6 +456,31 @@ esp_err_t nfc_mfc_dump_save(const nfc_iso14443a_data_t *card, nfc_mfc_dump_resul
   }
   if (fclose(keys) != 0)
     return ESP_FAIL;
+
+  if (dump->emulation_ready) {
+    esp_err_t export_err = ESP_ERR_NO_MEM;
+    mfc_emu_card_data_t *export_card = calloc(1, sizeof(*export_card));
+    if (!export_card) {
+      ESP_LOGE(TAG, "No memory to export Flipper NFC file");
+      goto export_cleanup;
+    }
+    mfc_emu_card_data_init(export_card, card, MF_CLASSIC_1K);
+    memcpy(export_card->blocks, dump->blocks, sizeof(dump->blocks));
+    for (int sector = 0; sector < NFC_MFC1K_SECTORS; sector++) {
+      memcpy(export_card->keys[sector].key_a, dump->key_a[sector], NFC_MFC_KEY_SIZE);
+      memcpy(export_card->keys[sector].key_b, dump->key_b[sector], NFC_MFC_KEY_SIZE);
+      export_card->keys[sector].key_a_known = true;
+      export_card->keys[sector].key_b_known = true;
+    }
+    char path[NFC_MFC_PATH_MAX];
+    memcpy(path, dump->bin_path, strlen(dump->bin_path) + 1);
+    memcpy(path + strlen(path) - 4, ".nfc", 5);
+    export_err = nfc_flipper_file_save_classic(path, export_card);
+export_cleanup:
+    free(export_card);
+    if (export_err != ESP_OK)
+      return export_err;
+  }
 
   dump->saved = true;
   ESP_LOGI(TAG,

@@ -28,6 +28,8 @@
 
 static const char *TAG = "NFC_MF_DESFIRE";
 
+#define DESFIRE_MAX_CHAIN_FRAMES 4096U
+
 #define DES_BLOCK_SIZE               8
 #define AES_BLOCK_SIZE               16
 #define AES_KEY_SIZE_BITS            128
@@ -40,7 +42,9 @@ static const char *TAG = "NFC_MF_DESFIRE";
 
 static int build_native_apdu(
     uint8_t cmd, const uint8_t *data, size_t data_len, uint8_t *apdu, size_t apdu_max) {
-  size_t need = DESFIRE_APDU_HEADER_SIZE + data_len + 1;
+  if (data_len > UINT8_MAX || (data_len != 0 && data == NULL))
+    return 0;
+  size_t need = DESFIRE_APDU_HEADER_SIZE + data_len + (data_len != 0);
   if (apdu == NULL || apdu_max < need)
     return 0;
   apdu[0] = MF_DESFIRE_CLA;
@@ -51,7 +55,8 @@ static int build_native_apdu(
   if (data_len > 0 && data) {
     memcpy(&apdu[DESFIRE_APDU_HEADER_SIZE], data, data_len);
   }
-  apdu[DESFIRE_APDU_HEADER_SIZE + data_len] = 0x00;
+  if (data_len != 0)
+    apdu[DESFIRE_APDU_HEADER_SIZE + data_len] = 0x00;
   return (int)need;
 }
 
@@ -173,51 +178,59 @@ hb_nfc_err_t mf_desfire_transceive_native(mf_desfire_session_t *session,
                                           size_t out_max,
                                           size_t *out_len,
                                           uint16_t *sw) {
-  if (session == NULL || !session->dep_ready || out == NULL || out_len == NULL)
+  if (!session || !session->dep_ready || !out || !out_len || (data_len && !data))
     return HB_NFC_ERR_PARAM;
-
   *out_len = 0;
   if (sw)
     *sw = 0;
-
-  uint8_t apdu[DESFIRE_APDU_BUF_SIZE];
-  int apdu_len = build_native_apdu(cmd, data, data_len, apdu, sizeof(apdu));
-  if (apdu_len <= 0)
-    return HB_NFC_ERR_PARAM;
-
-  uint8_t rx[DESFIRE_APDU_BUF_SIZE];
-  int rlen = mf_desfire_apdu_transceive(session, apdu, (size_t)apdu_len, rx, sizeof(rx), 0);
-  if (rlen < 2)
-    return HB_NFC_ERR_PROTOCOL;
-
-  while (1) {
-    uint16_t status = (uint16_t)((rx[rlen - 2] << 8) | rx[rlen - 1]);
-    int data_len_rx = rlen - 2;
-
-    if (data_len_rx > 0) {
-      size_t copy = (*out_len + (size_t)data_len_rx <= out_max)
-                        ? (size_t)data_len_rx
-                        : (out_max > *out_len ? (out_max - *out_len) : 0);
-      if (copy > 0) {
-        memcpy(&out[*out_len], rx, copy);
-        *out_len += copy;
-      }
+  uint8_t apdu[DESFIRE_APDU_BUF_SIZE], rx[DESFIRE_APDU_BUF_SIZE];
+  for (size_t frame = 0; frame < DESFIRE_MAX_CHAIN_FRAMES; frame++) {
+    if (session->should_cancel && session->should_cancel()) {
+      *out_len = 0;
+      return ESP_ERR_INVALID_STATE;
     }
-
+    int apdu_len;
+    if (session->use_native_frames) {
+      if (data_len >= sizeof(apdu))
+        return HB_NFC_ERR_PARAM;
+      apdu[0] = cmd;
+      if (data_len)
+        memcpy(apdu + 1, data, data_len);
+      apdu_len = data_len + 1;
+    } else
+      apdu_len = build_native_apdu(cmd, data, data_len, apdu, sizeof(apdu));
+    if (apdu_len <= 0)
+      return HB_NFC_ERR_PARAM;
+    int rlen = mf_desfire_apdu_transceive(session, apdu, (size_t)apdu_len, rx, sizeof(rx), 0);
+    size_t overhead = session->use_native_frames ? 1 : 2;
+    if (rlen < (int)overhead) {
+      *out_len = 0;
+      return HB_NFC_ERR_PROTOCOL;
+    }
+    uint16_t status = session->use_native_frames ? (MF_DESFIRE_SW_OK | rx[0])
+                                                 : (uint16_t)((rx[rlen - 2] << 8) | rx[rlen - 1]);
+    size_t received = (size_t)rlen - overhead;
+    if (received > out_max - *out_len) {
+      *out_len = 0;
+      return HB_NFC_ERR_PARAM;
+    }
+    memcpy(out + *out_len, rx + (session->use_native_frames ? 1 : 0), received);
+    *out_len += received;
     if (sw)
       *sw = status;
     if (status != MF_DESFIRE_SW_MORE)
-      break;
-
-    apdu_len = build_native_apdu(MF_DESFIRE_CMD_ADDITIONAL, NULL, 0, apdu, sizeof(apdu));
-    if (apdu_len <= 0)
-      return HB_NFC_ERR_PARAM;
-    rlen = mf_desfire_apdu_transceive(session, apdu, (size_t)apdu_len, rx, sizeof(rx), 0);
-    if (rlen < 2)
+      return HB_NFC_OK;
+    if (!received) {
+      *out_len = 0;
       return HB_NFC_ERR_PROTOCOL;
+    }
+    cmd = MF_DESFIRE_CMD_ADDITIONAL;
+    data = NULL;
+    data_len = 0;
   }
-
-  return HB_NFC_OK;
+  ESP_LOGW(TAG, "Native response exceeded chain limit");
+  *out_len = 0;
+  return HB_NFC_ERR_PROTOCOL;
 }
 
 hb_nfc_err_t mf_desfire_get_version(mf_desfire_session_t *session, mf_desfire_version_t *out) {

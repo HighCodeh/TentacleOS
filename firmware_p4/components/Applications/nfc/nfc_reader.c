@@ -59,13 +59,12 @@
 
 #define MFUL_STORAGE_UL_64B      0x03
 #define MFUL_STORAGE_UL_EV1_48B  0x0B
-#define MFUL_STORAGE_UL_EV1_128B 0x11
-#define MFUL_STORAGE_UL_NANO_48B 0x0E
-#define MFUL_STORAGE_NTAG213     0x06
-#define MFUL_STORAGE_NTAG215     0x0E
-#define MFUL_STORAGE_NTAG216     0x12
-#define MFUL_STORAGE_NTAG_I2C_1K 0x0F
-#define MFUL_STORAGE_NTAG_I2C_2K 0x13
+#define MFUL_STORAGE_UL_EV1_128B 0x0E
+#define MFUL_STORAGE_NTAG213     0x0F
+#define MFUL_STORAGE_NTAG215     0x11
+#define MFUL_STORAGE_NTAG216     0x13
+#define MFUL_STORAGE_NTAG210     0x0B
+#define MFUL_STORAGE_NTAG212     0x0E
 
 static const char *TAG = "NFC_READER";
 
@@ -374,12 +373,14 @@ static bool try_auth_key(nfc_iso14443a_data_t *card,
                          uint8_t block,
                          mf_key_type_t key_type,
                          const mf_classic_key_t *key) {
+  if (card == NULL || (card->uid_len != 4 && card->uid_len != 7))
+    return false;
   mf_classic_reset_auth();
   hb_nfc_err_t err = iso14443a_poller_reselect(card);
   if (err != HB_NFC_OK)
     return false;
 
-  err = mf_classic_auth(block, key_type, key, card->uid);
+  err = mf_classic_auth(block, key_type, key, &card->uid[card->uid_len - 4]);
   return (err == HB_NFC_OK);
 }
 
@@ -503,6 +504,10 @@ void mf_classic_read_full(nfc_iso14443a_data_t *card) {
       for (int b = 0; b < res->blocks_in_sector; b++) {
         hb_nfc_err_t err =
             mf_classic_read_block((uint8_t)(res->first_block + b), res->block_data[b]);
+        if (err != HB_NFC_OK &&
+            try_key_bytes(card, (uint8_t)(res->first_block + b), MF_KEY_A, res->key_a)) {
+          err = mf_classic_read_block((uint8_t)(res->first_block + b), res->block_data[b]);
+        }
         if (err == HB_NFC_OK) {
           res->blocks_read[b] = true;
           total_blocks_read++;
@@ -535,37 +540,24 @@ void mf_classic_read_full(nfc_iso14443a_data_t *card) {
     }
 
     if (!res->key_b_found) {
-#define FOUND_KEY_B(kb)                                                                     \
-  do {                                                                                      \
-    res->key_b_found = true;                                                                \
-    memcpy(res->key_b, (kb), 6);                                                            \
-    keys_b_found++;                                                                         \
-    memcpy(s_emu_card.keys[sect].key_b, (kb), 6);                                           \
-    s_emu_card.keys[sect].key_b_known = true;                                               \
-    mf_key_cache_store(&(mf_key_cache_store_params_t){.uid = card->uid,                     \
-                                                      .uid_len = card->uid_len,             \
-                                                      .sector = sect,                       \
-                                                      .sector_count = nsect,                \
-                                                      .type = MF_KEY_B,                     \
-                                                      .key = (kb)});                        \
-    if (nested_src_sector < 0) {                                                            \
-      nested_src_sector = sect;                                                             \
-      memcpy(nested_src_key.data, (kb), 6);                                                 \
-      nested_src_type = MF_KEY_B;                                                           \
-    }                                                                                       \
-    if (!all_read) {                                                                        \
-      for (int _b = 0; _b < res->blocks_in_sector; _b++) {                                  \
-        if (!res->blocks_read[_b]) {                                                        \
-          hb_nfc_err_t _e =                                                                 \
-              mf_classic_read_block((uint8_t)(res->first_block + _b), res->block_data[_b]); \
-          if (_e == HB_NFC_OK) {                                                            \
-            res->blocks_read[_b] = true;                                                    \
-            total_blocks_read++;                                                            \
-            memcpy(s_emu_card.blocks[res->first_block + _b], res->block_data[_b], 16);      \
-          }                                                                                 \
-        }                                                                                   \
-      }                                                                                     \
-    }                                                                                       \
+#define FOUND_KEY_B(kb)                                                         \
+  do {                                                                          \
+    res->key_b_found = true;                                                    \
+    memcpy(res->key_b, (kb), 6);                                                \
+    keys_b_found++;                                                             \
+    memcpy(s_emu_card.keys[sect].key_b, (kb), 6);                               \
+    s_emu_card.keys[sect].key_b_known = true;                                   \
+    mf_key_cache_store(&(mf_key_cache_store_params_t){.uid = card->uid,         \
+                                                      .uid_len = card->uid_len, \
+                                                      .sector = sect,           \
+                                                      .sector_count = nsect,    \
+                                                      .type = MF_KEY_B,         \
+                                                      .key = (kb)});            \
+    if (nested_src_sector < 0) {                                                \
+      nested_src_sector = sect;                                                 \
+      memcpy(nested_src_key.data, (kb), 6);                                     \
+      nested_src_type = MF_KEY_B;                                               \
+    }                                                                           \
   } while (0)
 
       for (int k = 0; k < dict_count && !res->key_b_found; k++) {
@@ -576,6 +568,22 @@ void mf_classic_read_full(nfc_iso14443a_data_t *card) {
         }
       }
 #undef FOUND_KEY_B
+    }
+
+    if (res->key_b_found && !all_read) {
+      for (int b = 0; b < res->blocks_in_sector; b++) {
+        if (res->blocks_read[b])
+          continue;
+        uint8_t block = (uint8_t)(res->first_block + b);
+        hb_nfc_err_t err = mf_classic_read_block(block, res->block_data[b]);
+        if (err != HB_NFC_OK && try_key_bytes(card, block, MF_KEY_B, res->key_b))
+          err = mf_classic_read_block(block, res->block_data[b]);
+        if (err == HB_NFC_OK) {
+          res->blocks_read[b] = true;
+          total_blocks_read++;
+          memcpy(s_emu_card.blocks[block], res->block_data[b], sizeof(res->block_data[b]));
+        }
+      }
     }
 
     if (!res->key_b_found) {
@@ -950,12 +958,7 @@ void mfp_probe_and_dump(nfc_iso14443a_data_t *card) {
 
   if (err == HB_NFC_OK) {
     ESP_LOGI(TAG, "MIFARE Plus SL3 confirmed (sector 0 authenticated with zero key)");
-    ESP_LOGI(TAG,
-             "SES_ENC: %02X %02X %02X %02X ...",
-             session.ses_enc[0],
-             session.ses_enc[1],
-             session.ses_enc[2],
-             session.ses_enc[3]);
+
   } else {
     ESP_LOGI(TAG, "MIFARE Plus SL3 probe: auth rejected (key wrong or not MFP SL3)");
     ESP_LOGI(TAG, "Card is likely DESFire, JCOP, or MFP with custom key");
@@ -1005,6 +1008,7 @@ void mful_dump_card(nfc_iso14443a_data_t *card) {
 
   const char *tag_type = "Ultralight (classic)";
   int total_pages = 16;
+  bool is_ulc_authenticated = false;
 
   if (vlen >= 7) {
     nfc_log_hex("  VERSION:", ver, (size_t)vlen);
@@ -1026,16 +1030,20 @@ void mful_dump_card(nfc_iso14443a_data_t *card) {
           tag_type = "Ultralight EV1 (128 bytes)";
           total_pages = 41;
           break;
-        case MFUL_STORAGE_UL_NANO_48B:
-          tag_type = "Ultralight Nano (48 bytes)";
-          total_pages = 20;
-          break;
         default:
           tag_type = "Ultralight (unknown size)";
           break;
       }
-    } else if (prod_type == MFUL_PROD_TYPE_NTAG) {
+    } else if (prod_type == MFUL_PROD_TYPE_NTAG && prod_sub != MFUL_PROD_SUB_NTAG_I2C) {
       switch (storage) {
+        case MFUL_STORAGE_NTAG210:
+          tag_type = "NTAG210 (48 bytes user)";
+          total_pages = 20;
+          break;
+        case MFUL_STORAGE_NTAG212:
+          tag_type = "NTAG212 (128 bytes user)";
+          total_pages = 41;
+          break;
         case MFUL_STORAGE_NTAG213:
           tag_type = "NTAG213 (144 bytes user)";
           total_pages = 45;
@@ -1048,14 +1056,6 @@ void mful_dump_card(nfc_iso14443a_data_t *card) {
           tag_type = "NTAG216 (888 bytes user)";
           total_pages = 231;
           break;
-        case MFUL_STORAGE_NTAG_I2C_1K:
-          tag_type = "NTAG I2C 1K";
-          total_pages = 231;
-          break;
-        case MFUL_STORAGE_NTAG_I2C_2K:
-          tag_type = "NTAG I2C 2K";
-          total_pages = 485;
-          break;
         default:
           if (prod_sub == MFUL_PROD_SUB_NTAG) {
             tag_type = "NTAG (unknown size)";
@@ -1066,6 +1066,13 @@ void mful_dump_card(nfc_iso14443a_data_t *card) {
       }
     }
 
+    uint16_t known_pages = mful_version_pages(ver);
+    if (known_pages != 0)
+      total_pages = known_pages;
+    if (prod_sub == MFUL_PROD_SUB_NTAG_I2C) {
+      tag_type = "NTAG I2C (sector 0 preview)";
+      total_pages = 16;
+    }
     ESP_LOGI(TAG, "IC vendor: 0x%02X Type: 0x%02X Subtype: 0x%02X", ver[1], prod_type, prod_sub);
     ESP_LOGI(TAG, "Major: %d Minor: %d Storage: 0x%02X", ver[4], ver[5], storage);
   }
@@ -1074,10 +1081,13 @@ void mful_dump_card(nfc_iso14443a_data_t *card) {
 #if MF_ULC_TRY_DEFAULT_KEY
     load_mf_ulc_keys();
     for (size_t ki = 0; ki < s_mf_ulc_key_count; ki++) {
+      if (iso14443a_poller_reselect(card) != HB_NFC_OK)
+        break;
       hb_nfc_err_t aerr = mful_ulc_auth(s_mf_ulc_keys[ki]);
       if (aerr == HB_NFC_OK) {
         tag_type = "Ultralight C (3DES auth)";
-        total_pages = 48;
+        total_pages = 44;
+        is_ulc_authenticated = true;
         ESP_LOGI(TAG, "ULC auth OK (key %u from dict)", (unsigned)ki);
         break;
       }
@@ -1089,7 +1099,8 @@ void mful_dump_card(nfc_iso14443a_data_t *card) {
   ESP_LOGI(TAG, "Total: %d pages (%d bytes)", total_pages, total_pages * 4);
   ESP_LOGI(TAG, "");
 
-  iso14443a_poller_reselect(card);
+  if (!is_ulc_authenticated && iso14443a_poller_reselect(card) != HB_NFC_OK)
+    return;
 
   int pages_read = 0;
   char hex_buf[16], asc_buf[8];

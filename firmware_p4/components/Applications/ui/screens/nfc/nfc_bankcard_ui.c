@@ -17,7 +17,12 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
 
+#include "esp_attr.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -26,6 +31,9 @@
 #include "sys_prio.h"
 
 #include "emv.h"
+#include "nfc_emv.h"
+#include "nfc_archive.h"
+#include "keyboard_ui.h"
 #include "highboy_nfc.h"
 #include "iso_dep.h"
 #include "nfc_poller.h"
@@ -62,6 +70,8 @@ typedef struct {
   nfc_iso_dep_data_t dep;
   emv_app_t apps[EMV_UI_MAX_APPS];
   uint16_t app_sw[EMV_UI_MAX_APPS];
+  esp_err_t app_error[EMV_UI_MAX_APPS];
+  char saved[EMV_UI_MAX_APPS][32];
   uint16_t ppse_sw;
   size_t app_count;
 } emv_ui_result_t;
@@ -85,6 +95,10 @@ static bool s_result_ready;
 static emv_stage_t s_stage;
 static emv_ui_result_t s_result;
 static size_t s_selected_app;
+static size_t s_page;
+EXT_RAM_BSS_ATTR static nfc_emv_card_t s_cards[EMV_UI_MAX_APPS];
+static char s_load_path[NFC_ARCHIVE_PATH_SIZE];
+static void start_scan(void);
 
 static void set_stage(emv_stage_t stage) {
   portENTER_CRITICAL(&s_mux);
@@ -108,11 +122,52 @@ static void publish_result(const emv_ui_result_t *result) {
   portEXIT_CRITICAL(&s_mux);
 }
 
+static esp_err_t save_profile(const nfc_emv_card_t *card, char *out_name, size_t capacity) {
+  if (mkdir("/sdcard/nfc", 0775) && errno != EEXIST)
+    return ESP_FAIL;
+  if (mkdir(NFC_ARCHIVE_DIRECTORY, 0775) && errno != EEXIST)
+    return ESP_FAIL;
+  for (unsigned i = 0; i < 10000; i++) {
+    char path[NFC_ARCHIVE_PATH_SIZE];
+    snprintf(path, sizeof(path), NFC_ARCHIVE_DIRECTORY "/emv_%04u.nfc", i);
+    int fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0664);
+    if (fd < 0) {
+      if (errno == EEXIST)
+        continue;
+      return ESP_FAIL;
+    }
+    close(fd);
+    esp_err_t error = nfc_emv_save(path, card);
+    if (error != ESP_OK)
+      unlink(path);
+    else
+      snprintf(out_name, capacity, "emv_%04u.nfc", i);
+    return error;
+  }
+  return ESP_ERR_NO_MEM;
+}
+
 static void emv_scan_task(void *arg) {
   (void)arg;
   emv_ui_result_t result = {.err = HB_NFC_ERR_NOT_FOUND};
   bool no_sleep_held = false;
   bool poller_started = false;
+
+  memset(s_cards, 0, sizeof(s_cards));
+  if (s_load_path[0]) {
+    result.err = nfc_emv_load(s_load_path, &s_cards[0]);
+    if (result.err == ESP_OK && !cancel_requested()) {
+      result.app_count = 1;
+      result.apps[0] = s_cards[0].profile.app;
+      result.app_sw[0] = s_cards[0].profile.status;
+      result.app_error[0] = s_cards[0].profile.is_complete ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
+      memcpy(result.card.uid, s_cards[0].identity.uid, s_cards[0].identity.uid_len);
+      result.card.uid_len = s_cards[0].identity.uid_len;
+      strlcpy(result.saved[0], strrchr(s_load_path, '/') + 1, sizeof(result.saved[0]));
+    } else if (cancel_requested())
+      result.err = ESP_ERR_INVALID_STATE;
+    goto done;
+  }
 
   set_stage(EMV_STAGE_INIT);
   if (!highboy_nfc_is_initialized()) {
@@ -169,7 +224,7 @@ static void emv_scan_task(void *arg) {
   }
 
   set_stage(EMV_STAGE_PPSE);
-  uint8_t fci[256] = {0};
+  uint8_t fci[512] = {0};
   size_t fci_len = 0;
   result.err = emv_select_ppse(HB_PROTO_ISO14443_4A,
                                &result.dep,
@@ -179,6 +234,8 @@ static void emv_scan_task(void *arg) {
                                &result.ppse_sw,
                                EMV_UI_APDU_TIMEOUT);
   if (result.err != HB_NFC_OK || result.ppse_sw != 0x9000U) {
+    if (result.err == HB_NFC_OK)
+      result.err = HB_NFC_ERR_PROTOCOL;
     result.failed_stage = EMV_STAGE_PPSE;
     goto done;
   }
@@ -191,22 +248,28 @@ static void emv_scan_task(void *arg) {
   }
 
   set_stage(EMV_STAGE_SELECT);
+  if ((result.card.uid_len != 4 && result.card.uid_len != 7) ||
+      result.dep.ats_len > T4T_EMU_ATS_CAPACITY) {
+    result.err = ESP_ERR_NOT_SUPPORTED;
+    result.failed_stage = EMV_STAGE_ACTIVATE;
+    goto done;
+  }
   for (size_t i = 0; i < result.app_count && !cancel_requested(); i++) {
-    uint8_t app_fci[256] = {0};
-    size_t app_fci_len = 0;
-    uint16_t sw = 0;
-    hb_nfc_err_t select_err = emv_select_aid(HB_PROTO_ISO14443_4A,
-                                             &result.dep,
-                                             result.apps[i].aid,
-                                             result.apps[i].aid_len,
-                                             app_fci,
-                                             sizeof(app_fci),
-                                             &app_fci_len,
-                                             &sw,
-                                             EMV_UI_APDU_TIMEOUT);
-    result.app_sw[i] = sw;
-    if (select_err != HB_NFC_OK)
-      ESP_LOGW(TAG, "AID %u select failed: %s", (unsigned)i, hb_nfc_err_str(select_err));
+    nfc_emv_card_t *card = &s_cards[i];
+    memcpy(card->identity.uid, result.card.uid, result.card.uid_len);
+    card->identity.uid_len = result.card.uid_len;
+    memcpy(card->identity.atqa, result.card.atqa, 2);
+    card->identity.sak = result.card.sak;
+    memcpy(card->identity.ats, result.dep.ats, result.dep.ats_len);
+    card->identity.ats_len = result.dep.ats_len;
+    card->profile.app = result.apps[i];
+    result.app_error[i] = emv_read_application(
+        HB_PROTO_ISO14443_4A, &result.dep, &card->profile, cancel_requested, EMV_UI_APDU_TIMEOUT);
+    result.app_sw[i] = card->profile.status;
+    if (cancel_requested())
+      break;
+    if (save_profile(card, result.saved[i], sizeof(result.saved[i])) != ESP_OK)
+      strlcpy(result.saved[i], "SD save failed; data in RAM", sizeof(result.saved[i]));
   }
 
   if (cancel_requested()) {
@@ -214,7 +277,10 @@ static void emv_scan_task(void *arg) {
     result.failed_stage = EMV_STAGE_SELECT;
     goto done;
   }
-  result.err = HB_NFC_OK;
+  result.err = HB_NFC_ERR_PROTOCOL;
+  for (size_t i = 0; i < result.app_count; i++)
+    if (s_cards[i].profile.is_complete)
+      result.err = HB_NFC_OK;
   result.failed_stage = EMV_STAGE_DONE;
   set_stage(EMV_STAGE_DONE);
 
@@ -258,36 +324,103 @@ static void bytes_to_hex(const uint8_t *data, size_t len, char *out, size_t out_
   out[pos] = '\0';
 }
 
-static void show_selected_app(void) {
-  if (s_result.app_count == 0 || s_selected_app >= s_result.app_count)
+static void
+field_text(const emv_profile_t *profile, emv_field_t field, char *out, size_t capacity) {
+  if (!profile->length[field]) {
+    strlcpy(out, "unavailable", capacity);
     return;
-  const emv_app_t *app = &s_result.apps[s_selected_app];
-  const char *name = app->label[0] != '\0' ? app->label : scheme_for_aid(app);
-  char aid[EMV_AID_MAX_LEN * 2 + 1];
-  bytes_to_hex(app->aid, app->aid_len, aid, sizeof(aid));
-  lv_label_set_text_fmt(
-      s_app, "APP %u/%u  %s", (unsigned)(s_selected_app + 1), (unsigned)s_result.app_count, name);
-  lv_label_set_text_fmt(s_aid, "AID  %s", aid);
-  lv_label_set_text_fmt(s_sw,
-                        "PPSE %04X   SELECT %04X   READ-ONLY",
-                        s_result.ppse_sw,
-                        s_result.app_sw[s_selected_app]);
+  }
+  bytes_to_hex(profile->value[field], profile->length[field], out, capacity);
+  if (field == EMV_FIELD_PAN) {
+    size_t length = strlen(out);
+    if (length && out[length - 1] == 'F')
+      out[length - 1] = 0;
+  }
+}
+
+static void show_selected_app(void) {
+  if (!s_result.app_count || s_selected_app >= s_result.app_count)
+    return;
+  const emv_profile_t *profile = &s_cards[s_selected_app].profile;
+  const emv_app_t *app = &profile->app;
+  s_page %= 3U + profile->log_count;
+  char first[64], second[64], third[64];
+  lv_label_set_text_fmt(s_status,
+                        "APP %u/%u  %s",
+                        (unsigned)s_selected_app + 1,
+                        (unsigned)s_result.app_count,
+                        profile->is_complete ? "read" : "partial / failed");
+  lv_obj_set_style_text_color(
+      s_status, lv_color_hex(profile->is_complete ? 0x58E6A9 : 0xFFB300), 0);
+  lv_label_set_text_fmt(s_uid,
+                        "%s  [%u/%u]",
+                        app->label[0] ? app->label : scheme_for_aid(app),
+                        (unsigned)s_page + 1,
+                        3U + profile->log_count);
+  if (s_page == 0) {
+    field_text(profile, EMV_FIELD_PAN, first, sizeof(first));
+    field_text(profile, EMV_FIELD_EXPIRY, second, sizeof(second));
+    lv_label_set_text_fmt(s_link, "PAN %s", first);
+    lv_label_set_text_fmt(s_app,
+                          "Holder: %s",
+                          profile->length[EMV_FIELD_HOLDER]
+                              ? (char *)profile->value[EMV_FIELD_HOLDER]
+                              : "unavailable");
+    lv_label_set_text_fmt(s_aid,
+                          "Name: %s",
+                          profile->length[EMV_FIELD_NAME] ? (char *)profile->value[EMV_FIELD_NAME]
+                                                          : "unavailable");
+    lv_label_set_text_fmt(s_sw, "Expiry YYMMDD: %s", second);
+  } else if (s_page == 1) {
+    bytes_to_hex(app->aid, app->aid_len, first, sizeof(first));
+    lv_label_set_text_fmt(s_link, "AID %s", first);
+    field_text(profile, EMV_FIELD_AIP, first, sizeof(first));
+    lv_label_set_text_fmt(s_app, "AIP %s", first);
+    field_text(profile, EMV_FIELD_COUNTRY, first, sizeof(first));
+    field_text(profile, EMV_FIELD_CURRENCY, second, sizeof(second));
+    lv_label_set_text_fmt(s_aid, "Country %s / Currency %s", first, second);
+    field_text(profile, EMV_FIELD_EFFECTIVE, first, sizeof(first));
+    lv_label_set_text_fmt(s_sw, "Effective YYMMDD: %s", first);
+  } else if (s_page == 2) {
+    field_text(profile, EMV_FIELD_ATC, first, sizeof(first));
+    field_text(profile, EMV_FIELD_LAST_ATC, second, sizeof(second));
+    lv_label_set_text_fmt(s_link, "ATC %s / Last online %s", first, second);
+    if (profile->length[EMV_FIELD_PIN_TRIES])
+      lv_label_set_text_fmt(
+          s_app, "PIN tries remaining: %u", profile->value[EMV_FIELD_PIN_TRIES][0]);
+    else
+      lv_label_set_text(s_app, "PIN tries: unavailable");
+    lv_label_set_text_fmt(s_aid,
+                          "Records %u Logs %u SW %04X Err %X",
+                          profile->records_read,
+                          profile->log_count,
+                          profile->status,
+                          (unsigned)s_result.app_error[s_selected_app]);
+    lv_label_set_text(s_sw, s_result.saved[s_selected_app]);
+  } else {
+    const emv_log_t *log = &profile->logs[s_page - 3];
+    bytes_to_hex(log->value[0], log->length[0], first, sizeof(first));
+    bytes_to_hex(log->value[1], log->length[1], second, sizeof(second));
+    lv_label_set_text_fmt(s_link,
+                          "ATC %s / Amount (BCD) %s",
+                          *first ? first : "unavailable",
+                          *second ? second : "unavailable");
+    bytes_to_hex(log->value[2], log->length[2], first, sizeof(first));
+    bytes_to_hex(log->value[3], log->length[3], second, sizeof(second));
+    lv_label_set_text_fmt(s_app, "Country %s / Currency %s", first, second);
+    bytes_to_hex(log->value[4], log->length[4], third, sizeof(third));
+    lv_label_set_text_fmt(s_aid, "Date YYMMDD %s", *third ? third : "unavailable");
+    bytes_to_hex(log->value[5], log->length[5], third, sizeof(third));
+    lv_label_set_text_fmt(s_sw, "Time HHMMSS %s", *third ? third : "unavailable");
+  }
 }
 
 static void show_result(void) {
-  char uid[HIGHBOY_NFC_UID_MAX_LEN * 2 + 1];
-  bytes_to_hex(s_result.card.uid, s_result.card.uid_len, uid, sizeof(uid));
-  lv_label_set_text(s_status, "EMV contactless detected");
   lv_obj_set_style_text_color(s_status, lv_color_hex(0x58E6A9), 0);
-  lv_label_set_text_fmt(s_uid, "UID  %s", uid);
-  lv_label_set_text_fmt(s_link,
-                        "ATS %u bytes   FSC %u   FWI %u",
-                        (unsigned)s_result.dep.ats_len,
-                        (unsigned)s_result.dep.fsc,
-                        (unsigned)s_result.dep.fwi);
   s_selected_app = 0;
+  s_page = 0;
   show_selected_app();
-  ui_chrome_footer_set_text(s_footer, "UP/DOWN App   OK Rescan   BACK");
+  ui_chrome_footer_set_text(s_footer, "UP/DN page  LEFT app  RIGHT file  OK scan");
   nfc_ui_play_sound(NFC_SND_FOUND);
 }
 
@@ -312,7 +445,7 @@ static void show_error(void) {
   lv_label_set_text(s_status, message);
   lv_obj_set_style_text_color(s_status, lv_color_hex(0xFFB300), 0);
   lv_label_set_text(s_uid, "This inspector does not run a payment");
-  lv_label_set_text(s_link, "Only PPSE, AID and link parameters are read");
+  lv_label_set_text(s_link, "Application data could not be read");
   lv_label_set_text(s_app, "");
   lv_label_set_text(s_aid, "");
   lv_label_set_text_fmt(s_sw, "Status %04X", s_result.ppse_sw);
@@ -330,13 +463,14 @@ static void start_scan(void) {
   portEXIT_CRITICAL(&s_mux);
 
   s_selected_app = 0;
+  s_page = 0;
   lv_obj_set_style_text_color(s_status, current_theme.text_main, 0);
   lv_label_set_text(s_status, "Starting NFC field...");
   lv_label_set_text(s_uid, "Place an EMV contactless card on High Boy");
   lv_label_set_text(s_link, "Read-only protocol inspection");
   lv_label_set_text(s_app, "");
   lv_label_set_text(s_aid, "");
-  lv_label_set_text(s_sw, "No PAN, PIN or transaction data requested");
+  lv_label_set_text(s_sw, "Reading application metadata and available records");
   ui_chrome_footer_set_text(s_footer, "Keep card still   BACK Cancel");
 
   if (xTaskCreatePinnedToCore(emv_scan_task,
@@ -368,7 +502,8 @@ static void refresh_cb(lv_timer_t *timer) {
   portEXIT_CRITICAL(&s_mux);
 
   if (ready) {
-    if (s_result.err == HB_NFC_OK)
+    if (s_result.err == HB_NFC_OK ||
+        (s_result.app_count && s_result.failed_stage == EMV_STAGE_DONE))
       show_result();
     else if (!s_cancel)
       show_error();
@@ -388,40 +523,65 @@ static void refresh_cb(lv_timer_t *timer) {
       lv_label_set_text(s_status, "Selecting EMV PPSE...");
       break;
     case EMV_STAGE_SELECT:
-      lv_label_set_text(s_status, "Inspecting advertised AIDs...");
+      lv_label_set_text(s_status, "Reading GPO, records and metadata...");
       break;
     default:
       break;
   }
 }
 
+static void load_submit(const char *text, void *context) {
+  (void)context;
+  if (!text || !*text || strchr(text, '/') || strchr(text, '\\') || strstr(text, "..") ||
+      strpbrk(text, "\r\n") || s_task)
+    return;
+  int count = snprintf(s_load_path, sizeof(s_load_path), NFC_ARCHIVE_DIRECTORY "/%s", text);
+  if (count < 0 || (size_t)count >= sizeof(s_load_path)) {
+    s_load_path[0] = 0;
+    return;
+  }
+  start_scan();
+}
+
 static void nfc_bankcard_input(const input_event_t *ev, void *ctx) {
   (void)ctx;
-  if (ev->action != INPUT_ACTION_PRESS)
+  if (keyboard_is_open() || ev->action != INPUT_ACTION_PRESS)
     return;
 
   switch (ev->button) {
     case INPUT_BTN_BACK:
-    case INPUT_BTN_LEFT:
       portENTER_CRITICAL(&s_mux);
       s_cancel = true;
       portEXIT_CRITICAL(&s_mux);
       ui_switch_screen(SCREEN_NFC_MENU);
       break;
-    case INPUT_BTN_OK:
+    case INPUT_BTN_LEFT:
+      if (!s_task && s_result.app_count) {
+        s_selected_app = (s_selected_app + 1) % s_result.app_count;
+        s_page = 0;
+        show_selected_app();
+      }
+      break;
     case INPUT_BTN_RIGHT:
-      if (s_task == NULL)
+      if (!s_task)
+        keyboard_open(NULL, load_submit, NULL);
+      break;
+    case INPUT_BTN_OK:
+      if (s_task == NULL) {
+        s_load_path[0] = 0;
         start_scan();
+      }
       break;
     case INPUT_BTN_UP:
-      if (s_task == NULL && s_result.err == HB_NFC_OK && s_result.app_count > 0) {
-        s_selected_app = (s_selected_app + s_result.app_count - 1) % s_result.app_count;
+      if (s_task == NULL && s_result.app_count > 0) {
+        s_page = (s_page + 2U + s_cards[s_selected_app].profile.log_count) %
+                 (3U + s_cards[s_selected_app].profile.log_count);
         show_selected_app();
       }
       break;
     case INPUT_BTN_DOWN:
-      if (s_task == NULL && s_result.err == HB_NFC_OK && s_result.app_count > 0) {
-        s_selected_app = (s_selected_app + 1) % s_result.app_count;
+      if (s_task == NULL && s_result.app_count > 0) {
+        s_page++;
         show_selected_app();
       }
       break;
@@ -452,6 +612,7 @@ void ui_nfc_bankcard_stop(void) {
 }
 
 void ui_nfc_bankcard_open(void) {
+  s_load_path[0] = 0;
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;

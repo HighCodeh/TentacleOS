@@ -67,8 +67,9 @@ static const char *TAG = "NFC_MF_CLASSIC_EMU";
 #define MF_PRNG_AR_ADVANCE 64
 #define MF_PRNG_AT_ADVANCE 96
 
-#define FIFO_LEN_MASK     0x7F
-#define ISO14443A_CT_BYTE 0x04
+#define MFC_TX_PARTIAL_BITS_MAX 7
+#define FIFO_LEN_MASK           0x7F
+#define ISO14443A_CT_BYTE       0x04
 
 #define PT_IDX_ATQA_0 10
 #define PT_IDX_ATQA_1 11
@@ -95,6 +96,7 @@ static struct {
 
   crypto1_state_t crypto;
   bool crypto_active;
+  uint8_t pending_main;
   uint32_t auth_nt;
   int auth_sector;
   mf_key_type_t auth_key_type;
@@ -407,7 +409,11 @@ static hb_nfc_err_t target_tx_raw(const uint8_t *data, size_t len_bytes, uint8_t
    * our own RF field and must stay off in target mode;
    * ST's RFAL also transmits passive-listen
    * frames with TX_EN cleared. */
-  st25r3916_fifo_set_tx_bytes((uint16_t)len_bytes, extra_bits);
+  if (data == NULL || len_bytes == 0 || extra_bits > MFC_TX_PARTIAL_BITS_MAX)
+    return HB_NFC_ERR_PARAM;
+  /* The partial FIFO byte is not a full byte in NUM_TX_BYTES. */
+  size_t full_bytes = len_bytes - (extra_bits != 0);
+  st25r3916_fifo_set_tx_bytes((uint16_t)full_bytes, extra_bits);
   st25r3916_fifo_load(data, len_bytes);
   {
     st25r3916_irq_status_t s;
@@ -424,43 +430,33 @@ static hb_nfc_err_t target_tx_raw(const uint8_t *data, size_t len_bytes, uint8_t
 }
 
 static hb_nfc_err_t target_enter_listen(void) {
-  /* Match ST RFAL's POWER_OFF -> listen transition.  GOTO_SENSE resets the
-   * passive-target
-   * state first; the listen-mode value is applied afterwards.
-   * Applying MODE before GOTO_SENSE
-   * can enter low-power bitrate detection with
-   * the state machine not fully armed, leaving
-   * EON/WU_A silent. */
-  if (hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, MFC_OP_CTRL_TARGET) != ESP_OK)
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, MFC_OP_CTRL_TARGET) != ESP_OK ||
+      hb_nfc_spi_direct_cmd(ST25R3916_CMD_STOP_ALL) != ESP_OK ||
+      hb_nfc_spi_reg_write(ST25R3916_REG_MODE, ST25R3916_MODE_TARGET_NFCA) != ESP_OK ||
+      hb_nfc_spi_reg_modify(
+          ST25R3916_REG_PASSIVE_TARGET, ST25R3916_PASSIVE_TARGET_DISABLE_106_AUTO, 0) != ESP_OK ||
+      hb_nfc_spi_reg_write(ST25R3916_REG_BIT_RATE, 0) != ESP_OK ||
+      hb_nfc_spi_reg_write(ST25R3916_REG_MASK_MAIN_INT, 0) != ESP_OK ||
+      hb_nfc_spi_reg_write(ST25R3916_REG_MASK_TIMER_NFC_INT, 0) != ESP_OK ||
+      hb_nfc_spi_reg_write(ST25R3916_REG_MASK_ERROR_WUP_INT, 0) != ESP_OK ||
+      hb_nfc_spi_reg_write(ST25R3916_REG_MASK_TARGET_INT, 0) != ESP_OK)
     return HB_NFC_ERR_INTERNAL;
-  if (hb_nfc_spi_direct_cmd(ST25R3916_CMD_STOP_ALL) != ESP_OK)
+  st25r3916_irq_status_t status;
+  if (st25r3916_irq_read(&status) != ESP_OK)
     return HB_NFC_ERR_INTERNAL;
-  if (hb_nfc_spi_reg_modify(
-          ST25R3916_REG_PASSIVE_TARGET, ST25R3916_PASSIVE_TARGET_DISABLE_106_AUTO, 0x00) != ESP_OK)
-    return HB_NFC_ERR_INTERNAL;
+  /* Arm last: clearing FIFO after GOTO_SENSE can discard a new AUTH. */
   if (hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SENSE) != ESP_OK)
     return HB_NFC_ERR_INTERNAL;
+  return HB_NFC_OK;
+}
 
-  {
-    st25r3916_irq_status_t s;
-    if (st25r3916_irq_read(&s) != ESP_OK)
-      return HB_NFC_ERR_INTERNAL;
-  }
-  if (hb_nfc_spi_reg_write(ST25R3916_REG_MASK_MAIN_INT, 0x00) != ESP_OK)
-    return HB_NFC_ERR_INTERNAL;
-  if (hb_nfc_spi_reg_write(ST25R3916_REG_MASK_TIMER_NFC_INT, 0x00) != ESP_OK)
-    return HB_NFC_ERR_INTERNAL;
-  if (hb_nfc_spi_reg_write(ST25R3916_REG_MASK_ERROR_WUP_INT, 0x00) != ESP_OK)
-    return HB_NFC_ERR_INTERNAL;
-  if (hb_nfc_spi_reg_write(ST25R3916_REG_MASK_TARGET_INT, 0x00) != ESP_OK)
-    return HB_NFC_ERR_INTERNAL;
-  if (hb_nfc_spi_reg_write(ST25R3916_REG_BIT_RATE, 0x00) != ESP_OK)
-    return HB_NFC_ERR_INTERNAL;
-  if (hb_nfc_spi_reg_write(ST25R3916_REG_MODE, ST25R3916_MODE_TARGET_NFCA_LISTEN) != ESP_OK)
-    return HB_NFC_ERR_INTERNAL;
-  if (hb_nfc_spi_direct_cmd(ST25R3916_CMD_CLEAR_FIFO) != ESP_OK)
-    return HB_NFC_ERR_INTERNAL;
-  if (hb_nfc_spi_direct_cmd(ST25R3916_CMD_UNMASK_RX_DATA) != ESP_OK)
+static hb_nfc_err_t target_enter_sleep(void) {
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, MFC_OP_CTRL_TARGET) != ESP_OK ||
+      hb_nfc_spi_reg_write(ST25R3916_REG_MODE, ST25R3916_MODE_TARGET_NFCA) != ESP_OK ||
+      hb_nfc_spi_reg_modify(
+          ST25R3916_REG_PASSIVE_TARGET, ST25R3916_PASSIVE_TARGET_DISABLE_106_AUTO, 0) != ESP_OK ||
+      hb_nfc_spi_direct_cmd(ST25R3916_CMD_STOP_ALL) != ESP_OK ||
+      hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SLEEP) != ESP_OK)
     return HB_NFC_ERR_INTERNAL;
   return HB_NFC_OK;
 }
@@ -588,9 +584,8 @@ static hb_nfc_err_t target_tx_encrypted(const uint8_t *plain, size_t len) {
     return HB_NFC_ERR_PARAM;
   crypto1_encrypt_with_parity(plain, len, packed, &total_bits);
 
-  size_t full_bytes = total_bits / 8;
-  uint8_t extra_bits = (uint8_t)(total_bits % 8);
-  return target_tx_raw(packed, full_bytes + (extra_bits ? 1 : 0), extra_bits);
+  esp_err_t err = hb_nfc_spi_target_tx_bits(packed, total_bits);
+  return err == ESP_OK ? HB_NFC_OK : HB_NFC_ERR_TX_TIMEOUT;
 }
 
 static hb_nfc_err_t target_tx_ack_encrypted(uint8_t ack_nack) {
@@ -601,20 +596,8 @@ static hb_nfc_err_t target_tx_ack_encrypted(uint8_t ack_nack) {
     enc |= (uint8_t)((plain_bit ^ ks_bit) << i);
   }
 
-  hb_nfc_spi_direct_cmd(ST25R3916_CMD_CLEAR_FIFO);
-  st25r3916_fifo_load(&enc, 1);
-  st25r3916_fifo_set_tx_bytes(0, 4);
-  {
-    st25r3916_irq_status_t s;
-    (void)st25r3916_irq_read(&s);
-  }
-  hb_nfc_spi_direct_cmd(ST25R3916_CMD_TX_WO_CRC);
-
-  if (st25r3916_irq_wait_txe() != ESP_OK) {
-    ESP_LOGW(TAG, "ACK TX timeout");
-    return HB_NFC_ERR_TX_TIMEOUT;
-  }
-  return HB_NFC_OK;
+  esp_err_t err = hb_nfc_spi_target_tx_bits(&enc, 4);
+  return err == ESP_OK ? HB_NFC_OK : HB_NFC_ERR_TX_TIMEOUT;
 }
 
 static mfc_emu_event_t s_evt;
@@ -628,6 +611,12 @@ static void emit_event(mfc_emu_event_type_t type) {
 
 static void reset_crypto_state(void) {
   s_emu.crypto_active = false;
+  s_emu.pending_main = 0;
+  s_emu.auth_nt = 0;
+  s_emu.auth_sector = 0;
+  s_emu.pending_block = 0;
+  s_emu.pending_cmd = 0;
+  s_emu.pending_value = 0;
   crypto1_reset(&s_emu.crypto);
   hb_nfc_spi_reg_modify(
       ST25R3916_REG_ISO14443A, ST25R3916_ISO14443A_NO_TX_PAR | ST25R3916_ISO14443A_NO_RX_PAR, 0);
@@ -649,7 +638,7 @@ static mfc_emu_state_t handle_auth(uint8_t auth_cmd, uint8_t block_num) {
     s_evt.auth.sector = sector;
     s_evt.auth.key_type = key_type;
     emit_event(MFC_EMU_EVT_AUTH_FAIL);
-    return MFC_EMU_STATE_ACTIVATED;
+    return MFC_EMU_STATE_HALTED;
   }
 
   uint32_t nt = emu_prng_next();
@@ -684,7 +673,7 @@ static mfc_emu_state_t handle_auth(uint8_t auth_cmd, uint8_t block_num) {
     }
     reset_crypto_state();
     s_emu.stats.failed_auths++;
-    return MFC_EMU_STATE_ACTIVATED;
+    return MFC_EMU_STATE_HALTED;
   }
 
   uint8_t nr_ar_enc[8] = {0};
@@ -745,7 +734,7 @@ static mfc_emu_state_t handle_auth(uint8_t auth_cmd, uint8_t block_num) {
     s_evt.auth.sector = sector;
     s_evt.auth.key_type = key_type;
     emit_event(MFC_EMU_EVT_AUTH_FAIL);
-    return MFC_EMU_STATE_ACTIVATED;
+    return MFC_EMU_STATE_HALTED;
   }
 
   s_emu.crypto = st_match;
@@ -1195,6 +1184,9 @@ hb_nfc_err_t mfc_emu_configure_target(void) {
   if (!s_emu.initialized)
     return HB_NFC_ERR_INTERNAL;
 
+  if (hb_nfc_spi_prepare_target_tx() != ESP_OK)
+    return HB_NFC_ERR_INTERNAL;
+
   ESP_LOGI(TAG, "=== Configuring ST25R3916 Target Mode ===");
 
   if (hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_FIELD_OFF) != ESP_OK)
@@ -1337,13 +1329,6 @@ mfc_emu_state_t mfc_emu_run_step(void) {
 
   switch (s_emu.state) {
     case MFC_EMU_STATE_LISTEN: {
-      /* GOTO_SENSE powers the digital/SPI register bank down while the analog
-       * field
-       * detector remains armed.  Polling registers in this state returns
-       * zeros and can
-       * disturb the low-power listen cycle.  Follow RFAL's state
-       * machine: wait for the
-       * active-high IRQ, then inspect the wake event. */
       if (!hb_nfc_gpio_irq_level()) {
         vTaskDelay(pdMS_TO_TICKS(1));
         break;
@@ -1398,6 +1383,7 @@ mfc_emu_state_t mfc_emu_run_step(void) {
          * frame is
          * required by ST's READY_A -> ACTIVE_A sequence. */
 
+        s_emu.pending_main = main_irq & ST25R3916_IRQ_MAIN_RXE;
         emit_event(MFC_EMU_EVT_ACTIVATED);
         s_emu.state = MFC_EMU_STATE_ACTIVATED;
         return s_emu.state;
@@ -1421,6 +1407,9 @@ mfc_emu_state_t mfc_emu_run_step(void) {
       hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &tgt_irq);
       hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &main_irq);
       hb_nfc_spi_reg_read(ST25R3916_REG_TIMER_NFC_INT, &timer_irq);
+
+      main_irq |= s_emu.pending_main;
+      s_emu.pending_main = 0;
 
       /* A reader may finish one RF phase at the same instant RXE reports the
        * following
@@ -1493,8 +1482,6 @@ mfc_emu_state_t mfc_emu_run_step(void) {
             break;
           case MFC_CMD_HALT:
             s_emu.state = handle_halt();
-            if (target_enter_listen() != HB_NFC_OK)
-              return MFC_EMU_STATE_ERROR;
             break;
           default:
             ESP_LOGW(TAG, "Unknown CMD: 0x%02X len=%d", cmd_byte, len);
@@ -1505,11 +1492,10 @@ mfc_emu_state_t mfc_emu_run_step(void) {
         }
       } else if (cmd_byte == MFC_CMD_HALT) {
         s_emu.state = handle_halt();
-        if (target_enter_listen() != HB_NFC_OK)
-          return MFC_EMU_STATE_ERROR;
       } else {
         ESP_LOGW(TAG, "CMD 0x%02X without authentication", cmd_byte);
         s_emu.stats.unknown_cmds++;
+        s_emu.state = MFC_EMU_STATE_HALTED;
       }
       break;
     }
@@ -1589,6 +1575,12 @@ mfc_emu_state_t mfc_emu_run_step(void) {
     }
 
     case MFC_EMU_STATE_HALTED:
+      reset_crypto_state();
+      if (target_enter_sleep() != HB_NFC_OK)
+        return MFC_EMU_STATE_ERROR;
+      s_emu.state = MFC_EMU_STATE_LISTEN;
+      break;
+
     case MFC_EMU_STATE_ERROR: {
       reset_crypto_state();
       if (target_enter_listen() != HB_NFC_OK)
@@ -1601,6 +1593,12 @@ mfc_emu_state_t mfc_emu_run_step(void) {
       break;
   }
 
+  if (s_emu.state == MFC_EMU_STATE_ERROR) {
+    reset_crypto_state();
+    if (target_enter_listen() != HB_NFC_OK)
+      return MFC_EMU_STATE_ERROR;
+    s_emu.state = MFC_EMU_STATE_LISTEN;
+  }
   return s_emu.state;
 }
 

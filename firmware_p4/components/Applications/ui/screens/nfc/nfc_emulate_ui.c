@@ -16,6 +16,10 @@
 #include "nfc_emulate_ui.h"
 
 #include <dirent.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -33,6 +37,11 @@
 #include "mf_classic_emu.h"
 #include "msgbox_ui.h"
 #include "nfc_listener.h"
+#include "nfc_flipper_file.h"
+#include "nfc_plus_file.h"
+#include "nfc_t2t_file.h"
+#include "nfc_v_file.h"
+#include "nfc_protocol_service.h"
 #include "nfc_sim.h"
 #include "nfc_ui_common.h"
 #include "notify_ui.h"
@@ -43,6 +52,9 @@
 #include "ui_metrics.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
+
+#define SAVE_COPY_LIMIT    1000U
+#define SAVE_PATH_CAPACITY 192U
 
 #define TICK_MS     33
 #define CARD_ICON   "/assets/icons/contactless.bin"
@@ -79,6 +91,13 @@ static lv_obj_t *s_ov_status = NULL;
 static nfc_ui_field_t s_ov_field;
 static nfc_sim_card_t s_card;
 EXT_RAM_BSS_ATTR static mfc_emu_card_data_t s_hw_card;
+EXT_RAM_BSS_ATTR static nfc_plus_file_t s_plus_card;
+EXT_RAM_BSS_ATTR static nfc_t2t_file_t s_t2t_card;
+EXT_RAM_BSS_ATTR static iso15693_listener_card_t s_v_card;
+static bool s_hw_is_v = false;
+static bool s_v_allow_writes = false;
+static bool s_t2t_allow_writes = false;
+static bool s_plus_allow_writes = false;
 static bool s_hw_running = false;
 static int s_em = EM_NONE;
 static uint32_t s_em_start = 0;
@@ -87,6 +106,9 @@ static uint32_t s_status_tick = 0;
 typedef struct {
   nfc_sim_card_t card;
   char path[128];
+  bool is_plus;
+  bool is_t2t;
+  bool is_v;
 } nfc_emu_dump_entry_t;
 
 EXT_RAM_BSS_ATTR static nfc_emu_dump_entry_t s_dumps[MAX_CARDS];
@@ -94,6 +116,10 @@ EXT_RAM_BSS_ATTR static nfc_emu_dump_entry_t s_dumps[MAX_CARDS];
 static esp_err_t load_mfc1k_dump(const char *path, mfc_emu_card_data_t *emu) {
   if (path == NULL || emu == NULL)
     return ESP_ERR_INVALID_ARG;
+
+  size_t path_len = strlen(path);
+  if (path_len >= 4 && !strcmp(path + path_len - 4, ".nfc"))
+    return nfc_flipper_file_load_classic(path, emu);
 
   FILE *fp = fopen(path, "rb");
   if (fp == NULL)
@@ -125,23 +151,13 @@ static esp_err_t load_mfc1k_dump(const char *path, mfc_emu_card_data_t *emu) {
 }
 
 static bool inspect_mfc1k_dump(const char *path, nfc_sim_card_t *card) {
-  FILE *fp = fopen(path, "rb");
-  if (fp == NULL)
+  if (load_mfc1k_dump(path, &s_hw_card) != ESP_OK)
     return false;
-
-  uint8_t block0[MFC_BLOCK_SIZE];
-  size_t got = fread(block0, 1, sizeof(block0), fp);
-  bool valid = got == sizeof(block0) && fseek(fp, 0, SEEK_END) == 0 &&
-               ftell(fp) == MFC1K_BLOCKS * MFC_BLOCK_SIZE;
-  fclose(fp);
-  if (!valid)
-    return false;
-
   memset(card, 0, sizeof(*card));
-  memcpy(card->uid, block0, 4);
-  card->uid_len = 4;
-  card->atqa = 0x0400;
-  card->sak = 0x08;
+  memcpy(card->uid, s_hw_card.uid, s_hw_card.uid_len);
+  card->uid_len = s_hw_card.uid_len;
+  card->atqa = (uint16_t)((s_hw_card.atqa[0] << 8) | s_hw_card.atqa[1]);
+  card->sak = s_hw_card.sak;
   snprintf(card->name,
            sizeof(card->name),
            "MFC %02X%02X%02X%02X",
@@ -149,11 +165,80 @@ static bool inspect_mfc1k_dump(const char *path, nfc_sim_card_t *card) {
            card->uid[1],
            card->uid[2],
            card->uid[3]);
-  snprintf(card->type, sizeof(card->type), "MIFARE Classic 1K");
+  snprintf(card->type,
+           sizeof(card->type),
+           "MIFARE Classic %s",
+           s_hw_card.type == MF_CLASSIC_MINI ? "Mini"
+           : s_hw_card.type == MF_CLASSIC_4K ? "4K"
+                                             : "1K");
+  return true;
+}
+
+static bool inspect_t2t_dump(nfc_emu_dump_entry_t *entry) {
+  if (nfc_t2t_file_load(entry->path, &s_t2t_card) != ESP_OK)
+    return false;
+  nfc_sim_card_t *card = &entry->card;
+  memset(card, 0, sizeof(*card));
+  memcpy(card->uid, s_t2t_card.config.uid, s_t2t_card.config.uid_len);
+  card->uid_len = s_t2t_card.config.uid_len;
+  card->atqa = 0x4400;
+  snprintf(card->name,
+           sizeof(card->name),
+           "Type 2 %02X%02X%02X%02X",
+           card->uid[0],
+           card->uid[1],
+           card->uid[2],
+           card->uid[3]);
+  snprintf(card->type, sizeof(card->type), "Type 2 read-only");
+  entry->is_t2t = true;
+  return true;
+}
+
+static bool inspect_plus_dump(nfc_emu_dump_entry_t *entry) {
+  if (nfc_listener_is_active())
+    return false;
+  if (nfc_plus_file_load(entry->path, &s_plus_card) != ESP_OK)
+    return false;
+  nfc_sim_card_t *card = &entry->card;
+  memset(card, 0, sizeof(*card));
+  memcpy(card->uid, s_plus_card.identity.uid, s_plus_card.identity.uid_len);
+  card->uid_len = s_plus_card.identity.uid_len;
+  card->atqa = (uint16_t)((s_plus_card.identity.atqa[0] << 8) | s_plus_card.identity.atqa[1]);
+  card->sak = s_plus_card.identity.sak;
+  snprintf(card->name,
+           sizeof(card->name),
+           "Plus %02X%02X%02X%02X",
+           card->uid[0],
+           card->uid[1],
+           card->uid[2],
+           card->uid[3]);
+  snprintf(card->type, sizeof(card->type), "MIFARE Plus SL3");
+  entry->is_plus = true;
+  return true;
+}
+
+static bool inspect_v_dump(nfc_emu_dump_entry_t *entry) {
+  if (nfc_v_file_load(entry->path, &s_v_card) != ESP_OK)
+    return false;
+  nfc_sim_card_t *card = &entry->card;
+  memset(card, 0, sizeof(*card));
+  card->uid_len = sizeof(s_v_card.uid);
+  memcpy(card->uid, s_v_card.uid, card->uid_len);
+  snprintf(card->name,
+           sizeof(card->name),
+           "NFC-V %02X%02X%02X%02X",
+           card->uid[0],
+           card->uid[1],
+           card->uid[2],
+           card->uid[3]);
+  snprintf(card->type, sizeof(card->type), "%s", s_v_card.is_slix ? "SLIX" : "ISO15693");
+  entry->is_v = true;
   return true;
 }
 
 static int scan_real_dumps(void) {
+  if (s_hw_running || nfc_listener_is_active())
+    return 0;
   memset(s_dumps, 0, sizeof(s_dumps));
   DIR *dir = opendir(MFC_DUMP_DIR);
   if (dir == NULL) {
@@ -165,15 +250,18 @@ static int scan_real_dumps(void) {
   struct dirent *ent;
   while ((ent = readdir(dir)) != NULL && count < MAX_CARDS) {
     size_t len = strlen(ent->d_name);
-    if (len < 8 || strncmp(ent->d_name, "mf_", 3) != 0 ||
-        strcmp(ent->d_name + len - 4, ".bin") != 0)
+    if (len < 5 ||
+        (strcmp(ent->d_name + len - 4, ".nfc") != 0 &&
+         (strncmp(ent->d_name, "mf_", 3) != 0 || strcmp(ent->d_name + len - 4, ".bin") != 0)))
       continue;
 
     int n =
         snprintf(s_dumps[count].path, sizeof(s_dumps[count].path), MFC_DUMP_DIR "/%s", ent->d_name);
     if (n < 0 || (size_t)n >= sizeof(s_dumps[count].path))
       continue;
-    if (!inspect_mfc1k_dump(s_dumps[count].path, &s_dumps[count].card))
+    if (!inspect_mfc1k_dump(s_dumps[count].path, &s_dumps[count].card) &&
+        !inspect_plus_dump(&s_dumps[count]) && !inspect_t2t_dump(&s_dumps[count]) &&
+        !inspect_v_dump(&s_dumps[count]))
       continue;
 
     ESP_LOGI(TAG,
@@ -193,12 +281,47 @@ static hb_nfc_err_t hw_emulation_start(const nfc_emu_dump_entry_t *dump) {
   if (dump == NULL)
     return HB_NFC_ERR_PARAM;
 
+  if (s_hw_running || nfc_listener_is_active())
+    return HB_NFC_ERR_INTERNAL;
+  s_hw_is_v = false;
+  if (dump->is_v) {
+    esp_err_t error = nfc_protocol_service_select_v_file(dump->path, s_v_allow_writes);
+    if (error == ESP_OK)
+      error = nfc_protocol_service_start(NFC_PROTOCOL_OP_V_EMULATE);
+    s_hw_is_v = s_hw_running = error == ESP_OK;
+    return error == ESP_OK ? HB_NFC_OK : HB_NFC_ERR_INTERNAL;
+  }
+  if (dump->is_t2t) {
+    if (nfc_t2t_file_load(dump->path, &s_t2t_card) != ESP_OK ||
+        dump->card.uid_len != s_t2t_card.config.uid_len ||
+        memcmp(dump->card.uid, s_t2t_card.config.uid, dump->card.uid_len))
+      return HB_NFC_ERR_PARAM;
+    hb_nfc_err_t error = s_t2t_allow_writes ? nfc_listener_start_t2t_mutable(&s_t2t_card)
+                                            : nfc_listener_start_t2t(&s_t2t_card);
+    s_hw_running = error == HB_NFC_OK;
+    return error;
+  }
+  if (dump->is_plus) {
+    if (nfc_plus_file_load(dump->path, &s_plus_card) != ESP_OK ||
+        dump->card.uid_len != s_plus_card.identity.uid_len ||
+        memcmp(dump->card.uid, s_plus_card.identity.uid, dump->card.uid_len) != 0)
+      return HB_NFC_ERR_PARAM;
+    mfp_listener_config_t config;
+    if (s_plus_allow_writes)
+      nfc_plus_file_listener_mutable(&s_plus_card, &config);
+    else
+      nfc_plus_file_listener(&s_plus_card, &config);
+    hb_nfc_err_t error = nfc_listener_start_plus(&s_plus_card.identity, &config);
+    s_hw_running = error == HB_NFC_OK;
+    return error;
+  }
   esp_err_t err = load_mfc1k_dump(dump->path, &s_hw_card);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Cannot load emulation dump: %s (%s)", esp_err_to_name(err), dump->path);
     return HB_NFC_ERR_PARAM;
   }
-  if (memcmp(dump->card.uid, s_hw_card.uid, 4) != 0) {
+  if (dump->card.uid_len != s_hw_card.uid_len ||
+      memcmp(dump->card.uid, s_hw_card.uid, s_hw_card.uid_len) != 0) {
     ESP_LOGE(TAG, "Dump UID changed while opening %s", dump->path);
     return HB_NFC_ERR_PARAM;
   }
@@ -230,7 +353,11 @@ static hb_nfc_err_t hw_emulation_start(const nfc_emu_dump_entry_t *dump) {
 static void hw_emulation_stop(void) {
   if (!s_hw_running)
     return;
-  nfc_listener_stop();
+  if (s_hw_is_v)
+    nfc_protocol_service_stop();
+  else
+    nfc_listener_stop();
+  s_hw_is_v = false;
   s_hw_running = false;
 }
 
@@ -406,6 +533,47 @@ static void overlay_close(void) {
   s_em = EM_NONE;
 }
 
+static void save_session(void) {
+  bool is_v = s_dumps[s_sel].is_v;
+  bool is_plus = s_dumps[s_sel].is_plus;
+  if (is_v)
+    nfc_protocol_service_stop();
+  else
+    nfc_listener_stop();
+  esp_err_t result = is_plus ? (nfc_listener_is_active() ? ESP_ERR_INVALID_STATE : ESP_OK)
+                     : is_v  ? nfc_protocol_service_get_v_result(&s_v_card)
+                             : nfc_listener_get_t2t_result(&s_t2t_card);
+  if (result != ESP_OK) {
+    notify(NOTIFY_WARNING, "Still stopping; press OK to retry");
+    return;
+  }
+  char path[SAVE_PATH_CAPACITY];
+  int fd = -1;
+  for (unsigned i = 0; i < SAVE_COPY_LIMIT; i++) {
+    int length = snprintf(path, sizeof(path), "%s.session-%u.nfc", s_dumps[s_sel].path, i);
+    if (length < 0 || (size_t)length >= sizeof(path))
+      break;
+    fd = open(path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
+    if (fd >= 0 || errno != EEXIST)
+      break;
+  }
+  if (fd < 0) {
+    notify(NOTIFY_WARNING, "Cannot create copy; OK retries, BACK discards");
+    return;
+  }
+  int close_error = close(fd);
+  if (close_error != 0 || (is_plus ? nfc_plus_file_save(path, &s_plus_card)
+                           : is_v  ? nfc_v_file_save(path, &s_v_card)
+                                   : nfc_t2t_file_save(path, &s_t2t_card)) != ESP_OK) {
+    unlink(path);
+    notify(NOTIFY_WARNING, "Save failed; OK retries, BACK discards");
+    return;
+  }
+  ESP_LOGI(TAG, "Emulation saved: %s", path);
+  overlay_close();
+  notify(NOTIFY_INFO, "Session copy saved to NFC dumps");
+}
+
 static void overlay_start(const nfc_emu_dump_entry_t *dump) {
   hb_nfc_err_t err = hw_emulation_start(dump);
   if (err != HB_NFC_OK) {
@@ -424,7 +592,11 @@ static void overlay_start(const nfc_emu_dump_entry_t *dump) {
   lv_obj_set_style_pad_all(s_ov, 0, 0);
 
   ui_chrome_header_overlay(s_ov, "EMULATE", CARD_ICON);
-  ui_chrome_footer(s_ov, "BACK  Stop");
+  ui_chrome_footer(s_ov,
+                   ((dump->is_plus && s_plus_allow_writes) ||
+                    (dump->is_t2t && s_t2t_allow_writes) || (dump->is_v && s_v_allow_writes))
+                       ? "OK Save copy / BACK Discard"
+                       : "BACK  Stop");
 
   lv_obj_t *field_box = lv_obj_create(s_ov);
   lv_obj_remove_flag(field_box, LV_OBJ_FLAG_SCROLLABLE);
@@ -486,6 +658,33 @@ static void field_tick_cb(lv_timer_t *t) {
     nfc_ui_field_tick(&s_ov_field, lv_tick_get() - s_em_start);
     uint32_t now = lv_tick_get();
     if (s_ov_status != NULL && now - s_status_tick >= 250) {
+      if (s_hw_is_v) {
+        nfc_protocol_status_t status;
+        nfc_protocol_service_get_status(&status);
+        lv_label_set_text(s_ov_status,
+                          status.running
+                              ? (s_v_allow_writes ? "NFC-V RAM WRITES" : "NFC-V READ ONLY")
+                          : status.state == NFC_PROTOCOL_STATE_ERROR ? "NFC-V ERROR"
+                                                                     : "STOPPED");
+        s_status_tick = now;
+        return;
+      }
+      if (s_dumps[s_sel].is_plus) {
+        lv_label_set_text(s_ov_status,
+                          nfc_listener_is_running()
+                              ? (s_plus_allow_writes ? "PLUS RAM WRITES" : "PLUS READ ONLY")
+                              : "STOPPED");
+        s_status_tick = now;
+        return;
+      }
+      if (s_dumps[s_sel].is_t2t) {
+        lv_label_set_text(s_ov_status,
+                          nfc_listener_is_running()
+                              ? (s_t2t_allow_writes ? "TYPE 2 RAM WRITES" : "TYPE 2 READ ONLY")
+                              : "STOPPED");
+        s_status_tick = now;
+        return;
+      }
       mfc_emu_stats_t stats = mfc_emu_get_stats();
       char line[64];
       snprintf(line,
@@ -506,7 +705,12 @@ static void nfc_emulate_input(const input_event_t *ev, void *ctx) {
   const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
   if (s_em == EM_RUN) {
-    if (ev->button == INPUT_BTN_BACK && press)
+    if (ev->button == INPUT_BTN_OK && press &&
+        ((s_dumps[s_sel].is_plus && s_plus_allow_writes) ||
+         (s_dumps[s_sel].is_t2t && s_t2t_allow_writes) ||
+         (s_dumps[s_sel].is_v && s_v_allow_writes)))
+      save_session();
+    else if (ev->button == INPUT_BTN_BACK && press)
       overlay_close();
     return;
   }
@@ -534,6 +738,9 @@ static void nfc_emulate_input(const input_event_t *ev, void *ctx) {
     case INPUT_BTN_OK:
     case INPUT_BTN_RIGHT:
       if (press && !s_empty) {
+        s_plus_allow_writes = s_dumps[s_sel].is_plus && ev->button == INPUT_BTN_RIGHT;
+        s_v_allow_writes = s_dumps[s_sel].is_v && ev->button == INPUT_BTN_RIGHT;
+        s_t2t_allow_writes = s_dumps[s_sel].is_t2t && ev->button == INPUT_BTN_RIGHT;
         overlay_start(&s_dumps[s_sel]);
       }
       break;
@@ -570,7 +777,7 @@ void ui_nfc_emulate_open(void) {
     build_empty(CARD_ICON, "No real dump found", "Read all 64 blocks first");
   } else {
     ui_chrome_header(s_screen, "EMULATE", CARD_ICON);
-    ui_chrome_footer(s_screen, LV_SYMBOL_UP LV_SYMBOL_DOWN " Flip   OK Emulate   BACK Exit");
+    ui_chrome_footer(s_screen, "OK Emulate / RIGHT T2T/V/Plus RAM");
     s_sel = 0;
     wallet_build();
   }

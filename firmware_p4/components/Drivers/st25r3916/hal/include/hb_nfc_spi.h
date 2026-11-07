@@ -36,6 +36,7 @@ extern "C" {
 
 #include "driver/gpio.h"
 #include "esp_err.h"
+#include "hb_nfc_v_codec.h"
 
 /**
  * @brief SPI bus and device configuration for hb_nfc_spi_init().
@@ -64,7 +65,7 @@ esp_err_t hb_nfc_spi_init(const hb_nfc_spi_config_t *config);
 /**
  * @brief Remove only the NFC device; the shared High Boy SPI bus remains active.
  */
-void hb_nfc_spi_deinit(void);
+esp_err_t hb_nfc_spi_deinit(void);
 
 /**
  * @brief Read a single ST25R3916 register.
@@ -148,6 +149,42 @@ esp_err_t hb_nfc_spi_pt_mem_write(uint8_t prefix, const uint8_t *data, size_t le
  * @return ESP_OK on success, or an error code on failure.
  */
 esp_err_t hb_nfc_spi_pt_mem_read(uint8_t *out_data, size_t len);
+
+typedef esp_err_t (*hb_nfc_spi_v_reply_cb_t)(void *context,
+                                             const uint8_t *frame,
+                                             size_t length,
+                                             bool is_slot,
+                                             uint8_t *out,
+                                             size_t capacity,
+                                             size_t *out_length,
+                                             hb_nfc_v_codec_rate_t *out_rate);
+
+esp_err_t hb_nfc_spi_prepare_target_v(gpio_num_t irq_pin);
+/* Owns the shared bus from transparent RX through the timed reply. The callback
+ * must not use SPI, allocate, block, log, or invoke UI code. */
+esp_err_t hb_nfc_spi_target_v_exchange(hb_nfc_spi_v_reply_cb_t reply, void *context);
+
+/** Capture one bounded transparent RX pulse train, returning rising-edge gaps in microseconds.
+ * Caller owns the NFC frontend and configures the receive filters/field first.
+ */
+esp_err_t hb_nfc_spi_capture_gaps(uint16_t *out_gaps, size_t capacity, size_t *out_count);
+
+/** Allocate the bounded RMT transmitter before entering target listen mode. */
+esp_err_t hb_nfc_spi_prepare_target_tx(void);
+
+/** Send packed LSB-first data/parity bits using passive transparent modulation.
+ * The caller must own the NFC frontend; SPI MOSI is restored before returning.
+ */
+esp_err_t hb_nfc_spi_target_tx_bits(const uint8_t *packed, size_t bits);
+
+/** Single-subcarrier NFC-V response (including caller-supplied CRC), or SOF only.
+ * Caller owns the passive NFC frontend and prepares target TX first. RX/FDT
+ * scheduling is the listener's responsibility; this function only transmits. */
+esp_err_t
+hb_nfc_spi_target_v(const uint8_t *frame, size_t length, hb_nfc_v_codec_rate_t rate, bool sof_only);
+
+/** Passive pulse train: each pulse is high for 64 carrier cycles, then low_cycles[i]. */
+esp_err_t hb_nfc_spi_target_pulses(const uint16_t *low_cycles, size_t count);
 
 /**
  * @brief Perform a raw multi-byte SPI transfer.

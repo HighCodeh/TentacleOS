@@ -14,11 +14,13 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "felica_emu.h"
+#include "nfc_felica.h"
 
 #include <string.h>
 #include <stdio.h>
 
 #include "esp_log.h"
+#include "esp_check.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -85,25 +87,35 @@ typedef enum {
 } felica_emu_state_t;
 
 static felica_emu_card_t s_card;
+static nfc_felica_listener_t s_listener;
+static nfc_felica_card_t s_legacy;
+static nfc_felica_system_t s_legacy_system;
+static nfc_felica_service_t s_legacy_service;
+static nfc_felica_public_t s_legacy_blocks[FELICA_EMU_MAX_BLOCKS];
+static esp_err_t s_error;
+
 static felica_emu_state_t s_state = FELICA_STATE_SLEEP;
 static bool s_init_done = false;
 static uint32_t s_idle = 0;
 
-static bool wait_oscillator(int timeout_ms) {
+static esp_err_t wait_oscillator(int timeout_ms) {
   for (int i = 0; i < timeout_ms; i++) {
     uint8_t aux = 0, mi = 0, ti = 0;
-    hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux);
-    hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &mi);
-    hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &ti);
+    ESP_RETURN_ON_ERROR(
+        hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux), TAG, "Oscillator SPI read failed");
+    ESP_RETURN_ON_ERROR(
+        hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &mi), TAG, "Oscillator SPI read failed");
+    ESP_RETURN_ON_ERROR(
+        hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &ti), TAG, "Oscillator SPI read failed");
     if (((aux & AUX_DISP_OSC_MASK) != 0U) || ((mi & MAIN_INT_OSC_MASK) != 0U) ||
         ((ti & TARGET_INT_OSC_MASK) != 0U)) {
       ESP_LOGI(TAG, "Osc OK in %dms: AUX=0x%02X MAIN=0x%02X TGT=0x%02X", i, aux, mi, ti);
-      return true;
+      return ESP_OK;
     }
     vTaskDelay(pdMS_TO_TICKS(OSC_POLLING_INTERVAL_MS));
   }
-  ESP_LOGW(TAG, "Osc timeout - continuing");
-  return false;
+  ESP_LOGW(TAG, "Oscillator timeout");
+  return ESP_ERR_TIMEOUT;
 }
 
 static void tx_response(const uint8_t *data, int len) {
@@ -111,24 +123,31 @@ static void tx_response(const uint8_t *data, int len) {
     return;
   st25r3916_fifo_clear();
   st25r3916_fifo_set_tx_bytes((uint16_t)len, 0);
-  st25r3916_fifo_load(data, (size_t)len);
-  hb_nfc_spi_direct_cmd(ST25R3916_CMD_TX_WITH_CRC);
+  s_error = st25r3916_fifo_load(data, (size_t)len);
+  if (s_error == ESP_OK)
+    s_error = hb_nfc_spi_direct_cmd(ST25R3916_CMD_TX_WITH_CRC);
+  if (s_error == ESP_OK)
+    s_error = st25r3916_irq_wait_txe();
 }
 
 static void goto_sleep(void) {
-  hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SLEEP);
+  nfc_felica_listener_reset(&s_listener);
+  st25r3916_fifo_clear();
+  s_error = hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SLEEP);
   s_state = FELICA_STATE_SLEEP;
   s_idle = 0;
 }
 
-static void write_pt_mem_f(void) {
+static esp_err_t write_pt_mem_f(void) {
   uint8_t pt[PT_MEM_SIZE] = {0};
   pt[FELICA_EMU_PT_SC_OFFSET] = (uint8_t)(s_card.system_code >> FELICA_EMU_BYTE_SHIFT_HI);
   pt[FELICA_EMU_PT_SC_OFFSET + 1] = (uint8_t)(s_card.system_code & FELICA_EMU_BYTE_MASK_SC_LO);
   pt[FELICA_EMU_PT_DESC_OFFSET] = FELICA_EMU_PT_DESC_VALUE;
   memcpy(&pt[FELICA_EMU_PT_IDM_OFFSET], s_card.idm, FELICA_IDM_LEN);
   memcpy(&pt[FELICA_EMU_PT_PMM_OFFSET], s_card.pmm, FELICA_PMM_LEN);
-  hb_nfc_spi_pt_mem_write(ST25R3916_SPI_PT_MEM_F_WRITE, pt, sizeof(pt));
+  ESP_RETURN_ON_ERROR(hb_nfc_spi_pt_mem_write(ST25R3916_SPI_PT_MEM_F_WRITE, pt, sizeof(pt)),
+                      TAG,
+                      "Passive target memory write failed");
   char idm_s[FELICA_IDM_STR_BUFFER_SIZE];
   snprintf(idm_s,
            sizeof(idm_s),
@@ -153,118 +172,8 @@ static void write_pt_mem_f(void) {
            s_card.pmm[5],
            s_card.pmm[6],
            s_card.pmm[7]);
+  return ESP_OK;
 }
-static void handle_read(const uint8_t *frame, int len) {
-  if (len < FELICA_EMU_READ_MIN_FRAME_LEN) {
-    ESP_LOGW(TAG, "Read: too short (%d)", len);
-    return;
-  }
-  if (memcmp(&frame[FELICA_EMU_FRAME_IDM_OFFSET], s_card.idm, FELICA_IDM_LEN) != 0) {
-    ESP_LOGW(TAG, "Read: IDm mismatch");
-    return;
-  }
-  uint8_t sc_count = frame[FELICA_EMU_SC_COUNT_OFFSET];
-  int blk_pos = FELICA_EMU_SC_BLOCK_BASE_OFFSET + sc_count * FELICA_EMU_SC_ENTRY_SIZE;
-  if (blk_pos >= len) {
-    ESP_LOGW(TAG, "Read: short (sc=%d)", sc_count);
-    return;
-  }
-  uint8_t blk_count = frame[blk_pos];
-  int desc_pos = blk_pos + DESC_POS_INCREMENT;
-  if (blk_count == 0 || blk_count > FELICA_READ_MAX_BLOCKS) {
-    ESP_LOGW(TAG, "Read: bad blk_count=%d", blk_count);
-    return;
-  }
-  static uint8_t resp[FELICA_EMU_READ_RES_HDR_SIZE + FELICA_IDM_LEN + 2 + 1 + FELICA_EMU_MEM_SIZE];
-  int rp = 0;
-  resp[rp++] = STATUS_OK;
-  resp[rp++] = FELICA_CMD_READ_RESP;
-  memcpy(&resp[rp], s_card.idm, FELICA_IDM_LEN);
-  rp += FELICA_IDM_LEN;
-  resp[rp++] = STATUS_OK;
-  resp[rp++] = STATUS_OK;
-  resp[rp++] = blk_count;
-  for (int i = 0; i < blk_count; i++) {
-    if (desc_pos + DESC_POS_INCREMENT >= len) {
-      ESP_LOGW(TAG, "Read: desc %d OOF", i);
-      break;
-    }
-    uint8_t blk_flag = frame[desc_pos];
-    uint8_t blk_num;
-    int desc_len;
-    if (blk_flag & BLK_FLAG_MASK) {
-      blk_num = frame[desc_pos + 1];
-      desc_len = DESC_LEN_2BYTE;
-    } else {
-      blk_num = frame[desc_pos + 1];
-      desc_len = DESC_LEN_3BYTE;
-    }
-    desc_pos += desc_len;
-    if (blk_num >= s_card.block_count) {
-      memset(&resp[rp], STATUS_OK, FELICA_BLOCK_SIZE);
-    } else {
-      memcpy(&resp[rp], &s_card.mem[blk_num * FELICA_BLOCK_SIZE], FELICA_BLOCK_SIZE);
-    }
-    rp += FELICA_BLOCK_SIZE;
-  }
-  resp[FIFO_RSP_POS] = (uint8_t)rp;
-  ESP_LOGI(TAG, "READ blocks=%d", blk_count);
-  tx_response(resp, rp);
-}
-
-static void handle_write(const uint8_t *frame, int len) {
-  if (len < FELICA_EMU_WRITE_MIN_FRAME_LEN) {
-    ESP_LOGW(TAG, "Write: too short (%d)", len);
-    return;
-  }
-  if (memcmp(&frame[FELICA_EMU_FRAME_IDM_OFFSET], s_card.idm, FELICA_IDM_LEN) != 0) {
-    return;
-  }
-  uint8_t sc_count = frame[FELICA_EMU_SC_COUNT_OFFSET];
-  int blk_pos = FELICA_EMU_SC_BLOCK_BASE_OFFSET + sc_count * FELICA_EMU_SC_ENTRY_SIZE;
-  if (blk_pos >= len) {
-    return;
-  }
-  uint8_t blk_count = frame[blk_pos];
-  int pos = blk_pos + DESC_POS_INCREMENT;
-  if (blk_count == 0)
-    return;
-  uint8_t status1 = STATUS_OK;
-  for (int i = 0; i < blk_count; i++) {
-    if (pos + FELICA_EMU_SC_ENTRY_SIZE + FELICA_BLOCK_SIZE > len) {
-      status1 = STATUS1_ERROR;
-      break;
-    }
-    uint8_t blk_flag = frame[pos];
-    uint8_t blk_num;
-    int desc_len;
-    if (blk_flag & BLK_FLAG_MASK) {
-      blk_num = frame[pos + 1];
-      desc_len = DESC_LEN_2BYTE;
-    } else {
-      blk_num = frame[pos + 1];
-      desc_len = DESC_LEN_3BYTE;
-    }
-    if (pos + desc_len + FELICA_BLOCK_SIZE > len) {
-      status1 = STATUS1_ERROR;
-      break;
-    }
-    if (blk_num < s_card.block_count) {
-      memcpy(&s_card.mem[blk_num * FELICA_BLOCK_SIZE], &frame[pos + desc_len], FELICA_BLOCK_SIZE);
-    } else {
-      status1 = STATUS1_ERROR;
-    }
-    pos += desc_len + FELICA_BLOCK_SIZE;
-  }
-  uint8_t resp[FELICA_EMU_WRITE_RES_SIZE];
-  resp[0] = FELICA_EMU_WRITE_RES_SIZE;
-  resp[1] = FELICA_CMD_WRITE_RESP;
-  memcpy(&resp[FELICA_EMU_RES_IDM_OFFSET], s_card.idm, FELICA_IDM_LEN);
-  resp[FELICA_EMU_RES_STATUS1_POS] = status1;
-  resp[FELICA_EMU_RES_STATUS2_POS] = STATUS_OK;
-  tx_response(resp, FELICA_EMU_WRITE_RES_SIZE);
-}
-
 void felica_emu_card_from_tag(
     felica_emu_card_t *card, const felica_tag_t *tag, uint16_t sc, uint8_t bc, const uint8_t *mem) {
   if (card == NULL || tag == NULL)
@@ -302,6 +211,27 @@ hb_nfc_err_t felica_emu_init(const felica_emu_card_t *card) {
   if (card == NULL || card->block_count > FELICA_EMU_MAX_BLOCKS)
     return HB_NFC_ERR_PARAM;
   memcpy(&s_card, card, sizeof(s_card));
+  memset(&s_legacy, 0, sizeof(s_legacy));
+  memset(&s_legacy_system, 0, sizeof(s_legacy_system));
+  memset(s_legacy_blocks, 0, sizeof(s_legacy_blocks));
+  memcpy(s_legacy.tag.idm, card->idm, FELICA_IDM_LEN);
+  memcpy(s_legacy.tag.pmm, card->pmm, FELICA_PMM_LEN);
+  s_legacy.type = NFC_FELICA_TYPE_STANDARD;
+  s_legacy.system_count = 1;
+  s_legacy.systems = &s_legacy_system;
+  s_legacy_system.code = card->system_code;
+  s_legacy_system.services = &s_legacy_service;
+  s_legacy_system.service_count = 1;
+  s_legacy_service.code = card->service_code;
+  s_legacy_system.blocks = s_legacy_blocks;
+  s_legacy_system.block_count = card->block_count;
+  for (size_t i = 0; i < card->block_count; i++) {
+    s_legacy_blocks[i].service = card->service_code;
+    s_legacy_blocks[i].index = i;
+    memcpy(s_legacy_blocks[i].block.data, card->mem + i * FELICA_BLOCK_SIZE, FELICA_BLOCK_SIZE);
+  }
+  nfc_felica_listener_init(&s_listener, &s_legacy);
+  s_error = ESP_OK;
   s_state = FELICA_STATE_SLEEP;
   s_idle = 0;
   s_init_done = true;
@@ -321,50 +251,113 @@ hb_nfc_err_t felica_emu_init(const felica_emu_card_t *card) {
   return HB_NFC_OK;
 }
 
+esp_err_t felica_emu_init_profile(nfc_felica_card_t *card) {
+  if (!card || (card->type != NFC_FELICA_TYPE_LITE && card->type != NFC_FELICA_TYPE_STANDARD) ||
+      (card->type == NFC_FELICA_TYPE_STANDARD && (!card->system_count || !card->systems)))
+    return ESP_ERR_INVALID_ARG;
+  felica_emu_card_t identity = {0};
+  memcpy(identity.idm, card->tag.idm, FELICA_IDM_LEN);
+  memcpy(identity.pmm, card->tag.pmm, FELICA_PMM_LEN);
+  memset(identity.pmm + 2, UINT8_MAX, FELICA_PMM_LEN - 2);
+  identity.system_code =
+      card->type == NFC_FELICA_TYPE_LITE ? NFC_FELICA_LITE_SYSTEM : card->systems[0].code;
+  if (card->type == NFC_FELICA_TYPE_STANDARD)
+    identity.idm[0] &= 0x0FU;
+  esp_err_t error = felica_emu_init(&identity);
+  if (error == ESP_OK)
+    nfc_felica_listener_init(&s_listener, card);
+  return error;
+}
+
+esp_err_t felica_emu_error(void) {
+  return s_error;
+}
+bool felica_emu_dirty(void) {
+  return s_listener.is_dirty;
+}
+
 hb_nfc_err_t felica_emu_configure_target(void) {
   if (!s_init_done)
     return HB_NFC_ERR_INTERNAL;
   ESP_LOGI(TAG, "Configure NFC-F target");
-  hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, OP_CTRL_INIT);
+  ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, OP_CTRL_INIT),
+                      TAG,
+                      "Target SPI operation failed");
   vTaskDelay(pdMS_TO_TICKS(DELAY_5MS));
-  hb_nfc_spi_direct_cmd(ST25R3916_CMD_SET_DEFAULT);
+  ESP_RETURN_ON_ERROR(
+      hb_nfc_spi_direct_cmd(ST25R3916_CMD_SET_DEFAULT), TAG, "Target SPI operation failed");
   vTaskDelay(pdMS_TO_TICKS(DELAY_10MS));
-  hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, ISO14443A_CFG);
+  ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, ISO14443A_CFG),
+                      TAG,
+                      "Target SPI operation failed");
   vTaskDelay(pdMS_TO_TICKS(DELAY_2MS));
   uint8_t ic = 0;
-  hb_nfc_spi_reg_read(ST25R3916_REG_IC_IDENTITY, &ic);
+  ESP_RETURN_ON_ERROR(
+      hb_nfc_spi_reg_read(ST25R3916_REG_IC_IDENTITY, &ic), TAG, "Target SPI operation failed");
   if (ic == IC_CHIP_INVALID_A || ic == IC_CHIP_INVALID_B) {
     ESP_LOGE(TAG, "Chip not responding: IC=0x%02X", ic);
     return HB_NFC_ERR_INTERNAL;
   }
   ESP_LOGI(TAG, "Chip OK: IC=0x%02X", ic);
-  hb_nfc_spi_reg_write(ST25R3916_REG_IO_CONF2, IO_CONF2_CFG);
+  ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_write(ST25R3916_REG_IO_CONF2, IO_CONF2_CFG),
+                      TAG,
+                      "Target SPI operation failed");
   vTaskDelay(pdMS_TO_TICKS(DELAY_2MS));
-  hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, OP_CTRL_ACTIVE);
-  wait_oscillator(DELAY_OSC_WAIT);
-  hb_nfc_spi_direct_cmd(ST25R3916_CMD_ADJUST_REGULATORS);
+  ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, OP_CTRL_ACTIVE),
+                      TAG,
+                      "Target SPI operation failed");
+  ESP_RETURN_ON_ERROR(wait_oscillator(DELAY_OSC_WAIT), TAG, "Oscillator unavailable");
+  ESP_RETURN_ON_ERROR(
+      hb_nfc_spi_direct_cmd(ST25R3916_CMD_ADJUST_REGULATORS), TAG, "Target SPI operation failed");
   vTaskDelay(pdMS_TO_TICKS(DELAY_10MS));
-  hb_nfc_spi_reg_write(ST25R3916_REG_MODE, MODE_TARGET_NFCF);
-  hb_nfc_spi_reg_write(ST25R3916_REG_AUX_DEF, FELICA_AUX_DEF);
-  hb_nfc_spi_reg_write(ST25R3916_REG_BIT_RATE, FELICA_BITRATE_212);
-  hb_nfc_spi_reg_write(ST25R3916_REG_PASSIVE_TARGET, STATUS_OK);
-  hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443B_FELICA, FELICA_ISO_F_CTRL);
-  hb_nfc_spi_reg_write(ST25R3916_REG_FIELD_THRESH_ACT, STATUS_OK);
-  hb_nfc_spi_reg_write(ST25R3916_REG_FIELD_THRESH_DEACT, STATUS_OK);
-  hb_nfc_spi_reg_write(ST25R3916_REG_PT_MOD, PT_MOD_CFG);
-  write_pt_mem_f();
+  ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_write(ST25R3916_REG_MODE, MODE_TARGET_NFCF),
+                      TAG,
+                      "Target SPI operation failed");
+  ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_write(ST25R3916_REG_AUX_DEF, FELICA_AUX_DEF),
+                      TAG,
+                      "Target SPI operation failed");
+  ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_write(ST25R3916_REG_BIT_RATE, FELICA_BITRATE_212),
+                      TAG,
+                      "Target SPI operation failed");
+  ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_write(ST25R3916_REG_PASSIVE_TARGET, STATUS_OK),
+                      TAG,
+                      "Target SPI operation failed");
+  ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443B_FELICA, FELICA_ISO_F_CTRL),
+                      TAG,
+                      "Target SPI operation failed");
+  ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_write(ST25R3916_REG_FIELD_THRESH_ACT, STATUS_OK),
+                      TAG,
+                      "Target SPI operation failed");
+  ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_write(ST25R3916_REG_FIELD_THRESH_DEACT, STATUS_OK),
+                      TAG,
+                      "Target SPI operation failed");
+  ESP_RETURN_ON_ERROR(
+      hb_nfc_spi_reg_write(ST25R3916_REG_PT_MOD, PT_MOD_CFG), TAG, "Target SPI operation failed");
+  ESP_RETURN_ON_ERROR(write_pt_mem_f(), TAG, "Target memory failed");
   {
     st25r3916_irq_status_t s;
-    (void)st25r3916_irq_read(&s);
+    ESP_RETURN_ON_ERROR(st25r3916_irq_read(&s), TAG, "Target IRQ read failed");
   }
-  hb_nfc_spi_reg_write(ST25R3916_REG_MASK_MAIN_INT, STATUS_OK);
-  hb_nfc_spi_reg_write(ST25R3916_REG_MASK_TIMER_NFC_INT, STATUS_OK);
-  hb_nfc_spi_reg_write(ST25R3916_REG_MASK_ERROR_WUP_INT, STATUS_OK);
-  hb_nfc_spi_reg_write(ST25R3916_REG_MASK_TARGET_INT, STATUS_OK);
+  ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_write(ST25R3916_REG_MASK_MAIN_INT, STATUS_OK),
+                      TAG,
+                      "Target SPI operation failed");
+  ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_write(ST25R3916_REG_MASK_TIMER_NFC_INT, STATUS_OK),
+                      TAG,
+                      "Target SPI operation failed");
+  ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_write(ST25R3916_REG_MASK_ERROR_WUP_INT, STATUS_OK),
+                      TAG,
+                      "Target SPI operation failed");
+  ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_write(ST25R3916_REG_MASK_TARGET_INT, STATUS_OK),
+                      TAG,
+                      "Target SPI operation failed");
   uint8_t mode_rb = 0, aux_rb = 0, isof_rb = 0;
-  hb_nfc_spi_reg_read(ST25R3916_REG_MODE, &mode_rb);
-  hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DEF, &aux_rb);
-  hb_nfc_spi_reg_read(ST25R3916_REG_ISO14443B_FELICA, &isof_rb);
+  ESP_RETURN_ON_ERROR(
+      hb_nfc_spi_reg_read(ST25R3916_REG_MODE, &mode_rb), TAG, "Target SPI operation failed");
+  ESP_RETURN_ON_ERROR(
+      hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DEF, &aux_rb), TAG, "Target SPI operation failed");
+  ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_read(ST25R3916_REG_ISO14443B_FELICA, &isof_rb),
+                      TAG,
+                      "Target SPI operation failed");
   if (mode_rb != MODE_TARGET_NFCF) {
     ESP_LOGE(TAG, "MODE mismatch: 0x%02X", mode_rb);
     return HB_NFC_ERR_INTERNAL;
@@ -378,38 +371,58 @@ hb_nfc_err_t felica_emu_start(void) {
     return HB_NFC_ERR_INTERNAL;
   {
     st25r3916_irq_status_t s;
-    (void)st25r3916_irq_read(&s);
+    ESP_RETURN_ON_ERROR(st25r3916_irq_read(&s), TAG, "Target IRQ read failed");
   }
-  hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, OP_CTRL_TARGET);
+  ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, OP_CTRL_TARGET),
+                      TAG,
+                      "Target SPI operation failed");
   vTaskDelay(pdMS_TO_TICKS(DELAY_5MS));
-  hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SLEEP);
+  ESP_RETURN_ON_ERROR(
+      hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SLEEP), TAG, "Target SPI operation failed");
   vTaskDelay(pdMS_TO_TICKS(DELAY_2MS));
   s_state = FELICA_STATE_SLEEP;
   s_idle = 0;
   uint8_t op = 0, aux = 0, pts = 0;
-  hb_nfc_spi_reg_read(ST25R3916_REG_OP_CTRL, &op);
-  hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux);
-  hb_nfc_spi_reg_read(ST25R3916_REG_PASSIVE_TARGET_STS, &pts);
+  ESP_RETURN_ON_ERROR(
+      hb_nfc_spi_reg_read(ST25R3916_REG_OP_CTRL, &op), TAG, "Target SPI operation failed");
+  ESP_RETURN_ON_ERROR(
+      hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux), TAG, "Target SPI operation failed");
+  ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_read(ST25R3916_REG_PASSIVE_TARGET_STS, &pts),
+                      TAG,
+                      "Target SPI operation failed");
   ESP_LOGI(TAG, "Start (SLEEP): OP=0x%02X AUX=0x%02X PT_STS=0x%02X", op, aux, pts);
   ESP_LOGI(TAG, "FeliCa emulation active - present a reader!");
   return HB_NFC_OK;
 }
 
 void felica_emu_stop(void) {
-  hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, OP_CTRL_INIT);
+  if (!s_init_done)
+    return;
+  esp_err_t error = hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, OP_CTRL_INIT);
+  if (s_error == ESP_OK)
+    s_error = error;
   s_state = FELICA_STATE_SLEEP;
   s_idle = 0;
   s_init_done = false;
+  nfc_felica_listener_reset(&s_listener);
   ESP_LOGI(TAG, "FeliCa emulation stopped");
 }
 
 void felica_emu_run_step(void) {
+  if (!s_init_done || s_error != ESP_OK)
+    return;
   static uint32_t s_alive = 0;
   if ((++s_alive % ALIVE_LOG_MOD) == 0U) {
     uint8_t aux = 0, pts = 0, op = 0;
-    hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux);
-    hb_nfc_spi_reg_read(ST25R3916_REG_PASSIVE_TARGET_STS, &pts);
-    hb_nfc_spi_reg_read(ST25R3916_REG_OP_CTRL, &op);
+    s_error = hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux);
+    if (s_error != ESP_OK)
+      return;
+    s_error = hb_nfc_spi_reg_read(ST25R3916_REG_PASSIVE_TARGET_STS, &pts);
+    if (s_error != ESP_OK)
+      return;
+    s_error = hb_nfc_spi_reg_read(ST25R3916_REG_OP_CTRL, &op);
+    if (s_error != ESP_OK)
+      return;
     ESP_LOGI(TAG,
              "alive | state=%s OP=%02X AUX=%02X efd=%d pta=%d",
              s_state == FELICA_STATE_SLEEP   ? "SLEEP"
@@ -425,13 +438,23 @@ void felica_emu_run_step(void) {
   uint8_t main_irq = 0;
   uint8_t timer_irq = 0;
   uint8_t err_irq = 0;
-  hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &tgt_irq);
-  hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &main_irq);
-  hb_nfc_spi_reg_read(ST25R3916_REG_TIMER_NFC_INT, &timer_irq);
-  hb_nfc_spi_reg_read(ST25R3916_REG_ERROR_INT, &err_irq);
+  s_error = hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &tgt_irq);
+  if (s_error != ESP_OK)
+    return;
+  s_error = hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &main_irq);
+  if (s_error != ESP_OK)
+    return;
+  s_error = hb_nfc_spi_reg_read(ST25R3916_REG_TIMER_NFC_INT, &timer_irq);
+  if (s_error != ESP_OK)
+    return;
+  s_error = hb_nfc_spi_reg_read(ST25R3916_REG_ERROR_INT, &err_irq);
+  if (s_error != ESP_OK)
+    return;
 
   uint8_t pts = 0;
-  hb_nfc_spi_reg_read(ST25R3916_REG_PASSIVE_TARGET_STS, &pts);
+  s_error = hb_nfc_spi_reg_read(ST25R3916_REG_PASSIVE_TARGET_STS, &pts);
+  if (s_error != ESP_OK)
+    return;
   uint8_t pta = pts & PTA_MASK;
 
   if (s_state == FELICA_STATE_SLEEP) {
@@ -448,16 +471,21 @@ void felica_emu_run_step(void) {
              timer_irq,
              err_irq);
 
-    hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SENSE);
+    s_error = hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SENSE);
+    if (s_error != ESP_OK)
+      return;
     s_state = FELICA_STATE_SENSE;
     s_idle = 0;
-    return;
+    if (!(main_irq & ST25R3916_IRQ_MAIN_RXE))
+      return;
   }
 
   if (s_state == FELICA_STATE_SENSE) {
     if (tgt_irq || main_irq || timer_irq || err_irq) {
       uint8_t rssi = 0;
-      hb_nfc_spi_reg_read(ST25R3916_REG_RSSI_RESULT, &rssi);
+      s_error = hb_nfc_spi_reg_read(ST25R3916_REG_RSSI_RESULT, &rssi);
+      if (s_error != ESP_OK)
+        return;
       ESP_LOGI(TAG,
                "[SENSE-IRQ] tgt=0x%02X main=0x%02X tmr=0x%02X err=0x%02X pta=%u RSSI=0x%02X",
                tgt_irq,
@@ -484,7 +512,9 @@ void felica_emu_run_step(void) {
 
     } else if (timer_irq & TIMER_I_EOF) {
       uint8_t rssi = 0;
-      hb_nfc_spi_reg_read(ST25R3916_REG_RSSI_RESULT, &rssi);
+      s_error = hb_nfc_spi_reg_read(ST25R3916_REG_RSSI_RESULT, &rssi);
+      if (s_error != ESP_OK)
+        return;
       ESP_LOGW(TAG,
                "SENSE: field lost -> SLEEP | timer_irq=0x%02X tgt=0x%02X pta=%u RSSI=0x%02X",
                timer_irq,
@@ -502,8 +532,12 @@ void felica_emu_run_step(void) {
       }
       if ((s_idle % IDLE_LOG_MOD) == 0U) {
         uint8_t aux = 0, rssi = 0;
-        hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux);
-        hb_nfc_spi_reg_read(ST25R3916_REG_RSSI_RESULT, &rssi);
+        s_error = hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux);
+        if (s_error != ESP_OK)
+          return;
+        s_error = hb_nfc_spi_reg_read(ST25R3916_REG_RSSI_RESULT, &rssi);
+        if (s_error != ESP_OK)
+          return;
         ESP_LOGI(TAG,
                  "[SENSE] idle=%lu AUX=0x%02X pta=%d RSSI=0x%02X",
                  (unsigned long)s_idle,
@@ -519,7 +553,9 @@ void felica_emu_run_step(void) {
 
   if (timer_irq & TIMER_I_EOF) {
     uint8_t aux = 0;
-    hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux);
+    s_error = hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux);
+    if (s_error != ESP_OK)
+      return;
     ESP_LOGI(TAG, "ACTIVE: field lost (AUX=0x%02X) -> SLEEP", aux);
     goto_sleep();
     return;
@@ -534,28 +570,24 @@ void felica_emu_run_step(void) {
   s_idle = 0;
 
   uint8_t buf[FIFO_LEN_LIMIT] = {0};
-  uint8_t fs1 = 0;
-  hb_nfc_spi_reg_read(ST25R3916_REG_FIFO_STATUS1, &fs1);
-  int len = (int)(fs1 & FIFO_STATUS_LEN_MASK);
-  if (len <= 0)
+  size_t length = st25r3916_fifo_get_count();
+  if (!length)
     return;
-  if (len > (int)sizeof(buf))
-    len = (int)sizeof(buf);
-  hb_nfc_spi_fifo_read(buf, (uint8_t)len);
-  if (len < FRAME_LEN_MIN_BYTES)
+  if (length > sizeof(buf)) {
+    st25r3916_fifo_clear();
     return;
-
-  uint8_t cmd_code = buf[CMD_CODE_OFFSET];
-  ESP_LOGI(TAG, "CMD 0x%02X len=%d", cmd_code, len);
-  switch (cmd_code) {
-    case FELICA_CMD_READ_WO_ENC:
-      handle_read(buf, len);
-      break;
-    case FELICA_CMD_WRITE_WO_ENC:
-      handle_write(buf, len);
-      break;
-    default:
-      ESP_LOGW(TAG, "Unsupported cmd 0x%02X", cmd_code);
-      break;
   }
+  s_error = st25r3916_fifo_read(buf, length);
+  if (s_error != ESP_OK)
+    return;
+  if (length < FRAME_LEN_MIN_BYTES || (length != buf[0] && length != (size_t)buf[0] + 2U))
+    return;
+  if (err_irq) {
+    st25r3916_fifo_clear();
+    return;
+  }
+  nfc_felica_frame_t response = {0};
+  esp_err_t error = nfc_felica_listener_frame(&s_listener, buf, buf[0], &response);
+  if (error == ESP_OK && response.size)
+    tx_response(response.data, response.size);
 }

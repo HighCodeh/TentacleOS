@@ -24,6 +24,14 @@ extern "C" {
 
 void ui_nfc_protocol_lab_open(nfc_protocol_op_t operation, const char *title);
 void ui_nfc_protocol_lab_stop(void);
+void ui_nfc_archive_open(void);
+void ui_nfc_plus_open(void);
+void ui_nfc_st25tb_open(void);
+void ui_nfc_slix_open(void);
+void ui_nfc_ntag4xx_open(void);
+void ui_nfc_texkom_open(void);
+void ui_nfc_texkom_emulate_open(void);
+void ui_nfc_v_emulate_open(void);
 
 #ifdef __cplusplus
 }

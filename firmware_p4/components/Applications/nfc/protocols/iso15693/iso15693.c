@@ -58,7 +58,7 @@ static hb_nfc_err_t iso15693_stay_quiet(const iso15693_tag_t *tag);
 static int strip_crc_len(const uint8_t *buf, int len) {
   if (len >= (int)(ISO15693_CRC_LEN + 1) && iso15693_check_crc(buf, (size_t)len))
     return len - ISO15693_CRC_LEN;
-  return len;
+  return 0;
 }
 
 static hb_nfc_err_t iso15693_stay_quiet(const iso15693_tag_t *tag) {
@@ -170,6 +170,17 @@ hb_nfc_err_t iso15693_get_system_info(iso15693_tag_t *tag) {
     return HB_NFC_ERR_PROTOCOL;
 
   uint8_t info_flags = rx[1];
+  size_t required = 2 + ISO15693_UID_LEN;
+  if (info_flags & ISO15693_SYSINFO_FLAG_DSFID)
+    required++;
+  if (info_flags & ISO15693_SYSINFO_FLAG_AFI)
+    required++;
+  if (info_flags & ISO15693_SYSINFO_FLAG_MEM)
+    required += 2;
+  if (info_flags & ISO15693_SYSINFO_FLAG_IC)
+    required++;
+  if ((size_t)plen != required || memcmp(tag->uid, &rx[2], ISO15693_UID_LEN) != 0)
+    return HB_NFC_ERR_PROTOCOL;
   pos = 2;
 
   memcpy(tag->uid, &rx[pos], ISO15693_UID_LEN);

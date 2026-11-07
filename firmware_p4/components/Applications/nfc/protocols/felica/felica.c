@@ -28,6 +28,14 @@
 
 static const char *TAG = "NFC_FELICA";
 
+#define FELICA_CRC_BYTES 2
+
+static int frame_length(const uint8_t *frame, int received) {
+  if (received < FELICA_FRAME_MIN_HDR_LEN)
+    return 0;
+  return received == frame[0] || received == frame[0] + FELICA_CRC_BYTES ? frame[0] : 0;
+}
+
 hb_nfc_err_t felica_poller_init(void) {
   nfc_rf_config_t cfg = {
       .tech = NFC_RF_TECH_F,
@@ -53,22 +61,23 @@ hb_nfc_err_t felica_sensf_req(uint16_t system_code, felica_tag_t *tag) {
 }
 
 hb_nfc_err_t felica_sensf_req_slots(uint16_t system_code, uint8_t time_slots, felica_tag_t *tag) {
-  if (tag == NULL)
+  if (tag == NULL || (time_slots != 0 && time_slots != 1 && time_slots != 3 && time_slots != 7 &&
+                      time_slots != 15))
     return HB_NFC_ERR_PARAM;
   memset(tag, 0, sizeof(*tag));
 
-  uint8_t cmd[FELICA_SENSF_REQ_LENGTH + 1];
+  uint8_t cmd[FELICA_SENSF_REQ_LENGTH];
   cmd[0] = FELICA_SENSF_REQ_LENGTH;
   cmd[1] = FELICA_CMD_SENSF_REQ;
-  cmd[2] = 0x00U;
-  cmd[3] = FELICA_RCF_SYSTEM_CODE;
-  cmd[4] = (uint8_t)((system_code >> 8) & 0xFFU);
-  cmd[5] = (uint8_t)(system_code & 0xFFU);
-  cmd[6] = (uint8_t)(time_slots & FELICA_SENSF_TIME_SLOT_MASK);
+  cmd[2] = (uint8_t)(system_code >> 8);
+  cmd[3] = (uint8_t)system_code;
+  cmd[4] = FELICA_RCF_SYSTEM_CODE;
+  cmd[5] = time_slots;
 
   uint8_t rx[FELICA_SENSF_RES_BUFFER_SIZE] = {0};
   int len =
       nfc_poller_transceive(cmd, sizeof(cmd), true, rx, sizeof(rx), 1, FELICA_SENSF_TIMEOUT_MS);
+  len = frame_length(rx, len);
   if (len < FELICA_SENSF_RES_MIN_LEN) {
     if (len > 0)
       nfc_log_hex("SENSF partial:", rx, (size_t)len);
@@ -77,7 +86,8 @@ hb_nfc_err_t felica_sensf_req_slots(uint16_t system_code, uint8_t time_slots, fe
 
   nfc_log_hex("SENSF_RES:", rx, (size_t)len);
 
-  if (rx[1] != FELICA_CMD_SENSF_RES) {
+  if (rx[1] != FELICA_CMD_SENSF_RES || rx[0] != len ||
+      (len != FELICA_SENSF_RES_MIN_LEN && len != FELICA_SENSF_RES_WITH_RD_LEN)) {
     ESP_LOGW(TAG, "Unexpected response code 0x%02X", rx[1]);
     return HB_NFC_ERR_PROTOCOL;
   }
@@ -142,7 +152,8 @@ hb_nfc_err_t felica_read_blocks(const felica_tag_t *tag,
                                 uint8_t first_block,
                                 uint8_t count,
                                 uint8_t *out) {
-  if (tag == NULL || out == NULL || count == 0 || count > FELICA_READ_MAX_BLOCKS)
+  if (tag == NULL || out == NULL || count == 0 || count > FELICA_READ_MAX_BLOCKS ||
+      (size_t)first_block + count > UINT8_MAX + 1U)
     return HB_NFC_ERR_PARAM;
 
   uint8_t cmd[FELICA_READ_CMD_BUFFER_SIZE];
@@ -165,25 +176,30 @@ hb_nfc_err_t felica_read_blocks(const felica_tag_t *tag,
   uint8_t rx[FELICA_READ_RES_BUFFER_SIZE] = {0};
   int len =
       nfc_poller_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 1, FELICA_READ_TIMEOUT_MS);
+  len = frame_length(rx, len);
   if (len < FELICA_READ_RES_MIN_LEN) {
     ESP_LOGW(TAG, "ReadBlocks: timeout (len=%d)", len);
     return HB_NFC_ERR_TIMEOUT;
   }
 
-  if (rx[1] != FELICA_CMD_READ_RESP) {
+  if (rx[1] != FELICA_CMD_READ_RESP || rx[0] != len ||
+      memcmp(&rx[FELICA_READ_RES_IDM_OFFSET], tag->idm, FELICA_IDM_LEN) != 0) {
     ESP_LOGW(TAG, "ReadBlocks: unexpected resp 0x%02X", rx[1]);
     return HB_NFC_ERR_PROTOCOL;
   }
 
   uint8_t status1 = rx[FELICA_READ_RES_STATUS1_POS];
   uint8_t status2 = rx[FELICA_READ_RES_STATUS2_POS];
-  if (status1 != 0x00U) {
+  if (status1 != 0x00U || status2 != 0x00U) {
     ESP_LOGW(TAG, "ReadBlocks: status1=0x%02X status2=0x%02X", status1, status2);
     return HB_NFC_ERR_PROTOCOL;
   }
 
+  len = frame_length(rx, len);
+  if (len < FELICA_READ_RES_DATA_POS)
+    return HB_NFC_ERR_PROTOCOL;
   uint8_t blk_count = rx[FELICA_READ_RES_COUNT_POS];
-  if (len < FELICA_READ_RES_DATA_POS + blk_count * FELICA_BLOCK_SIZE) {
+  if (blk_count != count || len != FELICA_READ_RES_DATA_POS + count * FELICA_BLOCK_SIZE) {
     ESP_LOGW(TAG, "ReadBlocks: response too short");
     return HB_NFC_ERR_PROTOCOL;
   }
@@ -222,14 +238,18 @@ hb_nfc_err_t felica_write_blocks(const felica_tag_t *tag,
   uint8_t rx[FELICA_WRITE_RES_BUFFER_SIZE] = {0};
   int len =
       nfc_poller_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 1, FELICA_WRITE_TIMEOUT_MS);
+  len = frame_length(rx, len);
   if (len < FELICA_WRITE_RES_MIN_LEN) {
     ESP_LOGW(TAG, "WriteBlocks: timeout (len=%d)", len);
     return HB_NFC_ERR_TIMEOUT;
   }
 
+  if (rx[0] != len || rx[1] != FELICA_CMD_WRITE_RESP ||
+      memcmp(&rx[FELICA_WRITE_RES_IDM_OFFSET], tag->idm, FELICA_IDM_LEN) != 0)
+    return HB_NFC_ERR_PROTOCOL;
   uint8_t status1 = rx[FELICA_WRITE_RES_STATUS1_POS];
   uint8_t status2 = rx[FELICA_WRITE_RES_STATUS2_POS];
-  if (status1 != 0x00U) {
+  if (status1 != 0x00U || status2 != 0x00U) {
     ESP_LOGW(TAG, "WriteBlocks: status1=0x%02X status2=0x%02X", status1, status2);
     return HB_NFC_ERR_NACK;
   }

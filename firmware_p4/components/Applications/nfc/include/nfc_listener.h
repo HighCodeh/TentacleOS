@@ -26,6 +26,17 @@ extern "C" {
 #include "highboy_nfc_compat.h"
 #include "highboy_nfc_types.h"
 #include "mf_classic_emu.h"
+#include "t4t_emu.h"
+#include "nfc_t2t_file.h"
+
+hb_nfc_err_t nfc_listener_start_t2t(const nfc_t2t_file_t *card);
+/* Writes affect the session copy only; the source file remains unchanged. */
+hb_nfc_err_t nfc_listener_start_t2t_mutable(const nfc_t2t_file_t *card);
+
+/* Identity/config are copied. Callback context, version and signature must remain
+ * valid until nfc_listener_is_active() becomes false after stop. */
+hb_nfc_err_t nfc_listener_start_plus(const t4t_emu_identity_t *identity,
+                                     const mfp_listener_config_t *config);
 
 /**
  * @brief Start card emulation from generic card data.
@@ -55,6 +66,8 @@ hb_nfc_err_t nfc_listener_start_emu(const mfc_emu_card_data_t *emu);
  * @brief Stop card emulation.
  */
 void nfc_listener_stop(void);
+/* Available only after cleanup completes; copying never races the radio worker. */
+esp_err_t nfc_listener_get_t2t_result(nfc_t2t_file_t *out_card);
 
 /** Firmware retains the antenna while startup or cleanup is pending. */
 bool nfc_listener_is_active(void);

@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "nfc_device.h"
+#include "esp_attr.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -188,7 +189,7 @@ hb_nfc_err_t nfc_device_save(const char *name, const mfc_emu_card_data_t *card) 
     count++;
   }
 
-  static uint8_t buf[SERIALIZE_MAX_SIZE];
+  EXT_RAM_BSS_ATTR static uint8_t buf[SERIALIZE_MAX_SIZE];
   size_t data_len = serialize_card(card, buf, sizeof(buf));
   if (data_len == 0) {
     nvs_close(nvs);
@@ -244,7 +245,7 @@ hb_nfc_err_t nfc_device_load(int index, mfc_emu_card_data_t *card) {
   char key[16];
   snprintf(key, sizeof(key), "data_%d", index);
 
-  static uint8_t buf[SERIALIZE_MAX_SIZE];
+  EXT_RAM_BSS_ATTR static uint8_t buf[SERIALIZE_MAX_SIZE];
   size_t len = sizeof(buf);
   esp_err_t err = nvs_get_blob(nvs, key, buf, &len);
   nvs_close(nvs);
@@ -326,7 +327,7 @@ hb_nfc_err_t nfc_device_delete(int index) {
 
     snprintf(src_key, sizeof(src_key), "data_%d", i + 1);
     snprintf(dst_key, sizeof(dst_key), "data_%d", i);
-    static uint8_t blob[SERIALIZE_MAX_SIZE];
+    EXT_RAM_BSS_ATTR static uint8_t blob[SERIALIZE_MAX_SIZE];
     size_t blob_len = sizeof(blob);
     if (nvs_get_blob(nvs, src_key, blob, &blob_len) == ESP_OK) {
       nvs_set_blob(nvs, dst_key, blob, blob_len);
@@ -556,6 +557,8 @@ const char *nfc_device_protocol_name(hb_nfc_protocol_t proto) {
       return "FeliCa";
     case HB_PROTO_ISO15693:
       return "ISO15693 (NFC-V)";
+    case HB_PROTO_TEXKOM:
+      return "Texkom";
     case HB_PROTO_ST25TB:
       return "ST25TB";
     case HB_PROTO_MF_CLASSIC:

@@ -70,6 +70,7 @@ idf_component_register(SRCS
   "nfc/protocols/mifare/include"
   "nfc/protocols/t1t/include"
   "nfc/protocols/t2t/include"
+  "nfc/protocols/texkom/include"
   "bad_usb/include"
   "bluetooth/include"
   "SubGhz/include"

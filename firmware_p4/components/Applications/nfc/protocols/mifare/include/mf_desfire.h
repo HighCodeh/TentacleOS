@@ -83,6 +83,8 @@ typedef struct {
 typedef struct {
   nfc_iso_dep_data_t dep;
   bool dep_ready;
+  bool use_native_frames;
+  bool (*should_cancel)(void);
   bool authenticated;
   bool ev2_authenticated;
   mf_desfire_key_type_t key_type;

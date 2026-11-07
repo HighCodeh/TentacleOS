@@ -20,7 +20,10 @@
 #define MF_ULTRALIGHT_H
 
 #include <stdint.h>
+#include <stddef.h>
 #include "highboy_nfc_error.h"
+#include "t2t_aes.h"
+#include "nfc_t2t_file.h"
 #include "highboy_nfc_compat.h"
 
 #ifdef __cplusplus
@@ -34,6 +37,15 @@ extern "C" {
  * @param[out] out Buffer for 18 bytes (16 data + 2 CRC).
  * @return Number of bytes received (18 expected), or 0 on failure.
  */
+/* Key uses AES byte order; secure must match the card SEC_MSG_ACT setting. */
+esp_err_t mful_aes_write_page(t2t_aes_session_t *session, uint8_t page, const uint8_t data[4]);
+
+esp_err_t
+mful_aes_auth(t2t_aes_session_t *session, const uint8_t *key, uint8_t key_number, bool secure);
+esp_err_t
+mful_aes_read_card(t2t_aes_session_t *session, const uint8_t version[8], nfc_t2t_file_t *out_card);
+int mful_aes_read_all(t2t_aes_session_t *session, uint8_t *out_data, size_t capacity);
+bool mful_is_aes(const uint8_t version[8]);
 int mful_read_pages(uint8_t page, uint8_t out[18]);
 
 /**
@@ -54,6 +66,12 @@ hb_nfc_err_t mful_write_page(uint8_t page, const uint8_t data[4]);
  * @return Number of bytes received (8 expected), or 0 on failure.
  */
 int mful_get_version(uint8_t out[8]);
+
+/* Returns the page count for a recognized single-sector memory map, or zero. */
+uint16_t mful_version_pages(const uint8_t version[8]);
+uint16_t mful_i2c_pages(const uint8_t version[8]);
+/* Flipper linear page order, including configuration/session register regions. */
+int mful_read_i2c(const uint8_t version[8], uint8_t *out_data, size_t capacity);
 
 /**
  * @brief Authenticate with a 4-byte password (cmd 0x1B).

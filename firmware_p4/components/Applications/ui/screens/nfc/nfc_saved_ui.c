@@ -16,6 +16,9 @@
 #include "nfc_saved_ui.h"
 
 #include <stdio.h>
+#include <string.h>
+
+#include "nfc_protocol_service.h"
 
 #include "lvgl.h"
 
@@ -275,7 +278,22 @@ static void nfc_saved_input(const input_event_t *ev, void *ctx) {
         if (press) {
           if (capture_result_selected(&s_cr) == CAP_ACT_PRIMARY) {
             ui_feedback(UI_FB_EMULATE);
-            ui_switch_screen(SCREEN_NFC_EMULATE);
+            if (strcmp(s_view_card.type, "Texkom") == 0) {
+              if (nfc_protocol_service_select_texkom(s_sel_idx) == HB_NFC_OK)
+                ui_switch_screen(SCREEN_NFC_TEXKOM_EMULATE);
+              else
+                msgbox_open(LV_SYMBOL_WARNING, "Cannot load Texkom card", "OK", NULL, NULL);
+            } else if (strcmp(s_view_card.type, "SLIX / NFC-V") == 0 ||
+                       strcmp(s_view_card.type, "ISO15693 / NFC-V") == 0) {
+              if (nfc_protocol_service_select_v(s_sel_idx) == HB_NFC_OK)
+                ui_switch_screen(SCREEN_NFC_V_EMULATE);
+              else
+                msgbox_open(LV_SYMBOL_WARNING, "Cannot load NFC-V card", "OK", NULL, NULL);
+            } else if (strcmp(s_view_card.type, "ST25TB") == 0) {
+              msgbox_open(LV_SYMBOL_WARNING, "Saved dump emulation unavailable", "OK", NULL, NULL);
+            } else {
+              ui_switch_screen(SCREEN_NFC_EMULATE);
+            }
           } else {
             msgbox_open(LV_SYMBOL_TRASH, "Delete this card?", "Delete", "Cancel", on_del_confirm);
           }

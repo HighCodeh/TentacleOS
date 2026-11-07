@@ -142,24 +142,40 @@ hb_nfc_err_t nfc_rf_apply(const nfc_rf_config_t *cfg) {
         return err;
       break;
     case NFC_RF_TECH_B:
-      hb_nfc_spi_reg_write(ST25R3916_REG_MODE, ST25R3916_MODE_POLL_NFCB);
-      hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443B, 0x00U);
-      hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443B_FELICA, 0x00U);
+      err = hb_nfc_spi_reg_write(ST25R3916_REG_MODE, ST25R3916_MODE_POLL_NFCB);
+      if (err != HB_NFC_OK)
+        return err;
+      err = hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443B, 0x00U);
+      if (err != HB_NFC_OK)
+        return err;
+      err = hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443B_FELICA, 0x00U);
+      if (err != HB_NFC_OK)
+        return err;
       err = nfc_rf_set_bitrate(cfg->tx_rate, cfg->rx_rate);
       if (err != HB_NFC_OK)
         return err;
       break;
     case NFC_RF_TECH_F:
-      hb_nfc_spi_reg_write(ST25R3916_REG_MODE, ST25R3916_MODE_POLL_NFCF);
-      hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443B_FELICA, 0x00U);
+      err = hb_nfc_spi_reg_write(ST25R3916_REG_MODE, ST25R3916_MODE_POLL_NFCF);
+      if (err != HB_NFC_OK)
+        return err;
+      err = hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443B_FELICA, 0x00U);
+      if (err != HB_NFC_OK)
+        return err;
       err = nfc_rf_set_bitrate(cfg->tx_rate, cfg->rx_rate);
       if (err != HB_NFC_OK)
         return err;
       break;
     case NFC_RF_TECH_V:
-      hb_nfc_spi_reg_write(ST25R3916_REG_MODE, ST25R3916_MODE_POLL_NFCV);
-      hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443B, 0x00U);
-      hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443B_FELICA, 0x00U);
+      err = hb_nfc_spi_reg_write(ST25R3916_REG_MODE, ST25R3916_MODE_POLL_NFCV);
+      if (err != HB_NFC_OK)
+        return err;
+      err = hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443B, 0x00U);
+      if (err != HB_NFC_OK)
+        return err;
+      err = hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443B_FELICA, 0x00U);
+      if (err != HB_NFC_OK)
+        return err;
       if (cfg->tx_rate == NFC_RF_BR_V_HIGH && cfg->rx_rate == NFC_RF_BR_V_HIGH) {
         err = nfc_rf_set_bitrate_raw(0x00U);
       } else if (cfg->tx_rate == NFC_RF_BR_V_LOW && cfg->rx_rate == NFC_RF_BR_V_LOW) {

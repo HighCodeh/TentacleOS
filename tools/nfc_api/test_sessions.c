@@ -1,3 +1,18 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 #define _POSIX_C_SOURCE 200809L
 #include "tos_api_nfc_session.h"
 #include "nfc_listener.h"
@@ -95,11 +110,34 @@ hb_nfc_err_t mfc_emu_configure_target(void) { return atomic_load(&s_fail_config)
 hb_nfc_err_t mfc_emu_start(void) { return HB_NFC_OK; }
 int mfc_emu_run_step(void) { assert(rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ));return atomic_load(&s_fail_step)?MFC_EMU_STATE_ERROR:1; }
 void mfc_emu_stop(void) { assert(rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ)); }
+int mfp_listener_init(mfp_listener_t *l,const mfp_listener_config_t *c) { (void)l;(void)c;return 0; }
+int t4t_emu_init_plus(const t4t_emu_identity_t *i,mfp_listener_t *l) {
+  (void)l;assert(i->uid_len==7);assert(rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ));return 0;
+}
+int t4t_emu_configure_target(void) { return mfc_emu_configure_target(); }
+int t4t_emu_start(void) { return 0; }
+void t4t_emu_stop(void) { mfc_emu_stop(); }
+bool t4t_emu_has_error(void) { return atomic_load(&s_fail_step); }
+void t4t_emu_run_step(void) { assert(rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ)); }
 static void wait_idle(void) {
   TickType_t start=xTaskGetTickCount();
   while(atomic_load(&s_power)!=0) { assert(xTaskGetTickCount()-start<5000);vTaskDelay(1); }
   vTaskDelay(20);
 }
+static bool s_expected_read_only = true;
+int t2t_emu_init(const t2t_emu_config_t *c) { (void)c; return 0; }
+int t2t_emu_load_memory(const uint8_t *m,size_t n,bool ro) {
+  assert(m && n==180 && ro==s_expected_read_only); return 0;
+}
+int t2t_emu_configure_target(void) { return mfc_emu_configure_target(); }
+int t2t_emu_start(void) { return 0; }
+int t2t_emu_snapshot(t2t_emu_config_t *c,uint8_t *m,size_t n) {
+  assert(c && m && n==180); m[16]=0x42; return 0;
+}
+void t2t_emu_stop(void) { mfc_emu_stop(); }
+bool t2t_emu_has_error(void) { return atomic_load(&s_fail_step); }
+void t2t_emu_run_step(void) { assert(rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ)); }
+
 int main(void) {
   s_self=&s_main;uint32_t id=55;
   assert(tos_api_nfc_session_start(UID,4,NULL)==ESP_ERR_INVALID_ARG);
@@ -141,6 +179,33 @@ int main(void) {
   atomic_store(&s_fail_off,false);wait_idle();assert(!nfc_listener_is_active());
   assert(tos_api_nfc_session_start(UID,4,&id)==ESP_OK);
   tos_api_nfc_session_cancel_owner(&s_main);wait_idle();
+  t4t_emu_identity_t identity={.uid_len=7};mfp_listener_config_t config={0};
+  assert(nfc_listener_start_plus(&identity,&config)==HB_NFC_OK);
+  assert(nfc_listener_is_running() && !rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ));
+  assert(nfc_listener_start_emu(&card)!=HB_NFC_OK);
+  nfc_listener_stop();assert(!nfc_listener_is_active());wait_idle();
+  atomic_store(&s_fail_config,true);
+  assert(nfc_listener_start_plus(&identity,&config)!=HB_NFC_OK);
+  wait_idle();atomic_store(&s_fail_config,false);
+  nfc_t2t_file_t t2t={.length=180};
+  assert(nfc_listener_start_t2t(&t2t)==HB_NFC_OK);
+  assert(nfc_listener_is_running());
+  nfc_t2t_file_t result;
+  assert(nfc_listener_get_t2t_result(&result)==ESP_ERR_INVALID_STATE);
+  assert(nfc_listener_start_plus(&identity,&config)!=HB_NFC_OK);
+  atomic_store(&s_fail_step,true);wait_idle();atomic_store(&s_fail_step,false);
+  assert(nfc_listener_start_t2t(&t2t)==HB_NFC_OK);
+  nfc_listener_stop();wait_idle();
+  s_expected_read_only=false;
+  assert(nfc_listener_start_t2t_mutable(&t2t)==HB_NFC_OK);
+  assert(nfc_listener_is_running());
+  assert(nfc_listener_start_t2t(&t2t)!=HB_NFC_OK);
+  nfc_listener_stop();wait_idle();
+  assert(nfc_listener_get_t2t_result(&result)==ESP_OK && result.memory[16]==0x42);
+  assert(nfc_listener_get_t2t_result(NULL)==ESP_ERR_INVALID_ARG);
+  s_expected_read_only=true;
+  assert(nfc_listener_start_t2t(&t2t)==HB_NFC_OK);
+  nfc_listener_stop();wait_idle();
   for(unsigned i=0;i<s_task_count;++i) { pthread_cancel(s_tasks[i].thread);pthread_join(s_tasks[i].thread,NULL); }
   puts("PASS: production NFC app/listener ownership, failure retention, task reuse and cancellation");
   return 0;

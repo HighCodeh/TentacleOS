@@ -394,11 +394,19 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
       return ui_nfc_apdu_stop;
     case SCREEN_NFC_P2P:
       return ui_nfc_p2p_stop;
+    case SCREEN_NFC_ARCHIVE:
     case SCREEN_NFC_DESFIRE:
     case SCREEN_NFC_ISO15693:
     case SCREEN_NFC_ULTRALIGHT:
     case SCREEN_NFC_NDEF:
     case SCREEN_NFC_FELICA:
+    case SCREEN_NFC_PLUS:
+    case SCREEN_NFC_ST25TB:
+    case SCREEN_NFC_SLIX:
+    case SCREEN_NFC_NTAG4XX:
+    case SCREEN_NFC_TEXKOM_EMULATE:
+    case SCREEN_NFC_V_EMULATE:
+    case SCREEN_NFC_TEXKOM:
       return ui_nfc_protocol_lab_stop;
     case SCREEN_WAV_PLAYER:
       return ui_wav_player_stop;
@@ -645,6 +653,22 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_nfc_ultralight_open;
     case SCREEN_NFC_NDEF:
       return ui_nfc_ndef_open;
+    case SCREEN_NFC_PLUS:
+      return ui_nfc_plus_open;
+    case SCREEN_NFC_ST25TB:
+      return ui_nfc_st25tb_open;
+    case SCREEN_NFC_SLIX:
+      return ui_nfc_slix_open;
+    case SCREEN_NFC_TEXKOM_EMULATE:
+      return ui_nfc_texkom_emulate_open;
+    case SCREEN_NFC_V_EMULATE:
+      return ui_nfc_v_emulate_open;
+    case SCREEN_NFC_TEXKOM:
+      return ui_nfc_texkom_open;
+    case SCREEN_NFC_NTAG4XX:
+      return ui_nfc_ntag4xx_open;
+    case SCREEN_NFC_ARCHIVE:
+      return ui_nfc_archive_open;
     case SCREEN_NFC_FELICA:
       return ui_nfc_felica_open;
     case SCREEN_NFC_P2P:

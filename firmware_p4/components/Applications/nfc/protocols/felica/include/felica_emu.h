@@ -22,6 +22,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "felica.h"
+#include "nfc_felica.h"
 #include "highboy_nfc_error.h"
 #include "highboy_nfc_compat.h"
 
@@ -82,6 +83,11 @@ typedef struct {
  *   - HB_NFC_OK on success
  *   - HB_NFC_ERR_INVALID_ARG if card is NULL
  */
+/* Profile is borrowed until stop; accepted writes update session RAM. */
+esp_err_t felica_emu_init_profile(nfc_felica_card_t *card);
+esp_err_t felica_emu_error(void);
+bool felica_emu_dirty(void);
+
 hb_nfc_err_t felica_emu_init(const felica_emu_card_t *card);
 
 /**

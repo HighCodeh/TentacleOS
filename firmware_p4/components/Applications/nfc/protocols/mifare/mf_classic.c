@@ -74,6 +74,7 @@ static const char *TAG = "mf_classic";
 
 /* PRNG advance for reader response (64 - 32 free-running clocks). */
 #define MF_PRNG_NT_ADVANCE 32
+#define MF_PRNG_AT_ADVANCE 96
 
 /* Bits per byte including parity (9th bit per transmitted byte). */
 #define MF_BITS_WITH_PARITY 9
@@ -168,18 +169,27 @@ static hb_nfc_err_t transceive_encrypted(crypto1_state_t *st,
   }
 
   uint8_t iso = 0;
-  hb_nfc_spi_reg_read(ST25R3916_REG_ISO14443A, &iso);
-  hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, (uint8_t)(iso | ISOA_NO_TX_PAR | ISOA_NO_RX_PAR));
+  if (hb_nfc_spi_reg_read(ST25R3916_REG_ISO14443A, &iso) != ESP_OK)
+    return HB_NFC_ERR_INTERNAL;
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A,
+                           (uint8_t)(iso | ISOA_NO_TX_PAR | ISOA_NO_RX_PAR)) != ESP_OK) {
+    (void)hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
+    return HB_NFC_ERR_INTERNAL;
+  }
 
-  hb_nfc_spi_direct_cmd(ST25R3916_CMD_STOP_ALL);
-  st25r3916_fifo_clear();
-  if (st25r3916_irq_clear() != ESP_OK) {
+  if (hb_nfc_spi_direct_cmd(ST25R3916_CMD_STOP_ALL) != ESP_OK ||
+      hb_nfc_spi_direct_cmd(ST25R3916_CMD_CLEAR_FIFO) != ESP_OK ||
+      st25r3916_irq_clear() != ESP_OK) {
     hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
     return HB_NFC_ERR_INTERNAL;
   }
-  st25r3916_fifo_set_tx_bytes((uint16_t)(tx_bits / 8U), (uint8_t)(tx_bits % 8U));
-  st25r3916_fifo_load(tx_buf, tx_bytes);
-  hb_nfc_spi_direct_cmd(ST25R3916_CMD_TX_WO_CRC);
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_NUM_TX_BYTES1, (uint8_t)(tx_bits >> 8)) != ESP_OK ||
+      hb_nfc_spi_reg_write(ST25R3916_REG_NUM_TX_BYTES2, (uint8_t)tx_bits) != ESP_OK ||
+      st25r3916_fifo_load(tx_buf, tx_bytes) != ESP_OK ||
+      hb_nfc_spi_direct_cmd(ST25R3916_CMD_TX_WO_CRC) != ESP_OK) {
+    (void)hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
+    return HB_NFC_ERR_INTERNAL;
+  }
 
   if (st25r3916_irq_wait_txe() != ESP_OK) {
     hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
@@ -198,8 +208,10 @@ static hb_nfc_err_t transceive_encrypted(crypto1_state_t *st,
     return HB_NFC_ERR_TIMEOUT;
   }
 
-  st25r3916_fifo_read(rx_buf, rx_bytes);
-  hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
+  esp_err_t read_err = st25r3916_fifo_read(rx_buf, rx_bytes);
+  esp_err_t restore_err = hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
+  if (read_err != ESP_OK || restore_err != ESP_OK)
+    return HB_NFC_ERR_INTERNAL;
 
   bitpos = 0;
   for (size_t i = 0; i < rx_len; i++) {
@@ -260,18 +272,27 @@ static hb_nfc_err_t tx_encrypted_with_ack(crypto1_state_t *st,
   }
 
   uint8_t iso = 0;
-  hb_nfc_spi_reg_read(ST25R3916_REG_ISO14443A, &iso);
-  hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, (uint8_t)(iso | ISOA_NO_TX_PAR | ISOA_NO_RX_PAR));
+  if (hb_nfc_spi_reg_read(ST25R3916_REG_ISO14443A, &iso) != ESP_OK)
+    return HB_NFC_ERR_INTERNAL;
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A,
+                           (uint8_t)(iso | ISOA_NO_TX_PAR | ISOA_NO_RX_PAR)) != ESP_OK) {
+    (void)hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
+    return HB_NFC_ERR_INTERNAL;
+  }
 
-  hb_nfc_spi_direct_cmd(ST25R3916_CMD_STOP_ALL);
-  st25r3916_fifo_clear();
-  if (st25r3916_irq_clear() != ESP_OK) {
+  if (hb_nfc_spi_direct_cmd(ST25R3916_CMD_STOP_ALL) != ESP_OK ||
+      hb_nfc_spi_direct_cmd(ST25R3916_CMD_CLEAR_FIFO) != ESP_OK ||
+      st25r3916_irq_clear() != ESP_OK) {
     hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
     return HB_NFC_ERR_INTERNAL;
   }
-  st25r3916_fifo_set_tx_bytes((uint16_t)(tx_bits / 8U), (uint8_t)(tx_bits % 8U));
-  st25r3916_fifo_load(tx_buf, tx_bytes);
-  hb_nfc_spi_direct_cmd(ST25R3916_CMD_TX_WO_CRC);
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_NUM_TX_BYTES1, (uint8_t)(tx_bits >> 8)) != ESP_OK ||
+      hb_nfc_spi_reg_write(ST25R3916_REG_NUM_TX_BYTES2, (uint8_t)tx_bits) != ESP_OK ||
+      st25r3916_fifo_load(tx_buf, tx_bytes) != ESP_OK ||
+      hb_nfc_spi_direct_cmd(ST25R3916_CMD_TX_WO_CRC) != ESP_OK) {
+    (void)hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
+    return HB_NFC_ERR_INTERNAL;
+  }
 
   if (st25r3916_irq_wait_txe() != ESP_OK) {
     hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
@@ -311,13 +332,11 @@ hb_nfc_err_t mf_classic_auth(uint8_t block,
 
   uint8_t cmd[2] = {(uint8_t)key_type, block};
   uint8_t nt_raw[MF_WORD_BYTES] = {0};
-  int len = nfc_poller_transceive(
-      cmd, 2, true, nt_raw, sizeof(nt_raw), MF_WORD_BYTES, MF_AUTH_TIMEOUT_MS);
+  int len = nfc_poller_classic_nonce(cmd, nt_raw, MF_AUTH_TIMEOUT_MS);
   if (len < (int)MF_WORD_BYTES) {
     ESP_LOGW(TAG, "Auth: no nonce (len=%d)", len);
     return HB_NFC_ERR_AUTH;
   }
-  nfc_log_hex(" Auth nt:", nt_raw, MF_WORD_BYTES);
 
   uint64_t k48 = key_to_u64_be(key);
   uint32_t cuid = bytes_to_num_be(uid);
@@ -377,18 +396,27 @@ hb_nfc_err_t mf_classic_auth(uint8_t block,
   uint8_t rx_buf[MF_MAX_FRAME_SIZE] = {0};
 
   uint8_t iso = 0;
-  hb_nfc_spi_reg_read(ST25R3916_REG_ISO14443A, &iso);
-  hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, (uint8_t)(iso | ISOA_NO_TX_PAR | ISOA_NO_RX_PAR));
+  if (hb_nfc_spi_reg_read(ST25R3916_REG_ISO14443A, &iso) != ESP_OK)
+    return HB_NFC_ERR_INTERNAL;
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A,
+                           (uint8_t)(iso | ISOA_NO_TX_PAR | ISOA_NO_RX_PAR)) != ESP_OK) {
+    (void)hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
+    return HB_NFC_ERR_INTERNAL;
+  }
 
-  hb_nfc_spi_direct_cmd(ST25R3916_CMD_STOP_ALL);
-  st25r3916_fifo_clear();
-  if (st25r3916_irq_clear() != ESP_OK) {
+  if (hb_nfc_spi_direct_cmd(ST25R3916_CMD_STOP_ALL) != ESP_OK ||
+      hb_nfc_spi_direct_cmd(ST25R3916_CMD_CLEAR_FIFO) != ESP_OK ||
+      st25r3916_irq_clear() != ESP_OK) {
     hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
     return HB_NFC_ERR_INTERNAL;
   }
-  st25r3916_fifo_set_tx_bytes((uint16_t)(tx_total_bits / 8U), (uint8_t)(tx_total_bits % 8U));
-  st25r3916_fifo_load(tx_buf, tx_total_bytes);
-  hb_nfc_spi_direct_cmd(ST25R3916_CMD_TX_WO_CRC);
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_NUM_TX_BYTES1, (uint8_t)(tx_total_bits >> 8)) != ESP_OK ||
+      hb_nfc_spi_reg_write(ST25R3916_REG_NUM_TX_BYTES2, (uint8_t)tx_total_bits) != ESP_OK ||
+      st25r3916_fifo_load(tx_buf, tx_total_bytes) != ESP_OK ||
+      hb_nfc_spi_direct_cmd(ST25R3916_CMD_TX_WO_CRC) != ESP_OK) {
+    (void)hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
+    return HB_NFC_ERR_INTERNAL;
+  }
 
   if (st25r3916_irq_wait_txe() != ESP_OK) {
     hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
@@ -404,8 +432,10 @@ hb_nfc_err_t mf_classic_auth(uint8_t block,
     return HB_NFC_ERR_TIMEOUT;
   }
 
-  st25r3916_fifo_read(rx_buf, rx_total_bytes);
-  hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
+  esp_err_t read_err = st25r3916_fifo_read(rx_buf, rx_total_bytes);
+  esp_err_t restore_err = hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
+  if (read_err != ESP_OK || restore_err != ESP_OK)
+    return HB_NFC_ERR_INTERNAL;
 
   uint8_t at_dec[MF_WORD_BYTES] = {0};
   bitpos = 0;
@@ -416,10 +446,15 @@ hb_nfc_err_t mf_classic_auth(uint8_t block,
     }
     uint8_t ks = crypto1_byte(&s_crypto, 0, 0);
     at_dec[i] = enc_byte ^ ks;
-    bitpos++;
+    uint8_t parity = bit_get(rx_buf, bitpos++) ^ crypto1_filter_output(&s_crypto);
+    if (parity != crypto1_odd_parity8(at_dec[i]))
+      return HB_NFC_ERR_AUTH;
   }
 
-  nfc_log_hex(" Auth at_dec:", at_dec, MF_WORD_BYTES);
+  if (bytes_to_num_be(at_dec) != crypto1_prng_successor(nt_be, MF_PRNG_AT_ADVANCE)) {
+    ESP_LOGW(TAG, "Auth: invalid card response");
+    return HB_NFC_ERR_AUTH;
+  }
 
   s_auth = true;
   ESP_LOGI(TAG, "Auth SUCCESS on block %d", block);

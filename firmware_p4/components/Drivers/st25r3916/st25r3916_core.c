@@ -173,7 +173,9 @@ esp_err_t st25r3916_core_deinit(void) {
   hb_nfc_spi_reg_modify(
       ST25R3916_REG_IO_CONF2, ST25R3916_IO_CONF2_MISO_PD1 | ST25R3916_IO_CONF2_MISO_PD2, 0);
   hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_SHUTDOWN);
-  hb_nfc_spi_deinit();
+  err = hb_nfc_spi_deinit();
+  if (err != ESP_OK)
+    return err;
   hb_nfc_gpio_deinit();
   s_drv.is_init = false;
   s_drv.is_field_on = false;

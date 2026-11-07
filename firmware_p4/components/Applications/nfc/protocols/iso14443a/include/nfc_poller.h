@@ -63,6 +63,14 @@ int nfc_poller_transceive(const uint8_t *tx,
                           size_t rx_min,
                           int timeout_ms);
 
+/** Receive the four-byte, CRC-less initial Classic authentication nonce.
+ * Only the CRC error indication is tolerated; parity, framing and timeout remain errors.
+ */
+/* True only after successful TX and a clean receive timeout with an empty FIFO. */
+bool nfc_poller_expect_silence(const uint8_t *tx, size_t tx_len, int timeout_ms);
+
+int nfc_poller_classic_nonce(const uint8_t auth[2], uint8_t nonce[4], int timeout_ms);
+
 /**
  * @brief Configure guard time and FDT validation.
  *

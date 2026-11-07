@@ -17,6 +17,7 @@
  * @brief ISO14443A Type 4 Tag emulation over ST25R3916 passive target mode.
  */
 #include "t4t_emu.h"
+#include "nfc_t4t.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -32,12 +33,14 @@
 #include "st25r3916_fifo.h"
 #include "st25r3916_irq.h"
 #include "hb_nfc_spi.h"
+#include "hb_nfc_timer.h"
 #include "mf_desfire_emu.h"
+#include "iso14443a.h"
 
 static const char *TAG = "NFC_T4T_EMU";
 
 #define OP_CTRL_TARGET             0xC3U
-#define T4T_RX_IRQ                 (ST25R3916_IRQ_MAIN_FWL)
+#define T4T_RX_IRQ                 (ST25R3916_IRQ_MAIN_RXE)
 #define T4T_MAX_RESP_SIZE          260
 #define T4T_CHAIN_BUF_SIZE         300
 #define T4T_PT_MEM_SIZE            15
@@ -61,6 +64,18 @@ static const char *TAG = "NFC_T4T_EMU";
 #define T4T_PCB_CID_MASK           0x08U
 #define T4T_PCB_TOGGLE             0x01U
 #define T4T_PCB_R_ACK              0xA2U
+#define T4T_PCB_R_NAK_MASK         0x10U
+#define T4T_FRAME_OVERHEAD         3U
+#define T4T_FRAME_MAX              256U
+#define T4T_FSDI_SHIFT             4U
+#define T4T_CID_INVALID            15U
+#define T4T_CRC_SIZE               2U
+#define T4T_TX_POLL_US             10U
+#define T4T_TX_POLL_COUNT          2000U
+#define T4T_TX_BYTE_SHIFT          5U
+#define T4T_TX_BIT_SHIFT           3U
+#define T4T_FIELD_OFF_IRQ          0x08U
+#define T4T_PCB_DESELECT           0xC2U
 #define T4T_DELAY_5MS              5
 #define T4T_DELAY_10MS             10
 #define T4T_DELAY_2MS              2
@@ -99,10 +114,15 @@ static const char *TAG = "NFC_T4T_EMU";
 #define T4T_PCB_CHAIN_MASK         0x10U
 #define T4T_PCB_NAD_MASK           0x04U
 #define T4T_FS1_LEN_MASK           0x7FU
+#define T4T_ATS_LENGTH             3U
+#define T4T_ATS_T0                 0x46U
+#define T4T_ATS_TC1                0x02U
 #define T4T_CMD_RATS               0xE0U
 #define T4T_CMD_PPS_MASK           0xF0U
 #define T4T_CMD_PPS_BASE           0xD0U
-#define T4T_FIFO_STATUS_BITS       7
+#define T4T_PCB_I_VALID_MASK       0xE6U
+#define T4T_PCB_R_VALID_MASK       0xE6U
+#define T4T_FIFO_INVALID_MASK      0x3FU
 #define T4T_DELAY_1MS              1
 #define T4T_PT_MEM_CT_OFFSET       12
 #define T4T_PT_MEM_CT_BYTE         0x04U
@@ -114,11 +134,19 @@ static const char *TAG = "NFC_T4T_EMU";
 #define T4T_PTA_STATE_SELECTED     0x03U
 #define T4T_PTA_STATE_HALTED       0x0DU
 
-static const uint8_t k_uid7[7] = {0x04, 0xA1, 0xB2, 0xC3, 0xD4, 0xE5, 0xF6};
-static const uint8_t k_atqa[2] = {0x44, 0x00};
-static const uint8_t k_sak = 0x20;
+static uint8_t k_uid7[7] = {0x04, 0xA1, 0xB2, 0xC3, 0xD4, 0xE5, 0xF6};
+static uint8_t k_atqa[2] = {0x44, 0x00};
+static uint8_t k_sak = 0x20;
 
-static const uint8_t k_ats[] = {0x02, 0x06};
+static uint8_t k_ats[T4T_EMU_ATS_CAPACITY] = {T4T_ATS_LENGTH, T4T_ATS_T0, T4T_ATS_TC1};
+static size_t s_ats_len = T4T_ATS_LENGTH;
+static uint8_t s_uid_len = 7;
+static bool s_has_rats;
+static mfp_listener_t *s_plus;
+static nfc_t4t_listener_t *s_ndef_listener;
+static bool s_is_identity_only;
+static bool s_transport_error;
+static uint8_t s_pending_main;
 static const uint8_t k_ndef_aid[] = {0xD2, 0x76, 0x00, 0x00, 0x85, 0x01, 0x01};
 
 #define T4T_CC_LEN   15
@@ -169,6 +197,12 @@ static uint8_t s_chain_buf[T4T_CHAIN_BUF_SIZE];
 static size_t s_chain_len = 0;
 static bool s_chain_active = false;
 static uint8_t s_pcd_cid = 0;
+static uint8_t s_expected_block = 0;
+static uint16_t s_frame_size = T4T_FRAME_MAX;
+static uint8_t s_tx_data[T4T_MAX_RESP_SIZE];
+static size_t s_tx_length;
+static size_t s_tx_offset;
+static uint8_t s_tx_pcb;
 static TickType_t s_sense_tick = 0;
 static TickType_t s_active_tick = 0;
 
@@ -185,7 +219,7 @@ static bool wait_oscillator(int timeout_ms) {
     }
     vTaskDelay(pdMS_TO_TICKS(T4T_DELAY_1MS));
   }
-  ESP_LOGW(TAG, "Osc timeout - continuing");
+  ESP_LOGW(TAG, "Oscillator did not become ready");
   return false;
 }
 
@@ -203,8 +237,12 @@ static hb_nfc_err_t load_pt_memory(void) {
   ptm[9] = 0x00;
   ptm[T4T_PT_MEM_ATQA_OFFSET] = k_atqa[0];
   ptm[T4T_PT_MEM_ATQA_OFFSET + 1] = k_atqa[1];
-  ptm[T4T_PT_MEM_CT_OFFSET] = T4T_PT_MEM_CT_BYTE;
-  ptm[T4T_PT_MEM_SAK_OFFSET] = k_sak;
+  if (s_uid_len == T4T_EMU_UID_CAPACITY) {
+    ptm[T4T_PT_MEM_CT_OFFSET] = T4T_PT_MEM_CT_BYTE;
+    ptm[T4T_PT_MEM_SAK_OFFSET] = k_sak;
+  } else {
+    ptm[T4T_PT_MEM_CT_OFFSET] = k_sak;
+  }
   ptm[14] = 0x00;
 
   hb_nfc_err_t err = hb_nfc_spi_pt_mem_write(ST25R3916_SPI_PT_MEM_A_WRITE, ptm, T4T_PT_MEM_SIZE);
@@ -281,7 +319,45 @@ static void build_ndef_text(const char *text) {
   s_ndef_file[1] = (uint8_t)(nlen & 0xFF);
 }
 
+static void reset_application(void) {
+  if (s_ndef_listener)
+    nfc_t4t_listener_reset(s_ndef_listener);
+  mf_desfire_emu_reset();
+  if (s_plus != NULL)
+    mfp_listener_reset(s_plus);
+}
+
+static void reset_link(void) {
+  s_has_rats = false;
+  s_expected_block = 0;
+  s_last_resp_len = 0;
+  s_tx_length = 0;
+  s_tx_offset = 0;
+  s_chain_len = 0;
+  s_chain_active = false;
+  s_app_selected = false;
+  s_file = T4T_FILE_NONE;
+  s_pcd_cid = 0;
+  reset_application();
+}
+
 hb_nfc_err_t t4t_emu_init_default(void) {
+  s_ndef_listener = NULL;
+  s_plus = NULL;
+  s_is_identity_only = false;
+  s_transport_error = false;
+  s_pending_main = 0;
+  const uint8_t uid[] = {0x04, 0xA1, 0xB2, 0xC3, 0xD4, 0xE5, 0xF6};
+  memcpy(k_uid7, uid, sizeof(uid));
+  k_atqa[0] = 0x44;
+  k_atqa[1] = 0;
+  k_sak = 0x20;
+  k_ats[0] = T4T_ATS_LENGTH;
+  k_ats[1] = T4T_ATS_T0;
+  k_ats[2] = T4T_ATS_TC1;
+  s_ats_len = T4T_ATS_LENGTH;
+  s_uid_len = T4T_EMU_UID_CAPACITY;
+  s_has_rats = false;
   build_cc();
   build_ndef_text("High Boy NFC T4T");
   s_state = T4T_STATE_SLEEP;
@@ -291,9 +367,65 @@ hb_nfc_err_t t4t_emu_init_default(void) {
   s_chain_active = false;
   s_chain_len = 0;
   s_pcd_cid = 0;
+  s_expected_block = 0;
+  s_last_resp_len = 0;
+  s_tx_length = 0;
+  s_tx_offset = 0;
   s_sense_tick = 0;
   s_active_tick = 0;
   ESP_LOGI(TAG, "T4T init: NDEF max=%u", (unsigned)T4T_NDEF_MAX);
+  return HB_NFC_OK;
+}
+
+hb_nfc_err_t t4t_emu_init_identity(const t4t_emu_identity_t *identity) {
+  if (!identity || (identity->uid_len != 4 && identity->uid_len != 7) || !identity->ats_len ||
+      identity->ats_len > T4T_EMU_ATS_CAPACITY || identity->ats[0] != identity->ats_len ||
+      !(identity->sak & 0x20))
+    return HB_NFC_ERR_PARAM;
+  hb_nfc_err_t error = t4t_emu_init_default();
+  if (error != HB_NFC_OK)
+    return error;
+  memset(k_uid7, 0, sizeof(k_uid7));
+  memcpy(k_uid7, identity->uid, identity->uid_len);
+  s_uid_len = identity->uid_len;
+  memcpy(k_atqa, identity->atqa, sizeof(k_atqa));
+  k_sak = identity->sak;
+  memcpy(k_ats, identity->ats, identity->ats_len);
+  s_ats_len = identity->ats_len;
+  s_is_identity_only = true;
+  return HB_NFC_OK;
+}
+
+hb_nfc_err_t t4t_emu_init_ndef(nfc_t4t_listener_t *listener) {
+  if (!listener || !listener->card)
+    return HB_NFC_ERR_PARAM;
+  hb_nfc_err_t error = t4t_emu_init_identity(&listener->card->identity);
+  if (error == HB_NFC_OK) {
+    s_ndef_listener = listener;
+    s_is_identity_only = false;
+    nfc_t4t_listener_reset(listener);
+  }
+  return error;
+}
+
+hb_nfc_err_t t4t_emu_init_plus(const t4t_emu_identity_t *identity, mfp_listener_t *listener) {
+  if (identity == NULL || listener == NULL || listener->config.key == NULL ||
+      listener->config.read == NULL || (identity->uid_len != 4 && identity->uid_len != 7) ||
+      identity->ats_len < 2 || identity->ats_len > T4T_EMU_ATS_CAPACITY ||
+      identity->ats[0] != identity->ats_len || !(identity->sak & 0x20))
+    return HB_NFC_ERR_PARAM;
+  hb_nfc_err_t err = t4t_emu_init_default();
+  if (err != HB_NFC_OK)
+    return err;
+  memset(k_uid7, 0, sizeof(k_uid7));
+  memcpy(k_uid7, identity->uid, identity->uid_len);
+  s_uid_len = identity->uid_len;
+  memcpy(k_atqa, identity->atqa, sizeof(k_atqa));
+  k_sak = identity->sak;
+  memcpy(k_ats, identity->ats, identity->ats_len);
+  s_ats_len = identity->ats_len;
+  s_plus = listener;
+  mfp_listener_reset(s_plus);
   return HB_NFC_OK;
 }
 
@@ -301,34 +433,49 @@ hb_nfc_err_t t4t_emu_configure_target(void) {
   if (!s_init_done)
     return HB_NFC_ERR_INTERNAL;
 
-  hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, T4T_OP_CTRL_OFF);
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, T4T_OP_CTRL_OFF) != HB_NFC_OK)
+    return HB_NFC_ERR_INTERNAL;
   vTaskDelay(pdMS_TO_TICKS(T4T_DELAY_5MS));
-  hb_nfc_spi_direct_cmd(ST25R3916_CMD_SET_DEFAULT);
+  if (hb_nfc_spi_direct_cmd(ST25R3916_CMD_SET_DEFAULT) != HB_NFC_OK)
+    return HB_NFC_ERR_INTERNAL;
   vTaskDelay(pdMS_TO_TICKS(T4T_DELAY_10MS));
 
   uint8_t ic = 0;
-  hb_nfc_spi_reg_read(ST25R3916_REG_IC_IDENTITY, &ic);
+  if (hb_nfc_spi_reg_read(ST25R3916_REG_IC_IDENTITY, &ic) != HB_NFC_OK)
+    return HB_NFC_ERR_INTERNAL;
   if (ic == T4T_IC_ID_INVALID || ic == T4T_IC_ID_FF)
     return HB_NFC_ERR_INTERNAL;
 
-  hb_nfc_spi_reg_write(ST25R3916_REG_IO_CONF2, T4T_REG_IO_CONF2);
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_IO_CONF2, T4T_REG_IO_CONF2) != HB_NFC_OK)
+    return HB_NFC_ERR_INTERNAL;
   vTaskDelay(pdMS_TO_TICKS(T4T_DELAY_2MS));
 
-  hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, T4T_OP_CTRL_ON);
-  wait_oscillator(T4T_OSC_TIMEOUT);
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, T4T_OP_CTRL_ON) != HB_NFC_OK)
+    return HB_NFC_ERR_INTERNAL;
+  if (!wait_oscillator(T4T_OSC_TIMEOUT))
+    return HB_NFC_ERR_TIMEOUT;
 
-  hb_nfc_spi_direct_cmd(ST25R3916_CMD_ADJUST_REGULATORS);
+  if (hb_nfc_spi_direct_cmd(ST25R3916_CMD_ADJUST_REGULATORS) != HB_NFC_OK)
+    return HB_NFC_ERR_INTERNAL;
   vTaskDelay(pdMS_TO_TICKS(T4T_DELAY_10MS));
 
-  hb_nfc_spi_reg_write(ST25R3916_REG_MODE, ST25R3916_MODE_TARGET_NFCA);
-  hb_nfc_spi_reg_write(ST25R3916_REG_AUX_DEF, T4T_REG_AUX_DEF);
-  hb_nfc_spi_reg_write(ST25R3916_REG_BIT_RATE, 0x00);
-  hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, 0x00);
-  hb_nfc_spi_reg_write(ST25R3916_REG_PASSIVE_TARGET, 0x00);
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_MODE, ST25R3916_MODE_TARGET_NFCA) != HB_NFC_OK)
+    return HB_NFC_ERR_INTERNAL;
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_AUX_DEF, T4T_REG_AUX_DEF) != HB_NFC_OK)
+    return HB_NFC_ERR_INTERNAL;
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_BIT_RATE, 0x00) != HB_NFC_OK)
+    return HB_NFC_ERR_INTERNAL;
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, 0x00) != HB_NFC_OK)
+    return HB_NFC_ERR_INTERNAL;
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_PASSIVE_TARGET, 0x00) != HB_NFC_OK)
+    return HB_NFC_ERR_INTERNAL;
 
-  hb_nfc_spi_reg_write(ST25R3916_REG_FIELD_THRESH_ACT, 0x00);
-  hb_nfc_spi_reg_write(ST25R3916_REG_FIELD_THRESH_DEACT, 0x00);
-  hb_nfc_spi_reg_write(ST25R3916_REG_PT_MOD, T4T_REG_PT_MOD);
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_FIELD_THRESH_ACT, 0x00) != HB_NFC_OK)
+    return HB_NFC_ERR_INTERNAL;
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_FIELD_THRESH_DEACT, 0x00) != HB_NFC_OK)
+    return HB_NFC_ERR_INTERNAL;
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_PT_MOD, T4T_REG_PT_MOD) != HB_NFC_OK)
+    return HB_NFC_ERR_INTERNAL;
 
   hb_nfc_err_t err = load_pt_memory();
   if (err != HB_NFC_OK)
@@ -338,10 +485,14 @@ hb_nfc_err_t t4t_emu_configure_target(void) {
     st25r3916_irq_status_t s;
     (void)st25r3916_irq_read(&s);
   }
-  hb_nfc_spi_reg_write(ST25R3916_REG_MASK_MAIN_INT, 0x00);
-  hb_nfc_spi_reg_write(ST25R3916_REG_MASK_TIMER_NFC_INT, 0x00);
-  hb_nfc_spi_reg_write(ST25R3916_REG_MASK_ERROR_WUP_INT, 0x00);
-  hb_nfc_spi_reg_write(ST25R3916_REG_MASK_TARGET_INT, 0x00);
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_MASK_MAIN_INT, 0x00) != HB_NFC_OK)
+    return HB_NFC_ERR_INTERNAL;
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_MASK_TIMER_NFC_INT, 0x00) != HB_NFC_OK)
+    return HB_NFC_ERR_INTERNAL;
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_MASK_ERROR_WUP_INT, 0x00) != HB_NFC_OK)
+    return HB_NFC_ERR_INTERNAL;
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_MASK_TARGET_INT, 0x00) != HB_NFC_OK)
+    return HB_NFC_ERR_INTERNAL;
 
   ESP_LOGI(TAG, "T4T target configured");
   return HB_NFC_OK;
@@ -356,58 +507,106 @@ hb_nfc_err_t t4t_emu_start(void) {
     (void)st25r3916_irq_read(&s);
   }
 
-  hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, OP_CTRL_TARGET);
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, OP_CTRL_TARGET) != HB_NFC_OK)
+    return HB_NFC_ERR_INTERNAL;
   vTaskDelay(pdMS_TO_TICKS(T4T_DELAY_5MS));
 
-  hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SLEEP);
+  if (hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SENSE) != HB_NFC_OK)
+    return HB_NFC_ERR_INTERNAL;
   vTaskDelay(pdMS_TO_TICKS(T4T_DELAY_2MS));
 
-  s_state = T4T_STATE_SLEEP;
+  reset_link();
+  s_state = T4T_STATE_SENSE;
   ESP_LOGI(TAG, "T4T emulation active - present a reader");
   return HB_NFC_OK;
+}
+
+bool t4t_emu_has_error(void) {
+  return s_transport_error;
 }
 
 void t4t_emu_stop(void) {
   hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, T4T_OP_CTRL_OFF);
   s_state = T4T_STATE_SLEEP;
   s_init_done = false;
+  reset_application();
+  s_ndef_listener = NULL;
+  s_plus = NULL;
   ESP_LOGI(TAG, "T4T emulation stopped");
 }
 
 static void tx_with_crc(const uint8_t *data, int len) {
   if (data == NULL || len <= 0)
     return;
-  st25r3916_fifo_clear();
-  st25r3916_fifo_set_tx_bytes((uint16_t)len, 0);
-  st25r3916_fifo_load(data, (size_t)len);
-  hb_nfc_spi_direct_cmd(ST25R3916_CMD_TX_WITH_CRC);
+  uint8_t main = 0;
+  if (hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &main) != HB_NFC_OK)
+    goto failed;
+  s_pending_main |= main & T4T_RX_IRQ;
+  if (hb_nfc_spi_direct_cmd(ST25R3916_CMD_CLEAR_FIFO) != HB_NFC_OK ||
+      hb_nfc_spi_reg_write(ST25R3916_REG_NUM_TX_BYTES1, (uint8_t)(len >> T4T_TX_BYTE_SHIFT)) !=
+          HB_NFC_OK ||
+      hb_nfc_spi_reg_write(
+          ST25R3916_REG_NUM_TX_BYTES2,
+          (uint8_t)((len & ST25R3916_FIFO_TX_BYTES_LSB_MASK) << T4T_TX_BIT_SHIFT)) != HB_NFC_OK ||
+      st25r3916_fifo_load(data, (size_t)len) != HB_NFC_OK ||
+      hb_nfc_spi_direct_cmd(ST25R3916_CMD_TX_WITH_CRC) != HB_NFC_OK)
+    goto failed;
+  for (unsigned i = 0; i < T4T_TX_POLL_COUNT; i++) {
+    if (hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &main) != HB_NFC_OK)
+      goto failed;
+    s_pending_main |= main & T4T_RX_IRQ;
+    if (main & ST25R3916_IRQ_MAIN_TXE)
+      return;
+    hb_nfc_timer_delay_us(T4T_TX_POLL_US);
+  }
+  reset_link();
+  s_pending_main = 0;
+  if (hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SENSE) != HB_NFC_OK)
+    goto failed;
+  s_state = T4T_STATE_SENSE;
+  return;
+failed:
+  s_transport_error = true;
+}
+
+static void send_fragment(void) {
+  size_t header = (s_tx_pcb & T4T_PCB_CID_MASK) ? 2U : 1U;
+  size_t max_inf = s_frame_size - T4T_FRAME_OVERHEAD - (header - 1);
+  size_t length = s_tx_length - s_tx_offset;
+  if (length > max_inf)
+    length = max_inf;
+  s_last_resp[0] = s_tx_pcb;
+  if (s_tx_offset + length < s_tx_length)
+    s_last_resp[0] |= T4T_PCB_CHAIN_MASK;
+  if (header == 2)
+    s_last_resp[1] = s_pcd_cid;
+  memcpy(s_last_resp + header, s_tx_data + s_tx_offset, length);
+  s_last_resp_len = (int)(header + length);
+  s_tx_offset += length;
+  s_expected_block = (s_tx_pcb & T4T_PCB_TOGGLE) ^ T4T_PCB_TOGGLE;
+  tx_with_crc(s_last_resp, s_last_resp_len);
 }
 
 static void send_i_block_resp(const uint8_t *inf, int inf_len, uint8_t pcb_in) {
-  uint8_t resp[T4T_MAX_RESP_SIZE];
-  int pos = 0;
-  resp[pos++] = (uint8_t)(T4T_PCB_I_BLOCK | (pcb_in & T4T_PCB_TOGGLE));
-  if (pcb_in & T4T_PCB_CID_MASK) {
-    resp[pos++] = s_pcd_cid;
-  }
-  if (inf_len > 0 && inf_len < (int)sizeof(resp) - 1) {
-    memcpy(&resp[pos], inf, (size_t)inf_len);
-    pos += inf_len;
-  }
-  tx_with_crc(resp, pos);
-  if (pos < (int)sizeof(s_last_resp)) {
-    memcpy(s_last_resp, resp, (size_t)pos);
-    s_last_resp_len = pos;
-  }
+  if (inf_len < 0 || (size_t)inf_len > sizeof(s_tx_data) || (inf == NULL && inf_len))
+    return;
+  if (inf_len)
+    memcpy(s_tx_data, inf, (size_t)inf_len);
+  s_tx_length = (size_t)inf_len;
+  s_tx_offset = 0;
+  s_tx_pcb = (uint8_t)(T4T_PCB_I_BLOCK | (pcb_in & (T4T_PCB_TOGGLE | T4T_PCB_CID_MASK)));
+  send_fragment();
 }
 
 static void send_r_ack(uint8_t pcb_in) {
   uint8_t resp[2];
   int pos = 0;
-  resp[pos++] = (uint8_t)(T4T_PCB_R_ACK | (pcb_in & T4T_PCB_TOGGLE));
+  resp[pos++] = (uint8_t)(T4T_PCB_R_ACK | s_expected_block | (pcb_in & T4T_PCB_CID_MASK));
   if (pcb_in & T4T_PCB_CID_MASK) {
     resp[pos++] = s_pcd_cid;
   }
+  memcpy(s_last_resp, resp, (size_t)pos);
+  s_last_resp_len = pos;
   tx_with_crc(resp, pos);
 }
 
@@ -447,6 +646,23 @@ static void handle_apdu(const uint8_t *apdu, int apdu_len, uint8_t pcb_in) {
   uint8_t resp[T4T_MAX_RESP_SIZE];
   int resp_len = 0;
 
+  if (s_is_identity_only)
+    return;
+  if (s_ndef_listener != NULL) {
+    nfc_t4t_request_t request = {.data = apdu, .length = apdu_len > 0 ? (size_t)apdu_len : 0};
+    nfc_t4t_response_t response;
+    if (nfc_t4t_exchange(s_ndef_listener, &request, &response) == ESP_OK)
+      send_i_block_resp(response.data, (int)response.length, pcb_in);
+    return;
+  }
+  if (s_plus != NULL) {
+    size_t length = 0;
+    if (apdu_len > 0 &&
+        mfp_listener_exchange(s_plus, apdu, (size_t)apdu_len, resp, sizeof(resp), &length) ==
+            HB_NFC_OK)
+      send_i_block_resp(resp, (int)length, pcb_in);
+    return;
+  }
   if (mf_desfire_emu_handle_apdu(apdu, apdu_len, resp, &resp_len)) {
     send_i_block_resp(resp, resp_len, pcb_in);
     return;
@@ -550,162 +766,184 @@ static void handle_apdu(const uint8_t *apdu, int apdu_len, uint8_t pcb_in) {
   send_i_block_resp(resp, resp_len, pcb_in);
 }
 
+static void process_block(const uint8_t *buf, size_t len) {
+  if (buf == NULL || len == 0)
+    return;
+  uint8_t pcb = buf[0];
+  size_t idx = 1;
+  if (pcb & T4T_PCB_CID_MASK) {
+    if (idx >= len || buf[idx] != s_pcd_cid)
+      return;
+    idx++;
+  }
+  if (s_pcd_cid != 0 && !(pcb & T4T_PCB_CID_MASK))
+    return;
+  if ((pcb & (uint8_t)~T4T_PCB_CID_MASK) == T4T_PCB_DESELECT && len == idx) {
+    tx_with_crc(buf, (int)len);
+    reset_link();
+    hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SLEEP);
+    s_state = T4T_STATE_SLEEP;
+    return;
+  }
+  if ((pcb & T4T_PCB_CLASS_MASK) == T4T_PCB_R_CLASS) {
+    if ((pcb & T4T_PCB_R_VALID_MASK) != T4T_PCB_R_ACK || len != idx || s_last_resp_len == 0)
+      return;
+    if (!(pcb & T4T_PCB_R_NAK_MASK) && (pcb & T4T_PCB_TOGGLE) == s_expected_block &&
+        s_tx_offset < s_tx_length) {
+      s_tx_pcb ^= T4T_PCB_TOGGLE;
+      send_fragment();
+    } else if ((pcb & T4T_PCB_R_NAK_MASK) || (pcb & T4T_PCB_TOGGLE) != s_expected_block) {
+      tx_with_crc(s_last_resp, s_last_resp_len);
+    }
+    return;
+  }
+  /* NAD is not advertised in ATS; reject it before accessing INF. */
+  if ((pcb & T4T_PCB_I_VALID_MASK) != T4T_PCB_I_BLOCK)
+    return;
+  if ((pcb & T4T_PCB_TOGGLE) != s_expected_block) {
+    if (s_last_resp_len > 0)
+      tx_with_crc(s_last_resp, s_last_resp_len);
+    return;
+  }
+  if (s_tx_offset < s_tx_length)
+    return;
+  size_t inf_len = len - idx;
+  if (inf_len > sizeof(s_chain_buf) - s_chain_len) {
+    /* Never execute a truncated APDU or acknowledge discarded bytes. */
+    s_chain_len = 0;
+    s_chain_active = false;
+    s_last_resp_len = 0;
+    s_tx_length = 0;
+    s_tx_offset = 0;
+    s_state = T4T_STATE_SLEEP;
+    s_app_selected = false;
+    s_file = T4T_FILE_NONE;
+    reset_application();
+    hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SLEEP);
+    return;
+  }
+  memcpy(s_chain_buf + s_chain_len, buf + idx, inf_len);
+  s_chain_len += inf_len;
+  s_expected_block ^= T4T_PCB_TOGGLE;
+  s_active_tick = xTaskGetTickCount();
+  if (pcb & T4T_PCB_CHAIN_MASK) {
+    s_chain_active = true;
+    send_r_ack(pcb);
+    return;
+  }
+  handle_apdu(s_chain_buf, (int)s_chain_len, pcb);
+  s_chain_active = false;
+  s_chain_len = 0;
+}
+
 void t4t_emu_run_step(void) {
   uint8_t tgt_irq = 0;
   uint8_t main_irq = 0;
   uint8_t timer_irq = 0;
 
-  hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &tgt_irq);
-  hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &main_irq);
-  hb_nfc_spi_reg_read(ST25R3916_REG_TIMER_NFC_INT, &timer_irq);
-
   uint8_t pts = 0;
-  hb_nfc_spi_reg_read(ST25R3916_REG_PASSIVE_TARGET_STS, &pts);
-  uint8_t pta_state = pts & T4T_PTA_STATE_MASK;
-
-  if (s_state == T4T_STATE_SLEEP) {
-    if (pta_state == T4T_PTA_STATE_IDLE || pta_state == T4T_PTA_STATE_WUPA ||
-        pta_state == T4T_PTA_STATE_SELECTED || (tgt_irq & ST25R3916_IRQ_TGT_WU_A)) {
-      ESP_LOGI(TAG, "SLEEP -> SENSE (pta=%u tgt=0x%02X)", pta_state, tgt_irq);
-      s_sense_tick = xTaskGetTickCount();
-      s_active_tick = s_sense_tick;
-      s_state = T4T_STATE_SENSE;
-      mf_desfire_emu_reset();
-      hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SENSE);
-      hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &tgt_irq);
-      hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &main_irq);
-      hb_nfc_spi_reg_read(ST25R3916_REG_TIMER_NFC_INT, &timer_irq);
-    }
+  if (s_transport_error)
+    return;
+  if (hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &tgt_irq) != HB_NFC_OK ||
+      hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &main_irq) != HB_NFC_OK ||
+      hb_nfc_spi_reg_read(ST25R3916_REG_TIMER_NFC_INT, &timer_irq) != HB_NFC_OK ||
+      hb_nfc_spi_reg_read(ST25R3916_REG_PASSIVE_TARGET_STS, &pts) != HB_NFC_OK) {
+    s_transport_error = true;
     return;
   }
+  main_irq |= s_pending_main;
+  s_pending_main = 0;
+  uint8_t pta_state = pts & T4T_PTA_STATE_MASK;
 
-  if (s_state == T4T_STATE_SENSE) {
-    if (pta_state == T4T_PTA_STATE_ACTIVE || pta_state == T4T_PTA_STATE_HALTED ||
-        (tgt_irq & ST25R3916_IRQ_TGT_SDD_C)) {
-      ESP_LOGI(TAG, "SENSE -> ACTIVE (pta=%u tgt=0x%02X)", pta_state, tgt_irq);
-      s_state = T4T_STATE_ACTIVE;
-      s_active_tick = xTaskGetTickCount();
-    } else {
-      TickType_t now = xTaskGetTickCount();
-      if ((now - s_sense_tick) > pdMS_TO_TICKS(T4T_PTA_SENSE_TIMEOUT)) {
-        ESP_LOGI(TAG, "SENSE: idle timeout -> SLEEP");
-        s_state = T4T_STATE_SLEEP;
-        s_app_selected = false;
-        s_file = T4T_FILE_NONE;
-        s_chain_active = false;
-        s_chain_len = 0;
-        s_pcd_cid = 0;
-        mf_desfire_emu_reset();
-        hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SLEEP);
-        return;
-      }
-      if (((now - s_sense_tick) % pdMS_TO_TICKS(T4T_PTA_SENSE_CHECK)) == 0U) {
-        uint8_t aux = 0;
-        hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux);
-        ESP_LOGD(TAG, "[SENSE] AUX=0x%02X pta=%u", aux, pta_state);
-      }
+  if (!(main_irq & T4T_RX_IRQ) && (timer_irq & T4T_FIELD_OFF_IRQ)) {
+    uint8_t aux = 0;
+    if (hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux) != HB_NFC_OK) {
+      s_transport_error = true;
       return;
     }
+    if (!(aux & ST25R3916_AUX_DISP_EFD_BIT)) {
+      reset_link();
+      hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SENSE);
+      s_state = T4T_STATE_SENSE;
+      return;
+    }
+  }
+  if (s_state != T4T_STATE_ACTIVE) {
+    if (pta_state != T4T_PTA_STATE_ACTIVE && pta_state != T4T_PTA_STATE_HALTED)
+      return;
+    reset_link();
+    s_state = T4T_STATE_ACTIVE;
+    s_active_tick = xTaskGetTickCount();
   }
 
   if (!(main_irq & T4T_RX_IRQ))
     goto idle_active;
 
-  uint8_t buf[T4T_CHAIN_BUF_SIZE] = {0};
-  uint8_t fs1 = 0;
-  hb_nfc_spi_reg_read(ST25R3916_REG_FIFO_STATUS1, &fs1);
-  int n = fs1 & T4T_FIFO_STATUS_BITS;
-  if (n <= 0)
-    return;
-  if (n > (int)sizeof(buf))
-    n = (int)sizeof(buf);
-  hb_nfc_spi_fifo_read(buf, (uint8_t)n);
-  int len = n;
-
-  if (len <= 0)
-    return;
-
-  if (buf[0] == T4T_CMD_RATS && len >= 2) {
-    ESP_LOGI(TAG, "RATS");
-    tx_with_crc(k_ats, sizeof(k_ats));
+  uint8_t buf[T4T_CHAIN_BUF_SIZE + T4T_CRC_SIZE] = {0};
+  uint8_t fs1 = 0, fs2 = 0;
+  if (hb_nfc_spi_reg_read(ST25R3916_REG_FIFO_STATUS1, &fs1) != HB_NFC_OK ||
+      hb_nfc_spi_reg_read(ST25R3916_REG_FIFO_STATUS2, &fs2) != HB_NFC_OK) {
+    s_transport_error = true;
     return;
   }
-
-  if ((buf[0] & T4T_CMD_PPS_MASK) == T4T_CMD_PPS_BASE) {
-    ESP_LOGI(TAG, "PPS");
-    uint8_t resp = buf[0];
-    tx_with_crc(&resp, 1);
+  size_t len = fs1 | ((size_t)(fs2 & ST25R3916_FIFO_STATUS2_MSB_MASK) << 2);
+  if (len == 0)
+    return;
+  if (len > sizeof(buf) || (fs2 & T4T_FIFO_INVALID_MASK) != 0) {
+    st25r3916_fifo_clear();
     return;
   }
-
-  uint8_t pcb = buf[0];
-  if ((pcb & T4T_PCB_CLASS_MASK) == T4T_PCB_R_CLASS) {
-    if (s_last_resp_len > 0) {
-      tx_with_crc(s_last_resp, s_last_resp_len);
-    }
+  if (hb_nfc_spi_fifo_read(buf, len) != HB_NFC_OK) {
+    s_transport_error = true;
     return;
   }
-
-  if ((pcb & T4T_PCB_CLASS_MASK) != T4T_PCB_I_CLASS) {
+  if (len <= T4T_CRC_SIZE || !iso14443a_check_crc(buf, len))
     return;
-  }
+  len -= T4T_CRC_SIZE;
 
-  bool chaining = (pcb & T4T_PCB_CHAIN_MASK) != 0U;
-  int idx = 1;
-  if (pcb & T4T_PCB_CID_MASK) {
-    s_pcd_cid = buf[idx];
-    idx++;
-  }
-  if (pcb & T4T_PCB_NAD_MASK) {
-    idx++;
-  }
-  if (idx > len)
-    return;
-  const uint8_t *inf = &buf[idx];
-  int inf_len = len - idx;
-
-  if (chaining) {
-    if (!s_chain_active) {
-      s_chain_active = true;
-      s_chain_len = 0;
-    }
-    if (s_chain_len + (size_t)inf_len < sizeof(s_chain_buf)) {
-      memcpy(&s_chain_buf[s_chain_len], inf, (size_t)inf_len);
-      s_chain_len += (size_t)inf_len;
-    }
-    send_r_ack(pcb);
-    return;
-  }
-
-  if (s_chain_active) {
-    if (s_chain_len + (size_t)inf_len < sizeof(s_chain_buf)) {
-      memcpy(&s_chain_buf[s_chain_len], inf, (size_t)inf_len);
-      s_chain_len += (size_t)inf_len;
-    }
-    ESP_LOGI(TAG, "APDU (chained) len=%u", (unsigned)s_chain_len);
-    handle_apdu(s_chain_buf, (int)s_chain_len, pcb);
-    s_chain_active = false;
+  if (buf[0] == T4T_CMD_RATS && len == 2) {
+    static const uint16_t frame_sizes[] = {16, 24, 32, 40, 48, 64, 96, 128, 256};
+    uint8_t fsdi = buf[1] >> T4T_FSDI_SHIFT;
+    if (fsdi >= sizeof(frame_sizes) / sizeof(frame_sizes[0]) ||
+        (buf[1] & T4T_PTA_STATE_MASK) == T4T_CID_INVALID)
+      return;
+    s_frame_size = frame_sizes[fsdi];
+    s_expected_block = 0;
+    s_last_resp_len = 0;
+    s_tx_length = 0;
+    s_tx_offset = 0;
     s_chain_len = 0;
+    s_chain_active = false;
+    s_app_selected = false;
+    s_file = T4T_FILE_NONE;
+    s_pcd_cid = buf[1] & T4T_PTA_STATE_MASK;
+    reset_application();
+    s_has_rats = true;
+    ESP_LOGI(TAG, "RATS");
+    tx_with_crc(k_ats, (int)s_ats_len);
     return;
   }
 
-  ESP_LOGI(TAG, "APDU len=%d", inf_len);
-  handle_apdu(inf, inf_len, pcb);
-  s_active_tick = xTaskGetTickCount();
+  if (!s_has_rats)
+    return;
+  if ((buf[0] & T4T_CMD_PPS_MASK) == T4T_CMD_PPS_BASE) {
+    if ((buf[0] & T4T_PTA_STATE_MASK) != s_pcd_cid || len < 2 ||
+        !((len == 2 && buf[1] == 0x01) || (len == 3 && buf[1] == 0x11 && buf[2] == 0)))
+      return;
+    tx_with_crc(buf, 1);
+    return;
+  }
+
+  process_block(buf, (size_t)len);
   return;
 
 idle_active: {
   TickType_t now = xTaskGetTickCount();
   if ((now - s_active_tick) > pdMS_TO_TICKS(T4T_PTA_ACTIVE_TIMEOUT)) {
-    ESP_LOGI(TAG, "ACTIVE: idle timeout -> SLEEP");
-    s_state = T4T_STATE_SLEEP;
-    s_app_selected = false;
-    s_file = T4T_FILE_NONE;
-    s_chain_active = false;
-    s_chain_len = 0;
-    s_pcd_cid = 0;
-    mf_desfire_emu_reset();
-    hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SLEEP);
+    ESP_LOGD(TAG, "ACTIVE: idle timeout -> SENSE");
+    reset_link();
+    hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SENSE);
+    s_state = T4T_STATE_SENSE;
   } else if (((now - s_active_tick) % pdMS_TO_TICKS(T4T_PTA_IDLE_CHECK)) == 0U) {
     uint8_t aux = 0;
     hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux);

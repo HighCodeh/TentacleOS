@@ -78,7 +78,7 @@ static const char *TAG = "NFC_T1T";
 #define T1T_SOF_BITS 7U
 
 static void t1t_set_antcl(bool enable);
-static void t1t_fifo_read_all(uint8_t *out, size_t len);
+static esp_err_t t1t_fifo_read_all(uint8_t *out, size_t len);
 static int t1t_tx_bits(const uint8_t *tx,
                        size_t tx_len,
                        uint8_t last_bits,
@@ -101,13 +101,16 @@ static void t1t_set_antcl(bool enable) {
   hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, v);
 }
 
-static void t1t_fifo_read_all(uint8_t *out, size_t len) {
+static esp_err_t t1t_fifo_read_all(uint8_t *out, size_t len) {
   size_t off = 0;
   while (off < len) {
     size_t chunk = (len - off > T1T_FIFO_CHUNK_SIZE) ? T1T_FIFO_CHUNK_SIZE : (len - off);
-    (void)st25r3916_fifo_read(&out[off], chunk);
+    esp_err_t err = st25r3916_fifo_read(&out[off], chunk);
+    if (err != ESP_OK)
+      return err;
     off += chunk;
   }
+  return ESP_OK;
 }
 
 static int t1t_tx_bits(const uint8_t *tx,
@@ -154,7 +157,8 @@ static int t1t_tx_bits(const uint8_t *tx,
     return (int)count;
 
   size_t to_read = (count > rx_max) ? rx_max : count;
-  t1t_fifo_read_all(rx, to_read);
+  if (count > rx_max || t1t_fifo_read_all(rx, to_read) != ESP_OK)
+    return 0;
   return (int)to_read;
 }
 

@@ -27,13 +27,18 @@
 
 static const char *TAG = "NFC_T4T";
 
-#define T4T_AID_LEN       7
-#define T4T_CC_FILE       0xE103U
-#define T4T_CC_SIZE       15
-#define T4T_NLEN_SIZE     2
-#define T4T_APDU_HDR_SIZE 5
-#define T4T_MAX_LE        0xFFU
-#define T4T_BUF_SIZE      260
+#define T4T_AID_LEN         7
+#define T4T_CC_FILE         0xE103U
+#define T4T_CC_SIZE         15
+#define T4T_CC_MAX_SIZE     1024U
+#define T4T_CC_HEADER_SIZE  7U
+#define T4T_NDEF_TLV        0x04U
+#define T4T_NDEF_TLV_SIZE   6U
+#define T4T_EXTENDED_LENGTH 0xFFU
+#define T4T_NLEN_SIZE       2
+#define T4T_APDU_HDR_SIZE   5
+#define T4T_MAX_LE          0xFFU
+#define T4T_BUF_SIZE        260
 
 #define T4T_CLA            0x00U
 #define T4T_INS_SELECT     0xA4U
@@ -199,18 +204,62 @@ hb_nfc_err_t t4t_read_cc(const nfc_iso_dep_data_t *dep, t4t_cc_t *cc) {
   if (err != HB_NFC_OK)
     return err;
 
-  uint8_t buf[15] = {0};
-  err = read_binary(dep, 0x0000, buf, sizeof(buf));
+  uint8_t buf[T4T_CC_HEADER_SIZE] = {0};
+  err = read_binary(dep, 0, buf, sizeof(buf));
   if (err != HB_NFC_OK)
     return err;
-
   cc->cc_len = (uint16_t)((buf[0] << 8) | buf[1]);
   cc->mle = (uint16_t)((buf[3] << 8) | buf[4]);
   cc->mlc = (uint16_t)((buf[5] << 8) | buf[6]);
-  cc->ndef_fid = (uint16_t)((buf[9] << 8) | buf[10]);
-  cc->ndef_max = (uint16_t)((buf[11] << 8) | buf[12]);
-  cc->read_access = buf[13];
-  cc->write_access = buf[14];
+  if (buf[2] != 0x20U || cc->cc_len < T4T_CC_SIZE || cc->cc_len > T4T_CC_MAX_SIZE ||
+      cc->mle < T4T_NLEN_SIZE || cc->mlc < T4T_NLEN_SIZE)
+    return HB_NFC_ERR_PROTOCOL;
+  bool is_found = false;
+  size_t offset = T4T_CC_HEADER_SIZE;
+  while (offset + 2 <= cc->cc_len) {
+    uint8_t tlv[2];
+    err = read_binary(dep, offset, tlv, sizeof(tlv));
+    if (err != HB_NFC_OK)
+      return err;
+    offset += sizeof(tlv);
+    size_t length = tlv[1];
+    if (length == T4T_EXTENDED_LENGTH) {
+      uint8_t extended[2];
+      if (offset + sizeof(extended) > cc->cc_len)
+        return HB_NFC_ERR_PROTOCOL;
+      err = read_binary(dep, offset, extended, sizeof(extended));
+      if (err != HB_NFC_OK)
+        return err;
+      length = ((uint16_t)extended[0] << 8) | extended[1];
+      offset += sizeof(extended);
+    }
+    if (length > cc->cc_len - offset)
+      return HB_NFC_ERR_PROTOCOL;
+    if (tlv[0] == T4T_NDEF_TLV) {
+      if (length != T4T_NDEF_TLV_SIZE)
+        return HB_NFC_ERR_PROTOCOL;
+      uint8_t value[T4T_NDEF_TLV_SIZE];
+      for (size_t read = 0; read < sizeof(value);) {
+        size_t chunk = sizeof(value) - read;
+        if (chunk > cc->mle)
+          chunk = cc->mle;
+        err = read_binary(dep, offset + read, value + read, chunk);
+        if (err != HB_NFC_OK)
+          return err;
+        read += chunk;
+      }
+      cc->ndef_fid = ((uint16_t)value[0] << 8) | value[1];
+      cc->ndef_max = ((uint16_t)value[2] << 8) | value[3];
+      cc->read_access = value[4];
+      cc->write_access = value[5];
+      is_found = true;
+      break;
+    }
+    offset += length;
+  }
+  if (!is_found || cc->ndef_max < T4T_NLEN_SIZE || cc->ndef_max > 0x8000U || !cc->ndef_fid ||
+      cc->ndef_fid == T4T_CC_FILE)
+    return HB_NFC_ERR_PROTOCOL;
 
   ESP_LOGI(TAG,
            "CC: ndef_fid=0x%04X ndef_max=%u mle=%u mlc=%u",
@@ -226,7 +275,9 @@ hb_nfc_err_t t4t_read_ndef(const nfc_iso_dep_data_t *dep,
                            uint8_t *out,
                            size_t out_max,
                            size_t *out_len) {
-  if (dep == NULL || cc == NULL || out == NULL || out_max < 2)
+  if (out_len != NULL)
+    *out_len = 0;
+  if (dep == NULL || cc == NULL || out == NULL || out_max < 2 || cc->mle < T4T_NLEN_SIZE)
     return HB_NFC_ERR_PARAM;
 
   hb_nfc_err_t err = select_ndef_app(dep);
@@ -248,7 +299,7 @@ hb_nfc_err_t t4t_read_ndef(const nfc_iso_dep_data_t *dep,
     return err;
 
   uint16_t ndef_len = (uint16_t)((len_buf[0] << 8) | len_buf[1]);
-  if (ndef_len == 0 || ndef_len > cc->ndef_max) {
+  if (cc->ndef_max < T4T_NLEN_SIZE || ndef_len > cc->ndef_max - T4T_NLEN_SIZE) {
     ESP_LOGW(TAG, "Invalid NDEF length %u", ndef_len);
     return HB_NFC_ERR_PROTOCOL;
   }
@@ -285,7 +336,7 @@ hb_nfc_err_t t4t_write_ndef(const nfc_iso_dep_data_t *dep,
                             const t4t_cc_t *cc,
                             const uint8_t *data,
                             size_t data_len) {
-  if (dep == NULL || cc == NULL || data == NULL)
+  if (dep == NULL || cc == NULL || data == NULL || cc->mlc < T4T_NLEN_SIZE)
     return HB_NFC_ERR_PARAM;
 
   hb_nfc_err_t err = select_ndef_app(dep);
@@ -297,7 +348,7 @@ hb_nfc_err_t t4t_write_ndef(const nfc_iso_dep_data_t *dep,
     return HB_NFC_ERR_PROTOCOL;
   }
 
-  if (data_len > cc->ndef_max) {
+  if (cc->ndef_max < T4T_NLEN_SIZE || data_len > cc->ndef_max - T4T_NLEN_SIZE) {
     ESP_LOGW(TAG, "NDEF too large (%u > %u)", (unsigned)data_len, (unsigned)cc->ndef_max);
     return HB_NFC_ERR_PARAM;
   }
@@ -352,7 +403,7 @@ hb_nfc_err_t t4t_read_binary_ndef(const nfc_iso_dep_data_t *dep,
   if (err != HB_NFC_OK)
     return err;
 
-  if ((size_t)offset + out_len > (size_t)cc->ndef_max + 2U) {
+  if ((size_t)offset + out_len > (size_t)cc->ndef_max) {
     return HB_NFC_ERR_PARAM;
   }
   return read_binary(dep, offset, out, out_len);
@@ -377,7 +428,7 @@ hb_nfc_err_t t4t_update_binary_ndef(const nfc_iso_dep_data_t *dep,
   if (err != HB_NFC_OK)
     return err;
 
-  if ((size_t)offset + data_len > (size_t)cc->ndef_max + 2U) {
+  if ((size_t)offset + data_len > (size_t)cc->ndef_max) {
     return HB_NFC_ERR_PARAM;
   }
   return update_binary(dep, offset, data, data_len);
