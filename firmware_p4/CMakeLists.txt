@@ -32,6 +32,7 @@ set(EXTRA_COMPONENT_DIRS
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 include("${CMAKE_CURRENT_LIST_DIR}/../tools/cmake/highboy_fatfs.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/../tools/cmake/highboy_spi.cmake")
 
 # Runtime opt-in USB headset; can be compiled out if a release cannot afford it.
 option(HIGH_BOY_USB_VOICE "Build experimental High Boy USB audio mode" OFF)

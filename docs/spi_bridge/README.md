@@ -1234,3 +1234,25 @@ There is no internal-RAM fallback. Bounds, text termination and credential
 zeroization on completion/rejection are retained. This recovers approximately
 4 KiB of static internal RAM without lowering the CI headroom floor or changing
 DMA buffers, task stacks or `sdkconfig.defaults`.
+
+## P4 SPI allocation-failure cleanup override
+
+`tools/cmake/highboy_spi.cmake` generates an ESP-IDF v6.1 `esp_driver_spi`
+override under `build/components/Drivers/esp_driver_spi`. The upstream component
+and its Apache-2.0 notices are copied from the installed SDK; the SDK is not
+modified. The original `src/gpspi/spi_master.c` SHA-256 is pinned in that CMake
+file and configuration fails if it changes.
+
+The qualified SDK revision is `fff9895c82d744c7237be8847347bdd1b07c6643`.
+
+The sole source patch checks for a non-null temporary RX buffer before copying
+it back in `uninstall_priv_desc`. In the pinned SDK, a failed RX DMA allocation
+otherwise reaches `memcpy` with a null source during `setup_priv_desc` cleanup.
+The patch lets the original allocation error propagate and still frees a TX
+bounce buffer allocated before the failure. It does not cure heap exhaustion.
+
+When upgrading IDF, review the upstream cleanup, remove this override if fixed,
+or requalify the patch and update its source hash. Never edit the generated copy.
+
+Run `python3 tools/spi_transport/test_dma_cleanup.py` after configuring P4
+to test the generated cleanup with allocation failure and successful RX copying.
