@@ -1021,3 +1021,8 @@ an empty base when resolving absolute paths.
 
 The microSD filesystem override is generated from a verified SDK patch; see
 [FatFS](../fatfs/README.md) for the source and validation process.
+
+SD health probes acquire the storage backend lifecycle guard for the entire
+write/read/remove operation. `ESP_ERR_INVALID_STATE` means unavailable or busy
+(e.g. formatting or USB handoff); the system monitor skips that result rather
+than requesting a destructive remount while another operation owns the card.

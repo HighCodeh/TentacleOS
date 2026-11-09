@@ -22,13 +22,12 @@ extern "C" {
 
 /**
  * @brief Open the USB Storage screen: exposes the microSD to a host PC as a USB
- *        drive. Reached from the Files root. BACK ejects and returns to Files
- *        WITHOUT rebooting.
+ *        drive. Reached from the Files root. BACK asks for host-eject confirmation, then returns to
+ * Files WITHOUT rebooting.
  */
 void ui_usb_storage_open(void);
 
-/** @brief Screen close hook: reboots only if it is torn down while the card is
- *         still exposed to the host (defensive; normal exit needs no reboot). */
+/** @brief Clear UI references; an active MSC session retains the card. */
 void ui_usb_storage_stop(void);
 
 #ifdef __cplusplus

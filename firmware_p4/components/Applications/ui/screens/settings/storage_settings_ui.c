@@ -55,10 +55,8 @@ static const char *TAG = "STORAGE_UI";
 #define FMT_TASK_STACK 8192
 #define FMT_POLL_MS    50
 #define FMT_BOX_W      200
-#define FMT_BOX_H      124
+#define FMT_BOX_H      176
 #define FMT_BAR_MAX    100
-#define FMT_BAR_SPAN   25
-#define FMT_BAR_STEP   5
 
 #define LIST_LEFT      6
 #define LIST_TOP_Y     46
@@ -76,7 +74,11 @@ static lv_obj_t *s_col = NULL;
 static lv_obj_t *s_thumb = NULL;
 static lv_obj_t *s_fmt_overlay = NULL;
 static lv_obj_t *s_fmt_bar = NULL;
-static int32_t s_fmt_phase = 0;
+static lv_obj_t *s_fmt_status;
+static lv_obj_t *s_fmt_cancel_label;
+static atomic_bool s_format_cancel;
+static atomic_uint s_format_percent;
+static _Atomic(const char *) s_format_stage = "Preparing card";
 static int s_sel = 0;
 static bool s_formatting = false;
 static bool s_format_exfat = false;
@@ -273,6 +275,8 @@ static void overlay_deleted_cb(lv_event_t *event) {
   if (lv_event_get_target(event) == s_fmt_overlay) {
     s_fmt_overlay = NULL;
     s_fmt_bar = NULL;
+    s_fmt_status = NULL;
+    s_fmt_cancel_label = NULL;
   }
 }
 
@@ -283,6 +287,28 @@ static void screen_deleted_cb(lv_event_t *event) {
   s_thumb = NULL;
   for (int i = 0; i < ACT_COUNT; ++i)
     s_act[i] = NULL;
+}
+
+static void cancel_format(void) {
+  if (!s_formatting || atomic_load(&s_format_done))
+    return;
+  atomic_store(&s_format_cancel, true);
+  if (s_fmt_cancel_label != NULL)
+    lv_label_set_text(s_fmt_cancel_label, "Cancelling...");
+}
+
+static void cancel_format_event(lv_event_t *event) {
+  (void)event;
+  cancel_format();
+}
+
+static bool format_progress(const char *stage, uint8_t percent, void *ctx) {
+  (void)ctx;
+  if (stage != NULL) {
+    atomic_store(&s_format_stage, stage);
+    atomic_store(&s_format_percent, percent);
+  }
+  return !atomic_load(&s_format_cancel);
 }
 
 static void show_fmt_overlay(void) {
@@ -319,27 +345,35 @@ static void show_fmt_overlay(void) {
   s_fmt_bar = lv_bar_create(box);
   lv_obj_set_size(s_fmt_bar, lv_pct(100), BAR_H);
   lv_bar_set_range(s_fmt_bar, 0, FMT_BAR_MAX);
-  lv_bar_set_mode(s_fmt_bar, LV_BAR_MODE_RANGE);
+  lv_bar_set_mode(s_fmt_bar, LV_BAR_MODE_NORMAL);
   lv_obj_set_style_bg_color(s_fmt_bar, current_theme.screen_base, LV_PART_MAIN);
   lv_obj_set_style_bg_color(s_fmt_bar, current_theme.border_accent, LV_PART_INDICATOR);
-  s_fmt_phase = FMT_BAR_SPAN;
-  lv_bar_set_value(s_fmt_bar, s_fmt_phase, LV_ANIM_OFF);
+  lv_bar_set_value(s_fmt_bar, 0, LV_ANIM_OFF);
+
+  s_fmt_status = lv_label_create(box);
+  lv_label_set_text(s_fmt_status, "Preparing card  0%");
+  lv_obj_set_style_text_font(s_fmt_status, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(s_fmt_status, current_theme.text_main, 0);
+
+  lv_obj_t *cancel = lv_button_create(box);
+  lv_obj_add_event_cb(cancel, cancel_format_event, LV_EVENT_CLICKED, NULL);
+  s_fmt_cancel_label = lv_label_create(cancel);
+  lv_label_set_text(s_fmt_cancel_label, "CANCEL (OK / BACK)");
+  lv_obj_set_style_text_font(s_fmt_cancel_label, &lv_font_montserrat_12, 0);
 
   lv_obj_t *m = lv_label_create(box);
-  lv_label_set_text(m, "Do not remove the card.");
+  lv_label_set_text(m, "Cancelling may damage data.");
   lv_obj_set_style_text_font(m, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(m, current_theme.text_main, 0);
 }
 
 static void format_done_poll(lv_timer_t *timer) {
   if (!atomic_load_explicit(&s_format_done, memory_order_acquire)) {
-    // FatFS has no progress callback: animate activity, never invent a percentage.
-    if (s_fmt_bar != NULL) {
-      s_fmt_phase = (s_fmt_phase + FMT_BAR_STEP) % (FMT_BAR_MAX + FMT_BAR_SPAN);
-      lv_bar_set_start_value(s_fmt_bar, 0, LV_ANIM_OFF);
-      lv_bar_set_value(s_fmt_bar, LV_MIN(s_fmt_phase, FMT_BAR_MAX), LV_ANIM_OFF);
-      lv_bar_set_start_value(s_fmt_bar, LV_MAX(0, s_fmt_phase - FMT_BAR_SPAN), LV_ANIM_OFF);
-    }
+    if (s_fmt_bar != NULL)
+      lv_bar_set_value(s_fmt_bar, (int32_t)atomic_load(&s_format_percent), LV_ANIM_OFF);
+    if (s_fmt_status != NULL)
+      lv_label_set_text_fmt(
+          s_fmt_status, "%s  %u%%", atomic_load(&s_format_stage), atomic_load(&s_format_percent));
     return;
   }
   const esp_err_t r = s_format_result;
@@ -358,14 +392,15 @@ static void format_done_poll(lv_timer_t *timer) {
     snprintf(msg, sizeof(msg), "SD formatted (%s)", vfs_sdcard_fs_type());
     notify(NOTIFY_SAVED, msg);
   } else {
-    notify(NOTIFY_WARNING, "Format failed");
+    notify(NOTIFY_WARNING,
+           r == ESP_ERR_NOT_FINISHED ? "Cancelled; SD may need formatting" : "Format failed");
   }
   build_screen();
 }
 
 static void format_task(void *arg) {
   bool exfat = (bool)(uintptr_t)arg;
-  esp_err_t r = exfat ? vfs_sdcard_format_exfat() : vfs_sdcard_format();
+  esp_err_t r = vfs_sdcard_format_with_progress(exfat, format_progress, NULL);
   if (r == ESP_OK && !vfs_sdcard_is_mounted())
     r = ESP_ERR_INVALID_STATE;
   s_format_result = r;
@@ -382,6 +417,9 @@ static void fmt_confirm_cb(bool confirm) {
     return;
   }
   atomic_store_explicit(&s_format_done, false, memory_order_relaxed);
+  atomic_store(&s_format_cancel, false);
+  atomic_store(&s_format_percent, 0);
+  atomic_store(&s_format_stage, "Preparing card");
   s_formatting = true;
   s_format_view_generation = s_screen_generation;
   show_fmt_overlay();
@@ -423,8 +461,9 @@ static void fire_action(int idx) {
     msgbox_open_ex(
         "/assets/icons/warning.bin",
         s_format_exfat
-            ? "Format SD as exFAT?\nALL files will be erased.\nBack up the card first."
-            : "Format SD (automatic type)?\nALL files will be erased.\nBack up the card first.",
+            ? "Format SD as exFAT?\nALL files will be erased.\nCancel may leave SD unreadable."
+            : "Format SD (automatic type)?\nALL files will be erased.\nCancel may leave SD "
+              "unreadable.",
         "FORMAT",
         "Cancel",
         fmt_confirm_cb,
@@ -434,8 +473,12 @@ static void fire_action(int idx) {
 
 static void storage_settings_input(const input_event_t *ev, void *ctx) {
   (void)ctx;
-  if (s_formatting)
+  if (s_formatting) {
+    if (ev->action == INPUT_ACTION_PRESS &&
+        (ev->button == INPUT_BTN_OK || ev->button == INPUT_BTN_BACK))
+      cancel_format();
     return;
+  }
   const bool press = (ev->action == INPUT_ACTION_PRESS);
   const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
@@ -473,6 +516,8 @@ static void build_screen(void) {
   // Any old overlay belongs to prev; its delete callback must not clear a new one.
   s_fmt_overlay = NULL;
   s_fmt_bar = NULL;
+  s_fmt_status = NULL;
+  s_fmt_cancel_label = NULL;
 
   s_screen = lv_obj_create(NULL);
   ++s_screen_generation;

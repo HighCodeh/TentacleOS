@@ -382,13 +382,28 @@ as Storage and SD Health do; it does not assume FAT32. Under Settings > Storage,
 **Format SD: exFAT** explicitly selects exFAT, while **Format SD (auto)** lets
 FatFS select the type. Both require confirmation that all files will be erased.
 
-Formatting runs in the existing background worker. An indeterminate activity
-bar keeps moving while the worker runs: FatFS provides no percentage callback.
-The UI blocks further storage actions until completion, reports success only
-after a successful remount, then rebuilds the displayed filesystem and capacity.
-Failure is reported without claiming completion. The bar belongs to the overlay
-and is discarded when its screen is deleted; the worker never accesses LVGL.
+Formatting runs in a background worker. Its overlay displays the current FatFS
+stage and a determinate 0–100% bar. Completion is weighted by filesystem stages,
+with sector-count progress within exFAT's bitmap/FAT loops; it is not elapsed-time
+progress or a full-card erase percentage. 100% requires successful format,
+remount and volume labeling. CANCEL (touch, OK or BACK) requests cooperative
+cancellation between writes. The current SD command must finish/timeout first;
+the worker is never killed and the card/context remain owned until cleanup.
+The overlay says "Cancelling..." until that finishes and reports cancellation
+separately from failure/success. An interrupted format may leave the SD unreadable.
+Other storage actions remain blocked while the worker owns it. Overlay deletion
+and screen recreation do not leave worker references to LVGL objects.
 
 The built-in games menu no longer includes the experimental 3D scene. Its
 renderer, embedded mesh/texture, host service and startup hooks are removed.
 Game Boy, Doom and external app discovery retain their existing behavior.
+
+### USB Storage with an unavailable SD
+
+USB exit no longer depends on successfully mounting the card. After USB I/O has
+stopped, the backend attempts one bounded CMD12 recovery if the first mount
+fails. A persistent failure displays `USB stopped; SD unavailable`; BACK returns
+to Home without launching another exit worker. The card remains quarantined and
+Storage cannot re-expose it until restart. Normal host eject confirmation and
+successful return to Files are unchanged.
+

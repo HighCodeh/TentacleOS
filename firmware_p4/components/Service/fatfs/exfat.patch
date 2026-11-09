@@ -22,6 +22,118 @@
  /* This option switches support for exFAT filesystem. (0:Disable or 1:Enable)
  /  To enable exFAT, also LFN needs to be enabled. (FF_USE_LFN >= 1)
  /  Note that enabling exFAT discards ANSI C (C89) compatibility. */
+--- a/vfs/esp_vfs_fat.h
++++ b/vfs/esp_vfs_fat.h
+@@ -283,6 +283,25 @@
+  *        - ESP_FAIL: fail to format it, or fail to mount back
+  */
+ esp_err_t esp_vfs_fat_sdcard_format(const char *base_path, sdmmc_card_t *card);
++
++/**
++ * @brief Format the card as exFAT specifically (TentacleOS addition).
++ *
++ * Same as esp_vfs_fat_sdcard_format() but forces FM_EXFAT instead of FM_ANY, so
++ * even a small card that FM_ANY would make FAT32 is written as exFAT. Requires
++ * FF_FS_EXFAT == 1 (see the TentacleOS FatFS patch documentation).
++ */
++esp_err_t esp_vfs_fat_sdcard_format_exfat(const char *base_path, sdmmc_card_t *card);
++
++/**
++ * @brief Inspect registered FAT mount state without reading or writing the card.
++ *
++ * Formatting retains the card handle on failure. If its final remount failed,
++ * this returns false; call esp_vfs_fat_sdcard_unmount to release the handle.
++ * This is a state snapshot, not a physical card-health or concurrency guarantee.
++ */
++bool esp_vfs_fat_sdcard_is_mounted(const char *base_path, const sdmmc_card_t *card);
++
+ #endif
+ 
+ /**
+@@ -448,6 +467,11 @@
+  */
+ esp_err_t esp_vfs_fat_bdl_unmount(const char *base_path, esp_blockdev_handle_t bdl_handle);
+ 
++/* Retain VFS/diskio ownership while the FatFS volume is suspended for USB MSC. */
++esp_err_t esp_vfs_fat_suspend(const char *base_path);
++esp_err_t esp_vfs_fat_resume(const char *base_path);
++esp_err_t esp_vfs_fat_get_free_clusters(const char *base_path, FATFS **out_fs, DWORD *out_free);
++
+ /**
+  * @brief Get information for FATFS partition
+  *
+--- a/vfs/vfs_fat.c
++++ b/vfs/vfs_fat.c
+@@ -267,6 +267,48 @@
+     return err;
+ }
+ 
++esp_err_t esp_vfs_fat_suspend(const char *base_path)
++{
++    size_t index = find_context_index_by_path(base_path);
++    if (index == FF_VOLUMES) return ESP_ERR_INVALID_STATE;
++    vfs_fat_ctx_t *ctx = s_fat_ctxs[index];
++    _lock_acquire(&ctx->lock);
++    esp_err_t result = ESP_ERR_INVALID_STATE;
++    for (size_t i = 0; i < ctx->max_files; ++i) {
++        if (ctx->files[i].obj.fs != NULL) goto done;
++    }
++#ifdef CONFIG_VFS_SUPPORT_DIR
++    if (!SLIST_EMPTY(&ctx->open_dirs)) goto done;
++#endif
++    result = f_mount(NULL, ctx->fat_drive, 0) == FR_OK ? ESP_OK : ESP_FAIL;
++done:
++    _lock_release(&ctx->lock);
++    return result;
++}
++
++esp_err_t esp_vfs_fat_resume(const char *base_path)
++{
++    size_t index = find_context_index_by_path(base_path);
++    if (index == FF_VOLUMES) return ESP_ERR_INVALID_STATE;
++    vfs_fat_ctx_t *ctx = s_fat_ctxs[index];
++    _lock_acquire(&ctx->lock);
++    FRESULT result = f_mount(&ctx->fs, ctx->fat_drive, 1);
++    if (result != FR_OK) f_mount(NULL, ctx->fat_drive, 0);
++    _lock_release(&ctx->lock);
++    return result == FR_OK ? ESP_OK : ESP_FAIL;
++}
++
++esp_err_t esp_vfs_fat_get_free_clusters(const char *base_path, FATFS **out_fs, DWORD *out_free)
++{
++    size_t index = find_context_index_by_path(base_path);
++    if (index == FF_VOLUMES) return ESP_ERR_INVALID_STATE;
++    vfs_fat_ctx_t *ctx = s_fat_ctxs[index];
++    _lock_acquire(&ctx->lock);
++    FRESULT result = f_getfree(ctx->fat_drive, out_free, out_fs);
++    _lock_release(&ctx->lock);
++    return result == FR_OK ? ESP_OK : ESP_FAIL;
++}
++
+ esp_err_t esp_vfs_fat_info(const char* base_path,
+                            uint64_t* out_total_bytes,
+                            uint64_t* out_free_bytes)
+@@ -279,7 +321,9 @@
+ 
+     FATFS* fs;
+     DWORD free_clusters;
++    _lock_acquire(&s_fat_ctxs[ctx]->lock);
+     int res = f_getfree(path, &free_clusters, &fs);
++    _lock_release(&s_fat_ctxs[ctx]->lock);
+     if (res != FR_OK) {
+         ESP_LOGE(TAG, "Failed to get number of free clusters (%d)", res);
+         errno = fresult_to_errno(res);
+@@ -1029,9 +1073,8 @@
+     _lock_acquire(&fat_ctx->lock);
+     SLIST_REMOVE(&fat_ctx->open_dirs, fat_dir, vfs_fat_dir_t, open_dirs_entry);
+     vfs_fat_clear_dir_stat_cache(fat_dir);
+-    _lock_release(&fat_ctx->lock);
+-
+     FRESULT res = f_closedir(&fat_dir->ffdir);
++    _lock_release(&fat_ctx->lock);
+     free(pdir);
+     if (res != FR_OK) {
+         ESP_LOGD(TAG, "%s: fresult=%d", __func__, res);
 --- a/vfs/vfs_fat_sdmmc.c
 +++ b/vfs/vfs_fat_sdmmc.c
 @@ -491,10 +491,18 @@
@@ -104,7 +216,7 @@
 +    free(workbuf);
 +    if (res != FR_OK) {
 +        ret = ESP_FAIL;
-+        ESP_LOGD(TAG, "f_mkfs failed (%d)", res);
++        ESP_LOGE(TAG, "f_mkfs failed: FatFS result=%d", res);
 +    }
 +
 +    // Exactly one non-destructive remount attempt; never auto-format again.
@@ -130,31 +242,191 @@
  }
  
  esp_err_t esp_vfs_fat_sdcard_format(const char *base_path, sdmmc_card_t *card) {
---- a/vfs/esp_vfs_fat.h
-+++ b/vfs/esp_vfs_fat.h
-@@ -283,6 +283,25 @@
-  *        - ESP_FAIL: fail to format it, or fail to mount back
-  */
- esp_err_t esp_vfs_fat_sdcard_format(const char *base_path, sdmmc_card_t *card);
-+
-+/**
-+ * @brief Format the card as exFAT specifically (TentacleOS addition).
-+ *
-+ * Same as esp_vfs_fat_sdcard_format() but forces FM_EXFAT instead of FM_ANY, so
-+ * even a small card that FM_ANY would make FAT32 is written as exFAT. Requires
-+ * FF_FS_EXFAT == 1 (see the TentacleOS FatFS patch documentation).
-+ */
-+esp_err_t esp_vfs_fat_sdcard_format_exfat(const char *base_path, sdmmc_card_t *card);
-+
-+/**
-+ * @brief Inspect registered FAT mount state without reading or writing the card.
-+ *
-+ * Formatting retains the card handle on failure. If its final remount failed,
-+ * this returns false; call esp_vfs_fat_sdcard_unmount to release the handle.
-+ * This is a state snapshot, not a physical card-health or concurrency guarantee.
-+ */
-+bool esp_vfs_fat_sdcard_is_mounted(const char *base_path, const sdmmc_card_t *card);
-+
- #endif
+--- a/src/ff.c
++++ b/src/ff.c
+@@ -6086,6 +6086,13 @@
  
- /**
+ 
+ 
++/* TentacleOS: cooperative formatting progress; never abort an in-flight disk command. */
++__attribute__((weak)) int ff_mkfs_progress(BYTE drive, const char *stage, UINT percent)
++{
++    (void)drive; (void)stage; (void)percent;
++    return 1;
++}
++
+ FRESULT f_mkfs (
+ 	const TCHAR* path,		/* Logical drive number */
+ 	const MKFS_PARM* opt,	/* Format options */
+@@ -6260,6 +6267,7 @@
+ 		szb_bit = (n_clst + 7) / 8;								/* Size of allocation bitmap */
+ 		clen[0] = (szb_bit + sz_au * ss - 1) / (sz_au * ss);	/* Number of allocation bitmap clusters */
+ 
++		if (!ff_mkfs_progress(pdrv, "Character table", 5)) LEAVE_MKFS(FR_MKFS_ABORTED);
+ 		/* Create a compressed up-case table */
+ 		sect = b_data + sz_au * clen[0];	/* Table start sector */
+ 		sum = 0;							/* Table checksum to be stored in the 82 entry */
+@@ -6291,6 +6299,7 @@
+ 			i += 2; szb_case += 2;
+ 			if (si == 0 || i == sz_buf * ss) {		/* Write buffered data when buffer full or end of process */
+ 				n = (i + ss - 1) / ss;
++				if (!ff_mkfs_progress(pdrv, 0, 0)) LEAVE_MKFS(FR_MKFS_ABORTED);
+ 				if (disk_write(pdrv, buf, sect, n) != RES_OK) LEAVE_MKFS(FR_DISK_ERR);
+ 				sect += n; i = 0;
+ 			}
+@@ -6298,6 +6307,7 @@
+ 		clen[1] = (szb_case + sz_au * ss - 1) / (sz_au * ss);	/* Number of up-case table clusters */
+ 		clen[2] = 1;	/* Number of root directory clusters */
+ 
++		if (!ff_mkfs_progress(pdrv, "Allocation bitmap", 15)) LEAVE_MKFS(FR_MKFS_ABORTED);
+ 		/* Initialize the allocation bitmap */
+ 		sect = b_data; nsect = (szb_bit + ss - 1) / ss;	/* Start of bitmap and number of bitmap sectors */
+ 		nbit = clen[0] + clen[1] + clen[2];				/* Number of clusters in-use by system (bitmap, up-case and root-dir) */
+@@ -6305,10 +6315,13 @@
+ 			memset(buf, 0, sz_buf * ss);				/* Initialize bitmap buffer */
+ 			for (i = 0; nbit != 0 && i / 8 < sz_buf * ss; buf[i / 8] |= 1 << (i % 8), i++, nbit--) ;	/* Mark used clusters */
+ 			n = (nsect > sz_buf) ? sz_buf : nsect;		/* Write the buffered data */
++			if (!ff_mkfs_progress(pdrv, 0, 0)) LEAVE_MKFS(FR_MKFS_ABORTED);
+ 			if (disk_write(pdrv, buf, sect, n) != RES_OK) LEAVE_MKFS(FR_DISK_ERR);
+ 			sect += n; nsect -= n;
++			if (!ff_mkfs_progress(pdrv, "Allocation bitmap", 15 + (UINT)(10ULL * (sect - b_data) / ((szb_bit + ss - 1) / ss)))) LEAVE_MKFS(FR_MKFS_ABORTED);
+ 		} while (nsect);
+ 
++		if (!ff_mkfs_progress(pdrv, "Allocation table", 25)) LEAVE_MKFS(FR_MKFS_ABORTED);
+ 		/* Initialize the FAT */
+ 		sect = b_fat; nsect = sz_fat;	/* Start of FAT and number of FAT sectors */
+ 		j = nbit = clu = 0;
+@@ -6327,10 +6340,13 @@
+ 				if (nbit == 0 && j < 3) nbit = clen[j++];	/* Get next chain length */
+ 			} while (nbit != 0 && i < sz_buf * ss);
+ 			n = (nsect > sz_buf) ? sz_buf : nsect;	/* Write the buffered data */
++			if (!ff_mkfs_progress(pdrv, 0, 0)) LEAVE_MKFS(FR_MKFS_ABORTED);
+ 			if (disk_write(pdrv, buf, sect, n) != RES_OK) LEAVE_MKFS(FR_DISK_ERR);
+ 			sect += n; nsect -= n;
++			if (!ff_mkfs_progress(pdrv, "Allocation table", 25 + (UINT)(60ULL * (sz_fat - nsect) / sz_fat))) LEAVE_MKFS(FR_MKFS_ABORTED);
+ 		} while (nsect);
+ 
++		if (!ff_mkfs_progress(pdrv, "Root directory", 85)) LEAVE_MKFS(FR_MKFS_ABORTED);
+ 		/* Initialize the root directory */
+ 		memset(buf, 0, sz_buf * ss);
+ 		buf[SZDIRE * 0 + 0] = ET_VLABEL;			/* Volume label entry (no label) */
+@@ -6344,11 +6360,13 @@
+ 		sect = b_data + sz_au * (clen[0] + clen[1]); nsect = sz_au;	/* Start of the root directory and number of sectors */
+ 		do {	/* Fill root directory sectors */
+ 			n = (nsect > sz_buf) ? sz_buf : nsect;
++			if (!ff_mkfs_progress(pdrv, 0, 0)) LEAVE_MKFS(FR_MKFS_ABORTED);
+ 			if (disk_write(pdrv, buf, sect, n) != RES_OK) LEAVE_MKFS(FR_DISK_ERR);
+ 			memset(buf, 0, ss);	/* Rest of entries are filled with zero */
+ 			sect += n; nsect -= n;
+ 		} while (nsect);
+ 
++		if (!ff_mkfs_progress(pdrv, "Boot records", 90)) LEAVE_MKFS(FR_MKFS_ABORTED);
+ 		/* Create two set of the exFAT VBR blocks */
+ 		sect = b_vol;
+ 		for (n = 0; n < 2; n++) {
+@@ -6373,28 +6391,33 @@
+ 			for (i = sum = 0; i < ss; i++) {		/* VBR checksum */
+ 				if (i != BPB_VolFlagEx && i != BPB_VolFlagEx + 1 && i != BPB_PercInUseEx) sum = xsum32(buf[i], sum);
+ 			}
++			if (!ff_mkfs_progress(pdrv, 0, 0)) LEAVE_MKFS(FR_MKFS_ABORTED);
+ 			if (disk_write(pdrv, buf, sect++, 1) != RES_OK) LEAVE_MKFS(FR_DISK_ERR);
+ 			/* Extended bootstrap record (+1..+8) */
+ 			memset(buf, 0, ss);
+ 			st_16(buf + ss - 2, 0xAA55);	/* Signature (placed at end of sector) */
+ 			for (j = 1; j < 9; j++) {
+ 				for (i = 0; i < ss; sum = xsum32(buf[i++], sum)) ;	/* VBR checksum */
++				if (!ff_mkfs_progress(pdrv, 0, 0)) LEAVE_MKFS(FR_MKFS_ABORTED);
+ 				if (disk_write(pdrv, buf, sect++, 1) != RES_OK) LEAVE_MKFS(FR_DISK_ERR);
+ 			}
+ 			/* OEM/Reserved record (+9..+10) */
+ 			memset(buf, 0, ss);
+ 			for ( ; j < 11; j++) {
+ 				for (i = 0; i < ss; sum = xsum32(buf[i++], sum)) ;	/* VBR checksum */
++				if (!ff_mkfs_progress(pdrv, 0, 0)) LEAVE_MKFS(FR_MKFS_ABORTED);
+ 				if (disk_write(pdrv, buf, sect++, 1) != RES_OK) LEAVE_MKFS(FR_DISK_ERR);
+ 			}
+ 			/* Sum record (+11) */
+ 			for (i = 0; i < ss; i += 4) st_32(buf + i, sum);	/* Fill with checksum value */
++			if (!ff_mkfs_progress(pdrv, 0, 0)) LEAVE_MKFS(FR_MKFS_ABORTED);
+ 			if (disk_write(pdrv, buf, sect++, 1) != RES_OK) LEAVE_MKFS(FR_DISK_ERR);
+ 		}
+ 
+ 	} else
+ #endif	/* FF_FS_EXFAT */
+-	{	/* Create an FAT/FAT32 volume */
++	{	if (!ff_mkfs_progress(pdrv, "FAT geometry", 5)) LEAVE_MKFS(FR_MKFS_ABORTED);
++		/* Create an FAT/FAT32 volume */
+ 		do {
+ 			pau = sz_au;
+ 			/* Pre-determine number of clusters and FAT sub-type */
+@@ -6507,6 +6530,7 @@
+ 			memcpy(buf + BS_VolLab, "NO NAME    " "FAT     ", 19);	/* Volume label, FAT signature */
+ 		}
+ 		st_16(buf + BS_55AA, 0xAA55);					/* Signature (offset is fixed here regardless of sector size) */
++		if (!ff_mkfs_progress(pdrv, 0, 0)) LEAVE_MKFS(FR_MKFS_ABORTED);
+ 		if (disk_write(pdrv, buf, b_vol, 1) != RES_OK) LEAVE_MKFS(FR_DISK_ERR);	/* Write it to the VBR sector */
+ 
+ 		/* Create FSINFO record if needed */
+@@ -6522,6 +6546,7 @@
+ 			disk_write(pdrv, buf, b_vol + 1, 1);		/* Write original FSINFO (VBR + 1) */
+ 		}
+ 
++		if (!ff_mkfs_progress(pdrv, "Allocation table", 25)) LEAVE_MKFS(FR_MKFS_ABORTED);
+ 		/* Initialize FAT area */
+ 		memset(buf, 0, sz_buf * ss);
+ 		sect = b_fat;		/* FAT start sector */
+@@ -6536,16 +6561,19 @@
+ 			nsect = sz_fat;		/* Number of FAT sectors */
+ 			do {	/* Fill FAT sectors */
+ 				n = (nsect > sz_buf) ? sz_buf : nsect;
++				if (!ff_mkfs_progress(pdrv, 0, 0)) LEAVE_MKFS(FR_MKFS_ABORTED);
+ 				if (disk_write(pdrv, buf, sect, (UINT)n) != RES_OK) LEAVE_MKFS(FR_DISK_ERR);
+ 				memset(buf, 0, ss);	/* Rest of FAT area is initially zero */
+ 				sect += n; nsect -= n;
+ 			} while (nsect);
+ 		}
+ 
++		if (!ff_mkfs_progress(pdrv, "Root directory", 85)) LEAVE_MKFS(FR_MKFS_ABORTED);
+ 		/* Initialize root directory (fill with zero) */
+ 		nsect = (fsty == FS_FAT32) ? pau : sz_dir;	/* Number of root directory sectors */
+ 		do {
+ 			n = (nsect > sz_buf) ? sz_buf : nsect;
++			if (!ff_mkfs_progress(pdrv, 0, 0)) LEAVE_MKFS(FR_MKFS_ABORTED);
+ 			if (disk_write(pdrv, buf, sect, (UINT)n) != RES_OK) LEAVE_MKFS(FR_DISK_ERR);
+ 			sect += n; nsect -= n;
+ 		} while (nsect);
+@@ -6566,12 +6594,14 @@
+ 		sys = 0x01;		/* FAT12 */
+ 	}
+ 
+-	/* Update partition information */
++	if (!ff_mkfs_progress(pdrv, "Partition table", 94)) LEAVE_MKFS(FR_MKFS_ABORTED);
++		/* Update partition information */
+ 	if (FF_MULTI_PARTITION && ipart != 0) {	/* Volume is in the existing partition */
+ 		if (!FF_LBA64 || !(fsopt & 0x80)) {	/* Is the partition in MBR? */
+ 			/* Update system ID in the partition table */
+ 			if (disk_read(pdrv, buf, 0, 1) != RES_OK) LEAVE_MKFS(FR_DISK_ERR);	/* Read the MBR */
+ 			buf[MBR_Table + (ipart - 1) * SZ_PTE + PTE_System] = sys;			/* Set system ID */
++			if (!ff_mkfs_progress(pdrv, 0, 0)) LEAVE_MKFS(FR_MKFS_ABORTED);
+ 			if (disk_write(pdrv, buf, 0, 1) != RES_OK) LEAVE_MKFS(FR_DISK_ERR);	/* Write it back to the MBR */
+ 		}
+ 	} else {								/* Volume as a new single partition */
+@@ -6584,6 +6614,7 @@
+ 
+ 	if (disk_ioctl(pdrv, CTRL_SYNC, 0) != RES_OK) LEAVE_MKFS(FR_DISK_ERR);
+ 
++	ff_mkfs_progress(pdrv, "Mounting volume", 96);
+ 	LEAVE_MKFS(FR_OK);
+ }
+ 
+--- a/src/ff.h
++++ b/src/ff.h
+@@ -355,6 +355,8 @@
+ FRESULT f_forward (FIL* fp, UINT(*func)(const BYTE*,UINT), UINT btf, UINT* bf);	/* Forward data to the stream */
+ FRESULT f_expand (FIL* fp, FSIZE_t fsz, BYTE opt);					/* Allocate a contiguous block to the file */
+ FRESULT f_mount (FATFS* fs, const TCHAR* path, BYTE opt);			/* Mount/Unmount a logical drive */
++/* TentacleOS formatting hook: stage=NULL polls cancellation; false aborts mkfs. */
++int ff_mkfs_progress(BYTE drive, const char *stage, UINT percent);
+ FRESULT f_mkfs (const TCHAR* path, const MKFS_PARM* opt, void* work, UINT len);	/* Create a FAT volume */
+ FRESULT f_fdisk (BYTE pdrv, const LBA_t ptbl[], void* work);		/* Divide a physical drive into some partitions */
+ FRESULT f_setcp (WORD cp);											/* Set current code page */

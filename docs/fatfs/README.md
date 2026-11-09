@@ -39,7 +39,7 @@ its build directory. Source edits belong in the patch, never in generated files.
 
 ## Preserved adaptations
 
-Comparison with the original v5.5.3 copy identified changes in three files:
+Comparison with the original v5.5.3 copy identified changes in the following files:
 
 - `src/ffconf.h`: enable `FF_FS_EXFAT` and define `FF_USE_LABEL` as zero when its
   Kconfig option is disabled. Long-file-name heap support remains required.
@@ -71,6 +71,37 @@ missing files, version mismatch, repeat configuration and isolated builds.
 These tests do not access an SD card or establish physical card compatibility.
 
 For an SDK update, compare the new component with the pinned source, rebase the
-three-file patch, review the retained failure paths, and update both source and
+patch, review the retained failure paths, and update both source and
 output hashes. Run the host tests and P4 build before accepting the new manifest.
 Do not remove the hash checks merely to accept an SDK change.
+
+## USB ownership guard
+
+The patch additionally changes `vfs/vfs_fat.c`: suspend/resume retain the VFS
+context and SDMMC/diskio while unregistering/re-registering only the FatFS
+volume. Suspension holds the context lock and refuses open FILs/directories.
+`f_closedir` completes under that lock before removal can be observed. Direct
+filesystem-statistics users route through `esp_vfs_fat_get_free_clusters` under
+the same lock. Callers must not destroy the VFS context while it is suspended.
+These changes retain upstream notices and are covered by the patch/output hash
+gates; never edit the generated build copy.
+
+## Formatting progress hook
+
+The reviewed patch extends `src/ff.c` and `src/ff.h` with the weak
+`ff_mkfs_progress(drive, stage, percent)` hook. A null stage polls cancellation
+before metadata writes; returning zero leaves mkfs through its normal cleanup
+with `FR_MKFS_ABORTED`. Stage updates measure completed filesystem work, with
+weighted ranges (up-case 5–15, bitmap 15–25, FAT 25–85, root 85–90, boot 90–94,
+partition 94–96). Bitmap and FAT ranges advance from actual sector counts.
+It does not measure full-card erasure or predict remaining time. The application
+handles the remaining remount and label steps and owns cancellation state under
+the SD lifecycle guard. The default weak hook preserves unmodified callers.
+RAM-disk tests cancel at multiple exFAT stages, assert no subsequent writes in
+mkfs, and reformat successfully afterwards. All changes are included in the
+patch and output hash manifest; the SDK and generated files remain unedited.
+
+Formatting logs the original numeric FatFS result from `f_mkfs` at error level,
+so an intermittent `ESP_FAIL` can be distinguished from remount failure. No
+automatic destructive retry is performed. Physical failure diagnosis requires
+this result alongside the SDMMC logs.

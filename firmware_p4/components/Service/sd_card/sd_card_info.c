@@ -87,15 +87,10 @@ esp_err_t sd_get_fs_stats(sd_fs_stats_t *stats) {
   if (card == NULL) {
     return ESP_ERR_INVALID_STATE;
   }
-  BYTE pdrv = ff_diskio_get_pdrv_card(card);
-  if (pdrv >= FF_VOLUMES || pdrv > 9) {
-    return ESP_ERR_INVALID_STATE;
-  }
-  char drv[3] = {(char)('0' + pdrv), ':', 0};
   FATFS *fs = NULL;
   DWORD fre_clust;
 
-  if (f_getfree(drv, &fre_clust, &fs) != FR_OK || fs == NULL) {
+  if (esp_vfs_fat_get_free_clusters("/sdcard", &fs, &fre_clust) != ESP_OK || fs == NULL) {
     ESP_LOGE(TAG, "Failed to get filesystem stats");
     return ESP_FAIL;
   }

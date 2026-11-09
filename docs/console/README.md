@@ -236,3 +236,11 @@ be read, rather than reporting uninitialized metadata.
 `badusb run -a` rejects an oversized asset path before USB/BLE initialization.
 The 128-byte asset buffer accepts at most 127 path bytes including its prefix.
 Host regression: `python3 tools/console/test_paths.py` (managed cJSON required).
+
+## SD reformatting
+
+`sd status` reports the mounted card and its filesystem. `sd toexfat` prints the
+formatting warning without changing data. `sd toexfat --yes` reformats the mounted
+card as exFAT and erases all files, including when it is already exFAT. Leave USB
+Storage and stop applications using the card before formatting. An unmounted card
+is rejected. This command does not diagnose or fix USB transport failures.

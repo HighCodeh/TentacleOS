@@ -259,7 +259,8 @@ static bool check_heap(void) {
 static void check_storage_health(void) {
   if (!storage_is_mounted())
     return;
-  if (storage_check_health() != ESP_OK) {
+  esp_err_t ret = storage_check_health();
+  if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
     ESP_LOGW(TAG, "SD health check failed; requesting remount");
     header_ui_request_sd_remount();
   }

@@ -31,6 +31,9 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "sys_prio.h"
+#include "tusb_desc.h"
+
+static const char *TAG = "HOST_LINK_LOG";
 
 #define HOST_LOG_LINE_MAX    240  // bytes of stripped text kept per line
 #define HOST_LOG_QUEUE_DEPTH 24   // ring slots (drop-oldest beyond this)
@@ -92,7 +95,7 @@ static uint16_t strip_ansi(const char *src, int src_len, char *dst, uint16_t dst
 // path or it overflows them just by being entered.
 static __attribute__((noinline)) void queue_relay_line(const char *fmt, va_list args) {
   uint32_t generation = host_link_output_generation();
-  if (generation == 0)
+  if (generation == 0 && !busb_msc_is_exposed())
     return;
   char raw[HOST_LOG_LINE_MAX * 2];
   int raw_len = vsnprintf(raw, sizeof(raw), fmt, args);
@@ -150,7 +153,7 @@ static int log_vprintf(const char *fmt, va_list args) {
   // authenticated. Skipping this keeps this frame tiny on the common path (no
   // companion): the render buffers below would otherwise be reserved on entry
   // and overflow small driver tasks (TinyUSB / wifi_status) just by logging.
-  if (s_log_queue != NULL && host_link_output_generation() != 0)
+  if (s_log_queue != NULL && (host_link_output_generation() != 0 || busb_msc_is_exposed()))
     queue_relay_line(fmt, args);
 
   in_hook = false;
@@ -162,6 +165,14 @@ static void log_task(void *arg) {
   log_line_t line;
   for (;;) {
     if (xQueueReceive(s_log_queue, &line, portMAX_DELAY) == pdTRUE) {
+      if (busb_msc_is_exposed()) {
+        if (tud_cdc_n_connected(0)) {
+          tud_cdc_n_write(0, line.text, line.len);
+          tud_cdc_n_write(0, "\r\n", 2);
+          tud_cdc_n_write_flush(0);
+        }
+        continue;
+      }
       host_link_emit_log_generation(
           line.generation, HOST_LOG_SRC_P4, (host_log_level_t)line.level, line.text, line.len);
     }
@@ -173,8 +184,10 @@ esp_err_t host_link_log_init(void) {
     return ESP_OK; // already installed
 
   s_log_queue = xQueueCreate(HOST_LOG_QUEUE_DEPTH, sizeof(log_line_t));
-  if (s_log_queue == NULL)
+  if (s_log_queue == NULL) {
+    ESP_LOGE(TAG, "Cannot allocate log queue");
     return ESP_ERR_NO_MEM;
+  }
 
   if (xTaskCreatePinnedToCore(log_task,
                               "hl_log",
@@ -183,6 +196,7 @@ esp_err_t host_link_log_init(void) {
                               SYS_PRIO_BACKGROUND,
                               &s_log_task,
                               SYS_CORE_RADIO) != pdPASS) {
+    ESP_LOGE(TAG, "Cannot create log worker");
     vQueueDelete(s_log_queue);
     s_log_queue = NULL;
     return ESP_FAIL;

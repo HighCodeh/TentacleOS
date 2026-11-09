@@ -16,7 +16,6 @@
 #include "usb_storage_ui.h"
 
 #include "esp_log.h"
-#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -47,7 +46,9 @@ static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_status = NULL;
 static lv_obj_t *s_hint = NULL;
 static lv_timer_t *s_timer = NULL;
-static volatile bool s_exit_requested = false;
+static bool s_exit_requested = false;
+static bool s_task_failed = false;
+static bool s_confirm_exit = false;
 
 static void enter_task(void *a) {
   (void)a;
@@ -75,15 +76,27 @@ static void refresh_cb(lv_timer_t *t) {
     s_timer = NULL;
     return;
   }
+  if (s_task_failed) {
+    set_texts("Not enough memory", COL_ERROR, "Press BACK to retry.");
+    return;
+  }
   switch (usb_msc_get_state()) {
     case USB_MSC_ACTIVE:
-      if (usb_msc_host_connected())
-        set_texts("Connected", COL_CONNECTED, "Copy your files, then press BACK to eject.");
+      if (s_confirm_exit)
+        set_texts("Ejected on computer?", COL_READY, "OK: exit USB\nBACK: cancel");
+      else if (usb_msc_host_connected())
+        set_texts("Connected", COL_CONNECTED, "Eject on your computer first.\nThen press BACK.");
       else
-        set_texts("Ready", COL_READY, "Open the drive on your PC.\nBACK ejects and returns.");
+        set_texts("Ready", COL_READY, "BACK returns to files.");
+      break;
+    case USB_MSC_SD_UNAVAILABLE:
+      set_texts("USB stopped; SD unavailable",
+                COL_ERROR,
+                "BACK returns home.\nRestart to retry the SD card.");
       break;
     case USB_MSC_ERROR:
-      set_texts("Couldn't start USB storage", COL_ERROR, "Press BACK to return.");
+      s_exit_requested = false;
+      set_texts("Storage unavailable", COL_ERROR, "Close open files. BACK to return.");
       break;
     case USB_MSC_EXITING:
       set_texts("Ejecting...", current_theme.text_secondary, "Restoring the card.");
@@ -103,22 +116,39 @@ static void refresh_cb(lv_timer_t *t) {
 
 static void usb_storage_input(const input_event_t *ev, void *ctx) {
   (void)ctx;
-  if (ev->action != INPUT_ACTION_PRESS || ev->button != INPUT_BTN_BACK)
+  if (ev->action != INPUT_ACTION_PRESS)
+    return;
+  if (ev->button != INPUT_BTN_BACK && !(s_confirm_exit && ev->button == INPUT_BTN_OK))
     return;
   switch (usb_msc_get_state()) {
+    case USB_MSC_SD_UNAVAILABLE:
+      ui_switch_screen(SCREEN_HOME);
+      break;
+    case USB_MSC_ERROR:
     case USB_MSC_ACTIVE:
+      if (s_exit_requested && !s_task_failed)
+        return;
+      s_task_failed = false;
+      if (ev->button == INPUT_BTN_BACK && usb_msc_host_connected()) {
+        s_confirm_exit = !s_confirm_exit;
+        return;
+      }
+      s_confirm_exit = false;
       s_exit_requested = true;
       set_texts("Ejecting...", current_theme.text_secondary, "Restoring the card.");
       ui_feedback(UI_FB_SELECT);
-      xTaskCreatePinnedToCore(exit_task,
-                              "usb_msc_x",
-                              USB_MSC_TASK_STACK,
-                              NULL,
-                              SYS_PRIO_SERVICE_HI,
-                              NULL,
-                              SYS_CORE_RADIO);
+      if (xTaskCreatePinnedToCore(exit_task,
+                                  "usb_msc_x",
+                                  USB_MSC_TASK_STACK,
+                                  NULL,
+                                  SYS_PRIO_SERVICE_HI,
+                                  NULL,
+                                  SYS_CORE_RADIO) != pdPASS) {
+        s_task_failed = true;
+        s_exit_requested = false;
+        ESP_LOGE(TAG, "Could not create USB exit worker");
+      }
       break;
-    case USB_MSC_ERROR:
     case USB_MSC_IDLE:
       ui_switch_screen(SCREEN_FILES);
       break;
@@ -133,6 +163,8 @@ void ui_usb_storage_open(void) {
     s_screen = NULL;
   }
   s_exit_requested = false;
+  s_task_failed = false;
+  s_confirm_exit = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
@@ -190,15 +222,21 @@ void ui_usb_storage_open(void) {
   s_timer = lv_timer_create(refresh_cb, REFRESH_PERIOD_MS, NULL);
   ui_screen_load_owned(&s_screen, s_screen);
 
-  xTaskCreatePinnedToCore(
-      enter_task, "usb_msc_e", USB_MSC_TASK_STACK, NULL, SYS_PRIO_SERVICE_HI, NULL, SYS_CORE_RADIO);
+  if (xTaskCreatePinnedToCore(enter_task,
+                              "usb_msc_e",
+                              USB_MSC_TASK_STACK,
+                              NULL,
+                              SYS_PRIO_SERVICE_HI,
+                              NULL,
+                              SYS_CORE_RADIO) != pdPASS) {
+    s_task_failed = true;
+    ESP_LOGE(TAG, "Could not create USB entry worker");
+  }
 }
 
 void ui_usb_storage_stop(void) {
   s_status = NULL;
   s_hint = NULL;
-  if (usb_msc_get_state() == USB_MSC_ACTIVE) {
-    ESP_LOGW(TAG, "closed while active - rebooting to restore /sdcard");
-    esp_restart();
-  }
+  if (usb_msc_get_state() == USB_MSC_ACTIVE)
+    ESP_LOGW(TAG, "USB storage retains SD ownership");
 }

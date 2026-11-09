@@ -90,6 +90,7 @@ def test_filesystem(component, work):
     for name in ("FreeRTOS.h", "semphr.h"):
         (headers / "freertos" / name).write_text(C_NOTICE + "#pragma once\n")
     (headers / "sdkconfig.h").write_text(C_NOTICE + r"""
+#define CONFIG_FATFS_USE_LABEL 1
 #define CONFIG_FATFS_USE_FASTSEEK 0
 #define CONFIG_FATFS_CODEPAGE 437
 #define CONFIG_FATFS_LFN_HEAP 1
@@ -115,6 +116,14 @@ def test_filesystem(component, work):
 #define TEST_PATH "0:/Long directory name/arquivo-ação.txt"
 PARTITION VolToPart[FF_VOLUMES] = {{0, 0}, {1, 0}};
 static BYTE *s_disk;
+static UINT s_progress, s_cancel_at = 101;
+static int s_writes, s_cancelled;
+int ff_mkfs_progress(BYTE drive, const char *stage, UINT percent) {
+  assert(drive == 0);
+  if(stage) { assert(percent >= s_progress && percent <= 100); s_progress=percent; }
+  if(s_progress >= s_cancel_at) { s_cancelled=1; return 0; }
+  return 1;
+}
 DSTATUS disk_initialize(BYTE drive) { return drive == 0 ? 0 : STA_NOINIT; }
 DSTATUS disk_status(BYTE drive) { return disk_initialize(drive); }
 DRESULT disk_read(BYTE drive, BYTE *data, LBA_t sector, UINT count) {
@@ -123,6 +132,7 @@ DRESULT disk_read(BYTE drive, BYTE *data, LBA_t sector, UINT count) {
 }
 DRESULT disk_write(BYTE drive, const BYTE *data, LBA_t sector, UINT count) {
   if (drive || sector >= SECTOR_COUNT || count > SECTOR_COUNT-sector) return RES_PARERR;
+  assert(!s_cancelled); s_writes++;
   memcpy(s_disk+(size_t)sector*SECTOR_BYTES,data,(size_t)count*SECTOR_BYTES);return RES_OK;
 }
 DRESULT disk_ioctl(BYTE drive, BYTE command, void *data) {
@@ -143,21 +153,26 @@ int ff_mutex_take(int volume) {(void)volume;return 1;}
 void ff_mutex_give(int volume) {(void)volume;}
 DWORD get_fattime(void) {return 0;}
 int main(void) {
-  assert(FF_FS_EXFAT == 1 && FF_USE_LABEL == 0 && sizeof(FSIZE_t) == 8);
+  assert(FF_FS_EXFAT == 1 && FF_USE_LABEL == 1 && sizeof(FSIZE_t) == 8);
   s_disk=calloc(SECTOR_COUNT,SECTOR_BYTES);assert(s_disk);
   const BYTE formats[]={FM_EXFAT,FM_FAT32,FM_ANY};
   for(size_t i=0;i<sizeof(formats);i++) {
+    s_progress=0;
     memset(s_disk,0,(size_t)SECTOR_COUNT*SECTOR_BYTES);
     BYTE scratch[4096];MKFS_PARM options={formats[i],1,0,0,SECTOR_BYTES};
     assert(f_mkfs("0:",&options,scratch,sizeof(scratch))==FR_OK);
     FATFS fs;assert(f_mount(&fs,"0:",1)==FR_OK);
     assert(formats[i]==FM_EXFAT ? fs.fs_type==FS_EXFAT : fs.fs_type!=FS_EXFAT);
+    assert(f_setlabel("0:Highboy")==FR_OK);
     assert(f_mkdir("0:/Long directory name")==FR_OK);
     FIL file;const char payload[]="TentacleOS exFAT round trip";UINT length;
     assert(f_open(&file,TEST_PATH,FA_CREATE_ALWAYS|FA_WRITE)==FR_OK);
     assert(f_write(&file,payload,sizeof(payload),&length)==FR_OK && length==sizeof(payload));
     assert(f_close(&file)==FR_OK);assert(f_mount(NULL,"0:",0)==FR_OK);
     assert(f_mount(&fs,"0:",1)==FR_OK);
+    char label[34];
+    assert(f_getlabel("0:",label,NULL)==FR_OK);
+    assert(strcmp(label,fs.fs_type==FS_EXFAT ? "Highboy" : "HIGHBOY")==0);
     assert(f_open(&file,TEST_PATH,FA_READ)==FR_OK);
     char result[sizeof(payload)];assert(f_read(&file,result,sizeof(result),&length)==FR_OK);
     assert(length==sizeof(payload) && memcmp(result,payload,sizeof(payload))==0);
@@ -166,6 +181,15 @@ int main(void) {
     assert(f_unlink("0:/Long directory name/renamed.txt")==FR_OK);
     assert(f_unlink("0:/Long directory name")==FR_OK);
     assert(f_mount(NULL,"0:",0)==FR_OK);
+  }
+  const UINT cancellation_points[]={5,15,20,25,50,85,90,94};
+  for(size_t i=0;i<sizeof(cancellation_points)/sizeof(cancellation_points[0]);i++) {
+    BYTE scratch[4096]; MKFS_PARM options={FM_EXFAT,1,0,0,SECTOR_BYTES};
+    s_progress=0; s_cancelled=0; s_cancel_at=cancellation_points[i]; s_writes=0;
+    assert(f_mkfs("0:",&options,scratch,sizeof(scratch))==FR_MKFS_ABORTED);
+    assert(s_cancelled);
+    s_cancelled=0; s_cancel_at=101; s_progress=0;
+    assert(f_mkfs("0:",&options,scratch,sizeof(scratch))==FR_OK);
   }
   free(s_disk);return 0;
 }
@@ -279,6 +303,84 @@ int main(void) {
     subprocess.run([str(exe)], check=True)
 
 
+
+def test_suspend(component, work):
+    source = (component / "vfs/vfs_fat.c").read_text()
+    functions = source[source.index("esp_err_t esp_vfs_fat_suspend("):source.index("esp_err_t esp_vfs_fat_info(")]
+    text = C_NOTICE + r"""
+#include <assert.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <string.h>
+#include <pthread.h>
+#include <errno.h>
+#define ESP_OK 0
+#define ESP_FAIL 1
+#define ESP_ERR_INVALID_STATE 2
+#define FF_VOLUMES 1
+#define FR_OK 0
+#define CONFIG_VFS_SUPPORT_DIR 1
+#define SLIST_EMPTY(list) (*(list) == 0)
+typedef int esp_err_t;
+typedef int FRESULT;
+typedef unsigned DWORD;
+typedef struct { int marker; } FATFS;
+typedef struct {
+  char *fat_drive; size_t max_files; pthread_mutex_t lock; FATFS fs;
+  int open_dirs;
+  struct { struct { void *fs; } obj; } files[2];
+} vfs_fat_ctx_t;
+static vfs_fat_ctx_t context = {.fat_drive="0:", .max_files=2, .lock=PTHREAD_MUTEX_INITIALIZER};
+static vfs_fat_ctx_t *s_fat_ctxs[] = {&context};
+static bool mounted=true, fail_resume=false;
+static int unmounts;
+static size_t find_context_index_by_path(const char *path) { return path && !strcmp(path,"/sdcard") ? 0 : FF_VOLUMES; }
+static void _lock_acquire(pthread_mutex_t *lock) { assert(!pthread_mutex_lock(lock)); }
+static void _lock_release(pthread_mutex_t *lock) { assert(!pthread_mutex_unlock(lock)); }
+static int f_mount(FATFS *fs, const char *drive, int eager) {
+  assert(pthread_mutex_trylock(&context.lock) == EBUSY);
+  assert(!strcmp(drive,"0:"));
+  if (!fs) { assert(!eager); mounted=false; unmounts++; return FR_OK; }
+  assert(eager && fs==&context.fs);
+  mounted=true;
+  if (fail_resume) return 1;
+  return FR_OK;
+}
+static int f_getfree(const char *drive, DWORD *out_free, FATFS **out_fs) {
+  assert(pthread_mutex_trylock(&context.lock) == EBUSY);
+  assert(!strcmp(drive,"0:"));
+  if (!mounted) return 1;
+  *out_free=10; *out_fs=&context.fs; return FR_OK;
+}
+""" + functions + r"""
+static void *suspend_thread(void *arg) { (void)arg; assert(esp_vfs_fat_suspend("/sdcard")==ESP_OK); return NULL; }
+int main(void) {
+  FATFS *fs=NULL; DWORD free_clusters=0;
+  assert(esp_vfs_fat_suspend("/missing")==ESP_ERR_INVALID_STATE);
+  context.files[1].obj.fs=&context.fs;
+  assert(esp_vfs_fat_suspend("/sdcard")==ESP_ERR_INVALID_STATE && mounted && !unmounts);
+  context.files[1].obj.fs=NULL; context.open_dirs=1;
+  assert(esp_vfs_fat_suspend("/sdcard")==ESP_ERR_INVALID_STATE && mounted && !unmounts);
+  context.open_dirs=0;
+  pthread_mutex_lock(&context.lock);
+  pthread_t worker; assert(!pthread_create(&worker,NULL,suspend_thread,NULL));
+  assert(mounted); pthread_mutex_unlock(&context.lock); pthread_join(worker,NULL);
+  assert(!mounted && unmounts==1);
+  assert(esp_vfs_fat_get_free_clusters("/sdcard",&fs,&free_clusters)==ESP_FAIL);
+  fail_resume=true; assert(esp_vfs_fat_resume("/sdcard")==ESP_FAIL && !mounted);
+  fail_resume=false; assert(esp_vfs_fat_resume("/sdcard")==ESP_OK && mounted);
+  assert(esp_vfs_fat_get_free_clusters("/sdcard",&fs,&free_clusters)==ESP_OK && free_clusters==10);
+  return 0;
+}
+"""
+    harness = work / "suspend.c"
+    harness.write_text(text)
+    exe = work / "suspend"
+    subprocess.run([*shlex.split(os.environ.get("CC", "cc")), "-std=c11", "-pthread",
+                    "-fsanitize=address,undefined", str(harness), "-o", str(exe)], check=True)
+    subprocess.run([str(exe)], check=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--idf", type=Path, required=True)
@@ -288,6 +390,7 @@ def main():
         component = test_generation(args.idf, work)
         test_filesystem(component, work)
         test_format_lifecycle(component, work)
+        test_suspend(component, work)
     print("PASS: pinned patch generation, tamper rejection, idempotence, isolated outputs; real exFAT/FAT32/FAT RAM-disk round trips")
 
 

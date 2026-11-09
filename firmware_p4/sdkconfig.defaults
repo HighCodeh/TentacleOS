@@ -157,3 +157,6 @@ CONFIG_MBEDTLS_HARDWARE_AES=n
 
 # DES/3DES is isolated in NFC; TF-PSA-Crypto rejects the SDK legacy option.
 CONFIG_MBEDTLS_DES_C=n
+
+# Name formatted SD volumes for USB storage hosts.
+CONFIG_FATFS_USE_LABEL=y

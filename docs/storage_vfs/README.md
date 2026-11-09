@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # P4
 
 The VFS system provides a unified, low-level abstraction layer for multiple storage backends, allowing applications to work with files using a consistent API regardless of the underlying storage medium (SD Card, SPIFFS, LittleFS, or RAM).
@@ -535,92 +552,88 @@ esp_err_t vfs_littlefs_format(void);
 > `include/vfs_sdcard.h`). The C5 has no USB connector or SD card and does not
 > build these.
 
-USB Mass Storage mode exposes the microSD directly to a host PC as a USB drive.
-Because a host filesystem and the firmware's FAT mount cannot own the card at
-the same time, entering MSC hands the raw block device over to the USB stack and
-tears down the app's `/sdcard` mount; leaving MSC does the reverse and resumes
-normal operation **without a reboot** (it only reboots if the remount fails).
+USB Storage exposes the entire microSD as raw sectors, including its partition
+map. SDMMC remains initialized at **40 MHz, 4-bit** throughout entry and exit.
+The application and USB host never deliberately mount the filesystem together.
 
-### Control API (`usb_msc.h`)
+### Ownership and recovery
 
-```c
-#include "usb_msc.h"
+`usb_msc_enter()` atomically claims the transition, then calls
+`esp_vfs_fat_suspend()` under the FatFS VFS context lock. Existing operations
+finish before suspension; open files or directory streams reject entry without
+closing them or restarting the device. The retained VFS context remains valid,
+but its FatFS volume is unmounted, so subsequent stdio and VFS opens cannot
+access the card. Filesystem statistics use the same lock. The SD host/card and
+diskio registration remain allocated; no clock/slot reinitialization occurs.
 
-typedef enum {
-  USB_MSC_IDLE = 0,  // Not in USB-storage mode
-  USB_MSC_ENTERING,  // Detaching SD / bringing USB up
-  USB_MSC_ACTIVE,    // SD exposed to the host as a USB drive
-  USB_MSC_ERROR,     // Could not enter (SD restored, safe to leave)
-  USB_MSC_EXITING,   // Tearing down / remounting SD
-} usb_msc_state_t;
+`usb_msc_exit()` hides MSC and queues a barrier on the TinyUSB task. Every
+synchronous sector operation finishes before the filesystem is resumed. A
+remount failure triggers one CMD12 STOP_TRANSMISSION (one-second command timeout),
+then at most one additional mount attempt if CMD12 succeeds. A persistent failure
+retains the card, reports `USB_MSC_SD_UNAVAILABLE`, and allows BACK to return home
+without issuing more SD commands. The filesystem stays suspended, MSC stays
+hidden, and new USB Storage entries are refused until restart. There is no
+automatic reboot or formatting. Calls must run on workers, never the LVGL thread. Atomic
+transitions reject concurrent entry/exit requests.
 
-usb_msc_state_t usb_msc_get_state(void);   // poll from the UI
-bool            usb_msc_host_connected(void); // true while the host has it mounted
-void            usb_msc_enter(void);        // blocking - run on a worker task
-void            usb_msc_exit(void);         // blocking - run on a worker task
-```
+The UI's Connected status means USB enumeration, not a mounted host volume.
+BACK while connected asks for confirmation that the volume was ejected; OK
+exits and BACK cancels. A host filesystem unmount need not send SCSI eject.
+Worker creation failures are displayed instead of leaving a permanent spinner.
 
-- `usb_msc_enter()` detaches the app's `/sdcard` FAT, exposes the raw card to the
-  host, and switches the USB mux to native. On failure the SD is restored and the
-  state goes to `USB_MSC_ERROR`.
-- The MSC driver is installed with `auto_mount_off`, so the firmware is the sole
-  owner of the card: the esp_tinyusb layer never auto-remounts or formats the FAT
-  on host connect/eject. The host eject flush is served as raw-sector writes;
-  without this the eject-time remount fights our handoff and reboots the device,
-  dropping the just-copied files.
-- esp_tinyusb allocates the whole MSC storage object (which embeds a
-  `CONFIG_TINYUSB_MSC_BUFSIZE` buffer) from `MALLOC_CAP_DMA`, i.e. internal RAM on
-  the P4. That RAM is tight by the time the Files UI is up, so the buffer is kept
-  at 1024 B; a `USB_MSC: MSC storage init failed` after an
-  `heap_caps_aligned_alloc` failure means it must drop further (512 B).
-- `usb_msc_exit()` stops exposing the card, remounts `/sdcard`, and routes the USB
-  connector back to the UART bridge. It resumes without a reboot; only a failed
-  remount forces a reboot to recover.
-- Storage deletion can report pending deferred writes. Exit retries for up to
-  100 attempts with 10 ms delays; the card and storage handle remain owned by
-  MSC until deletion succeeds. If deletion still fails, MSC is exposed again
-  and the state returns to `USB_MSC_ACTIVE`. The Files screen remains open and
-  BACK can retry eject. The firmware never frees or remounts a live MSC card.
-- Entry failures restore the app mount only after any created storage instance
-  has been deleted. A failed rollback remount uses the same controlled reboot
-  recovery as a failed exit remount. A USB mux failure is logged and rolled back.
-- Atomic state transitions reject overlapping enter/exit workers. The UI's
-  connected indicator checks USB enumeration with `tud_mounted()` while active;
-  it never queries a potentially deleted storage handle. This indicates a USB
-  connection, not proof that the host OS has mounted a filesystem.
-- Both `usb_msc_enter()` and `usb_msc_exit()` are **blocking** - never call them
-  from the LVGL thread; drive them from a worker task and poll `usb_msc_get_state()`.
+### Sector transport
 
-### Host regression tests
+The first-party `usb_msc.c` implements TinyUSB MSC callbacks directly. It does
+not instantiate esp_tinyusb's storage wrapper: version 2.4.0 still acknowledges
+deferred writes before their SD result is known. Read/write callbacks now
+complete SDMMC I/O before returning success and propagate failures as SCSI
+medium errors. The first read/write failure latches the LUN unavailable until
+exit; subsequent host requests do not flood the failed card with more I/O.
+Writes use one SD sector per command because IDF 6.1 multi-block error recovery
+can overwrite the original error with the result of CMD22. This favors correct
+error reporting over multi-block write throughput; the bus remains at 40 MHz.
+Address arithmetic is 64-bit, checks capacity and sector
+alignment, and includes the callback offset. The 1024-byte TinyUSB endpoint
+buffer supports whole 512-byte SD sectors; partial-sector requests are rejected.
+SYNCHRONIZE CACHE checks card status after preceding synchronous writes. Eject
+marks the LUN unavailable without mounting it inside the USB callback.
 
-Run `node --test tools/highboy/tests/test_usb_msc.mjs` from the repository root.
-The test compiles the actual `usb_msc.c` with the host C compiler and mocks only
-hardware/library interfaces. It covers normal and repeated cycles, deferred
-writes, persistent deletion failure, failed entry/rollback/remount, overlapping
-calls and mux failures. No firmware build, attached device or card is used.
-Real USB enumeration, eject timing and filesystem integrity still need device
-validation with a disposable test card.
+The `msc_storage_mount_to_app/usb` integration hooks intentionally do nothing:
+esp_tinyusb's bus notifications cannot transfer filesystem ownership. Their
+signatures must be reviewed when upgrading esp_tinyusb. No managed source is
+modified. The existing TinyUSB stack handles USB BOT and endpoint transfers.
 
-### Raw SD handoff (`vfs_sdcard.h`)
+### Native diagnostics
 
-MSC is implemented on top of two raw-handoff helpers in the SD backend that give
-up and reclaim the physical card around the USB stack:
+During MSC, CDC interface 0 outputs plain-text P4 logs through the existing
+bounded host-link log queue. It does not accept companion binary commands in
+this mode. Open the new `/dev/cu.usbmodem*` port on the Mac to observe SD errors
+while UART is hidden by the mux. Output is best effort and may drop lines when
+the host cannot keep up; a disconnected terminal cannot block storage I/O.
+Leaving MSC restores the CDC companion protocol on subsequent native use.
 
-```c
-// Give up the app's FAT mount and hand back the SD as a RAW, still-powered block
-// device for USB MSC. The card is re-initialized (never formatted).
-// out_card receives an sdmmc_card_t* (as void*) on success.
-esp_err_t vfs_sdcard_detach_for_msc(void **out_card);
+### Validation
 
-// Undo the detach: release the raw SDMMC card+host handed to MSC and remount the
-// app FAT at /sdcard. Call AFTER the MSC storage layer is torn down. Lets the
-// firmware resume without a reboot. `card` is the handle from the detach call.
-esp_err_t vfs_sdcard_reattach_after_msc(void *card);
-```
+`node --test tools/highboy/tests/test_usb_msc.mjs` compiles the production MSC
+implementation with mocked hardware. It covers repeated cycles, busy entry,
+remount retry, transition reentrancy, USB-task drain, invalid/out-of-range I/O,
+read/write errors, flush and eject. `python tools/fatfs/test_fatfs.py --idf
+"$IDF_PATH"` validates the verified override and RAM-disk FAT/exFAT round trips.
+`python tools/highboy/tests/test_usb_descriptors.py` checks actual descriptor
+arrays with upstream TinyUSB macros under ASan/UBSan. `python
+tools/highboy/tests/test_usb_storage_input.py` covers exit confirmation and
+worker-allocation failure and leaving the screen with an unavailable SD.
+`python tools/highboy/tests/test_usb_sd_recovery.py` tests the bounded recovery
+and both command/transport error paths. These do not replace physical USB/SD
+validation. The timeout observed on the physical card is not proven resolved
+by these host tests.
 
-`vfs_sdcard_detach_for_msc()` leaves the app FAT mount detached on failure;
-`vfs_sdcard_reattach_after_msc()` performs the remount that returns the card to
-the firmware.
+After flashing P4, use a backed-up test card: enter Storage, verify capacity,
+copy a file in both directions and compare hashes, eject in macOS, confirm exit
+on Highboy, and repeat several times. Capture native CDC logs if the volume
+fails to mount. Neither First Aid repair nor formatting is required by this
+implementation. The previous macOS failures are not proven fixed until this
+hardware test passes.
 
 ---
 
@@ -1197,3 +1210,31 @@ Rebuild your project. All `vfs_*` function calls remain the same.
 3. **Close file descriptors** - Always call `vfs_close()` when done
 4. **Use absolute paths** - Include mount point (e.g., "/sdcard/file.txt")
 5. **Single backend only** - Never uncomment multiple backends in `vfs_config.h`
+
+### SD formatting and lifecycle exclusion
+
+Formatting, initialization, teardown and USB handoff share a non-blocking atomic
+access guard. Concurrent lifecycle calls return `ESP_ERR_INVALID_STATE` instead
+of releasing a card or FatFS context still in use. Health probes hold the same
+guard across their complete write/read/remove sequence. A busy probe is skipped,
+not reported as a media failure requiring remount.
+
+Formatting first suspends FatFS, rejecting open files/directories and preventing
+new opens while the volume is being rewritten. Allocation failure restores the
+original mount; a failed remount releases the retained context exactly once.
+This does not change the SDMMC clock or bus width. Regression coverage:
+`python3 tools/highboy/tests/test_sd_format_lifecycle.py`.
+
+Successful SD formatting sets the filesystem volume label to `Highboy` (FAT
+normalizes it to `HIGHBOY`). This is the name shown by Finder, independently of
+USB manufacturer/product descriptors. Existing volumes are not renamed at boot
+or on USB entry; they can be renamed in Finder without reformatting. Label write
+failures are logged and returned as errors. `CONFIG_FATFS_USE_LABEL=y` enables
+the FatFS label API.
+
+`vfs_sdcard_format_with_progress()` accepts a worker-context callback for stage
+and weighted completion updates. Returning false requests cancellation between
+metadata writes, reported as `ESP_ERR_NOT_FINISHED`; no task is forcibly deleted.
+The guard remains held through remount/cleanup, including cancellation. Existing
+format APIs use the same path without a callback. The UI publishes progress and
+cancel requests atomically and never accesses LVGL from this callback.

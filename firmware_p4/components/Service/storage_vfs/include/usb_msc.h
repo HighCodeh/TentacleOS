@@ -30,11 +30,12 @@ extern "C" {
  * @brief USB Mass Storage mode state.
  */
 typedef enum {
-  USB_MSC_IDLE = 0, /**< Not in USB-storage mode. */
-  USB_MSC_ENTERING, /**< Detaching SD / bringing USB up. */
-  USB_MSC_ACTIVE,   /**< SD exposed to the host as a USB drive. */
-  USB_MSC_ERROR,    /**< Could not enter (SD restored, safe to leave). */
-  USB_MSC_EXITING,  /**< Tearing down / remounting SD. */
+  USB_MSC_IDLE = 0,       /**< Not in USB-storage mode. */
+  USB_MSC_ENTERING,       /**< Detaching SD / bringing USB up. */
+  USB_MSC_ACTIVE,         /**< SD exposed to the host as a USB drive. */
+  USB_MSC_ERROR,          /**< Entry failed; no host owns the card. */
+  USB_MSC_EXITING,        /**< Tearing down / remounting SD. */
+  USB_MSC_SD_UNAVAILABLE, /**< USB stopped; SD quarantined until restart. */
 } usb_msc_state_t;
 
 /**
@@ -45,9 +46,9 @@ typedef enum {
 usb_msc_state_t usb_msc_get_state(void);
 
 /**
- * @brief Check whether the host PC currently has the drive mounted.
+ * @brief Check whether USB is enumerated (not whether the filesystem is mounted).
  *
- * @return true while the host PC has the drive mounted, false otherwise.
+ * @return true while USB is enumerated in storage mode, false otherwise.
  */
 bool usb_msc_host_connected(void);
 
@@ -60,9 +61,10 @@ void usb_msc_enter(void);
 
 /**
  * @brief Leave USB Mass Storage mode and RESUME normal operation (no reboot):
- *        stop exposing the card, remount /sdcard for the app, and route the USB
- *        connector back to the UART bridge. Only if the remount fails does it
- *        reboot to recover. Blocking — run on a worker task.
+ *        Caller must obtain confirmation that the host volume was ejected.
+ *        Stop exposing the card, remount /sdcard for the app, and route the USB
+ *        connector back to the UART bridge. A failed recovery leaves SD unavailable until restart;
+ * UI may leave safely. Blocking — run on a worker task.
  */
 void usb_msc_exit(void);
 

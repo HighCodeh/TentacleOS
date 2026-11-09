@@ -358,3 +358,13 @@ Host Link receive queue produces a warning. These diagnostics include lengths
 only, never PSKs or packet contents. A later `HELLO rejected` message identifies
 security validation failure. BLE relay initialization is idempotent so reopening
 PC Monitor can restart advertising after the screen previously stopped it.
+
+## USB Storage diagnostic mode
+
+When MSC is exposed, CDC interface 0 carries best-effort plain-text P4 logs from
+the existing bounded log queue. Incoming CDC bytes are drained without companion
+command dispatch; CDC session acquisition and binary writes are disabled in this
+mode. The host-link command worker is not started solely for USB Storage.
+After leaving MSC, normal native companion initialization starts that worker
+if needed. Open `/dev/cu.usbmodem*` on macOS to inspect storage errors while the
+USB mux hides the UART bridge. This diagnostic stream is not the console REPL.

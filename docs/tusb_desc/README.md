@@ -34,7 +34,7 @@ This component defines the USB descriptors required to enumerate the ESP32-P4 as
 |-------|-------|
 | USB Version | 2.0 (`bcdUSB` `0x0200`) |
 | Vendor ID | `0xCAFE` |
-| Product ID | `0x4001` |
+| Product ID | `0x4001` (base), `0x4003` (Storage) |
 | Device Class | Miscellaneous / Common / IAD (`TUSB_CLASS_MISC`) - required so the host groups the CDC interfaces |
 | Configurations | 1 |
 
@@ -79,11 +79,11 @@ Single HID interface with two reports using Report IDs:
 | Index | Value |
 |-------|-------|
 | 0 | Language ID (English US) |
-| 1 | Manufacturer: "HighCode" |
-| 2 | Product: "BadUSB Device" |
-| 3 | Serial: "123456" |
-| 4 | CDC interface: "TentacleOS Companion" |
-| 5 | MSC interface: "TentacleOS SD" (only present when MSC is compiled in) |
+| 1 | Manufacturer: "Highboy" |
+| 2 | Product: "Highboy" |
+| 3 | Serial: factory MAC, twelve hexadecimal digits |
+| 4 | CDC interface: "Highboy Companion" |
+| 5 | MSC interface: "Highboy Storage" (only present when MSC is compiled in) |
 
 ## API Reference
 
@@ -196,7 +196,32 @@ The component implements the required TinyUSB callbacks to serve descriptors to 
 | `tud_hid_get_report_cb` | Handles GET_REPORT requests (stub) |
 | `tud_hid_set_report_cb` | Handles SET_REPORT requests (stub) |
 
-The CDC-ACM and MSC class callbacks are not implemented here: they live in the
-components that own those interfaces (the companion host link for CDC, and the
-SD/mass-storage feature for MSC). This component only defines the shared
-descriptors and the descriptor-serving callbacks above.
+CDC-ACM callbacks are registered by `host_link_cdc.c`. MSC sector callbacks
+are implemented directly in `storage_vfs/usb_msc.c`; the inquiry response here
+uses Highboy branding. The esp_tinyusb storage wrapper is not instantiated.
+
+## Highboy USB identity
+
+Native P4 USB uses Highboy as manufacturer and product in HID/CDC, storage and
+optional voice modes. MSC SCSI INQUIRY reports vendor `Highboy`, product
+`Highboy Storage` and revision `1.0`, with fixed-width space padding. The native TinyUSB
+`inquiry2` callback supplies this identity before the library's legacy inquiry
+fallback; no managed sources or USB VID/PID/serial values are changed.
+
+The mounted volume label belongs to the card filesystem and is preserved. The
+CP2105 UART bridge and ROM download interfaces have independent descriptors;
+the P4 application cannot rename those through its native TinyUSB descriptors.
+Reconnect native USB after updating so the host can enumerate the new strings.
+
+## USB Storage descriptor review
+
+USB dependencies now use compatible ranges (`esp_tinyusb ^2.4.0`,
+`tinyusb ^0.21.0`); the Component Manager resolved 2.4.0 and 0.21.0~2 during
+validation. `idf.py update-dependencies` refreshes an existing local lockfile.
+
+Storage has PID `0x4003`, separate from HID/CDC `0x4001` and optional voice
+`0x4002`, so host descriptor caches do not mix the layouts. Manufacturer/product
+remain Highboy. The serial is the factory MAC rendered as twelve hexadecimal
+digits. A device qualifier is supplied explicitly, and Other Speed Configuration
+uses the active interface layout with opposite-speed bulk packet sizes and
+descriptor type 7. Full-speed bulk endpoints use 64 bytes; high-speed uses 512.
