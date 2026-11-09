@@ -398,6 +398,25 @@ The built-in games menu no longer includes the experimental 3D scene. Its
 renderer, embedded mesh/texture, host service and startup hooks are removed.
 Game Boy, Doom and external app discovery retain their existing behavior.
 
+## Coverflow navigation timing
+
+The main coverflow transitions in 260 ms, with a 100 ms label fade. Navigation,
+opening an app and favorite changes are ignored until all item animations finish.
+Held-key repeats can advance again after completion; no repeat queue accumulates.
+BACK remains available during both animation and preload.
+
+On opening the menu, the visible images load first and navigation is immediately
+available. A 20 ms UI timer preloads one remaining item/frame pair per idle tick;
+it pauses during item animations to avoid competing with rendering. Preloading
+never resets the selected item or its pose. All distinct icon and base frames
+are decoded and pinned in the LVGL image cache for the menu's lifetime, including
+the side views. Decoder handles live in PSRAM; shared bases and repeated glyphs
+are pinned only once. Screen deletion cancels pending preload and releases every
+handle, allowing cache eviction. Allocation or decoding failure releases the pins
+and retains on-demand loading. Rapid navigation to a not-yet-preloaded image can
+still require a synchronous load. Display DMA buffers and the separate coverflow
+preview are unchanged.
+
 ### USB Storage with an unavailable SD
 
 USB exit no longer depends on successfully mounting the card. After USB I/O has

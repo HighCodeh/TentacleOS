@@ -1,5 +1,20 @@
 // Copyright (c) 2025 HIGH CODE LLC
 //
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
+// Copyright (c) 2025 HIGH CODE LLC
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -30,9 +45,7 @@ static const char *TAG = "LVGL_GLUE";
 #define LVGL_PORT_TASK_STACK      (16 * 1024)
 #define LVGL_PORT_MAX_SLEEP_MS    500
 #define LVGL_PORT_TIMER_PERIOD_MS 5
-// Two 80-line DMA buffers consumed ~75 KB of internal RAM. Forty-line double
-// buffering still gives the SPI panel long contiguous transfers while returning
-// ~37 KB to NFC/Sub-GHz/audio DMA and the general internal heap.
+// Keep LCD DMA buffers internal; full-frame PSRAM transfers regressed navigation.
 #define LVGL_BUF_LINES           (LCD_PANEL_H / 8)
 #define ROTATION_LOCK_TIMEOUT_MS 2000
 

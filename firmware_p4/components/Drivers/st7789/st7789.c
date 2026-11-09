@@ -259,6 +259,7 @@ esp_err_t st7789_init(void) {
       .lcd_param_bits = LCD_PARAM_BITS,
       .spi_mode = 0,
       .trans_queue_depth = SPI_IO_QUEUE_DEPTH,
+      .flags.psram_dma_direct = false,
   };
   esp_err_t ret = esp_lcd_new_panel_io_spi(SPI3_HOST, &io_config, &io_handle);
   if (ret != ESP_OK) {

@@ -19,6 +19,7 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "lvgl.h"
 #include "draw/lv_image_decoder_private.h"
 
@@ -46,15 +47,20 @@ static const char *TAG = "UI_MENU";
 
 #define MENU_ITEM_FRAME_COUNT 3
 #define MENU_ITEM_COUNT       (sizeof(s_menu_data) / sizeof(s_menu_data[0]))
-#define ANIM_MS               400
-#define LABEL_FADE_MS         300
-#define FONT_PATH             "A:assets/fonts/Inter.bin"
-#define ICON_CENTER_OFFSET_Y  (-10)
-#define LABEL_OFFSET_Y        (-40)
-#define DOTS_OFFSET_Y         (-20)
-#define FAV_BADGE_Y           34
-#define FAV_ACCENT            0xF5B13D
-#define FAV_HINT_DIM          0x6D7A75
+#define PRELOAD_INTERVAL_MS   20
+#define PRELOAD_SOURCE_COUNT  2
+#define PRELOAD_FRAME_COUNT   (MENU_ITEM_COUNT * MENU_ITEM_FRAME_COUNT)
+#define PRELOAD_HANDLE_COUNT  (PRELOAD_FRAME_COUNT * PRELOAD_SOURCE_COUNT)
+
+#define ANIM_MS              260
+#define LABEL_FADE_MS        100
+#define FONT_PATH            "A:assets/fonts/Inter.bin"
+#define ICON_CENTER_OFFSET_Y (-10)
+#define LABEL_OFFSET_Y       (-40)
+#define DOTS_OFFSET_Y        (-20)
+#define FAV_BADGE_Y          34
+#define FAV_ACCENT           0xF5B13D
+#define FAV_HINT_DIM         0x6D7A75
 
 static const int32_t CAROUSEL_PX[] = {-120, -75, 0, 75, 120};
 static const int32_t CAROUSEL_PY[] = {-25, -12, 0, -12, -25};
@@ -203,14 +209,16 @@ static lv_obj_t *s_icon_imgs[MENU_ITEM_COUNT];
 static page_dots_t s_page_dots;
 static uint8_t s_selected = 0;
 static lv_font_t *s_font = NULL;
-static bool s_is_animating = false;
+static lv_timer_t *s_preload_timer;
+static lv_image_decoder_dsc_t *s_decoders;
+static size_t s_decoder_count;
+static size_t s_preload_frame;
 
 static int32_t carousel_slot(size_t item_idx);
 static void load_item_frame(size_t item_idx, int frame);
 static void place_item(size_t item_idx, bool anim);
 static void fix_z_order(void);
 static void update_view(bool anim);
-static void on_anim_done(lv_anim_t *a);
 static void menu_event_cb(lv_event_t *e);
 
 static int32_t carousel_slot(size_t item_idx) {
@@ -385,11 +393,6 @@ failed:
   return NULL;
 }
 
-static void on_anim_done(lv_anim_t *a) {
-  (void)a;
-  s_is_animating = false;
-}
-
 // lv_obj_set_style_opa takes a third (selector) argument, so it cannot be used
 // directly as a 2-arg animation exec callback: the selector would be an
 // uninitialized register. Under -O2 that garbage selector made each frame add a
@@ -408,6 +411,9 @@ static void load_item_frame(size_t item_idx, int frame) {
 }
 
 static void place_item(size_t item_idx, bool anim) {
+  // Retarget from the current pose, including items leaving the visible slots.
+  lv_anim_delete(s_base_imgs[item_idx], NULL);
+  lv_anim_delete(s_icon_imgs[item_idx], NULL);
   int32_t slot = carousel_slot(item_idx);
 
   if (slot < 0) {
@@ -451,8 +457,6 @@ static void place_item(size_t item_idx, bool anim) {
     lv_anim_set_var(&a, s_base_imgs[item_idx]);
     lv_anim_set_values(&a, lv_obj_get_x_aligned(s_base_imgs[item_idx]), tx);
     lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)lv_obj_set_x);
-    if (is_center)
-      lv_anim_set_completed_cb(&a, on_anim_done);
     lv_anim_start(&a);
 
     lv_anim_set_var(&a, s_icon_imgs[item_idx]);
@@ -558,6 +562,83 @@ static void update_view(bool anim) {
   fix_z_order();
 }
 
+static bool is_animating(void) {
+  for (size_t i = 0; i < MENU_ITEM_COUNT; ++i) {
+    if (lv_anim_get(s_base_imgs[i], NULL) != NULL || lv_anim_get(s_icon_imgs[i], NULL) != NULL)
+      return true;
+  }
+  return false;
+}
+
+static void release_preload(void) {
+  if (s_preload_timer != NULL) {
+    lv_timer_delete(s_preload_timer);
+    s_preload_timer = NULL;
+  }
+  while (s_decoder_count != 0)
+    lv_image_decoder_close(&s_decoders[--s_decoder_count]);
+  heap_caps_free(s_decoders);
+  s_decoders = NULL;
+}
+
+static void menu_delete_cb(lv_event_t *e) {
+  (void)e;
+  release_preload();
+}
+
+static bool pin_image(const lv_image_dsc_t *source) {
+  if (source == NULL)
+    return false;
+  for (size_t i = 0; i < s_decoder_count; ++i) {
+    if (s_decoders[i].src == source)
+      return true;
+  }
+  lv_image_decoder_dsc_t *decoder = &s_decoders[s_decoder_count];
+  if (lv_image_decoder_open(decoder, source, NULL) != LV_RESULT_OK)
+    return false;
+  ++s_decoder_count;
+  return decoder->decoded != NULL;
+}
+
+static void preload_cb(lv_timer_t *timer) {
+  (void)timer;
+  if (is_animating())
+    return;
+  size_t item = s_preload_frame / MENU_ITEM_FRAME_COUNT;
+  int frame = s_preload_frame % MENU_ITEM_FRAME_COUNT;
+  load_item_frame(item, frame);
+  if (!pin_image(s_menu_data[item].base_dscs[frame]) ||
+      !pin_image(s_menu_data[item].icon_dscs[frame])) {
+    ESP_LOGW(TAG, "Menu preload unavailable; using on-demand images");
+    release_preload();
+    return;
+  }
+  ++s_preload_frame;
+  if (s_preload_frame == PRELOAD_FRAME_COUNT) {
+    lv_timer_delete(s_preload_timer);
+    s_preload_timer = NULL;
+  }
+}
+
+static void start_preload(void) {
+  s_preload_frame = 0;
+  s_decoders = heap_caps_calloc(
+      PRELOAD_HANDLE_COUNT, sizeof(*s_decoders), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (s_decoders == NULL) {
+    ESP_LOGE(TAG, "No PSRAM for menu preload handles");
+    goto cleanup;
+  }
+  s_preload_timer = lv_timer_create(preload_cb, PRELOAD_INTERVAL_MS, NULL);
+  if (s_preload_timer == NULL) {
+    ESP_LOGE(TAG, "Cannot create menu preload timer");
+    goto cleanup;
+  }
+  return;
+
+cleanup:
+  release_preload();
+}
+
 static void wifi_enable_task(void *arg) {
   (void)arg;
   wifi_service_start();
@@ -596,6 +677,13 @@ static void menu_open_selected(void) {
 static void menu_event_cb(lv_event_t *e) {
   const lv_event_code_t code = lv_event_get_code(e);
 
+  if (code == LV_EVENT_KEY && lv_event_get_key(e) == LV_KEY_ESC) {
+    ui_switch_screen(SCREEN_HOME);
+    return;
+  }
+  if (is_animating())
+    return;
+
   if (code == LV_EVENT_SHORT_CLICKED) {
     menu_open_selected();
     return;
@@ -613,10 +701,6 @@ static void menu_event_cb(lv_event_t *e) {
   size_t n = MENU_ITEM_COUNT;
 
   if (k == LV_KEY_RIGHT || k == LV_KEY_LEFT) {
-    if (s_is_animating)
-      return;
-    s_is_animating = true;
-
     if (k == LV_KEY_RIGHT)
       s_selected = (s_selected + 1) % n;
     else
@@ -660,8 +744,6 @@ void ui_menu_open(void) {
     s_screen = NULL;
   }
 
-  s_is_animating = false;
-
   for (size_t i = 0; i < MENU_ITEM_COUNT; i++) {
     for (int f = 0; f < MENU_ITEM_FRAME_COUNT; f++) {
       s_menu_data[i].icon_dscs[f] = NULL;
@@ -703,7 +785,9 @@ void ui_menu_open(void) {
   s_page_dots = page_dots_create(s_screen, MENU_ITEM_COUNT, LV_ALIGN_BOTTOM_MID, 0, DOTS_OFFSET_Y);
 
   update_view(false);
+  start_preload();
 
+  lv_obj_add_event_cb(s_screen, menu_delete_cb, LV_EVENT_DELETE, NULL);
   lv_obj_add_flag(s_screen, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(s_screen, menu_event_cb, LV_EVENT_KEY, NULL);
   lv_obj_add_event_cb(s_screen, menu_event_cb, LV_EVENT_SHORT_CLICKED, NULL);
