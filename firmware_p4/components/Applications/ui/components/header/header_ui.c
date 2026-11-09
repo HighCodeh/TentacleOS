@@ -49,9 +49,14 @@
 #define HEADER_ACTIVE_TINT_HEX 0x00E676
 #define SD_CD_PRESENT_LEVEL    0
 
-#define STATUS_POLL_MS         1000
-#define WIFI_ANIM_MS           800
-#define BATTERY_CHARGE_ANIM_MS 350
+#define STATUS_POLL_MS             1000
+#define WIFI_ANIM_MS               800
+#define BATTERY_CHARGE_ANIM_MS     350
+#define BATTERY_LOW_PERCENT        20
+#define BATTERY_MID_PERCENT        45
+#define BATTERY_FULL_PERCENT       100
+#define BATTERY_FULL_FRAME         3
+#define BATTERY_LAST_PARTIAL_FRAME 2
 
 #define SD_MOUNT_RETRIES        3
 #define SD_MOUNT_RETRY_DELAY_MS 150
@@ -438,6 +443,14 @@ void header_ui_set_wifi_connecting(bool connecting) {
 
 static void battery_charge_anim_cb(lv_timer_t *timer);
 
+static int battery_level_frame(int soc) {
+  if (soc < BATTERY_LOW_PERCENT)
+    return 0;
+  if (soc < BATTERY_MID_PERCENT)
+    return 1;
+  return soc < BATTERY_FULL_PERCENT ? BATTERY_LAST_PARTIAL_FRAME : BATTERY_FULL_FRAME;
+}
+
 static void battery_apply(void) {
   if (!battery_cont || !lv_obj_is_valid(battery_cont))
     return;
@@ -462,19 +475,16 @@ static void battery_apply(void) {
   if (!battery_img || !lv_obj_is_valid(battery_img))
     return;
 
-  int soc_idx;
-  if (bs.soc < 20)
-    soc_idx = 0;
-  else if (bs.soc < 45)
-    soc_idx = 1;
-  else if (bs.soc < 75)
-    soc_idx = 2;
-  else
-    soc_idx = 3;
+  int soc_idx = battery_level_frame(bs.soc);
 
   bool charging_changed = (bs.charging != s_batt_charging_last);
 
   if (bs.charging) {
+    if (charging_changed || soc_idx != s_batt_soc_idx_last) {
+      battery_frame = soc_idx;
+      if (battery_dscs[battery_frame])
+        lv_image_set_src(battery_img, battery_dscs[battery_frame]);
+    }
     if (charging_changed)
       lv_obj_set_style_image_recolor_opa(battery_img, LV_OPA_TRANSP, 0);
     if (battery_charge_timer == NULL)
@@ -521,7 +531,19 @@ static void battery_charge_anim_cb(lv_timer_t *timer) {
     battery_charge_timer = NULL;
     return;
   }
-  battery_frame = (battery_frame + 1) & 3;
+  if (!s_batt_present_last || !s_batt_charging_last)
+    return;
+  int first = s_batt_soc_idx_last;
+  battery_frame =
+      first >= BATTERY_FULL_FRAME
+          ? BATTERY_FULL_FRAME
+          : (battery_frame < first || battery_frame >= BATTERY_FULL_FRAME ? first
+                                                                          : battery_frame + 1);
+  if (power_img != NULL)
+    lv_obj_set_style_opa(power_img,
+                         lv_obj_get_style_opa(power_img, 0) == LV_OPA_COVER ? LV_OPA_50
+                                                                            : LV_OPA_COVER,
+                         0);
   if (battery_dscs[battery_frame])
     lv_image_set_src(battery_img, battery_dscs[battery_frame]);
 }
@@ -725,7 +747,7 @@ void header_ui_attach_status_snapshot(lv_obj_t *parent, int y_offset) {
   if (!present)
     lv_obj_add_flag(bcont, LV_OBJ_FLAG_HIDDEN);
 
-  int soc_idx = present ? (bs.soc < 20 ? 0 : bs.soc < 45 ? 1 : bs.soc < 75 ? 2 : 3) : 2;
+  int soc_idx = present ? battery_level_frame(bs.soc) : 2;
   lv_obj_t *bimg = lv_image_create(bcont);
   if (battery_dscs[soc_idx])
     lv_image_set_src(bimg, battery_dscs[soc_idx]);

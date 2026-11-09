@@ -426,3 +426,17 @@ to Home without launching another exit worker. The card remains quarantined and
 Storage cannot re-expose it until restart. Normal host eject confirmation and
 successful return to Files are unchanged.
 
+## Live battery display
+
+The header uses the current charge level as the first charging-animation frame
+(under 20%, under 45%, and 45–99%). Charging cycles from that level through the full frame and then returns to the
+actual level. At 45–99%, the last block alternates filled/empty while the preceding
+blocks remain filled. Only 100% keeps the fill permanently full. Static overlays
+and unplugged operation show the actual level; the lightning symbol pulses while
+charging.
+
+Battery settings refresh percentage, voltage, source, charging status and gauge
+once per second from the battery service snapshot. There is no extra I2C polling
+from the UI. Missing readings show unavailable values. The refresh timer is
+removed when the screen is deleted; reopening creates one new timer. USB presence
+alone is no longer described as fully charged.

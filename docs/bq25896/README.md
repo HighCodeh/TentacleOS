@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # BQ25896 Charger / PMIC Driver
 
 This component drives the Texas Instruments BQ25896 single-cell battery charger and power-path IC over I2C. It exposes battery voltage, charge and VBUS status, charge enable control, and a real ship-mode power-off. A thin `battery_service` layer sits on top and publishes a single smoothed snapshot that the UI reads instead of polling the charger directly.
@@ -150,10 +167,26 @@ Convenience accessors: smoothed SoC (0-100, or -1 if no valid reading yet) and t
 
 The raw voltage-derived SoC is filtered before it reaches the UI:
 
-- **EMA:** `ema = (ema*3 + raw) / 4` (`SOC_EMA_DEN = 4`) rejects the transient voltage sag when a radio transmits.
-- **Slew limit:** at most `SOC_STEP_MAX = 3` % change applied per poll.
-- **Monotonic on battery:** off external power, SoC never climbs (a recovering voltage after a load sag would otherwise bounce it up); it only rises while charging or on external power.
-- **Low-battery hysteresis:** latches `low` at/below `LOW_ENTER_PCT = 15`, releases at/above `LOW_EXIT_PCT = 20`; never low while charging or on VBUS.
+- **EMA:** fixed-point voltage-derived SoC averaging, avoiding integer truncation bias.
+- **USB/charge transitions:** hold the displayed estimate for 30 valid samples and
+  average the terminal voltage while it settles. At the end, anchor that voltage
+  to the displayed SoC. Subsequent estimates follow changes relative to this
+  anchor, instead of drifting toward the pre-transition absolute voltage curve.
+  A piecewise linear mapping retains the empty/full endpoints, so the anchor does
+  not leave a permanent additive percentage at empty. Anchors are runtime-only;
+  a cold boot still starts with the uncalibrated voltage estimate.
+- **Slew limit:** one percentage point per 30 valid samples (normally 30 seconds),
+  rather than three points each second. Voltage and charger-state telemetry still
+  update every second. Invalid ADC samples do not advance the filter.
+- **Direction:** USB presence alone cannot raise SoC; charging or charge-done is
+  required. Full voltage alone is capped at 99%; charge-done permits convergence
+  toward 100%. The first valid sample initializes the estimate directly.
+- **Limitations:** this remains a voltage-based estimate, not coulomb counting or
+  a calibrated cell model. Transition anchoring compensates the observed voltage discontinuity but cannot
+  distinguish subsequent load sag from discharge, or calibrate the true capacity.
+  It deliberately preserves the pre-transition estimate, including any existing
+  error; a cell-specific curve or fuel gauge remains necessary for accuracy.
+- **Low-battery hysteresis:** latches `low` when raw or displayed SoC is at/below `LOW_ENTER_PCT = 15`, releases at/above `LOW_EXIT_PCT = 20`; never low while charging or on VBUS.
 - **Charging debounce:** turns the charging indicator on immediately, off immediately when unplugged, but requires `CHG_OFF_DEBOUNCE = 3` consecutive not-charging polls to drop it while still on external power.
 
 ## Key Config / Tunables
@@ -166,7 +199,7 @@ The raw voltage-derived SoC is filtered before it reaches the UI:
 | `BATV_BASE_MV` / `BATV_STEP_MV` | `bq25896.c` | 2304 / 20 | REG0E voltage decode |
 | `BATTERY_MIN_MV` / `BATTERY_MAX_MV` | `bq25896.c` | 3200 / 4200 | Percent-estimate endpoints |
 | `POLL_INTERVAL_MS` | `battery_service.c` | 1000 | Steady poll cadence (first sample at ~1200 ms) |
-| `SOC_STEP_MAX` | `battery_service.c` | 3 | Max SoC delta per poll |
+| `SOC_STEP_MAX` | `battery_service.c` | 1 | Max SoC delta per 30 valid samples |
 | `SOC_EMA_DEN` | `battery_service.c` | 4 | EMA denominator |
 | `LOW_ENTER_PCT` / `LOW_EXIT_PCT` | `battery_service.c` | 15 / 20 | Low-battery hysteresis |
 | `CHG_OFF_DEBOUNCE` | `battery_service.c` | 3 | Not-charging polls before clearing the indicator |

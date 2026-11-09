@@ -27,7 +27,12 @@ static const char *TAG = "BATTERY_SVC";
 #define POLL_INTERVAL_MS 1000
 #define CHG_OFF_DEBOUNCE 3 // not-charging polls (while still plugged) before dropping the flag
 #define TASK_STACK       4096
-#define SOC_STEP_MAX     3  // max SoC delta applied per poll (smoothing)
+#define SOC_STEP_MAX     1
+#define SOC_UPDATE_POLLS 30
+#define SOC_SETTLE_POLLS 30
+#define SOC_FILTER_SCALE 256
+#define SOC_MAX_PARTIAL  99
+#define SOC_FULL_PERCENT 100
 #define SOC_EMA_DEN      4  // EMA: ema = (ema*3 + raw)/4 (rejects load sag)
 #define LOW_ENTER_PCT    15 // latch "low" at/below this SoC
 #define LOW_EXIT_PCT     20 // release "low" at/above this SoC (hysteresis)
@@ -53,10 +58,84 @@ static int step_toward(int prev, int target) {
   return prev + d;
 }
 
+typedef struct {
+  int soc;
+  int ema_scaled;
+  int anchor_soc;
+  int anchor_raw;
+  unsigned stable_polls;
+  unsigned settle_polls;
+  bool has_sample;
+  bool on_usb;
+  bool charging;
+} battery_service_filter_t;
+
+static int filter_soc(battery_service_filter_t *filter, const bq25896_telem_t *sample) {
+  int raw = clamp_pct(sample->soc);
+  if (sample->chg != CHARGE_STATUS_CHARGE_DONE && raw > SOC_MAX_PARTIAL)
+    raw = SOC_MAX_PARTIAL;
+  if (!filter->has_sample) {
+    filter->soc = raw;
+    filter->ema_scaled = raw * SOC_FILTER_SCALE;
+    filter->anchor_soc = raw;
+    filter->anchor_raw = raw;
+    filter->has_sample = true;
+    filter->on_usb = sample->power_good;
+    filter->charging = sample->charging;
+    return filter->soc;
+  }
+  if (filter->on_usb != sample->power_good || filter->charging != sample->charging) {
+    filter->on_usb = sample->power_good;
+    filter->charging = sample->charging;
+    filter->settle_polls = SOC_SETTLE_POLLS;
+    filter->stable_polls = 0;
+    filter->ema_scaled = raw * SOC_FILTER_SCALE;
+  }
+  if (filter->settle_polls != 0) {
+    filter->ema_scaled += (raw * SOC_FILTER_SCALE - filter->ema_scaled) / SOC_EMA_DEN;
+    if (--filter->settle_polls == 0) {
+      // Preserve charge across the power-source voltage step, not just its display delay.
+      filter->anchor_soc = filter->soc;
+      filter->anchor_raw = (filter->ema_scaled + SOC_FILTER_SCALE / 2) / SOC_FILTER_SCALE;
+    }
+    return filter->soc;
+  }
+  filter->ema_scaled += (raw * SOC_FILTER_SCALE - filter->ema_scaled) / SOC_EMA_DEN;
+  if (++filter->stable_polls < SOC_UPDATE_POLLS)
+    return filter->soc;
+  filter->stable_polls = 0;
+  int filtered = (filter->ema_scaled + SOC_FILTER_SCALE / 2) / SOC_FILTER_SCALE;
+  int target = filter->anchor_soc;
+  if (filtered < filter->anchor_raw && filter->anchor_raw > 0) {
+    target = (filtered * filter->anchor_soc + filter->anchor_raw / 2) / filter->anchor_raw;
+  } else if (filtered > filter->anchor_raw && filter->anchor_raw < SOC_FULL_PERCENT) {
+    int range = SOC_FULL_PERCENT - filter->anchor_raw;
+    target +=
+        ((filtered - filter->anchor_raw) * (SOC_FULL_PERCENT - filter->anchor_soc) + range / 2) /
+        range;
+  }
+  if (target > SOC_MAX_PARTIAL && filter->soc < SOC_FULL_PERCENT)
+    target = SOC_MAX_PARTIAL;
+  if (sample->power_good && sample->chg == CHARGE_STATUS_CHARGE_DONE)
+    target = SOC_FULL_PERCENT;
+  else if (!sample->charging && target > filter->soc)
+    target = filter->soc;
+  filter->soc = step_toward(filter->soc, target);
+  return filter->soc;
+}
+
 static void battery_task(void *arg) {
   (void)arg;
   int soc = s_snap.soc;
-  int ema = s_snap.soc; // EMA of the raw voltage-derived SoC
+  battery_service_filter_t filter = {
+      .soc = s_snap.soc,
+      .ema_scaled = s_snap.soc * SOC_FILTER_SCALE,
+      .anchor_soc = s_snap.soc,
+      .anchor_raw = s_snap.soc,
+      .has_sample = s_snap.valid,
+      .on_usb = s_snap.vbus_present,
+      .charging = s_snap.charging,
+  };
   bool low = s_snap.low;
   bool charging_disp = s_snap.charging; // debounced charging shown to the UI
   int chg_off = 0;
@@ -64,8 +143,7 @@ static void battery_task(void *arg) {
   bool first = true;
 
   for (;;) {
-    // First sample sooner (~1.2 s, just after the ADC's first continuous
-    // conversion) so soc leaves 0% quickly; steady 3 s cadence afterwards.
+    // Allow the first continuous ADC conversion to finish.
     vTaskDelay(pdMS_TO_TICKS(first ? 1200 : POLL_INTERVAL_MS));
     first = false;
 
@@ -91,28 +169,15 @@ static void battery_task(void *arg) {
       continue;
     }
 
-    // Filter the raw (voltage-lookup) SoC: an EMA rejects the transient voltage
-    // sag when a radio transmits (which otherwise makes the % dip then
-    // recover).
-    int raw = clamp_pct(t.soc);
-    ema = (ema * (SOC_EMA_DEN - 1) + raw) / SOC_EMA_DEN;
-    int target = ema;
-
-    // On battery, SoC must never climb: after a load sag the voltage recovers,
-    // which would otherwise bounce the reading back up. It only rises while
-    // charging / on external power.
-    if (!t.charging && !t.power_good && target > soc)
-      target = soc;
-
-    soc = step_toward(soc, target);
+    soc = filter_soc(&filter, &t);
 
     // Low-battery hysteresis: never low while charging or on external power;
     // otherwise latch below LOW_ENTER_PCT, release at/above LOW_EXIT_PCT.
     if (t.charging || t.power_good)
       low = false;
-    else if (soc <= LOW_ENTER_PCT)
+    else if (soc <= LOW_ENTER_PCT || t.soc <= LOW_ENTER_PCT)
       low = true;
-    else if (soc >= LOW_EXIT_PCT)
+    else if (soc >= LOW_EXIT_PCT && t.soc >= LOW_EXIT_PCT)
       low = false;
 
     // Debounce charging so the icon/bolt doesn't flicker when the charger
@@ -155,8 +220,9 @@ void battery_service_init(void) {
 
   // One synchronous read so the first UI paint already has real data.
   bq25896_telem_t t;
-  if (bq25896_read_telemetry(&t) == ESP_OK) {
-    s_snap.soc = clamp_pct(t.soc);
+  if (bq25896_read_telemetry(&t) == ESP_OK && t.adc_continuous) {
+    battery_service_filter_t filter = {0};
+    s_snap.soc = filter_soc(&filter, &t);
     s_snap.vbat_mv = t.vbat_mv;
     s_snap.present = bq25896_is_present();
     s_snap.charging = t.charging;

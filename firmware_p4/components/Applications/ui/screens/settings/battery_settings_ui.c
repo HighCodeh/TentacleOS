@@ -17,6 +17,8 @@
 
 #include <stdio.h>
 
+#include "esp_log.h"
+
 #include "battery_service.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
@@ -25,6 +27,11 @@
 #include "ui_theme.h"
 
 static const char *TAG = "BATTERY_SETTINGS_UI";
+
+#define BATTERY_REFRESH_MS   1000
+#define BATTERY_FULL_PERCENT 100
+#define VOLTAGE_MV_PER_V     1000
+#define VOLTAGE_CENTIVOLT_MV 10
 
 #define ARC_SIZE      124
 #define ARC_WIDTH     13
@@ -41,6 +48,8 @@ static const char *TAG = "BATTERY_SETTINGS_UI";
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_arc = NULL;
 static lv_font_t *s_big_font = NULL;
+static lv_obj_t *s_pct, *s_chg, *s_voltage, *s_source, *s_status, *s_eta;
+static lv_timer_t *s_refresh_timer;
 
 static lv_color_t level_color(int pct) {
   if (pct < 25)
@@ -54,7 +63,8 @@ static void arc_anim_exec_cb(void *obj, int32_t v) {
   lv_arc_set_value((lv_obj_t *)obj, v);
 }
 
-static void add_stat_card(lv_obj_t *parent, const char *value, const char *unit, lv_color_t color) {
+static lv_obj_t *
+add_stat_card(lv_obj_t *parent, const char *value, const char *unit, lv_color_t color) {
   lv_obj_t *card = lv_obj_create(parent);
   lv_obj_set_size(card, STAT_CARD_W, STAT_CARD_H);
   lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
@@ -78,6 +88,62 @@ static void add_stat_card(lv_obj_t *parent, const char *value, const char *unit,
   lv_obj_set_style_text_font(u, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(u, current_theme.text_main, 0);
   lv_obj_set_style_text_opa(u, LV_OPA_50, 0);
+  return v;
+}
+
+static void refresh_cb(lv_timer_t *timer) {
+  (void)timer;
+  battery_snapshot_t bs = {0};
+  bool have = battery_service_get(&bs) && bs.present;
+  int soc = have ? bs.soc : 0;
+  lv_anim_delete(s_arc, arc_anim_exec_cb);
+  lv_arc_set_value(s_arc, soc);
+  lv_obj_set_style_arc_color(s_arc, level_color(soc), LV_PART_INDICATOR);
+  if (have) {
+    lv_label_set_text_fmt(s_pct, "%d%%", soc);
+    lv_label_set_text_fmt(s_voltage,
+                          "%u.%02u",
+                          bs.vbat_mv / VOLTAGE_MV_PER_V,
+                          (bs.vbat_mv % VOLTAGE_MV_PER_V) / VOLTAGE_CENTIVOLT_MV);
+  } else {
+    lv_label_set_text(s_pct, "--");
+    lv_label_set_text(s_voltage, "--");
+  }
+  const char *state = !have             ? "UNAVAILABLE"
+                      : bs.charging     ? LV_SYMBOL_CHARGE " CHARGING"
+                      : bs.vbus_present ? LV_SYMBOL_CHARGE " ON USB"
+                                        : LV_SYMBOL_BATTERY_FULL " ON BATTERY";
+  lv_color_t color = have && bs.charging ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_main;
+  lv_label_set_text(s_chg, state);
+  lv_obj_set_style_text_color(s_chg, color, 0);
+  lv_obj_set_style_bg_color(s_chg, color, 0);
+  lv_label_set_text(s_source, !have ? "--" : bs.vbus_present ? "USB" : "BATT");
+  lv_obj_set_style_text_color(s_source,
+                              have && bs.vbus_present ? lv_color_hex(UI_COL_SUCCESS)
+                                                      : current_theme.text_main,
+                              0);
+  lv_label_set_text(s_status,
+                    !have         ? "--"
+                    : bs.charging ? (bs.chg == CHARGE_STATUS_PRECHARGE ? "PRE" : "FAST")
+                    : soc >= BATTERY_FULL_PERCENT ? "FULL"
+                                                  : "IDLE");
+  lv_obj_set_style_text_color(s_status, color, 0);
+  if (have && !bs.vbus_present)
+    lv_label_set_text_fmt(s_eta, LV_SYMBOL_BATTERY_FULL " %d%% remaining", soc);
+  else
+    lv_label_set_text(s_eta,
+                      !have                         ? "Battery unavailable"
+                      : bs.charging                 ? "Charging"
+                      : soc >= BATTERY_FULL_PERCENT ? "Fully charged / on USB"
+                                                    : "On USB; not charging");
+}
+
+static void screen_delete_cb(lv_event_t *event) {
+  (void)event;
+  if (s_refresh_timer != NULL) {
+    lv_timer_delete(s_refresh_timer);
+    s_refresh_timer = NULL;
+  }
 }
 
 static void battery_settings_input(const input_event_t *ev, void *ctx) {
@@ -137,16 +203,7 @@ void ui_battery_settings_open(void) {
   lv_obj_set_style_arc_color(s_arc, accent, LV_PART_INDICATOR);
   lv_obj_set_style_arc_rounded(s_arc, true, LV_PART_INDICATOR);
 
-  lv_anim_t ga;
-  lv_anim_init(&ga);
-  lv_anim_set_var(&ga, s_arc);
-  lv_anim_set_exec_cb(&ga, arc_anim_exec_cb);
-  lv_anim_set_values(&ga, 0, soc);
-  lv_anim_set_duration(&ga, GAUGE_ANIM_MS);
-  lv_anim_set_path_cb(&ga, lv_anim_path_ease_out);
-  lv_anim_start(&ga);
-
-  lv_obj_t *pct = lv_label_create(s_screen);
+  lv_obj_t *pct = s_pct = lv_label_create(s_screen);
   if (have)
     lv_label_set_text_fmt(pct, "%d%%", soc);
   else
@@ -155,7 +212,7 @@ void ui_battery_settings_open(void) {
   lv_obj_set_style_text_color(pct, current_theme.text_main, 0);
   lv_obj_align_to(pct, s_arc, LV_ALIGN_CENTER, 0, -10);
 
-  lv_obj_t *chg = lv_label_create(s_screen);
+  lv_obj_t *chg = s_chg = lv_label_create(s_screen);
   uint32_t chip_color;
   if (charging) {
     lv_label_set_text(chg, LV_SYMBOL_CHARGE " CHARGING");
@@ -190,11 +247,11 @@ void ui_battery_settings_open(void) {
 
   char vbat_s[12];
   snprintf(vbat_s, sizeof(vbat_s), "%u.%02u", bs.vbat_mv / 1000, (bs.vbat_mv % 1000) / 10);
-  add_stat_card(stats, have ? vbat_s : "--", "VBAT", current_theme.text_main);
-  add_stat_card(stats,
-                on_usb ? "USB" : "BATT",
-                "SOURCE",
-                on_usb ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_main);
+  s_voltage = add_stat_card(stats, have ? vbat_s : "--", "VBAT", current_theme.text_main);
+  s_source = add_stat_card(stats,
+                           on_usb ? "USB" : "BATT",
+                           "SOURCE",
+                           on_usb ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_main);
 
   const char *st = "IDLE";
   lv_color_t st_col = current_theme.border_accent;
@@ -205,9 +262,9 @@ void ui_battery_settings_open(void) {
     st = "FULL";
     st_col = lv_color_hex(UI_COL_SUCCESS);
   }
-  add_stat_card(stats, st, "STATUS", st_col);
+  s_status = add_stat_card(stats, st, "STATUS", st_col);
 
-  lv_obj_t *eta = lv_label_create(s_screen);
+  lv_obj_t *eta = s_eta = lv_label_create(s_screen);
   if (charging)
     lv_label_set_text(eta, LV_SYMBOL_CHARGE " Charging");
   else if (on_usb)
@@ -229,5 +286,19 @@ void ui_battery_settings_open(void) {
 
   ui_input_set_screen_handler(battery_settings_input, NULL);
 
+  lv_obj_add_event_cb(s_screen, screen_delete_cb, LV_EVENT_DELETE, NULL);
+  refresh_cb(NULL);
+  lv_anim_t ga;
+  lv_anim_init(&ga);
+  lv_anim_set_var(&ga, s_arc);
+  lv_anim_set_exec_cb(&ga, arc_anim_exec_cb);
+  lv_anim_set_values(&ga, 0, soc);
+  lv_anim_set_duration(&ga, GAUGE_ANIM_MS);
+  lv_anim_set_path_cb(&ga, lv_anim_path_ease_out);
+  lv_anim_start(&ga);
+
+  s_refresh_timer = lv_timer_create(refresh_cb, BATTERY_REFRESH_MS, NULL);
+  if (s_refresh_timer == NULL)
+    ESP_LOGE(TAG, "Cannot start battery display updates");
   ui_screen_load_owned(&s_screen, s_screen);
 }
