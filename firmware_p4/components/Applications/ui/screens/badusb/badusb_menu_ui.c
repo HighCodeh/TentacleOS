@@ -386,12 +386,13 @@ static bool badusb_abort_requested(void) {
 }
 
 static esp_err_t run_via_usb(void) {
+  bool is_hid_started = false;
   s_prev_mux_native = usb_mux_is_native();
   esp_err_t err = usb_mux_set_native(true);
   if (err == ESP_OK) {
     esp_err_t ie = bad_usb_init();
-    if (ie != ESP_OK && ie != ESP_ERR_INVALID_STATE)
-      err = ie;
+    is_hid_started = ie == ESP_OK;
+    err = ie;
   }
 
   if (err == ESP_OK) {
@@ -413,6 +414,8 @@ static esp_err_t run_via_usb(void) {
     ducky_set_progress_callback(NULL);
   }
 
+  if (is_hid_started)
+    bad_usb_deinit();
   usb_mux_set_native(s_prev_mux_native);
   return err;
 }

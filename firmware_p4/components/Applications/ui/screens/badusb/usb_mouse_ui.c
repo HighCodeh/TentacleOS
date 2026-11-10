@@ -129,7 +129,7 @@ static void refresh_chip(void) {
 static void refresh_usb_status(void) {
   if (s_usb_init_ok && !s_hid_initialized && usb_mux_result() == ESP_OK && usb_mux_is_native()) {
     esp_err_t ret = bad_usb_init();
-    s_hid_initialized = ret == ESP_OK || ret == ESP_ERR_INVALID_STATE;
+    s_hid_initialized = ret == ESP_OK;
     s_usb_init_ok = s_hid_initialized;
   }
   bool ready = s_hid_initialized && s_usb_init_ok && usb_mux_result() == ESP_OK &&
@@ -409,6 +409,10 @@ void ui_usb_mouse_stop(void) {
   if (s_jiggle_timer != NULL) {
     lv_timer_delete(s_jiggle_timer);
     s_jiggle_timer = NULL;
+  }
+  if (s_hid_initialized) {
+    bad_usb_deinit();
+    s_hid_initialized = false;
   }
   if (usb_mux_is_native() != s_prev_mux_native)
     (void)usb_mux_request_native(s_prev_mux_native);

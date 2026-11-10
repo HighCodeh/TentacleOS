@@ -15,9 +15,12 @@ You should have received a copy of the GNU General Public License
 along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 -->
 
-# TinyUSB Descriptors (HID + CDC + optional MSC Composite)
+# TinyUSB Descriptors (runtime USB profiles)
 
-This component defines the USB descriptors required to enumerate the ESP32-P4 as a USB composite device and provides the initialization routine for the TinyUSB driver. The composite is HID (Keyboard + Mouse, for BadUSB) plus a CDC-ACM interface (the companion host link), with an optional mass-storage (MSC) interface exposed only while the SD card is handed to the host.
+The native USB connection defaults to CDC-ACM only. Explicit BadUSB sessions
+advertise keyboard/mouse HID + CDC; USB Storage advertises CDC + MSC without
+HID. The product string remains Highboy in each profile. Advertising a keyboard,
+not the product string, can trigger macOS Keyboard Setup Assistant.
 
 ## Overview
 
@@ -34,21 +37,16 @@ This component defines the USB descriptors required to enumerate the ESP32-P4 as
 |-------|-------|
 | USB Version | 2.0 (`bcdUSB` `0x0200`) |
 | Vendor ID | `0xCAFE` |
-| Product ID | `0x4001` (base), `0x4003` (Storage) |
+| Product ID | `0x4004` (CDC), `0x4001` (HID), `0x4005` (Storage) |
 | Device Class | Miscellaneous / Common / IAD (`TUSB_CLASS_MISC`) - required so the host groups the CDC interfaces |
 | Configurations | 1 |
 
 ### Configuration Descriptor
 
-The config is runtime-selected. `tud_descriptor_configuration_cb` picks a variant
-by both link speed and whether MSC is currently exposed, all built from a single
-`HID_CDC_BLOCK` macro (optionally followed by an `MSC_INTERFACE`).
-
-| Field | Value |
-|-------|-------|
-| Interfaces | 3 (HID + CDC comm + CDC data), or 4 with MSC (`TUSB_DESC_ITF_NUM_TOTAL`) |
-| Max Power | 100 mA |
-| Attributes | Remote Wakeup |
+The configuration is selected by link speed and active profile. CDC alone uses
+interfaces 0/1; storage uses CDC 0/1 and MSC 2. HID sessions retain HID 0 and
+CDC 1/2. There are two interfaces for CDC and three for HID or storage.
+Max power remains 100 mA with remote wakeup.
 
 The CDC bulk (data) endpoint size is speed-dependent: USB requires exactly 512
 bytes at High Speed and 64 at Full Speed. The P4 USB is High Speed, but two
@@ -63,7 +61,7 @@ which would also take the HID keyboard down.
 | HID (keyboard + mouse) | 0 | IN `0x81` |
 | CDC-ACM comm | 1 | notification IN `0x82` |
 | CDC-ACM data | 2 | OUT `0x03`, IN `0x83` |
-| MSC (optional) | 3 | OUT `0x04`, IN `0x84` |
+| MSC (storage profile, CDC moves to 0/1) | 2 | OUT `0x04`, IN `0x84` |
 
 ### HID Report Descriptor
 
@@ -107,9 +105,9 @@ void busb_set_msc_exposed(bool exposed);
 ```
 Advertises (or hides) the mass-storage interface on the composite at runtime.
 
-MSC is off by default, so plain native-USB bring-ups enumerate as HID + CDC only.
+MSC and HID are off by default, so plain native-USB bring-ups enumerate as CDC only.
 `tud_descriptor_configuration_cb` reads `s_msc_exposed` at request time and serves
-the 4-interface (MSC) config variant only while the flag is set. Behavior:
+the 3-interface (MSC) config variant only while the flag is set. Behavior:
 
 - If TinyUSB is not up yet, the call just latches the flag so the first
   enumeration advertises the right layout.
@@ -206,7 +204,8 @@ Native P4 USB uses Highboy as manufacturer and product in HID/CDC, storage and
 optional voice modes. MSC SCSI INQUIRY reports vendor `Highboy`, product
 `Highboy Storage` and revision `1.0`, with fixed-width space padding. The native TinyUSB
 `inquiry2` callback supplies this identity before the library's legacy inquiry
-fallback; no managed sources or USB VID/PID/serial values are changed.
+fallback. Managed sources are untouched; VID and serial stay stable, while
+profile PIDs distinguish interface layouts.
 
 The mounted volume label belongs to the card filesystem and is preserved. The
 CP2105 UART bridge and ROM download interfaces have independent descriptors;
@@ -219,9 +218,25 @@ USB dependencies now use compatible ranges (`esp_tinyusb ^2.4.0`,
 `tinyusb ^0.21.0`); the Component Manager resolved 2.4.0 and 0.21.0~2 during
 validation. `idf.py update-dependencies` refreshes an existing local lockfile.
 
-Storage has PID `0x4003`, separate from HID/CDC `0x4001` and optional voice
+Storage has PID `0x4005`, separate from CDC `0x4004`, HID/CDC `0x4001` and optional voice
 `0x4002`, so host descriptor caches do not mix the layouts. Manufacturer/product
 remain Highboy. The serial is the factory MAC rendered as twelve hexadecimal
 digits. A device qualifier is supplied explicitly, and Other Speed Configuration
 uses the active interface layout with opposite-speed bulk packet sizes and
 descriptor type 7. Full-speed bulk endpoints use 64 bytes; high-speed uses 512.
+
+## Explicit HID sessions
+
+`busb_set_hid_exposed(bool)` selects HID + CDC with a detach/reconnect when
+TinyUSB is installed. Enabling HID is rejected during storage or voice mode.
+Storage entry clears HID selection; storage exit returns to CDC only.
+`bad_usb_init()` enables HID and acquires its resource. UI scripts, host scripts,
+console commands and the mouse screen release it on completion/exit via
+`bad_usb_deinit()`, which hides HID without uninstalling the shared TinyUSB driver.
+The mouse screen currently uses the combined keyboard/mouse HID profile too.
+The optional voice build retains its existing HID/CDC/audio layout.
+
+CDC and storage use new PIDs so hosts do not reuse the old keyboard-containing
+layouts. The descriptor test checks HID absence in both profiles, FS/HS endpoint
+sizes, Other Speed descriptors and identity. Hardware validation requires a
+reflash and reconnect, then entry/exit of storage and explicit HID sessions.

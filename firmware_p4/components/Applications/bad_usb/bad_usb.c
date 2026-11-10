@@ -44,7 +44,6 @@ static bool hid_report_ready(void);
 
 esp_err_t bad_usb_init(void) {
   if (s_is_initialized) {
-    ESP_LOGW(TAG, "Already initialized");
     return ESP_ERR_INVALID_STATE;
   }
 
@@ -58,9 +57,12 @@ esp_err_t bad_usb_init(void) {
     return ESP_ERR_INVALID_STATE;
   }
 
-  esp_err_t err = busb_init();
+  esp_err_t err = busb_set_hid_exposed(true);
+  if (err == ESP_OK)
+    err = busb_init();
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to initialize TinyUSB: %s", esp_err_to_name(err));
+    (void)busb_set_hid_exposed(false);
     resource_release(s_hid_res);
     s_hid_res = RES_HANDLE_NONE;
     return err;
@@ -83,9 +85,9 @@ esp_err_t bad_usb_deinit(void) {
   ESP_LOGI(TAG, "Deinitializing...");
   hid_hal_register_callback(NULL, NULL, NULL, NULL);
 
-  esp_err_t err = tinyusb_driver_uninstall();
+  esp_err_t err = busb_set_hid_exposed(false);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to uninstall TinyUSB driver: %s", esp_err_to_name(err));
+    ESP_LOGE(TAG, "Failed to hide USB HID: %s", esp_err_to_name(err));
     return err;
   }
 

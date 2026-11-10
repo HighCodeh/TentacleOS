@@ -62,6 +62,9 @@ extern "C" {
  */
 esp_err_t busb_init(void);
 
+// Explicit HID sessions only; ordinary native USB exposes CDC without a keyboard.
+esp_err_t busb_set_hid_exposed(bool exposed);
+
 /**
  * @brief Advertise (or hide) the mass-storage interface on the composite.
  *
