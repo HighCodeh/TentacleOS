@@ -1375,3 +1375,11 @@ At/parity and SPI-failure checks. Physical dump validation remains necessary.
 - Report unsupported antenna auto-tuning: AAT pins are unconnected.
 - Checked amplitude reads distinguish measurement failure from zero.
 - Tests: `tools/nfc/test_irq_exchange.py`, `tools/nfc/test_pt_memory.py`.
+
+## Reader activation and lifecycle
+
+- Validate anticollision BCC, cascade UIDs and SELECT CRC before accepting a card.
+- Keep TX/RX status together; bound FIFO reads and reject failed reselection.
+- Reset the frontend when changing from reader to listener; yield during idle loops.
+- Preserve Ultralight AES/I2C operations and enforce READ/version frame sizes.
+- Regression: `tools/nfc/test_reader_activation.py`.

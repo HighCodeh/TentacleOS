@@ -31,6 +31,7 @@
 #define NFC_LISTENER_STACK_BYTES 4096
 #define NFC_LISTENER_RETRY_MS    10
 #define NFC_LISTENER_WAIT_MS     3000
+#define NFC_LISTENER_YIELD_MS    10
 
 static const char *TAG = "NFC_LISTENER";
 
@@ -69,7 +70,11 @@ hb_nfc_err_t nfc_listener_start(const hb_nfc_card_data_t *card) {
   hb_nfc_err_t error = HB_NFC_ERR_INTERNAL;
   if (atomic_load(&s_phase) != NFC_LISTENER_IDLE)
     goto cleanup;
-  if (card != NULL && card->protocol == HB_PROTO_MF_CLASSIC) {
+  if (card != NULL && card->protocol != HB_PROTO_MF_CLASSIC) {
+    error = ESP_ERR_NOT_SUPPORTED;
+    goto cleanup;
+  }
+  if (card != NULL) {
     mfc_emu_card_data_init(&s_card, &card->iso14443a, mf_classic_get_type(card->iso14443a.sak));
   } else {
     int index = nfc_device_get_active();
@@ -220,6 +225,10 @@ static hb_nfc_err_t configure_hardware(void) {
   if (power_manager_no_sleep_acquire() != ESP_OK)
     return HB_NFC_ERR_INTERNAL;
   s_has_power = true;
+  // Reader stream/analog state must not leak into the next target session.
+  highboy_nfc_deinit();
+  if (highboy_nfc_is_initialized())
+    return HB_NFC_ERR_INTERNAL;
   highboy_nfc_config_t config = HIGHBOY_NFC_CONFIG_DEFAULT();
   if (highboy_nfc_init(&config) != ESP_OK)
     return HB_NFC_ERR_INTERNAL;
@@ -299,6 +308,7 @@ static void listener_task(void *arg) {
       atomic_compare_exchange_strong(
           &s_phase, &expected, error == HB_NFC_OK ? NFC_LISTENER_RUNNING : NFC_LISTENER_STOPPING);
     }
+    TickType_t last_yield = xTaskGetTickCount();
     while (atomic_load(&s_phase) == NFC_LISTENER_RUNNING) {
       if (s_is_t2t) {
         t2t_emu_run_step();
@@ -310,7 +320,12 @@ static void listener_task(void *arg) {
           atomic_store(&s_phase, NFC_LISTENER_STOPPING);
       } else if (mfc_emu_run_step() == MFC_EMU_STATE_ERROR)
         atomic_store(&s_phase, NFC_LISTENER_STOPPING);
-      taskYIELD();
+      /* taskYIELD alone cannot schedule the lower-priority system monitor. */
+      if (xTaskGetTickCount() - last_yield >= pdMS_TO_TICKS(NFC_LISTENER_YIELD_MS)) {
+        vTaskDelay(1);
+        last_yield = xTaskGetTickCount();
+      } else
+        taskYIELD();
     }
     while (cleanup_hardware() != ESP_OK)
       vTaskDelay(pdMS_TO_TICKS(NFC_LISTENER_RETRY_MS));

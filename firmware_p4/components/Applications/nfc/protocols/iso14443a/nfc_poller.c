@@ -18,7 +18,7 @@
  */
 #include "nfc_poller.h"
 
-#include <stdio.h>
+#include <string.h>
 
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -35,6 +35,7 @@
 
 static const char *TAG = "nfc_poller";
 
+#define NFC_POLLER_TIMEOUT_MAX_MS      5000
 #define NFC_POLLER_FIFO_CAPACITY       512U
 #define NFC_POLLER_PARTIAL_BYTE_MASK   0x0EU
 #define NFC_POLLER_CRC_ERROR           0x80U
@@ -92,7 +93,7 @@ static int exchange(const nfc_poller_exchange_t *request) {
   size_t rx_min = request->rx_min;
   int timeout_ms = request->timeout_ms;
   if (tx == NULL || rx == NULL || tx_len == 0 || tx_len > NFC_POLLER_FIFO_CAPACITY || rx_max == 0 ||
-      rx_min > rx_max || timeout_ms <= 0)
+      rx_min > rx_max || timeout_ms <= 0 || timeout_ms > NFC_POLLER_TIMEOUT_MAX_MS)
     return 0;
   if (s_guard_time_us > 0) {
     hb_nfc_timer_delay_us(s_guard_time_us);
@@ -118,13 +119,8 @@ static int exchange(const nfc_poller_exchange_t *request) {
           ESP_OK)
     return 0;
 
-  if (st25r3916_irq_wait_txe() != ESP_OK) {
-    ESP_LOGW(TAG, "TX timeout");
-    return 0;
-  }
-
   st25r3916_irq_status_t rx_irq = {0};
-  esp_err_t rx_wait = st25r3916_irq_wait_rxe(timeout_ms, &rx_irq);
+  esp_err_t rx_wait = st25r3916_irq_wait_exchange(timeout_ms, &rx_irq);
   uint8_t fifo_low = 0, fifo_high = 0;
   if (hb_nfc_spi_reg_read(ST25R3916_REG_FIFO_STATUS1, &fifo_low) != ESP_OK ||
       hb_nfc_spi_reg_read(ST25R3916_REG_FIFO_STATUS2, &fifo_high) != ESP_OK)
@@ -147,14 +143,10 @@ static int exchange(const nfc_poller_exchange_t *request) {
                   (rx_irq.main & ST25R3916_IRQ_MAIN_COL) != 0U;
   if (request->is_passive_ack)
     return rx_wait == ESP_ERR_TIMEOUT && count == 0 && !rx_error &&
-           !(rx_irq.main & ST25R3916_IRQ_MAIN_RXE) &&
+           (rx_irq.main & ST25R3916_IRQ_MAIN_TXE) && !(rx_irq.main & ST25R3916_IRQ_MAIN_RXE) &&
            (fifo_high & NFC_POLLER_PARTIAL_BYTE_MASK) == 0;
-  if (rx_wait != ESP_OK || count < rx_min || count > rx_max || rx_error) {
-    if (count > 0) {
-      size_t to_read = (count > rx_max) ? rx_max : count;
-      st25r3916_fifo_read(rx, to_read);
-      nfc_log_hex(" RX partial:", rx, to_read);
-    }
+  if (rx_wait != ESP_OK || count < rx_min || count > rx_max || count > NFC_POLLER_FIFO_CAPACITY ||
+      rx_error) {
     ESP_LOGW(TAG,
              "RX fail: wait=%s MAIN=0x%02X ERR=0x%02X TMR=0x%02X TGT=0x%02X COL=0x%02X FIFO=%u",
              esp_err_to_name(rx_wait),
@@ -203,6 +195,9 @@ bool nfc_poller_expect_silence(const uint8_t *tx, size_t tx_len, int timeout_ms)
 }
 
 int nfc_poller_classic_nonce(const uint8_t auth[2], uint8_t nonce[4], int timeout_ms) {
+  if (nonce == NULL)
+    return 0;
+  memset(nonce, 0, NFC_POLLER_CLASSIC_NONCE_BYTES);
   if (auth == NULL || (auth[0] != NFC_POLLER_CLASSIC_KEY_A && auth[0] != NFC_POLLER_CLASSIC_KEY_B))
     return 0;
   const nfc_poller_exchange_t request = {.tx = auth,

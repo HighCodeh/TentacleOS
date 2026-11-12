@@ -100,7 +100,10 @@ static const char *TAG = "mf_ultralight";
 
 #define MFUL_PAGE_SIZE 4
 
-#define MFUL_READ_PAGES 4
+#define MFUL_READ_PAGES       4
+#define MFUL_CRC_BYTES        2U
+#define MFUL_READ_FRAME_BYTES (MFUL_PAGE_SIZE * MFUL_READ_PAGES + MFUL_CRC_BYTES)
+#define MFUL_VERSION_BYTES    8U
 
 #define MFUL_ULC_CHALLENGE_LEN  8
 #define MFUL_AUTH_MORE          0xAFU
@@ -165,9 +168,12 @@ int mful_read_pages(uint8_t page, uint8_t out[18]) {
   if (out == NULL)
     return 0;
   uint8_t cmd[2] = {MFUL_CMD_READ, page};
-  int len = nfc_poller_transceive(cmd, sizeof(cmd), true, out, 18, 16, MFUL_TIMEOUT_MS);
-  if (len != 18 || !iso14443a_check_crc(out, (size_t)len))
+  uint8_t received[MFUL_READ_FRAME_BYTES];
+  const int len = nfc_poller_transceive(
+      cmd, sizeof(cmd), true, received, sizeof(received), sizeof(received), MFUL_TIMEOUT_MS);
+  if (len != sizeof(received) || !iso14443a_check_crc(received, sizeof(received)))
     return 0;
+  memcpy(out, received, sizeof(received));
   return len;
 }
 
@@ -301,13 +307,13 @@ int mful_get_version(uint8_t out[8]) {
   if (out == NULL)
     return 0;
   uint8_t cmd[1] = {MFUL_CMD_GET_VERSION};
-  uint8_t response[10];
-  int len = nfc_poller_transceive(
-      cmd, sizeof(cmd), true, response, sizeof(response), sizeof(response), MFUL_TIMEOUT_MS);
-  if (len != sizeof(response) || !iso14443a_check_crc(response, sizeof(response)))
+  uint8_t received[MFUL_VERSION_BYTES + MFUL_CRC_BYTES];
+  const int len = nfc_poller_transceive(
+      cmd, sizeof(cmd), true, received, sizeof(received), sizeof(received), MFUL_WRITE_TIMEOUT_MS);
+  if (len != sizeof(received) || !iso14443a_check_crc(received, sizeof(received)))
     return 0;
-  memcpy(out, response, DES_BLOCK_SIZE);
-  return DES_BLOCK_SIZE;
+  memcpy(out, received, MFUL_VERSION_BYTES);
+  return MFUL_VERSION_BYTES;
 }
 
 int mful_pwd_auth(const uint8_t pwd[4], uint8_t pack[2]) {

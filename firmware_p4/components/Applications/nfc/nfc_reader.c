@@ -805,7 +805,8 @@ void mf_classic_read_full(nfc_iso14443a_data_t *card) {
         mf_key_dict_add(found_key.data);
       }
 
-      iso14443a_poller_reselect(card);
+      if (iso14443a_poller_reselect(card) != HB_NFC_OK)
+        return;
       mf_classic_reset_auth();
       mf_classic_auth((uint8_t)res->first_block, found_type, &found_key, card->uid);
       for (int b = 0; b < res->blocks_in_sector; b++) {
@@ -1002,7 +1003,8 @@ void mful_dump_card(nfc_iso14443a_data_t *card) {
   ESP_LOGI(TAG, "MIFARE Ultralight / NTAG Read");
   ESP_LOGI(TAG, "");
 
-  iso14443a_poller_reselect(card);
+  if (iso14443a_poller_reselect(card) != HB_NFC_OK)
+    return;
   uint8_t ver[8] = {0};
   int vlen = mful_get_version(ver);
 
@@ -1150,7 +1152,8 @@ void t4t_dump_ndef(nfc_iso14443a_data_t *card) {
   ESP_LOGI(TAG, "ISO-DEP / T4T NDEF Read");
   ESP_LOGI(TAG, "");
 
-  iso14443a_poller_reselect(card);
+  if (iso14443a_poller_reselect(card) != HB_NFC_OK)
+    return;
 
   nfc_iso_dep_data_t dep = {0};
   hb_nfc_err_t err = iso_dep_rats(8, 0, &dep);
