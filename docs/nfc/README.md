@@ -1433,3 +1433,10 @@ At/parity and SPI-failure checks. Physical dump validation remains necessary.
 - Retain PPSE priority and sanitize display labels.
 - Keep the existing read-only EMV workflow and record limit.
 - Test: `tools/nfc_api/test_emv.py`; no payment or card emulation is added.
+
+## Type 4 target scope
+
+- Remove the placeholder DESFire responder from generic A/B targets.
+- Preserve identity-only DESFire/NTAG4xx and the existing NDEF/Plus listeners.
+- Generic Type 4A rejects unsupported classes/instructions explicitly.
+- Tests: `tools/nfc_api/test_t4t_blocks.py`, `test_desfire_identity.py`.

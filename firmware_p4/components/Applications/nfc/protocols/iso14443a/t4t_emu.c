@@ -34,105 +34,106 @@
 #include "st25r3916_irq.h"
 #include "hb_nfc_spi.h"
 #include "hb_nfc_timer.h"
-#include "mf_desfire_emu.h"
 #include "iso14443a.h"
 
 static const char *TAG = "NFC_T4T_EMU";
 
-#define OP_CTRL_TARGET             0xC3U
-#define T4T_RX_IRQ                 (ST25R3916_IRQ_MAIN_RXE)
-#define T4T_MAX_RESP_SIZE          260
-#define T4T_CHAIN_BUF_SIZE         300
-#define T4T_PT_MEM_SIZE            15
-#define T4T_OSC_AUX_MASK           0x14U
-#define T4T_OSC_MAIN_MASK          0x80U
-#define T4T_OSC_TGT_MASK           0x08U
-#define T4T_CC_V1                  0x00U
-#define T4T_CC_MLEU_V1             0x0FU
-#define T4T_CC_T                   0x20U
-#define T4T_CC_NDEF_CTL            0x04U
-#define T4T_CC_NDEF_RW             0x06U
-#define T4T_NDEF_RECORD_HDR        0xD1U
-#define T4T_NDEF_TNF_TYPE          0x01U
-#define T4T_NDEF_TEXT_CODE         0x02U
-#define T4T_NDEF_TEXT_PL_LEN       1
-#define T4T_NDEF_LANG_LEN          2
-#define T4T_PT_MEM_UID_OFFSET      0
-#define T4T_PT_MEM_ATQA_OFFSET     10
-#define T4T_PT_MEM_SAK_OFFSET      13
-#define T4T_PCB_I_BLOCK            0x02U
-#define T4T_PCB_CID_MASK           0x08U
-#define T4T_PCB_TOGGLE             0x01U
-#define T4T_PCB_R_ACK              0xA2U
-#define T4T_PCB_R_NAK_MASK         0x10U
-#define T4T_FRAME_OVERHEAD         3U
-#define T4T_FRAME_MAX              256U
-#define T4T_FSDI_SHIFT             4U
-#define T4T_CID_INVALID            15U
-#define T4T_CRC_SIZE               2U
-#define T4T_TX_POLL_US             10U
-#define T4T_TX_POLL_COUNT          2000U
-#define T4T_TX_BYTE_SHIFT          5U
-#define T4T_TX_BIT_SHIFT           3U
-#define T4T_FIELD_OFF_IRQ          0x08U
-#define T4T_PCB_DESELECT           0xC2U
-#define T4T_DELAY_5MS              5
-#define T4T_DELAY_10MS             10
-#define T4T_DELAY_2MS              2
-#define T4T_REG_AUX_DEF            0x10U
-#define T4T_REG_IO_CONF2           0x80U
-#define T4T_REG_PT_MOD             0x60U
-#define T4T_IC_ID_INVALID          0x00U
-#define T4T_IC_ID_FF               0xFFU
-#define T4T_OSC_TIMEOUT            200
-#define T4T_APDU_INS_SELECT        0xA4U
-#define T4T_APDU_INS_READ          0xB0U
-#define T4T_APDU_INS_UPDATE        0xD6U
-#define T4T_APDU_P1_SELECT_AID     0x04U
-#define T4T_APDU_P1_SELECT_FILE    0x00U
-#define T4T_APDU_LC_AID            7
-#define T4T_APDU_LC_FID            2
-#define T4T_APDU_MIN_LEN           4
-#define T4T_APDU_HDR_LEN           5
-#define T4T_APDU_SW_ERR_SYNTAX     0x6700U
-#define T4T_APDU_SW_OK             0x9000U
-#define T4T_APDU_SW_FILE_NOT_FOUND 0x6A82U
-#define T4T_APDU_SW_SEC_ERROR      0x6985U
-#define T4T_APDU_SW_LE_INVALID     0x6C00U
-#define T4T_APDU_SW_EOF            0x6B00U
-#define T4T_APDU_LE_MAX            256
-#define T4T_PTA_STATE_IDLE         0x01U
-#define T4T_PTA_STATE_ACTIVE       0x05U
-#define T4T_PTA_SENSE_TIMEOUT      500
-#define T4T_PTA_ACTIVE_TIMEOUT     2000
-#define T4T_PTA_IDLE_CHECK         500
-#define T4T_PTA_SENSE_CHECK        200
-#define T4T_PCB_CLASS_MASK         0xC0U
-#define T4T_PCB_I_CLASS            0x00U
-#define T4T_PCB_R_CLASS            0x80U
-#define T4T_PCB_S_CLASS            0xC0U
-#define T4T_PCB_CHAIN_MASK         0x10U
-#define T4T_PCB_NAD_MASK           0x04U
-#define T4T_FS1_LEN_MASK           0x7FU
-#define T4T_ATS_LENGTH             3U
-#define T4T_ATS_T0                 0x46U
-#define T4T_ATS_TC1                0x02U
-#define T4T_CMD_RATS               0xE0U
-#define T4T_CMD_PPS_MASK           0xF0U
-#define T4T_CMD_PPS_BASE           0xD0U
-#define T4T_PCB_I_VALID_MASK       0xE6U
-#define T4T_PCB_R_VALID_MASK       0xE6U
-#define T4T_FIFO_INVALID_MASK      0x3FU
-#define T4T_DELAY_1MS              1
-#define T4T_PT_MEM_CT_OFFSET       12
-#define T4T_PT_MEM_CT_BYTE         0x04U
-#define T4T_OP_CTRL_OFF            0x00U
-#define T4T_OP_CTRL_ON             0x80U
-#define T4T_APDU_SW_WRONG_P1P2     0x6A86U
-#define T4T_PTA_STATE_MASK         0x0FU
-#define T4T_PTA_STATE_WUPA         0x02U
-#define T4T_PTA_STATE_SELECTED     0x03U
-#define T4T_PTA_STATE_HALTED       0x0DU
+#define OP_CTRL_TARGET              0xC3U
+#define T4T_RX_IRQ                  (ST25R3916_IRQ_MAIN_RXE)
+#define T4T_MAX_RESP_SIZE           260
+#define T4T_CHAIN_BUF_SIZE          300
+#define T4T_PT_MEM_SIZE             15
+#define T4T_OSC_AUX_MASK            0x14U
+#define T4T_OSC_MAIN_MASK           0x80U
+#define T4T_OSC_TGT_MASK            0x08U
+#define T4T_CC_V1                   0x00U
+#define T4T_CC_MLEU_V1              0x0FU
+#define T4T_CC_T                    0x20U
+#define T4T_CC_NDEF_CTL             0x04U
+#define T4T_CC_NDEF_RW              0x06U
+#define T4T_NDEF_RECORD_HDR         0xD1U
+#define T4T_NDEF_TNF_TYPE           0x01U
+#define T4T_NDEF_TEXT_CODE          0x02U
+#define T4T_NDEF_TEXT_PL_LEN        1
+#define T4T_NDEF_LANG_LEN           2
+#define T4T_PT_MEM_UID_OFFSET       0
+#define T4T_PT_MEM_ATQA_OFFSET      10
+#define T4T_PT_MEM_SAK_OFFSET       13
+#define T4T_PCB_I_BLOCK             0x02U
+#define T4T_PCB_CID_MASK            0x08U
+#define T4T_PCB_TOGGLE              0x01U
+#define T4T_PCB_R_ACK               0xA2U
+#define T4T_PCB_R_NAK_MASK          0x10U
+#define T4T_FRAME_OVERHEAD          3U
+#define T4T_FRAME_MAX               256U
+#define T4T_FSDI_SHIFT              4U
+#define T4T_CID_INVALID             15U
+#define T4T_CRC_SIZE                2U
+#define T4T_TX_POLL_US              10U
+#define T4T_TX_POLL_COUNT           2000U
+#define T4T_TX_BYTE_SHIFT           5U
+#define T4T_TX_BIT_SHIFT            3U
+#define T4T_FIELD_OFF_IRQ           0x08U
+#define T4T_PCB_DESELECT            0xC2U
+#define T4T_DELAY_5MS               5
+#define T4T_DELAY_10MS              10
+#define T4T_DELAY_2MS               2
+#define T4T_REG_AUX_DEF             0x10U
+#define T4T_REG_IO_CONF2            0x80U
+#define T4T_REG_PT_MOD              0x60U
+#define T4T_IC_ID_INVALID           0x00U
+#define T4T_IC_ID_FF                0xFFU
+#define T4T_OSC_TIMEOUT             200
+#define T4T_APDU_INS_SELECT         0xA4U
+#define T4T_APDU_INS_READ           0xB0U
+#define T4T_APDU_INS_UPDATE         0xD6U
+#define T4T_APDU_P1_SELECT_AID      0x04U
+#define T4T_APDU_P1_SELECT_FILE     0x00U
+#define T4T_APDU_LC_AID             7
+#define T4T_APDU_LC_FID             2
+#define T4T_APDU_MIN_LEN            4
+#define T4T_APDU_HDR_LEN            5
+#define T4T_APDU_SW_ERR_SYNTAX      0x6700U
+#define T4T_APDU_SW_OK              0x9000U
+#define T4T_APDU_SW_FILE_NOT_FOUND  0x6A82U
+#define T4T_APDU_SW_SEC_ERROR       0x6985U
+#define T4T_APDU_SW_LE_INVALID      0x6C00U
+#define T4T_APDU_SW_EOF             0x6B00U
+#define T4T_APDU_LE_MAX             256
+#define T4T_PTA_STATE_IDLE          0x01U
+#define T4T_PTA_STATE_ACTIVE        0x05U
+#define T4T_PTA_SENSE_TIMEOUT       500
+#define T4T_PTA_ACTIVE_TIMEOUT      2000
+#define T4T_PTA_IDLE_CHECK          500
+#define T4T_PTA_SENSE_CHECK         200
+#define T4T_PCB_CLASS_MASK          0xC0U
+#define T4T_PCB_I_CLASS             0x00U
+#define T4T_PCB_R_CLASS             0x80U
+#define T4T_PCB_S_CLASS             0xC0U
+#define T4T_PCB_CHAIN_MASK          0x10U
+#define T4T_PCB_NAD_MASK            0x04U
+#define T4T_FS1_LEN_MASK            0x7FU
+#define T4T_ATS_LENGTH              3U
+#define T4T_ATS_T0                  0x46U
+#define T4T_ATS_TC1                 0x02U
+#define T4T_CMD_RATS                0xE0U
+#define T4T_CMD_PPS_MASK            0xF0U
+#define T4T_CMD_PPS_BASE            0xD0U
+#define T4T_PCB_I_VALID_MASK        0xE6U
+#define T4T_PCB_R_VALID_MASK        0xE6U
+#define T4T_FIFO_INVALID_MASK       0x3FU
+#define T4T_DELAY_1MS               1
+#define T4T_PT_MEM_CT_OFFSET        12
+#define T4T_PT_MEM_CT_BYTE          0x04U
+#define T4T_OP_CTRL_OFF             0x00U
+#define T4T_OP_CTRL_ON              0x80U
+#define T4T_APDU_SW_CLA_UNSUPPORTED 0x6E00U
+#define T4T_APDU_SW_INS_UNSUPPORTED 0x6D00U
+#define T4T_APDU_SW_WRONG_P1P2      0x6A86U
+#define T4T_PTA_STATE_MASK          0x0FU
+#define T4T_PTA_STATE_WUPA          0x02U
+#define T4T_PTA_STATE_SELECTED      0x03U
+#define T4T_PTA_STATE_HALTED        0x0DU
 
 static uint8_t k_uid7[7] = {0x04, 0xA1, 0xB2, 0xC3, 0xD4, 0xE5, 0xF6};
 static uint8_t k_atqa[2] = {0x44, 0x00};
@@ -322,7 +323,6 @@ static void build_ndef_text(const char *text) {
 static void reset_application(void) {
   if (s_ndef_listener)
     nfc_t4t_listener_reset(s_ndef_listener);
-  mf_desfire_emu_reset();
   if (s_plus != NULL)
     mfp_listener_reset(s_plus);
 }
@@ -663,10 +663,6 @@ static void handle_apdu(const uint8_t *apdu, int apdu_len, uint8_t pcb_in) {
       send_i_block_resp(resp, (int)length, pcb_in);
     return;
   }
-  if (mf_desfire_emu_handle_apdu(apdu, apdu_len, resp, &resp_len)) {
-    send_i_block_resp(resp, resp_len, pcb_in);
-    return;
-  }
 
   if (apdu_len < T4T_APDU_MIN_LEN) {
     apdu_resp(resp, &resp_len, NULL, 0, T4T_APDU_SW_ERR_SYNTAX);
@@ -678,7 +674,11 @@ static void handle_apdu(const uint8_t *apdu, int apdu_len, uint8_t pcb_in) {
   uint8_t ins = apdu[1];
   uint8_t p1 = apdu[2];
   uint8_t p2 = apdu[3];
-  (void)cla;
+  if (cla != 0) {
+    apdu_resp(resp, &resp_len, NULL, 0, T4T_APDU_SW_CLA_UNSUPPORTED);
+    send_i_block_resp(resp, resp_len, pcb_in);
+    return;
+  }
 
   if (ins == T4T_APDU_INS_SELECT) {
     if (apdu_len < T4T_APDU_HDR_LEN) {
@@ -762,7 +762,7 @@ static void handle_apdu(const uint8_t *apdu, int apdu_len, uint8_t pcb_in) {
     return;
   }
 
-  apdu_resp(resp, &resp_len, NULL, 0, T4T_APDU_SW_WRONG_P1P2);
+  apdu_resp(resp, &resp_len, NULL, 0, T4T_APDU_SW_INS_UNSUPPORTED);
   send_i_block_resp(resp, resp_len, pcb_in);
 }
 

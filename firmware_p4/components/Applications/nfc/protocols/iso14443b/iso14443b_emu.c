@@ -33,7 +33,6 @@
 #include "st25r3916_fifo.h"
 #include "st25r3916_irq.h"
 #include "hb_nfc_spi.h"
-#include "mf_desfire_emu.h"
 
 static const char *TAG = "ISO14443B_EMU";
 
@@ -402,11 +401,6 @@ static void handle_apdu(const uint8_t *apdu, int apdu_len, uint8_t pcb_in) {
   uint8_t resp[260];
   int resp_len = 0;
 
-  if (mf_desfire_emu_handle_apdu(apdu, apdu_len, resp, &resp_len)) {
-    send_i_block_resp(resp, resp_len, pcb_in);
-    return;
-  }
-
   if (apdu_len < 4) {
     apdu_resp(resp, &resp_len, NULL, 0, APDU_SW_WRONG_LEN);
     send_i_block_resp(resp, resp_len, pcb_in);
@@ -522,7 +516,6 @@ void iso14443b_emu_run_step(void) {
       s_sense_tick = xTaskGetTickCount();
       s_active_tick = s_sense_tick;
       s_state = ISO14443B_STATE_SENSE;
-      mf_desfire_emu_reset();
       hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SENSE);
       hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &tgt_irq);
       hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &main_irq);
@@ -537,7 +530,6 @@ void iso14443b_emu_run_step(void) {
       if ((now - s_sense_tick) > pdMS_TO_TICKS(ISO14443B_SENSE_TIMEOUT_MS)) {
         ESP_LOGI(TAG, "SENSE: idle timeout -> SLEEP");
         s_state = ISO14443B_STATE_SLEEP;
-        mf_desfire_emu_reset();
         hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SLEEP);
       }
       if ((++s_idle_log % ISO14443B_LOG_INTERVAL) == 0U) {
@@ -590,7 +582,6 @@ void iso14443b_emu_run_step(void) {
         ESP_LOGI(TAG, "HLTB -> SLEEP");
         s_state = ISO14443B_STATE_SLEEP;
         s_activated = false;
-        mf_desfire_emu_reset();
         hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SLEEP);
       }
       return;
@@ -686,7 +677,6 @@ idle_active: {
     s_chain_active = false;
     s_chain_len = 0;
     s_pcd_cid = 0;
-    mf_desfire_emu_reset();
     hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SLEEP);
   }
 }
