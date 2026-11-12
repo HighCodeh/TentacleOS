@@ -130,12 +130,17 @@ int mf_desfire_apdu_transceive(mf_desfire_session_t *session,
                                int timeout_ms);
 
 /**
- * @brief Transceive a DESFire native command with automatic chaining.
+ * @brief Transceive a short native APDU with bounded response chaining.
+ *
+ * At most 32 native frames are accepted, with a 15-second outer deadline checked
+ * between ISO-DEP exchanges. No partial success on output truncation. On transport
+ * or protocol errors, authentication is revoked and out_len remains zero.
+ * Terminal card status is returned in sw; HB_NFC_OK alone does not imply 0x9100.
  *
  * @param session    Active session.
  * @param cmd        DESFire command byte.
  * @param data       Command data payload (may be NULL).
- * @param data_len   Length of data payload.
+ * @param data_len   Short-APDU payload length, at most 255 bytes.
  * @param[out] out       Response data buffer.
  * @param out_max    Maximum response buffer size.
  * @param[out] out_len   Actual response data length.
@@ -301,7 +306,7 @@ hb_nfc_err_t mf_desfire_read_data(mf_desfire_session_t *session,
                                   size_t *out_len);
 
 /**
- * @brief Write data to a standard or backup data file.
+ * @brief Write up to 248 data bytes in one plain native command (24-bit offset).
  *
  * @param session   Active session.
  * @param file_id   File ID to write to.

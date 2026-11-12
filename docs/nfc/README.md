@@ -1356,3 +1356,13 @@ still mean a rejected key or lost RF communication.
 parity with a separately initialized simulated card, then generates At from
 that card state rather than copying the reader's state. It also retains invalid
 At/parity and SPI-failure checks. Physical dump validation remains necessary.
+
+## DESFire authentication corrections
+
+- EV2 session keys and IVs follow NXP AN12343.
+- Crypto failures clear authentication and session keys.
+- NonFirst accepts 16-byte responses; TI and counter survive only on success.
+- Native/wrapped exchanges preserve cancellation and reject truncated replies.
+- Response chains stop after 32 frames or 15 seconds.
+- Host regression: `python3 tools/nfc/test_desfire_auth.py`.
+- RF authentication and full DESFire emulation remain unqualified.
