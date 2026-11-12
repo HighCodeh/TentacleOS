@@ -37,7 +37,7 @@ static int calls, fail_call;
 static bool crc_valid=true, short_response, error_flag;
 static uint8_t password_type;
 static bool iso15693_check_crc(const uint8_t *p,size_t n) {(void)p;(void)n;return crc_valid;}
-static int nfc_poller_transceive(const uint8_t *tx,size_t size,bool crc,uint8_t *rx,
+static int iso15693_transceive(const uint8_t *tx,size_t size,bool crc,uint8_t *rx,
  size_t max,size_t min,uint32_t timeout) {
  (void)min;(void)timeout;assert(crc && tx[2]==4);calls++;
  if(calls==fail_call) return 0;

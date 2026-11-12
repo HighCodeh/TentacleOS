@@ -17,6 +17,7 @@
  * @brief ISO 15693 (NFC-V) poller implementation.
  */
 #include "iso15693.h"
+#include "iso15693_stream.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -40,7 +41,9 @@ static const char *TAG = "NFC_ISO15693";
 #define ISO15693_DEFAULT_BLOCK_COUNT 16
 #define ISO15693_BLOCK_SIZE_MASK     0x1FU
 #define ISO15693_INVENTORY_MIN_LEN   10
-#define ISO15693_AM_MOD_PERCENT      10
+#define ISO15693_AM_MOD_PERCENT      0
+#define ISO15693_STREAM_FIFO_BYTES   512U
+#define ISO15693_STREAM_FRAME_BYTES  64U
 
 #define ISO15693_SYSINFO_FLAG_DSFID 0x01U
 #define ISO15693_SYSINFO_FLAG_AFI   0x02U
@@ -54,6 +57,35 @@ static const char *TAG = "NFC_ISO15693";
 
 static int strip_crc_len(const uint8_t *buf, int len);
 static hb_nfc_err_t iso15693_stay_quiet(const iso15693_tag_t *tag);
+
+int iso15693_transceive(const uint8_t *tx,
+                        size_t tx_len,
+                        bool with_crc,
+                        uint8_t *rx,
+                        size_t rx_max,
+                        size_t rx_min,
+                        int timeout_ms) {
+  uint8_t frame[ISO15693_STREAM_FRAME_BYTES];
+  uint8_t raw[ISO15693_STREAM_FIFO_BYTES];
+  if (!with_crc || tx == NULL || rx == NULL || tx_len == 0 ||
+      tx_len > sizeof(frame) - ISO15693_CRC_LEN)
+    return 0;
+  memcpy(frame, tx, tx_len);
+  const uint16_t crc = iso15693_crc16(tx, tx_len);
+  frame[tx_len] = (uint8_t)crc;
+  frame[tx_len + 1U] = (uint8_t)(crc >> ISO15693_BITS_PER_BYTE);
+  const size_t encoded = iso15693_stream_encode(frame, tx_len + ISO15693_CRC_LEN, raw, sizeof(raw));
+  if (encoded == 0)
+    return 0;
+  const int received = nfc_poller_transceive(raw, encoded, false, raw, sizeof(raw), 1, timeout_ms);
+  if (received <= 0 || (size_t)received > sizeof(raw))
+    return 0;
+  const size_t decoded =
+      iso15693_stream_decode(raw, (size_t)received * ISO15693_BITS_PER_BYTE, rx, rx_max);
+  if (decoded < ISO15693_CRC_LEN + rx_min || !iso15693_check_crc(rx, decoded))
+    return 0;
+  return (int)decoded;
+}
 
 static int strip_crc_len(const uint8_t *buf, int len) {
   if (len >= (int)(ISO15693_CRC_LEN + 1) && iso15693_check_crc(buf, (size_t)len))
@@ -73,7 +105,7 @@ static hb_nfc_err_t iso15693_stay_quiet(const iso15693_tag_t *tag) {
   pos += ISO15693_UID_LEN;
 
   uint8_t rx[8] = {0};
-  (void)nfc_poller_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 0, ISO15693_TIMEOUT_QUIET_MS);
+  (void)iso15693_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 0, ISO15693_TIMEOUT_QUIET_MS);
   return HB_NFC_OK;
 }
 
@@ -111,7 +143,7 @@ hb_nfc_err_t iso15693_inventory(iso15693_tag_t *tag) {
   uint8_t cmd[3] = {ISO15693_FLAGS_INVENTORY, ISO15693_CMD_INVENTORY, 0x00U};
 
   uint8_t rx[32] = {0};
-  int len = nfc_poller_transceive(cmd, sizeof(cmd), true, rx, sizeof(rx), 1, ISO15693_TIMEOUT_MS);
+  int len = iso15693_transceive(cmd, sizeof(cmd), true, rx, sizeof(rx), 1, ISO15693_TIMEOUT_MS);
   if (len < ISO15693_INVENTORY_MIN_LEN) {
     if (len > 0)
       nfc_log_hex("INVENTORY partial:", rx, (size_t)len);
@@ -154,7 +186,7 @@ hb_nfc_err_t iso15693_get_system_info(iso15693_tag_t *tag) {
   pos += ISO15693_UID_LEN;
 
   uint8_t rx[64] = {0};
-  int len = nfc_poller_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 1, ISO15693_TIMEOUT_MS);
+  int len = iso15693_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 1, ISO15693_TIMEOUT_MS);
   if (len < 2) {
     if (len > 0)
       nfc_log_hex("SYSINFO partial:", rx, (size_t)len);
@@ -170,6 +202,9 @@ hb_nfc_err_t iso15693_get_system_info(iso15693_tag_t *tag) {
     return HB_NFC_ERR_PROTOCOL;
 
   uint8_t info_flags = rx[1];
+  tag->info_valid = false;
+  if (info_flags & 0xF0U)
+    return HB_NFC_ERR_PROTOCOL;
   size_t required = 2 + ISO15693_UID_LEN;
   if (info_flags & ISO15693_SYSINFO_FLAG_DSFID)
     required++;
@@ -258,7 +293,7 @@ hb_nfc_err_t iso15693_read_single_block(
   cmd[pos++] = block;
 
   uint8_t rx[64] = {0};
-  int len = nfc_poller_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 1, ISO15693_TIMEOUT_MS);
+  int len = iso15693_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 1, ISO15693_TIMEOUT_MS);
   if (len < 2)
     return HB_NFC_ERR_NO_CARD;
 
@@ -297,7 +332,7 @@ hb_nfc_err_t iso15693_write_single_block(const iso15693_tag_t *tag,
   pos += blk_size;
 
   uint8_t rx[8] = {0};
-  int len = nfc_poller_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 1, ISO15693_TIMEOUT_MS);
+  int len = iso15693_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 1, ISO15693_TIMEOUT_MS);
   if (len < 1)
     return HB_NFC_ERR_NO_CARD;
 
@@ -324,7 +359,7 @@ hb_nfc_err_t iso15693_lock_block(const iso15693_tag_t *tag, uint8_t block) {
   cmd[pos++] = block;
 
   uint8_t rx[8] = {0};
-  int len = nfc_poller_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 1, ISO15693_TIMEOUT_MS);
+  int len = iso15693_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 1, ISO15693_TIMEOUT_MS);
   if (len < 1)
     return HB_NFC_ERR_NO_CARD;
 
@@ -368,7 +403,7 @@ hb_nfc_err_t iso15693_read_multiple_blocks(const iso15693_tag_t *tag,
     return HB_NFC_ERR_INTERNAL;
   memset(rx, 0, rx_cap);
 
-  int len = nfc_poller_transceive(cmd, (size_t)pos, true, rx, rx_cap, 1, ISO15693_TIMEOUT_MULTI_MS);
+  int len = iso15693_transceive(cmd, (size_t)pos, true, rx, rx_cap, 1, ISO15693_TIMEOUT_MULTI_MS);
   if (len < 2) {
     free(rx);
     return HB_NFC_ERR_NO_CARD;
@@ -405,7 +440,7 @@ hb_nfc_err_t iso15693_write_afi(const iso15693_tag_t *tag, uint8_t afi) {
   cmd[pos++] = afi;
 
   uint8_t rx[8] = {0};
-  int len = nfc_poller_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 1, ISO15693_TIMEOUT_MS);
+  int len = iso15693_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 1, ISO15693_TIMEOUT_MS);
   if (len < 1)
     return HB_NFC_ERR_NO_CARD;
 
@@ -431,7 +466,7 @@ hb_nfc_err_t iso15693_lock_afi(const iso15693_tag_t *tag) {
   pos += ISO15693_UID_LEN;
 
   uint8_t rx[8] = {0};
-  int len = nfc_poller_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 1, ISO15693_TIMEOUT_MS);
+  int len = iso15693_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 1, ISO15693_TIMEOUT_MS);
   if (len < 1)
     return HB_NFC_ERR_NO_CARD;
 
@@ -458,7 +493,7 @@ hb_nfc_err_t iso15693_write_dsfid(const iso15693_tag_t *tag, uint8_t dsfid) {
   cmd[pos++] = dsfid;
 
   uint8_t rx[8] = {0};
-  int len = nfc_poller_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 1, ISO15693_TIMEOUT_MS);
+  int len = iso15693_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 1, ISO15693_TIMEOUT_MS);
   if (len < 1)
     return HB_NFC_ERR_NO_CARD;
 
@@ -484,7 +519,7 @@ hb_nfc_err_t iso15693_lock_dsfid(const iso15693_tag_t *tag) {
   pos += ISO15693_UID_LEN;
 
   uint8_t rx[8] = {0};
-  int len = nfc_poller_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 1, ISO15693_TIMEOUT_MS);
+  int len = iso15693_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 1, ISO15693_TIMEOUT_MS);
   if (len < 1)
     return HB_NFC_ERR_NO_CARD;
 
@@ -519,7 +554,7 @@ hb_nfc_err_t iso15693_get_multi_block_sec(const iso15693_tag_t *tag,
   cmd[pos++] = (uint8_t)(count - 1U);
 
   uint8_t rx[64] = {0};
-  int len = nfc_poller_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 1, ISO15693_TIMEOUT_MS);
+  int len = iso15693_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 1, ISO15693_TIMEOUT_MS);
   if (len < 2)
     return HB_NFC_ERR_NO_CARD;
 

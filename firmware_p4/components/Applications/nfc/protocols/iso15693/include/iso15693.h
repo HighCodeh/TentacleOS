@@ -17,7 +17,7 @@
  * @brief ISO 15693 (NFC-V) reader/writer for ST25R3916.
  *
  * Follows the same patterns as mf_classic.h and mf_ultralight.h.
- * Uses nfc_poller_transceive() as the base transport layer.
+ * Uses a software stream codec and validates ISO15693 CRC on every response.
  *
  * Protocol summary:
  *  - 13.56 MHz
@@ -43,6 +43,15 @@
 extern "C" {
 #endif
 
+/** Stream-mode exchange; returns the decoded frame including validated CRC. */
+int iso15693_transceive(const uint8_t *tx,
+                        size_t tx_len,
+                        bool with_crc,
+                        uint8_t *rx,
+                        size_t rx_max,
+                        size_t rx_min,
+                        int timeout_ms);
+
 /* Request flags (byte 0 of every command) */
 #define ISO15693_FLAG_SUBCARRIER (1U << 0) /**< 0=single, 1=double        */
 #define ISO15693_FLAG_DATA_RATE  (1U << 1) /**< 0=low, 1=high             */
@@ -54,8 +63,9 @@ extern "C" {
 /* Response flags (byte 0 of every response) */
 #define ISO15693_RESP_ERROR (1U << 0) /**< error flag; rx[1] = code  */
 /* Common flag combinations */
-/** @brief INVENTORY, high data rate (0x06). */
-#define ISO15693_FLAGS_INVENTORY (ISO15693_FLAG_INVENTORY | ISO15693_FLAG_DATA_RATE)
+/** @brief INVENTORY, high data rate, single slot (0x26). */
+#define ISO15693_FLAGS_INVENTORY \
+  (ISO15693_FLAG_INVENTORY | ISO15693_FLAG_DATA_RATE | ISO15693_FLAG_ADDRESS)
 /** @brief Addressed + high data rate (0x22). */
 #define ISO15693_FLAGS_ADDRESSED (ISO15693_FLAG_ADDRESS | ISO15693_FLAG_DATA_RATE)
 /** @brief Broadcast + high data rate, no address (0x02). */
@@ -104,7 +114,7 @@ typedef struct {
  * @brief Configure ST25R3916 for ISO 15693 polling.
  *
  * Must be called after st25r3916_core_init() + st25r3916_core_field_on().
- * Sets REG_MODE=0x30 (NFC-V), high data rate, single subcarrier.
+ * Sets subcarrier stream mode (0x70), high data rate, single subcarrier.
  *
  * @return
  *   - HB_NFC_OK on success

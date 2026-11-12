@@ -1397,3 +1397,10 @@ At/parity and SPI-failure checks. Physical dump validation remains necessary.
 - Keep bounded CC TLVs, exact response lengths and interrupted-write handling.
 - The saved-profile workflow still requires a 2-byte NLEN and its existing size limit.
 - Tests: `tools/nfc/test_t4t_reader.py` and `tools/nfc_api/test_t4t_profile.py`.
+
+## NFC-V stream transport
+
+- Encode 1-of-4 requests; decode high-rate single-subcarrier replies and check CRC.
+- Route standard and SLIX commands through the same bounded stream transport.
+- Apply technology-specific B/F/V receiver profiles; reject unsupported V rates.
+- Test: `tools/nfc/test_iso15693_stream.py`; RF range remains unqualified.

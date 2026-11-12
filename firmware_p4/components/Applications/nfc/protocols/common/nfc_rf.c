@@ -36,6 +36,54 @@ static const char *TAG = "NFC_RF";
 #define NFC_RF_AM_MOD_INITIAL_DIFF 0xFF  /**< Initial difference for best match */
 #define NFC_RF_TX_DRIVER_ADDR_MASK 0x0FU /**< Lower 4 bits = address */
 #define NFC_RF_TX_DRIVER_MOD_MASK  0x0FU /**< Upper 4 bits = modulation */
+#define NFC_RF_MODE_AM             0x04U
+#define NFC_RF_B_RX_106            0x04U
+#define NFC_RF_B_RX_212            0x02U
+#define NFC_RF_B_RX_FAST           0x42U
+#define NFC_RF_B_RX_AGC            0xFDU
+#define NFC_RF_B_CORR_106_212      0x97U
+#define NFC_RF_B_CORR_424          0xD7U
+#define NFC_RF_B_CORR_848          0x47U
+#define NFC_RF_FV_RX_FILTER        0x13U
+#define NFC_RF_F_RX_AGC            0x2DU
+#define NFC_RF_F_CORR              0x58U
+#define NFC_RF_V_RX_AGC            0xEDU
+#define NFC_RF_V_CORR1             0x13U
+#define NFC_RF_V_CORR2             0x01U
+
+static hb_nfc_err_t apply_receiver(uint8_t rx1, uint8_t rx2, uint8_t corr1, uint8_t corr2) {
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_RX_CONF1, rx1) != ESP_OK ||
+      hb_nfc_spi_reg_write(ST25R3916_REG_RX_CONF2, rx2) != ESP_OK ||
+      hb_nfc_spi_reg_write(ST25R3916_REG_RX_CONF3, 0) != ESP_OK ||
+      hb_nfc_spi_reg_write(ST25R3916_REG_RX_CONF4, 0) != ESP_OK ||
+      hb_nfc_spi_reg_write_b(ST25R3916_REG_B_CORR_CONF1, corr1) != ESP_OK ||
+      hb_nfc_spi_reg_write_b(ST25R3916_REG_B_CORR_CONF2, corr2) != ESP_OK)
+    return HB_NFC_ERR_INTERNAL;
+  return HB_NFC_OK;
+}
+
+static hb_nfc_err_t apply_type_b_receiver(nfc_rf_bitrate_t bitrate) {
+  /* ST25R3916B RFAL receive profiles; AWS transmit settings do not apply to C99. */
+  uint8_t rx1 = NFC_RF_B_RX_FAST;
+  uint8_t corr1 = NFC_RF_B_CORR_106_212;
+  switch (bitrate) {
+    case NFC_RF_BR_106:
+      rx1 = NFC_RF_B_RX_106;
+      break;
+    case NFC_RF_BR_212:
+      rx1 = NFC_RF_B_RX_212;
+      break;
+    case NFC_RF_BR_424:
+      corr1 = NFC_RF_B_CORR_424;
+      break;
+    case NFC_RF_BR_848:
+      corr1 = NFC_RF_B_CORR_848;
+      break;
+    default:
+      return HB_NFC_ERR_PARAM;
+  }
+  return apply_receiver(rx1, NFC_RF_B_RX_AGC, corr1, 0);
+}
 
 static uint8_t bitrate_code(nfc_rf_bitrate_t br) {
   switch (br) {
@@ -67,8 +115,9 @@ hb_nfc_err_t nfc_rf_set_bitrate_raw(uint8_t value) {
 }
 
 static uint8_t am_mod_code_from_percent(uint8_t percent) {
+  /* ST25R3916B DS13541: the older ST25R3916 table is not interchangeable. */
   static const uint8_t tbl_percent[NFC_RF_AM_MOD_TABLE_SIZE] = {
-      5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 19, 22, 26, 40};
+      0, 8, 10, 11, 12, 13, 14, 15, 20, 25, 30, 40, 50, 60, 70, 82};
 
   uint8_t best = 0;
   uint8_t best_diff = NFC_RF_AM_MOD_INITIAL_DIFF;
@@ -124,10 +173,21 @@ uint32_t nfc_rf_get_last_fdt_us(void) {
 }
 
 hb_nfc_err_t nfc_rf_apply(const nfc_rf_config_t *cfg) {
-  if (!cfg)
+  if (cfg == NULL)
+    return HB_NFC_ERR_PARAM;
+  if (cfg->tech == NFC_RF_TECH_B && (bitrate_code(cfg->tx_rate) == NFC_RF_RATE_UNSUPPORTED ||
+                                     bitrate_code(cfg->rx_rate) == NFC_RF_RATE_UNSUPPORTED))
+    return HB_NFC_ERR_PARAM;
+  if (cfg->tech == NFC_RF_TECH_F &&
+      ((cfg->tx_rate != NFC_RF_BR_212 && cfg->tx_rate != NFC_RF_BR_424) ||
+       (cfg->rx_rate != NFC_RF_BR_212 && cfg->rx_rate != NFC_RF_BR_424)))
     return HB_NFC_ERR_PARAM;
 
   hb_nfc_err_t err = HB_NFC_OK;
+  // NFC-V checks its software-decoded CRC; other modes use the hardware checker.
+  if (hb_nfc_spi_reg_modify(ST25R3916_REG_AUX_DEF, 0x80U, cfg->tech == NFC_RF_TECH_V ? 0x80U : 0) !=
+      ESP_OK)
+    return HB_NFC_ERR_INTERNAL;
 
   switch (cfg->tech) {
     case NFC_RF_TECH_A:
@@ -142,47 +202,38 @@ hb_nfc_err_t nfc_rf_apply(const nfc_rf_config_t *cfg) {
         return err;
       break;
     case NFC_RF_TECH_B:
-      err = hb_nfc_spi_reg_write(ST25R3916_REG_MODE, ST25R3916_MODE_POLL_NFCB);
+      err = apply_type_b_receiver(cfg->rx_rate);
       if (err != HB_NFC_OK)
         return err;
-      err = hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443B, 0x00U);
-      if (err != HB_NFC_OK)
-        return err;
-      err = hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443B_FELICA, 0x00U);
-      if (err != HB_NFC_OK)
-        return err;
+      if (hb_nfc_spi_reg_write(ST25R3916_REG_MODE, ST25R3916_MODE_POLL_NFCB | NFC_RF_MODE_AM) !=
+              ESP_OK ||
+          hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443B, 0) != ESP_OK ||
+          hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443B_FELICA, 0) != ESP_OK)
+        return HB_NFC_ERR_INTERNAL;
       err = nfc_rf_set_bitrate(cfg->tx_rate, cfg->rx_rate);
       if (err != HB_NFC_OK)
         return err;
       break;
     case NFC_RF_TECH_F:
-      err = hb_nfc_spi_reg_write(ST25R3916_REG_MODE, ST25R3916_MODE_POLL_NFCF);
+      err = apply_receiver(NFC_RF_FV_RX_FILTER, NFC_RF_F_RX_AGC, NFC_RF_F_CORR, 0);
       if (err != HB_NFC_OK)
         return err;
-      err = hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443B_FELICA, 0x00U);
-      if (err != HB_NFC_OK)
-        return err;
+      if (hb_nfc_spi_reg_write(ST25R3916_REG_MODE, ST25R3916_MODE_POLL_NFCF | NFC_RF_MODE_AM) !=
+              ESP_OK ||
+          hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443B_FELICA, 0) != ESP_OK)
+        return HB_NFC_ERR_INTERNAL;
       err = nfc_rf_set_bitrate(cfg->tx_rate, cfg->rx_rate);
       if (err != HB_NFC_OK)
         return err;
       break;
     case NFC_RF_TECH_V:
-      err = hb_nfc_spi_reg_write(ST25R3916_REG_MODE, ST25R3916_MODE_POLL_NFCV);
-      if (err != HB_NFC_OK)
-        return err;
-      err = hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443B, 0x00U);
-      if (err != HB_NFC_OK)
-        return err;
-      err = hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443B_FELICA, 0x00U);
-      if (err != HB_NFC_OK)
-        return err;
-      if (cfg->tx_rate == NFC_RF_BR_V_HIGH && cfg->rx_rate == NFC_RF_BR_V_HIGH) {
-        err = nfc_rf_set_bitrate_raw(0x00U);
-      } else if (cfg->tx_rate == NFC_RF_BR_V_LOW && cfg->rx_rate == NFC_RF_BR_V_LOW) {
-        err = nfc_rf_set_bitrate_raw(0x01U);
-      } else {
-        err = HB_NFC_ERR_PARAM;
-      }
+      if (cfg->tx_rate != NFC_RF_BR_V_HIGH || cfg->rx_rate != NFC_RF_BR_V_HIGH)
+        return HB_NFC_ERR_PARAM;
+      // DS13541 tables 34-36: 424 kHz subcarrier, eight cycles/report, TX fc/128.
+      if (hb_nfc_spi_reg_write(ST25R3916_REG_MODE, ST25R3916_MODE_POLL_NFCV) != ESP_OK ||
+          hb_nfc_spi_reg_write(ST25R3916_REG_STREAM_MODE, 0x38U) != ESP_OK)
+        return HB_NFC_ERR_INTERNAL;
+      err = apply_receiver(NFC_RF_FV_RX_FILTER, NFC_RF_V_RX_AGC, NFC_RF_V_CORR1, NFC_RF_V_CORR2);
       if (err != HB_NFC_OK)
         return err;
       break;
@@ -190,6 +241,12 @@ hb_nfc_err_t nfc_rf_apply(const nfc_rf_config_t *cfg) {
       return HB_NFC_ERR_PARAM;
   }
 
+  if (cfg->tech != NFC_RF_TECH_A) {
+    uint8_t mod = 0;
+    if (hb_nfc_spi_reg_read_b(ST25R3916_REG_B_AUX_MOD, &mod) != ESP_OK ||
+        hb_nfc_spi_reg_write_b(ST25R3916_REG_B_AUX_MOD, mod & ~0x88U) != ESP_OK)
+      return HB_NFC_ERR_INTERNAL;
+  }
   if (cfg->am_mod_percent > 0) {
     err = nfc_rf_set_am_modulation(cfg->am_mod_percent);
     if (err != HB_NFC_OK)

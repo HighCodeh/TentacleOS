@@ -22,8 +22,6 @@
 
 #include "esp_log.h"
 
-#include "nfc_poller.h"
-
 #define SLIX_VENDOR              0x04U
 #define SLIX_COMMAND_SYSTEM_INFO 0xABU
 #define SLIX_COMMAND_RANDOM      0xB2U
@@ -61,13 +59,13 @@ static hb_nfc_err_t exchange(const iso15693_tag_t *tag,
     memcpy(&request[size], args, args_len);
   size += args_len;
   uint8_t response[SLIX_RESPONSE_HEADER + SLIX_SIGNATURE_BYTES + SLIX_CRC_BYTES];
-  int received = nfc_poller_transceive(request,
-                                       size,
-                                       true,
-                                       response,
-                                       sizeof(response),
-                                       SLIX_RESPONSE_HEADER + SLIX_CRC_BYTES,
-                                       SLIX_TIMEOUT_MS);
+  int received = iso15693_transceive(request,
+                                     size,
+                                     true,
+                                     response,
+                                     sizeof(response),
+                                     SLIX_RESPONSE_HEADER + SLIX_CRC_BYTES,
+                                     SLIX_TIMEOUT_MS);
   if (received <= 0)
     return HB_NFC_ERR_TIMEOUT;
   if ((size_t)received != expected + SLIX_RESPONSE_HEADER + SLIX_CRC_BYTES || response[0] != 0 ||
