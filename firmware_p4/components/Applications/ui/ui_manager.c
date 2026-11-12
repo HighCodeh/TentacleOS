@@ -439,6 +439,8 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
       return ui_usb_storage_stop;
     case SCREEN_USB_MOUSE:
       return ui_usb_mouse_stop;
+    case SCREEN_IMU_MONITOR:
+      return ui_imu_monitor_stop;
     case SCREEN_RFID_MENU:
       return ui_rfid_menu_stop;
     case SCREEN_MUSE:

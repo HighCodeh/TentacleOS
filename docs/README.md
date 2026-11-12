@@ -61,6 +61,8 @@ README.md, separated by `---`.
 | `host_link` | [app-guide.md](host_link/app-guide.md) [protocol.md](host_link/protocol.md) [README.md](host_link/README.md)  |
 | `http_server` | [README.md](http_server/README.md)  |
 | `i2c_init` | [README.md](i2c_init/README.md) - shared I2C bus initialization driver |
+| `imu` | [README.md](imu/README.md) - motion acquisition, calibration and snapshots |
+| `qmi8658a` | [README.md](qmi8658a/README.md) - synchronized six-axis SPI driver |
 | `input_manager` | [README.md](input_manager/README.md)  |
 | `ir` | [README.md](ir/README.md) - infrared transmit/receive service |
 | `led` | [README.md](led/README.md) - status/RGB LED driver |
@@ -100,4 +102,3 @@ V2.03 C5 backend: [remote IR lifecycle and wire contract](ir/README.md).
 
 - [AW8623 ERM playback, diagnostics and migration status](aw8623/README.md)
 
-- [QMI8658A motion sensor](imu/README.md).

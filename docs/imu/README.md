@@ -15,31 +15,27 @@ You should have received a copy of the GNU General Public License
 along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 -->
 
-# QMI8658A motion sensor
+# IMU motion service
 
-- V2.03 uses the shared SPI3 bus at 1 MHz with software-controlled CS.
-- Preserve the qualified cold-start CTRL1 value (0x20); avoid rewriting/resetting the interface.
-- Check identity and register readback while holding the shared bus lock.
-- Enable synchronized six-axis sampling; read individual registers through GZ_H.
-- Return `ESP_ERR_NOT_FINISHED` during the five-second warm-up or without new data.
-- Leave caller output untouched on failure; unlock the sample on transport errors.
-- Stop disables the sensors and releases the SPI device; a failed stop remains retryable.
+Implementation: `firmware_p4/components/Service/imu`. The service depends on the
+[QMI8658A driver](../qmi8658a/README.md) and power manager, never on LVGL or UI
+headers. `imu_orientation` contains orientation and calibration mathematics;
+`imu_motion` owns the sampling worker, synchronized snapshots and control requests.
 
-Run `python3 tools/highboy/test_imu_normal.py` for injected transaction failures,
-identity loss, coherent samples, ODR changes and cleanup. Hardware timing still
-requires validation on the target board.
+`imu_motion_start()` initializes shared state before creating a pinned worker
+using `SYS_PRIO_SERVICE_LO` / `SYS_CORE_UI`, as a display-feeding task. Only the
+worker accesses the sensor. Consumers copy snapshots through
+`imu_motion_snapshot()`; they must not access the private snapshot directly.
+Center/calibration requests and stop flags use the same critical section.
 
-## Live 3D monitor
+The worker holds a no-sleep lease, samples/calibrates motion, and releases sensor
+and lease on exit. Stop requests graceful shutdown with a bounded wait and
+returns any error. Roll/pitch use gravity correction; yaw is relative and can
+drift without a magnetometer. Calibration rejects moving or invalid windows.
 
-- A worker samples/calibrates motion; the LVGL screen renders the High Boy model.
-- OK recenters, UP recalibrates, RIGHT switches raw data/3D, BACK exits.
-- Roll/pitch use gravity correction; yaw is relative and can drift without a magnetometer.
-- Show warm-up, calibration, stale samples and sensor errors explicitly.
-- Keep the display awake and hold/release the power lock with the worker lifecycle.
-- Load `/assets/models/highboy_imu.bin` into PSRAM; report missing/invalid files.
-- The model asset is required along with the P4 application; this change does not flash it.
+The [monitor UI](../ui/README.md#imu-motion-monitor) owns display objects, timer
+and model buffers, not the sensor worker's sample storage.
 
-`tools/highboy/build_imu_mesh.py --check` verifies the lossless CAD-derived asset.
-`test_imu_orientation.py` checks rotations, gravity correction and calibration.
-`test_imu_motion_ui.py --output /tmp/imu-ui` renders the actual LVGL screen with
-synthetic samples and checks controls, lifecycle and missing/corrupt assets.
+Run `python3 tools/highboy/test_imu_orientation.py` for rotations, recentering,
+gravity correction and calibration. `test_imu_motion_ui.py` checks UI lifecycle
+with simulated service snapshots; it does not validate physical SPI or RF timing.

@@ -17,7 +17,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 ROOT=Path(__file__).resolve().parents[2]
-D=ROOT/'firmware_p4/components/Applications/ui/screens/games'
+D=ROOT/'firmware_p4/components/Service/imu'
 with tempfile.TemporaryDirectory(prefix='imu-orientation-') as temp:
  exe=Path(temp)/'test'
  subprocess.run(['clang','-std=c11','-Wall','-Wextra','-Werror','-fsanitize=undefined',

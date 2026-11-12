@@ -160,12 +160,13 @@ esp_err_t imu_motion_start(void) {
   s_request = 0;
   portEXIT_CRITICAL(&s_lock);
   if (xTaskCreatePinnedToCore(
-          worker, "imu_motion", WORKER_STACK, NULL, SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_RADIO) !=
+          worker, "imu_motion", WORKER_STACK, NULL, SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_UI) !=
       pdPASS) {
     portENTER_CRITICAL(&s_lock);
     s_snapshot.running = false;
     s_snapshot.error = ESP_ERR_NO_MEM;
     portEXIT_CRITICAL(&s_lock);
+    ESP_LOGE(TAG, "Failed to allocate IMU worker");
     return ESP_ERR_NO_MEM;
   }
   return ESP_OK;

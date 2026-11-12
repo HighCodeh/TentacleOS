@@ -98,6 +98,7 @@ idf_component_register(SRCS
   "ui/screens/dev/include"
   "ui/screens/files/include"
   "ui/screens/games/include"
+  "ui/screens/imu/include"
   "ui/screens/gpio/include"
   "ui/screens/haptic/include"
   "ui/screens/home/include"

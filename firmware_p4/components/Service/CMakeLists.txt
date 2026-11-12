@@ -59,6 +59,8 @@ set(SCRIPT_ENGINE_SRCS
     ${SCRIPT_LUA_SRCS} ${SCRIPT_JS_SRCS})
 
 idf_component_register(SRCS
+  "imu/imu_motion.c"
+  "imu/imu_orientation.c"
   "board_service/board_service.c"
   "haptic/haptic.c"
   ${SCRIPT_ENGINE_SRCS}
@@ -114,6 +116,7 @@ idf_component_register(SRCS
   "ota/ota_service.c"
 
   INCLUDE_DIRS
+  "imu/include"
   "board_service/include"
   "script_engine/include"
   "font/include"

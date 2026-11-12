@@ -24,6 +24,7 @@
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
+#include "ui_metrics.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,8 +32,12 @@
 #define FRAME_MS        33
 #define TEXT_MS         200
 #define STALE_US        500000
-#define VIEW_WIDTH      228
-#define VIEW_HEIGHT     178
+#define VIEW_MAX_HEIGHT 178
+#define VIEW_MARGIN 8
+#define STATUS_Y 46
+#define VIEW_Y 66
+#define LABEL_HEIGHT 20
+#define FOOTER_RESERVE 28
 #define MODEL_SCALE     73.0f
 #define CAMERA_DISTANCE 4.0f
 #define MESH_UNITS      1000.0f
@@ -50,7 +55,9 @@ static float s_camera[9];
 static imu_motion_snapshot_t s_sample;
 #define DEPTH_SCALE 50000.0f
 _Static_assert(sizeof(imu_mesh_face_t) == 8, "IMU mesh face ABI");
-#define VIEW_PIXELS (VIEW_WIDTH * VIEW_HEIGHT)
+#define VIEW_PIXELS (s_view_width * s_view_height)
+static int32_t s_view_width, s_view_height, s_values_y, s_hint_y;
+static float s_model_scale;
 
 static bool load_model(void) {
   FILE *file = fopen(IMU_MESH_PATH, "rb");
@@ -84,9 +91,9 @@ static void raster_triangle(const imu_mesh_face_t *f, uint16_t color) {
   if (fabsf(determinant) < 0.01f)
     return;
   int left = fmaxf(0, floorf(fminf(a.x, fminf(b.x, c.x))));
-  int right = fminf(VIEW_WIDTH - 1, ceilf(fmaxf(a.x, fmaxf(b.x, c.x))));
+  int right = fminf(s_view_width - 1, ceilf(fmaxf(a.x, fmaxf(b.x, c.x))));
   int top = fmaxf(0, floorf(fminf(a.y, fminf(b.y, c.y))));
-  int bottom = fminf(VIEW_HEIGHT - 1, ceilf(fmaxf(a.y, fmaxf(b.y, c.y))));
+  int bottom = fminf(s_view_height - 1, ceilf(fmaxf(a.y, fmaxf(b.y, c.y))));
   float da = DEPTH_SCALE / (CAMERA_DISTANCE - s_xyz[f->a][2]);
   float db = DEPTH_SCALE / (CAMERA_DISTANCE - s_xyz[f->b][2]);
   float dc = DEPTH_SCALE / (CAMERA_DISTANCE - s_xyz[f->c][2]);
@@ -98,7 +105,7 @@ static void raster_triangle(const imu_mesh_face_t *f, uint16_t color) {
       float wc = 1 - wa - wb;
       if (wa >= -0.0001f && wb >= -0.0001f && wc >= -0.0001f) {
         uint16_t depth = (uint16_t)(wa * da + wb * db + wc * dc);
-        unsigned pos = y * VIEW_WIDTH + x;
+        unsigned pos = y * s_view_width + x;
         if (depth >= s_depth[pos]) {
           s_depth[pos] = depth;
           s_pixels[pos] = color;
@@ -124,8 +131,8 @@ static void prepare_model(void) {
         s_xyz[i][row] += s_camera[row * 3 + col] * s_mesh->vertices[i][col] / MESH_UNITS;
     }
     float perspective = CAMERA_DISTANCE / (CAMERA_DISTANCE - s_xyz[i][2]);
-    s_projected[i].x = VIEW_WIDTH / 2 + s_xyz[i][0] * MODEL_SCALE * perspective;
-    s_projected[i].y = VIEW_HEIGHT / 2 - s_xyz[i][1] * MODEL_SCALE * perspective;
+    s_projected[i].x = s_view_width / 2 + s_xyz[i][0] * s_model_scale * perspective;
+    s_projected[i].y = s_view_height / 2 - s_xyz[i][1] * s_model_scale * perspective;
   }
   memset(s_depth, 0, VIEW_PIXELS * sizeof(*s_depth));
   for (unsigned i = 0; i < VIEW_PIXELS; ++i)
@@ -168,7 +175,7 @@ static void draw(lv_event_t *event) {
   line.opa = LV_OPA_COVER;
   for (int i = 0; i < 3; ++i) {
     line.color = lv_color_hex(colors[i]);
-    line.p1.x = area.x1 + VIEW_WIDTH - 28;
+    line.p1.x = area.x1 + s_view_width - 28;
     line.p1.y = area.y2 - 24;
     line.p2.x = line.p1.x + AXIS_SIZE * s_camera[i];
     line.p2.y = line.p1.y - AXIS_SIZE * s_camera[3 + i];
@@ -206,8 +213,7 @@ static void refresh(lv_timer_t *timer) {
   if (s_data_view) {
     snprintf(text,
              sizeof(text),
-             "ACCELERATION  g\nX %+.3f   Y %+.3f\nZ %+.3f\n\nGYROSCOPE  deg/s\nX %+.2f   Y "
-             "%+.2f\nZ %+.2f\n\nDIE %.1f C   ERR %lu",
+             "ACCEL g: X %+.3f Y %+.3f\nZ %+.3f\nGYRO deg/s: X %+.2f\nY %+.2f Z %+.2f\nDIE %.1f C  ERR %lu",
              s_sample.accel[0],
              s_sample.accel[1],
              s_sample.accel[2],
@@ -262,8 +268,8 @@ static void input(const input_event_t *event, void *context) {
     imu_motion_request(true);
   else if (event->button == INPUT_BTN_RIGHT) {
     s_data_view = !s_data_view;
-    lv_obj_set_pos(s_values, s_data_view ? 18 : 8, s_data_view ? 78 : 248);
-    lv_obj_set_width(s_values, s_data_view ? 204 : 224);
+    lv_obj_set_pos(s_values, VIEW_MARGIN, s_data_view ? VIEW_Y : s_values_y);
+    lv_obj_set_width(s_values, ui_screen_w() - 2 * VIEW_MARGIN);
     lv_label_set_text(s_values, "");
     if (s_data_view)
       lv_obj_add_flag(s_view, LV_OBJ_FLAG_HIDDEN);
@@ -275,8 +281,8 @@ static void input(const input_event_t *event, void *context) {
 }
 static lv_obj_t *label(int y, const char *text, lv_color_t color) {
   lv_obj_t *obj = lv_label_create(s_screen);
-  lv_obj_set_width(obj, 224);
-  lv_obj_set_pos(obj, 8, y);
+  lv_obj_set_width(obj, ui_screen_w() - 2 * VIEW_MARGIN);
+  lv_obj_set_pos(obj, VIEW_MARGIN, y);
   lv_obj_set_style_text_font(obj, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(obj, color, 0);
   lv_label_set_text(obj, text);
@@ -298,40 +304,65 @@ void ui_imu_monitor_open(void) {
   lv_obj_set_style_bg_color(s_screen, lv_color_hex(0x080D18), 0);
   lv_obj_add_event_cb(s_screen, deleted, LV_EVENT_DELETE, NULL);
   ui_chrome_header(s_screen, "HIGH BOY / 3D", "/assets/icons/sensors.bin");
-  s_status = label(49, "SENSOR WARMING UP...", lv_color_hex(0x59E2B4));
+  s_hint_y = ui_screen_h() - FOOTER_RESERVE - LABEL_HEIGHT;
+  s_values_y = s_hint_y - LABEL_HEIGHT;
+  s_view_width = ui_screen_w() - 2 * VIEW_MARGIN;
+  s_view_height = s_values_y - VIEW_Y;
+  if (s_view_height > VIEW_MAX_HEIGHT)
+    s_view_height = VIEW_MAX_HEIGHT;
+  s_model_scale = MODEL_SCALE * s_view_height / VIEW_MAX_HEIGHT;
+  s_status = label(STATUS_Y, "SENSOR WARMING UP...", lv_color_hex(0x59E2B4));
   s_view = lv_canvas_create(s_screen);
   lv_obj_remove_style_all(s_view);
-  s_pixels = heap_caps_malloc(VIEW_PIXELS * sizeof(*s_pixels), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  s_depth = heap_caps_malloc(VIEW_PIXELS * sizeof(*s_depth), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  if (s_pixels) {
-    for (unsigned i = 0; i < VIEW_PIXELS; ++i)
-      s_pixels[i] = 0x0863;
-    lv_canvas_set_buffer(s_view, s_pixels, VIEW_WIDTH, VIEW_HEIGHT, LV_COLOR_FORMAT_RGB565);
-  }
-  lv_obj_set_size(s_view, VIEW_WIDTH, VIEW_HEIGHT);
-  lv_obj_set_pos(s_view, 6, 66);
+  lv_obj_set_size(s_view, s_view_width, s_view_height);
+  lv_obj_set_pos(s_view, VIEW_MARGIN, VIEW_Y);
   lv_obj_remove_flag(s_view, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_event_cb(s_view, draw, LV_EVENT_DRAW_MAIN, NULL);
-  s_values = label(248, "X --    Y --    Z --", lv_color_hex(0xE1E7F2));
-  s_hint = label(273, "UP Calibrate   RIGHT Data / 3D", lv_color_hex(0x99A9C4));
+  s_values = label(s_values_y, "X --    Y --    Z --", lv_color_hex(0xE1E7F2));
+  s_hint = label(s_hint_y, "UP Calibrate | RIGHT Data/3D", lv_color_hex(0x99A9C4));
   ui_chrome_footer(s_screen, "OK Center     BACK Exit");
   ui_input_set_screen_handler(input, NULL);
   ui_screen_load_owned(&s_screen, s_screen);
-  power_policy_set_display_hold(s_screen, true);
+
   s_running = true;
+  s_pixels = heap_caps_malloc(VIEW_PIXELS * sizeof(*s_pixels), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  s_depth = heap_caps_malloc(VIEW_PIXELS * sizeof(*s_depth), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   s_mesh = heap_caps_malloc(sizeof(*s_mesh), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (!s_pixels || !s_depth || !s_mesh) {
     ESP_LOGE(TAG, "IMU view allocation failed");
     lv_label_set_text(s_status, "NOT ENOUGH MEMORY");
-    return;
+    goto cleanup;
   }
   if (!load_model()) {
     ESP_LOGE(TAG, "IMU model missing or invalid");
     lv_label_set_text(s_status, "MODEL FILE MISSING / INVALID");
-    return;
+    goto cleanup;
+  }
+  s_timer = lv_timer_create(refresh, FRAME_MS, NULL);
+  if (s_timer == NULL) {
+    ESP_LOGE(TAG, "IMU refresh timer allocation failed");
+    lv_label_set_text(s_status, "REFRESH TIMER UNAVAILABLE");
+    goto cleanup;
   }
   esp_err_t err = imu_motion_start();
-  if (err != ESP_OK)
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "IMU worker start failed: %s", esp_err_to_name(err));
     lv_label_set_text(s_status, "SENSOR COULD NOT START");
-  s_timer = lv_timer_create(refresh, FRAME_MS, NULL);
+    goto cleanup;
+  }
+  for (unsigned i = 0; i < VIEW_PIXELS; ++i)
+    s_pixels[i] = 0x0863;
+  lv_canvas_set_buffer(s_view, s_pixels, s_view_width, s_view_height, LV_COLOR_FORMAT_RGB565);
+  power_policy_set_display_hold(s_screen, true);
+  return;
+cleanup:
+  if (s_timer != NULL) {
+    lv_timer_delete(s_timer);
+    s_timer = NULL;
+  }
+  free(s_pixels);
+  free(s_depth);
+  free(s_mesh);
+  s_pixels = s_depth = NULL;
+  s_mesh = NULL;
 }
