@@ -113,6 +113,28 @@ project `CMakeLists.txt`. Existing examples: `Applications/gameboy`,
 `<build>/components/Service/fatfs`; its tracked patch metadata remains in
 `firmware_p4/components/Service/fatfs`.
 
+## Subsystem boundaries and lifecycle review
+
+- Keep peripheral access in `Drivers/`, acquisition/calibration and reusable
+  background workflows in `Service/`, and presentation/input in
+  `Applications/ui/screens/<feature>/`. Do not place a sensor service or its
+  mathematics inside a screen directory merely because one screen consumes it.
+  Acquisition/calibration services must not depend on UI/LVGL headers. Use
+  synchronized snapshots or messages; dedicated rendering adapters remain separate.
+- A screen owning a worker, peripheral, timer or power lease must register its
+  stop hook in `screen_close_fn()`. Deletion callbacks are an idempotent fallback,
+  not a replacement for releasing ownership before navigation. Check Back,
+  programmatic navigation, repeated entry/exit and partial initialization failure.
+- Check task/timer/buffer creation. Start dependent hardware only after required
+  UI resources exist, or unwind acquired resources on failure. Keep BACK usable
+  on error screens; never retain a power lease solely because initialization failed.
+- Use `ui_metrics` and chrome/content bounds for layout. Verify both 240x320 and
+  320x240, including raw-data/error states. Fixed render buffers may have a bounded
+  size, but must not dictate off-screen label positions or unscaled projection.
+- On file moves, update source registration, exported include directories, host
+  tests and documentation links together. Reconfigure and build affected targets;
+  do not rely on an old build's source glob or a successful compile alone.
+
 ## Third-party dependencies
 
 Use the IDF Component Manager for third-party libraries. Declare dependencies
@@ -150,6 +172,19 @@ decision, or the project, consult its `docs/<component>/README.md` first (each
 component's in-tree README points back to it) instead of guessing from the code.
 Always keep it up to date: when you change a subsystem's behavior, contract, or
 interface, update its doc in the same change.
+
+### Documentation organization checks
+
+- Maintain one canonical component document and an in-tree README pointer. Use
+  the component's name for driver documentation (for example `docs/qmi8658a/`);
+  document the service separately and link UI controls/lifecycle from `docs/ui/`.
+- Add new components to the existing index table, not an unrelated trailing list.
+- Update behavior in its existing subsystem section. Do not append a sequence of
+  commit summaries as a substitute for maintaining the current contract. Keep
+  historical validation explicitly labeled and distinguish host mocks from tests
+  on hardware. Update capability comparisons when their stated scope changes.
+- Check moved/new relative links and required assets. Document which deployment
+  installs an asset; an app-only build or flash does not prove the asset is present.
 
 ## License headers — mandatory for every file
 
