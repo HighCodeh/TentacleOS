@@ -1,3 +1,18 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -83,7 +98,7 @@ static esp_err_t hb_nfc_spi_direct_cmd(uint8_t command) {
 static esp_err_t hb_nfc_spi_reg_modify(uint8_t reg, uint8_t mask, uint8_t value) {
   (void)reg; (void)mask; (void)value; return ESP_OK;
 }
-static void hb_nfc_spi_deinit(void) {s_spi_deinit_calls++;}
+static esp_err_t hb_nfc_spi_deinit(void) {s_spi_deinit_calls++;return ESP_OK;}
 static void hb_nfc_gpio_deinit(void) {s_gpio_deinit_calls++;}
 static void hb_nfc_timer_delay_ms(uint32_t delay) {(void)delay;}
 static void hb_nfc_timer_delay_us(uint32_t delay) {(void)delay;}

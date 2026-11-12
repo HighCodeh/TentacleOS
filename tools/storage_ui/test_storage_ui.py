@@ -44,7 +44,7 @@ def main():
     code = notice + FIXTURES
     for name in ("static void fmt_bytes(", "static bool sd_try_mount("):
         code += function(header, name)
-    for name in ("static void overlay_deleted_cb(", "static void format_done_poll(",
+    for name in ("static bool format_progress(", "static void overlay_deleted_cb(", "static void format_done_poll(",
                  "static void format_task(", "static void fmt_confirm_cb("):
         code += function(storage, name)
     code += TESTS
@@ -73,6 +73,7 @@ typedef struct {lv_obj_t *target;} lv_event_t;
 typedef struct {uint64_t total_bytes, used_bytes, free_bytes;} vfs_statvfs_t;
 #define ESP_OK 0
 #define ESP_FAIL -1
+#define ESP_ERR_NOT_FINISHED -3
 #define ESP_ERR_INVALID_STATE -2
 #define SD_MOUNT_RETRIES 3
 #define SD_MOUNT_RETRY_DELAY_MS 150
@@ -98,7 +99,10 @@ static const char *filesystem="exFAT";
 static lv_obj_t screen, overlay, bar;
 static lv_timer_t timer_instance;
 static lv_obj_t *s_screen=&screen, *s_fmt_overlay, *s_fmt_bar;
-static int32_t s_fmt_phase;
+static lv_obj_t *s_fmt_status, *s_fmt_cancel_label;
+static atomic_bool s_format_cancel;
+static atomic_uint s_format_percent;
+static _Atomic(const char *) s_format_stage;
 static bool s_formatting, s_format_exfat;
 static atomic_bool s_format_done;
 static esp_err_t s_format_result, native_result;
@@ -118,13 +122,14 @@ static int vfs_statvfs(const char *path, vfs_statvfs_t *out) {
   (void)path;*out=(vfs_statvfs_t){1024,256,768};return ESP_OK;
 }
 static const char *vfs_sdcard_fs_type(void) {return filesystem;}
-static int vfs_sdcard_format_exfat(void) {calls++;used_exfat=true;return native_result;}
-static int vfs_sdcard_format(void) {calls++;used_exfat=false;return native_result;}
+static int vfs_sdcard_format_with_progress(bool exfat, bool (*cb)(const char *, uint8_t, void *), void *ctx) {
+ calls++;used_exfat=exfat;
+ if(!cb("Formatting",50,ctx))return ESP_ERR_NOT_FINISHED;
+ return native_result;
+}
+static void lv_label_set_text_fmt(lv_obj_t *obj,const char *fmt,...) {(void)obj;(void)fmt;}
 static lv_obj_t *lv_event_get_target(lv_event_t *event) {return event->target;}
 static lv_obj_t *lv_screen_active(void) {return &screen;}
-static void lv_bar_set_start_value(lv_obj_t *obj,int value,int anim) {
-  (void)anim;assert(obj==&bar && value>=0 && value<=obj->end);obj->start=value;bar_updates++;
-}
 static void lv_bar_set_value(lv_obj_t *obj,int value,int anim) {
   (void)anim;assert(obj==&bar && value>=obj->start && value<=100);obj->end=value;bar_updates++;
 }
@@ -135,7 +140,7 @@ static lv_timer_t *lv_timer_create(void (*cb)(lv_timer_t *),int ms,void *arg) {
 static void lv_obj_del(lv_obj_t *obj) {assert(obj==&overlay);s_fmt_bar=NULL;}
 static void notify(int kind,const char *text) {notice_kind=kind;snprintf(notice_text,sizeof(notice_text),"%s",text);}
 static void build_screen(void) {rebuilds++;}
-static void show_fmt_overlay(void) {s_fmt_overlay=&overlay;s_fmt_bar=&bar;bar=(lv_obj_t){0,25};s_fmt_phase=25;}
+static void show_fmt_overlay(void) {s_fmt_overlay=&overlay;s_fmt_bar=&bar;bar=(lv_obj_t){0,0};}
 static int xTaskCreatePinnedToCore(void (*fn)(void *),const char *name,int stack,void *arg,int priority,void *handle,int core) {
   (void)fn;(void)name;(void)stack;(void)arg;(void)priority;(void)handle;(void)core;
   creates++;return task_fail?0:pdPASS;
@@ -159,8 +164,13 @@ int main(void) {
   filesystem="exFAT";format_task((void *)(uintptr_t)true);assert(used_exfat && calls==1);
   format_done_poll(&timer_instance);assert(!s_formatting && rebuilds==1 && notice_kind==NOTIFY_SAVED);
   assert(strstr(notice_text,"exFAT"));
+  fmt_confirm_cb(true);assert(format_progress("Allocation table",42,NULL));
+  format_done_poll(&timer_instance);assert(bar.end==42);
+  atomic_store(&s_format_cancel,true);format_task(NULL);format_done_poll(&timer_instance);
+  assert(s_format_result==ESP_ERR_NOT_FINISHED && notice_kind==NOTIFY_WARNING);
+  assert(strstr(notice_text,"Cancelled"));
   native_result=ESP_FAIL;fmt_confirm_cb(true);format_task(NULL);assert(!used_exfat);
-  format_done_poll(&timer_instance);assert(notice_kind==NOTIFY_WARNING && rebuilds==2);
+  format_done_poll(&timer_instance);assert(notice_kind==NOTIFY_WARNING && rebuilds==3);
   native_result=ESP_OK;fmt_confirm_cb(true);mounted=false;format_task(NULL);format_done_poll(&timer_instance);
   assert(notice_kind==NOTIFY_WARNING && s_format_result==ESP_ERR_INVALID_STATE);mounted=true;
   fmt_confirm_cb(true);lv_event_t event={&overlay};overlay_deleted_cb(&event);

@@ -262,6 +262,7 @@ static void ducky_set_output_mode(int mode) {(void)mode;}
 static esp_err_t ducky_run_from_assets(const char *path) {executions++;strcpy(last_path,path);return ESP_OK;}
 static esp_err_t ducky_run_from_sdcard(const char *path) {return ducky_run_from_assets(path);}
 static void bad_ble_deinit(void) {}
+static void bad_usb_deinit(void) {}
 static const char *esp_err_to_name(esp_err_t err) {(void)err;return "error";}
 static void apply_theme_cb(void *arg) {(void)arg;}
 static void ui_async_call(void (*cb)(void *),void *arg) {(void)cb;(void)arg;schedules++;}

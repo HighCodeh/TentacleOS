@@ -1,3 +1,18 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 #include <assert.h>
 #include <stdbool.h>
 #include <setjmp.h>
@@ -14,6 +29,7 @@ typedef struct { TaskHandle_t xHandle; UBaseType_t xTaskNumber; const char *pcTa
 #define ESP_OK 0
 #define ESP_FAIL -1
 #define ESP_ERR_NO_MEM 0x101
+#define ESP_ERR_INVALID_STATE 0x103
 #define pdPASS 1
 #define configMAX_TASK_NAME_LEN 16
 #define pdMS_TO_TICKS(value) (value)

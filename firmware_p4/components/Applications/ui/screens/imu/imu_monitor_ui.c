@@ -33,11 +33,11 @@
 #define TEXT_MS         200
 #define STALE_US        500000
 #define VIEW_MAX_HEIGHT 178
-#define VIEW_MARGIN 8
-#define STATUS_Y 46
-#define VIEW_Y 66
-#define LABEL_HEIGHT 20
-#define FOOTER_RESERVE 28
+#define VIEW_MARGIN     8
+#define STATUS_Y        46
+#define VIEW_Y          66
+#define LABEL_HEIGHT    20
+#define FOOTER_RESERVE  28
 #define MODEL_SCALE     73.0f
 #define CAMERA_DISTANCE 4.0f
 #define MESH_UNITS      1000.0f
@@ -213,7 +213,8 @@ static void refresh(lv_timer_t *timer) {
   if (s_data_view) {
     snprintf(text,
              sizeof(text),
-             "ACCEL g: X %+.3f Y %+.3f\nZ %+.3f\nGYRO deg/s: X %+.2f\nY %+.2f Z %+.2f\nDIE %.1f C  ERR %lu",
+             "ACCEL g: X %+.3f Y %+.3f\nZ %+.3f\nGYRO deg/s: X %+.2f\nY %+.2f Z %+.2f\nDIE %.1f C  "
+             "ERR %lu",
              s_sample.accel[0],
              s_sample.accel[1],
              s_sample.accel[2],

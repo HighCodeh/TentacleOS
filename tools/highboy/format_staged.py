@@ -37,7 +37,7 @@ def is_first_party(path):
 
 def main():
     names = subprocess.check_output(["git", "diff", "--cached", "--name-only", "-z",
-                                     "--diff-filter=ACM"]).decode().split("\0")
+                                     "--diff-filter=ACMR"]).decode().split("\0")
     names = [name for name in names if is_first_party(name)]
     if not names:
         return
