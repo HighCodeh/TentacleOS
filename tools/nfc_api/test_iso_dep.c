@@ -28,7 +28,7 @@
 #define NFC_ATS_MAX_LEN 64
 #define nfc_log_hex(...) ((void)0)
 typedef int hb_nfc_err_t;
-typedef struct { uint8_t ats[64]; size_t ats_len; uint8_t fsc, fwi; } nfc_iso_dep_data_t;
+typedef struct { uint8_t ats[64]; size_t ats_len; uint16_t fsc, fsd; uint8_t fwi, cid; } nfc_iso_dep_data_t;
 static uint8_t replies[4][300];
 static size_t lengths[4], reply_index, reply_count, calls;
 static bool repeat;
@@ -47,6 +47,8 @@ static int nfc_poller_transceive(const uint8_t *tx, size_t tx_len, bool crc,
   if (!repeat) reply_index++;
   return (int)length + 2;
 }
+static int64_t esp_timer_get_time(void) { return 0; }
+static void hb_nfc_timer_delay_ms(unsigned ms) { (void)ms; }
 /* PRODUCTION */
 static void reset(void) {
   memset(replies, 0, sizeof(replies));
@@ -57,7 +59,7 @@ static void reset(void) {
   repeat = false;
 }
 int main(void) {
-  nfc_iso_dep_data_t dep = {.fsc = 32, .fwi = 4};
+  nfc_iso_dep_data_t dep = {.fsc = 32, .fsd = 256, .fwi = 4};
   uint8_t tx[1] = {0}, out[16];
   reset(); replies[0][0] = 2; replies[0][1] = 0x90; replies[0][2] = 0; lengths[0] = 3;
   assert(iso_dep_transceive(&dep, tx, 1, out, sizeof(out), 20) == 2);
@@ -80,7 +82,7 @@ int main(void) {
   }
   reset(); replies[0][0] = 0xF2; replies[0][1] = 1; lengths[0] = 2; repeat = true;
   assert(iso_dep_transceive(&dep, tx, 1, out, sizeof(out), 20) == 0);
-  assert(calls == 257);
+  assert(calls == ISO_DEP_WTX_LIMIT + 1);
   reset(); replies[0][0] = 2; replies[0][1] = 0x78; lengths[0] = 2;
   assert(iso_dep_rats(8, 0, &dep) == HB_NFC_ERR_PROTOCOL);
   reset(); replies[0][0] = 2; replies[0][1] = 8; lengths[0] = 2;

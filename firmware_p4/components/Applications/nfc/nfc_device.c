@@ -503,6 +503,51 @@ hb_nfc_err_t nfc_device_save_generic(const char *name, const hb_nfc_card_data_t 
   return nfc_store_save(&stored);
 }
 
+/* Generic descriptors saved before FSC widened to 16 bits (96-byte ESP ABI).
+ * Decode in memory only: do not rewrite or erase the user's stored records. */
+typedef struct {
+  highboy_nfc_protocol_t protocol;
+  highboy_nfc_iso14443a_t iso14443a;
+  union {
+    struct {
+      uint8_t ats[64];
+      uint16_t ats_len;
+      uint8_t fsc;
+      uint8_t fwi;
+    } iso_dep;
+    highboy_nfc_iso14443b_t iso14443b;
+    highboy_nfc_iso15693_t iso15693;
+    highboy_nfc_felica_t felica;
+  } data;
+  highboy_nfc_rf_metrics_t rf;
+} nfc_generic_legacy_t;
+
+_Static_assert(sizeof(nfc_generic_legacy_t) == 96, "Legacy NFC storage ABI changed");
+
+static bool decode_generic_payload(const uint8_t *payload, size_t len, hb_nfc_card_data_t *card) {
+  if (len == sizeof(*card)) {
+    memcpy(card, payload, sizeof(*card));
+    return true;
+  }
+  if (len != sizeof(nfc_generic_legacy_t))
+    return false;
+  nfc_generic_legacy_t old;
+  memcpy(&old, payload, sizeof(old));
+  memset(card, 0, sizeof(*card));
+  card->protocol = old.protocol;
+  card->iso14443a = old.iso14443a;
+  memcpy(&card->data, &old.data, sizeof(old.data));
+  card->rf = old.rf;
+  if (old.protocol == HB_PROTO_ISO14443_4A || old.protocol == HB_PROTO_MF_PLUS ||
+      old.protocol == HB_PROTO_MF_DESFIRE) {
+    card->data.iso_dep.fsc = old.data.iso_dep.fsc == 255 ? 256 : old.data.iso_dep.fsc;
+    card->data.iso_dep.fwi = old.data.iso_dep.fwi;
+    card->data.iso_dep.fsd = 256;
+    card->data.iso_dep.cid = 0;
+  }
+  return true;
+}
+
 hb_nfc_err_t nfc_device_load_generic(const char *name, hb_nfc_card_data_t *card) {
   if (!s_initialized && nfc_device_init() != HB_NFC_OK)
     return HB_NFC_ERR_INTERNAL;
@@ -519,9 +564,7 @@ hb_nfc_err_t nfc_device_load_generic(const char *name, hb_nfc_card_data_t *card)
     if (entry == NULL)
       return ESP_ERR_NO_MEM;
     hb_nfc_err_t err = nfc_store_load(i, entry);
-    if (err == HB_NFC_OK && entry->payload_len == sizeof(*card)) {
-      memcpy(card, entry->payload, sizeof(*card));
-    } else if (err == HB_NFC_OK) {
+    if (err == HB_NFC_OK && !decode_generic_payload(entry->payload, entry->payload_len, card)) {
       memset(card, 0, sizeof(*card));
       card->protocol = entry->protocol;
       if (entry->protocol == HB_PROTO_ISO14443_3B || entry->protocol == HB_PROTO_ISO14443_4B) {

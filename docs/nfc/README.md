@@ -1383,3 +1383,10 @@ At/parity and SPI-failure checks. Physical dump validation remains necessary.
 - Reset the frontend when changing from reader to listener; yield during idle loops.
 - Preserve Ultralight AES/I2C operations and enforce READ/version frame sizes.
 - Regression: `tools/nfc/test_reader_activation.py`.
+
+## ISO-DEP reader and stored descriptors
+
+- Keep 256-byte FSC/FSD values without truncation; validate ATS and CID.
+- Bound chaining, WTX, retries and APDU continuation; reject incomplete replies.
+- Read old 96-byte saved descriptors without rewriting existing records.
+- Tests: `test_iso_dep_reader.py`, `test_generic_storage.py` in `tools/nfc/`.

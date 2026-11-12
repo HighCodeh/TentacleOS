@@ -32,7 +32,7 @@ extern "C" {
 /**
  * @brief Send RATS and receive ATS.
  *
- * Fills dep->ats, dep->fsc, and dep->fwi.
+ * Validates ATS and fills the negotiated FSC/FSD, FWI and CID.
  *
  * @param fsdi  Frame size for proximity coupling device integer.
  * @param cid   Card identifier.
@@ -46,7 +46,8 @@ hb_nfc_err_t iso_dep_rats(uint8_t fsdi, uint8_t cid, nfc_iso_dep_data_t *dep);
 /**
  * @brief Send optional PPS request.
  *
- * Best-effort; keeps 106 kbps when dsi/dri are 0.
+ * Keeps 106 kbps when dsi/dri are 0. Higher rates are rejected until the
+ * radio bitrate and timing transition are implemented.
  *
  * @param cid  Card identifier.
  * @param dsi  Divisor send integer.
@@ -58,7 +59,10 @@ hb_nfc_err_t iso_dep_rats(uint8_t fsdi, uint8_t cid, nfc_iso_dep_data_t *dep);
 hb_nfc_err_t iso_dep_pps(uint8_t cid, uint8_t dsi, uint8_t dri);
 
 /**
- * @brief Exchange ISO-DEP I-Blocks with chaining and WTX handling.
+ * @brief Exchange ISO-DEP I-Blocks with bounded chaining, CID and WTX handling.
+ *
+ * Returns 0 on incomplete/oversized responses; output must be ignored on error.
+ * NAD and rates above 106 kbps are not negotiated by this reader.
  *
  * @param dep         ISO-DEP session data.
  * @param tx          Data to transmit.
