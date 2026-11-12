@@ -490,6 +490,21 @@ MIFARE key dictionaries shipped as assets and loaded by `nfc_dict_loader`:
 `mf_classic_default.dic`, `mf_classic_user.dic` (Classic key A/B lists) and
 `mf_ulc_default.dic` (Ultralight-C keys).
 
+### Reader activation and lifecycle
+
+- Validate anticollision BCC, cascade UIDs and SELECT CRC before accepting a card.
+- Keep TX/RX status together; bound FIFO reads and reject failed reselection.
+- Reset the frontend when changing from reader to listener; yield during idle loops.
+- Preserve Ultralight AES/I2C operations and enforce READ/version frame sizes.
+- Regression: `tools/nfc/test_reader_activation.py`.
+
+### NFC-V stream transport
+
+- Encode 1-of-4 requests; decode high-rate single-subcarrier replies and check CRC.
+- Route standard and SLIX commands through the same bounded stream transport.
+- Apply technology-specific B/F/V receiver profiles; reject unsupported V rates.
+- Test: `tools/nfc/test_iso15693_stream.py`; RF range remains unqualified.
+
 ## Driver: HighBoy NFC (`st25r3916`)
 
 `highboy_nfc.h` is the driver front end for the ST25R3916 / ST25R3916B:
@@ -511,6 +526,23 @@ bool      highboy_nfc_field_detected(uint8_t *out_aux_display);
   (`hal/hb_nfc_gpio.c`, `hb_nfc_spi.c`, `hb_nfc_timer.c`).
 - Capacity constants live in `highboy_nfc_types.h` (UID up to 10 bytes for
   triple cascade, ATS up to 64 bytes, 512-byte hardware FIFO).
+
+### V2.03 frontend contract
+
+- Use legacy regulator modulation for the mounted VDD_AM capacitor.
+- Preserve simultaneous TX/RX events; propagate bus and field-off failures.
+- Validate passive-memory writes: A 15, F 21, TSN 12 bytes.
+- Report unsupported antenna auto-tuning: AAT pins are unconnected.
+- Checked amplitude reads distinguish measurement failure from zero.
+- Tests: `tools/nfc/test_irq_exchange.py`, `tools/nfc/test_pt_memory.py`.
+
+### FeliCa frontend transport
+
+- Let hardware add the TX length byte; validate RX length and CRC framing.
+- Configure 21-byte passive memory and verify TSN readback.
+- Handle TX completion and combined RX/field events without discarding a frame.
+- Preserve the existing structured profiles and Lite authentication.
+- Tests: `test_readers.py`, `test_startup.py`, `test_felica_profile.py` in `tools/nfc_api/`.
 
 ## Shared antenna and failed shutdown
 
@@ -621,6 +653,13 @@ the transparent waveform and response latency on the board if the reader still
 rejects replies. `AUTH OK` records local challenge verification and transmission;
 it does not confirm that the reader accepted the answer or read the full dump.
 
+### Access control and value operations
+
+- Enforce access bits, sector groups, encrypted parity and nested authentication.
+- Validate value-block operations and recover RX after silent commands.
+- Preserve coalesced IRQs, HALT/reselection and fatal-error cleanup.
+- Tests: `tools/nfc/test_classic_emu.py`, `test_classic_value.py`; target RF still needs bench qualification.
+
 ## IDF v6.1 cryptography
 
 TF-PSA-Crypto removed DES, including 3DES, as obsolete algorithms; this was not
@@ -652,6 +691,16 @@ the pinned SDK's incomplete PSA hardware algorithm coverage; see
 NFC AES/CMAC code and CBC chaining against independent vectors with the actual
 SDK software PSA backend. DES/3DES remains covered by its separate legacy test.
 
+### DESFire EV2 session contract
+
+- EV2 session keys and IVs follow NXP AN12343.
+- Crypto failures clear authentication and session keys.
+- NonFirst accepts 16-byte responses; TI and counter survive only on success.
+- Native/wrapped exchanges preserve cancellation and reject truncated replies.
+- Response chains stop after 32 frames or 15 seconds.
+- Host regression: `python3 tools/nfc/test_desfire_auth.py`.
+- RF authentication and full DESFire emulation remain unqualified.
+
 ## ISO-DEP target block validation
 
 The Type 4 / DESFire target consumes RX-end interrupts and the full 10-bit FIFO
@@ -680,6 +729,13 @@ Run `python3 tools/nfc_api/test_t4t_blocks.py` for production-code regression
 checks with ASan/UBSan (CID, retransmission, chain bounds and response capacity).
 Physical repeated-reader interoperability still needs validation on the board.
 
+
+### Reader exchanges and stored descriptors
+
+- Keep 256-byte FSC/FSD values without truncation; validate ATS and CID.
+- Bound chaining, WTX, retries and APDU continuation; reject incomplete replies.
+- Read old 96-byte saved descriptors without rewriting existing records.
+- Tests: `test_iso_dep_reader.py`, `test_generic_storage.py` in `tools/nfc/`.
 
 ## MIFARE Plus SL3
 
@@ -1289,6 +1345,20 @@ NLEN capacity, chunking and interrupted writes. The shared UI test covers explic
 confirmation and cancellation; archive tests cover repeated NDEF fields. Actual
 RF read/write/emulation and creation still require validation on Highboy hardware.
 
+### Reader mapping primitives
+
+- Reader primitives support mappings 1/2/3, 2/4-byte NLEN and extended offsets.
+- Keep bounded CC TLVs, exact response lengths and interrupted-write handling.
+- The saved-profile workflow still requires a 2-byte NLEN and its existing size limit.
+- Tests: `tools/nfc/test_t4t_reader.py` and `tools/nfc_api/test_t4t_profile.py`.
+
+### Target scope
+
+- Remove the placeholder DESFire responder from generic A/B targets.
+- Preserve identity-only DESFire/NTAG4xx and the existing NDEF/Plus listeners.
+- Generic Type 4A rejects unsupported classes/instructions explicitly.
+- Tests: `tools/nfc_api/test_t4t_blocks.py`, `test_desfire_identity.py`.
+
 ## EMV inspector
 
 The bank-card screen reads up to eight PPSE applications, performs SELECT,
@@ -1314,6 +1384,13 @@ Run `python3 tools/nfc_api/test_emv.py` for the synthetic host regression suite.
 Physical card and RF validation is still required. EMV, NTAG4xx and Type 4 share the ISO-DEP text header encoder to avoid
 duplicating serialization code and the generated license notice. No partition
 migration is introduced.
+
+### Metadata validation
+
+- Validate selected AID and bounded PDOL descriptions before updating metadata.
+- Retain PPSE priority and sanitize display labels.
+- Keep the existing read-only EMV workflow and record limit.
+- Test: `tools/nfc_api/test_emv.py`; no payment or card emulation is added.
 
 ## Persistent profile memory
 
@@ -1357,89 +1434,12 @@ parity with a separately initialized simulated card, then generates At from
 that card state rather than copying the reader's state. It also retains invalid
 At/parity and SPI-failure checks. Physical dump validation remains necessary.
 
-## DESFire authentication corrections
-
-- EV2 session keys and IVs follow NXP AN12343.
-- Crypto failures clear authentication and session keys.
-- NonFirst accepts 16-byte responses; TI and counter survive only on success.
-- Native/wrapped exchanges preserve cancellation and reject truncated replies.
-- Response chains stop after 32 frames or 15 seconds.
-- Host regression: `python3 tools/nfc/test_desfire_auth.py`.
-- RF authentication and full DESFire emulation remain unqualified.
-
-## V2.03 frontend corrections
-
-- Use legacy regulator modulation for the mounted VDD_AM capacitor.
-- Preserve simultaneous TX/RX events; propagate bus and field-off failures.
-- Validate passive-memory writes: A 15, F 21, TSN 12 bytes.
-- Report unsupported antenna auto-tuning: AAT pins are unconnected.
-- Checked amplitude reads distinguish measurement failure from zero.
-- Tests: `tools/nfc/test_irq_exchange.py`, `tools/nfc/test_pt_memory.py`.
-
-## Reader activation and lifecycle
-
-- Validate anticollision BCC, cascade UIDs and SELECT CRC before accepting a card.
-- Keep TX/RX status together; bound FIFO reads and reject failed reselection.
-- Reset the frontend when changing from reader to listener; yield during idle loops.
-- Preserve Ultralight AES/I2C operations and enforce READ/version frame sizes.
-- Regression: `tools/nfc/test_reader_activation.py`.
-
-## ISO-DEP reader and stored descriptors
-
-- Keep 256-byte FSC/FSD values without truncation; validate ATS and CID.
-- Bound chaining, WTX, retries and APDU continuation; reject incomplete replies.
-- Read old 96-byte saved descriptors without rewriting existing records.
-- Tests: `test_iso_dep_reader.py`, `test_generic_storage.py` in `tools/nfc/`.
-
-## Type 4 reader extensions
-
-- Reader primitives support mappings 1/2/3, 2/4-byte NLEN and extended offsets.
-- Keep bounded CC TLVs, exact response lengths and interrupted-write handling.
-- The saved-profile workflow still requires a 2-byte NLEN and its existing size limit.
-- Tests: `tools/nfc/test_t4t_reader.py` and `tools/nfc_api/test_t4t_profile.py`.
-
-## NFC-V stream transport
-
-- Encode 1-of-4 requests; decode high-rate single-subcarrier replies and check CRC.
-- Route standard and SLIX commands through the same bounded stream transport.
-- Apply technology-specific B/F/V receiver profiles; reject unsupported V rates.
-- Test: `tools/nfc/test_iso15693_stream.py`; RF range remains unqualified.
-
-## Classic reader authentication
+### Authentication verification
 
 - Verify encrypted At and parity before accepting a sector session.
 - Clear failed authentication state; retain nonce timing and scoped CRC handling.
 - Stop printing recovered sector keys in dump progress logs.
 - Test: `tools/nfc_api/test_classic_auth.py`.
-
-## Classic target corrections
-
-- Enforce access bits, sector groups, encrypted parity and nested authentication.
-- Validate value-block operations and recover RX after silent commands.
-- Preserve coalesced IRQs, HALT/reselection and fatal-error cleanup.
-- Tests: `tools/nfc/test_classic_emu.py`, `test_classic_value.py`; target RF still needs bench qualification.
-
-## FeliCa frontend transport
-
-- Let hardware add the TX length byte; validate RX length and CRC framing.
-- Configure 21-byte passive memory and verify TSN readback.
-- Handle TX completion and combined RX/field events without discarding a frame.
-- Preserve the existing structured profiles and Lite authentication.
-- Tests: `test_readers.py`, `test_startup.py`, `test_felica_profile.py` in `tools/nfc_api/`.
-
-## EMV metadata validation
-
-- Validate selected AID and bounded PDOL descriptions before updating metadata.
-- Retain PPSE priority and sanitize display labels.
-- Keep the existing read-only EMV workflow and record limit.
-- Test: `tools/nfc_api/test_emv.py`; no payment or card emulation is added.
-
-## Type 4 target scope
-
-- Remove the placeholder DESFire responder from generic A/B targets.
-- Preserve identity-only DESFire/NTAG4xx and the existing NDEF/Plus listeners.
-- Generic Type 4A rejects unsupported classes/instructions explicitly.
-- Tests: `tools/nfc_api/test_t4t_blocks.py`, `test_desfire_identity.py`.
 
 ## Integration regression coverage
 
