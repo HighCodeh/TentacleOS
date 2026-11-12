@@ -38,7 +38,7 @@ esp_err_t qmi8658a_init(void);
 /** Enable accelerometer and gyroscope. */
 esp_err_t qmi8658a_start(void);
 
-/** Disable accelerometer and gyroscope without removing the SPI device. */
+/** Disable both sensors and release the SPI handle. */
 esp_err_t qmi8658a_stop(void);
 
 /**
@@ -47,7 +47,8 @@ esp_err_t qmi8658a_stop(void);
  */
 esp_err_t qmi8658a_set_odr(uint8_t odr_bits);
 
-/** Read temperature, acceleration and angular rate from one burst. */
+/** Read one synchronized sample. NOT_FINISHED means warm-up or no new data.
+ * The output remains unchanged on failure. */
 esp_err_t qmi8658a_read(qmi8658a_sample_t *out);
 
 bool qmi8658a_is_ready(void);

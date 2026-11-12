@@ -99,3 +99,5 @@ README.md, separated by `---`.
 V2.03 C5 backend: [remote IR lifecycle and wire contract](ir/README.md).
 
 - [AW8623 ERM playback, diagnostics and migration status](aw8623/README.md)
+
+- [QMI8658A motion sensor](imu/README.md).
