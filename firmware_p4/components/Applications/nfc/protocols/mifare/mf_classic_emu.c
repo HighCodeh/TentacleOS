@@ -35,8 +35,10 @@
 #include "hb_nfc_timer.h"
 #include "iso14443a.h"
 
-#define MFC_UID_SINGLE_BYTES 4
-#define MFC_UID_DOUBLE_BYTES 7
+#define MFC_UID_SINGLE_BYTES    4
+#define MFC_UID_DOUBLE_BYTES    7
+#define MFC_COMMAND_BYTES       4U
+#define MFC_RX_FRAME_ERROR_MASK 0x30U
 
 static const char *TAG = "NFC_MF_CLASSIC_EMU";
 
@@ -55,9 +57,19 @@ static const char *TAG = "NFC_MF_CLASSIC_EMU";
 #define MFC_AUX_DEF_NFC_N 0x10
 #define MFC_PT_MOD_OOK    0x60
 
+#define MFC_VALUE_FRAME_BYTES 6U
 #define MFC_BLOCK_SIZE        16
 #define MFC_KEY_SIZE          6
 #define MFC_TRAILER_KEY_B_OFF 10
+#define MFC_ACCESS_GROUPS     4
+#define MFC_TRAILER_GROUP     3
+#define MFC_ACCESS_OFFSET     6
+#define MFC_ACCESS_BYTES      4
+#define MFC_BIG_GROUP_BLOCKS  5
+#define MFC_TX_MAX_BYTES      24
+#define MFC_BITS_PER_BYTE     8
+#define MFC_TX_WAIT_US        10000
+#define MFC_FIFO_FAULT_MASK   0x30
 
 #define MF_SMALL_BLOCK_COUNT   4
 #define MF_4K_BIG_SECTOR_START 32
@@ -96,7 +108,6 @@ static struct {
 
   crypto1_state_t crypto;
   bool crypto_active;
-  uint8_t pending_main;
   uint32_t auth_nt;
   int auth_sector;
   mf_key_type_t auth_key_type;
@@ -106,6 +117,7 @@ static struct {
   uint8_t pending_block;
   uint8_t pending_cmd;
   int32_t pending_value;
+  bool has_pending_value;
 
   mfc_emu_event_cb_t cb;
   void *cb_ctx;
@@ -113,6 +125,20 @@ static struct {
   int64_t last_activity_us;
   bool initialized;
 } s_emu = {0};
+
+static st25r3916_irq_status_t s_pending_irq;
+
+static esp_err_t read_irq(st25r3916_irq_status_t *out_status) {
+  esp_err_t err = st25r3916_irq_read(out_status);
+  if (err != ESP_OK)
+    return err;
+  out_status->main |= s_pending_irq.main;
+  out_status->timer |= s_pending_irq.timer;
+  out_status->error |= s_pending_irq.error;
+  out_status->target |= s_pending_irq.target;
+  memset(&s_pending_irq, 0, sizeof(s_pending_irq));
+  return ESP_OK;
+}
 
 static mfc_emu_state_t handle_auth(uint8_t auth_cmd, uint8_t block_num);
 static mfc_emu_state_t handle_read(uint8_t block_num);
@@ -135,93 +161,17 @@ static uint32_t bytes_to_u32_be(const uint8_t *b) {
   return ((uint32_t)b[0] << 24) | ((uint32_t)b[1] << 16) | ((uint32_t)b[2] << 8) | (uint32_t)b[3];
 }
 
-static uint32_t bytes_to_u32_le(const uint8_t *b) {
-  return (uint32_t)b[0] | ((uint32_t)b[1] << 8) | ((uint32_t)b[2] << 16) | ((uint32_t)b[3] << 24);
-}
-
-static inline uint8_t bit_get(const uint8_t *buf, size_t bitpos) {
-  return (uint8_t)((buf[bitpos >> 3] >> (bitpos & 7U)) & 1U);
-}
-
-static inline uint8_t bit_get_msb(const uint8_t *buf, size_t bitpos) {
-  return (uint8_t)((buf[bitpos >> 3] >> (7U - (bitpos & 7U))) & 1U);
-}
-
-static inline uint8_t bit_reverse8(uint8_t v) {
-  v = (uint8_t)(((v & 0xF0U) >> 4) | ((v & 0x0FU) << 4));
-  v = (uint8_t)(((v & 0xCCU) >> 2) | ((v & 0x33U) << 2));
-  v = (uint8_t)(((v & 0xAAU) >> 1) | ((v & 0x55U) << 1));
-  return v;
-}
-
-static int
-unpack_9bit_bytes(const uint8_t *packed, size_t packed_len, uint8_t *out, size_t out_len) {
-  size_t bitpos = 0;
-  size_t bits_avail = packed_len * 8U;
-  for (size_t i = 0; i < out_len; i++) {
-    if (bitpos + 9U > bits_avail)
-      return -1;
-    uint8_t b = 0;
-    for (int bit = 0; bit < 8; bit++) {
-      b |= (uint8_t)(bit_get(packed, bitpos++) << bit);
-    }
-    (void)bit_get(packed, bitpos++); /* parity bit (encrypted) */
-    out[i] = b;
-  }
-  return (int)out_len;
-}
-
-static int
-unpack_9bit_bytes_msb(const uint8_t *packed, size_t packed_len, uint8_t *out, size_t out_len) {
-  size_t bitpos = 0;
-  size_t bits_avail = packed_len * 8U;
-  for (size_t i = 0; i < out_len; i++) {
-    if (bitpos + 9U > bits_avail)
-      return -1;
-    uint8_t b = 0;
-    for (int bit = 0; bit < 8; bit++) {
-      b |= (uint8_t)(bit_get_msb(packed, bitpos++) << bit);
-    }
-    (void)bit_get_msb(packed, bitpos++); /* parity bit (encrypted) */
-    out[i] = b;
-  }
-  return (int)out_len;
-}
-
 static bool auth_try_decode(const uint8_t nr_ar_enc[8],
                             uint32_t ar_expected,
                             const crypto1_state_t *st_in,
-                            crypto1_state_t *st_out,
-                            uint32_t *ar_be_out,
-                            uint32_t *ar_le_out) {
-  crypto1_state_t st_be = *st_in;
-  crypto1_state_t st_le = *st_in;
-
-  uint32_t nr_enc_be = bytes_to_u32_be(nr_ar_enc);
-  uint32_t nr_enc_le = bytes_to_u32_le(nr_ar_enc);
-  (void)crypto1_word(&st_be, nr_enc_be, 1);
-  (void)crypto1_word(&st_le, nr_enc_le, 1);
-
-  uint32_t ar_enc_be = bytes_to_u32_be(&nr_ar_enc[4]);
-  uint32_t ar_enc_le = bytes_to_u32_le(&nr_ar_enc[4]);
-
-  uint32_t ar_be = ar_enc_be ^ crypto1_word(&st_be, 0, 0);
-  uint32_t ar_le = ar_enc_le ^ crypto1_word(&st_le, 0, 0);
-
-  if (ar_be_out)
-    *ar_be_out = ar_be;
-  if (ar_le_out)
-    *ar_le_out = ar_le;
-
-  if (ar_be == ar_expected) {
-    *st_out = st_be;
-    return true;
-  }
-  if (ar_le == ar_expected) {
-    *st_out = st_le;
-    return true;
-  }
-  return false;
+                            crypto1_state_t *st_out) {
+  crypto1_state_t candidate = *st_in;
+  (void)crypto1_word(&candidate, bytes_to_u32_be(nr_ar_enc), 1);
+  const uint32_t ar = bytes_to_u32_be(nr_ar_enc + 4) ^ crypto1_word(&candidate, 0, 0);
+  if (ar != ar_expected)
+    return false;
+  *st_out = candidate;
+  return true;
 }
 
 static void u32_to_bytes_be(uint32_t v, uint8_t *b) {
@@ -283,16 +233,16 @@ static int sector_trailer_block(int sector) {
 
 static int block_index_in_sector(int block) {
   int sector = block_to_sector(block);
-  return block - sector_first_block(sector);
+  int relative = block - sector_first_block(sector);
+  return sector < MF_4K_BIG_SECTOR_START ? relative : relative / MFC_BIG_GROUP_BLOCKS;
 }
 
 bool mfc_emu_get_access_bits(
     const uint8_t trailer[16], int block_in_sector, uint8_t *c1, uint8_t *c2, uint8_t *c3) {
+  if (trailer == NULL || c1 == NULL || c2 == NULL || c3 == NULL || block_in_sector < 0 ||
+      block_in_sector >= MFC_ACCESS_GROUPS)
+    return false;
   int grp = block_in_sector;
-  if (grp > 3)
-    grp = block_in_sector / 5;
-  if (grp > 3)
-    grp = 3;
 
   uint8_t b6 = trailer[6], b7 = trailer[7], b8 = trailer[8];
 
@@ -304,10 +254,34 @@ bool mfc_emu_get_access_bits(
   uint8_t c2_inv = (~b6 >> (4 + grp)) & 1;
   uint8_t c3_inv = (~b7 >> grp) & 1;
 
-  return (*c1 == c1_inv) && (*c2 == c2_inv) && (*c3 == c3_inv);
+  /* A broken redundant bit anywhere invalidates the sector, not only this group. */
+  return (*c1 == c1_inv) && (*c2 == c2_inv) && (*c3 == c3_inv) &&
+         (((b7 >> 4) ^ b6) & 0x0F) == 0x0F && (((b6 >> 4) ^ b8) & 0x0F) == 0x0F &&
+         (((b8 >> 4) ^ b7) & 0x0F) == 0x0F;
+}
+
+static bool access_key_allowed(const uint8_t trailer[MFC_BLOCK_SIZE], mf_key_type_t key_type) {
+  uint8_t c1, c2, c3;
+  if ((key_type != MF_KEY_A && key_type != MF_KEY_B) ||
+      !mfc_emu_get_access_bits(trailer, MFC_TRAILER_GROUP, &c1, &c2, &c3))
+    return false;
+  uint8_t ac = (c1 << 2) | (c2 << 1) | c3;
+  /* NXP table 8 note 1: readable Key B cannot authorize memory access. */
+  return key_type == MF_KEY_A || (ac != 0 && ac != 1 && ac != 2);
+}
+
+static bool trailer_can_write_keys(uint8_t ac, mf_key_type_t key_type) {
+  return ((ac == 0 || ac == 1) && key_type == MF_KEY_A) ||
+         ((ac == 3 || ac == 4) && key_type == MF_KEY_B);
+}
+
+static bool trailer_can_write_access(uint8_t ac, mf_key_type_t key_type) {
+  return (ac == 1 && key_type == MF_KEY_A) || ((ac == 3 || ac == 5) && key_type == MF_KEY_B);
 }
 
 bool mfc_emu_can_read(const uint8_t trailer[16], int block_in_sector, mf_key_type_t auth_key_type) {
+  if (!access_key_allowed(trailer, auth_key_type))
+    return false;
   uint8_t c1, c2, c3;
   if (!mfc_emu_get_access_bits(trailer, block_in_sector, &c1, &c2, &c3))
     return false;
@@ -315,18 +289,18 @@ bool mfc_emu_can_read(const uint8_t trailer[16], int block_in_sector, mf_key_typ
   uint8_t ac = (c1 << 2) | (c2 << 1) | c3;
   bool is_b = (auth_key_type == MF_KEY_B);
   int grp = block_in_sector;
-  if (grp == 3 || grp == 15)
+  if (grp == MFC_TRAILER_GROUP)
     return true;
 
   switch (ac) {
     case 0:
     case 1:
     case 2:
-    case 3:
     case 4:
-      return true;
-    case 5:
     case 6:
+      return true;
+    case 3:
+    case 5:
       return is_b;
     default:
       return false;
@@ -336,12 +310,17 @@ bool mfc_emu_can_read(const uint8_t trailer[16], int block_in_sector, mf_key_typ
 bool mfc_emu_can_write(const uint8_t trailer[16],
                        int block_in_sector,
                        mf_key_type_t auth_key_type) {
+  if (!access_key_allowed(trailer, auth_key_type))
+    return false;
   uint8_t c1, c2, c3;
   if (!mfc_emu_get_access_bits(trailer, block_in_sector, &c1, &c2, &c3))
     return false;
 
   uint8_t ac = (c1 << 2) | (c2 << 1) | c3;
   bool is_b = (auth_key_type == MF_KEY_B);
+
+  if (block_in_sector == MFC_TRAILER_GROUP)
+    return trailer_can_write_keys(ac, auth_key_type) || trailer_can_write_access(ac, auth_key_type);
 
   switch (ac) {
     case 0:
@@ -358,6 +337,8 @@ bool mfc_emu_can_write(const uint8_t trailer[16],
 bool mfc_emu_can_increment(const uint8_t trailer[16],
                            int block_in_sector,
                            mf_key_type_t auth_key_type) {
+  if (block_in_sector == MFC_TRAILER_GROUP || !access_key_allowed(trailer, auth_key_type))
+    return false;
   uint8_t c1, c2, c3;
   if (!mfc_emu_get_access_bits(trailer, block_in_sector, &c1, &c2, &c3))
     return false;
@@ -378,6 +359,8 @@ bool mfc_emu_can_increment(const uint8_t trailer[16],
 bool mfc_emu_can_decrement(const uint8_t trailer[16],
                            int block_in_sector,
                            mf_key_type_t auth_key_type) {
+  if (block_in_sector == MFC_TRAILER_GROUP || !access_key_allowed(trailer, auth_key_type))
+    return false;
   uint8_t c1, c2, c3;
   if (!mfc_emu_get_access_bits(trailer, block_in_sector, &c1, &c2, &c3))
     return false;
@@ -404,29 +387,38 @@ static const uint8_t *get_trailer_for_block(uint8_t block_num) {
 }
 
 static hb_nfc_err_t target_tx_raw(const uint8_t *data, size_t len_bytes, uint8_t extra_bits) {
+  if (data == NULL || len_bytes == 0 || len_bytes > MFC_TX_MAX_BYTES ||
+      extra_bits >= MFC_BITS_PER_BYTE)
+    return HB_NFC_ERR_PARAM;
   /* Passive-listen replies use load modulation from the external reader's
    * field.  TX_EN drives
    * our own RF field and must stay off in target mode;
    * ST's RFAL also transmits passive-listen
    * frames with TX_EN cleared. */
-  if (data == NULL || len_bytes == 0 || extra_bits > MFC_TX_PARTIAL_BITS_MAX)
-    return HB_NFC_ERR_PARAM;
-  /* The partial FIFO byte is not a full byte in NUM_TX_BYTES. */
-  size_t full_bytes = len_bytes - (extra_bits != 0);
-  st25r3916_fifo_set_tx_bytes((uint16_t)full_bytes, extra_bits);
-  st25r3916_fifo_load(data, len_bytes);
-  {
-    st25r3916_irq_status_t s;
-    (void)st25r3916_irq_read(&s);
-  }
-  hb_nfc_spi_direct_cmd(ST25R3916_CMD_TX_WO_CRC);
+  uint16_t full_bytes = (uint16_t)(len_bytes - (extra_bits != 0));
+  st25r3916_irq_status_t stale;
+  if (hb_nfc_spi_direct_cmd(ST25R3916_CMD_CLEAR_FIFO) != ESP_OK ||
+      hb_nfc_spi_reg_write(ST25R3916_REG_NUM_TX_BYTES1, (uint8_t)(full_bytes >> 5)) != ESP_OK ||
+      hb_nfc_spi_reg_write(ST25R3916_REG_NUM_TX_BYTES2,
+                           (uint8_t)((full_bytes << 3) | extra_bits)) != ESP_OK ||
+      st25r3916_fifo_load(data, len_bytes) != ESP_OK || st25r3916_irq_read(&stale) != ESP_OK ||
+      hb_nfc_spi_direct_cmd(ST25R3916_CMD_TX_WO_CRC) != ESP_OK)
+    return HB_NFC_ERR_INTERNAL;
 
-  if (st25r3916_irq_wait_txe() != ESP_OK) {
-    ESP_LOGW(TAG, "TX raw timeout");
-    return HB_NFC_ERR_TX_TIMEOUT;
+  /* RXE can share the TXE snapshot when the reader sends its next command quickly. */
+  for (uint32_t elapsed = 0; elapsed < MFC_TX_WAIT_US; elapsed += MFC_EMU_POLL_DELAY_US) {
+    st25r3916_irq_status_t irq;
+    if (st25r3916_irq_read(&irq) != ESP_OK)
+      return HB_NFC_ERR_INTERNAL;
+    s_pending_irq.main |= irq.main & (uint8_t)~ST25R3916_IRQ_MAIN_TXE;
+    s_pending_irq.timer |= irq.timer;
+    s_pending_irq.error |= irq.error;
+    s_pending_irq.target |= irq.target;
+    if (irq.main & ST25R3916_IRQ_MAIN_TXE)
+      return HB_NFC_OK;
+    hb_nfc_timer_delay_us(MFC_EMU_POLL_DELAY_US);
   }
-
-  return HB_NFC_OK;
+  return HB_NFC_ERR_TX_TIMEOUT;
 }
 
 static hb_nfc_err_t target_enter_listen(void) {
@@ -461,94 +453,41 @@ static hb_nfc_err_t target_enter_sleep(void) {
   return HB_NFC_OK;
 }
 
+static int fifo_rx(uint8_t *buf, size_t buf_max);
+
 static int target_rx_irq(uint8_t *buf, size_t buf_max, int timeout_ms) {
-  int polls = timeout_ms * 10;
-  bool rxs_seen = false;
-
-  for (int i = 0; i < polls; i++) {
-    if (hb_nfc_gpio_irq_level()) {
-      st25r3916_irq_status_t s = {0};
-      st25r3916_irq_read(&s);
-
-      if (s.main & ST25R3916_IRQ_MAIN_RXE) {
-        uint16_t count = st25r3916_fifo_get_count();
-        int to_read = (int)count;
-        if (to_read > (int)buf_max)
-          to_read = (int)buf_max;
-        if (to_read > 0)
-          st25r3916_fifo_read(buf, (size_t)to_read);
-        return to_read;
-      }
-
-      if (s.main & ST25R3916_IRQ_MAIN_RXS)
-        rxs_seen = true;
-
-      if (s.error) {
-        uint16_t count = st25r3916_fifo_get_count();
-        int to_read = (int)count;
-        if (to_read > (int)buf_max)
-          to_read = (int)buf_max;
-        if (to_read > 0)
-          st25r3916_fifo_read(buf, (size_t)to_read);
-        return to_read > 0 ? to_read : -1;
-      }
-
-      if (s.collision)
+  const int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * 1000;
+  while (esp_timer_get_time() < deadline) {
+    if (hb_nfc_gpio_irq_level() || s_pending_irq.main || s_pending_irq.timer) {
+      st25r3916_irq_status_t irq = {0};
+      if (read_irq(&irq) != ESP_OK)
         return -1;
+      // In target mode the FIFO strips parity. Ciphertext can legitimately flag
+      // hardware parity/CRC errors; only a completed frame is consumed.
+      if (irq.collision || (irq.error & MFC_RX_FRAME_ERROR_MASK))
+        return -1;
+      if (irq.main & ST25R3916_IRQ_MAIN_RXE)
+        return fifo_rx(buf, buf_max);
     }
     hb_nfc_timer_delay_us(MFC_EMU_POLL_DELAY_US);
-
-    if ((i % MFC_EMU_YIELD_INTERVAL) == (MFC_EMU_YIELD_INTERVAL - 1))
-      vTaskDelay(1);
   }
-
-  if (rxs_seen) {
-    uint16_t count = st25r3916_fifo_get_count();
-    int to_read = (int)count;
-    if (to_read > (int)buf_max)
-      to_read = (int)buf_max;
-    if (to_read > 0)
-      st25r3916_fifo_read(buf, (size_t)to_read);
-    return to_read;
-  }
-
   return 0;
 }
 
 static int fifo_rx(uint8_t *buf, size_t buf_max) {
-  uint8_t fs1 = 0;
-  hb_nfc_spi_reg_read(ST25R3916_REG_FIFO_STATUS1, &fs1);
-  int n = fs1 & FIFO_LEN_MASK;
+  uint8_t fs1 = 0, fs2 = 0;
+  if (hb_nfc_spi_reg_read(ST25R3916_REG_FIFO_STATUS1, &fs1) != ESP_OK ||
+      hb_nfc_spi_reg_read(ST25R3916_REG_FIFO_STATUS2, &fs2) != ESP_OK ||
+      (fs2 & MFC_FIFO_FAULT_MASK))
+    return -1;
+  int n = fs1 | ((fs2 & ST25R3916_FIFO_STATUS2_MSB_MASK) << 2);
   if (n <= 0)
     return 0;
   if (n > (int)buf_max)
-    n = (int)buf_max;
-  st25r3916_fifo_read(buf, (size_t)n);
+    return -1;
+  if (st25r3916_fifo_read(buf, (size_t)n) != ESP_OK)
+    return -1;
   return n;
-}
-
-static int target_rx_blocking(uint8_t *buf, size_t buf_max, int timeout_ms) {
-  int polls = timeout_ms * 2;
-  for (int i = 0; i < polls; i++) {
-    uint16_t count = st25r3916_fifo_get_count();
-    if (count > 0) {
-      hb_nfc_timer_delay_us(MFC_EMU_FIFO_SETTLE_US);
-      count = st25r3916_fifo_get_count();
-      int to_read = (int)count;
-      if (to_read > (int)buf_max)
-        to_read = (int)buf_max;
-      st25r3916_fifo_read(buf, (size_t)to_read);
-      return to_read;
-    }
-
-    uint8_t main_irq = 0;
-    hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &main_irq);
-    if (main_irq & ST25R3916_IRQ_MAIN_COL)
-      return -1;
-
-    hb_nfc_timer_delay_us(MFC_EMU_RX_POLL_US);
-  }
-  return 0;
 }
 
 static void crypto1_encrypt_with_parity(const uint8_t *plain,
@@ -580,7 +519,7 @@ static hb_nfc_err_t target_tx_encrypted(const uint8_t *plain, size_t len) {
   uint8_t packed[24] = {0};
   size_t total_bits = 0;
 
-  if (len > 18)
+  if (plain == NULL || len == 0 || len > 18)
     return HB_NFC_ERR_PARAM;
   crypto1_encrypt_with_parity(plain, len, packed, &total_bits);
 
@@ -596,11 +535,37 @@ static hb_nfc_err_t target_tx_ack_encrypted(uint8_t ack_nack) {
     enc |= (uint8_t)((plain_bit ^ ks_bit) << i);
   }
 
-  esp_err_t err = hb_nfc_spi_target_tx_bits(&enc, 4);
-  return err == ESP_OK ? HB_NFC_OK : HB_NFC_ERR_TX_TIMEOUT;
+  return hb_nfc_spi_target_tx_bits(&enc, 4) == ESP_OK ? HB_NFC_OK : HB_NFC_ERR_INTERNAL;
+}
+
+static hb_nfc_err_t target_tx_nonce(uint32_t nt, bool nested) {
+  uint8_t nt_bytes[4];
+  u32_to_bytes_be(nt, nt_bytes);
+  if (!nested) {
+    (void)crypto1_word(&s_emu.crypto, nt ^ get_cuid(), 0);
+    return target_tx_raw(nt_bytes, sizeof(nt_bytes), 0);
+  }
+  // Nested nonce encryption clocks NT xor CUID into the newly initialized key.
+  uint8_t input[4];
+  uint8_t packed[5] = {0};
+  u32_to_bytes_be(nt ^ get_cuid(), input);
+  size_t position = 0;
+  for (size_t i = 0; i < sizeof(nt_bytes); i++) {
+    const uint8_t enc = nt_bytes[i] ^ crypto1_byte(&s_emu.crypto, input[i], 0);
+    const uint8_t parity = crypto1_odd_parity8(nt_bytes[i]) ^ crypto1_filter_output(&s_emu.crypto);
+    for (size_t bit = 0; bit < 9U; bit++, position++) {
+      const uint8_t value = bit == 8U ? parity : (enc >> bit) & 1U;
+      packed[position / 8U] |= value << (position % 8U);
+    }
+  }
+  return hb_nfc_spi_target_tx_bits(packed, position) == ESP_OK ? HB_NFC_OK : HB_NFC_ERR_INTERNAL;
 }
 
 static mfc_emu_event_t s_evt;
+
+static bool command_frame_valid(const uint8_t *data, size_t len) {
+  return data != NULL && len == MFC_COMMAND_BYTES && iso14443a_check_crc(data, len);
+}
 
 static void emit_event(mfc_emu_event_type_t type) {
   if (!s_emu.cb)
@@ -610,13 +575,14 @@ static void emit_event(mfc_emu_event_type_t type) {
 }
 
 static void reset_crypto_state(void) {
+  memset(&s_pending_irq, 0, sizeof(s_pending_irq));
   s_emu.crypto_active = false;
-  s_emu.pending_main = 0;
   s_emu.auth_nt = 0;
   s_emu.auth_sector = 0;
   s_emu.pending_block = 0;
   s_emu.pending_cmd = 0;
   s_emu.pending_value = 0;
+  s_emu.has_pending_value = false;
   crypto1_reset(&s_emu.crypto);
   hb_nfc_spi_reg_modify(
       ST25R3916_REG_ISO14443A, ST25R3916_ISO14443A_NO_TX_PAR | ST25R3916_ISO14443A_NO_RX_PAR, 0);
@@ -624,16 +590,12 @@ static void reset_crypto_state(void) {
 
 static mfc_emu_state_t handle_auth(uint8_t auth_cmd, uint8_t block_num) {
   s_emu.stats.total_auths++;
-
-  mf_key_type_t key_type = (auth_cmd == MFC_CMD_AUTH_KEY_A) ? MF_KEY_A : MF_KEY_B;
-  int sector = block_to_sector(block_num);
-
-  if (s_emu.crypto_active)
+  const bool nested = s_emu.crypto_active;
+  const mf_key_type_t key_type = auth_cmd == MFC_CMD_AUTH_KEY_A ? MF_KEY_A : MF_KEY_B;
+  const int sector = block_to_sector(block_num);
+  uint64_t key = 0;
+  if (block_num >= s_emu.card.total_blocks || !get_key_for_sector(sector, key_type, &key)) {
     reset_crypto_state();
-
-  uint64_t key;
-  if (!get_key_for_sector(sector, key_type, &key)) {
-    ESP_LOGW(TAG, "Key not found for sector %d", sector);
     s_emu.stats.failed_auths++;
     s_evt.auth.sector = sector;
     s_evt.auth.key_type = key_type;
@@ -641,94 +603,26 @@ static mfc_emu_state_t handle_auth(uint8_t auth_cmd, uint8_t block_num) {
     return MFC_EMU_STATE_HALTED;
   }
 
-  uint32_t nt = emu_prng_next();
+  const uint32_t nt = emu_prng_next();
   s_emu.auth_nt = nt;
   s_emu.auth_sector = sector;
   s_emu.auth_key_type = key_type;
-
-  uint8_t nt_bytes[4];
-  u32_to_bytes_be(nt, nt_bytes);
-
-  hb_nfc_err_t err = target_tx_raw(nt_bytes, 4, 0);
+  crypto1_init(&s_emu.crypto, key);
+  hb_nfc_err_t err = target_tx_nonce(nt, nested);
   if (err != HB_NFC_OK) {
-    ESP_LOGW(TAG, "Failed to send nt");
+    reset_crypto_state();
     s_emu.stats.failed_auths++;
     return MFC_EMU_STATE_ERROR;
   }
-
-  uint32_t cuid = get_cuid();
-  crypto1_init(&s_emu.crypto, key);
-  crypto1_word(&s_emu.crypto, nt ^ cuid, 0);
   s_emu.crypto_active = true;
 
-  uint8_t nr_ar_raw[16] = {0};
-  int len = target_rx_irq(nr_ar_raw, sizeof(nr_ar_raw), 50);
-
-  uint8_t *nr_ar_packed = nr_ar_raw;
-
-  if (len < 8) {
-    ESP_LOGW(TAG, "No {nr}{ar} received (got %d bytes)", len);
-    if (len > 0) {
-      ESP_LOG_BUFFER_HEX_LEVEL(TAG, nr_ar_raw, (size_t)len, ESP_LOG_WARN);
-    }
-    reset_crypto_state();
-    s_emu.stats.failed_auths++;
-    return MFC_EMU_STATE_HALTED;
-  }
-
-  uint8_t nr_ar_enc[8] = {0};
-  uint32_t ar_expected = crypto1_prng_successor(nt, MF_PRNG_AR_ADVANCE);
-
-  crypto1_state_t st_match = s_emu.crypto;
-  uint32_t ar_be = 0, ar_le = 0;
-  const char *mode = NULL;
-  bool matched = false;
-
-  if (len >= 9) {
-    size_t use_len = (len > 9) ? 9U : (size_t)len;
-    if (unpack_9bit_bytes(nr_ar_packed, use_len, nr_ar_enc, sizeof(nr_ar_enc)) >= 0) {
-      if (auth_try_decode(nr_ar_enc, ar_expected, &s_emu.crypto, &st_match, &ar_be, &ar_le)) {
-        matched = true;
-        mode = "9b-lsb";
-      }
-    }
-  }
-
-  if (!matched && len >= 9) {
-    size_t use_len = (len > 9) ? 9U : (size_t)len;
-    if (unpack_9bit_bytes_msb(nr_ar_packed, use_len, nr_ar_enc, sizeof(nr_ar_enc)) >= 0) {
-      if (auth_try_decode(nr_ar_enc, ar_expected, &s_emu.crypto, &st_match, &ar_be, &ar_le)) {
-        matched = true;
-        mode = "9b-msb";
-      }
-    }
-  }
-
-  if (!matched) {
-    memcpy(nr_ar_enc, nr_ar_packed, 8);
-    if (auth_try_decode(nr_ar_enc, ar_expected, &s_emu.crypto, &st_match, &ar_be, &ar_le)) {
-      matched = true;
-      mode = "8b-raw";
-    }
-  }
-
-  if (!matched) {
-    for (int i = 0; i < 8; i++)
-      nr_ar_enc[i] = bit_reverse8(nr_ar_packed[i]);
-    if (auth_try_decode(nr_ar_enc, ar_expected, &s_emu.crypto, &st_match, &ar_be, &ar_le)) {
-      matched = true;
-      mode = "8b-rev";
-    }
-  }
-
-  if (!matched) {
-    ESP_LOGW(TAG,
-             "AUTH FAIL: ar_be=0x%08lX ar_le=0x%08lX expected=0x%08lX len=%d",
-             (unsigned long)ar_be,
-             (unsigned long)ar_le,
-             (unsigned long)ar_expected,
-             len);
-    ESP_LOG_BUFFER_HEX_LEVEL(TAG, nr_ar_packed, (size_t)len, ESP_LOG_WARN);
+  uint8_t nr_ar[8];
+  const int length = target_rx_irq(nr_ar, sizeof(nr_ar), 50);
+  crypto1_state_t verified;
+  if (length != (int)sizeof(nr_ar) ||
+      !auth_try_decode(
+          nr_ar, crypto1_prng_successor(nt, MF_PRNG_AR_ADVANCE), &s_emu.crypto, &verified)) {
+    ESP_LOGD(TAG, "AUTH rejected sector=%d bytes=%d nested=%d", sector, length, nested);
     reset_crypto_state();
     s_emu.stats.failed_auths++;
     s_evt.auth.sector = sector;
@@ -736,35 +630,20 @@ static mfc_emu_state_t handle_auth(uint8_t auth_cmd, uint8_t block_num) {
     emit_event(MFC_EMU_EVT_AUTH_FAIL);
     return MFC_EMU_STATE_HALTED;
   }
-
-  s_emu.crypto = st_match;
-  if (mode)
-    ESP_LOGD(TAG, "AUTH decode ok (mode=%s)", mode);
-
-  uint32_t at = crypto1_prng_successor(nt, MF_PRNG_AT_ADVANCE);
-  uint8_t at_bytes[4];
-  u32_to_bytes_be(at, at_bytes);
-
-  hb_nfc_spi_reg_modify(
-      ST25R3916_REG_ISO14443A, ST25R3916_ISO14443A_NO_TX_PAR, ST25R3916_ISO14443A_NO_TX_PAR);
-
-  err = target_tx_encrypted(at_bytes, 4);
-  if (err != HB_NFC_OK) {
-    ESP_LOGW(TAG, "Failed to send at");
+  s_emu.crypto = verified;
+  uint8_t at[4];
+  u32_to_bytes_be(crypto1_prng_successor(nt, MF_PRNG_AT_ADVANCE), at);
+  if (target_tx_encrypted(at, sizeof(at)) != HB_NFC_OK) {
     reset_crypto_state();
     s_emu.stats.failed_auths++;
     return MFC_EMU_STATE_ERROR;
   }
-
   s_emu.stats.successful_auths++;
   s_emu.last_activity_us = esp_timer_get_time();
-
-  ESP_LOGI(TAG, "AUTH OK: sector %d Key%c", sector, key_type == MF_KEY_A ? 'A' : 'B');
-
+  ESP_LOGD(TAG, "AUTH OK sector=%d nested=%d", sector, nested);
   s_evt.auth.sector = sector;
   s_evt.auth.key_type = key_type;
   emit_event(MFC_EMU_EVT_AUTH_SUCCESS);
-
   return MFC_EMU_STATE_AUTHENTICATED;
 }
 
@@ -816,7 +695,7 @@ static mfc_emu_state_t handle_read(uint8_t block_num) {
     return MFC_EMU_STATE_ERROR;
   }
 
-  ESP_LOGI(TAG, "READ block %d (sector %d)", block_num, sector);
+  ESP_LOGD(TAG, "READ block %d (sector %d)", block_num, sector);
 
   s_emu.stats.reads_served++;
   s_emu.last_activity_us = esp_timer_get_time();
@@ -854,7 +733,7 @@ static mfc_emu_state_t handle_write_phase1(uint8_t block_num) {
     }
   }
 
-  ESP_LOGI(TAG, "WRITE phase 1: block %d - ACK", block_num);
+  ESP_LOGD(TAG, "WRITE phase 1: block %d - ACK", block_num);
 
   hb_nfc_err_t err = target_tx_ack_encrypted(MFC_ACK);
   if (err != HB_NFC_OK)
@@ -867,7 +746,7 @@ static mfc_emu_state_t handle_write_phase1(uint8_t block_num) {
 }
 
 static mfc_emu_state_t handle_write_phase2(const uint8_t *data, int len) {
-  if (len < 18) {
+  if (len != 18) {
     target_tx_ack_encrypted(MFC_NACK_PARITY_CRC);
     s_emu.stats.nacks_sent++;
     return MFC_EMU_STATE_AUTHENTICATED;
@@ -883,16 +762,29 @@ static mfc_emu_state_t handle_write_phase2(const uint8_t *data, int len) {
   }
 
   uint8_t block_num = s_emu.pending_block;
-  ESP_LOGI(TAG, "WRITE phase 2: block %d", block_num);
-
-  memcpy(s_emu.card.blocks[block_num], data, MFC_BLOCK_SIZE);
+  ESP_LOGD(TAG, "WRITE phase 2: block %d", block_num);
 
   int sector = block_to_sector(block_num);
   if (block_num == sector_trailer_block(sector)) {
-    memcpy(s_emu.card.keys[sector].key_a, data, MFC_KEY_SIZE);
-    s_emu.card.keys[sector].key_a_known = true;
-    memcpy(s_emu.card.keys[sector].key_b, &data[MFC_TRAILER_KEY_B_OFF], MFC_KEY_SIZE);
-    s_emu.card.keys[sector].key_b_known = true;
+    uint8_t *trailer = s_emu.card.blocks[block_num];
+    uint8_t c1, c2, c3;
+    if (!mfc_emu_get_access_bits(trailer, MFC_TRAILER_GROUP, &c1, &c2, &c3) ||
+        !access_key_allowed(trailer, s_emu.auth_key_type))
+      return MFC_EMU_STATE_ERROR;
+    uint8_t ac = (c1 << 2) | (c2 << 1) | c3;
+    /* Permissions come from the OLD trailer; preserve fields the key cannot change. */
+    if (trailer_can_write_keys(ac, s_emu.auth_key_type)) {
+      memcpy(trailer, data, MFC_KEY_SIZE);
+      memcpy(&trailer[MFC_TRAILER_KEY_B_OFF], &data[MFC_TRAILER_KEY_B_OFF], MFC_KEY_SIZE);
+      memcpy(s_emu.card.keys[sector].key_a, data, MFC_KEY_SIZE);
+      memcpy(s_emu.card.keys[sector].key_b, &data[MFC_TRAILER_KEY_B_OFF], MFC_KEY_SIZE);
+      s_emu.card.keys[sector].key_a_known = true;
+      s_emu.card.keys[sector].key_b_known = true;
+    }
+    if (trailer_can_write_access(ac, s_emu.auth_key_type))
+      memcpy(&trailer[MFC_ACCESS_OFFSET], &data[MFC_ACCESS_OFFSET], MFC_ACCESS_BYTES);
+  } else {
+    memcpy(s_emu.card.blocks[block_num], data, MFC_BLOCK_SIZE);
   }
 
   hb_nfc_err_t err = target_tx_ack_encrypted(MFC_ACK);
@@ -909,9 +801,12 @@ static mfc_emu_state_t handle_write_phase2(const uint8_t *data, int len) {
 }
 
 static bool is_value_block_format(const uint8_t *data) {
-  uint32_t v1 = data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
-  uint32_t v2 = data[4] | (data[5] << 8) | (data[6] << 16) | (data[7] << 24);
-  uint32_t v3 = data[8] | (data[9] << 8) | (data[10] << 16) | (data[11] << 24);
+  uint32_t v1 =
+      data[0] | ((uint32_t)data[1] << 8U) | ((uint32_t)data[2] << 16U) | ((uint32_t)data[3] << 24U);
+  uint32_t v2 =
+      data[4] | ((uint32_t)data[5] << 8U) | ((uint32_t)data[6] << 16U) | ((uint32_t)data[7] << 24U);
+  uint32_t v3 = data[8] | ((uint32_t)data[9] << 8U) | ((uint32_t)data[10] << 16U) |
+                ((uint32_t)data[11] << 24U);
 
   if (v1 != v3)
     return false;
@@ -927,7 +822,8 @@ static bool is_value_block_format(const uint8_t *data) {
 }
 
 static int32_t read_value_from_block(const uint8_t *data) {
-  return (int32_t)(data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24));
+  return (int32_t)(data[0] | ((uint32_t)data[1] << 8U) | ((uint32_t)data[2] << 16U) |
+                   ((uint32_t)data[3] << 24U));
 }
 
 static void write_value_to_block(uint8_t *data, int32_t value, uint8_t addr) {
@@ -953,6 +849,7 @@ static void write_value_to_block(uint8_t *data, int32_t value, uint8_t addr) {
 }
 
 static mfc_emu_state_t handle_value_op_phase1(uint8_t cmd, uint8_t block_num) {
+  s_emu.has_pending_value = false;
   if (block_num >= s_emu.card.total_blocks) {
     target_tx_ack_encrypted(MFC_NACK_INVALID_OP);
     s_emu.stats.nacks_sent++;
@@ -996,22 +893,23 @@ static mfc_emu_state_t handle_value_op_phase1(uint8_t cmd, uint8_t block_num) {
 }
 
 static mfc_emu_state_t handle_value_op_phase2(const uint8_t *data, int len) {
-  if (len < 4)
-    return MFC_EMU_STATE_AUTHENTICATED;
+  s_emu.has_pending_value = false;
+  if (data == NULL || len != MFC_VALUE_FRAME_BYTES || !iso14443a_check_crc(data, len)) {
+    s_emu.stats.nacks_sent++;
+    return target_tx_ack_encrypted(MFC_NACK_PARITY_CRC) == HB_NFC_OK ? MFC_EMU_STATE_AUTHENTICATED
+                                                                     : MFC_EMU_STATE_ERROR;
+  }
 
-  int32_t operand = (int32_t)(data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24));
-  int32_t current = read_value_from_block(s_emu.card.blocks[s_emu.pending_block]);
+  const uint32_t operand = (uint32_t)data[0] | ((uint32_t)data[1] << 8U) |
+                           ((uint32_t)data[2] << 16U) | ((uint32_t)data[3] << 24U);
+  const uint32_t current = (uint32_t)read_value_from_block(s_emu.card.blocks[s_emu.pending_block]);
 
   switch (s_emu.pending_cmd) {
     case MFC_CMD_INCREMENT:
-      s_emu.pending_value = current + operand;
-      ESP_LOGI(
-          TAG, "INC: %ld + %ld = %ld", (long)current, (long)operand, (long)s_emu.pending_value);
+      s_emu.pending_value = (int32_t)(current + operand);
       break;
     case MFC_CMD_DECREMENT:
-      s_emu.pending_value = current - operand;
-      ESP_LOGI(
-          TAG, "DEC: %ld - %ld = %ld", (long)current, (long)operand, (long)s_emu.pending_value);
+      s_emu.pending_value = (int32_t)(current - operand);
       break;
     case MFC_CMD_RESTORE:
       s_emu.pending_value = current;
@@ -1020,6 +918,10 @@ static mfc_emu_state_t handle_value_op_phase2(const uint8_t *data, int len) {
       return MFC_EMU_STATE_AUTHENTICATED;
   }
 
+  // Value phase 2 is silent; receive must resume even without a reply transmission.
+  if (hb_nfc_spi_direct_cmd(ST25R3916_CMD_UNMASK_RX_DATA) != ESP_OK)
+    return MFC_EMU_STATE_ERROR;
+  s_emu.has_pending_value = true;
   s_emu.stats.value_ops++;
   s_evt.value_op.cmd = s_emu.pending_cmd;
   s_evt.value_op.block = s_emu.pending_block;
@@ -1030,14 +932,14 @@ static mfc_emu_state_t handle_value_op_phase2(const uint8_t *data, int len) {
 }
 
 static mfc_emu_state_t handle_transfer(uint8_t block_num) {
-  if (block_num >= s_emu.card.total_blocks) {
+  if (!s_emu.has_pending_value || block_num == 0 || block_num >= s_emu.card.total_blocks) {
     target_tx_ack_encrypted(MFC_NACK_INVALID_OP);
     s_emu.stats.nacks_sent++;
     return MFC_EMU_STATE_AUTHENTICATED;
   }
 
   int sector = block_to_sector(block_num);
-  if (sector != s_emu.auth_sector) {
+  if (sector != s_emu.auth_sector || block_num == (uint8_t)sector_trailer_block(sector)) {
     target_tx_ack_encrypted(MFC_NACK_INVALID_OP);
     s_emu.stats.nacks_sent++;
     return MFC_EMU_STATE_AUTHENTICATED;
@@ -1046,7 +948,7 @@ static mfc_emu_state_t handle_transfer(uint8_t block_num) {
   const uint8_t *trailer = get_trailer_for_block(block_num);
   if (trailer) {
     int bidx = block_index_in_sector(block_num);
-    if (!mfc_emu_can_write(trailer, bidx, s_emu.auth_key_type)) {
+    if (!mfc_emu_can_decrement(trailer, bidx, s_emu.auth_key_type)) {
       target_tx_ack_encrypted(MFC_NACK_INVALID_OP);
       s_emu.stats.nacks_sent++;
       return MFC_EMU_STATE_AUTHENTICATED;
@@ -1056,7 +958,7 @@ static mfc_emu_state_t handle_transfer(uint8_t block_num) {
   uint8_t addr = s_emu.card.blocks[s_emu.pending_block][12];
   write_value_to_block(s_emu.card.blocks[block_num], s_emu.pending_value, addr);
 
-  ESP_LOGI(TAG, "TRANSFER: value %ld -> block %d", (long)s_emu.pending_value, block_num);
+  ESP_LOGD(TAG, "TRANSFER: value %ld -> block %d", (long)s_emu.pending_value, block_num);
 
   hb_nfc_err_t err = target_tx_ack_encrypted(MFC_ACK);
   if (err != HB_NFC_OK)
@@ -1067,7 +969,7 @@ static mfc_emu_state_t handle_transfer(uint8_t block_num) {
 }
 
 static mfc_emu_state_t handle_halt(void) {
-  ESP_LOGI(TAG, "HALT received");
+  ESP_LOGD(TAG, "HALT received");
   reset_crypto_state();
   s_emu.stats.halts++;
   emit_event(MFC_EMU_EVT_HALT);
@@ -1103,8 +1005,8 @@ static hb_nfc_err_t load_pt_memory(void) {
     ptm[PT_IDX_SAK + 1] = s_emu.card.sak;
   }
 
-  ESP_LOGI(TAG, "PT Memory (write):");
-  ESP_LOG_BUFFER_HEX_LEVEL(TAG, ptm, ST25R3916_SPI_PT_MEM_A_LEN, ESP_LOG_INFO);
+  ESP_LOGD(TAG, "PT Memory (write):");
+  ESP_LOG_BUFFER_HEX_LEVEL(TAG, ptm, ST25R3916_SPI_PT_MEM_A_LEN, ESP_LOG_DEBUG);
 
   hb_nfc_err_t err =
       hb_nfc_spi_pt_mem_write(ST25R3916_SPI_PT_MEM_A_WRITE, ptm, ST25R3916_SPI_PT_MEM_A_LEN);
@@ -1117,8 +1019,8 @@ static hb_nfc_err_t load_pt_memory(void) {
   uint8_t rb[ST25R3916_SPI_PT_MEM_A_LEN] = {0};
   if (hb_nfc_spi_pt_mem_read(rb, ST25R3916_SPI_PT_MEM_A_LEN) != HB_NFC_OK)
     return HB_NFC_ERR_INTERNAL;
-  ESP_LOGI(TAG, "PT Memory (readback):");
-  ESP_LOG_BUFFER_HEX_LEVEL(TAG, rb, ST25R3916_SPI_PT_MEM_A_LEN, ESP_LOG_INFO);
+  ESP_LOGD(TAG, "PT Memory (readback):");
+  ESP_LOG_BUFFER_HEX_LEVEL(TAG, rb, ST25R3916_SPI_PT_MEM_A_LEN, ESP_LOG_DEBUG);
 
   if (memcmp(ptm, rb, ST25R3916_SPI_PT_MEM_A_LEN) != 0) {
     ESP_LOGE(TAG, "PT memory mismatch: chip did not write correctly!");
@@ -1194,12 +1096,14 @@ hb_nfc_err_t mfc_emu_configure_target(void) {
   vTaskDelay(pdMS_TO_TICKS(MFC_EMU_DELAY_MEDIUM_MS));
   if (hb_nfc_spi_direct_cmd(ST25R3916_CMD_STOP_ALL) != ESP_OK)
     return HB_NFC_ERR_INTERNAL;
+  if (hb_nfc_spi_prepare_target_tx() != ESP_OK)
+    return HB_NFC_ERR_INTERNAL;
   vTaskDelay(pdMS_TO_TICKS(MFC_EMU_DELAY_SHORT_MS));
 
   uint8_t ic_id = 0;
   if (hb_nfc_spi_reg_read(ST25R3916_REG_IC_IDENTITY, &ic_id) != ESP_OK)
     return HB_NFC_ERR_INTERNAL;
-  ESP_LOGI(TAG, "IC Identity = 0x%02X", ic_id);
+  ESP_LOGD(TAG, "IC Identity = 0x%02X", ic_id);
   if (ic_id == IC_IDENTITY_NOT_RESPONDING_LO || ic_id == IC_IDENTITY_NOT_RESPONDING_HI) {
     ESP_LOGE(TAG, "SPI not responding after reset!");
     return HB_NFC_ERR_INTERNAL;
@@ -1239,6 +1143,16 @@ hb_nfc_err_t mfc_emu_configure_target(void) {
     if (hb_nfc_spi_reg_write(ST25R3916_REG_AUX_DEF, 0x00) != ESP_OK)
       return HB_NFC_ERR_INTERNAL;
   }
+
+  // A previous reader session may have selected the board's I/Q receiver.
+  // Use the NFC-A listen receiver profile independently of the previous mode.
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_RX_CONF1, 0x08) != ESP_OK ||
+      hb_nfc_spi_reg_write(ST25R3916_REG_RX_CONF2, 0x2D) != ESP_OK ||
+      hb_nfc_spi_reg_write(ST25R3916_REG_RX_CONF3, 0x00) != ESP_OK ||
+      hb_nfc_spi_reg_write(ST25R3916_REG_RX_CONF4, 0x00) != ESP_OK ||
+      hb_nfc_spi_reg_write_b(ST25R3916_REG_B_CORR_CONF1, 0x51) != ESP_OK ||
+      hb_nfc_spi_reg_write_b(ST25R3916_REG_B_CORR_CONF2, 0x00) != ESP_OK)
+    return HB_NFC_ERR_INTERNAL;
 
   if (hb_nfc_spi_reg_write(ST25R3916_REG_BIT_RATE, 0x00) != ESP_OK)
     return HB_NFC_ERR_INTERNAL;
@@ -1284,9 +1198,9 @@ hb_nfc_err_t mfc_emu_configure_target(void) {
     return HB_NFC_ERR_INTERNAL;
   if (hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DEF, &aux_rb) != ESP_OK)
     return HB_NFC_ERR_INTERNAL;
-  ESP_LOGI(TAG, "Prepared target: MODE=0x%02X AUX_DEF=0x%02X", mode_rb, aux_rb);
+  ESP_LOGD(TAG, "Prepared target: MODE=0x%02X AUX_DEF=0x%02X", mode_rb, aux_rb);
 
-  ESP_LOGI(TAG, "=== Target configured ===");
+  ESP_LOGD(TAG, "=== Target configured ===");
   return HB_NFC_OK;
 }
 
@@ -1334,16 +1248,18 @@ mfc_emu_state_t mfc_emu_run_step(void) {
         break;
       }
 
-      uint8_t tgt_irq = 0;
-      uint8_t main_irq = 0;
-      uint8_t timer_irq = 0;
-
-      hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &tgt_irq);
-      hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &main_irq);
-      hb_nfc_spi_reg_read(ST25R3916_REG_TIMER_NFC_INT, &timer_irq);
+      st25r3916_irq_status_t irq;
+      if (read_irq(&irq) != ESP_OK) {
+        s_emu.state = MFC_EMU_STATE_ERROR;
+        return s_emu.state;
+      }
+      uint8_t tgt_irq = irq.target;
 
       uint8_t pts = 0;
-      hb_nfc_spi_reg_read(ST25R3916_REG_PASSIVE_TARGET_STS, &pts);
+      if (hb_nfc_spi_reg_read(ST25R3916_REG_PASSIVE_TARGET_STS, &pts) != ESP_OK) {
+        s_emu.state = MFC_EMU_STATE_ERROR;
+        return s_emu.state;
+      }
       uint8_t pta = pts & PTA_STATE_MASK;
 
       /* WU_A/WU_A_X only announce that NFC-A wake-up/anticollision is in
@@ -1383,8 +1299,8 @@ mfc_emu_state_t mfc_emu_run_step(void) {
          * frame is
          * required by ST's READY_A -> ACTIVE_A sequence. */
 
-        s_emu.pending_main = main_irq & ST25R3916_IRQ_MAIN_RXE;
         emit_event(MFC_EMU_EVT_ACTIVATED);
+        s_pending_irq = irq;
         s_emu.state = MFC_EMU_STATE_ACTIVATED;
         return s_emu.state;
       }
@@ -1400,16 +1316,13 @@ mfc_emu_state_t mfc_emu_run_step(void) {
 
     case MFC_EMU_STATE_ACTIVATED:
     case MFC_EMU_STATE_AUTHENTICATED: {
-      uint8_t tgt_irq = 0;
-      uint8_t main_irq = 0;
-      uint8_t timer_irq = 0;
-
-      hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &tgt_irq);
-      hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &main_irq);
-      hb_nfc_spi_reg_read(ST25R3916_REG_TIMER_NFC_INT, &timer_irq);
-
-      main_irq |= s_emu.pending_main;
-      s_emu.pending_main = 0;
+      st25r3916_irq_status_t irq;
+      if (read_irq(&irq) != ESP_OK) {
+        s_emu.state = MFC_EMU_STATE_ERROR;
+        return s_emu.state;
+      }
+      uint8_t main_irq = irq.main;
+      uint8_t timer_irq = irq.timer;
 
       /* A reader may finish one RF phase at the same instant RXE reports the
        * following
@@ -1417,7 +1330,7 @@ mfc_emu_state_t mfc_emu_run_step(void) {
        * first MIFARE AUTH command
        * is discarded and the emulator immediately
        * returns to LISTEN. */
-      if (!(main_irq & (ST25R3916_IRQ_MAIN_RXE | ST25R3916_IRQ_MAIN_FWL))) {
+      if (!(main_irq & ST25R3916_IRQ_MAIN_RXE)) {
         if (timer_irq & 0x08) {
           uint8_t aux = 0;
           hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux);
@@ -1442,7 +1355,11 @@ mfc_emu_state_t mfc_emu_run_step(void) {
       uint8_t enc[20] = {0};
       uint8_t cmd[20] = {0};
       int len = fifo_rx(enc, sizeof(enc));
-      if (len <= 0)
+      if (len < 0) {
+        s_emu.state = MFC_EMU_STATE_ERROR;
+        break;
+      }
+      if (len == 0)
         break;
 
       if (s_emu.state == MFC_EMU_STATE_AUTHENTICATED && s_emu.crypto_active) {
@@ -1456,6 +1373,13 @@ mfc_emu_state_t mfc_emu_run_step(void) {
 
       s_emu.last_activity_us = esp_timer_get_time();
       uint8_t cmd_byte = cmd[0];
+
+      if (s_emu.crypto_active && !command_frame_valid(cmd, (size_t)len)) {
+        if (target_tx_ack_encrypted(MFC_NACK_PARITY_CRC) != HB_NFC_OK)
+          s_emu.state = MFC_EMU_STATE_ERROR;
+        s_emu.stats.nacks_sent++;
+        break;
+      }
 
       if (cmd_byte == MFC_CMD_AUTH_KEY_A || cmd_byte == MFC_CMD_AUTH_KEY_B) {
         if (len >= 2)
@@ -1501,12 +1425,14 @@ mfc_emu_state_t mfc_emu_run_step(void) {
     }
 
     case MFC_EMU_STATE_WRITE_PENDING: {
-      uint8_t tgt_irq = 0, main_irq = 0, timer_irq = 0;
-      hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &tgt_irq);
-      hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &main_irq);
-      hb_nfc_spi_reg_read(ST25R3916_REG_TIMER_NFC_INT, &timer_irq);
+      st25r3916_irq_status_t irq;
+      if (read_irq(&irq) != ESP_OK) {
+        s_emu.state = MFC_EMU_STATE_ERROR;
+        return s_emu.state;
+      }
+      uint8_t main_irq = irq.main, timer_irq = irq.timer;
 
-      if (timer_irq & 0x08) {
+      if (!(main_irq & ST25R3916_IRQ_MAIN_RXE) && (timer_irq & 0x08)) {
         uint8_t aux = 0;
         hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux);
         if (((aux >> 6) & 1U) == 0U) {
@@ -1520,12 +1446,16 @@ mfc_emu_state_t mfc_emu_run_step(void) {
         }
       }
 
-      if (!(main_irq & (ST25R3916_IRQ_MAIN_RXE | ST25R3916_IRQ_MAIN_FWL)))
+      if (!(main_irq & ST25R3916_IRQ_MAIN_RXE))
         break;
 
       uint8_t enc[20] = {0};
       int len = fifo_rx(enc, sizeof(enc));
-      if (len <= 0)
+      if (len < 0) {
+        s_emu.state = MFC_EMU_STATE_ERROR;
+        break;
+      }
+      if (len == 0)
         break;
 
       uint8_t plain[20] = {0};
@@ -1538,12 +1468,14 @@ mfc_emu_state_t mfc_emu_run_step(void) {
     }
 
     case MFC_EMU_STATE_VALUE_PENDING: {
-      uint8_t tgt_irq = 0, main_irq = 0, timer_irq = 0;
-      hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &tgt_irq);
-      hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &main_irq);
-      hb_nfc_spi_reg_read(ST25R3916_REG_TIMER_NFC_INT, &timer_irq);
+      st25r3916_irq_status_t irq;
+      if (read_irq(&irq) != ESP_OK) {
+        s_emu.state = MFC_EMU_STATE_ERROR;
+        return s_emu.state;
+      }
+      uint8_t main_irq = irq.main, timer_irq = irq.timer;
 
-      if (timer_irq & 0x08) {
+      if (!(main_irq & ST25R3916_IRQ_MAIN_RXE) && (timer_irq & 0x08)) {
         uint8_t aux = 0;
         hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux);
         if (((aux >> 6) & 1U) == 0U) {
@@ -1557,12 +1489,16 @@ mfc_emu_state_t mfc_emu_run_step(void) {
         }
       }
 
-      if (!(main_irq & (ST25R3916_IRQ_MAIN_RXE | ST25R3916_IRQ_MAIN_FWL)))
+      if (!(main_irq & ST25R3916_IRQ_MAIN_RXE))
         break;
 
       uint8_t enc[8] = {0};
       int len = fifo_rx(enc, sizeof(enc));
-      if (len <= 0)
+      if (len < 0) {
+        s_emu.state = MFC_EMU_STATE_ERROR;
+        break;
+      }
+      if (len == 0)
         break;
 
       uint8_t plain[8] = {0};

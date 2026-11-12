@@ -32,7 +32,9 @@
 #define MFC_EMU_EVT_FIELD_LOST 1
 /* CONSTANTS */
 typedef int hb_nfc_err_t;
-typedef struct { int unused; } st25r3916_irq_status_t;
+typedef int esp_err_t;
+typedef struct { uint8_t main,timer,error,target,collision; } st25r3916_irq_status_t;
+static st25r3916_irq_status_t s_pending_irq;
 static struct {
   bool initialized, crypto_active;
   uint8_t pending_main;
@@ -59,12 +61,18 @@ static int hb_nfc_spi_direct_cmd(uint8_t cmd) {
   s_sleep+=cmd==ST25R3916_CMD_GOTO_SLEEP; s_sense+=cmd==ST25R3916_CMD_GOTO_SENSE;
   return s_bus_fail?-1:0;
 }
-static int st25r3916_irq_read(st25r3916_irq_status_t *status) { (void)status; return s_bus_fail?-1:0; }
+static int st25r3916_irq_read(st25r3916_irq_status_t *status) {
+  memset(status,0,sizeof(*status));
+  hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT,&status->main);
+  hb_nfc_spi_reg_read(ST25R3916_REG_TIMER_NFC_INT,&status->timer);
+  hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT,&status->target);
+  return s_bus_fail?-1:0;
+}
 static bool hb_nfc_gpio_irq_level(void) { return true; }
 static void vTaskDelay(int delay) { (void)delay; }
 static int64_t esp_timer_get_time(void) { return 1; }
 static void emit_event(int event) { (void)event; }
-static void reset_crypto_state(void) { s_emu.crypto_active=false;s_emu.pending_main=0; }
+static void reset_crypto_state(void) { s_emu.crypto_active=false;s_emu.pending_main=0;memset(&s_pending_irq,0,sizeof(s_pending_irq)); }
 static uint8_t crypto1_byte(int *state,int in,int encrypted) { (void)state;(void)in;(void)encrypted;return 0; }
 static int fifo_rx(uint8_t *out,size_t max) { assert((size_t)s_frame_len<=max);memcpy(out,s_frame,s_frame_len);return s_frame_len; }
 static mfc_emu_state_t handle_auth(uint8_t cmd,uint8_t block) {
@@ -77,7 +85,8 @@ static mfc_emu_state_t handle_value_op_phase1(uint8_t cmd,uint8_t block) { (void
 static mfc_emu_state_t handle_transfer(uint8_t block) { (void)block;return MFC_EMU_STATE_AUTHENTICATED; }
 static mfc_emu_state_t handle_write_phase2(uint8_t *p,int n) { (void)p;(void)n;return MFC_EMU_STATE_AUTHENTICATED; }
 static mfc_emu_state_t handle_value_op_phase2(uint8_t *p,int n) { (void)p;(void)n;return MFC_EMU_STATE_AUTHENTICATED; }
-static void target_tx_ack_encrypted(int ack) { (void)ack; }
+static int target_tx_ack_encrypted(int ack) { (void)ack; return HB_NFC_OK; }
+static bool command_frame_valid(const uint8_t *cmd, size_t len) { (void)cmd; return len >= 2; }
 /* PRODUCTION */
 int main(void) {
   s_emu.initialized=true;

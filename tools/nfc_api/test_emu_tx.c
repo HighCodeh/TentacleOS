@@ -22,6 +22,14 @@
 
 #define ESP_OK 0
 #define HB_NFC_OK 0
+#define HB_NFC_ERR_INTERNAL -3
+#define MFC_TX_MAX_BYTES 24
+#define MFC_BITS_PER_BYTE 8
+#define MFC_TX_WAIT_US 100
+#define MFC_EMU_POLL_DELAY_US 10
+#define ST25R3916_REG_NUM_TX_BYTES1 1
+#define ST25R3916_REG_NUM_TX_BYTES2 2
+#define ST25R3916_IRQ_MAIN_TXE 8
 #define HB_NFC_ERR_PARAM -1
 #define HB_NFC_ERR_TX_TIMEOUT -2
 #define ST25R3916_CMD_TX_WO_CRC 1
@@ -30,25 +38,26 @@
 #define ESP_LOGW(...) ((void)0)
 typedef int esp_err_t;
 typedef int hb_nfc_err_t;
-typedef struct { int unused; } st25r3916_irq_status_t;
+typedef struct { uint8_t main,timer,error,target; } st25r3916_irq_status_t;
+static st25r3916_irq_status_t s_pending_irq;
 static struct { crypto1_state_t crypto; } s_emu;
 static size_t s_loaded, s_bits;
 static int s_wait_result;
 static uint8_t s_fifo[24];
-static void st25r3916_fifo_set_tx_bytes(uint16_t bytes, uint8_t bits) {
-  s_bits = bytes * 8 + bits;
+static int hb_nfc_spi_reg_write(int reg,uint8_t value) {
+  if(reg==1) s_bits=(size_t)value<<8; else s_bits|=value; return 0;
 }
-static void st25r3916_fifo_load(const uint8_t *data, size_t count) {
+static void hb_nfc_timer_delay_us(unsigned us) { (void)us; }
+static int st25r3916_fifo_load(const uint8_t *data, size_t count) {
   assert(count <= sizeof(s_fifo));
   memcpy(s_fifo, data, count);
-  s_loaded = count;
+  s_loaded = count; return 0;
 }
 static int st25r3916_irq_read(st25r3916_irq_status_t *status) {
-  (void)status;
+  memset(status,0,sizeof(*status)); status->main=8;
   return ESP_OK;
 }
-static void hb_nfc_spi_direct_cmd(int cmd) { (void)cmd; }
-static int st25r3916_irq_wait_txe(void) { return s_wait_result; }
+static int hb_nfc_spi_direct_cmd(int cmd) { (void)cmd; return 0; }
 
 static int hb_nfc_spi_target_tx_bits(const uint8_t *data, size_t bits) {
   s_bits = bits;

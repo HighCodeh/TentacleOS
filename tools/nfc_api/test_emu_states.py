@@ -27,6 +27,7 @@ a = header.index("  MFC_EMU_STATE_IDLE")
 b = header.index("}", a)
 states = "typedef enum {\n" + header[a:b] + "} mfc_emu_state_t;"
 functions = "\n".join(extract(source, name) for name in (
+    "static esp_err_t read_irq(",
     "static hb_nfc_err_t target_enter_listen(void) {",
     "static hb_nfc_err_t target_enter_sleep(void) {",
     "mfc_emu_state_t mfc_emu_run_step(void) {",

@@ -1411,3 +1411,10 @@ At/parity and SPI-failure checks. Physical dump validation remains necessary.
 - Clear failed authentication state; retain nonce timing and scoped CRC handling.
 - Stop printing recovered sector keys in dump progress logs.
 - Test: `tools/nfc_api/test_classic_auth.py`.
+
+## Classic target corrections
+
+- Enforce access bits, sector groups, encrypted parity and nested authentication.
+- Validate value-block operations and recover RX after silent commands.
+- Preserve coalesced IRQs, HALT/reselection and fatal-error cleanup.
+- Tests: `tools/nfc/test_classic_emu.py`, `test_classic_value.py`; target RF still needs bench qualification.

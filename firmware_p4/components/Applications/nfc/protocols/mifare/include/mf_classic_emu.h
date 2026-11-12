@@ -314,11 +314,11 @@ void t2t_emu_stop(void);
  * @brief Extract access condition bits (C1, C2, C3) for a block within a sector.
  *
  * @param trailer          16-byte sector trailer data.
- * @param block_in_sector  Block index within sector (0-3 for 4-block, 0-15 for 16-block).
+ * @param block_in_sector  Access group 0..3. For 16-block sectors use relative block / 5.
  * @param[out] c1          Access condition bit C1.
  * @param[out] c2          Access condition bit C2.
  * @param[out] c3          Access condition bit C3.
- * @return true if access bits parity is valid.
+ * @return true if all twelve redundant access bits are valid.
  */
 bool mfc_emu_get_access_bits(
     const uint8_t trailer[16], int block_in_sector, uint8_t *c1, uint8_t *c2, uint8_t *c3);
@@ -327,7 +327,7 @@ bool mfc_emu_get_access_bits(
  * @brief Check if a READ is permitted.
  *
  * @param trailer          16-byte sector trailer data.
- * @param block_in_sector  Block index within sector.
+ * @param block_in_sector  Access group 0..3, not the raw index in a 16-block sector.
  * @param auth_key_type    Key type used for authentication.
  * @return true if read is permitted.
  */
@@ -337,7 +337,7 @@ bool mfc_emu_can_read(const uint8_t trailer[16], int block_in_sector, mf_key_typ
  * @brief Check if a WRITE is permitted.
  *
  * @param trailer          16-byte sector trailer data.
- * @param block_in_sector  Block index within sector.
+ * @param block_in_sector  Access group 0..3, not the raw index in a 16-block sector.
  * @param auth_key_type    Key type used for authentication.
  * @return true if write is permitted.
  */
@@ -347,7 +347,7 @@ bool mfc_emu_can_write(const uint8_t trailer[16], int block_in_sector, mf_key_ty
  * @brief Check if INCREMENT is permitted (data blocks only).
  *
  * @param trailer          16-byte sector trailer data.
- * @param block_in_sector  Block index within sector.
+ * @param block_in_sector  Access group 0..3, not the raw index in a 16-block sector.
  * @param auth_key_type    Key type used for authentication.
  * @return true if increment is permitted.
  */
@@ -359,7 +359,7 @@ bool mfc_emu_can_increment(const uint8_t trailer[16],
  * @brief Check if DECREMENT/RESTORE/TRANSFER is permitted (data blocks only).
  *
  * @param trailer          16-byte sector trailer data.
- * @param block_in_sector  Block index within sector.
+ * @param block_in_sector  Access group 0..3, not the raw index in a 16-block sector.
  * @param auth_key_type    Key type used for authentication.
  * @return true if decrement/restore/transfer is permitted.
  */
