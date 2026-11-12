@@ -15,33 +15,31 @@ You should have received a copy of the GNU General Public License
 along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 -->
 
-# Documentation hub
+# Documentation
 
-Aggregated, canonical copies of the project documentation, one directory per
-component. Each component's in-tree README points back to its copy here.
-Components present in both firmwares keep `# P4` and `# C5` sections in one
-README.md, separated by `---`.
+Reference documentation for Highboy hardware, firmware services, applications
+and development workflows. Each component has one canonical document linked
+below; in-tree READMEs point to it.
 
-## Featured
+## Start here
 
-- [pc_monitor/](pc_monitor/README.md) - computer telemetry over authenticated USB/BLE
+- [Build and development](highboy/README.md)
+- [Application updates](highboy/APP_UPDATE.md)
+- [Release packaging](highboy/RELEASE.md)
+- [Board pin mapping](pins/README.md)
+- [UI architecture and screen lifecycle](ui/README.md)
+- [Application SDK](app_sdk/README.md)
+- [Companion app integration](host_link/app-guide.md)
 
+## Components
 
-- [highboy/](highboy/README.md) - integrated dev + local Muse pair, build lanes, preservation and deployment gates
-- [High Boy release candidates](highboy/RELEASE.md) - internal RAM/compiler gates and paired SD OTA packaging
-
-- [host_link/](host_link/README.md) - companion app link: overview, [app implementation guide](host_link/app-guide.md), [protocol spec](host_link/protocol.md), [NFC/RFID commands](host_link/rf-commands.md), per-firmware sections
-- [spi_bridge/](spi_bridge/README.md) - P4<->C5 SPI bridge: architecture + per-firmware sections
-- [scripts/](scripts/README.md) - execute JavaScript and Lua source files from SD
-- [app_sdk/](app_sdk/README.md) - **write an app for the device**: build, sign, install and run signed `.hb` bundles from SD
-
-## All components
-
-| Component | Docs |
-|-----------|------|
+| Component | Documentation |
+| --- | --- |
 | `audio_i2s` | [README.md](audio_i2s/README.md) - I2S audio output driver |
+| `aw8623` | [README.md](aw8623/README.md) - haptic playback and diagnostics |
 | `bad_usb` | [README.md](bad_usb/README.md)  |
 | `bluetooth` | [README.md](bluetooth/README.md)  |
+| `board_control` | [README.md](board_control/README.md) - V2.03 remote amp, haptic reset and USB enable |
 | `boot_report` | [README.md](boot_report/README.md)  |
 | `bq25896` | [README.md](bq25896/README.md) - TI BQ25896 battery charger / PMIC driver |
 | `bridge_manager` | [README.md](bridge_manager/README.md) - P4<->C5 bridge lifecycle and coordination service |
@@ -50,19 +48,21 @@ README.md, separated by `---`.
 | `cc1101` | [README.md](cc1101/README.md)  |
 | `console` | [README.md](console/README.md)  |
 | `dns_server` | [README.md](dns_server/README.md)  |
+| `doom` | [README.md](doom/README.md) - DOOM input and internal-DMA strip rendering |
 | `drv2605l` | [README.md](drv2605l/README.md) - TI DRV2605L haptic motor driver |
 | `esp_now` | [README.md](esp_now/README.md)  |
 | `espnow_chat` | [README.md](espnow_chat/README.md)  |
-| `gatt` | [README.md](gatt/README.md) - remote BLE service discovery and characteristic reads |
-| `gameboy` | [README.md](gameboy/README.md) - Game Boy emulator application |
-| `doom` | [README.md](doom/README.md) - DOOM input and internal-DMA strip rendering |
-| `hle` | [README.md](hle/README.md) - host simulator compatibility and SPI CRC regression tests |
+| `fatfs` | [README.md](fatfs/README.md) - exFAT integration and filesystem validation |
 | `firmware_crypto` | [README.md](crypto/README.md) - shared public PSA cryptography |
+| `gameboy` | [README.md](gameboy/README.md) - Game Boy emulator application |
+| `gatt` | [README.md](gatt/README.md) - remote BLE service discovery and characteristic reads |
+| `gps` | [README.md](gps/README.md) - external UART GPS wiring and console diagnostics |
+| `hle` | [README.md](hle/README.md) - host simulator compatibility and SPI CRC regression tests |
 | `host_link` | [app-guide.md](host_link/app-guide.md) [protocol.md](host_link/protocol.md) [README.md](host_link/README.md)  |
 | `http_server` | [README.md](http_server/README.md)  |
+| `husb320` | [Type-C policy](tusb_desc/README.md#type-c-role-and-power) - V2.03 sink-only initialization |
 | `i2c_init` | [README.md](i2c_init/README.md) - shared I2C bus initialization driver |
 | `imu` | [README.md](imu/README.md) - motion acquisition, calibration and snapshots |
-| `qmi8658a` | [README.md](qmi8658a/README.md) - synchronized six-axis SPI driver |
 | `input_manager` | [README.md](input_manager/README.md)  |
 | `ir` | [README.md](ir/README.md) - infrared transmit/receive service |
 | `led` | [README.md](led/README.md) - status/RGB LED driver |
@@ -70,16 +70,16 @@ README.md, separated by `---`.
 | `lvgl` | [README.md](lvgl/README.md)  |
 | `mqtt` | [README.md](mqtt/README.md) - C5 MQTT transport and Meshtastic UI integration |
 | `muse` | [README.md](muse/README.md) - P4 PTT and C5 pairing/runtime integration |
-| `rf_frontend` | [README.md](rf_frontend/README.md) - shared NFC/LF antenna and native RFID ownership |
 | `nfc` | [README.md](nfc/README.md) - NFC read/write application |
 | `ota` | [README.md](ota/README.md)  |
-| `husb320` | [Type-C policy](tusb_desc/README.md#type-c-role-and-power) - V2.03 sink-only initialization |
-| `board_control` | [README.md](board_control/README.md) - V2.03 remote amp, haptic reset and USB enable |
+| `pc_monitor` | [README.md](pc_monitor/README.md) - computer telemetry |
 | `pins` | [README.md](pins/README.md) - board pin assignment definitions |
 | `power_manager` | [README.md](power_manager/README.md) - battery and power-state management service |
+| `qmi8658a` | [README.md](qmi8658a/README.md) - synchronized six-axis SPI driver |
 | `recovery` | [README.md](recovery/README.md)  |
-| `security` | [README.md](security/README.md) - isolated paired security configuration and provisioning boundary |
+| `rf_frontend` | [README.md](rf_frontend/README.md) - shared NFC/LF antenna and native RFID ownership |
 | `sd_card` | [README.md](sd_card/README.md)  |
+| `security` | [README.md](security/README.md) - isolated paired security configuration and provisioning boundary |
 | `spi` | [README.md](spi/README.md)  |
 | `spi_bridge` | [README.md](spi_bridge/README.md)  |
 | `st7789` | [README.md](st7789/README.md)  |
@@ -95,10 +95,3 @@ README.md, separated by `---`.
 | `ui` | [README.md](ui/README.md) [input-migration.md](ui/input-migration.md)  |
 | `wifi` | [README.md](wifi/README.md)  |
 | `ys_rfid2` | [README.md](ys_rfid2/README.md) - YS-RFID2 125 kHz RFID reader driver |
-
-- [FatFS exFAT override](fatfs/README.md) — verified SDK patch generation and filesystem tests.
-
-V2.03 C5 backend: [remote IR lifecycle and wire contract](ir/README.md).
-
-- [AW8623 ERM playback, diagnostics and migration status](aw8623/README.md)
-
