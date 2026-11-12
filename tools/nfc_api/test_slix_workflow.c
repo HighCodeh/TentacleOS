@@ -50,6 +50,7 @@ static uint8_t s_slix_password[5][4];
 static char s_slix_last_path[UL_AES_PATH_SIZE];
 static bool bad_security;
 static unsigned saves;
+#undef strlcpy
 #define strlcpy test_strlcpy
 static size_t test_strlcpy(char *out,const char *in,size_t size){snprintf(out,size,"%s",in);return strlen(in);}
 static void format_uid(const uint8_t *uid,size_t len,bool reverse,char *out,size_t size){(void)uid;(void)len;(void)reverse;snprintf(out,size,"E004010000000000");}

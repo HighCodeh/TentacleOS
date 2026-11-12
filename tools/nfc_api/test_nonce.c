@@ -35,6 +35,8 @@
 #define ST25R3916_FIFO_TX_BYTES_LSB_MASK 31
 #define ST25R3916_FIFO_STATUS2_MSB_MASK 0xC0
 #define ST25R3916_IRQ_MAIN_COL 4
+#define ST25R3916_IRQ_MAIN_TXE 0x08
+#define NFC_POLLER_TIMEOUT_MAX_MS 5000
 #define NFC_POLLER_FIFO_CAPACITY 512
 #define NFC_POLLER_FIFO_ERROR_MASK 0x30
 #define NFC_POLLER_PARTIAL_BYTE_MASK 0x0E
@@ -56,13 +58,11 @@ static int hb_nfc_spi_direct_cmd(int cmd) { (void)cmd; return 0; }
 static int hb_nfc_spi_reg_write(int reg,uint8_t value) { (void)reg;(void)value;return 0; }
 static int hb_nfc_spi_reg_read(int reg,uint8_t *value) { *value=reg==2?count:flags;return 0; }
 static int st25r3916_irq_clear(void) { return 0; }
-static int st25r3916_irq_wait_txe(void) { return 0; }
-static int st25r3916_irq_wait_rxe(int timeout,st25r3916_irq_status_t *irq) {
+static int st25r3916_irq_wait_exchange(int timeout,st25r3916_irq_status_t *irq) {
  (void)timeout; irq->error=error;irq->main=main_irq;return wait_result;
 }
 static int st25r3916_fifo_load(const uint8_t *data,size_t size) { (void)data;(void)size;return 0; }
 static int st25r3916_fifo_read(uint8_t *data,size_t size) { memset(data,0xA5,size);return 0; }
-static void nfc_log_hex(const char *label,const uint8_t *data,size_t size) { (void)label;(void)data;(void)size; }
 /* PRODUCTION */
 int main(void) {
  uint8_t auth[]={0x60,0},out[4];
@@ -79,11 +79,12 @@ int main(void) {
  flags=0;main_irq=4;assert(nfc_poller_classic_nonce(auth,out,20)==0);
  main_irq=0x30;auth[0]=0x30;assert(nfc_poller_classic_nonce(auth,out,20)==0);
  puts("PASS: CRC-less nonce exception remains scoped; parity/framing/length/timeout rejected");
- error=0;flags=0;main_irq=0;count=0;wait_result=ESP_ERR_TIMEOUT;
+ error=0;flags=0;main_irq=0x08;count=0;wait_result=ESP_ERR_TIMEOUT;
  assert(nfc_poller_expect_silence(auth,2,5));
  wait_result=1;assert(!nfc_poller_expect_silence(auth,2,5));
  wait_result=ESP_ERR_TIMEOUT;count=1;assert(!nfc_poller_expect_silence(auth,2,5));
  count=0;error=0x80;assert(!nfc_poller_expect_silence(auth,2,5));
  error=0;main_irq=0x10;assert(!nfc_poller_expect_silence(auth,2,5));
- main_irq=0;assert(!nfc_poller_expect_silence(NULL,2,5));
+ main_irq=0;assert(!nfc_poller_expect_silence(auth,2,5));
+ assert(!nfc_poller_expect_silence(NULL,2,5));
 }

@@ -19,6 +19,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
+#define HB_NFC_ERR_INTERNAL -100
 #define HB_NFC_OK 0
 #define HB_NFC_ERR_PARAM -1
 #define HB_NFC_ERR_PROTOCOL -2
@@ -30,7 +31,6 @@
 #define ESP_LOGW(tag,...) ((void)(tag))
 typedef int hb_nfc_err_t;
 typedef struct { bool dep_ready, use_native_frames; bool (*should_cancel)(void); } mf_desfire_session_t;
-static const char *TAG = "DESFIRE_TEST";
 static unsigned s_frame, s_mode;
 static bool s_cancel;
 /* CONSTANTS */
@@ -51,6 +51,8 @@ static int mf_desfire_apdu_transceive(mf_desfire_session_t *session, const uint8
   if (s_mode == 4) s_cancel = true;
   return count + (session->use_native_frames ? 1 : 2);
 }
+static int64_t esp_timer_get_time(void) { return 0; }
+static void clear_authentication(mf_desfire_session_t *session) { (void)session; }
 /* PRODUCTION */
 static bool cancelled(void) { return s_cancel; }
 int main(void) {
@@ -61,7 +63,7 @@ int main(void) {
     assert(mf_desfire_transceive_native(&session,0x60,NULL,0,data,sizeof(data),&length,&sw) == HB_NFC_OK);
     assert(length == 6 && sw == 0x9100 && data[5] == 5 && s_frame == 2);
     s_frame = 0;
-    assert(mf_desfire_transceive_native(&session,0x60,NULL,0,data,4,&length,&sw) == HB_NFC_ERR_PARAM);
+    assert(mf_desfire_transceive_native(&session,0x60,NULL,0,data,4,&length,&sw) == HB_NFC_ERR_PROTOCOL);
     assert(length == 0);
     for (s_mode = 2; s_mode < 5; s_mode++) {
       s_frame = 0; s_cancel = false;

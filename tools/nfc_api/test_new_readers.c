@@ -27,6 +27,7 @@
 #define ESP_ERR_INVALID_STATE -4
 #define add_line(result, ...) ((void)(result))
 #define format_uid(uid, len, reverse, out, max) (memset(out, 0, max))
+#undef strlcpy
 #define strlcpy(...) ((void)0)
 typedef int hb_nfc_err_t;
 typedef struct { char heading[32]; } nfc_protocol_result_t;

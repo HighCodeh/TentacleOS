@@ -1440,3 +1440,11 @@ At/parity and SPI-failure checks. Physical dump validation remains necessary.
 - Preserve identity-only DESFire/NTAG4xx and the existing NDEF/Plus listeners.
 - Generic Type 4A rejects unsupported classes/instructions explicitly.
 - Tests: `tools/nfc_api/test_t4t_blocks.py`, `test_desfire_identity.py`.
+
+## Integration regression coverage
+
+- Run the Python test entry points in `tools/nfc/` and `tools/nfc_api/`.
+- Cover crypto vectors, malformed frames, storage compatibility and injected bus failures.
+- macOS fixtures avoid the system `strlcpy` macro; production code is unchanged.
+- Tests use simulated peers. Passing them does not establish RF interoperability or range.
+- Existing AES/I2C, Plus, SLIX, profile/archive workflows and NFC UI remain in place.

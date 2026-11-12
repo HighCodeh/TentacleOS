@@ -24,6 +24,7 @@
 #define HB_NFC_ERR_PROTOCOL -3
 #define ESP_ERR_INVALID_STATE -4
 #define add_line(result, ...) ((void)(result))
+#undef strlcpy
 #define strlcpy(...) ((void)0)
 #define portENTER_CRITICAL(mux) ((void)(mux))
 #define portEXIT_CRITICAL(mux) ((void)(mux))

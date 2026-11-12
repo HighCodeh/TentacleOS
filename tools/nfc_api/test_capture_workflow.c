@@ -28,6 +28,7 @@
 #define RF_FRONTEND_NFC_13MHZ 1
 #define pdMS_TO_TICKS(x) (x)
 #define taskYIELD() ((void)0)
+#undef strlcpy
 #define strlcpy(out,in,size) snprintf(out,size,"%s",in)
 typedef int hb_nfc_err_t;
 typedef int esp_err_t;
