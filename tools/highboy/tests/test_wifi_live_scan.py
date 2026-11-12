@@ -50,7 +50,7 @@ typedef int portMUX_TYPE;
 #define SYS_CORE_RADIO 0
 #define SYS_PRIO_SERVICE_LO 4
 #define WIFI_SCAN_LIST_SIZE 64
-typedef struct { uint8_t ssid[33], bssid[6], primary; int8_t rssi; } wifi_ap_record_t;
+typedef struct { uint8_t ssid[33], bssid[6], primary, authmode; int8_t rssi; } wifi_ap_record_t;
 static bool ap_scanner_save_snapshot(const wifi_ap_record_t *records, uint16_t count) {
  (void)records;(void)count;return true;
 }
@@ -102,8 +102,8 @@ static esp_err_t spi_bridge_send_command(spi_id_t id, const uint8_t *payload, ui
    return ESP_OK;
  }
  assert(id==SPI_ID_WIFI_SCAN_STEP_RECORD);
- assert(len==sizeof(uint16_t) && capacity==sizeof(wifi_ap_record_t));
- wifi_ap_record_t record={.bssid={1,2,3,4,5,6},.primary=1,.rssi=-40};
+ assert(len==sizeof(uint16_t) && capacity==sizeof(spi_wifi_scan_record_t));
+ spi_wifi_scan_record_t record={.bssid={1,2,3,4,5,6},.channel=1,.authmode=3,.rssi=-40};
  strcpy((char*)record.ssid,"Network");
  if(mode==0 && starts==2) {record.ssid[0]=0;record.rssi=-60;}
  if(mode==0 && starts==3) {record.bssid[5]=7;record.ssid[0]=1;}
@@ -120,6 +120,7 @@ static wifi_live_scan_status_t status(void) {
 }
 static void run(void) {assert(task_fn);task_fn(NULL);assert(!status().is_running);}
 int main(void) {
+ assert(sizeof(spi_wifi_scan_record_t)==42);
  assert(wifi_live_scan_start(3)==ESP_ERR_INVALID_ARG);
  reset(0,4);
  assert(wifi_live_scan_start(SPI_WIFI_BAND_2G)==ESP_OK);
@@ -128,6 +129,7 @@ int main(void) {
  wifi_ap_record_t record;
  assert(wifi_live_scan_get_record(0,&record)==ESP_OK);
  assert(!strcmp((char*)record.ssid,"Network") && record.rssi==-60);
+ assert(record.primary==1 && record.authmode==3);
  wifi_live_scan_observation_t obs;
  assert(wifi_live_scan_get_observation(0,&obs)==ESP_OK);
  assert(obs.samples==2 && obs.rssi_min==-60 && obs.rssi_max==-40 && obs.rssi_sum==-100);

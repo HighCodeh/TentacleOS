@@ -324,7 +324,8 @@ typedef enum {
   SPI_ID_WIFI_QUICK_WHITELIST = SPI_CMD(SPI_CAT_WIFI, 0x55),
   SPI_ID_WIFI_SCAN_STEP = SPI_CMD(SPI_CAT_WIFI, 0x56), // [bitmap slot u8], async
   SPI_ID_WIFI_SCAN_STEP_STATUS = SPI_CMD(SPI_CAT_WIFI, 0x57),
-  SPI_ID_WIFI_SCAN_STEP_RECORD = SPI_CMD(SPI_CAT_WIFI, 0x58), // [index u16]
+  SPI_ID_WIFI_SCAN_STEP_RECORD =
+      SPI_CMD(SPI_CAT_WIFI, 0x58), // [index u16] -> spi_wifi_scan_record_t
 
   SPI_ID_WIFI_EVIL_TWIN_TMPL_BEGIN = SPI_CMD(SPI_CAT_WIFI, 0xA0),
   SPI_ID_WIFI_EVIL_TWIN_TMPL_CHUNK = SPI_CMD(SPI_CAT_WIFI, 0xA1),
@@ -1114,7 +1115,8 @@ typedef struct {
  * @brief Compact WiFi scan result, served by SPI_ID_WIFI_APP_SCAN_AP through the
  * generic data pipe. Fixed-size and explicit (unlike the raw wifi_ap_record_t)
  * so the companion app parses it without depending on the IDF struct layout.
- * ssid is sanitized printable ASCII, null-terminated, empty for hidden networks.
+ * STEP_RECORD uses this layout with raw, null-terminated SSID bytes.
+ * APP_SCAN_AP sanitizes SSID to printable ASCII; empty means hidden.
  */
 typedef struct {
   uint8_t bssid[6]; // AP MAC

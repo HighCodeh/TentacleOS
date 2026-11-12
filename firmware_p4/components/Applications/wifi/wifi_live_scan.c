@@ -173,7 +173,7 @@ static esp_err_t scan_step(uint8_t slot) {
   for (uint16_t i = 0; i < status.count; i++) {
     if (atomic_load(&s_stop))
       break;
-    wifi_ap_record_t record;
+    spi_wifi_scan_record_t record;
     spi_header_t response = {0};
     err = spi_bridge_send_command(SPI_ID_WIFI_SCAN_STEP_RECORD,
                                   (const uint8_t *)&i,
@@ -186,7 +186,13 @@ static esp_err_t scan_step(uint8_t slot) {
       return err;
     if (response.length != sizeof(record))
       return ESP_ERR_INVALID_SIZE;
-    merge_record(&record);
+    wifi_ap_record_t ap = {0};
+    memcpy(ap.ssid, record.ssid, sizeof(ap.ssid));
+    memcpy(ap.bssid, record.bssid, sizeof(ap.bssid));
+    ap.primary = record.channel;
+    ap.rssi = record.rssi;
+    ap.authmode = record.authmode;
+    merge_record(&ap);
   }
   return ESP_OK;
 }

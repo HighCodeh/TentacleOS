@@ -38,7 +38,9 @@ stopped snapshot is saved through the existing SD-only AP JSON persistence path.
 C5 scans one channel per asynchronous request with 120 ms dwell: active on 2.4 GHz,
 passive on 5 GHz, subject to the driver's country/channel restrictions. The paired
 v2 SPI headers add Wi-Fi operations `0x56` (start slot), `0x57` (busy/error/count)
-and `0x58` (indexed record). C5 keeps a dedicated completed-channel snapshot;
+and `0x58` (indexed, 42-byte `spi_wifi_scan_record_t`). C5 keeps a dedicated
+compact completed-channel snapshot containing SSID, BSSID, RSSI, channel and
+authentication mode, avoiding a second SDK-native AP array in internal RAM;
 P4 validates response sizes and merges it before advancing. Cancellation drains
 the in-flight channel, then stops; failures preserve already collected records.
 A new session is rejected until the old worker has finished. Legacy console

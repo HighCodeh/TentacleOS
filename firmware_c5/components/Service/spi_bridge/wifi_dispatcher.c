@@ -60,13 +60,23 @@ static spi_wifi_scan_config_t s_scan_cfg = {
 static atomic_bool s_step_busy;
 static uint8_t s_step_slot;
 static spi_wifi_scan_step_status_t s_step_status;
-static wifi_ap_record_t s_step_records[WIFI_SCAN_LIST_SIZE];
+static spi_wifi_scan_record_t s_step_records[WIFI_SCAN_LIST_SIZE];
 
 static void scan_step_worker(void) {
   esp_err_t err = wifi_service_scan_step(s_step_slot);
   uint16_t count = err == ESP_OK ? wifi_service_get_ap_count() : 0;
-  for (uint16_t i = 0; i < count; i++)
-    s_step_records[i] = *wifi_service_get_ap_record(i);
+  if (count > WIFI_SCAN_LIST_SIZE)
+    count = WIFI_SCAN_LIST_SIZE;
+  for (uint16_t i = 0; i < count; i++) {
+    const wifi_ap_record_t *ap = wifi_service_get_ap_record(i);
+    spi_wifi_scan_record_t *record = &s_step_records[i];
+    memset(record, 0, sizeof(*record));
+    memcpy(record->ssid, ap->ssid, sizeof(record->ssid) - 1);
+    memcpy(record->bssid, ap->bssid, sizeof(record->bssid));
+    record->rssi = ap->rssi;
+    record->channel = ap->primary;
+    record->authmode = (uint8_t)ap->authmode;
+  }
   s_step_status = (spi_wifi_scan_step_status_t){.error = (uint32_t)err, .count = count};
   atomic_store(&s_step_busy, false);
 }

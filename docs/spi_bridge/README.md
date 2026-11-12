@@ -1256,3 +1256,11 @@ or requalify the patch and update its source hash. Never edit the generated copy
 
 Run `python3 tools/spi_transport/test_dma_cleanup.py` after configuring P4
 to test the generated cleanup with allocation failure and successful RX copying.
+
+### Incremental WiFi scan records
+
+`SPI_ID_WIFI_SCAN_STEP_RECORD` returns `spi_wifi_scan_record_t` (42 bytes),
+including raw SSID bytes, BSSID, RSSI, primary channel and authentication mode.
+Both chips must be updated together for this layout. The C5 keeps a bounded
+compact snapshot instead of duplicating 64 SDK-native AP structures in internal
+RAM; the P4 reconstructs its local AP view and sanitizes names for display.
