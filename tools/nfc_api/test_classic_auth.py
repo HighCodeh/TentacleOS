@@ -31,7 +31,7 @@ def main():
     funcs = "\n".join(extract(source, name) for name in (
         "static void bit_set(", "static uint8_t bit_get(", "static uint32_t bytes_to_num_be(",
         "static uint64_t key_to_u64_be(", "static uint32_t mf_rand32(",
-        "hb_nfc_err_t mf_classic_auth("))
+        "static bool auth_response_valid(", "hb_nfc_err_t mf_classic_auth("))
     fixture = Path(__file__).with_suffix(".c").read_text()
     fixture = fixture.replace("/* CONSTANTS */", defines(source)).replace("/* PRODUCTION */", funcs)
     with tempfile.TemporaryDirectory(prefix="nfc-classic-auth-") as tmp:

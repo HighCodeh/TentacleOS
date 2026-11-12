@@ -1404,3 +1404,10 @@ At/parity and SPI-failure checks. Physical dump validation remains necessary.
 - Route standard and SLIX commands through the same bounded stream transport.
 - Apply technology-specific B/F/V receiver profiles; reject unsupported V rates.
 - Test: `tools/nfc/test_iso15693_stream.py`; RF range remains unqualified.
+
+## Classic reader authentication
+
+- Verify encrypted At and parity before accepting a sector session.
+- Clear failed authentication state; retain nonce timing and scoped CRC handling.
+- Stop printing recovered sector keys in dump progress logs.
+- Test: `tools/nfc_api/test_classic_auth.py`.

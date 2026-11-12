@@ -149,16 +149,7 @@ remember_key(dump_ctx_t *dc, int sector, mf_key_type_t type, const uint8_t key[N
       .key = key,
   };
   mf_key_cache_store(&cache);
-  ESP_LOGI(TAG,
-           "Sector %02d Key %c = %02X%02X%02X%02X%02X%02X",
-           sector,
-           type == MF_KEY_A ? 'A' : 'B',
-           key[0],
-           key[1],
-           key[2],
-           key[3],
-           key[4],
-           key[5]);
+  ESP_LOGI(TAG, "Sector %02d Key %c authenticated", sector, type == MF_KEY_A ? 'A' : 'B');
 }
 
 static bool try_candidate(dump_ctx_t *dc,

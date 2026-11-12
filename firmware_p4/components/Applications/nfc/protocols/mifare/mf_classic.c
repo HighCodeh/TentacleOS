@@ -322,16 +322,31 @@ static hb_nfc_err_t tx_encrypted_with_ack(crypto1_state_t *st,
   return HB_NFC_OK;
 }
 
+static bool auth_response_valid(const uint8_t *raw, uint32_t nonce) {
+  uint8_t plain[MF_WORD_BYTES] = {0};
+  size_t bitpos = 0;
+  for (uint8_t i = 0; i < MF_WORD_BYTES; i++) {
+    uint8_t encrypted = 0;
+    for (uint8_t bit = 0; bit < MF_BITS_PER_BYTE; bit++)
+      encrypted |= (uint8_t)(bit_get(raw, bitpos++) << bit);
+    plain[i] = encrypted ^ crypto1_byte(&s_crypto, 0, 0);
+    uint8_t parity = bit_get(raw, bitpos++) ^ crypto1_filter_output(&s_crypto);
+    if (parity != crypto1_odd_parity8(plain[i]))
+      return false;
+  }
+  return bytes_to_num_be(plain) == crypto1_prng_successor(nonce, MF_PRNG_AT_ADVANCE);
+}
+
 hb_nfc_err_t mf_classic_auth(uint8_t block,
                              mf_key_type_t key_type,
                              const mf_classic_key_t *key,
                              const uint8_t uid[4]) {
+  s_auth = false;
   if (key == NULL || uid == NULL)
     return HB_NFC_ERR_PARAM;
-  s_auth = false;
 
-  uint8_t cmd[2] = {(uint8_t)key_type, block};
   uint8_t nt_raw[MF_WORD_BYTES] = {0};
+  const uint8_t cmd[] = {(uint8_t)key_type, block};
   int len = nfc_poller_classic_nonce(cmd, nt_raw, MF_AUTH_TIMEOUT_MS);
   if (len < (int)MF_WORD_BYTES) {
     ESP_LOGW(TAG, "Auth: no nonce (len=%d)", len);
@@ -399,22 +414,15 @@ hb_nfc_err_t mf_classic_auth(uint8_t block,
   if (hb_nfc_spi_reg_read(ST25R3916_REG_ISO14443A, &iso) != ESP_OK)
     return HB_NFC_ERR_INTERNAL;
   if (hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A,
-                           (uint8_t)(iso | ISOA_NO_TX_PAR | ISOA_NO_RX_PAR)) != ESP_OK) {
-    (void)hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
-    return HB_NFC_ERR_INTERNAL;
-  }
-
-  if (hb_nfc_spi_direct_cmd(ST25R3916_CMD_STOP_ALL) != ESP_OK ||
+                           (uint8_t)(iso | ISOA_NO_TX_PAR | ISOA_NO_RX_PAR)) != ESP_OK ||
+      hb_nfc_spi_direct_cmd(ST25R3916_CMD_STOP_ALL) != ESP_OK ||
       hb_nfc_spi_direct_cmd(ST25R3916_CMD_CLEAR_FIFO) != ESP_OK ||
-      st25r3916_irq_clear() != ESP_OK) {
-    hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
-    return HB_NFC_ERR_INTERNAL;
-  }
-  if (hb_nfc_spi_reg_write(ST25R3916_REG_NUM_TX_BYTES1, (uint8_t)(tx_total_bits >> 8)) != ESP_OK ||
+      st25r3916_irq_clear() != ESP_OK ||
+      hb_nfc_spi_reg_write(ST25R3916_REG_NUM_TX_BYTES1, 0) != ESP_OK ||
       hb_nfc_spi_reg_write(ST25R3916_REG_NUM_TX_BYTES2, (uint8_t)tx_total_bits) != ESP_OK ||
       st25r3916_fifo_load(tx_buf, tx_total_bytes) != ESP_OK ||
       hb_nfc_spi_direct_cmd(ST25R3916_CMD_TX_WO_CRC) != ESP_OK) {
-    (void)hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
+    hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
     return HB_NFC_ERR_INTERNAL;
   }
 
@@ -426,7 +434,7 @@ hb_nfc_err_t mf_classic_auth(uint8_t block,
 
   uint16_t count = 0;
   (void)st25r3916_fifo_wait(rx_total_bytes, MF_AUTH_TIMEOUT_MS, &count);
-  if (count < rx_total_bytes) {
+  if (count != rx_total_bytes) {
     hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
     ESP_LOGW(TAG, "Auth: RX timeout (got %u need %u)", count, (unsigned)rx_total_bytes);
     return HB_NFC_ERR_TIMEOUT;
@@ -436,23 +444,8 @@ hb_nfc_err_t mf_classic_auth(uint8_t block,
   esp_err_t restore_err = hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso);
   if (read_err != ESP_OK || restore_err != ESP_OK)
     return HB_NFC_ERR_INTERNAL;
-
-  uint8_t at_dec[MF_WORD_BYTES] = {0};
-  bitpos = 0;
-  for (uint8_t i = 0; i < MF_WORD_BYTES; i++) {
-    uint8_t enc_byte = 0;
-    for (uint8_t bit = 0; bit < MF_BITS_PER_BYTE; bit++) {
-      enc_byte |= (uint8_t)(bit_get(rx_buf, bitpos++) << bit);
-    }
-    uint8_t ks = crypto1_byte(&s_crypto, 0, 0);
-    at_dec[i] = enc_byte ^ ks;
-    uint8_t parity = bit_get(rx_buf, bitpos++) ^ crypto1_filter_output(&s_crypto);
-    if (parity != crypto1_odd_parity8(at_dec[i]))
-      return HB_NFC_ERR_AUTH;
-  }
-
-  if (bytes_to_num_be(at_dec) != crypto1_prng_successor(nt_be, MF_PRNG_AT_ADVANCE)) {
-    ESP_LOGW(TAG, "Auth: invalid card response");
+  if (!auth_response_valid(rx_buf, nt_be)) {
+    ESP_LOGW(TAG, "Auth: invalid card response or encrypted parity");
     return HB_NFC_ERR_AUTH;
   }
 
