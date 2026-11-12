@@ -51,7 +51,7 @@ extern "C" {
 #define FELICA_CMD_WRITE_RESP   0x09U
 
 #define FELICA_SC_COMMON 0xFFFFU /**< wildcard system code             */
-#define FELICA_SC_NDEF   0x0003U /**< NDEF system code                 */
+#define FELICA_SC_NDEF   0x12FCU /**< NDEF system code                 */
 
 #define FELICA_RCF_NONE        0x00U /**< no system code in response       */
 #define FELICA_RCF_SYSTEM_CODE 0x01U /**< include system code in response  */

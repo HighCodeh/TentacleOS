@@ -33,10 +33,10 @@
 
 static const char *TAG = "NFC_FELICA_EMU";
 
-#define MODE_TARGET_NFCF    0xA0U
+#define MODE_TARGET_NFCF    0xA4U
 #define OP_CTRL_TARGET      0xC3U
-#define FELICA_AUX_DEF      0x18U
-#define FELICA_ISO_F_CTRL   0x80U
+#define FELICA_AUX_DEF      0x00U
+#define FELICA_ISO_F_CTRL   0x00U
 #define FELICA_BITRATE_212  0x11U
 #define SENSE_IDLE_TIMEOUT  30000U
 #define ACTIVE_IDLE_TIMEOUT 20000U
@@ -44,41 +44,52 @@ static const char *TAG = "NFC_FELICA_EMU";
 #define TIMER_I_EOF         0x08U
 
 // Register bit masks and thresholds
-#define AUX_DISP_OSC_MASK       0x14U
-#define MAIN_INT_OSC_MASK       0x80U
-#define TARGET_INT_OSC_MASK     0x08U
-#define PT_MEM_SIZE             19U
-#define BLK_FLAG_MASK           0x80U
-#define DESC_LEN_2BYTE          2
-#define DESC_LEN_3BYTE          3
-#define WRITE_RESP_SIZE         12U
-#define FELICA_SC_DEFAULT       0x0009U
-#define FELICA_BLK_DEFAULT      16
-#define OP_CTRL_INIT            0x00U
-#define OP_CTRL_ACTIVE          0x80U
-#define ISO14443A_CFG           0x10U
-#define IC_CHIP_INVALID_A       0x00U
-#define IC_CHIP_INVALID_B       0xFFU
-#define IO_CONF2_CFG            0x80U
-#define PT_MOD_CFG              0x60U
-#define FIFO_STATUS_LEN_MASK    0x7FU
-#define PTA_MASK                0x0FU
-#define DELAY_5MS               5
-#define DELAY_10MS              10
-#define DELAY_2MS               2
-#define DELAY_OSC_WAIT          200
-#define ALIVE_LOG_MOD           10000U
-#define IDLE_LOG_MOD            5000U
-#define STATUS_OK               0x00U
-#define STATUS_ERROR            0x01U
-#define STATUS1_ERROR           0x01U
-#define RSSI_IDX_SHIFT          6
-#define FIFO_RSP_POS            0
-#define FIFO_LEN_LIMIT          256
-#define OSC_POLLING_INTERVAL_MS 1
-#define FRAME_LEN_MIN_BYTES     2
-#define CMD_CODE_OFFSET         1
-#define DESC_POS_INCREMENT      1
+#define AUX_DISP_OSC_MASK        0x14U
+#define MAIN_INT_OSC_MASK        0x80U
+#define TARGET_INT_OSC_MASK      0x08U
+#define FELICA_PERFORMANCE_212   0x0001U
+#define FELICA_TX_DRIVER_CFG     0xB0U
+#define FELICA_MASK_RX_CFG       0x02U
+#define FELICA_PASSIVE_CFG       0x59U
+#define FELICA_RX_FILTER         0x13U
+#define FELICA_RX_AGC            0x2DU
+#define FELICA_RX_CORRELATOR     0x54U
+#define FELICA_FIFO_CAPACITY     258U
+#define FELICA_CRC_BYTES         2U
+#define FELICA_FIFO_INVALID_MASK 0x3FU
+#define FELICA_RX_ERROR_MASK     0xF0U
+#define PT_MEM_SIZE              21U
+#define BLK_FLAG_MASK            0x80U
+#define DESC_LEN_2BYTE           2
+#define DESC_LEN_3BYTE           3
+#define WRITE_RESP_SIZE          12U
+#define FELICA_SC_DEFAULT        0x0009U
+#define FELICA_BLK_DEFAULT       16
+#define OP_CTRL_INIT             0x00U
+#define OP_CTRL_ACTIVE           0x80U
+#define ISO14443A_CFG            0x10U
+#define IC_CHIP_INVALID_A        0x00U
+#define IC_CHIP_INVALID_B        0xFFU
+#define IO_CONF2_CFG             0x80U
+#define PT_MOD_CFG               0x2EU
+#define FIFO_STATUS_LEN_MASK     0x7FU
+#define PTA_MASK                 0x0FU
+#define DELAY_5MS                5
+#define DELAY_10MS               10
+#define DELAY_2MS                2
+#define DELAY_OSC_WAIT           200
+#define ALIVE_LOG_MOD            10000U
+#define IDLE_LOG_MOD             5000U
+#define STATUS_OK                0x00U
+#define STATUS_ERROR             0x01U
+#define STATUS1_ERROR            0x01U
+#define RSSI_IDX_SHIFT           6
+#define FIFO_RSP_POS             0
+#define FIFO_LEN_LIMIT           256
+#define OSC_POLLING_INTERVAL_MS  1
+#define FRAME_LEN_MIN_BYTES      2
+#define CMD_CODE_OFFSET          1
+#define DESC_POS_INCREMENT       1
 
 typedef enum {
   FELICA_STATE_SLEEP,
@@ -119,15 +130,19 @@ static esp_err_t wait_oscillator(int timeout_ms) {
 }
 
 static void tx_response(const uint8_t *data, int len) {
-  if (data == NULL || len <= 0)
+  if (data == NULL || len < FRAME_LEN_MIN_BYTES || len > UINT8_MAX || data[0] != len)
     return;
-  st25r3916_fifo_clear();
-  st25r3916_fifo_set_tx_bytes((uint16_t)len, 0);
-  s_error = st25r3916_fifo_load(data, (size_t)len);
+  // NFC-F hardware supplies LEN and CRC; the FIFO starts with the command.
+  const uint16_t payload = (uint16_t)len - 1U;
+  s_error = hb_nfc_spi_direct_cmd(ST25R3916_CMD_CLEAR_FIFO);
+  if (s_error == ESP_OK)
+    s_error = hb_nfc_spi_reg_write(ST25R3916_REG_NUM_TX_BYTES1, payload >> 5);
+  if (s_error == ESP_OK)
+    s_error = hb_nfc_spi_reg_write(ST25R3916_REG_NUM_TX_BYTES2, (payload & 31U) << 3);
+  if (s_error == ESP_OK)
+    s_error = st25r3916_fifo_load(data + 1, payload);
   if (s_error == ESP_OK)
     s_error = hb_nfc_spi_direct_cmd(ST25R3916_CMD_TX_WITH_CRC);
-  if (s_error == ESP_OK)
-    s_error = st25r3916_irq_wait_txe();
 }
 
 static void goto_sleep(void) {
@@ -145,9 +160,22 @@ static esp_err_t write_pt_mem_f(void) {
   pt[FELICA_EMU_PT_DESC_OFFSET] = FELICA_EMU_PT_DESC_VALUE;
   memcpy(&pt[FELICA_EMU_PT_IDM_OFFSET], s_card.idm, FELICA_IDM_LEN);
   memcpy(&pt[FELICA_EMU_PT_PMM_OFFSET], s_card.pmm, FELICA_PMM_LEN);
-  ESP_RETURN_ON_ERROR(hb_nfc_spi_pt_mem_write(ST25R3916_SPI_PT_MEM_F_WRITE, pt, sizeof(pt)),
-                      TAG,
-                      "Passive target memory write failed");
+  pt[19] = FELICA_PERFORMANCE_212 >> FELICA_EMU_BYTE_SHIFT_HI;
+  pt[20] = FELICA_PERFORMANCE_212 & FELICA_EMU_BYTE_MASK_SC_LO;
+  const uint8_t slots[12] = {
+      0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDF, 0x21, 0x43, 0x65, 0x87, 0xA9};
+  if (hb_nfc_spi_pt_mem_write(ST25R3916_SPI_PT_MEM_TSN_WRITE, slots, sizeof(slots)) != ESP_OK)
+    return HB_NFC_ERR_INTERNAL;
+  if (hb_nfc_spi_pt_mem_write(ST25R3916_SPI_PT_MEM_F_WRITE, pt, sizeof(pt)) != ESP_OK)
+    return HB_NFC_ERR_INTERNAL;
+  /* PT read starts at NFC-A byte 0; NFC-F occupies bytes 15..35. */
+  uint8_t readback[15 + PT_MEM_SIZE] = {0};
+  if (hb_nfc_spi_pt_mem_read(readback, sizeof(readback)) != ESP_OK ||
+      memcmp(readback + 15, pt, sizeof(pt)) != 0) {
+    ESP_LOGE(TAG, "NFC-F passive target memory readback failed");
+    return HB_NFC_ERR_INTERNAL;
+  }
+  ESP_LOGI(TAG, "NFC-F passive target memory verified: 21 bytes");
   char idm_s[FELICA_IDM_STR_BUFFER_SIZE];
   snprintf(idm_s,
            sizeof(idm_s),
@@ -172,7 +200,7 @@ static esp_err_t write_pt_mem_f(void) {
            s_card.pmm[5],
            s_card.pmm[6],
            s_card.pmm[7]);
-  return ESP_OK;
+  return HB_NFC_OK;
 }
 void felica_emu_card_from_tag(
     felica_emu_card_t *card, const felica_tag_t *tag, uint16_t sc, uint8_t bc, const uint8_t *mem) {
@@ -310,6 +338,22 @@ hb_nfc_err_t felica_emu_configure_target(void) {
   ESP_RETURN_ON_ERROR(
       hb_nfc_spi_direct_cmd(ST25R3916_CMD_ADJUST_REGULATORS), TAG, "Target SPI operation failed");
   vTaskDelay(pdMS_TO_TICKS(DELAY_10MS));
+  ESP_RETURN_ON_ERROR(
+      hb_nfc_spi_reg_write(ST25R3916_REG_PT_MOD, PT_MOD_CFG), TAG, "PT modulation failed");
+  ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_write(ST25R3916_REG_TX_DRIVER, FELICA_TX_DRIVER_CFG),
+                      TAG,
+                      "Target driver failed");
+  ESP_RETURN_ON_ERROR(
+      hb_nfc_spi_reg_write(ST25R3916_REG_MASK_RX_TIMER, FELICA_MASK_RX_CFG), TAG, "RX mask failed");
+  ESP_RETURN_ON_ERROR(
+      hb_nfc_spi_reg_write(ST25R3916_REG_RX_CONF1, FELICA_RX_FILTER), TAG, "RX filter failed");
+  ESP_RETURN_ON_ERROR(
+      hb_nfc_spi_reg_write(ST25R3916_REG_RX_CONF2, FELICA_RX_AGC), TAG, "RX AGC failed");
+  ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_write_b(ST25R3916_REG_B_CORR_CONF1, FELICA_RX_CORRELATOR),
+                      TAG,
+                      "Correlator failed");
+  ESP_RETURN_ON_ERROR(
+      hb_nfc_spi_reg_write_b(ST25R3916_REG_B_CORR_CONF2, 0), TAG, "Correlator failed");
   ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_write(ST25R3916_REG_MODE, MODE_TARGET_NFCF),
                       TAG,
                       "Target SPI operation failed");
@@ -319,7 +363,7 @@ hb_nfc_err_t felica_emu_configure_target(void) {
   ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_write(ST25R3916_REG_BIT_RATE, FELICA_BITRATE_212),
                       TAG,
                       "Target SPI operation failed");
-  ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_write(ST25R3916_REG_PASSIVE_TARGET, STATUS_OK),
+  ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_write(ST25R3916_REG_PASSIVE_TARGET, FELICA_PASSIVE_CFG),
                       TAG,
                       "Target SPI operation failed");
   ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443B_FELICA, FELICA_ISO_F_CTRL),
@@ -378,9 +422,9 @@ hb_nfc_err_t felica_emu_start(void) {
                       "Target SPI operation failed");
   vTaskDelay(pdMS_TO_TICKS(DELAY_5MS));
   ESP_RETURN_ON_ERROR(
-      hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SLEEP), TAG, "Target SPI operation failed");
+      hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SENSE), TAG, "Target SPI operation failed");
   vTaskDelay(pdMS_TO_TICKS(DELAY_2MS));
-  s_state = FELICA_STATE_SLEEP;
+  s_state = FELICA_STATE_SENSE;
   s_idle = 0;
   uint8_t op = 0, aux = 0, pts = 0;
   ESP_RETURN_ON_ERROR(
@@ -390,7 +434,7 @@ hb_nfc_err_t felica_emu_start(void) {
   ESP_RETURN_ON_ERROR(hb_nfc_spi_reg_read(ST25R3916_REG_PASSIVE_TARGET_STS, &pts),
                       TAG,
                       "Target SPI operation failed");
-  ESP_LOGI(TAG, "Start (SLEEP): OP=0x%02X AUX=0x%02X PT_STS=0x%02X", op, aux, pts);
+  ESP_LOGI(TAG, "Start (SENSE): OP=0x%02X AUX=0x%02X PT_STS=0x%02X", op, aux, pts);
   ESP_LOGI(TAG, "FeliCa emulation active - present a reader!");
   return HB_NFC_OK;
 }
@@ -411,183 +455,52 @@ void felica_emu_stop(void) {
 void felica_emu_run_step(void) {
   if (!s_init_done || s_error != ESP_OK)
     return;
-  static uint32_t s_alive = 0;
-  if ((++s_alive % ALIVE_LOG_MOD) == 0U) {
-    uint8_t aux = 0, pts = 0, op = 0;
-    s_error = hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux);
-    if (s_error != ESP_OK)
-      return;
-    s_error = hb_nfc_spi_reg_read(ST25R3916_REG_PASSIVE_TARGET_STS, &pts);
-    if (s_error != ESP_OK)
-      return;
-    s_error = hb_nfc_spi_reg_read(ST25R3916_REG_OP_CTRL, &op);
-    if (s_error != ESP_OK)
-      return;
-    ESP_LOGI(TAG,
-             "alive | state=%s OP=%02X AUX=%02X efd=%d pta=%d",
-             s_state == FELICA_STATE_SLEEP   ? "SLEEP"
-             : s_state == FELICA_STATE_SENSE ? "SENSE"
-                                             : "ACTIVE",
-             op,
-             aux,
-             (aux >> RSSI_IDX_SHIFT) & 1,
-             pts & PTA_MASK);
+  st25r3916_irq_status_t irq = {0};
+  s_error = st25r3916_irq_read(&irq);
+  if (s_error != ESP_OK)
+    return;
+  if ((irq.timer & TIMER_I_EOF) && !(irq.main & ST25R3916_IRQ_MAIN_RXE)) {
+    goto_sleep();
+    return;
   }
-
-  uint8_t tgt_irq = 0;
-  uint8_t main_irq = 0;
-  uint8_t timer_irq = 0;
-  uint8_t err_irq = 0;
-  s_error = hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &tgt_irq);
-  if (s_error != ESP_OK)
-    return;
-  s_error = hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &main_irq);
-  if (s_error != ESP_OK)
-    return;
-  s_error = hb_nfc_spi_reg_read(ST25R3916_REG_TIMER_NFC_INT, &timer_irq);
-  if (s_error != ESP_OK)
-    return;
-  s_error = hb_nfc_spi_reg_read(ST25R3916_REG_ERROR_INT, &err_irq);
-  if (s_error != ESP_OK)
-    return;
-
-  uint8_t pts = 0;
-  s_error = hb_nfc_spi_reg_read(ST25R3916_REG_PASSIVE_TARGET_STS, &pts);
-  if (s_error != ESP_OK)
-    return;
-  uint8_t pta = pts & PTA_MASK;
-
-  if (s_state == FELICA_STATE_SLEEP) {
-    bool wake = (timer_irq & TIMER_I_EON) || (tgt_irq & ST25R3916_IRQ_TGT_WU_F) ||
-                (tgt_irq & ST25R3916_IRQ_TGT_WU_A);
-    if (!wake)
-      return;
-
-    ESP_LOGI(TAG,
-             "SLEEP -> SENSE (pta=%u tgt=0x%02X main=0x%02X tmr=0x%02X err=0x%02X)",
-             pta,
-             tgt_irq,
-             main_irq,
-             timer_irq,
-             err_irq);
-
+  if (s_state == FELICA_STATE_SLEEP && (irq.timer & TIMER_I_EON)) {
     s_error = hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SENSE);
     if (s_error != ESP_OK)
       return;
     s_state = FELICA_STATE_SENSE;
-    s_idle = 0;
-    if (!(main_irq & ST25R3916_IRQ_MAIN_RXE))
-      return;
   }
-
-  if (s_state == FELICA_STATE_SENSE) {
-    if (tgt_irq || main_irq || timer_irq || err_irq) {
-      uint8_t rssi = 0;
-      s_error = hb_nfc_spi_reg_read(ST25R3916_REG_RSSI_RESULT, &rssi);
-      if (s_error != ESP_OK)
-        return;
-      ESP_LOGI(TAG,
-               "[SENSE-IRQ] tgt=0x%02X main=0x%02X tmr=0x%02X err=0x%02X pta=%u RSSI=0x%02X",
-               tgt_irq,
-               main_irq,
-               timer_irq,
-               err_irq,
-               pta,
-               rssi);
-    }
-
-    bool go_active = (tgt_irq & ST25R3916_IRQ_TGT_WU_F) || (main_irq & ST25R3916_IRQ_MAIN_RXE);
-
-    if (go_active) {
-      s_idle = 0;
-      ESP_LOGI(TAG,
-               "SENSE -> ACTIVE (pta=%u tgt=0x%02X main=0x%02X tmr=0x%02X)",
-               pta,
-               tgt_irq,
-               main_irq,
-               timer_irq);
-      s_state = FELICA_STATE_ACTIVE;
-      if (!(main_irq & ST25R3916_IRQ_MAIN_RXE))
-        return;
-
-    } else if (timer_irq & TIMER_I_EOF) {
-      uint8_t rssi = 0;
-      s_error = hb_nfc_spi_reg_read(ST25R3916_REG_RSSI_RESULT, &rssi);
-      if (s_error != ESP_OK)
-        return;
-      ESP_LOGW(TAG,
-               "SENSE: field lost -> SLEEP | timer_irq=0x%02X tgt=0x%02X pta=%u RSSI=0x%02X",
-               timer_irq,
-               tgt_irq,
-               pta,
-               rssi);
-      goto_sleep();
-      return;
-
-    } else if (!tgt_irq && !main_irq && !timer_irq) {
-      if ((++s_idle) >= SENSE_IDLE_TIMEOUT) {
-        ESP_LOGI(TAG, "SENSE: timeout -> SLEEP");
-        goto_sleep();
-        return;
-      }
-      if ((s_idle % IDLE_LOG_MOD) == 0U) {
-        uint8_t aux = 0, rssi = 0;
-        s_error = hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux);
-        if (s_error != ESP_OK)
-          return;
-        s_error = hb_nfc_spi_reg_read(ST25R3916_REG_RSSI_RESULT, &rssi);
-        if (s_error != ESP_OK)
-          return;
-        ESP_LOGI(TAG,
-                 "[SENSE] idle=%lu AUX=0x%02X pta=%d RSSI=0x%02X",
-                 (unsigned long)s_idle,
-                 aux,
-                 pta,
-                 rssi);
-      }
-      return;
-    } else {
-      return;
-    }
-  }
-
-  if (timer_irq & TIMER_I_EOF) {
-    uint8_t aux = 0;
-    s_error = hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux);
+  if (irq.target & ST25R3916_IRQ_TGT_WU_F)
+    s_state = FELICA_STATE_ACTIVE;
+  if ((irq.main & ST25R3916_IRQ_MAIN_TXE) &&
+      !(irq.main & (ST25R3916_IRQ_MAIN_RXS | ST25R3916_IRQ_MAIN_RXE))) {
+    s_error = hb_nfc_spi_direct_cmd(ST25R3916_CMD_UNMASK_RX_DATA);
     if (s_error != ESP_OK)
       return;
-    ESP_LOGI(TAG, "ACTIVE: field lost (AUX=0x%02X) -> SLEEP", aux);
-    goto_sleep();
-    return;
   }
-  if (!(main_irq & ST25R3916_IRQ_MAIN_RXE)) {
-    if ((++s_idle) >= ACTIVE_IDLE_TIMEOUT) {
-      ESP_LOGI(TAG, "ACTIVE: idle timeout -> SLEEP");
-      goto_sleep();
-    }
+  if (!(irq.main & ST25R3916_IRQ_MAIN_RXE))
     return;
-  }
-  s_idle = 0;
-
-  uint8_t buf[FIFO_LEN_LIMIT] = {0};
-  size_t length = st25r3916_fifo_get_count();
-  if (!length)
+  uint8_t frame[FELICA_FIFO_CAPACITY], low = 0, high = 0, late_error = 0;
+  if ((s_error = hb_nfc_spi_reg_read(ST25R3916_REG_FIFO_STATUS1, &low)) != ESP_OK ||
+      (s_error = hb_nfc_spi_reg_read(ST25R3916_REG_FIFO_STATUS2, &high)) != ESP_OK ||
+      (s_error = hb_nfc_spi_reg_read(ST25R3916_REG_ERROR_INT, &late_error)) != ESP_OK)
     return;
-  if (length > sizeof(buf)) {
-    st25r3916_fifo_clear();
-    return;
-  }
-  s_error = st25r3916_fifo_read(buf, length);
+  const size_t count = low | ((size_t)(high & ST25R3916_FIFO_STATUS2_MSB_MASK) << 2);
+  if ((high & FELICA_FIFO_INVALID_MASK) || ((irq.error | late_error) & FELICA_RX_ERROR_MASK) ||
+      count < FRAME_LEN_MIN_BYTES + FELICA_CRC_BYTES || count > sizeof(frame))
+    goto invalid;
+  s_error = st25r3916_fifo_read(frame, count);
   if (s_error != ESP_OK)
     return;
-  if (length < FRAME_LEN_MIN_BYTES || (length != buf[0] && length != (size_t)buf[0] + 2U))
-    return;
-  if (err_irq) {
-    st25r3916_fifo_clear();
+  if (frame[0] != count - FELICA_CRC_BYTES)
+    goto invalid;
+  nfc_felica_frame_t response = {0};
+  if (nfc_felica_listener_frame(&s_listener, frame, frame[0], &response) == ESP_OK &&
+      response.size) {
+    tx_response(response.data, response.size);
     return;
   }
-  nfc_felica_frame_t response = {0};
-  esp_err_t error = nfc_felica_listener_frame(&s_listener, buf, buf[0], &response);
-  if (error == ESP_OK && response.size)
-    tx_response(response.data, response.size);
+invalid:
+  s_error = hb_nfc_spi_direct_cmd(ST25R3916_CMD_CLEAR_FIFO);
+  if (s_error == ESP_OK)
+    s_error = hb_nfc_spi_direct_cmd(ST25R3916_CMD_UNMASK_RX_DATA);
 }

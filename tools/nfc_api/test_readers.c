@@ -55,7 +55,7 @@ int main(void) {
   reply[1] = 1;
   reply[2] = 0x12;
   assert(felica_sensf_req_slots(0xFFFF, 0, &tag) == HB_NFC_OK);
-  const uint8_t polling[] = {6, 0, 0xFF, 0xFF, 1, 0};
+  const uint8_t polling[] = { 0, 0xFF, 0xFF, 1, 0};
   assert(command_len == sizeof(polling));
   assert(memcmp(command, polling, sizeof(polling)) == 0);
   assert(tag.idm[0] == 0x12 && tag.rd_valid);

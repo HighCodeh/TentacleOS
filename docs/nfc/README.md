@@ -1418,3 +1418,11 @@ At/parity and SPI-failure checks. Physical dump validation remains necessary.
 - Validate value-block operations and recover RX after silent commands.
 - Preserve coalesced IRQs, HALT/reselection and fatal-error cleanup.
 - Tests: `tools/nfc/test_classic_emu.py`, `test_classic_value.py`; target RF still needs bench qualification.
+
+## FeliCa frontend transport
+
+- Let hardware add the TX length byte; validate RX length and CRC framing.
+- Configure 21-byte passive memory and verify TSN readback.
+- Handle TX completion and combined RX/field events without discarding a frame.
+- Preserve the existing structured profiles and Lite authentication.
+- Tests: `test_readers.py`, `test_startup.py`, `test_felica_profile.py` in `tools/nfc_api/`.

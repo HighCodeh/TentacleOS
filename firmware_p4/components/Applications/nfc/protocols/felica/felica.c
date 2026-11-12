@@ -75,8 +75,8 @@ hb_nfc_err_t felica_sensf_req_slots(uint16_t system_code, uint8_t time_slots, fe
   cmd[5] = time_slots;
 
   uint8_t rx[FELICA_SENSF_RES_BUFFER_SIZE] = {0};
-  int len =
-      nfc_poller_transceive(cmd, sizeof(cmd), true, rx, sizeof(rx), 1, FELICA_SENSF_TIMEOUT_MS);
+  int len = nfc_poller_transceive(
+      cmd + 1, sizeof(cmd) - 1, true, rx, sizeof(rx), 1, FELICA_SENSF_TIMEOUT_MS);
   len = frame_length(rx, len);
   if (len < FELICA_SENSF_RES_MIN_LEN) {
     if (len > 0)
@@ -174,8 +174,8 @@ hb_nfc_err_t felica_read_blocks(const felica_tag_t *tag,
   cmd[0] = (uint8_t)pos;
 
   uint8_t rx[FELICA_READ_RES_BUFFER_SIZE] = {0};
-  int len =
-      nfc_poller_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 1, FELICA_READ_TIMEOUT_MS);
+  int len = nfc_poller_transceive(
+      cmd + 1, (size_t)pos - 1, true, rx, sizeof(rx), 1, FELICA_READ_TIMEOUT_MS);
   len = frame_length(rx, len);
   if (len < FELICA_READ_RES_MIN_LEN) {
     ESP_LOGW(TAG, "ReadBlocks: timeout (len=%d)", len);
@@ -236,8 +236,8 @@ hb_nfc_err_t felica_write_blocks(const felica_tag_t *tag,
   cmd[0] = (uint8_t)pos;
 
   uint8_t rx[FELICA_WRITE_RES_BUFFER_SIZE] = {0};
-  int len =
-      nfc_poller_transceive(cmd, (size_t)pos, true, rx, sizeof(rx), 1, FELICA_WRITE_TIMEOUT_MS);
+  int len = nfc_poller_transceive(
+      cmd + 1, (size_t)pos - 1, true, rx, sizeof(rx), 1, FELICA_WRITE_TIMEOUT_MS);
   len = frame_length(rx, len);
   if (len < FELICA_WRITE_RES_MIN_LEN) {
     ESP_LOGW(TAG, "WriteBlocks: timeout (len=%d)", len);

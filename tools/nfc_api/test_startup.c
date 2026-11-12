@@ -27,6 +27,7 @@ typedef int hb_nfc_err_t;
 #define MFC_EMU_STATE_LISTEN 1
 #define pdMS_TO_TICKS(ms) (ms)
 #define ESP_LOGI(tag, ...) ((void)(tag))
+#define ESP_LOGD(tag, ...) ((void)(tag))
 #define ESP_LOGE(tag, ...) ((void)(tag))
 /* CONSTANTS */
 static const char *TAG="TEST";
@@ -40,6 +41,7 @@ static int hb_nfc_spi_reg_write(uint8_t reg,uint8_t value) { (void)reg;(void)val
 static int hb_nfc_spi_reg_read(uint8_t reg,uint8_t *out) {
  *out=reg==ST25R3916_REG_IO_CONF2?ST25R3916_IO_CONF2_SUP3V:0x4D;return operation();
 }
+static int hb_nfc_spi_reg_write_b(uint8_t reg,uint8_t value) { (void)reg;(void)value;return operation(); }
 static int hb_nfc_spi_reg_modify(uint8_t reg,uint8_t mask,uint8_t value) { (void)reg;(void)mask;(void)value;return operation(); }
 static int hb_nfc_spi_direct_cmd(uint8_t cmd) { (void)cmd;return operation(); }
 static int st25r3916_irq_read(st25r3916_irq_status_t *status) { (void)status;return operation(); }
