@@ -56,10 +56,27 @@ typedef struct {
   size_t (*callback)(const void *, size_t, size_t, size_t, rmt_symbol_word_t *, bool *, void *);
   size_t min_chunk_size;
 } rmt_simple_encoder_config_t;
-static int s_spi = 1, s_spi_host = SPI3_HOST, s_mosi = 0;
+static int s_spi = 1, s_spi_host = SPI3_HOST, s_mosi = 0, s_sclk = 1;
 static uint32_t s_tx_signal;
 static bool s_has_tx_signal;
-static struct { struct { uint32_t out_sel; } func_out_sel_cfg[1]; } GPIO;
+static bool s_is_tx_ready = true;
+static struct { union { uint32_t out_sel; uint32_t val; } func_out_sel_cfg[2]; } GPIO;
+typedef int gpio_num_t;
+typedef struct { bool oe; unsigned fun_sel; } gpio_io_config_t;
+#define PIN_FUNC_GPIO 1
+static unsigned s_pad_function[2] = {2, 2};
+static bool s_pad_output[2] = {true, true};
+static bool s_clock_high;
+static int gpio_set_level(int gpio, int level);
+static int gpio_get_io_config(int pin, gpio_io_config_t *out) {
+  out->oe = s_pad_output[pin]; out->fun_sel = s_pad_function[pin]; return ESP_OK;
+}
+static void esp_gpio_reserve(uint64_t pins) { assert(pins == 1 || pins == 2); }
+static int gpio_output_enable(int pin) {
+  s_pad_output[pin] = true; GPIO.func_out_sel_cfg[pin].val = SIG_GPIO_OUT_IDX; return ESP_OK;
+}
+static int gpio_output_disable(int pin) { s_pad_output[pin] = false; return ESP_OK; }
+static int gpio_func_sel(int pin, unsigned fn) { s_pad_function[pin] = fn; return ESP_OK; }
 static const struct { uint32_t spid_out, spiq_in; } spi_periph_signal[1] = {{12, 13}};
 static unsigned s_operation, s_fail_at, s_count;
 static bool s_lock, s_bus, s_enabled, s_transparent, s_disable_fail;
@@ -197,7 +214,11 @@ static int rmt_receive(void *channel,void *buffer,size_t bytes,const rmt_receive
   return operation();
 }
 static int rmt_del_channel(void *channel) { (void)channel;assert(!s_enabled);return 0; }
-static void gpio_set_level(int gpio,int level) { (void)gpio;assert(level==0); }
+static int gpio_set_level(int gpio,int level) {
+  if (gpio == s_sclk) { assert(level == 1); s_clock_high = true; }
+  else assert(level == 0);
+  return ESP_OK;
+}
 static void esp_rom_gpio_connect_in_signal(int gpio,uint32_t signal,bool invert) {
   (void)gpio;(void)signal;(void)invert;assert(s_bus);
 }
@@ -264,7 +285,7 @@ int main(void) {
   }
   reset();
 
-  s_tx_channel = NULL;
+  s_tx_channel = NULL; s_tx_encoder = NULL;
   assert(hb_nfc_spi_prepare_target_tx() == ESP_OK);
   assert(s_has_tx_signal && s_tx_signal == 77);
   assert(GPIO.func_out_sel_cfg[s_mosi].out_sel == spi_periph_signal[s_spi_host].spid_out);
@@ -297,6 +318,8 @@ int main(void) {
     assert(ticks == ((uint64_t)(bits + 1) * 128 + 64) * HB_NFC_TX_RESOLUTION_HZ / HB_NFC_RF_CARRIER_HZ);
     assert(!s_lock && !s_bus && !s_enabled && !s_transparent);
     assert(GPIO.func_out_sel_cfg[0].out_sel == 12);
+    assert(s_pad_function[s_mosi] == 2 && s_pad_function[s_sclk] == 2);
+    assert(s_clock_high);
   }
   unsigned operations = s_operation;
   for (unsigned fail = 1; fail <= operations; fail++) {

@@ -80,18 +80,26 @@ esp_err_t highboy_nfc_field_off(void) {
 }
 
 uint8_t highboy_nfc_measure_amplitude(void) {
-  if (!s_initialized) {
-    return 0;
-  }
   uint8_t amplitude = 0;
-  if (hb_nfc_spi_direct_cmd(ST25R3916_CMD_MEAS_AMPLITUDE) != ESP_OK) {
-    return 0;
-  }
-  hb_nfc_timer_delay_ms(ST25R3916_AD_MEAS_DELAY_MS);
-  if (hb_nfc_spi_reg_read(ST25R3916_REG_AD_RESULT, &amplitude) != ESP_OK) {
-    return 0;
-  }
+  (void)highboy_nfc_measure_amplitude_checked(&amplitude);
   return amplitude;
+}
+
+esp_err_t highboy_nfc_measure_amplitude_checked(uint8_t *out_amplitude) {
+  if (out_amplitude == NULL)
+    return ESP_ERR_INVALID_ARG;
+  *out_amplitude = 0;
+  if (!s_initialized || !rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ))
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t err = hb_nfc_spi_direct_cmd(ST25R3916_CMD_MEAS_AMPLITUDE);
+  if (err != ESP_OK)
+    return err;
+  hb_nfc_timer_delay_ms(ST25R3916_AD_MEAS_DELAY_MS);
+  uint8_t amplitude = 0;
+  err = hb_nfc_spi_reg_read(ST25R3916_REG_AD_RESULT, &amplitude);
+  if (err == ESP_OK)
+    *out_amplitude = amplitude;
+  return err;
 }
 
 bool highboy_nfc_field_detected(uint8_t *out_aux_display) {

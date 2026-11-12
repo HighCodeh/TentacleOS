@@ -30,6 +30,9 @@
 
 static const char *TAG = "ST25R3916_CORE";
 
+#define ST25R3916_ACTIVE_AM_SINK 0x01U
+#define ST25R3916_BOARD_AUX_MOD  0x10U
+
 typedef struct {
   bool is_init;
   bool is_field_on;
@@ -112,16 +115,22 @@ esp_err_t st25r3916_core_init(const highboy_nfc_config_t *config) {
     return ESP_FAIL;
   }
 
-  /* ST25R3916B reference analog initialization. AAT DAC values are omitted:
-   * High Boy uses a fixed matching network and leaves AAT_A/AAT_B unconnected. */
-  hb_nfc_spi_reg_write(ST25R3916_REG_IO_CONF1, 0x07);
-  hb_nfc_spi_reg_modify(ST25R3916_REG_TX_DRIVER, ST25R3916_TX_DRIVER_D_RES_MASK, 0x00);
-  hb_nfc_spi_reg_write(ST25R3916_REG_FIELD_THRESH_ACT, 0x13);
-  hb_nfc_spi_reg_write(ST25R3916_REG_FIELD_THRESH_DEACT, 0x02);
-  hb_nfc_spi_reg_write_b(ST25R3916_REG_B_EMD_SUP_CONF, 0x40);
-  hb_nfc_spi_reg_write_b(ST25R3916_REG_B_RES_AM_MOD, 0x80);
-  hb_nfc_spi_reg_write_b(ST25R3916_REG_B_AUX_MOD, 0x94);
-  hb_nfc_spi_reg_write_b(ST25R3916_REG_B_AWS_CONF1, 0x09);
+  /* High Boy V2.03 C99 is 2.2 uF on VDD_AM: AN5806 requires legacy
+   * regulator modulation, active AM sink, and AWS disabled for this load. */
+  if (hb_nfc_spi_reg_modify(
+          ST25R3916_REG_IO_CONF2, ST25R3916_ACTIVE_AM_SINK, ST25R3916_ACTIVE_AM_SINK) != ESP_OK ||
+      hb_nfc_spi_reg_write(ST25R3916_REG_IO_CONF1, 0x07) != ESP_OK ||
+      hb_nfc_spi_reg_modify(ST25R3916_REG_TX_DRIVER, ST25R3916_TX_DRIVER_D_RES_MASK, 0) != ESP_OK ||
+      hb_nfc_spi_reg_write(ST25R3916_REG_FIELD_THRESH_ACT, 0x13) != ESP_OK ||
+      hb_nfc_spi_reg_write(ST25R3916_REG_FIELD_THRESH_DEACT, 0x02) != ESP_OK ||
+      hb_nfc_spi_reg_write_b(ST25R3916_REG_B_EMD_SUP_CONF, 0x40) != ESP_OK ||
+      hb_nfc_spi_reg_write_b(ST25R3916_REG_B_RES_AM_MOD, 0x80) != ESP_OK ||
+      hb_nfc_spi_reg_write_b(ST25R3916_REG_B_AUX_MOD, ST25R3916_BOARD_AUX_MOD) != ESP_OK) {
+    (void)hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_SHUTDOWN);
+    hb_nfc_spi_deinit();
+    hb_nfc_gpio_deinit();
+    return ESP_FAIL;
+  }
 
   /* Reading the IRQ registers clears oscillator/calibration IRQs left from
    * initialization, so the first RF exchange starts from a known state. */
@@ -294,7 +303,9 @@ esp_err_t st25r3916_core_field_cycle(void) {
     return ESP_ERR_INVALID_STATE;
   }
 
-  st25r3916_core_field_off();
+  const esp_err_t err = st25r3916_core_field_off();
+  if (err != ESP_OK)
+    return err;
   hb_nfc_timer_delay_ms(ST25R3916_FIELD_CYCLE_DELAY_MS);
   return st25r3916_core_field_on();
 }
@@ -304,31 +315,43 @@ esp_err_t st25r3916_core_set_mode_nfca(void) {
     return ESP_ERR_INVALID_STATE;
   }
 
-  hb_nfc_spi_reg_write(ST25R3916_REG_MODE, ST25R3916_MODE_POLL_NFCA);
-  hb_nfc_spi_reg_write(ST25R3916_REG_BIT_RATE, 0x00);
+  if (hb_nfc_spi_reg_modify(
+          ST25R3916_REG_IO_CONF2, ST25R3916_ACTIVE_AM_SINK, ST25R3916_ACTIVE_AM_SINK) != ESP_OK)
+    return ESP_FAIL;
+  if (hb_nfc_spi_reg_write_b(ST25R3916_REG_B_AUX_MOD, ST25R3916_BOARD_AUX_MOD) != ESP_OK)
+    return ESP_FAIL;
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_MODE, ST25R3916_MODE_POLL_NFCA) != ESP_OK)
+    return ESP_FAIL;
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_BIT_RATE, 0x00) != ESP_OK)
+    return ESP_FAIL;
 
   /* High Boy NFC-A 106 kbit/s receive profile.  The custom matching network
    * selected cards and ATS frames more reliably with the I/Q+mixer path than
    * the NFC06A1 AM/PM peak-detector value (0x2D).  Dynamic squelch and AGC
    * remain enabled. */
-  hb_nfc_spi_reg_write(ST25R3916_REG_RX_CONF1, 0x08);
-  hb_nfc_spi_reg_write(ST25R3916_REG_RX_CONF2, 0xED);
-  hb_nfc_spi_reg_write(ST25R3916_REG_RX_CONF3, 0x00);
-  hb_nfc_spi_reg_write(ST25R3916_REG_RX_CONF4, 0x00);
-  hb_nfc_spi_reg_write_b(ST25R3916_REG_B_CORR_CONF1, 0x51);
-  hb_nfc_spi_reg_write_b(ST25R3916_REG_B_CORR_CONF2, 0x00);
-  hb_nfc_spi_reg_write_b(ST25R3916_REG_B_AWS_TIME1, 0x01);
-  hb_nfc_spi_reg_write_b(ST25R3916_REG_B_AWS_TIME3, 0x79);
-  hb_nfc_spi_reg_write_b(ST25R3916_REG_B_AWS_TIME4, 0x07);
-  hb_nfc_spi_reg_write_b(ST25R3916_REG_B_AWS_CONF2, 0x18);
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_RX_CONF1, 0x08) != ESP_OK)
+    return ESP_FAIL;
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_RX_CONF2, 0xED) != ESP_OK)
+    return ESP_FAIL;
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_RX_CONF3, 0x00) != ESP_OK)
+    return ESP_FAIL;
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_RX_CONF4, 0x00) != ESP_OK)
+    return ESP_FAIL;
+  if (hb_nfc_spi_reg_write_b(ST25R3916_REG_B_CORR_CONF1, 0x51) != ESP_OK)
+    return ESP_FAIL;
+  if (hb_nfc_spi_reg_write_b(ST25R3916_REG_B_CORR_CONF2, 0x00) != ESP_OK)
+    return ESP_FAIL;
 
-  /* OOK profile from ST RFAL: maximum field drive (d_res=0) and AWS index. */
-  hb_nfc_spi_reg_write(ST25R3916_REG_TX_DRIVER, 0xF0);
+  /* OOK uses maximum field drive; AWS stays off for the board capacitor. */
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_TX_DRIVER, 0xF0) != ESP_OK)
+    return ESP_FAIL;
 
   uint8_t iso_config = 0;
-  hb_nfc_spi_reg_read(ST25R3916_REG_ISO14443A, &iso_config);
+  if (hb_nfc_spi_reg_read(ST25R3916_REG_ISO14443A, &iso_config) != ESP_OK)
+    return ESP_FAIL;
   iso_config &= (uint8_t)~(ST25R3916_ISO14443A_NO_TX_PAR | ST25R3916_ISO14443A_ANTCL);
-  hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso_config);
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso_config) != ESP_OK)
+    return ESP_FAIL;
 
   return ESP_OK;
 }

@@ -53,6 +53,8 @@ esp_err_t st25r3916_irq_read(st25r3916_irq_status_t *out_status);
  * from the previous receive
  * must not be mistaken for a failure of the next transmission.
  */
+esp_err_t st25r3916_irq_wait_exchange(int32_t timeout_ms, st25r3916_irq_status_t *out_status);
+
 esp_err_t st25r3916_irq_clear(void);
 
 /**

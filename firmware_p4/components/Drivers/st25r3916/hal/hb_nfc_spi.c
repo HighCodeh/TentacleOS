@@ -18,6 +18,9 @@
 #include "hb_nfc_v_rx.h"
 #include "esp_timer.h"
 #include "esp_rom_sys.h"
+#include "esp_private/gpio.h"
+#include "esp_private/esp_gpio_reserve.h"
+#include "soc/io_mux_reg.h"
 
 #include <string.h>
 
@@ -49,9 +52,12 @@ static const char *TAG = "hb_nfc_spi";
 #define HB_NFC_SPI_FIFO_READ_BYTE   0x9F /**< FIFO read prefix byte. */
 #define HB_NFC_SPI_PT_MEM_READ_BYTE 0xBF /**< Passive target memory read prefix byte. */
 #define HB_NFC_SPI_FIFO_MAX_BYTES   512  /**< ST25R3916 FIFO capacity. */
-#define HB_NFC_SPI_PT_MEM_MAX_LEN   19   /**< Maximum PT memory payload (NFC-F section). */
-#define HB_NFC_SPI_PT_MEM_HDR_BYTES 2    /**< Bytes before payload in PT memory read response. */
-#define HB_NFC_SPI_RAW_XFER_MAX_LEN 64   /**< Maximum length for hb_nfc_spi_raw_xfer(). */
+#define HB_NFC_SPI_PT_MEM_MAX_LEN   48U
+#define HB_NFC_SPI_PT_MEM_A_LEN     15U
+#define HB_NFC_SPI_PT_MEM_F_LEN     21U
+#define HB_NFC_SPI_PT_MEM_TSN_LEN   12U
+#define HB_NFC_SPI_PT_MEM_HDR_BYTES 2  /**< Bytes before payload in PT memory read response. */
+#define HB_NFC_SPI_RAW_XFER_MAX_LEN 64 /**< Maximum length for hb_nfc_spi_raw_xfer(). */
 
 #define HB_NFC_TX_RESOLUTION_HZ   40000000U
 #define HB_NFC_RF_CARRIER_HZ      13560000U
@@ -99,13 +105,16 @@ static uint8_t s_rx_queue_storage[sizeof(size_t)];
 static QueueHandle_t s_rx_queue;
 static gpio_num_t s_miso;
 static gpio_num_t s_mosi;
+static gpio_num_t s_sclk;
 static uint32_t s_tx_signal;
 static bool s_has_tx_signal;
+static bool s_is_tx_ready;
 
 static spi_device_handle_t s_spi = NULL;
 static bool s_is_init = false;
 static int s_spi_host = -1;
 
+static esp_err_t restore_output(gpio_num_t pin, uint32_t route, const gpio_io_config_t *config);
 static esp_err_t transmit(spi_transaction_t *t);
 static esp_err_t transmit_target(size_t count);
 static esp_err_t transmit_target_encoded(rmt_encoder_handle_t encoder,
@@ -143,6 +152,7 @@ esp_err_t hb_nfc_spi_init(const hb_nfc_spi_config_t *config) {
   }
 
   s_mosi = config->pin_mosi;
+  s_sclk = config->pin_sclk;
   s_miso = config->pin_miso;
   s_spi_host = config->spi_host;
   s_is_init = true;
@@ -179,6 +189,11 @@ esp_err_t hb_nfc_spi_deinit(void) {
     s_rx_channel = NULL;
   }
   if (s_tx_channel != NULL) {
+    gpio_io_config_t saved;
+    err = gpio_get_io_config(s_mosi, &saved);
+    if (err != ESP_OK)
+      goto release;
+    const uint32_t route = GPIO.func_out_sel_cfg[s_mosi].val;
     if (s_tx_enabled) {
       err = rmt_disable(s_tx_channel);
       if (err != ESP_OK)
@@ -186,12 +201,16 @@ esp_err_t hb_nfc_spi_deinit(void) {
       s_tx_enabled = false;
     }
     err = rmt_del_channel(s_tx_channel);
+    const esp_err_t restore_error = restore_output(s_mosi, route, &saved);
     if (err != ESP_OK)
       goto release;
     s_tx_channel = NULL;
     s_has_tx_signal = false;
-    gpio_set_direction(s_mosi, GPIO_MODE_INPUT_OUTPUT);
-    esp_rom_gpio_connect_out_signal(s_mosi, spi_periph_signal[s_spi_host].spid_out, false, false);
+    s_is_tx_ready = false;
+    if (restore_error != ESP_OK) {
+      err = restore_error;
+      goto release;
+    }
   }
   if (s_v_encoder != NULL) {
     err = rmt_del_encoder(s_v_encoder);
@@ -354,7 +373,11 @@ esp_err_t hb_nfc_spi_direct_cmd(uint8_t cmd) {
 }
 
 esp_err_t hb_nfc_spi_pt_mem_write(uint8_t prefix, const uint8_t *data, size_t len) {
-  if (data == NULL || len == 0 || len > HB_NFC_SPI_PT_MEM_MAX_LEN)
+  const size_t limit = prefix == ST25R3916_SPI_PT_MEM_A_WRITE     ? HB_NFC_SPI_PT_MEM_A_LEN
+                       : prefix == ST25R3916_SPI_PT_MEM_F_WRITE   ? HB_NFC_SPI_PT_MEM_F_LEN
+                       : prefix == ST25R3916_SPI_PT_MEM_TSN_WRITE ? HB_NFC_SPI_PT_MEM_TSN_LEN
+                                                                  : 0;
+  if (data == NULL || len == 0 || len > limit)
     return ESP_ERR_INVALID_ARG;
 
   uint8_t tx[1 + HB_NFC_SPI_PT_MEM_MAX_LEN];
@@ -401,17 +424,31 @@ esp_err_t hb_nfc_spi_raw_xfer(const uint8_t *tx, uint8_t *rx, size_t len) {
   return transmit(&t);
 }
 
+static esp_err_t restore_output(gpio_num_t pin, uint32_t route, const gpio_io_config_t *config) {
+  esp_gpio_reserve(1ULL << pin);
+  esp_err_t err = config->oe ? gpio_output_enable(pin) : gpio_output_disable(pin);
+  const esp_err_t mux_error = gpio_func_sel(pin, config->fun_sel);
+  GPIO.func_out_sel_cfg[pin].val = route;
+  return err != ESP_OK ? err : mux_error;
+}
+
 esp_err_t hb_nfc_spi_prepare_target_tx(void) {
   if (!s_is_init || !rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ))
     return ESP_ERR_INVALID_STATE;
-  if (s_tx_channel != NULL)
-    return ESP_OK;
+  if (s_tx_channel != NULL || s_tx_encoder != NULL)
+    return s_is_tx_ready && s_tx_channel != NULL && s_tx_encoder != NULL ? ESP_OK
+                                                                         : ESP_ERR_INVALID_STATE;
   bool shared_lock = s_spi_host == SPI3_HOST;
   if (shared_lock && !spi_bus_lock_take(HB_NFC_BUS_TIMEOUT_MS))
     return ESP_ERR_TIMEOUT;
   esp_err_t err = spi_device_acquire_bus(s_spi, portMAX_DELAY);
   if (err != ESP_OK)
     goto unlock;
+  gpio_io_config_t saved;
+  err = gpio_get_io_config(s_mosi, &saved);
+  if (err != ESP_OK)
+    goto release;
+  const uint32_t route = GPIO.func_out_sel_cfg[s_mosi].val;
   rmt_copy_encoder_config_t encoder_config = {};
   err = rmt_new_copy_encoder(&encoder_config, &s_tx_encoder);
   if (err != ESP_OK)
@@ -429,14 +466,21 @@ esp_err_t hb_nfc_spi_prepare_target_tx(void) {
     s_tx_signal = GPIO.func_out_sel_cfg[s_mosi].out_sel;
     s_has_tx_signal = true;
   }
-  /* Channel allocation routes MOSI to RMT; retain SPI until a target reply. */
-  gpio_set_direction(s_mosi, GPIO_MODE_INPUT_OUTPUT);
-  esp_rom_gpio_connect_out_signal(s_mosi, spi_periph_signal[s_spi_host].spid_out, false, false);
+  // RMT allocation changes MOSI; restore SPI before any register access.
+  const esp_err_t restore_error = restore_output(s_mosi, route, &saved);
+  if (err == ESP_OK)
+    err = restore_error;
   if (err != ESP_OK) {
-    rmt_del_encoder(s_tx_encoder);
-    s_tx_encoder = NULL;
+    if (s_tx_channel != NULL && rmt_del_channel(s_tx_channel) == ESP_OK) {
+      s_tx_channel = NULL;
+      s_has_tx_signal = false;
+    }
+    if (s_tx_channel == NULL && rmt_del_encoder(s_tx_encoder) == ESP_OK)
+      s_tx_encoder = NULL;
+    (void)restore_output(s_mosi, route, &saved);
     ESP_LOGE(TAG, "Target TX allocation failed: %s", esp_err_to_name(err));
   }
+  s_is_tx_ready = err == ESP_OK;
 release:
   spi_device_release_bus(s_spi);
 unlock:
@@ -597,7 +641,8 @@ static void encode_target_bit(bool bit, size_t *count, uint32_t *remainder) {
 esp_err_t hb_nfc_spi_target_tx_bits(const uint8_t *packed, size_t bits) {
   if (packed == NULL || bits == 0 || bits > HB_NFC_TX_MAX_BITS)
     return ESP_ERR_INVALID_ARG;
-  if (s_tx_enabled || s_tx_channel == NULL || !rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ))
+  if (!s_is_tx_ready || s_tx_enabled || s_tx_channel == NULL ||
+      !rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ))
     return ESP_ERR_INVALID_STATE;
 
   size_t count = 0;
@@ -617,7 +662,8 @@ esp_err_t hb_nfc_spi_target_tx_bits(const uint8_t *packed, size_t bits) {
 esp_err_t hb_nfc_spi_target_pulses(const uint16_t *low_cycles, size_t count) {
   if (low_cycles == NULL || count == 0 || count > HB_NFC_TX_MAX_BITS)
     return ESP_ERR_INVALID_ARG;
-  if (s_tx_enabled || s_tx_channel == NULL || !rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ))
+  if (!s_is_tx_ready || s_tx_enabled || s_tx_channel == NULL ||
+      !rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ))
     return ESP_ERR_INVALID_STATE;
   uint32_t remainder = 0;
   for (size_t i = 0; i < count; i++) {
@@ -678,7 +724,8 @@ esp_err_t hb_nfc_spi_target_v(const uint8_t *frame,
   esp_err_t err = hb_nfc_v_codec_tx_init(&checked, frame, length, rate, sof_only);
   if (err != ESP_OK)
     return err;
-  if (s_tx_enabled || !s_is_init || !s_tx_channel || !rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ))
+  if (!s_is_tx_ready || s_tx_enabled || !s_is_init || !s_tx_channel ||
+      !rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ))
     return ESP_ERR_INVALID_STATE;
   if (!s_v_encoder) {
     rmt_simple_encoder_config_t config = {.callback = encode_v, .min_chunk_size = 1};
@@ -717,7 +764,7 @@ esp_err_t hb_nfc_spi_prepare_target_v(gpio_num_t irq_pin) {
 esp_err_t hb_nfc_spi_target_v_exchange(hb_nfc_spi_v_reply_cb_t reply, void *context) {
   if (!reply)
     return ESP_ERR_INVALID_ARG;
-  if (!s_is_init || !s_v_encoder || !s_tx_channel || s_tx_enabled ||
+  if (!s_is_tx_ready || !s_is_init || !s_v_encoder || !s_tx_channel || s_tx_enabled ||
       !rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ))
     return ESP_ERR_INVALID_STATE;
   bool shared_lock = s_spi_host == SPI3_HOST;
@@ -822,6 +869,15 @@ static esp_err_t transmit_target_encoded(rmt_encoder_handle_t encoder,
   if (err != ESP_OK)
     goto unlock;
 
+  gpio_io_config_t saved, clock_saved;
+  err = gpio_get_io_config(s_mosi, &saved);
+  if (err != ESP_OK)
+    goto release;
+  err = gpio_get_io_config(s_sclk, &clock_saved);
+  if (err != ESP_OK)
+    goto release;
+  const uint32_t route = GPIO.func_out_sel_cfg[s_mosi].val;
+  const uint32_t clock_route = GPIO.func_out_sel_cfg[s_sclk].val;
   bool enabled = false;
   bool transparent = false;
   uint8_t command = ST25R3916_CMD_TRANSPARENT_MODE;
@@ -830,6 +886,14 @@ static esp_err_t transmit_target_encoded(rmt_encoder_handle_t encoder,
   if (err != ESP_OK)
     goto release;
   transparent = true;
+  // Transparent SCLK enables reception; it is no longer an SPI clock.
+  err = gpio_set_level(s_sclk, 1);
+  if (err == ESP_OK)
+    err = gpio_output_enable(s_sclk);
+  if (err == ESP_OK)
+    err = gpio_func_sel(s_sclk, PIN_FUNC_GPIO);
+  if (err != ESP_OK)
+    goto restore;
 
   if (!s_has_tx_signal) {
     err = rmt_tx_switch_gpio(s_tx_channel, s_mosi, false);
@@ -840,7 +904,12 @@ static esp_err_t transmit_target_encoded(rmt_encoder_handle_t encoder,
   } else {
     esp_rom_gpio_connect_out_signal(s_mosi, s_tx_signal, false, false);
   }
-  gpio_set_direction(s_mosi, GPIO_MODE_OUTPUT);
+  err = gpio_output_enable(s_mosi);
+  if (err == ESP_OK)
+    err = gpio_func_sel(s_mosi, PIN_FUNC_GPIO);
+  if (err != ESP_OK)
+    goto restore;
+  esp_rom_gpio_connect_out_signal(s_mosi, s_tx_signal, false, false);
   err = rmt_enable(s_tx_channel);
   if (err != ESP_OK)
     goto restore;
@@ -859,9 +928,11 @@ restore:
     if (err == ESP_OK)
       err = stop_err;
   }
-  gpio_set_direction(s_mosi, GPIO_MODE_INPUT_OUTPUT);
-  esp_rom_gpio_connect_out_signal(s_mosi, spi_periph_signal[s_spi_host].spid_out, false, false);
-  if (transparent) {
+  const esp_err_t clock_error = restore_output(s_sclk, clock_route, &clock_saved);
+  const esp_err_t data_error = restore_output(s_mosi, route, &saved);
+  if (err == ESP_OK)
+    err = clock_error != ESP_OK ? clock_error : data_error;
+  if (transparent && clock_error == ESP_OK && data_error == ESP_OK) {
     command = ST25R3916_CMD_UNMASK_RX_DATA;
     esp_err_t exit_err = spi_device_polling_transmit(s_spi, &transaction);
     if (err == ESP_OK)

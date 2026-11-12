@@ -106,6 +106,11 @@ esp_err_t highboy_nfc_field_off(void);
  */
 uint8_t highboy_nfc_measure_amplitude(void);
 
+/** Raw, uncalibrated ADC sample. Returns bus failures; zero output on failure.
+ * Caller owns the NFC frontend and field lifecycle. Does not change RF power.
+ */
+esp_err_t highboy_nfc_measure_amplitude_checked(uint8_t *out_amplitude);
+
 /**
  * @brief Detect if an external RF field is present (External Field Detector).
  *

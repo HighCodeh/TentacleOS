@@ -37,18 +37,19 @@ esp_err_t st25r3916_irq_read(st25r3916_irq_status_t *out_status) {
     return ESP_ERR_INVALID_ARG;
   }
 
+  st25r3916_irq_status_t status = {0};
   memset(out_status, 0, sizeof(*out_status));
-  if (hb_nfc_spi_reg_read(ST25R3916_REG_ERROR_INT, &out_status->error) != ESP_OK ||
-      hb_nfc_spi_reg_read(ST25R3916_REG_TIMER_NFC_INT, &out_status->timer) != ESP_OK ||
-      hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &out_status->main) != ESP_OK ||
-      hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &out_status->target) != ESP_OK ||
-      hb_nfc_spi_reg_read(ST25R3916_REG_COLLISION, &out_status->collision) != ESP_OK) {
+  if (hb_nfc_spi_reg_read(ST25R3916_REG_ERROR_INT, &status.error) != ESP_OK ||
+      hb_nfc_spi_reg_read(ST25R3916_REG_TIMER_NFC_INT, &status.timer) != ESP_OK ||
+      hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &status.main) != ESP_OK ||
+      hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &status.target) != ESP_OK ||
+      hb_nfc_spi_reg_read(ST25R3916_REG_COLLISION, &status.collision) != ESP_OK)
     return ESP_FAIL;
-  }
-  out_status->main |= s_pending_main;
-  out_status->error |= s_pending_error;
+  status.main |= s_pending_main;
+  status.error |= s_pending_error;
   s_pending_main = 0;
   s_pending_error = 0;
+  *out_status = status;
 
   return ESP_OK;
 }
@@ -158,6 +159,34 @@ esp_err_t st25r3916_irq_wait_rxe(int32_t timeout_ms, st25r3916_irq_status_t *out
 
   if (out_status != NULL) {
     *out_status = seen;
+  }
+  return ESP_ERR_TIMEOUT;
+}
+
+esp_err_t st25r3916_irq_wait_exchange(int32_t timeout_ms, st25r3916_irq_status_t *out_status) {
+  if (out_status == NULL || timeout_ms <= 0 || timeout_ms > 5000)
+    return ESP_ERR_INVALID_ARG;
+  memset(out_status, 0, sizeof(*out_status));
+  int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * 1000;
+  const uint8_t complete = ST25R3916_IRQ_MAIN_TXE | ST25R3916_IRQ_MAIN_RXE;
+  while (esp_timer_get_time() < deadline) {
+    st25r3916_irq_status_t current = {0};
+    esp_err_t err = st25r3916_irq_read(&current);
+    if (err != ESP_OK)
+      return err;
+    out_status->main |= current.main;
+    out_status->error |= current.error;
+    out_status->timer |= current.timer;
+    out_status->target |= current.target;
+    out_status->collision |= current.collision;
+    if ((out_status->main & complete) == complete) {
+      /* ERROR_INT is read before MAIN_INT; collect errors that arrived at RXE. */
+      uint8_t late = 0;
+      err = hb_nfc_spi_reg_read(ST25R3916_REG_ERROR_INT, &late);
+      out_status->error |= late;
+      return err;
+    }
+    hb_nfc_timer_delay_us(ST25R3916_FIFO_WAIT_POLL_US);
   }
   return ESP_ERR_TIMEOUT;
 }

@@ -1366,3 +1366,12 @@ At/parity and SPI-failure checks. Physical dump validation remains necessary.
 - Response chains stop after 32 frames or 15 seconds.
 - Host regression: `python3 tools/nfc/test_desfire_auth.py`.
 - RF authentication and full DESFire emulation remain unqualified.
+
+## V2.03 frontend corrections
+
+- Use legacy regulator modulation for the mounted VDD_AM capacitor.
+- Preserve simultaneous TX/RX events; propagate bus and field-off failures.
+- Validate passive-memory writes: A 15, F 21, TSN 12 bytes.
+- Report unsupported antenna auto-tuning: AAT pins are unconnected.
+- Checked amplitude reads distinguish measurement failure from zero.
+- Tests: `tools/nfc/test_irq_exchange.py`, `tools/nfc/test_pt_memory.py`.
