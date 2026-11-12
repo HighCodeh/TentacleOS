@@ -21,6 +21,10 @@
 
 #include "nfc_apdu.h"
 
+#define EMV_AID_MIN_LEN 5U
+
+#define EMV_TAG_DF_NAME 0x84U
+
 static const char *TAG = "EMV";
 
 #define TLV_TAG_MULTI_BYTE_MASK  0x1FU /**< Low 5 bits set = multi-byte tag */
@@ -237,6 +241,11 @@ static void emv_extract_cb(const emv_tlv_t *tlv, void *user) {
   memset(app, 0, sizeof(*app));
   memcpy(app->aid, aid, aid_len);
   app->aid_len = aid_len;
+  const uint8_t *priority = NULL;
+  size_t priority_length = 0;
+  if (emv_tlv_find_tag(tlv->value, tlv->len, 0x87U, &priority, &priority_length) &&
+      priority_length == 1)
+    app->priority = priority[0];
   if (emv_tlv_find_tag(tlv->value, tlv->len, EMV_TAG_APP_LABEL, &label, &label_len)) {
     if (label_len > EMV_APP_LABEL_MAX)
       label_len = EMV_APP_LABEL_MAX;
@@ -467,7 +476,7 @@ hb_nfc_err_t emv_read_records(hb_nfc_protocol_t proto,
     if (!e->sfi || e->sfi > 30 || !e->record_first || e->record_first > e->record_last ||
         e->offline_auth_records > e->record_last - e->record_first + 1U)
       return HB_NFC_ERR_PARAM;
-    for (uint8_t rec = e->record_first; rec <= e->record_last; rec++) {
+    for (uint16_t rec = e->record_first; rec <= e->record_last; rec++) {
       size_t rlen = 0;
       uint16_t sw = 0;
       hb_nfc_err_t err =
@@ -943,4 +952,49 @@ hb_nfc_err_t emv_read_application(hb_nfc_protocol_t proto,
   profile->is_complete = profile->length[EMV_FIELD_PAN] != 0;
   ESP_LOGD(TAG, "Application read: %u records", profile->records_read);
   return profile->is_complete ? HB_NFC_OK : HB_NFC_ERR_NOT_FOUND;
+}
+
+static void copy_label(emv_app_t *app, const emv_tlv_t *label) {
+  size_t count = label->len < EMV_APP_LABEL_MAX ? label->len : EMV_APP_LABEL_MAX;
+  for (size_t i = 0; i < count; i++)
+    app->label[i] = label->value[i] >= ' ' && label->value[i] <= '~' ? label->value[i] : '?';
+  app->label[count] = 0;
+}
+
+hb_nfc_err_t emv_describe_app(const uint8_t *fci, size_t len, emv_app_t *app) {
+  if (fci == NULL || app == NULL || app->aid_len < EMV_AID_MIN_LEN ||
+      app->aid_len > sizeof(app->aid))
+    return HB_NFC_ERR_PARAM;
+  if (!valid_tlv(fci, len, 0))
+    return HB_NFC_ERR_PROTOCOL;
+  const uint8_t *value = NULL;
+  size_t count = 0;
+  if (!emv_tlv_find_tag(fci, len, EMV_TAG_DF_NAME, &value, &count) || count != app->aid_len ||
+      memcmp(value, app->aid, count))
+    return HB_NFC_ERR_PROTOCOL;
+  emv_app_t parsed = *app;
+  if (emv_tlv_find_tag(fci, len, EMV_TAG_APP_LABEL, &value, &count)) {
+    emv_tlv_t label = {.value = value, .len = count};
+    copy_label(&parsed, &label);
+  }
+  parsed.pdol_size = 0;
+  if (emv_tlv_find_tag(fci, len, EMV_TAG_PDOL, &value, &count)) {
+    size_t pos = 0;
+    while (pos < count) {
+      uint8_t tag = value[pos++];
+      if ((tag & TLV_TAG_MULTI_BYTE_MASK) == TLV_TAG_MULTI_BYTE_MASK) {
+        unsigned bytes = 0;
+        do {
+          if (pos == count || ++bytes > TLV_TAG_MULTI_BYTE_MAX)
+            return HB_NFC_ERR_PROTOCOL;
+          tag = value[pos++];
+        } while (tag & TLV_TAG_CONTINUATION_BIT);
+      }
+      if (pos == count || parsed.pdol_size + value[pos] > EMV_GPO_PDOL_MAX_LEN - 1U)
+        return HB_NFC_ERR_PROTOCOL;
+      parsed.pdol_size += value[pos++];
+    }
+  }
+  *app = parsed;
+  return HB_NFC_OK;
 }

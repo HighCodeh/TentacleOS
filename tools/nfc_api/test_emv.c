@@ -120,6 +120,18 @@ static void test_parsers(void) {
   assert(emv_get_processing_options(0,NULL,out,248,out,sizeof(out),&size,&sw,10)!=ESP_OK);
   s_long_gpo=false;
 }
+static void test_app_description(void) {
+  emv_app_t app = {.aid={0xA0,0,0,0,3}, .aid_len=5};
+  const uint8_t fci[]={0x6F,18,0x84,5,0xA0,0,0,0,3,0x50,3,'A',1,'B',0x9F,0x38,3,0x9F,0x66,4};
+  assert(emv_describe_app(fci,sizeof(fci),&app)==ESP_OK);
+  assert(!strcmp(app.label,"A?B") && app.pdol_size==4);
+  emv_app_t before=app;
+  assert(emv_describe_app(fci,sizeof(fci)-1,&app)!=ESP_OK && !memcmp(&app,&before,sizeof(app)));
+  app.aid[4]=4;before=app;
+  assert(emv_describe_app(fci,sizeof(fci),&app)!=ESP_OK && !memcmp(&app,&before,sizeof(app)));
+  app.aid_len=255;
+  assert(emv_describe_app(fci,sizeof(fci),&app)==ESP_ERR_INVALID_ARG);
+}
 static void test_workflow(emv_profile_t *out) {
   *out=profile();s_calls=0;
   assert(emv_read_application(0,NULL,out,cancel,10)==ESP_OK);
@@ -172,6 +184,6 @@ static void test_file(const char *path,emv_profile_t *profile) {
   assert(nfc_emv_save(path,&card)==ESP_ERR_INVALID_ARG);
 }
 int main(int argc,char **argv) {
-  assert(argc==2);test_parsers();emv_profile_t card;test_workflow(&card);test_file(argv[1],&card);
+  assert(argc==2);test_parsers();test_app_description();emv_profile_t card;test_workflow(&card);test_file(argv[1],&card);
   puts("EMV parser, workflow, cancellation and file tests passed");return 0;
 }

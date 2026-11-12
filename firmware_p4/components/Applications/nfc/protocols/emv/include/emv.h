@@ -37,10 +37,15 @@ extern "C" {
  * @brief EMV application descriptor (AID + label).
  */
 typedef struct {
-  uint8_t aid[EMV_AID_MAX_LEN];       /**< Application Identifier bytes. */
+  uint8_t aid[EMV_AID_MAX_LEN]; /**< Application Identifier bytes. */
+  uint8_t priority;
+  uint16_t pdol_size;
   uint8_t aid_len;                    /**< Length of AID in bytes. */
   char label[EMV_APP_LABEL_MAX + 1U]; /**< Null-terminated application label. */
 } emv_app_t;
+
+/** Validate selected FCI and extract label/PDOL size, without requesting GPO. */
+hb_nfc_err_t emv_describe_app(const uint8_t *fci, size_t len, emv_app_t *app);
 
 /**
  * @brief Single entry from the Application File Locator (AFL).

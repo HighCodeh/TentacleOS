@@ -1426,3 +1426,10 @@ At/parity and SPI-failure checks. Physical dump validation remains necessary.
 - Handle TX completion and combined RX/field events without discarding a frame.
 - Preserve the existing structured profiles and Lite authentication.
 - Tests: `test_readers.py`, `test_startup.py`, `test_felica_profile.py` in `tools/nfc_api/`.
+
+## EMV metadata validation
+
+- Validate selected AID and bounded PDOL descriptions before updating metadata.
+- Retain PPSE priority and sanitize display labels.
+- Keep the existing read-only EMV workflow and record limit.
+- Test: `tools/nfc_api/test_emv.py`; no payment or card emulation is added.
