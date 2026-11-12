@@ -20,6 +20,17 @@
 #include "freertos/task.h"
 #include "spi_bridge.h"
 #include "wifi_scan_view.h"
+#include "wifi_live_scan.h"
+
+static wifi_live_scan_status_t live_status;
+void wifi_live_scan_get_status(wifi_live_scan_status_t *out) { *out = live_status; }
+esp_err_t wifi_live_scan_get_record(uint16_t index, wifi_ap_record_t *out) {
+  if (index >= live_status.count) return ESP_ERR_NOT_FOUND;
+  *out = (wifi_ap_record_t){.bssid = {0x10, 0xbd, 0xa3, 0xc0, 0x8c, 0xb9},
+                           .rssi = -50, .primary = 6};
+  memcpy(out->ssid, "Live AP", sizeof("Live AP"));
+  return ESP_OK;
+}
 
 static void (*worker)(void *);
 static bool fail_task, short_reply, cancel_in_scan, short_record, unknown_oui;
@@ -125,5 +136,12 @@ int main(void) {
   assert(status().count == 128 && records == 128 && status().capture.overflow_observations == 1);
   reset(); fail_task = true;
   assert(wifi_scan_view_start(45) == ESP_ERR_NO_MEM && !status().is_busy);
+  live_status = (wifi_live_scan_status_t){.is_running = true};
+  assert(wifi_scan_view_load_live_results() == ESP_ERR_INVALID_STATE);
+  live_status = (wifi_live_scan_status_t){.count = 1, .error = ESP_ERR_TIMEOUT};
+  assert(wifi_scan_view_load_live_results() == ESP_OK);
+  assert(status().count == 1 && status().error == ESP_ERR_TIMEOUT);
+  live_status = (wifi_live_scan_status_t){0};
+  assert(wifi_scan_view_load_live_results() == ESP_OK && status().count == 0);
   return 0;
 }

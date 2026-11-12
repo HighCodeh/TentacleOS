@@ -16,10 +16,12 @@
 #include "wifi_scan_ui.h"
 
 #include <stdio.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lvgl.h"
@@ -38,12 +40,13 @@
 #include "ui_metrics.h"
 #include "ui_theme.h"
 #include "wifi_service.h"
+#include "wifi_live_scan_ui.h"
 
 #include "hb_spectrum.h"
 
 static const char *TAG = "WIFI_SURVEY_UI";
 
-#define SURVEY_MAX_APS    WIFI_SCAN_LIST_SIZE
+#define SURVEY_MAX_APS    WIFI_LIVE_SCAN_MAX_APS
 #define RESULTS_PAGE_SIZE MENU_COMP_MAX_ITEMS
 #define HISTORY_POINTS    20
 #define TASK_STACK_SIZE   10240
@@ -79,11 +82,11 @@ static const char *const FILTER_NAMES[] = {"All", "Open", "Protected"};
 static lv_obj_t *s_screen;
 static menu_component_t s_menu;
 static survey_view_t s_view;
-static survey_mode_t s_mode = MODE_SNAPSHOT;
+static survey_mode_t s_mode = MODE_CONTINUOUS;
 static uint8_t s_band;
 static survey_filter_t s_filter;
 
-static survey_ap_t s_aps[SURVEY_MAX_APS];
+EXT_RAM_BSS_ATTR static survey_ap_t s_aps[SURVEY_MAX_APS];
 static int s_ap_count;
 static int s_filtered_idx[SURVEY_MAX_APS];
 static int s_filtered_count;
@@ -92,19 +95,14 @@ static uint32_t s_cycles;
 static uint32_t s_elapsed_ms;
 static uint16_t s_visible_2g;
 static uint16_t s_visible_5g;
-static bool s_saved;
+static atomic_bool s_saved;
 static char s_json_path[256];
 static char s_csv_path[256];
 
-static volatile bool s_scan_run;
-static volatile bool s_worker_busy;
+static atomic_bool s_worker_busy;
 static uint32_t s_generation;
 
-static lv_obj_t *s_summary_label;
-static lv_obj_t *s_progress_label;
-static lv_obj_t *s_strong_label;
-static lv_obj_t *s_spectrum;
-static hb_band_t s_spec_band;
+static void wifi_scan_input(const input_event_t *ev, void *ctx);
 
 static const char *auth_name(uint8_t mode) {
   switch (mode) {
@@ -169,20 +167,6 @@ static const char *bandwidth_name(uint8_t bandwidth) {
       return "80+80MHz";
     default:
       return "?MHz";
-  }
-}
-
-static uint8_t bandwidth_mhz(uint8_t bandwidth) {
-  switch ((wifi_bandwidth_t)bandwidth) {
-    case WIFI_BW40:
-      return 40;
-    case WIFI_BW80:
-      return 80;
-    case WIFI_BW160:
-    case WIFI_BW80_BW80:
-      return 160;
-    default:
-      return 20;
   }
 }
 
@@ -424,10 +408,6 @@ static void reset_screen(void) {
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  s_summary_label = NULL;
-  s_progress_label = NULL;
-  s_strong_label = NULL;
-  s_spectrum = NULL;
   s_menu = (menu_component_t){0};
 }
 
@@ -440,75 +420,6 @@ static void build_config(void) {
   menu_component_add_item(&s_menu, "/assets/icons/wifi_find.bin", "START SURVEY");
   menu_component_set_hint(&s_menu, "LEFT/RIGHT change • OK start");
   s_view = SURVEY_CONFIG;
-  ui_screen_load_owned(&s_screen, s_screen);
-}
-
-static lv_obj_t *center_label(int y, const lv_font_t *font, lv_color_t color) {
-  lv_obj_t *label = lv_label_create(s_screen);
-  lv_obj_set_width(label, ui_screen_w() - 16);
-  lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_set_style_text_font(label, font, 0);
-  lv_obj_set_style_text_color(label, color, 0);
-  lv_obj_align(label, LV_ALIGN_TOP_MID, 0, y);
-  return label;
-}
-
-#define SPEC_VIEW_MAX 64
-
-// Rebuild the spectrum from the current survey cache for the selected band.
-// s_aps is sorted strongest-first, so the first in-band entries are the loudest;
-// only those few get an SSID label so the view stays readable.
-static void refresh_spectrum(void) {
-  if (s_spectrum == NULL)
-    return;
-  hb_spectrum_ap_t view[SPEC_VIEW_MAX];
-  int n = 0;
-  int labeled = 0;
-  bool want_5g = (s_spec_band == HB_BAND_5);
-  for (int i = 0; i < s_ap_count && n < SPEC_VIEW_MAX; i++) {
-    bool ap_5g = s_aps[i].channel >= 15;
-    if (ap_5g != want_5g)
-      continue;
-    view[n].channel = s_aps[i].channel;
-    view[n].rssi = s_aps[i].rssi;
-    view[n].width_mhz = bandwidth_mhz(s_aps[i].bandwidth);
-    view[n].label = (labeled < 4) ? s_aps[i].ssid : NULL;
-    labeled++;
-    n++;
-  }
-  hb_spectrum_set_aps(s_spectrum, view, n);
-}
-
-static void build_running(void) {
-  reset_screen();
-  ui_chrome_header(s_screen, "LIVE SURVEY", "/assets/icons/wifi_find.bin");
-  s_summary_label =
-      center_label(UI_CHROME_HEADER_H + 3, &lv_font_montserrat_16, current_theme.border_accent);
-  s_progress_label =
-      center_label(UI_CHROME_HEADER_H + 27, &lv_font_montserrat_12, current_theme.text_secondary);
-
-  // Channel-occupancy spectrum: sized to fill the gap between the header
-  // readout and the footer, clamped to a sane height band.
-  int spec_top = UI_CHROME_HEADER_H + 46;
-  int spec_h = ui_screen_h() - spec_top - UI_CHROME_FOOTER_H - 22;
-  if (spec_h < 80)
-    spec_h = 80;
-  if (spec_h > 130)
-    spec_h = 130;
-  s_spectrum = hb_spectrum_create(s_screen, ui_screen_w() - 8, spec_h);
-  if (s_spectrum != NULL) {
-    lv_obj_align(s_spectrum, LV_ALIGN_TOP_MID, 0, spec_top);
-    s_spec_band = (s_band == 2) ? HB_BAND_5 : HB_BAND_24;
-    hb_spectrum_set_band(s_spectrum, s_spec_band);
-  }
-
-  s_strong_label =
-      center_label(spec_top + spec_h + 3, &lv_font_montserrat_12, current_theme.text_main);
-  lv_label_set_text(s_summary_label, "Starting dual-band scan...");
-  lv_label_set_text_fmt(s_progress_label, "%s • %s", MODE_NAMES[s_mode], BAND_NAMES[s_band]);
-  lv_label_set_text(s_strong_label, "Waiting for first sweep");
-  ui_chrome_footer(s_screen, "LEFT/RIGHT band • OK stop • BACK exit");
-  s_view = SURVEY_RUNNING;
   ui_screen_load_owned(&s_screen, s_screen);
 }
 
@@ -574,38 +485,6 @@ static void build_results(void) {
   ui_screen_load_owned(&s_screen, s_screen);
 }
 
-static void update_running_cb(void *unused) {
-  (void)unused;
-  if (ui_current_screen() != SCREEN_WIFI_SCAN_MENU || s_view != SURVEY_RUNNING)
-    return;
-  lv_label_set_text_fmt(
-      s_summary_label, "%d AP   %u 2.4G / %u 5G", s_ap_count, s_visible_2g, s_visible_5g);
-  uint32_t seconds = s_elapsed_ms / 1000;
-  uint32_t duration = mode_duration_ms() / 1000;
-  if (duration > 0)
-    lv_label_set_text_fmt(s_progress_label,
-                          "Sweep %lu • %02lu:%02lu / %02lu:%02lu",
-                          (unsigned long)s_cycles,
-                          (unsigned long)(seconds / 60),
-                          (unsigned long)(seconds % 60),
-                          (unsigned long)(duration / 60),
-                          (unsigned long)(duration % 60));
-  else
-    lv_label_set_text_fmt(s_progress_label,
-                          "Sweep %lu • %02lu:%02lu • %s",
-                          (unsigned long)s_cycles,
-                          (unsigned long)(seconds / 60),
-                          (unsigned long)(seconds % 60),
-                          BAND_NAMES[s_band]);
-  refresh_spectrum();
-  if (s_ap_count > 0)
-    lv_label_set_text_fmt(s_strong_label,
-                          "Strongest: %s  %d dBm  CH %u",
-                          s_aps[0].ssid,
-                          s_aps[0].rssi,
-                          s_aps[0].channel);
-}
-
 static void finish_survey_cb(void *unused) {
   uint32_t generation = (uint32_t)(uintptr_t)unused;
   if (generation != s_generation)
@@ -614,52 +493,54 @@ static void finish_survey_cb(void *unused) {
     return;
   s_page = 0;
   build_results();
+  ui_input_set_screen_handler(wifi_scan_input, NULL);
   if (s_ap_count > 0)
     ui_feedback(UI_FB_READ);
 }
 
-static void survey_worker(void *arg) {
-  uint32_t generation = (uint32_t)(uintptr_t)arg;
-  TickType_t started = xTaskGetTickCount();
-  uint32_t target_ms = mode_duration_ms();
-  bool one_shot = s_mode == MODE_SNAPSHOT;
+static void survey_save_worker(void *arg) {
+  save_survey();
+  s_worker_busy = false;
+  ui_async_call(finish_survey_cb, arg);
+  vTaskDelete(NULL);
+}
 
-  while (s_scan_run) {
-    wifi_service_start();
-    esp_err_t err = wifi_service_scan_ex(s_band, false, SURVEY_DWELL_MIN, SURVEY_DWELL_MAX);
-    if (err != ESP_OK) {
-      ESP_LOGW(TAG, "Survey sweep failed: %s", esp_err_to_name(err));
-      break;
-    }
-
-    s_visible_2g = 0;
-    s_visible_5g = 0;
-    uint16_t count = wifi_service_get_ap_count();
-    for (uint16_t i = 0; i < count; i++) {
-      wifi_ap_record_t *rec = wifi_service_get_ap_record(i);
-      if (rec == NULL)
-        continue;
-      merge_record(rec);
-      if (rec->primary >= 15)
+static void survey_collected(void *arg) {
+  wifi_live_scan_status_t status;
+  wifi_live_scan_get_status(&status);
+  for (uint16_t i = 0; i < status.count; i++) {
+    wifi_ap_record_t record;
+    if (wifi_live_scan_get_record(i, &record) == ESP_OK) {
+      merge_record(&record);
+      wifi_live_scan_observation_t stats;
+      int index = find_bssid(record.bssid);
+      if (index >= 0 && wifi_live_scan_get_observation(i, &stats) == ESP_OK) {
+        s_aps[index].rssi_min = stats.rssi_min;
+        s_aps[index].rssi_max = stats.rssi_max;
+        s_aps[index].rssi_sum = stats.rssi_sum;
+        s_aps[index].samples = stats.samples;
+      }
+      if (record.primary >= 15)
         s_visible_5g++;
       else
         s_visible_2g++;
     }
-    qsort(s_aps, s_ap_count, sizeof(s_aps[0]), compare_rssi_desc);
-    s_cycles++;
-    s_elapsed_ms = pdTICKS_TO_MS(xTaskGetTickCount() - started);
-    ui_async_call(update_running_cb, NULL);
-
-    if (one_shot || (target_ms > 0 && s_elapsed_ms >= target_ms))
-      break;
-    vTaskDelay(pdMS_TO_TICKS(180));
   }
-
-  s_scan_run = false;
-  s_worker_busy = false;
-  save_survey();
-  ui_async_call(finish_survey_cb, (void *)(uintptr_t)generation);
-  vTaskDelete(NULL);
+  s_elapsed_ms = lv_tick_elaps(s_elapsed_ms);
+  s_cycles = status.sweeps;
+  qsort(s_aps, s_ap_count, sizeof(s_aps[0]), compare_rssi_desc);
+  finish_survey_cb(arg);
+  s_worker_busy = true;
+  if (xTaskCreatePinnedToCore(survey_save_worker,
+                              "survey_save",
+                              TASK_STACK_SIZE,
+                              arg,
+                              SYS_PRIO_SERVICE_LO,
+                              NULL,
+                              SYS_CORE_RADIO) != pdPASS) {
+    s_worker_busy = false;
+    finish_survey_cb(arg);
+  }
 }
 
 static void start_survey(void) {
@@ -673,19 +554,15 @@ static void start_survey(void) {
   s_visible_5g = 0;
   s_saved = false;
   s_generation++;
-  build_running();
-  s_scan_run = true;
-  s_worker_busy = true;
-  if (xTaskCreatePinnedToCore(survey_worker,
-                              "wifi_survey",
-                              TASK_STACK_SIZE,
-                              (void *)(uintptr_t)s_generation,
-                              SYS_PRIO_SERVICE_LO,
-                              NULL,
-                              SYS_CORE_RADIO) != pdPASS) {
-    s_scan_run = false;
+  s_view = SURVEY_RUNNING;
+  s_elapsed_ms = lv_tick_get();
+  if (wifi_live_scan_ui_open(s_band, survey_collected, (void *)(uintptr_t)s_generation) != ESP_OK) {
+    ESP_LOGE(TAG, "Could not start live survey");
     s_worker_busy = false;
-    msgbox_open(LV_SYMBOL_WIFI, "Could not start survey task", "OK", NULL, NULL);
+    build_config();
+    msgbox_open(LV_SYMBOL_WIFI, "Could not start live scan", "OK", NULL, NULL);
+  } else {
+    wifi_live_scan_ui_set_limit(mode_duration_ms(), s_mode == MODE_SNAPSHOT);
   }
 }
 
@@ -781,24 +658,6 @@ static void wifi_scan_input(const input_event_t *ev, void *ctx) {
       else
         cycle_config(1);
     }
-  } else if (s_view == SURVEY_RUNNING) {
-    if (ev->button == INPUT_BTN_OK && press) {
-      s_scan_run = false;
-      lv_label_set_text(s_progress_label, "Finishing current sweep...");
-    } else if (ev->button == INPUT_BTN_LEFT && press) {
-      s_spec_band = HB_BAND_24;
-      if (s_spectrum != NULL)
-        hb_spectrum_set_band(s_spectrum, s_spec_band);
-      refresh_spectrum();
-    } else if (ev->button == INPUT_BTN_RIGHT && press) {
-      s_spec_band = HB_BAND_5;
-      if (s_spectrum != NULL)
-        hb_spectrum_set_band(s_spectrum, s_spec_band);
-      refresh_spectrum();
-    } else if (ev->button == INPUT_BTN_BACK && press) {
-      s_scan_run = false;
-      ui_switch_screen(SCREEN_WIFI_MENU);
-    }
   } else {
     if (ev->button == INPUT_BTN_DOWN && nav)
       menu_component_next(&s_menu);
@@ -820,7 +679,6 @@ static void wifi_scan_input(const input_event_t *ev, void *ctx) {
 }
 
 void ui_wifi_scan_open(void) {
-  s_scan_run = false;
   s_generation++;
   build_config();
   ui_input_set_screen_handler(wifi_scan_input, NULL);

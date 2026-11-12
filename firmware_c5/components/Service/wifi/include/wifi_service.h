@@ -113,6 +113,7 @@ const char *wifi_service_get_connected_ssid(void);
  * @brief Scan for nearby access points.
  */
 void wifi_service_scan(void);
+esp_err_t wifi_service_scan_step(uint8_t slot);
 
 /** Run a scan constrained to one band, or both bands when band is 0. */
 void wifi_service_scan_ex(uint8_t band, bool passive, uint16_t dwell_min_ms, uint16_t dwell_max_ms);

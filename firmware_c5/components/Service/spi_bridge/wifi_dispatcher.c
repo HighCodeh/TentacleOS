@@ -23,6 +23,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include <stdatomic.h>
+
 #include "ap_scanner.h"
 #include "beacon_spam.h"
 #include "client_scanner.h"
@@ -54,6 +56,20 @@ static spi_wifi_scan_config_t s_scan_cfg = {
     .dwell_min_ms = 0,
     .dwell_max_ms = 0,
 };
+
+static atomic_bool s_step_busy;
+static uint8_t s_step_slot;
+static spi_wifi_scan_step_status_t s_step_status;
+static wifi_ap_record_t s_step_records[WIFI_SCAN_LIST_SIZE];
+
+static void scan_step_worker(void) {
+  esp_err_t err = wifi_service_scan_step(s_step_slot);
+  uint16_t count = err == ESP_OK ? wifi_service_get_ap_count() : 0;
+  for (uint16_t i = 0; i < count; i++)
+    s_step_records[i] = *wifi_service_get_ap_record(i);
+  s_step_status = (spi_wifi_scan_step_status_t){.error = (uint32_t)err, .count = count};
+  atomic_store(&s_step_busy, false);
+}
 
 // Port scan runs on the shared async runner so the SPI bridge (and the UI/app
 // link it carries) never blocks for the seconds-to-minutes a sweep can take.
@@ -363,6 +379,39 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
   }
 
   switch (id) {
+    case SPI_ID_WIFI_SCAN_STEP:
+      if (len != sizeof(s_step_slot) || payload[0] >= SPI_WIFI_SCAN_SLOT_COUNT)
+        return SPI_STATUS_INVALID_ARG;
+      if (spi_bridge_async_scan_busy() || session_manager_is_active() || atomic_load(&s_step_busy))
+        return SPI_STATUS_BUSY;
+      s_step_slot = payload[0];
+      atomic_store(&s_step_busy, true);
+      if (!spi_bridge_async_scan_start(scan_step_worker)) {
+        atomic_store(&s_step_busy, false);
+        return SPI_STATUS_BUSY;
+      }
+      return SPI_STATUS_OK;
+    case SPI_ID_WIFI_SCAN_STEP_STATUS: {
+      spi_wifi_scan_step_status_t status = {.busy = 1};
+      if (!atomic_load(&s_step_busy) && !spi_bridge_async_scan_busy())
+        status = s_step_status;
+      memcpy(out_resp_payload, &status, sizeof(status));
+      *out_resp_len = sizeof(status);
+      return SPI_STATUS_OK;
+    }
+    case SPI_ID_WIFI_SCAN_STEP_RECORD: {
+      uint16_t index;
+      if (len != sizeof(index))
+        return SPI_STATUS_INVALID_ARG;
+      memcpy(&index, payload, sizeof(index));
+      if (atomic_load(&s_step_busy))
+        return SPI_STATUS_BUSY;
+      if (index >= s_step_status.count)
+        return SPI_STATUS_INVALID_ARG;
+      memcpy(out_resp_payload, &s_step_records[index], sizeof(s_step_records[index]));
+      *out_resp_len = sizeof(s_step_records[index]);
+      return SPI_STATUS_OK;
+    }
     case SPI_ID_WIFI_QUICK_START: {
       if (len != 0 && len != sizeof(spi_wifi_quick_config_t)) {
         return SPI_STATUS_INVALID_ARG;

@@ -77,6 +77,7 @@ void *heap_caps_calloc(size_t, size_t, unsigned);
 #include <stdbool.h>
 #include <stdint.h>
 #include "esp_err.h"
+typedef struct { uint8_t bssid[6]; uint8_t ssid[33]; uint8_t primary; int8_t rssi; uint8_t authmode; } wifi_ap_record_t;
 typedef enum { WIFI_PKT_MGMT, WIFI_PKT_CTRL, WIFI_PKT_DATA, WIFI_PKT_MISC } wifi_promiscuous_pkt_type_t;
 typedef struct { int8_t rssi; uint8_t channel; uint8_t rx_state; uint16_t sig_len; } wifi_pkt_rx_ctrl_t;
 typedef struct { wifi_pkt_rx_ctrl_t rx_ctrl; uint8_t payload[64]; } wifi_promiscuous_pkt_t;

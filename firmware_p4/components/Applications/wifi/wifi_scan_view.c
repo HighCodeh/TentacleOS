@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "wifi_scan_view.h"
+#include "wifi_live_scan.h"
 
 #include <stdatomic.h>
 #include <string.h>
@@ -55,6 +56,49 @@ static esp_err_t start_job(uint8_t seconds);
 static void worker(void *arg);
 static esp_err_t run_scan(uint8_t seconds);
 static void classify_ap(const spi_wifi_scan_record_t *ap, spi_wifi_quick_record_t *out_record);
+
+esp_err_t wifi_scan_view_load_live_results(void) {
+  wifi_live_scan_status_t status;
+  wifi_live_scan_get_status(&status);
+  if (status.is_running)
+    return ESP_ERR_INVALID_STATE;
+  portENTER_CRITICAL(&s_lock);
+  if (s_status.is_busy) {
+    portEXIT_CRITICAL(&s_lock);
+    return ESP_ERR_INVALID_STATE;
+  }
+  s_status.is_busy = true;
+  s_status.count = 0;
+  portEXIT_CRITICAL(&s_lock);
+  for (uint16_t i = 0; i < status.count && i < SCAN_VIEW_MAX_RECORDS; i++) {
+    wifi_ap_record_t ap;
+    if (wifi_live_scan_get_record(i, &ap) != ESP_OK)
+      continue;
+    spi_wifi_scan_record_t compact = {
+        .rssi = ap.rssi, .channel = ap.primary, .authmode = (uint8_t)ap.authmode};
+    memcpy(compact.bssid, ap.bssid, sizeof(compact.bssid));
+    memcpy(compact.ssid, ap.ssid, sizeof(compact.ssid));
+    spi_wifi_quick_record_t record;
+    classify_ap(&compact, &record);
+    portENTER_CRITICAL(&s_lock);
+    uint16_t at = s_status.count;
+    while (at > 0 && s_records[at - 1].score < record.score) {
+      s_records[at] = s_records[at - 1];
+      at--;
+    }
+    s_records[at] = record;
+    s_status.count++;
+    portEXIT_CRITICAL(&s_lock);
+  }
+  portENTER_CRITICAL(&s_lock);
+  s_status.error = status.error;
+  s_status.capture =
+      (spi_wifi_quick_status_t){.state = SPI_WIFI_QUICK_DONE, .total_count = s_status.count};
+  s_status.is_busy = false;
+  s_status.revision++;
+  portEXIT_CRITICAL(&s_lock);
+  return ESP_OK;
+}
 
 esp_err_t wifi_scan_view_start(uint8_t seconds) {
   if (seconds != SCAN_VIEW_SHORT_SECONDS && seconds != SPI_WIFI_QUICK_DEFAULT_SECONDS &&

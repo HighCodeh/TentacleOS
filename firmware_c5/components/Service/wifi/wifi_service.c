@@ -36,12 +36,14 @@
 #include "cJSON.h"
 #include "led_control.h"
 #include "storage_assets.h"
+#include "spi_protocol.h"
 
 static const char *TAG = "WIFI_SERVICE";
 
 #define HOPPER_STACK_SIZE       4096
 #define HOPPER_DELAY_MS         250
 #define MAX_WIFI_CHANNEL        13
+#define SCAN_STEP_DWELL_MS      120
 #define SCAN_MUTEX_TIMEOUT_MS   1000
 #define SCAN_ACTIVE_MIN_MS      100
 #define SCAN_ACTIVE_MAX_MS      300
@@ -478,6 +480,59 @@ void wifi_service_scan_ex(uint8_t band,
   s_analysis_band = 0;
 
   xSemaphoreGive(s_mutex);
+}
+
+esp_err_t wifi_service_scan_step(uint8_t slot) {
+  if (slot >= SPI_WIFI_SCAN_SLOT_COUNT)
+    return ESP_ERR_INVALID_ARG;
+  if (s_mutex == NULL)
+    return ESP_ERR_INVALID_STATE;
+  if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(SCAN_MUTEX_TIMEOUT_MS)) != pdTRUE)
+    return ESP_ERR_TIMEOUT;
+  esp_err_t err = ESP_OK;
+  wifi_band_mode_t previous_band;
+  bool has_band = false;
+  s_stored_ap_count = 0;
+  if (s_promiscuous_active || s_hopper_task_handle != NULL) {
+    err = ESP_ERR_INVALID_STATE;
+    goto cleanup;
+  }
+  if (!s_is_active)
+    wifi_service_start();
+  if ((err = esp_wifi_get_band_mode(&previous_band)) != ESP_OK)
+    goto cleanup;
+  has_band = true;
+  if ((err = esp_wifi_set_band_mode(WIFI_BAND_MODE_AUTO)) != ESP_OK)
+    goto cleanup;
+  // Bitmap scans intersect with the driver's country policy. 5 GHz is passive,
+  // including DFS channels; never expand the regulatory channel mask.
+  wifi_scan_config_t config = {
+      .show_hidden = true,
+      .scan_type = slot < SPI_WIFI_SCAN_2G_SLOTS ? WIFI_SCAN_TYPE_ACTIVE : WIFI_SCAN_TYPE_PASSIVE,
+      .scan_time = {.active = {.min = SCAN_STEP_DWELL_MS, .max = SCAN_STEP_DWELL_MS},
+                    .passive = SCAN_STEP_DWELL_MS},
+      .channel_bitmap = {.ghz_2_channels = 1, .ghz_5_channels = 1},
+  };
+  if (slot < SPI_WIFI_SCAN_2G_SLOTS)
+    config.channel_bitmap.ghz_2_channels = (uint16_t)(1u << (slot + 1));
+  else
+    config.channel_bitmap.ghz_5_channels = 1u << (slot - SPI_WIFI_SCAN_2G_SLOTS + 1);
+  err = esp_wifi_scan_start(&config, true);
+  if (err == ESP_OK) {
+    uint16_t count = WIFI_SCAN_LIST_SIZE;
+    err = esp_wifi_scan_get_ap_records(&count, s_stored_aps);
+    if (err == ESP_OK)
+      s_stored_ap_count = count;
+  }
+  esp_wifi_clear_ap_list();
+cleanup:
+  if (has_band) {
+    esp_err_t restore_err = esp_wifi_set_band_mode(previous_band);
+    if (err == ESP_OK)
+      err = restore_err;
+  }
+  xSemaphoreGive(s_mutex);
+  return err;
 }
 
 uint16_t wifi_service_get_ap_count(void) {

@@ -288,9 +288,8 @@ If a check fails, no migration or full restoration is attempted. A failed serial
 operation can leave the device in the ROM loader; reset it to resume normal boot.
 
 **C5 is not embedded or flashed by this integrated P4 build.** The dedicated
-Quick Scan capture backend requires the matching C5 app. ESP SCAN uses the
-existing AP-scan commands and only needs a P4 update when C5 already supports
-those commands. To update C5 separately:
+Quick Scan capture backend requires the matching C5 app. Progressive AP discovery, including ESP SCAN, requires matching
+P4 and C5 applications with the channel-step commands (Wi-Fi 0x56–0x58). To update C5 separately:
 
 ```sh
 # Close any IDF serial monitor using the C5 port first (Ctrl+]).

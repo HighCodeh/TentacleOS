@@ -58,6 +58,8 @@ bool ap_scanner_save_results_to_internal_flash(void);
  * @return true on success, false on failure.
  */
 bool ap_scanner_save_results_to_sd_card(void);
+/* Borrowed immutable snapshot; persists to SD only. */
+bool ap_scanner_save_snapshot(const wifi_ap_record_t *records, uint16_t count);
 
 #ifdef __cplusplus
 }

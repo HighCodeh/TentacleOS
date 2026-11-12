@@ -32,7 +32,7 @@
 #include "ui_theme.h"
 #include "waves_ui.h"
 
-#include "ap_scanner.h"
+#include "wifi_live_scan_ui.h"
 #include "signal_monitor.h"
 #include "wifi_service.h"
 
@@ -97,6 +97,7 @@ static lv_font_t *s_big_font = NULL;
 static sl_state_t s_state = SL_PICK_SCANNING;
 
 static int s_ap_count = 0;
+static uint16_t s_ap_page;
 static pick_ap_t s_aps[AP_PICK_MAX];
 static bool s_pick_scanning = false;
 
@@ -396,7 +397,7 @@ static void start_locating(void) {
 
 static void ap_pick_done_cb(void *unused) {
   (void)unused;
-  if (ui_current_screen() != SCREEN_WIFI_SIGNAL_LOCATOR || s_state != SL_PICK_SCANNING)
+  if (ui_current_screen() != SCREEN_WIFI_SIGNAL_LOCATOR)
     return;
   build_pick_list();
   if (s_ap_count > 0)
@@ -407,27 +408,27 @@ static void ap_pick_task(void *arg) {
   (void)arg;
   int n = 0;
 
-  wifi_service_start();
-  if (ap_scanner_start()) {
-    uint16_t count = 0;
-    wifi_ap_record_t *recs = ap_scanner_get_results(&count);
-    if (recs != NULL) {
-      for (uint16_t i = 0; i < count && n < AP_PICK_MAX; i++) {
-        pick_ap_t *ap = &s_aps[n++];
-        strncpy(ap->ssid, (const char *)recs[i].ssid, sizeof(ap->ssid) - 1);
-        ap->ssid[sizeof(ap->ssid) - 1] = '\0';
-        memcpy(ap->bssid, recs[i].bssid, sizeof(ap->bssid));
-        ap->channel = recs[i].primary;
-        ap->rssi = recs[i].rssi;
-      }
-    }
-    ap_scanner_free_results();
+  wifi_live_scan_status_t status;
+  wifi_live_scan_get_status(&status);
+  uint16_t count = status.count;
+  for (uint16_t i = s_ap_page * AP_PICK_MAX;
+       i < count && i < (s_ap_page + 1) * AP_PICK_MAX && n < AP_PICK_MAX;
+       i++) {
+    wifi_ap_record_t record;
+    if (wifi_live_scan_get_record(i, &record) != ESP_OK)
+      continue;
+    pick_ap_t *ap = &s_aps[n++];
+    strncpy(ap->ssid, (const char *)record.ssid, sizeof(ap->ssid) - 1);
+    ap->ssid[sizeof(ap->ssid) - 1] = '\0';
+    memcpy(ap->bssid, record.bssid, sizeof(ap->bssid));
+    ap->channel = record.primary;
+    ap->rssi = record.rssi;
   }
 
   s_ap_count = n;
   s_pick_scanning = false;
-  ui_async_call(ap_pick_done_cb, NULL);
-  vTaskDelete(NULL);
+  ap_pick_done_cb(NULL);
+  menu_component_set_hint(&s_menu, "LEFT/RIGHT page | OK select | BACK");
 }
 
 static void select_target(int idx) {
@@ -471,8 +472,13 @@ static void wifi_signal_locator_input(const input_event_t *ev, void *ctx) {
           if (press)
             ui_switch_screen(SCREEN_WIFI_MENU);
           break;
-        case INPUT_BTN_OK:
+        case INPUT_BTN_LEFT:
         case INPUT_BTN_RIGHT:
+          if (press &&
+              wifi_live_scan_ui_change_page(&s_ap_page, AP_PICK_MAX, ev->button == INPUT_BTN_RIGHT))
+            ap_pick_task(NULL);
+          break;
+        case INPUT_BTN_OK:
           if (press && s_ap_count > 0)
             select_target(menu_component_get_selected(&s_menu));
           break;
@@ -492,9 +498,11 @@ static void wifi_signal_locator_input(const input_event_t *ev, void *ctx) {
 }
 
 void ui_wifi_signal_locator_open(void) {
+  s_pick_scanning = false;
   s_poll_run = false;
   s_state = SL_PICK_SCANNING;
   s_ap_count = 0;
+  s_ap_page = 0;
   s_rssi = RSSI_START;
   s_shared_rssi = RSSI_START;
 
@@ -502,9 +510,7 @@ void ui_wifi_signal_locator_open(void) {
 
   if (!s_pick_scanning) {
     s_pick_scanning = true;
-    if (xTaskCreatePinnedToCore(
-            ap_pick_task, "sig_pick", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL, SYS_CORE_RADIO) !=
-        pdPASS) {
+    if (wifi_live_scan_ui_open(SPI_WIFI_BAND_DUAL, ap_pick_task, NULL) != ESP_OK) {
       s_pick_scanning = false;
       s_state = SL_PICK_LIST;
       build_pick_list();

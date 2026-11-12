@@ -17,33 +17,18 @@ along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 # ESP SCAN — AP scan and heuristic priority
 
-For Highboy / High Boy, **Wi-Fi > ESP SCAN** now reuses the existing normal
-Wi-Fi AP scan. It does not invoke the dedicated monitor-mode Quick Scan backend,
-stop/restart normal Wi-Fi, hop channels itself, or repeat the scan to fill a
-30/45/60-second window. **Iniciar scan** triggers one normal scan; its actual
-runtime depends on the C5 driver and channel plan.
+For Highboy / High Boy, **Wi-Fi > ESP SCAN** uses the shared progressive AP
+scanner described in [Wi-Fi](README.md#progressive-ap-scanning-on-highboy).
+**Iniciar scan** opens a live AP list and keeps scanning until BACK. It does not
+invoke the dedicated monitor-mode Quick Scan backend.
 
 ## Architecture
 
-- P4 `Applications/wifi/wifi_scan_view.c` runs a background radio worker.
-- It calls the existing `spi_bridge_run_scan(SPI_ID_WIFI_APP_SCAN_AP,
-  SPI_ID_WIFI_SCAN_STATUS, NULL, 0)` used by the Wi-Fi applications.
-- C5's existing `scan_fn_app_ap()` uses `wifi_service_scan()`, then publishes
-  compact `spi_wifi_scan_record_t` AP records through the shared data pipe.
-- P4 validates count/record response lengths, copies BSSID/SSID/channel/RSSI,
-  reuses the Espressif entries of its existing `mac_vendor_get_name()` table,
-  and sorts by priority. A compact P4 build option omits other manufacturers
-  from this lookup to fit the original app slot; those names remain unknown.
-  The full table remains available when that build option is disabled.
-- `ui_wifi_esp_scan.c` renders the synchronized local records. LVGL never waits
-  on scan/SPI calls. It shows heuristic %, MAC/BSSID, SSID, OUI, manufacturer and
-  RSSI together on a dedicated result page.
-
-This uses the existing scan path and protocol IDs; no new AP discovery pass or
-new firmware protocol is required. The C5 remains the radio owner. If Wi-Fi is
-already active, this screen does not deliberately disconnect it or switch to
-NULL mode. The normal service may start Wi-Fi when it was disabled, as it does
-for the existing AP scan. Scanning still shares radio airtime with normal use.
+P4 `wifi_live_scan` requests individual channels from C5, merges records by BSSID
+and updates the shared live screen. On stop, `wifi_scan_view_load_live_results()`
+classifies the retained records using the existing Espressif OUI table and RSSI
+scoring. `ui_wifi_esp_scan.c` then displays the ranked result pages. LVGL never
+waits on SPI or radio calls. Both chips require the new channel-step commands.
 
 ## Priority and evidence
 
@@ -90,9 +75,8 @@ is offered in the screen filters.
 ## Screen flow and controls
 
 Only ESP SCAN receives a black background; no shared theme is changed. Its ready
-page has an **INICIAR SCAN** button. OK starts the existing AP scan and switches
-to the shared `waves_ui` animation. Completion opens a full-screen result instead
-of appending a list below the button.
+page has an **INICIAR SCAN** button. OK opens the shared live AP list. BACK stops discovery and opens the
+full-screen ranked results.
 
 Each result shows its SSID above a circular indicator filled according to the
 0–100 score, with a larger percentage centered inside. MAC, OUI, manufacturer
@@ -102,11 +86,10 @@ current result and filter. Empty filters show **Sem redes no filtro**.
 - LEFT/RIGHT browse results; DOWN also advances.
 - UP toggles ESP/Todos on the ready or result page, using cached records.
 - BACK from a result returns to the start page; BACK there returns to Wi-Fi.
-- BACK during scanning requests cancellation; another BACK can leave the screen
-  while the existing worker finishes cancellation.
+- BACK during scanning stops after the in-flight channel and retains results.
 
 Changing result or filter does not trigger another scan. Screen cleanup removes
-the refresh timer and the animation's LVGL objects. Layout uses the current
+the refresh timer and scan screen objects. Layout uses the current
 display dimensions when the page is built.
 
 ## Scope and cancellation
@@ -117,21 +100,11 @@ device can be absent. The ordinary scan does not enumerate every Wi-Fi client.
 It uses the normal active AP scan and may transmit probe requests; it does not
 send deauth or authenticate/connect to candidates for this classification.
 
-Cancel/BACK requests local cancellation. The existing shared scan helper remains
-in charge of the in-flight scan until it completes or times out; the UI does not
-stop the radio to abort it. Results are discarded on cancellation before fetching,
-or retained as a partial local list if cancellation occurs while reading records.
-A second UI worker cannot start until the previous worker exits. Generic scan
-results share the existing C5 data pipe with other applications: another client
-must not replace that result set while records are being read. The normal scan
-status reports completion, not a separate driver-error payload; consult C5
-`WIFI_SERVICE` logs when the existing scan itself fails.
-
-`wifi_scan_view_start(seconds)` retains the accepted legacy presets 30/45/60 for
-source compatibility, but the parameter no longer schedules a timed capture.
-The UI no longer offers duration selection. Errors from scan RPCs and malformed
-count/record responses are exposed to the UI, rather than treated as empty
-successful results.
+Cancel/BACK drains the current channel, preserves the collected APs and stops
+before advancing to another channel. A second worker cannot start until cleanup
+finishes. Transport failures are reported while retaining partial results.
+The legacy `wifi_scan_view_start(seconds)` one-shot API remains for headless
+callers; the screen uses `wifi_live_scan` instead.
 
 ## Legacy capture backend
 
@@ -146,6 +119,10 @@ data replies used here; corrupt, ambiguous and truncated replies remain rejected
 
 ## Verification
 
+Run `python3 tools/highboy/tests/test_wifi_live_scan.py` for the progressive
+scanner. The tests and build sizes below document earlier one-shot revisions;
+they are not validation of the current live UI on hardware.
+
 ```sh
 python3 tools/wifi_quick_scan/test_quick_scan.py
 python3 tools/highboy/test_preservation.py
@@ -159,8 +136,8 @@ Espressif/local-MAC classification, RSSI scoring, hidden SSIDs, scan/data errors
 malformed responses, cancellation, empty results and worker creation failure.
 The other ASan/UBSan groups still exercise the legacy capture core, proxy,
 controller, driver cleanup and SPI response recovery. They do not prove physical
-RF reception or full device behavior. This UI routing change needs only the
-updated P4 app when the C5 already supports the existing normal AP-scan commands.
+RF reception or full device behavior. The current UI routing needs
+matching P4 and C5 apps for progressive scanning.
 
 The AP-based P4 build passed on IDF v5.5.3 at **2,948,880 / 2,949,120 bytes**
 (240 bytes free). All six sanitizer test groups, all 34 preservation tests and

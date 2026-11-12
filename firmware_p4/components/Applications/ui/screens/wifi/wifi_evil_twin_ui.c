@@ -24,7 +24,7 @@
 #include "sys_prio.h"
 #include "lvgl.h"
 
-#include "ap_scanner.h"
+#include "wifi_live_scan_ui.h"
 #include "evil_twin.h"
 #include "menu_component_ui.h"
 #include "ui_chrome.h"
@@ -60,6 +60,7 @@ static et_state_t s_state = ET_SCANNING;
 static bool s_is_scanning = false;
 static bool s_is_scan_cued = false;
 static int s_ap_count = 0;
+static uint16_t s_ap_page;
 static char s_ap_ssids[ET_AP_MAX][ET_SSID_LEN];
 
 static char s_target_ssid[ET_SSID_LEN];
@@ -164,26 +165,27 @@ static void ap_scan_task(void *arg) {
   (void)arg;
 
   int n = 0;
-  if (ap_scanner_start()) {
-    uint16_t count = 0;
-    wifi_ap_record_t *recs = ap_scanner_get_results(&count);
-    if (recs != NULL) {
-      for (uint16_t i = 0; i < count && n < ET_AP_MAX; i++) {
-        // Cloning is by SSID, so skip hidden networks (masked as a placeholder).
-        if (recs[i].ssid[0] == '\0' || strcmp((const char *)recs[i].ssid, "[rede oculta]") == 0)
-          continue;
-        strncpy(s_ap_ssids[n], (const char *)recs[i].ssid, ET_SSID_LEN - 1);
-        s_ap_ssids[n][ET_SSID_LEN - 1] = '\0';
-        n++;
-      }
-    }
-    ap_scanner_free_results();
+  wifi_live_scan_status_t status;
+  wifi_live_scan_get_status(&status);
+  uint16_t count = status.count;
+  for (uint16_t i = s_ap_page * ET_AP_MAX;
+       i < count && i < (s_ap_page + 1) * ET_AP_MAX && n < ET_AP_MAX;
+       i++) {
+    wifi_ap_record_t record;
+    if (wifi_live_scan_get_record(i, &record) != ESP_OK)
+      continue;
+    // Cloning is by SSID, so skip hidden networks (masked as a placeholder).
+    if (record.ssid[0] == '\0' || strcmp((const char *)record.ssid, "[rede oculta]") == 0)
+      continue;
+    strncpy(s_ap_ssids[n], (const char *)record.ssid, ET_SSID_LEN - 1);
+    s_ap_ssids[n][ET_SSID_LEN - 1] = '\0';
+    n++;
   }
 
   s_ap_count = n;
   s_is_scanning = false;
-  ui_async_call(scan_done_cb, NULL);
-  vTaskDelete(NULL);
+  scan_done_cb(NULL);
+  menu_component_set_hint(&s_menu, "LEFT/RIGHT page | OK select | BACK");
 }
 
 static void password_ready_cb(void *unused) {
@@ -266,8 +268,13 @@ static void wifi_evil_twin_input(const input_event_t *ev, void *ctx) {
         ui_switch_screen(SCREEN_WIFI_MENU);
       }
       break;
-    case INPUT_BTN_OK:
+    case INPUT_BTN_LEFT:
     case INPUT_BTN_RIGHT:
+      if (press && s_state == ET_PICK &&
+          wifi_live_scan_ui_change_page(&s_ap_page, ET_AP_MAX, ev->button == INPUT_BTN_RIGHT))
+        ap_scan_task(NULL);
+      break;
+    case INPUT_BTN_OK:
       if (press && s_state == ET_PICK && s_ap_count > 0)
         start_attack_selected();
       break;
@@ -277,27 +284,24 @@ static void wifi_evil_twin_input(const input_event_t *ev, void *ctx) {
 }
 
 void ui_wifi_evil_twin_open(void) {
+  s_is_scanning = false;
   if (s_is_attacking)
     s_is_stop_requested = true;
 
   s_state = ET_SCANNING;
   s_ap_count = 0;
+  s_ap_page = 0;
   s_is_scan_cued = false;
   s_is_captured = false;
   build_screen();
 
   if (!s_is_scanning) {
     s_is_scanning = true;
-    if (xTaskCreatePinnedToCore(ap_scan_task,
-                                "et_ap_scan",
-                                TASK_STACK_SIZE,
-                                NULL,
-                                TASK_PRIORITY,
-                                NULL,
-                                SYS_CORE_RADIO) != pdPASS) {
+    if (wifi_live_scan_ui_open(SPI_WIFI_BAND_DUAL, ap_scan_task, NULL) != ESP_OK) {
       s_is_scanning = false;
       s_state = ET_PICK;
       s_ap_count = 0;
+      s_ap_page = 0;
       build_screen();
     }
   }

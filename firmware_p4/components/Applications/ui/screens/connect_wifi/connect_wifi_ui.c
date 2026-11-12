@@ -34,6 +34,7 @@
 #include "ui_theme.h"
 #include "waves_ui.h"
 #include "wifi_service.h"
+#include "wifi_live_scan_ui.h"
 
 static const char *TAG = "CONNECT_WIFI_UI";
 
@@ -86,6 +87,7 @@ static menu_component_t s_menu;
 
 static scan_state_t s_scan_state = SCAN_RUNNING;
 static bool s_scanning = false;
+static uint16_t s_ap_page;
 static int s_ap_count = 0;
 static ap_entry_t s_aps[WIFI_MAX_APS];
 
@@ -281,9 +283,7 @@ static void build_join_list(void) {
   }
 
   apply_net_selection();
-  ui_chrome_footer(s_screen,
-                   LV_SYMBOL_UP LV_SYMBOL_DOWN " Pick  " LV_SYMBOL_OK " Join  " LV_SYMBOL_LEFT
-                                               " Back");
+  ui_chrome_footer(s_screen, "UP/DOWN pick | LEFT/RIGHT page | OK join");
 }
 
 static void build_screen(void) {
@@ -341,12 +341,15 @@ static void wifi_scan_task(void *arg) {
   (void)arg;
   int count = 0;
 
-  esp_err_t scan_err = wifi_service_scan();
-  if (scan_err == ESP_OK) {
-    uint16_t total = wifi_service_get_ap_count();
-    for (uint16_t i = 0; i < total && count < WIFI_MAX_APS; i++) {
-      const wifi_ap_record_t *ap = wifi_service_get_ap_record(i);
-      if (ap == NULL)
+  wifi_live_scan_status_t status;
+  wifi_live_scan_get_status(&status);
+  esp_err_t scan_err = status.error;
+  if (scan_err == ESP_OK || status.count > 0) {
+    uint16_t total = status.count;
+    for (uint16_t i = s_ap_page * WIFI_MAX_APS; i < total && count < WIFI_MAX_APS; i++) {
+      wifi_ap_record_t record;
+      const wifi_ap_record_t *ap = &record;
+      if (wifi_live_scan_get_record(i, &record) != ESP_OK)
         continue;
       strncpy(s_aps[count].ssid, (const char *)ap->ssid, sizeof(s_aps[count].ssid) - 1);
       s_aps[count].ssid[sizeof(s_aps[count].ssid) - 1] = '\0';
@@ -365,11 +368,11 @@ static void wifi_scan_task(void *arg) {
     }
   }
 
+  s_sel = 0;
   s_ap_count = count;
-  s_scan_state = (scan_err == ESP_OK) ? SCAN_DONE : SCAN_FAIL;
+  s_scan_state = (scan_err == ESP_OK || count > 0) ? SCAN_DONE : SCAN_FAIL;
   s_scanning = false;
-  ui_async_call(scan_done_cb, NULL);
-  vTaskDelete(NULL);
+  scan_done_cb(NULL);
 }
 
 static void connect_wifi_input(const input_event_t *ev, void *ctx) {
@@ -403,8 +406,13 @@ static void connect_wifi_input(const input_event_t *ev, void *ctx) {
       if (press)
         ui_switch_screen(SCREEN_CONNECTION_SETTINGS);
       break;
-    case INPUT_BTN_OK:
+    case INPUT_BTN_LEFT:
     case INPUT_BTN_RIGHT:
+      if (press && !s_scanning &&
+          wifi_live_scan_ui_change_page(&s_ap_page, WIFI_MAX_APS, ev->button == INPUT_BTN_RIGHT))
+        wifi_scan_task(NULL);
+      break;
+    case INPUT_BTN_OK:
       if (press && join && s_sel >= 0 && s_sel < s_ap_count) {
         strncpy(s_connect_ssid, s_aps[s_sel].ssid, sizeof(s_connect_ssid) - 1);
         s_connect_ssid[sizeof(s_connect_ssid) - 1] = '\0';
@@ -420,20 +428,16 @@ static void connect_wifi_input(const input_event_t *ev, void *ctx) {
 }
 
 void ui_connect_wifi_open(void) {
+  s_scanning = false;
   s_scan_state = SCAN_RUNNING;
   s_ap_count = 0;
+  s_ap_page = 0;
   s_sel = 0;
   build_screen();
 
   if (!s_scanning) {
     s_scanning = true;
-    if (xTaskCreatePinnedToCore(wifi_scan_task,
-                                "wifi_scan",
-                                WIFI_TASK_STACK_SIZE,
-                                NULL,
-                                SYS_PRIO_SERVICE_LO,
-                                NULL,
-                                SYS_CORE_RADIO) != pdPASS) {
+    if (wifi_live_scan_ui_open(SPI_WIFI_BAND_DUAL, wifi_scan_task, NULL) != ESP_OK) {
       s_scanning = false;
       s_scan_state = SCAN_FAIL;
       build_screen();

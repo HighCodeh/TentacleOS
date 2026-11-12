@@ -322,6 +322,10 @@ typedef enum {
   SPI_ID_WIFI_QUICK_STOP = SPI_CMD(SPI_CAT_WIFI, 0x53),
   SPI_ID_WIFI_QUICK_RECORD = SPI_CMD(SPI_CAT_WIFI, 0x54),
   SPI_ID_WIFI_QUICK_WHITELIST = SPI_CMD(SPI_CAT_WIFI, 0x55),
+  SPI_ID_WIFI_SCAN_STEP = SPI_CMD(SPI_CAT_WIFI, 0x56), // [bitmap slot u8], async
+  SPI_ID_WIFI_SCAN_STEP_STATUS = SPI_CMD(SPI_CAT_WIFI, 0x57),
+  SPI_ID_WIFI_SCAN_STEP_RECORD = SPI_CMD(SPI_CAT_WIFI, 0x58), // [index u16]
+
   SPI_ID_WIFI_EVIL_TWIN_TMPL_BEGIN = SPI_CMD(SPI_CAT_WIFI, 0xA0),
   SPI_ID_WIFI_EVIL_TWIN_TMPL_CHUNK = SPI_CMD(SPI_CAT_WIFI, 0xA1),
 
@@ -1084,6 +1088,16 @@ typedef struct {
 #define SPI_WIFI_BAND_DUAL 0u
 #define SPI_WIFI_BAND_2G   1u
 #define SPI_WIFI_BAND_5G   2u
+
+#define SPI_WIFI_SCAN_2G_SLOTS   14u
+#define SPI_WIFI_SCAN_5G_SLOTS   28u
+#define SPI_WIFI_SCAN_SLOT_COUNT (SPI_WIFI_SCAN_2G_SLOTS + SPI_WIFI_SCAN_5G_SLOTS)
+
+typedef struct {
+  uint32_t error;
+  uint16_t count;
+  uint8_t busy;
+} __attribute__((packed)) spi_wifi_scan_step_status_t;
 
 /**
  * Optional payload for SPI_ID_WIFI_SCAN. Older callers may send no payload,

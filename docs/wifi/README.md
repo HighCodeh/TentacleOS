@@ -17,7 +17,46 @@ along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 # Wi-Fi service
 
-The [ESP SCAN screen](quick_scan.md) reuses the existing normal AP scan and MAC
+## Progressive AP scanning on Highboy
+
+AP discovery screens use `wifi_live_scan` and the shared `wifi_live_scan_ui`:
+connection settings, Survey, ESP Scan, channel analysis and AP selection for
+signal locator, target clients, attack selection and Evil Twin. Discovery runs
+continuously by default. APs appear after each channel completes, with a 200 ms
+UI refresh; this is channel-by-channel publication, not a callback per beacon.
+UP/DOWN browses the growing list. BACK stops scanning and retains the discovered
+APs in the original results/selection screen. BACK there follows that screen's
+normal navigation. LEFT/RIGHT pages through AP selection lists. Survey retains
+its explicitly selected single-sweep and timed modes.
+
+The radio worker runs on core 0; all LVGL updates run on the UI thread. Results
+are deduplicated by BSSID, with up to 128 records and RSSI observations in PSRAM.
+Insertion order stays stable during discovery, and hidden beacons cannot erase
+a previously discovered SSID. At capacity, existing records still update. A
+stopped snapshot is saved through the existing SD-only AP JSON persistence path.
+
+C5 scans one channel per asynchronous request with 120 ms dwell: active on 2.4 GHz,
+passive on 5 GHz, subject to the driver's country/channel restrictions. The paired
+v2 SPI headers add Wi-Fi operations `0x56` (start slot), `0x57` (busy/error/count)
+and `0x58` (indexed record). C5 keeps a dedicated completed-channel snapshot;
+P4 validates response sizes and merges it before advancing. Cancellation drains
+the in-flight channel, then stops; failures preserve already collected records.
+A new session is rejected until the old worker has finished. Legacy console
+one-shot scans and monitor-mode capture remain separate.
+
+**Both P4 and C5 applications must be updated for this interface.** P4 alone
+cannot enable progressive discovery on an older C5. No flash is performed by
+building either target.
+
+Validation: `python3 tools/highboy/tests/test_wifi_live_scan.py` runs the production
+P4 worker and C5 channel function with host mocks and sanitizers, including stop,
+reentry, malformed replies, capacity, deduplication, statistics and band restore.
+On hardware, check each screen in both orientations: APs arrive while scanning,
+BACK retains selectable results, another BACK exits, and repeated entry/exit
+leaves no scanner running. Verify both bands and connection after stopping.
+
+
+The [ESP SCAN screen](quick_scan.md) uses progressive AP discovery and MAC
 vendor table, ranking BSSID/OUI/RSSI snapshots locally on P4. It does not invoke
 the separate headless monitor-mode capture backend.
 

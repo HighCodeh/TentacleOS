@@ -135,13 +135,16 @@ bool spi_bridge_async_scan_start(void (*fn)(void)) {
     return false;
   }
   if (s_scan_runner == NULL) {
-    xTaskCreatePinnedToCore(scan_runner_task,
-                            "scan_runner",
-                            4096,
-                            NULL,
-                            SYS_PRIO_SERVICE_HI,
-                            &s_scan_runner,
-                            SYS_CORE_MAIN);
+    if (xTaskCreatePinnedToCore(scan_runner_task,
+                                "scan_runner",
+                                4096,
+                                NULL,
+                                SYS_PRIO_SERVICE_HI,
+                                &s_scan_runner,
+                                SYS_CORE_MAIN) != pdPASS) {
+      ESP_LOGE(TAG, "Failed to allocate scan runner");
+      return false;
+    }
   }
   s_scan_fn = fn;
   s_scan_busy = true;
