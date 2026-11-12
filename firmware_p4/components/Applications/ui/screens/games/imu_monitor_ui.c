@@ -14,209 +14,324 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "imu_monitor_ui.h"
-
-#include "esp_err.h"
+#include "imu_motion.h"
+#include "imu_highboy_mesh.h"
+#include "esp_log.h"
+#include "esp_timer.h"
+#include "esp_heap_caps.h"
 #include "lvgl.h"
-
-#include "qmi8658a.h"
+#include "power_policy.h"
 #include "ui_chrome.h"
-#include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
-
-#define SAMPLE_MS 100
-
-#define HDR_TITLE "MOTION / IMU"
-#define HDR_ICON  "/assets/icons/sensors.bin"
-
-static const uint8_t ODR_BITS[] = {8, 7, 6, 5};
-static const char *const ODR_NAMES[] = {"28 Hz", "56 Hz", "112 Hz", "224 Hz"};
-#define ODR_COUNT 4
-
-static lv_obj_t *s_screen;
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#define FRAME_MS        33
+#define TEXT_MS         200
+#define STALE_US        500000
+#define VIEW_WIDTH      228
+#define VIEW_HEIGHT     178
+#define MODEL_SCALE     73.0f
+#define CAMERA_DISTANCE 4.0f
+#define MESH_UNITS      1000.0f
+#define AXIS_SIZE       19.0f
+static lv_obj_t *s_screen, *s_view, *s_status, *s_values, *s_hint;
 static lv_timer_t *s_timer;
-static lv_obj_t *s_status;
-static lv_obj_t *s_rate;
-static lv_obj_t *s_accel[3];
-static lv_obj_t *s_gyro[3];
-static lv_obj_t *s_temp;
+static bool s_data_view, s_running;
+static uint32_t s_text_tick;
+static float s_xyz[IMU_MESH_VERTICES][3];
+static lv_point_precise_t s_projected[IMU_MESH_VERTICES];
+static uint16_t *s_pixels, *s_depth;
+static imu_mesh_t *s_mesh;
+static const char *TAG = "IMU3D";
+static float s_camera[9];
+static imu_motion_snapshot_t s_sample;
+#define DEPTH_SCALE 50000.0f
+_Static_assert(sizeof(imu_mesh_face_t) == 8, "IMU mesh face ABI");
+#define VIEW_PIXELS (VIEW_WIDTH * VIEW_HEIGHT)
 
-static qmi8658a_sample_t s_last;
-static bool s_have_sample;
-static float s_accel_zero[3];
-static float s_gyro_zero[3];
-static int s_odr_idx = 2;
-
-static lv_obj_t *make_card(int y, int h, const char *title) {
-  lv_obj_t *card = lv_obj_create(s_screen);
-  lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(card, 224, h);
-  lv_obj_align(card, LV_ALIGN_TOP_MID, 0, y);
-  lv_obj_set_style_radius(card, 10, 0);
-  lv_obj_set_style_bg_color(card, current_theme.bg_secondary, 0);
-  lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_color(card, current_theme.border_accent, 0);
-  lv_obj_set_style_border_width(card, 1, 0);
-  lv_obj_set_style_pad_all(card, 8, 0);
-
-  lv_obj_t *label = lv_label_create(card);
-  lv_label_set_text(label, title);
-  lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(label, current_theme.border_accent, 0);
-  lv_obj_align(label, LV_ALIGN_TOP_LEFT, 0, 0);
-  return card;
-}
-
-static lv_obj_t *make_value(lv_obj_t *card, int x, int y) {
-  lv_obj_t *label = lv_label_create(card);
-  lv_label_set_text(label, "--");
-  lv_obj_set_width(label, 66);
-  lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_LEFT, 0);
-  lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(label, current_theme.text_main, 0);
-  lv_obj_align(label, LV_ALIGN_TOP_LEFT, x, y);
-  return label;
-}
-
-static void show_error(esp_err_t err) {
-  if (s_status == NULL)
-    return;
-  if (err == ESP_ERR_NOT_FOUND)
-    lv_label_set_text(s_status, "QMI8658A NOT DETECTED");
-  else
-    lv_label_set_text_fmt(s_status, "IMU ERROR 0x%X", (unsigned)err);
-  lv_obj_set_style_text_color(s_status, lv_color_hex(0xFF5470), 0);
-}
-
-static void refresh_sample(void) {
-  qmi8658a_sample_t sample;
-  esp_err_t err = qmi8658a_read(&sample);
-  if (err != ESP_OK) {
-    show_error(err);
-    return;
+static bool load_model(void) {
+  FILE *file = fopen(IMU_MESH_PATH, "rb");
+  if (file == NULL)
+    return false;
+  uint32_t header[4];
+  bool valid = fread(header, sizeof(header), 1, file) == 1 && header[0] == IMU_MESH_MAGIC &&
+               header[1] == IMU_MESH_VERTICES && header[2] == IMU_MESH_FACES &&
+               header[3] == IMU_MESH_COLORS &&
+               fread(s_mesh->vertices, sizeof(s_mesh->vertices), 1, file) == 1 &&
+               fread(s_mesh->faces, sizeof(s_mesh->faces), 1, file) == 1 &&
+               fread(s_mesh->palette, sizeof(s_mesh->palette), 1, file) == 1 &&
+               fgetc(file) == EOF && !ferror(file);
+  fclose(file);
+  for (unsigned i = 0; valid && i < IMU_MESH_VERTICES; i++)
+    for (unsigned j = 0; j < 3; j++)
+      if (s_mesh->vertices[i][j] < -IMU_MESH_COORD_LIMIT ||
+          s_mesh->vertices[i][j] > IMU_MESH_COORD_LIMIT)
+        valid = false;
+  for (unsigned i = 0; valid && i < IMU_MESH_FACES; i++) {
+    const imu_mesh_face_t *face = &s_mesh->faces[i];
+    valid = face->a < IMU_MESH_VERTICES && face->b < IMU_MESH_VERTICES &&
+            face->c < IMU_MESH_VERTICES && face->material < IMU_MESH_COLORS;
   }
-  s_last = sample;
-  s_have_sample = true;
-
-  lv_label_set_text_fmt(s_accel[0], "X %+1.3f g", sample.accel_g[0] - s_accel_zero[0]);
-  lv_label_set_text_fmt(s_accel[1], "Y %+1.3f g", sample.accel_g[1] - s_accel_zero[1]);
-  lv_label_set_text_fmt(s_accel[2], "Z %+1.3f g", sample.accel_g[2] - s_accel_zero[2]);
-  lv_label_set_text_fmt(s_gyro[0], "X %+1.1f", sample.gyro_dps[0] - s_gyro_zero[0]);
-  lv_label_set_text_fmt(s_gyro[1], "Y %+1.1f", sample.gyro_dps[1] - s_gyro_zero[1]);
-  lv_label_set_text_fmt(s_gyro[2], "Z %+1.1f", sample.gyro_dps[2] - s_gyro_zero[2]);
-  lv_label_set_text_fmt(s_temp, "DIE  %.1f C", sample.temperature_c);
-  lv_label_set_text_fmt(s_status,
-                        "LIVE ID 05 REV %02X %s",
-                        qmi8658a_revision(),
-                        (sample.status & 0x03) == 0x03 ? "DRDY" : "WAIT");
-  lv_obj_set_style_text_color(s_status, lv_color_hex(0x37E0A8), 0);
+  return valid;
 }
 
-static void sample_timer_cb(lv_timer_t *timer) {
+static void raster_triangle(const imu_mesh_face_t *f, uint16_t color) {
+  lv_point_precise_t a = s_projected[f->a], b = s_projected[f->b], c = s_projected[f->c];
+  float determinant = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
+  if (fabsf(determinant) < 0.01f)
+    return;
+  int left = fmaxf(0, floorf(fminf(a.x, fminf(b.x, c.x))));
+  int right = fminf(VIEW_WIDTH - 1, ceilf(fmaxf(a.x, fmaxf(b.x, c.x))));
+  int top = fmaxf(0, floorf(fminf(a.y, fminf(b.y, c.y))));
+  int bottom = fminf(VIEW_HEIGHT - 1, ceilf(fmaxf(a.y, fmaxf(b.y, c.y))));
+  float da = DEPTH_SCALE / (CAMERA_DISTANCE - s_xyz[f->a][2]);
+  float db = DEPTH_SCALE / (CAMERA_DISTANCE - s_xyz[f->b][2]);
+  float dc = DEPTH_SCALE / (CAMERA_DISTANCE - s_xyz[f->c][2]);
+  float dx_a = (b.y - c.y) / determinant, dx_b = (c.y - a.y) / determinant;
+  for (int y = top; y <= bottom; ++y) {
+    float wa = ((b.y - c.y) * (left + 0.5f - c.x) + (c.x - b.x) * (y + 0.5f - c.y)) / determinant;
+    float wb = ((c.y - a.y) * (left + 0.5f - c.x) + (a.x - c.x) * (y + 0.5f - c.y)) / determinant;
+    for (int x = left; x <= right; ++x, wa += dx_a, wb += dx_b) {
+      float wc = 1 - wa - wb;
+      if (wa >= -0.0001f && wb >= -0.0001f && wc >= -0.0001f) {
+        uint16_t depth = (uint16_t)(wa * da + wb * db + wc * dc);
+        unsigned pos = y * VIEW_WIDTH + x;
+        if (depth >= s_depth[pos]) {
+          s_depth[pos] = depth;
+          s_pixels[pos] = color;
+        }
+      }
+    }
+  }
+}
+static void prepare_model(void) {
+  /* Fixed camera tilt makes the housing thickness visible at the neutral pose. */
+  static const float view[9] = {
+      .939693f, -.071110f, -.334546f, 0, .978148f, -.207912f, .342020f, .195373f, .919158f};
+  for (int row = 0; row < 3; ++row)
+    for (int col = 0; col < 3; ++col) {
+      s_camera[row * 3 + col] = 0;
+      for (int k = 0; k < 3; ++k)
+        s_camera[row * 3 + col] += view[row * 3 + k] * s_sample.matrix[k * 3 + col];
+    }
+  for (unsigned i = 0; i < IMU_MESH_VERTICES; ++i) {
+    for (int row = 0; row < 3; ++row) {
+      s_xyz[i][row] = 0;
+      for (int col = 0; col < 3; ++col)
+        s_xyz[i][row] += s_camera[row * 3 + col] * s_mesh->vertices[i][col] / MESH_UNITS;
+    }
+    float perspective = CAMERA_DISTANCE / (CAMERA_DISTANCE - s_xyz[i][2]);
+    s_projected[i].x = VIEW_WIDTH / 2 + s_xyz[i][0] * MODEL_SCALE * perspective;
+    s_projected[i].y = VIEW_HEIGHT / 2 - s_xyz[i][1] * MODEL_SCALE * perspective;
+  }
+  memset(s_depth, 0, VIEW_PIXELS * sizeof(*s_depth));
+  for (unsigned i = 0; i < VIEW_PIXELS; ++i)
+    s_pixels[i] = 0x0863;
+  for (unsigned i = 0; i < IMU_MESH_FACES; ++i) {
+    const imu_mesh_face_t *f = &s_mesh->faces[i];
+    float *a = s_xyz[f->a], *b = s_xyz[f->b], *c = s_xyz[f->c];
+    float ab[3], ac[3], normal[3];
+    for (int k = 0; k < 3; ++k) {
+      ab[k] = b[k] - a[k];
+      ac[k] = c[k] - a[k];
+    }
+    for (int k = 0; k < 3; ++k)
+      normal[k] = ab[(k + 1) % 3] * ac[(k + 2) % 3] - ab[(k + 2) % 3] * ac[(k + 1) % 3];
+    if (normal[0] * -a[0] + normal[1] * -a[1] + normal[2] * (CAMERA_DISTANCE - a[2]) <= 0)
+      continue;
+    float length = sqrtf(normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]);
+    if (length < 0.000001f)
+      continue;
+    float light = fmaxf(0, (normal[0] * -.3f + normal[1] * .4f + normal[2] * .866f) / length);
+    float shade = .38f + .62f * light;
+    uint32_t color = s_mesh->palette[f->material];
+    if (f->material == 4)
+      shade = 1;
+    uint8_t red = ((color >> 16) & 255) * shade, green = ((color >> 8) & 255) * shade,
+            blue = (color & 255) * shade;
+    raster_triangle(f, ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3));
+  }
+}
+static void draw(lv_event_t *event) {
+  if (!s_running || s_data_view || !s_mesh)
+    return;
+  lv_layer_t *layer = lv_event_get_layer(event);
+  lv_area_t area;
+  lv_obj_get_coords(s_view, &area);
+  static const uint32_t colors[3] = {0xFF6D88, 0x59E2B4, 0x6CAFFF};
+  lv_draw_line_dsc_t line;
+  lv_draw_line_dsc_init(&line);
+  line.width = 2;
+  line.opa = LV_OPA_COVER;
+  for (int i = 0; i < 3; ++i) {
+    line.color = lv_color_hex(colors[i]);
+    line.p1.x = area.x1 + VIEW_WIDTH - 28;
+    line.p1.y = area.y2 - 24;
+    line.p2.x = line.p1.x + AXIS_SIZE * s_camera[i];
+    line.p2.y = line.p1.y - AXIS_SIZE * s_camera[3 + i];
+    lv_draw_line(layer, &line);
+  }
+}
+static void refresh(lv_timer_t *timer) {
   (void)timer;
-  if (lv_screen_active() == s_screen)
-    refresh_sample();
-}
-
-static void screen_delete_cb(lv_event_t *event) {
-  (void)event;
-  if (s_timer != NULL) {
-    lv_timer_delete(s_timer);
-    s_timer = NULL;
-  }
-  (void)qmi8658a_stop();
-  s_screen = NULL;
-}
-
-static void imu_input(const input_event_t *event, void *ctx) {
-  (void)ctx;
-  if (event->action != INPUT_ACTION_PRESS)
+  if (!s_running || lv_screen_active() != s_screen)
     return;
-  switch (event->button) {
-    case INPUT_BTN_BACK:
-      ui_switch_screen(SCREEN_SETTINGS);
-      break;
-    case INPUT_BTN_OK:
-      if (s_have_sample) {
-        s_accel_zero[0] = s_last.accel_g[0];
-        s_accel_zero[1] = s_last.accel_g[1];
-        s_accel_zero[2] = s_last.accel_g[2] - (s_last.accel_g[2] >= 0.0f ? 1.0f : -1.0f);
-        for (int i = 0; i < 3; i++)
-          s_gyro_zero[i] = s_last.gyro_dps[i];
-        ui_feedback(UI_FB_SELECT);
-        refresh_sample();
-      }
-      break;
-    case INPUT_BTN_RIGHT:
-      s_odr_idx = (s_odr_idx + 1) % ODR_COUNT;
-      if (qmi8658a_set_odr(ODR_BITS[s_odr_idx]) == ESP_OK) {
-        lv_label_set_text(s_rate, ODR_NAMES[s_odr_idx]);
-        ui_feedback(UI_FB_NAV);
-      }
-      break;
-    default:
-      break;
+  imu_motion_snapshot(&s_sample);
+  if (!s_data_view && s_pixels && s_depth) {
+    prepare_model();
+    lv_obj_invalidate(s_view);
+  }
+  uint32_t now = lv_tick_get();
+  if (now - s_text_tick < TEXT_MS)
+    return;
+  s_text_tick = now;
+  bool stale = s_sample.sample_us && esp_timer_get_time() - s_sample.sample_us > STALE_US;
+  char text[240];
+  if (s_sample.error)
+    snprintf(text, sizeof(text), "SENSOR ERROR 0x%X", (unsigned)s_sample.error);
+  else if (stale)
+    snprintf(text, sizeof(text), "NO FRESH DATA / PAUSED");
+  else if (!s_sample.sample_us)
+    snprintf(text, sizeof(text), "SENSOR WARMING UP...");
+  else if (s_sample.zeroing)
+    snprintf(text, sizeof(text), "HOLD STILL  %lu/160", (unsigned long)s_sample.zero_count);
+  else
+    snprintf(text, sizeof(text), "LIVE  %.0f Hz  |  RELATIVE", s_sample.rate_hz);
+  lv_label_set_text(s_status, text);
+  lv_obj_set_style_text_color(
+      s_status, (stale || s_sample.error) ? lv_color_hex(0xFF6D88) : lv_color_hex(0x59E2B4), 0);
+  if (s_data_view) {
+    snprintf(text,
+             sizeof(text),
+             "ACCELERATION  g\nX %+.3f   Y %+.3f\nZ %+.3f\n\nGYROSCOPE  deg/s\nX %+.2f   Y "
+             "%+.2f\nZ %+.2f\n\nDIE %.1f C   ERR %lu",
+             s_sample.accel[0],
+             s_sample.accel[1],
+             s_sample.accel[2],
+             s_sample.gyro[0],
+             s_sample.gyro[1],
+             s_sample.gyro[2],
+             s_sample.temperature,
+             (unsigned long)s_sample.errors);
+    lv_label_set_text(s_values, text);
+  } else {
+    snprintf(text,
+             sizeof(text),
+             "X %+.0f    Y %+.0f    Z %+.0f",
+             s_sample.angles[0],
+             s_sample.angles[1],
+             s_sample.angles[2]);
+    lv_label_set_text(s_values, text);
   }
 }
-
-void ui_imu_monitor_open(void) {
-  if (s_timer != NULL) {
+void ui_imu_monitor_stop(void) {
+  s_running = false;
+  if (s_timer) {
     lv_timer_delete(s_timer);
     s_timer = NULL;
   }
-  if (s_screen != NULL) {
-    lv_obj_del(s_screen);
-    s_screen = NULL;
+  if (s_screen)
+    power_policy_set_display_hold(s_screen, false);
+  esp_err_t err = imu_motion_stop();
+  if (err != ESP_OK)
+    ESP_LOGW("IMU3D", "Stop: %s", esp_err_to_name(err));
+}
+static void deleted(lv_event_t *event) {
+  if (lv_event_get_target(event) != s_screen)
+    return;
+  ui_imu_monitor_stop();
+  free(s_pixels);
+  free(s_depth);
+  free(s_mesh);
+  s_mesh = NULL;
+  s_pixels = s_depth = NULL;
+  s_screen = s_view = s_status = s_values = s_hint = NULL;
+}
+static void input(const input_event_t *event, void *context) {
+  (void)context;
+  if (!s_running || event->action != INPUT_ACTION_PRESS)
+    return;
+  if (event->button == INPUT_BTN_BACK)
+    ui_switch_screen(SCREEN_SETTINGS);
+  else if (event->button == INPUT_BTN_OK)
+    imu_motion_request(false);
+  else if (event->button == INPUT_BTN_UP)
+    imu_motion_request(true);
+  else if (event->button == INPUT_BTN_RIGHT) {
+    s_data_view = !s_data_view;
+    lv_obj_set_pos(s_values, s_data_view ? 18 : 8, s_data_view ? 78 : 248);
+    lv_obj_set_width(s_values, s_data_view ? 204 : 224);
+    lv_label_set_text(s_values, "");
+    if (s_data_view)
+      lv_obj_add_flag(s_view, LV_OBJ_FLAG_HIDDEN);
+    else
+      lv_obj_remove_flag(s_view, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_invalidate(s_screen);
+    s_text_tick = lv_tick_get() - TEXT_MS;
   }
-  s_have_sample = false;
-  for (int i = 0; i < 3; i++) {
-    s_accel_zero[i] = 0.0f;
-    s_gyro_zero[i] = 0.0f;
-  }
-
+}
+static lv_obj_t *label(int y, const char *text, lv_color_t color) {
+  lv_obj_t *obj = lv_label_create(s_screen);
+  lv_obj_set_width(obj, 224);
+  lv_obj_set_pos(obj, 8, y);
+  lv_obj_set_style_text_font(obj, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(obj, color, 0);
+  lv_label_set_text(obj, text);
+  return obj;
+}
+void ui_imu_monitor_log(void) {
+  imu_motion_log();
+}
+void ui_imu_monitor_open(void) {
+  ui_imu_monitor_stop();
+  if (s_screen)
+    lv_obj_delete(s_screen);
+  s_data_view = false;
+  s_text_tick = 0;
   s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
   lv_obj_set_style_pad_all(s_screen, 0, 0);
-  lv_obj_add_event_cb(s_screen, screen_delete_cb, LV_EVENT_DELETE, NULL);
-
-  ui_chrome_header(s_screen, HDR_TITLE, HDR_ICON);
-
-  s_status = lv_label_create(s_screen);
-  lv_label_set_text(s_status, "PROBING QMI8658A...");
-  lv_obj_set_style_text_font(s_status, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(s_status, current_theme.text_secondary, 0);
-  lv_obj_align(s_status, LV_ALIGN_TOP_LEFT, 8, 48);
-
-  s_rate = lv_label_create(s_screen);
-  lv_label_set_text(s_rate, ODR_NAMES[s_odr_idx]);
-  lv_obj_set_style_text_font(s_rate, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(s_rate, current_theme.border_accent, 0);
-  lv_obj_align(s_rate, LV_ALIGN_TOP_RIGHT, -8, 48);
-
-  lv_obj_t *accel = make_card(70, 78, "ACCELEROMETER");
-  lv_obj_t *gyro = make_card(155, 78, "GYROSCOPE  dps");
-  for (int i = 0; i < 3; i++) {
-    s_accel[i] = make_value(accel, i * 69, 30);
-    s_gyro[i] = make_value(gyro, i * 69, 30);
+  lv_obj_set_style_border_width(s_screen, 0, 0);
+  lv_obj_set_style_bg_color(s_screen, lv_color_hex(0x080D18), 0);
+  lv_obj_add_event_cb(s_screen, deleted, LV_EVENT_DELETE, NULL);
+  ui_chrome_header(s_screen, "HIGH BOY / 3D", "/assets/icons/sensors.bin");
+  s_status = label(49, "SENSOR WARMING UP...", lv_color_hex(0x59E2B4));
+  s_view = lv_canvas_create(s_screen);
+  lv_obj_remove_style_all(s_view);
+  s_pixels = heap_caps_malloc(VIEW_PIXELS * sizeof(*s_pixels), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  s_depth = heap_caps_malloc(VIEW_PIXELS * sizeof(*s_depth), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (s_pixels) {
+    for (unsigned i = 0; i < VIEW_PIXELS; ++i)
+      s_pixels[i] = 0x0863;
+    lv_canvas_set_buffer(s_view, s_pixels, VIEW_WIDTH, VIEW_HEIGHT, LV_COLOR_FORMAT_RGB565);
   }
-
-  lv_obj_t *temp_card = make_card(240, 38, "");
-  s_temp = make_value(temp_card, 0, 3);
-  lv_obj_set_width(s_temp, 180);
-
-  ui_chrome_footer(s_screen, "OK Zero   RIGHT Rate   BACK");
-  ui_input_set_screen_handler(imu_input, NULL);
+  lv_obj_set_size(s_view, VIEW_WIDTH, VIEW_HEIGHT);
+  lv_obj_set_pos(s_view, 6, 66);
+  lv_obj_remove_flag(s_view, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_event_cb(s_view, draw, LV_EVENT_DRAW_MAIN, NULL);
+  s_values = label(248, "X --    Y --    Z --", lv_color_hex(0xE1E7F2));
+  s_hint = label(273, "UP Calibrate   RIGHT Data / 3D", lv_color_hex(0x99A9C4));
+  ui_chrome_footer(s_screen, "OK Center     BACK Exit");
+  ui_input_set_screen_handler(input, NULL);
   ui_screen_load_owned(&s_screen, s_screen);
-
-  esp_err_t err = qmi8658a_start();
-  if (err == ESP_OK) {
-    (void)qmi8658a_set_odr(ODR_BITS[s_odr_idx]);
-    refresh_sample();
-    s_timer = lv_timer_create(sample_timer_cb, SAMPLE_MS, NULL);
-  } else {
-    show_error(err);
+  power_policy_set_display_hold(s_screen, true);
+  s_running = true;
+  s_mesh = heap_caps_malloc(sizeof(*s_mesh), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!s_pixels || !s_depth || !s_mesh) {
+    ESP_LOGE(TAG, "IMU view allocation failed");
+    lv_label_set_text(s_status, "NOT ENOUGH MEMORY");
+    return;
   }
+  if (!load_model()) {
+    ESP_LOGE(TAG, "IMU model missing or invalid");
+    lv_label_set_text(s_status, "MODEL FILE MISSING / INVALID");
+    return;
+  }
+  esp_err_t err = imu_motion_start();
+  if (err != ESP_OK)
+    lv_label_set_text(s_status, "SENSOR COULD NOT START");
+  s_timer = lv_timer_create(refresh, FRAME_MS, NULL);
 }

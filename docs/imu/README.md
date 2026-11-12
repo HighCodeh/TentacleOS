@@ -28,3 +28,18 @@ along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 Run `python3 tools/highboy/test_imu_normal.py` for injected transaction failures,
 identity loss, coherent samples, ODR changes and cleanup. Hardware timing still
 requires validation on the target board.
+
+## Live 3D monitor
+
+- A worker samples/calibrates motion; the LVGL screen renders the High Boy model.
+- OK recenters, UP recalibrates, RIGHT switches raw data/3D, BACK exits.
+- Roll/pitch use gravity correction; yaw is relative and can drift without a magnetometer.
+- Show warm-up, calibration, stale samples and sensor errors explicitly.
+- Keep the display awake and hold/release the power lock with the worker lifecycle.
+- Load `/assets/models/highboy_imu.bin` into PSRAM; report missing/invalid files.
+- The model asset is required along with the P4 application; this change does not flash it.
+
+`tools/highboy/build_imu_mesh.py --check` verifies the lossless CAD-derived asset.
+`test_imu_orientation.py` checks rotations, gravity correction and calibration.
+`test_imu_motion_ui.py --output /tmp/imu-ui` renders the actual LVGL screen with
+synthetic samples and checks controls, lifecycle and missing/corrupt assets.

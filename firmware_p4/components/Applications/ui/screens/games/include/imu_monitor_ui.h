@@ -22,6 +22,8 @@ extern "C" {
 
 /** @brief Open the motion/IMU monitor screen (live accel scope + gyro meters). */
 void ui_imu_monitor_open(void);
+void ui_imu_monitor_stop(void);
+void ui_imu_monitor_log(void);
 
 #ifdef __cplusplus
 }
