@@ -116,6 +116,7 @@ void register_sd_commands(void);
 
 /** Register LF RFID, NFC, CC1101 and LoRa engineering commands. */
 void register_rf_commands(void);
+void register_gps_commands(void);
 
 #ifdef __cplusplus
 }

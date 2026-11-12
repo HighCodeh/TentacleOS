@@ -25,8 +25,8 @@ are unchanged. This is build evidence, not runtime performance acceptance.
 
 ## Later partition migration
 
-The measurements below are historical. The V2.03 NFC expansion changes each P4
-slot to `0x2F0000` bytes and assets to `0x1F0000` bytes. See the current
+The measurements below are historical. The current V2.03 GPS-test expansion uses `0x300000` bytes per P4
+slot and `0x1D0000` bytes for assets (after the earlier NFC expansion). See the current
 [layout and measured headroom](README.md#flash-and-storage-boundary). This is an
 explicit installation migration, not a change to the historical optimization results.
 

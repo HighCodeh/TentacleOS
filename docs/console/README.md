@@ -82,6 +82,19 @@ require device acceptance.
 | `firstboot` | Clears the first-boot onboarding + screen-tips flags so they run on the next reset. | `firstboot` |
 | `capprep` | Skips onboarding (wizard + tips) and restarts clean, for screen capture. | `capprep` |
 
+### External UART GPS (`gps`)
+
+Receive-only GY-GPS6MV2/NEO-6 NMEA test on UART1, GPIO12 (schematic header
+pin 13). This deliberately leaves UART0/CP2105 and the console usable.
+See [GPS wiring and commands](../gps/README.md).
+
+| Command | Result |
+| --- | --- |
+| `gps --geo` | Wait up to 15 seconds for a fresh GGA fix; print decimal latitude/longitude |
+| `gps --info` | Print the next valid GGA status, UTC, satellites, HDOP and altitude; report no fix explicitly |
+| `gps --raw --timeout 10` | Print received NMEA lines for 10 seconds, including lines with bad checksums for diagnosis |
+| `gps --geo --baud 9600 --timeout 120` | Select baud and acquisition timeout (1-120 seconds) |
+
 ### File System Commands
 
 | Command | Description | Usage |

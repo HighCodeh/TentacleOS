@@ -35,7 +35,7 @@ idf.py -B build_highboy -D SDKCONFIG=build_highboy/sdkconfig -p PORT assets-flas
 
 `assets-flash` replaces the entire assets filesystem, including any runtime
 configuration stored there. The partition offset and size come from the selected
-partition table: V2.03 P4 now uses 0x1F0000 bytes at 0x610000. This replaces the previous
+partition table: V2.03 P4 now uses 0x1D0000 bytes at 0x630000. This replaces the previous
 0x230000-byte partition at 0x5D0000. An assets-only update must not be used to
 migrate between these maps; see [migration boundaries](../highboy/README.md#flash-and-storage-boundary).
 Older layouts below are

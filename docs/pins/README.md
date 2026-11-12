@@ -59,6 +59,61 @@ BACK also connects to charger QON; LEFT/GPIO35 is the P4 boot strap.
 LoRa reset/TXEN/RXEN are not wired (`-1`, guarded by their driver).
 The LED and AW8623 use P4 I2C; there is no haptic trigger on GPIO32.
 
+## V2.03 external module header
+
+The external expansion header is drawn as **J15 (pins 1-10)** and
+**J14 (pins 11-18)**. GPIO numbers below belong to the **ESP32-P4**, not the C5.
+This is schematic pin numbering, not a left-to-right view of the enclosure:
+confirm the physical pin-1 marking before connecting a module.
+
+Source: `High Boy_V2_03 Schematic 2026-10-19.PDF`, page 7, sheet title
+“HighBoy_V2 connectors USB GPIO MC card” (`SD_CARD_IO_Ports.SchDoc`).
+The reference PDF is supplied locally at the repository root and is not a
+tracked documentation dependency. Processor connections were cross-checked on
+page 2; current firmware assignments are in
+[P4 pin_def.h](../../firmware_p4/components/Drivers/pins/include/pin_def.h).
+
+| Header | Pin | Schematic signal | Current connection / use |
+| --- | --- | --- | --- |
+| J15 | 1 | GND | Ground |
+| J15 | 2 | GPIO19 | Shared with USB data-mux selection |
+| J15 | 3 | GPIO31 | Shared I2C SDA |
+| J15 | 4 | GPIO30 | Shared I2C SCL |
+| J15 | 5 | GPIO38 | UART TX from Highboy; shared with the console/CP2105 |
+| J15 | 6 | GPIO37 | UART RX into Highboy; shared with the console/CP2105 |
+| J15 | 7 | GPIO24 | Debug USB D- |
+| J15 | 8 | GND | Ground |
+| J15 | 9 | GPIO25 | Debug USB D+ |
+| J15 | 10 | 3.3V | 3.3 V supply rail |
+| J14 | 11 | GND | Ground |
+| J14 | 12 | GPIO11 | Through R79 (1 kOhm); shared with LF RFID modulation |
+| J14 | 13 | GPIO12 | Through R80 (1 kOhm); GPS UART1 RX during the console diagnostic; otherwise available |
+| J14 | 14 | GPIO21 CLK | Shared SPI clock |
+| J14 | 15 | GPIO33 | Shared with charger OTG enable |
+| J14 | 16 | GPIO23 SO | Shared SPI MISO (input to P4) |
+| J14 | 17 | GPIO22 SI | Shared SPI MOSI (output from P4) |
+| J14 | 18 | VSYS | System supply rail; not a fixed 5 V output |
+
+### Connecting external modules
+
+SPI and I2C on this header share the internal peripheral buses. External SPI
+devices need their own chip select and compatible bus arbitration; external I2C
+devices need non-conflicting addresses. GPIO12 is used by the [GPS console diagnostic](../gps/README.md) while a query
+is active; otherwise it is a candidate for an external
+chip select, not a reserved or validated module interface; account for its
+series resistor when checking timing and loading.
+
+GPIO19, GPIO33 and GPIO11 already control internal hardware. They must not be
+treated as spare GPIOs while those functions are active. The UART is also
+connected to the CP2105, so an external transmitter must not contend with the
+bridge on the P4 RX line. Debug USB pins are a separate path from the muxed
+native USB-C connection; see [USB routing](../tusb_desc/README.md#v203-usb-routing).
+
+Use 3.3 V-compatible logic. The header does not imply 5 V-tolerant GPIOs, and
+VSYS must not be treated as a logic-level reference. Available supply current,
+connector orientation and operation with a particular module still require
+board-level validation; this table records wiring, not a tested accessory API.
+
 ## C5
 
 | Function | GPIO |

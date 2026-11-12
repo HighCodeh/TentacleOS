@@ -48,6 +48,9 @@ their versions are declared in the firmware manifests.
 Only the four upstream architecture roots are used under `components`.
 Independent nested components are registered explicitly through CMake.
 
+The V2.03 external module header pinout and shared-signal constraints are
+documented in [Pins / pin_def](../pins/README.md#v203-external-module-header).
+
 ## Merge decisions
 
 | Area | Decision |
@@ -199,7 +202,7 @@ images and do not authorize full restoration or production provisioning.
 
 ## Flash and storage boundary
 
-The V2.03 NFC expansion layout reallocates 256 KiB from P4 assets to the two
+The earlier V2.03 NFC expansion layout reallocated 256 KiB from P4 assets to the two
 OTA slots, adding 128 KiB to each. C5 remains unchanged. Both P4 OTA slots and
 rollback are retained; NVS, PHY and OTA metadata keep their offsets.
 
@@ -210,8 +213,26 @@ rollback are retained; NVS, PHY and OTA metadata keep their offsets.
 | `coredump` offset / size | `0x5C0000` / `0x10000` | `0x600000` / `0x10000` |
 | `assets` offset / size | `0x5D0000` / `0x230000` | `0x610000` / `0x1F0000` |
 
+The current GPS-test expansion takes another 128 KiB from assets, adding
+64 KiB to **each** OTA slot. Both slots remain equal and rollback is retained.
+C5, NVS, PHY and OTA metadata are unchanged.
+
+| P4 region | Current offset | Current size |
+| --- | --- | --- |
+| `ota_0` | `0x20000` | `0x300000` (3 MiB) |
+| `ota_1` | `0x320000` | `0x300000` (3 MiB) |
+| `coredump` | `0x620000` | `0x10000` (64 KiB) |
+| `assets` | `0x630000` | `0x1D0000` (1,856 KiB) |
+
+At the initial GPS expansion, the rebuilt LittleFS image was mounted offline:
+408 of 464 blocks were used
+(1,671,168 bytes), leaving 229,376 bytes (224 KiB) free at that revision. All 173 packaged files
+were compared byte-for-byte with the build staging directory. Filesystem free
+space is not application headroom until the map is migrated. All packaged
+assets are retained. The table still ends at `0x800000` (8 MiB).
+
 This changes installation compatibility. The guarded app-only updater rejects the
-previous table; it cannot migrate it. Package verification, recovery review and
+previous tables (including 0x2F0000-byte slots); it cannot migrate them. Package verification, recovery review and
 the separate factory-security partition profile use the new geometry. Historic
 packages/backups must be handled with their matching revision's tools.
 
@@ -224,7 +245,7 @@ before replacing it. NVS offsets and the SD card are unchanged; no erase-all or
 eFuse changes are required by this layout. This source change performs no device
 write. After migration, app-only updates again require an exact table match.
 
-The first rebuilt candidate measured 2,943,392 bytes in a 3,080,192-byte slot:
+The first NFC-layout candidate (historical) measured 2,943,392 bytes in a 3,080,192-byte slot:
 136,800 bytes free. The rebuilt LittleFS image is 2,031,616 bytes; mounting it
 with littlefs-python reports 1,671,168 allocated bytes and 360,448 bytes free.
 The 15 unused PNG sources and their generated rotated frames are absent.

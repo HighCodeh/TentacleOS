@@ -68,8 +68,8 @@ static esp_ota_img_states_t s_ota_state=ESP_OTA_IMG_VALID;
 static esp_err_t s_state_error,s_confirm_error;
 static uint32_t s_beat;
 static bool s_reenter;
-static const esp_partition_t RUNNING={.address=0x20000,.size=0x2f0000,.label="ota_0"};
-static const esp_partition_t NEXT={.address=0x310000,.size=0x2f0000,.label="ota_1"};
+static const esp_partition_t RUNNING={.address=0x20000,.size=0x300000,.label="ota_0"};
+static const esp_partition_t NEXT={.address=0x320000,.size=0x300000,.label="ota_1"};
 const char *esp_err_to_name(esp_err_t error) {(void)error;return "fixture error";}
 bool sd_is_mounted(void) {return s_fault!=NO_SD;}
 static int test_stat(const char *path,struct stat *out) {

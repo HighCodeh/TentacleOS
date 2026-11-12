@@ -34,7 +34,7 @@ TABLE_SIZE = 0xc00
 SECTOR_SIZE = 0x1000
 OTA_OFFSET = 0xf000
 APP_OFFSET = 0x20000
-ASSETS = {'P4': (0x610000, 0x1f0000), 'C5': (0x420000, 0x1e0000)}
+ASSETS = {'P4': (0x630000, 0x1d0000), 'C5': (0x420000, 0x1e0000)}
 BOUNDARY = {'schema_version': 1, 'status': 'private_recovery_review_only',
             'contains_private_device_data': True, 'deployment_approved': False,
             'device_identity_verified': False, 'security_state_verified': False,
@@ -99,7 +99,7 @@ def validate_flash(flash, chip, candidate):
     require(digest(table) == profile['partition_table_sha256'], chip + ' installed map differs from the integrated profile')
     verify_image(flash[BOOT_OFFSET:TABLE_OFFSET], chip)
     slot = active_slot(flash[OTA_OFFSET:OTA_OFFSET + 2 * SECTOR_SIZE])
-    offset = APP_OFFSET if slot == 0 else (0x310000 if chip == 'P4' else 0x220000)
+    offset = APP_OFFSET if slot == 0 else (0x320000 if chip == 'P4' else 0x220000)
     verify_image(flash[offset:offset + profile['slot_bytes']], chip)
     require(0 < len(candidate) <= profile['slot_bytes'], chip + ' candidate exceeds its slot')
     verify_image(candidate, chip)
