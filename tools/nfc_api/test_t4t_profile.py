@@ -51,7 +51,8 @@ typedef struct {uint8_t uid[7],uid_len,atqa[2],sak,ats[32],ats_len;} t4t_emu_ide
 """)
         (p/'t4t.h').write_text("""#pragma once
 #include <stdint.h>
-typedef struct {uint16_t cc_len,mle,mlc,ndef_fid,ndef_max; uint8_t read_access,write_access;} t4t_cc_t;
+#include <stdbool.h>
+typedef struct {uint16_t cc_len,mle,mlc,ndef_fid; uint32_t ndef_max; uint8_t read_access,write_access,mapping,nlen_size; bool legacy;} t4t_cc_t;
 typedef struct {uint8_t uid[7],uid_len,atqa[2],sak;} nfc_iso14443a_data_t;
 """)
         (p/'mf_desfire.h').write_text("""#pragma once
@@ -90,8 +91,8 @@ typedef int hb_nfc_err_t;
 int t4t_read_cc(const nfc_iso_dep_data_t *,t4t_cc_t *);
 int t4t_read_ndef(const nfc_iso_dep_data_t *,const t4t_cc_t *,uint8_t *,size_t,size_t *);
 int t4t_write_ndef(const nfc_iso_dep_data_t *,const t4t_cc_t *,const uint8_t *,size_t);
-int t4t_read_binary_ndef(const nfc_iso_dep_data_t *,const t4t_cc_t *,uint16_t,uint8_t *,size_t);
-int t4t_update_binary_ndef(const nfc_iso_dep_data_t *,const t4t_cc_t *,uint16_t,const uint8_t *,size_t);
+int t4t_read_binary_ndef(const nfc_iso_dep_data_t *,const t4t_cc_t *,uint32_t,uint8_t *,size_t);
+int t4t_update_binary_ndef(const nfc_iso_dep_data_t *,const t4t_cc_t *,uint32_t,const uint8_t *,size_t);
 """)
         notice = (BASE/'nfc_felica.c').read_text().split('#include')[0]
         for header in p.glob('*.h'):

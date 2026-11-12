@@ -1390,3 +1390,10 @@ At/parity and SPI-failure checks. Physical dump validation remains necessary.
 - Bound chaining, WTX, retries and APDU continuation; reject incomplete replies.
 - Read old 96-byte saved descriptors without rewriting existing records.
 - Tests: `test_iso_dep_reader.py`, `test_generic_storage.py` in `tools/nfc/`.
+
+## Type 4 reader extensions
+
+- Reader primitives support mappings 1/2/3, 2/4-byte NLEN and extended offsets.
+- Keep bounded CC TLVs, exact response lengths and interrupted-write handling.
+- The saved-profile workflow still requires a 2-byte NLEN and its existing size limit.
+- Tests: `tools/nfc/test_t4t_reader.py` and `tools/nfc_api/test_t4t_profile.py`.

@@ -53,8 +53,13 @@ size_t nfc_t4t_length(const nfc_t4t_card_t *card) {
 }
 void nfc_t4t_defaults(nfc_t4t_card_t *card) {
   memset(card, 0, sizeof(*card));
-  card->cc =
-      (t4t_cc_t){NFC_T4T_CC_SIZE, CHUNK_SIZE, CHUNK_SIZE, NDEF_FILE, NFC_T4T_DEFAULT_SIZE, 0, 0};
+  card->cc = (t4t_cc_t){.mapping = 0x20,
+                        .nlen_size = NLEN_SIZE,
+                        .cc_len = NFC_T4T_CC_SIZE,
+                        .mle = CHUNK_SIZE,
+                        .mlc = CHUNK_SIZE,
+                        .ndef_fid = NDEF_FILE,
+                        .ndef_max = NFC_T4T_DEFAULT_SIZE};
   const uint8_t uid[] = {4, 0x48, 0x42, 0x54, 0x34, 0, 1};
   memcpy(card->identity.uid, uid, sizeof(uid));
   card->identity.uid_len = sizeof(uid);

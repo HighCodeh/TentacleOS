@@ -640,6 +640,8 @@ static hb_nfc_err_t read_ndef(nfc_protocol_result_t *result) {
     err = t4t_read_cc(&dep, &cc);
     if (err != HB_NFC_OK)
       return err;
+    if (cc.nlen_size != 2)
+      return ESP_ERR_NOT_SUPPORTED;
     nfc_t4t_defaults(&s_t4t_card);
     if ((card.uid_len != 4 && card.uid_len != 7) || !dep.ats_len || dep.ats[0] != dep.ats_len ||
         cc.ndef_max > NFC_T4T_FILE_SIZE || dep.ats_len > sizeof(s_t4t_card.identity.ats))
@@ -950,7 +952,7 @@ static esp_err_t write_t4t(nfc_protocol_result_t *result) {
   error = t4t_read_cc(&dep, &cc);
   if (error != ESP_OK)
     return error;
-  if (cc.read_access != 0)
+  if (cc.read_access != 0 || cc.nlen_size != 2)
     return ESP_ERR_NOT_SUPPORTED;
   if (cancel_requested())
     return ESP_ERR_INVALID_STATE;

@@ -20,6 +20,7 @@
 #define T4T_H
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include "highboy_nfc_error.h"
 #include "highboy_nfc_compat.h"
@@ -33,11 +34,14 @@ extern "C" {
  * @brief T4T Capability Container data.
  */
 typedef struct {
+  uint8_t mapping;
+  uint8_t nlen_size;
+  bool legacy;
   uint16_t cc_len;      /**< @brief CC file length. */
   uint16_t mle;         /**< @brief Maximum Le (read size). */
   uint16_t mlc;         /**< @brief Maximum Lc (write size). */
   uint16_t ndef_fid;    /**< @brief NDEF file identifier. */
-  uint16_t ndef_max;    /**< @brief Maximum NDEF file size. */
+  uint32_t ndef_max;    /**< @brief Maximum NDEF file size. */
   uint8_t read_access;  /**< @brief Read access condition. */
   uint8_t write_access; /**< @brief Write access condition. */
 } t4t_cc_t;
@@ -101,7 +105,7 @@ hb_nfc_err_t t4t_write_ndef(const nfc_iso_dep_data_t *dep,
  */
 hb_nfc_err_t t4t_read_binary_ndef(const nfc_iso_dep_data_t *dep,
                                   const t4t_cc_t *cc,
-                                  uint16_t offset,
+                                  uint32_t offset,
                                   uint8_t *out,
                                   size_t out_len);
 
@@ -119,7 +123,7 @@ hb_nfc_err_t t4t_read_binary_ndef(const nfc_iso_dep_data_t *dep,
  */
 hb_nfc_err_t t4t_update_binary_ndef(const nfc_iso_dep_data_t *dep,
                                     const t4t_cc_t *cc,
-                                    uint16_t offset,
+                                    uint32_t offset,
                                     const uint8_t *data,
                                     size_t data_len);
 
