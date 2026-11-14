@@ -109,6 +109,15 @@ void audio_i2s_set_volume(uint8_t pct);
 ```
 Sets global output volume (0..100), clamped. Applied as a perceptual (square-law) digital scale on top of each sound's own amplitude, because the amplifier's hardware gain is fixed.
 
+Settings > Sound updates both the live gain and the shared system volume on each
+adjustment, then requests a navigation cue as a preview (subject to UI sounds
+being enabled and the normal feedback throttle). Back persists the shared value;
+it does not restore a stale slider value after a quick-panel adjustment. The UI
+feedback worker logs changes in playback error state and recovery, while still
+releasing its busy flag after a failed playback. This allows device logs to
+distinguish a muted volume from I2S or amplifier-control failures.
+
+
 ### Tones and Melodies
 
 #### `audio_i2s_play_tone`
