@@ -62,6 +62,12 @@ class RecoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'installed map differs'):
             recovery.validate_flash(data, 'P4', b'P4 candidate')
 
+    def test_previous_c5_map_requires_migration(self):
+        data = bytearray(self.backups['C5'].read_bytes())
+        data[recovery.TABLE_OFFSET:recovery.TABLE_OFFSET + recovery.TABLE_SIZE] = TABLES['C5']
+        with self.assertRaisesRegex(ValueError, 'installed map differs'):
+            recovery.validate_flash(data, 'C5', b'C5 candidate')
+
     def image_fixture(self, data, chip):
         self.assertIn(chip, ('P4','C5'))
         self.assertTrue(data)
@@ -110,7 +116,7 @@ class RecoveryTests(unittest.TestCase):
         struct.pack_into('<I',data,recovery.OTA_OFFSET+24,2)
         self.backups['C5'].write_bytes(data);self.metadata('C5')
         output=self.prepare()
-        self.assertEqual(recovery.verify(output)['targets']['C5']['app_update_offset'],0x220000)
+        self.assertEqual(recovery.verify(output)['targets']['C5']['app_update_offset'],0x320000)
 
     def test_output_tampering_and_fabricated_approval(self):
         output=self.prepare(); path=output/'recovery.json'

@@ -137,7 +137,7 @@ def main():
         table = build / "partition_table/partition-table.bin"
         if digest(table) != PARTITION_SHA[chip]:
             raise SystemExit("Unexpected partition binary for " + chip)
-        slot = 0x300000 if chip == "p4" else 0x200000
+        slot = verify_package.PROFILE[chip.upper()]["slot_bytes"]
         if app.stat().st_size > slot:
             raise SystemExit(chip + " exceeds the preserved app slot")
         commands = json.loads((build / "compile_commands.json").read_text())

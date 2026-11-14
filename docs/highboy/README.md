@@ -319,7 +319,7 @@ bash tools/flash.sh c5 -p /dev/cu.usbserial-01FDB4220
 ```
 
 The C5 target selects `firmware_c5/build_highboy/TentacleOS_C5.bin`, its own
-partition table, 2 MiB app slots and the C5 SDK/Python environment. Paths come
+partition table, 3 MiB app slots and the C5 SDK/Python environment. Paths come
 from `HIGHBOY_C5_IDF_PATH` / `HIGHBOY_C5_PYTHON_ENV`, the local build environment
 file or the active IDF environment. It explicitly selects `esp32c5` and uses
 `--no-stub`, matching this profile's C5 flasher configuration. P4 uses
@@ -330,6 +330,30 @@ macOS C5 example is the port previously used by this environment's C5 monitor,
 not an automatic selection rule. A C5 update does not touch P4, and vice versa.
 The C5 updater passed host tests and validated the built C5 image; physical
 backup/write acceptance remains pending.
+
+### C5 application partition expansion
+
+The C5 now uses the full 8 MiB address space with the following normal layout:
+
+| Partition | Offset | Size |
+| --- | --- | --- |
+| `ota_0` | `0x20000` | `0x300000` (3 MiB) |
+| `ota_1` | `0x320000` | `0x300000` (3 MiB) |
+| `coredump` | `0x620000` | `0x10000` (64 KiB) |
+| `assets` | `0x630000` | `0x1D0000` (1,856 KiB) |
+
+NVS, OTA metadata and PHY offsets are unchanged. Each app slot gains 1 MiB by
+using the previously unassigned 1,984 KiB tail and reducing assets by 64 KiB.
+No asset files are removed. The factory-security review profile retains its
+separate NVS/security offsets and uses the same expanded app/assets geometry.
+Packaging, recovery validation and contract checks use the new normal table.
+
+Existing C5 installations with 2 MiB slots require a migration, not an app-only
+update. Back up flash and preserve filesystem configuration first; the new
+partition table, initial OTA metadata selecting `ota_0`, app and rebuilt assets
+must be installed together through a reviewed migration. Old `ota_1`, assets and
+coredump ranges overlap the new map. The guarded updater rejects the old table;
+this source change does not migrate or flash a device, or change P4 partitions.
 
 Offline guard tests (SDK partition parser required):
 

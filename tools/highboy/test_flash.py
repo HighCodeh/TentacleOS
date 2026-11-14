@@ -219,8 +219,8 @@ class C5Tests(LayoutFixture, unittest.TestCase):
         self.data[0xF000:0x11000] = ota_entry(3) + ota_entry(4)
         commands, report = self.exercise()
         self.assertEqual(report['chip'], 'esp32c5')
-        self.assertEqual(report['offset'], 0x220000)
-        self.assertEqual(commands[-3][0][1], '0x220000')
+        self.assertEqual(report['offset'], 0x320000)
+        self.assertEqual(commands[-3][0][1], '0x320000')
         self.assertFalse(report['other_chip_updated'])
 
     def test_c5_check_never_writes(self):
@@ -229,9 +229,13 @@ class C5Tests(LayoutFixture, unittest.TestCase):
         self.assertEqual(report['chip'], 'esp32c5')
         self.assertEqual(report['status'], 'checked')
 
-    def test_c5_rejects_p4_slot_profile(self):
-        with self.assertRaisesRegex(ValueError, 'Unexpected app slot size'):
-            flash.validate_device(self.data, self.table, self.gen, 'p4')
+    def test_previous_c5_layout_is_rejected(self):
+        from fixtures.recovery_tables import TABLES
+        self.data[flash.TABLE_OFFSET:flash.TABLE_OFFSET + flash.TABLE_SIZE] = TABLES['C5']
+        with patch.object(flash, 'image_valid') as verify:
+            with self.assertRaisesRegex(ValueError, 'No migration or write performed'):
+                flash.validate_device(self.data, self.table, self.gen, 'c5')
+            verify.assert_not_called()
 
 
 class TransportTests(unittest.TestCase):
