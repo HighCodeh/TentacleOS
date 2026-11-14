@@ -338,7 +338,11 @@ Connects (as STA) to an external AP.
 ```c
 bool wifi_service_is_connected(void);
 ```
-Returns `true` if connected to an external network and holding an IP.
+Returns `true` if connected to an external network and holding an IP. This is
+**the C5's own STA connection**, set by `IP_EVENT_STA_GOT_IP` and cleared by
+`WIFI_EVENT_STA_DISCONNECTED`. It says nothing about a monitored AP restarting
+or another client's reconnection. Capture observations must come from received
+frames for the relevant BSSID/station, independently of this getter.
 
 #### `wifi_service_is_active`
 ```c
@@ -451,3 +455,302 @@ C5 channel-hopping and sniffer stream tasks are pinned to `SYS_CORE_MAIN`;
 P4 proxy/UI workers use the central `sys_prio.h` policy. Availability of bands and
 channels still depends on the configured radio and region. Source/host validation
 does not establish physical reception or packet-capture reliability.
+
+### Handshake capture and lifecycle
+
+Capture timing belongs to the C5 Wi-Fi service; received frames feed observations
+from the C5 sniffer. The P4 owns the proxy/session interface and presentation.
+Do not open P4 SPI client sessions from C5 application code. The manual console
+command uses the existing asynchronous deauther session API, reports start
+failure through its return code, and makes no claim about a client's reconnection.
+It is separate from the lab capture window and its per-boot budget.
+Verbose sniffer diagnostics use `ESP_LOGD` instead of per-frame stdout/flush.
+
+The P4 handshake screen allocates its polling task stack in PSRAM, preserving
+internal DMA memory for peripherals. Capture-start failure and task-allocation
+failure are shown on screen instead of leaving a false capturing state. Back
+and programmatic navigation request cancellation through the registered close
+hook; deletion is a fallback. Updates carry a generation token so a closed
+session cannot update a later screen. Re-entry while the previous worker is
+still stopping reports that state and keeps Back available instead of reviving
+the old worker. The worker stops the capture it successfully started before
+releasing its busy state. These paths require hardware acceptance under sustained
+capture and repeated entry/exit; host tests do not validate RF capture quality.
+
+The handshake screen starts the EAPOL filter with SD persistence. Default EAPOL
+and PMKID captures use one file per BSSID in `/sdcard/wifi/loot/handshakes/`:
+`<sanitized-SSID>_<12-digit-BSSID>.pcap`. ASCII letters, digits, `_` and `-` are
+preserved; other SSID bytes become `_` in the filename only. Original SSID bytes
+remain in the captured frame. Same-name APs have separate files. Existing files
+for a BSSID are found by suffix, checked for a compatible header and complete
+records, and appended across capture sessions. Invalid/truncated files are
+reported as errors, never overwritten. If a known SSID changes, the established
+filename is retained; newly observed metadata is appended on a subsequent session.
+
+No file is created for an AP until an EAPOL frame arrives. A frame arriving before
+SSID identification creates `hidden_<BSSID>.pcap`; a later identifying frame is
+appended and the file is renamed without replacing an existing destination.
+Until that identification arrives, conversion may lack the required SSID. APs
+with no EAPOL traffic only occupy the bounded metadata cache and create no files.
+The P4 cache has 32 entries in PSRAM, with replacement; eviction does not delete
+files. At most one file is open while appending. Each append checks write/close
+results. The per-AP PCAP uses raw 802.11 link type 105 with the received FCS removed.
+
+C5 also forwards beacons, probe responses and association/reassociation requests
+in these filters. Beacon and probe-response forwarding is limited separately to
+one of each per AP every five seconds, within the existing 128-AP table. P4 caches
+an identifying frame and writes it with that AP's EAPOL traffic. This preserves
+SSID/BSSID metadata without saving every surrounding beacon. No probe injection
+or deauthentication is performed by this path. Both chips must be updated.
+
+An explicitly opened capture file retains the single-file radiotap path used by
+console callers; its header must be written and flushed before radio start.
+The UI worker refreshes C5 statistics and checks storage status every second.
+Statistics, session or storage failures stop capture and keep Back available.
+Default per-AP capture copies each complete SPI frame into a bounded 64-slot
+PSRAM queue (2048 bytes per frame, about 132 KiB plus an 8 KiB writer stack).
+A separate P4 service task serializes SD writes and close operations. The SPI
+callback never waits for SD or queue space. PCAP timestamps represent P4 frame
+receipt, including cached AP metadata, rather than delayed disk writes.
+Queue overflow or contention drops the new frame and increments a visible loss
+counter; it never overwrites a frame being written. The first loss also emits a
+warning log/LED. SD failure latches an error and discards remaining queued frames,
+counted separately. Pending/peak/lost/failed counters are shown in the storage card.
+Stopping closes admission, drains accepted frames, and only then frees queue and
+AP-cache memory. BACK shows “Finishing SD writes...” until this completes. The
+explicit-file radiotap path remains synchronous. `wifi_sniffer_flush_capture()`
+checks the per-AP writer status; it is not a queue-drain barrier. Stale session
+callbacks are rejected before enqueueing. A write failure is latched; no later records are appended to a damaged
+stream. Successful close/flush does not guarantee survival of power loss or that
+every frame observed on C5 arrived at P4. The public capture-path getter returns
+the directory for per-AP mode; `AP capture:` and `AP identified:` logs show files.
+
+The handshake screen refreshes every second with the channel, received-packet
+count, successfully saved EAPOL count/bytes, and the eight most recently updated
+AP files (newest first). UP/DOWN scrolls within chrome bounds in both orientations;
+BACK stops capture, waits for pending SD writes, then exits. Files remain on SD after leaving the screen.
+The list uses the sanitized filename/SSID plus BSSID so equal names remain distinct;
+unknown names show `hidden` and a name-pending status, updated after SSID discovery.
+Counters cover this session, not pre-existing PCAP contents. The bounded recent
+list is not a full SD inventory. First saved EAPOL for an AP outside that list emits
+`EAPOL saved:` and the semantic INFO LED (purple by default); repeated packets for
+listed APs update counters without repeated flashes. Metadata alone or failed
+writes never signal capture success. Snapshots are copied under the capture mutex,
+then published to LVGL through a generation-checked asynchronous update. Capture
+errors remain visible with BACK usable. C5 observations are displayed separately
+from persisted P4 records; saving EAPOL alone does not prove a complete handshake.
+
+The EAPOL-pair observation accepts **M1+M2, M2+M3 or M3+M4**; PMKID remains
+an independent capture condition. It means an adjacent pair was observed on C5,
+not four-way completion, MIC verification or proof of a usable saved PCAP.
+M3+M4 alone may lack the SNonce needed by an offline verifier; preserve the other
+EAPOL records and validate the exported file separately.
+
+Matching requires the same AP/station, key-descriptor type and key version,
+with each message no older than ten seconds. M1/M2 and M3/M4 require equal replay
+counters; M2/M3 requires the latter to be exactly one greater, checked across the
+full eight-byte counter without accepting overflow. Skipped replay values from
+retransmissions are deliberately not guessed. Messages can arrive in either
+order. Up to sixteen AP/station sessions retain separate timestamps and counters
+for each message; stale observations expire and a full table replaces a session.
+M1/M2/M3 require a nonzero nonce. M4 requires a zero nonce, no key data and the
+Secure flag for RSN; legacy WPA can omit Secure. Group-key, error/request and SMK
+frames are excluded. Frame/header bounds, LLC/SNAP, EAPOL-Key type, descriptor,
+declared lengths and AP/client direction are checked before classification.
+The conventional 16-byte-MIC WPA/RSN layout is used; this is not a classifier for
+all WPA3/Enterprise variants (such as the 24-byte-MIC layout). Valid EAPOL
+records with unsupported layouts remain in the PCAP without being classified. PMKID detection
+accepts a bounded plaintext KDE or RSN PMKID list. Encrypted key data is not parsed.
+The detector does not transmit probe requests from the Wi-Fi callback.
+
+A bridge-streaming C5 session does not allocate or fill a duplicate 200 KiB PCAP
+buffer; a counter-only monitor also needs no PCAP buffer. The paired SPI v2 sniffer statistics append lab-attempt/failure counters and
+remaining hold time; both firmware applications must be updated. Host tests `test_handshake_parser.py`, `test_sniffer_pcap.py` and
+`test_handshake_lifecycle.py` exercise all three pairs in either order, isolation,
+replay carry/overflow, expiry/clock wrap, malformed PMKID data, storage
+failure and cancellation with ASan/UBSan. They do not measure RF reception or
+validate the saved file against a real AP exchange. The EAPOL field definitions
+follow the pinned SDK's `wpa_supplicant/src/common/wpa_common.h`.
+`test_ap_capture.py` executes the production writer with synthetic frames and real
+host files: AP isolation, duplicate names, late SSID discovery, restart/append,
+filename sanitization and damaged-file rejection. When `tshark` is available it
+also checks that the generated PCAP exposes EAPOL and identifying management
+frames. This does not establish Hashcat conversion or RF capture success on hardware.
+
+For acceptance, start Handshake with an SD card, reconnect a client to an owned
+WPA2 test AP, exit with Back and inspect the logged per-AP PCAP. Check its SSID,
+BSSID and EAPOL messages in Wireshark, then verify conversion with hcxpcapngtool.
+Repeat entry/exit to confirm the same AP file grows; test a second BSSID with the
+same SSID to confirm separation. Inspect errors rather than relying on the C5
+EAPOL-pair observation as proof of saved records.
+
+The UI uses hopping; the existing sniffer API can select a fixed channel, which
+is not a BSSID filter. For EAPOL/PMKID hopping only, C5 now uses a deterministic
+passive dwell policy: 120 ms for an unobserved channel, at least 200 ms after a
+beacon/probe response, 750 ms after observed authentication/association, and
+1000 ms after a structurally bounded EAPOL frame. Repeated activity extends the
+visit up to a hard 2000 ms cap, except for the bounded lab AP observation
+window described below, then the channel-selection policy runs again. Timing is
+checked every 20 ms (plus task scheduling/channel-switch overhead). Other hopper
+users retain a 250 ms dwell. Band lists are unchanged: dual-band visits 22 channels;
+the empty-channel nominal cycle falls from 5.5 s to 2.64 s, while activity extends
+it. These are configured timing estimates, not measured capture performance.
+
+Observations only update synchronized timing state, never perform radio/I/O calls
+inside the receive callback. Events from a different channel or after a committed
+hop are ignored. Stop clears the policy so later tools do not inherit a hold.
+`test_capture_hopping.py` exercises production timing with a fake clock, including
+hold caps, stale observations and reset. C5 must be updated to use this policy;
+the lab action/status extension also requires the matching P4. Test repeated phone reconnection with a
+saved password against a known AP and compare with fixed-channel reception.
+
+Source comparison (2026-11-13): [Bruce sniffer](https://github.com/BruceDevices/firmware/blob/main/src/modules/wifi/sniffer.cpp)
+uses a separate writer queue and exposes manual channel selection in its sniffer
+loop; the presence of a `HOP_INTERVAL` define alone does not prove its use.
+[Pwnagotchi agent](https://github.com/evilsocket/pwnagotchi/blob/master/pwnagotchi/agent.py)
+groups APs by channel, orders populated channels first and controls dwell via
+Bettercap. Its waits also relate to active operations, so its results cannot be
+attributed to ML or hopping alone. These sources informed the comparison; the Gutem handshake adaptation is
+attributed separately below.
+
+Capture hopping uses recent activity to select revisits as described below. The default per-AP P4 path
+uses the writer queue described above; C5 stream queues can still drop frames
+when full. P4 loss counters do not account for losses before SPI frame assembly.
+Host tests (`test_capture_queue.py`, `test_ap_capture.py`) verify bounded storage,
+copy ownership, FIFO order, receipt timestamps, concurrent drain, SD failure and
+restart. These mocks do not establish capture performance on hardware. A broad scan listens on one channel
+at a time and can still miss an entire exchange on another channel; holding a
+channel helps only after activity is actually observed.
+
+
+### Capture memory placement
+
+C5 AP metadata, handshake sessions, channel scores and AP activity histories use
+explicit `MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT` allocations. Capacities remain
+128 known APs, 16 handshake sessions, 32 channels and 64 activity entries. The
+four tables occupy 6,464 bytes on C5, excluding allocator overhead. They are
+allocated in task context before capture starts, with partial allocations freed
+on failure and no fallback to internal RAM. START fails if preparation fails.
+The bounded allocations are retained for reuse across stops/restarts, avoiding
+freeing storage that late RX callbacks could still reference; session histories
+are cleared on restart. Locks and the per-boot BSSID attempt/captured ledger stay
+in internal RAM. Linker headroom is a static budget, not measured runtime heap.
+
+### Recent-activity channel selection and Gutem attribution
+
+For EAPOL/PMKID capture on C5, the hopper first visits every channel in the selected
+band plan. Subsequent visits use a bounded, deterministic recent-activity score:
+
+- A distinct BSSID contributes one AP point at most once per 30 seconds. Beacon
+  and probe-response frames share that allowance; repeated beacons do not inflate
+  it. BSSID must be nonzero/unicast, and beacon source must match BSSID.
+- Association/authentication contributes four points, and a structurally validated
+  EAPOL-Key contributes eight. Each class is limited to once per BSSID/channel per
+  second. These are observations, not proof of a complete or persisted handshake.
+- Each channel score saturates at 64 and halves every 30 seconds. Time since the
+  previous visit adds up to 20 points; ties prefer the older visit.
+- Unvisited channels take precedence. Once the oldest visited channel has waited
+  five seconds, it takes precedence over scores. Five seconds is a revisit trigger,
+  not a hard RF latency guarantee: current dwell and other overdue channels still
+  take time. Without a lab AP observation window, the nominal conservative bound is five
+  seconds plus two seconds per channel, excluding scheduling/radio overhead.
+  Lab AP windows can add up to 15 seconds to a visit and delay exploration. Initial exploration and channel-change failures also consume time.
+- The selected channel may remain the same if it wins again. The existing
+  association/EAPOL dwell extension remains; empty channels still use 120 ms.
+
+The capture scheduler accepts beacon/probe-response observations only when their
+complete IE list contains a structurally valid RSN or WPA element. It validates
+version, selector-list counts, optional capabilities and RSN PMKID-list bounds;
+omitted trailing fields use protocol defaults, as in the pinned SDK parser.
+Empty elements, partial fields, truncated trailing IEs and duplicate RSN/WPA
+elements are rejected. This is structural validation, not proof that an advertised
+cipher is supported, that a handshake can be obtained, or that TX will succeed.
+Open networks with neither RSN nor WPA are excluded. The current implementation
+has no SSID-name filter and does not consult the client table.
+
+A matching M1+M2, M2+M3 or M3+M4 observation, or detected PMKID marks its BSSID independently of the
+single-result UI flags. Both PMKID KDE and RSN-list paths mark observations, even
+when another AP has already produced the session's first badge. The shared
+64-entry boot ledger also reserves a record for an AP observed before its first
+attempt; a record with zero attempts but an observation is occupied, not reusable.
+Repeated marks are idempotent. A full ledger never evicts a record; untracked APs
+cannot receive new attempts while it remains full.
+
+Marking an AP cancels its not-yet-claimed pending action without touching another
+AP's action or shortening an existing listening window. An action already claimed
+by the worker cannot be recalled. The observation and attempt ledger survives
+capture stop/restart until C5 reboot. **Observed on C5 is not saved on P4:** the
+suppression flag does not acknowledge SD persistence, MIC verification or a full
+four-message handshake. Loss on SPI or SD failure can still leave no usable PCAP;
+consult P4 saved-record/error indicators separately.
+
+C5 reception only schedules a bounded action. The channel-hopper task invokes a
+registered application callback after releasing the observation lock. Service
+owns timing/budgets; Applications supplies the checked one-frame radio adapter.
+There is no Service-to-Applications include or P4 session API on C5. The adapter
+checks the actual channel, does not retune it, returns the SDK TX result, and does
+not start the continuous deauther worker or bypass the SDK's frame validation.
+A rejected transmission remains a failure, not a successful deauthentication.
+
+Each visit schedules at most one AP action and then listens for **15 seconds from
+the TX call's completion**, including failed calls. Repeated frames cannot extend
+the window. After expiry the ordinary channel selector resumes. A later attempt
+requires another identifying frame on a subsequent visit; three transmissions
+are not fired in a tight loop. Each BSSID has at most **three reserved attempts
+per C5 boot**, across channels, stop/restart and band changes. Cancellation of a
+pending action still consumes its reservation. The static 64-BSSID ledger never
+evicts; when full, additional APs remain passive until reboot.
+
+Stopping synchronizes with an in-flight TX call, cancels pending work and clears
+the hold before deleting the hopper and freeing its stack. Fixed-channel capture
+and non-EAPOL/PMKID modes do not schedule lab actions. The sniffer's EAPOL/PMKID
+hopping modes enable this scheduler; starting Handshake enables this behavior.
+No inference is made from `wifi_service_is_connected()` or from a successful TX
+return about AP availability, client reconnection or handshake completeness.
+
+The P4 screen shows remaining hold seconds, last per-AP attempt
+number, total attempted TX calls and failures for this session. INFO means the
+C5 driver accepted a TX call; warnings mean it rejected one. Packet persistence
+and EAPOL-pair/PMKID indicators retain their separate meanings. Both SPI header copies
+append the same six-byte status tail within the existing payload limit; no new
+operation is allocated. Install matching P4/C5 apps for the status display.
+
+History contains at most 32 channel records and 64 BSSID/channel records. Full AP
+history replaces the least recently observed entry, so deduplication is bounded,
+not a lifetime inventory. Channel scores remain capped even under cache churn.
+Only observations on the current visit update history. Stop and band-plan changes
+clear it; no NVS/SD persistence, allocations or radio calls occur in the observation
+callback. Non-capture tools retain round-robin hopping and their existing dwell.
+
+Credit for the scheduling ideas (decaying activity, weighted selection, and
+periodic exploration) goes to **Gutem and contributors, pwnagotchi-esp32**:
+[radio scheduler at revision 976a8afab0745693e0d9693dd1e72bf9e9a7f700](https://github.com/Gutem/pwnagotchi-esp32/blob/976a8afab0745693e0d9693dd1e72bf9e9a7f700/firmware/pwnagotchi-esp32/radio_scheduler.cpp).
+Its [NOTICE](https://github.com/Gutem/pwnagotchi-esp32/blob/976a8afab0745693e0d9693dd1e72bf9e9a7f700/NOTICE)
+credits Copyright (C) 2026 Gutem and contributors and specifies GPL-3.0-only.
+The Highboy scheduler uses BSSID deduplication and oldest-visit deadlines
+instead of the upstream 12-work-choice exploration interval, retains Highboy's
+short dwell policy, and has no ML dependency. The scoped lab TX workflow above
+supersedes the previous passive-only AP/client hold.
+
+Handshake pair recognition in C5 `wifi_sniffer.c` is adapted from Gutem's
+[`capture_model.cpp` (`hs_complete`)](https://github.com/Gutem/pwnagotchi-esp32/blob/976a8afab0745693e0d9693dd1e72bf9e9a7f700/firmware/pwnagotchi-esp32/capture_model.cpp).
+The upstream copyright is Copyright (C) 2026 Gutem and contributors; the
+upstream-derived logic retains GPL-3.0-only terms, without the "or later" option.
+Its notice is preserved immediately above `track_handshake`, alongside the
+HIGH CODE adaptation notice dated 2026-11-14. Local changes integrate the logic
+into C with AP/client correlation, replay and descriptor/key-version checks,
+and per-message expiration. The revision linked here is the verified reference;
+the original copy revision has not been established. The project's first-party
+header does not replace the license terms of the upstream-derived logic.
+
+`tools/highboy/tests/test_capture_hopping.py` runs the production policy with a
+controlled clock and sanitizers, checking initial survey, score preference,
+deduplication, aging, saturation, bounded revisits, stale events, band changes,
+stop/restart, legacy dwell, RSN/WPA bounds, malformed IE tails, per-BSSID
+observations before/after attempts, pending-action cancellation, deferred TX, TX failure,
+15-second expiry, per-BSSID boot budgets, invalid MACs and ledger exhaustion. This is host validation, not RF
+performance evidence.
+The lab capture update requires matching C5 and P4 applications. The P4 writer
+queue remains responsible for SD persistence. Hardware acceptance compares
+repeated reconnections on an owned AP against fixed-channel capture, then repeats
+with APs on different channels; inspect saved EAPOL frames and P4 queue losses.

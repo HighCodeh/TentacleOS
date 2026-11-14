@@ -40,26 +40,64 @@
 
 static const char *TAG = "WIFI_SERVICE";
 
-#define HOPPER_STACK_SIZE       4096
-#define HOPPER_DELAY_MS         250
-#define MAX_WIFI_CHANNEL        13
-#define SCAN_STEP_DWELL_MS      120
-#define SCAN_MUTEX_TIMEOUT_MS   1000
-#define SCAN_ACTIVE_MIN_MS      100
-#define SCAN_ACTIVE_MAX_MS      300
-#define SSID_MAX_LEN            32
-#define PASSWORD_MAX_LEN        64
-#define IP_ADDR_MAX_LEN         16
-#define DEFAULT_MAX_CONN        4
-#define DEFAULT_AP_CHANNEL      1
-#define DEFAULT_BEACON_INTERVAL 100
-#define WIFI_CMD_TIMEOUT_MS     100
-#define SCAN_DWELL_MIN_MS       20
-#define SCAN_DWELL_MAX_MS       1500
-#define CAPTURE_BAND_2G         1
-#define CAPTURE_BAND_5G         2
-#define CAPTURE_CHANNEL_2G_MAX  14
-#define CAPTURE_US_PER_MS       1000
+#define HOPPER_STACK_SIZE        4096
+#define HOPPER_DELAY_MS          250
+#define CAPTURE_HOP_LAB_CAPACITY 64
+#define CAPTURE_HOP_LAB_ATTEMPTS 3
+#define CAPTURE_HOP_LAB_HOLD_US  15000000LL
+
+#define CAPTURE_HOP_IE_HEADER_LEN         2
+#define CAPTURE_HOP_SSID_TAG              0
+#define CAPTURE_HOP_RSN_TAG               0x30
+#define CAPTURE_HOP_VENDOR_TAG            0xDD
+#define CAPTURE_HOP_WPA_OUI_0             0x00
+#define CAPTURE_HOP_WPA_OUI_1             0x50
+#define CAPTURE_HOP_WPA_OUI_2             0xF2
+#define CAPTURE_HOP_WPA_OUI_TYPE          0x01
+#define CAPTURE_HOP_WPA_OUI_LEN           4
+#define CAPTURE_HOP_SECURITY_WORD_LEN     2
+#define CAPTURE_HOP_SECURITY_SELECTOR_LEN 4
+#define CAPTURE_HOP_SECURITY_LIST_COUNT   2
+#define CAPTURE_HOP_SECURITY_VERSION      1
+#define CAPTURE_HOP_BYTE_SHIFT            8
+#define CAPTURE_HOP_PMKID_LEN             16
+#define CAPTURE_HOP_US_PER_SECOND         1000000LL
+#define CAPTURE_HOP_EMPTY_MS              120
+#define CAPTURE_HOP_AP_MS                 200
+#define CAPTURE_HOP_ASSOC_MS              750
+#define CAPTURE_HOP_EAPOL_MS              1000
+#define CAPTURE_HOP_MAX_MS                2000
+#define CAPTURE_HOP_POLL_MS               20
+#define CAPTURE_HOP_CHANNEL_CAPACITY      32
+#define CAPTURE_HOP_AP_CAPACITY           64
+#define CAPTURE_HOP_BSSID_LEN             6
+#define CAPTURE_HOP_DECAY_US              30000000LL
+#define CAPTURE_HOP_REVISIT_US            5000000LL
+#define CAPTURE_HOP_ACTIVITY_US           1000000LL
+#define CAPTURE_HOP_SCORE_MAX             64
+#define CAPTURE_HOP_SCORE_BITS            16
+#define CAPTURE_HOP_ASSOC_WEIGHT          4
+#define CAPTURE_HOP_EAPOL_WEIGHT          8
+#define CAPTURE_HOP_AGE_UNIT_US           250000LL
+#define CAPTURE_HOP_AGE_MAX               20
+#define MAX_WIFI_CHANNEL                  13
+#define SCAN_STEP_DWELL_MS                120
+#define SCAN_MUTEX_TIMEOUT_MS             1000
+#define SCAN_ACTIVE_MIN_MS                100
+#define SCAN_ACTIVE_MAX_MS                300
+#define SSID_MAX_LEN                      32
+#define PASSWORD_MAX_LEN                  64
+#define IP_ADDR_MAX_LEN                   16
+#define DEFAULT_MAX_CONN                  4
+#define DEFAULT_AP_CHANNEL                1
+#define DEFAULT_BEACON_INTERVAL           100
+#define WIFI_CMD_TIMEOUT_MS               100
+#define SCAN_DWELL_MIN_MS                 20
+#define SCAN_DWELL_MAX_MS                 1500
+#define CAPTURE_BAND_2G                   1
+#define CAPTURE_BAND_5G                   2
+#define CAPTURE_CHANNEL_2G_MAX            14
+#define CAPTURE_US_PER_MS                 1000
 
 static wifi_ap_record_t s_stored_aps[WIFI_SCAN_LIST_SIZE];
 static uint16_t s_stored_ap_count = 0;
@@ -68,7 +106,51 @@ static bool s_is_active = false;
 static bool s_is_connected = false;
 static bool s_promiscuous_active = false;
 static uint8_t s_analysis_band = 0;
+typedef struct {
+  bool is_capture;
+  bool has_ap_hold;
+  bool has_action_pending;
+  uint8_t bssid[CAPTURE_HOP_BSSID_LEN];
+  uint8_t channel;
+  int64_t started_us;
+  int64_t deadline_us;
+} wifi_service_hop_state_t;
+
+// Scheduling ideas credited to Gutem/pwnagotchi-esp32; see docs/wifi/README.md.
+typedef struct {
+  uint8_t channel;
+  uint16_t score;
+  bool is_visited;
+  int64_t visited_us;
+  int64_t decay_us;
+} wifi_service_hop_channel_t;
+
+typedef struct {
+  uint8_t bssid[CAPTURE_HOP_BSSID_LEN];
+  uint8_t channel;
+  uint8_t seen_mask;
+  int64_t credited_us[WIFI_SERVICE_CAPTURE_ACTIVITY_COUNT];
+  int64_t touched_us;
+} wifi_service_hop_ap_t;
+
+typedef struct {
+  uint8_t bssid[CAPTURE_HOP_BSSID_LEN];
+  uint8_t attempts;
+  bool is_captured;
+} wifi_service_hop_lab_t;
+
+// Never evict: replacement would reset a BSSID's per-boot budget.
+static wifi_service_hop_lab_t s_hop_labs[CAPTURE_HOP_LAB_CAPACITY];
+static wifi_service_hop_channel_t *s_hop_channels;
+static wifi_service_hop_ap_t *s_hop_aps;
+static size_t s_hop_channel_count;
+static portMUX_TYPE s_hop_lock = portMUX_INITIALIZER_UNLOCKED;
+static wifi_service_hop_state_t s_hop_state;
+static wifi_service_capture_action_cb_t s_capture_action;
+static wifi_service_capture_status_t s_capture_status;
 static TaskHandle_t s_hopper_task_handle = NULL;
+static StaticSemaphore_t s_hopper_action_storage;
+static SemaphoreHandle_t s_hopper_action_mutex;
 static StackType_t *s_hopper_task_stack = NULL;
 static StaticTask_t *s_hopper_task_tcb = NULL;
 
@@ -691,10 +773,412 @@ void wifi_service_set_power_save(bool deep) {
   esp_wifi_set_ps(deep ? WIFI_PS_MAX_MODEM : WIFI_PS_MIN_MODEM);
 }
 
+esp_err_t wifi_service_set_capture_hopping(bool enabled) {
+  wifi_service_hop_channel_t *channels = NULL;
+  wifi_service_hop_ap_t *aps = NULL;
+  if (enabled && s_hop_channels == NULL) {
+    channels = heap_caps_calloc(
+        CAPTURE_HOP_CHANNEL_CAPACITY, sizeof(*channels), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (channels == NULL) {
+      ESP_LOGE(TAG, "Failed to allocate capture channels in PSRAM");
+      goto cleanup;
+    }
+    aps = heap_caps_calloc(
+        CAPTURE_HOP_AP_CAPACITY, sizeof(*aps), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (aps == NULL) {
+      ESP_LOGE(TAG, "Failed to allocate capture activity in PSRAM");
+      goto cleanup;
+    }
+    // Configure only while stopped; retain bounded storage for reuse and RX lifetime safety.
+    s_hop_channels = channels;
+    s_hop_aps = aps;
+  }
+  portENTER_CRITICAL(&s_hop_lock);
+  memset(&s_hop_state, 0, sizeof(s_hop_state));
+  s_hop_state.is_capture = enabled;
+  if (s_hop_channels != NULL)
+    memset(s_hop_channels, 0, CAPTURE_HOP_CHANNEL_CAPACITY * sizeof(*s_hop_channels));
+  if (s_hop_aps != NULL)
+    memset(s_hop_aps, 0, CAPTURE_HOP_AP_CAPACITY * sizeof(*s_hop_aps));
+  s_hop_channel_count = 0;
+  memset(&s_capture_status, 0, sizeof(s_capture_status));
+  s_capture_action = NULL;
+  portEXIT_CRITICAL(&s_hop_lock);
+  return ESP_OK;
+
+cleanup:
+  free(aps);
+  free(channels);
+  return ESP_ERR_NO_MEM;
+}
+
+static void decay_score(wifi_service_hop_channel_t *channel, int64_t now) {
+  int64_t periods = (now - channel->decay_us) / CAPTURE_HOP_DECAY_US;
+  if (periods <= 0)
+    return;
+  channel->score = periods >= CAPTURE_HOP_SCORE_BITS ? 0 : channel->score >> periods;
+  channel->decay_us += periods * CAPTURE_HOP_DECAY_US;
+}
+
+static void credit_activity(uint8_t channel,
+                            wifi_service_capture_activity_t activity,
+                            const uint8_t *bssid,
+                            int64_t now) {
+  if (bssid == NULL || (bssid[0] & 1) != 0)
+    return;
+  static const uint8_t EMPTY_BSSID[CAPTURE_HOP_BSSID_LEN] = {0};
+  if (memcmp(bssid, EMPTY_BSSID, sizeof(EMPTY_BSSID)) == 0)
+    return;
+  wifi_service_hop_channel_t *history = NULL;
+  for (size_t i = 0; i < s_hop_channel_count; i++) {
+    if (s_hop_channels[i].channel == channel) {
+      history = &s_hop_channels[i];
+      break;
+    }
+  }
+  if (history == NULL)
+    return;
+  wifi_service_hop_ap_t *entry = NULL;
+  wifi_service_hop_ap_t *oldest = &s_hop_aps[0];
+  for (size_t i = 0; i < CAPTURE_HOP_AP_CAPACITY; i++) {
+    wifi_service_hop_ap_t *candidate = &s_hop_aps[i];
+    if (candidate->channel == channel &&
+        memcmp(candidate->bssid, bssid, CAPTURE_HOP_BSSID_LEN) == 0) {
+      entry = candidate;
+      break;
+    }
+    if (candidate->channel == 0 || candidate->touched_us < oldest->touched_us)
+      oldest = candidate;
+  }
+  if (entry == NULL) {
+    entry = oldest;
+    memset(entry, 0, sizeof(*entry));
+    memcpy(entry->bssid, bssid, CAPTURE_HOP_BSSID_LEN);
+    entry->channel = channel;
+  }
+  entry->touched_us = now;
+  int64_t interval =
+      activity == WIFI_SERVICE_CAPTURE_AP ? CAPTURE_HOP_DECAY_US : CAPTURE_HOP_ACTIVITY_US;
+  uint8_t mask = (uint8_t)(1U << activity);
+  if ((entry->seen_mask & mask) != 0 && now - entry->credited_us[activity] < interval)
+    return;
+  entry->seen_mask |= mask;
+  entry->credited_us[activity] = now;
+  decay_score(history, now);
+  uint16_t weight = activity == WIFI_SERVICE_CAPTURE_EAPOL   ? CAPTURE_HOP_EAPOL_WEIGHT
+                    : activity == WIFI_SERVICE_CAPTURE_ASSOC ? CAPTURE_HOP_ASSOC_WEIGHT
+                                                             : 1;
+  uint16_t score = history->score + weight;
+  history->score = score > CAPTURE_HOP_SCORE_MAX ? CAPTURE_HOP_SCORE_MAX : score;
+}
+
+static size_t select_hop(const uint8_t *channels, size_t count, size_t fallback) {
+  int64_t now = esp_timer_get_time();
+  portENTER_CRITICAL(&s_hop_lock);
+  if (!s_hop_state.is_capture || count == 0 || count > CAPTURE_HOP_CHANNEL_CAPACITY) {
+    portEXIT_CRITICAL(&s_hop_lock);
+    return fallback;
+  }
+  bool is_same_plan = count == s_hop_channel_count;
+  for (size_t i = 0; is_same_plan && i < count; i++)
+    is_same_plan = s_hop_channels[i].channel == channels[i];
+  if (!is_same_plan) {
+    memset(s_hop_channels, 0, CAPTURE_HOP_CHANNEL_CAPACITY * sizeof(*s_hop_channels));
+    memset(s_hop_aps, 0, CAPTURE_HOP_AP_CAPACITY * sizeof(*s_hop_aps));
+    s_hop_channel_count = count;
+    for (size_t i = 0; i < count; i++) {
+      s_hop_channels[i].channel = channels[i];
+      s_hop_channels[i].decay_us = now;
+    }
+  }
+  size_t oldest = 0;
+  size_t best = 0;
+  uint32_t best_score = 0;
+  int64_t best_age = -1;
+  for (size_t i = 0; i < count; i++) {
+    wifi_service_hop_channel_t *item = &s_hop_channels[i];
+    if (!item->is_visited) {
+      oldest = i;
+      break;
+    }
+    decay_score(item, now);
+    if (item->visited_us < s_hop_channels[oldest].visited_us)
+      oldest = i;
+    int64_t age = now - item->visited_us;
+    uint32_t age_bonus = (uint32_t)(age / CAPTURE_HOP_AGE_UNIT_US);
+    if (age_bonus > CAPTURE_HOP_AGE_MAX)
+      age_bonus = CAPTURE_HOP_AGE_MAX;
+    uint32_t score = item->score + age_bonus;
+    if (score > best_score || (score == best_score && age > best_age)) {
+      best = i;
+      best_score = score;
+      best_age = age;
+    }
+  }
+  size_t selected = !s_hop_channels[oldest].is_visited ||
+                            now - s_hop_channels[oldest].visited_us >= CAPTURE_HOP_REVISIT_US
+                        ? oldest
+                        : best;
+  s_hop_channels[selected].is_visited = true;
+  s_hop_channels[selected].visited_us = now;
+  portEXIT_CRITICAL(&s_hop_lock);
+  return selected;
+}
+
+void wifi_service_observe_capture(uint8_t channel,
+                                  wifi_service_capture_activity_t activity,
+                                  const uint8_t *bssid) {
+  if (activity < WIFI_SERVICE_CAPTURE_AP || activity >= WIFI_SERVICE_CAPTURE_ACTIVITY_COUNT)
+    return;
+  int64_t now = esp_timer_get_time();
+  portENTER_CRITICAL(&s_hop_lock);
+  if (s_hop_state.is_capture && channel != 0 && channel == s_hop_state.channel) {
+    credit_activity(channel, activity, bssid, now);
+    int64_t deadline = s_hop_state.deadline_us;
+    if (activity == WIFI_SERVICE_CAPTURE_AP)
+      deadline = s_hop_state.started_us + CAPTURE_HOP_AP_MS * CAPTURE_US_PER_MS;
+    else if (activity == WIFI_SERVICE_CAPTURE_ASSOC)
+      deadline = now + CAPTURE_HOP_ASSOC_MS * CAPTURE_US_PER_MS;
+    else if (activity == WIFI_SERVICE_CAPTURE_EAPOL)
+      deadline = now + CAPTURE_HOP_EAPOL_MS * CAPTURE_US_PER_MS;
+    int64_t maximum = s_hop_state.started_us + CAPTURE_HOP_MAX_MS * CAPTURE_US_PER_MS;
+    if (deadline > maximum)
+      deadline = maximum;
+    if (deadline > s_hop_state.deadline_us)
+      s_hop_state.deadline_us = deadline;
+  }
+  portEXIT_CRITICAL(&s_hop_lock);
+}
+
+void wifi_service_set_capture_action(wifi_service_capture_action_cb_t action) {
+  portENTER_CRITICAL(&s_hop_lock);
+  s_capture_action = action;
+  portEXIT_CRITICAL(&s_hop_lock);
+}
+
+void wifi_service_get_capture_status(wifi_service_capture_status_t *out_status) {
+  if (out_status == NULL)
+    return;
+  int64_t now = esp_timer_get_time();
+  portENTER_CRITICAL(&s_hop_lock);
+  *out_status = s_capture_status;
+  int64_t remaining = s_hop_state.deadline_us - now;
+  out_status->hold_seconds =
+      s_hop_state.has_ap_hold && s_hop_state.channel != 0 && remaining > 0
+          ? (uint8_t)((remaining + CAPTURE_HOP_US_PER_SECOND - 1) / CAPTURE_HOP_US_PER_SECOND)
+          : 0;
+  portEXIT_CRITICAL(&s_hop_lock);
+}
+
+static uint16_t security_word(const uint8_t *data) {
+  return (uint16_t)data[0] | ((uint16_t)data[1] << CAPTURE_HOP_BYTE_SHIFT);
+}
+
+static bool is_security_body_valid(const uint8_t *body, size_t length, bool is_rsn) {
+  if (length < CAPTURE_HOP_SECURITY_WORD_LEN || security_word(body) != CAPTURE_HOP_SECURITY_VERSION)
+    return false;
+  body += CAPTURE_HOP_SECURITY_WORD_LEN;
+  length -= CAPTURE_HOP_SECURITY_WORD_LEN;
+  // Omitted trailing fields use protocol defaults; partially present fields are invalid.
+  if (length == 0)
+    return true;
+  if (length < CAPTURE_HOP_SECURITY_SELECTOR_LEN)
+    return false;
+  body += CAPTURE_HOP_SECURITY_SELECTOR_LEN;
+  length -= CAPTURE_HOP_SECURITY_SELECTOR_LEN;
+  for (size_t i = 0; i < CAPTURE_HOP_SECURITY_LIST_COUNT; i++) {
+    if (length == 0)
+      return true;
+    if (length < CAPTURE_HOP_SECURITY_WORD_LEN)
+      return false;
+    uint16_t count = security_word(body);
+    body += CAPTURE_HOP_SECURITY_WORD_LEN;
+    length -= CAPTURE_HOP_SECURITY_WORD_LEN;
+    if (count == 0 || count > length / CAPTURE_HOP_SECURITY_SELECTOR_LEN)
+      return false;
+    size_t bytes = (size_t)count * CAPTURE_HOP_SECURITY_SELECTOR_LEN;
+    body += bytes;
+    length -= bytes;
+  }
+  if (length == 0)
+    return true;
+  if (length < CAPTURE_HOP_SECURITY_WORD_LEN)
+    return false;
+  body += CAPTURE_HOP_SECURITY_WORD_LEN;
+  length -= CAPTURE_HOP_SECURITY_WORD_LEN;
+  if (!is_rsn || length == 0)
+    return length == 0;
+  if (length < CAPTURE_HOP_SECURITY_WORD_LEN)
+    return false;
+  uint16_t pmkid_count = security_word(body);
+  length -= CAPTURE_HOP_SECURITY_WORD_LEN;
+  if (pmkid_count > length / CAPTURE_HOP_PMKID_LEN)
+    return false;
+  length -= (size_t)pmkid_count * CAPTURE_HOP_PMKID_LEN;
+  return length == 0 || length == CAPTURE_HOP_SECURITY_SELECTOR_LEN;
+}
+
+static bool has_secured_ie(const uint8_t *ies, size_t length) {
+  if (ies == NULL)
+    return false;
+  bool has_rsn = false;
+  bool has_wpa = false;
+  while (length != 0) {
+    if (length < CAPTURE_HOP_IE_HEADER_LEN || ies[1] > length - CAPTURE_HOP_IE_HEADER_LEN)
+      return false;
+    uint8_t tag = ies[0];
+    uint8_t size = ies[1];
+    const uint8_t *body = ies + CAPTURE_HOP_IE_HEADER_LEN;
+    if (tag == CAPTURE_HOP_RSN_TAG) {
+      if (has_rsn || !is_security_body_valid(body, size, true))
+        return false;
+      has_rsn = true;
+    } else if (tag == CAPTURE_HOP_VENDOR_TAG && size >= CAPTURE_HOP_WPA_OUI_LEN &&
+               body[0] == CAPTURE_HOP_WPA_OUI_0 && body[1] == CAPTURE_HOP_WPA_OUI_1 &&
+               body[2] == CAPTURE_HOP_WPA_OUI_2 && body[3] == CAPTURE_HOP_WPA_OUI_TYPE) {
+      if (has_wpa || !is_security_body_valid(
+                         body + CAPTURE_HOP_WPA_OUI_LEN, size - CAPTURE_HOP_WPA_OUI_LEN, false))
+        return false;
+      has_wpa = true;
+    }
+    ies += CAPTURE_HOP_IE_HEADER_LEN + size;
+    length -= CAPTURE_HOP_IE_HEADER_LEN + size;
+  }
+  return has_rsn || has_wpa;
+}
+
+void wifi_service_mark_captured(const uint8_t *bssid) {
+  static const uint8_t EMPTY_MAC[CAPTURE_HOP_BSSID_LEN] = {0};
+  if (bssid == NULL || (bssid[0] & 1) != 0 || memcmp(bssid, EMPTY_MAC, sizeof(EMPTY_MAC)) == 0)
+    return;
+  portENTER_CRITICAL(&s_hop_lock);
+  wifi_service_hop_lab_t *entry = NULL;
+  wifi_service_hop_lab_t *empty = NULL;
+  for (size_t i = 0; i < CAPTURE_HOP_LAB_CAPACITY; i++) {
+    wifi_service_hop_lab_t *ap = &s_hop_labs[i];
+    if (ap->attempts == 0 && !ap->is_captured) {
+      if (empty == NULL)
+        empty = ap;
+    } else if (memcmp(ap->bssid, bssid, CAPTURE_HOP_BSSID_LEN) == 0) {
+      entry = ap;
+      break;
+    }
+  }
+  if (entry == NULL)
+    entry = empty;
+  if (entry != NULL) {
+    memcpy(entry->bssid, bssid, CAPTURE_HOP_BSSID_LEN);
+    entry->is_captured = true;
+  }
+  if (s_hop_state.has_action_pending &&
+      memcmp(s_hop_state.bssid, bssid, CAPTURE_HOP_BSSID_LEN) == 0)
+    s_hop_state.has_action_pending = false;
+  portEXIT_CRITICAL(&s_hop_lock);
+}
+
+void wifi_service_observe_capture_ap(uint8_t channel,
+                                     const uint8_t *bssid,
+                                     const uint8_t *ies,
+                                     size_t length) {
+  static const uint8_t EMPTY_MAC[CAPTURE_HOP_BSSID_LEN] = {0};
+  if (bssid == NULL || (bssid[0] & 1) != 0 || memcmp(bssid, EMPTY_MAC, sizeof(EMPTY_MAC)) == 0 ||
+      !has_secured_ie(ies, length))
+    return;
+  int64_t now = esp_timer_get_time();
+  portENTER_CRITICAL(&s_hop_lock);
+  if (!s_hop_state.is_capture || s_capture_action == NULL || channel == 0 ||
+      channel != s_hop_state.channel || s_hop_state.has_ap_hold || now >= s_hop_state.deadline_us)
+    goto cleanup;
+  wifi_service_hop_lab_t *entry = NULL;
+  wifi_service_hop_lab_t *empty = NULL;
+  for (size_t i = 0; i < CAPTURE_HOP_LAB_CAPACITY; i++) {
+    wifi_service_hop_lab_t *ap = &s_hop_labs[i];
+    if (ap->attempts == 0 && !ap->is_captured) {
+      if (empty == NULL)
+        empty = ap;
+    } else if (memcmp(ap->bssid, bssid, CAPTURE_HOP_BSSID_LEN) == 0) {
+      entry = ap;
+      break;
+    }
+  }
+  if (entry == NULL)
+    entry = empty;
+  if (entry == NULL || entry->is_captured || entry->attempts >= CAPTURE_HOP_LAB_ATTEMPTS)
+    goto cleanup;
+  memcpy(entry->bssid, bssid, CAPTURE_HOP_BSSID_LEN);
+  entry->attempts++;
+  s_capture_status.ap_attempt = entry->attempts;
+  s_hop_state.has_ap_hold = true;
+  s_hop_state.has_action_pending = true;
+  memcpy(s_hop_state.bssid, bssid, CAPTURE_HOP_BSSID_LEN);
+  s_hop_state.deadline_us = now + CAPTURE_HOP_LAB_HOLD_US;
+cleanup:
+  portEXIT_CRITICAL(&s_hop_lock);
+}
+
+// Caller serializes this task-context operation with hopper stop.
+static void process_capture_action(void) {
+  uint8_t bssid[CAPTURE_HOP_BSSID_LEN];
+  uint8_t channel = 0;
+  wifi_service_capture_action_cb_t action = NULL;
+  portENTER_CRITICAL(&s_hop_lock);
+  if (s_hop_state.is_capture && s_hop_state.has_action_pending) {
+    action = s_capture_action;
+    channel = s_hop_state.channel;
+    memcpy(bssid, s_hop_state.bssid, sizeof(bssid));
+    s_hop_state.has_action_pending = false;
+  }
+  portEXIT_CRITICAL(&s_hop_lock);
+  if (action == NULL || channel == 0)
+    return;
+  esp_err_t err = action(bssid, channel);
+  int64_t now = esp_timer_get_time();
+  portENTER_CRITICAL(&s_hop_lock);
+  s_capture_status.attempts++;
+  if (err != ESP_OK)
+    s_capture_status.failures++;
+  s_hop_state.deadline_us = now + CAPTURE_HOP_LAB_HOLD_US;
+  portEXIT_CRITICAL(&s_hop_lock);
+  if (err == ESP_OK)
+    ESP_LOGI(TAG, "Capture TX accepted on channel %u; holding for 15 seconds", channel);
+  else
+    ESP_LOGW(TAG, "Capture TX failed on channel %u: %s", channel, esp_err_to_name(err));
+}
+
+static void begin_hop(uint8_t channel) {
+  int64_t now = esp_timer_get_time();
+  portENTER_CRITICAL(&s_hop_lock);
+  s_hop_state.has_ap_hold = false;
+  s_hop_state.has_action_pending = false;
+  s_hop_state.channel = channel;
+  s_hop_state.started_us = now;
+  s_hop_state.deadline_us =
+      now + (s_hop_state.is_capture ? CAPTURE_HOP_EMPTY_MS : HOPPER_DELAY_MS) * CAPTURE_US_PER_MS;
+  portEXIT_CRITICAL(&s_hop_lock);
+}
+
+static bool finish_hop(void) {
+  int64_t now = esp_timer_get_time();
+  portENTER_CRITICAL(&s_hop_lock);
+  bool is_finished = now >= s_hop_state.deadline_us;
+  if (is_finished)
+    s_hop_state.channel = 0;
+  portEXIT_CRITICAL(&s_hop_lock);
+  return is_finished;
+}
+
 void wifi_service_start_channel_hopping(void) {
   if (s_hopper_task_handle != NULL) {
     ESP_LOGW(TAG, "Channel hopping already running");
     return;
+  }
+
+  if (s_hopper_action_mutex == NULL) {
+    s_hopper_action_mutex = xSemaphoreCreateMutexStatic(&s_hopper_action_storage);
+    if (s_hopper_action_mutex == NULL) {
+      ESP_LOGE(TAG, "Failed to create hopper action mutex");
+      return;
+    }
   }
 
   if (s_hopper_task_stack == NULL) {
@@ -740,6 +1224,9 @@ void wifi_service_start_channel_hopping(void) {
 }
 
 void wifi_service_stop_channel_hopping(void) {
+  if (s_hopper_action_mutex != NULL)
+    xSemaphoreTake(s_hopper_action_mutex, portMAX_DELAY);
+  wifi_service_set_capture_hopping(false);
   if (s_hopper_task_handle != NULL) {
     vTaskDelete(s_hopper_task_handle);
     s_hopper_task_handle = NULL;
@@ -751,6 +1238,8 @@ void wifi_service_stop_channel_hopping(void) {
   free(s_hopper_task_tcb);
   s_hopper_task_tcb = NULL;
 
+  if (s_hopper_action_mutex != NULL)
+    xSemaphoreGive(s_hopper_action_mutex);
   ESP_LOGI(TAG, "Channel hopping stopped");
 }
 
@@ -960,14 +1449,21 @@ static void channel_hopper_task(void *pvParameters) {
     }
     if (idx >= count)
       idx = 0;
+    idx = select_hop(channels, count, idx);
     esp_err_t err = esp_wifi_set_channel(channels[idx], WIFI_SECOND_CHAN_NONE);
     if (err != ESP_OK)
       ESP_LOGD(TAG, "Skip unsupported channel %u: %s", channels[idx], esp_err_to_name(err));
+    begin_hop(err == ESP_OK ? channels[idx] : 0);
     idx++;
     if (idx >= count) {
       idx = 0;
     }
-    vTaskDelay(pdMS_TO_TICKS(HOPPER_DELAY_MS));
+    do {
+      vTaskDelay(pdMS_TO_TICKS(CAPTURE_HOP_POLL_MS));
+      xSemaphoreTake(s_hopper_action_mutex, portMAX_DELAY);
+      process_capture_action();
+      xSemaphoreGive(s_hopper_action_mutex);
+    } while (!finish_hop());
   }
 }
 

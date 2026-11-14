@@ -67,6 +67,7 @@ idf_component_register(SRCS
   "font/font.c"
   "icons/icons.c"
   "wifi/wifi_service.c"
+  "wifi/wifi_capture_queue.c"
   "wifi/mac_vendor.c"
   "boot_report/boot_report.c"
   "boot_sound/boot_sound.c"

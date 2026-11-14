@@ -21,6 +21,7 @@ extern "C" {
 #endif
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "esp_err.h"
@@ -205,6 +206,43 @@ void wifi_service_promiscuous_stop(void);
 /**
  * @brief Start channel hopping across all Wi-Fi channels.
  */
+typedef enum {
+  WIFI_SERVICE_CAPTURE_AP,
+  WIFI_SERVICE_CAPTURE_ASSOC,
+  WIFI_SERVICE_CAPTURE_EAPOL,
+  WIFI_SERVICE_CAPTURE_ACTIVITY_COUNT
+} wifi_service_capture_activity_t;
+
+/** Configure while stopped; returns ESP_ERR_NO_MEM if PSRAM allocation fails. */
+/* Stop clears capture policy but retains bounded PSRAM storage for reuse. */
+esp_err_t wifi_service_set_capture_hopping(bool enabled);
+/** Callback-safe observation: updates timing only, never switches channels or performs I/O. */
+/* BSSID is borrowed only for this call; history is bounded and reset on stop. */
+void wifi_service_observe_capture(uint8_t channel,
+                                  wifi_service_capture_activity_t activity,
+                                  const uint8_t *bssid);
+
+#define WIFI_SERVICE_CAPTURE_MAC_LEN 6
+
+typedef esp_err_t (*wifi_service_capture_action_cb_t)(const uint8_t *bssid, uint8_t channel);
+typedef struct {
+  uint16_t attempts;
+  uint16_t failures;
+  uint8_t hold_seconds;
+  uint8_t ap_attempt;
+} wifi_service_capture_status_t;
+
+/** Configure only while the hopper is stopped; action runs on the hopper task. */
+void wifi_service_set_capture_action(wifi_service_capture_action_cb_t action);
+/** Borrowed beacon/probe-response IEs; validates the entire list before scheduling. */
+void wifi_service_observe_capture_ap(uint8_t channel,
+                                     const uint8_t *bssid,
+                                     const uint8_t *ies,
+                                     size_t length);
+/** Mark C5 EAPOL-pair or PMKID observation per BSSID; this does not acknowledge SD persistence. */
+void wifi_service_mark_captured(const uint8_t *bssid);
+void wifi_service_get_capture_status(wifi_service_capture_status_t *out_status);
+
 void wifi_service_start_channel_hopping(void);
 
 /** Select which band the next channel-hopping session will visit (0/1/2). */

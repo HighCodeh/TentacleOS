@@ -22,7 +22,10 @@ extern "C" {
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "wifi_ap_capture.h"
 #include <stddef.h>
+
+#include "esp_err.h"
 
 /**
  * @brief Sniffer capture filter type.
@@ -63,6 +66,10 @@ typedef struct {
   int8_t channel_peak_rssi[WIFI_SPECTRUM_BIN_COUNT];
   bool handshake_captured;
   bool pmkid_captured;
+  uint16_t capture_attempts;
+  uint16_t capture_failures;
+  uint8_t capture_hold_seconds;
+  uint8_t capture_ap_attempt;
 } wifi_sniffer_stats_t;
 
 /**
@@ -82,6 +89,8 @@ typedef void (*wifi_sniffer_cb_t)(const uint8_t *frame, uint16_t len, int8_t rss
  * @param channel  Channel to sniff (0 for hopping).
  * @return true on success, false on failure.
  */
+esp_err_t wifi_sniffer_capture_snapshot(wifi_ap_capture_snapshot_t *out_snapshot);
+
 bool wifi_sniffer_start(wifi_sniffer_type_t type, uint8_t channel);
 
 /** Start a capture constrained to dual, 2.4 GHz, or 5 GHz hopping. */
@@ -101,9 +110,8 @@ bool wifi_sniffer_start_stream(wifi_sniffer_type_t type, uint8_t channel, wifi_s
  * @brief Start the sniffer in Packet Monitor mode (counter-only).
  *
  * Same as `wifi_sniffer_start(WIFI_SNIFFER_TYPE_RAW, channel)` but tells
- * the C5 to recycle the PCAP buffer when full (instead of dropping new
- * packets). Use this for the Packet Monitor screen which only reads
- * counters and never saves the PCAP.
+ * the C5 to keep counters without allocating or writing a PCAP buffer.
+ * Use this for the Packet Monitor screen, which never saves a PCAP.
  *
  * @param channel  Wi-Fi channel (0 for hopping).
  */
@@ -132,14 +140,17 @@ bool wifi_sniffer_start_capture(const char *path);
  */
 bool wifi_sniffer_stop_capture(void);
 
+/** Flush PCAP writes, returning any latched write error or an inactive-session error. */
+esp_err_t wifi_sniffer_flush_capture(void);
+
 /**
  * @brief Get the size of the current capture file in bytes.
  *
- * @return Bytes written to the capture file.
+ * @return Bytes written to the single capture, or total record bytes in per-AP mode.
  */
 size_t wifi_sniffer_get_capture_size(void);
 
-/** Full path of the active/latest PCAP, or an empty string for counter-only mode. */
+/** PCAP path, per-AP capture directory, or an empty string for counter-only mode. */
 const char *wifi_sniffer_get_capture_path(void);
 
 /** Fetch one coherent statistics snapshot from the C5. */

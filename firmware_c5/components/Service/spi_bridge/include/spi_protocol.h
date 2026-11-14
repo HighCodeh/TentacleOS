@@ -1081,6 +1081,10 @@ typedef struct {
   // The P4 derives live rates from consecutive cumulative snapshots.
   uint32_t channel_packets[SPI_WIFI_SPECTRUM_BIN_COUNT];
   int8_t channel_peak_rssi[SPI_WIFI_SPECTRUM_BIN_COUNT];
+  uint16_t capture_attempts;
+  uint16_t capture_failures;
+  uint8_t capture_hold_seconds;
+  uint8_t capture_ap_attempt;
 } __attribute__((packed)) spi_sniffer_stats_t;
 
 #define SPI_WIFI_SNIFFER_MAX_DATA (SPI_MAX_PAYLOAD - 4)
