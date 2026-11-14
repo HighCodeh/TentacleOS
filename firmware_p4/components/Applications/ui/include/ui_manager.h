@@ -325,6 +325,9 @@ bool ui_sd_ready(void);
  */
 void ui_input_lock(uint32_t ms);
 
+/** UI thread: discard queued input and consume held buttons through their release. */
+void ui_input_consume_gesture(void);
+
 #ifdef __cplusplus
 }
 #endif

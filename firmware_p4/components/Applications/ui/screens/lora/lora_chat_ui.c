@@ -1280,9 +1280,16 @@ static void lora_chat_input(const input_event_t *ev, void *ctx) {
 void ui_lora_chat_open(void) {
   ui_theme_set_protocol(PROTOCOL_LORA);
   lora_proto_t cur = lora_session_active();
-  s_view = VIEW_PROTO;
-  s_proto = (cur != LORA_PROTO_NONE) ? sel_for_proto(cur) : 0;
-  s_home_sel = 0;
+  const screen_id_t from = ui_current_screen();
+  const bool is_returning = from == SCREEN_LORA_CHANNELS || from == SCREEN_LORA_POSITION ||
+                            from == SCREEN_LORA_TELEMETRY || from == SCREEN_LORA_SECURE_DM ||
+                            from == SCREEN_LORA_TRACEROUTE || from == SCREEN_LORA_MQTT ||
+                            from == SCREEN_LORA_RNODE;
+  s_view = is_returning ? VIEW_HOME : VIEW_PROTO;
+  if (!is_returning) {
+    s_proto = (cur != LORA_PROTO_NONE) ? sel_for_proto(cur) : 0;
+    s_home_sel = 0;
+  }
   s_node = 0;
   s_rnode_count = 0;
   s_nodes_list = false;

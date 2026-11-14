@@ -31,7 +31,7 @@ int xQueueSend(void *q,const void *item,int ticks) { assert(q==queue && ticks==0
 int xQueueReceive(void *q,void *item,unsigned ticks) { (void)ticks; assert(q==queue); if(head==tail) return 0; *(input_event_t*)item=queue[head++]; return 1; }
 void vQueueDelete(void *q) { assert(q==queue); }
 
-#define BACK_POWEROFF_HOLD_MS 5000
+#define POWER_POLICY_BACK_HOLD_MS 5000
 static uint32_t s_back_pressed_at;
 static bool s_back_fired, s_back_tracking;
 static unsigned dialogs;

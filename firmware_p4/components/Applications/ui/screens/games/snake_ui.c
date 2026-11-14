@@ -35,7 +35,7 @@
 #define START_LEN        4
 #define FOOD_PLACE_TRIES 200
 
-#define COL_BG   0x0A0014
+#define COL_BG   0x000000
 #define COL_BODY 0x9C27B0
 #define COL_HEAD 0xE040FB
 #define COL_FOOD 0x00E676
@@ -199,6 +199,12 @@ static void step(void) {
   render_body();
 }
 
+static void handle_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  if (ev->button == INPUT_BTN_BACK && ev->action == INPUT_ACTION_PRESS)
+    ui_switch_screen(SCREEN_GAMES_MENU);
+}
+
 static void tick_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen) {
     lv_timer_delete(t);
@@ -209,12 +215,6 @@ static void tick_cb(lv_timer_t *t) {
   bool right = ui_btn_right(), ok = ok_button_is_down(), back = back_button_is_down();
 
   if (!ui_input_is_locked()) {
-    if (back && !s_back_last) {
-      s_back_last = back;
-      ui_switch_screen(SCREEN_GAMES_MENU);
-      return;
-    }
-
     if (s_state == ST_PLAY) {
       if (up && !s_up_last) {
         s_ndx = 0;
@@ -313,5 +313,6 @@ void ui_snake_open(void) {
   if (s_timer == NULL)
     s_timer = lv_timer_create(tick_cb, TICK_MS, NULL);
 
+  ui_input_set_screen_handler(handle_input, NULL);
   ui_screen_load_owned(&s_screen, s_screen);
 }

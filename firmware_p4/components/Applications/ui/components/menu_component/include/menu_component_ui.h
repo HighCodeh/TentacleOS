@@ -56,6 +56,12 @@ typedef struct {
   int selected;
 } menu_component_t;
 
+/** Attach the menu track/thumb to a custom content panel. State lives with the screen. */
+void menu_component_attach_scroll(menu_component_t *menu, lv_obj_t *parent, lv_obj_t *content);
+
+/** Scroll custom content by pixels, clamped to its live bounds; zero refreshes the bounds. */
+void menu_component_scroll_content(menu_component_t *menu, int32_t delta_y);
+
 /** @brief Create the full menu screen layout with title and scrollbar. */
 menu_component_t
 menu_component_create(lv_obj_t *parent, const char *title, const char *title_icon_path);
@@ -68,8 +74,8 @@ lv_obj_t *menu_component_add_item(menu_component_t *menu, const char *icon_path,
  *        path). Used for icons embedded in .hb app bundles. The descriptor and
  *        its pixels must outlive the menu (the caller owns that memory).
  */
-lv_obj_t *menu_component_add_item_dsc(menu_component_t *menu, const lv_image_dsc_t *dsc,
-                                      const char *label);
+lv_obj_t *
+menu_component_add_item_dsc(menu_component_t *menu, const lv_image_dsc_t *dsc, const char *label);
 
 /**
  * @brief Add a centered, non-selectable group header (e.g. "Sound & Vibration")

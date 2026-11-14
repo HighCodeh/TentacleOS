@@ -77,6 +77,7 @@ static void kb_event_cb(lv_event_t *e) {
 void keyboard_open(lv_obj_t *target_textarea, keyboard_submit_cb_t cb, void *user_data) {
   (void)target_textarea;
 
+  ui_input_consume_gesture();
   kb_submit_cb = cb;
   kb_submit_user_data = user_data;
   lv_port_indev_set_keyboard_mode(true);
@@ -195,6 +196,7 @@ bool keyboard_is_open(void) {
 
 void keyboard_close(void) {
   if (kb_screen) {
+    ui_input_consume_gesture();
     if (main_group) {
       lv_group_set_editing(main_group, false);
       lv_group_remove_all_objs(main_group);

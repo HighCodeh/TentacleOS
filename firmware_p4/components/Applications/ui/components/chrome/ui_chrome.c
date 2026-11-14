@@ -119,7 +119,7 @@ lv_obj_t *ui_chrome_footer(lv_obj_t *parent, const char *hint) {
   lv_obj_align(ft, LV_ALIGN_BOTTOM_LEFT, 0, 0);
   lv_obj_remove_flag(ft, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(ft, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_style_bg_color(ft, current_theme.bg_secondary, 0);
+  lv_obj_set_style_bg_color(ft, current_theme.bg_primary, 0);
   lv_obj_set_style_bg_opa(ft, LV_OPA_COVER, 0);
   lv_obj_set_style_radius(ft, 0, 0);
   lv_obj_set_style_pad_all(ft, 0, 0);

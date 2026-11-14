@@ -444,7 +444,7 @@ static void select_target(int idx) {
 
 static void leave_screen(void) {
   s_poll_run = false;
-  ui_switch_screen(SCREEN_WIFI_MENU);
+  build_pick_list();
 }
 
 static void wifi_signal_locator_input(const input_event_t *ev, void *ctx) {

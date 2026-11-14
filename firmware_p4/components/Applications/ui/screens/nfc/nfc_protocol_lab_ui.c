@@ -34,6 +34,8 @@
 #define REFRESH_MS        100
 #define DESFIRE_PAGE_TEXT 448U
 
+static screen_id_t s_return = SCREEN_NFC_MENU;
+
 static const char *TAG = "NFC_PROTOCOL_LAB_UI";
 
 static char s_archive_selected[NFC_ARCHIVE_PATH_SIZE];
@@ -483,7 +485,7 @@ static void input_cb(const input_event_t *event, void *ctx) {
       if (status.running)
         nfc_protocol_service_cancel();
       else
-        ui_switch_screen(SCREEN_NFC_MENU);
+        ui_switch_screen(s_return);
     } else if (!status.running) {
       if (event->button == INPUT_BTN_OK)
         start_read();
@@ -516,7 +518,7 @@ static void input_cb(const input_event_t *event, void *ctx) {
       if (status.running)
         nfc_protocol_service_cancel();
       else
-        ui_switch_screen(SCREEN_NFC_MENU);
+        ui_switch_screen(s_return);
     } else if (!status.running) {
       if (event->button == INPUT_BTN_UP || event->button == INPUT_BTN_DOWN)
         desfire_page(event->button == INPUT_BTN_UP);
@@ -538,7 +540,7 @@ static void input_cb(const input_event_t *event, void *ctx) {
       if (status.running)
         nfc_protocol_service_cancel();
       else
-        ui_switch_screen(SCREEN_NFC_MENU);
+        ui_switch_screen(s_return);
     } else if (!status.running) {
       if (event->button == INPUT_BTN_UP || event->button == INPUT_BTN_DOWN)
         ntag4xx_page(event->button == INPUT_BTN_UP);
@@ -560,7 +562,7 @@ static void input_cb(const input_event_t *event, void *ctx) {
       if (status.running)
         nfc_protocol_service_cancel();
       else
-        ui_switch_screen(SCREEN_NFC_MENU);
+        ui_switch_screen(s_return);
     } else if (!status.running) {
       if (event->button == INPUT_BTN_UP || event->button == INPUT_BTN_DOWN)
         felica_page(event->button == INPUT_BTN_UP);
@@ -582,7 +584,7 @@ static void input_cb(const input_event_t *event, void *ctx) {
       if (status.running)
         nfc_protocol_service_cancel();
       else
-        ui_switch_screen(SCREEN_NFC_MENU);
+        ui_switch_screen(s_return);
     } else if (!status.running) {
       if (event->button == INPUT_BTN_UP || event->button == INPUT_BTN_DOWN)
         select_archive(event->button == INPUT_BTN_UP);
@@ -627,7 +629,7 @@ static void input_cb(const input_event_t *event, void *ctx) {
     if (status.running)
       nfc_protocol_service_cancel();
     else
-      ui_switch_screen(SCREEN_NFC_MENU);
+      ui_switch_screen(s_return);
   } else if (event->button == INPUT_BTN_RIGHT && !status.running &&
              s_operation == NFC_PROTOCOL_OP_TEXKOM) {
     s_last_state = (nfc_protocol_state_t)-1;
@@ -703,6 +705,11 @@ void ui_nfc_protocol_lab_stop(void) {
 }
 
 void ui_nfc_protocol_lab_open(nfc_protocol_op_t operation, const char *title) {
+  const screen_id_t from = ui_current_screen();
+  if (from == SCREEN_NFC_READ || from == SCREEN_NFC_SAVED)
+    s_return = from;
+  else if (from == SCREEN_NFC_MENU || from == SCREEN_HOME || from == SCREEN_MENU)
+    s_return = SCREEN_NFC_MENU;
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;

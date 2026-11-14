@@ -72,6 +72,10 @@ void lv_port_indev_inject(uint32_t lv_key);
  */
 void lv_port_indev_set_suppressed(bool suppressed);
 
+/** UI-thread guard; true blocks legacy keypad delivery. Physical BACK is routed by the UI. */
+typedef bool (*lv_port_indev_guard_cb_t)(void);
+void lv_port_indev_set_guard(lv_port_indev_guard_cb_t guard);
+
 #ifdef __cplusplus
 }
 #endif

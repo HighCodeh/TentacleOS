@@ -136,7 +136,7 @@ static void prepare_model(void) {
   }
   memset(s_depth, 0, VIEW_PIXELS * sizeof(*s_depth));
   for (unsigned i = 0; i < VIEW_PIXELS; ++i)
-    s_pixels[i] = 0x0863;
+    s_pixels[i] = 0x0000;
   for (unsigned i = 0; i < IMU_MESH_FACES; ++i) {
     const imu_mesh_face_t *f = &s_mesh->faces[i];
     float *a = s_xyz[f->a], *b = s_xyz[f->b], *c = s_xyz[f->c];
@@ -302,7 +302,7 @@ void ui_imu_monitor_open(void) {
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_pad_all(s_screen, 0, 0);
   lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_bg_color(s_screen, lv_color_hex(0x080D18), 0);
+  lv_obj_set_style_bg_color(s_screen, lv_color_black(), 0);
   lv_obj_add_event_cb(s_screen, deleted, LV_EVENT_DELETE, NULL);
   ui_chrome_header(s_screen, "HIGH BOY / 3D", "/assets/icons/sensors.bin");
   s_hint_y = ui_screen_h() - FOOTER_RESERVE - LABEL_HEIGHT;
@@ -352,7 +352,7 @@ void ui_imu_monitor_open(void) {
     goto cleanup;
   }
   for (unsigned i = 0; i < VIEW_PIXELS; ++i)
-    s_pixels[i] = 0x0863;
+    s_pixels[i] = 0x0000;
   lv_canvas_set_buffer(s_view, s_pixels, s_view_width, s_view_height, LV_COLOR_FORMAT_RGB565);
   power_policy_set_display_hold(s_screen, true);
   return;

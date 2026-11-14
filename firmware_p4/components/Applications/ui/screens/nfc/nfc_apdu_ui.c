@@ -48,6 +48,8 @@ typedef enum {
   APDU_ACTION_COUNT,
 } apdu_action_t;
 
+static screen_id_t s_return = SCREEN_NFC_MENU;
+
 static const char *const ACTION_NAMES[APDU_ACTION_COUNT] = {
     "RAW APDU",
     "SELECT CUSTOM AID",
@@ -361,7 +363,7 @@ static void input_cb(const input_event_t *event, void *ctx) {
   switch (event->button) {
     case INPUT_BTN_BACK:
     case INPUT_BTN_LEFT:
-      ui_switch_screen(SCREEN_NFC_MENU);
+      ui_switch_screen(s_return);
       break;
     case INPUT_BTN_UP:
       s_action = (apdu_action_t)((s_action + APDU_ACTION_COUNT - 1U) % APDU_ACTION_COUNT);
@@ -404,6 +406,11 @@ void ui_nfc_apdu_stop(void) {
 }
 
 void ui_nfc_apdu_open(void) {
+  const screen_id_t from = ui_current_screen();
+  if (from == SCREEN_NFC_READ || from == SCREEN_NFC_SAVED)
+    s_return = from;
+  else if (from == SCREEN_NFC_MENU || from == SCREEN_HOME || from == SCREEN_MENU)
+    s_return = SCREEN_NFC_MENU;
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;

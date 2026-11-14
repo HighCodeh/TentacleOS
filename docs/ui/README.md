@@ -304,9 +304,32 @@ you on the next screen switch. Use `REPEAT` for held auto-scroll and
 `input_is_down(button)` when you need a continuous held state (games).
 
 See `nfc_menu_ui.c` for the reference handler, and
-[input-migration.md](input-migration.md) for the full pattern and gotchas. Every
-screen already uses this model; the lone exception is `games/octopet_ui.c`,
-which keeps a poll timer on purpose for continuous held-direction movement.
+[input-migration.md](input-migration.md) for the full pattern and gotchas. Legacy coverflow menus still use the LVGL keypad; the central guard disables
+that path whenever an event handler or modal owns input. Octopet uses the same
+event handler contract. Games and the BLE mouse can still poll continuous
+controls, but their BACK action belongs to the central handler and their polling
+is blocked during modal dialogs and consumed gestures.
+
+### Gesture ownership and BACK
+
+See the [navigation audit](navigation-audit.md) for route coverage, corrected
+parent destinations and the remaining lifecycle findings.
+
+The UI dispatches a short physical BACK as one `PRESS` **on release**, preserving
+existing screen handlers and their parent destinations. BACK repeats and the
+800 ms long-press event never navigate. Holding BACK for five seconds belongs to
+the shutdown policy and does not perform a short BACK afterward.
+
+Handler changes, navigation locks, keyboard transitions and message-box
+transitions consume queued input and held buttons through release. Message boxes
+also lock input during their closing animation. The LVGL keypad waits for release
+instead of generating a click on the previously focused control. The quick panel
+stops reading actions while a message box is open.
+
+Run `python3 tools/highboy/tests/test_ui_navigation.py` for host regressions of
+the production router (short/held BACK, modal close, queued input, keyboard and
+legacy-menu ownership). Hardware validation should include Connections → Settings,
+Wi-Fi scan → results/configuration, and cancelling shutdown from each screen.
 
 ## Screen power policy (auto-dim / sleep)
 
@@ -363,6 +386,20 @@ the UI timer only renders it. The screen has no simulated version, simulated
 progress or UI-triggered reboot. Only successful native OTA selects/reboots the
 image. Reopen/delete does not leave a worker with LVGL pointers. See the
 [OTA behavior and validation](../ota/README.md#native-p4-update-screen-and-failure-handling).
+
+## Black page backgrounds
+
+All built-in pages use black backgrounds, including the shared header and footers, menu
+surface, built-in arcade games and IMU canvas. Theme loading normalizes
+`screen_base` and `bg_primary` to black after reading flash or SD palettes, so
+existing SD themes do not restore the old purple page backgrounds. Cards,
+buttons, selection fills, protocol accents and media content keep their colors.
+
+Main and secondary text colors below luminance 96 are replaced with white and
+light gray respectively. Owned screens inherit the main text color for labels
+without an explicit color. Dark text on filled badges/buttons retains its
+explicit style; their contrasting fills remain unchanged. An app-only P4 update
+applies this policy without rewriting theme files or rebuilding assets.
 
 ## Theme path limits
 
@@ -467,3 +504,28 @@ Run `python3 tools/highboy/test_imu_motion_ui.py --output /tmp/imu-ui` for actua
 LVGL renders in portrait/landscape with simulated samples, controls, repeat
 entry/exit, missing/corrupt models and injected timer allocation failure. These
 checks do not establish physical sensor accuracy or on-device rendering speed.
+
+## Handshake capture feedback
+
+The storage card shows pending/peak queue depth, lost/failed frame counts, and
+TX attempt/failure counts. The live card shows the scan status, remaining
+listening time and the last AP attempt number; no SSID filter is applied. INFO
+indicates driver acceptance of a TX call; warning indicates TX failure. Neither
+means a client reconnected or a handshake was saved.
+BACK displays “Finishing SD writes...” while the worker drains accepted frames,
+then returns to the Wi-Fi menu; UI input/rendering remains asynchronous.
+
+The Wi-Fi handshake screen uses an accent-bordered live-status card, paired RX
+and saved-EAPOL counter cards, PAIR and PMKID badges, and a storage information
+card. Only the eight recent per-AP capture entries remain a plain-text list.
+Cards use content-driven heights and proportional widths. The panel reuses the
+menu component track/thumb through `menu_component_attach_scroll()` and its
+bounded `menu_component_scroll_content()` API. UP/DOWN stops at the actual content
+limits; live updates clamp the offset after layout changes, and a panel with no
+overflow hides the track/thumb. BACK exits. No decorative animation implies packet reception.
+C5 EAPOL-pair (M1+M2, M2+M3 or M3+M4) and PMKID observations are distinct from successful SD writes. Colors use
+the active theme, and the content stays inside header/footer bounds in portrait
+and landscape. The worker publishes snapshots without accessing LVGL directly;
+generation checks discard updates after navigation. See [Wi-Fi capture](../wifi/README.md#handshake-capture-and-lifecycle)
+for persistence and purple INFO LED semantics. Hardware visual/LED acceptance is
+still required; host tests cover persistence and worker cancellation.

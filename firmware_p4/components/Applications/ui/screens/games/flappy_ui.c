@@ -50,7 +50,7 @@
 #define GAP_MARGIN 28
 #define STAR_COUNT 7
 
-#define COL_BG     0x0A0014
+#define COL_BG     0x000000
 #define COL_PIPE   0x9C27B0
 #define COL_CAP    0xBA3FD0
 #define COL_GROUND 0x3A0A4A
@@ -229,6 +229,12 @@ static void step_physics(void) {
   }
 }
 
+static void handle_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  if (ev->button == INPUT_BTN_BACK && ev->action == INPUT_ACTION_PRESS)
+    ui_switch_screen(SCREEN_GAMES_MENU);
+}
+
 static void tick_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen) {
     lv_timer_delete(t);
@@ -240,11 +246,6 @@ static void tick_cb(lv_timer_t *t) {
   bool back = back_button_is_down();
 
   if (!ui_input_is_locked()) {
-    if (back && !s_back_last) {
-      s_back_last = back;
-      ui_switch_screen(SCREEN_GAMES_MENU);
-      return;
-    }
     bool flap_edge = (ok && !s_ok_last) || (up && !s_up_last);
     if (flap_edge) {
       if (s_state == ST_READY) {
@@ -364,5 +365,6 @@ void ui_flappy_open(void) {
   if (s_timer == NULL)
     s_timer = lv_timer_create(tick_cb, TICK_MS, NULL);
 
+  ui_input_set_screen_handler(handle_input, NULL);
   ui_screen_load_owned(&s_screen, s_screen);
 }

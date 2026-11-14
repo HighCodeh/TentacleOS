@@ -76,6 +76,8 @@ typedef struct {
   size_t app_count;
 } emv_ui_result_t;
 
+static screen_id_t s_return = SCREEN_NFC_MENU;
+
 static const char *TAG = "NFC_EMV_UI";
 
 static lv_obj_t *s_screen;
@@ -553,7 +555,7 @@ static void nfc_bankcard_input(const input_event_t *ev, void *ctx) {
       portENTER_CRITICAL(&s_mux);
       s_cancel = true;
       portEXIT_CRITICAL(&s_mux);
-      ui_switch_screen(SCREEN_NFC_MENU);
+      ui_switch_screen(s_return);
       break;
     case INPUT_BTN_LEFT:
       if (!s_task && s_result.app_count) {
@@ -612,6 +614,11 @@ void ui_nfc_bankcard_stop(void) {
 }
 
 void ui_nfc_bankcard_open(void) {
+  const screen_id_t from = ui_current_screen();
+  if (from == SCREEN_NFC_READ || from == SCREEN_NFC_SAVED)
+    s_return = from;
+  else if (from == SCREEN_NFC_MENU || from == SCREEN_HOME || from == SCREEN_MENU)
+    s_return = SCREEN_NFC_MENU;
   s_load_path[0] = 0;
   if (s_screen != NULL) {
     lv_obj_del(s_screen);

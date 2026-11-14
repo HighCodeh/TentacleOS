@@ -205,6 +205,7 @@ static uint32_t read_sd_accent(const char *name) {(void)name;return 0;}
 static int theme_idx, loads, reads, unloads;
 static void ui_theme_load_idx(int i) { (void)i; loads++; }
 static char *read_file_alloc(const char *path) { reads++; strcpy(last_path,path); return NULL; }
+static void apply_black_background(void) {}
 static void parse_theme_conf(char *s) { (void)s; }
 static void parse_theme_json(char *s) { (void)s; }
 static void assets_unload_sd(void) { unloads++; }

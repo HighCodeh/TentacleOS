@@ -98,6 +98,12 @@ static void pair_reveal(void) {
   ui_feedback(UI_FB_EMULATE);
 }
 
+static void handle_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  if (ev->button == INPUT_BTN_BACK && ev->action == INPUT_ACTION_PRESS)
+    ui_switch_screen(SCREEN_BLE_MENU);
+}
+
 static void pair_timer_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_pair_screen) {
     lv_timer_delete(t);
@@ -110,11 +116,6 @@ static void pair_timer_cb(lv_timer_t *t) {
   }
 
   bool back = back_button_is_down();
-  if (back && !s_pair_back_last) {
-    ble_hid_deinit();
-    ui_switch_screen(SCREEN_BLE_MENU);
-    return;
-  }
   s_pair_back_last = back;
 
   int64_t now = esp_timer_get_time();
@@ -168,6 +169,7 @@ void ui_ble_mouse_pairing_open(void) {
   if (s_pair_timer == NULL)
     s_pair_timer = lv_timer_create(pair_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
 
+  ui_input_set_screen_handler(handle_input, NULL);
   ui_screen_load_owned(&s_pair_screen, s_pair_screen);
 }
 
@@ -281,13 +283,6 @@ static void mouse_timer_cb(lv_timer_t *t) {
     s_m_right_last = right;
     s_m_ok_last = ok;
     s_m_back_last = back;
-    return;
-  }
-
-  if (back && !s_m_back_last) {
-    ble_hid_send_mouse(0, 0, 0, 0);
-    ble_hid_deinit();
-    ui_switch_screen(SCREEN_BLE_MENU);
     return;
   }
 
@@ -429,6 +424,7 @@ void ui_ble_mouse_open(void) {
   if (s_mouse_timer == NULL)
     s_mouse_timer = lv_timer_create(mouse_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
 
+  ui_input_set_screen_handler(handle_input, NULL);
   ui_screen_load_owned(&s_mouse_screen, s_mouse_screen);
 }
 

@@ -746,7 +746,15 @@ void ui_settings_open(void) {
     lv_obj_del(s_screen);
     s_screen = NULL;
   }
-  build_settings_view(VIEW_MAIN);
+  settings_view_t view = VIEW_MAIN;
+  const screen_id_t from = ui_current_screen();
+  for (int i = 0; i < LAB_COUNT; i++) {
+    if (LAB_ITEMS[i].target == (int)from)
+      view = VIEW_LAB;
+  }
+  if (from == SCREEN_C5_STATUS || from == SCREEN_SETTINGS || from == SCREEN_SETTINGS_DEV)
+    view = s_view;
+  build_settings_view(view);
 }
 
 void ui_settings_open_dev(void) {

@@ -333,7 +333,9 @@ static void show_client(int idx) {
 
 static void leave_screen(void) {
   s_poll_run = false;
-  ui_switch_screen(SCREEN_WIFI_MENU);
+  s_restart_pending = false;
+  s_state = TC_PICK_LIST;
+  build_screen();
 }
 
 static void wifi_target_clients_input(const input_event_t *ev, void *ctx) {

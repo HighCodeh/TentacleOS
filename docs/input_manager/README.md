@@ -75,6 +75,11 @@ typedef struct {
 `REPEAT` auto-repeats while held. A held button therefore emits `PRESS`, then
 `REPEAT`s, and `LONG_PRESS` once at 800 ms - consumers use whichever they need.
 
+The UI applies a separate gesture policy: short BACK is dispatched on release,
+while a five-second hold is reserved for shutdown. Modal and screen transitions
+consume pending/held input so a gesture cannot affect two owners. This does not
+change the driver events above. See [UI gesture ownership](../ui/README.md#gesture-ownership-and-back).
+
 ## API
 
 ```c

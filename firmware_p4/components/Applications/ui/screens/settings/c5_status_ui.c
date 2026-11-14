@@ -310,7 +310,7 @@ static void c5_status_input(const input_event_t *ev, void *ctx) {
   switch (ev->button) {
     case INPUT_BTN_BACK:
       if (press)
-        ui_switch_screen(SCREEN_SETTINGS_DEV);
+        ui_switch_screen(SCREEN_SETTINGS);
       break;
     case INPUT_BTN_DOWN:
       if (nav) {

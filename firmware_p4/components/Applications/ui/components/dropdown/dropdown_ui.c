@@ -32,6 +32,8 @@
 #include "header_ui.h"
 #include "lv_port_indev.h"
 #include "notify_ui.h"
+#include "msgbox_ui.h"
+#include "power_policy.h"
 #include "reboot_ui.h"
 #include "tos_config.h"
 #include "tos_storage_paths.h"
@@ -106,6 +108,7 @@ static int hide_objs_count = 0;
 
 static bool btn_up_last, btn_down_last, btn_left_last, btn_right_last, btn_ok_last, btn_back_last;
 static lv_timer_t *slide_btn_timer = NULL;
+static uint32_t s_back_start;
 
 static uint32_t up_hold_start = 0;    // tick when UP was pressed (long-press timing)
 static bool up_hold_consumed = false; // long-press already toggled for this hold
@@ -384,6 +387,17 @@ static void slide_btn_timer_cb(lv_timer_t *timer) {
   bool left = ui_nav_pressed(INPUT_BTN_LEFT), right = ui_nav_pressed(INPUT_BTN_RIGHT);
   bool ok = ok_button_is_down(), back = back_button_is_down();
 
+  if (msgbox_is_open()) {
+    btn_up_last = up;
+    btn_down_last = down;
+    btn_left_last = left;
+    btn_right_last = right;
+    btn_ok_last = ok;
+    btn_back_last = back;
+    up_hold_consumed = true;
+    return;
+  }
+
   uint32_t nowt = lv_tick_get();
 
   // Long-press UP toggles the panel: open from a browse screen (never while input
@@ -469,9 +483,10 @@ static void slide_btn_timer_cb(lv_timer_t *timer) {
         conn_set_ble(!badge_on[BADGE_BLE]);
       }
     }
-    if (back && !btn_back_last) {
+    if (back && !btn_back_last)
+      s_back_start = nowt;
+    if (!back && btn_back_last && (uint32_t)(nowt - s_back_start) < POWER_POLICY_BACK_HOLD_MS)
       dropdown_close();
-    }
   }
 
   // Freeze screens that poll the buttons directly while the panel is up or
@@ -835,7 +850,7 @@ void dropdown_ui_register_hide_objs(lv_obj_t **objs, int count) {
 }
 
 bool dropdown_ui_is_open(void) {
-  return slide_open;
+  return slide_open || slide_animating;
 }
 
 void dropdown_ui_raise(void) {

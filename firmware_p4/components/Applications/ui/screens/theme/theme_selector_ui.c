@@ -325,6 +325,7 @@ static void update_view(bool anim) {
 }
 
 static bool s_is_reboot_armed = false;
+static screen_id_t s_return = SCREEN_SETTINGS;
 
 static void theme_reboot_cb(bool confirm) {
   (void)confirm;
@@ -340,7 +341,7 @@ static void theme_selector_input(const input_event_t *ev, void *ctx) {
   switch (ev->button) {
     case INPUT_BTN_BACK:
       if (press)
-        ui_switch_screen(SCREEN_SETTINGS);
+        ui_switch_screen(s_return);
       break;
     case INPUT_BTN_OK:
       if (press && !s_is_reboot_armed && s_sel != s_applied) {
@@ -424,6 +425,9 @@ static void build_screen(void) {
 }
 
 void ui_theme_selector_open(void) {
+  const screen_id_t from = ui_current_screen();
+  if (from != SCREEN_THEME_SELECTOR)
+    s_return = from == SCREEN_INTERFACE_SETTINGS ? SCREEN_INTERFACE_SETTINGS : SCREEN_SETTINGS;
   s_is_reboot_armed = false;
   build_entries();
   s_applied = find_applied();

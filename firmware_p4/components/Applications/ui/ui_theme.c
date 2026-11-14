@@ -31,13 +31,15 @@
 #define THEME_CONFIG_PATH     FLASH_CONFIG_THEMES
 #define INTERFACE_CONFIG_PATH FLASH_CONFIG_INTERFACE
 
-#define THEME_COUNT           2
-#define CONF_KV_BUF_SIZE      64
-#define THEME_PATH_MAX        128
-#define ASSET_DIR_PATH_MAX    160
-#define CONF_SECTION_NONE     0
-#define CONF_SECTION_COLORS   1
-#define CONF_SECTION_PROTOCOL 2
+#define THEME_TEXT_MIN_LUMINANCE   96
+#define THEME_SECONDARY_TEXT_COLOR 0xA0A0A0
+#define THEME_COUNT                2
+#define CONF_KV_BUF_SIZE           64
+#define THEME_PATH_MAX             128
+#define ASSET_DIR_PATH_MAX         160
+#define CONF_SECTION_NONE          0
+#define CONF_SECTION_COLORS        1
+#define CONF_SECTION_PROTOCOL      2
 
 static const char *TAG = "UI_THEME";
 
@@ -46,6 +48,15 @@ int theme_idx = 0;
 static protocol_id_t active_protocol = PROTOCOL_NONE;
 
 const char *theme_names[] = {"default", "cyber_blue"};
+
+static void apply_black_background(void) {
+  current_theme.screen_base = lv_color_black();
+  current_theme.bg_primary = lv_color_black();
+  if (lv_color_luminance(current_theme.text_main) < THEME_TEXT_MIN_LUMINANCE)
+    current_theme.text_main = lv_color_white();
+  if (lv_color_luminance(current_theme.text_secondary) < THEME_TEXT_MIN_LUMINANCE)
+    current_theme.text_secondary = lv_color_hex(THEME_SECONDARY_TEXT_COLOR);
+}
 
 static uint32_t hex_to_int(const char *hex) {
   if (hex == NULL)
@@ -182,6 +193,7 @@ void ui_theme_load_idx(int color_idx) {
     cJSON_Delete(root);
   }
   free(data);
+  apply_black_background();
 }
 
 static void apply_conf_color(const char *key, const char *value, int section) {
@@ -427,6 +439,7 @@ esp_err_t ui_theme_load_from_name(const char *theme_name) {
   }
 
   free(data);
+  apply_black_background();
 
   for (int i = 0; i < THEME_COUNT; i++) {
     if (strcmp(theme_name, theme_names[i]) == 0) {

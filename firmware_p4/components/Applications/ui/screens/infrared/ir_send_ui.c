@@ -484,8 +484,10 @@ static void ir_send_input(const input_event_t *ev, void *ctx) {
             }
             break;
           case INPUT_BTN_BACK:
-            if (press)
-              ui_switch_screen(SCREEN_IR_MENU);
+            if (press) {
+              s_view = VIEW_LIST;
+              build_list();
+            }
             break;
           default:
             break;

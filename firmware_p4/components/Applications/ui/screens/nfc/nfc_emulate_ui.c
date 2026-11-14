@@ -76,6 +76,8 @@
 
 enum { EM_NONE, EM_RUN };
 
+static screen_id_t s_return = SCREEN_NFC_MENU;
+
 static const char *TAG = "NFC_EMULATE_UI";
 
 static lv_obj_t *s_screen = NULL;
@@ -719,7 +721,7 @@ static void nfc_emulate_input(const input_event_t *ev, void *ctx) {
     case INPUT_BTN_BACK:
     case INPUT_BTN_LEFT:
       if (press)
-        ui_switch_screen(SCREEN_NFC_MENU);
+        ui_switch_screen(s_return);
       break;
     case INPUT_BTN_DOWN:
       if (nav && !s_empty) {
@@ -750,6 +752,11 @@ static void nfc_emulate_input(const input_event_t *ev, void *ctx) {
 }
 
 void ui_nfc_emulate_open(void) {
+  const screen_id_t from = ui_current_screen();
+  if (from == SCREEN_NFC_READ || from == SCREEN_NFC_SAVED)
+    s_return = from;
+  else if (from == SCREEN_NFC_MENU || from == SCREEN_HOME || from == SCREEN_MENU)
+    s_return = SCREEN_NFC_MENU;
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;

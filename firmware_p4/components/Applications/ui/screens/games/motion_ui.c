@@ -149,6 +149,12 @@ static void update_physics(void) {
     lv_label_set_text_fmt(s_read, "Pitch %d deg   Roll %d deg", (int)s_pitch, (int)s_roll);
 }
 
+static void handle_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  if (ev->button == INPUT_BTN_BACK && ev->action == INPUT_ACTION_PRESS)
+    ui_switch_screen(SCREEN_GAMES_MENU);
+}
+
 static void tick_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen) {
     lv_timer_delete(t);
@@ -160,7 +166,7 @@ static void tick_cb(lv_timer_t *t) {
 
   bool back = back_button_is_down();
   bool left = ui_btn_left();
-  if ((back && !s_back_last) || (left && !s_left_last)) {
+  if (left && !s_left_last) {
     ui_switch_screen(SCREEN_GAMES_MENU);
     return;
   }
@@ -196,5 +202,6 @@ void ui_motion_open(void) {
   if (s_timer == NULL)
     s_timer = lv_timer_create(tick_cb, TICK_MS, NULL);
 
+  ui_input_set_screen_handler(handle_input, NULL);
   ui_screen_load_owned(&s_screen, s_screen);
 }

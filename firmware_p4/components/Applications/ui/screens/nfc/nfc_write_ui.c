@@ -58,6 +58,8 @@ typedef struct {
   char path[128];
 } write_dump_entry_t;
 
+static screen_id_t s_return = SCREEN_NFC_MENU;
+
 static const char *TAG = "NFC_WRITE_UI";
 
 static lv_obj_t *s_screen;
@@ -461,7 +463,7 @@ static void write_input(const input_event_t *event, void *ctx) {
       lv_label_set_text(s_status, "Stopping after current RF command...");
       return;
     }
-    ui_switch_screen(SCREEN_NFC_MENU);
+    ui_switch_screen(s_return);
     return;
   }
 
@@ -505,6 +507,11 @@ void ui_nfc_write_stop(void) {
 }
 
 void ui_nfc_write_open(void) {
+  const screen_id_t from = ui_current_screen();
+  if (from == SCREEN_NFC_READ || from == SCREEN_NFC_SAVED)
+    s_return = from;
+  else if (from == SCREEN_NFC_MENU || from == SCREEN_HOME || from == SCREEN_MENU)
+    s_return = SCREEN_NFC_MENU;
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;

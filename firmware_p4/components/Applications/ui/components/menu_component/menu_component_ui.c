@@ -24,7 +24,7 @@
 #include "ui_metrics.h"
 #include "ui_theme.h"
 
-#define HEADER_BG   current_theme.bg_secondary
+#define HEADER_BG   current_theme.bg_primary
 #define HEADER_LINE current_theme.border_accent
 #define FOOTER_LINE current_theme.border_interface
 #define TITLE_COLOR current_theme.border_accent
@@ -91,8 +91,8 @@ static void update_scroll_state(menu_component_t *m) {
   }
 }
 
-static void update_scroll_bar(menu_component_t *m) {
-  if (!m->scroll_bar || m->item_count <= 1)
+static void position_scroll_bar(menu_component_t *m, int32_t value, int32_t maximum) {
+  if (!m->scroll_bar)
     return;
   int32_t thumb_h = lv_obj_get_height(m->scroll_bar);
   if (thumb_h <= 0)
@@ -100,7 +100,9 @@ static void update_scroll_bar(menu_component_t *m) {
   int32_t travel = m->track_h - thumb_h;
   if (travel < 0)
     travel = 0;
-  int32_t pos = m->track_y_start + (m->selected * travel) / (m->item_count - 1);
+  int32_t pos = m->track_y_start;
+  if (maximum > 0)
+    pos += (int32_t)(((int64_t)value * travel) / maximum);
 
   lv_anim_t a;
   lv_anim_init(&a);
@@ -110,6 +112,34 @@ static void update_scroll_bar(menu_component_t *m) {
   lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
   lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)lv_obj_set_y);
   lv_anim_start(&a);
+}
+
+static void update_scroll_bar(menu_component_t *m) {
+  if (m->item_count > 1)
+    position_scroll_bar(m, m->selected, m->item_count - 1);
+}
+
+void menu_component_scroll_content(menu_component_t *m, int32_t delta_y) {
+  if (m == NULL || m->items_cont == NULL)
+    return;
+  lv_obj_update_layout(m->items_cont);
+  int32_t maximum = lv_obj_get_scroll_top(m->items_cont) + lv_obj_get_scroll_bottom(m->items_cont);
+  if (maximum < 0)
+    maximum = 0;
+  int64_t target = (int64_t)lv_obj_get_scroll_y(m->items_cont) + delta_y;
+  if (target < 0)
+    target = 0;
+  if (target > maximum)
+    target = maximum;
+  lv_obj_scroll_to_y(m->items_cont, (int32_t)target, LV_ANIM_OFF);
+  position_scroll_bar(m, (int32_t)target, maximum);
+  if (maximum == 0) {
+    lv_obj_add_flag(m->scroll_track, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(m->scroll_bar, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_remove_flag(m->scroll_track, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(m->scroll_bar, LV_OBJ_FLAG_HIDDEN);
+  }
 }
 
 static void update_selection(menu_component_t *m) {
@@ -142,6 +172,45 @@ static void update_selection(menu_component_t *m) {
   }
 
   update_scroll_bar(m);
+}
+
+void menu_component_attach_scroll(menu_component_t *m, lv_obj_t *parent, lv_obj_t *content) {
+  m->screen = parent;
+  m->items_cont = content;
+  lv_obj_update_layout(content);
+  lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_OFF);
+  lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLL_ELASTIC);
+  lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLL_MOMENTUM);
+  int track_x = ui_screen_w() - OUTER_BORDER - 9;
+  m->track_y_start = lv_obj_get_y(content) + 8;
+  m->track_h = lv_obj_get_height(content) - 16;
+  if (m->track_h < 0)
+    m->track_h = 0;
+
+  static lv_point_precise_t track_pts[2];
+  track_pts[0].x = 0;
+  track_pts[0].y = 0;
+  track_pts[1].x = 0;
+  track_pts[1].y = m->track_h;
+
+  m->scroll_track = lv_line_create(m->screen);
+  lv_line_set_points(m->scroll_track, track_pts, 2);
+  lv_obj_set_pos(m->scroll_track, track_x, m->track_y_start);
+  lv_obj_set_style_line_color(m->scroll_track, current_theme.border_inactive, 0);
+  lv_obj_set_style_line_opa(m->scroll_track, LV_OPA_COVER, 0);
+  lv_obj_set_style_line_width(m->scroll_track, 3, 0);
+  lv_obj_set_style_line_dash_width(m->scroll_track, 4, 0);
+  lv_obj_set_style_line_dash_gap(m->scroll_track, 4, 0);
+
+  static lv_image_dsc_t *slide_bar_v_dsc = NULL;
+  if (!slide_bar_v_dsc)
+    slide_bar_v_dsc = assets_get("/assets/icons/drag_indicator.bin");
+
+  m->scroll_bar = lv_image_create(m->screen);
+  if (slide_bar_v_dsc)
+    lv_image_set_src(m->scroll_bar, slide_bar_v_dsc);
+  lv_obj_set_pos(m->scroll_bar, track_x - 4, m->track_y_start);
+  lv_obj_move_foreground(m->scroll_bar);
 }
 
 menu_component_t
@@ -191,36 +260,7 @@ menu_component_create(lv_obj_t *parent, const char *title, const char *title_ico
   lv_obj_set_scrollbar_mode(m.items_cont, LV_SCROLLBAR_MODE_OFF);
   lv_obj_set_scroll_snap_y(m.items_cont, LV_SCROLL_SNAP_NONE);
 
-  int track_x = ui_screen_w() - OUTER_BORDER - 9;
-  m.track_y_start = ITEMS_Y + 8;
-  m.track_h = items_h - 16;
-  if (m.track_h < 0)
-    m.track_h = 0;
-
-  static lv_point_precise_t track_pts[2];
-  track_pts[0].x = 0;
-  track_pts[0].y = 0;
-  track_pts[1].x = 0;
-  track_pts[1].y = m.track_h;
-
-  m.scroll_track = lv_line_create(m.screen);
-  lv_line_set_points(m.scroll_track, track_pts, 2);
-  lv_obj_set_pos(m.scroll_track, track_x, m.track_y_start);
-  lv_obj_set_style_line_color(m.scroll_track, current_theme.border_inactive, 0);
-  lv_obj_set_style_line_opa(m.scroll_track, LV_OPA_COVER, 0);
-  lv_obj_set_style_line_width(m.scroll_track, 3, 0);
-  lv_obj_set_style_line_dash_width(m.scroll_track, 4, 0);
-  lv_obj_set_style_line_dash_gap(m.scroll_track, 4, 0);
-
-  static lv_image_dsc_t *slide_bar_v_dsc = NULL;
-  if (!slide_bar_v_dsc)
-    slide_bar_v_dsc = assets_get("/assets/icons/drag_indicator.bin");
-
-  m.scroll_bar = lv_image_create(m.screen);
-  if (slide_bar_v_dsc)
-    lv_image_set_src(m.scroll_bar, slide_bar_v_dsc);
-  lv_obj_set_pos(m.scroll_bar, track_x - 4, m.track_y_start);
-  lv_obj_move_foreground(m.scroll_bar);
+  menu_component_attach_scroll(&m, m.screen, m.items_cont);
 
   m.footer = lv_obj_create(m.screen);
   lv_obj_set_size(m.footer, lv_pct(100), FOOTER_H);

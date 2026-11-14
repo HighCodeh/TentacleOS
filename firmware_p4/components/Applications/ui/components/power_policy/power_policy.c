@@ -37,13 +37,12 @@
 
 // Battery discharge policy, manual shutdown handling, and display inactivity.
 
-#define POWER_POLL_MS         100
-#define BATT_CHECK_MS         2000
-#define BACK_POWEROFF_HOLD_MS 5000
-#define DISPLAY_OFF_DELAY_MS  1600
-#define DISPLAY_DIM_LEAD_MS   5000
-#define DISPLAY_MIN_DIM_PCT   5
-#define DISPLAY_DIM_DIVISOR   5
+#define POWER_POLL_MS        100
+#define BATT_CHECK_MS        2000
+#define DISPLAY_OFF_DELAY_MS 1600
+#define DISPLAY_DIM_LEAD_MS  5000
+#define DISPLAY_MIN_DIM_PCT  5
+#define DISPLAY_DIM_DIVISOR  5
 
 #define BATT_CRIT_PCT         5
 #define BATT_SHUTDOWN_PCT     2
@@ -350,7 +349,7 @@ static void check_manual_shutdown_gestures(void) {
   } else if (!s_back_tracking) {
     s_back_tracking = true;
     s_back_pressed_at = now;
-  } else if (!s_back_fired && (uint32_t)(now - s_back_pressed_at) >= BACK_POWEROFF_HOLD_MS &&
+  } else if (!s_back_fired && (uint32_t)(now - s_back_pressed_at) >= POWER_POLICY_BACK_HOLD_MS &&
              !msgbox_is_open()) {
     s_back_fired = true;
     power_policy_show_shutdown_dialog();

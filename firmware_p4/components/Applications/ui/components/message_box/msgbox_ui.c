@@ -20,6 +20,7 @@
 #include "assets_manager.h"
 #include "buttons_gpio.h"
 #include "ui_metrics.h"
+#include "ui_manager.h"
 #include "ui_theme.h"
 
 #define MSGBOX_H       ((ui_screen_h() * 45) / 100)
@@ -75,6 +76,7 @@ static void close_anim_del_cb(lv_anim_t *a) {
 
 static void panel_deleted_cb(lv_event_t *e) {
   (void)e;
+  ui_input_consume_gesture();
   panel = NULL;
   btn_objs[0] = btn_objs[1] = NULL;
   btn_count = 0;
@@ -89,6 +91,8 @@ static void do_close(bool confirm) {
   if (!panel)
     return;
 
+  ui_input_consume_gesture();
+  ui_input_lock(ANIM_TIME);
   lv_obj_t *closing = panel;
   msgbox_cb_t cb = current_cb;
   panel = NULL;
@@ -206,6 +210,7 @@ void msgbox_open_ex(const char *icon,
   if (panel)
     discard_panel_silent();
 
+  ui_input_consume_gesture();
   current_cb = cb;
   input_locked = true;
   btn_count = 0;

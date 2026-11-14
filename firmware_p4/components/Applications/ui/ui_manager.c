@@ -201,8 +201,25 @@ void ui_render_beat_kick(void) {
 
 static ui_input_handler_t s_screen_handler = NULL;
 static void *s_screen_handler_ctx = NULL;
+static uint32_t s_consumed_buttons;
+static bool s_back_pending;
+static uint32_t s_back_pressed_at;
+
+void ui_input_consume_gesture(void) {
+  input_event_t discarded;
+  while (input_get_event(&discarded, 0)) {}
+  s_back_pending = false;
+  s_consumed_buttons = 0;
+  for (input_button_t button = 0; button < INPUT_BTN_COUNT; button++) {
+    if (input_is_down(button))
+      s_consumed_buttons |= UINT32_C(1) << button;
+  }
+  if (indev_keypad != NULL)
+    lv_indev_wait_release(indev_keypad);
+}
 
 void ui_input_set_screen_handler(ui_input_handler_t handler, void *ctx) {
+  ui_input_consume_gesture();
   s_screen_handler = handler;
   s_screen_handler_ctx = ctx;
 }
@@ -215,7 +232,8 @@ bool ui_sd_ready(void) {
 }
 
 static bool input_dispatch_blocked(void) {
-  return ui_input_is_locked() || msgbox_is_open() || keyboard_is_open() || power_policy_is_asleep();
+  return ui_input_is_locked() || msgbox_is_open() || dropdown_ui_is_open() || keyboard_is_open() ||
+         power_policy_is_asleep();
 }
 
 static input_button_t input_remap_for_rotation(input_button_t b) {
@@ -258,23 +276,67 @@ bool ui_nav_pressed(input_button_t logical) {
   return input_is_down(phys);
 }
 
+static bool keypad_dispatch_blocked(void) {
+  return ui_input_is_locked() || msgbox_is_open() || dropdown_ui_is_open() ||
+         screen_tips_active() || s_consumed_buttons != 0 ||
+         (s_screen_handler != NULL && !keyboard_is_open() && !tutorial_is_active());
+}
+
 static void ui_input_pump(lv_timer_t *t) {
   (void)t;
   input_event_t ev;
   while (input_get_event(&ev, 0)) {
+    if (ev.action == INPUT_ACTION_RELEASE && screen_tips_active())
+      screen_tips_handle_input(&ev);
+    const uint32_t mask = UINT32_C(1) << ev.button;
+    if ((s_consumed_buttons & mask) != 0) {
+      if (ev.action == INPUT_ACTION_RELEASE)
+        s_consumed_buttons &= ~mask;
+      continue;
+    }
+    if (ui_input_is_locked() || msgbox_is_open() || dropdown_ui_is_open()) {
+      s_back_pending = false;
+      if (ev.action != INPUT_ACTION_RELEASE)
+        s_consumed_buttons |= mask;
+      continue;
+    }
+    if (ev.button == INPUT_BTN_BACK) {
+      if (ev.action == INPUT_ACTION_PRESS) {
+        s_back_pending = true;
+        s_back_pressed_at = ev.timestamp_ms;
+        continue;
+      }
+      if (ev.action != INPUT_ACTION_RELEASE)
+        continue;
+      const bool is_short = s_back_pending && (uint32_t)(ev.timestamp_ms - s_back_pressed_at) <
+                                                  POWER_POLICY_BACK_HOLD_MS;
+      s_back_pending = false;
+      if (!is_short)
+        continue;
+      ev.action = INPUT_ACTION_PRESS;
+      if (keyboard_is_open()) {
+        keyboard_close();
+        break;
+      }
+    }
     ev.button = input_remap_for_rotation(ev.button);
     if (screen_tips_active()) {
       screen_tips_handle_input(&ev);
+      if (!screen_tips_active())
+        ui_input_consume_gesture();
       continue;
     }
-    if (s_screen_handler == NULL || input_dispatch_blocked()) {
+    if (input_dispatch_blocked())
+      continue;
+    if (s_screen_handler == NULL || tutorial_is_active()) {
+      if (ev.button == INPUT_BTN_BACK && ev.action == INPUT_ACTION_PRESS && main_group != NULL)
+        lv_group_send_data(main_group, LV_KEY_ESC);
       continue;
     }
     ui_input_handler_t handler = s_screen_handler;
     handler(&ev, s_screen_handler_ctx);
-    if (s_screen_handler != handler) {
+    if (s_screen_handler != handler)
       break;
-    }
   }
 }
 
@@ -288,6 +350,7 @@ void ui_init(void) {
   ui_feedback_init();
 
   if (ui_acquire()) {
+    lv_port_indev_set_guard(keypad_dispatch_blocked);
     power_policy_init();
     dropdown_ui_global_init();
     lv_timer_create(render_beat_cb, RENDER_BEAT_MS, NULL);
@@ -314,6 +377,7 @@ void ui_init_safe_mode(void) {
   ui_feedback_init();
 
   if (ui_acquire()) {
+    lv_port_indev_set_guard(keypad_dispatch_blocked);
     lv_timer_create(render_beat_cb, RENDER_BEAT_MS, NULL);
     lv_timer_create(ui_input_pump, UI_INPUT_PUMP_MS, NULL);
     ui_safe_mode_open();
@@ -357,10 +421,12 @@ static void clear_current_screen(void) {
 }
 
 bool ui_input_is_locked(void) {
-  return (int32_t)(lv_tick_get() - input_lock_until) < 0 || power_policy_is_asleep();
+  return (int32_t)(lv_tick_get() - input_lock_until) < 0 || power_policy_is_asleep() ||
+         msgbox_is_open() || s_consumed_buttons != 0;
 }
 
 void ui_input_lock(uint32_t ms) {
+  ui_input_consume_gesture();
   uint32_t until = lv_tick_get() + ms;
   if ((int32_t)(until - input_lock_until) > 0)
     input_lock_until = until;
@@ -396,6 +462,8 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
       return pc_monitor_ui_stop;
     case SCREEN_WIFI_ESP_SCAN:
       return ui_wifi_esp_scan_stop;
+    case SCREEN_WIFI_HANDSHAKE:
+      return ui_wifi_handshake_stop;
     case SCREEN_SCRIPTS:
       return ui_scripts_stop;
     case SCREEN_SUBGHZ_READ:
@@ -945,12 +1013,13 @@ void ui_async_call(lv_async_cb_t cb, void *user_data) {
 }
 
 void ui_screen_load(lv_obj_t *scr) {
+  lv_obj_set_style_text_color(scr, current_theme.text_main, 0);
   lv_screen_load(scr);
 }
 
 static void screen_slot_clear_cb(lv_event_t *e) {
   lv_obj_t **slot = lv_event_get_user_data(e);
-  if (slot != NULL)
+  if (slot != NULL && *slot == lv_event_get_target(e))
     *slot = NULL;
 }
 
@@ -958,7 +1027,7 @@ void ui_screen_load_owned(lv_obj_t **slot, lv_obj_t *scr) {
   if (slot != NULL)
     *slot = scr;
   lv_obj_add_event_cb(scr, screen_slot_clear_cb, LV_EVENT_DELETE, slot);
-  lv_screen_load(scr);
+  ui_screen_load(scr);
 }
 
 screen_id_t ui_current_screen(void) {
