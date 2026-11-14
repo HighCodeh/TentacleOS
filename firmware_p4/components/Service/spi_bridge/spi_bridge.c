@@ -62,8 +62,8 @@ static uint64_t s_slave_session;
 static uint32_t s_transaction;
 static bool s_transport_ready;
 static int64_t s_recovery_quiet_until;
-static DMA_ATTR uint8_t s_wire_tx[SPI_TRANSPORT_STREAM_SIZE];
-static DMA_ATTR uint8_t s_wire_rx[SPI_TRANSPORT_STREAM_SIZE];
+static EXT_RAM_BSS_ATTR uint8_t s_wire_tx[SPI_TRANSPORT_STREAM_SIZE];
+static EXT_RAM_BSS_ATTR uint8_t s_wire_rx[SPI_TRANSPORT_STREAM_SIZE];
 
 static uint64_t new_session(void) {
   uint64_t session;
@@ -752,6 +752,12 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
   if (s_suspended || !recovery_allows_command(id) ||
       (!s_bridge_alive && id != SPI_ID_SYSTEM_PING &&
        atomic_load(&s_recovery_owner) != xTaskGetCurrentTaskHandle())) {
+    if (id == SPI_ID_WIFI_APP_SNIFFER)
+      ESP_LOGW(TAG,
+               "Sniffer START blocked locally: suspended=%d alive=%d recovery_allows=%d",
+               s_suspended,
+               atomic_load(&s_bridge_alive),
+               recovery_allows_command(id));
     return ESP_ERR_INVALID_STATE;
   }
   if (s_spi_mutex == NULL) {
@@ -767,6 +773,12 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
   if (s_suspended || !recovery_allows_command(id) ||
       (!s_bridge_alive && id != SPI_ID_SYSTEM_PING &&
        atomic_load(&s_recovery_owner) != xTaskGetCurrentTaskHandle())) {
+    if (id == SPI_ID_WIFI_APP_SNIFFER)
+      ESP_LOGW(TAG,
+               "Sniffer START blocked after lock: suspended=%d alive=%d recovery_allows=%d",
+               s_suspended,
+               atomic_load(&s_bridge_alive),
+               recovery_allows_command(id));
     xSemaphoreGive(s_spi_mutex);
     return ESP_ERR_INVALID_STATE;
   }
@@ -789,6 +801,11 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
 
   esp_err_t ret = transport_send(tx_buf, deadline);
   if (ret != ESP_OK) {
+    if (id == SPI_ID_WIFI_APP_SNIFFER)
+      ESP_LOGW(TAG,
+               "Sniffer START transport send failed: %s (ready=%d)",
+               esp_err_to_name(ret),
+               s_transport_ready);
     s_is_command_in_flight = false;
     xSemaphoreGive(s_spi_mutex);
     return ret;

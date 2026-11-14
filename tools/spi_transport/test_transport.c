@@ -21,6 +21,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include "spi_protocol.h"
+#define EXT_RAM_BSS_ATTR
 #define DMA_ATTR
 #define ESP_OK 0
 #define ESP_FAIL -1

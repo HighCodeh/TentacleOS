@@ -62,6 +62,26 @@ covered by the CRC. Sessions are random nonzero identifiers, not authentication
 keys. CRC detects accidental corruption; it does not authenticate a hostile peer.
 Normal transfers are **296 bytes** and stream reads **2080 bytes**, both DMA
 word-aligned. The 264/2048-byte layouts below describe the inner frames.
+P4 checks DMA capability and address/length alignment against the internal cache
+alignment before a transfer. Direct DMA uses `SPI_TRANS_DMA_BUFFER_ALIGN_MANUAL`
+and does not require free heap for duplicate buffers. Only transfers that need
+SDK bounce buffers retain the heap reserve check for their actual memory pool.
+The normal P4 transport scratch buffers live in PSRAM and use
+`SPI_TRANS_DMA_USE_PSRAM`; cache-alignment bounce buffers therefore also come
+from PSRAM, rather than allocating internal DMA RAM on each stream poll.
+The PSRAM reserve query uses `MALLOC_CAP_SPIRAM` alone: IDF normalizes
+`MALLOC_CAP_DMA | MALLOC_CAP_SPIRAM` during allocation, but its heap information
+queries do not, and would report zero for that combination. Host admission tests
+model this distinction for both boot/control packets and stream packets.
+A local `ESP_ERR_NO_MEM` can
+therefore be distinguished from a peer timeout; it is not evidence of bad SPI
+wiring. Transfer size, clock and the paired protocol remain unchanged.
+Session START diagnostics distinguish a validated C5 rejection from a local or
+transport failure. For sniffer START, the bridge additionally reports admission
+state (`suspended`, `alive`, recovery permission) or a failed transport send.
+`ESP_ERR_INVALID_STATE` alone is not a physical-link diagnosis: it also maps the
+peer's BUSY response. A short RX at C5 startup must be correlated with later
+traffic before attributing an application-start failure to it.
 
 - `HELLO` establishes the peer boot/session before application traffic. Only this
   side-effect-free negotiation is automatically retransmitted during resync.
@@ -835,7 +855,12 @@ Scan results are then pulled item-by-item through the **Generic Data Pipe** (`SP
 To keep the bridge simple, we use a "Dumb Pipe" approach for large data sets (like Scan results):
 1. **Pull Count**: Call `SPI_ID_SYSTEM_DATA` with index `0xFFFF`.
 2. **Pull Item**: Call `SPI_ID_SYSTEM_DATA` with index `0 to N`.
-3. **Real-time Stats**: Call `SPI_ID_SYSTEM_DATA` with index `0xEEEE` to get a `sniffer_stats_t` structure.
+3. **Real-time Stats**: Call `SPI_ID_SYSTEM_DATA` with index `0xEEEE` to get a `sniffer_stats_t` structure. The
+   packed `spi_sniffer_stats_t` tail includes two `uint16_t` lab capture counters
+   (attempted TX calls and failed calls), followed by `uint8_t` remaining hold
+   seconds and last per-AP attempt number. This six-byte extension is identical
+   on P4/C5 and fits the existing payload limit. Use matching applications; TX
+   acceptance does not establish reconnection or handshake completion.
 
 ## Stream Transport (batched)
 

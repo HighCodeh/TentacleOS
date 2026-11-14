@@ -19,6 +19,8 @@
 
 #include "driver/gpio.h"
 #include "esp_heap_caps.h"
+#include "esp_memory_utils.h"
+#include "esp_cache.h"
 #include "esp_log.h"
 #include "esp_rom_sys.h"
 #include "esp_timer.h"
@@ -114,7 +116,8 @@ esp_err_t spi_bridge_phy_init_ex(bool setup_irq) {
   return ESP_OK;
 }
 
-#define SPI_BRIDGE_DMA_MARGIN 1024
+#define SPI_BRIDGE_DMA_MARGIN    1024
+#define SPI_BRIDGE_DMA_ALIGNMENT 4
 
 uint32_t spi_bridge_phy_get_clock_hz(void) {
   return spi_get_handle(SPI_DEVICE_BRIDGE) != NULL ? s_clock_hz : 0;
@@ -153,12 +156,32 @@ esp_err_t spi_bridge_phy_transmit(const uint8_t *tx_data, uint8_t *rx_data, size
     return ESP_ERR_INVALID_STATE;
   }
 
-  size_t need = 2 * len + SPI_BRIDGE_DMA_MARGIN;
-  if (heap_caps_get_largest_free_block(MALLOC_CAP_DMA) < need) {
-    return ESP_ERR_NO_MEM;
+  if (len == 0 || len > SIZE_MAX / 8 || (tx_data == NULL && rx_data == NULL))
+    return ESP_ERR_INVALID_ARG;
+
+  size_t cache_alignment = esp_cache_get_line_size_by_addr(tx_data ? tx_data : rx_data);
+  size_t alignment =
+      cache_alignment > SPI_BRIDGE_DMA_ALIGNMENT ? cache_alignment : SPI_BRIDGE_DMA_ALIGNMENT;
+  bool aligned_length = cache_alignment <= 1 || len % alignment == 0;
+  bool direct_tx = tx_data == NULL || (esp_ptr_dma_capable(tx_data) &&
+                                       (uintptr_t)tx_data % alignment == 0 && aligned_length);
+  bool direct_rx = rx_data == NULL || (esp_ptr_dma_capable(rx_data) &&
+                                       (uintptr_t)rx_data % alignment == 0 && aligned_length);
+  bool direct_dma = direct_tx && direct_rx;
+  bool use_psram = (tx_data == NULL || esp_ptr_external_ram(tx_data)) &&
+                   (rx_data == NULL || esp_ptr_external_ram(rx_data));
+  // Existing DMA buffers need no heap reserve. Keep the guard for SDK bounce buffers.
+  if (!direct_dma) {
+    size_t need = 2 * len + SPI_BRIDGE_DMA_MARGIN;
+    // IDF normalizes DMA | SPIRAM for allocation, but not for heap queries.
+    uint32_t caps = use_psram ? MALLOC_CAP_SPIRAM : MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL;
+    if (heap_caps_get_largest_free_block(caps) < need)
+      return ESP_ERR_NO_MEM;
   }
 
   spi_transaction_t t = {
+      .flags = (direct_dma ? SPI_TRANS_DMA_BUFFER_ALIGN_MANUAL : 0) |
+               (use_psram ? SPI_TRANS_DMA_USE_PSRAM : 0),
       .length = len * 8,
       .tx_buffer = tx_data,
       .rx_buffer = rx_data,

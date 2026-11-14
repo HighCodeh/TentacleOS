@@ -254,7 +254,16 @@ uint32_t spi_session_start(spi_id_t op_id,
                                           sizeof(resp),
                                           spi_bridge_get_timeout(op_id));
   if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "START op 0x%04X bridge error: %s", op_id, esp_err_to_name(ret));
+    if (resp_header.sync == SPI_SYNC_BYTE && resp_header.type == SPI_TYPE_RESP)
+      ESP_LOGE(TAG, "START op 0x%04X rejected by C5: %s", op_id, esp_err_to_name(ret));
+    else
+      ESP_LOGE(TAG,
+               "START op 0x%04X transport/local error: %s (alive=%d generation=%lu/%lu)",
+               op_id,
+               esp_err_to_name(ret),
+               spi_bridge_is_alive(),
+               (unsigned long)generation,
+               (unsigned long)spi_bridge_link_generation());
     led_signal_error();
     resource_release(new_handle);
     return SPI_SESSION_INVALID_ID;
