@@ -131,9 +131,30 @@ project `CMakeLists.txt`. Existing examples: `Applications/gameboy`,
 - Use `ui_metrics` and chrome/content bounds for layout. Verify both 240x320 and
   320x240, including raw-data/error states. Fixed render buffers may have a bounded
   size, but must not dictate off-screen label positions or unscaled projection.
+- Every screen and shared UI component must follow the selected theme. Use
+  `current_theme` and theme APIs for backgrounds, text, borders, selections and
+  accents instead of hardcoded palette colors. Apply theme changes to existing
+  screens/components or rebuild them through the supported UI lifecycle; do not
+  leave cached styles or canvases using the previous palette. Keep any deliberate
+  fixed-color policy centralized in the theme layer, not scattered across screens.
+  Verify theme switching preserves contrast, especially for labels without a
+  filled box, disabled controls and selected items, including themes loaded from SD.
 - On file moves, update source registration, exported include directories, host
   tests and documentation links together. Reconfigure and build affected targets;
   do not rely on an old build's source glob or a successful compile alone.
+
+## Memory placement
+
+Prefer PSRAM for buffers, tables and other bulk data whenever the access context
+and hardware permit it. Use explicit PSRAM allocation capabilities and check
+failures before starting dependent workers or peripherals. Keep internal RAM for
+objects that require it, including cache-disabled/ISR paths, synchronization
+primitives, task control blocks and hardware-specific DMA constraints. Verify the
+actual peripheral/SDK requirements; DMA support in PSRAM is target-dependent.
+Do not silently fall back to internal RAM for bulk allocations merely to hide a
+PSRAM failure. Document justified exceptions and bounded storage lifetimes.
+Preserve the C5 memory policy and CI RAM budgets; validate linker reservations
+separately from runtime heap/stack measurements on hardware.
 
 ## Third-party dependencies
 
@@ -240,6 +261,15 @@ Key points an agent must not miss:
 - **Fixed-width types** from `<stdint.h>` for all hardware code. Never rely on implicit `int`.
 - **Error handling**: public functions return `esp_err_t` when they can fail. Every `malloc` must be checked for `NULL`, logged with `ESP_LOGE`, and handled via `goto cleanup`. Use `goto cleanup` for functions with multiple resources.
 - **Logging**: every `.c` file defines `static const char *TAG = "MODULE_NAME";` at the top. Use `ESP_LOGx` macros, never `printf`.
+- **User-visible event feedback**: pair INFO/success, warning and error events with
+  both `ESP_LOGI/W/E` and the corresponding `led_signal_info/warning/error()` on P4.
+  INFO/success defaults to purple, warning to yellow and error to red; respect
+  configured signal colors/brightness. Report successful saves only after checked
+  write/close or flush completion. Deduplicate/rate-limit repeated events together
+  so packet-level logs do not hold the LED on. Never call blocking blink helpers
+  or I2C LED operations from ISRs/radio callbacks; forward events to task context.
+  User-facing operations must also expose progress/results/errors on their screen,
+  rather than requiring a serial console to understand the outcome.
 - **File layout order**: license, own header, C stdlib, ESP-IDF/FreeRTOS, project headers, defines, static types, static vars, forward decls, public funcs, static funcs.
 - **Headers**: `#ifndef` guards, `extern "C"` blocks, include order separated by blank lines.
 - **Source file layout**: `^[0-9a-z_]+\.[ch]$`, filename is a prefix for its content.
