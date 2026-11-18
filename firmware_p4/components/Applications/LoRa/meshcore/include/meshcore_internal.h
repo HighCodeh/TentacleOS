@@ -197,6 +197,9 @@ void mc_contacts_persist(void);
  */
 void mc_router_init(void);
 
+/** Process a bounded RX batch on the protocol worker, outside the IRQ task. */
+void mc_router_rx_process(void);
+
 /**
  * @brief Drains the relay TX queue. Called by meshcore_poll.
  */

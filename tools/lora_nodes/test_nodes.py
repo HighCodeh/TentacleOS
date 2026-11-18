@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025 HIGH CODE LLC
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 """Exercise actual node databases/session copies and MeshCore receive boundaries with explicit fakes."""
 from pathlib import Path
 import os
@@ -50,7 +65,7 @@ static inline void test_log(const char *format, ...) {(void)format;}
                    '-Werror', '-Wno-unused-function', '-Wno-unused-variable', '-pthread',
                    '-fsanitize=address,undefined', '-fno-sanitize-recover=all']
         for folder in [work, ROOT/'firmware_p4/components/Service/app_runtime/include',
-                       LORA/'session/include', LORA/'meshtastic/include', LORA/'meshcore/include']:
+                       ROOT/'firmware_p4/components/Drivers/sx1262/include', LORA/'session/include', LORA/'meshtastic/include', LORA/'meshcore/include']:
             command += ['-I', str(folder)]
         binary = work/'test'
         subprocess.run([*command,str(work/'test.c'),str(LORA/'meshtastic/meshtastic_nodedb.c'),

@@ -60,7 +60,13 @@ The two communicate over the **SPI bridge**. Each mesh stack has a "phone bridge
 
 ```c
 typedef enum { LORA_PROTO_NONE = 0, LORA_PROTO_MESHTASTIC, LORA_PROTO_MESHCORE } lora_proto_t;
-typedef struct { bool outgoing; char who[24]; char text[160]; } lora_msg_t;
+typedef struct {
+  bool outgoing, has_rf;
+  int16_t rssi_dbm;
+  int8_t snr_db;
+  lora_proto_t proto;
+  char who[24], text[160];
+} lora_msg_t;
 typedef struct { char name[32]; int16_t rssi; float snr; } lora_node_t;
 ```
 
@@ -82,8 +88,30 @@ esp_err_t    lora_session_app_connect(void);
 - `lora_session_start` is idempotent for the same protocol; a request for a different protocol while one is running returns `ESP_ERR_INVALID_STATE`.
 - `lora_session_send_text` queues a broadcast/public-channel text on the active stack (Meshtastic `0xFFFFFFFF`, MeshCore public channel `0`) and appends it to the ring as outgoing ("me") only when the native worker successfully submits it to the backend.
 - `lora_session_msg_since` copies messages newer than a caller-held cursor under a single lock; passing `*io_seq == 0` snaps to the oldest retained message.
-- `lora_session_on_rx_text` is called by the backend RX taps from the mesh poll task (not the LVGL thread).
+- `lora_session_on_rx_radio` records packet RSSI/SNR from native mesh RX taps. Non-radio sources such as MQTT use `lora_session_on_rx_text` and have no RF measurement.
+- `lora_session_tx_status` copies pending/processing state, completion count and the latest backend error. It is not a peer delivery receipt. Native message metadata does not change the signed-app wire ABI.
 - `lora_session_app_connected` maps to the active stack's **`_is_subscribed()`** predicate (linked, not merely connected). `lora_session_app_connect` maps to `_phone_bridge_ble_start()`.
+
+The native poll task performs queued transmissions, including direct messages.
+The MeshCore PhoneAPI is reusable across starts; a checked bridge stop resets
+the disconnected session after transport callbacks are drained. Startup and live
+radio reconfiguration both select 32 preamble symbols for SF5–8 and 16 for SF9–12.
+The SX1262 IRQ task only stores MeshCore RX packets in its bounded driver ring;
+the 12 KiB protocol worker drains at most eight packets per poll. Signature
+verification, decryption and replies therefore do not run on the 4 KiB IRQ stack.
+Only the driver task consumes radio IRQs in this native MeshCore path. TX waits
+for its completion callback or the five-second hardware timeout, with a 250 ms
+host margin; timeout and RX-rearm failures propagate to the caller. Frames whose
+airtime exceeds five seconds remain outside this TX contract.
+
+Meshtastic selects sync word **0x24B4** (official 8-bit **0x2B**, SX126x control bits
+0x44). A zero `sx1262_config_t.sync_word` preserves the existing private/public
+fallback for other callers. MeshCore startup uses 32 preamble symbols at SF7/8
+and 16 at SF9..12, following its current RadioLib wrapper. Reference sources:
+[Meshtastic](https://github.com/meshtastic/firmware/blob/master/src/mesh/RadioLibInterface.h),
+[RadioLib](https://github.com/jgromes/RadioLib/blob/master/src/modules/SX126x/SX126x_config.cpp),
+[MeshCore](https://github.com/meshcore-dev/MeshCore/blob/main/src/helpers/radiolib/RadioLibWrappers.h).
+These settings alone do not establish complete interoperability.
 
 ## Meshtastic Stack (`meshtastic/`)
 
@@ -176,7 +204,7 @@ Other module surfaces (used by the UI/config screens): `meshtastic_mqtt` (`_init
 
 Entry point: `esp_err_t meshcore_app_start(void)` (call **after** `bridge_manager_init()`).
 
-Bring-up initializes libsodium, brings up the SX1262 with MeshCore defaults (915 MHz, SF10, BW 250 kHz, CR 4/5, +20 dBm, preamble 8), loads or creates an Ed25519 identity (32-byte seed persisted in NVS, default node name "Highboy"), initializes the core with five router callbacks, the companion PhoneAPI, and the phone bridge, then starts a poll task (50 ms) and requests C5 BLE advertising.
+Bring-up initializes libsodium, brings up the SX1262 with MeshCore defaults (915 MHz, SF10, BW 250 kHz, CR 4/5, +20 dBm, preamble 16 at SF10), loads or creates an Ed25519 identity (32-byte seed persisted in NVS, default node name "Highboy"), initializes the core with five router callbacks, the companion PhoneAPI, and the phone bridge, then starts a poll task (50 ms) and requests C5 BLE advertising.
 
 The five router callbacks bridge radio events to both the phone and the local ring: new advert, group text (`lora_session_on_rx_text("ch%u", ...)`), direct message (`lora_session_on_rx_text(contact-name or "dm", ...)`), ACK confirmation, and path update.
 
@@ -238,9 +266,13 @@ void ui_lora_chat_open_chat(void);   // opens directly on the chat conversation
 
 Views: **Protocol picker** (MeshCore / Meshtastic) -> **Home** -> { Connect App, Nodes, Chat, Configs }. Home also links out to the sibling screens: Channels, Position, Telemetry, Secure DM, Traceroute and MQTT (Meshtastic only; each its own screen under `ui/screens/lora/`).
 
-- **Home** shows region + preset (Meshtastic only) and a status banner driven by the linked state.
+- **Home** offers Chat first and shows the saved region/preset for Meshtastic. The protocol picker does not assign a fixed frequency to a protocol.
 - **Nodes** shows either a radial "map" of node pins with RSSI-colored links or a scrolling list, both fed by `lora_session_node_count()` / `lora_session_node_get()`.
-- **Chat** renders message bubbles ("MESH BROADCAST" for Meshtastic, "PUBLIC CHANNEL" for MeshCore). An LVGL timer drains new messages every 500 ms via `lora_session_msg_since(...)`; the on-screen keyboard submits through `lora_session_send_text(...)`.
+- **Chat** shows the selected protocol's recent sent/received messages. Its composer sends to the primary Meshtastic channel or MeshCore channel 0; selecting a node does not turn this composer into a direct message. Use Secure DM for that.
+- The themed layout reflows in portrait/landscape. Received radio messages show packet RSSI/SNR; non-radio messages explicitly lack RF data. Outgoing records mean successful backend submission, never inferred peer delivery.
+- The 500 ms timer copies at most eight records per tick. Both the service ring and rendered rows are bounded to 24 entries. UP/DOWN browse history without following new arrivals; RIGHT returns to the latest, and an unread badge counts arrivals while browsing.
+- OK opens the keyboard. Queue rejection keeps the draft for retry; native backend errors appear in the composer status. History is volatile and lasts until restart.
+- `ui_lora_chat_close` stops UI timers without stopping the persistent mesh. The screen delete event is a fallback. The shared keyboard supports an initial draft and uses live display dimensions.
 - **Configs** (Meshtastic only) offers Region / Preset selectors and a Router-mode toggle.
 - **Connect** calls `lora_session_app_connect()`, polls `lora_session_app_connected()` every second, and shows the pairing PIN (MeshCore only).
 

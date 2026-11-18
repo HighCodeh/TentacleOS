@@ -112,5 +112,5 @@ void mt_mod_text_on_received(const mt_packet_meta_t *meta,
     snprintf(who, sizeof(who), "%s", node->short_name);
   else
     snprintf(who, sizeof(who), "!%08lx", (unsigned long)meta->from);
-  lora_session_on_rx_text(who, text);
+  lora_session_on_rx_radio(who, text, meta->rssi_dbm, meta->snr_db);
 }

@@ -1,5 +1,20 @@
 // Copyright (c) 2025 HIGH CODE LLC
 //
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
+// Copyright (c) 2025 HIGH CODE LLC
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -97,6 +112,8 @@ esp_err_t meshcore_app_start(void) {
   cfg.is_implicit_hdr = false;
   cfg.is_public_network = false;
 
+  cfg.preamble_len =
+      cfg.sf <= MESHCORE_FAST_SF_MAX ? MESHCORE_FAST_PREAMBLE : MESHCORE_SLOW_PREAMBLE;
   ret = sx1262_init(&cfg);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "sx1262_init failed: %s", esp_err_to_name(ret));
@@ -108,10 +125,12 @@ esp_err_t meshcore_app_start(void) {
     return ret;
   }
   ESP_LOGI(TAG,
-           "SX1262 ready (%lu Hz, SF%u, BW250k, CR4/5, %d dBm)",
-           (unsigned long)MESHCORE_FREQ_HZ,
-           MESHCORE_SF,
-           MESHCORE_TX_POWER_DBM);
+           "SX1262 ready (%lu Hz, SF%u, BW code %u, CR code %u, %d dBm)",
+           (unsigned long)cfg.frequency_hz,
+           cfg.sf,
+           cfg.bw,
+           cfg.cr,
+           cfg.tx_power_dbm);
 
   meshcore_identity_t identity;
   ret = load_or_create_identity(&identity);
@@ -205,7 +224,7 @@ static void poll_task(void *pv) {
 
 static void
 on_advert_cb(const meshcore_contact_t *contact, int16_t rssi_dbm, int8_t snr_db, void *ctx) {
-  (void)rssi_dbm;
+  ESP_LOGI(TAG, "RX rssi=%d snr=%d", rssi_dbm, snr_db);
   (void)snr_db;
   (void)ctx;
   meshcore_phoneapi_push_new_advert(contact);
@@ -218,13 +237,13 @@ static void on_grp_txt_cb(uint8_t channel_idx,
                           int16_t rssi_dbm,
                           int8_t snr_db,
                           void *ctx) {
-  (void)rssi_dbm;
+  ESP_LOGI(TAG, "RX rssi=%d snr=%d", rssi_dbm, snr_db);
   (void)ctx;
   meshcore_phoneapi_push_channel_msg(channel_idx, path_len, timestamp, snr_db, text);
 
   char who[MESHCORE_NAME_MAX];
   snprintf(who, sizeof(who), "ch%u", channel_idx);
-  lora_session_on_rx_text(who, text);
+  lora_session_on_rx_radio(who, text, rssi_dbm, snr_db);
 }
 
 static void on_direct_msg_cb(const uint8_t peer_pub_key[32],
@@ -235,7 +254,7 @@ static void on_direct_msg_cb(const uint8_t peer_pub_key[32],
                              int16_t rssi_dbm,
                              int8_t snr_db,
                              void *ctx) {
-  (void)rssi_dbm;
+  ESP_LOGI(TAG, "RX rssi=%d snr=%d", rssi_dbm, snr_db);
   (void)ctx;
   meshcore_phoneapi_push_contact_msg(peer_pub_key, path_len, txt_type, timestamp, snr_db, text);
 
@@ -245,12 +264,13 @@ static void on_direct_msg_cb(const uint8_t peer_pub_key[32],
     snprintf(who, sizeof(who), "%s", c->name);
   else
     snprintf(who, sizeof(who), "dm");
-  lora_session_on_rx_text(who, text);
+  lora_session_on_rx_radio(who, text, rssi_dbm, snr_db);
 }
 
 static void on_ack_cb(uint32_t ack_crc, const uint8_t peer_pub_key[32], void *ctx) {
   (void)peer_pub_key;
   (void)ctx;
+  ESP_LOGI(TAG, "ACK crc=%08lx", (unsigned long)ack_crc);
   meshcore_phoneapi_push_send_confirmed(ack_crc, 0);
 }
 

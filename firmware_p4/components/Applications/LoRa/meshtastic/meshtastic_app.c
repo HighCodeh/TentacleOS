@@ -1,5 +1,20 @@
 // Copyright (c) 2025 HIGH CODE LLC
 //
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
+// Copyright (c) 2025 HIGH CODE LLC
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -94,6 +109,7 @@ esp_err_t meshtastic_app_start(void) {
   cfg.is_inverted_iq = false;
   cfg.is_implicit_hdr = false;
   cfg.is_public_network = false;
+  cfg.sync_word = 0x24B4; /* Official Meshtastic 8-bit 0x2B, SX126x control bits 0x44. */
 
   ret = sx1262_init(&cfg);
   if (ret != ESP_OK) {
@@ -106,13 +122,12 @@ esp_err_t meshtastic_app_start(void) {
     return ret;
   }
   ESP_LOGI(TAG,
-           "SX1262 ready (%lu Hz, SF%u, BW%lu, CR4/%u, %d dBm) preset=%s",
-           (unsigned long)freq_hz,
-           p_info->sf,
-           (unsigned long)p_info->bw_hz,
-           p_info->cr,
-           MT_DEFAULT_TX_POWER_DBM,
-           p_info->name);
+           "SX1262 ready (%lu Hz, SF%u, BW code %u, CR code %u, %d dBm)",
+           (unsigned long)cfg.frequency_hz,
+           cfg.sf,
+           cfg.bw,
+           cfg.cr,
+           cfg.tx_power_dbm);
 
   ret = mt_pki_init();
   if (ret != ESP_OK) {

@@ -50,8 +50,7 @@ typedef void (*meshcore_phoneapi_outbound_cb_t)(void *ctx, const uint8_t *data, 
  * Must be called AFTER meshcore_init.
  *
  * @return
- *   - ESP_OK on success
- *   - ESP_ERR_INVALID_STATE if already initialized
+ *   - ESP_OK on success, including an already initialized protocol layer
  */
 esp_err_t meshcore_phoneapi_init(void);
 

@@ -1,3 +1,18 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 #include <assert.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -46,6 +61,13 @@ static esp_err_t meshtastic_mesh_send_text(const char *text,uint32_t to) {
 }
 static esp_err_t meshcore_send_grp_txt(uint8_t channel,const char *text) {
   assert(channel==0);++s_backend_calls;strcpy(s_last_text,text);return s_backend_error;
+}
+static esp_err_t meshtastic_mesh_send_nodeinfo(void) { return ESP_OK; }
+static esp_err_t meshcore_send_advert_throttled(void) { return ESP_OK; }
+static uint32_t meshcore_get_unix_time(void) { return 0; }
+static esp_err_t meshcore_send_direct_msg(const uint8_t *p, const char *t, uint32_t n,
+                                         uint8_t a, uint32_t *ack) {
+  (void)p;(void)t;(void)n;(void)a;*ack=0;return ESP_OK;
 }
 /* NATIVE_TX */
 static void *start(void *ctx) {
@@ -101,6 +123,10 @@ int main(void) {
   assert(lora_session_send_text("fail")==ESP_OK);
   lora_session_process_tx(LORA_PROTO_MESHTASTIC);
   assert(s_count==1+TX_QUEUE_DEPTH && s_tx_count==0);
+  lora_tx_status_t status;
+  assert(lora_session_tx_status(&status)==ESP_OK);
+  assert(!status.processing && status.queued==0 && status.last_error==ESP_ERR_TIMEOUT);
+  assert(status.completed==2+TX_QUEUE_DEPTH);
   s_backend_error=ESP_OK;
   pthread_t producers[16];
   for(unsigned i=0;i<16;++i) assert(pthread_create(&producers[i],NULL,produce,NULL)==0);

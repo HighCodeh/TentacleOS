@@ -21,7 +21,7 @@
  * same time. This module starts the chosen stack (which brings up the radio
  * itself), tracks which one is running, and exposes a protocol-agnostic view the
  * chat hub reads: a local ring of sent/received text messages and a node list.
- * Switching protocols requires a reboot (there is no clean whole-stack stop).
+ * Switching protocols requires a successful checked whole-stack stop.
  */
 
 #ifndef LORA_SESSION_H
@@ -45,9 +45,23 @@ typedef enum {
 /** @brief One entry in the local chat ring. */
 typedef struct {
   bool outgoing;
+  bool has_rf;
+  int16_t rssi_dbm;
+  int8_t snr_db;
+  lora_proto_t proto;
   char who[24];
   char text[160];
 } lora_msg_t;
+
+/** Queue/backend state, not a delivery acknowledgement from another node. */
+typedef struct {
+  uint16_t queued;
+  bool processing;
+  uint32_t completed;
+  esp_err_t last_error;
+} lora_tx_status_t;
+
+esp_err_t lora_session_tx_status(lora_tx_status_t *out);
 
 /** @brief Protocol-agnostic node/contact summary. */
 typedef struct {
@@ -72,6 +86,9 @@ esp_err_t lora_session_stop(lora_proto_t proto);
 /** Refuse adoption; out_owned is true until a newly started stack is fully stopped. */
 esp_err_t lora_session_start_owned(lora_proto_t proto, void *owner, bool *out_owned);
 esp_err_t lora_session_stop_owned(lora_proto_t proto, void *owner);
+/** Native-worker queue: peer is 4-byte big-endian MT node or 32-byte MC public key. */
+esp_err_t lora_session_send_direct(const char *text, const uint8_t *peer, uint8_t peer_len);
+esp_err_t lora_session_advertise(void);
 
 /** Firmware owner tokens outlive workers; release only after checked hardware cleanup. */
 esp_err_t lora_session_radio_reserve(void *owner);
@@ -139,6 +156,8 @@ bool lora_session_node_get(uint16_t idx, lora_node_t *out);
  * @param text  Received text.
  */
 void lora_session_on_rx_text(const char *who, const char *text);
+/** RX tap with measured packet metadata; non-radio sources use on_rx_text. */
+void lora_session_on_rx_radio(const char *who, const char *text, int16_t rssi_dbm, int8_t snr_db);
 
 /** @brief True if a companion app is connected over the phone bridge (C5). */
 bool lora_session_app_connected(void);
