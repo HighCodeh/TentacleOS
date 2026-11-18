@@ -66,12 +66,14 @@ static void *xTaskGetCurrentTaskHandle(void) { return &s_task_identity; }
 
 /* FRONTEND */
 
-typedef struct {size_t length; const void *tx_buffer;} spi_transaction_t;
+#define SPI_TRANS_USE_TXDATA 1U
+typedef struct {unsigned flags; size_t length; const void *tx_buffer; uint8_t tx_data[4];} spi_transaction_t;
 static bool s_physical_field;
 static bool s_fail_off, s_fail_on, s_oscillator_ready = true, s_fail_gain;
 static int s_spi_deinit_calls, s_gpio_deinit_calls;
 static esp_err_t transmit(spi_transaction_t *transaction) {
-  const uint8_t *data = transaction->tx_buffer;
+  assert(transaction->flags == SPI_TRANS_USE_TXDATA);
+  const uint8_t *data = transaction->tx_data;
   assert(transaction->length == HB_NFC_SPI_REG_XFER_BITS);
   if (data[0] == ST25R3916_REG_OP_CTRL) {
     if ((data[1] & ST25R3916_OP_CTRL_TX_EN) != 0) {
