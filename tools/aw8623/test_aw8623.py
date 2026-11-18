@@ -31,7 +31,7 @@ enum { ESP_OK, ESP_FAIL, ESP_ERR_INVALID_ARG, ESP_ERR_INVALID_STATE, ESP_ERR_NOT
 const char *esp_err_to_name(esp_err_t error);
 """,
     "esp_timer.h": "#include <stdint.h>\nint64_t esp_timer_get_time(void);\n",
-    "esp_log.h": "#define ESP_LOGE(tag, ...) ((void)(tag))\n#define ESP_LOGW(tag, ...) ((void)(tag))\n#define ESP_LOGI(tag, ...) ((void)(tag))\n",
+    "esp_log.h": "#include <stdio.h>\n#define ESP_LOGE(tag, ...) do {(void)(tag); if(0) printf(__VA_ARGS__);} while(0)\n#define ESP_LOGW(tag, ...) ESP_LOGE(tag, __VA_ARGS__)\n#define ESP_LOGI(tag, ...) ESP_LOGE(tag, __VA_ARGS__)\n",
     "freertos/FreeRTOS.h": "#define pdMS_TO_TICKS(ms) (ms)\nint xPortInIsrContext(void);\n",
     "freertos/task.h": "void vTaskDelay(int ticks);\n",
     "i2c_init.h": "#include \"driver/i2c_master.h\"\n#define I2C_MASTER_FREQ_HZ 400000\ni2c_master_bus_handle_t i2c_get_bus(void);\n",

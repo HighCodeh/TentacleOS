@@ -66,7 +66,15 @@ the finite waveform and starts it once. Both are synchronous task-only calls,
 serialized with `aw8623_stop()`; concurrent calls return INVALID_STATE.
 
 RAM starts at 0x0800 with a five-byte header; the 500 ms maximum ends at 0x1f74,
-within the 8 KiB SRAM. The worker checks completion, chip faults, cancellation
+within the 8 KiB SRAM. After RAM loading, the driver exits standby and waits 10 ms before clearing
+the startup interrupt and evaluating live status. It does not reject a pulse
+solely from a standby/startup flag. Live undervoltage still blocks GO and returns
+`AW8623_ERR_SUPPLY`; the UI displays "Supply low". Failure logs include
+SYSST/SYSINT. No undervoltage/overcurrent/temperature protection is disabled.
+The device uses 400 kHz I2C. After GO clears, DONE without UVLI confirms normal
+completion even when auto-standby raises the live UVLS bit. UVLI or other faults
+still fail the pulse; GO clearing without DONE is not success.
+The worker checks completion, chip faults, cancellation
 and board epoch while playing. Completion has a duration-plus-100-ms deadline;
 individual I2C calls also have a timeout. A failed GO acknowledgement is never
 retried because the motor might already have started.
@@ -89,9 +97,13 @@ If reset cannot be confirmed, the worker retains ownership and retries stop ever
 
 Vibration settings offer intensity, driver check, stop and a 200 ms test pulse.
 Leaving the screen requests cancellation. Driver work runs outside LVGL callbacks.
-UI read/write/emulate/SD-connect feedback, game cues and NFC feedback request a
-70% / 80 ms pulse when the system vibration setting is enabled. Busy feedback is
-dropped. The settings intensity controls its test pulse, not the system feedback.
+The central input router requests 70 ms for navigation/BACK and 120 ms for OK,
+on debounced presses and repeats while input is active. Muted or locked input
+does not vibrate, and release events do not generate a second pulse.
+Read/write/emulate/SD-connect feedback, game cues and NFC feedback request 120 ms when system vibration is enabled. Intensity defaults to
+80% and is shared with the Vibration menu (20–100%). The enabled switch and
+intensity persist in system.conf when leaving with BACK; save failures are
+reported. Busy feedback is dropped; there is no queued replay.
 
 DRV2605L remains excluded from the build. Its numeric ROM effect IDs are not
 translated into AW8623 registers; the new consumers use bounded ERM pulses.

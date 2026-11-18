@@ -29,6 +29,7 @@ static int go_writes, writes, fail_write = -1;
 static bool lose_go_ack, stuck_go, cancel_play, lose_epoch_on_go;
 static bool cancel_on_go, fault_on_go;
 static uint8_t fault_status;
+static bool standby_uvlo, completion_uvli, missing_done;
 static uint8_t registers[256], ram[8192];
 static uint16_t ram_address;
 int64_t esp_timer_get_time(void) { return now_us; }
@@ -72,8 +73,17 @@ esp_err_t i2c_master_transmit_receive(void *device, const void *tx, size_t tx_le
   if (read_count++ == fail_read) return ESP_FAIL;
   uint8_t reg = *(const uint8_t *)tx;
   assert(reg <= AW8623_INTERRUPT_REG || reg == AW8623_GO);
-  *(uint8_t *)rx = reg == AW8623_ID_REG ? chip_id :
-      reg == AW8623_GO ? (stuck_go || now_us < end_us) : (0x10 | fault_status);
+  bool finished = registers[AW8623_GO] && !stuck_go && now_us >= end_us;
+  uint8_t value = 0x10 | fault_status;
+  if (reg == AW8623_ID_REG) value = chip_id;
+  else if (reg == AW8623_GO) value = registers[AW8623_GO] && (stuck_go || now_us < end_us);
+  else {
+    if (finished && !missing_done) value |= AW8623_DONE;
+    if (reg == AW8623_STATUS_REG && standby_uvlo &&
+        ((registers[AW8623_SYSCTRL] & 1) || finished)) value |= AW8623_UNDERVOLTAGE;
+    if (reg == AW8623_INTERRUPT_REG && completion_uvli && finished) value |= AW8623_UNDERVOLTAGE;
+  }
+  *(uint8_t *)rx = value;
   return ESP_OK;
 }
 static esp_err_t status(board_control_status_t *out) {
@@ -174,6 +184,20 @@ int main(void) {
   assert(aw8623_play(&OPS, &request) == ESP_ERR_INVALID_ARG);
   request.duration_ms = 200; request.intensity = 101;
   assert(aw8623_play(&OPS, &request) == ESP_ERR_INVALID_ARG);
+  request.intensity = 80; request.duration_ms = 120;
+  standby_uvlo = true; go_writes = 0;
+  assert(aw8623_play(&OPS, &request) == ESP_OK);
+  assert(go_writes == 1 && !released);
+  completion_uvli = true;
+  assert(aw8623_play(&OPS, &request) == AW8623_ERR_SUPPLY);
+  completion_uvli = false; missing_done = true;
+  assert(aw8623_play(&OPS, &request) != ESP_OK);
+  missing_done = false;
+  standby_uvlo = false; fault_status = AW8623_UNDERVOLTAGE; go_writes = 0;
+  assert(aw8623_play(&OPS, &request) == AW8623_ERR_SUPPLY);
+  assert(go_writes == 0 && !released);
+  fault_status = 0;
+  puts("PASS: standby startup flag is checked after wake; live undervoltage prevents GO");
   puts("PASS: finite RAM playback, amplitude, every write failure, lost GO ACK, cancellation, epoch loss, faults and timeout");
   puts("PASS: AW8623 non-driving identification, I2C faults, epoch loss, lost release ACK, reset failure and retained I2C handle");
 }
