@@ -448,6 +448,8 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
       return ui_mp4_player_stop;
     case SCREEN_LORA_CHAT:
       return ui_lora_chat_close;
+    case SCREEN_WIFI_HOTSPOT:
+      return ui_wifi_hotspot_stop;
     case SCREEN_BLE_BEACON_SPAM:
       return ui_beacon_spam_stop;
     case SCREEN_BLE_MOUSE_PAIRING:
