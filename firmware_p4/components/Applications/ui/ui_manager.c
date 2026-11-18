@@ -415,8 +415,10 @@ static void ui_boot_task(void *pvParameter) {
 }
 
 static void clear_current_screen(void) {
+  keyboard_close();
   ui_input_set_screen_handler(NULL, NULL);
   if (main_group != NULL) {
+    lv_group_set_editing(main_group, false);
     lv_group_remove_all_objs(main_group);
   }
 }
