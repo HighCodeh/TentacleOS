@@ -16,7 +16,7 @@
 
 """Host execution of production battery and LED services with fault injection."""
 from pathlib import Path
-import subprocess,tempfile
+import os,subprocess,tempfile
 ROOT=Path(__file__).resolve().parents[3]
 NOTICE=(ROOT/'firmware_p4/components/Drivers/aw8623/aw8623.c').read_text().split('#include')[0]
 MOCKS={
@@ -36,7 +36,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
   p=tmp/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(NOTICE+body)
  inc=[tmp,ROOT/'firmware_p4/components/Drivers/bq25896',ROOT/'firmware_p4/components/Drivers/bq25896/include',ROOT/'firmware_p4/components/Drivers/led',ROOT/'firmware_p4/components/Drivers/led/include']
  for name in ['test_pack_service','test_led_feedback']:
-  command=['cc','-std=c11','-Wall','-Wextra','-Werror','-fsanitize=undefined','-DCONFIG_HIGHBOY_BOARD_V203=1']
+  command=[os.environ.get('CC','cc'),'-std=c11','-Wall','-Wextra','-Werror','-fsanitize=undefined','-DCONFIG_HIGHBOY_BOARD_V203=1']
   for p in inc:command+=['-I',str(p)]
   command += [str(Path(__file__).with_name(name+'.c')),'-o',str(tmp/'test')]
   subprocess.run(command,check=True);subprocess.run([str(tmp/'test')],check=True)

@@ -190,7 +190,8 @@ int main(void) {
   s_fault=0;s_fail_alloc=0;s_expected=(subghz_tx_config_t){.frequency_hz=868350000,.preset=CC1101_PRESET_2FSK_47KHZ};
   s_tx_entered=false;assert(subghz_tx_init()==ESP_OK);
   assert(subghz_tx_send_configured(timings,3,&s_expected)==ESP_OK);
-  while(!s_tx_entered)pause_tick();subghz_tx_stop();join_worker();
+  while(!s_tx_entered) { pause_tick(); }
+  subghz_tx_stop();join_worker();
   int32_t invalid[]={INT32_MIN};size_t words=0;
   subghz_tx_item_t bad={.timings=invalid,.count=1};assert(make_symbols(&bad,&words)==NULL);
   puts("PASS: long gaps and queued frequency/preset; real native TX worker, startup errors, in-flight stop, RMT cleanup retries, allocation and INT32_MIN");

@@ -16,6 +16,7 @@
 
 """Exercise the production capture transaction with a deferred graphics task."""
 from pathlib import Path
+import os
 import subprocess
 import tempfile
 
@@ -159,6 +160,6 @@ int main(void){
 with tempfile.TemporaryDirectory() as directory:
     tmp = Path(directory)
     (tmp / 'test.c').write_text(code)
-    subprocess.run(['cc', '-std=c11', '-O1', '-Wall', '-Wextra', '-Werror', '-Wframe-larger-than=1024',
+    subprocess.run([os.environ.get('CC', 'cc'), '-std=c11', '-O1', '-Wall', '-Wextra', '-Werror', '-Wframe-larger-than=1024',
                     '-fsanitize=undefined', str(tmp / 'test.c'), '-o', str(tmp / 'test')], check=True)
     subprocess.run([str(tmp / 'test')], check=True)

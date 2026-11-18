@@ -460,6 +460,18 @@ fakes=r"""
 #include <stdio.h>
 #include <string.h>
 #define ESP_OK 0
+#ifdef strlcpy
+#undef strlcpy
+#endif
+static size_t fake_strlcpy(char *destination, const char *source, size_t capacity) {
+ size_t length = strlen(source);
+ if (capacity) {
+  size_t count = length < capacity - 1 ? length : capacity - 1;
+  memcpy(destination, source, count); destination[count] = 0;
+ }
+ return length;
+}
+#define strlcpy fake_strlcpy
 #define TOS_PATH_CONFIG_SCREEN "screen.conf"
 #define NOTIFY_WARNING 1
 static bool s_is_reboot_armed=true;

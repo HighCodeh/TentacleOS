@@ -220,7 +220,8 @@ static int xQueueReceive(QueueHandle_t q,size_t *symbols,int timeout) {
 }
 static int rmt_new_rx_channel(const rmt_rx_channel_config_t *config,void **channel) {
   assert(config->gpio_num==s_miso);int err=operation();
-  if(!err)*channel=(void *)1;return err;
+  if(!err) { *channel=(void *)1; }
+  return err;
 }
 static int rmt_rx_register_event_callbacks(void *channel,const rmt_rx_event_callbacks_t *callbacks,void *ctx) {
   (void)channel;(void)callbacks;(void)ctx;return operation();
