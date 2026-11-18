@@ -32,6 +32,7 @@
 #define AW8623_STATUS_REG            0x01
 #define AW8623_INTERRUPT_REG         0x02
 #define AW8623_I2C_TIMEOUT_MS        100
+#define AW8623_I2C_HZ                400000
 #define AW8623_RESET_SETTLE_MS       10
 #define AW8623_SUPPLY_CEILING_MV     5500
 #define AW8623_SAMPLE_MAX            127
@@ -48,6 +49,8 @@
 #define AW8623_RAM_INIT              0x61
 #define AW8623_RAM_ACTIVE            0x40
 #define AW8623_FAULT_MASK            0x66
+#define AW8623_UNDERVOLTAGE          0x20
+#define AW8623_DONE                  0x01
 #define AW8623_POLL_MS               10
 #define AW8623_COMPLETION_MARGIN_MS  100
 #define AW8623_US_PER_MS             1000
@@ -134,7 +137,7 @@ esp_err_t aw8623_probe(const board_control_ops_t *controls, aw8623_diagnostic_t 
     const i2c_device_config_t config = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address = AW8623_ADDRESS,
-        .scl_speed_hz = I2C_MASTER_FREQ_HZ,
+        .scl_speed_hz = AW8623_I2C_HZ,
     };
     result = i2c_master_bus_add_device(bus, &config, &s_device);
     if (result != ESP_OK)
@@ -234,6 +237,7 @@ esp_err_t aw8623_play(const board_control_ops_t *controls, const aw8623_playback
     return ESP_ERR_INVALID_STATE;
   aw8623_diagnostic_t diagnostic = {0};
   uint64_t epoch = 0;
+  int64_t started_at = 0;
   esp_err_t result = board_control_apply(controls, BOARD_CONTROL_HAPTIC, false, NULL);
   if (result != ESP_OK)
     goto cleanup;
@@ -247,7 +251,7 @@ esp_err_t aw8623_play(const board_control_ops_t *controls, const aw8623_playback
     const i2c_device_config_t config = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address = AW8623_ADDRESS,
-        .scl_speed_hz = I2C_MASTER_FREQ_HZ,
+        .scl_speed_hz = AW8623_I2C_HZ,
     };
     result = i2c_master_bus_add_device(bus, &config, &s_device);
     if (result != ESP_OK)
@@ -295,12 +299,17 @@ esp_err_t aw8623_play(const board_control_ops_t *controls, const aw8623_playback
     result = write_register(CONFIG[i][0], CONFIG[i][1]);
   if (result == ESP_OK)
     result = load_waveform(request);
+  // Wake the analog circuitry before checking its live supply status.
+  if (result == ESP_OK)
+    result = write_register(AW8623_SYSCTRL, AW8623_RAM_ACTIVE);
+  if (result == ESP_OK)
+    vTaskDelay(pdMS_TO_TICKS(AW8623_RESET_SETTLE_MS));
   if (result == ESP_OK)
     result = read_register(AW8623_INTERRUPT_REG, &diagnostic.interrupts);
   if (result == ESP_OK)
     result = read_register(AW8623_STATUS_REG, &diagnostic.system_status);
   if (result == ESP_OK && (diagnostic.system_status & AW8623_FAULT_MASK))
-    result = ESP_FAIL;
+    result = (diagnostic.system_status & AW8623_UNDERVOLTAGE) ? AW8623_ERR_SUPPLY : ESP_FAIL;
   if (result == ESP_OK)
     result = check_epoch(controls, epoch, &diagnostic);
   if (result != ESP_OK)
@@ -309,10 +318,8 @@ esp_err_t aw8623_play(const board_control_ops_t *controls, const aw8623_playback
     result = ESP_ERR_INVALID_STATE;
     goto cleanup;
   }
-  result = write_register(AW8623_SYSCTRL, AW8623_RAM_ACTIVE);
-  if (result != ESP_OK)
-    goto cleanup;
   // An uncertain GO acknowledgement is never retried.
+  started_at = esp_timer_get_time();
   result = write_register(AW8623_GO, 1);
   if (result != ESP_OK)
     goto cleanup;
@@ -330,14 +337,24 @@ esp_err_t aw8623_play(const board_control_ops_t *controls, const aw8623_playback
       result = read_register(AW8623_STATUS_REG, &diagnostic.system_status);
     if (result != ESP_OK)
       break;
-    if ((diagnostic.interrupts | diagnostic.system_status) & AW8623_FAULT_MASK) {
-      result = ESP_FAIL;
-      break;
-    }
     uint8_t go;
     result = read_register(AW8623_GO, &go);
-    if (result != ESP_OK || !(go & 1))
+    if (result != ESP_OK)
       break;
+    uint8_t faults = diagnostic.interrupts | diagnostic.system_status;
+    // Auto-standby powers down the analog monitor. A DONE interrupt with GO
+    // cleared and no UVLI is completion, not a new supply failure.
+    bool completed = !(go & 1) && (diagnostic.interrupts & AW8623_DONE);
+    if (completed && !(diagnostic.interrupts & AW8623_UNDERVOLTAGE))
+      faults &= ~AW8623_UNDERVOLTAGE;
+    if (faults & AW8623_FAULT_MASK) {
+      result = (faults & AW8623_UNDERVOLTAGE) ? AW8623_ERR_SUPPLY : ESP_FAIL;
+      break;
+    }
+    if (!(go & 1)) {
+      result = completed ? ESP_OK : ESP_FAIL;
+      break;
+    }
     if (esp_timer_get_time() >= deadline) {
       result = ESP_ERR_TIMEOUT;
       break;
@@ -358,7 +375,17 @@ cleanup: {
   }
 }
   if (result != ESP_OK)
-    ESP_LOGW(TAG, "Playback ended: %s", esp_err_to_name(result));
+    ESP_LOGW(TAG,
+             "Playback ended: %s; SYSST=0x%02x SYSINT=0x%02x",
+             result == AW8623_ERR_SUPPLY ? "motor supply low" : esp_err_to_name(result),
+             diagnostic.system_status,
+             diagnostic.interrupts);
+  else
+    ESP_LOGI(TAG,
+             "Pulse complete: %u%% / %ums, elapsed %lldms; reset asserted",
+             request->intensity,
+             request->duration_ms,
+             (long long)((esp_timer_get_time() - started_at) / AW8623_US_PER_MS));
   atomic_flag_clear(&s_busy);
   return result;
 }

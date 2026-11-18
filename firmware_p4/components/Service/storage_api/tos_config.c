@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "tos_config.h"
+#include "haptic.h"
 #include "storage_atomic.h"
 #include "tos_storage_paths.h"
 #include "esp_log.h"
@@ -73,6 +74,7 @@ tos_config_system_t g_config_system = {
     .timezone_offset = -3,
     .volume = 50,
     .vibration = true,
+    .vibration_intensity = HAPTIC_FEEDBACK_INTENSITY,
     .ui_sound_fx = true,
     .log_level = "info",
     .first_boot_done = false,
@@ -226,6 +228,13 @@ static void parse_system(cJSON *root) {
       json_get_int(root, "timezone_offset", g_config_system.timezone_offset);
   g_config_system.volume = json_get_int(root, "volume", g_config_system.volume);
   g_config_system.vibration = json_get_bool(root, "vibration", g_config_system.vibration);
+  g_config_system.vibration_intensity =
+      json_get_int(root, "vibration_intensity", HAPTIC_FEEDBACK_INTENSITY);
+  if (g_config_system.vibration_intensity < 20)
+    g_config_system.vibration_intensity = 20;
+  if (g_config_system.vibration_intensity > 100)
+    g_config_system.vibration_intensity = 100;
+  haptic_set_feedback_intensity(g_config_system.vibration_intensity);
   g_config_system.ui_sound_fx = json_get_bool(root, "ui_sound_fx", g_config_system.ui_sound_fx);
   g_config_system.first_boot_done =
       json_get_bool(root, "first_boot_done", g_config_system.first_boot_done);
@@ -310,6 +319,7 @@ static cJSON *serialize_system(void) {
   cJSON_AddNumberToObject(root, "timezone_offset", g_config_system.timezone_offset);
   cJSON_AddNumberToObject(root, "volume", g_config_system.volume);
   cJSON_AddBoolToObject(root, "vibration", g_config_system.vibration);
+  cJSON_AddNumberToObject(root, "vibration_intensity", g_config_system.vibration_intensity);
   cJSON_AddBoolToObject(root, "ui_sound_fx", g_config_system.ui_sound_fx);
   cJSON_AddStringToObject(root, "log_level", g_config_system.log_level);
   cJSON_AddBoolToObject(root, "first_boot_done", g_config_system.first_boot_done);

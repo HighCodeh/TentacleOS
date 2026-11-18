@@ -38,6 +38,7 @@ typedef struct {
 #define AW8623_NOMINAL_MV      3000
 #define AW8623_MAX_DURATION_MS 500
 #define AW8623_INTENSITY_MAX   100
+#define AW8623_ERR_SUPPLY      0x8620
 
 typedef struct {
   uint8_t intensity;

@@ -21,6 +21,7 @@ extern "C" {
 #endif
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #include "esp_err.h"
 
@@ -46,14 +47,14 @@ esp_err_t led_rgb_init(void);
 void led_set_color(uint8_t r, uint8_t g, uint8_t b);
 
 /**
- * @brief Turn off the LED.
+ * @brief Release a manual preview and resume activity/power indication.
  */
 void led_clear(void);
 
 /**
  * @brief Blink the LED once with a given color and duration.
  *
- * Sets the color, waits for duration_ms, then turns the LED off.
+ * Sets the color, waits for duration_ms, then resumes activity/power indication.
  * This function blocks for the duration of the blink.
  *
  * @param r            Red intensity (0-255).
@@ -93,8 +94,32 @@ void led_set_signal_config(uint32_t info, uint32_t warning, uint32_t error, int 
 
 /**
  * @brief Flash the status LED once in the configured info / warning / error
- *        color, then turn it off. Non-blocking (the off is on a one-shot timer).
+ *        color, then restore background status. Non-blocking, owned by one worker.
  */
+typedef enum {
+  LED_POWER_OFF,
+  LED_POWER_CHARGING,
+  LED_POWER_FULL,
+  LED_POWER_BLOCKED,
+  LED_POWER_LOW,
+  LED_POWER_COUNT
+} led_power_state_t;
+
+/** Background indication resumes after notifications and manual previews. */
+void led_set_power_state(led_power_state_t state);
+
+/** Source bits allow independent activities to release only their own indication. */
+#define LED_ACTIVITY_NFC (1U << 0)
+void led_set_activity(uint32_t source, bool active);
+typedef struct {
+  uint32_t rgb;
+  uint32_t activity;
+  int brightness;
+  led_power_state_t power;
+} led_status_t;
+/** Read actual PWM registers; this is not an optical measurement. Task-only. */
+esp_err_t led_get_status(led_status_t *out);
+
 void led_signal_info(void);
 void led_signal_warning(void);
 void led_signal_error(void);

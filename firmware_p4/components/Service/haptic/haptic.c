@@ -35,6 +35,7 @@ static atomic_bool s_cancelled;
 static atomic_int s_result = ESP_ERR_NOT_FINISHED;
 static aw8623_playback_t s_request;
 static bool s_probe;
+static atomic_uchar s_feedback_intensity = HAPTIC_FEEDBACK_INTENSITY;
 
 static bool cancelled(void) {
   return atomic_load(&s_cancelled);
@@ -110,4 +111,13 @@ bool haptic_is_busy(void) {
 }
 esp_err_t haptic_last_result(void) {
   return atomic_load(&s_result);
+}
+
+void haptic_set_feedback_intensity(uint8_t intensity) {
+  if (intensity >= 1 && intensity <= AW8623_INTENSITY_MAX)
+    atomic_store(&s_feedback_intensity, intensity);
+}
+
+esp_err_t haptic_feedback(uint16_t duration_ms) {
+  return haptic_play(atomic_load(&s_feedback_intensity), duration_ms);
 }

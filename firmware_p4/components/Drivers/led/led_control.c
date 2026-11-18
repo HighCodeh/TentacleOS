@@ -15,208 +15,271 @@
 
 #include "led_control.h"
 
+#include <stdbool.h>
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "i2c_init.h"
 #include "sys_prio.h"
 
-#include "i2c_init.h"
+#define LP5816_ADDR            0x2C
+#define I2C_TIMEOUT_MS         50
+#define REG_OUT0_PWM           0x18
+#define SIGNAL_BLINK_US        350000
+#define LED_TICK_MS            100
+#define LED_ACTIVE_TICK_MS     5
+#define LED_ALERT_PERIOD_MS    2400
+#define LED_ALERT_ON_MS        300
+#define LED_STACK_BYTES        3072
+#define LED_ACTIVITY_PERIOD_MS 100
+#define LED_ACTIVITY_ON_MS     10
+#define LED_RGB_MASK           0xFFFFFF
+#define LED_COLOR_CHARGING     0xFF1800
+#define LED_COLOR_FULL         0x00FF30
+
+typedef enum { SIG_INFO, SIG_WARNING, SIG_ERROR, SIG_COUNT } led_signal_t;
 
 static const char *TAG = "LED_CONTROL";
+static i2c_master_dev_handle_t s_dev;
+static TaskHandle_t s_task;
+static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
+static uint32_t s_colors[SIG_COUNT] = {0xFF00FF, 0xFFFF00, 0xFF0000};
+static int s_brightness = 10;
+static led_power_state_t s_power;
+static led_signal_t s_signal;
+static int64_t s_signal_until;
+static bool s_manual;
+static uint32_t s_manual_color;
+static uint32_t s_activity;
 
-// V2 RGB LED: Texas Instruments LP5816 4-channel I2C current-sink driver (U22).
-// The LEDs are common-anode (anode to 3.3V), the chip sinks each cathode. Channel
-// map from the schematic (sheet 6): OUT0 = RED (D10.1), OUT1 = GREEN (D10.2),
-// OUT2 = BLUE (D10.3), OUT3 = D11 (unused). I2C target address is 0x2C.
-#define LP5816_ADDR    0x2C
-#define I2C_TIMEOUT_MS 50
+static esp_err_t write_register(uint8_t reg, uint8_t value) {
+  const uint8_t bytes[] = {reg, value};
+  return i2c_master_transmit(s_dev, bytes, sizeof(bytes), I2C_TIMEOUT_MS);
+}
 
-#define REG_CHIP_EN     0x00 // bit0 = device enable
-#define REG_DEV_CONFIG0 0x01 // bit0 = MAX_CURRENT (0 = 25.5mA, 1 = 51mA)
-#define REG_DEV_CONFIG1 0x02 // bits[3:0] = OUT3..OUT0 enable
-#define REG_DEV_CONFIG2 0x03 // fade time + per-channel fade enable
-#define REG_DEV_CONFIG3 0x04 // per-channel exponential dimming enable
-#define REG_RESET_CMD   0x0E // write 0xCC = reset all registers
-#define REG_UPDATE_CMD  0x0F // write 0x55 = latch DEV_CONFIGx
-#define REG_OUT0_DC     0x14 // dot-current (analog brightness ceiling) OUT0..OUT3
-#define REG_OUT0_PWM    0x18 // 8-bit manual PWM duty OUT0..OUT3
+static uint32_t scale_color(uint32_t color, int brightness) {
+  uint32_t result = 0;
+  for (int shift = 0; shift <= 16; shift += 8)
+    result |= (((color >> shift) & 0xFF) * (uint32_t)brightness / 100) << shift;
+  return result;
+}
 
-#define CMD_RESET  0xCC
-#define CMD_UPDATE 0x55
-
-// Enable OUT0..OUT2 (RGB). OUT3 (D11) is left disabled.
-#define OUT_ENABLE_RGB 0x07
-// Dot current ceiling per channel: full scale (25.5mA) for vivid, saturated
-// color. The signals only flash briefly (~150ms), so peak current is fine.
-#define LED_DC_LEVEL 0xFF
-
-static bool s_present = false;
-
-static i2c_master_dev_handle_t s_dev = NULL;
-
-static esp_err_t lp5816_write(uint8_t reg, uint8_t val) {
-  if (s_dev == NULL) {
-    return ESP_ERR_INVALID_STATE;
+static uint32_t desired_color(int64_t now) {
+  uint32_t color = 0;
+  portENTER_CRITICAL(&s_lock);
+  if (now < s_signal_until)
+    color = scale_color(s_colors[s_signal], s_brightness);
+  else if (s_manual)
+    color = s_manual_color;
+  else if (s_activity && (now / 1000) % LED_ACTIVITY_PERIOD_MS < LED_ACTIVITY_ON_MS)
+    color = scale_color(s_colors[SIG_INFO], s_brightness);
+  else {
+    switch (s_power) {
+      case LED_POWER_CHARGING:
+        color = LED_COLOR_CHARGING;
+        break;
+      case LED_POWER_FULL:
+        color = LED_COLOR_FULL;
+        break;
+      case LED_POWER_BLOCKED:
+      case LED_POWER_LOW:
+        if ((now / 1000) % LED_ALERT_PERIOD_MS < LED_ALERT_ON_MS)
+          color = s_colors[s_power == LED_POWER_LOW ? SIG_ERROR : SIG_WARNING];
+        break;
+      default:
+        break;
+    }
+    color = scale_color(color, s_brightness);
   }
-  uint8_t buf[2] = {reg, val};
-  return i2c_master_transmit(s_dev, buf, sizeof(buf), I2C_TIMEOUT_MS);
+  portEXIT_CRITICAL(&s_lock);
+  return color;
+}
+
+static void led_task(void *arg) {
+  (void)arg;
+  uint32_t previous = 0;
+  esp_err_t previous_error = ESP_OK;
+  for (;;) {
+    uint32_t color = desired_color(esp_timer_get_time());
+    if (color != previous || previous_error != ESP_OK) {
+      const uint8_t bytes[] = {REG_OUT0_PWM, color >> 16, color >> 8, color};
+      esp_err_t result = i2c_master_transmit(s_dev, bytes, sizeof(bytes), I2C_TIMEOUT_MS);
+      if (result != previous_error) {
+        if (result != ESP_OK)
+          ESP_LOGW(TAG, "RGB update failed: %s", esp_err_to_name(result));
+        else
+          ESP_LOGI(TAG, "RGB updates recovered");
+      }
+      if (result == ESP_OK)
+        previous = color;
+      previous_error = result;
+    }
+    portENTER_CRITICAL(&s_lock);
+    bool active = s_activity != 0;
+    portEXIT_CRITICAL(&s_lock);
+    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(active ? LED_ACTIVE_TICK_MS : LED_TICK_MS));
+  }
 }
 
 esp_err_t led_rgb_init(void) {
-  // Assumes the shared I2C bus (init_i2c) is already up. Reset to a known state,
-  // then configure manual PWM mode with OUT0..OUT2 enabled.
+  if (s_task != NULL)
+    return ESP_OK;
   if (s_dev == NULL) {
-    i2c_device_config_t dev_cfg = {
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address = LP5816_ADDR,
-        .scl_speed_hz = I2C_MASTER_FREQ_HZ,
-    };
-    esp_err_t add = i2c_master_bus_add_device(i2c_get_bus(), &dev_cfg, &s_dev);
-    if (add != ESP_OK) {
-      s_present = false;
-      ESP_LOGE(TAG, "LP5816 add_device failed: %s", esp_err_to_name(add));
-      return add;
-    }
+    const i2c_device_config_t config = {.dev_addr_length = I2C_ADDR_BIT_LEN_7,
+                                        .device_address = LP5816_ADDR,
+                                        .scl_speed_hz = I2C_MASTER_FREQ_HZ};
+    esp_err_t result = i2c_master_bus_add_device(i2c_get_bus(), &config, &s_dev);
+    if (result != ESP_OK)
+      return result;
   }
-
-  esp_err_t err = lp5816_write(REG_RESET_CMD, CMD_RESET);
-  if (err != ESP_OK) {
-    s_present = false;
-    ESP_LOGE(TAG, "LP5816 not responding (0x%02X): %s", LP5816_ADDR, esp_err_to_name(err));
-    return err;
-  }
+  esp_err_t result = write_register(0x0E, 0xCC);
+  if (result != ESP_OK)
+    return result;
   vTaskDelay(pdMS_TO_TICKS(2));
-
-  lp5816_write(REG_CHIP_EN, 0x01);
+  result = write_register(0x00, 0x01);
+  if (result != ESP_OK)
+    return result;
   vTaskDelay(pdMS_TO_TICKS(1));
-
-  lp5816_write(REG_DEV_CONFIG0, 0x00);           // MAX_CURRENT = 25.5mA
-  lp5816_write(REG_DEV_CONFIG1, OUT_ENABLE_RGB); // enable OUT0..OUT2
-  lp5816_write(REG_DEV_CONFIG2, 0x00);           // no fade: PWM updates immediately
-  lp5816_write(REG_DEV_CONFIG3, 0x00);           // linear dimming
-  lp5816_write(REG_UPDATE_CMD, CMD_UPDATE);      // latch the DEV_CONFIG changes
-
-  lp5816_write(REG_OUT0_DC + 0, LED_DC_LEVEL); // red current ceiling
-  lp5816_write(REG_OUT0_DC + 1, LED_DC_LEVEL); // green
-  lp5816_write(REG_OUT0_DC + 2, LED_DC_LEVEL); // blue
-
-  lp5816_write(REG_OUT0_PWM + 0, 0); // start dark
-  lp5816_write(REG_OUT0_PWM + 1, 0);
-  lp5816_write(REG_OUT0_PWM + 2, 0);
-
-  s_present = true;
-  ESP_LOGI(TAG, "RGB LED (LP5816) initialized on I2C 0x%02X", LP5816_ADDR);
+  // Manual PWM, RGB only, 25.5 mA ceiling. OUT3 remains disabled.
+  static const uint8_t CONFIG[][2] = {{0x01, 0},
+                                      {0x02, 7},
+                                      {0x03, 0},
+                                      {0x04, 0},
+                                      {0x0F, 0x55},
+                                      {0x14, 0xFF},
+                                      {0x15, 0xFF},
+                                      {0x16, 0xFF},
+                                      {0x18, 0},
+                                      {0x19, 0},
+                                      {0x1A, 0}};
+  for (size_t i = 0; i < sizeof(CONFIG) / sizeof(CONFIG[0]); ++i) {
+    result = write_register(CONFIG[i][0], CONFIG[i][1]);
+    if (result != ESP_OK)
+      return result;
+  }
+  if (xTaskCreatePinnedToCore(led_task,
+                              "led_sig",
+                              LED_STACK_BYTES,
+                              NULL,
+                              SYS_PRIO_BACKGROUND,
+                              &s_task,
+                              SYS_CORE_RADIO) != pdPASS) {
+    s_task = NULL;
+    ESP_LOGE(TAG, "LED worker allocation failed");
+    return ESP_ERR_NO_MEM;
+  }
+  ESP_LOGI(TAG, "RGB ready; charge status and prioritized notifications");
   return ESP_OK;
 }
 
 void led_set_color(uint8_t r, uint8_t g, uint8_t b) {
-  if (!s_present) {
+  if (xPortInIsrContext())
     return;
-  }
-  lp5816_write(REG_OUT0_PWM + 0, r); // OUT0 = red
-  lp5816_write(REG_OUT0_PWM + 1, g); // OUT1 = green
-  lp5816_write(REG_OUT0_PWM + 2, b); // OUT2 = blue
+  portENTER_CRITICAL(&s_lock);
+  s_manual_color = ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
+  s_manual = s_manual_color != 0;
+  portEXIT_CRITICAL(&s_lock);
+  if (s_task != NULL)
+    xTaskNotifyGive(s_task);
 }
 
 void led_clear(void) {
   led_set_color(0, 0, 0);
 }
-
 void led_blink(uint8_t r, uint8_t g, uint8_t b, int duration_ms) {
+  if (duration_ms <= 0 || xPortInIsrContext())
+    return;
   led_set_color(r, g, b);
   vTaskDelay(pdMS_TO_TICKS(duration_ms));
   led_clear();
 }
-
 void led_blink_red(void) {
   led_blink(255, 0, 0, 500);
 }
-
 void led_blink_green(void) {
   led_blink(0, 150, 0, 220);
 }
-
 void led_blink_blue(void) {
   led_blink(0, 0, 255, 500);
 }
-
 void led_blink_purple(void) {
   led_blink(200, 0, 220, 500);
 }
 
-// Semantic status signals: a single short flash in a configurable color, then
-// the LED goes dark again (the status LED is normally off). The colors and the
-// global brightness come from the LED config, pushed in by the Service layer via
-// led_set_signal_config(); the driver keeps sensible defaults until then, so it
-// never needs to reach up into the config itself.
-#define SIGNAL_BLINK_US (250 * 1000)
-
-enum { SIG_INFO = 0, SIG_WARNING, SIG_ERROR };
-static uint32_t s_sig_color[3] = {0xFF00FF, 0xFFFF00, 0xFF0000}; // info, warning, error
-static int s_sig_brightness = 10;
-
-// Turning the LED off is a blocking I2C write, so it runs in a dedicated task
-// (created in led_rgb_init) rather than an esp_timer callback: the esp_timer task
-// has a small stack (~3.5 KB) that the I2C path overflows, and blocking there
-// stalls every other timer. sig_blink just sets the color and the off-deadline;
-// the task sleeps until the (possibly re-armed) deadline, then clears once.
-static volatile int64_t s_sig_off_us = 0;
-static TaskHandle_t s_sig_task = NULL;
-
-static void sig_off_task(void *arg) {
-  (void)arg;
-  for (;;) {
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    for (;;) {
-      int64_t remaining = s_sig_off_us - esp_timer_get_time();
-      if (remaining <= 0) {
-        break;
-      }
-      vTaskDelay(pdMS_TO_TICKS((uint32_t)(remaining / 1000) + 1));
-    }
-    led_clear();
-  }
-}
-
-static uint8_t sig_scale(uint8_t chan) {
-  int pct = s_sig_brightness;
-  if (pct < 0)
-    pct = 0;
-  if (pct > 100)
-    pct = 100;
-  return (uint8_t)((uint32_t)chan * (uint32_t)pct / 100);
-}
-
-static void sig_blink(uint32_t hex) {
-  led_set_color(sig_scale((hex >> 16) & 0xFF), sig_scale((hex >> 8) & 0xFF), sig_scale(hex & 0xFF));
-  s_sig_off_us = esp_timer_get_time() + SIGNAL_BLINK_US;
-
-  if (s_sig_task == NULL) {
-    // Created lazily on the first signal (all defs are in scope here).
-    xTaskCreatePinnedToCore(
-        sig_off_task, "led_sig", 3072, NULL, SYS_PRIO_BACKGROUND, &s_sig_task, SYS_CORE_RADIO);
-  }
-  if (s_sig_task != NULL) {
-    xTaskNotifyGive(s_sig_task); // wake the off task to (re)schedule the clear
-  }
-}
-
 void led_set_signal_config(uint32_t info, uint32_t warning, uint32_t error, int brightness) {
-  s_sig_color[SIG_INFO] = info & 0xFFFFFF;
-  s_sig_color[SIG_WARNING] = warning & 0xFFFFFF;
-  s_sig_color[SIG_ERROR] = error & 0xFFFFFF;
-  s_sig_brightness = brightness;
+  if (brightness < 0)
+    brightness = 0;
+  if (brightness > 100)
+    brightness = 100;
+  portENTER_CRITICAL(&s_lock);
+  s_colors[SIG_INFO] = info & LED_RGB_MASK;
+  s_colors[SIG_WARNING] = warning & LED_RGB_MASK;
+  s_colors[SIG_ERROR] = error & LED_RGB_MASK;
+  s_brightness = brightness;
+  portEXIT_CRITICAL(&s_lock);
+  if (s_task != NULL)
+    xTaskNotifyGive(s_task);
 }
 
+void led_set_power_state(led_power_state_t state) {
+  if (state < LED_POWER_OFF || state >= LED_POWER_COUNT)
+    return;
+  portENTER_CRITICAL(&s_lock);
+  s_power = state;
+  portEXIT_CRITICAL(&s_lock);
+}
+
+static void signal_event(led_signal_t signal) {
+  if (xPortInIsrContext())
+    return;
+  int64_t now = esp_timer_get_time();
+  portENTER_CRITICAL(&s_lock);
+  // Repeated traffic cannot stretch a pulse indefinitely or hide an error.
+  if (now >= s_signal_until || signal > s_signal) {
+    s_signal = signal;
+    s_signal_until = now + SIGNAL_BLINK_US;
+  }
+  portEXIT_CRITICAL(&s_lock);
+  if (s_task != NULL)
+    xTaskNotifyGive(s_task);
+}
 void led_signal_info(void) {
-  sig_blink(s_sig_color[SIG_INFO]);
+  signal_event(SIG_INFO);
 }
-
 void led_signal_warning(void) {
-  sig_blink(s_sig_color[SIG_WARNING]);
+  signal_event(SIG_WARNING);
+}
+void led_signal_error(void) {
+  signal_event(SIG_ERROR);
 }
 
-void led_signal_error(void) {
-  sig_blink(s_sig_color[SIG_ERROR]);
+void led_set_activity(uint32_t source, bool active) {
+  if (xPortInIsrContext() || source == 0)
+    return;
+  portENTER_CRITICAL(&s_lock);
+  if (active)
+    s_activity |= source;
+  else
+    s_activity &= ~source;
+  portEXIT_CRITICAL(&s_lock);
+  if (s_task != NULL)
+    xTaskNotifyGive(s_task);
+}
+
+esp_err_t led_get_status(led_status_t *out) {
+  if (out == NULL)
+    return ESP_ERR_INVALID_ARG;
+  if (s_task == NULL || xPortInIsrContext())
+    return ESP_ERR_INVALID_STATE;
+  portENTER_CRITICAL(&s_lock);
+  out->activity = s_activity;
+  out->brightness = s_brightness;
+  out->power = s_power;
+  portEXIT_CRITICAL(&s_lock);
+  uint8_t reg = REG_OUT0_PWM, rgb[3];
+  esp_err_t result = i2c_master_transmit_receive(s_dev, &reg, 1, rgb, sizeof(rgb), I2C_TIMEOUT_MS);
+  if (result == ESP_OK)
+    out->rgb = ((uint32_t)rgb[0] << 16) | ((uint32_t)rgb[1] << 8) | rgb[2];
+  return result;
 }

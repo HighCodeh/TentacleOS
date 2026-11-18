@@ -24,12 +24,14 @@
 extern "C" {
 #endif
 
-#define HAPTIC_FEEDBACK_INTENSITY 70
-#define HAPTIC_FEEDBACK_MS        80
+#define HAPTIC_FEEDBACK_INTENSITY 80
+#define HAPTIC_FEEDBACK_MS        120
 
 // Nonblocking requests; no queue or automatic replay. A busy request is rejected.
 esp_err_t haptic_play(uint8_t intensity, uint16_t duration_ms);
 esp_err_t haptic_probe(void);
+void haptic_set_feedback_intensity(uint8_t intensity);
+esp_err_t haptic_feedback(uint16_t duration_ms);
 void haptic_stop(void);
 bool haptic_is_busy(void);
 esp_err_t haptic_last_result(void);
