@@ -195,9 +195,10 @@ static const tip_entry_t TIPS[] = {
      "MESH TRACEROUTE",
      "Want your message's path? Traceroute maps every hop and shows the SNR of each leg."},
     {SCREEN_LORA_RNODE,
-     "LORA RADIO LAB",
-     "Receive-only SX1262 diagnostics: select a frequency and inspect RSSI, packet counters and "
-     "capture data. Legacy RNode UART is unavailable on this P4 board."},
+     "RF LAB",
+     "Select Sub-GHz or LoRa, frequency, power and RX/TX/CW mode. OK on Start runs a timed test. "
+     "OK or BACK stops it. Power is requested, not measured. Stop an active mesh before LoRa "
+     "tests."},
     {SCREEN_LORA_MQTT,
      "MQTT BRIDGE",
      "The MQTT bridge links your mesh to the internet: set broker, user and password, then "

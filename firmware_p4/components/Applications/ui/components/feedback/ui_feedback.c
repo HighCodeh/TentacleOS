@@ -27,6 +27,7 @@
 
 #include "audio_i2s.h"
 #include "haptic.h"
+#include "led_control.h"
 #include "tos_config.h"
 
 static const char *TAG = "UI_FEEDBACK";
@@ -168,7 +169,9 @@ static void fb_task(void *arg) {
     const fb_def_t *d = &DEFS[k];
     if (g_config_system.vibration &&
         (k == UI_FB_READ || k == UI_FB_WRITE || k == UI_FB_EMULATE || k == UI_FB_SD_CONNECT))
-      (void)haptic_play(HAPTIC_FEEDBACK_INTENSITY, HAPTIC_FEEDBACK_MS);
+      (void)haptic_feedback(HAPTIC_FEEDBACK_MS);
+    if (k == UI_FB_READ || k == UI_FB_WRITE || k == UI_FB_EMULATE || k == UI_FB_SD_CONNECT)
+      led_signal_info();
     if (d->notes && d->count > 0 && g_config_system.ui_sound_fx) {
       esp_err_t result = audio_i2s_play_song(d->notes, d->count, d->amp);
       if (result != last_result) {
