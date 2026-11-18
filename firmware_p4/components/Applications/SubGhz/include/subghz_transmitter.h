@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "cc1101.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -46,6 +47,13 @@ void subghz_tx_stop(void);
  * @return esp_err_t ESP_OK on success, or an error code on failure.
  */
 esp_err_t subghz_tx_send_raw(const int32_t *timings, size_t count);
+/* Configuration is copied into the queued job and applied by its radio worker. */
+typedef struct {
+  uint32_t frequency_hz;
+  cc1101_preset_t preset;
+} subghz_tx_config_t;
+esp_err_t
+subghz_tx_send_configured(const int32_t *timings, size_t count, const subghz_tx_config_t *config);
 
 #ifdef __cplusplus
 }

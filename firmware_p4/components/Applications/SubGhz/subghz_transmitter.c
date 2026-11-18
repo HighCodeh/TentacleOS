@@ -22,12 +22,14 @@
 #include "driver/rmt_tx.h"
 #include "driver/rmt_encoder.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 
 #include "cc1101.h"
+#include "cc1101_rf_path.h"
 #include "led_control.h"
 #include "pin_def.h"
 #include "resource_mgr.h"
@@ -38,6 +40,12 @@
 #define TX_QUEUE_RECV_MS      200
 #define TX_QUEUE_SEND_MS      100
 #define TX_WAIT_TIMEOUT_MS    2000
+#define TX_WAIT_SLICE_MS      50
+#define TX_MAX_DURATION_US    120000000ULL
+#define TX_MAX_PULSES         8192
+#define TX_PA_DBM             10
+#define CC_GDO_HIGH_Z         0x2E
+#define CC_ASYNC_PACKET       0x32
 #define TX_TASK_STACK_SIZE    4096
 #define TX_POLL_MS            10
 #define TX_STOP_TIMEOUT_MS    2500
@@ -58,6 +66,8 @@ typedef enum {
 typedef struct {
   int32_t *timings;
   size_t count;
+  subghz_tx_config_t config;
+  bool apply_config;
 } subghz_tx_item_t;
 
 typedef struct {
@@ -75,6 +85,7 @@ static portMUX_TYPE s_queue_lock = portMUX_INITIALIZER_UNLOCKED;
 static uint32_t s_senders;
 
 static void transmit_task(void *context);
+static esp_err_t enqueue(const int32_t *timings, size_t count, const subghz_tx_config_t *config);
 
 esp_err_t subghz_tx_init(void) {
   unsigned int expected = SUBGHZ_TX_IDLE;
@@ -139,7 +150,20 @@ void subghz_tx_stop(void) {
 }
 
 esp_err_t subghz_tx_send_raw(const int32_t *timings, size_t count) {
-  if (timings == NULL || count == 0 || count > SIZE_MAX / sizeof(*timings))
+  return enqueue(timings, count, NULL);
+}
+
+esp_err_t
+subghz_tx_send_configured(const int32_t *timings, size_t count, const subghz_tx_config_t *config) {
+  if (config == NULL ||
+      cc1101_rf_path_for_measured_frequency(config->frequency_hz) == CC1101_RF_PATH_NONE ||
+      config->preset <= CC1101_PRESET_IDLE || config->preset >= CC1101_PRESET_COUNT)
+    return ESP_ERR_INVALID_ARG;
+  return enqueue(timings, count, config);
+}
+
+static esp_err_t enqueue(const int32_t *timings, size_t count, const subghz_tx_config_t *config) {
+  if (timings == NULL || count == 0 || count > TX_MAX_PULSES)
     return ESP_ERR_INVALID_ARG;
   portENTER_CRITICAL(&s_queue_lock);
   bool can_send = s_state == SUBGHZ_TX_RUNNING;
@@ -149,14 +173,16 @@ esp_err_t subghz_tx_send_raw(const int32_t *timings, size_t count) {
   if (!can_send)
     return ESP_ERR_INVALID_STATE;
   esp_err_t error = ESP_ERR_NO_MEM;
-  int32_t *copy = malloc(count * sizeof(*copy));
+  int32_t *copy = heap_caps_malloc(count * sizeof(*copy), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (copy == NULL) {
     ESP_LOGE(TAG, "Cannot allocate TX timings");
     led_signal_error();
     goto cleanup;
   }
   memcpy(copy, timings, count * sizeof(*copy));
-  subghz_tx_item_t item = {.timings = copy, .count = count};
+  subghz_tx_item_t item = {.timings = copy, .count = count, .apply_config = config != NULL};
+  if (config != NULL)
+    item.config = *config;
   error = xQueueSend(s_tx_queue, &item, pdMS_TO_TICKS(TX_QUEUE_SEND_MS)) == pdPASS
               ? ESP_OK
               : ESP_ERR_TIMEOUT;
@@ -198,25 +224,43 @@ static esp_err_t release_channel(bool *is_enabled) {
 }
 
 static rmt_symbol_word_t *make_symbols(const subghz_tx_item_t *item, size_t *out_count) {
-  size_t words = item->count / RMT_PULSES_PER_SYMBOL + item->count % RMT_PULSES_PER_SYMBOL;
+  size_t halves = 0;
+  uint64_t total_us = 0;
+  for (size_t i = 0; i < item->count; ++i) {
+    int64_t timing = item->timings[i];
+    uint32_t duration = timing < 0 ? -timing : timing;
+    if (duration == 0)
+      return NULL;
+    total_us += duration;
+    if (total_us > TX_MAX_DURATION_US)
+      return NULL;
+    halves += (duration + RMT_MAX_DURATION - 1) / RMT_MAX_DURATION;
+  }
+  size_t words = (halves + 1) / RMT_PULSES_PER_SYMBOL;
   if (words > SIZE_MAX / sizeof(rmt_symbol_word_t))
     return NULL;
-  rmt_symbol_word_t *symbols = calloc(words, sizeof(*symbols));
+  rmt_symbol_word_t *symbols =
+      heap_caps_malloc(words * sizeof(*symbols), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (symbols == NULL) {
     ESP_LOGE(TAG, "Cannot allocate TX symbols");
     return NULL;
   }
+  memset(symbols, 0, words * sizeof(*symbols));
+  size_t half = 0;
   for (size_t i = 0; i < item->count; ++i) {
-    int32_t timing = item->timings[i];
-    uint32_t duration = timing > 0 ? timing : -(int64_t)timing;
-    if (duration > RMT_MAX_DURATION)
-      duration = RMT_MAX_DURATION;
-    if (i % RMT_PULSES_PER_SYMBOL == 0) {
-      symbols[i / RMT_PULSES_PER_SYMBOL].duration0 = duration;
-      symbols[i / RMT_PULSES_PER_SYMBOL].level0 = timing > 0;
-    } else {
-      symbols[i / RMT_PULSES_PER_SYMBOL].duration1 = duration;
-      symbols[i / RMT_PULSES_PER_SYMBOL].level1 = timing > 0;
+    int64_t timing = item->timings[i];
+    uint32_t remaining = timing < 0 ? -timing : timing;
+    while (remaining != 0) {
+      uint16_t duration = remaining > RMT_MAX_DURATION ? RMT_MAX_DURATION : remaining;
+      if (half % RMT_PULSES_PER_SYMBOL == 0) {
+        symbols[half / RMT_PULSES_PER_SYMBOL].duration0 = duration;
+        symbols[half / RMT_PULSES_PER_SYMBOL].level0 = timing > 0;
+      } else {
+        symbols[half / RMT_PULSES_PER_SYMBOL].duration1 = duration;
+        symbols[half / RMT_PULSES_PER_SYMBOL].level1 = timing > 0;
+      }
+      ++half;
+      remaining -= duration;
     }
   }
   *out_count = words;
@@ -231,6 +275,12 @@ static void transmit_task(void *context) {
   esp_err_t error = ESP_ERR_INVALID_STATE;
   if (s_state != SUBGHZ_TX_STARTING)
     goto ready;
+  // Establish legacy raw defaults before enabling the MCU output. Console/host
+  // callers may then adjust power/rate; raw jobs preserve those explicit settings.
+  cc1101_enable_async_mode(TX_DEFAULT_FREQ);
+  cc1101_strobe(CC1101_SIDLE);
+  cc1101_write_reg(CC1101_IOCFG0, CC_GDO_HIGH_Z);
+  cc1101_write_reg(CC1101_IOCFG2, CC_GDO_HIGH_Z);
   const rmt_tx_channel_config_t config = {.clk_src = RMT_CLK_SRC_DEFAULT,
                                           .resolution_hz = RMT_RESOLUTION_HZ,
                                           .mem_block_symbols = RMT_MEM_BLOCK_SYMBOLS,
@@ -251,7 +301,6 @@ static void transmit_task(void *context) {
     error = ESP_ERR_INVALID_STATE;
     goto ready;
   }
-  cc1101_enable_async_mode(TX_DEFAULT_FREQ);
   cc1101_strobe(CC1101_SIDLE);
   unsigned int expected = SUBGHZ_TX_STARTING;
   if (!atomic_compare_exchange_strong(&s_state, &expected, SUBGHZ_TX_RUNNING))
@@ -271,12 +320,49 @@ ready:
       item.timings = NULL;
       continue;
     }
+    error = rmt_disable(s_tx_channel);
+    if (error != ESP_OK)
+      break;
+    is_enabled = false;
+    if (item.apply_config) {
+      cc1101_set_preset(item.config.preset, item.config.frequency_hz);
+      cc1101_set_pa(TX_PA_DBM);
+    }
+    cc1101_strobe(CC1101_SIDLE);
+    cc1101_write_reg(CC1101_IOCFG0, CC_GDO_HIGH_Z);
+    cc1101_write_reg(CC1101_IOCFG2, CC_GDO_HIGH_Z);
+    cc1101_write_reg(CC1101_PKTCTRL0, CC_ASYNC_PACKET);
+    error = rmt_enable(s_tx_channel);
+    if (error != ESP_OK)
+      break;
+    is_enabled = true;
+    ESP_LOGI(TAG,
+             "TX queued frame: configured=%u hz=%lu preset=%u pulses=%u",
+             item.apply_config,
+             (unsigned long)item.config.frequency_hz,
+             item.config.preset,
+             (unsigned)item.count);
     cc1101_enter_tx_mode();
     const rmt_transmit_config_t transmit = {0};
     error =
         rmt_transmit(s_tx_channel, s_copy_encoder, symbols, words * sizeof(*symbols), &transmit);
-    if (error == ESP_OK)
-      error = rmt_tx_wait_all_done(s_tx_channel, TX_WAIT_TIMEOUT_MS);
+    if (error == ESP_OK) {
+      uint64_t duration = 0;
+      for (size_t i = 0; i < item.count; ++i) {
+        int64_t pulse = item.timings[i];
+        duration += pulse < 0 ? -pulse : pulse;
+      }
+      uint32_t limit_ms = duration / 1000 + TX_WAIT_TIMEOUT_MS;
+      for (uint32_t waited = 0; waited < limit_ms; waited += TX_WAIT_SLICE_MS) {
+        if (s_state != SUBGHZ_TX_RUNNING) {
+          error = ESP_ERR_INVALID_STATE;
+          break;
+        }
+        error = rmt_tx_wait_all_done(s_tx_channel, TX_WAIT_SLICE_MS);
+        if (error != ESP_ERR_TIMEOUT)
+          break;
+      }
+    }
     if (error != ESP_OK)
       break;
     free(symbols);

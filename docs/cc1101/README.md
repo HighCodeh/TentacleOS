@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # CC1101 Sub-GHz Radio Driver
 
 This component provides a full driver for the Texas Instruments CC1101 low-power sub-GHz RF transceiver. It handles SPI communication, frequency configuration, modulation presets, and TX/RX operations.
@@ -47,13 +64,21 @@ Adds the CC1101 to the SPI bus (SPI3_HOST, 4 MHz), performs a hardware reset, ve
 ```c
 void cc1101_set_frequency(uint32_t freq_hz);
 ```
-Sets the carrier frequency in Hz. Calculates FREQ2/FREQ1/FREQ0 registers from a 26 MHz crystal reference and triggers automatic calibration.
+Sets the carrier frequency in Hz after a bounded IDLE check. High Boy V2.03 uses
+RF1 for 300–348/387–464 MHz and RF2 for 779–928 MHz, restoring the branch choices
+that performed best on prototype 0201891B in the November 13 comparison. This is
+assembly-specific evidence, not a general antenna-match measurement. The chamber
+backend still exposes all four branches for independent comparison.
+Calculates FREQ2/FREQ1/FREQ0 from the 26 MHz reference, calibrates, and reapplies
+the active PA request with the target band's table.
 
 #### `cc1101_calibrate`
 ```c
 void cc1101_calibrate(void);
 ```
-Performs frequency synthesizer calibration with band-specific FSCTRL0, TEST0, and FSCAL2 adjustments.
+Performs frequency synthesizer calibration with band-specific TEST0/FSCAL2.
+FSCTRL0 remains zero: the legacy unmeasured linear frequency offset is disabled.
+Any future crystal correction requires a measured reference, recorded per board.
 
 ### Preset Management
 
@@ -205,3 +230,10 @@ scope and retries cleanup before touching a new capture/transmission.
 This lease is internal, not an app-visible raw driver API. See
 [Sub-GHz ABI](../app_sdk/README.md#bounded-sub-ghz-api-abi-113) for bounds and
 [Sub-GHz](../SubGhz/README.md) for native worker shutdown.
+
+## Chamber backend
+
+The separate checked backend exposes CW, fixed-packet TX/RX and explicit shunt
+branch selection under the task lease. It saves/restores register configuration
+and PATABLE and reports failures instead of assuming successful SPI writes.
+See [RF chamber service](../rf_chamber/README.md) for exact PHY, bounds and validation.

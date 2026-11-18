@@ -31,6 +31,7 @@ idf_component_register(SRCS
   "bq25896/bq27220_bench.c"
   "cc1101/cc1101.c"
   "cc1101/cc1101_lease.c"
+  "cc1101/cc1101_bench.c"
   "st7789/st7789.c"
   "led/led_control.c"
   "spi/spi.c"

@@ -20,6 +20,7 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -33,15 +34,15 @@
 
 static const char *TAG = "SUBGHZ_REPLAY";
 
-#define REPLAY_FILE_BUF    8192
-#define REPLAY_MAX_PULSES  2048
+#define REPLAY_FILE_BUF    65536
+#define REPLAY_MAX_PULSES  8192
 #define REPLAY_RX_DRAIN_MS 150
 
 esp_err_t subghz_replay_file(const char *name) {
   if (name == NULL)
     return ESP_ERR_INVALID_ARG;
 
-  char *content = malloc(REPLAY_FILE_BUF);
+  char *content = heap_caps_malloc(REPLAY_FILE_BUF, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (content == NULL) {
     ESP_LOGE(TAG, "Cannot allocate replay text");
     return ESP_ERR_NO_MEM;
@@ -57,7 +58,8 @@ esp_err_t subghz_replay_file(const char *name) {
     free(content);
     return ESP_ERR_INVALID_SIZE;
   }
-  int32_t *pulses = malloc(REPLAY_MAX_PULSES * sizeof(*pulses));
+  int32_t *pulses =
+      heap_caps_malloc(REPLAY_MAX_PULSES * sizeof(*pulses), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   esp_err_t err = ESP_ERR_NO_MEM;
   if (pulses == NULL) {
     ESP_LOGE(TAG, "Cannot allocate replay pulses");
@@ -77,9 +79,8 @@ esp_err_t subghz_replay_file(const char *name) {
   err = subghz_tx_init();
   if (err != ESP_OK)
     goto cleanup;
-  if (frequency != 0)
-    cc1101_set_frequency(frequency);
-  err = subghz_tx_send_raw(pulses, count);
+  const subghz_tx_config_t config = {.frequency_hz = frequency, .preset = (cc1101_preset_t)preset};
+  err = subghz_tx_send_configured(pulses, count, &config);
 cleanup:
   free(pulses);
   free(content);

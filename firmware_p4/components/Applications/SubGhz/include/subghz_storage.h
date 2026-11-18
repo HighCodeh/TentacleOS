@@ -99,6 +99,10 @@ esp_err_t subghz_storage_save_decoded(const char *name,
 esp_err_t
 subghz_storage_save_raw(const char *name, const int32_t *pulses, size_t count, uint32_t frequency);
 
+/** @brief Rename a captured file stem (max 39 bytes) without overwriting a destination.
+ * Returns ESP_ERR_NOT_FOUND for a missing capture and ESP_ERR_INVALID_STATE for a collision. */
+esp_err_t subghz_storage_rename(const char *old_name, const char *new_name);
+
 #ifdef __cplusplus
 }
 #endif

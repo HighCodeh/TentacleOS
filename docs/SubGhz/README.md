@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # SubGhz Application
 
 This component implements the complete Sub-GHz RF application layer: signal reception (with protocol decoding and frequency hopping), raw/encoded transmission, spectrum analysis, signal analysis, and file serialization. It sits on top of the `cc1101` driver and uses the ESP-IDF RMT peripheral for precise pulse timing.
@@ -8,7 +25,7 @@ This component implements the complete Sub-GHz RF application layer: signal rece
 - **Dependencies:** `cc1101`, `driver/rmt_rx`, `driver/rmt_tx`, `freertos`, `pin_def`
 - **RMT Resolution:** 1 MHz (1 us per tick)
 - **RX GPIO:** GPIO 8 (GDO0 via `GPIO_SDA_PIN`)
-- **TX GPIO:** GDO2 (via `GPIO_SCL_PIN`)
+- **TX GPIO:** GPIO 8 / CC1101 GDO0 (`GPIO_CC1101_GDO0_PIN`)
 
 ## Architecture
 
@@ -89,7 +106,16 @@ DMA behavior on the board.
 
 ### Transmitter (`subghz_transmitter`)
 
-Asynchronous queue-based transmitter. Converts signed pulse timings to RMT symbols and transmits via CC1101 GDO2 in async mode.
+Asynchronous queue-based transmitter using CC1101 GDO0 in async mode.
+Each queued frame owns a copy of timings **and frequency/preset**. Radio configuration
+occurs in the worker with RMT disabled; both GDO outputs are high impedance before
+RMT resumes. Replay accepts up to 64 KiB text / 8192 pulses and preserves long gaps
+by splitting equal-level RMT halves, rather than truncating at 32767 us.
+Replay text, timings and symbols explicitly use PSRAM. The P4 profile keeps the
+RMT ISR cache-safe mode disabled; enabling that SDK option requires revisiting
+symbol storage/encoder memory. Allocation failure does not fall back to internal RAM.
+Stop is checked between bounded 50 ms RMT waits; buffers remain owned until channel
+cleanup succeeds. Native replay requests +10 dBm nominal; this is not measured EIRP.
 
 **Flow:** `subghz_tx_send_raw()` -> FreeRTOS Queue -> TX Task -> RMT TX -> CC1101
 
@@ -99,13 +125,17 @@ Asynchronous queue-based transmitter. Converts signed pulse timings to RMT symbo
 esp_err_t subghz_tx_init(void);
 void subghz_tx_stop(void);
 esp_err_t subghz_tx_send_raw(const int32_t *timings, size_t count);
+esp_err_t subghz_tx_send_configured(const int32_t *timings, size_t count,
+                                    const subghz_tx_config_t *config);
 ```
 - `subghz_tx_init` returns `ESP_OK` on success, `ESP_ERR_NO_MEM` on queue creation failure.
 - `subghz_tx_send_raw` returns `ESP_OK` on success, `ESP_ERR_INVALID_ARG` if not running or invalid params, `ESP_ERR_NO_MEM` on allocation failure, `ESP_ERR_TIMEOUT` if queue is full.
 - Queue depth: 10 items. Drops packets if full.
 - Timing data is copied internally; caller retains ownership of the original buffer.
-- Max RMT symbol duration: 32767 us per pulse.
-- Task stack: 4096 bytes, priority 5, Core 1.
+- RMT half-symbol limit: 32767 us; longer pulses are split without changing level.
+- Legacy raw jobs preserve radio settings applied after init (including diagnostic PA/rate); configured calls retain file metadata.
+- Read/Read RAW now default to fixed 433.92 MHz / OOK270. Config can enable hopping.
+- Task stack: 4096 bytes, `SYS_PRIO_SERVICE_HI`, `SYS_CORE_RADIO`.
 
 ### Spectrum Analyzer (`subghz_spectrum`)
 
