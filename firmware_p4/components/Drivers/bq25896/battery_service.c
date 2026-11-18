@@ -14,6 +14,10 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "battery_service.h"
+#include "bq27220.h"
+#include "power_profile.h"
+#include "pin_def.h"
+#include "led_control.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -36,10 +40,153 @@ static const char *TAG = "BATTERY_SVC";
 #define SOC_EMA_DEN      4  // EMA: ema = (ema*3 + raw)/4 (rejects load sag)
 #define LOW_ENTER_PCT    15 // latch "low" at/below this SoC
 #define LOW_EXIT_PCT     20 // release "low" at/above this SoC (hysteresis)
+#define LOW_ENTER_MV     3300
+#define LOW_EXIT_MV      3500
 
 static battery_snapshot_t s_snap; // guarded by s_mtx once the task is running
 static SemaphoreHandle_t s_mtx = NULL;
 static bool s_started = false;
+static battery_charge_snapshot_t s_charge;
+static bool s_charge_requested = true;
+static SemaphoreHandle_t s_charge_control;
+
+bool battery_service_get_charge(battery_charge_snapshot_t *out) {
+  if (out == NULL || s_mtx == NULL || xSemaphoreTake(s_mtx, pdMS_TO_TICKS(50)) != pdTRUE)
+    return false;
+  *out = s_charge;
+  xSemaphoreGive(s_mtx);
+  return out->valid;
+}
+
+esp_err_t battery_service_request_charge(bool enable) {
+  if (!s_started || s_mtx == NULL)
+    return ESP_ERR_INVALID_STATE;
+  if (xSemaphoreTake(s_mtx, pdMS_TO_TICKS(50)) != pdTRUE)
+    return ESP_ERR_TIMEOUT;
+  s_charge_requested = enable;
+  s_charge.requested = enable;
+  xSemaphoreGive(s_mtx);
+  return ESP_OK;
+}
+
+#ifdef CONFIG_HIGHBOY_BOARD_V203
+static const char *charge_block_reason(const bq25896_telem_t *t) {
+  if (!t->adc_valid)
+    return "Battery reading unavailable";
+  if (!t->power_good)
+    return "Connect USB to charge";
+  if (t->vbat_mv <= 2304)
+    return "Battery not detected";
+  if (t->vbat_mv < 3200)
+    return "Battery voltage too low";
+  if (t->vbat_mv > 4200)
+    return "Battery voltage too high";
+  if (t->fault_live)
+    return "Charger fault";
+  if (t->ts_milli_pct < 50000 || t->ts_milli_pct > 65000)
+    return "Temperature input outside range";
+  if (t->otg_enabled)
+    return "Disable USB power output";
+  if (t->charge_current_limit_ma > 384 || t->charge_voltage_limit_mv > 4176 || t->ichg_ma > 500)
+    return "Charge limits invalid";
+  return NULL;
+}
+
+static void battery_pack_task(void *arg) {
+  (void)arg;
+  bool low = false;
+  const char *last_status = NULL;
+  for (;;) {
+    xSemaphoreTake(s_charge_control, portMAX_DELAY);
+    bool requested;
+    xSemaphoreTake(s_mtx, portMAX_DELAY);
+    requested = s_charge_requested;
+    xSemaphoreGive(s_mtx);
+    battery_charge_snapshot_t next = {
+        .requested = requested, .soc = -1, .status = "Charger unavailable"};
+    esp_err_t error = bq25896_read_telemetry(&next.charger);
+    if (error == ESP_OK) {
+      next.valid = true;
+      const char *blocked = charge_block_reason(&next.charger);
+      bool desired = requested && blocked == NULL;
+      if (next.charger.charge_enabled != desired) {
+        error = bq25896_set_charge_enable(desired);
+        if (error == ESP_OK)
+          error = bq25896_read_telemetry(&next.charger);
+      }
+      if (error != ESP_OK) {
+        (void)bq25896_stop_charge();
+        next.valid = false;
+        next.status = "Charge control failed";
+      } else if (blocked != NULL)
+        next.status = blocked;
+      else if (!requested)
+        next.status = "Charging paused";
+      else if (next.charger.chg == CHARGE_STATUS_CHARGE_DONE)
+        next.status = "Charge complete";
+      else if (next.charger.charging)
+        next.status = "Charging";
+      else
+        next.status = "Charge enabled - waiting";
+      bq27220_sample_t gauge;
+      if (bq27220_read_sample(&gauge) == ESP_OK && gauge.voltage_mv > 2304 &&
+          gauge.voltage_mv <= 4250) {
+        next.current_valid = true;
+        next.battery_current_ma = gauge.current_ma;
+        if (POWER_PROFILE_GAUGE_QUALIFIED && gauge.soc_pct <= 100 && gauge.voltage_mv >= 3000 &&
+            gauge.design_mah == POWER_PROFILE_CAPACITY_MAH && gauge.full_mah > 0 &&
+            gauge.remaining_mah <= gauge.full_mah) {
+          next.gauge_valid = true;
+          next.soc = gauge.soc_pct;
+        }
+      }
+    } else {
+      (void)bq25896_stop_charge();
+    }
+    bool voltage_valid = next.valid && next.charger.adc_valid && next.charger.vbat_mv > 2304;
+    if (!voltage_valid || next.charger.power_good)
+      low = false;
+    else if (next.gauge_valid ? next.soc <= LOW_ENTER_PCT : next.charger.vbat_mv <= LOW_ENTER_MV)
+      low = true;
+    else if (next.gauge_valid ? next.soc >= LOW_EXIT_PCT : next.charger.vbat_mv >= LOW_EXIT_MV)
+      low = false;
+    xSemaphoreTake(s_mtx, portMAX_DELAY);
+    s_charge = next;
+    s_snap = (battery_snapshot_t){.soc = next.soc,
+                                  .vbat_mv = next.charger.vbat_mv,
+                                  .present = voltage_valid,
+                                  .charging = next.valid && next.charger.charging,
+                                  .vbus_present = next.valid && next.charger.power_good,
+                                  .low = low,
+                                  .valid = next.valid && next.charger.adc_valid,
+                                  .chg = next.charger.chg};
+    xSemaphoreGive(s_mtx);
+    xSemaphoreGive(s_charge_control);
+    led_power_state_t led_state = LED_POWER_OFF;
+    if (next.valid && next.charger.power_good) {
+      if (next.charger.charging)
+        led_state = LED_POWER_CHARGING;
+      else if (next.charger.chg == CHARGE_STATUS_CHARGE_DONE)
+        led_state = LED_POWER_FULL;
+      else if (next.requested)
+        led_state = LED_POWER_BLOCKED;
+    } else if (low)
+      led_state = LED_POWER_LOW;
+    led_set_power_state(led_state);
+    if (last_status != next.status) {
+      if (led_state == LED_POWER_BLOCKED || !next.valid) {
+        ESP_LOGW(TAG, "%s", next.status);
+        led_signal_warning();
+      } else {
+        ESP_LOGI(TAG, "%s", next.status);
+        led_signal_info();
+      }
+      last_status = next.status;
+    }
+    vTaskDelay(pdMS_TO_TICKS(POLL_INTERVAL_MS));
+  }
+}
+#endif
 
 static int clamp_pct(int v) {
   if (v < 0)
@@ -163,8 +310,8 @@ static void battery_task(void *arg) {
 
     // A charger watchdog/POR would clear continuous conversion. Repair it
     // before accepting default 2.304-V ADC codes as real battery data.
-    if (!t.adc_continuous) {
-      ESP_LOGW(TAG, "charger ADC stopped; restoring continuous conversion");
+    if (!t.adc_valid) {
+      ESP_LOGW(TAG, "charger ADC invalid; checking runtime configuration");
       (void)bq25896_reapply_runtime_config();
       continue;
     }
@@ -218,9 +365,35 @@ void battery_service_init(void) {
     return;
   }
 
+#ifdef CONFIG_HIGHBOY_BOARD_V203
+  s_charge_control = xSemaphoreCreateMutex();
+  if (s_charge_control == NULL) {
+    vSemaphoreDelete(s_mtx);
+    s_mtx = NULL;
+    return;
+  }
+  if (xTaskCreatePinnedToCore(battery_pack_task,
+                              "battery_svc",
+                              TASK_STACK,
+                              NULL,
+                              SYS_PRIO_BACKGROUND,
+                              NULL,
+                              SYS_CORE_RADIO) != pdPASS) {
+    vSemaphoreDelete(s_charge_control);
+    s_charge_control = NULL;
+    vSemaphoreDelete(s_mtx);
+    s_mtx = NULL;
+    ESP_LOGE(TAG, "battery task create failed");
+    return;
+  }
+  s_started = true;
+  ESP_LOGI(TAG, "Guarded charge service: <=384 mA / 4176 mV; board NTC is not cell temperature");
+  return;
+#endif
+
   // One synchronous read so the first UI paint already has real data.
   bq25896_telem_t t;
-  if (bq25896_read_telemetry(&t) == ESP_OK && t.adc_continuous) {
+  if (bq25896_read_telemetry(&t) == ESP_OK && t.adc_valid) {
     battery_service_filter_t filter = {0};
     s_snap.soc = filter_soc(&filter, &t);
     s_snap.vbat_mv = t.vbat_mv;

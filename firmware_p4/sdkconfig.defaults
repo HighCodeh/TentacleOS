@@ -43,6 +43,7 @@ CONFIG_ESP32P4_REV_MIN_301=y
 
 # CPU 360MHz (P4 maximum)
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_360=y
+CONFIG_HIGHBOY_BOARD_V203=y
 
 # Build the whole app + IDF at -O2 (perf) instead of the -Og default. The LVGL
 # software renderer is fully CPU-bound, so this is the biggest transparent speed

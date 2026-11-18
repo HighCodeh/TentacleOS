@@ -15,195 +15,120 @@ You should have received a copy of the GNU General Public License
 along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 -->
 
-# BQ25896 Charger / PMIC Driver
+# BQ25896 charger and battery service
 
-This component drives the Texas Instruments BQ25896 single-cell battery charger and power-path IC over I2C. It exposes battery voltage, charge and VBUS status, charge enable control, and a real ship-mode power-off. A thin `battery_service` layer sits on top and publishes a single smoothed snapshot that the UI reads instead of polling the charger directly.
+## High Boy V2.03
 
-## Overview
+The installed replacement was reported by the owner as 2475 mAh, 3.7 V nominal,
+4.2 V maximum on 2026-11-18. `power_profile.h` records these nominal ratings;
+they are not automatic pack identification or a measured capacity. The prior
+KNLYPOW/Yachen 604858 specification (2000 mAh; A0 dated 2026-10-29, SHA-256
+`29d4047b57c25d427abdca5d18d1c8fb26f18cda71ac23370102598fe95ba8c5`)
+does not qualify the replacement's recovery/termination current or temperature
+sensor. Existing lower charge guards remain unchanged.
 
-- **Location:** `components/Drivers/bq25896/` (firmware_p4 only)
-- **Headers:** `include/bq25896.h`, `include/battery_service.h`
-- **Sources:** `bq25896.c` (register I/O + controls), `bq25896_ext.c` (telemetry aggregator), `battery_service.c` (poll task + smoothing)
-- **Dependencies:** `i2c_init`, `pins` (`pin_def.h`), `sys_prio`, `driver/gpio`, `freertos`
-- **Interface:** I2C master bus `I2C_NUM_0` (via `i2c_init`, shared), 100 kHz standard-mode
-- **I2C address:** `0x6B` (`BQ25896_I2C_ADDR`, 7-bit)
-- **CE pin:** `GPIO_CHARGER_CE_PIN` (GPIO33), active-low charge enable, driven at init
+The gauge's observed 3000 mAh design/full capacity does not match this battery.
+`POWER_PROFILE_GAUGE_QUALIFIED` remains false: matching the nominal capacity
+alone is insufficient to qualify the cell's CEDV model, board current sensing
+and temperature input. No live gauge RAM, OTP or chemistry profile is changed
+by this UI update. The read-only BQ27220 driver cannot write the gauge capacity or chemistry.
 
-## Charge Status (`bq25896_charge_status_t`)
+The BQ25896 is I2C0 address 0x6B, with active-low CE on P4 GPIO33.
+The BQ27220 gauge is sampled independently. `power_profile.h` records the
+reported nominal capacity and retained charge limits; the runtime retains 384 mA
+and 4176 mV. This update does not change charger register limits, the gauge
+model, NTC interpretation, precharge, OTG, partitions or C5 firmware.
 
-| Value | Meaning |
-|-------|---------|
-| `CHARGE_STATUS_NOT_CHARGING` | Not charging |
-| `CHARGE_STATUS_PRECHARGE` | Pre-charge phase |
-| `CHARGE_STATUS_FAST_CHARGE` | Fast-charge phase |
-| `CHARGE_STATUS_CHARGE_DONE` | Charge complete |
+### Charging and protection
 
-## VBUS Status (`bq25896_vbus_status_t`)
+`battery_service_request_charge(bool)` queues a request. Its background worker
+owns I2C control; a UI request cannot bypass the guard. Charging requires a
+fresh ADC sample, valid USB power, 3200–4200 mV battery voltage, no live charger
+fault, board TS ratio 50–65% REGN, OTG off, and valid existing current/voltage
+limits. A read/control failure stops charging. Board TS is **not validated cell
+temperature**. No unattended low-cell recovery is implemented.
 
-| Value | Meaning |
-|-------|---------|
-| `VBUS_STATUS_UNKNOWN` | No/unknown VBUS source |
-| `VBUS_STATUS_USB_HOST` | USB host (SDP) input |
-| `VBUS_STATUS_ADAPTER_PORT` | Dedicated adapter input |
-| `VBUS_STATUS_OTG` | OTG (boost) output |
+The old 604858 specification calls for 20 mA recovery and 40 mA termination. The charger's minimum
+programmable precharge and termination currents are 64 mA; the retained
+precharge setting is 128 mA. These cannot be made compliant by changing a UI
+indicator or rounding up. Low voltage therefore remains blocked pending a
+compatible recovery method and physical battery/temperature validation.
+See [TI BQ25896 datasheet, REG05](https://www.ti.com/lit/ds/symlink/bq25896.pdf).
 
-## BQ25896 API Reference
+Ship mode still uses BATFET_DIS;
+it cannot turn off a system held up by USB. Generic setters remain subject to
+the V2.03 driver guard.
 
-### Initialization
+### Telemetry and presentation
 
-#### `bq25896_init`
-```c
-esp_err_t bq25896_init(void);
-```
-Adds the charger to the shared I2C bus, probes it (REG14), and marks the chip present. Drives CE (GPIO33) low to enable charging, disables the charge watchdog and sets `JEITA_ISET=0` (REG07), lowers `SYS_MIN` to 3.0 V (REG03) so the battery ADC keeps converting down to the 3.0 V knee, and enables the continuous ADC (REG02). Returns `ESP_OK` on success, or the failing `esp_err_t`.
+`bq25896_read_telemetry()` starts a fresh one-shot ADC conversion, observes
+start/completion and reads live/latched faults. It is bounded to 1.2 seconds plus
+I2C transfers. The charger mutex covers the transaction while the shared bus
+is released between polls. Invalid samples must not be consumed.
 
-#### `bq25896_is_present`
-```c
-bool bq25896_is_present(void);
-```
-True once the charger has answered on I2C at init.
+`battery_service_get()` publishes a mutex-protected snapshot with these rules:
 
-### Battery State
+- `valid`: fresh charger telemetry, independent of a calibrated percentage.
+- `present`: a valid voltage above the charger's 2304 mV ADC floor.
+- `soc`: qualified gauge value 0–100, or -1. The gate requires explicit
+  model qualification, the reported 2475 mAh design capacity and plausible
+  voltage/capacity fields. Neither an old 2000 mAh model nor a capacity-only
+  rewrite can enable percentage reporting.
+- `charging` and `vbus_present`: actual charger state. USB alone is not charge.
+- `low`: on battery only, hysteresis at 15/20% if a qualified gauge is present;
+  otherwise 3300/3500 mV. Unknown percentage is never treated as negative charge.
 
-#### `bq25896_get_battery_voltage`
-```c
-uint16_t bq25896_get_battery_voltage(void);
-```
-Battery voltage in mV from REG0E (base 2304 mV, 20 mV/step), or 0 on read failure.
+`battery_service_get_charge()` also returns the request, reason, full charger
+telemetry, and independently valid raw gauge current. An unqualified
+model may supply a voltage/current reading but not a claimed calibrated percent.
+No voltage-to-percent substitution is disguised as calibration.
 
-#### `bq25896_get_battery_percentage`
-```c
-int bq25896_get_battery_percentage(uint16_t voltage_mv);
-```
-Linear voltage-to-percent estimate (0-100) between 3200 mV and 4200 mV.
+Battery and Power both consume the service snapshot. Power no longer starts
+ADC conversions or initializes the charger on the UI thread; its charge toggle
+queues the same service-owned request as Battery. A pause survives telemetry
+polls and screen changes; a reboot starts with charging requested again.
+Power shows `--%` and measured
+voltage when the gauge is unqualified, never the old linear voltage percentage.
 
-#### `bq25896_get_charge_status` / `bq25896_get_vbus_status`
-```c
-bq25896_charge_status_t bq25896_get_charge_status(void);
-bq25896_vbus_status_t   bq25896_get_vbus_status(void);
-```
-Decode the CHG_STAT and VBUS_STAT fields of the status register (REG0B).
+The battery information card shows voltage when percent is unavailable (without
+an empty 0% ring), labeled net current and supply, nominal capacity,
+source, actual charging/paused/full state, and the blocked reason. OK pauses or
+requests charging; all guards remain active. Header and dropdown show measured voltage with an unqualified gauge, or
+percentage when qualified. Their static fill never simulates a charge level; a
+lightning/USB symbol reports actual charging/external power separately. Unknown
+header readings use a neutral battery, and unavailable telemetry clears stale
+voltage and charging indication. No per-battery animation timer is needed. Low-cell shutdown uses 3000 mV
+when no percentage is available; critical warning uses 3200 mV. Existing sample
+count/debounce and USB exemption are preserved.
 
-#### `bq25896_is_charging`
-```c
-bool bq25896_is_charging(void);
-```
-True while pre-charging or fast charging.
+The LED resumes a dimmed red charging indication, green full indication, or a
+brief amber blocked indication after transient notifications. State-change logs
+are deduplicated. See [LED](../led/README.md).
 
-#### `bq25896_get_fault`
-```c
-uint8_t bq25896_get_fault(void);
-```
-Raw fault register (REG0C): `CHRG_FAULT[5:4]`, `BAT_FAULT[3]`, `NTC_FAULT[2:0]`.
+## Legacy target
 
-### Charge Control
+Non-V2.03 builds retain the voltage estimate and USB-transition filter from
+`c6ff7cf`: a source/charging transition settles for 30 polls and anchors the
+estimate across the voltage step. Subsequent changes are limited to one
+percentage point per 30 polls; idle USB cannot increase the estimate, and 100%
+requires charge completion. Startup and later samples require valid ADC data.
+Their linear 3200–4200 mV curve is not a calibrated fuel gauge. It is not used
+to manufacture a percentage on the integrated V2.03 target.
 
-#### `bq25896_get_charge_enable`
-```c
-bool bq25896_get_charge_enable(void);
-```
-Reads REG03 `CHG_CONFIG` (bit 4).
+## Validation
 
-#### `bq25896_set_charge_enable`
-```c
-esp_err_t bq25896_set_charge_enable(bool enable);
-```
-Drives both gates: the active-low CE pin (GPIO33) and REG03 `CHG_CONFIG`, so the state is unambiguous.
+`python3 tools/highboy/tests/test_battery_filter.py` retains the upstream
+regression cases for repeated cable transitions, stable voltage, real changes,
+empty/full endpoints and idle USB in the legacy branch.
 
-### Ship Mode / Power Off
-
-#### `bq25896_power_off`
-```c
-esp_err_t bq25896_power_off(void);
-```
-Real power-off: sets `BATFET_DIS` (REG09 bit 5) to disconnect the battery. Also sets `BATFET_DLY` (bit 3) so the MCU finishes the I2C write before the rail collapses, and clears `BATFET_RST_EN` (bit 2) to disarm the /QON auto-reset. Without disarming, a /QON pulse (the BACK button on this board) would cycle BATFET back on and cold-boot the device a few seconds later. Has no effect while VBUS (USB) is present: the part keeps the system powered from USB.
-
-### Telemetry
-
-#### `bq25896_read_telemetry`
-```c
-esp_err_t bq25896_read_telemetry(bq25896_telem_t *out);
-```
-Fills a `bq25896_telem_t` snapshot. Battery voltage/percent/charge/VBUS/fault fields are real; the `vsys_mv`, `vbus_mv`, `ichg_ma`, and `iinlim_ma` diagnostic fields are currently 0 (approximate/unpopulated). Returns `ESP_ERR_INVALID_ARG` if `out` is NULL.
-
-`bq25896_telem_t` fields: `vbat_mv`, `vsys_mv`, `vbus_mv`, `ichg_ma`, `iinlim_ma`, `fault`, `soc`, `chg`, `vbus`, `charging`, `power_good`.
-
-#### `bq25896_reg_raw`
-```c
-uint8_t bq25896_reg_raw(uint8_t reg);
-```
-Raw single-register read, or 0 on failure.
-
-## Battery Service API Reference
-
-A background poll task (`battery_svc`, core `SYS_CORE_RADIO`, priority `SYS_PRIO_BACKGROUND`) keeps a mutex-guarded smoothed snapshot so screens do not each poll the charger.
-
-#### `battery_service_init`
-```c
-void battery_service_init(void);
-```
-Idempotent. Requires `bq25896_init()` first. Takes one synchronous reading so the first UI paint has real data, then polls in the background.
-
-Background polling does not print routine telemetry, including state changes.
-Use the `battery` console command for diagnostics. Startup messages and
-telemetry/ADC recovery warnings remain enabled.
-
-#### `battery_service_get`
-```c
-bool battery_service_get(battery_snapshot_t *out);
-```
-Copies the latest snapshot into `out`. Returns true if a valid reading is available.
-
-#### `battery_service_soc` / `battery_service_is_low`
-```c
-int  battery_service_soc(void);
-bool battery_service_is_low(void);
-```
-Convenience accessors: smoothed SoC (0-100, or -1 if no valid reading yet) and the latched low-battery flag.
-
-`battery_snapshot_t` fields: `soc`, `vbat_mv`, `present`, `charging`, `vbus_present`, `low`, `valid`, `chg`.
-
-### Filtered SoC and Smoothing
-
-The raw voltage-derived SoC is filtered before it reaches the UI:
-
-- **EMA:** fixed-point voltage-derived SoC averaging, avoiding integer truncation bias.
-- **USB/charge transitions:** hold the displayed estimate for 30 valid samples and
-  average the terminal voltage while it settles. At the end, anchor that voltage
-  to the displayed SoC. Subsequent estimates follow changes relative to this
-  anchor, instead of drifting toward the pre-transition absolute voltage curve.
-  A piecewise linear mapping retains the empty/full endpoints, so the anchor does
-  not leave a permanent additive percentage at empty. Anchors are runtime-only;
-  a cold boot still starts with the uncalibrated voltage estimate.
-- **Slew limit:** one percentage point per 30 valid samples (normally 30 seconds),
-  rather than three points each second. Voltage and charger-state telemetry still
-  update every second. Invalid ADC samples do not advance the filter.
-- **Direction:** USB presence alone cannot raise SoC; charging or charge-done is
-  required. Full voltage alone is capped at 99%; charge-done permits convergence
-  toward 100%. The first valid sample initializes the estimate directly.
-- **Limitations:** this remains a voltage-based estimate, not coulomb counting or
-  a calibrated cell model. Transition anchoring compensates the observed voltage discontinuity but cannot
-  distinguish subsequent load sag from discharge, or calibrate the true capacity.
-  It deliberately preserves the pre-transition estimate, including any existing
-  error; a cell-specific curve or fuel gauge remains necessary for accuracy.
-- **Low-battery hysteresis:** latches `low` when raw or displayed SoC is at/below `LOW_ENTER_PCT = 15`, releases at/above `LOW_EXIT_PCT = 20`; never low while charging or on VBUS.
-- **Charging debounce:** turns the charging indicator on immediately, off immediately when unplugged, but requires `CHG_OFF_DEBOUNCE = 3` consecutive not-charging polls to drop it while still on external power.
-
-## Key Config / Tunables
-
-| Macro | Location | Value | Meaning |
-|-------|----------|-------|---------|
-| `BQ25896_I2C_ADDR` | `bq25896.h` | `0x6B` | I2C 7-bit address |
-| `I2C_TIMEOUT_MS` | `bq25896.c` | 100 | Per-transfer timeout |
-| `I2C_FAIL_RECOVER` | `bq25896.c` | 3 | Consecutive failures before `i2c_bus_recover()` |
-| `BATV_BASE_MV` / `BATV_STEP_MV` | `bq25896.c` | 2304 / 20 | REG0E voltage decode |
-| `BATTERY_MIN_MV` / `BATTERY_MAX_MV` | `bq25896.c` | 3200 / 4200 | Percent-estimate endpoints |
-| `POLL_INTERVAL_MS` | `battery_service.c` | 1000 | Steady poll cadence (first sample at ~1200 ms) |
-| `SOC_STEP_MAX` | `battery_service.c` | 1 | Max SoC delta per 30 valid samples |
-| `SOC_EMA_DEN` | `battery_service.c` | 4 | EMA denominator |
-| `LOW_ENTER_PCT` / `LOW_EXIT_PCT` | `battery_service.c` | 15 / 20 | Low-battery hysteresis |
-| `CHG_OFF_DEBOUNCE` | `battery_service.c` | 3 | Not-charging polls before clearing the indicator |
-
-### Bus Recovery
-
-Reads and writes track a failure streak; after `I2C_FAIL_RECOVER` consecutive failures the driver calls `i2c_bus_recover()` (from `i2c_init`) to clock out a slave that has wedged the bus, so the charger does not stay unreadable for the rest of the session.
+`python3 tools/highboy/tests/test_power_feedback.py` runs the production V2.03
+service against mocked telemetry/control, covering unqualified SoC with valid
+voltage/current, USB, charging, paused requests, low voltage, ADC errors, OTG,
+current-limit and fault rejection. `test_battery_ui.py` exercises the production
+renderer against charging/full/paused/unavailable states and timer cleanup.
+`test_battery_consistency.py` executes the header, dropdown and Power renderers
+against contradictory charger/gauge values, invalid samples, paused/charging
+states and queued charge requests. These tests do not validate physical
+temperature sensing, battery capacity or processor sleep/wake. The integrated
+processor PM configuration remains disabled pending bench wake/current testing;
+see [power manager](../power_manager/README.md).
