@@ -885,8 +885,8 @@ esp_err_t sx1262_receive_continuous(void);
 static bool is_lora_screen(screen_id_t s) {
   switch (s) {
     case SCREEN_LORA_CHAT:
-    case SCREEN_LORA_TRACEROUTE:
     case SCREEN_LORA_RNODE:
+    case SCREEN_LORA_TRACEROUTE:
     case SCREEN_LORA_CHANNELS:
     case SCREEN_LORA_POSITION:
     case SCREEN_LORA_TELEMETRY:
