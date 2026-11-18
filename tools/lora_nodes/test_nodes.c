@@ -56,8 +56,9 @@ esp_err_t mt_nvs_set_blob(const char *key,const void *in,size_t size) {
 esp_err_t mc_nvs_get_blob(const char *key,void *out,size_t *size) {
   (void)key;(void)out;(void)size;return ESP_ERR_NOT_FOUND;
 }
+static unsigned s_mc_nvs_writes;
 esp_err_t mc_nvs_set_blob(const char *key,const void *in,size_t size) {
-  (void)key;(void)in;(void)size;return ESP_OK;
+  (void)key;(void)in;(void)size;++s_mc_nvs_writes;return ESP_OK;
 }
 uint32_t mc_now_ms(void) {return 1000;}
 uint32_t meshcore_get_unix_time(void) {return 1000;}
@@ -179,6 +180,14 @@ int main(void) {
   assert(lora_session_nodes_snapshot(0,&node,&count)==ESP_OK && strcmp(node.name,"!0000002b")==0);
   assert(!mt_nodedb_upsert_from_user(44,NULL,1,0,0,0));
   assert(mc_db_init()==ESP_OK);s_proto=LORA_PROTO_MESHCORE;
+  uint8_t saved_key[16] = {1};
+  assert(meshcore_channel_set(0, "Private test", saved_key));
+  unsigned before_public = s_mc_nvs_writes;
+  assert(meshcore_channel_use_public_volatile());
+  const meshcore_channel_t *public_channel = meshcore_channel_get(0);
+  assert(public_channel && strcmp(public_channel->name, "Public") == 0);
+  assert(memcmp(public_channel->secret, saved_key, sizeof(saved_key)) != 0);
+  assert(s_mc_nvs_writes == before_public);
   mc=(meshcore_contact_t){.is_used=true,.pub_key={7},.name="XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",.out_path_len=MESHCORE_OUT_PATH_UNKNOWN};
   assert(meshcore_contact_upsert(&mc));run_threads(write_mc,read_mc);
   uint8_t path[]={1,2,3};assert(mc_contact_update_path(mc.pub_key,3,path)==ESP_OK);

@@ -1,3 +1,18 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -75,6 +90,7 @@ static esp_err_t meshtastic_phone_bridge_wifi_stop(void) { assert(s_bridge_task=
 static esp_err_t meshcore_phone_bridge_ble_stop(void) { assert(s_bridge_task==NULL);return s_bridge_error; }
 static void esp_log_set_vprintf(void *callback) { assert(callback!=NULL);++s_log_restores; }
 static void meshcore_phoneapi_set_outbound(void *callback,void *ctx) { assert(callback==NULL && ctx==NULL);++s_outbound_clears; }
+static void meshcore_phoneapi_on_disconnect(void) { assert(s_outbound_clears > 0); }
 /* BRIDGES */
 static void reset_wait(_Atomic(TaskHandle_t) *handle,unsigned delay) {
  s_ticks=s_delays=0;s_ack_delay=delay;s_wait_handle=handle;if(handle!=NULL)atomic_store(handle,(void *)1);

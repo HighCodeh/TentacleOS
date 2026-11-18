@@ -33,6 +33,7 @@
 #include "meshtastic_phone_bridge.h"
 #include "power_manager.h"
 #include "sx1262.h"
+#include "sx1262_regs.h"
 
 #define TX_QUEUE_DEPTH  4
 #define MSG_RING        24
@@ -55,8 +56,12 @@ static _Atomic(SemaphoreHandle_t) s_nodes_lock;
 static bool s_no_sleep_held = false;
 static atomic_flag s_is_starting = ATOMIC_FLAG_INIT;
 EXT_RAM_BSS_ATTR static char s_tx_text[TX_QUEUE_DEPTH][sizeof(((lora_msg_t *)0)->text)];
+static const sx1262_config_t *s_start_radio;
+EXT_RAM_BSS_ATTR static uint8_t s_tx_peer[TX_QUEUE_DEPTH][32];
+static uint8_t s_tx_kind[TX_QUEUE_DEPTH]; /* 0 broadcast, 1 direct, 2 advert */
 static uint16_t s_tx_head;
 static uint16_t s_tx_count;
+static lora_tx_status_t s_tx_status;
 
 static SemaphoreHandle_t ensure_mutex(_Atomic(SemaphoreHandle_t) *slot) {
   SemaphoreHandle_t mutex = atomic_load(slot);
@@ -99,7 +104,12 @@ static void ring_unlock(void) {
     xSemaphoreGive(s_lock);
 }
 
-static void ring_push(bool outgoing, const char *who, const char *text) {
+static void ring_push_detail(bool outgoing,
+                             const char *who,
+                             const char *text,
+                             bool has_rf,
+                             int16_t rssi_dbm,
+                             int8_t snr_db) {
   if (!ring_lock())
     return;
 
@@ -114,11 +124,30 @@ static void ring_push(bool outgoing, const char *who, const char *text) {
 
   lora_msg_t *m = &s_msgs[slot];
   m->outgoing = outgoing;
+  m->has_rf = has_rf;
+  m->rssi_dbm = rssi_dbm;
+  m->snr_db = snr_db;
+  m->proto = atomic_load(&s_proto);
   snprintf(m->who, sizeof(m->who), "%s", (who != NULL) ? who : "");
   snprintf(m->text, sizeof(m->text), "%s", (text != NULL) ? text : "");
   s_total++;
 
   ring_unlock();
+}
+
+static void ring_push(bool outgoing, const char *who, const char *text) {
+  ring_push_detail(outgoing, who, text, false, 0, 0);
+}
+
+esp_err_t lora_session_tx_status(lora_tx_status_t *out) {
+  if (out == NULL)
+    return ESP_ERR_INVALID_ARG;
+  if (!ring_lock())
+    return ESP_ERR_TIMEOUT;
+  *out = s_tx_status;
+  out->queued = s_tx_count;
+  ring_unlock();
+  return ESP_OK;
 }
 
 static esp_err_t stop_protocol(lora_proto_t proto);
@@ -175,13 +204,15 @@ static esp_err_t start_protocol(lora_proto_t proto) {
   return err;
 }
 
-static esp_err_t start_session(lora_proto_t proto, void *owner, bool *out_owned) {
+static esp_err_t
+start_session(lora_proto_t proto, void *owner, bool *out_owned, const sx1262_config_t *radio) {
   if (out_owned != NULL)
     *out_owned = false;
   if (proto != LORA_PROTO_MESHTASTIC && proto != LORA_PROTO_MESHCORE)
     return ESP_ERR_INVALID_ARG;
   if (atomic_flag_test_and_set(&s_is_starting))
     return ESP_ERR_INVALID_STATE;
+  s_start_radio = radio;
   bool is_existing = s_proto != LORA_PROTO_NONE;
   if (!is_existing)
     s_stack_owner = owner;
@@ -192,18 +223,56 @@ static esp_err_t start_session(lora_proto_t proto, void *owner, bool *out_owned)
     s_stack_owner = NULL;
   if (!is_existing && out_owned != NULL)
     *out_owned = s_proto == proto;
+  s_start_radio = NULL;
   atomic_flag_clear(&s_is_starting);
   return error;
 }
 
 esp_err_t lora_session_start(lora_proto_t proto) {
-  return start_session(proto, NULL, NULL);
+  return start_session(proto, NULL, NULL, NULL);
 }
 
 esp_err_t lora_session_start_owned(lora_proto_t proto, void *owner, bool *out_owned) {
   if (out_owned == NULL || owner == NULL)
     return ESP_ERR_INVALID_ARG;
-  return start_session(proto, owner, out_owned);
+  return start_session(proto, owner, out_owned, NULL);
+}
+
+esp_err_t lora_session_start_radio_owned(lora_proto_t proto,
+                                         void *owner,
+                                         const sx1262_config_t *radio,
+                                         bool *out_owned) {
+  if (out_owned != NULL)
+    *out_owned = false;
+  if (owner == NULL || out_owned == NULL || radio == NULL || radio->frequency_hz < 863000000 ||
+      radio->frequency_hz > 928000000 || radio->tx_power_dbm < -9 || radio->tx_power_dbm > 14 ||
+      radio->sf < 7 || radio->sf > 12 || radio->cr < 1 || radio->cr > 4 ||
+      (radio->bw != SX1262_LORA_BW_125 && radio->bw != SX1262_LORA_BW_250 &&
+       radio->bw != SX1262_LORA_BW_500))
+    return ESP_ERR_INVALID_ARG;
+  return start_session(proto, owner, out_owned, radio);
+}
+
+bool lora_session_radio_is_overridden(void) {
+  return s_start_radio != NULL;
+}
+
+void lora_session_apply_start_radio(sx1262_config_t *radio) {
+  if (radio == NULL || s_start_radio == NULL)
+    return;
+  radio->frequency_hz = s_start_radio->frequency_hz;
+  radio->tx_power_dbm = s_start_radio->tx_power_dbm;
+  radio->sf = s_start_radio->sf;
+  radio->bw = s_start_radio->bw;
+  radio->cr = s_start_radio->cr;
+  ESP_LOGI(TAG,
+           "Volatile PHY hz=%lu dbm=%d sf=%u bw=%u cr=%u sync=%04x",
+           (unsigned long)radio->frequency_hz,
+           radio->tx_power_dbm,
+           radio->sf,
+           radio->bw,
+           radio->cr,
+           radio->sync_word);
 }
 
 esp_err_t lora_session_radio_reserve(void *owner) {
@@ -260,6 +329,7 @@ static esp_err_t stop_protocol(lora_proto_t proto) {
     return ESP_ERR_TIMEOUT;
   s_tx_head = 0;
   s_tx_count = 0;
+  memset(&s_tx_status, 0, sizeof(s_tx_status));
   ring_unlock();
   s_proto = LORA_PROTO_NONE;
   s_stack_owner = NULL;
@@ -291,7 +361,7 @@ static esp_err_t send_text(const char *text) {
   return err;
 }
 
-esp_err_t lora_session_send_text(const char *text) {
+static esp_err_t queue_text(const char *text, const uint8_t *peer, uint8_t peer_len, uint8_t kind) {
   if (text == NULL)
     return ESP_ERR_INVALID_ARG;
   size_t length = strnlen(text, sizeof(s_tx_text[0]));
@@ -301,10 +371,19 @@ esp_err_t lora_session_send_text(const char *text) {
     return ESP_ERR_INVALID_STATE;
   if (!ring_lock())
     return ESP_ERR_TIMEOUT;
+  if (!atomic_load(&s_is_ready) || s_proto == LORA_PROTO_NONE ||
+      (kind == 1 && (peer == NULL || peer_len != (s_proto == LORA_PROTO_MESHTASTIC ? 4 : 32)))) {
+    ring_unlock();
+    return ESP_ERR_INVALID_STATE;
+  }
   esp_err_t error = ESP_ERR_TIMEOUT;
   if (s_tx_count < TX_QUEUE_DEPTH) {
     uint16_t slot = (s_tx_head + s_tx_count) % TX_QUEUE_DEPTH;
     memcpy(s_tx_text[slot], text, length + 1);
+    s_tx_kind[slot] = kind;
+    memset(s_tx_peer[slot], 0, sizeof(s_tx_peer[slot]));
+    if (peer != NULL)
+      memcpy(s_tx_peer[slot], peer, peer_len);
     s_tx_count++;
     error = ESP_OK;
   }
@@ -312,19 +391,65 @@ esp_err_t lora_session_send_text(const char *text) {
   return error;
 }
 
+esp_err_t lora_session_send_text(const char *text) {
+  return queue_text(text, NULL, 0, 0);
+}
+
+esp_err_t lora_session_send_direct(const char *text, const uint8_t *peer, uint8_t peer_len) {
+  lora_proto_t proto = lora_session_active();
+  if (peer == NULL || (proto == LORA_PROTO_MESHTASTIC ? peer_len != 4 : peer_len != 32))
+    return ESP_ERR_INVALID_ARG;
+  return queue_text(text, peer, peer_len, 1);
+}
+
+esp_err_t lora_session_advertise(void) {
+  return queue_text("advert", NULL, 0, 2);
+}
+
 void lora_session_process_tx(lora_proto_t proto) {
   if (proto == LORA_PROTO_NONE || s_proto != proto || !ring_lock())
     return;
   char text[sizeof(s_tx_text[0])];
+  uint8_t peer[32];
+  uint8_t kind = 0;
   bool has_text = s_tx_count != 0;
   if (has_text) {
     memcpy(text, s_tx_text[s_tx_head], sizeof(text));
+    memcpy(peer, s_tx_peer[s_tx_head], sizeof(peer));
+    kind = s_tx_kind[s_tx_head];
     s_tx_head = (s_tx_head + 1) % TX_QUEUE_DEPTH;
     s_tx_count--;
+    s_tx_status.processing = true;
   }
   ring_unlock();
   if (has_text) {
-    esp_err_t error = send_text(text);
+    esp_err_t error;
+    if (kind == 2) {
+      error = proto == LORA_PROTO_MESHTASTIC ? meshtastic_mesh_send_nodeinfo()
+                                             : meshcore_send_advert_throttled();
+    } else if (kind == 1) {
+      if (proto == LORA_PROTO_MESHTASTIC) {
+        uint32_t to = ((uint32_t)peer[0] << 24) | ((uint32_t)peer[1] << 16) |
+                      ((uint32_t)peer[2] << 8) | peer[3];
+        error = meshtastic_mesh_send_text(text, to);
+      } else {
+        uint32_t ack = 0;
+        error = meshcore_send_direct_msg(peer, text, meshcore_get_unix_time(), 0, &ack);
+        ESP_LOGI(
+            TAG, "DM expected_ack=%08lx result=%s", (unsigned long)ack, esp_err_to_name(error));
+      }
+      if (error == ESP_OK)
+        ring_push(true, "direct", text);
+    } else {
+      error = send_text(text);
+    }
+    ESP_LOGI(TAG, "Queue result kind=%u result=%s", kind, esp_err_to_name(error));
+    if (ring_lock()) {
+      s_tx_status.processing = false;
+      s_tx_status.completed++;
+      s_tx_status.last_error = error;
+      ring_unlock();
+    }
     if (error != ESP_OK)
       ESP_LOGW(TAG, "Queued text failed: %s", esp_err_to_name(error));
   }
@@ -403,6 +528,10 @@ bool lora_session_node_get(uint16_t idx, lora_node_t *out) {
 
 void lora_session_on_rx_text(const char *who, const char *text) {
   ring_push(false, who, text);
+}
+
+void lora_session_on_rx_radio(const char *who, const char *text, int16_t rssi_dbm, int8_t snr_db) {
+  ring_push_detail(false, who, text, true, rssi_dbm, snr_db);
 }
 
 bool lora_session_app_connected(void) {

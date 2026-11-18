@@ -83,6 +83,17 @@ static void channels_load_or_default(void);
 static void contacts_load(void);
 static meshcore_contact_t *contact_alloc_slot(const uint8_t pub_key[32]);
 
+bool meshcore_channel_use_public_volatile(void) {
+  meshcore_channel_t channel = {.is_used = true};
+  memcpy(channel.secret, MC_PUBLIC_CHANNEL_SECRET, sizeof(channel.secret));
+  strcpy(channel.name, "Public");
+  if (!channel_compute_hash(&channel))
+    return false;
+  s_channels[0] = channel;
+  ESP_LOGI(TAG, "Bench: public channel in RAM; saved channels unchanged");
+  return true;
+}
+
 const meshcore_channel_t *meshcore_channel_get(uint8_t idx) {
   if (idx >= MESHCORE_MAX_CHANNELS)
     return NULL;

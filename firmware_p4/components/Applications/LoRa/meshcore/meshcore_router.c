@@ -16,6 +16,7 @@
 #include "meshcore_internal.h"
 
 #include <stdint.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -34,6 +35,9 @@ static const char *TAG = "MC_ROUTER";
 #define MC_PATH_PLAINTEXT_MAX  200
 #define MC_GROUP_PREFIX_BYTES  1
 #define MC_DIRECT_PREFIX_BYTES 2
+#define MC_RX_BATCH_MAX        8
+#define MC_TX_TIMEOUT_MS       5000
+#define MC_TX_IRQ_MARGIN_MS    250
 
 typedef struct {
   bool is_used;
@@ -48,8 +52,10 @@ static uint32_t s_last_advert_ms = 0;
 
 static mc_relay_slot_t s_relay_queue[MC_RELAY_QUEUE_SIZE];
 
-static volatile bool s_is_cad_pending = false;
-static volatile bool s_is_cad_busy = false;
+static atomic_bool s_is_cad_pending = false;
+static atomic_bool s_is_cad_busy = false;
+static atomic_bool s_is_tx_done = false;
+static atomic_bool s_is_tx_timed_out = false;
 
 static void process_advert(const meshcore_packet_view_t *pkt);
 static void process_grp_txt(const meshcore_packet_view_t *pkt);
@@ -200,7 +206,9 @@ void mc_router_init(void) {
   memset(s_relay_queue, 0, sizeof(s_relay_queue));
 
   sx1262_callbacks_t cbs = {
-      .on_rx_done = on_rx_done,
+      /* The driver copies RX into its bounded ring. Ed25519 verification and
+       * replies run on mc_poll's 12 KiB stack, never the 4 KiB IRQ stack. */
+      .on_rx_done = NULL,
       .on_tx_done = on_tx_done,
       .on_timeout = on_timeout,
       .on_cad_done = on_cad_done,
@@ -208,6 +216,15 @@ void mc_router_init(void) {
       .cb_ctx = NULL,
   };
   sx1262_set_callbacks(&cbs);
+}
+
+void mc_router_rx_process(void) {
+  sx1262_packet_t packet;
+  for (unsigned i = 0; i < MC_RX_BATCH_MAX && mc_is_running(); ++i) {
+    if (sx1262_get_packet(&packet) != ESP_OK)
+      break;
+    on_rx_done(&packet, NULL);
+  }
 }
 
 void mc_router_set_consumed(bool is_consumed) {
@@ -253,22 +270,25 @@ esp_err_t mc_transmit_raw(const uint8_t *raw, uint16_t len) {
   }
 
   sx1262_stop_rx();
-  esp_err_t ret = sx1262_transmit(raw, (uint8_t)len, 5000);
+  atomic_store(&s_is_tx_done, false);
+  atomic_store(&s_is_tx_timed_out, false);
+  esp_err_t ret = sx1262_transmit(raw, (uint8_t)len, MC_TX_TIMEOUT_MS);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "TX failed: %s", esp_err_to_name(ret));
     if (mc_is_running())
       sx1262_receive_continuous();
     return ret;
   }
-  for (int i = 0; i < 500; i++) {
-    sx1262_process_irq();
-    if (sx1262_get_state() == SX1262_STATE_STDBY_RC)
-      break;
+  uint32_t deadline = mc_now_ms() + MC_TX_TIMEOUT_MS + MC_TX_IRQ_MARGIN_MS;
+  while (!atomic_load(&s_is_tx_done) && !atomic_load(&s_is_tx_timed_out) &&
+         (int32_t)(mc_now_ms() - deadline) < 0) {
     vTaskDelay(1);
   }
+  ret = atomic_load(&s_is_tx_done) ? ESP_OK : ESP_ERR_TIMEOUT;
   if (mc_is_running())
-    sx1262_receive_continuous();
-  return ESP_OK;
+    if (sx1262_receive_continuous() != ESP_OK && ret == ESP_OK)
+      ret = ESP_FAIL;
+  return ret;
 }
 
 esp_err_t mc_send_path_return(const uint8_t peer_pub_key[32],
@@ -737,10 +757,12 @@ static void on_rx_done(const sx1262_packet_t *pkt, void *ctx) {
 
 static void on_tx_done(void *ctx) {
   (void)ctx;
+  atomic_store(&s_is_tx_done, true);
 }
 
 static void on_timeout(void *ctx) {
   (void)ctx;
+  atomic_store(&s_is_tx_timed_out, true);
   if (mc_is_running())
     sx1262_receive_continuous();
 }
@@ -764,7 +786,6 @@ static bool cad_check_clear(void) {
 
   uint32_t deadline = mc_now_ms() + MC_CAD_TIMEOUT_MS;
   while (s_is_cad_pending && (int32_t)(mc_now_ms() - deadline) < 0) {
-    sx1262_process_irq();
     vTaskDelay(1);
   }
 

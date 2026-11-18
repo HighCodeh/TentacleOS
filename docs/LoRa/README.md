@@ -60,7 +60,13 @@ The two communicate over the **SPI bridge**. Each mesh stack has a "phone bridge
 
 ```c
 typedef enum { LORA_PROTO_NONE = 0, LORA_PROTO_MESHTASTIC, LORA_PROTO_MESHCORE } lora_proto_t;
-typedef struct { bool outgoing; char who[24]; char text[160]; } lora_msg_t;
+typedef struct {
+  bool outgoing, has_rf;
+  int16_t rssi_dbm;
+  int8_t snr_db;
+  lora_proto_t proto;
+  char who[24], text[160];
+} lora_msg_t;
 typedef struct { char name[32]; int16_t rssi; float snr; } lora_node_t;
 ```
 
@@ -82,8 +88,93 @@ esp_err_t    lora_session_app_connect(void);
 - `lora_session_start` is idempotent for the same protocol; a request for a different protocol while one is running returns `ESP_ERR_INVALID_STATE`.
 - `lora_session_send_text` queues a broadcast/public-channel text on the active stack (Meshtastic `0xFFFFFFFF`, MeshCore public channel `0`) and appends it to the ring as outgoing ("me") only when the native worker successfully submits it to the backend.
 - `lora_session_msg_since` copies messages newer than a caller-held cursor under a single lock; passing `*io_seq == 0` snaps to the oldest retained message.
-- `lora_session_on_rx_text` is called by the backend RX taps from the mesh poll task (not the LVGL thread).
+- `lora_session_on_rx_radio` records packet RSSI/SNR from native mesh RX taps. Non-radio sources such as MQTT use `lora_session_on_rx_text` and have no RF measurement.
+- `lora_session_tx_status` copies pending/processing state, completion count and the latest backend error. It is not a peer delivery receipt. Native message metadata does not change the signed-app wire ABI.
 - `lora_session_app_connected` maps to the active stack's **`_is_subscribed()`** predicate (linked, not merely connected). `lora_session_app_connect` maps to `_phone_bridge_ble_start()`.
+
+## Native two-board bench console
+
+`mesh start mt|mc HZ DBM SF BW_KHZ CR ARMED` owns the native stack exclusively.
+The volatile PHY override accepts 863–928 MHz, -9..14 dBm, SF7..12, BW125/250/500
+and CR codes 1..4. It does not change NVS. MeshCore bench sessions use the standard Public channel
+in RAM, so different saved channel keys cannot invalidate the paired RF test.
+The next ordinary start reloads saved channels. Stop with `mesh stop`
+before using the normal UI or another RF owner. This is a native mesh session,
+not the timed `rfbench` carrier generator; the host must stop it after the test.
+
+- `mesh send TEXT_HEX`: queue a UTF-8 broadcast, 1..159 bytes, without embedded NUL.
+- `mesh advert`: queue native NodeInfo / a throttled MeshCore advertisement.
+- `mesh dm PEER_HEX TEXT_HEX`: queue native direct text. Meshtastic uses an eight-digit
+  node ID; MeshCore uses the 64-digit public key reported by `mesh peers`.
+- `mesh messages`: copied ring entries, direction and text encoded as hex.
+- `mesh status`: stack ownership and available internal heap.
+- `mesh peers`: known identities; Meshtastic also reports the last stored RSSI/SNR.
+
+Queued/backend acceptance is distinct from RF completion, remote text reception
+and a correlated ACK. Tests must record those separately. The console never exports
+private identity keys or channel secrets. Packet metadata logs are local diagnostics.
+The native poll task performs queued transmissions, including direct messages.
+The MeshCore PhoneAPI is reusable across starts; a checked bridge stop resets
+the disconnected session after transport callbacks are drained. Startup and live
+radio reconfiguration both select 32 preamble symbols for SF5–8 and 16 for SF9–12.
+The SX1262 IRQ task only stores MeshCore RX packets in its bounded driver ring;
+the 12 KiB protocol worker drains at most eight packets per poll. Signature
+verification, decryption and replies therefore do not run on the 4 KiB IRQ stack.
+Only the driver task consumes radio IRQs in this native MeshCore path. TX waits
+for its completion callback or the five-second hardware timeout, with a 250 ms
+host margin; timeout and RX-rearm failures propagate to the caller. Frames whose
+airtime exceeds five seconds remain outside this TX contract.
+
+Meshtastic selects sync word **0x24B4** (official 8-bit **0x2B**, SX126x control bits
+0x44). A zero `sx1262_config_t.sync_word` preserves the existing private/public
+fallback for other callers. MeshCore startup uses 32 preamble symbols at SF7/8
+and 16 at SF9..12, following its current RadioLib wrapper. Reference sources:
+[Meshtastic](https://github.com/meshtastic/firmware/blob/master/src/mesh/RadioLibInterface.h),
+[RadioLib](https://github.com/jgromes/RadioLib/blob/master/src/modules/SX126x/SX126x_config.cpp),
+[MeshCore](https://github.com/meshcore-dev/MeshCore/blob/main/src/helpers/radiolib/RadioLibWrappers.h).
+These settings alone do not establish complete interoperability.
+
+### Two-board measurements, 16 November 2026
+
+Units 0201891B (A) and 02018913 (B) ran the same `db27945a...` ELF for
+an SX1262 packet sweep: 868.1/915 MHz, every integer TX setting -9..22 dBm,
+both directions, SF7/BW250/CR4/5, 32 known bytes. The 128 combinations
+completed 248 TX and 242 validated RX. Losses were confined to B→A at
+-9/-8 dBm. A second, interleaved high-power run delivered 98/98 packets.
+No TX timeouts or SX device-error flags occurred. These are small-sample,
+uncalibrated tabletop measurements, not radiated-power or range certification.
+The large directional RSSI difference remains unexplained; two endpoints alone
+cannot separate weak B TX from weak A RX. Maximum configured power did not
+consistently produce maximum received RSSI.
+
+Native Meshtastic short text at 915 MHz/SF11/-9 dBm worked in both directions.
+The short 868 MHz native test was confounded by airtime deferral and background
+NodeInfo, so queued text must not be counted as an RF transmission. The native
+Meshtastic TX path still contains a 500-tick wait and needs a separate long-frame review.
+MeshCore baseline channel 0 keys differed between units; its initial group-text
+failure does not establish a radio failure. A repeated-start PhoneAPI error was
+also reproduced and addressed by the reusable lifecycle above.
+With a common volatile channel, four group texts total (two per direction) were received
+before an advertisement triggered stack protection in `sx1262_irq` while verifying
+Ed25519. This led to the worker RX and completion-based TX changes described above;
+their paired-device acceptance is recorded separately from the RF power sweep.
+On the subsequent `52c8e5e0a...` ELF, all 12 group messages across
+915/SF7/BW250, 868.1/SF7/BW250 and 915/SF10/BW250 arrived. Four direct
+messages in 915/SF7/BW250 arrived with matching expected ACKs. A fourth session,
+915/SF11/BW125, delivered two 90-byte texts (117-byte RF frames), taking
+2595–2600 ms from TX start to completion. All four sessions used +14 dBm and
+stopped/reopened without reboot. After advertisements and direct messages,
+minimum free stack was 7396–7412 bytes in `mc_poll` and 2476–2500 bytes in
+`sx1262_irq`. No panic, brownout or reset was seen in these acceptance logs.
+Redundant STDBY_RC-to-STDBY_RC transition warnings still occur around CAD;
+these sessions do not qualify every radio-state transition or external peer.
+A final Meshtastic SF7/BW250/+14 dBm round delivered one group text per
+direction in both 868.1 and 915 MHz (4/4 total), resolving the earlier
+868 MHz short-window ambiguity for that faster profile. Automatic traffic
+in 868 MHz also logged immediate ESP_ERR_TIMEOUT refusals after previous TX,
+consistent with airtime pacing; neither queue acceptance nor that traffic is
+included in the four confirmed text deliveries. Meshtastic direct ACKs and
+long-frame acceptance remain outside these measurements.
 
 ## Meshtastic Stack (`meshtastic/`)
 
@@ -176,7 +267,7 @@ Other module surfaces (used by the UI/config screens): `meshtastic_mqtt` (`_init
 
 Entry point: `esp_err_t meshcore_app_start(void)` (call **after** `bridge_manager_init()`).
 
-Bring-up initializes libsodium, brings up the SX1262 with MeshCore defaults (915 MHz, SF10, BW 250 kHz, CR 4/5, +20 dBm, preamble 8), loads or creates an Ed25519 identity (32-byte seed persisted in NVS, default node name "Highboy"), initializes the core with five router callbacks, the companion PhoneAPI, and the phone bridge, then starts a poll task (50 ms) and requests C5 BLE advertising.
+Bring-up initializes libsodium, brings up the SX1262 with MeshCore defaults (915 MHz, SF10, BW 250 kHz, CR 4/5, +20 dBm, preamble 16 at SF10), loads or creates an Ed25519 identity (32-byte seed persisted in NVS, default node name "Highboy"), initializes the core with five router callbacks, the companion PhoneAPI, and the phone bridge, then starts a poll task (50 ms) and requests C5 BLE advertising.
 
 The five router callbacks bridge radio events to both the phone and the local ring: new advert, group text (`lora_session_on_rx_text("ch%u", ...)`), direct message (`lora_session_on_rx_text(contact-name or "dm", ...)`), ACK confirmation, and path update.
 
@@ -238,9 +329,13 @@ void ui_lora_chat_open_chat(void);   // opens directly on the chat conversation
 
 Views: **Protocol picker** (MeshCore / Meshtastic) -> **Home** -> { Connect App, Nodes, Chat, Configs }. Home also links out to the sibling screens: Channels, Position, Telemetry, Secure DM, Traceroute and MQTT (Meshtastic only; each its own screen under `ui/screens/lora/`).
 
-- **Home** shows region + preset (Meshtastic only) and a status banner driven by the linked state.
+- **Home** offers Chat first and shows the saved region/preset for Meshtastic. The protocol picker does not assign a fixed frequency to a protocol.
 - **Nodes** shows either a radial "map" of node pins with RSSI-colored links or a scrolling list, both fed by `lora_session_node_count()` / `lora_session_node_get()`.
-- **Chat** renders message bubbles ("MESH BROADCAST" for Meshtastic, "PUBLIC CHANNEL" for MeshCore). An LVGL timer drains new messages every 500 ms via `lora_session_msg_since(...)`; the on-screen keyboard submits through `lora_session_send_text(...)`.
+- **Chat** shows the selected protocol's recent sent/received messages. Its composer sends to the primary Meshtastic channel or MeshCore channel 0; selecting a node does not turn this composer into a direct message. Use Secure DM for that.
+- The themed layout reflows in portrait/landscape. Received radio messages show packet RSSI/SNR; non-radio messages explicitly lack RF data. Outgoing records mean successful backend submission, never inferred peer delivery.
+- The 500 ms timer copies at most eight records per tick. Both the service ring and rendered rows are bounded to 24 entries. UP/DOWN browse history without following new arrivals; RIGHT returns to the latest, and an unread badge counts arrivals while browsing.
+- OK opens the keyboard. Queue rejection keeps the draft for retry; native backend errors appear in the composer status. History is volatile and lasts until restart.
+- `ui_lora_chat_close` stops UI timers without stopping the persistent mesh. The screen delete event is a fallback. The shared keyboard supports an initial draft and uses live display dimensions.
 - **Configs** (Meshtastic only) offers Region / Preset selectors and a Router-mode toggle.
 - **Connect** calls `lora_session_app_connect()`, polls `lora_session_app_connected()` every second, and shows the pairing PIN (MeshCore only).
 
@@ -258,7 +353,7 @@ const rnode_radio_cfg_t *rnode_get_radio_cfg(void);
 const rnode_stats_t     *rnode_get_stats(void);
 ```
 
-Defaults: 915 MHz, BW 125 kHz, SF8, CR 4/5, +17 dBm. The legacy-named `lora_rnode_ui` screen currently runs the receive-only radio lab.
+Defaults: 915 MHz, BW 125 kHz, SF8, CR 4/5, +17 dBm. The legacy-named `lora_rnode_ui` screen opens RF Lab, with timed CC1101/SX1262 RX, TX and CW controls; see [RF chamber](../rf_chamber/README.md).
 
 ## Native radio laboratory
 
@@ -289,13 +384,12 @@ GPIO43/44, which are **P4 SDMMC CLK/CMD**, and cannot be activated safely here.
 accessing UART, and `rnode_init()` rejects before touching the SX1262. The native
 USB companion interface is already framed/authenticated and cannot simply be
 reassigned to raw KISS. No alternate pins are guessed. Other target behavior is
-preserved. The radio-lab screen remains receive-only, with corrected tutorial
-text. This resolves the immediate transport choice; enabling a usable P4 RNode
+preserved. The RF Lab screen now controls bounded RX, TX and CW tests independently of RNode. This resolves the immediate transport choice; enabling a usable P4 RNode
 endpoint remains pending implementation and hardware acceptance.
 
 The decision requested by #145 is to keep the inherited UART RNode endpoint
 disabled on High Boy P4. GPIO43/44 belong to SDMMC, so enabling that endpoint
-would conflict with storage. The existing menu remains a receive-only radio lab;
+would conflict with storage. The RF Lab menu controls timed radio tests;
 it does not advertise KISS/Reticulum support. Adding a future usable endpoint
 requires a separate board-safe USB or other transport design and validation.
 The current issue scope does not imply that such an endpoint is already usable.

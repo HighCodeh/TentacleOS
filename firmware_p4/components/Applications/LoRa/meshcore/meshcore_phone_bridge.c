@@ -147,6 +147,7 @@ esp_err_t meshcore_phone_bridge_stop(void) {
   if (error != ESP_OK)
     return error;
   meshcore_phoneapi_set_outbound(NULL, NULL);
+  meshcore_phoneapi_on_disconnect();
   s_is_initialized = false;
   return ESP_OK;
 }
