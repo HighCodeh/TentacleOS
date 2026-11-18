@@ -54,6 +54,8 @@ esp_err_t exposure_notification_start(void) {
 
   if (s_list_mutex == NULL) {
     s_list_mutex = xSemaphoreCreateMutex();
+    if (s_list_mutex == NULL)
+      return ESP_ERR_NO_MEM;
   }
 
   if (s_device_list == NULL) {
@@ -68,7 +70,10 @@ esp_err_t exposure_notification_start(void) {
   s_device_count = 0;
   s_is_running = true;
 
-  return bluetooth_service_start_sniffer(sniffer_callback);
+  esp_err_t err = bluetooth_service_start_sniffer(sniffer_callback);
+  if (err != ESP_OK)
+    s_is_running = false;
+  return err;
 }
 
 void exposure_notification_stop(void) {
@@ -79,7 +84,10 @@ void exposure_notification_stop(void) {
 }
 
 exposure_notification_device_t *exposure_notification_get_list(uint16_t *out_count) {
-  if (xSemaphoreTake(s_list_mutex, pdMS_TO_TICKS(MUTEX_TIMEOUT_LONG_MS)) == pdTRUE) {
+  if (out_count == NULL)
+    return NULL;
+  if (s_list_mutex != NULL &&
+      xSemaphoreTake(s_list_mutex, pdMS_TO_TICKS(MUTEX_TIMEOUT_LONG_MS)) == pdTRUE) {
     cleanup_list();
     *out_count = s_device_count;
     xSemaphoreGive(s_list_mutex);
@@ -91,7 +99,8 @@ exposure_notification_device_t *exposure_notification_get_list(uint16_t *out_cou
 
 uint16_t exposure_notification_get_count(void) {
   uint16_t count = 0;
-  if (xSemaphoreTake(s_list_mutex, pdMS_TO_TICKS(MUTEX_TIMEOUT_LONG_MS)) == pdTRUE) {
+  if (s_list_mutex != NULL &&
+      xSemaphoreTake(s_list_mutex, pdMS_TO_TICKS(MUTEX_TIMEOUT_LONG_MS)) == pdTRUE) {
     cleanup_list();
     count = s_device_count;
     xSemaphoreGive(s_list_mutex);
@@ -100,7 +109,8 @@ uint16_t exposure_notification_get_count(void) {
 }
 
 void exposure_notification_reset(void) {
-  if (xSemaphoreTake(s_list_mutex, pdMS_TO_TICKS(MUTEX_TIMEOUT_LONG_MS)) == pdTRUE) {
+  if (s_list_mutex != NULL &&
+      xSemaphoreTake(s_list_mutex, pdMS_TO_TICKS(MUTEX_TIMEOUT_LONG_MS)) == pdTRUE) {
     s_device_count = 0;
     xSemaphoreGive(s_list_mutex);
   }
@@ -162,7 +172,8 @@ static bool parse_for_gaen(const uint8_t *data, uint16_t len) {
 static void sniffer_callback(
     const uint8_t *addr, uint8_t addr_type, int rssi, const uint8_t *data, uint16_t len) {
   if (parse_for_gaen(data, len)) {
-    if (xSemaphoreTake(s_list_mutex, pdMS_TO_TICKS(MUTEX_TIMEOUT_MS)) == pdTRUE) {
+    if (s_list_mutex != NULL &&
+        xSemaphoreTake(s_list_mutex, pdMS_TO_TICKS(MUTEX_TIMEOUT_MS)) == pdTRUE) {
       bool is_found = false;
       uint32_t now = (uint32_t)(esp_timer_get_time() / USEC_PER_SEC);
 

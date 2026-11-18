@@ -23,6 +23,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "freertos/idf_additions.h"
 #include "sys_prio.h"
 
 #include "bluetooth_service.h"
@@ -45,10 +46,10 @@ static ble_sniffer_observer_t s_observer = NULL;
 
 static QueueHandle_t s_sniffer_queue = NULL;
 static TaskHandle_t s_sniffer_task_handle = NULL;
-static StackType_t *s_sniffer_task_stack = NULL;
-static StaticTask_t *s_sniffer_task_tcb = NULL;
 static uint8_t *s_sniffer_queue_storage = NULL;
 static StaticQueue_t *s_sniffer_queue_struct = NULL;
+
+static portMUX_TYPE s_queue_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static void sniffer_task(void *pvParameters);
 
@@ -58,16 +59,22 @@ void ble_sniffer_set_observer(ble_sniffer_observer_t cb) {
 
 static void packet_handler(
     const uint8_t *addr, uint8_t addr_type, int rssi, const uint8_t *data, uint16_t len) {
-  if (s_sniffer_queue != NULL) {
-    ble_sniffer_packet_t packet;
-    memcpy(packet.addr, addr, 6);
-    packet.addr_type = addr_type;
-    packet.rssi = rssi;
-    packet.len = (len > SNIFFER_MAX_DATA_LEN) ? SNIFFER_MAX_DATA_LEN : len;
+  if (addr == NULL || (data == NULL && len != 0))
+    return;
+  ble_sniffer_packet_t packet;
+  memcpy(packet.addr, addr, 6);
+  packet.addr_type = addr_type;
+  packet.rssi = rssi;
+  packet.len = (len > SNIFFER_MAX_DATA_LEN) ? SNIFFER_MAX_DATA_LEN : len;
+  if (packet.len != 0)
     memcpy(packet.data, data, packet.len);
 
-    xQueueSendFromISR(s_sniffer_queue, &packet, NULL);
-  }
+  // P4 streams arrive on the SPI polling task, never an ISR. Serialize with
+  // detachment so a late stream callback cannot send into a released queue.
+  portENTER_CRITICAL(&s_queue_lock);
+  if (s_sniffer_queue != NULL)
+    xQueueSend(s_sniffer_queue, &packet, 0);
+  portEXIT_CRITICAL(&s_queue_lock);
 }
 
 esp_err_t ble_sniffer_start(void) {
@@ -76,44 +83,39 @@ esp_err_t ble_sniffer_start(void) {
 
   ESP_LOGD(TAG, "Starting BLE Packet Sniffer...");
 
-  s_sniffer_task_stack = (StackType_t *)heap_caps_malloc(
-      SNIFFER_TASK_STACK_SIZE * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
-  s_sniffer_task_tcb = (StaticTask_t *)heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_SPIRAM);
-
-  s_sniffer_queue_struct =
-      (StaticQueue_t *)heap_caps_malloc(sizeof(StaticQueue_t), MALLOC_CAP_SPIRAM);
+  s_sniffer_queue_struct = (StaticQueue_t *)heap_caps_malloc(sizeof(StaticQueue_t),
+                                                             MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   s_sniffer_queue_storage = (uint8_t *)heap_caps_malloc(
-      SNIFFER_QUEUE_SIZE * sizeof(ble_sniffer_packet_t), MALLOC_CAP_SPIRAM);
-
-  if (s_sniffer_task_stack == NULL || s_sniffer_task_tcb == NULL ||
-      s_sniffer_queue_struct == NULL || s_sniffer_queue_storage == NULL) {
-    ESP_LOGE(TAG, "Failed to allocate PSRAM memory for sniffer");
-    free(s_sniffer_task_stack);
-    s_sniffer_task_stack = NULL;
-    free(s_sniffer_task_tcb);
-    s_sniffer_task_tcb = NULL;
-    free(s_sniffer_queue_struct);
-    s_sniffer_queue_struct = NULL;
-    free(s_sniffer_queue_storage);
-    s_sniffer_queue_storage = NULL;
-    return ESP_ERR_NO_MEM;
-  }
+      SNIFFER_QUEUE_SIZE * sizeof(ble_sniffer_packet_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (s_sniffer_queue_struct == NULL || s_sniffer_queue_storage == NULL)
+    goto no_memory;
 
   s_sniffer_queue = xQueueCreateStatic(SNIFFER_QUEUE_SIZE,
                                        sizeof(ble_sniffer_packet_t),
                                        s_sniffer_queue_storage,
                                        s_sniffer_queue_struct);
+  if (s_sniffer_queue == NULL)
+    goto no_memory;
 
-  s_sniffer_task_handle = xTaskCreateStaticPinnedToCore(sniffer_task,
-                                                        "sniffer_task",
-                                                        SNIFFER_TASK_STACK_SIZE,
-                                                        NULL,
-                                                        SYS_PRIO_BACKGROUND_LO,
-                                                        s_sniffer_task_stack,
-                                                        s_sniffer_task_tcb,
-                                                        SYS_CORE_RADIO);
+  // IDF keeps the TCB internal while allocating the bulk stack in PSRAM.
+  if (xTaskCreatePinnedToCoreWithCaps(sniffer_task,
+                                      "sniffer_task",
+                                      SNIFFER_TASK_STACK_SIZE,
+                                      NULL,
+                                      SYS_PRIO_BACKGROUND_LO,
+                                      &s_sniffer_task_handle,
+                                      SYS_CORE_RADIO,
+                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS)
+    goto no_memory;
 
-  return bluetooth_service_start_sniffer(packet_handler);
+  esp_err_t err = bluetooth_service_start_sniffer(packet_handler);
+  if (err != ESP_OK)
+    ble_sniffer_stop();
+  return err;
+
+no_memory:
+  ble_sniffer_stop();
+  return ESP_ERR_NO_MEM;
 }
 
 void ble_sniffer_stop(void) {
@@ -121,28 +123,20 @@ void ble_sniffer_stop(void) {
   bluetooth_service_stop_sniffer();
 
   if (s_sniffer_task_handle != NULL) {
-    vTaskDelete(s_sniffer_task_handle);
+    vTaskDeleteWithCaps(s_sniffer_task_handle);
     s_sniffer_task_handle = NULL;
   }
 
-  if (s_sniffer_task_stack != NULL) {
-    free(s_sniffer_task_stack);
-    s_sniffer_task_stack = NULL;
-  }
-  if (s_sniffer_task_tcb != NULL) {
-    free(s_sniffer_task_tcb);
-    s_sniffer_task_tcb = NULL;
-  }
-  if (s_sniffer_queue_struct != NULL) {
-    free(s_sniffer_queue_struct);
-    s_sniffer_queue_struct = NULL;
-  }
-  if (s_sniffer_queue_storage != NULL) {
-    free(s_sniffer_queue_storage);
-    s_sniffer_queue_storage = NULL;
-  }
+  portENTER_CRITICAL(&s_queue_lock);
+  QueueHandle_t queue = s_sniffer_queue;
   s_sniffer_queue = NULL;
-
+  portEXIT_CRITICAL(&s_queue_lock);
+  if (queue != NULL)
+    vQueueDelete(queue);
+  free(s_sniffer_queue_struct);
+  s_sniffer_queue_struct = NULL;
+  free(s_sniffer_queue_storage);
+  s_sniffer_queue_storage = NULL;
   ESP_LOGD(TAG, "BLE Packet Sniffer Stopped.");
 }
 
