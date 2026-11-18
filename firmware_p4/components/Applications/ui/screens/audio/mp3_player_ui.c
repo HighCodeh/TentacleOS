@@ -20,6 +20,7 @@
 #include "mp3_player_ui.h"
 
 #include <math.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,6 +30,9 @@
 #include "sys_prio.h"
 
 #include "esp_log.h"
+#include "esp_heap_caps.h"
+#include "led_control.h"
+#include "ui_semantic.h"
 #include "st7789.h"
 
 #include "audio_i2s.h"
@@ -90,16 +94,19 @@ static lv_image_dsc_t s_png_dsc;
 static bool s_png_valid = false;
 static id3_meta_t s_meta;
 
-static TaskHandle_t s_task = NULL;
-static volatile bool s_task_run = false;
-static volatile bool s_stop_req = false;
-static volatile bool s_exit_req = false;
-static volatile bool s_playing = false;
-static volatile bool s_err = false;
-static volatile bool s_finished = false;
-static volatile int s_pos_sec = 0;
-static volatile int s_total_sec = 0;
-static volatile int s_level[N_BARS];
+typedef struct {
+  char path[PATH_MAX_LEN];
+  long audio_offset;
+} mp3_job_t;
+static _Atomic bool s_task_run = false;
+static _Atomic bool s_stop_req = false;
+static _Atomic bool s_exit_req = false;
+static _Atomic bool s_playing = false;
+static _Atomic bool s_err = false;
+static _Atomic bool s_finished = false;
+static _Atomic int s_pos_sec = 0;
+static _Atomic int s_total_sec = 0;
+static _Atomic int s_level[N_BARS];
 static int s_vol = VOL_DEFAULT;
 static bool s_vol_dirty = false;
 
@@ -180,13 +187,17 @@ static void exit_cb(void *p) {
 }
 
 static void player_task(void *arg) {
-  (void)arg;
+  mp3_job_t *job = arg;
 #if MP3_AUDIO_DECODE
-  FILE *f = fopen(s_path, "rb");
+  FILE *f = fopen(job->path, "rb");
+  long audio_off = job->audio_offset;
+  free(job);
   HMP3Decoder dec = NULL;
-  uint8_t *readbuf = malloc(READBUF_SZ);
-  int16_t *pcm = malloc(MP3_MAXFRAME * sizeof(int16_t));
-  int16_t *mono = malloc((MP3_MAXFRAME / 2 + 4) * sizeof(int16_t));
+  uint8_t *readbuf = heap_caps_malloc(READBUF_SZ, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  int16_t *pcm =
+      heap_caps_malloc(MP3_MAXFRAME * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  int16_t *mono = heap_caps_malloc((MP3_MAXFRAME / 2 + 4) * sizeof(int16_t),
+                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (f != NULL)
     dec = MP3InitDecoder();
   if (f == NULL || dec == NULL || readbuf == NULL || pcm == NULL || mono == NULL) {
@@ -197,14 +208,15 @@ static void player_task(void *arg) {
     free(mono);
     if (f)
       fclose(f);
+    ESP_LOGE(TAG, "Cannot open track or allocate decoder buffers");
+    led_signal_error();
     s_err = true;
+    s_playing = false;
     s_task_run = false;
-    s_task = NULL;
     vTaskDelete(NULL);
     return;
   }
 
-  long audio_off = s_meta.audio_off > 0 ? s_meta.audio_off : 0;
   fseek(f, 0, SEEK_END);
   long fsize = ftell(f);
   fseek(f, audio_off, SEEK_SET);
@@ -213,28 +225,38 @@ static void player_task(void *arg) {
   int left = 0;
   bool started = false;
   bool eof = false;
+  bool refill = false;
   uint32_t rate = MP3_DEFAULT_RATE_HZ;
   long samples_played = 0;
 
-  while (!s_stop_req) {
+  while (!s_stop_req && !s_err) {
     if (!s_playing) {
       if (started) {
         memset(mono, 0, MP3_SILENCE_SAMPLES * sizeof(int16_t));
-        audio_i2s_stream_write(mono, MP3_SILENCE_SAMPLES);
+        if (audio_i2s_stream_write(mono, MP3_SILENCE_SAMPLES) != MP3_SILENCE_SAMPLES) {
+          s_err = true;
+          break;
+        }
       } else {
         vTaskDelay(pdMS_TO_TICKS(20));
       }
       continue;
     }
 
-    if (left < 2 * 512) {
+    if (left < 2 * 512 || refill) {
+      refill = false;
       if (rp != readbuf && left > 0)
         memmove(readbuf, rp, left);
       rp = readbuf;
       size_t got = fread(readbuf + left, 1, READBUF_SZ - left, f);
       left += (int)got;
-      if (got == 0)
+      if (got == 0) {
         eof = true;
+        if (ferror(f)) {
+          s_err = true;
+          break;
+        }
+      }
       if (eof && left < 4)
         break;
     }
@@ -249,11 +271,17 @@ static void player_task(void *arg) {
     rp += off;
     left -= off;
 
+    int previous_left = left;
     int err = MP3Decode(dec, &rp, &left, pcm, 0);
     if (err != 0) {
       if (err == ERR_MP3_INDATA_UNDERFLOW || err == ERR_MP3_MAINDATA_UNDERFLOW) {
         if (eof)
           break;
+        if (left == previous_left && left == READBUF_SZ) {
+          s_err = true;
+          break;
+        }
+        refill = true;
         if (left > 0) {
           memmove(readbuf, rp, left);
           rp = readbuf;
@@ -269,8 +297,12 @@ static void player_task(void *arg) {
 
     MP3FrameInfo fi;
     MP3GetLastFrameInfo(dec, &fi);
-    if (fi.samprate <= 0 || fi.nChans <= 0 || fi.outputSamps <= 0)
-      continue;
+    if (fi.samprate < 8000 || fi.samprate > 48000 || fi.nChans < 1 || fi.nChans > 2 ||
+        fi.outputSamps <= 0 || fi.outputSamps > MP3_MAXFRAME ||
+        (started && (uint32_t)fi.samprate != rate)) {
+      s_err = true;
+      break;
+    }
 
     if (!started) {
       rate = (uint32_t)fi.samprate;
@@ -297,11 +329,16 @@ static void player_task(void *arg) {
         mono[i] = pcm[i];
     }
     compute_bars(mono, frames);
-    audio_i2s_stream_write(mono, frames);
+    if (audio_i2s_stream_write(mono, frames) != frames) {
+      s_err = true;
+      break;
+    }
     samples_played += frames;
     s_pos_sec = (int)(samples_played / (rate > 0 ? rate : MP3_DEFAULT_RATE_HZ));
   }
 
+  if (!started && !s_stop_req)
+    s_err = true;
   if (started)
     audio_i2s_stream_stop();
   MP3FreeDecoder(dec);
@@ -310,16 +347,20 @@ static void player_task(void *arg) {
   free(mono);
   fclose(f);
 #else
+  free(job);
   s_err = true;
 #endif
 
   for (int i = 0; i < N_BARS; i++)
     s_level[i] = 0;
-  if (!s_stop_req)
+  if (s_err) {
+    ESP_LOGW(TAG, "Playback failed; stopped without auto-retry");
+    led_signal_error();
+  }
+  if (!s_stop_req && !s_err)
     s_finished = true;
   s_playing = false;
   s_task_run = false;
-  s_task = NULL;
   if (s_exit_req) {
     s_exit_req = false;
     ui_async_call(exit_cb, NULL);
@@ -337,16 +378,26 @@ static void start_playback(void) {
   s_playing = true;
   for (int i = 0; i < N_BARS; i++)
     s_level[i] = 0;
-  s_task_run = true;
-  if (xTaskCreatePinnedToCore(player_task,
-                              "mp3_play",
-                              PLAYER_TASK_STACK,
-                              NULL,
-                              PLAYER_TASK_PRIO,
-                              &s_task,
-                              SYS_CORE_UI) != pdPASS) {
-    s_task_run = false;
+  mp3_job_t *job = heap_caps_malloc(sizeof(*job), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (job == NULL) {
+    ESP_LOGE(TAG, "Track context allocation failed");
+    led_signal_error();
     s_err = true;
+    s_playing = false;
+    return;
+  }
+  memcpy(job->path, s_path, sizeof(job->path));
+  job->audio_offset = s_meta.audio_off > 0 ? s_meta.audio_off : 0;
+  s_task_run = true;
+  if (xTaskCreatePinnedToCore(
+          player_task, "mp3_play", PLAYER_TASK_STACK, job, PLAYER_TASK_PRIO, NULL, SYS_CORE_UI) !=
+      pdPASS) {
+    free(job);
+    s_task_run = false;
+    s_playing = false;
+    s_err = true;
+    ESP_LOGE(TAG, "Playback task allocation failed");
+    led_signal_error();
   }
 }
 
@@ -427,8 +478,11 @@ static void refresh_cb(lv_timer_t *t) {
   if (s_play_ic)
     lv_label_set_text(s_play_ic, (s_playing && !s_finished) ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY);
   if (s_fmt && s_err) {
-    lv_label_set_text(s_fmt, MP3_AUDIO_DECODE ? "decode error" : "playback: enable esp-audio-libs");
-    lv_obj_set_style_text_color(s_fmt, lv_color_hex(0xFF5252), 0);
+    lv_label_set_text(s_fmt,
+                      !s_path[0]         ? "Choose a file in Music"
+                      : MP3_AUDIO_DECODE ? "Cannot decode this MP3"
+                                         : "MP3 playback unavailable");
+    lv_obj_set_style_text_color(s_fmt, lv_color_hex(UI_COL_DANGER), 0);
   }
 }
 
@@ -456,10 +510,18 @@ void ui_mp3_player_stop(void) {
     for (int i = 0; i < MP3_STOP_WAIT_ITERS && s_task_run; i++)
       vTaskDelay(pdMS_TO_TICKS(MP3_STOP_POLL_MS));
   }
+  if (s_refresh_timer != NULL) {
+    lv_timer_delete(s_refresh_timer);
+    s_refresh_timer = NULL;
+  }
   if (s_vol_dirty) {
     g_config_system.volume = s_vol;
-    tos_config_save(TOS_PATH_CONFIG_SYSTEM, "system");
-    s_vol_dirty = false;
+    if (tos_config_save(TOS_PATH_CONFIG_SYSTEM, "system") == ESP_OK)
+      s_vol_dirty = false;
+    else {
+      ESP_LOGW(TAG, "Volume save failed");
+      led_signal_warning();
+    }
   }
 }
 
@@ -486,12 +548,12 @@ static lv_obj_t *transport_btn(lv_obj_t *parent, const char *sym, bool primary) 
   lv_obj_set_style_border_width(b, 0, 0);
   lv_obj_set_style_pad_all(b, 0, 0);
   if (primary) {
-    lv_obj_set_style_bg_color(b, lv_color_hex(ACC2), 0);
-    lv_obj_set_style_bg_grad_color(b, lv_color_hex(ACC1), 0);
+    lv_obj_set_style_bg_color(b, current_theme.text_main, 0);
+    lv_obj_set_style_bg_grad_color(b, current_theme.border_accent, 0);
     lv_obj_set_style_bg_grad_dir(b, LV_GRAD_DIR_VER, 0);
     lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
     lv_obj_set_style_shadow_width(b, 14, 0);
-    lv_obj_set_style_shadow_color(b, lv_color_hex(ACC1), 0);
+    lv_obj_set_style_shadow_color(b, current_theme.border_accent, 0);
     lv_obj_set_style_shadow_opa(b, LV_OPA_40, 0);
   } else {
     lv_obj_set_style_bg_opa(b, LV_OPA_TRANSP, 0);
@@ -501,7 +563,7 @@ static lv_obj_t *transport_btn(lv_obj_t *parent, const char *sym, bool primary) 
   lv_label_set_text(l, sym);
   lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(
-      l, primary ? lv_color_hex(0x0A0220) : current_theme.text_secondary, 0);
+      l, primary ? current_theme.screen_base : current_theme.text_secondary, 0);
   lv_obj_center(l);
   return l;
 }
@@ -535,12 +597,16 @@ void ui_mp3_player_open(void) {
   ui_chrome_header(s_screen, "PLAYING", "/assets/icons/music_note.bin");
   ui_chrome_footer(s_screen, LV_SYMBOL_UP LV_SYMBOL_DOWN " vol   OK play   BACK exit");
 
+  bool landscape = ui_screen_w() > ui_screen_h();
+  int cover_size = landscape ? 104 : 100;
+  int detail_width = landscape ? ui_screen_w() - cover_size - 36 : ui_screen_w() - 32;
   lv_obj_t *body = lv_obj_create(s_screen);
   lv_obj_remove_style_all(body);
-  lv_obj_set_size(body, 224, ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_size(
+      body, ui_screen_w() - 16, ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
   lv_obj_align(body, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_flow(body, landscape ? LV_FLEX_FLOW_ROW : LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(
       body, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_hor(body, 6, 0);
@@ -548,7 +614,7 @@ void ui_mp3_player_open(void) {
 
   lv_obj_t *cover = lv_obj_create(body);
   lv_obj_remove_style_all(cover);
-  lv_obj_set_size(cover, COVER_BOX, COVER_BOX);
+  lv_obj_set_size(cover, cover_size, cover_size);
   lv_obj_remove_flag(cover, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_radius(cover, 14, 0);
   lv_obj_set_style_clip_corner(cover, true, 0);
@@ -557,7 +623,7 @@ void ui_mp3_player_open(void) {
   lv_obj_set_style_border_width(cover, 1, 0);
   lv_obj_set_style_border_color(cover, current_theme.border_inactive, 0);
   lv_obj_set_style_shadow_width(cover, 26, 0);
-  lv_obj_set_style_shadow_color(cover, lv_color_hex(ACC1), 0);
+  lv_obj_set_style_shadow_color(cover, current_theme.border_accent, 0);
   lv_obj_set_style_shadow_opa(cover, LV_OPA_40, 0);
   const lv_image_dsc_t *cover_src = NULL;
   int cw = 0, ch = 0;
@@ -579,7 +645,7 @@ void ui_mp3_player_open(void) {
     lv_obj_center(img);
     int longest = cw > ch ? cw : ch;
     if (longest > 0) {
-      int zoom = (COVER_BOX * 256) / longest;
+      int zoom = (cover_size * 256) / longest;
       if (zoom < 1)
         zoom = 1;
       lv_image_set_scale(img, (uint16_t)zoom);
@@ -592,12 +658,22 @@ void ui_mp3_player_open(void) {
     lv_obj_center(ph);
   }
 
+  lv_obj_t *details = lv_obj_create(body);
+  lv_obj_remove_style_all(details);
+  lv_obj_set_width(details, detail_width);
+  lv_obj_set_height(details, landscape ? lv_pct(100) : LV_SIZE_CONTENT);
+  if (!landscape)
+    lv_obj_set_flex_grow(details, 1);
+  lv_obj_remove_flag(details, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_flex_flow(details, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(
+      details, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   const char *slash = strrchr(s_path, '/');
   const char *fallback = s_path[0] ? (slash ? slash + 1 : s_path) : "no file";
-  lv_obj_t *fname = lv_label_create(body);
+  lv_obj_t *fname = lv_label_create(details);
   lv_label_set_text(fname, s_meta.title[0] ? s_meta.title : fallback);
   lv_label_set_long_mode(fname, LV_LABEL_LONG_DOT);
-  lv_obj_set_width(fname, 204);
+  lv_obj_set_width(fname, detail_width);
   lv_obj_set_style_text_align(fname, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_font(fname, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(fname, current_theme.text_main, 0);
@@ -613,24 +689,24 @@ void ui_mp3_player_open(void) {
     size_t k = strlen(info);
     snprintf(info + k, sizeof(info) - k, "%s%s", info[0] ? "  |  " : "", s_meta.year);
   }
-  s_fmt = lv_label_create(body);
+  s_fmt = lv_label_create(details);
   lv_label_set_text(s_fmt, info[0] ? info : "MP3");
   lv_label_set_long_mode(s_fmt, LV_LABEL_LONG_DOT);
-  lv_obj_set_width(s_fmt, 204);
+  lv_obj_set_width(s_fmt, detail_width);
   lv_obj_set_style_text_align(s_fmt, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_font(s_fmt, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(s_fmt, lv_color_hex(0x00E5D0), 0);
+  lv_obj_set_style_text_color(s_fmt, current_theme.text_secondary, 0);
 
-  lv_obj_t *prog = lv_obj_create(body);
+  lv_obj_t *prog = lv_obj_create(details);
   lv_obj_remove_style_all(prog);
-  lv_obj_set_size(prog, 200, LV_SIZE_CONTENT);
+  lv_obj_set_size(prog, detail_width, LV_SIZE_CONTENT);
   lv_obj_remove_flag(prog, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_flex_flow(prog, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(prog, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_row(prog, 3, 0);
   lv_obj_t *track = lv_obj_create(prog);
   lv_obj_remove_style_all(track);
-  lv_obj_set_size(track, 200, 5);
+  lv_obj_set_size(track, detail_width, 5);
   lv_obj_set_style_radius(track, 3, 0);
   lv_obj_set_style_bg_color(track, current_theme.border_inactive, 0);
   lv_obj_set_style_bg_opa(track, LV_OPA_COVER, 0);
@@ -640,22 +716,22 @@ void ui_mp3_player_open(void) {
   lv_obj_set_width(s_pfill, lv_pct(0));
   lv_obj_align(s_pfill, LV_ALIGN_LEFT_MID, 0, 0);
   lv_obj_set_style_radius(s_pfill, 3, 0);
-  lv_obj_set_style_bg_color(s_pfill, lv_color_hex(ACC1), 0);
-  lv_obj_set_style_bg_grad_color(s_pfill, lv_color_hex(ACC2), 0);
+  lv_obj_set_style_bg_color(s_pfill, current_theme.border_accent, 0);
+  lv_obj_set_style_bg_grad_color(s_pfill, current_theme.text_main, 0);
   lv_obj_set_style_bg_grad_dir(s_pfill, LV_GRAD_DIR_HOR, 0);
   lv_obj_set_style_bg_opa(s_pfill, LV_OPA_COVER, 0);
   lv_obj_t *trow = lv_obj_create(prog);
   lv_obj_remove_style_all(trow);
-  lv_obj_set_size(trow, 200, LV_SIZE_CONTENT);
+  lv_obj_set_size(trow, detail_width, LV_SIZE_CONTENT);
   lv_obj_set_flex_flow(trow, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(
       trow, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   s_t_cur = mk_label(trow, "0:00", &lv_font_montserrat_12, current_theme.text_main, 0);
   s_t_tot = mk_label(trow, "0:00", &lv_font_montserrat_12, current_theme.text_main, 0);
 
-  lv_obj_t *ctrls = lv_obj_create(body);
+  lv_obj_t *ctrls = lv_obj_create(details);
   lv_obj_remove_style_all(ctrls);
-  lv_obj_set_size(ctrls, 180, 50);
+  lv_obj_set_size(ctrls, detail_width, 46);
   lv_obj_remove_flag(ctrls, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_flex_flow(ctrls, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(ctrls, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -671,6 +747,11 @@ void ui_mp3_player_open(void) {
   if (s_refresh_timer == NULL)
     s_refresh_timer = lv_timer_create(refresh_cb, REFRESH_TIMER_MS, NULL);
 
-  start_playback();
+  if (s_refresh_timer != NULL)
+    start_playback();
+  else {
+    ESP_LOGE(TAG, "Player refresh allocation failed");
+    led_signal_error();
+  }
   ui_screen_load_owned(&s_screen, s_screen);
 }

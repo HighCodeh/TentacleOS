@@ -35,6 +35,9 @@ void ui_mp4_player_set_return(int screen);
 /** @brief Open the MP4 player screen: parses metadata + cover and shows them. */
 void ui_mp4_player_open(void);
 
+/** @brief Detach cover widgets and release their buffers before navigation. */
+void ui_mp4_player_stop(void);
+
 #ifdef __cplusplus
 }
 #endif

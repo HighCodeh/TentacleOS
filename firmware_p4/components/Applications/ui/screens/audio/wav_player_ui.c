@@ -39,7 +39,7 @@
 #define REFRESH_TIMER_MS  60
 #define N_BARS            12
 #define BAR_W             9
-#define SPEC_H            76
+#define SPEC_H            (ui_screen_w() > ui_screen_h() ? 28 : 76)
 #define READ_FRAMES       512
 #define SEEK_SEC          5
 #define VOL_STEP          10
@@ -396,7 +396,7 @@ static void refresh_timer_cb(lv_timer_t *t) {
     lv_label_set_text(s_play_ic, (s_playing && !s_finished) ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY);
   if (s_fmt) {
     if (s_err) {
-      lv_label_set_text(s_fmt, "unsupported wav");
+      lv_label_set_text(s_fmt, s_path[0] ? "Unsupported WAV" : "Choose a file in Music");
     } else if (s_i_rate > 0) {
       lv_label_set_text_fmt(s_fmt,
                             "%d.%dkHz - %d-bit - %s",
@@ -556,7 +556,7 @@ void ui_wav_player_open(void) {
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
   ui_chrome_header(s_screen, "PLAYING", "/assets/icons/music_note.bin");
-  ui_chrome_footer(s_screen, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " seek  x2 skip   OK play");
+  ui_chrome_footer(s_screen, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " Seek  x2 Skip  OK  BACK");
 
   lv_obj_t *body = lv_obj_create(s_screen);
   lv_obj_remove_style_all(body);
