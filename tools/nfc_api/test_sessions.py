@@ -32,6 +32,7 @@ def main():
         directory = Path(tmp)
         (directory / 'freertos').mkdir()
         headers = {
+            'led_control.h': '#pragma once\n#include <stdbool.h>\n#include <stdint.h>\n#define LED_ACTIVITY_NFC 1U\nvoid led_set_activity(uint32_t,bool);\n',
             'esp_err.h': '''#pragma once
 typedef int esp_err_t;
 #define ESP_OK 0
@@ -99,6 +100,9 @@ typedef int hb_nfc_err_t;
 typedef struct { uint8_t uid[10],uid_len,atqa[2],sak; } nfc_iso14443a_data_t;
 typedef struct { int protocol; nfc_iso14443a_data_t iso14443a; } hb_nfc_card_data_t;
 typedef struct { uint8_t uid[10]; unsigned char data[4096]; } mfc_emu_card_data_t;
+typedef struct { uint32_t cuid,nt,nr,ar; uint8_t sector; int key_type; } mfc_emu_capture_t;
+typedef void (*mfc_emu_capture_cb_t)(const mfc_emu_capture_t *,void *);
+void mfc_emu_set_capture(mfc_emu_capture_cb_t,void *);
 void mfc_emu_card_data_init(mfc_emu_card_data_t *,const nfc_iso14443a_data_t *,int);
 hb_nfc_err_t mfc_emu_init(const mfc_emu_card_data_t *);
 hb_nfc_err_t mfc_emu_configure_target(void);

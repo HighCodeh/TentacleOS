@@ -13,109 +13,312 @@
 // You should have received a copy of the GNU General Public License
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
+/* State-recovery construction derived from CRAPTO1 (bla, 2008-2014;
+ * Proxmark3 contributors), also used by Flipper's MFKey32v2. GPL-3.0-or-later.
+ * Adaptation: bounded index ranges, streamed candidate verification, explicit
+ * PSRAM allocation and cooperative cancellation. See docs/nfc/README.md. */
 #include "mfkey.h"
 
 #include <stdlib.h>
-#include <string.h>
-
 #include "crypto1.h"
+#ifdef ESP_PLATFORM
+#include "esp_heap_caps.h"
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+static const char *TAG = "NFC_MFKEY";
+#endif
 
-#define MK_BIT(x, n)   (((x) >> (n)) & 1U)
-#define MK_BEBIT(x, n) MK_BIT((x), (n) ^ 24)
-#define MK_LFP_ODD     0x29CE5CU
-#define MK_LFP_EVEN    0x870804U
+#define MK_BIT(x, n)        (((x) >> (n)) & 1U)
+#define MK_BEBIT(x, n)      MK_BIT((x), (n) ^ 24)
+#define MK_LFP_ODD          0x29CE5CU
+#define MK_LFP_EVEN         0x870804U
+#define MK_STATE_MASK       0xFFFFFFU
+#define MK_PREFIX_MASK      0xFF000000U
+#define MK_FILTER_BITS      20
+#define MK_TABLE_CAPACITY   (1U << 21)
+#define MK_CHECK_INTERVAL   4096U
+#define MK_PRNG_ADVANCE     64U
+#define MK_SIMPLE_ROUNDS    4
+#define MK_REMAINING_ROUNDS 11
+#define MK_HALF_STATE_BITS  24
+#define MK_WORD_BITS        32
 
-#define MK_HALF_STATE_BITS 24
+typedef struct {
+  int32_t head, tail;
+  uint32_t stream;
+} mfkey_slice_t;
 
-#define MFKEY_MAX_CANDS 4096
+typedef struct {
+  const mfkey_pair_t *pair;
+  uint32_t *odd, *even;
+  uint64_t key;
+  uint32_t work;
+  mfkey_progress_cb_t progress;
+  void *context;
+  mfkey_result_t result;
+} mfkey_search_t;
 
-#define MK_SIG_CLOCKS 16
-
-#define MK_PRNG_KS2_ADVANCE 64
-
-static uint32_t mk_filter(uint32_t in) {
-  uint32_t o = 0;
-  o = 0xf22c0U >> (in & 0xfU) & 16U;
-  o |= 0x6c9c0U >> (in >> 4 & 0xfU) & 8U;
-  o |= 0x3c8b0U >> (in >> 8 & 0xfU) & 4U;
-  o |= 0x1e458U >> (in >> 12 & 0xfU) & 2U;
-  o |= 0x0d938U >> (in >> 16 & 0xfU) & 1U;
-  return MK_BIT(0xEC57E80AU, o);
+static uint32_t filter(uint32_t in) {
+  uint32_t value = (0xf22c0U >> (in & 0xfU)) & 16U;
+  value |= (0x6c9c0U >> ((in >> 4) & 0xfU)) & 8U;
+  value |= (0x3c8b0U >> ((in >> 8) & 0xfU)) & 4U;
+  value |= (0x1e458U >> ((in >> 12) & 0xfU)) & 2U;
+  value |= (0x0d938U >> ((in >> 16) & 0xfU)) & 1U;
+  return MK_BIT(0xEC57E80AU, value);
 }
 
-static uint8_t mk_parity32(uint32_t x) {
-  x ^= x >> 16;
-  x ^= x >> 8;
-  x ^= x >> 4;
-  x ^= x >> 2;
-  x ^= x >> 1;
-  return (uint8_t)(x & 1U);
+static uint32_t parity(uint32_t value) {
+  return (uint32_t)__builtin_parity(value);
 }
 
-static uint8_t mk_rollback_bit(crypto1_state_t *s, uint32_t in, int fb) {
-  uint8_t ret;
-  uint32_t out;
-  uint32_t t = s->odd;
-  s->odd = s->even;
-  s->even = t;
-  out = s->even & 1U;
-  out ^= MK_LFP_EVEN & (s->even >>= 1);
-  out ^= MK_LFP_ODD & s->odd;
-  out ^= (uint32_t)(!!in);
-  out ^= (ret = (uint8_t)mk_filter(s->odd)) & (uint32_t)(!!fb);
-  s->even |= mk_parity32(out) << (MK_HALF_STATE_BITS - 1);
-  return ret;
-}
-
-static uint32_t mk_rollback_word(crypto1_state_t *s, uint32_t in, int fb) {
-  uint32_t out = 0;
-  for (int8_t i = 31; i >= 0; i--)
-    out |= (uint32_t)mk_rollback_bit(s, MK_BEBIT(in, i), fb) << (24 ^ (uint8_t)i);
-  return out;
-}
-
-static uint64_t mk_get_lfsr(const crypto1_state_t *s) {
-  uint64_t k = 0;
-  for (int8_t i = MK_HALF_STATE_BITS - 1; i >= 0; i--)
-    k = k << 2 | (uint64_t)(MK_BIT(s->even, i) << 1) | MK_BIT(s->odd, i);
-  return k;
-}
-
-static uint32_t mk_simulate_ks(crypto1_state_t s) {
-  uint32_t ks = 0;
-  for (uint8_t i = 0; i < 32; i++)
-    ks |= (uint32_t)crypto1_bit(&s, 0, 0) << (24 ^ i);
-  return ks;
-}
-
-static size_t mk_gen_odd_candidates(uint32_t ks2, uint32_t *out, size_t out_max) {
-  size_t count = 0;
-  for (uint32_t O = 0; O < (1U << MK_HALF_STATE_BITS) && count < out_max; O++) {
-    uint32_t sig = 0;
-    for (uint8_t k = 0; k < MK_SIG_CLOCKS; k++)
-      sig |= mk_filter((O << k) & 0xFFFFFFU) << k;
-    uint32_t expected = 0;
-    for (uint8_t k = 0; k < MK_SIG_CLOCKS; k++)
-      expected |= MK_BEBIT(ks2, k * 2) << k;
-    if (sig == expected)
-      out[count++] = O;
+static bool checkpoint(mfkey_search_t *search) {
+  if (search->result != MFKEY_RESULT_NOT_FOUND)
+    return false;
+  if ((++search->work % MK_CHECK_INTERVAL) != 0)
+    return true;
+  if (search->progress != NULL && !search->progress(search->work, search->context)) {
+    search->result = MFKEY_RESULT_CANCELLED;
+    return false;
   }
-  return count;
+#ifdef ESP_PLATFORM
+  vTaskDelay(1);
+#endif
+  return true;
 }
 
-static size_t mk_gen_even_candidates(uint32_t ks2, uint32_t *out, size_t out_max) {
-  size_t count = 0;
-  for (uint32_t E = 0; E < (1U << MK_HALF_STATE_BITS) && count < out_max; E++) {
-    uint32_t sig = 0;
-    for (uint8_t k = 0; k < MK_SIG_CLOCKS; k++)
-      sig |= mk_filter((E << (k + 1)) & 0xFFFFFFU) << k;
-    uint32_t expected = 0;
-    for (uint8_t k = 0; k < MK_SIG_CLOCKS; k++)
-      expected |= MK_BEBIT(ks2, k * 2 + 1) << k;
-    if (sig == expected)
-      out[count++] = E;
+static uint32_t contribution(uint32_t value, bool is_odd) {
+  uint32_t prefix = value >> 25;
+  const uint32_t mask1 = is_odd ? (MK_LFP_EVEN << 1) | 1U : MK_LFP_ODD;
+  const uint32_t mask2 = is_odd ? MK_LFP_ODD << 1 : (MK_LFP_EVEN << 1) | 1U;
+  prefix = (prefix << 1) | parity(value & mask1);
+  prefix = (prefix << 1) | parity(value & mask2);
+  return (prefix << 24) | (value & MK_STATE_MASK);
+}
+
+/* New branches replace the next input, which is moved to the unprocessed tail.
+ * No one-before-start pointer or speculative read after the current tail. */
+static bool extend(mfkey_search_t *search, mfkey_slice_t *slice, bool is_odd, bool has_feedback) {
+  uint32_t *data = is_odd ? search->odd : search->even;
+  int32_t index = slice->head;
+  const uint32_t bit = slice->stream & 1U;
+  while (index <= slice->tail) {
+    if (!checkpoint(search))
+      return false;
+    uint32_t value = data[index] << 1;
+    const uint32_t zero = filter(value), one = filter(value | 1U);
+    if (zero != one) {
+      value |= zero ^ bit;
+      data[index++] = has_feedback ? contribution(value, is_odd) : value;
+    } else if (zero == bit) {
+      if ((uint32_t)(slice->tail + 1) >= MK_TABLE_CAPACITY) {
+        search->result = MFKEY_RESULT_CAPACITY;
+        return false;
+      }
+      const uint32_t displaced = index < slice->tail ? data[index + 1] : 0;
+      data[++slice->tail] = displaced;
+      data[index++] = has_feedback ? contribution(value, is_odd) : value;
+      data[index++] = has_feedback ? contribution(value | 1U, is_odd) : value | 1U;
+    } else {
+      data[index] = data[slice->tail--];
+    }
   }
-  return count;
+  return true;
+}
+
+/* Recurse only into the smaller partition: stack depth is logarithmic. */
+static bool sort_slice(mfkey_search_t *search, uint32_t *data, mfkey_slice_t slice) {
+  while (slice.head < slice.tail) {
+    int32_t left = slice.head, right = slice.tail;
+    const uint32_t pivot = data[left + (right - left) / 2];
+    while (left <= right) {
+      while (left <= slice.tail && data[left] < pivot) {
+        left++;
+        if (!checkpoint(search))
+          return false;
+      }
+      while (right >= slice.head && data[right] > pivot) {
+        right--;
+        if (!checkpoint(search))
+          return false;
+      }
+      if (left <= right) {
+        const uint32_t saved = data[left];
+        data[left++] = data[right];
+        data[right--] = saved;
+      }
+      if (!checkpoint(search))
+        return false;
+    }
+    if (right - slice.head < slice.tail - left) {
+      if (slice.head < right && !sort_slice(search, data, (mfkey_slice_t){slice.head, right, 0}))
+        return false;
+      slice.head = left;
+    } else {
+      if (left < slice.tail && !sort_slice(search, data, (mfkey_slice_t){left, slice.tail, 0}))
+        return false;
+      slice.tail = right;
+    }
+  }
+  return true;
+}
+
+static int32_t group_start(const uint32_t *data, mfkey_slice_t slice) {
+  const uint32_t prefix = data[slice.tail] & MK_PREFIX_MASK;
+  while (slice.head < slice.tail) {
+    int32_t middle = slice.head + (slice.tail - slice.head) / 2;
+    if ((data[middle] & MK_PREFIX_MASK) < prefix)
+      slice.head = middle + 1;
+    else
+      slice.tail = middle;
+  }
+  return slice.head;
+}
+
+static void rollback_word(crypto1_state_t *state, uint32_t input, bool encrypted) {
+  for (int32_t bit = MK_WORD_BITS - 1; bit >= 0; bit--) {
+    uint32_t saved = state->odd & MK_STATE_MASK;
+    state->odd = state->even;
+    state->even = saved;
+    uint32_t feed = state->even & 1U;
+    state->even >>= 1;
+    feed ^= state->even & MK_LFP_EVEN;
+    feed ^= state->odd & MK_LFP_ODD;
+    feed ^= MK_BEBIT(input, bit);
+    if (encrypted)
+      feed ^= filter(state->odd);
+    state->even |= parity(feed) << (MK_HALF_STATE_BITS - 1);
+  }
+}
+
+static bool verify_candidate(mfkey_search_t *search, crypto1_state_t state) {
+  const mfkey_pair_t *pair = search->pair;
+  rollback_word(&state, 0, false);
+  rollback_word(&state, pair->nr0, true);
+  rollback_word(&state, pair->uid ^ pair->nt0, false);
+  uint64_t key = 0;
+  for (int32_t bit = MK_HALF_STATE_BITS - 1; bit >= 0; bit--) {
+    key = (key << 1) | MK_BIT(state.odd, bit ^ 3);
+    key = (key << 1) | MK_BIT(state.even, bit ^ 3);
+  }
+  const uint32_t nt[] = {pair->nt0, pair->nt1};
+  const uint32_t nr[] = {pair->nr0, pair->nr1};
+  const uint32_t ar[] = {pair->ar0, pair->ar1};
+  for (size_t index = 0; index < sizeof(nt) / sizeof(nt[0]); index++) {
+    crypto1_init(&state, key);
+    crypto1_word(&state, pair->uid ^ nt[index], 0);
+    crypto1_word(&state, nr[index], 1);
+    if ((crypto1_word(&state, 0, 0) ^ crypto1_prng_successor(nt[index], MK_PRNG_ADVANCE)) !=
+        ar[index])
+      return false;
+  }
+  search->key = key;
+  search->result = MFKEY_RESULT_FOUND;
+  return true;
+}
+
+static void
+recover(mfkey_search_t *search, mfkey_slice_t odd, mfkey_slice_t even, int32_t remaining) {
+  if (remaining == -1) {
+    for (int32_t e = even.head; e <= even.tail; e++) {
+      const uint32_t value = (search->even[e] << 1) ^ parity(search->even[e] & MK_LFP_EVEN);
+      for (int32_t o = odd.head; o <= odd.tail; o++) {
+        if (!checkpoint(search))
+          return;
+        crypto1_state_t state = {.even = search->odd[o],
+                                 .odd = value ^ parity(search->odd[o] & MK_LFP_ODD)};
+        if (verify_candidate(search, state))
+          return;
+      }
+    }
+    return;
+  }
+  for (int32_t round = 0; round < MK_SIMPLE_ROUNDS && remaining-- != 0; round++) {
+    odd.stream >>= 1;
+    even.stream >>= 1;
+    if (!extend(search, &odd, true, true) || odd.head > odd.tail ||
+        !extend(search, &even, false, true) || even.head > even.tail)
+      return;
+  }
+  if (!sort_slice(search, search->odd, odd) || !sort_slice(search, search->even, even))
+    return;
+  while (odd.head <= odd.tail && even.head <= even.tail && checkpoint(search)) {
+    const uint32_t odd_prefix = search->odd[odd.tail] & MK_PREFIX_MASK;
+    const uint32_t even_prefix = search->even[even.tail] & MK_PREFIX_MASK;
+    if (odd_prefix == even_prefix) {
+      const int32_t odd_start = group_start(search->odd, odd);
+      const int32_t even_start = group_start(search->even, even);
+      recover(search,
+              (mfkey_slice_t){odd_start, odd.tail, odd.stream},
+              (mfkey_slice_t){even_start, even.tail, even.stream},
+              remaining);
+      odd.tail = odd_start - 1;
+      even.tail = even_start - 1;
+    } else if (odd_prefix > even_prefix) {
+      odd.tail = group_start(search->odd, odd) - 1;
+    } else {
+      even.tail = group_start(search->even, even) - 1;
+    }
+  }
+}
+
+mfkey_result_t mfkey_recover(const mfkey_pair_t *pair,
+                             uint64_t *out_key,
+                             mfkey_progress_cb_t progress,
+                             void *context) {
+  if (out_key == NULL)
+    return MFKEY_RESULT_INVALID;
+  *out_key = 0;
+  if (pair == NULL || (pair->nt0 == pair->nt1 && pair->nr0 == pair->nr1))
+    return MFKEY_RESULT_INVALID;
+  if (progress != NULL && !progress(0, context))
+    return MFKEY_RESULT_CANCELLED;
+  mfkey_search_t search = {
+      .pair = pair, .progress = progress, .context = context, .result = MFKEY_RESULT_NOT_FOUND};
+#ifdef ESP_PLATFORM
+  search.odd =
+      heap_caps_malloc(MK_TABLE_CAPACITY * sizeof(uint32_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  search.even =
+      heap_caps_malloc(MK_TABLE_CAPACITY * sizeof(uint32_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#else
+  search.odd = malloc(MK_TABLE_CAPACITY * sizeof(uint32_t));
+  search.even = malloc(MK_TABLE_CAPACITY * sizeof(uint32_t));
+#endif
+  if (search.odd == NULL || search.even == NULL) {
+#ifdef ESP_PLATFORM
+    ESP_LOGE(TAG, "Cannot allocate recovery tables in PSRAM");
+#endif
+    search.result = MFKEY_RESULT_NO_MEMORY;
+    goto cleanup;
+  }
+  uint32_t stream = pair->ar0 ^ crypto1_prng_successor(pair->nt0, MK_PRNG_ADVANCE);
+  mfkey_slice_t odd = {.tail = -1}, even = {.tail = -1};
+  for (int32_t bit = MK_WORD_BITS - 1; bit >= 0; bit -= 2)
+    odd.stream = (odd.stream << 1) | MK_BEBIT(stream, bit);
+  for (int32_t bit = MK_WORD_BITS - 2; bit >= 0; bit -= 2)
+    even.stream = (even.stream << 1) | MK_BEBIT(stream, bit);
+  for (int32_t state = 1U << MK_FILTER_BITS; state >= 0; state--) {
+    if (!checkpoint(&search))
+      goto cleanup;
+    uint32_t output = filter((uint32_t)state);
+    if (output == (odd.stream & 1U))
+      search.odd[++odd.tail] = (uint32_t)state;
+    if (output == (even.stream & 1U))
+      search.even[++even.tail] = (uint32_t)state;
+  }
+  for (int32_t round = 0; round < MK_SIMPLE_ROUNDS; round++) {
+    odd.stream >>= 1;
+    even.stream >>= 1;
+    if (!extend(&search, &odd, true, false) || !extend(&search, &even, false, false))
+      goto cleanup;
+  }
+  recover(&search, odd, even, MK_REMAINING_ROUNDS);
+cleanup:
+  free(search.odd);
+  free(search.even);
+  if (search.result == MFKEY_RESULT_FOUND)
+    *out_key = search.key;
+  return search.result;
 }
 
 bool mfkey32(uint32_t uid,
@@ -126,49 +329,6 @@ bool mfkey32(uint32_t uid,
              uint32_t nr1,
              uint32_t ar1,
              uint64_t *key) {
-  if (key == NULL)
-    return false;
-
-  uint32_t ks2_0 = ar0 ^ crypto1_prng_successor(nt0, MK_PRNG_KS2_ADVANCE);
-  uint32_t ks2_1 = ar1 ^ crypto1_prng_successor(nt1, MK_PRNG_KS2_ADVANCE);
-
-  uint32_t *odd_cands = malloc(sizeof(uint32_t) * MFKEY_MAX_CANDS);
-  uint32_t *even_cands = malloc(sizeof(uint32_t) * MFKEY_MAX_CANDS);
-  if (odd_cands == NULL || even_cands == NULL) {
-    free(odd_cands);
-    free(even_cands);
-    return false;
-  }
-
-  size_t n_odd = mk_gen_odd_candidates(ks2_0, odd_cands, MFKEY_MAX_CANDS);
-  size_t n_even = mk_gen_even_candidates(ks2_0, even_cands, MFKEY_MAX_CANDS);
-
-  bool found = false;
-
-  for (size_t oi = 0; oi < n_odd && !found; oi++) {
-    for (size_t ei = 0; ei < n_even && !found; ei++) {
-      crypto1_state_t s = {odd_cands[oi], even_cands[ei]};
-
-      if (mk_simulate_ks(s) != ks2_0)
-        continue;
-
-      mk_rollback_word(&s, 0, 0);
-      mk_rollback_word(&s, nr0, 1);
-      mk_rollback_word(&s, uid ^ nt0, 0);
-      uint64_t key_candidate = mk_get_lfsr(&s);
-
-      crypto1_state_t s1;
-      crypto1_init(&s1, key_candidate);
-      crypto1_word(&s1, uid ^ nt1, 0);
-      crypto1_word(&s1, nr1, 1);
-      if (crypto1_word(&s1, 0, 0) == ks2_1) {
-        *key = key_candidate;
-        found = true;
-      }
-    }
-  }
-
-  free(odd_cands);
-  free(even_cands);
-  return found;
+  const mfkey_pair_t pair = {uid, nt0, nr0, ar0, nt1, nr1, ar1};
+  return mfkey_recover(&pair, key, NULL, NULL) == MFKEY_RESULT_FOUND;
 }

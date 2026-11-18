@@ -59,6 +59,9 @@ typedef enum {
   NFC_PROTOCOL_OP_T4T_EMULATE,
   NFC_PROTOCOL_OP_T4T_WRITE,
   NFC_PROTOCOL_OP_T4T_CREATE,
+  NFC_PROTOCOL_OP_UL_LOAD,
+  NFC_PROTOCOL_OP_UL_READER_UNLOCK,
+  NFC_PROTOCOL_OP_UL_EMULATE,
   NFC_PROTOCOL_OP_COUNT,
 } nfc_protocol_op_t;
 
@@ -128,6 +131,9 @@ hb_nfc_err_t nfc_protocol_service_select_v(int index);
 /* Copies a Flipper NFC-V profile. Writes, when enabled, affect session RAM only. */
 hb_nfc_err_t nfc_protocol_service_select_v_file(const char *path, bool allow_writes);
 hb_nfc_err_t nfc_protocol_service_start(nfc_protocol_op_t operation);
+hb_nfc_err_t nfc_protocol_service_ul_file(const char *filename);
+bool nfc_protocol_service_ul_has_profile(void);
+void nfc_protocol_service_ul_clear(void);
 void nfc_protocol_service_cancel(void);
 void nfc_protocol_service_stop(void);
 esp_err_t nfc_protocol_service_get_v_result(iso15693_listener_card_t *out_card);

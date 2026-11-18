@@ -164,6 +164,62 @@ callback delivers an `hb_nfc_card_data_t`.
   protocol-specific payload up to `NFC_STORE_PAYLOAD_MAX` = 2048 B) in NVS, up to
   `NFC_STORE_MAX_ENTRIES` (16), plus NTAG/Ultralight pack/unpack helpers.
 
+### Ultralight / NTAG reader unlock
+
+The Ultralight screen reads recognized EV1 and NTAG21x profiles into typed `.nfc`
+files under `/sdcard/nfc/dumps`. Unknown trailing pages are `??`, with an explicit
+`Pages read` count; they are not treated as zero-filled valid memory. Partial
+emulation rejects requests touching unavailable pages. AES, Ultralight C and
+I2C profiles retain their separate authentication paths.
+
+Controls after a recognized read: OK reads the card, RIGHT waits up to 60 seconds
+for a reader's PWD_AUTH, LEFT emulates the captured memory, UP clears the RAM
+session, DOWN loads a saved filename. Before a read, LEFT loads a saved file.
+BACK cancels a running operation or exits. Closing the screen clears volatile
+password candidates; saved files remain.
+
+A captured PWD_AUTH is a candidate, not verified access. A subsequent OK read
+checks UID and version before sending it once to the physical card. Rejection
+consumes the candidate and never starts a password search. A valid PACK with CRC
+and a complete memory read are required to save an authenticated profile. PWD
+and PACK pages are masked on real cards, so verified values are placed into the
+saved copy with explicit known-secret flags. No write is sent to the original.
+Full emulation permits writes/counter changes only in its RAM copy and saves
+changes to a new file when stopped; partial and reader-unlock sessions reject
+writes. Reader acceptance remains a separate hardware test, especially when a
+reader uses writable counters, backend state, or never sends PWD_AUTH.
+
+USB diagnostics use `nfc ul read|unlock|emulate|status|stop`. They run the same
+worker as the screen, without printing the captured password. Files containing
+verified credentials should be handled as private card backups.
+
+References: [Flipper reader unlock](https://docs.flipper.net/zero/nfc/unlock-with-password)
+and [NXP MF0ULX1](https://www.nxp.com/docs/en/data-sheet/MF0ULX1.pdf).
+Host tests cover partial-file round trips, unavailable-page rejection, bounded
+PWD frames, UID/version matching, one-shot authentication and PACK preservation.
+The four-bit ACK/NACK path uses the bounded passive RMT transmitter, prepared
+before target mode, and propagates transmit failures. Byte-oriented replies
+continue through the FIFO. A host test exercises the production short-reply
+function, nibble masking, AES session reset and failure propagation.
+
+On prototype 0201891B (16 November 2026), the physical MF0UL1101 read recovered
+16 of 20 pages, the signature and three counters. All 64 available memory bytes
+matched both the Proxmark reference and its subsequent read of High Boy
+emulation. A synthetic PWD_AUTH sent only to the emulator was captured as an
+unverified candidate and then cleared; this did not unlock the physical card.
+The corrected unavailable-page response was decoded as `00(4)` without the
+previous long parity-error stream. Repeated exchanges still showed missed
+responses and one failed selection, so reader compatibility is not yet accepted.
+The original reader's password, protected pages and acceptance remain unverified.
+
+A complete Flipper v4 profile can include recovered PWD/PACK in its last two
+pages. The current loader requires explicit `Highboy known secrets` metadata
+before enabling password emulation; `Pages read` alone does not establish that
+masked secret bytes are known. For the tested 20-page import, a separate copy
+retained all source fields/page bytes and added the known-secret flags for the
+nonzero credentials already supplied by the Flipper file. This is file import,
+not physical-card authentication by High Boy; retain the unchanged source backup.
+
 ### Card families / protocols (`protocols/`)
 
 | Family | Directory | Notes |
@@ -214,7 +270,7 @@ feature parity. Full toolkit equivalence has **not** been implemented or validat
 | Fork family | TentacleOS status / remaining work |
 |---|---|
 | ISO14443-3A/3B/4A/4B | Native polling and ISO-DEP exist; command and recovery coverage still needs differential testing |
-| Classic | Reader, writer and emulator exist; complete Mini/1K/4K Flipper `.nfc` import and complete Classic export implemented; nonce and RMT allocation regressions fixed; physical repeated authentication/emulation remains to be validated |
+| Classic | Reader, writer and emulator exist; complete Mini/1K/4K Flipper `.nfc` import and complete Classic export implemented; nonce and RMT allocation regressions fixed; repeated target authentication/read validated on a local 1K fixture; native complete Mini/1K/4K reads checked against public fixtures, broader compatibility pending |
 | Ultralight | Reader plus Type 2 target; original Ultralight, EV1 11/21 and NTAG213/215/216 Flipper replay integrated; signature, counters, tearing flags, VCSL, NTAG ASCII mirror and AUTHLIM implemented; AES saved-file authentication/CMAC/RID and Type 2 session-copy persistence implemented; I2C target emulation and full security/physical parity remain incomplete |
 | Plus | Native SL3 poller and listener, First/NonFirst authentication, MAC/encrypted multi-block reads, protected RAM writes and Flipper session-copy export integrated; administrative commands, complete access-condition parity and physical interoperability remain unverified |
 | DESFire | Structured application/file reader, typed v4 persistence, detail pages and saved identity emulation implemented; authenticated application emulation is outside the fork baseline; physical interoperability pending |
@@ -243,8 +299,11 @@ four blocks below sector 32 and sixteen blocks thereafter.
 
 The loader validates metadata, unique block indices, exact block sizes and
 complete geometry before exposing a card to the listener. Unknown bytes (`??`),
-missing/duplicate blocks, unsupported versions/types, oversized lines and
+missing/duplicate blocks, unsupported versions/types, oversized data lines and
 unsupported UID lengths are rejected; they are never filled with invented data.
+Comment lines are consumed completely even when longer than the data-line
+buffer, as in Flipper's standard Classic export. Continuation chunks count toward
+the bounded input budget, and comment text cannot become a parsed data field.
 An invalid file clears the output profile and is omitted from the emulation list.
 The existing native binary format cannot preserve a seven-byte UID or ATQA/SAK;
 use `.nfc` for those cards.
@@ -259,8 +318,9 @@ Both formats may appear in the browser when a dump has both extensions.
 
 `python3 tools/nfc_api/test_flipper_file.py` compiles the production file module
 with ASan/UBSan and checks geometry, large-sector key offsets, UID/ATQA, export
-round trips, overwrite protection and malformed/incomplete files. Actual RF
-emulation still requires board testing. Import does not add 1K EV1/2K support or
+round trips, overwrite protection and malformed/incomplete files. The local 1K
+RF bench scope is recorded under Classic emulation transport below; other imported
+geometries still require board testing. Import does not add 1K EV1/2K support or
 implement the missing listeners in the parity table.
 
 ### NFC-V transparent listener
@@ -527,6 +587,17 @@ bool      highboy_nfc_field_detected(uint8_t *out_aux_display);
 - Capacity constants live in `highboy_nfc_types.h` (UID up to 10 bytes for
   triple cascade, ATS up to 64 bytes, 512-byte hardware FIFO).
 
+The `nfc detect` diagnostic uses `highboy_nfc_detect_external_field()` with the
+manual passive-target detector enabled (`OP_CONTROL.en_fd = 10b`) while TX is off.
+It waits 5 ms, reads AUX_DISPLAY and returns to EN-only field-off. EN-only by
+itself disables external-field detection, so reading after a plain `field_off()`
+was not a valid absence measurement. Bus/cleanup errors are reported separately
+from absence, and foreign owners are rejected. `nfc emu status` reads RAM without
+initializing or modifying the frontend; it reports the listener's running state,
+not the console's private profile/zero UID. The selected card identity remains in
+the emulation screen and startup log. Host fault-injection coverage is in
+`tools/nfc_api/test_field_detect.py`.
+
 ### V2.03 frontend contract
 
 - Use legacy regulator modulation for the mounted VDD_AM capacitor.
@@ -619,25 +690,67 @@ The earlier FIFO length correction alone was therefore insufficient.
 The local Flipper fork's `furi_hal_nfc_iso14443a_listener_tx_custom_parity`,
 `iso14443_3a_signal` and Classic listener were used as behavioral references.
 Highboy uses its own ESP-IDF implementation: a preallocated RMT DMA channel,
-40 MHz timing with fractional carrier-period accumulation, Manchester-coded
+80 MHz timing with fractional carrier-period accumulation, Manchester-coded
 106 kbit/s data and 847.5 kHz subcarrier bursts. Packed encrypted parity bits
 are emitted unchanged. The bounded frame covers at most 162 bits (18 bytes plus
-parity), with a start symbol and a low end interval. Full SPI bus ownership and
+parity), with a start symbol and a full 128-carrier-cycle low end interval. Full SPI bus ownership and
 the shared display/radio lock are held while MOSI is temporarily routed to RMT;
 MOSI is restored and transparent mode is exited before releasing the bus.
 Failed transmitter cleanup retains the initialized driver for a cleanup retry.
 No firmware-generated reader RF field is enabled for these target replies.
+Classic prepares and enables its DMA transmitter before listen mode, retaining it
+between replies. Its GPIO is routed back to SPI after each response. Transaction
+errors fence further replies until cleanup; other target modes retain their
+existing per-transaction enable/disable lifecycle. Cleanup reports maximum local
+encode, bus-wait, setup and transmit-wait times for bench diagnosis. The bit encoder
+runs from internal instruction RAM, and each reply restores the cached complete
+RMT GPIO route after enabling the output. Listener recovery does not print a
+message for every field-loss event.
+Classic authentication reserves both the shared semaphore and the SPI device bus
+for its bounded nonce/challenge/response exchange (including the existing 50 ms
+receive timeout). Register and transparent-mode transfers from the owning task
+reuse that reservation. Every authentication result releases it before returning
+to the listener, so display DMA cannot interleave inside the exchange. The
+transparent-output setup also runs from internal instruction RAM. Authentication
+callbacks run after the reservation is released. Crypto1 primitives use internal
+instruction RAM, with their 256-byte parity table in internal data RAM, to avoid
+flash-cache misses during the first authentication response.
+The four IRQ registers and the two FIFO-status registers are read in contiguous
+bursts, following the [Flipper driver sequence](https://github.com/flipperdevices/flipperzero-firmware/blob/dev/lib/drivers/st25r3916.c).
+Short register/command transfers use ESP-IDF's inline transaction storage. Burst
+reads use an eight-bit SPI command phase followed by up to four inline receive
+bytes; this keeps the complete IRQ snapshot in one transaction. ESP-IDF still
+handles the platform's DMA/cache alignment requirements. Existing pending
+RX/error bits are merged into that snapshot.
+
+The Classic emulation overlay stays static while listening: ring, card and dot
+animations and live packet counters are disabled, and its covered card picker is
+hidden until Stop. Only a transition to stopped/error changes the status label.
+This avoids periodic display DMA competing with initial authentication and read
+responses on the shared SPI bus. Other protocol overlays retain their animations.
+
+Carrier-to-RMT conversion uses the exact reduced ratio `2000/339`. A bounded
+32-bit accumulator retains the fractional phase without performing software
+64-bit division for every pulse. Manchester half-pulses use precomputed quotient
+and remainder constants with a single carry, and each RMT symbol is written as
+one packed word. The host transport check compares every
+supported pulse length and fractional phase with the original 64-bit formula,
+in addition to checking complete frames and transport cleanup.
 
 HALT and rejected authentication enter hardware SLEEP, allowing WUPA to restart
 selection. Loss of field and recoverable RF transaction failures rearm SENSE;
 only failure to rearm the hardware terminates the owning listener. Configuration
 and interrupt clearing precede GOTO_SENSE, so cleanup cannot discard a newly
-arriving request. RXE observed during selection is retained for the next worker
+arriving request. The latched field-off IRQ resets the session even if the field
+has already returned when the worker runs; a completed RX frame still takes
+precedence over that IRQ. RXE observed during selection is retained for the next worker
 step. Cipher and pending operation state are reset between sessions.
 
 Host checks:
 
 - `python3 tools/nfc_api/test_emu_tx.py`: encrypted parity and cipher advancement.
+- `python3 tools/nfc_api/test_spi_burst.py`: SPI burst framing, inline storage,
+  invalid bounds, failed reads and RF-ownership guards.
 - `python3 tools/nfc_api/test_transparent.py`: waveform timing, bounds, bus ownership
   and cleanup with injected transport failures (ASan/UBSan).
 - `python3 tools/nfc_api/test_emu_states.py`: repeated selection, HALT and recovery.
@@ -647,11 +760,26 @@ Host checks:
   UID checks and partial write failure without replay.
 - `python3 tools/nfc_api/test_sessions.py`: worker ownership and cancellation.
 
-Physical acceptance is still required: repeat selection/authentication/read and
-remove/reintroduce the reader field without closing the emulation screen. Verify
-the transparent waveform and response latency on the board if the reader still
-rejects replies. `AUTH OK` records local challenge verification and transmission;
-it does not confirm that the reader accepted the answer or read the full dump.
+Physical bench validation on 2026-11-17 used one complete four-byte-UID Classic
+1K Flipper profile on the local P4 with a Proxmark3 reader: two complete 64-block
+passes (including a device reboot), five additional fresh authenticated reads,
+and three sessions with nested authentication across two sectors all passed
+without selection/authentication failures or compared-data mismatches. Normal
+blocks were compared byte-for-byte; sector trailers were compared only for their
+four access/control bytes because the reader masks key bytes. This validates
+139 returned block frames, not RF recovery of every stored key byte. The imported
+1,024-byte image was separately compared in full with the source file.
+The five fresh authentication-answer delays measured by the reader were
+465.2–805.0 microseconds. Local transparent-TX bus waits peaked at 14–17 microseconds
+in these runs, compared with millisecond waits during the prior animated overlay.
+A subsequent user test at the door failed to produce any visible reader response
+while the Flipper still opened that door. An isolated connected attempt recorded
+zero selection/authentication events. Door interoperability remains unresolved;
+other geometries, readers, placements and write/value operations remain outside
+this bench qualification. The physical card's identity
+was read separately, not its full memory. `AUTH OK` alone records local challenge
+verification and transmission; acceptance here is based on the Proxmark's actual
+successful authentication and returned data, not that local counter.
 
 ### Access control and value operations
 
@@ -1415,7 +1543,13 @@ The Classic transparent TX DMA buffer holds 832 symbols (3,328 bytes), enough
 for the maximum 162-bit response, framing and DMA alignment without a
 mid-frame refill. The three card serialization scratch buffers live in PSRAM;
 they are task-context storage buffers, not DMA memory. The RMT DMA allocation
-remains internal. `tools/nfc_api/test_irq_wait.py` covers simultaneous TX/RX
+remains internal. Type 2 ACK/NACK uses a separate short target preparation:
+the SOF, four data bits and termination occupy 26 symbols plus the RMT EOF,
+within one 48-symbol hardware block. This path does not allocate a DMA buffer
+or refill during the reply. Short mode rejects longer frames and NFC-V/Texkom
+calls; full target mode retains its existing DMA configuration. Both modes
+restore SPI routing on allocation/transmission failure and release the channel
+on frontend deinitialization. `tools/nfc_api/test_irq_wait.py` covers simultaneous TX/RX
 interrupts, error handoff, stale-state clearing and deadlines with slow SPI;
 `test_transparent.py` checks waveform generation and allocation cleanup.
 
@@ -1448,3 +1582,158 @@ At/parity and SPI-failure checks. Physical dump validation remains necessary.
 - macOS fixtures avoid the system `strlcpy` macro; production code is unchanged.
 - Tests use simulated peers. Passing them does not establish RF interoperability or range.
 - Existing AES/I2C, Plus, SLIX, profile/archive workflows and NFC UI remain in place.
+
+
+## Classic block reads and reader key recovery
+
+The native Read Tag flow now offers Mini (20 blocks), 1K (64) and 4K (256),
+including 16-block sectors 32–39. Authentication uses the final four UID bytes
+for seven-byte cards. Key B exposed by valid trailer access conditions is
+preserved even when that key cannot authenticate. Keys from the cache are always
+verified against the physical card before being marked known.
+
+Partial and cancelled reads save a Flipper v4 `.nfc` profile under
+`/nfc/dumps`. Unknown bytes and unknown trailer keys are `??`; incomplete data is
+never exported as a complete binary. Complete blocks plus both keys also produce
+an image of 320, 1024 or 4096 bytes. Names are selected without replacing older
+profiles. The strict emulator loader still rejects incomplete profiles. Known
+keys persist for a subsequent read; merging prior partial block data is not yet
+implemented.
+
+After identifying a Classic card, **Extract reader keys** starts a capture-only
+listener using its identity. Remove the card and present High Boy to the reader
+repeatedly, then press OK. BACK cancels. The worker stores two independent fresh
+authentication transcripts per sector/key type, excludes nested authentication,
+stops RF, and runs MFKey recovery offline. Verified results are added to the user
+dictionary; the UI reports validated and persisted counts separately. A fresh
+card authentication is still required to establish that a reader key belongs to
+the card. Reader attempts are not guaranteed to yield recoverable pairs.
+Flipper-compatible capture logs stay on SD under `/nfc/mfkey`; no secret keys or
+transcripts are printed to the console by this workflow.
+
+The prior `mf_nested.c` constructed reader responses using a different key and
+passed them into MFKey as if captured. This cannot recover an unknown target key.
+Its legacy entry points now return `ESP_ERR_NOT_SUPPORTED`, clear outputs and do
+not send RF commands. Card-only nested/static-nested/hardnested recovery remains
+unimplemented. MFKey reader recovery is not a substitute for these algorithms.
+
+### MFKey algorithm origin and local adaptation
+
+State-recovery construction is derived from GPL-3.0-or-later CRAPTO1 by bla
+(2008–2014) and Proxmark3 contributors. References are:
+
+- `flipperdevices/Flipper-iOS-App`, revision
+  `2c1c8531953110631ca471251280a1602d118011`, package `MFKey32v2`,
+  `Sources/CCrapto1/{crapto1.c,crypto1.c}` and the package's published XCTest vector.
+- `noproto/FlipperMfkey`, revision
+  `9928b2ee117f0ed6e5e202f7c06f8ce5797382fa`, `dev/mfkeymin.c` and
+  `dev/standard_tests/a0a1a2a3a4a5_only.log`.
+
+This local algorithm adaptation is necessary because the reference iOS recovery
+allocates approximately 50 MiB including buckets and candidate states; High Boy
+has 32 MiB PSRAM. The adaptation uses two bounded 8 MiB PSRAM tables, in-place
+feedback grouping, streamed candidate verification and cooperative cancellation.
+It has no internal-memory fallback. Failure and cancellation clear output keys.
+It does not import upstream app/UI/runtime dependencies. To update, compare the
+pinned recovery/rollback construction, preserve GPL attribution, and rerun the
+independent vector, failure and cancellation tests before hardware qualification.
+
+Host validation: `tools/nfc_api/test_mfkey.py` checks two published vectors and four
+vectors generated independently using the pinned CCrapto1 implementation,
+including zero/all-one keys and equal card nonces with independent reader nonces.
+It also checks corruption, duplicate/invalid inputs, each allocation failure and
+cancellation at several stages. `test_mfc_dump.py` exercises production reader
+logic with a scripted RF adapter; `test_reader_capture.py` exercises the actual
+capture path, byte order, unknown-key behavior, bus-release callback ordering,
+short/failed frames and nested exclusion. These host tests do not establish RF
+interoperability or full Flipper parity. Device qualification is recorded with
+the build/test artifacts; the earlier door-reader failure remains unresolved.
+
+The adapted CRAPTO1 construction retains the original attribution:
+
+> Copyright (C) 2008-2014 bla <blapost@gmail.com>
+> Copyright (C) Proxmark3 contributors. See the upstream AUTHORS.md for details.
+
+GPL-3.0-or-later redistribution, modification and warranty terms apply; the
+project's GNU GPL license supplies the license text. The upstream source above
+retains its complete original notice. `test_mfkey_workflow.py` additionally
+checks orchestration, duplicate/mixed-UID rejection, antenna release before
+recovery, busy ownership, startup/allocation/persistence failure and cancellation.
+
+
+### Hardware qualification and read follow-up (2026-11-18)
+
+`parity03` was installed and byte-verified on the P4 with no new backup and no
+changes outside its application. A public Proxmark3 1K fixture produced 63/64
+blocks on the first run and 64/64 on a repeated run with RF recovery passes; all
+1024 bytes of the complete `.nfc` profile matched the fixture. The first partial
+file retained exactly the unread block as unknown.
+
+A fresh reader-authentication capture using a public test key then recovered one
+key on the P4 in approximately 28 seconds. The saved dictionary entry matched
+the reader's key exactly. Recovery allocated its 16 MiB PSRAM tables and released
+them afterward. BACK and no-tag timeout navigation were observed on the device.
+
+A 4K fixture with a seven-byte UID was identified, but its initial `parity03`
+read failed to obtain blocks. Independent trace verification confirmed correct
+CUID and reader cryptograms. Selection failures caused the common A-key attempt
+to be missed; B authentication could succeed while the fixture denied data reads
+under its readable-Key-B access conditions. This is not a qualified 4K read.
+
+The follow-up reader now revisits the missing A key immediately when B grants no
+readable blocks. Its UI has no field animation during block reads and redraws
+progress only when changed, at most five times per second, reducing shared-SPI
+traffic. A fault-injection test requires a readable first sector to be preserved
+before moving on. The generic worker groups callbacks/context in a configuration
+structure; the existing 1K entry point remains an adapter.
+
+Dictionary append commits to SD before adding a new in-memory entry. Every
+write and `fclose` is checked, including delayed flush failures; a leading newline
+isolates a previously interrupted line. A failed append cannot become a falsely
+successful duplicate on the next retry. `test_key_persistence.py` covers failure,
+retry and durable duplicates; `test_key_append.py` injects open, write and close
+failures into the production append function.
+
+With approximately 1 cm antenna separation, `parity04` selected the seven-byte
+UID and saved all 256 blocks and 80 keys. One block differed from emulator RAM:
+block 128 was all zero. The matching Proxmark3 revision `9f1423553` has a boundary
+error in [SectorTrailer](https://github.com/RfidResearchGroup/proxmark3/blob/9f1423553/armsrc/mifareutil.c#L993):
+`SectorTrailer(128)` returns 131 instead of 143. Its
+[data-read permission check](https://github.com/RfidResearchGroup/proxmark3/blob/9f1423553/armsrc/mifaresim.c#L114)
+therefore uses ordinary block 131 as access bits and masks the reply to zero for
+this fixture. All other 4080 bytes matched. A separate public fixture changes
+only bytes 7–8 of data block 131 so this simulator error allows the read; the
+actual trailer 143 and High Boy firmware are unchanged. Final comparison and
+installation evidence are recorded in the verification artifacts. On `parity05`,
+the adjusted fixture read 256/256 blocks in approximately 17 seconds, with all
+4096 bytes matching. A fresh reader capture at block 128 (sector 32) with this
+seven-byte identity recovered a second public test key in approximately 40
+seconds and durably appended the exact key to SD. The 16 MiB recovery workspace
+was released, and the device returned to Home with the NFC listener idle.
+
+
+The `parity06` application adds the compact saved-state layout without changing
+the radio/recovery algorithms. It was app-only flashed and fully verified, with
+PSRAM self-test and the paired C5 handshake passing. A final 4K read after a
+Proxmark reset matched all 4096 fixture bytes in approximately 49 seconds.
+Earlier runs in both orientations had selection timeouts and partial results;
+a successful complete read is not a claim of stable operation in every attempt.
+Initial Mini identification/read attempts were also intermittent. Independent CCrapto1 verification of 71 captured Mini reader responses
+confirmed the four-byte UID and generated cryptograms for the dictionary keys
+actually attempted. Missing standard-key attempts coincided with selection or
+nonce-reception failures. These results do not establish the physical cause.
+
+
+After the Proxmark failed to reappear on USB, connecting it directly to the Mac
+restored the connection. The same public Mini fixture (UID `AABBCCDD`) then read
+20/20 blocks and 10/10 keys on `parity06` in approximately 1.6 seconds; all 320
+saved bytes matched. The failed attempts remain in the evidence. The connection
+change and subsequent success do not prove the hub was the sole RF cause.
+
+The Mini read was repeated in landscape with Cyber Blue: 20/20 blocks and all
+320 bytes matched in approximately 1.6 seconds. Portrait Default and landscape
+Cyber Blue result screenshots show the saved-state text and block data without
+overlap. The original display settings were restored after these checks.
+
+The central NFC listener sets a periodic info LED while RUNNING and clears its
+activity source only after RF cleanup. Radio callbacks never perform LED I2C.

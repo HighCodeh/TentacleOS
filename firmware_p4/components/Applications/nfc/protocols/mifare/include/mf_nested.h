@@ -12,24 +12,8 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
-/**
- * @file mf_nested.h
- * @brief Nested authentication attack for MIFARE Classic.
- *
- * When you already know at least ONE key for any sector, this attack
- * recovers keys for sectors where the dictionary failed.
- *
- * Algorithm:
- *  1. Authenticate to a known sector (sector_src, key_src).
- *  2. While still in the Crypto1 session, send AUTH to the target sector.
- *     The card responds with nt_target ENCRYPTED by the current Crypto1 stream.
- *  3. Decrypt nt_target using the known keystream state.
- *  4. Repeat to collect multiple (nt, nr, ar) pairs on the wire.
- *  5. Use mfkey32 to recover the target key from two wire-level auth traces.
- *
- * Works best on cards with static or weak PRNG (most clones / Gen1a / Gen2).
- * Falls back to dictionary check with known nt for all card types.
- */
+/* Legacy nested API. Returns ESP_ERR_NOT_SUPPORTED without RF activity.
+ * Reader MFKey transcripts are not nested card-authentication samples. */
 #ifndef MF_NESTED_H
 #define MF_NESTED_H
 
@@ -53,20 +37,6 @@ typedef struct {
   uint32_t ar_enc; /**< @brief Encrypted reader response (as sent on wire). */
 } mf_nested_sample_t;
 
-/**
- * @brief Collect one nested auth sample to target_block.
- *
- * Requires that mf_classic_auth() was called successfully just before
- * this function (Crypto1 must be active).
- *
- * @param target_block  Block number to target for nested auth.
- * @param uid           4-byte card UID.
- * @param nr_chosen     Reader nonce to use.
- * @param[out] sample   Collected sample data.
- * @return
- *   - HB_NFC_OK on success
- *   - Error code on failure
- */
 hb_nfc_err_t mf_nested_collect_sample(uint8_t target_block,
                                       const uint8_t uid[4],
                                       uint32_t nr_chosen,
@@ -75,23 +45,6 @@ hb_nfc_err_t mf_nested_collect_sample(uint8_t target_block,
 #define MF_NESTED_SAMPLE_COUNT 8
 #define MF_NESTED_MAX_ATTEMPTS 32
 
-/**
- * @brief Run a full nested attack to recover a target sector key.
- *
- * Authenticates to src_sector with src_key, collects samples to
- * target_sector, runs mfkey32 on pairs, and verifies the recovered key.
- *
- * @param card               Card data (UID required).
- * @param src_sector         Source sector with known key.
- * @param src_key            Known key for source sector.
- * @param src_key_type       Key type for source sector.
- * @param target_sector      Target sector to recover.
- * @param[out] found_key_out      Recovered key.
- * @param[out] found_key_type_out Recovered key type.
- * @return
- *   - HB_NFC_OK on success
- *   - Error code on failure
- */
 hb_nfc_err_t mf_nested_attack(nfc_iso14443a_data_t *card,
                               uint8_t src_sector,
                               const mf_classic_key_t *src_key,

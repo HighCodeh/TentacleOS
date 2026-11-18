@@ -115,10 +115,23 @@ esp_err_t nfc_flipper_file_load_classic(const char *path, mfc_emu_card_data_t *o
                                                  "Mifare Classic type",
                                                  "Data format version"};
   while (fgets(line, sizeof(line), file)) {
-    if (++lines > FILE_LINE_LIMIT || (!strchr(line, '\n') && !feof(file)))
+    if (++lines > FILE_LINE_LIMIT)
       goto cleanup;
+    bool has_newline = strchr(line, '\n') != NULL;
     char *key = trim(line);
-    if (!*key || *key == '#')
+    if (*key == '#') {
+      /* Flipper comments may exceed the data-line buffer. Consume the entire
+       * comment, retaining the bounded input budget for continuation chunks. */
+      while (!has_newline && fgets(line, sizeof(line), file)) {
+        if (++lines > FILE_LINE_LIMIT)
+          goto cleanup;
+        has_newline = strchr(line, '\n') != NULL;
+      }
+      continue;
+    }
+    if (!has_newline && !feof(file))
+      goto cleanup;
+    if (!*key)
       continue;
     char *separator = strchr(key, ':');
     if (!separator)

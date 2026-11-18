@@ -40,6 +40,7 @@ VALID = HEAD + ''.join(f'Page {i}: {MEM[i*4:i*4+4].hex(" ")}\n' for i in range(4
 with tempfile.TemporaryDirectory(prefix='nfc-t2t-file-') as tmp:
     p = Path(tmp)
     (p/'esp_log.h').write_text('#define ESP_LOGD(tag,...) ((void)(tag))\n#define ESP_LOGE(tag,...) ((void)(tag))\n')
+    (p/'esp_heap_caps.h').write_text('#include <stdlib.h>\n#define MALLOC_CAP_SPIRAM 1\n#define MALLOC_CAP_8BIT 2\n#define heap_caps_malloc(n,c) malloc(n)\n')
     (p/'esp_err.h').write_text('typedef int esp_err_t;\n#define ESP_OK 0\n#define ESP_ERR_INVALID_ARG 1\n#define ESP_ERR_NOT_FOUND 2\n#define ESP_ERR_INVALID_RESPONSE 3\n#define ESP_ERR_NO_MEM 4\n#define ESP_ERR_INVALID_SIZE 5\n')
     (p/'highboy_nfc_error.h').write_text('typedef int hb_nfc_err_t;\n')
     (p/'highboy_nfc_compat.h').write_text('')
@@ -88,6 +89,15 @@ int main(int argc,char **argv) {
         assert(nfc_t2t_file_save(saved,&card)==ESP_ERR_INVALID_ARG);
         card.config.aes_signature_known=0;
 
+      }
+      if(card.config.type==T2T_TAG_ULTRALIGHT_EV1_11) {
+        card.config.readable_pages=16;
+        card.config.pwd_known=card.config.pack_known=card.config.enable_pwd=false;
+        memset(card.memory+64,0,16);
+        assert(nfc_t2t_file_save(saved,&card)==0);
+        assert(nfc_t2t_file_load(saved,&roundtrip)==0);
+        assert(roundtrip.config.readable_pages==16);
+        assert(!memcmp(roundtrip.memory,card.memory,64));
       }
       assert(roundtrip.config.counter==card.config.counter);
       assert(roundtrip.config.enable_ulc_auth==card.config.enable_ulc_auth);

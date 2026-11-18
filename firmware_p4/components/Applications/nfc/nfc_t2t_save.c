@@ -21,6 +21,7 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "storage_atomic.h"
 
 #define TEXT_CAPACITY    16384U
@@ -90,7 +91,7 @@ esp_err_t nfc_t2t_file_save(const char *path, const nfc_t2t_file_t *card) {
   if (config->counter > T2T_COUNTER_MAX)
     return ESP_ERR_INVALID_ARG;
   esp_err_t error = ESP_ERR_NO_MEM;
-  char *text = malloc(TEXT_CAPACITY);
+  char *text = heap_caps_malloc(TEXT_CAPACITY, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (text == NULL) {
     ESP_LOGE(TAG, "No memory for Type 2 export");
     goto cleanup;
@@ -98,6 +99,14 @@ esp_err_t nfc_t2t_file_save(const char *path, const nfc_t2t_file_t *card) {
   size_t offset = 0;
   size_t read =
       config->type == T2T_TAG_ULTRALIGHT_C && !config->enable_ulc_auth ? ULC_PUBLIC_PAGES : total;
+  if (config->readable_pages) {
+    if (config->readable_pages < 4 || config->readable_pages >= total ||
+        config->type >= T2T_TAG_ULTRALIGHT_AES || config->type == T2T_TAG_ULTRALIGHT_C) {
+      error = ESP_ERR_INVALID_ARG;
+      goto cleanup;
+    }
+    read = config->readable_pages;
+  }
   uint16_t known = config->enable_ulc_auth ? UINT16_MAX : config->ulc_key_known;
   uint8_t secrets[] = {config->enable_pwd || config->pwd_known,
                        config->enable_pwd || config->pack_known,
@@ -165,7 +174,9 @@ esp_err_t nfc_t2t_file_save(const char *path, const nfc_t2t_file_t *card) {
   }
   for (size_t i = 0; i < total; i++)
     if (!append(text, &offset, "Page %zu: ", i) ||
-        !append_hex(text, &offset, card->memory + i * PAGE_SIZE, PAGE_SIZE))
+        !(config->readable_pages && i >= read
+              ? append(text, &offset, "?? ?? ?? ??\n")
+              : append_hex(text, &offset, card->memory + i * PAGE_SIZE, PAGE_SIZE)))
       goto cleanup;
   error = storage_write_atomic(path, text, offset);
 cleanup:

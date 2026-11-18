@@ -36,8 +36,9 @@ static void fixture(const char *path, const char *type, int blocks, int fault) {
   if (fault == 4) fprintf(f, "Version: 4\n");
   if (fault == 5) fprintf(f, "Block 256: 00\n");
   if (fault == 6) {
-    fprintf(f, "# ");
-    for (int i = 0; i < 300; i++) fputc('A', f);
+    /* A valid field padded beyond the data-line capacity must still fail. */
+    for (int i = 0; i < 300; i++) fputc(' ', f);
+    fprintf(f, "Version: 4");
     fputc('\n', f);
   }
   assert(fclose(f) == 0);
@@ -55,6 +56,16 @@ int main(int argc, char **argv) {
     assert(card.total_blocks == sizes[t] && card.sector_count == sectors[t]);
     assert(card.uid_len == 7 && card.uid[6] == 0x66);
     assert(card.atqa[0] == 0x44 && card.atqa[1] == 0);
+    mfc_emu_card_data_t without_comments = card;
+    FILE *comments = fopen(argv[1], "a");
+    assert(comments);
+    fprintf(comments, "  # ");
+    for (int i = 0; i < 400; i++) fputc('A', comments);
+    fprintf(comments, "Version: 99\r\n# ");
+    for (int i = 0; i < 300; i++) fputc('B', comments);
+    assert(fclose(comments) == 0);
+    assert(nfc_flipper_file_load_classic(argv[1], &card) == ESP_OK);
+    assert(!memcmp(&card, &without_comments, sizeof(card)));
     for (int s = 0; s < sectors[t]; s++) {
       int trailer = s < 32 ? s * 4 + 3 : 128 + (s - 32) * 16 + 15;
       assert(card.keys[s].key_a[0] == (uint8_t)trailer);
@@ -76,6 +87,13 @@ int main(int argc, char **argv) {
   fixture(argv[1], "1K", 65, 0);
   assert(nfc_flipper_file_load_classic(argv[1], &card) != ESP_OK);
   fixture(argv[1], "1K EV1", 72, 0);
+  assert(nfc_flipper_file_load_classic(argv[1], &card) != ESP_OK);
+  fixture(argv[1], "1K", 64, 0);
+  FILE *oversized_comment = fopen(argv[1], "a");
+  assert(oversized_comment);
+  fputs("# ", oversized_comment);
+  for (int i = 0; i < 100000; i++) fputc('A', oversized_comment);
+  assert(fclose(oversized_comment) == 0);
   assert(nfc_flipper_file_load_classic(argv[1], &card) != ESP_OK);
   assert(nfc_flipper_file_load_classic(NULL, &card) == ESP_ERR_INVALID_ARG);
   puts("Classic .nfc: Mini/1K/4K, geometry, UID, ATQA, malformed and incomplete files passed");

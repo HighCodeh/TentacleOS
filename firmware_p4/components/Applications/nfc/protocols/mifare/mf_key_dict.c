@@ -144,13 +144,13 @@ hb_nfc_err_t mf_key_dict_add(const uint8_t key[MF_KEY_SIZE]) {
     return HB_NFC_ERR_INTERNAL;
   }
 
-  memcpy(s_keys[s_count], key, MF_KEY_SIZE);
-  s_count++;
-
   if (nfc_dict_append_key(SD_USER_DIC, key, MF_KEY_SIZE) != ESP_OK) {
-    ESP_LOGW(TAG, "Could not persist key to %s (in-memory only)", SD_USER_DIC);
+    ESP_LOGW(TAG, "Could not persist key to %s", SD_USER_DIC);
     return HB_NFC_ERR_INTERNAL;
   }
+  /* A failed append must not turn a later retry into a false saved duplicate. */
+  memcpy(s_keys[s_count], key, MF_KEY_SIZE);
+  s_count++;
 
   ESP_LOGI(TAG, "Persisted new key to %s (total %d)", SD_USER_DIC, s_count);
   return HB_NFC_OK;
