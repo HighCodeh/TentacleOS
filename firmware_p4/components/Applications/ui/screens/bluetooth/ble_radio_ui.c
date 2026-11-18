@@ -27,6 +27,8 @@
 #include "ui_manager.h"
 #include "ui_metrics.h"
 #include "ui_theme.h"
+#include "esp_attr.h"
+#include "menu_component_ui.h"
 
 #define RADIO_ICON "/assets/icons/bluetooth.bin"
 
@@ -36,7 +38,7 @@
 #define CONTENT_W (ui_screen_w() - 2 * MX)
 #define CARD_Y    50
 #define CARD_H    58
-#define ROWS_Y    LV_MIN(124, ui_screen_h() - UI_CHROME_FOOTER_H - (R_COUNT - 1) * ROW_STEP - ROW_H)
+#define ROWS_Y    118
 #define ROW_H     42
 #define ROW_GAP   8
 #define ROW_STEP  (ROW_H + ROW_GAP)
@@ -62,6 +64,7 @@ static const radio_row_def_t ROW_DEFS[R_COUNT] = {
 };
 
 static lv_obj_t *s_screen = NULL;
+static EXT_RAM_BSS_ATTR menu_component_t s_actions;
 static lv_obj_t *s_card_mac = NULL;
 static lv_obj_t *s_card_conn = NULL;
 static lv_obj_t *s_row[R_COUNT];
@@ -110,13 +113,14 @@ static void refresh_selection(void) {
     lv_obj_set_style_border_color(s_row[i], sel ? accent : current_theme.border_inactive, 0);
     lv_obj_set_style_border_opa(s_row[i], sel ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
     lv_obj_set_style_bg_color(
-        s_row[i], sel ? lv_color_hex(COL_RAISE) : current_theme.bg_secondary, 0);
+        s_row[i], sel ? current_theme.bg_primary : current_theme.bg_secondary, 0);
     lv_obj_set_style_shadow_width(s_row[i], sel ? 16 : 0, 0);
     lv_obj_set_style_shadow_color(s_row[i], accent, 0);
     lv_obj_set_style_shadow_spread(s_row[i], sel ? -3 : 0, 0);
     lv_obj_set_style_text_color(s_icon_lbl[i], sel ? accent : dim, 0);
     lv_obj_set_style_text_color(s_val_lbl[i], sel ? accent : dim, 0);
   }
+  menu_component_scroll_to_item(&s_actions, s_row[s_sel]);
 }
 
 static lv_obj_t *lit_card(lv_obj_t *parent) {
@@ -145,8 +149,8 @@ static lv_obj_t *make_row(lv_obj_t *parent, int i) {
   lv_obj_t *row = lv_obj_create(parent);
   lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(row, CONTENT_W, ROW_H);
-  lv_obj_align(row, LV_ALIGN_TOP_MID, 0, ROWS_Y + i * ROW_STEP);
+  lv_obj_set_size(row, CONTENT_W - 14, ROW_H);
+  lv_obj_align(row, LV_ALIGN_TOP_LEFT, 0, i * ROW_STEP);
   lv_obj_set_style_radius(row, 10, 0);
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(row, 2, 0);
@@ -166,6 +170,8 @@ static lv_obj_t *make_row(lv_obj_t *parent, int i) {
   lv_obj_set_style_text_font(name, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(name, current_theme.text_main, 0);
   lv_obj_set_style_pad_left(name, 8, 0);
+  lv_obj_set_width(name, 0);
+  lv_label_set_long_mode(name, LV_LABEL_LONG_SCROLL_CIRCULAR);
   lv_obj_set_flex_grow(name, 1);
 
   lv_obj_t *val = lv_label_create(row);
@@ -223,15 +229,10 @@ void ui_ble_radio_open(void) {
   read_mac();
   s_connected = bluetooth_service_get_connected_count();
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   ui_chrome_header(s_screen, "BLE RADIO", RADIO_ICON);
-  ui_chrome_footer(s_screen, "UP/DOWN choose   OK do   BACK back");
+  ui_chrome_footer(s_screen, LV_SYMBOL_UP LV_SYMBOL_DOWN " Select  OK Run  BACK");
 
   lv_obj_t *card = lit_card(s_screen);
 
@@ -243,8 +244,15 @@ void ui_ble_radio_open(void) {
   lv_obj_set_style_text_color(s_card_conn, current_theme.text_main, 0);
   lv_obj_set_style_text_font(s_card_conn, &lv_font_montserrat_12, 0);
 
+  lv_obj_t *list = lv_obj_create(s_screen);
+  lv_obj_remove_style_all(list);
+  lv_obj_set_size(list, CONTENT_W - 14, ui_screen_h() - ROWS_Y - UI_CHROME_FOOTER_H - 4);
+  lv_obj_align(list, LV_ALIGN_TOP_LEFT, MX, ROWS_Y);
+  lv_obj_set_scroll_dir(list, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_OFF);
+  menu_component_attach_scroll(&s_actions, s_screen, list);
   for (int i = 0; i < R_COUNT; i++)
-    s_row[i] = make_row(s_screen, i);
+    s_row[i] = make_row(list, i);
 
   update_card();
   update_values();

@@ -109,12 +109,7 @@ void ui_ble_exposure_open(void) {
   s_count_label = NULL;
   s_list_label = NULL;
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   ui_chrome_header(s_screen, "EXPOSURE", EXPO_ICON);
   ui_chrome_footer(s_screen, "BACK Back");
@@ -191,7 +186,6 @@ static void exposure_input(const input_event_t *ev, void *ctx) {
   switch (ev->button) {
     case INPUT_BTN_BACK:
       if (press) {
-        ui_ble_exposure_stop();
         ui_switch_screen(SCREEN_BLE_DETECT_MENU);
       }
       break;

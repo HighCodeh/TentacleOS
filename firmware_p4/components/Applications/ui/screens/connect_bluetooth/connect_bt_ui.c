@@ -234,6 +234,10 @@ static void connect_bt_input(const input_event_t *ev, void *ctx) {
 }
 
 void ui_connect_bt_open(void) {
+  if (s_scanning || s_connecting) {
+    build_screen();
+    return;
+  }
   s_count = 0;
   s_state = BT_SCANNING;
   s_scanning = false;

@@ -41,6 +41,10 @@ static const char *TAG = "BLE_MOUSE_UI";
 #define DOT_CYCLE_US          350000
 #define RIGHT_CLICK_HOLD_US   700000
 #define SCROLL_REPEAT_US      140000
+#define MOUSE_WIDE_VIEW       (ui_screen_w() > ui_screen_h())
+#define MOUSE_PAD_HEIGHT      (MOUSE_WIDE_VIEW ? 40 : 84)
+#define MOUSE_CLICK_HEIGHT    (MOUSE_WIDE_VIEW ? 30 : 44)
+#define MOUSE_SCROLL_HEIGHT   (MOUSE_WIDE_VIEW ? 26 : 40)
 #define MOUSE_MOVE_STEP       7
 
 #define COL_RAISE 0x170A28
@@ -376,7 +380,7 @@ void ui_ble_mouse_open(void) {
 
   lv_obj_t *pad = lv_obj_create(body);
   lv_obj_remove_flag(pad, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(pad, 200, 84);
+  lv_obj_set_size(pad, 200, MOUSE_PAD_HEIGHT);
   lv_obj_set_style_radius(pad, 14, 0);
   lv_obj_set_style_bg_color(pad, current_theme.bg_secondary, 0);
   lv_obj_set_style_bg_opa(pad, LV_OPA_COVER, 0);
@@ -398,7 +402,7 @@ void ui_ble_mouse_open(void) {
   lv_obj_t *row = lv_obj_create(body);
   lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_width(row, lv_pct(100));
-  lv_obj_set_height(row, 44);
+  lv_obj_set_height(row, MOUSE_CLICK_HEIGHT);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(row, 0, 0);
   lv_obj_set_style_pad_all(row, 0, 0);
@@ -407,14 +411,14 @@ void ui_ble_mouse_open(void) {
   lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
   s_mouse_objs[M_LCLICK] = mouse_make_button(row, MOUSE_BTNS[M_LCLICK].text);
-  lv_obj_set_size(s_mouse_objs[M_LCLICK], lv_pct(48), 44);
+  lv_obj_set_size(s_mouse_objs[M_LCLICK], lv_pct(48), MOUSE_CLICK_HEIGHT);
   s_mouse_objs[M_RCLICK] = mouse_make_button(row, MOUSE_BTNS[M_RCLICK].text);
-  lv_obj_set_size(s_mouse_objs[M_RCLICK], lv_pct(48), 44);
+  lv_obj_set_size(s_mouse_objs[M_RCLICK], lv_pct(48), MOUSE_CLICK_HEIGHT);
 
   s_mouse_objs[M_SCRL_UP] = mouse_make_button(body, MOUSE_BTNS[M_SCRL_UP].text);
-  lv_obj_set_size(s_mouse_objs[M_SCRL_UP], lv_pct(100), 40);
+  lv_obj_set_size(s_mouse_objs[M_SCRL_UP], lv_pct(100), MOUSE_SCROLL_HEIGHT);
   s_mouse_objs[M_SCRL_DN] = mouse_make_button(body, MOUSE_BTNS[M_SCRL_DN].text);
-  lv_obj_set_size(s_mouse_objs[M_SCRL_DN], lv_pct(100), 40);
+  lv_obj_set_size(s_mouse_objs[M_SCRL_DN], lv_pct(100), MOUSE_SCROLL_HEIGHT);
 
   s_mouse_focus = M_LCLICK;
   mouse_apply_focus(s_mouse_objs[s_mouse_focus], true);

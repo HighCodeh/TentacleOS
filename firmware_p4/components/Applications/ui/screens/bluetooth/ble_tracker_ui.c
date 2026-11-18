@@ -205,10 +205,10 @@ static void build_results_view(void) {
 
   if (shown > 0) {
     lv_obj_remove_flag(s_banner, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_fade_in(s_banner, 200, 0);
+    lv_obj_fade_in(s_banner, UI_CONTENT_FADE_MS, 0);
   }
 
-  lv_obj_fade_in(body, 220, 0);
+  lv_obj_fade_in(body, UI_CONTENT_FADE_MS, 0);
 }
 
 void ui_ble_tracker_open(void) {
@@ -220,12 +220,7 @@ void ui_ble_tracker_open(void) {
   s_banner = NULL;
   s_is_showing_results = false;
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   build_scanning_view();
 
@@ -271,7 +266,6 @@ static void ble_tracker_input(const input_event_t *ev, void *ctx) {
   switch (ev->button) {
     case INPUT_BTN_BACK:
       if (press) {
-        ui_ble_tracker_stop();
         ui_switch_screen(SCREEN_BLE_DETECT_MENU);
       }
       break;

@@ -117,8 +117,8 @@ static void build_pairing(void) {
   lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(hint, LV_ALIGN_CENTER, 0, 82);
 
-  fade_in(status, 220);
-  fade_in(hint, 260);
+  fade_in(status, UI_CONTENT_FADE_MS);
+  fade_in(hint, UI_CONTENT_FADE_MS);
 }
 
 static void update_terminal(void) {
@@ -155,8 +155,8 @@ static void build_console(void) {
   lv_obj_align(s_term_label, LV_ALIGN_TOP_LEFT, 0, 0);
   update_terminal();
 
-  fade_in(status, 220);
-  fade_in(card, 260);
+  fade_in(status, UI_CONTENT_FADE_MS);
+  fade_in(card, UI_CONTENT_FADE_MS);
 
   ui_feedback(UI_FB_READ);
   notify(NOTIFY_INFO, "HID keyboard connected");
@@ -251,12 +251,7 @@ void ui_ble_keyboard_open(void) {
   s_phase_timer = NULL;
   s_cursor_timer = NULL;
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   ui_chrome_header(s_screen, "BLE KEYBOARD", KB_ICON);
   s_footer = ui_chrome_footer(s_screen, "BACK  Cancel");

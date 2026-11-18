@@ -137,8 +137,8 @@ static void build_pairing(void) {
   lv_obj_set_style_text_align(code, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_center(code);
 
-  fade_in(status, 200);
-  fade_in(card, 240);
+  fade_in(status, UI_CONTENT_FADE_MS);
+  fade_in(card, UI_CONTENT_FADE_MS);
 }
 
 static void show_confirmation(const host_link_pairing_t *pairing) {
@@ -215,8 +215,8 @@ static void show_success(void) {
   lv_obj_set_style_text_font(ver, &lv_font_montserrat_12, 0);
 
   pop_in(seal, 30, 360);
-  fade_in(status, 240);
-  fade_in(badge, 300);
+  fade_in(status, UI_CONTENT_FADE_MS);
+  fade_in(badge, UI_CONTENT_FADE_MS);
 
   ui_feedback(UI_FB_READ);
   ui_chrome_footer_set_text(s_footer, "BACK  Exit");
@@ -235,12 +235,7 @@ void ui_companion_pairing_open(void) {
     s_screen = NULL;
   }
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   ui_chrome_header(s_screen, "COMPANION", COMPANION_ICON);
   s_footer = ui_chrome_footer(s_screen, "BACK  Cancel");
