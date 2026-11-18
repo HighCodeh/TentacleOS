@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "esp_log.h"
 
@@ -203,4 +204,24 @@ esp_err_t subghz_storage_delete(const char *name) {
   }
   ESP_LOGI(TAG, "deleted %s", path);
   return ESP_OK;
+}
+
+esp_err_t subghz_storage_rename(const char *old_name, const char *new_name) {
+  if (old_name == NULL || new_name == NULL || !old_name[0] || !new_name[0] ||
+      strlen(old_name) >= 40 || strlen(new_name) >= 40 || strpbrk(old_name, "/\\") ||
+      strpbrk(new_name, "/\\:*?\"<>|") || old_name[0] == '.' || new_name[0] == '.' ||
+      new_name[0] == ' ' || new_name[strlen(new_name) - 1] == '.' ||
+      new_name[strlen(new_name) - 1] == ' ')
+    return ESP_ERR_INVALID_ARG;
+  char old_path[PATH_BUF_SIZE], new_path[PATH_BUF_SIZE];
+  build_path(old_path, sizeof(old_path), old_name);
+  build_path(new_path, sizeof(new_path), new_name);
+  struct stat info;
+  if (stat(old_path, &info) != 0)
+    return ESP_ERR_NOT_FOUND;
+  if (strcmp(old_name, new_name) == 0)
+    return ESP_OK;
+  if (stat(new_path, &info) == 0)
+    return ESP_ERR_INVALID_STATE;
+  return rename(old_path, new_path) == 0 ? ESP_OK : ESP_FAIL;
 }

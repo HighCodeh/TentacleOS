@@ -22,10 +22,11 @@
 #include "subghz_protocol_serializer.h"
 #include "subghz_protocol_utils.h"
 #include "subghz_replay.h"
+#include "subghz_transmitter.h"
 #include "storage_assets.h"
 
-#define TEST_PULSE_CAPACITY 256
-#define TEST_TEXT_CAPACITY 1024
+#define TEST_PULSE_CAPACITY 8192
+#define TEST_TEXT_CAPACITY 65536
 #define TEST_FREQUENCY_HZ 433920000u
 #define TEST_PRESET 6u
 #define TEST_KEY UINT64_C(0x0123456789abcdef)
@@ -40,6 +41,7 @@ static char s_capture[TEST_TEXT_CAPACITY];
 static int32_t s_sent[TEST_PULSE_CAPACITY];
 static size_t s_sent_count;
 static uint32_t s_frequency;
+static cc1101_preset_t s_sent_preset;
 static bool s_is_running;
 static bool s_has_assets;
 
@@ -51,6 +53,13 @@ esp_err_t cc1101_set_frequency(uint32_t frequency) {
 bool subghz_receiver_is_running(void) { return s_is_running; }
 void subghz_receiver_stop(void) { s_is_running = false; }
 esp_err_t subghz_tx_init(void) { return ESP_OK; }
+esp_err_t subghz_tx_send_configured(const int32_t *timings, size_t count,
+                                    const subghz_tx_config_t *config) {
+  assert(config != NULL);
+  s_frequency = config->frequency_hz;
+  s_sent_preset = config->preset;
+  return subghz_tx_send_raw(timings, count);
+}
 esp_err_t subghz_tx_send_raw(const int32_t *timings, size_t count) {
   assert(count <= TEST_PULSE_CAPACITY);
   memcpy(s_sent, timings, count * sizeof(*timings));
@@ -124,6 +133,17 @@ static void test_pwm_vector(void) {
   assert(subghz_pwm_encode(5, 3, 350, 700, pulses, 6) == 0);
 }
 
+static void test_large_raw_replay(void) {
+  static int32_t pulses[2395];
+  for (size_t i = 0; i < 2395; ++i) pulses[i] = (i % 2) ? -50000 : 350;
+  size_t length = subghz_protocol_serialize_raw(pulses, 2395, 868350000,
+                                                s_capture, sizeof(s_capture));
+  assert(length > 8192 && length < sizeof(s_capture));
+  assert(subghz_replay_file("large_raw") == ESP_OK);
+  assert(s_frequency == 868350000 && s_sent_preset == TEST_PRESET);
+  assert(s_sent_count == 2395 && memcmp(s_sent, pulses, sizeof(pulses)) == 0);
+}
+
 static void test_serialization_replay(void) {
   subghz_data_t data = {.protocol_name = "Nice Flo 12bit", .bit_count = 12,
                        .serial = 0xabc, .raw_value = 0xabc, .btn = TEST_BUTTON};
@@ -136,7 +156,7 @@ static void test_serialization_replay(void) {
   assert(tiny[0] == '\0');
   s_is_running = true;
   assert(subghz_replay_file("fixture") == ESP_OK);
-  assert(!s_is_running && s_sent_count != 0 && s_frequency == TEST_FREQUENCY_HZ);
+  assert(!s_is_running && s_sent_count != 0 && s_frequency == TEST_FREQUENCY_HZ && s_sent_preset == TEST_PRESET);
   subghz_data_t decoded = {0};
   const subghz_protocol_t *protocol = subghz_protocol_registry_get_by_name(data.protocol_name);
   assert(protocol->decode(s_sent, s_sent_count, &decoded));
@@ -248,6 +268,7 @@ int main(void) {
   test_registry();
   test_pwm_vector();
   test_serialization_replay();
+  test_large_raw_replay();
   test_raw_validation();
   test_decoded_validation();
   test_keeloq_vectors();

@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "cc1101.h"
+#include "cc1101_rf_path.h"
 #include "cc1101_lease.h"
 
 #include <math.h>
@@ -491,6 +492,8 @@ static void read_burst_impl(uint8_t reg, uint8_t *buf, uint8_t len) {
       free(tx_buf);
     if (rx_buf != NULL)
       free(rx_buf);
+    cc1101_lease_record_error(ESP_ERR_NO_MEM);
+    memset(buf, 0, len);
     return;
   }
 
@@ -555,7 +558,8 @@ static void calibrate_impl(void) {
     needs_fscal2_adj = true;
   }
 
-  cc1101_write_reg(CC1101_FSCTRL0, fsctrl0);
+  (void)fsctrl0;
+  cc1101_write_reg(CC1101_FSCTRL0, 0);
   cc1101_write_reg(CC1101_TEST0, test0);
 
   cc1101_strobe(CC1101_SIDLE);
@@ -572,6 +576,36 @@ static void calibrate_impl(void) {
 }
 
 static void set_frequency_impl(uint32_t freq_hz) {
+  cc1101_rf_path_t path = cc1101_rf_path_for_measured_frequency(freq_hz);
+  if (path == CC1101_RF_PATH_NONE) {
+    cc1101_lease_record_error(ESP_ERR_INVALID_ARG);
+    return;
+  }
+  cc1101_strobe(CC1101_SIDLE);
+  bool is_idle = false;
+  for (unsigned i = 0; i < 100; ++i) {
+    if ((cc1101_read_reg(CC1101_MARCSTATE | 0x40U) & CC1101_MARCSTATE_MASK) == 1) {
+      is_idle = true;
+      break;
+    }
+    vTaskDelay(1);
+  }
+  if (!is_idle) {
+    cc1101_lease_record_error(ESP_ERR_TIMEOUT);
+    return;
+  }
+#ifdef CONFIG_HIGHBOY_BOARD_V203
+  uint32_t v1, v2;
+  cc1101_rf_path_levels(path, &v1, &v2);
+  esp_err_t error = gpio_set_level(GPIO_RF_SW_V1_PIN, v1);
+  if (error == ESP_OK)
+    error = gpio_set_level(GPIO_RF_SW_V2_PIN, v2);
+  if (error != ESP_OK) {
+    cc1101_lease_record_error(error);
+    return;
+  }
+  vTaskDelay(1);
+#endif
   s_current_freq_mhz = (float)freq_hz / 1000000.0;
 
   // Standard frequency calculation for 26MHz XTAL
@@ -586,6 +620,7 @@ static void set_frequency_impl(uint32_t freq_hz) {
   cc1101_write_burst(CC1101_FREQ2, freq_bytes, 3);
 
   cc1101_calibrate();
+  set_pa_impl(s_current_pa_dbm);
 }
 
 static void set_rx_bandwidth_impl(float khz) {
@@ -901,11 +936,8 @@ static void init_impl(void) {
   if (s_cc1101_spi != NULL)
     return;
 
-  /* PE613050A antenna-tuning switch controls.  The current BOM leaves the
-   * four selectable
-   * shunt branches unpopulated, but the CMOS inputs must not
-   * float.  V2=0, V1=0
-   * deterministically selects RF1. */
+  /* V2.03 populates four shunt tuning branches. Start deterministically at RF1;
+   * chamber tests select each branch explicitly while the radio is idle. */
   const gpio_config_t rf_switch_cfg = {
       .pin_bit_mask = (1ULL << GPIO_RF_SW_V1_PIN) | (1ULL << GPIO_RF_SW_V2_PIN),
       .mode = GPIO_MODE_OUTPUT,
