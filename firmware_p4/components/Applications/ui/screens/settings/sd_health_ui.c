@@ -29,6 +29,8 @@
 #include "ui_metrics.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
+#include "menu_component_ui.h"
+#include "esp_attr.h"
 #include "vfs_core.h"
 #include "vfs_sdcard.h"
 
@@ -36,20 +38,22 @@
 
 #define HDR_TITLE  "SD HEALTH"
 #define HDR_ICON   "/assets/icons/sd_card.bin"
-#define FOOTER_TXT "OK REMOUNT   R TEST   BACK"
+#define FOOTER_TXT LV_SYMBOL_UP LV_SYMBOL_DOWN " Scroll OK Mount " LV_SYMBOL_RIGHT " Test BACK"
 
-#define MX        8
-#define CONTENT_W (ui_screen_w() - 2 * MX)
+#define MX            8
+#define SCROLL_GUTTER 14
+#define SCROLL_STEP   60
+#define CONTENT_W     (ui_screen_w() - 2 * MX - SCROLL_GUTTER)
 
 #define COL_ACC2 0xB89AFF
 
-#define HERO_Y   48
+#define HERO_Y   6
 #define HERO_H   108
-#define TILE_Y   164
+#define TILE_Y   (HERO_Y + HERO_H + 8)
 #define TILE_H   66
 #define TILE_GAP 8
 #define TILE_W   ((CONTENT_W - TILE_GAP) / 2)
-#define CTA_Y    238
+#define CTA_Y    (TILE_Y + TILE_H + 8)
 #define CTA_H    34
 
 #define HERO_PAD     10
@@ -73,6 +77,8 @@
 #define UNIT_TEST "MB/s ..."
 
 static lv_obj_t *s_screen = NULL;
+static lv_obj_t *s_body;
+EXT_RAM_BSS_ATTR static menu_component_t s_scroll;
 static lv_timer_t *s_retest_timer = NULL;
 
 static lv_obj_t *s_read_val = NULL;
@@ -140,7 +146,7 @@ static void build_hero(void) {
     }
   }
 
-  lv_obj_t *card = make_card(s_screen, CONTENT_W, HERO_H);
+  lv_obj_t *card = make_card(s_body, CONTENT_W, HERO_H);
   lv_obj_align(card, LV_ALIGN_TOP_MID, 0, HERO_Y);
   lv_obj_set_style_pad_all(card, HERO_PAD, 0);
 
@@ -205,9 +211,8 @@ static void build_hero(void) {
 
 static void
 build_tile(int x, const char *caption, const char *value, lv_obj_t **val_out, lv_obj_t **sub_out) {
-  lv_obj_t *card = make_card(s_screen, TILE_W, TILE_H);
-  lv_obj_align(
-      card, LV_ALIGN_TOP_LEFT, x, LV_MIN(TILE_Y, ui_screen_h() - UI_CHROME_FOOTER_H - TILE_H));
+  lv_obj_t *card = make_card(s_body, TILE_W, TILE_H);
+  lv_obj_align(card, LV_ALIGN_TOP_LEFT, x, TILE_Y);
   lv_obj_set_style_pad_ver(card, 4, 0);
   lv_obj_set_style_pad_row(card, 0, 0);
   lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
@@ -233,10 +238,10 @@ build_tile(int x, const char *caption, const char *value, lv_obj_t **val_out, lv
 }
 
 static void build_cta(void) {
-  lv_obj_t *row = lv_obj_create(s_screen);
+  lv_obj_t *row = lv_obj_create(s_body);
   lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(row, CONTENT_W, CTA_H);
-  lv_obj_align(row, LV_ALIGN_TOP_MID, 0, LV_MIN(CTA_Y, ui_screen_h() - UI_CHROME_FOOTER_H - CTA_H));
+  lv_obj_align(row, LV_ALIGN_TOP_MID, 0, CTA_Y);
   lv_obj_set_style_radius(row, 9, 0);
   lv_obj_set_style_pad_all(row, 0, 0);
   lv_obj_set_style_bg_color(row, current_theme.bg_secondary, 0);
@@ -249,6 +254,9 @@ static void build_cta(void) {
 
   lv_obj_t *lbl = lv_label_create(row);
   lv_label_set_text(lbl, CTA_TXT);
+  lv_obj_set_width(lbl, CONTENT_W - 12);
+  lv_label_set_long_mode(lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(lbl, current_theme.border_accent, 0);
   lv_obj_center(lbl);
@@ -328,7 +336,14 @@ static void sd_health_input(const input_event_t *ev, void *ctx) {
   (void)ctx;
   const bool press = (ev->action == INPUT_ACTION_PRESS);
 
+  const bool nav = press || ev->action == INPUT_ACTION_REPEAT;
   switch (ev->button) {
+    case INPUT_BTN_UP:
+    case INPUT_BTN_DOWN:
+      if (nav)
+        menu_component_scroll_content(&s_scroll,
+                                      ev->button == INPUT_BTN_UP ? -SCROLL_STEP : SCROLL_STEP);
+      break;
     case INPUT_BTN_BACK:
       if (press)
         ui_switch_screen(SCREEN_STORAGE);
@@ -370,19 +385,24 @@ void ui_sd_health_open(void) {
   }
   s_read_val = s_write_val = s_read_sub = s_write_sub = NULL;
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   ui_chrome_header(s_screen, HDR_TITLE, HDR_ICON);
+
+  s_body = lv_obj_create(s_screen);
+  lv_obj_remove_style_all(s_body);
+  lv_obj_set_size(s_body,
+                  ui_screen_w() - SCROLL_GUTTER,
+                  ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_pos(s_body, 0, UI_CHROME_HEADER_H);
+  lv_obj_set_scroll_dir(s_body, LV_DIR_VER);
+  lv_obj_set_style_pad_bottom(s_body, MX, 0);
 
   build_hero();
   build_tile(MX, "READ", READ_VAL, &s_read_val, &s_read_sub);
   build_tile(MX + TILE_W + TILE_GAP, "WRITE", WRITE_VAL, &s_write_val, &s_write_sub);
   build_cta();
+  menu_component_attach_scroll(&s_scroll, s_screen, s_body);
 
   ui_chrome_footer(s_screen, FOOTER_TXT);
 

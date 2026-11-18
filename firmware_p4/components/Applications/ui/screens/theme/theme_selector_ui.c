@@ -36,13 +36,14 @@
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
+#include "ui_metrics.h"
 
 static const char *TAG = "THEME_SELECTOR_UI";
 
 #define TITLE_ICON          "/assets/icons/palette.bin"
 #define BASE_FRAME          "/assets/frames/base_frame_0.bin"
 #define CARD_Y_BIAS         (-18)
-#define ANIM_MS             220
+#define ANIM_MS             UI_CAROUSEL_TRANSITION_MS
 #define THEMES_DIR          "/sdcard/themes"
 #define MAX_THEMES          24
 #define TNAME_MAX           32
@@ -96,7 +97,6 @@ static int s_count = 0;
 static int s_sel = 0;
 static int s_applied = 0;
 static char s_readbuf[ACCENT_BUF_SIZE];
-static bool s_animating = false;
 
 static void build_screen(void);
 
@@ -112,10 +112,6 @@ static void anim_set_scale(void *o, int32_t v) {
 }
 static void anim_set_opa(void *o, int32_t v) {
   lv_obj_set_style_opa((lv_obj_t *)o, (lv_opa_t)v, 0);
-}
-static void anim_done_cb(lv_anim_t *a) {
-  (void)a;
-  s_animating = false;
 }
 
 static esp_err_t
@@ -252,6 +248,7 @@ static void place_card(int i, bool anim) {
   lv_obj_t *card = s_cards[i];
   if (card == NULL)
     return;
+  lv_anim_delete(card, NULL);
   int32_t slot = carousel_slot(i);
 
   if (slot < 0) {
@@ -283,8 +280,6 @@ static void place_card(int i, bool anim) {
 
   lv_anim_set_values(&a, lv_obj_get_x_aligned(card), tx);
   lv_anim_set_exec_cb(&a, anim_set_x);
-  if (slot == CAR_CENTER)
-    lv_anim_set_completed_cb(&a, anim_done_cb); // one card clears the guard
   lv_anim_start(&a);
   lv_anim_set_completed_cb(&a, NULL);
 
@@ -328,8 +323,20 @@ static bool s_is_reboot_armed = false;
 static screen_id_t s_return = SCREEN_SETTINGS;
 
 static void theme_reboot_cb(bool confirm) {
-  (void)confirm;
   msgbox_close();
+  if (!s_is_reboot_armed)
+    return;
+  s_is_reboot_armed = false;
+  if (!confirm)
+    return;
+  char previous[sizeof(g_config_screen.theme)];
+  strlcpy(previous, g_config_screen.theme, sizeof(previous));
+  strlcpy(g_config_screen.theme, s_entries[s_sel].name, sizeof(g_config_screen.theme));
+  if (tos_config_save(TOS_PATH_CONFIG_SCREEN, "screen") != ESP_OK) {
+    strlcpy(g_config_screen.theme, previous, sizeof(g_config_screen.theme));
+    notify(NOTIFY_WARNING, "Theme not saved");
+    return;
+  }
   reboot_ui_reboot();
 }
 
@@ -345,34 +352,28 @@ static void theme_selector_input(const input_event_t *ev, void *ctx) {
       break;
     case INPUT_BTN_OK:
       if (press && !s_is_reboot_armed && s_sel != s_applied) {
-        theme_entry_t *e = &s_entries[s_sel];
         if (!ui_sd_ready())
           break;
-        strlcpy(g_config_screen.theme, e->name, sizeof(g_config_screen.theme));
-        tos_config_save(TOS_PATH_CONFIG_SCREEN, "screen");
         s_is_reboot_armed = true;
-        ESP_LOGI(TAG, "theme %d (%s) saved; restarting to apply", s_sel, e->name);
         msgbox_open("/assets/icons/restart_alt.bin",
-                    "Theme saved. Restarting to apply it.",
-                    "RESTART",
-                    NULL,
+                    "Apply this theme and restart?",
+                    "APPLY",
+                    "CANCEL",
                     theme_reboot_cb);
       }
       break;
     case INPUT_BTN_RIGHT:
     case INPUT_BTN_DOWN:
-      if (nav && !s_animating) {
+      if (nav) {
         s_sel = (s_sel + 1) % s_count;
-        s_animating = true;
         ui_feedback(UI_FB_NAV);
         update_view(true);
       }
       break;
     case INPUT_BTN_LEFT:
     case INPUT_BTN_UP:
-      if (nav && !s_animating) {
+      if (nav) {
         s_sel = (s_sel == 0) ? s_count - 1 : s_sel - 1;
-        s_animating = true;
         ui_feedback(UI_FB_NAV);
         update_view(true);
       }
@@ -384,7 +385,6 @@ static void theme_selector_input(const input_event_t *ev, void *ctx) {
 
 static void build_screen(void) {
   lv_obj_t *prev = s_screen;
-  s_animating = false;
 
   if (s_base_dsc == NULL)
     s_base_dsc = assets_get(BASE_FRAME);
@@ -401,6 +401,9 @@ static void build_screen(void) {
     s_cards[i] = make_card(s_screen, i);
 
   s_label = lv_label_create(s_screen);
+  lv_obj_set_width(s_label, ui_screen_w() - 24);
+  lv_label_set_long_mode(s_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  lv_obj_set_style_text_align(s_label, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_font(s_label, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(s_label, current_theme.border_accent, 0);
   lv_obj_align(s_label, LV_ALIGN_CENTER, 0, 52);

@@ -19,7 +19,7 @@ import subprocess
 import tempfile
 ROOT=Path(__file__).resolve().parents[3]
 src=(ROOT / 'firmware_p4/components/Applications/ui/screens/files/usb_storage_ui.c').read_text()
-a=src.index('static void usb_storage_input('); b=src.index('\nvoid ui_usb_storage_open',a)
+a=src.index('static void request_exit(void) {'); b=src.index('\nvoid ui_usb_storage_open',a)
 harness=r'''
 #include <assert.h>
 #include <stdbool.h>

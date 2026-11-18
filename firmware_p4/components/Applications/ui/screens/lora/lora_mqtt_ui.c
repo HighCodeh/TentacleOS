@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
+#include "ui_chrome.h"
 #include "lora_mqtt_ui.h"
 
 #include <string.h>
@@ -26,6 +27,7 @@
 #include "notify_ui.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "app_switcher_ui.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
 
@@ -178,7 +180,18 @@ static void lora_mqtt_input(const input_event_t *ev, void *ctx) {
         if (sel == ROW_BROKER || sel == ROW_USER || sel == ROW_PASS) {
           s_edit_field = sel;
           ui_feedback(UI_FB_SELECT);
-          keyboard_open(NULL, on_kb_submit, NULL);
+          keyboard_open_config(
+              &(keyboard_config_t){.title = sel == ROW_BROKER ? "MQTT broker"
+                                            : sel == ROW_USER ? "MQTT username"
+                                                              : "MQTT password",
+                                   .initial = sel == ROW_BROKER ? s_broker
+                                              : sel == ROW_USER ? s_user
+                                                                : s_pass,
+                                   .max_chars = FIELD_MAX - 1,
+                                   .min_chars = sel == ROW_BROKER ? 1 : 0,
+                                   .mode = sel == ROW_PASS ? KEYBOARD_PASSWORD : KEYBOARD_TEXT},
+              on_kb_submit,
+              NULL);
         } else if (sel == ROW_ACTION) {
           request_connect();
         }
@@ -208,14 +221,10 @@ void ui_lora_mqtt_open(void) {
     store_field(s_broker, HOST_DEFAULT);
   if (s_user[0] == '\0')
     store_field(s_user, USER_DEFAULT);
-  s_edit_field = ROW_BROKER;
+  if (!ui_tasks_is_resuming())
+    s_edit_field = ROW_BROKER;
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   build_screen();
 

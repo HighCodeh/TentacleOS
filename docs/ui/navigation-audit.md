@@ -39,10 +39,19 @@ own state contracts; a route ID is not necessarily a single visual page.
 | Wi-Fi → signal locator → target | Stops polling and returns to the retained AP selection list. |
 | Wi-Fi → target clients → target | Stops polling and returns to the retained AP selection list. |
 | IR Send → completed-send options | Returns to the signal list rather than skipping to the feature root. |
+| Home → shortcut → nested feature | Child returns remain within the feature; the feature root returns to Home. |
+| Settings/Audio & Haptics/Interface/Infrared → child → BACK | Reopens the parent with its selected row retained. |
+| Theme selector → apply confirmation → BACK | Cancels without writing the theme or restarting; the next BACK returns to the caller. |
 
 Screen deletion now clears an owner slot only if that slot still points to the
 object being deleted. Rebuilding a view before deleting its old screen must not
-clear the new screen's pointer.
+clear the new screen's pointer. The central built-in transition also watches the
+outgoing root's DELETE event while its replacement is built. A builder can delete
+that root synchronously, and the allocator can reuse its address for a new child;
+`lv_obj_is_valid()` alone cannot distinguish those lifetimes. Once the old root
+is deleted it is never queued for another asynchronous delete. The temporary
+watch is removed before returning, and registration failure leaves the existing
+screen intact. Host regressions cover address reuse and ordinary delayed teardown.
 
 ## Other route contracts reviewed
 
@@ -62,8 +71,9 @@ clear the new screen's pointer.
   normal successful exit returns Files. This error-recovery exception is not a
   duplicate BACK. Formatting/write/update states can consume BACK as cancellation
   or defer exit while a critical write is active.
-- Home favorites are shortcuts, not a general navigation-history stack. Standard
-  feature exits keep their declared parent unless explicitly caller-dependent.
+- Home shortcuts retain a single root return to Home, not a general history
+  stack. Internal feature exits keep their declared parent. Opening coverflow
+  clears the shortcut origin, so a later feature entered there returns to Menu.
 
 ## Lifecycle findings still open
 
@@ -72,15 +82,23 @@ claiming that every peripheral stops immediately on all exits:
 
 1. **BLE Scan and Connect Bluetooth:** their workers can finish a timed scan after
    navigation. Completion callbacks check the screen ID, but not an entry generation;
-   leaving and re-entering the same screen can accept an earlier completion. Neither
+   re-entering now resumes an in-flight scan rather than clearing its state or
+   spawning a duplicate worker. A late completion still belongs to that resumed
+   operation; immediate cancellation remains unavailable. Neither
    route has a central close hook. The scanner API currently exposes no cancel call.
 2. **Programmatic exits/shutdown:** several Wi-Fi, IR, audio and game routes rely on
    BACK handlers or a later timer's active-screen check instead of a registered stop
    hook. The inventory marks these explicitly; absence of a hook alone is not proof
    of a leak, but is not equivalent to synchronous ownership release either.
-3. **MP4 metadata viewer:** cover buffers are freed on the next cover load, not when
-   leaving the screen. Its timer self-stops, but the route has no resource-release
-   hook. This retains memory after exit.
+Hotspot now has a central close hook and guarded DELETE fallback; opening its
+settings no longer starts an AP. Its worker reports failures and honors a stop
+requested while startup is in flight.
+
+The MP4 metadata viewer now has a central close hook: it detaches the cover
+widget, drops cached decoded images and releases JPEG/PNG buffers before leaving.
+The old no-op polling timer is removed. Its guarded DELETE fallback cannot
+release resources owned by a newer screen. BLE detection BACK handlers use the
+central stop hook once instead of repeating the C5 deinitialization command.
 
 A follow-up lifecycle change must cancel/join operations without blocking the LVGL
 thread, reject stale completions on re-entry, and release buffers only after their
@@ -90,11 +108,39 @@ unconditionally deinitializing a shared radio would introduce a different race.
 ## Validation
 
 `tools/highboy/tests/test_ui_navigation.py` compiles production router/keypad code
-and the Settings/LoRa opening functions with host fakes and ASan/UBSan. It covers
+and the Settings/LoRa opening functions with host fakes and sanitizer support.
+The November 18 macOS run used UBSan; ASan could not initialize on that host. It covers
 short/held BACK, popup gesture ownership, keyboard/legacy keypad exclusion,
 Settings and LoRa subview returns, and delayed deletion of an old screen.
 The Wi-Fi live scan and format UI host suites also pass. P4 build is checked
 separately; host mocks do not validate actual radio teardown or physical timing.
+
+The 18 November UI audit maps 135 registered native routes. Candidate `ui07`
+(SHA-256 `a2678b002913dbced52ea4b3373a7833735f3291037819fbb09e82b8b2a51e63`)
+passed entry/BACK checks for 119 routes in portrait without reset markers,
+truncated snapshots or a non-Home route remaining after the expected BACK steps.
+The final `ui08` candidate adds compact footer hints and single-line grid titles.
+On that candidate, three acknowledged physical-key simulations 152.5/152.3 ms
+apart moved the carousel from Wi-Fi to RFID; an immediate left/OK sequence
+opened NFC, then BACK returned to Menu and Home. The last grid item was visible
+in both orientations. Six Home/Menu/NFC cycles held internal free RAM at
+80,603–80,607 bytes; PSRAM free changed by 260 bytes from first to last sample
+(31,983,400 to 31,983,140). This short run is not a global leak-free guarantee.
+Portrait rotation, default theme and 100% brightness were restored; NFC emulation
+reported idle. Final screenshots confirm compact LED/SD/telemetry footer hints.
+
+The original wider-layout pass covered 116 completed routes before corrections;
+13 changed layouts were then captured in both orientations on `ui07`.
+These checks cover entry/error states and selected scrolling paths, not every
+card, file, connection or RF exchange. Sixteen mode-changing/fixture-dependent
+routes were excluded from automated entry (HID/USB, immediate RF execution,
+Doom direct-display handoff, companion links and active port probing).
+BLE Sniffer and Exposure no longer reset on entry; the tested C5 session-start
+path returned communication errors in that earlier UI pass. The subsequent
+18 November C5 update corrected task memory placement and capture stream enable;
+four passive capture entry/exit cycles received advertisements. See the current
+[Bluetooth validation](../bluetooth/README.md). Those radio results are separate
+from this navigation coverage.
 
 On hardware, check each corrected path twice, including rapid re-entry and opening
 then cancelling shutdown. For Wi-Fi, stop a scan, inspect its retained results,
@@ -109,8 +155,8 @@ lifecycle work, not a list of validated hardware behaviors.
 | Route | Implementation | Explicit close hook |
 |---|---|---|
 | `SCREEN_WIFI_ESP_SCAN` | [ui_wifi_esp_scan_open](../../firmware_p4/components/Applications/ui/screens/wifi/ui_wifi_esp_scan.c) | `ui_wifi_esp_scan_stop` |
-| `SCREEN_HOME` | [ui_home_open](../../firmware_p4/components/Applications/ui/screens/home/home_ui.c) | None |
-| `SCREEN_MENU` | [ui_menu_open](../../firmware_p4/components/Applications/ui/screens/menu/menu_ui.c) | None |
+| `SCREEN_HOME` | [ui_home_open](../../firmware_p4/components/Applications/ui/screens/home/home_ui.c) | `ui_home_close` |
+| `SCREEN_MENU` | [ui_menu_open](../../firmware_p4/components/Applications/ui/screens/menu/menu_ui.c) | `ui_menu_close` |
 | `SCREEN_WIFI_MENU` | [ui_wifi_menu_open](../../firmware_p4/components/Applications/ui/screens/wifi/wifi_ui.c) | None |
 | `SCREEN_WIFI_CHANNELS` | [ui_wifi_channel_open](../../firmware_p4/components/Applications/ui/screens/wifi/wifi_channel_ui.c) | None |
 | `SCREEN_WIFI_CLIENTS` | [ui_wifi_client_open](../../firmware_p4/components/Applications/ui/screens/wifi/wifi_client_ui.c) | None |
@@ -145,18 +191,18 @@ lifecycle work, not a list of validated hardware behaviors.
 | `SCREEN_SPEAKER` | [ui_speaker_open](../../firmware_p4/components/Applications/ui/screens/audio/speaker_ui.c) | None |
 | `SCREEN_MIC_REC` | [ui_micrec_open](../../firmware_p4/components/Applications/ui/screens/audio/micrec_ui.c) | None |
 | `SCREEN_WAV_PLAYER` | [ui_wav_player_open](../../firmware_p4/components/Applications/ui/screens/audio/wav_player_ui.c) | `ui_wav_player_stop` |
-| `SCREEN_MP4_PLAYER` | [ui_mp4_player_open](../../firmware_p4/components/Applications/ui/screens/video/mp4_player_ui.c) | None |
+| `SCREEN_MP4_PLAYER` | [ui_mp4_player_open](../../firmware_p4/components/Applications/ui/screens/video/mp4_player_ui.c) | `ui_mp4_player_stop` |
 | `SCREEN_MP3_PLAYER` | [ui_mp3_player_open](../../firmware_p4/components/Applications/ui/screens/audio/mp3_player_ui.c) | `ui_mp3_player_stop` |
 | `SCREEN_PLAYER` | [ui_wav_library_open](../../firmware_p4/components/Applications/ui/screens/audio/wav_library_ui.c) | None |
 | `SCREEN_IMAGE_VIEWER` | [ui_image_viewer_open](../../firmware_p4/components/Applications/ui/screens/images/image_viewer_ui.c) | `ui_image_viewer_stop` |
 | `SCREEN_USB_STORAGE` | [ui_usb_storage_open](../../firmware_p4/components/Applications/ui/screens/files/usb_storage_ui.c) | `ui_usb_storage_stop` |
 | `SCREEN_SPECTRUM` | [ui_spectrum_open](../../firmware_p4/components/Applications/ui/screens/audio/spectrum_ui.c) | None |
 | `SCREEN_LORA_CHAT` | [ui_lora_chat_open](../../firmware_p4/components/Applications/ui/screens/lora/lora_chat_ui.c) | None |
-| `SCREEN_GAMES_MENU` | [ui_games_menu_open](../../firmware_p4/components/Applications/ui/screens/games/games_menu_ui.c) | None |
+| `SCREEN_GAMES_MENU` | [ui_games_menu_open](../../firmware_p4/components/Applications/ui/screens/games/games_menu_ui.c) | `ui_games_menu_close` |
 | `SCREEN_APPS` | [ui_apps_open](../../firmware_p4/components/Applications/ui/screens/apps/apps_ui.c) | None |
 | `SCREEN_SCRIPTS` | [ui_scripts_open](../../firmware_p4/components/Applications/ui/screens/dev/scripts_ui.c) | `ui_scripts_stop` |
-| `SCREEN_GAME_SNAKE` | [ui_snake_open](../../firmware_p4/components/Applications/ui/screens/games/snake_ui.c) | None |
-| `SCREEN_GAME_BREAKOUT` | [ui_breakout_open](../../firmware_p4/components/Applications/ui/screens/games/breakout_ui.c) | None |
+| `SCREEN_GAME_SNAKE` | [ui_snake_open](../../firmware_p4/components/Applications/ui/screens/games/snake_ui.c) | `ui_snake_stop` |
+| `SCREEN_GAME_BREAKOUT` | [ui_breakout_open](../../firmware_p4/components/Applications/ui/screens/games/breakout_ui.c) | `ui_breakout_stop` |
 | `SCREEN_GAME_GB` | [ui_gb_open](../../firmware_p4/components/Applications/ui/screens/games/gb_ui.c) | None |
 | `SCREEN_GAME_DOOM` | [ui_doom_real_open](../../firmware_p4/components/Applications/ui/screens/games/doom_real_ui.c) | None |
 | `SCREEN_MUSE` | [ui_muse_open](../../firmware_p4/components/Applications/ui/screens/apps/muse_ui.c) | `ui_muse_stop` |
@@ -170,7 +216,7 @@ lifecycle work, not a list of validated hardware behaviors.
 | `SCREEN_RFID_MENU` | [ui_rfid_menu_open](../../firmware_p4/components/Applications/ui/screens/rfid/rfid_menu_ui.c) | `ui_rfid_menu_stop` |
 | `SCREEN_BADUSB_MENU` | [ui_badusb_menu_open](../../firmware_p4/components/Applications/ui/screens/badusb/badusb_menu_ui.c) | None |
 | `SCREEN_GPIO` | [ui_gpio_open](../../firmware_p4/components/Applications/ui/screens/gpio/gpio_ui.c) | None |
-| `SCREEN_FILES` | [ui_files_open](../../firmware_p4/components/Applications/ui/screens/files/files_ui.c) | None |
+| `SCREEN_FILES` | [ui_files_open](../../firmware_p4/components/Applications/ui/screens/files/files_ui.c) | `ui_files_close` |
 | `SCREEN_WIFI_ATTACK_MENU` | [ui_wifi_attack_open](../../firmware_p4/components/Applications/ui/screens/wifi/wifi_attack_ui.c) | None |
 | `SCREEN_WIFI_PACKETS_MENU` | [ui_wifi_packets_open](../../firmware_p4/components/Applications/ui/screens/wifi/wifi_packets_ui.c) | None |
 | `SCREEN_WIFI_EVIL_TWIN` | [ui_wifi_evil_twin_open](../../firmware_p4/components/Applications/ui/screens/wifi/wifi_evil_twin_ui.c) | None |
@@ -238,7 +284,65 @@ lifecycle work, not a list of validated hardware behaviors.
 | `SCREEN_LORA_TELEMETRY` | [ui_lora_telemetry_open](../../firmware_p4/components/Applications/ui/screens/lora/lora_telemetry_ui.c) | None |
 | `SCREEN_LORA_SECURE_DM` | [ui_lora_securedm_open](../../firmware_p4/components/Applications/ui/screens/lora/lora_securedm_ui.c) | None |
 | `SCREEN_WIFI_HANDSHAKE` | [ui_wifi_handshake_open](../../firmware_p4/components/Applications/ui/screens/wifi/wifi_handshake_ui.c) | `ui_wifi_handshake_stop` |
-| `SCREEN_WIFI_HOTSPOT` | [ui_wifi_hotspot_open](../../firmware_p4/components/Applications/ui/screens/wifi/wifi_hotspot_ui.c) | None |
+| `SCREEN_WIFI_HOTSPOT` | [ui_wifi_hotspot_open](../../firmware_p4/components/Applications/ui/screens/wifi/wifi_hotspot_ui.c) | `ui_wifi_hotspot_stop` |
 | `SCREEN_IMU_MONITOR` | [ui_imu_monitor_open](../../firmware_p4/components/Applications/ui/screens/imu/imu_monitor_ui.c) | `ui_imu_monitor_stop` |
 | `SCREEN_SD_HEALTH` | [ui_sd_health_open](../../firmware_p4/components/Applications/ui/screens/settings/sd_health_ui.c) | None |
 | `SCREEN_USB_MOUSE` | [ui_usb_mouse_open](../../firmware_p4/components/Applications/ui/screens/badusb/usb_mouse_ui.c) | `ui_usb_mouse_stop` |
+
+## UX follow-up: recent apps and capture names (2026-11-18)
+
+Home UP, or BACK held for 900 ms and released before the existing 5 s shutdown,
+opens Recent Apps: up to five actual screen previews held in checked PSRAM.
+LEFT/RIGHT chooses a card, OK returns/resumes, DOWN opens Apps and short BACK
+closes the overview. Closing consumes the initiating gesture so it cannot type
+into an underlying editor. The current screen stays live; games pause while the
+overview is open. Switching applications runs the normal resource close hooks.
+
+Resume reconstructs the supported view: Files retains folder, selected entry,
+list/grid mode and text scroll; IR Saved retains protocol/file/action level;
+MQTT retains the edited field; safe RFID views and completed NFC identification
+retain their data. Standard supported menus retain selection. Snake/Breakout
+retain their board/score with unchanged orientation; a geometry change reopens
+the app instead. Keyboard drafts in MQTT, IR Saved, RFID and completed NFC include
+text, cursor, page, selected key and the original callback. Password previews mask
+the temporary last character and discarded drafts are wiped. Unsupported edits
+must be saved or cancelled before leaving through Recent Apps. Other operation
+screens explicitly show Reopen and return to their app entry; operations are not
+silently restarted or transmitted. These session states do not survive reboot.
+A normal fresh app launch starts its ordinary entry and discards its old task card.
+
+NFC Read uses the approach/return loop derived from the supplied video while the actual NFC manager
+searches. The native GIF is 160x148, 12 fps, 48 palette entries, 171,553 bytes; only empty
+source margins were cropped. The first 1.5 seconds play forward/backward in a
+three-second loop; the success phase belongs to the actual card event. The outside background is transparent; closed dark
+details in the device remain opaque. Full-canvas frames and disposal mode 2 clear
+the previous silhouette without trails. ARGB8888 preserves alpha while drawing,
+at its native 160x148 size (scaled down only if the body is smaller). The asset is loaded once off the LVGL task into
+checked PSRAM. The flash-reading task uses an internal stack because flash I/O
+disables the cache temporarily. The existing field illustration is a missing/failed-asset
+fallback. All GIF timers stop on success, error and exit, before block transactions
+on the shared display/NFC SPI bus. A real card-found event alone shows a green
+identification check for 700 ms, then the card information for 1,400 ms and actions.
+This confirms identification, not that every protected block has been read.
+Retry/timeout never produces success. Restoring a completed card does not rescan.
+The GIF and its notice are added to the assets LittleFS partition through a guarded
+update that verifies the installed local image and preserves every existing file;
+an application-only flash cannot install this asset.
+
+IR capture Save and Sub-GHz capture Save now open the shared filename editor,
+with a suggested stem and an explicit extension hint. BACK cancels the name;
+Sub-GHz's existing automatic capture file remains on SD until a successful rename.
+Name conflicts are reported without replacing an existing destination. Missing
+Sub-GHz capture files no longer produce a false Saved confirmation. RFID read and
+manual-entry saves also request a name; this library still lasts only until reboot.
+NFC identification already uses the contextual name editor and retains its own
+storage semantics. No folder chooser is introduced.
+
+Diagnostics uses two columns in landscape and a bounded body above the footer;
+its timer now has a central close hook and a guarded DELETE fallback. Chip labels
+the die temperature explicitly. Offline LoRa telemetry retains the scroll hint.
+
+Run test_keyboard_ui.py, then test_ux_flows.py with the same host build directory:
+the latter exercises naming callbacks, actual temporary-file
+renames/collisions, and the Diagnostics layout with the pinned LVGL library in both
+orientations. Diagnostics timer re-entry and stale-root deletion are covered.

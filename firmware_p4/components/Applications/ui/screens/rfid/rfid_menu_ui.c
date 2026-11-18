@@ -39,6 +39,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "app_switcher_ui.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
 #include "ui_metrics.h"
@@ -983,7 +984,8 @@ static void build_saved_info(void) {
   lv_color_t danger = lv_color_hex(COL_DANGER);
   s_info_emulate = button_ui_create(actions, 200, 34, "Emulate", EMULATE_ICON, NULL);
   s_info_delete = button_ui_create(actions, 200, 34, "Delete", NULL, &danger);
-  s_info_sel = 0;
+  if (!ui_tasks_is_resuming())
+    s_info_sel = 0;
   info_update_selection();
 
   s_hint = ui_chrome_footer(s_screen, HINT_MENU);
@@ -1722,12 +1724,21 @@ bool ui_rfid_menu_can_resume(void) {
 }
 
 void ui_rfid_menu_open(void) {
+  int action = ui_tasks_is_resuming() ? s_cr.sel : 0;
   store_init();
   stop_scan_timers();
-  s_view = VIEW_LIST;
-  s_saved_sel = 0;
+  if (!ui_tasks_is_resuming()) {
+    s_view = VIEW_LIST;
+    s_saved_sel = 0;
+    s_card_revealed = false;
+    s_saved = false;
+  }
   s_pending_view = -1;
-  s_card_revealed = false;
-  s_saved = false;
   build_screen();
+  if (s_view == VIEW_OPTIONS) {
+    if (s_saved)
+      capture_result_mark_saved(&s_cr);
+    for (int i = 0; i < action && i < s_cr.count; ++i)
+      capture_result_next(&s_cr);
+  }
 }

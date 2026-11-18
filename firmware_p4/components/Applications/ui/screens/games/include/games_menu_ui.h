@@ -22,6 +22,8 @@ extern "C" {
 
 /** @brief Open the Games list (Octo Flap / Snake / Breakout). */
 void ui_games_menu_open(void);
+/** @brief Release cover and registry images before changing screens. */
+void ui_games_menu_close(void);
 
 #ifdef __cplusplus
 }

@@ -26,6 +26,9 @@ extern "C" {
  *  SCREEN_DEV_MENU. */
 void ui_dev_diag_open(void);
 
+/** @brief Stop diagnostics updates when leaving or rebuilding the screen. */
+void ui_dev_diag_close(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -26,10 +26,10 @@
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
+#include "ui_metrics.h"
 
-#define HDR_ICON "/assets/icons/developer_board.bin"
-#define GPIO_HINT \
-  LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " mode   " LV_SYMBOL_OK " act   BACK exit"
+#define HDR_ICON  "/assets/icons/developer_board.bin"
+#define GPIO_HINT LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " mode   " LV_SYMBOL_OK " act   BACK exit"
 
 #define POLL_MS  250
 #define PWM_STEP 25
@@ -248,8 +248,8 @@ static void make_row(int hdr) {
 
   lv_obj_t *title = lv_label_create(txt);
   lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_text_color(title, is_act ? current_theme.text_main : current_theme.text_secondary,
-                              0);
+  lv_obj_set_style_text_color(
+      title, is_act ? current_theme.text_main : current_theme.text_secondary, 0);
   lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
   lv_obj_set_width(title, lv_pct(100));
   lv_label_set_text(title, inf->label);
@@ -392,8 +392,8 @@ static void poll_live(void) {
     if (rd > 0)
       set_pill(&s_rows[i], "HI", current_theme.screen_base, current_theme.border_accent, true);
     else
-      set_pill(&s_rows[i], "LO", current_theme.border_inactive, current_theme.border_inactive,
-               false);
+      set_pill(
+          &s_rows[i], "LO", current_theme.border_inactive, current_theme.border_inactive, false);
   }
 }
 
@@ -428,7 +428,7 @@ void ui_gpio_open(void) {
   ui_chrome_header(s_screen, "GPIO", HDR_ICON);
 
   s_list = lv_obj_create(s_screen);
-  lv_obj_set_size(s_list, LCD_H_RES, LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_size(s_list, ui_screen_w(), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
   lv_obj_align(s_list, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(s_list, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(s_list, 0, 0);

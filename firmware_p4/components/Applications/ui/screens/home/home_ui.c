@@ -14,88 +14,31 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "home_ui.h"
+#include "app_switcher_ui.h"
 
 #include <stdio.h>
-
-#include "esp_heap_caps.h"
 #include "esp_log.h"
-#include "st7789.h"
-
 #include "assets_manager.h"
-#include "core/lv_group.h"
-#include "dropdown_ui.h"
 #include "favorites.h"
-#include "header_ui.h"
-#include "lv_port_indev.h"
 #include "menu_ui.h"
 #include "sys_time.h"
+#include "ui_chrome.h"
 #include "ui_feedback.h"
-#include "ui_metrics.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
+#define HOME_FAV_MAX 5
+#define HOME_GAP     6
+#define HOME_PAD     10
+
 static const char *TAG = "HOME_UI";
-
-#define HOME_HEADER_HEIGHT_PCT 9
-#define HOME_HEADER_HEIGHT     ((ui_screen_h() * HOME_HEADER_HEIGHT_PCT) / 100)
-
-#define HOME_ART_ASSET "/assets/img/image.bin"
-#define HOME_DATE_FONT "A:assets/fonts/Inter.bin"
-
-#define HOME_PAD       10
-#define HOME_ROW_GAP   8
-#define HOME_INNER_W   (ui_screen_w() - 2 * HOME_PAD)
-#define HOME_ART_MAX_W 210
-#define HOME_ART_MAX_H 132
-#define HOME_FLOAT_AMP 5
-#define HOME_FLOAT_MS  1600
-
-#define HOME_FAV_MAX      5
-#define HOME_USER_FAV_MAX (HOME_FAV_MAX - 1)
-#define HOME_OCTO_NAME    "OCTOBIT"
-#define HOME_TAG_LEN      4
-#define HOME_FAV_GAP      8
-#define HOME_TILE_MAX     50
-#define HOME_TILE_MIN     30
-#define HOME_TILE_RADIUS  12
-
-#define COL_INK   0xD3DBD8
-#define COL_LINE  0x223029
-#define COL_DIM   0x6D7A75
-#define COL_GREEN 0x00E676
-
-static lv_obj_t *s_screen_home = NULL;
-static lv_obj_t *s_fav_tiles[HOME_FAV_MAX];
-static screen_id_t s_fav_targets[HOME_FAV_MAX];
-static const char *s_fav_names[HOME_FAV_MAX];
-static int s_fav_count = 0;
-static int s_fav_focus = 0;
-static lv_font_t *s_date_font = NULL;
-
-static void home_event_cb(lv_event_t *e);
-
-static void str_upper(char *s) {
-  for (; *s != '\0'; s++)
-    if (*s >= 'a' && *s <= 'z')
-      *s = (char)(*s - 'a' + 'A');
-}
-
-static void fav_tag(const char *name, char *out, size_t outsz) {
-  size_t j = 0;
-  for (size_t i = 0; name[i] != '\0' && j + 1 < outsz && j < HOME_TAG_LEN; i++) {
-    char ch = name[i];
-    if ((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9'))
-      out[j++] = ch;
-    else if (ch >= 'a' && ch <= 'z')
-      out[j++] = (char)(ch - 'a' + 'A');
-  }
-  out[j] = '\0';
-  if (j == 0 && outsz > 1) {
-    out[0] = '?';
-    out[1] = '\0';
-  }
-}
-
+static lv_obj_t *s_screen_home, *s_date, *s_name;
+static lv_obj_t *s_tiles[HOME_FAV_MAX];
+static screen_id_t s_targets[HOME_FAV_MAX];
+static const char *s_names[HOME_FAV_MAX];
+static int s_count, s_focus;
+static lv_timer_t *s_clock;
 static const char *icon_for_screen(screen_id_t s) {
   switch (s) {
     case SCREEN_WIFI_MENU:
@@ -131,268 +74,196 @@ static const char *icon_for_screen(screen_id_t s) {
   }
 }
 
-static lv_obj_t *make_group(lv_obj_t *parent, lv_flex_flow_t flow, int gap) {
-  lv_obj_t *g = lv_obj_create(parent);
-  lv_obj_set_width(g, LV_PCT(100));
-  lv_obj_set_height(g, LV_SIZE_CONTENT);
-  lv_obj_remove_flag(g, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_opa(g, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(g, 0, 0);
-  lv_obj_set_style_pad_all(g, 0, 0);
-  lv_obj_set_flex_flow(g, flow);
-  lv_obj_set_flex_align(g, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  if (flow == LV_FLEX_FLOW_ROW)
-    lv_obj_set_style_pad_column(g, gap, 0);
-  else
-    lv_obj_set_style_pad_row(g, gap, 0);
-  return g;
+static lv_obj_t *group(lv_obj_t *parent, lv_flex_flow_t flow) {
+  lv_obj_t *obj = lv_obj_create(parent);
+  lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(obj, 0, 0);
+  lv_obj_set_style_pad_all(obj, 0, 0);
+  lv_obj_set_style_pad_gap(obj, HOME_GAP, 0);
+  lv_obj_set_flex_flow(obj, flow);
+  lv_obj_set_flex_align(obj, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  return obj;
 }
 
-static void make_fav_tile(lv_obj_t *row, int idx, int tile_sz) {
-  lv_obj_t *t = lv_obj_create(row);
-  lv_obj_set_size(t, tile_sz, tile_sz);
-  lv_obj_remove_flag(t, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_color(t, lv_color_hex(0xFFFFFF), 0);
-  lv_obj_set_style_bg_opa(t, LV_OPA_10, 0);
-  lv_obj_set_style_border_color(t, lv_color_hex(COL_LINE), 0);
-  lv_obj_set_style_border_width(t, 1, 0);
-  lv_obj_set_style_radius(t, HOME_TILE_RADIUS, 0);
-  lv_obj_set_style_pad_all(t, 0, 0);
+static lv_obj_t *label(lv_obj_t *parent, const char *text, lv_color_t color) {
+  lv_obj_t *obj = lv_label_create(parent);
+  lv_label_set_text(obj, text);
+  lv_obj_set_style_text_font(obj, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(obj, color, 0);
+  return obj;
+}
 
-  const char *icon_path = icon_for_screen(s_fav_targets[idx]);
-  lv_image_dsc_t *icon = icon_path != NULL ? assets_get(icon_path) : NULL;
-  if (icon != NULL) {
-    lv_obj_t *img = lv_image_create(t);
-    lv_image_set_src(img, icon);
-    lv_image_set_antialias(img, false);
-    int w = icon->header.w;
-    int target = tile_sz - 16;
-    if (w > target && w > 0) {
-      lv_image_set_pivot(img, w / 2, icon->header.h / 2);
-      lv_image_set_scale(img, (uint16_t)(target * 256 / w));
+static void clock_refresh(lv_timer_t *timer) {
+  (void)timer;
+  char date[32];
+  if (s_date != NULL && sys_time_format(date, sizeof(date), "%a, %d %b %Y"))
+    lv_label_set_text(s_date, date);
+}
+
+static void focus_refresh(void) {
+  for (int i = 0; i < s_count; ++i) {
+    bool selected = i == s_focus;
+    lv_obj_set_style_border_color(
+        s_tiles[i], selected ? current_theme.border_accent : current_theme.border_inactive, 0);
+    lv_obj_set_style_border_width(s_tiles[i], selected ? 2 : 1, 0);
+    lv_obj_set_style_bg_color(
+        s_tiles[i], selected ? current_theme.bg_secondary : current_theme.bg_primary, 0);
+  }
+  lv_label_set_text(s_name, s_names[s_focus]);
+}
+
+static void build_favorites(lv_obj_t *parent, int width) {
+  screen_id_t previous = s_count > 0 ? s_targets[s_focus] : SCREEN_NONE;
+  s_count = 0;
+  for (int i = 0; i < menu_catalog_count() && s_count < HOME_FAV_MAX - 1; ++i) {
+    if (favorites_is(menu_catalog_target(i))) {
+      s_targets[s_count] = menu_catalog_target(i);
+      s_names[s_count++] = menu_catalog_name(i);
     }
-    lv_obj_set_style_image_recolor(img, lv_color_hex(COL_INK), 0);
-    lv_obj_set_style_image_recolor_opa(img, LV_OPA_COVER, 0);
-    lv_obj_align(img, LV_ALIGN_CENTER, 0, 0);
-  } else {
-    char tag[HOME_TAG_LEN + 1];
-    fav_tag(s_fav_names[idx], tag, sizeof(tag));
-    lv_obj_t *l = lv_label_create(t);
-    lv_label_set_text(l, tag);
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(l, lv_color_hex(COL_INK), 0);
-    lv_obj_center(l);
   }
-  s_fav_tiles[idx] = t;
-}
-
-static void refresh_fav_focus(void) {
-  for (int i = 0; i < s_fav_count; i++) {
-    bool sel = (i == s_fav_focus);
-    lv_obj_set_style_border_color(s_fav_tiles[i], lv_color_hex(sel ? COL_GREEN : COL_LINE), 0);
-    lv_obj_set_style_border_width(s_fav_tiles[i], sel ? 2 : 1, 0);
-    lv_obj_set_style_shadow_color(s_fav_tiles[i], lv_color_hex(COL_GREEN), 0);
-    lv_obj_set_style_shadow_width(s_fav_tiles[i], sel ? 16 : 0, 0);
-    lv_obj_set_style_shadow_opa(s_fav_tiles[i], sel ? LV_OPA_40 : LV_OPA_TRANSP, 0);
+  if (s_count == 0) {
+    static const screen_id_t defaults[] = {
+        SCREEN_NFC_MENU, SCREEN_IR_MENU, SCREEN_PLAYER, SCREEN_SETTINGS};
+    static const char *names[] = {"NFC", "Infrared", "Music", "Settings"};
+    for (int i = 0; i < 4; ++i) {
+      s_targets[s_count] = defaults[i];
+      s_names[s_count++] = names[i];
+    }
   }
+  s_targets[s_count] = SCREEN_OCTOBIT_STATUS;
+  s_names[s_count++] = "Octobit";
+  s_focus = 0;
+  for (int i = 0; i < s_count; ++i)
+    if (s_targets[i] == previous)
+      s_focus = i;
+
+  label(parent, "SHORTCUTS", current_theme.text_secondary);
+  lv_obj_t *row = group(parent, LV_FLEX_FLOW_ROW);
+  int size = (width - HOME_GAP * (s_count - 1)) / s_count;
+  if (size > 46)
+    size = 46;
+  lv_obj_set_size(row, width, size);
+  for (int i = 0; i < s_count; ++i) {
+    lv_obj_t *tile = group(row, LV_FLEX_FLOW_ROW);
+    s_tiles[i] = tile;
+    lv_obj_set_size(tile, size, size);
+    lv_obj_set_style_radius(tile, 10, 0);
+    lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
+    const char *path = icon_for_screen(s_targets[i]);
+    const lv_image_dsc_t *icon = path ? assets_get(path) : NULL;
+    if (icon != NULL) {
+      lv_obj_t *image = lv_image_create(tile);
+      lv_image_set_src(image, icon);
+      lv_obj_set_size(image, size - 12, size - 12);
+      lv_image_set_inner_align(image, LV_IMAGE_ALIGN_CONTAIN);
+      lv_obj_set_style_image_recolor(image, current_theme.text_main, 0);
+      lv_obj_set_style_image_recolor_opa(image, LV_OPA_COVER, 0);
+    } else {
+      label(tile, LV_SYMBOL_DIRECTORY, current_theme.text_main);
+    }
+  }
+  s_name = label(parent, "", current_theme.text_main);
+  lv_obj_set_width(s_name, width);
+  lv_label_set_long_mode(s_name, LV_LABEL_LONG_DOT);
+  lv_obj_set_style_text_align(s_name, LV_TEXT_ALIGN_CENTER, 0);
+  focus_refresh();
 }
 
-static void build_date(lv_obj_t *content) {
-  lv_obj_t *grp = make_group(content, LV_FLEX_FLOW_COLUMN, 2);
-
-  char big[16];
-  if (!sys_time_format(big, sizeof(big), "%d %b"))
-    big[0] = '\0';
-  str_upper(big);
-
-  lv_obj_t *date = lv_label_create(grp);
-  lv_label_set_text(date, big);
-  lv_obj_set_style_text_font(date, s_date_font != NULL ? s_date_font : &lv_font_montserrat_16, 0);
-  lv_obj_set_style_text_color(date, lv_color_hex(COL_GREEN), 0);
-
-  char sub[24];
-  if (!sys_time_format(sub, sizeof(sub), "%A  %Y"))
-    sub[0] = '\0';
-  str_upper(sub);
-
-  lv_obj_t *wk = lv_label_create(grp);
-  lv_label_set_text(wk, sub);
-  lv_obj_set_style_text_font(wk, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(wk, lv_color_hex(COL_DIM), 0);
-  lv_obj_set_style_text_letter_space(wk, 2, 0);
+static void float_art(void *obj, int32_t y) {
+  lv_obj_set_style_translate_y(obj, y, 0);
 }
 
-static void float_anim_cb(void *var, int32_t v) {
-  lv_obj_set_style_translate_y((lv_obj_t *)var, v, 0);
-}
-
-static void build_octobit(lv_obj_t *content) {
-  lv_obj_t *stage = lv_obj_create(content);
-  lv_obj_set_width(stage, LV_PCT(100));
-  lv_obj_set_height(stage, 0);
-  lv_obj_set_flex_grow(stage, 1);
-  lv_obj_remove_flag(stage, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_opa(stage, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(stage, 0, 0);
-  lv_obj_set_style_pad_all(stage, 0, 0);
-
-  static lv_image_dsc_t *s_art_dsc = NULL;
-  if (s_art_dsc == NULL)
-    s_art_dsc = assets_get(HOME_ART_ASSET);
-  if (s_art_dsc == NULL)
+static void build_mascot(lv_obj_t *parent, int width, int height) {
+  lv_obj_t *card = group(parent, LV_FLEX_FLOW_ROW);
+  lv_obj_set_size(card, width, height);
+  lv_obj_set_style_radius(card, 18, 0);
+  ui_chrome_gradient(card, current_theme.bg_secondary, current_theme.screen_base, height);
+  lv_obj_set_style_border_color(card, current_theme.border_inactive, 0);
+  lv_obj_set_style_border_width(card, 1, 0);
+  const lv_image_dsc_t *art = assets_get("/assets/img/image.bin");
+  if (art == NULL || art->header.w == 0 || art->header.h == 0) {
+    label(card, "HIGH BOY", current_theme.border_accent);
     return;
-
-  lv_obj_t *art = lv_image_create(stage);
-  lv_image_set_src(art, s_art_dsc);
-  lv_image_set_antialias(art, false);
-
-  int w = s_art_dsc->header.w;
-  int h = s_art_dsc->header.h;
-  int sx = (w > 0) ? (HOME_ART_MAX_W * 256 / w) : 256;
-  int sy = (h > 0) ? (HOME_ART_MAX_H * 256 / h) : 256;
-  int scale = (sx < sy) ? sx : sy;
-  if (scale > 256)
-    scale = 256;
-  if (scale != 256) {
-    lv_image_set_pivot(art, w / 2, h / 2);
-    lv_image_set_scale(art, (uint16_t)scale);
   }
-  lv_obj_align(art, LV_ALIGN_CENTER, 0, 0);
-
-  lv_anim_t a;
-  lv_anim_init(&a);
-  lv_anim_set_var(&a, art);
-  lv_anim_set_values(&a, -HOME_FLOAT_AMP, HOME_FLOAT_AMP);
-  lv_anim_set_duration(&a, HOME_FLOAT_MS);
-  lv_anim_set_playback_duration(&a, HOME_FLOAT_MS);
-  lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
-  lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
-  lv_anim_set_exec_cb(&a, float_anim_cb);
-  lv_anim_start(&a);
+  lv_obj_t *image = lv_image_create(card);
+  lv_image_set_src(image, art);
+  lv_obj_set_size(image, width - 16, height - 16);
+  lv_image_set_inner_align(image, LV_IMAGE_ALIGN_CONTAIN);
+  lv_image_set_antialias(image, true);
+  lv_anim_t anim;
+  lv_anim_init(&anim);
+  lv_anim_set_var(&anim, image);
+  lv_anim_set_exec_cb(&anim, float_art);
+  lv_anim_set_values(&anim, -3, 3);
+  lv_anim_set_duration(&anim, 1600);
+  lv_anim_set_playback_duration(&anim, 1600);
+  lv_anim_set_repeat_count(&anim, LV_ANIM_REPEAT_INFINITE);
+  lv_anim_set_path_cb(&anim, lv_anim_path_ease_in_out);
+  lv_anim_start(&anim);
 }
 
-static void build_favorites(lv_obj_t *content) {
-  s_fav_count = 0;
-  s_fav_focus = 0;
-
-  int n = menu_catalog_count();
-  for (int i = 0; i < n && s_fav_count < HOME_USER_FAV_MAX; i++) {
-    screen_id_t tgt = menu_catalog_target(i);
-    if (favorites_is(tgt)) {
-      s_fav_targets[s_fav_count] = tgt;
-      s_fav_names[s_fav_count] = menu_catalog_name(i);
-      s_fav_count++;
-    }
+static void home_input(const input_event_t *event, void *context) {
+  (void)context;
+  bool press = event->action == INPUT_ACTION_PRESS;
+  bool nav = press || event->action == INPUT_ACTION_REPEAT;
+  if (nav && (event->button == INPUT_BTN_LEFT || event->button == INPUT_BTN_RIGHT)) {
+    s_focus = (s_focus + s_count + (event->button == INPUT_BTN_RIGHT ? 1 : -1)) % s_count;
+    focus_refresh();
+    ui_feedback(UI_FB_NAV);
+  } else if (press && event->button == INPUT_BTN_OK) {
+    ui_switch_screen(s_targets[s_focus]);
+  } else if (press && event->button == INPUT_BTN_UP) {
+    ui_tasks_toggle();
+  } else if (press && event->button == INPUT_BTN_DOWN) {
+    ui_switch_screen(SCREEN_MENU);
   }
+}
 
-  if (s_fav_count == 0) {
-    s_fav_targets[s_fav_count] = SCREEN_SETTINGS;
-    s_fav_names[s_fav_count] = "CONFIG";
-    s_fav_count++;
+void ui_home_close(void) {
+  if (s_clock != NULL) {
+    lv_timer_delete(s_clock);
+    s_clock = NULL;
   }
-
-  s_fav_targets[s_fav_count] = SCREEN_OCTOBIT_STATUS;
-  s_fav_names[s_fav_count] = HOME_OCTO_NAME;
-  s_fav_count++;
-
-  int tile = (HOME_INNER_W - (s_fav_count - 1) * HOME_FAV_GAP) / s_fav_count;
-  if (tile > HOME_TILE_MAX)
-    tile = HOME_TILE_MAX;
-  if (tile < HOME_TILE_MIN)
-    tile = HOME_TILE_MIN;
-
-  lv_obj_t *favs = make_group(content, LV_FLEX_FLOW_ROW, HOME_FAV_GAP);
-  for (int i = 0; i < s_fav_count; i++)
-    make_fav_tile(favs, i, tile);
-  refresh_fav_focus();
+  s_date = NULL;
 }
 
 void ui_home_open(void) {
-  ESP_LOGI(TAG,
-           "home open: free=%u largest=%u",
-           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
-
-  if (s_screen_home != NULL) {
-    lv_obj_del(s_screen_home);
-    s_screen_home = NULL;
-  }
-
-  if (s_date_font == NULL)
-    s_date_font = lv_binfont_create(HOME_DATE_FONT);
-
+  ui_home_close();
+  if (s_screen_home != NULL)
+    lv_obj_delete(s_screen_home);
   s_screen_home = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen_home, current_theme.screen_base, 0);
   lv_obj_set_style_bg_opa(s_screen_home, LV_OPA_COVER, 0);
+  lv_obj_set_style_pad_all(s_screen_home, 0, 0);
   lv_obj_remove_flag(s_screen_home, LV_OBJ_FLAG_SCROLLABLE);
-
-  header_ui_create(s_screen_home);
-
-  lv_obj_t *content = lv_obj_create(s_screen_home);
-  int32_t header_h = HOME_HEADER_HEIGHT;
-  lv_obj_set_size(content, ui_screen_w(), ui_screen_h() - header_h);
-  lv_obj_align(content, LV_ALIGN_TOP_MID, 0, header_h);
-  lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(content, 0, 0);
-  lv_obj_set_style_pad_left(content, HOME_PAD, 0);
-  lv_obj_set_style_pad_right(content, HOME_PAD, 0);
-  lv_obj_set_style_pad_top(content, 4, 0);
-  lv_obj_set_style_pad_bottom(content, HOME_PAD + 18, 0);
-  lv_obj_set_style_pad_row(content, HOME_ROW_GAP - 4, 0);
-  lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-
-  build_date(content);
-  build_octobit(content);
-  build_favorites(content);
-
-  lv_obj_t *hint = lv_label_create(s_screen_home);
-  lv_label_set_text(hint, LV_SYMBOL_DOWN " Apps    " LV_SYMBOL_UP " hold: Config");
-  lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(hint, current_theme.text_secondary, 0);
-  lv_obj_set_style_bg_opa(hint, LV_OPA_TRANSP, 0);
-  lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -3);
-
-  lv_obj_add_event_cb(s_screen_home, home_event_cb, LV_EVENT_KEY, NULL);
-
-  if (main_group != NULL) {
-    lv_group_add_obj(main_group, s_screen_home);
-    lv_group_focus_obj(s_screen_home);
-  }
-
+  ui_chrome_header(s_screen_home, "", NULL);
+  ui_chrome_footer(s_screen_home,
+                   LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " OK  " LV_SYMBOL_UP " Recent  " LV_SYMBOL_DOWN
+                                                  " Apps");
+  int width = ui_screen_w() - 2 * HOME_PAD;
+  int height = ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H - 2 * HOME_GAP;
+  bool wide = ui_screen_w() > ui_screen_h();
+  lv_obj_t *body = group(s_screen_home, wide ? LV_FLEX_FLOW_ROW : LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_pos(body, HOME_PAD, UI_CHROME_HEADER_H + HOME_GAP);
+  lv_obj_set_size(body, width, height);
+  if (wide)
+    build_mascot(body, 126, height);
+  lv_obj_t *controls = wide ? group(body, LV_FLEX_FLOW_COLUMN) : body;
+  int control_width = wide ? width - 126 - HOME_GAP : width;
+  if (wide)
+    lv_obj_set_size(controls, control_width, height);
+  s_date = label(controls, "", current_theme.text_secondary);
+  lv_obj_set_width(s_date, control_width);
+  lv_label_set_long_mode(s_date, LV_LABEL_LONG_DOT);
+  lv_obj_set_style_text_align(s_date, LV_TEXT_ALIGN_CENTER, 0);
+  clock_refresh(NULL);
+  if (!wide)
+    build_mascot(controls, width, height - 120);
+  build_favorites(controls, control_width);
+  s_clock = lv_timer_create(clock_refresh, 30000, NULL);
+  if (s_clock == NULL)
+    ESP_LOGW(TAG, "Home date refresh unavailable");
+  ui_input_set_screen_handler(home_input, NULL);
   ui_screen_load_owned(&s_screen_home, s_screen_home);
-}
-
-static void home_event_cb(lv_event_t *e) {
-  if (dropdown_ui_is_open())
-    return;
-
-  if (ui_input_is_locked())
-    return;
-
-  if (lv_event_get_code(e) != LV_EVENT_KEY)
-    return;
-
-  uint32_t key = lv_event_get_key(e);
-
-  if (key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
-    if (key == LV_KEY_RIGHT)
-      s_fav_focus = (s_fav_focus + 1) % s_fav_count;
-    else
-      s_fav_focus = (s_fav_focus == 0) ? s_fav_count - 1 : s_fav_focus - 1;
-    ui_feedback(UI_FB_NAV);
-    refresh_fav_focus();
-    return;
-  }
-
-  if (key == LV_KEY_ENTER) {
-    ui_switch_screen(s_fav_targets[s_fav_focus]);
-    return;
-  }
-
-  if (key == LV_KEY_DOWN) {
-    ui_switch_screen(SCREEN_MENU);
-    return;
-  }
 }

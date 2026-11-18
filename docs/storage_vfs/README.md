@@ -577,8 +577,11 @@ automatic reboot or formatting. Calls must run on workers, never the LVGL thread
 transitions reject concurrent entry/exit requests.
 
 The UI's Connected status means USB enumeration, not a mounted host volume.
-BACK while connected asks for confirmation that the volume was ejected; OK
-exits and BACK cancels. A host filesystem unmount need not send SCSI eject.
+An explicit host SCSI eject is published atomically by `usb_msc_host_ejected()`;
+the UI launches the existing exit worker automatically. No remount happens in
+the USB callback. A plain unmount or cable disconnect is not proof of eject and
+does not trigger automatic restoration. BACK retains manual confirmation; OK
+exits and BACK cancels. Task failure leaves ownership unchanged and permits retry.
 Worker creation failures are displayed instead of leaving a permanent spinner.
 
 ### Sector transport
@@ -1238,3 +1241,7 @@ metadata writes, reported as `ESP_ERR_NOT_FINISHED`; no task is forcibly deleted
 The guard remains held through remount/cleanup, including cancellation. Existing
 format APIs use the same path without a callback. The UI publishes progress and
 cancel requests atomically and never accesses LVGL from this callback.
+
+After explicit SCSI EJECT, the UI waits 400 ms for the USB response to settle
+before its existing exit worker restores the SD mount and console USB path.
+Plain unmount or cable loss does not trigger this automatic ownership handoff.

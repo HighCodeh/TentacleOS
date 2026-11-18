@@ -22,9 +22,11 @@
 #include "tos_config.h"
 #include "tos_storage_paths.h"
 #include "ui_manager.h"
+#include "app_switcher_ui.h"
 #include "ui_theme.h"
+#include "ui_metrics.h"
 
-#define ENTRY_FADE_MS 200
+#define ENTRY_FADE_MS UI_CONTENT_FADE_MS
 
 #define ROW_BRIGHTNESS 0
 #define ROW_ROTATION   1
@@ -179,7 +181,8 @@ void ui_display_settings_open(void) {
 
   s_rotation_idx = lvgl_glue_is_landscape() ? 1 : 0;
   s_timeout_idx = timeout_idx_for_seconds(g_config_screen.auto_lock_seconds);
-  s_changed = false;
+  if (!ui_tasks_is_resuming())
+    s_changed = false;
 
   int bright_level = lcd_get_brightness() / BRIGHTNESS_STEP_PCT;
   if (bright_level < BRIGHTNESS_MIN_LEVEL) {

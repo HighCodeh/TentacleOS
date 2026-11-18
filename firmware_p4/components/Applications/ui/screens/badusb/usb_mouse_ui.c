@@ -26,6 +26,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
 
@@ -42,7 +43,7 @@
 #define SCROLL_REPEAT_MS    140
 
 #define MX        8
-#define CONTENT_W (240 - 2 * MX)
+#define CONTENT_W (ui_screen_w() - 2 * MX)
 
 #define COL_ACC2 0xB89AFF
 
@@ -51,11 +52,11 @@
 
 #define PAD_Y   71
 #define PAD_W   (CONTENT_W - RAIL_W - ROW_GAP)
-#define PAD_H   148
+#define PAD_H   LV_MIN(148, ui_screen_h() - UI_CHROME_FOOTER_H - PAD_Y - CLICK_H - 2 * ROW_GAP)
 #define RAIL_W  26
 #define ROW_GAP 6
 
-#define CLICK_Y 226
+#define CLICK_Y (PAD_Y + PAD_H + ROW_GAP)
 #define CLICK_H 34
 #define CLICK_W ((CONTENT_W - ROW_GAP) / 2)
 
@@ -215,7 +216,7 @@ static void build_trackpad(void) {
   s_cursor = lv_line_create(pad);
   lv_line_set_points(s_cursor, CURSOR_PTS, CURSOR_PT_COUNT);
   lv_obj_set_style_line_width(s_cursor, 2, 0);
-  lv_obj_set_style_line_color(s_cursor, lv_color_hex(COL_ACC2), 0);
+  lv_obj_set_style_line_color(s_cursor, current_theme.border_accent, 0);
   lv_obj_set_style_line_rounded(s_cursor, false, 0);
   update_cursor();
 
@@ -450,12 +451,7 @@ void ui_usb_mouse_open(void) {
   s_usb_init_ok = usb_err == ESP_OK;
   s_usb_ready = false;
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   ui_chrome_header(s_screen, HDR_TITLE, HDR_ICON);
 

@@ -90,8 +90,7 @@ static void format_status_line(int idx, char *buf, size_t n) {
       if (battery_service_get(&b) && b.valid) {
         snprintf(buf,
                  n,
-                 "[batt] %d%% %umV %s",
-                 b.soc,
+                 "[batt] %umV %s",
                  (unsigned)b.vbat_mv,
                  b.charging ? "chg" : (b.vbus_present ? "usb" : "bat"));
       } else {
@@ -244,12 +243,7 @@ static void dev_console_input(const input_event_t *ev, void *ctx) {
 }
 
 static void build_screen(void) {
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   ui_chrome_header(s_screen, TITLE, ICON);
   ui_chrome_footer(s_screen, FOOTER_HINT);
