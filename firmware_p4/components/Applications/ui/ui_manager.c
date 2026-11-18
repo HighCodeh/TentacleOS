@@ -48,6 +48,7 @@
 #include "home_ui.h"
 #include "menu_ui.h"
 #include "wifi_ui.h"
+#include "wardrive_ui.h"
 #include "ui_wifi_esp_scan.h"
 #include "wifi_channel_ui.h"
 #include "wifi_client_ui.h"
@@ -437,6 +438,8 @@ typedef void (*ui_close_fn_t)(void);
 
 static ui_close_fn_t screen_close_fn(screen_id_t s) {
   switch (s) {
+    case SCREEN_WARDRIVE:
+      return wardrive_ui_stop;
     case SCREEN_BLE_BEACON_SPAM:
       return ui_beacon_spam_stop;
     case SCREEN_BLE_MOUSE_PAIRING:
@@ -522,6 +525,8 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
 
 static ui_open_fn_t screen_open_fn(screen_id_t s) {
   switch (s) {
+    case SCREEN_WARDRIVE:
+      return wardrive_ui_open;
     case SCREEN_WIFI_ESP_SCAN:
       return ui_wifi_esp_scan_open;
     case SCREEN_HOME:

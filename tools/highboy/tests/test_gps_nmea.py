@@ -77,7 +77,7 @@ COMMAND_TEST = r"""
 #define ESP_OK 0
 #define ESP_FAIL 1
 #define ESP_ERR_INVALID_STATE 2
-#define UART_NUM_1 1
+#define UART_NUM_3 3
 #define UART_DATA_8_BITS 8
 #define UART_PARITY_DISABLE 0
 #define UART_STOP_BITS_1 1
@@ -95,31 +95,32 @@ typedef struct { int baud_rate, data_bits, parity, stop_bits, flow_ctrl, source_
 typedef struct { const char *command,*help; int (*func)(int,char **); } esp_console_cmd_t;
 static int64_t clock_us;
 static const char *stream;
-static bool installed;
+static bool installed, wardrive_running;
+static bool wardrive_is_running(void) { return wardrive_running; }
 static int installs,deletes,resets,fail_stage;
 static const char *esp_err_to_name(int err) { return err ? "FAIL":"OK"; }
 static int64_t esp_timer_get_time(void) { return clock_us; }
-static bool uart_is_driver_installed(int port) { assert(port==1); return installed; }
+static bool uart_is_driver_installed(int port) { assert(port==3); return installed; }
 static int uart_driver_install(int port,int rx,int tx,int q,void *queue,int flags) {
  (void)port; (void)rx; (void)tx; (void)q; (void)queue; (void)flags;
  if(fail_stage==1) return ESP_FAIL;
  installed=true; installs++; return ESP_OK;
 }
 static int uart_param_config(int port,const uart_config_t *cfg) {
- assert(port==1 && cfg->baud_rate==9600); return fail_stage==2 ? ESP_FAIL:ESP_OK;
+ assert(port==3 && cfg->baud_rate==9600); return fail_stage==2 ? ESP_FAIL:ESP_OK;
 }
 static int uart_set_pin(int port,int tx,int rx,int rts,int cts) {
- assert(port==1 && tx==-1 && rx==12 && rts==-1 && cts==-1);
+ assert(port==3 && tx==-1 && rx==12 && rts==-1 && cts==-1);
  return fail_stage==3 ? ESP_FAIL:ESP_OK;
 }
 static int uart_flush_input(int port) { (void)port; return ESP_OK; }
 static int uart_read_bytes(int port,uint8_t *out,int size,int ticks) {
- assert(port==1 && size==1); clock_us+=ticks*1000;
+ assert(port==3 && size==1); clock_us+=ticks*1000;
  if(fail_stage==4) return -1;
  if(!stream || !*stream) return 0;
  *out=(uint8_t)*stream++; return 1;
 }
-static int uart_driver_delete(int port) { assert(port==1); installed=false; deletes++; return ESP_OK; }
+static int uart_driver_delete(int port) { assert(port==3); installed=false; deletes++; return ESP_OK; }
 static int gpio_reset_pin(int pin) { assert(pin==12); resets++; return ESP_OK; }
 static int esp_console_cmd_register(const esp_console_cmd_t *cmd) { assert(!strcmp(cmd->command,"gps")); return ESP_OK; }
 #include "cmd_gps.c"
@@ -131,6 +132,10 @@ int main(void) {
  installed=true; int old_deletes=deletes;
  assert(cmd_gps(2,geo)==1 && installed && deletes==old_deletes);
  installed=false;
+ wardrive_running=true;
+ int installs_before_wardrive=installs;
+ assert(cmd_gps(2,geo)==1 && !installed && installs==installs_before_wardrive);
+ wardrive_running=false;
  for(fail_stage=1;fail_stage<=4;fail_stage++) {
   assert(cmd_gps(2,geo)==1 && !installed && !atomic_load(&s_is_busy));
  }
@@ -145,7 +150,7 @@ int main(void) {
 with tempfile.TemporaryDirectory(prefix="hb-gps-uart-") as temp:
     work = Path(temp)
     notice = (SOURCE / "gps_nmea.c").read_text().split('#include', 1)[0]
-    for name in ("console_service.h", "driver/gpio.h", "driver/uart.h", "esp_console.h", "esp_log.h", "esp_timer.h", "pin_def.h"):
+    for name in ("console_service.h", "driver/gpio.h", "driver/uart.h", "esp_console.h", "esp_log.h", "esp_timer.h", "pin_def.h", "wardrive.h"):
         header = work / name
         header.parent.mkdir(parents=True, exist_ok=True)
         header.write_text(notice)

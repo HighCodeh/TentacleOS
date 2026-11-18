@@ -118,6 +118,7 @@ void register_sd_commands(void);
 void register_rf_commands(void);
 void register_mesh_commands(void);
 void register_gps_commands(void);
+void register_wardrive_commands(void);
 
 #ifdef __cplusplus
 }
