@@ -16,6 +16,7 @@
 #include "console_service.h"
 
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 
 #include "argtable3/argtable3.h"
@@ -80,6 +81,25 @@ static struct {
   struct arg_end *end;
 } shot_args;
 
+typedef struct {
+  char b64[SHOT_B64_BUF];
+  uint8_t packed[SHOT_MAX_ROWS * SHOT_RLE_BYTES];
+} shot_buffers_t;
+
+static void switch_screen_async(void *context) {
+  ui_switch_screen((screen_id_t)(intptr_t)context);
+}
+
+static bool queue_screen_switch(screen_id_t screen) {
+  if (!ui_acquire())
+    return false;
+  bool queued = lv_async_call(switch_screen_async, (void *)(intptr_t)screen) == LV_RESULT_OK;
+  ui_release();
+  if (!queued)
+    ESP_LOGE(TAG, "Unable to queue screen switch");
+  return queued;
+}
+
 static int cmd_goto(int argc, char **argv) {
   int nerr = arg_parse(argc, argv, (void **)&goto_args);
   if (nerr != 0) {
@@ -91,7 +111,9 @@ static int cmd_goto(int argc, char **argv) {
     printf("goto: id out of range (1..%d)\n", SCREEN_COUNT - 1);
     return 1;
   }
-  ui_switch_screen((screen_id_t)id);
+  // Recent-view snapshots may render here; use the graphics task's stack.
+  if (!queue_screen_switch((screen_id_t)id))
+    return 1;
   printf("goto %d\n", id);
   return 0;
 }
@@ -165,7 +187,8 @@ static int cmd_screenshot(int argc, char **argv) {
   if (shot_args.id->count) {
     int id = shot_args.id->ival[0];
     if (id > SCREEN_NONE && id < SCREEN_COUNT) {
-      ui_switch_screen((screen_id_t)id);
+      if (!queue_screen_switch((screen_id_t)id))
+        return 1;
       vTaskDelay(pdMS_TO_TICKS(SHOT_SETTLE_MS));
     }
   }
@@ -179,6 +202,7 @@ static int cmd_screenshot(int argc, char **argv) {
   if (is_delta && shot_args.delta->ival[0] < 0)
     return 1;
   uint8_t *frame = NULL;
+  shot_buffers_t *buffers = NULL;
   int width = 0, height = 0;
   if (!ui_acquire())
     return 1;
@@ -246,6 +270,11 @@ static int cmd_screenshot(int argc, char **argv) {
   }
 
   const bool is_rle = shot_args.rle->count != 0 || is_delta;
+  buffers = heap_caps_calloc(1, sizeof(*buffers), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (buffers == NULL) {
+    ESP_LOGE(TAG, "No PSRAM for screenshot encoding");
+    goto cleanup;
+  }
   if (baud) {
     printf("[[BAUD]] %d\n", baud);
     fflush(stdout);
@@ -269,8 +298,6 @@ static int cmd_screenshot(int argc, char **argv) {
     printf("[[SHOT]] W=%d H=%d FMT=%s\n", width, height, is_rle ? "RGB565_RLE" : "RGB565");
   }
   printf("[[STRIP]] 0 0 %d %d\n", width - 1, height - 1);
-  char b64[SHOT_B64_BUF];
-  uint8_t packed[SHOT_MAX_ROWS * SHOT_RLE_BYTES];
   for (int y = 0; y < height; y++) {
     size_t olen = 0;
     const uint8_t *row = frame + (size_t)y * width * 2;
@@ -278,17 +305,18 @@ static int cmd_screenshot(int argc, char **argv) {
     if (has_base && memcmp(row, s_previous + (size_t)y * row_size, row_size) == 0)
       continue;
     if (is_rle) {
-      row_size = encode_rle_row(packed, row, width);
-      row = packed;
+      row_size = encode_rle_row(buffers->packed, row, width);
+      row = buffers->packed;
     }
-    if (mbedtls_base64_encode((unsigned char *)b64, sizeof(b64), &olen, row, row_size) != 0) {
+    if (mbedtls_base64_encode(
+            (unsigned char *)buffers->b64, sizeof(buffers->b64), &olen, row, row_size) != 0) {
       ESP_LOGE(TAG, "Screenshot encoding failed");
       goto cleanup;
     }
-    b64[olen] = '\0';
+    buffers->b64[olen] = '\0';
     if (is_delta)
       printf("%d:", y);
-    printf("%s\n", b64);
+    printf("%s\n", buffers->b64);
     // A slow UART frame spans watchdog intervals. Let waiting log writers run
     // between complete rows instead of repeatedly reacquiring stdout ahead of them.
     vTaskDelay(SHOT_ROW_YIELD_TICKS);
@@ -312,6 +340,7 @@ cleanup:
     uart_set_baudrate(CONFIG_ESP_CONSOLE_UART_NUM, CONFIG_ESP_CONSOLE_UART_BAUDRATE);
   }
   heap_caps_free(frame);
+  heap_caps_free(buffers);
   return result;
 }
 
