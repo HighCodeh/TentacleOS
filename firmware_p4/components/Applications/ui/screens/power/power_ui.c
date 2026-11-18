@@ -21,12 +21,16 @@
 #include "lvgl.h"
 
 #include "bq25896.h"
+#include "battery_service.h"
 #include "msgbox_ui.h"
 #include "power_policy.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
+#include "ui_metrics.h"
+#include "menu_component_ui.h"
+#include "esp_attr.h"
 
 #define REFRESH_MS 700
 
@@ -52,7 +56,8 @@
 #define SRC_Y   13
 
 #define LIST_Y       128
-#define LIST_W_PCT   92
+#define LIST_MARGIN  8
+#define LIST_GUTTER  24
 #define ROW_H        34
 #define ROW_GAP      5
 #define ROW_RADIUS   9
@@ -70,6 +75,7 @@ static const char *const ACT_ICON[ACT_COUNT] = {
 static const char *const ACT_NAMES[ACT_COUNT] = {"Charging", "I2C Scan", "Registers", "Power Off"};
 
 static lv_obj_t *s_screen = NULL;
+EXT_RAM_BSS_ATTR static menu_component_t s_scroll;
 static lv_obj_t *s_pct = NULL;
 static lv_obj_t *s_volt = NULL;
 static lv_obj_t *s_state = NULL;
@@ -81,18 +87,6 @@ static lv_timer_t *s_timer = NULL;
 static int s_sel = 0;
 static char s_scan_msg[96];
 
-static const char *chg_name(bq25896_charge_status_t s) {
-  switch (s) {
-    case CHARGE_STATUS_PRECHARGE:
-      return "Pre-charge";
-    case CHARGE_STATUS_FAST_CHARGE:
-      return "Fast charge";
-    case CHARGE_STATUS_CHARGE_DONE:
-      return "Charge done";
-    default:
-      return "Not charging";
-  }
-}
 static const char *vbus_name(bq25896_vbus_status_t s) {
   switch (s) {
     case VBUS_STATUS_USB_HOST:
@@ -122,60 +116,35 @@ static void style_state_chip(bool charging) {
 }
 
 static void refresh_telem(void) {
-  bq25896_telem_t t;
-  if (bq25896_read_telemetry(&t) != ESP_OK) {
-    lv_label_set_text(s_pct, "--");
+  battery_charge_snapshot_t charge;
+  if (!battery_service_get_charge(&charge)) {
+    lv_label_set_text(s_pct, "--%");
     lv_label_set_text(s_volt, "-- V");
-    lv_label_set_text(s_src, "no charger IC");
-    lv_label_set_text(s_state, "Offline");
+    lv_label_set_text(s_src, "Reading battery");
+    lv_label_set_text(s_state, "Unavailable");
     style_state_chip(false);
     lv_label_set_text(s_row_val[ACT_CHARGE], "--");
     return;
   }
-
-  const char *status;
-  if (t.charging) {
-    status = chg_name(t.chg);
-  } else if (!t.power_good) {
-    status = "On battery";
-  } else {
-    uint8_t r00 = bq25896_reg_raw(0x00);
-    uint8_t f = t.fault;
-    if (r00 & 0x80)
-      status = "Idle (HiZ)";
-    else if (!bq25896_get_charge_enable())
-      status = "Idle (off)";
-    else if (f & 0x80)
-      status = "Fault: WD";
-    else if (f & 0x40)
-      status = "Fault: boost";
-    else if ((f & 0x30) == 0x10)
-      status = "Fault: input";
-    else if ((f & 0x30) == 0x20)
-      status = "Fault: thermal";
-    else if ((f & 0x30) == 0x30)
-      status = "Fault: timer";
-    else if (f & 0x08)
-      status = "Fault: batt OVP";
-    else if (f & 0x07)
-      status = "Fault: NTC";
-    else
-      status = "Idle (full?)";
-  }
-
-  lv_label_set_text_fmt(s_pct, "%d%%", t.soc);
-  lv_label_set_text_fmt(s_volt, "%u.%02u V", t.vbat_mv / 1000, (t.vbat_mv % 1000) / 10);
-
-  if (t.power_good)
-    lv_label_set_text_fmt(
-        s_src, "%s %u.%02u V", vbus_name(t.vbus), t.vbus_mv / 1000, (t.vbus_mv % 1000) / 10);
+  const bq25896_telem_t *t = &charge.charger;
+  if (charge.gauge_valid)
+    lv_label_set_text_fmt(s_pct, "%d%%", charge.soc);
   else
-    lv_label_set_text(s_src, "on battery");
-
+    lv_label_set_text(s_pct, "--%");
+  lv_label_set_text_fmt(s_volt, "%u.%02u V", t->vbat_mv / 1000, (t->vbat_mv % 1000) / 10);
+  if (t->power_good)
+    lv_label_set_text_fmt(
+        s_src, "%s %u.%02u V", vbus_name(t->vbus), t->vbus_mv / 1000, (t->vbus_mv % 1000) / 10);
+  else
+    lv_label_set_text(s_src, "On battery");
+  const char *status = !t->power_good                        ? "On battery"
+                       : t->charging                         ? "Charging"
+                       : t->chg == CHARGE_STATUS_CHARGE_DONE ? "Fully charged"
+                       : !charge.requested                   ? "Charge paused"
+                                                             : "Charge blocked";
   lv_label_set_text(s_state, status);
-  style_state_chip(t.charging);
-
-  lv_label_set_text(s_row_val[ACT_CHARGE], bq25896_get_charge_enable() ? "ON" : "OFF");
+  style_state_chip(t->charging);
+  lv_label_set_text(s_row_val[ACT_CHARGE], charge.requested ? "ON" : "OFF");
 }
 
 static void refresh_selection(void) {
@@ -186,12 +155,13 @@ static void refresh_selection(void) {
     lv_obj_set_style_border_color(s_row[i], sel ? accent : current_theme.border_inactive, 0);
     lv_obj_set_style_border_opa(s_row[i], sel ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
     lv_obj_set_style_bg_color(
-        s_row[i], sel ? lv_color_hex(COL_RAISE) : current_theme.bg_secondary, 0);
+        s_row[i], sel ? current_theme.bg_item_top : current_theme.bg_secondary, 0);
     lv_obj_set_style_shadow_width(s_row[i], sel ? GLOW_W : 0, 0);
     lv_obj_set_style_shadow_spread(s_row[i], sel ? GLOW_SPREAD : 0, 0);
     lv_obj_set_style_text_color(s_row_icon[i], sel ? accent : dim, 0);
     lv_obj_set_style_text_color(s_row_val[i], sel ? accent : dim, 0);
   }
+  menu_component_scroll_to_item(&s_scroll, s_row[s_sel]);
 }
 
 static void build_hero(void) {
@@ -266,7 +236,9 @@ static lv_obj_t *make_row(lv_obj_t *parent, int i) {
   lv_obj_set_style_text_font(name, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(name, current_theme.text_main, 0);
   lv_obj_set_style_pad_left(name, NAME_PAD_L, 0);
+  lv_obj_set_width(name, 0);
   lv_obj_set_flex_grow(name, 1);
+  lv_label_set_long_mode(name, LV_LABEL_LONG_SCROLL_CIRCULAR);
 
   lv_obj_t *val = lv_label_create(row);
   lv_label_set_text(val, i == ACT_CHARGE ? "--" : LV_SYMBOL_RIGHT);
@@ -279,11 +251,11 @@ static lv_obj_t *make_row(lv_obj_t *parent, int i) {
 
 static void build_actions(void) {
   lv_obj_t *list = lv_obj_create(s_screen);
-  lv_obj_remove_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(list, LV_DIR_VER);
   lv_obj_remove_flag(list, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_width(list, lv_pct(LIST_W_PCT));
-  lv_obj_set_height(list, LV_SIZE_CONTENT);
-  lv_obj_align(list, LV_ALIGN_TOP_MID, 0, LIST_Y);
+  lv_obj_set_size(
+      list, ui_screen_w() - LIST_GUTTER, ui_screen_h() - LIST_Y - UI_CHROME_FOOTER_H - 4);
+  lv_obj_align(list, LV_ALIGN_TOP_LEFT, LIST_MARGIN, LIST_Y);
   lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(list, 0, 0);
   lv_obj_set_style_pad_all(list, 0, 0);
@@ -292,6 +264,7 @@ static void build_actions(void) {
 
   for (int i = 0; i < ACT_COUNT; i++)
     s_row[i] = make_row(list, i);
+  menu_component_attach_scroll(&s_scroll, s_screen, list);
 }
 
 static void i2c_scan_fill(void) {
@@ -308,7 +281,10 @@ static void i2c_scan_fill(void) {
 
 static void do_action(int act) {
   if (act == ACT_CHARGE) {
-    bq25896_set_charge_enable(!bq25896_get_charge_enable());
+    battery_charge_snapshot_t charge;
+    if (!battery_service_get_charge(&charge) ||
+        battery_service_request_charge(!charge.requested) != ESP_OK)
+      msgbox_open(LV_SYMBOL_WARNING, "Charge request failed", NULL, NULL, NULL);
     refresh_telem();
   } else if (act == ACT_SCAN) {
     i2c_scan_fill();
@@ -382,7 +358,6 @@ static void refresh_cb(lv_timer_t *t) {
 }
 
 void ui_power_open(void) {
-  bq25896_init();
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
@@ -402,7 +377,7 @@ void ui_power_open(void) {
   refresh_selection();
   refresh_telem();
 
-  ui_chrome_footer(s_screen, "UP/DOWN select   OK do   BACK exit");
+  ui_chrome_footer(s_screen, LV_SYMBOL_UP LV_SYMBOL_DOWN " Select  OK Run  BACK");
 
   if (s_timer == NULL)
     s_timer = lv_timer_create(refresh_cb, REFRESH_MS, NULL);

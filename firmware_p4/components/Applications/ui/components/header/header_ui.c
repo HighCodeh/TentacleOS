@@ -51,7 +51,11 @@
 
 #define STATUS_POLL_MS             1000
 #define WIFI_ANIM_MS               800
-#define BATTERY_CHARGE_ANIM_MS     350
+#define BATTERY_STATUS_WIDTH       72
+#define BATTERY_STATUS_HEIGHT      18
+#define BATTERY_TEXT_SIZE          12
+#define BATTERY_MV_PER_V           1000
+#define BATTERY_MV_PER_CENTIVOLT   10
 #define BATTERY_LOW_PERCENT        20
 #define BATTERY_MID_PERCENT        45
 #define BATTERY_FULL_PERCENT       100
@@ -349,15 +353,7 @@ static lv_obj_t *battery_cont = NULL;
 static lv_obj_t *battery_img = NULL;
 static lv_obj_t *power_img = NULL;
 static lv_image_dsc_t *battery_dscs[4] = {NULL};
-static int battery_frame = 0;
-static lv_timer_t *battery_charge_timer = NULL;
-
-// Last-shown battery state, so an on-battery (not charging) header only repaints
-// when the level/low/charging/present actually changes instead of every tick.
-static int s_batt_soc_idx_last = -1;
-static bool s_batt_low_last = false;
-static bool s_batt_charging_last = false;
-static bool s_batt_present_last = false;
+static lv_obj_t *s_battery_text = NULL;
 
 static const char *battery_paths[4] = {
     "/assets/icons/battery_1.bin",
@@ -441,8 +437,6 @@ void header_ui_set_wifi_connecting(bool connecting) {
   }
 }
 
-static void battery_charge_anim_cb(lv_timer_t *timer);
-
 static int battery_level_frame(int soc) {
   if (soc < BATTERY_LOW_PERCENT)
     return 0;
@@ -451,101 +445,71 @@ static int battery_level_frame(int soc) {
   return soc < BATTERY_FULL_PERCENT ? BATTERY_LAST_PARTIAL_FRAME : BATTERY_FULL_FRAME;
 }
 
+static void
+battery_render(const battery_snapshot_t *bs, lv_obj_t *icon, lv_obj_t *symbol, lv_obj_t *label) {
+  bool present = bs->valid && bs->present;
+  bool known = present && bs->soc >= 0;
+  int frame = known ? battery_level_frame(bs->soc) : 0;
+  if (battery_dscs[frame] && lv_image_get_src(icon) != battery_dscs[frame])
+    lv_image_set_src(icon, battery_dscs[frame]);
+  lv_obj_set_style_image_recolor(icon, current_theme.text_secondary, 0);
+  lv_obj_set_style_image_recolor_opa(icon, known ? LV_OPA_TRANSP : LV_OPA_COVER, 0);
+  const char *state = !present           ? "?"
+                      : bs->charging     ? LV_SYMBOL_CHARGE
+                      : bs->vbus_present ? LV_SYMBOL_USB
+                      : known            ? ""
+                                         : "?";
+  if (strcmp(lv_label_get_text(symbol), state) != 0)
+    lv_label_set_text(symbol, state);
+  char value[BATTERY_TEXT_SIZE];
+  if (known)
+    snprintf(value, sizeof(value), "%d%%", bs->soc);
+  else if (present)
+    snprintf(value,
+             sizeof(value),
+             "%u.%02uV",
+             bs->vbat_mv / BATTERY_MV_PER_V,
+             bs->vbat_mv % BATTERY_MV_PER_V / BATTERY_MV_PER_CENTIVOLT);
+  else
+    snprintf(value, sizeof(value), "--");
+  if (strcmp(lv_label_get_text(label), value) != 0)
+    lv_label_set_text(label, value);
+}
+
+static lv_obj_t *battery_cluster_create(lv_obj_t *parent, lv_obj_t **symbol, lv_obj_t **label) {
+  for (int i = 0; i < 4; ++i)
+    if (!battery_dscs[i])
+      battery_dscs[i] = assets_get(battery_paths[i]);
+  lv_obj_t *cont = lv_obj_create(parent);
+  lv_obj_set_size(cont, BATTERY_STATUS_WIDTH, BATTERY_STATUS_HEIGHT);
+  lv_obj_remove_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_pad_all(cont, 0, 0);
+  lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(cont, 0, 0);
+  lv_obj_t *icon = lv_image_create(cont);
+  if (battery_dscs[0])
+    lv_image_set_src(icon, battery_dscs[0]);
+  lv_obj_align(icon, LV_ALIGN_LEFT_MID, 0, 0);
+  *symbol = lv_label_create(cont);
+  lv_label_set_text(*symbol, "?");
+  lv_obj_set_style_text_font(*symbol, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(*symbol, current_theme.text_main, 0);
+  lv_obj_align_to(*symbol, icon, LV_ALIGN_CENTER, 0, 0);
+  *label = lv_label_create(cont);
+  lv_label_set_text(*label, "--");
+  lv_obj_set_style_text_font(*label, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(*label, current_theme.text_main, 0);
+  lv_obj_align(*label, LV_ALIGN_RIGHT_MID, 0, 0);
+  return icon;
+}
+
 static void battery_apply(void) {
   if (!battery_cont || !lv_obj_is_valid(battery_cont))
     return;
-
-  battery_snapshot_t bs;
+  battery_snapshot_t bs = {.soc = -1};
   if (!battery_service_get(&bs))
-    return;
-
-  // No charger on I2C: drop the whole cell so the flex row leaves no empty slot.
-  if (!bs.present) {
-    if (s_batt_present_last) {
-      lv_obj_add_flag(battery_cont, LV_OBJ_FLAG_HIDDEN);
-      s_batt_present_last = false;
-    }
-    return;
-  }
-  if (!s_batt_present_last) {
-    lv_obj_remove_flag(battery_cont, LV_OBJ_FLAG_HIDDEN);
-    s_batt_present_last = true;
-  }
-
-  if (!battery_img || !lv_obj_is_valid(battery_img))
-    return;
-
-  int soc_idx = battery_level_frame(bs.soc);
-
-  bool charging_changed = (bs.charging != s_batt_charging_last);
-
-  if (bs.charging) {
-    if (charging_changed || soc_idx != s_batt_soc_idx_last) {
-      battery_frame = soc_idx;
-      if (battery_dscs[battery_frame])
-        lv_image_set_src(battery_img, battery_dscs[battery_frame]);
-    }
-    if (charging_changed)
-      lv_obj_set_style_image_recolor_opa(battery_img, LV_OPA_TRANSP, 0);
-    if (battery_charge_timer == NULL)
-      battery_charge_timer = lv_timer_create(battery_charge_anim_cb, BATTERY_CHARGE_ANIM_MS, NULL);
-  } else {
-    if (battery_charge_timer != NULL) {
-      lv_timer_delete(battery_charge_timer);
-      battery_charge_timer = NULL;
-    }
-    // On battery: static frame. Only write when the shown level/low changed (or
-    // we just stopped charging), so an idle header stops forcing redraws.
-    if (charging_changed || soc_idx != s_batt_soc_idx_last) {
-      if (battery_dscs[soc_idx])
-        lv_image_set_src(battery_img, battery_dscs[soc_idx]);
-    }
-    if (charging_changed || bs.low != s_batt_low_last) {
-      if (bs.low) {
-        lv_obj_set_style_image_recolor(battery_img, lv_color_hex(0xE53935), 0);
-        lv_obj_set_style_image_recolor_opa(battery_img, LV_OPA_70, 0);
-      } else {
-        lv_obj_set_style_image_recolor_opa(battery_img, LV_OPA_TRANSP, 0);
-      }
-    }
-  }
-
-  // Bolt shows ONLY while actually charging (standard status-bar behavior) — no
-  // bolt when merely plugged-and-idle, charge-done, or on battery. Toggle only on
-  // the charging transition.
-  if (charging_changed && power_img && lv_obj_is_valid(power_img)) {
-    if (bs.charging)
-      lv_obj_remove_flag(power_img, LV_OBJ_FLAG_HIDDEN);
-    else
-      lv_obj_add_flag(power_img, LV_OBJ_FLAG_HIDDEN);
-  }
-
-  s_batt_soc_idx_last = soc_idx;
-  s_batt_low_last = bs.low;
-  s_batt_charging_last = bs.charging;
-}
-
-static void battery_charge_anim_cb(lv_timer_t *timer) {
-  if (!battery_img || !lv_obj_is_valid(battery_img)) {
-    lv_timer_delete(timer);
-    battery_charge_timer = NULL;
-    return;
-  }
-  if (!s_batt_present_last || !s_batt_charging_last)
-    return;
-  int first = s_batt_soc_idx_last;
-  battery_frame =
-      first >= BATTERY_FULL_FRAME
-          ? BATTERY_FULL_FRAME
-          : (battery_frame < first || battery_frame >= BATTERY_FULL_FRAME ? first
-                                                                          : battery_frame + 1);
-  if (power_img != NULL)
-    lv_obj_set_style_opa(power_img,
-                         lv_obj_get_style_opa(power_img, 0) == LV_OPA_COVER ? LV_OPA_50
-                                                                            : LV_OPA_COVER,
-                         0);
-  if (battery_dscs[battery_frame])
-    lv_image_set_src(battery_img, battery_dscs[battery_frame]);
+    bs.valid = false;
+  battery_render(&bs, battery_img, power_img, s_battery_text);
 }
 
 // Safety net: when a status cluster is deleted (its screen/overlay is freed), null
@@ -564,6 +528,7 @@ static void header_status_del_cb(lv_event_t *e) {
     battery_cont = NULL;
     battery_img = NULL;
     power_img = NULL;
+    s_battery_text = NULL;
   }
 }
 
@@ -617,41 +582,13 @@ void header_ui_attach_status(lv_obj_t *parent, int y_offset) {
     header_poll_timer = lv_timer_create(header_poll_cb, STATUS_POLL_MS, NULL);
   }
 
-  for (int i = 0; i < 4; i++) {
-    if (!battery_dscs[i])
-      battery_dscs[i] = assets_get(battery_paths[i]);
-  }
-
-  lv_obj_t *bat_cont = lv_obj_create(icon_cont);
-  lv_obj_set_size(bat_cont, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-  lv_obj_set_style_pad_all(bat_cont, 0, 0);
-  lv_obj_set_style_bg_opa(bat_cont, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(bat_cont, 0, 0);
-  battery_cont = bat_cont;
-  // Start hidden so it doesn't flash before the first battery poll; the timer
-  // reveals it only when the charger actually answers on I2C.
-  lv_obj_add_flag(bat_cont, LV_OBJ_FLAG_HIDDEN);
-
-  battery_img = lv_image_create(bat_cont);
-  if (battery_dscs[2])
-    lv_image_set_src(battery_img, battery_dscs[2]);
-  lv_obj_center(battery_img);
-
-  power_img = lv_label_create(bat_cont);
-  lv_label_set_text(power_img, LV_SYMBOL_CHARGE);
-  lv_obj_set_style_text_font(power_img, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_text_color(power_img, lv_color_white(), 0);
-  lv_obj_center(power_img);
-  lv_obj_add_flag(power_img, LV_OBJ_FLAG_HIDDEN);
+  battery_img = battery_cluster_create(icon_cont, &power_img, &s_battery_text);
+  battery_cont = lv_obj_get_parent(battery_img);
 
   s_wifi_shown_last = g_config_wifi.enabled || wifi_service_is_active();
   s_wifi_connected_last = wifi_service_is_connected();
   update_wifi_icon_static();
 
-  s_batt_present_last = false;
-  s_batt_soc_idx_last = -1;
-  s_batt_low_last = false;
-  s_batt_charging_last = false;
   battery_apply();
 }
 
@@ -732,38 +669,12 @@ void header_ui_attach_status_snapshot(lv_obj_t *parent, int y_offset) {
   if (!s_sd_mounted)
     lv_obj_add_flag(sd, LV_OBJ_FLAG_HIDDEN);
 
-  for (int i = 0; i < 4; i++) {
-    if (!battery_dscs[i])
-      battery_dscs[i] = assets_get(battery_paths[i]);
-  }
-  battery_snapshot_t bs;
-  bool present = battery_service_get(&bs) && bs.present;
-
-  lv_obj_t *bcont = lv_obj_create(icon_cont);
-  lv_obj_set_size(bcont, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-  lv_obj_set_style_pad_all(bcont, 0, 0);
-  lv_obj_set_style_bg_opa(bcont, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(bcont, 0, 0);
-  if (!present)
-    lv_obj_add_flag(bcont, LV_OBJ_FLAG_HIDDEN);
-
-  int soc_idx = present ? battery_level_frame(bs.soc) : 2;
-  lv_obj_t *bimg = lv_image_create(bcont);
-  if (battery_dscs[soc_idx])
-    lv_image_set_src(bimg, battery_dscs[soc_idx]);
-  lv_obj_center(bimg);
-  if (present && bs.low && !bs.charging) {
-    lv_obj_set_style_image_recolor(bimg, lv_color_hex(0xE53935), 0);
-    lv_obj_set_style_image_recolor_opa(bimg, LV_OPA_70, 0);
-  }
-
-  lv_obj_t *pimg = lv_label_create(bcont);
-  lv_label_set_text(pimg, LV_SYMBOL_CHARGE);
-  lv_obj_set_style_text_font(pimg, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_text_color(pimg, lv_color_white(), 0);
-  lv_obj_center(pimg);
-  if (!(present && bs.charging))
-    lv_obj_add_flag(pimg, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_t *symbol, *label;
+  lv_obj_t *icon = battery_cluster_create(icon_cont, &symbol, &label);
+  battery_snapshot_t bs = {.soc = -1};
+  if (!battery_service_get(&bs))
+    bs.valid = false;
+  battery_render(&bs, icon, symbol, label);
 }
 
 void header_ui_create_snapshot(lv_obj_t *parent) {

@@ -14,18 +14,16 @@
 # You should have received a copy of the GNU General Public License
 # along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-"""Test charge frame limits and live battery refresh with host UI fakes."""
+"""Exercise the actual battery renderer with qualified and unqualified telemetry."""
 from pathlib import Path
-import subprocess
-import tempfile
-ROOT = Path(__file__).resolve().parents[3]
-header = (ROOT / "firmware_p4/components/Applications/ui/components/header/header_ui.c").read_text()
-screen = (ROOT / "firmware_p4/components/Applications/ui/screens/settings/battery_settings_ui.c").read_text()
-def function(source, signature):
-    start=source.index(signature); opening=source.index("{",start); end=opening+1; depth=1
-    while depth:
-        depth+=(source[end]=="{")-(source[end]=="}"); end+=1
-    return source[start:end]
+import subprocess,tempfile
+ROOT=Path(__file__).resolve().parents[3]
+source=(ROOT/'firmware_p4/components/Applications/ui/screens/settings/battery_settings_ui.c').read_text()
+def function(signature):
+ start=source.index(signature);pos=source.index('{',start)+1;depth=1
+ while depth:
+  depth+=(source[pos]=='{')-(source[pos]=='}');pos+=1
+ return source[start:pos]
 code=r"""
 #include <assert.h>
 #include <stdbool.h>
@@ -33,89 +31,62 @@ code=r"""
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
-#define BATTERY_LOW_PERCENT 20
-#define BATTERY_MID_PERCENT 45
-#define BATTERY_FULL_PERCENT 100
-#define BATTERY_FULL_FRAME 3
-#define BATTERY_LAST_PARTIAL_FRAME 2
-#define VOLTAGE_MV_PER_V 1000
-#define VOLTAGE_CENTIVOLT_MV 10
-#define LV_OPA_COVER 255
-#define LV_OPA_50 128
-#define LV_PART_INDICATOR 1
+#define POWER_PROFILE_CAPACITY_MAH 2475U
+#define BATTERY_MV_PER_V 1000
+#define BATTERY_MV_PER_CENTIVOLT 10
 #define UI_COL_SUCCESS 1
-#define CHARGE_STATUS_PRECHARGE 1
-#define LV_SYMBOL_CHARGE "+"
-#define LV_SYMBOL_BATTERY_FULL "B"
-typedef struct {char text[80];int value,opa;const void *src;} lv_obj_t;
-typedef int lv_timer_t;
-typedef int lv_event_t;
+#define UI_COL_WARNING 2
+#define LV_PART_INDICATOR 1
+#define LV_SYMBOL_USB "USB"
+#define CHARGE_STATUS_CHARGE_DONE 3
 typedef int lv_color_t;
-typedef struct {int soc,vbat_mv,chg;bool present,charging,vbus_present;} battery_snapshot_t;
-static battery_snapshot_t snapshot;
-static bool valid=true;
-static lv_obj_t nodes[9];
-static lv_obj_t *battery_img=&nodes[0], *power_img=&nodes[1];
-static lv_obj_t *s_arc=&nodes[2], *s_pct=&nodes[3], *s_voltage=&nodes[4],
- *s_source=&nodes[5], *s_status=&nodes[6], *s_eta=&nodes[7], *s_chg=&nodes[8];
-static int frames[4], battery_frame, s_batt_soc_idx_last;
-static int *battery_dscs[]={frames,frames+1,frames+2,frames+3};
-static bool s_batt_present_last=true,s_batt_charging_last=true;
-static lv_timer_t timer,*battery_charge_timer=&timer,*s_refresh_timer=&timer;
+typedef int lv_timer_t;
+typedef struct {void *target;} lv_event_t;
+static void *lv_event_get_target(lv_event_t *e){return e->target;}
+typedef struct {char text[100];int value;} lv_obj_t;
+typedef struct {int soc,vbat_mv,chg;bool present,charging,vbus_present,low;} battery_snapshot_t;
+typedef struct {int vbat_mv;bool power_good;int vbus_mv;} charger_t;
+typedef struct {bool requested,current_valid;int battery_current_ma;const char *status;charger_t charger;} battery_charge_snapshot_t;
+static struct {int text_main,text_secondary;} current_theme;
+static battery_snapshot_t snap;
+static battery_charge_snapshot_t ch;
+static bool valid=true,charge_valid=true;
+static lv_obj_t nodes[10];
+static lv_obj_t *s_screen=nodes,*s_pct=nodes+1,*s_source=nodes+2,*s_state=nodes+3,
+ *s_current=nodes+4,*s_reason=nodes+5,*s_note=nodes+6,*s_caption=nodes+7,*s_footer=nodes+8;
+static lv_timer_t timer,*s_refresh_timer=&timer;
 static int deletions;
-static struct {int text_main;} current_theme;
-static bool lv_obj_is_valid(lv_obj_t *o) {return o!=NULL;}
-static void lv_timer_delete(lv_timer_t *t) {assert(t);++deletions;}
-static void lv_image_set_src(lv_obj_t *o,const void *src) {o->src=src;}
-static int lv_obj_get_style_opa(lv_obj_t *o,int sel) {(void)sel;return o->opa;}
-static void lv_obj_set_style_opa(lv_obj_t *o,int v,int sel) {(void)sel;o->opa=v;}
-static bool battery_service_get(battery_snapshot_t *bs) {*bs=snapshot;return valid;}
-static void arc_anim_exec_cb(void *o,int32_t v) {(void)o;(void)v;}
-static void lv_anim_delete(void *o,void (*cb)(void*,int32_t)) {(void)o;(void)cb;}
-static void lv_arc_set_value(lv_obj_t *o,int v) {o->value=v;}
-static int level_color(int soc) {return soc;}
-static int lv_color_hex(int v) {return v;}
-#define lv_obj_set_style_arc_color(obj,color,sel) ((void)(color))
-#define lv_obj_set_style_text_color(obj,color,sel) ((void)(color))
-#define lv_obj_set_style_bg_color(obj,color,sel) ((void)(color))
-static void lv_label_set_text(lv_obj_t *o,const char *s) {snprintf(o->text,sizeof(o->text),"%s",s);}
-static void lv_label_set_text_fmt(lv_obj_t *o,const char *fmt,...) {
- va_list args;va_start(args,fmt);vsnprintf(o->text,sizeof(o->text),fmt,args);va_end(args);
-}
+static bool battery_service_get(battery_snapshot_t *out){*out=snap;return valid;}
+static bool battery_service_get_charge(battery_charge_snapshot_t *out){*out=ch;return charge_valid;}
+static int lv_color_hex(int c){return c;}
+#define lv_obj_set_style_arc_color(o,c,p) ((void)(c))
+#define lv_obj_set_style_text_color(o,c,p) ((void)(c))
+static void lv_label_set_text(lv_obj_t *o,const char *s){snprintf(o->text,sizeof(o->text),"%s",s);}
+static void lv_label_set_text_fmt(lv_obj_t *o,const char *f,...){va_list a;va_start(a,f);vsnprintf(o->text,sizeof(o->text),f,a);va_end(a);}
+static void lv_timer_delete(lv_timer_t *t){assert(t);++deletions;}
+static void ui_chrome_footer_set_text(lv_obj_t *o,const char *s){lv_label_set_text(o,s);}
 """
-for src, sig in ((header,"static int battery_level_frame("),
-                 (header,"static void battery_charge_anim_cb(lv_timer_t *timer) {"),
-                 (screen,"static void refresh_cb("), (screen,"static void screen_delete_cb(")):
-    code+=function(src,sig)+"\n"
+code+=function('static void refresh_cb(')+function('void ui_battery_settings_close(')+function('static void screen_delete_cb(')
 code+=r"""
-int main(void) {
- for(int soc=0;soc<=100;++soc) {
-  s_batt_soc_idx_last=battery_level_frame(soc);battery_frame=s_batt_soc_idx_last;
-  for(int tick=0;tick<12;++tick) {
-   battery_charge_anim_cb(&timer);
-   assert(battery_frame>=s_batt_soc_idx_last);
-   assert(soc==100 ? battery_frame==3 : battery_frame<=3);
-   if(soc>=45 && soc<100) assert(battery_frame==(tick%2==0 ? 3 : 2));
-  }
- }
- assert(battery_level_frame(19)==0 && battery_level_frame(20)==1);
- assert(battery_level_frame(44)==1 && battery_level_frame(45)==2);
- snapshot=(battery_snapshot_t){.soc=40,.vbat_mv=3780,.present=true};
- refresh_cb(&timer);assert(!strcmp(s_pct->text,"40%") && s_arc->value==40);
- assert(!strcmp(s_source->text,"BATT") && !strcmp(s_voltage->text,"3.78"));
- snapshot.soc=60;snapshot.charging=true;snapshot.vbus_present=true;
- refresh_cb(&timer);assert(!strcmp(s_pct->text,"60%") && !strcmp(s_status->text,"FAST"));
- snapshot.charging=false;refresh_cb(&timer);
- assert(!strcmp(s_eta->text,"On USB; not charging"));
- snapshot.soc=100;refresh_cb(&timer);assert(!strcmp(s_status->text,"FULL"));
- valid=false;refresh_cb(&timer);assert(!strcmp(s_pct->text,"--") && !strcmp(s_status->text,"--"));
- screen_delete_cb(NULL);screen_delete_cb(NULL);assert(deletions==1 && !s_refresh_timer);
- return 0;
+int main(void){
+ snap=(battery_snapshot_t){.soc=-1,.vbat_mv=3004,.present=true,.vbus_present=true};
+ ch=(battery_charge_snapshot_t){.requested=true,.current_valid=true,.status="Battery voltage too low",.charger={3004,true,5100}};
+ refresh_cb(NULL);assert(!strcmp(s_pct->text,"3.00 V"));
+ assert(strstr(s_reason->text,"safe recovery") && !strcmp(s_state->text,"Not charging"));
+ assert(!strcmp(s_current->text,"+0 mA") && !strcmp(s_caption->text,"Percentage unavailable"));
+ snap.charging=true;snap.vbat_mv=3600;ch.charger.vbat_mv=3600;ch.status="Charging";ch.battery_current_ma=350;
+ refresh_cb(NULL);assert(!strcmp(s_state->text,"Charging") && !strcmp(s_pct->text,"3.60 V"));
+ snap.soc=45;refresh_cb(NULL);assert(!strcmp(s_pct->text,"45%") && !strcmp(s_caption->text,"State of charge"));
+ snap.charging=false;snap.chg=3;refresh_cb(NULL);assert(!strcmp(s_state->text,"Fully charged"));
+ snap.chg=0;ch.requested=false;refresh_cb(NULL);assert(!strcmp(s_state->text,"Charge paused") && strstr(s_footer->text,"Resume"));
+ valid=false;charge_valid=false;refresh_cb(NULL);assert(!strcmp(s_pct->text,"--"));
+ lv_event_t old={nodes+9},active={s_screen};
+ screen_delete_cb(&old);assert(deletions==0 && s_refresh_timer);
+ ui_battery_settings_close();screen_delete_cb(&active);assert(deletions==1 && !s_refresh_timer);
+ puts("PASS: battery card voltage/percent/source/current, charging/full/paused/fault, correct action and stale-root/central timer cleanup");
 }
 """
 with tempfile.TemporaryDirectory() as directory:
-    src=Path(directory)/"test.c"; exe=Path(directory)/"test"
-    src.write_text(code)
-    subprocess.run(["cc","-std=c11","-Wall","-Wextra",str(src),"-o",str(exe)],check=True)
-    subprocess.run([str(exe)],check=True)
-print("PASS: charge frames 0–100%, live readings, USB state, missing data and timer cleanup")
+ p=Path(directory);(p/'test.c').write_text(code)
+ subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Werror','-fsanitize=undefined',str(p/'test.c'),'-o',str(p/'test')],check=True)
+ subprocess.run([str(p/'test')],check=True)
