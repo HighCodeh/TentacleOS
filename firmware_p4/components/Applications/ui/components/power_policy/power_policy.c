@@ -44,6 +44,8 @@
 #define DISPLAY_MIN_DIM_PCT  5
 #define DISPLAY_DIM_DIVISOR  5
 
+#define BATT_CRIT_MV          3200
+#define BATT_SHUTDOWN_MV      3000
 #define BATT_CRIT_PCT         5
 #define BATT_SHUTDOWN_PCT     2
 #define BATT_SHUTDOWN_SAMPLES 3
@@ -323,12 +325,14 @@ static void check_battery(void) {
   }
   s_low_last = snapshot.low;
 
-  bool critical = on_battery && snapshot.soc <= BATT_CRIT_PCT;
+  bool critical = on_battery && (snapshot.soc >= 0 ? snapshot.soc <= BATT_CRIT_PCT
+                                                   : snapshot.vbat_mv <= BATT_CRIT_MV);
   if (critical && !s_crit_last)
     notify(NOTIFY_WARNING, "Battery critical - charge now");
   s_crit_last = critical;
 
-  if (on_battery && snapshot.soc <= BATT_SHUTDOWN_PCT) {
+  if (on_battery && (snapshot.soc >= 0 ? snapshot.soc <= BATT_SHUTDOWN_PCT
+                                       : snapshot.vbat_mv <= BATT_SHUTDOWN_MV)) {
     if (++s_shutdown_count >= BATT_SHUTDOWN_SAMPLES) {
       s_shutdown_count = 0;
       begin_shutdown("Bateria esgotada");

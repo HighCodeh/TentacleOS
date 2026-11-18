@@ -22,6 +22,11 @@
 extern "C" {
 #endif
 
+// Common motion timing for navigation, separate from hardware/action deadlines.
+#define UI_CAROUSEL_TRANSITION_MS 180
+#define UI_CONTENT_FADE_MS        120
+#define UI_OPEN_GUARD_MS          80
+
 // Live logical screen size. Unlike the LCD_H_RES / LCD_V_RES panel constants
 // (fixed 240 x 320), these follow lv_display_set_rotation: in landscape (270)
 // they return 320 x 240. Use them for layout that must survive rotation; the

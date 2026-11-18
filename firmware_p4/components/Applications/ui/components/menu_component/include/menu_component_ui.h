@@ -62,6 +62,9 @@ void menu_component_attach_scroll(menu_component_t *menu, lv_obj_t *parent, lv_o
 /** Scroll custom content by pixels, clamped to its live bounds; zero refreshes the bounds. */
 void menu_component_scroll_content(menu_component_t *menu, int32_t delta_y);
 
+/** Bring a selected grid/list item into view and synchronize the custom thumb. */
+void menu_component_scroll_to_item(menu_component_t *menu, lv_obj_t *item);
+
 /** @brief Create the full menu screen layout with title and scrollbar. */
 menu_component_t
 menu_component_create(lv_obj_t *parent, const char *title, const char *title_icon_path);
@@ -122,6 +125,10 @@ void menu_component_intensity_dec(menu_component_t *menu, int index);
 
 /** @brief Get the intensity bar level for an item. */
 int menu_component_get_intensity(menu_component_t *menu, int index);
+
+/** @brief Snapshot/restore the active screen's selection under the LVGL lock. */
+int menu_component_active_selection(void);
+void menu_component_restore_selection(int selected);
 
 /** @brief Select a menu item by index. */
 void menu_component_select(menu_component_t *menu, int index);

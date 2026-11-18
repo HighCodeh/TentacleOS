@@ -83,7 +83,6 @@ static lv_obj_t *sd_chip_fill = NULL;
 
 static lv_obj_t *bat_chip_val = NULL;
 static lv_obj_t *bat_chip_fill = NULL;
-static int bat_anim_pct = 0;
 static uint32_t bat_last_anim = 0;
 
 #define SLIDER_COUNT  2
@@ -723,37 +722,27 @@ static void refresh_sd_status(void) {
   }
 }
 
-// Real battery in the dropdown mini: "--" when no charger answers, else the SoC.
-// Only while actually charging: bolt prefix + fill sweeps upward (charging cue).
+// The fill represents charge level only; USB and charging are separate states.
 static void battery_tick(void) {
-  if (!bat_chip_val) {
+  if (!bat_chip_val)
     return;
-  }
   battery_snapshot_t bs;
   if (!battery_service_get(&bs) || !bs.present) {
     lv_label_set_text(bat_chip_val, "--");
-    if (bat_chip_fill) {
+    if (bat_chip_fill)
       lv_obj_set_width(bat_chip_fill, lv_pct(1));
-    }
     return;
   }
-  if (bs.charging) {
-    // Charging: bolt prefix + fill sweeps the full range (filling animation).
-    lv_label_set_text_fmt(bat_chip_val, LV_SYMBOL_CHARGE " %d%%", bs.soc);
-    bat_anim_pct += 15;
-    if (bat_anim_pct > 100) {
-      bat_anim_pct = 0;
-    }
-    if (bat_chip_fill) {
-      lv_obj_set_width(bat_chip_fill, lv_pct(bat_anim_pct < 1 ? 1 : bat_anim_pct));
-    }
-  } else {
-    // Not charging (on battery or plugged-idle): just the level, no bolt.
-    lv_label_set_text_fmt(bat_chip_val, "%d%%", bs.soc);
-    if (bat_chip_fill) {
-      lv_obj_set_width(bat_chip_fill, lv_pct(bs.soc < 1 ? 1 : bs.soc));
-    }
-  }
+  const char *symbol = bs.charging       ? LV_SYMBOL_CHARGE " "
+                       : bs.vbus_present ? LV_SYMBOL_USB " "
+                                         : "";
+  if (bs.soc < 0)
+    lv_label_set_text_fmt(
+        bat_chip_val, "%s%u.%02uV", symbol, bs.vbat_mv / 1000, bs.vbat_mv % 1000 / 10);
+  else
+    lv_label_set_text_fmt(bat_chip_val, "%s%d%%", symbol, bs.soc);
+  if (bat_chip_fill)
+    lv_obj_set_width(bat_chip_fill, lv_pct(bs.soc < 1 ? 1 : bs.soc));
 }
 
 void dropdown_ui_create(lv_obj_t *parent) {

@@ -23,6 +23,7 @@ extern "C" {
 #include <stddef.h>
 
 #include "lvgl.h"
+#include "esp_err.h"
 
 /**
  * @brief Standardized screen chrome — the SAME header + footer the
@@ -33,6 +34,9 @@ extern "C" {
  * between them (top = UI_CHROME_HEADER_H, bottom = UI_CHROME_FOOTER_H). Both
  * span the full width and re-derive from LCD_H_RES, so they follow rotation.
  */
+
+/** Create an opaque themed root with no scroll, border or padding. */
+lv_obj_t *ui_chrome_screen_create(void);
 
 #define UI_CHROME_HEADER_H 42 ///< height of the chrome header bar, in pixels
 #define UI_CHROME_FOOTER_H 22 ///< height of the chrome footer bar, in pixels
@@ -121,6 +125,14 @@ lv_obj_t *ui_chrome_footer(lv_obj_t *parent, const char *hint);
  * @param hint    New hint text (NULL clears it).
  */
 void ui_chrome_footer_set_text(lv_obj_t *footer, const char *hint);
+
+/**
+ * Build an opaque, vertically dithered RGB565 background once on a new object.
+ * Height must match its fixed logical height (1..320); rebuild on rotation/theme change.
+ * PSRAM tile is owned by the object and freed on deletion; allocation failure leaves
+ * a readable solid background. No worker, timer or internal-RAM fallback is used.
+ */
+esp_err_t ui_chrome_gradient(lv_obj_t *obj, lv_color_t top, lv_color_t bottom, int height);
 
 #ifdef __cplusplus
 }

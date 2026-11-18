@@ -92,11 +92,11 @@ CONFIG_LV_FONT_MONTSERRAT_12=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_MONTSERRAT_16=y
 
-# LVGL tuning: clib malloc routes blocks above SPIRAM_MALLOC_ALWAYSINTERNAL (512 B)
-# to PSRAM, so the decoded image cache (menu icons ~3 KB, frames ~150 KB) lands in
-# PSRAM instead of starving the internal DMA RAM the SPI bridge and LCD need.
+# LVGL objects, strings and caches use PSRAM, including small allocations.
+# Keep internal DMA RAM available for the display, radios and hardware crypto.
 # CONFIG_LV_USE_BUILTIN_MALLOC is not set
-CONFIG_LV_USE_CLIB_MALLOC=y
+# CONFIG_LV_USE_CLIB_MALLOC is not set
+CONFIG_LV_USE_CUSTOM_MALLOC=y
 CONFIG_LV_CACHE_DEF_SIZE=1048576
 CONFIG_LV_USE_FS_POSIX=y
 CONFIG_LV_FS_POSIX_LETTER=65

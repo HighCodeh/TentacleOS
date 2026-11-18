@@ -29,8 +29,8 @@ extern "C" {
  * never block, and overlapping cues are dropped while one is still playing.
  */
 typedef enum {
-  UI_FB_NAV = 0,       ///< Menu item changed: short tick, no vibration.
-  UI_FB_SELECT,        ///< Open/confirm: soft blip, no vibration.
+  UI_FB_NAV = 0,       ///< Menu item changed: short tick; input router owns key vibration.
+  UI_FB_SELECT,        ///< Open/confirm: soft blip; input router owns key vibration.
   UI_FB_READ,          ///< Function READ succeeded: rising tone + vibration.
   UI_FB_WRITE,         ///< Function WRITE/SAVE succeeded: two-tone + vibration.
   UI_FB_EMULATE,       ///< Function is EMULATING: pulse + vibration.
