@@ -190,12 +190,22 @@ Debug/capture helpers registered as top-level commands (from the screen command 
 | `key` | Injects a simulated button press. | `key <idx> [-t <ms>]`<br>idx: 0=UP 1=DOWN 2=LEFT 3=RIGHT 4=OK 5=BACK; hold default 120 ms |
 | `screenshot` | Captures one complete refresh as base64 RGB565 strips or RLE. | `screenshot [id] [-r]` (optionally switch to `id` first) |
 
-Capture queues a callback on the graphics task (16 KiB stack), not the console
+Navigation (`goto` and the optional capture screen ID) queues a checked callback
+on the graphics task. Screen changes can render recent-view previews, so they
+must not run on the smaller console stack. A queue failure leaves the current
+view unchanged and returns an error.
+
+Capture also queues a callback on the graphics task (16 KiB stack), not the console
 task (8 KiB). The callback invalidates and synchronously refreshes under the UI lock,
 then detaches the strip sink before releasing that lock. Timer-driven partial
 redraws cannot overwrite parts of the collected frame between refresh and
 teardown. Every row must have full-width coverage before an image is emitted.
 Encoding and serial transfer happen on the console after releasing the UI lock.
+The bounded RLE/base64 scratch buffers live in PSRAM, are freed on completion or
+encoding failure, and never fall back to internal RAM. Host tests enforce a
+1 KiB command frame budget and exercise queue/allocation failures, wide RLE rows,
+delta ownership and UART restoration. Device qualification also checks stack
+headroom during repeated navigation and capture.
 A timed-out queued callback is cancelled under the lock before its PSRAM frame
 is freed; failure to reacquire the lock retains ownership for later cleanup.
 
