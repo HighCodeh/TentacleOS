@@ -371,7 +371,13 @@ static void message_submit(const char *text, void *ctx) {
 
 static void execute_selected(void) {
   if (selected_is_text()) {
-    keyboard_open(NULL, message_submit, NULL);
+    keyboard_open_config(&(keyboard_config_t){.title = "NDEF text",
+                                              .initial = s_message,
+                                              .max_chars = NFC_MFC_NDEF_TEXT_MAX,
+                                              .min_chars = 1,
+                                              .mode = KEYBOARD_TEXT},
+                         message_submit,
+                         NULL);
   } else {
     ask_confirmation();
   }
@@ -522,12 +528,7 @@ void ui_nfc_write_open(void) {
   s_state = WRITE_STATE_SELECT;
   s_message[0] = '\0';
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   ui_chrome_header(s_screen, "WRITE MFC / NDEF", WRITE_ICON);
   s_footer = ui_chrome_footer(s_screen, "BACK Exit");

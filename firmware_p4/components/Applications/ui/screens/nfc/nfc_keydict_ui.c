@@ -150,7 +150,13 @@ static void input_cb(const input_event_t *event, void *ctx) {
     refresh();
     ui_feedback(UI_FB_NAV);
   } else if (event->button == INPUT_BTN_OK && press) {
-    keyboard_open(NULL, add_key_submit, NULL);
+    keyboard_open_config(&(keyboard_config_t){.title = "MIFARE key - 12 hex",
+                                              .initial = NULL,
+                                              .max_chars = 12,
+                                              .min_chars = 12,
+                                              .mode = KEYBOARD_HEX},
+                         add_key_submit,
+                         NULL);
   }
 }
 
@@ -168,12 +174,7 @@ void ui_nfc_keydict_open(void) {
     s_screen = NULL;
   }
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
   ui_chrome_header(s_screen, "KEY DICTIONARY", "/assets/icons/key.bin");
 
   lv_obj_t *body = lv_obj_create(s_screen);

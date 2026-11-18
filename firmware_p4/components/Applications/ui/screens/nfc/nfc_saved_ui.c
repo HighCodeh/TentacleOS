@@ -177,7 +177,7 @@ static void overlay_open(const nfc_sim_card_t *c, int idx) {
 
   s_ov_card = nfc_ui_card_panel(s_ov, &s_view_card);
   lv_obj_align(s_ov_card, LV_ALIGN_CENTER, 0, -6);
-  lv_obj_fade_in(s_ov_card, 220, 0);
+  lv_obj_fade_in(s_ov_card, UI_CONTENT_FADE_MS, 0);
 
   s_detail = DT_VIEW;
   s_phase = DV_CARD;

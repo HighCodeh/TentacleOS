@@ -530,6 +530,8 @@ static void overlay_close(void) {
     s_ov = NULL;
   }
   s_ov_status = NULL;
+  if (s_body != NULL)
+    lv_obj_remove_flag(s_body, LV_OBJ_FLAG_HIDDEN);
   for (int i = 0; i < 3; i++)
     s_ov_field.ring[i] = NULL;
   s_em = EM_NONE;
@@ -583,6 +585,9 @@ static void overlay_start(const nfc_emu_dump_entry_t *dump) {
     return;
   }
   s_card = dump->card;
+  const bool is_classic = !dump->is_plus && !dump->is_t2t && !dump->is_v;
+  if (s_body != NULL)
+    lv_obj_add_flag(s_body, LV_OBJ_FLAG_HIDDEN);
 
   s_ov = lv_obj_create(s_screen);
   lv_obj_set_size(s_ov, lv_pct(100), lv_pct(100));
@@ -610,18 +615,23 @@ static void overlay_start(const nfc_emu_dump_entry_t *dump) {
   lv_obj_set_style_pad_all(field_box, 0, 0);
 
   nfc_ui_field_create(&s_ov_field, field_box, ui_theme_get_accent());
+  if (is_classic)
+    nfc_ui_field_tick(&s_ov_field, 0);
 
   lv_obj_t *card = nfc_ui_card_panel(s_ov, &s_card);
   lv_obj_align(card, LV_ALIGN_CENTER, 0, CARD_Y_OFS);
-  lv_obj_fade_in(card, 280, 0);
-  card_rise(card);
+  if (!is_classic) {
+    lv_obj_fade_in(card, UI_CONTENT_FADE_MS, 0);
+    card_rise(card);
+  }
 
   s_ov_status = lv_label_create(s_ov);
   lv_label_set_text(s_ov_status, "LISTENING");
   lv_obj_set_style_text_font(s_ov_status, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(s_ov_status, current_theme.border_accent, 0);
   lv_obj_align(s_ov_status, LV_ALIGN_BOTTOM_MID, 0, -46);
-  blink_loop(s_ov_status, 900, 0);
+  if (!is_classic)
+    blink_loop(s_ov_status, 900, 0);
 
   lv_obj_t *dots = lv_obj_create(s_ov);
   lv_obj_remove_flag(dots, LV_OBJ_FLAG_SCROLLABLE);
@@ -641,7 +651,8 @@ static void overlay_start(const nfc_emu_dump_entry_t *dump) {
     lv_obj_set_style_border_width(d, 0, 0);
     lv_obj_set_style_bg_color(d, current_theme.border_accent, 0);
     lv_obj_set_style_bg_opa(d, LV_OPA_COVER, 0);
-    blink_loop(d, 900, (int32_t)i * 300);
+    if (!is_classic)
+      blink_loop(d, 900, (int32_t)i * 300);
   }
 
   s_em = EM_RUN;
@@ -657,7 +668,8 @@ static void field_tick_cb(lv_timer_t *t) {
     return;
   }
   if (s_em == EM_RUN) {
-    nfc_ui_field_tick(&s_ov_field, lv_tick_get() - s_em_start);
+    if (s_dumps[s_sel].is_plus || s_dumps[s_sel].is_t2t || s_dumps[s_sel].is_v)
+      nfc_ui_field_tick(&s_ov_field, lv_tick_get() - s_em_start);
     uint32_t now = lv_tick_get();
     if (s_ov_status != NULL && now - s_status_tick >= 250) {
       if (s_hw_is_v) {
@@ -687,15 +699,13 @@ static void field_tick_cb(lv_timer_t *t) {
         s_status_tick = now;
         return;
       }
-      mfc_emu_stats_t stats = mfc_emu_get_stats();
-      char line[64];
-      snprintf(line,
-               sizeof(line),
-               "%s  A:%d  R:%d",
-               mfc_emu_state_str(mfc_emu_get_state()),
-               stats.successful_auths,
-               stats.reads_served);
-      lv_label_set_text(s_ov_status, line);
+      /* Display DMA shares SPI with Classic's sub-millisecond replies. */
+      mfc_emu_state_t state = mfc_emu_get_state();
+      const char *line = state == MFC_EMU_STATE_ERROR  ? "ERROR"
+                         : state == MFC_EMU_STATE_IDLE ? "STOPPED"
+                                                       : "LISTENING";
+      if (strcmp(lv_label_get_text(s_ov_status), line) != 0)
+        lv_label_set_text(s_ov_status, line);
       s_status_tick = now;
     }
   }

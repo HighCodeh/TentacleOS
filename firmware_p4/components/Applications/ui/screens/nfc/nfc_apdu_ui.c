@@ -314,11 +314,23 @@ static void execute_action(void) {
   switch (s_action) {
     case APDU_ACTION_RAW:
       lv_label_set_text(s_status_label, "Enter command APDU as hexadecimal");
-      keyboard_open(NULL, raw_submit, NULL);
+      keyboard_open_config(&(keyboard_config_t){.title = "Command APDU (hex)",
+                                                .initial = NULL,
+                                                .max_chars = NFC_APDU_LAB_TX_MAX * 2U,
+                                                .min_chars = 8,
+                                                .mode = KEYBOARD_HEX},
+                           raw_submit,
+                           NULL);
       break;
     case APDU_ACTION_SELECT_AID:
       lv_label_set_text(s_status_label, "Enter application AID (1-16 bytes)");
-      keyboard_open(NULL, aid_submit, NULL);
+      keyboard_open_config(&(keyboard_config_t){.title = "Application AID (hex)",
+                                                .initial = NULL,
+                                                .max_chars = 32,
+                                                .min_chars = 2,
+                                                .mode = KEYBOARD_HEX},
+                           aid_submit,
+                           NULL);
       break;
     case APDU_ACTION_SELECT_NDEF:
       send_checked(APDU_SELECT_NDEF, sizeof(APDU_SELECT_NDEF));
@@ -421,12 +433,7 @@ void ui_nfc_apdu_open(void) {
   s_seen_state = (nfc_apdu_lab_state_t)-1;
   s_pending_len = 0;
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
   ui_chrome_header(s_screen, "APDU WORKBENCH", "/assets/icons/developer_board.bin");
 
   lv_obj_t *body = lv_obj_create(s_screen);
@@ -447,6 +454,7 @@ void ui_nfc_apdu_open(void) {
   lv_label_set_text(s_status_label, "Starting APDU session...");
 
   s_link_label = lv_label_create(body);
+  lv_label_set_text(s_link_label, "Place an ISO-DEP card on NFC antenna");
   lv_obj_set_width(s_link_label, lv_pct(100));
   lv_label_set_long_mode(s_link_label, LV_LABEL_LONG_DOT);
   lv_obj_set_style_text_color(s_link_label, current_theme.text_secondary, 0);

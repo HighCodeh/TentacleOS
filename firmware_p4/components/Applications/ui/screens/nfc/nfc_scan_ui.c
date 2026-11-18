@@ -356,12 +356,7 @@ void ui_nfc_scan_open(void) {
     lv_obj_del(s_screen);
     s_screen = NULL;
   }
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
   ui_chrome_header(s_screen, "IDENTIFY", NFC_ICON);
 
   s_status = lv_label_create(s_screen);

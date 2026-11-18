@@ -65,9 +65,11 @@ static void render(const nfc_protocol_status_t *status) {
     clear_result();
     lv_label_set_text(
         s_status,
-        status->operation == NFC_PROTOCOL_OP_T4T_CREATE        ? "Creating NDEF application..."
-        : status->operation == NFC_PROTOCOL_OP_T4T_WRITE       ? "Writing and verifying NDEF..."
-        : status->operation == NFC_PROTOCOL_OP_T4T_LOAD        ? "Loading Type 4 file..."
+        status->operation == NFC_PROTOCOL_OP_UL_READER_UNLOCK ? "Hold near original reader (60s)"
+        : status->operation == NFC_PROTOCOL_OP_UL_EMULATE ? "Emulating memory; changes stay in copy"
+        : status->operation == NFC_PROTOCOL_OP_T4T_CREATE ? "Creating NDEF application..."
+        : status->operation == NFC_PROTOCOL_OP_T4T_WRITE  ? "Writing and verifying NDEF..."
+        : status->operation == NFC_PROTOCOL_OP_T4T_LOAD   ? "Loading Type 4 file..."
         : status->operation == NFC_PROTOCOL_OP_FELICA_EMULATE  ? "Emulating saved FeliCa"
         : status->operation == NFC_PROTOCOL_OP_DESFIRE_EMULATE ? "Emulating DESFire identity only"
         : status->operation == NFC_PROTOCOL_OP_T4T_EMULATE     ? "Emulating saved Type 4 NDEF"
@@ -98,8 +100,11 @@ static void render(const nfc_protocol_status_t *status) {
   }
   if (status->state == NFC_PROTOCOL_STATE_DONE) {
     lv_label_set_text(s_status,
-                      status->operation == NFC_PROTOCOL_OP_T4T_CREATE  ? "Application created"
-                      : status->operation == NFC_PROTOCOL_OP_T4T_WRITE ? "NDEF write verified"
+                      status->operation == NFC_PROTOCOL_OP_UL_READER_UNLOCK ? "Password captured"
+                      : status->operation == NFC_PROTOCOL_OP_UL_LOAD        ? "Memory loaded"
+                      : status->operation == NFC_PROTOCOL_OP_UL_EMULATE     ? "Emulation stopped"
+                      : status->operation == NFC_PROTOCOL_OP_T4T_CREATE     ? "Application created"
+                      : status->operation == NFC_PROTOCOL_OP_T4T_WRITE      ? "NDEF write verified"
                       : (status->operation == NFC_PROTOCOL_OP_FELICA_EMULATE ||
                          (status->operation == NFC_PROTOCOL_OP_NTAG4XX_EMULATE ||
                           status->operation == NFC_PROTOCOL_OP_T4T_EMULATE))
@@ -164,13 +169,15 @@ static void render(const nfc_protocol_status_t *status) {
       s_operation == NFC_PROTOCOL_OP_FELICA ? "UP/DN view  LEFT emulate  RIGHT file/key"
       : (s_operation == NFC_PROTOCOL_OP_DESFIRE || s_operation == NFC_PROTOCOL_OP_NTAG4XX)
           ? "UP/DN view  LEFT UID  RIGHT file  OK read"
-      : s_operation == NFC_PROTOCOL_OP_TEXKOM     ? "OK read  RIGHT emulate  BACK exit"
-      : s_operation == NFC_PROTOCOL_OP_ARCHIVE    ? "UP/DOWN file  OK open  RIGHT copy"
-      : s_operation == NFC_PROTOCOL_OP_SLIX       ? "RIGHT password  DOWN write  UP clear"
-      : s_operation == NFC_PROTOCOL_OP_ULTRALIGHT ? "RIGHT key  DOWN write  UP clear"
-      : s_operation == NFC_PROTOCOL_OP_PLUS       ? "RIGHT key  DOWN write  UP clear key"
-      : s_operation == NFC_PROTOCOL_OP_ST25TB     ? "OK read  RIGHT write  BACK exit"
-                                                  : "OK rescan   BACK exit");
+      : s_operation == NFC_PROTOCOL_OP_TEXKOM  ? "OK read  RIGHT emulate  BACK exit"
+      : s_operation == NFC_PROTOCOL_OP_ARCHIVE ? "UP/DOWN file  OK open  RIGHT copy"
+      : s_operation == NFC_PROTOCOL_OP_SLIX    ? "RIGHT password  DOWN write  UP clear"
+      : s_operation == NFC_PROTOCOL_OP_ULTRALIGHT
+          ? (nfc_protocol_service_ul_has_profile() ? "OK read  RIGHT unlock  LEFT emulate  UP clear"
+                                                   : "LEFT file  RIGHT AES key  DOWN write")
+      : s_operation == NFC_PROTOCOL_OP_PLUS   ? "RIGHT key  DOWN write  UP clear key"
+      : s_operation == NFC_PROTOCOL_OP_ST25TB ? "OK read  RIGHT write  BACK exit"
+                                              : "OK rescan   BACK exit");
   if (s_operation == NFC_PROTOCOL_OP_NDEF && !status->running)
     ui_chrome_footer_set_text(s_footer, "OK read  RIGHT file  LEFT emulate  DOWN write  UP create");
 }
@@ -463,12 +470,50 @@ static void felica_page(bool previous) {
   }
 }
 
+static void ul_file_submit(const char *text, void *ctx) {
+  (void)ctx;
+  if (nfc_protocol_service_ul_file(text) != ESP_OK ||
+      nfc_protocol_service_start(NFC_PROTOCOL_OP_UL_LOAD) != ESP_OK) {
+    lv_label_set_text(s_status, "Enter a Type 2 filename from NFC dumps");
+    return;
+  }
+  s_last_state = (nfc_protocol_state_t)-1;
+}
+
 static void input_cb(const input_event_t *event, void *ctx) {
   (void)ctx;
   if (keyboard_is_open() || event->action != INPUT_ACTION_PRESS)
     return;
   nfc_protocol_status_t status;
   nfc_protocol_service_get_status(&status);
+  if (s_operation == NFC_PROTOCOL_OP_ULTRALIGHT && !status.running &&
+      ((event->button == INPUT_BTN_LEFT && !nfc_protocol_service_ul_has_profile()) ||
+       (event->button == INPUT_BTN_DOWN && nfc_protocol_service_ul_has_profile()))) {
+    keyboard_open_config(&(keyboard_config_t){.title = "Ultralight dump path",
+                                              .initial = NULL,
+                                              .max_chars = 255,
+                                              .min_chars = 1,
+                                              .mode = KEYBOARD_TEXT},
+                         ul_file_submit,
+                         NULL);
+    return;
+  }
+  if (s_operation == NFC_PROTOCOL_OP_ULTRALIGHT && !status.running &&
+      nfc_protocol_service_ul_has_profile() &&
+      (event->button == INPUT_BTN_RIGHT || event->button == INPUT_BTN_LEFT ||
+       event->button == INPUT_BTN_UP)) {
+    if (event->button == INPUT_BTN_UP) {
+      nfc_protocol_service_ul_clear();
+      lv_label_set_text(s_status, "Session cleared; saved files unchanged");
+    } else {
+      s_last_state = (nfc_protocol_state_t)-1;
+      if (nfc_protocol_service_start(event->button == INPUT_BTN_RIGHT
+                                         ? NFC_PROTOCOL_OP_UL_READER_UNLOCK
+                                         : NFC_PROTOCOL_OP_UL_EMULATE) != ESP_OK)
+        lv_label_set_text(s_status, "Could not start Type 2 session");
+    }
+    return;
+  }
   if (s_operation == NFC_PROTOCOL_OP_NDEF) {
     if (s_write_pending) {
       if (event->button == INPUT_BTN_BACK || event->button == INPUT_BTN_LEFT) {
@@ -490,7 +535,13 @@ static void input_cb(const input_event_t *event, void *ctx) {
       if (event->button == INPUT_BTN_OK)
         start_read();
       else if (event->button == INPUT_BTN_RIGHT)
-        keyboard_open(NULL, t4t_load_submit, NULL);
+        keyboard_open_config(&(keyboard_config_t){.title = "Type 4 dump path",
+                                                  .initial = NULL,
+                                                  .max_chars = 255,
+                                                  .min_chars = 1,
+                                                  .mode = KEYBOARD_TEXT},
+                             t4t_load_submit,
+                             NULL);
       else if (event->button == INPUT_BTN_LEFT) {
         s_last_state = (nfc_protocol_state_t)-1;
         if (nfc_protocol_service_start(NFC_PROTOCOL_OP_T4T_EMULATE) != HB_NFC_OK)
@@ -523,7 +574,13 @@ static void input_cb(const input_event_t *event, void *ctx) {
       if (event->button == INPUT_BTN_UP || event->button == INPUT_BTN_DOWN)
         desfire_page(event->button == INPUT_BTN_UP);
       else if (event->button == INPUT_BTN_RIGHT)
-        keyboard_open(NULL, desfire_load_submit, NULL);
+        keyboard_open_config(&(keyboard_config_t){.title = "DESFire dump path",
+                                                  .initial = NULL,
+                                                  .max_chars = 255,
+                                                  .min_chars = 1,
+                                                  .mode = KEYBOARD_TEXT},
+                             desfire_load_submit,
+                             NULL);
       else if (event->button == INPUT_BTN_LEFT) {
         s_last_state = (nfc_protocol_state_t)-1;
         if (nfc_protocol_service_start(NFC_PROTOCOL_OP_DESFIRE_EMULATE) != HB_NFC_OK)
@@ -545,7 +602,13 @@ static void input_cb(const input_event_t *event, void *ctx) {
       if (event->button == INPUT_BTN_UP || event->button == INPUT_BTN_DOWN)
         ntag4xx_page(event->button == INPUT_BTN_UP);
       else if (event->button == INPUT_BTN_RIGHT)
-        keyboard_open(NULL, ntag4xx_load_submit, NULL);
+        keyboard_open_config(&(keyboard_config_t){.title = "NTAG dump path",
+                                                  .initial = NULL,
+                                                  .max_chars = 255,
+                                                  .min_chars = 1,
+                                                  .mode = KEYBOARD_TEXT},
+                             ntag4xx_load_submit,
+                             NULL);
       else if (event->button == INPUT_BTN_LEFT) {
         s_last_state = (nfc_protocol_state_t)-1;
         if (nfc_protocol_service_start(NFC_PROTOCOL_OP_NTAG4XX_EMULATE) != HB_NFC_OK)
@@ -567,7 +630,13 @@ static void input_cb(const input_event_t *event, void *ctx) {
       if (event->button == INPUT_BTN_UP || event->button == INPUT_BTN_DOWN)
         felica_page(event->button == INPUT_BTN_UP);
       else if (event->button == INPUT_BTN_RIGHT)
-        keyboard_open(NULL, felica_load_submit, NULL);
+        keyboard_open_config(&(keyboard_config_t){.title = "FeliCa dump path",
+                                                  .initial = NULL,
+                                                  .max_chars = 255,
+                                                  .min_chars = 1,
+                                                  .mode = KEYBOARD_TEXT},
+                             felica_load_submit,
+                             NULL);
       else if (event->button == INPUT_BTN_LEFT) {
         s_last_state = (nfc_protocol_state_t)-1;
         if (nfc_protocol_service_start(NFC_PROTOCOL_OP_FELICA_EMULATE) != HB_NFC_OK)
@@ -638,7 +707,13 @@ static void input_cb(const input_event_t *event, void *ctx) {
   } else if (event->button == INPUT_BTN_RIGHT && !status.running &&
              s_operation == NFC_PROTOCOL_OP_ULTRALIGHT) {
     lv_label_set_text(s_status, "DataProtKey: 0:KEY plain, 1:KEY CMAC");
-    keyboard_open(NULL, aes_key_submit, NULL);
+    keyboard_open_config(&(keyboard_config_t){.title = "0:KEY plain / 1:KEY CMAC",
+                                              .initial = NULL,
+                                              .max_chars = 34,
+                                              .min_chars = 34,
+                                              .mode = KEYBOARD_TEXT},
+                         aes_key_submit,
+                         NULL);
   } else if (event->button == INPUT_BTN_UP && !status.running &&
              s_operation == NFC_PROTOCOL_OP_ULTRALIGHT) {
     (void)nfc_protocol_service_ul_aes_key(NULL);
@@ -646,30 +721,66 @@ static void input_cb(const input_event_t *event, void *ctx) {
   } else if (event->button == INPUT_BTN_RIGHT && !status.running &&
              s_operation == NFC_PROTOCOL_OP_SLIX) {
     lv_label_set_text(s_status, "r:read w:write p:privacy d:destroy e:EAS");
-    keyboard_open(NULL, password_submit, NULL);
+    keyboard_open_config(&(keyboard_config_t){.title = "r:/w:/p:/d:/e: + 8 hex",
+                                              .initial = NULL,
+                                              .max_chars = 10,
+                                              .min_chars = 10,
+                                              .mode = KEYBOARD_TEXT},
+                         password_submit,
+                         NULL);
   } else if (event->button == INPUT_BTN_RIGHT && !status.running &&
              s_operation == NFC_PROTOCOL_OP_ST25TB) {
     lv_label_set_text(s_status, "Enter BB:DDDDDDDD in hex");
-    keyboard_open(NULL, write_submit, NULL);
+    keyboard_open_config(&(keyboard_config_t){.title = "Block: BB:DDDDDDDD hex",
+                                              .initial = NULL,
+                                              .max_chars = 11,
+                                              .min_chars = 11,
+                                              .mode = KEYBOARD_TEXT},
+                         write_submit,
+                         NULL);
   } else if (event->button == INPUT_BTN_DOWN && !status.running &&
              s_operation == NFC_PROTOCOL_OP_ULTRALIGHT) {
     lv_label_set_text(s_status, "Filename; key:filename also copies Data key");
-    keyboard_open(NULL, aes_write_submit, NULL);
+    keyboard_open_config(&(keyboard_config_t){.title = "File or key:filename",
+                                              .initial = NULL,
+                                              .max_chars = 255,
+                                              .min_chars = 1,
+                                              .mode = KEYBOARD_TEXT},
+                         aes_write_submit,
+                         NULL);
   } else if (event->button == INPUT_BTN_DOWN && !status.running &&
              s_operation == NFC_PROTOCOL_OP_SLIX) {
     lv_label_set_text(s_status, "Dump filename; empty = last saved read");
-    keyboard_open(NULL, slix_write_submit, NULL);
+    keyboard_open_config(&(keyboard_config_t){.title = "Dump path (empty: last read)",
+                                              .initial = NULL,
+                                              .max_chars = 255,
+                                              .min_chars = 0,
+                                              .mode = KEYBOARD_TEXT},
+                         slix_write_submit,
+                         NULL);
   } else if (event->button == INPUT_BTN_UP && !status.running &&
              s_operation == NFC_PROTOCOL_OP_SLIX) {
     (void)nfc_protocol_service_slix_password(NULL);
     lv_label_set_text(s_status, "SLIX passwords cleared");
   } else if (event->button == INPUT_BTN_RIGHT && !status.running &&
              s_operation == NFC_PROTOCOL_OP_PLUS) {
-    keyboard_open(NULL, plus_key_submit, NULL);
+    keyboard_open_config(&(keyboard_config_t){.title = "AES key - 32 hex",
+                                              .initial = NULL,
+                                              .max_chars = 32,
+                                              .min_chars = 32,
+                                              .mode = KEYBOARD_HEX},
+                         plus_key_submit,
+                         NULL);
   } else if (event->button == INPUT_BTN_DOWN && !status.running &&
              s_operation == NFC_PROTOCOL_OP_PLUS) {
     lv_label_set_text(s_status, "Dump filename; empty = last saved read");
-    keyboard_open(NULL, plus_write_submit, NULL);
+    keyboard_open_config(&(keyboard_config_t){.title = "Dump path (empty: last read)",
+                                              .initial = NULL,
+                                              .max_chars = 255,
+                                              .min_chars = 0,
+                                              .mode = KEYBOARD_TEXT},
+                         plus_write_submit,
+                         NULL);
   } else if (event->button == INPUT_BTN_UP && !status.running &&
              s_operation == NFC_PROTOCOL_OP_PLUS) {
     (void)nfc_protocol_service_plus_key(NULL);
@@ -721,12 +832,7 @@ void ui_nfc_protocol_lab_open(nfc_protocol_op_t operation, const char *title) {
   s_felica_page = 0;
   s_last_state = (nfc_protocol_state_t)-1;
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
   ui_chrome_header(s_screen, title, "/assets/icons/nfc.bin");
 
   lv_obj_t *body = lv_obj_create(s_screen);
