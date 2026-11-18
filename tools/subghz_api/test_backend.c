@@ -31,6 +31,9 @@ static size_t copy_text(char *out,const char *text,size_t size) {
 #define malloc allocate
 #define calloc allocate_zero
 #define free release
+#ifdef strlcpy
+#undef strlcpy
+#endif
 #define strlcpy copy_text
 #define fopen open_capture
 #include "tos_api_subghz.c"

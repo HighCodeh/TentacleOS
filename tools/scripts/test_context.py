@@ -105,6 +105,9 @@ static inline size_t script_test_strlcpy(char *dst,const char *src,size_t size) 
   if(size!=0) { size_t count=length<size-1 ? length : size-1; memcpy(dst,src,count); dst[count]=0; }
   return length;
 }
+#ifdef strlcpy
+#undef strlcpy
+#endif
 #define strlcpy script_test_strlcpy
 ''')
         executable = directory / 'test'

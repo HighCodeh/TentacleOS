@@ -41,7 +41,8 @@ def main():
                    "-fno-sanitize-recover=all", "-pthread", "-I", str(ROOT / "tools/crypto/fixtures"), "-I", str(FIXTURES)]
         for directory in (P4 / "Service/spi_bridge/include", P4 / "Drivers/sys_prio/include",
                           P4 / "Applications/LoRa/meshtastic/include",
-                          P4 / "Applications/LoRa/session/include", C5 / "Service/mqtt_bridge/include"):
+                          P4 / "Applications/LoRa/session/include", P4 / "Drivers/sx1262/include",
+                          C5 / "Service/mqtt_bridge/include"):
             command += ["-I", str(directory)]
         command += [str(C5 / "Service/mqtt_bridge/mqtt_bridge.c"),
                     str(P4 / "Applications/LoRa/meshtastic/meshtastic_mqtt_codec.c"),

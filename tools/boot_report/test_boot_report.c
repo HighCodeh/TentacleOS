@@ -21,6 +21,9 @@ static size_t test_copy(char *out,const char *text,size_t size) {
 }
 #define malloc test_allocate
 #define free test_release
+#ifdef strlcpy
+#undef strlcpy
+#endif
 #define strlcpy test_copy
 #include "boot_report.c"
 #undef malloc
