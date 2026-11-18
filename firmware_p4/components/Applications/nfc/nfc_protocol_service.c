@@ -35,6 +35,9 @@
 #include <string.h>
 
 #include "esp_attr.h"
+#include "esp_heap_caps.h"
+#include "led_control.h"
+#include "iso14443a.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "felica.h"
@@ -86,6 +89,16 @@
 #define UL_MAX_PAGES            492
 #define UL_LEGACY_PAGES         16
 #define UL_VERSION_SIZE         8
+#define UL_CRC_BYTES            2U
+#define UL_PASSWORD_BYTES       4U
+#define UL_PACK_BYTES           2U
+#define UL_COUNTER_BYTES        3U
+#define UL_CMD_SIGNATURE        0x3CU
+#define UL_CMD_COUNTER          0x39U
+#define UL_CMD_TEARING          0x3EU
+#define UL_IO_TIMEOUT_MS        25U
+#define UL_LISTENER_YIELD_MS    10U
+#define UL_CAPTURE_TIMEOUT_US   INT64_C(60000000)
 #define NDEF_MAX_BYTES          1024
 #define NFC_V_DUMP_HEADER_SIZE  8U
 #define NFC_V_DUMP_VERSION      1U
@@ -119,6 +132,11 @@ EXT_RAM_BSS_ATTR static iso15693_listener_card_t s_v_card;
 static iso15693_listener_t s_v_listener;
 static bool s_has_v;
 static bool s_v_result_valid;
+EXT_RAM_BSS_ATTR static nfc_t2t_file_t s_ul_card;
+static bool s_has_ul_card;
+static char s_ul_load_path[UL_AES_PATH_SIZE];
+static bool s_ul_candidate_pending;
+static uint8_t s_ul_candidate[UL_PASSWORD_BYTES];
 static bool s_has_ul_aes_key;
 static bool s_ul_aes_secure;
 static uint8_t s_ul_aes_key[T2T_AES_BLOCK_SIZE];
@@ -196,11 +214,17 @@ static esp_err_t save_aes_card(const nfc_t2t_file_t *card) {
       (mkdir(UL_AES_DUMP_DIR, S_IRWXU) != 0 && errno != EEXIST))
     return ESP_FAIL;
   char uid[sizeof(card->config.uid) * HEX_DIGITS_PER_BYTE + 1];
-  format_uid(card->config.uid, card->config.uid_len, false, uid, sizeof(uid));
+  for (size_t i = 0; i < sizeof(card->config.uid); i++)
+    snprintf(uid + i * HEX_DIGITS_PER_BYTE, HEX_DIGITS_PER_BYTE + 1, "%02X", card->config.uid[i]);
   char path[UL_AES_PATH_SIZE];
   int fd = -1;
   for (unsigned i = 0; i < UL_AES_COPY_LIMIT; i++) {
-    int length = snprintf(path, sizeof(path), UL_AES_DUMP_DIR "/aes_%s_%u.nfc", uid, i);
+    int length = snprintf(path,
+                          sizeof(path),
+                          UL_AES_DUMP_DIR "/%s_%s_%u.nfc",
+                          card->config.type == T2T_TAG_ULTRALIGHT_AES ? "aes" : "ul",
+                          uid,
+                          i);
     if (length < 0 || (size_t)length >= sizeof(path))
       return ESP_ERR_INVALID_SIZE;
     fd = open(path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
@@ -214,7 +238,7 @@ static esp_err_t save_aes_card(const nfc_t2t_file_t *card) {
     unlink(path);
   else {
     memcpy(s_aes_last_path, path, strlen(path) + 1);
-    ESP_LOGI(TAG, "AES read saved: %s", path);
+    ESP_LOGI(TAG, "Type 2 read saved: %s", path);
   }
   return error;
 }
@@ -451,6 +475,289 @@ static hb_nfc_err_t save_capture(const char *device,
   return error;
 }
 
+static bool ul_type(const uint8_t version[UL_VERSION_SIZE], t2t_tag_type_t *out_type) {
+  uint16_t pages = mful_version_pages(version);
+  if (!pages)
+    return false;
+  if (version[2] == 3 && (pages == 20 || pages == 41))
+    *out_type = pages == 20 ? T2T_TAG_ULTRALIGHT_EV1_11 : T2T_TAG_ULTRALIGHT_EV1_21;
+  else if (version[2] == 4) {
+    switch (pages) {
+      case 20:
+        *out_type = T2T_TAG_NTAG210;
+        break;
+      case 41:
+        *out_type = T2T_TAG_NTAG212;
+        break;
+      case 45:
+        *out_type = T2T_TAG_NTAG213;
+        break;
+      case 135:
+        *out_type = T2T_TAG_NTAG215;
+        break;
+      case 231:
+        *out_type = T2T_TAG_NTAG216;
+        break;
+      default:
+        return false;
+    }
+  } else
+    return false;
+  return true;
+}
+
+static bool ul_metadata(uint8_t command, uint8_t index, uint8_t *out, size_t length) {
+  uint8_t request[] = {command, index};
+  uint8_t response[T2T_SIGNATURE_SIZE + UL_CRC_BYTES];
+  if (length > T2T_SIGNATURE_SIZE)
+    return false;
+  int received = nfc_poller_transceive(request,
+                                       sizeof(request),
+                                       true,
+                                       response,
+                                       sizeof(response),
+                                       length + UL_CRC_BYTES,
+                                       UL_IO_TIMEOUT_MS);
+  if (received != (int)(length + UL_CRC_BYTES) || !iso14443a_check_crc(response, received))
+    return false;
+  memcpy(out, response, length);
+  return true;
+}
+
+static esp_err_t read_ul_profile(const nfc_iso14443a_data_t *identity,
+                                 const uint8_t version[UL_VERSION_SIZE],
+                                 nfc_protocol_result_t *result) {
+  if (identity->uid_len != sizeof(s_ul_card.config.uid)) {
+    add_line(result, "Unsupported Ultralight UID length");
+    return HB_NFC_ERR_PROTOCOL;
+  }
+  const bool has_candidate = s_ul_candidate_pending;
+  const bool same_card = s_has_ul_card && identity->uid_len == s_ul_card.config.uid_len &&
+                         !memcmp(identity->uid, s_ul_card.config.uid, identity->uid_len) &&
+                         !memcmp(version, s_ul_card.config.version, UL_VERSION_SIZE);
+  if (has_candidate && !same_card) {
+    add_line(result, "Different card; password was NOT sent");
+    return ESP_ERR_INVALID_STATE;
+  }
+  nfc_t2t_file_t *capture =
+      heap_caps_calloc(1, sizeof(*capture), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!capture) {
+    ESP_LOGE(TAG, "Cannot allocate Ultralight capture");
+    return ESP_ERR_NO_MEM;
+  }
+  esp_err_t error = ESP_FAIL;
+  t2t_emu_config_t *config = &capture->config;
+  if (!ul_type(version, &config->type)) {
+    error = ESP_ERR_NOT_SUPPORTED;
+    goto cleanup;
+  }
+  config->uid_len = identity->uid_len;
+  memcpy(config->uid, identity->uid, identity->uid_len);
+  config->has_version = true;
+  memcpy(config->version, version, UL_VERSION_SIZE);
+  uint16_t total = mful_version_pages(version);
+  capture->length = total * UL_AES_PAGE_SIZE;
+  if (has_candidate || (same_card && s_ul_card.config.enable_pwd)) {
+    uint8_t password[UL_PASSWORD_BYTES];
+    memcpy(password, has_candidate ? s_ul_candidate : s_ul_card.config.pwd, sizeof(password));
+    s_ul_candidate_pending = false;
+    memset(s_ul_candidate, 0, sizeof(s_ul_candidate));
+    int authenticated = mful_pwd_auth(password, config->pack);
+    if (authenticated == UL_PACK_BYTES) {
+      memcpy(config->pwd, password, sizeof(password));
+      config->pwd_known = config->pack_known = config->enable_pwd = true;
+    }
+    memset(password, 0, sizeof(password));
+    if (!config->enable_pwd) {
+      add_line(result, "Password rejected; no automatic retry");
+      error = ESP_ERR_INVALID_RESPONSE;
+      goto cleanup;
+    }
+  }
+  int pages = mful_read_all(capture->memory, total);
+  if (pages < 4) {
+    error = HB_NFC_ERR_PROTOCOL;
+    goto cleanup;
+  }
+  if (config->enable_pwd && pages < total) {
+    add_line(result, "Authenticated; incomplete read, retry card");
+    error = ESP_ERR_INVALID_RESPONSE;
+    goto cleanup;
+  }
+  config->readable_pages = pages < total ? pages : 0;
+  if (config->enable_pwd) {
+    memcpy(capture->memory + (total - 2) * UL_AES_PAGE_SIZE, config->pwd, UL_PASSWORD_BYTES);
+    memcpy(capture->memory + (total - 1) * UL_AES_PAGE_SIZE, config->pack, UL_PACK_BYTES);
+  }
+  if (pages == total) {
+    config->auth0 = capture->memory[(total - 4) * UL_AES_PAGE_SIZE + 3];
+    config->access = capture->memory[(total - 3) * UL_AES_PAGE_SIZE];
+  }
+  if (iso14443a_poller_reselect((nfc_iso14443a_data_t *)identity) == HB_NFC_OK)
+    config->has_signature = ul_metadata(UL_CMD_SIGNATURE, 0, config->signature, T2T_SIGNATURE_SIZE);
+  for (uint8_t i = 0; i < T2T_COUNTER_COUNT && !cancel_requested(); i++) {
+    uint8_t counter[UL_COUNTER_BYTES];
+    if (iso14443a_poller_reselect((nfc_iso14443a_data_t *)identity) == HB_NFC_OK &&
+        ul_metadata(UL_CMD_COUNTER, i, counter, sizeof(counter))) {
+      config->counter_known |= 1U << i;
+      config->counters[i] = counter[0] | ((uint32_t)counter[1] << 8) | ((uint32_t)counter[2] << 16);
+    }
+    if (iso14443a_poller_reselect((nfc_iso14443a_data_t *)identity) == HB_NFC_OK &&
+        ul_metadata(UL_CMD_TEARING, i, &config->tearing[i], 1))
+      config->tearing_known |= 1U << i;
+  }
+  s_ul_card = *capture;
+  s_has_ul_card = true;
+  result->line_count = 0;
+  char uid[32];
+  format_uid(identity->uid, identity->uid_len, false, uid, sizeof(uid));
+  add_line(result, "UID %s", uid);
+  add_line(result, "Pages %d/%u - %s", pages, total, pages == total ? "memory read" : "partial");
+  add_line(result,
+           config->enable_pwd ? "Password verified on physical card" : "Password not known");
+  add_line(result,
+           "Signature %s; counters %02X",
+           config->has_signature ? "read" : "unknown",
+           config->counter_known);
+  error = save_aes_card(capture);
+  add_line(result,
+           error == ESP_OK ? "Saved Type 2 memory to NFC dumps" : "Read in RAM; SD save failed");
+  if (error == ESP_OK)
+    add_line(result, "%s", strrchr(s_aes_last_path, '/') + 1);
+  add_line(result, "RIGHT reader unlock; LEFT emulate");
+cleanup:
+  memset(capture, 0, sizeof(*capture));
+  free(capture);
+  return error;
+}
+
+static esp_err_t emulate_ul(nfc_protocol_result_t *result, bool capture_password) {
+  if (!s_has_ul_card)
+    return ESP_ERR_INVALID_STATE;
+  s_ul_candidate_pending = false;
+  memset(s_ul_candidate, 0, sizeof(s_ul_candidate));
+  esp_err_t error = rf_frontend_reserve(RF_FRONTEND_NFC_13MHZ);
+  if (error != ESP_OK)
+    return error;
+  error = highboy_nfc_field_off();
+  if (error == ESP_OK)
+    error = t2t_emu_init(&s_ul_card.config);
+  if (error == ESP_OK)
+    error = t2t_emu_load_memory(s_ul_card.memory,
+                                s_ul_card.length,
+                                capture_password || s_ul_card.config.readable_pages != 0);
+  if (error == ESP_OK)
+    error = t2t_emu_configure_target();
+  if (error == ESP_OK)
+    error = t2t_emu_start();
+  t2t_emu_capture_password(capture_password);
+  int64_t deadline = esp_timer_get_time() + UL_CAPTURE_TIMEOUT_US;
+  TickType_t last_yield = xTaskGetTickCount();
+  while (error == ESP_OK && !cancel_requested()) {
+    t2t_emu_run_step();
+    if (t2t_emu_has_error()) {
+      error = ESP_FAIL;
+      break;
+    }
+    if (capture_password && t2t_emu_take_password(s_ul_candidate)) {
+      s_ul_candidate_pending = true;
+      add_line(result, "Password captured; NOT verified yet");
+      add_line(result, "Move away from reader");
+      add_line(result, "Place original card; press OK once");
+      break;
+    }
+    if (capture_password && esp_timer_get_time() >= deadline) {
+      add_line(result, "No PWD_AUTH received in 60 seconds");
+      error = ESP_ERR_TIMEOUT;
+      break;
+    }
+    if (xTaskGetTickCount() - last_yield >= pdMS_TO_TICKS(UL_LISTENER_YIELD_MS)) {
+      vTaskDelay(1);
+      last_yield = xTaskGetTickCount();
+    } else
+      taskYIELD();
+  }
+  if (!capture_password && error == ESP_OK && !s_ul_card.config.readable_pages) {
+    bool memory_changed = memcmp(s_ul_card.memory, t2t_emu_get_mem(), s_ul_card.length) != 0;
+    t2t_emu_config_t before = s_ul_card.config;
+    error = t2t_emu_snapshot(&s_ul_card.config, s_ul_card.memory, s_ul_card.length);
+    if (error == ESP_OK && (memory_changed || memcmp(&before, &s_ul_card.config, sizeof(before)))) {
+      error = save_aes_card(&s_ul_card);
+      add_line(result,
+               error == ESP_OK ? "Session changes saved to a new file"
+                               : "Session changes in RAM; save failed");
+    }
+  }
+  t2t_emu_stop();
+  highboy_nfc_deinit();
+  while (highboy_nfc_is_initialized()) {
+    vTaskDelay(pdMS_TO_TICKS(DESFIRE_RETRY_MS));
+    highboy_nfc_deinit();
+  }
+  esp_err_t release = rf_frontend_unreserve(RF_FRONTEND_NFC_13MHZ);
+  return error == ESP_OK ? release : error;
+}
+
+hb_nfc_err_t nfc_protocol_service_ul_file(const char *filename) {
+  if (!filename || !*filename || strchr(filename, '/') || strchr(filename, '\\') ||
+      strstr(filename, "..") || strpbrk(filename, "\r\n"))
+    return ESP_ERR_INVALID_ARG;
+  char path[UL_AES_PATH_SIZE];
+  int count = snprintf(path, sizeof(path), UL_AES_DUMP_DIR "/%s", filename);
+  if (count < 0 || (size_t)count >= sizeof(path))
+    return ESP_ERR_INVALID_SIZE;
+  portENTER_CRITICAL(&s_mux);
+  esp_err_t error = s_status.running ? ESP_ERR_INVALID_STATE : ESP_OK;
+  if (error == ESP_OK)
+    memcpy(s_ul_load_path, path, count + 1);
+  portEXIT_CRITICAL(&s_mux);
+  return error;
+}
+
+static esp_err_t load_ul(nfc_protocol_result_t *result) {
+  nfc_t2t_file_t *card = heap_caps_calloc(1, sizeof(*card), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!card) {
+    ESP_LOGE(TAG, "Cannot allocate Type 2 file");
+    return ESP_ERR_NO_MEM;
+  }
+  esp_err_t error = nfc_t2t_file_load(s_ul_load_path, card);
+  t2t_tag_type_t type;
+  if (error == ESP_OK && (!card->config.has_version || !ul_type(card->config.version, &type) ||
+                          type != card->config.type))
+    error = ESP_ERR_NOT_SUPPORTED;
+  if (error == ESP_OK) {
+    s_ul_card = *card;
+    s_has_ul_card = true;
+    s_ul_candidate_pending = false;
+    memset(s_ul_candidate, 0, sizeof(s_ul_candidate));
+    add_line(
+        result, "Loaded Type 2 memory; %s", card->config.readable_pages ? "partial" : "all pages");
+    add_line(result, "Password %s", card->config.enable_pwd ? "stored" : "unknown");
+    add_line(result, "RIGHT reader unlock; LEFT emulate");
+  }
+  memset(card, 0, sizeof(*card));
+  free(card);
+  return error;
+}
+
+bool nfc_protocol_service_ul_has_profile(void) {
+  portENTER_CRITICAL(&s_mux);
+  bool has_profile = !s_status.running && s_has_ul_card;
+  portEXIT_CRITICAL(&s_mux);
+  return has_profile;
+}
+
+void nfc_protocol_service_ul_clear(void) {
+  portENTER_CRITICAL(&s_mux);
+  if (!s_status.running) {
+    s_ul_candidate_pending = false;
+    s_has_ul_card = false;
+    memset(s_ul_candidate, 0, sizeof(s_ul_candidate));
+    memset(&s_ul_card, 0, sizeof(s_ul_card));
+  }
+  portEXIT_CRITICAL(&s_mux);
+}
+
 static hb_nfc_err_t read_ultralight(nfc_protocol_result_t *result) {
   nfc_iso14443a_data_t card = {0};
   hb_nfc_err_t err = select_type_a(&card);
@@ -486,6 +793,12 @@ static hb_nfc_err_t read_ultralight(nfc_protocol_result_t *result) {
   err = iso14443a_poller_reselect(&card);
   if (err != HB_NFC_OK)
     return err;
+  t2t_tag_type_t type;
+  if (version_len == UL_VERSION_SIZE && ul_type(version, &type))
+    return read_ul_profile(&card, version, result);
+  s_has_ul_card = false;
+  s_ul_candidate_pending = false;
+  memset(s_ul_candidate, 0, sizeof(s_ul_candidate));
   uint16_t i2c_pages = version_len == UL_VERSION_SIZE ? mful_i2c_pages(version) : 0;
   int pages = 0;
   if (s_has_ul_aes_key || (version_len == UL_VERSION_SIZE && mful_is_aes(version))) {
@@ -1982,11 +2295,13 @@ static void protocol_task(void *arg) {
   bool no_sleep = false;
   bool field = false;
   bool is_archive =
-      operation == NFC_PROTOCOL_OP_ARCHIVE || operation == NFC_PROTOCOL_OP_ARCHIVE_EXPORT ||
-      operation == NFC_PROTOCOL_OP_DESFIRE_LOAD || operation == NFC_PROTOCOL_OP_FELICA_LOAD ||
-      operation == NFC_PROTOCOL_OP_NTAG4XX_LOAD || operation == NFC_PROTOCOL_OP_T4T_LOAD;
+      operation == NFC_PROTOCOL_OP_UL_LOAD || operation == NFC_PROTOCOL_OP_ARCHIVE ||
+      operation == NFC_PROTOCOL_OP_ARCHIVE_EXPORT || operation == NFC_PROTOCOL_OP_DESFIRE_LOAD ||
+      operation == NFC_PROTOCOL_OP_FELICA_LOAD || operation == NFC_PROTOCOL_OP_NTAG4XX_LOAD ||
+      operation == NFC_PROTOCOL_OP_T4T_LOAD;
   if (is_archive) {
-    err = operation == NFC_PROTOCOL_OP_T4T_LOAD       ? load_t4t(&result)
+    err = operation == NFC_PROTOCOL_OP_UL_LOAD        ? load_ul(&result)
+          : operation == NFC_PROTOCOL_OP_T4T_LOAD     ? load_t4t(&result)
           : operation == NFC_PROTOCOL_OP_NTAG4XX_LOAD ? load_ntag4xx(&result)
           : operation == NFC_PROTOCOL_OP_FELICA_LOAD  ? load_felica(&result)
           : operation == NFC_PROTOCOL_OP_DESFIRE_LOAD
@@ -2003,6 +2318,10 @@ static void protocol_task(void *arg) {
   if (power_manager_no_sleep_acquire() != ESP_OK)
     goto done;
   no_sleep = true;
+  if (operation == NFC_PROTOCOL_OP_UL_READER_UNLOCK || operation == NFC_PROTOCOL_OP_UL_EMULATE) {
+    err = emulate_ul(&result, operation == NFC_PROTOCOL_OP_UL_READER_UNLOCK);
+    goto done;
+  }
   if (operation == NFC_PROTOCOL_OP_FELICA_EMULATE) {
     err = emulate_felica(&result);
     goto done;
@@ -2104,7 +2423,18 @@ done:
   if (no_sleep)
     (void)power_manager_no_sleep_release();
 
-  const bool cancelled = cancel_requested() && operation != NFC_PROTOCOL_OP_FELICA_EMULATE &&
+  if (operation == NFC_PROTOCOL_OP_ULTRALIGHT || operation == NFC_PROTOCOL_OP_UL_LOAD ||
+      operation == NFC_PROTOCOL_OP_UL_READER_UNLOCK || operation == NFC_PROTOCOL_OP_UL_EMULATE) {
+    if (!cancel_requested() && err == ESP_OK) {
+      ESP_LOGI(TAG, "Type 2 operation completed");
+      led_signal_info();
+    } else if (!cancel_requested()) {
+      ESP_LOGW(TAG, "Type 2 operation: %s", esp_err_to_name(err));
+      led_signal_warning();
+    }
+  }
+  const bool cancelled = cancel_requested() && operation != NFC_PROTOCOL_OP_UL_EMULATE &&
+                         operation != NFC_PROTOCOL_OP_FELICA_EMULATE &&
                          operation != NFC_PROTOCOL_OP_NTAG4XX_EMULATE &&
                          operation != NFC_PROTOCOL_OP_T4T_EMULATE;
   portENTER_CRITICAL(&s_mux);
@@ -2537,6 +2867,9 @@ const char *nfc_protocol_operation_name(nfc_protocol_op_t operation) {
       return "DESFire";
     case NFC_PROTOCOL_OP_ISO15693:
       return "NFC-V / ISO15693";
+    case NFC_PROTOCOL_OP_UL_LOAD:
+    case NFC_PROTOCOL_OP_UL_READER_UNLOCK:
+    case NFC_PROTOCOL_OP_UL_EMULATE:
     case NFC_PROTOCOL_OP_UL_AES_WRITE:
     case NFC_PROTOCOL_OP_ULTRALIGHT:
       return "Ultralight / NTAG";

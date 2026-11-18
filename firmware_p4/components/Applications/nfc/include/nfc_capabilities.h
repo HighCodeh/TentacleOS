@@ -25,7 +25,7 @@
 extern "C" {
 #endif
 
-#define NFC_CAPABILITY_MAX_ACTIONS 8
+#define NFC_CAPABILITY_MAX_ACTIONS 9
 
 /** Actions that the UI can offer after a physical card has been identified. */
 typedef enum {
@@ -44,6 +44,7 @@ typedef enum {
   NFC_CARD_ACTION_EMULATE_DUMP,
   NFC_CARD_ACTION_SAVE,
   NFC_CARD_ACTION_RESCAN,
+  NFC_CARD_ACTION_READER_KEYS,
 } nfc_card_action_id_t;
 
 typedef struct {

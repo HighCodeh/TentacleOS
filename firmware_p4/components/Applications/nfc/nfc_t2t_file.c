@@ -139,6 +139,7 @@ esp_err_t nfc_t2t_file_load(const char *path, nfc_t2t_file_t *out_card) {
   bool has_secrets = false, has_aes_keys = false, has_aes_signature = false;
   bool has_aes_signature_state = false;
   bool pages[PAGE_LIMIT] = {false};
+  bool page_known[PAGE_LIMIT] = {false};
   size_t total = 0, read = 0, expected = 0, page_count = 0;
   while (fgets(line, sizeof(line), file)) {
     if (!strchr(line, '\n') && !feof(file))
@@ -310,19 +311,23 @@ esp_err_t nfc_t2t_file_load(const char *path, nfc_t2t_file_t *out_card) {
       out_card->config.tearing_known |= 1U << index;
     } else if (!strncmp(name, "Page ", sizeof("Page ") - 1)) {
       size_t index;
+      bool known = false;
       if (!indexed(name, "Page ", PAGE_LIMIT, &index) || pages[index] ||
-          !bytes(value, &out_card->memory[index * PAGE_SIZE], PAGE_SIZE, NULL))
+          !bytes(value, &out_card->memory[index * PAGE_SIZE], PAGE_SIZE, &known))
         goto cleanup;
       pages[index] = true;
+      page_known[index] = known;
       page_count++;
     }
   }
   bool is_ulc = out_card->config.type == T2T_TAG_ULTRALIGHT_C;
+  const bool is_prefix =
+      !is_ulc && out_card->config.type < T2T_TAG_ULTRALIGHT_AES && read >= 4 && read < total;
   if (ferror(file) || seen != REQUIRED_FIELDS || total != expected ||
-      (read != total && !(is_ulc && read == ULC_KEY_PAGE)) || page_count != total)
+      (read != total && !(is_ulc && read == ULC_KEY_PAGE) && !is_prefix) || page_count != total)
     goto cleanup;
   for (size_t i = 0; i < total; i++)
-    if (!pages[i])
+    if (!pages[i] || (i < read && !page_known[i]) || (is_prefix && i >= read && page_known[i]))
       goto cleanup;
   if (memcmp(out_card->memory, out_card->config.uid, UID_PREFIX_SIZE) ||
       memcmp(out_card->memory + PAGE_SIZE, out_card->config.uid + UID_PREFIX_SIZE, PAGE_SIZE))
@@ -354,6 +359,20 @@ esp_err_t nfc_t2t_file_load(const char *path, nfc_t2t_file_t *out_card) {
     out_card->config.aes_signature_known = T2T_AES_SIGNATURE_KNOWN;
   out_card->config.has_aes_signature =
       out_card->config.aes_signature_known == T2T_AES_SIGNATURE_KNOWN;
+  if (out_card->config.type < T2T_TAG_ULTRALIGHT_AES && !is_ulc &&
+      out_card->config.type != T2T_TAG_ULTRALIGHT) {
+    if (is_prefix && (out_card->config.pwd_known || out_card->config.pack_known))
+      goto cleanup;
+    if (!is_prefix) {
+      out_card->config.auth0 = out_card->memory[(total - 4) * PAGE_SIZE + 3];
+      out_card->config.access = out_card->memory[(total - 3) * PAGE_SIZE];
+      if (out_card->config.pwd_known)
+        memcpy(out_card->config.pwd, out_card->memory + (total - 2) * PAGE_SIZE, 4);
+      if (out_card->config.pack_known)
+        memcpy(out_card->config.pack, out_card->memory + (total - 1) * PAGE_SIZE, 2);
+    }
+  }
+  out_card->config.readable_pages = is_prefix ? read : 0;
   out_card->length = total * PAGE_SIZE;
   error = ESP_OK;
 cleanup:

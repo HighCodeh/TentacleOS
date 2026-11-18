@@ -25,6 +25,7 @@
 #include "nfc_device.h"
 #include "mf_classic.h"
 #include "power_manager.h"
+#include "led_control.h"
 #include "rf_frontend.h"
 #include "sys_prio.h"
 
@@ -50,6 +51,8 @@ EXT_RAM_BSS_ATTR static mfc_emu_card_data_t s_card;
 static bool s_has_power;
 static bool s_has_reservation;
 static bool s_has_emulator;
+static mfc_emu_capture_cb_t s_capture_cb;
+static void *s_capture_context;
 static bool s_is_plus;
 static bool s_is_t2t;
 static bool s_t2t_read_only;
@@ -86,6 +89,7 @@ hb_nfc_err_t nfc_listener_start(const hb_nfc_card_data_t *card) {
     if (error != HB_NFC_OK)
       goto cleanup;
   }
+  s_capture_cb = NULL;
   s_is_t2t = false;
   s_is_plus = false;
   error = start_card();
@@ -101,9 +105,31 @@ hb_nfc_err_t nfc_listener_start_emu(const mfc_emu_card_data_t *emu) {
     return HB_NFC_ERR_INTERNAL;
   hb_nfc_err_t error = HB_NFC_ERR_INTERNAL;
   if (atomic_load(&s_phase) == NFC_LISTENER_IDLE) {
+    s_capture_cb = NULL;
     s_is_t2t = false;
     s_is_plus = false;
     memcpy(&s_card, emu, sizeof(s_card));
+    error = start_card();
+  }
+  atomic_flag_clear(&s_is_starting);
+  return error;
+}
+
+hb_nfc_err_t nfc_listener_start_capture(const nfc_iso14443a_data_t *identity,
+                                        mfc_emu_capture_cb_t callback,
+                                        void *context) {
+  if (identity == NULL || callback == NULL || (identity->uid_len != 4 && identity->uid_len != 7) ||
+      (identity->sak != 0x08 && identity->sak != 0x09 && identity->sak != 0x18))
+    return HB_NFC_ERR_PARAM;
+  if (atomic_flag_test_and_set(&s_is_starting))
+    return ESP_ERR_INVALID_STATE;
+  hb_nfc_err_t error = ESP_ERR_INVALID_STATE;
+  if (atomic_load(&s_phase) == NFC_LISTENER_IDLE) {
+    s_is_t2t = false;
+    s_is_plus = false;
+    s_capture_cb = callback;
+    s_capture_context = context;
+    mfc_emu_card_data_init(&s_card, identity, mf_classic_get_type(identity->sak));
     error = start_card();
   }
   atomic_flag_clear(&s_is_starting);
@@ -121,6 +147,7 @@ hb_nfc_err_t nfc_listener_start_plus(const t4t_emu_identity_t *identity,
     error = mfp_listener_init(&s_plus_listener, config);
     if (error == HB_NFC_OK) {
       s_plus_identity = *identity;
+      s_capture_cb = NULL;
       s_is_t2t = false;
       s_is_plus = true;
       error = start_card();
@@ -256,6 +283,7 @@ static hb_nfc_err_t configure_hardware(void) {
   if (error != HB_NFC_OK)
     return error;
   s_has_emulator = true;
+  mfc_emu_set_capture(s_capture_cb, s_capture_context);
   error = mfc_emu_configure_target();
   return error == HB_NFC_OK ? mfc_emu_start() : error;
 }
@@ -308,6 +336,7 @@ static void listener_task(void *arg) {
       atomic_compare_exchange_strong(
           &s_phase, &expected, error == HB_NFC_OK ? NFC_LISTENER_RUNNING : NFC_LISTENER_STOPPING);
     }
+    led_set_activity(LED_ACTIVITY_NFC, atomic_load(&s_phase) == NFC_LISTENER_RUNNING);
     TickType_t last_yield = xTaskGetTickCount();
     while (atomic_load(&s_phase) == NFC_LISTENER_RUNNING) {
       if (s_is_t2t) {
@@ -329,6 +358,7 @@ static void listener_task(void *arg) {
     }
     while (cleanup_hardware() != ESP_OK)
       vTaskDelay(pdMS_TO_TICKS(NFC_LISTENER_RETRY_MS));
+    led_set_activity(LED_ACTIVITY_NFC, false);
     atomic_store(&s_phase, NFC_LISTENER_IDLE);
   }
 }

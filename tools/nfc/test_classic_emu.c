@@ -62,6 +62,12 @@ static esp_err_t hb_nfc_spi_reg_read(uint8_t reg, uint8_t *out) {
   *out = err ? 0 : s_regs[reg];
   return err;
 }
+static esp_err_t hb_nfc_spi_reg_read_many(uint8_t reg, uint8_t *out, size_t len) {
+  assert(out != NULL && (size_t)reg + len <= sizeof(s_regs));
+  int err = operation();
+  if (err == ESP_OK) memcpy(out, s_regs + reg, len);
+  return err;
+}
 static esp_err_t st25r3916_fifo_load(const uint8_t *data, size_t len) {
   assert(data != NULL);
   s_loaded = len;
@@ -195,7 +201,11 @@ static void test_transport(void) {
     s_regs[ST25R3916_REG_FIFO_STATUS2] = (count >> 8) << 6;
     CHECK(fifo_rx(data, sizeof(data)) == (count <= sizeof(data) ? (int)count : -1));
   }
-  for (unsigned fault = 1; fault <= 3; fault++) {
+  reset_bus();
+  s_regs[ST25R3916_REG_FIFO_STATUS1] = 4;
+  CHECK(fifo_rx(data, sizeof(data)) == 4);
+  unsigned fifo_operations = s_calls;
+  for (unsigned fault = 1; fault <= fifo_operations; fault++) {
     reset_bus(); s_fail_at = fault;
     s_regs[ST25R3916_REG_FIFO_STATUS1] = 4;
     CHECK(fifo_rx(data, sizeof(data)) == -1);

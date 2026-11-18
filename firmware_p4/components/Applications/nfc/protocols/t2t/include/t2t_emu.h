@@ -105,6 +105,7 @@ typedef struct {
   bool has_counter;
   uint32_t counter; /**< NTAG counter 2, persisted only in session RAM. */
 
+  uint16_t readable_pages; /**< Zero for a complete image; otherwise a known prefix. */
   uint32_t failed_auth_attempts;
   bool enable_pwd; /**< Enable NTAG password authentication. */
   bool pwd_known;
@@ -188,6 +189,9 @@ hb_nfc_err_t t2t_emu_snapshot(t2t_emu_config_t *out_config, uint8_t *out_memory,
  */
 void t2t_emu_run_step(void);
 bool t2t_emu_has_error(void);
+/* Worker-only, volatile candidate; does not mark the password verified. */
+void t2t_emu_capture_password(bool enabled);
+bool t2t_emu_take_password(uint8_t out_pwd[4]);
 /* Full memory image; unknown credentials are never inferred from masked pages. */
 hb_nfc_err_t t2t_emu_load_memory(const uint8_t *memory, size_t length, bool read_only);
 

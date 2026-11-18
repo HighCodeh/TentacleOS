@@ -12,33 +12,46 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
-/**
- * @file mfkey.h
- * @brief MFKey key recovery attacks for MIFARE Classic.
- */
 #ifndef MFKEY_H
 #define MFKEY_H
 
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/**
- * @brief Recover key from two nonces (nested attack).
- *
- * @param uid  Card UID.
- * @param nt0  First nonce from card.
- * @param nr0  First reader nonce.
- * @param ar0  First reader response.
- * @param nt1  Second nonce from card.
- * @param nr1  Second reader nonce.
- * @param ar1  Second reader response.
- * @param[out] key  Recovered 48-bit key.
- * @return true if key was recovered successfully.
+/** Two independent reader authentication transcripts, in on-air word order. */
+typedef struct {
+  uint32_t uid;
+  uint32_t nt0, nr0, ar0;
+  uint32_t nt1, nr1, ar1;
+} mfkey_pair_t;
+
+typedef enum {
+  MFKEY_RESULT_FOUND = 0,
+  MFKEY_RESULT_NOT_FOUND,
+  MFKEY_RESULT_INVALID,
+  MFKEY_RESULT_NO_MEMORY,
+  MFKEY_RESULT_CANCELLED,
+  MFKEY_RESULT_CAPACITY,
+  MFKEY_RESULT_COUNT
+} mfkey_result_t;
+
+/** Runs on the caller task. Return false to cancel; work is not a percentage. */
+typedef bool (*mfkey_progress_cb_t)(uint32_t work, void *context);
+
+/** Offline recovery; no RF, storage writes or key logging. Caller owns inputs.
+ * Uses two bounded PSRAM tables on ESP (16 MiB total); no internal-RAM fallback.
+ * Clears out_key on failure and verifies candidates against both transcripts.
  */
+mfkey_result_t mfkey_recover(const mfkey_pair_t *pair,
+                             uint64_t *out_key,
+                             mfkey_progress_cb_t progress,
+                             void *context);
+
+/** Compatibility wrapper for two reader transcripts; this is not a nested attack. */
 bool mfkey32(uint32_t uid,
              uint32_t nt0,
              uint32_t nr0,
@@ -51,5 +64,4 @@ bool mfkey32(uint32_t uid,
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* MFKEY_H */
+#endif

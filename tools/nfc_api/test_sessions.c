@@ -23,6 +23,12 @@
 #include <assert.h>
 #include <pthread.h>
 #include <stdatomic.h>
+static atomic_bool s_led_activity;
+void led_set_activity(uint32_t source, bool active) {
+  assert(source == 1U);
+  atomic_store(&s_led_activity, active);
+}
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -106,6 +112,14 @@ hb_nfc_err_t mfc_emu_init(const mfc_emu_card_data_t *card) {
   assert(rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ));assert(memcmp(card->uid,UID,4)==0);
   atomic_fetch_add(&s_inits,1);return HB_NFC_OK;
 }
+static atomic_bool s_capture_enabled;
+void mfc_emu_set_capture(mfc_emu_capture_cb_t cb,void *context) {
+  (void)context;assert(rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ));
+  atomic_store(&s_capture_enabled,cb!=NULL);
+}
+static void capture_callback(const mfc_emu_capture_t *sample,void *context) {
+  (void)sample;(void)context;
+}
 hb_nfc_err_t mfc_emu_configure_target(void) { return atomic_load(&s_fail_config)?HB_NFC_ERR_INTERNAL:HB_NFC_OK; }
 hb_nfc_err_t mfc_emu_start(void) { return HB_NFC_OK; }
 int mfc_emu_run_step(void) { assert(rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ));return atomic_load(&s_fail_step)?MFC_EMU_STATE_ERROR:1; }
@@ -172,18 +186,28 @@ int main(void) {
   atomic_store(&s_fail_config,true);assert(tos_api_nfc_session_start(UID,4,&id)==ESP_FAIL && id==0);wait_idle();atomic_store(&s_fail_config,false);
   assert(nfc_listener_start_emu(&card)==HB_NFC_OK && nfc_listener_is_running());
   assert(tos_api_nfc_session_start(UID,4,&id)==ESP_ERR_INVALID_STATE && id==0);
-  assert(nfc_listener_is_running());nfc_listener_stop();assert(!nfc_listener_is_active());wait_idle();
+  assert(nfc_listener_is_running());nfc_listener_stop();assert(!nfc_listener_is_active());wait_idle();assert(!atomic_load(&s_led_activity));
   assert(nfc_listener_start_emu(&card)==HB_NFC_OK);
   atomic_store(&s_fail_off,true);nfc_listener_stop();assert(nfc_listener_is_active());
   assert(nfc_listener_start_emu(&card)!=HB_NFC_OK);
   atomic_store(&s_fail_off,false);wait_idle();assert(!nfc_listener_is_active());
   assert(tos_api_nfc_session_start(UID,4,&id)==ESP_OK);
   tos_api_nfc_session_cancel_owner(&s_main);wait_idle();
+  nfc_iso14443a_data_t capture_id={.uid_len=4,.sak=8};memcpy(capture_id.uid,UID,4);
+  assert(nfc_listener_start_capture(&capture_id,capture_callback,NULL)==HB_NFC_OK);
+  assert(atomic_load(&s_capture_enabled) && nfc_listener_is_running());
+  assert(nfc_listener_start_capture(&capture_id,capture_callback,NULL)==ESP_ERR_INVALID_STATE);
+  assert(nfc_listener_start_emu(&card)!=HB_NFC_OK);
+  nfc_listener_stop();wait_idle();
+  assert(nfc_listener_start_emu(&card)==HB_NFC_OK && !atomic_load(&s_capture_enabled));
+  nfc_listener_stop();wait_idle();
+  capture_id.uid_len=3;
+  assert(nfc_listener_start_capture(&capture_id,capture_callback,NULL)==HB_NFC_ERR_PARAM);
   t4t_emu_identity_t identity={.uid_len=7};mfp_listener_config_t config={0};
   assert(nfc_listener_start_plus(&identity,&config)==HB_NFC_OK);
   assert(nfc_listener_is_running() && !rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ));
   assert(nfc_listener_start_emu(&card)!=HB_NFC_OK);
-  nfc_listener_stop();assert(!nfc_listener_is_active());wait_idle();
+  nfc_listener_stop();assert(!nfc_listener_is_active());wait_idle();assert(!atomic_load(&s_led_activity));
   atomic_store(&s_fail_config,true);
   assert(nfc_listener_start_plus(&identity,&config)!=HB_NFC_OK);
   wait_idle();atomic_store(&s_fail_config,false);

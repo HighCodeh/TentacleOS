@@ -475,6 +475,10 @@ static bool s_transport_error;
 static uint8_t s_i2c_sector;
 static bool s_i2c_select_pending;
 static bool s_read_only;
+static uint16_t s_readable_pages;
+static bool s_capture_password;
+static bool s_has_password_candidate;
+static uint8_t s_password_candidate[4];
 static bool s_has_signature;
 static uint8_t s_signature[T2T_SIGNATURE_SIZE];
 static bool s_has_counter;
@@ -574,6 +578,12 @@ hb_nfc_err_t t2t_emu_init(const t2t_emu_config_t *cfg) {
   memcpy(s_aes_signature, cfg->aes_signature, sizeof(s_aes_signature));
   s_aes_field_seen = false;
   s_aes_has_rid = false;
+  if (cfg->readable_pages > prof->total_pages ||
+      (cfg->readable_pages &&
+       (cfg->type >= T2T_TAG_ULTRALIGHT_AES || cfg->type == T2T_TAG_ULTRALIGHT_C)))
+    return HB_NFC_ERR_PARAM;
+  s_readable_pages = cfg->readable_pages;
+  t2t_emu_capture_password(false);
   s_config = *cfg;
   s_config.ndef_text = NULL;
   s_pending_main = 0;
@@ -812,6 +822,7 @@ hb_nfc_err_t t2t_emu_start(void) {
 }
 
 void t2t_emu_stop(void) {
+  t2t_emu_capture_password(false);
   hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_FIELD_OFF);
   s_state = T2T_STATE_SLEEP;
   s_init_done = false;
@@ -859,6 +870,20 @@ hb_nfc_err_t t2t_emu_snapshot(t2t_emu_config_t *out_config, uint8_t *out_memory,
   return HB_NFC_OK;
 }
 
+void t2t_emu_capture_password(bool enabled) {
+  s_capture_password = enabled;
+  s_has_password_candidate = false;
+  memset(s_password_candidate, 0, sizeof(s_password_candidate));
+}
+
+bool t2t_emu_take_password(uint8_t out_pwd[4]) {
+  if (!out_pwd || !s_has_password_candidate)
+    return false;
+  memcpy(out_pwd, s_password_candidate, sizeof(s_password_candidate));
+  t2t_emu_capture_password(false);
+  return true;
+}
+
 bool t2t_emu_has_error(void) {
   return s_transport_error;
 }
@@ -867,15 +892,17 @@ hb_nfc_err_t t2t_emu_load_memory(const uint8_t *memory, size_t length, bool read
   if (!s_init_done || memory == NULL || length != s_mem_size)
     return HB_NFC_ERR_PARAM;
   memcpy(s_mem, memory, length);
-  s_read_only = read_only;
+  s_read_only = read_only || s_readable_pages != 0;
   if (is_aes()) {
     aes_identity();
     s_auth0 = s_mem[T2T_AES_CFG_PAGE * T2T_PAGE_SIZE + T2T_CFG_AUTH0_OFFSET];
     s_access = s_mem[T2T_AES_ACCESS_PAGE * T2T_PAGE_SIZE];
   }
   if (s_prof.supports_pwd) {
-    s_auth0 = s_mem[s_prof.cfg_page * T2T_PAGE_SIZE + T2T_CFG_AUTH0_OFFSET];
-    s_access = s_mem[(s_prof.cfg_page + 1) * T2T_PAGE_SIZE];
+    const bool has_config = !s_readable_pages || s_readable_pages > s_prof.cfg_page + 1;
+    s_auth0 =
+        has_config ? s_mem[s_prof.cfg_page * T2T_PAGE_SIZE + T2T_CFG_AUTH0_OFFSET] : UINT8_MAX;
+    s_access = has_config ? s_mem[(s_prof.cfg_page + 1) * T2T_PAGE_SIZE] : 0;
   }
   if (s_prof.supports_pwd) {
     if (s_pwd_known)
@@ -1197,6 +1224,8 @@ static bool is_page_protected(uint16_t page) {
 }
 
 static bool can_read_page(uint16_t page) {
+  if (s_readable_pages && page >= s_readable_pages)
+    return false;
   if (is_aes() && s_aes_has_rid && !s_aes_session.is_authenticated)
     return false;
   if (is_aes() && s_aes_session.is_authenticated && page < T2T_PAGE_OTP)
@@ -1627,8 +1656,10 @@ static bool write_page_internal(uint8_t page, const uint8_t *data) {
     memcpy(&s_mem[off], data, T2T_PAGE_SIZE);
   }
   if (s_prof.supports_pwd) {
-    s_auth0 = s_mem[s_prof.cfg_page * T2T_PAGE_SIZE + T2T_CFG_AUTH0_OFFSET];
-    s_access = s_mem[(s_prof.cfg_page + 1) * T2T_PAGE_SIZE];
+    const bool has_config = !s_readable_pages || s_readable_pages > s_prof.cfg_page + 1;
+    s_auth0 =
+        has_config ? s_mem[s_prof.cfg_page * T2T_PAGE_SIZE + T2T_CFG_AUTH0_OFFSET] : UINT8_MAX;
+    s_access = has_config ? s_mem[(s_prof.cfg_page + 1) * T2T_PAGE_SIZE] : 0;
     if (page == s_prof.pwd_page) {
       memcpy(s_pwd, data, sizeof(s_pwd));
       s_pwd_known = true;
@@ -1836,6 +1867,10 @@ static void handle_read(uint8_t page) {
   uint16_t rollover = 0;
   for (uint16_t i = 0; i < T2T_COMP_WRITE_PAGES; i++) {
     uint16_t current = page + i;
+    if (s_readable_pages && current < s_page_count && current >= s_readable_pages) {
+      tx_4bit_nack(0x00);
+      return;
+    }
     if (!can_read_page(current))
       current = rollover++;
     copy_read_page(current, &resp[i * T2T_PAGE_SIZE]);
@@ -1919,6 +1954,15 @@ static void handle_get_version(void) {
 }
 
 static void handle_pwd_auth(const uint8_t *cmd, int len) {
+  if (s_capture_password && s_prof.supports_pwd && len == T2T_PWD_FRAME_LENGTH) {
+    if (!s_has_password_candidate) {
+      memcpy(s_password_candidate, cmd + 1, sizeof(s_password_candidate));
+      s_has_password_candidate = true;
+    }
+    s_authenticated = false;
+    tx_4bit_nack(0x00);
+    return;
+  }
   if (!s_prof.supports_pwd || !s_pwd_enabled) {
     tx_4bit_nack(0x00);
     return;

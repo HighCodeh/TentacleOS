@@ -60,6 +60,12 @@ hb_nfc_err_t nfc_listener_start(const hb_nfc_card_data_t *card);
  *   - HB_NFC_ERR_INVALID_ARG if emu is NULL
  *   - HB_NFC_ERR_INTERNAL on hardware failure
  */
+/* Capture only: no keys required; no successful authentication or data response.
+ * Callback/context must remain alive until is_active() is false after stop. */
+hb_nfc_err_t nfc_listener_start_capture(const nfc_iso14443a_data_t *identity,
+                                        mfc_emu_capture_cb_t callback,
+                                        void *context);
+
 hb_nfc_err_t nfc_listener_start_emu(const mfc_emu_card_data_t *emu);
 
 /**

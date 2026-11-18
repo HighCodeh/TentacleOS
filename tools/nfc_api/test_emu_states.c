@@ -30,13 +30,18 @@
 #define pdMS_TO_TICKS(x) (x)
 #define MFC_EMU_EVT_ACTIVATED 0
 #define MFC_EMU_EVT_FIELD_LOST 1
+#define MFC_EMU_EVT_AUTH_SUCCESS 2
+#define MFC_EMU_EVT_AUTH_FAIL 3
 /* CONSTANTS */
 typedef int hb_nfc_err_t;
 typedef int esp_err_t;
 typedef struct { uint8_t main,timer,error,target,collision; } st25r3916_irq_status_t;
 static st25r3916_irq_status_t s_pending_irq;
 static struct {
-  bool initialized, crypto_active;
+  bool initialized, crypto_active, capture_pending;
+  int capture;
+  void (*capture_cb)(const int *, void *);
+  void *capture_context;
   uint8_t pending_main;
   int crypto;
   int64_t last_activity_us;
@@ -71,11 +76,12 @@ static int st25r3916_irq_read(st25r3916_irq_status_t *status) {
 static bool hb_nfc_gpio_irq_level(void) { return true; }
 static void vTaskDelay(int delay) { (void)delay; }
 static int64_t esp_timer_get_time(void) { return 1; }
-static void emit_event(int event) { (void)event; }
+static bool s_exchange_held, s_begin_fail;
+static void emit_event(int event) { (void)event; assert(!s_exchange_held); }
 static void reset_crypto_state(void) { s_emu.crypto_active=false;s_emu.pending_main=0;memset(&s_pending_irq,0,sizeof(s_pending_irq)); }
 static uint8_t crypto1_byte(int *state,int in,int encrypted) { (void)state;(void)in;(void)encrypted;return 0; }
 static int fifo_rx(uint8_t *out,size_t max) { assert((size_t)s_frame_len<=max);memcpy(out,s_frame,s_frame_len);return s_frame_len; }
-static mfc_emu_state_t handle_auth(uint8_t cmd,uint8_t block) {
+static mfc_emu_state_t authenticate(uint8_t cmd,uint8_t block) {
   (void)cmd;(void)block;s_auth++;return s_auth_fail?MFC_EMU_STATE_ERROR:MFC_EMU_STATE_AUTHENTICATED;
 }
 static mfc_emu_state_t handle_halt(void) { reset_crypto_state();return MFC_EMU_STATE_HALTED; }
@@ -87,17 +93,36 @@ static mfc_emu_state_t handle_write_phase2(uint8_t *p,int n) { (void)p;(void)n;r
 static mfc_emu_state_t handle_value_op_phase2(uint8_t *p,int n) { (void)p;(void)n;return MFC_EMU_STATE_AUTHENTICATED; }
 static int target_tx_ack_encrypted(int ack) { (void)ack; return HB_NFC_OK; }
 static bool command_frame_valid(const uint8_t *cmd, size_t len) { (void)cmd; return len >= 2; }
+static int hb_nfc_spi_target_transaction_begin(void) {
+  assert(!s_exchange_held);
+  if (s_begin_fail) return -1;
+  s_exchange_held = true; return ESP_OK;
+}
+static int hb_nfc_spi_target_transaction_end(void) {
+  assert(s_exchange_held); s_exchange_held = false; return ESP_OK;
+}
 /* PRODUCTION */
 int main(void) {
   s_emu.initialized=true;
+  s_begin_fail=true;
+  assert(handle_auth(0,0)==MFC_EMU_STATE_ERROR && !s_exchange_held && s_auth==0);
+  s_begin_fail=false;
+  s_emu.state=MFC_EMU_STATE_LISTEN;
+  s_regs[ST25R3916_REG_PASSIVE_TARGET_STS]=PTA_STATE_SELECTED;
+  s_regs[ST25R3916_REG_TIMER_NFC_INT]=MFC_FIELD_OFF_IRQ;
+  assert(mfc_emu_run_step()==MFC_EMU_STATE_ACTIVATED);
+  assert(mfc_emu_run_step()==MFC_EMU_STATE_ACTIVATED && s_sense==0);
   for (int repeat=0;repeat<10;repeat++) {
     s_emu.state=MFC_EMU_STATE_LISTEN;
     s_regs[ST25R3916_REG_PASSIVE_TARGET_STS]=PTA_STATE_SELECTED;
     s_regs[ST25R3916_REG_MAIN_INT]=ST25R3916_IRQ_MAIN_RXE;
     s_frame[0]=MFC_CMD_AUTH_KEY_A;s_frame[1]=0;s_frame_len=2;
+    s_regs[ST25R3916_REG_TIMER_NFC_INT]=MFC_FIELD_OFF_IRQ;
+    s_regs[ST25R3916_REG_AUX_DISPLAY]=ST25R3916_AUX_DISP_EFD_BIT;
     assert(mfc_emu_run_step()==MFC_EMU_STATE_ACTIVATED);
+    s_regs[ST25R3916_REG_TIMER_NFC_INT]=MFC_FIELD_OFF_IRQ;
     assert(mfc_emu_run_step()==MFC_EMU_STATE_AUTHENTICATED);
-    assert(s_auth==repeat+1);
+    assert(s_auth==repeat+1 && !s_exchange_held);
     s_emu.crypto_active=true;s_frame[0]=MFC_CMD_READ;
     s_regs[ST25R3916_REG_MAIN_INT]=ST25R3916_IRQ_MAIN_RXE;
     assert(mfc_emu_run_step()==MFC_EMU_STATE_AUTHENTICATED);
@@ -111,11 +136,17 @@ int main(void) {
   }
   s_emu.state=MFC_EMU_STATE_ACTIVATED;s_auth_fail=true;s_frame[0]=MFC_CMD_AUTH_KEY_A;
   s_regs[ST25R3916_REG_MAIN_INT]=ST25R3916_IRQ_MAIN_RXE;
-  assert(mfc_emu_run_step()==MFC_EMU_STATE_LISTEN && s_sense==1);
+  assert(mfc_emu_run_step()==MFC_EMU_STATE_LISTEN && s_sense==1 && !s_exchange_held);
   assert(s_last_command==ST25R3916_CMD_GOTO_SENSE);
   s_emu.state=MFC_EMU_STATE_ACTIVATED;s_regs[ST25R3916_REG_TIMER_NFC_INT]=8;
-  s_regs[ST25R3916_REG_AUX_DISPLAY]=0;
+  s_regs[ST25R3916_REG_AUX_DISPLAY]=ST25R3916_AUX_DISP_EFD_BIT;
   assert(mfc_emu_run_step()==MFC_EMU_STATE_LISTEN && s_sense==2);
+  for (unsigned pending = 0; pending < 2; pending++) {
+    s_emu.state = pending ? MFC_EMU_STATE_VALUE_PENDING : MFC_EMU_STATE_WRITE_PENDING;
+    s_emu.crypto_active = true;
+    s_regs[ST25R3916_REG_TIMER_NFC_INT] = MFC_FIELD_OFF_IRQ;
+    assert(mfc_emu_run_step() == MFC_EMU_STATE_LISTEN && !s_emu.crypto_active);
+  }
   s_emu.state=MFC_EMU_STATE_ERROR;s_bus_fail=true;
   assert(mfc_emu_run_step()==MFC_EMU_STATE_ERROR);
   puts("PASS: repeated selection/RX, HALT sleep, RF timeout recovery and fatal bus errors");

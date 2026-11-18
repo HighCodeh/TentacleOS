@@ -82,6 +82,16 @@ typedef struct {
   int sector_count;
 } mfc_emu_card_data_t;
 
+/* Fresh (non-nested) on-air reader authentication transcript. */
+typedef struct {
+  uint32_t cuid, nt, nr, ar;
+  uint8_t sector;
+  mf_key_type_t key_type;
+} mfc_emu_capture_t;
+typedef void (*mfc_emu_capture_cb_t)(const mfc_emu_capture_t *sample, void *context);
+/* Configure before start, from the RF owner. Callback must not access RF/storage. */
+void mfc_emu_set_capture(mfc_emu_capture_cb_t callback, void *context);
+
 /**
  * @brief Emulator state machine states.
  */

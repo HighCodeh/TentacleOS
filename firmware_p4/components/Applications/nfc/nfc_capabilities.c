@@ -51,15 +51,20 @@ static void build_type_a(const hb_nfc_card_data_t *card, nfc_card_capabilities_t
   switch (card->protocol) {
     case HB_PROTO_MF_CLASSIC: {
       const mf_classic_type_t type = mf_classic_get_type(card->iso14443a.sak);
+      add_action(out,
+                 NFC_CARD_ACTION_MFC_DUMP,
+                 type == MF_CLASSIC_MINI ? "Read all 20 blocks"
+                 : type == MF_CLASSIC_4K ? "Read all 256 blocks"
+                                         : "Read all 64 blocks",
+                 true,
+                 false);
+      add_action(out, NFC_CARD_ACTION_READER_KEYS, "Extract reader keys", false, false);
       if (type == MF_CLASSIC_1K) {
-        add_action(out, NFC_CARD_ACTION_MFC_DUMP, "Read all 64 blocks", true, false);
         add_action(out, NFC_CARD_ACTION_MFC_NDEF_READ, "Read NDEF text", true, false);
-        add_action(out, NFC_CARD_ACTION_KEY_DICTIONARY, "Key dictionary", false, false);
         add_action(out, NFC_CARD_ACTION_WRITE_DUMP, "Write saved dump", true, true);
-        add_action(out, NFC_CARD_ACTION_EMULATE_DUMP, "Emulate saved dump", false, false);
-      } else {
-        add_action(out, NFC_CARD_ACTION_KEY_DICTIONARY, "Key dictionary", false, false);
       }
+      add_action(out, NFC_CARD_ACTION_KEY_DICTIONARY, "Key dictionary", false, false);
+      add_action(out, NFC_CARD_ACTION_EMULATE_DUMP, "Emulate saved dump", false, false);
       break;
     }
     case HB_PROTO_MF_ULTRALIGHT:

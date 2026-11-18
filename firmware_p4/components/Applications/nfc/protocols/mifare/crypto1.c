@@ -15,6 +15,13 @@
 
 #include "crypto1.h"
 
+#ifdef ESP_PLATFORM
+#include "esp_attr.h"
+#else
+#define IRAM_ATTR
+#define DRAM_ATTR
+#endif
+
 #define SWAPENDIAN(x) \
   ((x) = ((x) >> 8 & 0xff00ffU) | ((x) & 0xff00ffU) << 8, (x) = (x) >> 16 | (x) << 16)
 
@@ -30,7 +37,7 @@
 #define CRYPTO1_WORD_BITS     32
 #define CRYPTO1_BEBIT_SWAP    24
 
-static const uint8_t s_odd_parity_table[256] = {
+static const DRAM_ATTR uint8_t s_odd_parity_table[256] = {
     1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,
     0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1,
     0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1,
@@ -40,17 +47,17 @@ static const uint8_t s_odd_parity_table[256] = {
     1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,
     0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1};
 
-uint8_t crypto1_odd_parity8(uint8_t data) {
+uint8_t IRAM_ATTR crypto1_odd_parity8(uint8_t data) {
   return s_odd_parity_table[data];
 }
 
-uint8_t crypto1_even_parity32(uint32_t data) {
+uint8_t IRAM_ATTR crypto1_even_parity32(uint32_t data) {
   data ^= data >> 16;
   data ^= data >> 8;
   return (uint8_t)(!s_odd_parity_table[data & 0xFF]);
 }
 
-static uint32_t filter(uint32_t in) {
+static uint32_t IRAM_ATTR filter(uint32_t in) {
   uint32_t out = 0;
   out = 0xf22c0U >> (in & 0xfU) & 16U;
   out |= 0x6c9c0U >> (in >> 4 & 0xfU) & 8U;
@@ -60,7 +67,7 @@ static uint32_t filter(uint32_t in) {
   return BIT(0xEC57E80AU, out);
 }
 
-void crypto1_init(crypto1_state_t *s, uint64_t key) {
+void IRAM_ATTR crypto1_init(crypto1_state_t *s, uint64_t key) {
   s->even = 0;
   s->odd = 0;
   for (int8_t i = CRYPTO1_KEY_BITS - 1; i > 0; i -= CRYPTO1_KEY_BIT_STEP) {
@@ -69,12 +76,12 @@ void crypto1_init(crypto1_state_t *s, uint64_t key) {
   }
 }
 
-void crypto1_reset(crypto1_state_t *s) {
+void IRAM_ATTR crypto1_reset(crypto1_state_t *s) {
   s->odd = 0;
   s->even = 0;
 }
 
-uint8_t crypto1_bit(crypto1_state_t *s, uint8_t in, int is_encrypted) {
+uint8_t IRAM_ATTR crypto1_bit(crypto1_state_t *s, uint8_t in, int is_encrypted) {
   uint8_t out = (uint8_t)filter(s->odd);
   uint32_t feed = out & (uint32_t)(!!is_encrypted);
   feed ^= (uint32_t)(!!in);
@@ -89,7 +96,7 @@ uint8_t crypto1_bit(crypto1_state_t *s, uint8_t in, int is_encrypted) {
   return out;
 }
 
-uint8_t crypto1_byte(crypto1_state_t *s, uint8_t in, int is_encrypted) {
+uint8_t IRAM_ATTR crypto1_byte(crypto1_state_t *s, uint8_t in, int is_encrypted) {
   uint8_t out = 0;
   for (uint8_t i = 0; i < CRYPTO1_BITS_PER_BYTE; i++) {
     out |= (uint8_t)(crypto1_bit(s, BIT(in, i), is_encrypted) << i);
@@ -97,7 +104,7 @@ uint8_t crypto1_byte(crypto1_state_t *s, uint8_t in, int is_encrypted) {
   return out;
 }
 
-uint32_t crypto1_word(crypto1_state_t *s, uint32_t in, int is_encrypted) {
+uint32_t IRAM_ATTR crypto1_word(crypto1_state_t *s, uint32_t in, int is_encrypted) {
   uint32_t out = 0;
   for (uint8_t i = 0; i < CRYPTO1_WORD_BITS; i++) {
     out |= (uint32_t)crypto1_bit(s, BEBIT(in, i), is_encrypted) << (CRYPTO1_BEBIT_SWAP ^ i);
@@ -105,11 +112,11 @@ uint32_t crypto1_word(crypto1_state_t *s, uint32_t in, int is_encrypted) {
   return out;
 }
 
-uint8_t crypto1_filter_output(crypto1_state_t *s) {
+uint8_t IRAM_ATTR crypto1_filter_output(crypto1_state_t *s) {
   return (uint8_t)filter(s->odd);
 }
 
-uint32_t crypto1_prng_successor(uint32_t x, uint32_t n) {
+uint32_t IRAM_ATTR crypto1_prng_successor(uint32_t x, uint32_t n) {
   SWAPENDIAN(x);
   while (n--)
     x = x >> 1 | (x >> 16 ^ x >> 18 ^ x >> 19 ^ x >> 21) << 31;

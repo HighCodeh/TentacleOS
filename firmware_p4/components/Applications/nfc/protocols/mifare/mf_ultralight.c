@@ -329,7 +329,7 @@ int mful_pwd_auth(const uint8_t pwd[4], uint8_t pack[2]) {
     pack[1] = rx[1];
     hb_nfc_timer_delay_us(MFUL_AUTH_DELAY_US);
   }
-  return len;
+  return 2;
 }
 
 hb_nfc_err_t mful_ulc_auth(const uint8_t key[16]) {

@@ -54,6 +54,10 @@ static void highboy_nfc_deinit(void) { assert(step++ == 2); reset_called = true;
 static bool highboy_nfc_is_initialized(void) { return initialized; }
 static int highboy_nfc_init(const int *cfg) { assert(*cfg == 0 && step++ == 3 && reset_called && !initialized); return failure == 4 ? -1 : 0; }
 static int mfc_emu_init(const int *card) { assert(card == &s_card && step++ == 4); return failure == 5 ? -1 : 0; }
+static void *s_capture_cb, *s_capture_context;
+static void mfc_emu_set_capture(void *callback, void *context) {
+  assert(s_has_emulator && step == 5 && callback == s_capture_cb && context == s_capture_context);
+}
 static int mfc_emu_configure_target(void) { assert(step++ == 5); return failure == 6 ? -1 : 0; }
 static int mfc_emu_start(void) { assert(step++ == 6); start_calls++; return failure == 7 ? -1 : 0; }
 static bool s_is_t2t, s_is_plus, s_t2t_read_only, s_t2t_loaded;

@@ -761,18 +761,16 @@ void mf_classic_read_full(nfc_iso14443a_data_t *card) {
                                            &found_key,
                                            &found_type);
 
+      if (nerr == ESP_ERR_NOT_SUPPORTED) {
+        ESP_LOGW(TAG, "Card-only nested recovery is unavailable; use reader capture or dictionary");
+        break;
+      }
       if (nerr != HB_NFC_OK) {
         ESP_LOGW(TAG, "Nested attack sector %02d: failed", sect);
         continue;
       }
 
-      char key_str2[24];
-      hex_str_key(found_key.data, key_str2, sizeof(key_str2));
-      ESP_LOGI(TAG,
-               "Nested attack sector %02d: found %s = %s",
-               sect,
-               found_type == MF_KEY_A ? "Key A" : "Key B",
-               key_str2);
+      ESP_LOGI(TAG, "Recovered sector %02d Key %c", sect, found_type == MF_KEY_A ? 'A' : 'B');
 
       sector_result_t *res = &results[sect];
       if (found_type == MF_KEY_A) {
