@@ -29,12 +29,15 @@
 #include "ui_metrics.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
+#include "esp_attr.h"
+#include "menu_component_ui.h"
 
 #define SPARK_MS 700
 
-#define HDR_TITLE   "TELEMETRY"
-#define HDR_ICON    NULL
-#define FOOTER_HINT "UP/DOWN   OK NODE   BACK"
+#define HDR_TITLE "TELEMETRY"
+#define HDR_ICON  NULL
+#define FOOTER_HINT \
+  LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " Scroll  " LV_SYMBOL_UP LV_SYMBOL_DOWN " Node  OK  BACK"
 
 #define BODY_TOP UI_CHROME_HEADER_H
 #define BODY_H   (ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
@@ -48,7 +51,7 @@
 #define PANEL_PAD_B 4
 #define PANEL_GAP   2
 
-#define SPARK_W   200
+#define SPARK_W   (ui_screen_w() - 14 - 2 * ROOT_PAD - 2 * PANEL_PAD_H - 2)
 #define SPARK_H   28
 #define SPARK_PTS 13
 #define SPARK_MG  2
@@ -80,6 +83,7 @@
 #define COL_TRACK 0x241F31
 
 static lv_obj_t *s_screen = NULL;
+static EXT_RAM_BSS_ATTR menu_component_t s_scroll;
 static lv_obj_t *s_ch_line = NULL;
 static lv_obj_t *s_air_line = NULL;
 static lv_obj_t *s_ch_val = NULL;
@@ -377,6 +381,11 @@ static void lora_telemetry_input(const input_event_t *ev, void *ctx) {
   const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
   switch (ev->button) {
+    case INPUT_BTN_LEFT:
+    case INPUT_BTN_RIGHT:
+      if (nav)
+        menu_component_scroll_content(&s_scroll, ev->button == INPUT_BTN_RIGHT ? 60 : -60);
+      break;
     case INPUT_BTN_BACK:
       if (press)
         ui_switch_screen(SCREEN_LORA_CHAT);
@@ -385,6 +394,7 @@ static void lora_telemetry_input(const input_event_t *ev, void *ctx) {
       if (nav && s_nb_count > 0) {
         s_nb = (s_nb + 1) % s_nb_count;
         refresh_chips();
+        menu_component_scroll_to_item(&s_scroll, s_chips[s_nb]);
         ui_feedback(UI_FB_NAV);
       }
       break;
@@ -392,6 +402,7 @@ static void lora_telemetry_input(const input_event_t *ev, void *ctx) {
       if (nav && s_nb_count > 0) {
         s_nb = (s_nb - 1 + s_nb_count) % s_nb_count;
         refresh_chips();
+        menu_component_scroll_to_item(&s_scroll, s_chips[s_nb]);
         ui_feedback(UI_FB_NAV);
       }
       break;
@@ -434,25 +445,22 @@ void ui_lora_telemetry_open(void) {
     s_air_buf[i] = 0;
   }
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   ui_chrome_header(s_screen, HDR_TITLE, HDR_ICON);
 
   lv_obj_t *root = lv_obj_create(s_screen);
-  lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(root, ui_screen_w(), BODY_H);
-  lv_obj_align(root, LV_ALIGN_TOP_MID, 0, BODY_TOP);
+  lv_obj_add_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(root, LV_DIR_VER);
+  lv_obj_set_size(root, ui_screen_w() - 14, BODY_H);
+  lv_obj_align(root, LV_ALIGN_TOP_LEFT, 0, BODY_TOP);
   lv_obj_set_style_bg_opa(root, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(root, 0, 0);
   lv_obj_set_style_pad_all(root, ROOT_PAD, 0);
   lv_obj_set_style_pad_row(root, ROOT_GAP, 0);
   lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(root, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+  menu_component_attach_scroll(&s_scroll, s_screen, root);
 
   make_panel(root, "Channel RSSI", lv_color_hex(COL_ACC2), &s_ch_val, &s_ch_line, s_ch_pts);
   make_panel(root, "RX packets", lv_color_hex(COL_CYAN), &s_air_val, &s_air_line, s_air_pts);
@@ -542,7 +550,8 @@ void ui_lora_telemetry_open(void) {
   }
 
   s_nb_empty = lv_label_create(chips);
-  lv_label_set_text(s_nb_empty, "Listening for nodes...");
+  lv_label_set_text(s_nb_empty,
+                    running ? "Waiting for node telemetry" : "Start a protocol in LoRa Chat");
   lv_obj_set_style_text_font(s_nb_empty, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(s_nb_empty, current_theme.text_secondary, 0);
   lv_obj_add_flag(s_nb_empty, LV_OBJ_FLAG_HIDDEN);
@@ -551,7 +560,8 @@ void ui_lora_telemetry_open(void) {
   paint_stats(running, has_rssi, rssi, &st);
   refresh_neighbors();
 
-  ui_chrome_footer(s_screen, FOOTER_HINT);
+  ui_chrome_footer(s_screen,
+                   running ? FOOTER_HINT : LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " Scroll   BACK to LoRa");
 
   ui_input_set_screen_handler(lora_telemetry_input, NULL);
   s_spark_timer = lv_timer_create(spark_tick_cb, SPARK_MS, NULL);

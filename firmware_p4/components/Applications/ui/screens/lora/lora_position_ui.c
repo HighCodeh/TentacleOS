@@ -42,15 +42,15 @@
 #define BODY_TOP UI_CHROME_HEADER_H
 #define BODY_H   (ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
 
-#define ROOT_PAD 8
+#define ROOT_PAD (ui_screen_w() > ui_screen_h() ? 4 : 8)
 #define ROOT_GAP 7
 
-#define CARD_PAD 8
+#define CARD_PAD (ui_screen_w() > ui_screen_h() ? 6 : 8)
 #define CARD_GAP 5
 #define CARD_RAD 12
 
 #define FIELD_CNT 3
-#define ROW_H     28
+#define ROW_H     (ui_screen_w() > ui_screen_h() ? 26 : 28)
 #define ROW_RAD   7
 #define ROW_PAD_H 8
 #define TAG_W     34
@@ -333,7 +333,13 @@ static void lora_position_input(const input_event_t *ev, void *ctx) {
       if (press) {
         if (s_field < 0 || s_field >= FIELD_CNT)
           s_field = 0;
-        keyboard_open(NULL, on_kb_submit, (void *)(intptr_t)s_field);
+        keyboard_open_config(&(keyboard_config_t){.title = F_TAG[s_field],
+                                                  .initial = lv_label_get_text(s_val[s_field]),
+                                                  .max_chars = 20,
+                                                  .min_chars = 1,
+                                                  .mode = KEYBOARD_NUMBER},
+                             on_kb_submit,
+                             (void *)(intptr_t)s_field);
         ui_feedback(UI_FB_SELECT);
       }
       break;
@@ -362,7 +368,7 @@ static void build_placeholder(void) {
   lv_obj_t *msg = lv_label_create(s_screen);
   lv_label_set_long_mode(msg, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(msg, ui_screen_w() - 2 * ROOT_PAD);
-  lv_label_set_text(msg, "Start a protocol first");
+  lv_label_set_text(msg, "Start a protocol in LoRa Chat");
   lv_obj_set_style_text_font(msg, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(msg, current_theme.text_secondary, 0);
   lv_obj_set_style_text_align(msg, LV_TEXT_ALIGN_CENTER, 0);
@@ -389,12 +395,7 @@ void ui_lora_position_open(void) {
   s_field = 0;
   s_bcast = false;
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   if (s_proto == LORA_PROTO_NONE) {
     build_placeholder();

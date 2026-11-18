@@ -468,7 +468,7 @@ static void select_contact(int sel) {
 static void build_contacts_list(lv_obj_t *parent) {
   build_list_container(parent);
   if (s_proto == LORA_PROTO_NONE) {
-    add_placeholder(s_list, "Start a protocol first");
+    add_placeholder(s_list, "Start a protocol in LoRa Chat");
     return;
   }
   if (s_contact_count == 0) {
@@ -572,12 +572,7 @@ static void build_screen(void) {
     s_row_name[i] = NULL;
   }
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   ui_chrome_header(s_screen, HDR_TITLE, HDR_ICON);
 
@@ -589,7 +584,8 @@ static void build_screen(void) {
     build_banner(s_screen, name, sub, s_proto != LORA_PROTO_NONE);
     build_contacts_list(s_screen);
     build_input(s_screen, "select a contact...");
-    ui_chrome_footer(s_screen, FOOTER_LIST);
+    ui_chrome_footer(s_screen,
+                     s_proto == LORA_PROTO_NONE ? "BACK to LoRa: start a protocol" : FOOTER_LIST);
     s_poll = lv_timer_create(contacts_poll_cb, POLL_MS, NULL);
   } else {
     char sub[24];
@@ -663,7 +659,13 @@ static void lora_securedm_input(const input_event_t *ev, void *ctx) {
     case INPUT_BTN_OK:
       if (press) {
         ui_feedback(UI_FB_SELECT);
-        keyboard_open(NULL, on_kb_submit, NULL);
+        keyboard_open_config(&(keyboard_config_t){.title = "Send direct message",
+                                                  .initial = NULL,
+                                                  .max_chars = 159,
+                                                  .min_chars = 1,
+                                                  .mode = KEYBOARD_TEXT},
+                             on_kb_submit,
+                             NULL);
       }
       break;
     default:
