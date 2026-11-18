@@ -41,6 +41,7 @@
 #include "wifi_deauther.h"
 #include "wifi_flood.h"
 #include "wifi_service.h"
+#include "wardrive_radio.h"
 #include "wifi_sniffer.h"
 #include "wifi_quick_scan.h"
 
@@ -389,6 +390,11 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
   }
 
   switch (id) {
+    case SPI_ID_WIFI_WARD_SCAN:
+    case SPI_ID_WIFI_WARD_STATUS:
+    case SPI_ID_WIFI_WARD_RECORD:
+      return wardrive_radio_command(id, payload, len, out_resp_payload, out_resp_len);
+
     case SPI_ID_WIFI_SCAN_STEP:
       if (len != sizeof(s_step_slot) || payload[0] >= SPI_WIFI_SCAN_SLOT_COUNT)
         return SPI_STATUS_INVALID_ARG;

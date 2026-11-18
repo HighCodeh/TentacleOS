@@ -1631,3 +1631,60 @@ static void get_config_defaults(char *out_ssid,
 
 #include "hb_muse_wifi_guard.inc"
 #include "hb_muse_wifi_scan.inc"
+
+esp_err_t wifi_service_ward_scan(uint8_t band,
+                                 wifi_ap_record_t *records,
+                                 uint16_t *out_count,
+                                 uint16_t *out_total) {
+  if (records == NULL || out_count == NULL || out_total == NULL || band > 2)
+    return ESP_ERR_INVALID_ARG;
+  *out_count = *out_total = 0;
+  if (s_mutex == NULL || xSemaphoreTake(s_mutex, 0) != pdTRUE)
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t err = ESP_ERR_INVALID_STATE;
+  wifi_mode_t previous = WIFI_MODE_NULL;
+  bool has_mode = false, is_started = false;
+  if (s_is_active || s_is_connected || s_promiscuous_active || s_hopper_task_handle != NULL)
+    goto cleanup;
+  err = esp_wifi_get_mode(&previous);
+  if (err != ESP_OK)
+    goto cleanup;
+  has_mode = true;
+  if ((err = esp_wifi_set_mode(WIFI_MODE_STA)) != ESP_OK)
+    goto cleanup;
+  if ((err = esp_wifi_start()) != ESP_OK)
+    goto cleanup;
+  is_started = true;
+  if ((err = esp_wifi_set_band_mode(band_mode_from_selector(band))) != ESP_OK)
+    goto cleanup;
+  if ((err = esp_wifi_clear_ap_list()) != ESP_OK)
+    goto cleanup;
+  wifi_scan_config_t config = {.show_hidden = true,
+                               .scan_type = WIFI_SCAN_TYPE_PASSIVE,
+                               .scan_time.passive = SCAN_ACTIVE_MAX_MS};
+  if ((err = esp_wifi_scan_start(&config, true)) != ESP_OK)
+    goto cleanup;
+  if ((err = esp_wifi_scan_get_ap_num(out_total)) != ESP_OK)
+    goto cleanup;
+  *out_count = SPI_WARD_MAX_RECORDS;
+  err = esp_wifi_scan_get_ap_records(out_count, records);
+cleanup:
+  if (is_started) {
+    (void)esp_wifi_clear_ap_list();
+    esp_err_t stopped = esp_wifi_stop();
+    if (stopped != ESP_OK) {
+      err = stopped;
+      has_mode = false;
+      s_is_active = true;
+    }
+  }
+  if (has_mode) {
+    esp_err_t restored = esp_wifi_set_mode(previous);
+    if (err == ESP_OK)
+      err = restored;
+  }
+  if (err != ESP_OK)
+    *out_count = 0;
+  xSemaphoreGive(s_mutex);
+  return err;
+}

@@ -322,6 +322,9 @@ typedef enum {
   SPI_ID_WIFI_QUICK_STOP = SPI_CMD(SPI_CAT_WIFI, 0x53),
   SPI_ID_WIFI_QUICK_RECORD = SPI_CMD(SPI_CAT_WIFI, 0x54),
   SPI_ID_WIFI_QUICK_WHITELIST = SPI_CMD(SPI_CAT_WIFI, 0x55),
+  SPI_ID_WIFI_WARD_SCAN = SPI_CMD(SPI_CAT_WIFI, 0x59),
+  SPI_ID_WIFI_WARD_STATUS = SPI_CMD(SPI_CAT_WIFI, 0x5A),
+  SPI_ID_WIFI_WARD_RECORD = SPI_CMD(SPI_CAT_WIFI, 0x5B),
   SPI_ID_WIFI_SCAN_STEP = SPI_CMD(SPI_CAT_WIFI, 0x56), // [bitmap slot u8], async
   SPI_ID_WIFI_SCAN_STEP_STATUS = SPI_CMD(SPI_CAT_WIFI, 0x57),
   SPI_ID_WIFI_SCAN_STEP_RECORD =
@@ -1090,6 +1093,23 @@ typedef struct {
 #define SPI_WIFI_SNIFFER_MAX_DATA (SPI_MAX_PAYLOAD - 4)
 
 /** Band selector shared by survey and passive monitor commands. */
+#define SPI_WARD_MAX_RECORDS 128
+/** Dedicated scan snapshot; raw SSID bytes, independent of the generic result pipe. */
+typedef struct {
+  uint32_t generation;
+  int32_t error;
+  uint16_t count, total;
+  uint8_t busy, band;
+} __attribute__((packed)) spi_ward_status_t;
+typedef struct {
+  uint32_t generation;
+  uint16_t index;
+} __attribute__((packed)) spi_ward_request_t;
+typedef struct {
+  uint8_t bssid[6], ssid[33], channel, authmode;
+  int8_t rssi;
+} __attribute__((packed)) spi_ward_record_t;
+
 #define SPI_WIFI_BAND_DUAL 0u
 #define SPI_WIFI_BAND_2G   1u
 #define SPI_WIFI_BAND_5G   2u

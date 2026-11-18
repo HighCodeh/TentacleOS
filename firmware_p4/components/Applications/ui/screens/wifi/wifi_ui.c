@@ -32,6 +32,7 @@ static const struct {
   const char *icon;
   int target;
 } MENU_ITEMS[] = {
+    {"WARDRIVING GPS", "/assets/icons/wifi_find.bin", SCREEN_WARDRIVE},
     {"ESP SCAN", "/assets/icons/wifi_find.bin", SCREEN_WIFI_ESP_SCAN},
     {"WIFI SURVEY", "/assets/icons/wifi_find.bin", SCREEN_WIFI_SCAN_MENU},
     {"PACKET LAB", "/assets/icons/download.bin", SCREEN_WIFI_PACKETS_MENU},

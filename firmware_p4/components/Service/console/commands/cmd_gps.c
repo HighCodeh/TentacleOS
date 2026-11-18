@@ -26,9 +26,10 @@
 #include "esp_timer.h"
 
 #include "gps_nmea.h"
+#include "wardrive.h"
 #include "pin_def.h"
 
-#define GPS_UART            UART_NUM_1
+#define GPS_UART            UART_NUM_3
 #define GPS_BAUD_DEFAULT    9600
 #define GPS_BAUD_MIN        1200
 #define GPS_BAUD_MAX        115200
@@ -81,7 +82,7 @@ static int cmd_gps(int argc, char **argv) {
   char line[GPS_NMEA_LINE_SIZE];
   size_t used = 0;
   esp_err_t err = ESP_ERR_INVALID_STATE;
-  if (uart_is_driver_installed(GPS_UART))
+  if (wardrive_is_running() || uart_is_driver_installed(GPS_UART))
     goto cleanup;
   err = uart_driver_install(GPS_UART, GPS_UART_BUFFER, 0, 0, NULL, 0);
   if (err != ESP_OK)
@@ -103,11 +104,12 @@ static int cmd_gps(int argc, char **argv) {
   err = uart_flush_input(GPS_UART);
   if (err != ESP_OK)
     goto cleanup;
-  ESP_LOGI(TAG,
-           "NMEA RX GPIO%d, %d baud, %ds; GPS TX -> header 13; GPS RX unconnected",
-           GPIO_EXT_GPS_RX_PIN,
-           baud,
-           seconds);
+  ESP_LOGI(
+      TAG,
+      "NMEA RX GPIO%d, %d baud, %ds; GPS TX -> GPIO12 (contact 6); GPS RX -> GPIO11 (contact 7)",
+      GPIO_EXT_GPS_RX_PIN,
+      baud,
+      seconds);
   int64_t deadline = esp_timer_get_time() + seconds * GPS_US_PER_SECOND;
   while (esp_timer_get_time() < deadline) {
     uint8_t byte;

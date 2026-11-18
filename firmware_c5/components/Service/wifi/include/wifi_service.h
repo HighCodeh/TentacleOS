@@ -253,6 +253,11 @@ esp_err_t wifi_service_set_analysis_band(uint8_t band);
  */
 void wifi_service_stop_channel_hopping(void);
 
+esp_err_t wifi_service_ward_scan(uint8_t band,
+                                 wifi_ap_record_t *records,
+                                 uint16_t *out_count,
+                                 uint16_t *out_total);
+
 #ifdef __cplusplus
 }
 #endif
