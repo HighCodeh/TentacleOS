@@ -42,7 +42,7 @@ static const char *TAG = "USB_MSC";
 static _Atomic usb_msc_state_t s_state = USB_MSC_IDLE;
 static atomic_bool s_quiesced = false;
 static sdmmc_card_t *s_card = NULL;
-static bool s_ejected = false;
+static atomic_bool s_ejected = false;
 static bool s_io_failed = false;
 
 static void quiesce(void *arg);
@@ -56,6 +56,10 @@ usb_msc_state_t usb_msc_get_state(void) {
 
 bool usb_msc_host_connected(void) {
   return atomic_load(&s_state) == USB_MSC_ACTIVE && tud_mounted();
+}
+
+bool usb_msc_host_ejected(void) {
+  return atomic_load(&s_state) == USB_MSC_ACTIVE && atomic_load(&s_ejected);
 }
 
 void usb_msc_enter(void) {

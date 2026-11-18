@@ -125,9 +125,14 @@ int main(void) {
   io_error = 0; assert(tud_msc_scsi_cb(0, cmd, NULL, 0) == 0);
   cmd[0] = SCSI_CMD_PREVENT_ALLOW_MEDIUM_REMOVAL; assert(tud_msc_scsi_cb(0, cmd, NULL, 0) == 0);
   cmd[0] = 0xff; assert(tud_msc_scsi_cb(0, cmd, NULL, 0) == -1);
-  assert(tud_msc_start_stop_cb(0, 0, false, true)); assert(!tud_msc_test_unit_ready_cb(0));
+  assert(!usb_msc_host_ejected());
+  assert(tud_msc_start_stop_cb(0, 0, false, false));
+  assert(!usb_msc_host_ejected());
+  assert(tud_msc_start_stop_cb(0, 0, false, true));
+  assert(usb_msc_host_ejected()); assert(!tud_msc_test_unit_ready_cb(0));
   assert(tud_msc_write10_cb(0, 0, 0, data, sizeof(data)) == -1);
   assert(tud_msc_start_stop_cb(0, 0, true, true)); assert(tud_msc_test_unit_ready_cb(0));
+  assert(!usb_msc_host_ejected());
   restore_error = ESP_FAIL; usb_msc_exit();
   assert(owned && !exposed && usb_msc_get_state() == USB_MSC_SD_UNAVAILABLE);
   int attempts = restore_calls;

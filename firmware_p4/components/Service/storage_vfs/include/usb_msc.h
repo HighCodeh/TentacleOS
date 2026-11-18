@@ -52,6 +52,9 @@ usb_msc_state_t usb_msc_get_state(void);
  */
 bool usb_msc_host_connected(void);
 
+/** True only after the host's explicit SCSI eject, never from USB disconnect. */
+bool usb_msc_host_ejected(void);
+
 /**
  * @brief Enter USB Mass Storage mode: detach the app's /sdcard FAT, expose the
  *        raw card to the host, and switch the USB mux to native. On failure the
