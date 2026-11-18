@@ -69,6 +69,60 @@ revision. Replacing our C5 with the stock image would remove Muse and regress th
 local protocol. Both integrated targets retain identical SPI version **8** headers;
 upstream currently has version 6. The Muse extension remains a separate category.
 
+## Local prototype integration, 16 November 2026
+
+This candidate integrates dev `c3f85db` in an isolated worktree with the existing
+0201891B wardriving workflow and battery guard. Both firmware images must be
+updated together: incremental Wi-Fi scan retains commands `0x56..0x58`, while
+wardriving uses `0x59..0x5B`. Identical P4/C5 protocol headers are checked at build.
+The GPS receiver remains on GPIO12 with TX on GPIO11; the diagnostic and recorder
+share UART3 exclusively. The recorder lives in `Service/wardrive`; the UI stop
+hook releases its worker and restores orientation.
+
+The prototype profile retains the early 200 MHz P4 setting and 80 MHz PSRAM,
+with watchdog and brownout detection enabled. It also retains the 604858 battery
+limits and inhibits charging when the battery voltage cannot be recovered within
+the pack's allowed precharge current. An unqualified gauge model never supplies a percentage: the battery screen
+shows validated charger voltage instead, and the header marks SoC unknown.
+`romboot ARMED` requests ROM programming through the volatile download bit;
+no eFuse is changed. USB automatic reset still requires hardware verification.
+
+Both chips on unit 0201891B were migrated from `0x2D0000` app slots to the
+upstream 3 MiB slots, with complete flash backups and verified programmed bytes.
+Bootloaders and NVS were preserved; rebuilt P4 assets retain twelve readable
+user configuration files. The old unreadable C5 assets remain in the raw backup;
+the installed C5 filesystem uses packaged defaults. The microSD was not formatted
+or migrated. Both applications booted and the paired SPI ping passed. P4 mounted
+the microSD and read a physical NFC card. These checks do not establish complete
+RF compatibility or long-term stability.
+
+An app-only P4 update subsequently installed the Type 2 short-reply correction,
+with unchanged flash regions verified. ROM flashing on this P4 used 230400 baud,
+bounded 64 KiB writes and explicit 8 MiB flash parameters before range digests;
+the RAM stub and USB automatic reset were not reliable in this session.
+During that deployment the ADC was at its floor and the gauge was unavailable,
+so the charge guard remained active. Later live telemetry recovered: 3.42–3.56 V
+at the battery and approximately 350 mA charging, with a 384 mA programmed limit,
+4.176 V regulation and no reported charger faults. The gauge still reports an
+unqualified 3000 mAh model; percentage, cell temperature and runtime remain
+unvalidated. No low-voltage or thermal safeguard was bypassed.
+On 2026-11-18, telemetry was again approximately 3.00 V with USB present,
+zero net charging current and the low-voltage recovery guard active. Charge
+requested is not equivalent to charge enabled; the UI now displays that reason.
+
+USB Storage mounted on macOS, accepted a small NFC profile and passed
+byte-for-byte readback. Type 2 target startup subsequently failed to allocate
+3328 bytes of internal DMA memory, including on repeated attempts after reboot.
+The short-response path now uses one RMT hardware memory block for ACK/NACK,
+without that DMA allocation; Classic and NFC-V retain the full target path.
+See [NFC target memory](../nfc/README.md#discovery-deadlines-and-target-dma).
+Ten Hotel start/stop cycles and one additional start after screen re-entry passed
+on unit 0201891B with the short-target build. No independent RF reader was
+available for acceptance testing of that exact build.
+
+The [RF chamber service](../rf_chamber/README.md) prepares bounded CC1101/SX1262
+measurements without changing the production antenna policy.
+
 ## Build
 
 Both builds also generate their own `assets.bin`. P4 uses the existing
