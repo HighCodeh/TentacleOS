@@ -837,3 +837,18 @@ and event-gated success ordering. The host card event is a fixture, not a physic
 RF reading. Device acceptance separately checks visible animation, task navigation
 and retained state. Console `uistate` includes the top layer so modal cards and
 status overlays are inspectable as well as the active root.
+
+
+## Repeatable host regression checks
+
+After resolving the pinned P4 dependencies with `bash tools/build.sh p4`, install
+`tools/highboy/tests/requirements-ui.txt` and run
+`bash tools/highboy/test_ui.command /tmp/highboy-ui-host`. This builds the native
+LVGL fixture once, then checks the keyboard, capture naming and Diagnostics,
+Recent Apps and draft restoration, and transparent NFC guidance. The P4 CI build
+runs the same sequence. Host card events and graphics are fixtures; physical RF
+acceptance remains a separate device check.
+
+`bash tools/highboy/test.command` also runs the prototype battery/LED, radio,
+NFC, storage and screen-lifecycle regressions. These host tests do not open
+serial devices or transmit over radios.
