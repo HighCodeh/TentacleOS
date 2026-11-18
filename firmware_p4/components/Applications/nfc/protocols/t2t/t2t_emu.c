@@ -1562,8 +1562,8 @@ static bool ulc_write_counter(const uint8_t *data) {
   uint16_t current = s_ulc_counter_pending
                          ? s_ulc_counter_next
                          : s_mem[offset] | ((uint16_t)s_mem[offset + 1] << T2T_BYTE_BITS);
-  uint16_t increment =
-      current ? (data[0] & T2T_NIBBLE_MASK) : data[0] | ((uint16_t)data[1] << T2T_BYTE_BITS);
+  uint16_t increment = current ? (uint16_t)(data[0] & T2T_NIBBLE_MASK)
+                               : (uint16_t)(data[0] | ((uint16_t)data[1] << T2T_BYTE_BITS));
   if (increment > T2T_ULC_COUNTER_MAX - current)
     return false;
   s_ulc_counter_next = current + increment;
