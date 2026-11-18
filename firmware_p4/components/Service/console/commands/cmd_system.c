@@ -24,6 +24,8 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "soc/soc.h"
+#include "soc/lp_system_reg.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -301,6 +303,16 @@ static int cmd_free(int argc, char **argv) {
   printf("  Free: %lu bytes\n", (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
   printf("  Min Free: %lu bytes\n",
          (unsigned long)heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM));
+  return 0;
+}
+
+static int cmd_romboot(int argc, char **argv) {
+  if (argc != 2 || strcmp(argv[1], "ARMED"))
+    return 1;
+  ESP_LOGW("ROMBOOT", "Entering ROM download mode; volatile request only");
+  vTaskDelay(pdMS_TO_TICKS(100));
+  REG_SET_BIT(LP_SYSTEM_REG_SYS_CTRL_REG, LP_SYSTEM_REG_FORCE_DOWNLOAD_BOOT);
+  esp_restart();
   return 0;
 }
 
@@ -600,6 +612,12 @@ void register_system_commands(void) {
   };
   ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&cmd_free_def));
 
+  const esp_console_cmd_t cmd_romboot_def = {
+      .command = "romboot",
+      .help = "romboot ARMED: enter P4 ROM download mode",
+      .func = cmd_romboot,
+  };
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&cmd_romboot_def));
   const esp_console_cmd_t cmd_reboot_def = {
       .command = "reboot",
       .help = "Reboot the Highboy (P4)",

@@ -88,6 +88,9 @@ static struct dirent *fake_readdir(DIR *dir) {
 #define opendir fake_opendir
 #define closedir fake_closedir
 #define readdir fake_readdir
+#ifdef strlcpy
+#undef strlcpy
+#endif
 #define strlcpy test_copy
 static size_t test_copy(char *dst, const char *src, size_t cap) {
   size_t n = strlen(src);

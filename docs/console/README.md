@@ -188,7 +188,16 @@ Debug/capture helpers registered as top-level commands (from the screen command 
 | :--- | :--- | :--- |
 | `goto` | Switches the UI to a screen by enum id. | `goto <id>` (1..`SCREEN_COUNT`-1) |
 | `key` | Injects a simulated button press. | `key <idx> [-t <ms>]`<br>idx: 0=UP 1=DOWN 2=LEFT 3=RIGHT 4=OK 5=BACK; hold default 120 ms |
-| `screenshot` | Captures the active screen as base64 RGB565 strips. | `screenshot [id]` (optionally switch to `id` first) |
+| `screenshot` | Captures one complete refresh as base64 RGB565 strips or RLE. | `screenshot [id] [-r]` (optionally switch to `id` first) |
+
+Capture queues a callback on the graphics task (16 KiB stack), not the console
+task (8 KiB). The callback invalidates and synchronously refreshes under the UI lock,
+then detaches the strip sink before releasing that lock. Timer-driven partial
+redraws cannot overwrite parts of the collected frame between refresh and
+teardown. Every row must have full-width coverage before an image is emitted.
+Encoding and serial transfer happen on the console after releasing the UI lock.
+A timed-out queued callback is cancelled under the lock before its PSRAM frame
+is freed; failure to reacquire the lock retains ownership for later cleanup.
 
 ## Developing New Commands
 
