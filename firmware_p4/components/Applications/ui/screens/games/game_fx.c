@@ -78,7 +78,7 @@ void game_fx(game_fx_t kind) {
   cue_t c = cue_for(kind);
 
   if (g_config_system.vibration)
-    (void)haptic_play(HAPTIC_FEEDBACK_INTENSITY, HAPTIC_FEEDBACK_MS);
+    (void)haptic_feedback(HAPTIC_FEEDBACK_MS);
 
   if (s_snd_busy)
     return;

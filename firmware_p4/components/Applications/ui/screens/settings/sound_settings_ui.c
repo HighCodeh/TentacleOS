@@ -25,11 +25,13 @@
 #include "tos_storage_paths.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "app_switcher_ui.h"
 #include "ui_theme.h"
+#include "ui_metrics.h"
 
 static const char *TAG = "SOUND_SETTINGS_UI";
 
-#define ENTRY_FADE_MS 200
+#define ENTRY_FADE_MS UI_CONTENT_FADE_MS
 
 #define ROW_VOLUME    0
 #define ROW_UI_SOUNDS 1
@@ -142,8 +144,10 @@ void ui_sound_settings_open(void) {
     s_screen = NULL;
   }
 
-  s_changed = false;
-  s_vol_changed = false;
+  if (!ui_tasks_is_resuming())
+    s_changed = false;
+  if (!ui_tasks_is_resuming())
+    s_vol_changed = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);

@@ -22,6 +22,8 @@ extern "C" {
 
 /** @brief Open the Breakout mini-game. */
 void ui_breakout_open(void);
+/** @brief Stop gameplay before navigation or screen reconstruction. */
+void ui_breakout_stop(void);
 
 #ifdef __cplusplus
 }

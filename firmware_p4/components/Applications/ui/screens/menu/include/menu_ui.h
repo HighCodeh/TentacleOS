@@ -26,6 +26,9 @@ extern "C" {
 /** @brief Open the main menu screen. */
 void ui_menu_open(void);
 
+/** @brief Release carousel preload resources before leaving the screen. */
+void ui_menu_close(void);
+
 /** @brief Number of apps in the menu catalog. */
 int menu_catalog_count(void);
 

@@ -22,6 +22,8 @@ extern "C" {
 
 /** @brief Open the home screen. */
 void ui_home_open(void);
+/** @brief Stop the Home refresh timer before leaving the screen. */
+void ui_home_close(void);
 
 #ifdef __cplusplus
 }

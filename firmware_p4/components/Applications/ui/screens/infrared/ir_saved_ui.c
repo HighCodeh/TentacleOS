@@ -34,6 +34,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "app_switcher_ui.h"
 #include "ui_metrics.h"
 #include "ui_theme.h"
 
@@ -525,10 +526,21 @@ static void ir_saved_input(const input_event_t *ev, void *ctx) {
 }
 
 void ui_ir_saved_open(void) {
-  s_level = LEVEL_PROTOCOLS;
-  s_proto = 0;
-  s_file = 0;
-  s_saved = false;
+  int action = ui_tasks_is_resuming() ? s_cr.sel : 0;
+  if (!ui_tasks_is_resuming()) {
+    s_level = LEVEL_PROTOCOLS;
+    s_proto = 0;
+    s_file = 0;
+    s_saved = false;
+  }
   reload_all();
+  if (s_level != LEVEL_PROTOCOLS) {
+    filter_for_proto(s_proto_name);
+    if (s_file_count == 0)
+      s_level = LEVEL_PROTOCOLS;
+  }
   build_screen();
+  if (s_level == LEVEL_ACTIONS)
+    for (int i = 0; i < action && i < s_cr.count; ++i)
+      capture_result_next(&s_cr);
 }

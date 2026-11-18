@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License
 # along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-"""Exercise menu animation gating and decoder lifetime with host fakes."""
+"""Exercise responsive menu navigation and decoder lifetime with host fakes."""
 from pathlib import Path
 import subprocess
 import tempfile
@@ -95,12 +95,12 @@ int main(void) {
  lv_event_t back={LV_EVENT_KEY,LV_KEY_ESC};
  active_animation=s_base_imgs[0];
  for(int i=0;i<100;++i) menu_event_cb(&right);
- assert(s_selected==0 && updated==0);
+ assert(s_selected==0 && updated==100);
  active_animation=s_icon_imgs[1];menu_event_cb(&right);menu_event_cb(&click);
- assert(s_selected==0 && selected==0);
+ assert(s_selected==1 && selected==1 && updated==101);
  menu_event_cb(&back);assert(home==1);
- active_animation=NULL;menu_event_cb(&right);assert(s_selected==1 && updated==1);
- s_preload_timer=&timer;menu_event_cb(&right);assert(s_selected==0);
+ active_animation=NULL;menu_event_cb(&right);assert(s_selected==0 && updated==102);
+ s_preload_timer=&timer;menu_event_cb(&right);assert(s_selected==1 && updated==103);
  menu_event_cb(&back);assert(home==2);
  s_decoders=calloc(12,sizeof(*s_decoders));
  for(int i=0;i<2;++i) for(int f=0;f<3;++f) {
@@ -112,7 +112,7 @@ int main(void) {
  active_animation=NULL;
  for(int i=0;i<6;++i) preload_cb(&timer);
  assert(!s_preload_timer && s_decoder_count==7 && opened==7 && closed==0);
- assert(updated==view_updates && s_selected==0);
+ assert(updated==view_updates && s_selected==1);
  release_preload();assert(closed==7 && !s_decoders && !s_decoder_count);
  release_preload();assert(closed==7);
  s_decoders=calloc(12,sizeof(*s_decoders));s_preload_timer=&timer;s_preload_frame=0;
@@ -130,4 +130,4 @@ with tempfile.TemporaryDirectory() as directory:
     src.write_text(code)
     subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", str(src), "-o", str(exe)], check=True)
     subprocess.run([str(exe)], check=True)
-print("Menu animation gating, preload deduplication and cleanup passed")
+print("Responsive menu navigation, preload deduplication and cleanup passed")

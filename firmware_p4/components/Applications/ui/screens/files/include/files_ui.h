@@ -20,13 +20,10 @@
 extern "C" {
 #endif
 
-/**
- * @brief Open the file browser screen (mock).
- *
- * Two-level navigation (folders -> files) from a canned table. No filesystem
- * is touched.
- */
+/** @brief Open the mounted SD/assets browser, or restore a retained task view. */
 void ui_files_open(void);
+/** @brief Release timers and retain the current folder, selection and text scroll. */
+void ui_files_close(void);
 
 #ifdef __cplusplus
 }

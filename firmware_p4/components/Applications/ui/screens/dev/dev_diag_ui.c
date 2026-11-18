@@ -25,6 +25,7 @@
 #include "sys_metrics.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
 
@@ -42,7 +43,7 @@
 #define PANEL_RAD    11
 #define CHART_POINTS 30
 #define CHART_H      44
-#define STATS_H      40
+#define STATS_H      44
 
 #define INT_MAX_KB     256
 #define DMA_MAX_KB     64
@@ -67,7 +68,7 @@ static lv_obj_t *s_c5_val = NULL;
 static lv_obj_t *make_panel(lv_obj_t *parent, int h) {
   lv_obj_t *p = lv_obj_create(parent);
   lv_obj_remove_flag(p, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(p, lv_pct(100), h);
+  lv_obj_set_size(p, ui_screen_w() > ui_screen_h() ? (ui_screen_w() - 28) / 2 : lv_pct(100), h);
   lv_obj_set_style_radius(p, PANEL_RAD, 0);
   lv_obj_set_style_bg_color(p, current_theme.bg_secondary, 0);
   lv_obj_set_style_bg_opa(p, LV_OPA_COVER, 0);
@@ -88,6 +89,7 @@ make_value_label(lv_obj_t *panel, const char *title, uint32_t color, const char 
   lv_obj_set_style_bg_opa(head, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(head, 0, 0);
   lv_obj_set_style_pad_all(head, 0, 0);
+  lv_obj_set_style_pad_column(head, 0, 0);
   lv_obj_set_flex_flow(head, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(
       head, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -190,9 +192,14 @@ static void tick_cb(lv_timer_t *t) {
   if (s_batt_val != NULL) {
     battery_snapshot_t b;
     if (battery_service_get(&b) && b.valid) {
-      snprintf(buf, sizeof(buf), "%d%%", b.soc);
+      if (b.soc >= 0)
+        snprintf(buf, sizeof(buf), "%d%%", b.soc);
+      else
+        snprintf(buf, sizeof(buf), "%u.%02uV", b.vbat_mv / 1000, b.vbat_mv % 1000 / 10);
       lv_obj_set_style_text_color(
-          s_batt_val, lv_color_hex(b.soc <= BATT_LOW_PCT ? WARN_COLOR : UI_COL_SUCCESS), 0);
+          s_batt_val,
+          lv_color_hex(b.soc >= 0 && b.soc <= BATT_LOW_PCT ? WARN_COLOR : UI_COL_SUCCESS),
+          0);
     } else {
       snprintf(buf, sizeof(buf), "--");
     }
@@ -233,26 +240,37 @@ static void dev_diag_input(const input_event_t *ev, void *ctx) {
   }
 }
 
+void ui_dev_diag_close(void) {
+  if (s_tick != NULL) {
+    lv_timer_delete(s_tick);
+    s_tick = NULL;
+  }
+}
+
+static void dev_diag_deleted(lv_event_t *e) {
+  if (lv_event_get_target(e) == s_screen)
+    ui_dev_diag_close();
+}
+
 static void build_screen(void) {
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
+  lv_obj_add_event_cb(s_screen, dev_diag_deleted, LV_EVENT_DELETE, NULL);
 
   ui_chrome_header(s_screen, TITLE, ICON);
   ui_chrome_footer(s_screen, FOOTER_HINT);
 
   lv_obj_t *col = lv_obj_create(s_screen);
   lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(col, lv_pct(100), LV_SIZE_CONTENT);
+  lv_obj_set_size(col, lv_pct(100), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H - 6);
   lv_obj_align(col, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H + 6);
   lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(col, 0, 0);
   lv_obj_set_style_pad_hor(col, 10, 0);
+  lv_obj_set_style_pad_ver(col, 0, 0);
+  lv_obj_set_style_pad_column(col, 8, 0);
   lv_obj_set_style_pad_row(col, 8, 0);
-  lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_flow(col,
+                       ui_screen_w() > ui_screen_h() ? LV_FLEX_FLOW_ROW_WRAP : LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(col, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
 
   int int_kb = (int)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024);
@@ -288,7 +306,7 @@ static void build_screen(void) {
   lv_obj_set_flex_align(
       stats, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   s_batt_val = make_stat(stats, "Batt", "--", UI_COL_SUCCESS);
-  s_temp_val = make_stat(stats, "Temp", "--", CYAN_COLOR);
+  s_temp_val = make_stat(stats, "Chip", "--", CYAN_COLOR);
   s_c5_val = make_stat(stats, "C5", "--", 0x8A8594); // TODO: not themed (raw hex arg)
 
   ui_input_set_screen_handler(dev_diag_input, NULL);
@@ -297,7 +315,7 @@ static void build_screen(void) {
 }
 
 void ui_dev_diag_open(void) {
-  s_tick = NULL;
+  ui_dev_diag_close();
   build_screen();
   s_tick = lv_timer_create(tick_cb, TICK_MS, NULL);
 }

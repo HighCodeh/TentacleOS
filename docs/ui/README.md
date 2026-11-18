@@ -84,6 +84,11 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
 }
 ```
 
+The NFC Classic emulation overlay uses a static card, field rings and status
+while listening; packet counters and decorative animations would compete with
+NFC response deadlines on the shared display SPI bus. BACK restores the card
+picker and its animations. See [Classic transport](../nfc/README.md#classic-emulation-transport).
+
 ### 3. If the screen owns hardware or a task, register a stop hook
 Screens that start a radio, a worker task, or a media player must register a
 stop function in `screen_close_fn()`. `ui_switch_screen` calls it on the
@@ -315,6 +320,13 @@ is blocked during modal dialogs and consumed gestures.
 See the [navigation audit](navigation-audit.md) for route coverage, corrected
 parent destinations and the remaining lifecycle findings.
 
+Opening a feature from Home now retains Home as that feature root's return.
+Nested BACK actions still go through their declared submenus; only the root's
+normal exit to Menu is redirected to Home. Entering the coverflow or Home clears
+that shortcut origin. Settings remembers the selected row separately for its
+main and Audio & Haptics lists; its firmware grid, Infrared and Interface menus
+also retain selection when returning from a child.
+
 The UI dispatches a short physical BACK as one `PRESS` **on release**, preserving
 existing screen handlers and their parent destinations. BACK repeats and the
 800 ms long-press event never navigate. Holding BACK for five seconds belongs to
@@ -401,7 +413,52 @@ without an explicit color. Dark text on filled badges/buttons retains its
 explicit style; their contrasting fills remain unchanged. An app-only P4 update
 applies this policy without rewriting theme files or rebuilding assets.
 
+Home and the Apps library take their card, text, focus and icon colors from the
+active theme. The original mascot and media artwork retain their source colors.
+Home uses the event input path, labels the selected shortcut, preserves its
+selection and lays out the mascot beside the shortcuts in landscape. Without
+user favorites, NFC, Infrared, Music and Settings provide defaults; Octobit stays
+available. Its 30-second date refresh is stopped by the central close hook.
+No binary font is loaded just for the Home date. Home leaves the breadcrumb title
+empty; the redundant HIGH BOY caption is not shown below the status bar.
+
+The shared 22-pixel footer has a bounded, centered hint label. Long hints scroll
+inside its margins instead of extending off-screen; normal menu hints are kept
+short. Menu row labels are constrained to their remaining flex width. Toggles,
+selectors and intensity controls occupy layout space rather than floating over
+the name. Selected long names scroll within their row; unselected names use an
+ellipsis. Standard menu icons follow the theme accent, and the scroll indicator
+is hidden when the list fits (including an empty list). The marker is a themed
+10x18-pixel box over a two-pixel dotted track. Its position is mapped from the
+list's actual animated scroll destination, clamped to the track ends, rather
+than the selected item number. Custom content uses the same bounded pixel mapping. Apps descriptions are bounded above the footer in both orientations.
+The Apps close hook detaches and releases cover/registry images before leaving;
+a delayed DELETE from an earlier screen cannot release a new screen's registry.
+
+Snake and Breakout derive their playfield from the logical display size, including
+landscape. Their UI overlays use theme text/surface colors; gameplay objects keep
+their semantic game colors. Central stop hooks remove their timers synchronously,
+and gameplay does not advance while system dialogs or navigation locks own input.
+
+The display draw buffer remains RGB565. Home/Apps cards and shared menu gradients
+use an ordered 8x8 dither at final 5/6/5-bit quantization instead of uniform-color
+bands. A 32-pixel-wide RGB565 tile is generated once in checked PSRAM (at most
+20,480 pixel bytes per object), repeated horizontally and clipped by LVGL to the
+card radius. Each object releases its image cache entry and allocation on deletion.
+No timer, per-frame generation or internal-RAM fallback is added. Equal colors use
+no tile; allocation failure leaves a solid themed background. Menus use opaque
+rows so alpha blending does not quantize the dither a second time. Rebuild screens
+on theme/orientation changes; this helper is for newly created, fixed-height objects.
+Artwork and other custom gradient renderers are not changed by this helper.
+`tools/highboy/tests/test_ui_gradient.py` checks dark-ramp average color, endpoints,
+height bounds, PSRAM allocation failure, registration failure and deletion ownership.
+
 ## Theme path limits
+
+Selecting a different theme asks for APPLY or CANCEL before changing the stored
+theme. BACK/cancel keeps the current configuration and does not reboot. APPLY
+checks the save result before restarting; a failed write restores the in-memory
+theme name and leaves the selector usable.
 
 SD theme names must fit the persistent 32-byte theme field (31 bytes plus NUL).
 The selector skips longer names with a warning instead of saving a shortened
@@ -437,10 +494,16 @@ Game Boy, Doom and external app discovery retain their existing behavior.
 
 ## Coverflow navigation timing
 
-The main coverflow transitions in 260 ms, with a 100 ms label fade. Navigation,
-opening an app and favorite changes are ignored until all item animations finish.
-Held-key repeats can advance again after completion; no repeat queue accumulates.
-BACK remains available during both animation and preload.
+The main and theme carousels transition in 180 ms. A new directional press
+retargets movement from the current position; opening the selected app and
+changing favorites remain available during movement. Shared content fades use
+120 ms. The 80 ms native-entry guard consumes the initiating held gesture until
+release, rather than discarding independent clicks for half a second. BACK is
+available during movement and preload; worker shutdown can still take longer
+than the visual transition. The input regression suite is
+`tools/highboy/tests/test_ui_transitions.py`.
+`test_menu_preload.py` also verifies that navigation remains responsive during
+movement while preserving decoder deduplication, idle preloading and cleanup.
 
 On opening the menu, the visible images load first and navigation is immediately
 available. A 20 ms UI timer preloads one remaining item/frame pair per idle tick;
@@ -448,8 +511,9 @@ it pauses during item animations to avoid competing with rendering. Preloading
 never resets the selected item or its pose. All distinct icon and base frames
 are decoded and pinned in the LVGL image cache for the menu's lifetime, including
 the side views. Decoder handles live in PSRAM; shared bases and repeated glyphs
-are pinned only once. Screen deletion cancels pending preload and releases every
-handle, allowing cache eviction. Allocation or decoding failure releases the pins
+are pinned only once. The central close hook cancels pending preload and releases every
+handle before navigation; a guarded DELETE callback is an idempotent fallback.
+This permits cache eviction without letting an old root release a new preload. Allocation or decoding failure releases the pins
 and retains on-demand loading. Rapid navigation to a not-yet-preloaded image can
 still require a synchronous load. Display DMA buffers and the separate coverflow
 preview are unchanged.
@@ -465,18 +529,31 @@ successful return to Files are unchanged.
 
 ## Live battery display
 
-The header uses the current charge level as the first charging-animation frame
-(under 20%, under 45%, and 45–99%). Charging cycles from that level through the full frame and then returns to the
-actual level. At 45–99%, the last block alternates filled/empty while the preceding
-blocks remain filled. Only 100% keeps the fill permanently full. Static overlays
-and unplugged operation show the actual level; the lightning symbol pulses while
-charging.
+Header, dropdown, Battery and Power consume the battery service. The header
+shows numeric percentage only for a qualified gauge; otherwise it shows measured
+voltage with its V unit, or `--` when telemetry is unavailable. The battery fill
+is static and represents only a known level. Unknown levels use a neutral icon;
+lightning means actual charging, and USB means external power. Static overlays
+use the same renderer without rebinding the live header. No charge-fill or
+lightning animation timer runs.
 
-Battery settings refresh percentage, voltage, source, charging status and gauge
-once per second from the battery service snapshot. There is no extra I2C polling
-from the UI. Missing readings show unavailable values. The refresh timer is
-removed when the screen is deleted; reopening creates one new timer. USB presence
-alone is no longer described as fully charged.
+Battery settings use a responsive information card instead of an empty gauge
+ring. The primary reading is percent when qualified or voltage otherwise, with
+a clear caption. Net current and USB supply are separate labeled values; the
+nominal capacity and unavailable-percent explanation remain visible. The footer
+names the actual Pause/Resume action. The card shows charging/paused/full state
+and the service's blocked reason. The nominal replacement capacity is 2475 mAh; percentage
+calibration is still pending and is identified on-screen. Power uses the same
+cached telemetry, never the charger's linear voltage-to-percent calculation,
+and queues charge requests through the service. Entering Power does not
+initialize the charger or perform an ADC conversion in LVGL. Its explicit
+Registers/I2C Scan diagnostics remain user-triggered.
+
+The battery refresh timer is stopped by the central close hook; a DELETE
+fallback checks the owning root so deletion of an old screen cannot cancel the
+new screen's timer. Screen refresh timers are released on close. USB presence alone does not imply
+full charge. The service's hardware guards remain active for every UI request.
+See [battery service](../bq25896/README.md) for qualification and charge limits.
 
 
 ## IMU motion monitor
@@ -505,6 +582,110 @@ LVGL renders in portrait/landscape with simulated samples, controls, repeat
 entry/exit, missing/corrupt models and injected timer allocation failure. These
 checks do not establish physical sensor accuracy or on-device rendering speed.
 
+## Responsive activity layouts
+
+Device selection grids retain the selected item and scroll it fully into view.
+Card titles keep one line: inactive long names use an ellipsis and the selected
+name scrolls. Compact directional glyphs keep activity footer hints readable
+within the portrait width.
+IR controller keypads, Power actions, C5 actions and BLE Radio use the shared
+box thumb/dotted track; About and SD Health allow UP/DOWN content scrolling.
+Wi-Fi Hotspot uses the shared menu and explicit Start/Stop control. Opening it
+does not enable the AP. Status reports applying, online, offline or failure;
+its close hook requests stop on BACK and programmatic exits. A guarded DELETE
+fallback releases its refresh timer. LoRa Telemetry uses LEFT/RIGHT
+for the page and UP/DOWN for neighboring nodes, automatically revealing the
+selected node. LoRa Position fits its fields/status in both orientations.
+Landscape IR Raw separates its trace/carrier controls from statistics; LED
+signals places its preview beside its controls. BLE/USB mouse panels, the BLE
+scan radar and WAV spectrum derive their available height from live metrics.
+MP4 metadata uses two columns in landscape and explicitly reports unavailable
+playback instead of suggesting an unimplemented codec path.
+
+`ui_chrome_screen_create()` shares the identical opaque root setup used by
+activity screens. It removes duplicated setup code without changing screen
+ownership. Presentation sources use size optimization to retain the existing
+OTA partition layout; codecs and peripheral services keep their prior flags.
+The read-only `uistate` console command snapshots bounded object/label geometry
+under the UI lock, then prints after releasing it. It does not execute actions.
+Its flags describe scrollability, visibility and hidden state; clipped children
+inside scrollable content are not automatically layout defects.
+
+## Physical-button text editor
+
+The shared editor uses an eight-column alphabetic button matrix with lower-case,
+upper-case, numbers and symbol pages. It covers printable ASCII; existing UTF-8
+text is retained and counted by character. Hex fields use a four-column 0–F map.
+Arrows move selection, OK activates a key, the arrow keys drawn on screen move
+the text cursor, backspace erases, the checkmark confirms, and physical BACK
+cancels without invoking the submit callback. The same controls fit 240x320 and
+320x240. The screen shows a field-specific title, current count and limit.
+
+`keyboard_open_config()` takes a copied configuration: title, initial text,
+character limits and text/password/hex/number mode. Names, drafts and editable
+settings are prefilled; passwords are masked. Too-short input or incomplete hex
+bytes stay open with feedback. Submission detaches the old editor before calling
+client code, using a checked PSRAM text copy so navigation and a callback opening
+another editor cannot invalidate the submitted text or close the new editor.
+BACK never saves. The stock LVGL keyboard widget is disabled in the P4 profile;
+this editor uses buttonmatrix and textarea, including its own compact maps.
+
+Run `python3 tools/highboy/tests/test_keyboard_ui.py /tmp/highboy-keyboard` to
+compile the production editor against the pinned, local LVGL source. The host
+suite checks both layouts, printable characters, cursor/delete, limits, masked
+text, UTF-8 drafts, allocation failure, cancellation and reentrant submission.
+It does not replace device button/render checks. Hotspot worker error/exit
+ordering is exercised by `test_hotspot_ui.py` with mocked Wi-Fi operations.
+
+IR Raw displays an empty-state instruction until a capture exists. Its trace now
+projects the first 64 actual RMT symbols, using their durations and levels, rather
+than a decorative waveform. The title identifies it as the signal start. The
+projection and bounds are checked by `test_ir_raw_ui.py`; physical replay still
+requires a fixture. Direct entry into an audio/video viewer without a path asks
+for a file instead of reporting a corrupt file. Offline LoRa pages name the
+protocol setup step; diagnostics display voltage when the gauge has no qualified
+percentage.
+
+## P4 UI memory policy
+
+`Service/lvgl/lvgl_memory.c` implements the custom LVGL allocator selected by
+`CONFIG_LV_USE_CUSTOM_MALLOC`. On the PSRAM-equipped P4, all LVGL allocations,
+including small objects, styles and strings, use PSRAM with no internal-memory
+fallback. Display DMA buffers and radio/crypto allocations retain their explicit
+capabilities. This keeps navigation and keyboard activity from consuming the
+internal DMA heap needed for mesh encryption and SPI transfers. Realloc failure
+preserves the original pointer. The allocator has no private pool statistics;
+`lv_mem_test_core` checks the backing heap integrity. Test its policy with
+`python3 tools/highboy/tests/test_ui_memory.py` and repeat simultaneous UI/radio
+acceptance after changing this configuration.
+
+On 16 November 2026, unit 0201891B passed eight chat entries with repeated
+portrait/landscape changes, three console-queued MeshCore transmissions and one
+transmission submitted through the actual keyboard UI. Internal free heap ended
+at 61,543 bytes after the rotation sequence; no SPI/crypto allocation failure or
+reset appeared in that run. The prior allocator reproduced a crypto allocation
+failure during the same sequence. This is single-unit acceptance, not proof of
+peer reception or long-term stability. Existing redundant standby-transition
+and haptic-playback warnings remain separate from this memory fix.
+
+## LoRa chat
+
+The mesh home opens Chat directly. Its implementation and delivery semantics
+are documented in [LoRa / Chat UI](../LoRa/README.md#chat-ui-uiscreenslora).
+Message rows use theme colors and live display metrics; radio samples come from
+the session snapshot, never from LVGL-side hardware access. Rendered history is
+bounded to 24 entries and preserves the scroll position when new messages arrive.
+The close hook and delete fallback release UI timers; leaving the screen does
+not stop the mesh session. The keyboard accepts a retained draft and reflows in
+landscape. Immediate queue failures retain that draft for retry.
+
+The protocol picker and Sub-GHz menu both expose **RF Lab**, backed by the
+[RF chamber service](../rf_chamber/README.md). It offers timed CW, packet TX and RX,
+configuration selectors and a scrolling live result view in either orientation.
+The close hook stops only the screen-owned run; checked cleanup remains in Service.
+Sub-GHz > Config edits the actual Read/Read RAW frequency and preset. Apply stores
+these in RAM; re-entry reflects the current values. File replay uses its own metadata.
+
 ## Handshake capture feedback
 
 The storage card shows pending/peak queue depth, lost/failed frame counts, and
@@ -529,3 +710,130 @@ and landscape. The worker publishes snapshots without accessing LVGL directly;
 generation checks discard updates after navigation. See [Wi-Fi capture](../wifi/README.md#handshake-capture-and-lifecycle)
 for persistence and purple INFO LED semantics. Hardware visual/LED acceptance is
 still required; host tests cover persistence and worker cancellation.
+
+
+### Classic read and reader-key extraction
+
+Read Tag offers all blocks for Mini, 1K and 4K. Block navigation uses the actual
+card geometry, including large 4K sectors. Progress reports actual sector,
+block and key totals. Partial reads and cancellation retain known data in a
+Flipper profile on SD; unread bytes remain unknown. Bulk result buffers are
+static PSRAM, not the worker stack. The existing screen stop hook requests
+cancellation and waits for worker cleanup before navigation.
+
+After identifying a Classic card, **Extract reader keys** displays capture and
+pair counts. Remove the physical card and present High Boy to the reader more
+than once. OK stops RF and begins offline MFKey recovery. BACK cancels capture
+or recovery. The final screen distinguishes validated keys from keys actually
+saved to the dictionary. RIGHT rereads the physical card, OK starts a new
+capture. The display updates only when counts/state change during capture.
+No card-only nested-recovery action is advertised: the old implementation was
+invalid and is disabled. Full Flipper feature parity is not yet established.
+
+
+The Classic block reader follow-up suppresses field-ring animation and limits
+changed progress-label redraws to five per second. NFC and LCD share SPI; the
+radio worker retains its independent cancellation callback, and BACK handling
+continues on every UI refresh. Physical comparison is recorded with the NFC test
+artifacts rather than inferred from the layout change.
+
+The block result keeps block/key totals on a single line. Saved/not-saved status
+is inside the block panel beside the sector keys, avoiding the previous wrapped
+status overlapping the panel at 240 pixels wide. Success/warning colors use the
+central semantic palette.
+
+On-device result layouts were checked at 240x320 with Default (Mini and 4K)
+and 320x240 with Cyber Blue (Mini), including the manufacturer block, totals,
+saved-state row and footer. The original theme/orientation were restored.
+
+## Battery, vibration and media presentation
+
+Battery status remains visible with an unqualified fuel-gauge model. The main
+reading then displays voltage, while source, net current and blocked reason
+remain independent. The charge action only queues the guarded service request.
+Portrait and landscape use content bounds; USB has its own header symbol.
+
+Vibration settings control system notifications and a persistent intensity,
+with a bounded 200 ms test. The input router requests short vibration on button
+press/repeat, including custom menus; release does not repeat it and locked
+input is silent. Read/write and related completion cues also use the
+LED notification worker. See the canonical AW8623 and LED contracts.
+
+The MP3 player lays out the cover above controls in portrait and beside them in
+landscape. It accepts embedded JPEG/PNG covers, stores bulk metadata and PCM in
+PSRAM and freezes the path/offset passed to the audio worker. Shared flags are
+atomic. Failed audio writes stop playback instead of automatically cycling into
+repeated errors; the screen reports the failure. Missing/failed cover allocation
+uses the placeholder. Library rows show MP3/WAV, not invented durations.
+
+## UX follow-up: recent apps and capture names (2026-11-18)
+
+Home UP, or BACK held for 900 ms and released before the existing 5 s shutdown,
+opens Recent Apps: up to five actual screen previews held in checked PSRAM.
+LEFT/RIGHT chooses a card, OK returns/resumes, DOWN opens Apps and short BACK
+closes the overview. Closing consumes the initiating gesture so it cannot type
+into an underlying editor. The current screen stays live; games pause while the
+overview is open. Switching applications runs the normal resource close hooks.
+
+Resume reconstructs the supported view: Files retains folder, selected entry,
+list/grid mode and text scroll; IR Saved retains protocol/file/action level;
+MQTT retains the edited field; safe RFID views and completed NFC identification
+retain their data. Standard supported menus retain selection. Snake/Breakout
+retain their board/score with unchanged orientation; a geometry change reopens
+the app instead. Keyboard drafts in MQTT, IR Saved, RFID and completed NFC include
+text, cursor, page, selected key and the original callback. Password previews mask
+the temporary last character and discarded drafts are wiped. Unsupported edits
+must be saved or cancelled before leaving through Recent Apps. Other operation
+screens explicitly show Reopen and return to their app entry; operations are not
+silently restarted or transmitted. These session states do not survive reboot.
+A normal fresh app launch starts its ordinary entry and discards its old task card.
+
+NFC Read uses the approach/return loop derived from the supplied video while the actual NFC manager
+searches. The native GIF is 160x148, 12 fps, 48 palette entries, 171,553 bytes; only empty
+source margins were cropped. The first 1.5 seconds play forward/backward in a
+three-second loop; the success phase belongs to the actual card event. The outside background is transparent; closed dark
+details in the device remain opaque. Full-canvas frames and disposal mode 2 clear
+the previous silhouette without trails. ARGB8888 preserves alpha while drawing,
+at its native 160x148 size (scaled down only if the body is smaller). The asset is loaded once off the LVGL task into
+checked PSRAM. The flash-reading task uses an internal stack because flash I/O
+disables the cache temporarily. The existing field illustration is a missing/failed-asset
+fallback. All GIF timers stop on success, error and exit, before block transactions
+on the shared display/NFC SPI bus. A real card-found event alone shows a green
+identification check for 700 ms, then the card information for 1,400 ms and actions.
+This confirms identification, not that every protected block has been read.
+Retry/timeout never produces success. Restoring a completed card does not rescan.
+The GIF and its notice are added to the assets LittleFS partition through a guarded
+update that verifies the installed local image and preserves every existing file;
+an application-only flash cannot install this asset.
+
+IR capture Save and Sub-GHz capture Save now open the shared filename editor,
+with a suggested stem and an explicit extension hint. BACK cancels the name;
+Sub-GHz's existing automatic capture file remains on SD until a successful rename.
+Name conflicts are reported without replacing an existing destination. Missing
+Sub-GHz capture files no longer produce a false Saved confirmation. RFID read and
+manual-entry saves also request a name; this library still lasts only until reboot.
+NFC identification already uses the contextual name editor and retains its own
+storage semantics. No folder chooser is introduced.
+
+Diagnostics uses two columns in landscape and a bounded body above the footer;
+its timer now has a central close hook and a guarded DELETE fallback. Chip labels
+the die temperature explicitly. Offline LoRa telemetry retains the scroll hint.
+
+Run test_keyboard_ui.py, then test_ux_flows.py with the same host build directory:
+the latter exercises naming callbacks, actual temporary-file
+renames/collisions, and the Diagnostics layout with the pinned LVGL library in both
+orientations. Diagnostics timer re-entry and stale-root deletion are covered.
+
+Build configuration: the physical editor uses buttonmatrix + textarea. The unused
+stock keyboard, calendar, window, dropdown, roller, spinbox and scale widgets are
+disabled, as are the bundled LVGL
+examples and demos. No first-party application or app-runtime export uses the
+removed widgets/examples. Kconfig updates go through the pinned IDF configuration
+server; flash partitions, radio configuration and charging limits are unchanged.
+
+Run `test_app_switcher_ui.py` and `test_nfc_guidance_ui.py` with the same host
+build directory to exercise real LVGL snapshots, draft restoration, GIF decoding
+and event-gated success ordering. The host card event is a fixture, not a physical
+RF reading. Device acceptance separately checks visible animation, task navigation
+and retained state. Console `uistate` includes the top layer so modal cards and
+status overlays are inspectable as well as the active root.

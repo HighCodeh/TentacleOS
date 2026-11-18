@@ -27,6 +27,7 @@
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
+#include "ui_metrics.h"
 
 #define REFRESH_MS    500
 #define CONTENT_PAD   8
@@ -74,7 +75,7 @@ void pc_monitor_ui_open(void) {
   ui_chrome_header(s_screen, "PC MONITOR", "/assets/icons/monitoring.bin");
   ui_chrome_footer(s_screen, "OK pair  UP/DOWN scroll  BACK");
   s_content = lv_obj_create(s_screen);
-  lv_obj_set_size(s_content, lv_pct(100), LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_size(s_content, lv_pct(100), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
   lv_obj_set_pos(s_content, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(s_content, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(s_content, 0, 0);

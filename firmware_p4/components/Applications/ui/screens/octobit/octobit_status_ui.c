@@ -36,19 +36,20 @@
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
+#include "ui_metrics.h"
 
 #define MX        8
-#define CONTENT_W (LCD_H_RES - 2 * MX)
+#define CONTENT_W (ui_screen_w() - 2 * MX)
 #define CARD_Y    46
 #define CARD_H    64
 #define AVA       50
 #define SELHD_Y   116
 #define SELWRAP_Y 134
-#define SELWRAP_H 156
+#define SELWRAP_H (ui_screen_h() - UI_CHROME_FOOTER_H - SELWRAP_Y - MX)
 #define ROW_H     34
 #define ROW_GAP   5
 #define ROW_STEP  (ROW_H + ROW_GAP)
-#define VIS       4
+#define VIS       ((SELWRAP_H + ROW_GAP) / ROW_STEP)
 
 #define AVATAR_ASSET "/assets/img/octobit_portrait.bin"
 
@@ -190,7 +191,7 @@ static void refresh_selection(void) {
     lv_obj_set_style_border_color(s_row[i], sel ? accent : current_theme.border_inactive, 0);
     lv_obj_set_style_border_opa(s_row[i], sel ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
     lv_obj_set_style_bg_color(
-        s_row[i], sel ? lv_color_hex(COL_RAISE) : current_theme.bg_secondary, 0);
+        s_row[i], sel ? current_theme.bg_item_top : current_theme.bg_secondary, 0);
     lv_obj_set_style_shadow_width(s_row[i], sel ? 14 : 0, 0);
     lv_obj_set_style_shadow_color(s_row[i], accent, 0);
     lv_obj_set_style_shadow_spread(s_row[i], sel ? -3 : 0, 0);

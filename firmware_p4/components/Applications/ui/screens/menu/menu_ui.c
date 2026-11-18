@@ -41,6 +41,7 @@
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
+#include "ui_metrics.h"
 #include "wifi_service.h"
 
 static const char *TAG = "UI_MENU";
@@ -52,7 +53,7 @@ static const char *TAG = "UI_MENU";
 #define PRELOAD_FRAME_COUNT   (MENU_ITEM_COUNT * MENU_ITEM_FRAME_COUNT)
 #define PRELOAD_HANDLE_COUNT  (PRELOAD_FRAME_COUNT * PRELOAD_SOURCE_COUNT)
 
-#define ANIM_MS              260
+#define ANIM_MS              UI_CAROUSEL_TRANSITION_MS
 #define LABEL_FADE_MS        100
 #define FONT_PATH            "A:assets/fonts/Inter.bin"
 #define ICON_CENTER_OFFSET_Y (-10)
@@ -286,7 +287,7 @@ bool menu_ui_preview_select(menu_ui_preview_t *preview, unsigned index) {
   lv_label_set_text_static(preview->label, preview->label_text);
   bool fav = favorites_is(s_menu_data[index].target);
   lv_label_set_text_static(preview->badge,
-                           fav ? LV_SYMBOL_OK "  FAVORITED" : "hold OK to favorite");
+                           fav ? "OK open | hold unpin" : "OK open | hold favorite");
   lv_obj_set_style_text_color(
       preview->badge, fav ? lv_color_hex(FAV_ACCENT) : current_theme.text_secondary, 0);
   preview_static_dots(&preview->dots, index);
@@ -539,7 +540,7 @@ static void update_view(bool anim) {
 
   if (s_fav_badge != NULL) {
     bool fav = favorites_is(s_menu_data[s_selected].target);
-    lv_label_set_text(s_fav_badge, fav ? LV_SYMBOL_OK "  FAVORITED" : "hold OK to favorite");
+    lv_label_set_text(s_fav_badge, fav ? "OK open | hold unpin" : "OK open | hold favorite");
     lv_obj_set_style_text_color(
         s_fav_badge, fav ? lv_color_hex(FAV_ACCENT) : current_theme.text_secondary, 0);
   }
@@ -581,9 +582,13 @@ static void release_preload(void) {
   s_decoders = NULL;
 }
 
-static void menu_delete_cb(lv_event_t *e) {
-  (void)e;
+void ui_menu_close(void) {
   release_preload();
+}
+
+static void menu_delete_cb(lv_event_t *e) {
+  if (lv_event_get_target(e) == s_screen)
+    ui_menu_close();
 }
 
 static bool pin_image(const lv_image_dsc_t *source) {
@@ -681,9 +686,6 @@ static void menu_event_cb(lv_event_t *e) {
     ui_switch_screen(SCREEN_HOME);
     return;
   }
-  if (is_animating())
-    return;
-
   if (code == LV_EVENT_SHORT_CLICKED) {
     menu_open_selected();
     return;

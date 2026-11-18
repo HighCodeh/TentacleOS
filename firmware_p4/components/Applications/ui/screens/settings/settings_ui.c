@@ -25,9 +25,11 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_theme.h"
+#include "ui_metrics.h"
 #include "menu_component_ui.h"
 #include "reboot_ui.h"
 #include "ui_manager.h"
+#include "app_switcher_ui.h"
 #include "lv_port_indev.h"
 #include "c5_flasher.h"
 #include "spi_bridge.h"
@@ -39,7 +41,7 @@
 
 static const char *TAG = "SETTINGS_UI";
 
-#define ENTRY_FADE_MS 180
+#define ENTRY_FADE_MS UI_CONTENT_FADE_MS
 
 #define C5_PROGRESS_TICK_MS       200
 #define C5_DISMISS_DELAY_MS       2000
@@ -59,13 +61,15 @@ static const char *TAG = "SETTINGS_UI";
 #define GOTO_LAB (-20)
 #define GOTO_DEV (-21)
 
-#define DEV_GRID_WIDTH 216
-#define DEV_GRID_COLS  2
-#define DEV_TILE_W     100
-#define DEV_TILE_H     66
-#define DEV_TILE_GAP   8
-#define DEV_TILE_RAD   12
-#define DEV_DANGER_COL 0xFF5470
+#define DEV_GRID_GUTTER 18
+#define DEV_GRID_PAD    6
+#define DEV_GRID_WIDTH  (ui_screen_w() - DEV_GRID_GUTTER)
+#define DEV_GRID_COLS   2
+#define DEV_TILE_W      100
+#define DEV_TILE_H      66
+#define DEV_TILE_GAP    8
+#define DEV_TILE_RAD    12
+#define DEV_DANGER_COL  0xFF5470
 
 typedef enum {
   VIEW_MAIN = 0,
@@ -132,6 +136,7 @@ static const settings_item_t DEV_ITEMS[] = {
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
 static settings_view_t s_view = VIEW_MAIN;
+static int s_selection[3];
 
 static lv_obj_t *s_dev_tiles[DEV_COUNT];
 static int s_dev_sel = 0;
@@ -540,6 +545,7 @@ static void update_dev_selection(void) {
       lv_obj_set_style_shadow_width(s_dev_tiles[i], 0, 0);
     }
   }
+  menu_component_scroll_to_item(&s_menu, s_dev_tiles[s_dev_sel]);
 }
 
 static lv_obj_t *make_dev_tile(lv_obj_t *parent, int idx) {
@@ -583,9 +589,10 @@ static void build_dev_grid(void) {
 
   lv_obj_t *grid = lv_obj_create(s_screen);
   lv_obj_remove_style_all(grid);
-  lv_obj_set_size(grid, DEV_GRID_WIDTH, LV_SIZE_CONTENT);
-  lv_obj_align(grid, LV_ALIGN_CENTER, 0, (UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H) / 2);
-  lv_obj_remove_flag(grid, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(grid, DEV_GRID_WIDTH, ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_align(grid, LV_ALIGN_TOP_LEFT, 0, UI_CHROME_HEADER_H);
+  lv_obj_set_scroll_dir(grid, LV_DIR_VER);
+  lv_obj_set_style_pad_all(grid, DEV_GRID_PAD, 0);
   lv_obj_set_flex_flow(grid, LV_FLEX_FLOW_ROW_WRAP);
   lv_obj_set_flex_align(grid, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_row(grid, DEV_TILE_GAP, 0);
@@ -594,6 +601,7 @@ static void build_dev_grid(void) {
   for (int i = 0; i < DEV_COUNT; i++)
     s_dev_tiles[i] = make_dev_tile(grid, i);
 
+  menu_component_attach_scroll(&s_menu, s_screen, grid);
   update_dev_selection();
   lv_obj_fade_in(grid, ENTRY_FADE_MS, 0);
 }
@@ -702,6 +710,8 @@ static void settings_input(const input_event_t *ev, void *ctx) {
 
 static void build_settings_view(settings_view_t view) {
   lv_obj_t *prev = s_screen;
+  if (s_view != VIEW_DEV)
+    s_selection[s_view] = menu_component_get_selected(&s_menu);
   s_view = view;
 
   s_screen = lv_obj_create(NULL);
@@ -712,7 +722,8 @@ static void build_settings_view(settings_view_t view) {
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
   if (view == VIEW_DEV) {
-    s_dev_sel = 0;
+    if (s_dev_sel < 0 || s_dev_sel >= DEV_COUNT)
+      s_dev_sel = 0;
     build_dev_grid();
   } else {
     int count = 0;
@@ -730,6 +741,7 @@ static void build_settings_view(settings_view_t view) {
       menu_component_add_item(&s_menu, items[i].icon, items[i].name);
     }
 
+    menu_component_select(&s_menu, s_selection[view]);
     if (s_menu.items_cont != NULL)
       lv_obj_fade_in(s_menu.items_cont, ENTRY_FADE_MS, 0);
   }
@@ -753,6 +765,8 @@ void ui_settings_open(void) {
       view = VIEW_LAB;
   }
   if (from == SCREEN_C5_STATUS || from == SCREEN_SETTINGS || from == SCREEN_SETTINGS_DEV)
+    view = s_view;
+  if (ui_tasks_is_resuming())
     view = s_view;
   build_settings_view(view);
 }

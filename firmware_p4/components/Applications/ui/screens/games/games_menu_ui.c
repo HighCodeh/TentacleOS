@@ -27,9 +27,10 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_theme.h"
 
-#define PURPLE 0xBD82FF
-#define MUTED  0x9993AA
+#define PURPLE current_theme.border_accent
+#define MUTED  current_theme.text_secondary
 typedef struct {
   const char *name, *icon, *cover, *detail;
   int target;
@@ -48,8 +49,8 @@ static lv_obj_t *s_screen, *s_cover, *s_glyph, *s_wordmark, *s_name, *s_detail, 
 EXT_RAM_BSS_ATTR static app_reg_entry_t s_reg[APP_REG_MAX];
 static int s_reg_count, s_sel, s_art_w, s_art_h;
 
-static void release_registry(lv_event_t *event) {
-  (void)event;
+void ui_games_menu_close(void) {
+  game_cover_release();
   // Screen DELETE precedes recursive child deletion. Detach the one widget
   // which may reference registry pixels before freeing those pixels.
   if (s_glyph != NULL)
@@ -61,11 +62,17 @@ static void release_registry(lv_event_t *event) {
   s_reg_count = 0;
 }
 
-static lv_obj_t *text_at(lv_obj_t *parent, int x, int y, int w, uint32_t color) {
+static void release_registry(lv_event_t *event) {
+  if (lv_event_get_target(event) == s_screen)
+    ui_games_menu_close();
+}
+
+static lv_obj_t *text_at(lv_obj_t *parent, int x, int y, int w) {
   lv_obj_t *label = lv_label_create(parent);
   lv_obj_set_pos(label, x, y);
   lv_obj_set_width(label, w);
-  lv_obj_set_style_text_color(label, lv_color_hex(color), 0);
+  lv_obj_set_style_text_color(label, current_theme.text_secondary, 0);
+  lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
   lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
   return label;
 }
@@ -116,7 +123,7 @@ static void update_view(void) {
     if (descriptor && descriptor->header.w && descriptor->header.h) {
       lv_image_set_src(s_glyph, descriptor);
       lv_obj_set_style_image_recolor_opa(s_glyph, embedded ? LV_OPA_TRANSP : LV_OPA_COVER, 0);
-      lv_obj_set_style_image_recolor(s_glyph, lv_color_hex(PURPLE), 0);
+      lv_obj_set_style_image_recolor(s_glyph, PURPLE, 0);
       int max_side =
           descriptor->header.w > descriptor->header.h ? descriptor->header.w : descriptor->header.h;
       lv_image_set_scale(s_glyph, 96 * 256 / max_side);
@@ -186,12 +193,13 @@ void ui_games_menu_open(void) {
   if (s_sel >= GAME_COUNT + s_reg_count)
     s_sel = 0;
   s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, lv_color_black(), 0);
+  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_set_style_pad_all(s_screen, 0, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  ui_chrome_header(s_screen, "Apps", NULL);
-  ui_chrome_footer(s_screen, "Browse  " LV_SYMBOL_LEFT LV_SYMBOL_RIGHT "    OK open    BACK");
+  ui_chrome_set_breadcrumb_root("Games");
+  ui_chrome_header(s_screen, "Games", NULL);
+  ui_chrome_footer(s_screen, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " Browse   OK Open   BACK");
   int w = lv_display_get_horizontal_resolution(NULL);
   int h = lv_display_get_vertical_resolution(NULL);
   bool wide = w > h;
@@ -200,15 +208,12 @@ void ui_games_menu_open(void) {
   lv_obj_t *panel = lv_obj_create(s_screen);
   lv_obj_set_pos(panel, 12, wide ? 52 : 66);
   lv_obj_set_size(panel, panel_w, panel_h);
-  lv_obj_set_style_bg_color(panel, lv_color_hex(0x251C35), 0);
-  lv_obj_set_style_border_color(panel, lv_color_hex(0x9D83B7), 0);
+  ui_chrome_gradient(panel, current_theme.bg_secondary, current_theme.bg_primary, panel_h);
+  lv_obj_set_style_border_color(panel, current_theme.border_inactive, 0);
   lv_obj_set_style_border_width(panel, 1, 0);
   lv_obj_set_style_radius(panel, 24, 0);
-  lv_obj_set_style_bg_opa(panel, 190, 0);
-  lv_obj_set_style_bg_grad_color(panel, lv_color_hex(0x100C19), 0);
-  lv_obj_set_style_bg_grad_dir(panel, LV_GRAD_DIR_VER, 0);
   lv_obj_set_style_border_opa(panel, 90, 0);
-  lv_obj_set_style_shadow_color(panel, lv_color_hex(0x783BBA), 0);
+  lv_obj_set_style_shadow_color(panel, current_theme.border_accent, 0);
   lv_obj_set_style_shadow_width(panel, 18, 0);
   lv_obj_set_style_shadow_opa(panel, 50, 0);
   lv_obj_set_style_pad_all(panel, 0, 0);
@@ -221,18 +226,21 @@ void ui_games_menu_open(void) {
   s_wordmark = lv_label_create(panel);
   lv_obj_set_style_text_font(s_wordmark, &lv_font_montserrat_16, 0);
   lv_obj_set_style_text_align(s_wordmark, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_set_style_text_color(s_wordmark, lv_color_hex(PURPLE), 0);
+  lv_obj_set_style_text_color(s_wordmark, PURPLE, 0);
   int text_x = wide ? 168 : 16;
   int text_w = wide ? w - 180 : w - 32;
-  s_kind = text_at(s_screen, text_x, wide ? 58 : 46, wide ? text_w : w - 96, PURPLE);
-  s_count_label =
-      text_at(s_screen, wide ? text_x : w - 74, wide ? 183 : 46, wide ? text_w : 62, MUTED);
+  s_kind = text_at(s_screen, text_x, wide ? 58 : 46, wide ? text_w : w - 96);
+  lv_obj_set_style_text_color(s_kind, current_theme.border_accent, 0);
+  s_count_label = text_at(s_screen, wide ? text_x : w - 74, wide ? 183 : 46, wide ? text_w : 62);
   if (!wide)
     lv_obj_set_style_text_align(s_count_label, LV_TEXT_ALIGN_RIGHT, 0);
-  s_name = text_at(s_screen, text_x, wide ? 82 : 234, text_w, 0xF4EEF8);
+  s_name = text_at(s_screen, text_x, wide ? 82 : 234, text_w);
+  lv_obj_set_style_text_color(s_name, current_theme.text_main, 0);
   lv_obj_set_style_text_font(s_name, &lv_font_montserrat_16, 0);
   lv_label_set_long_mode(s_name, LV_LABEL_LONG_SCROLL_CIRCULAR);
-  s_detail = text_at(s_screen, text_x, wide ? 116 : 260, text_w, MUTED);
+  s_detail = text_at(s_screen, text_x, wide ? 116 : 260, text_w);
+  lv_label_set_long_mode(s_detail, LV_LABEL_LONG_WRAP);
+  lv_obj_set_height(s_detail, wide ? 54 : 32);
   lv_obj_add_event_cb(s_screen, release_registry, LV_EVENT_DELETE, NULL);
   update_view();
   ui_input_set_screen_handler(games_menu_input, NULL);

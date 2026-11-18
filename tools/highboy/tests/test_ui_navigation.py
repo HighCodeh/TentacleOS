@@ -16,6 +16,7 @@
 
 """Run the production UI input router against queued gesture regressions."""
 from pathlib import Path
+import os
 import subprocess
 import tempfile
 
@@ -27,6 +28,9 @@ NOTICE = source.split("#include", 1)[0]
 def function(signature):
     start = source.index(signature)
     opening = source.index("{", start)
+    while ";" in source[start:opening]:
+        start = source.index(signature, start + len(signature))
+        opening = source.index("{", start)
     depth = 1
     end = opening + 1
     while depth:
@@ -49,12 +53,22 @@ static void *s_screen_handler_ctx;
 static uint32_t s_consumed_buttons, s_back_pressed_at;
 static bool s_back_pending;
 static bool held[INPUT_BTN_COUNT], locked, modal, dropdown, keyboard, tips, tutorial;
-static int screen, events, legacy, cancelled, waits;
+static int screen, events, legacy, cancelled, waits, haptic_count;
+static int current_screen_id;
+#define SCREEN_HAPTIC 65
+static struct { bool vibration; } g_config_system = {true};
+#define HAPTIC_FEEDBACK_MS 120
+static int haptic_feedback(unsigned ms) { assert(ms == 70 || ms == 120); haptic_count++; return 0; }
 static void *indev_keypad = (void *)1, *main_group = (void *)1;
 static input_event_t queue[32];
 static unsigned head, tail;
 #define POWER_POLICY_BACK_HOLD_MS 5000
 #define LV_KEY_ESC 27
+static bool tasks;
+static int task_opens;
+static bool ui_tasks_is_open(void) { return tasks; }
+static void ui_tasks_toggle(void) { tasks = !tasks; task_opens++; }
+static void ui_tasks_input(const input_event_t *event) { if(event->button==INPUT_BTN_BACK) tasks=false; }
 static bool input_get_event(input_event_t *ev, int timeout) {
  (void)timeout; if(head==tail) return false; *ev=queue[head++]; return true;
 }
@@ -107,15 +121,32 @@ static void back(uint32_t time) {
  send(INPUT_BTN_BACK,INPUT_ACTION_RELEASE,time+100);
 }
 int main(void) {
+ send(INPUT_BTN_DOWN,INPUT_ACTION_PRESS,1); assert(haptic_count==1);
+ send(INPUT_BTN_DOWN,INPUT_ACTION_RELEASE,2); assert(haptic_count==1);
+ send(INPUT_BTN_DOWN,INPUT_ACTION_REPEAT,3); assert(haptic_count==2);
+ g_config_system.vibration=false; send(INPUT_BTN_OK,INPUT_ACTION_PRESS,4); assert(haptic_count==2);
+ g_config_system.vibration=true; locked=true; send(INPUT_BTN_OK,INPUT_ACTION_PRESS,5); assert(haptic_count==2);
+ locked=false; send(INPUT_BTN_OK,INPUT_ACTION_RELEASE,6);
+ send(INPUT_BTN_DOWN,INPUT_ACTION_RELEASE,7);
+ current_screen_id=SCREEN_HAPTIC; send(INPUT_BTN_OK,INPUT_ACTION_PRESS,8); assert(haptic_count==2);
+ send(INPUT_BTN_OK,INPUT_ACTION_RELEASE,9); current_screen_id=0;
+
  screen=3; ui_input_set_screen_handler(handler,NULL);
  assert(keypad_dispatch_blocked());
  send(INPUT_BTN_BACK,INPUT_ACTION_PRESS,100);
  send(INPUT_BTN_BACK,INPUT_ACTION_REPEAT,600);
  send(INPUT_BTN_BACK,INPUT_ACTION_LONG_PRESS,900);
  assert(events==0 && screen==3 && legacy==0);
- send(INPUT_BTN_BACK,INPUT_ACTION_RELEASE,1000);
+ send(INPUT_BTN_BACK,INPUT_ACTION_RELEASE,999);
  assert(events==1 && screen==2 && legacy==0);
  back(1200); assert(screen==1 && events==2);
+ keyboard=true;
+ send(INPUT_BTN_BACK,INPUT_ACTION_PRESS,1300);
+ send(INPUT_BTN_BACK,INPUT_ACTION_RELEASE,2200);
+ assert(tasks && task_opens==1 && keyboard && cancelled==0 && events==2);
+ assert(keypad_dispatch_blocked());
+ back(2300); assert(!tasks && keyboard && cancelled==0 && events==2);
+ keyboard=false;
  // Holding for shutdown never navigates, even before the policy timer fires.
  send(INPUT_BTN_BACK,INPUT_ACTION_PRESS,2000);
  send(INPUT_BTN_BACK,INPUT_ACTION_RELEASE,7000);
@@ -159,7 +190,7 @@ with tempfile.TemporaryDirectory(prefix="highboy-navigation-") as directory:
     test = Path(directory) / "navigation.c"
     test.write_text(NOTICE + "#include <stdint.h>\n" + types + fakes + functions + tests)
     binary = Path(directory) / "navigation"
-    subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+    subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-Wall", "-Wextra", "-Werror",
                     "-fsanitize=address,undefined", str(test), "-o", str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
 
@@ -206,7 +237,7 @@ with tempfile.TemporaryDirectory(prefix="highboy-keypad-") as directory:
     test = Path(directory) / "keypad.c"
     test.write_text(NOTICE + keypad_fakes + function("static void keypad_read(") + keypad_tests)
     binary = Path(directory) / "keypad"
-    subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+    subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-Wall", "-Wextra", "-Werror",
                     "-fsanitize=address,undefined", str(test), "-o", str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
 print("LVGL keypad exclusivity regressions passed")
@@ -239,7 +270,8 @@ static struct {int target;} LAB_ITEMS[]={{SCREEN_HAPTIC},{SCREEN_SPEAKER},{SCREE
 #define ESP_LOGI(...) ((void)0)
 static lv_obj_t *s_screen;
 static int s_view, s_proto, s_home_sel, s_node, s_rnode_count, s_chat_seq, from, active;
-static bool s_nodes_list, s_linked;
+static bool s_nodes_list, s_linked, resuming;
+static bool ui_tasks_is_resuming(void) {return resuming;}
 static void *s_connect_timer, *s_chat_poll;
 static screen_id_t ui_current_screen(void) {return from;}
 static void lv_obj_del(lv_obj_t *obj) {(void)obj;}
@@ -253,7 +285,8 @@ static lv_obj_t *lv_event_get_target(lv_event_t *event) {return event->target;}
 """
 route_tests = r"""
 int main(void) {
- from=SCREEN_MENU; s_view=VIEW_LAB; ui_settings_open(); assert(s_view==VIEW_MAIN);
+ from=SCREEN_MENU; s_view=VIEW_LAB; resuming=true; ui_settings_open(); assert(s_view==VIEW_LAB);
+ resuming=false; ui_settings_open(); assert(s_view==VIEW_MAIN);
  for(int i=0;i<LAB_COUNT;i++) {
    from=LAB_ITEMS[i].target; ui_settings_open(); assert(s_view==VIEW_LAB);
  }
@@ -273,7 +306,273 @@ with tempfile.TemporaryDirectory(prefix="highboy-routes-") as directory:
     test = Path(directory) / "routes.c"
     test.write_text(NOTICE + route_fakes + settings_open + lora_open + slot_clear + route_tests)
     binary = Path(directory) / "routes"
-    subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+    subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-Wall", "-Wextra", "-Werror",
                     "-fsanitize=address,undefined", str(test), "-o", str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
 print("Settings/LoRa return and stale screen deletion regressions passed")
+
+
+# Shortcut roots must return to the caller without skipping their child menus.
+source = (UI / "ui_manager.c").read_text()
+shortcut_code = function("static screen_id_t navigation_target(")
+enum = (UI / "include/ui_manager.h").read_text().split("typedef enum {", 1)[1].split("} screen_id_t;", 1)[0]
+shortcut_tests = r"""
+static screen_id_t s_home_entry = SCREEN_NONE;
+""" + shortcut_code + r"""
+int main(void) {
+ assert(navigation_target(SCREEN_MENU,SCREEN_SETTINGS)==SCREEN_SETTINGS);
+ assert(navigation_target(SCREEN_SETTINGS,SCREEN_MENU)==SCREEN_MENU);
+ assert(navigation_target(SCREEN_HOME,SCREEN_SETTINGS)==SCREEN_SETTINGS);
+ assert(navigation_target(SCREEN_SETTINGS,SCREEN_SETTINGS)==SCREEN_SETTINGS);
+ assert(navigation_target(SCREEN_SETTINGS,SCREEN_DISPLAY_SETTINGS)==SCREEN_DISPLAY_SETTINGS);
+ assert(navigation_target(SCREEN_DISPLAY_SETTINGS,SCREEN_SETTINGS)==SCREEN_SETTINGS);
+ assert(navigation_target(SCREEN_SETTINGS,SCREEN_MENU)==SCREEN_HOME);
+ assert(s_home_entry==SCREEN_NONE);
+ navigation_target(SCREEN_HOME,SCREEN_NFC_MENU);
+ assert(navigation_target(SCREEN_NFC_MENU,SCREEN_NFC_READ)==SCREEN_NFC_READ);
+ assert(navigation_target(SCREEN_NFC_READ,SCREEN_NFC_MENU)==SCREEN_NFC_MENU);
+ assert(navigation_target(SCREEN_NFC_MENU,SCREEN_MENU)==SCREEN_HOME);
+ navigation_target(SCREEN_HOME,SCREEN_GAMES_MENU);
+ navigation_target(SCREEN_GAMES_MENU,SCREEN_GAME_SNAKE);
+ assert(navigation_target(SCREEN_GAME_SNAKE,SCREEN_GAMES_MENU)==SCREEN_GAMES_MENU);
+ assert(navigation_target(SCREEN_GAMES_MENU,SCREEN_MENU)==SCREEN_HOME);
+ navigation_target(SCREEN_HOME,SCREEN_SETTINGS);
+ assert(navigation_target(SCREEN_SETTINGS,SCREEN_HOME)==SCREEN_HOME);
+ navigation_target(SCREEN_HOME,SCREEN_MENU);
+ navigation_target(SCREEN_MENU,SCREEN_SETTINGS);
+ assert(navigation_target(SCREEN_SETTINGS,SCREEN_MENU)==SCREEN_MENU);
+}
+"""
+with tempfile.TemporaryDirectory(prefix="highboy-shortcut-") as directory:
+    path=Path(directory); test=path/"test.c"; binary=path/"test"
+    test.write_text(NOTICE + "#include <assert.h>\ntypedef enum {" + enum + "} screen_id_t;\n" + shortcut_tests)
+    subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-Wall", "-Wextra", "-Werror",
+                    "-fsanitize=address,undefined", str(test), "-o", str(binary)], check=True)
+    subprocess.run([str(binary)], check=True)
+print("Home shortcut return, nested routes and stale origin regressions passed")
+
+# A delayed DELETE from a previous Apps screen must not free the new registry.
+source = (UI / "screens/games/games_menu_ui.c").read_text()
+cleanup_code = function("void ui_games_menu_close(void)") + function("static void release_registry(")
+cleanup_fakes = r"""
+#include <stddef.h>
+#include <assert.h>
+typedef struct {void *target;} lv_event_t;
+static void *s_screen, *s_glyph;
+static int s_reg_count, releases, detaches;
+static struct {int icon;} s_reg[3];
+static void game_cover_release(void) {}
+static void lv_image_set_src(void *image,void *src) {assert(image && !src);detaches++;}
+static void lv_image_cache_drop(void *image) {(void)image;}
+static void app_registry_free(void *reg,int count) {(void)reg;releases+=count;}
+static void *lv_event_get_target(lv_event_t *event) {return event->target;}
+"""
+cleanup_tests = r"""
+int main(void) {
+ s_screen=(void *)2; s_glyph=(void *)3; s_reg_count=2;
+ lv_event_t old={.target=(void *)1}, current={.target=s_screen};
+ release_registry(&old);assert(s_glyph==(void *)3 && releases==0 && s_reg_count==2);
+ ui_games_menu_close();assert(s_glyph==NULL && s_reg_count==0 && releases==2 && detaches==1);
+ release_registry(&current);assert(releases==2 && detaches==1);
+}
+"""
+with tempfile.TemporaryDirectory(prefix="highboy-apps-cleanup-") as directory:
+    path=Path(directory); test=path/"test.c"; binary=path/"test"
+    test.write_text(NOTICE+cleanup_fakes+cleanup_code+cleanup_tests)
+    subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-Wall", "-Wextra", "-Werror",
+                    "-fsanitize=address,undefined", str(test), "-o", str(binary)], check=True)
+    subprocess.run([str(binary)], check=True)
+print("Apps registry close and delayed deletion regressions passed")
+
+
+# Actual arcade ticks must freeze gameplay while system input is locked.
+for game in ("snake", "breakout"):
+    source=(UI / "screens/games" / (game+"_ui.c")).read_text()
+    tick=function("static void tick_cb(")
+    stop=function("void ui_"+game+"_stop(void)")
+    fakes=r"""
+#include <stdbool.h>
+#include <stddef.h>
+#include <assert.h>
+typedef int lv_timer_t;
+static lv_timer_t timer, *s_timer=&timer;
+static void *s_screen=(void *)1, *active=(void *)1;
+static bool locked=true, s_ok_last, s_back_last;
+static int steps, deletions, s_state;
+enum {ST_READY,ST_PLAY,ST_DEAD};
+static void *lv_screen_active(void) {return active;}
+static void lv_timer_delete(void *p) {assert(p);deletions++;}
+static bool ui_input_is_locked(void) {return locked;}
+static bool ui_btn_left(void) {return false;}
+static bool ui_btn_right(void) {return false;}
+static bool ok_button_is_down(void) {return false;}
+static bool back_button_is_down(void) {return false;}
+static void reset_game(void) {}
+"""
+    if game=="snake":
+        fakes+=r"""
+static bool s_up_last,s_down_last,s_left_last,s_right_last;
+static int s_ndx,s_ndy,s_tick_acc;
+#define STEP_TICKS 4
+static bool ui_btn_up(void) {return false;}
+static bool ui_btn_down(void) {return false;}
+static void step(void) {steps++;}
+"""
+    else:
+        fakes+=r"""
+#define PADDLE_SPEED 4
+#define PADDLE_W 32
+static float s_px;
+static int s_w=320;
+static void *s_paddle=(void *)2;
+static void lv_obj_set_x(void *p,int x) {(void)p;(void)x;}
+static void launch_ball(void) {}
+static void park_ball_on_paddle(void) {}
+static void step_ball(void) {steps++;}
+"""
+    tests=r"""
+int main(void) {
+ s_state=ST_PLAY;
+ for(int i=0;i<20;i++) tick_cb(&timer);
+ assert(steps==0);
+ locked=false;
+ for(int i=0;i<8;i++) tick_cb(&timer);
+ assert(steps>0);
+ STOP(); STOP();
+ assert(s_timer==NULL && deletions==1);
+}
+""".replace("STOP", "ui_"+game+"_stop")
+    with tempfile.TemporaryDirectory(prefix="highboy-arcade-") as directory:
+        path=Path(directory); test=path/"test.c"; binary=path/"test"
+        test.write_text(NOTICE+fakes+tick+stop+tests)
+        subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-Wall", "-Wextra", "-Werror",
+                        "-fsanitize=address,undefined", str(test), "-o", str(binary)], check=True)
+        subprocess.run([str(binary)], check=True)
+print("Snake/Breakout modal pause and idempotent timer close regressions passed")
+
+
+# Cancelling a theme change must not write configuration or restart the device.
+source=(UI / "screens/theme/theme_selector_ui.c").read_text()
+callback=function("static void theme_reboot_cb(")
+fakes=r"""
+#include <assert.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <string.h>
+#define ESP_OK 0
+#define TOS_PATH_CONFIG_SCREEN "screen.conf"
+#define NOTIFY_WARNING 1
+static bool s_is_reboot_armed=true;
+static int s_sel, saves, reboots, warnings, save_error;
+static struct {char name[32];} s_entries[1]={{"Cyber Blue"}};
+static struct {char theme[32];} g_config_screen={"Default"};
+static void msgbox_close(void) {}
+static int tos_config_save(const char *path,const char *name) {
+ (void)path;(void)name;saves++;return save_error;
+}
+static void notify(int kind,const char *text) {(void)kind;(void)text;warnings++;}
+static void reboot_ui_reboot(void) {reboots++;}
+"""
+tests=r"""
+int main(void) {
+ theme_reboot_cb(false);
+ assert(!s_is_reboot_armed && saves==0 && reboots==0 && !strcmp(g_config_screen.theme,"Default"));
+ s_is_reboot_armed=true;save_error=1;theme_reboot_cb(true);
+ assert(saves==1 && reboots==0 && warnings==1 && !strcmp(g_config_screen.theme,"Default"));
+ s_is_reboot_armed=true;save_error=0;theme_reboot_cb(true);
+ assert(saves==2 && reboots==1 && !strcmp(g_config_screen.theme,"Cyber Blue"));
+ theme_reboot_cb(true);assert(saves==2 && reboots==1);
+}
+"""
+with tempfile.TemporaryDirectory(prefix="highboy-theme-cancel-") as directory:
+    path=Path(directory); test=path/"test.c"; binary=path/"test"
+    test.write_text(NOTICE+fakes+callback+tests)
+    subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-Wall", "-Wextra", "-Werror",
+                    "-fsanitize=address,undefined", str(test), "-o", str(binary)], check=True)
+    subprocess.run([str(binary)], check=True)
+print("Theme cancel, save failure, confirmed apply and duplicate callback regressions passed")
+
+# An old root address can be reused as a new screen's child during a rebuild.
+source=(UI / "ui_manager.c").read_text()
+transition=function("void ui_switch_screen(")
+slot_clear=function("static void screen_slot_clear_cb(")
+fakes=r"""
+#include <stdbool.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <assert.h>
+typedef int screen_id_t;
+typedef struct {int value;} lv_obj_t;
+typedef struct {void *data;lv_obj_t *target;} lv_event_t;
+typedef struct {void *data;void (*cb)(lv_event_t *);} lv_event_dsc_t;
+typedef void (*ui_open_fn_t)(void);
+typedef void (*ui_close_fn_t)(void);
+enum {SCREEN_HOME=1,SCREEN_MENU,SCREEN_LORA_RNODE,SCREEN_BLE_MOUSE,SCREEN_BLE_MOUSE_PAIRING};
+#define INPUT_LOCK_MS 100
+#define LV_EVENT_DELETE 1
+#define ESP_LOGW(...) ((void)0)
+#define ESP_LOGE(...) ((void)0)
+static uint32_t input_lock_until;
+static screen_id_t current_screen_id=SCREEN_HOME;
+static lv_obj_t old_root,new_root;
+static lv_obj_t *active=&old_root;
+static lv_event_dsc_t watch;
+static bool rebuild,fail_watch;
+static int opened,closed,async_deletes,removed,released;
+static void screen_slot_clear_cb(lv_event_t *);
+static bool rf_passive_is_boot(void) {return false;}
+static uint32_t lv_tick_get(void) {return 1;}
+static bool ui_acquire(void) {return true;}
+static void ui_release(void) {released++;}
+static int navigation_target(int from,int to) {(void)from;return to;}
+static void ui_display_claim_ui(void) {}
+static lv_obj_t *lv_screen_active(void) {return active;}
+static void *lv_event_get_user_data(lv_event_t *e) {return e->data;}
+static lv_obj_t *lv_event_get_target(lv_event_t *e) {return e->target;}
+static lv_event_dsc_t *lv_obj_add_event_cb(lv_obj_t *o,void(*cb)(lv_event_t *),int code,void *d) {
+ assert(o==&old_root && code==LV_EVENT_DELETE);if(fail_watch)return NULL;
+ watch=(lv_event_dsc_t){d,cb};return &watch;
+}
+static bool lv_obj_remove_event_dsc(lv_obj_t *o,lv_event_dsc_t *w) {
+ assert(o==&old_root && w==&watch);watch.data=NULL;removed++;return true;
+}
+static void open_screen(void) {
+ opened++;
+ if(rebuild && watch.cb) {lv_event_t e={watch.data,&old_root};watch.cb(&e);watch.data=NULL;}
+ // Allocation reuses &old_root for a child while &new_root becomes the root.
+ active=&new_root;
+}
+static void close_screen(void) {closed++;}
+static ui_open_fn_t screen_open_fn(int s) {(void)s;return open_screen;}
+static ui_close_fn_t screen_close_fn(int s) {(void)s;return close_screen;}
+static void clear_current_screen(void) {}
+static void ui_chrome_set_breadcrumb_root(const char *s) {(void)s;}
+static bool ui_screen_shows_chrome(int s) {(void)s;return true;}
+static void ui_chrome_set_status_enabled(bool s) {(void)s;}
+static bool is_lora_screen(int s) {(void)s;return false;}
+static void sx1262_stop_rx(void) {}
+static int sx1262_receive_continuous(void) {return 0;}
+static void lv_obj_del_async(lv_obj_t *o) {assert(o==&old_root);async_deletes++;}
+static void screen_tips_hook(int s) {(void)s;}
+static void ui_tasks_before_switch(int from,int to) {(void)from;(void)to;}
+static void ui_tasks_after_switch(int s) {(void)s;}
+"""
+tests=r"""
+int main(void) {
+ rebuild=true;ui_switch_screen(SCREEN_HOME);
+ assert(opened==1 && closed==1 && async_deletes==0 && removed==0 && released==1);
+ assert(watch.data==NULL);
+ active=&old_root;rebuild=false;ui_switch_screen(SCREEN_MENU);
+ assert(opened==2 && closed==2 && async_deletes==1 && removed==1 && released==2);
+ assert(watch.data==NULL);
+ active=&old_root;fail_watch=true;ui_switch_screen(SCREEN_HOME);
+ assert(opened==2 && closed==2 && async_deletes==1 && released==3 && active==&old_root);
+}
+"""
+with tempfile.TemporaryDirectory(prefix="highboy-root-lifetime-") as directory:
+    path=Path(directory);test=path/"test.c";binary=path/"test"
+    test.write_text(NOTICE+fakes+slot_clear+transition+tests)
+    subprocess.run([os.environ.get("CC","cc"),"-std=c11","-Wall","-Wextra","-Werror",
+                    "-fsanitize=undefined",str(test),"-o",str(binary)],check=True)
+    subprocess.run([str(binary)],check=True,timeout=30)
+print("Rebuilt root address reuse, normal teardown and watcher failure regressions passed")

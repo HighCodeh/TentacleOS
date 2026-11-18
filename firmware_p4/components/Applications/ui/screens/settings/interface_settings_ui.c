@@ -22,11 +22,13 @@
 #include "tos_config.h"
 #include "tos_storage_paths.h"
 #include "ui_manager.h"
+#include "app_switcher_ui.h"
 #include "ui_theme.h"
+#include "ui_metrics.h"
 
 static const char *TAG = "INTERFACE_SETTINGS_UI";
 
-#define ENTRY_FADE_MS 200
+#define ENTRY_FADE_MS UI_CONTENT_FADE_MS
 
 #define ROW_HAPTICS 0
 #define ROW_THEME   1
@@ -34,6 +36,7 @@ static const char *TAG = "INTERFACE_SETTINGS_UI";
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
+static int s_selected;
 static bool s_changed = false;
 
 static void interface_settings_input(const input_event_t *ev, void *ctx) {
@@ -53,6 +56,7 @@ static void interface_settings_input(const input_event_t *ev, void *ctx) {
     case INPUT_BTN_OK:
       if (press) {
         int sel = menu_component_get_selected(&s_menu);
+        s_selected = sel;
         if (sel == ROW_THEME) {
           ui_switch_screen(SCREEN_THEME_SELECTOR);
         } else if (sel == ROW_LED) {
@@ -97,7 +101,8 @@ void ui_interface_settings_open(void) {
     s_screen = NULL;
   }
 
-  s_changed = false;
+  if (!ui_tasks_is_resuming())
+    s_changed = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -113,6 +118,7 @@ void ui_interface_settings_open(void) {
   if (s_menu.items_cont != NULL)
     lv_obj_fade_in(s_menu.items_cont, ENTRY_FADE_MS, 0);
 
+  menu_component_select(&s_menu, s_selected);
   ui_input_set_screen_handler(interface_settings_input, NULL);
 
   ui_screen_load_owned(&s_screen, s_screen);

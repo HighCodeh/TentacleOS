@@ -39,8 +39,9 @@ static const char *TAG = "USB_STORAGE_UI";
 #define COL_CONNECTED lv_color_hex(0x00E676)
 #define COL_ERROR     lv_color_hex(0xFF5252)
 
-#define USB_MSC_TASK_STACK 8192
-#define REFRESH_PERIOD_MS  200
+#define USB_MSC_TASK_STACK   8192
+#define REFRESH_PERIOD_MS    200
+#define HOST_EJECT_SETTLE_MS 400
 
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_status = NULL;
@@ -49,6 +50,9 @@ static lv_timer_t *s_timer = NULL;
 static bool s_exit_requested = false;
 static bool s_task_failed = false;
 static bool s_confirm_exit = false;
+static uint32_t s_host_ejected_at;
+
+static void request_exit(void);
 
 static void enter_task(void *a) {
   (void)a;
@@ -80,12 +84,20 @@ static void refresh_cb(lv_timer_t *t) {
     set_texts("Not enough memory", COL_ERROR, "Press BACK to retry.");
     return;
   }
+  if (!usb_msc_host_ejected())
+    s_host_ejected_at = 0;
   switch (usb_msc_get_state()) {
     case USB_MSC_ACTIVE:
-      if (s_confirm_exit)
+      if (usb_msc_host_ejected()) {
+        if (s_host_ejected_at == 0)
+          s_host_ejected_at = lv_tick_get();
+        // Let the USB task complete the host's eject response before muxing away.
+        if (!s_exit_requested && lv_tick_elaps(s_host_ejected_at) >= HOST_EJECT_SETTLE_MS)
+          request_exit();
+      } else if (s_confirm_exit)
         set_texts("Ejected on computer?", COL_READY, "OK: exit USB\nBACK: cancel");
       else if (usb_msc_host_connected())
-        set_texts("Connected", COL_CONNECTED, "Eject on your computer first.\nThen press BACK.");
+        set_texts("Connected", COL_CONNECTED, "Eject on computer to finish.\nBACK: manual exit");
       else
         set_texts("Ready", COL_READY, "BACK returns to files.");
       break;
@@ -114,6 +126,23 @@ static void refresh_cb(lv_timer_t *t) {
   }
 }
 
+static void request_exit(void) {
+  s_confirm_exit = false;
+  s_exit_requested = true;
+  set_texts("Ejecting...", current_theme.text_secondary, "Restoring the card.");
+  if (xTaskCreatePinnedToCore(exit_task,
+                              "usb_msc_x",
+                              USB_MSC_TASK_STACK,
+                              NULL,
+                              SYS_PRIO_SERVICE_HI,
+                              NULL,
+                              SYS_CORE_RADIO) != pdPASS) {
+    s_task_failed = true;
+    s_exit_requested = false;
+    ESP_LOGE(TAG, "Could not create USB exit worker");
+  }
+}
+
 static void usb_storage_input(const input_event_t *ev, void *ctx) {
   (void)ctx;
   if (ev->action != INPUT_ACTION_PRESS)
@@ -133,21 +162,8 @@ static void usb_storage_input(const input_event_t *ev, void *ctx) {
         s_confirm_exit = !s_confirm_exit;
         return;
       }
-      s_confirm_exit = false;
-      s_exit_requested = true;
-      set_texts("Ejecting...", current_theme.text_secondary, "Restoring the card.");
       ui_feedback(UI_FB_SELECT);
-      if (xTaskCreatePinnedToCore(exit_task,
-                                  "usb_msc_x",
-                                  USB_MSC_TASK_STACK,
-                                  NULL,
-                                  SYS_PRIO_SERVICE_HI,
-                                  NULL,
-                                  SYS_CORE_RADIO) != pdPASS) {
-        s_task_failed = true;
-        s_exit_requested = false;
-        ESP_LOGE(TAG, "Could not create USB exit worker");
-      }
+      request_exit();
       break;
     case USB_MSC_IDLE:
       ui_switch_screen(SCREEN_FILES);
@@ -165,6 +181,7 @@ void ui_usb_storage_open(void) {
   s_exit_requested = false;
   s_task_failed = false;
   s_confirm_exit = false;
+  s_host_ejected_at = 0;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);

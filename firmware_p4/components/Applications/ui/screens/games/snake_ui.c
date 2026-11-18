@@ -23,8 +23,10 @@
 
 #include "buttons_gpio.h"
 #include "game_fx.h"
+#include "ui_metrics.h"
 #include "st7789.h"
 #include "ui_manager.h"
+#include "app_switcher_ui.h"
 #include "ui_theme.h"
 
 #define TICK_MS          33
@@ -234,7 +236,7 @@ static void tick_cb(lv_timer_t *t) {
     }
   }
 
-  if (s_state == ST_PLAY && ++s_tick_acc >= STEP_TICKS) {
+  if (!ui_input_is_locked() && s_state == ST_PLAY && ++s_tick_acc >= STEP_TICKS) {
     s_tick_acc = 0;
     step();
   }
@@ -247,7 +249,17 @@ static void tick_cb(lv_timer_t *t) {
   s_back_last = back;
 }
 
+void ui_snake_stop(void) {
+  if (s_timer != NULL) {
+    lv_timer_delete(s_timer);
+    s_timer = NULL;
+  }
+}
+
 void ui_snake_open(void) {
+  bool resume = ui_tasks_is_resuming() && s_cols == ui_screen_w() / CELL &&
+                s_rows == (ui_screen_h() - TOPBAR) / CELL;
+  ui_snake_stop();
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
@@ -256,13 +268,13 @@ void ui_snake_open(void) {
   s_best = load_best();
 
   s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, lv_color_hex(COL_BG), 0);
+  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_pad_all(s_screen, 0, 0);
   lv_obj_set_style_border_width(s_screen, 0, 0);
 
-  int w = LCD_H_RES, h = LCD_V_RES;
+  int w = ui_screen_w(), h = ui_screen_h();
   s_cols = w / CELL;
   s_rows = (h - TOPBAR) / CELL;
   s_origin_x = (w - s_cols * CELL) / 2;
@@ -288,7 +300,7 @@ void ui_snake_open(void) {
   }
 
   s_score_lbl = lv_label_create(s_screen);
-  lv_obj_set_style_text_color(s_score_lbl, lv_color_hex(0xFFFFFF), 0);
+  lv_obj_set_style_text_color(s_score_lbl, current_theme.text_main, 0);
   lv_obj_set_style_text_font(s_score_lbl, &lv_font_montserrat_14, 0);
   lv_obj_align(s_score_lbl, LV_ALIGN_TOP_MID, 0, 5);
 
@@ -297,21 +309,34 @@ void ui_snake_open(void) {
   lv_obj_set_size(s_msg_panel, w - 60, LV_SIZE_CONTENT);
   lv_obj_align(s_msg_panel, LV_ALIGN_CENTER, 0, 0);
   lv_obj_set_style_radius(s_msg_panel, 14, 0);
-  lv_obj_set_style_bg_color(s_msg_panel, lv_color_hex(0x1A0426), 0);
+  lv_obj_set_style_bg_color(s_msg_panel, current_theme.bg_secondary, 0);
   lv_obj_set_style_bg_opa(s_msg_panel, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(s_msg_panel, 2, 0);
   lv_obj_set_style_border_color(s_msg_panel, ui_theme_get_accent(), 0);
   lv_obj_set_style_pad_all(s_msg_panel, 14, 0);
   s_msg_lbl = lv_label_create(s_msg_panel);
-  lv_obj_set_style_text_color(s_msg_lbl, lv_color_hex(0xFFFFFF), 0);
+  lv_obj_set_style_text_color(s_msg_lbl, current_theme.text_main, 0);
   lv_obj_set_style_text_font(s_msg_lbl, &lv_font_montserrat_14, 0);
+  lv_obj_set_width(s_msg_lbl, lv_pct(100));
   lv_obj_set_style_text_align(s_msg_lbl, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_center(s_msg_lbl);
 
-  reset_game();
+  if (resume) {
+    render_body();
+    cell_pos(s_food_obj, s_food_x, s_food_y);
+    set_score_text();
+    if (s_state == ST_DEAD) {
+      lv_label_set_text_fmt(s_msg_lbl, "GAME OVER\nScore %d\nOK retry   BACK exit", s_score);
+    } else
+      lv_obj_add_flag(s_msg_panel, LV_OBJ_FLAG_HIDDEN);
+  } else
+    reset_game();
 
-  if (s_timer == NULL)
-    s_timer = lv_timer_create(tick_cb, TICK_MS, NULL);
+  s_timer = lv_timer_create(tick_cb, TICK_MS, NULL);
+  if (s_timer == NULL) {
+    lv_label_set_text(s_msg_lbl, "Game unavailable\nBACK to Apps");
+    lv_obj_remove_flag(s_msg_panel, LV_OBJ_FLAG_HIDDEN);
+  }
 
   ui_input_set_screen_handler(handle_input, NULL);
   ui_screen_load_owned(&s_screen, s_screen);
