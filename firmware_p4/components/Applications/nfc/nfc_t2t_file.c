@@ -69,7 +69,7 @@ static int digit(char c) {
   if (c >= '0' && c <= '9')
     return c - '0';
   c = (char)tolower((unsigned char)c);
-  return c >= 'a' && c <= 'f' ? c - 'a' + HEX_ALPHA : -1;
+  return c >= 'a' && c <= 'f' ? c - 'a' + (int)HEX_ALPHA : -1;
 }
 
 static bool bytes(const char *s, uint8_t *out, size_t size, bool *out_known) {

@@ -1062,6 +1062,8 @@ These rules follow the [NXP MF0ICU2 datasheet](https://www.nxp.com/docs/en/data-
 UL-C counter writes initialize the 16-bit value, then increment using the low
 nibble, rejecting overflow. The pending value becomes readable after RF field
 loss; reselection alone does not commit it. Zero increments preserve the value.
+Counter increments are explicitly 16-bit, and file parsing keeps invalid-hex
+errors signed, so host GCC and Clang enforce the same boundary checks.
 Key writes use the physical page byte order, while the stored session image uses
 the Flipper key order. A key becomes usable after reactivation or field loss,
 and only once all sixteen bytes are known. Read-only replay rejects both paths.
