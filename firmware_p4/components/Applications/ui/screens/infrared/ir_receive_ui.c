@@ -24,6 +24,7 @@
 #include "ir.h"
 #include "ir_ac.h"
 #include "ir_store.h"
+#include "keyboard_ui.h"
 #include "notify_ui.h"
 #include "sigwave_ui.h"
 #include "ui_chrome.h"
@@ -241,17 +242,39 @@ static void send_captured(void) {
 }
 
 // Persist the captured signal to /sdcard/ir as a Flipper .ir file.
-static bool save_captured(void) {
-  char name[IR_STORE_NAME_MAX];
-  if (s_captured.protocol != IR_PROTO_UNKNOWN) {
-    ir_store_name_for_data(&s_captured, name, sizeof(name));
-    return ir_store_save_data(name, &s_captured) == ESP_OK;
+static void save_name_submit(const char *name, void *context) {
+  (void)context;
+  esp_err_t err = ESP_ERR_INVALID_STATE;
+  if (!ir_store_exists(name)) {
+    if (s_captured.protocol != IR_PROTO_UNKNOWN) {
+      err = ir_store_save_data(name, &s_captured);
+    } else {
+      size_t count = 0;
+      if (ir_get_last_raw(s_raw_buf, IR_MAX_SYMBOLS, &count) == ESP_OK && count > 0)
+        err = ir_store_save_raw(name, s_raw_buf, count, IR_CARRIER_HZ_DEFAULT);
+      else
+        err = ESP_ERR_NOT_FOUND;
+    }
   }
-  size_t n = 0;
-  if (ir_get_last_raw(s_raw_buf, IR_MAX_SYMBOLS, &n) != ESP_OK || n == 0)
-    return false;
-  ir_store_next_free("raw", name, sizeof(name));
-  return ir_store_save_raw(name, s_raw_buf, n, IR_CARRIER_HZ_DEFAULT) == ESP_OK;
+  if (err == ESP_OK) {
+    s_saved = true;
+    capture_result_mark_saved(&s_cr);
+    ui_feedback(UI_FB_WRITE);
+    notify(NOTIFY_SAVED, "IR signal saved");
+  } else {
+    notify(NOTIFY_WARNING,
+           err == ESP_ERR_INVALID_STATE ? "Name exists; choose another" : "Save failed; check SD");
+    keyboard_open_filename("IR name (without .ir)", name, IR_STORE_NAME_MAX - 1, save_name_submit);
+  }
+}
+
+static void save_captured(void) {
+  char name[IR_STORE_NAME_MAX];
+  if (s_captured.protocol != IR_PROTO_UNKNOWN)
+    ir_store_name_for_data(&s_captured, name, sizeof(name));
+  else
+    ir_store_next_free("raw", name, sizeof(name));
+  keyboard_open_filename("IR name (without .ir)", name, sizeof(name) - 1, save_name_submit);
 }
 
 static void show_options(void) {
@@ -314,12 +337,7 @@ void ui_ir_receive_open(void) {
   s_captured = (ir_data_t){0};
   s_is_ac = false;
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   ui_chrome_header(s_screen, "Learn", "/assets/icons/settings_input_antenna.bin");
 
@@ -458,16 +476,8 @@ static void ir_receive_input(const input_event_t *ev, void *ctx) {
               notify(NOTIFY_INFO, "Signal sent");
               break;
             case CAP_ACT_SAVE:
-              if (!s_saved) {
-                if (save_captured()) {
-                  s_saved = true;
-                  capture_result_mark_saved(&s_cr);
-                  ui_feedback(UI_FB_WRITE);
-                  notify(NOTIFY_SAVED, "IR signal saved");
-                } else {
-                  notify(NOTIFY_WARNING, "Save failed");
-                }
-              }
+              if (!s_saved)
+                save_captured();
               break;
             case CAP_ACT_AGAIN:
               start_capture();

@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ir_raw_ui.h"
+#include "esp_attr.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -34,8 +35,10 @@
 #define HDR_ICON  "/assets/icons/graphic_eq.bin"
 #define FOOTER    "OK replay   BACK exit"
 
-#define MX        8
-#define CONTENT_W (ui_screen_w() - 2 * MX)
+#define MX           8
+#define CONTENT_W    (ui_screen_w() - 2 * MX)
+#define WIDE_VIEW    (ui_screen_w() > ui_screen_h())
+#define SCOPE_CARD_W (WIDE_VIEW ? CONTENT_W - G_TILE_W - G_GAP : CONTENT_W)
 
 #define CARD1_Y     50
 #define CARD1_H     76
@@ -47,7 +50,7 @@
 #define DOT_SIZE    7
 
 #define GRID_Y     (CARD1_Y + CARD1_H + 8)
-#define G_TILE_W   70
+#define G_TILE_W   (WIDE_VIEW ? 86 : 70)
 #define G_TILE_H   46
 #define G_GAP      7
 #define G_TILE_PAD 7
@@ -55,7 +58,7 @@
 #define G_VAL_Y    22
 #define G_RADIUS   8
 
-#define CAR_LBL_Y LV_MIN(GRID_Y + G_TILE_H + 8, ui_screen_h() - UI_CHROME_FOOTER_H - 66)
+#define CAR_LBL_Y (WIDE_VIEW ? CARD1_Y + CARD1_H + 8 : GRID_Y + G_TILE_H + 8)
 #define CHIP_Y    (CAR_LBL_Y + 20)
 #define CHIP_H    24
 #define CHIP_GAP  6
@@ -65,8 +68,6 @@
 
 #define CARRIER_COUNT 4
 #define CHIP_TXT_LEN  10
-
-static const int G_TILE_X[3] = {MX, MX + G_TILE_W + G_GAP, MX + 2 * (G_TILE_W + G_GAP)};
 
 typedef struct {
   const char *cap;
@@ -82,13 +83,10 @@ static char s_stat_vals[3][12];
 
 static const char *CARRIERS[CARRIER_COUNT] = {"36", "37", "38", "40"};
 
-static const lv_point_precise_t PULSE_PTS[] = {
-    {0, 38},   {6, 38},   {6, 6},   {14, 6},  {14, 38},  {40, 38},  {40, 6},  {46, 6},
-    {46, 38},  {54, 38},  {54, 6},  {60, 6},  {60, 38},  {84, 38},  {84, 6},  {90, 6},
-    {90, 38},  {98, 38},  {98, 6},  {104, 6}, {104, 38}, {128, 38}, {128, 6}, {134, 6},
-    {134, 38}, {142, 38}, {142, 6}, {148, 6}, {148, 38}, {172, 38}, {172, 6}, {178, 6},
-    {178, 38}, {186, 38}, {186, 6}, {192, 6}, {192, 38}, {200, 38}};
-#define PULSE_PT_COUNT ((int)(sizeof(PULSE_PTS) / sizeof(PULSE_PTS[0])))
+#define SCOPE_SYMBOLS 64
+#define SCOPE_HIGH    6
+#define SCOPE_LOW     38
+static EXT_RAM_BSS_ATTR lv_point_precise_t s_points[SCOPE_SYMBOLS * 4];
 
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_chip[CARRIER_COUNT];
@@ -96,7 +94,7 @@ static lv_obj_t *s_chip_lbl[CARRIER_COUNT];
 
 static int s_sel = 2;
 
-static rmt_symbol_word_t s_raw[IR_MAX_SYMBOLS];
+static EXT_RAM_BSS_ATTR rmt_symbol_word_t s_raw[IR_MAX_SYMBOLS];
 static size_t s_raw_count = 0;
 
 static void compute_stats(void) {
@@ -122,14 +120,37 @@ static void compute_stats(void) {
            (unsigned)((peak % 1000) / 100));
 }
 
+static unsigned scope_points(int width) {
+  size_t count = s_raw_count < SCOPE_SYMBOLS ? s_raw_count : SCOPE_SYMBOLS;
+  uint32_t total = 0, elapsed = 0;
+  unsigned points = 0;
+  for (size_t i = 0; i < count; ++i)
+    total += s_raw[i].duration0 + s_raw[i].duration1;
+  if (!total)
+    return 0;
+  for (size_t i = 0; i < count; ++i) {
+    for (unsigned half = 0; half < 2; ++half) {
+      uint32_t duration = half ? s_raw[i].duration1 : s_raw[i].duration0;
+      bool high = half ? s_raw[i].level1 : s_raw[i].level0;
+      if (!duration)
+        continue;
+      int y = high ? SCOPE_HIGH : SCOPE_LOW;
+      s_points[points++] = (lv_point_precise_t){elapsed * width / total, y};
+      elapsed += duration;
+      s_points[points++] = (lv_point_precise_t){elapsed * width / total, y};
+    }
+  }
+  return points;
+}
+
 static void build_scope_card(void) {
   bool has = s_raw_count > 0;
 
   lv_obj_t *card = lv_obj_create(s_screen);
   lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(card, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(card, CONTENT_W, CARD1_H);
-  lv_obj_align(card, LV_ALIGN_TOP_MID, 0, CARD1_Y);
+  lv_obj_set_size(card, SCOPE_CARD_W, CARD1_H);
+  lv_obj_align(card, LV_ALIGN_TOP_LEFT, MX, CARD1_Y);
   lv_obj_set_style_radius(card, CARD_RADIUS, 0);
   lv_obj_set_style_pad_all(card, 0, 0);
   lv_obj_set_style_bg_color(card, current_theme.bg_secondary, 0);
@@ -138,7 +159,7 @@ static void build_scope_card(void) {
   lv_obj_set_style_border_width(card, 1, 0);
 
   lv_obj_t *hdr = lv_label_create(card);
-  lv_label_set_text(hdr, "PULSE TRAIN");
+  lv_label_set_text(hdr, "SIGNAL START");
   lv_obj_set_style_text_font(hdr, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(hdr, current_theme.text_secondary, 0);
   lv_obj_align(hdr, LV_ALIGN_TOP_LEFT, CARD_PAD_X, CARD_HDR_Y);
@@ -170,8 +191,17 @@ static void build_scope_card(void) {
   lv_obj_set_style_text_color(
       cap_lbl, (has ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_secondary), 0);
 
+  unsigned points = scope_points(SCOPE_CARD_W - CARD_PAD_X * 2 - 2);
+  if (!points) {
+    lv_obj_t *empty = lv_label_create(card);
+    lv_label_set_text(empty, "Read a remote first");
+    lv_obj_set_style_text_font(empty, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(empty, current_theme.text_secondary, 0);
+    lv_obj_align(empty, LV_ALIGN_CENTER, 0, 10);
+    return;
+  }
   lv_obj_t *scope = lv_line_create(card);
-  lv_line_set_points(scope, PULSE_PTS, PULSE_PT_COUNT);
+  lv_line_set_points(scope, s_points, points);
   lv_obj_set_pos(scope, SCOPE_X, SCOPE_Y);
   lv_obj_set_style_line_color(scope, current_theme.border_accent, 0);
   lv_obj_set_style_line_opa(scope, has ? LV_OPA_COVER : LV_OPA_40, 0);
@@ -184,7 +214,9 @@ static void build_stat_tile(int i) {
   lv_obj_remove_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(tile, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(tile, G_TILE_W, G_TILE_H);
-  lv_obj_set_pos(tile, G_TILE_X[i], GRID_Y);
+  lv_obj_set_pos(tile,
+                 WIDE_VIEW ? ui_screen_w() - MX - G_TILE_W : MX + i * (G_TILE_W + G_GAP),
+                 WIDE_VIEW ? CARD1_Y + i * (G_TILE_H + G_GAP) : GRID_Y);
   lv_obj_set_style_radius(tile, G_RADIUS, 0);
   lv_obj_set_style_pad_all(tile, 0, 0);
   lv_obj_set_style_bg_color(tile, current_theme.bg_primary, 0);
@@ -212,6 +244,9 @@ static void build_stat_tile(int i) {
   lv_obj_t *val = lv_label_create(grp);
   lv_label_set_text(val, s_stat_vals[i]);
   lv_obj_set_style_text_font(val, &lv_font_montserrat_16, 0);
+  lv_obj_set_width(val, 0);
+  lv_obj_set_flex_grow(val, 1);
+  lv_label_set_long_mode(val, LV_LABEL_LONG_SCROLL_CIRCULAR);
   lv_obj_set_style_text_color(val, current_theme.text_main, 0);
 
   if (STATS[i].unit != NULL) {
@@ -249,7 +284,7 @@ static void build_carrier(void) {
 
   lv_obj_t *row = lv_obj_create(s_screen);
   lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(row, CONTENT_W, CHIP_H);
+  lv_obj_set_size(row, SCOPE_CARD_W, CHIP_H);
   lv_obj_align(row, LV_ALIGN_TOP_LEFT, MX, CHIP_Y);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(row, 0, 0);
@@ -292,7 +327,9 @@ static void build_saved_row(void) {
     lv_label_set_text(name, "none");
   lv_obj_set_style_text_font(name, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(name, current_theme.border_accent, 0);
-  lv_obj_align(name, LV_ALIGN_TOP_RIGHT, -MX, KV_Y);
+  lv_obj_set_width(name, SCOPE_CARD_W / 2);
+  lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_RIGHT, 0);
+  lv_obj_align(name, LV_ALIGN_TOP_LEFT, MX + SCOPE_CARD_W / 2, KV_Y);
 }
 
 static void refresh_selection(void) {
@@ -352,12 +389,7 @@ void ui_ir_raw_open(void) {
 
   compute_stats();
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   ui_chrome_header(s_screen, HDR_TITLE, HDR_ICON);
 
@@ -367,7 +399,7 @@ void ui_ir_raw_open(void) {
   build_carrier();
   build_saved_row();
 
-  ui_chrome_footer(s_screen, FOOTER);
+  ui_chrome_footer(s_screen, s_raw_count ? FOOTER : "BACK to Infrared: Read first");
 
   ui_input_set_screen_handler(ir_raw_input, NULL);
 

@@ -41,6 +41,7 @@
 #include "ui_manager.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
+#include "ui_metrics.h"
 #include "waves_ui.h"
 
 static const char *TAG = "RFID_UI";
@@ -926,7 +927,8 @@ static void build_saved_list(void) {
     s_saved_sel = s_card_count - 1;
 
   s_saved_cont = lv_obj_create(s_screen);
-  lv_obj_set_size(s_saved_cont, lv_pct(100), LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_size(
+      s_saved_cont, lv_pct(100), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
   lv_obj_align(s_saved_cont, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(s_saved_cont, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(s_saved_cont, 0, 0);
@@ -1242,6 +1244,39 @@ static void build_add_manual(void) {
   fade_in(s_menu.title_bar, FADE_IN_MS, 0);
 }
 
+static void read_name_submit(const char *name, void *context) {
+  (void)context;
+  if (s_card_count >= RFID_MAX_CARDS) {
+    notify(NOTIFY_WARNING, "Session library full");
+    return;
+  }
+  snprintf(s_last_card.name, sizeof(s_last_card.name), "%s", name);
+  s_cards[s_card_count++] = s_last_card;
+  s_saved = true;
+  capture_result_mark_saved(&s_cr);
+  ui_feedback(UI_FB_WRITE);
+  notify(NOTIFY_SAVED, "Saved for this session");
+}
+
+static void manual_name_submit(const char *name, void *context) {
+  (void)context;
+  if (s_card_count >= RFID_MAX_CARDS) {
+    notify(NOTIFY_WARNING, "Session library full");
+    return;
+  }
+  rfid_card_t *c = &s_cards[s_card_count];
+  snprintf(c->name, sizeof(c->name), "%s", name);
+  snprintf(c->proto, sizeof(c->proto), "%s", ADD_PROTOS[s_add_proto]);
+  snprintf(c->uid, sizeof(c->uid), "%s", s_add_uid);
+  snprintf(c->bits, sizeof(c->bits), "%s  |  Read-only", ADD_BITS[s_add_bits]);
+  s_saved_sel = s_card_count++;
+  ui_feedback(UI_FB_WRITE);
+  notify(NOTIFY_SAVED, "Saved for this session");
+  msgbox_open_info(
+      CARD_ICON, "Session saved", "Kept until the next reboot", current_theme.border_accent);
+  s_pending_view = VIEW_SAVED;
+}
+
 static void add_manual_commit(void) {
   if (!s_add_uid[0]) {
     notify(NOTIFY_WARNING, "Enter a UID first");
@@ -1251,20 +1286,9 @@ static void add_manual_commit(void) {
     notify(NOTIFY_WARNING, "Library full");
     return;
   }
-  rfid_card_t *c = &s_cards[s_card_count];
-  snprintf(c->name, sizeof(c->name), "Manual_%02d", s_card_count + 1);
-  snprintf(c->proto, sizeof(c->proto), "%s", ADD_PROTOS[s_add_proto]);
-  snprintf(c->uid, sizeof(c->uid), "%s", s_add_uid);
-  snprintf(c->bits, sizeof(c->bits), "%s  |  Read-only", ADD_BITS[s_add_bits]);
-  s_saved_sel = s_card_count;
-  s_card_count++;
-
-  ui_feedback(UI_FB_WRITE);
-  ESP_LOGI(TAG, "RFID manual entry added for this session: %s %s", c->name, c->uid);
-  notify(NOTIFY_SAVED, "Saved for this session");
-  msgbox_open_info(
-      CARD_ICON, "Session saved", "Kept until the next reboot", current_theme.border_accent);
-  s_pending_view = VIEW_SAVED;
+  char name[sizeof(s_last_card.name)];
+  snprintf(name, sizeof(name), "Manual_%02d", s_card_count + 1);
+  keyboard_open_filename("RFID session name", name, sizeof(name) - 1, manual_name_submit);
 }
 
 static void on_saved_delete_confirm(bool confirm) {
@@ -1301,12 +1325,7 @@ static void build_screen(void) {
   s_has_dots = false;
   s_cr = (capture_result_t){0};
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   switch (s_view) {
     case VIEW_READ:
@@ -1515,16 +1534,10 @@ static void rfid_menu_input(const input_event_t *ev, void *ctx) {
                 break;
               case CAP_ACT_SAVE:
                 if (!s_saved) {
-                  if (s_card_count < RFID_MAX_CARDS) {
-                    s_cards[s_card_count++] = s_last_card;
-                    s_saved = true;
-                    capture_result_mark_saved(&s_cr);
-                    ESP_LOGI(TAG, "RFID saved for this session: %s", s_last_card.uid);
-                    ui_feedback(UI_FB_WRITE);
-                    notify(NOTIFY_SAVED, "Saved for this session");
-                  } else {
-                    notify(NOTIFY_WARNING, "Session library full");
-                  }
+                  keyboard_open_filename("RFID session name",
+                                         s_last_card.name,
+                                         sizeof(s_last_card.name) - 1,
+                                         read_name_submit);
                 }
                 break;
               case CAP_ACT_AGAIN:
@@ -1673,7 +1686,13 @@ static void rfid_menu_input(const input_event_t *ev, void *ctx) {
           if (press) {
             if (sel == 1) {
               ui_feedback(UI_FB_SELECT);
-              keyboard_open(NULL, add_uid_submit, NULL);
+              keyboard_open_config(&(keyboard_config_t){.title = "Card UID (hex)",
+                                                        .initial = s_add_uid,
+                                                        .max_chars = HEX_BYTES * 2,
+                                                        .min_chars = 2,
+                                                        .mode = KEYBOARD_HEX},
+                                   add_uid_submit,
+                                   NULL);
             } else if (sel == 3) {
               ui_feedback(UI_FB_SELECT);
               add_manual_commit();
@@ -1695,6 +1714,11 @@ static void rfid_menu_input(const input_event_t *ev, void *ctx) {
     default:
       break;
   }
+}
+
+bool ui_rfid_menu_can_resume(void) {
+  return s_view == VIEW_LIST || s_view == VIEW_ADD || s_view == VIEW_SAVED ||
+         s_view == VIEW_SAVED_INFO || s_view == VIEW_OPTIONS;
 }
 
 void ui_rfid_menu_open(void) {

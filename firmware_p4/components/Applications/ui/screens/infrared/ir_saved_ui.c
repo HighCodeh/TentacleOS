@@ -165,7 +165,13 @@ static void on_rename_submit(const char *text, void *ud) {
   (void)ud;
   if (text == NULL || text[0] == '\0')
     return;
-  if (ir_store_rename(s_files[s_file].name, text) == ESP_OK) {
+  if (strcmp(s_files[s_file].name, text) != 0 && ir_store_exists(text)) {
+    notify(NOTIFY_WARNING, "Name exists; choose another");
+    keyboard_open_filename("Rename IR signal", text, IR_STORE_NAME_MAX - 1, on_rename_submit);
+    return;
+  }
+  if (strcmp(s_files[s_file].name, text) == 0 ||
+      ir_store_rename(s_files[s_file].name, text) == ESP_OK) {
     ui_feedback(UI_FB_WRITE);
     notify(NOTIFY_INFO, "Signal renamed");
   } else {
@@ -345,12 +351,7 @@ static void build_screen(void) {
   s_file_thumb = NULL;
   s_cr = (capture_result_t){0};
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   if (s_level == LEVEL_PROTOCOLS) {
     s_menu = menu_component_create(s_screen, "BROWSE SIGNALS", "/assets/icons/folder_open.bin");
@@ -422,7 +423,10 @@ static void ir_saved_input(const input_event_t *ev, void *ctx) {
               }
               break;
             case CAP_ACT_AGAIN:
-              keyboard_open(NULL, on_rename_submit, NULL);
+              keyboard_open_filename("Rename IR signal",
+                                     s_files[s_file].name,
+                                     IR_STORE_NAME_MAX - 1,
+                                     on_rename_submit);
               break;
             case CAP_ACT_DISCARD:
               msgbox_open(

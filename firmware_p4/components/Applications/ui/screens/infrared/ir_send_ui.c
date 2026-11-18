@@ -31,6 +31,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
 
@@ -354,7 +355,7 @@ static void send_done_cb(lv_timer_t *t) {
   s_sig = sigwave_create_static(s_screen, LV_ALIGN_CENTER, 0, SIG_Y_OFS);
 
   if (s_card != NULL) {
-    lv_obj_fade_in(s_card, 280, 0);
+    lv_obj_fade_in(s_card, UI_CONTENT_FADE_MS, 0);
     card_rise(s_card);
   }
 
