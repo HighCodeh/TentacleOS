@@ -96,6 +96,7 @@ run_test python3 "$repo/tools/scripts/test_context.py"
 run_test python3 "$repo/tools/scripts/test_ui.py"
 run_test python3 "$repo/tools/highboy/test_muse_native.py"
 run_test python3 "$repo/tools/highboy/test_preservation.py"
+run_test python3 "$repo/tools/highboy/tests/test_wardrive_memory.py"
 # Integrated prototype workflows: host fakes only, no serial or radio access.
 run_test python3 "$repo/tools/highboy/tests/test_battery_consistency.py"
 run_test python3 "$repo/tools/highboy/tests/test_battery_ui.py"

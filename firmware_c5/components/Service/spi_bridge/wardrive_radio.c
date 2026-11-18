@@ -15,7 +15,7 @@
 
 #include "wardrive_radio.h"
 #include <string.h>
-#include "esp_attr.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "spi_bridge.h"
@@ -23,13 +23,21 @@
 static const char *TAG = "WARD_RADIO";
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 static spi_ward_status_t s_status;
-EXT_RAM_BSS_ATTR static wifi_ap_record_t s_records[SPI_WARD_MAX_RECORDS];
+static wifi_ap_record_t *s_records;
 static void scan(void) {
   uint16_t count = 0, total = 0;
   portENTER_CRITICAL(&s_lock);
   uint8_t band = s_status.band;
   portEXIT_CRITICAL(&s_lock);
-  esp_err_t err = wifi_service_ward_scan(band, s_records, &count, &total);
+  // Keep the indexed snapshot in PSRAM; C5 does not relocate static BSS there.
+  if (s_records == NULL)
+    s_records = heap_caps_calloc(
+        SPI_WARD_MAX_RECORDS, sizeof(*s_records), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  esp_err_t err = ESP_ERR_NO_MEM;
+  if (s_records != NULL)
+    err = wifi_service_ward_scan(band, s_records, &count, &total);
+  else
+    ESP_LOGE(TAG, "No PSRAM for survey snapshot");
   portENTER_CRITICAL(&s_lock);
   s_status.error = err;
   s_status.count = count;
