@@ -84,6 +84,16 @@ uint64_t sx1262_airtime_estimate_us(const sx1262_config_t *config, uint8_t lengt
   return (numerator * AIRTIME_US_PER_SECOND + bandwidth - 1) / bandwidth;
 }
 
+uint32_t sx1262_airtime_remaining_ms(const sx1262_config_t *config) {
+  if (config == NULL || duty_divisor(config, sx1262_bw_to_hz(config->bw)) == 0)
+    return 0;
+  int64_t now = esp_timer_get_time();
+  portENTER_CRITICAL(&s_lock);
+  int64_t remaining = s_next_tx_us - now;
+  portEXIT_CRITICAL(&s_lock);
+  return remaining > 0 ? (uint32_t)((remaining + 999) / 1000) : 0;
+}
+
 esp_err_t sx1262_airtime_reserve(const sx1262_config_t *config, uint8_t length) {
   uint64_t airtime = sx1262_airtime_estimate_us(config, length);
   if (airtime == 0) {

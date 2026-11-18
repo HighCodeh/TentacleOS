@@ -31,6 +31,8 @@ uint64_t sx1262_airtime_estimate_us(const sx1262_config_t *config, uint8_t lengt
 /** Reserve airtime before touching TX hardware. Failed TX attempts stay charged.
  *  Reservations survive driver reinitialization and protocol changes until reboot.
  *  ESP_ERR_TIMEOUT means retry later; this function never sleeps. */
+uint32_t sx1262_airtime_remaining_ms(const sx1262_config_t *config);
+
 esp_err_t sx1262_airtime_reserve(const sx1262_config_t *config, uint8_t length);
 
 #ifdef __cplusplus

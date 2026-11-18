@@ -17,7 +17,9 @@
 
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_log.h"
+#include "sdkconfig.h"
 #include "driver/spi_master.h"
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
@@ -62,16 +64,40 @@ static hal_esp32_ctx_t s_ctx = {
     .took_bus_lock = false,
 };
 
+#if CONFIG_IDF_TARGET_ESP32P4 && CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
+/* Serialized by hal_lock. P4 cache-line bounce buffers must not consume the
+ * small internal DMA heap while the display is repainting. Keep exact wire
+ * lengths: IDF may round its PSRAM allocation, never the radio transaction. */
+EXT_RAM_BSS_ATTR static uint8_t s_dma_tx[SPI_MAX_TRANSFER] __attribute__((aligned(64)));
+EXT_RAM_BSS_ATTR static uint8_t s_dma_rx[SPI_MAX_TRANSFER] __attribute__((aligned(64)));
+#endif
+
 static int hal_spi_transfer(void *ctx, const uint8_t *tx, uint8_t *rx, size_t len) {
   hal_esp32_ctx_t *c = (hal_esp32_ctx_t *)ctx;
+  if (c == NULL || c->spi == NULL || len == 0 || len > SPI_MAX_TRANSFER ||
+      (tx == NULL && rx == NULL))
+    return -1;
 
   spi_transaction_t t = {
       .length = len * 8,
       .tx_buffer = tx,
       .rx_buffer = rx,
   };
+#if CONFIG_IDF_TARGET_ESP32P4 && CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
+  t.flags = SPI_TRANS_DMA_USE_PSRAM;
+  if (tx != NULL) {
+    memcpy(s_dma_tx, tx, len);
+    t.tx_buffer = s_dma_tx;
+  }
+  if (rx != NULL)
+    t.rx_buffer = s_dma_rx;
+#endif
 
   esp_err_t ret = spi_device_polling_transmit(c->spi, &t);
+#if CONFIG_IDF_TARGET_ESP32P4 && CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
+  if (ret == ESP_OK && rx != NULL)
+    memcpy(rx, s_dma_rx, len);
+#endif
   return (ret == ESP_OK) ? 0 : -1;
 }
 

@@ -19,6 +19,7 @@
 
 #include "esp_log.h"
 
+#include "sx1262.h"
 #include "sx1262_airtime.h"
 #include "sx1262_regs.h"
 #include "sx1262_cmd.h"
@@ -119,6 +120,46 @@ esp_err_t sx1262_radio_transmit(const uint8_t *data, uint8_t len, uint32_t timeo
 
   ESP_LOGI(TAG, "TX started: %d bytes, timeout=%lu ms", len, (unsigned long)timeout_ms);
   return ESP_OK;
+}
+
+esp_err_t sx1262_radio_standby_checked(void) {
+  if (s_hal == NULL)
+    return ESP_ERR_INVALID_STATE;
+  uint8_t mode = SX1262_STDBY_RC;
+  esp_err_t error = sx1262_cmd_write(s_hal, SX1262_OP_SET_STANDBY, &mode, 1);
+  if (error != ESP_OK)
+    return error;
+  uint8_t status = 0;
+  error = sx1262_get_status(&status);
+  if (error != ESP_OK)
+    return error;
+  if (((status >> 4) & 7) != SX1262_STATE_STDBY_RC)
+    return ESP_ERR_INVALID_RESPONSE;
+  s_hal->set_antenna(s_hal->ctx, SX1262_ANT_OFF);
+  return sx1262_fsm_get_state() == SX1262_STATE_STDBY_RC
+             ? ESP_OK
+             : sx1262_fsm_transition(SX1262_STATE_STDBY_RC);
+}
+
+esp_err_t sx1262_radio_lab_cw_start(void) {
+  if (s_hal == NULL || s_config == NULL || s_needs_reinit)
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = sx1262_radio_standby_checked();
+  if (error == ESP_OK)
+    error = apply_workaround_w1();
+  if (error != ESP_OK)
+    return error;
+  s_hal->set_antenna(s_hal->ctx, SX1262_ANT_TX);
+  error = sx1262_cmd_write(s_hal, SX1262_OP_SET_TX_CONTINUOUS_WAVE, NULL, 0);
+  if (error == ESP_OK)
+    error = sx1262_fsm_transition(SX1262_STATE_TX);
+  uint8_t status = 0;
+  if (error == ESP_OK)
+    error = sx1262_get_status(&status);
+  /* ChipMode encodes TX as 6; the software FSM encodes it as 5. */
+  if (error == ESP_OK && ((status >> 4) & 7) != 6)
+    error = ESP_ERR_INVALID_RESPONSE;
+  return error;
 }
 
 esp_err_t sx1262_radio_receive_single(uint32_t timeout_ms) {

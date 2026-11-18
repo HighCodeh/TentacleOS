@@ -59,6 +59,9 @@ esp_err_t sx1262_radio_receive_continuous(void);
  * @brief Stop RX and return to STDBY_RC.
  */
 void sx1262_radio_stop_rx(void);
+/* Shielded laboratory service only; caller must enforce a finite CW deadline. */
+esp_err_t sx1262_radio_lab_cw_start(void);
+esp_err_t sx1262_radio_standby_checked(void);
 
 /**
  * @brief Start Channel Activity Detection.
