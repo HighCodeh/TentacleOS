@@ -25,6 +25,10 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sys_prio.h"
+#ifdef CONFIG_HIGHBOY_V203_CPU_200M
+#include "soc/rtc.h"
+#include "esp_private/startup_internal.h"
+#endif
 
 #include "spi.h"
 #include "i2c_init.h"
@@ -72,6 +76,23 @@ static const char *TAG = "KERNEL";
 #define BOOT_SOUND_PATH        "/assets/storage/ghost_cyberpunk_boot.mp3"
 #define BOOT_SETTLE_MS         1500
 #define DISPLAY_RETRY_DELAY_MS 100
+
+#ifdef CONFIG_HIGHBOY_V203_CPU_200M
+#define STABILITY_CPU_MHZ       200
+#define STABILITY_INIT_PRIORITY 9
+/* CORE runs with the other CPU paused, before heap and scheduler initialization. */
+ESP_SYSTEM_INIT_FN(highboy_stability_clock, CORE, BIT(0), STABILITY_INIT_PRIORITY) {
+  rtc_cpu_freq_config_t config;
+  if (!rtc_clk_cpu_freq_mhz_to_config(STABILITY_CPU_MHZ, &config))
+    return ESP_ERR_NOT_SUPPORTED;
+  rtc_clk_cpu_freq_set_config(&config);
+  rtc_clk_cpu_freq_get_config(&config);
+  if (config.freq_mhz != STABILITY_CPU_MHZ)
+    return ESP_FAIL;
+  ESP_EARLY_LOGW(TAG, "Conservative CPU profile: %u MHz", (unsigned)config.freq_mhz);
+  return ESP_OK;
+}
+#endif
 
 // Safe-mode entry: OK + BACK must be held together at power-on. Wait for the
 // input sampler to debounce, then require the combo to stay held across the

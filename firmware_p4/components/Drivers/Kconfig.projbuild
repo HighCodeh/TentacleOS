@@ -1,0 +1,31 @@
+# Copyright (c) 2025 HIGH CODE LLC
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
+menu "High Boy prototype deployment"
+config HIGHBOY_BOARD_V203
+    bool "604858 battery guard for prototype 0201891B"
+    default n
+    help
+        Preserve the measured 2000 mAh pack limits, fresh ADC validation and
+        low-voltage charge inhibition. This does not qualify cell temperature.
+
+config HIGHBOY_V203_CPU_200M
+    bool "Conservative 200 MHz startup for prototype 0201891B"
+    depends on HIGHBOY_BOARD_V203 && !PM_ENABLE
+    default n
+    help
+        Apply the tested CPU divider before scheduler startup. Retain both
+        cores, watchdogs and memory protection.
+endmenu

@@ -41,8 +41,10 @@ CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 # CONFIG_ESP32P4_SELECTS_REV_LESS_V3 is not set
 CONFIG_ESP32P4_REV_MIN_301=y
 
-# CPU 360MHz (P4 maximum)
-CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_360=y
+# Revision-3 source clock; early startup applies the tested 200 MHz divider.
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_400=y
+CONFIG_HIGHBOY_BOARD_V203=y
+CONFIG_HIGHBOY_V203_CPU_200M=y
 
 # Build the whole app + IDF at -O2 (perf) instead of the -Og default. The LVGL
 # software renderer is fully CPU-bound, so this is the biggest transparent speed
@@ -51,10 +53,10 @@ CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_360=y
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 # CONFIG_COMPILER_OPTIMIZATION_DEBUG is not set
 
-# PSRAM hex-octal mode, 200MHz - P4 specific (V3 prototype has PSRAM populated)
+# Conservative PSRAM frequency measured stable on prototype 0201891B.
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_HEX=y
-CONFIG_SPIRAM_SPEED_200M=y
+CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_SPIRAM_USE_MALLOC=y
 CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=512
 CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768

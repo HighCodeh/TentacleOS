@@ -30,9 +30,9 @@ extern "C" {
  *        UI reads instead of each screen polling the BQ25896 itself.
  */
 typedef struct {
-  int soc;                     ///< Smoothed state of charge (0-100).
+  int soc;                     ///< Qualified state of charge (0-100), or -1 if unknown.
   uint16_t vbat_mv;            ///< Battery voltage in mV.
-  bool present;                ///< True if the BQ25896 answered on I2C (vbat > 0).
+  bool present;                ///< Valid battery voltage, independent of gauge qualification.
   bool charging;               ///< True while pre/fast charging.
   bool vbus_present;           ///< True when a valid USB/adapter source is present.
   bool low;                    ///< Latched low-battery flag (hysteresis, cleared on charge).
@@ -47,6 +47,23 @@ typedef struct {
  * polls in the background and keeps a smoothed snapshot.
  */
 void battery_service_init(void);
+
+/** Charger telemetry is independent of an available/qualified gauge estimate. */
+typedef struct {
+  bool valid;
+  bool requested;
+  bool gauge_valid;
+  bool current_valid;
+  int soc;
+  int16_t battery_current_ma;
+  bq25896_telem_t charger;
+  const char *status; /* Static product-facing reason, no caller ownership. */
+} battery_charge_snapshot_t;
+bool battery_service_get_charge(battery_charge_snapshot_t *out);
+/** Queue a request; all I2C and safety checks run outside the UI task. */
+esp_err_t battery_service_request_charge(bool enable);
+/** Serialize a bounded bench operation against automatic charging; leave it paused. */
+esp_err_t battery_service_run_test(esp_err_t (*operation)(void));
 
 /**
  * @brief Copy the latest snapshot into @p out.

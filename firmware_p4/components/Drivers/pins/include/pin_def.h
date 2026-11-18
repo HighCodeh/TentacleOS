@@ -29,6 +29,9 @@ extern "C" {
 #endif
 
 /** @brief External GPS receive-only UART test: J14 pin 13, through R80 (1 kOhm). */
+#define GPIO_GPS_UART_RX_PIN 12
+#define GPIO_GPS_UART_TX_PIN 11
+
 #define GPIO_EXT_GPS_RX_PIN 12
 
 /** @brief Shared SPI bus (display, CC1101, NFC, IMU, LoRa). */
