@@ -76,6 +76,9 @@ esp_err_t hb_nfc_spi_deinit(void);
  */
 esp_err_t hb_nfc_spi_reg_read(uint8_t addr, uint8_t *out_value);
 
+/** Read 1..4 consecutive space-A registers in one transaction. */
+esp_err_t hb_nfc_spi_reg_read_many(uint8_t addr, uint8_t *out_values, size_t count);
+
 /**
  * @brief Write a single ST25R3916 register.
  *
@@ -171,6 +174,17 @@ esp_err_t hb_nfc_spi_capture_gaps(uint16_t *out_gaps, size_t capacity, size_t *o
 
 /** Allocate the bounded RMT transmitter before entering target listen mode. */
 esp_err_t hb_nfc_spi_prepare_target_tx(void);
+
+/** Pre-enable the Classic transmitter before receiving an authentication challenge. */
+esp_err_t hb_nfc_spi_prepare_classic_tx(void);
+
+/* Bounded Classic exchange; begin/end must run on the same owning task. */
+esp_err_t hb_nfc_spi_target_transaction_begin(void);
+esp_err_t hb_nfc_spi_target_transaction_end(void);
+
+/** Prepare up to four target bits using hardware memory, without a DMA buffer.
+ * Longer frames require deinit and full target TX preparation. */
+esp_err_t hb_nfc_spi_prepare_target_short_tx(void);
 
 /** Send packed LSB-first data/parity bits using passive transparent modulation.
  * The caller must own the NFC frontend; SPI MOSI is restored before returning.

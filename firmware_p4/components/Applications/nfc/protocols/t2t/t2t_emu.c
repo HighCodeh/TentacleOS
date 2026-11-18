@@ -681,6 +681,8 @@ hb_nfc_err_t t2t_emu_init_default(void) {
 hb_nfc_err_t t2t_emu_configure_target(void) {
   if (!s_init_done)
     return HB_NFC_ERR_INTERNAL;
+  if (hb_nfc_spi_prepare_target_short_tx() != HB_NFC_OK)
+    return HB_NFC_ERR_INTERNAL;
 
   ESP_LOGI(TAG, "T2T configure target");
 
@@ -1495,7 +1497,10 @@ static void tx_4bit_nack(uint8_t code) {
   if (is_aes() && code != T2T_ACK)
     t2t_reset_auth();
   uint8_t value = code & T2T_NIBBLE_MASK;
-  transmit(&value, 0, T2T_NIBBLE_BITS);
+  /* Use the same bounded passive bit transmitter as Classic ACK/NACK replies.
+   * The FIFO short-frame path produced an unterminated response on this board. */
+  if (hb_nfc_spi_target_tx_bits(&value, T2T_NIBBLE_BITS) != HB_NFC_OK)
+    s_transport_error = true;
 }
 
 static void tx_ack(void) {

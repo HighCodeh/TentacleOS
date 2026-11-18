@@ -16,17 +16,20 @@
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 #include "hb_nfc_v_codec.h"
 #define ESP_OK 0
 #define ESP_LOGE(...) ((void)0)
 #define RMT_CLK_SRC_DEFAULT 0
+#define SOC_RMT_MEM_WORDS_PER_CHANNEL 48
 #define ESP_ERR_INVALID_ARG 1
 #define ESP_ERR_INVALID_STATE 2
 #define ESP_ERR_TIMEOUT 3
 #define RF_FRONTEND_NFC_13MHZ 0
 #define SPI3_HOST 0
+#define SPI_TRANS_USE_TXDATA 1
 #define portMAX_DELAY 0
 #define GPIO_MODE_INPUT 2
 #define SIG_GPIO_OUT_IDX 99
@@ -34,11 +37,15 @@
 #define GPIO_MODE_INPUT_OUTPUT 1
 #define ST25R3916_CMD_TRANSPARENT_MODE 0xdc
 #define ST25R3916_CMD_UNMASK_RX_DATA 0x16
+#define IRAM_ATTR
 /* CONSTANTS */
 typedef int esp_err_t;
 typedef void *rmt_encoder_handle_t;
-typedef struct { uint16_t duration0, duration1; unsigned level0, level1; } rmt_symbol_word_t;
-typedef struct { unsigned length; const void *tx_buffer; } spi_transaction_t;
+typedef union {
+  struct { uint32_t duration0:15, level0:1, duration1:15, level1:1; };
+  uint32_t val;
+} rmt_symbol_word_t;
+typedef struct { unsigned length, flags; const void *tx_buffer; uint8_t tx_data[4]; } spi_transaction_t;
 typedef struct { int loop_count; struct { unsigned eot_level; } flags; } rmt_transmit_config_t;
 static rmt_symbol_word_t s_tx_symbols[(HB_NFC_TX_MAX_BITS + 2) * HB_NFC_TX_SYMBOLS_PER_BIT];
 static bool s_tx_enabled;
@@ -57,9 +64,17 @@ typedef struct {
   size_t min_chunk_size;
 } rmt_simple_encoder_config_t;
 static int s_spi = 1, s_spi_host = SPI3_HOST, s_mosi = 0, s_sclk = 1;
-static uint32_t s_tx_signal;
+static uint32_t s_tx_signal, s_tx_route;
 static bool s_has_tx_signal;
 static bool s_is_tx_ready = true;
+static bool s_is_tx_short;
+static bool s_is_tx_persistent;
+typedef void *TaskHandle_t;
+static _Atomic(TaskHandle_t) s_transaction_owner;
+static TaskHandle_t s_task = (void *)1;
+static TaskHandle_t xTaskGetCurrentTaskHandle(void) { return s_task; }
+static uint32_t s_tx_encode_us, s_tx_bus_us, s_tx_setup_us, s_tx_wait_us;
+static bool s_allocated_dma;
 static struct { union { uint32_t out_sel; uint32_t val; } func_out_sel_cfg[2]; } GPIO;
 typedef int gpio_num_t;
 typedef struct { bool oe; unsigned fun_sel; } gpio_io_config_t;
@@ -91,13 +106,13 @@ static int spi_device_acquire_bus(int dev, int wait) {
 static void spi_device_release_bus(int dev) { (void)dev; assert(s_bus); s_bus = false; }
 static int spi_device_polling_transmit(int dev, spi_transaction_t *t) {
   (void)dev; assert(s_bus && s_lock); assert(t->length == 8);
-  uint8_t cmd = *(const uint8_t *)t->tx_buffer;
+  uint8_t cmd = (t->flags & SPI_TRANS_USE_TXDATA) ? t->tx_data[0] : *(const uint8_t *)t->tx_buffer;
   int err = operation();
   if (cmd == ST25R3916_CMD_TRANSPARENT_MODE) {
     if (!err) s_transparent = true;
   } else {
     assert(cmd == ST25R3916_CMD_UNMASK_RX_DATA);
-    assert(GPIO.func_out_sel_cfg[0].out_sel == 12 && (!s_enabled || s_disable_fail));
+    assert(GPIO.func_out_sel_cfg[0].out_sel == 12 && (!s_enabled || s_is_tx_persistent || s_disable_fail));
     s_transparent = false;
   }
   return err;
@@ -110,7 +125,7 @@ static void esp_rom_gpio_connect_out_signal(int pin, uint32_t signal, bool inv, 
   (void)pin; (void)inv; (void)oe; assert(s_bus); GPIO.func_out_sel_cfg[0].out_sel = signal;
 }
 static int gpio_set_direction(int pin, int mode) { (void)pin; (void)mode; return 0; }
-static int rmt_enable(void *ch) { (void)ch; int err = operation(); s_enabled = err == 0; return err; }
+static int rmt_enable(void *ch) { (void)ch; assert(!s_enabled); int err = operation(); s_enabled = err == 0; return err; }
 static int rmt_disable(void *ch) { (void)ch; assert(s_enabled);
   if (s_disable_fail) return 99;
   s_enabled = false; return 0;
@@ -143,7 +158,7 @@ static int rmt_transmit(void *ch, void *enc, const void *symbols, size_t bytes, 
 }
 static int rmt_tx_wait_all_done(void *ch, int ms) { (void)ch; assert(ms > 0); s_timeout_ms = ms; return operation(); }
 typedef struct { int unused; } rmt_copy_encoder_config_t;
-typedef struct { int gpio_num, clk_src, resolution_hz, mem_block_symbols, trans_queue_depth;
+typedef struct { int gpio_num, clk_src, resolution_hz, mem_block_symbols, trans_queue_depth, intr_priority;
   struct { bool with_dma; } flags; } rmt_tx_channel_config_t;
 static bool s_is_init = true;
 static int rmt_new_copy_encoder(const rmt_copy_encoder_config_t *config, void **encoder) {
@@ -160,10 +175,14 @@ static int rmt_new_simple_encoder(const rmt_simple_encoder_config_t *config, voi
 static int rmt_del_encoder(void *encoder) { (void)encoder; return ESP_OK; }
 static int rmt_new_tx_channel(const rmt_tx_channel_config_t *config, void **channel) {
   assert(config->gpio_num == s_mosi && config->gpio_num >= 0);
-  assert(config->flags.with_dma);
-  assert((size_t)config->mem_block_symbols >= (HB_NFC_TX_MAX_BITS + 1) * HB_NFC_TX_SYMBOLS_PER_BIT + 2);
-  assert((config->mem_block_symbols * 4U) % 64 == 0);
-  assert(config->mem_block_symbols * 4U < 4096);
+  s_allocated_dma = config->flags.with_dma;
+  if (s_allocated_dma) {
+    assert((size_t)config->mem_block_symbols >= (HB_NFC_TX_MAX_BITS + 1) * HB_NFC_TX_SYMBOLS_PER_BIT + 2);
+    assert((config->mem_block_symbols * 4U) % 64 == 0);
+    assert(config->mem_block_symbols * 4U < 4096);
+  } else {
+    assert(config->mem_block_symbols == SOC_RMT_MEM_WORDS_PER_CHANNEL);
+  }
   int err = operation();
   if (err) return err;
   GPIO.func_out_sel_cfg[s_mosi].out_sel = 77;
@@ -249,12 +268,34 @@ static esp_err_t v_reply(void *ctx,const uint8_t *data,size_t length,bool slot,
 /* PRODUCTION */
 
 static void reset(void) {
+  assert(atomic_load(&s_transaction_owner) == NULL);
   s_tx_enabled = false; s_disable_fail = false;
   s_operation = 0; s_fail_at = 0; s_count = 0; s_v_ticks = 0; s_timeout_ms = 0;
   s_lock = s_bus = s_enabled = s_transparent = s_has_tx_signal = false;
+  s_is_tx_persistent = false;
   GPIO.func_out_sel_cfg[0].out_sel = 12;
 }
 int main(void) {
+  /* Match the original exact carrier conversion for every supported pulse
+   * length and fractional phase, independently of waveform construction. */
+  for (uint32_t cycles = 1; cycles <= HB_NFC_PULSE_MAX_CYCLES; cycles++) {
+    for (uint32_t phase = 0; phase < HB_NFC_TICK_DENOMINATOR; phase++) {
+      uint32_t remainder = phase;
+      uint64_t reference = (uint64_t)cycles * HB_NFC_TX_RESOLUTION_HZ +
+                           (uint64_t)phase * HB_NFC_TICK_SCALE_HZ;
+      assert(target_ticks(cycles, &remainder) == reference / HB_NFC_RF_CARRIER_HZ);
+      assert((uint64_t)remainder * HB_NFC_TICK_SCALE_HZ ==
+             reference % HB_NFC_RF_CARRIER_HZ);
+    }
+  }
+  for (unsigned quiet = 0; quiet < 2; quiet++) {
+    for (uint32_t phase = 0; phase < HB_NFC_TICK_DENOMINATOR; phase++) {
+      uint32_t actual_phase = phase, reference_phase = phase;
+      uint16_t cycles = quiet ? HB_NFC_QUIET_HALF_CYCLES : HB_NFC_SUBCARRIER_HALF_CYCLES;
+      assert(bit_half_ticks(quiet, &actual_phase) == target_ticks(cycles, &reference_phase));
+      assert(actual_phase == reference_phase);
+    }
+  }
   reset(); s_v_encoder=(void *)2;
   assert(hb_nfc_spi_target_v_exchange(v_reply,NULL)==ESP_OK);
   assert(s_now==1319 && !s_bus && !s_lock && !s_enabled && !s_transparent);
@@ -315,7 +356,7 @@ int main(void) {
       }
     }
     ticks += s_tx_symbols[s_count - 1].duration0 + s_tx_symbols[s_count - 1].duration1;
-    assert(ticks == ((uint64_t)(bits + 1) * 128 + 64) * HB_NFC_TX_RESOLUTION_HZ / HB_NFC_RF_CARRIER_HZ);
+    assert(ticks == ((uint64_t)(bits + 1) * 128 + 128) * HB_NFC_TX_RESOLUTION_HZ / HB_NFC_RF_CARRIER_HZ);
     assert(!s_lock && !s_bus && !s_enabled && !s_transparent);
     assert(GPIO.func_out_sel_cfg[0].out_sel == 12);
     assert(s_pad_function[s_mosi] == 2 && s_pad_function[s_sclk] == 2);
@@ -371,5 +412,93 @@ int main(void) {
   assert(hb_nfc_spi_target_pulses(lows, 3) == ESP_ERR_INVALID_STATE);
   assert(s_operation == previous_operations && !memcmp(prior_frame, s_v_frame, sizeof(prior_frame)));
   s_disable_fail = false; assert(rmt_disable(s_tx_channel) == ESP_OK); s_tx_enabled = false;
-  puts("PASS: Classic/Texkom/NFC-V waveforms, streamed timing, SPI cleanup and failed-stop retention");
+  reset(); s_tx_channel = NULL; s_tx_encoder = NULL; s_is_tx_ready = false;
+  assert(hb_nfc_spi_prepare_target_short_tx() == ESP_OK);
+  assert(s_is_tx_short && !s_allocated_dma);
+  allocation_operations = s_operation;
+  assert(hb_nfc_spi_prepare_target_short_tx() == ESP_OK);
+  assert(hb_nfc_spi_prepare_target_tx() == ESP_ERR_INVALID_STATE);
+  assert(s_operation == allocation_operations);
+  for (unsigned value = 0; value < 16; value++) {
+    uint8_t nibble = value;
+    reset();
+    assert(hb_nfc_spi_target_tx_bits(&nibble, 4) == ESP_OK);
+    assert(s_count == 26 && s_count + 1 <= SOC_RMT_MEM_WORDS_PER_CHANNEL);
+    assert(!s_lock && !s_bus && !s_enabled && !s_transparent);
+    for (size_t b = 0; b < 4; b++)
+      assert(s_tx_symbols[(b + 1) * 5].level0 == ((value >> b) & 1));
+  }
+  unsigned short_operations = s_operation;
+  for (unsigned fail = 1; fail <= short_operations; fail++) {
+    reset(); s_fail_at = fail;
+    assert(hb_nfc_spi_target_tx_bits(data, 4) != ESP_OK);
+    assert(!s_lock && !s_bus && !s_enabled && !s_transparent);
+    assert(GPIO.func_out_sel_cfg[0].out_sel == 12);
+  }
+  reset();
+  assert(hb_nfc_spi_target_tx_bits(data, 5) == ESP_ERR_INVALID_ARG);
+  assert(hb_nfc_spi_target_pulses(lows, 3) == ESP_ERR_INVALID_STATE);
+  assert(hb_nfc_spi_target_v(v_frame, 16, 0, false) == ESP_ERR_INVALID_STATE);
+  assert(hb_nfc_spi_target_v_exchange(v_reply, NULL) == ESP_ERR_INVALID_STATE);
+  assert(s_operation == 0);
+  for (unsigned fail = 1; fail <= allocation_operations; fail++) {
+    reset(); s_tx_channel = NULL; s_tx_encoder = NULL; s_is_tx_ready = false;
+    s_fail_at = fail;
+    assert(hb_nfc_spi_prepare_target_short_tx() != ESP_OK);
+    assert(!s_lock && !s_bus && s_tx_channel == NULL && s_tx_encoder == NULL);
+    assert(GPIO.func_out_sel_cfg[0].out_sel == 12);
+  }
+  reset(); s_tx_channel = NULL; s_tx_encoder = NULL;
+  assert(hb_nfc_spi_prepare_target_tx() == ESP_OK && !s_is_tx_short && s_allocated_dma);
+  assert(hb_nfc_spi_prepare_target_short_tx() == ESP_OK && !s_is_tx_short);
+  assert(hb_nfc_spi_target_tx_bits(data, HB_NFC_TX_MAX_BITS) == ESP_OK);
+  reset(); s_tx_channel = NULL; s_tx_encoder = NULL; s_tx_enabled = false;
+  assert(hb_nfc_spi_prepare_classic_tx() == ESP_OK && s_tx_enabled && s_enabled);
+  assert(s_is_tx_persistent && GPIO.func_out_sel_cfg[0].out_sel == 12);
+  assert(hb_nfc_spi_prepare_classic_tx() == ESP_OK);
+  unsigned classic_allocation_operations = s_operation;
+  s_operation = 0;
+  assert(hb_nfc_spi_target_tx_bits(data, 36) == ESP_OK);
+  unsigned classic_operations = s_operation;
+  assert(s_tx_enabled && s_enabled && !s_bus && !s_lock && !s_transparent);
+  assert(hb_nfc_spi_target_tx_bits(data, HB_NFC_TX_MAX_BITS) == ESP_OK);
+  assert(s_tx_enabled && s_enabled && GPIO.func_out_sel_cfg[0].out_sel == 12);
+  assert(rmt_disable(s_tx_channel) == ESP_OK); s_tx_enabled = false;
+
+  reset(); s_tx_channel = NULL; s_tx_encoder = NULL;
+  assert(hb_nfc_spi_prepare_classic_tx() == ESP_OK);
+  assert(hb_nfc_spi_target_transaction_end() == ESP_ERR_INVALID_STATE);
+  assert(hb_nfc_spi_target_transaction_begin() == ESP_OK && s_lock && s_bus);
+  assert(hb_nfc_spi_target_transaction_begin() == ESP_ERR_INVALID_STATE);
+  s_task = (void *)2;
+  assert(hb_nfc_spi_target_transaction_end() == ESP_ERR_INVALID_STATE && s_lock && s_bus);
+  s_task = (void *)1;
+  assert(hb_nfc_spi_target_tx_bits(data, 36) == ESP_OK && s_lock && s_bus);
+  assert(hb_nfc_spi_target_transaction_end() == ESP_OK && !s_lock && !s_bus);
+  for (unsigned fault = 1; fault <= 2; fault++) {
+    s_operation = 0; s_fail_at = fault;
+    assert(hb_nfc_spi_target_transaction_begin() != ESP_OK);
+    assert(!s_lock && !s_bus && atomic_load(&s_transaction_owner) == NULL);
+  }
+  s_operation = s_fail_at = 0;
+  assert(hb_nfc_spi_target_transaction_begin() == ESP_OK);
+  s_fail_at = s_operation + 1;
+  assert(hb_nfc_spi_target_tx_bits(data, 36) != ESP_OK && s_lock && s_bus);
+  assert(hb_nfc_spi_target_transaction_end() == ESP_OK && !s_lock && !s_bus);
+  if (s_tx_enabled) { assert(rmt_disable(s_tx_channel) == ESP_OK); s_tx_enabled = false; }
+  for (unsigned fail = 1; fail <= classic_operations; fail++) {
+    reset(); s_tx_channel = NULL; s_tx_encoder = NULL; s_tx_enabled = false;
+    assert(hb_nfc_spi_prepare_classic_tx() == ESP_OK);
+    s_operation = 0; s_fail_at = fail;
+    assert(hb_nfc_spi_target_tx_bits(data, 36) != ESP_OK);
+    assert(!s_bus && !s_lock && !s_transparent);
+    if (s_tx_enabled) { assert(rmt_disable(s_tx_channel) == ESP_OK); s_tx_enabled = false; }
+  }
+  for (unsigned fail = 1; fail <= classic_allocation_operations; fail++) {
+    reset(); s_tx_channel = NULL; s_tx_encoder = NULL; s_tx_enabled = false;
+    s_is_tx_ready = false; s_fail_at = fail;
+    assert(hb_nfc_spi_prepare_classic_tx() != ESP_OK);
+    assert(!s_enabled && !s_bus && !s_lock && s_tx_channel == NULL && s_tx_encoder == NULL);
+  }
+  puts("PASS: short target without DMA, bounds/fault cleanup; full Classic/Texkom/NFC-V retained");
 }

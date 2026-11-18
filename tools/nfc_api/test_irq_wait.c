@@ -41,6 +41,12 @@ static int hb_nfc_spi_reg_read(int reg, uint8_t *out) {
   regs[reg] = 0;
   return ESP_OK;
 }
+static int hb_nfc_spi_reg_read_many(int reg, uint8_t *out, size_t count) {
+  assert(count == 4 && reg == ST25R3916_REG_MAIN_INT);
+  for (size_t i = 0; i < count; i++)
+    if (hb_nfc_spi_reg_read(reg + (int)i, out + i) != ESP_OK) return ESP_FAIL;
+  return ESP_OK;
+}
 static uint16_t st25r3916_fifo_get_count(void) { now += 2000; return 0; }
 /* PRODUCTION */
 int main(void) {
