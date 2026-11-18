@@ -54,7 +54,7 @@ static volatile bool s_snd_busy = false;
 static void nfc_snd_task(void *arg) {
   nfc_ui_sound_t kind = (nfc_ui_sound_t)(intptr_t)arg;
   if (g_config_system.vibration)
-    (void)haptic_play(HAPTIC_FEEDBACK_INTENSITY, HAPTIC_FEEDBACK_MS);
+    (void)haptic_feedback(HAPTIC_FEEDBACK_MS);
   if (kind == NFC_SND_SAVE) {
     audio_i2s_play_song(SND_SAVE_NOTES, 2, NFC_SND_AMP);
   } else {

@@ -566,7 +566,13 @@ static void nfc_bankcard_input(const input_event_t *ev, void *ctx) {
       break;
     case INPUT_BTN_RIGHT:
       if (!s_task)
-        keyboard_open(NULL, load_submit, NULL);
+        keyboard_open_config(&(keyboard_config_t){.title = "Saved card path",
+                                                  .initial = NULL,
+                                                  .max_chars = 255,
+                                                  .min_chars = 1,
+                                                  .mode = KEYBOARD_TEXT},
+                             load_submit,
+                             NULL);
       break;
     case INPUT_BTN_OK:
       if (s_task == NULL) {
@@ -625,12 +631,7 @@ void ui_nfc_bankcard_open(void) {
     s_screen = NULL;
   }
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   ui_chrome_header(s_screen, "EMV INSPECT", "/assets/icons/contactless.bin");
 
