@@ -48,7 +48,7 @@ static int st25r3916_irq_read(st25r3916_irq_status_t *status) { (void)status;ret
 static hb_nfc_err_t load_pt_memory(void) { return operation(); }
 static void vTaskDelay(unsigned ms) { (void)ms; }
 static int64_t esp_timer_get_time(void) { return 123; }
-static int hb_nfc_spi_prepare_target_tx(void) { return operation(); }
+static int hb_nfc_spi_prepare_classic_tx(void) { return operation(); }
 
 /* STARTUP */
 

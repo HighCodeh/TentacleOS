@@ -26,10 +26,14 @@ from test_emu_tx import extract, ROOT
 source = (ROOT / "firmware_p4/components/Drivers/st25r3916/hal/hb_nfc_spi.c").read_text()
 functions = "\n".join(extract(source, name) for name in (
     "static esp_err_t restore_output(gpio_num_t pin, uint32_t route, const gpio_io_config_t *config) {", "static bool receive_done(", "esp_err_t hb_nfc_spi_capture_gaps(",
-    "esp_err_t hb_nfc_spi_prepare_target_tx(", "static uint16_t target_ticks(", "static void encode_target_bit(",
-    "static esp_err_t transmit_target_encoded(rmt_encoder_handle_t encoder, const void *data,\n                                         size_t size, int timeout_ms) {",
+    "static esp_err_t prepare_target_tx(",
+    "esp_err_t hb_nfc_spi_target_transaction_begin(",
+    "esp_err_t hb_nfc_spi_target_transaction_end(",
+    "esp_err_t hb_nfc_spi_prepare_target_short_tx(",
+    "esp_err_t hb_nfc_spi_prepare_classic_tx(", "esp_err_t hb_nfc_spi_prepare_target_tx(", "static uint16_t IRAM_ATTR target_ticks(", "static uint16_t IRAM_ATTR bit_half_ticks(", "static void IRAM_ATTR encode_target_bit(",
+    "static esp_err_t IRAM_ATTR transmit_target_encoded(rmt_encoder_handle_t encoder, const void *data,\n                                         size_t size, int timeout_ms) {",
     "static esp_err_t transmit_target(size_t count) {",
-    "esp_err_t hb_nfc_spi_target_tx_bits(",
+    "esp_err_t IRAM_ATTR hb_nfc_spi_target_tx_bits(",
     "esp_err_t hb_nfc_spi_target_pulses(",
     "static size_t encode_v(",
     "esp_err_t hb_nfc_spi_target_v(",

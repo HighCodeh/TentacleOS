@@ -25,7 +25,8 @@
 #include "hb_nfc_gpio.h"
 #include "hb_nfc_timer.h"
 
-#define IRQ_US_PER_MS 1000
+#define IRQ_US_PER_MS      1000
+#define IRQ_REGISTER_COUNT 4U
 
 static uint8_t s_pending_main;
 static uint8_t s_pending_error;
@@ -38,13 +39,15 @@ esp_err_t st25r3916_irq_read(st25r3916_irq_status_t *out_status) {
   }
 
   st25r3916_irq_status_t status = {0};
+  uint8_t irq_regs[IRQ_REGISTER_COUNT] = {0};
   memset(out_status, 0, sizeof(*out_status));
-  if (hb_nfc_spi_reg_read(ST25R3916_REG_ERROR_INT, &status.error) != ESP_OK ||
-      hb_nfc_spi_reg_read(ST25R3916_REG_TIMER_NFC_INT, &status.timer) != ESP_OK ||
-      hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &status.main) != ESP_OK ||
-      hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &status.target) != ESP_OK ||
+  if (hb_nfc_spi_reg_read_many(ST25R3916_REG_MAIN_INT, irq_regs, sizeof(irq_regs)) != ESP_OK ||
       hb_nfc_spi_reg_read(ST25R3916_REG_COLLISION, &status.collision) != ESP_OK)
     return ESP_FAIL;
+  status.main = irq_regs[0];
+  status.timer = irq_regs[1];
+  status.error = irq_regs[2];
+  status.target = irq_regs[3];
   status.main |= s_pending_main;
   status.error |= s_pending_error;
   s_pending_main = 0;
@@ -57,11 +60,8 @@ esp_err_t st25r3916_irq_read(st25r3916_irq_status_t *out_status) {
 esp_err_t st25r3916_irq_clear(void) {
   s_pending_main = 0;
   s_pending_error = 0;
-  uint8_t ignored = 0;
-  if (hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &ignored) != ESP_OK ||
-      hb_nfc_spi_reg_read(ST25R3916_REG_TIMER_NFC_INT, &ignored) != ESP_OK ||
-      hb_nfc_spi_reg_read(ST25R3916_REG_ERROR_INT, &ignored) != ESP_OK ||
-      hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &ignored) != ESP_OK) {
+  uint8_t ignored[IRQ_REGISTER_COUNT] = {0};
+  if (hb_nfc_spi_reg_read_many(ST25R3916_REG_MAIN_INT, ignored, sizeof(ignored)) != ESP_OK) {
     return ESP_FAIL;
   }
   return ESP_OK;
@@ -180,7 +180,7 @@ esp_err_t st25r3916_irq_wait_exchange(int32_t timeout_ms, st25r3916_irq_status_t
     out_status->target |= current.target;
     out_status->collision |= current.collision;
     if ((out_status->main & complete) == complete) {
-      /* ERROR_INT is read before MAIN_INT; collect errors that arrived at RXE. */
+      /* Collect errors that arrived while the IRQ snapshot was being read. */
       uint8_t late = 0;
       err = hb_nfc_spi_reg_read(ST25R3916_REG_ERROR_INT, &late);
       out_status->error |= late;

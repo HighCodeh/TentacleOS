@@ -29,7 +29,7 @@ production = "\n".join(extract(irq, name) for name in (
     "esp_err_t st25r3916_irq_wait_txe(", "esp_err_t st25r3916_irq_wait_rxe("))
 production += "\n" + extract(fifo, "esp_err_t st25r3916_fifo_wait(")
 fixture = Path(__file__).with_suffix(".c").read_text()
-constants = "\n".join(re.findall(r"^#define (?:IRQ|FIFO)_US_PER_MS.*", irq + fifo, re.M))
+constants = "\n".join(re.findall(r"^#define (?:IRQ_[A-Z_]+|FIFO_US_PER_MS).*", irq + fifo, re.M))
 fixture = fixture.replace("/* PRODUCTION */", constants + "\n" + production)
 with tempfile.TemporaryDirectory(prefix="nfc-irq-") as tmp:
     path = Path(tmp)
