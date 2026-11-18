@@ -25,6 +25,8 @@
 #include "msgbox_ui.h"
 #include "notify_ui.h"
 #include "subghz_receiver.h"
+#include "subghz_storage.h"
+#include "keyboard_ui.h"
 #include "subghz_replay.h"
 #include "subghz_settings.h"
 #include "ui_chrome.h"
@@ -305,12 +307,7 @@ void ui_subghz_read_open(void) {
 
   subghz_settings_t cfg = subghz_settings_get();
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   ui_chrome_header(s_screen, "READ", "/assets/icons/sensors.bin");
 
@@ -543,6 +540,24 @@ static void send_current(void) {
     notify(NOTIFY_WARNING, "Send failed");
 }
 
+static void save_name_submit(const char *name, void *context) {
+  (void)context;
+  esp_err_t err = subghz_storage_rename(s_result.save_name, name);
+  if (err == ESP_OK) {
+    snprintf(s_result.save_name, sizeof(s_result.save_name), "%s", name);
+    s_saved = true;
+    capture_result_mark_saved(&s_cr);
+    ui_feedback(UI_FB_WRITE);
+    notify(NOTIFY_SAVED, "Saved to SD");
+  } else {
+    notify(NOTIFY_WARNING,
+           err == ESP_ERR_INVALID_STATE ? "Name exists; choose another"
+                                        : "Capture not saved; check SD");
+    keyboard_open_filename(
+        "Signal name (without .sub)", name, sizeof(s_result.save_name) - 1, save_name_submit);
+  }
+}
+
 static void subghz_read_input(const input_event_t *ev, void *ctx) {
   (void)ctx;
   const bool press = (ev->action == INPUT_ACTION_PRESS);
@@ -579,12 +594,11 @@ static void subghz_read_input(const input_event_t *ev, void *ctx) {
             send_current();
             break;
           case CAP_ACT_SAVE:
-            if (!s_saved) {
-              s_saved = true;
-              capture_result_mark_saved(&s_cr);
-              ui_feedback(UI_FB_WRITE);
-              notify(NOTIFY_SAVED, "Saved to SD");
-            }
+            if (!s_saved)
+              keyboard_open_filename("Signal name (without .sub)",
+                                     s_result.save_name,
+                                     sizeof(s_result.save_name) - 1,
+                                     save_name_submit);
             break;
           case CAP_ACT_AGAIN:
             ui_subghz_read_open();
