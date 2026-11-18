@@ -318,8 +318,10 @@ esp_err_t sx1262_config_lora(const sx1262_config_t *config) {
     return ret;
   }
 
-  uint16_t sync_word =
-      config->is_public_network ? SX1262_LORA_SYNC_WORD_PUBLIC : SX1262_LORA_SYNC_WORD_PRIVATE;
+  uint16_t sync_word = config->sync_word != 0
+                           ? config->sync_word
+                           : (config->is_public_network ? SX1262_LORA_SYNC_WORD_PUBLIC
+                                                        : SX1262_LORA_SYNC_WORD_PRIVATE);
   uint8_t sw_data[2] = {(uint8_t)(sync_word >> 8), (uint8_t)(sync_word)};
   ret = sx1262_cmd_write_register(hal, SX1262_REG_LORA_SYNC_WORD_MSB, sw_data, 2);
   if (ret != ESP_OK) {

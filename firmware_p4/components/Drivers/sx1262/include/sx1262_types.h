@@ -51,6 +51,7 @@ typedef struct {
   bool is_crc_on;         /**< Enable CRC on payload.           */
   bool is_inverted_iq;    /**< true = LoRaWAN downlink (activates W4).    */
   bool is_implicit_hdr;   /**< true = Implicit Header mode (activates W3). */
+  uint16_t sync_word;     /**< Zero selects private/public default; otherwise exact SX126x word. */
   bool is_public_network; /**< true = public sync word (0x3444). */
 } sx1262_config_t;
 
