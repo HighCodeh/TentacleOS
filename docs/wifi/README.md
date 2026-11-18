@@ -46,6 +46,14 @@ the in-flight channel, then stops; failures preserve already collected records.
 A new session is rejected until the old worker has finished. Legacy console
 one-shot scans and monitor-mode capture remain separate.
 
+The separate C5 wardriving scan retains its 128-record indexed snapshot in an
+explicit PSRAM allocation. It allocates on first use and reuses the buffer for
+later generations; reads are rejected while scanning or after a failed scan.
+If PSRAM is unavailable, the scan reports `ESP_ERR_NO_MEM` without starting
+Wi-Fi or falling back to internal RAM. The paired wire contract is unchanged.
+`python3 tools/highboy/tests/test_wardrive_memory.py` checks allocation failure,
+retry, reuse, capacity, string termination and stale/busy/error requests.
+
 **Both P4 and C5 applications must be updated for this interface.** P4 alone
 cannot enable progressive discovery on an older C5. No flash is performed by
 building either target.
