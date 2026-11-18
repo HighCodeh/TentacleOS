@@ -297,7 +297,7 @@ static void build_grid_content(void) {
   if (s_proto == LORA_PROTO_NONE) {
     s_empty_msg = lv_label_create(s_grid);
     lv_obj_add_flag(s_empty_msg, LV_OBJ_FLAG_FLOATING);
-    lv_label_set_text(s_empty_msg, "Start a protocol first");
+    lv_label_set_text(s_empty_msg, "Start a protocol in LoRa Chat");
     lv_obj_set_style_text_font(s_empty_msg, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(s_empty_msg, current_theme.text_secondary, 0);
     lv_obj_center(s_empty_msg);
@@ -401,7 +401,13 @@ static void lora_channels_input(const input_event_t *ev, void *ctx) {
       if (press) {
         if (active) {
           ui_feedback(UI_FB_SELECT);
-          keyboard_open(NULL, on_kb_rename, (void *)(intptr_t)s_sel);
+          keyboard_open_config(&(keyboard_config_t){.title = "Rename channel",
+                                                    .initial = s_slot[s_sel].name,
+                                                    .max_chars = sizeof(s_slot[s_sel].name) - 1,
+                                                    .min_chars = 1,
+                                                    .mode = KEYBOARD_TEXT},
+                               on_kb_rename,
+                               (void *)(intptr_t)s_sel);
         } else {
           ui_feedback(UI_FB_SELECT);
         }
@@ -427,12 +433,7 @@ void ui_lora_channels_open(void) {
     s_tiles[i] = NULL;
   s_sel = 0;
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   ui_chrome_header(s_screen, HDR_TITLE, HDR_ICON);
 
@@ -459,7 +460,8 @@ void ui_lora_channels_open(void) {
   load_slots();
   build_grid_content();
 
-  ui_chrome_footer(s_screen, FOOTER_HINT);
+  ui_chrome_footer(s_screen,
+                   s_proto == LORA_PROTO_NONE ? "BACK to LoRa: start a protocol" : FOOTER_HINT);
 
   ui_input_set_screen_handler(lora_channels_input, NULL);
 
