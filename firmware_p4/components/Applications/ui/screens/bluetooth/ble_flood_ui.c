@@ -140,12 +140,7 @@ void ui_ble_flood_open(void) {
   s_flood_timer = NULL;
   s_target[0] = '\0';
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   ui_chrome_header(s_screen, "BLE FLOOD", FLOOD_ICON);
   ui_chrome_footer(s_screen, "L/R Mode   BACK Stop");
@@ -191,8 +186,8 @@ void ui_ble_flood_open(void) {
   lv_obj_set_style_text_font(s_rate_label, &lv_font_montserrat_12, 0);
   lv_obj_align(s_rate_label, LV_ALIGN_TOP_MID, 0, 178);
 
-  fade_in(s_status_label, 200);
-  fade_in(s_mode_label, 280);
+  fade_in(s_status_label, UI_CONTENT_FADE_MS);
+  fade_in(s_mode_label, UI_CONTENT_FADE_MS);
   fade_in(card, 320);
 
   if (!ble_scanner_start()) {

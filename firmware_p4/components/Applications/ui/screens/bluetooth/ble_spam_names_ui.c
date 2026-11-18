@@ -154,7 +154,13 @@ static void ble_spam_names_input(const input_event_t *ev, void *ctx) {
           s_del_index = sel;
           msgbox_open(LV_SYMBOL_TRASH, "Delete this name?", "Delete", "Cancel", on_delete_confirm);
         } else if (sel == s_count && s_count < NAMES_MAX) {
-          keyboard_open(NULL, on_kb_submit, NULL);
+          keyboard_open_config(&(keyboard_config_t){.title = "Bluetooth name",
+                                                    .initial = NULL,
+                                                    .max_chars = NAME_LEN - 1,
+                                                    .min_chars = 1,
+                                                    .mode = KEYBOARD_TEXT},
+                               on_kb_submit,
+                               NULL);
         }
       }
       break;

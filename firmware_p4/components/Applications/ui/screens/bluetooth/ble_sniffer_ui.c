@@ -159,12 +159,7 @@ void ui_ble_sniffer_open(void) {
   portEXIT_CRITICAL(&s_lock);
   s_rendered_frames = 0;
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   ui_chrome_header(s_screen, "SNIFFER", SNIFF_ICON);
   ui_chrome_footer(s_screen, "BACK Stop");
@@ -248,7 +243,6 @@ static void ble_sniffer_input(const input_event_t *ev, void *ctx) {
   switch (ev->button) {
     case INPUT_BTN_BACK:
       if (press) {
-        ui_ble_sniffer_stop();
         ui_switch_screen(SCREEN_BLE_DETECT_MENU);
       }
       break;
