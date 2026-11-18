@@ -15,7 +15,7 @@
 # along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 """Exercise production MP3 worker failure cleanup with decoder/I2S fault injection."""
-import re,subprocess,tempfile
+import os,re,subprocess,tempfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[3]
 source=(ROOT/'firmware_p4/components/Applications/ui/screens/audio/mp3_player_ui.c').read_text()
@@ -93,5 +93,5 @@ int main(int argc,char **argv) {
 with tempfile.TemporaryDirectory() as tmp:
  tmp=Path(tmp);c=tmp/'test.c';binary=tmp/'test';data=tmp/'test.mp3';data.write_bytes(bytes(8192))
  c.write_text(source.split('#ifndef')[0]+header+'\n'+constants+'\n'+state+function('compute_bars')+'\n'+function('player_task')+tests)
- subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Werror','-fsanitize=undefined',str(c),'-o',str(binary)],check=True)
+ subprocess.run([os.environ.get('CC','cc'),'-std=c11','-Wall','-Wextra','-Werror','-fsanitize=undefined',str(c),'-o',str(binary),'-lm'],check=True)
  subprocess.run([str(binary),str(data)],check=True,timeout=10)

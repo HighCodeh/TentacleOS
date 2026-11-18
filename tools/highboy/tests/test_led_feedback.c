@@ -25,7 +25,8 @@ unsigned ulTaskNotifyTake(int clear,unsigned ticks) {(void)clear;return ticks;}
 void xTaskNotifyGive(void *task) {assert(task);}
 int xTaskCreatePinnedToCore(void (*fn)(void *),const char *name,int stack,void *arg,int priority,void *handle,int core) {
  (void)fn;(void)name;(void)stack;(void)arg;(void)priority;(void)core;
- if(task_failure)return 0;*(void**)handle=(void*)1;return pdPASS;
+ if(task_failure) { return 0; }
+ *(void**)handle=(void*)1;return pdPASS;
 }
 const char *esp_err_to_name(esp_err_t err) {(void)err;return "mock";}
 i2c_master_bus_handle_t i2c_get_bus(void) {return (void*)1;}

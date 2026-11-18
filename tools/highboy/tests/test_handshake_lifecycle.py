@@ -16,6 +16,7 @@
 
 """Fault-inject the production handshake worker lifecycle."""
 from pathlib import Path
+import os
 import subprocess
 import tempfile
 ROOT = Path(__file__).resolve().parents[3]
@@ -84,7 +85,8 @@ static void menu_component_scroll_content(void *p,int delta) {(void)p;(void)delt
 static void capture_stopped_cb(void *p);
 static void state_ready_cb(void *p) {(void)p;}
 static void ui_async_call(void (*cb)(void *),void *p) {
- if(cb==capture_stopped_cb)return;updates++;last_update=(unsigned)(uintptr_t)p;
+ if(cb==capture_stopped_cb) { return; }
+ updates++;last_update=(unsigned)(uintptr_t)p;
 }
 static void vTaskDelay(unsigned ms) {assert(ms==1000);s_is_poll_running=false;}
 static void vTaskDeleteWithCaps(void *p) {assert(!p);deleted++;}
@@ -124,7 +126,7 @@ with tempfile.TemporaryDirectory(prefix="handshake-lifecycle-") as tmp:
     c = path / "test.c"
     c.write_text(fakes + callback + code + tests)
     binary = path / "test"
-    subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+    subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-Wall", "-Wextra", "-Werror",
                     "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
                     str(c), "-o", str(binary)], check=True)
     subprocess.run([str(binary)], check=True, timeout=30)
