@@ -20,8 +20,10 @@
 extern "C" {
 #endif
 
-/** @brief Open the battery info screen (mock). */
+/** @brief Open live battery information. */
 void ui_battery_settings_open(void);
+/** Stop periodic updates before leaving the screen. */
+void ui_battery_settings_close(void);
 
 #ifdef __cplusplus
 }

@@ -442,6 +442,8 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
   switch (s) {
     case SCREEN_WARDRIVE:
       return wardrive_ui_stop;
+    case SCREEN_BATTERY_SETTINGS:
+      return ui_battery_settings_close;
     case SCREEN_BLE_BEACON_SPAM:
       return ui_beacon_spam_stop;
     case SCREEN_BLE_MOUSE_PAIRING:
