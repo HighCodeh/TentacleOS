@@ -419,7 +419,13 @@ static void connect_wifi_input(const input_event_t *ev, void *ctx) {
         if (s_aps[s_sel].open)
           start_connection("");
         else
-          keyboard_open(NULL, on_keyboard_submit, NULL);
+          keyboard_open_config(&(keyboard_config_t){.title = "Wi-Fi password",
+                                                    .initial = NULL,
+                                                    .max_chars = 64,
+                                                    .min_chars = 1,
+                                                    .mode = KEYBOARD_PASSWORD},
+                               on_keyboard_submit,
+                               NULL);
       }
       break;
     default:

@@ -39,7 +39,7 @@
 static const char *TAG = "WIFI_SIG_LOC_UI";
 
 #define ARC_ANIM_MS    260
-#define ENTRY_FADE_MS  240
+#define ENTRY_FADE_MS  UI_CONTENT_FADE_MS
 #define SIGNAL_POLL_MS 300
 
 #define HEADER_ICON "/assets/icons/wifi_find.bin"

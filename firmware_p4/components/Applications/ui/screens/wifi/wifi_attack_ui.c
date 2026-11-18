@@ -29,6 +29,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
 
@@ -173,8 +174,8 @@ static void build_list_view(void) {
   for (size_t i = 0; i < ATTACKS_COUNT; i++)
     menu_component_add_item(&s_menu, ATTACK_ICONS[i], ATTACKS[i].name);
 
-  fade_in(s_menu.title_bar, 200);
-  fade_in(s_menu.items_cont, 200);
+  fade_in(s_menu.title_bar, UI_CONTENT_FADE_MS);
+  fade_in(s_menu.items_cont, UI_CONTENT_FADE_MS);
 
   s_view = VIEW_LIST;
 }
@@ -216,8 +217,8 @@ static void build_pick_list(void) {
   }
   menu_component_set_hint(&s_menu, "OK target   BACK exit");
 
-  fade_in(s_menu.title_bar, 200);
-  fade_in(s_menu.items_cont, 200);
+  fade_in(s_menu.title_bar, UI_CONTENT_FADE_MS);
+  fade_in(s_menu.items_cont, UI_CONTENT_FADE_MS);
 
   s_view = VIEW_PICK_LIST;
 }
@@ -257,10 +258,10 @@ static void build_running_view(void) {
 
   ui_chrome_footer(s_screen, "BACK to stop");
 
-  fade_in(header, 200);
-  fade_in(status_label, 200);
-  fade_in(target_label, 200);
-  fade_in(s_elapsed_label, 200);
+  fade_in(header, UI_CONTENT_FADE_MS);
+  fade_in(status_label, UI_CONTENT_FADE_MS);
+  fade_in(target_label, UI_CONTENT_FADE_MS);
+  fade_in(s_elapsed_label, UI_CONTENT_FADE_MS);
 
   s_view = VIEW_RUNNING;
   s_start_tick = lv_tick_get();
