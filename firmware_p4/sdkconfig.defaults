@@ -93,6 +93,20 @@ CONFIG_LV_FONT_MONTSERRAT_12=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_MONTSERRAT_16=y
 
+# The physical-button editor uses buttonmatrix; stock keyboard maps are unused.
+# CONFIG_LV_USE_KEYBOARD is not set
+# Calendar/window widgets have no firmware or app-runtime consumers.
+# CONFIG_LV_USE_CALENDAR is not set
+# CONFIG_LV_USE_WIN is not set
+# Unused stock widgets: native menus and editors provide these controls.
+# CONFIG_LV_USE_DROPDOWN is not set
+# CONFIG_LV_USE_ROLLER is not set
+# CONFIG_LV_USE_SPINBOX is not set
+# CONFIG_LV_USE_SCALE is not set
+# Firmware uses its own applications, not bundled LVGL examples or demos.
+# CONFIG_LV_BUILD_EXAMPLES is not set
+# CONFIG_LV_BUILD_DEMOS is not set
+
 # LVGL objects, strings and caches use PSRAM, including small allocations.
 # Keep internal DMA RAM available for the display, radios and hardware crypto.
 # CONFIG_LV_USE_BUILTIN_MALLOC is not set
