@@ -16,6 +16,7 @@
 #ifndef BOARD_PINS_H
 #define BOARD_PINS_H
 
+#include <stdbool.h>
 #include "esp_err.h"
 
 #ifdef __cplusplus
@@ -23,6 +24,8 @@ extern "C" {
 #endif
 
 esp_err_t board_pins_init(void);
+/* Boot-only, before the bridge supervisor is started. */
+esp_err_t board_pins_hold_c5(bool held);
 // Caller must exclusively own an idle bridge. Normal boot only; never asserts BOOT.
 esp_err_t board_pins_reset_c5(void);
 // Caller must exclusively own an idle bridge. Holds BOOT asserted until P4 restart.

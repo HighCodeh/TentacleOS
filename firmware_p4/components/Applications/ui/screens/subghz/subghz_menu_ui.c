@@ -37,6 +37,7 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "lora_rnode_ui.h"
 #include "ui_metrics.h"
 #include "ui_theme.h"
 
@@ -114,6 +115,7 @@ static const struct {
     {"Saved", "/assets/icons/folder.bin", false},
     {"Send", "/assets/icons/sensors.bin", false},
     {"Radio Config", "/assets/icons/tune.bin", false},
+    {"RF Lab", "/assets/icons/tune.bin", false},
 };
 #define ITEM_COUNT ((int)(sizeof(ITEMS) / sizeof(ITEMS[0])))
 
@@ -122,6 +124,7 @@ static const struct {
 #define IDX_SAVED    4
 #define IDX_SEND     5
 #define IDX_CONFIG   6
+#define IDX_RF_LAB   7
 
 #define SAVED_MAX 64
 EXT_RAM_BSS_ATTR static subghz_storage_entry_t s_saved[SAVED_MAX];
@@ -698,12 +701,7 @@ static void build_screen(void) {
   s_send_overlay = NULL;
   s_send_status = NULL;
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   switch (s_view) {
     case VIEW_ANALYZER:
@@ -837,6 +835,9 @@ static void subghz_menu_input(const input_event_t *ev, void *ctx) {
               ui_switch_screen(SCREEN_SUBGHZ_BRUTE);
             } else if (sel == IDX_SEND) {
               ui_switch_screen(SCREEN_SUBGHZ_SEND);
+            } else if (sel == IDX_RF_LAB) {
+              ui_rf_lab_from_subghz(true);
+              ui_switch_screen(SCREEN_LORA_RNODE);
             } else if (sel == IDX_CONFIG) {
               ui_switch_screen(SCREEN_SUBGHZ_CONFIG);
             } else if (sel >= 0 && sel < ITEM_COUNT && ITEMS[sel].capture) {

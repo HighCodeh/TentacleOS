@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ui_manager.h"
+#include "rf_passive.h"
 
 #include "core/lv_group.h"
 #include "freertos/FreeRTOS.h"
@@ -390,6 +391,11 @@ void ui_init_safe_mode(void) {
 
 static void ui_boot_task(void *pvParameter) {
   (void)pvParameter;
+  if (rf_passive_is_boot()) {
+    ui_switch_screen(SCREEN_LORA_RNODE);
+    vTaskDelete(NULL);
+    return;
+  }
 
   if (ui_acquire()) {
     ui_boot_show();
@@ -446,6 +452,8 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
       return ui_battery_settings_close;
     case SCREEN_MP4_PLAYER:
       return ui_mp4_player_stop;
+    case SCREEN_LORA_RNODE:
+      return ui_lora_rnode_close;
     case SCREEN_BLE_BEACON_SPAM:
       return ui_beacon_spam_stop;
     case SCREEN_BLE_MOUSE_PAIRING:
@@ -886,7 +894,6 @@ static bool is_lora_screen(screen_id_t s) {
   switch (s) {
     case SCREEN_LORA_CHAT:
     case SCREEN_LORA_TRACEROUTE:
-    case SCREEN_LORA_RNODE:
     case SCREEN_LORA_CHANNELS:
     case SCREEN_LORA_POSITION:
     case SCREEN_LORA_TELEMETRY:
@@ -948,6 +955,8 @@ void ui_prepare_shutdown(void) {
 }
 
 void ui_switch_screen(screen_id_t new_screen) {
+  if (rf_passive_is_boot() && new_screen != SCREEN_LORA_RNODE)
+    return;
   ui_open_fn_t open_fn = screen_open_fn(new_screen);
   if (open_fn == NULL) {
     ESP_LOGW(TAG, "Screen %d not available — staying put", (int)new_screen);

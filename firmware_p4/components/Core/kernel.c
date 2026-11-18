@@ -34,6 +34,7 @@
 #include "i2c_init.h"
 #include "st7789.h"
 #include "cc1101.h"
+#include "rf_passive.h"
 #include "bq25896.h"
 #include "battery_service.h"
 #include "led_control.h"
@@ -184,6 +185,11 @@ esp_err_t kernel_init(void) {
   esp_err_t ret = nvs_flash_init();
   boot_report_record("nvs", true, ret);
 
+  boot_report_record("rf-lab-config", true, rf_passive_load());
+  bool is_passive = rf_passive_is_boot();
+  if (!is_passive && ret == ESP_OK)
+    ESP_ERROR_CHECK(board_pins_hold_c5(false));
+
   sys_time_init();
 
   // Capture last-run crash forensics before anything can overwrite the reason.
@@ -210,6 +216,8 @@ esp_err_t kernel_init(void) {
   boot_report_record("rfid-lf", false, lf_rfid_init());
 
   spi_init();
+  if (is_passive)
+    rf_passive_startup();
 
   input_manager_init();
   bool is_safe_mode =
@@ -265,21 +273,25 @@ esp_err_t kernel_init(void) {
   led_rgb_init();
   battery_service_init();
   // AW8623 stays in remote reset until the haptic worker owns an operation.
-  cc1101_init();
+  if (!is_passive)
+    cc1101_init();
   // C5 radio coprocessor bridge (SPI2, POLL mode to match the C5 slave). Inits
   // the bridge bus, starts the link monitor, and probes the C5 version. If the
   // C5 is absent this marks the bridge down and the monitor re-probes until it
   // appears, so a late-booting C5 is still picked up. Never blocks the boot.
-  bridge_manager_init();
+  if (!is_passive)
+    bridge_manager_init();
   audio_i2s_bind_controls(board_service_controls());
   usb_mux_bind_controls(board_service_controls());
   usb_mux_init();
-  config_sync_start(); // push changed config files to the C5 (hash-gated, background)
+  if (!is_passive)
+    config_sync_start(); // push changed config files to the C5 (hash-gated, background)
   buttons_init();
   // Creates the TX mutex that serializes access to the single I2S_NUM_0 TX
   // channel and queued UI effects. Amplifier negotiation happens in playback
   // workers; microphone capture does not depend on the remote amplifier.
-  boot_report_record("audio", false, audio_i2s_init());
+  if (!is_passive)
+    boot_report_record("audio", false, audio_i2s_init());
   audio_i2s_set_volume((uint8_t)g_config_system.volume);
 
   ui_init();
@@ -289,24 +301,26 @@ esp_err_t kernel_init(void) {
 
   // 7. Services
   ESP_ERROR_CHECK(sys_monitor_start(false));
-  wifi_service_init();
-  if (g_config_wifi.enabled)
-    wifi_service_start();
-  else
-    wifi_service_stop();
-  if (g_config_ble.enabled) {
-    bluetooth_service_init();
-    bluetooth_service_start();
-  } else {
-    bluetooth_service_stop();
-  }
+  if (!is_passive) {
+    wifi_service_init();
+    if (g_config_wifi.enabled)
+      wifi_service_start();
+    else
+      wifi_service_stop();
+    if (g_config_ble.enabled) {
+      bluetooth_service_init();
+      bluetooth_service_start();
+    } else {
+      bluetooth_service_stop();
+    }
 
-  // Companion host link (USB CDC). Bridge must be up first (commands relay to C5).
-  host_link_state_init();  // load toggle settings before the link comes up
-  host_link_stream_init(); // streaming + heartbeat proxy state
-  host_link_init();
-  host_link_cdc_init();
-  host_link_log_init();
+    // Companion host link (USB CDC). Bridge must be up first (commands relay to C5).
+    host_link_state_init();  // load toggle settings before the link comes up
+    host_link_stream_init(); // streaming + heartbeat proxy state
+    host_link_init();
+    host_link_cdc_init();
+    host_link_log_init();
+  }
 
   // Console last: esp_console_new_repl_uart takes over UART0 (installs the driver
   // + redirects stdout). Do it after all the boot logging above so the takeover
@@ -329,12 +343,12 @@ esp_err_t kernel_init(void) {
   bool required_ok = boot_report_all_required_ok();
   if (!required_ok) {
     led_signal_error(); // a required subsystem failed (running degraded)
-  } else if (!spi_bridge_is_alive()) {
+  } else if (!is_passive && !spi_bridge_is_alive()) {
     led_signal_warning(); // C5 radio coprocessor absent: degraded but usable
   } else {
     led_signal_info(); // booted clean: idle / OK indicator
   }
-  if (required_ok && g_config_system.ui_sound_fx) {
+  if (required_ok && !is_passive && g_config_system.ui_sound_fx) {
     boot_report_record("boot-sound", false, boot_sound_play(BOOT_SOUND_PATH));
   }
   boot_report_complete();

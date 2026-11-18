@@ -21,6 +21,7 @@ file(GLOB_RECURSE RF_FRONTEND_SRCS "rf_frontend/*.c")
 
 
 idf_component_register(SRCS
+  "rf_lab/rf_lab_hw.c"
   "pins/board_pins.c"
   "pins/board_control.c"
   "husb320/husb320.c"
@@ -59,6 +60,7 @@ idf_component_register(SRCS
   "st7789/include"
   "led/include"
   "pins/include"
+  "rf_lab/include"
   "husb320/include"
   "spi/include"
   "i2c_init/include"

@@ -16,17 +16,17 @@
 #ifndef LORA_RNODE_UI_H
 #define LORA_RNODE_UI_H
 
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/**
- * @brief Open the real receive-only SX1262 engineering screen.
- *        parameters (Freq / SF / BW
- * / CR / TX power) plus live RX/TX frame counters and the last received RSSI/SNR, all ticking as
- * mock traffic arrives. BACK or LEFT returns to the LoRa chat hub.
- */
+/** Select the menu parent before navigation; opening never starts RF. */
+void ui_rf_lab_from_subghz(bool from_subghz);
+/** Open bounded CC1101/SX1262 laboratory controls and live results. */
 void ui_lora_rnode_open(void);
+void ui_lora_rnode_close(void);
 
 #ifdef __cplusplus
 }

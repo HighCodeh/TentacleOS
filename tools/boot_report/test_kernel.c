@@ -47,7 +47,12 @@ static struct {unsigned info_color,warning_color,error_color,brightness;} g_conf
 static struct {unsigned rotation;} g_config_screen;
 static struct {unsigned volume;bool ui_sound_fx;} g_config_system={50,true};
 static struct {bool enabled;} g_config_wifi,g_config_ble;
-static bool s_board_ready;
+static bool s_board_ready, s_passive, s_c5_held;
+static int s_passive_result, s_quiet_calls;
+static int rf_passive_load(void) {return s_passive_result;}
+static bool rf_passive_is_boot(void) {return s_passive;}
+static void rf_passive_startup(void) {assert(s_passive && s_c5_held);s_quiet_calls++;}
+static int board_pins_hold_c5(bool held) {assert(!s_passive || held);s_c5_held=held;return ESP_OK;}
 static unsigned s_i2c_calls,s_charger_calls,s_typec_calls;
 static int s_i2c_result,s_charger_result,s_typec_result;
 static int init_i2c(void) {assert(s_board_ready);assert(++s_i2c_calls==1);return s_i2c_result;}
@@ -58,7 +63,7 @@ static void assert_power_attempted(void) {
   assert(s_charger_calls==(s_i2c_result==ESP_OK));
   assert(s_typec_calls==(s_i2c_result==ESP_OK));
 }
-static int board_pins_init(void) {s_board_ready=true;return ESP_OK;}
+static int board_pins_init(void) {s_board_ready=true;s_c5_held=true;return ESP_OK;}
 static int nvs_flash_init(void) {assert(s_board_ready);assert_power_attempted();return s_nvs_result;}
 static void boot_report_reset(void) {s_required_ok=true;}
 static void boot_report_record(const char *name,bool required,int result) {(void)name;if(required && result!=0)s_required_ok=false;}
@@ -104,16 +109,17 @@ static bool ui_acquire(void) {return false;}
 static void ui_release(void) {}
 static void msgbox_open(const char *icon,const char *message,const char *button,void *cb,void *ctx) {(void)icon;(void)message;(void)button;(void)cb;(void)ctx;}
 #define FAKE(name) static int name(void) {return ESP_OK;}
+#define RADIO_FAKE(name) static int name(void) {assert(!s_passive);return ESP_OK;}
 FAKE(led_rgb_init) FAKE(led_signal_error) FAKE(console_service_init)
 FAKE(sys_time_init) FAKE(boot_report_capture_crash) FAKE(sys_shutdown_init) FAKE(power_manager_init)
 FAKE(lf_rfid_init) FAKE(spi_init) FAKE(input_manager_init) FAKE(storage_assets_print_info)
-FAKE(battery_service_init) FAKE(config_sync_start) FAKE(buttons_init) FAKE(audio_i2s_init)
-FAKE(wifi_service_init) FAKE(wifi_service_start) FAKE(wifi_service_stop)
-FAKE(bluetooth_service_init) FAKE(bluetooth_service_start) FAKE(bluetooth_service_stop)
-FAKE(usb_mux_init) FAKE(host_link_state_init) FAKE(host_link_stream_init) FAKE(host_link_init)
-FAKE(host_link_cdc_init) FAKE(host_link_log_init) FAKE(led_signal_warning) FAKE(led_signal_info)
+FAKE(battery_service_init) RADIO_FAKE(config_sync_start) FAKE(buttons_init) RADIO_FAKE(audio_i2s_init)
+RADIO_FAKE(wifi_service_init) RADIO_FAKE(wifi_service_start) RADIO_FAKE(wifi_service_stop)
+RADIO_FAKE(bluetooth_service_init) RADIO_FAKE(bluetooth_service_start) RADIO_FAKE(bluetooth_service_stop)
+FAKE(usb_mux_init) RADIO_FAKE(host_link_state_init) RADIO_FAKE(host_link_stream_init) RADIO_FAKE(host_link_init)
+RADIO_FAKE(host_link_cdc_init) RADIO_FAKE(host_link_log_init) FAKE(led_signal_warning) FAKE(led_signal_info)
 /* MODULE */
-static void reset(void) {s_board_ready=false;
+static void reset(void) {s_board_ready=false;s_passive=s_c5_held=false;s_passive_result=s_quiet_calls=0;
   s_i2c_calls=s_charger_calls=s_typec_calls=0;
   s_i2c_result=s_charger_result=s_typec_result=ESP_OK;
   s_sd=s_config=s_theme=s_radios=s_normal_ui=s_safe_ui=s_indev=s_lvgl=s_panel=s_monitor=s_complete=s_sound=0;
@@ -132,6 +138,10 @@ int main(void) {
   reset();s_i2c_result=ESP_FAIL;assert(kernel_init()==ESP_OK);assert_power_attempted();
   reset();s_charger_result=ESP_FAIL;assert(kernel_init()==ESP_OK);assert_power_attempted();
   reset();s_typec_result=ESP_FAIL;assert(kernel_init()==ESP_OK);assert_power_attempted();
+  reset();s_passive=true;assert(kernel_init()==ESP_OK);assert(s_c5_held && s_radios==0 && s_quiet_calls==1 && s_sound==0 && s_normal_ui==1);
+  reset();s_passive=true;s_passive_result=ESP_FAIL;assert(kernel_init()!=ESP_OK);assert(s_c5_held && s_radios==0 && s_safe_ui==1);
+  reset();assert(kernel_init()==ESP_OK);assert(!s_c5_held && s_radios==2);
+  puts("PASS: passive boot holds C5 and skips all radio services; normal boot releases C5; profile failures remain closed");
   puts("PASS: early power initialization precedes NVS/storage/display, runs once and tolerates bus/charger/Type-C failures");
   puts("PASS: real kernel recovery preserves NVS, skips config/SD/radios, gates UI on display/LVGL and completes healthy boot");
 }

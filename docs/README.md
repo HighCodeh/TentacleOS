@@ -77,6 +77,7 @@ below; in-tree READMEs point to it.
 | `power_manager` | [README.md](power_manager/README.md) - battery and power-state management service |
 | `qmi8658a` | [README.md](qmi8658a/README.md) - synchronized six-axis SPI driver |
 | `recovery` | [README.md](recovery/README.md)  |
+| `rf_chamber` | [README.md](rf_chamber/README.md) - bounded laboratory RF tests and evidence recording |
 | `rf_frontend` | [README.md](rf_frontend/README.md) - shared NFC/LF antenna and native RFID ownership |
 | `sd_card` | [README.md](sd_card/README.md)  |
 | `security` | [README.md](security/README.md) - isolated paired security configuration and provisioning boundary |

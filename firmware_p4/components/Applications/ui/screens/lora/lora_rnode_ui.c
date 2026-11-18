@@ -16,320 +16,601 @@
 #include "lora_rnode_ui.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "esp_log.h"
-
-#include "lora_lab.h"
+#include "led_control.h"
+#include "lora_session.h"
+#include "menu_component_ui.h"
 #include "notify_ui.h"
+#include "rf_chamber.h"
+#include "rf_passive.h"
+#include "esp_system.h"
+#include "power_policy.h"
 #include "ui_chrome.h"
-#include "ui_feedback.h"
 #include "ui_manager.h"
-#include "ui_semantic.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
-static const char *TAG = "LORA_RADIO_LAB";
-
-#define LAB_REFRESH_MS 250
-#define ENTRY_MS       180
-#define CARD_W         216
-#define CARD_RADIUS    12
-#define BODY_TOP_Y     43
-#define CARD_GAP       7
-#define STATUS_H       68
-#define RSSI_H         82
-#define PACKET_H       79
-
-#define ICON_ANTENNA "/assets/icons/settings_input_antenna.bin"
-
+#define REFRESH_MS    250U
+#define MHZ           1000000U
+#define MAX_ROWS      15
+#define BODY_TOP      48
+#define BODY_MARGIN   8
+#define HIGH_CW_POWER 14
+#define HIGH_CW_MS    1000U
+static const char *TAG = "RF_LAB_UI";
+static const char *MODES[] = {"CW carrier", "TX packets", "Receive"};
+static const int8_t CC_POWERS[] = {-30, -20, -10, 0, 5, 10};
+static const uint32_t STEPS[] = {1000, 10000, 100000, 1000000};
+static const uint32_t FREQUENCIES[] = {315000000, 433920000, 868100000, 915000000};
+static const uint32_t DURATIONS[] = {1000, 5000, 10000, 30000, 60000, 120000};
+static const uint32_t INTERVALS[] = {250, 500, 1000, 2000, 5000, 10000, 30000, 60000};
+typedef enum {
+  FIELD_START,
+  FIELD_RADIO,
+  FIELD_MODE,
+  FIELD_FREQUENCY,
+  FIELD_STEP,
+  FIELD_POWER,
+  FIELD_PATH,
+  FIELD_SF,
+  FIELD_BW,
+  FIELD_CR,
+  FIELD_DURATION,
+  FIELD_INTERVAL,
+  FIELD_MESH_STOP,
+  FIELD_PASSIVE,
+  FIELD_QUICK,
+  FIELD_COUNT
+} rf_lab_field_t;
+static const char *NAMES[] = {"Start",
+                              "Radio",
+                              "Mode",
+                              "Freq",
+                              "Step",
+                              "Power",
+                              "Branch",
+                              "SF",
+                              "BW",
+                              "Code rate",
+                              "Duration",
+                              "Interval",
+                              "Stop mesh",
+                              "Passive / restart",
+                              "Quick setup"};
 typedef struct {
+  const char *name;
   uint32_t hz;
-  const char *label;
-} lab_frequency_t;
-
-static const lab_frequency_t LAB_FREQUENCIES[] = {
-    {433920000U, "433.920 MHz"},
-    {868100000U, "868.100 MHz"},
-    {906875000U, "906.875 MHz"},
-    {915000000U, "915.000 MHz"},
+  uint8_t radio, mode, path;
+} rf_lab_preset_t;
+static const rf_lab_preset_t PRESETS[] = {
+    {"Custom", 0, 0, 0, 0},
+    {"Sub 315 carrier", 315000000, RF_CHAMBER_CC, RF_CHAMBER_CW, 1},
+    {"Sub 433 carrier", 433920000, RF_CHAMBER_CC, RF_CHAMBER_CW, 1},
+    {"Sub 868 carrier", 868350000, RF_CHAMBER_CC, RF_CHAMBER_CW, 2},
+    {"Sub 915 carrier", 915000000, RF_CHAMBER_CC, RF_CHAMBER_CW, 2},
+    {"LoRa 868 carrier", 868100000, RF_CHAMBER_SX, RF_CHAMBER_CW, 0},
+    {"LoRa 915 carrier", 915000000, RF_CHAMBER_SX, RF_CHAMBER_CW, 0},
+    {"LoRa 868 packets", 868100000, RF_CHAMBER_SX, RF_CHAMBER_TX, 0},
+    {"LoRa 915 packets", 915000000, RF_CHAMBER_SX, RF_CHAMBER_TX, 0},
+    {"Sub 433 packets", 433920000, RF_CHAMBER_CC, RF_CHAMBER_TX, 1},
+    {"Sub 868 packets", 868350000, RF_CHAMBER_CC, RF_CHAMBER_TX, 2},
+    {"Sub 915 packets", 915000000, RF_CHAMBER_CC, RF_CHAMBER_TX, 2},
 };
-#define LAB_FREQ_COUNT   ((int)(sizeof(LAB_FREQUENCIES) / sizeof(LAB_FREQUENCIES[0])))
-#define LAB_DEFAULT_FREQ 2
+#define PRESET_COUNT (sizeof(PRESETS) / sizeof(PRESETS[0]))
+static const char *BRANCHES[] = {"L16 / 51 nH", "L17 / 16 nH", "L18 / 1.8 nH", "L19 / 1.5 nH"};
+static uint8_t s_preset;
+static bool s_exit_passive;
+static lv_obj_t *s_screen;
+static lv_obj_t *s_readout;
+static lv_obj_t *s_body;
+static bool s_from_subghz = true;
+static lv_timer_t *s_timer;
+static menu_component_t s_menu;
+static rf_lab_field_t s_rows[MAX_ROWS];
+static uint8_t s_row_count;
+static uint8_t s_step;
+static uint32_t s_owned_run;
+static bool s_is_live;
+static bool s_is_leaving;
+static bool s_mesh_pending;
+static screen_id_t s_return = SCREEN_MENU;
+static rf_chamber_config_t s_config = {.radio = RF_CHAMBER_CC,
+                                       .mode = RF_CHAMBER_RX,
+                                       .frequency_hz = 433920000,
+                                       .power_dbm = -30,
+                                       .path = 1,
+                                       .sf = 7,
+                                       .bandwidth_khz = 125,
+                                       .cr = 1,
+                                       .duration_ms = 5000,
+                                       .interval_ms = 1000};
+static void build(bool live);
+static void input(const input_event_t *event, void *ctx);
+static void refresh(lv_timer_t *timer);
 
-static lv_obj_t *s_screen = NULL;
-static lv_obj_t *s_state_label = NULL;
-static lv_obj_t *s_chip_label = NULL;
-static lv_obj_t *s_rssi_label = NULL;
-static lv_obj_t *s_rssi_stats_label = NULL;
-static lv_obj_t *s_rssi_bar = NULL;
-static lv_obj_t *s_packet_label = NULL;
-static lv_obj_t *s_last_label = NULL;
-static lv_timer_t *s_refresh_timer = NULL;
-static int s_freq_index = LAB_DEFAULT_FREQ;
-
-static lv_obj_t *lab_card(lv_obj_t *parent, int y, int h, lv_color_t accent) {
-  lv_obj_t *card = lv_obj_create(parent);
-  lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(card, CARD_W, h);
-  lv_obj_align(card, LV_ALIGN_TOP_MID, 0, y);
-  lv_obj_set_style_radius(card, CARD_RADIUS, 0);
-  lv_obj_set_style_bg_color(card, current_theme.bg_secondary, 0);
-  lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_width(card, 1, 0);
-  lv_obj_set_style_border_color(card, accent, 0);
-  lv_obj_set_style_shadow_color(card, accent, 0);
-  lv_obj_set_style_shadow_width(card, 10, 0);
-  lv_obj_set_style_shadow_opa(card, LV_OPA_30, 0);
-  lv_obj_set_style_shadow_spread(card, -3, 0);
-  lv_obj_set_style_pad_all(card, 8, 0);
-  return card;
+static uint32_t cycle(const uint32_t *values, size_t count, uint32_t value, int direction) {
+  size_t index = 0;
+  while (index < count && values[index] != value)
+    ++index;
+  if (index == count)
+    index = 0;
+  return values[(index + count + direction) % count];
 }
-
-static lv_obj_t *lab_label(lv_obj_t *parent,
-                           const char *text,
-                           const lv_font_t *font,
-                           lv_color_t color,
-                           lv_align_t align,
-                           int x,
-                           int y) {
-  lv_obj_t *label = lv_label_create(parent);
-  lv_label_set_text(label, text);
-  lv_obj_set_style_text_font(label, font, 0);
-  lv_obj_set_style_text_color(label, color, 0);
-  lv_obj_align(label, align, x, y);
-  return label;
+static void normalize(void) {
+  if (s_config.mode == RF_CHAMBER_CW) {
+    uint32_t limit = s_config.radio == RF_CHAMBER_SX && s_config.power_dbm > HIGH_CW_POWER
+                         ? HIGH_CW_MS
+                         : RF_CHAMBER_MAX_CW_MS;
+    if (s_config.duration_ms > limit)
+      s_config.duration_ms = limit;
+  }
 }
-
-static const char *lab_state_name(lora_lab_state_t state) {
-  switch (state) {
-    case LORA_LAB_STARTING:
-      return "STARTING";
-    case LORA_LAB_RX:
-      return "RX PASS";
-    case LORA_LAB_FAILED:
-      return "FAILED";
+static void value(rf_lab_field_t field, char *out, size_t size) {
+  switch (field) {
+    case FIELD_QUICK:
+      snprintf(out, size, "%s", PRESETS[s_preset].name);
+      break;
+    case FIELD_RADIO:
+      snprintf(out, size, "%s", s_config.radio == RF_CHAMBER_CC ? "Sub-GHz" : "LoRa");
+      break;
+    case FIELD_MODE:
+      snprintf(out, size, "%s", MODES[s_config.mode]);
+      break;
+    case FIELD_FREQUENCY:
+      snprintf(out,
+               size,
+               "%lu.%06lu",
+               (unsigned long)(s_config.frequency_hz / MHZ),
+               (unsigned long)(s_config.frequency_hz % MHZ));
+      break;
+    case FIELD_STEP:
+      snprintf(out, size, "%lu kHz", (unsigned long)(STEPS[s_step] / 1000));
+      break;
+    case FIELD_POWER:
+      snprintf(out, size, "%+d dBm", s_config.power_dbm);
+      break;
+    case FIELD_PATH:
+      snprintf(out, size, "RF%u", s_config.path);
+      break;
+    case FIELD_SF:
+      snprintf(out, size, "%u", s_config.sf);
+      break;
+    case FIELD_BW:
+      snprintf(out, size, "%u kHz", s_config.bandwidth_khz);
+      break;
+    case FIELD_CR:
+      snprintf(out, size, "4/%u", s_config.cr + 4);
+      break;
+    case FIELD_DURATION:
+      snprintf(out, size, "%lu s", (unsigned long)(s_config.duration_ms / 1000));
+      break;
+    case FIELD_INTERVAL:
+      snprintf(out, size, "%lu ms", (unsigned long)s_config.interval_ms);
+      break;
     default:
-      return "IDLE";
+      out[0] = 0;
+      break;
   }
 }
-
-static void format_packet_prefix(const lora_lab_snapshot_t *snap, char *out, size_t out_len) {
-  if (snap->last_packet_len == 0) {
-    snprintf(out, out_len, "Last: waiting for LoRa packet");
+static void adjust(rf_lab_field_t field, int direction, bool preset) {
+  if (field != FIELD_QUICK)
+    s_preset = 0;
+  switch (field) {
+    case FIELD_QUICK: {
+      s_preset = (s_preset + PRESET_COUNT + direction) % PRESET_COUNT;
+      if (s_preset == 0)
+        break;
+      const rf_lab_preset_t *p = &PRESETS[s_preset];
+      s_config = (rf_chamber_config_t){.radio = p->radio,
+                                       .mode = p->mode,
+                                       .frequency_hz = p->hz,
+                                       .power_dbm = p->radio == RF_CHAMBER_CC ? -30 : -9,
+                                       .path = p->path,
+                                       .sf = 7,
+                                       .bandwidth_khz = 125,
+                                       .cr = 1,
+                                       .duration_ms = p->mode == RF_CHAMBER_CW ? 1000 : 5000,
+                                       .interval_ms = 1000};
+      break;
+    }
+    case FIELD_RADIO:
+      s_config.radio = s_config.radio == RF_CHAMBER_CC ? RF_CHAMBER_SX : RF_CHAMBER_CC;
+      s_config.frequency_hz = s_config.radio == RF_CHAMBER_CC ? FREQUENCIES[1] : FREQUENCIES[2];
+      s_config.power_dbm = s_config.radio == RF_CHAMBER_CC ? CC_POWERS[0] : -9;
+      s_config.path = s_config.radio == RF_CHAMBER_CC ? 1 : 0;
+      s_config.sf = 7;
+      s_config.bandwidth_khz = 125;
+      s_config.cr = 1;
+      break;
+    case FIELD_MODE:
+      s_config.mode = (s_config.mode + RF_CHAMBER_MODE_COUNT + direction) % RF_CHAMBER_MODE_COUNT;
+      break;
+    case FIELD_FREQUENCY: {
+      rf_chamber_config_t candidate = s_config;
+      if (preset) {
+        candidate.frequency_hz = cycle(FREQUENCIES, 4, candidate.frequency_hz, 1);
+        if (candidate.radio == RF_CHAMBER_SX && candidate.frequency_hz < FREQUENCIES[2])
+          candidate.frequency_hz = FREQUENCIES[2];
+      } else {
+        candidate.frequency_hz += direction * STEPS[s_step];
+      }
+      if (rf_chamber_validate(&candidate) == ESP_OK)
+        s_config = candidate;
+      break;
+    }
+    case FIELD_STEP:
+      s_step = (s_step + 4 + direction) % 4;
+      break;
+    case FIELD_POWER:
+      if (s_config.radio == RF_CHAMBER_SX)
+        s_config.power_dbm = (s_config.power_dbm + 9 + 32 + direction) % 32 - 9;
+      else {
+        unsigned index = 0;
+        while (index + 1 < sizeof(CC_POWERS) && CC_POWERS[index] != s_config.power_dbm)
+          ++index;
+        s_config.power_dbm = CC_POWERS[(index + sizeof(CC_POWERS) + direction) % sizeof(CC_POWERS)];
+      }
+      break;
+    case FIELD_PATH:
+      s_config.path = (s_config.path - 1 + 4 + direction) % 4 + 1;
+      break;
+    case FIELD_SF:
+      s_config.sf = (s_config.sf - 7 + 6 + direction) % 6 + 7;
+      break;
+    case FIELD_BW: {
+      static const uint32_t widths[] = {125, 250, 500};
+      s_config.bandwidth_khz = cycle(widths, 3, s_config.bandwidth_khz, direction);
+      break;
+    }
+    case FIELD_CR:
+      s_config.cr = (s_config.cr - 1 + 4 + direction) % 4 + 1;
+      break;
+    case FIELD_DURATION:
+      s_config.duration_ms = cycle(DURATIONS, 6, s_config.duration_ms, direction);
+      break;
+    case FIELD_INTERVAL:
+      s_config.interval_ms = cycle(INTERVALS, 8, s_config.interval_ms, direction);
+      break;
+    default:
+      break;
+  }
+  normalize();
+}
+static void stop_owned(void) {
+  rf_chamber_status_t status;
+  rf_chamber_snapshot(&status);
+  if (s_owned_run != 0 && status.run_id == s_owned_run && status.phase != RF_CHAMBER_IDLE)
+    rf_chamber_stop();
+}
+void ui_lora_rnode_close(void) {
+  stop_owned();
+  if (s_timer != NULL) {
+    lv_timer_delete(s_timer);
+    s_timer = NULL;
+  }
+}
+static void deleted(lv_event_t *event) {
+  if (lv_event_get_target(event) != s_screen)
+    return;
+  ui_lora_rnode_close();
+  s_screen = s_readout = s_body = NULL;
+}
+static void show_error(esp_err_t error) {
+  ESP_LOGW(TAG, "Request failed: %s", esp_err_to_name(error));
+  led_signal_warning();
+  notify(NOTIFY_WARNING, esp_err_to_name(error));
+}
+static void start(void) {
+  if (s_timer == NULL) {
+    show_error(ESP_ERR_NO_MEM);
     return;
   }
-  size_t shown = snap->last_packet_len;
-  if (shown > sizeof(snap->last_packet_prefix)) {
-    shown = sizeof(snap->last_packet_prefix);
-  }
-  size_t used = (size_t)snprintf(out, out_len, "HEX:");
-  for (size_t i = 0; i < shown && used + 4 < out_len; i++) {
-    used += (size_t)snprintf(out + used, out_len - used, " %02X", snap->last_packet_prefix[i]);
-  }
-  if (snap->last_packet_len > shown && used + 4 < out_len) {
-    snprintf(out + used, out_len - used, " ...");
-  }
-}
-
-static void refresh_readouts(void) {
-  lora_lab_snapshot_t snap = {0};
-  lora_lab_get_snapshot(&snap);
-
-  lv_color_t state_color = current_theme.text_secondary;
-  if (snap.state == LORA_LAB_RX) {
-    state_color = lv_color_hex(UI_COL_SUCCESS);
-  } else if (snap.state == LORA_LAB_FAILED) {
-    state_color = lv_color_hex(UI_COL_DANGER);
-  } else if (snap.state == LORA_LAB_STARTING) {
-    state_color = ui_theme_get_accent();
-  }
-  lv_label_set_text_fmt(
-      s_state_label, "%s   %s", lab_state_name(snap.state), LAB_FREQUENCIES[s_freq_index].label);
-  lv_obj_set_style_text_color(s_state_label, state_color, 0);
-
-  if (snap.state == LORA_LAB_FAILED) {
-    lv_label_set_text_fmt(s_chip_label, "SPI/SX1262: %s", esp_err_to_name(snap.error));
-  } else if (snap.state == LORA_LAB_RX) {
-    lv_label_set_text_fmt(s_chip_label,
-                          "SPI 0x%02X  ERR %04X  B%d D%d",
-                          snap.chip_status,
-                          snap.device_errors,
-                          snap.busy_level,
-                          snap.dio1_level);
-  } else {
-    lv_label_set_text(s_chip_label, "SPI + BUSY + DIO1 check...");
-  }
-
-  if (snap.rssi_samples == 0) {
-    lv_label_set_text(s_rssi_label, "RSSI  -- dBm");
-    lv_label_set_text(s_rssi_stats_label, "min / avg / max:  -- / -- / --");
-    lv_bar_set_value(s_rssi_bar, -130, LV_ANIM_OFF);
-  } else {
-    lv_label_set_text_fmt(s_rssi_label, "RSSI  %d dBm", snap.rssi_now_dbm);
-    lv_label_set_text_fmt(s_rssi_stats_label,
-                          "min / avg / max:  %d / %d / %d",
-                          snap.rssi_min_dbm,
-                          snap.rssi_avg_dbm,
-                          snap.rssi_max_dbm);
-    int value = snap.rssi_now_dbm;
-    if (value < -130)
-      value = -130;
-    if (value > -30)
-      value = -30;
-    lv_bar_set_value(s_rssi_bar, value, LV_ANIM_ON);
-  }
-
-  lv_label_set_text_fmt(s_packet_label,
-                        "RX %lu   CRC %u   HDR %u",
-                        (unsigned long)snap.rx_packets,
-                        snap.crc_errors,
-                        snap.header_errors);
-  char last[96];
-  format_packet_prefix(&snap, last, sizeof(last));
-  if (snap.last_packet_len > 0) {
-    size_t used = strlen(last);
-    if (used + 24 < sizeof(last)) {
-      snprintf(last + used,
-               sizeof(last) - used,
-               "\n%dB  %ddBm  SNR %d",
-               snap.last_packet_len,
-               snap.last_packet_rssi_dbm,
-               snap.last_packet_snr_db);
-    }
-  }
-  lv_label_set_text(s_last_label, last);
-}
-
-static void refresh_timer_cb(lv_timer_t *timer) {
-  if (lv_screen_active() != s_screen) {
-    lora_lab_stop();
-    lv_timer_delete(timer);
-    if (s_refresh_timer == timer) {
-      s_refresh_timer = NULL;
-    }
+  rf_chamber_status_t status;
+  rf_chamber_snapshot(&status);
+  if (status.phase != RF_CHAMBER_IDLE) {
+    show_error(ESP_ERR_INVALID_STATE);
     return;
   }
-  refresh_readouts();
-}
-
-static void start_selected_frequency(void) {
-  lora_lab_stop();
-  esp_err_t err = lora_lab_start(LAB_FREQUENCIES[s_freq_index].hz);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "start failed: %s", esp_err_to_name(err));
-    notify(NOTIFY_LORA, "Radio Lab start failed");
+  if (s_config.radio == RF_CHAMBER_SX && lora_session_active() != LORA_PROTO_NONE) {
+    notify(NOTIFY_WARNING, "Use Stop mesh first");
+    return;
   }
-  refresh_readouts();
+  esp_err_t error = rf_chamber_start(&s_config);
+  if (error != ESP_OK) {
+    show_error(error);
+    return;
+  }
+  rf_chamber_snapshot(&status);
+  s_owned_run = status.run_id;
+  build(true);
 }
-
-static void lora_lab_input(const input_event_t *event, void *ctx) {
+static void input(const input_event_t *event, void *ctx) {
   (void)ctx;
-  if (event->action != INPUT_ACTION_PRESS) {
+  bool press = event->action == INPUT_ACTION_PRESS;
+  if (rf_passive_is_boot()) {
+    if (!press)
+      return;
+    rf_passive_status_t status = {0};
+    rf_passive_snapshot(&status);
+    if (event->button == INPUT_BTN_BACK)
+      s_exit_passive = !s_exit_passive;
+    else if (event->button == INPUT_BTN_OK && s_exit_passive) {
+      esp_err_t error = rf_passive_save_boot(false, status.path);
+      if (error == ESP_OK)
+        esp_restart();
+      else
+        show_error(error);
+    } else if (!s_exit_passive &&
+               (event->button == INPUT_BTN_LEFT || event->button == INPUT_BTN_RIGHT ||
+                event->button == INPUT_BTN_UP || event->button == INPUT_BTN_DOWN)) {
+      int direction = event->button == INPUT_BTN_LEFT || event->button == INPUT_BTN_UP ? -1 : 1;
+      esp_err_t error = rf_passive_select((status.path - 1 + 4 + direction) % 4 + 1);
+      if (error != ESP_OK)
+        show_error(error);
+    }
+    refresh(NULL);
     return;
   }
-
-  switch (event->button) {
-    case INPUT_BTN_LEFT:
-      s_freq_index = (s_freq_index + LAB_FREQ_COUNT - 1) % LAB_FREQ_COUNT;
-      ui_feedback(UI_FB_SELECT);
-      start_selected_frequency();
-      break;
-    case INPUT_BTN_RIGHT:
-      s_freq_index = (s_freq_index + 1) % LAB_FREQ_COUNT;
-      ui_feedback(UI_FB_SELECT);
-      start_selected_frequency();
-      break;
-    case INPUT_BTN_OK:
-      lora_lab_reset_stats();
-      ui_feedback(UI_FB_SELECT);
-      notify(NOTIFY_LORA, "LoRa counters reset");
-      refresh_readouts();
-      break;
-    case INPUT_BTN_BACK:
-      lora_lab_stop();
-      ui_switch_screen(SCREEN_LORA_CHAT);
-      break;
-    default:
-      break;
+  bool nav = press || event->action == INPUT_ACTION_REPEAT;
+  if (s_mesh_pending || s_is_leaving)
+    return;
+  if (s_is_live) {
+    if (nav && event->button == INPUT_BTN_DOWN)
+      lv_obj_scroll_by(s_body, 0, -40, LV_ANIM_OFF);
+    if (nav && event->button == INPUT_BTN_UP)
+      lv_obj_scroll_by(s_body, 0, 40, LV_ANIM_OFF);
+    if (!press)
+      return;
+    rf_chamber_status_t status;
+    rf_chamber_snapshot(&status);
+    if (event->button == INPUT_BTN_BACK || event->button == INPUT_BTN_OK) {
+      if (status.run_id == s_owned_run && status.phase != RF_CHAMBER_IDLE) {
+        s_is_leaving = event->button == INPUT_BTN_BACK;
+        stop_owned();
+      } else if (event->button == INPUT_BTN_BACK)
+        ui_switch_screen(s_return);
+      else
+        build(false);
+    }
+    return;
+  }
+  if (event->button == INPUT_BTN_BACK && press) {
+    ui_switch_screen(s_return);
+    return;
+  }
+  if (event->button == INPUT_BTN_UP && nav)
+    menu_component_prev(&s_menu);
+  if (event->button == INPUT_BTN_DOWN && nav)
+    menu_component_next(&s_menu);
+  int selected = menu_component_get_selected(&s_menu);
+  if (selected < 0 || selected >= s_row_count)
+    return;
+  rf_lab_field_t field = s_rows[selected];
+  if (event->button == INPUT_BTN_OK && press && field == FIELD_PASSIVE) {
+    rf_chamber_status_t status;
+    rf_chamber_snapshot(&status);
+    if (status.phase != RF_CHAMBER_IDLE) {
+      show_error(ESP_ERR_INVALID_STATE);
+      return;
+    }
+    esp_err_t error = rf_passive_save_boot(true, s_config.path ? s_config.path : 1);
+    if (error == ESP_OK)
+      esp_restart();
+    else
+      show_error(error);
+    return;
+  }
+  if (event->button == INPUT_BTN_OK && press && field == FIELD_START) {
+    start();
+    return;
+  }
+  if (event->button == INPUT_BTN_OK && press && field == FIELD_MESH_STOP) {
+    esp_err_t error = rf_chamber_mesh_stop_async();
+    if (error == ESP_OK) {
+      s_mesh_pending = true;
+      menu_component_set_hint(&s_menu, "Stopping mesh...");
+    } else
+      show_error(error);
+    return;
+  }
+  if ((nav && (event->button == INPUT_BTN_LEFT || event->button == INPUT_BTN_RIGHT)) ||
+      (press && event->button == INPUT_BTN_OK)) {
+    adjust(field, event->button == INPUT_BTN_LEFT ? -1 : 1, event->button == INPUT_BTN_OK);
+    if (field == FIELD_RADIO || field == FIELD_QUICK) {
+      build(false);
+      for (unsigned i = 0; i < s_row_count; i++)
+        if (s_rows[i] == field)
+          menu_component_select(&s_menu, i);
+    } else {
+      char text[32];
+      for (unsigned i = 0; i < s_row_count; ++i) {
+        if (s_rows[i] == FIELD_MESH_STOP || s_rows[i] == FIELD_PASSIVE || s_rows[i] == FIELD_START)
+          continue;
+        value(s_rows[i], text, sizeof(text));
+        menu_component_set_selector_value(&s_menu, i, text);
+      }
+    }
   }
 }
-
-static void build_screen(void) {
+static void refresh(lv_timer_t *timer) {
+  (void)timer;
+  if (rf_passive_is_boot()) {
+    if (s_readout == NULL)
+      return;
+    rf_passive_status_t s = {0};
+    rf_passive_snapshot(&s);
+    char text[480];
+    snprintf(text,
+             sizeof(text),
+             "%s\nRF%u -> %s\nV1(GPIO17)=%u  V2(GPIO18)=%u\nC5 reset: %s\nCC sleep: %s | LoRa "
+             "sleep: %s\nNFC off: %s | RFID off: %s\n\n%s",
+             s.error == ESP_OK ? "READY / TX DISABLED" : "NOT READY - CHECK ERRORS",
+             s.path,
+             BRANCHES[s.path - 1],
+             (s.path - 1) >> 1,
+             (s.path - 1) & 1,
+             s.hardware.c5 == ESP_OK ? "OK" : "ERROR",
+             s.hardware.cc == ESP_OK ? "OK" : "ERROR",
+             s.hardware.sx == ESP_OK ? "OK" : "ERROR",
+             s.hardware.nfc == ESP_OK ? "OK" : "ERROR",
+             s.hardware.lf == ESP_OK ? "OK" : "ERROR",
+             s_exit_passive ? "OK: exit passive and reboot\nBACK: remain passive"
+                            : "L/R: change state and save\nBACK: exit options");
+    lv_label_set_text(s_readout, text);
+    return;
+  }
+  if (s_mesh_pending) {
+    bool busy;
+    esp_err_t error = rf_chamber_mesh_stop_status(&busy);
+    if (!busy) {
+      s_mesh_pending = false;
+      if (error != ESP_OK)
+        show_error(error);
+      build(false);
+    }
+  }
+  if (!s_is_live || s_readout == NULL)
+    return;
+  rf_chamber_status_t status;
+  rf_chamber_snapshot(&status);
+  if (status.run_id != s_owned_run) {
+    lv_label_set_text(s_readout, "Session changed outside this screen.");
+    return;
+  }
+  if (s_is_leaving && status.phase == RF_CHAMBER_IDLE) {
+    ui_switch_screen(s_return);
+    return;
+  }
+  if (status.phase == RF_CHAMBER_HELD)
+    s_is_leaving = false;
+  const char *phase = status.phase == RF_CHAMBER_IDLE      ? "OFF / FINISHED"
+                      : status.phase == RF_CHAMBER_HELD    ? "OFF NOT CONFIRMED"
+                      : status.phase == RF_CHAMBER_RUNNING ? "RUNNING"
+                                                           : "START / STOP";
+  char signal[100] = "RSSI / SNR: --";
+  if (status.samples)
+    snprintf(signal,
+             sizeof(signal),
+             "RSSI avg %.1f / min %.1f dBm\nmax %.1f dBm | last SNR %d%s",
+             (double)status.rssi_sum_half_dbm / (2.0 * status.samples),
+             status.rssi_min_half_dbm / 2.0,
+             status.rssi_max_half_dbm / 2.0,
+             status.last_snr_db,
+             status.config.radio == RF_CHAMBER_SX && status.rx_test + status.rx_other > 0
+                 ? " dB"
+                 : " (no packet)");
+  // LVGL's reduced printf has float formatting disabled in this profile.
+  char display[640];
+  snprintf(display,
+           sizeof(display),
+           "%s  #%lu\n%lu.%06lu MHz | %+d dBm set\n%s | RF%u | %.1f / %.1f s\nTX done %lu / queued "
+           "%lu\nRX test %lu / other %lu / err %lu\n%s\nWait %lu | Timeout %lu\nRun: %s\nStop: %s",
+           phase,
+           (unsigned long)status.run_id,
+           (unsigned long)(status.config.frequency_hz / MHZ),
+           (unsigned long)(status.config.frequency_hz % MHZ),
+           status.config.power_dbm,
+           MODES[status.config.mode],
+           status.config.path,
+           status.elapsed_ms / 1000.0,
+           status.config.duration_ms / 1000.0,
+           (unsigned long)status.tx_done,
+           (unsigned long)status.tx_submitted,
+           (unsigned long)status.rx_test,
+           (unsigned long)status.rx_other,
+           (unsigned long)status.rx_error,
+           signal,
+           (unsigned long)status.duty_deferred,
+           (unsigned long)status.tx_timeout,
+           esp_err_to_name(status.error),
+           esp_err_to_name(status.cleanup_error));
+  lv_label_set_text(s_readout, display);
+}
+static void build(bool live) {
+  lv_obj_t *outgoing = s_screen;
+  s_is_live = live;
+  s_readout = s_body = NULL;
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
   lv_obj_set_style_pad_all(s_screen, 0, 0);
-
-  lv_color_t accent = ui_theme_get_accent();
-  ui_chrome_header(s_screen, "LORA RADIO LAB", ICON_ANTENNA);
-
-  lv_obj_t *status = lab_card(s_screen, BODY_TOP_Y, STATUS_H, accent);
-  s_state_label =
-      lab_label(status, "STARTING", &lv_font_montserrat_14, accent, LV_ALIGN_TOP_LEFT, 0, 0);
-  s_chip_label = lab_label(status,
-                           "SPI + BUSY + DIO1 check...",
-                           &lv_font_montserrat_12,
-                           current_theme.text_secondary,
-                           LV_ALIGN_BOTTOM_LEFT,
-                           0,
-                           0);
-
-  int rssi_y = BODY_TOP_Y + STATUS_H + CARD_GAP;
-  lv_obj_t *signal = lab_card(s_screen, rssi_y, RSSI_H, accent);
-  s_rssi_label = lab_label(signal,
-                           "RSSI  -- dBm",
-                           &lv_font_montserrat_16,
-                           current_theme.text_main,
-                           LV_ALIGN_TOP_LEFT,
-                           0,
-                           0);
-  s_rssi_stats_label = lab_label(signal,
-                                 "min / avg / max:  -- / -- / --",
-                                 &lv_font_montserrat_12,
-                                 current_theme.text_secondary,
-                                 LV_ALIGN_TOP_LEFT,
-                                 0,
-                                 24);
-  s_rssi_bar = lv_bar_create(signal);
-  lv_obj_set_size(s_rssi_bar, 198, 7);
-  lv_obj_align(s_rssi_bar, LV_ALIGN_BOTTOM_MID, 0, 0);
-  lv_bar_set_range(s_rssi_bar, -130, -30);
-  lv_bar_set_value(s_rssi_bar, -130, LV_ANIM_OFF);
-  lv_obj_set_style_bg_color(s_rssi_bar, current_theme.bg_primary, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(s_rssi_bar, accent, LV_PART_INDICATOR);
-
-  int packet_y = rssi_y + RSSI_H + CARD_GAP;
-  lv_obj_t *packets = lab_card(s_screen, packet_y, PACKET_H, accent);
-  s_packet_label = lab_label(packets,
-                             "RX 0   CRC 0   HDR 0",
-                             &lv_font_montserrat_12,
-                             lv_color_hex(UI_COL_SUCCESS),
-                             LV_ALIGN_TOP_LEFT,
-                             0,
-                             0);
-  s_last_label = lab_label(packets,
-                           "Last: waiting for LoRa packet",
-                           &lv_font_montserrat_12,
-                           current_theme.text_secondary,
-                           LV_ALIGN_TOP_LEFT,
-                           0,
-                           20);
-
-  ui_chrome_footer(s_screen, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " freq  OK reset  BACK");
-  lv_obj_fade_in(s_screen, ENTRY_MS, 0);
-}
-
-void ui_lora_rnode_open(void) {
-  ui_theme_set_protocol(PROTOCOL_LORA);
-  build_screen();
-  ui_input_set_screen_handler(lora_lab_input, NULL);
-  ui_screen_load_owned(&s_screen, s_screen);
-
-  start_selected_frequency();
-  if (s_refresh_timer == NULL) {
-    s_refresh_timer = lv_timer_create(refresh_timer_cb, LAB_REFRESH_MS, NULL);
+  lv_obj_set_style_border_width(s_screen, 0, 0);
+  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_event_cb(s_screen, deleted, LV_EVENT_DELETE, NULL);
+  if (!live && !rf_passive_is_boot()) {
+    s_menu = menu_component_create(s_screen, "RF LAB", "/assets/icons/tune.bin");
+    s_row_count = 0;
+    for (unsigned order = 0; order < FIELD_COUNT; ++order) {
+      rf_lab_field_t field = order == 0   ? FIELD_PASSIVE
+                             : order == 1 ? FIELD_QUICK
+                                          : (rf_lab_field_t)(order - 2);
+      if ((field == FIELD_PATH && s_config.radio == RF_CHAMBER_SX) ||
+          (field >= FIELD_SF && field <= FIELD_CR && s_config.radio == RF_CHAMBER_CC))
+        continue;
+      s_rows[s_row_count++] = field;
+      char text[32];
+      value(field, text, sizeof(text));
+      if (field == FIELD_START || field == FIELD_MESH_STOP || field == FIELD_PASSIVE)
+        menu_component_add_item(&s_menu,
+                                "/assets/icons/tune.bin",
+                                field == FIELD_START     ? "Start test"
+                                : field == FIELD_PASSIVE ? "Passive switch / restart"
+                                                         : "Stop mesh session");
+      else
+        menu_component_add_selector(&s_menu, NULL, NAMES[field], text);
+    }
+    menu_component_set_hint(&s_menu, "UP/DN select  L/R edit  OK apply");
+  } else {
+    ui_chrome_header(s_screen,
+                     rf_passive_is_boot() ? "PASSIVE RF SWITCH" : "RF LAB / LIVE",
+                     "/assets/icons/tune.bin");
+    s_body = lv_obj_create(s_screen);
+    lv_obj_set_pos(s_body, BODY_MARGIN, BODY_TOP);
+    lv_obj_set_size(s_body, ui_screen_w() - 2 * BODY_MARGIN, ui_screen_h() - BODY_TOP - 28);
+    lv_obj_set_style_bg_opa(s_body, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_body, 0, 0);
+    lv_obj_set_style_pad_all(s_body, 0, 0);
+    lv_obj_set_scroll_dir(s_body, LV_DIR_VER);
+    s_readout = lv_label_create(s_body);
+    lv_obj_set_width(s_readout, ui_screen_w() - 2 * BODY_MARGIN - 4);
+    lv_obj_set_style_text_color(s_readout, current_theme.text_main, 0);
+    lv_obj_set_style_text_font(s_readout, &lv_font_montserrat_12, 0);
+    lv_label_set_text(s_readout, "Starting...");
+    ui_chrome_footer(s_screen,
+                     rf_passive_is_boot() ? "L/R state  BACK exit options"
+                                          : "OK stop / settings  BACK stop / exit");
+    if (rf_passive_is_boot())
+      power_policy_set_display_hold(s_screen, true);
   }
-  ESP_LOGI(TAG, "real receive-only SX1262 lab opened");
+  ui_input_set_screen_handler(input, NULL);
+  ui_screen_load_owned(&s_screen, s_screen);
+  if (outgoing != NULL && outgoing != s_screen && ui_current_screen() == SCREEN_LORA_RNODE)
+    lv_obj_del_async(outgoing);
+}
+void ui_rf_lab_from_subghz(bool from_subghz) {
+  s_from_subghz = from_subghz;
+}
+void ui_lora_rnode_open(void) {
+  // ui_switch_screen owns the outgoing screen, including orientation rebuilds.
+  s_screen = s_readout = s_body = NULL;
+  s_return = s_from_subghz ? SCREEN_SUBGHZ_MENU : SCREEN_MENU;
+  s_config.radio = s_from_subghz ? RF_CHAMBER_CC : RF_CHAMBER_SX;
+  s_config.frequency_hz = s_config.radio == RF_CHAMBER_CC ? FREQUENCIES[1] : FREQUENCIES[2];
+  s_config.power_dbm = s_config.radio == RF_CHAMBER_CC ? -30 : -9;
+  s_config.path = s_config.radio == RF_CHAMBER_CC ? 1 : 0;
+  s_config.sf = 7;
+  s_config.bandwidth_khz = 125;
+  s_config.cr = 1;
+  s_config.mode = RF_CHAMBER_RX;
+  s_config.duration_ms = 5000;
+  s_owned_run = 0;
+  s_is_leaving = s_mesh_pending = s_exit_passive = false;
+  s_preset = 0;
+  build(false);
+  s_timer = lv_timer_create(refresh, REFRESH_MS, NULL);
+  if (s_timer == NULL) {
+    show_error(ESP_ERR_NO_MEM);
+  }
 }

@@ -59,6 +59,9 @@ set(SCRIPT_ENGINE_SRCS
     ${SCRIPT_LUA_SRCS} ${SCRIPT_JS_SRCS})
 
 idf_component_register(SRCS
+  "rf_chamber/rf_chamber.c"
+  "rf_chamber/rf_passive.c"
+  "rf_chamber/rf_chamber_config.c"
   "wardrive/wardrive.c"
   "wardrive/wardrive_gps.c"
   "imu/imu_motion.c"
@@ -119,6 +122,7 @@ idf_component_register(SRCS
   "ota/ota_service.c"
 
   INCLUDE_DIRS
+  "rf_chamber/include"
   "wardrive/include"
   "imu/include"
   "board_service/include"

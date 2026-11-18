@@ -97,7 +97,11 @@ esp_err_t gpio_set_level(gpio_num_t pin, uint32_t level) {
   if (is_control) { control_pin = pin; control_level = level; return ESP_OK; }
   assert(calls % 2 == 0);
   assert(pin == expected[calls / 2]);
+#ifdef GPIO_C5_RESET_PIN
+  assert(level == (pin == GPIO_C5_RESET_PIN ? 1U : 0U));
+#else
   assert(level == 0);
+#endif
   return step();
 }
 esp_err_t gpio_config(const gpio_config_t *config) {
@@ -155,6 +159,10 @@ int main(void) {
   assert(!board_pins_haptic_irq_pending());
 #endif
 #ifndef GPIO_HAPTIC_INT_PIN
+  is_control = 1;
+  assert(board_pins_hold_c5(true) == ESP_OK && control_pin == 0 && control_level == 1);
+  assert(board_pins_hold_c5(false) == ESP_OK && control_pin == 0 && control_level == 0);
+  is_control = 0;
   download_test = 1;
   for (int failure = -1; failure < 3; failure++) {
     download_calls = 0; download_fail = failure; reset_delay = 0;

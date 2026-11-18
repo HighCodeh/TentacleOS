@@ -37,8 +37,10 @@ static const gpio_num_t SAFE_OUTPUTS[] = {
 
 esp_err_t board_pins_init(void) {
   for (size_t i = 0; i < sizeof(SAFE_OUTPUTS) / sizeof(SAFE_OUTPUTS[0]); i++) {
-    // Preload the latch before enabling output to avoid an assertion pulse.
-    esp_err_t ret = gpio_set_level(SAFE_OUTPUTS[i], BOARD_SAFE_OUTPUT_LEVEL);
+    // Hold C5 in reset until the boot profile has been loaded; other controls stay low.
+    esp_err_t ret = gpio_set_level(SAFE_OUTPUTS[i],
+                                   SAFE_OUTPUTS[i] == GPIO_C5_RESET_PIN ? BOARD_C5_RESET_ASSERTED
+                                                                        : BOARD_SAFE_OUTPUT_LEVEL);
     if (ret == ESP_OK) {
       const gpio_config_t config = {
           .pin_bit_mask = 1ULL << SAFE_OUTPUTS[i],
@@ -56,6 +58,11 @@ esp_err_t board_pins_init(void) {
   }
   ESP_LOGI(TAG, "High Boy V2.03 safe outputs initialized");
   return ESP_OK;
+}
+
+esp_err_t board_pins_hold_c5(bool held) {
+  return gpio_set_level(GPIO_C5_RESET_PIN,
+                        held ? BOARD_C5_RESET_ASSERTED : BOARD_SAFE_OUTPUT_LEVEL);
 }
 
 esp_err_t board_pins_reset_c5(void) {
