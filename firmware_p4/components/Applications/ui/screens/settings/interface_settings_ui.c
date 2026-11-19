@@ -22,7 +22,6 @@
 #include "tos_config.h"
 #include "tos_storage_paths.h"
 #include "ui_manager.h"
-#include "app_switcher_ui.h"
 #include "ui_theme.h"
 #include "ui_metrics.h"
 
@@ -101,8 +100,7 @@ void ui_interface_settings_open(void) {
     s_screen = NULL;
   }
 
-  if (!ui_tasks_is_resuming())
-    s_changed = false;
+  s_changed = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -111,7 +109,7 @@ void ui_interface_settings_open(void) {
 
   s_menu = menu_component_create(s_screen, "INTERFACE", "/assets/icons/tune.bin");
   menu_component_add_toggle(
-      &s_menu, "/assets/icons/vibration.bin", "Haptics", g_config_system.vibration);
+      &s_menu, "/assets/icons/vibration.bin", "Menu vibration", g_config_system.vibration);
   menu_component_add_item(&s_menu, "/assets/icons/palette.bin", "Theme");
   menu_component_add_item(&s_menu, "/assets/icons/sensors.bin", "LED / Notify");
 

@@ -38,6 +38,7 @@
 #include "sys_prio.h"
 #include "tos_config.h"
 #include "tos_storage_paths.h"
+#include "haptic.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
@@ -53,8 +54,9 @@ static const char *TAG = "UI_MENU";
 #define PRELOAD_FRAME_COUNT   (MENU_ITEM_COUNT * MENU_ITEM_FRAME_COUNT)
 #define PRELOAD_HANDLE_COUNT  (PRELOAD_FRAME_COUNT * PRELOAD_SOURCE_COUNT)
 
-#define ANIM_MS              UI_CAROUSEL_TRANSITION_MS
+#define ANIM_MS              160
 #define LABEL_FADE_MS        100
+#define MENU_HAPTIC_MS       70
 #define FONT_PATH            "A:assets/fonts/Inter.bin"
 #define ICON_CENTER_OFFSET_Y (-10)
 #define LABEL_OFFSET_Y       (-40)
@@ -583,6 +585,7 @@ static void release_preload(void) {
 }
 
 void ui_menu_close(void) {
+  haptic_stop();
   release_preload();
 }
 
@@ -686,6 +689,9 @@ static void menu_event_cb(lv_event_t *e) {
     ui_switch_screen(SCREEN_HOME);
     return;
   }
+  if (is_animating())
+    return;
+
   if (code == LV_EVENT_SHORT_CLICKED) {
     menu_open_selected();
     return;
@@ -709,6 +715,8 @@ static void menu_event_cb(lv_event_t *e) {
       s_selected = (s_selected == 0) ? (uint8_t)(n - 1) : s_selected - 1;
 
     ui_feedback(UI_FB_NAV);
+    if (g_config_system.vibration)
+      (void)haptic_feedback(MENU_HAPTIC_MS);
     update_view(true);
     return;
   }
@@ -722,22 +730,6 @@ static void menu_event_cb(lv_event_t *e) {
     ui_switch_screen(SCREEN_HOME);
     return;
   }
-}
-
-int menu_catalog_count(void) {
-  return (int)MENU_ITEM_COUNT;
-}
-
-const char *menu_catalog_name(int index) {
-  if (index < 0 || index >= (int)MENU_ITEM_COUNT)
-    return NULL;
-  return s_menu_data[index].name;
-}
-
-screen_id_t menu_catalog_target(int index) {
-  if (index < 0 || index >= (int)MENU_ITEM_COUNT)
-    return SCREEN_HOME;
-  return s_menu_data[index].target;
 }
 
 void ui_menu_open(void) {

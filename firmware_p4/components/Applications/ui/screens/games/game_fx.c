@@ -23,8 +23,6 @@
 #include "sys_prio.h"
 
 #include "audio_i2s.h"
-#include "haptic.h"
-#include "tos_config.h"
 
 static const char *TAG = "GAME_FX";
 
@@ -76,9 +74,6 @@ static void snd_task(void *arg) {
 
 void game_fx(game_fx_t kind) {
   cue_t c = cue_for(kind);
-
-  if (g_config_system.vibration)
-    (void)haptic_feedback(HAPTIC_FEEDBACK_MS);
 
   if (s_snd_busy)
     return;

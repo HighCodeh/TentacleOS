@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License
 # along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-"""Exercise responsive menu navigation and decoder lifetime with host fakes."""
+"""Exercise menu animation guards and decoder lifetime with host fakes."""
 from pathlib import Path
 import subprocess
 import tempfile
@@ -65,6 +65,11 @@ static lv_timer_t timer, *s_preload_timer;
 static lv_image_decoder_dsc_t *s_decoders;
 static size_t s_decoder_count, s_preload_frame;
 static unsigned s_selected;
+#define MENU_HAPTIC_MS 70
+static struct {bool vibration;} g_config_system={true};
+static unsigned pulses, stops;
+static int haptic_feedback(unsigned ms) {assert(ms==70);pulses++;return 0;}
+static void haptic_stop(void) {stops++;}
 static int opened, closed, deleted, updated, selected, home, toggled, fail_open;
 static lv_image_dsc_t images[7];
 static struct {const lv_image_dsc_t *base_dscs[3], *icon_dscs[3]; int target;} s_menu_data[2];
@@ -86,7 +91,7 @@ static void favorites_toggle(int s) {(void)s;++toggled;}
 static void ui_feedback(int f) {(void)f;}
 """
 for signature in ("static bool is_animating(void) {", "static void release_preload(void) {",
-                  "static bool pin_image(", "static void preload_cb(",
+                  "void ui_menu_close(void) {", "static bool pin_image(", "static void preload_cb(",
                   "static void menu_event_cb(lv_event_t *e) {"):
     code += function(signature) + "\n"
 code += r"""
@@ -95,12 +100,13 @@ int main(void) {
  lv_event_t back={LV_EVENT_KEY,LV_KEY_ESC};
  active_animation=s_base_imgs[0];
  for(int i=0;i<100;++i) menu_event_cb(&right);
- assert(s_selected==0 && updated==100);
+ assert(s_selected==0 && updated==0);
  active_animation=s_icon_imgs[1];menu_event_cb(&right);menu_event_cb(&click);
- assert(s_selected==1 && selected==1 && updated==101);
+ assert(s_selected==0 && selected==0 && updated==0 && pulses==0);
  menu_event_cb(&back);assert(home==1);
- active_animation=NULL;menu_event_cb(&right);assert(s_selected==0 && updated==102);
- s_preload_timer=&timer;menu_event_cb(&right);assert(s_selected==1 && updated==103);
+ active_animation=NULL;menu_event_cb(&right);assert(s_selected==1 && updated==1);
+ menu_event_cb(&click);assert(selected==1 && pulses==1);
+ s_preload_timer=&timer;menu_event_cb(&right);assert(s_selected==0 && updated==2);
  menu_event_cb(&back);assert(home==2);
  s_decoders=calloc(12,sizeof(*s_decoders));
  for(int i=0;i<2;++i) for(int f=0;f<3;++f) {
@@ -112,9 +118,9 @@ int main(void) {
  active_animation=NULL;
  for(int i=0;i<6;++i) preload_cb(&timer);
  assert(!s_preload_timer && s_decoder_count==7 && opened==7 && closed==0);
- assert(updated==view_updates && s_selected==1);
- release_preload();assert(closed==7 && !s_decoders && !s_decoder_count);
- release_preload();assert(closed==7);
+ assert(updated==view_updates && s_selected==0);
+ ui_menu_close();assert(closed==7 && !s_decoders && !s_decoder_count && stops==1);
+ ui_menu_close();assert(closed==7 && stops==2);
  s_decoders=calloc(12,sizeof(*s_decoders));s_preload_timer=&timer;s_preload_frame=0;
  preload_cb(&timer);assert(s_decoder_count==2);
  fail_open=1;preload_cb(&timer);
@@ -127,7 +133,7 @@ int main(void) {
 with tempfile.TemporaryDirectory() as directory:
     src = Path(directory) / "test.c"
     exe = Path(directory) / "test"
-    src.write_text(code)
+    src.write_text(source.split("#include", 1)[0] + code)
     subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", str(src), "-o", str(exe)], check=True)
     subprocess.run([str(exe)], check=True)
-print("Responsive menu navigation, preload deduplication and cleanup passed")
+print("Menu animation guards, responsive Back, preload deduplication and cleanup passed")

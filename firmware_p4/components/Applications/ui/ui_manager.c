@@ -37,7 +37,6 @@
 #include "tutorial_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
-#include "haptic.h"
 #include "tos_config.h"
 #include "ui_theme.h"
 #include "ui_metrics.h"
@@ -49,7 +48,6 @@
 #include "boot_map_ui.h"
 #include "crash_report_ui.h"
 #include "home_ui.h"
-#include "app_switcher_ui.h"
 #include "menu_ui.h"
 #include "wifi_ui.h"
 #include "wardrive_ui.h"
@@ -292,42 +290,12 @@ static void ui_input_pump(lv_timer_t *t) {
   (void)t;
   input_event_t ev;
   while (input_get_event(&ev, 0)) {
-    // One bounded pulse per accepted physical press/repeat, including custom menus.
-    // The haptic service drops overlapping requests; no delayed motor queue.
-    if ((ev.action == INPUT_ACTION_PRESS || ev.action == INPUT_ACTION_REPEAT) &&
-        (!ui_input_is_locked() ||
-         (ui_tasks_is_open() && !power_policy_is_asleep() &&
-          (int32_t)(lv_tick_get() - input_lock_until) >= 0 && s_consumed_buttons == 0)) &&
-        g_config_system.vibration &&
-        !(current_screen_id == SCREEN_HAPTIC && ev.button == INPUT_BTN_OK))
-      (void)haptic_feedback(ev.button == INPUT_BTN_OK ? HAPTIC_FEEDBACK_MS : 70);
     if (ev.action == INPUT_ACTION_RELEASE && screen_tips_active())
       screen_tips_handle_input(&ev);
     const uint32_t mask = UINT32_C(1) << ev.button;
     if ((s_consumed_buttons & mask) != 0) {
       if (ev.action == INPUT_ACTION_RELEASE)
         s_consumed_buttons &= ~mask;
-      continue;
-    }
-    if (ui_tasks_is_open() && !power_policy_is_asleep() &&
-        (int32_t)(lv_tick_get() - input_lock_until) >= 0 && !msgbox_is_open() &&
-        !dropdown_ui_is_open()) {
-      if (ev.button == INPUT_BTN_BACK) {
-        if (ev.action == INPUT_ACTION_PRESS) {
-          s_back_pending = true;
-          s_back_pressed_at = ev.timestamp_ms;
-        }
-        if (ev.action != INPUT_ACTION_RELEASE)
-          continue;
-        bool short_press = s_back_pending && (uint32_t)(ev.timestamp_ms - s_back_pressed_at) <
-                                                 POWER_POLICY_BACK_HOLD_MS;
-        s_back_pending = false;
-        if (!short_press)
-          continue;
-        ev.action = INPUT_ACTION_PRESS;
-      }
-      ev.button = input_remap_for_rotation(ev.button);
-      ui_tasks_input(&ev);
       continue;
     }
     if (ui_input_is_locked() || msgbox_is_open() || dropdown_ui_is_open()) {
@@ -344,17 +312,12 @@ static void ui_input_pump(lv_timer_t *t) {
       }
       if (ev.action != INPUT_ACTION_RELEASE)
         continue;
-      const uint32_t held_ms = ev.timestamp_ms - s_back_pressed_at;
       const bool is_short = s_back_pending && (uint32_t)(ev.timestamp_ms - s_back_pressed_at) <
                                                   POWER_POLICY_BACK_HOLD_MS;
       s_back_pending = false;
       if (!is_short)
         continue;
       ev.action = INPUT_ACTION_PRESS;
-      if (held_ms >= 900 && !screen_tips_active() && !tutorial_is_active()) {
-        ui_tasks_toggle();
-        break;
-      }
       if (keyboard_is_open()) {
         keyboard_close();
         break;
@@ -465,7 +428,7 @@ static void clear_current_screen(void) {
 
 bool ui_input_is_locked(void) {
   return (int32_t)(lv_tick_get() - input_lock_until) < 0 || power_policy_is_asleep() ||
-         msgbox_is_open() || s_consumed_buttons != 0 || ui_tasks_is_open();
+         msgbox_is_open() || s_consumed_buttons != 0;
 }
 
 void ui_input_lock(uint32_t ms) {
@@ -998,7 +961,6 @@ static void ui_display_release_ui(void) {
 }
 
 void ui_prepare_shutdown(void) {
-  ui_tasks_reset();
   screen_id_t closing = current_screen_id;
   ui_close_fn_t close_fn = screen_close_fn(closing);
   if (close_fn != NULL)
@@ -1012,21 +974,6 @@ void ui_prepare_shutdown(void) {
   current_screen_id = SCREEN_NONE;
 }
 
-static screen_id_t s_home_entry = SCREEN_NONE;
-
-/* A Home shortcut owns only its root return, not its nested feature workflow. */
-static screen_id_t navigation_target(screen_id_t from, screen_id_t requested) {
-  if (from == requested)
-    return requested;
-  if (from == s_home_entry && requested == SCREEN_MENU)
-    requested = SCREEN_HOME;
-  if (requested == SCREEN_HOME || requested == SCREEN_MENU)
-    s_home_entry = SCREEN_NONE;
-  else if (from == SCREEN_HOME)
-    s_home_entry = requested;
-  return requested;
-}
-
 void ui_switch_screen(screen_id_t new_screen) {
   ui_open_fn_t open_fn = screen_open_fn(new_screen);
   if (open_fn == NULL) {
@@ -1037,8 +984,6 @@ void ui_switch_screen(screen_id_t new_screen) {
   input_lock_until = lv_tick_get() + INPUT_LOCK_MS;
 
   if (ui_acquire()) {
-    new_screen = navigation_target(current_screen_id, new_screen);
-    open_fn = screen_open_fn(new_screen);
     // A native screen is coming to the foreground: (re)claim the panel for the UI.
     // If an app held it, this preempts the app and fires its resource_lost().
     ui_display_claim_ui();
@@ -1055,7 +1000,6 @@ void ui_switch_screen(screen_id_t new_screen) {
       ui_release();
       return;
     }
-    ui_tasks_before_switch(from, new_screen);
     ui_close_fn_t close_fn = screen_close_fn(current_screen_id);
     const bool mouse_transition =
         (from == SCREEN_BLE_MOUSE || from == SCREEN_BLE_MOUSE_PAIRING) &&
@@ -1069,7 +1013,6 @@ void ui_switch_screen(screen_id_t new_screen) {
     ui_chrome_set_status_enabled(ui_screen_shows_chrome(new_screen));
     open_fn();
     current_screen_id = new_screen;
-    ui_tasks_after_switch(new_screen);
     if (is_lora_screen(from) && !is_lora_screen(new_screen))
       sx1262_stop_rx();
     else if (!is_lora_screen(from) && is_lora_screen(new_screen))

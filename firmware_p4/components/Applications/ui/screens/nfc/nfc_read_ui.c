@@ -15,7 +15,6 @@
 
 #include "nfc_read_ui.h"
 #include "nfc_guide_ui.h"
-#include "app_switcher_ui.h"
 
 #include <stdio.h>
 #include <stdatomic.h>
@@ -1048,10 +1047,6 @@ static void run_context_action(nfc_card_action_id_t action) {
   }
 }
 
-bool ui_nfc_read_can_resume(void) {
-  return s_state == ST_SUCCESS || s_state == ST_FOUND || s_state == ST_OPTIONS;
-}
-
 void ui_nfc_read_stop(void) {
   if (s_timer != NULL) {
     lv_timer_delete(s_timer);
@@ -1076,8 +1071,6 @@ static void screen_deleted(lv_event_t *event) {
 }
 
 void ui_nfc_read_open(void) {
-  bool resume = ui_tasks_is_resuming() && ui_nfc_read_can_resume();
-  int action = resume ? s_cr.sel : 0;
   nfc_sim_init();
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
@@ -1118,11 +1111,6 @@ void ui_nfc_read_open(void) {
     lv_label_set_text(s_status, "Reader unavailable");
     ui_chrome_footer_set_text(s_hint, "BACK Exit");
     ESP_LOGE(TAG, "Cannot create reader UI timer");
-  } else if (resume) {
-    show_rings(false);
-    show_options();
-    for (int i = 0; i < action && i < s_cr.count; ++i)
-      capture_result_next(&s_cr);
   } else
     begin_scan();
 

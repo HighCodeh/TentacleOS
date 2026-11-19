@@ -68,14 +68,6 @@ void keyboard_open_text(const char *initial,
                         keyboard_submit_cb_t cb,
                         void *user_data);
 
-/** @brief Session-only draft, owned by the caller; restore only with its original screen state. */
-typedef struct keyboard_snapshot keyboard_snapshot_t;
-keyboard_snapshot_t *keyboard_snapshot_capture(void);
-void keyboard_snapshot_restore(const keyboard_snapshot_t *snapshot);
-void keyboard_snapshot_free(keyboard_snapshot_t *snapshot);
-/** @brief Hide a password's temporary last-character reveal before a UI preview. */
-void keyboard_mask_preview(void);
-
 /** @brief Close the on-screen keyboard. */
 void keyboard_close(void);
 

@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License
 # along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-"""Regression checks for input accepted while carousel/grid motion is active."""
+"""Regression checks for carousel animation guards and grid navigation."""
 from pathlib import Path
 import os
 import re
@@ -22,6 +22,7 @@ import subprocess
 import tempfile
 ROOT = Path(__file__).resolve().parents[3]
 UI = ROOT / "firmware_p4/components/Applications/ui"
+NOTICE = (UI / "screens/menu/menu_ui.c").read_text().split("#include", 1)[0]
 def function(path, name):
     source = path.read_text()
     match = re.search(r"(?:static )?void " + name + r"\([^;]*?\)\s*\{", source)
@@ -32,7 +33,7 @@ def function(path, name):
     return source[start:end]
 def run(name, code):
     with tempfile.TemporaryDirectory(prefix=name) as tmp:
-        path=Path(tmp); (path/"test.c").write_text(code)
+        path=Path(tmp); (path/"test.c").write_text(NOTICE + code)
         subprocess.run([os.environ.get("CC","cc"),"-std=c11","-Wall","-Wextra","-Werror",
                         "-fsanitize=undefined",str(path/"test.c"),"-o",str(path/"test")],check=True)
         subprocess.run([str(path/"test")],check=True)
@@ -53,6 +54,10 @@ enum {LV_KEY_ESC,LV_KEY_LEFT,LV_KEY_RIGHT,LV_KEY_DOWN};
 #define SCREEN_HOME 1
 #define MENU_ITEM_COUNT 12
 static unsigned s_selected;
+#define MENU_HAPTIC_MS 70
+static struct {bool vibration;} g_config_system={true};
+static unsigned pulses;
+static int haptic_feedback(unsigned ms) {assert(ms==70);pulses++;return 0;}
 static int opened=-1, route=-1, toggled=-1, updated;
 static struct {int target;} s_menu_data[MENU_ITEM_COUNT];
 static int lv_event_get_code(lv_event_t *e) {return e->code;}
@@ -60,20 +65,37 @@ static uint32_t lv_event_get_key(lv_event_t *e) {return e->key;}
 static void ui_switch_screen(int id) {route=id;}
 static void menu_open_selected(void) {opened=s_selected;}
 static void favorites_toggle(int id) {toggled=id;}
-static void update_view(bool anim) {(void)anim;updated++;}
-static __attribute__((unused)) bool is_animating(void) {return true;}
+static bool animating;
+static void update_view(bool anim) {animating=anim;updated++;}
+static bool is_animating(void) {return animating;}
 """
 checks = r"""
 int main(void) {
  for(int i=0;i<MENU_ITEM_COUNT;i++) s_menu_data[i].target=100+i;
  lv_event_t e={LV_EVENT_KEY,LV_KEY_RIGHT};
- for(int i=0;i<3;i++)menu_event_cb(&e);
- assert(s_selected==3 && updated==3);
- e.key=LV_KEY_LEFT; menu_event_cb(&e);assert(s_selected==2 && updated==4);
- e.code=LV_EVENT_SHORT_CLICKED;menu_event_cb(&e);assert(opened==2);
- e.code=LV_EVENT_LONG_PRESSED;menu_event_cb(&e);assert(toggled==102 && opened==2);
+ menu_event_cb(&e);assert(s_selected==1 && updated==1 && animating && pulses==1);
+ for(int i=0;i<100;i++)menu_event_cb(&e);
+ e.key=LV_KEY_LEFT;menu_event_cb(&e);
+ e.key=LV_KEY_DOWN;menu_event_cb(&e);
+ e.code=LV_EVENT_SHORT_CLICKED;menu_event_cb(&e);
+ e.code=LV_EVENT_LONG_PRESSED;menu_event_cb(&e);
+ assert(s_selected==1 && updated==1 && opened==-1 && toggled==-1 && animating && pulses==1);
  e.code=LV_EVENT_KEY;e.key=LV_KEY_ESC;menu_event_cb(&e);assert(route==SCREEN_HOME);
- for(int i=0;i<100;i++){e.key=LV_KEY_LEFT;menu_event_cb(&e);assert(s_selected<MENU_ITEM_COUNT);}
+ animating=false;e.key=LV_KEY_LEFT;menu_event_cb(&e);
+ assert(s_selected==0 && updated==2 && animating);
+ animating=false;e.key=LV_KEY_DOWN;menu_event_cb(&e);assert(opened==0);
+ e.code=LV_EVENT_SHORT_CLICKED;menu_event_cb(&e);assert(opened==0);
+ e.code=LV_EVENT_LONG_PRESSED;menu_event_cb(&e);assert(toggled==100 && updated==3 && pulses==2);
+ e.code=LV_EVENT_KEY;e.key=LV_KEY_LEFT;menu_event_cb(&e);
+ assert(s_selected==MENU_ITEM_COUNT-1 && animating);
+ for(int i=0;i<100;i++){
+  unsigned previous=s_selected;
+  menu_event_cb(&e);assert(s_selected==previous);
+  animating=false;menu_event_cb(&e);
+  assert(s_selected==(previous==0 ? MENU_ITEM_COUNT-1 : previous-1));
+ }
+ unsigned before=pulses;g_config_system.vibration=false;animating=false;
+ menu_event_cb(&e);assert(pulses==before && animating);
  return 0;
 }
 """
@@ -109,7 +131,7 @@ int main(void) {
 }
 """
 run("grid-motion-",common+types+grid+function(UI/"screens/bluetooth/ble_spam_ui.c","ble_spam_select_input")+checks)
-print("PASS: rapid carousel navigation/open/favorite/back during motion; partial grid rows and wrap")
+print("PASS: carousel waits for animation completion, discards repeated input, keeps Back available; partial grid rows and wrap")
 
 media=r"""
 typedef void lv_obj_t;

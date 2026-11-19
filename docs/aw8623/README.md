@@ -71,6 +71,9 @@ the startup interrupt and evaluating live status. It does not reject a pulse
 solely from a standby/startup flag. Live undervoltage still blocks GO and returns
 `AW8623_ERR_SUPPLY`; the UI displays "Supply low". Failure logs include
 SYSST/SYSINT. No undervoltage/overcurrent/temperature protection is disabled.
+Successful pulses are silent in the terminal. Explicit probe identification and
+diagnostic/playback failures remain logged; normal navigation does not emit a
+message for each motor activation.
 The device uses 400 kHz I2C. After GO clears, DONE without UVLI confirms normal
 completion even when auto-standby raises the live UVLS bit. UVLI or other faults
 still fail the pulse; GO clearing without DONE is not success.
@@ -95,15 +98,21 @@ If reset cannot be confirmed, the worker retains ownership and retries stop ever
 
 ## UI and feedback
 
-Vibration settings offer intensity, driver check, stop and a 200 ms test pulse.
-Leaving the screen requests cancellation. Driver work runs outside LVGL callbacks.
-The central input router requests 70 ms for navigation/BACK and 120 ms for OK,
-on debounced presses and repeats while input is active. Muted or locked input
-does not vibrate, and release events do not generate a second pulse.
-Read/write/emulate/SD-connect feedback, game cues and NFC feedback request 120 ms when system vibration is enabled. Intensity defaults to
-80% and is shared with the Vibration menu (20–100%). The enabled switch and
-intensity persist in system.conf when leaving with BACK; save failures are
-reported. Busy feedback is dropped; there is no queued replay.
+Only accepted LEFT/RIGHT navigation in the main coverflow requests a 70 ms
+pulse, with the configured enable flag and intensity. The animation guard runs
+before feedback, so ignored repeats do not start another motor request. Busy
+requests are dropped without queueing. The menu close hook requests cancellation
+before navigating away; an unconfirmed stop retains the service cleanup contract.
+
+Other screens, keyboard input, read/write/emulate results, SD events, games and
+NFC cues do not request vibration. Vibration settings only edit enable and
+intensity; there is no test pulse, driver probe or refresh timer in that screen.
+Intensity defaults to 80% and is adjustable from 20–100%. Both settings persist
+in system.conf when leaving with BACK; save failures are reported.
+
+The shared board-service status polling still serves amplifier, USB and haptic
+reset/interrupt ownership. Restricting motor requests reduces their extra board
+commands; it does not remove that shared polling or suppress transport errors.
 
 DRV2605L remains excluded from the build. Its numeric ROM effect IDs are not
 translated into AW8623 registers; the new consumers use bounded ERM pulses.

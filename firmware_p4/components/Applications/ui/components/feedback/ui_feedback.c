@@ -26,7 +26,6 @@
 #include "sys_prio.h"
 
 #include "audio_i2s.h"
-#include "haptic.h"
 #include "led_control.h"
 #include "tos_config.h"
 
@@ -167,9 +166,6 @@ static void fb_task(void *arg) {
 
     // s_playing was already set by the producer that claimed this slot.
     const fb_def_t *d = &DEFS[k];
-    if (g_config_system.vibration &&
-        (k == UI_FB_READ || k == UI_FB_WRITE || k == UI_FB_EMULATE || k == UI_FB_SD_CONNECT))
-      (void)haptic_feedback(HAPTIC_FEEDBACK_MS);
     if (k == UI_FB_READ || k == UI_FB_WRITE || k == UI_FB_EMULATE || k == UI_FB_SD_CONNECT)
       led_signal_info();
     if (d->notes && d->count > 0 && g_config_system.ui_sound_fx) {

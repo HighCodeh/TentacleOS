@@ -126,10 +126,6 @@ void menu_component_intensity_dec(menu_component_t *menu, int index);
 /** @brief Get the intensity bar level for an item. */
 int menu_component_get_intensity(menu_component_t *menu, int index);
 
-/** @brief Snapshot/restore the active screen's selection under the LVGL lock. */
-int menu_component_active_selection(void);
-void menu_component_restore_selection(int selected);
-
 /** @brief Select a menu item by index. */
 void menu_component_select(menu_component_t *menu, int index);
 

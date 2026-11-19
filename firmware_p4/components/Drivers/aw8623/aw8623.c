@@ -237,7 +237,6 @@ esp_err_t aw8623_play(const board_control_ops_t *controls, const aw8623_playback
     return ESP_ERR_INVALID_STATE;
   aw8623_diagnostic_t diagnostic = {0};
   uint64_t epoch = 0;
-  int64_t started_at = 0;
   esp_err_t result = board_control_apply(controls, BOARD_CONTROL_HAPTIC, false, NULL);
   if (result != ESP_OK)
     goto cleanup;
@@ -319,7 +318,6 @@ esp_err_t aw8623_play(const board_control_ops_t *controls, const aw8623_playback
     goto cleanup;
   }
   // An uncertain GO acknowledgement is never retried.
-  started_at = esp_timer_get_time();
   result = write_register(AW8623_GO, 1);
   if (result != ESP_OK)
     goto cleanup;
@@ -380,12 +378,6 @@ cleanup: {
              result == AW8623_ERR_SUPPLY ? "motor supply low" : esp_err_to_name(result),
              diagnostic.system_status,
              diagnostic.interrupts);
-  else
-    ESP_LOGI(TAG,
-             "Pulse complete: %u%% / %ums, elapsed %lldms; reset asserted",
-             request->intensity,
-             request->duration_ms,
-             (long long)((esp_timer_get_time() - started_at) / AW8623_US_PER_MS));
   atomic_flag_clear(&s_busy);
   return result;
 }

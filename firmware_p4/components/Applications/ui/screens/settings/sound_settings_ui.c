@@ -25,7 +25,6 @@
 #include "tos_storage_paths.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
-#include "app_switcher_ui.h"
 #include "ui_theme.h"
 #include "ui_metrics.h"
 
@@ -144,10 +143,8 @@ void ui_sound_settings_open(void) {
     s_screen = NULL;
   }
 
-  if (!ui_tasks_is_resuming())
-    s_changed = false;
-  if (!ui_tasks_is_resuming())
-    s_vol_changed = false;
+  s_changed = false;
+  s_vol_changed = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);

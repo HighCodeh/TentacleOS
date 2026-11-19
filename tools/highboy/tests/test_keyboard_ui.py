@@ -172,20 +172,7 @@ int main(void) {
   press(LV_SYMBOL_OK);assert(strcmp(received,"TV Sala_1-ON")==0);tick();
   keyboard_open_config(&(keyboard_config_t){.mode=KEYBOARD_FILENAME,.initial="éé",.min_chars=1,.max_chars=2},saved,&calls);
   press(LV_SYMBOL_OK);assert(keyboard_is_open());keyboard_close();tick();
-  char title[]="Draft title";
-  keyboard_open_config(&(keyboard_config_t){.title=title,.initial="abc",.max_chars=12},saved,&calls);
-  title[0]='X';lv_textarea_set_cursor_pos(s_text,1);s_page=3;set_map();lv_buttonmatrix_set_selected_button(s_keys,31);
-  keyboard_snapshot_t *draft=keyboard_snapshot_capture();assert(draft);
-  keyboard_close();tick();lv_obj_clean(lv_screen_active());
-  keyboard_snapshot_restore(draft);assert(!strcmp(lv_label_get_text(s_title),"Draft title"));
-  assert(!strcmp(lv_textarea_get_text(s_text),"abc") && lv_textarea_get_cursor_pos(s_text)==1);
-  assert(s_page==3 && lv_buttonmatrix_get_selected_button(s_keys)==31);
-  keyboard_snapshot_free(draft);press("~");press(LV_SYMBOL_OK);assert(!strcmp(received,"a~bc"));tick();
-  keyboard_open_config(&(keyboard_config_t){.mode=KEYBOARD_PASSWORD,.initial="secret"},saved,&calls);
-  keyboard_mask_preview();assert(strcmp(lv_label_get_text(lv_textarea_get_label(s_text)),"secret"));
-  fail_alloc=true;assert(keyboard_snapshot_capture()==NULL && keyboard_is_open());fail_alloc=false;
-  keyboard_close();tick();keyboard_snapshot_free(NULL);
-  puts("PASS: restorable drafts and preview masking; filename validation; real LVGL editor layouts, modes, cursor, erase, limits, masking, OOM, cancel, empty/hex validation and reentrant callbacks");
+  puts("PASS: filename validation; real LVGL editor layouts, modes, cursor, erase, limits, masking, OOM, cancel, empty/hex validation and reentrant callbacks");
 }
 ''')
 

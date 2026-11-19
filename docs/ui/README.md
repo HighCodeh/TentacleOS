@@ -320,11 +320,10 @@ is blocked during modal dialogs and consumed gestures.
 See the [navigation audit](navigation-audit.md) for route coverage, corrected
 parent destinations and the remaining lifecycle findings.
 
-Opening a feature from Home now retains Home as that feature root's return.
-Nested BACK actions still go through their declared submenus; only the root's
-normal exit to Menu is redirected to Home. Entering the coverflow or Home clears
-that shortcut origin. Settings remembers the selected row separately for its
-main and Audio & Haptics lists; its firmware grid, Infrared and Interface menus
+Home opens the main menu with OK or DOWN. Features return through their declared
+parents. Screen changes do not retain a cross-application history, previews or
+keyboard drafts. Settings remembers the selected row separately for its main
+and Audio & Haptics lists; its firmware grid, Infrared and Interface menus
 also retain selection when returning from a child.
 
 The UI dispatches a short physical BACK as one `PRESS` **on release**, preserving
@@ -422,12 +421,10 @@ applies this policy without rewriting theme files or rebuilding assets.
 
 Home and the Apps library take their card, text, focus and icon colors from the
 active theme. The original mascot and media artwork retain their source colors.
-Home uses the event input path, labels the selected shortcut, preserves its
-selection and lays out the mascot beside the shortcuts in landscape. Without
-user favorites, NFC, Infrared, Music and Settings provide defaults; Octobit stays
-available. Its 30-second date refresh is stopped by the central close hook.
-No binary font is loaded just for the Home date. Home leaves the breadcrumb title
-empty; the redundant HIGH BOY caption is not shown below the status bar.
+Home uses the event input path and shows the date above the mascot in both
+orientations. Its 30-second date refresh is stopped by the central close hook
+and an idempotent screen-deletion callback. No binary font is loaded just for the
+Home date. Home leaves the breadcrumb title empty; the redundant HIGH BOY caption is not shown below the status bar.
 
 The shared 22-pixel footer has a bounded, centered hint label. Long hints scroll
 inside its margins instead of extending off-screen; normal menu hints are kept
@@ -501,16 +498,17 @@ Game Boy, Doom and external app discovery retain their existing behavior.
 
 ## Coverflow navigation timing
 
-The main and theme carousels transition in 180 ms. A new directional press
-retargets movement from the current position; opening the selected app and
-changing favorites remain available during movement. Shared content fades use
+The main carousel transitions in 160 ms; the theme carousel uses 180 ms. The
+main menu waits until its card animations finish before accepting another
+directional event, opening an app or changing a favorite. Events received during movement are discarded,
+not queued; the guard checks active LVGL animations instead of a fixed delay.
+BACK remains available during movement and preload. Shared content fades use
 120 ms. The 80 ms native-entry guard consumes the initiating held gesture until
-release, rather than discarding independent clicks for half a second. BACK is
-available during movement and preload; worker shutdown can still take longer
-than the visual transition. The input regression suite is
+release. Worker shutdown can
+still take longer than the visual transition. The input regression suite is
 `tools/highboy/tests/test_ui_transitions.py`.
-`test_menu_preload.py` also verifies that navigation remains responsive during
-movement while preserving decoder deduplication, idle preloading and cleanup.
+`test_menu_preload.py` also verifies the animation guard, BACK during movement,
+and idle navigation while preserving decoder deduplication, preloading and cleanup.
 
 On opening the menu, the visible images load first and navigation is immediately
 available. A 20 ms UI timer preloads one remaining item/frame pair per idle tick;
@@ -775,11 +773,13 @@ reading then displays the filtered voltage estimate, marked with `~`, while
 measured voltage, source, net current and blocked reason remain independent. The charge action only queues the guarded service request.
 Portrait and landscape use content bounds; USB has its own header symbol.
 
-Vibration settings control system notifications and a persistent intensity,
-with a bounded 200 ms test. The input router requests short vibration on button
-press/repeat, including custom menus; release does not repeat it and locked
-input is silent. Read/write and related completion cues also use the
-LED notification worker. See the canonical AW8623 and LED contracts.
+Vibration is limited to accepted LEFT/RIGHT navigation in the main coverflow:
+one 70 ms request after the animation guard, respecting enable and intensity.
+The close hook cancels pending playback. Other screens and operation results do
+not trigger the motor. Vibration settings retain enable and intensity only,
+without a test pulse or polling timer. Result cues still use sound and the LED
+notification worker. Shared board-service polling remains active for its other
+controls. See the canonical AW8623 and LED contracts.
 
 The MP3 player lays out the cover above controls in portrait and beside them in
 landscape. It accepts embedded JPEG/PNG covers, stores bulk metadata and PCM in
@@ -788,27 +788,7 @@ atomic. Failed audio writes stop playback instead of automatically cycling into
 repeated errors; the screen reports the failure. Missing/failed cover allocation
 uses the placeholder. Library rows show MP3/WAV, not invented durations.
 
-## UX follow-up: recent apps and capture names (2026-11-18)
-
-Home UP, or BACK held for 900 ms and released before the existing 5 s shutdown,
-opens Recent Apps: up to five actual screen previews held in checked PSRAM.
-LEFT/RIGHT chooses a card, OK returns/resumes, DOWN opens Apps and short BACK
-closes the overview. Closing consumes the initiating gesture so it cannot type
-into an underlying editor. The current screen stays live; games pause while the
-overview is open. Switching applications runs the normal resource close hooks.
-
-Resume reconstructs the supported view: Files retains folder, selected entry,
-list/grid mode and text scroll; IR Saved retains protocol/file/action level;
-MQTT retains the edited field; safe RFID views and completed NFC identification
-retain their data. Standard supported menus retain selection. Snake/Breakout
-retain their board/score with unchanged orientation; a geometry change reopens
-the app instead. Keyboard drafts in MQTT, IR Saved, RFID and completed NFC include
-text, cursor, page, selected key and the original callback. Password previews mask
-the temporary last character and discarded drafts are wiped. Unsupported edits
-must be saved or cancelled before leaving through Recent Apps. Other operation
-screens explicitly show Reopen and return to their app entry; operations are not
-silently restarted or transmitted. These session states do not survive reboot.
-A normal fresh app launch starts its ordinary entry and discards its old task card.
+## Capture workflows
 
 NFC Read uses the approach/return loop derived from the supplied video while the actual NFC manager
 searches. The native GIF is 160x148, 12 fps, 48 palette entries, 171,553 bytes; only empty
@@ -823,7 +803,7 @@ fallback. All GIF timers stop on success, error and exit, before block transacti
 on the shared display/NFC SPI bus. A real card-found event alone shows a green
 identification check for 700 ms, then the card information for 1,400 ms and actions.
 This confirms identification, not that every protected block has been read.
-Retry/timeout never produces success. Restoring a completed card does not rescan.
+Retry/timeout never produces success. Opening NFC Read starts a new scan.
 The GIF and its notice are added to the assets LittleFS partition through a guarded
 update that verifies the installed local image and preserves every existing file;
 an application-only flash cannot install this asset.
@@ -853,11 +833,11 @@ examples and demos. No first-party application or app-runtime export uses the
 removed widgets/examples. Kconfig updates go through the pinned IDF configuration
 server; flash partitions, radio configuration and charging limits are unchanged.
 
-Run `test_app_switcher_ui.py` and `test_nfc_guidance_ui.py` with the same host
-build directory to exercise real LVGL snapshots, draft restoration, GIF decoding
+Run `test_home_ui.py` and `test_nfc_guidance_ui.py` with the same host
+build directory to exercise Home layout/navigation/lifecycle, GIF decoding
 and event-gated success ordering. The host card event is a fixture, not a physical
-RF reading. Device acceptance separately checks visible animation, task navigation
-and retained state. Console `uistate` includes the top layer so modal cards and
+RF reading. Device acceptance separately checks visible animation and physical
+input navigation. Console `uistate` includes the top layer so modal cards and
 status overlays are inspectable as well as the active root.
 
 
@@ -867,7 +847,7 @@ After resolving the pinned P4 dependencies with `bash tools/build.sh p4`, instal
 `tools/highboy/tests/requirements-ui.txt` and run
 `bash tools/highboy/test_ui.command /tmp/highboy-ui-host`. This builds the native
 LVGL fixture once, then checks the keyboard, capture naming and Diagnostics,
-Recent Apps and draft restoration, and transparent NFC guidance. The P4 CI build
+Home layout/navigation/lifecycle and transparent NFC guidance. The P4 CI build
 runs the same sequence. Host card events and graphics are fixtures; physical RF
 acceptance remains a separate device check.
 

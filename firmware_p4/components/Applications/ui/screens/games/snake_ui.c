@@ -26,7 +26,6 @@
 #include "ui_metrics.h"
 #include "st7789.h"
 #include "ui_manager.h"
-#include "app_switcher_ui.h"
 #include "ui_theme.h"
 
 #define TICK_MS          33
@@ -257,8 +256,6 @@ void ui_snake_stop(void) {
 }
 
 void ui_snake_open(void) {
-  bool resume = ui_tasks_is_resuming() && s_cols == ui_screen_w() / CELL &&
-                s_rows == (ui_screen_h() - TOPBAR) / CELL;
   ui_snake_stop();
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
@@ -321,16 +318,7 @@ void ui_snake_open(void) {
   lv_obj_set_style_text_align(s_msg_lbl, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_center(s_msg_lbl);
 
-  if (resume) {
-    render_body();
-    cell_pos(s_food_obj, s_food_x, s_food_y);
-    set_score_text();
-    if (s_state == ST_DEAD) {
-      lv_label_set_text_fmt(s_msg_lbl, "GAME OVER\nScore %d\nOK retry   BACK exit", s_score);
-    } else
-      lv_obj_add_flag(s_msg_panel, LV_OBJ_FLAG_HIDDEN);
-  } else
-    reset_game();
+  reset_game();
 
   s_timer = lv_timer_create(tick_cb, TICK_MS, NULL);
   if (s_timer == NULL) {

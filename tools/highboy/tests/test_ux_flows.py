@@ -13,7 +13,7 @@
 # You should have received a copy of the GNU General Public License
 # along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-"""Production recent-app ordering, capture naming, storage collision and diagnostics layout.
+"""Production capture naming, storage collision and diagnostics layout.
 Run after test_keyboard_ui.py with the same build-directory argument (pinned LVGL library).
 """
 from pathlib import Path
@@ -49,6 +49,7 @@ typedef int esp_err_t;
 static bool s_saved;static int s_cr,marked,dialogs,writes;
 static char editor[64];
 static void capture_result_mark_saved(int *p){assert(p==&s_cr);marked++;}
+static void capture_result_set_title(int *p,const char *name){assert(p==&s_cr);assert(!strcmp(name,"TV Room"));}
 static void ui_feedback(int a){(void)a;}
 static void notify(int a,const char*b){(void)a;(void)b;}
 static void keyboard_open_filename(const char *t,const char *initial,unsigned m,void(*cb)(const char*,void*)){

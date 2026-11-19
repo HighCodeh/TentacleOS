@@ -31,7 +31,6 @@
 #include "storage_assets.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
-#include "app_switcher_ui.h"
 #include "ui_metrics.h"
 #include "image_viewer_ui.h"
 #include "mp3_player_ui.h"
@@ -162,7 +161,6 @@ static int s_top = 0;
 static uint8_t s_sel_stack[MAX_DEPTH];
 static bool s_in_viewer = false;
 static bool s_resume = false;
-static int32_t s_viewer_scroll;
 static char s_resume_name[sizeof(((entry_t *)0)->name)];
 
 static lv_obj_t *s_screen = NULL;
@@ -1232,7 +1230,6 @@ void ui_files_close(void) {
   s_resume_name[0] = '\0';
   if (s_entries != NULL && s_sel >= 0 && s_sel < s_count)
     snprintf(s_resume_name, sizeof(s_resume_name), "%s", s_entries[s_sel].name);
-  s_viewer_scroll = s_in_viewer && s_vbody != NULL ? lv_obj_get_scroll_y(s_vbody) : 0;
   if (s_timer != NULL) {
     lv_timer_delete(s_timer);
     s_timer = NULL;
@@ -1248,12 +1245,11 @@ void ui_files_open(void) {
     files_free();
   }
 
-  if (!ui_tasks_is_resuming())
-    s_in_viewer = false;
+  s_in_viewer = false;
   s_ok_long_fired = false;
   s_ok_armed = false;
 
-  if (s_resume || ui_tasks_is_resuming()) {
+  if (s_resume) {
     s_resume = false;
     scan_dir();
     for (int i = 0; i < s_count; ++i)
@@ -1266,10 +1262,6 @@ void ui_files_open(void) {
     if (s_count == 0)
       s_in_viewer = false;
     build_screen();
-    if (s_in_viewer && s_vbody != NULL) {
-      lv_obj_update_layout(s_vbody);
-      lv_obj_scroll_to_y(s_vbody, s_viewer_scroll, LV_ANIM_OFF);
-    }
     return;
   }
 

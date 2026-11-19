@@ -54,21 +54,12 @@ static uint32_t s_consumed_buttons, s_back_pressed_at;
 static bool s_back_pending;
 static bool held[INPUT_BTN_COUNT], locked, modal, dropdown, keyboard, tips, tutorial;
 static int screen, events, legacy, cancelled, waits, haptic_count;
-static int current_screen_id;
-#define SCREEN_HAPTIC 65
-static struct { bool vibration; } g_config_system = {true};
-#define HAPTIC_FEEDBACK_MS 120
-static int haptic_feedback(unsigned ms) { assert(ms == 70 || ms == 120); haptic_count++; return 0; }
+static __attribute__((unused)) int haptic_feedback(unsigned ms) { assert(ms == 70 || ms == 120); haptic_count++; return 0; }
 static void *indev_keypad = (void *)1, *main_group = (void *)1;
 static input_event_t queue[32];
 static unsigned head, tail;
 #define POWER_POLICY_BACK_HOLD_MS 5000
 #define LV_KEY_ESC 27
-static bool tasks;
-static int task_opens;
-static bool ui_tasks_is_open(void) { return tasks; }
-static void ui_tasks_toggle(void) { tasks = !tasks; task_opens++; }
-static void ui_tasks_input(const input_event_t *event) { if(event->button==INPUT_BTN_BACK) tasks=false; }
 static bool input_get_event(input_event_t *ev, int timeout) {
  (void)timeout; if(head==tail) return false; *ev=queue[head++]; return true;
 }
@@ -121,15 +112,13 @@ static void back(uint32_t time) {
  send(INPUT_BTN_BACK,INPUT_ACTION_RELEASE,time+100);
 }
 int main(void) {
- send(INPUT_BTN_DOWN,INPUT_ACTION_PRESS,1); assert(haptic_count==1);
- send(INPUT_BTN_DOWN,INPUT_ACTION_RELEASE,2); assert(haptic_count==1);
- send(INPUT_BTN_DOWN,INPUT_ACTION_REPEAT,3); assert(haptic_count==2);
- g_config_system.vibration=false; send(INPUT_BTN_OK,INPUT_ACTION_PRESS,4); assert(haptic_count==2);
- g_config_system.vibration=true; locked=true; send(INPUT_BTN_OK,INPUT_ACTION_PRESS,5); assert(haptic_count==2);
+ send(INPUT_BTN_DOWN,INPUT_ACTION_PRESS,1); assert(haptic_count==0);
+ send(INPUT_BTN_DOWN,INPUT_ACTION_RELEASE,2); assert(haptic_count==0);
+ send(INPUT_BTN_DOWN,INPUT_ACTION_REPEAT,3); assert(haptic_count==0);
+ send(INPUT_BTN_OK,INPUT_ACTION_PRESS,4); assert(haptic_count==0);
+ locked=true; send(INPUT_BTN_OK,INPUT_ACTION_PRESS,5); assert(haptic_count==0);
  locked=false; send(INPUT_BTN_OK,INPUT_ACTION_RELEASE,6);
  send(INPUT_BTN_DOWN,INPUT_ACTION_RELEASE,7);
- current_screen_id=SCREEN_HAPTIC; send(INPUT_BTN_OK,INPUT_ACTION_PRESS,8); assert(haptic_count==2);
- send(INPUT_BTN_OK,INPUT_ACTION_RELEASE,9); current_screen_id=0;
 
  screen=3; ui_input_set_screen_handler(handler,NULL);
  assert(keypad_dispatch_blocked());
@@ -143,10 +132,8 @@ int main(void) {
  keyboard=true;
  send(INPUT_BTN_BACK,INPUT_ACTION_PRESS,1300);
  send(INPUT_BTN_BACK,INPUT_ACTION_RELEASE,2200);
- assert(tasks && task_opens==1 && keyboard && cancelled==0 && events==2);
+ assert(!keyboard && cancelled==1 && events==2);
  assert(keypad_dispatch_blocked());
- back(2300); assert(!tasks && keyboard && cancelled==0 && events==2);
- keyboard=false;
  // Holding for shutdown never navigates, even before the policy timer fires.
  send(INPUT_BTN_BACK,INPUT_ACTION_PRESS,2000);
  send(INPUT_BTN_BACK,INPUT_ACTION_RELEASE,7000);
@@ -171,7 +158,7 @@ int main(void) {
  assert(events==5);
  // Keyboard BACK closes only the keyboard; the next BACK belongs to the screen.
  keyboard=true; assert(!keypad_dispatch_blocked());
- back(19000); assert(cancelled==1 && events==5);
+ back(19000); assert(cancelled==2 && events==5);
  back(20000); assert(events==6);
  // The legacy menu receives exactly one ESC, on release, never the held repeat.
  ui_input_set_screen_handler(NULL,NULL);
@@ -182,7 +169,15 @@ int main(void) {
  modal=true; assert(keypad_dispatch_blocked()); back(22000); assert(legacy==1);
  modal=false; ui_input_consume_gesture(); back(23000); assert(legacy==2);
  tips=true; back(24000); assert(!tips && legacy==2);
- assert(waits>0);
+ ui_input_set_screen_handler(handler,NULL);
+ int before=events;
+ send(INPUT_BTN_BACK,INPUT_ACTION_PRESS,30000);
+ send(INPUT_BTN_BACK,INPUT_ACTION_LONG_PRESS,30800);
+ send(INPUT_BTN_BACK,INPUT_ACTION_REPEAT,30900);
+ assert(events==before);
+ send(INPUT_BTN_BACK,INPUT_ACTION_RELEASE,31200);
+ assert(events==before+1);
+ assert(waits>0 && haptic_count==0);
  puts("UI gesture ownership regressions passed");
 }
 """
@@ -270,8 +265,7 @@ static struct {int target;} LAB_ITEMS[]={{SCREEN_HAPTIC},{SCREEN_SPEAKER},{SCREE
 #define ESP_LOGI(...) ((void)0)
 static lv_obj_t *s_screen;
 static int s_view, s_proto, s_home_sel, s_node, s_rnode_count, s_chat_seq, from, active;
-static bool s_nodes_list, s_linked, resuming;
-static bool ui_tasks_is_resuming(void) {return resuming;}
+static bool s_nodes_list, s_linked;
 static void *s_connect_timer, *s_chat_poll;
 static screen_id_t ui_current_screen(void) {return from;}
 static void lv_obj_del(lv_obj_t *obj) {(void)obj;}
@@ -285,8 +279,7 @@ static lv_obj_t *lv_event_get_target(lv_event_t *event) {return event->target;}
 """
 route_tests = r"""
 int main(void) {
- from=SCREEN_MENU; s_view=VIEW_LAB; resuming=true; ui_settings_open(); assert(s_view==VIEW_LAB);
- resuming=false; ui_settings_open(); assert(s_view==VIEW_MAIN);
+ from=SCREEN_MENU; s_view=VIEW_LAB; ui_settings_open(); assert(s_view==VIEW_MAIN);
  for(int i=0;i<LAB_COUNT;i++) {
    from=LAB_ITEMS[i].target; ui_settings_open(); assert(s_view==VIEW_LAB);
  }
@@ -311,45 +304,6 @@ with tempfile.TemporaryDirectory(prefix="highboy-routes-") as directory:
     subprocess.run([str(binary)], check=True)
 print("Settings/LoRa return and stale screen deletion regressions passed")
 
-
-# Shortcut roots must return to the caller without skipping their child menus.
-source = (UI / "ui_manager.c").read_text()
-shortcut_code = function("static screen_id_t navigation_target(")
-enum = (UI / "include/ui_manager.h").read_text().split("typedef enum {", 1)[1].split("} screen_id_t;", 1)[0]
-shortcut_tests = r"""
-static screen_id_t s_home_entry = SCREEN_NONE;
-""" + shortcut_code + r"""
-int main(void) {
- assert(navigation_target(SCREEN_MENU,SCREEN_SETTINGS)==SCREEN_SETTINGS);
- assert(navigation_target(SCREEN_SETTINGS,SCREEN_MENU)==SCREEN_MENU);
- assert(navigation_target(SCREEN_HOME,SCREEN_SETTINGS)==SCREEN_SETTINGS);
- assert(navigation_target(SCREEN_SETTINGS,SCREEN_SETTINGS)==SCREEN_SETTINGS);
- assert(navigation_target(SCREEN_SETTINGS,SCREEN_DISPLAY_SETTINGS)==SCREEN_DISPLAY_SETTINGS);
- assert(navigation_target(SCREEN_DISPLAY_SETTINGS,SCREEN_SETTINGS)==SCREEN_SETTINGS);
- assert(navigation_target(SCREEN_SETTINGS,SCREEN_MENU)==SCREEN_HOME);
- assert(s_home_entry==SCREEN_NONE);
- navigation_target(SCREEN_HOME,SCREEN_NFC_MENU);
- assert(navigation_target(SCREEN_NFC_MENU,SCREEN_NFC_READ)==SCREEN_NFC_READ);
- assert(navigation_target(SCREEN_NFC_READ,SCREEN_NFC_MENU)==SCREEN_NFC_MENU);
- assert(navigation_target(SCREEN_NFC_MENU,SCREEN_MENU)==SCREEN_HOME);
- navigation_target(SCREEN_HOME,SCREEN_GAMES_MENU);
- navigation_target(SCREEN_GAMES_MENU,SCREEN_GAME_SNAKE);
- assert(navigation_target(SCREEN_GAME_SNAKE,SCREEN_GAMES_MENU)==SCREEN_GAMES_MENU);
- assert(navigation_target(SCREEN_GAMES_MENU,SCREEN_MENU)==SCREEN_HOME);
- navigation_target(SCREEN_HOME,SCREEN_SETTINGS);
- assert(navigation_target(SCREEN_SETTINGS,SCREEN_HOME)==SCREEN_HOME);
- navigation_target(SCREEN_HOME,SCREEN_MENU);
- navigation_target(SCREEN_MENU,SCREEN_SETTINGS);
- assert(navigation_target(SCREEN_SETTINGS,SCREEN_MENU)==SCREEN_MENU);
-}
-"""
-with tempfile.TemporaryDirectory(prefix="highboy-shortcut-") as directory:
-    path=Path(directory); test=path/"test.c"; binary=path/"test"
-    test.write_text(NOTICE + "#include <assert.h>\ntypedef enum {" + enum + "} screen_id_t;\n" + shortcut_tests)
-    subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-Wall", "-Wextra", "-Werror",
-                    "-fsanitize=address,undefined", str(test), "-o", str(binary)], check=True)
-    subprocess.run([str(binary)], check=True)
-print("Home shortcut return, nested routes and stale origin regressions passed")
 
 # A delayed DELETE from a previous Apps screen must not free the new registry.
 source = (UI / "screens/games/games_menu_ui.c").read_text()
@@ -535,7 +489,6 @@ static void screen_slot_clear_cb(lv_event_t *);
 static uint32_t lv_tick_get(void) {return 1;}
 static bool ui_acquire(void) {return true;}
 static void ui_release(void) {released++;}
-static int navigation_target(int from,int to) {(void)from;return to;}
 static void ui_display_claim_ui(void) {}
 static lv_obj_t *lv_screen_active(void) {return active;}
 static void *lv_event_get_user_data(lv_event_t *e) {return e->data;}
@@ -565,8 +518,6 @@ static void sx1262_stop_rx(void) {}
 static int sx1262_receive_continuous(void) {return 0;}
 static void lv_obj_del_async(lv_obj_t *o) {assert(o==&old_root);async_deletes++;}
 static void screen_tips_hook(int s) {(void)s;}
-static void ui_tasks_before_switch(int from,int to) {(void)from;(void)to;}
-static void ui_tasks_after_switch(int s) {(void)s;}
 """
 tests=r"""
 int main(void) {

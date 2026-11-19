@@ -31,7 +31,6 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
-#include "app_switcher_ui.h"
 #include "ui_metrics.h"
 #include "ui_theme.h"
 #include "vfs_core.h"
@@ -637,8 +636,7 @@ load_screen:
 }
 
 void ui_storage_settings_open(void) {
-  if (!ui_tasks_is_resuming())
-    s_sel = 0;
+  s_sel = 0;
   s_col = NULL;
   s_thumb = NULL;
   build_screen();

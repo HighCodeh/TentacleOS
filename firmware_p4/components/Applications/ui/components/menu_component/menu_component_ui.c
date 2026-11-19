@@ -175,16 +175,6 @@ void menu_component_scroll_content(menu_component_t *m, int32_t delta_y) {
   }
 }
 
-static menu_component_t *s_active_menu;
-static lv_obj_t *s_active_menu_root;
-
-static void active_menu_deleted(lv_event_t *event) {
-  if (lv_event_get_target(event) == s_active_menu_root) {
-    s_active_menu = NULL;
-    s_active_menu_root = NULL;
-  }
-}
-
 static void update_selection(menu_component_t *m) {
   for (int i = 0; i < m->item_count; i++) {
     for (uint32_t child = 0; child < lv_obj_get_child_count(m->items[i]); ++child) {
@@ -346,12 +336,6 @@ static lv_obj_t *item_begin(menu_component_t *menu) {
 }
 
 static lv_obj_t *item_finish(menu_component_t *menu, lv_obj_t *item, const char *label) {
-  // Items are added only after create() returned into the caller's persistent state.
-  if (s_active_menu_root != menu->screen) {
-    s_active_menu_root = menu->screen;
-    lv_obj_add_event_cb(menu->screen, active_menu_deleted, LV_EVENT_DELETE, NULL);
-  }
-  s_active_menu = menu;
   lv_obj_t *lbl = lv_label_create(item);
   lv_label_set_text(lbl, label ? label : "");
   lv_obj_set_style_text_color(lbl, current_theme.text_main, 0);
@@ -581,18 +565,4 @@ void menu_component_add_section(menu_component_t *menu, const char *title) {
   lv_obj_set_style_text_font(sec, &lv_font_montserrat_12, 0);
   lv_obj_set_style_pad_top(sec, 6, 0);
   lv_obj_set_style_pad_bottom(sec, 1, 0);
-}
-
-int menu_component_active_selection(void) {
-  return s_active_menu_root != NULL && lv_obj_get_screen(s_active_menu_root) == lv_screen_active()
-             ? s_active_menu->selected
-             : -1;
-}
-
-void menu_component_restore_selection(int selected) {
-  if (selected < 0 || menu_component_active_selection() < 0 || s_active_menu->item_count == 0)
-    return;
-  if (selected >= s_active_menu->item_count)
-    selected = s_active_menu->item_count - 1;
-  menu_component_select(s_active_menu, selected);
 }

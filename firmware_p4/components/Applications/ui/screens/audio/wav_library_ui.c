@@ -29,7 +29,6 @@
 #include "ui_feedback.h"
 #include "mp3_player_ui.h"
 #include "ui_manager.h"
-#include "app_switcher_ui.h"
 #include "ui_metrics.h"
 #include "ui_theme.h"
 #include "wav_player_ui.h"
@@ -504,7 +503,7 @@ void ui_wav_library_open(void) {
   }
   s_eq_phase = 0;
 
-  if (!s_resume && !ui_tasks_is_resuming()) {
+  if (!s_resume) {
     scan_wavs();
     s_sel = 0;
   }

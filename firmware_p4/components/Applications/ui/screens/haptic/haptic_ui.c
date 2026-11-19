@@ -18,7 +18,6 @@
 #include "esp_log.h"
 
 #include "haptic.h"
-#include "aw8623.h"
 #include "led_control.h"
 #include "tos_config.h"
 #include "tos_storage_paths.h"
@@ -28,49 +27,18 @@
 
 #define HAPTIC_ENABLE_ROW    0
 #define HAPTIC_INTENSITY_ROW 1
-#define HAPTIC_PLAY_ROW      4
-#define HAPTIC_PULSE_MS      200
 #define HAPTIC_MIN_PERCENT   20
 #define HAPTIC_PERCENT_MAX   100
-#define HAPTIC_REFRESH_MS    100
-#define HAPTIC_PROBE_ROW     2
-#define HAPTIC_STOP_ROW      3
 
 static const char *TAG = "HAPTIC_UI";
 static lv_obj_t *s_screen;
 static menu_component_t s_menu;
-static lv_timer_t *s_timer;
-
-static void refresh(lv_timer_t *timer) {
-  (void)timer;
-  const char *text;
-  if (haptic_is_busy())
-    text = "Working...";
-  else {
-    esp_err_t result = haptic_last_result();
-    text = result == ESP_ERR_NOT_FINISHED ? "Not checked"
-           : result == ESP_OK             ? "OK; stopped"
-           : result == AW8623_ERR_SUPPLY  ? "Supply low"
-                                          : esp_err_to_name(result);
-  }
-  menu_component_set_selector_value(&s_menu, HAPTIC_PROBE_ROW, text);
-}
-
-static void deleted(lv_event_t *event) {
-  (void)event;
-  haptic_stop();
-  if (s_timer != NULL) {
-    lv_timer_delete(s_timer);
-    s_timer = NULL;
-  }
-}
 
 static void haptic_input(const input_event_t *event, void *context) {
   (void)context;
   if (event->action != INPUT_ACTION_PRESS && event->action != INPUT_ACTION_REPEAT)
     return;
   if (event->button == INPUT_BTN_BACK) {
-    haptic_stop();
     esp_err_t saved = tos_config_save(TOS_PATH_CONFIG_SYSTEM, "system");
     if (saved != ESP_OK) {
       ESP_LOGE(TAG, "Vibration settings save failed: %s", esp_err_to_name(saved));
@@ -97,24 +65,10 @@ static void haptic_input(const input_event_t *event, void *context) {
     menu_component_intensity_dec(&s_menu, HAPTIC_INTENSITY_ROW);
   else if (event->button == INPUT_BTN_OK && event->action == INPUT_ACTION_PRESS) {
     int selected = menu_component_get_selected(&s_menu);
-    esp_err_t result = ESP_OK;
     if (selected == HAPTIC_ENABLE_ROW) {
       g_config_system.vibration = !g_config_system.vibration;
       menu_component_set_selector_value(
           &s_menu, HAPTIC_ENABLE_ROW, g_config_system.vibration ? "On" : "Off");
-    } else if (selected == HAPTIC_STOP_ROW)
-      haptic_stop();
-    else if (selected == HAPTIC_PROBE_ROW)
-      result = haptic_probe();
-    else if (selected == HAPTIC_PLAY_ROW || selected == HAPTIC_INTENSITY_ROW) {
-      uint8_t intensity = menu_component_get_intensity(&s_menu, HAPTIC_INTENSITY_ROW) *
-                          HAPTIC_PERCENT_MAX / INTENSITY_BAR_STEPS;
-      if (intensity != 0)
-        result = haptic_play(intensity, HAPTIC_PULSE_MS);
-    }
-    if (result != ESP_OK) {
-      ESP_LOGW(TAG, "Request rejected: %s", esp_err_to_name(result));
-      led_signal_warning();
     }
   }
   int intensity = menu_component_get_intensity(&s_menu, HAPTIC_INTENSITY_ROW) * HAPTIC_PERCENT_MAX /
@@ -139,23 +93,14 @@ void ui_haptic_open(void) {
   s_menu = menu_component_create(s_screen, "Vibration", "/assets/icons/vibration.bin");
   menu_component_add_selector(&s_menu,
                               "/assets/icons/vibration.bin",
-                              "Notifications",
+                              "Menu vibration",
                               g_config_system.vibration ? "On" : "Off");
   menu_component_add_intensity(&s_menu,
                                "/assets/icons/graphic_eq.bin",
                                "Intensity",
                                g_config_system.vibration_intensity * INTENSITY_BAR_STEPS /
                                    HAPTIC_PERCENT_MAX);
-  menu_component_add_selector(&s_menu, "/assets/icons/tune.bin", "Driver", "Not checked");
-  menu_component_add_item(&s_menu, "/assets/icons/vibration.bin", "Stop / hold reset");
-  menu_component_add_item(&s_menu, "/assets/icons/vibration.bin", "Play pulse (200 ms)");
-  s_timer = lv_timer_create(refresh, HAPTIC_REFRESH_MS, NULL);
-  if (s_timer == NULL) {
-    ESP_LOGE(TAG, "Vibration refresh allocation failed");
-    led_signal_error();
-  }
-  lv_obj_add_event_cb(s_screen, deleted, LV_EVENT_DELETE, NULL);
   ui_input_set_screen_handler(haptic_input, NULL);
   ui_screen_load_owned(&s_screen, s_screen);
-  ESP_LOGI(TAG, "AW8623 haptics opened; ERM 3.0 V design reference");
+  ESP_LOGI(TAG, "Menu vibration settings opened");
 }

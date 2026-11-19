@@ -29,7 +29,6 @@
 #include "menu_component_ui.h"
 #include "reboot_ui.h"
 #include "ui_manager.h"
-#include "app_switcher_ui.h"
 #include "lv_port_indev.h"
 #include "c5_flasher.h"
 #include "spi_bridge.h"
@@ -765,8 +764,6 @@ void ui_settings_open(void) {
       view = VIEW_LAB;
   }
   if (from == SCREEN_C5_STATUS || from == SCREEN_SETTINGS || from == SCREEN_SETTINGS_DEV)
-    view = s_view;
-  if (ui_tasks_is_resuming())
     view = s_view;
   build_settings_view(view);
 }

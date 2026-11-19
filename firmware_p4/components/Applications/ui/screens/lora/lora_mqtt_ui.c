@@ -27,7 +27,6 @@
 #include "notify_ui.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
-#include "app_switcher_ui.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
 
@@ -221,8 +220,7 @@ void ui_lora_mqtt_open(void) {
     store_field(s_broker, HOST_DEFAULT);
   if (s_user[0] == '\0')
     store_field(s_user, USER_DEFAULT);
-  if (!ui_tasks_is_resuming())
-    s_edit_field = ROW_BROKER;
+  s_edit_field = ROW_BROKER;
 
   s_screen = ui_chrome_screen_create();
 

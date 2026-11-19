@@ -39,7 +39,7 @@ own state contracts; a route ID is not necessarily a single visual page.
 | Wi-Fi → signal locator → target | Stops polling and returns to the retained AP selection list. |
 | Wi-Fi → target clients → target | Stops polling and returns to the retained AP selection list. |
 | IR Send → completed-send options | Returns to the signal list rather than skipping to the feature root. |
-| Home → shortcut → nested feature | Child returns remain within the feature; the feature root returns to Home. |
+| Home → Menu → feature | Child returns stay within the feature; its root returns to Menu, then Home. |
 | Settings/Audio & Haptics/Interface/Infrared → child → BACK | Reopens the parent with its selected row retained. |
 | Theme selector → apply confirmation → BACK | Cancels without writing the theme or restarting; the next BACK returns to the caller. |
 
@@ -71,9 +71,8 @@ screen intact. Host regressions cover address reuse and ordinary delayed teardow
   normal successful exit returns Files. This error-recovery exception is not a
   duplicate BACK. Formatting/write/update states can consume BACK as cancellation
   or defer exit while a critical write is active.
-- Home shortcuts retain a single root return to Home, not a general history
-  stack. Internal feature exits keep their declared parent. Opening coverflow
-  clears the shortcut origin, so a later feature entered there returns to Menu.
+- Home opens Menu with OK or DOWN. Feature exits keep their declared parents;
+  screen changes do not capture previews or retain cross-application drafts.
 
 ## Lifecycle findings still open
 
@@ -289,27 +288,7 @@ lifecycle work, not a list of validated hardware behaviors.
 | `SCREEN_SD_HEALTH` | [ui_sd_health_open](../../firmware_p4/components/Applications/ui/screens/settings/sd_health_ui.c) | None |
 | `SCREEN_USB_MOUSE` | [ui_usb_mouse_open](../../firmware_p4/components/Applications/ui/screens/badusb/usb_mouse_ui.c) | `ui_usb_mouse_stop` |
 
-## UX follow-up: recent apps and capture names (2026-11-18)
-
-Home UP, or BACK held for 900 ms and released before the existing 5 s shutdown,
-opens Recent Apps: up to five actual screen previews held in checked PSRAM.
-LEFT/RIGHT chooses a card, OK returns/resumes, DOWN opens Apps and short BACK
-closes the overview. Closing consumes the initiating gesture so it cannot type
-into an underlying editor. The current screen stays live; games pause while the
-overview is open. Switching applications runs the normal resource close hooks.
-
-Resume reconstructs the supported view: Files retains folder, selected entry,
-list/grid mode and text scroll; IR Saved retains protocol/file/action level;
-MQTT retains the edited field; safe RFID views and completed NFC identification
-retain their data. Standard supported menus retain selection. Snake/Breakout
-retain their board/score with unchanged orientation; a geometry change reopens
-the app instead. Keyboard drafts in MQTT, IR Saved, RFID and completed NFC include
-text, cursor, page, selected key and the original callback. Password previews mask
-the temporary last character and discarded drafts are wiped. Unsupported edits
-must be saved or cancelled before leaving through Recent Apps. Other operation
-screens explicitly show Reopen and return to their app entry; operations are not
-silently restarted or transmitted. These session states do not survive reboot.
-A normal fresh app launch starts its ordinary entry and discards its old task card.
+## Capture workflows
 
 NFC Read uses the approach/return loop derived from the supplied video while the actual NFC manager
 searches. The native GIF is 160x148, 12 fps, 48 palette entries, 171,553 bytes; only empty
@@ -324,7 +303,7 @@ fallback. All GIF timers stop on success, error and exit, before block transacti
 on the shared display/NFC SPI bus. A real card-found event alone shows a green
 identification check for 700 ms, then the card information for 1,400 ms and actions.
 This confirms identification, not that every protected block has been read.
-Retry/timeout never produces success. Restoring a completed card does not rescan.
+Retry/timeout never produces success. Opening NFC Read starts a new scan.
 The GIF and its notice are added to the assets LittleFS partition through a guarded
 update that verifies the installed local image and preserves every existing file;
 an application-only flash cannot install this asset.

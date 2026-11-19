@@ -21,7 +21,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[3]
 s = (ROOT / "firmware_p4/components/Applications/ui/components/menu_component/menu_component_ui.c").read_text()
 start = s.index("static void position_scroll_bar(")
-end = s.index("static menu_component_t *s_active_menu;", start)
+end = s.index("static void update_selection(", start)
 code = s[start:end]
 fakes = r"""
 #include <stdbool.h>

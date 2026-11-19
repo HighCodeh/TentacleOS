@@ -17,7 +17,6 @@
 #define RFID_MENU_UI_H
 
 #include <stdbool.h>
-bool ui_rfid_menu_can_resume(void);
 
 #ifdef __cplusplus
 extern "C" {

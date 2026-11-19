@@ -29,15 +29,6 @@ void ui_menu_open(void);
 /** @brief Release carousel preload resources before leaving the screen. */
 void ui_menu_close(void);
 
-/** @brief Number of apps in the menu catalog. */
-int menu_catalog_count(void);
-
-/** @brief App name at @p index, or NULL if out of range. */
-const char *menu_catalog_name(int index);
-
-/** @brief Target screen of the app at @p index (SCREEN_HOME if out of range). */
-screen_id_t menu_catalog_target(int index);
-
 /** Read-only render of this menu's real catalog/assets/carousel, never a screen
  * switch or a
  * second firmware instance. UI/LVGL task only; no input, radio,
