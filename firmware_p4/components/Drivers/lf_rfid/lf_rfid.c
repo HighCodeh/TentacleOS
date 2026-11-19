@@ -257,14 +257,16 @@ void lf_rfid_deinit(void) {
   s_initialized = false;
 }
 
-esp_err_t lf_rfid_field_start(uint32_t frequency_hz, uint16_t duty_permille) {
+static esp_err_t start_field(uint32_t frequency_hz, uint16_t duty_permille, bool is_scope) {
   if (!rf_frontend_can_access(RF_FRONTEND_LF_125KHZ)) {
     return ESP_ERR_INVALID_STATE;
   }
   if (!s_initialized) {
     return ESP_ERR_INVALID_STATE;
   }
-  if (frequency_hz < LF_RFID_MIN_HZ || frequency_hz > LF_RFID_MAX_HZ || duty_permille < 100 ||
+  const uint32_t min_hz = is_scope ? LF_RFID_SCOPE_MIN_HZ : LF_RFID_MIN_HZ;
+  const uint32_t max_hz = is_scope ? LF_RFID_SCOPE_MAX_HZ : LF_RFID_MAX_HZ;
+  if (frequency_hz < min_hz || frequency_hz > max_hz || duty_permille < 100 ||
       duty_permille > 900) {
     return ESP_ERR_INVALID_ARG;
   }
@@ -306,6 +308,10 @@ esp_err_t lf_rfid_field_start(uint32_t frequency_hz, uint16_t duty_permille) {
   s_generated_hz = actual;
   s_field_on = true;
   return ESP_OK;
+}
+
+esp_err_t lf_rfid_field_start(uint32_t frequency_hz, uint16_t duty_permille) {
+  return start_field(frequency_hz, duty_permille, false);
 }
 
 void lf_rfid_field_stop(void) {
@@ -515,6 +521,38 @@ cleanup:
   s_generated_hz = ledc_get_freq(LF_LEDC_MODE, LF_LEDC_TIMER);
   rf_frontend_release(RF_FRONTEND_LF_125KHZ);
   return err;
+}
+
+esp_err_t
+lf_rfid_scope_drive(uint32_t frequency_hz, uint32_t duration_ms, uint32_t *out_generated_hz) {
+  if (out_generated_hz == NULL || frequency_hz < LF_RFID_SCOPE_MIN_HZ ||
+      frequency_hz > LF_RFID_SCOPE_MAX_HZ || duration_ms < LF_RFID_SCOPE_MIN_MS ||
+      duration_ms > LF_RFID_SCOPE_MAX_MS) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  *out_generated_hz = 0;
+  esp_err_t err = rf_frontend_reserve(RF_FRONTEND_LF_125KHZ);
+  if (err != ESP_OK) {
+    return err;
+  }
+  err = lf_rfid_init();
+  lf_rfid_field_report_t external = {0};
+  if (err == ESP_OK) {
+    err = lf_rfid_listen_external(LF_EXTERNAL_CHECK_MS, &external);
+  }
+  if (err == ESP_OK && external.carrier_present) {
+    err = ESP_ERR_INVALID_STATE;
+  }
+  if (err == ESP_OK) {
+    err = start_field(frequency_hz, LF_RFID_DEFAULT_DUTY_PERMILLE, true);
+  }
+  if (err == ESP_OK) {
+    *out_generated_hz = s_generated_hz;
+    vTaskDelay(pdMS_TO_TICKS(duration_ms));
+  }
+  lf_rfid_field_stop();
+  const esp_err_t release_err = rf_frontend_unreserve(RF_FRONTEND_LF_125KHZ);
+  return err == ESP_OK ? release_err : err;
 }
 
 esp_err_t lf_rfid_capture_edges(uint32_t duration_ms,

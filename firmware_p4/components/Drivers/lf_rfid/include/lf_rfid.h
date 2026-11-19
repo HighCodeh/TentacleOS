@@ -48,6 +48,10 @@ extern "C" {
 #define LF_RFID_EM4100_BYTES          5U
 #define LF_RFID_EMULATE_MIN_MS        100U
 #define LF_RFID_EMULATE_MAX_MS        5000U
+#define LF_RFID_SCOPE_MIN_HZ          20000U
+#define LF_RFID_SCOPE_MAX_HZ          200000U
+#define LF_RFID_SCOPE_MIN_MS          10U
+#define LF_RFID_SCOPE_MAX_MS          5000U
 
 typedef struct {
   uint32_t delta_us;
@@ -98,6 +102,11 @@ esp_err_t lf_rfid_init(void);
 void lf_rfid_deinit(void);
 
 esp_err_t lf_rfid_field_start(uint32_t frequency_hz, uint16_t duty_permille);
+/** Bench-only GPIO2 carrier, 50% duty; bounded hold, GPIO11 low, OFF on return.
+ * out_generated_hz is the LEDC setting, not a measured antenna frequency.
+ */
+esp_err_t
+lf_rfid_scope_drive(uint32_t frequency_hz, uint32_t duration_ms, uint32_t *out_generated_hz);
 void lf_rfid_field_stop(void);
 bool lf_rfid_field_is_on(void);
 uint32_t lf_rfid_field_frequency(void);

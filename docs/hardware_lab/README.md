@@ -160,6 +160,16 @@ carrier; the host reports `frequency_measured=false` in that case.
 
 ## Oscilloscope sequence
 
+`rfid drive <frequency_hz> <duration_ms>` provides a bounded GPIO2-only bench
+carrier at 20–200 kHz and 50% duty, for 10–5000 ms. GPIO11 stays low; the command
+holds a no-sleep lease and turns the outputs off before returning. It refuses an
+occupied frontend or detected external LF carrier. Normal `rfid on` and `sweep`
+retain their 110–140 kHz limits. For the requested 19-step scope test, issue
+`rfid drive 20000 5000`, then 30000 through 200000 Hz in 10000 Hz increments,
+checking idle between commands. This gives 95 seconds of requested active time
+plus short OFF/USB intervals. `configured` is an LEDC setting; scope measurements
+are required for amplitude, actual frequency and resonance. No ID is transmitted.
+
 1. With reference devices away, run `rfid watch 5`. Check GPIO2's 125 kHz waveform
    and GPIO11 held low, then T4/T3/T5 and coil drive. GPIO2 must not stay statically
    high during reading. Use a differential measurement

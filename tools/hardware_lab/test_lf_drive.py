@@ -28,7 +28,7 @@ class DriveTest(unittest.TestCase):
         source = (lab.ROOT/'firmware_p4/components/Drivers/lf_rfid/lf_rfid.c').read_text()
         constants = '\n'.join(re.findall(r'^#define LF_(?:LEDC_\w+|MOD_\w+|EXTERNAL_CHECK_MS)\s+[^\n]+', source, re.M))
         channel = source[source.index('  ledc_channel_config_t channel = {'):source.index('  esp_err_t err = gpio_isr_handler_add')]
-        field = source[source.index('esp_err_t lf_rfid_field_start('):source.index('static esp_err_t measure_feedback(')]
+        field = source[source.index('static esp_err_t start_field('):source.index('static esp_err_t measure_feedback(')]
         load = source[source.index('esp_err_t lf_rfid_listen_external('):source.index('esp_err_t lf_rfid_capture_edges(')]
         prelude = r"""
 #include <assert.h>
@@ -48,6 +48,11 @@ typedef int esp_err_t;
 #define LF_RFID_NOMINAL_HZ 125000
 #define LF_RFID_MIN_HZ 110000
 #define LF_RFID_MAX_HZ 140000
+#define LF_RFID_DEFAULT_DUTY_PERMILLE 500
+#define LF_RFID_SCOPE_MIN_HZ 20000
+#define LF_RFID_SCOPE_MAX_HZ 200000
+#define LF_RFID_SCOPE_MIN_MS 10
+#define LF_RFID_SCOPE_MAX_MS 5000
 #define LF_MEASURE_MIN_MS 10
 #define LF_MEASURE_MAX_MS 1000
 #define LEDC_LOW_SPEED_MODE 0
@@ -61,13 +66,16 @@ typedef int esp_err_t;
 #define ESP_RETURN_ON_ERROR(x,...) do {int err_=(x);if(err_)return err_;} while(0)
 typedef struct {bool carrier_present;} lf_rfid_field_report_t;
 typedef struct {int gpio_num,speed_mode,channel,intr_type,timer_sel,duty,hpoint;struct {int output_invert;} flags;} ledc_channel_config_t;
-static bool s_initialized=true,s_field_on,allowed=true,external,claimed;
+static bool s_initialized=true,s_field_on,allowed=true,external,claimed,reserved;
 static uint32_t s_requested_hz=125000,s_generated_hz=125000,freq=125000;
 static int pins[8],duty[8],pending[8],fail_at,op,active_ms,expected_pin;
 static int step(void){return ++op==fail_at?ESP_FAIL:ESP_OK;}
 static void check(void){assert(!(duty[7]&&duty[6]));}
 static int ledc_channel_config(const ledc_channel_config_t *c){assert(c->speed_mode==0&&c->timer_sel==3&&c->duty==0);pins[c->channel]=c->gpio_num;duty[c->channel]=0;return 0;}
 static bool rf_frontend_can_access(int m){assert(m==1);return allowed;}
+static int lf_rfid_init(void){return s_initialized?0:ESP_FAIL;}
+static int rf_frontend_reserve(int m){assert(m==1);if(claimed||reserved||!allowed)return ESP_ERR_INVALID_STATE;reserved=true;return 0;}
+static int rf_frontend_unreserve(int m){assert(m==1&&reserved&&!claimed);reserved=false;return 0;}
 static int rf_frontend_claim(int m){assert(m==1&&!claimed);claimed=true;return 0;}
 static void rf_frontend_release(int m){assert(m==1);claimed=false;}
 static int rf_frontend_get_mode(void){return claimed?1:0;}
@@ -79,7 +87,7 @@ static int ledc_stop(int m,int c,int level){assert(m==0&&level==0);pending[c]=du
 static int gpio_set_level(int p,int l){assert((p==2||p==11)&&l==0);return 0;}
 static int set_measurement_interrupts(bool c,bool d){assert(!c&&!d);return 0;}
 static int measure_feedback(uint32_t ms,uint32_t ref,uint32_t generated,bool active,lf_rfid_field_report_t *r){assert(ms>0&&ref==125000&&!generated&&!active);assert(duty[7]==0&&duty[6]==0);r->carrier_present=external;return 0;}
-static void vTaskDelay(int ms){check();assert(duty[7]==0&&duty[6]>0&&pins[6]==expected_pin);active_ms+=ms;}
+static void vTaskDelay(int ms){check();if(expected_pin==11){assert(duty[7]==0&&duty[6]>0&&pins[6]==11);}else{assert(expected_pin==2&&duty[7]==128&&duty[6]==0&&pins[7]==2);}active_ms+=ms;}
 """
         main = r"""
 int main(void){
@@ -106,6 +114,31 @@ int main(void){
  assert(lf_rfid_modulation_test(1000,1000,&r)==ESP_ERR_NOT_FOUND&&active_ms==0);
  assert(duty[7]==0&&duty[6]==0&&!claimed);
  assert(lf_rfid_field_start(1000,500)==ESP_ERR_INVALID_ARG);
+ uint32_t generated=0;
+ expected_pin=2;
+ for(uint32_t hz=20000;hz<=200000;hz+=10000){
+  active_ms=0;
+  assert(lf_rfid_scope_drive(hz,5000,&generated)==0);
+  assert(generated==hz&&active_ms==5000&&!claimed&&!reserved&&!s_field_on);
+  assert(duty[7]==0&&duty[6]==0);
+ }
+ assert(lf_rfid_field_start(20000,500)==ESP_ERR_INVALID_ARG);
+ assert(lf_rfid_field_start(200000,500)==ESP_ERR_INVALID_ARG);
+ assert(lf_rfid_scope_drive(19999,5000,&generated)==ESP_ERR_INVALID_ARG);
+ assert(lf_rfid_scope_drive(200001,5000,&generated)==ESP_ERR_INVALID_ARG);
+ assert(lf_rfid_scope_drive(20000,5001,&generated)==ESP_ERR_INVALID_ARG);
+ assert(lf_rfid_scope_drive(20000,0,&generated)==ESP_ERR_INVALID_ARG);
+ assert(lf_rfid_scope_drive(20000,5000,NULL)==ESP_ERR_INVALID_ARG);
+ external=true;active_ms=0;
+ assert(lf_rfid_scope_drive(20000,5000,&generated)==ESP_ERR_INVALID_STATE);
+ assert(active_ms==0&&!reserved&&!claimed&&duty[7]==0&&duty[6]==0);
+ external=false;
+ assert(lf_rfid_field_start(125000,500)==0);
+ assert(lf_rfid_scope_drive(20000,5000,&generated)==ESP_ERR_INVALID_STATE);
+ assert(claimed&&s_field_on&&duty[7]==128&&duty[6]==0);
+ lf_rfid_field_stop();s_initialized=false;
+ assert(lf_rfid_scope_drive(20000,5000,&generated)==ESP_FAIL&&!reserved&&!claimed);
+ s_initialized=true;
  allowed=false;assert(lf_rfid_field_start(125000,500)==ESP_ERR_INVALID_STATE);
  return 0;
 }

@@ -44,7 +44,11 @@ for the bounded GPIO11 load test. Only one output may have nonzero duty at a tim
 The load test changes the shared timer while the carrier channel remains at zero,
 then restores the nominal frequency. Idle and passive reception keep both low.
 Console diagnostics also provide passive listening, edge capture and modulation
-checks. The LF self-test requires detected carrier feedback before reporting
+checks. The lab-only `lf_rfid_scope_drive()` reserves the idle frontend and drives
+GPIO2 at 20–200 kHz, 50% duty, for 10–5000 ms, then turns both outputs off. It
+refuses detected external LF carrier and retains the normal reader's 110–140 kHz
+limits. Its returned frequency is the LEDC setting, not an antenna measurement.
+The LF self-test requires detected carrier feedback before reporting
 frequency PASS; an absent carrier leaves the frequency error field at zero and
 must not be mistaken for a measurement within tolerance. The terminal workflow
 and focused regression are documented in [Hardware Lab](../hardware_lab/README.md). Pin assignments remain in `Drivers/pins/include/pin_def.h`.

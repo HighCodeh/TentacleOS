@@ -1504,7 +1504,8 @@ static int cmd_rfid(int argc, char **argv) {
   if (argc < 2) {
     printf("usage: rfid "
            "<status|bench|selftest|field|sweep|raw|read|watch|listen|modtest|emutest|"
-           "on|off>\n");
+           "drive|on|off>\n");
+    ESP_LOGI(TAG, "  drive <20000..200000 Hz> <10..5000 ms> GPIO2 bench carrier, 50%%");
     printf("  bench                         safe hardware bring-up; Proxmark "
            "field must be OFF\n");
     printf("  field [window_ms]             short 125 kHz feedback/quality "
@@ -1554,6 +1555,45 @@ static int cmd_rfid(int argc, char **argv) {
     }
     printf("LF field ON at %lu Hz / 50%%. Use 'rfid off' when finished.\n",
            (unsigned long)lf_rfid_field_frequency());
+    return 0;
+  }
+
+  if (strcmp(argv[1], "drive") == 0) {
+    char *hz_end = NULL;
+    char *ms_end = NULL;
+    unsigned long hz = argc == 4 ? strtoul(argv[2], &hz_end, 10) : 0;
+    unsigned long ms = argc == 4 ? strtoul(argv[3], &ms_end, 10) : 0;
+    if (argc != 4 || hz_end == argv[2] || *hz_end != '\0' || ms_end == argv[3] || *ms_end != '\0' ||
+        hz < LF_RFID_SCOPE_MIN_HZ || hz > LF_RFID_SCOPE_MAX_HZ || ms < LF_RFID_SCOPE_MIN_MS ||
+        ms > LF_RFID_SCOPE_MAX_MS) {
+      ESP_LOGW(TAG, "usage: rfid drive <20000..200000 Hz> <10..5000 ms>");
+      led_signal_warning();
+      return 1;
+    }
+    esp_err_t err = power_manager_no_sleep_acquire();
+    if (err != ESP_OK) {
+      ESP_LOGE(TAG, "GPIO2 power hold failed: %s", esp_err_to_name(err));
+      led_signal_error();
+      return 1;
+    }
+    ESP_LOGI(TAG, "GPIO2 DRIVE requested=%lu Hz hold=%lu ms duty=50%%; GPIO11 low", hz, ms);
+    led_signal_info();
+    uint32_t generated = 0;
+    err = lf_rfid_scope_drive((uint32_t)hz, (uint32_t)ms, &generated);
+    const esp_err_t release_err = power_manager_no_sleep_release();
+    if (err == ESP_OK) {
+      err = release_err;
+    }
+    if (err != ESP_OK) {
+      ESP_LOGE(TAG, "GPIO2 drive failed: %s", esp_err_to_name(err));
+      led_signal_error();
+      return 1;
+    }
+    ESP_LOGI(TAG,
+             "GPIO2 DRIVE DONE requested=%lu configured=%lu Hz hold=%lu ms; outputs OFF",
+             hz,
+             (unsigned long)generated,
+             ms);
     return 0;
   }
 
