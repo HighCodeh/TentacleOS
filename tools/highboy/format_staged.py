@@ -23,7 +23,8 @@ import subprocess
 
 def is_first_party(path):
     if not path.startswith(("firmware_p4/components/", "firmware_p4/main/",
-                            "firmware_c5/components/", "firmware_c5/main/")):
+                            "firmware_c5/components/", "firmware_c5/main/",
+                            "firmware_lab_rfid/components/", "firmware_lab_rfid/main/")):
         return False
     if not path.endswith((".c", ".h")):
         return False

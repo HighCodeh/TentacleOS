@@ -20,9 +20,9 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-#define RFID_LAB_FRAME_BITS 64U
-#define RFID_LAB_ID_BYTES 5U
-#define RFID_LAB_HALF_US 256U
+#define RFID_LAB_FRAME_BITS     64U
+#define RFID_LAB_ID_BYTES       5U
+#define RFID_LAB_HALF_US        256U
 #define RFID_LAB_CONFIRM_FRAMES 3U
 
 typedef struct {

@@ -17,17 +17,17 @@
 
 #include <string.h>
 
-#define HEADER_BITS 9U
-#define DATA_ROWS 10U
-#define NIBBLE_BITS 4U
-#define ROW_BITS 5U
-#define HEADER_MASK 0x1FFU
-#define NIBBLE_MASK 0xFU
+#define HEADER_BITS  9U
+#define DATA_ROWS    10U
+#define NIBBLE_BITS  4U
+#define ROW_BITS     5U
+#define HEADER_MASK  0x1FFU
+#define NIBBLE_MASK  0xFU
 #define SHORT_MIN_US 156U
 #define SHORT_MAX_US 356U
-#define LONG_MIN_US 412U
-#define LONG_MAX_US 612U
-#define FRAME_MASK UINT64_C(0xFFFFFFFFFFFFFFFF)
+#define LONG_MIN_US  412U
+#define LONG_MAX_US  612U
+#define FRAME_MASK   UINT64_C(0xFFFFFFFFFFFFFFFF)
 
 uint64_t rfid_lab_protocol_encode(uint64_t id) {
   uint64_t frame = HEADER_MASK;
@@ -48,7 +48,8 @@ uint64_t rfid_lab_protocol_encode(uint64_t id) {
 
 bool rfid_lab_protocol_validate(uint64_t frame, uint64_t *out_id) {
   if (out_id == NULL || (frame >> (RFID_LAB_FRAME_BITS - HEADER_BITS)) != HEADER_MASK ||
-      (frame & 1U) != 0) return false;
+      (frame & 1U) != 0)
+    return false;
   uint64_t id = 0;
   uint8_t columns = 0;
   for (uint32_t row = 0; row < DATA_ROWS; row++) {
@@ -56,12 +57,15 @@ bool rfid_lab_protocol_validate(uint64_t frame, uint64_t *out_id) {
     uint8_t word = (frame >> shift) & ((1U << ROW_BITS) - 1U);
     uint8_t nibble = word >> 1U;
     uint8_t parity = word & 1U;
-    for (uint32_t bit = 0; bit < NIBBLE_BITS; bit++) parity ^= (nibble >> bit) & 1U;
-    if (parity != 0) return false;
+    for (uint32_t bit = 0; bit < NIBBLE_BITS; bit++)
+      parity ^= (nibble >> bit) & 1U;
+    if (parity != 0)
+      return false;
     columns ^= nibble;
     id = (id << NIBBLE_BITS) | nibble;
   }
-  if (((frame >> 1U) & NIBBLE_MASK) != columns) return false;
+  if (((frame >> 1U) & NIBBLE_MASK) != columns)
+    return false;
   *out_id = id;
   return true;
 }
@@ -73,7 +77,8 @@ void rfid_lab_protocol_reset(rfid_lab_decoder_t *decoder) {
 static void feed_half(rfid_lab_decoder_t *decoder, uint8_t level) {
   for (uint32_t phase = 0; phase < 2U; phase++) {
     rfid_lab_decoder_lane_t *lane = &decoder->lanes[phase];
-    if (decoder->halves == 0 && phase == 1U) continue;
+    if (decoder->halves == 0 && phase == 1U)
+      continue;
     if (!lane->has_first) {
       lane->first_level = level;
       lane->has_first = true;
@@ -88,14 +93,19 @@ static void feed_half(rfid_lab_decoder_t *decoder, uint8_t level) {
     }
     lane->shift = (lane->shift << 1U) | lane->first_level;
     lane->bits++;
-    if (lane->bits < RFID_LAB_FRAME_BITS) continue;
+    if (lane->bits < RFID_LAB_FRAME_BITS)
+      continue;
     uint64_t id;
     bool is_frame = rfid_lab_protocol_validate(lane->shift, &id);
-    if (!is_frame) is_frame = rfid_lab_protocol_validate(lane->shift ^ FRAME_MASK, &id);
-    if (!is_frame) continue;
+    if (!is_frame)
+      is_frame = rfid_lab_protocol_validate(lane->shift ^ FRAME_MASK, &id);
+    if (!is_frame)
+      continue;
     if (lane->repeats != 0 && lane->candidate == id &&
-        lane->bits - lane->last_match == RFID_LAB_FRAME_BITS) lane->repeats++;
-    else lane->repeats = 1;
+        lane->bits - lane->last_match == RFID_LAB_FRAME_BITS)
+      lane->repeats++;
+    else
+      lane->repeats = 1;
     lane->candidate = id;
     lane->last_match = lane->bits;
     if (lane->repeats >= RFID_LAB_CONFIRM_FRAMES) {
@@ -109,13 +119,16 @@ static void feed_half(rfid_lab_decoder_t *decoder, uint8_t level) {
 
 void rfid_lab_protocol_feed(rfid_lab_decoder_t *decoder, uint32_t duration_us, bool level) {
   uint32_t halves;
-  if (duration_us >= SHORT_MIN_US && duration_us <= SHORT_MAX_US) halves = 1;
-  else if (duration_us >= LONG_MIN_US && duration_us <= LONG_MAX_US) halves = 2;
+  if (duration_us >= SHORT_MIN_US && duration_us <= SHORT_MAX_US)
+    halves = 1;
+  else if (duration_us >= LONG_MIN_US && duration_us <= LONG_MAX_US)
+    halves = 2;
   else {
     memset(decoder->lanes, 0, sizeof(decoder->lanes));
     decoder->halves = 0;
     decoder->invalid_pulses++;
     return;
   }
-  for (uint32_t i = 0; i < halves; i++) feed_half(decoder, level);
+  for (uint32_t i = 0; i < halves; i++)
+    feed_half(decoder, level);
 }
