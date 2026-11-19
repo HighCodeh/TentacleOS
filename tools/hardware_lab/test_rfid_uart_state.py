@@ -180,6 +180,26 @@ class StateTests(unittest.TestCase):
         self.assertEqual(self.lib.fixture_pin(), 11)
         self.lib.fixture_tick(1000)
         self.assertEqual(self.lib.fixture_pin(), 0)
+    def test_scope_drive_explicitly_bypasses_unqualified_cl(self):
+        self.lib.fixture_external(500000)
+        self.command("drive 125 50 100")
+        self.assertEqual(self.lib.fixture_pin(), 2)
+        self.lib.fixture_tick(100)
+        self.assertEqual(self.lib.fixture_pin(), 0)
+        self.command("field")
+        self.lib.fixture_tick(50)
+        self.assertEqual(self.lib.fixture_pin(), 0)
+        self.assertEqual(self.lib.fixture_starts(), 1)
+    def test_scope_sweep_bypasses_each_precheck_but_keeps_off_gaps(self):
+        self.lib.fixture_external(500000)
+        self.command("sweep scope 20 40 10 100")
+        for step in range(3):
+            self.assertEqual(self.lib.fixture_pin(), 2)
+            self.lib.fixture_tick(100)
+            self.assertEqual(self.lib.fixture_pin(), 0)
+            if step < 2: self.lib.fixture_tick(250)
+        self.assertEqual(self.lib.fixture_starts(), 3)
+        self.assertEqual(self.lib.fixture_phase(), 0)
     def test_emulation_without_external_field_refused(self):
         self.command("emulate")
         self.lib.fixture_tick(50)

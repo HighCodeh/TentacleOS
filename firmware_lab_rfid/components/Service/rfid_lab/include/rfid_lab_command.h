@@ -46,6 +46,7 @@ typedef enum {
   RFID_LAB_EMULATE,
   RFID_LAB_REBOOT,
   RFID_LAB_ROMBOOT,
+  RFID_LAB_DRIVE,
   RFID_LAB_COMMAND_COUNT
 } rfid_lab_command_kind_t;
 typedef struct {
@@ -58,6 +59,7 @@ typedef struct {
   uint32_t pin;
   uint32_t level;
   uint32_t invert;
+  uint32_t is_scope;
 } rfid_lab_command_t;
 bool rfid_lab_command_parse(char *line, rfid_lab_command_t *out);
 #ifdef __cplusplus

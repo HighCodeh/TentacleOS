@@ -39,6 +39,8 @@ use the on-board USB bridge normally, never connect an RS-232 voltage output.
 | --- | --- |
 | `help` | List commands and limits. |
 | `pins` / `info` / `status` | Pin roles, build identity, current state and input counters. No waveform starts. |
+| `drive 125 50 5000` | Explicit GPIO2 scope stimulus, bypassing CL interlock; remove other readers. |
+| `sweep scope` | Same default 19-step sweep, bypassing CL interlock for analog bring-up. |
 | `field 125 50 5000` | GPIO2, 125 kHz, 50% duty, 5000 ms. GPIO11 LOW. |
 | `field 80 30 2000` | GPIO2, 80 kHz, 30% duty, 2000 ms. |
 | `sweep` | 20 to 200 kHz, 10 kHz steps, 5 seconds per step, 50% duty. |
@@ -66,6 +68,12 @@ not exposed. `pulse` can run without an external reader to inspect GPIO11/T2;
 `emulate` requires measured CL between 110 and 140 kHz. Own-field commands first
 listen passively for 50 ms and refuse a detected external carrier >=10 kHz.
 This is an interlock, not a guarantee against a field applied after the check.
+CL activity alone does not establish an external RFID field: it can also be
+noise or an unqualified comparator output. For deliberate oscilloscope bring-up,
+`drive` and `sweep scope [first last step ms]` explicitly bypass this input check.
+They retain GPIO11 LOW, duty/duration limits, OFF between sweep steps and manual
+cancellation. Remove external readers before using this scope mode. `field`,
+`read` and `raw` keep the input interlock; their refusal does not prove RF energy.
 
 Carrier range: 20–200 kHz. Load pulse range: 1–10000 Hz. Duty: 10–90%.
 Each active interval: 20–5000 ms; static HIGH: at most 1000 ms (100 ms default).
@@ -80,6 +88,11 @@ not a certified hard real-time cutoff: UART/reporting and scheduler latency add
 to it. The task watchdog remains enabled. Closing/disconnecting the terminal
 does not restart a test; the already running command reaches its deadline.
 Check `off` / `status` before disconnecting. An OFF cleanup error blocks new tests.
+
+For manual ROM entry on this board: hold **LEFT (GPIO35)**, press/release the
+P4 RESET, keep LEFT held for two seconds, then release it. Confirm the ROM
+handshake before flashing. GPIO36 must be HIGH at reset as specified by
+[Espressif](https://docs.espressif.com/projects/esptool/en/latest/esp32p4/advanced-topics/boot-mode-selection.html).
 
 ## Measurements and limitations
 

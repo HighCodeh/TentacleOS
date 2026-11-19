@@ -27,7 +27,7 @@ SERVICE = PROJECT / "components/Service/rfid_lab"
 
 class Command(C.Structure):
     _fields_ = [("kind", C.c_int)] + [(name, C.c_uint32) for name in
-        ("hz", "end_hz", "step_hz", "duty", "ms", "pin", "level", "invert")]
+        ("hz", "end_hz", "step_hz", "duty", "ms", "pin", "level", "invert", "is_scope")]
 
 class Lane(C.Structure):
     _fields_ = [("shift", C.c_uint64), ("candidate", C.c_uint64),
@@ -91,7 +91,7 @@ class RFIDUARTTests(unittest.TestCase):
 
     def test_commands_and_sweep_bounds(self):
         for text in ("help", "?", "info", "status", "off", "pins", "reboot", "romboot ARMED",
-                     "field", "pulse", "read", "raw", "listen", "emulate", "sweep",
+                     "drive", "drive 125 50 1000", "sweep scope", "sweep scope 20 200 10 5000", "field", "pulse", "read", "raw", "listen", "emulate", "sweep",
                      "field 20 10 20", "field 200 90 5000", "pulse 1 50 1000",
                      "gpio 2 1 100", "gpio 11 1 1000", "gpio 2 0", "emulate 5000 1",
                      "sweep 20 200 10 5000", "sweep 120 130 1 1000", "campo", "parar"):
@@ -109,7 +109,7 @@ class RFIDUARTTests(unittest.TestCase):
                      "pulse 0", "pulse 10001", "emulate 1000 2", "sweep 20 200 0 5000",
                      "sweep 20 200 10 6000", "sweep 20 200 1 5000", "sweep 200 20 10 5000",
                      "sweep 20 200 11 1000", "sweep 20", "off anything", "romboot", "romboot armed",
-                     "field -125", "field +125", "field 125abc", "field 0x7d", "field 4294967296",
+                     "drive 201", "sweep scope 20 200 0 1000", "sweep scope 1", "field -125", "field +125", "field 125abc", "field 0x7d", "field 4294967296",
                      "field 99999999999999999999999999999", "help a b c d e f g"):
             with self.subTest(text=text): self.assertFalse(self.parse(text)[0])
 

@@ -80,8 +80,9 @@ bool rfid_lab_command_parse(char *line, rfid_lab_command_t *out) {
   else if (!strcmp(name, "romboot")) {
     out->kind = RFID_LAB_ROMBOOT;
     return count == 2U && !strcmp(args[1], "ARMED");
-  } else if (!strcmp(name, "field") || !strcmp(name, "campo")) {
-    out->kind = RFID_LAB_FIELD;
+  } else if (!strcmp(name, "field") || !strcmp(name, "campo") || !strcmp(name, "drive")) {
+    out->kind = !strcmp(name, "drive") ? RFID_LAB_DRIVE : RFID_LAB_FIELD;
+    out->is_scope = out->kind == RFID_LAB_DRIVE;
     uint32_t khz = RFID_LAB_DEFAULT_HZ / KHZ_TO_HZ;
     if (count > 4U || !optional(args, count, 1, &khz) || khz < RFID_LAB_MIN_HZ / KHZ_TO_HZ ||
         khz > RFID_LAB_MAX_HZ / KHZ_TO_HZ || !optional(args, count, 2, &out->duty) ||
@@ -106,6 +107,12 @@ bool rfid_lab_command_parse(char *line, rfid_lab_command_t *out) {
       return false;
   } else if (!strcmp(name, "sweep") || !strcmp(name, "varrer")) {
     out->kind = RFID_LAB_SWEEP;
+    if (count > 1 && !strcmp(args[1], "scope")) {
+      out->is_scope = 1;
+      for (size_t i = 1; i + 1U < count; i++)
+        args[i] = args[i + 1U];
+      count--;
+    }
     uint32_t start = RFID_LAB_MIN_HZ / KHZ_TO_HZ;
     uint32_t end = RFID_LAB_MAX_HZ / KHZ_TO_HZ;
     uint32_t step = DEFAULT_STEP_HZ / KHZ_TO_HZ;

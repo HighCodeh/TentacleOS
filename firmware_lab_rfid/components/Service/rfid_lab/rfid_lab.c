@@ -120,6 +120,8 @@ static void help(void) {
         "  pulse [Hz duty%% ms]   GPIO11 only; default: pulse 1000 50 1000\r\n"
         "  sweep [first_kHz last_kHz step_kHz ms]\r\n"
         "                         default: sweep 20 200 10 5000\r\n");
+  reply("  drive [kHz duty%% ms]   GPIO2 scope waveform; no CL interlock\r\n"
+        "  sweep scope [first last step ms]   scope sweep; no CL interlock\r\n");
   reply("  gpio 2|11 0|1 [ms]     static level; default 100 ms, max 1000 ms\r\n"
         "  listen [ms]            passive CL/DA; default 1000 ms\r\n"
         "  read [ms]              EM4100 RF/64 + carrier; default 5000 ms\r\n"
@@ -229,6 +231,7 @@ static void begin_run(uint32_t external_hz) {
   }
   switch (s_command.kind) {
     case RFID_LAB_FIELD:
+    case RFID_LAB_DRIVE:
     case RFID_LAB_SWEEP:
     case RFID_LAB_READ:
     case RFID_LAB_RAW:
@@ -295,8 +298,12 @@ static void poll(void) {
   if (s_phase == RFID_LAB_IDLE || s_phase == RFID_LAB_FAULT)
     return;
   if (s_phase == RFID_LAB_GAP) {
-    if (now >= s_deadline)
-      precheck();
+    if (now >= s_deadline) {
+      if (s_command.is_scope)
+        begin_run(0);
+      else
+        precheck();
+    }
     return;
   }
   if (s_phase == RFID_LAB_PRECHECK) {
@@ -316,7 +323,8 @@ static void poll(void) {
         return;
       }
     } else if (hz >= EXTERNAL_PRESENT_HZ) {
-      reply("REFUSED: external field detected (%" PRIu32 " Hz); move/stop the other reader\r\n",
+      reply("REFUSED: CL already active (%" PRIu32
+            " Hz); inspect CL or use explicit drive/sweep scope\r\n",
             hz);
       finish("OFF");
       return;
@@ -415,7 +423,9 @@ static void command(char *line) {
     esp_restart();
   } else {
     s_command = parsed;
-    if (parsed.kind == RFID_LAB_FIELD || parsed.kind == RFID_LAB_SWEEP ||
+    if (parsed.is_scope)
+      reply("SCOPE MODE: external-field check bypassed; keep other readers OFF\r\n");
+    if (parsed.kind == RFID_LAB_FIELD || (parsed.kind == RFID_LAB_SWEEP && !parsed.is_scope) ||
         parsed.kind == RFID_LAB_READ || parsed.kind == RFID_LAB_RAW ||
         parsed.kind == RFID_LAB_EMULATE ||
         (parsed.kind == RFID_LAB_GPIO && parsed.pin == GPIO_RFID_LF_COIL_PIN && parsed.level != 0))
