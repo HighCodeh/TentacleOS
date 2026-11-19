@@ -67,6 +67,52 @@ do not run `emutest`; their T2 `modtest` pulse is not tag emulation acceptance.
 
 ## Direct firmware commands
 
+For manual oscilloscope activation without reflashing, use the dedicated panel:
+
+```sh
+python3 -u tools/hardware_lab/scope.py \
+  --highboy /dev/SELECT_P4_PORT --flipper /dev/SELECT_FLIPPER_PORT
+```
+
+Opening this panel does not open serial ports or start RF. `emular` runs synthetic
+EM4100 `0102030405` for 5 seconds, `invertido` reverses its polarity, `pulso` toggles
+T2 at 1 kHz for 1 second, and `externo` measures the Flipper field for 1 second.
+With a selected, connected `--flipper` port these commands start and stop its
+reader automatically and close its running application first. Without that USB
+connection, the panel controls only High Boy: any external reader can supply the
+field manually, including a battery-powered Flipper. Missing Flipper USB never
+blocks High Boy-only tests. Modulation still requires a detected external field.
+`campo` generates High Boy's own field for
+1 second and `ler` reads a physical tag for 5 seconds, with the Flipper reader off
+and an external-field check before activation. `status` checks firmware and idle
+outputs; `parar` requests OFF on both connected devices; `sair` closes the panel.
+An optional count, such as `emular 6`, repeats 1–12 bounded cycles with OFF checks
+between them. Ctrl+C during a test cancels remaining cycles, lets the current
+bounded firmware command finish, then checks OFF; it is not an immediate hardware
+stop. Closing the terminal requests the same cleanup via SIGHUP. USB loss or a
+forced process kill cannot guarantee OFF. Unconfirmed cleanup ends the panel.
+
+Each activation saves a separate `scope-*` directory with raw serial events and
+the Flipper transcript. Natural Flipper completion after decoding is handled
+without requiring a second stop response. Command completion and a decoded ID
+are reported separately; neither replaces GPIO11/gate and coil scope captures.
+Use `--command status` for a single status check, or another panel action for one
+bounded activation. Probe GPIO11 relative to board GND and the coil differentially.
+Manchester half-bit timing is approximately 256 us at 125 kHz; `pulso` is a load
+path test, not a protocol-valid tag waveform.
+
+For a direct High Boy console, with the panel idle and no other serial client:
+
+```sh
+python3 -m serial.tools.miniterm --dtr 0 --rts 0 --eol CRLF --raw /dev/SELECT_P4_PORT 115200
+```
+
+Press Enter to obtain `highboy>`, then use the firmware commands below. Ctrl+]
+exits this direct terminal; it does not request RF OFF. Prefer bounded `field`,
+`watch` and `emutest` commands and verify `rfid off` / `rfid status` before closing.
+The direct console has no Flipper USB dependency; load modulation still needs an
+external reader field. Do not run both this console and the panel concurrently.
+
 At the High Boy `highboy>` prompt, with other reader fields OFF:
 
 ```text
