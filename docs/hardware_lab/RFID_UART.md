@@ -32,7 +32,7 @@ a command. Windows COM numbering does not establish which CP2105 interface is
 P4: select the interface whose banner is `HIGH BOY RFID LAB` / prompt `rfid>`.
 The supplied `terminal.py` lists ports and asks for an explicit selection; it
 never starts an RF test. An ordinary serial terminal such as PuTTY also works.
-UART electrical pins are P4 TX GPIO38, RX GPIO37, 3.3 V logic and common GND;
+UART electrical pins are P4 TX GPIO37, RX GPIO38, 3.3 V logic and common GND;
 use the on-board USB bridge normally, never connect an RS-232 voltage output.
 
 | Command | Action |

@@ -124,8 +124,8 @@ extern "C" {
 #define GPIO_USB_MUX_SEL_PIN 19
 
 /** @brief P4 console UART0 (to CP2105 ECI). */
-#define GPIO_P4_UART0_RX_PIN 37
-#define GPIO_P4_UART0_TX_PIN 38
+#define GPIO_P4_UART0_RX_PIN 38
+#define GPIO_P4_UART0_TX_PIN 37
 
 /** @brief P4 boot strap (GPIO35 = button B5). */
 #define GPIO_P4_BOOT_PIN 35

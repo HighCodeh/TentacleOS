@@ -51,7 +51,7 @@ profile; do not bypass the image revision check with `--force`. Existing
 | Charger OTG | 33 |
 | USB mux select | 19 |
 | J15 debug USB D− / D+ | 24 / 25 |
-| Console UART RX / TX (CP2105 ECI) | 37 / 38 |
+| Console UART RX / TX (CP2105 ECI) | 38 / 37 |
 
 For LF RFID, GPIO15/CL and GPIO16/DA are inputs. Reader carrier PWM is generated
 on GPIO2 (T4/T3/T5 drive), with GPIO11/T2 held low. External-reader emulation
@@ -83,8 +83,8 @@ page 2; current firmware assignments are in
 | J15 | 2 | GPIO19 | Shared with USB data-mux selection |
 | J15 | 3 | GPIO31 | Shared I2C SDA |
 | J15 | 4 | GPIO30 | Shared I2C SCL |
-| J15 | 5 | GPIO38 | UART TX from Highboy; shared with the console/CP2105 |
-| J15 | 6 | GPIO37 | UART RX into Highboy; shared with the console/CP2105 |
+| J15 | 5 | GPIO38 | UART RX into Highboy; shared with the console/CP2105 |
+| J15 | 6 | GPIO37 | UART TX from Highboy; shared with the console/CP2105 |
 | J15 | 7 | GPIO24 | Debug USB D- |
 | J15 | 8 | GND | Ground |
 | J15 | 9 | GPIO25 | Debug USB D+ |

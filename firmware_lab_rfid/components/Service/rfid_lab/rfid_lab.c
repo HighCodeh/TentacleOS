@@ -29,6 +29,7 @@
 #include "freertos/task.h"
 #include "soc/lp_system_reg.h"
 #include "soc/soc.h"
+#include "soc/uart_pins.h"
 
 #include "pin_def.h"
 #include "rfid_lab_command.h"
@@ -36,6 +37,8 @@
 #include "rfid_lab_protocol.h"
 
 static const char *TAG = "RFID_LAB";
+_Static_assert(GPIO_P4_UART0_TX_PIN == U0TXD_GPIO_NUM, "Preserve the working ROM UART TX pin");
+_Static_assert(GPIO_P4_UART0_RX_PIN == U0RXD_GPIO_NUM, "Preserve the working ROM UART RX pin");
 #define UART_BAUD             115200U
 #define UART_RX_BYTES         1024U
 #define REPLY_BYTES           512U
@@ -108,7 +111,7 @@ static uint32_t frequency(const rfid_lab_feedback_t *after, const rfid_lab_feedb
 static void pins(void) {
   reply("GPIO2 = carrier drive (reader). GPIO11 = load modulation.\r\n"
         "GPIO15 = CL carrier INPUT. GPIO16 = DA data INPUT.\r\n"
-        "UART0 TX=38 RX=37; USB CP2105 P4, 115200 8N1, no flow control.\r\n");
+        "UART0 TX=37 RX=38; USB CP2105 P4, 115200 8N1, no flow control.\r\n");
 }
 
 static void help(void) {

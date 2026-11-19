@@ -34,6 +34,8 @@ STUB = r"""
 typedef int esp_err_t;
 #define ESP_OK 0
 #define ESP_FAIL -1
+#define U0TXD_GPIO_NUM 37
+#define U0RXD_GPIO_NUM 38
 #define UART_NUM_0 0
 #define UART_DATA_8_BITS 8
 #define UART_PARITY_DISABLE 0
@@ -125,7 +127,7 @@ class StateTests(unittest.TestCase):
         directory = Path(cls.temp.name)
         (directory / "sdk_stub.h").write_text(STUB)
         for name in ("esp_err.h", "driver/uart.h", "esp_app_desc.h", "esp_log.h", "esp_system.h",
-                     "esp_timer.h", "freertos/FreeRTOS.h", "freertos/task.h", "soc/lp_system_reg.h", "soc/soc.h"):
+                     "esp_timer.h", "freertos/FreeRTOS.h", "freertos/task.h", "soc/lp_system_reg.h", "soc/soc.h", "soc/uart_pins.h"):
             path = directory / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('#include "sdk_stub.h"\n')
