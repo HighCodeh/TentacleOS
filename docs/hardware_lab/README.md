@@ -50,10 +50,20 @@ capacitor changed, its old/new values, probe placement and power arrangement.
 `load` uses Flipper ASK reader and High Boy passive reception/T2 load pulses.
 `deep` runs both, with three repetitions of field/read/passive checks.
 
-The installed High Boy command set has no protocol-valid LF tag emulation
-command. T2 `modtest` only produces a 1 kHz load pulse for 1 second. Its completion
-is **not** EM4100 emulation acceptance. A reader failing to decode that pulse
-must not be reported as a failed tag-emulation test.
+The lab firmware now provides `rfid emutest 3000 0`: a bounded EM4100 RF/64
+Manchester waveform with synthetic ID `0102030405`. Remove physical tags, place
+High Boy over the Flipper LF antenna, close the Flipper RFID UI application and
+run `rfid read normal` on its CLI before starting the High Boy command. Verify
+that Flipper prints **EM4100 0102030405**, then confirm `rfid status` shows idle,
+field OFF, GPIO2=0 and GPIO11=0. Flipper stops reading automatically on success;
+otherwise stop its reader with Ctrl+C. The optional final argument `1` inverts
+the modulation polarity for hardware comparison. Duration is 100–5000 ms.
+
+Without a detected external field, emulation is refused. `reset_required=1`
+means cleanup was uncertain and the antenna/no-sleep hold remains reserved:
+reset the device before continuing. Do not navigate RF apps during the test.
+The saved-tag emulation UI remains unavailable. `pair.py` read/load/deep modes
+do not run `emutest`; their T2 `modtest` pulse is not tag emulation acceptance.
 
 ## Direct firmware commands
 
@@ -151,5 +161,8 @@ Host tests cover parsing, missing/truncated data, no-carrier frequency reporting
 external-field inhibition, cancellation, cleanup failures, ROM SYNC validation,
 wrong-chip logs, serial failure evidence and duplicate operations. The self-test
 regression compiles the actual C function with synthetic feedback and UBSan.
+The emulation regression checks four independent frame vectors, both polarities,
+110–140 kHz timing, duration bounds, missing-field/busy refusal, RMT allocation,
+transmit/timeout failures and retained ownership after cleanup errors with UBSan.
 Mocks do not establish RF performance or physical reset timing. Per-device results
 belong in private generated evidence, not this source tree.

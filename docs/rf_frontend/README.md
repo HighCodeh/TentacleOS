@@ -50,6 +50,29 @@ screen invalidates its generation; cleanup may take one 500 ms read interval.
 Reopening while cleanup is active reports busy, and cannot launch a second
 reader. Task-creation failure permits a later retry.
 
+## Bounded EM4100 emulation
+
+`lf_rfid_emulate_em4100()` emits a complete RF/64 Manchester EM4100 frame
+through GPIO11/T2 load modulation. It reserves the idle shared antenna, checks
+external carrier feedback and keeps GPIO2 (own-field enable) low. The 64-bit
+frame includes nine header bits, forty ID bits, row/column parity and a stop bit,
+as specified in the [EM4200 EM4100-compatible format](https://www.emmicroelectronic.com/sites/default/files/products/datasheets/em4200_ds.pdf).
+
+RMT runs at 1 MHz with two hardware memory blocks and a finite frame loop.
+Each half-bit is 32 measured carrier cycles rounded to microseconds. The requested
+100–5000 ms limit is rounded down to complete frames; no infinite loop is used.
+The 256-byte payload resides in internal RAM for ISR access and remains valid
+until channel shutdown. The antenna reservation protects this shared buffer.
+Normal cleanup deletes RMT resources and restores GPIO11's idle LEDC route.
+Failed cleanup retains ownership, reports `requires_reset`, and requires reboot
+before another RF operation; an in-flight buffer is never freed.
+
+The lab console exposes this as `rfid emutest [duration_ms] [invert]`, using
+synthetic ID `0102030405` and a no-sleep hold. `invert` is 0 or 1 and defaults
+to 0. This does not enable the saved-tag emulation UI. Command completion proves
+only waveform submission and cleanup; independent reader decoding is required
+for RF acceptance. See [Hardware Lab](../hardware_lab/README.md) for the test.
+
 Run `python3 tools/highboy/test_rf_ownership.py` for concurrent LF/HF claims,
 failed NFC OFF/startup rollback/deinit, and RFID result/cancel/reopen/failure
 regressions. These tests use real host mutexes and explicit hardware/scheduler

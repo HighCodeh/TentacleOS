@@ -119,7 +119,7 @@ def main(argv=None):
     signal.signal(signal.SIGTERM, stop)
     report = dict(label=args.label, notes=args.notes, test_id=TEST_ID, status='running',
                   highboy=args.highboy, flipper=args.flipper, runs=[],
-                  tag_emulation_acceptance='not_tested: installed High Boy command set has only load pulse')
+                  tag_emulation_acceptance='not_tested: read/load/deep modes do not run rfid emutest')
     flipper = None
     try:
         flipper = Flipper(args.flipper, output / 'flipper.json')

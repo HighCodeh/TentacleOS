@@ -25,6 +25,7 @@
 #include "driver/gpio.h"
 #include "esp_attr.h"
 #include "esp_console.h"
+#include "esp_log.h"
 #include "esp_rom_sys.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -32,6 +33,7 @@
 
 #include "highboy_nfc.h"
 #include "lf_rfid.h"
+#include "led_control.h"
 #include "lora_lab.h"
 #include "lora_session.h"
 #include "mf_classic_emu.h"
@@ -58,6 +60,7 @@
 #define LF_MAX_WATCH_S           60U
 #define LF_MOD_TEST_RATE_HZ      1953U
 #define LF_MOD_TEST_MS           500U
+#define LF_EM_TEST_MS            3000U
 #define NFC_MEASURE_DELAY_MS     10U
 #define CC1101_DEFAULT_TEST_HZ   433920000U
 #define CC1101_MAX_TEST_MS       60000U
@@ -87,6 +90,9 @@
 #define LORA_DIAG_SAMPLE_MS       20U
 #define LORA_DIAG_TX_POWER_DBM    (-9)
 #define LORA_DIAG_TX_ARM_TOKEN    "ARMED"
+
+static const char *TAG = "CMD_RF";
+static const uint8_t LF_EM_TEST_ID[LF_RFID_EM4100_BYTES] = {0x01, 0x02, 0x03, 0x04, 0x05};
 
 static sx1262_config_t s_lora_diag_cfg;
 static bool s_lora_diag_pm_held = false;
@@ -1497,7 +1503,7 @@ static esp_err_t lf_start_default(uint32_t hz) {
 static int cmd_rfid(int argc, char **argv) {
   if (argc < 2) {
     printf("usage: rfid "
-           "<status|bench|selftest|field|sweep|raw|read|watch|listen|modtest|"
+           "<status|bench|selftest|field|sweep|raw|read|watch|listen|modtest|emutest|"
            "on|off>\n");
     printf("  bench                         safe hardware bring-up; Proxmark "
            "field must be OFF\n");
@@ -1514,6 +1520,7 @@ static int cmd_rfid(int argc, char **argv) {
            "kHz field\n");
     printf("  modtest [rate_hz duration_ms] test T2 load path in external "
            "field only\n");
+    ESP_LOGI(TAG, "  emutest [100..5000 ms] [0|1 invert] EM4100 0102030405, external field only");
     return 1;
   }
 
@@ -1795,6 +1802,53 @@ static int cmd_rfid(int argc, char **argv) {
     print_lf_report(&external);
     printf("High Boy outputs stayed OFF during the passive measurement.\n");
     return external.carrier_present ? 0 : 1;
+  }
+
+  if (strcmp(argv[1], "emutest") == 0) {
+    char *end = NULL;
+    unsigned long duration = argc >= 3 ? strtoul(argv[2], &end, 10) : LF_EM_TEST_MS;
+    if (argc > 4 || (end != NULL && (end == argv[2] || *end != '\0')) ||
+        duration < LF_RFID_EMULATE_MIN_MS || duration > LF_RFID_EMULATE_MAX_MS ||
+        (argc == 4 && strcmp(argv[3], "0") != 0 && strcmp(argv[3], "1") != 0)) {
+      ESP_LOGW(TAG, "usage: rfid emutest [100..5000 ms] [0|1 invert]");
+      led_signal_warning();
+      return 1;
+    }
+    esp_err_t err = power_manager_no_sleep_acquire();
+    if (err != ESP_OK) {
+      ESP_LOGE(TAG, "EM4100 power hold failed: %s", esp_err_to_name(err));
+      led_signal_error();
+      return 1;
+    }
+    ESP_LOGI(TAG, "EM4100 test ID=0102030405, limit=%lu ms; reader acceptance pending", duration);
+    led_signal_info();
+    lf_rfid_emulation_report_t report = {0};
+    err = lf_rfid_emulate_em4100(
+        LF_EM_TEST_ID, (uint32_t)duration, argc == 4 && strcmp(argv[3], "1") == 0, &report);
+    if (!report.requires_reset) {
+      esp_err_t release_err = power_manager_no_sleep_release();
+      if (err == ESP_OK) {
+        err = release_err;
+      }
+    }
+    if (err != ESP_OK) {
+      ESP_LOGE(TAG,
+               "EM4100 test failed: %s, external=%lu Hz, reset_required=%d",
+               esp_err_to_name(err),
+               (unsigned long)report.external_field.measured_hz,
+               report.requires_reset);
+      led_signal_error();
+      return 1;
+    }
+    ESP_LOGI(TAG,
+             "EM4100 waveform complete: external=%lu Hz half=%lu us frames=%lu duration=%lu us; "
+             "outputs OFF",
+             (unsigned long)report.external_field.measured_hz,
+             (unsigned long)report.half_bit_us,
+             (unsigned long)report.frame_count,
+             (unsigned long)report.duration_us);
+    led_signal_info();
+    return 0;
   }
 
   if (strcmp(argv[1], "modtest") == 0) {

@@ -21,6 +21,7 @@
 #include "driver/gpio.h"
 #include "driver/ledc.h"
 #include "driver/pulse_cnt.h"
+#include "driver/rmt_tx.h"
 #include "esp_attr.h"
 #include "esp_check.h"
 #include "esp_log.h"
@@ -28,6 +29,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "soc/soc_caps.h"
 
 #include "pin_def.h"
 #include "rf_frontend.h"
@@ -54,6 +56,14 @@ static const char *TAG = "LF_RFID";
 #define LF_MOD_RATE_MAX_HZ     10000U
 #define LF_MOD_DURATION_MIN_MS 20U
 #define LF_MOD_DURATION_MAX_MS 2000U
+#define LF_EM_HEADER_BITS      9U
+#define LF_EM_NIBBLE_BITS      4U
+#define LF_EM_ROWS             (LF_RFID_EM4100_BYTES * 2U)
+#define LF_EM_HALF_CYCLES      32U
+#define LF_EM_RMT_HZ           1000000U
+#define LF_EM_US_PER_MS        1000U
+#define LF_EM_WAIT_MARGIN_MS   300U
+#define LF_EM_MEMORY_BLOCKS    2U
 
 typedef struct {
   volatile uint32_t data_edges;
@@ -70,6 +80,8 @@ static uint32_t s_generated_hz;
 static lf_capture_state_t s_capture;
 static pcnt_unit_handle_t s_carrier_counter;
 static pcnt_channel_handle_t s_carrier_channel;
+/* RMT's ISR may access the payload. Exclusive antenna ownership protects it. */
+static DRAM_ATTR rmt_symbol_word_t s_emulation_symbols[LF_FRAME_BITS];
 
 static void reset_measurement_state(void) {
   memset(&s_capture, 0, sizeof(s_capture));
@@ -633,6 +645,134 @@ esp_err_t lf_rfid_read_em4100(uint32_t timeout_ms, lf_rfid_em4100_t *out) {
   bool found = em4100_decode_samples(samples, sample_count, out);
   free(samples);
   return found ? ESP_OK : ESP_ERR_NOT_FOUND;
+}
+
+static void
+encode_em4100(const uint8_t id[LF_RFID_EM4100_BYTES], uint32_t half_bit_us, bool is_inverted) {
+  uint64_t frame = (1ULL << LF_EM_HEADER_BITS) - 1U;
+  uint8_t columns = 0;
+  for (size_t row = 0; row < LF_EM_ROWS; row++) {
+    const uint8_t nibble = (id[row / 2U] >> ((row & 1U) ? 0 : LF_EM_NIBBLE_BITS)) & 0x0FU;
+    uint8_t parity = 0;
+    columns ^= nibble;
+    for (uint32_t bit = 0; bit < LF_EM_NIBBLE_BITS; bit++) {
+      const uint8_t value = (nibble >> (LF_EM_NIBBLE_BITS - 1U - bit)) & 1U;
+      frame = (frame << 1U) | value;
+      parity ^= value;
+    }
+    frame = (frame << 1U) | parity;
+  }
+  frame = ((frame << LF_EM_NIBBLE_BITS) | columns) << 1U;
+  for (size_t bit = 0; bit < LF_FRAME_BITS; bit++) {
+    const uint8_t level = ((frame >> (LF_FRAME_BITS - 1U - bit)) & 1U) ^ is_inverted;
+    s_emulation_symbols[bit] = (rmt_symbol_word_t){
+        .level0 = level,
+        .duration0 = half_bit_us,
+        .level1 = !level,
+        .duration1 = half_bit_us,
+    };
+  }
+}
+
+esp_err_t lf_rfid_emulate_em4100(const uint8_t id[LF_RFID_EM4100_BYTES],
+                                 uint32_t duration_ms,
+                                 bool is_inverted,
+                                 lf_rfid_emulation_report_t *out_report) {
+  if (id == NULL || out_report == NULL || duration_ms < LF_RFID_EMULATE_MIN_MS ||
+      duration_ms > LF_RFID_EMULATE_MAX_MS) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  memset(out_report, 0, sizeof(*out_report));
+  esp_err_t err = rf_frontend_reserve(RF_FRONTEND_LF_125KHZ);
+  if (err != ESP_OK) {
+    return err;
+  }
+  rmt_channel_handle_t channel = NULL;
+  rmt_encoder_handle_t encoder = NULL;
+  bool is_enabled = false;
+  bool has_pin = false;
+  err = lf_rfid_init();
+  if (err != ESP_OK) {
+    goto cleanup;
+  }
+  err = lf_rfid_listen_external(LF_EXTERNAL_CHECK_MS, &out_report->external_field);
+  if (err != ESP_OK || !out_report->external_field.carrier_present) {
+    err = err == ESP_OK ? ESP_ERR_NOT_FOUND : err;
+    goto cleanup;
+  }
+  err = rf_frontend_claim(RF_FRONTEND_LF_125KHZ);
+  if (err != ESP_OK) {
+    goto cleanup;
+  }
+  const uint32_t carrier_hz = out_report->external_field.measured_hz;
+  out_report->half_bit_us = (LF_EM_HALF_CYCLES * LF_EM_RMT_HZ + carrier_hz / 2U) / carrier_hz;
+  const uint32_t frame_us = LF_FRAME_BITS * 2U * out_report->half_bit_us;
+  out_report->frame_count = (duration_ms * LF_EM_US_PER_MS) / frame_us;
+  out_report->duration_us = out_report->frame_count * frame_us;
+  encode_em4100(id, out_report->half_bit_us, is_inverted);
+
+  const rmt_tx_channel_config_t channel_config = {
+      .gpio_num = GPIO_RFID_LF_MOD_PIN,
+      .clk_src = RMT_CLK_SRC_DEFAULT,
+      .resolution_hz = LF_EM_RMT_HZ,
+      .mem_block_symbols = LF_EM_MEMORY_BLOCKS * SOC_RMT_MEM_WORDS_PER_CHANNEL,
+      .trans_queue_depth = 1,
+  };
+  /* Channel allocation can change the GPIO even when allocation later fails. */
+  has_pin = true;
+  err = rmt_new_tx_channel(&channel_config, &channel);
+  if (err != ESP_OK) {
+    goto cleanup;
+  }
+  const rmt_copy_encoder_config_t encoder_config = {};
+  err = rmt_new_copy_encoder(&encoder_config, &encoder);
+  if (err != ESP_OK) {
+    goto cleanup;
+  }
+  err = rmt_enable(channel);
+  if (err != ESP_OK) {
+    goto cleanup;
+  }
+  is_enabled = true;
+  const rmt_transmit_config_t transmit_config = {
+      .loop_count = (int)out_report->frame_count,
+      .flags.eot_level = 0,
+  };
+  err = rmt_transmit(
+      channel, encoder, s_emulation_symbols, sizeof(s_emulation_symbols), &transmit_config);
+  if (err == ESP_OK) {
+    err = rmt_tx_wait_all_done(channel, (int)(duration_ms + LF_EM_WAIT_MARGIN_MS));
+  }
+
+cleanup:
+  if (is_enabled && rmt_disable(channel) != ESP_OK) {
+    goto cleanup_failed;
+  }
+  if (channel != NULL && rmt_del_channel(channel) != ESP_OK) {
+    goto cleanup_failed;
+  }
+  if (encoder != NULL && rmt_del_encoder(encoder) != ESP_OK) {
+    goto cleanup_failed;
+  }
+  if (has_pin) {
+    if (gpio_set_level(GPIO_RFID_LF_MOD_PIN, 0) != ESP_OK ||
+        gpio_set_direction(GPIO_RFID_LF_MOD_PIN, GPIO_MODE_OUTPUT) != ESP_OK ||
+        ledc_set_duty(LF_LEDC_MODE, LF_LEDC_CHANNEL, 0) != ESP_OK ||
+        ledc_update_duty(LF_LEDC_MODE, LF_LEDC_CHANNEL) != ESP_OK ||
+        ledc_set_pin(GPIO_RFID_LF_MOD_PIN, LF_LEDC_MODE, LF_LEDC_CHANNEL) != ESP_OK) {
+      goto cleanup_failed;
+    }
+  }
+  rf_frontend_release(RF_FRONTEND_LF_125KHZ);
+  if (rf_frontend_unreserve(RF_FRONTEND_LF_125KHZ) != ESP_OK) {
+    goto cleanup_failed;
+  }
+  return err;
+
+cleanup_failed:
+  /* Do not free an in-flight payload or allow a new RF operation after failed OFF. */
+  out_report->requires_reset = true;
+  return ESP_ERR_INVALID_STATE;
 }
 
 esp_err_t lf_rfid_self_test(lf_rfid_self_test_t *out) {

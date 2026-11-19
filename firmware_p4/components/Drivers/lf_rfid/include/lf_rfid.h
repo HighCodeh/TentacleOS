@@ -44,6 +44,9 @@ extern "C" {
 #define LF_RFID_MAX_HZ                140000U
 #define LF_RFID_DEFAULT_DUTY_PERMILLE 500U
 #define LF_RFID_RAW_MAX_EDGES         512U
+#define LF_RFID_EM4100_BYTES          5U
+#define LF_RFID_EMULATE_MIN_MS        100U
+#define LF_RFID_EMULATE_MAX_MS        5000U
 
 typedef struct {
   uint32_t delta_us;
@@ -82,6 +85,14 @@ typedef struct {
   uint16_t samples_used;
 } lf_rfid_em4100_t;
 
+typedef struct {
+  lf_rfid_field_report_t external_field;
+  uint32_t half_bit_us;
+  uint32_t frame_count;
+  uint32_t duration_us;
+  bool requires_reset;
+} lf_rfid_emulation_report_t;
+
 esp_err_t lf_rfid_init(void);
 void lf_rfid_deinit(void);
 
@@ -117,6 +128,15 @@ esp_err_t lf_rfid_capture_edges(uint32_t duration_ms,
 
 /** Read and parity-check a 64-bit Manchester EM4100/EM4102 frame. */
 esp_err_t lf_rfid_read_em4100(uint32_t timeout_ms, lf_rfid_em4100_t *out);
+
+/** Bounded RF/64 Manchester load modulation; requires an external LF reader.
+ * GPIO2 stays low. Completion is a waveform result, not reader acceptance.
+ * A cleanup failure retains antenna ownership and requires a device reset.
+ */
+esp_err_t lf_rfid_emulate_em4100(const uint8_t id[LF_RFID_EM4100_BYTES],
+                                 uint32_t duration_ms,
+                                 bool is_inverted,
+                                 lf_rfid_emulation_report_t *out_report);
 
 /** Short, current-conscious bring-up test; the field is always off on return.
  */
