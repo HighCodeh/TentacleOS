@@ -132,38 +132,37 @@ typedef enum {
 /**
  * @brief Initialize the CC1101 transceiver and SPI bus.
  */
-void cc1101_init(void);
+esp_err_t cc1101_init(void);
 
 /**
- * @brief Check whether the CC1101 SPI device was attached successfully.
+ * @brief Check whether chip detection and initial tuning completed successfully.
  *
- * @return true when
- * the driver owns a valid SPI device handle.
+ * @return true after successful initialization or recovery.
  */
 bool cc1101_is_initialized(void);
 
 /**
- * @brief Run the TI manual reset sequence and restore the safe defaults.
+ * @brief Reset the radio, verify its identity and restore the default tuning.
  *
- * @return ESP_OK
- * when the chip answers with a valid VERSION register.
+ * @return ESP_OK only after initialization and calibration complete.
  */
 esp_err_t cc1101_recover(void);
 
 /**
- * @brief Set the carrier frequency.
+ * @brief Select the matching branch, tune and calibrate the carrier in IDLE.
  *
- * @param freq_hz Frequency in Hertz.
+ * @param freq_hz Frequency in Hertz, in a supported CC1101 band.
+ * @return ESP_OK on success; errors are also recorded for the task-owned lease.
  */
-void cc1101_set_frequency(uint32_t freq_hz);
+esp_err_t cc1101_set_frequency(uint32_t freq_hz);
 
 /**
- * @brief Apply a predefined modulation preset at a given frequency.
+ * @brief Configure a preset in IDLE and enter RX after successful calibration.
  *
  * @param preset Preset identifier from cc1101_preset_t.
  * @param freq_hz Carrier frequency in Hertz.
  */
-void cc1101_set_preset(cc1101_preset_t preset, uint32_t freq_hz);
+esp_err_t cc1101_set_preset(cc1101_preset_t preset, uint32_t freq_hz);
 
 /**
  * @brief Return the numeric identifier of the currently active preset.
@@ -177,59 +176,59 @@ uint8_t cc1101_get_active_preset_id(void);
  *
  * @param freq_hz Carrier frequency in Hertz.
  */
-void cc1101_enable_async_mode(uint32_t freq_hz);
+esp_err_t cc1101_enable_async_mode(uint32_t freq_hz);
 
 /**
  * @brief Switch the radio into 2-FSK mode.
  *
  * @param freq_hz Carrier frequency in Hertz.
  */
-void cc1101_enable_fsk_mode(uint32_t freq_hz);
+esp_err_t cc1101_enable_fsk_mode(uint32_t freq_hz);
 
 /**
  * @brief Enter receive mode.
  */
-void cc1101_enter_rx_mode(void);
+esp_err_t cc1101_enter_rx_mode(void);
 
 /**
  * @brief Enter transmit mode.
  */
-void cc1101_enter_tx_mode(void);
+esp_err_t cc1101_enter_tx_mode(void);
 
 /**
  * @brief Set the receive filter bandwidth.
  *
  * @param khz Bandwidth in kHz.
  */
-void cc1101_set_rx_bandwidth(float khz);
+esp_err_t cc1101_set_rx_bandwidth(float khz);
 
 /**
  * @brief Set the over-the-air data rate.
  *
  * @param baud Data rate in baud.
  */
-void cc1101_set_data_rate(float baud);
+esp_err_t cc1101_set_data_rate(float baud);
 
 /**
  * @brief Set the frequency deviation.
  *
  * @param dev Deviation in kHz.
  */
-void cc1101_set_deviation(float dev);
+esp_err_t cc1101_set_deviation(float dev);
 
 /**
  * @brief Set the modulation format.
  *
  * @param modulation 0 = 2-FSK, 1 = GFSK, 2 = ASK/OOK, 3 = 4-FSK, 4 = MSK.
  */
-void cc1101_set_modulation(uint8_t modulation);
+esp_err_t cc1101_set_modulation(uint8_t modulation);
 
 /**
  * @brief Set the PA output power.
  *
  * @param dbm Power level in dBm.
  */
-void cc1101_set_pa(int dbm);
+esp_err_t cc1101_set_pa(int dbm);
 
 /**
  * @brief Set the channel number.
@@ -243,12 +242,12 @@ void cc1101_set_channel(uint8_t channel);
  *
  * @param khz Spacing in kHz.
  */
-void cc1101_set_chsp(float khz);
+esp_err_t cc1101_set_chsp(float khz);
 
 /**
  * @brief Run manual frequency synthesizer calibration.
  */
-void cc1101_calibrate(void);
+esp_err_t cc1101_calibrate(void);
 
 /**
  * @brief Set the sync-word qualification mode.
@@ -286,12 +285,12 @@ void cc1101_set_dc_filter_off(bool disable);
 void cc1101_set_manchester(bool enable);
 
 /**
- * @brief Transmit a data buffer.
+ * @brief Transmit a variable-length FIFO packet with a two-second deadline.
  *
  * @param data Pointer to the payload bytes.
  * @param len  Number of bytes to send.
  */
-void cc1101_send_data(const uint8_t *data, size_t len);
+esp_err_t cc1101_send_data(const uint8_t *data, size_t len);
 
 /**
  * @brief Convert a raw RSSI register value to dBm.
@@ -306,7 +305,7 @@ float cc1101_convert_rssi(uint8_t rssi_raw);
  *
  * @param cmd Strobe command address (e.g. CC1101_SRX).
  */
-void cc1101_strobe(uint8_t cmd);
+esp_err_t cc1101_strobe(uint8_t cmd);
 
 /**
  * @brief Write a value to a single configuration register.
@@ -314,7 +313,7 @@ void cc1101_strobe(uint8_t cmd);
  * @param reg Register address.
  * @param val Value to write.
  */
-void cc1101_write_reg(uint8_t reg, uint8_t val);
+esp_err_t cc1101_write_reg(uint8_t reg, uint8_t val);
 
 /**
  * @brief Read a single configuration or status register.
@@ -324,6 +323,9 @@ void cc1101_write_reg(uint8_t reg, uint8_t val);
  */
 uint8_t cc1101_read_reg(uint8_t reg);
 
+/** Read a register without treating an SPI failure as a register value. */
+esp_err_t cc1101_get_register(uint8_t reg, uint8_t *out_value);
+
 /**
  * @brief Burst-write a buffer to consecutive registers.
  *
@@ -331,7 +333,7 @@ uint8_t cc1101_read_reg(uint8_t reg);
  * @param buf  Pointer to the data to write.
  * @param len  Number of bytes.
  */
-void cc1101_write_burst(uint8_t reg, const uint8_t *buf, uint8_t len);
+esp_err_t cc1101_write_burst(uint8_t reg, const uint8_t *buf, uint8_t len);
 
 /**
  * @brief Burst-read consecutive registers into a buffer.

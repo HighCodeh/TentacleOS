@@ -22,12 +22,14 @@ extern "C" {
 
 /** @brief Open the Sub-GHz menu screen: Read / Read RAW / Analyzer / Brute / Saved / Send. */
 void ui_subghz_menu_open(void);
+void ui_subghz_menu_stop(void);
 
 /**
  * @brief Open the Sub-GHz "Read" capture screen: runs the CC1101 receiver, shows the
  *        decoded protocol/frequency/key, and can replay or persist the capture.
  */
 void ui_subghz_read_open(void);
+void ui_subghz_read_stop(void);
 
 #ifdef __cplusplus
 }

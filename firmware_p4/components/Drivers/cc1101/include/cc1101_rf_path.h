@@ -30,7 +30,7 @@ extern "C" {
 #define CC1101_BAND_433_MAX_HZ  464000000UL
 #define CC1101_BAND_HIGH_MIN_HZ 779000000UL
 #define CC1101_BAND_HIGH_MAX_HZ 928000000UL
-/* Software band boundary, not a measured antenna crossover. */
+/* PA-table boundary; both upper bands use RF2. */
 #define CC1101_PATH_915_MIN_HZ 900000000UL
 
 typedef enum {
@@ -42,23 +42,15 @@ typedef enum {
   CC1101_RF_PATH_COUNT,
 } cc1101_rf_path_t;
 
-/* Radientum #4679, 10-Sep-2026, p11: RF3 is 916 MHz; RF4 is 868 MHz. */
+/* Prototype link measurements, 13-Nov-2026: RF1 for low bands, RF2 for high bands. */
 static inline cc1101_rf_path_t cc1101_rf_path_for_frequency(uint32_t frequency_hz) {
   if (frequency_hz >= CC1101_BAND_315_MIN_HZ && frequency_hz <= CC1101_BAND_315_MAX_HZ)
     return CC1101_RF_PATH_1;
   if (frequency_hz >= CC1101_BAND_433_MIN_HZ && frequency_hz <= CC1101_BAND_433_MAX_HZ)
-    return CC1101_RF_PATH_2;
+    return CC1101_RF_PATH_1;
   if (frequency_hz >= CC1101_BAND_HIGH_MIN_HZ && frequency_hz <= CC1101_BAND_HIGH_MAX_HZ)
-    return frequency_hz < CC1101_PATH_915_MIN_HZ ? CC1101_RF_PATH_4 : CC1101_RF_PATH_3;
+    return CC1101_RF_PATH_2;
   return CC1101_RF_PATH_NONE;
-}
-
-/* Unit 0201891B link tests: keep the schematic map above independently available. */
-static inline cc1101_rf_path_t cc1101_rf_path_for_measured_frequency(uint32_t frequency_hz) {
-  cc1101_rf_path_t nominal = cc1101_rf_path_for_frequency(frequency_hz);
-  if (nominal == CC1101_RF_PATH_NONE)
-    return CC1101_RF_PATH_NONE;
-  return frequency_hz < CC1101_BAND_HIGH_MIN_HZ ? CC1101_RF_PATH_1 : CC1101_RF_PATH_2;
 }
 
 /* PE613050 DOC-32614-9.01 table 4: columns are V2,V1, not V1,V2. */

@@ -19,6 +19,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "esp_err.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -44,12 +46,15 @@ typedef struct {
  * @param center_freq  Center frequency in Hz.
  * @param span_hz      Sweep span width in Hz.
  */
-void subghz_spectrum_start(uint32_t center_freq, uint32_t span_hz);
+esp_err_t subghz_spectrum_start(uint32_t center_freq, uint32_t span_hz);
 
 /**
  * @brief Stop the spectrum sweep.
  */
 void subghz_spectrum_stop(void);
+
+/** First worker failure, retained until the next accepted start. */
+esp_err_t subghz_spectrum_get_error(void);
 
 /**
  * @brief Retrieve the latest spectrum sweep line.

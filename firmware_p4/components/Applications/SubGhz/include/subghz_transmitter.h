@@ -16,6 +16,7 @@
 #ifndef SUBGHZ_TRANSMITTER_H
 #define SUBGHZ_TRANSMITTER_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -37,6 +38,14 @@ esp_err_t subghz_tx_init(void);
  * @brief Stop the Sub-GHz transmitter.
  */
 void subghz_tx_stop(void);
+
+typedef struct {
+  bool is_busy;
+  esp_err_t error;
+} subghz_tx_status_t;
+
+/** Pending jobs include the active frame; success requires is_busy=false and ESP_OK. */
+void subghz_tx_get_status(subghz_tx_status_t *out_status);
 
 /**
  * @brief Transmit a raw pulse sequence.
