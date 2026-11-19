@@ -270,6 +270,25 @@ ir flash <on|off>                         bounded DC torch (1000 ms maximum) / o
 - `ir send` resolves the protocol name (case-insensitive), parses `addr`/`cmd` (0x hex accepted), inits TX, sends, then deinits TX.
 - `ir flash on` drives the emitter to full power (`ir_flash_on`); `ir flash off` turns it off. The output is infrared - check with a phone camera.
 
+## Captured signals and names
+
+Learn → Save opens the filename editor. The chosen name becomes both the `.ir`
+file stem and the captured signal's `name:` field; the result card shows that name
+only after the write succeeds. Browse Signals opens a flat, alphabetically sorted
+list of named captures in `/sdcard/ir`, with RAW/NEC/etc. as secondary information.
+Opening a capture offers Send, Rename and Delete. Renaming keeps that signal
+selected after refreshing the list and updates both names for single-signal files.
+Multi-button remote files retain their individual button names when renamed.
+Existing files saved under an automatic name can be renamed from this screen.
+
+Saving uses a checked atomic write and a bounded PSRAM serialization buffer.
+Invalid names, collisions, oversized output and failed writes are reported without
+a Saved confirmation. Rename writes the new single-signal file before removing
+the original; a failed removal attempts rollback and reports failure. Saved-signal
+Send and Delete report success only after the corresponding operation succeeds.
+The file-name limit is 31 bytes; files with longer stems are not surfaced in this
+capture list, whose rename/delete operations use the stem as identity.
+
 ## Integrated IR library and validation
 
 The IR menu opens a native browser with two sources: `/sdcard/ir/library` for

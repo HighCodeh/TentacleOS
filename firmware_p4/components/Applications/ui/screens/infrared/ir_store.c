@@ -32,6 +32,7 @@
 #include "ir_protocol.h"
 #include "ir_ac_request.h"
 #include "storage_mkdir.h"
+#include "storage_atomic.h"
 #include "tos_storage_paths.h"
 
 static const char *TAG = "IR_STORE";
@@ -46,12 +47,20 @@ static const char *TAG = "IR_STORE";
 // Path helpers
 // ----------------------------------------------------------------------------
 
+static bool valid_name(const char *name) {
+  if (name == NULL || name[0] == '\0' || strlen(name) >= IR_STORE_NAME_MAX ||
+      strpbrk(name, "/\\:*?\"<>|\r\n") != NULL || name[0] == '.' || name[0] == ' ')
+    return false;
+  size_t len = strlen(name);
+  return name[len - 1] != '.' && name[len - 1] != ' ';
+}
+
 static void path_for(const char *name, char *out, size_t cap) {
   snprintf(out, cap, "%s/%s.ir", IR_DIR, name);
 }
 
 bool ir_store_exists(const char *name) {
-  if (name == NULL || name[0] == '\0')
+  if (!valid_name(name))
     return false;
   char path[IR_STORE_PATH_MAX];
   path_for(name, path, sizeof(path));
@@ -93,6 +102,12 @@ static void sniff_proto(const char *path, char *out, size_t cap) {
 // Listing
 // ----------------------------------------------------------------------------
 
+static int compare_entries(const void *left, const void *right) {
+  const ir_store_entry_t *a = left;
+  const ir_store_entry_t *b = right;
+  return strcasecmp(a->name, b->name);
+}
+
 int ir_store_list(ir_store_entry_t *out, int max) {
   if (out == NULL || max <= 0)
     return -1;
@@ -112,17 +127,17 @@ int ir_store_list(ir_store_entry_t *out, int max) {
     ir_store_entry_t *e = &out[n];
     size_t stem = len - 3;
     if (stem >= IR_STORE_NAME_MAX)
-      stem = IR_STORE_NAME_MAX - 1;
+      continue;
     memcpy(e->name, nm, stem);
     e->name[stem] = '\0';
-    // Rebuild the path from the bounded stem (char[32]) rather than d_name
-    // (char[256]) so the length is provable to the compiler; the SD FAT is
-    // case-insensitive, so this still opens the real file.
-    snprintf(e->path, sizeof(e->path), "%s/%s.ir", IR_DIR, e->name);
+    int written = snprintf(e->path, sizeof(e->path), "%s/%s", IR_DIR, nm);
+    if (written < 0 || (size_t)written >= sizeof(e->path))
+      continue;
     sniff_proto(e->path, e->proto, sizeof(e->proto));
     n++;
   }
   closedir(dir);
+  qsort(out, (size_t)n, sizeof(*out), compare_entries);
   return n;
 }
 
@@ -152,7 +167,11 @@ esp_err_t ir_store_load(const char *path, ir_file_t *file) {
     return ESP_ERR_NO_MEM;
   }
   size_t rd = fread(buf, 1, (size_t)sz, f);
-  fclose(f);
+  int close_result = fclose(f);
+  if (rd != (size_t)sz || close_result != 0) {
+    free(buf);
+    return ESP_FAIL;
+  }
   buf[rd] = '\0';
 
   esp_err_t r = ir_file_parse(buf, file);
@@ -161,29 +180,36 @@ esp_err_t ir_store_load(const char *path, ir_file_t *file) {
 }
 
 static esp_err_t write_file(const ir_file_t *file, const char *name) {
-  storage_mkdir_recursive(IR_DIR);
+  if (!valid_name(name))
+    return ESP_ERR_INVALID_ARG;
+  if (ir_store_exists(name))
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t err = storage_mkdir_recursive(IR_DIR);
+  if (err != ESP_OK)
+    return err;
 
-  char *buf = malloc(IR_SERIALIZE_MAX);
-  if (buf == NULL)
-    return ESP_ERR_NO_MEM;
-  size_t n = ir_file_to_string(file, buf, IR_SERIALIZE_MAX);
-
+  char *buf = heap_caps_malloc(IR_SERIALIZE_MAX, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (buf == NULL) {
+    ESP_LOGE(TAG, "Signal serialization allocation failed");
+    err = ESP_ERR_NO_MEM;
+    goto cleanup;
+  }
+  size_t size = ir_file_to_string(file, buf, IR_SERIALIZE_MAX);
+  if (size == 0 || size >= IR_SERIALIZE_MAX) {
+    err = ESP_ERR_INVALID_SIZE;
+    goto cleanup;
+  }
   char path[IR_STORE_PATH_MAX];
   path_for(name, path, sizeof(path));
-  FILE *f = fopen(path, "wb");
-  if (f == NULL) {
-    free(buf);
-    ESP_LOGE(TAG, "open %s for write failed", path);
-    return ESP_FAIL;
-  }
-  size_t wr = fwrite(buf, 1, n, f);
-  fclose(f);
+  err = storage_write_atomic(path, buf, size);
+
+cleanup:
   free(buf);
-  return wr == n ? ESP_OK : ESP_FAIL;
+  return err;
 }
 
 esp_err_t ir_store_save_data(const char *name, const ir_data_t *data) {
-  if (name == NULL || data == NULL)
+  if (!valid_name(name) || data == NULL)
     return ESP_ERR_INVALID_ARG;
 
   ir_file_t file;
@@ -199,7 +225,7 @@ esp_err_t ir_store_save_data(const char *name, const ir_data_t *data) {
 
 esp_err_t
 ir_store_save_raw(const char *name, const rmt_symbol_word_t *symbols, size_t count, uint32_t freq) {
-  if (name == NULL || symbols == NULL || count == 0)
+  if (!valid_name(name) || symbols == NULL || count == 0)
     return ESP_ERR_INVALID_ARG;
 
   ir_file_t file;
@@ -220,7 +246,7 @@ ir_store_save_raw(const char *name, const rmt_symbol_word_t *symbols, size_t cou
 }
 
 esp_err_t ir_store_delete(const char *name) {
-  if (name == NULL)
+  if (!valid_name(name))
     return ESP_ERR_INVALID_ARG;
   char path[IR_STORE_PATH_MAX];
   path_for(name, path, sizeof(path));
@@ -228,13 +254,39 @@ esp_err_t ir_store_delete(const char *name) {
 }
 
 esp_err_t ir_store_rename(const char *old_name, const char *new_name) {
-  if (old_name == NULL || new_name == NULL)
+  if (!valid_name(old_name) || !valid_name(new_name))
     return ESP_ERR_INVALID_ARG;
-  char op[IR_STORE_PATH_MAX];
-  char np[IR_STORE_PATH_MAX];
-  path_for(old_name, op, sizeof(op));
-  path_for(new_name, np, sizeof(np));
-  return rename(op, np) == 0 ? ESP_OK : ESP_FAIL;
+  if (!ir_store_exists(old_name))
+    return ESP_ERR_NOT_FOUND;
+  if (strcmp(old_name, new_name) == 0)
+    return ESP_OK;
+  if (ir_store_exists(new_name))
+    return ESP_ERR_INVALID_STATE;
+  char old_path[IR_STORE_PATH_MAX];
+  char new_path[IR_STORE_PATH_MAX];
+  path_for(old_name, old_path, sizeof(old_path));
+  path_for(new_name, new_path, sizeof(new_path));
+  ir_file_t file;
+  ir_file_init(&file);
+  esp_err_t err = ir_store_load(old_path, &file);
+  if (err != ESP_OK)
+    goto cleanup;
+  if (file.count != 1) {
+    // Remote files keep their individual button names.
+    err = rename(old_path, new_path) == 0 ? ESP_OK : ESP_FAIL;
+    goto cleanup;
+  }
+  strlcpy(file.signals[0].name, new_name, sizeof(file.signals[0].name));
+  err = write_file(&file, new_name);
+  if (err == ESP_OK && remove(old_path) != 0) {
+    ESP_LOGE(TAG, "Rename could not remove %s; original retained", old_path);
+    if (remove(new_path) != 0)
+      ESP_LOGE(TAG, "Rename rollback failed for %s", new_path);
+    err = ESP_FAIL;
+  }
+cleanup:
+  ir_file_free(&file);
+  return err;
 }
 
 void ir_store_name_for_data(const ir_data_t *data, char *buf, size_t cap) {

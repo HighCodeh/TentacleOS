@@ -814,8 +814,21 @@ Sub-GHz's existing automatic capture file remains on SD until a successful renam
 Name conflicts are reported without replacing an existing destination. Missing
 Sub-GHz capture files no longer produce a false Saved confirmation. RFID read and
 manual-entry saves also request a name; this library still lasts only until reboot.
-NFC identification already uses the contextual name editor and retains its own
-storage semantics. No folder chooser is introduced.
+NFC identification uses the contextual name editor. Successful NFC/IR saves update
+the result card's title to the chosen name. Saved NFC cards open explicit actions
+without a timed transition; the emulation picker retains their identity and name.
+Deleting a saved NFC card also deletes its associated dumps and Classic companions
+on SD, with confirmation, worker progress and checked completion. NFC Files uses
+the same action-panel appearance for Open details / Rename / Save a copy / Delete
+card + data. Rename retains file contents and synchronizes an unambiguous library
+name. BACK during mutation waits for the result before leaving; close hooks release
+the owned worker and timers. See the NFC document for SD/error and identity limits.
+IR Browse Signals opens named captures directly, with protocol subtitles and
+Send/Rename/Delete actions. The shared capture-result panel uses live screen
+metrics, scrolls its actions when necessary in landscape, and scrolls long titles.
+See [NFC naming and dump selection](../nfc/README.md) and
+[IR captured signals](../ir/README.md#captured-signals-and-names) for persistence
+and missing-data behavior. No folder chooser is introduced.
 
 Diagnostics uses two columns in landscape and a bounded body above the footer;
 its timer now has a central close hook and a guarded DELETE fallback. Chip labels
@@ -852,5 +865,8 @@ runs the same sequence. Host card events and graphics are fixtures; physical RF
 acceptance remains a separate device check.
 
 `bash tools/highboy/test.command` also runs the prototype battery/LED, radio,
-NFC, storage and screen-lifecycle regressions. These host tests do not open
+NFC, storage and screen-lifecycle regressions. `test_saved_capture_flows.py` checks
+IR file round trips and failed writes, full NFC identity and alias selection, and
+native LVGL saved-signal actions/layout in both orientations and light/dark themes.
+These host tests do not open
 serial devices or transmit over radios.

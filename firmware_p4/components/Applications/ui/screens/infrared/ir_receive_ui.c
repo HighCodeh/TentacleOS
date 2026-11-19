@@ -258,6 +258,7 @@ static void save_name_submit(const char *name, void *context) {
   }
   if (err == ESP_OK) {
     s_saved = true;
+    capture_result_set_title(&s_cr, name);
     capture_result_mark_saved(&s_cr);
     ui_feedback(UI_FB_WRITE);
     notify(NOTIFY_SAVED, "IR signal saved");
