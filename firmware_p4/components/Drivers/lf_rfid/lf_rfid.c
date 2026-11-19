@@ -672,7 +672,8 @@ esp_err_t lf_rfid_self_test(lf_rfid_self_test_t *out) {
   if (error < 0) {
     error = -error;
   }
-  out->frequency_ok = error <= 50000; /* +/-5%, generous for first hardware bring-up. */
+  out->frequency_ok =
+      out->carrier_present && error <= 50000; /* +/-5%, generous for first hardware bring-up. */
   return (out->gpio_static_ok && out->carrier_present && out->frequency_ok)
              ? ESP_OK
              : ESP_ERR_INVALID_RESPONSE;

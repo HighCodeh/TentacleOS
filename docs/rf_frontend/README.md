@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # Shared RF frontend
 
 The High Boy V2 LF 125 kHz and NFC 13.56 MHz stages share one physical antenna.
@@ -20,7 +37,10 @@ reservation until a successful OFF transfer.
 read screen. It initializes LF outputs off, generates the carrier with LEDC,
 measures carrier feedback with PCNT and reads EM4100 frames with parity checks.
 Console diagnostics also provide passive listening, edge capture and modulation
-checks. Pin assignments remain in `Drivers/pins/include/pin_def.h`.
+checks. The LF self-test requires detected carrier feedback before reporting
+frequency PASS; an absent carrier leaves the frequency error field at zero and
+must not be mistaken for a measurement within tolerance. The terminal workflow
+and focused regression are documented in [Hardware Lab](../hardware_lab/README.md). Pin assignments remain in `Drivers/pins/include/pin_def.h`.
 
 The RFID screen reader runs on `SYS_CORE_RADIO` at `SYS_PRIO_SERVICE_LO`.
 A critical section protects cancellation, generation, running state and the
