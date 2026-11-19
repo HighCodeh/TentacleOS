@@ -122,22 +122,28 @@ esp_err_t power_manager_no_sleep_release(void) {
   return ESP_OK;
 }
 esp_err_t cc1101_recover(void) { assert_worker();return s_fault==FAIL_RECOVER?ESP_FAIL:ESP_OK; }
-void cc1101_set_preset(cc1101_preset_t preset,uint32_t freq) {
+esp_err_t cc1101_set_preset(cc1101_preset_t preset,uint32_t freq) {
   assert_worker();
 #ifdef SUBGHZ_TEST_SESSIONS
   s_tunes=s_reads=s_settles=s_sample_delays=s_yields=0;
 #endif
   if(s_fault==FAIL_PRESET)cc1101_lease_record_error(ESP_ERR_TIMEOUT);
+
+  return ESP_OK;
 }
-void cc1101_strobe(uint8_t command) {
+esp_err_t cc1101_strobe(uint8_t command) {
   assert_worker();assert(command==CC1101_SIDLE || command==CC1101_SRX);
   if(command==CC1101_SIDLE)s_sweep_phase=0;else {assert(s_sweep_phase==1);s_sweep_phase=2;}if(s_fault==FAIL_IDLE || (s_fault==FAIL_SWEEP_CLEANUP && s_reads==240))cc1101_lease_record_error(ESP_ERR_TIMEOUT);
+
+  return ESP_OK;
 }
-void cc1101_set_frequency(uint32_t frequency) {
+esp_err_t cc1101_set_frequency(uint32_t frequency) {
   assert_worker();assert(s_power==1);
   assert(s_sweep_phase==0);s_sweep_phase=1;
   assert(frequency==s_expected_start+s_tunes*s_expected_step);++s_tunes;
   if(s_fault==FAIL_TUNE && s_tunes==17)cc1101_lease_record_error(ESP_FAIL);
+
+  return ESP_OK;
 }
 uint8_t cc1101_read_reg(uint8_t reg) {
   assert_worker();assert(s_sweep_phase==3 && reg==(CC1101_RSSI|0x40));
@@ -157,7 +163,9 @@ void vTaskDelay(TickType_t ticks) {
   }
   assert_worker();assert(s_sweep_phase==3 && ticks==1 && s_reads%3==0);++s_yields;
 }
-void cc1101_enter_tx_mode(void) { assert_worker(); }
+esp_err_t cc1101_enter_tx_mode(void) { assert_worker();
+  return ESP_OK;
+}
 esp_err_t rmt_new_rx_channel(const rmt_rx_channel_config_t *config,rmt_channel_handle_t *out) {
   assert_worker();assert(!s_channel_live && config->flags.with_dma && config->gpio_num==GPIO_CC1101_GDO0_PIN);
   if (s_fault == FAIL_CHANNEL) {

@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025 HIGH CODE LLC
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 """Exercise the production RX worker with explicit RMT/RTOS/resource fakes."""
 import os
 from pathlib import Path
@@ -14,7 +29,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="subghz-lifecycle-") as temporary:
         work = Path(temporary)
         headers = ["driver/gpio.h", "driver/rmt_rx.h", "driver/rmt_encoder.h",
-                   "esp_log.h", "esp_err.h", "freertos/FreeRTOS.h", "freertos/task.h",
+                   "esp_log.h", "esp_heap_caps.h", "esp_err.h", "freertos/FreeRTOS.h", "freertos/task.h",
                    "freertos/queue.h", "freertos/semphr.h", "cc1101.h", "pin_def.h",
                    "led_control.h", "subghz_protocol_registry.h", "subghz_storage.h",
                    "subghz_transmitter.h", "resource_mgr.h", "sys_prio.h"]
@@ -28,6 +43,7 @@ def main():
                         "-Werror", "-Wno-unused-parameter", "-fsanitize=address,undefined",
                         "-fno-sanitize-recover=all", "-g", "-I", str(work), "-I", str(SOURCE),
                         "-I", str(SOURCE / "include"),
+                        "-I", str(ROOT / "firmware_p4/components/Drivers/cc1101/include"),
                         str(HERE / "test_subghz_lifecycle.c"), "-o", str(binary)], check=True)
         subprocess.run([str(binary)], check=True, timeout=30)
 

@@ -42,14 +42,16 @@ static void *allocate_memory(size_t size);
 
 typedef enum {
   FAIL_NONE, FAIL_MUTEX, FAIL_QUEUE, FAIL_TASK, FAIL_CHANNEL, FAIL_CALLBACK,
-  FAIL_ENABLE, FAIL_DMA, FAIL_DECODE, FAIL_RECEIVE, FAIL_RESOURCE
+  FAIL_ENABLE, FAIL_DMA, FAIL_DECODE, FAIL_RECEIVE, FAIL_RESOURCE,
+  FAIL_RADIO_INIT, FAIL_PRESET, FAIL_HOP, FAIL_RX_ENTRY
 } failure_t;
 static failure_t s_failure;
 static void (*s_worker)(void *);
 static unsigned int s_disable_failures, s_delete_failures, s_retries;
 static unsigned int s_tx_stops, s_receive_calls, s_queue_events;
 static bool s_has_resource, s_has_channel, s_has_queue, s_is_enabled;
-static bool s_inject_stop, s_expect_dma;
+static bool s_inject_stop, s_expect_dma, s_test_hopping;
+static unsigned s_clock_calls, s_stale_events, s_idle_failures;
 
 static void *allocate_memory(size_t size) {
   if (s_failure == FAIL_DECODE)
@@ -91,6 +93,14 @@ BaseType_t xQueueSendFromISR(QueueHandle_t queue, const void *event, BaseType_t 
 }
 BaseType_t xQueueReceive(QueueHandle_t queue, void *out, TickType_t timeout) {
   assert(s_has_queue && s_has_resource);
+  if (timeout == 0) {
+    if (s_stale_events != 0) {
+      --s_stale_events;
+      memset(out, 0, sizeof(rmt_rx_done_event_data_t));
+      return pdTRUE;
+    }
+    return pdFALSE;
+  }
   subghz_receiver_stop();
   assert(subghz_receiver_is_running());
   return pdFALSE;
@@ -115,7 +125,7 @@ void vTaskDelete(TaskHandle_t task) {
   assert(s_dma == NULL && s_decode == NULL && !subghz_receiver_is_running());
 }
 void vTaskDelay(TickType_t ticks) {
-  assert(ticks == CLEANUP_RETRY_MS && s_has_channel && s_has_resource);
+  assert(ticks == CLEANUP_RETRY_MS && s_has_resource);
   assert(subghz_receiver_is_running());
   if (s_expect_dma)
     assert(s_dma != NULL && s_decode != NULL && s_has_queue);
@@ -128,7 +138,7 @@ void vTaskDelay(TickType_t ticks) {
   }
   ++s_retries;
 }
-TickType_t xTaskGetTickCount(void) { return 0; }
+TickType_t xTaskGetTickCount(void) { return s_test_hopping ? s_clock_calls++ * (HOP_INTERVAL_MS + 1) : 0; }
 esp_err_t rmt_new_rx_channel(const rmt_rx_channel_config_t *config, rmt_channel_handle_t *out) {
   if (s_failure == FAIL_CHANNEL)
     return ESP_FAIL;
@@ -178,9 +188,27 @@ void *heap_caps_aligned_alloc(size_t alignment, size_t size, unsigned int caps) 
   assert(s_dma != NULL);
   return s_dma;
 }
-void cc1101_strobe(uint8_t command) { assert(s_has_resource); }
-void cc1101_set_frequency(uint32_t frequency) { assert(s_has_resource); }
-void cc1101_set_preset(cc1101_preset_t preset, uint32_t frequency) { assert(s_has_resource); }
+void *heap_caps_malloc(size_t size, unsigned caps) {
+  assert(caps == (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  return allocate_memory(size);
+}
+esp_err_t cc1101_init(void) { assert(s_has_resource); return s_failure == FAIL_RADIO_INIT ? ESP_FAIL : ESP_OK; }
+esp_err_t cc1101_enter_rx_mode(void) { assert(s_has_resource); return s_failure == FAIL_RX_ENTRY ? ESP_FAIL : ESP_OK; }
+esp_err_t cc1101_strobe(uint8_t command) { assert(s_has_resource);
+  return ESP_OK;
+}
+esp_err_t cc1101_set_frequency(uint32_t frequency) { assert(s_has_resource);
+  assert(!s_is_enabled && s_stale_events == 0);
+  return s_failure == FAIL_HOP ? ESP_FAIL : ESP_OK;
+}
+esp_err_t cc1101_set_preset(cc1101_preset_t preset, uint32_t frequency) {
+  assert(s_has_resource);
+  if (preset == CC1101_PRESET_IDLE && s_idle_failures != 0) {
+    --s_idle_failures;
+    return ESP_FAIL;
+  }
+  return preset != CC1101_PRESET_IDLE && s_failure == FAIL_PRESET ? ESP_FAIL : ESP_OK;
+}
 void subghz_tx_stop(void) { ++s_tx_stops; }
 esp_err_t resource_acquire(const res_request_t *request, res_handle_t *out) {
   if (s_failure == FAIL_RESOURCE)
@@ -196,6 +224,7 @@ esp_err_t resource_release(res_handle_t handle) {
   s_has_resource = false;
   return ESP_OK;
 }
+void led_signal_error(void) {}
 void led_signal_info(void) {}
 void led_signal_warning(void) {}
 bool subghz_protocol_registry_decode_all(const int32_t *pulses, size_t count, subghz_data_t *out) { return false; }
@@ -213,7 +242,10 @@ static void run(failure_t failure, bool is_cancelled, bool has_cleanup_failure) 
   s_expect_dma = has_cleanup_failure;
   s_disable_failures = has_cleanup_failure ? 2 : 0;
   s_delete_failures = has_cleanup_failure ? 2 : 0;
-  esp_err_t error = subghz_receiver_start(SUBGHZ_MODE_SCAN, 3, DEFAULT_FREQ);
+  s_test_hopping = failure == FAIL_HOP || failure == FAIL_RX_ENTRY;
+  s_clock_calls = 0;
+  s_stale_events = s_test_hopping ? 1 : 0;
+  esp_err_t error = subghz_receiver_start(SUBGHZ_MODE_SCAN, 3, s_test_hopping ? 0 : DEFAULT_FREQ);
   if (failure == FAIL_RESOURCE || failure == FAIL_MUTEX || failure == FAIL_TASK) {
     assert(error != ESP_OK && s_worker == NULL);
   } else {
@@ -222,8 +254,13 @@ static void run(failure_t failure, bool is_cancelled, bool has_cleanup_failure) 
   }
   assert(!s_has_resource && !subghz_receiver_is_running());
   assert(!s_has_channel && !s_has_queue && s_dma == NULL && s_decode == NULL);
-  if (is_cancelled)
+  if (is_cancelled || failure == FAIL_RADIO_INIT || failure == FAIL_PRESET)
     assert(s_receive_calls == 0);
+  if (failure >= FAIL_RADIO_INIT) {
+    assert(subghz_receiver_get_error() == ESP_FAIL);
+    if (s_test_hopping)
+      assert(s_receive_calls == 1 && s_stale_events == 0 && s_rx_freq == DEFAULT_FREQ);
+  }
   if (has_cleanup_failure)
     assert(s_retries == 4 && s_queue_events == 2);
   subghz_receiver_stop();
@@ -234,8 +271,9 @@ int main(void) {
   subghz_receiver_stop();
   assert(!subghz_receiver_is_running());
   assert(subghz_receiver_start(SUBGHZ_MODE_COUNT, 3, DEFAULT_FREQ) == ESP_ERR_INVALID_ARG);
-  for (failure_t failure = FAIL_NONE; failure <= FAIL_RESOURCE; ++failure)
+  for (failure_t failure = FAIL_NONE; failure <= FAIL_RX_ENTRY; ++failure)
     run(failure, false, false);
+  s_idle_failures = 2; run(FAIL_HOP, false, false); assert(s_retries == 2);
   run(FAIL_NONE, true, false);
   run(FAIL_NONE, false, true);
   run(FAIL_RECEIVE, false, true);
@@ -249,6 +287,6 @@ int main(void) {
   publish_rx_result(true,&data,NULL,NULL);
   assert(subghz_receiver_get_result(&second) && first.seq!=second.seq);
   assert(second.data.protocol_name==second.name_buf && strcmp(second.name_buf,"CAME")==0);
-  puts("Sub-GHz RX lifecycle: cancellation, contention, allocation and retained DMA cleanup passed");
+  puts("Sub-GHz RX lifecycle: radio failures, channel flush, cancellation, contention, allocation and retained DMA/IDLE cleanup passed");
   return 0;
 }

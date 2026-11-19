@@ -22,6 +22,7 @@
 #include "driver/rmt_rx.h"
 #include "driver/rmt_encoder.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sys_prio.h"
@@ -29,6 +30,7 @@
 #include "freertos/semphr.h"
 
 #include "cc1101.h"
+#include "cc1101_rf_path.h"
 #include "pin_def.h"
 #include "led_control.h"
 #include "subghz_protocol_registry.h"
@@ -84,6 +86,7 @@ typedef enum {
 } subghz_rx_state_t;
 
 static atomic_uint s_state;
+static atomic_int s_error;
 static subghz_mode_t s_rx_mode = SUBGHZ_MODE_SCAN;
 static cc1101_preset_t s_rx_preset = CC1101_PRESET_OOK_800KHZ;
 static uint32_t s_rx_freq = DEFAULT_FREQ;
@@ -254,25 +257,27 @@ static void handle_scan_mode(const int32_t *decode_buffer, size_t decode_idx) {
   }
 }
 
-static void handle_frequency_hopping(TickType_t *last_hop_time, TickType_t hop_interval) {
-  if (s_is_hopping_active == false) {
-    return;
-  }
-
-  if ((xTaskGetTickCount() - *last_hop_time) <= hop_interval) {
-    return;
-  }
-
-  s_hop_idx = (s_hop_idx + 1) % (int)HOP_FREQUENCIES_COUNT;
-  s_rx_freq = HOP_FREQUENCIES[s_hop_idx];
-
-  ESP_LOGI(TAG, "Hopping to: %lu Hz", (unsigned long)s_rx_freq);
-
-  cc1101_strobe(CC1101_SIDLE);
-  cc1101_set_frequency(s_rx_freq);
-  cc1101_strobe(CC1101_SRX);
-
+static esp_err_t handle_frequency_hopping(TickType_t *last_hop_time) {
+  uint32_t next_index = (s_hop_idx + 1) % HOP_FREQUENCIES_COUNT;
+  uint32_t frequency = HOP_FREQUENCIES[next_index];
+  esp_err_t error = cc1101_set_frequency(frequency);
+  if (error == ESP_OK)
+    error = cc1101_enter_rx_mode();
+  if (error != ESP_OK)
+    return error;
+  s_hop_idx = next_index;
+  s_rx_freq = frequency;
   *last_hop_time = xTaskGetTickCount();
+  ESP_LOGD(TAG, "Hopping to: %lu Hz", (unsigned long)frequency);
+  return ESP_OK;
+}
+
+static void record_failure(esp_err_t error) {
+  int expected = ESP_OK;
+  if (error != ESP_OK && atomic_compare_exchange_strong(&s_error, &expected, error)) {
+    ESP_LOGE(TAG, "Reception stopped: %s", esp_err_to_name(error));
+    led_signal_error();
+  }
 }
 
 static void subghz_rx_task(void *pvParameters) {
@@ -286,6 +291,7 @@ static void subghz_rx_task(void *pvParameters) {
   int32_t *decode_buffer = NULL;
   esp_err_t err = ESP_OK;
   bool is_channel_enabled = false;
+  bool has_radio_config = false;
 
   rmt_rx_channel_config_t rx_channel_cfg = {
       .clk_src = RMT_CLK_SRC_DEFAULT,
@@ -305,6 +311,7 @@ static void subghz_rx_task(void *pvParameters) {
   s_rx_queue = xQueueCreate(RX_QUEUE_DEPTH, sizeof(rmt_rx_done_event_data_t));
   if (s_rx_queue == NULL) {
     ESP_LOGE(TAG, "Failed to allocate RX queue");
+    err = ESP_ERR_NO_MEM;
     goto cleanup;
   }
   rmt_rx_event_callbacks_t cbs = {
@@ -315,20 +322,6 @@ static void subghz_rx_task(void *pvParameters) {
     ESP_LOGE(TAG, "rmt_rx_register_event_callbacks failed: %s", esp_err_to_name(err));
     goto cleanup;
   }
-  err = rmt_enable(s_rx_channel);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "rmt_enable failed: %s", esp_err_to_name(err));
-    goto cleanup;
-  }
-  is_channel_enabled = true;
-
-  if (s_state != SUBGHZ_RX_RUNNING)
-    goto cleanup;
-
-  cc1101_set_preset(s_rx_preset, s_rx_freq);
-
-  ESP_LOGI(TAG, "Waiting for signals...");
-
   rmt_receive_config_t receive_config = {
       .signal_range_min_ns = MIN_PULSE_NS,
       .signal_range_max_ns = MAX_PULSE_NS,
@@ -341,14 +334,32 @@ static void subghz_rx_task(void *pvParameters) {
       RMT_DMA_ALIGNMENT, raw_symbols_size, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
   if (raw_symbols == NULL) {
     ESP_LOGE(TAG, "Failed to allocate RMT RX buffer");
+    err = ESP_ERR_NO_MEM;
     goto cleanup;
   }
 
-  decode_buffer = malloc(RX_BUFFER_SIZE * DECODE_BUFFER_FACTOR * sizeof(int32_t));
+  decode_buffer = heap_caps_malloc(RX_BUFFER_SIZE * DECODE_BUFFER_FACTOR * sizeof(int32_t),
+                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (decode_buffer == NULL) {
     ESP_LOGE(TAG, "Failed to allocate decode buffer");
+    err = ESP_ERR_NO_MEM;
     goto cleanup;
   }
+
+  if (s_state != SUBGHZ_RX_RUNNING)
+    goto cleanup;
+  err = cc1101_init();
+  if (err != ESP_OK)
+    goto cleanup;
+  has_radio_config = true;
+  err = cc1101_set_preset(s_rx_preset, s_rx_freq);
+  if (err != ESP_OK)
+    goto cleanup;
+  err = rmt_enable(s_rx_channel);
+  if (err != ESP_OK)
+    goto cleanup;
+  is_channel_enabled = true;
+  ESP_LOGI(TAG, "Waiting for signals...");
 
   err = rmt_receive(s_rx_channel, raw_symbols, raw_symbols_size, &receive_config);
   if (err != ESP_OK) {
@@ -360,15 +371,36 @@ static void subghz_rx_task(void *pvParameters) {
   const TickType_t hop_interval = pdMS_TO_TICKS(HOP_INTERVAL_MS);
 
   while (s_state == SUBGHZ_RX_RUNNING) {
-    handle_frequency_hopping(&last_hop_time, hop_interval);
+    if (s_is_hopping_active && xTaskGetTickCount() - last_hop_time > hop_interval) {
+      err = rmt_disable(s_rx_channel);
+      if (err != ESP_OK)
+        break;
+      is_channel_enabled = false;
+      while (xQueueReceive(s_rx_queue, &rx_data, 0) == pdPASS) {}
+      err = handle_frequency_hopping(&last_hop_time);
+      if (err != ESP_OK)
+        break;
+      if (s_state != SUBGHZ_RX_RUNNING)
+        break;
+      err = rmt_enable(s_rx_channel);
+      if (err != ESP_OK)
+        break;
+      is_channel_enabled = true;
+      err = rmt_receive(s_rx_channel, raw_symbols, raw_symbols_size, &receive_config);
+      if (err != ESP_OK)
+        break;
+    }
 
     if (xQueueReceive(s_rx_queue, &rx_data, pdMS_TO_TICKS(RX_QUEUE_TIMEOUT_MS)) != pdPASS) {
       continue;
     }
+    if (s_state != SUBGHZ_RX_RUNNING)
+      break;
 
     if (rx_data.num_symbols == 0) {
       if (s_state == SUBGHZ_RX_RUNNING &&
-          rmt_receive(s_rx_channel, raw_symbols, raw_symbols_size, &receive_config) != ESP_OK) {
+          (err = rmt_receive(s_rx_channel, raw_symbols, raw_symbols_size, &receive_config)) !=
+              ESP_OK) {
         ESP_LOGE(TAG, "rmt_receive failed; stopping RX");
         break;
       }
@@ -389,7 +421,8 @@ static void subghz_rx_task(void *pvParameters) {
     }
 
     if (s_state == SUBGHZ_RX_RUNNING &&
-        rmt_receive(s_rx_channel, raw_symbols, raw_symbols_size, &receive_config) != ESP_OK) {
+        (err = rmt_receive(s_rx_channel, raw_symbols, raw_symbols_size, &receive_config)) !=
+            ESP_OK) {
       ESP_LOGE(TAG, "rmt_receive failed; stopping RX");
       break;
     }
@@ -397,7 +430,7 @@ static void subghz_rx_task(void *pvParameters) {
 
 cleanup:
   s_state = SUBGHZ_RX_STOPPING;
-  cc1101_strobe(CC1101_SIDLE);
+  record_failure(err);
   while (s_rx_channel != NULL) {
     err = is_channel_enabled ? rmt_disable(s_rx_channel) : ESP_OK;
     if (err == ESP_OK) {
@@ -408,7 +441,12 @@ cleanup:
         break;
       }
     }
-    ESP_LOGE(TAG, "RMT cleanup failed; retaining RX buffers and radio: %s", esp_err_to_name(err));
+    record_failure(err);
+    ESP_LOGD(TAG, "RMT cleanup pending: %s", esp_err_to_name(err));
+    vTaskDelay(pdMS_TO_TICKS(CLEANUP_RETRY_MS));
+  }
+  while (has_radio_config && (err = cc1101_set_preset(CC1101_PRESET_IDLE, 0)) != ESP_OK) {
+    record_failure(err);
     vTaskDelay(pdMS_TO_TICKS(CLEANUP_RETRY_MS));
   }
   if (raw_symbols != NULL) {
@@ -428,13 +466,16 @@ cleanup:
 }
 
 esp_err_t subghz_receiver_start(subghz_mode_t mode, cc1101_preset_t preset, uint32_t freq) {
-  if (mode < SUBGHZ_MODE_SCAN || mode >= SUBGHZ_MODE_COUNT)
+  if (mode < SUBGHZ_MODE_SCAN || mode >= SUBGHZ_MODE_COUNT || preset <= CC1101_PRESET_IDLE ||
+      preset >= CC1101_PRESET_COUNT ||
+      (freq != 0 && cc1101_rf_path_for_frequency(freq) == CC1101_RF_PATH_NONE))
     return ESP_ERR_INVALID_ARG;
   unsigned int expected = SUBGHZ_RX_IDLE;
   if (!atomic_compare_exchange_strong(&s_state, &expected, SUBGHZ_RX_RUNNING)) {
     return ESP_ERR_INVALID_STATE;
   }
 
+  atomic_store(&s_error, ESP_OK);
   subghz_tx_stop();
 
   res_request_t res_req = {.id = RES_SUBGHZ,
@@ -491,6 +532,10 @@ esp_err_t subghz_receiver_start(subghz_mode_t mode, cc1101_preset_t preset, uint
 void subghz_receiver_stop(void) {
   unsigned int expected = SUBGHZ_RX_RUNNING;
   atomic_compare_exchange_strong(&s_state, &expected, SUBGHZ_RX_STOPPING);
+}
+
+esp_err_t subghz_receiver_get_error(void) {
+  return atomic_load(&s_error);
 }
 
 bool subghz_receiver_is_running(void) {

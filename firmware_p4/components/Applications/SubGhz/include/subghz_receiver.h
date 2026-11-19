@@ -82,6 +82,9 @@ void subghz_receiver_stop(void);
  */
 bool subghz_receiver_is_running(void);
 
+/** First worker failure, retained until the next accepted start. */
+esp_err_t subghz_receiver_get_error(void);
+
 #ifdef __cplusplus
 }
 #endif

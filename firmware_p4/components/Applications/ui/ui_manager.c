@@ -540,7 +540,11 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
     case SCREEN_SCRIPTS:
       return ui_scripts_stop;
     case SCREEN_SUBGHZ_READ:
-      return subghz_receiver_stop;
+      return ui_subghz_read_stop;
+    case SCREEN_SUBGHZ_SEND:
+      return ui_subghz_send_stop;
+    case SCREEN_SUBGHZ_MENU:
+      return ui_subghz_menu_stop;
     case SCREEN_NFC_READ:
       return ui_nfc_read_stop;
     case SCREEN_NFC_WRITE:

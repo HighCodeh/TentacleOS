@@ -27,22 +27,26 @@
 #include "freertos/semphr.h"
 
 #include "cc1101.h"
+#include "cc1101_rf_path.h"
+#include "led_control.h"
 #include "resource_mgr.h"
 
 static const char *TAG = "SUBGHZ_SPECTRUM";
 
-#define STABILIZATION_DELAY_US  400
-#define RSSI_SAMPLE_DELAY_US    20
-#define RSSI_SAMPLE_COUNT       3
-#define RSSI_MIN_DBM            (-130.0f)
-#define YIELD_INTERVAL          1
-#define SWEEP_DELAY_MS          15
-#define MUTEX_TIMEOUT_MS        10
-#define GET_LINE_TIMEOUT_MS     5
-#define SPECTRUM_TASK_STACK     4096
-#define SPECTRUM_CENTER_DIVISOR 2
-#define SPECTRUM_TASK_PRIORITY  SYS_PRIO_BACKGROUND_LO
-#define SPECTRUM_TASK_CORE      SYS_CORE_RADIO
+#define SPECTRUM_CLEANUP_RETRY_MS 100
+#define CC1101_STATUS_READ        0x40U
+#define STABILIZATION_DELAY_US    400
+#define RSSI_SAMPLE_DELAY_US      20
+#define RSSI_SAMPLE_COUNT         3
+#define RSSI_MIN_DBM              (-130.0f)
+#define YIELD_INTERVAL            1
+#define SWEEP_DELAY_MS            15
+#define MUTEX_TIMEOUT_MS          10
+#define GET_LINE_TIMEOUT_MS       5
+#define SPECTRUM_TASK_STACK       4096
+#define SPECTRUM_CENTER_DIVISOR   2
+#define SPECTRUM_TASK_PRIORITY    SYS_PRIO_BACKGROUND_LO
+#define SPECTRUM_TASK_CORE        SYS_CORE_RADIO
 
 typedef enum {
   SUBGHZ_SPECTRUM_IDLE = 0,
@@ -52,16 +56,29 @@ typedef enum {
 
 static _Atomic(SemaphoreHandle_t) s_spectrum_mutex;
 static atomic_uint s_state;
+static atomic_int s_error;
 static res_handle_t s_grant;
 
 static subghz_spectrum_line_t s_latest_line = {0};
 
+static void record_failure(esp_err_t error) {
+  int expected = ESP_OK;
+  if (error != ESP_OK && atomic_compare_exchange_strong(&s_error, &expected, error)) {
+    ESP_LOGE(TAG, "Spectrum stopped: %s", esp_err_to_name(error));
+    led_signal_error();
+  }
+}
+
 static void subghz_spectrum_task(void *pvParameters) {
+  esp_err_t error = ESP_OK;
+  bool has_radio_config = false;
   uint32_t center = 0;
   uint32_t span = 0;
 
-  if (xSemaphoreTake(s_spectrum_mutex, pdMS_TO_TICKS(MUTEX_TIMEOUT_MS)) != pdTRUE)
+  if (xSemaphoreTake(s_spectrum_mutex, pdMS_TO_TICKS(MUTEX_TIMEOUT_MS)) != pdTRUE) {
+    error = ESP_ERR_TIMEOUT;
     goto cleanup;
+  }
   center = s_latest_line.center_freq;
   span = s_latest_line.span_hz;
   xSemaphoreGive(s_spectrum_mutex);
@@ -75,6 +92,16 @@ static void subghz_spectrum_task(void *pvParameters) {
            (unsigned long)span,
            (unsigned long)step);
 
+  if (s_state != SUBGHZ_SPECTRUM_RUNNING)
+    goto cleanup;
+  error = cc1101_init();
+  if (error != ESP_OK)
+    goto cleanup;
+  has_radio_config = true;
+  error = cc1101_set_preset(CC1101_PRESET_OOK_800KHZ, start);
+  if (error != ESP_OK)
+    goto cleanup;
+
   while (s_state == SUBGHZ_SPECTRUM_RUNNING) {
     float current_sweep[SPECTRUM_SAMPLES];
 
@@ -85,15 +112,20 @@ static void subghz_spectrum_task(void *pvParameters) {
 
       uint32_t current_freq = start + ((uint32_t)i * step);
 
-      cc1101_strobe(CC1101_SIDLE);
-      cc1101_set_frequency(current_freq);
-      cc1101_strobe(CC1101_SRX);
+      error = cc1101_set_frequency(current_freq);
+      if (error == ESP_OK)
+        error = cc1101_enter_rx_mode();
+      if (error != ESP_OK)
+        goto cleanup;
 
       ets_delay_us(STABILIZATION_DELAY_US);
 
       float local_max = RSSI_MIN_DBM;
       for (int k = 0; k < RSSI_SAMPLE_COUNT; k++) {
-        uint8_t raw = cc1101_read_reg(CC1101_RSSI | 0x40);
+        uint8_t raw;
+        error = cc1101_get_register(CC1101_RSSI | CC1101_STATUS_READ, &raw);
+        if (error != ESP_OK)
+          goto cleanup;
         float val = cc1101_convert_rssi(raw);
         if (val > local_max) {
           local_max = val;
@@ -122,24 +154,39 @@ static void subghz_spectrum_task(void *pvParameters) {
   }
 
 cleanup:
-  cc1101_strobe(CC1101_SIDLE);
+  s_state = SUBGHZ_SPECTRUM_STOPPING;
+  record_failure(error);
+  while (has_radio_config && (error = cc1101_set_preset(CC1101_PRESET_IDLE, 0)) != ESP_OK) {
+    record_failure(error);
+    vTaskDelay(pdMS_TO_TICKS(SPECTRUM_CLEANUP_RETRY_MS));
+  }
   resource_release(s_grant);
   s_grant = RES_HANDLE_NONE;
   s_state = SUBGHZ_SPECTRUM_IDLE;
   vTaskDelete(NULL);
 }
 
-void subghz_spectrum_start(uint32_t center_freq, uint32_t span_hz) {
+esp_err_t subghz_spectrum_start(uint32_t center_freq, uint32_t span_hz) {
   if (span_hz < SPECTRUM_SAMPLES || center_freq < span_hz / SPECTRUM_CENTER_DIVISOR)
-    return;
+    return ESP_ERR_INVALID_ARG;
+  uint32_t start = center_freq - span_hz / SPECTRUM_CENTER_DIVISOR;
+  uint32_t step = span_hz / SPECTRUM_SAMPLES;
+  for (uint32_t i = 0; i < SPECTRUM_SAMPLES; ++i) {
+    uint64_t frequency = (uint64_t)start + (uint64_t)i * step;
+    if (frequency > UINT32_MAX ||
+        cc1101_rf_path_for_frequency((uint32_t)frequency) == CC1101_RF_PATH_NONE)
+      return ESP_ERR_INVALID_ARG;
+  }
   unsigned int expected = SUBGHZ_SPECTRUM_IDLE;
   if (!atomic_compare_exchange_strong(&s_state, &expected, SUBGHZ_SPECTRUM_RUNNING))
-    return;
+    return ESP_ERR_INVALID_STATE;
+  atomic_store(&s_error, ESP_OK);
   res_request_t request = {
       .id = RES_SUBGHZ, .lane = RES_LANE_MAIN, .owner_kind = RES_OWNER_UI, .allow_preempt = false};
-  if (resource_acquire(&request, &s_grant) != ESP_OK) {
+  esp_err_t error = resource_acquire(&request, &s_grant);
+  if (error != ESP_OK) {
     s_state = SUBGHZ_SPECTRUM_IDLE;
-    return;
+    return error;
   }
 
   if (s_spectrum_mutex == NULL) {
@@ -152,7 +199,7 @@ void subghz_spectrum_start(uint32_t center_freq, uint32_t span_hz) {
     resource_release(s_grant);
     s_grant = RES_HANDLE_NONE;
     s_state = SUBGHZ_SPECTRUM_IDLE;
-    return;
+    return s_spectrum_mutex == NULL ? ESP_ERR_NO_MEM : ESP_ERR_TIMEOUT;
   }
   memset(&s_latest_line, 0, sizeof(s_latest_line));
   s_latest_line.center_freq = center_freq;
@@ -171,7 +218,13 @@ void subghz_spectrum_start(uint32_t center_freq, uint32_t span_hz) {
     resource_release(s_grant);
     s_grant = RES_HANDLE_NONE;
     s_state = SUBGHZ_SPECTRUM_IDLE;
+    return ESP_ERR_NO_MEM;
   }
+  return ESP_OK;
+}
+
+esp_err_t subghz_spectrum_get_error(void) {
+  return atomic_load(&s_error);
 }
 
 void subghz_spectrum_stop(void) {

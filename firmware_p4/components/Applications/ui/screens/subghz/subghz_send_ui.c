@@ -25,9 +25,11 @@
 
 #include "assets_manager.h"
 #include "capture_result_ui.h"
+#include "led_control.h"
 #include "notify_ui.h"
 #include "octobit_ui.h"
 #include "subghz_replay.h"
+#include "subghz_transmitter.h"
 #include "subghz_scope_ui.h"
 #include "subghz_storage.h"
 #include "ui_chrome.h"
@@ -37,11 +39,12 @@
 #include "ui_semantic.h"
 #include "ui_theme.h"
 
+static const char *TAG = "SUBGHZ_SEND_UI";
+
 #define ANTENNA_ICON "/assets/icons/settings_input_antenna.bin"
 #define SIGNAL_ICON  "/assets/icons/graphic_eq.bin"
 
 #define REFRESH_TICK_MS 50
-#define SENDING_MS      1600
 #define DOT_CYCLE_MS    350
 #define REVEAL_MS       2600
 
@@ -105,6 +108,7 @@ EXT_RAM_BSS_ATTR static lv_obj_t *s_rows[SIGNAL_MAX];
 EXT_RAM_BSS_ATTR static lv_obj_t *s_row_name[SIGNAL_MAX];
 EXT_RAM_BSS_ATTR static lv_obj_t *s_row_val[SIGNAL_MAX];
 static send_view_t s_view = VIEW_LIST;
+static bool s_owns_tx;
 static int s_sel = 0;
 
 static lv_timer_t *s_refresh_timer = NULL;
@@ -126,11 +130,30 @@ static void build_list(void);
 static void build_sending(void);
 static void send_done_cb(lv_timer_t *t);
 
+static void stop_tx(void) {
+  if (s_owns_tx) {
+    subghz_tx_stop();
+    s_owns_tx = false;
+  }
+}
+
 static void stop_send_timer(void) {
   if (s_send_timer != NULL) {
     lv_timer_delete(s_send_timer);
     s_send_timer = NULL;
   }
+}
+
+static void screen_deleted_cb(lv_event_t *event) {
+  if (lv_event_get_target(event) == s_screen)
+    ui_subghz_send_stop();
+}
+
+static void delete_screen(void) {
+  lv_obj_t *previous = s_screen;
+  s_screen = NULL;
+  if (previous != NULL)
+    lv_obj_del(previous);
 }
 
 static lv_obj_t *new_screen(void) {
@@ -140,6 +163,7 @@ static lv_obj_t *new_screen(void) {
   lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_border_width(screen, 0, 0);
   lv_obj_set_style_pad_all(screen, 0, 0);
+  lv_obj_add_event_cb(screen, screen_deleted_cb, LV_EVENT_DELETE, NULL);
   return screen;
 }
 
@@ -189,10 +213,7 @@ static void update_selection(void) {
 
 static void build_list(void) {
   subghz_scope_stop();
-  if (s_screen != NULL) {
-    lv_obj_del(s_screen);
-    s_screen = NULL;
-  }
+  delete_screen();
   s_status_label = NULL;
   s_freq_label = NULL;
   s_hint_label = NULL;
@@ -295,10 +316,7 @@ static void build_list(void) {
 
 static void build_sending(void) {
   subghz_scope_stop();
-  if (s_screen != NULL) {
-    lv_obj_del(s_screen);
-    s_screen = NULL;
-  }
+  delete_screen();
   s_list = NULL;
   s_cr = (capture_result_t){0};
   s_options = false;
@@ -356,6 +374,10 @@ static void show_options(void) {
 }
 
 static void start_send(void) {
+  if (s_refresh_timer == NULL) {
+    notify(NOTIFY_WARNING, "Screen unavailable. BACK to exit");
+    return;
+  }
   esp_err_t err = subghz_replay_file(s_sigs[s_sel].name);
   if (err == ESP_ERR_NOT_SUPPORTED) {
     notify(NOTIFY_WARNING, "Replay not supported");
@@ -366,19 +388,39 @@ static void start_send(void) {
     return;
   }
   stop_send_timer();
+  s_owns_tx = true;
   s_view = VIEW_SENDING;
   s_send_start = lv_tick_get();
   build_sending();
   ui_feedback(UI_FB_SELECT);
-  s_send_timer = lv_timer_create(send_done_cb, SENDING_MS, NULL);
-  lv_timer_set_repeat_count(s_send_timer, 1);
+  s_send_timer = lv_timer_create(send_done_cb, REFRESH_TICK_MS, NULL);
+  if (s_send_timer == NULL) {
+    ESP_LOGE(TAG, "Cannot allocate transmission monitor");
+    led_signal_error();
+    stop_tx();
+    s_view = VIEW_LIST;
+    build_list();
+    notify(NOTIFY_WARNING, "Cannot monitor transmission");
+  }
 }
 
 static void send_done_cb(lv_timer_t *t) {
-  (void)t;
-  s_send_timer = NULL;
-  if (lv_screen_active() != s_screen)
+  if (lv_screen_active() != s_screen) {
+    ui_subghz_send_stop();
     return;
+  }
+  subghz_tx_status_t status;
+  subghz_tx_get_status(&status);
+  if (status.error == ESP_OK && status.is_busy)
+    return;
+  stop_send_timer();
+  stop_tx();
+  if (status.error != ESP_OK) {
+    s_view = VIEW_LIST;
+    build_list();
+    notify(NOTIFY_WARNING, "Transmission failed");
+    return;
+  }
 
   s_view = VIEW_SENT;
   s_options = false;
@@ -463,6 +505,7 @@ static void subghz_send_input(const input_event_t *ev, void *ctx) {
         case INPUT_BTN_BACK:
           if (press) {
             stop_send_timer();
+            stop_tx();
             s_view = VIEW_LIST;
             build_list();
           }
@@ -539,13 +582,19 @@ static void subghz_send_input(const input_event_t *ev, void *ctx) {
   }
 }
 
-void ui_subghz_send_open(void) {
+void ui_subghz_send_stop(void) {
   stop_send_timer();
-  subghz_scope_stop();
-  if (s_screen != NULL) {
-    lv_obj_del(s_screen);
-    s_screen = NULL;
+  if (s_refresh_timer != NULL) {
+    lv_timer_delete(s_refresh_timer);
+    s_refresh_timer = NULL;
   }
+  stop_tx();
+  subghz_scope_stop();
+}
+
+void ui_subghz_send_open(void) {
+  ui_subghz_send_stop();
+  delete_screen();
   s_status_label = NULL;
   s_freq_label = NULL;
   s_hint_label = NULL;
@@ -562,5 +611,10 @@ void ui_subghz_send_open(void) {
   if (s_refresh_timer == NULL)
     s_refresh_timer = lv_timer_create(refresh_tick_cb, REFRESH_TICK_MS, NULL);
 
+  if (s_refresh_timer == NULL) {
+    ESP_LOGE(TAG, "Cannot allocate screen refresh timer");
+    led_signal_error();
+    notify(NOTIFY_WARNING, "Screen unavailable. BACK to exit");
+  }
   ui_input_set_screen_handler(subghz_send_input, NULL);
 }

@@ -685,6 +685,13 @@ configuration selectors and a scrolling live result view in either orientation.
 The close hook stops only the screen-owned run; checked cleanup remains in Service.
 Sub-GHz > Config edits the actual Read/Read RAW frequency and preset. Apply stores
 these in RAM; re-entry reflects the current values. File replay uses its own metadata.
+Read, Send and saved-signal replay monitor worker results: “Signal sent” requires
+RMT completion and confirmed radio IDLE, rather than an animation timer. Radio
+failures stop the scan/spectrum animation and show an error with BACK available.
+Their close hooks cancel owned operations and remove UI timers before navigation,
+with idempotent deletion callbacks as a fallback;
+“Capture again” also stops an in-flight replay. Workers retain radio/buffer
+ownership until hardware teardown succeeds, even after the screen closes.
 
 ## Handshake capture feedback
 
