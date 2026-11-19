@@ -127,8 +127,8 @@ static void refresh_telem(void) {
     return;
   }
   const bq25896_telem_t *t = &charge.charger;
-  if (charge.gauge_valid)
-    lv_label_set_text_fmt(s_pct, "%d%%", charge.soc);
+  if (charge.soc >= 0)
+    lv_label_set_text_fmt(s_pct, "%s%d%%", charge.gauge_valid ? "" : "~", charge.soc);
   else
     lv_label_set_text(s_pct, "--%");
   lv_label_set_text_fmt(s_volt, "%u.%02u V", t->vbat_mv / 1000, (t->vbat_mv % 1000) / 10);

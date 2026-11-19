@@ -105,8 +105,10 @@ typedef enum {
   LED_POWER_COUNT
 } led_power_state_t;
 
-/** Background indication resumes after notifications and manual previews. */
+/** Background charge pulses yield to notifications, previews and activity. */
 void led_set_power_state(led_power_state_t state);
+/** Backlight state; suppress recurring charge pulses while the display is lit. Task-only. */
+void led_set_display_active(bool is_active);
 
 /** Source bits allow independent activities to release only their own indication. */
 #define LED_ACTIVITY_NFC (1U << 0)

@@ -34,6 +34,21 @@ with tempfile.TemporaryDirectory() as tmpdir:
  tmp=Path(tmpdir)
  for name,body in MOCKS.items():
   p=tmp/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(NOTICE+body)
+ voltage_source=(ROOT/'firmware_p4/components/Drivers/bq25896/bq25896.c').read_text()
+ voltage_start=voltage_source.index('int bq25896_get_battery_percentage(')
+ voltage_end=voltage_source.index('uint16_t bq25896_get_battery_voltage(',voltage_start)
+ voltage_defines='\n'.join(line for line in voltage_source.splitlines() if line.startswith(('#define BATTERY_MIN_MV ', '#define BATTERY_MAX_MV ')))
+ (tmp/'voltage_curve.h').write_text(NOTICE+voltage_defines+'\n'+voltage_source[voltage_start:voltage_end])
+ display_source=(ROOT/'firmware_p4/components/Drivers/st7789/st7789.c').read_text()
+ display_start=display_source.index('void lcd_apply_brightness(')
+ display_end=display_source.index('void lcd_set_brightness(',display_start)
+ display_defines='\n'.join(line for line in display_source.splitlines() if line.startswith(('#define BL_', '#define MAX_BRIGHTNESS ')))
+ (tmp/'backlight_apply.h').write_text(NOTICE+display_defines+'\n'+display_source[display_start:display_end])
+ policy_source=(ROOT/'firmware_p4/components/Applications/ui/components/power_policy/power_policy.c').read_text()
+ policy_defines='\n'.join(line for line in policy_source.splitlines() if line.startswith(('#define DISPLAY_', '#define POWER_POLL_MS ')))
+ policy_state=policy_source[policy_source.index('static bool s_display_dimmed'):policy_source.index('static void display_hold_owner_deleted_cb')]
+ policy_functions=policy_source[policy_source.index('static uint32_t monotonic_ms('):policy_source.index('static void shutdown_display_off_cb(')]
+ (tmp/'display_policy.h').write_text(NOTICE+policy_defines+'\n'+policy_state+policy_functions)
  inc=[tmp,ROOT/'firmware_p4/components/Drivers/bq25896',ROOT/'firmware_p4/components/Drivers/bq25896/include',ROOT/'firmware_p4/components/Drivers/led',ROOT/'firmware_p4/components/Drivers/led/include']
  for name in ['test_pack_service','test_led_feedback']:
   command=[os.environ.get('CC','cc'),'-std=c11','-Wall','-Wextra','-Werror','-fsanitize=undefined','-DCONFIG_HIGHBOY_BOARD_V203=1']

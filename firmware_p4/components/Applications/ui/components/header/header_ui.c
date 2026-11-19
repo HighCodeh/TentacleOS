@@ -29,6 +29,7 @@
 
 #include "assets_manager.h"
 #include "battery_service.h"
+#include "led_control.h"
 #include "bluetooth_service.h"
 #include "bq25896.h"
 #include "tos_config.h"
@@ -49,23 +50,22 @@
 #define HEADER_ACTIVE_TINT_HEX 0x00E676
 #define SD_CD_PRESENT_LEVEL    0
 
-#define STATUS_POLL_MS             1000
-#define WIFI_ANIM_MS               800
-#define BATTERY_STATUS_WIDTH       72
-#define BATTERY_STATUS_HEIGHT      18
-#define BATTERY_TEXT_SIZE          12
-#define BATTERY_MV_PER_V           1000
-#define BATTERY_MV_PER_CENTIVOLT   10
-#define BATTERY_LOW_PERCENT        20
-#define BATTERY_MID_PERCENT        45
-#define BATTERY_FULL_PERCENT       100
-#define BATTERY_FULL_FRAME         3
-#define BATTERY_LAST_PARTIAL_FRAME 2
+#define STATUS_POLL_MS            1000
+#define WIFI_ANIM_MS              800
+#define BATTERY_STATUS_WIDTH      72
+#define BATTERY_STATUS_HEIGHT     18
+#define BATTERY_TEXT_SIZE         12
+#define BATTERY_PERCENT_PER_FRAME 25
+#define BATTERY_FRAME_COUNT       4
+#define BATTERY_FULL_FRAME        (BATTERY_FRAME_COUNT - 1)
+#define BATTERY_CHARGE_ANIM_MS    350
 
 #define SD_MOUNT_RETRIES        3
 #define SD_MOUNT_RETRY_DELAY_MS 150
 #define SD_TASK_STACK           6144 // vfs mount/unmount logs via the deep console path
 #define SD_CD_DEBOUNCE_MS       150  // settle the card-detect switch after an edge
+
+static const char *TAG = "HEADER_UI";
 
 static lv_obj_t *bt_img_ref = NULL;
 static lv_obj_t *card_img_ref = NULL;
@@ -352,10 +352,11 @@ static const char *wifi_paths[4] = {
 static lv_obj_t *battery_cont = NULL;
 static lv_obj_t *battery_img = NULL;
 static lv_obj_t *power_img = NULL;
-static lv_image_dsc_t *battery_dscs[4] = {NULL};
+static lv_image_dsc_t *battery_dscs[BATTERY_FRAME_COUNT] = {NULL};
 static lv_obj_t *s_battery_text = NULL;
+static bool s_battery_animation_failed;
 
-static const char *battery_paths[4] = {
+static const char *battery_paths[BATTERY_FRAME_COUNT] = {
     "/assets/icons/battery_1.bin",
     "/assets/icons/battery_2.bin",
     "/assets/icons/battery_3.bin",
@@ -438,11 +439,18 @@ void header_ui_set_wifi_connecting(bool connecting) {
 }
 
 static int battery_level_frame(int soc) {
-  if (soc < BATTERY_LOW_PERCENT)
+  if (soc <= 0)
     return 0;
-  if (soc < BATTERY_MID_PERCENT)
-    return 1;
-  return soc < BATTERY_FULL_PERCENT ? BATTERY_LAST_PARTIAL_FRAME : BATTERY_FULL_FRAME;
+  int frame = soc / BATTERY_PERCENT_PER_FRAME;
+  return frame < BATTERY_FRAME_COUNT ? frame : BATTERY_FULL_FRAME;
+}
+
+static void battery_charge_anim_cb(void *object, int32_t elapsed_ms) {
+  if (elapsed_ms < 0 || elapsed_ms >= BATTERY_FRAME_COUNT * BATTERY_CHARGE_ANIM_MS)
+    return;
+  int frame = elapsed_ms / BATTERY_CHARGE_ANIM_MS;
+  if (battery_dscs[frame] != NULL && lv_image_get_src(object) != battery_dscs[frame])
+    lv_image_set_src(object, battery_dscs[frame]);
 }
 
 static void
@@ -450,7 +458,8 @@ battery_render(const battery_snapshot_t *bs, lv_obj_t *icon, lv_obj_t *symbol, l
   bool present = bs->valid && bs->present;
   bool known = present && bs->soc >= 0;
   int frame = known ? battery_level_frame(bs->soc) : 0;
-  if (battery_dscs[frame] && lv_image_get_src(icon) != battery_dscs[frame])
+  if (lv_anim_get(icon, battery_charge_anim_cb) == NULL && battery_dscs[frame] &&
+      lv_image_get_src(icon) != battery_dscs[frame])
     lv_image_set_src(icon, battery_dscs[frame]);
   lv_obj_set_style_image_recolor(icon, current_theme.text_secondary, 0);
   lv_obj_set_style_image_recolor_opa(icon, known ? LV_OPA_TRANSP : LV_OPA_COVER, 0);
@@ -463,13 +472,7 @@ battery_render(const battery_snapshot_t *bs, lv_obj_t *icon, lv_obj_t *symbol, l
     lv_label_set_text(symbol, state);
   char value[BATTERY_TEXT_SIZE];
   if (known)
-    snprintf(value, sizeof(value), "%d%%", bs->soc);
-  else if (present)
-    snprintf(value,
-             sizeof(value),
-             "%u.%02uV",
-             bs->vbat_mv / BATTERY_MV_PER_V,
-             bs->vbat_mv % BATTERY_MV_PER_V / BATTERY_MV_PER_CENTIVOLT);
+    snprintf(value, sizeof(value), "%s%d%%", bs->is_soc_estimated ? "~" : "", bs->soc);
   else
     snprintf(value, sizeof(value), "--");
   if (strcmp(lv_label_get_text(label), value) != 0)
@@ -509,6 +512,25 @@ static void battery_apply(void) {
   battery_snapshot_t bs = {.soc = -1};
   if (!battery_service_get(&bs))
     bs.valid = false;
+  bool is_charging = bs.valid && bs.present && bs.soc >= 0 && bs.charging;
+  if (!is_charging) {
+    lv_anim_delete(battery_img, battery_charge_anim_cb);
+    s_battery_animation_failed = false;
+  } else if (!s_battery_animation_failed &&
+             lv_anim_get(battery_img, battery_charge_anim_cb) == NULL) {
+    lv_anim_t animation;
+    lv_anim_init(&animation);
+    lv_anim_set_var(&animation, battery_img);
+    lv_anim_set_exec_cb(&animation, battery_charge_anim_cb);
+    lv_anim_set_values(&animation, 0, BATTERY_FRAME_COUNT * BATTERY_CHARGE_ANIM_MS - 1);
+    lv_anim_set_duration(&animation, BATTERY_FRAME_COUNT * BATTERY_CHARGE_ANIM_MS);
+    lv_anim_set_repeat_count(&animation, LV_ANIM_REPEAT_INFINITE);
+    if (lv_anim_start(&animation) == NULL) {
+      s_battery_animation_failed = true;
+      ESP_LOGE(TAG, "Battery animation allocation failed");
+      led_signal_error();
+    }
+  }
   battery_render(&bs, battery_img, power_img, s_battery_text);
 }
 
@@ -533,6 +555,9 @@ static void header_status_del_cb(lv_event_t *e) {
 }
 
 void header_ui_attach_status(lv_obj_t *parent, int y_offset) {
+  if (battery_img != NULL)
+    lv_anim_delete(battery_img, battery_charge_anim_cb);
+  s_battery_animation_failed = false;
   lv_obj_t *icon_cont = lv_obj_create(parent);
   lv_obj_set_size(icon_cont, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
   lv_obj_align(icon_cont, LV_ALIGN_RIGHT_MID, -6, y_offset);

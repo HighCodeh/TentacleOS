@@ -30,7 +30,8 @@ extern "C" {
  *        UI reads instead of each screen polling the BQ25896 itself.
  */
 typedef struct {
-  int soc;                     ///< Qualified state of charge (0-100), or -1 if unknown.
+  int soc;                     ///< Gauge or filtered voltage estimate (0-100), -1 if unknown.
+  bool is_soc_estimated;       ///< True when soc comes from the voltage estimate.
   uint16_t vbat_mv;            ///< Battery voltage in mV.
   bool present;                ///< Valid battery voltage, independent of gauge qualification.
   bool charging;               ///< True while pre/fast charging.
@@ -48,11 +49,15 @@ typedef struct {
  */
 void battery_service_init(void);
 
+/** Select nominal capacity only; does not program or qualify the gauge. */
+esp_err_t battery_service_set_capacity(uint16_t capacity_mah);
+uint16_t battery_service_capacity_mah(void);
+
 /** Charger telemetry is independent of an available/qualified gauge estimate. */
 typedef struct {
   bool valid;
   bool requested;
-  bool gauge_valid;
+  bool gauge_valid; ///< True only for qualified gauge SoC; otherwise soc is a voltage estimate.
   bool current_valid;
   int soc;
   int16_t battery_current_ma;

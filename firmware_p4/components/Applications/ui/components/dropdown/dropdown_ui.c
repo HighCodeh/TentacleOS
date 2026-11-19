@@ -740,7 +740,7 @@ static void battery_tick(void) {
     lv_label_set_text_fmt(
         bat_chip_val, "%s%u.%02uV", symbol, bs.vbat_mv / 1000, bs.vbat_mv % 1000 / 10);
   else
-    lv_label_set_text_fmt(bat_chip_val, "%s%d%%", symbol, bs.soc);
+    lv_label_set_text_fmt(bat_chip_val, "%s%s%d%%", symbol, bs.is_soc_estimated ? "~" : "", bs.soc);
   if (bat_chip_fill)
     lv_obj_set_width(bat_chip_fill, lv_pct(bs.soc < 1 ? 1 : bs.soc));
 }

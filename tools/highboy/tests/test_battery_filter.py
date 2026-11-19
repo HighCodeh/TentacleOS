@@ -23,13 +23,14 @@ ROOT=Path(__file__).resolve().parents[3]
 source=(ROOT/"firmware_p4/components/Drivers/bq25896/battery_service.c").read_text()
 start=source.index("static int clamp_pct(")
 end=source.index("static void battery_task(",start)
+filter_type=source[source.index("typedef struct {\n  int soc;"):source.index("} battery_service_filter_t;")+len("} battery_service_filter_t;")]
 macros="\n".join(line for line in source.splitlines() if line.startswith("#define SOC_"))
 code=r"""
 #include <assert.h>
 #include <stdbool.h>
 #define CHARGE_STATUS_CHARGE_DONE 3
 typedef struct {int soc,chg;bool charging,power_good;} bq25896_telem_t;
-"""+macros+"\n"+source[start:end]+r"""
+"""+macros+"\n"+filter_type+"\n"+source[start:end]+r"""
 static void replay(battery_service_filter_t *f,bq25896_telem_t *t,int polls,int expected) {
  for(int i=0;i<polls;++i) assert(filter_soc(f,t)==expected);
 }
@@ -74,7 +75,7 @@ int main(void) {
 """
 with tempfile.TemporaryDirectory() as directory:
     src=Path(directory)/"test.c";exe=Path(directory)/"test"
-    src.write_text(code)
+    src.write_text(source.split("#include",1)[0]+code)
     subprocess.run(["cc","-std=c11","-Wall","-Wextra",str(src),"-o",str(exe)],check=True)
     subprocess.run([str(exe)],check=True)
 print("PASS: stable 3.90 V, repeated cable transitions, real voltage changes, endpoints and idle USB")

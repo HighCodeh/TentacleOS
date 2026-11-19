@@ -24,10 +24,11 @@ extern "C" {
 #endif
 
 /* Replacement nominal ratings reported by the owner; gauge model not qualified. */
-#define POWER_PROFILE_BATTERY_MODEL   "Replacement / 2475mAh"
-#define POWER_PROFILE_CAPACITY_MAH    2475U
-#define POWER_PROFILE_ENERGY_MWH      9158U
-#define POWER_PROFILE_GAUGE_QUALIFIED false
+#define POWER_PROFILE_BATTERY_MODEL      "Replacement / 2450mAh"
+#define POWER_PROFILE_CAPACITY_SMALL_MAH 2000U
+#define POWER_PROFILE_CAPACITY_MAH       2450U
+#define POWER_PROFILE_ENERGY_MWH         9065U
+#define POWER_PROFILE_GAUGE_QUALIFIED    false
 /* Retained lower charge limits; these do not certify the replacement pack. */
 #define POWER_PROFILE_CHARGE_MAX_MV      4200U
 #define POWER_PROFILE_CHARGE_STANDARD_MA 400U

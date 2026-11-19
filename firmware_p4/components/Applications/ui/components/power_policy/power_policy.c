@@ -180,7 +180,7 @@ static void check_display_inactivity(void) {
     return;
   }
 
-  if (g_config_screen.auto_dim && !s_display_dimmed) {
+  if (!s_display_asleep && g_config_screen.auto_dim && !s_display_dimmed) {
     uint32_t dim_at_ms =
         timeout_ms > DISPLAY_DIM_LEAD_MS ? timeout_ms - DISPLAY_DIM_LEAD_MS : timeout_ms / 2U;
     if (idle_ms >= dim_at_ms)
@@ -250,6 +250,8 @@ static void begin_shutdown(const char *reason) {
     return;
 
   if (spi_bridge_maintenance_begin() != ESP_OK) {
+    ESP_LOGW(TAG, "Shutdown deferred: bridge recovery in progress");
+    led_signal_warning();
     notify(NOTIFY_WARNING, "C5 em recuperação; tente novamente");
     return;
   }
@@ -261,7 +263,10 @@ static void begin_shutdown(const char *reason) {
   if (power_err != ESP_OK) {
     spi_bridge_maintenance_end();
     ESP_LOGE(TAG, "ship-mode request failed: %s", esp_err_to_name(power_err));
-    notify(NOTIFY_WARNING, "Falha ao desligar");
+    led_signal_error();
+    notify(NOTIFY_WARNING,
+           power_err == ESP_ERR_TIMEOUT ? "Carregador ocupado; tente novamente"
+                                        : "Falha ao desligar");
     return;
   }
 
@@ -325,14 +330,18 @@ static void check_battery(void) {
   }
   s_low_last = snapshot.low;
 
-  bool critical = on_battery && (snapshot.soc >= 0 ? snapshot.soc <= BATT_CRIT_PCT
-                                                   : snapshot.vbat_mv <= BATT_CRIT_MV);
+  bool has_soc = snapshot.soc >= 0;
+#ifdef CONFIG_HIGHBOY_BOARD_V203
+  has_soc = has_soc && !snapshot.is_soc_estimated;
+#endif
+  bool critical =
+      on_battery && (has_soc ? snapshot.soc <= BATT_CRIT_PCT : snapshot.vbat_mv <= BATT_CRIT_MV);
   if (critical && !s_crit_last)
     notify(NOTIFY_WARNING, "Battery critical - charge now");
   s_crit_last = critical;
 
-  if (on_battery && (snapshot.soc >= 0 ? snapshot.soc <= BATT_SHUTDOWN_PCT
-                                       : snapshot.vbat_mv <= BATT_SHUTDOWN_MV)) {
+  if (on_battery &&
+      (has_soc ? snapshot.soc <= BATT_SHUTDOWN_PCT : snapshot.vbat_mv <= BATT_SHUTDOWN_MV)) {
     if (++s_shutdown_count >= BATT_SHUTDOWN_SAMPLES) {
       s_shutdown_count = 0;
       begin_shutdown("Bateria esgotada");

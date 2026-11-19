@@ -14,6 +14,8 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "battery_service.h"
+
+#include <stdatomic.h>
 #include "bq27220.h"
 #include "power_profile.h"
 #include "pin_def.h"
@@ -43,12 +45,39 @@ static const char *TAG = "BATTERY_SVC";
 #define LOW_ENTER_MV     3300
 #define LOW_EXIT_MV      3500
 
+typedef struct {
+  int soc;
+  int ema_scaled;
+  int anchor_soc;
+  int anchor_raw;
+  unsigned stable_polls;
+  unsigned settle_polls;
+  bool has_sample;
+  bool on_usb;
+  bool charging;
+} battery_service_filter_t;
+
 static battery_snapshot_t s_snap; // guarded by s_mtx once the task is running
 static SemaphoreHandle_t s_mtx = NULL;
 static bool s_started = false;
 static battery_charge_snapshot_t s_charge;
 static bool s_charge_requested = true;
 static SemaphoreHandle_t s_charge_control;
+static atomic_uint_least16_t s_capacity_mah = POWER_PROFILE_CAPACITY_MAH;
+
+static int filter_soc(battery_service_filter_t *filter, const bq25896_telem_t *sample);
+
+esp_err_t battery_service_set_capacity(uint16_t capacity_mah) {
+  if (capacity_mah != POWER_PROFILE_CAPACITY_SMALL_MAH &&
+      capacity_mah != POWER_PROFILE_CAPACITY_MAH)
+    return ESP_ERR_INVALID_ARG;
+  atomic_store_explicit(&s_capacity_mah, capacity_mah, memory_order_relaxed);
+  return ESP_OK;
+}
+
+uint16_t battery_service_capacity_mah(void) {
+  return atomic_load_explicit(&s_capacity_mah, memory_order_relaxed);
+}
 
 bool battery_service_get_charge(battery_charge_snapshot_t *out) {
   if (out == NULL || s_mtx == NULL || xSemaphoreTake(s_mtx, pdMS_TO_TICKS(50)) != pdTRUE)
@@ -95,6 +124,7 @@ static const char *charge_block_reason(const bq25896_telem_t *t) {
 static void battery_pack_task(void *arg) {
   (void)arg;
   bool low = false;
+  battery_service_filter_t voltage_filter = {0};
   const char *last_status = NULL;
   for (;;) {
     xSemaphoreTake(s_charge_control, portMAX_DELAY);
@@ -134,7 +164,7 @@ static void battery_pack_task(void *arg) {
         next.current_valid = true;
         next.battery_current_ma = gauge.current_ma;
         if (POWER_PROFILE_GAUGE_QUALIFIED && gauge.soc_pct <= 100 && gauge.voltage_mv >= 3000 &&
-            gauge.design_mah == POWER_PROFILE_CAPACITY_MAH && gauge.full_mah > 0 &&
+            gauge.design_mah == battery_service_capacity_mah() && gauge.full_mah > 0 &&
             gauge.remaining_mah <= gauge.full_mah) {
           next.gauge_valid = true;
           next.soc = gauge.soc_pct;
@@ -144,6 +174,13 @@ static void battery_pack_task(void *arg) {
       (void)bq25896_stop_charge();
     }
     bool voltage_valid = next.valid && next.charger.adc_valid && next.charger.vbat_mv > 2304;
+    if (!voltage_valid) {
+      next.soc = -1;
+      if (next.valid && next.charger.adc_valid)
+        voltage_filter = (battery_service_filter_t){0};
+    } else if (!next.gauge_valid) {
+      next.soc = filter_soc(&voltage_filter, &next.charger);
+    }
     if (!voltage_valid || next.charger.power_good)
       low = false;
     else if (next.gauge_valid ? next.soc <= LOW_ENTER_PCT : next.charger.vbat_mv <= LOW_ENTER_MV)
@@ -153,6 +190,7 @@ static void battery_pack_task(void *arg) {
     xSemaphoreTake(s_mtx, portMAX_DELAY);
     s_charge = next;
     s_snap = (battery_snapshot_t){.soc = next.soc,
+                                  .is_soc_estimated = voltage_valid && !next.gauge_valid,
                                   .vbat_mv = next.charger.vbat_mv,
                                   .present = voltage_valid,
                                   .charging = next.valid && next.charger.charging,
@@ -204,18 +242,6 @@ static int step_toward(int prev, int target) {
     d = -SOC_STEP_MAX;
   return prev + d;
 }
-
-typedef struct {
-  int soc;
-  int ema_scaled;
-  int anchor_soc;
-  int anchor_raw;
-  unsigned stable_polls;
-  unsigned settle_polls;
-  bool has_sample;
-  bool on_usb;
-  bool charging;
-} battery_service_filter_t;
 
 static int filter_soc(battery_service_filter_t *filter, const bq25896_telem_t *sample) {
   int raw = clamp_pct(sample->soc);
@@ -343,6 +369,7 @@ static void battery_task(void *arg) {
 
     if (xSemaphoreTake(s_mtx, portMAX_DELAY) == pdTRUE) {
       s_snap.soc = soc;
+      s_snap.is_soc_estimated = true;
       s_snap.vbat_mv = t.vbat_mv;
       s_snap.present = bq25896_is_present();
       s_snap.charging = charging_disp;
@@ -396,6 +423,7 @@ void battery_service_init(void) {
   if (bq25896_read_telemetry(&t) == ESP_OK && t.adc_valid) {
     battery_service_filter_t filter = {0};
     s_snap.soc = filter_soc(&filter, &t);
+    s_snap.is_soc_estimated = true;
     s_snap.vbat_mv = t.vbat_mv;
     s_snap.present = bq25896_is_present();
     s_snap.charging = t.charging;

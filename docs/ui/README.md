@@ -350,12 +350,14 @@ behaviour in a single `lv_timer`, started once from `ui_init` under the LVGL
 lock. It reads `input_last_activity_ms()` (from `input_manager`) and the
 `screen` config (`g_config_screen.auto_lock_seconds`, `auto_dim`):
 
-- After `auto_lock_seconds` of no input it **fades** the backlight (a ramp, not
-  a step) and, when faded to zero, calls `lcd_display_sleep(true)` to cut the
-  panel. When `auto_dim` is set it first dims to a low level a few seconds
-  before sleeping.
-- The user's chosen brightness is captured before dimming and restored on the
-  next input, so auto-dim never overwrites it. Transient changes use
+- After `auto_lock_seconds` of no input it sets the backlight to zero and calls
+  `lcd_display_sleep(true)` to cut the panel. When `auto_dim` is set it first
+  dims to a low level a few seconds before sleeping. Later inactivity ticks
+  cannot reapply dim brightness while asleep: the backlight remains off and
+  the [charging LED cadence](../led/README.md#p4-ownership-and-feedback) remains
+  eligible until a wake condition occurs.
+- The user's configured brightness is restored on the next input, so auto-dim
+  never overwrites it. Transient changes use
   `lcd_apply_brightness` (no persist); see [st7789](../st7789/README.md).
 - Any input wakes the screen. `power_policy_is_asleep()` gates the central input
   router so the wake press only wakes the display instead of also acting on the
@@ -363,6 +365,11 @@ lock. It reads `input_last_activity_ms()` (from `input_manager`) and the
 
 The display settings screen writes `auto_lock_seconds` / `auto_dim` / brightness
 through `tos_config`, which is the sole writer of the `screen` config file.
+
+`python3 tools/highboy/tests/test_power_feedback.py` exercises the production
+inactivity functions together with backlight publication and LED selection on
+the host. It verifies repeated sleep ticks and charge pulses across two periods,
+with and without auto-dim, plus brightness restoration and the wake-press guard.
 
 ## Execution flow summary
 1. User selects **Bluetooth** in the main menu.
@@ -529,31 +536,43 @@ successful return to Files are unchanged.
 
 ## Live battery display
 
-Header, dropdown, Battery and Power consume the battery service. The header
-shows numeric percentage only for a qualified gauge; otherwise it shows measured
-voltage with its V unit, or `--` when telemetry is unavailable. The battery fill
-is static and represents only a known level. Unknown levels use a neutral icon;
-lightning means actual charging, and USB means external power. Static overlays
-use the same renderer without rebinding the live header. No charge-fill or
-lightning animation timer runs.
+Header, dropdown, Battery and Power consume the battery service. A qualified
+gauge supplies percent when available; otherwise valid voltage supplies the
+shared filtered estimate, displayed as `~NN%`. Unavailable telemetry shows `--`.
+The header and its static snapshots never show voltage beside the battery icon;
+when no percentage is available they show `--`. Voltage remains in the battery
+details and quick panel.
+The four header battery levels represent 0–24%, 25–49%, 50–74% and 75–100%.
+During actual charging, an object-owned LVGL animation cycles those frames at
+approximately 350 ms per frame while the percentage text retains the service value.
+Pausing, finishing charge or losing telemetry restores a static icon. Lightning
+means actual charging, and USB means external power. Static overlays use the
+same renderer without rebinding or animating the live header. Header replacement
+cancels the old animation; object deletion also releases it. The dropdown's
+continuous fill remains tied to the reported percentage.
 
-Battery settings use a responsive information card instead of an empty gauge
-ring. The primary reading is percent when qualified or voltage otherwise, with
-a clear caption. Net current and USB supply are separate labeled values; the
-nominal capacity and unavailable-percent explanation remain visible. The footer
-names the actual Pause/Resume action. The card shows charging/paused/full state
-and the service's blocked reason. The nominal replacement capacity is 2475 mAh; percentage
-calibration is still pending and is identified on-screen. Power uses the same
-cached telemetry, never the charger's linear voltage-to-percent calculation,
-and queues charge requests through the service. Entering Power does not
-initialize the charger or perform an ADC conversion in LVGL. Its explicit
-Registers/I2C Scan diagnostics remain user-triggered.
+Battery settings show the estimate with "Estimated from voltage" and retain
+measured voltage, net current, USB supply and nominal capacity as separate values.
+The footer names the actual Pause/Resume action; the card shows the actual charge
+state and blocked reason. LEFT/RIGHT changes the nominal battery selection between
+2000 and 2450 mAh and saves it to `config/system.conf`; 2450 mAh is the default.
+The screen confirms a successful save and preserves the previous choice on failure.
+Selecting a capacity does not recalibrate the voltage curve or the gauge. Power uses the same cached,
+filtered value and queues charge requests through the service. Entering Power
+does not initialize the charger or perform ADC conversions in LVGL. Its explicit
+Registers/I2C Scan diagnostics remain user-triggered. V2.03 low-cell alerts and
+shutdown still use voltage thresholds while the percentage is estimated.
 
 The battery refresh timer is stopped by the central close hook; a DELETE
 fallback checks the owning root so deletion of an old screen cannot cancel the
 new screen's timer. Screen refresh timers are released on close. USB presence alone does not imply
 full charge. The service's hardware guards remain active for every UI request.
-See [battery service](../bq25896/README.md) for qualification and charge limits.
+While the backlight is lit, normal charging is indicated on screen without a
+continuous charging LED. Screen-off charging uses a 200 ms red pulse every
+10 seconds; charge completion permits one green pulse of at most one second.
+Application events and activity patterns take priority throughout their cadence.
+See [LED](../led/README.md) for brightness caps and alerts, and
+[battery service](../bq25896/README.md) for qualification and charge limits.
 
 
 ## IMU motion monitor
@@ -643,8 +662,8 @@ than a decorative waveform. The title identifies it as the signal start. The
 projection and bounds are checked by `test_ir_raw_ui.py`; physical replay still
 requires a fixture. Direct entry into an audio/video viewer without a path asks
 for a file instead of reporting a corrupt file. Offline LoRa pages name the
-protocol setup step; diagnostics display voltage when the gauge has no qualified
-percentage.
+protocol setup step; diagnostics consume the service percentage, with voltage
+as a fallback when no percentage is available.
 
 ## P4 UI memory policy
 
@@ -745,8 +764,8 @@ saved-state row and footer. The original theme/orientation were restored.
 ## Battery, vibration and media presentation
 
 Battery status remains visible with an unqualified fuel-gauge model. The main
-reading then displays voltage, while source, net current and blocked reason
-remain independent. The charge action only queues the guarded service request.
+reading then displays the filtered voltage estimate, marked with `~`, while
+measured voltage, source, net current and blocked reason remain independent. The charge action only queues the guarded service request.
 Portrait and landscape use content bounds; USB has its own header symbol.
 
 Vibration settings control system notifications and a persistent intensity,

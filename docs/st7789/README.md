@@ -23,7 +23,7 @@ This component initializes and manages the ST7789 LCD controller using the ESP-I
 
 - **Location:** `components/Drivers/st7789/`
 - **Header:** `include/st7789.h`
-- **Dependencies:** `esp_lcd`, `driver/gpio`, `driver/ledc`, `spi`
+- **Dependencies:** `esp_lcd`, `driver/gpio`, `driver/ledc`, `spi`, `led_control`
 
 ## Hardware Configuration
 - **Resolution:** 240x320 (`LCD_H_RES` 240 / `LCD_V_RES` 320; `LCD_PANEL_W`/`LCD_PANEL_H` match).
@@ -66,6 +66,12 @@ void lcd_apply_brightness(uint8_t percent);
 Applies a backlight duty (0-100%) **without persisting**. Use for transient
 changes such as the auto-dim fade in `power_policy`, and for the live preview
 while the user drags the brightness bar. Uses LEDC Timer 0, Channel 0, 13-bit.
+Both PWM calls must succeed before the driver publishes lit/dark status to
+`led_set_display_active()`. A nonzero level (including dimmed) suppresses recurring
+charge LED pulses; zero permits the screen-off charge cadence. A failed PWM
+update leaves the last published state intact and reports an error. The LED
+worker owns RGB I2C writes; this path creates no LED timer or extra SPI polling.
+See [LED](../led/README.md).
 
 ### `lcd_set_brightness`
 ```c

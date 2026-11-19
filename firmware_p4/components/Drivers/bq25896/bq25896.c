@@ -35,6 +35,7 @@
 
 #define I2C_TIMEOUT_MS      100
 #define DRIVER_LOCK_MS      300
+#define POWER_OFF_LOCK_MS   5000
 #define I2C_FAIL_RECOVER    3
 #define BATTERY_MIN_MV      3200
 #define BATTERY_MAX_MV      4200
@@ -465,7 +466,7 @@ esp_err_t bq25896_dump_registers(uint8_t regs[BQ25896_REGISTER_COUNT]) {
 #define REG07_EN_TERM            0x80
 #define REG07_EN_TIMER           0x08
 
-/* Checked register writer for the guarded charge service. */
+/* Checked masked writes for dedicated charge and shutdown operations. */
 static esp_err_t pack_write_unlocked(uint8_t reg, uint8_t mask, uint8_t value) {
   uint8_t current = 0, checked = 0;
   esp_err_t result = read_reg_unlocked(reg, &current);
@@ -940,15 +941,27 @@ bool bq25896_get_otg_enable(void) {
 }
 
 esp_err_t bq25896_power_off(void) {
-  esp_err_t ret = lock_driver();
-  if (ret != ESP_OK) {
+  esp_err_t ret = ensure_lock();
+  if (ret != ESP_OK)
     return ret;
+  // A one-shot telemetry transaction can outlast the ordinary driver lock timeout.
+  if (xSemaphoreTake(s_lock, pdMS_TO_TICKS(POWER_OFF_LOCK_MS)) != pdTRUE)
+    return ESP_ERR_TIMEOUT;
+
+  ret = pack_write_unlocked(REG03_POWER_CONTROL, REG03_OTG_CONFIG, 0);
+  if (ret == ESP_OK)
+    ret = gpio_set_level(GPIO_CHARGER_OTG_PIN, 0);
+  uint8_t control = 0;
+  if (ret == ESP_OK)
+    ret = read_reg_unlocked(REG09_MISC_CONTROL, &control);
+  if (ret == ESP_OK) {
+    // TI 9.2.10 / REG09: the delayed cut is the final command, after checked preparation.
+    const uint8_t mask = REG09_BATFET_DIS | REG09_BATFET_DLY | REG09_BATFET_RST_EN;
+    uint8_t packet[] = {REG09_MISC_CONTROL,
+                        (control & (uint8_t)~mask) | REG09_BATFET_DIS | REG09_BATFET_DLY};
+    ret = i2c_master_transmit(s_dev, packet, sizeof(packet), I2C_TIMEOUT_MS);
+    note_i2c_result(ret);
   }
-  (void)update_reg_unlocked(REG03_POWER_CONTROL, REG03_OTG_CONFIG, 0);
-  (void)gpio_set_level(GPIO_CHARGER_OTG_PIN, 0);
-  ret = update_reg_unlocked(REG09_MISC_CONTROL,
-                            REG09_BATFET_DIS | REG09_BATFET_DLY | REG09_BATFET_RST_EN,
-                            REG09_BATFET_DIS | REG09_BATFET_DLY);
   unlock_driver();
   if (ret == ESP_OK) {
     ESP_LOGW(TAG, "ship mode requested; power falls when external VBUS is removed");

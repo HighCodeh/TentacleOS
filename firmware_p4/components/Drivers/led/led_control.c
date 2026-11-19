@@ -23,20 +23,24 @@
 #include "i2c_init.h"
 #include "sys_prio.h"
 
-#define LP5816_ADDR            0x2C
-#define I2C_TIMEOUT_MS         50
-#define REG_OUT0_PWM           0x18
-#define SIGNAL_BLINK_US        350000
-#define LED_TICK_MS            100
-#define LED_ACTIVE_TICK_MS     5
-#define LED_ALERT_PERIOD_MS    2400
-#define LED_ALERT_ON_MS        300
-#define LED_STACK_BYTES        3072
-#define LED_ACTIVITY_PERIOD_MS 100
-#define LED_ACTIVITY_ON_MS     10
-#define LED_RGB_MASK           0xFFFFFF
-#define LED_COLOR_CHARGING     0xFF1800
-#define LED_COLOR_FULL         0x00FF30
+#define LP5816_ADDR              0x2C
+#define I2C_TIMEOUT_MS           50
+#define REG_OUT0_PWM             0x18
+#define SIGNAL_BLINK_US          350000
+#define LED_TICK_MS              100
+#define LED_ACTIVE_TICK_MS       5
+#define LED_ALERT_PERIOD_MS      2400
+#define LED_ALERT_ON_MS          300
+#define LED_STACK_BYTES          3072
+#define LED_ACTIVITY_PERIOD_MS   100
+#define LED_ACTIVITY_ON_MS       10
+#define LED_RGB_MASK             0xFFFFFF
+#define LED_COLOR_CHARGING       0xFF1800
+#define LED_COLOR_FULL           0x00FF30
+#define LED_CHARGE_PERIOD_US     10000000
+#define LED_CHARGE_ON_US         200000
+#define LED_FULL_ON_US           1000000
+#define LED_POWER_BRIGHTNESS_MAX 10
 
 typedef enum { SIG_INFO, SIG_WARNING, SIG_ERROR, SIG_COUNT } led_signal_t;
 
@@ -52,6 +56,9 @@ static int64_t s_signal_until;
 static bool s_manual;
 static uint32_t s_manual_color;
 static uint32_t s_activity;
+static bool s_display_active = true;
+static int64_t s_charge_pulse_started_us;
+static int64_t s_full_until_us;
 
 static esp_err_t write_register(uint8_t reg, uint8_t value) {
   const uint8_t bytes[] = {reg, value};
@@ -72,15 +79,23 @@ static uint32_t desired_color(int64_t now) {
     color = scale_color(s_colors[s_signal], s_brightness);
   else if (s_manual)
     color = s_manual_color;
-  else if (s_activity && (now / 1000) % LED_ACTIVITY_PERIOD_MS < LED_ACTIVITY_ON_MS)
-    color = scale_color(s_colors[SIG_INFO], s_brightness);
-  else {
+  else if (s_activity) {
+    if ((now / 1000) % LED_ACTIVITY_PERIOD_MS < LED_ACTIVITY_ON_MS)
+      color = scale_color(s_colors[SIG_INFO], s_brightness);
+  } else {
+    int brightness = s_brightness;
+    if ((s_power == LED_POWER_CHARGING || s_power == LED_POWER_FULL) &&
+        brightness > LED_POWER_BRIGHTNESS_MAX)
+      brightness = LED_POWER_BRIGHTNESS_MAX;
     switch (s_power) {
       case LED_POWER_CHARGING:
-        color = LED_COLOR_CHARGING;
+        if (!s_display_active && now >= s_charge_pulse_started_us &&
+            (now - s_charge_pulse_started_us) % LED_CHARGE_PERIOD_US < LED_CHARGE_ON_US)
+          color = LED_COLOR_CHARGING;
         break;
       case LED_POWER_FULL:
-        color = LED_COLOR_FULL;
+        if (now < s_full_until_us)
+          color = LED_COLOR_FULL;
         break;
       case LED_POWER_BLOCKED:
       case LED_POWER_LOW:
@@ -90,7 +105,7 @@ static uint32_t desired_color(int64_t now) {
       default:
         break;
     }
-    color = scale_color(color, s_brightness);
+    color = scale_color(color, brightness);
   }
   portEXIT_CRITICAL(&s_lock);
   return color;
@@ -223,11 +238,35 @@ void led_set_signal_config(uint32_t info, uint32_t warning, uint32_t error, int 
 }
 
 void led_set_power_state(led_power_state_t state) {
-  if (state < LED_POWER_OFF || state >= LED_POWER_COUNT)
+  if (state < LED_POWER_OFF || state >= LED_POWER_COUNT || xPortInIsrContext())
     return;
+  int64_t now = esp_timer_get_time();
   portENTER_CRITICAL(&s_lock);
-  s_power = state;
+  bool has_changed = s_power != state;
+  if (has_changed) {
+    s_power = state;
+    s_charge_pulse_started_us = now;
+    s_full_until_us = state == LED_POWER_FULL ? now + LED_FULL_ON_US : 0;
+  }
   portEXIT_CRITICAL(&s_lock);
+  if (has_changed && s_task != NULL)
+    xTaskNotifyGive(s_task);
+}
+
+void led_set_display_active(bool is_active) {
+  if (xPortInIsrContext())
+    return;
+  int64_t now = esp_timer_get_time();
+  portENTER_CRITICAL(&s_lock);
+  bool has_changed = s_display_active != is_active;
+  if (has_changed) {
+    s_display_active = is_active;
+    if (!is_active && s_power == LED_POWER_CHARGING)
+      s_charge_pulse_started_us = now;
+  }
+  portEXIT_CRITICAL(&s_lock);
+  if (has_changed && s_task != NULL)
+    xTaskNotifyGive(s_task);
 }
 
 static void signal_event(led_signal_t signal) {

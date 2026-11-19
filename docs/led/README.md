@@ -37,10 +37,25 @@ Repeated equal/lower-priority events cannot stretch a pulse indefinitely.
 After the pulse, the previous manual preview or power indication resumes.
 `led_set_signal_config()` clamps brightness to 0–100, including full mute.
 
-`led_set_power_state()` accepts OFF, CHARGING, FULL, BLOCKED or LOW. Charging
-uses red, full uses green. Blocked/low uses the configured warning/error color
-for 300 ms every 2.4 seconds. This indicates the measured state, not USB presence
-alone. The battery service owns these states; it does not access LED I2C.
+`led_set_power_state()` accepts OFF, CHARGING, FULL, BLOCKED or LOW. The battery
+service owns these measured states; USB presence alone is not charging.
+Normal charge indication follows the backlight state published through
+`led_set_display_active()`: no recurring charge LED while the screen is lit;
+with the screen dark, a red pulse lasts 200 ms every 10 seconds, starting when
+charging or screen-off begins. Dimming above zero still counts as a lit screen.
+Repeated state publications do not restart the period. FULL opens one green
+indication window of at most one second, including with the screen lit, then
+extinguishes; repeated FULL samples and screen toggles do not replay it.
+Notifications/previews/activities may preempt this window; it is not queued.
+Charge/full brightness is capped at 10% and also respects a lower configured
+brightness or mute. Blocked/low retains the configured warning/error color for
+300 ms every 2.4 seconds. These alerts are distinct from normal charge status.
+
+ST7789 publishes the backlight state only after both PWM calls succeed; a failed
+update retains the previous state. The LED driver defaults to screen-active
+until that first publication. State changes wake the existing LED worker;
+there are no new tasks, timers or SPI requests. All RGB I2C writes remain owned
+by that worker.
 
 `led_set_color(r,g,b)` holds a manual preview. `led_clear()` releases it and
 restores the power indication. Semantic notifications can temporarily override
@@ -52,8 +67,9 @@ rate-limited worker. Routine navigation does not blink the LED.
 
 `led_set_activity(LED_ACTIVITY_NFC, true)` adds an info-color pulse for 10 ms
 every 100 ms (10 Hz) while the central NFC listener is RUNNING. Cleanup releases
-only that source bit. Power status resumes between pulses; notifications and
-manual previews take precedence. `led status` reads the actual PWM registers,
+only that source bit. The activity owns its entire cadence, including the dark
+gaps, so background battery colors cannot appear between application pulses.
+Notifications and manual previews take precedence. `led status` reads the actual PWM registers,
 configured brightness, power state and activity mask (not optical brightness).
 The 10/100 ms cadence follows the fast blink preset in the official
 [Flipper notification definitions](https://github.com/flipperdevices/flipperzero-firmware/blob/dev/applications/services/notification/notification_messages.c).
@@ -63,7 +79,13 @@ The P4 worker is software scheduled, so this is not an optical timing guarantee.
 
 `python3 tools/highboy/tests/test_power_feedback.py` executes the production
 LED driver with I2C/task fakes: init failures, task failure, priorities, bounded
-pulses, restoration, brightness clamps/mute and ISR rejection. Optical color,
+pulses, screen-on/off charge suppression, the 200 ms/10 s cadence, FULL expiry,
+activity gap ownership, brightness clamps/mute and ISR rejection. The same host
+harness executes `lcd_apply_brightness()` with PWM success/failure fakes to verify
+state publication. It also runs the production display inactivity functions
+across dim/sleep and repeated sleeping ticks for two charge periods, with and
+without auto-dim, then verifies input wake suppresses charging pulses again.
+Optical color,
 current and visible intensity still require observation on the board.
 
 # C5

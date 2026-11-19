@@ -167,6 +167,11 @@ static int cmd_battery(int argc, char **argv) {
          (unsigned long)(t.ts_milli_pct % 1000));
 
   printf("Battery / system\n");
+  if (have_service && service.soc >= 0)
+    ESP_LOGI(TAG,
+             "Battery charge: %d%% (%s)",
+             service.soc,
+             service.gauge_valid ? "gauge" : "filtered voltage estimate");
 #ifdef CONFIG_HIGHBOY_BOARD_V203
   bq27220_sample_t gauge;
   if (bq27220_read_sample(&gauge) == ESP_OK) {
@@ -180,7 +185,7 @@ static int cmd_battery(int argc, char **argv) {
              gauge.current_ma,
              gauge.voltage_mv);
   } else {
-    ESP_LOGW(TAG, "BQ27220 unavailable; SoC unknown (no voltage fallback)");
+    ESP_LOGW(TAG, "BQ27220 unavailable; using voltage estimate when telemetry is valid");
   }
 #else
   printf("  SoC      : %u %% voltage estimate", t.soc);
