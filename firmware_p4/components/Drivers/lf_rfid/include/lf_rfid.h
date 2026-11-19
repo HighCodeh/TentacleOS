@@ -18,8 +18,9 @@
  * @brief Native High Boy V2 125 kHz RFID antenna/demodulator driver.
  *
  * Hardware revision notes:
- * - T2/T4/T5 are Si2302CDS N-channel MOSFETs, so GPIO2 and GPIO11 are
- *   active-high in this driver.
+ * - Reader carrier: GPIO2 PWM drives T4/T3/T5; GPIO11 keeps T2 low.
+ * - External-reader emulation: GPIO2 stays low; GPIO11 drives T2 load modulation.
+ * - GPIO15/CL and GPIO16/DA are receive inputs, never carrier generators.
  * - T3 (AO3401A) has PCB pads 1 and 2 swapped in the user's revised assembly.
  *   Firmware cannot compensate for a physical gate/source wiring error: run
  *   lf_rfid_self_test() with a current-limited supply before continuous field.

@@ -42,6 +42,10 @@ profile; do not bypass the image revision check with `--force`. Existing
 | NFC CS / IRQ | 49 / 10 |
 | Buttons LEFT / RIGHT / UP / DOWN / OK / BACK | 35 / 13 / 3 / 7 / 32 / 6 |
 | LF RFID carrier / data / modulation / coil | 15 / 16 / 11 / 2 |
+
+For LF RFID, GPIO15/CL and GPIO16/DA are inputs. Reader carrier PWM is generated
+on GPIO2 (T4/T3/T5 drive), with GPIO11/T2 held low. External-reader emulation
+keeps GPIO2 low and sends load modulation on GPIO11. GPIO2 is not a static enable.
 | LoRa CS / BUSY / DIO1 | 26 / 4 / 5 |
 | SDMMC CLK / CMD / D0 / D1 / D2 / D3 / detect | 43 / 44 / 39 / 40 / 41 / 42 / 34 |
 | Bridge SCLK / MOSI / MISO / CS | 45 / 46 / 47 / 48 |

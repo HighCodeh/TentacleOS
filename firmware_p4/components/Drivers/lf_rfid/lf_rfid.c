@@ -38,7 +38,8 @@ static const char *TAG = "LF_RFID";
 
 #define LF_LEDC_MODE           LEDC_LOW_SPEED_MODE
 #define LF_LEDC_TIMER          LEDC_TIMER_3
-#define LF_LEDC_CHANNEL        LEDC_CHANNEL_7
+#define LF_LEDC_DRIVE_CHANNEL  LEDC_CHANNEL_7
+#define LF_LEDC_LOAD_CHANNEL   LEDC_CHANNEL_6
 #define LF_LEDC_RESOLUTION     LEDC_TIMER_8_BIT
 #define LF_LEDC_MAX_DUTY       255U
 #define LF_MEASURE_MIN_MS      10U
@@ -199,16 +200,20 @@ esp_err_t lf_rfid_init(void) {
   ESP_RETURN_ON_ERROR(ledc_timer_config(&timer), TAG, "LF LEDC timer config failed");
 
   ledc_channel_config_t channel = {
-      .gpio_num = GPIO_RFID_LF_MOD_PIN,
+      .gpio_num = GPIO_RFID_LF_COIL_PIN,
       .speed_mode = LF_LEDC_MODE,
-      .channel = LF_LEDC_CHANNEL,
+      .channel = LF_LEDC_DRIVE_CHANNEL,
       .intr_type = LEDC_INTR_DISABLE,
       .timer_sel = LF_LEDC_TIMER,
       .duty = 0,
       .hpoint = 0,
       .flags.output_invert = 0,
   };
-  ESP_RETURN_ON_ERROR(ledc_channel_config(&channel), TAG, "LF LEDC channel config failed");
+  ESP_RETURN_ON_ERROR(ledc_channel_config(&channel), TAG, "LF drive channel config failed");
+  /* Separate outputs keep T2 unloaded while GPIO2 drives T4/T3/T5. */
+  channel.gpio_num = GPIO_RFID_LF_MOD_PIN;
+  channel.channel = LF_LEDC_LOAD_CHANNEL;
+  ESP_RETURN_ON_ERROR(ledc_channel_config(&channel), TAG, "LF load channel config failed");
 
   esp_err_t err = gpio_isr_handler_add(GPIO_RFID_LF_DATA_PIN, data_isr, NULL);
   if (err != ESP_OK) {
@@ -219,7 +224,7 @@ esp_err_t lf_rfid_init(void) {
   s_generated_hz = ledc_get_freq(LF_LEDC_MODE, LF_LEDC_TIMER);
   s_initialized = true;
   ESP_LOGI(TAG,
-           "Ready: EN=GPIO%d MOD=GPIO%d CL=GPIO%d DA=GPIO%d (field OFF)",
+           "Ready: carrier drive=GPIO%d load modulation=GPIO%d CL=GPIO%d DA=GPIO%d (field OFF)",
            GPIO_RFID_LF_COIL_PIN,
            GPIO_RFID_LF_MOD_PIN,
            GPIO_RFID_LF_CARRIER_PIN,
@@ -280,13 +285,18 @@ esp_err_t lf_rfid_field_start(uint32_t frequency_hz, uint16_t duty_permille) {
   }
 
   const uint32_t duty = (LF_LEDC_MAX_DUTY * duty_permille + 500U) / 1000U;
-  gpio_set_level(GPIO_RFID_LF_COIL_PIN, 1);
-  esp_rom_delay_us(100);
-  esp_err_t err = ledc_set_duty(LF_LEDC_MODE, LF_LEDC_CHANNEL, duty);
+  esp_err_t err = ledc_set_duty(LF_LEDC_MODE, LF_LEDC_LOAD_CHANNEL, 0);
   if (err == ESP_OK) {
-    err = ledc_update_duty(LF_LEDC_MODE, LF_LEDC_CHANNEL);
+    err = ledc_update_duty(LF_LEDC_MODE, LF_LEDC_LOAD_CHANNEL);
+  }
+  if (err == ESP_OK) {
+    err = ledc_set_duty(LF_LEDC_MODE, LF_LEDC_DRIVE_CHANNEL, duty);
+  }
+  if (err == ESP_OK) {
+    err = ledc_update_duty(LF_LEDC_MODE, LF_LEDC_DRIVE_CHANNEL);
   }
   if (err != ESP_OK) {
+    ledc_stop(LF_LEDC_MODE, LF_LEDC_DRIVE_CHANNEL, 0);
     gpio_set_level(GPIO_RFID_LF_COIL_PIN, 0);
     rf_frontend_release(RF_FRONTEND_LF_125KHZ);
     return err;
@@ -307,9 +317,12 @@ void lf_rfid_field_stop(void) {
   }
   const bool was_on = s_field_on;
   set_measurement_interrupts(false, false);
-  ledc_set_duty(LF_LEDC_MODE, LF_LEDC_CHANNEL, 0);
-  ledc_update_duty(LF_LEDC_MODE, LF_LEDC_CHANNEL);
+  ledc_set_duty(LF_LEDC_MODE, LF_LEDC_DRIVE_CHANNEL, 0);
+  ledc_update_duty(LF_LEDC_MODE, LF_LEDC_DRIVE_CHANNEL);
   gpio_set_level(GPIO_RFID_LF_COIL_PIN, 0);
+  ledc_set_duty(LF_LEDC_MODE, LF_LEDC_LOAD_CHANNEL, 0);
+  ledc_update_duty(LF_LEDC_MODE, LF_LEDC_LOAD_CHANNEL);
+  gpio_set_level(GPIO_RFID_LF_MOD_PIN, 0);
   s_field_on = false;
   if (was_on)
     rf_frontend_release(RF_FRONTEND_LF_125KHZ);
@@ -434,8 +447,10 @@ esp_err_t lf_rfid_listen_external(uint32_t window_ms, lf_rfid_field_report_t *ou
   }
 
   /* A passive listen must never energize T3/T4/T5 or the T2 modulation path. */
-  (void)ledc_set_duty(LF_LEDC_MODE, LF_LEDC_CHANNEL, 0);
-  (void)ledc_update_duty(LF_LEDC_MODE, LF_LEDC_CHANNEL);
+  (void)ledc_set_duty(LF_LEDC_MODE, LF_LEDC_DRIVE_CHANNEL, 0);
+  (void)ledc_update_duty(LF_LEDC_MODE, LF_LEDC_DRIVE_CHANNEL);
+  (void)ledc_set_duty(LF_LEDC_MODE, LF_LEDC_LOAD_CHANNEL, 0);
+  (void)ledc_update_duty(LF_LEDC_MODE, LF_LEDC_LOAD_CHANNEL);
   gpio_set_level(GPIO_RFID_LF_MOD_PIN, 0);
   gpio_set_level(GPIO_RFID_LF_COIL_PIN, 0);
 
@@ -462,8 +477,10 @@ esp_err_t lf_rfid_modulation_test(uint32_t rate_hz,
   }
 
   gpio_set_level(GPIO_RFID_LF_COIL_PIN, 0);
-  (void)ledc_set_duty(LF_LEDC_MODE, LF_LEDC_CHANNEL, 0);
-  (void)ledc_update_duty(LF_LEDC_MODE, LF_LEDC_CHANNEL);
+  (void)ledc_set_duty(LF_LEDC_MODE, LF_LEDC_DRIVE_CHANNEL, 0);
+  (void)ledc_update_duty(LF_LEDC_MODE, LF_LEDC_DRIVE_CHANNEL);
+  (void)ledc_set_duty(LF_LEDC_MODE, LF_LEDC_LOAD_CHANNEL, 0);
+  (void)ledc_update_duty(LF_LEDC_MODE, LF_LEDC_LOAD_CHANNEL);
 
   esp_err_t err = rf_frontend_claim(RF_FRONTEND_LF_125KHZ);
   if (err != ESP_OK) {
@@ -480,17 +497,17 @@ esp_err_t lf_rfid_modulation_test(uint32_t rate_hz,
   if (err != ESP_OK) {
     goto cleanup;
   }
-  err = ledc_set_duty(LF_LEDC_MODE, LF_LEDC_CHANNEL, LF_LEDC_MAX_DUTY / 2U);
+  err = ledc_set_duty(LF_LEDC_MODE, LF_LEDC_LOAD_CHANNEL, LF_LEDC_MAX_DUTY / 2U);
   if (err == ESP_OK) {
-    err = ledc_update_duty(LF_LEDC_MODE, LF_LEDC_CHANNEL);
+    err = ledc_update_duty(LF_LEDC_MODE, LF_LEDC_LOAD_CHANNEL);
   }
   if (err == ESP_OK) {
     vTaskDelay(pdMS_TO_TICKS(duration_ms));
   }
 
 cleanup:
-  (void)ledc_set_duty(LF_LEDC_MODE, LF_LEDC_CHANNEL, 0);
-  (void)ledc_update_duty(LF_LEDC_MODE, LF_LEDC_CHANNEL);
+  (void)ledc_set_duty(LF_LEDC_MODE, LF_LEDC_LOAD_CHANNEL, 0);
+  (void)ledc_update_duty(LF_LEDC_MODE, LF_LEDC_LOAD_CHANNEL);
   gpio_set_level(GPIO_RFID_LF_MOD_PIN, 0);
   gpio_set_level(GPIO_RFID_LF_COIL_PIN, 0);
   (void)ledc_set_freq(LF_LEDC_MODE, LF_LEDC_TIMER, LF_RFID_NOMINAL_HZ);
@@ -757,9 +774,9 @@ cleanup:
   if (has_pin) {
     if (gpio_set_level(GPIO_RFID_LF_MOD_PIN, 0) != ESP_OK ||
         gpio_set_direction(GPIO_RFID_LF_MOD_PIN, GPIO_MODE_OUTPUT) != ESP_OK ||
-        ledc_set_duty(LF_LEDC_MODE, LF_LEDC_CHANNEL, 0) != ESP_OK ||
-        ledc_update_duty(LF_LEDC_MODE, LF_LEDC_CHANNEL) != ESP_OK ||
-        ledc_set_pin(GPIO_RFID_LF_MOD_PIN, LF_LEDC_MODE, LF_LEDC_CHANNEL) != ESP_OK) {
+        ledc_set_duty(LF_LEDC_MODE, LF_LEDC_LOAD_CHANNEL, 0) != ESP_OK ||
+        ledc_update_duty(LF_LEDC_MODE, LF_LEDC_LOAD_CHANNEL) != ESP_OK ||
+        ledc_set_pin(GPIO_RFID_LF_MOD_PIN, LF_LEDC_MODE, LF_LEDC_LOAD_CHANNEL) != ESP_OK) {
       goto cleanup_failed;
     }
   }

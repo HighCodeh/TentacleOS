@@ -36,6 +36,13 @@ reservation until a successful OFF transfer.
 `Drivers/lf_rfid` replaces the YS-RFID2 UART path in the integrated boot and RFID
 read screen. It initializes LF outputs off, generates the carrier with LEDC,
 measures carrier feedback with PCNT and reads EM4100 frames with parity checks.
+During reading, GPIO2 carries the 125 kHz PWM into T4/T3/T5 and GPIO11 stays low,
+leaving the T2 load off. GPIO2 is not a static reader enable. GPIO15/CL is the
+carrier feedback input from U12; GPIO16/DA is the demodulated-data input.
+LEDC timer 3 has separate outputs: channel 7 for GPIO2 carrier drive and channel 6
+for the bounded GPIO11 load test. Only one output may have nonzero duty at a time.
+The load test changes the shared timer while the carrier channel remains at zero,
+then restores the nominal frequency. Idle and passive reception keep both low.
 Console diagnostics also provide passive listening, edge capture and modulation
 checks. The LF self-test requires detected carrier feedback before reporting
 frequency PASS; an absent carrier leaves the frequency error field at zero and
@@ -54,7 +61,7 @@ reader. Task-creation failure permits a later retry.
 
 `lf_rfid_emulate_em4100()` emits a complete RF/64 Manchester EM4100 frame
 through GPIO11/T2 load modulation. It reserves the idle shared antenna, checks
-external carrier feedback and keeps GPIO2 (own-field enable) low. The 64-bit
+external carrier feedback and keeps GPIO2 (own-field drive) low. The 64-bit
 frame includes nine header bits, forty ID bits, row/column parity and a stop bit,
 as specified in the [EM4200 EM4100-compatible format](https://www.emmicroelectronic.com/sites/default/files/products/datasheets/em4200_ds.pdf).
 
@@ -63,7 +70,8 @@ Each half-bit is 32 measured carrier cycles rounded to microseconds. The request
 100–5000 ms limit is rounded down to complete frames; no infinite loop is used.
 The 256-byte payload resides in internal RAM for ISR access and remains valid
 until channel shutdown. The antenna reservation protects this shared buffer.
-Normal cleanup deletes RMT resources and restores GPIO11's idle LEDC route.
+Normal cleanup deletes RMT resources and restores GPIO11's idle load-channel
+LEDC route. It must never route the reader carrier to GPIO11 after emulation.
 Failed cleanup retains ownership, reports `requires_reset`, and requires reboot
 before another RF operation; an in-flight buffer is never freed.
 

@@ -38,7 +38,7 @@ class EmulationTest(unittest.TestCase):
 #define RF_FRONTEND_LF_125KHZ 1
 #define LF_EXTERNAL_CHECK_MS 30
 #define LF_LEDC_MODE 0
-#define LF_LEDC_CHANNEL 7
+#define LF_LEDC_LOAD_CHANNEL 6
 #define GPIO_RFID_LF_MOD_PIN 11
 #define GPIO_MODE_OUTPUT 1
 #define RMT_CLK_SRC_DEFAULT 0
@@ -73,9 +73,9 @@ static int rmt_del_channel(void *c){assert(c&&allocated&&!enabled);if(step(10))r
 static int rmt_del_encoder(void *e){assert(e&&encoding&&!enabled&&!allocated);if(step(11))return ESP_FAIL;encoding=false;return 0;}
 static int gpio_set_level(int p,int level){assert(p==11&&!level&&!enabled);return step(12);}
 static int gpio_set_direction(int p,int dir){assert(p==11&&dir==1&&!allocated);return step(13);}
-static int ledc_set_duty(int m,int c,int duty){assert(!m&&c==7&&!duty);return step(14);}
-static int ledc_update_duty(int m,int c){assert(!m&&c==7);return step(15);}
-static int ledc_set_pin(int p,int m,int c){assert(p==11&&!m&&c==7);if(step(16))return ESP_FAIL;restored=true;return 0;}
+static int ledc_set_duty(int m,int c,int duty){assert(!m&&c==6&&!duty);return step(14);}
+static int ledc_update_duty(int m,int c){assert(!m&&c==6);return step(15);}
+static int ledc_set_pin(int p,int m,int c){assert(p==11&&!m&&c==6);if(step(16))return ESP_FAIL;restored=true;return 0;}
 static void rf_frontend_release(int m){assert(m==1&&!enabled);claimed=false;}
 static int rf_frontend_unreserve(int m){assert(m==1&&!claimed);if(step(17))return ESP_FAIL;reserved=false;return 0;}
 static void reset(void){reserved=claimed=enabled=allocated=encoding=restored=false;external=true;carrier_hz=125000;failure=timeout_ms=loops=steps=0;}

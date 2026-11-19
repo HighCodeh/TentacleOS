@@ -160,8 +160,9 @@ carrier; the host reports `frequency_measured=false` in that case.
 
 ## Oscilloscope sequence
 
-1. With reference devices away, run `rfid watch 5`. Check GPIO2 enable and GPIO11
-   125 kHz waveform, then T4/T3/T5 and coil drive. Use a differential measurement
+1. With reference devices away, run `rfid watch 5`. Check GPIO2's 125 kHz waveform
+   and GPIO11 held low, then T4/T3/T5 and coil drive. GPIO2 must not stay statically
+   high during reading. Use a differential measurement
    across the coil; do not ground a floating coil terminal with an earth clip.
 2. Once a usable field is confirmed, add the known tag and follow U11 pin 1,
    U14 pin 1, U14 pin 7 and DA/GPIO16. Verify the actual capacitor designators
@@ -207,7 +208,9 @@ Host tests cover parsing, missing/truncated data, no-carrier frequency reporting
 external-field inhibition, cancellation, cleanup failures, ROM SYNC validation,
 wrong-chip logs, serial failure evidence and duplicate operations. The self-test
 regression compiles the actual C function with synthetic feedback and UBSan.
-The emulation regression checks four independent frame vectors, both polarities,
+The drive regression executes the actual carrier/load routines, checking GPIO2
+PWM with GPIO11 low, passive outputs, isolated load pulses, start failure cleanup
+and a new read after load testing. The emulation regression checks four independent frame vectors, both polarities,
 110–140 kHz timing, duration bounds, missing-field/busy refusal, RMT allocation,
 transmit/timeout failures and retained ownership after cleanup errors with UBSan.
 Mocks do not establish RF performance or physical reset timing. Per-device results
