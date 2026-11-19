@@ -124,3 +124,7 @@ on hardware (panic during heap inspection). The exact corrupting operation has
 not been isolated. The existing 20 MHz clock, drive strength and SPI transaction
 limit are unchanged. Large off-screen/image allocations may still use PSRAM;
 they are not the LCD DMA buffers.
+
+LVGL waits for color-transfer completion through a blocking semaphore rather
+than polling its flush flag. Completion and direct-draw ownership are managed
+by the [LVGL service](../lvgl/README.md#spi-completion-and-scheduling).

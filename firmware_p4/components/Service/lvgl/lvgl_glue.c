@@ -23,6 +23,8 @@
 
 #include "lvgl_glue.h"
 
+#include <stdatomic.h>
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
@@ -40,6 +42,7 @@
 static const char *TAG = "LVGL_GLUE";
 
 #define SPI3_FLUSH_TIMEOUT_MS 50
+#define LVGL_INIT_LOCK_MS     2000
 
 #define LVGL_PORT_TASK_PRIORITY   SYS_PRIO_RENDER
 #define LVGL_PORT_TASK_STACK      (16 * 1024)
@@ -55,8 +58,10 @@ static lv_display_t *s_disp = NULL;
 static volatile lvgl_glue_strip_cb_t s_capture_cb = NULL;
 
 static SemaphoreHandle_t s_trans_done = NULL;
-static volatile bool s_direct_mode = false;
-static volatile bool s_flush_took_bus = false;
+static SemaphoreHandle_t s_lvgl_flush_done = NULL;
+static atomic_bool s_direct_mode;
+static atomic_bool s_flush_pending;
+static atomic_bool s_flush_took_bus;
 
 #define DRAWBUF_PSRAM_THRESHOLD (48 * 1024)
 
@@ -79,26 +84,28 @@ static bool
 trans_done_cb(esp_lcd_panel_io_handle_t io, esp_lcd_panel_io_event_data_t *ed, void *ctx) {
   (void)io;
   (void)ed;
+  (void)ctx;
   BaseType_t hp = pdFALSE;
-  // s_flush_took_bus marks an LVGL-driven flush (set in capture_flush_start_cb).
-  // Complete it even in direct mode, else lv_refr's wait_for_flushing() spins
-  // forever (disp->flushing never clears) and the SPI3 bus lock leaks. App direct
-  // draws (DOOM/Game Boy) never set this flag; they only pulse the wait semaphore.
-  if (s_flush_took_bus) {
-    lv_display_flush_ready((lv_display_t *)ctx);
-    s_flush_took_bus = false;
-    spi_bus_lock_give_from_isr(&hp);
-  } else if (s_direct_mode) {
+  if (atomic_exchange(&s_flush_pending, false)) {
+    if (atomic_exchange(&s_flush_took_bus, false))
+      spi_bus_lock_give_from_isr(&hp);
+    xSemaphoreGiveFromISR(s_lvgl_flush_done, &hp);
+  } else if (atomic_load(&s_direct_mode)) {
     if (s_trans_done != NULL)
       xSemaphoreGiveFromISR(s_trans_done, &hp);
-  } else {
-    lv_display_flush_ready((lv_display_t *)ctx);
   }
   return hp == pdTRUE;
 }
 
+static void flush_wait_cb(lv_display_t *disp) {
+  (void)disp;
+  // LVGL clears flushing after this returns; never release a buffer before DMA completes.
+  xSemaphoreTake(s_lvgl_flush_done, portMAX_DELAY);
+}
+
 static void capture_flush_start_cb(lv_event_t *e) {
-  s_flush_took_bus = spi_bus_lock_take(SPI3_FLUSH_TIMEOUT_MS);
+  atomic_store(&s_flush_took_bus, spi_bus_lock_take(SPI3_FLUSH_TIMEOUT_MS));
+  atomic_store(&s_flush_pending, true);
 
   lvgl_glue_strip_cb_t cb = s_capture_cb;
   if (cb == NULL) {
@@ -122,6 +129,16 @@ esp_err_t lvgl_glue_init(void) {
     return ESP_ERR_INVALID_STATE;
   }
 
+  esp_err_t err = ESP_ERR_NO_MEM;
+  bool is_port_started = false;
+  bool is_locked = false;
+  s_lvgl_flush_done = xSemaphoreCreateBinary();
+  s_trans_done = xSemaphoreCreateBinary();
+  if (s_lvgl_flush_done == NULL || s_trans_done == NULL) {
+    ESP_LOGE(TAG, "Cannot allocate display completion semaphores");
+    goto cleanup;
+  }
+
   const lvgl_port_cfg_t port_cfg = {
       .task_priority = LVGL_PORT_TASK_PRIORITY,
       .task_stack = LVGL_PORT_TASK_STACK,
@@ -129,10 +146,17 @@ esp_err_t lvgl_glue_init(void) {
       .task_max_sleep_ms = LVGL_PORT_MAX_SLEEP_MS,
       .timer_period_ms = LVGL_PORT_TIMER_PERIOD_MS,
   };
-  esp_err_t err = lvgl_port_init(&port_cfg);
+  err = lvgl_port_init(&port_cfg);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "lvgl_port_init: %s", esp_err_to_name(err));
-    return err;
+    goto cleanup;
+  }
+  is_port_started = true;
+  is_locked = lvgl_port_lock(LVGL_INIT_LOCK_MS);
+  if (!is_locked) {
+    err = ESP_ERR_TIMEOUT;
+    ESP_LOGE(TAG, "Cannot lock display initialization");
+    goto cleanup;
   }
 
   const lvgl_port_display_cfg_t disp_cfg = {
@@ -159,7 +183,17 @@ esp_err_t lvgl_glue_init(void) {
   s_disp = lvgl_port_add_disp(&disp_cfg);
   if (s_disp == NULL) {
     ESP_LOGE(TAG, "lvgl_port_add_disp returned NULL");
-    return ESP_FAIL;
+    err = ESP_ERR_NO_MEM;
+    goto cleanup;
+  }
+
+  const esp_lcd_panel_io_callbacks_t io_cbs = {
+      .on_color_trans_done = trans_done_cb,
+  };
+  err = esp_lcd_panel_io_register_event_callbacks(io_handle, &io_cbs, NULL);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Cannot register display completion: %s", esp_err_to_name(err));
+    goto cleanup;
   }
 
   lv_draw_buf_handlers_t *dbh = lv_draw_buf_get_handlers();
@@ -169,12 +203,7 @@ esp_err_t lvgl_glue_init(void) {
   idbh->buf_malloc_cb = draw_buf_psram_malloc;
   idbh->buf_free_cb = draw_buf_free;
   lv_display_add_event_cb(s_disp, capture_flush_start_cb, LV_EVENT_FLUSH_START, NULL);
-
-  s_trans_done = xSemaphoreCreateBinary();
-  const esp_lcd_panel_io_callbacks_t io_cbs = {
-      .on_color_trans_done = trans_done_cb,
-  };
-  esp_lcd_panel_io_register_event_callbacks(io_handle, &io_cbs, s_disp);
+  lv_display_set_flush_wait_cb(s_disp, flush_wait_cb);
 
   ESP_LOGI(TAG,
            "LVGL up — %dx%d, partial double buffer (%d lines) in internal DMA RAM",
@@ -182,7 +211,29 @@ esp_err_t lvgl_glue_init(void) {
            LCD_PANEL_H,
            LVGL_BUF_LINES);
   s_ready = true;
+  lvgl_port_unlock();
   return ESP_OK;
+
+cleanup:
+  if (s_disp != NULL) {
+    const esp_lcd_panel_io_callbacks_t io_cbs = {0};
+    esp_lcd_panel_io_register_event_callbacks(io_handle, &io_cbs, NULL);
+    lvgl_port_remove_disp(s_disp);
+    s_disp = NULL;
+  }
+  if (is_locked)
+    lvgl_port_unlock();
+  if (is_port_started)
+    lvgl_port_deinit();
+  if (s_trans_done != NULL) {
+    vSemaphoreDelete(s_trans_done);
+    s_trans_done = NULL;
+  }
+  if (s_lvgl_flush_done != NULL) {
+    vSemaphoreDelete(s_lvgl_flush_done);
+    s_lvgl_flush_done = NULL;
+  }
+  return err;
 }
 
 bool lvgl_glue_is_ready(void) {
@@ -200,11 +251,11 @@ void lvgl_glue_capture_end(void) {
 void lvgl_glue_direct_begin(void) {
   if (s_trans_done != NULL)
     xSemaphoreTake(s_trans_done, 0);
-  s_direct_mode = true;
+  atomic_store(&s_direct_mode, true);
 }
 
 void lvgl_glue_direct_end(void) {
-  s_direct_mode = false;
+  atomic_store(&s_direct_mode, false);
 }
 
 void lvgl_glue_wait_flush(uint32_t timeout_ms) {

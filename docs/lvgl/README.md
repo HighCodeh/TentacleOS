@@ -80,10 +80,36 @@ Full-frame PSRAM DMA was reverted after navigation on hardware produced a
 `Load access fault` while the heap monitor walked TLSF metadata, with LVGL
 waiting for a flush on the other core. This establishes a runtime regression,
 not the exact source of the invalid memory access. LCD DMA buffers are internal
-again and the SPI panel explicitly disables `psram_dma_direct`. The coverflow
-remains at 260 ms. The restored configuration still requires an on-device retest.
+again and the SPI panel explicitly disables `psram_dma_direct`. The restored
+transfer configuration still requires an on-device retest.
 At 20 MHz a full RGB565 screen requires at least 61.44 ms of SPI transmission;
 this path does not provide atomic panel page-flipping or TE synchronization.
+
+### SPI completion and scheduling
+
+The LVGL flush wait callback blocks the render task on an internal FreeRTOS
+binary semaphore instead of spinning on `display->flushing`. The LCD completion
+ISR releases the SPI bus lease and signals that semaphore; LVGL clears its own
+flush state on the render task after completion. The ISR does not access the
+LVGL display object, which may live in PSRAM. An early completion remains pending
+until consumed, and a new strip cannot reuse the previous strip's completion.
+Direct-draw apps have a separate completion semaphore, including when they take
+over with an LVGL transfer still pending.
+
+Both completion semaphores must exist before display registration. Registration
+and callback installation run under the port lock before rendering can start;
+allocation, lock or callback failure unwinds the acquired resources. A missing
+completion never fakes DMA success or permits buffer reuse: the task stays
+blocked and the existing render-progress monitor can report the stall.
+
+`python3 tools/highboy/tests/test_lvgl_flush.py` exercises the production glue
+with pthread-backed semaphore/ISR scheduling, early and delayed completion,
+direct takeover and initialization failures under AddressSanitizer/UBSan.
+This is host synchronization coverage, not a hardware diagnosis. During the
+2026-11-20 investigation, the preserved `cb9ed41db` firmware faulted on core 0 at
+several valid internal-RAM addresses while core 1 was in LVGL's busy flush wait.
+The semaphore change removes that busy wait; whether it resolves the observed
+access faults still requires a matching on-device run.
 
 ### Thread safety
 ```c
@@ -121,11 +147,11 @@ drives the ST7789 itself with raw `esp_lcd_panel_draw_bitmap()` calls. The panel
 SPI is async - `draw_bitmap` queues the transfer and returns - so reusing one
 blit buffer for the next strip while the previous DMA is still reading it
 corrupts the image. Between `_begin()` and `_end()` the shared
-color-transfer-done ISR raises a semaphore instead of signalling LVGL flush-ready;
+color-transfer-done ISR signals the separate direct-draw semaphore;
 the app calls `lvgl_glue_wait_flush()` after each draw to block until that
 strip's DMA finished, making single-buffer reuse safe. Call `_begin()` right
 after taking the lock and `_end()` before releasing it; outside this window the
-ISR drives LVGL exactly as before.
+ISR signals the LVGL completion semaphore consumed by its flush wait callback.
 
 ### Screenshot capture
 ```c
