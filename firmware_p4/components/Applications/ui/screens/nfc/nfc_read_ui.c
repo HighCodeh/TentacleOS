@@ -41,6 +41,7 @@
 #include "nfc_mfc_ndef.h"
 #include "nfc_poller.h"
 #include "nfc_sim.h"
+#include "nfc_emulate_ui.h"
 #include "nfc_ui_common.h"
 #include "mf_classic.h"
 #include "ui_chrome.h"
@@ -701,7 +702,7 @@ static void show_options(void) {
   capture_result_cfg_t cfg = {
       .accent = current_theme.border_accent,
       .card_icon = "/assets/icons/nfc.bin",
-      .card_title = s_capabilities.standard,
+      .card_title = s_card.name[0] ? s_card.name : s_capabilities.standard,
       .card_sub = s_capabilities.family,
       .card_value = uidbuf,
   };
@@ -719,15 +720,32 @@ static void show_options(void) {
 
 static void on_name_submit(const char *text, void *ud) {
   (void)ud;
-  const char *nm = (text && text[0]) ? text : s_card.type;
-  snprintf(s_card.name, NFC_SIM_NAME_LEN, "%.*s", NFC_SIM_NAME_LEN - 1, nm);
-  bool saved = nfc_device_save_generic(s_card.name, &s_hw_card) == HB_NFC_OK;
-  if (saved) {
+  const char *name = (text && text[0]) ? text : s_card.type;
+  if (strlen(name) >= sizeof(s_card.name)) {
+    notify(NOTIFY_WARNING, "Name too long; use fewer characters");
+    return;
+  }
+  bool is_saved = false;
+  const int count = nfc_sim_saved_count();
+  for (int i = 0; i < count; i++) {
+    const nfc_sim_card_t *saved = nfc_sim_saved_get(i);
+    if (saved == NULL || strcmp(saved->name, name) != 0)
+      continue;
+    if (!nfc_sim_same_card(saved, &s_card)) {
+      notify(NOTIFY_WARNING, "Name belongs to another card");
+      return;
+    }
+    is_saved = true;
+    break;
+  }
+  if (is_saved || nfc_device_save_generic(name, &s_hw_card) == HB_NFC_OK) {
+    strlcpy(s_card.name, name, sizeof(s_card.name));
+    capture_result_set_title(&s_cr, s_card.name);
     nfc_ui_play_sound(NFC_SND_SAVE);
     capture_result_mark_action_done(&s_cr, NFC_CARD_ACTION_SAVE, "Identification saved");
-    notify(NOTIFY_SAVED, "Tag saved to library");
+    notify(NOTIFY_SAVED, is_saved ? "Card already in library" : "Card name saved to library");
   } else {
-    notify(NOTIFY_WARNING, "Library full");
+    notify(NOTIFY_WARNING, "Save failed; check library storage");
   }
 }
 
@@ -1010,6 +1028,7 @@ static void run_context_action(nfc_card_action_id_t action) {
       ui_switch_screen(SCREEN_NFC_WRITE);
       break;
     case NFC_CARD_ACTION_EMULATE_DUMP:
+      ui_nfc_emulate_select_card(&s_card, SCREEN_NFC_READ);
       ui_switch_screen(SCREEN_NFC_EMULATE);
       break;
     case NFC_CARD_ACTION_SAVE:

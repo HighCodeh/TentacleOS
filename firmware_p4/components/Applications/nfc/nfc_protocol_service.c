@@ -16,6 +16,7 @@
 #include "nfc_protocol_service.h"
 #include "nfc_v_file.h"
 #include "nfc_archive.h"
+#include "nfc_library.h"
 #include "nfc_desfire.h"
 #include "nfc_ntag4xx.h"
 #include "nfc_t4t.h"
@@ -119,6 +120,8 @@ static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 static nfc_protocol_status_t s_status;
 static bool s_cancel;
 static char s_archive_path[NFC_ARCHIVE_PATH_SIZE];
+static char s_archive_name[NFC_STORE_NAME_MAX];
+static nfc_store_info_t s_delete_card;
 EXT_RAM_BSS_ATTR static nfc_plus_file_t s_plus_card;
 static uint8_t s_plus_key[MFP_BLOCK_SIZE];
 static bool s_has_plus_key;
@@ -2287,6 +2290,61 @@ hb_nfc_err_t nfc_protocol_service_archive(const char *filename) {
   return error;
 }
 
+esp_err_t nfc_protocol_service_archive_name(const char *stem) {
+  if (stem == NULL || stem[0] == '\0' || strlen(stem) >= sizeof(s_archive_name))
+    return ESP_ERR_INVALID_ARG;
+  portENTER_CRITICAL(&s_mux);
+  esp_err_t error = s_status.running ? ESP_ERR_INVALID_STATE : ESP_OK;
+  if (error == ESP_OK)
+    strlcpy(s_archive_name, stem, sizeof(s_archive_name));
+  portEXIT_CRITICAL(&s_mux);
+  return error;
+}
+
+esp_err_t nfc_protocol_service_delete_saved(int index, const uint8_t *uid, size_t uid_len) {
+  nfc_store_info_t card;
+  if (uid == NULL || nfc_store_get_info(index, &card) != HB_NFC_OK || uid_len != card.uid_len ||
+      memcmp(uid, card.uid, uid_len) != 0)
+    return ESP_ERR_INVALID_ARG;
+  portENTER_CRITICAL(&s_mux);
+  esp_err_t error = s_status.running ? ESP_ERR_INVALID_STATE : ESP_OK;
+  if (error == ESP_OK)
+    s_delete_card = card;
+  portEXIT_CRITICAL(&s_mux);
+  return error;
+}
+
+static hb_nfc_err_t mutate_library(nfc_protocol_op_t operation, nfc_protocol_result_t *result) {
+  if (cancel_requested())
+    return ESP_ERR_INVALID_STATE;
+  const char *filename = strrchr(s_archive_path, '/');
+  filename = filename != NULL ? filename + 1 : s_archive_path;
+  esp_err_t error;
+  bool is_card_deleted = operation == NFC_PROTOCOL_OP_CARD_DELETE;
+  if (operation == NFC_PROTOCOL_OP_CARD_DELETE)
+    error = nfc_library_delete_card(&s_delete_card);
+  else if (operation == NFC_PROTOCOL_OP_ARCHIVE_DELETE)
+    error = nfc_library_delete_file(filename, &is_card_deleted);
+  else
+    error = nfc_library_rename_file(filename, s_archive_name);
+  if (error == ESP_OK) {
+    strlcpy(result->heading,
+            operation == NFC_PROTOCOL_OP_ARCHIVE_RENAME ? s_archive_name
+            : is_card_deleted                           ? "Card data deleted"
+                                                        : "File deleted",
+            sizeof(result->heading));
+    add_line(result,
+             operation == NFC_PROTOCOL_OP_ARCHIVE_RENAME ? "Name updated; contents retained"
+             : is_card_deleted                           ? "Library and SD updated"
+                                                         : "File only; identity unavailable");
+  } else {
+    add_line(result,
+             error == ESP_ERR_INVALID_STATE ? "Check SD, duplicate names or aliases"
+                                            : "Not completed; check SD and retry");
+  }
+  return error;
+}
+
 static void protocol_task(void *arg) {
   const nfc_protocol_op_t operation = (nfc_protocol_op_t)(uintptr_t)arg;
   ESP_LOGI(TAG, "Starting %s", nfc_protocol_operation_name(operation));
@@ -2294,13 +2352,17 @@ static void protocol_task(void *arg) {
   hb_nfc_err_t err = HB_NFC_ERR_INTERNAL;
   bool no_sleep = false;
   bool field = false;
+  bool is_library_mutation = operation == NFC_PROTOCOL_OP_ARCHIVE_RENAME ||
+                             operation == NFC_PROTOCOL_OP_ARCHIVE_DELETE ||
+                             operation == NFC_PROTOCOL_OP_CARD_DELETE;
   bool is_archive =
-      operation == NFC_PROTOCOL_OP_UL_LOAD || operation == NFC_PROTOCOL_OP_ARCHIVE ||
-      operation == NFC_PROTOCOL_OP_ARCHIVE_EXPORT || operation == NFC_PROTOCOL_OP_DESFIRE_LOAD ||
-      operation == NFC_PROTOCOL_OP_FELICA_LOAD || operation == NFC_PROTOCOL_OP_NTAG4XX_LOAD ||
-      operation == NFC_PROTOCOL_OP_T4T_LOAD;
+      is_library_mutation || operation == NFC_PROTOCOL_OP_UL_LOAD ||
+      operation == NFC_PROTOCOL_OP_ARCHIVE || operation == NFC_PROTOCOL_OP_ARCHIVE_EXPORT ||
+      operation == NFC_PROTOCOL_OP_DESFIRE_LOAD || operation == NFC_PROTOCOL_OP_FELICA_LOAD ||
+      operation == NFC_PROTOCOL_OP_NTAG4XX_LOAD || operation == NFC_PROTOCOL_OP_T4T_LOAD;
   if (is_archive) {
-    err = operation == NFC_PROTOCOL_OP_UL_LOAD        ? load_ul(&result)
+    err = is_library_mutation                         ? mutate_library(operation, &result)
+          : operation == NFC_PROTOCOL_OP_UL_LOAD      ? load_ul(&result)
           : operation == NFC_PROTOCOL_OP_T4T_LOAD     ? load_t4t(&result)
           : operation == NFC_PROTOCOL_OP_NTAG4XX_LOAD ? load_ntag4xx(&result)
           : operation == NFC_PROTOCOL_OP_FELICA_LOAD  ? load_felica(&result)
@@ -2433,10 +2495,10 @@ done:
       led_signal_warning();
     }
   }
-  const bool cancelled = cancel_requested() && operation != NFC_PROTOCOL_OP_UL_EMULATE &&
-                         operation != NFC_PROTOCOL_OP_FELICA_EMULATE &&
-                         operation != NFC_PROTOCOL_OP_NTAG4XX_EMULATE &&
-                         operation != NFC_PROTOCOL_OP_T4T_EMULATE;
+  const bool cancelled =
+      cancel_requested() && !is_library_mutation && operation != NFC_PROTOCOL_OP_UL_EMULATE &&
+      operation != NFC_PROTOCOL_OP_FELICA_EMULATE && operation != NFC_PROTOCOL_OP_NTAG4XX_EMULATE &&
+      operation != NFC_PROTOCOL_OP_T4T_EMULATE;
   portENTER_CRITICAL(&s_mux);
   s_status.result = result;
   s_status.error = err;
@@ -2857,7 +2919,10 @@ const char *nfc_protocol_operation_name(nfc_protocol_op_t operation) {
   switch (operation) {
     case NFC_PROTOCOL_OP_ARCHIVE:
     case NFC_PROTOCOL_OP_ARCHIVE_EXPORT:
-      return "NFC archives";
+    case NFC_PROTOCOL_OP_ARCHIVE_RENAME:
+    case NFC_PROTOCOL_OP_ARCHIVE_DELETE:
+    case NFC_PROTOCOL_OP_CARD_DELETE:
+      return "NFC files";
     case NFC_PROTOCOL_OP_PLUS:
     case NFC_PROTOCOL_OP_PLUS_WRITE:
       return "MIFARE Plus";

@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "nvs.h"
 
@@ -28,6 +29,7 @@ static const char *TAG = "NFC_STORE";
 #define NFC_STORE_MAGIC        0x48424E46UL /* HBNF */
 #define NFC_STORE_VERSION      1U
 #define NFC_STORE_HEADER_SIZE  54U
+#define NFC_STORE_NAME_OFFSET  12U
 #define NFC_STORE_MFUL_MAGIC   0x4C55464DUL /* MFUL, little-endian */
 #define NFC_STORE_MFUL_VERSION 1U
 #define NFC_STORE_MFUL_HDR     15U
@@ -170,6 +172,40 @@ int nfc_store_count(void) {
   return count;
 }
 
+esp_err_t nfc_store_count_checked(int *out_count) {
+  if (out_count == NULL)
+    return ESP_ERR_INVALID_ARG;
+  *out_count = 0;
+  nvs_handle_t nvs = 0;
+  esp_err_t error = nvs_open(NFC_STORE_NVS_NS, NVS_READONLY, &nvs);
+  if (error == ESP_ERR_NVS_NOT_FOUND)
+    return ESP_OK;
+  if (error != ESP_OK)
+    return error;
+  int count = 0;
+  for (int slot = 0; slot < NFC_STORE_MAX_ENTRIES; slot++) {
+    char key[8];
+    slot_key(slot, key);
+    size_t length = 0;
+    error = nvs_get_blob(nvs, key, NULL, &length);
+    if (error == ESP_ERR_NVS_NOT_FOUND) {
+      error = ESP_OK;
+      continue;
+    }
+    if (error != ESP_OK)
+      break;
+    if (length < NFC_STORE_HEADER_SIZE || length > NFC_STORE_HEADER_SIZE + NFC_STORE_PAYLOAD_MAX) {
+      error = ESP_ERR_INVALID_SIZE;
+      break;
+    }
+    count++;
+  }
+  nvs_close(nvs);
+  if (error == ESP_OK)
+    *out_count = count;
+  return error;
+}
+
 hb_nfc_err_t nfc_store_save(const nfc_store_card_t *card) {
   if (card == NULL || card->name == NULL || card->name[0] == '\0' || card->uid == NULL ||
       card->uid_len == 0 || card->uid_len > HIGHBOY_NFC_UID_MAX_LEN ||
@@ -304,6 +340,63 @@ hb_nfc_err_t nfc_store_delete(int index) {
     err = nvs_commit(nvs);
   nvs_close(nvs);
   return err == ESP_OK ? HB_NFC_OK : HB_NFC_ERR_INTERNAL;
+}
+
+esp_err_t nfc_store_rename(int index, const char *name) {
+  if (index < 0 || name == NULL || name[0] == '\0' || strlen(name) >= NFC_STORE_NAME_MAX)
+    return ESP_ERR_INVALID_ARG;
+  esp_err_t error = ESP_FAIL;
+  nvs_handle_t nvs = store_open(NVS_READWRITE);
+  if (nvs == 0)
+    return error;
+  int slot = logical_to_slot(nvs, index);
+  uint8_t *record = NULL;
+  nfc_store_entry_t *entry = NULL;
+  if (slot < 0) {
+    error = ESP_ERR_NOT_FOUND;
+    goto cleanup;
+  }
+  entry = heap_caps_malloc(sizeof(*entry), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  record = heap_caps_malloc(NFC_STORE_HEADER_SIZE + NFC_STORE_PAYLOAD_MAX,
+                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (entry == NULL || record == NULL) {
+    ESP_LOGE(TAG, "Rename allocation failed");
+    error = ESP_ERR_NO_MEM;
+    goto cleanup;
+  }
+  for (int other = 0; other < NFC_STORE_MAX_ENTRIES; other++) {
+    if (other == slot)
+      continue;
+    hb_nfc_err_t loaded = load_slot(nvs, other, entry);
+    if (loaded == HB_NFC_ERR_NOT_FOUND)
+      continue;
+    if (loaded != HB_NFC_OK)
+      goto cleanup;
+    if (strcmp(entry->name, name) == 0) {
+      error = ESP_ERR_INVALID_STATE;
+      goto cleanup;
+    }
+  }
+  char key[8];
+  slot_key(slot, key);
+  size_t length = NFC_STORE_HEADER_SIZE + NFC_STORE_PAYLOAD_MAX;
+  error = nvs_get_blob(nvs, key, record, &length);
+  if (error != ESP_OK)
+    goto cleanup;
+  if (length < NFC_STORE_HEADER_SIZE) {
+    error = ESP_ERR_INVALID_SIZE;
+    goto cleanup;
+  }
+  memset(record + NFC_STORE_NAME_OFFSET, 0, NFC_STORE_NAME_MAX);
+  strlcpy((char *)record + NFC_STORE_NAME_OFFSET, name, NFC_STORE_NAME_MAX);
+  error = nvs_set_blob(nvs, key, record, length);
+  if (error == ESP_OK)
+    error = nvs_commit(nvs);
+cleanup:
+  free(record);
+  free(entry);
+  nvs_close(nvs);
+  return error;
 }
 
 hb_nfc_err_t nfc_store_find_by_uid(const uint8_t *uid, uint8_t len, int *out) {

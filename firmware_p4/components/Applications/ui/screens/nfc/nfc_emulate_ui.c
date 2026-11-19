@@ -63,20 +63,24 @@
 #define FIELD_BOX_W 210
 #define FIELD_BOX_H 122
 
-#define MAX_CARDS      10
-#define WALLET_FRONT_Y (-24)
-#define WALLET_STEP    22
-#define WALLET_TAP_Y   96
-#define BACK1_W        196
-#define BACK2_W        182
-#define BACK_H         118
-#define MFC1K_BLOCKS   64
-#define MFC_BLOCK_SIZE 16
-#define MFC_DUMP_DIR   "/sdcard/nfc/dumps"
+#define MAX_CARDS          10
+#define WALLET_FRONT_Y     (-24)
+#define WALLET_STEP        22
+#define WALLET_TAP_Y       96
+#define WALLET_FILE_BOTTOM 22
+#define BACK1_W            196
+#define BACK2_W            182
+#define BACK_H             118
+#define MFC1K_BLOCKS       64
+#define MFC_BLOCK_SIZE     16
+#define MFC_DUMP_DIR       "/sdcard/nfc/dumps"
 
 enum { EM_NONE, EM_RUN };
 
 static screen_id_t s_return = SCREEN_NFC_MENU;
+static screen_id_t s_requested_return = SCREEN_NFC_MENU;
+static nfc_sim_card_t s_requested_card;
+static bool s_has_selection = false;
 
 static const char *TAG = "NFC_EMULATE_UI";
 
@@ -248,6 +252,7 @@ static int scan_real_dumps(void) {
     return 0;
   }
 
+  (void)nfc_sim_saved_count();
   int count = 0;
   struct dirent *ent;
   while ((ent = readdir(dir)) != NULL && count < MAX_CARDS) {
@@ -257,6 +262,7 @@ static int scan_real_dumps(void) {
          (strncmp(ent->d_name, "mf_", 3) != 0 || strcmp(ent->d_name + len - 4, ".bin") != 0)))
       continue;
 
+    memset(&s_dumps[count], 0, sizeof(s_dumps[count]));
     int n =
         snprintf(s_dumps[count].path, sizeof(s_dumps[count].path), MFC_DUMP_DIR "/%s", ent->d_name);
     if (n < 0 || (size_t)n >= sizeof(s_dumps[count].path))
@@ -265,6 +271,18 @@ static int scan_real_dumps(void) {
         !inspect_plus_dump(&s_dumps[count]) && !inspect_t2t_dump(&s_dumps[count]) &&
         !inspect_v_dump(&s_dumps[count]))
       continue;
+
+    if (s_has_selection && !nfc_sim_same_card(&s_requested_card, &s_dumps[count].card))
+      continue;
+    snprintf(s_dumps[count].card.name,
+             sizeof(s_dumps[count].card.name),
+             "%.*s",
+             (int)LV_MIN(len - 4, sizeof(s_dumps[count].card.name) - 1),
+             ent->d_name);
+    if (s_has_selection && s_requested_card.name[0] != '\0')
+      strlcpy(s_dumps[count].card.name, s_requested_card.name, sizeof(s_dumps[count].card.name));
+    else
+      (void)nfc_sim_resolve_name(&s_dumps[count].card);
 
     ESP_LOGI(TAG,
              "Found real dump %s UID=%02X%02X%02X%02X",
@@ -503,21 +521,16 @@ static void wallet_build(void) {
   lv_obj_set_flex_flow(tap, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(tap, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   const int emu_body_h = ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H;
-  lv_obj_align(tap, LV_ALIGN_CENTER, 0, LV_MIN(WALLET_TAP_Y, emu_body_h / 2 - 7));
+  lv_obj_align(tap, LV_ALIGN_CENTER, 0, LV_MIN(WALLET_TAP_Y, emu_body_h / 2 - WALLET_FILE_BOTTOM));
 
-  lv_obj_t *dot = lv_obj_create(tap);
-  lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(dot, 8, 8);
-  lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_border_width(dot, 0, 0);
-  lv_obj_set_style_bg_color(dot, lv_color_hex(UI_COL_SUCCESS), 0);
-  lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
-  blink_loop(dot, 900, 0);
-
+  const char *filename = strrchr(s_dumps[s_sel].path, '/');
   lv_obj_t *txt = lv_label_create(tap);
-  lv_label_set_text(txt, "tap to broadcast");
+  lv_obj_set_width(txt, FIELD_BOX_W);
+  lv_label_set_long_mode(txt, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  lv_label_set_text(txt, filename ? filename + 1 : s_dumps[s_sel].path);
+  lv_obj_set_style_text_align(txt, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_font(txt, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(txt, lv_color_hex(UI_COL_SUCCESS), 0);
+  lv_obj_set_style_text_color(txt, current_theme.text_secondary, 0);
 
   s_dots = page_dots_create(s_body, s_count, LV_ALIGN_BOTTOM_MID, 0, -4);
   page_dots_set(&s_dots, s_sel);
@@ -762,11 +775,7 @@ static void nfc_emulate_input(const input_event_t *ev, void *ctx) {
 }
 
 void ui_nfc_emulate_open(void) {
-  const screen_id_t from = ui_current_screen();
-  if (from == SCREEN_NFC_READ || from == SCREEN_NFC_SAVED)
-    s_return = from;
-  else if (from == SCREEN_NFC_MENU || from == SCREEN_HOME || from == SCREEN_MENU)
-    s_return = SCREEN_NFC_MENU;
+  s_return = s_has_selection ? s_requested_return : SCREEN_NFC_MENU;
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
@@ -791,7 +800,9 @@ void ui_nfc_emulate_open(void) {
   if (s_empty) {
     ui_chrome_header(s_screen, "EMULATE", CARD_ICON);
     ui_chrome_footer(s_screen, "BACK  Back");
-    build_empty(CARD_ICON, "No real dump found", "Read all 64 blocks first");
+    build_empty(CARD_ICON,
+                s_has_selection ? "No dump for this card" : "No saved dump found",
+                "Read and save card data first");
   } else {
     ui_chrome_header(s_screen, "EMULATE", CARD_ICON);
     ui_chrome_footer(s_screen, "OK Emulate / RIGHT T2T/V/Plus RAM");
@@ -799,14 +810,35 @@ void ui_nfc_emulate_open(void) {
     wallet_build();
   }
 
+  s_has_selection = false;
   ui_input_set_screen_handler(nfc_emulate_input, NULL);
-  if (s_tick_timer == NULL)
+  if (!s_empty && s_tick_timer == NULL) {
     s_tick_timer = lv_timer_create(field_tick_cb, TICK_MS, NULL);
+    if (s_tick_timer == NULL) {
+      ESP_LOGW(TAG, "Emulation display timer creation failed");
+      notify(NOTIFY_WARNING, "Cannot open emulator; try again");
+      lv_obj_del(s_body);
+      s_body = NULL;
+      s_empty = true;
+      build_empty(CARD_ICON, "Cannot open emulator", "Go back and try again");
+    }
+  }
 
   ui_screen_load_owned(&s_screen, s_screen);
 }
 
 void ui_nfc_emulate_stop(void) {
+  if (s_tick_timer != NULL) {
+    lv_timer_delete(s_tick_timer);
+    s_tick_timer = NULL;
+  }
   hw_emulation_stop();
   s_em = EM_NONE;
+}
+
+void ui_nfc_emulate_select_card(const nfc_sim_card_t *card, screen_id_t return_screen) {
+  s_has_selection = card != NULL;
+  if (card != NULL)
+    s_requested_card = *card;
+  s_requested_return = return_screen;
 }

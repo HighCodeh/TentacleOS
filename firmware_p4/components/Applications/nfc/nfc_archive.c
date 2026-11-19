@@ -24,6 +24,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 
 #include "storage_atomic.h"
@@ -46,14 +47,20 @@ esp_err_t nfc_archive_load(const char *path, nfc_archive_t *out_archive) {
   memset(out_archive, 0, sizeof(*out_archive));
   FILE *file = fopen(path, "rb");
   if (!file)
-    return ESP_ERR_NOT_FOUND;
-  esp_err_t error = ESP_ERR_INVALID_SIZE;
+    return errno == ENOENT ? ESP_ERR_NOT_FOUND : ESP_FAIL;
+  esp_err_t error = ESP_FAIL;
   if (fseek(file, 0, SEEK_END) != 0)
     goto cleanup;
   long size = ftell(file);
-  if (size <= 0 || size > NFC_ARCHIVE_MAX_BYTES || fseek(file, 0, SEEK_SET) != 0)
+  if (size < 0)
     goto cleanup;
-  out_archive->data = malloc((size_t)size + 1);
+  if (size == 0 || size > NFC_ARCHIVE_MAX_BYTES) {
+    error = ESP_ERR_INVALID_SIZE;
+    goto cleanup;
+  }
+  if (fseek(file, 0, SEEK_SET) != 0)
+    goto cleanup;
+  out_archive->data = heap_caps_malloc((size_t)size + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (!out_archive->data) {
     ESP_LOGE(TAG, "Cannot allocate archive");
     error = ESP_ERR_NO_MEM;
@@ -67,7 +74,8 @@ esp_err_t nfc_archive_load(const char *path, nfc_archive_t *out_archive) {
   out_archive->data[size] = 0;
   error = validate(out_archive);
 cleanup:
-  fclose(file);
+  if (fclose(file) != 0)
+    error = ESP_FAIL;
   if (error != ESP_OK)
     nfc_archive_free(out_archive);
   return error;
@@ -124,7 +132,7 @@ esp_err_t nfc_archive_capture(const char *device,
     return ESP_ERR_INVALID_ARG;
   esp_err_t error = ESP_ERR_NO_MEM;
   nfc_archive_t archive = {0};
-  archive.data = malloc(NFC_ARCHIVE_MAX_BYTES + 1);
+  archive.data = heap_caps_malloc(NFC_ARCHIVE_MAX_BYTES + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (!archive.data) {
     ESP_LOGE(TAG, "Cannot allocate capture");
     goto cleanup;
@@ -185,8 +193,8 @@ static esp_err_t validate(nfc_archive_t *archive) {
     if ((!c || c < ' ') && c != '\r' && c != '\n' && c != '\t')
       return ESP_ERR_INVALID_RESPONSE;
   }
-  char *copy = malloc(archive->length + 1);
-  char **keys = malloc(MAX_FIELDS * sizeof(*keys));
+  char *copy = heap_caps_malloc(archive->length + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  char **keys = heap_caps_malloc(MAX_FIELDS * sizeof(*keys), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   esp_err_t error = ESP_ERR_NO_MEM;
   if (!copy || !keys) {
     ESP_LOGE(TAG, "Cannot allocate validation buffers");

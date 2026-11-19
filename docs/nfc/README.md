@@ -83,6 +83,38 @@ so navigation or resource preemption stops the owning worker.
 Native operations run in background services and publish results to the UI.
 The `nfc_sim` model carries card metadata and saved-library entries.
 
+Saved cards open their named action panel directly. Emulate copies that selection
+before navigation and filters SD dumps by the complete UID and protocol family;
+it never falls back to an unrelated card. BACK returns to the originating screen,
+and the saved-card wallet retains its selected position. The emulation picker uses
+the unambiguous saved-library name, with the file name shown underneath and UID/type
+on the card. Without a unique library name it uses the file stem. Multiple dumps
+for the same card remain selectable by file name. Selecting a card without a
+compatible dump shows an explicit missing-data message. Saving identification
+alone does not create an emulatable dump. The emulation close hook releases both
+its worker and refresh timer.
+
+Deleting a saved card removes every readable dump with the same full UID and
+protocol family from `/sdcard/nfc/dumps`, then its matching NVS library entries.
+Classic `.bin` and per-dump `.keys` companions are included. Copies and aliases
+of the same card are included; unrelated cards and shared key dictionaries are
+preserved. The screen asks for confirmation and shows progress while the existing
+protocol worker performs storage operations without acquiring RF. Reopening
+Emulate scans the remaining files, so deleted dumps cannot reappear from a stale
+library record. The Saved screen registers a close hook for its deletion worker
+and refresh timer.
+
+`nfc_library` owns this linkage; UI code does not unlink card files itself. A
+mounted SD is required even for a library-only card, preventing hidden dumps from
+reappearing after reinserting the card. Planning uses checked PSRAM allocations
+and accepts at most 128 associated paths; exceeding that bound fails before any
+mutation. SD/NVS errors are reported, including an incomplete deletion that must
+be retried. This is not a power-loss transaction across SD and NVS. Binary/key
+companions are removed before the identity document so retry retains the full
+UID. Corrupt or unsupported files cannot be linked automatically: deleting such
+a file from NFC Files removes only the selected file and says so explicitly.
+
+
 ### Event-driven input
 
 Each screen registers a handler with `ui_input_set_screen_handler()` and reacts
@@ -114,9 +146,13 @@ tick on save). The Identify screen animates a per-technology checklist
 
 `nfc_sim.c` is the shared card record (`nfc_sim_card_t`: name, type, UID, ATQA,
 SAK) plus a saved "library" (up to `NFC_SIM_MAX_SAVED` = 16 cards) persisted in
-NVS and seeded with presets on first run. It can synthesize a random discovered
-tag (`nfc_sim_random_card`), build a card from a specific template
-(`nfc_sim_make_card`), and format UIDs as `DE:AD:BE:EF`.
+NVS. It does not seed demo cards. Names retain the vault's 31-byte capacity;
+a successful save updates the result title. A name belonging to another card is
+rejected, and saving the same identification under its existing name preserves
+any richer payload already in the vault. `nfc_sim_random_card` and
+`nfc_sim_make_card` create explicit editor templates; UID formatting uses
+`DE:AD:BE:EF`. Name resolution uses a refreshed library snapshot and leaves
+ambiguous aliases unresolved.
 
 ## NFC Stack (`Applications/nfc/`)
 
@@ -1252,9 +1288,19 @@ The file tests round-trip all four geometries under ASan/UBSan.
 ### Cross-family file persistence
 
 `NFC > NFC FILES` browses `.nfc` files in `/sdcard/nfc/dumps` without turning on
-RF. UP/DOWN selects a file, OK opens its identity/size summary, RIGHT exports a
-new numbered copy, and BACK exits. Reopening after reboot reads the SD file;
-there is no volatile-only archive index. Copies never overwrite the source.
+RF. UP/DOWN selects a file; OK/RIGHT opens its named action panel: **Open
+details**, **Rename**, **Save a copy**, and **Delete card + data**. BACK closes
+actions or exits the picker. Deletion requires confirmation and uses the same
+full-card cleanup as Saved. During a mutation, BACK requests exit after the worker
+finishes; a completed mutation is never presented as cancelled.
+
+Renaming requests a stem of up to 31 bytes, keeps the `.nfc` extension, preserves
+the file bytes and moves matching Classic companions. If the card has exactly one
+NVS alias, its name is updated without replacing its stored payload. Ambiguous
+aliases or an occupied destination fail before mutation. A rename/NVS failure
+attempts to restore the previous filenames and reports failure. Reopening after
+reboot reads the SD file; there is no volatile-only archive index. Copies use new
+numbered filenames and never overwrite the source.
 
 `nfc_archive` provides a bounded, lossless document archive for Flipper NFC v4
 and Highboy capture v1 **for documents accepted by its envelope validator**.
@@ -1298,6 +1344,13 @@ saved-profile emulation paths.
 `tools/nfc_api/test_archive.py` runs the actual archive implementation under
 ASan/UBSan, checking cross-family byte-identical round trips, unknown fields,
 CRLF, malformed headers/UIDs, duplicates, save failures and no-overwrite behavior.
+`tools/nfc_api/test_library.py` exercises the actual library/archive/vault code
+with temporary files and an NVS mock under ASan/UBSan: full UID/family matching,
+aliases and companions, SD absence, allocation/read/write failures, deletion
+retry, lossless rename, rollback and collisions. Native LVGL file-action tests in
+`tools/highboy/tests/test_saved_capture_flows.py` cover both orientations and
+light/dark themes, confirmation, failed operations and BACK while busy. These are
+host checks; SD/NVS interruption and navigation still need device validation.
 The existing ST25TB/NFC-V reader tests also check capture geometry and memory
 length, and the protocol UI tests retain write-confirmation coverage.
 

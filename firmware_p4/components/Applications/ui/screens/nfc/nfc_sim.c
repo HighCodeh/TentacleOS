@@ -18,9 +18,11 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_log.h"
 #include "esp_random.h"
 #include "nfc_store.h"
+#include "nfc_library.h"
 
 static const char *TAG = "NFC_LIBRARY";
 
@@ -40,7 +42,7 @@ static const nfc_template_t POOL[] = {
 };
 #define POOL_N ((int)(sizeof(POOL) / sizeof(POOL[0])))
 
-static nfc_sim_card_t s_cards[NFC_SIM_MAX_SAVED];
+EXT_RAM_BSS_ATTR static nfc_sim_card_t s_cards[NFC_SIM_MAX_SAVED];
 static int s_count = 0;
 static bool s_initialized = false;
 
@@ -80,8 +82,17 @@ static const char *protocol_name(hb_nfc_protocol_t protocol) {
 static hb_nfc_protocol_t type_protocol(const nfc_sim_card_t *card) {
   if (strstr(card->type, "Classic") != NULL)
     return HB_PROTO_MF_CLASSIC;
-  if (strstr(card->type, "Ultralight") != NULL || strstr(card->type, "NTAG") != NULL)
+  if (strstr(card->type, "Ultralight") != NULL || strstr(card->type, "NTAG") != NULL ||
+      strstr(card->type, "Type 2") != NULL)
     return HB_PROTO_MF_ULTRALIGHT;
+  if (strstr(card->type, "Plus") != NULL)
+    return HB_PROTO_MF_PLUS;
+  if (strstr(card->type, "Texkom") != NULL)
+    return HB_PROTO_TEXKOM;
+  if (strstr(card->type, "ST25TB") != NULL)
+    return HB_PROTO_ST25TB;
+  if (strstr(card->type, "SLIX") != NULL)
+    return HB_PROTO_ISO15693;
   if (strstr(card->type, "DESFire") != NULL)
     return HB_PROTO_MF_DESFIRE;
   if (strstr(card->type, "FeliCa") != NULL || strstr(card->type, "NFC-F") != NULL)
@@ -153,12 +164,16 @@ bool nfc_sim_add(const nfc_sim_card_t *card) {
   return ok;
 }
 
-void nfc_sim_remove(int index) {
+esp_err_t nfc_sim_remove(int index) {
   nfc_sim_init();
   if (index < 0 || index >= s_count)
-    return;
-  (void)nfc_store_delete(index);
+    return ESP_ERR_INVALID_ARG;
+  nfc_store_info_t info;
+  if (nfc_store_get_info(index, &info) != HB_NFC_OK)
+    return ESP_FAIL;
+  esp_err_t error = nfc_library_delete_card(&info);
   refresh_cache();
+  return error;
 }
 
 static void fill_card(int tmpl, const char *prefix, nfc_sim_card_t *out) {
@@ -212,4 +227,25 @@ void nfc_sim_format_uid(const nfc_sim_card_t *card, char *buf, int buflen) {
       break;
     off += snprintf(buf + off, (size_t)rem, i ? ":%02X" : "%02X", card->uid[i]);
   }
+}
+
+bool nfc_sim_same_card(const nfc_sim_card_t *a, const nfc_sim_card_t *b) {
+  return a != NULL && b != NULL && a->uid_len > 0 && a->uid_len <= sizeof(a->uid) &&
+         a->uid_len == b->uid_len && memcmp(a->uid, b->uid, a->uid_len) == 0 &&
+         type_protocol(a) == type_protocol(b);
+}
+
+bool nfc_sim_resolve_name(nfc_sim_card_t *card) {
+  const char *name = NULL;
+  for (int i = 0; i < s_count; i++) {
+    if (!nfc_sim_same_card(card, &s_cards[i]) || s_cards[i].name[0] == '\0')
+      continue;
+    if (name != NULL && strcmp(name, s_cards[i].name) != 0)
+      return false;
+    name = s_cards[i].name;
+  }
+  if (name == NULL)
+    return false;
+  strlcpy(card->name, name, sizeof(card->name));
+  return true;
 }

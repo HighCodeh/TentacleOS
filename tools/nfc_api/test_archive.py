@@ -30,6 +30,7 @@ with tempfile.TemporaryDirectory(prefix='nfc-archive-') as tmp:
               'ESP_ERR_INVALID_RESPONSE','ESP_ERR_INVALID_SIZE','ESP_FAIL']
     (p/'esp_err.h').write_text(notice + 'typedef int esp_err_t;\n' +
         ''.join(f'#define {name} {value}\n' for value,name in enumerate(errors)))
+    (p/'esp_heap_caps.h').write_text(notice + '#include <stdlib.h>\n#define MALLOC_CAP_SPIRAM 1\n#define MALLOC_CAP_8BIT 2\n#define heap_caps_malloc(n,c) malloc(n)\n')
     (p/'esp_log.h').write_text(notice + '#define ESP_LOGE(tag,...) ((void)(tag))\n')
     (p/'storage_atomic.h').write_text(notice + '#include <stddef.h>\nint storage_write_atomic(const char *,const void *,size_t);\n')
     header = (BASE/'include/nfc_archive.h').read_text().replace('/sdcard/nfc/dumps', str(p/'dumps'))

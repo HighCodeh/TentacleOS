@@ -16,9 +16,20 @@
 #ifndef NFC_SAVED_UI_H
 #define NFC_SAVED_UI_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * @brief Saved-card library: lists cards; OK shows details + delete (confirm).
  */
 void ui_nfc_saved_open(void);
+
+/** Finish owned storage work before leaving the saved-card screen. */
+void ui_nfc_saved_stop(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // NFC_SAVED_UI_H

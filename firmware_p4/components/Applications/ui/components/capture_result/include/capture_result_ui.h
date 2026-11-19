@@ -71,6 +71,7 @@ typedef struct {
  * @brief Runtime handle for a capture-result panel.
  */
 typedef struct {
+  lv_obj_t *title;                          ///< summary name
   lv_obj_t *root;                           ///< root container of the panel
   lv_obj_t *rows[CAP_RESULT_MAX_ACTIONS];   ///< action row containers
   lv_obj_t *icons[CAP_RESULT_MAX_ACTIONS];  ///< action row icon labels
@@ -129,6 +130,9 @@ int capture_result_selected_id(const capture_result_t *cr);
  * @param cr  Panel handle.
  */
 void capture_result_mark_saved(capture_result_t *cr);
+
+/** Update the summary after a successful save or rename (copies the text). */
+void capture_result_set_title(capture_result_t *cr, const char *title);
 
 /** Mark a caller-defined action row as completed and optionally relabel it. */
 void capture_result_mark_action_done(capture_result_t *cr, int action_id, const char *label);

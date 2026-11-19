@@ -15,16 +15,17 @@
 
 #include "capture_result_ui.h"
 
-#include "st7789.h"
+#include "esp_log.h"
 
 #include "assets_manager.h"
 #include "ui_chrome.h"
 #include "ui_theme.h"
+#include "ui_metrics.h"
 
-#define COL_RAISE 0x170A28
+static const char *TAG = "CAPTURE_RESULT";
 
 #define CR_TOP    UI_CHROME_HEADER_H
-#define CR_H      (LCD_V_RES - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
+#define CR_H      (ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
 #define CARD_H    70
 #define ROW_H     34
 #define GAP       6
@@ -52,7 +53,7 @@ static void style_row(capture_result_t *cr, int i, bool sel) {
   lv_obj_set_style_border_color(cr->rows[i], sel ? cr->accent : current_theme.border_inactive, 0);
   lv_obj_set_style_border_opa(cr->rows[i], sel ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
   lv_obj_set_style_bg_color(
-      cr->rows[i], sel ? lv_color_hex(COL_RAISE) : current_theme.bg_secondary, 0);
+      cr->rows[i], sel ? current_theme.bg_primary : current_theme.bg_secondary, 0);
   lv_obj_set_style_shadow_width(cr->rows[i], sel ? 14 : 0, 0);
   lv_obj_set_style_shadow_color(cr->rows[i], cr->accent, 0);
   lv_obj_set_style_shadow_spread(cr->rows[i], sel ? -3 : 0, 0);
@@ -63,7 +64,7 @@ static void style_row(capture_result_t *cr, int i, bool sel) {
 static void refresh(capture_result_t *cr) {
   for (int i = 0; i < cr->count; i++)
     style_row(cr, i, i == cr->sel);
-  if (cr->count > CAP_ACT_MAX && cr->rows[cr->sel] != NULL)
+  if (cr->count > 0 && cr->rows[cr->sel] != NULL)
     lv_obj_scroll_to_view(cr->rows[cr->sel], LV_ANIM_ON);
 }
 
@@ -116,8 +117,9 @@ static void make_card(capture_result_t *cr, lv_obj_t *root, const capture_result
   lv_obj_set_style_pad_row(col, 2, 0);
 
   lv_obj_t *title = lv_label_create(col);
+  cr->title = title;
   lv_obj_set_width(title, lv_pct(100));
-  lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
+  lv_label_set_long_mode(title, LV_LABEL_LONG_SCROLL_CIRCULAR);
   lv_label_set_text(title, cfg->card_title ? cfg->card_title : "");
   lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(title, current_theme.text_main, 0);
@@ -190,18 +192,16 @@ capture_result_t capture_result_create_custom(lv_obj_t *parent,
   cr.saved = false;
 
   lv_obj_t *root = bare(parent);
-  lv_obj_set_size(root, LCD_H_RES, CR_H);
+  lv_obj_set_size(root, ui_screen_w(), CR_H);
   lv_obj_align(root, LV_ALIGN_TOP_LEFT, 0, CR_TOP);
   lv_obj_set_style_pad_hor(root, 10, 0);
   lv_obj_set_style_pad_ver(root, 8, 0);
   lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(root, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
   lv_obj_set_style_pad_row(root, GAP, 0);
-  if (cr.count > CAP_ACT_MAX) {
-    lv_obj_add_flag(root, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_scroll_dir(root, LV_DIR_VER);
-    lv_obj_set_scrollbar_mode(root, LV_SCROLLBAR_MODE_OFF);
-  }
+  lv_obj_add_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(root, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(root, LV_SCROLLBAR_MODE_OFF);
   cr.root = root;
 
   make_card(&cr, root, cfg);
@@ -273,8 +273,16 @@ void capture_result_mark_action_done(capture_result_t *cr, int action_id, const 
 }
 
 void capture_result_destroy(capture_result_t *cr) {
-  if (cr->root) {
+  if (cr == NULL)
+    return;
+  if (cr->root != NULL)
     lv_obj_del(cr->root);
-    cr->root = NULL;
+  *cr = (capture_result_t){0};
+}
+
+void capture_result_set_title(capture_result_t *cr, const char *title) {
+  if (cr != NULL && cr->title != NULL && title != NULL) {
+    lv_label_set_text(cr->title, title);
+    ESP_LOGD(TAG, "Saved capture title updated");
   }
 }

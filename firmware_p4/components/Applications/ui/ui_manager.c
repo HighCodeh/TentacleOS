@@ -539,6 +539,8 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
       return ui_subghz_menu_stop;
     case SCREEN_NFC_READ:
       return ui_nfc_read_stop;
+    case SCREEN_NFC_SAVED:
+      return ui_nfc_saved_stop;
     case SCREEN_NFC_WRITE:
       return ui_nfc_write_stop;
     case SCREEN_NFC_EMULATE:

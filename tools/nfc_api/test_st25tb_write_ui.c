@@ -90,9 +90,18 @@ static int nfc_protocol_service_st25tb_write(const char *text) {
   if (reject_stage) return 1;
   staged = text != NULL; return HB_NFC_OK;
 }
-static char s_archive_selected[64];
-static void select_archive(bool previous) {(void)previous;}
-static int nfc_protocol_service_archive(const char *name) {(void)name;return 0;}
+static bool s_archive_is_working;
+static int s_return = SCREEN_NFC_MENU;
+static void archive_render(const nfc_protocol_status_t *status) {(void)status;}
+static void archive_input(const input_event_t *event) {(void)event;}
+#define NFC_PROTOCOL_OP_UL_READER_UNLOCK 45
+#define NFC_PROTOCOL_OP_UL_EMULATE 46
+static bool nfc_protocol_service_ul_has_profile(void) {return false;}
+static void nfc_protocol_service_ul_clear(void) {}
+static void ul_file_submit(const char *text, void *context) {(void)text;(void)context;}
+#define KEYBOARD_TEXT 0
+#define KEYBOARD_HEX 1
+typedef struct {const char *title, *initial; int max_chars, min_chars, mode;} keyboard_config_t;
 static bool plus_staged;
 static int nfc_protocol_service_slix_write(const char *text) { plus_staged=text!=NULL; return 0; }
 static int nfc_protocol_service_ul_aes_write(const char *text) { plus_staged=text!=NULL; return 0; }
@@ -116,8 +125,8 @@ static int nfc_protocol_service_start(int op) {
   return HB_NFC_OK;
 }
 static bool keyboard_is_open(void) {return keyboard;}
-static void keyboard_open(void *initial, void (*submit)(const char *, void *), void *ctx) {
-  (void)initial; (void)submit; (void)ctx; keyboard = true;
+static void keyboard_open_config(const keyboard_config_t *config, void (*submit)(const char *, void *), void *ctx) {
+  (void)config; (void)submit; (void)ctx; keyboard = true;
 }
 static void nfc_protocol_service_get_status(nfc_protocol_status_t *status) {*status = current;}
 static void nfc_protocol_service_cancel(void) {cancels++;}

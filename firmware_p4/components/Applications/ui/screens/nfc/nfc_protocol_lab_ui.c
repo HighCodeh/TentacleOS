@@ -23,6 +23,11 @@
 #include "lvgl.h"
 #include "esp_log.h"
 #include "keyboard_ui.h"
+#include "capture_result_ui.h"
+#include "msgbox_ui.h"
+#include "notify_ui.h"
+#include "led_control.h"
+#include "nfc_store.h"
 
 #include "ui_chrome.h"
 #include "ui_feedback.h"
@@ -39,6 +44,12 @@ static screen_id_t s_return = SCREEN_NFC_MENU;
 static const char *TAG = "NFC_PROTOCOL_LAB_UI";
 
 static char s_archive_selected[NFC_ARCHIVE_PATH_SIZE];
+static char s_archive_new_name[NFC_STORE_NAME_MAX];
+static capture_result_t s_archive_actions;
+static bool s_archive_has_actions;
+static bool s_archive_is_working;
+static bool s_archive_exit;
+static lv_obj_t *s_body;
 static bool s_write_pending;
 static bool s_t4t_create;
 static size_t s_desfire_page;
@@ -53,10 +64,16 @@ static lv_timer_t *s_timer;
 static nfc_protocol_op_t s_operation;
 static nfc_protocol_state_t s_last_state = (nfc_protocol_state_t)-1;
 
+static void select_archive(bool is_previous);
+static void archive_start(nfc_protocol_op_t operation);
+
 static void clear_result(void) {
   lv_label_set_text(s_heading, "Live RF result");
-  for (int i = 0; i < NFC_PROTOCOL_RESULT_LINES; i++)
+  for (int i = 0; i < NFC_PROTOCOL_RESULT_LINES; i++) {
     lv_label_set_text(s_lines[i], "");
+    if (s_operation == NFC_PROTOCOL_OP_ARCHIVE)
+      lv_obj_add_flag(s_lines[i], LV_OBJ_FLAG_HIDDEN);
+  }
 }
 
 static void render(const nfc_protocol_status_t *status) {
@@ -170,7 +187,7 @@ static void render(const nfc_protocol_status_t *status) {
       : (s_operation == NFC_PROTOCOL_OP_DESFIRE || s_operation == NFC_PROTOCOL_OP_NTAG4XX)
           ? "UP/DN view  LEFT UID  RIGHT file  OK read"
       : s_operation == NFC_PROTOCOL_OP_TEXKOM  ? "OK read  RIGHT emulate  BACK exit"
-      : s_operation == NFC_PROTOCOL_OP_ARCHIVE ? "UP/DOWN file  OK open  RIGHT copy"
+      : s_operation == NFC_PROTOCOL_OP_ARCHIVE ? "UP/DOWN file  OK actions  BACK"
       : s_operation == NFC_PROTOCOL_OP_SLIX    ? "RIGHT password  DOWN write  UP clear"
       : s_operation == NFC_PROTOCOL_OP_ULTRALIGHT
           ? (nfc_protocol_service_ul_has_profile() ? "OK read  RIGHT unlock  LEFT emulate  UP clear"
@@ -182,12 +199,56 @@ static void render(const nfc_protocol_status_t *status) {
     ui_chrome_footer_set_text(s_footer, "OK read  RIGHT file  LEFT emulate  DOWN write  UP create");
 }
 
+static void archive_render(const nfc_protocol_status_t *status) {
+  if (status->running)
+    return;
+  s_archive_is_working = false;
+  bool is_success = status->state == NFC_PROTOCOL_STATE_DONE;
+  if (is_success && status->operation == NFC_PROTOCOL_OP_ARCHIVE_RENAME)
+    snprintf(s_archive_selected, sizeof(s_archive_selected), "%s.nfc", s_archive_new_name);
+  if (is_success && status->operation == NFC_PROTOCOL_OP_ARCHIVE_DELETE) {
+    s_archive_selected[0] = '\0';
+    select_archive(false);
+  }
+  const char *message = !is_success ? "Not completed; check SD and retry"
+                        : status->operation == NFC_PROTOCOL_OP_ARCHIVE_RENAME ? "File renamed"
+                        : status->operation == NFC_PROTOCOL_OP_ARCHIVE_DELETE
+                            ? status->result.heading
+                        : status->operation == NFC_PROTOCOL_OP_ARCHIVE_EXPORT ? "Copy saved"
+                                                                              : "File opened";
+  clear_result();
+  lv_label_set_text(s_heading, s_archive_selected[0] ? s_archive_selected : "No NFC files");
+  lv_label_set_text(s_status, message);
+  lv_obj_set_style_text_color(s_status, current_theme.text_main, 0);
+  for (int i = 0; i < status->result.line_count; i++) {
+    lv_obj_remove_flag(s_lines[i], LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(s_lines[i], status->result.lines[i]);
+  }
+  ui_chrome_footer_set_text(s_footer, "UP/DOWN file   OK actions   BACK");
+  if (is_success) {
+    ESP_LOGI(TAG, "%s", message);
+    led_signal_info();
+    ui_feedback(UI_FB_WRITE);
+  } else {
+    ESP_LOGW(TAG, "NFC file operation failed: 0x%x", status->error);
+    led_signal_warning();
+    notify(NOTIFY_WARNING, message);
+  }
+  if (s_archive_exit)
+    ui_switch_screen(s_return);
+}
+
 static void timer_cb(lv_timer_t *timer) {
   (void)timer;
   if (lv_screen_active() != s_screen || s_write_pending)
     return;
   nfc_protocol_status_t status;
   nfc_protocol_service_get_status(&status);
+  if (s_operation == NFC_PROTOCOL_OP_ARCHIVE) {
+    if (s_archive_is_working)
+      archive_render(&status);
+    return;
+  }
   if (status.state != s_last_state) {
     s_last_state = status.state;
     render(&status);
@@ -323,7 +384,140 @@ static void select_archive(bool is_previous) {
   clear_result();
   lv_label_set_text(s_heading,
                     s_archive_selected[0] ? s_archive_selected : "No .nfc files in NFC dumps");
-  lv_label_set_text(s_status, "UP/DOWN select; OK open; RIGHT export copy");
+  lv_label_set_text(s_status, "Choose a saved file");
+  ui_chrome_footer_set_text(s_footer, "UP/DOWN file   OK actions   BACK");
+}
+
+static void archive_actions_close(void) {
+  capture_result_destroy(&s_archive_actions);
+  s_archive_has_actions = false;
+  lv_obj_remove_flag(s_body, LV_OBJ_FLAG_HIDDEN);
+  ui_chrome_footer_set_text(s_footer, "UP/DOWN file   OK actions   BACK");
+}
+
+static void archive_start(nfc_protocol_op_t operation) {
+  if (s_timer == NULL || s_archive_is_working)
+    return;
+  if (nfc_protocol_service_archive(s_archive_selected) != HB_NFC_OK ||
+      nfc_protocol_service_start(operation) != HB_NFC_OK) {
+    ESP_LOGW(TAG, "Cannot start NFC file operation");
+    led_signal_warning();
+    notify(NOTIFY_WARNING, "Cannot start; NFC busy or file missing");
+    return;
+  }
+  archive_actions_close();
+  s_archive_is_working = true;
+  s_archive_exit = false;
+  clear_result();
+  lv_label_set_text(s_heading, s_archive_selected);
+  lv_label_set_text(s_status,
+                    operation == NFC_PROTOCOL_OP_ARCHIVE_RENAME   ? "Renaming file..."
+                    : operation == NFC_PROTOCOL_OP_ARCHIVE_DELETE ? "Deleting linked data..."
+                    : operation == NFC_PROTOCOL_OP_ARCHIVE_EXPORT ? "Saving copy..."
+                                                                  : "Opening file...");
+  ui_chrome_footer_set_text(s_footer, "Working on storage   BACK finish and exit");
+}
+
+static void archive_rename_submit(const char *text, void *context) {
+  (void)context;
+  if (text == NULL || nfc_protocol_service_archive_name(text) != ESP_OK) {
+    ESP_LOGW(TAG, "Invalid NFC filename or worker busy");
+    led_signal_warning();
+    notify(NOTIFY_WARNING, "Invalid name or NFC busy");
+    return;
+  }
+  strlcpy(s_archive_new_name, text, sizeof(s_archive_new_name));
+  archive_start(NFC_PROTOCOL_OP_ARCHIVE_RENAME);
+}
+
+static void archive_delete_confirm(bool confirm) {
+  if (confirm)
+    archive_start(NFC_PROTOCOL_OP_ARCHIVE_DELETE);
+}
+
+static void archive_actions_open(void) {
+  if (s_timer == NULL || s_archive_selected[0] == '\0')
+    return;
+  lv_obj_add_flag(s_body, LV_OBJ_FLAG_HIDDEN);
+  const capture_result_cfg_t config = {
+      .accent = current_theme.border_accent,
+      .card_icon = "/assets/icons/nfc.bin",
+      .card_title = s_archive_selected,
+      .card_sub = "Saved NFC file",
+  };
+  const capture_result_action_cfg_t actions[] = {
+      {.id = CAP_ACT_PRIMARY, .symbol = LV_SYMBOL_FILE, .label = "Open details"},
+      {.id = CAP_ACT_SAVE, .symbol = LV_SYMBOL_EDIT, .label = "Rename"},
+      {.id = CAP_ACT_AGAIN, .symbol = LV_SYMBOL_COPY, .label = "Save a copy"},
+      {.id = CAP_ACT_DISCARD, .symbol = LV_SYMBOL_TRASH, .label = "Delete card + data"},
+  };
+  s_archive_actions = capture_result_create_custom(
+      s_screen, &config, actions, sizeof(actions) / sizeof(actions[0]));
+  s_archive_has_actions = true;
+  ui_chrome_footer_set_text(s_footer, "UP/DOWN choose   OK select   BACK");
+}
+
+static void archive_input(const input_event_t *event) {
+  if (s_archive_is_working) {
+    if (event->button == INPUT_BTN_BACK) {
+      s_archive_exit = true;
+      nfc_protocol_service_cancel();
+      ui_chrome_footer_set_text(s_footer, "Finishing storage operation...");
+    }
+    return;
+  }
+  if (s_archive_has_actions) {
+    switch (event->button) {
+      case INPUT_BTN_UP:
+        capture_result_prev(&s_archive_actions);
+        break;
+      case INPUT_BTN_DOWN:
+        capture_result_next(&s_archive_actions);
+        break;
+      case INPUT_BTN_BACK:
+      case INPUT_BTN_LEFT:
+        archive_actions_close();
+        break;
+      case INPUT_BTN_OK:
+        switch (capture_result_selected(&s_archive_actions)) {
+          case CAP_ACT_PRIMARY:
+            archive_start(NFC_PROTOCOL_OP_ARCHIVE);
+            break;
+          case CAP_ACT_SAVE: {
+            char name[NFC_ARCHIVE_PATH_SIZE];
+            strlcpy(name, s_archive_selected, sizeof(name));
+            char *extension = strrchr(name, '.');
+            if (extension != NULL)
+              *extension = '\0';
+            keyboard_open_filename(
+                "NFC name (without .nfc)", name, NFC_STORE_NAME_MAX - 1, archive_rename_submit);
+            break;
+          }
+          case CAP_ACT_AGAIN:
+            archive_start(NFC_PROTOCOL_OP_ARCHIVE_EXPORT);
+            break;
+          case CAP_ACT_DISCARD:
+            msgbox_open(LV_SYMBOL_TRASH,
+                        "Delete card and all linked dumps?",
+                        "Delete",
+                        "Cancel",
+                        archive_delete_confirm);
+            break;
+          default:
+            break;
+        }
+        break;
+      default:
+        break;
+    }
+    return;
+  }
+  if (event->button == INPUT_BTN_BACK || event->button == INPUT_BTN_LEFT)
+    ui_switch_screen(s_return);
+  else if (event->button == INPUT_BTN_UP || event->button == INPUT_BTN_DOWN)
+    select_archive(event->button == INPUT_BTN_UP);
+  else if (event->button == INPUT_BTN_OK || event->button == INPUT_BTN_RIGHT)
+    archive_actions_open();
 }
 
 static void desfire_load_submit(const char *text, void *context) {
@@ -649,24 +843,7 @@ static void input_cb(const input_event_t *event, void *ctx) {
     return;
   }
   if (s_operation == NFC_PROTOCOL_OP_ARCHIVE) {
-    if (event->button == INPUT_BTN_BACK || event->button == INPUT_BTN_LEFT) {
-      if (status.running)
-        nfc_protocol_service_cancel();
-      else
-        ui_switch_screen(s_return);
-    } else if (!status.running) {
-      if (event->button == INPUT_BTN_UP || event->button == INPUT_BTN_DOWN)
-        select_archive(event->button == INPUT_BTN_UP);
-      else if (event->button == INPUT_BTN_OK || event->button == INPUT_BTN_RIGHT) {
-        if (nfc_protocol_service_archive(s_archive_selected) == HB_NFC_OK) {
-          s_last_state = (nfc_protocol_state_t)-1;
-          if (nfc_protocol_service_start(event->button == INPUT_BTN_RIGHT
-                                             ? NFC_PROTOCOL_OP_ARCHIVE_EXPORT
-                                             : NFC_PROTOCOL_OP_ARCHIVE) != HB_NFC_OK)
-            lv_label_set_text(s_status, "Could not open archive");
-        }
-      }
-    }
+    archive_input(event);
     return;
   }
   if (s_write_pending) {
@@ -826,6 +1003,10 @@ void ui_nfc_protocol_lab_open(nfc_protocol_op_t operation, const char *title) {
     s_screen = NULL;
   }
   s_write_pending = false;
+  s_archive_has_actions = false;
+  s_archive_is_working = false;
+  s_archive_exit = false;
+  s_archive_actions = (capture_result_t){0};
   s_operation = operation;
   s_desfire_page = 0;
   s_ntag4xx_page = 0;
@@ -836,6 +1017,7 @@ void ui_nfc_protocol_lab_open(nfc_protocol_op_t operation, const char *title) {
   ui_chrome_header(s_screen, title, "/assets/icons/nfc.bin");
 
   lv_obj_t *body = lv_obj_create(s_screen);
+  s_body = body;
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(
       body, ui_screen_w() - 16, ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
@@ -865,6 +1047,8 @@ void ui_nfc_protocol_lab_open(nfc_protocol_op_t operation, const char *title) {
   lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
 
   s_heading = lv_label_create(box);
+  lv_obj_set_width(s_heading, lv_pct(100));
+  lv_label_set_long_mode(s_heading, LV_LABEL_LONG_SCROLL_CIRCULAR);
   lv_obj_set_style_text_font(s_heading, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(s_heading, current_theme.border_accent, 0);
   for (int i = 0; i < NFC_PROTOCOL_RESULT_LINES; i++) {
@@ -880,7 +1064,14 @@ void ui_nfc_protocol_lab_open(nfc_protocol_op_t operation, const char *title) {
   ui_input_set_screen_handler(input_cb, NULL);
   s_timer = lv_timer_create(timer_cb, REFRESH_MS, NULL);
   ui_screen_load_owned(&s_screen, s_screen);
-  start_read();
+  if (s_timer == NULL) {
+    ESP_LOGE(TAG, "Cannot create NFC status timer");
+    led_signal_error();
+    lv_label_set_text(s_status, "Cannot open screen; go back and retry");
+    ui_chrome_footer_set_text(s_footer, "BACK exit");
+  } else if (operation != NFC_PROTOCOL_OP_ARCHIVE) {
+    start_read();
+  }
 }
 
 void ui_nfc_st25tb_open(void) {
@@ -914,5 +1105,6 @@ void ui_nfc_plus_open(void) {
 void ui_nfc_archive_open(void) {
   ui_nfc_protocol_lab_open(NFC_PROTOCOL_OP_ARCHIVE, "NFC files");
   s_archive_selected[0] = 0;
-  select_archive(false);
+  if (s_timer != NULL)
+    select_archive(false);
 }

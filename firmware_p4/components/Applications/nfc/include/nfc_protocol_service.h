@@ -62,6 +62,9 @@ typedef enum {
   NFC_PROTOCOL_OP_UL_LOAD,
   NFC_PROTOCOL_OP_UL_READER_UNLOCK,
   NFC_PROTOCOL_OP_UL_EMULATE,
+  NFC_PROTOCOL_OP_ARCHIVE_RENAME,
+  NFC_PROTOCOL_OP_ARCHIVE_DELETE,
+  NFC_PROTOCOL_OP_CARD_DELETE,
   NFC_PROTOCOL_OP_COUNT,
 } nfc_protocol_op_t;
 
@@ -118,6 +121,9 @@ hb_nfc_err_t nfc_protocol_service_ul_aes_write(const char *filename);
 hb_nfc_err_t nfc_protocol_service_ul_aes_key(const char *text);
 /* Stage a matching-UID data restore; NULL cancels, empty uses last saved read. */
 hb_nfc_err_t nfc_protocol_service_archive(const char *filename);
+/* Stage file mutations; the worker performs storage operations without RF. */
+esp_err_t nfc_protocol_service_archive_name(const char *stem);
+esp_err_t nfc_protocol_service_delete_saved(int index, const uint8_t *uid, size_t uid_len);
 
 hb_nfc_err_t nfc_protocol_service_slix_write(const char *filename);
 
