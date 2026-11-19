@@ -1,0 +1,35 @@
+# Copyright (c) 2025 HIGH CODE LLC
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
+CONFIG_IDF_TARGET="esp32p4"
+CONFIG_ESP32P4_REV_MIN_301=y
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_ESPTOOLPY_FLASHFREQ_20M=y
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="../firmware_p4/partitions.csv"
+CONFIG_PARTITION_TABLE_OFFSET=0x8000
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_400=y
+# CONFIG_SPIRAM is not set
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
+CONFIG_FREERTOS_HZ=1000
+CONFIG_ESP_TASK_WDT_PANIC=y
+# CONFIG_PM_ENABLE is not set
+CONFIG_LOG_COLORS=n

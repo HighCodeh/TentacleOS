@@ -35,6 +35,12 @@ Use a single operator; do not navigate RF applications during a console test.
 The host sends CRLF so commands also complete when ESP-IDF selects its plain
 terminal mode after startup without a terminal emulator.
 
+## Standalone RFID UART firmware
+
+For a small P4-only lab image with direct waveform/GPIO commands and no host
+automation dependency, see [RFID UART lab](RFID_UART.md). It is a separate build
+from the full-app console described below.
+
 ## RFID with a Flipper reference
 
 ```sh
