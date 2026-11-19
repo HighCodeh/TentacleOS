@@ -32,6 +32,8 @@ port suffix on another operating system. The console and firmware identity must
 respond before activation. USB tests use the explicitly selected P4/C5 target
 and require a fresh matching ROM banner. Close qFlipper and other serial clients.
 Use a single operator; do not navigate RF applications during a console test.
+The host sends CRLF so commands also complete when ESP-IDF selects its plain
+terminal mode after startup without a terminal emulator.
 
 ## RFID with a Flipper reference
 

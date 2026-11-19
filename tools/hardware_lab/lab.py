@@ -163,7 +163,8 @@ class Link:
     def command(self, command, timeout=5):
         self.read(.1)
         self.event('command', command)
-        self.u.write((command + '\r').encode())
+        # CRLF also completes input in the ESP-IDF console's dumb/fgets mode.
+        self.u.write((command + '\r\n').encode())
         deadline = time.monotonic() + timeout
         data = bytearray()
         while time.monotonic() < deadline:

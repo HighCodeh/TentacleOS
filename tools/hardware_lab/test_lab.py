@@ -38,6 +38,30 @@ class FakeLink:
         return value
 
 class Tests(unittest.TestCase):
+    def test_command_supports_cr_and_lf_console_modes(self):
+        for terminator in (b'\r', b'\n'):
+            with self.subTest(terminator=terminator):
+                class Console:
+                    pending = b''
+                    line = b''
+                    def write(self, data):
+                        for char in data:
+                            byte = bytes([char])
+                            if byte == terminator:
+                                if self.line.strip() == b'rfid status':
+                                    self.pending += IDLE.encode() + b'highboy>  \r\nhighboy>  '
+                                self.line = b''
+                            elif byte not in (b'\r', b'\n'):
+                                self.line += byte
+                    def read(self, seconds):
+                        data, self.pending = self.pending, b''
+                        return data
+                console = Console()
+                link = object.__new__(lab.Link)
+                link.u = console
+                link.read = console.read
+                link.event = lambda *args: None
+                self.assertTrue(lab.idle(link.command('rfid status', timeout=.03)))
     def test_missing_measurement_is_not_pass(self):
         with self.assertRaises(RuntimeError):
             lab.inspect('lf-field', 'Unrecognized command')
