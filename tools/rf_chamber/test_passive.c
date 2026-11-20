@@ -23,7 +23,7 @@
 typedef int esp_err_t, nvs_handle_t, StaticSemaphore_t;
 typedef void *SemaphoreHandle_t;
 typedef struct {esp_err_t c5, cc, sx, nfc, lf;} rf_lab_hw_status_t;
-typedef struct {rf_lab_hw_status_t hardware; esp_err_t error; uint8_t path;} rf_passive_status_t;
+typedef struct {rf_lab_hw_status_t hardware; esp_err_t error; uint8_t path;uint8_t actual_path;} rf_passive_status_t;
 #define ESP_OK 0
 #define ESP_ERR_INVALID_ARG 1
 #define ESP_ERR_INVALID_STATE 2
@@ -53,8 +53,10 @@ static int rf_lab_hw_path_set(uint8_t p){if(p<1||p>4)return ESP_ERR_INVALID_ARG;
 static int rf_lab_hw_path_get(uint8_t *p){*p=selected;return 0;}
 static void led_signal_info(void){}
 static void led_signal_error(void){}
+static bool tag_busy;
+static bool rf_tag_test_busy(void){return tag_busy;}
 /* PRODUCTION */
-static void boot(int value){stored=value;s_status=(rf_passive_status_t){.path=1};s_is_boot=false;}
+static void boot(int value){stored=value;s_save_error=0;s_status=(rf_passive_status_t){.path=1};s_is_boot=false;}
 int main(void){
  boot(0);assert(rf_passive_load()==0 && !rf_passive_is_boot());rf_passive_startup();assert(quiets==0);
  assert(rf_passive_select(1)==ESP_ERR_INVALID_STATE);
@@ -64,6 +66,7 @@ int main(void){
   for(int q=1;q<=4;q++){assert(rf_passive_select(q)==0 && stored==q && selected==q);}
  }
  assert(quiets==4 && no_sleep==4);
+ tag_busy=true;assert(rf_passive_select(1)==ESP_ERR_INVALID_STATE);assert(rf_passive_save_boot(false,1)==ESP_ERR_INVALID_STATE);tag_busy=false;
  int previous=writes;assert(rf_passive_select(0)==ESP_ERR_INVALID_ARG);assert(rf_passive_select(5)==ESP_ERR_INVALID_ARG);assert(writes==previous);
  lock_ok=0;assert(rf_passive_select(2)==ESP_ERR_TIMEOUT);lock_ok=1;
  commit_error=ESP_ERR_TIMEOUT;assert(rf_passive_select(3)==ESP_ERR_TIMEOUT && stored==4);commit_error=0;

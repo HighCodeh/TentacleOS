@@ -61,6 +61,7 @@ set(SCRIPT_ENGINE_SRCS
 idf_component_register(SRCS
   "rf_chamber/rf_chamber.c"
   "rf_chamber/rf_passive.c"
+  "rf_chamber/rf_tag_test.c"
   "rf_chamber/rf_chamber_config.c"
   "wardrive/wardrive.c"
   "wardrive/wardrive_gps.c"

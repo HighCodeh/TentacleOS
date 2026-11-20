@@ -26,6 +26,7 @@ typedef struct {
   rf_lab_hw_status_t hardware;
   esp_err_t error;
   uint8_t path;
+  uint8_t actual_path;
 } rf_passive_status_t;
 esp_err_t rf_passive_load(void);
 bool rf_passive_is_boot(void);

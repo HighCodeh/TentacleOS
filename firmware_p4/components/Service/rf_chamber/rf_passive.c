@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "rf_passive.h"
+#include "rf_tag_test.h"
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -81,6 +82,8 @@ void rf_passive_startup(void) {
            esp_err_to_name(error));
 }
 esp_err_t rf_passive_save_boot(bool enabled, uint8_t path) {
+  if (rf_tag_test_busy())
+    return ESP_ERR_INVALID_STATE;
   if (path < RF_PASSIVE_PATH_MIN || path > RF_PASSIVE_PATH_MAX)
     return ESP_ERR_INVALID_ARG;
   nvs_handle_t handle;
@@ -94,7 +97,7 @@ esp_err_t rf_passive_save_boot(bool enabled, uint8_t path) {
   return error;
 }
 esp_err_t rf_passive_select(uint8_t path) {
-  if (!s_is_boot || s_mutex == NULL)
+  if (!s_is_boot || s_mutex == NULL || rf_tag_test_busy())
     return ESP_ERR_INVALID_STATE;
   if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(LOCK_WAIT_MS)) != pdTRUE)
     return ESP_ERR_TIMEOUT;
@@ -122,7 +125,14 @@ void rf_passive_snapshot(rf_passive_status_t *out_status) {
   if (out_status->error == ESP_OK)
     out_status->error = s_save_error;
   uint8_t actual = 0;
-  if (s_is_boot && rf_lab_hw_path_get(&actual) == ESP_OK && actual != s_status.path)
-    out_status->error = ESP_ERR_INVALID_RESPONSE;
+  if (s_is_boot) {
+    esp_err_t error = rf_lab_hw_path_get(&actual);
+    if (error == ESP_OK)
+      out_status->actual_path = actual;
+    if (error == ESP_OK && actual != s_status.path)
+      error = ESP_ERR_INVALID_RESPONSE;
+    if (out_status->error == ESP_OK)
+      out_status->error = error;
+  }
   xSemaphoreGive(s_mutex);
 }
