@@ -108,8 +108,10 @@ esp_err_t lf_rfid_field_start(uint32_t frequency_hz, uint16_t duty_permille);
 esp_err_t
 lf_rfid_scope_drive(uint32_t frequency_hz, uint32_t duration_ms, uint32_t *out_generated_hz);
 void lf_rfid_field_stop(void);
+esp_err_t lf_rfid_field_stop_checked(void);
 bool lf_rfid_field_is_on(void);
 uint32_t lf_rfid_field_frequency(void);
+uint32_t lf_rfid_field_age_ms(void);
 
 /** Measure digital carrier feedback and demodulator activity. Field must be on.
  */
@@ -136,7 +138,16 @@ esp_err_t lf_rfid_capture_edges(uint32_t duration_ms,
                                 size_t capacity,
                                 size_t *out_count);
 
-/** Read and parity-check a 64-bit Manchester EM4100/EM4102 frame. */
+typedef struct {
+  uint32_t edges;
+  uint32_t dropped;
+  uint32_t invalid_pulses;
+  bool running;
+} lf_rfid_read_stats_t;
+void lf_rfid_read_stats(lf_rfid_read_stats_t *out);
+esp_err_t lf_rfid_reader_quiesce(void);
+
+/** Capture DA edges and require three parity-valid RF/64 Manchester frames. */
 esp_err_t lf_rfid_read_em4100(uint32_t timeout_ms, lf_rfid_em4100_t *out);
 
 /** Bounded RF/64 Manchester load modulation; requires an external LF reader.

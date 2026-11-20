@@ -44,11 +44,7 @@ static const char *TAG = "LF_RFID";
 #define LF_LEDC_MAX_DUTY       255U
 #define LF_MEASURE_MIN_MS      10U
 #define LF_MEASURE_MAX_MS      1000U
-#define LF_SAMPLE_US           64U
-#define LF_SAMPLES_PER_BIT     8U
 #define LF_FRAME_BITS          64U
-#define LF_FRAME_SAMPLES       (LF_FRAME_BITS * LF_SAMPLES_PER_BIT)
-#define LF_SAMPLE_MAX          4096U
 #define LF_SETTLE_MS           5U
 #define LF_PCNT_CHUNK_MS       100U
 #define LF_PCNT_GLITCH_NS      250U
@@ -76,6 +72,7 @@ typedef struct {
 
 static bool s_initialized;
 static bool s_field_on;
+static int64_t s_field_started_us;
 static uint32_t s_requested_hz = LF_RFID_NOMINAL_HZ;
 static uint32_t s_generated_hz;
 static lf_capture_state_t s_capture;
@@ -239,7 +236,8 @@ void lf_rfid_deinit(void) {
   if (!s_initialized) {
     return;
   }
-  lf_rfid_field_stop();
+  if (lf_rfid_field_stop_checked() != ESP_OK)
+    return;
   set_measurement_interrupts(false, false);
   gpio_isr_handler_remove(GPIO_RFID_LF_DATA_PIN);
   if (s_carrier_counter != NULL) {
@@ -306,6 +304,7 @@ static esp_err_t start_field(uint32_t frequency_hz, uint16_t duty_permille, bool
 
   s_requested_hz = frequency_hz;
   s_generated_hz = actual;
+  s_field_started_us = esp_timer_get_time();
   s_field_on = true;
   return ESP_OK;
 }
@@ -314,28 +313,38 @@ esp_err_t lf_rfid_field_start(uint32_t frequency_hz, uint16_t duty_permille) {
   return start_field(frequency_hz, duty_permille, false);
 }
 
-void lf_rfid_field_stop(void) {
-  if (!rf_frontend_can_access(RF_FRONTEND_LF_125KHZ)) {
-    return;
-  }
-  if (!s_initialized) {
-    return;
-  }
-  const bool was_on = s_field_on;
+esp_err_t lf_rfid_field_stop_checked(void) {
+  if (!rf_frontend_can_access(RF_FRONTEND_LF_125KHZ))
+    return ESP_ERR_INVALID_STATE;
+  if (!s_initialized)
+    return ESP_OK;
+  esp_err_t error = ledc_stop(LF_LEDC_MODE, LF_LEDC_DRIVE_CHANNEL, 0);
+  esp_err_t load_error = ledc_stop(LF_LEDC_MODE, LF_LEDC_LOAD_CHANNEL, 0);
+  if (error == ESP_OK)
+    error = load_error;
+  esp_err_t capture_error = lf_rfid_reader_quiesce();
+  if (error == ESP_OK)
+    error = capture_error;
   set_measurement_interrupts(false, false);
-  ledc_set_duty(LF_LEDC_MODE, LF_LEDC_DRIVE_CHANNEL, 0);
-  ledc_update_duty(LF_LEDC_MODE, LF_LEDC_DRIVE_CHANNEL);
-  gpio_set_level(GPIO_RFID_LF_COIL_PIN, 0);
-  ledc_set_duty(LF_LEDC_MODE, LF_LEDC_LOAD_CHANNEL, 0);
-  ledc_update_duty(LF_LEDC_MODE, LF_LEDC_LOAD_CHANNEL);
-  gpio_set_level(GPIO_RFID_LF_MOD_PIN, 0);
+  if (error != ESP_OK)
+    return error;
+  bool was_on = s_field_on;
   s_field_on = false;
   if (was_on)
     rf_frontend_release(RF_FRONTEND_LF_125KHZ);
+  return ESP_OK;
+}
+
+void lf_rfid_field_stop(void) {
+  (void)lf_rfid_field_stop_checked();
 }
 
 bool lf_rfid_field_is_on(void) {
   return s_field_on;
+}
+
+uint32_t lf_rfid_field_age_ms(void) {
+  return s_field_on ? (uint32_t)((esp_timer_get_time() - s_field_started_us) / 1000) : 0;
 }
 
 uint32_t lf_rfid_field_frequency(void) {
@@ -580,126 +589,6 @@ esp_err_t lf_rfid_capture_edges(uint32_t duration_ms,
   s_capture.capture = NULL;
   s_capture.capture_capacity = 0;
   return (*out_count != 0) ? ESP_OK : ESP_ERR_NOT_FOUND;
-}
-
-static bool em4100_validate(const uint8_t bits[LF_FRAME_BITS], lf_rfid_em4100_t *out) {
-  for (size_t i = 0; i < 9; i++) {
-    if (bits[i] != 1) {
-      return false;
-    }
-  }
-  if (bits[63] != 0) {
-    return false;
-  }
-
-  for (size_t row = 0; row < 10; row++) {
-    uint8_t parity = 0;
-    for (size_t col = 0; col < 4; col++) {
-      parity ^= bits[9 + row * 5 + col];
-    }
-    if (parity != bits[9 + row * 5 + 4]) {
-      return false;
-    }
-  }
-  for (size_t col = 0; col < 4; col++) {
-    uint8_t parity = 0;
-    for (size_t row = 0; row < 10; row++) {
-      parity ^= bits[9 + row * 5 + col];
-    }
-    if (parity != bits[59 + col]) {
-      return false;
-    }
-  }
-
-  memset(out->bytes, 0, sizeof(out->bytes));
-  for (size_t row = 0; row < 10; row++) {
-    uint8_t nibble = 0;
-    for (size_t col = 0; col < 4; col++) {
-      nibble = (uint8_t)((nibble << 1) | bits[9 + row * 5 + col]);
-    }
-    if ((row & 1U) == 0) {
-      out->bytes[row / 2] = (uint8_t)(nibble << 4);
-    } else {
-      out->bytes[row / 2] |= nibble;
-    }
-  }
-  out->id = 0;
-  for (size_t i = 0; i < sizeof(out->bytes); i++) {
-    out->id = (out->id << 8) | out->bytes[i];
-  }
-  return true;
-}
-
-static bool em4100_decode_samples(const uint8_t *samples, size_t count, lf_rfid_em4100_t *out) {
-  uint8_t bits[LF_FRAME_BITS];
-  if (count < LF_FRAME_SAMPLES) {
-    return false;
-  }
-
-  for (size_t start = 0; start + LF_FRAME_SAMPLES <= count; start++) {
-    for (unsigned polarity = 0; polarity < 2; polarity++) {
-      bool valid_manchester = true;
-      for (size_t bit = 0; bit < LF_FRAME_BITS; bit++) {
-        unsigned first_high = 0;
-        unsigned second_high = 0;
-        size_t base = start + bit * LF_SAMPLES_PER_BIT;
-        for (size_t i = 0; i < LF_SAMPLES_PER_BIT / 2; i++) {
-          first_high += samples[base + i] != 0;
-          second_high += samples[base + LF_SAMPLES_PER_BIT / 2 + i] != 0;
-        }
-        uint8_t first = first_high >= (LF_SAMPLES_PER_BIT / 4);
-        uint8_t second = second_high >= (LF_SAMPLES_PER_BIT / 4);
-        if (first == second) {
-          valid_manchester = false;
-          break;
-        }
-        bits[bit] = (uint8_t)(second ^ polarity);
-      }
-      if (valid_manchester && em4100_validate(bits, out)) {
-        out->inverted = polarity != 0;
-        out->samples_used = LF_FRAME_SAMPLES;
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-esp_err_t lf_rfid_read_em4100(uint32_t timeout_ms, lf_rfid_em4100_t *out) {
-  if (out == NULL || timeout_ms < 40 || timeout_ms > 1000) {
-    return ESP_ERR_INVALID_ARG;
-  }
-  if (!s_initialized || !s_field_on) {
-    return ESP_ERR_INVALID_STATE;
-  }
-
-  size_t sample_count = ((size_t)timeout_ms * 1000U) / LF_SAMPLE_US;
-  if (sample_count > LF_SAMPLE_MAX) {
-    sample_count = LF_SAMPLE_MAX;
-  }
-  if (sample_count < LF_FRAME_SAMPLES) {
-    sample_count = LF_FRAME_SAMPLES;
-  }
-  uint8_t *samples = malloc(sample_count);
-  if (samples == NULL) {
-    return ESP_ERR_NO_MEM;
-  }
-
-  vTaskDelay(pdMS_TO_TICKS(LF_SETTLE_MS));
-  int64_t next_sample = esp_timer_get_time();
-  for (size_t i = 0; i < sample_count; i++) {
-    next_sample += LF_SAMPLE_US;
-    int64_t remaining = next_sample - esp_timer_get_time();
-    if (remaining > 0) {
-      esp_rom_delay_us((uint32_t)remaining);
-    }
-    samples[i] = (uint8_t)gpio_get_level(GPIO_RFID_LF_DATA_PIN);
-  }
-
-  memset(out, 0, sizeof(*out));
-  bool found = em4100_decode_samples(samples, sample_count, out);
-  free(samples);
-  return found ? ESP_OK : ESP_ERR_NOT_FOUND;
 }
 
 static void

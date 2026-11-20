@@ -66,6 +66,9 @@ typedef int esp_err_t;
 #define ESP_RETURN_ON_ERROR(x,...) do {int err_=(x);if(err_)return err_;} while(0)
 typedef struct {bool carrier_present;} lf_rfid_field_report_t;
 typedef struct {int gpio_num,speed_mode,channel,intr_type,timer_sel,duty,hpoint;struct {int output_invert;} flags;} ledc_channel_config_t;
+static int64_t s_field_started_us;
+static int64_t esp_timer_get_time(void){return 1000;}
+static int lf_rfid_reader_quiesce(void){return 0;}
 static bool s_initialized=true,s_field_on,allowed=true,external,claimed,reserved;
 static uint32_t s_requested_hz=125000,s_generated_hz=125000,freq=125000;
 static int pins[8],duty[8],pending[8],fail_at,op,active_ms,expected_pin;

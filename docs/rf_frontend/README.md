@@ -35,7 +35,20 @@ reservation until a successful OFF transfer.
 
 `Drivers/lf_rfid` replaces the YS-RFID2 UART path in the integrated boot and RFID
 read screen. It initializes LF outputs off, generates the carrier with LEDC,
-measures carrier feedback with PCNT and reads EM4100 frames with parity checks.
+measures carrier feedback with PCNT and reads EM4100 RF/64 through hardware
+capture of both GPIO16/DA edges. MCPWM timestamps at 1 MHz feed an internal-RAM
+512-edge ring; the worker decodes durations without busy-wait GPIO sampling.
+The decoder checks Manchester transitions, header, stop, row/column parity and
+three consecutive equal frames, in either polarity. Ring overflow is an error,
+never a valid ID. Capture resources are released after each bounded read; failed
+cleanup is retained for retry. Reading waits until 450 ms after field start before
+its capture window. GPIO15 remains an input; the measured CL frequency does not
+qualify tag power or antenna amplitude. Only EM4100 RF/64 is qualified by these
+software vectors; RF/16, RF/32, PSK and other LF protocols are not added.
+
+`lf_rfid_field_stop_checked()` checks both PWM stops and capture cleanup before
+releasing antenna ownership. The legacy void wrapper remains for compatibility.
+The lab UI uses the checked operation and keeps the worker alive on failed OFF.
 During reading, GPIO2 carries the 125 kHz PWM into T4/T3/T5 and GPIO11 stays low,
 leaving the T2 load off. GPIO2 is not a static reader enable. GPIO15/CL is the
 carrier feedback input from U12; GPIO16/DA is the demodulated-data input.
@@ -57,7 +70,7 @@ The RFID screen reader runs on `SYS_CORE_RADIO` at `SYS_PRIO_SERVICE_LO`.
 A critical section protects cancellation, generation, running state and the
 result/tag pair. It publishes a coherent result only for the current generation.
 The task owns its hardware from field start through field stop. Closing the
-screen invalidates its generation; cleanup may take one 500 ms read interval.
+screen invalidates its generation; cleanup may take one 500 ms read interval plus any remaining initial 450 ms field settling.
 Reopening while cleanup is active reports busy, and cannot launch a second
 reader. Task-creation failure permits a later retry.
 
@@ -112,3 +125,13 @@ execute on the same persistent worker as companion capture. Reservations and
 retained failed-OFF cleanup belong to that firmware task, so app exit does not
 orphan antenna ownership. A forced app kill must quiesce the local-call gate
 before deleting the caller; the worker's fixed request buffers outlive apps.
+
+## Integrated lab tag screen
+
+The full `lab/rf` firmware has a [switch and tag bench](../rf_chamber/passive.md)
+with active NFC identity polling and EM4100 reads. The standalone UART image is
+not needed for these on-device tests. `test_lf_decoder.py` and `test_lf_reader.py`
+in `tools/hardware_lab` test actual decoder/capture code against explicit host
+waveforms, clock variation, wrapping timestamps, task stalls, corrupted frames,
+overflow and injected peripheral failures. These are software checks, not a
+claim that the analogue path can read a physical tag.
