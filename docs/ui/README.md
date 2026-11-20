@@ -696,8 +696,22 @@ The close hook and delete fallback release UI timers; leaving the screen does
 not stop the mesh session. The keyboard accepts a retained draft and reflows in
 landscape. Immediate queue failures retain that draft for retry.
 
-Sub-GHz > Config edits the actual Read/Read RAW frequency and preset. Apply stores
-these in RAM; re-entry reflects the current values. File replay uses its own metadata.
+Sub-GHz > Radio Config selects complete AM270/AM650/FM238/FM476 profiles, plus
+AM812/FM952. Selecting a preset populates Mode, BW, Rate, Dev, LNA and DVGA.
+LEFT/RIGHT or OK edits bandwidth, rate, FSK deviation and gain limits individually;
+Mode follows the preset and OOK deviation shows N/A. A `*` marks a customized
+profile. `Reset preset` restores defaults while preserving frequency; selecting a
+different preset reloads all modem fields. LNA/DVGA hints explain their AGC limits.
+Settings update immediately in RAM; BACK returns without an extra Apply step,
+and re-entry reflects current values. The screen uses the shared themed menu and
+live display metrics. Read passes a copied configuration to the receiver, which
+applies it after acquiring the radio; the screen performs no hardware access.
+File replay uses its saved preset and custom values.
+`tools/highboy/tests/test_subghz_presets_ui.py`, included in `test_ui.command`,
+checks preset reload, independent overrides, reset, OOK/FSK behavior, wraparound,
+frequency preservation and screen re-entry
+with the real menu/LVGL at 240x320 and 320x240 using light/dark theme fixtures.
+It does not validate RF reception on hardware.
 Read, Send and saved-signal replay monitor worker results: “Signal sent” requires
 RMT completion and confirmed radio IDLE, rather than an animation timer. Radio
 failures stop the scan/spectrum animation and show an error with BACK available.

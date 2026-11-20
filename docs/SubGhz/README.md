@@ -24,6 +24,25 @@ through the [CC1101 driver](../cc1101/README.md#high-boy-v203-matching-network).
 The driver configures presets in IDLE and enters RX only after tuning and
 calibration succeed; the application does not override the switch GPIOs.
 
+**Radio Config** selects AM270, AM650, FM238 or FM476, plus the existing High Boy
+AM812/FM952 profiles. Selecting a preset refreshes the displayed modulation,
+bandwidth, data rate, deviation and LNA/DVGA gain limits. LEFT/RIGHT or OK edits
+bandwidth, rate, FSK deviation or either gain limit independently; the preset
+name gains `*` when values differ from its defaults. Modulation follows the
+preset, and deviation is unavailable for OOK. `Reset preset` restores the base
+values without changing frequency. Selecting another preset discards overrides.
+No Apply action is required.
+
+Read copies the configuration into the native receiver, which applies the full
+profile and overrides through `cc1101_set_radio_config()` before starting RMT.
+The receiver's RAW mode accepts the same configuration. The configuration screen
+does not acquire or power the radio. Settings survive navigation in RAM, not a
+reboot; the default remains AM270 at 433.92 MHz. Frequency/hopping is selected
+separately and preserves overrides. Saved files retain the capture's preset,
+frequency and customized radio values; replay uses those instead of current
+menu settings. See the [driver contract](../cc1101/README.md#preset-management)
+for gain semantics and configuration validation.
+
 ## Overview
 
 - **Location:** `components/Applications/SubGhz/`

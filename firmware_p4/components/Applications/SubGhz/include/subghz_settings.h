@@ -31,6 +31,8 @@ extern "C" {
 typedef struct {
   cc1101_preset_t preset; /**< @brief CC1101 preset used when starting RX. */
   uint32_t freq;          /**< @brief RX frequency in Hz; 0 means frequency hopping. */
+  cc1101_radio_config_t radio;
+  bool has_custom_radio;
 } subghz_settings_t;
 
 /**
@@ -47,6 +49,8 @@ void subghz_settings_set_preset(cc1101_preset_t preset);
  * @brief Set the RX frequency in Hz (0 = frequency hopping).
  */
 void subghz_settings_set_freq(uint32_t freq);
+
+esp_err_t subghz_settings_set_radio(const cc1101_radio_config_t *radio);
 
 #ifdef __cplusplus
 }

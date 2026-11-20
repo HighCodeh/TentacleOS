@@ -348,7 +348,7 @@ void ui_subghz_read_open(void) {
   ui_input_set_screen_handler(subghz_read_input, NULL);
 
   esp_err_t rx = s_scope_timer != NULL && s_tick_timer != NULL
-                     ? subghz_receiver_start(SUBGHZ_MODE_SCAN, cfg.preset, cfg.freq)
+                     ? subghz_receiver_start_configured(SUBGHZ_MODE_SCAN, &cfg.radio, cfg.freq)
                      : ESP_ERR_NO_MEM;
   s_owns_rx = rx == ESP_OK;
   if (rx != ESP_OK) {
