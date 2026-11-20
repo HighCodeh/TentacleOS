@@ -28,6 +28,14 @@ list(REMOVE_ITEM UI_SRCS
   "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/motion_ui.c"
 )
 
+if(HIGHBOY_RF_FOCUSED)
+  list(REMOVE_ITEM UI_SRCS
+    "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/gb_ui.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/doom_real_ui.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/snake_ui.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/games/breakout_ui.c")
+endif()
+
 # Application (non-UI) sources — the real drivers/services stay in the build.
 file(GLOB_RECURSE SUBGHZ_APP_SRCS "SubGhz/*.c")
 file(GLOB_RECURSE BLE_APP_SRCS "bluetooth/*.c")
@@ -170,6 +178,9 @@ idf_component_register(SRCS
 )
 target_link_libraries(${COMPONENT_LIB} -Wl,-zmuldefs)
 target_compile_definitions(${COMPONENT_LIB} PRIVATE MESH_HEADLESS=0)
+if(HIGHBOY_RF_FOCUSED)
+  target_compile_definitions(${COMPONENT_LIB} PRIVATE HIGHBOY_RF_FOCUSED=1)
+endif()
 # Ported screens/components use the LVGL idiom of casting a style setter to
 # lv_anim_exec_xcb_t for animations; GCC14/IDF5 flags this under
 # -Wcast-function-type. Downgrade it from error for this component.

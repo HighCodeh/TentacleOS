@@ -498,10 +498,12 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
       return ui_menu_close;
     case SCREEN_GAMES_MENU:
       return ui_games_menu_close;
+#ifndef HIGHBOY_RF_FOCUSED
     case SCREEN_GAME_SNAKE:
       return ui_snake_stop;
     case SCREEN_GAME_BREAKOUT:
       return ui_breakout_stop;
+#endif
     case SCREEN_WARDRIVE:
       return wardrive_ui_stop;
     case SCREEN_LORA_CHAT:
@@ -697,6 +699,7 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_apps_open;
     case SCREEN_SCRIPTS:
       return ui_scripts_open;
+#ifndef HIGHBOY_RF_FOCUSED
     case SCREEN_GAME_SNAKE:
       return ui_snake_open;
     case SCREEN_GAME_BREAKOUT:
@@ -705,6 +708,7 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_gb_open;
     case SCREEN_GAME_DOOM:
       return ui_doom_real_open;
+#endif
     case SCREEN_MUSE:
       return ui_muse_open;
     case SCREEN_GROK_IDLE:

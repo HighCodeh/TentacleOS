@@ -36,10 +36,12 @@ typedef struct {
   int target;
 } game_t;
 static const game_t GAMES[] = {
+#ifndef HIGHBOY_RF_FOCUSED
     {"Game Boy", "/assets/icons/game_gb.bin", "gameboy", "SD game library", SCREEN_GAME_GB},
     {"DOOM", "/assets/icons/sports_esports.bin", "doom", "Requires SD WAD", SCREEN_GAME_DOOM},
     {"Snake", "/assets/icons/game_snake.bin", NULL, "Quick arcade", SCREEN_GAME_SNAKE},
     {"Breakout", "/assets/icons/game_brk.bin", NULL, "Brick breaker", SCREEN_GAME_BREAKOUT},
+#endif
     {"Muse", "/assets/icons/animation.bin", NULL, "Voice notes", SCREEN_MUSE},
     {"Grok Bot", "/assets/icons/animation.bin", NULL, "Offline animation", SCREEN_GROK_IDLE},
 };
@@ -91,7 +93,8 @@ static void update_view(void) {
     const game_t *game = &GAMES[s_sel];
     name = game->name;
     detail = game->detail;
-    kind = s_sel < 2 ? "GAME LIBRARY" : "BUILT IN";
+    kind = game->target == SCREEN_GAME_GB || game->target == SCREEN_GAME_DOOM ? "GAME LIBRARY"
+                                                                              : "BUILT IN";
     icon = game->icon;
     if (game->target == SCREEN_MUSE)
       embedded = muse_menu_icon();
@@ -113,9 +116,10 @@ static void update_view(void) {
   lv_obj_add_flag(s_wordmark, LV_OBJ_FLAG_HIDDEN);
   if (cover_loaded) {
     lv_obj_add_flag(s_glyph, LV_OBJ_FLAG_HIDDEN);
-  } else if (s_sel < 2) {
+  } else if (s_sel < GAME_COUNT &&
+             (GAMES[s_sel].target == SCREEN_GAME_GB || GAMES[s_sel].target == SCREEN_GAME_DOOM)) {
     lv_obj_add_flag(s_glyph, LV_OBJ_FLAG_HIDDEN);
-    lv_label_set_text(s_wordmark, s_sel == 0 ? "GAME\nBOY" : "DOOM");
+    lv_label_set_text(s_wordmark, GAMES[s_sel].target == SCREEN_GAME_GB ? "GAME\nBOY" : "DOOM");
     lv_obj_center(s_wordmark);
     lv_obj_remove_flag(s_wordmark, LV_OBJ_FLAG_HIDDEN);
   } else {

@@ -97,3 +97,13 @@ reader, timeouts, cancellation before/during reads, initialization and read
 failures, retained OFF and recovery. `test_bench_ui.py HOST_UI_BUILD` runs the
 actual screen with native LVGL in 240x320/320x240 and light/dark colors; hardware
 services are faked. On-board tag acceptance must be recorded separately.
+
+## Radientum firmware profile
+
+This lab branch defaults `HIGHBOY_RF_FOCUSED=ON`: Game Boy, DOOM, Snake and
+Breakout launchers and routes are omitted, so their engines are not linked.
+All radio drivers, Wi-Fi/BLE, Sub-GHz, LoRa, NFC, LF RFID and IR remain available.
+The Apps menu retains non-game apps, and the existing radio optimization,
+clock and 3 MiB OTA partition settings are unchanged. Build with
+`-DHIGHBOY_RF_FOCUSED=OFF` to include the games again. This is a lab distribution,
+not a removal of the game sources or a change to the production branch.

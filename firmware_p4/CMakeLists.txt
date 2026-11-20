@@ -23,6 +23,9 @@ cmake_minimum_required(VERSION 3.16)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(IDF_TARGET "esp32p4")
 
+# Laboratory distribution: retain every radio, omit built-in games.
+option(HIGHBOY_RF_FOCUSED "Omit built-in games from the RF lab firmware" ON)
+
 set(EXTRA_COMPONENT_DIRS
     "${CMAKE_CURRENT_LIST_DIR}/components/Service/firmware_crypto"
     "${CMAKE_CURRENT_LIST_DIR}/components/Applications/gameboy"
